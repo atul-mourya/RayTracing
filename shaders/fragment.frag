@@ -239,10 +239,8 @@ vec3 Trace(Ray ray, inout uint rngState) {
 }
 
 void main() {
-      // Calculate normalized device coordinates (NDC)
 	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
 
-      // Generate ray
 	Ray ray = generateRay(ndc);
 	uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 

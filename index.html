@@ -46,6 +46,11 @@
         const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
         // const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 1000 );
         camera.position.set(0, 0, 1);
+        let cameraPosition = camera.position;
+        let cameraDirection = new THREE.Vector3(0, 0, -1);
+        let cameraRight = new THREE.Vector3(1, 0, 0);
+        let cameraUp = new THREE.Vector3(0, 1, 0);
+        let resolution = new THREE.Vector2(window.innerWidth, window.innerHeight)
 
         // Initialize the renderer
         const renderer = new THREE.WebGLRenderer();
@@ -55,6 +60,7 @@
         document.body.appendChild( stats.dom );
 
         const controls = new OrbitControls( camera, renderer.domElement );
+        controls.addEventListener('change', () => accPass.iteration = 0);
         controls.update();
 
         const triangles = [
@@ -90,11 +96,13 @@
             vertexShader: vertexShaderText,
             fragmentShader: fragmentShaderText,
             uniforms: {
-                resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-                cameraPos: { value: new THREE.Vector3(0, 0, 0) },
-                cameraDir: { value: new THREE.Vector3(0, 0, -1) },
-                cameraRight: { value: new THREE.Vector3(1, 0, 0) },
-                cameraUp: { value: new THREE.Vector3(0, 1, 0) },
+                resolution: { value: resolution },
+
+                cameraPos: { value: cameraPosition },
+                cameraDir: { value: cameraDirection },
+                cameraRight: { value: cameraRight },
+                cameraUp: { value: cameraUp },
+
                 frame: { value: 0 },
                 maxBounceCount: { value: 1 },
                 numRaysPerPixel: { value: 1 },
@@ -133,14 +141,20 @@
             accPass.iteration = 0;
         })
         
+        let tempMatrix = null
         // Render the scene
         function animate() {
             requestAnimationFrame(animate);
             controls.update();
-            // material.uniforms.spheres.value[0].position.y = Math.cos(material.uniforms.frame.value/10);
+            
+            cameraPosition = controls.object.position;
+            tempMatrix = controls.object.matrixWorld.elements
+            cameraUp.set( tempMatrix[ 4 ], tempMatrix[ 5 ], tempMatrix[ 6 ] ).normalize();
+            cameraRight.set( tempMatrix[ 0 ], tempMatrix[ 1 ], tempMatrix[ 2 ] ).normalize();
+            cameraDirection.set( tempMatrix[ 8 ], tempMatrix[ 9 ], tempMatrix[ 10 ] ).normalize();
+            
             material.uniforms.frame.value++;
             composer.render();
-            // renderer.render(scene, camera);
             stats.update();
         }
         
