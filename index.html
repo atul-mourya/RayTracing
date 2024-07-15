@@ -123,7 +123,7 @@
         pane.addBinding(material.uniforms.maxBounceCount, 'value', { label: 'bounce', min: 1, max: 5, step: 1 });
         pane.addBinding(material.uniforms.numRaysPerPixel, 'value', { label: 'rays per pixel', min: 1, max: 20, step: 1 });
         pane.addBinding(material.uniforms.spheres.value[0], 'position');
-        pane.addBinding(material.uniforms.spheres.value[0].material, 'emissionStrength', { min: 0, max: 1, });
+        pane.addBinding(material.uniforms.spheres.value[0].material, 'emissionStrength', { min: 0, max: 5, });
         pane.addBinding(material.uniforms.spheres.value[0].material, 'emissionColor', { color: {type: 'float'} });
         pane.addBinding(material.uniforms.spheres.value[1].material, 'color', { color: {type: 'float'} });
         pane.addBinding(material.uniforms.spheres.value[2].material, 'color', { color: {type: 'float'} });
