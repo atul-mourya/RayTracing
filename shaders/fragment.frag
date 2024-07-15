@@ -25,16 +25,35 @@ struct HitInfo {
 	RayTracingMaterial material;
 };
 
+struct Triangle {
+	vec3 posA, posB, posC;
+	vec3 normalA, normalB, normalC;
+	RayTracingMaterial material;
+};
+
+struct MeshInfo {
+	uint firstTriangleIndex;
+	uint numTriangles;
+	RayTracingMaterial material;
+	vec3 boundsMin;
+	vec3 boundsMax;
+};
+
 uniform vec2 resolution;
 uniform vec3 cameraPos;
 uniform vec3 cameraDir;
 uniform vec3 cameraRight;
 uniform vec3 cameraUp;
-uniform int numSpheres;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform uint frame;
+
+uniform int numSpheres;
 uniform Sphere spheres[ 4 ];
+
+uniform int numTriangles;
+uniform Triangle triangles[ 1 ];
+// uniform MeshInfo meshes[ 1 ];
 
 Ray generateRay(vec2 uv) {
 	Ray ray;
@@ -42,6 +61,34 @@ Ray generateRay(vec2 uv) {
 	vec3 rayDir = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
 	ray.dir = rayDir;
 	return ray;
+}
+
+// Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
+// Thanks to https://stackoverflow.com/a/42752998
+HitInfo RayTriangle(Ray ray, Triangle tri) {
+	vec3 edgeAB = tri.posB - tri.posA;
+	vec3 edgeAC = tri.posC - tri.posA;
+	vec3 normalVector = cross(edgeAB, edgeAC);
+	vec3 ao = ray.origin - tri.posA;
+	vec3 dao = cross(ao, ray.dir);
+
+	float determinant = - dot(ray.dir, normalVector);
+	float invDet = 1.0 / determinant;
+
+	// Calculate dst to triangle & barycentric coordinates of intersection point
+	float dst = dot(ao, normalVector) * invDet;
+	float u = dot(edgeAC, dao) * invDet;
+	float v = - dot(edgeAB, dao) * invDet;
+	float w = 1.0 - u - v;
+
+	// Initialize hit info
+	HitInfo hitInfo;
+	hitInfo.didHit = determinant >= 1E-6 && dst >= 0.0 && u >= 0.0 && v >= 0.0 && w >= 0.0;
+	hitInfo.hitPoint = ray.origin + ray.dir * dst;
+	hitInfo.normal = normalize(tri.normalA * w + tri.normalB * u + tri.normalC * w); 
+	hitInfo.dst = dst;
+	hitInfo.material = tri.material;
+	return hitInfo;
 }
 
 HitInfo RaySphere(Ray ray, Sphere sphere) {
@@ -75,6 +122,13 @@ HitInfo CalculateRayCollision(Ray ray) {
 
 	for(int i = 0; i < numSpheres; i ++) {
 		HitInfo hitInfo = RaySphere(ray, spheres[ i ]);
+		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+			closestHit = hitInfo;
+		}
+	}
+
+	for(int i = 0; i < numTriangles; i ++) {
+		HitInfo hitInfo = RayTriangle(ray, triangles[ i ]);
 		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
 			closestHit = hitInfo;
 		}
@@ -120,30 +174,32 @@ vec3 RandomHemiSphereDirection(vec3 normal, inout uint rngState) {
 	return dir;
 }
 
-// Sky colors
-const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
-const vec3 SkyColourZenith = vec3(0.529,0.808,0.922);   // Darker blue
-
-// Sun properties
-const vec3 SunLightDirection = normalize(vec3(0.5, 0.8, 0.3));  // Angled sunlight
-const float SunFocus = 0.3;  // Sharpness of the sun disc
-const float SunIntensity = 1.0;  // Brightness of the sun
-
-// Ground color
-const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
 
 // Lerp function (linear interpolation)
 vec3 lerp(vec3 a, vec3 b, float t) {
-    return a + t * (b - a);
+	return a + t * (b - a);
 }
 
 // Simple background environment lighting
-vec3 GetEnvironmentLight (Ray ray) {
+vec3 GetEnvironmentLight(Ray ray) {
+
+	// Sky colors
+	const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
+	const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
+
+	// Sun properties
+	const vec3 SunLightDirection = normalize(vec3(0.5, 0.8, 0.3));  // Angled sunlight
+	const float SunFocus = 0.3;  // Sharpness of the sun disc
+	const float SunIntensity = 1.0;  // Brightness of the sun
+
+	// Ground color
+	const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
+
 	float skyGradientT = pow(smoothstep(0.0, 0.4, ray.dir.y), 0.35);
 	vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
-	float sun = pow(max(0.0, dot(ray.dir, -SunLightDirection)), SunFocus) * SunIntensity;
+	float sun = pow(max(0.0, dot(ray.dir, - SunLightDirection)), SunFocus) * SunIntensity;
 	// Combine ground, sky, and sun
-	float groundToSkyT = smoothstep(-0.01, 0.0, ray.dir.y);
+	float groundToSkyT = smoothstep(- 0.01, 0.0, ray.dir.y);
 	float sunMask = float(groundToSkyT >= 1.0);
 	return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
 }
@@ -191,7 +247,7 @@ void main() {
 	uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
 	vec3 totalIncomingLight = vec3(0.0);
-	for( int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++ ) {
+	for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex ++) {
 		totalIncomingLight += Trace(ray, seed);
 	}
 	vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
