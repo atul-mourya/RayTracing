@@ -43,9 +43,9 @@
         
         // Initialize the scene
         const scene = new THREE.Scene();
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-        // const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 1000 );
-        let cameraPosition = camera.position.set(0, 0, 1);
+        // const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+        const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 1000 );
+        let cameraPosition = camera.position.set(0, 0, -1);
         let cameraDirection = new THREE.Vector3(0, 0, -1);
         let cameraRight = new THREE.Vector3(1, 0, 0);
         let cameraUp = new THREE.Vector3(0, 1, 0);
@@ -97,7 +97,7 @@
             uniforms: {
                 resolution: { value: resolution },
 
-                cameraPos: { value: cameraPosition },
+                cameraPos: { value: controls.object.position },
                 cameraDir: { value: cameraDirection },
                 cameraRight: { value: cameraRight },
                 cameraUp: { value: cameraUp },
@@ -146,12 +146,11 @@
             requestAnimationFrame(animate);
             controls.update();
             
-            // cameraPosition = controls.object.position;
+            cameraPosition = controls.object.position;
             tempMatrix = controls.object.matrixWorld.elements
             cameraUp.set( tempMatrix[ 4 ], tempMatrix[ 5 ], tempMatrix[ 6 ] ).normalize();
             cameraRight.set( tempMatrix[ 0 ], tempMatrix[ 1 ], tempMatrix[ 2 ] ).normalize();
             cameraDirection.set( tempMatrix[ 8 ], tempMatrix[ 9 ], tempMatrix[ 10 ] ).normalize();
-            cameraPosition = controls.object.position;
             
             material.uniforms.frame.value++;
             composer.render();

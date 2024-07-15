@@ -39,6 +39,8 @@ struct MeshInfo {
 	vec3 boundsMax;
 };
 
+const float PI = 3.14159;
+
 uniform vec2 resolution;
 uniform vec3 cameraPos;
 uniform vec3 cameraDir;
@@ -58,8 +60,7 @@ uniform Triangle triangles[ 1 ];
 Ray generateRay(vec2 uv) {
 	Ray ray;
 	ray.origin = cameraPos;
-	vec3 rayDir = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
-	ray.dir = rayDir;
+	ray.dir = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
 	return ray;
 }
 
@@ -182,26 +183,37 @@ vec3 lerp(vec3 a, vec3 b, float t) {
 
 // Simple background environment lighting
 vec3 GetEnvironmentLight(Ray ray) {
+    // Sky colors
+    const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
+    const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
 
-	// Sky colors
-	const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
-	const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
+    // Sun properties
+    float sunAzimuth = 2.0 * PI - PI / 4.0;  // Angle around the horizon (0 to 2π)
+    float sunElevation = - PI / 4.0;  // Angle above the horizon (-π/2 to π/2)
+    const float SunFocus = 512.0;
+    const float SunIntensity = 100.0;
 
-	// Sun properties
-	const vec3 SunLightDirection = normalize(vec3(0.5, 0.8, 0.3));  // Angled sunlight
-	const float SunFocus = 0.3;  // Sharpness of the sun disc
-	const float SunIntensity = 1.0;  // Brightness of the sun
+    // Ground color
+    const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
 
-	// Ground color
-	const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
+    // Calculate sun direction from angles
+    vec3 SunLightDirection = vec3(
+        cos(sunElevation) * sin(sunAzimuth),
+        sin(sunElevation),
+        cos(sunElevation) * cos(sunAzimuth)
+    );
 
-	float skyGradientT = pow(smoothstep(0.0, 0.4, ray.dir.y), 0.35);
-	vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
-	float sun = pow(max(0.0, dot(ray.dir, - SunLightDirection)), SunFocus) * SunIntensity;
-	// Combine ground, sky, and sun
-	float groundToSkyT = smoothstep(- 0.01, 0.0, ray.dir.y);
-	float sunMask = float(groundToSkyT >= 1.0);
-	return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
+    float skyGradientT = pow(smoothstep(0.0, 0.4, ray.dir.y), 0.35);
+    vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
+    
+    // Calculate sun contribution
+    float sunDot = max(0.0, dot(ray.dir, -SunLightDirection));
+    float sun = pow(sunDot, SunFocus) * SunIntensity;
+    
+    // Combine ground, sky, and sun
+    float groundToSkyT = smoothstep(-0.01, 0.0, ray.dir.y);
+    float sunMask = (groundToSkyT >= 1.0) ? 1.0 : 0.0;
+    return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
 }
 
 // Trace the path of a ray of light (in reverse) as it travels from the camera,
