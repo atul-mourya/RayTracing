@@ -29,6 +29,7 @@
     import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
     import { Pane } from 'tweakpane';
+    import PathTracingShader from './shaders/PathTracingShader.js'
     import AccumulationPass from './AccumulationPass.js'
     import Stats from 'three/addons/libs/stats.module.js';
     
@@ -44,12 +45,11 @@
         // Initialize the scene
         const scene = new THREE.Scene();
         // const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
-        const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 1000 );
+        const camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 1000 );
         let cameraPosition = camera.position.set(0, 0, -1);
         let cameraDirection = new THREE.Vector3(0, 0, -1);
         let cameraRight = new THREE.Vector3(1, 0, 0);
         let cameraUp = new THREE.Vector3(0, 1, 0);
-        let resolution = new THREE.Vector2(window.innerWidth, window.innerHeight)
 
         // Initialize the renderer
         const renderer = new THREE.WebGLRenderer();
@@ -77,9 +77,6 @@
                 }
             },
         ];
-        // const meshes = [ 
-        //     { firstTriangleIndex: 0, numTriangles: 1, boundsMin: new THREE.Vector3( ), boundsMax: new THREE.Vector3( ), material: { color: new THREE.Color(0, 1, 0), emissionColor: new THREE.Color(1, 1, 1), emissionStrength: 0.0 }}
-        // ]
 
         // Define the spheres and their materials
         const spheres = [
@@ -89,56 +86,41 @@
             { position: new THREE.Vector3(0, -26, -5), radius: 25.0, material: { color: new THREE.Color(0.9, 0.9, 0.9), emissionColor: new THREE.Color(1, 1, 1), emissionStrength: 0.0 } },
         ];
 
-        // Create a plane geometry and material with shaders
-        const geometry = new THREE.PlaneGeometry(2, 2);
-        const material = new THREE.ShaderMaterial({
-            vertexShader: vertexShaderText,
-            fragmentShader: fragmentShaderText,
-            uniforms: {
-                resolution: { value: resolution },
-
-                cameraPos: { value: controls.object.position },
-                cameraDir: { value: cameraDirection },
-                cameraRight: { value: cameraRight },
-                cameraUp: { value: cameraUp },
-
-                frame: { value: 0 },
-                maxBounceCount: { value: 1 },
-                numRaysPerPixel: { value: 1 },
-
-                numSpheres: { value: spheres.length },
-                spheres: { value: spheres },
-
-                triangles: { value: triangles },
-                numTriangles: { value: triangles.length },
-            }
-        });
-
-        const plane = new THREE.Mesh(geometry, material);
-        scene.add(plane);
-
         const composer = new EffectComposer( renderer );
-        const renPass = new RenderPass( scene, camera );
-		renPass.name = 'renPass';
-		composer.addPass( renPass );
+        const pathTracingPass = new ShaderPass( PathTracingShader );
+        pathTracingPass.uniforms.resolution.value = new THREE.Vector2(window.innerWidth, window.innerHeight),
+        pathTracingPass.uniforms.cameraPos.value = controls.object.position;
+        pathTracingPass.uniforms.cameraDir.value = cameraDirection;
+        pathTracingPass.uniforms.cameraRight.value = cameraRight;
+        pathTracingPass.uniforms.cameraUp.value = cameraUp;
+
+        pathTracingPass.uniforms.frame.value = 0;
+        pathTracingPass.uniforms.maxBounceCount.value = 1;
+        pathTracingPass.uniforms.numRaysPerPixel.value = 1;
+
+        pathTracingPass.uniforms.numSpheres.value = spheres.length;
+        pathTracingPass.uniforms.spheres.value = spheres;
+
+        pathTracingPass.uniforms.triangles.value = triangles;
+        pathTracingPass.uniforms.numTriangles.value = triangles.length;
+
+		pathTracingPass.name = 'pathTracingPass';
+		composer.addPass( pathTracingPass );
 
         const accPass = new AccumulationPass( scene, window.innerWidth, window.innerHeight );
 		accPass.name = 'accPass';
 		composer.addPass( accPass );
 
         const pane = new Pane();
-        pane.addBinding(material.uniforms.maxBounceCount, 'value', { label: 'bounce', min: 1, max: 5, step: 1 });
-        pane.addBinding(material.uniforms.numRaysPerPixel, 'value', { label: 'rays per pixel', min: 1, max: 20, step: 1 });
-        pane.addBinding(material.uniforms.spheres.value[0], 'position');
-        pane.addBinding(material.uniforms.spheres.value[0].material, 'emissionStrength', { min: 0, max: 5, });
-        pane.addBinding(material.uniforms.spheres.value[0].material, 'emissionColor', { color: {type: 'float'} });
-        pane.addBinding(material.uniforms.spheres.value[1].material, 'color', { color: {type: 'float'} });
-        pane.addBinding(material.uniforms.spheres.value[2].material, 'color', { color: {type: 'float'} });
-        pane.addBinding(material.uniforms.spheres.value[3].material, 'color', { color: {type: 'float'} });
-
-        pane.on('change', ev => {
-            accPass.iteration = 0;
-        })
+        pane.addBinding(pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'bounce', min: 1, max: 5, step: 1 });
+        pane.addBinding(pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'rays per pixel', min: 1, max: 20, step: 1 });
+        pane.addBinding(pathTracingPass.uniforms.spheres.value[0], 'position');
+        pane.addBinding(pathTracingPass.uniforms.spheres.value[0].material, 'emissionStrength', { min: 0, max: 5, });
+        pane.addBinding(pathTracingPass.uniforms.spheres.value[0].material, 'emissionColor', { color: {type: 'float'} });
+        pane.addBinding(pathTracingPass.uniforms.spheres.value[1].material, 'color', { color: {type: 'float'} });
+        pane.addBinding(pathTracingPass.uniforms.spheres.value[2].material, 'color', { color: {type: 'float'} });
+        pane.addBinding(pathTracingPass.uniforms.spheres.value[3].material, 'color', { color: {type: 'float'} });
+        pane.on('change', ev => accPass.iteration = 0 );
         
         let tempMatrix = null
         // Render the scene
@@ -152,7 +134,7 @@
             cameraRight.set( tempMatrix[ 0 ], tempMatrix[ 1 ], tempMatrix[ 2 ] ).normalize();
             cameraDirection.set( tempMatrix[ 8 ], tempMatrix[ 9 ], tempMatrix[ 10 ] ).normalize();
             
-            material.uniforms.frame.value++;
+            pathTracingPass.uniforms.frame.value++;
             composer.render();
             stats.update();
         }
@@ -162,7 +144,7 @@
         // Handle window resize
         window.addEventListener('resize', () => {
             renderer.setSize(window.innerWidth, window.innerHeight);
-            material.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+            pathTracingPass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
         });
     }
     init();
