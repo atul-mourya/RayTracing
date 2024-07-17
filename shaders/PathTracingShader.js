@@ -275,7 +275,7 @@ const PathTracingShader = {
 					ray.dir = randomDir;
 
 				} else {
-					// incomingLight = GetEnvironmentLight(ray) * rayColor;
+					incomingLight = GetEnvironmentLight(ray) * rayColor;
 					break;
 				}
 

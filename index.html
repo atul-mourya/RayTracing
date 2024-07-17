@@ -163,7 +163,7 @@
         const accPass = new AccumulationPass( scene, window.innerWidth, window.innerHeight );
 		composer.addPass( accPass );
 
-        const pane = new Pane();
+        const pane = new Pane({ title: 'Parameters', expanded: false });
         pane.addBinding(pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'bounce', min: 1, max: 5, step: 1 });
         pane.addBinding(pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'rays per pixel', min: 1, max: 20, step: 1 });
         pane.addBinding(pathTracingPass.uniforms.spheres.value[0], 'position');
