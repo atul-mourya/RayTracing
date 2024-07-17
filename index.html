@@ -24,6 +24,7 @@
 
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
     import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
     import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
@@ -62,21 +63,73 @@
         controls.addEventListener('change', () => accPass.iteration = 0);
         controls.update();
 
-        const triangles = [
-            {
-                posA: new THREE.Vector3(-1, -1, -5),
-                posB: new THREE.Vector3(1, -1, -5),
-                posC: new THREE.Vector3(0, 1, -5),
-                normalA: new THREE.Vector3(0, 0, 1),
-                normalB: new THREE.Vector3(0, 0, 1),
-                normalC: new THREE.Vector3(0, 0, 1),
-                material: {
-                    color: new THREE.Vector3(1, 0, 0),
-                    emissionColor: new THREE.Vector3(0, 0, 0),
-                    emissionStrength: 0.0
-                }
-            },
-        ];
+
+        // Load the GLTF model
+        const loader = new GLTFLoader();
+        const gltf = await loader.loadAsync('./model.glb');
+
+        let meshes = [];
+        gltf.scene.traverse((child) => {
+            if (child.isMesh) {
+                meshes.push(child);
+            }
+        });
+
+        const triangles = [];
+        // meshes.forEach(mesh => {
+            const geometry = new THREE.BoxGeometry().scale(1, 1, 1).translate(0,0,-5);
+            const material = new THREE.MeshBasicMaterial( { color: 0xff0000 } );
+            // const geometry = mesh.geometry.translate(0,0,-5);//new THREE.PlaneGeometry( 1, 1 ).translate(0,0,-5);
+            // const material = mesh.material;//new THREE.MeshBasicMaterial( { color: 0xff0000 } );
+            const positionAttribute = geometry.attributes.position;
+            const normalAttribute = geometry.attributes.normal;
+            const count = !geometry.index ? positionAttribute.count / 3 : geometry.index?.count;
+            const index = !geometry.index ? positionAttribute : geometry.index;
+
+            for (let i = 0; i < count; i += 3) {
+                const a = index.getX(i);
+                const b = index.getX(i + 1);
+                const c = index.getX(i + 2);
+
+                const posA = new THREE.Vector3().fromBufferAttribute(positionAttribute, a);
+                const posB = new THREE.Vector3().fromBufferAttribute(positionAttribute, b);
+                const posC = new THREE.Vector3().fromBufferAttribute(positionAttribute, c);
+
+                const normalA = new THREE.Vector3().fromBufferAttribute(normalAttribute, a);
+                const normalB = new THREE.Vector3().fromBufferAttribute(normalAttribute, b);
+                const normalC = new THREE.Vector3().fromBufferAttribute(normalAttribute, c);
+
+                triangles.push({
+                    posA,
+                    posB,
+                    posC,
+                    normalA,
+                    normalB,
+                    normalC,
+                    material: {
+                        color: material.color,
+                        emissionColor: new THREE.Color(1,1,1),
+                        emissionStrength: 1
+                    }
+                });
+            }
+        // });
+
+        // const triangles = [
+        //     {
+        //         posA: new THREE.Vector3(-1, -1, -5),
+        //         posB: new THREE.Vector3(1, -1, -5),
+        //         posC: new THREE.Vector3(0, 1, -5),
+        //         normalA: new THREE.Vector3(0, 0, 1),
+        //         normalB: new THREE.Vector3(0, 0, 1),
+        //         normalC: new THREE.Vector3(0, 0, 1),
+        //         material: {
+        //             color: new THREE.Vector3(1, 0, 0),
+        //             emissionColor: new THREE.Vector3(0, 0, 0),
+        //             emissionStrength: 0.0
+        //         }
+        //     },
+        // ];
 
         // Define the spheres and their materials
         const spheres = [
@@ -98,17 +151,16 @@
         pathTracingPass.uniforms.maxBounceCount.value = 1;
         pathTracingPass.uniforms.numRaysPerPixel.value = 1;
 
-        pathTracingPass.uniforms.numSpheres.value = spheres.length;
         pathTracingPass.uniforms.spheres.value = spheres;
+        pathTracingPass.material.defines.MAX_SPHERE_COUNT = spheres.length;
 
         pathTracingPass.uniforms.triangles.value = triangles;
-        pathTracingPass.uniforms.numTriangles.value = triangles.length;
+        pathTracingPass.material.defines.MAX_TRIANGLE_COUNT = triangles.length;
 
 		pathTracingPass.name = 'pathTracingPass';
 		composer.addPass( pathTracingPass );
 
         const accPass = new AccumulationPass( scene, window.innerWidth, window.innerHeight );
-		accPass.name = 'accPass';
 		composer.addPass( accPass );
 
         const pane = new Pane();

@@ -15,6 +15,7 @@ class AccumulationPass extends Pass {
 
 		super();
 
+		this.name = 'AccumulationPass';
 		const blendMat = new ShaderMaterial( {
 			uniforms: {
 

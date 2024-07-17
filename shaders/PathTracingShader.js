@@ -4,6 +4,11 @@ const PathTracingShader = {
 
 	name: 'PathTracingShader',
 
+    defines: {
+        MAX_TRIANGLE_COUNT: 12,
+        MAX_SPHERE_COUNT: 0
+    },
+
 	uniforms: {
 
 		resolution: { value: new Vector2(window.innerWidth, window.innerHeight) },
@@ -18,10 +23,7 @@ const PathTracingShader = {
 		numRaysPerPixel: { value: 1 },
 
 		spheres: { value: [] },
-		numSpheres: { value: 1 },
-
 		triangles: { value: [] },
-		numTriangles: { value: 1 }
 
 	},
 
@@ -85,11 +87,8 @@ const PathTracingShader = {
 			vec3 boundsMax;
 		};
 
-        uniform int numSpheres;
-		uniform Sphere spheres[ 4 ];
-
-		uniform int numTriangles;
-		uniform Triangle triangles[ 1 ];
+		uniform Sphere spheres[ MAX_SPHERE_COUNT ];
+		uniform Triangle triangles[ MAX_TRIANGLE_COUNT ];
 		// uniform MeshInfo meshes[ 1 ];
 
 		Ray generateRay(vec2 uv) {
@@ -156,19 +155,19 @@ const PathTracingShader = {
 			closestHit.didHit = false;
 			closestHit.dst = 1e20; // A large value
 
-			for(int i = 0; i < numSpheres; i ++) {
+			for(int i = 0; i < MAX_SPHERE_COUNT; i ++) {
 				HitInfo hitInfo = RaySphere(ray, spheres[ i ]);
 				if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
 					closestHit = hitInfo;
 				}
 			}
-
-			for(int i = 0; i < numTriangles; i ++) {
-				HitInfo hitInfo = RayTriangle(ray, triangles[ i ]);
-				if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
-					closestHit = hitInfo;
-				}
-			}
+            for(int i = 0; i < MAX_TRIANGLE_COUNT; i ++) {
+                HitInfo hitInfo = RayTriangle(ray, triangles[ i ]);
+                if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+                    closestHit = hitInfo;
+                }
+            }
+			
 
 			return closestHit;
 		}
@@ -276,7 +275,7 @@ const PathTracingShader = {
 					ray.dir = randomDir;
 
 				} else {
-					incomingLight = GetEnvironmentLight(ray) * rayColor;
+					// incomingLight = GetEnvironmentLight(ray) * rayColor;
 					break;
 				}
 
