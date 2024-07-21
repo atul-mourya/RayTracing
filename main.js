@@ -17,7 +17,8 @@ import { extractTrianglesFromMeshes, createTriangleTexture, createNormalTexture 
 
 async function loadGLTFModel() {
     const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync('./model.glb');
+    const modelUrl = new URL('./model.glb', import.meta.url).href;
+    const gltf = await loader.loadAsync(modelUrl);
     return gltf.scene.children.filter(child => child.isMesh);
 }
 
