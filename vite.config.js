@@ -2,7 +2,8 @@ import { defineConfig } from 'vite';;
 import glsl from 'vite-plugin-glsl';
 
 export default defineConfig( {
-    plugins: [
+	base: '/RayTracing/',
+	plugins: [
 		glsl( {
 			include: [ // Glob pattern, or array of glob patterns to import
 			  '**/*.glsl', '**/*.wgsl',
