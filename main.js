@@ -13,7 +13,7 @@ import Stats from 'three/addons/libs/stats.module.js';
 import PathTracingShader from './shaders/PathTracer/PathTracingShader.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 
-import { extractTrianglesFromMeshes, createTriangleTexture, createNormalTexture } from './src/TriangleSDF.js'
+import TriangleSDF from './src/TriangleSDF.js'
 
 async function loadGLTFModel() {
     const loader = new GLTFLoader();
@@ -57,9 +57,9 @@ async function init() {
     controls.update();
 
     const meshes = await loadGLTFModel();
-	const triangles = extractTrianglesFromMeshes(meshes);
-	const triangleTexture = createTriangleTexture(triangles);
-	const normalTexture = createNormalTexture(triangles);
+	const triangles = TriangleSDF.extractTrianglesFromMeshes(meshes);
+	const triangleTexture = TriangleSDF.createTriangleTexture(triangles);
+	const normalTexture = TriangleSDF.createNormalTexture(triangles);
 	const spheres = createSpheres();
 
 	const composer = new EffectComposer(renderer);
