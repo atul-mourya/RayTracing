@@ -1,0 +1,11 @@
+{
+  "extends": "mdcs",
+  "rules": {},
+  "parserOptions": {
+    "esversion": 11
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "dist"
+  ]
+}

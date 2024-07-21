@@ -1,7 +1,18 @@
 precision highp float;
 
+const float PI = 3.14159;
+
+uniform uint frame;
+uniform vec2 resolution;
+uniform vec3 cameraPos;
+uniform vec3 cameraDir;
+uniform vec3 cameraRight;
+uniform vec3 cameraUp;
+uniform int maxBounceCount;
+uniform int numRaysPerPixel;
+
 struct Ray {
-	vec3 origin;
+	vec3 origin; 
 	vec3 dir;
 };
 
@@ -39,25 +50,24 @@ struct MeshInfo {
 	vec3 boundsMax;
 };
 
-const float PI = 3.14159;
+uniform Sphere spheres[ MAX_SPHERE_COUNT ];
+uniform sampler2D triangleTexture;
+uniform vec2 triangleTexSize;
+uniform sampler2D normalTexture;
+uniform vec2 normalTexSize;
 
-uniform vec2 resolution;
-uniform vec3 cameraPos;
-uniform vec3 cameraDir;
-uniform vec3 cameraRight;
-uniform vec3 cameraUp;
-uniform int maxBounceCount;
-uniform int numRaysPerPixel;
-uniform uint frame;
+int count;
 
-uniform int numSpheres;
-uniform Sphere spheres[ 4 ];
-
-uniform int numTriangles;
-uniform Triangle triangles[ 1 ];
-// uniform MeshInfo meshes[ 1 ];
+vec3 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
+	float trianglePerRow = texSize.x / 3.0;
+	float row = floor(float(triangleIndex) / trianglePerRow);
+	float col = float(triangleIndex) - row * trianglePerRow;
+	vec2 uv = vec2((col * 3.0 + float(vertexIndex)) / texSize.x, row / texSize.y);
+	return texture(tex, uv).xyz;
+}
 
 Ray generateRay(vec2 uv) {
+
 	Ray ray;
 	ray.origin = cameraPos;
 	ray.dir = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
@@ -86,7 +96,7 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
 	HitInfo hitInfo;
 	hitInfo.didHit = determinant >= 1E-6 && dst >= 0.0 && u >= 0.0 && v >= 0.0 && w >= 0.0;
 	hitInfo.hitPoint = ray.origin + ray.dir * dst;
-	hitInfo.normal = normalize(tri.normalA * w + tri.normalB * u + tri.normalC * w); 
+	hitInfo.normal = normalize(tri.normalA * w + tri.normalB * u + tri.normalC * w);
 	hitInfo.dst = dst;
 	hitInfo.material = tri.material;
 	return hitInfo;
@@ -121,15 +131,39 @@ HitInfo CalculateRayCollision(Ray ray) {
 	closestHit.didHit = false;
 	closestHit.dst = 1e20; // A large value
 
-	for(int i = 0; i < numSpheres; i ++) {
+	for(int i = 0; i < MAX_SPHERE_COUNT; i ++) {
 		HitInfo hitInfo = RaySphere(ray, spheres[ i ]);
 		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
 			closestHit = hitInfo;
 		}
 	}
+	for(int i = 0; i <= MAX_TRIANGLE_COUNT; i ++) {
 
-	for(int i = 0; i < numTriangles; i ++) {
-		HitInfo hitInfo = RayTriangle(ray, triangles[ i ]);
+		vec3 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
+		vec3 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
+		vec3 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
+
+		vec3 n0 = getTriangleVertex(normalTexture, normalTexSize, i, 0);
+		vec3 n1 = getTriangleVertex(normalTexture, normalTexSize, i, 1);
+		vec3 n2 = getTriangleVertex(normalTexture, normalTexSize, i, 2);
+
+		Triangle tri;
+
+		tri.posA = v0;
+		tri.posB = v1;
+		tri.posC = v2;
+
+		tri.normalA = n0;
+		tri.normalB = n1;
+		tri.normalC = n2;
+
+		tri.material.color = vec3(1.0, 0.0, 0.0);
+		tri.material.emissionColor = vec3(1.0, 1.0, 1.0);
+		tri.material.emissionStrength = 1.0;
+
+		count = i;
+
+		HitInfo hitInfo = RayTriangle(ray, tri);
 		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
 			closestHit = hitInfo;
 		}
@@ -175,7 +209,6 @@ vec3 RandomHemiSphereDirection(vec3 normal, inout uint rngState) {
 	return dir;
 }
 
-
 // Lerp function (linear interpolation)
 vec3 lerp(vec3 a, vec3 b, float t) {
 	return a + t * (b - a);
@@ -183,37 +216,33 @@ vec3 lerp(vec3 a, vec3 b, float t) {
 
 // Simple background environment lighting
 vec3 GetEnvironmentLight(Ray ray) {
-    // Sky colors
-    const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
-    const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
+			// Sky colors
+	const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
+	const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
 
-    // Sun properties
-    float sunAzimuth = 2.0 * PI - PI / 4.0;  // Angle around the horizon (0 to 2π)
-    float sunElevation = - PI / 4.0;  // Angle above the horizon (-π/2 to π/2)
-    const float SunFocus = 512.0;
-    const float SunIntensity = 100.0;
+	// Sun properties
+	float sunAzimuth = 2.0 * PI - PI / 4.0;  // Angle around the horizon (0 to 2π)
+	float sunElevation = - PI / 4.0;  // Angle above the horizon (-π/2 to π/2)
+	const float SunFocus = 512.0;
+	const float SunIntensity = 100.0;
 
-    // Ground color
-    const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
+	// Ground color
+	const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
 
-    // Calculate sun direction from angles
-    vec3 SunLightDirection = vec3(
-        cos(sunElevation) * sin(sunAzimuth),
-        sin(sunElevation),
-        cos(sunElevation) * cos(sunAzimuth)
-    );
+	// Calculate sun direction from angles
+	vec3 SunLightDirection = vec3(cos(sunElevation) * sin(sunAzimuth), sin(sunElevation), cos(sunElevation) * cos(sunAzimuth));
 
-    float skyGradientT = pow(smoothstep(0.0, 0.4, ray.dir.y), 0.35);
-    vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
-    
-    // Calculate sun contribution
-    float sunDot = max(0.0, dot(ray.dir, -SunLightDirection));
-    float sun = pow(sunDot, SunFocus) * SunIntensity;
-    
-    // Combine ground, sky, and sun
-    float groundToSkyT = smoothstep(-0.01, 0.0, ray.dir.y);
-    float sunMask = (groundToSkyT >= 1.0) ? 1.0 : 0.0;
-    return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
+	float skyGradientT = pow(smoothstep(0.0, 0.4, ray.dir.y), 0.35);
+	vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
+
+	// Calculate sun contribution
+	float sunDot = max(0.0, dot(ray.dir, - SunLightDirection));
+	float sun = pow(sunDot, SunFocus) * SunIntensity;
+
+	// Combine ground, sky, and sun
+	float groundToSkyT = smoothstep(- 0.01, 0.0, ray.dir.y);
+	float sunMask = (groundToSkyT >= 1.0) ? 1.0 : 0.0;
+	return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
 }
 
 // Trace the path of a ray of light (in reverse) as it travels from the camera,
@@ -262,5 +291,7 @@ void main() {
 	}
 	vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
 	gl_FragColor = vec4(pixColor, 1.0);
+
+	// gl_FragColor = vec4(count == 512 ? vec3(1.0, 0.0,0.0) : vec3(0.0, 1.0,1.0), 1.0);
 
 }
