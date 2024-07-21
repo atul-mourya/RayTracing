@@ -18,8 +18,8 @@ struct Ray {
 
 struct RayTracingMaterial {
 	vec3 color;
-	vec3 emissionColor;
-	float emissionStrength;
+	vec3 emissive;
+	float emissiveIntensity;
 };
 
 struct Sphere {
@@ -158,8 +158,8 @@ HitInfo CalculateRayCollision(Ray ray) {
 		tri.normalC = n2;
 
 		tri.material.color = vec3(1.0, 0.0, 0.0);
-		tri.material.emissionColor = vec3(1.0, 1.0, 1.0);
-		tri.material.emissionStrength = 1.0;
+		tri.material.emissive = vec3(1.0, 1.0, 1.0);
+		tri.material.emissiveIntensity = 0.0;
 
 		count = i;
 
@@ -262,7 +262,7 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			randomDir = randomDir * sign(dot(hitInfo.normal, randomDir));
 			RayTracingMaterial material = hitInfo.material;
 
-			vec3 emittedLight = material.emissionColor * material.emissionStrength;
+			vec3 emittedLight = material.emissive * material.emissiveIntensity;
 			incomingLight += emittedLight * rayColor;
 			rayColor *= material.color;
 
