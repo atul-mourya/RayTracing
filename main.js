@@ -19,8 +19,7 @@ import { OutputPass } from 'three/examples/jsm/Addons.js';
 async function loadGLTFModel() {
 
 	const loader = new GLTFLoader();
-	const result = await loader.loadAsync( './model.glb' );
-	// return gltf.scene.children.filter(child => child.isMesh);
+	const result = await loader.loadAsync( './model1.glb' );
 	return result.scene;
 
 }
@@ -70,7 +69,7 @@ async function init() {
 	const spheres = createSpheres();
 
 	const composer = new EffectComposer( renderer );
-	const pathTracingPass = new PathTracingShader( triangleSDF.triangles, triangleSDF.triangleTexture, triangleSDF.normalTexture, spheres );
+	const pathTracingPass = new PathTracingShader( triangleSDF, spheres );
 	composer.addPass( pathTracingPass );
 
 	const accPass = new AccumulationPass( scene, window.innerWidth, window.innerHeight );

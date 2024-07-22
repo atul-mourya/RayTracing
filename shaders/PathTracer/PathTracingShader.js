@@ -5,7 +5,13 @@ import VertexShader from './pathtracer.vs';
 
 class PathTracingShader extends ShaderPass {
 
-	constructor( triangles = [], triangleTexture = null, normalTexture = null, spheres = [] ) {
+	constructor( triangleSDF, spheres = [] ) {
+
+		let triangles = triangleSDF.triangles;
+		let triangleTexture = triangleSDF.triangleTexture || null;
+		let normalTexture = triangleSDF.normalTexture || null;
+		let materialTexture = triangleSDF.materialTexture || null;
+		let triangleMaterialMappingTexture = triangleSDF.triangleMaterialMappingTexture || null;
 
 		super( {
 
@@ -33,10 +39,16 @@ class PathTracingShader extends ShaderPass {
 				// triangles: { value: [] },
 
 				triangleTexture: { value: triangleTexture },
-				triangleTexSize: { value: new Vector2() },
+				triangleTexSize: { value: triangleTexture ? new Vector2( triangleTexture.image.width, triangleTexture.image.height ) : new Vector2() },
 
 				normalTexture: { value: normalTexture },
-				normalTexSize: { value: new Vector2() },
+				normalTexSize: { value: normalTexture ? new Vector2( normalTexture.image.width, normalTexture.image.height ) : new Vector2() },
+
+				materialTexture: { value: materialTexture },
+				materialTexSize: { value: materialTexture ? new Vector2( materialTexture.image.width, materialTexture.image.height ) : new Vector2() },
+
+				triangleMaterialMappingTexture: { value: triangleMaterialMappingTexture },
+				triangleMaterialMappingTexSize: { value: triangleMaterialMappingTexture ? new Vector2( triangleMaterialMappingTexture.image.width, triangleMaterialMappingTexture.image.height ) : new Vector2() },
 
 			},
 
@@ -44,9 +56,6 @@ class PathTracingShader extends ShaderPass {
 			fragmentShader: FragmentShader
 
 		} );
-
-		this.uniforms.triangleTexSize.value.set( triangleTexture.image.width, triangleTexture.image.height );
-		this.uniforms.normalTexSize.value.set( normalTexture.image.width, normalTexture.image.height );
 
 	}
 

@@ -51,20 +51,21 @@ struct MeshInfo {
 };
 
 uniform Sphere spheres[ MAX_SPHERE_COUNT ];
+
 uniform sampler2D triangleTexture;
 uniform vec2 triangleTexSize;
+
 uniform sampler2D normalTexture;
 uniform vec2 normalTexSize;
 
-int count;
+uniform sampler2D materialTexture;
+uniform vec2 materialTexSize;
 
-vec3 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
-	float trianglePerRow = texSize.x / 3.0;
-	float row = floor(float(triangleIndex) / trianglePerRow);
-	float col = float(triangleIndex) - row * trianglePerRow;
-	vec2 uv = vec2((col * 3.0 + float(vertexIndex)) / texSize.x, row / texSize.y);
-	return texture(tex, uv).xyz;
-}
+uniform sampler2D triangleMaterialMappingTexture;
+uniform vec2 triangleMaterialMappingTexSize;
+
+
+int count;
 
 Ray generateRay(vec2 uv) {
 
@@ -126,50 +127,77 @@ HitInfo RaySphere(Ray ray, Sphere sphere) {
 	return hitInfo;
 }
 
+vec3 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
+    float trianglePerRow = texSize.x / 3.0;
+    float row = floor(float(triangleIndex) / trianglePerRow);
+    float col = float(triangleIndex) - row * trianglePerRow;
+    vec2 uv = vec2((col * 3.0 + float(vertexIndex)) / texSize.x, row / texSize.y);
+    return texture(tex, uv).xyz;
+}
+
+vec4 getMaterialProperty(sampler2D tex, vec2 texSize, int materialIndex, int propertyIndex) {
+    float materialsPerRow = texSize.x / 4.0;
+    float row = floor(float(materialIndex) / materialsPerRow);
+    float col = float(materialIndex) - row * materialsPerRow;
+    vec2 uv = vec2((col * 4.0 + float(propertyIndex)) / texSize.x, row / texSize.y);
+    return texture(tex, uv);
+}
+
+int getTriangleMaterialIndex(sampler2D tex, vec2 texSize, int triangleIndex) {
+    float trianglesPerRow = texSize.x;
+    float row = floor(float(triangleIndex) / trianglesPerRow);
+    float col = float(triangleIndex) - row * trianglesPerRow;
+    vec2 uv = vec2(col / texSize.x, row / texSize.y);
+    return int(texture(tex, uv).r);
+}
+
+
 HitInfo CalculateRayCollision(Ray ray) {
-	HitInfo closestHit;
-	closestHit.didHit = false;
-	closestHit.dst = 1e20; // A large value
+    HitInfo closestHit;
+    closestHit.didHit = false;
+    closestHit.dst = 1e20; // A large value
 
-	for(int i = 0; i < MAX_SPHERE_COUNT; i ++) {
-		HitInfo hitInfo = RaySphere(ray, spheres[ i ]);
-		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
-			closestHit = hitInfo;
-		}
-	}
-	for(int i = 0; i <= MAX_TRIANGLE_COUNT; i ++) {
+    for (int i = 0; i < MAX_SPHERE_COUNT; i++) {
+        HitInfo hitInfo = RaySphere(ray, spheres[i]);
+        if (hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+            closestHit = hitInfo;
+        }
+    }
 
-		vec3 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
-		vec3 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
-		vec3 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
+    for (int i = 0; i < MAX_TRIANGLE_COUNT; i++) {
+        vec3 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
+        vec3 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
+        vec3 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
 
-		vec3 n0 = getTriangleVertex(normalTexture, normalTexSize, i, 0);
-		vec3 n1 = getTriangleVertex(normalTexture, normalTexSize, i, 1);
-		vec3 n2 = getTriangleVertex(normalTexture, normalTexSize, i, 2);
+        vec3 n0 = getTriangleVertex(normalTexture, normalTexSize, i, 0);
+        vec3 n1 = getTriangleVertex(normalTexture, normalTexSize, i, 1);
+        vec3 n2 = getTriangleVertex(normalTexture, normalTexSize, i, 2);
 
-		Triangle tri;
+        Triangle tri;
+        tri.posA = v0;
+        tri.posB = v1;
+        tri.posC = v2;
+        tri.normalA = n0;
+        tri.normalB = n1;
+        tri.normalC = n2;
 
-		tri.posA = v0;
-		tri.posB = v1;
-		tri.posC = v2;
+        int materialIndex = getTriangleMaterialIndex(triangleMaterialMappingTexture, triangleMaterialMappingTexSize, i);
 
-		tri.normalA = n0;
-		tri.normalB = n1;
-		tri.normalC = n2;
+        vec4 materialColor = getMaterialProperty(materialTexture, materialTexSize, materialIndex, 0);
+        vec4 materialEmissive = getMaterialProperty(materialTexture, materialTexSize, materialIndex, 1);
+        vec4 materialParams = getMaterialProperty(materialTexture, materialTexSize, materialIndex, 2);
 
-		tri.material.color = vec3(1.0, 0.0, 0.0);
-		tri.material.emissive = vec3(1.0, 1.0, 1.0);
-		tri.material.emissiveIntensity = 0.0;
+        tri.material.color = materialColor.rgb;
+        tri.material.emissive = materialEmissive.rgb;
+        tri.material.emissiveIntensity = materialParams.r;
 
-		count = i;
+        HitInfo hitInfo = RayTriangle(ray, tri);
+        if (hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+            closestHit = hitInfo;
+        }
+    }
 
-		HitInfo hitInfo = RayTriangle(ray, tri);
-		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
-			closestHit = hitInfo;
-		}
-	}
-
-	return closestHit;
+    return closestHit;
 }
 
 uint pcg_hash(uint state) {
@@ -292,6 +320,7 @@ void main() {
 	vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
 	gl_FragColor = vec4(pixColor, 1.0);
 
+	// gl_FragColor = getMaterialAtIndex(0, 0);
 	// gl_FragColor = vec4(count == 512 ? vec3(1.0, 0.0,0.0) : vec3(0.0, 1.0,1.0), 1.0);
 
 }
