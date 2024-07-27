@@ -4,6 +4,7 @@ import {
 	Vector3,
 	WebGLRenderer,
 	Color,
+	ACESFilmicToneMapping,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -16,10 +17,15 @@ import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 import TriangleSDF from './src/TriangleSDF.js';
 import { OutputPass } from 'three/examples/jsm/Addons.js';
 
+const viewPort = {
+	width: 500,
+	height: 500,
+};
+
 async function loadGLTFModel() {
 
 	const loader = new GLTFLoader();
-	const result = await loader.loadAsync( './model1.glb' );
+	const result = await loader.loadAsync( './model3.glb' );
 	return result.scene;
 
 }
@@ -50,11 +56,16 @@ function setupPane( pathTracingPass, accPass ) {
 async function init() {
 
 	const scene = new Scene();
-	const camera = new PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 1000 );
+	const camera = new PerspectiveCamera( 45, viewPort.width / viewPort.height, 0.1, 1000 );
 	camera.position.set( 0, 0, - 1 );
 
-	const renderer = new WebGLRenderer();
-	renderer.setSize( window.innerWidth, window.innerHeight );
+	const renderer = new WebGLRenderer( {
+		antialias: false,
+		alpha: false
+	} );
+	renderer.setSize( viewPort.width, viewPort.height );
+	renderer.pixelRatio = 1;
+	renderer.toneMapping = ACESFilmicToneMapping;
 	document.body.appendChild( renderer.domElement );
 
 	const stats = new Stats();
@@ -69,10 +80,10 @@ async function init() {
 	const spheres = createSpheres();
 
 	const composer = new EffectComposer( renderer );
-	const pathTracingPass = new PathTracingShader( triangleSDF, spheres );
+	const pathTracingPass = new PathTracingShader( triangleSDF, spheres, viewPort.width, viewPort.height );
 	composer.addPass( pathTracingPass );
 
-	const accPass = new AccumulationPass( scene, window.innerWidth, window.innerHeight );
+	const accPass = new AccumulationPass( scene, viewPort.width, viewPort.height );
 	composer.addPass( accPass );
 
 	const outputPass = new OutputPass();
@@ -101,9 +112,9 @@ async function init() {
 
 	window.addEventListener( 'resize', () => {
 
-		renderer.setSize( window.innerWidth, window.innerHeight );
+		renderer.setSize( viewPort.width, viewPort.height );
 		camera.updateProjectionMatrix();
-		pathTracingPass.uniforms.resolution.value.set( window.innerWidth, window.innerHeight );
+		pathTracingPass.uniforms.resolution.value.set( viewPort.width, viewPort.height );
 		accPass.iteration = 0;
 
 	} );
