@@ -5,6 +5,8 @@ import {
 	WebGLRenderer,
 	Color,
 	ACESFilmicToneMapping,
+	Mesh,
+	MeshStandardMaterial,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -15,7 +17,7 @@ import PathTracingShader from './shaders/PathTracer/PathTracingShader.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 
 import TriangleSDF from './src/TriangleSDF.js';
-import { OutputPass } from 'three/examples/jsm/Addons.js';
+import { OutputPass, TeapotGeometry } from 'three/examples/jsm/Addons.js';
 
 const viewPort = {
 	width: 500,
@@ -24,9 +26,10 @@ const viewPort = {
 
 async function loadGLTFModel() {
 
-	const loader = new GLTFLoader();
-	const result = await loader.loadAsync( './model3.glb' );
-	return result.scene;
+	// const loader = new GLTFLoader();
+	// const result = await loader.loadAsync( './model3.glb' );
+	// return result.scene;
+	return new Mesh( new TeapotGeometry( 1, 2 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
 
 }
 

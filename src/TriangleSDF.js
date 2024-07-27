@@ -20,15 +20,17 @@ export default class TriangleSDF {
 		this.meshInfos = [];
 		this.triangleMaterialIndices = [];
 
+		let meshCount = 0;
+
 		object.traverse( obj => {
 
 			if ( obj.isMesh ) {
 
-				const geometry = obj.geometry.translate( 0, 0, - 5 ).toNonIndexed();
-
-				const positions = geometry.attributes.position.array;
-				const normals = geometry.attributes.normal.array;
-				const count = positions.length;
+				const geometry = obj.geometry.translate( - meshCount * 2, 0, - 5 ).toNonIndexed();
+				meshCount ++;
+				const positions = geometry.attributes.position;
+				const normals = geometry.attributes.normal;
+				const count = geometry.attributes.position.count;
 				geometry.computeBoundingBox();
 
 				if ( startIndex == 0 ) {
@@ -44,26 +46,23 @@ export default class TriangleSDF {
 					emissiveIntensity: obj.material.emissiveIntensity
 				};
 
-				const firstTriangleIndex = this.triangles.length;
-				const numTriangles = count;
-
 				this.meshInfos.push( {
-					firstTriangleIndex,
-					numTriangles,
+					firstTriangleIndex: this.triangles.length,
+					numTriangles: count,
 					material,
 					boundsMin: geometry.boundingBox.min,
 					boundsMax: geometry.boundingBox.max
 				} );
 
-				console.log( `Mesh: ${obj.name || 'unnamed'}, Triangles: ${numTriangles}` );
+				console.log( `Mesh: ${obj.name || 'unnamed'}, Triangles: ${count}` );
 
 				for ( let i = 0; i < count; i += 3 ) {
 
-					const posA = new Vector3( positions[ i * 3 ], positions[ i * 3 + 1 ], positions[ i * 3 + 2 ] );
-					const posB = new Vector3( positions[ ( i + 1 ) * 3 ], positions[ ( i + 1 ) * 3 + 1 ], positions[ ( i + 1 ) * 3 + 2 ] );
-					const posC = new Vector3( positions[ ( i + 2 ) * 3 ], positions[ ( i + 2 ) * 3 + 1 ], positions[ ( i + 2 ) * 3 + 2 ] );
+					const posA = new Vector3( positions.getX( i ), positions.getY( i ), positions.getZ( i ) );
+					const posB = new Vector3( positions.getX( i + 1 ), positions.getY( i + 1 ), positions.getZ( i + 1 ) );
+					const posC = new Vector3( positions.getX( i + 2 ), positions.getY( i + 2 ), positions.getZ( i + 2 ) );
 
-					const normal = new Vector3( normals[ i * 3 ], normals[ i * 3 + 1 ], normals[ i * 3 + 2 ] );
+					const normal = new Vector3( normals.getX( i ), normals.getY( i ), normals.getZ( i ) );
 
 					const triangle = { posA, posB, posC, normal };
 					this.triangles.push( triangle );
@@ -111,6 +110,7 @@ export default class TriangleSDF {
 			data[ stride + 9 ] = triangles[ i ].posC.y;
 			data[ stride + 10 ] = triangles[ i ].posC.z;
 			data[ stride + 11 ] = triangles[ i ].normal.z;
+
 
 		}
 
