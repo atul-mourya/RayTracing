@@ -5,13 +5,11 @@ import VertexShader from './pathtracer.vs';
 
 class PathTracingShader extends ShaderPass {
 
-	constructor( triangleSDF, spheres = [] ) {
+	constructor( triangleSDF, spheres = [], width, height ) {
 
 		let triangles = triangleSDF.triangles;
 		let triangleTexture = triangleSDF.triangleTexture || null;
-		let normalTexture = triangleSDF.normalTexture || null;
-		let materialTexture = triangleSDF.materialTexture || null;
-		let triangleMaterialMappingTexture = triangleSDF.triangleMaterialMappingTexture || null;
+		let meshInfoTexture = triangleSDF.meshInfoTexture;
 
 		super( {
 
@@ -19,12 +17,13 @@ class PathTracingShader extends ShaderPass {
 
 			defines: {
 				MAX_TRIANGLE_COUNT: triangles.length,
-				MAX_SPHERE_COUNT: spheres.length
+				MAX_SPHERE_COUNT: spheres.length,
+				MAX_MESH_COUNT: triangleSDF.meshInfos.length
 			},
 
 			uniforms: {
 
-				resolution: { value: new Vector2( window.innerWidth, window.innerHeight ) },
+				resolution: { value: new Vector2( width, height ) },
 
 				cameraPos: { value: new Vector3() },
 				cameraDir: { value: new Vector3() },
@@ -41,14 +40,8 @@ class PathTracingShader extends ShaderPass {
 				triangleTexture: { value: triangleTexture },
 				triangleTexSize: { value: triangleTexture ? new Vector2( triangleTexture.image.width, triangleTexture.image.height ) : new Vector2() },
 
-				normalTexture: { value: normalTexture },
-				normalTexSize: { value: normalTexture ? new Vector2( normalTexture.image.width, normalTexture.image.height ) : new Vector2() },
-
-				materialTexture: { value: materialTexture },
-				materialTexSize: { value: materialTexture ? new Vector2( materialTexture.image.width, materialTexture.image.height ) : new Vector2() },
-
-				triangleMaterialMappingTexture: { value: triangleMaterialMappingTexture },
-				triangleMaterialMappingTexSize: { value: triangleMaterialMappingTexture ? new Vector2( triangleMaterialMappingTexture.image.width, triangleMaterialMappingTexture.image.height ) : new Vector2() },
+				meshInfoTexture: { value: meshInfoTexture },
+				meshInfoTexSize: { value: meshInfoTexture ? new Vector2( meshInfoTexture.image.width, meshInfoTexture.image.height ) : new Vector2() },
 
 			},
 

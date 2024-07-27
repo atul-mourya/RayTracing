@@ -1,6 +1,6 @@
 precision highp float;
 
-const float PI = 3.14159;
+const float PI = 3.14159f;
 
 uniform uint frame;
 uniform vec2 resolution;
@@ -12,7 +12,7 @@ uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 
 struct Ray {
-	vec3 origin; 
+	vec3 origin;
 	vec3 dir;
 };
 
@@ -43,8 +43,8 @@ struct Triangle {
 };
 
 struct MeshInfo {
-	uint firstTriangleIndex;
-	uint numTriangles;
+	int firstTriangleIndex;
+	int numTriangles;
 	RayTracingMaterial material;
 	vec3 boundsMin;
 	vec3 boundsMax;
@@ -54,21 +54,12 @@ uniform Sphere spheres[ MAX_SPHERE_COUNT ];
 
 uniform sampler2D triangleTexture;
 uniform vec2 triangleTexSize;
-
-uniform sampler2D normalTexture;
-uniform vec2 normalTexSize;
-
-uniform sampler2D materialTexture;
-uniform vec2 materialTexSize;
-
-uniform sampler2D triangleMaterialMappingTexture;
-uniform vec2 triangleMaterialMappingTexSize;
-
+uniform sampler2D meshInfoTexture;
+uniform vec2 meshInfoTexSize;
 
 int count;
 
 Ray generateRay(vec2 uv) {
-
 	Ray ray;
 	ray.origin = cameraPos;
 	ray.dir = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
@@ -85,19 +76,19 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
 	vec3 dao = cross(ao, ray.dir);
 
 	float determinant = - dot(ray.dir, normalVector);
-	float invDet = 1.0 / determinant;
+	float invDet = 1.0f / determinant;
 
-	// Calculate dst to triangle & barycentric coordinates of intersection point
+    // Calculate distance to triangle & barycentric coordinates of intersection point
 	float dst = dot(ao, normalVector) * invDet;
 	float u = dot(edgeAC, dao) * invDet;
 	float v = - dot(edgeAB, dao) * invDet;
-	float w = 1.0 - u - v;
+	float w = 1.0f - u - v;
 
-	// Initialize hit info
+    // Initialize hit info
 	HitInfo hitInfo;
-	hitInfo.didHit = determinant >= 1E-6 && dst >= 0.0 && u >= 0.0 && v >= 0.0 && w >= 0.0;
+	hitInfo.didHit = determinant >= 1E-6f && dst >= 0.0f && u >= 0.0f && v >= 0.0f && w >= 0.0f;
 	hitInfo.hitPoint = ray.origin + ray.dir * dst;
-	hitInfo.normal = normalize(tri.normalA * w + tri.normalB * u + tri.normalC * w);
+	hitInfo.normal = normalize(tri.normalA * w + tri.normalB * u + tri.normalC * v);
 	hitInfo.dst = dst;
 	hitInfo.material = tri.material;
 	return hitInfo;
@@ -109,13 +100,13 @@ HitInfo RaySphere(Ray ray, Sphere sphere) {
 
 	vec3 oc = ray.origin - sphere.position;
 	float a = dot(ray.dir, ray.dir);
-	float b = 2.0 * dot(oc, ray.dir);
+	float b = 2.0f * dot(oc, ray.dir);
 	float c = dot(oc, oc) - sphere.radius * sphere.radius;
-	float discriminant = b * b - 4.0 * a * c;
+	float discriminant = b * b - 4.0f * a * c;
 
-	if(discriminant > 0.0) {
-		float t = (- b - sqrt(discriminant)) / (2.0 * a);
-		if(t > 0.0) {
+	if(discriminant > 0.0f) {
+		float t = (- b - sqrt(discriminant)) / (2.0f * a);
+		if(t > 0.0f) {
 			hitInfo.didHit = true;
 			hitInfo.dst = t;
 			hitInfo.hitPoint = ray.origin + t * ray.dir;
@@ -127,77 +118,74 @@ HitInfo RaySphere(Ray ray, Sphere sphere) {
 	return hitInfo;
 }
 
-vec3 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
-    float trianglePerRow = texSize.x / 3.0;
+vec4 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
+	float trianglePerRow = texSize.x / 3.0;
     float row = floor(float(triangleIndex) / trianglePerRow);
     float col = float(triangleIndex) - row * trianglePerRow;
     vec2 uv = vec2((col * 3.0 + float(vertexIndex)) / texSize.x, row / texSize.y);
-    return texture(tex, uv).xyz;
-}
-
-vec4 getMaterialProperty(sampler2D tex, vec2 texSize, int materialIndex, int propertyIndex) {
-    float materialsPerRow = texSize.x / 4.0;
-    float row = floor(float(materialIndex) / materialsPerRow);
-    float col = float(materialIndex) - row * materialsPerRow;
-    vec2 uv = vec2((col * 4.0 + float(propertyIndex)) / texSize.x, row / texSize.y);
     return texture(tex, uv);
 }
 
-int getTriangleMaterialIndex(sampler2D tex, vec2 texSize, int triangleIndex) {
-    float trianglesPerRow = texSize.x;
-    float row = floor(float(triangleIndex) / trianglesPerRow);
-    float col = float(triangleIndex) - row * trianglesPerRow;
-    vec2 uv = vec2(col / texSize.x, row / texSize.y);
-    return int(texture(tex, uv).r);
+MeshInfo getMeshInfo(int index) {
+	vec2 uv = vec2(float(index) + 0.5f, 0.5f) / meshInfoTexSize;
+	vec4 info1 = texture(meshInfoTexture, uv);
+	vec4 info2 = texture(meshInfoTexture, uv + vec2(1.0f / meshInfoTexSize.x, 0.0f));
+	vec4 info3 = texture(meshInfoTexture, uv + vec2(2.0f / meshInfoTexSize.x, 0.0f));
+	vec4 info4 = texture(meshInfoTexture, uv + vec2(3.0f / meshInfoTexSize.x, 0.0f));
+	vec4 info5 = texture(meshInfoTexture, uv + vec2(4.0f / meshInfoTexSize.x, 0.0f));
+
+	MeshInfo meshInfo;
+	meshInfo.firstTriangleIndex = int(info1.x);
+	meshInfo.numTriangles = int(info1.y);
+	meshInfo.material.color = info2.rgb;
+	meshInfo.material.emissive = info3.rgb;
+	meshInfo.material.emissiveIntensity = info3.a;
+	meshInfo.boundsMin = info4.rgb;
+	meshInfo.boundsMax = info5.rgb;
+
+	return meshInfo;
 }
 
-
 HitInfo CalculateRayCollision(Ray ray) {
-    HitInfo closestHit;
-    closestHit.didHit = false;
-    closestHit.dst = 1e20; // A large value
+	HitInfo closestHit;
+	closestHit.didHit = false;
+	closestHit.dst = 1e20f; // A large value
 
-    for (int i = 0; i < MAX_SPHERE_COUNT; i++) {
-        HitInfo hitInfo = RaySphere(ray, spheres[i]);
-        if (hitInfo.didHit && hitInfo.dst < closestHit.dst) {
-            closestHit = hitInfo;
-        }
-    }
+	for(int i = 0; i < MAX_SPHERE_COUNT; i ++) {
+		HitInfo hitInfo = RaySphere(ray, spheres[ i ]);
+		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+			closestHit = hitInfo;
+		}
+	}
 
-    for (int i = 0; i < MAX_TRIANGLE_COUNT; i++) {
-        vec3 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
-        vec3 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
-        vec3 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
+	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
+		MeshInfo meshInfo = getMeshInfo(meshIndex);
 
-        vec3 n0 = getTriangleVertex(normalTexture, normalTexSize, i, 0);
-        vec3 n1 = getTriangleVertex(normalTexture, normalTexSize, i, 1);
-        vec3 n2 = getTriangleVertex(normalTexture, normalTexSize, i, 2);
+		for(int i = 0; i < meshInfo.numTriangles; i ++) {
 
-        Triangle tri;
-        tri.posA = v0;
-        tri.posB = v1;
-        tri.posC = v2;
-        tri.normalA = n0;
-        tri.normalB = n1;
-        tri.normalC = n2;
+			vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
+			vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
+			vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
 
-        int materialIndex = getTriangleMaterialIndex(triangleMaterialMappingTexture, triangleMaterialMappingTexSize, i);
+			vec3 n = vec3(v0.w, v1.w, v2.w);
 
-        vec4 materialColor = getMaterialProperty(materialTexture, materialTexSize, materialIndex, 0);
-        vec4 materialEmissive = getMaterialProperty(materialTexture, materialTexSize, materialIndex, 1);
-        vec4 materialParams = getMaterialProperty(materialTexture, materialTexSize, materialIndex, 2);
+			Triangle tri;
+			tri.posA = v0.xyz;
+			tri.posB = v1.xyz;
+			tri.posC = v2.xyz;
+			tri.normalA = n;
+			tri.normalB = n;
+			tri.normalC = n;
+			tri.material = meshInfo.material;
 
-        tri.material.color = materialColor.rgb;
-        tri.material.emissive = materialEmissive.rgb;
-        tri.material.emissiveIntensity = materialParams.r;
+			HitInfo hitInfo = RayTriangle(ray, tri);
+			if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+				closestHit = hitInfo;
+			}
+		}
+	}
 
-        HitInfo hitInfo = RayTriangle(ray, tri);
-        if (hitInfo.didHit && hitInfo.dst < closestHit.dst) {
-            closestHit = hitInfo;
-        }
-    }
-
-    return closestHit;
+	return closestHit;
 }
 
 uint pcg_hash(uint state) {
@@ -209,14 +197,14 @@ uint pcg_hash(uint state) {
 
 float RandomValue(inout uint state) {
 	state = pcg_hash(state);
-	return float(state) / 4294967296.0;
+	return float(state) / 4294967296.0f;
 }
 
 // Random value in normal distribution (with mean=0 and sd=1)
 float RandomValueNormalDistribution(inout uint state) {
 	// Thanks to https://stackoverflow.com/a/6178290
-	float theta = 2.0 * 3.1415926 * RandomValue(state);
-	float rho = sqrt(- 2.0 * log(RandomValue(state)));
+	float theta = 2.0f * 3.1415926f * RandomValue(state);
+	float rho = sqrt(- 2.0f * log(RandomValue(state)));
 	return rho * cos(theta);
 }
 
@@ -245,31 +233,31 @@ vec3 lerp(vec3 a, vec3 b, float t) {
 // Simple background environment lighting
 vec3 GetEnvironmentLight(Ray ray) {
 			// Sky colors
-	const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
-	const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
+	const vec3 SkyColourHorizon = vec3(0.13f, 0.49f, 0.97f);  // Light blue
+	const vec3 SkyColourZenith = vec3(0.529f, 0.808f, 0.922f);   // Darker blue
 
 	// Sun properties
-	float sunAzimuth = 2.0 * PI - PI / 4.0;  // Angle around the horizon (0 to 2π)
-	float sunElevation = - PI / 4.0;  // Angle above the horizon (-π/2 to π/2)
-	const float SunFocus = 512.0;
-	const float SunIntensity = 100.0;
+	float sunAzimuth = 2.0f * PI - PI / 4.0f;  // Angle around the horizon (0 to 2π)
+	float sunElevation = - PI / 4.0f;  // Angle above the horizon (-π/2 to π/2)
+	const float SunFocus = 512.0f;
+	const float SunIntensity = 100.0f;
 
 	// Ground color
-	const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
+	const vec3 GroundColour = vec3(0.53f, 0.6f, 0.62f);  // Dark grey
 
 	// Calculate sun direction from angles
 	vec3 SunLightDirection = vec3(cos(sunElevation) * sin(sunAzimuth), sin(sunElevation), cos(sunElevation) * cos(sunAzimuth));
 
-	float skyGradientT = pow(smoothstep(0.0, 0.4, ray.dir.y), 0.35);
+	float skyGradientT = pow(smoothstep(0.0f, 0.4f, ray.dir.y), 0.35f);
 	vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
 
 	// Calculate sun contribution
-	float sunDot = max(0.0, dot(ray.dir, - SunLightDirection));
+	float sunDot = max(0.0f, dot(ray.dir, - SunLightDirection));
 	float sun = pow(sunDot, SunFocus) * SunIntensity;
 
 	// Combine ground, sky, and sun
-	float groundToSkyT = smoothstep(- 0.01, 0.0, ray.dir.y);
-	float sunMask = (groundToSkyT >= 1.0) ? 1.0 : 0.0;
+	float groundToSkyT = smoothstep(- 0.01f, 0.0f, ray.dir.y);
+	float sunMask = (groundToSkyT >= 1.0f) ? 1.0f : 0.0f;
 	return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
 }
 
@@ -277,8 +265,8 @@ vec3 GetEnvironmentLight(Ray ray) {
 // reflects off objects in the scene, and ends up (hopefully) at a light source.
 vec3 Trace(Ray ray, inout uint rngState) {
 
-	vec3 incomingLight = vec3(0.0);
-	vec3 rayColor = vec3(1.0);
+	vec3 incomingLight = vec3(0.0f);
+	vec3 rayColor = vec3(1.0f);
 
 	for(int i = 0; i <= maxBounceCount; i ++) {
 
@@ -308,19 +296,33 @@ vec3 Trace(Ray ray, inout uint rngState) {
 }
 
 void main() {
-	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
+	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0f - 1.0f;
 
 	Ray ray = generateRay(ndc);
 	uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
-	vec3 totalIncomingLight = vec3(0.0);
+	vec3 totalIncomingLight = vec3(0.0f);
 	for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex ++) {
 		totalIncomingLight += Trace(ray, seed);
 	}
 	vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
-	gl_FragColor = vec4(pixColor, 1.0);
+	gl_FragColor = vec4(pixColor, 1.0f);
+	
 
-	// gl_FragColor = getMaterialAtIndex(0, 0);
-	// gl_FragColor = vec4(count == 512 ? vec3(1.0, 0.0,0.0) : vec3(0.0, 1.0,1.0), 1.0);
+	// bool anyHit = false;
+	// for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex ++) {
+	// 	HitInfo hitInfo = CalculateRayCollision(ray);
+	// 	if(hitInfo.didHit) {
+	// 		anyHit = true;
+	// 		break;
+	// 	}
+	// }
+
+	// // Debugging output
+	// if (anyHit) {
+	// 	gl_FragColor = vec4(0.6, 0.6, 0.6, 1.0); // Red if hit
+	// } else {
+	// 	gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); // Green if no hit
+	// }
 
 }
