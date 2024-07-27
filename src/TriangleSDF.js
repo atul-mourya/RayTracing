@@ -22,6 +22,11 @@ export default class TriangleSDF {
 
 		let meshCount = 0;
 
+		const posA = new Vector3();
+		const posB = new Vector3();
+		const posC = new Vector3();
+		const normal = new Vector3();
+
 		object.traverse( obj => {
 
 			if ( obj.isMesh ) {
@@ -32,13 +37,6 @@ export default class TriangleSDF {
 				const normals = geometry.attributes.normal;
 				const count = geometry.attributes.position.count;
 				geometry.computeBoundingBox();
-
-				if ( startIndex == 0 ) {
-
-					// startIndex += count;
-					// return;
-
-				}
 
 				const material = {
 					color: obj.material.color,
@@ -58,14 +56,13 @@ export default class TriangleSDF {
 
 				for ( let i = 0; i < count; i += 3 ) {
 
-					const posA = new Vector3( positions.getX( i ), positions.getY( i ), positions.getZ( i ) );
-					const posB = new Vector3( positions.getX( i + 1 ), positions.getY( i + 1 ), positions.getZ( i + 1 ) );
-					const posC = new Vector3( positions.getX( i + 2 ), positions.getY( i + 2 ), positions.getZ( i + 2 ) );
+					posA.set( positions.getX( i + 0 ), positions.getY( i + 0 ), positions.getZ( i + 0 ) );
+					posB.set( positions.getX( i + 1 ), positions.getY( i + 1 ), positions.getZ( i + 1 ) );
+					posC.set( positions.getX( i + 2 ), positions.getY( i + 2 ), positions.getZ( i + 2 ) );
 
-					const normal = new Vector3( normals.getX( i ), normals.getY( i ), normals.getZ( i ) );
+					normal.set( normals.getX( i ), normals.getY( i ), normals.getZ( i ) );
 
-					const triangle = { posA, posB, posC, normal };
-					this.triangles.push( triangle );
+					this.triangles.push( { posA: posA.clone(), posB: posB.clone(), posC: posC.clone(), normal: normal.clone() } );
 					this.triangleMaterialIndices.push( this.meshInfos.length - 1 );
 
 				}
