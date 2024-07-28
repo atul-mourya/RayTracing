@@ -146,6 +146,28 @@ MeshInfo getMeshInfo(int index) {
 	return meshInfo;
 }
 
+HitInfo RayIntersectsBox(Ray ray, vec3 minBB, vec3 maxBB) {
+	HitInfo hitInfo;
+	hitInfo.didHit = false;
+
+	vec3 invDir = 1.0 / ray.dir;
+	vec3 tMin = (minBB - ray.origin) * invDir;
+	vec3 tMax = (maxBB - ray.origin) * invDir;
+	vec3 t1 = min(tMin, tMax);
+	vec3 t2 = max(tMin, tMax);
+	float tNear = max(max(t1.x, t1.y), t1.z);
+	float tFar = min(min(t2.x, t2.y), t2.z);
+
+	if (tNear <= tFar && tFar > 0.0) {
+		hitInfo.didHit = true;
+		hitInfo.dst = tNear;
+		hitInfo.hitPoint = ray.origin + tNear * ray.dir;
+		hitInfo.normal = vec3(0.0); // Box normals can be calculated as needed
+	}
+
+	return hitInfo;
+}
+
 HitInfo CalculateRayCollision(Ray ray) {
 	HitInfo closestHit;
 	closestHit.didHit = false;
@@ -159,7 +181,13 @@ HitInfo CalculateRayCollision(Ray ray) {
 	}
 
 	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
+		
 		MeshInfo meshInfo = getMeshInfo(meshIndex);
+
+		HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
+		if (!boxHit.didHit) {
+			continue;
+		}
 
 		for(int i = 0; i < meshInfo.numTriangles; i ++) {
 
@@ -309,20 +337,25 @@ void main() {
 	gl_FragColor = vec4(pixColor, 1.0f);
 	
 
-	// bool anyHit = false;
-	// for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex ++) {
-	// 	HitInfo hitInfo = CalculateRayCollision(ray);
-	// 	if(hitInfo.didHit) {
-	// 		anyHit = true;
-	// 		break;
+	// vec4 pixColor = vec4(0.0, 0.0, 0.0, 1.0);
+
+	// // Debugging the RayIntersectsBox function with a known box
+	// for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
+		
+	// 	MeshInfo meshInfo = getMeshInfo(meshIndex);
+	// 	HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
+		
+	// 	// Output the direction of the ray for debugging
+	// 	vec3 rayDir = ray.dir * 0.5 + 0.5; // Normalize to [0, 1] range for color display
+
+	// 	// Debugging output
+	// 	if (boxHit.didHit) {
+	// 		pixColor += vec4(rayDir, 1.0); // Show ray direction if box hit
+	// 	} else {
+	// 		pixColor += vec4(0.0, 0.0, 0.0, 1.0); // Black if no box hit
 	// 	}
 	// }
 
-	// // Debugging output
-	// if (anyHit) {
-	// 	gl_FragColor = vec4(0.6, 0.6, 0.6, 1.0); // Red if hit
-	// } else {
-	// 	gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); // Green if no hit
-	// }
+	// gl_FragColor = pixColor;
 
 }

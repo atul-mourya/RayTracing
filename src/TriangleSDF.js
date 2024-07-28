@@ -1,4 +1,4 @@
-import { Vector3, DataTexture, RGBAFormat, FloatType } from "three";
+import { Vector3, Matrix3, DataTexture, RGBAFormat, FloatType, Box3 } from "three";
 
 export default class TriangleSDF {
 
@@ -20,22 +20,25 @@ export default class TriangleSDF {
 		this.meshInfos = [];
 		this.triangleMaterialIndices = [];
 
-		let meshCount = 0;
-
 		const posA = new Vector3();
 		const posB = new Vector3();
 		const posC = new Vector3();
 		const normal = new Vector3();
+		const normalMatrix = new Matrix3();
 
 		object.traverse( obj => {
 
-			if ( obj.isMesh ) {
+		  if ( obj.isMesh ) {
 
-				const geometry = obj.geometry.translate( - meshCount * 2, 0, - 5 ).toNonIndexed();
-				meshCount ++;
+				obj.updateMatrix();
+				obj.updateMatrixWorld();
+
+				const geometry = obj.geometry;
 				const positions = geometry.attributes.position;
 				const normals = geometry.attributes.normal;
-				const count = geometry.attributes.position.count;
+				const indices = geometry.index ? geometry.index.array : null;
+
+				geometry.computeVertexNormals();
 				geometry.computeBoundingBox();
 
 				const material = {
@@ -44,30 +47,55 @@ export default class TriangleSDF {
 					emissiveIntensity: obj.material.emissiveIntensity
 				};
 
+				const triangleCount = indices ? indices.length / 3 : positions.count / 3;
+				const box = new Box3().setFromObject( obj );
+
+
 				this.meshInfos.push( {
 					firstTriangleIndex: this.triangles.length,
-					numTriangles: count,
+					numTriangles: triangleCount,
 					material,
-					boundsMin: geometry.boundingBox.min,
-					boundsMax: geometry.boundingBox.max
+					boundsMin: box.min,
+					boundsMax: box.max
 				} );
 
-				console.log( `Mesh: ${obj.name || 'unnamed'}, Triangles: ${count}` );
+				console.log( `Mesh: ${obj.name || 'unnamed'}, Triangles: ${triangleCount}` );
 
-				for ( let i = 0; i < count; i += 3 ) {
+				for ( let i = 0; i < triangleCount; i ++ ) {
 
-					posA.set( positions.getX( i + 0 ), positions.getY( i + 0 ), positions.getZ( i + 0 ) );
-					posB.set( positions.getX( i + 1 ), positions.getY( i + 1 ), positions.getZ( i + 1 ) );
-					posC.set( positions.getX( i + 2 ), positions.getY( i + 2 ), positions.getZ( i + 2 ) );
+					const i3 = i * 3;
 
-					normal.set( normals.getX( i ), normals.getY( i ), normals.getZ( i ) );
+					if ( indices ) {
+
+					  posA.fromBufferAttribute( positions, indices[ i3 ] );
+					  posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
+					  posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
+
+					  normal.fromBufferAttribute( normals, indices[ i3 ] );
+
+					} else {
+
+					  posA.fromBufferAttribute( positions, i3 );
+					  posB.fromBufferAttribute( positions, i3 + 1 );
+					  posC.fromBufferAttribute( positions, i3 + 2 );
+
+					  normal.fromBufferAttribute( normals, i3 );
+
+					}
+
+					posA.applyMatrix4( obj.matrixWorld );
+					posB.applyMatrix4( obj.matrixWorld );
+					posC.applyMatrix4( obj.matrixWorld );
+
+					normalMatrix.getNormalMatrix( obj.matrixWorld );
+					normal.applyMatrix3( normalMatrix );
 
 					this.triangles.push( { posA: posA.clone(), posB: posB.clone(), posC: posC.clone(), normal: normal.clone() } );
 					this.triangleMaterialIndices.push( this.meshInfos.length - 1 );
 
 				}
 
-				startIndex += count;
+				startIndex += triangleCount;
 
 			}
 

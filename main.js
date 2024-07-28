@@ -7,6 +7,7 @@ import {
 	ACESFilmicToneMapping,
 	Mesh,
 	MeshStandardMaterial,
+	PlaneGeometry
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -27,7 +28,7 @@ const viewPort = {
 async function loadGLTFModel() {
 
 	const loader = new GLTFLoader();
-	const result = await loader.loadAsync( './model3.glb' );
+	const result = await loader.loadAsync( './model6.glb' );
 	return result.scene;
 	// return new Mesh( new TeapotGeometry( 1, 1 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
 
@@ -36,13 +37,44 @@ async function loadGLTFModel() {
 function createSpheres() {
 
 	return [
-		{ position: new Vector3( 0, 4, - 5 ), radius: 1.0, material: { color: new Color( 1, 1, 1 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 2 } },
-		{ position: new Vector3( 3, 0, - 5 ), radius: 1.0, material: { color: new Color( 0, 1, 0 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
-		{ position: new Vector3( - 3, 0, - 5 ), radius: 1.0, material: { color: new Color( 0, 0, 1 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
-		{ position: new Vector3( 0, - 26, - 5 ), radius: 25.0, material: { color: new Color( 0.9, 0.9, 0.9 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
+		{ position: new Vector3( 0, 10, 0 ), radius: 1.0, material: { color: new Color( 1, 1, 1 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 10 } },
+		{ position: new Vector3( 3, 0, 0 ), radius: 1.0, material: { color: new Color( 0, 1, 0 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
+		{ position: new Vector3( - 3, 0, 0 ), radius: 1.0, material: { color: new Color( 0, 0, 1 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
+		// { position: new Vector3( 0, - 26, 0 ), radius: 25.0, material: { color: new Color( 0.9, 0.9, 0.9 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
 	];
 
 }
+
+function createCornellBox() {
+
+	const materials = {
+		white: new MeshStandardMaterial( { color: 0xffffff } ),
+		red: new MeshStandardMaterial( { color: 0xff0000 } ),
+		green: new MeshStandardMaterial( { color: 0x00ff00 } )
+	};
+
+	function createPlane( material, width, height, rotation, position ) {
+
+		const plane = new Mesh( new PlaneGeometry( width, height ), material );
+		plane.rotation.set( rotation.x, rotation.y, rotation.z );
+		plane.position.set( position.x, position.y, position.z );
+		return plane;
+
+	}
+
+	const planes = [
+		createPlane( materials.red, 10, 10, { x: - Math.PI / 2, y: 0, z: 0 }, { x: 0, y: 0, z: 0 } ), // Floor
+		createPlane( materials.white, 10, 10, { x: Math.PI / 2, y: 0, z: 0 }, { x: 0, y: 10, z: 0 } ), // Ceiling
+		createPlane( materials.white, 10, 10, { x: 0, y: 0, z: 0 }, { x: 0, y: 5, z: - 5 } ), // Back wall
+		createPlane( materials.red, 10, 10, { x: 0, y: Math.PI / 2, z: 0 }, { x: - 5, y: 5, z: 0 } ), // Left wall
+		createPlane( materials.green, 10, 10, { x: 0, y: - Math.PI / 2, z: 0 }, { x: 5, y: 5, z: 0 } ), // Right wall
+		createPlane( materials.white, 10, 10, { x: 0, y: Math.PI, z: 0 }, { x: 0, y: 5, z: 5 } ) // Front wall (optional)
+	];
+
+	return planes;
+
+}
+
 
 function setupPane( pathTracingPass, accPass ) {
 
@@ -60,14 +92,14 @@ async function init() {
 
 	const scene = new Scene();
 	const camera = new PerspectiveCamera( 45, viewPort.width / viewPort.height, 0.1, 1000 );
-	camera.position.set( 0, 0, - 1 );
+	camera.position.set( 0, 5, 5 );
 
 	const renderer = new WebGLRenderer( {
 		antialias: false,
 		alpha: false
 	} );
 	renderer.setSize( viewPort.width, viewPort.height );
-	renderer.pixelRatio = 1;
+	renderer.pixelRatio = 0.25;
 	renderer.toneMapping = ACESFilmicToneMapping;
 	document.body.appendChild( renderer.domElement );
 
@@ -79,7 +111,12 @@ async function init() {
 	controls.update();
 
 	const meshes = await loadGLTFModel();
-	const triangleSDF = new TriangleSDF( meshes );
+	scene.add( meshes );
+
+	const cornellBox = createCornellBox();
+	cornellBox.forEach( mesh => scene.add( mesh ) );
+
+	const triangleSDF = new TriangleSDF( scene );
 	const spheres = createSpheres();
 
 	const composer = new EffectComposer( renderer );
@@ -99,11 +136,11 @@ async function init() {
 		requestAnimationFrame( animate );
 		controls.update();
 
-		const tempMatrix = controls.object.matrixWorld.elements;
-		pathTracingPass.uniforms.cameraPos.value.copy( controls.object.position );
-		pathTracingPass.uniforms.cameraUp.value.set( tempMatrix[ 4 ], tempMatrix[ 5 ], tempMatrix[ 6 ] ).normalize();
-		pathTracingPass.uniforms.cameraRight.value.set( tempMatrix[ 0 ], tempMatrix[ 1 ], tempMatrix[ 2 ] ).normalize();
-		pathTracingPass.uniforms.cameraDir.value.set( tempMatrix[ 8 ], tempMatrix[ 9 ], tempMatrix[ 10 ] ).normalize();
+		pathTracingPass.uniforms.cameraPos.value = camera.position;
+		camera.getWorldDirection( pathTracingPass.uniforms.cameraDir.value );
+		camera.getWorldDirection( pathTracingPass.uniforms.cameraRight.value );
+		pathTracingPass.uniforms.cameraRight.value.cross( camera.up ).normalize();
+		pathTracingPass.uniforms.cameraUp.value = camera.up;
 
 		pathTracingPass.uniforms.frame.value ++;
 		composer.render();
