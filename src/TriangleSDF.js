@@ -1,4 +1,13 @@
-import { Vector3, Matrix3, DataTexture, RGBAFormat, FloatType, Box3 } from "three";
+import { Vector3, DataTexture, RGBAFormat, FloatType, Box3, Triangle } from "three";
+
+Vector3.prototype.toFixed = function ( num ) {
+
+	this.x = parseFloat( this.x.toFixed( num ) );
+	this.y = parseFloat( this.y.toFixed( num ) );
+	this.z = parseFloat( this.z.toFixed( num ) );
+	return this;
+
+};
 
 export default class TriangleSDF {
 
@@ -24,7 +33,7 @@ export default class TriangleSDF {
 		const posB = new Vector3();
 		const posC = new Vector3();
 		const normal = new Vector3();
-		const normalMatrix = new Matrix3();
+		const triangle = new Triangle();
 
 		object.traverse( obj => {
 
@@ -35,10 +44,8 @@ export default class TriangleSDF {
 
 				const geometry = obj.geometry;
 				const positions = geometry.attributes.position;
-				const normals = geometry.attributes.normal;
 				const indices = geometry.index ? geometry.index.array : null;
 
-				geometry.computeVertexNormals();
 				geometry.computeBoundingBox();
 
 				const material = {
@@ -49,7 +56,6 @@ export default class TriangleSDF {
 
 				const triangleCount = indices ? indices.length / 3 : positions.count / 3;
 				const box = new Box3().setFromObject( obj );
-
 
 				this.meshInfos.push( {
 					firstTriangleIndex: this.triangles.length,
@@ -67,19 +73,15 @@ export default class TriangleSDF {
 
 					if ( indices ) {
 
-					  posA.fromBufferAttribute( positions, indices[ i3 ] );
-					  posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
-					  posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
-
-					  normal.fromBufferAttribute( normals, indices[ i3 ] );
+						posA.fromBufferAttribute( positions, indices[ i3 + 0 ] );
+						posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
+						posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
 
 					} else {
 
-					  posA.fromBufferAttribute( positions, i3 );
-					  posB.fromBufferAttribute( positions, i3 + 1 );
-					  posC.fromBufferAttribute( positions, i3 + 2 );
-
-					  normal.fromBufferAttribute( normals, i3 );
+						posA.fromBufferAttribute( positions, i3 + 0 );
+						posB.fromBufferAttribute( positions, i3 + 1 );
+						posC.fromBufferAttribute( positions, i3 + 2 );
 
 					}
 
@@ -87,10 +89,15 @@ export default class TriangleSDF {
 					posB.applyMatrix4( obj.matrixWorld );
 					posC.applyMatrix4( obj.matrixWorld );
 
-					normalMatrix.getNormalMatrix( obj.matrixWorld );
-					normal.applyMatrix3( normalMatrix );
+					triangle.set( posA, posB, posC );
+					triangle.getNormal( normal );
 
-					this.triangles.push( { posA: posA.clone(), posB: posB.clone(), posC: posC.clone(), normal: normal.clone() } );
+					this.triangles.push( {
+						posA: posA.clone(),
+						posB: posB.clone(),
+						posC: posC.clone(),
+						normal: normal.clone()
+					} );
 					this.triangleMaterialIndices.push( this.meshInfos.length - 1 );
 
 				}
@@ -109,7 +116,7 @@ export default class TriangleSDF {
 	createTriangleDataTexture( triangles ) {
 
 		// Each triangle has 3 vertices, each vertex has 4 components (x, y, z, w)
-		const dataLength = triangles.length * 3; // 3 vertices * 4 components each
+		const dataLength = triangles.length * 3 * 4; // 3 vertices * 4 components each
 
 		// Calculate dimensions
 		const width = Math.ceil( Math.sqrt( dataLength ) ); // Divide by 4 because RGBA (4 components)
@@ -147,13 +154,13 @@ export default class TriangleSDF {
 
 	createMeshInfoDataTexture( meshInfos ) {
 
-		const dataLength = meshInfos.length * 5;
+		const dataLength = meshInfos.length * 5 * 4;
 
 		const width = Math.ceil( Math.sqrt( dataLength ) );
 		const height = Math.ceil( dataLength / width );
 
-		const size = width * height;
-		const data = new Float32Array( 5 * 4 * size ); // RGBA 4 componenet
+		const size = width * height * 4;
+		const data = new Float32Array( size ); // RGBA 4 componenet
 
 		for ( let i = 0; i < meshInfos.length; i ++ ) {
 

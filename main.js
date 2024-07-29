@@ -27,10 +27,10 @@ const viewPort = {
 
 async function loadGLTFModel() {
 
-	const loader = new GLTFLoader();
-	const result = await loader.loadAsync( './model6.glb' );
-	return result.scene;
-	// return new Mesh( new TeapotGeometry( 1, 1 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
+	// const loader = new GLTFLoader();
+	// const result = await loader.loadAsync( './model6.glb' );
+	// return result.scene;
+	return new Mesh( new TeapotGeometry( 1 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
 
 }
 
@@ -53,23 +53,58 @@ function createCornellBox() {
 		green: new MeshStandardMaterial( { color: 0x00ff00 } )
 	};
 
-	function createPlane( material, width, height, rotation, position ) {
+	const planeParams = [
+		{
+			name: 'Floor', material: materials.red,
+			width: 5, height: 5,
+			position: { x: 0, y: 0, z: 0 },
+			rotation: { x: - Math.PI / 2, y: 0, z: 0 },
+		},
+		{
+			name: 'Ceiling', material: materials.white,
+			width: 5, height: 5,
+			position: { x: 0, y: 5, z: 0 },
+			rotation: { x: Math.PI / 2, y: 0, z: 0 },
+		},
+		{
+			name: 'BackWall', material: materials.white,
+			width: 5, height: 5,
+			position: { x: 0, y: 2.5, z: - 2.5 },
+			rotation: { x: 0, y: 0, z: 0 },
+		},
+		{
+			name: 'LeftWall', material: materials.white,
+			width: 5, height: 5,
+			position: { x: - 2.5, y: 2.5, z: 0 },
+			rotation: { x: 0, y: Math.PI / 2, z: 0 },
+		},
+		{
+			name: 'RightWall', material: materials.green,
+			width: 5, height: 5,
+			position: { x: 2.5, y: 2.5, z: 0 },
+			rotation: { x: 0, y: - Math.PI / 2, z: 0 },
+		},
+		{
+			name: 'FrontWall', material: materials.white,
+			width: 5, height: 5,
+			position: { x: 0, y: 2.5, z: 2.5 },
+			rotation: { x: 0, y: Math.PI, z: 0 },
+		}
+	];
+
+	function createPlane( material, width, height, rotation, position, name ) {
 
 		const plane = new Mesh( new PlaneGeometry( width, height ), material );
+		plane.name = name;
 		plane.rotation.set( rotation.x, rotation.y, rotation.z );
 		plane.position.set( position.x, position.y, position.z );
 		return plane;
 
 	}
 
-	const planes = [
-		createPlane( materials.red, 10, 10, { x: - Math.PI / 2, y: 0, z: 0 }, { x: 0, y: 0, z: 0 } ), // Floor
-		createPlane( materials.white, 10, 10, { x: Math.PI / 2, y: 0, z: 0 }, { x: 0, y: 10, z: 0 } ), // Ceiling
-		createPlane( materials.white, 10, 10, { x: 0, y: 0, z: 0 }, { x: 0, y: 5, z: - 5 } ), // Back wall
-		createPlane( materials.red, 10, 10, { x: 0, y: Math.PI / 2, z: 0 }, { x: - 5, y: 5, z: 0 } ), // Left wall
-		createPlane( materials.green, 10, 10, { x: 0, y: - Math.PI / 2, z: 0 }, { x: 5, y: 5, z: 0 } ), // Right wall
-		createPlane( materials.white, 10, 10, { x: 0, y: Math.PI, z: 0 }, { x: 0, y: 5, z: 5 } ) // Front wall (optional)
-	];
+	const planes = planeParams.map( params =>
+		createPlane( params.material, params.width, params.height, params.rotation, params.position, params.name )
+	);
 
 	return planes;
 
@@ -113,8 +148,8 @@ async function init() {
 	const meshes = await loadGLTFModel();
 	scene.add( meshes );
 
-	const cornellBox = createCornellBox();
-	cornellBox.forEach( mesh => scene.add( mesh ) );
+	// const cornellBox = createCornellBox();
+	// cornellBox.forEach( mesh => scene.add( mesh ) );
 
 	const triangleSDF = new TriangleSDF( scene );
 	const spheres = createSpheres();

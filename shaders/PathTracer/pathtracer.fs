@@ -38,7 +38,7 @@ struct HitInfo {
 
 struct Triangle {
 	vec3 posA, posB, posC;
-	vec3 normalA, normalB, normalC;
+	vec3 normal;
 	RayTracingMaterial material;
 };
 
@@ -88,7 +88,7 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
 	HitInfo hitInfo;
 	hitInfo.didHit = determinant >= 1E-6f && dst >= 0.0f && u >= 0.0f && v >= 0.0f && w >= 0.0f;
 	hitInfo.hitPoint = ray.origin + ray.dir * dst;
-	hitInfo.normal = normalize(tri.normalA * w + tri.normalB * u + tri.normalC * v);
+	hitInfo.normal = normalize( tri.normal );
 	hitInfo.dst = dst;
 	hitInfo.material = tri.material;
 	return hitInfo;
@@ -183,7 +183,6 @@ HitInfo CalculateRayCollision(Ray ray) {
 	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
 		
 		MeshInfo meshInfo = getMeshInfo(meshIndex);
-
 		HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
 		if (!boxHit.didHit) {
 			continue;
@@ -201,9 +200,7 @@ HitInfo CalculateRayCollision(Ray ray) {
 			tri.posA = v0.xyz;
 			tri.posB = v1.xyz;
 			tri.posC = v2.xyz;
-			tri.normalA = n;
-			tri.normalB = n;
-			tri.normalC = n;
+			tri.normal = n;
 			tri.material = meshInfo.material;
 
 			HitInfo hitInfo = RayTriangle(ray, tri);
@@ -337,8 +334,6 @@ void main() {
 	gl_FragColor = vec4(pixColor, 1.0f);
 	
 
-	// vec4 pixColor = vec4(0.0, 0.0, 0.0, 1.0);
-
 	// // Debugging the RayIntersectsBox function with a known box
 	// for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
 		
@@ -350,12 +345,40 @@ void main() {
 
 	// 	// Debugging output
 	// 	if (boxHit.didHit) {
-	// 		pixColor += vec4(rayDir, 1.0); // Show ray direction if box hit
+	// 		gl_FragColor += vec4(rayDir, 1.0); // Show ray direction if box hit
 	// 	} else {
-	// 		pixColor += vec4(0.0, 0.0, 0.0, 1.0); // Black if no box hit
+	// 		gl_FragColor += vec4(0.0, 0.0, 0.0, 1.0); // Black if no box hit
 	// 	}
 	// }
 
-	// gl_FragColor = pixColor;
+	// Debugging the RayIntersectsBox function with a known box
+	// for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
+	// 	HitInfo closestHit;
+	// 	closestHit.didHit = false;
+	// 	closestHit.dst = 1e20f; // A large value
+	// 	MeshInfo meshInfo = getMeshInfo(meshIndex);
+	// 	for(int i = 0; i < 4; i ++) {
+
+	// 		vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
+	// 		vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
+	// 		vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
+
+	// 		vec3 n = vec3(v0.w, v1.w, v2.w);
+
+	// 		Triangle tri;
+	// 		tri.posA = v0.xyz;
+	// 		tri.posB = v1.xyz;
+	// 		tri.posC = v2.xyz;
+	// 		tri.normal = n;
+	// 		tri.material = meshInfo.material;
+
+	// 		HitInfo hitInfo = RayTriangle(ray, tri);
+	// 		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+	// 			gl_FragColor = vec4(n, 1.0);
+
+	// 		}
+	// 	}
+	// }
+
 
 }
