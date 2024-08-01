@@ -19,9 +19,9 @@ uniform Sphere spheres[ MAX_SPHERE_COUNT ];
 
 
 vec4 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
-	float trianglePerRow = texSize.x / 3.0;
-    float row = floor(float(triangleIndex) / trianglePerRow);
-    float col = float(triangleIndex) - row * trianglePerRow;
+    float trianglesPerRow = texSize.x / 3.0;
+    float row = floor(float(triangleIndex) / trianglesPerRow);
+    float col = mod(float(triangleIndex), trianglesPerRow);
     vec2 uv = vec2((col * 3.0 + float(vertexIndex)) / texSize.x, row / texSize.y);
     return texture(tex, uv);
 }
@@ -68,11 +68,12 @@ HitInfo CalculateRayCollision(Ray ray) {
 
 		for(int i = 0; i < meshInfo.numTriangles; i ++) {
 
-			vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
-			vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
-			vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
+			int triangleIndex = meshInfo.firstTriangleIndex + i;
+			vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 0);
+			vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 1);
+			vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 2);
 
-			vec3 n = vec3(v0.w, v1.w, v2.w);
+			vec3 n = normalize(vec3(v0.w, v1.w, v2.w));
 
 			Triangle tri;
 			tri.posA = v0.xyz;
@@ -145,7 +146,7 @@ void main() {
 	// 	HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
 		
 	// 	// Output the direction of the ray for debugging
-	// 	vec3 rayDir = ray.dir * 0.5 + 0.5; // Normalize to [0, 1] range for color display
+	// 	vec3 rayDir = ray.direction * 0.5 + 0.5; // Normalize to [0, 1] range for color display
 
 	// 	// Debugging output
 	// 	if (boxHit.didHit) {
@@ -161,13 +162,14 @@ void main() {
 	// 	closestHit.didHit = false;
 	// 	closestHit.dst = 1e20f; // A large value
 	// 	MeshInfo meshInfo = getMeshInfo(meshIndex);
-	// 	for(int i = 0; i < 4; i ++) {
+	// 	for(int i = 0; i < 10; i ++) {
 
-	// 		vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, i, 0);
-	// 		vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, i, 1);
-	// 		vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, i, 2);
+	// 		int triangleIndex = meshInfo.firstTriangleIndex + i;
+	// 		vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 0);
+	// 		vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 1);
+	// 		vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 2);
 
-	// 		vec3 n = vec3(v0.w, v1.w, v2.w);
+	// 		vec3 n = normalize(vec3(v0.w, v1.w, v2.w));
 
 	// 		Triangle tri;
 	// 		tri.posA = v0.xyz;
@@ -183,6 +185,5 @@ void main() {
 	// 		}
 	// 	}
 	// }
-
 
 }

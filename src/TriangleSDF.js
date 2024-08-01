@@ -109,6 +109,7 @@ export default class TriangleSDF {
 
 		} );
 
+		console.log( this.meshInfos.map( m => [ m.boundsMin.toArray(), m.boundsMax.toArray() ] ) );
 		console.log( this.meshInfos );
 		console.log( this.triangles );
 

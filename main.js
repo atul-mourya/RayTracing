@@ -31,16 +31,16 @@ async function loadGLTFModel() {
 	const loader = new GLTFLoader();
 	const result = await loader.loadAsync( './model6.glb' );
 	return result.scene;
-	// return new Mesh( new TeapotGeometry( 1 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
+	// return new Mesh( new TeapotGeometry( 1, 5 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
 
 }
 
 function createSpheres() {
 
 	return [
-		{ position: new Vector3( 0, 10, 0 ), radius: 1.0, material: { color: new Color( 1, 1, 1 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 10 } },
-		{ position: new Vector3( 3, 0, 0 ), radius: 1.0, material: { color: new Color( 0, 1, 0 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
-		{ position: new Vector3( - 3, 0, 0 ), radius: 1.0, material: { color: new Color( 0, 0, 1 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
+		{ position: new Vector3( 0, 5, 0 ), radius: 1.0, material: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 10 } ) },
+		{ position: new Vector3( 3, 0, 0 ), radius: 1.0, material: new MeshStandardMaterial( { color: 0x00ff00, emissive: 0xffffff, emissiveIntensity: 0 } ) },
+		{ position: new Vector3( - 3, 0, 0 ), radius: 1.0, material: new MeshStandardMaterial( { color: 0x0000ff, emissive: 0xffffff, emissiveIntensity: 0 } ) },
 		// { position: new Vector3( 0, - 26, 0 ), radius: 25.0, material: { color: new Color( 0.9, 0.9, 0.9 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
 	];
 
