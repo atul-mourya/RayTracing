@@ -55,7 +55,8 @@ export default class TriangleSDF {
 				};
 
 				const triangleCount = indices ? indices.length / 3 : positions.count / 3;
-				const box = new Box3().setFromObject( obj );
+				const box = new Box3();//.setFromObject( obj );
+				box.copy( geometry.boundingBox ).applyMatrix4( obj.matrixWorld );
 
 				this.meshInfos.push( {
 					firstTriangleIndex: this.triangles.length,

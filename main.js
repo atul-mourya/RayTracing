@@ -7,7 +7,8 @@ import {
 	ACESFilmicToneMapping,
 	Mesh,
 	MeshStandardMaterial,
-	PlaneGeometry
+	PlaneGeometry,
+	HemisphereLight
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -27,10 +28,10 @@ const viewPort = {
 
 async function loadGLTFModel() {
 
-	// const loader = new GLTFLoader();
-	// const result = await loader.loadAsync( './model6.glb' );
-	// return result.scene;
-	return new Mesh( new TeapotGeometry( 1 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
+	const loader = new GLTFLoader();
+	const result = await loader.loadAsync( './model6.glb' );
+	return result.scene;
+	// return new Mesh( new TeapotGeometry( 1 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
 
 }
 
@@ -145,11 +146,14 @@ async function init() {
 	controls.addEventListener( 'change', () => accPass.iteration = 0 );
 	controls.update();
 
+	const hemLight = new HemisphereLight();
+	scene.add( hemLight );
+
 	const meshes = await loadGLTFModel();
 	scene.add( meshes );
 
-	// const cornellBox = createCornellBox();
-	// cornellBox.forEach( mesh => scene.add( mesh ) );
+	const cornellBox = createCornellBox();
+	cornellBox.forEach( mesh => scene.add( mesh ) );
 
 	const triangleSDF = new TriangleSDF( scene );
 	const spheres = createSpheres();
@@ -179,6 +183,7 @@ async function init() {
 
 		pathTracingPass.uniforms.frame.value ++;
 		composer.render();
+		// renderer.render( scene, camera );
 		stats.update();
 
 	}

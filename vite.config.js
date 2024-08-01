@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';;
+import { defineConfig } from 'vite';
 import glsl from 'vite-plugin-glsl';
 
 export default defineConfig( {
@@ -17,5 +17,5 @@ export default defineConfig( {
 			watch: false, // Recompile shader on change
 			root: '/' // Directory for root imports
 		} ),
-    ]
+	]
 } );
