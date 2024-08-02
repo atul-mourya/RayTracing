@@ -1,4 +1,4 @@
-import { Vector3, DataTexture, RGBAFormat, FloatType, Box3, Triangle } from "three";
+import { Vector3, DataTexture, RGBAFormat, FloatType, Box3, Triangle, Color } from "three";
 
 Vector3.prototype.toFixed = function ( num ) {
 
@@ -50,8 +50,8 @@ export default class TriangleSDF {
 
 				const material = {
 					color: obj.material.color,
-					emissive: obj.material.emissive,
-					emissiveIntensity: obj.material.emissiveIntensity
+					emissive: obj.material.emissive ?? new Color( 0, 0, 0 ),
+					emissiveIntensity: obj.material.emissiveIntensity ?? 0
 				};
 
 				const triangleCount = indices ? indices.length / 3 : positions.count / 3;
