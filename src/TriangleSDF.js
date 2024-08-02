@@ -59,7 +59,7 @@ export default class TriangleSDF {
 				box.copy( geometry.boundingBox ).applyMatrix4( obj.matrixWorld );
 
 				this.meshInfos.push( {
-					firstTriangleIndex: this.triangles.length,
+					firstTriangleIndex: startIndex,
 					numTriangles: triangleCount,
 					material,
 					boundsMin: box.min,

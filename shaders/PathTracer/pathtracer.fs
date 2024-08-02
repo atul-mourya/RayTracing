@@ -125,6 +125,62 @@ vec3 Trace(Ray ray, inout uint rngState) {
 	return incomingLight;
 }
 
+vec4 debugNormals( Ray ray ) {
+
+	vec4 color = vec4(0.0);
+
+	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
+		HitInfo closestHit;
+		closestHit.didHit = false;
+		closestHit.dst = 1e20f; // A large value
+		MeshInfo meshInfo = getMeshInfo(meshIndex);
+		for(int i = 0; i < meshInfo.numTriangles; i ++) {
+
+			int triangleIndex = meshInfo.firstTriangleIndex + i;
+			vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 0);
+			vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 1);
+			vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 2);
+
+			vec3 n = normalize(vec3(v0.w, v1.w, v2.w));
+
+			Triangle tri;
+			tri.posA = v0.xyz;
+			tri.posB = v1.xyz;
+			tri.posC = v2.xyz;
+			tri.normal = n;
+			tri.material = meshInfo.material;
+
+			HitInfo hitInfo = RayTriangle(ray, tri);
+			if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
+				color = vec4(n, 1.0);
+
+			}
+		}
+	}
+
+	return color;
+}
+
+vec4 debugBoundingBox( Ray ray ) {
+	vec4 color = vec4(0.0);
+	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
+		
+		MeshInfo meshInfo = getMeshInfo(meshIndex);
+		HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
+		
+		// Output the direction of the ray for debugging
+		vec3 rayDir = ray.direction * 0.5 + 0.5; // Normalize to [0, 1] range for color display
+
+		// Debugging output
+		if (boxHit.didHit) {
+			color += vec4(rayDir, 1.0); // Show ray direction if box hit
+		} else {
+			color += vec4(0.0, 0.0, 0.0, 1.0); // Black if no box hit
+		}
+	}
+	return color;
+}
+
 void main() {
 	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0f - 1.0f;
 
@@ -138,52 +194,8 @@ void main() {
 	vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
 	gl_FragColor = vec4(pixColor, 1.0f);
 	
+	// gl_FragColor = debugBoundingBox(ray);
+	// gl_FragColor = debugNormals(ray);
 
-	// // Debugging the RayIntersectsBox function with a known box
-	// for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
-		
-	// 	MeshInfo meshInfo = getMeshInfo(meshIndex);
-	// 	HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
-		
-	// 	// Output the direction of the ray for debugging
-	// 	vec3 rayDir = ray.direction * 0.5 + 0.5; // Normalize to [0, 1] range for color display
-
-	// 	// Debugging output
-	// 	if (boxHit.didHit) {
-	// 		gl_FragColor += vec4(rayDir, 1.0); // Show ray direction if box hit
-	// 	} else {
-	// 		gl_FragColor += vec4(0.0, 0.0, 0.0, 1.0); // Black if no box hit
-	// 	}
-	// }
-
-	// Debugging the RayIntersectsBox function with a known box
-	// for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
-	// 	HitInfo closestHit;
-	// 	closestHit.didHit = false;
-	// 	closestHit.dst = 1e20f; // A large value
-	// 	MeshInfo meshInfo = getMeshInfo(meshIndex);
-	// 	for(int i = 0; i < 10; i ++) {
-
-	// 		int triangleIndex = meshInfo.firstTriangleIndex + i;
-	// 		vec4 v0 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 0);
-	// 		vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 1);
-	// 		vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 2);
-
-	// 		vec3 n = normalize(vec3(v0.w, v1.w, v2.w));
-
-	// 		Triangle tri;
-	// 		tri.posA = v0.xyz;
-	// 		tri.posB = v1.xyz;
-	// 		tri.posC = v2.xyz;
-	// 		tri.normal = n;
-	// 		tri.material = meshInfo.material;
-
-	// 		HitInfo hitInfo = RayTriangle(ray, tri);
-	// 		if(hitInfo.didHit && hitInfo.dst < closestHit.dst) {
-	// 			gl_FragColor = vec4(n, 1.0);
-
-	// 		}
-	// 	}
-	// }
 
 }
