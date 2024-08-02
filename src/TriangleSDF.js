@@ -1,4 +1,4 @@
-import { Vector3, DataTexture, RGBAFormat, FloatType, Box3, Triangle, Color } from "three";
+import { Vector3, DataTexture, RGBAFormat, FloatType, Box3, Color } from "three";
 
 Vector3.prototype.toFixed = function ( num ) {
 
@@ -33,7 +33,6 @@ export default class TriangleSDF {
 		const posB = new Vector3();
 		const posC = new Vector3();
 		const normal = new Vector3();
-		const triangle = new Triangle();
 
 		object.traverse( obj => {
 
@@ -90,8 +89,7 @@ export default class TriangleSDF {
 					posB.applyMatrix4( obj.matrixWorld );
 					posC.applyMatrix4( obj.matrixWorld );
 
-					triangle.set( posA, posB, posC );
-					triangle.getNormal( normal );
+					normal.crossVectors( posB.clone().sub( posA ), posC.clone().sub( posA ) ).normalize();
 
 					this.triangles.push( {
 						posA: posA.clone(),
