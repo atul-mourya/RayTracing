@@ -19,31 +19,33 @@ uniform Sphere spheres[ MAX_SPHERE_COUNT ];
 
 
 vec4 getTriangleVertex(sampler2D tex, vec2 texSize, int triangleIndex, int vertexIndex) {
-    float trianglesPerRow = texSize.x / 3.0;
-    float row = floor(float(triangleIndex) / trianglesPerRow);
-    float col = mod(float(triangleIndex), trianglesPerRow);
-    vec2 uv = vec2((col * 3.0 + float(vertexIndex)) / texSize.x, row / texSize.y);
-    return texture(tex, uv);
+    int pixelIndex = triangleIndex * 3 + vertexIndex;
+    int x = pixelIndex % int(texSize.x);
+    int y = pixelIndex / int(texSize.x);
+    return texelFetch(tex, ivec2(x, y), 0);
 }
 
 MeshInfo getMeshInfo(int index) {
-	vec2 uv = vec2(float(index) + 0.5f, 0.5f) / meshInfoTexSize;
-	vec4 info1 = texture(meshInfoTexture, uv);
-	vec4 info2 = texture(meshInfoTexture, uv + vec2(1.0f / meshInfoTexSize.x, 0.0f));
-	vec4 info3 = texture(meshInfoTexture, uv + vec2(2.0f / meshInfoTexSize.x, 0.0f));
-	vec4 info4 = texture(meshInfoTexture, uv + vec2(3.0f / meshInfoTexSize.x, 0.0f));
-	vec4 info5 = texture(meshInfoTexture, uv + vec2(4.0f / meshInfoTexSize.x, 0.0f));
-
-	MeshInfo meshInfo;
-	meshInfo.firstTriangleIndex = int(info1.x);
-	meshInfo.numTriangles = int(info1.y);
-	meshInfo.material.color = info2.rgb;
-	meshInfo.material.emissive = info3.rgb;
-	meshInfo.material.emissiveIntensity = info3.a;
-	meshInfo.boundsMin = info4.rgb;
-	meshInfo.boundsMax = info5.rgb;
-
-	return meshInfo;
+	int pixelIndex = index * 5;
+    int x = pixelIndex % int(meshInfoTexSize.x);
+    int y = pixelIndex / int(meshInfoTexSize.x);
+    
+    MeshInfo info;
+    vec4 data1 = texelFetch(meshInfoTexture, ivec2(x + 0, y), 0);
+    vec4 data2 = texelFetch(meshInfoTexture, ivec2(x + 1, y), 0);
+    vec4 data3 = texelFetch(meshInfoTexture, ivec2(x + 2, y), 0);
+    vec4 data4 = texelFetch(meshInfoTexture, ivec2(x + 3, y), 0);
+    vec4 data5 = texelFetch(meshInfoTexture, ivec2(x + 4, y), 0);
+    
+    info.firstTriangleIndex = int(data1.x);
+    info.numTriangles = int(data1.y);
+    info.material.color = data2.rgb;
+    info.material.emissive = data3.rgb;
+    info.material.emissiveIntensity = data3.a;
+    info.boundsMin = data4.xyz;
+    info.boundsMax = data5.xyz;
+    
+    return info;
 }
 
 HitInfo CalculateRayCollision(Ray ray) {
@@ -73,13 +75,11 @@ HitInfo CalculateRayCollision(Ray ray) {
 			vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 1);
 			vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 2);
 
-			vec3 n = normalize(vec3(v0.w, v1.w, v2.w));
-
 			Triangle tri;
 			tri.posA = v0.xyz;
 			tri.posB = v1.xyz;
 			tri.posC = v2.xyz;
-			tri.normal = n;
+			tri.normal = v0.w == 0.0 ? vec3(v0.w, v1.w, v2.w) : normalize(cross(tri.posB - tri.posA, tri.posC - tri.posA));
 			tri.material = meshInfo.material;
 
 			HitInfo hitInfo = RayTriangle(ray, tri);
@@ -166,23 +166,16 @@ vec4 debugBoundingBox( Ray ray ) {
 	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
 		
 		MeshInfo meshInfo = getMeshInfo(meshIndex);
-		HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
-		
-		// Output the direction of the ray for debugging
 		vec3 rayDir = ray.direction * 0.5 + 0.5; // Normalize to [0, 1] range for color display
-
-		// Debugging output
-		if (boxHit.didHit) {
+		if (RayBoundingBox( ray, meshInfo.boundsMin, meshInfo.boundsMax)) {
 			color += vec4(rayDir, 1.0); // Show ray direction if box hit
-		} else {
-			color += vec4(0.0, 0.0, 0.0, 1.0); // Black if no box hit
 		}
 	}
 	return color;
 }
 
 void main() {
-	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0f - 1.0f;
+	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
 
 	Ray ray = generateRay(ndc);
 	uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;

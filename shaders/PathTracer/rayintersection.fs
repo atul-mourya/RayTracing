@@ -89,3 +89,15 @@ HitInfo RayIntersectsBox(Ray ray, vec3 minBB, vec3 maxBB) {
 
 	return hitInfo;
 }
+
+// Thanks to https://gist.github.com/DomNomNom/46bb1ce47f68d255fd5d
+bool RayBoundingBox(Ray ray, vec3 boxMin, vec3 boxMax) {
+	vec3 invDir = 1.0 / ray.direction;
+	vec3 tMin = (boxMin - ray.origin) * invDir;
+	vec3 tMax = (boxMax - ray.origin) * invDir;
+	vec3 t1 = min(tMin, tMax);
+	vec3 t2 = max(tMin, tMax);
+	float tNear = max(max(t1.x, t1.y), t1.z);
+	float tFar = min(min(t2.x, t2.y), t2.z);
+	return tNear <= tFar;
+}
