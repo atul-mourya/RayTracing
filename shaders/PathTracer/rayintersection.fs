@@ -18,29 +18,39 @@ Ray generateRay(vec2 uv) {
 // Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
 // Thanks to https://stackoverflow.com/a/42752998
 HitInfo RayTriangle(Ray ray, Triangle tri) {
-	vec3 edgeAB = tri.posB - tri.posA;
-	vec3 edgeAC = tri.posC - tri.posA;
-	vec3 normalVector = cross(edgeAB, edgeAC);
-	vec3 ao = ray.origin - tri.posA;
-	vec3 dao = cross(ao, ray.direction);
+	HitInfo result;
+    result.didHit = false;
+    result.dst = 1.0e20;
 
-	float determinant = - dot(ray.direction, normalVector);
-	float invDet = 1.0f / determinant;
+    vec3 edge1 = tri.posB - tri.posA;
+    vec3 edge2 = tri.posC - tri.posA;
+    vec3 h = cross(ray.direction, edge2);
+    float a = dot(edge1, h);
 
-    // Calculate distance to triangle & barycentric coordinates of intersection point
-	float dst = dot(ao, normalVector) * invDet;
-	float u = dot(edgeAC, dao) * invDet;
-	float v = - dot(edgeAB, dao) * invDet;
-	float w = 1.0f - u - v;
+    if (abs(a) < 1e-6) return result; // Ray is parallel to the triangle
 
-    // Initialize hit info
-	HitInfo hitInfo;
-	hitInfo.didHit = determinant >= 1E-6f && dst >= 0.0f && u >= 0.0f && v >= 0.0f && w >= 0.0f;
-	hitInfo.hitPoint = ray.origin + ray.direction * dst;
-	hitInfo.normal = normalize( tri.normal );
-	hitInfo.dst = dst;
-	hitInfo.material = tri.material;
-	return hitInfo;
+    float f = 1.0 / a;
+    vec3 s = ray.origin - tri.posA;
+    float u = f * dot(s, h);
+
+    if (u < 0.0 || u > 1.0) return result;
+
+    vec3 q = cross(s, edge1);
+    float v = f * dot(ray.direction, q);
+
+    if (v < 0.0 || u + v > 1.0) return result;
+
+    float t = f * dot(edge2, q);
+
+    if (t > 1e-6 && t < result.dst) {
+		result.didHit = true;
+		result.dst = t;
+		result.hitPoint = ray.origin + t * ray.direction;
+		result.normal = tri.normal;
+		result.material = tri.material;
+	}
+
+    return result;
 }
 
 HitInfo RaySphere(Ray ray, Sphere sphere) {

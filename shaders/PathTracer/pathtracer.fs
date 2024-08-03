@@ -63,8 +63,7 @@ HitInfo CalculateRayCollision(Ray ray) {
 	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
 		
 		MeshInfo meshInfo = getMeshInfo(meshIndex);
-		HitInfo boxHit = RayIntersectsBox(ray, meshInfo.boundsMin, meshInfo.boundsMax);
-		if (!boxHit.didHit) {
+		if (!RayBoundingBox(ray, meshInfo.boundsMin, meshInfo.boundsMax)) {
 			continue;
 		}
 
@@ -75,11 +74,13 @@ HitInfo CalculateRayCollision(Ray ray) {
 			vec4 v1 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 1);
 			vec4 v2 = getTriangleVertex(triangleTexture, triangleTexSize, triangleIndex, 2);
 
+			vec3 n = normalize(vec3(v0.w, v1.w, v2.w));
+
 			Triangle tri;
 			tri.posA = v0.xyz;
 			tri.posB = v1.xyz;
 			tri.posC = v2.xyz;
-			tri.normal = v0.w == 0.0 ? vec3(v0.w, v1.w, v2.w) : normalize(cross(tri.posB - tri.posA, tri.posC - tri.posA));
+			tri.normal = n;
 			tri.material = meshInfo.material;
 
 			HitInfo hitInfo = RayTriangle(ray, tri);

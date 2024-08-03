@@ -56,7 +56,7 @@ function createCornellBox() {
 
 	const planeParams = [
 		{
-			name: 'Floor', material: materials.red,
+			name: 'Floor', material: materials.white,
 			width: 5, height: 5,
 			position: { x: 0, y: 0, z: 0 },
 			rotation: { x: - Math.PI / 2, y: 0, z: 0 },
@@ -74,7 +74,7 @@ function createCornellBox() {
 			rotation: { x: 0, y: 0, z: 0 },
 		},
 		{
-			name: 'LeftWall', material: materials.white,
+			name: 'LeftWall', material: materials.red,
 			width: 5, height: 5,
 			position: { x: - 2.5, y: 2.5, z: 0 },
 			rotation: { x: 0, y: Math.PI / 2, z: 0 },
@@ -152,8 +152,8 @@ async function init() {
 	const meshes = await loadGLTFModel();
 	scene.add( meshes );
 
-	const cornellBox = createCornellBox();
-	cornellBox.forEach( mesh => scene.add( mesh ) );
+	// const cornellBox = createCornellBox();
+	// cornellBox.forEach( mesh => scene.add( mesh ) );
 
 	const triangleSDF = new TriangleSDF( scene );
 	const spheres = createSpheres();

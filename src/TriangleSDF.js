@@ -33,6 +33,7 @@ export default class TriangleSDF {
 		const posB = new Vector3();
 		const posC = new Vector3();
 		const normal = new Vector3();
+		const tempNormal = new Vector3();
 
 		object.traverse( obj => {
 
@@ -58,6 +59,7 @@ export default class TriangleSDF {
 				box.copy( geometry.boundingBox ).applyMatrix4( obj.matrixWorld );
 
 				this.meshInfos.push( {
+					name: obj.name,
 					firstTriangleIndex: startIndex,
 					numTriangles: triangleCount,
 					material,
@@ -89,7 +91,8 @@ export default class TriangleSDF {
 					posB.applyMatrix4( obj.matrixWorld );
 					posC.applyMatrix4( obj.matrixWorld );
 
-					normal.crossVectors( posB.clone().sub( posA ), posC.clone().sub( posA ) ).normalize();
+					tempNormal.crossVectors( posB.clone().sub( posA ), posC.clone().sub( posA ) ).normalize();
+					normal.copy( tempNormal ).transformDirection( obj.matrixWorld );
 
 					this.triangles.push( {
 						posA: posA.clone(),
