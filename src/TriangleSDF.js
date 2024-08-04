@@ -26,6 +26,7 @@ export default class TriangleSDF {
 	extractTrianglesFromMeshes( object ) {
 
 		let startIndex = 0;
+		let meshIndex = 0;
 		this.meshInfos = [];
 		this.triangleMaterialIndices = [];
 
@@ -37,7 +38,7 @@ export default class TriangleSDF {
 
 		object.traverse( obj => {
 
-		  if ( obj.isMesh ) {
+		  if ( obj.isMesh && obj.name !== "Front" ) {
 
 				obj.updateMatrix();
 				obj.updateMatrixWorld();
@@ -46,28 +47,7 @@ export default class TriangleSDF {
 				const positions = geometry.attributes.position;
 				const indices = geometry.index ? geometry.index.array : null;
 
-				geometry.computeBoundingBox();
-
-				const material = {
-					color: obj.material.color,
-					emissive: obj.material.emissive ?? new Color( 0, 0, 0 ),
-					emissiveIntensity: obj.material.emissiveIntensity ?? 0
-				};
-
 				const triangleCount = indices ? indices.length / 3 : positions.count / 3;
-				const box = new Box3();//.setFromObject( obj );
-				box.copy( geometry.boundingBox ).applyMatrix4( obj.matrixWorld );
-
-				this.meshInfos.push( {
-					name: obj.name,
-					firstTriangleIndex: startIndex,
-					numTriangles: triangleCount,
-					material,
-					boundsMin: box.min,
-					boundsMax: box.max
-				} );
-
-				console.log( `Mesh: ${obj.name || 'unnamed'}, Triangles: ${triangleCount}` );
 
 				for ( let i = 0; i < triangleCount; i ++ ) {
 
@@ -100,11 +80,14 @@ export default class TriangleSDF {
 						posC: posC.clone(),
 						normal: normal.clone()
 					} );
-					this.triangleMaterialIndices.push( this.meshInfos.length - 1 );
+					this.triangleMaterialIndices.push( meshIndex );
 
 				}
 
+				const meshInfo = this.extractMeshInfos( obj, startIndex, triangleCount );
+				this.meshInfos.push( meshInfo );
 				startIndex += triangleCount;
+				meshIndex ++;
 
 			}
 
@@ -115,6 +98,30 @@ export default class TriangleSDF {
 		console.log( this.triangles );
 
 	}
+
+	extractMeshInfos( object, startIndex, triangleCount ) {
+
+		const material = {
+			color: object.material.color,
+			emissive: object.material.emissive ?? new Color( 0, 0, 0 ),
+			emissiveIntensity: object.material.emissiveIntensity ?? 0,
+			roughness: object.material.roughness ?? 1.0,
+			metalness: object.material.metalness ?? 0.0
+		};
+
+		const box = new Box3().setFromObject( object );
+
+		return {
+			name: object.name,
+			firstTriangleIndex: startIndex,
+			numTriangles: triangleCount,
+			material,
+			boundsMin: box.min,
+			boundsMax: box.max
+		};
+
+	}
+
 
 	createTriangleDataTexture( triangles ) {
 

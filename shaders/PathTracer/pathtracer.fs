@@ -105,8 +105,6 @@ vec3 Trace(Ray ray, inout uint rngState) {
 
 		if(hitInfo.didHit) {
 
-			vec3 randomDir = normalize(hitInfo.normal + RandomDirection(rngState));
-			randomDir = randomDir * sign(dot(hitInfo.normal, randomDir));
 			RayTracingMaterial material = hitInfo.material;
 
 			vec3 emittedLight = material.emissive * material.emissiveIntensity;
@@ -115,10 +113,12 @@ vec3 Trace(Ray ray, inout uint rngState) {
 
 			// arrange data for next bounce
 			ray.origin = hitInfo.hitPoint;
-			ray.direction = randomDir;
+			vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
+			vec3 specularDir = reflect(ray.direction, hitInfo.normal);
+			ray.direction = lerp(diffuseDir, specularDir, hitInfo.material.roughness);
 
 		} else {
-			incomingLight = GetEnvironmentLight(ray) * rayColor;
+			// incomingLight = GetEnvironmentLight(ray) * rayColor;
 			break;
 		}
 
@@ -165,7 +165,6 @@ vec4 debugNormals( Ray ray ) {
 vec4 debugBoundingBox( Ray ray ) {
 	vec4 color = vec4(0.0);
 	for(int meshIndex = 0; meshIndex < MAX_MESH_COUNT; meshIndex ++) {
-		
 		MeshInfo meshInfo = getMeshInfo(meshIndex);
 		vec3 rayDir = ray.direction * 0.5 + 0.5; // Normalize to [0, 1] range for color display
 		if (RayBoundingBox( ray, meshInfo.boundsMin, meshInfo.boundsMax)) {
