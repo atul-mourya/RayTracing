@@ -20,6 +20,23 @@ export default class TriangleSDF {
 		this.extractTrianglesFromMeshes( object );
 		this.triangleTexture = this.createTriangleDataTexture( this.triangles );
 		this.meshInfoTexture = this.createMeshInfoDataTexture( this.meshInfos );
+		this.spheres = this.createSpheres();
+
+	}
+
+	createSpheres() {
+
+		let white = new Color( 0xffffff );
+		let black = new Color( 0x000000 );
+		return [
+			{ position: new Vector3( - 4, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0, specularColor: white, specularProbability: 1.0 } },
+			{ position: new Vector3( - 1.5, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0, specularColor: white, specularProbability: 0.5 } },
+			{ position: new Vector3( 1.5, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0, specularColor: white, specularProbability: 0.15 } },
+			{ position: new Vector3( 4, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0, specularColor: white, specularProbability: 0.02 } },
+
+			// { position: new Vector3( 0, 2, 0 ), radius: 1, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0, specularColor: white, specularProbability: 1.0 } },
+
+		];
 
 	}
 
@@ -106,7 +123,9 @@ export default class TriangleSDF {
 			emissive: object.material.emissive ?? new Color( 0, 0, 0 ),
 			emissiveIntensity: object.material.emissiveIntensity ?? 0,
 			roughness: object.material.roughness ?? 1.0,
-			metalness: object.material.metalness ?? 0.0
+			metalness: object.material.metalness ?? 0.0,
+			specularProbability: 0.0,
+			specularColor: object.material.specularColor ?? object.material.color,
 		};
 
 		const box = new Box3().setFromObject( object );

@@ -3,7 +3,8 @@ struct RayTracingMaterial {
 	vec3 emissive;
 	float emissiveIntensity;
 	float roughness;
-	float metalness;
+	vec3 specularColor;
+	float specularProbability;
 };
 
 struct Sphere {

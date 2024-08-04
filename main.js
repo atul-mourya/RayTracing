@@ -36,85 +36,78 @@ async function loadGLTFModel() {
 
 }
 
-function createSpheres() {
-
-	return [
-		{ position: new Vector3( - 4, 2, 0 ), radius: 0.8, material: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.9 } ) },
-		{ position: new Vector3( - 1.5, 2, 0 ), radius: 0.8, material: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.6 } ) },
-		{ position: new Vector3( 1.5, 2, 0 ), radius: 0.8, material: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3 } ) },
-		{ position: new Vector3( 4, 2, 0 ), radius: 0.8, material: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0 } ) },
-		// { position: new Vector3( 3, 0, 0 ), radius: 1.0, material: new MeshStandardMaterial( { color: 0x00ff00, emissive: 0xffffff, emissiveIntensity: 0 } ) },
-		// { position: new Vector3( - 3, 0, 0 ), radius: 1.0, material: new MeshStandardMaterial( { color: 0x0000ff, emissive: 0xffffff, emissiveIntensity: 0 } ) },
-		// { position: new Vector3( 0, - 26, 0 ), radius: 25.0, material: { color: new Color( 0.9, 0.9, 0.9 ), emissive: new Color( 1, 1, 1 ), emissiveIntensity: 0.0 } },
-	];
-
-}
-
 function createCornellBox() {
 
 	const materials = {
-		floor: new MeshStandardMaterial( { color: 0xffffff, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
-		white: new MeshStandardMaterial( { color: 0xffffff, emissive: 0x000000, emissiveIntensity: 0, roughness: 1 } ),
-		red: new MeshStandardMaterial( { color: 0xff0000, emissive: 0x000000, emissiveIntensity: 0, roughness: 1 } ),
-		green: new MeshStandardMaterial( { color: 0x00ff00, emissive: 0x000000, emissiveIntensity: 0, roughness: 1 } ),
-		light: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 4, roughness: 1 } )
+		floor: new MeshStandardMaterial( { color: 0xffffff, emissive: 0x000000, emissiveIntensity: 0, roughness: 1 } ),
+		white: new MeshStandardMaterial( { color: 0xffffff, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
+		red: new MeshStandardMaterial( { color: 0xff0000, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
+		green: new MeshStandardMaterial( { color: 0x00ff00, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
+		light: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 4, roughness: 0 } )
 	};
+
+	const width = 12;
+	const height = 5;
+	const depth = 10;
+	const thickness = 0.1;
+
+	const dummySize = 0.1;
 
 	const boxParams = [
 		{
 			name: 'Floor', material: materials.floor, meshType: 'box',
-			width: 12, height: 0.1, depth: 5,
+			width, height: thickness, depth,
 			position: { x: 0, y: 0, z: 0 }
 		},
 		{
 			name: 'Ceiling', material: materials.white, meshType: 'box',
-			width: 12, height: 0.1, depth: 5,
-			position: { x: 0, y: 5, z: 0 }
+			width, height: thickness, depth,
+			position: { x: 0, y: height, z: 0 }
 		},
 		{
 			name: 'BackWall', material: materials.white, meshType: 'box',
-			width: 12, height: 5, depth: 0.1,
-			position: { x: 0, y: 2.5, z: - 2.5 }
+			width, height, depth: thickness,
+			position: { x: 0, y: height / 2, z: - depth / 2 }
 		},
 		{
 			name: 'LeftWall', material: materials.red, meshType: 'box',
-			width: 0.1, height: 5, depth: 5,
-			position: { x: - 6, y: 2.5, z: 0 }
+			width: thickness, height, depth,
+			position: { x: - width / 2, y: height / 2, z: 0 }
 		},
 		{
 			name: 'RightWall', material: materials.green, meshType: 'box',
-			width: 0.1, height: 5, depth: 5,
-			position: { x: 6, y: 2.5, z: 0 }
+			width: thickness, height, depth,
+			position: { x: width / 2, y: height / 2, z: 0 }
 		},
-		// {
-		// 	name: 'FrontWall', material: materials.white, meshType: 'plane',
-		// 	width: 5, height: 5, depth: 0.1,
-		// 	position: { x: 0, y: 2.5, z: 2.5 }
-		// },
+		{
+			name: 'FrontWall', material: materials.white, meshType: 'box',
+			width, height, depth: thickness,
+			position: { x: 0, y: height / 2, z: depth / 2 }
+		},
 		{
 			name: 'Light', material: materials.light, meshType: 'box',
-			width: 2, height: 0.1, depth: 1,
-			position: { x: 0, y: 4.9, z: 0 }
+			width: 2, height: thickness, depth: 1,
+			position: { x: 0, y: height - thickness, z: 0 }
 		},
 		{
 			name: 'Dummy1', material: materials.white, meshType: 'box',
-			width: 0.1, height: 0.1, depth: 0.1,
-			position: { x: 0, y: 0.1, z: 0 }
+			width: dummySize, height: dummySize, depth: dummySize,
+			position: { x: 0, y: dummySize, z: 0 }
 		},
 		{
 			name: 'Dummy2', material: materials.white, meshType: 'box',
-			width: 0.1, height: 0.1, depth: 0.1,
-			position: { x: 0.1, y: - 0.1, z: 0 }
+			width: dummySize, height: dummySize, depth: dummySize,
+			position: { x: dummySize, y: - dummySize, z: 0 }
 		},
 		{
-			name: 'Dummy', material: materials.white, meshType: 'box',
-			width: 0.1, height: 0.1, depth: 0.1,
-			position: { x: 0, y: - 0.1, z: 0.1 }
+			name: 'Dummy3', material: materials.white, meshType: 'box',
+			width: dummySize, height: dummySize, depth: dummySize,
+			position: { x: 0, y: - dummySize, z: dummySize }
 		},
 		{
-			name: 'Dummy', material: materials.white, meshType: 'box',
-			width: 0.1, height: 0.1, depth: 0.1,
-			position: { x: 0, y: - 0.1, z: 0.1 }
+			name: 'Dummy4', material: materials.white, meshType: 'box',
+			width: dummySize, height: dummySize, depth: dummySize,
+			position: { x: 0, y: - dummySize, z: dummySize }
 		},
 	];
 
@@ -143,9 +136,11 @@ function setupPane( pathTracingPass, accPass ) {
 	const pane = new Pane( { title: 'Parameters', expanded: false } );
 	pane.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'bounce', min: 1, max: 5, step: 1 } );
 	pane.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'rays per pixel', min: 1, max: 20, step: 1 } );
-	pane.addBinding( pathTracingPass.uniforms.spheres.value[ 0 ], 'position' );
-	pane.addBinding( pathTracingPass.uniforms.spheres.value[ 0 ].material, 'emissiveIntensity', { min: 0, max: 5 } );
-	pane.addBinding( pathTracingPass.uniforms.spheres.value[ 0 ].material, 'emissive', { color: { type: 'float' } } );
+	pane.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'env light' } );
+	pane.addBinding( pathTracingPass.uniforms.sunElevation, 'value', { label: 'sun elevation', min: - Math.PI / 2, max: Math.PI / 2 } );
+	pane.addBinding( pathTracingPass.uniforms.sunAzimuth, 'value', { label: 'sun azimuth', min: 0, max: 2 * Math.PI } );
+	pane.addBinding( pathTracingPass.uniforms.sunIntensity, 'value', { label: 'sun intensity', min: 0, max: 100 } );
+
 	pane.on( 'change', () => accPass.iteration = 0 );
 
 }
@@ -182,10 +177,9 @@ async function init() {
 	cornellBox.forEach( mesh => scene.add( mesh ) );
 
 	const triangleSDF = new TriangleSDF( scene );
-	const spheres = createSpheres();
 
 	const composer = new EffectComposer( renderer );
-	const pathTracingPass = new PathTracingShader( triangleSDF, spheres, viewPort.width, viewPort.height );
+	const pathTracingPass = new PathTracingShader( triangleSDF, viewPort.width, viewPort.height );
 	composer.addPass( pathTracingPass );
 
 	const accPass = new AccumulationPass( scene, viewPort.width, viewPort.height );

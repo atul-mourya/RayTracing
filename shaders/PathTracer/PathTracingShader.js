@@ -5,11 +5,11 @@ import VertexShader from './pathtracer.vs';
 
 class PathTracingShader extends ShaderPass {
 
-	constructor( triangleSDF, spheres = [], width, height ) {
+	constructor( sdfs, width, height ) {
 
-		let triangles = triangleSDF.triangles;
-		let triangleTexture = triangleSDF.triangleTexture || null;
-		let meshInfoTexture = triangleSDF.meshInfoTexture;
+		let triangles = sdfs.triangles;
+		let triangleTexture = sdfs.triangleTexture || null;
+		let meshInfoTexture = sdfs.meshInfoTexture;
 
 		super( {
 
@@ -17,8 +17,8 @@ class PathTracingShader extends ShaderPass {
 
 			defines: {
 				MAX_TRIANGLE_COUNT: triangles.length,
-				MAX_SPHERE_COUNT: spheres.length,
-				MAX_MESH_COUNT: triangleSDF.meshInfos.length
+				MAX_SPHERE_COUNT: sdfs.spheres.length,
+				MAX_MESH_COUNT: sdfs.meshInfos.length
 			},
 
 			uniforms: {
@@ -33,9 +33,12 @@ class PathTracingShader extends ShaderPass {
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
+				enableEnvironmentLight: { value: true },
+				sunElevation: { value: - 0.5 },
+				sunAzimuth: { value: 0.5 },
+				sunIntensity: { value: 100.0 },
 
-				spheres: { value: spheres },
-				// triangles: { value: [] },
+				spheres: { value: sdfs.spheres },
 
 				triangleTexture: { value: triangleTexture },
 				triangleTexSize: { value: triangleTexture ? new Vector2( triangleTexture.image.width, triangleTexture.image.height ) : new Vector2() },

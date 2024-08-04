@@ -53,6 +53,13 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
     return result;
 }
 
+
+#if MAX_SPHERE_COUNT > 0
+uniform Sphere spheres[MAX_SPHERE_COUNT];
+#else
+Sphere spheres[1];
+#endif
+
 HitInfo RaySphere(Ray ray, Sphere sphere) {
 	HitInfo hitInfo;
 	hitInfo.didHit = false;
