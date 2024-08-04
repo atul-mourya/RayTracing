@@ -31,7 +31,7 @@ class PathTracingShader extends ShaderPass {
 				cameraUp: { value: new Vector3() },
 
 				frame: { value: 0 },
-				maxBounceCount: { value: 2 },
+				maxBounceCount: { value: 5 },
 				numRaysPerPixel: { value: 1 },
 				enableEnvironmentLight: { value: true },
 				sunElevation: { value: - 0.5 },
