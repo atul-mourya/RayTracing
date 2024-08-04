@@ -79,11 +79,11 @@ function createCornellBox() {
 			width: thickness, height, depth,
 			position: { x: width / 2, y: height / 2, z: 0 }
 		},
-		{
-			name: 'FrontWall', material: materials.white, meshType: 'box',
-			width, height, depth: thickness,
-			position: { x: 0, y: height / 2, z: depth / 2 }
-		},
+		// {
+		// 	name: 'FrontWall', material: materials.white, meshType: 'box',
+		// 	width, height, depth: thickness,
+		// 	position: { x: 0, y: height / 2, z: depth / 2 }
+		// },
 		{
 			name: 'Light', material: materials.light, meshType: 'box',
 			width: 2, height: thickness, depth: 1,
@@ -148,7 +148,7 @@ function setupPane( pathTracingPass, accPass ) {
 async function init() {
 
 	const scene = new Scene();
-	const camera = new PerspectiveCamera( 45, viewPort.width / viewPort.height, 0.1, 1000 );
+	const camera = new PerspectiveCamera( 75, viewPort.width / viewPort.height, 0.1, 1000 );
 	camera.position.set( 0, 2.5, 5 );
 
 	const renderer = new WebGLRenderer( {
@@ -156,7 +156,7 @@ async function init() {
 		alpha: false
 	} );
 	renderer.setSize( viewPort.width, viewPort.height );
-	renderer.pixelRatio = 0.25;
+	// renderer.pixelRatio = 0.25;
 	renderer.toneMapping = ACESFilmicToneMapping;
 	document.body.appendChild( renderer.domElement );
 
@@ -185,8 +185,8 @@ async function init() {
 	const accPass = new AccumulationPass( scene, viewPort.width, viewPort.height );
 	composer.addPass( accPass );
 
-	const outputPass = new OutputPass();
-	composer.addPass( outputPass );
+	// const outputPass = new OutputPass();
+	// composer.addPass( outputPass );
 
 	setupPane( pathTracingPass, accPass );
 	controls.target.set( 0, 2.5, 0 );
@@ -196,11 +196,8 @@ async function init() {
 		requestAnimationFrame( animate );
 		controls.update();
 
-		pathTracingPass.uniforms.cameraPos.value = camera.position;
-		camera.getWorldDirection( pathTracingPass.uniforms.cameraDir.value );
-		camera.getWorldDirection( pathTracingPass.uniforms.cameraRight.value );
-		pathTracingPass.uniforms.cameraRight.value.cross( camera.up ).normalize();
-		pathTracingPass.uniforms.cameraUp.value = camera.up;
+		pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
+		pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
 
 		pathTracingPass.uniforms.frame.value ++;
 		composer.render();
@@ -216,6 +213,8 @@ async function init() {
 		renderer.setSize( viewPort.width, viewPort.height );
 		camera.updateProjectionMatrix();
 		pathTracingPass.uniforms.resolution.value.set( viewPort.width, viewPort.height );
+		pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
+		pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
 		accPass.iteration = 0;
 
 	} );

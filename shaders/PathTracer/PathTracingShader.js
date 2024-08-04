@@ -1,4 +1,4 @@
-import { Vector2, Vector3 } from 'three';
+import { Matrix4, Vector2 } from 'three';
 import { ShaderPass } from 'three/examples/jsm/Addons.js';
 import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
@@ -25,10 +25,8 @@ class PathTracingShader extends ShaderPass {
 
 				resolution: { value: new Vector2( width, height ) },
 
-				cameraPos: { value: new Vector3() },
-				cameraDir: { value: new Vector3() },
-				cameraRight: { value: new Vector3() },
-				cameraUp: { value: new Vector3() },
+				cameraWorldMatrix: { value: new Matrix4() },
+				cameraProjectionMatrixInverse: { value: new Matrix4() },
 
 				frame: { value: 0 },
 				maxBounceCount: { value: 5 },

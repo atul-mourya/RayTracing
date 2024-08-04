@@ -183,19 +183,19 @@ vec4 debugBoundingBox( Ray ray ) {
 }
 
 void main() {
-	vec2 ndc = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
+	vec2 screenPosition = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
+    
+    Ray ray = generateRayFromCamera(screenPosition);
+    uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
-	Ray ray = generateRay(ndc);
-	uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
+    vec3 totalIncomingLight = vec3(0.0);
+    for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex ++) {
+        totalIncomingLight += Trace(ray, seed);
+    }
+    vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
+    gl_FragColor = vec4(pixColor, 1.0);
 
-	vec3 totalIncomingLight = vec3(0.0);
-	for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex ++) {
-		totalIncomingLight += Trace(ray, seed);
-	}
-	vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
-	gl_FragColor = vec4(pixColor, 1.0);
-
-	// gl_FragColor = debugBoundingBox(ray);
-	// gl_FragColor = debugNormals(ray);
+    // gl_FragColor = debugBoundingBox(ray);
+    // gl_FragColor = debugNormals(ray);
 
 }

@@ -1,18 +1,26 @@
-uniform vec3 cameraPos;
-uniform vec3 cameraDir;
-uniform vec3 cameraRight;
-uniform vec3 cameraUp;
+uniform mat4 cameraWorldMatrix;
+uniform mat4 cameraProjectionMatrixInverse;
 
 struct Ray {
     vec3 origin;
     vec3 direction;
 };
 
-Ray generateRay(vec2 uv) {
-	Ray ray;
-	ray.origin = cameraPos;
-	ray.direction = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
-	return ray;
+Ray generateRayFromCamera(vec2 screenPosition) {
+    vec4 rayStart = cameraProjectionMatrixInverse * vec4(screenPosition, -1.0, 1.0);
+    vec4 rayEnd = cameraProjectionMatrixInverse * vec4(screenPosition, 1.0, 1.0);
+    
+    rayStart /= rayStart.w;
+    rayEnd /= rayEnd.w;
+    
+    vec4 worldStart = cameraWorldMatrix * rayStart;
+    vec4 worldEnd = cameraWorldMatrix * rayEnd;
+    
+    Ray ray;
+    ray.origin = worldStart.xyz;
+    ray.direction = normalize(worldEnd.xyz - worldStart.xyz);
+    
+    return ray;
 }
 
 // Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
