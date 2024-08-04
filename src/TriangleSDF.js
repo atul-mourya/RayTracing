@@ -124,8 +124,8 @@ export default class TriangleSDF {
 			emissiveIntensity: object.material.emissiveIntensity ?? 0,
 			roughness: object.material.roughness ?? 1.0,
 			metalness: object.material.metalness ?? 0.0,
-			specularProbability: 0.0,
-			specularColor: object.material.specularColor ?? object.material.color,
+			specularProbability: object.material.specularProbability ?? 0.0,
+			specularColor: object.material.specularColor ?? new Color( 1, 1, 1 ),
 		};
 
 		const box = new Box3().setFromObject( object );

@@ -27,10 +27,16 @@ const viewPort = {
 	height: 500,
 };
 
+const white = new Color( 0xffffff );
+const black = new Color( 0x000000 );
+const red = new Color( 0xff0000 );
+const green = new Color( 0x00ff00 );
+
+
 async function loadGLTFModel() {
 
 	const loader = new GLTFLoader();
-	const result = await loader.loadAsync( './model3.glb' );
+	const result = await loader.loadAsync( './model6.glb' );
 	return result.scene;
 	// return new Mesh( new TeapotGeometry( 1, 5 ), new MeshStandardMaterial( { color: 0xff0000 } ) );
 
@@ -39,19 +45,17 @@ async function loadGLTFModel() {
 function createCornellBox() {
 
 	const materials = {
-		floor: new MeshStandardMaterial( { color: 0xffffff, emissive: 0x000000, emissiveIntensity: 0, roughness: 1 } ),
-		white: new MeshStandardMaterial( { color: 0xffffff, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
-		red: new MeshStandardMaterial( { color: 0xff0000, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
-		green: new MeshStandardMaterial( { color: 0x00ff00, emissive: 0x000000, emissiveIntensity: 0, roughness: 0 } ),
-		light: new MeshStandardMaterial( { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 4, roughness: 0 } )
+		floor: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1, specularColor: white, specularProbability: 1 },
+		white: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1, specularColor: white, specularProbability: 0 },
+		red: { color: red, emissive: black, emissiveIntensity: 0, roughness: 1, specularColor: white, specularProbability: 1 },
+		green: { color: green, emissive: black, emissiveIntensity: 0, roughness: 1, specularColor: white, specularProbability: 0 },
+		light: { color: white, emissive: white, emissiveIntensity: 4, roughness: 1, specularColor: white, specularProbability: 0 }
 	};
 
 	const width = 12;
 	const height = 5;
 	const depth = 12;
 	const thickness = 0.1;
-
-	const dummySize = 0.1;
 
 	const boxParams = [
 		{
@@ -89,38 +93,7 @@ function createCornellBox() {
 			width: 2, height: thickness, depth: 1,
 			position: { x: 0, y: height - thickness, z: 0 }
 		},
-		{
-			name: 'Dummy1', material: materials.white, meshType: 'box',
-			width: dummySize, height: dummySize, depth: dummySize,
-			position: { x: 0, y: dummySize, z: 0 }
-		},
-		{
-			name: 'Dummy2', material: materials.white, meshType: 'box',
-			width: dummySize, height: dummySize, depth: dummySize,
-			position: { x: dummySize, y: - dummySize, z: 0 }
-		},
-		{
-			name: 'Dummy3', material: materials.white, meshType: 'box',
-			width: dummySize, height: dummySize, depth: dummySize,
-			position: { x: 0, y: - dummySize, z: dummySize }
-		},
-		{
-			name: 'Dummy4', material: materials.white, meshType: 'box',
-			width: dummySize, height: dummySize, depth: dummySize,
-			position: { x: 0, y: - dummySize, z: dummySize }
-		},
 	];
-
-	function createBox( type, material, width, height, depth, position, name ) {
-
-		const geometry = type === 'box' ? new BoxGeometry( width, height, depth ) : new PlaneGeometry( width, height );
-		const mesh = new Mesh( geometry, material );
-		mesh.position.set( position.x, position.y, position.z );
-		mesh.name = name;
-		return mesh;
-
-
-	}
 
 	const boxes = boxParams.map( params =>
 		createBox( params.meshType, params.material, params.width, params.height, params.depth, params.position, params.name )
@@ -129,7 +102,6 @@ function createCornellBox() {
 	return boxes;
 
 }
-
 
 function setupPane( pathTracingPass, accPass ) {
 
@@ -142,6 +114,32 @@ function setupPane( pathTracingPass, accPass ) {
 	pane.addBinding( pathTracingPass.uniforms.sunIntensity, 'value', { label: 'sun intensity', min: 0, max: 100 } );
 
 	pane.on( 'change', () => accPass.iteration = 0 );
+
+}
+
+function createDummyFailureResistenceObjects( scene, count ) {
+
+	let material = { color: white, emissive: black, emissiveIntensity: 0, roughness: 0, specularColor: white, specularProbability: 0 };
+	for ( let i = 0; i < count; i ++ ) {
+
+		let obj = createBox( 'box', material, 0.1, 0.1, 0.1, { x: 0, y: 0.1, z: 0 }, 'dummy_' + i );
+		scene.add( obj );
+
+	}
+
+}
+
+function createBox( type, mat, width, height, depth, position, name ) {
+
+	const geometry = type === 'box' ? new BoxGeometry( width, height, depth ) : new PlaneGeometry( width, height );
+	const material = new MeshStandardMaterial( mat );
+	material.specularColor = mat.specularColor ?? white;
+	material.specularProbability = mat.specularProbability ?? 0;
+	const mesh = new Mesh( geometry, material );
+	mesh.position.set( position.x, position.y, position.z );
+	mesh.name = name;
+	return mesh;
+
 
 }
 
@@ -175,6 +173,7 @@ async function init() {
 
 	const cornellBox = createCornellBox();
 	cornellBox.forEach( mesh => scene.add( mesh ) );
+	createDummyFailureResistenceObjects( scene, 4 );
 
 	const triangleSDF = new TriangleSDF( scene );
 

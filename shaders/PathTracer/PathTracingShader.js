@@ -29,7 +29,7 @@ class PathTracingShader extends ShaderPass {
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
 
 				frame: { value: 0 },
-				maxBounceCount: { value: 5 },
+				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
 				enableEnvironmentLight: { value: true },
 				sunElevation: { value: - 0.5 },
