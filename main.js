@@ -54,7 +54,7 @@ function createCornellBox() {
 
 	const width = 12;
 	const height = 5;
-	const depth = 12;
+	const depth = 6;
 	const thickness = 0.1;
 
 	const boxParams = [
