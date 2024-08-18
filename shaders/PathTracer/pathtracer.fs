@@ -262,16 +262,13 @@ void visualizeBVH(Ray ray, inout vec3 color, int maxDepth) {
 
 void main() {
 
-	// vec2 screenPosition = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
-    // Ray ray = generateRayFromCamera(screenPosition);
-
-    // vec3 color = vec3(0.0);
-    // visualizeBVH(ray, color, 20);  // Visualize up to 20 levels deep
-
-    // gl_FragColor = vec4(color, 1.0);
-
-    vec2 pixelSize = 1.0 / resolution;
+	vec2 pixelSize = 1.0 / resolution;
     vec2 screenPosition = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
+
+    vec3 debugColor = vec3(0.0);
+
+    // Ray ray1 = generateRayFromCamera(screenPosition);
+    // visualizeBVH(ray1, debugColor, 20);  // Visualize up to 20 levels deep
     
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
@@ -286,5 +283,6 @@ void main() {
         totalIncomingLight += Trace(ray, seed);
     }
     vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
-    gl_FragColor = vec4(pixColor, 1.0);
+    // gl_FragColor = vec4(pixColor, 1.0);
+    gl_FragColor = mix(vec4(pixColor, 1.0), vec4(debugColor, 1.0), 0.5);
 }
