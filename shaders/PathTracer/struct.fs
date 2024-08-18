@@ -3,8 +3,8 @@ struct RayTracingMaterial {
 	vec3 emissive;
 	float emissiveIntensity;
 	float roughness;
-	vec3 specularColor;
-	float specularProbability;
+	float metalness;
+	int map;
 };
 
 struct Sphere {
@@ -19,18 +19,13 @@ struct HitInfo {
 	vec3 hitPoint;
 	vec3 normal;
 	RayTracingMaterial material;
+	vec2 uv;
 };
 
 struct Triangle {
 	vec3 posA, posB, posC;
+	vec2 uvA, uvB, uvC;
 	vec3 normal;
 	RayTracingMaterial material;
-};
-
-struct MeshInfo {
-	int firstTriangleIndex;
-	int numTriangles;
-	RayTracingMaterial material;
-	vec3 boundsMin;
-	vec3 boundsMax;
+	int materialIndex;
 };

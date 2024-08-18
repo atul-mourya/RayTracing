@@ -34,3 +34,9 @@ vec3 RandomHemiSphereDirection(vec3 normal, inout uint rngState) {
 	dir = dir * sign(dot(normal, dir));
 	return dir;
 }
+
+vec2 RandomPointInCircle(inout uint rngState) {
+    float angle = RandomValue(rngState) * 2.0 * PI;
+    vec2 pointOnCircle = vec2(cos(angle), sin(angle));
+    return pointOnCircle * sqrt(RandomValue(rngState));
+}

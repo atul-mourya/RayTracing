@@ -56,6 +56,13 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
 		result.hitPoint = ray.origin + t * ray.direction;
 		result.normal = tri.normal;
 		result.material = tri.material;
+
+		// Interpolate the UV coordinates
+        vec2 uvA = tri.uvA;
+        vec2 uvB = tri.uvB;
+        vec2 uvC = tri.uvC;
+
+        result.uv = uvA * (1.0 - u - v) + uvB * u + uvC * v;
 	}
 
     return result;
@@ -125,4 +132,27 @@ bool RayBoundingBox(Ray ray, vec3 boxMin, vec3 boxMax) {
 	float tNear = max(max(t1.x, t1.y), t1.z);
 	float tFar = min(min(t2.x, t2.y), t2.z);
 	return tNear <= tFar;
+}
+
+float RayBoundingBoxDst(Ray ray, vec3 boxMin, vec3 boxMax) {
+	vec3 invDir = 1.0 / ray.direction;
+	vec3 tMin = (boxMin - ray.origin) * invDir;
+	vec3 tMax = (boxMax - ray.origin) * invDir;
+	vec3 t1 = min(tMin, tMax);
+	vec3 t2 = max(tMin, tMax);
+	float dstNear = max(max(t1.x, t1.y), t1.z);
+	float dstFar = min(min(t2.x, t2.y), t2.z);
+	bool didHit = dstFar >= dstNear && dstFar > 0.0;
+	return didHit ? dstNear : 1e20; // 1e20 is almost infinite
+}
+
+bool intersectAABB(Ray ray, vec3 boxMin, vec3 boxMax, out float tMin, out float tMax) {
+    vec3 invDir = 1.0 / ray.direction;
+    vec3 t0 = (boxMin - ray.origin) * invDir;
+    vec3 t1 = (boxMax - ray.origin) * invDir;
+    vec3 tNear = min(t0, t1);
+    vec3 tFar = max(t0, t1);
+    tMin = max(max(tNear.x, tNear.y), tNear.z);
+    tMax = min(min(tFar.x, tFar.y), tFar.z);
+    return tMax > tMin && tMax > 0.0;
 }
