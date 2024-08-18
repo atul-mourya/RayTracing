@@ -109,24 +109,37 @@ HitInfo traverseBVH(Ray ray) {
         int nodeIndex = stack[--stackSize];
         BVHNode node = getBVHNode(nodeIndex);
 
-        if (RayBoundingBoxDst(ray, node.boundsMin, node.boundsMax) < closestHit.dst) {
-            
-			if (node.leftChild < 0.0) { // Leaf node
-				for (int i = 0; i < int(node.triOffset.y); i++) {
-					int triIndex = int(node.triOffset.x) + i;
-					Triangle tri = getTriangle(triIndex);
-					HitInfo hit = RayTriangle(ray, tri);
-					if (hit.didHit && hit.dst < closestHit.dst) {
-						closestHit = hit;
-						closestHit.material = getMaterial(tri.materialIndex);
-					}
+		if (node.leftChild < 0.0) { // Leaf node
+			for (int i = 0; i < int(node.triOffset.y); i++) {
+				int triIndex = int(node.triOffset.x) + i;
+				Triangle tri = getTriangle(triIndex);
+				HitInfo hit = RayTriangle(ray, tri);
+				if (hit.didHit && hit.dst < closestHit.dst) {
+					closestHit = hit;
+					closestHit.material = getMaterial(tri.materialIndex);
 				}
-			} else {
-				stack[stackSize++] = int(node.rightChild);
-				stack[stackSize++] = int(node.leftChild);
 			}
+		} else {
 
+			int childAIndex = int(node.leftChild);
+			int childBIndex = int(node.rightChild);
+
+			BVHNode childA = getBVHNode(childAIndex);
+			BVHNode childB = getBVHNode(childBIndex);
+
+			float dstA = RayBoundingBoxDst(ray, childA.boundsMin, childA.boundsMax);
+			float dstB = RayBoundingBoxDst(ray, childB.boundsMin, childB.boundsMax);
+
+			// we want closest child to be looked at first, so it should be pushed last
+			if (dstA > dstB) {
+				if (dstB < closestHit.dst) stack[stackSize++] = childBIndex;
+				if (dstA < closestHit.dst) stack[stackSize++] = childAIndex;
+			} else {
+				if (dstA < closestHit.dst) stack[stackSize++] = childAIndex;
+				if (dstB < closestHit.dst) stack[stackSize++] = childBIndex;
+			}
 		}
+
     }
 
     return closestHit;
