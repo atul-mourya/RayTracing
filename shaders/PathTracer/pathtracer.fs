@@ -36,9 +36,9 @@ vec3 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
 
 struct BVHNode {
     vec3 boundsMin;
-    float leftChild;
+    int leftChild;
     vec3 boundsMax;
-    float rightChild;
+    int rightChild;
     vec2 triOffset;
     vec2 padding;
 };
@@ -50,9 +50,9 @@ BVHNode getBVHNode(int index) {
 
     BVHNode node;
     node.boundsMin = data1.xyz;
-    node.leftChild = data1.w;
+    node.leftChild = int(data1.w);
     node.boundsMax = data2.xyz;
-    node.rightChild = data2.w;
+    node.rightChild = int(data2.w);
     node.triOffset = data3.xy;
     return node;
 }
@@ -109,7 +109,7 @@ HitInfo traverseBVH(Ray ray) {
         int nodeIndex = stack[--stackSize];
         BVHNode node = getBVHNode(nodeIndex);
 
-		if (node.leftChild < 0.0) { // Leaf node
+		if (node.leftChild < 0) { // Leaf node
 			for (int i = 0; i < int(node.triOffset.y); i++) {
 				int triIndex = int(node.triOffset.x) + i;
 				Triangle tri = getTriangle(triIndex);
@@ -121,8 +121,8 @@ HitInfo traverseBVH(Ray ray) {
 			}
 		} else {
 
-			int childAIndex = int(node.leftChild);
-			int childBIndex = int(node.rightChild);
+			int childAIndex = node.leftChild;
+			int childBIndex = node.rightChild;
 
 			BVHNode childA = getBVHNode(childAIndex);
 			BVHNode childB = getBVHNode(childBIndex);
@@ -245,14 +245,14 @@ void visualizeBVH(Ray ray, inout vec3 color, int maxDepth) {
             float alpha = 0.1 * float(maxDepth - depth) / float(maxDepth);
             color = mix(color, nodeColor, alpha);
 
-            if (node.leftChild < 0.0) {  // Leaf node
+            if (node.leftChild < 0) {  // Leaf node
                 // Visualize leaf nodes differently if desired
             } else {
-                stack[stackSize] = int(node.rightChild);
+                stack[stackSize] = node.rightChild;
                 depthStack[stackSize] = depth + 1;
                 stackSize++;
 
-                stack[stackSize] = int(node.leftChild);
+                stack[stackSize] = node.leftChild;
                 depthStack[stackSize] = depth + 1;
                 stackSize++;
             }
