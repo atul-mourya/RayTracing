@@ -101,7 +101,7 @@ HitInfo traverseBVH(Ray ray) {
     closestHit.didHit = false;
     closestHit.dst = 1e20;
 
-    int stack[64];
+    int stack[32];
     int stackSize = 0;
     stack[stackSize++] = 0; // Root node
 
@@ -130,14 +130,18 @@ HitInfo traverseBVH(Ray ray) {
 			float dstA = RayBoundingBoxDst(ray, childA.boundsMin, childA.boundsMax);
 			float dstB = RayBoundingBoxDst(ray, childB.boundsMin, childB.boundsMax);
 
+			bool isNearestA = dstA < dstB;
+			
+			float dstNear = isNearestA ? dstA : dstB;
+			float dstFar = isNearestA ? dstB : dstA;
+
+			int childIndexNear = isNearestA ? childAIndex : childBIndex;
+			int childIndexFar = isNearestA ? childBIndex : childAIndex;
+
 			// we want closest child to be looked at first, so it should be pushed last
-			if (dstA > dstB) {
-				if (dstB < closestHit.dst) stack[stackSize++] = childBIndex;
-				if (dstA < closestHit.dst) stack[stackSize++] = childAIndex;
-			} else {
-				if (dstA < closestHit.dst) stack[stackSize++] = childAIndex;
-				if (dstB < closestHit.dst) stack[stackSize++] = childBIndex;
-			}
+			if (dstFar < closestHit.dst) stack[stackSize++] = childIndexFar;
+			if (dstNear < closestHit.dst) stack[stackSize++] = childIndexNear;
+			
 		}
 
     }

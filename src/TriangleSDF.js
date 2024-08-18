@@ -183,7 +183,7 @@ export default class TriangleSDF {
 
 	}
 
-	buildBVH( depth = 0 ) {
+	buildBVH( depth = 16 ) {
 
 		const maxTrianglesPerLeaf = 6;
 		const axis = [ 'x', 'y', 'z' ];
