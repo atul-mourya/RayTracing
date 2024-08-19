@@ -175,12 +175,22 @@ vec3 fresnel(vec3 f0, float NoV, float roughness) {
     return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - NoV, 5.0);
 }
 
+float luminance( vec3 color ) {
+
+	// https://en.wikipedia.org/wiki/Relative_luminance
+	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+
+}
+
 vec3 Trace(Ray ray, inout uint rngState) {
 	vec3 incomingLight = vec3(0.0);
 	vec3 rayColor = vec3(1.0);
+	uint depth = 0u;
 
 	for(int i = 0; i <= maxBounceCount; i ++) {
 		HitInfo hitInfo = CalculateRayCollision(ray);
+
+		depth ++;
 
 		if(hitInfo.didHit) {
 			RayTracingMaterial material = hitInfo.material;
@@ -199,11 +209,9 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
 			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
 			vec3 newDir = reflect(ray.direction, H);
-            // vec3 newDir = normalize(mix(specularDir, diffuseDir, material.roughness * material.roughness));
 
             // Calculate Fresnel effect (Schlick approximation)
 			vec3 F0 = mix(vec3(0.04), albedo, material.metalness);
-			// vec3 F0 = vec3(0.04);
 			float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
 			vec3 fresnel = fresnel(F0, NoV, material.roughness);
 
@@ -214,21 +222,33 @@ vec3 Trace(Ray ray, inout uint rngState) {
             // Update ray color
             rayColor *= (diffuseColor + specularColor);
 
-            // Prepare data for the next bounce
+			// russian roulette path termination
+			// https://www.arnoldrenderer.com/research/physically_based_shader_design_in_arnold.pdf
+			uint minBounces = 3u;
+			float depthProb = float( depth < minBounces );
+
+			// float rrProb = luminance( rayColor * scatterRec.color / scatterRec.pdf );
+			float rrProb = luminance( rayColor );
+			rrProb = sqrt( rrProb );
+			rrProb = max( rrProb, depthProb );
+			rrProb = min( rrProb, 1.0 );
+			if ( RandomValue(rngState) > rrProb ) {
+
+				break;
+
+			}
+
+			// perform sample clamping here to avoid bright pixels
+			rayColor *= min( 1.0 / rrProb, 20.0 );
+
+			// Prepare data for the next bounce
 			ray.origin = hitInfo.hitPoint + hitInfo.normal * 0.001; // Slight offset to prevent self-intersection
 			ray.direction = newDir;
 
-			// Random early exit if ray colour is nearly 0 (can't contribute much to final result)
-			float p = max(rayColor.r, max(rayColor.g, rayColor.b));
-			if (RandomValue(rngState) >= p) {
-				break;
-			}
-			rayColor *= 1.0 / p; 
-
 		} else {
             // If no hit, gather environment light
-			// incomingLight += GetEnvironmentLight(ray) * rayColor;
-			incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor;
+			incomingLight += GetEnvironmentLight(ray) * rayColor;
+			// incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor;
 			break;
 		}
 	}
