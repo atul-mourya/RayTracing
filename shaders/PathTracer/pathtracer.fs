@@ -153,6 +153,28 @@ HitInfo CalculateRayCollision(Ray ray) {
     return traverseBVH(ray);
 }
 
+vec3 sampleGGX(vec3 N, float roughness, vec2 Xi) {
+    float a = roughness * roughness;
+    float phi = 2.0 * PI * Xi.x;
+    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    
+    vec3 H;
+    H.x = sinTheta * cos(phi);
+    H.y = sinTheta * sin(phi);
+    H.z = cosTheta;
+    
+    vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangentX = normalize(cross(up, N));
+    vec3 tangentY = cross(N, tangentX);
+    
+    return tangentX * H.x + tangentY * H.y + N * H.z;
+}
+
+vec3 fresnel(vec3 f0, float NoV, float roughness) {
+    return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - NoV, 5.0);
+}
+
 vec3 Trace(Ray ray, inout uint rngState) {
 	vec3 incomingLight = vec3(0.0);
 	vec3 rayColor = vec3(1.0);
@@ -173,13 +195,17 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
 			vec3 specularDir = reflect(ray.direction, hitInfo.normal);
             
-            // Interpolate between diffuse and specular based on roughness
-            vec3 newDir = normalize(mix(specularDir, diffuseDir, material.roughness * material.roughness));
+            // Compute Normal Distribution function using GGX
+			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
+			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
+			vec3 newDir = reflect(ray.direction, H);
+            // vec3 newDir = normalize(mix(specularDir, diffuseDir, material.roughness * material.roughness));
 
             // Calculate Fresnel effect (Schlick approximation)
-            vec3 F0 = mix(vec3(0.04), albedo, material.metalness);
-            float cosTheta = max(dot(hitInfo.normal, -ray.direction), 0.0);
-            vec3 fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+			vec3 F0 = mix(vec3(0.04), albedo, material.metalness);
+			// vec3 F0 = vec3(0.04);
+			float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
+			vec3 fresnel = fresnel(F0, NoV, material.roughness);
 
             // Combine diffuse and specular contributions
             vec3 specularColor = fresnel;
@@ -222,8 +248,8 @@ vec3 getColorForDepth(int depth) {
 }
 
 void visualizeBVH(Ray ray, inout vec3 color, int maxDepth) {
-    int stack[64];
-    int depthStack[64];
+    int stack[32];
+    int depthStack[32];
     int stackSize = 0;
     
     stack[stackSize] = 0;  // Root node
@@ -267,8 +293,7 @@ void main() {
 
     vec3 debugColor = vec3(0.0);
 
-    // Ray ray1 = generateRayFromCamera(screenPosition);
-    // visualizeBVH(ray1, debugColor, 20);  // Visualize up to 20 levels deep
+    // visualizeBVH(generateRayFromCamera(screenPosition), debugColor, 32);  // Visualize up to 20 levels deep
     
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
@@ -283,6 +308,5 @@ void main() {
         totalIncomingLight += Trace(ray, seed);
     }
     vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
-    // gl_FragColor = vec4(pixColor, 1.0);
     gl_FragColor = mix(vec4(pixColor, 1.0), vec4(debugColor, 1.0), 0.5);
 }
