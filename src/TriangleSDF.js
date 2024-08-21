@@ -31,6 +31,7 @@ export default class TriangleSDF {
 		this.triangles = [];
 		this.materials = [];
 		this.maps = [];
+		this.directionalLights = [];
 
 		this.extractTrianglesFromMeshes( object );
 		this.buildBVH();
@@ -73,7 +74,7 @@ export default class TriangleSDF {
 
 		object.traverse( obj => {
 
-		  if ( obj.isMesh ) {
+		  	if ( obj.isMesh ) {
 
 				let materialIndex = this.materials.findIndex( x => x.uuid === obj.material.uuid );
 				if ( materialIndex === - 1 ) {
@@ -172,6 +173,10 @@ export default class TriangleSDF {
 					} );
 
 				}
+
+			} else if ( obj.isDirectionalLight === true ) {
+
+				this.directionalLights.push( obj );
 
 			}
 

@@ -18,6 +18,7 @@ class PathTracingShader extends ShaderPass {
 
 			defines: {
 				MAX_SPHERE_COUNT: sdfs.spheres.length,
+				MAX_DIRECTIONAL_LIGHTS: sdfs.directionalLights.length
 			},
 
 			uniforms: {
@@ -27,6 +28,11 @@ class PathTracingShader extends ShaderPass {
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
+
+				numDirectionalLights: { value: sdfs.directionalLights.length },
+				directionalLightDirections: { value: sdfs.directionalLights.map( d => d.position.normalize() ) },
+				directionalLightColors: { value: sdfs.directionalLights.map( d => d.color ) },
+				directionalLightIntensities: { value: sdfs.directionalLights.map( d => d.intensity ) },
 
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
