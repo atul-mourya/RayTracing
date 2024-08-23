@@ -1,4 +1,5 @@
 const float PI = 3.14159f;
+const float EPSILON = 0.001;
 
 
 // Lerp function (linear interpolation)
@@ -13,6 +14,10 @@ float inverseLerp(float v, float minValue, float maxValue) {
 float remap(float v, float inMin, float inMax, float outMin, float outMax) {
   float t = inverseLerp(v, inMin, inMax);
   return mix(outMin, outMax, t);
+}
+
+vec3 sRGBToLinear(vec3 srgbColor) {
+    return pow(srgbColor, vec3(2.2));
 }
 
 vec3 linearTosRGB(vec3 value ) {

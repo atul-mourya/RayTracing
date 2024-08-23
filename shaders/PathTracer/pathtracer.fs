@@ -29,7 +29,7 @@ vec4 getDatafromDataTexture(sampler2D tex, vec2 texSize, int stride, int sampleI
 vec3 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
     int textureIndex = material.map;
     if (textureIndex >= 0) {
-        return linearTosRGB(texture(diffuseTextures, vec3(uv, float(textureIndex))).rgb);
+        return sRGBToLinear(texture(diffuseTextures, vec3(uv, float(textureIndex))).rgb);
     }
     return material.color;
 }
@@ -202,10 +202,6 @@ vec3 Trace(Ray ray, inout uint rngState) {
             incomingLight += emittedLight * rayColor;
 
             // Calculate new ray direction based on material properties
-			vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
-			vec3 specularDir = reflect(ray.direction, hitInfo.normal);
-            
-            // Compute Normal Distribution function using GGX
 			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
 			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
 			vec3 newDir = reflect(ray.direction, H);
@@ -219,15 +215,20 @@ vec3 Trace(Ray ray, inout uint rngState) {
             vec3 specularColor = fresnel;
             vec3 diffuseColor = albedo * (1.0 - material.metalness) * (vec3(1.0) - fresnel);
 
-            // Update ray color
-            rayColor *= (diffuseColor + specularColor);
+            // Probabilistically choose between diffuse and specular reflection
+            float specularProb = luminance(specularColor);
+            if (RandomValue(rngState) < specularProb) {
+                rayColor *= specularColor / specularProb;
+            } else {
+                vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
+                newDir = diffuseDir;
+                rayColor *= diffuseColor / (1.0 - specularProb);
+            }
 
 			// russian roulette path termination
 			// https://www.arnoldrenderer.com/research/physically_based_shader_design_in_arnold.pdf
 			uint minBounces = 3u;
 			float depthProb = float( depth < minBounces );
-
-			// float rrProb = luminance( rayColor * scatterRec.color / scatterRec.pdf );
 			float rrProb = luminance( rayColor );
 			rrProb = sqrt( rrProb );
 			rrProb = max( rrProb, depthProb );
