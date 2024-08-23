@@ -68,8 +68,10 @@ RayTracingMaterial getMaterial(int materialIndex) {
     material.map = int(data1.a);
     material.emissive = data2.rgb;
     material.emissiveIntensity = data2.a;
-    material.roughness = data3.x;
-    material.metalness = data3.y;
+    material.roughness = data3.r;
+    material.metalness = data3.g;
+    material.ior = data3.b;
+    material.transmission = data3.a;
 
     return material;
 }
@@ -201,7 +203,30 @@ vec3 Trace(Ray ray, inout uint rngState) {
             vec3 emittedLight = material.emissive * material.emissiveIntensity;
             incomingLight += emittedLight * rayColor;
 
-            // Calculate new ray direction based on material properties
+            // Handle transparent materials
+            if (material.transmission > 0.0) {
+                float iorRatio = dot(ray.direction, hitInfo.normal) < 0.0 ? 
+                    (1.0 / material.ior) : material.ior;
+                
+                vec3 refractionDir = refract(ray.direction, hitInfo.normal, iorRatio);
+                
+                // Calculate Fresnel for transparent material
+                float F0 = pow((material.ior - 1.0) / (material.ior + 1.0), 2.0);
+                float fresnelFactor = F0 + (1.0 - F0) * pow(1.0 - abs(dot(ray.direction, hitInfo.normal)), 5.0);
+                
+                // Probabilistically choose between reflection and refraction
+                if (RandomValue(rngState) < fresnelFactor) {
+                    // Reflection
+                    ray.direction = reflect(ray.direction, hitInfo.normal);
+                } else {
+                    // Refraction
+                    ray.direction = refractionDir;
+                }
+                
+                // Apply transparency
+                rayColor *= mix(vec3(1.0), albedo, 1.0 - material.transmission);
+            } else {
+			// Non-transparent material handling (previous code)
 			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
 			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
 			vec3 newDir = reflect(ray.direction, H);
@@ -212,17 +237,19 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			vec3 fresnel = fresnel(F0, NoV, material.roughness);
 
             // Combine diffuse and specular contributions
-            vec3 specularColor = fresnel;
-            vec3 diffuseColor = albedo * (1.0 - material.metalness) * (vec3(1.0) - fresnel);
+			vec3 specularColor = fresnel;
+			vec3 diffuseColor = albedo * (1.0 - material.metalness) * (vec3(1.0) - fresnel);
 
             // Probabilistically choose between diffuse and specular reflection
-            float specularProb = luminance(specularColor);
-            if (RandomValue(rngState) < specularProb) {
-                rayColor *= specularColor / specularProb;
-            } else {
-                vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
-                newDir = diffuseDir;
-                rayColor *= diffuseColor / (1.0 - specularProb);
+				float specularProb = luminance(specularColor);
+				if (RandomValue(rngState) < specularProb) {
+					rayColor *= specularColor / specularProb;
+					ray.direction = newDir;
+				} else {
+					vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
+					ray.direction = diffuseDir;
+					rayColor *= diffuseColor / (1.0 - specularProb);
+				}
             }
 
 			// russian roulette path termination
@@ -240,16 +267,15 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			}
 
 			// perform sample clamping here to avoid bright pixels
-			rayColor *= min( 1.0 / rrProb, 20.0 );
+			rayColor *= min(1.0 / rrProb, 20.0);
 
 			// Prepare data for the next bounce
-			ray.origin = hitInfo.hitPoint + hitInfo.normal * 0.001; // Slight offset to prevent self-intersection
-			ray.direction = newDir;
+			ray.origin = hitInfo.hitPoint + ray.direction * 0.001; // Slight offset to prevent self-intersection
 
 		} else {
             // If no hit, gather environment light
-			incomingLight += GetEnvironmentLight(ray) * rayColor;
-			// incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor;
+			// incomingLight += GetEnvironmentLight(ray) * rayColor;
+			incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor;
 			break;
 		}
 	}

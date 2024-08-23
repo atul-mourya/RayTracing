@@ -4,6 +4,8 @@ struct RayTracingMaterial {
 	float emissiveIntensity;
 	float roughness;
 	float metalness;
+	float ior;  // Index of refraction
+    float transmission;  // 0 = opaque, 1 = fully transparent
 	int map;
 };
 

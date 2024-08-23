@@ -99,7 +99,7 @@ async function init() {
 	controls.addEventListener( 'change', () => accPass.iteration = 0 );
 	controls.update();
 
-	const dirLight = new DirectionalLight( 0xffffff, 30 );
+	const dirLight = new DirectionalLight( 0xffffff, 1 );
 	dirLight.position.set( 1, 3, 0 );
 	scene.add( dirLight );
 

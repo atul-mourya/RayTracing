@@ -101,6 +101,8 @@ export default class TriangleSDF {
 						emissiveIntensity: isEmissive ? obj.material.emissiveIntensity ?? 0 : 0,
 						roughness: obj.material.roughness ?? 1.0,
 						metalness: obj.material.metalness ?? 0.0,
+						ior: obj.material.ior ?? 0.15,
+						transmission: obj.material.transmission ?? 0.0,
 
 						map: albedoTextureIndex === null ? - 1 : albedoTextureIndex
 					};
@@ -421,8 +423,8 @@ export default class TriangleSDF {
 			// Roughness, metalness, specular probability
 			data[ stride + 8 ] = mat.roughness;
 			data[ stride + 9 ] = mat.metalness;
-			data[ stride + 10 ] = 0;
-			data[ stride + 11 ] = 0;
+			data[ stride + 10 ] = mat.ior;
+			data[ stride + 11 ] = mat.transmission;
 
 			// Specular color
 			data[ stride + 12 ] = 0;
