@@ -74,6 +74,13 @@ export default class TriangleSDF {
 
 		object.traverse( obj => {
 
+			if ( obj.isDirectionalLight ) {
+
+				this.directionalLights.push( obj );
+				return;
+
+			}
+
 		  	if ( obj.isMesh ) {
 
 				let materialIndex = this.materials.findIndex( x => x.uuid === obj.material.uuid );
@@ -83,7 +90,7 @@ export default class TriangleSDF {
 					if ( obj.material.map ) {
 
 						albedoTextureIndex = this.maps.findIndex( x => x.source.uuid === obj.material.map.source.uuid );
-						if ( albedoTextureIndex === - 1 ) {
+						if ( albedoTextureIndex === - 1 && this.maps.length < 48 ) {
 
 							this.maps.push( obj.material.map );
 							albedoTextureIndex = this.maps.length - 1;

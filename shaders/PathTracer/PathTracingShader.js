@@ -25,6 +25,7 @@ class PathTracingShader extends ShaderPass {
 
 				resolution: { value: new Vector2( width, height ) },
 				sceneBackground: { value: scene.background },
+				sceneEnvironmentIntensity: { value: scene.environmentIntensity },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
@@ -38,9 +39,6 @@ class PathTracingShader extends ShaderPass {
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
 				enableEnvironmentLight: { value: true },
-				sunElevation: { value: - 0.5 },
-				sunAzimuth: { value: 0.5 },
-				sunIntensity: { value: 100.0 },
 
 				spheres: { value: sdfs.spheres },
 

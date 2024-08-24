@@ -18,6 +18,7 @@ uniform vec2 bvhTexSize;
 uniform sampler2D materialTexture;
 uniform vec2 materialTexSize;
 uniform samplerCube sceneBackground;
+uniform float sceneEnvironmentIntensity;
 
 vec4 getDatafromDataTexture(sampler2D tex, vec2 texSize, int stride, int sampleIndex, int dataOffset) {
 	int pixelIndex = stride * dataOffset + sampleIndex;
@@ -275,7 +276,7 @@ vec3 Trace(Ray ray, inout uint rngState) {
 		} else {
             // If no hit, gather environment light
 			// incomingLight += GetEnvironmentLight(ray) * rayColor;
-			incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor;
+			incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor * sceneEnvironmentIntensity;
 			break;
 		}
 	}
