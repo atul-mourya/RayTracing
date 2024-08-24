@@ -109,7 +109,10 @@ async function init() {
 	const parameters = {
 		switchToRasterizer: false,
 		resolution: 'half',
-		resolutionOptions: { 'Quarter': 'quarter', 'Half': 'half', 'Full': 'full' }
+		resolutionOptions: { 'Quarter': 'quarter', 'Half': 'half', 'Full': 'full' },
+		visualizeBVH: false,
+		maxBVHDepth: 32,
+		bvhEdgeThickness: 0.005
 	};
 
 	const pane = new Pane( { title: 'Parameters', expanded: false } );
@@ -126,6 +129,10 @@ async function init() {
 	pane.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	pane.addBinding( parameters, 'switchToRasterizer', { label: 'Disable PathTracing' } );
 	pane.addBinding( parameters, 'resolution', { label: 'Resolution', options: parameters.resolutionOptions } ).on( 'change', () => updateResolution() );
+
+	pane.addBinding( parameters, 'visualizeBVH', { label: 'Visualize BVH' } );
+	pane.addBinding( parameters, 'maxBVHDepth', { label: 'Max BVH Depth', min: 1, max: 32, step: 1 } );
+
 	pane.on( 'change', () => accPass.iteration = 0 );
 
 	function updateResolution() {
@@ -164,7 +171,8 @@ async function init() {
 
 		pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
 		pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
-
+		pathTracingPass.uniforms.visualizeBVH.value = parameters.visualizeBVH;
+		pathTracingPass.uniforms.maxBVHDepth.value = parameters.maxBVHDepth;
 		pathTracingPass.uniforms.frame.value ++;
 		parameters.switchToRasterizer ? renderer.render( scene, camera ) : composer.render();
 		stats.update();

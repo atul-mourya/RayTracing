@@ -20,6 +20,9 @@ uniform vec2 materialTexSize;
 uniform samplerCube sceneBackground;
 uniform float sceneEnvironmentIntensity;
 
+uniform bool visualizeBVH;
+uniform int maxBVHDepth;
+
 vec4 getDatafromDataTexture(sampler2D tex, vec2 texSize, int stride, int sampleIndex, int dataOffset) {
 	int pixelIndex = stride * dataOffset + sampleIndex;
 	int x = pixelIndex % int(texSize.x);
@@ -210,22 +213,25 @@ vec3 Trace(Ray ray, inout uint rngState) {
                     (1.0 / material.ior) : material.ior;
                 
                 vec3 refractionDir = refract(ray.direction, hitInfo.normal, iorRatio);
+				if (dot(refractionDir, refractionDir) == 0.0) { // Total internal reflection
+					ray.direction = reflect(ray.direction, hitInfo.normal);
+				} else {
                 
-                // Calculate Fresnel for transparent material
-                float F0 = pow((material.ior - 1.0) / (material.ior + 1.0), 2.0);
-                float fresnelFactor = F0 + (1.0 - F0) * pow(1.0 - abs(dot(ray.direction, hitInfo.normal)), 5.0);
-                
-                // Probabilistically choose between reflection and refraction
-                if (RandomValue(rngState) < fresnelFactor) {
-                    // Reflection
-                    ray.direction = reflect(ray.direction, hitInfo.normal);
-                } else {
-                    // Refraction
-                    ray.direction = refractionDir;
-                }
-                
-                // Apply transparency
-                rayColor *= mix(vec3(1.0), albedo, 1.0 - material.transmission);
+					// Calculate Fresnel for transparent material
+					float cosTheta = abs(dot(ray.direction, hitInfo.normal));
+					float F0 = pow((1.0 - material.ior) / (1.0 + material.ior), 2.0);
+					float fresnelFactor = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+					
+					// Probabilistically choose between reflection and refraction
+					if (RandomValue(rngState) < fresnelFactor) { // Reflection
+						ray.direction = reflect(ray.direction, hitInfo.normal); 
+					} else { // Refraction
+						ray.direction = refractionDir;
+					}
+				}
+				// Apply transparency
+				rayColor *= mix(vec3(1.0), albedo, 1.0 - material.transmission);
+				
             } else {
 			// Non-transparent material handling (previous code)
 			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
@@ -295,7 +301,7 @@ vec3 getColorForDepth(int depth) {
     return colors[depth % 6];
 }
 
-void visualizeBVH(Ray ray, inout vec3 color, int maxDepth) {
+void drawBVH(Ray ray, inout vec3 color) {
     int stack[32];
     int depthStack[32];
     int stackSize = 0;
@@ -309,19 +315,17 @@ void visualizeBVH(Ray ray, inout vec3 color, int maxDepth) {
         int nodeIndex = stack[stackSize];
         int depth = depthStack[stackSize];
 
-        if (depth > maxDepth) continue;
+        if (depth > maxBVHDepth) continue;
 
         BVHNode node = getBVHNode(nodeIndex);
         
         float tMin, tMax;
         if (intersectAABB(ray, node.boundsMin, node.boundsMax, tMin, tMax)) {
             vec3 nodeColor = getColorForDepth(depth);
-            float alpha = 0.1 * float(maxDepth - depth) / float(maxDepth);
+            float alpha = 0.1 * float(maxBVHDepth - depth) / float(maxBVHDepth);
             color = mix(color, nodeColor, alpha);
 
-            if (node.leftChild < 0) {  // Leaf node
-                // Visualize leaf nodes differently if desired
-            } else {
+            if (node.leftChild >= 0) {  // Not a leaf node
                 stack[stackSize] = node.rightChild;
                 depthStack[stackSize] = depth + 1;
                 stackSize++;
@@ -339,22 +343,24 @@ void main() {
 	vec2 pixelSize = 1.0 / resolution;
     vec2 screenPosition = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
 
-    vec3 debugColor = vec3(0.0);
-
-    // visualizeBVH(generateRayFromCamera(screenPosition), debugColor, 32);  // Visualize up to 20 levels deep
-    
+    vec3 finalColor = vec3(0.0);
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
-    vec3 totalIncomingLight = vec3(0.0);
-    for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
-
-        vec2 jitter = RandomPointInCircle(seed) * pixelSize;
-        vec2 jitteredScreenPosition = screenPosition + jitter;
-        
-        Ray ray = generateRayFromCamera(jitteredScreenPosition);
-        
-        totalIncomingLight += Trace(ray, seed);
+    if (visualizeBVH) {
+        Ray ray = generateRayFromCamera(screenPosition);
+        drawBVH(ray, finalColor);
+    } else {
+        vec3 totalIncomingLight = vec3(0.0);
+        for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
+            vec2 jitter = RandomPointInCircle(seed) * pixelSize;
+            vec2 jitteredScreenPosition = screenPosition + jitter;
+            
+            Ray ray = generateRayFromCamera(jitteredScreenPosition);
+            
+            totalIncomingLight += Trace(ray, seed);
+        }
+        finalColor = totalIncomingLight / float(numRaysPerPixel);
     }
-    vec3 pixColor = totalIncomingLight / float(numRaysPerPixel);
-    gl_FragColor = mix(vec4(pixColor, 1.0), vec4(debugColor, 1.0), 0.5);
+
+    gl_FragColor = vec4(finalColor, 1.0);
 }

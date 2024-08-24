@@ -108,7 +108,7 @@ export default class TriangleSDF {
 						emissiveIntensity: isEmissive ? obj.material.emissiveIntensity ?? 0 : 0,
 						roughness: obj.material.roughness ?? 1.0,
 						metalness: obj.material.metalness ?? 0.0,
-						ior: obj.material.ior ?? 0.15,
+						ior: obj.material.ior ?? 0,
 						transmission: obj.material.transmission ?? 0.0,
 
 						map: albedoTextureIndex === null ? - 1 : albedoTextureIndex

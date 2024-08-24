@@ -40,6 +40,9 @@ class PathTracingShader extends ShaderPass {
 				numRaysPerPixel: { value: 1 },
 				enableEnvironmentLight: { value: true },
 
+				visualizeBVH: { value: false },
+				maxBVHDepth: { value: 32 },
+
 				spheres: { value: sdfs.spheres },
 
 				diffuseTextures: { value: sdfs.diffuseTextures },
