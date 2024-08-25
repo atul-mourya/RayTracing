@@ -34,6 +34,7 @@ const red = new Color( 0xff0000 );
 const green = new Color( 0x00ff00 );
 
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/3d-home-layout/scene.glb';
+//https://casual-effects.com/data/
 const MODEL_URL = './models/modernbathroom.glb';
 
 async function loadGLTFModel() {
@@ -62,7 +63,7 @@ async function init() {
 	scene.background = await cubeTextureLoader.loadAsync( envUrls );
 	scene.environment = scene.background;
 
-	const camera = new PerspectiveCamera( 60, viewPort.width / viewPort.height, 0.01, 1000 );
+	const camera = new PerspectiveCamera( 75, viewPort.width / viewPort.height, 0.01, 1000 );
 	camera.position.set( 0, 0, 5 );
 
 	const renderer = new WebGLRenderer( {
@@ -111,8 +112,7 @@ async function init() {
 		resolution: 'half',
 		resolutionOptions: { 'Quarter': 'quarter', 'Half': 'half', 'Full': 'full' },
 		visualizeBVH: false,
-		maxBVHDepth: 32,
-		bvhEdgeThickness: 0.005
+		maxBVHDepth: 32
 	};
 
 	const pane = new Pane( { title: 'Parameters', expanded: false } );
@@ -123,7 +123,7 @@ async function init() {
 	pane.addBinding( scene, 'environmentIntensity', { label: 'env intensity', min: 0, max: 10 } );
 
 	pane.addBinding( dirLight, 'position', { label: 'light position' } );
-	pane.addBinding( dirLight, 'color', { label: 'light color' } );
+	pane.addBinding( dirLight, 'color', { label: 'light color', color: { type: 'float' } } );
 	pane.addBinding( dirLight, 'intensity', { label: 'light intensity', min: 0, max: 10 } );
 
 	pane.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
@@ -173,6 +173,9 @@ async function init() {
 		pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
 		pathTracingPass.uniforms.visualizeBVH.value = parameters.visualizeBVH;
 		pathTracingPass.uniforms.maxBVHDepth.value = parameters.maxBVHDepth;
+		pathTracingPass.uniforms.directionalLightDirection.value.copy( dirLight.position ).normalize().negate();
+		pathTracingPass.uniforms.directionalLightColor.value.copy( dirLight.color );
+		pathTracingPass.uniforms.directionalLightIntensity.value = dirLight.intensity;
 		pathTracingPass.uniforms.frame.value ++;
 		parameters.switchToRasterizer ? renderer.render( scene, camera ) : composer.render();
 		stats.update();

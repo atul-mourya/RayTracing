@@ -1,4 +1,4 @@
-import { Matrix4, Vector2 } from 'three';
+import { Matrix4, Vector2, Vector3, Color } from 'three';
 import { ShaderPass } from 'three/examples/jsm/Addons.js';
 import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
@@ -30,10 +30,10 @@ class PathTracingShader extends ShaderPass {
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
 
-				numDirectionalLights: { value: sdfs.directionalLights.length },
-				directionalLightDirections: { value: sdfs.directionalLights.map( d => d.position.normalize() ) },
-				directionalLightColors: { value: sdfs.directionalLights.map( d => d.color ) },
-				directionalLightIntensities: { value: sdfs.directionalLights.map( d => d.intensity ) },
+				directionalLightDirection: { value: new Vector3() },
+				directionalLightColor: { value: new Color() },
+				directionalLightIntensity: { value: 1.0 },
+
 
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },

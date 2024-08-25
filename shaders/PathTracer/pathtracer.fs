@@ -188,6 +188,84 @@ float luminance( vec3 color ) {
 
 }
 
+// Add these uniforms at the top of your shader
+uniform vec3 directionalLightDirection;
+uniform vec3 directionalLightColor;
+uniform float directionalLightIntensity;
+
+// Add these functions for BRDF calculations
+float DistributionGGX(vec3 N, vec3 H, float roughness) {
+    float a = roughness*roughness;
+    float a2 = a*a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH*NdotH;
+
+    float nom   = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return nom / denom;
+}
+
+float GeometrySchlickGGX(float NdotV, float roughness) {
+    float r = (roughness + 1.0);
+    float k = (r*r) / 8.0;
+
+    float nom   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+
+    return nom / denom;
+}
+
+float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+
+    return ggx1 * ggx2;
+}
+
+// Add this function to calculate direct lighting
+vec3 calculateDirectLighting(HitInfo hitInfo, vec3 viewDirection) {
+	if( directionalLightIntensity <= 0.0 ) return vec3(0.0);
+    vec3 lightDir = normalize(-directionalLightDirection);
+    float NdotL = max(dot(hitInfo.normal, lightDir), 0.0);
+    
+    // Check for shadows
+    Ray shadowRay;
+    shadowRay.origin = hitInfo.hitPoint + hitInfo.normal * 0.001; // Offset to avoid self-intersection
+    shadowRay.direction = lightDir;
+    HitInfo shadowHit = CalculateRayCollision(shadowRay);
+    
+    if (shadowHit.didHit) {
+        return vec3(0.0); // Point is in shadow
+    }
+    
+    // Calculate BRDF
+    vec3 halfVector = normalize(lightDir + viewDirection);
+    float NdotV = max(dot(hitInfo.normal, viewDirection), 0.0);
+    
+    vec3 F0 = mix(vec3(0.04), hitInfo.material.color, hitInfo.material.metalness);
+    vec3 F = fresnel(F0, NdotV, hitInfo.material.roughness);
+    
+    float D = DistributionGGX(hitInfo.normal, halfVector, hitInfo.material.roughness);
+    float G = GeometrySmith(hitInfo.normal, viewDirection, lightDir, hitInfo.material.roughness);
+    
+    vec3 numerator = D * G * F;
+    float denominator = 4.0 * NdotV * NdotL + 0.0001;
+    vec3 specular = numerator / denominator;
+    
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - hitInfo.material.metalness;
+    
+    vec3 diffuse = kD * hitInfo.material.color / PI;
+    
+    return (diffuse + specular) * directionalLightColor * directionalLightIntensity * NdotL;
+}
+
+// Modify your Trace function to include direct lighting
 vec3 Trace(Ray ray, inout uint rngState) {
 	vec3 incomingLight = vec3(0.0);
 	vec3 rayColor = vec3(1.0);
@@ -199,8 +277,11 @@ vec3 Trace(Ray ray, inout uint rngState) {
 		depth ++;
 
 		if(hitInfo.didHit) {
-			RayTracingMaterial material = hitInfo.material;
+			// Calculate direct lighting from the directional light
+			vec3 directLight = calculateDirectLighting(hitInfo, -ray.direction);
+			incomingLight += directLight * rayColor;
 
+			RayTracingMaterial material = hitInfo.material;
 			vec3 albedo = sampleAlbedoTexture(material, hitInfo.uv);
 
             // Calculate emitted light
@@ -216,7 +297,6 @@ vec3 Trace(Ray ray, inout uint rngState) {
 				if (dot(refractionDir, refractionDir) == 0.0) { // Total internal reflection
 					ray.direction = reflect(ray.direction, hitInfo.normal);
 				} else {
-                
 					// Calculate Fresnel for transparent material
 					float cosTheta = abs(dot(ray.direction, hitInfo.normal));
 					float F0 = pow((1.0 - material.ior) / (1.0 + material.ior), 2.0);
@@ -231,23 +311,23 @@ vec3 Trace(Ray ray, inout uint rngState) {
 				}
 				// Apply transparency
 				rayColor *= mix(vec3(1.0), albedo, 1.0 - material.transmission);
-				
-            } else {
-			// Non-transparent material handling (previous code)
-			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
-			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
-			vec3 newDir = reflect(ray.direction, H);
+			
+			} else {
+				// Non-transparent material handling (previous code)
+				vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
+				vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
+				vec3 newDir = reflect(ray.direction, H);
 
-            // Calculate Fresnel effect (Schlick approximation)
-			vec3 F0 = mix(vec3(0.04), albedo, material.metalness);
-			float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
-			vec3 fresnel = fresnel(F0, NoV, material.roughness);
+				// Calculate Fresnel effect (Schlick approximation)
+				vec3 F0 = mix(vec3(0.04), albedo, material.metalness);
+				float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
+				vec3 F = fresnel(F0, NoV, material.roughness);
 
-            // Combine diffuse and specular contributions
-			vec3 specularColor = fresnel;
-			vec3 diffuseColor = albedo * (1.0 - material.metalness) * (vec3(1.0) - fresnel);
+				// Combine diffuse and specular contributions
+				vec3 specularColor = F;
+				vec3 diffuseColor = albedo * (1.0 - material.metalness) * (vec3(1.0) - F);
 
-            // Probabilistically choose between diffuse and specular reflection
+				// Probabilistically choose between diffuse and specular reflection
 				float specularProb = luminance(specularColor);
 				if (RandomValue(rngState) < specularProb) {
 					rayColor *= specularColor / specularProb;
