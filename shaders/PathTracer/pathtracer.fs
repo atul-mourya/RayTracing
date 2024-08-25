@@ -18,7 +18,6 @@ uniform vec2 bvhTexSize;
 uniform sampler2D materialTexture;
 uniform vec2 materialTexSize;
 uniform samplerCube sceneBackground;
-uniform float sceneEnvironmentIntensity;
 
 uniform bool visualizeBVH;
 uniform int maxBVHDepth;
@@ -360,9 +359,13 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001; // Slight offset to prevent self-intersection
 
 		} else {
+			if (!enableEnvironmentLight) {
+				incomingLight += vec3(0.0);
+				break;
+			}
             // If no hit, gather environment light
 			// incomingLight += GetEnvironmentLight(ray) * rayColor;
-			incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor * sceneEnvironmentIntensity;
+			incomingLight += textureCube(sceneBackground, ray.direction).rgb * rayColor;
 			break;
 		}
 	}

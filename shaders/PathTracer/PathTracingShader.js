@@ -25,14 +25,13 @@ class PathTracingShader extends ShaderPass {
 
 				resolution: { value: new Vector2( width, height ) },
 				sceneBackground: { value: scene.background },
-				sceneEnvironmentIntensity: { value: scene.environmentIntensity },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
 
-				directionalLightDirection: { value: new Vector3() },
-				directionalLightColor: { value: new Color() },
-				directionalLightIntensity: { value: 1.0 },
+				directionalLightDirection: { value: scene.getObjectByName( 'directionLight' ).position.normalize().negate() },
+				directionalLightColor: { value: scene.getObjectByName( 'directionLight' ).color },
+				directionalLightIntensity: { value: scene.getObjectByName( 'directionLight' ).intensity },
 
 
 				frame: { value: 0 },
