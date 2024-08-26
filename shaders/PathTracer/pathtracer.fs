@@ -40,24 +40,26 @@ vec3 Trace(Ray ray, inout uint rngState) {
 
             // Handle transparent materials
             if (material.transmission > 0.0) {
-                float iorRatio = dot(ray.direction, hitInfo.normal) < 0.0 ? 
-                    (1.0 / material.ior) : material.ior;
-                
+
+                float iorRatio = dot(ray.direction, hitInfo.normal) < 0.0 ? (1.0 / material.ior) : material.ior;
                 vec3 refractionDir = refract(ray.direction, hitInfo.normal, iorRatio);
-				if (dot(refractionDir, refractionDir) == 0.0) { // Total internal reflection
-					ray.direction = reflect(ray.direction, hitInfo.normal);
+				vec3 reflectionDir = reflect(ray.direction, hitInfo.normal);
+				bool isTotalInternalReflection = dot(refractionDir, refractionDir) == 0.0;
+				
+				if ( isTotalInternalReflection ) {
+				
+					ray.direction = reflectionDir;
+				
 				} else {
+				
 					// Calculate Fresnel for transparent material
 					float cosTheta = abs(dot(ray.direction, hitInfo.normal));
 					float F0 = pow((1.0 - material.ior) / (1.0 + material.ior), 2.0);
 					float fresnelFactor = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 					
 					// Probabilistically choose between reflection and refraction
-					if (RandomValue(rngState) < fresnelFactor) { // Reflection
-						ray.direction = reflect(ray.direction, hitInfo.normal); 
-					} else { // Refraction
-						ray.direction = refractionDir;
-					}
+					ray.direction = RandomValue(rngState) < fresnelFactor ?  reflectionDir : refractionDir;
+					
 				}
 				// Apply transparency
 				rayColor *= mix(vec3(1.0), albedo, 1.0 - material.transmission);
