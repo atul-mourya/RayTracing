@@ -265,12 +265,12 @@ export default class TriangleSDF {
 		const endTime = performance.now();
 
 		// Calculate statistics
-		// const minLeafDepth = Math.min( ...leafDepths );
-		// const maxLeafDepth = Math.max( ...leafDepths );
+		const minLeafDepth = Math.min( ...leafDepths );
+		const maxLeafDepth = Math.max( ...leafDepths );
 		// const meanLeafDepth = leafDepths.reduce( ( a, b ) => a + b, 0 ) / leafDepths.length;
 
-		// const minLeafTris = Math.min( ...leafTriangles );
-		// const maxLeafTris = Math.max( ...leafTriangles );
+		const minLeafTris = Math.min( ...leafTriangles );
+		const maxLeafTris = Math.max( ...leafTriangles );
 		// const meanLeafTris = leafTriangles.reduce( ( a, b ) => a + b, 0 ) / leafTriangles.length;
 
 		// // Log the stats
@@ -278,11 +278,11 @@ export default class TriangleSDF {
 		console.log( 'Triangles:', this.triangles.length );
 		console.log( 'Node Count:', nodeCount );
 		console.log( 'Leaf Count:', leafCount );
-		// console.log( 'Leaf Depth - Min:', minLeafDepth );
-		// console.log( 'Leaf Depth - Max:', maxLeafDepth );
+		console.log( 'Leaf Depth - Min:', minLeafDepth );
+		console.log( 'Leaf Depth - Max:', maxLeafDepth );
 		// console.log( 'Leaf Depth - Mean:', meanLeafDepth );
-		// console.log( 'Leaf Tris - Min:', minLeafTris );
-		// console.log( 'Leaf Tris - Max:', maxLeafTris );
+		console.log( 'Leaf Tris - Min:', minLeafTris );
+		console.log( 'Leaf Tris - Max:', maxLeafTris );
 		// console.log( 'Leaf Tris - Mean:', meanLeafTris );
 
 	}
