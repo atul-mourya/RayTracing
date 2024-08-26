@@ -114,7 +114,7 @@ async function init() {
 	} );
 	controls.update();
 
-	const dirLight = new DirectionalLight( 0xffffff, 1 );
+	const dirLight = new DirectionalLight( 0xffffff, 0 );
 	dirLight.name = 'directionLight';
 	dirLight.position.set( 1, 3, 0 );
 	scene.add( dirLight );
