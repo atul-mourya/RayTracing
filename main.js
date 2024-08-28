@@ -11,12 +11,11 @@ import {
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { ConvolutionShader } from 'three/addons/shaders/ConvolutionShader.js';
 import { Pane } from 'tweakpane';
 import Stats from 'three/addons/libs/stats.module.js';
 import PathTracingShader from './shaders/PathTracer/PathTracingShader.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
+import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 
 import TriangleSDF from './src/TriangleSDF.js';
 import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
@@ -83,7 +82,6 @@ async function init() {
 
 	const camera = new PerspectiveCamera( 75, canvas.width / canvas.height, 0.01, 1000 );
 	camera.position.set( 0, 0, 5 );
-	window.camera = camera;
 
 	const controls = new OrbitControls( camera, canvas );
 	// controls.target.set( 0, 1.5, 0 );
@@ -112,18 +110,16 @@ async function init() {
 	accPass.enabled = true;
 	composer.addPass( accPass );
 
-	const convolutionPass = new ShaderPass( ConvolutionShader );
-	convolutionPass.enabled = false;
-	composer.addPass( convolutionPass );
+	const denoiserPass = new SpatialDenoiserPass( canvas.width, canvas.height );
+	denoiserPass.enabled = false; // Start with it disabled
+	composer.addPass( denoiserPass );
 
 	const outputPass = new OutputPass();
 	composer.addPass( outputPass );
 
 	const parameters = {
-		resolution: originalPixelRatio,
+		resolution: renderer.getPixelRatio(),
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 ),
-		denoisingStrength: 0.1,
-		kernelSize: 4,
 	};
 
 	const pane = new Pane( { title: 'Parameters', expanded: true } );
@@ -166,19 +162,9 @@ async function init() {
 	debugFolder.addBinding( pathTracingPass.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
 
 	const denoisingFolder = pane.addFolder( { title: 'Denoising' } );
-	denoisingFolder.addBinding( convolutionPass, 'enabled', { label: 'Enable Denoising' } ).on( 'change', updateDenoisingUniforms );
-	denoisingFolder.addBinding( parameters, 'denoisingStrength', { label: 'Denoising Strength', min: 0, max: 1, step: 0.01 } ).on( 'change', updateDenoisingUniforms );
-	denoisingFolder.addBinding( parameters, 'kernelSize', { label: 'Kernel Size', options: { '2x2': 2, '4x4': 4, '7x7': 7, '13x13': 13 } } ).on( 'change', updateDenoisingUniforms );
+	denoisingFolder.addBinding( denoiserPass, 'enabled', { label: 'Enable Denoiser' } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kernelSize, 'value', { label: 'Kernel Size', min: 1, max: 10, step: 1 } );
 
-	function updateDenoisingUniforms() {
-
-	  convolutionPass.uniforms.uImageIncrement.value.set(
-			parameters.denoisingStrength / canvas.width,
-			parameters.denoisingStrength / canvas.height
-	  );
-	  convolutionPass.uniforms.cKernel.value = ConvolutionShader.buildKernel( parameters.kernelSize );
-
-	}
 
 	function reset() {
 
@@ -222,6 +208,7 @@ async function init() {
 		camera.updateProjectionMatrix();
 		renderer.setSize( canvas.width, canvas.height );
 		composer.setSize( canvas.width, canvas.height );
+		denoiserPass.setSize( canvas.width, canvas.height );
 
 		pathTracingPass.uniforms.resolution.value.set( canvas.width, canvas.height );
 		pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
