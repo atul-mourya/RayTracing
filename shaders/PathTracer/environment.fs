@@ -1,34 +1,29 @@
 uniform bool enableEnvironmentLight;
-uniform float sunAzimuth;
-uniform float sunElevation;
-uniform float sunIntensity;
-uniform vec3 sunColor;
+uniform sampler2D envMap;
+uniform float envMapIntensity;
 
-vec3 GetEnvironmentLight(Ray ray) {
-	
-	if (!enableEnvironmentLight) {
-		return vec3(0.0);
-	}
-	const vec3 SkyColourHorizon = vec3(0.13, 0.49, 0.97);  // Light blue
-	const vec3 SkyColourZenith = vec3(0.529, 0.808, 0.922);   // Darker blue
-	const float SunFocus = 512.0;
-	const vec3 GroundColour = vec3(0.53, 0.6, 0.62);  // Dark grey
+// ray sampling x and z are swapped to align with expected background view
+vec2 equirectDirectionToUv( vec3 direction ) {
 
-	// Calculate sun direction from angles
-	vec3 SunLightDirection = vec3(cos(sunElevation) * sin(sunAzimuth), sin(sunElevation), cos(sunElevation) * cos(sunAzimuth));
+	// from Spherical.setFromCartesianCoords
+	vec2 uv = vec2( atan( direction.z, direction.x ), acos( direction.y ) );
+	uv /= vec2( 2.0 * PI, PI );
 
-	float skyGradientT = pow(smoothstep(0.0, 0.4, ray.direction.y), 0.35);
-	vec3 skyGradient = lerp(SkyColourHorizon, SkyColourZenith, skyGradientT);
+	// apply adjustments to get values in range [0, 1] and y right side up
+	uv.x += 0.5;
+	uv.y = 1.0 - uv.y;
+	return uv;
 
-	// Calculate sun contribution
-	float sunDot = max(0.0, dot(ray.direction, -SunLightDirection));
-	float sun = pow(sunDot, SunFocus) * sunIntensity;
-
-	// Combine ground, sky, and sun
-	float groundToSkyT = smoothstep(-0.01, 0.0, ray.direction.y);
-	float sunMask = (groundToSkyT >= 1.0) ? 1.0 : 0.0;
-	return lerp(GroundColour, skyGradient, groundToSkyT) + sun * sunMask;
 }
 
-// Trace the path of a ray of light (in reverse) as it travels from the camera,
-// reflects off objects in the scene, and ends up (hopefully) at a light source.
+vec3 sampleEnvironment(vec3 direction) {
+    if (!enableEnvironmentLight) return vec3(0.0);
+
+    vec2 uv = equirectDirectionToUv(direction);
+    vec3 color = texture2D(envMap, uv).rgb;
+
+    color *= envMapIntensity;
+    
+    return color;
+}
+

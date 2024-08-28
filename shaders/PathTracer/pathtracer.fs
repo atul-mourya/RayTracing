@@ -4,7 +4,6 @@ uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
-uniform samplerCube sceneBackground;
 
 #include common.fs
 #include struct.fs
@@ -19,6 +18,14 @@ uniform int visMode;
 uniform float debugVisScale;
 ivec2 stats; // num triangle tests, num bounding box tests
 
+vec3 reduceFireflies(vec3 color, float maxValue) {
+    float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    if (luminance > maxValue) {
+        color *= maxValue / luminance;
+    }
+    return color;
+}
+
 // Modify your Trace function to include direct lighting
 vec3 Trace(Ray ray, inout uint rngState) {
 	vec3 incomingLight = vec3(0.0);
@@ -31,41 +38,43 @@ vec3 Trace(Ray ray, inout uint rngState) {
 		depth ++;
 
 		if(hitInfo.didHit) {
-			
-
-			RayTracingMaterial material = hitInfo.material;
-			vec3 albedo = sampleAlbedoTexture(material, hitInfo.uv);
+            RayTracingMaterial material = hitInfo.material;
+            vec3 albedo = sampleAlbedoTexture(material, hitInfo.uv);
 
             // Handle transparent materials
-			if (material.transmission > 0.0) {
-                float iorRatio = dot(ray.direction, hitInfo.normal) < 0.0 ? (1.0 / material.ior) : material.ior;
-                vec3 refractionDir = refract(ray.direction, hitInfo.normal, iorRatio);
-                vec3 reflectionDir = reflect(ray.direction, hitInfo.normal);
-                
-                // Calculate Fresnel for transparent material
-                float cosTheta = abs(dot(ray.direction, hitInfo.normal));
-                float F0 = pow((1.0 - material.ior) / (1.0 + material.ior), 2.0);
-                float fresnelFactor = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-                
-                vec3 newDir;
-                if (RandomValue(rngState) < fresnelFactor) {
-                    newDir = reflectionDir;
-                } else {
-                    newDir = refractionDir;
-                    // Apply color absorption
-                    float distance = length(hitInfo.hitPoint - ray.origin);
-                    vec3 transmissionColor = mix(vec3(1.0), albedo, material.transmission);
-                    rayColor *= pow(transmissionColor, vec3(distance * material.thickness));
-                }
+            if (material.transmission > 0.0) {
+                bool entering = dot(ray.direction, hitInfo.normal) < 0.0;
+				float n1 = entering ? 1.0 : material.ior;
+				float n2 = entering ? material.ior : 1.0;
+				vec3 normal = entering ? hitInfo.normal : -hitInfo.normal;
 
-                ray.origin = hitInfo.hitPoint + newDir * 0.001;
-                ray.direction = newDir;
+				vec3 reflectDir = reflect(ray.direction, normal);
+				vec3 refractDir = refract(ray.direction, normal, n1 / n2);
 
-                // Accumulate emissive light
-                incomingLight += material.emissive * material.emissiveIntensity * rayColor;
+				float cosTheta = abs(dot(-ray.direction, normal));
+				float r0 = pow((n1 - n2) / (n1 + n2), 2.0);
+				float fresnel = r0 + (1.0 - r0) * pow(1.0 - cosTheta, 5.0);
 
-                // Continue tracing without adding direct lighting
-                continue;
+				// Adjust Fresnel factor for more pronounced effect
+				fresnel = mix(fresnel, 1.0, pow(1.0 - cosTheta, 3.0));
+
+				vec3 glassColor = material.color.rgb;
+				vec3 tintColor = mix(vec3(1.0), glassColor, 0.5); // Adjust the 0.5 to control tint strength
+
+				if (length(refractDir) < 0.001 || RandomValue(rngState) < fresnel) {
+					ray.direction = reflectDir;
+					rayColor *= mix(vec3(1.0), glassColor, 0.2); // Slight color tint for reflections
+				} else {
+					ray.direction = refractDir;
+					if (entering) {
+						vec3 absorption = (vec3(1.0) - glassColor) * material.thickness * 0.5;
+						rayColor *= exp(-absorption * hitInfo.dst);
+					}
+					rayColor *= tintColor;
+				}
+
+				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+				continue;
             }
 
 			// Non-transparent material handling
@@ -95,11 +104,11 @@ vec3 Trace(Ray ray, inout uint rngState) {
 
 			// Calculate direct lighting from the directional light
 			vec3 directLight = calculateDirectLighting(hitInfo, -ray.direction, stats);
-			incomingLight += directLight * rayColor;
+			incomingLight += reduceFireflies(directLight * rayColor, 5.0);
 
 			// Calculate emitted light
             vec3 emittedLight = material.emissive * material.emissiveIntensity;
-            incomingLight += emittedLight * rayColor;
+			incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
 
 			// russian roulette path termination
 			// https://www.arnoldrenderer.com/research/physically_based_shader_design_in_arnold.pdf
@@ -122,11 +131,9 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001; // Slight offset to prevent self-intersection
 
 		} else {
-			// If no hit, gather environment light
-			// incomingLight += GetEnvironmentLight(ray) * rayColor;
-			vec3 flippedDirection = vec3(-ray.direction.x, ray.direction.yz);
-			// incomingLight += !enableEnvironmentLight ? vec3(0.0) : textureCube(sceneBackground, flippedDirection).rgb * rayColor;
-			incomingLight += !enableEnvironmentLight ? vec3(0.0) : textureCube(sceneBackground, ray.direction).rgb * rayColor;
+			
+			vec3 envLight = sampleEnvironment(ray.direction) * rayColor;
+			incomingLight += reduceFireflies(envLight, 5.0);
 			break;
 		}
 	}

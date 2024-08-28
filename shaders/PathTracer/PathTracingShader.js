@@ -24,7 +24,9 @@ class PathTracingShader extends ShaderPass {
 			uniforms: {
 
 				resolution: { value: new Vector2( width, height ) },
-				sceneBackground: { value: scene.background },
+				enableEnvironmentLight: { value: true },
+				envMap: { value: scene.background },
+				envMapIntensity: { value: scene.environmentIntensity },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
@@ -39,7 +41,6 @@ class PathTracingShader extends ShaderPass {
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
-				enableEnvironmentLight: { value: true },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },

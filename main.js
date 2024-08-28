@@ -3,9 +3,10 @@ import {
 	PerspectiveCamera,
 	WebGLRenderer,
 	ACESFilmicToneMapping,
-	CubeTextureLoader,
 	DirectionalLight,
 	SRGBColorSpace,
+	EquirectangularReflectionMapping,
+	TextureLoader,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -18,13 +19,16 @@ import PathTracingShader from './shaders/PathTracer/PathTracingShader.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 
 import TriangleSDF from './src/TriangleSDF.js';
-import { OutputPass, RenderPass } from 'three/examples/jsm/Addons.js';
+import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 const sampleCountsDiv = document.getElementById( 'sample-counts' );
 const container = document.getElementById( 'container-3d' );
 
-// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/usd-shader-ball/usd-shaderball-ball.glb';
+// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/diamond/diamond.glb';
+const ENV_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/photo_studio_01_2k.hdr';
+// const ENV_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/equirectangular.png';
+
 //https://casual-effects.com/data/
 const MODEL_URL = './models/modernbathroom.glb';
 
@@ -43,22 +47,11 @@ async function init() {
 
 	const scene = new Scene();
 	window.scene = scene;
-	const cubeTextureLoader = new CubeTextureLoader();
-
-	const path = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/cube/pisa/';
-	const format = '.png';
-	const envUrls = [
-		path + 'px' + format, path + 'nx' + format,
-		path + 'py' + format, path + 'ny' + format,
-		path + 'pz' + format, path + 'nz' + format
-	];
-	scene.background = await cubeTextureLoader.loadAsync( envUrls );
-	scene.environment = scene.background;
 
 	const params = {
 		clearAlpha: 1,
 		antialias: false,
-		alpha: true,
+		alpha: false,
 		logarithmicDepthBuffer: false,
 		powerPreference: "high-performance",
 	};
@@ -78,11 +71,19 @@ async function init() {
 
 	window.renderer = renderer;
 
+	const envType = ENV_URL.split( '.' ).pop();
+	const loader = envType == 'png' || envType == 'jpg' ? new TextureLoader() : new RGBELoader();
+	const envMap = await loader.loadAsync( ENV_URL );
+	envMap.mapping = EquirectangularReflectionMapping;
+	scene.background = envMap;
+	scene.environment = envMap;
+
 	const stats = new Stats();
 	document.body.appendChild( stats.dom );
 
 	const camera = new PerspectiveCamera( 75, canvas.width / canvas.height, 0.01, 1000 );
 	camera.position.set( 0, 0, 5 );
+	window.camera = camera;
 
 	const controls = new OrbitControls( camera, canvas );
 	// controls.target.set( 0, 1.5, 0 );
@@ -131,7 +132,7 @@ async function init() {
 	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Enviroment' } );
 
 	const cameraFolder = pane.addFolder( { title: 'Camera' } ).on( 'change', reset );
-	cameraFolder.addBinding( camera, 'fov', { label: 'FOV', min: 30, max: 90, step: 5 } );
+	cameraFolder.addBinding( camera, 'fov', { label: 'FOV', min: 30, max: 90, step: 5 } ).on( 'change', onResize );
 	cameraFolder.addBinding( pathTracingPass.uniforms.focalDistance, 'value', { label: 'Focal Distance', min: 0, max: 100, step: 1 } );
 	cameraFolder.addBinding( pathTracingPass.uniforms.aperture, 'value', { label: 'Aperture', min: 0, max: 1, step: 0.001 } );
 
