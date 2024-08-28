@@ -12,7 +12,7 @@ struct DirectionalLight {
 };
 
 // Function to get directional light data
-vec3 calculateDirectLighting(HitInfo hitInfo, vec3 viewDirection) {
+vec3 calculateDirectLighting(HitInfo hitInfo, vec3 viewDirection, inout ivec2 stats) {
 	if( directionalLightIntensity <= 0.0 ) return vec3(0.0);
     vec3 lightDir = normalize(-directionalLightDirection);
     float NdotL = max(dot(hitInfo.normal, lightDir), 0.0);
@@ -21,7 +21,7 @@ vec3 calculateDirectLighting(HitInfo hitInfo, vec3 viewDirection) {
     Ray shadowRay;
     shadowRay.origin = hitInfo.hitPoint + hitInfo.normal * 0.001; // Offset to avoid self-intersection
     shadowRay.direction = lightDir;
-    HitInfo shadowHit = traverseBVH(shadowRay);
+    HitInfo shadowHit = traverseBVH(shadowRay, stats);
     
     if (shadowHit.didHit) {
         return vec3(0.0); // Point is in shadow

@@ -8,9 +8,6 @@ uniform vec2 materialTexSize;
 uniform sampler2D bvhTexture;
 uniform vec2 bvhTexSize;
 
-uniform bool visualizeBVH;
-uniform int maxBVHDepth;
-
 struct BVHNode {
     vec3 boundsMin;
     int leftChild;
@@ -57,6 +54,7 @@ RayTracingMaterial getMaterial(int materialIndex) {
     material.metalness = data3.g;
     material.ior = data3.b;
     material.transmission = data3.a;
+    material.thickness = data4.r;
 
     return material;
 }
@@ -83,7 +81,7 @@ Triangle getTriangle(int triangleIndex) {
     return tri;
 }
 
-HitInfo traverseBVH(Ray ray) {
+HitInfo traverseBVH(Ray ray, inout ivec2 stats) {
     HitInfo closestHit;
     closestHit.didHit = false;
     closestHit.dst = 1e20;
@@ -95,9 +93,10 @@ HitInfo traverseBVH(Ray ray) {
     while (stackSize > 0) {
         int nodeIndex = stack[--stackSize];
         BVHNode node = getBVHNode(nodeIndex);
-
+        stats[0] ++;
 		if (node.leftChild < 0) { // Leaf node
 			for (int i = 0; i < int(node.triOffset.y); i++) {
+                stats[1] ++;
 				int triIndex = int(node.triOffset.x) + i;
 				Triangle tri = getTriangle(triIndex);
 				HitInfo hit = RayTriangle(ray, tri);
@@ -134,53 +133,4 @@ HitInfo traverseBVH(Ray ray) {
     }
 
     return closestHit;
-}
-
-vec3 getColorForDepth(int depth) {
-    vec3 colors[6] = vec3[](
-        vec3(1.0, 0.0, 0.0),  // Red
-        vec3(0.0, 1.0, 0.0),  // Green
-        vec3(0.0, 0.0, 1.0),  // Blue
-        vec3(1.0, 1.0, 0.0),  // Yellow
-        vec3(1.0, 0.0, 1.0),  // Magenta
-        vec3(0.0, 1.0, 1.0)   // Cyan
-    );
-    return colors[depth % 6];
-}
-
-void drawBVH(Ray ray, inout vec3 color) {
-    int stack[32];
-    int depthStack[32];
-    int stackSize = 0;
-    
-    stack[stackSize] = 0;  // Root node
-    depthStack[stackSize] = 0;
-    stackSize++;
-
-    while (stackSize > 0) {
-        stackSize--;
-        int nodeIndex = stack[stackSize];
-        int depth = depthStack[stackSize];
-
-        if (depth > maxBVHDepth) continue;
-
-        BVHNode node = getBVHNode(nodeIndex);
-        
-        float tMin, tMax;
-        if (intersectAABB(ray, node.boundsMin, node.boundsMax, tMin, tMax)) {
-            vec3 nodeColor = getColorForDepth(depth);
-            float alpha = 0.1 * float(maxBVHDepth - depth) / float(maxBVHDepth);
-            color = mix(color, nodeColor, alpha);
-
-            if (node.leftChild >= 0) {  // Not a leaf node
-                stack[stackSize] = node.rightChild;
-                depthStack[stackSize] = depth + 1;
-                stackSize++;
-
-                stack[stackSize] = node.leftChild;
-                depthStack[stackSize] = depth + 1;
-                stackSize++;
-            }
-        }
-    }
 }

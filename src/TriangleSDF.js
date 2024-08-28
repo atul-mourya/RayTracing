@@ -101,7 +101,6 @@ export default class TriangleSDF {
 
 					const emissive = obj.material.emissive ?? new Color( 0, 0, 0 );
 					const isEmissive = emissive.r > 0 || emissive.g > 0 || emissive.b > 0 ? true : false;
-
 					const material = {
 						color: obj.material.color,
 						emissive: emissive,
@@ -110,6 +109,7 @@ export default class TriangleSDF {
 						metalness: obj.material.metalness ?? 0.0,
 						ior: obj.material.ior ?? 0,
 						transmission: obj.material.transmission ?? 0.0,
+						thickness: obj.material.thickness ?? 0.5,
 
 						map: albedoTextureIndex === null ? - 1 : albedoTextureIndex
 					};
@@ -197,7 +197,7 @@ export default class TriangleSDF {
 
 	}
 
-	buildBVH( depth = 16 ) {
+	buildBVH( depth ) {
 
 		const maxTrianglesPerLeaf = 6;
 		const axis = [ 'x', 'y', 'z' ];
@@ -433,8 +433,8 @@ export default class TriangleSDF {
 			data[ stride + 10 ] = mat.ior;
 			data[ stride + 11 ] = mat.transmission;
 
-			// Specular color
-			data[ stride + 12 ] = 0;
+
+			data[ stride + 12 ] = mat.thickness;
 			data[ stride + 13 ] = 0;
 			data[ stride + 14 ] = 0;
 			data[ stride + 15 ] = 0;

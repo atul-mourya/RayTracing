@@ -5,11 +5,13 @@ import {
 	ACESFilmicToneMapping,
 	CubeTextureLoader,
 	DirectionalLight,
-	LinearSRGBColorSpace,
+	SRGBColorSpace,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { ConvolutionShader } from 'three/addons/shaders/ConvolutionShader.js';
 import { Pane } from 'tweakpane';
 import Stats from 'three/addons/libs/stats.module.js';
 import PathTracingShader from './shaders/PathTracer/PathTracingShader.js';
@@ -22,7 +24,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 const sampleCountsDiv = document.getElementById( 'sample-counts' );
 const container = document.getElementById( 'container-3d' );
 
-// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/3d-home-layout/scene.glb';
+// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/usd-shader-ball/usd-shaderball-ball.glb';
 //https://casual-effects.com/data/
 const MODEL_URL = './models/modernbathroom.glb';
 
@@ -56,7 +58,7 @@ async function init() {
 	const params = {
 		clearAlpha: 1,
 		antialias: false,
-		alpha: false,
+		alpha: true,
 		logarithmicDepthBuffer: false,
 		powerPreference: "high-performance",
 	};
@@ -64,8 +66,8 @@ async function init() {
 	const renderer = new WebGLRenderer( params );
 	renderer.setClearColor( 0xffffff, params.clearAlpha );
 	renderer.toneMapping = ACESFilmicToneMapping; // NoToneMapping
-	renderer.toneMappingExposure = Math.pow( 1.68, 4.0 );
-	renderer.outputColorSpace = LinearSRGBColorSpace;
+	renderer.toneMappingExposure = Math.pow( 1.26, 4.0 );
+	renderer.outputColorSpace = SRGBColorSpace;
 
 	const canvas = renderer.domElement;
 	canvas.height = container.clientHeight;
@@ -84,35 +86,7 @@ async function init() {
 
 	const controls = new OrbitControls( camera, canvas );
 	// controls.target.set( 0, 1.5, 0 );
-	controls.addEventListener( 'change', () => accPass && ( accPass.iteration = 0 ) );
-	controls.addEventListener( 'start', () => {
-
-		console.log( 'moving' );
-		// renderPass.enabled = true;
-		// pathTracingPass.enabled = false;
-		// accPass.enabled = false;
-		renderer.setPixelRatio( 0.25 );
-		onResize();
-
-	} );
-	let timeout;
-	controls.addEventListener( 'end', () => {
-
-		console.log( 'stopped' );
-		// renderPass.enabled = false;
-		// pathTracingPass.enabled = true;
-		// accPass.enabled = true;
-		clearTimeout( timeout );
-		timeout = setTimeout( () =>{
-
-			renderer.setPixelRatio( originalPixelRatio );
-			onResize();
-
-		}, 1000 );
-
-
-	} );
-	controls.update();
+	controls.addEventListener( 'change', reset );
 
 	const dirLight = new DirectionalLight( 0xffffff, 0 );
 	dirLight.name = 'directionLight';
@@ -137,37 +111,45 @@ async function init() {
 	accPass.enabled = true;
 	composer.addPass( accPass );
 
+	const convolutionPass = new ShaderPass( ConvolutionShader );
+	convolutionPass.enabled = false;
+	composer.addPass( convolutionPass );
+
 	const outputPass = new OutputPass();
 	composer.addPass( outputPass );
 
 	const parameters = {
-		enablePathTracer: true,
-		resolution: 'half',
-		resolutionOptions: { 'Quarter': 'quarter', 'Half': 'half', 'Full': 'full' },
-		visualizeBVH: false,
-		maxBVHDepth: 32,
-		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
+		resolution: originalPixelRatio,
+		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 ),
+		denoisingStrength: 0.1,
+		kernelSize: 4,
 	};
 
 	const pane = new Pane( { title: 'Parameters', expanded: true } );
-	const sceneFolder = pane.addFolder( { title: 'Scene' } );
-	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposue', min: 1, max: 4, step: 0.01 } ).on( 'change', e => renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
+	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
+	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposue', min: 0, max: 4, step: 0.01 } ).on( 'change', e => renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Enviroment' } );
 
-	const ptFolder = pane.addFolder( { title: 'Path Tracer' } );
-	ptFolder.addBinding( parameters, 'enablePathTracer', { label: 'Enable' } );
+	const cameraFolder = pane.addFolder( { title: 'Camera' } ).on( 'change', reset );
+	cameraFolder.addBinding( camera, 'fov', { label: 'FOV', min: 30, max: 90, step: 5 } );
+	cameraFolder.addBinding( pathTracingPass.uniforms.focalDistance, 'value', { label: 'Focal Distance', min: 0, max: 100, step: 1 } );
+	cameraFolder.addBinding( pathTracingPass.uniforms.aperture, 'value', { label: 'Aperture', min: 0, max: 1, step: 0.001 } );
+
+	const ptFolder = pane.addFolder( { title: 'Path Tracer' } ).on( 'change', reset );
+	ptFolder.addBinding( pathTracingPass, 'enabled', { label: 'Enable' } ).on( 'change', e => {
+
+		accPass.enabled = e.value;
+		renderPass.enabled = ! e.value;
+
+	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
-	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: parameters.resolutionOptions } ).on( 'change', () => updateResolution() );
+	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': 0.25, 'Half': 0.5, 'Full': 1 } } ).on( 'change', e => updateResolution( e.value ) );
 
-	const lightFolder = pane.addFolder( { title: 'Directional Light' } );
-	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 10 } ).on( 'change', () => {
-
-		pathTracingPass.uniforms.directionalLightIntensity.value = dirLight.intensity;
-
-	} );
-	lightFolder.addBinding( dirLight, 'color', { label: 'Color', color: { type: 'float' } } ).on( 'change', () => {
+	const lightFolder = pane.addFolder( { title: 'Directional Light' } ).on( 'change', reset );
+	lightFolder.addBinding( pathTracingPass.uniforms.directionalLightIntensity, 'value', { label: 'Intensity', min: 0, max: 10 } );
+	lightFolder.addBinding( pathTracingPass.uniforms.directionalLightColor, 'value', { label: 'Color', color: { type: 'float' } } ).on( 'change', () => {
 
 		pathTracingPass.uniforms.directionalLightColor.value.copy( dirLight.color );
 
@@ -179,23 +161,34 @@ async function init() {
 	} );
 
 	const debugFolder = pane.addFolder( { title: 'Debugger' } );
-	debugFolder.addBinding( parameters, 'visualizeBVH', { label: 'Visualize BVH' } );
-	debugFolder.addBinding( parameters, 'maxBVHDepth', { label: 'Max BVH Depth', min: 1, max: 32, step: 1 } );
+	debugFolder.addBinding( pathTracingPass.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4 } } ).on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
 
-	pane.on( 'change', () => accPass.iteration = 0 );
+	const denoisingFolder = pane.addFolder( { title: 'Denoising' } );
+	denoisingFolder.addBinding( convolutionPass, 'enabled', { label: 'Enable Denoising' } ).on( 'change', updateDenoisingUniforms );
+	denoisingFolder.addBinding( parameters, 'denoisingStrength', { label: 'Denoising Strength', min: 0, max: 1, step: 0.01 } ).on( 'change', updateDenoisingUniforms );
+	denoisingFolder.addBinding( parameters, 'kernelSize', { label: 'Kernel Size', options: { '2x2': 2, '4x4': 4, '7x7': 7, '13x13': 13 } } ).on( 'change', updateDenoisingUniforms );
 
-	function updateResolution() {
+	function updateDenoisingUniforms() {
 
-		switch ( parameters.resolution ) {
+	  convolutionPass.uniforms.uImageIncrement.value.set(
+			parameters.denoisingStrength / canvas.width,
+			parameters.denoisingStrength / canvas.height
+	  );
+	  convolutionPass.uniforms.cKernel.value = ConvolutionShader.buildKernel( parameters.kernelSize );
 
-			case 'quarter': renderer.setPixelRatio( 0.25 ); break;
-			case 'half': renderer.setPixelRatio( 0.5 ); break;
-			case 'full':
-			default: renderer.setPixelRatio( 1 ); break;
+	}
 
-		}
+	function reset() {
 
-		originalPixelRatio = renderer.getPixelRatio();
+		if ( accPass ) accPass.iteration = 0;
+
+	}
+
+	function updateResolution( value ) {
+
+		renderer.setPixelRatio( value );
+		originalPixelRatio = value;
 		onResize();
 
 	}
@@ -207,21 +200,15 @@ async function init() {
 
 		if ( pathTracingPass.enabled ) {
 
-			pathTracingPass.uniforms.directionalLightIntensity.value = dirLight.intensity;
 			pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
 			pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
-			pathTracingPass.uniforms.visualizeBVH.value = parameters.visualizeBVH;
-			pathTracingPass.uniforms.maxBVHDepth.value = parameters.maxBVHDepth;
 			pathTracingPass.uniforms.frame.value ++;
 			sampleCountsDiv.textContent = `Iterations: ${accPass.iteration}`;
 
 		}
 
 		composer.render();
-
-
 		stats.update();
-
 
 	}
 

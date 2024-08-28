@@ -1,12 +1,21 @@
 uniform mat4 cameraWorldMatrix;
 uniform mat4 cameraProjectionMatrixInverse;
 
+uniform float focalDistance;
+uniform float aperture;
+
 struct Ray {
     vec3 origin;
     vec3 direction;
 };
 
-Ray generateRayFromCamera(vec2 screenPosition) {
+vec3 RandomPointInCircle3(inout uint rngState) {
+    float angle = 2.0 * PI * RandomValue(rngState);
+    float radius = sqrt(RandomValue(rngState));
+    return vec3(radius * cos(angle), radius * sin(angle), 0.0);
+}
+
+Ray generateRayFromCamera(vec2 screenPosition, inout uint rngState) {
     vec4 rayStart = cameraProjectionMatrixInverse * vec4(screenPosition, -1.0, 1.0);
     vec4 rayEnd = cameraProjectionMatrixInverse * vec4(screenPosition, 1.0, 1.0);
     
@@ -16,9 +25,22 @@ Ray generateRayFromCamera(vec2 screenPosition) {
     vec4 worldStart = cameraWorldMatrix * rayStart;
     vec4 worldEnd = cameraWorldMatrix * rayEnd;
     
+    vec3 rayOrigin = worldStart.xyz;
+    vec3 rayDirection = normalize(worldEnd.xyz - worldStart.xyz);
+
+    // Calculate the focal point
+    vec3 focalPoint = rayOrigin + rayDirection * focalDistance;
+
+    // Generate a random point on the lens
+    vec3 lensOffset = RandomPointInCircle3(rngState) * aperture;
+    vec3 newRayOrigin = rayOrigin + (cameraWorldMatrix * vec4(lensOffset, 0.0)).xyz;
+
+    // Calculate the new ray direction
+    vec3 newRayDirection = normalize(focalPoint - newRayOrigin);
+
     Ray ray;
-    ray.origin = worldStart.xyz;
-    ray.direction = normalize(worldEnd.xyz - worldStart.xyz);
+    ray.origin = newRayOrigin;
+    ray.direction = newRayDirection;
     
     return ray;
 }

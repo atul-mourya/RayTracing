@@ -28,6 +28,8 @@ class PathTracingShader extends ShaderPass {
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
+				focalDistance: { value: 1 },
+				aperture: { value: 0.001 },
 
 				directionalLightDirection: { value: scene.getObjectByName( 'directionLight' ).position.normalize().negate() },
 				directionalLightColor: { value: scene.getObjectByName( 'directionLight' ).color },
@@ -39,8 +41,8 @@ class PathTracingShader extends ShaderPass {
 				numRaysPerPixel: { value: 1 },
 				enableEnvironmentLight: { value: true },
 
-				visualizeBVH: { value: false },
-				maxBVHDepth: { value: 32 },
+				visMode: { value: 0 },
+				debugVisScale: { value: 100 },
 
 				spheres: { value: sdfs.spheres },
 
