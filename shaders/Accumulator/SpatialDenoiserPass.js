@@ -10,7 +10,7 @@ import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 class SpatialDenoiserPass extends Pass {
 
-	constructor( width, height, kernelSize = 5 ) {
+	constructor( width, height, kernelSize = 1 ) {
 
 		super();
 

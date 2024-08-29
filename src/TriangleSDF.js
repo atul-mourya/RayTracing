@@ -447,7 +447,6 @@ export default class TriangleSDF {
 
 	}
 
-
 	createAlbedoDataTexture( diffuseMaps ) {
 
 		// Determine the maximum dimensions among all textures
@@ -499,6 +498,19 @@ export default class TriangleSDF {
 		texture.needsUpdate = true;
 
 		return texture;
+
+	}
+
+	dispose() {
+
+		this.triangles = [];
+		this.materials = [];
+		this.maps = [];
+		this.materialTexture.dispose();
+		this.triangleTexture.dispose();
+		this.diffuseTextures.dispose();
+		this.bvhTexture.dispose();
+		this.spheres = [];
 
 	}
 
