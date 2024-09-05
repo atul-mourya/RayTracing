@@ -19,13 +19,13 @@ class AccumulationPass extends Pass {
 		const blendMat = new ShaderMaterial( {
 			uniforms: {
 
-                'tDiffuse1': { value: null },
-                'tDiffuse2': { value: null },
-                'iteration': { value: 0.0 }
-        
-            },
-        
-            vertexShader: /* glsl */`
+				'tDiffuse1': { value: null },
+				'tDiffuse2': { value: null },
+				'iteration': { value: 0.0 }
+
+			},
+
+			vertexShader: /* glsl */`
         
                 varying vec2 vUv;
         
@@ -35,8 +35,8 @@ class AccumulationPass extends Pass {
                     gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
         
                 }`,
-        
-            fragmentShader: /* glsl */`
+
+			fragmentShader: /* glsl */`
 
                 uniform float iteration;
         
@@ -107,7 +107,7 @@ class AccumulationPass extends Pass {
 
 		}
 
-        this.iteration++;
+		this.iteration ++;
 
 		this.blendQuad.material.uniforms[ 'tDiffuse1' ].value = this.prevFrameBuffer.texture; // prev render cycle result
 		this.blendQuad.material.uniforms[ 'tDiffuse2' ].value = readBuffer.texture; // current render cycle result
@@ -116,7 +116,7 @@ class AccumulationPass extends Pass {
 		this.blendQuad.render( renderer );
 
 		this.resultQuad.material.uniforms[ 'tDiffuse' ].value = this.blendedFrameBuffer.texture; // copy the blended frame to the resultQuad
-        renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
+		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.resultQuad.render( renderer );
 
 		[ this.prevFrameBuffer, this.blendedFrameBuffer ] = [ this.blendedFrameBuffer, this.prevFrameBuffer ];

@@ -20,7 +20,7 @@ import TriangleSDF from './src/TriangleSDF.js';
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/diamond/diamond.glb';
 const MODEL_URL = './models/modernbathroom.glb';
 const ENV_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/photo_studio_01_2k.hdr';
-const ORIGINAL_PIXEL_RATIO = 0.5;
+const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
 
 // DOM Elements
 const sampleCountsDiv = document.getElementById( 'sample-counts' );
@@ -61,6 +61,7 @@ function initRenderer() {
 	renderer.toneMapping = ACESFilmicToneMapping;
 	renderer.toneMappingExposure = Math.pow( 1.68, 4.0 );
 	renderer.outputColorSpace = LinearSRGBColorSpace;
+	renderer.setPixelRatio( ORIGINAL_PIXEL_RATIO );
 
 	canvas = renderer.domElement;
 	canvas.height = container.clientHeight;
@@ -149,7 +150,6 @@ function onResize() {
 	renderer.setSize( canvas.width, canvas.height );
 	composer.setSize( canvas.width, canvas.height );
 
-	pathTracingPass.uniforms.resolution.value.set( canvas.width, canvas.height );
 	pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
 	pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
 	reset();
@@ -202,7 +202,6 @@ async function loadGLTFModel() {
 function setupGUI() {
 
 	const parameters = {
-		enablePathTracer: true,
 		resolution: renderer.getPixelRatio(),
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
 	};
@@ -220,8 +219,7 @@ function setupGUI() {
 function setupSceneFolder( pane, parameters ) {
 
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
-	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 1, max: 4, step: 0.01 } )
-		.on( 'change', e => renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
+	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 1, max: 4, step: 0.01 } ).on( 'change', e => renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
 
 }
@@ -229,24 +227,20 @@ function setupSceneFolder( pane, parameters ) {
 function setupPathTracerFolder( pane, parameters ) {
 
 	const ptFolder = pane.addFolder( { title: 'Path Tracer' } ).on( 'change', reset );
-	ptFolder.addBinding( parameters, 'enablePathTracer', { label: 'Enable' } );
+	ptFolder.addBinding( pathTracingPass, 'enabled', { label: 'Enable' } );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
-	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': 0.25, 'Half': 0.5, 'Full': 1 } } )
-		.on( 'change', e => updateResolution( e.target.value ) );
+	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => updateResolution( e.value ) );
 
 }
 
 function setupLightFolder( pane ) {
 
 	const lightFolder = pane.addFolder( { title: 'Directional Light' } ).on( 'change', reset );
-	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 10 } )
-		.on( 'change', updateLightIntensity );
-	lightFolder.addBinding( dirLight, 'color', { label: 'Color', color: { type: 'float' } } )
-		.on( 'change', updateLightColor );
-	lightFolder.addBinding( dirLight, 'position', { label: 'Position' } )
-		.on( 'change', updateLightPosition );
+	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 10 } ).on( 'change', updateLightIntensity );
+	lightFolder.addBinding( dirLight, 'color', { label: 'Color', color: { type: 'float' } } ).on( 'change', updateLightColor );
+	lightFolder.addBinding( dirLight, 'position', { label: 'Position' } ).on( 'change', updateLightPosition );
 
 }
 
@@ -261,19 +255,15 @@ function setupDenoisingFolder( pane ) {
 function setupDebugFolder( pane ) {
 
 	const debugFolder = pane.addFolder( { title: 'Debugger' } );
-	debugFolder.addBinding( pathTracingPass.uniforms.visMode, 'value', {
-		label: 'Mode',
-		options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4 }
-	} ).on( 'change', reset );
-	debugFolder.addBinding( pathTracingPass.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } )
-		.on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4 } } ).on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
 
 }
 
 // GUI Helper Functions
 function updateResolution( value ) {
 
-	this.renderer.setPixelRatio( value );
+	renderer.setPixelRatio( value );
 	onResize();
 
 }
@@ -313,7 +303,6 @@ async function init() {
 
 	window.addEventListener( 'resize', onResize );
 
-	renderer.setPixelRatio( ORIGINAL_PIXEL_RATIO );
 	onResize();
 	animate();
 

@@ -70,6 +70,14 @@ class PathTracingShader extends ShaderPass {
 
 	}
 
+	setSize( width, height ) {
+
+		this.uniforms.resolution.value.x = width;
+		this.uniforms.resolution.value.y = height;
+
+
+	}
+
 	update( sdfs ) {
 
 		this.defines = {

@@ -28,7 +28,7 @@ class PathTracer {
 		this.modelUrl = modelUrl;
 		this.envUrl = envUrl;
 
-		this.originalPixelRatio = 0.5;
+		this.originalPixelRatio = window.devicePixelRatio / 2;
 
 		this.scene = new Scene();
 		this.camera = new PerspectiveCamera( 75, this.container.clientWidth / this.container.clientHeight, 0.01, 1000 );
@@ -66,7 +66,10 @@ class PathTracer {
 		renderer.toneMapping = ACESFilmicToneMapping;
 		renderer.toneMappingExposure = Math.pow( 1.26, 4.0 );
 		renderer.outputColorSpace = SRGBColorSpace;
+		renderer.setPixelRatio( this.originalPixelRatio );
+
 		renderer.setSize( this.container.clientWidth, this.container.clientHeight );
+
 		this.container.appendChild( renderer.domElement );
 		return renderer;
 
@@ -144,7 +147,7 @@ class PathTracer {
 	setupGUI() {
 
 		const parameters = {
-			resolution: this.renderer.getPixelRatio() / 2,
+			resolution: this.renderer.getPixelRatio(),
 			toneMappingExposure: Math.pow( this.renderer.toneMappingExposure, 1 / 4 ),
 		};
 
@@ -184,7 +187,7 @@ class PathTracer {
 		ptFolder.addBinding( this.accPass, 'enabled', { label: 'Enable Accumulation' } );
 		ptFolder.addBinding( this.pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 1, max: 20, step: 1 } );
 		ptFolder.addBinding( this.pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
-		ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': 0.25, 'Half': 0.5, 'Full': 1 } } ).on( 'change', e => this.updateResolution( e.value ) );
+		ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => this.updateResolution( e.value ) );
 
 		const lightFolder = pane.addFolder( { title: 'Directional Light' } ).on( 'change', () => {
 
@@ -230,7 +233,6 @@ class PathTracer {
 	updateResolution( value ) {
 
 		this.renderer.setPixelRatio( value );
-		this.originalPixelRatio = value;
 		this.onResize();
 
 	}
@@ -240,15 +242,14 @@ class PathTracer {
 		const width = this.container.clientWidth;
 		const height = this.container.clientHeight;
 
-		this.renderer.domElement.width = width;
 		this.renderer.domElement.height = height;
+		this.renderer.domElement.width = width;
+
 		this.camera.aspect = width / height;
 		this.camera.updateProjectionMatrix();
 		this.renderer.setSize( width, height );
 		this.composer.setSize( width, height );
-		this.denoiserPass.setSize( width, height );
 
-		this.pathTracingPass.uniforms.resolution.value.set( width, height );
 		this.pathTracingPass.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
 		this.pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 		this.reset();
@@ -277,7 +278,6 @@ class PathTracer {
 
 	setupEventListeners() {
 
-		this.renderer.setPixelRatio( this.originalPixelRatio );
 		window.addEventListener( 'resize', () => this.onResize() );
 
 	}

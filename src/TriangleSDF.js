@@ -471,7 +471,7 @@ export default class TriangleSDF {
 		const canvas = document.createElement( 'canvas' );
 		canvas.width = maxWidth;
 		canvas.height = maxHeight;
-		const ctx = canvas.getContext( '2d' );
+		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
 
 		// Fill the 3D texture data
 		for ( let i = 0; i < diffuseMaps.length; i ++ ) {
