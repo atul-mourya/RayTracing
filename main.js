@@ -18,7 +18,7 @@ import TriangleSDF from './src/TriangleSDF.js';
 
 //some samples at https://casual-effects.com/data/
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/diamond/diamond.glb';
-const MODEL_URL = './models/modernbathroom.glb';
+const MODEL_URL = './models/diorama.glb';
 const ENV_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/photo_studio_01_2k.hdr';
 const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
 
@@ -231,6 +231,8 @@ function setupPathTracerFolder( pane, parameters ) {
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
+	ptFolder.addBinding( pathTracingPass.uniforms.useCheckeredRendering, 'value', { label: 'Use Checkered' } );
+	ptFolder.addBinding( pathTracingPass.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => updateResolution( e.value ) );
 
 }

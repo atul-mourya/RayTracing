@@ -4,6 +4,8 @@ uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
+uniform bool useCheckeredRendering;
+uniform int checkeredFrameInterval;
 
 #include common.fs
 #include struct.fs
@@ -176,20 +178,34 @@ void main() {
     vec3 finalColor = vec3(0.0);
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
-    if (visMode > 0) { // Debug mode
-        Ray ray = generateRayFromCamera(screenPosition, seed);
-        finalColor = TraceDebugMode(ray.origin, ray.direction);
-    } else {
-        vec3 totalIncomingLight = vec3(0.0);
-        for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
-            vec2 jitter = RandomPointInCircle(seed) * pixelSize;
-            vec2 jitteredScreenPosition = screenPosition + jitter;
+    bool shouldRender = true;
 
-            Ray ray = generateRayFromCamera(jitteredScreenPosition, seed);
+    if (useCheckeredRendering) {
+        // Determine which set of pixels to render based on the current frame
+        int frameSet = int(frame) % checkeredFrameInterval;
+        shouldRender = ((int(gl_FragCoord.x) + int(gl_FragCoord.y) + frameSet) % checkeredFrameInterval == 0);
+    }
 
-            totalIncomingLight += Trace(ray, seed);
+    if (shouldRender) {
+        if (visMode > 0) { // Debug mode
+            Ray ray = generateRayFromCamera(screenPosition, seed);
+            finalColor = TraceDebugMode(ray.origin, ray.direction);
+        } else {
+            vec3 totalIncomingLight = vec3(0.0);
+            for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
+                vec2 jitter = RandomPointInCircle(seed) * pixelSize;
+                vec2 jitteredScreenPosition = screenPosition + jitter;
+
+                Ray ray = generateRayFromCamera(jitteredScreenPosition, seed);
+
+                totalIncomingLight += Trace(ray, seed);
+            }
+            finalColor = totalIncomingLight / float(numRaysPerPixel);
         }
-        finalColor = totalIncomingLight / float(numRaysPerPixel);
+    } else {
+        // For pixels that are not rendered in this frame, use the color from the previous frame
+        // sneed to implement a way to access the previous frame's color
+        // finalColor = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
     gl_FragColor = vec4(finalColor, 1.0);

@@ -43,6 +43,8 @@ class PathTracingShader extends ShaderPass {
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
+				useCheckeredRendering: { value: true },
+				checkeredFrameInterval: { value: 2 },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },
