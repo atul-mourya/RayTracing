@@ -91,7 +91,7 @@ function setupScene() {
 
 	dirLight = new DirectionalLight( 0xffffff, 0 );
 	dirLight.name = 'directionLight';
-	dirLight.position.set( 1, 3, 0 );
+	dirLight.position.set( 1, 1, 1 );
 	scene.add( dirLight );
 
 }
@@ -209,6 +209,7 @@ function setupGUI() {
 	const pane = new Pane( { title: 'Parameters', expanded: true } );
 
 	setupSceneFolder( pane, parameters );
+	setupCameraFolder( pane );
 	setupPathTracerFolder( pane, parameters );
 	setupLightFolder( pane );
 	setupDenoisingFolder( pane );
@@ -221,13 +222,28 @@ function setupSceneFolder( pane, parameters ) {
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
 	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 1, max: 4, step: 0.01 } ).on( 'change', e => renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
+	sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 1, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = e.value );
+
+}
+
+function setupCameraFolder( pane ) {
+
+	const folder = pane.addFolder( { title: 'Camera' } ).on( 'change', reset );
+	folder.addBinding( camera, 'fov', { label: 'FOV', min: 30, max: 90, step: 5 } ).on( 'change', onResize );
+	folder.addBinding( pathTracingPass.uniforms.focalDistance, 'value', { label: 'Focal Distance', min: 0, max: 100, step: 1 } );
+	folder.addBinding( pathTracingPass.uniforms.aperture, 'value', { label: 'Aperture', min: 0, max: 1, step: 0.001 } );
 
 }
 
 function setupPathTracerFolder( pane, parameters ) {
 
 	const ptFolder = pane.addFolder( { title: 'Path Tracer' } ).on( 'change', reset );
-	ptFolder.addBinding( pathTracingPass, 'enabled', { label: 'Enable' } );
+	ptFolder.addBinding( pathTracingPass, 'enabled', { label: 'Enable' } ).on( 'change', e => {
+
+		accPass.enabled = e.value;
+		renderPass.enabled = ! e.value;
+
+	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
