@@ -13,6 +13,7 @@ class PathTracingShader extends ShaderPass {
 		let diffuseTextures = sdfs.diffuseTextures;
 		let spheres = sdfs.spheres ?? [];
 		const scene = window.scene ?? null;
+		const renderer = window.renderer ?? null;
 
 		super( {
 
@@ -28,14 +29,14 @@ class PathTracingShader extends ShaderPass {
 				resolution: { value: new Vector2( width, height ) },
 				enableEnvironmentLight: { value: true },
 				envMap: { value: scene ? scene.background : null },
-				envMapIntensity: { value: scene ? scene.environmentIntensity : 0 },
+				envMapIntensity: { value: renderer ? renderer.toneMappingExposure : 0 },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
 				focalDistance: { value: 1 },
-				aperture: { value: 0.001 },
+				aperture: { value: 0.0 },
 
-				directionalLightDirection: { value: scene ? scene.getObjectByName( 'directionLight' ).position.normalize().negate() : new Vector3() },
+				directionalLightDirection: { value: scene ? scene.getObjectByName( 'directionLight' ).position.clone().normalize().negate() : new Vector3() },
 				directionalLightColor: { value: scene ? scene.getObjectByName( 'directionLight' ).color : new Vector3() },
 				directionalLightIntensity: { value: scene ? scene.getObjectByName( 'directionLight' ).intensity : 0 },
 
@@ -43,8 +44,8 @@ class PathTracingShader extends ShaderPass {
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
-				useCheckeredRendering: { value: true },
-				checkeredFrameInterval: { value: 2 },
+				useCheckeredRendering: { value: false },
+				checkeredFrameInterval: { value: 1 },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },

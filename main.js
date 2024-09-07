@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { Pane } from 'tweakpane';
-import Stats from 'three/addons/libs/stats.module.js';
+import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
 import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
@@ -17,18 +17,18 @@ import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 import TriangleSDF from './src/TriangleSDF.js';
 
 //some samples at https://casual-effects.com/data/
-// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/diamond/diamond.glb';
-const MODEL_URL = './models/diorama.glb';
+// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
+const MODEL_URL = './models/modernbathroom.glb';
 const ENV_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/photo_studio_01_2k.hdr';
 const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
 
 // DOM Elements
-const sampleCountsDiv = document.getElementById( 'sample-counts' );
 const container = document.getElementById( 'container-3d' );
+const tweakpaneContainer = document.getElementById( 'tweakpane-container' );
 
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
-let stats;
+let fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
 
 // Initialization Functions
@@ -59,7 +59,7 @@ function initRenderer() {
 	renderer = new WebGLRenderer( params );
 	renderer.setClearColor( 0xffffff, params.clearAlpha );
 	renderer.toneMapping = ACESFilmicToneMapping;
-	renderer.toneMappingExposure = Math.pow( 1.68, 4.0 );
+	renderer.toneMappingExposure = Math.pow( 1.18, 4.0 );
 	renderer.outputColorSpace = LinearSRGBColorSpace;
 	renderer.setPixelRatio( ORIGINAL_PIXEL_RATIO );
 
@@ -71,8 +71,6 @@ function initRenderer() {
 	container.appendChild( canvas );
 
 	window.renderer = renderer;
-	stats = new Stats();
-	document.body.appendChild( stats.dom );
 
 	return renderer;
 
@@ -91,7 +89,8 @@ function setupScene() {
 
 	dirLight = new DirectionalLight( 0xffffff, 0 );
 	dirLight.name = 'directionLight';
-	dirLight.position.set( 1, 1, 1 );
+	dirLight.position.set( 0.3, 1, 3 );
+	dirLight.intensity = 1.1;
 	scene.add( dirLight );
 
 }
@@ -124,31 +123,37 @@ function setupComposer( triangleSDF ) {
 // Event Handlers
 function onControlsStart() {
 
-	console.log( 'moving' );
-	renderPass.enabled = true;
-	pathTracingPass.enabled = false;
-	accPass.enabled = false;
+	// renderPass.enabled = true;
+	// pathTracingPass.enabled = false;
+	// accPass.enabled = false;
 
 }
 
 function onControlsEnd() {
 
-	console.log( 'stopped' );
-	renderPass.enabled = false;
-	pathTracingPass.enabled = true;
-	accPass.enabled = true;
+	// renderPass.enabled = false;
+	// pathTracingPass.enabled = true;
+	// accPass.enabled = true;
+
+}
+
+function handleLayoutChange() {
+
+	const isMobile = window.innerWidth <= 768;
+	tweakpaneContainer.style.position = isMobile ? 'absolute' : 'relative';
+	onResize();
 
 }
 
 function onResize() {
 
-	canvas.height = container.clientHeight;
-	canvas.width = container.clientWidth;
+	const width = container.clientWidth;
+	const height = container.clientHeight;
 
-	camera.aspect = canvas.width / canvas.height;
+	camera.aspect = width / height;
 	camera.updateProjectionMatrix();
-	renderer.setSize( canvas.width, canvas.height );
-	composer.setSize( canvas.width, canvas.height );
+	renderer.setSize( width, height );
+	composer.setSize( width, height );
 
 	pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
 	pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
@@ -159,18 +164,14 @@ function onResize() {
 // Animation and Rendering
 function animate() {
 
-	requestAnimationFrame( animate );
+	fpsGraph.begin();
 	controls.update();
 
-	if ( pathTracingPass.enabled ) {
-
-		updatePathTracingUniforms();
-		sampleCountsDiv.textContent = `Iterations: ${accPass.iteration}`;
-
-	}
+	pathTracingPass.enabled && updatePathTracingUniforms();
 
 	composer.render();
-	stats.update();
+	fpsGraph.end();
+	requestAnimationFrame( animate );
 
 }
 
@@ -206,8 +207,10 @@ function setupGUI() {
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
 	};
 
-	const pane = new Pane( { title: 'Parameters', expanded: true } );
+	const pane = new Pane( { title: 'Settings', expanded: true, container: tweakpaneContainer } );
+	pane.registerPlugin( EssentialsPlugin );
 
+	setupStatsFolder( pane, parameters );
 	setupSceneFolder( pane, parameters );
 	setupCameraFolder( pane );
 	setupPathTracerFolder( pane, parameters );
@@ -217,12 +220,20 @@ function setupGUI() {
 
 }
 
+function setupStatsFolder( pane ) {
+
+	const folder = pane.addFolder( { title: 'Stats' } );
+	folder.addBinding( accPass, 'iteration', { label: 'Samples', readonly: true } );
+	fpsGraph = folder.addBlade( { view: 'fpsgraph', label: 'fps', rows: 2, } );
+
+}
+
 function setupSceneFolder( pane, parameters ) {
 
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
-	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 1, max: 4, step: 0.01 } ).on( 'change', e => renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
+	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
-	sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 1, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = e.value );
+	// sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = e.value );
 
 }
 
@@ -245,7 +256,7 @@ function setupPathTracerFolder( pane, parameters ) {
 
 	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
-	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 1, max: 20, step: 1 } );
+	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.uniforms.useCheckeredRendering, 'value', { label: 'Use Checkered' } );
 	ptFolder.addBinding( pathTracingPass.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', min: 1, max: 20, step: 1 } );
@@ -282,6 +293,7 @@ function setupDebugFolder( pane ) {
 function updateResolution( value ) {
 
 	renderer.setPixelRatio( value );
+	composer.setPixelRatio( value );
 	onResize();
 
 }
@@ -318,8 +330,14 @@ async function init() {
 
 	setupComposer( triangleSDF );
 	setupGUI();
+	handleLayoutChange();
 
-	window.addEventListener( 'resize', onResize );
+	window.addEventListener( 'resize', () => {
+
+		handleLayoutChange();
+		onResize();
+
+	} );
 
 	onResize();
 	animate();

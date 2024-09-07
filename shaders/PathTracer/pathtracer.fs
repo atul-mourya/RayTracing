@@ -186,7 +186,7 @@ void main() {
         shouldRender = ((int(gl_FragCoord.x) + int(gl_FragCoord.y) + frameSet) % checkeredFrameInterval == 0);
     }
 
-    if (shouldRender) {
+    if (shouldRender || !useCheckeredRendering) {
         if (visMode > 0) { // Debug mode
             Ray ray = generateRayFromCamera(screenPosition, seed);
             finalColor = TraceDebugMode(ray.origin, ray.direction);
