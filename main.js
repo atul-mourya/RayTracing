@@ -90,7 +90,7 @@ function setupScene() {
 	dirLight = new DirectionalLight( 0xffffff, 0 );
 	dirLight.name = 'directionLight';
 	dirLight.position.set( 0.3, 1, 3 );
-	dirLight.intensity = 1.1;
+	dirLight.intensity = 0;
 	scene.add( dirLight );
 
 }
