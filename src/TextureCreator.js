@@ -102,6 +102,9 @@ export default class TextureCreator {
 
 	createAlbedoDataTexture( diffuseMaps ) {
 
+		// Get the maximum texture size supported by the GPU
+		const maxTextureSize = renderer.capabilities.maxTextureSize;
+
 		// Determine the maximum dimensions among all textures
 		let maxWidth = 0;
 		let maxHeight = 0;
@@ -115,6 +118,14 @@ export default class TextureCreator {
 		// Round up to the nearest power of 2
 		maxWidth = Math.pow( 2, Math.ceil( Math.log2( maxWidth ) ) );
 		maxHeight = Math.pow( 2, Math.ceil( Math.log2( maxHeight ) ) );
+
+		// Reduce dimensions if they exceed the maximum texture size
+		while ( maxWidth > maxTextureSize || maxHeight > maxTextureSize ) {
+
+			maxWidth = Math.max( 1, Math.floor( maxWidth / 2 ) );
+			maxHeight = Math.max( 1, Math.floor( maxHeight / 2 ) );
+
+		}
 
 		// Create a 3D data array
 		const depth = diffuseMaps.length;

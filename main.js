@@ -1,7 +1,7 @@
 import {
 	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping,
-	TextureLoader, DirectionalLight, LinearSRGBColorSpace,
-	EquirectangularReflectionMapping, Group
+	FloatType, DirectionalLight, LinearSRGBColorSpace,
+	EquirectangularReflectionMapping, Group, Box3, Vector3
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -16,10 +16,53 @@ import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 import TriangleSDF from './src/TriangleSDF.js';
 
+
 //some samples at https://casual-effects.com/data/
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
 const MODEL_URL = './models/modernbathroom.glb';
-const ENV_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/photo_studio_01_2k.hdr';
+const HDR_FILES = [
+	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
+	{ name: "Aerodynamics Workshop", url: "aerodynamics_workshop_2k.hdr" },
+	{ name: "Aristea Wreck Pure Sky", url: "aristea_wreck_puresky_2k.hdr" },
+	{ name: "Auto Shop", url: "autoshop_01_2k.hdr" },
+	{ name: "Blocky Photo Studio", url: "blocky_photo_studio_1k.hdr" },
+	{ name: "Brown Photo Studio 01", url: "brown_photostudio_01_2k.hdr" },
+	{ name: "Brown Photo Studio 02", url: "brown_photostudio_02_2k.hdr" },
+	{ name: "Brown Photo Studio 06", url: "brown_photostudio_06_2k.hdr" },
+	{ name: "Brown Photo Studio 07", url: "brown_photostudio_07_2k.hdr" },
+	{ name: "Chinese Garden", url: "chinese_garden_2k.hdr" },
+	{ name: "Christmas Photo Studio 04", url: "christmas_photo_studio_04_2k.hdr" },
+	{ name: "Christmas Photo Studio 05", url: "christmas_photo_studio_05_2k.hdr" },
+	{ name: "Christmas Photo Studio 07", url: "christmas_photo_studio_07_2k.hdr" },
+	{ name: "Circus Arena", url: "circus_arena_2k.hdr" },
+	{ name: "Comfy Cafe", url: "comfy_cafe_2k.hdr" },
+	{ name: "Dancing Hall", url: "dancing_hall_2k.hdr" },
+	{ name: "Drachenfels Cellar", url: "drachenfels_cellar_2k.hdr" },
+	{ name: "Hall of Mammals", url: "hall_of_mammals_2k.hdr" },
+	{ name: "Herkulessaulen", url: "herkulessaulen_2k.hdr" },
+	{ name: "Hilly Terrain", url: "hilly_terrain_01_2k.hdr" },
+	{ name: "Kloppenheim", url: "kloppenheim_05_2k.hdr" },
+	{ name: "Leadenhall Market", url: "leadenhall_market_2k.hdr" },
+	{ name: "Modern Buildings", url: "modern_buildings_2_2k.hdr" },
+	{ name: "Narrow Moonlit Road", url: "narrow_moonlit_road_2k.hdr" },
+	{ name: "Noon Grass", url: "noon_grass_2k.hdr" },
+	{ name: "Peppermint Powerplant", url: "peppermint_powerplant_2k.hdr" },
+	{ name: "Phalzer Forest", url: "phalzer_forest_01_2k.hdr" },
+	{ name: "Photo Studio", url: "photo_studio_01_2k.hdr" },
+	{ name: "Photo Studio Loft Hall", url: "photo_studio_loft_hall_2k.hdr" },
+	{ name: "Rainforest Trail", url: "rainforest_trail_2k.hdr" },
+	{ name: "Sepulchral Chapel Rotunda", url: "sepulchral_chapel_rotunda_2k.hdr" },
+	{ name: "St. Peter's Square Night", url: "st_peters_square_night_2k.hdr" },
+	{ name: "Studio Small 05", url: "studio_small_05_2k.hdr" },
+	{ name: "Studio Small 09", url: "studio_small_09_2k.hdr" },
+	{ name: "Thatch Chapel", url: "thatch_chapel_2k.hdr" },
+	{ name: "Urban Alley", url: "urban_alley_01_2k.hdr" },
+	{ name: "Vestibule", url: "vestibule_2k.hdr" },
+	{ name: "Vintage Measuring Lab", url: "vintage_measuring_lab_2k.hdr" },
+	{ name: "Wasteland Clouds Pure Sky", url: "wasteland_clouds_puresky_2k.hdr" },
+	{ name: "Whale Skeleton", url: "whale_skeleton_2k.hdr" }
+];
+const ENV_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/';
 const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
 
 // DOM Elements
@@ -30,6 +73,7 @@ const tweakpaneContainer = document.getElementById( 'tweakpane-container' );
 let renderer, canvas, scene, dirLight, camera, controls;
 let fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
+let currentHDRIndex = 0, loadingOverlay;
 
 // Initialization Functions
 async function initScene() {
@@ -37,14 +81,59 @@ async function initScene() {
 	scene = new Scene();
 	window.scene = scene;
 
-	const envType = ENV_URL.split( '.' ).pop();
-	const loader = envType === 'png' || envType === 'jpg' ? new TextureLoader() : new RGBELoader();
-	const envMap = await loader.loadAsync( ENV_URL );
-	envMap.mapping = EquirectangularReflectionMapping;
-	scene.background = envMap;
-	scene.environment = envMap;
+	await loadHDRBackground( currentHDRIndex );
 
 }
+
+async function loadHDRBackground( index ) {
+
+	showLoadingIndicator();
+
+	const loader = new RGBELoader();
+	loader.setDataType( FloatType );
+
+	try {
+
+		const hdrTexture = await new Promise( ( resolve, reject ) => {
+
+			loader.load(
+				`${ENV_BASE_URL}${HDR_FILES[ index ].url}`,
+				( texture ) => resolve( texture ),
+				null,
+				( error ) => reject( error )
+			);
+
+		} );
+
+		hdrTexture.mapping = EquirectangularReflectionMapping;
+
+		scene.background = hdrTexture;
+		scene.environment = hdrTexture;
+
+		// Update path tracing uniforms
+		if ( pathTracingPass ) {
+
+			pathTracingPass.uniforms.envMapIntensity.value = renderer.toneMappingExposure;
+			pathTracingPass.uniforms.envMap.value = hdrTexture;
+
+			// Reset accumulation
+			reset();
+
+		}
+
+	} catch ( error ) {
+
+		console.error( 'Error loading HDR:', error );
+
+	} finally {
+
+		hideLoadingIndicator();
+
+	}
+
+
+}
+
 
 function initRenderer() {
 
@@ -203,6 +292,7 @@ async function loadGLTFModel() {
 function setupGUI() {
 
 	const parameters = {
+		hdrBackground: HDR_FILES[ currentHDRIndex ].name,
 		resolution: renderer.getPixelRatio(),
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
 	};
@@ -220,6 +310,7 @@ function setupGUI() {
 
 }
 
+
 function setupStatsFolder( pane ) {
 
 	const folder = pane.addFolder( { title: 'Stats' } );
@@ -233,6 +324,19 @@ function setupSceneFolder( pane, parameters ) {
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
 	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
+	sceneFolder.addBinding( parameters, 'hdrBackground', {
+		label: 'HDR Environment',
+		options: HDR_FILES.reduce( ( acc, file, index ) => {
+
+			acc[ file.name ] = index;
+			return acc;
+
+		}, {} )
+	} ).on( 'change', ( ev ) => {
+
+		switchHDRBackground( ev.value );
+
+	} );
 	// sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = e.value );
 
 }
@@ -289,6 +393,17 @@ function setupDebugFolder( pane ) {
 
 }
 
+function switchHDRBackground( index ) {
+
+	if ( index !== currentHDRIndex ) {
+
+		currentHDRIndex = index;
+		loadHDRBackground( currentHDRIndex );
+
+	}
+
+}
+
 // GUI Helper Functions
 function updateResolution( value ) {
 
@@ -316,8 +431,153 @@ function updateLightPosition() {
 
 }
 
+function setupDragAndDrop() {
+
+	const dropZone = document.body;
+
+	dropZone.addEventListener( 'dragenter', ( event ) => {
+
+		event.preventDefault();
+		event.stopPropagation();
+		dropZone.classList.add( 'drag-over' );
+
+	} );
+
+	dropZone.addEventListener( 'dragleave', ( event ) => {
+
+		event.preventDefault();
+		event.stopPropagation();
+		dropZone.classList.remove( 'drag-over' );
+
+	} );
+
+
+	dropZone.addEventListener( 'dragover', ( event ) => {
+
+		event.preventDefault();
+		event.stopPropagation();
+		event.dataTransfer.dropEffect = 'copy';
+
+	} );
+
+	dropZone.addEventListener( 'drop', ( event ) => {
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		dropZone.classList.remove( 'drag-over' );
+
+		const file = event.dataTransfer.files[ 0 ];
+		if ( file && file.name.toLowerCase().endsWith( '.glb' ) ) {
+
+			const reader = new FileReader();
+			reader.onload = ( event ) => {
+
+				const arrayBuffer = event.target.result;
+				loadGLBFromArrayBuffer( arrayBuffer );
+
+			};
+
+			reader.readAsArrayBuffer( file );
+
+		} else {
+
+			console.warn( 'Please drop a GLB file.' );
+
+		}
+
+	} );
+
+}
+
+function loadGLBFromArrayBuffer( arrayBuffer ) {
+
+	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
+	loader.parse( arrayBuffer, '', ( gltf ) => {
+
+		// Remove existing model
+		scene.traverse( ( child ) => {
+
+			if ( child instanceof Group ) {
+
+				scene.remove( child );
+
+			}
+
+		} );
+
+		// Add new model
+		const model = gltf.scene;
+		scene.add( model );
+
+		centerModelAndAdjustCamera( model );
+		// Update triangleSDF
+		const triangleSDF = new TriangleSDF( scene );
+		pathTracingPass.update( triangleSDF );
+
+		// Reset accumulation and update scene
+		reset();
+		onResize();
+
+	}, undefined, ( error ) => {
+
+		console.error( 'Error loading GLB:', error );
+
+	} );
+
+}
+
+function centerModelAndAdjustCamera( model ) {
+
+	// Compute the bounding box of the model
+	const boundingBox = new Box3().setFromObject( model );
+	const center = boundingBox.getCenter( new Vector3() );
+	const size = boundingBox.getSize( new Vector3() );
+
+	// Set the OrbitControls target to the center of the model
+	controls.target.copy( center );
+
+	// Calculate the distance to place the camera
+	const maxDim = Math.max( size.x, size.y, size.z );
+	const fov = camera.fov * ( Math.PI / 180 );
+	const cameraDistance = Math.abs( maxDim / Math.sin( fov / 2 ) / 2 );
+
+	// Position the camera
+	const direction = new Vector3().subVectors( camera.position, controls.target ).normalize();
+	camera.position.copy( direction.multiplyScalar( cameraDistance ).add( controls.target ) );
+
+	// Update camera and controls
+	camera.near = maxDim / 100;
+	camera.far = maxDim * 100;
+	camera.updateProjectionMatrix();
+	controls.maxDistance = cameraDistance * 10;
+	controls.update();
+
+}
+
+function setupLoadingIndicator() {
+
+	loadingOverlay = document.getElementById( 'loading-overlay' );
+
+}
+
+function showLoadingIndicator() {
+
+	loadingOverlay.style.display = 'flex';
+
+}
+
+function hideLoadingIndicator() {
+
+	loadingOverlay.style.display = 'none';
+
+}
+
+
 // Main Initialization
 async function init() {
+
+	setupLoadingIndicator();
 
 	await initScene();
 	initRenderer();
@@ -325,13 +585,14 @@ async function init() {
 
 	const meshes = await loadGLTFModel();
 	scene.add( meshes );
+	centerModelAndAdjustCamera( meshes );
 
 	const triangleSDF = new TriangleSDF( scene );
 
 	setupComposer( triangleSDF );
 	setupGUI();
 	handleLayoutChange();
-
+	setupDragAndDrop();
 	window.addEventListener( 'resize', () => {
 
 		handleLayoutChange();

@@ -13,6 +13,7 @@
   -moz-osx-font-smoothing: grayscale;
 
   --tp-base-background-color: hsla(230, 5%, 90%, 1.00);
+  --ovly-base-background-color: hsla(230, 5%, 90%, 0.80);
   --tp-base-shadow-color: hsla(0, 0%, 0%, 0.10);
   --tp-button-background-color: hsla(230, 7%, 75%, 1.00);
   --tp-button-background-color-active: hsla(230, 7%, 60%, 1.00);
@@ -33,6 +34,10 @@
   --tp-label-foreground-color: hsla(230, 10%, 30%, 0.70);
   --tp-monitor-background-color: hsla(230, 15%, 30%, 0.10);
   --tp-monitor-foreground-color: hsla(230, 10%, 30%, 0.50);
+  --bs-br: var(--tp-base-border-radius, 6px);
+  --bs-ff: var(--tp-base-font-family, Roboto Mono, Source Code Pro, Menlo, Courier, monospace);
+  --bs-sh: var(--tp-base-shadow-color, rgba(0, 0, 0, 0.2));
+  --lbl-fg: var(--tp-label-foreground-color, rgba(187, 188, 196, 0.7));
 }
 
 .tp-rotv {
@@ -44,6 +49,11 @@ body, html {
   padding: 0;
   height: 100%;
   overflow: hidden;
+}
+
+body.drag-over {
+  outline: 2px dashed #4CAF50;
+  outline-offset: -10px;
 }
 
 .layout-container {
@@ -67,9 +77,8 @@ body, html {
 #tweakpane-container {
   width: 400px;
   overflow-y: auto;
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: var(--tp-base-background-color);
   box-sizing: border-box;
-  background-color: --tp-base-background-color;
 }
 
 
@@ -85,4 +94,45 @@ body, html {
       left: 0;
       z-index: 1000;
   }
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.loading-spinner {
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #3498db;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+}
+
+#drag-drop-info {
+  position: absolute; 
+  bottom: 10px; 
+  left: 10px; 
+  background: var(--ovly-base-background-color);
+  color: var(--lbl-fg);
+  padding: 5px; 
+  border-radius: var(--bs-br);
+  font-family: var(--bs-ff);
+  box-shadow: 0 2px 4px var(--bs-sh);
+  font-size: 11px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
