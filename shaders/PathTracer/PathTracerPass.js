@@ -132,10 +132,7 @@ class PathTracerPass extends Pass {
 
 	reset() {
 
-		// this.renderer.setRenderTarget( this.renderTargetA );
-		// this.renderer.clear();
-		// this.renderer.setRenderTarget( this.renderTargetB );
-		// this.renderer.clear();
+		this.material.uniforms.frame.value = 0;
 
 	}
 
