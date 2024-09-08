@@ -11,10 +11,9 @@ import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
 import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
-import PathTracingShader from './shaders/PathTracer/PathTracingShader.js';
+import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
-import TriangleSDF from './src/TriangleSDF.js';
 
 
 //some samples at https://casual-effects.com/data/
@@ -68,69 +67,44 @@ const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
 // DOM Elements
 const container = document.getElementById( 'container-3d' );
 const tweakpaneContainer = document.getElementById( 'tweakpane-container' );
+const loadingOverlay = document.getElementById( 'loading-overlay' );
 
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
 let fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
-let currentHDRIndex = 0, loadingOverlay;
+let currentHDRIndex = 0;
 
 // Initialization Functions
-async function initScene() {
+function initScene() {
 
 	scene = new Scene();
 	window.scene = scene;
-
-	await loadHDRBackground( currentHDRIndex );
 
 }
 
 async function loadHDRBackground( index ) {
 
-	showLoadingIndicator();
+	toggleLoadingIndicator( true );
 
 	const loader = new RGBELoader();
 	loader.setDataType( FloatType );
 
-	try {
+	const texture = await loader.loadAsync( `${ENV_BASE_URL}${HDR_FILES[ index ].url}` );
+	texture.mapping = EquirectangularReflectionMapping;
 
-		const hdrTexture = await new Promise( ( resolve, reject ) => {
+	scene.background = texture;
+	scene.environment = texture;
 
-			loader.load(
-				`${ENV_BASE_URL}${HDR_FILES[ index ].url}`,
-				( texture ) => resolve( texture ),
-				null,
-				( error ) => reject( error )
-			);
+	if ( pathTracingPass ) {
 
-		} );
-
-		hdrTexture.mapping = EquirectangularReflectionMapping;
-
-		scene.background = hdrTexture;
-		scene.environment = hdrTexture;
-
-		// Update path tracing uniforms
-		if ( pathTracingPass ) {
-
-			pathTracingPass.uniforms.envMapIntensity.value = renderer.toneMappingExposure;
-			pathTracingPass.uniforms.envMap.value = hdrTexture;
-
-			// Reset accumulation
-			reset();
-
-		}
-
-	} catch ( error ) {
-
-		console.error( 'Error loading HDR:', error );
-
-	} finally {
-
-		hideLoadingIndicator();
+		pathTracingPass.material.uniforms.envMapIntensity.value = renderer.toneMappingExposure;
+		pathTracingPass.material.uniforms.envMap.value = texture;
+		reset();
 
 	}
 
+	toggleLoadingIndicator( false );
 
 }
 
@@ -172,8 +146,6 @@ function setupScene() {
 
 	controls = new OrbitControls( camera, canvas );
 	controls.addEventListener( 'change', reset );
-	controls.addEventListener( 'start', onControlsStart );
-	controls.addEventListener( 'end', onControlsEnd );
 	controls.update();
 
 	dirLight = new DirectionalLight( 0xffffff, 0 );
@@ -184,7 +156,7 @@ function setupScene() {
 
 }
 
-function setupComposer( triangleSDF ) {
+function setupComposer() {
 
 	composer = new EffectComposer( renderer );
 
@@ -192,7 +164,7 @@ function setupComposer( triangleSDF ) {
 	renderPass.enabled = false;
 	composer.addPass( renderPass );
 
-	pathTracingPass = new PathTracingShader( triangleSDF, canvas.width, canvas.height );
+	pathTracingPass = new PathTracerPass( renderer, scene, camera, canvas.width, canvas.height );
 	pathTracingPass.enabled = true;
 	composer.addPass( pathTracingPass );
 
@@ -209,32 +181,16 @@ function setupComposer( triangleSDF ) {
 
 }
 
-// Event Handlers
-function onControlsStart() {
-
-	// renderPass.enabled = true;
-	// pathTracingPass.enabled = false;
-	// accPass.enabled = false;
-
-}
-
-function onControlsEnd() {
-
-	// renderPass.enabled = false;
-	// pathTracingPass.enabled = true;
-	// accPass.enabled = true;
-
-}
-
 function handleLayoutChange() {
 
 	const isMobile = window.innerWidth <= 768;
 	tweakpaneContainer.style.position = isMobile ? 'absolute' : 'relative';
-	onResize();
 
 }
 
 function onResize() {
+
+	handleLayoutChange();
 
 	const width = container.clientWidth;
 	const height = container.clientHeight;
@@ -244,8 +200,6 @@ function onResize() {
 	renderer.setSize( width, height );
 	composer.setSize( width, height );
 
-	pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
-	pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
 	reset();
 
 }
@@ -255,21 +209,9 @@ function animate() {
 
 	fpsGraph.begin();
 	controls.update();
-
-	pathTracingPass.enabled && updatePathTracingUniforms();
-
 	composer.render();
 	fpsGraph.end();
 	requestAnimationFrame( animate );
-
-}
-
-function updatePathTracingUniforms() {
-
-	pathTracingPass.uniforms.directionalLightIntensity.value = dirLight.intensity;
-	pathTracingPass.uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
-	pathTracingPass.uniforms.cameraProjectionMatrixInverse.value.copy( camera.projectionMatrixInverse );
-	pathTracingPass.uniforms.frame.value ++;
 
 }
 
@@ -292,7 +234,7 @@ async function loadGLTFModel() {
 function setupGUI() {
 
 	const parameters = {
-		hdrBackground: HDR_FILES[ currentHDRIndex ].name,
+		hdrBackground: currentHDRIndex,
 		resolution: renderer.getPixelRatio(),
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
 	};
@@ -322,22 +264,11 @@ function setupStatsFolder( pane ) {
 function setupSceneFolder( pane, parameters ) {
 
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
-	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
-	sceneFolder.addBinding( pathTracingPass.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
-	sceneFolder.addBinding( parameters, 'hdrBackground', {
-		label: 'HDR Environment',
-		options: HDR_FILES.reduce( ( acc, file, index ) => {
-
-			acc[ file.name ] = index;
-			return acc;
-
-		}, {} )
-	} ).on( 'change', ( ev ) => {
-
-		switchHDRBackground( ev.value );
-
-	} );
-	// sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.uniforms.envMapIntensity.value = e.value );
+	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.material.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
+	sceneFolder.addBinding( pathTracingPass.material.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
+	sceneFolder.addBinding( parameters, 'hdrBackground', { label: 'HDR Environment',
+		options: Object.fromEntries( HDR_FILES.map( ( file, index ) => [ file.name, index ] ) ) } ).on( 'change', e => switchHDRBackground( e.value ) );
+	// sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.material.uniforms.envMapIntensity.value = e.value );
 
 }
 
@@ -345,8 +276,8 @@ function setupCameraFolder( pane ) {
 
 	const folder = pane.addFolder( { title: 'Camera' } ).on( 'change', reset );
 	folder.addBinding( camera, 'fov', { label: 'FOV', min: 30, max: 90, step: 5 } ).on( 'change', onResize );
-	folder.addBinding( pathTracingPass.uniforms.focalDistance, 'value', { label: 'Focal Distance', min: 0, max: 100, step: 1 } );
-	folder.addBinding( pathTracingPass.uniforms.aperture, 'value', { label: 'Aperture', min: 0, max: 1, step: 0.001 } );
+	folder.addBinding( pathTracingPass.material.uniforms.focalDistance, 'value', { label: 'Focal Distance', min: 0, max: 100, step: 1 } );
+	folder.addBinding( pathTracingPass.material.uniforms.aperture, 'value', { label: 'Aperture', min: 0, max: 1, step: 0.001 } );
 
 }
 
@@ -360,20 +291,25 @@ function setupPathTracerFolder( pane, parameters ) {
 
 	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
-	ptFolder.addBinding( pathTracingPass.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
-	ptFolder.addBinding( pathTracingPass.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
-	ptFolder.addBinding( pathTracingPass.uniforms.useCheckeredRendering, 'value', { label: 'Use Checkered' } );
-	ptFolder.addBinding( pathTracingPass.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', min: 1, max: 20, step: 1 } );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.useCheckeredRendering, 'value', { label: 'Use Checkered' } );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => updateResolution( e.value ) );
 
 }
 
 function setupLightFolder( pane ) {
 
-	const lightFolder = pane.addFolder( { title: 'Directional Light' } ).on( 'change', reset );
-	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 10 } ).on( 'change', updateLightIntensity );
-	lightFolder.addBinding( dirLight, 'color', { label: 'Color', color: { type: 'float' } } ).on( 'change', updateLightColor );
-	lightFolder.addBinding( dirLight, 'position', { label: 'Position' } ).on( 'change', updateLightPosition );
+	const lightFolder = pane.addFolder( { title: 'Directional Light' } ).on( 'change', () => {
+
+		pathTracingPass.updateLight( dirLight );
+		reset();
+
+	} );
+	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 10 } );
+	lightFolder.addBinding( dirLight, 'color', { label: 'Color', color: { type: 'float' } } );
+	lightFolder.addBinding( dirLight, 'position', { label: 'Position' } );
 
 }
 
@@ -388,8 +324,8 @@ function setupDenoisingFolder( pane ) {
 function setupDebugFolder( pane ) {
 
 	const debugFolder = pane.addFolder( { title: 'Debugger' } );
-	debugFolder.addBinding( pathTracingPass.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4 } } ).on( 'change', reset );
-	debugFolder.addBinding( pathTracingPass.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.material.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4 } } ).on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.material.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
 
 }
 
@@ -413,24 +349,6 @@ function updateResolution( value ) {
 
 }
 
-function updateLightIntensity() {
-
-	pathTracingPass.uniforms.directionalLightIntensity.value = dirLight.intensity;
-
-}
-
-function updateLightColor() {
-
-	pathTracingPass.uniforms.directionalLightColor.value.copy( dirLight.color );
-
-}
-
-function updateLightPosition() {
-
-	pathTracingPass.uniforms.directionalLightDirection.value.copy( dirLight.position ).normalize().negate();
-
-}
-
 function setupDragAndDrop() {
 
 	const dropZone = document.body;
@@ -450,7 +368,6 @@ function setupDragAndDrop() {
 		dropZone.classList.remove( 'drag-over' );
 
 	} );
-
 
 	dropZone.addEventListener( 'dragover', ( event ) => {
 
@@ -511,11 +428,9 @@ function loadGLBFromArrayBuffer( arrayBuffer ) {
 		scene.add( model );
 
 		centerModelAndAdjustCamera( model );
-		// Update triangleSDF
-		const triangleSDF = new TriangleSDF( scene );
-		pathTracingPass.update( triangleSDF );
 
-		// Reset accumulation and update scene
+		pathTracingPass.build( scene );
+
 		reset();
 		onResize();
 
@@ -555,50 +470,32 @@ function centerModelAndAdjustCamera( model ) {
 
 }
 
-function setupLoadingIndicator() {
+function toggleLoadingIndicator( bool ) {
 
-	loadingOverlay = document.getElementById( 'loading-overlay' );
-
-}
-
-function showLoadingIndicator() {
-
-	loadingOverlay.style.display = 'flex';
+	loadingOverlay.style.display = bool ? 'flex' : 'none';
 
 }
 
-function hideLoadingIndicator() {
-
-	loadingOverlay.style.display = 'none';
-
-}
-
-
-// Main Initialization
 async function init() {
 
-	setupLoadingIndicator();
-
-	await initScene();
+	initScene();
 	initRenderer();
 	setupScene();
+	setupComposer();
+
+	loadHDRBackground( currentHDRIndex );
 
 	const meshes = await loadGLTFModel();
 	scene.add( meshes );
+
 	centerModelAndAdjustCamera( meshes );
 
-	const triangleSDF = new TriangleSDF( scene );
+	pathTracingPass.build( scene );
 
-	setupComposer( triangleSDF );
 	setupGUI();
-	handleLayoutChange();
+
 	setupDragAndDrop();
-	window.addEventListener( 'resize', () => {
-
-		handleLayoutChange();
-		onResize();
-
-	} );
+	window.addEventListener( 'resize', onResize );
 
 	onResize();
 	animate();
