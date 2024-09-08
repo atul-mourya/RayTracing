@@ -182,8 +182,21 @@ bool shouldRenderPixel() {
     
 	} else if (renderMode == 1) { // Checkered rendering
 
-		int frameSet = int(frame) % checkeredFrameInterval;
-		return ((int(pixelCoord.x) + int(pixelCoord.y) + frameSet) % checkeredFrameInterval == 0);
+		int frameNumber = int(frame);
+        
+        // Calculate which block this pixel belongs to
+        int blockX = pixelCoord.x / checkeredFrameInterval;
+        int blockY = pixelCoord.y / checkeredFrameInterval;
+        
+        // Determine if this block is "white" or "black"
+        bool isWhiteBlock = ((blockX + blockY) % 2 == 0);
+        
+        // Render "white" blocks on even frames, "black" blocks on odd frames
+        if (frameNumber % 2 == 0) {
+            return isWhiteBlock;
+        } else {
+            return !isWhiteBlock;
+        }
 
     } else if (renderMode == 2) { // Tiled rendering
 
