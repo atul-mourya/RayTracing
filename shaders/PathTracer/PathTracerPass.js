@@ -1,9 +1,12 @@
-import { ShaderMaterial, Vector2, Vector3, Matrix4 } from 'three';
+import { ShaderMaterial, Vector2, Vector3, Matrix4, RGBAFormat, WebGLRenderTarget,
+	FloatType,
+	NearestFilter
+} from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from '../PathTracer/pathtracer.fs';
 import VertexShader from '../PathTracer/pathtracer.vs';
 import TriangleSDF from '../../src/TriangleSDF';
-
 
 class PathTracerPass extends Pass {
 
@@ -14,6 +17,22 @@ class PathTracerPass extends Pass {
 		this.camera = camera;
 		this.width = width;
 		this.height = height;
+		this.renderer = renderer;
+
+		this.name = 'PathTracerPass';
+
+		// Create two render targets for ping-pong rendering
+		this.renderTargetA = new WebGLRenderTarget( width, height, {
+			format: RGBAFormat,
+			type: FloatType,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter
+		} );
+		this.renderTargetB = this.renderTargetA.clone();
+
+		// Start with A as current and B as previous
+		this.currentRenderTarget = this.renderTargetA;
+		this.previousRenderTarget = this.renderTargetB;
 
 		this.name = 'PathTracerPass';
 		this.material = new ShaderMaterial( {
@@ -44,8 +63,10 @@ class PathTracerPass extends Pass {
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
-				useCheckeredRendering: { value: false },
-				checkeredFrameInterval: { value: 1 },
+				renderMode: { value: 0 },
+				tiles: { value: 4 },
+				checkeredFrameInterval: { value: 2 },
+				previousFrameTexture: { value: null },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },
@@ -72,6 +93,10 @@ class PathTracerPass extends Pass {
 		} );
 
 		this.fsQuad = new FullScreenQuad( this.material );
+
+		// Create CopyShader material
+		this.copyMaterial = new ShaderMaterial( CopyShader );
+		this.copyQuad = new FullScreenQuad( this.copyMaterial );
 
 	}
 
@@ -105,13 +130,23 @@ class PathTracerPass extends Pass {
 
 	}
 
+	reset() {
+
+		// this.renderer.setRenderTarget( this.renderTargetA );
+		// this.renderer.clear();
+		// this.renderer.setRenderTarget( this.renderTargetB );
+		// this.renderer.clear();
+
+	}
+
 	setSize( width, height ) {
 
 		this.width = width;
 		this.height = height;
 
-		this.material.uniforms.resolution.value.x = width;
-		this.material.uniforms.resolution.value.y = height;
+		this.material.uniforms.resolution.value.set( width, height );
+		this.renderTargetA.setSize( width, height );
+		this.renderTargetB.setSize( width, height );
 
 	}
 
@@ -123,6 +158,10 @@ class PathTracerPass extends Pass {
 		this.material.uniforms.materialTexture.value?.dispose();
 		this.material.dispose();
 		this.fsQuad.dispose();
+		this.renderTargetA.dispose();
+		this.renderTargetB.dispose();
+		this.copyMaterial.dispose();
+		this.copyQuad.dispose();
 
 	}
 
@@ -130,22 +169,36 @@ class PathTracerPass extends Pass {
 
 		if ( ! this.enabled ) return;
 
+		// Update uniforms
 		this.material.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
 		this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 		this.material.uniforms.frame.value ++;
 
+		// Set the previous frame texture
+		this.material.uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
+
+		// Render to the current render target
+		renderer.setRenderTarget( this.currentRenderTarget );
+		this.fsQuad.render( renderer );
+
+		// Copy the result to the write buffer or screen
+		this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
+
 		if ( this.renderToScreen ) {
 
 			renderer.setRenderTarget( null );
-			this.fsQuad.render( renderer );
+			this.copyQuad.render( renderer );
 
 		} else {
 
 			renderer.setRenderTarget( writeBuffer );
 			if ( this.clear ) renderer.clear();
-			this.fsQuad.render( renderer );
+			this.copyQuad.render( renderer );
 
 		}
+
+		// Swap render targets for next frame
+		[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
 
 	}
 

@@ -18,7 +18,7 @@ import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 
 //some samples at https://casual-effects.com/data/
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
-const MODEL_URL = './models/modernbathroom.glb';
+const MODEL_URL = './models/model3.glb';
 const HDR_FILES = [
 	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
 	{ name: "Aerodynamics Workshop", url: "aerodynamics_workshop_2k.hdr" },
@@ -217,7 +217,8 @@ function animate() {
 
 function reset() {
 
-	if ( accPass ) accPass.iteration = 0;
+	pathTracingPass.reset();
+	accPass.iteration = 0;
 
 }
 
@@ -293,9 +294,17 @@ function setupPathTracerFolder( pane, parameters ) {
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
-	ptFolder.addBinding( pathTracingPass.material.uniforms.useCheckeredRendering, 'value', { label: 'Use Checkered' } );
-	ptFolder.addBinding( pathTracingPass.material.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', min: 1, max: 20, step: 1 } );
+	const renderModeControl = ptFolder.addBinding( pathTracingPass.material.uniforms.renderMode, 'value', { label: 'Render Mode', options: { "Regular": 0, "Checkered": 1, "Tiled": 2 } } );
+	const tilesControl = ptFolder.addBinding( pathTracingPass.material.uniforms.tiles, 'value', { label: 'No. of Tiles', hidden: true, min: 1, max: 20, step: 1 } );
+	const checkeredIntervalControl = ptFolder.addBinding( pathTracingPass.material.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', hidden: true, min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => updateResolution( e.value ) );
+
+	renderModeControl.on( 'change', e => {
+
+		tilesControl.hidden = e.value !== 2; // Show only when Tiled (2) is selected
+		checkeredIntervalControl.hidden = e.value !== 1; // Show only when Checkered (1) is selected
+
+	} );
 
 }
 

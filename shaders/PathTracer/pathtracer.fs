@@ -4,8 +4,11 @@ uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
-uniform bool useCheckeredRendering;
 uniform int checkeredFrameInterval;
+uniform sampler2D previousFrameTexture;
+uniform int renderMode; // 0: Regular, 1: Checkered, 2: Tiled
+uniform int tiles; // number of tiles
+
 
 #include common.fs
 #include struct.fs
@@ -170,6 +173,37 @@ vec3 TraceDebugMode(vec3 rayOrigin, vec3 rayDir) {
     return vec3(1.0, 0.0, 1.0); // Invalid test mode
 }
 
+bool shouldRenderPixel() {
+    ivec2 pixelCoord = ivec2(gl_FragCoord.xy);
+    
+    if (renderMode == 0) { // Regular rendering
+
+        return true;
+    
+	} else if (renderMode == 1) { // Checkered rendering
+
+		int frameSet = int(frame) % checkeredFrameInterval;
+		return ((int(pixelCoord.x) + int(pixelCoord.y) + frameSet) % checkeredFrameInterval == 0);
+
+    } else if (renderMode == 2) { // Tiled rendering
+
+        ivec2 tileCount = ivec2(resolution) / (ivec2(resolution) / tiles) ;
+        ivec2 tileCoord = pixelCoord / (ivec2(resolution) / tiles);
+        int totalTiles = tileCount.x * tileCount.y;
+        int currentTile = int(frame) % totalTiles;
+        
+        int tileIndex = tileCoord.y * tileCount.x + tileCoord.x;
+        return tileIndex == currentTile;
+
+    }
+    
+    return true; // Default to rendering all pixels
+}
+
+vec3 getPreviousFrameColor(vec2 coord) {
+    return texture2D(previousFrameTexture, coord / resolution).rgb;
+}
+
 void main() {
 
 	vec2 pixelSize = 1.0 / resolution;
@@ -178,15 +212,10 @@ void main() {
     vec3 finalColor = vec3(0.0);
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 
-    bool shouldRender = true;
+	bool shouldRender = shouldRenderPixel();
 
-    if (useCheckeredRendering) {
-        // Determine which set of pixels to render based on the current frame
-        int frameSet = int(frame) % checkeredFrameInterval;
-        shouldRender = ((int(gl_FragCoord.x) + int(gl_FragCoord.y) + frameSet) % checkeredFrameInterval == 0);
-    }
 
-    if (shouldRender || !useCheckeredRendering) {
+    if (shouldRender) {
         if (visMode > 0) { // Debug mode
             Ray ray = generateRayFromCamera(screenPosition, seed);
             finalColor = TraceDebugMode(ray.origin, ray.direction);
@@ -204,8 +233,7 @@ void main() {
         }
     } else {
         // For pixels that are not rendered in this frame, use the color from the previous frame
-        // sneed to implement a way to access the previous frame's color
-        // finalColor = getPreviousFrameColor(gl_FragCoord.xy);
+        finalColor = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
     gl_FragColor = vec4(finalColor, 1.0);
