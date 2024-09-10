@@ -1,11 +1,12 @@
 uniform sampler2DArray diffuseTextures;
 
-vec3 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
+vec4 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
     int textureIndex = material.map;
     if (textureIndex >= 0) {
-        return sRGBToLinear(texture(diffuseTextures, vec3(uv, float(textureIndex))).rgb);
+        vec4 texColor = texture(diffuseTextures, vec3(uv, float(textureIndex)));
+        return vec4(sRGBToLinear(texColor.rgb), texColor.a);
     }
-    return material.color;
+    return vec4(material.color, 1.0);
 }
 
 vec3 sampleGGX(vec3 N, float roughness, vec2 Xi) {

@@ -32,10 +32,11 @@ vec3 reduceFireflies(vec3 color, float maxValue) {
 }
 
 // Modify your Trace function to include direct lighting
-vec3 Trace(Ray ray, inout uint rngState) {
+vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 	vec3 incomingLight = vec3(0.0);
 	vec3 rayColor = vec3(1.0);
 	uint depth = 0u;
+	float alpha = 1.0;
 
 	for(int i = 0; i <= maxBounceCount; i ++) {
 		HitInfo hitInfo = traverseBVH(ray, stats);
@@ -44,7 +45,12 @@ vec3 Trace(Ray ray, inout uint rngState) {
 
 		if(hitInfo.didHit) {
             RayTracingMaterial material = hitInfo.material;
-            vec3 albedo = sampleAlbedoTexture(material, hitInfo.uv);
+            vec4 albedo = sampleAlbedoTexture(material, hitInfo.uv);
+
+            if (RandomValue(rngState) > albedo.a) {
+                ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+                continue;
+            }
 
             // Handle transparent materials
             if (material.transmission > 0.0) {
@@ -78,23 +84,26 @@ vec3 Trace(Ray ray, inout uint rngState) {
 					rayColor *= tintColor;
 				}
 
+				// Adjust alpha based on transmission and albedo alpha
+                alpha *= (1.0 - material.transmission) * albedo.a;
+
 				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 				continue;
             }
 
 			// Non-transparent material handling
-			vec2 Xi = vec2(RandomValue(rngState), RandomValue(rngState));
+			vec2 Xi = HybridRandomSample2D(rngState, sampleIndex * maxBounceCount + int(depth), pixelIndex);
 			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
 			vec3 newDir = reflect(ray.direction, H);
 
 			// Calculate Fresnel effect (Schlick approximation)
-			vec3 F0 = mix(vec3(0.04), albedo, material.metalness);
+			vec3 F0 = mix(vec3(0.04), albedo.rgb, material.metalness);
 			float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
 			vec3 F = fresnel(F0, NoV, material.roughness);
 
 			// Combine diffuse and specular contributions
 			vec3 specularColor = F;
-			vec3 diffuseColor = albedo * (1.0 - material.metalness) * (vec3(1.0) - F);
+			vec3 diffuseColor = albedo.rgb * (1.0 - material.metalness) * (vec3(1.0) - F);
 
 			// Probabilistically choose between diffuse and specular reflection
 			float specularProb = luminance(specularColor);
@@ -114,6 +123,8 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			// Calculate emitted light
             vec3 emittedLight = material.emissive * material.emissiveIntensity;
 			incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
+
+			alpha *= albedo.a;
 
 			// russian roulette path termination
 			// https://www.arnoldrenderer.com/research/physically_based_shader_design_in_arnold.pdf
@@ -142,7 +153,7 @@ vec3 Trace(Ray ray, inout uint rngState) {
 			break;
 		}
 	}
-	return incomingLight;
+	return vec4(incomingLight, alpha);
 }
 
 vec3 TraceDebugMode(vec3 rayOrigin, vec3 rayDir) {
@@ -224,8 +235,8 @@ bool shouldRenderPixel() {
     return true; // Default to rendering all pixels
 }
 
-vec3 getPreviousFrameColor(vec2 coord) {
-    return texture2D(previousFrameTexture, coord / resolution).rgb;
+vec4 getPreviousFrameColor(vec2 coord) {
+	return texture2D(previousFrameTexture, coord / resolution);
 }
 
 void main() {
@@ -233,8 +244,9 @@ void main() {
 	vec2 pixelSize = 1.0 / resolution;
     vec2 screenPosition = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
 
-    vec3 finalColor = vec3(0.0);
+	vec4 finalColor = vec4(0.0, 0.0, 0.0, 1.0);
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
+	int pixelIndex = int(gl_FragCoord.y) * int(resolution.x) + int(gl_FragCoord.x);
 
 	bool shouldRender = shouldRenderPixel();
 
@@ -242,16 +254,18 @@ void main() {
     if (shouldRender) {
         if (visMode > 0) { // Debug mode
             Ray ray = generateRayFromCamera(screenPosition, seed);
-            finalColor = TraceDebugMode(ray.origin, ray.direction);
+            // finalColor = TraceDebugMode(ray.origin, ray.direction);
         } else {
-            vec3 totalIncomingLight = vec3(0.0);
+            vec4 totalIncomingLight = vec4(0.0, 0.0, 0.0, 1.0);
             for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
-                vec2 jitter = RandomPointInCircle(seed) * pixelSize;
+				// Use quasi-random sampling for initial ray direction
+				vec2 quasi = QuasiRandomSample2D(rayIndex, pixelIndex);
+                vec2 jitter = (quasi * 2.0 - 1.0) * pixelSize;
                 vec2 jitteredScreenPosition = screenPosition + jitter;
 
                 Ray ray = generateRayFromCamera(jitteredScreenPosition, seed);
 
-                totalIncomingLight += Trace(ray, seed);
+                totalIncomingLight += Trace(ray, seed, rayIndex, pixelIndex);
             }
             finalColor = totalIncomingLight / float(numRaysPerPixel);
         }
@@ -260,5 +274,5 @@ void main() {
         finalColor = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
-    gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor = finalColor;
 }

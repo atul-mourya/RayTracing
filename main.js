@@ -13,7 +13,8 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
-import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
+// import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
+import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
 
 
 //some samples at https://casual-effects.com/data/
@@ -172,7 +173,8 @@ function setupComposer() {
 	accPass.enabled = true;
 	composer.addPass( accPass );
 
-	denoiserPass = new SpatialDenoiserPass( canvas.width, canvas.width );
+	denoiserPass = new LygiaSmartDenoiserPass( canvas.width, canvas.height );
+	// denoiserPass = new SpatialDenoiserPass( canvas.width, canvas.width );
 	denoiserPass.enabled = false;
 	composer.addPass( denoiserPass );
 
@@ -326,7 +328,10 @@ function setupDenoisingFolder( pane ) {
 
 	const denoisingFolder = pane.addFolder( { title: 'Denoising' } );
 	denoisingFolder.addBinding( denoiserPass, 'enabled', { label: 'Enable Denoiser' } );
-	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kernelSize, 'value', { label: 'Strength', min: 1, max: 10, step: 1 } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.sigma, 'value', { label: 'Blur Strength', min: 0.5, max: 5, step: 0.1 } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kSigma, 'value', { label: 'Blur Radius', min: 1, max: 3, step: 0.1 } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.threshold, 'value', { label: 'Detail Preservation', min: 0.01, max: 0.1, step: 0.01 } );
+	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kernelSize, 'value', { label: 'Strength', min: 1, max: 10, step: 1 } );
 
 }
 

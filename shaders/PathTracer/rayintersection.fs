@@ -9,12 +9,6 @@ struct Ray {
     vec3 direction;
 };
 
-vec3 RandomPointInCircle3(inout uint rngState) {
-    float angle = 2.0 * PI * RandomValue(rngState);
-    float radius = sqrt(RandomValue(rngState));
-    return vec3(radius * cos(angle), radius * sin(angle), 0.0);
-}
-
 Ray generateRayFromCamera(vec2 screenPosition, inout uint rngState) {
     vec4 rayStart = cameraProjectionMatrixInverse * vec4(screenPosition, -1.0, 1.0);
     vec4 rayEnd = cameraProjectionMatrixInverse * vec4(screenPosition, 1.0, 1.0);

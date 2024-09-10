@@ -40,3 +40,69 @@ vec2 RandomPointInCircle(inout uint rngState) {
     vec2 pointOnCircle = vec2(cos(angle), sin(angle));
     return pointOnCircle * sqrt(RandomValue(rngState));
 }
+
+vec3 RandomPointInCircle3(inout uint rngState) {
+    float angle = 2.0 * PI * RandomValue(rngState);
+    float radius = sqrt(RandomValue(rngState));
+    return vec3(radius * cos(angle), radius * sin(angle), 0.0);
+}
+
+// Halton sequence generator
+float halton(int index, int base) {
+    float result = 0.0;
+    float f = 1.0;
+    int i = index;
+    while (i > 0) {
+        f /= float(base);
+        result += f * float(i % base);
+        i = int(floor(float(i) / float(base)));
+    }
+    return result;
+}
+
+// Quasi-random 2D sample
+vec2 QuasiRandomSample2D(int sampleIndex, int pixelIndex) {
+    return vec2(
+        halton(sampleIndex, 2),
+        halton(sampleIndex, 3)
+    );
+}
+
+// Hybrid quasi-random and pseudo-random 2D sample
+vec2 HybridRandomSample2D(inout uint state, int sampleIndex, int pixelIndex) {
+    vec2 quasi = QuasiRandomSample2D(sampleIndex, pixelIndex);
+    vec2 pseudo = vec2(RandomValue(state), RandomValue(state));
+    return fract(quasi + pseudo); // Combine and wrap to [0, 1)
+}
+
+// Quasi-random direction on a hemisphere
+vec3 QuasiRandomHemisphereDirection(vec3 normal, int sampleIndex, int pixelIndex) {
+    vec2 s = QuasiRandomSample2D(sampleIndex, pixelIndex);
+    
+    float cosTheta = sqrt(1.0 - s.x);
+    float sinTheta = sqrt(s.x);
+    float phi = 2.0 * PI * s.y;
+    
+    vec3 tangentSpaceDir = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    
+    // Convert tangent space direction to world space
+    vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
+    vec3 bitangent = cross(normal, tangent);
+    return tangent * tangentSpaceDir.x + bitangent * tangentSpaceDir.y + normal * tangentSpaceDir.z;
+}
+
+// Hybrid quasi-random and pseudo-random direction on a hemisphere
+vec3 HybridRandomHemisphereDirection(vec3 normal, inout uint state, int sampleIndex, int pixelIndex) {
+    vec2 s = HybridRandomSample2D(state, sampleIndex, pixelIndex);
+    
+    float cosTheta = sqrt(1.0 - s.x);
+    float sinTheta = sqrt(s.x);
+    float phi = 2.0 * PI * s.y;
+    
+    vec3 tangentSpaceDir = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    
+    // Convert tangent space direction to world space
+    vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
+    vec3 bitangent = cross(normal, tangent);
+    return tangent * tangentSpaceDir.x + bitangent * tangentSpaceDir.y + normal * tangentSpaceDir.z;
+}
