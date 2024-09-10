@@ -92,7 +92,8 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
             }
 
 			// Non-transparent material handling
-			vec2 Xi = HybridRandomSample2D(rngState, sampleIndex * maxBounceCount + int(depth), pixelIndex);
+            vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(sampleIndex) * 13.37, float(sampleIndex) * 31.41 + float(i) * 71.71));
+            vec2 Xi = blueNoise.xy;
 			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
 			vec3 newDir = reflect(ray.direction, H);
 
@@ -134,7 +135,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 			rrProb = sqrt( rrProb );
 			rrProb = max( rrProb, depthProb );
 			rrProb = min( rrProb, 1.0 );
-			if ( RandomValue(rngState) > rrProb ) {
+			if (blueNoise.z > rrProb) {
 
 				break;
 
@@ -258,9 +259,9 @@ void main() {
         } else {
             vec4 totalIncomingLight = vec4(0.0, 0.0, 0.0, 1.0);
             for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
-				// Use quasi-random sampling for initial ray direction
-				vec2 quasi = QuasiRandomSample2D(rayIndex, pixelIndex);
-                vec2 jitter = (quasi * 2.0 - 1.0) * pixelSize;
+                // Use blue noise for initial ray direction
+                vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(rayIndex) * 13.37, float(rayIndex) * 31.41));
+                vec2 jitter = (blueNoise.xy - 0.5) * 2.0 * pixelSize;
                 vec2 jitteredScreenPosition = screenPosition + jitter;
 
                 Ray ray = generateRayFromCamera(jitteredScreenPosition, seed);
@@ -274,5 +275,5 @@ void main() {
         finalColor = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
-    gl_FragColor = finalColor;
+    gl_FragColor = vec4(vec3(finalColor), 1.0);
 }

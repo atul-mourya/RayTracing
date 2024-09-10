@@ -1,3 +1,15 @@
+uniform sampler2D blueNoiseTexture;
+uniform vec3 spatioTemporalBlueNoiseReolution;
+
+// Add this new function to sample from the blue noise texture
+vec4 sampleBlueNoise(vec2 pixelCoords) {
+	vec3 sbtnr = spatioTemporalBlueNoiseReolution;
+	vec2 textureSize = vec2(sbtnr.x, sbtnr.y * sbtnr.z);
+	vec2 texCoord = (pixelCoords + vec2(0.5)) / sbtnr.x;
+	texCoord.y = (texCoord.y + float(int(frame) % int(sbtnr.z))) / sbtnr.z;
+	return texture2D(blueNoiseTexture, texCoord);
+}
+
 uint pcg_hash(uint state) {
 	state = state * 747796405u + 2891336453u;
 	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
