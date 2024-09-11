@@ -1,20 +1,25 @@
 uniform sampler2D blueNoiseTexture;
 uniform vec3 spatioTemporalBlueNoiseReolution;
 
-// Add this new function to sample from the blue noise texture
-vec4 sampleBlueNoise(vec2 pixelCoords) {
-	vec3 sbtnr = spatioTemporalBlueNoiseReolution;
-	vec2 textureSize = vec2(sbtnr.x, sbtnr.y * sbtnr.z);
-	vec2 texCoord = (pixelCoords + vec2(0.5)) / sbtnr.x;
-	texCoord.y = (texCoord.y + float(int(frame) % int(sbtnr.z))) / sbtnr.z;
-	return texture2D(blueNoiseTexture, texCoord);
-}
-
 uint pcg_hash(uint state) {
 	state = state * 747796405u + 2891336453u;
 	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
 	word = (word >> 22u) ^ word;
 	return word;
+}
+
+vec4 sampleBlueNoise(vec2 pixelCoords) {
+	vec3 sbtnr = spatioTemporalBlueNoiseReolution;
+	vec2 textureSize = vec2(sbtnr.x, sbtnr.y * sbtnr.z);
+	vec2 texCoord = (pixelCoords + vec2(0.5)) / float(sbtnr.x);
+	texCoord.y = (texCoord.y + float(int(frame) % int(sbtnr.z))) / float(sbtnr.z);
+	vec4 noise = texture2D(blueNoiseTexture, texCoord);
+  
+  // Combine with PCG hash for extended variation by adding offest
+  uint seed = uint(pixelCoords.x) * 1973u + uint(pixelCoords.y) * 9277u + uint(frame) * 26699u;
+  float random = float(pcg_hash(seed)) / 4294967295.0;
+  
+  return fract(noise + random); // Combine blue noise with PCG hash
 }
 
 float RandomValue(inout uint state) {
@@ -46,6 +51,25 @@ vec3 RandomHemiSphereDirection(vec3 normal, inout uint rngState) {
 	dir = dir * sign(dot(normal, dir));
 	return dir;
 }
+
+vec3 BlueNoiseRandomDirection(vec2 pixelCoords, int sampleIndex, int bounceIndex) {
+    vec4 blueNoise = sampleBlueNoise(pixelCoords + vec2(float(sampleIndex) * 13.37, float(bounceIndex) * 31.41));
+    
+    float theta = 2.0 * PI * blueNoise.x;
+    float phi = acos(2.0 * blueNoise.y - 1.0);
+    
+    float x = sin(phi) * cos(theta);
+    float y = sin(phi) * sin(theta);
+    float z = cos(phi);
+    
+    return normalize(vec3(x, y, z));
+}
+
+vec3 BlueNoiseRandomHemisphereDirection(vec3 normal, vec2 pixelCoords, int sampleIndex, int bounceIndex) {
+    vec3 dir = BlueNoiseRandomDirection(pixelCoords, sampleIndex, bounceIndex);
+    return dir * sign(dot(normal, dir));
+}
+
 
 vec2 RandomPointInCircle(inout uint rngState) {
     float angle = RandomValue(rngState) * 2.0 * PI;

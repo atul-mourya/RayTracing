@@ -1,7 +1,7 @@
 import {
 	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping,
 	FloatType, DirectionalLight, LinearSRGBColorSpace,
-	EquirectangularReflectionMapping, Group, Box3, Vector3
+	EquirectangularReflectionMapping, Group, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget, DataTexture, UnsignedByteType, RepeatWrapping
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -10,11 +10,14 @@ import { Pane } from 'tweakpane';
 import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
 import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { SimplexNoise } from 'three/examples/jsm/Addons.js';
 
 import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
+import { PoissonDenoiseShader } from 'three/examples/jsm/shaders/PoissonDenoiseShader.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
 
 //some samples at https://casual-effects.com/data/
@@ -159,7 +162,14 @@ function setupScene() {
 
 function setupComposer() {
 
-	composer = new EffectComposer( renderer );
+	const renderTarget = new WebGLRenderTarget( canvas.width, canvas.height, {
+		format: RGBAFormat,
+		type: FloatType,
+		minFilter: NearestFilter,
+		magFilter: NearestFilter
+	} );
+
+	composer = new EffectComposer( renderer, renderTarget );
 
 	renderPass = new RenderPass( scene, camera );
 	renderPass.enabled = false;
@@ -173,7 +183,15 @@ function setupComposer() {
 	accPass.enabled = true;
 	composer.addPass( accPass );
 
-	denoiserPass = new LygiaSmartDenoiserPass( canvas.width, canvas.height );
+	denoiserPass = new ShaderPass( PoissonDenoiseShader );
+	denoiserPass.material.uniforms.tDiffuse.value = renderTarget.texture;
+	denoiserPass.material.uniforms.tNoise.value = generateNoise();
+	denoiserPass.material.uniforms.resolution.value.set( canvas.width, canvas.height );
+	denoiserPass.material.uniforms.lumaPhi.value = 10;
+	denoiserPass.material.uniforms.depthPhi.value = 2;
+	denoiserPass.material.uniforms.normalPhi.value = 3;
+	denoiserPass.material.uniforms.radius.value = 1;
+	// denoiserPass = new LygiaSmartDenoiserPass( canvas.width, canvas.height );
 	// denoiserPass = new SpatialDenoiserPass( canvas.width, canvas.width );
 	denoiserPass.enabled = false;
 	composer.addPass( denoiserPass );
@@ -182,6 +200,39 @@ function setupComposer() {
 	composer.addPass( outputPass );
 
 }
+
+function generateNoise( size = 64 ) {
+
+	const simplex = new SimplexNoise();
+
+	const arraySize = size * size * 4;
+	const data = new Uint8Array( arraySize );
+
+	for ( let i = 0; i < size; i ++ ) {
+
+		for ( let j = 0; j < size; j ++ ) {
+
+			const x = i;
+			const y = j;
+
+			data[ ( i * size + j ) * 4 ] = ( simplex.noise( x, y ) * 0.5 + 0.5 ) * 255;
+			data[ ( i * size + j ) * 4 + 1 ] = ( simplex.noise( x + size, y ) * 0.5 + 0.5 ) * 255;
+			data[ ( i * size + j ) * 4 + 2 ] = ( simplex.noise( x, y + size ) * 0.5 + 0.5 ) * 255;
+			data[ ( i * size + j ) * 4 + 3 ] = ( simplex.noise( x + size, y + size ) * 0.5 + 0.5 ) * 255;
+
+		}
+
+	}
+
+	const noiseTexture = new DataTexture( data, size, size, RGBAFormat, UnsignedByteType );
+	noiseTexture.wrapS = RepeatWrapping;
+	noiseTexture.wrapT = RepeatWrapping;
+	noiseTexture.needsUpdate = true;
+
+	return noiseTexture;
+
+}
+
 
 function handleLayoutChange() {
 
@@ -328,10 +379,17 @@ function setupDenoisingFolder( pane ) {
 
 	const denoisingFolder = pane.addFolder( { title: 'Denoising' } );
 	denoisingFolder.addBinding( denoiserPass, 'enabled', { label: 'Enable Denoiser' } );
-	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.sigma, 'value', { label: 'Blur Strength', min: 0.5, max: 5, step: 0.1 } );
-	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kSigma, 'value', { label: 'Blur Radius', min: 1, max: 3, step: 0.1 } );
-	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.threshold, 'value', { label: 'Detail Preservation', min: 0.01, max: 0.1, step: 0.01 } );
+	// --- SmartDenoiser ---
+	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.sigma, 'value', { label: 'Blur Strength', min: 0.5, max: 5, step: 0.1 } );
+	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kSigma, 'value', { label: 'Blur Radius', min: 1, max: 3, step: 0.1 } );
+	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.threshold, 'value', { label: 'Detail Preservation', min: 0.01, max: 0.1, step: 0.01 } );
+	// --- ConvolutionDenoiser ---
 	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kernelSize, 'value', { label: 'Strength', min: 1, max: 10, step: 1 } );
+	// --- PoissonDiscDenoiser ---
+	denoisingFolder.addBinding( denoiserPass.material.uniforms.radius, 'value', { label: 'radius', min: 0.1, max: 10, step: 0.1 } );
+	denoisingFolder.addBinding( denoiserPass.material.uniforms.lumaPhi, 'value', { label: 'luma', min: 1, max: 10, step: 1 } );
+	denoisingFolder.addBinding( denoiserPass.material.uniforms.depthPhi, 'value', { label: 'depth', min: 1, max: 10, step: 0.1 } );
+	denoisingFolder.addBinding( denoiserPass.material.uniforms.normalPhi, 'value', { label: 'normal', min: 1, max: 10, step: 0.1 } );
 
 }
 

@@ -24,10 +24,10 @@ uniform float debugVisScale;
 ivec2 stats; // num triangle tests, num bounding box tests
 
 vec3 reduceFireflies(vec3 color, float maxValue) {
-    float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-    if (luminance > maxValue) {
-        color *= maxValue / luminance;
-    }
+    // float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    // if (luminance > maxValue) {
+    //     color *= maxValue / luminance;
+    // }
     return color;
 }
 
@@ -112,7 +112,8 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 				rayColor *= specularColor / specularProb;
 				ray.direction = newDir;
 			} else {
-				vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState));
+				vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState)); // use this for uncorrelated directions
+				// vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(hitInfo.normal, gl_FragCoord.xy, sampleIndex, i); //use this for correlated directions
 				ray.direction = diffuseDir;
 				rayColor *= diffuseColor / (1.0 - specularProb);
 			}
