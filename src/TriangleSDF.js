@@ -9,6 +9,10 @@ export default class TriangleSDF {
 		this.triangles = [];
 		this.materials = [];
 		this.maps = [];
+		this.normalMaps = [];
+		this.bumpMaps = [];
+		this.roughnessMaps = [];
+		this.metalnessMaps = [];
 		this.directionalLights = [];
 		this.spheres = [];
 
@@ -30,6 +34,10 @@ export default class TriangleSDF {
 		this.triangles = extractedData.triangles;
 		this.materials = extractedData.materials;
 		this.maps = extractedData.maps;
+		this.normalMaps = extractedData.normalMaps;
+		this.bumpMaps = extractedData.bumpMaps;
+		this.roughnessMaps = extractedData.roughnessMaps;
+		this.metalnessMaps = extractedData.metalnessMaps;
 		this.directionalLights = extractedData.directionalLights;
 
 	}
@@ -44,7 +52,11 @@ export default class TriangleSDF {
 
 		this.materialTexture = this.textureCreator.createMaterialDataTexture( this.materials );
 		this.triangleTexture = this.textureCreator.createTriangleDataTexture( this.triangles );
-		this.diffuseTextures = this.textureCreator.createAlbedoDataTexture( this.maps );
+		this.albedoTextures = this.textureCreator.createTexturesToDataTexture( this.maps );
+		this.normalTextures = this.textureCreator.createTexturesToDataTexture( this.normalMaps );
+		this.bumpTextures = this.textureCreator.createTexturesToDataTexture( this.bumpMaps );
+		this.roughnessTextures = this.textureCreator.createTexturesToDataTexture( this.roughnessMaps );
+		this.metalnessTextures = this.textureCreator.createTexturesToDataTexture( this.metalnessMaps );
 		this.bvhTexture = this.textureCreator.createBVHDataTexture( this.bvhRoot );
 
 	}
@@ -71,6 +83,10 @@ export default class TriangleSDF {
 		this.triangles = [];
 		this.materials = [];
 		this.maps = [];
+		this.normalMaps = [];
+		this.bumpMaps = [];
+		this.roughnessMaps = [];
+		this.metalnessMaps = [];
 		this.materialTexture.dispose();
 		this.triangleTexture.dispose();
 		this.diffuseTextures.dispose();

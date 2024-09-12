@@ -7,6 +7,10 @@ export default class GeometryExtractor {
 		const triangles = [];
 		const materials = [];
 		const maps = [];
+		const normalMaps = [];
+		const bumpMaps = [];
+		const metalnessMaps = [];
+		const roughnessMaps = [];
 		const directionalLights = [];
 
 		const posA = new Vector3();
@@ -33,21 +37,9 @@ export default class GeometryExtractor {
 				let materialIndex = materials.findIndex( x => x.uuid === obj.material.uuid );
 				if ( materialIndex === - 1 ) {
 
-					let albedoTextureIndex = - 1;
-					if ( obj.material.map ) {
-
-						albedoTextureIndex = maps.findIndex( x => x.source.uuid === obj.material.map.source.uuid );
-						if ( albedoTextureIndex === - 1 && maps.length < 48 ) {
-
-							maps.push( obj.material.map );
-							albedoTextureIndex = maps.length - 1;
-
-						}
-
-					}
-
 					const emissive = obj.material.emissive ?? new Color( 0, 0, 0 );
 					const isEmissive = emissive.r > 0 || emissive.g > 0 || emissive.b > 0 ? true : false;
+					if ( isEmissive ) console.log( obj );
 					const material = {
 						color: obj.material.color,
 						emissive: emissive,
@@ -57,9 +49,72 @@ export default class GeometryExtractor {
 						ior: obj.material.ior ?? 0,
 						transmission: obj.material.transmission ?? 0.0,
 						thickness: obj.material.thickness ?? 0.5,
-
-						map: albedoTextureIndex === null ? - 1 : albedoTextureIndex
+						map: - 1,
+						normalMap: - 1,
+						bumpMap: - 1,
+						roughnessMap: - 1,
+						metalnessMap: - 1,
 					};
+
+					if ( obj.material.map ) {
+
+						let textureIndex = maps.findIndex( x => x.source.uuid === obj.material.map.source.uuid );
+						if ( textureIndex === - 1 && maps.length < 48 ) {
+
+							maps.push( obj.material.map );
+							material.map = maps.length - 1;
+
+						}
+
+					}
+
+					if ( obj.material.normalMap ) {
+
+						let textureIndex = normalMaps.findIndex( x => x.source.uuid === obj.material.normalMap.source.uuid );
+						if ( textureIndex === - 1 && normalMaps.length < 48 ) {
+
+							normalMaps.push( obj.material.normalMap );
+							material.normalMap = normalMaps.length - 1;
+
+						}
+
+					}
+
+					if ( obj.material.bumpMap ) {
+
+						let textureIndex = bumpMaps.findIndex( x => x.source.uuid === obj.material.bumpMap.source.uuid );
+						if ( textureIndex === - 1 && bumpMaps.length < 48 ) {
+
+							bumpMaps.push( obj.material.bumpMap );
+							material.bumpMap = bumpMaps.length - 1;
+
+						}
+
+					}
+
+					if ( obj.material.roughnessMap ) {
+
+						let textureIndex = roughnessMaps.findIndex( x => x.source.uuid === obj.material.roughnessMap.source.uuid );
+						if ( textureIndex === - 1 && roughnessMaps.length < 48 ) {
+
+							roughnessMaps.push( obj.material.roughnessMap );
+							material.roughtnessMap = roughnessMaps.length - 1;
+
+						}
+
+					}
+
+					if ( obj.material.metalnessMap ) {
+
+						let textureIndex = metalnessMaps.findIndex( x => x.source.uuid === obj.material.metalnessMap.source.uuid );
+						if ( textureIndex === - 1 && metalnessMaps.length < 48 ) {
+
+							metalnessMaps.push( obj.material.metalnessMap );
+							material.metalnessMap = metalnessMaps.length - 1;
+
+						}
+
+					}
 
 					materials.push( material );
 					materialIndex = materials.length - 1;
@@ -142,7 +197,16 @@ export default class GeometryExtractor {
 		console.log( "triangles:", triangles.length );
 		console.log( "maps:", maps.length );
 
-		return { triangles, materials, maps, directionalLights };
+		return {
+			triangles,
+			materials,
+			maps,
+			normalMaps,
+			bumpMaps,
+			metalnessMaps,
+			roughnessMaps,
+			directionalLights
+		};
 
 	}
 

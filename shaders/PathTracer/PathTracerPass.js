@@ -79,8 +79,20 @@ class PathTracerPass extends Pass {
 
 				spheres: { value: [] },
 
-				diffuseTextures: { value: null },
-				diffuseTexSize: { value: new Vector2() },
+				albedoMaps: { value: null },
+				albedoMapsTexSize: { value: new Vector2() },
+
+				normalMaps: { value: null },
+				normalMapsTexSize: { value: new Vector2() },
+
+				bumpMaps: { value: null },
+				bumpMapsTexSize: { value: new Vector2() },
+
+				roughnessMaps: { value: null },
+				roughnessMapsTexSize: { value: new Vector2() },
+
+				metalnessMaps: { value: null },
+				metalnessMapsTexSize: { value: new Vector2() },
 
 				triangleTexture: { value: null },
 				triangleTexSize: { value: new Vector2() },
@@ -130,8 +142,18 @@ class PathTracerPass extends Pass {
 			MAX_DIRECTIONAL_LIGHTS: sdfs.directionalLights.length
 		};
 		this.material.uniforms.spheres.value = sdfs.spheres;
-		this.material.uniforms.diffuseTextures.value = sdfs.diffuseTextures;
-		this.material.uniforms.diffuseTexSize.value = sdfs.diffuseTextures ? new Vector2( sdfs.diffuseTextures.image.width, sdfs.diffuseTextures.image.height ) : new Vector2();
+
+		this.material.uniforms.albedoMaps.value = sdfs.albedoTextures;
+		this.material.uniforms.albedoMapsTexSize.value = sdfs.albedoTextures ? new Vector2( sdfs.albedoTextures.image.width, sdfs.albedoTextures.image.height ) : new Vector2();
+		this.material.uniforms.normalMaps.value = sdfs.normalTextures;
+		this.material.uniforms.normalMapsTexSize.value = sdfs.normalTextures ? new Vector2( sdfs.normalTextures.image.width, sdfs.normalTextures.image.height ) : new Vector2();
+		this.material.uniforms.bumpMaps.value = sdfs.bumpTextures;
+		this.material.uniforms.bumpMapsTexSize.value = sdfs.bumpTextures ? new Vector2( sdfs.bumpTextures.image.width, sdfs.bumpTextures.image.height ) : new Vector2();
+		this.material.uniforms.roughnessMaps.value = sdfs.roughnessTextures;
+		this.material.uniforms.roughnessMapsTexSize.value = sdfs.roughnessTextures ? new Vector2( sdfs.roughnessTextures.image.width, sdfs.roughnessTextures.image.height ) : new Vector2();
+		this.material.uniforms.metalnessMaps.value = sdfs.metalnessTextures;
+		this.material.uniforms.metalnessMapsTexSize.value = sdfs.metalnessTextures ? new Vector2( sdfs.metalnessTextures.image.width, sdfs.metalnessTextures.image.height ) : new Vector2();
+
 		this.material.uniforms.triangleTexture.value = sdfs.triangleTexture;
 		this.material.uniforms.triangleTexSize.value = sdfs.triangleTexture ? new Vector2( sdfs.triangleTexture.image.width, sdfs.triangleTexture.image.height ) : new Vector2();
 		this.material.uniforms.bvhTexture.value = sdfs.bvhTexture;
@@ -168,7 +190,11 @@ class PathTracerPass extends Pass {
 
 	dispose() {
 
-		this.material.uniforms.diffuseTextures.value?.dispose();
+		this.material.uniforms.albedoMaps.value?.dispose();
+		this.material.uniforms.normalMaps.value?.dispose();
+		this.material.uniforms.bumpMaps.value?.dispose();
+		this.material.uniforms.roughnessMaps.value?.dispose();
+		this.material.uniforms.metalnessMaps.value?.dispose();
 		this.material.uniforms.triangleTexture.value?.dispose();
 		this.material.uniforms.bvhTexture.value?.dispose();
 		this.material.uniforms.materialTexture.value?.dispose();

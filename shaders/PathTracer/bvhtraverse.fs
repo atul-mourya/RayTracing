@@ -40,21 +40,31 @@ BVHNode getBVHNode(int index) {
 
 
 RayTracingMaterial getMaterial(int materialIndex) {
-    vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 4);
-    vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 4);
-    vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 4);
-    vec4 data4 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 3, 4);
+    vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 5);
+    vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 5);
+    vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 5);
+    vec4 data4 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 3, 5);
+    vec4 data5 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 4, 5);
 
     RayTracingMaterial material;
+
     material.color = data1.rgb;
-    material.map = int(data1.a);
+    material.albedoMapIndex = int(data1.a);
+
     material.emissive = data2.rgb;
     material.emissiveIntensity = data2.a;
+
     material.roughness = data3.r;
     material.metalness = data3.g;
-    material.ior = data3.b;
-    material.transmission = data3.a;
-    material.thickness = data4.r;
+    material.roughnessMapIndex = int(data3.b);
+    material.metalnessMapIndex = int(data3.a);
+
+    material.ior = data4.r;
+    material.thickness = data4.g;
+    material.transmission = data4.b;
+
+    material.normalMapIndex = int(data5.r);
+    material.bumpMapIndex = int(data5.g);
 
     return material;
 }

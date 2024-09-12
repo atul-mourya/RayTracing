@@ -45,7 +45,21 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 
 		if(hitInfo.didHit) {
             RayTracingMaterial material = hitInfo.material;
+			
             vec4 albedo = sampleAlbedoTexture(material, hitInfo.uv);
+
+			// Sample metalness and roughness maps
+			float metalness = sampleMetalnessMap(material, hitInfo.uv);
+			float roughness = sampleRoughnessMap(material, hitInfo.uv);
+
+			// float metalness = 0.0;
+
+			// Calculate tangent and bitangent
+			vec3 tangent = normalize(cross(hitInfo.normal, vec3(0.0, 1.0, 0.0)));
+			vec3 bitangent = normalize(cross(hitInfo.normal, tangent));
+
+			// Perturb normal using normal map and bump map
+			vec3 perturbedNormal = perturbNormal(hitInfo.normal, tangent, bitangent, hitInfo.uv, material);
 
             if (RandomValue(rngState) > albedo.a) {
                 ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
@@ -54,10 +68,10 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 
             // Handle transparent materials
             if (material.transmission > 0.0) {
-                bool entering = dot(ray.direction, hitInfo.normal) < 0.0;
+                bool entering = dot(ray.direction, perturbedNormal) < 0.0;
 				float n1 = entering ? 1.0 : material.ior;
 				float n2 = entering ? material.ior : 1.0;
-				vec3 normal = entering ? hitInfo.normal : -hitInfo.normal;
+				vec3 normal = entering ? perturbedNormal : -perturbedNormal;
 
 				vec3 reflectDir = reflect(ray.direction, normal);
 				vec3 refractDir = refract(ray.direction, normal, n1 / n2);
@@ -94,17 +108,17 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 			// Non-transparent material handling
             vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(sampleIndex) * 13.37, float(sampleIndex) * 31.41 + float(i) * 71.71));
             vec2 Xi = blueNoise.xy;
-			vec3 H = sampleGGX(hitInfo.normal, material.roughness, Xi);
+			vec3 H = sampleGGX(perturbedNormal, roughness, Xi);
 			vec3 newDir = reflect(ray.direction, H);
 
 			// Calculate Fresnel effect (Schlick approximation)
-			vec3 F0 = mix(vec3(0.04), albedo.rgb, material.metalness);
-			float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
-			vec3 F = fresnel(F0, NoV, material.roughness);
+			float NoV = max(dot(perturbedNormal, -ray.direction), 0.0);
+			vec3 F0 = mix(vec3(0.04), albedo.rgb, metalness);
+			vec3 F = fresnel(F0, NoV, roughness);
 
 			// Combine diffuse and specular contributions
 			vec3 specularColor = F;
-			vec3 diffuseColor = albedo.rgb * (1.0 - material.metalness) * (vec3(1.0) - F);
+			vec3 diffuseColor = albedo.rgb * (1.0 - metalness) * (vec3(1.0) - F);
 
 			// Probabilistically choose between diffuse and specular reflection
 			float specularProb = luminance(specularColor);
@@ -112,8 +126,8 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 				rayColor *= specularColor / specularProb;
 				ray.direction = newDir;
 			} else {
-				vec3 diffuseDir = normalize(hitInfo.normal + RandomDirection(rngState)); // use this for uncorrelated directions
-				// vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(hitInfo.normal, gl_FragCoord.xy, sampleIndex, i); //use this for correlated directions
+				vec3 diffuseDir = normalize(perturbedNormal + RandomDirection(rngState)); // use this for uncorrelated directions
+				// vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(perturbedNormal, gl_FragCoord.xy, sampleIndex, i); //use this for correlated directions
 				ray.direction = diffuseDir;
 				rayColor *= diffuseColor / (1.0 - specularProb);
 			}

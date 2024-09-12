@@ -4,15 +4,15 @@ export default class TextureCreator {
 
 	createMaterialDataTexture( materials ) {
 
-		const dataLength = materials.length * 4 * 4; // 4 vec4s per material
-		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
-		const height = Math.ceil( dataLength / ( 4 * width ) );
+		const dataLength = materials.length * 5 * 4; // 5 vec4s per material
+		const width = Math.ceil( Math.sqrt( dataLength ) );
+		const height = Math.ceil( dataLength / width );
 		const size = width * height * 4;
 		const data = new Float32Array( size );
 
 		for ( let i = 0; i < materials.length; i ++ ) {
 
-			const stride = i * 16;
+			const stride = i * 5 * 4;
 			const mat = materials[ i ];
 
 			// Color and map
@@ -30,14 +30,18 @@ export default class TextureCreator {
 			// Roughness, metalness, specular probability
 			data[ stride + 8 ] = mat.roughness;
 			data[ stride + 9 ] = mat.metalness;
-			data[ stride + 10 ] = mat.ior;
-			data[ stride + 11 ] = mat.transmission;
+			data[ stride + 10 ] = mat.roughnessMap;
+			data[ stride + 11 ] = mat.metalnessMap;
 
-
-			data[ stride + 12 ] = mat.thickness;
-			data[ stride + 13 ] = 0;
-			data[ stride + 14 ] = 0;
+			data[ stride + 12 ] = mat.ior;
+			data[ stride + 13 ] = mat.thickness;
+			data[ stride + 14 ] = mat.transmission;
 			data[ stride + 15 ] = 0;
+
+			data[ stride + 16 ] = mat.normalMap;
+			data[ stride + 17 ] = mat.bumpMap;
+			data[ stride + 18 ] = 0;
+			data[ stride + 19 ] = 0;
 
 		}
 
@@ -100,7 +104,9 @@ export default class TextureCreator {
 
 	}
 
-	createAlbedoDataTexture( diffuseMaps ) {
+	createTexturesToDataTexture( textures ) {
+
+		if ( textures.length == 0 ) return null;
 
 		// Get the maximum texture size supported by the GPU
 		const maxTextureSize = renderer.capabilities.maxTextureSize;
@@ -108,7 +114,7 @@ export default class TextureCreator {
 		// Determine the maximum dimensions among all textures
 		let maxWidth = 0;
 		let maxHeight = 0;
-		for ( let map of diffuseMaps ) {
+		for ( let map of textures ) {
 
 			maxWidth = Math.max( maxWidth, map.image.width );
 			maxHeight = Math.max( maxHeight, map.image.height );
@@ -128,7 +134,7 @@ export default class TextureCreator {
 		}
 
 		// Create a 3D data array
-		const depth = diffuseMaps.length;
+		const depth = textures.length;
 		const data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
 
 		// Canvas for resizing textures
@@ -138,9 +144,9 @@ export default class TextureCreator {
 		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
 
 		// Fill the 3D texture data
-		for ( let i = 0; i < diffuseMaps.length; i ++ ) {
+		for ( let i = 0; i < textures.length; i ++ ) {
 
-			const map = diffuseMaps[ i ];
+			const map = textures[ i ];
 
 			// Clear canvas and draw the texture
 			ctx.clearRect( 0, 0, maxWidth, maxHeight );
