@@ -75,7 +75,7 @@ class AccumulationPass extends Pass {
 			magFilter: LinearFilter,
 			format: RGBAFormat,
 			stencilBuffer: false,
-			depthBuffer: true,
+			depthBuffer: false,
 			generateMipmaps: false,
 			type: FloatType,
 			antialias: false
@@ -84,6 +84,14 @@ class AccumulationPass extends Pass {
 		this.blendedFrameBuffer = new WebGLRenderTarget( width, height, params );
 
 		this.scene = scene;
+
+	}
+
+	reset( renderer ) {
+
+		this.iteration = 0;
+		renderer.setRenderTarget( this.prevFrameBuffer );
+		renderer.clear();
 
 	}
 

@@ -70,23 +70,35 @@ RayTracingMaterial getMaterial(int materialIndex) {
 }
 
 Triangle getTriangle(int triangleIndex) {
-	vec4 s0 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 0, 6);
-	vec4 s1 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 1, 6);
-	vec4 s2 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 2, 6);
-	vec4 s3 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 3, 6);
-	vec4 s4 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 4, 6);
-	vec4 s5 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 5, 6);
-
-	Triangle tri;
-	tri.posA = s0.xyz;
-	tri.posB = s1.xyz;
-	tri.posC = s2.xyz;
-	tri.normal = normalize(vec3(s0.w, s1.w, s2.w));
-	tri.uvA = s3.xy;
-	tri.uvB = s4.xy;
-	tri.uvC = s5.xy;
+    Triangle tri;
     
-	tri.materialIndex = int(s5.z);
+    // Read 8 vec4s for each triangle
+    vec4 v0 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 0, 8);
+    vec4 v1 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 1, 8);
+    vec4 v2 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 2, 8);
+    vec4 v3 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 3, 8);
+    vec4 v4 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 4, 8);
+    vec4 v5 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 5, 8);
+    vec4 v6 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 6, 8);
+    vec4 v7 = getDatafromDataTexture(triangleTexture, triangleTexSize, triangleIndex, 7, 8);
+
+    // Positions
+    tri.posA = v0.xyz;
+    tri.posB = v1.xyz;
+    tri.posC = v2.xyz;
+
+    // Normals
+    tri.normalA = v3.xyz;
+    tri.normalB = v4.xyz;
+    tri.normalC = v5.xyz;
+
+    // UVs
+    tri.uvA = v6.xy;
+    tri.uvB = v6.zw;
+    tri.uvC = v7.xy;
+
+    // Material index
+    tri.materialIndex = int(v7.z);
 
     return tri;
 }

@@ -18,11 +18,11 @@ import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
 import { PoissonDenoiseShader } from 'three/examples/jsm/shaders/PoissonDenoiseShader.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-
+import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
 //some samples at https://casual-effects.com/data/
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
-const MODEL_URL = './models/model3.glb';
+const MODEL_URL = './models/modernbathroom.glb';
 const HDR_FILES = [
 	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
 	{ name: "Aerodynamics Workshop", url: "aerodynamics_workshop_2k.hdr" },
@@ -77,7 +77,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 let renderer, canvas, scene, dirLight, camera, controls;
 let fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
-let currentHDRIndex = 0;
+let currentHDRIndex = 35;
 
 // Initialization Functions
 function initScene() {
@@ -271,7 +271,7 @@ function animate() {
 function reset() {
 
 	pathTracingPass.reset();
-	accPass.iteration = 0;
+	accPass.reset( renderer );
 
 }
 
@@ -559,6 +559,9 @@ async function init() {
 
 	const meshes = await loadGLTFModel();
 	scene.add( meshes );
+
+	// const meshes = generateMaterialSpheres();
+	// scene.add( meshes );
 
 	centerModelAndAdjustCamera( meshes );
 

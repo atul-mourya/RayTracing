@@ -32,7 +32,7 @@ struct HitInfo {
 struct Triangle {
 	vec3 posA, posB, posC;
 	vec2 uvA, uvB, uvC;
-	vec3 normal;
+	vec3 normalA, normalB, normalC;
 	RayTracingMaterial material;
 	int materialIndex;
 };

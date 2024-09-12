@@ -70,16 +70,17 @@ HitInfo RayTriangle(Ray ray, Triangle tri) {
 		result.didHit = true;
 		result.dst = t;
 		result.hitPoint = ray.origin + t * ray.direction;
-		result.normal = tri.normal;
-		result.material = tri.material;
-
-		// Interpolate the UV coordinates
-        vec2 uvA = tri.uvA;
-        vec2 uvB = tri.uvB;
-        vec2 uvC = tri.uvC;
-
-        result.uv = uvA * (1.0 - u - v) + uvB * u + uvC * v;
-	}
+		
+        // Interpolate normal using barycentric coordinates
+        float w = 1.0 - u - v;
+        result.normal = normalize(w * tri.normalA + u * tri.normalB + v * tri.normalC);
+        
+        // Interpolate UV coordinates
+        result.uv = w * tri.uvA + u * tri.uvB + v * tri.uvC;
+        
+        // Set material index
+        result.material = tri.material;
+    }
 
     return result;
 }

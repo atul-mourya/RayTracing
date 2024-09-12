@@ -21,7 +21,9 @@ export default class GeometryExtractor {
 		const uvC = new Vector2();
 
 		const normal = new Vector3();
-		const tempNormal = new Vector3();
+		const normalA = normal.clone();
+		const normalB = normal.clone();
+		const normalC = normal.clone();
 
 		object.traverse( obj => {
 
@@ -126,6 +128,7 @@ export default class GeometryExtractor {
 
 				const geometry = obj.geometry;
 				const positions = geometry.attributes.position;
+				const normals = geometry.attributes.normal;
 				const uvs = geometry.attributes.uv;
 				const indices = geometry.index ? geometry.index.array : null;
 
@@ -141,6 +144,14 @@ export default class GeometryExtractor {
 						posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
 						posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
 
+						// Extract normals from the geometry
+						normal.fromBufferAttribute( normals, indices[ i3 + 0 ] );
+						normalA.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
+						normal.fromBufferAttribute( normals, indices[ i3 + 1 ] );
+						normalB.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
+						normal.fromBufferAttribute( normals, indices[ i3 + 2 ] );
+						normalC.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
+
 						if ( uvs ) {
 
 							uvA.fromBufferAttribute( uvs, indices[ i3 + 0 ] );
@@ -154,6 +165,14 @@ export default class GeometryExtractor {
 						posA.fromBufferAttribute( positions, i3 + 0 );
 						posB.fromBufferAttribute( positions, i3 + 1 );
 						posC.fromBufferAttribute( positions, i3 + 2 );
+
+						// Extract normals from the geometry
+						normal.fromBufferAttribute( normals, i3 + 0 );
+						normalA.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
+						normal.fromBufferAttribute( normals, i3 + 1 );
+						normalB.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
+						normal.fromBufferAttribute( normals, i3 + 2 );
+						normalC.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
 
 						if ( uvs ) {
 
@@ -169,18 +188,17 @@ export default class GeometryExtractor {
 					posB.applyMatrix4( obj.matrixWorld );
 					posC.applyMatrix4( obj.matrixWorld );
 
-					tempNormal.crossVectors( posB.clone().sub( posA ), posC.clone().sub( posA ) ).normalize();
-					normal.copy( tempNormal ).transformDirection( obj.matrixWorld );
-
 					triangles.push( {
 						posA: posA.clone(),
 						posB: posB.clone(),
 						posC: posC.clone(),
-						normal: normal.clone(),
+						normalA: normalA.clone(),
+						normalB: normalB.clone(),
+						normalC: normalC.clone(),
 						uvA: uvA.clone(),
 						uvB: uvB.clone(),
 						uvC: uvC.clone(),
-						materialIndex: materialIndex // Add this line
+						materialIndex: materialIndex
 					} );
 
 				}
