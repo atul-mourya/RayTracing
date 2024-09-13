@@ -22,7 +22,7 @@ import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
 //some samples at https://casual-effects.com/data/
 // const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
-const MODEL_URL = './models/modernbathroom.glb';
+const MODEL_URL = './models/camera.glb';
 const HDR_FILES = [
 	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
 	{ name: "Aerodynamics Workshop", url: "aerodynamics_workshop_2k.hdr" },
@@ -77,7 +77,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 let renderer, canvas, scene, dirLight, camera, controls;
 let fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
-let currentHDRIndex = 35;
+let currentHDRIndex = 2;
 
 // Initialization Functions
 function initScene() {

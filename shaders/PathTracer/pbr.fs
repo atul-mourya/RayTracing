@@ -14,21 +14,26 @@ vec4 sampleMap(sampler2DArray mapArray, int mapIndex, vec2 uv) {
 vec4 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
     if (material.albedoMapIndex >= 0) {
         vec4 albedo = sampleMap(albedoMaps, material.albedoMapIndex, uv);
-        return vec4(material.color * sRGBToLinear(albedo.rgb), albedo.a);
+        material.color *= vec4( sRGBToLinear(albedo.rgb), albedo.a);
+
+        // avoid perfect black
+        if(material.color.r < 0.01) material.color.r += 0.1;
+        if(material.color.g < 0.01) material.color.g += 0.1;
+        if(material.color.b < 0.01) material.color.b += 0.1;
     }
-    return vec4(material.color, 1.0);
+    return material.color;
 }
 
 float sampleMetalnessMap(RayTracingMaterial material, vec2 uv) {
     if (material.metalnessMapIndex >= 0) {
-        return sampleMap(metalnessMaps, material.metalnessMapIndex, uv).r * material.metalness;
+        return sampleMap(metalnessMaps, material.metalnessMapIndex, uv).r;
     }
     return material.metalness;
 }
 
 float sampleRoughnessMap(RayTracingMaterial material, vec2 uv) {
     if (material.roughnessMapIndex >= 0) {
-        return sampleMap(roughnessMaps, material.roughnessMapIndex, uv).r * material.roughness;
+        return sampleMap(roughnessMaps, material.roughnessMapIndex, uv).r;
     }
     return material.roughness;
 }
@@ -59,7 +64,7 @@ vec3 perturbNormal(vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv, RayTracin
     return resultNormal;
 }
 
-vec3 sampleGGX(vec3 N, float roughness, vec2 Xi) {
+vec3 ImportanceSampleGGX(vec3 N, float roughness, vec2 Xi) {
     float a = roughness * roughness;
     float phi = 2.0 * PI * Xi.x;
     float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
@@ -79,6 +84,10 @@ vec3 sampleGGX(vec3 N, float roughness, vec2 Xi) {
 
 vec3 fresnel(vec3 f0, float NoV, float roughness) {
     return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - NoV, 5.0);
+}
+
+float fresnelSchlick(float cosTheta, float F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
 }
 
 float luminance( vec3 color ) {

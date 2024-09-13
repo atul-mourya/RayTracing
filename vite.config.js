@@ -3,6 +3,7 @@ import glsl from 'vite-plugin-glsl';
 
 export default defineConfig( {
 	base: '/RayTracing/',
+	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
 		glsl( {
 			include: [ // Glob pattern, or array of glob patterns to import

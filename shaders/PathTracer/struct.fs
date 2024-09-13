@@ -1,5 +1,5 @@
 struct RayTracingMaterial {
-	vec3 color;
+	vec4 color;
 	vec3 emissive;
 	float emissiveIntensity;
 	float roughness;
@@ -7,6 +7,8 @@ struct RayTracingMaterial {
 	float ior;  // Index of refraction
     float transmission;  // 0 = opaque, 1 = fully transparent
 	float thickness;
+	float clearCoat;
+	float clearCoatRoughness;
     int albedoMapIndex;
     int normalMapIndex;
     int bumpMapIndex;

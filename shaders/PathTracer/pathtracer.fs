@@ -24,150 +24,217 @@ uniform float debugVisScale;
 ivec2 stats; // num triangle tests, num bounding box tests
 
 vec3 reduceFireflies(vec3 color, float maxValue) {
-    // float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-    // if (luminance > maxValue) {
-    //     color *= maxValue / luminance;
-    // }
+    float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    if (luminance > maxValue) {
+        color *= maxValue / luminance;
+    }
     return color;
 }
 
-// Modify your Trace function to include direct lighting
+
+
+
+void handleTransparentMaterial(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha) {
+    bool entering = dot(ray.direction, hitInfo.normal) < 0.0;
+    float n1 = entering ? 1.0 : material.ior;
+    float n2 = entering ? material.ior : 1.0;
+    vec3 normal = entering ? hitInfo.normal : -hitInfo.normal;
+
+    vec3 reflectDir = reflect(ray.direction, normal);
+    vec3 refractDir = refract(ray.direction, normal, n1 / n2);
+
+    float cosTheta = abs(dot(-ray.direction, normal));
+    float r0 = pow((n1 - n2) / (n1 + n2), 2.0);
+    float fresnel = r0 + (1.0 - r0) * pow(1.0 - cosTheta, 5.0);
+    fresnel = mix(fresnel, 1.0, pow(1.0 - cosTheta, 3.0));
+
+    vec3 glassColor = material.color.rgb;
+    vec3 tintColor = mix(vec3(1.0), glassColor, 0.5);
+
+    if (length(refractDir) < 0.001 || RandomValue(rngState) < fresnel) {
+        ray.direction = reflectDir;
+        rayColor *= mix(vec3(1.0), glassColor, 0.2);
+    } else {
+        ray.direction = refractDir;
+        if (entering) {
+            vec3 absorption = (vec3(1.0) - glassColor) * material.thickness * 0.5;
+            rayColor *= exp(-absorption * hitInfo.dst);
+        }
+        rayColor *= tintColor;
+    }
+
+    alpha *= (1.0 - material.transmission) * material.color.a;
+    ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+}
+
+void handleSpecularReflection(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, inout vec3 rayColor, vec3 specularColor, float specularProb) {
+    rayColor *= specularColor / specularProb;
+    if (material.roughness < 0.001) { // Perfect mirror reflection for very low roughness
+        ray.direction = reflect(ray.direction, hitInfo.normal);
+    } else {
+        vec2 Xi = blueNoise.xy;
+        vec3 V = -ray.direction;
+        vec3 H = ImportanceSampleGGX(hitInfo.normal, material.roughness, Xi);
+        ray.direction = reflect(-V, H);
+    }
+}
+
+void handleDiffuseReflection(inout Ray ray, HitInfo hitInfo, inout uint rngState, inout vec3 rayColor, vec3 diffuseColor, float specularProb) {
+    vec3 diffuseDir = RandomHemiSphereDirection(hitInfo.normal, rngState);
+    // Alternatively: vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(hitInfo.normal, gl_FragCoord.xy, sampleIndex, i);
+    ray.direction = diffuseDir;
+    rayColor *= diffuseColor / (1.0 - specularProb);
+}
+
+void handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, inout vec3 rayColor, inout uint rngState) {
+	vec3 N = hitInfo.normal;
+    vec3 V = -ray.direction;
+
+    // Sample microfacet normal for clear coat layer
+    vec2 Xi = blueNoise.xy;
+    vec3 H = ImportanceSampleGGX(N, material.clearCoatRoughness, Xi);
+    vec3 L = reflect(-V, H);
+
+    float NoL = max(dot(N, L), 0.0);
+    float NoH = max(dot(N, H), 0.0);
+    float NoV = max(dot(N, V), 0.0);
+    float VoH = max(dot(V, H), 0.0);
+
+    // Fresnel term for clear coat (approximate with 0.04 as F0)
+    float F = fresnelSchlick(VoH, 0.04);
+
+    // Specular BRDF for clear coat
+    float D = DistributionGGX(N, H, material.clearCoatRoughness);
+    float G = GeometrySmith(N, V, L, material.clearCoatRoughness);
+    vec3 specular = vec3(D * G * F / (4.0 * NoV * NoL + 0.001));
+
+    // Decide whether to reflect off the clear coat or continue to the base layer
+    if (RandomValue(rngState) < material.clearCoat * F) {
+        ray.direction = L;
+        rayColor *= specular * NoL / (material.clearCoat * F);
+    } else {
+        // Calculate base specular color
+        vec3 F0 = mix(vec3(0.04), material.color.rgb, material.metalness);
+        vec3 specularColor = fresnel(F0, NoV, material.roughness);
+        vec3 diffuseColor = material.color.rgb * (1.0 - material.metalness) * (vec3(1.0) - specularColor);
+
+        float specularProb = clamp(luminance(specularColor) * material.metalness, 0.1, 0.9);
+        if (RandomValue(rngState) < specularProb) {
+            handleSpecularReflection(ray, hitInfo, material, blueNoise, rayColor, specularColor, specularProb);
+        } else {
+            handleDiffuseReflection(ray, hitInfo, rngState, rayColor, diffuseColor, specularProb);
+        }
+        // Attenuate base layer contribution
+        rayColor *= 1.0 - material.clearCoat * F;
+    }
+}
+
+bool handleRussianRoulette(uint depth, vec3 rayColor, float randomValue) {
+    uint minBounces = 3u;
+    float depthProb = float(depth < minBounces);
+    float rrProb = luminance(rayColor);
+    rrProb = sqrt(rrProb);
+    rrProb = max(rrProb, depthProb);
+    rrProb = min(rrProb, 1.0);
+    
+    if (randomValue > rrProb) {
+        return false;
+    }
+    
+    rayColor *= min(1.0 / rrProb, 20.0);
+    return true;
+}
+
 vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
-	vec3 incomingLight = vec3(0.0);
-	vec3 rayColor = vec3(1.0);
-	uint depth = 0u;
-	float alpha = 1.0;
+    vec3 incomingLight = vec3(0.0);
+    vec3 rayColor = vec3(1.0);
+    uint depth = 0u;
+    float alpha = 1.0;
 
-	for(int i = 0; i <= maxBounceCount; i ++) {
-		HitInfo hitInfo = traverseBVH(ray, stats);
+    for(int i = 0; i <= maxBounceCount; i++) {
+        HitInfo hitInfo = traverseBVH(ray, stats);
+        depth++;
 
-		depth ++;
-
-		if(hitInfo.didHit) {
-            RayTracingMaterial material = hitInfo.material;
-			
-            vec4 albedo = sampleAlbedoTexture(material, hitInfo.uv);
-
-			// Sample metalness and roughness maps
-			float metalness = sampleMetalnessMap(material, hitInfo.uv);
-			float roughness = sampleRoughnessMap(material, hitInfo.uv);
-
-			// float metalness = 0.0;
-
-			// Calculate tangent and bitangent
-			vec3 tangent = normalize(cross(hitInfo.normal, vec3(0.0, 1.0, 0.0)));
-			vec3 bitangent = normalize(cross(hitInfo.normal, tangent));
-
-			// Perturb normal using normal map and bump map
-			vec3 perturbedNormal = perturbNormal(hitInfo.normal, tangent, bitangent, hitInfo.uv, material);
-
-            if (RandomValue(rngState) > albedo.a) {
-                ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-                continue;
-            }
-
-            // Handle transparent materials
-            if (material.transmission > 0.0) {
-                bool entering = dot(ray.direction, perturbedNormal) < 0.0;
-				float n1 = entering ? 1.0 : material.ior;
-				float n2 = entering ? material.ior : 1.0;
-				vec3 normal = entering ? perturbedNormal : -perturbedNormal;
-
-				vec3 reflectDir = reflect(ray.direction, normal);
-				vec3 refractDir = refract(ray.direction, normal, n1 / n2);
-
-				float cosTheta = abs(dot(-ray.direction, normal));
-				float r0 = pow((n1 - n2) / (n1 + n2), 2.0);
-				float fresnel = r0 + (1.0 - r0) * pow(1.0 - cosTheta, 5.0);
-
-				// Adjust Fresnel factor for more pronounced effect
-				fresnel = mix(fresnel, 1.0, pow(1.0 - cosTheta, 3.0));
-
-				vec3 glassColor = material.color.rgb;
-				vec3 tintColor = mix(vec3(1.0), glassColor, 0.5); // Adjust the 0.5 to control tint strength
-
-				if (length(refractDir) < 0.001 || RandomValue(rngState) < fresnel) {
-					ray.direction = reflectDir;
-					rayColor *= mix(vec3(1.0), glassColor, 0.2); // Slight color tint for reflections
-				} else {
-					ray.direction = refractDir;
-					if (entering) {
-						vec3 absorption = (vec3(1.0) - glassColor) * material.thickness * 0.5;
-						rayColor *= exp(-absorption * hitInfo.dst);
-					}
-					rayColor *= tintColor;
-				}
-
-				// Adjust alpha based on transmission and albedo alpha
-                alpha *= (1.0 - material.transmission) * albedo.a;
-
-				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-				continue;
-            }
-
-			// Non-transparent material handling
-            vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(sampleIndex) * 13.37, float(sampleIndex) * 31.41 + float(i) * 71.71));
-            vec2 Xi = blueNoise.xy;
-			vec3 H = sampleGGX(perturbedNormal, roughness, Xi);
-			vec3 newDir = reflect(ray.direction, H);
-
-			// Calculate Fresnel effect (Schlick approximation)
-			float NoV = max(dot(perturbedNormal, -ray.direction), 0.0);
-			vec3 F0 = mix(vec3(0.04), albedo.rgb, metalness);
-			vec3 F = fresnel(F0, NoV, roughness);
-
-			// Combine diffuse and specular contributions
-			vec3 specularColor = F;
-			vec3 diffuseColor = albedo.rgb * (1.0 - metalness) * (vec3(1.0) - F);
-
-			// Probabilistically choose between diffuse and specular reflection
-			float specularProb = luminance(specularColor);
-			if (RandomValue(rngState) < specularProb) {
-				rayColor *= specularColor / specularProb;
-				ray.direction = newDir;
+        if(!hitInfo.didHit) {
+            // Environment lighting
+			if (i == 0) {
+				// For primary rays (camera rays), return black
+				incomingLight += vec3(0.0);
 			} else {
-				vec3 diffuseDir = normalize(perturbedNormal + RandomDirection(rngState)); // use this for uncorrelated directions
-				// vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(perturbedNormal, gl_FragCoord.xy, sampleIndex, i); //use this for correlated directions
-				ray.direction = diffuseDir;
-				rayColor *= diffuseColor / (1.0 - specularProb);
+				// For secondary rays (reflections, refractions), sample the environment normally
+				vec3 envLight = sampleEnvironment(ray.direction) * rayColor;
+				incomingLight += reduceFireflies(envLight, 5.0);
 			}
+			break;
+            
+        }
 
-			// Calculate direct lighting from the directional light
-			vec3 directLight = calculateDirectLighting(hitInfo, -ray.direction, stats);
-			incomingLight += reduceFireflies(directLight * rayColor, 5.0);
+        RayTracingMaterial material = hitInfo.material;
+        material.color = sampleAlbedoTexture(material, hitInfo.uv);
+       
+		// Handle alpha testing
+        if (RandomValue(rngState) > material.color.a) {
+            ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+            continue;
+        }
 
-			// Calculate emitted light
-            vec3 emittedLight = material.emissive * material.emissiveIntensity;
-			incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
+		
 
-			alpha *= albedo.a;
+		material.metalness = sampleMetalnessMap(material, hitInfo.uv);
+        material.roughness = sampleRoughnessMap(material, hitInfo.uv);
 
-			// russian roulette path termination
-			// https://www.arnoldrenderer.com/research/physically_based_shader_design_in_arnold.pdf
-			uint minBounces = 3u;
-			float depthProb = float( depth < minBounces );
-			float rrProb = luminance( rayColor );
-			rrProb = sqrt( rrProb );
-			rrProb = max( rrProb, depthProb );
-			rrProb = min( rrProb, 1.0 );
-			if (blueNoise.z > rrProb) {
+        // Calculate tangent space and perturb normal
+        vec3 tangent = normalize(cross(hitInfo.normal, vec3(0.0, 1.0, 0.0)));
+        vec3 bitangent = normalize(cross(hitInfo.normal, tangent));
+        hitInfo.normal = perturbNormal(hitInfo.normal, tangent, bitangent, hitInfo.uv, material);
 
-				break;
+        // Handle transparent materials
+        if (material.transmission > 0.0) {
+            handleTransparentMaterial(ray, hitInfo, material, rngState, rayColor, alpha);
+            continue;
+        }
 
+        // Non-transparent material handling
+        vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(sampleIndex) * 13.37, float(sampleIndex) * 31.41 + float(i) * 71.71));
+
+        // Calculate Fresnel effect and material colors
+        float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
+        vec3 F0 = mix(vec3(0.04), material.color.rgb, material.metalness);
+
+        vec3 specularColor = fresnel(F0, NoV, material.roughness);
+        vec3 diffuseColor = material.color.rgb * (1.0 - material.metalness) * (vec3(1.0) - specularColor);
+
+        // Handle clear coat
+        if (material.clearCoat > 0.0) {
+            handleClearCoat(ray, hitInfo, material, blueNoise, rayColor, rngState);
+        } else {
+            // Regular material handling (specular or diffuse)
+            float specularProb = clamp(luminance(specularColor) * material.metalness, 0.1, 0.9);
+			if (RandomValue(rngState) < specularProb) {
+				handleSpecularReflection(ray, hitInfo, material, blueNoise, rayColor, specularColor, specularProb);
+			} else {
+				handleDiffuseReflection(ray, hitInfo, rngState, rayColor, diffuseColor, specularProb);
 			}
+        }
 
-			// perform sample clamping here to avoid bright pixels
-			rayColor *= min(1.0 / rrProb, 20.0);
 
-			// Prepare data for the next bounce
-			ray.origin = hitInfo.hitPoint + ray.direction * 0.001; // Slight offset to prevent self-intersection
+        // Calculate direct lighting
+        vec3 directLight = calculateDirectLighting(hitInfo, -ray.direction, stats);
+        incomingLight += reduceFireflies(directLight * rayColor, 5.0);
 
-		} else {
-			
-			vec3 envLight = sampleEnvironment(ray.direction) * rayColor;
-			incomingLight += reduceFireflies(envLight, 5.0);
+		// Calculate emitted light
+        vec3 emittedLight = material.emissive * material.emissiveIntensity;
+		incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
+
+		alpha *= material.color.a;
+
+        // Russian roulette path termination
+        if (!handleRussianRoulette(depth, rayColor, blueNoise.z)) {
 			break;
 		}
+
+        // Prepare for next bounce
+		ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 	}
 	return vec4(incomingLight, alpha);
 }

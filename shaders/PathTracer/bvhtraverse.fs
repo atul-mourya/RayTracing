@@ -48,7 +48,7 @@ RayTracingMaterial getMaterial(int materialIndex) {
 
     RayTracingMaterial material;
 
-    material.color = data1.rgb;
+    material.color = vec4(data1.rgb, 1.0);
     material.albedoMapIndex = int(data1.a);
 
     material.emissive = data2.rgb;
@@ -65,6 +65,9 @@ RayTracingMaterial getMaterial(int materialIndex) {
 
     material.normalMapIndex = int(data5.r);
     material.bumpMapIndex = int(data5.g);
+
+    material.clearCoat = data5.b;
+    material.clearCoatRoughness = data5.a;
 
     return material;
 }

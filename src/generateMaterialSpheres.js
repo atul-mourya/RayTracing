@@ -1,5 +1,5 @@
 
-import { SphereGeometry, Mesh, MeshStandardMaterial, Group, Object3D } from 'three';
+import { SphereGeometry, Mesh, MeshPhysicalMaterial, Group, Object3D } from 'three';
 
 /**
  Metalness (increases left to right):
@@ -41,10 +41,10 @@ function generateMaterialSpheres( rows = 5, columns = 5, spacing = 1.2 ) {
 
 		for ( let j = 0; j < columns; j ++ ) {
 
-			const material = new MeshStandardMaterial( {
+			const material = new MeshPhysicalMaterial( {
 				metalness: j / ( columns - 1 ),
 				roughness: i / ( rows - 1 ),
-				color: 0xffffff
+				color: 0xFFD700
 			} );
 
 			const sphere = new Mesh( sphereGeometry, material );

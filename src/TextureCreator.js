@@ -40,8 +40,8 @@ export default class TextureCreator {
 
 			data[ stride + 16 ] = mat.normalMap;
 			data[ stride + 17 ] = mat.bumpMap;
-			data[ stride + 18 ] = 0;
-			data[ stride + 19 ] = 0;
+			data[ stride + 18 ] = mat.clearCoat;
+			data[ stride + 19 ] = mat.clearCoatRoughness;
 
 		}
 

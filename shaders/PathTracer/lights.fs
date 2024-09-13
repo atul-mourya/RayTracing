@@ -31,7 +31,7 @@ vec3 calculateDirectLighting(HitInfo hitInfo, vec3 viewDirection, inout ivec2 st
     vec3 halfVector = normalize(lightDir + viewDirection);
     float NdotV = max(dot(hitInfo.normal, viewDirection), 0.0);
     
-    vec3 F0 = mix(vec3(0.04), hitInfo.material.color, hitInfo.material.metalness);
+    vec3 F0 = mix(vec3(0.04), hitInfo.material.color.rgb, hitInfo.material.metalness);
     vec3 F = fresnel(F0, NdotV, hitInfo.material.roughness);
     
     float D = DistributionGGX(hitInfo.normal, halfVector, hitInfo.material.roughness);
@@ -45,7 +45,7 @@ vec3 calculateDirectLighting(HitInfo hitInfo, vec3 viewDirection, inout ivec2 st
     vec3 kD = vec3(1.0) - kS;
     kD *= 1.0 - hitInfo.material.metalness;
     
-    vec3 diffuse = kD * hitInfo.material.color / PI;
+    vec3 diffuse = kD * hitInfo.material.color.rgb / PI;
     
     return (diffuse + specular) * directionalLightColor * directionalLightIntensity * NdotL;
 }
