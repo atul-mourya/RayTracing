@@ -31,9 +31,6 @@ vec3 reduceFireflies(vec3 color, float maxValue) {
     return color;
 }
 
-
-
-
 void handleTransparentMaterial(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha) {
     bool entering = dot(ray.direction, hitInfo.normal) < 0.0;
     float n1 = entering ? 1.0 : material.ior;
@@ -150,6 +147,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
     vec3 rayColor = vec3(1.0);
     uint depth = 0u;
     float alpha = 1.0;
+    
 
     for(int i = 0; i <= maxBounceCount; i++) {
         HitInfo hitInfo = traverseBVH(ray, stats);
