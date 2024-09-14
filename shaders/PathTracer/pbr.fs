@@ -15,25 +15,20 @@ vec4 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
     if (material.albedoMapIndex >= 0) {
         vec4 albedo = sampleMap(albedoMaps, material.albedoMapIndex, uv);
         material.color *= vec4( sRGBToLinear(albedo.rgb), albedo.a);
-
-        // avoid perfect black
-        if(material.color.r < 0.01) material.color.r += 0.1;
-        if(material.color.g < 0.01) material.color.g += 0.1;
-        if(material.color.b < 0.01) material.color.b += 0.1;
     }
     return material.color;
 }
 
 float sampleMetalnessMap(RayTracingMaterial material, vec2 uv) {
     if (material.metalnessMapIndex >= 0) {
-        return sampleMap(metalnessMaps, material.metalnessMapIndex, uv).r;
+        material.metalness *= sampleMap(metalnessMaps, material.metalnessMapIndex, uv).b;
     }
     return material.metalness;
 }
 
 float sampleRoughnessMap(RayTracingMaterial material, vec2 uv) {
     if (material.roughnessMapIndex >= 0) {
-        return sampleMap(roughnessMaps, material.roughnessMapIndex, uv).r;
+        material.roughness *= sampleMap(roughnessMaps, material.roughnessMapIndex, uv).g;
     }
     return material.roughness;
 }
