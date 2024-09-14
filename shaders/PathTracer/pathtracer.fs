@@ -4,6 +4,7 @@ uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
+uniform bool useBackground;
 uniform int checkeredFrameInterval;
 uniform sampler2D previousFrameTexture;
 uniform int renderMode; // 0: Regular, 1: Checkered, 2: Tiled
@@ -147,7 +148,6 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
     vec3 rayColor = vec3(1.0);
     uint depth = 0u;
     float alpha = 1.0;
-    
 
     for(int i = 0; i <= maxBounceCount; i++) {
         HitInfo hitInfo = traverseBVH(ray, stats);
@@ -155,7 +155,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 
         if(!hitInfo.didHit) {
             // Environment lighting
-			if (i == 0) {
+			if (! useBackground && i == 0 ) {
 				// For primary rays (camera rays), return black
 				incomingLight += vec3(0.0);
 			} else {

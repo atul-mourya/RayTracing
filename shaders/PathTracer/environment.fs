@@ -1,6 +1,6 @@
 uniform bool enableEnvironmentLight;
-uniform sampler2D envMap;
-uniform float envMapIntensity;
+uniform sampler2D environment;
+uniform float environmentIntensity;
 
 // ray sampling x and z are swapped to align with expected background view
 vec2 equirectDirectionToUv( vec3 direction ) {
@@ -20,9 +20,9 @@ vec3 sampleEnvironment(vec3 direction) {
     if (!enableEnvironmentLight) return vec3(0.0);
 
     vec2 uv = equirectDirectionToUv(direction);
-    vec3 color = texture2D(envMap, uv).rgb;
+    vec3 color = texture2D(environment, uv).rgb;
 
-    color *= envMapIntensity;
+    color *= environmentIntensity;
     
     return color;
 }

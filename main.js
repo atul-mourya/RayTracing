@@ -75,7 +75,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
-let fpsGraph;
+let pane, fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
 let currentHDRIndex = 2;
 
@@ -102,8 +102,8 @@ async function loadHDRBackground( index ) {
 
 	if ( pathTracingPass ) {
 
-		pathTracingPass.material.uniforms.envMapIntensity.value = renderer.toneMappingExposure;
-		pathTracingPass.material.uniforms.envMap.value = texture;
+		pathTracingPass.material.uniforms.environmentIntensity.value = scene.environmentIntensity;
+		pathTracingPass.material.uniforms.environment.value = texture;
 		reset();
 
 	}
@@ -238,6 +238,7 @@ function handleLayoutChange() {
 
 	const isMobile = window.innerWidth <= 768;
 	tweakpaneContainer.style.position = isMobile ? 'absolute' : 'relative';
+	pane.expanded = isMobile ? false : true;
 
 }
 
@@ -293,7 +294,7 @@ function setupGUI() {
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
 	};
 
-	const pane = new Pane( { title: 'Settings', expanded: true, container: tweakpaneContainer } );
+	pane = new Pane( { title: 'Settings', expanded: window.innerWidth <= 768 ? false : true, container: tweakpaneContainer } );
 	pane.registerPlugin( EssentialsPlugin );
 
 	setupStatsFolder( pane, parameters );
@@ -317,12 +318,19 @@ function setupStatsFolder( pane ) {
 
 function setupSceneFolder( pane, parameters ) {
 
+	const param = { useBackground: scene.background ? true : false };
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
-	sceneFolder.addBinding( parameters, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.material.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
+	sceneFolder.addBinding( renderer, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } );//.on( 'change', e => pathTracingPass.material.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.material.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
+	sceneFolder.addBinding( param, 'useBackground', { label: 'Show Background' } ).on( 'change', e => {
+
+		scene.background = e.value ? scene.environment : null;
+		pathTracingPass.material.uniforms.useBackground.value = e.value;
+
+	} );
 	sceneFolder.addBinding( parameters, 'hdrBackground', { label: 'HDR Environment',
 		options: Object.fromEntries( HDR_FILES.map( ( file, index ) => [ file.name, index ] ) ) } ).on( 'change', e => switchHDRBackground( e.value ) );
-	// sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.material.uniforms.envMapIntensity.value = e.value );
+	sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.material.uniforms.environmentIntensity.value = e.value );
 
 }
 
