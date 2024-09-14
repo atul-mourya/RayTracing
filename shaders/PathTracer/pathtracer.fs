@@ -207,7 +207,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
             handleClearCoat(ray, hitInfo, material, blueNoise, rayColor, rngState);
         } else {
             // Regular material handling (specular or diffuse)
-            float specularProb = clamp(luminance(specularColor) * material.metalness, 0.1, 0.9);
+            float specularProb = clamp(max(luminance(specularColor), material.metalness), 0.1, 0.9);
 			if (RandomValue(rngState) < specularProb) {
 				handleSpecularReflection(ray, hitInfo, material, blueNoise, rayColor, specularColor, specularProb);
 			} else {
@@ -355,5 +355,8 @@ void main() {
         finalColor = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
+    // finalColor.r = pow( finalColor.r, 1.0 / 2.2 );
+    // finalColor.g = pow( finalColor.g, 1.0 / 2.2 );
+    // finalColor.b = pow( finalColor.b, 1.0 / 2.2 );
     gl_FragColor = vec4(vec3(finalColor), 1.0);
 }

@@ -15,6 +15,9 @@ vec4 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
     if (material.albedoMapIndex >= 0) {
         vec4 albedo = sampleMap(albedoMaps, material.albedoMapIndex, uv);
         material.color *= vec4( sRGBToLinear(albedo.rgb), albedo.a);
+        // if( material.color.r < 0.001 ) material.color.r += 0.01;
+        // if( material.color.g < 0.001 ) material.color.g += 0.01;
+        // if( material.color.b < 0.001 ) material.color.b += 0.01;
     }
     return material.color;
 }
