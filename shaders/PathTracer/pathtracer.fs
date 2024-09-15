@@ -65,23 +65,21 @@ void handleTransparentMaterial(inout Ray ray, HitInfo hitInfo, RayTracingMateria
     ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 }
 
-void handleSpecularReflection(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, inout vec3 rayColor, vec3 specularColor, float specularProb) {
-    rayColor *= specularColor / specularProb;
+vec3 getSpecularReflectionDirection(inout Ray ray, vec3 N, RayTracingMaterial material, vec4 blueNoise) {
+    
     if (material.roughness < 0.001) { // Perfect mirror reflection for very low roughness
-        ray.direction = reflect(ray.direction, hitInfo.normal);
+        return reflect(ray.direction, N);
     } else {
         vec2 Xi = blueNoise.xy;
-        vec3 V = -ray.direction;
-        vec3 H = ImportanceSampleGGX(hitInfo.normal, material.roughness, Xi);
-        ray.direction = reflect(-V, H);
+        vec3 V = - ray.direction;
+        vec3 H = ImportanceSampleGGX(N, material.roughness, Xi);
+        return reflect(- V, H);
     }
 }
 
-void handleDiffuseReflection(inout Ray ray, HitInfo hitInfo, inout uint rngState, inout vec3 rayColor, vec3 diffuseColor, float specularProb) {
-    vec3 diffuseDir = RandomHemiSphereDirection(hitInfo.normal, rngState);
+vec3 getDiffuseReflectionDirection(vec3 N, uint rngState ) {
+    return RandomHemiSphereDirection(N, rngState);
     // Alternatively: vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(hitInfo.normal, gl_FragCoord.xy, sampleIndex, i);
-    ray.direction = diffuseDir;
-    rayColor *= diffuseColor / (1.0 - specularProb);
 }
 
 void handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, inout vec3 rayColor, inout uint rngState) {
@@ -118,9 +116,11 @@ void handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material
 
         float specularProb = clamp(luminance(specularColor) * material.metalness, 0.1, 0.9);
         if (RandomValue(rngState) < specularProb) {
-            handleSpecularReflection(ray, hitInfo, material, blueNoise, rayColor, specularColor, specularProb);
+            rayColor *= specularColor / specularProb;
+            ray.direction =getSpecularReflectionDirection(ray, hitInfo.normal, material, blueNoise);
         } else {
-            handleDiffuseReflection(ray, hitInfo, rngState, rayColor, diffuseColor, specularProb);
+            rayColor *= diffuseColor / (1.0 - specularProb);
+            ray.direction = getDiffuseReflectionDirection(hitInfo.normal, rngState);
         }
         // Attenuate base layer contribution
         rayColor *= 1.0 - material.clearCoat * F;
@@ -176,6 +176,12 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
             continue;
         }
 
+        // Calculate emitted light
+        if( material.emissiveIntensity > 0.0 ) {
+            vec3 emittedLight = material.emissive * material.emissiveIntensity;
+            incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
+            break;
+        }
 		
 
 		material.metalness = sampleMetalnessMap(material, hitInfo.uv);
@@ -209,20 +215,18 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
             // Regular material handling (specular or diffuse)
             float specularProb = clamp(max(luminance(specularColor), material.metalness), 0.1, 0.9);
 			if (RandomValue(rngState) < specularProb) {
-				handleSpecularReflection(ray, hitInfo, material, blueNoise, rayColor, specularColor, specularProb);
-			} else {
-				handleDiffuseReflection(ray, hitInfo, rngState, rayColor, diffuseColor, specularProb);
-			}
+                rayColor *= specularColor / specularProb;
+                ray.direction = getSpecularReflectionDirection(ray, hitInfo.normal, material, blueNoise);
+            } else {
+                rayColor *= diffuseColor / (1.0 - specularProb);
+                ray.direction = getDiffuseReflectionDirection(hitInfo.normal, rngState);
+            }
         }
 
 
         // Calculate direct lighting
         vec3 directLight = calculateDirectLighting(hitInfo, -ray.direction, stats);
         incomingLight += reduceFireflies(directLight * rayColor, 5.0);
-
-		// Calculate emitted light
-        vec3 emittedLight = material.emissive * material.emissiveIntensity;
-		incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
 
 		alpha *= material.color.a;
 
