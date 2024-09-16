@@ -1,5 +1,6 @@
 precision highp float;
 
+// Uniform declarations
 uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
@@ -9,8 +10,10 @@ uniform int checkeredFrameInterval;
 uniform sampler2D previousFrameTexture;
 uniform int renderMode; // 0: Regular, 1: Checkered, 2: Tiled
 uniform int tiles; // number of tiles
+uniform int visMode;
+uniform float debugVisScale;
 
-
+// Include statements
 #include common.fs
 #include struct.fs
 #include random.fs
@@ -20,10 +23,22 @@ uniform int tiles; // number of tiles
 #include pbr.fs
 #include lights.fs
 
-uniform int visMode;
-uniform float debugVisScale;
+// Global variables
 ivec2 stats; // num triangle tests, num bounding box tests
 
+// Function declarations
+vec3 reduceFireflies(vec3 color, float maxValue);
+void handleTransparentMaterial(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha);
+bool handleRussianRoulette(uint depth, vec3 rayColor, float randomValue);
+vec3 ImportanceSampleCosine(vec3 N, vec2 xi);
+vec3 sampleBRDF(vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState);
+vec3 handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, out vec3 L, out float pdf, inout uint rngState);
+vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex);
+vec3 TraceDebugMode(vec3 rayOrigin, vec3 rayDir);
+bool shouldRenderPixel();
+vec4 getPreviousFrameColor(vec2 coord);
+
+// Function implementations
 vec3 reduceFireflies(vec3 color, float maxValue) {
     float luminance = dot(color, vec3(0.299, 0.587, 0.114));
     if (luminance > maxValue) {
@@ -222,7 +237,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 
 		vec3 V = - ray.direction;
         vec3 N = hitInfo.normal;
-        vec3 L;
+		vec3 L;
         float pdf;
         vec3 brdfValue = sampleBRDF(V, N, material, blueNoise.xy, L, pdf, rngState);
         // return vec4(brdfValue, 1.0);
@@ -234,7 +249,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 
         // Calculate direct lighting using Multiple Importance Sampling
         vec3 directLight = calculateDirectLightingMIS(hitInfo, V, L, brdfValue, pdf, stats);
-        incomingLight += directLight; //reduceFireflies(directLight * throughput, 5.0);
+        incomingLight += reduceFireflies(directLight * throughput, 5.0);
 
         // Update throughput and alpha
         float NoL = max(dot(N, L), 0.0);
@@ -287,7 +302,7 @@ bool shouldRenderPixel() {
     if (renderMode == 0) { // Regular rendering
 
         return true;
-    
+
 	} else if (renderMode == 1) { // Checkered rendering
 
 		int frameNumber = int(frame);
@@ -319,7 +334,7 @@ bool shouldRenderPixel() {
 
     } else if (renderMode == 2) { // Tiled rendering
 
-        ivec2 tileCount = ivec2(resolution) / (ivec2(resolution) / tiles) ;
+        ivec2 tileCount = ivec2(resolution) / (ivec2(resolution) / tiles);
         ivec2 tileCoord = pixelCoord / (ivec2(resolution) / tiles);
         int totalTiles = tileCount.x * tileCount.y;
         int currentTile = int(frame) % totalTiles;
