@@ -32,6 +32,52 @@ vec3 reduceFireflies(vec3 color, float maxValue) {
     return color;
 }
 
+vec3 ImportanceSampleCosine(vec3 N, vec2 xi) {
+    // Create a local coordinate system where N is the Z axis
+    vec3 T = normalize(cross(N, N.yzx + vec3(0.1, 0.2, 0.3)));
+    vec3 B = cross(N, T);
+
+    // Cosine-weighted sampling
+    float phi = 2.0 * PI * xi.x;
+    float cosTheta = sqrt(1.0 - xi.y);
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+
+    // Convert from polar to Cartesian coordinates
+    vec3 localDir = vec3(
+        sinTheta * cos(phi),
+        sinTheta * sin(phi),
+        cosTheta
+    );
+
+    // Transform the sampled direction to world space
+    return normalize(T * localDir.x + B * localDir.y + N * localDir.z);
+}
+
+vec3 sampleBRDF(vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState) {
+    vec3 F0 = mix(vec3(0.04), material.color.rgb, material.metalness);
+
+    float diffuseRatio = 0.5 * (1.0 - material.metalness);
+
+    if (RandomValue(rngState) < diffuseRatio) {
+        // Sample diffuse BRDF
+        L = ImportanceSampleCosine(N, xi);
+        pdf = max(dot(N, L), 0.0) / PI;
+    } else {
+        // Sample specular BRDF
+        vec3 H = ImportanceSampleGGX(N, material.roughness, xi);
+        L = reflect(-V, H);
+        float NoH = max(dot(N, H), 0.0);
+        float VoH = max(dot(V, H), 0.0);
+        pdf = DistributionGGX(N, H, material.roughness) * NoH / (4.0 * VoH);
+    }
+
+    // Ensure the PDF is never zero
+    pdf = max(pdf, 0.001);
+
+    // Evaluate BRDF
+    return evaluateBRDF(V, L, N, material);
+}
+
 void handleTransparentMaterial(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha) {
     bool entering = dot(ray.direction, hitInfo.normal) < 0.0;
     float n1 = entering ? 1.0 : material.ior;
@@ -65,31 +111,14 @@ void handleTransparentMaterial(inout Ray ray, HitInfo hitInfo, RayTracingMateria
     ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 }
 
-vec3 getSpecularReflectionDirection(inout Ray ray, vec3 N, RayTracingMaterial material, vec4 blueNoise) {
-    
-    if (material.roughness < 0.001) { // Perfect mirror reflection for very low roughness
-        return reflect(ray.direction, N);
-    } else {
-        vec2 Xi = blueNoise.xy;
-        vec3 V = - ray.direction;
-        vec3 H = ImportanceSampleGGX(N, material.roughness, Xi);
-        return reflect(- V, H);
-    }
-}
-
-vec3 getDiffuseReflectionDirection(vec3 N, uint rngState ) {
-    return RandomHemiSphereDirection(N, rngState);
-    // Alternatively: vec3 diffuseDir = BlueNoiseRandomHemisphereDirection(hitInfo.normal, gl_FragCoord.xy, sampleIndex, i);
-}
-
-void handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, inout vec3 rayColor, inout uint rngState) {
+vec3 handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, out vec3 L, out float pdf, inout uint rngState) {
 	vec3 N = hitInfo.normal;
     vec3 V = -ray.direction;
 
     // Sample microfacet normal for clear coat layer
     vec2 Xi = blueNoise.xy;
     vec3 H = ImportanceSampleGGX(N, material.clearCoatRoughness, Xi);
-    vec3 L = reflect(-V, H);
+    L = reflect(-V, H);
 
     float NoL = max(dot(N, L), 0.0);
     float NoH = max(dot(N, H), 0.0);
@@ -102,29 +131,20 @@ void handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material
     // Specular BRDF for clear coat
     float D = DistributionGGX(N, H, material.clearCoatRoughness);
     float G = GeometrySmith(N, V, L, material.clearCoatRoughness);
-    vec3 specular = vec3(D * G * F / (4.0 * NoV * NoL + 0.001));
+    vec3 clearCoatBRDF = vec3(D * G * F) / (4.0 * NoV * NoL + 0.001);
 
-    // Decide whether to reflect off the clear coat or continue to the base layer
-    if (RandomValue(rngState) < material.clearCoat * F) {
-        ray.direction = L;
-        rayColor *= specular * NoL / (material.clearCoat * F);
-    } else {
-        // Calculate base specular color
-        vec3 F0 = mix(vec3(0.04), material.color.rgb, material.metalness);
-        vec3 specularColor = fresnel(F0, NoV, material.roughness);
-        vec3 diffuseColor = material.color.rgb * (1.0 - material.metalness) * (vec3(1.0) - specularColor);
+    pdf = (D * NoH) / (4.0 * VoH);
 
-        float specularProb = clamp(luminance(specularColor) * material.metalness, 0.1, 0.9);
-        if (RandomValue(rngState) < specularProb) {
-            rayColor *= specularColor / specularProb;
-            ray.direction =getSpecularReflectionDirection(ray, hitInfo.normal, material, blueNoise);
-        } else {
-            rayColor *= diffuseColor / (1.0 - specularProb);
-            ray.direction = getDiffuseReflectionDirection(hitInfo.normal, rngState);
-        }
-        // Attenuate base layer contribution
-        rayColor *= 1.0 - material.clearCoat * F;
-    }
+    // Blend with base layer BRDF
+    vec3 baseBRDF;
+    float basePDF;
+    baseBRDF = sampleBRDF(V, N, material, blueNoise.zw, L, basePDF, rngState);
+
+    // Compute final BRDF and PDF
+    vec3 finalBRDF = mix(baseBRDF, clearCoatBRDF, material.clearCoat * F);
+    pdf = mix(basePDF, pdf, material.clearCoat * F);
+
+    return finalBRDF;
 }
 
 bool handleRussianRoulette(uint depth, vec3 rayColor, float randomValue) {
@@ -145,7 +165,7 @@ bool handleRussianRoulette(uint depth, vec3 rayColor, float randomValue) {
 
 vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
     vec3 incomingLight = vec3(0.0);
-    vec3 rayColor = vec3(1.0);
+    vec3 throughput = vec3(1.0);
     uint depth = 0u;
     float alpha = 1.0;
 
@@ -160,16 +180,15 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 				incomingLight += vec3(0.0);
 			} else {
 				// For secondary rays (reflections, refractions), sample the environment normally
-				vec3 envLight = sampleEnvironment(ray.direction) * rayColor;
+				vec3 envLight = sampleEnvironment(ray.direction) * throughput;
 				incomingLight += reduceFireflies(envLight, 5.0);
 			}
 			break;
-            
         }
 
         RayTracingMaterial material = hitInfo.material;
         material.color = sampleAlbedoTexture(material, hitInfo.uv);
-       
+
 		// Handle alpha testing
         if (RandomValue(rngState) > material.color.a) {
             ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
@@ -179,13 +198,13 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
         // Calculate emitted light
         if( material.emissiveIntensity > 0.0 ) {
             vec3 emittedLight = material.emissive * material.emissiveIntensity;
-            incomingLight += reduceFireflies(emittedLight * rayColor, 5.0);
+			incomingLight += reduceFireflies(emittedLight * throughput, 5.0);
             break;
         }
-		
 
 		material.metalness = sampleMetalnessMap(material, hitInfo.uv);
         material.roughness = sampleRoughnessMap(material, hitInfo.uv);
+		material.roughness = clamp(material.roughness, 0.05, 1.0);
 
         // Calculate tangent space and perturb normal
         vec3 tangent = normalize(cross(hitInfo.normal, vec3(0.0, 1.0, 0.0)));
@@ -194,49 +213,42 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 
         // Handle transparent materials
         if (material.transmission > 0.0) {
-            handleTransparentMaterial(ray, hitInfo, material, rngState, rayColor, alpha);
+			handleTransparentMaterial(ray, hitInfo, material, rngState, throughput, alpha);
             continue;
         }
 
-        // Non-transparent material handling
+        // Sample BRDF
         vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(sampleIndex) * 13.37, float(sampleIndex) * 31.41 + float(i) * 71.71));
 
-        // Calculate Fresnel effect and material colors
-        float NoV = max(dot(hitInfo.normal, -ray.direction), 0.0);
-        vec3 F0 = mix(vec3(0.04), material.color.rgb, material.metalness);
-
-        vec3 specularColor = fresnel(F0, NoV, material.roughness);
-        vec3 diffuseColor = material.color.rgb * (1.0 - material.metalness) * (vec3(1.0) - specularColor);
+		vec3 V = - ray.direction;
+        vec3 N = hitInfo.normal;
+        vec3 L;
+        float pdf;
+        vec3 brdfValue = sampleBRDF(V, N, material, blueNoise.xy, L, pdf, rngState);
+        // return vec4(brdfValue, 1.0);
 
         // Handle clear coat
         if (material.clearCoat > 0.0) {
-            handleClearCoat(ray, hitInfo, material, blueNoise, rayColor, rngState);
-        } else {
-            // Regular material handling (specular or diffuse)
-            float specularProb = clamp(max(luminance(specularColor), material.metalness), 0.1, 0.9);
-			if (RandomValue(rngState) < specularProb) {
-                rayColor *= specularColor / specularProb;
-                ray.direction = getSpecularReflectionDirection(ray, hitInfo.normal, material, blueNoise);
-            } else {
-                rayColor *= diffuseColor / (1.0 - specularProb);
-                ray.direction = getDiffuseReflectionDirection(hitInfo.normal, rngState);
-            }
+            brdfValue = handleClearCoat(ray, hitInfo, material, blueNoise, L, pdf, rngState);
         }
 
+        // Calculate direct lighting using Multiple Importance Sampling
+        vec3 directLight = calculateDirectLightingMIS(hitInfo, V, L, brdfValue, pdf, stats);
+        incomingLight += directLight; //reduceFireflies(directLight * throughput, 5.0);
 
-        // Calculate direct lighting
-        vec3 directLight = calculateDirectLighting(hitInfo, -ray.direction, stats);
-        incomingLight += reduceFireflies(directLight * rayColor, 5.0);
-
+        // Update throughput and alpha
+        float NoL = max(dot(N, L), 0.0);
+        throughput *= brdfValue * NoL / pdf;
 		alpha *= material.color.a;
 
         // Russian roulette path termination
-        if (!handleRussianRoulette(depth, rayColor, blueNoise.z)) {
+        if (!handleRussianRoulette(depth, throughput, blueNoise.z)) {
 			break;
 		}
 
         // Prepare for next bounce
-		ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+		ray.origin = hitInfo.hitPoint + L * 0.001;
+		ray.direction = L;
 	}
 	return vec4(incomingLight, alpha);
 }
