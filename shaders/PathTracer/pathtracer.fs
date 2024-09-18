@@ -210,13 +210,6 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
             continue;
         }
 
-        // Calculate emitted light
-        if( material.emissiveIntensity > 0.0 ) {
-            vec3 emittedLight = material.emissive * material.emissiveIntensity;
-			incomingLight += reduceFireflies(emittedLight * throughput, 5.0);
-            break;
-        }
-
 		material.metalness = sampleMetalnessMap(material, hitInfo.uv);
         material.roughness = sampleRoughnessMap(material, hitInfo.uv);
 		material.roughness = clamp(material.roughness, 0.05, 1.0);
@@ -250,6 +243,12 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
         // Calculate direct lighting using Multiple Importance Sampling
         vec3 directLight = calculateDirectLightingMIS(hitInfo, V, L, brdfValue, pdf, stats);
         incomingLight += reduceFireflies(directLight * throughput, 5.0);
+
+		// Calculate emitted light
+        if( material.emissiveIntensity > 0.0 ) {
+            vec3 emittedLight = material.emissive * material.emissiveIntensity;
+			incomingLight += reduceFireflies(emittedLight * throughput, 5.0);
+        }
 
         // Update throughput and alpha
         float NoL = max(dot(N, L), 0.0);

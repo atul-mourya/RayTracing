@@ -105,15 +105,16 @@ float luminance( vec3 color ) {
 
 }
 
-// Add these functions for BRDF calculations
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness*roughness;
-    float a2 = a*a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH*NdotH;
 
-    float nom   = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    float alpha = roughness * roughness;
+    float alpha2 = alpha * alpha;
+
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float nom   = alpha2;
+    float denom = (NdotH2 * (alpha2 - 1.0) + 1.0);
     denom = PI * denom * denom;
 
     return nom / denom;

@@ -3,7 +3,7 @@ uniform sampler2D environment;
 uniform float environmentIntensity;
 
 // ray sampling x and z are swapped to align with expected background view
-vec2 equirectDirectionToUv( vec3 direction ) {
+vec2 directionToTextureCoordinate( vec3 direction ) {
 
 	// from Spherical.setFromCartesianCoords
 	vec2 uv = vec2( atan( direction.z, direction.x ), acos( direction.y ) );
@@ -19,7 +19,7 @@ vec2 equirectDirectionToUv( vec3 direction ) {
 vec3 sampleEnvironment(vec3 direction) {
     if (!enableEnvironmentLight) return vec3(0.0);
 
-    vec2 uv = equirectDirectionToUv(direction);
+    vec2 uv = directionToTextureCoordinate(direction);
     vec3 color = texture2D(environment, uv).rgb;
 
     color *= environmentIntensity;
