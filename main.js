@@ -1,6 +1,6 @@
 import {
 	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping,
-	FloatType, DirectionalLight, LinearSRGBColorSpace,
+	FloatType, DirectionalLight, SRGBColorSpace,
 	EquirectangularReflectionMapping, Group, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget, DataTexture, UnsignedByteType, RepeatWrapping
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
