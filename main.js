@@ -78,6 +78,7 @@ let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
 let currentHDRIndex = 2;
+let pauseRendering = false;
 
 // Initialization Functions
 function initScene() {
@@ -261,11 +262,12 @@ function onResize() {
 // Animation and Rendering
 function animate() {
 
+	requestAnimationFrame( animate );
+	if ( pauseRendering ) return;
 	fpsGraph.begin();
 	controls.update();
 	composer.render();
 	fpsGraph.end();
-	requestAnimationFrame( animate );
 
 }
 
@@ -468,6 +470,7 @@ function setupDragAndDrop() {
 		if ( file && file.name.toLowerCase().endsWith( '.glb' ) ) {
 
 			const reader = new FileReader();
+			toggleLoadingIndicator( true );
 			reader.onload = ( event ) => {
 
 				const arrayBuffer = event.target.result;
@@ -479,6 +482,7 @@ function setupDragAndDrop() {
 
 		} else {
 
+			toggleLoadingIndicator( false );
 			console.warn( 'Please drop a GLB file.' );
 
 		}
@@ -513,10 +517,12 @@ function loadGLBFromArrayBuffer( arrayBuffer ) {
 
 		reset();
 		onResize();
+		toggleLoadingIndicator( false );
 
 	}, undefined, ( error ) => {
 
 		console.error( 'Error loading GLB:', error );
+		toggleLoadingIndicator( false );
 
 	} );
 
@@ -553,10 +559,13 @@ function centerModelAndAdjustCamera( model ) {
 function toggleLoadingIndicator( bool ) {
 
 	loadingOverlay.style.display = bool ? 'flex' : 'none';
+	pauseRendering = bool;
 
 }
 
 async function init() {
+
+	toggleLoadingIndicator( true );
 
 	initScene();
 	initRenderer();
@@ -579,6 +588,7 @@ async function init() {
 
 	setupDragAndDrop();
 	window.addEventListener( 'resize', onResize );
+	toggleLoadingIndicator( false );
 
 	onResize();
 	animate();
