@@ -1,235 +1,306 @@
-import { Vector3, Vector2, Color } from "three";
+import { Vector3, Vector2, Color, Matrix3, Matrix4 } from "three";
 
 export default class GeometryExtractor {
 
+	constructor() {
+
+		this.triangles = [];
+		this.materials = [];
+		this.maps = [];
+		this.normalMaps = [];
+		this.bumpMaps = [];
+		this.metalnessMaps = [];
+		this.roughnessMaps = [];
+		this.directionalLights = [];
+
+		this.posA = new Vector3();
+		this.posB = new Vector3();
+		this.posC = new Vector3();
+		this.uvA = new Vector2();
+		this.uvB = new Vector2();
+		this.uvC = new Vector2();
+
+		this.normal = new Vector3();
+		this.normalA = this.normal.clone();
+		this.normalB = this.normal.clone();
+		this.normalC = this.normal.clone();
+
+		this.normalMatrix = new Matrix3();
+		this.worldMatrix = new Matrix4();
+
+	}
+
 	extract( object ) {
 
-		const triangles = [];
-		const materials = [];
-		const maps = [];
-		const normalMaps = [];
-		const bumpMaps = [];
-		const metalnessMaps = [];
-		const roughnessMaps = [];
-		const directionalLights = [];
+		this.resetArrays();
+		this.traverseObject( object );
+		this.logStats();
+		return this.getExtractedData();
 
-		const posA = new Vector3();
-		const posB = new Vector3();
-		const posC = new Vector3();
-		const uvA = new Vector2();
-		const uvB = new Vector2();
-		const uvC = new Vector2();
+	}
 
-		const normal = new Vector3();
-		const normalA = normal.clone();
-		const normalB = normal.clone();
-		const normalC = normal.clone();
+	traverseObject( object ) {
 
-		object.traverse( obj => {
+		if ( object.isMesh ) {
 
-			if ( obj.isDirectionalLight ) {
+			this.processMesh( object );
 
-				directionalLights.push( obj );
-				return;
+		} else if ( object.isDirectionalLight ) {
+
+			this.directionalLights.push( object );
+
+		}
+
+		// Recursively process children
+		if ( object.children ) {
+
+			for ( let child of object.children ) {
+
+				this.traverseObject( child );
 
 			}
 
-		  	if ( obj.isMesh ) {
+		}
 
-				let materialIndex = materials.findIndex( x => x.uuid === obj.material.uuid );
-				if ( materialIndex === - 1 ) {
+	}
 
-					const emissive = obj.material.emissive ?? new Color( 0, 0, 0 );
-					const isEmissive = emissive.r > 0 || emissive.g > 0 || emissive.b > 0 ? true : false;
-					if ( isEmissive ) console.log( obj );
-					const material = {
-						color: obj.material.color,
-						emissive: emissive,
-						emissiveIntensity: isEmissive ? obj.material.emissiveIntensity ?? 0 : 0,
-						clearCoat: obj.material.clearCoat ?? 0.0,
-						clearCoatRoughness: obj.material.clearCoatRoughness ?? 0.0,
-						roughness: obj.material.roughness ?? 1.0,
-						metalness: obj.material.metalness ?? 0.0,
-						ior: obj.material.ior ?? 0,
-						transmission: obj.material.transmission ?? 0.0,
-						thickness: obj.material.thickness ?? 0.5,
-						map: - 1,
-						normalMap: - 1,
-						bumpMap: - 1,
-						roughnessMap: - 1,
-						metalnessMap: - 1,
-					};
+	processObject( obj ) {
 
-					if ( obj.material.map ) {
+		if ( obj.isDirectionalLight ) {
 
-						let textureIndex = maps.findIndex( x => x.source.uuid === obj.material.map.source.uuid );
-						if ( textureIndex === - 1 && maps.length < 48 ) {
+			this.directionalLights.push( obj );
 
-							maps.push( obj.material.map );
-							material.map = maps.length - 1;
+		} else if ( obj.isMesh ) {
 
-						}
+			this.processMesh( obj );
 
-					}
+		}
 
-					if ( obj.material.normalMap ) {
+	}
 
-						let textureIndex = normalMaps.findIndex( x => x.source.uuid === obj.material.normalMap.source.uuid );
-						if ( textureIndex === - 1 && normalMaps.length < 48 ) {
+	processMesh( mesh ) {
 
-							normalMaps.push( obj.material.normalMap );
-							material.normalMap = normalMaps.length - 1;
+		const materialIndex = this.processMaterial( mesh.material );
+		this.extractGeometry( mesh, materialIndex );
 
-						}
+	}
 
-					}
+	processMaterial( material ) {
 
-					if ( obj.material.bumpMap ) {
+		let materialIndex = this.materials.findIndex( x => x.uuid === material.uuid );
+		if ( materialIndex === - 1 ) {
 
-						let textureIndex = bumpMaps.findIndex( x => x.source.uuid === obj.material.bumpMap.source.uuid );
-						if ( textureIndex === - 1 && bumpMaps.length < 48 ) {
+			const newMaterial = this.createMaterialObject( material );
+			this.materials.push( newMaterial );
+			materialIndex = this.materials.length - 1;
 
-							bumpMaps.push( obj.material.bumpMap );
-							material.bumpMap = bumpMaps.length - 1;
+		}
 
-						}
+		return materialIndex;
 
-					}
+	}
 
-					if ( obj.material.roughnessMap ) {
+	createMaterialObject( material ) {
 
-						let textureIndex = roughnessMaps.findIndex( x => x.source.uuid === obj.material.roughnessMap.source.uuid );
-						if ( textureIndex === - 1 && roughnessMaps.length < 48 ) {
-
-							roughnessMaps.push( obj.material.roughnessMap );
-							material.roughtnessMap = roughnessMaps.length - 1;
-
-						}
-
-					}
-
-					if ( obj.material.metalnessMap ) {
-
-						let textureIndex = metalnessMaps.findIndex( x => x.source.uuid === obj.material.metalnessMap.source.uuid );
-						if ( textureIndex === - 1 && metalnessMaps.length < 48 ) {
-
-							metalnessMaps.push( obj.material.metalnessMap );
-							material.metalnessMap = metalnessMaps.length - 1;
-
-						}
-
-					}
-
-					materials.push( material );
-					materialIndex = materials.length - 1;
-
-				}
-
-				obj.updateMatrix();
-				obj.updateMatrixWorld();
-
-				const geometry = obj.geometry;
-				const positions = geometry.attributes.position;
-				const normals = geometry.attributes.normal;
-				const uvs = geometry.attributes.uv;
-				const indices = geometry.index ? geometry.index.array : null;
-
-				const triangleCount = indices ? indices.length / 3 : positions.count / 3;
-
-				for ( let i = 0; i < triangleCount; i ++ ) {
-
-					const i3 = i * 3;
-
-					if ( indices ) {
-
-						posA.fromBufferAttribute( positions, indices[ i3 + 0 ] );
-						posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
-						posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
-
-						// Extract normals from the geometry
-						normal.fromBufferAttribute( normals, indices[ i3 + 0 ] );
-						normalA.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
-						normal.fromBufferAttribute( normals, indices[ i3 + 1 ] );
-						normalB.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
-						normal.fromBufferAttribute( normals, indices[ i3 + 2 ] );
-						normalC.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
-
-						if ( uvs ) {
-
-							uvA.fromBufferAttribute( uvs, indices[ i3 + 0 ] );
-							uvB.fromBufferAttribute( uvs, indices[ i3 + 1 ] );
-							uvC.fromBufferAttribute( uvs, indices[ i3 + 2 ] );
-
-						}
-
-					} else {
-
-						posA.fromBufferAttribute( positions, i3 + 0 );
-						posB.fromBufferAttribute( positions, i3 + 1 );
-						posC.fromBufferAttribute( positions, i3 + 2 );
-
-						// Extract normals from the geometry
-						normal.fromBufferAttribute( normals, i3 + 0 );
-						normalA.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
-						normal.fromBufferAttribute( normals, i3 + 1 );
-						normalB.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
-						normal.fromBufferAttribute( normals, i3 + 2 );
-						normalC.copy( normal ).applyMatrix3( obj.normalMatrix ).normalize();
-
-						if ( uvs ) {
-
-							uvA.fromBufferAttribute( uvs, i3 + 0 );
-							uvB.fromBufferAttribute( uvs, i3 + 1 );
-							uvC.fromBufferAttribute( uvs, i3 + 2 );
-
-						}
-
-					}
-
-					posA.applyMatrix4( obj.matrixWorld );
-					posB.applyMatrix4( obj.matrixWorld );
-					posC.applyMatrix4( obj.matrixWorld );
-
-					triangles.push( {
-						posA: posA.clone(),
-						posB: posB.clone(),
-						posC: posC.clone(),
-						normalA: normalA.clone(),
-						normalB: normalB.clone(),
-						normalC: normalC.clone(),
-						uvA: uvA.clone(),
-						uvB: uvB.clone(),
-						uvC: uvC.clone(),
-						materialIndex: materialIndex
-					} );
-
-				}
-
-			} else if ( obj.isDirectionalLight === true ) {
-
-				directionalLights.push( obj );
-
-			}
-
-		} );
-
-		console.log( "materials:", materials.length );
-		console.log( "triangles:", triangles.length );
-		console.log( "maps:", maps.length );
+		const emissive = material.emissive ?? new Color( 0, 0, 0 );
+		const isEmissive = emissive.r > 0 || emissive.g > 0 || emissive.b > 0;
 
 		return {
-			triangles,
-			materials,
-			maps,
-			normalMaps,
-			bumpMaps,
-			metalnessMaps,
-			roughnessMaps,
-			directionalLights
+			color: material.color,
+			emissive: emissive,
+			emissiveIntensity: isEmissive ? material.emissiveIntensity ?? 0 : 0,
+			clearCoat: material.clearCoat ?? 0.0,
+			clearCoatRoughness: material.clearCoatRoughness ?? 0.0,
+			roughness: material.roughness ?? 1.0,
+			metalness: material.metalness ?? 0.0,
+			ior: material.ior ?? 0,
+			transmission: material.transmission ?? 0.0,
+			thickness: material.thickness ?? 0.5,
+			map: this.processTexture( material.map, this.maps ),
+			normalMap: this.processTexture( material.normalMap, this.normalMaps ),
+			bumpMap: this.processTexture( material.bumpMap, this.bumpMaps ),
+			roughnessMap: this.processTexture( material.roughnessMap, this.roughnessMaps ),
+			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
 		};
 
 	}
 
-	// Helper methods for geometry extraction...
+	processTexture( texture, textureArray ) {
+
+		if ( ! texture ) return - 1;
+		let textureIndex = textureArray.findIndex( x => x.source.uuid === texture.source.uuid );
+		if ( textureIndex === - 1 && textureArray.length < 48 ) {
+
+			textureArray.push( texture );
+			return textureArray.length - 1;
+
+		}
+
+		return textureIndex;
+
+	}
+
+	extractGeometry( mesh, materialIndex ) {
+
+		mesh.updateMatrix();
+		mesh.updateMatrixWorld();
+
+		const geometry = mesh.geometry;
+		const positions = geometry.attributes.position;
+		const normals = geometry.attributes.normal;
+		const uvs = geometry.attributes.uv;
+		const indices = geometry.index ? geometry.index.array : null;
+
+		// Compute matrices
+		this.worldMatrix.copy( mesh.matrixWorld );
+		this.normalMatrix.getNormalMatrix( this.worldMatrix );
+
+		const triangleCount = indices ? indices.length / 3 : positions.count / 3;
+
+		for ( let i = 0; i < triangleCount; i ++ ) {
+
+			this.extractTriangle( positions, normals, uvs, indices, i, materialIndex );
+
+		}
+
+	}
+
+	extractTriangle( positions, normals, uvs, indices, i, materialIndex ) {
+
+		const i3 = i * 3;
+
+		if ( indices ) {
+
+			this.setPositionsFromIndices( positions, indices, i3 );
+			this.setNormalsFromIndices( normals, indices, i3 );
+			if ( uvs ) this.setUVsFromIndices( uvs, indices, i3 );
+
+		} else {
+
+			this.setPositions( positions, i3 );
+			this.setNormals( normals, i3 );
+			if ( uvs ) this.setUVs( uvs, i3 );
+
+		}
+
+		this.applyWorldTransforms();
+		this.addTriangle( materialIndex );
+
+	}
+
+	setPositionsFromIndices( positions, indices, i3 ) {
+
+		this.posA.fromBufferAttribute( positions, indices[ i3 + 0 ] );
+		this.posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
+		this.posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
+
+	}
+
+	setNormalsFromIndices( normals, indices, i3 ) {
+
+		this.normalA.fromBufferAttribute( normals, indices[ i3 + 0 ] );
+		this.normalB.fromBufferAttribute( normals, indices[ i3 + 1 ] );
+		this.normalC.fromBufferAttribute( normals, indices[ i3 + 2 ] );
+
+	}
+
+	setUVsFromIndices( uvs, indices, i3 ) {
+
+		this.uvA.fromBufferAttribute( uvs, indices[ i3 + 0 ] );
+		this.uvB.fromBufferAttribute( uvs, indices[ i3 + 1 ] );
+		this.uvC.fromBufferAttribute( uvs, indices[ i3 + 2 ] );
+
+	}
+
+	setPositions( positions, i3 ) {
+
+		this.posA.fromBufferAttribute( positions, i3 + 0 );
+		this.posB.fromBufferAttribute( positions, i3 + 1 );
+		this.posC.fromBufferAttribute( positions, i3 + 2 );
+
+	}
+
+	setNormals( normals, i3 ) {
+
+		this.normalA.fromBufferAttribute( normals, i3 + 0 );
+		this.normalB.fromBufferAttribute( normals, i3 + 1 );
+		this.normalC.fromBufferAttribute( normals, i3 + 2 );
+
+	}
+
+	setUVs( uvs, i3 ) {
+
+		this.uvA.fromBufferAttribute( uvs, i3 + 0 );
+		this.uvB.fromBufferAttribute( uvs, i3 + 1 );
+		this.uvC.fromBufferAttribute( uvs, i3 + 2 );
+
+	}
+
+	applyWorldTransforms() {
+
+		// Transform positions
+		this.posA.applyMatrix4( this.worldMatrix );
+		this.posB.applyMatrix4( this.worldMatrix );
+		this.posC.applyMatrix4( this.worldMatrix );
+
+		// Transform normals
+		this.normalA.applyMatrix3( this.normalMatrix ).normalize();
+		this.normalB.applyMatrix3( this.normalMatrix ).normalize();
+		this.normalC.applyMatrix3( this.normalMatrix ).normalize();
+
+	}
+
+	addTriangle( materialIndex ) {
+
+		this.triangles.push( {
+			posA: this.posA.clone(),
+			posB: this.posB.clone(),
+			posC: this.posC.clone(),
+			normalA: this.normalA.clone(),
+			normalB: this.normalB.clone(),
+			normalC: this.normalC.clone(),
+			uvA: this.uvA.clone(),
+			uvB: this.uvB.clone(),
+			uvC: this.uvC.clone(),
+			materialIndex: materialIndex
+		} );
+
+	}
+
+	logStats() {
+
+		console.log( "materials:", this.materials.length );
+		console.log( "triangles:", this.triangles.length );
+		console.log( "maps:", this.maps.length );
+
+	}
+
+	resetArrays() {
+
+		this.triangles = [];
+		this.materials = [];
+		this.maps = [];
+		this.normalMaps = [];
+		this.bumpMaps = [];
+		this.metalnessMaps = [];
+		this.roughnessMaps = [];
+		this.directionalLights = [];
+
+	}
+
+	getExtractedData() {
+
+		return {
+			triangles: this.triangles,
+			materials: this.materials,
+			maps: this.maps,
+			normalMaps: this.normalMaps,
+			bumpMaps: this.bumpMaps,
+			metalnessMaps: this.metalnessMaps,
+			roughnessMaps: this.roughnessMaps,
+			directionalLights: this.directionalLights
+		};
+
+	}
 
 }

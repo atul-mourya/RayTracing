@@ -34,7 +34,7 @@ vec3 ImportanceSampleCosine(vec3 N, vec2 xi);
 vec3 sampleBRDF(vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState);
 vec3 handleClearCoat(inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, out vec3 L, out float pdf, inout uint rngState);
 vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex);
-vec3 TraceDebugMode(vec3 rayOrigin, vec3 rayDir);
+vec4 TraceDebugMode(vec3 rayOrigin, vec3 rayDir);
 bool shouldRenderPixel();
 vec4 getPreviousFrameColor(vec2 coord);
 
@@ -267,7 +267,7 @@ vec4 Trace(Ray ray, inout uint rngState, int sampleIndex, int pixelIndex) {
 	return vec4(incomingLight, alpha);
 }
 
-vec3 TraceDebugMode(vec3 rayOrigin, vec3 rayDir) {
+vec4 TraceDebugMode(vec3 rayOrigin, vec3 rayDir) {
     Ray ray;
     ray.origin = rayOrigin;
     ray.direction = rayDir;
@@ -276,23 +276,23 @@ vec3 TraceDebugMode(vec3 rayOrigin, vec3 rayDir) {
     // Triangle test count vis
     if (visMode == 1) {
         float triVis = float(stats.x) / debugVisScale;
-        return triVis < 1.0 ? vec3(triVis) : vec3(1.0, 0.0, 0.0);
+        return triVis < 1.0 ? vec4(vec3(triVis), 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
     }
     // Box test count vis
     else if (visMode == 2) {
         float boxVis = float(stats.y) / debugVisScale;
-        return boxVis < 1.0 ? vec3(boxVis) : vec3(1.0, 0.0, 0.0);
+        return boxVis < 1.0 ? vec4(vec3(boxVis), 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
     }
     // Distance
     else if (visMode == 3) {
-        return vec3(length(rayOrigin - hitInfo.hitPoint) / debugVisScale);
+        return vec4(vec3(length(rayOrigin - hitInfo.hitPoint) / debugVisScale), 1.0);
     }
     // Normal
     else if (visMode == 4) {
-        if (!hitInfo.didHit) return vec3(0.0);
-        return hitInfo.normal * 0.5 + 0.5;
+        if (!hitInfo.didHit) return vec4(0.0, 0.0, 0.0, 1.0);
+        return vec4(vec3(hitInfo.normal * 0.5 + 0.5), 1.0);
     }
-    return vec3(1.0, 0.0, 1.0); // Invalid test mode
+    return vec4(1.0, 0.0, 1.0, 1.0); // Invalid test mode
 }
 
 bool shouldRenderPixel() {
@@ -365,7 +365,7 @@ void main() {
     if (shouldRender) {
         if (visMode > 0) { // Debug mode
             Ray ray = generateRayFromCamera(screenPosition, seed);
-            // finalColor = TraceDebugMode(ray.origin, ray.direction);
+            finalColor = TraceDebugMode(ray.origin, ray.direction);
         } else {
             vec4 totalIncomingLight = vec4(0.0, 0.0, 0.0, 1.0);
             for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
@@ -385,8 +385,5 @@ void main() {
         finalColor = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
-    // finalColor.r = pow( finalColor.r, 1.0 / 2.2 );
-    // finalColor.g = pow( finalColor.g, 1.0 / 2.2 );
-    // finalColor.b = pow( finalColor.b, 1.0 / 2.2 );
     gl_FragColor = vec4(vec3(finalColor), 1.0);
 }

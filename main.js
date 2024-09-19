@@ -127,7 +127,7 @@ function initRenderer() {
 	renderer.setClearColor( 0xffffff, params.clearAlpha );
 	renderer.toneMapping = ACESFilmicToneMapping;
 	renderer.toneMappingExposure = Math.pow( 1.18, 4.0 );
-	renderer.outputColorSpace = LinearSRGBColorSpace;
+	renderer.outputColorSpace = SRGBColorSpace;
 	renderer.setPixelRatio( ORIGINAL_PIXEL_RATIO );
 
 	canvas = renderer.domElement;
