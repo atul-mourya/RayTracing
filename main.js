@@ -16,7 +16,7 @@ import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
-import { PoissonDenoiseShader } from 'three/examples/jsm/shaders/PoissonDenoiseShader.js';
+// import { PoissonDenoiseShader } from 'three/examples/jsm/shaders/PoissonDenoiseShader.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
@@ -183,15 +183,15 @@ function setupComposer() {
 	accPass.enabled = true;
 	composer.addPass( accPass );
 
-	denoiserPass = new ShaderPass( PoissonDenoiseShader );
-	denoiserPass.material.uniforms.tDiffuse.value = renderTarget.texture;
-	denoiserPass.material.uniforms.tNoise.value = generateNoise();
-	denoiserPass.material.uniforms.resolution.value.set( canvas.width, canvas.height );
-	denoiserPass.material.uniforms.lumaPhi.value = 10;
-	denoiserPass.material.uniforms.depthPhi.value = 2;
-	denoiserPass.material.uniforms.normalPhi.value = 3;
-	denoiserPass.material.uniforms.radius.value = 1;
-	// denoiserPass = new LygiaSmartDenoiserPass( canvas.width, canvas.height );
+	// denoiserPass = new ShaderPass( PoissonDenoiseShader );
+	// denoiserPass.material.uniforms.tDiffuse.value = renderTarget.texture;
+	// denoiserPass.material.uniforms.tNoise.value = generateNoise();
+	// denoiserPass.material.uniforms.resolution.value.set( canvas.width, canvas.height );
+	// denoiserPass.material.uniforms.lumaPhi.value = 10;
+	// denoiserPass.material.uniforms.depthPhi.value = 2;
+	// denoiserPass.material.uniforms.normalPhi.value = 3;
+	// denoiserPass.material.uniforms.radius.value = 1;
+	denoiserPass = new LygiaSmartDenoiserPass( canvas.width, canvas.height );
 	// denoiserPass = new SpatialDenoiserPass( canvas.width, canvas.width );
 	denoiserPass.enabled = false;
 	composer.addPass( denoiserPass );
@@ -388,16 +388,16 @@ function setupDenoisingFolder( pane ) {
 	const denoisingFolder = pane.addFolder( { title: 'Denoising' } );
 	denoisingFolder.addBinding( denoiserPass, 'enabled', { label: 'Enable Denoiser' } );
 	// --- SmartDenoiser ---
-	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.sigma, 'value', { label: 'Blur Strength', min: 0.5, max: 5, step: 0.1 } );
-	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kSigma, 'value', { label: 'Blur Radius', min: 1, max: 3, step: 0.1 } );
-	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.threshold, 'value', { label: 'Detail Preservation', min: 0.01, max: 0.1, step: 0.01 } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.sigma, 'value', { label: 'Blur Strength', min: 0.5, max: 5, step: 0.1 } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kSigma, 'value', { label: 'Blur Radius', min: 1, max: 3, step: 0.1 } );
+	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.threshold, 'value', { label: 'Detail Preservation', min: 0.01, max: 0.1, step: 0.01 } );
 	// --- ConvolutionDenoiser ---
 	// denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kernelSize, 'value', { label: 'Strength', min: 1, max: 10, step: 1 } );
 	// --- PoissonDiscDenoiser ---
-	denoisingFolder.addBinding( denoiserPass.material.uniforms.radius, 'value', { label: 'radius', min: 0.1, max: 10, step: 0.1 } );
-	denoisingFolder.addBinding( denoiserPass.material.uniforms.lumaPhi, 'value', { label: 'luma', min: 1, max: 10, step: 1 } );
-	denoisingFolder.addBinding( denoiserPass.material.uniforms.depthPhi, 'value', { label: 'depth', min: 1, max: 10, step: 0.1 } );
-	denoisingFolder.addBinding( denoiserPass.material.uniforms.normalPhi, 'value', { label: 'normal', min: 1, max: 10, step: 0.1 } );
+	// denoisingFolder.addBinding( denoiserPass.material.uniforms.radius, 'value', { label: 'radius', min: 0.1, max: 10, step: 0.1 } );
+	// denoisingFolder.addBinding( denoiserPass.material.uniforms.lumaPhi, 'value', { label: 'luma', min: 1, max: 10, step: 1 } );
+	// denoisingFolder.addBinding( denoiserPass.material.uniforms.depthPhi, 'value', { label: 'depth', min: 1, max: 10, step: 0.1 } );
+	// denoisingFolder.addBinding( denoiserPass.material.uniforms.normalPhi, 'value', { label: 'normal', min: 1, max: 10, step: 0.1 } );
 
 }
 
