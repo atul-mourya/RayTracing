@@ -20,8 +20,8 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
 //some samples at https://casual-effects.com/data/
-// const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
-const MODEL_URL = './models/camera.glb';
+const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
+// const MODEL_URL = './models/planes.glb';
 const HDR_FILES = [
 	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
 	{ name: "Aerodynamics Workshop", url: "aerodynamics_workshop_2k.hdr" },
@@ -64,7 +64,60 @@ const HDR_FILES = [
 	{ name: "Wasteland Clouds Pure Sky", url: "wasteland_clouds_puresky_2k.hdr" },
 	{ name: "Whale Skeleton", url: "whale_skeleton_2k.hdr" }
 ];
+const MODEL_FILES = [
+	{ name: "3D Home Layout", url: "3d-home-layout/scene.glb" },
+	{ name: "Astraia", url: "astraia/scene.gltf" },
+	{ name: "Bao Robot", url: "bao-robot/bao-robot.glb" },
+	{ name: "Botanist's Greenhouse", url: "botanists-greenhouse/scene.gltf" },
+	{ name: "Botanist's Study", url: "botanists-study/scene.gltf" },
+	{ name: "Colour Drafts", url: "colourdrafts/scene.glb" },
+	{ name: "Diamond", url: "diamond/diamond.glb" },
+	{ name: "Dragon Attenuation", url: "dragon-attenuation/DragonAttenuation.glb" },
+	{ name: "Dream Apartment", url: "dream-apartment/dream-apartment.glb" },
+	{ name: "Drone", url: "drone/drone.glb" },
+	{ name: "Dungeon Warkarma", url: "dungeon-warkarma/scene.gltf" },
+	{ name: "Gelatinous Cube", url: "gelatinous-cube/scene.gltf" },
+	{ name: "Guitar", url: "guitar/guitar.glb" },
+	{ name: "Happy Buddha", url: "happy-buddha/buddha.glb" },
+	{ name: "Hotel Room Lotus Carpet", url: "hotel-room-lotus-carpet/scene.glb" },
+	{ name: "Imaginary Friend Room", url: "imaginary-friend-room/scene.glb" },
+	{ name: "Interior Scene", url: "interior-scene/scene.gltf" },
+	{ name: "Internal Combustion Engine", url: "internal-combustion-engine/model.gltf" },
+	{ name: "Japanese Bridge Garden", url: "japanese-bridge-garden/scene.glb" },
+	{ name: "Japanese Temple", url: "japanese-temple/scene.gltf" },
+	{ name: "Kitchen", url: "kitchen/scene.glb" },
+	{ name: "Lamborghini", url: "lamborghini/scene.glb" },
+	{ name: "Low Poly Jungle Scene", url: "low-poly-jungle-scene/scene.gltf" },
+	{ name: "Lowpoly Space", url: "lowpoly-space/space_exploration.glb" },
+	{ name: "Mars Site", url: "mars-site/scene.gltf" },
+	{ name: "Material Balls", url: "material-balls/material-ball_v2.glb" },
+	{ name: "Mercury About to Kill Argos", url: "mercury-about-to-kill-argos/scene.glb" },
+	{ name: "Mosquito in Amber", url: "mosquito-in-amber/scene.gltf" },
+	{ name: "NASA M2020", url: "nasa-m2020/Perseverance.glb" },
+	{ name: "Natural Products Expo", url: "natural-products-expo/scene.glb" },
+	{ name: "Neko Stop Diorama", url: "neko-stop-diorama/scene.gltf" },
+	{ name: "Octocat", url: "octocat/octocat.glb" },
+	{ name: "Octopus Tea", url: "octopus-tea/scene.gltf" },
+	{ name: "Pathtracing Bathroom", url: "pathtracing-bathroom/modernbathroom.glb" },
+	{ name: "Pigman", url: "pigman/scene.gltf" },
+	{ name: "Ring Twist Halo", url: "ring-twist-halo/scene.glb" },
+	{ name: "Scifi Toad", url: "scifi-toad/scene.gltf" },
+	{ name: "SD Macross City Standoff Diorama", url: "sd-macross-city-standoff-diorama/scene.glb" },
+	{ name: "Sofa Patricia", url: "sofa-patricia/scene.glb" },
+	{ name: "Stanford Bunny", url: "stanford-bunny/bunny.glb" },
+	{ name: "Steampunk Robot", url: "steampunk-robot/scene.gltf" },
+	{ name: "Terrarium Robots", url: "terrarium-robots/scene.gltf" },
+	{ name: "Threedscans", url: "threedscans/Crab.glb" },
+	{ name: "T-Rex", url: "trex/scene.gltf" },
+	{ name: "USD Shader Ball", url: "usd-shader-ball/usd-shaderball-scene.glb" },
+	{ name: "Vilhelm 13", url: "vilhelm-13/vilhelm_13.glb" },
+	{ name: "Vino Bike", url: "vino-bike/scene.gltf" },
+	{ name: "Wooden Stylised Carriage", url: "wooden-stylised-carriage/scene.gltf" },
+	{ name: "WW2 City Scene", url: "ww2-cityscene/scene.gltf" }
+];
 const ENV_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/';
+const MODEL_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/';
+
 const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
 
 // DOM Elements
@@ -77,6 +130,7 @@ let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
 let currentHDRIndex = 2;
+let currentModelIndex = 7;
 let pauseRendering = false;
 
 // Initialization Functions
@@ -249,6 +303,7 @@ async function loadGLTFModel() {
 function setupGUI() {
 
 	const parameters = {
+		model: currentModelIndex,
 		hdrBackground: currentHDRIndex,
 		resolution: renderer.getPixelRatio(),
 		toneMappingExposure: Math.pow( renderer.toneMappingExposure, 1 / 4 )
@@ -288,6 +343,9 @@ function setupSceneFolder( pane, parameters ) {
 		pathTracingPass.material.uniforms.useBackground.value = e.value;
 
 	} );
+	sceneFolder.addBinding( parameters, 'model', { label: 'Model',
+		options: Object.fromEntries( MODEL_FILES.map( ( file, index ) => [ file.name, index ] ) ) } ).on( 'change', e => switchModel( e.value ) );
+
 	sceneFolder.addBinding( parameters, 'hdrBackground', { label: 'HDR Environment',
 		options: Object.fromEntries( HDR_FILES.map( ( file, index ) => [ file.name, index ] ) ) } ).on( 'change', e => switchHDRBackground( e.value ) );
 	sceneFolder.addBinding( scene, 'environmentIntensity', { label: 'Enviroment Intensity', min: 0, max: 2, step: 0.01 } ).on( 'change', e => pathTracingPass.material.uniforms.environmentIntensity.value = e.value );
@@ -370,6 +428,58 @@ function switchHDRBackground( index ) {
 
 		currentHDRIndex = index;
 		loadHDRBackground( currentHDRIndex );
+
+	}
+
+}
+
+async function switchModel( index ) {
+
+	if ( index !== currentModelIndex ) {
+
+		currentModelIndex = index;
+		const modelUrl = `${MODEL_BASE_URL}${MODEL_FILES[ currentModelIndex ].url}`;
+
+		toggleLoadingIndicator( true );
+
+		try {
+
+			const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
+			const result = await loader.loadAsync( modelUrl );
+
+			// Remove existing model
+			scene.traverse( ( child ) => {
+
+				if ( child instanceof Group ) {
+
+					scene.remove( child );
+
+				}
+
+			} );
+
+			// Add new model
+			const model = result.scene;
+			scene.add( model );
+
+			centerModelAndAdjustCamera( model );
+
+			pathTracingPass.build( scene );
+
+			reset();
+			onResize();
+			toggleLoadingIndicator( false );
+
+		} catch ( error ) {
+
+			console.error( 'Error loading GLB:', error );
+
+		} finally {
+
+			toggleLoadingIndicator( false );
+
+		}
+
 
 	}
 
@@ -527,7 +637,10 @@ async function init() {
 
 	loadHDRBackground( currentHDRIndex );
 
-	const meshes = await loadGLTFModel();
+	const modelUrl = `${MODEL_BASE_URL}${MODEL_FILES[ currentModelIndex ].url}`;
+	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
+	const result = await loader.loadAsync( modelUrl );
+	const meshes = result.scene;
 	scene.add( meshes );
 
 	// const meshes = generateMaterialSpheres();
