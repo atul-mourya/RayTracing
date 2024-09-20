@@ -4,9 +4,13 @@ uniform sampler2DArray bumpMaps;
 uniform sampler2DArray metalnessMaps;
 uniform sampler2DArray roughnessMaps;
 
+vec2 wrapUV(vec2 uv) {
+    return fract(uv);
+}
+
 vec4 sampleMap(sampler2DArray mapArray, int mapIndex, vec2 uv) {
     if (mapIndex >= 0) {
-        return texture(mapArray, vec3(uv, float(mapIndex)));
+        return texture(mapArray, vec3(wrapUV(uv), float(mapIndex)));
     }
     return vec4(1.0);
 }
@@ -15,9 +19,6 @@ vec4 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
     if (material.albedoMapIndex >= 0) {
         vec4 albedo = sampleMap(albedoMaps, material.albedoMapIndex, uv);
         material.color *= vec4( sRGBToLinear(albedo.rgb), albedo.a);
-        // if( material.color.r < 0.001 ) material.color.r += 0.01;
-        // if( material.color.g < 0.001 ) material.color.g += 0.01;
-        // if( material.color.b < 0.001 ) material.color.b += 0.01;
     }
     return material.color;
 }
