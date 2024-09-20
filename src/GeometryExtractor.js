@@ -1,5 +1,7 @@
 import { Vector3, Vector2, Color, Matrix3, Matrix4 } from "three";
 
+const MAX_TEXTURES_LIMIT = 48;
+
 export default class GeometryExtractor {
 
 	constructor() {
@@ -129,7 +131,7 @@ export default class GeometryExtractor {
 
 		if ( ! texture ) return - 1;
 		let textureIndex = textureArray.findIndex( x => x.source.uuid === texture.source.uuid );
-		if ( textureIndex === - 1 && textureArray.length < 48 ) {
+		if ( textureIndex === - 1 && textureArray.length < MAX_TEXTURES_LIMIT ) {
 
 			textureArray.push( texture );
 			return textureArray.length - 1;
