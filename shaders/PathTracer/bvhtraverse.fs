@@ -62,6 +62,7 @@ RayTracingMaterial getMaterial(int materialIndex) {
     material.ior = data4.r;
     material.thickness = data4.g;
     material.transmission = data4.b;
+    material.emissiveMapIndex = int(data4.a);
 
     material.normalMapIndex = int(data5.r);
     material.bumpMapIndex = int(data5.g);

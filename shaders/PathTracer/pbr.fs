@@ -3,6 +3,7 @@ uniform sampler2DArray normalMaps;
 uniform sampler2DArray bumpMaps;
 uniform sampler2DArray metalnessMaps;
 uniform sampler2DArray roughnessMaps;
+uniform sampler2DArray emissiveMaps;
 
 vec2 wrapUV(vec2 uv) {
     return fract(uv);
@@ -21,6 +22,14 @@ vec4 sampleAlbedoTexture(RayTracingMaterial material, vec2 uv) {
         material.color *= vec4( sRGBToLinear(albedo.rgb), albedo.a);
     }
     return material.color;
+}
+
+vec3 sampleEmissiveMap(RayTracingMaterial material, vec2 uv) {
+    if (material.emissiveMapIndex >= 0) {
+        vec3 emission = sampleMap(emissiveMaps, material.emissiveMapIndex, uv).rgb;
+        material.emissive *= sRGBToLinear(emission);
+    }
+    return material.emissive;
 }
 
 float sampleMetalnessMap(RayTracingMaterial material, vec2 uv) {

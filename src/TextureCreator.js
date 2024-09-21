@@ -36,7 +36,7 @@ export default class TextureCreator {
 			data[ stride + 12 ] = mat.ior;
 			data[ stride + 13 ] = mat.thickness;
 			data[ stride + 14 ] = mat.transmission;
-			data[ stride + 15 ] = 0;
+			data[ stride + 15 ] = mat.emissiveMap;
 
 			data[ stride + 16 ] = mat.normalMap;
 			data[ stride + 17 ] = mat.bumpMap;

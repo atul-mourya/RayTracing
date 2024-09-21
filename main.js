@@ -395,7 +395,7 @@ function setupLightFolder( pane ) {
 		reset();
 
 	} );
-	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 10 } );
+	lightFolder.addBinding( dirLight, 'intensity', { label: 'Intensity', min: 0, max: 2 } );
 	lightFolder.addBinding( dirLight, 'color', { label: 'Color', color: { type: 'float' } } );
 	lightFolder.addBinding( dirLight, 'position', { label: 'Position' } );
 

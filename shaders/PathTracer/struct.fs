@@ -10,6 +10,7 @@ struct RayTracingMaterial {
 	float clearCoat;
 	float clearCoatRoughness;
     int albedoMapIndex;
+	int emissiveMapIndex;
     int normalMapIndex;
     int bumpMapIndex;
     int metalnessMapIndex;

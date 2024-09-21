@@ -13,6 +13,7 @@ export default class TriangleSDF {
 		this.bumpMaps = [];
 		this.roughnessMaps = [];
 		this.metalnessMaps = [];
+		this.emissiveMaps = [];
 		this.directionalLights = [];
 		this.spheres = [];
 
@@ -38,6 +39,7 @@ export default class TriangleSDF {
 		this.bumpMaps = extractedData.bumpMaps;
 		this.roughnessMaps = extractedData.roughnessMaps;
 		this.metalnessMaps = extractedData.metalnessMaps;
+		this.emissiveMaps = extractedData.emissiveMaps;
 		this.directionalLights = extractedData.directionalLights;
 
 	}
@@ -57,6 +59,7 @@ export default class TriangleSDF {
 		this.bumpTextures = this.textureCreator.createTexturesToDataTexture( this.bumpMaps );
 		this.roughnessTextures = this.textureCreator.createTexturesToDataTexture( this.roughnessMaps );
 		this.metalnessTextures = this.textureCreator.createTexturesToDataTexture( this.metalnessMaps );
+		this.emissiveTextures = this.textureCreator.createTexturesToDataTexture( this.emissiveMaps );
 		this.bvhTexture = this.textureCreator.createBVHDataTexture( this.bvhRoot );
 
 	}
@@ -87,6 +90,7 @@ export default class TriangleSDF {
 		this.bumpMaps = [];
 		this.roughnessMaps = [];
 		this.metalnessMaps = [];
+		this.emissiveMaps = [];
 		this.materialTexture.dispose();
 		this.triangleTexture.dispose();
 		this.diffuseTextures.dispose();

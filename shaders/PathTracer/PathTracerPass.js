@@ -83,6 +83,9 @@ class PathTracerPass extends Pass {
 				albedoMaps: { value: null },
 				albedoMapsTexSize: { value: new Vector2() },
 
+				emissiveMaps: { value: null },
+				emissiveMapsTexSize: { value: new Vector2() },
+
 				normalMaps: { value: null },
 				normalMapsTexSize: { value: new Vector2() },
 
@@ -146,6 +149,8 @@ class PathTracerPass extends Pass {
 
 		this.material.uniforms.albedoMaps.value = sdfs.albedoTextures;
 		this.material.uniforms.albedoMapsTexSize.value = sdfs.albedoTextures ? new Vector2( sdfs.albedoTextures.image.width, sdfs.albedoTextures.image.height ) : new Vector2();
+		this.material.uniforms.emissiveMaps.value = sdfs.emissiveTextures;
+		this.material.uniforms.emissiveMapsTexSize.value = sdfs.emissiveTextures ? new Vector2( sdfs.emissiveTextures.image.width, sdfs.emissiveTextures.image.height ) : new Vector2();
 		this.material.uniforms.normalMaps.value = sdfs.normalTextures;
 		this.material.uniforms.normalMapsTexSize.value = sdfs.normalTextures ? new Vector2( sdfs.normalTextures.image.width, sdfs.normalTextures.image.height ) : new Vector2();
 		this.material.uniforms.bumpMaps.value = sdfs.bumpTextures;
@@ -192,6 +197,7 @@ class PathTracerPass extends Pass {
 	dispose() {
 
 		this.material.uniforms.albedoMaps.value?.dispose();
+		this.material.uniforms.emissiveMaps.value?.dispose();
 		this.material.uniforms.normalMaps.value?.dispose();
 		this.material.uniforms.bumpMaps.value?.dispose();
 		this.material.uniforms.roughnessMaps.value?.dispose();
