@@ -10,17 +10,14 @@ import { Pane } from 'tweakpane';
 import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
 import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { SimplexNoise } from 'three/examples/jsm/Addons.js';
 
 import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
 //some samples at https://casual-effects.com/data/
-const MODEL_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/colourdrafts/scene.glb';
 // const MODEL_URL = './models/planes.glb';
 const HDR_FILES = [
 	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
