@@ -130,7 +130,7 @@ let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
 let currentHDRIndex = 2;
-let currentModelIndex = 7;
+let currentModelIndex = 27;
 let pauseRendering = false;
 
 // Initialization Functions

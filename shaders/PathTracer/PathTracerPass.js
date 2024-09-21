@@ -52,7 +52,7 @@ class PathTracerPass extends Pass {
 				resolution: { value: new Vector2( width, height ) },
 				enableEnvironmentLight: { value: true },
 				environment: { value: scene.environment },
-				useBackground: { value: true },
+				useBackground: { value: false },
 				environmentIntensity: { value: renderer.environmentIntensity },
 
 				cameraWorldMatrix: { value: new Matrix4() },
@@ -65,7 +65,7 @@ class PathTracerPass extends Pass {
 				directionalLightIntensity: { value: scene.getObjectByName( 'directionLight' )?.intensity ?? 0 },
 
 				frame: { value: 0 },
-				maxBounceCount: { value: 2 },
+				maxBounceCount: { value: 4 },
 				numRaysPerPixel: { value: 1 },
 
 				useAdaptiveSampling: { value: false },
