@@ -169,3 +169,10 @@ vec3 evaluateBRDF(vec3 V, vec3 L, vec3 N, RayTracingMaterial material) {
 
     return diffuse + specular;
 }
+
+// calculate pixel variance
+float calculateVariance(vec4 mean, vec4 squaredMean, int n) {
+    if (n < 2) return 0.0;
+    vec4 variance = squaredMean - mean * mean;
+    return (variance.r + variance.g + variance.b) / 3.0;
+}

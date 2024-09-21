@@ -1,4 +1,4 @@
-import { Vector3, Vector2, Color, Matrix3, Matrix4 } from "three";
+import { Vector3, Vector2, Color, Matrix3, Matrix4, MeshPhysicalMaterial } from "three";
 
 const MAX_TEXTURES_LIMIT = 48;
 
@@ -82,10 +82,68 @@ export default class GeometryExtractor {
 
 	processMesh( mesh ) {
 
+		this.convertOpacityToTransmission( mesh );
 		const materialIndex = this.processMaterial( mesh.material );
 		this.extractGeometry( mesh, materialIndex );
 
 	}
+
+	convertOpacityToTransmission( mesh, ior = 1.5 ) {
+
+		let material = mesh.material;
+
+		if ( material.opacity < 0.65 && material.opacity > 0.2 && material.transmission == 0 && material.ior === 0 ) {
+
+			if ( ! material.isMeshPhysicalMaterial ) {
+
+				let newMaterial = new MeshPhysicalMaterial();
+
+				// Copy properties from the old material to the new one
+				for ( const key in material ) {
+
+					if ( key in material ) {
+
+						if ( material[ key ] === null ) {
+
+							continue;
+
+						}
+
+						if ( material[ key ].isTexture ) {
+
+							newMaterial[ key ] = material[ key ];
+
+						} else if ( material[ key ].copy && material[ key ].constructor === newMaterial[ key ].constructor ) {
+
+							newMaterial[ key ].copy( material[ key ] );
+
+						} else if ( typeof material[ key ] === 'number' ) {
+
+							newMaterial[ key ] = material[ key ];
+
+						}
+
+					}
+
+				}
+
+				const hsl = {};
+				newMaterial.color.getHSL( hsl );
+				hsl.l = Math.max( hsl.l, 0.35 );
+				newMaterial.color.setHSL( hsl.h, hsl.s, hsl.l );
+
+				mesh.material = newMaterial;
+
+			}
+
+			// Set the new properties
+			mesh.material.transmission = 1.0;
+			mesh.material.ior = ior;
+
+		}
+
+	}
+
 
 	processMaterial( material ) {
 

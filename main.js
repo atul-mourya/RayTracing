@@ -326,6 +326,7 @@ function setupGUI() {
 function setupStatsFolder( pane ) {
 
 	const folder = pane.addFolder( { title: 'Stats' } );
+	folder.addBinding( accPass, 'timeElapsed', { label: 'Time Elapsed (s)', readonly: true } );
 	folder.addBinding( accPass, 'iteration', { label: 'Samples', readonly: true } );
 	fpsGraph = folder.addBlade( { view: 'fpsgraph', label: 'fps', rows: 2, } );
 
@@ -372,7 +373,34 @@ function setupPathTracerFolder( pane, parameters ) {
 	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
-	ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
+
+	// Fixed samples per pixel control
+	const samplesPerPixelControl = ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
+
+	// Add adaptive sampling toggle
+	const useAdaptiveSamplingControl = ptFolder.addBinding( pathTracingPass.material.uniforms.useAdaptiveSampling, 'value', { label: 'Use Adaptive Sampling' } );
+
+	// Adaptive sampling controls
+	const minSamplesControl = ptFolder.addBinding( pathTracingPass.material.uniforms.minSamples, 'value', { label: 'Min Samples', min: 0, max: 4, step: 1 } );
+	const maxSamplesControl = ptFolder.addBinding( pathTracingPass.material.uniforms.maxSamples, 'value', { label: 'Max Samples', min: 4, max: 16, step: 2 } );
+	const varianceThresholdControl = ptFolder.addBinding( pathTracingPass.material.uniforms.varianceThreshold, 'value', { label: 'Variance Threshold', min: 0.0001, max: 0.01, step: 0.0001 } );
+
+	// Function to toggle visibility of controls
+	function toggleSamplingControls( useAdaptive ) {
+
+		samplesPerPixelControl.hidden = useAdaptive;
+		minSamplesControl.hidden = ! useAdaptive;
+		maxSamplesControl.hidden = ! useAdaptive;
+		varianceThresholdControl.hidden = ! useAdaptive;
+
+	}
+
+	// Initial setup
+	toggleSamplingControls( pathTracingPass.material.uniforms.useAdaptiveSampling.value );
+
+	// Listen for changes on the adaptive sampling toggle
+	useAdaptiveSamplingControl.on( 'change', e => toggleSamplingControls( e.value ) );
+
 	const renderModeControl = ptFolder.addBinding( pathTracingPass.material.uniforms.renderMode, 'value', { label: 'Render Mode', options: { "Regular": 0, "Checkered": 1, "Tiled": 2 } } );
 	const tilesControl = ptFolder.addBinding( pathTracingPass.material.uniforms.tiles, 'value', { label: 'No. of Tiles', hidden: true, min: 1, max: 20, step: 1 } );
 	const checkeredIntervalControl = ptFolder.addBinding( pathTracingPass.material.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', hidden: true, min: 1, max: 20, step: 1 } );
@@ -417,7 +445,7 @@ function setupDenoisingFolder( pane ) {
 function setupDebugFolder( pane ) {
 
 	const debugFolder = pane.addFolder( { title: 'Debugger' } );
-	debugFolder.addBinding( pathTracingPass.material.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4 } } ).on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.material.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4, 'Adaptive Sampling': 5 } } ).on( 'change', reset );
 	debugFolder.addBinding( pathTracingPass.material.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
 
 }

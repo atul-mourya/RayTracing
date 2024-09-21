@@ -67,6 +67,12 @@ class PathTracerPass extends Pass {
 				frame: { value: 0 },
 				maxBounceCount: { value: 2 },
 				numRaysPerPixel: { value: 1 },
+
+				useAdaptiveSampling: { value: false },
+				minSamples: { value: 1 },
+				maxSamples: { value: 4 },
+				varianceThreshold: { value: 0.001 },
+
 				renderMode: { value: 0 },
 				tiles: { value: 4 },
 				checkeredFrameInterval: { value: 2 },

@@ -69,6 +69,8 @@ class AccumulationPass extends Pass {
 		this.resultQuad = new FullScreenQuad( copyMat );
 
 		this.iteration = 0;
+		this.timeElapsed = 0;
+		this.lastResetTime = performance.now();
 
 		const params = {
 			minFilter: LinearFilter,
@@ -90,6 +92,8 @@ class AccumulationPass extends Pass {
 	reset( renderer ) {
 
 		this.iteration = 0;
+		this.timeElapsed = 0; // Reset timeElapsed
+		this.lastResetTime = performance.now(); // Update lastResetTime
 		renderer.setRenderTarget( this.prevFrameBuffer );
 		renderer.clear();
 
@@ -116,6 +120,8 @@ class AccumulationPass extends Pass {
 		}
 
 		this.iteration ++;
+		const currentTime = performance.now();
+		this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
 
 		this.blendQuad.material.uniforms[ 'tDiffuse1' ].value = this.prevFrameBuffer.texture; // prev render cycle result
 		this.blendQuad.material.uniforms[ 'tDiffuse2' ].value = readBuffer.texture; // current render cycle result

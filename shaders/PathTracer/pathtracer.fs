@@ -12,6 +12,10 @@ uniform int renderMode; // 0: Regular, 1: Checkered, 2: Tiled
 uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
+uniform bool useAdaptiveSampling;
+uniform int minSamples;
+uniform int maxSamples;
+uniform float varianceThreshold;
 
 // Include statements
 #include common.fs
@@ -353,35 +357,59 @@ void main() {
 	vec2 pixelSize = 1.0 / resolution;
     vec2 screenPosition = (gl_FragCoord.xy / resolution) * 2.0 - 1.0;
 
-	vec4 finalColor = vec4(0.0, 0.0, 0.0, 1.0);
+	Pixel pixel;
+	pixel.color = vec4(0.0);
+	pixel.variance = 0.0;
+	pixel.samples = 0;
+
+	vec4 squaredMean = vec4(0.0);
     uint seed = uint(gl_FragCoord.x) * uint(gl_FragCoord.y) * frame;
 	int pixelIndex = int(gl_FragCoord.y) * int(resolution.x) + int(gl_FragCoord.x);
 
 	bool shouldRender = shouldRenderPixel();
 
-
     if (shouldRender) {
-        if (visMode > 0) { // Debug mode
-            Ray ray = generateRayFromCamera(screenPosition, seed);
-            finalColor = TraceDebugMode(ray.origin, ray.direction);
-        } else {
-            vec4 totalIncomingLight = vec4(0.0, 0.0, 0.0, 1.0);
-            for(int rayIndex = 0; rayIndex < numRaysPerPixel; rayIndex++) {
-                // Use blue noise for initial ray direction
-                vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(rayIndex) * 13.37, float(rayIndex) * 31.41));
-                vec2 jitter = (blueNoise.xy - 0.5) * 2.0 * pixelSize;
-                vec2 jitteredScreenPosition = screenPosition + jitter;
+		int samplesCount = useAdaptiveSampling ? maxSamples : numRaysPerPixel;
 
-                Ray ray = generateRayFromCamera(jitteredScreenPosition, seed);
+		for (int rayIndex = 0; rayIndex < samplesCount; rayIndex++) {
+            vec4 _sample = vec4(0.0);
 
-                totalIncomingLight += Trace(ray, seed, rayIndex, pixelIndex);
+            // Use blue noise for initial ray direction
+			vec4 blueNoise = sampleBlueNoise(gl_FragCoord.xy + vec2(float(rayIndex) * 13.37, float(rayIndex) * 31.41));
+			vec2 jitter = (blueNoise.xy - 0.5) * 2.0 * pixelSize;
+			vec2 jitteredScreenPosition = screenPosition + jitter;
+
+			Ray ray = generateRayFromCamera(jitteredScreenPosition, seed);
+
+            if (visMode > 0) {
+                _sample = TraceDebugMode(ray.origin, ray.direction);
+            } else {
+                _sample = Trace(ray, seed, rayIndex, pixelIndex);
             }
-            finalColor = totalIncomingLight / float(numRaysPerPixel);
+
+            pixel.color += _sample;
+            pixel.samples++;
+
+            if (useAdaptiveSampling) {
+                squaredMean += _sample * _sample;
+
+                // Calculate variance after minimum samples
+                if (pixel.samples >= minSamples) {
+                    pixel.variance = calculateVariance(pixel.color / float(pixel.samples), squaredMean / float(pixel.samples), pixel.samples);
+                    
+                    // Check if we've reached the desired quality
+                    if (pixel.variance < varianceThreshold) {
+                        break;
+                    }
+                }
+            }
         }
+
+        pixel.color /= float(pixel.samples);
     } else {
         // For pixels that are not rendered in this frame, use the color from the previous frame
-        finalColor = getPreviousFrameColor(gl_FragCoord.xy);
+        pixel.color = getPreviousFrameColor(gl_FragCoord.xy);
     }
 
-    gl_FragColor = vec4(vec3(finalColor), 1.0);
+    gl_FragColor = vec4(pixel.color.rgb, 1.0);
 }
