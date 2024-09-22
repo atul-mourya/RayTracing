@@ -94,6 +94,7 @@ vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 
 }
 
 void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha ) {
+
 	bool entering = dot( ray.direction, hitInfo.normal ) < 0.0;
 	float n1 = entering ? 1.0 : material.ior;
 	float n2 = entering ? material.ior : 1.0;
@@ -103,24 +104,49 @@ void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMateri
 	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
 
 	float cosTheta = abs( dot( - ray.direction, normal ) );
-	float r0 = pow( ( n1 - n2 ) / ( n1 + n2 ), 2.0 );
-	float fresnel = r0 + ( 1.0 - r0 ) * pow( 1.0 - cosTheta, 5.0 );
-	fresnel = mix( fresnel, 1.0, pow( 1.0 - cosTheta, 3.0 ) );
+	float fresnel = calculateFresnelReflectance( cosTheta, n1, n2, false, vec3( 0.0 ) ); // for dielectrics
 
-	vec3 glassColor = material.color.rgb;
-	vec3 tintColor = mix( vec3( 1.0 ), glassColor, 0.5 );
+    // // Compute cos(theta) for the incident ray
+    // float cosTheta1 = abs(dot(-ray.direction, normal));
 
-	if( length( refractDir ) < 0.001 || RandomValue( rngState ) < fresnel ) {
+    // // Compute sin(theta) for the refracted ray using Snell's law
+    // float sinTheta2 = n1 / n2 * sqrt(max(0.0, 1.0 - cosTheta1 * cosTheta1));
+
+    // // Check for total internal reflection
+    // if (sinTheta2 >= 1.0) {
+    //     // Total internal reflection
+    //     ray.direction = reflectDir;
+    //     rayColor *= material.color.rgb;
+    // } else {
+    //     // Compute cos(theta) for the refracted ray
+    //     float cosTheta2 = sqrt(1.0 - sinTheta2 * sinTheta2);
+
+    //     // Compute Fresnel reflectance for s-polarized and p-polarized light
+    //     float Rs = ((n1 * cosTheta1 - n2 * cosTheta2) / (n1 * cosTheta1 + n2 * cosTheta2));
+    //     Rs *= Rs;
+    //     float Rp = ((n1 * cosTheta2 - n2 * cosTheta1) / (n1 * cosTheta2 + n2 * cosTheta1));
+    //     Rp *= Rp;
+
+    //     // Compute the average reflectance (unpolarized light)
+    //     float fresnel = (Rs + Rp) * 0.5;
+
+	if( RandomValue( rngState ) < fresnel ) {
+		// Reflect
 		ray.direction = reflectDir;
-		rayColor *= mix( vec3( 1.0 ), glassColor, 0.2 );
+		rayColor *= material.color.rgb;
 	} else {
-		ray.direction = refractDir;
-		if( entering ) {
-			vec3 absorption = ( vec3( 1.0 ) - glassColor ) * material.thickness * 0.5;
-			rayColor *= exp( - absorption * hitInfo.dst );
-		}
-		rayColor *= tintColor;
-	}
+        // Refract
+        ray.direction = refractDir;
+        
+        // Modify the color absorption calculation
+        // if (entering) {
+        //     vec3 absorption = (vec3(1.0) - material.color.rgb) * material.thickness * 0.1;
+        //     rayColor *= exp(-absorption * hitInfo.dst);
+        // } else {
+            // Add a slight tint when exiting
+            rayColor *= mix(vec3(1.0), material.color.rgb, 0.5);
+        // }
+    }
 
 	alpha *= ( 1.0 - material.transmission ) * material.color.a;
 	ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
@@ -210,14 +236,14 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			continue;
 		}
 
-		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
-		material.roughness = sampleRoughnessMap( material, hitInfo.uv );
-		material.roughness = clamp( material.roughness, 0.05, 1.0 );
-
 		// Calculate tangent space and perturb normal
 		vec3 tangent = normalize( cross( hitInfo.normal, vec3( 0.0, 1.0, 0.0 ) ) );
 		vec3 bitangent = normalize( cross( hitInfo.normal, tangent ) );
 		hitInfo.normal = perturbNormal( hitInfo.normal, tangent, bitangent, hitInfo.uv, material );
+
+		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
+		material.roughness = sampleRoughnessMap( material, hitInfo.uv );
+		material.roughness = clamp( material.roughness, 0.05, 1.0 );
 
 		// Handle transparent materials
 		if( material.transmission > 0.0 ) {

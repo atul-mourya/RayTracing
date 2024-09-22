@@ -177,3 +177,53 @@ float calculateVariance( vec4 mean, vec4 squaredMean, int n ) {
 	vec4 variance = squaredMean - mean * mean;
 	return ( variance.r + variance.g + variance.b ) / 3.0;
 }
+
+// Calculates Fresnel reflectance factor for dielectrics and conductors
+float calculateFresnelReflectance(float cosTheta, float n1, float n2, bool conductor, vec3 etaK) {
+    // For dielectrics
+    if (!conductor) {
+        float r0 = (n1 - n2) / (n1 + n2);
+        r0 *= r0;
+        
+        if (n1 > n2) {
+            float n = n1 / n2;
+            float sinT2 = n * n * (1.0 - cosTheta * cosTheta);
+            
+            // Total internal reflection
+            if (sinT2 > 1.0) {
+                return 1.0;
+            }
+            
+            cosTheta = sqrt(1.0 - sinT2);
+        }
+        
+        float x = 1.0 - cosTheta;
+        float ret = r0 + (1.0 - r0) * x * x * x * x * x;
+
+        // Ensure the result is between 0 and 1
+        return clamp(ret, 0.0, 1.0);
+    }
+    // For conductors
+    else {
+        vec3 eta = etaK.xxx;
+        vec3 etak = etaK.yyy;
+        
+        float cosTheta2 = cosTheta * cosTheta;
+        float sinTheta2 = 1.0 - cosTheta2;
+        vec3 eta2 = eta * eta;
+        vec3 etak2 = etak * etak;
+        
+        vec3 t0 = eta2 - etak2 - sinTheta2;
+        vec3 a2plusb2 = sqrt(t0 * t0 + 4.0 * eta2 * etak2);
+        vec3 t1 = a2plusb2 + cosTheta2;
+        vec3 a = sqrt(0.5 * (a2plusb2 + t0));
+        vec3 t2 = 2.0 * a * cosTheta;
+        vec3 Rs = (t1 - t2) / (t1 + t2);
+        
+        vec3 t3 = cosTheta2 * a2plusb2 + sinTheta2 * sinTheta2;
+        vec3 t4 = t2 * sinTheta2;
+        vec3 Rp = Rs * (t3 - t4) / (t3 + t4);
+        
+        return 0.5 * (Rp.x + Rs.x);
+    }
+}

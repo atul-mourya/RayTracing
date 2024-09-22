@@ -127,10 +127,10 @@ export default class GeometryExtractor {
 
 				}
 
-				const hsl = {};
-				newMaterial.color.getHSL( hsl );
-				hsl.l = Math.max( hsl.l, 0.35 );
-				newMaterial.color.setHSL( hsl.h, hsl.s, hsl.l );
+				// const hsl = {};
+				// newMaterial.color.getHSL( hsl );
+				// hsl.l = Math.max( hsl.l, 0.35 );
+				// newMaterial.color.setHSL( hsl.h, hsl.s, hsl.l );
 
 				mesh.material = newMaterial;
 

@@ -155,7 +155,7 @@ bool RayBoundingBox( Ray ray, vec3 boxMin, vec3 boxMax ) {
 float RayBoundingBoxDst( Ray ray, vec3 boxMin, vec3 boxMax ) {
 	vec3 invDir = 1.0 / ray.direction;
 	vec3 tMin = ( boxMin - ray.origin ) * invDir;
-	vec3 tMax = ( boxMax - ray.origin ) * invDir;ß
+	vec3 tMax = ( boxMax - ray.origin ) * invDir;
 	vec3 t1 = min( tMin, tMax );
 	vec3 t2 = max( tMin, tMax );
 	float dstNear = max( max( t1.x, t1.y ), t1.z );
