@@ -18,6 +18,33 @@
     <div id="drag-drop-info">
         Drag and drop a GLB file to load a new model
     </div>
+    <script>
+        const dropZone = document.body;
+
+        dropZone.addEventListener( 'dragenter', ( event ) => {
+
+            event.preventDefault();
+            event.stopPropagation();
+            dropZone.classList.add( 'drag-over' );
+
+        } );
+
+        dropZone.addEventListener( 'dragleave', ( event ) => {
+
+            event.preventDefault();
+            event.stopPropagation();
+            dropZone.classList.remove( 'drag-over' );
+
+        } );
+
+        dropZone.addEventListener( 'dragover', ( event ) => {
+
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = 'copy';
+
+        } );
+    </script>
     <script type="module" src="./main.js"></script>
 </body>
 

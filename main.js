@@ -1,8 +1,9 @@
 import {
 	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping,
 	FloatType, DirectionalLight, SRGBColorSpace,
-	EquirectangularReflectionMapping, Group, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget, DataTexture, UnsignedByteType, RepeatWrapping
+	EquirectangularReflectionMapping, Group, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget
 } from 'three';
+import { HDR_FILES, MODEL_FILES, ENV_BASE_URL, MODEL_BASE_URL, ORIGINAL_PIXEL_RATIO } from './src/Constants.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -13,109 +14,9 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
-// import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
-import generateMaterialSpheres from './src/generateMaterialSpheres.js';
-
-//some samples at https://casual-effects.com/data/
-// const MODEL_URL = './models/planes.glb';
-const HDR_FILES = [
-	{ name: "Adams Place Bridge", url: "adams_place_bridge_2k.hdr" },
-	{ name: "Aerodynamics Workshop", url: "aerodynamics_workshop_2k.hdr" },
-	{ name: "Aristea Wreck Pure Sky", url: "aristea_wreck_puresky_2k.hdr" },
-	{ name: "Auto Shop", url: "autoshop_01_2k.hdr" },
-	{ name: "Blocky Photo Studio", url: "blocky_photo_studio_1k.hdr" },
-	{ name: "Brown Photo Studio 01", url: "brown_photostudio_01_2k.hdr" },
-	{ name: "Brown Photo Studio 02", url: "brown_photostudio_02_2k.hdr" },
-	{ name: "Brown Photo Studio 06", url: "brown_photostudio_06_2k.hdr" },
-	{ name: "Brown Photo Studio 07", url: "brown_photostudio_07_2k.hdr" },
-	{ name: "Chinese Garden", url: "chinese_garden_2k.hdr" },
-	{ name: "Christmas Photo Studio 04", url: "christmas_photo_studio_04_2k.hdr" },
-	{ name: "Christmas Photo Studio 05", url: "christmas_photo_studio_05_2k.hdr" },
-	{ name: "Christmas Photo Studio 07", url: "christmas_photo_studio_07_2k.hdr" },
-	{ name: "Circus Arena", url: "circus_arena_2k.hdr" },
-	{ name: "Comfy Cafe", url: "comfy_cafe_2k.hdr" },
-	{ name: "Dancing Hall", url: "dancing_hall_2k.hdr" },
-	{ name: "Drachenfels Cellar", url: "drachenfels_cellar_2k.hdr" },
-	{ name: "Hall of Mammals", url: "hall_of_mammals_2k.hdr" },
-	{ name: "Herkulessaulen", url: "herkulessaulen_2k.hdr" },
-	{ name: "Hilly Terrain", url: "hilly_terrain_01_2k.hdr" },
-	{ name: "Kloppenheim", url: "kloppenheim_05_2k.hdr" },
-	{ name: "Leadenhall Market", url: "leadenhall_market_2k.hdr" },
-	{ name: "Modern Buildings", url: "modern_buildings_2_2k.hdr" },
-	{ name: "Narrow Moonlit Road", url: "narrow_moonlit_road_2k.hdr" },
-	{ name: "Noon Grass", url: "noon_grass_2k.hdr" },
-	{ name: "Peppermint Powerplant", url: "peppermint_powerplant_2k.hdr" },
-	{ name: "Phalzer Forest", url: "phalzer_forest_01_2k.hdr" },
-	{ name: "Photo Studio", url: "photo_studio_01_2k.hdr" },
-	{ name: "Photo Studio Loft Hall", url: "photo_studio_loft_hall_2k.hdr" },
-	{ name: "Rainforest Trail", url: "rainforest_trail_2k.hdr" },
-	{ name: "Sepulchral Chapel Rotunda", url: "sepulchral_chapel_rotunda_2k.hdr" },
-	{ name: "St. Peter's Square Night", url: "st_peters_square_night_2k.hdr" },
-	{ name: "Studio Small 05", url: "studio_small_05_2k.hdr" },
-	{ name: "Studio Small 09", url: "studio_small_09_2k.hdr" },
-	{ name: "Thatch Chapel", url: "thatch_chapel_2k.hdr" },
-	{ name: "Urban Alley", url: "urban_alley_01_2k.hdr" },
-	{ name: "Vestibule", url: "vestibule_2k.hdr" },
-	{ name: "Vintage Measuring Lab", url: "vintage_measuring_lab_2k.hdr" },
-	{ name: "Wasteland Clouds Pure Sky", url: "wasteland_clouds_puresky_2k.hdr" },
-	{ name: "Whale Skeleton", url: "whale_skeleton_2k.hdr" }
-];
-const MODEL_FILES = [
-	{ name: "3D Home Layout", url: "3d-home-layout/scene.glb" },
-	{ name: "Astraia", url: "astraia/scene.gltf" },
-	{ name: "Bao Robot", url: "bao-robot/bao-robot.glb" },
-	{ name: "Botanist's Greenhouse", url: "botanists-greenhouse/scene.gltf" },
-	{ name: "Botanist's Study", url: "botanists-study/scene.gltf" },
-	{ name: "Colour Drafts", url: "colourdrafts/scene.glb" },
-	{ name: "Diamond", url: "diamond/diamond.glb" },
-	{ name: "Dragon Attenuation", url: "dragon-attenuation/DragonAttenuation.glb" },
-	{ name: "Dream Apartment", url: "dream-apartment/dream-apartment.glb" },
-	{ name: "Drone", url: "drone/drone.glb" },
-	{ name: "Dungeon Warkarma", url: "dungeon-warkarma/scene.gltf" },
-	{ name: "Gelatinous Cube", url: "gelatinous-cube/scene.gltf" },
-	{ name: "Guitar", url: "guitar/guitar.glb" },
-	{ name: "Happy Buddha", url: "happy-buddha/buddha.glb" },
-	{ name: "Hotel Room Lotus Carpet", url: "hotel-room-lotus-carpet/scene.glb" },
-	{ name: "Imaginary Friend Room", url: "imaginary-friend-room/scene.glb" },
-	{ name: "Interior Scene", url: "interior-scene/scene.gltf" },
-	{ name: "Internal Combustion Engine", url: "internal-combustion-engine/model.gltf" },
-	{ name: "Japanese Bridge Garden", url: "japanese-bridge-garden/scene.glb" },
-	{ name: "Japanese Temple", url: "japanese-temple/scene.gltf" },
-	{ name: "Kitchen", url: "kitchen/scene.glb" },
-	{ name: "Lamborghini", url: "lamborghini/scene.glb" },
-	{ name: "Low Poly Jungle Scene", url: "low-poly-jungle-scene/scene.gltf" },
-	{ name: "Lowpoly Space", url: "lowpoly-space/space_exploration.glb" },
-	{ name: "Mars Site", url: "mars-site/scene.gltf" },
-	{ name: "Material Balls", url: "material-balls/material-ball_v2.glb" },
-	{ name: "Mercury About to Kill Argos", url: "mercury-about-to-kill-argos/scene.glb" },
-	{ name: "Mosquito in Amber", url: "mosquito-in-amber/scene.gltf" },
-	{ name: "NASA M2020", url: "nasa-m2020/Perseverance.glb" },
-	{ name: "Natural Products Expo", url: "natural-products-expo/scene.glb" },
-	{ name: "Neko Stop Diorama", url: "neko-stop-diorama/scene.gltf" },
-	{ name: "Octocat", url: "octocat/octocat.glb" },
-	{ name: "Octopus Tea", url: "octopus-tea/scene.gltf" },
-	{ name: "Pathtracing Bathroom", url: "pathtracing-bathroom/modernbathroom.glb" },
-	{ name: "Pigman", url: "pigman/scene.gltf" },
-	{ name: "Ring Twist Halo", url: "ring-twist-halo/scene.glb" },
-	{ name: "Scifi Toad", url: "scifi-toad/scene.gltf" },
-	{ name: "SD Macross City Standoff Diorama", url: "sd-macross-city-standoff-diorama/scene.glb" },
-	{ name: "Sofa Patricia", url: "sofa-patricia/scene.glb" },
-	{ name: "Stanford Bunny", url: "stanford-bunny/bunny.glb" },
-	{ name: "Steampunk Robot", url: "steampunk-robot/scene.gltf" },
-	{ name: "Terrarium Robots", url: "terrarium-robots/scene.gltf" },
-	{ name: "Threedscans", url: "threedscans/Crab.glb" },
-	{ name: "T-Rex", url: "trex/scene.gltf" },
-	{ name: "USD Shader Ball", url: "usd-shader-ball/usd-shaderball-scene.glb" },
-	{ name: "Vilhelm 13", url: "vilhelm-13/vilhelm_13.glb" },
-	{ name: "Vino Bike", url: "vino-bike/scene.gltf" },
-	{ name: "Wooden Stylised Carriage", url: "wooden-stylised-carriage/scene.gltf" },
-	{ name: "WW2 City Scene", url: "ww2-cityscene/scene.gltf" }
-];
-const ENV_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/hdri/';
-const MODEL_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/';
-
-const ORIGINAL_PIXEL_RATIO = window.devicePixelRatio / 4;
+// import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
+// import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
 // DOM Elements
 const container = document.getElementById( 'container-3d' );
@@ -126,17 +27,10 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
+
 let currentHDRIndex = 2;
 let currentModelIndex = 27;
 let pauseRendering = false;
-
-// Initialization Functions
-function initScene() {
-
-	scene = new Scene();
-	window.scene = scene;
-
-}
 
 async function loadHDRBackground( index ) {
 
@@ -195,6 +89,9 @@ function initRenderer() {
 }
 
 function setupScene() {
+
+	scene = new Scene();
+	window.scene = scene;
 
 	camera = new PerspectiveCamera( 75, canvas.width / canvas.height, 0.01, 1000 );
 	camera.position.set( 0, 0, 5 );
@@ -284,15 +181,6 @@ function reset() {
 
 	pathTracingPass.reset();
 	accPass.reset( renderer );
-
-}
-
-// Helper Functions
-async function loadGLTFModel() {
-
-	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
-	const result = await loader.loadAsync( MODEL_URL );
-	return result.scene;
 
 }
 
@@ -472,32 +360,11 @@ async function switchModel( index ) {
 			const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
 			const result = await loader.loadAsync( modelUrl );
 
-			// Remove existing model
-			scene.traverse( ( child ) => {
-
-				if ( child instanceof Group ) {
-
-					scene.remove( child );
-
-				}
-
-			} );
-
-			// Add new model
-			const model = result.scene;
-			scene.add( model );
-
-			centerModelAndAdjustCamera( model );
-
-			pathTracingPass.build( scene );
-
-			reset();
-			onResize();
-			toggleLoadingIndicator( false );
+			onModelLoad( result );
 
 		} catch ( error ) {
 
-			console.error( 'Error loading GLB:', error );
+			alert( 'Error loading GLB:', error );
 
 		} finally {
 
@@ -522,31 +389,6 @@ function updateResolution( value ) {
 function setupDragAndDrop() {
 
 	const dropZone = document.body;
-
-	dropZone.addEventListener( 'dragenter', ( event ) => {
-
-		event.preventDefault();
-		event.stopPropagation();
-		dropZone.classList.add( 'drag-over' );
-
-	} );
-
-	dropZone.addEventListener( 'dragleave', ( event ) => {
-
-		event.preventDefault();
-		event.stopPropagation();
-		dropZone.classList.remove( 'drag-over' );
-
-	} );
-
-	dropZone.addEventListener( 'dragover', ( event ) => {
-
-		event.preventDefault();
-		event.stopPropagation();
-		event.dataTransfer.dropEffect = 'copy';
-
-	} );
-
 	dropZone.addEventListener( 'drop', ( event ) => {
 
 		event.preventDefault();
@@ -557,21 +399,16 @@ function setupDragAndDrop() {
 		const file = event.dataTransfer.files[ 0 ];
 		if ( file && file.name.toLowerCase().endsWith( '.glb' ) ) {
 
-			const reader = new FileReader();
 			toggleLoadingIndicator( true );
-			reader.onload = ( event ) => {
 
-				const arrayBuffer = event.target.result;
-				loadGLBFromArrayBuffer( arrayBuffer );
-
-			};
-
+			const reader = new FileReader();
+			reader.onload = ( event ) => loadGLBFromArrayBuffer( event.target.result );
 			reader.readAsArrayBuffer( file );
 
 		} else {
 
 			toggleLoadingIndicator( false );
-			console.warn( 'Please drop a GLB file.' );
+			alert( 'Please drop a GLB file.' );
 
 		}
 
@@ -582,37 +419,38 @@ function setupDragAndDrop() {
 function loadGLBFromArrayBuffer( arrayBuffer ) {
 
 	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
-	loader.parse( arrayBuffer, '', ( gltf ) => {
+	loader.parse( arrayBuffer, '', onModelLoad, undefined, ( error ) => {
 
-		// Remove existing model
-		scene.traverse( ( child ) => {
-
-			if ( child instanceof Group ) {
-
-				scene.remove( child );
-
-			}
-
-		} );
-
-		// Add new model
-		const model = gltf.scene;
-		scene.add( model );
-
-		centerModelAndAdjustCamera( model );
-
-		pathTracingPass.build( scene );
-
-		reset();
-		onResize();
-		toggleLoadingIndicator( false );
-
-	}, undefined, ( error ) => {
-
-		console.error( 'Error loading GLB:', error );
+		alert( 'Error loading GLB:', error );
 		toggleLoadingIndicator( false );
 
 	} );
+
+}
+
+function onModelLoad( gltf ) {
+
+	// Remove existing model
+	scene.traverse( ( child ) => {
+
+		if ( child instanceof Group ) {
+
+			scene.remove( child );
+
+		}
+
+	} );
+
+	// Add new model
+	const model = gltf.scene;
+	scene.add( model );
+
+	centerModelAndAdjustCamera( model );
+
+	pathTracingPass.build( scene );
+
+	reset();
+	toggleLoadingIndicator( false );
 
 }
 
@@ -655,7 +493,6 @@ async function init() {
 
 	toggleLoadingIndicator( true );
 
-	initScene();
 	initRenderer();
 	setupScene();
 	setupComposer();
@@ -665,15 +502,10 @@ async function init() {
 	const modelUrl = `${MODEL_BASE_URL}${MODEL_FILES[ currentModelIndex ].url}`;
 	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
 	const result = await loader.loadAsync( modelUrl );
-	const meshes = result.scene;
-	scene.add( meshes );
 
+	onModelLoad( result );
 	// const meshes = generateMaterialSpheres();
 	// scene.add( meshes );
-
-	centerModelAndAdjustCamera( meshes );
-
-	pathTracingPass.build( scene );
 
 	setupGUI();
 
