@@ -16,14 +16,14 @@ vec2 directionToTextureCoordinate( vec3 direction ) {
 
 }
 
-vec3 sampleEnvironment(vec3 direction) {
-    if (!enableEnvironmentLight) return vec3(0.0);
+vec3 sampleEnvironment( vec3 direction ) {
+	if( ! enableEnvironmentLight )
+		return vec3( 0.0 );
 
-    vec2 uv = directionToTextureCoordinate(direction);
-    vec3 color = texture2D(environment, uv).rgb;
+	vec2 uv = directionToTextureCoordinate( direction );
+	vec3 color = texture2D( environment, uv ).rgb;
 
-    color *= environmentIntensity;
-    
-    return color;
+	color *= environmentIntensity;
+
+	return color;
 }
-

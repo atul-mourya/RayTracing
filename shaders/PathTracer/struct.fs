@@ -5,16 +5,16 @@ struct RayTracingMaterial {
 	float roughness;
 	float metalness;
 	float ior;  // Index of refraction
-    float transmission;  // 0 = opaque, 1 = fully transparent
+	float transmission;  // 0 = opaque, 1 = fully transparent
 	float thickness;
 	float clearCoat;
 	float clearCoatRoughness;
-    int albedoMapIndex;
+	int albedoMapIndex;
 	int emissiveMapIndex;
-    int normalMapIndex;
-    int bumpMapIndex;
-    int metalnessMapIndex;
-    int roughnessMapIndex;
+	int normalMapIndex;
+	int bumpMapIndex;
+	int metalnessMapIndex;
+	int roughnessMapIndex;
 };
 
 struct Sphere {
@@ -41,8 +41,7 @@ struct Triangle {
 };
 
 struct Pixel {
-    vec4 color;
-    float variance;
-    int samples;
+	vec4 color;
+	float variance;
+	int samples;
 };
-
