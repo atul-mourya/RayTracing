@@ -88,11 +88,15 @@ export default class GeometryExtractor {
 
 	}
 
-	convertOpacityToTransmission( mesh, ior = 1.5 ) {
+	convertOpacityToTransmission( mesh, ior = 1.1 ) {
 
 		let material = mesh.material;
 
-		if ( material.opacity < 0.65 && material.opacity > 0.2 && material.transmission == 0 && material.ior === 0 ) {
+		if (
+			material.opacity < 0.65 &&
+			material.opacity > 0.2 &&
+			material.ior === 0
+		) {
 
 			if ( ! material.isMeshPhysicalMaterial ) {
 
@@ -169,13 +173,15 @@ export default class GeometryExtractor {
 			color: material.color,
 			emissive: emissive,
 			emissiveIntensity: isEmissive ? material.emissiveIntensity ?? 0 : 0,
-			clearCoat: material.clearCoat ?? 0.0,
-			clearCoatRoughness: material.clearCoatRoughness ?? 0.0,
 			roughness: material.roughness ?? 1.0,
 			metalness: material.metalness ?? 0.0,
 			ior: material.ior ?? 0,
+			opacity: material.opacity ?? 0,
 			transmission: material.transmission ?? 0.0,
-			thickness: material.thickness ?? 0.5,
+			thickness: material.thickness ?? 0.1,
+			clearCoat: material.clearCoat ?? 0.0,
+			clearCoatRoughness: material.clearCoatRoughness ?? 0.0,
+			normalScale: material.normalScale ?? { x: 1, y: 1 },
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),
 			bumpMap: this.processTexture( material.bumpMap, this.bumpMaps ),

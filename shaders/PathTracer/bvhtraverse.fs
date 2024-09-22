@@ -38,11 +38,12 @@ BVHNode getBVHNode( int index ) {
 }
 
 RayTracingMaterial getMaterial( int materialIndex ) {
-	vec4 data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 0, 5 );
-	vec4 data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 1, 5 );
-	vec4 data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 2, 5 );
-	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 3, 5 );
-	vec4 data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 5 );
+	vec4 data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 0, 6 );
+	vec4 data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 1, 6 );
+	vec4 data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 2, 6 );
+	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 3, 6 );
+	vec4 data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 6 );
+	vec4 data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 5, 6 );
 
 	RayTracingMaterial material;
 
@@ -50,7 +51,7 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.albedoMapIndex = int( data1.a );
 
 	material.emissive = data2.rgb;
-	material.emissiveIntensity = data2.a;
+	material.emissiveMapIndex = int( data2.a );
 
 	material.roughness = data3.r;
 	material.metalness = data3.g;
@@ -60,13 +61,13 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.ior = data4.r;
 	material.thickness = data4.g;
 	material.transmission = data4.b;
-	material.emissiveMapIndex = int( data4.a );
+	material.emissiveIntensity = data4.a;
 
 	material.normalMapIndex = int( data5.r );
-	material.bumpMapIndex = int( data5.g );
+	material.bumpMapIndex = int( data5.a );
 
-	material.clearCoat = data5.b;
-	material.clearCoatRoughness = data5.a;
+	material.clearCoat = data6.r;
+	material.clearCoatRoughness = data6.b;
 
 	return material;
 }

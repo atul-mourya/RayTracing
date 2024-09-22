@@ -1,53 +1,122 @@
-import { DataTexture, DataArrayTexture, RGBAFormat, FloatType, UnsignedByteType } from "three";
+import { DataTexture, DataArrayTexture, RGBAFormat, FloatType, UnsignedByteType, FrontSide, BackSide, DoubleSide } from "three";
 
 export default class TextureCreator {
 
 	createMaterialDataTexture( materials ) {
 
-		const dataLength = materials.length * 5 * 4; // 5 vec4s per material
+		const pixelsRequired = 6;
+		const dataInEachPixel = 4;
+		const dataLenghtPerMaterial = pixelsRequired * dataInEachPixel;
+		const totalMaterials = materials.length;
+
+		const dataLength = totalMaterials * dataLenghtPerMaterial;
 		const width = Math.ceil( Math.sqrt( dataLength ) );
 		const height = Math.ceil( dataLength / width );
-		const size = width * height * 4;
+		const size = width * height * dataInEachPixel;
+
 		const data = new Float32Array( size );
 
-		for ( let i = 0; i < materials.length; i ++ ) {
+		for ( let i = 0; i < totalMaterials; i ++ ) {
 
-			const stride = i * 5 * 4;
 			const mat = materials[ i ];
+			let stride = i * dataLenghtPerMaterial;
 
-			// Color and map
-			data[ stride + 0 ] = mat.color.r;
-			data[ stride + 1 ] = mat.color.g;
-			data[ stride + 2 ] = mat.color.b;
-			data[ stride + 3 ] = mat.map; // Texture index or -1
+			// pixel 1 - Color and map
+			data[ stride ++ ] = mat.color.r;
+			data[ stride ++ ] = mat.color.g;
+			data[ stride ++ ] = mat.color.b;
+			data[ stride ++ ] = mat.map; // Texture index or -1
 
-			// Emissive and emissive intensity
-			data[ stride + 4 ] = mat.emissive.r;
-			data[ stride + 5 ] = mat.emissive.g;
-			data[ stride + 6 ] = mat.emissive.b;
-			data[ stride + 7 ] = mat.emissiveIntensity;
+			//pixel 2 - Emissive and emissive intensity
+			data[ stride ++ ] = mat.emissive.r;
+			data[ stride ++ ] = mat.emissive.g;
+			data[ stride ++ ] = mat.emissive.b;
+			data[ stride ++ ] = mat.emissiveMap;
 
-			// Roughness, metalness, specular probability
-			data[ stride + 8 ] = mat.roughness;
-			data[ stride + 9 ] = mat.metalness;
-			data[ stride + 10 ] = mat.roughnessMap;
-			data[ stride + 11 ] = mat.metalnessMap;
+			// pixel 3 - Roughness, metalness
+			data[ stride ++ ] = mat.roughness;
+			data[ stride ++ ] = mat.metalness;
+			data[ stride ++ ] = mat.roughnessMap;
+			data[ stride ++ ] = mat.metalnessMap;
 
-			data[ stride + 12 ] = mat.ior;
-			data[ stride + 13 ] = mat.thickness;
-			data[ stride + 14 ] = mat.transmission;
-			data[ stride + 15 ] = mat.emissiveMap;
+			// pixel 4
+			data[ stride ++ ] = mat.ior;
+			data[ stride ++ ] = mat.thickness;
+			data[ stride ++ ] = mat.transmission;
+			data[ stride ++ ] = mat.emissiveIntensity;
 
-			data[ stride + 16 ] = mat.normalMap;
-			data[ stride + 17 ] = mat.bumpMap;
-			data[ stride + 18 ] = mat.clearCoat;
-			data[ stride + 19 ] = mat.clearCoatRoughness;
+			// pixel 5
+			data[ stride ++ ] = mat.normalMap;
+			data[ stride ++ ] = mat.normalScale?.x ?? 1;
+			data[ stride ++ ] = mat.normalScale?.y ?? 1;
+			data[ stride ++ ] = mat.bumpMap;
+
+			// pixel 6
+			data[ stride ++ ] = mat.clearcoat;
+			data[ stride ++ ] = mat.clearcoatMap;
+			data[ stride ++ ] = mat.clearcoatRoughness;
+			data[ stride ++ ] = mat.clearcoatRoughnessMap;
+
+			// // pixel 7
+			// data[ stride ++ ] = mat.clearcoatNormalMap;
+			// data[ stride ++ ] = mat.clearcoatNormalScale?.x ?? 1;
+			// data[ stride ++ ] = mat.clearcoatNormalScale?.y ?? 1;
+			// data[ stride ++ ] = 0;
+
+			// pixel 8
+			// data[ stride ++ ] = mat.sheen;
+			// data[ stride ++ ] = mat.sheenColor.r;
+			// data[ stride ++ ] = mat.sheenColor.g;
+			// data[ stride ++ ] = mat.sheenColor.b;
+
+			// // pixel 9
+			// data[ stride ++ ] = mat.sheenColorMap;
+			// data[ stride ++ ] = mat.sheenRoughness;
+			// data[ stride ++ ] = mat.sheenRoughnessMap;
+			// data[ stride ++ ] = 0;
+
+			// // pixel 10
+			// data[ stride ++ ] = mat.iridescence;
+			// data[ stride ++ ] = mat.iridescenceIOR;
+			// data[ stride ++ ] = mat.iridescenceMap;
+			// data[ stride ++ ] = mat.iridescenceThicknessMap;
+
+			// // pixel 11
+			// data[ stride ++ ] = mat.specularColor.r;
+			// data[ stride ++ ] = mat.specularColor.g;
+			// data[ stride ++ ] = mat.specularColor.b;
+			// data[ stride ++ ] = mat.specularColorMap;
+
+			// // pixel 12
+			// data[ stride ++ ] = mat.attenuationColor.r;
+			// data[ stride ++ ] = mat.attenuationColor.g;
+			// data[ stride ++ ] = mat.attenuationColor.b;
+			// data[ stride ++ ] = mat.attenuationDistance;
+
+			// // pixel 13
+			// data[ stride ++ ] = mat.alphaMap;
+			// data[ stride ++ ] = mat.opacity;
+			// data[ stride ++ ] = this.getMaterialSide( mat );
+			// data[ stride ++ ] = mat.transparent;
 
 		}
 
 		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
 		return texture;
+
+	}
+
+	getMaterialSide( material ) {
+
+		if ( material.transmission > 0.0 ) return 0;
+		switch ( material.size ) {
+
+			case FrontSide: return 1;
+			case BackSide: return - 1;
+			case DoubleSide: return 0;
+
+		}
 
 	}
 

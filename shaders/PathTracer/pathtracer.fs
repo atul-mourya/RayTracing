@@ -104,31 +104,7 @@ void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMateri
 	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
 
 	float cosTheta = abs( dot( - ray.direction, normal ) );
-	float fresnel = calculateFresnelReflectance( cosTheta, n1, n2, false, vec3( 0.0 ) ); // for dielectrics
-
-    // // Compute cos(theta) for the incident ray
-    // float cosTheta1 = abs(dot(-ray.direction, normal));
-
-    // // Compute sin(theta) for the refracted ray using Snell's law
-    // float sinTheta2 = n1 / n2 * sqrt(max(0.0, 1.0 - cosTheta1 * cosTheta1));
-
-    // // Check for total internal reflection
-    // if (sinTheta2 >= 1.0) {
-    //     // Total internal reflection
-    //     ray.direction = reflectDir;
-    //     rayColor *= material.color.rgb;
-    // } else {
-    //     // Compute cos(theta) for the refracted ray
-    //     float cosTheta2 = sqrt(1.0 - sinTheta2 * sinTheta2);
-
-    //     // Compute Fresnel reflectance for s-polarized and p-polarized light
-    //     float Rs = ((n1 * cosTheta1 - n2 * cosTheta2) / (n1 * cosTheta1 + n2 * cosTheta2));
-    //     Rs *= Rs;
-    //     float Rp = ((n1 * cosTheta2 - n2 * cosTheta1) / (n1 * cosTheta2 + n2 * cosTheta1));
-    //     Rp *= Rp;
-
-    //     // Compute the average reflectance (unpolarized light)
-    //     float fresnel = (Rs + Rp) * 0.5;
+	float fresnel = fresnelSchlick(cosTheta, 0.04);
 
 	if( RandomValue( rngState ) < fresnel ) {
 		// Reflect

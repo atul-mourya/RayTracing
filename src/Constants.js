@@ -68,7 +68,7 @@ export const MODEL_FILES = [
 	{ name: "Low Poly Jungle Scene", url: "low-poly-jungle-scene/scene.gltf" },
 	{ name: "Lowpoly Space", url: "lowpoly-space/space_exploration.glb" },
 	{ name: "Mars Site", url: "mars-site/scene.gltf" },
-	{ name: "Material Balls", url: "material-balls/material-ball_v2.glb" },
+	{ name: "Material Balls", url: "material-balls/material_ball_v2.glb" },
 	{ name: "Mercury About to Kill Argos", url: "mercury-about-to-kill-argos/scene.glb" },
 	{ name: "Mosquito in Amber", url: "mosquito-in-amber/scene.gltf" },
 	{ name: "NASA M2020", url: "nasa-m2020/Perseverance.glb" },
