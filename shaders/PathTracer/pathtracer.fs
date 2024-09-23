@@ -242,7 +242,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Calculate emitted light
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		incomingLight += reduceFireflies( emittedLight * throughput, 5.0 );
+		incomingLight += emittedLight * throughput;
 
 		// Update throughput and alpha
 		float NoL = max( dot( N, L ), 0.0 );
