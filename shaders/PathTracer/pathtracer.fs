@@ -104,25 +104,37 @@ void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMateri
 	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
 
 	float cosTheta = abs( dot( - ray.direction, normal ) );
-	float fresnel = fresnelSchlick(cosTheta, 0.04);
+	float fresnel = fresnelSchlick( cosTheta, 0.04 );
 
-	if( RandomValue( rngState ) < fresnel ) {
-		// Reflect
+	// if( RandomValue( rngState ) < fresnel ) {
+	// 	// Reflect
+	// 	ray.direction = reflectDir;
+	// 	rayColor *= material.color.rgb;
+	// } else {
+    //     // Refract
+    //     ray.direction = refractDir;
+
+    //     // Modify the color absorption calculation
+    //     // if (entering) {
+    //     //     vec3 absorption = (vec3(1.0) - material.color.rgb) * material.thickness * 0.1;
+    //     //     rayColor *= exp(-absorption * hitInfo.dst);
+    //     // } else {
+    //         // Add a slight tint when exiting
+    //         rayColor *= mix(vec3(1.0), material.color.rgb, 0.5);
+    //     // }
+    // }
+
+	if( length( refractDir ) < 0.001 || RandomValue( rngState ) < fresnel ) {
 		ray.direction = reflectDir;
 		rayColor *= material.color.rgb;
 	} else {
-        // Refract
-        ray.direction = refractDir;
-        
-        // Modify the color absorption calculation
-        // if (entering) {
-        //     vec3 absorption = (vec3(1.0) - material.color.rgb) * material.thickness * 0.1;
-        //     rayColor *= exp(-absorption * hitInfo.dst);
-        // } else {
-            // Add a slight tint when exiting
-            rayColor *= mix(vec3(1.0), material.color.rgb, 0.5);
-        // }
-    }
+		ray.direction = refractDir;
+		if( entering ) {
+			vec3 absorption = ( vec3( 1.0 ) - material.color.rgb ) * material.thickness * 0.5;
+			rayColor *= exp( - absorption * hitInfo.dst );
+		}
+		rayColor *= mix( vec3( 1.0 ), material.color.rgb, 0.5 );
+	}
 
 	alpha *= ( 1.0 - material.transmission ) * material.color.a;
 	ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
