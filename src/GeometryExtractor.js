@@ -167,12 +167,11 @@ export default class GeometryExtractor {
 	createMaterialObject( material ) {
 
 		const emissive = material.emissive ?? new Color( 0, 0, 0 );
-		const isEmissive = emissive.r > 0 || emissive.g > 0 || emissive.b > 0;
 
 		return {
 			color: material.color,
 			emissive: emissive,
-			emissiveIntensity: isEmissive ? material.emissiveIntensity ?? 0 : 0,
+			emissiveIntensity: material.emissiveIntensity,
 			roughness: material.roughness ?? 1.0,
 			metalness: material.metalness ?? 0.0,
 			ior: material.ior ?? 0,

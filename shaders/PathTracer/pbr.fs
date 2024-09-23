@@ -29,7 +29,7 @@ vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
 		vec3 emission = sampleMap( emissiveMaps, material.emissiveMapIndex, uv ).rgb;
 		material.emissive *= sRGBToLinear( emission );
 	}
-	return material.emissive;
+	return material.emissive * material.emissiveIntensity;
 }
 
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
