@@ -221,44 +221,78 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			continue;
 		}
 
-		// Sample BRDF
+		// Calculate emitted light
+		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv ) * 25.0;
+		incomingLight += emittedLight * throughput;
+
+		// Direct lighting using MIS
 		vec4 blueNoise = sampleBlueNoise( gl_FragCoord.xy + vec2( float( sampleIndex ) * 13.37, float( sampleIndex ) * 31.41 + float( i ) * 71.71 ) );
 
 		vec3 V = - ray.direction;
 		vec3 N = hitInfo.normal;
 		vec3 L;
 		float pdf;
-		vec3 brdfValue = sampleBRDF( V, N, material, blueNoise.xy, L, pdf, rngState );
-		// return vec4(brdfValue, 1.0);
+		vec3 brdfValue;
 
 		// Handle clear coat
 		if( material.clearCoat > 0.0 ) {
 			brdfValue = handleClearCoat( ray, hitInfo, material, blueNoise, L, pdf, rngState );
+		} else {
+			brdfValue = sampleBRDF( V, N, material, blueNoise.xy, L, pdf, rngState );
 		}
+		// return vec4(brdfValue, 1.0);
 
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, stats );
 		incomingLight += reduceFireflies( directLight * throughput, 5.0 );
 
-		// Calculate emitted light
-		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		incomingLight += emittedLight * throughput;
+		// Indirect lighting using MIS
+		vec3 cosSampleDir = cosineWeightedSample( N, HybridRandomSample2D( rngState, sampleIndex, pixelIndex ) );
+		float cosPDF = cosineWeightedPDF( max( dot( N, cosSampleDir ), 0.0 ) );
+		vec3 cosBRDF = evaluateBRDF( V, cosSampleDir, N, material );
+
+		float brdfPDF = max( pdf, 0.001 );  // Ensure BRDF PDF is never zero
+
+		float cosWeight = powerHeuristic( cosPDF, brdfPDF );
+		float brdfWeight = powerHeuristic( brdfPDF, cosPDF );
+
+		// Choose between cosine and BRDF sampling
+		vec3 chosenDir;
+		float chosenPDF;
+		vec3 chosenBRDF;
+		float chosenWeight;
+
+		if( RandomValue( rngState ) < 0.5 ) {
+			chosenDir = cosSampleDir;
+			chosenPDF = cosPDF;
+			chosenBRDF = cosBRDF;
+			chosenWeight = cosWeight;
+		} else {
+			chosenDir = L;
+			chosenPDF = brdfPDF;
+			chosenBRDF = brdfValue;
+			chosenWeight = brdfWeight;
+		}
+
+		// Update ray for next bounce
+		ray.origin = hitInfo.hitPoint + N * 0.001;
+		ray.direction = chosenDir;
 
 		// Update throughput and alpha
-		float NoL = max( dot( N, L ), 0.0 );
-		throughput *= brdfValue * NoL / pdf;
+		float NoL = max( dot( N, chosenDir ), 0.0 );
+		vec3 f = chosenBRDF * NoL * chosenWeight / max( chosenPDF, 0.001 );
+		throughput *= clamp( f, vec3( 0.0 ), vec3( 1.0 ) );  // Ensure energy conservation
 		alpha *= material.color.a;
+
+		// Firefly reduction
+		throughput = reduceFireflies( throughput, 5.0 );
 
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( depth, throughput, blueNoise.z ) ) {
 			break;
 		}
-
-		// Prepare for next bounce
-		ray.origin = hitInfo.hitPoint + L * 0.001;
-		ray.direction = L;
 	}
-	return vec4( incomingLight, alpha );
+	return vec4( max( incomingLight, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
 }
 
 vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {

@@ -177,3 +177,21 @@ float calculateVariance( vec4 mean, vec4 squaredMean, int n ) {
 	vec4 variance = squaredMean - mean * mean;
 	return ( variance.r + variance.g + variance.b ) / 3.0;
 }
+
+vec3 cosineWeightedSample(vec3 N, vec2 xi) {
+    vec3 T = normalize(cross(N, N.yzx + vec3(0.1, 0.2, 0.3)));
+    vec3 B = cross(N, T);
+    
+    float r = sqrt(xi.x);
+    float phi = 2.0 * PI * xi.y;
+    
+    float x = r * cos(phi);
+    float y = r * sin(phi);
+    float z = sqrt(1.0 - xi.x);
+    
+    return normalize(T * x + B * y + N * z);
+}
+
+float cosineWeightedPDF(float NoL) {
+    return max(NoL, 0.001) / PI;  // Ensure PDF is never zero
+}
