@@ -68,6 +68,7 @@ class PathTracerPass extends Pass {
 				maxBounceCount: { value: 4 },
 				numRaysPerPixel: { value: 1 },
 
+				useBlueNoise: { value: true },
 				useAdaptiveSampling: { value: false },
 				minSamples: { value: 1 },
 				maxSamples: { value: 4 },

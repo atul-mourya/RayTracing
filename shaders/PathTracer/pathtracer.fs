@@ -16,6 +16,7 @@ uniform bool useAdaptiveSampling;
 uniform int minSamples;
 uniform int maxSamples;
 uniform float varianceThreshold;
+uniform bool useBlueNoise;
 
 // Include statements
 #include common.fs
@@ -50,6 +51,7 @@ vec3 reduceFireflies( vec3 color, float maxValue ) {
 	}
 	return color;
 }
+
 
 vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 	// Create a local coordinate system where N is the Z axis
@@ -200,8 +202,11 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
-		// Handle alpha testing
-		if( RandomValue( rngState ) > material.color.a ) {
+		// Handle alpha blending
+		float surfaceAlpha = material.color.a;
+		if( surfaceAlpha < 1.0 ) {
+			incomingLight = mix( incomingLight, material.color.rgb * throughput, surfaceAlpha );
+			throughput *= ( 1.0 - surfaceAlpha );
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			continue;
 		}
@@ -226,7 +231,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		incomingLight += emittedLight * throughput;
 
 		// Direct lighting using MIS
-		vec4 blueNoise = sampleBlueNoise( gl_FragCoord.xy + vec2( float( sampleIndex ) * 13.37, float( sampleIndex ) * 31.41 + float( i ) * 71.71 ) );
+		vec4 randomSample = getRandomSample4( gl_FragCoord.xy, sampleIndex, i, rngState );
 
 		vec3 V = - ray.direction;
 		vec3 N = hitInfo.normal;
@@ -236,9 +241,9 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Handle clear coat
 		if( material.clearCoat > 0.0 ) {
-			brdfValue = handleClearCoat( ray, hitInfo, material, blueNoise, L, pdf, rngState );
+			brdfValue = handleClearCoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
 		} else {
-			brdfValue = sampleBRDF( V, N, material, blueNoise.xy, L, pdf, rngState );
+			brdfValue = sampleBRDF( V, N, material, randomSample.xy, L, pdf, rngState );
 		}
 		// return vec4(brdfValue, 1.0);
 
@@ -247,7 +252,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		incomingLight += reduceFireflies( directLight * throughput, 5.0 );
 
 		// Indirect lighting using MIS
-		vec3 cosSampleDir = cosineWeightedSample( N, HybridRandomSample2D( rngState, sampleIndex, pixelIndex ) );
+		vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i + 1, rngState );
+		vec3 cosSampleDir = cosineWeightedSample( N, indirectSample );
 		float cosPDF = cosineWeightedPDF( max( dot( N, cosSampleDir ), 0.0 ) );
 		vec3 cosBRDF = evaluateBRDF( V, cosSampleDir, N, material );
 
@@ -288,7 +294,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		throughput = reduceFireflies( throughput, 5.0 );
 
 		// Russian roulette path termination
-		if( ! handleRussianRoulette( depth, throughput, blueNoise.z ) ) {
+		if( ! handleRussianRoulette( depth, throughput, randomSample.z ) ) {
 			break;
 		}
 	}
@@ -401,9 +407,8 @@ void main( ) {
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			vec4 _sample = vec4( 0.0 );
 
-			// Use blue noise for initial ray direction
-			vec4 blueNoise = sampleBlueNoise( gl_FragCoord.xy + vec2( float( rayIndex ) * 13.37, float( rayIndex ) * 31.41 ) );
-			vec2 jitter = ( blueNoise.xy - 0.5 ) * 2.0 * pixelSize;
+			vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed );
+			vec2 jitter = ( randomSample - 0.5 ) * 2.0 * pixelSize;
 			vec2 jitteredScreenPosition = screenPosition + jitter;
 
 			Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );

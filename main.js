@@ -1,7 +1,7 @@
 import {
 	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping,
-	FloatType, DirectionalLight, SRGBColorSpace,
-	EquirectangularReflectionMapping, Group, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget
+	FloatType, DirectionalLight, SRGBColorSpace, Mesh, PlaneGeometry, MeshStandardMaterial,
+	EquirectangularReflectionMapping, Sphere, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget
 } from 'three';
 import { HDR_FILES, MODEL_FILES, ENV_BASE_URL, MODEL_BASE_URL, ORIGINAL_PIXEL_RATIO } from './src/Constants.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -12,6 +12,7 @@ import * as EssentialsPlugin from '@tweakpane/plugin-essentials';
 import { OutputPass, RenderPass, RGBELoader } from 'three/examples/jsm/Addons.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
+import { disposeObjectFromMemory } from './src/utils.js';
 import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
 import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
@@ -27,6 +28,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass;
+let targetModel, floorPlane;
 
 let currentHDRIndex = 2;
 let currentModelIndex = 27;
@@ -259,6 +261,8 @@ function setupPathTracerFolder( pane, parameters ) {
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
 
+	ptFolder.addBinding( pathTracingPass.material.uniforms.useBlueNoise, 'value', { label: 'Use BlueNoise Sampling' } );
+
 	// Fixed samples per pixel control
 	const samplesPerPixelControl = ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
 
@@ -359,8 +363,8 @@ async function switchModel( index ) {
 
 			const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
 			const result = await loader.loadAsync( modelUrl );
-
-			onModelLoad( result );
+			disposeObjectFromMemory( targetModel );
+			onModelLoad( result.scene );
 
 		} catch ( error ) {
 
@@ -419,7 +423,12 @@ function setupDragAndDrop() {
 function loadGLBFromArrayBuffer( arrayBuffer ) {
 
 	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
-	loader.parse( arrayBuffer, '', onModelLoad, undefined, ( error ) => {
+	loader.parse( arrayBuffer, '', g => {
+
+		disposeObjectFromMemory( targetModel );
+		onModelLoad( g.scene );
+
+	}, undefined, ( error ) => {
 
 		alert( 'Error loading GLB:', error );
 		toggleLoadingIndicator( false );
@@ -428,24 +437,19 @@ function loadGLBFromArrayBuffer( arrayBuffer ) {
 
 }
 
-function onModelLoad( gltf ) {
-
-	// Remove existing model
-	scene.traverse( ( child ) => {
-
-		if ( child instanceof Group ) {
-
-			scene.remove( child );
-
-		}
-
-	} );
+function onModelLoad( model ) {
 
 	// Add new model
-	const model = gltf.scene;
-	scene.add( model );
+	targetModel = model;
+	scene.add( targetModel );
 
-	centerModelAndAdjustCamera( model );
+	let box = new Box3().setFromObject( targetModel );
+	let sphere = box.getBoundingSphere( new Sphere() );
+	floorPlane.scale.setScalar( sphere.radius * 3 );
+	floorPlane.rotation.x = - Math.PI / 2;
+	floorPlane.position.y = box.min.y;
+
+	centerModelAndAdjustCamera( targetModel );
 
 	pathTracingPass.build( scene );
 
@@ -501,11 +505,22 @@ async function init() {
 
 	const modelUrl = `${MODEL_BASE_URL}${MODEL_FILES[ currentModelIndex ].url}`;
 	const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
-	const result = await loader.loadAsync( modelUrl );
+	targetModel = await loader.loadAsync( modelUrl );
+	floorPlane = new Mesh(
+		new PlaneGeometry(),
+		new MeshStandardMaterial( {
+			// map: floorTex,
+			transparent: false,
+			color: 0x555555,
+			roughness: 0.1,
+			metalness: 0.0,
+			// side: DoubleSide,
+		} )
+	);
+	scene.add( floorPlane );
 
-	onModelLoad( result );
-	// const meshes = generateMaterialSpheres();
-	// scene.add( meshes );
+	// targetModel = generateMaterialSpheres();
+	onModelLoad( targetModel.scene );
 
 	setupGUI();
 

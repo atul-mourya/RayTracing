@@ -138,3 +138,19 @@ vec3 HybridRandomHemisphereDirection( vec3 normal, inout uint state, int sampleI
 	vec3 bitangent = cross( normal, tangent );
 	return tangent * tangentSpaceDir.x + bitangent * tangentSpaceDir.y + normal * tangentSpaceDir.z;
 }
+
+vec2 getRandomSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
+	if( useBlueNoise ) {
+		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) ).xy;
+	} else {
+		return HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) );
+	}
+}
+
+vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
+	if( useBlueNoise ) {
+		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
+	} else {
+		return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
+	}
+}
