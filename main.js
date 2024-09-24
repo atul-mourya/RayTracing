@@ -133,6 +133,8 @@ function setupComposer() {
 	accPass.enabled = true;
 	composer.addPass( accPass );
 
+	pathTracingPass.setAccumulationPass( accPass );
+
 	denoiserPass = new LygiaSmartDenoiserPass( canvas.width, canvas.height );
 	// denoiserPass = new SpatialDenoiserPass( canvas.width, canvas.width );
 	denoiserPass.enabled = false;
@@ -301,6 +303,42 @@ function setupPathTracerFolder( pane, parameters ) {
 		checkeredIntervalControl.hidden = e.value !== 1; // Show only when Checkered (1) is selected
 
 	} );
+
+	ptFolder.addBinding( pathTracingPass, 'useDownSampledInteractions', {
+		label: 'Use Interactive Features'
+	} ).on( 'change', ( ev ) => {
+
+		if ( ! ev.value ) {
+
+			// Reset interaction state when disabling interactive features
+			pathTracingPass.isInteracting = false;
+			pathTracingPass.isTransitioning = false;
+			pathTracingPass.transitionClock.stop();
+			if ( pathTracingPass.interactionTimeout ) {
+
+				clearTimeout( pathTracingPass.interactionTimeout );
+
+			}
+
+		}
+
+		reset();
+
+	} );
+
+	// Only show these controls when interactive features are enabled
+	const interactiveFolder = ptFolder.addFolder( { title: 'Interactive Settings', expanded: true, hidden: ! pathTracingPass.useDownSampledInteractions } );
+
+	interactiveFolder.addBinding( pathTracingPass, 'downsampleFactor', { label: 'Downsample Factor', min: 1, max: 4, step: 1 } ).on( 'change', ( ev ) => {
+
+		pathTracingPass.setSize( canvas.width, canvas.height );
+		reset();
+
+	} );
+
+	interactiveFolder.addBinding( pathTracingPass, 'interactionDelay', { label: 'Interaction Delay (s)', min: 0.1, max: 2.0, step: 0.1 } );
+	interactiveFolder.addBinding( pathTracingPass, 'transitionDuration', { label: 'Transition Duration (s)', min: 0.1, max: 2.0, step: 0.1 } );
+	ptFolder.children.find( child => child.label === 'Use Interactive Features' ).on( 'change', ( ev ) => interactiveFolder.hidden = ! ev.value );
 
 }
 

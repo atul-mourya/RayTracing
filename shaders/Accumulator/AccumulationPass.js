@@ -96,6 +96,8 @@ class AccumulationPass extends Pass {
 		this.lastResetTime = performance.now(); // Update lastResetTime
 		renderer.setRenderTarget( this.prevFrameBuffer );
 		renderer.clear();
+		renderer.setRenderTarget( this.prevFrameBuffer );
+		renderer.clear();
 
 	}
 
