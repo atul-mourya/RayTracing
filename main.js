@@ -1,5 +1,5 @@
 import {
-	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping,
+	Scene, PerspectiveCamera, WebGLRenderer, ACESFilmicToneMapping, Vector2,
 	FloatType, DirectionalLight, SRGBColorSpace, Mesh, PlaneGeometry, MeshStandardMaterial,
 	EquirectangularReflectionMapping, Sphere, Box3, Vector3, RGBAFormat, NearestFilter, WebGLRenderTarget
 } from 'three';
@@ -14,8 +14,9 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 import { disposeObjectFromMemory } from './src/utils.js';
 import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
-import AccumulationPass from './shaders/Accumulator/AccumulationPass.js';
-import LygiaSmartDenoiserPass from './shaders/Accumulator/LygiaSmartDenoiserPass.js';
+import AccumulationPass from './shaders/Passes/AccumulationPass.js';
+import LygiaSmartDenoiserPass from './shaders/Passes/LygiaSmartDenoiserPass.js';
+import TileHighlightPass from './shaders/Passes/TileHighlightPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 // import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
@@ -27,7 +28,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
-let composer, renderPass, pathTracingPass, accPass, denoiserPass;
+let composer, renderPass, pathTracingPass, accPass, denoiserPass, tileHighlightPass;
 let targetModel, floorPlane;
 
 let currentHDRIndex = 2;
@@ -140,6 +141,11 @@ function setupComposer() {
 	denoiserPass.enabled = false;
 	composer.addPass( denoiserPass );
 
+	tileHighlightPass = new TileHighlightPass( new Vector2( canvas.width, canvas.height ) );
+	tileHighlightPass.enabled = false;
+	composer.addPass( tileHighlightPass );
+
+
 	const outputPass = new OutputPass();
 	composer.addPass( outputPass );
 
@@ -176,6 +182,11 @@ function animate() {
 	if ( pauseRendering ) return;
 	fpsGraph.begin();
 	controls.update();
+	// Update the TileHighlightPass uniforms
+	tileHighlightPass.uniforms.frame.value = pathTracingPass.material.uniforms.frame.value;
+	tileHighlightPass.uniforms.renderMode.value = pathTracingPass.material.uniforms.renderMode.value;
+	tileHighlightPass.uniforms.tiles.value = pathTracingPass.material.uniforms.tiles.value;
+
 	composer.render();
 	fpsGraph.end();
 
@@ -263,10 +274,10 @@ function setupPathTracerFolder( pane, parameters ) {
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
 
-	ptFolder.addBinding( pathTracingPass.material.uniforms.useBlueNoise, 'value', { label: 'Use BlueNoise Sampling' } );
-
 	// Fixed samples per pixel control
 	const samplesPerPixelControl = ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
+
+	ptFolder.addBinding( pathTracingPass.material.uniforms.samplingTechnique, 'value', { label: 'Noise Sampler', options: { PCG: 0, Halton: 1, Sobol: 2, BlueNoise: 3 } } );
 
 	// Add adaptive sampling toggle
 	const useAdaptiveSamplingControl = ptFolder.addBinding( pathTracingPass.material.uniforms.useAdaptiveSampling, 'value', { label: 'Use Adaptive Sampling' } );
@@ -294,6 +305,15 @@ function setupPathTracerFolder( pane, parameters ) {
 
 	const renderModeControl = ptFolder.addBinding( pathTracingPass.material.uniforms.renderMode, 'value', { label: 'Render Mode', options: { "Regular": 0, "Checkered": 1, "Tiled": 2 } } );
 	const tilesControl = ptFolder.addBinding( pathTracingPass.material.uniforms.tiles, 'value', { label: 'No. of Tiles', hidden: true, min: 1, max: 20, step: 1 } );
+	const tileHighlightControl = ptFolder.addBinding( tileHighlightPass, 'enabled', { label: 'Show Tile Highlight', hidden: true, } );
+
+	renderModeControl.on( 'change', e => {
+
+		tilesControl.hidden = e.value !== 2;
+		tileHighlightControl.hidden = e.value !== 2;
+		tileHighlightPass.enabled = e.value === 2 && tileHighlightPass.enabled;
+
+	} );
 	const checkeredIntervalControl = ptFolder.addBinding( pathTracingPass.material.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', hidden: true, min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => updateResolution( e.value ) );
 
