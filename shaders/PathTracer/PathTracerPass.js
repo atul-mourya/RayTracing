@@ -70,7 +70,7 @@ class PathTracerPass extends Pass {
 				maxBounceCount: { value: 4 },
 				numRaysPerPixel: { value: 1 },
 
-				useBlueNoise: { value: false },
+				samplingTechnique: { value: 1 }, // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
 				useAdaptiveSampling: { value: false },
 				minSamples: { value: 1 },
 				maxSamples: { value: 4 },

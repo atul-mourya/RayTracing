@@ -16,7 +16,6 @@ uniform bool useAdaptiveSampling;
 uniform int minSamples;
 uniform int maxSamples;
 uniform float varianceThreshold;
-uniform bool useBlueNoise;
 
 // Include statements
 #include common.fs

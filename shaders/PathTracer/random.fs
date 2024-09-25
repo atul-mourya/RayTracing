@@ -1,5 +1,23 @@
 uniform sampler2D blueNoiseTexture;
 uniform vec3 spatioTemporalBlueNoiseReolution;
+uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
+
+// Sobol sequence implementation
+uint sobolV[ 32 ] = uint[ 32 ]( 2147483648u, 1073741824u, 536870912u, 268435456u, 134217728u, 67108864u, 33554432u, 16777216u, 8388608u, 4194304u, 2097152u, 1048576u, 524288u, 262144u, 131072u, 65536u, 32768u, 16384u, 8192u, 4096u, 2048u, 1024u, 512u, 256u, 128u, 64u, 32u, 16u, 8u, 4u, 2u, 1u );
+
+float sobol( int index, int dimension ) {
+	uint result = 0u;
+	for( int i = 0; i < 32; ++ i ) {
+		if( ( index & ( 1 << i ) ) != 0 ) {
+			result ^= sobolV[ i ] << dimension;
+		}
+	}
+	return float( result ) / 4294967296.0;
+}
+
+vec2 sobol2D( int index ) {
+	return vec2( sobol( index, 0 ), sobol( index, 1 ) );
+}
 
 uint pcg_hash( uint state ) {
 	state = state * 747796405u + 2891336453u;
@@ -15,7 +33,7 @@ vec4 sampleBlueNoise( vec2 pixelCoords ) {
 	texCoord.y = ( texCoord.y + float( int( frame ) % int( sbtnr.z ) ) ) / float( sbtnr.z );
 	vec4 noise = texture2D( blueNoiseTexture, texCoord );
 
-  // Combine with PCG hash for extended variation by adding offest
+	// Combine with PCG hash for extended variation by adding offset
 	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
 	float random = float( pcg_hash( seed ) ) / 4294967295.0;
 
@@ -97,6 +115,12 @@ float halton( int index, int base ) {
 
 // Quasi-random 2D sample
 vec2 QuasiRandomSample2D( int sampleIndex, int pixelIndex ) {
+	if( samplingTechnique == 1 ) {
+		return vec2( halton( sampleIndex, 2 ), halton( sampleIndex, 3 ) );
+	} else if( samplingTechnique == 2 ) {
+		return sobol2D( sampleIndex );
+	}
+    // Default to Halton if an invalid technique is specified
 	return vec2( halton( sampleIndex, 2 ), halton( sampleIndex, 3 ) );
 }
 
@@ -140,17 +164,21 @@ vec3 HybridRandomHemisphereDirection( vec3 normal, inout uint state, int sampleI
 }
 
 vec2 getRandomSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
-	if( useBlueNoise ) {
+	if( samplingTechnique == 3 ) { // Blue Noise
 		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) ).xy;
-	} else {
+	} else if( samplingTechnique == 0 ) { // PCG
+		return vec2( RandomValue( rngState ), RandomValue( rngState ) );
+	} else { // Halton or Sobol
 		return HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) );
 	}
 }
 
 vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
-	if( useBlueNoise ) {
+	if( samplingTechnique == 3 ) { // Blue Noise
 		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
-	} else {
+	} else if( samplingTechnique == 0 ) { // PCG
+		return vec4( RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ) );
+	} else { // Halton or Sobol
 		return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
 	}
 }
