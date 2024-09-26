@@ -34,6 +34,7 @@ let targetModel, floorPlane;
 let currentHDRIndex = 2;
 let currentModelIndex = 27;
 let pauseRendering = false;
+let stopRendering = false;
 
 async function loadHDRBackground( index ) {
 
@@ -179,6 +180,7 @@ function onResize() {
 function animate() {
 
 	requestAnimationFrame( animate );
+	if ( stopRendering ) return;
 	if ( pauseRendering ) return;
 	fpsGraph.begin();
 	controls.update();
@@ -203,6 +205,7 @@ function reset() {
 function setupGUI() {
 
 	const parameters = {
+		stopRendering: stopRendering,
 		model: currentModelIndex,
 		hdrBackground: currentHDRIndex,
 		resolution: renderer.getPixelRatio(),
@@ -272,12 +275,13 @@ function setupPathTracerFolder( pane, parameters ) {
 
 	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
+	ptFolder.addBinding( parameters, 'stopRendering', { label: 'Stop Rendering' } ).on( 'change', e => stopRendering = e.value );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
 
 	// Fixed samples per pixel control
 	const samplesPerPixelControl = ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
 
-	ptFolder.addBinding( pathTracingPass.material.uniforms.samplingTechnique, 'value', { label: 'Noise Sampler', options: { PCG: 0, Halton: 1, Sobol: 2, BlueNoise: 3 } } );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.samplingTechnique, 'value', { label: 'Noise Sampler', options: { PCG: 0, Halton: 1, Sobol: 2, BlueNoise: 3, Stratified: 4 } } );
 
 	// Add adaptive sampling toggle
 	const useAdaptiveSamplingControl = ptFolder.addBinding( pathTracingPass.material.uniforms.useAdaptiveSampling, 'value', { label: 'Use Adaptive Sampling' } );
@@ -392,7 +396,7 @@ function setupDenoisingFolder( pane ) {
 function setupDebugFolder( pane ) {
 
 	const debugFolder = pane.addFolder( { title: 'Debugger' } );
-	debugFolder.addBinding( pathTracingPass.material.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4, 'Adaptive Sampling': 5 } } ).on( 'change', reset );
+	debugFolder.addBinding( pathTracingPass.material.uniforms.visMode, 'value', { label: 'Mode', options: { 'Beauty': 0, 'Triangle test count': 1, 'Box test count': 2, 'Distance': 3, 'Normal': 4, 'Sampling': 5 } } ).on( 'change', reset );
 	debugFolder.addBinding( pathTracingPass.material.uniforms.debugVisScale, 'value', { label: 'Display Threshold', min: 1, max: 500, step: 1 } ).on( 'change', reset );
 
 }

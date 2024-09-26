@@ -51,7 +51,6 @@ vec3 reduceFireflies( vec3 color, float maxValue ) {
 	return color;
 }
 
-
 vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 	// Create a local coordinate system where N is the Z axis
 	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
@@ -395,7 +394,7 @@ void main( ) {
 	pixel.samples = 0;
 
 	vec4 squaredMean = vec4( 0.0 );
-	uint seed = uint( gl_FragCoord.x ) * uint( gl_FragCoord.y ) * frame;
+	uint seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * uint(resolution.x) + frame * uint(resolution.x) * uint(resolution.y);
 	int pixelIndex = int( gl_FragCoord.y ) * int( resolution.x ) + int( gl_FragCoord.x );
 
 	bool shouldRender = shouldRenderPixel( );
@@ -407,6 +406,14 @@ void main( ) {
 			vec4 _sample = vec4( 0.0 );
 
 			vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed );
+
+			if( visMode == 5 ) {
+				gl_FragColor = vec4( randomSample, 0.0, 1.0 );
+				float grayscale = length( randomSample ) * 0.7071067811865476; // 0.7071... is 1/sqrt(2)
+				gl_FragColor = vec4( vec3( grayscale ), 1.0 );
+				return;
+			}
+
 			vec2 jitter = ( randomSample - 0.5 ) * 2.0 * pixelSize;
 			vec2 jitteredScreenPosition = screenPosition + jitter;
 

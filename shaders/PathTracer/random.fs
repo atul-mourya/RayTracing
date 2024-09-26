@@ -1,6 +1,6 @@
 uniform sampler2D blueNoiseTexture;
 uniform vec3 spatioTemporalBlueNoiseReolution;
-uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
+uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
 
 // Sobol sequence implementation
 uint sobolV[ 32 ] = uint[ 32 ]( 2147483648u, 1073741824u, 536870912u, 268435456u, 134217728u, 67108864u, 33554432u, 16777216u, 8388608u, 4194304u, 2097152u, 1048576u, 524288u, 262144u, 131072u, 65536u, 32768u, 16384u, 8192u, 4096u, 2048u, 1024u, 512u, 256u, 128u, 64u, 32u, 16u, 8u, 4u, 2u, 1u );
@@ -120,7 +120,7 @@ vec2 QuasiRandomSample2D( int sampleIndex, int pixelIndex ) {
 	} else if( samplingTechnique == 2 ) {
 		return sobol2D( sampleIndex );
 	}
-    // Default to Halton if an invalid technique is specified
+	// Default to Halton if an invalid technique is specified
 	return vec2( halton( sampleIndex, 2 ), halton( sampleIndex, 3 ) );
 }
 
@@ -163,21 +163,55 @@ vec3 HybridRandomHemisphereDirection( vec3 normal, inout uint state, int sampleI
 	return tangent * tangentSpaceDir.x + bitangent * tangentSpaceDir.y + normal * tangentSpaceDir.z;
 }
 
+// Stratified sampling function
+vec2 stratifiedSample( int pixelIndex, int sampleIndex, int totalSamples, inout uint rngState ) {
+	int sqrtSamples = int( sqrt( float( totalSamples ) ) );
+	int strataX = sampleIndex % sqrtSamples;
+	int strataY = sampleIndex / sqrtSamples;
+
+	float jitterX = RandomValue( rngState );
+	float jitterY = RandomValue( rngState );
+
+	return vec2( ( float( strataX ) + jitterX ) / float( sqrtSamples ), ( float( strataY ) + jitterY ) / float( sqrtSamples ) );
+
+	// Use a high-quality RNG like PCG
+    // rngState = pcg(rngState);
+    // float u = float(rngState) / 4294967296.0;
+    // rngState = pcg(rngState);
+    // float v = float(rngState) / 4294967296.0;
+    
+    // // Apply stratification
+    // int strataSize = int(sqrt(float(totalSamples)));
+    // int strataX = sampleIndex % strataSize;
+    // int strataY = sampleIndex / strataSize;
+    
+    // return vec2((float(strataX) + u) / float(strataSize),
+    //             (float(strataY) + v) / float(strataSize));
+}
+
 vec2 getRandomSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
 	if( samplingTechnique == 3 ) { // Blue Noise
 		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) ).xy;
 	} else if( samplingTechnique == 0 ) { // PCG
 		return vec2( RandomValue( rngState ), RandomValue( rngState ) );
+	} else if( samplingTechnique == 4 ) { // Stratified
+		int pixelIndex = int( pixelCoord.y ) * int( resolution.x ) + int( pixelCoord.x );
+		return stratifiedSample( pixelIndex, sampleIndex, numRaysPerPixel, rngState );
 	} else { // Halton or Sobol
 		return HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) );
 	}
 }
 
+// Update getRandomSample4 to use stratified sampling for the first two dimensions
 vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
 	if( samplingTechnique == 3 ) { // Blue Noise
 		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
 	} else if( samplingTechnique == 0 ) { // PCG
 		return vec4( RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ) );
+	} else if( samplingTechnique == 4 ) { // Stratified
+		int pixelIndex = int( pixelCoord.y ) * int( resolution.x ) + int( pixelCoord.x );
+		vec2 stratified = stratifiedSample( pixelIndex, sampleIndex, numRaysPerPixel, rngState );
+		return vec4( stratified, RandomValue( rngState ), RandomValue( rngState ) );
 	} else { // Halton or Sobol
 		return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
 	}
