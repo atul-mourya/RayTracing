@@ -11,7 +11,8 @@ import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from '../PathTracer/pathtracer.fs';
 import VertexShader from '../PathTracer/pathtracer.vs';
 import TriangleSDF from '../../src/TriangleSDF';
-import blueNoiseImage from '../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; //spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
+import spatioTemporalBlueNoiseImage from '../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; //spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
+import blueNoiseImage from '../../public/noise/simple_bluenoise.png'; //simple blue noise image
 
 class PathTracerPass extends Pass {
 
@@ -81,8 +82,11 @@ class PathTracerPass extends Pass {
 				checkeredFrameInterval: { value: 2 },
 				previousFrameTexture: { value: null },
 
-				blueNoiseTexture: { value: null },
+				spatioTemporalBlueNoiseTexture: { value: null },
 				spatioTemporalBlueNoiseReolution: { value: new Vector3( 64, 64, 32 ) },
+
+				blueNoiseTexture: { value: null },
+				blueNoiseTextureReolution: { value: new Vector2() },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },
@@ -130,6 +134,18 @@ class PathTracerPass extends Pass {
 		this.copyQuad = new FullScreenQuad( this.copyMaterial );
 
 		const loader = new TextureLoader();
+		loader.load( spatioTemporalBlueNoiseImage, ( texture ) => {
+
+			texture.minFilter = NearestFilter;
+			texture.magFilter = NearestFilter;
+			texture.wrapS = RepeatWrapping;
+			texture.wrapT = RepeatWrapping;
+			texture.generateMipmaps = false;
+
+			this.material.uniforms.spatioTemporalBlueNoiseTexture = texture;
+
+		} );
+
 		loader.load( blueNoiseImage, ( texture ) => {
 
 			texture.minFilter = NearestFilter;

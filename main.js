@@ -135,7 +135,7 @@ function setupComposer() {
 	composer.addPass( pathTracingPass );
 
 	upScalerPass = new UpScalerPass( canvas.width, canvas.height, UPSCALE_FACTOR );
-	upScalerPass.enabled = true;
+	upScalerPass.enabled = false;
 	composer.addPass( upScalerPass );
 
 	accPass = new AccumulationPass( scene, canvas.width, canvas.height );
@@ -288,7 +288,7 @@ function setupPathTracerFolder( pane, parameters ) {
 	// Fixed samples per pixel control
 	const samplesPerPixelControl = ptFolder.addBinding( pathTracingPass.material.uniforms.numRaysPerPixel, 'value', { label: 'Samples Per Pixel', min: 1, max: 20, step: 1 } );
 
-	ptFolder.addBinding( pathTracingPass.material.uniforms.samplingTechnique, 'value', { label: 'Noise Sampler', options: { PCG: 0, Halton: 1, Sobol: 2, BlueNoise: 3, Stratified: 4 } } );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.samplingTechnique, 'value', { label: 'Noise Sampler', options: { PCG: 0, Halton: 1, Sobol: 2, SBTN: 3, Stratified: 4, BlueNoise: 5 } } );
 
 	// Add adaptive sampling toggle
 	const useAdaptiveSamplingControl = ptFolder.addBinding( pathTracingPass.material.uniforms.useAdaptiveSampling, 'value', { label: 'Use Adaptive Sampling' } );

@@ -250,7 +250,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		incomingLight += reduceFireflies( directLight * throughput, 5.0 );
 
 		// Indirect lighting using MIS
-		vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i + 1, rngState );
+		vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i + 1, rngState, -1 );
 		vec3 cosSampleDir = cosineWeightedSample( N, indirectSample );
 		float cosPDF = cosineWeightedPDF( max( dot( N, cosSampleDir ), 0.0 ) );
 		vec3 cosBRDF = evaluateBRDF( V, cosSampleDir, N, material );
@@ -405,16 +405,17 @@ void main( ) {
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			vec4 _sample = vec4( 0.0 );
 
-			vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed );
+			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 3 );
 
 			if( visMode == 5 ) {
-				gl_FragColor = vec4( randomSample, 0.0, 1.0 );
-				float grayscale = length( randomSample ) * 0.7071067811865476; // 0.7071... is 1/sqrt(2)
-				gl_FragColor = vec4( vec3( grayscale ), 1.0 );
-				return;
+				// to be refactored
+				// gl_FragColor = vec4( randomSample, 0.0, 1.0 );
+				// float grayscale = length( randomSample ) * 0.7071067811865476; // 0.7071... is 1/sqrt(2)
+				// gl_FragColor = vec4( vec3( grayscale ), 1.0 );
+				// return;
 			}
 
-			vec2 jitter = ( randomSample - 0.5 ) * 2.0 * pixelSize;
+			vec2 jitter = ( jitterSample - 0.5 ) * 2.0 * pixelSize;
 			vec2 jitteredScreenPosition = screenPosition + jitter;
 
 			Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );

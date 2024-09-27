@@ -1,5 +1,7 @@
-uniform sampler2D blueNoiseTexture;
+uniform sampler2D spatioTemporalBlueNoiseTexture;
 uniform vec3 spatioTemporalBlueNoiseReolution;
+uniform sampler2D blueNoiseTexture;
+uniform vec3 blueNoiseTextureResolution;
 uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
 
 // Sobol sequence implementation
@@ -26,12 +28,12 @@ uint pcg_hash( uint state ) {
 	return word;
 }
 
-vec4 sampleBlueNoise( vec2 pixelCoords ) {
+vec4 sampleSBTN( vec2 pixelCoords ) {
 	vec3 sbtnr = spatioTemporalBlueNoiseReolution;
 	vec2 textureSize = vec2( sbtnr.x, sbtnr.y * sbtnr.z );
 	vec2 texCoord = ( pixelCoords + vec2( 0.5 ) ) / float( sbtnr.x );
 	texCoord.y = ( texCoord.y + float( int( frame ) % int( sbtnr.z ) ) ) / float( sbtnr.z );
-	vec4 noise = texture2D( blueNoiseTexture, texCoord );
+	vec4 noise = texture2D( spatioTemporalBlueNoiseTexture, texCoord );
 
 	// Combine with PCG hash for extended variation by adding offset
 	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
@@ -71,7 +73,7 @@ vec3 RandomHemiSphereDirection( vec3 normal, inout uint rngState ) {
 }
 
 vec3 BlueNoiseRandomDirection( vec2 pixelCoords, int sampleIndex, int bounceIndex ) {
-	vec4 blueNoise = sampleBlueNoise( pixelCoords + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
+	vec4 blueNoise = sampleSBTN( pixelCoords + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
 
 	float theta = 2.0 * PI * blueNoise.x;
 	float phi = acos( 2.0 * blueNoise.y - 1.0 );
@@ -189,23 +191,44 @@ vec2 stratifiedSample( int pixelIndex, int sampleIndex, int totalSamples, inout 
     //             (float(strataY) + v) / float(strataSize));
 }
 
-vec2 getRandomSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
-	if( samplingTechnique == 3 ) { // Blue Noise
-		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) ).xy;
-	} else if( samplingTechnique == 0 ) { // PCG
-		return vec2( RandomValue( rngState ), RandomValue( rngState ) );
-	} else if( samplingTechnique == 4 ) { // Stratified
-		int pixelIndex = int( pixelCoord.y ) * int( resolution.x ) + int( pixelCoord.x );
-		return stratifiedSample( pixelIndex, sampleIndex, numRaysPerPixel, rngState );
-	} else { // Halton or Sobol
-		return HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) );
-	}
+
+vec2 sampleBlueNoise(vec2 pixelCoords) {
+    vec2 uv = pixelCoords / resolution;
+	vec2 noise = texture2D(blueNoiseTexture, uv).xy;
+
+	// Combine with PCG hash for extended variation by adding offset
+	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
+	float random = float( pcg_hash( seed ) ) / 4294967295.0;
+
+	return fract( noise + random ); // Combine blue noise with PCG hash
+}
+
+vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState, int preferredTechnique) {
+    int technique = (preferredTechnique != -1) ? preferredTechnique : samplingTechnique;
+    
+    switch (technique) {
+        case 3: // Spatio Temporal Blue Noise
+            return sampleSBTN(pixelCoord + vec2(float(sampleIndex) * 13.37, float(bounceIndex) * 31.41)).xy;
+		
+		case 5: // Simple 2D Blue Noise
+			return sampleBlueNoise(pixelCoord);
+        
+        case 0: // PCG
+            return vec2(RandomValue(rngState), RandomValue(rngState));
+        
+        case 4: // Stratified
+            int pixelIndex = int(pixelCoord.y) * int(resolution.x) + int(pixelCoord.x);
+            return stratifiedSample(pixelIndex, sampleIndex, numRaysPerPixel, rngState);
+        
+        default: // Halton or Sobol (or any other unspecified technique)
+            return HybridRandomSample2D(rngState, sampleIndex, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x));
+    }
 }
 
 // Update getRandomSample4 to use stratified sampling for the first two dimensions
 vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
 	if( samplingTechnique == 3 ) { // Blue Noise
-		return sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
+		return sampleSBTN( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
 	} else if( samplingTechnique == 0 ) { // PCG
 		return vec4( RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ) );
 	} else if( samplingTechnique == 4 ) { // Stratified
