@@ -17,6 +17,7 @@ import PathTracerPass from './shaders/PathTracer/PathTracerPass.js';
 import AccumulationPass from './shaders/Passes/AccumulationPass.js';
 import LygiaSmartDenoiserPass from './shaders/Passes/LygiaSmartDenoiserPass.js';
 import TileHighlightPass from './shaders/Passes/TileHighlightPass.js';
+import UpScalerPass from './shaders/Passes/UpscalerPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 // import generateMaterialSpheres from './src/generateMaterialSpheres.js';
 
@@ -28,13 +29,14 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
 let pane, fpsGraph;
-let composer, renderPass, pathTracingPass, accPass, denoiserPass, tileHighlightPass;
+let composer, renderPass, pathTracingPass, accPass, denoiserPass, tileHighlightPass, upScalerPass;
 let targetModel, floorPlane;
 
 let currentHDRIndex = 2;
 let currentModelIndex = 27;
 let pauseRendering = false;
 let stopRendering = false;
+let UPSCALE_FACTOR = 2;
 
 async function loadHDRBackground( index ) {
 
@@ -122,6 +124,7 @@ function setupComposer() {
 	} );
 
 	composer = new EffectComposer( renderer, renderTarget );
+	window.composer = composer;
 
 	renderPass = new RenderPass( scene, camera );
 	renderPass.enabled = false;
@@ -130,6 +133,10 @@ function setupComposer() {
 	pathTracingPass = new PathTracerPass( renderer, scene, camera, canvas.width, canvas.height );
 	pathTracingPass.enabled = true;
 	composer.addPass( pathTracingPass );
+
+	upScalerPass = new UpScalerPass( canvas.width, canvas.height, UPSCALE_FACTOR );
+	upScalerPass.enabled = true;
+	composer.addPass( upScalerPass );
 
 	accPass = new AccumulationPass( scene, canvas.width, canvas.height );
 	accPass.enabled = true;
@@ -318,8 +325,15 @@ function setupPathTracerFolder( pane, parameters ) {
 		tileHighlightPass.enabled = e.value === 2 && tileHighlightPass.enabled;
 
 	} );
+	let param = { upscaleFactor: UPSCALE_FACTOR };
 	const checkeredIntervalControl = ptFolder.addBinding( pathTracingPass.material.uniforms.checkeredFrameInterval, 'value', { label: 'Checkered Frame Interval', hidden: true, min: 1, max: 20, step: 1 } );
 	ptFolder.addBinding( parameters, 'resolution', { label: 'Resolution', options: { 'Quarter': window.devicePixelRatio / 4, 'Half': window.devicePixelRatio / 2, 'Full': window.devicePixelRatio } } ).on( 'change', e => updateResolution( e.value ) );
+	ptFolder.addBinding( param, 'upscaleFactor', { label: 'Up Scale', options: { '1x': 1, '2x': 2, '4x': 4 } } ).on( 'change', e => {
+
+		UPSCALE_FACTOR = e.value;
+		onResize();
+
+	} );
 
 	renderModeControl.on( 'change', e => {
 
@@ -328,9 +342,7 @@ function setupPathTracerFolder( pane, parameters ) {
 
 	} );
 
-	ptFolder.addBinding( pathTracingPass, 'useDownSampledInteractions', {
-		label: 'Use Interactive Features'
-	} ).on( 'change', ( ev ) => {
+	ptFolder.addBinding( pathTracingPass, 'useDownSampledInteractions', { label: 'Use Interactive Features'} ).on( 'change', ( ev ) => {
 
 		if ( ! ev.value ) {
 
@@ -574,7 +586,7 @@ async function init() {
 			// map: floorTex,
 			transparent: false,
 			color: 0x555555,
-			roughness: 0.1,
+			roughness: 0.05,
 			metalness: 0.0,
 			// side: DoubleSide,
 		} )
