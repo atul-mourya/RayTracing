@@ -4,7 +4,7 @@ export default class TextureCreator {
 
 	createMaterialDataTexture( materials ) {
 
-		const pixelsRequired = 6;
+		const pixelsRequired = 7;
 		const dataInEachPixel = 4;
 		const dataLenghtPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
@@ -56,6 +56,13 @@ export default class TextureCreator {
 			data[ stride ++ ] = mat.clearcoatMap;
 			data[ stride ++ ] = mat.clearcoatRoughness;
 			data[ stride ++ ] = mat.clearcoatRoughnessMap;
+
+			// temp
+			data[ stride ++ ] = mat.opacity;
+			data[ stride ++ ] = 0;
+			data[ stride ++ ] = 0;
+			data[ stride ++ ] = 0;
+
 
 			// // pixel 7
 			// data[ stride ++ ] = mat.clearcoatNormalMap;

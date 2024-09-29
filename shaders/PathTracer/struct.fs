@@ -9,6 +9,7 @@ struct RayTracingMaterial {
 	float thickness;
 	float clearCoat;
 	float clearCoatRoughness;
+	float opacity;
 	int albedoMapIndex;
 	int emissiveMapIndex;
 	int normalMapIndex;

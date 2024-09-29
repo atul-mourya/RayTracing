@@ -38,12 +38,13 @@ BVHNode getBVHNode( int index ) {
 }
 
 RayTracingMaterial getMaterial( int materialIndex ) {
-	vec4 data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 0, 6 );
-	vec4 data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 1, 6 );
-	vec4 data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 2, 6 );
-	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 3, 6 );
-	vec4 data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 6 );
-	vec4 data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 5, 6 );
+	vec4 data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 0, 7 );
+	vec4 data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 1, 7 );
+	vec4 data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 2, 7 );
+	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 3, 7 );
+	vec4 data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 7 );
+	vec4 data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 5, 7 );
+	vec4 data7 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 6, 7 );
 
 	RayTracingMaterial material;
 
@@ -68,6 +69,8 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 
 	material.clearCoat = data6.r;
 	material.clearCoatRoughness = data6.b;
+
+	material.opacity = data7.r;
 
 	return material;
 }

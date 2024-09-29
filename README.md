@@ -11,6 +11,8 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 
 ### Feature:
+- better camera dof control
+- auto focus based on object distance
 - Scene based directional lights support
 - scene based camera support,
 - area light support

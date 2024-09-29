@@ -200,6 +200,17 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
+		// Handle opacity
+		if( material.opacity < 1.0) {
+			if( RandomValue(rngState) < material.opacity ) {
+				throughput *= material.color.rgb;
+				alpha *= material.opacity;
+				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+
+				continue;
+			}
+		}
+
 		// Handle alpha blending
 		float surfaceAlpha = material.color.a;
 		if( surfaceAlpha < 1.0 ) {
@@ -225,7 +236,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		}
 
 		// Calculate emitted light
-		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv ) * 25.0;
+		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
 		incomingLight += emittedLight * throughput;
 
 		// Direct lighting using MIS
