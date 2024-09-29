@@ -11,7 +11,7 @@ import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from '../PathTracer/pathtracer.fs';
 import VertexShader from '../PathTracer/pathtracer.vs';
 import TriangleSDF from '../../src/TriangleSDF';
-import spatioTemporalBlueNoiseImage from '../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; //spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
+import spatioTemporalBlueNoiseImage from '../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; // where file name is width, height, frame cycle, color precision in bits. spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
 import blueNoiseImage from '../../public/noise/simple_bluenoise.png'; //simple blue noise image
 
 class PathTracerPass extends Pass {
@@ -71,7 +71,7 @@ class PathTracerPass extends Pass {
 				maxBounceCount: { value: 4 },
 				numRaysPerPixel: { value: 1 },
 
-				samplingTechnique: { value: 1 }, // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
+				samplingTechnique: { value: 1 }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: false },
 				minSamples: { value: 1 },
 				maxSamples: { value: 4 },
@@ -86,7 +86,7 @@ class PathTracerPass extends Pass {
 				spatioTemporalBlueNoiseReolution: { value: new Vector3( 64, 64, 32 ) },
 
 				blueNoiseTexture: { value: null },
-				blueNoiseTextureReolution: { value: new Vector2() },
+				blueNoiseTextureResolution: { value: new Vector2() },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },
@@ -155,6 +155,7 @@ class PathTracerPass extends Pass {
 			texture.generateMipmaps = false;
 
 			this.material.uniforms.blueNoiseTexture = texture;
+			this.material.uniforms.blueNoiseTextureResolution.value.set( texture.image.width, texture.image.height );
 
 		} );
 

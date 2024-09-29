@@ -192,7 +192,7 @@ function animate() {
 	fpsGraph.begin();
 	controls.update();
 	// Update the TileHighlightPass uniforms
-	tileHighlightPass.uniforms.frame.value = pathTracingPass.material.uniforms.frame.value;
+	tileHighlightPass.uniforms.frame.value = pathTracingPass.material.uniforms.frame.value + 1;
 	tileHighlightPass.uniforms.renderMode.value = pathTracingPass.material.uniforms.renderMode.value;
 	tileHighlightPass.uniforms.tiles.value = pathTracingPass.material.uniforms.tiles.value;
 

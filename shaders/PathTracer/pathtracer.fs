@@ -383,6 +383,24 @@ vec4 getPreviousFrameColor( vec2 coord ) {
 	return texture2D( previousFrameTexture, coord / resolution );
 }
 
+bool useDithering = true;
+float ditheringAmount = 0.5;
+
+vec3 applyDithering(vec3 color, vec2 uv) {
+    // Bayer matrix for 4x4 dithering pattern
+    const mat4 bayerMatrix = mat4(
+        0.0/16.0, 8.0/16.0, 2.0/16.0, 10.0/16.0,
+        12.0/16.0, 4.0/16.0, 14.0/16.0, 6.0/16.0,
+        3.0/16.0, 11.0/16.0, 1.0/16.0, 9.0/16.0,
+        15.0/16.0, 7.0/16.0, 13.0/16.0, 5.0/16.0
+    );
+    
+    ivec2 pixelCoord = ivec2(uv * resolution);
+    float dither = bayerMatrix[pixelCoord.x % 4][pixelCoord.y % 4];
+    
+    return color + (dither - 0.5) * ditheringAmount / 255.0;
+}
+
 void main( ) {
 
 	vec2 pixelSize = 1.0 / resolution;
@@ -405,14 +423,14 @@ void main( ) {
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			vec4 _sample = vec4( 0.0 );
 
-			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 3 );
+			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 0 );
 
 			if( visMode == 5 ) {
 				// to be refactored
-				// gl_FragColor = vec4( randomSample, 0.0, 1.0 );
-				// float grayscale = length( randomSample ) * 0.7071067811865476; // 0.7071... is 1/sqrt(2)
+				gl_FragColor = vec4( jitterSample, 0.0, 1.0 );
+				// float grayscale = length( jitterSample ) * 0.7071067811865476; // 0.7071... is 1/sqrt(2)
 				// gl_FragColor = vec4( vec3( grayscale ), 1.0 );
-				// return;
+				return;
 			}
 
 			vec2 jitter = ( jitterSample - 0.5 ) * 2.0 * pixelSize;
@@ -445,9 +463,17 @@ void main( ) {
 		}
 
 		pixel.color /= float( pixel.samples );
+
+		if (useDithering) {
+            pixel.color.rgb = applyDithering(pixel.color.rgb, gl_FragCoord.xy / resolution);
+        }
 	} else {
 		// For pixels that are not rendered in this frame, use the color from the previous frame
 		pixel.color = getPreviousFrameColor( gl_FragCoord.xy );
+
+		if (useDithering) {
+            pixel.color.rgb = applyDithering(pixel.color.rgb, gl_FragCoord.xy / resolution);
+        }
 	}
 
 	gl_FragColor = vec4( pixel.color.rgb, 1.0 );

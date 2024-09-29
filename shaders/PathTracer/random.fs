@@ -1,7 +1,7 @@
 uniform sampler2D spatioTemporalBlueNoiseTexture;
 uniform vec3 spatioTemporalBlueNoiseReolution;
 uniform sampler2D blueNoiseTexture;
-uniform vec3 blueNoiseTextureResolution;
+uniform vec2 blueNoiseTextureResolution;
 uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
 
 // Sobol sequence implementation
@@ -194,7 +194,8 @@ vec2 stratifiedSample( int pixelIndex, int sampleIndex, int totalSamples, inout 
 
 vec2 sampleBlueNoise(vec2 pixelCoords) {
     vec2 uv = pixelCoords / resolution;
-	vec2 noise = texture2D(blueNoiseTexture, uv).xy;
+    vec2 blueNoiseUV = mod(pixelCoords / blueNoiseTextureResolution, vec2(1.0));
+    vec2 noise = texture2D(blueNoiseTexture, blueNoiseUV).xy;
 
 	// Combine with PCG hash for extended variation by adding offset
 	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
