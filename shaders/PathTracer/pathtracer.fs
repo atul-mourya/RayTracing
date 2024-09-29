@@ -36,7 +36,7 @@ void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMateri
 bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue );
 vec3 ImportanceSampleCosine( vec3 N, vec2 xi );
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState );
-vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, out vec3 L, out float pdf, inout uint rngState );
+vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState );
 vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex );
 vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir );
 bool shouldRenderPixel( );
@@ -122,12 +122,12 @@ void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMateri
 	ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 }
 
-vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 blueNoise, out vec3 L, out float pdf, inout uint rngState ) {
+vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
 	vec3 N = hitInfo.normal;
 	vec3 V = - ray.direction;
 
 	// Sample microfacet normal for clear coat layer
-	vec2 Xi = blueNoise.xy;
+	vec2 Xi = randomSample.xy;
 	vec3 H = ImportanceSampleGGX( N, material.clearCoatRoughness, Xi );
 	L = reflect( - V, H );
 
@@ -149,7 +149,7 @@ vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	// Blend with base layer BRDF
 	vec3 baseBRDF;
 	float basePDF;
-	baseBRDF = sampleBRDF( V, N, material, blueNoise.zw, L, basePDF, rngState );
+	baseBRDF = sampleBRDF( V, N, material, randomSample.zw, L, basePDF, rngState );
 
 	// Compute final BRDF and PDF
 	vec3 finalBRDF = mix( baseBRDF, clearCoatBRDF, material.clearCoat * F );
@@ -239,7 +239,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
 		incomingLight += emittedLight * throughput;
 
-		// Direct lighting using MIS
 		vec4 randomSample = getRandomSample4( gl_FragCoord.xy, sampleIndex, i, rngState );
 
 		vec3 V = - ray.direction;
@@ -256,6 +255,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		}
 		// return vec4(brdfValue, 1.0);
 
+		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, stats );
 		incomingLight += reduceFireflies( directLight * throughput, 5.0 );
