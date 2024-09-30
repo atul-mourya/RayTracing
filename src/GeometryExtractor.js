@@ -88,61 +88,58 @@ export default class GeometryExtractor {
 
 	}
 
-	convertOpacityToTransmission( mesh, ior = 1.1 ) {
+	convertOpacityToTransmission( mesh, ior = 1.0 ) {
 
 		let material = mesh.material;
 
-		if (
-			material.opacity < 0.65 &&
-			material.opacity > 0.2 &&
-			material.ior === 0
-		) {
+		// // if (
+		// // 	material.opacity < 0.65 &&
+		// // 	material.opacity > 0.2 &&
+		// // 	material.ior === 0
+		// // ) {
 
-			if ( ! material.isMeshPhysicalMaterial ) {
+		if ( ! material.isMeshPhysicalMaterial && material.opacity < 1 ) {
 
-				let newMaterial = new MeshPhysicalMaterial();
+			let newMaterial = new MeshPhysicalMaterial();
 
-				// Copy properties from the old material to the new one
-				for ( const key in material ) {
+			// Copy properties from the old material to the new one
+			for ( const key in material ) {
 
-					if ( key in material ) {
+				if ( key in material ) {
 
-						if ( material[ key ] === null ) {
+					if ( material[ key ] === null ) {
 
-							continue;
+						continue;
 
-						}
+					}
 
-						if ( material[ key ].isTexture ) {
+					if ( material[ key ].isTexture ) {
 
-							newMaterial[ key ] = material[ key ];
+						newMaterial[ key ] = material[ key ];
 
-						} else if ( material[ key ].copy && material[ key ].constructor === newMaterial[ key ].constructor ) {
+					} else if ( material[ key ].copy && material[ key ].constructor === newMaterial[ key ].constructor ) {
 
-							newMaterial[ key ].copy( material[ key ] );
+						newMaterial[ key ].copy( material[ key ] );
 
-						} else if ( typeof material[ key ] === 'number' ) {
+					} else if ( typeof material[ key ] === 'number' ) {
 
-							newMaterial[ key ] = material[ key ];
-
-						}
+						newMaterial[ key ] = material[ key ];
 
 					}
 
 				}
 
-				// const hsl = {};
-				// newMaterial.color.getHSL( hsl );
-				// hsl.l = Math.max( hsl.l, 0.35 );
-				// newMaterial.color.setHSL( hsl.h, hsl.s, hsl.l );
-
-				mesh.material = newMaterial;
-
 			}
 
-			// Set the new properties
-			mesh.material.transmission = 1.0;
-			mesh.material.ior = ior;
+			newMaterial.transmission = 1.0;
+			newMaterial.thickness = 0.1;
+			newMaterial.ior = ior;
+			const hsl = {};
+			newMaterial.color.getHSL( hsl );
+			hsl.l = Math.max( hsl.l, 0.35 );
+			newMaterial.color.setHSL( hsl.h, hsl.s, hsl.l );
+
+			mesh.material = newMaterial;
 
 		}
 
@@ -167,6 +164,14 @@ export default class GeometryExtractor {
 	createMaterialObject( material ) {
 
 		const emissive = material.emissive ?? new Color( 0, 0, 0 );
+		// const isTransparent = material.opacity < 1.0 || false;
+		// if ( isTransparent ) {
+
+		// 	if ( material.transmission === 0 ) material.transmission = 1.0;
+		// 	if ( material.thickness === 0 ) material.thickness = 0.1;
+		// 	if ( material.ior == 1.5 ) material.ior = 1.0;
+
+		// }
 
 		return {
 			color: material.color,

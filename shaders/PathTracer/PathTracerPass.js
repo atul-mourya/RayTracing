@@ -68,6 +68,7 @@ class PathTracerPass extends Pass {
 				directionalLightIntensity: { value: scene.getObjectByName( 'directionLight' )?.intensity ?? 0 },
 
 				frame: { value: 0 },
+				maxFrames: { value: 30 },
 				maxBounceCount: { value: 4 },
 				numRaysPerPixel: { value: 1 },
 
@@ -168,6 +169,8 @@ class PathTracerPass extends Pass {
 		this.transitionDuration = 0.01; // Duration of transition in seconds
 		this.transitionClock = new Clock( false );
 		this.isTransitioning = false;
+
+		this.isComplete = false;
 
 		this.downsampledRenderTarget = new WebGLRenderTarget( width, height, {
 			format: RGBAFormat,
@@ -271,6 +274,8 @@ class PathTracerPass extends Pass {
 
 		}
 
+		this.isComplete = false;
+
 	}
 
 	setSize( width, height ) {
@@ -345,12 +350,18 @@ class PathTracerPass extends Pass {
 
 	render( renderer, writeBuffer, /*readBuffer*/ ) {
 
-		if ( ! this.enabled ) return;
+		if ( ! this.enabled || this.isComplete ) return;
 
 		// Update uniforms
 		this.material.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
 		this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 		this.material.uniforms.frame.value ++;
+
+		if ( this.material.uniforms.frame.value >= this.material.uniforms.maxFrames.value ) {
+
+			this.isComplete = true;
+
+		}
 
 		// Set the previous frame texture
 		this.material.uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;

@@ -23,6 +23,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - Hybrid Rendering
 -  sheen, sheen roughness, etc
 -  Explore Disney BSDF
+- oidn denioser https://github.com/DennisSmolek/Denoiser
 
 ### Refactor:
 - WebGPU version using TSL 

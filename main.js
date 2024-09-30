@@ -20,6 +20,8 @@ import TileHighlightPass from './shaders/Passes/TileHighlightPass.js';
 import UpScalerPass from './shaders/Passes/UpscalerPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 // import generateMaterialSpheres from './src/generateMaterialSpheres.js';
+import { Denoiser } from 'denoiser';
+
 
 // DOM Elements
 const container = document.getElementById( 'container-3d' );
@@ -28,7 +30,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
-let pane, fpsGraph;
+let pane, fpsGraph, renderTarget, denoiser, denoisedCanvas;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass, tileHighlightPass, upScalerPass;
 let targetModel, floorPlane;
 
@@ -37,6 +39,7 @@ let currentModelIndex = 27;
 let pauseRendering = false;
 let stopRendering = false;
 let UPSCALE_FACTOR = 2;
+let isDenoised = false;
 
 async function loadHDRBackground( index ) {
 
@@ -116,7 +119,7 @@ function setupScene() {
 
 function setupComposer() {
 
-	const renderTarget = new WebGLRenderTarget( canvas.width, canvas.height, {
+	renderTarget = new WebGLRenderTarget( canvas.width, canvas.height, {
 		format: RGBAFormat,
 		type: FloatType,
 		minFilter: NearestFilter,
@@ -189,22 +192,74 @@ function animate() {
 	requestAnimationFrame( animate );
 	if ( stopRendering ) return;
 	if ( pauseRendering ) return;
-	fpsGraph.begin();
-	controls.update();
-	// Update the TileHighlightPass uniforms
-	tileHighlightPass.uniforms.frame.value = pathTracingPass.material.uniforms.frame.value + 1;
-	tileHighlightPass.uniforms.renderMode.value = pathTracingPass.material.uniforms.renderMode.value;
-	tileHighlightPass.uniforms.tiles.value = pathTracingPass.material.uniforms.tiles.value;
 
-	composer.render();
-	fpsGraph.end();
+	if ( ! pathTracingPass.isComplete ) {
+
+		fpsGraph.begin();
+		controls.update();
+		// Update the TileHighlightPass uniforms
+		tileHighlightPass.uniforms.frame.value = pathTracingPass.material.uniforms.frame.value + 1;
+		tileHighlightPass.uniforms.renderMode.value = pathTracingPass.material.uniforms.renderMode.value;
+		tileHighlightPass.uniforms.tiles.value = pathTracingPass.material.uniforms.tiles.value;
+
+		composer.render();
+		fpsGraph.end();
+
+	}
+
+	if ( pathTracingPass.isComplete && ! isDenoised ) {
+
+		triggerDenoising();
+
+	}
+
+
+}
+
+async function triggerDenoising() {
+
+	const startTime = performance.now();
+
+	denoiser.setImage( 'color', canvas );
+
+	isDenoised = true;
+	await denoiser.execute();
+	renderer.resetState();
+	canvas.style.opacity = 0;
+
+	console.log( 'renderDenoised', startTime, performance.now() );
+
+
+}
+
+function initDenoiser( width, height ) {
+
+	denoiser = new Denoiser( "webgl", canvas );
+
+	denoisedCanvas = document.createElement( 'canvas' );
+	denoisedCanvas.width = width;
+	denoisedCanvas.height = height;
+
+	denoisedCanvas.style.position = 'absolute';
+	denoisedCanvas.style.top = '0';
+	denoisedCanvas.style.left = '0';
+	// denoisedCanvas.style.display = 'none';
+
+	denoisedCanvas.style.width = '100%';
+	denoisedCanvas.style.height = '100%';
+
+	denoiser.setCanvas( denoisedCanvas );
+	container.prepend( denoisedCanvas );
 
 }
 
 function reset() {
 
+	isDenoised = false;
+	canvas.style.opacity = 1;
 	pathTracingPass.reset();
 	accPass.reset( renderer );
+	if ( denoiser ) denoiser.abort();
 
 }
 
@@ -283,6 +338,7 @@ function setupPathTracerFolder( pane, parameters ) {
 	} );
 	ptFolder.addBinding( accPass, 'enabled', { label: 'Enable Accumulation' } );
 	ptFolder.addBinding( parameters, 'stopRendering', { label: 'Stop Rendering' } ).on( 'change', e => stopRendering = e.value );
+	ptFolder.addBinding( pathTracingPass.material.uniforms.maxFrames, 'value', { label: 'Max Samples', min: 0, max: 100, step: 1 } );
 	ptFolder.addBinding( pathTracingPass.material.uniforms.maxBounceCount, 'value', { label: 'Bounces', min: 0, max: 20, step: 1 } );
 
 	// Fixed samples per pixel control
@@ -342,7 +398,7 @@ function setupPathTracerFolder( pane, parameters ) {
 
 	} );
 
-	ptFolder.addBinding( pathTracingPass, 'useDownSampledInteractions', { label: 'Use Interactive Features'} ).on( 'change', ( ev ) => {
+	ptFolder.addBinding( pathTracingPass, 'useDownSampledInteractions', { label: 'Use Interactive Features' } ).on( 'change', ( ev ) => {
 
 		if ( ! ev.value ) {
 
@@ -604,6 +660,8 @@ async function init() {
 
 	onResize();
 	animate();
+	initDenoiser( renderer.domElement.width, renderer.domElement.height );
+
 
 }
 
