@@ -20,7 +20,7 @@ import TileHighlightPass from './shaders/Passes/TileHighlightPass.js';
 import UpScalerPass from './shaders/Passes/UpscalerPass.js';
 // import SpatialDenoiserPass from './shaders/Accumulator/SpatialDenoiserPass.js';
 // import generateMaterialSpheres from './src/generateMaterialSpheres.js';
-import { Denoiser } from 'denoiser';
+import { OIDNDenoiser } from './shaders/Passes/OIDNDenoiser.js';
 
 
 // DOM Elements
@@ -30,7 +30,7 @@ const loadingOverlay = document.getElementById( 'loading-overlay' );
 
 // Global Variables
 let renderer, canvas, scene, dirLight, camera, controls;
-let pane, fpsGraph, renderTarget, denoiser, denoisedCanvas;
+let pane, fpsGraph, renderTarget, denoiser;
 let composer, renderPass, pathTracingPass, accPass, denoiserPass, tileHighlightPass, upScalerPass;
 let targetModel, floorPlane;
 
@@ -39,7 +39,6 @@ let currentModelIndex = 27;
 let pauseRendering = false;
 let stopRendering = false;
 let UPSCALE_FACTOR = 2;
-let isDenoised = false;
 
 async function loadHDRBackground( index ) {
 
@@ -181,6 +180,7 @@ function onResize() {
 	camera.updateProjectionMatrix();
 	renderer.setSize( width, height );
 	composer.setSize( width, height );
+	denoiser.setSize( width, height );
 
 	reset();
 
@@ -197,7 +197,6 @@ function animate() {
 
 		fpsGraph.begin();
 		controls.update();
-		// Update the TileHighlightPass uniforms
 		tileHighlightPass.uniforms.frame.value = pathTracingPass.material.uniforms.frame.value + 1;
 		tileHighlightPass.uniforms.renderMode.value = pathTracingPass.material.uniforms.renderMode.value;
 		tileHighlightPass.uniforms.tiles.value = pathTracingPass.material.uniforms.tiles.value;
@@ -207,59 +206,21 @@ function animate() {
 
 	}
 
-	if ( pathTracingPass.isComplete && ! isDenoised ) {
+	if ( pathTracingPass.isComplete && pathTracingPass.material.uniforms.frame.value === pathTracingPass.material.uniforms.maxFrames.value ) {
 
-		triggerDenoising();
+		pathTracingPass.material.uniforms.frame.value ++;
+		denoiser.start();
 
 	}
-
-
-}
-
-async function triggerDenoising() {
-
-	const startTime = performance.now();
-
-	denoiser.setImage( 'color', canvas );
-
-	isDenoised = true;
-	await denoiser.execute();
-	renderer.resetState();
-	canvas.style.opacity = 0;
-
-	console.log( 'renderDenoised', startTime, performance.now() );
-
-
-}
-
-function initDenoiser( width, height ) {
-
-	denoiser = new Denoiser( "webgl", canvas );
-
-	denoisedCanvas = document.createElement( 'canvas' );
-	denoisedCanvas.width = width;
-	denoisedCanvas.height = height;
-
-	denoisedCanvas.style.position = 'absolute';
-	denoisedCanvas.style.top = '0';
-	denoisedCanvas.style.left = '0';
-	// denoisedCanvas.style.display = 'none';
-
-	denoisedCanvas.style.width = '100%';
-	denoisedCanvas.style.height = '100%';
-
-	denoiser.setCanvas( denoisedCanvas );
-	container.prepend( denoisedCanvas );
 
 }
 
 function reset() {
 
-	isDenoised = false;
 	canvas.style.opacity = 1;
 	pathTracingPass.reset();
 	accPass.reset( renderer );
-	if ( denoiser ) denoiser.abort();
+	denoiser.abort();
 
 }
 
@@ -630,6 +591,7 @@ async function init() {
 	initRenderer();
 	setupScene();
 	setupComposer();
+	denoiser = new OIDNDenoiser( renderer.domElement );
 
 	loadHDRBackground( currentHDRIndex );
 
@@ -660,7 +622,6 @@ async function init() {
 
 	onResize();
 	animate();
-	initDenoiser( renderer.domElement.width, renderer.domElement.height );
 
 
 }
