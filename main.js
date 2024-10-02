@@ -412,7 +412,8 @@ function setupLightFolder( pane ) {
 function setupDenoisingFolder( pane ) {
 
 	const denoisingFolder = pane.addFolder( { title: 'Denoising' } );
-	denoisingFolder.addBinding( denoiserPass, 'enabled', { label: 'Enable Denoiser' } );
+	denoisingFolder.addBinding( denoiser, 'enabled', { label: 'Enable AI Denoising' } );
+	denoisingFolder.addBinding( denoiserPass, 'enabled', { label: 'Enable Realtime Denoiser' } );
 	// --- SmartDenoiser ---
 	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.sigma, 'value', { label: 'Blur Strength', min: 0.5, max: 5, step: 0.1 } );
 	denoisingFolder.addBinding( denoiserPass.denoiseQuad.material.uniforms.kSigma, 'value', { label: 'Blur Radius', min: 1, max: 3, step: 0.1 } );
@@ -591,7 +592,7 @@ async function init() {
 	initRenderer();
 	setupScene();
 	setupComposer();
-	denoiser = new OIDNDenoiser( renderer.domElement );
+	denoiser = new OIDNDenoiser( renderer, scene, camera );
 
 	loadHDRBackground( currentHDRIndex );
 

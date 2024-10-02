@@ -228,15 +228,43 @@ vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout ui
 
 // Update getRandomSample4 to use stratified sampling for the first two dimensions
 vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
+
 	if( samplingTechnique == 3 ) { // Blue Noise
+
 		return sampleSBTN( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
+
 	} else if( samplingTechnique == 0 ) { // PCG
+
 		return vec4( RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ) );
+
 	} else if( samplingTechnique == 4 ) { // Stratified
 		int pixelIndex = int( pixelCoord.y ) * int( resolution.x ) + int( pixelCoord.x );
+
 		vec2 stratified = stratifiedSample( pixelIndex, sampleIndex, numRaysPerPixel, rngState );
 		return vec4( stratified, RandomValue( rngState ), RandomValue( rngState ) );
+
+	} else if ( samplingTechnique == 5 ) { // Simple 2D Blue Noise
+
+		vec2 noise = sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
+		return vec4( noise, noise );
+		
 	} else { // Halton or Sobol
-		return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
+		// return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
+		// return HybridRandomHemisphereDirection
+		return vec4( 
+			HybridRandomHemisphereDirection( vec3( 0.0, 1.0, 0.0 ), rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), 
+			HybridRandomHemisphereDirection( vec3( 0.0, 1.0, 0.0 ), rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) 
+			);
+		
 	}
 }
+
+vec3 sampleSphere( vec2 uv ) {
+
+		float u = ( uv.x - 0.5 ) * 2.0;
+		float t = uv.y * PI * 2.0;
+		float f = sqrt( 1.0 - u * u );
+
+		return vec3( f * cos( t ), f * sin( t ), u );
+
+	}
