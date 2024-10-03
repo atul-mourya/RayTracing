@@ -34,6 +34,7 @@ class OIDNDenoiser {
 
 	async execute() {
 
+		if ( ! this.enabled ) return false;
 		console.log( 'Executing denoising...' );
 
 		const { albedo, normal } = generateAlbedoAndNormalMaps( this.scene, this.camera, this.renderer );
@@ -62,6 +63,7 @@ class OIDNDenoiser {
 
 	abort() {
 
+		if ( ! this.enabled ) return false;
 		if ( ! this.isDenoising ) return;
 		this.denoiser.abort();
 		this.sourceCanvas.style.opacity = 1;
@@ -70,6 +72,9 @@ class OIDNDenoiser {
 	}
 
 	async start() {
+
+		if ( ! this.enabled ) return false;
+		if ( this.isDenoising ) return false;
 
 		const startTime = performance.now();
 

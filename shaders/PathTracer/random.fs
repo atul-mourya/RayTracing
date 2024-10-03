@@ -5,27 +5,50 @@ uniform vec2 blueNoiseTextureResolution;
 uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
 
 // Sobol sequence implementation
-uint sobolV[ 32 ] = uint[ 32 ]( 2147483648u, 1073741824u, 536870912u, 268435456u, 134217728u, 67108864u, 33554432u, 16777216u, 8388608u, 4194304u, 2097152u, 1048576u, 524288u, 262144u, 131072u, 65536u, 32768u, 16384u, 8192u, 4096u, 2048u, 1024u, 512u, 256u, 128u, 64u, 32u, 16u, 8u, 4u, 2u, 1u );
+const uint V[32] = uint[32](
+    2147483648u, 1073741824u, 536870912u, 268435456u, 134217728u, 67108864u, 33554432u, 16777216u,
+    8388608u, 4194304u, 2097152u, 1048576u, 524288u, 262144u, 131072u, 65536u,
+    32768u, 16384u, 8192u, 4096u, 2048u, 1024u, 512u, 256u, 128u, 64u, 32u, 16u, 8u, 4u, 2u, 1u
+);
 
-float sobol( int index, int dimension ) {
-	uint result = 0u;
-	for( int i = 0; i < 32; ++ i ) {
-		if( ( index & ( 1 << i ) ) != 0 ) {
-			result ^= sobolV[ i ] << dimension;
-		}
-	}
-	return float( result ) / 4294967296.0;
+// PCG hash function (already defined in your code)
+uint pcg_hash(uint state) {
+    state = state * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    word = (word >> 22u) ^ word;
+    return word;
 }
 
-vec2 sobol2D( int index ) {
-	return vec2( sobol( index, 0 ), sobol( index, 1 ) );
+// Owen scrambling function
+uint owen_scramble(uint x, uint seed) {
+    x = x ^ (x * 0x3d20adeau);
+    x += seed;
+    x *= (seed >> 16) | 1u;
+    x ^= x >> 15;
+    x *= 0x5851f42du;
+    x ^= x >> 12;
+    x *= 0x4c957f2du;
+    x ^= x >> 18;
+    return x;
 }
 
-uint pcg_hash( uint state ) {
-	state = state * 747796405u + 2891336453u;
-	uint word = ( ( state >> ( ( state >> 28u ) + 4u ) ) ^ state ) * 277803737u;
-	word = ( word >> 22u ) ^ word;
-	return word;
+// Owen-scrambled Sobol sequence
+float owen_scrambled_sobol(uint index, uint dimension, uint seed) {
+    uint result = 0u;
+    for (int i = 0; i < 32; ++i) {
+        if ((index & (1u << i)) != 0u) {
+            result ^= V[i] << dimension;
+        }
+    }
+    result = owen_scramble(result, seed);
+    return float(result) / 4294967296.0;
+}
+
+vec2 owen_scrambled_sobol2D(uint index, uint seed) {
+    return vec2(
+        owen_scrambled_sobol(index, 0u, seed),
+        owen_scrambled_sobol(index, 1u, seed)
+    );
 }
 
 vec4 sampleSBTN( vec2 pixelCoords ) {
@@ -120,7 +143,8 @@ vec2 QuasiRandomSample2D( int sampleIndex, int pixelIndex ) {
 	if( samplingTechnique == 1 ) {
 		return vec2( halton( sampleIndex, 2 ), halton( sampleIndex, 3 ) );
 	} else if( samplingTechnique == 2 ) {
-		return sobol2D( sampleIndex );
+        uint seed = uint(pixelIndex); // Use pixelIndex as seed for per-pixel randomization
+        return owen_scrambled_sobol2D(uint(sampleIndex), seed);
 	}
 	// Default to Halton if an invalid technique is specified
 	return vec2( halton( sampleIndex, 2 ), halton( sampleIndex, 3 ) );
@@ -128,9 +152,16 @@ vec2 QuasiRandomSample2D( int sampleIndex, int pixelIndex ) {
 
 // Hybrid quasi-random and pseudo-random 2D sample
 vec2 HybridRandomSample2D( inout uint state, int sampleIndex, int pixelIndex ) {
-	vec2 quasi = QuasiRandomSample2D( sampleIndex, pixelIndex );
-	vec2 pseudo = vec2( RandomValue( state ), RandomValue( state ) );
-	return fract( quasi + pseudo ); // Combine and wrap to [0, 1)
+	vec2 quasi;
+    if (samplingTechnique == 2) {
+        // Use Owen-scrambled Sobol
+        uint seed = pcg_hash(uint(pixelIndex)); // Use hashed pixelIndex as seed
+        quasi = owen_scrambled_sobol2D(uint(sampleIndex), seed);
+    } else {
+        quasi = QuasiRandomSample2D(sampleIndex, pixelIndex);
+    }
+    vec2 pseudo = vec2(RandomValue(state), RandomValue(state));
+    return fract(quasi + pseudo); // Combine and wrap to [0, 1)
 }
 
 // Quasi-random direction on a hemisphere
@@ -249,12 +280,12 @@ vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout 
 		return vec4( noise, noise );
 		
 	} else { // Halton or Sobol
-		// return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
+		return vec4( HybridRandomSample2D( rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), HybridRandomSample2D( rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) );
 		// return HybridRandomHemisphereDirection
-		return vec4( 
-			HybridRandomHemisphereDirection( vec3( 0.0, 1.0, 0.0 ), rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), 
-			HybridRandomHemisphereDirection( vec3( 0.0, 1.0, 0.0 ), rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) 
-			);
+		// return vec4( 
+		// 	HybridRandomHemisphereDirection( vec3( 0.0, 1.0, 0.0 ), rngState, sampleIndex, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ), 
+		// 	HybridRandomHemisphereDirection( vec3( 0.0, 1.0, 0.0 ), rngState, sampleIndex + 1, int( pixelCoord.x ) + int( pixelCoord.y ) * int( resolution.x ) ) 
+		// 	);
 		
 	}
 }
