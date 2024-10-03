@@ -37,3 +37,9 @@ Here's how the hybrid approach works in practice:
 - High-Resolution Path Tracing: The full resolution path tracing begins, progressively refining the image quality over multiple samples.
 - Blending: As the path-traced image improves in quality (i.e., as more samples are computed), it is gradually blended over the initial rasterized or low-resolution path-traced image.
 - Final Result: Eventually, the fully path-traced image replaces the initial render, providing a high-quality, physically accurate representation of the scene.
+
+
+
+
+## model sources:
+https://skfb.ly/oMGoU
