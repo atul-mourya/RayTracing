@@ -1,8 +1,9 @@
 uniform mat4 cameraWorldMatrix;
 uniform mat4 cameraProjectionMatrixInverse;
 
-uniform float focalDistance;
+uniform float focusDistance;
 uniform float aperture;
+uniform float focalLength;
 
 struct Ray {
 	vec3 origin;
@@ -23,10 +24,13 @@ Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
 	vec3 rayDirection = normalize( worldEnd.xyz - worldStart.xyz );
 
 	// Calculate the focal point
-	vec3 focalPoint = rayOrigin + rayDirection * focalDistance;
+	vec3 focalPoint = rayOrigin + rayDirection * ( focusDistance * 1000.0 ); // Convert meters to mm
+
+    // Calculate aperture diameter from focal length and f-number
+	float apertureSize = focalLength / aperture;
 
 	// Generate a random point on the lens
-	vec3 lensOffset = RandomPointInCircle3( rngState ) * aperture;
+	vec3 lensOffset = RandomPointInCircle3( rngState ) * ( apertureSize * 0.5 );
 	vec3 newRayOrigin = rayOrigin + ( cameraWorldMatrix * vec4( lensOffset, 0.0 ) ).xyz;
 
 	// Calculate the new ray direction

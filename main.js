@@ -283,8 +283,9 @@ function setupCameraFolder( pane ) {
 
 	const folder = pane.addFolder( { title: 'Camera' } ).on( 'change', reset );
 	folder.addBinding( camera, 'fov', { label: 'FOV', min: 30, max: 90, step: 5 } ).on( 'change', onResize );
-	folder.addBinding( pathTracingPass.material.uniforms.focalDistance, 'value', { label: 'Focal Distance', min: 0, max: 100, step: 1 } );
-	folder.addBinding( pathTracingPass.material.uniforms.aperture, 'value', { label: 'Aperture', min: 0, max: 1, step: 0.001 } );
+	folder.addBinding( pathTracingPass.material.uniforms.focusDistance, 'value', { label: 'Focal Distance (m)', min: 0, max: 3, step: 0.1 } );
+	folder.addBinding( pathTracingPass.material.uniforms.aperture, 'value', { label: 'Aperture (f)', options: { '1.4': 1.4, '2.8': 2.8, "4": 4, "5.6": 5.6, "8": 8, "11": 11, "16": 16 } } );
+	folder.addBinding( pathTracingPass.material.uniforms.focalLength, 'value', { label: 'Focal Length (mm)', min: 0, max: 0.1, step: 0.001 } );
 
 }
 
@@ -574,6 +575,7 @@ function centerModelAndAdjustCamera( model ) {
 	camera.far = maxDim * 100;
 	camera.updateProjectionMatrix();
 	controls.maxDistance = cameraDistance * 10;
+
 	controls.update();
 
 }

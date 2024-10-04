@@ -62,8 +62,9 @@ class PathTracerPass extends Pass {
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
-				focalDistance: { value: 1 },
-				aperture: { value: 0.0 },
+				focusDistance: { value: 16 }, // Subject 3 meters away
+				focalLength: { value: 0.01 }, // 2mm lens
+				aperture: { value: 2.8 }, // f/2.8 aperture
 
 				directionalLightDirection: { value: scene.getObjectByName( 'directionLight' )?.position.clone().normalize().negate() ?? new Vector3() },
 				directionalLightColor: { value: scene.getObjectByName( 'directionLight' )?.color ?? new Vector3() },

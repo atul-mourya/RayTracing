@@ -12,7 +12,7 @@ class OIDNDenoiser {
 		this.scene = scene;
 		this.camera = camera;
 		this.isDenoising = false;
-		this.enabled = true;
+		this.enabled = false;
 
 		this.denoiser = new Denoiser( "webgl" );
 		this.denoiser.quality = 'fast';
