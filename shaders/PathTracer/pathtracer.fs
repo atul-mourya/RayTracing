@@ -178,7 +178,7 @@ vec3 sampleBackgroundLighting(int bounceIndex, vec3 direction) {
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
-	vec3 incomingLight = vec3( 0.0 );
+	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
 	uint depth = 0u;
 	float alpha = 1.0;
@@ -190,7 +190,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
 			vec3 envColor = sampleBackgroundLighting(i, ray.direction);
-			incomingLight += envColor * throughput * environmentIntensity;
+			radiance += envColor * throughput * environmentIntensity;
 
 			// return vec4(envColor, 1.0);
 			break;
@@ -213,7 +213,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Handle alpha blending
 		float surfaceAlpha = material.color.a;
 		if( surfaceAlpha < 1.0 ) {
-			incomingLight = mix( incomingLight, material.color.rgb * throughput, surfaceAlpha );
+			radiance = mix( radiance, material.color.rgb * throughput, surfaceAlpha );
 			throughput *= ( 1.0 - surfaceAlpha );
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			continue;
@@ -297,12 +297,12 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 				// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, stats );
-		incomingLight += mix( vec3( 0.0 ), directLight, material.color.a ) * throughput * 10.0;
-		// incomingLight += directLight * throughput;
+		radiance += mix( vec3( 0.0 ), directLight, material.color.a ) * throughput * 10.0;
+		// radiance += directLight * throughput;
 
 		// Calculate emitted light
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		incomingLight += emittedLight * throughput * 50.0;
+		radiance += emittedLight * throughput * 50.0;
 
 
 		// Russian roulette path termination
@@ -310,7 +310,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			break;
 		}
 	}
-	return vec4( max( incomingLight, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
+	return vec4( max( radiance, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
 }
 
 vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
