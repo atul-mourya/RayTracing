@@ -82,7 +82,7 @@ export default class GeometryExtractor {
 
 	processMesh( mesh ) {
 
-		this.convertOpacityToTransmission( mesh );
+		// this.convertOpacityToTransmission( mesh );
 		const materialIndex = this.processMaterial( mesh.material );
 		this.extractGeometry( mesh, materialIndex );
 

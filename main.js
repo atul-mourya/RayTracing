@@ -77,9 +77,9 @@ function initRenderer() {
 	};
 
 	renderer = new WebGLRenderer( params );
-	renderer.setClearColor( 0xffffff, params.clearAlpha );
+	renderer.setClearColor( 0x000000, params.clearAlpha );
 	renderer.toneMapping = ACESFilmicToneMapping;
-	renderer.toneMappingExposure = Math.pow( 1.18, 4.0 );
+	renderer.toneMappingExposure = Math.pow( 1, 4.0 );
 	renderer.outputColorSpace = SRGBColorSpace;
 	renderer.setPixelRatio( ORIGINAL_PIXEL_RATIO );
 
@@ -260,14 +260,14 @@ function setupStatsFolder( pane ) {
 
 function setupSceneFolder( pane, parameters ) {
 
-	const param = { useBackground: scene.background ? true : false };
+	const param = { showBackground: pathTracingPass.material.uniforms.showBackground.value ? true : false };
 	const sceneFolder = pane.addFolder( { title: 'Scene' } ).on( 'change', reset );
 	sceneFolder.addBinding( renderer, 'toneMappingExposure', { label: 'Exposure', min: 0, max: 2, step: 0.01 } );//.on( 'change', e => pathTracingPass.material.uniforms.envMapIntensity.value = renderer.toneMappingExposure = Math.pow( e.value, 4.0 ) );
 	sceneFolder.addBinding( pathTracingPass.material.uniforms.enableEnvironmentLight, 'value', { label: 'Enable Environment' } );
-	sceneFolder.addBinding( param, 'useBackground', { label: 'Show Background' } ).on( 'change', e => {
+	sceneFolder.addBinding( param, 'showBackground', { label: 'Show Background' } ).on( 'change', e => {
 
 		scene.background = e.value ? scene.environment : null;
-		pathTracingPass.material.uniforms.useBackground.value = e.value;
+		pathTracingPass.material.uniforms.showBackground.value = e.value;
 
 	} );
 	sceneFolder.addBinding( parameters, 'model', { label: 'Model',

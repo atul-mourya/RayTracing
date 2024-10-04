@@ -56,7 +56,7 @@ class PathTracerPass extends Pass {
 				resolution: { value: new Vector2( width, height ) },
 				enableEnvironmentLight: { value: true },
 				environment: { value: scene.environment },
-				useBackground: { value: false },
+				showBackground: { value: scene.background },
 				environmentIntensity: { value: renderer.environmentIntensity },
 				envMapInfo: { value: new EquirectHdrInfoUniform() },
 

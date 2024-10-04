@@ -5,7 +5,7 @@ uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
-uniform bool useBackground;
+uniform bool showBackground;
 uniform int checkeredFrameInterval;
 uniform sampler2D previousFrameTexture;
 uniform int renderMode; // 0: Regular, 1: Checkered, 2: Tiled
@@ -158,10 +158,10 @@ vec3 sampleBackgroundLighting(int bounceIndex, vec3 direction) {
 
     if (bounceIndex == 0) {
         // For the first bounce (primary ray)
-        if (useBackground) {
+        if (showBackground) {
             return sampleEnvironment(direction);
         } else {
-			return vec3(0.0);  // If useBackground is false, we don't add any light (effectively black)
+			return vec3(0.0);  // If showBackground is false, we don't add any light (effectively black)
 		}
     } else {
         // For secondary rays (reflections, refractions), always sample the environment
