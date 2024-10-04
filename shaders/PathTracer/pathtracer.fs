@@ -236,15 +236,11 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			continue;
 		}
 
-		// Calculate emitted light
-		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		incomingLight += emittedLight * throughput;
-
 		vec4 randomSample = getRandomSample4( gl_FragCoord.xy, sampleIndex, i, rngState );
 
 		vec3 V = - ray.direction;
 		vec3 N = hitInfo.normal;
-		vec3 L;
+		vec3 L; // Light direction
 		vec3 brdfValue;
 
 		// Handle clear coat
@@ -255,10 +251,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		}
 		// return vec4(brdfValue, 1.0);
 
-		// Direct lighting using MIS
-		// Calculate direct lighting using Multiple Importance Sampling
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, stats );
-		incomingLight += reduceFireflies( directLight * throughput, 5.0 );
 
 		// Indirect lighting using MIS
 		vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i + 1, rngState, -1 );
@@ -301,6 +293,17 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Firefly reduction
 		throughput = reduceFireflies( throughput, 5.0 );
+
+				// Direct lighting using MIS
+		// Calculate direct lighting using Multiple Importance Sampling
+		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, stats );
+		incomingLight += mix( vec3( 0.0 ), directLight, material.color.a ) * throughput * 10.0;
+		// incomingLight += directLight * throughput;
+
+		// Calculate emitted light
+		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
+		incomingLight += emittedLight * throughput * 50.0;
+
 
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( depth, throughput, randomSample.z ) ) {
