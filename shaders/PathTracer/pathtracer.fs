@@ -73,7 +73,7 @@ vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 
 	return evaluateBRDF( V, L, N, material );
 }
 
-void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha ) {
+vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, uint rngState ) {
 
 	bool entering = dot( ray.direction, hitInfo.normal ) < 0.0;
 	float n1 = entering ? 1.0 : material.ior;
@@ -88,18 +88,16 @@ void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMateri
 
 	if( length( refractDir ) < 0.001 || RandomValue( rngState ) < fresnel ) {
 		ray.direction = reflectDir;
-		rayColor *= material.color.rgb;
+		return material.color.rgb;
 	} else {
 		ray.direction = refractDir;
 		if( entering ) {
 			vec3 absorption = ( vec3( 1.0 ) - material.color.rgb ) * material.thickness * 0.5;
-			rayColor *= exp( - absorption * hitInfo.dst );
+			return exp( - absorption * hitInfo.dst );
 		}
-		rayColor *= mix( vec3( 1.0 ), material.color.rgb, 0.5 );
+		return mix( vec3( 1.0 ), material.color.rgb, 0.5 );
 	}
-
-	alpha *= ( 1.0 - material.transmission ) * material.color.a;
-	ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+	
 }
 
 vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
@@ -232,7 +230,9 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Handle transparent materials
 		if( material.transmission > 0.0 ) {
-			handleTransparentMaterial( ray, hitInfo, material, rngState, throughput, alpha );
+			throughput *= sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
+			alpha *= ( 1.0 - material.transmission ) * material.color.a;
+			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			continue;
 		}
 
