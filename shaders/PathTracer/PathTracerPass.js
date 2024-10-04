@@ -11,6 +11,7 @@ import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from '../PathTracer/pathtracer.fs';
 import VertexShader from '../PathTracer/pathtracer.vs';
 import TriangleSDF from '../../src/TriangleSDF';
+import { EquirectHdrInfoUniform } from '../../src/EquirectHdrInfoUniform';
 import spatioTemporalBlueNoiseImage from '../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; // where file name is width, height, frame cycle, color precision in bits. spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
 import blueNoiseImage from '../../public/noise/simple_bluenoise.png'; //simple blue noise image
 
@@ -57,6 +58,7 @@ class PathTracerPass extends Pass {
 				environment: { value: scene.environment },
 				useBackground: { value: false },
 				environmentIntensity: { value: renderer.environmentIntensity },
+				envMapInfo: { value: new EquirectHdrInfoUniform() },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
@@ -87,7 +89,6 @@ class PathTracerPass extends Pass {
 				spatioTemporalBlueNoiseReolution: { value: new Vector3( 64, 64, 32 ) },
 
 				blueNoiseTexture: { value: null },
-				blueNoiseTextureResolution: { value: new Vector2() },
 
 				visMode: { value: 0 },
 				debugVisScale: { value: 100 },
@@ -95,22 +96,11 @@ class PathTracerPass extends Pass {
 				spheres: { value: [] },
 
 				albedoMaps: { value: null },
-				albedoMapsTexSize: { value: new Vector2() },
-
 				emissiveMaps: { value: null },
-				emissiveMapsTexSize: { value: new Vector2() },
-
 				normalMaps: { value: null },
-				normalMapsTexSize: { value: new Vector2() },
-
 				bumpMaps: { value: null },
-				bumpMapsTexSize: { value: new Vector2() },
-
 				roughnessMaps: { value: null },
-				roughnessMapsTexSize: { value: new Vector2() },
-
 				metalnessMaps: { value: null },
-				metalnessMapsTexSize: { value: new Vector2() },
 
 				triangleTexture: { value: null },
 				triangleTexSize: { value: new Vector2() },
@@ -156,7 +146,6 @@ class PathTracerPass extends Pass {
 			texture.generateMipmaps = false;
 
 			this.material.uniforms.blueNoiseTexture = texture;
-			this.material.uniforms.blueNoiseTextureResolution.value.set( texture.image.width, texture.image.height );
 
 		} );
 
@@ -220,19 +209,14 @@ class PathTracerPass extends Pass {
 			MAX_DIRECTIONAL_LIGHTS: sdfs.directionalLights.length
 		};
 		this.material.uniforms.spheres.value = sdfs.spheres;
+		this.material.uniforms.envMapInfo.value.updateFrom( scene.environment );
 
 		this.material.uniforms.albedoMaps.value = sdfs.albedoTextures;
-		this.material.uniforms.albedoMapsTexSize.value = sdfs.albedoTextures ? new Vector2( sdfs.albedoTextures.image.width, sdfs.albedoTextures.image.height ) : new Vector2();
 		this.material.uniforms.emissiveMaps.value = sdfs.emissiveTextures;
-		this.material.uniforms.emissiveMapsTexSize.value = sdfs.emissiveTextures ? new Vector2( sdfs.emissiveTextures.image.width, sdfs.emissiveTextures.image.height ) : new Vector2();
 		this.material.uniforms.normalMaps.value = sdfs.normalTextures;
-		this.material.uniforms.normalMapsTexSize.value = sdfs.normalTextures ? new Vector2( sdfs.normalTextures.image.width, sdfs.normalTextures.image.height ) : new Vector2();
 		this.material.uniforms.bumpMaps.value = sdfs.bumpTextures;
-		this.material.uniforms.bumpMapsTexSize.value = sdfs.bumpTextures ? new Vector2( sdfs.bumpTextures.image.width, sdfs.bumpTextures.image.height ) : new Vector2();
 		this.material.uniforms.roughnessMaps.value = sdfs.roughnessTextures;
-		this.material.uniforms.roughnessMapsTexSize.value = sdfs.roughnessTextures ? new Vector2( sdfs.roughnessTextures.image.width, sdfs.roughnessTextures.image.height ) : new Vector2();
 		this.material.uniforms.metalnessMaps.value = sdfs.metalnessTextures;
-		this.material.uniforms.metalnessMapsTexSize.value = sdfs.metalnessTextures ? new Vector2( sdfs.metalnessTextures.image.width, sdfs.metalnessTextures.image.height ) : new Vector2();
 
 		this.material.uniforms.triangleTexture.value = sdfs.triangleTexture;
 		this.material.uniforms.triangleTexSize.value = sdfs.triangleTexture ? new Vector2( sdfs.triangleTexture.image.width, sdfs.triangleTexture.image.height ) : new Vector2();

@@ -8,12 +8,6 @@ struct DirectionalLight {
 	float intensity;
 };
 
-float powerHeuristic( float pdfA, float pdfB ) {
-	float a = pdfA * pdfA;
-	float b = pdfB * pdfB;
-	return a / ( a + b );
-}
-
 bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats ) {
 	Ray shadowRay;
 	shadowRay.origin = point + normal * 0.001; // Offset to avoid self-intersection

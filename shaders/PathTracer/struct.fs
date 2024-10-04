@@ -24,6 +24,16 @@ struct Sphere {
 	RayTracingMaterial material;
 };
 
+struct EquirectHdrInfo {
+
+	sampler2D marginalWeights;
+	sampler2D conditionalWeights;
+	sampler2D map;
+
+	float totalSum;
+
+};
+
 struct HitInfo {
 	bool didHit;
 	float dst;

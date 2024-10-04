@@ -29,27 +29,7 @@ uniform float varianceThreshold;
 
 // Global variables
 ivec2 stats; // num triangle tests, num bounding box tests
-
-// Function declarations
-vec3 reduceFireflies( vec3 color, float maxValue );
-void handleTransparentMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState, inout vec3 rayColor, inout float alpha );
-bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue );
-vec3 ImportanceSampleCosine( vec3 N, vec2 xi );
-vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState );
-vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState );
-vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex );
-vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir );
-bool shouldRenderPixel( );
-vec4 getPreviousFrameColor( vec2 coord );
-
-// Function implementations
-vec3 reduceFireflies( vec3 color, float maxValue ) {
-	float luminance = dot( color, vec3( 0.299, 0.587, 0.114 ) );
-	if( luminance > maxValue ) {
-		color *= maxValue / luminance;
-	}
-	return color;
-}
+float pdf;
 
 vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 	// Create a local coordinate system where N is the Z axis
@@ -174,6 +154,31 @@ bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue ) {
 	return true;
 }
 
+vec3 sampleBackgroundLighting(int bounceIndex, vec3 direction) {
+
+	float lightsDenom = 1.0;
+
+    if (bounceIndex == 0) {
+        // For the first bounce (primary ray)
+        if (useBackground) {
+            return sampleEnvironment(direction);
+        } else {
+			return vec3(0.0);  // If useBackground is false, we don't add any light (effectively black)
+		}
+    } else {
+        // For secondary rays (reflections, refractions), always sample the environment
+		return sampleEnvironment(direction);
+        vec3 envColor;
+        float envPdf = sampleEquirect(direction, envColor);
+        envPdf /= lightsDenom;
+
+		envPdf = max(envPdf, 0.001);  // Ensure BRDF PDF is never zero
+
+        float misWeight = powerHeuristic(pdf, envPdf);
+        return envColor * misWeight;
+    }
+}
+
 vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 	vec3 incomingLight = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
@@ -186,14 +191,10 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
-			if( ! useBackground && i == 0 ) {
-				// For primary rays (camera rays), return black
-				incomingLight += vec3( 0.0 );
-			} else {
-				// For secondary rays (reflections, refractions), sample the environment normally
-				vec3 envLight = sampleEnvironment( ray.direction ) * throughput;
-				incomingLight += reduceFireflies( envLight, 5.0 );
-			}
+			vec3 envColor = sampleBackgroundLighting(i, ray.direction);
+			incomingLight += envColor * throughput * environmentIntensity;
+
+			// return vec4(envColor, 1.0);
 			break;
 		}
 
@@ -244,7 +245,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		vec3 V = - ray.direction;
 		vec3 N = hitInfo.normal;
 		vec3 L;
-		float pdf;
 		vec3 brdfValue;
 
 		// Handle clear coat
@@ -394,23 +394,7 @@ vec4 getPreviousFrameColor( vec2 coord ) {
 	return texture2D( previousFrameTexture, coord / resolution );
 }
 
-bool useDithering = true;
-float ditheringAmount = 0.5;
 
-vec3 applyDithering(vec3 color, vec2 uv) {
-    // Bayer matrix for 4x4 dithering pattern
-    const mat4 bayerMatrix = mat4(
-        0.0/16.0, 8.0/16.0, 2.0/16.0, 10.0/16.0,
-        12.0/16.0, 4.0/16.0, 14.0/16.0, 6.0/16.0,
-        3.0/16.0, 11.0/16.0, 1.0/16.0, 9.0/16.0,
-        15.0/16.0, 7.0/16.0, 13.0/16.0, 5.0/16.0
-    );
-    
-    ivec2 pixelCoord = ivec2(uv * resolution);
-    float dither = bayerMatrix[pixelCoord.x % 4][pixelCoord.y % 4];
-    
-    return color + (dither - 0.5) * ditheringAmount / 255.0;
-}
 
 void main( ) {
 
@@ -475,17 +459,16 @@ void main( ) {
 
 		pixel.color /= float( pixel.samples );
 
-		if (useDithering) {
-            pixel.color.rgb = applyDithering(pixel.color.rgb, gl_FragCoord.xy / resolution);
-        }
 	} else {
 		// For pixels that are not rendered in this frame, use the color from the previous frame
 		pixel.color = getPreviousFrameColor( gl_FragCoord.xy );
-
-		if (useDithering) {
-            pixel.color.rgb = applyDithering(pixel.color.rgb, gl_FragCoord.xy / resolution);
-        }
 	}
+
+	// pixel.color.rgb = toneMapACESFilmic(pixel.color.rgb);
+	// pixel.color.rgb = gammaCorrection(pixel.color.rgb);
+	// pixel.color.rgb = applyDithering(pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5); // 0.5 is the dithering amount
+
+
 
 	gl_FragColor = vec4( pixel.color.rgb, 1.0 );
 }

@@ -108,13 +108,6 @@ vec3 fresnelSchlick3( float cosTheta, vec3 F0 ) {
 	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
 }
 
-float luminance( vec3 color ) {
-
-	// https://en.wikipedia.org/wiki/Relative_luminance
-	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
-
-}
-
 float DistributionGGX( vec3 N, vec3 H, float roughness ) {
 
 	float alpha = roughness * roughness;
