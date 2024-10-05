@@ -302,8 +302,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Calculate emitted light
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		radiance += emittedLight * throughput * 50.0;
-
+		radiance += emittedLight * throughput;
 
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( depth, throughput, randomSample.z ) ) {

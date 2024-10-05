@@ -25,11 +25,11 @@ vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
 }
 
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
+	vec3 emission = material.emissiveIntensity * material.emissive;
 	if( material.emissiveMapIndex >= 0 ) {
-		vec3 emission = sampleMap( emissiveMaps, material.emissiveMapIndex, uv ).rgb;
-		material.emissive *= sRGBToLinear( emission );
+		emission *= sRGBToLinear( sampleMap( emissiveMaps, material.emissiveMapIndex, uv ).rgb );
 	}
-	return material.emissive * material.emissiveIntensity;
+	return emission;
 }
 
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
