@@ -21,16 +21,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -39,10 +38,11 @@ jobs:
 
       - name: Install dependencies
         run: yarn install && npm i
-
+        working-directory: ./RayTracing  # Set the correct working directory
 
       - name: Build
         run: npm run build
+        working-directory: ./RayTracing  # Set the correct working directory
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -51,8 +51,8 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload dist folder
-          path: './dist'
-          
+          path: './RayTracing/dist'  # Set the correct path
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
