@@ -1,7 +1,7 @@
-import TopBar from './components/layout/TopBar';
-import LeftSidebar from './components/layout/LeftSideBar';
-import MainViewport from './components/layout/MainViewport';
-import RightSidebar from './components/layout/RightSidebar';
+import TopBar from '@/components/layout/TopBar';
+import LeftSidebar from '@/components/layout/LeftSideBar';
+import MainViewport from '@/components/layout/MainViewport';
+import RightSidebar from '@/components/layout/RightSidebar';
 import { ThemeProvider } from "@/components/theme-provider"
 
 const App = () => {
