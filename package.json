@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --base=/RayTracing/",
+    "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
