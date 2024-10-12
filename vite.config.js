@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
 const __dirname = path.resolve();
-
+console.log( path.resolve( __dirname, "src" ) );
 export default defineConfig( {
 	base: '/',
 	assetsInclude: [ "**/*.hdr" ],
