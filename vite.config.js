@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 // const __dirname = path.resolve();
 console.log( __dirname );
 export default defineConfig( {
-	base: './',
+	base: '/RayTracing/',
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
 		react(),
@@ -25,7 +25,7 @@ export default defineConfig( {
 	],
 	resolve: {
 		alias: {
-			"@": path.resolve( __dirname, "./src" ),
+			"@": "./src",
 		},
 	},
 } );
