@@ -2,10 +2,10 @@ import path from "path";
 import react from "@vitejs/plugin-react-swc";
 import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
-// const __dirname = path.resolve();
+
 console.log( __dirname );
 export default defineConfig( {
-	// base: '/RayTracing/',
+	base: './',
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
 		react(),
@@ -25,7 +25,7 @@ export default defineConfig( {
 	],
 	resolve: {
 		alias: {
-			"@": __dirname + "/src",
+			"@": path.resolve( __dirname, "./src" ),
 		},
 	},
 } );
