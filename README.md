@@ -18,6 +18,9 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - area light support
 - caustic support
 - SAH based BVH
+- wasm BVH https://github.com/madmann91/bvh
+- BVH in compute shader using webgpu: https://x.com/AddisonPrairie/status/1823934213764341981
+-  jump flood algorithm for non blocking UI interactions
 - Object dynamic transformation changes
 - material dynamic changes
 - Hybrid Rendering
@@ -27,6 +30,10 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 ### Refactor:
 - WebGPU version using TSL 
+- https://github.com/gnikoloff/webgpu-raytracer
+
+### Resources and reads
+https://blog.traverseresearch.nl/dynamic-diffuse-global-illumination-b56dc0525a0a
 
 
 ### Plan for Hybrid Rendering:

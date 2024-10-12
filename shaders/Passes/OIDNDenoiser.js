@@ -5,7 +5,7 @@ import { generateAlbedoAndNormalMaps, debugGeneratedMaps } from './AlbedoNormalG
 
 class OIDNDenoiser {
 
-	constructor( renderer, scene, camera ) {
+	constructor( renderer, scene, camera, denoiserContainer ) {
 
 		this.sourceCanvas = renderer.domElement;
 		this.renderer = renderer;
@@ -28,7 +28,7 @@ class OIDNDenoiser {
 		this.denoisedCanvas.style.height = '100%';
 
 		this.denoiser.setCanvas( this.denoisedCanvas );
-		this.sourceCanvas.parentElement.prepend( this.denoisedCanvas );
+		denoiserContainer.prepend( this.denoisedCanvas );
 
 	}
 
@@ -81,6 +81,7 @@ class OIDNDenoiser {
 		this.denoiser.setImage( 'color', this.sourceCanvas );
 
 		await this.execute();
+		debugger;
 		if ( this.renderer ) this.renderer.resetState();
 		this.sourceCanvas.style.opacity = 0;
 
