@@ -1,10 +1,14 @@
-import { defineConfig } from 'vite';
+import path from "path";
+import react from "@vitejs/plugin-react-swc";
 import glsl from 'vite-plugin-glsl';
+import { defineConfig } from "vite";
+const __dirname = path.resolve();
 
 export default defineConfig( {
-	base: '/RayTracing/',
+	// base: '/RayTracing/',
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
+		react(),
 		glsl( {
 			include: [ // Glob pattern, or array of glob patterns to import
 			  '**/*.glsl', '**/*.wgsl',
@@ -18,5 +22,10 @@ export default defineConfig( {
 			watch: false, // Recompile shader on change
 			root: '/' // Directory for root imports
 		} ),
-	]
+	],
+	resolve: {
+		alias: {
+			"@": path.resolve( __dirname, "./src" ),
+		},
+	},
 } );

@@ -1,51 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Path Tracing with Three.js</title>
-    <link rel="stylesheet" href="./style.css" />
-</head>
-
-<body>
-    <div class="layout-container">
-        <div id="container-3d"></div>
-        <div id="tweakpane-container"></div>
-    </div>
-    <div id="loading-overlay" class="loading-overlay">
-        <div class="loading-spinner"></div>
-    </div>
-    <div id="drag-drop-info">
-        Drag and drop a GLB file to load a new model
-    </div>
-    <script>
-        const dropZone = document.body;
-
-        dropZone.addEventListener( 'dragenter', ( event ) => {
-
-            event.preventDefault();
-            event.stopPropagation();
-            dropZone.classList.add( 'drag-over' );
-
-        } );
-
-        dropZone.addEventListener( 'dragleave', ( event ) => {
-
-            event.preventDefault();
-            event.stopPropagation();
-            dropZone.classList.remove( 'drag-over' );
-
-        } );
-
-        dropZone.addEventListener( 'dragover', ( event ) => {
-
-            event.preventDefault();
-            event.stopPropagation();
-            event.dataTransfer.dropEffect = 'copy';
-
-        } );
-    </script>
-    <script type="module" src="./main.js"></script>
-</body>
-
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
