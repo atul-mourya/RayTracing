@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 
 console.log( __dirname );
 export default defineConfig( {
-	base: './',
+	// base: './',
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
 		react(),
