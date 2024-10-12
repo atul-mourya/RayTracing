@@ -39,7 +39,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: yarn install && npm i
+        run: yarn install && npm ci
 
       - name: Build
         run: npm run build
