@@ -279,11 +279,11 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Firefly reduction
 		throughput = reduceFireflies( throughput, 5.0 );
 
-				// Direct lighting using MIS
+		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, stats );
-		radiance += mix( vec3( 0.0 ), directLight, material.color.a ) * throughput * 3.14;
-		// radiance += directLight * throughput * 3.14;
+		// radiance += mix( vec3( 0.0 ), directLight, material.color.a ) * throughput * 3.14;
+		radiance += reduceFireflies( directLight * throughput, 5.0 );
 		// return vec4(directLight, 1.0);
 
 		// Calculate emitted light

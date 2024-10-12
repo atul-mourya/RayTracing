@@ -46,6 +46,7 @@ class PathTracerApp extends EventDispatcher {
         this.height = container.clientHeight;
 
         this.scene = new Scene();
+        this.scene.environmentIntensity = DEFAULT_STATE.environmentIntensity;
         this.camera = new PerspectiveCamera(DEFAULT_STATE.fov, this.width / this.height, 0.01, 1000);
         this.renderer = new WebGLRenderer({
             powerPreference: "high-performance",
@@ -101,10 +102,7 @@ class PathTracerApp extends EventDispatcher {
         this.directionalLight = new DirectionalLight(DEFAULT_STATE.directionalLightColor, DEFAULT_STATE.directionalLightIntensity);
         this.directionalLight.position.fromArray(DEFAULT_STATE.directionalLightPosition);
         
-        // this.scene.add(this.directionalLight);
-        // let a = this.directionalLight.clone();
-        // a.position.set(-this.directionalLight.position.x, this.directionalLight.position.y+ 2.0, this.directionalLight.position.z);
-        // this.scene.add(a);
+        this.scene.add(this.directionalLight);
 
         // Setup composer and passes
         this.setupComposer();

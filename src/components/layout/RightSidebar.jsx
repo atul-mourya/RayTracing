@@ -233,7 +233,6 @@ const RightSidebar = () => {
     setEnableOIDN(value);
     if (window.pathTracerApp) {
       window.pathTracerApp.denoiser.enabled = value;
-      window.pathTracerApp.reset();
     }
   }
 
@@ -241,7 +240,6 @@ const RightSidebar = () => {
     setEnableRealtimeDenoiser(value);
     if (window.pathTracerApp) {
       window.pathTracerApp.denoiserPass.enabled = value;
-      window.pathTracerApp.reset();
     }
   }
 
