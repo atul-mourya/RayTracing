@@ -1,5 +1,5 @@
 import path from "path";
-import react from "@vitejs/plugin-react-swc";
+import react from "@vitejs/plugin-react";
 import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
 const __dirname = path.resolve();
