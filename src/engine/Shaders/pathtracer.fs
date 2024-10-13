@@ -24,33 +24,17 @@ uniform float varianceThreshold;
 #include rayintersection.fs
 #include environment.fs
 #include bvhtraverse.fs
-#include pbr.fs
+#include texture_sampling.fs
+#include fresnel.fs
+#include brdfs.fs
 #include lights.fs
 
 // Global variables
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
-	// Create a local coordinate system where N is the Z axis
-	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
-	vec3 B = cross( N, T );
-
-	// Cosine-weighted sampling
-	float phi = 2.0 * PI * xi.x;
-	float cosTheta = sqrt( 1.0 - xi.y );
-	float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
-
-	// Convert from polar to Cartesian coordinates
-	vec3 localDir = vec3( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
-
-	// Transform the sampled direction to world space
-	return normalize( T * localDir.x + B * localDir.y + N * localDir.z );
-}
-
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
-	vec3 F0 = mix( vec3( 0.04 ), material.color.rgb, material.metalness );
-
+	
 	float diffuseRatio = 0.5 * ( 1.0 - material.metalness );
 
 	if( RandomValue( rngState ) < diffuseRatio ) {
@@ -100,7 +84,7 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	
 }
 
-vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
+vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
 	vec3 N = hitInfo.normal;
 	vec3 V = - ray.direction;
 
@@ -114,12 +98,10 @@ vec3 handleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	float NoV = max( dot( N, V ), 0.0 );
 	float VoH = max( dot( V, H ), 0.0 );
 
-	// Fresnel term for clear coat (approximate with 0.04 as F0)
-	float F = fresnelSchlick( VoH, 0.04 );
-
 	// Specular BRDF for clear coat
 	float D = DistributionGGX( N, H, material.clearCoatRoughness );
 	float G = GeometrySmith( N, V, L, material.clearCoatRoughness );
+	float F = fresnelSchlick( VoH, 0.04 ); // Fresnel term for clear coat (approximate with 0.04 as F0)
 	vec3 clearCoatBRDF = vec3( D * G * F ) / ( 4.0 * NoV * NoL + 0.001 );
 
 	pdf = ( D * NoH ) / ( 4.0 * VoH );
@@ -230,7 +212,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Handle clear coat
 		if( material.clearCoat > 0.0 ) {
-			brdfValue = handleClearCoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
+			brdfValue = sampleClearCoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
 		} else {
 			brdfValue = sampleBRDF( V, N, material, randomSample.xy, L, pdf, rngState );
 		}

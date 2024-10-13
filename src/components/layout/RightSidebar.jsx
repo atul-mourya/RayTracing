@@ -29,6 +29,7 @@ const RightSidebar = () => {
   const [adaptiveSampling, setAdaptiveSampling] = useState(DEFAULT_STATE.adaptiveSampling);
   const [renderMode, setRenderMode] = useState(DEFAULT_STATE.renderMode);
   const [checkeredSize, setCheckeredSize] = useState(DEFAULT_STATE.checkeredSize);
+  const [tiles, setTiles] = useState(DEFAULT_STATE.tile);
   const [resolution, setResolution] = useState(DEFAULT_STATE.resolution);
   const [directionalLightIntensity, setDirectionalLightIntensity] = useState(DEFAULT_STATE.directionalLightIntensity);
   const [directionalLightColor, setDirectionalLightColor] = useState(DEFAULT_STATE.directionalLightColor);
@@ -188,6 +189,14 @@ const RightSidebar = () => {
     }
   }
 
+  const handleTileUpdate = (value) => {
+    setTiles(value);
+    if (window.pathTracerApp) {
+      window.pathTracerApp.pathTracingPass.material.uniforms.tiles.value = value;
+      window.pathTracerApp.reset();
+    }
+  }
+
   const handleResolutionChange = (value) => {
     setResolution(value);
     let result = 0.25;
@@ -197,14 +206,13 @@ const RightSidebar = () => {
         case '1': result = 0.5; break;
         case '2': result = 1; break;
       }
-      window.pathTracerApp.updateResolution(result);
+      window.pathTracerApp.updateResolution( window.devicePixelRatio * result );
     }
   }
 
   const handleDirectionalLightIntensityChange = (value) => {
     setDirectionalLightIntensity(value);
     if (window.pathTracerApp) {
-      // debugger
       window.pathTracerApp.directionalLight.intensity = value[0];
       window.pathTracerApp.pathTracingPass.updateLights();
       window.pathTracerApp.reset();
@@ -420,7 +428,7 @@ const RightSidebar = () => {
                 )}
                 {renderMode === '2' && (
                   <div className="flex items-center justify-between">
-                    <Slider label={"Tile Size"} min={1} max={10} step={1} value={[2]} />
+                    <Slider label={"Tile Size"} min={1} max={10} step={1} value={[tiles]} onValueChange={handleTileUpdate} />
                   </div>
                 )}
                 <div className="flex items-center justify-between">

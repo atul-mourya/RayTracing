@@ -80,7 +80,7 @@ export class PathTracerPass extends Pass {
 				frame: { value: 0 },
 				maxFrames: { value: DEFAULT_STATE.maxSamples },
 				maxBounceCount: { value: DEFAULT_STATE.bounces },
-				numRaysPerPixel: { value: 1 },
+				numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
 
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
@@ -89,8 +89,8 @@ export class PathTracerPass extends Pass {
 				varianceThreshold: { value: 0.001 },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
-				tiles: { value: 4 },
-				checkeredFrameInterval: { value: 2 },
+				tiles: { value: DEFAULT_STATE.tiles },
+				checkeredFrameInterval: { value: DEFAULT_STATE.checkeredSize },
 				previousFrameTexture: { value: null },
 
 				spatioTemporalBlueNoiseTexture: { value: null },

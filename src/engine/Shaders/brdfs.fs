@@ -1,77 +1,3 @@
-uniform sampler2DArray albedoMaps;
-uniform sampler2DArray normalMaps;
-uniform sampler2DArray bumpMaps;
-uniform sampler2DArray metalnessMaps;
-uniform sampler2DArray roughnessMaps;
-uniform sampler2DArray emissiveMaps;
-
-vec2 wrapUV( vec2 uv ) {
-	return fract( uv );
-}
-
-vec4 sampleMap( sampler2DArray mapArray, int mapIndex, vec2 uv ) {
-	if( mapIndex >= 0 ) {
-		return texture( mapArray, vec3( wrapUV( uv ), float( mapIndex ) ) );
-	}
-	return vec4( 1.0 );
-}
-
-vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
-	if( material.albedoMapIndex >= 0 ) {
-		vec4 albedo = sampleMap( albedoMaps, material.albedoMapIndex, uv );
-		material.color *= vec4( sRGBToLinear( albedo.rgb ), albedo.a );
-	}
-	return material.color;
-}
-
-vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
-	vec3 emission = material.emissiveIntensity * material.emissive;
-	if( material.emissiveMapIndex >= 0 ) {
-		emission *= sRGBToLinear( sampleMap( emissiveMaps, material.emissiveMapIndex, uv ).rgb );
-	}
-	return emission;
-}
-
-float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.metalnessMapIndex >= 0 ) {
-		material.metalness *= sampleMap( metalnessMaps, material.metalnessMapIndex, uv ).b;
-	}
-	return material.metalness;
-}
-
-float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.roughnessMapIndex >= 0 ) {
-		material.roughness *= sampleMap( roughnessMaps, material.roughnessMapIndex, uv ).g;
-	}
-	return material.roughness;
-}
-
-vec3 perturbNormal( vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv, RayTracingMaterial material ) {
-	vec3 resultNormal = normal;
-
-	// Sample normal map
-	if( material.normalMapIndex >= 0 ) {
-		vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, uv ).xyz * 2.0 - 1.0;
-		mat3 TBN = mat3( tangent, bitangent, normal );
-		resultNormal = normalize( TBN * normalMap );
-	}
-
-	// Apply bump mapping
-	if( material.bumpMapIndex >= 0 ) {
-		float bumpScale = 0.05; // Adjust this value to control the strength of the bump effect
-		vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
-
-		float h0 = sampleMap( bumpMaps, material.bumpMapIndex, uv ).r;
-		float h1 = sampleMap( bumpMaps, material.bumpMapIndex, uv + vec2( texelSize.x, 0.0 ) ).r;
-		float h2 = sampleMap( bumpMaps, material.bumpMapIndex, uv + vec2( 0.0, texelSize.y ) ).r;
-
-		vec3 bumpNormal = normalize( vec3( h1 - h0, h2 - h0, bumpScale ) );
-		resultNormal = normalize( resultNormal + bumpNormal );
-	}
-
-	return resultNormal;
-}
-
 vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
 
 	float alpha = roughness * roughness;
@@ -96,16 +22,21 @@ vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
 	return normalize( sampleVec );
 }
 
-vec3 fresnel( vec3 f0, float NoV, float roughness ) {
-	return f0 + ( max( vec3( 1.0 - roughness ), f0 ) - f0 ) * pow( 1.0 - NoV, 5.0 );
-}
+vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
+	// Create a local coordinate system where N is the Z axis
+	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
+	vec3 B = cross( N, T );
 
-float fresnelSchlick( float cosTheta, float F0 ) {
-	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
-}
+	// Cosine-weighted sampling
+	float phi = 2.0 * PI * xi.x;
+	float cosTheta = sqrt( 1.0 - xi.y );
+	float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
 
-vec3 fresnelSchlick3( float cosTheta, vec3 F0 ) {
-	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
+	// Convert from polar to Cartesian coordinates
+	vec3 localDir = vec3( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
+
+	// Transform the sampled direction to world space
+	return normalize( T * localDir.x + B * localDir.y + N * localDir.z );
 }
 
 float DistributionGGX( vec3 N, vec3 H, float roughness ) {

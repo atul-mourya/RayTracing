@@ -17,6 +17,8 @@ export class OIDNDenoiser {
 		this.denoiser = new Denoiser( "webgl" );
 		this.denoiser.quality = 'fast';
 		this.denoiser.hdr = false;
+		this.denoiser.height = this.sourceCanvas.height;
+		this.denoiser.width = this.sourceCanvas.width;
 
 		this.denoisedCanvas = document.createElement( 'canvas' );
 		this.denoisedCanvas.width = this.sourceCanvas.width;
