@@ -234,6 +234,27 @@ vec2 sampleBlueNoise(vec2 pixelCoords) {
 	return fract( noise + random ); // Combine blue noise with PCG hash
 }
 
+vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex) {
+    // Calculate stratum
+    int strataSize = int(sqrt(float(numRaysPerPixel)));
+    int strataX = sampleIndex % strataSize;
+    int strataY = sampleIndex / strataSize;
+
+    // Get base stratified sample
+    vec2 stratifiedSample = vec2(
+        (float(strataX) + 0.5) / float(strataSize),
+        (float(strataY) + 0.5) / float(strataSize)
+    );
+
+    // Sample noise texture
+    vec2 noiseValue = texture(blueNoiseTexture, pixelCoord / float(textureSize(blueNoiseTexture, 0))).xy;
+
+    // Offset sample using noise
+    vec2 offset = (noiseValue - 0.5) / float(strataSize);
+    return fract(stratifiedSample + offset);
+}
+
+
 vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState, int preferredTechnique) {
     int technique = (preferredTechnique != -1) ? preferredTechnique : samplingTechnique;
     
@@ -243,6 +264,9 @@ vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout ui
 		
 		case 5: // Simple 2D Blue Noise
 			return sampleBlueNoise(pixelCoord);
+
+		case 6: // Stratified Blue Noise
+			return stratifiedBlueNoiseSample(pixelCoord, sampleIndex);
         
         case 0: // PCG
             return vec2(RandomValue(rngState), RandomValue(rngState));
@@ -268,14 +292,19 @@ vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout 
 		return vec4( RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ), RandomValue( rngState ) );
 
 	} else if( samplingTechnique == 4 ) { // Stratified
-		int pixelIndex = int( pixelCoord.y ) * int( resolution.x ) + int( pixelCoord.x );
-
-		vec2 stratified = stratifiedSample( pixelIndex, sampleIndex, numRaysPerPixel, rngState );
-		return vec4( stratified, RandomValue( rngState ), RandomValue( rngState ) );
+		return vec4(
+			stratifiedBlueNoiseSample(pixelCoord, sampleIndex * 2),
+			stratifiedBlueNoiseSample(pixelCoord, sampleIndex * 2 + 1)
+		);
 
 	} else if ( samplingTechnique == 5 ) { // Simple 2D Blue Noise
 
 		vec2 noise = sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
+		return vec4( noise, noise );
+
+	} else if ( samplingTechnique == 6 ) { // Stratified Blue Noise
+	
+		vec2 noise = stratifiedBlueNoiseSample( pixelCoord, sampleIndex );
 		return vec4( noise, noise );
 		
 	} else { // Halton or Sobol

@@ -380,7 +380,7 @@ const RightSidebar = () => {
                       <SelectValue placeholder="Select sampler" />
                     </SelectTrigger>
                     <SelectContent>
-                      {['PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise'].map((sampler, i) => (
+                      {['PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise', 'Stratified Blue Noise'].map((sampler, i) => (
                         <SelectItem key={sampler} value={i.toString()}>{sampler}</SelectItem>
                       ))}
                     </SelectContent>
