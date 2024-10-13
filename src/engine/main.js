@@ -12,11 +12,12 @@ import {
     Vector2,
     Mesh,
     PlaneGeometry,
-    MeshStandardMaterial,
+    MeshPhysicalMaterial,
     EquirectangularReflectionMapping,
     Box3,
     Vector3,
-    EventDispatcher
+    EventDispatcher,
+    RectAreaLight
 } from 'three';
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
@@ -35,7 +36,7 @@ import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
 import { TemporalReprojectionPass } from './Passes/TemporalReprojectionPass';
-import { disposeObjectFromMemory } from './Processor/utils';
+import { disposeObjectFromMemory, generateMaterialSpheres } from './Processor/utils';
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE  } from './Processor/Constants';
 
 class PathTracerApp extends EventDispatcher {
@@ -103,6 +104,12 @@ class PathTracerApp extends EventDispatcher {
         this.directionalLight.position.fromArray(DEFAULT_STATE.directionalLightPosition);
         
         this.scene.add(this.directionalLight);
+
+        // add rectarea light
+        const rectLight = new RectAreaLight(0xffffff, 1, 10, 10);
+        rectLight.position.set(1, 1, 1);
+        rectLight.lookAt(0, 0, 0);
+        // this.scene.add(rectLight);
 
         // Setup composer and passes
         this.setupComposer();
@@ -178,11 +185,11 @@ class PathTracerApp extends EventDispatcher {
     setupFloorPlane() {
         this.floorPlane = new Mesh(
             new PlaneGeometry(),
-            new MeshStandardMaterial({
+            new MeshPhysicalMaterial({
                 transparent: false,
-                color: 0x555555,
-                roughness: 0.05,
-                metalness: 0.0,
+                color: 0xffffff,
+                roughness: 0.0,
+                metalness: 0.1,
             })
         );
         // this.scene.add(this.floorPlane);
@@ -253,7 +260,7 @@ class PathTracerApp extends EventDispatcher {
             const gltf = await loader.loadAsync(modelUrl);
             if (this.targetModel) disposeObjectFromMemory( this.targetModel );
             this.targetModel = gltf.scene;
-
+            // this.targetModel = generateMaterialSpheres();
             this.onModelLoad(this.targetModel);
             this.pauseRendering = false;
             loader.dracoLoader.dispose();
