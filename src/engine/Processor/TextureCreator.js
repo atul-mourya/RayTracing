@@ -1,4 +1,4 @@
-import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType, FrontSide, BackSide, DoubleSide, Line } from "three";
+import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
 
 const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize
 
@@ -59,9 +59,9 @@ export default class TextureCreator {
 			data[ stride ++ ] = mat.clearcoatRoughness;
 			data[ stride ++ ] = mat.clearcoatRoughnessMap;
 
-			// temp
+			// pixel 7
 			data[ stride ++ ] = mat.opacity;
-			data[ stride ++ ] = 0;
+			data[ stride ++ ] = mat.side;
 			data[ stride ++ ] = 0;
 			data[ stride ++ ] = 0;
 
@@ -113,19 +113,6 @@ export default class TextureCreator {
 		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
 		return texture;
-
-	}
-
-	getMaterialSide( material ) {
-
-		if ( material.transmission > 0.0 ) return 0;
-		switch ( material.size ) {
-
-			case FrontSide: return 1;
-			case BackSide: return - 1;
-			case DoubleSide: return 0;
-
-		}
 
 	}
 

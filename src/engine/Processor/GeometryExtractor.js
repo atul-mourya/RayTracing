@@ -1,4 +1,4 @@
-import { Vector3, Vector2, Color, Matrix3, Matrix4, MeshPhysicalMaterial } from "three";
+import { Vector3, Vector2, Color, Matrix3, Matrix4, MeshPhysicalMaterial, FrontSide, BackSide, DoubleSide } from "three";
 
 const MAX_TEXTURES_LIMIT = 48;
 
@@ -183,8 +183,9 @@ export default class GeometryExtractor {
 			opacity: material.opacity ?? 0,
 			transmission: material.transmission ?? 0.0,
 			thickness: material.thickness ?? 0.1,
-			clearCoat: material.clearCoat ?? 0.0,
-			clearCoatRoughness: material.clearCoatRoughness ?? 0.0,
+			clearcoat: material.clearcoat ?? 0.0,
+			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,
+			side: this.getMaterialSide( material ),
 			normalScale: material.normalScale ?? { x: 1, y: 1 },
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),
@@ -192,9 +193,25 @@ export default class GeometryExtractor {
 			roughnessMap: this.processTexture( material.roughnessMap, this.roughnessMaps ),
 			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
 			emissiveMap: this.processTexture( material.emissiveMap, this.emissiveMaps ),
+			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
+			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] )
 		};
 
 	}
+
+	getMaterialSide( material ) {
+
+		if ( material.transmission > 0.0 ) return 2;
+		switch ( material.side ) {
+
+			case FrontSide: return 0;
+			case BackSide: return 1;
+			case DoubleSide: return 2;
+
+		}
+
+	}
+
 
 	processTexture( texture, textureArray ) {
 

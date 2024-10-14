@@ -67,10 +67,11 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.normalMapIndex = int( data5.r );
 	material.bumpMapIndex = int( data5.a );
 
-	material.clearCoat = data6.r;
-	material.clearCoatRoughness = data6.b;
+	material.clearcoat = data6.r;
+	material.clearcoatRoughness = data6.b;
 
 	material.opacity = data7.r;
+	material.side = int( data7.g );
 
 	return material;
 }
@@ -129,8 +130,22 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 				Triangle tri = getTriangle( triIndex );
 				HitInfo hit = RayTriangle( ray, tri );
 				if( hit.didHit && hit.dst < closestHit.dst ) {
-					closestHit = hit;
-					closestHit.material = getMaterial( tri.materialIndex );
+					hit.material = getMaterial( tri.materialIndex );
+
+					/* skip if 
+						use ray direction and hit normal and check below cases to determine we need to skip or not
+						case FrontSide -> material.side = 0;
+						case BackSide -> material.side = 1;
+						case DoubleSide -> material.side = 2;
+					*/
+					if( hit.material.side == 0 && dot( ray.direction, hit.normal ) > 0.0001 ) {
+						hit.didHit = false;
+					} else if( hit.material.side == 1 && dot( ray.direction, hit.normal ) < 0.0001 ) {
+						hit.didHit = false;
+					} else {
+						closestHit = hit;
+					}
+
 				}
 			}
 		} else {

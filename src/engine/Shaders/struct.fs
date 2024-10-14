@@ -7,9 +7,10 @@ struct RayTracingMaterial {
 	float ior;  // Index of refraction
 	float transmission;  // 0 = opaque, 1 = fully transparent
 	float thickness;
-	float clearCoat;
-	float clearCoatRoughness;
+	float clearcoat;
+	float clearcoatRoughness;
 	float opacity;
+	int side;
 	int albedoMapIndex;
 	int emissiveMapIndex;
 	int normalMapIndex;

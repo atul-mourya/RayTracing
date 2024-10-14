@@ -90,7 +90,7 @@ vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 
 	// Sample microfacet normal for clear coat layer
 	vec2 Xi = randomSample.xy;
-	vec3 H = ImportanceSampleGGX( N, material.clearCoatRoughness, Xi );
+	vec3 H = ImportanceSampleGGX( N, material.clearcoatRoughness, Xi );
 	L = reflect( - V, H );
 
 	float NoL = max( dot( N, L ), 0.0 );
@@ -99,10 +99,10 @@ vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	float VoH = max( dot( V, H ), 0.0 );
 
 	// Specular BRDF for clear coat
-	float D = DistributionGGX( N, H, material.clearCoatRoughness );
-	float G = GeometrySmith( N, V, L, material.clearCoatRoughness );
+	float D = DistributionGGX( N, H, material.clearcoatRoughness );
+	float G = GeometrySmith( N, V, L, material.clearcoatRoughness );
 	float F = fresnelSchlick( VoH, 0.04 ); // Fresnel term for clear coat (approximate with 0.04 as F0)
-	vec3 clearCoatBRDF = vec3( D * G * F ) / ( 4.0 * NoV * NoL + 0.001 );
+	vec3 clearcoatBRDF = vec3( D * G * F ) / ( 4.0 * NoV * NoL + 0.001 );
 
 	pdf = ( D * NoH ) / ( 4.0 * VoH );
 
@@ -112,8 +112,8 @@ vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	baseBRDF = sampleBRDF( V, N, material, randomSample.zw, L, basePDF, rngState );
 
 	// Compute final BRDF and PDF
-	vec3 finalBRDF = mix( baseBRDF, clearCoatBRDF, material.clearCoat * F );
-	pdf = mix( basePDF, pdf, material.clearCoat * F );
+	vec3 finalBRDF = mix( baseBRDF, clearcoatBRDF, material.clearcoat * F );
+	pdf = mix( basePDF, pdf, material.clearcoat * F );
 
 	return finalBRDF;
 }
@@ -211,7 +211,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		vec3 brdfValue;
 
 		// Handle clear coat
-		if( material.clearCoat > 0.0 ) {
+		if( material.clearcoat > 0.0 ) {
 			brdfValue = sampleClearCoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
 		} else {
 			brdfValue = sampleBRDF( V, N, material, randomSample.xy, L, pdf, rngState );
