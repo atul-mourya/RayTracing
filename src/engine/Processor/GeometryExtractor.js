@@ -191,7 +191,7 @@ export default class GeometryExtractor {
 			bumpMap: this.processTexture( material.bumpMap, this.bumpMaps ),
 			roughnessMap: this.processTexture( material.roughnessMap, this.roughnessMaps ),
 			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
-			emissiveMap: this.processTexture( material.metalnessMap, this.emissiveMaps ),
+			emissiveMap: this.processTexture( material.emissiveMap, this.emissiveMaps ),
 		};
 
 	}

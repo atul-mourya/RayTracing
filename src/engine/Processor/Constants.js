@@ -44,6 +44,8 @@ export const HDR_FILES = [
 	{ name: "Wasteland Clouds Pure Sky", 	url: `${import.meta.env.BASE_URL}hdri/wasteland_clouds_puresky_2k.hdr`, preview: `${import.meta.env.BASE_URL}hdri/wasteland_clouds_puresky.webp` },
 	{ name: "Whale Skeleton", 				url: `${import.meta.env.BASE_URL}hdri/whale_skeleton_2k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/whale_skeleton.webp` },
 ];
+
+// export const MODEL_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/';
 // export const MODEL_FILES = [
 // 	{ name: "3D Home Layout", url: "3d-home-layout/scene.glb" },
 // 	{ name: "Astraia", url: "astraia/scene.gltf" },
@@ -134,7 +136,7 @@ export const MODEL_FILES = [
 	{ name: "Spyglasscase", 		url: `${import.meta.env.BASE_URL}models/spyglasscase.glb`, preview: `${import.meta.env.BASE_URL}models/spyglasscase.png` },
 	{ name: "Rolex Oyster", 		url: `${import.meta.env.BASE_URL}models/watch-rolex-oyster-perpetual.glb`, preview: `${import.meta.env.BASE_URL}models/watch-rolex-oyster-perpetual.png` },
 	{ name: "Suzzane", 				url: `${import.meta.env.BASE_URL}models/suzzane.glb`, preview: `${import.meta.env.BASE_URL}models/suzzane.png` },
-	{ name: "Laser Flashlight", 	url: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.glb`, preview: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.png` }
+	{ name: "Laser Flashlight", 	url: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.glb`, preview: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.png` },
 ];
 
 export const DEFAULT_STATE = {
