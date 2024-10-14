@@ -11,6 +11,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 
 ### Feature:
+- Add load model by url feature
 - better camera dof control
 - auto focus based on object distance
 - Scene based directional lights support

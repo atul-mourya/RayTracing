@@ -1,11 +1,29 @@
-/* eslint-disable react/prop-types */
 import { useState, useEffect } from 'react';
-import { Menu, Play, Pause, Save, FolderOpen, Undo, Redo, Copy, ClipboardPaste, ZoomIn, ZoomOut, Focus } from 'lucide-react';
+import { Menu, Play, Pause, Save, FolderOpen, Link, Undo, Redo, Copy, ClipboardPaste, ZoomIn, ZoomOut, Focus, Loader2, Github, ChevronDown } from 'lucide-react';
 import { ThemeToggle } from '../theme-toggle';
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const TopBar = () => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
   const handlePlayPauseClick = () => {
     setIsPlaying(!isPlaying);
@@ -18,6 +36,43 @@ const TopBar = () => {
       }
     }
   };
+
+  const validateUrl = (url) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+
+  const handleImportFromUrl = () => {
+    console.log('Importing from URL:', importUrl);
+    if (!validateUrl(importUrl)) {
+      // setIsValidUrl(false);
+      // return;
+    }
+    setIsImporting(true);
+    if (window.pathTracerApp) {
+      window.pathTracerApp.loadModel(importUrl)
+        .then(() => {
+          console.log('Model loaded successfully');
+          setIsImporting(false);
+          setImportUrl('');
+          setIsImportModalOpen(false);
+        })
+        .catch((error) => {
+          console.error('Error loading model:', error);
+          setIsImporting(false);
+          // You might want to show an error message to the user here
+        });
+    } else {
+      // If pathTracerApp is not available, reset the state
+      setIsImporting(false);
+    }
+  };
+
 
   useEffect(() => {
     const handleRenderComplete = () => {
@@ -39,16 +94,6 @@ const TopBar = () => {
     }
   }, []);
 
-  const DropdownMenuItem = ({ children, icon: Icon, onSelect }) => (
-    <DropdownMenu.Item
-      className="group text-sm flex items-center px-2 py-2 cursor-pointer hover:bg-blue-500 hover:text-white"
-      onSelect={onSelect}
-    >
-      {Icon && <Icon className="mr-2" size={16} />}
-      {children}
-    </DropdownMenu.Item>
-  );
-
   return (
     <div className="flex items-center px-2 h-12 border-b border-[#4a4a4a]">
       <div className="flex items-center space-x-2 mr-4">
@@ -56,48 +101,124 @@ const TopBar = () => {
         <span className="font-semibold">RayCanvas</span>
       </div>
       <div className="flex space-x-2 text-sm">
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger disabled className="px-2 py-1 hover:bg-gray-700 rounded cursor-not-allowed">File</DropdownMenu.Trigger>
-          <DropdownMenu.Content className="min-w-[8rem] bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 p-1">
-            <DropdownMenuItem icon={FolderOpen} onSelect={() => console.log('Open')}>Open</DropdownMenuItem>
-            <DropdownMenuItem icon={Save} onSelect={() => console.log('Save')}>Save</DropdownMenuItem>
-            <DropdownMenu.Separator className="my-1 h-px bg-gray-200 dark:bg-gray-700" />
-            <DropdownMenuItem onSelect={() => console.log('Exit')}>Exit</DropdownMenuItem>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="px-2 py-1">File</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem disabled onSelect={() => console.log('Open')}>
+              <FolderOpen className="mr-2 h-4 w-4" />
+              <span>Open</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setIsImportModalOpen(true)}>
+              <Link className="mr-2 h-4 w-4" />
+              <span>Import from URL</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled onSelect={() => console.log('Save')}>
+              <Save className="mr-2 h-4 w-4" />
+              <span>Save</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled onSelect={() => console.log('Exit')}>
+              Exit
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger disabled className="px-2 py-1 hover:bg-gray-700 rounded cursor-not-allowed">Edit</DropdownMenu.Trigger>
-          <DropdownMenu.Content className="min-w-[8rem] bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 p-1">
-            <DropdownMenuItem icon={Undo} onSelect={() => console.log('Undo')}>Undo</DropdownMenuItem>
-            <DropdownMenuItem icon={Redo} onSelect={() => console.log('Redo')}>Redo</DropdownMenuItem>
-            <DropdownMenu.Separator className="my-1 h-px bg-gray-200 dark:bg-gray-700" />
-            <DropdownMenuItem icon={Copy} onSelect={() => console.log('Copy')}>Copy</DropdownMenuItem>
-            <DropdownMenuItem icon={ClipboardPaste} onSelect={() => console.log('Paste')}>Paste</DropdownMenuItem>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
+        <DropdownMenu>
+          <DropdownMenuTrigger disabled asChild>
+            <Button variant="ghost" className="px-2 py-1">Edit</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => console.log('Undo')}>
+              <Undo className="mr-2 h-4 w-4" />
+              <span>Undo</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => console.log('Redo')}>
+              <Redo className="mr-2 h-4 w-4" />
+              <span>Redo</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => console.log('Copy')}>
+              <Copy className="mr-2 h-4 w-4" />
+              <span>Copy</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => console.log('Paste')}>
+              <ClipboardPaste className="mr-2 h-4 w-4" />
+              <span>Paste</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger disabled className="px-2 py-1 hover:bg-gray-700 rounded cursor-not-allowed">View</DropdownMenu.Trigger>
-          <DropdownMenu.Content className="min-w-[8rem] bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 p-1">
-            <DropdownMenuItem icon={ZoomIn} onSelect={() => console.log('Zoom In')}>Zoom In</DropdownMenuItem>
-            <DropdownMenuItem icon={ZoomOut} onSelect={() => console.log('Zoom Out')}>Zoom Out</DropdownMenuItem>
-            <DropdownMenuItem icon={Focus} onSelect={() => console.log('Reset View')}>Reset View</DropdownMenuItem>
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
+        <DropdownMenu>
+          <DropdownMenuTrigger disabled asChild>
+            <Button variant="ghost" className="px-2 py-1">View</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => console.log('Zoom In')}>
+              <ZoomIn className="mr-2 h-4 w-4" />
+              <span>Zoom In</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => console.log('Zoom Out')}>
+              <ZoomOut className="mr-2 h-4 w-4" />
+              <span>Zoom Out</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => console.log('Reset View')}>
+              <Focus className="mr-2 h-4 w-4" />
+              <span>Reset View</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="flex-grow" />
 
-      <button
-        className="flex items-center space-x-1 bg-blue-500 text-white px-3 py-1 rounded text-sm"
+      <Button
+        variant="default"
+        size="sm"
+        className="flex items-center space-x-1"
         onClick={handlePlayPauseClick}
       >
         {isPlaying ? <Pause size={14} /> : <Play size={14} />}
         <span>{isPlaying ? 'Pause' : 'Play'}</span>
-      </button>
+      </Button>
 
       <div className="flex-grow" />
       <ThemeToggle />
+      <div className="pl-2 text-xs">v3.0</div>
+      <ChevronDown size={14} className="pl-2"/>
+      <Github className="pl-2" />
+
+      {/* Import from URL Modal */}
+      <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import from URL</DialogTitle>
+            <DialogDescription>
+              Enter the URL of the GLB / GLTF file you want to import.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={importUrl}
+            onChange={(e) => setImportUrl(e.target.value)}
+            placeholder="Enter URL"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsImportModalOpen(false)} disabled={isImporting}>
+              Cancel
+            </Button>
+            <Button onClick={handleImportFromUrl} disabled={isImporting}>
+              {isImporting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Importing...
+                </>
+              ) : (
+                'Import'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

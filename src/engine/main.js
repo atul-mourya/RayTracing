@@ -117,7 +117,7 @@ class PathTracerApp extends EventDispatcher {
 
         // Load HDR background and model
         await this.loadEnvironment(DEFAULT_STATE.environment);
-        await this.loadModel(DEFAULT_STATE.model);
+        await this.loadExampleModels(DEFAULT_STATE.model);
         this.pauseRendering = false;
 
         // Start animation loop
@@ -251,8 +251,13 @@ class PathTracerApp extends EventDispatcher {
         }
     }
 
-    async loadModel(index) {
+    async loadExampleModels(index) {
         const modelUrl = `${MODEL_FILES[index].url}`;
+        await this.loadModel(modelUrl);
+    }
+
+    async loadModel(modelUrl) {
+        
         const loader = await this.createGLTFLoader();
         this.pauseRendering = true;
 

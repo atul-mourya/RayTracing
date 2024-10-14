@@ -71,7 +71,7 @@ const RightSidebar = () => {
   const handleModelChange = (value) => {
     setModel(value);
     if (window.pathTracerApp) {
-      window.pathTracerApp.loadModel(value);
+      window.pathTracerApp.loadExampleModels(value);
     }
   };
 
