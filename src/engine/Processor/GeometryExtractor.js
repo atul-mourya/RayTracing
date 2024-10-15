@@ -13,6 +13,7 @@ export default class GeometryExtractor {
 		this.bumpMaps = [];
 		this.metalnessMaps = [];
 		this.roughnessMaps = [];
+		this.emissiveMaps = [];
 		this.directionalLights = [];
 
 		this.posA = new Vector3();
@@ -187,6 +188,7 @@ export default class GeometryExtractor {
 			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,
 			side: this.getMaterialSide( material ),
 			normalScale: material.normalScale ?? { x: 1, y: 1 },
+
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),
 			bumpMap: this.processTexture( material.bumpMap, this.bumpMaps ),
@@ -194,7 +196,15 @@ export default class GeometryExtractor {
 			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
 			emissiveMap: this.processTexture( material.emissiveMap, this.emissiveMaps ),
 			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
-			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] )
+			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] ),
+
+			mapMatrix: material.map?.matrix.element,
+			normalMapMatrices: material.normalMap?.matrix.element,
+			bumpMapMatrices: material.bumpMap?.matrix.element,
+			roughnessMapMatrices: material.roughnessMap?.matrix.element,
+			metalnessMapMatrices: material.metalnessMap?.matrix.element,
+			emissiveMapMatrices: material.emissiveMap?.matrix.element,
+
 		};
 
 	}

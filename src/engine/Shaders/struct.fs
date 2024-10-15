@@ -17,6 +17,12 @@ struct RayTracingMaterial {
 	int bumpMapIndex;
 	int metalnessMapIndex;
 	int roughnessMapIndex;
+	mat3 albedoTransform;
+	mat3 emissiveTransform;
+	mat3 normalTransform;
+	mat3 bumpTransform;
+	mat3 metalnessTransform;
+	mat3 roughnessTransform;
 };
 
 struct Sphere {

@@ -6,12 +6,10 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ## TODO:
 
 ### Bug:
-- Emissive map color issue
-- Direnctional light color on surface color dont seem right
 
 
 ### Feature:
-- Add load model by url feature
+- texture matrix transforms
 - better camera dof control
 - auto focus based on object distance
 - Scene based directional lights support

@@ -6,7 +6,7 @@ export default class TextureCreator {
 
 	createMaterialDataTexture( materials ) {
 
-		const pixelsRequired = 7;
+		const pixelsRequired = 19;
 		const dataInEachPixel = 4;
 		const dataLenghtPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
@@ -64,6 +64,90 @@ export default class TextureCreator {
 			data[ stride ++ ] = mat.side;
 			data[ stride ++ ] = 0;
 			data[ stride ++ ] = 0;
+
+			// pixel 8 - mapMatrix - part 1
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 0 ] ?? 0;
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 1 ] ?? 0;
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 2 ] ?? 1;
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 3 ] ?? 1;
+
+			// pixel 9 - mapMatrix - part 2
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 4 ] ?? 0;
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 5 ] ?? 0;
+			data[ stride ++ ] = mat.mapMatrix?.elements[ 6 ] ?? 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 10 - emissiveMapMatrix - part 1
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 0 ] ?? 0;
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 1 ] ?? 0;
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 2 ] ?? 1;
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 3 ] ?? 1;
+
+			// pixel 11 - emissiveMapMatrix - part 2
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 4 ] ?? 0;
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 5 ] ?? 0;
+			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 6 ] ?? 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 12 - roughnessMapMatrix - part 1
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 0 ] ?? 0;
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 1 ] ?? 0;
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 2 ] ?? 1;
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 3 ] ?? 1;
+
+			// pixel 13 - roughnessMapMatrix - part 2
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 4 ] ?? 0;
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 5 ] ?? 0;
+			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 6 ] ?? 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 14 - metalnessMapMatrix - part 1
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 0 ] ?? 0;
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 1 ] ?? 0;
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 2 ] ?? 1;
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 3 ] ?? 1;
+
+			// pixel 15 - metalnessMapMatrix - part 2
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 4 ] ?? 0;
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 5 ] ?? 0;
+			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 6 ] ?? 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 16 - normalMapMatrix - part 1
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 0 ] ?? 0;
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 1 ] ?? 0;
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 2 ] ?? 1;
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 3 ] ?? 1;
+
+			// pixel 17 - normalMapMatrix - part 2
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 4 ] ?? 0;
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 5 ] ?? 0;
+			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 6 ] ?? 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 18 - bumpMapMatrix - part 1
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 0 ] ?? 0;
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 1 ] ?? 0;
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 2 ] ?? 1;
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 3 ] ?? 1;
+
+			// pixel 19 - bumpMapMatrix - part 2
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 4 ] ?? 0;
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 5 ] ?? 0;
+			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 6 ] ?? 0;
+			data[ stride ++ ] = 1;
+
+			// // pixel 20 - clearcoatMapMatrix - part 1
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 0 ] ?? 0;
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 1 ] ?? 0;
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 2 ] ?? 1;
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 3 ] ?? 1;
+
+			// // pixel 21 - clearcoatMapMatrix - part 2
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 4 ] ?? 0;
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 5 ] ?? 0;
+			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 6 ] ?? 0;
+			// data[ stride ++ ] = 1;
 
 
 			// // pixel 7
