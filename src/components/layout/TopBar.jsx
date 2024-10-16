@@ -16,6 +16,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -93,6 +99,10 @@ const TopBar = () => {
       };
     }
   }, []);
+
+  const handleGithubRedirection = () => {
+    window.open('https://github.com/atul-mourya/RayTracing', '_blank');
+  }
 
   return (
     <div className="flex items-center px-2 h-12 border-b border-[#4a4a4a]">
@@ -186,7 +196,14 @@ const TopBar = () => {
       <ThemeToggle />
       <div className="pl-2 text-xs">v3.0</div>
       <ChevronDown size={14} className="pl-2"/>
-      <Github className="pl-2" />
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Github className="pl-2 cursor-pointer" onClick={handleGithubRedirection} />
+          </TooltipTrigger>
+          <TooltipContent>View on GitHub</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       {/* Import from URL Modal */}
       <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>

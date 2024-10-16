@@ -1,3 +1,5 @@
+import debugModelsData from './DebugModels.json';
+
 //some samples at https://casual-effects.com/data/
 
 // const MODEL_URL = './models/planes.glb'; 
@@ -139,8 +141,32 @@ export const MODEL_FILES = [
 	{ name: "Laser Flashlight", 	url: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.glb`, preview: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.png` },
 ];
 
+export const DEBUG_MODELS = debugModelsData.map(model => {
+	let variantDir, variantFile;
+	if (model.variants['glTF-Binary']) {
+	  variantDir = 'glTF-Binary';
+	  variantFile = model.variants['glTF-Binary'];
+	} else if (model.variants['glTF']) {
+	  variantDir = 'glTF';
+	  variantFile = model.variants['glTF'];
+	} else {
+	  // Fallback to the first available variant
+	  const firstVariant = Object.entries(model.variants)[0];
+	  variantDir = firstVariant[0];
+	  variantFile = firstVariant[1];
+	}
+  
+	return {
+	  name: model.name,
+	  label: model.label,
+	  url: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${variantDir}/${variantFile}`,
+	  preview: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${model.screenshot}`
+	};
+  });
+  
+
 export const DEFAULT_STATE = {
-	originalPixelRatio: window.devicePixelRatio / 4,
+	originalPixelRatio: window.devicePixelRatio / 2,
 	exposure: 1,
 	enableEnvironment: true,
 	showBackground: true,
@@ -159,10 +185,13 @@ export const DEFAULT_STATE = {
 	samplesPerPixel: 1,
 	samplingTechnique: 1,
 	adaptiveSampling: false,
+	adaptiveSamplingMin: 1,
+	adaptiveSamplingMax: 4,
+	adaptiveSamplingVarianceThreshold: 0.001,
 	renderMode: 0,
 	checkeredSize: 2,
 	tiles: 2,
-	resolution: 0,
+	resolution: 1,
 	directionalLightIntensity: 0,
 	directionalLightColor: "#ffffff",
 	directionalLightPosition: [ 0.3, 1, 3 ],
@@ -172,5 +201,16 @@ export const DEFAULT_STATE = {
 	denoiserBlurRadius: 1,
 	denoiserDetailPreservation: 0.05,
 	debugMode: 0,
-	debugThreshold: 100
+	debugThreshold: 100,
+	debugModel: 0
 }
+
+
+/*
+
+Test models: 
+Khronos Group glTF-Sample-Assets: https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/Models.md
+
+https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MosquitoInAmber/glTF-Binary/MosquitoInAmber.glb
+
+ */

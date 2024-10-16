@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { ChevronDown, Sliders, Camera, Box, Sun, Wand2, Bug, Ruler, Telescope, Aperture, Film, Waypoints, Grip, Sunrise, Rainbow } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
+import { SliderToggle } from "@/components/ui/slider-toggle";
 import { Switch } from "@/components/ui/switch";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { DataSelector } from '@/components/ui/data-selector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from '../../engine/Processor/Constants';
+import { HDR_FILES, MODEL_FILES, DEFAULT_STATE, DEBUG_MODELS } from '../../engine/Processor/Constants';
 
 const RightSidebar = () => {
 
@@ -27,6 +28,9 @@ const RightSidebar = () => {
   const [samplesPerPixel, setSamplesPerPixel] = useState(DEFAULT_STATE.samplesPerPixel);
   const [samplingTechnique, setSamplingTechnique] = useState(DEFAULT_STATE.samplingTechnique);
   const [adaptiveSampling, setAdaptiveSampling] = useState(DEFAULT_STATE.adaptiveSampling);
+  const [adaptiveSamplingMin, setAdaptiveSamplingMin] = useState(DEFAULT_STATE.adaptiveSamplingMin);
+  const [adaptiveSamplingMax, setAdaptiveSamplingMax] = useState(DEFAULT_STATE.adaptiveSamplingMax);
+  const [adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold] = useState(DEFAULT_STATE.adaptiveSamplingVarianceThreshold);
   const [renderMode, setRenderMode] = useState(DEFAULT_STATE.renderMode);
   const [checkeredSize, setCheckeredSize] = useState(DEFAULT_STATE.checkeredSize);
   const [tiles, setTiles] = useState(DEFAULT_STATE.tile);
@@ -41,6 +45,7 @@ const RightSidebar = () => {
   const [denoiserDetailPreservation, setDenoiserDetailPreservation] = useState(DEFAULT_STATE.denoiserDetailPreservation);
   const [debugMode, setDebugMode] = useState(DEFAULT_STATE.debugMode);
   const [debugThreshold, setDebugThreshold] = useState(DEFAULT_STATE.debugThreshold);
+  const [debugModel, setDebugModel] = useState(DEFAULT_STATE.debugModel);
 
   const handleExposureChange = (value) => {
     setExposure(value);
@@ -127,6 +132,8 @@ const RightSidebar = () => {
   const handlePathTracerChange = (value) => {
     setEnablePathTracer(value);
     if (window.pathTracerApp) {
+      window.pathTracerApp.accPass.enabled = value;
+      window.pathTracerApp.temporalReprojectionPass.enabled = value;
       window.pathTracerApp.pathTracingPass.enabled = value;
       window.pathTracerApp.renderPass.enabled = ! value;
       window.pathTracerApp.reset();
@@ -169,6 +176,30 @@ const RightSidebar = () => {
     setAdaptiveSampling(value);
     if (window.pathTracerApp) {
       window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value;
+      window.pathTracerApp.reset();
+    }
+  }
+
+  const handleAdaptiveSamplingMinChange = (value) => {
+    setAdaptiveSamplingMin(value);
+    if (window.pathTracerApp) {
+      window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMin.value = value[0];
+      window.pathTracerApp.reset();
+    }
+  }
+
+  const handleAdaptiveSamplingMaxChange = (value) => {
+    setAdaptiveSamplingMax(value);
+    if (window.pathTracerApp) {
+      window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMax.value = value[0];
+      window.pathTracerApp.reset();
+    }
+  }
+
+  const handleAdaptiveSamplingVarianceThresholdChange = (value) => {
+    setAdaptiveSamplingVarianceThreshold(value);
+    if (window.pathTracerApp) {
+      window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[0];
       window.pathTracerApp.reset();
     }
   }
@@ -300,6 +331,13 @@ const RightSidebar = () => {
     }
   }
 
+  const handleDebugModelChange = (value) => {
+    setDebugModel(value);
+    if (window.pathTracerApp) {
+      window.pathTracerApp.loadModel(DEBUG_MODELS[value].url);
+    }
+  };
+
   return (
     <div className="w-80 border-l flex flex-col overflow-hidden">
       <div className="p-2 border-b">
@@ -324,13 +362,8 @@ const RightSidebar = () => {
                   <DataSelector label="Environment" data={HDR_FILES} value={environment} onValueChange={handleEnvironmentChange} />
                 </div>
                 <div className="flex items-center justify-between">
-                  <Switch label={"Enable Environment"} checked={enableEnvironment} onCheckedChange={handleEnableEnvironmentChange} />
+                  <SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[environmentIntensity]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
                 </div>
-                { enableEnvironment && (
-                  <div className="flex items-center justify-between">
-                    <Slider label={"Environment Intensity"} icon={Sun} min={0} max={2} step={0.01} value={[environmentIntensity]} onValueChange={handleEnvironmentIntensityChange} />
-                  </div>
-                ) }
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -399,13 +432,13 @@ const RightSidebar = () => {
                 </div>
                 {adaptiveSampling && (<>
                   <div className="flex items-center justify-between">
-                    <Slider label={"Min Samples"} min={0} max={4} step={1} value={[1]} />
+                    <Slider label={"Min Samples"} min={0} max={4} step={1} value={[adaptiveSamplingMin]} onValueChange={handleAdaptiveSamplingMinChange} />
                   </div>
                   <div className="flex items-center justify-between">
-                    <Slider label={"Max Samples"} min={4} max={16} step={2} value={[4]} />
+                    <Slider label={"Max Samples"} min={4} max={8} step={1} value={[adaptiveSamplingMax]} onValueChange={handleAdaptiveSamplingMaxChange} />
                   </div>
                   <div className="flex items-center justify-between">
-                    <Slider label={"Variance Threshold"} min={0.01} max={0.1} step={0.01} value={[0.01]} />
+                    <Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[adaptiveSamplingVarianceThreshold]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
                   </div>
                 </>)}
                 <div className="flex items-center justify-between">
@@ -515,6 +548,9 @@ const RightSidebar = () => {
                 </div>
                 <div className="flex items-center justify-between">
                   <Slider label={"Display Threshold"} min={1} max={500} step={1} value={[debugThreshold]} onValueChange={handleDebugThresholdChange} />
+                </div>
+                <div className="flex items-center justify-between">
+                  <DataSelector label="Debug Model" data={DEBUG_MODELS} value={debugModel} onValueChange={handleDebugModelChange} />
                 </div>
               </div>
             </AccordionContent>
