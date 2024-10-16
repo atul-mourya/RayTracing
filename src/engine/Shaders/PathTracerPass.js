@@ -6,6 +6,7 @@ import {
 	RepeatWrapping,
 	LinearFilter,
 	Clock,
+	HalfFloatType,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { CopyShader } from 'three/examples/jsm/Addons.js';
@@ -34,7 +35,7 @@ export class PathTracerPass extends Pass {
 		// Create two render targets for ping-pong rendering
 		this.renderTargetA = new WebGLRenderTarget( width, height, {
 			format: RGBAFormat,
-			type: FloatType,
+			type: HalfFloatType,
 			minFilter: NearestFilter,
 			magFilter: NearestFilter
 		} );
@@ -84,8 +85,8 @@ export class PathTracerPass extends Pass {
 
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
-				minSamples: { value: 1 },
-				maxSamples: { value: 4 },
+				adaptiveSamplingMin: { value: DEFAULT_STATE.adaptiveSamplingMin },
+				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
 				varianceThreshold: { value: 0.001 },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },

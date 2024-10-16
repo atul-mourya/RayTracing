@@ -62,6 +62,9 @@ export default class TriangleSDF {
 		this.emissiveTextures = this.textureCreator.createTexturesToDataTexture( this.emissiveMaps );
 		this.bvhTexture = this.textureCreator.createBVHDataTexture( this.bvhRoot );
 
+		this.resetArrays();
+		this.geometryExtractor.resetArrays();
+
 	}
 
 
@@ -81,8 +84,8 @@ export default class TriangleSDF {
 
 	}
 
-	dispose() {
-
+	resetArrays() {
+		
 		this.triangles = [];
 		this.materials = [];
 		this.maps = [];
@@ -91,10 +94,18 @@ export default class TriangleSDF {
 		this.roughnessMaps = [];
 		this.metalnessMaps = [];
 		this.emissiveMaps = [];
+		// this.directionalLights = [];
+		// this.spheres = [];
+
+	}
+
+	dispose() {
+
 		this.materialTexture.dispose();
 		this.triangleTexture.dispose();
 		this.diffuseTextures.dispose();
 		this.bvhTexture.dispose();
+		this.resetArrays();
 		this.spheres = [];
 
 	}

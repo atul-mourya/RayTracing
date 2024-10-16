@@ -4,138 +4,82 @@ const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize
 
 export default class TextureCreator {
 
-	createMaterialDataTexture( materials ) {
-
-		const pixelsRequired = 19;
+	createMaterialDataTexture(materials) {
+		const pixelsRequired = 6; // Reduced from 19
 		const dataInEachPixel = 4;
-		const dataLenghtPerMaterial = pixelsRequired * dataInEachPixel;
+		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
-
-		const dataLength = totalMaterials * dataLenghtPerMaterial;
-		const width = Math.ceil( Math.sqrt( dataLength ) );
-		const height = Math.ceil( dataLength / width );
+	
+		const dataLength = totalMaterials * dataLengthPerMaterial;
+		const width = Math.ceil(Math.sqrt(dataLength));
+		const height = Math.ceil(dataLength / width);
 		const size = width * height * dataInEachPixel;
-
-		const data = new Float32Array( size );
-
-		for ( let i = 0; i < totalMaterials; i ++ ) {
-
-			const mat = materials[ i ];
-			let stride = i * dataLenghtPerMaterial;
-
-			// pixel 1 - Color and map
-			data[ stride ++ ] = mat.color.r;
-			data[ stride ++ ] = mat.color.g;
-			data[ stride ++ ] = mat.color.b;
-			data[ stride ++ ] = mat.map; // Texture index or -1
-
-			//pixel 2 - Emissive and emissive intensity
-			data[ stride ++ ] = mat.emissive.r;
-			data[ stride ++ ] = mat.emissive.g;
-			data[ stride ++ ] = mat.emissive.b;
-			data[ stride ++ ] = mat.emissiveMap;
-
-			// pixel 3 - Roughness, metalness
-			data[ stride ++ ] = mat.roughness;
-			data[ stride ++ ] = mat.metalness;
-			data[ stride ++ ] = mat.roughnessMap;
-			data[ stride ++ ] = mat.metalnessMap;
-
-			// pixel 4
-			data[ stride ++ ] = mat.ior;
-			data[ stride ++ ] = mat.thickness;
-			data[ stride ++ ] = mat.transmission;
-			data[ stride ++ ] = mat.emissiveIntensity;
-
-			// pixel 5
-			data[ stride ++ ] = mat.normalMap;
-			data[ stride ++ ] = mat.normalScale?.x ?? 1;
-			data[ stride ++ ] = mat.normalScale?.y ?? 1;
-			data[ stride ++ ] = mat.bumpMap;
-
-			// pixel 6
-			data[ stride ++ ] = mat.clearcoat;
-			data[ stride ++ ] = mat.clearcoatMap;
-			data[ stride ++ ] = mat.clearcoatRoughness;
-			data[ stride ++ ] = mat.clearcoatRoughnessMap;
-
-			// pixel 7
-			data[ stride ++ ] = mat.opacity;
-			data[ stride ++ ] = mat.side;
-			data[ stride ++ ] = 0;
-			data[ stride ++ ] = 0;
-
-			// pixel 8 - mapMatrix - part 1
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 0 ] ?? 0;
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 1 ] ?? 0;
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 2 ] ?? 1;
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 3 ] ?? 1;
-
-			// pixel 9 - mapMatrix - part 2
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 4 ] ?? 0;
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 5 ] ?? 0;
-			data[ stride ++ ] = mat.mapMatrix?.elements[ 6 ] ?? 0;
-			data[ stride ++ ] = 1;
-
-			// pixel 10 - emissiveMapMatrix - part 1
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 0 ] ?? 0;
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 1 ] ?? 0;
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 2 ] ?? 1;
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 3 ] ?? 1;
-
-			// pixel 11 - emissiveMapMatrix - part 2
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 4 ] ?? 0;
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 5 ] ?? 0;
-			data[ stride ++ ] = mat.emissiveMapMatrix?.elements[ 6 ] ?? 0;
-			data[ stride ++ ] = 1;
-
-			// pixel 12 - roughnessMapMatrix - part 1
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 0 ] ?? 0;
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 1 ] ?? 0;
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 2 ] ?? 1;
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 3 ] ?? 1;
-
-			// pixel 13 - roughnessMapMatrix - part 2
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 4 ] ?? 0;
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 5 ] ?? 0;
-			data[ stride ++ ] = mat.roughnessMapMatrix?.elements[ 6 ] ?? 0;
-			data[ stride ++ ] = 1;
-
-			// pixel 14 - metalnessMapMatrix - part 1
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 0 ] ?? 0;
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 1 ] ?? 0;
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 2 ] ?? 1;
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 3 ] ?? 1;
-
-			// pixel 15 - metalnessMapMatrix - part 2
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 4 ] ?? 0;
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 5 ] ?? 0;
-			data[ stride ++ ] = mat.metalnessMapMatrix?.elements[ 6 ] ?? 0;
-			data[ stride ++ ] = 1;
-
-			// pixel 16 - normalMapMatrix - part 1
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 0 ] ?? 0;
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 1 ] ?? 0;
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 2 ] ?? 1;
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 3 ] ?? 1;
-
-			// pixel 17 - normalMapMatrix - part 2
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 4 ] ?? 0;
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 5 ] ?? 0;
-			data[ stride ++ ] = mat.normalMapMatrices?.elements[ 6 ] ?? 0;
-			data[ stride ++ ] = 1;
-
-			// pixel 18 - bumpMapMatrix - part 1
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 0 ] ?? 0;
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 1 ] ?? 0;
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 2 ] ?? 1;
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 3 ] ?? 1;
-
-			// pixel 19 - bumpMapMatrix - part 2
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 4 ] ?? 0;
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 5 ] ?? 0;
-			data[ stride ++ ] = mat.bumpMapMatrices?.elements[ 6 ] ?? 0;
-			data[ stride ++ ] = 1;
+	
+		const data = new Float32Array(size);
+	
+		for (let i = 0; i < totalMaterials; i++) {
+			const mat = materials[i];
+			let stride = i * dataLengthPerMaterial;
+	
+			// pixel 1 - Color and metalness
+			data[stride++] = mat.color.r;
+			data[stride++] = mat.color.g;
+			data[stride++] = mat.color.b;
+			data[stride++] = mat.metalness;
+	
+			// pixel 2 - Emissive and roughness
+			data[stride++] = mat.emissive.r;
+			data[stride++] = mat.emissive.g;
+			data[stride++] = mat.emissive.b;
+			data[stride++] = mat.roughness;
+	
+			// pixel 3 - Special properties
+			data[stride++] = mat.ior;
+			data[stride++] = mat.transmission;
+			data[stride++] = mat.thickness;
+			data[stride++] = mat.emissiveIntensity;
+	
+			// pixel 4 - Map indices
+			data[stride++] = mat.map;
+			data[stride++] = mat.normalMap;
+			data[stride++] = mat.roughnessMap;
+			data[stride++] = mat.metalnessMap;
+	
+			// pixel 5 - More map indices and properties
+			data[stride++] = mat.emissiveMap;
+			data[stride++] = mat.bumpMap;
+			data[stride++] = mat.clearcoat;
+			data[stride++] = mat.clearcoatRoughness;
+	
+			// pixel 6 - Miscellaneous properties
+			data[stride++] = mat.opacity;
+			data[stride++] = mat.side;
+			data[stride++] = mat.normalScale?.x ?? 1;
+			data[stride++] = mat.normalScale?.y ?? 1;
+	
+			// pixel 7 and 8 - Map matrices (compressed)
+			// const packMatrix = (matrix) => {
+			// 	if (!matrix) return [0, 0, 1, 1, 0, 0, 0, 1];
+			// 	return [
+			// 		matrix.elements[0], matrix.elements[1],
+			// 		matrix.elements[2], matrix.elements[3],
+			// 		matrix.elements[4], matrix.elements[5],
+			// 		matrix.elements[6], 1
+			// 	];
+			// };
+	
+			// const packedMatrices = [
+			// 	...packMatrix(mat.mapMatrix),
+			// 	...packMatrix(mat.normalMapMatrices),
+			// 	...packMatrix(mat.roughnessMapMatrix),
+			// 	...packMatrix(mat.metalnessMapMatrix),
+			// 	...packMatrix(mat.emissiveMapMatrix),
+			// 	...packMatrix(mat.bumpMapMatrices)
+			// ];
+	
+			// for (let j = 0; j < 16; j++) {
+			// 	data[stride++] = packedMatrices[j];
+			// }
 
 			// // pixel 20 - clearcoatMapMatrix - part 1
 			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 0 ] ?? 0;
@@ -193,11 +137,10 @@ export default class TextureCreator {
 			// data[ stride ++ ] = mat.transparent;
 
 		}
-
-		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
+	
+		const texture = new DataTexture(data, width, height, RGBAFormat, FloatType);
 		texture.needsUpdate = true;
 		return texture;
-
 	}
 
 	createTriangleDataTexture( triangles ) {

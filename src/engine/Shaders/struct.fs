@@ -17,6 +17,7 @@ struct RayTracingMaterial {
 	int bumpMapIndex;
 	int metalnessMapIndex;
 	int roughnessMapIndex;
+	vec2 normalScale;
 	mat3 albedoTransform;
 	mat3 emissiveTransform;
 	mat3 normalTransform;

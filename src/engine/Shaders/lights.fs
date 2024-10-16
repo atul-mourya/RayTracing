@@ -144,6 +144,7 @@ vec3 calculateDirectLightingMIS(HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 br
         
     }
 
+    #if MAX_AREA_LIGHTS > 0
     // Area light calculations
     for (int i = 0; i < MAX_AREA_LIGHTS / 13 ; i++) {
         AreaLight light = getAreaLight(i);
@@ -186,6 +187,7 @@ vec3 calculateDirectLightingMIS(HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 br
         vec3 finalContribution = lightSampleContribution + brdfSampleContribution;
         totalLighting += finalContribution;
     }
+    #endif
 
     return totalLighting;
 }

@@ -20,6 +20,7 @@ import {
     RectAreaLight
 } from 'three';
 
+import Stats from 'stats-gl';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
@@ -82,6 +83,14 @@ class PathTracerApp extends EventDispatcher {
         this.renderer.setPixelRatio(DEFAULT_STATE.originalPixelRatio);
         this.renderer.setSize(this.width, this.height);
         this.container.appendChild(this.canvas);
+
+        this.stats = new Stats( { horizontal: true } );
+        this.stats.dom.style.position = 'absolute';
+        this.stats.dom.style.top = 'unset';
+        this.stats.dom.style.bottom = '48px';
+
+        this.stats.init( this.renderer );
+        this.container.appendChild( this.stats.dom );
 
         // Setup canvas
         this.canvas.style.position = 'absolute';
@@ -203,11 +212,15 @@ class PathTracerApp extends EventDispatcher {
 
         if (!this.pathTracingPass.isComplete ) {
             this.controls.update();
-            this.tileHighlightPass.uniforms.frame.value = this.pathTracingPass.material.uniforms.frame.value + 1;
-            this.tileHighlightPass.uniforms.renderMode.value = this.pathTracingPass.material.uniforms.renderMode.value;
-            this.tileHighlightPass.uniforms.tiles.value = this.pathTracingPass.material.uniforms.tiles.value;
+
+            if( this.tileHighlightPass.enabled ) {
+                this.tileHighlightPass.uniforms.frame.value = this.pathTracingPass.material.uniforms.frame.value + 1;
+                this.tileHighlightPass.uniforms.renderMode.value = this.pathTracingPass.material.uniforms.renderMode.value;
+                this.tileHighlightPass.uniforms.tiles.value = this.pathTracingPass.material.uniforms.tiles.value;
+            }
 
             this.composer.render();
+            this.stats.update();
 
             if (this.onStatsUpdate) {
                 this.onStatsUpdate({

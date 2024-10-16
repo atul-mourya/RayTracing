@@ -13,8 +13,8 @@ uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
 uniform bool useAdaptiveSampling;
-uniform int minSamples;
-uniform int maxSamples;
+uniform int adaptiveSamplingMin;
+uniform int adaptiveSamplingMax;
 uniform float varianceThreshold;
 
 // Include statements
@@ -382,7 +382,7 @@ void main( ) {
 	bool shouldRender = shouldRenderPixel( );
 
 	if( shouldRender ) {
-		int samplesCount = useAdaptiveSampling ? maxSamples : numRaysPerPixel;
+		int samplesCount = useAdaptiveSampling ? adaptiveSamplingMax : numRaysPerPixel;
 
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			vec4 _sample = vec4( 0.0 );
@@ -415,7 +415,7 @@ void main( ) {
 				squaredMean += _sample * _sample;
 
 				// Calculate variance after minimum samples
-				if( pixel.samples >= minSamples ) {
+				if( pixel.samples >= adaptiveSamplingMin ) {
 					pixel.variance = calculateVariance( pixel.color / float( pixel.samples ), squaredMean / float( pixel.samples ), pixel.samples );
 
 					// Check if we've reached the desired quality
