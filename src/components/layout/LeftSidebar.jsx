@@ -4,7 +4,7 @@ import { Plus, Search, Layers, Box, Circle, Cylinder, Cone, Lightbulb, Camera, C
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const LayerTreeItem = ({ item, depth }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
