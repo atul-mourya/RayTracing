@@ -90,6 +90,8 @@ class PathTracerApp extends EventDispatcher {
         this.stats.dom.style.bottom = '48px';
 
         this.stats.init( this.renderer );
+        this.stats.fpsPanel.fg = this.stats.gpuPanel.fg = this.stats.msPanel.fg = '#ffffff';
+        this.stats.fpsPanel.bg = this.stats.gpuPanel.bg = this.stats.msPanel.bg = '#1e293b';
         this.container.appendChild( this.stats.dom );
 
         // Setup canvas

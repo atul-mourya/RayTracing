@@ -87,7 +87,7 @@ export class PathTracerPass extends Pass {
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
 				adaptiveSamplingMin: { value: DEFAULT_STATE.adaptiveSamplingMin },
 				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
-				varianceThreshold: { value: 0.001 },
+				adaptiveSamplingVarianceThreshold: { value: DEFAULT_STATE.adaptiveSamplingVarianceThreshold },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				tiles: { value: DEFAULT_STATE.tiles },

@@ -248,6 +248,7 @@ export default class TextureCreator {
 		texture.format = RGBAFormat;
 		texture.type = UnsignedByteType;
 		texture.needsUpdate = true;
+		texture.generateMipmaps = false;
 
 		return texture;
 
