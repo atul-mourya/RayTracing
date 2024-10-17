@@ -24,8 +24,10 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useToast } from '@/hooks/use-toast';
 
 const TopBar = () => {
+  const { toast } = useToast();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importUrl, setImportUrl] = useState('');
@@ -63,18 +65,23 @@ const TopBar = () => {
     if (window.pathTracerApp) {
       window.pathTracerApp.loadModel(importUrl)
         .then(() => {
-          console.log('Model loaded successfully');
           setIsImporting(false);
           setImportUrl('');
           setIsImportModalOpen(false);
+          toast({
+            title: "Model Loaded",
+            description: `Successfully loaded model !!`,
+          });
         })
         .catch((error) => {
-          console.error('Error loading model:', error);
           setIsImporting(false);
-          // You might want to show an error message to the user here
+          toast({
+            title: "Error Loading Model",
+            description: `${error}`,
+            variant: "destructive",
+          });
         });
     } else {
-      // If pathTracerApp is not available, reset the state
       setIsImporting(false);
     }
   };

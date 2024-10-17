@@ -7,10 +7,12 @@ import { Switch } from "@/components/ui/switch";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { DataSelector } from '@/components/ui/data-selector';
+import { useToast } from "@/hooks/use-toast"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE, DEBUG_MODELS } from '../../engine/Processor/Constants';
 
 const RightSidebar = () => {
+  const { toast } = useToast();
 
   const [exposure, setExposure] = useState(DEFAULT_STATE.exposure);
   const [enableEnvironment, setEnableEnvironment] = useState(DEFAULT_STATE.enableEnvironment);
@@ -73,17 +75,43 @@ const RightSidebar = () => {
     }
   };
 
-  const handleModelChange = (value) => {
-    setModel(value);
+  const  handleEnvironmentChange= (value) => {
+    setEnvironment(value);
     if (window.pathTracerApp) {
-      window.pathTracerApp.loadExampleModels(value);
+      window.pathTracerApp.loadEnvironment(value)
+        .then(() => {
+          toast({
+            title: "Environment Loaded Successfully",
+            description: `${HDR_FILES[value].name}`,
+          });
+        })
+        .catch((error) => {
+          toast({
+            title: "Error Loading Environment",
+            description: `${HDR_FILES[value].name}: ${error.message}`,
+            variant: "destructive",
+          });
+        });
     }
   };
 
-  const handleEnvironmentChange = (value) => {
-    setEnvironment(value);
+  const handleModelChange = (value) => {
+    setModel(value);
     if (window.pathTracerApp) {
-      window.pathTracerApp.loadEnvironment(value);
+      window.pathTracerApp.loadExampleModels(value)
+        .then(() => {
+          toast({
+            title: "Model Loaded Successfully",
+            description: `${MODEL_FILES[value].name}`,
+          });
+        })
+        .catch((error) => {
+          toast({
+            title: "Error Loading Model",
+            description: `${MODEL_FILES[value].name}: ${error.message}`,
+            variant: "destructive",
+          });
+        });
     }
   };
 
@@ -334,7 +362,19 @@ const RightSidebar = () => {
   const handleDebugModelChange = (value) => {
     setDebugModel(value);
     if (window.pathTracerApp) {
-      window.pathTracerApp.loadModel(DEBUG_MODELS[value].url);
+      window.pathTracerApp.loadModel(DEBUG_MODELS[value].url).then(() => {
+        toast({
+          title: "Model Loaded Successfully",
+          description: `${MODEL_FILES[value].name}`,
+        });
+      })
+      .catch((error) => {
+        toast({
+          title: "Error Loading Model",
+          description: `${error.message}`,
+          variant: "destructive",
+        });
+      });
     }
   };
 
