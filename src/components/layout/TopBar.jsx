@@ -46,6 +46,10 @@ const TopBar = () => {
   };
 
   const validateUrl = (url) => {
+    // url validation logic for valid model with extension
+    if (!url) return false;
+    if (!url.startsWith('http')) return false;
+    if (!url.endsWith('.glb') && !url.endsWith('.gltf')) return false;
     try {
       new URL(url);
       return true;
@@ -58,8 +62,12 @@ const TopBar = () => {
   const handleImportFromUrl = () => {
     console.log('Importing from URL:', importUrl);
     if (!validateUrl(importUrl)) {
-      // setIsValidUrl(false);
-      // return;
+      toast({
+        title: "Invalid URL",
+        description: "Please enter a valid URL.",
+        variant: "destructive",
+      });
+      return;
     }
     setIsImporting(true);
     if (window.pathTracerApp) {

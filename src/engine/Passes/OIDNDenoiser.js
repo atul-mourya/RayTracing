@@ -1,12 +1,14 @@
 //https://github.com/DennisSmolek/Denoiser
 import { Denoiser } from 'denoiser';
-import { generateAlbedoAndNormalMaps, debugGeneratedMaps } from './AlbedoNormalGenerator';
+import { AlbedoNormalGenerator } from './AlbedoNormalGenerator';
+import { EventDispatcher } from 'three';
 
 
-export class OIDNDenoiser {
+export class OIDNDenoiser extends EventDispatcher {
 
 	constructor( renderer, scene, camera ) {
 
+		super();
 		this.sourceCanvas = renderer.domElement;
 		this.renderer = renderer;
 		this.scene = scene;
@@ -33,23 +35,28 @@ export class OIDNDenoiser {
 		this.denoiser.setCanvas( this.denoisedCanvas );
 		this.sourceCanvas.parentElement.prepend( this.denoisedCanvas );
 
+		this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
+
 	}
 
 	async execute() {
 
 		if ( ! this.enabled ) return false;
+		this.isDenoising = true;
+		this.dispatchEvent( { type: 'start' } );
+
 		console.log( 'Executing denoising...' );
 
-		const { albedo, normal } = generateAlbedoAndNormalMaps( this.scene, this.camera, this.renderer );
+		const { albedo, normal } = this.mapGenerator.generateMaps();
 		// debugGeneratedMaps( albedo, normal );
 
 		// Use albedoMap and normalMap in your denoiser
-		this.denoiser.setImage( 'albedo', albedo );
-		this.denoiser.setImage( 'normal', normal );
+		this.denoiser.setInputImage( 'albedo', albedo );
+		this.denoiser.setInputImage( 'normal', normal );
 
-		this.isDenoising = true;
 		await this.denoiser.execute();
 		this.isDenoising = false;
+		this.dispatchEvent( { type: 'end' } );
 
 		this.renderResult();
 
@@ -71,6 +78,7 @@ export class OIDNDenoiser {
 		this.denoiser.abort();
 		this.sourceCanvas.style.opacity = 1;
 		console.log( 'Denoising aborted' );
+		this.dispatchEvent( { type: 'end' } );
 
 	}
 
@@ -81,7 +89,7 @@ export class OIDNDenoiser {
 
 		const startTime = performance.now();
 
-		this.denoiser.setImage( 'color', this.sourceCanvas );
+		this.denoiser.setInputImage( 'color', this.sourceCanvas );
 
 		await this.execute();
 		if ( this.renderer ) this.renderer.resetState();
@@ -95,8 +103,11 @@ export class OIDNDenoiser {
 
 	setSize( width, height ) {
 
+		width *= this.renderer.getPixelRatio();
+		height *= this.renderer.getPixelRatio();
 		this.denoiser.width = width;
 		this.denoiser.height = height;
+		this.mapGenerator.setSize( width, height );
 		this.denoisedCanvas.width = width;
 		this.denoisedCanvas.height = height;
 
