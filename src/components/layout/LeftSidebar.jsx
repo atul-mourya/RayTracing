@@ -8,12 +8,12 @@ const LayerTreeItem = ({ item, depth }) => {
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <CollapsibleTrigger className="flex items-center space-x-2 p-1 hover:bg-[#3a3a3a] rounded cursor-pointer w-full text-left" style={{ paddingLeft: `${depth * 12 + 4}px` }}>
+      <CollapsibleTrigger className="flex items-center space-x-2 p-1 hover:bg-secondary rounded cursor-pointer w-full text-left" style={{ paddingLeft: `${depth * 12 + 4}px` }}>
         {item.children.length > 0 && (
           isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />
         )}
         {item.icon}
-        <span className="text-sm text-gray-200">{item.name}</span>
+        <span className="text-xs py-1 text-secondary-foreground">{item.name}</span>
       </CollapsibleTrigger>
       {item.children.length > 0 && (
         <CollapsibleContent>
@@ -112,7 +112,7 @@ const LeftSidebar = () => {
           />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto">
         {filteredLayers.map((layer, index) => (
           <LayerTreeItem key={index} item={layer} depth={0} />
         ))}

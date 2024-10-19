@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, Sliders, Camera, Box, Sun, Wand2, Bug, Ruler, Telescope, Aperture, Film, Waypoints, Grip, Sunrise, Rainbow } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
 import { SliderToggle } from "@/components/ui/slider-toggle";
 import { Switch } from "@/components/ui/switch";
@@ -400,14 +401,6 @@ const RightSidebar = () => {
               <Sun size={14} />
               <span className="text-xs mt-1">Light</span>
             </TabsTrigger>
-            <TabsTrigger value="denoising" className="flex flex-col items-center py-2">
-              <Wand2 size={14} />
-              <span className="text-xs mt-1">Denoise</span>
-            </TabsTrigger>
-            <TabsTrigger value="debug" className="flex flex-col items-center py-2">
-              <Bug size={14} />
-              <span className="text-xs mt-1">Debug</span>
-            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="scene">
@@ -547,25 +540,6 @@ const RightSidebar = () => {
                   </ToggleGroupItem>
                 </ToggleGroup>
               </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="light">
-            <div className="space-y-4 p-4">
-              <div className="flex items-center justify-between">
-                <Slider label={"Intensity"} icon={Sunrise} min={0} max={2} step={0.1} value={[directionalLightIntensity]} onValueChange={handleDirectionalLightIntensityChange} />
-              </div>
-              <div className="flex items-center justify-between">
-                <ColorInput label={"Color"} icon={Rainbow} value={directionalLightColor} onChange={color => handleDirectionalLightColorChange(color)} />
-              </div>
-              <div className="flex items-center justify-between">
-                <Vector3Component label="Position" value={directionalLightPosition} onValueChange={handleDirectionalLightPositionChange} />
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="denoising">
-            <div className="space-y-4 p-4">
               <div className="flex items-center justify-between">
                 <Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
               </div>
@@ -583,9 +557,63 @@ const RightSidebar = () => {
                   <Slider label={"Detail Preservation"} min={0.01} max={0.1} step={0.01} value={[denoiserDetailPreservation]} onValueChange={handleDenoiserDetailPreservationChange} />
                 </div>
               </>)}
+              {enablePathTracer && (
+                <Accordion type="single" collapsible>
+                  <AccordionItem value="debug">
+                    <AccordionTrigger className="text-sm">
+                      <div className="flex items-center">
+                        <Bug className="h-4 w-4 mr-2" />
+                        Debugging
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-4 pt-4">
+                        <div className="flex items-center justify-between">
+                          <Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Select value={debugMode.toString()} onValueChange={handleDebugModeChange}>
+                            <span className="opacity-50 text-xs truncate">Mode</span>
+                            <SelectTrigger className="max-w-32 h-5 rounded-full" >
+                              <SelectValue placeholder="Select mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">Beauty</SelectItem>
+                              <SelectItem value="1">Triangle test count</SelectItem>
+                              <SelectItem value="2">Box test count</SelectItem>
+                              <SelectItem value="3">Distance</SelectItem>
+                              <SelectItem value="4">Normal</SelectItem>
+                              <SelectItem value="5">Sampling</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Slider label={"Display Threshold"} min={1} max={500} step={1} value={[debugThreshold]} onValueChange={handleDebugThresholdChange} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <DataSelector label="Debug Model" data={DEBUG_MODELS} value={debugModel} onValueChange={handleDebugModelChange} />
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
             </div>
           </TabsContent>
 
+          <TabsContent value="light">
+            <div className="space-y-4 p-4">
+              <div className="flex items-center justify-between">
+                <Slider label={"Intensity"} icon={Sunrise} min={0} max={2} step={0.1} value={[directionalLightIntensity]} onValueChange={handleDirectionalLightIntensityChange} />
+              </div>
+              <div className="flex items-center justify-between">
+                <ColorInput label={"Color"} icon={Rainbow} value={directionalLightColor} onChange={color => handleDirectionalLightColorChange(color)} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Vector3Component label="Position" value={directionalLightPosition} onValueChange={handleDirectionalLightPositionChange} />
+              </div>
+            </div>
+          </TabsContent>
           {enablePathTracer && (
             <TabsContent value="debug">
               <div className="space-y-4 p-4">
