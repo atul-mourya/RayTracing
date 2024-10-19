@@ -383,7 +383,7 @@ const RightSidebar = () => {
   return (
     <div className="w-80 border-l flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
-        <Tabs defaultValue="scene" className="w-full">
+        <Tabs defaultValue="pathtracer" className="w-full">
         <TabsList className="grid w-full grid-cols-6 h-auto p-0">
             <TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
               <Sliders size={14} />
@@ -412,13 +412,13 @@ const RightSidebar = () => {
                 <Switch label={"Show Background"} checked={showBackground} onCheckedChange={handleShowBackgroundChange} />
               </div>
               <div className="flex items-center justify-between">
+                <SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[environmentIntensity]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
+              </div>
+              <div className="flex items-center justify-between">
                 <DataSelector label="Model" data={MODEL_FILES} value={model} onValueChange={handleModelChange} />
               </div>
               <div className="flex items-center justify-between">
                 <DataSelector label="Environment" data={HDR_FILES} value={environment} onValueChange={handleEnvironmentChange} />
-              </div>
-              <div className="flex items-center justify-between">
-                <SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[environmentIntensity]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
               </div>
             </div>
           </TabsContent>

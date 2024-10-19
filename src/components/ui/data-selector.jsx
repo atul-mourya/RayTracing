@@ -1,12 +1,22 @@
+/* eslint-disable react/prop-types */
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Card, CardContent } from '@/components/ui/card';
+import { InfoIcon } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 import { cn } from "@/lib/utils";
 
 const DataSelector = ({ className, data, value, onValueChange, ...props }) => {
+
+  const handleMoreInfo = (redirection) => {
+    window
+      .open(redirection, "_blank")
+      .focus();
+  }
+
   return (
     <>
       <span className="opacity-50 text-xs truncate">{props.label}</span>
@@ -32,12 +42,25 @@ const DataSelector = ({ className, data, value, onValueChange, ...props }) => {
                   onClick={() => onValueChange(index.toString())}
                 >
                   <CardContent className="p-2 relative">
+                    {item.redirection && <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="absolute right-2 h-5 w-5" onClick={() => handleMoreInfo(item.redirection)}>
+                              <InfoIcon className="h-4 w-4 text-foreground opacity-50" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Goto more info.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    }
                     <img
                       src={item.preview}
                       alt={item.name}
                       className="w-full aspect-square object-cover rounded-sm mb-2"
                     />
-                    <p className="text-xs text-center font-medium truncate">
+                    <p className="text-xs text-center font-medium opacity-50 truncate">
                       {item.name}
                     </p>
                     {index.toString() === value && (
@@ -55,6 +78,3 @@ const DataSelector = ({ className, data, value, onValueChange, ...props }) => {
 };
 
 export { DataSelector };
-
-// ? 'border-primary'
-//: 'hover:bg-accent'

@@ -141,7 +141,9 @@ export const MODEL_FILES = [
 	{ name: "Laser Flashlight", 	url: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.glb`, preview: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.png` },
 ];
 
-export const DEBUG_MODELS = debugModelsData.map(model => {
+export const DEBUG_MODELS = debugModelsData.filter( m => {
+	return m.tags.includes('pbrtest');
+}).map(model => {
 	let variantDir, variantFile;
 	if (model.variants['glTF-Binary']) {
 	  variantDir = 'glTF-Binary';
@@ -160,7 +162,8 @@ export const DEBUG_MODELS = debugModelsData.map(model => {
 	  name: model.name,
 	  label: model.label,
 	  url: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${variantDir}/${variantFile}`,
-	  preview: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${model.screenshot}`
+	  preview: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${model.screenshot}`,
+	  redirection: `https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/${model.name}/README.md`,
 	};
   });
   

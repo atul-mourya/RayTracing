@@ -9,10 +9,10 @@ vec2 wrapUV( vec2 uv ) {
 	return fract( uv );
 }
 
-vec4 sampleMap( sampler2DArray mapArray, int mapIndex, vec2 uv, mat3 transformMatrix ) {
-	if( mapIndex >= 0 ) {
+vec4 sampleMap( sampler2DArray mapArray, int layer, vec2 uv, mat3 transformMatrix ) {
+	if( layer >= 0 ) {
 		// uv = ( transformMatrix * vec3( uv, 1 ) ).xy;
-		return texture( mapArray, vec3( wrapUV(uv), float( mapIndex ) ) );
+		return texture( mapArray, vec3( uv, float( layer ) ) );
 	}
 	return vec4( 1.0 );
 }
