@@ -25,7 +25,9 @@ export default class TriangleSDF {
 		this.buildBVH();
 		this.createTextures();
 		this.spheres = this.createSpheres();
-		// this.triangles = []; // Clear the original triangle array as we've rebuilt it in the BVH
+
+		this.resetArrays();
+		this.geometryExtractor.resetArrays();
 
 	}
 
@@ -61,9 +63,6 @@ export default class TriangleSDF {
 		this.metalnessTextures = this.textureCreator.createTexturesToDataTexture( this.metalnessMaps );
 		this.emissiveTextures = this.textureCreator.createTexturesToDataTexture( this.emissiveMaps );
 		this.bvhTexture = this.textureCreator.createBVHDataTexture( this.bvhRoot );
-
-		this.resetArrays();
-		this.geometryExtractor.resetArrays();
 
 	}
 

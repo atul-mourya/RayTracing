@@ -37,40 +37,33 @@ BVHNode getBVHNode( int index ) {
 	return node;
 }
 
-mat3 readTextureMatrix3( vec4 transformMatrixPart1, vec4 transformMatrixPart2 ) {
-	//transformMatrixPart1 and transformMatrixPart2 are vec4s
-	// t1 = transformMatrixPart1[0] -> offset x
-	// t2 = transformMatrixPart1[1] -> offset y
-	// t3 = transformMatrixPart1[2] -> repeat x
-	// t4 = transformMatrixPart1[3] -> repeat y
-	// t5 = transformMatrixPart2[0] -> rotation
-	// t6 = transformMatrixPart2[1] -> center x
-	// t7 = transformMatrixPart2[2] -> center y
-	mat3 textureTransform;
-	textureTransform[0] = vec3( transformMatrixPart1[2], 0.0, 0.0 );
-	textureTransform[1] = vec3( 0.0, transformMatrixPart1[3], 0.0 );
-	textureTransform[2] = vec3( transformMatrixPart1[0], transformMatrixPart1[1], 1.0 );
-	return textureTransform;
+mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
+	return mat3(
+		data1.x, data1.y, data1.z,
+		data1.w, data2.x, data2.y,
+		data2.z, data2.w, 1.0
+	);
 }
 
-
-// mat3 unpackMatrix(vec4 part1, vec2 part2) {
-//     return mat3(
-//         part1.x, part1.y, 0.0,
-//         part1.z, part1.w, 0.0,
-//         part2.x, part2.y, 1.0
-//     );
-// }
-
 RayTracingMaterial getMaterial(int materialIndex) {
-    vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 6);
-    vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 6);
-    vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 6);
-    vec4 data4 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 3, 6);
-    vec4 data5 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 4, 6);
-    vec4 data6 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 5, 6);
-    // vec4 data7 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 6, 7);
-    // vec4 data8 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 7, 7);
+    vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 18);
+    vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 18);
+    vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 18);
+    vec4 data4 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 3, 18);
+    vec4 data5 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 4, 18);
+    vec4 data6 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 5, 18);
+    vec4 data7 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 6, 18);
+    vec4 data8 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 7, 18);
+	vec4 data9 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 8, 18);
+	vec4 data10 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 9, 18);
+	vec4 data11 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 10, 18);
+	vec4 data12 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 11, 18);
+	vec4 data13 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 12, 18);
+	vec4 data14 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 13, 18);
+	vec4 data15 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 14, 18);
+	vec4 data16 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 15, 18);
+	vec4 data17 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 16, 18);
+	vec4 data18 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 17, 18);
 
     RayTracingMaterial material;
 
@@ -99,15 +92,12 @@ RayTracingMaterial getMaterial(int materialIndex) {
     material.side = int(data6.g);
     material.normalScale = vec2(data6.b, data6.a);
 
-    // Unpack matrices from data7 and data8
-    // material.albedoTransform = unpackMatrix(data7, data8.xy);
-    // material.normalTransform = unpackMatrix(vec4(data8.zw, data9.xy), data9.zw);
-    // material.roughnessTransform = unpackMatrix(data10, data11.xy);
-	// material.metalnessTransform = unpackMatrix(data11.zw, data12.xy);
-	// material.emissiveTransform = unpackMatrix(data12.zw, data13.xy);
-	// material.bumpTransform = unpackMatrix(data13.zw, data14.xy);
-	// material.clearcoatMapMatrices = unpackMatrix(data14.zw, data15.xy);
-	// material.clearcoatRoughnessMapMatrices = unpackMatrix(data15.zw, data16.xy);
+	material.albedoTransform = arrayToMat3( data7, data8 );
+	material.emissiveTransform = arrayToMat3( data9, data10 );
+	material.normalTransform = arrayToMat3( data11, data12 );
+	material.bumpTransform = arrayToMat3( data13, data14 );
+	material.metalnessTransform = arrayToMat3( data15, data16 );
+	material.roughnessTransform = arrayToMat3( data17, data18 );
 
     return material;
 }

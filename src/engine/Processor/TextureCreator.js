@@ -5,7 +5,7 @@ const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize
 export default class TextureCreator {
 
 	createMaterialDataTexture(materials) {
-		const pixelsRequired = 6; // Reduced from 19
+		const pixelsRequired = 18; // Reduced from 19
 		const dataInEachPixel = 4;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
@@ -56,30 +56,79 @@ export default class TextureCreator {
 			data[stride++] = mat.side;
 			data[stride++] = mat.normalScale?.x ?? 1;
 			data[stride++] = mat.normalScale?.y ?? 1;
-	
-			// pixel 7 and 8 - Map matrices (compressed)
-			// const packMatrix = (matrix) => {
-			// 	if (!matrix) return [0, 0, 1, 1, 0, 0, 0, 1];
-			// 	return [
-			// 		matrix.elements[0], matrix.elements[1],
-			// 		matrix.elements[2], matrix.elements[3],
-			// 		matrix.elements[4], matrix.elements[5],
-			// 		matrix.elements[6], 1
-			// 	];
-			// };
-	
-			// const packedMatrices = [
-			// 	...packMatrix(mat.mapMatrix),
-			// 	...packMatrix(mat.normalMapMatrices),
-			// 	...packMatrix(mat.roughnessMapMatrix),
-			// 	...packMatrix(mat.metalnessMapMatrix),
-			// 	...packMatrix(mat.emissiveMapMatrix),
-			// 	...packMatrix(mat.bumpMapMatrices)
-			// ];
-	
-			// for (let j = 0; j < 16; j++) {
-			// 	data[stride++] = packedMatrices[j];
-			// }
+
+			// pixel 7 - Map matrices - 1
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 0 ] : 0;
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 1 ] : 0;
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 2 ] : 1;
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 3 ] : 1;
+
+			// pixel 8 - Map matrices - 2
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 4 ] : 0;
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 5 ] : 0;
+			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 6 ] : 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 9 - normal matrices - 1
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 0 ] : 0;
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 1 ] : 0;
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 2 ] : 1;
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 3 ] : 1;
+
+			// pixel 10 - normal matrices - 2
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 4 ] : 0;
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 5 ] : 0;
+			data[ stride ++ ] = mat.normalMapMatrices ? mat.normalMapMatrices[ 6 ] : 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 11 - roughness matrices - 1
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 0 ] : 0;
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 1 ] : 0;
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 2 ] : 1;
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 3 ] : 1;
+
+			// pixel 12 - roughness matrices - 2
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 4 ] : 0;
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 5 ] : 0;
+			data[ stride ++ ] = mat.roughnessMapMatrices ? mat.roughnessMapMatrices[ 6 ] : 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 13 - metalness matrices - 1
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 0 ] : 0;
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 1 ] : 0;
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 2 ] : 1;
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 3 ] : 1;
+
+			// pixel 14 - metalness matrices - 2
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 4 ] : 0;
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 5 ] : 0;
+			data[ stride ++ ] = mat.metalnessMapMatrices ? mat.metalnessMapMatrices[ 6 ] : 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 15 - emissive matrices - 1
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 0 ] : 0;
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 1 ] : 0;
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 2 ] : 1;
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 3 ] : 1;
+
+			// pixel 16 - emissive matrices - 2
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 4 ] : 0;
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 5 ] : 0;
+			data[ stride ++ ] = mat.emissiveMapMatrices ? mat.emissiveMapMatrices[ 6 ] : 0;
+			data[ stride ++ ] = 1;
+
+			// pixel 17 - bump matrices - 1
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 0 ] : 0;
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 1 ] : 0;
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 2 ] : 1;
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 3 ] : 1;
+
+			// pixel 18 - bump matrices - 2
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 4 ] : 0;
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 5 ] : 0;
+			data[ stride ++ ] = mat.bumpMapMatrices ? mat.bumpMapMatrices[ 6 ] : 0;
+			data[ stride ++ ] = 1;
+
 
 			// // pixel 20 - clearcoatMapMatrix - part 1
 			// data[ stride ++ ] = mat.clearcoatMapMatrix?.elements[ 0 ] ?? 0;
