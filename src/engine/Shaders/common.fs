@@ -38,12 +38,11 @@ vec3 toneMapACESFilmic(vec3 color) {
 	return pow(color, vec3(1.0 / 2.2));
 }
 
-float luminance( vec3 color ) {
+// float luminance( vec3 color ) {
 
-	// https://en.wikipedia.org/wiki/Relative_luminance
-	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+// 	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
 
-}
+// }
 
 // power heuristic for multiple importance sampling
 float powerHeuristic( float pdfA, float pdfB ) {

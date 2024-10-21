@@ -37,7 +37,7 @@
     "stats-gl": "^2.2.8",
     "tailwind-merge": "^2.5.3",
     "tailwindcss-animate": "^1.0.7",
-    "three": "^0.166.1",
+    "three": "^0.169.0",
     "tweakpane": "^4.0.4"
   },
   "devDependencies": {
