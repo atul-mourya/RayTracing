@@ -1,4 +1,4 @@
-import { Vector3, Vector2, Color } from "three";
+import { Color } from "three";
 import BVHBuilder from './BVHBuilder.js';
 import TextureCreator from './TextureCreator.js';
 import GeometryExtractor from './GeometryExtractor.js';
@@ -84,7 +84,7 @@ export default class TriangleSDF {
 	}
 
 	resetArrays() {
-		
+
 		this.triangles = [];
 		this.materials = [];
 		this.maps = [];

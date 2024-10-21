@@ -2,47 +2,49 @@ import { ShaderMaterial, WebGLRenderTarget, NearestFilter, RGBAFormat, FloatType
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 export class TemporalReprojectionPass extends Pass {
-    constructor(scene, camera, width, height) {
-        super();
 
-        this.scene = scene;
-        this.camera = camera;
-        this.width = width;
-        this.height = height;
+	constructor( scene, camera, width, height ) {
 
-        this.renderTargetA = new WebGLRenderTarget(width, height, {
-            minFilter: NearestFilter,
-            magFilter: NearestFilter,
-            format: RGBAFormat,
-            type: FloatType
-        });
-        this.renderTargetB = this.renderTargetA.clone();
-        this.currentRenderTarget = this.renderTargetA;
-        this.previousRenderTarget = this.renderTargetB;
+		super();
 
-        this.frameCount = 0;
-        this.previousCameraPosition = new Vector3();
-        this.previousCameraRotation = new Vector3();
+		this.scene = scene;
+		this.camera = camera;
+		this.width = width;
+		this.height = height;
 
-        this.material = new ShaderMaterial({
-            uniforms: {
-                tCurrent: { value: null },
-                tPrevious: { value: null },
-                resolution: { value: new Vector2(width, height) },
-                blendFactor: { value: 0.9 },
-                previousViewProjectionMatrix: { value: new Matrix4() },
-                currentViewProjectionMatrix: { value: new Matrix4() },
-                cameraMovement: { value: new Vector2(0, 0) },
-                neighborhoodClampIntensity: { value: 0.5 }
-            },
-            vertexShader: `
+		this.renderTargetA = new WebGLRenderTarget( width, height, {
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			format: RGBAFormat,
+			type: FloatType
+		} );
+		this.renderTargetB = this.renderTargetA.clone();
+		this.currentRenderTarget = this.renderTargetA;
+		this.previousRenderTarget = this.renderTargetB;
+
+		this.frameCount = 0;
+		this.previousCameraPosition = new Vector3();
+		this.previousCameraRotation = new Vector3();
+
+		this.material = new ShaderMaterial( {
+			uniforms: {
+				tCurrent: { value: null },
+				tPrevious: { value: null },
+				resolution: { value: new Vector2( width, height ) },
+				blendFactor: { value: 0.9 },
+				previousViewProjectionMatrix: { value: new Matrix4() },
+				currentViewProjectionMatrix: { value: new Matrix4() },
+				cameraMovement: { value: new Vector2( 0, 0 ) },
+				neighborhoodClampIntensity: { value: 0.5 }
+			},
+			vertexShader: `
                 varying vec2 vUv;
                 void main() {
                     vUv = uv;
                     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
             `,
-            fragmentShader: `
+			fragmentShader: `
                 uniform sampler2D tCurrent;
                 uniform sampler2D tPrevious;
                 uniform vec2 resolution;
@@ -112,74 +114,92 @@ export class TemporalReprojectionPass extends Pass {
                     gl_FragColor = vec4(finalColor, 1.0);
                 }
             `
-        });
+		} );
 
-        this.fsQuad = new FullScreenQuad(this.material);
-    }
+		this.fsQuad = new FullScreenQuad( this.material );
 
-    render(renderer, writeBuffer, readBuffer) {
-        this.material.uniforms.tCurrent.value = readBuffer.texture;
-        this.material.uniforms.tPrevious.value = this.previousRenderTarget.texture;
+	}
 
-        this.updateMatrices();
-        this.updateCameraMovement();
+	render( renderer, writeBuffer, readBuffer ) {
 
-        renderer.setRenderTarget(this.currentRenderTarget);
-        this.fsQuad.render(renderer);
+		this.material.uniforms.tCurrent.value = readBuffer.texture;
+		this.material.uniforms.tPrevious.value = this.previousRenderTarget.texture;
 
-        this.copyToWriteBuffer(renderer, writeBuffer);
+		this.updateMatrices();
+		this.updateCameraMovement();
 
-        [this.currentRenderTarget, this.previousRenderTarget] = [this.previousRenderTarget, this.currentRenderTarget];
+		renderer.setRenderTarget( this.currentRenderTarget );
+		this.fsQuad.render( renderer );
 
-        this.frameCount++;
-    }
+		this.copyToWriteBuffer( renderer, writeBuffer );
 
-    updateMatrices() {
-        const viewProjectionMatrix = new Matrix4().multiplyMatrices(
-            this.camera.projectionMatrix,
-            this.camera.matrixWorldInverse
-        );
+		[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
 
-        this.material.uniforms.previousViewProjectionMatrix.value.copy(this.material.uniforms.currentViewProjectionMatrix.value);
-        this.material.uniforms.currentViewProjectionMatrix.value.copy(viewProjectionMatrix);
-    }
+		this.frameCount ++;
 
-    updateCameraMovement() {
-        const currentPosition = this.camera.position;
-        const currentRotation = new Vector3().setFromEuler(this.camera.rotation);
+	}
 
-        const positionDelta = new Vector3().subVectors(currentPosition, this.previousCameraPosition);
-        const rotationDelta = new Vector3().subVectors(currentRotation, this.previousCameraRotation);
+	updateMatrices() {
 
-        const movementMagnitude = positionDelta.length() + rotationDelta.length() * 0.1;
-        this.material.uniforms.cameraMovement.value.set(movementMagnitude, 0);
+		const viewProjectionMatrix = new Matrix4().multiplyMatrices(
+			this.camera.projectionMatrix,
+			this.camera.matrixWorldInverse
+		);
 
-        this.previousCameraPosition.copy(currentPosition);
-        this.previousCameraRotation.copy(currentRotation);
-    }
+		this.material.uniforms.previousViewProjectionMatrix.value.copy( this.material.uniforms.currentViewProjectionMatrix.value );
+		this.material.uniforms.currentViewProjectionMatrix.value.copy( viewProjectionMatrix );
 
-    copyToWriteBuffer(renderer, writeBuffer) {
-        if (writeBuffer === null) {
-            renderer.setRenderTarget(null);
-            this.fsQuad.render(renderer);
-        } else {
-            renderer.setRenderTarget(writeBuffer);
-            this.fsQuad.render(renderer);
-        }
-    }
+	}
 
-    setSize(width, height) {
-        this.width = width;
-        this.height = height;
-        this.renderTargetA.setSize(width, height);
-        this.renderTargetB.setSize(width, height);
-        this.material.uniforms.resolution.value.set(width, height);
-    }
+	updateCameraMovement() {
 
-    dispose() {
-        this.renderTargetA.dispose();
-        this.renderTargetB.dispose();
-        this.material.dispose();
-        this.fsQuad.dispose();
-    }
+		const currentPosition = this.camera.position;
+		const currentRotation = new Vector3().setFromEuler( this.camera.rotation );
+
+		const positionDelta = new Vector3().subVectors( currentPosition, this.previousCameraPosition );
+		const rotationDelta = new Vector3().subVectors( currentRotation, this.previousCameraRotation );
+
+		const movementMagnitude = positionDelta.length() + rotationDelta.length() * 0.1;
+		this.material.uniforms.cameraMovement.value.set( movementMagnitude, 0 );
+
+		this.previousCameraPosition.copy( currentPosition );
+		this.previousCameraRotation.copy( currentRotation );
+
+	}
+
+	copyToWriteBuffer( renderer, writeBuffer ) {
+
+		if ( writeBuffer === null ) {
+
+			renderer.setRenderTarget( null );
+			this.fsQuad.render( renderer );
+
+		} else {
+
+			renderer.setRenderTarget( writeBuffer );
+			this.fsQuad.render( renderer );
+
+		}
+
+	}
+
+	setSize( width, height ) {
+
+		this.width = width;
+		this.height = height;
+		this.renderTargetA.setSize( width, height );
+		this.renderTargetB.setSize( width, height );
+		this.material.uniforms.resolution.value.set( width, height );
+
+	}
+
+	dispose() {
+
+		this.renderTargetA.dispose();
+		this.renderTargetB.dispose();
+		this.material.dispose();
+		this.fsQuad.dispose();
+
+	}
+
 }

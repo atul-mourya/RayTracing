@@ -1,11 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-    darkMode: ["class"],
-    content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
+	darkMode: [ "class" ],
+	content: [
+		"./index.html",
+		"./src/**/*.{js,ts,jsx,tsx}",
+	],
+	theme: {
   	extend: {
   		borderRadius: {
   			lg: 'var(--radius)',
@@ -77,7 +77,7 @@ export default {
   			'accordion-up': 'accordion-up 0.2s ease-out'
   		}
   	}
-  },
-  plugins: [require("tailwindcss-animate")],
-}
+	},
+	plugins: [ require( "tailwindcss-animate" ) ],
+};
 

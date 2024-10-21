@@ -2,7 +2,7 @@ import debugModelsData from './DebugModels.json';
 
 //some samples at https://casual-effects.com/data/
 
-// const MODEL_URL = './models/planes.glb'; 
+// const MODEL_URL = './models/planes.glb';
 //hdri image orignal source: 'https://cdn.polyhaven.com/asset_img/primary/aerodynamics_workshop.png?height=150'
 export const HDR_FILES = [
 	{ name: "Adams Place Bridge", 			url: `${import.meta.env.BASE_URL}hdri/adams_place_bridge_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/adams_place_bridge.webp` },
@@ -143,21 +143,28 @@ export const MODEL_FILES = [
 
 export const DEBUG_MODELS = debugModelsData
 	// .filter( m =>  m.tags.includes('pbrtest') )
-	.map(model => {
+	.map( model => {
+
 		let variantDir, variantFile;
-		if (model.variants['glTF-Binary']) {
-		variantDir = 'glTF-Binary';
-		variantFile = model.variants['glTF-Binary'];
-		} else if (model.variants['glTF']) {
-		variantDir = 'glTF';
-		variantFile = model.variants['glTF'];
+		if ( model.variants[ 'glTF-Binary' ] ) {
+
+			variantDir = 'glTF-Binary';
+			variantFile = model.variants[ 'glTF-Binary' ];
+
+		} else if ( model.variants[ 'glTF' ] ) {
+
+			variantDir = 'glTF';
+			variantFile = model.variants[ 'glTF' ];
+
 		} else {
-		// Fallback to the first available variant
-		const firstVariant = Object.entries(model.variants)[0];
-		variantDir = firstVariant[0];
-		variantFile = firstVariant[1];
+
+			// Fallback to the first available variant
+			const firstVariant = Object.entries( model.variants )[ 0 ];
+			variantDir = firstVariant[ 0 ];
+			variantFile = firstVariant[ 1 ];
+
 		}
-	
+
 		return {
 			name: model.name,
 			label: model.label,
@@ -165,8 +172,9 @@ export const DEBUG_MODELS = debugModelsData
 			preview: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${model.screenshot}`,
 			redirection: `https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/${model.name}/README.md`,
 		};
-  });
-  
+
+	} );
+
 
 export const DEFAULT_STATE = {
 	originalPixelRatio: window.devicePixelRatio / 2,
@@ -206,12 +214,12 @@ export const DEFAULT_STATE = {
 	debugMode: 0,
 	debugThreshold: 100,
 	debugModel: 0
-}
+};
 
 
 /*
 
-Test models: 
+Test models:
 Khronos Group glTF-Sample-Assets: https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/Models.md
 
 https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MosquitoInAmber/glTF-Binary/MosquitoInAmber.glb

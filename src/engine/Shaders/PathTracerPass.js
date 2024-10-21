@@ -300,30 +300,30 @@ export class PathTracerPass extends Pass {
 				const halfHeight = height / 2;
 
 				// Calculate the light's local axes
-				const forward = new Vector3(0, 0, -1);
-				const up = new Vector3(0, 1, 0);
-				const right = new Vector3(1, 0, 0);
-	
-				forward.applyQuaternion(object.quaternion);
-				up.applyQuaternion(object.quaternion);
-				right.applyQuaternion(object.quaternion);
-	
-				const u = right.multiplyScalar(halfWidth);
-				const v = up.multiplyScalar(halfHeight);
+				const forward = new Vector3( 0, 0, - 1 );
+				const up = new Vector3( 0, 1, 0 );
+				const right = new Vector3( 1, 0, 0 );
+
+				forward.applyQuaternion( object.quaternion );
+				up.applyQuaternion( object.quaternion );
+				right.applyQuaternion( object.quaternion );
+
+				const u = right.multiplyScalar( halfWidth );
+				const v = up.multiplyScalar( halfHeight );
 
 				areaLights.push( object.position.x, object.position.y, object.position.z );
 				areaLights.push( u.x, u.y, u.z );
 				areaLights.push( v.x, v.y, v.z );
 				areaLights.push( object.color.r, object.color.g, object.color.b );
 				areaLights.push( object.intensity );
-				
+
 			}
 
 		} );
 
 		this.material.defines.MAX_DIRECTIONAL_LIGHTS = directionalLights.length;
 		this.material.defines.MAX_POINT_LIGHTS = pointLights.length;
-		this.material.defines.MAX_SPOT_LIGHTS = spotLights.length;   
+		this.material.defines.MAX_SPOT_LIGHTS = spotLights.length;
 		this.material.defines.MAX_AREA_LIGHTS = areaLights.length;
 
 		this.material.uniforms.directionalLights.value = directionalLights;

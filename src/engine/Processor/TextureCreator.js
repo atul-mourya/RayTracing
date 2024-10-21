@@ -1,61 +1,63 @@
 import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
 
-const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize
+const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize;
 
 export default class TextureCreator {
 
-	createMaterialDataTexture(materials) {
-		const pixelsRequired = 18; // Reduced from 19
+	createMaterialDataTexture( materials ) {
+
+		const pixelsRequired = 18;
 		const dataInEachPixel = 4;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
-	
+
 		const dataLength = totalMaterials * dataLengthPerMaterial;
-		const width = Math.ceil(Math.sqrt(dataLength));
-		const height = Math.ceil(dataLength / width);
+		const width = Math.ceil( Math.sqrt( dataLength ) );
+		const height = Math.ceil( dataLength / width );
 		const size = width * height * dataInEachPixel;
-	
-		const data = new Float32Array(size);
-	
-		for (let i = 0; i < totalMaterials; i++) {
-			const mat = materials[i];
+
+		const data = new Float32Array( size );
+
+		for ( let i = 0; i < totalMaterials; i ++ ) {
+
+			const mat = materials[ i ];
 			let stride = i * dataLengthPerMaterial;
-	
+
 			// pixel 1 - Color and metalness
-			data[stride++] = mat.color.r;
-			data[stride++] = mat.color.g;
-			data[stride++] = mat.color.b;
-			data[stride++] = mat.metalness;
-	
+			data[ stride ++ ] = mat.color.r;
+			data[ stride ++ ] = mat.color.g;
+			data[ stride ++ ] = mat.color.b;
+			data[ stride ++ ] = mat.metalness;
+
 			// pixel 2 - Emissive and roughness
-			data[stride++] = mat.emissive.r;
-			data[stride++] = mat.emissive.g;
-			data[stride++] = mat.emissive.b;
-			data[stride++] = mat.roughness;
-	
+			data[ stride ++ ] = mat.emissive.r;
+			data[ stride ++ ] = mat.emissive.g;
+			data[ stride ++ ] = mat.emissive.b;
+			data[ stride ++ ] = mat.roughness;
+
 			// pixel 3 - Special properties
-			data[stride++] = mat.ior;
-			data[stride++] = mat.transmission;
-			data[stride++] = mat.thickness;
-			data[stride++] = mat.emissiveIntensity;
-	
+			data[ stride ++ ] = mat.ior;
+			data[ stride ++ ] = mat.transmission;
+			data[ stride ++ ] = mat.thickness;
+			data[ stride ++ ] = mat.emissiveIntensity;
+
 			// pixel 4 - Map indices
-			data[stride++] = mat.map;
-			data[stride++] = mat.normalMap;
-			data[stride++] = mat.roughnessMap;
-			data[stride++] = mat.metalnessMap;
-	
+			data[ stride ++ ] = mat.map;
+			data[ stride ++ ] = mat.normalMap;
+			data[ stride ++ ] = mat.roughnessMap;
+			data[ stride ++ ] = mat.metalnessMap;
+
 			// pixel 5 - More map indices and properties
-			data[stride++] = mat.emissiveMap;
-			data[stride++] = mat.bumpMap;
-			data[stride++] = mat.clearcoat;
-			data[stride++] = mat.clearcoatRoughness;
-	
+			data[ stride ++ ] = mat.emissiveMap;
+			data[ stride ++ ] = mat.bumpMap;
+			data[ stride ++ ] = mat.clearcoat;
+			data[ stride ++ ] = mat.clearcoatRoughness;
+
 			// pixel 6 - Miscellaneous properties
-			data[stride++] = mat.opacity;
-			data[stride++] = mat.side;
-			data[stride++] = mat.normalScale?.x ?? 1;
-			data[stride++] = mat.normalScale?.y ?? 1;
+			data[ stride ++ ] = mat.opacity;
+			data[ stride ++ ] = mat.side;
+			data[ stride ++ ] = mat.normalScale?.x ?? 1;
+			data[ stride ++ ] = mat.normalScale?.y ?? 1;
 
 			// pixel 7 - Map matrices - 1
 			data[ stride ++ ] = mat.mapMatrix ? mat.mapMatrix[ 0 ] : 0;
@@ -186,10 +188,11 @@ export default class TextureCreator {
 			// data[ stride ++ ] = mat.transparent;
 
 		}
-	
-		const texture = new DataTexture(data, width, height, RGBAFormat, FloatType);
+
+		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
 		return texture;
+
 	}
 
 	createTriangleDataTexture( triangles ) {

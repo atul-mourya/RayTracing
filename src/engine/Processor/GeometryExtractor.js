@@ -131,20 +131,20 @@ export default class GeometryExtractor {
 			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
 			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] ),
 
-			mapMatrix: this.getTextureMatrix(material.map),
-			normalMapMatrices: this.getTextureMatrix(material.normalMap),
-			bumpMapMatrices: this.getTextureMatrix(material.bumpMap),
-			roughnessMapMatrices: this.getTextureMatrix(material.roughnessMap),
-			metalnessMapMatrices: this.getTextureMatrix(material.metalnessMap),
-			emissiveMapMatrices: this.getTextureMatrix(material.emissiveMap),
+			mapMatrix: this.getTextureMatrix( material.map ),
+			normalMapMatrices: this.getTextureMatrix( material.normalMap ),
+			bumpMapMatrices: this.getTextureMatrix( material.bumpMap ),
+			roughnessMapMatrices: this.getTextureMatrix( material.roughnessMap ),
+			metalnessMapMatrices: this.getTextureMatrix( material.metalnessMap ),
+			emissiveMapMatrices: this.getTextureMatrix( material.emissiveMap ),
 
 		};
 
 	}
 
-	getTextureMatrix(texture) {
-		
-		if (!texture) return new Matrix3();
+	getTextureMatrix( texture ) {
+
+		if ( ! texture ) return new Matrix3();
 
 		texture.updateMatrix();
 		return texture.matrix.elements;
