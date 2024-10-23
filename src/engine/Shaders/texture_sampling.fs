@@ -29,7 +29,7 @@ vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
 	vec3 emission = material.emissiveIntensity * material.emissive;
 	if( material.emissiveMapIndex >= 0 ) {
-		uv = transformUV(uv, material.emissiveTransform);
+		// uv = transformUV(uv, material.emissiveTransform);
 		emission *= sRGBToLinear( sampleMap( emissiveMaps, material.emissiveMapIndex, uv ).rgb );
 	}
 	return emission;
@@ -45,7 +45,7 @@ float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
 
 float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
 	if( material.roughnessMapIndex >= 0 ) {
-		uv = transformUV(uv, material.roughnessTransform);
+		// uv = transformUV(uv, material.roughnessTransform);
 		material.roughness *= sampleMap( roughnessMaps, material.roughnessMapIndex, uv ).g;
 	}
 	return material.roughness;
@@ -57,7 +57,7 @@ vec3 perturbNormal( vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv, RayTraci
 
 	// Sample normal map
 	if( material.normalMapIndex >= 0 ) {
-		uv = transformUV(uv, material.normalTransform);
+		// uv = transformUV(uv, material.normalTransform);
 		vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, uv ).xyz * 2.0 - 1.0;
 		normalMap.xy *= normalScale;
 		mat3 TBN = mat3( tangent, bitangent, normal );
