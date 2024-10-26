@@ -29,6 +29,7 @@ export class PathTracerPass extends Pass {
 		this.height = height;
 		this.renderer = renderer;
 		this.scene = scene;
+		this.tiles = DEFAULT_STATE.tiles;
 
 		this.name = 'PathTracerPass';
 
@@ -90,7 +91,7 @@ export class PathTracerPass extends Pass {
 				adaptiveSamplingVarianceThreshold: { value: DEFAULT_STATE.adaptiveSamplingVarianceThreshold },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
-				tiles: { value: DEFAULT_STATE.tiles },
+				tiles: { value: this.tiles },
 				checkeredFrameInterval: { value: DEFAULT_STATE.checkeredSize },
 				previousFrameTexture: { value: null },
 
@@ -162,9 +163,9 @@ export class PathTracerPass extends Pass {
 		this.downsampleFactor = 4;
 		this.isInteracting = false;
 		this.interactionTimeout = null;
-		this.interactionDelay = 0.5; // seconds, increased for better debouncing
+		this.interactionDelay = 0.01; // seconds, increased for better debouncing
 		this.accumulationPass = null; // Reference to AccumulationPass, to be set later
-		this.transitionDuration = 0.01; // Duration of transition in seconds
+		this.transitionDuration = 0.00; // Duration of transition in seconds
 		this.transitionClock = new Clock( false );
 		this.isTransitioning = false;
 
@@ -337,6 +338,14 @@ export class PathTracerPass extends Pass {
 
 		// Reset accumulated samples
 		this.material.uniforms.frame.value = 0;
+		this.renderer.setRenderTarget( this.previousRenderTarget );
+		this.renderer.clear();
+
+		if ( this.material.uniforms.frame.value === 0 && this.material.uniforms.renderMode.value === 2 ) {
+
+			this.material.uniforms.tiles.value = 1;
+
+		}
 
 		if ( this.useDownSampledInteractions ) {
 
@@ -439,7 +448,11 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 		this.material.uniforms.frame.value ++;
 
-		if ( this.material.uniforms.frame.value >= this.material.uniforms.maxFrames.value ) {
+		if ( this.material.uniforms.renderMode.value === 2 && this.material.uniforms.frame.value >= Math.pow( this.tiles, 2 ) * this.material.uniforms.maxFrames.value ) {
+
+			this.isComplete = true;
+
+		} else if ( this.material.uniforms.renderMode.value !== 2 && this.material.uniforms.frame.value >= this.material.uniforms.maxFrames.value ) {
 
 			this.isComplete = true;
 
@@ -450,16 +463,16 @@ export class PathTracerPass extends Pass {
 
 		if ( this.useDownSampledInteractions ) {
 
-			// Always render both low-res and high-res
-			renderer.setRenderTarget( this.downsampledRenderTarget );
-			this.material.uniforms.resolution.value.set( this.width / this.downsampleFactor, this.height / this.downsampleFactor );
-			this.fsQuad.render( renderer );
-
-			renderer.setRenderTarget( this.currentRenderTarget );
-			this.material.uniforms.resolution.value.set( this.width, this.height );
-			this.fsQuad.render( renderer );
-
 			if ( this.isTransitioning ) {
+
+				// render both low-res and high-res
+				renderer.setRenderTarget( this.downsampledRenderTarget );
+				this.material.uniforms.resolution.value.set( this.width / this.downsampleFactor, this.height / this.downsampleFactor );
+				this.fsQuad.render( renderer );
+
+				renderer.setRenderTarget( this.currentRenderTarget );
+				this.material.uniforms.resolution.value.set( this.width, this.height );
+				this.fsQuad.render( renderer );
 
 				// Blend between low-res and high-res
 				const t = Math.min( this.transitionClock.getElapsedTime() / this.transitionDuration, 1 );
@@ -480,12 +493,20 @@ export class PathTracerPass extends Pass {
 
 			} else if ( this.isInteracting ) {
 
+				renderer.setRenderTarget( this.downsampledRenderTarget );
+				this.material.uniforms.resolution.value.set( this.width / this.downsampleFactor, this.height / this.downsampleFactor );
+				this.fsQuad.render( renderer );
+
 				// Use low-res version during interaction and delay
 				this.copyMaterial.uniforms.tDiffuse.value = this.downsampledRenderTarget.texture;
 				renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 				this.copyQuad.render( renderer );
 
 			} else {
+
+				renderer.setRenderTarget( this.currentRenderTarget );
+				this.material.uniforms.resolution.value.set( this.width, this.height );
+				this.fsQuad.render( renderer );
 
 				// Use high-res version when not interacting
 				this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
@@ -506,6 +527,8 @@ export class PathTracerPass extends Pass {
 			this.copyQuad.render( renderer );
 
 		}
+
+		this.material.uniforms.tiles.value = this.tiles;
 
 		// Swap render targets for next frame
 		[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];

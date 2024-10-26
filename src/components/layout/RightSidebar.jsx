@@ -38,7 +38,7 @@ const RightSidebar = () => {
 	const [ adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold ] = useState( DEFAULT_STATE.adaptiveSamplingVarianceThreshold );
 	const [ renderMode, setRenderMode ] = useState( DEFAULT_STATE.renderMode );
 	const [ checkeredSize, setCheckeredSize ] = useState( DEFAULT_STATE.checkeredSize );
-	const [ tiles, setTiles ] = useState( DEFAULT_STATE.tile );
+	const [ tiles, setTiles ] = useState( DEFAULT_STATE.tiles );
 	const [ resolution, setResolution ] = useState( DEFAULT_STATE.resolution );
 	const [ directionalLightIntensity, setDirectionalLightIntensity ] = useState( DEFAULT_STATE.directionalLightIntensity );
 	const [ directionalLightColor, setDirectionalLightColor ] = useState( DEFAULT_STATE.directionalLightColor );
@@ -348,7 +348,7 @@ const RightSidebar = () => {
 		setTiles( value );
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.tiles.value = value;
+			window.pathTracerApp.pathTracingPass.tiles = value[ 0 ];
 			window.pathTracerApp.reset();
 
 		}

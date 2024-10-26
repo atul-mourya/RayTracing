@@ -122,6 +122,8 @@ export class TemporalReprojectionPass extends Pass {
 
 	render( renderer, writeBuffer, readBuffer ) {
 
+		if ( ! this.enabled ) return;
+
 		this.material.uniforms.tCurrent.value = readBuffer.texture;
 		this.material.uniforms.tPrevious.value = this.previousRenderTarget.texture;
 
