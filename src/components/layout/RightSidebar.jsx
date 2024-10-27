@@ -39,7 +39,9 @@ const RightSidebar = () => {
 	const [ renderMode, setRenderMode ] = useState( DEFAULT_STATE.renderMode );
 	const [ checkeredSize, setCheckeredSize ] = useState( DEFAULT_STATE.checkeredSize );
 	const [ tiles, setTiles ] = useState( DEFAULT_STATE.tiles );
+	const [ tilesHelper, setTilesHelper ] = useState( DEFAULT_STATE.tilesHelper );
 	const [ resolution, setResolution ] = useState( DEFAULT_STATE.resolution );
+	const [ downSampledMovement, setDownSampledMovement ] = useState( DEFAULT_STATE.downSampledMovement );
 	const [ directionalLightIntensity, setDirectionalLightIntensity ] = useState( DEFAULT_STATE.directionalLightIntensity );
 	const [ directionalLightColor, setDirectionalLightColor ] = useState( DEFAULT_STATE.directionalLightColor );
 	const [ directionalLightPosition, setDirectionalLightPosition ] = useState( DEFAULT_STATE.directionalLightPosition );
@@ -355,6 +357,18 @@ const RightSidebar = () => {
 
 	};
 
+	const handleTileHelperToggle = ( value ) => {
+
+		setTilesHelper( value );
+		if ( window.pathTracerApp && parseInt( renderMode ) === 2 ) {
+
+			window.pathTracerApp.tileHighlightPass.enabled = value;
+
+		}
+
+	};
+
+
 	const handleResolutionChange = ( value ) => {
 
 		setResolution( value );
@@ -370,6 +384,18 @@ const RightSidebar = () => {
 			}
 
 			window.pathTracerApp.updateResolution( window.devicePixelRatio * result );
+
+		}
+
+	};
+
+	const handleDownSampledMovementChange = ( value ) => {
+
+		setDownSampledMovement( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value;
+			window.pathTracerApp.reset();
 
 		}
 
@@ -665,9 +691,14 @@ const RightSidebar = () => {
 								</div>
 							)}
 							{renderMode === '2' && (
-								<div className="flex items-center justify-between">
-									<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-								</div>
+								<>
+									<div className="flex items-center justify-between">
+										<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
+									</div>
+									<div className="flex items-center justify-between">
+										<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
+									</div>
+								</>
 							)}
 							<div className="flex items-center justify-between">
 								<span className="opacity-50 text-xs truncate">Resolution</span>
@@ -677,21 +708,21 @@ const RightSidebar = () => {
 										value="0"
 										aria-label="Quarter Resolution"
 									>
-                    1:4
+                    				1:4
 									</ToggleGroupItem>
 									<ToggleGroupItem
 										className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
 										value="1"
 										aria-label="Half Resolution"
 									>
-                    1:2
+                    				1:2
 									</ToggleGroupItem>
 									<ToggleGroupItem
 										className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
 										value="2"
 										aria-label="Full Resolution"
 									>
-                    1:1
+                    				1:1
 									</ToggleGroupItem>
 								</ToggleGroup>
 							</div>
@@ -712,6 +743,9 @@ const RightSidebar = () => {
 									<Slider label={"Detail Preservation"} min={0.01} max={0.1} step={0.01} value={[ denoiserDetailPreservation ]} onValueChange={handleDenoiserDetailPreservationChange} />
 								</div>
 							</> )}
+							<div className="flex items-center justify-between">
+								<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
+							</div>
 							{enablePathTracer && (
 								<Accordion type="single" collapsible>
 									<AccordionItem value="debug">

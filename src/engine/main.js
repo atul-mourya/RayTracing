@@ -20,15 +20,18 @@ import {
 	RectAreaLight
 } from 'three';
 
-import Stats from 'stats-gl';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader';
+import {
+	OrbitControls,
+	GLTFLoader,
+	EffectComposer,
+	RenderPass,
+	OutlinePass,
+	OutputPass,
+	RGBELoader,
+	DRACOLoader
+} from 'three/examples/jsm/Addons';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import Stats from 'stats-gl';
 
 // Import custom passes and constants
 import { PathTracerPass } from './Shaders/PathTracerPass';
@@ -181,13 +184,15 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( this.temporalReprojectionPass );
 		window.temporalReprojectionPass = this.temporalReprojectionPass;
 
+		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
+		this.composer.addPass( this.outlinePass );
 
 		this.denoiserPass = new LygiaSmartDenoiserPass( this.width, this.height );
 		this.denoiserPass.enabled = false;
 		this.composer.addPass( this.denoiserPass );
 
 		this.tileHighlightPass = new TileHighlightPass( new Vector2( this.width, this.height ) );
-		this.tileHighlightPass.enabled = false;
+		this.tileHighlightPass.enabled = DEFAULT_STATE.tilesHelper;
 		this.composer.addPass( this.tileHighlightPass );
 
 		const outputPass = new OutputPass();
@@ -414,6 +419,12 @@ class PathTracerApp extends EventDispatcher {
 			this.temporalReprojectionPass.material.uniforms.blendFactor.value = factor;
 
 		}
+
+	}
+
+	selectObject( object ) {
+
+		this.outlinePass.selectedObjects = object ? [ object ] : [];
 
 	}
 

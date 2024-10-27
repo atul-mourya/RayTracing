@@ -159,7 +159,7 @@ export class PathTracerPass extends Pass {
 
 		} );
 
-		this.useDownSampledInteractions = false;
+		this.useDownSampledInteractions = DEFAULT_STATE.downSampledMovement;
 		this.downsampleFactor = 4;
 		this.isInteracting = false;
 		this.interactionTimeout = null;

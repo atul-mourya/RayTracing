@@ -6,10 +6,35 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 const LayerTreeItem = ( { item, depth } ) => {
 
 	const [ isOpen, setIsOpen ] = useState( true );
+	const [ selectedNode, setSelectedNode ] = useState( null );
+
+	const handleNodeClick = ( item ) => {
+
+		if ( window.pathTracerApp ) {
+
+			if ( selectedNode && selectedNode?.uuid === item.uuid ) {
+
+				window.pathTracerApp.selectObject( null );
+				setSelectedNode( null );
+				return;
+
+			}
+
+			const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+			object && window.pathTracerApp.selectObject( object );
+			setSelectedNode( item.uuid );
+
+		}
+
+	};
 
 	return (
 		<Collapsible open={isOpen} onOpenChange={setIsOpen}>
-			<CollapsibleTrigger className="flex items-center space-x-2 p-1 hover:bg-secondary rounded cursor-pointer w-full text-left" style={{ paddingLeft: `${depth * 12 + 4}px` }}>
+			<CollapsibleTrigger
+				onClick={() => handleNodeClick( item )}
+				className="flex items-center space-x-2 p-1 hover:bg-secondary rounded cursor-pointer w-full text-left"
+				style={{ paddingLeft: `${depth * 12 + 4}px` }}
+			>
 				{item.children.length > 0 && (
 					isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />
 				)}
@@ -18,8 +43,8 @@ const LayerTreeItem = ( { item, depth } ) => {
 			</CollapsibleTrigger>
 			{item.children.length > 0 && (
 				<CollapsibleContent>
-					{item.children.map( ( child, index ) => (
-						<LayerTreeItem key={index} item={child} depth={depth + 1} />
+					{item.children.map( ( child ) => (
+						<LayerTreeItem key={child.uuid} item={child} depth={depth + 1} />
 					) )}
 				</CollapsibleContent>
 			)}
@@ -67,6 +92,7 @@ const LeftSidebar = () => {
 			return {
 				name: object.name || `${object.type} ${object.id}`,
 				type: object.type,
+				uuid: object.uuid,
 				icon: icon,
 				children: object.children.map( createLayerItem )
 			};
