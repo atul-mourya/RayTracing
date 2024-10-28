@@ -144,7 +144,7 @@ export default class GeometryExtractor {
 
 	getTextureMatrix( texture ) {
 
-		if ( ! texture ) return new Matrix3();
+		if ( ! texture ) return new Matrix3().elements;
 
 		texture.updateMatrix();
 		return texture.matrix.elements;

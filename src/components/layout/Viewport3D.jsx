@@ -1,4 +1,4 @@
-
+/* eslint-disable react/prop-types */
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import PathTracerApp from '../../engine/main';
 import { Loader2, Upload } from "lucide-react";

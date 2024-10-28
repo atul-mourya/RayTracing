@@ -1,11 +1,6 @@
 uniform sampler2D triangleTexture;
-uniform vec2 triangleTexSize;
-
 uniform sampler2D materialTexture;
-uniform vec2 materialTexSize;
-
 uniform sampler2D bvhTexture;
-uniform vec2 bvhTexSize;
 
 struct BVHNode {
 	vec3 boundsMin;
@@ -16,14 +11,17 @@ struct BVHNode {
 	vec2 padding;
 };
 
-vec4 getDatafromDataTexture( sampler2D tex, vec2 texSize, int stride, int sampleIndex, int dataOffset ) {
+vec4 getDatafromDataTexture( sampler2D tex, ivec2 texSize, int stride, int sampleIndex, int dataOffset ) {
 	int pixelIndex = stride * dataOffset + sampleIndex;
-	int x = pixelIndex % int( texSize.x );
-	int y = pixelIndex / int( texSize.x );
+	int x = pixelIndex % texSize.x;
+	int y = pixelIndex / texSize.x;
 	return texelFetch( tex, ivec2( x, y ), 0 );
 }
 
 BVHNode getBVHNode( int index ) {
+	
+	ivec2 bvhTexSize = textureSize( bvhTexture, 0 );
+
 	vec4 data1 = getDatafromDataTexture( bvhTexture, bvhTexSize, index, 0, 4 );
 	vec4 data2 = getDatafromDataTexture( bvhTexture, bvhTexSize, index, 1, 4 );
 	vec4 data3 = getDatafromDataTexture( bvhTexture, bvhTexSize, index, 2, 4 );
@@ -46,6 +44,9 @@ mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
 }
 
 RayTracingMaterial getMaterial(int materialIndex) {
+
+	ivec2 materialTexSize = textureSize( materialTexture, 0 );
+
     vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 18);
     vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 18);
     vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 18);
@@ -105,6 +106,8 @@ RayTracingMaterial getMaterial(int materialIndex) {
 
 Triangle getTriangle( int triangleIndex ) {
 	Triangle tri;
+
+	ivec2 triangleTexSize = textureSize( triangleTexture, 0 );
 
 	// Read 8 vec4s for each triangle
 	vec4 v0 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, 0, 8 );

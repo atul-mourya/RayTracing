@@ -77,36 +77,34 @@ const MainViewport = () => {
 	};
 
 	return (
-		<div className="flex flex-1">
-			<div className="flex-1 relative">
-				<Viewport3D onStatsUpdate={setStats} />
-				<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
+		<div className="w-full h-full">
+			<Viewport3D onStatsUpdate={setStats} />
+			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
           Time: {stats.timeElapsed.toFixed( 2 )}s | Samples: {stats.samples} /{' '}
-					{isEditing ? (
-						<input
-							className="bg-transparent border-b border-white text-white w-12"
-							type="number"
-							value={inputValue}
-							onChange={handleInputChange}
-							onBlur={handleInputBlur}
-							onKeyDown={handleKeyDown}
-							autoFocus
-						/>
-					) : (
-						<span onClick={handleEditClick} className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300">
-							{maxSamples}
-						</span>
-					)}
-				</div>
-				{isDenoising && (
-					<div className="absolute top-2 left-1/2 transform -translate-x-1/2">
-						<div className="bg-background opacity-50 text-xs text-foreground px-1 py-0 rounded-full flex items-center">
-							<span className="mr-2">Denoising</span>
-							<Loader2 className="h-5 w-5 animate-spin" />
-						</div>
-					</div>
+				{isEditing ? (
+					<input
+						className="bg-transparent border-b border-white text-white w-12"
+						type="number"
+						value={inputValue}
+						onChange={handleInputChange}
+						onBlur={handleInputBlur}
+						onKeyDown={handleKeyDown}
+						autoFocus
+					/>
+				) : (
+					<span onClick={handleEditClick} className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300">
+						{maxSamples}
+					</span>
 				)}
 			</div>
+			{isDenoising && (
+				<div className="absolute top-2 left-1/2 transform -translate-x-1/2">
+					<div className="bg-background opacity-50 text-xs text-foreground px-1 py-0 rounded-full flex items-center">
+						<span className="mr-2">Denoising</span>
+						<Loader2 className="h-5 w-5 animate-spin" />
+					</div>
+				</div>
+			)}
 		</div>
 	);
 

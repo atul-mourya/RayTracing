@@ -140,7 +140,7 @@ const LeftSidebar = () => {
 	const filteredLayers = renderFilteredLayers( layers, searchTerm );
 
 	return (
-		<div className="w-60 border-r flex flex-col">
+		<div className="w-full border-r flex flex-col">
 			<div className="p-2 border-b">
 				<div className="flex items-center justify-between mb-2">
 					<span className="font-semibold">Layers</span>

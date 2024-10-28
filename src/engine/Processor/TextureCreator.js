@@ -7,16 +7,39 @@ export default class TextureCreator {
 
 	createMaterialDataTexture( materials ) {
 
-		const pixelsRequired = 18;
-		const dataInEachPixel = 4;
+		const pixelsRequired = 18; // Pixels needed per material
+		const dataInEachPixel = 4; // RGBA components
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
-		const dataLength = totalMaterials * dataLengthPerMaterial;
 
-		const width = Math.ceil( Math.sqrt( dataLength ) );
-		const height = Math.ceil( dataLength / width );
-		const size = width * height * dataInEachPixel;
+		// Calculate the optimal dimensions
+		// Strategy: Find the smallest power of 2 width that minimizes unused space
+		const totalPixels = pixelsRequired * totalMaterials;
+		let bestWidth = 4; // Start with minimum reasonable width
+		let bestHeight = Math.ceil( totalPixels / 4 );
+		let minWaste = bestWidth * bestHeight - totalPixels;
 
+		// Try different widths up to the square root of total pixels
+		const maxWidth = Math.ceil( Math.sqrt( totalPixels ) );
+		for ( let w = 8; w <= maxWidth; w *= 2 ) {
+
+			const h = Math.ceil( totalPixels / w );
+			const waste = w * h - totalPixels;
+
+			if ( waste < minWaste ) {
+
+				bestWidth = w;
+				bestHeight = h;
+				minWaste = waste;
+
+			}
+
+		}
+
+		// Ensure height is a power of 2 as well (often required by GPUs)
+		bestHeight = Math.pow( 2, Math.ceil( Math.log2( bestHeight ) ) );
+
+		const size = bestWidth * bestHeight * dataInEachPixel;
 		const data = new Float32Array( size );
 
 		for ( let i = 0; i < totalMaterials; i ++ ) {
@@ -56,7 +79,7 @@ export default class TextureCreator {
 
 		}
 
-		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
+		const texture = new DataTexture( data, bestWidth, bestHeight, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
 		return texture;
 

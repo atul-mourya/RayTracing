@@ -562,7 +562,7 @@ const RightSidebar = () => {
 	};
 
 	return (
-		<div className="w-80 border-l flex flex-col overflow-hidden">
+		<div className="w-full border-l flex flex-col overflow-hidden">
 			<div className="flex-1 overflow-y-auto">
 				<Tabs defaultValue="pathtracer" className="w-full">
 					<TabsList className="grid w-full grid-cols-6 h-auto p-0">
