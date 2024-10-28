@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { Menu, Play, Pause, Save, FolderOpen, Link, Undo, Redo, Copy, ClipboardPaste, ZoomIn, ZoomOut, Focus, Loader2, Github, ChevronDown } from 'lucide-react';
 import { ThemeToggle } from '../theme-toggle';
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+	Menubar,
+	MenubarContent,
+	MenubarItem,
+	MenubarMenu,
+	MenubarSeparator,
+	MenubarTrigger,
+} from "@/components/ui/menubar";
 import {
 	Dialog,
 	DialogContent,
@@ -73,10 +74,8 @@ const TopBar = () => {
 
 	};
 
-
 	const handleImportFromUrl = () => {
 
-		console.log( 'Importing from URL:', importUrl );
 		if ( ! validateUrl( importUrl ) ) {
 
 			toast( {
@@ -99,7 +98,7 @@ const TopBar = () => {
 					setIsImportModalOpen( false );
 					toast( {
 						title: "Model Loaded",
-						description: `Successfully loaded model !!`,
+						description: "Successfully loaded model !!",
 					} );
 
 				} )
@@ -121,7 +120,6 @@ const TopBar = () => {
 		}
 
 	};
-
 
 	useEffect( () => {
 
@@ -160,81 +158,75 @@ const TopBar = () => {
 	};
 
 	return (
-		<div className="flex items-center px-2 h-12 border-b border-[#4a4a4a]">
-			<div className="flex items-center space-x-2 mr-4">
+		<div className="flex items-center h-12 border-b border-[#4a4a4a]">
+			<div className="flex items-center space-x-2 mr-4 px-2">
 				<Menu size={18} />
 				<span className="font-semibold">RayCanvas</span>
 			</div>
-			<div className="flex space-x-2 text-sm">
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<Button variant="ghost" className="px-2 py-1">File</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent>
-						<DropdownMenuItem disabled onSelect={() => console.log( 'Open' )}>
+
+			<Menubar className="border-none">
+				<MenubarMenu>
+					<MenubarTrigger className="font-normal">File</MenubarTrigger>
+					<MenubarContent>
+						<MenubarItem disabled className="flex items-center">
 							<FolderOpen className="mr-2 h-4 w-4" />
 							<span>Open</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => setIsImportModalOpen( true )}>
+						</MenubarItem>
+						<MenubarItem onSelect={() => setIsImportModalOpen( true )} className="flex items-center">
 							<Link className="mr-2 h-4 w-4" />
 							<span>Import from URL</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem disabled onSelect={() => console.log( 'Save' )}>
+						</MenubarItem>
+						<MenubarItem disabled className="flex items-center">
 							<Save className="mr-2 h-4 w-4" />
 							<span>Save</span>
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem disabled onSelect={() => console.log( 'Exit' )}>
-              Exit
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+						</MenubarItem>
+						<MenubarSeparator />
+						<MenubarItem disabled>Exit</MenubarItem>
+					</MenubarContent>
+				</MenubarMenu>
 
-				<DropdownMenu>
-					<DropdownMenuTrigger disabled asChild>
-						<Button variant="ghost" className="px-2 py-1">Edit</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent>
-						<DropdownMenuItem onSelect={() => console.log( 'Undo' )}>
+				<MenubarMenu>
+					<MenubarTrigger className="font-normal">Edit</MenubarTrigger>
+					<MenubarContent>
+						<MenubarItem disabled className="flex items-center">
 							<Undo className="mr-2 h-4 w-4" />
 							<span>Undo</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => console.log( 'Redo' )}>
+						</MenubarItem>
+						<MenubarItem disabled className="flex items-center">
 							<Redo className="mr-2 h-4 w-4" />
 							<span>Redo</span>
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem onSelect={() => console.log( 'Copy' )}>
+						</MenubarItem>
+						<MenubarSeparator />
+						<MenubarItem disabled className="flex items-center">
 							<Copy className="mr-2 h-4 w-4" />
 							<span>Copy</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => console.log( 'Paste' )}>
+						</MenubarItem>
+						<MenubarItem disabled className="flex items-center">
 							<ClipboardPaste className="mr-2 h-4 w-4" />
 							<span>Paste</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+						</MenubarItem>
+					</MenubarContent>
+				</MenubarMenu>
 
-				<DropdownMenu>
-					<DropdownMenuTrigger disabled asChild>
-						<Button variant="ghost" className="px-2 py-1">View</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent>
-						<DropdownMenuItem onSelect={() => console.log( 'Zoom In' )}>
+				<MenubarMenu>
+					<MenubarTrigger className="font-normal">View</MenubarTrigger>
+					<MenubarContent>
+						<MenubarItem disabled className="flex items-center">
 							<ZoomIn className="mr-2 h-4 w-4" />
 							<span>Zoom In</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => console.log( 'Zoom Out' )}>
+						</MenubarItem>
+						<MenubarItem disabled className="flex items-center">
 							<ZoomOut className="mr-2 h-4 w-4" />
 							<span>Zoom Out</span>
-						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => console.log( 'Reset View' )}>
+						</MenubarItem>
+						<MenubarItem disabled className="flex items-center">
 							<Focus className="mr-2 h-4 w-4" />
 							<span>Reset View</span>
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
-			</div>
+						</MenubarItem>
+					</MenubarContent>
+				</MenubarMenu>
+			</Menubar>
+
 			<div className="flex-grow" />
 
 			<Button
@@ -248,17 +240,19 @@ const TopBar = () => {
 			</Button>
 
 			<div className="flex-grow" />
-			<ThemeToggle />
-			<div className="pl-2 text-xs">v3.0</div>
-			<ChevronDown size={14} className="pl-2"/>
-			<TooltipProvider>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<Github className="pl-2 cursor-pointer" onClick={handleGithubRedirection} />
-					</TooltipTrigger>
-					<TooltipContent>View on GitHub</TooltipContent>
-				</Tooltip>
-			</TooltipProvider>
+			<div className="flex items-center px-2 space-x-2">
+				<ThemeToggle />
+				<div className="text-xs">v3.0</div>
+				<ChevronDown size={14} />
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<Github className="cursor-pointer" onClick={handleGithubRedirection} />
+						</TooltipTrigger>
+						<TooltipContent>View on GitHub</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
+			</div>
 
 			{/* Import from URL Modal */}
 			<Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>

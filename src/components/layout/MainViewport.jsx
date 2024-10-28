@@ -77,7 +77,7 @@ const MainViewport = () => {
 	};
 
 	return (
-		<div className="w-full h-full">
+		<div className="w-full h-full relative">
 			<Viewport3D onStatsUpdate={setStats} />
 			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
           Time: {stats.timeElapsed.toFixed( 2 )}s | Samples: {stats.samples} /{' '}
