@@ -23,7 +23,9 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - material dynamic changes
 - Hybrid Rendering
 -  sheen, sheen roughness, etc
--  Explore Disney BSDF
+-  Explore Disney BSDF 
+//https://schuttejoe.github.io/post/disneybsdf/
+
 - oidn denioser https://github.com/DennisSmolek/Denoiser
 
 ### Refactor:
