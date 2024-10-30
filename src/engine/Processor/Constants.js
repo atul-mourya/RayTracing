@@ -141,6 +141,28 @@ export const MODEL_FILES = [
 	{ name: "Laser Flashlight", 	url: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.glb`, preview: `${import.meta.env.BASE_URL}models/zenitco_klesch-2p__laser_flashlight.png` },
 ];
 
+const tagPriority = {
+	'pbrtest': 1,
+	'testing': 2,
+	'core': 3,
+	'extension': 4,
+	'showcase': 5,
+	'video': 6,
+	'written': 7,
+	'issues': 8
+};
+const getHighestPriorityTag = ( tags ) => {
+
+	return tags.reduce( ( highest, tag ) => {
+
+		const currentPriority = tagPriority[ tag ] || 999;
+		const highestPriority = tagPriority[ highest ] || 999;
+		return currentPriority < highestPriority ? tag : highest;
+
+	}, tags[ 0 ] );
+
+};
+
 export const DEBUG_MODELS = debugModelsData
 	// .filter( m =>  m.tags.includes('pbrtest') )
 	.map( model => {
@@ -171,7 +193,15 @@ export const DEBUG_MODELS = debugModelsData
 			url: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${variantDir}/${variantFile}`,
 			preview: `https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/${model.name}/${model.screenshot}`,
 			redirection: `https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/${model.name}/README.md`,
+			tags: model.tags
 		};
+
+	} )
+	.sort( ( a, b ) => {
+
+		const tagA = getHighestPriorityTag( a.tags );
+		const tagB = getHighestPriorityTag( b.tags );
+		return ( tagPriority[ tagA ] || 999 ) - ( tagPriority[ tagB ] || 999 );
 
 	} );
 

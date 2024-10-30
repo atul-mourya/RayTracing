@@ -158,7 +158,7 @@ const TopBar = () => {
 	};
 
 	return (
-		<div className="flex items-center h-12 border-b border-[#4a4a4a]">
+		<div className="flex items-center h-[48px] border-b border-[#4a4a4a]">
 			<div className="flex items-center space-x-2 mr-4 px-2">
 				<Menu size={18} />
 				<span className="font-semibold">RayCanvas</span>

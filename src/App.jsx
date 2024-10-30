@@ -19,7 +19,7 @@ const App = () => {
 		<ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
 			<div className="flex flex-col w-screen h-screen">
 				<TopBar />
-				<ResizablePanelGroup direction="horizontal" className="flex flex-1 overflow-hidden">
+				<ResizablePanelGroup direction="horizontal" className="flex flex-1 overflow-hidden h-full">
 					<ResizablePanel onResize={handleResize} className="min-w-[200px]" defaultSize={20}>
 						<LeftSidebar />
 					</ResizablePanel>
@@ -28,7 +28,7 @@ const App = () => {
 						<MainViewport />
 					</ResizablePanel>
 					<ResizableHandle withHandle />
-					<ResizablePanel onResize={handleResize} className="min-w-[200px]" defaultSize={20}>
+					<ResizablePanel onResize={handleResize} className="min-w-[200px] h-full" defaultSize={20}>
 						<RightSidebar />
 					</ResizablePanel>
 				</ResizablePanelGroup>
