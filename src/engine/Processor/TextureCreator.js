@@ -148,7 +148,7 @@ export default class TextureCreator {
 		maxHeight = Math.pow( 2, Math.ceil( Math.log2( maxHeight ) ) );
 
 		// Reduce dimensions if they exceed the maximum texture size
-		while ( maxWidth > maxTextureSize || maxHeight > maxTextureSize ) {
+		while ( maxWidth >= maxTextureSize / 2 || maxHeight >= maxTextureSize / 2 ) {
 
 			maxWidth = Math.max( 1, Math.floor( maxWidth / 2 ) );
 			maxHeight = Math.max( 1, Math.floor( maxHeight / 2 ) );
