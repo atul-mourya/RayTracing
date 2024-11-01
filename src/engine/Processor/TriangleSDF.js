@@ -21,7 +21,7 @@ export default class TriangleSDF {
 		this.bvhBuilder = new BVHBuilder();
 		this.textureCreator = new TextureCreator();
 
-		this.extractGeometryData( object );
+		this.extractData( object );
 		this.buildBVH();
 		this.createTextures();
 		this.spheres = this.createSpheres();
@@ -31,7 +31,7 @@ export default class TriangleSDF {
 
 	}
 
-	extractGeometryData( object ) {
+	extractData( object ) {
 
 		const extractedData = this.geometryExtractor.extract( object );
 		this.triangles = extractedData.triangles;
