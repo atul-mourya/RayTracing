@@ -90,14 +90,22 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer.setSize( this.width, this.height );
 		this.container.appendChild( this.canvas );
 
-		this.stats = new Stats( { horizontal: true } );
+		this.stats = new Stats( { horizontal: true, trackGPU: true } );
 		this.stats.dom.style.position = 'absolute';
 		this.stats.dom.style.top = 'unset';
 		this.stats.dom.style.bottom = '48px';
 
 		this.stats.init( this.renderer );
-		this.stats.fpsPanel.fg = this.stats.gpuPanel.fg = this.stats.msPanel.fg = '#ffffff';
-		this.stats.fpsPanel.bg = this.stats.gpuPanel.bg = this.stats.msPanel.bg = '#1e293b';
+		this.stats.fpsPanel.fg = this.stats.msPanel.fg = '#ffffff';
+		this.stats.fpsPanel.bg = this.stats.msPanel.bg = '#1e293b';
+
+		if ( this.stats.gpuPanel ) {
+
+			this.stats.gpuPanel.fg = '#ffffff';
+			this.stats.gpuPanel.bg = '#1e293b';
+
+		}
+
 		this.container.appendChild( this.stats.dom );
 
 		// Setup canvas
