@@ -2,6 +2,7 @@ import path from "path";
 import react from "@vitejs/plugin-react";
 import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
+import topLevelAwait from "vite-plugin-top-level-await";
 const __dirname = path.resolve();
 
 export default defineConfig( {
@@ -22,6 +23,10 @@ export default defineConfig( {
 			watch: false, // Recompile shader on change
 			root: '/' // Directory for root imports
 		} ),
+		topLevelAwait( {
+			promiseExportName: "__tla",
+			promiseImportName: i => `__tla_${i}`
+		  } )
 	],
 	resolve: {
 		alias: {
