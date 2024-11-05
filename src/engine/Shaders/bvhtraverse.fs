@@ -145,7 +145,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 	closestHit.didHit = false;
 	closestHit.dst = 1e20;
 
-	int stack[ 64 ];
+	int stack[ 32 ];
 	int stackSize = 0;
 	stack[ stackSize ++ ] = 0; // Root node
 
