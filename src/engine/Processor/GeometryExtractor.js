@@ -93,6 +93,13 @@ export default class GeometryExtractor {
 		let materialIndex = this.materials.findIndex( x => x.uuid === material.uuid );
 		if ( materialIndex === - 1 ) {
 
+			if ( material.depthWrite === false ) {
+
+				material.depthWrite = true; // Depth write is required for rastered rendering
+				console.warn( "Depth write is disabled in material, enabling it for rastered rendering" );
+
+			}
+
 			const newMaterial = this.createMaterialObject( material );
 			this.materials.push( newMaterial );
 			materialIndex = this.materials.length - 1;
