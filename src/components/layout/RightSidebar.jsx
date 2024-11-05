@@ -47,6 +47,9 @@ const RightSidebar = () => {
 	const [ directionalLightColor, setDirectionalLightColor ] = useState( DEFAULT_STATE.directionalLightColor );
 	const [ directionalLightPosition, setDirectionalLightPosition ] = useState( DEFAULT_STATE.directionalLightPosition );
 	const [ enableOIDN, setEnableOIDN ] = useState( DEFAULT_STATE.enableOIDN );
+	const [ useGBuffer, setUseGBuffer ] = useState( DEFAULT_STATE.useGBuffer );
+	const [ useAlbedoMap, setUseAlbedoMap ] = useState( DEFAULT_STATE.useAlbedoMap );
+	const [ useNormalMap, setUseNormalMap ] = useState( DEFAULT_STATE.useNormalMap );
 	const [ enableRealtimeDenoiser, setEnableRealtimeDenoiser ] = useState( DEFAULT_STATE.enableRealtimeDenoiser );
 	const [ denoiserBlurStrength, setDenoiserBlurStrength ] = useState( DEFAULT_STATE.denoiserBlurStrength );
 	const [ denoiserBlurRadius, setDenoiserBlurRadius ] = useState( DEFAULT_STATE.denoiserBlurRadius );
@@ -54,7 +57,6 @@ const RightSidebar = () => {
 	const [ debugMode, setDebugMode ] = useState( DEFAULT_STATE.debugMode );
 	const [ debugThreshold, setDebugThreshold ] = useState( DEFAULT_STATE.debugThreshold );
 	const [ debugModel, setDebugModel ] = useState( DEFAULT_STATE.debugModel );
-	const [ searchTerm, setSearchTerm ] = useState( '' );
 
 
 	const handleExposureChange = ( value ) => {
@@ -454,6 +456,39 @@ const RightSidebar = () => {
 
 	};
 
+	const handleUseGBufferChange = ( value ) => {
+
+		setUseGBuffer( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.denoiserPass.useGBuffer = value;
+
+		}
+
+	};
+
+	const handleUseAlbedoMapChange = ( value ) => {
+
+		setUseAlbedoMap( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.denoiserPass.useAlbedoMap = value;
+
+		}
+
+	};
+
+	const handleUseNormalMapChange = ( value ) => {
+
+		setUseNormalMap( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.denoiserPass.useNormalMap = value;
+
+		}
+
+	};
+
 	const handleEnableRealtimeDenoiserChange = ( value ) => {
 
 		setEnableRealtimeDenoiser( value );
@@ -652,33 +687,6 @@ const RightSidebar = () => {
 							<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
 						</div>
 						<div className="flex items-center justify-between">
-							<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
-								<span className="opacity-50 text-xs truncate">Sampler</span>
-								<SelectTrigger className="max-w-32 h-5 rounded-full" >
-									<SelectValue placeholder="Select sampler" />
-								</SelectTrigger>
-								<SelectContent>
-									{[ 'PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise', 'Stratified Blue Noise' ].map( ( sampler, i ) => (
-										<SelectItem key={sampler} value={i.toString()}>{sampler}</SelectItem>
-									) )}
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="flex items-center justify-between">
-							<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
-						</div>
-						{adaptiveSampling && ( <>
-							<div className="flex items-center justify-between">
-								<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
-							</div>
-							<div className="flex items-center justify-between">
-								<Slider label={"Max Samples"} min={4} max={8} step={1} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
-							</div>
-							<div className="flex items-center justify-between">
-								<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
-							</div>
-						</> )}
-						<div className="flex items-center justify-between">
 							<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
 								<span className="opacity-50 text-xs truncate">Render Mode</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -735,6 +743,19 @@ const RightSidebar = () => {
 						<div className="flex items-center justify-between">
 							<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
 						</div>
+						{enableOIDN && ( <>
+							<div className="flex items-center justify-between">
+								<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
+							</div>
+							{useGBuffer && ( <>
+								<div className="flex items-center justify-between">
+									<Switch label={"Use Albedo Map"} checked={useAlbedoMap} onCheckedChange={handleUseAlbedoMapChange} />
+								</div>
+								<div className="flex items-center justify-between">
+									<Switch label={"Use Normal Map"} checked={useNormalMap} onCheckedChange={handleUseNormalMapChange} />
+								</div>
+							</> )}
+						</> )}
 						<div className="flex items-center justify-between">
 							<Switch label={"Enable Realtime Denoiser"} checked={enableRealtimeDenoiser} onCheckedChange={handleEnableRealtimeDenoiserChange} />
 						</div>
@@ -752,6 +773,33 @@ const RightSidebar = () => {
 						<div className="flex items-center justify-between">
 							<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
 						</div>
+						<div className="flex items-center justify-between">
+							<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
+								<span className="opacity-50 text-xs truncate">Sampler</span>
+								<SelectTrigger className="max-w-32 h-5 rounded-full" >
+									<SelectValue placeholder="Select sampler" />
+								</SelectTrigger>
+								<SelectContent>
+									{[ 'PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise', 'Stratified Blue Noise' ].map( ( sampler, i ) => (
+										<SelectItem key={sampler} value={i.toString()}>{sampler}</SelectItem>
+									) )}
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="flex items-center justify-between">
+							<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
+						</div>
+						{adaptiveSampling && ( <>
+							<div className="flex items-center justify-between">
+								<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
+							</div>
+							<div className="flex items-center justify-between">
+								<Slider label={"Max Samples"} min={4} max={8} step={1} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
+							</div>
+							<div className="flex items-center justify-between">
+								<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+							</div>
+						</> )}
 						{enablePathTracer && (
 							<Accordion type="single" collapsible>
 								<AccordionItem value="debug">

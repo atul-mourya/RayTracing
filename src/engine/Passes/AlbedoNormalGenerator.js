@@ -20,6 +20,9 @@ export class AlbedoNormalGenerator {
 		this.width = renderer.domElement.width * renderer.getPixelRatio();
 		this.height = renderer.domElement.height * renderer.getPixelRatio();
 
+		this.generateAlbedoMap = true;
+		this.generateNormalMap = true;
+
 		this.albedoTarget = this.createRenderTarget();
 		this.normalTarget = this.createRenderTarget();
 
@@ -127,7 +130,7 @@ export class AlbedoNormalGenerator {
 
 	renderNormal() {
 
-		this.scene.overrideMaterial = new MeshNormalMaterial();
+		this.scene.overrideMaterial = this.normalMaterial;
 		this.renderer.setRenderTarget( this.normalTarget );
 		this.renderer.render( this.scene, this.camera );
 
@@ -166,22 +169,30 @@ export class AlbedoNormalGenerator {
 
 	generateMaps() {
 
-		this.renderAlbedo();
-		this.renderNormal();
+		const result = {};
 
-		const albedoBuffer = this.readPixelData( this.albedoTarget );
-		const normalBuffer = this.readPixelData( this.normalTarget );
+		if ( this.generateAlbedoMap ) {
 
-		const albedoData = this.convertToUint8( albedoBuffer );
-		const normalData = this.convertToUint8( normalBuffer );
+			this.renderAlbedo();
+			const albedoBuffer = this.readPixelData( this.albedoTarget );
+			const albedoData = this.convertToUint8( albedoBuffer );
+			result.albedo = new ImageData( albedoData, this.width, this.height );
+
+		}
+
+		if ( this.generateNormalMap ) {
+
+			this.renderNormal();
+			const normalBuffer = this.readPixelData( this.normalTarget );
+			const normalData = this.convertToUint8( normalBuffer );
+			result.normal = new ImageData( normalData, this.width, this.height );
+
+		}
 
 		this.restoreOriginalMaterials();
 		this.renderer.setRenderTarget( null );
 
-		return {
-			albedo: new ImageData( albedoData, this.width, this.height ),
-			normal: new ImageData( normalData, this.width, this.height )
-		};
+		return result;
 
 	}
 
@@ -189,15 +200,34 @@ export class AlbedoNormalGenerator {
 
 		this.width = width;
 		this.height = height;
-		this.albedoTarget.setSize( width, height );
-		this.normalTarget.setSize( width, height );
+
+		if ( this.generateAlbedoMap ) {
+
+			this.albedoTarget.setSize( width, height );
+
+		}
+
+		if ( this.generateNormalMap ) {
+
+			this.normalTarget.setSize( width, height );
+
+		}
 
 	}
 
 	dispose() {
 
-		this.albedoTarget.dispose();
-		this.normalTarget.dispose();
+		if ( this.generateAlbedoMap ) {
+
+			this.albedoTarget.dispose();
+
+		}
+
+		if ( this.generateNormalMap ) {
+
+			this.normalTarget.dispose();
+
+		}
 
 	}
 
@@ -222,7 +252,16 @@ export function renderImageDataToCanvas( imageData, canvasId ) {
 
 export function debugGeneratedMaps( albedoImageData, normalImageData ) {
 
-	renderImageDataToCanvas( albedoImageData, 'debugAlbedoCanvas' );
-	renderImageDataToCanvas( normalImageData, 'debugNormalCanvas' );
+	if ( albedoImageData ) {
+
+		renderImageDataToCanvas( albedoImageData, 'debugAlbedoCanvas' );
+
+	}
+
+	if ( normalImageData ) {
+
+		renderImageDataToCanvas( normalImageData, 'debugNormalCanvas' );
+
+	}
 
 }

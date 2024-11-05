@@ -2,6 +2,7 @@
 import { Denoiser } from 'denoiser';
 import { AlbedoNormalGenerator } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
+import { DEFAULT_STATE } from '../Processor/Constants';
 
 
 export class OIDNDenoiser extends EventDispatcher {
@@ -15,6 +16,9 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.isDenoising = false;
 		this.enabled = true;
+		this.useGBuffers = DEFAULT_STATE.useGBuffers;
+		this.useNormalMap = DEFAULT_STATE.useNormalMap;
+		this.useAlbedoMap = DEFAULT_STATE.useAlbedoMap;
 
 		this.denoiser = new Denoiser( "webgl" );
 		this.denoiser.quality = 'fast';
@@ -47,12 +51,18 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		console.log( 'Executing denoising...' );
 
-		const { albedo, normal } = this.mapGenerator.generateMaps();
-		// debugGeneratedMaps( albedo, normal );
+		if ( this.useGBuffers ) {
 
-		// Use albedoMap and normalMap in your denoiser
-		this.denoiser.setInputImage( 'albedo', albedo );
-		this.denoiser.setInputImage( 'normal', normal );
+			this.mapGenerator.generateAlbedoMap = this.useAlbedoMap;
+			this.mapGenerator.generateNormalMap = this.useNormalMap;
+			const { albedo, normal } = this.mapGenerator.generateMaps();
+			// debugGeneratedMaps( albedo, normal );
+
+			// Use albedoMap and normalMap in your denoiser
+			this.useAlbedoMap && this.denoiser.setInputImage( 'albedo', albedo );
+			this.useNormalMap && this.denoiser.setInputImage( 'normal', normal );
+
+		}
 
 		await this.denoiser.execute();
 		this.isDenoising = false;
