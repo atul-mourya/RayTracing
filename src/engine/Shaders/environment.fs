@@ -118,7 +118,7 @@ vec3 sampleEnvironment(vec3 direction, int bounceIndex) {
     vec3 color = texture2D(environment, uv).rgb;
 
     if (bounceIndex == 0) {
-        return color;
+        return color * PI;
     }
 
 	return color * environmentIntensity * PI;
