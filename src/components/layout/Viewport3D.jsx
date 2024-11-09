@@ -1,9 +1,10 @@
-/* eslint-disable react/prop-types */
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import PathTracerApp from '../../engine/main';
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, Maximize, Target } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from '@/hooks/use-toast';
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { TooltipProvider } from '@radix-ui/react-tooltip';
 
 const Viewport3D = ( { onStatsUpdate } ) => {
 
@@ -113,6 +114,19 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 	}, [] );
 
+	const handleFullscreen = () => {
+
+		if ( ! containerRef.current ) return;
+		document.fullscreenElement ? document.exitFullscreen() : containerRef.current.requestFullscreen();
+
+	};
+
+	const handleResetCamera = () => {
+
+		appRef.current && appRef.current.controls.reset();
+
+	};
+
 	return (
 		<div
 			className={`relative w-full h-full ${isDragging ? 'bg-primary/10' : ''}`}
@@ -138,6 +152,30 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 					</div>
 				</div>
 			)}
+			<div className="absolute bottom-0 left-0 right-0 flex justify-end py-1">
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleResetCamera} className="px-1">
+								<Target size={12} className="h-5 w-5 text-xs text-secondary" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Reset Camera</p>
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleFullscreen} className="px-1">
+								<Maximize size={12} className="h-5 w-5 text-xs text-secondary" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Fullscreen</p>
+						</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
+			</div>
 		</div>
 	);
 

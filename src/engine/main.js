@@ -229,10 +229,13 @@ class PathTracerApp extends EventDispatcher {
 		this.animationFrameId = requestAnimationFrame( this.animate );
 
 		if ( this.pauseRendering ) return;
+		if ( this.pathTracingPass.isComplete && this.pathTracingPass.material.uniforms.frame.value >= this.pathTracingPass.material.uniforms.maxFrames.value ) return;
 
 		if ( ! this.pathTracingPass.isComplete ) {
 
 			this.controls.update();
+
+			this.temporalReprojectionPass.enabled = this.pathTracingPass.material.uniforms.frame.value > 5 || false;
 
 			if ( this.tileHighlightPass.enabled ) {
 
@@ -386,13 +389,23 @@ class PathTracerApp extends EventDispatcher {
 		const fov = this.camera.fov * ( Math.PI / 180 );
 		const cameraDistance = Math.abs( maxDim / Math.sin( fov / 2 ) / 2 );
 
-		const direction = new Vector3().subVectors( this.camera.position, this.controls.target ).normalize();
-		this.camera.position.copy( direction.multiplyScalar( cameraDistance ).add( this.controls.target ) );
+		// Set up 2/3 angle projection (approximately 120° between axes)
+		// Calculate camera position for isometric-like view
+		const angle = Math.PI / 6; // 30 degrees
+		const pos = new Vector3(
+			Math.cos( angle ) * cameraDistance,
+			cameraDistance / Math.sqrt( 2 ), // Elevation
+			Math.sin( angle ) * cameraDistance
+		);
+
+		this.camera.position.copy( pos.add( center ) );
+		this.camera.lookAt( center );
 
 		this.camera.near = maxDim / 100;
 		this.camera.far = maxDim * 100;
 		this.camera.updateProjectionMatrix();
 		this.controls.maxDistance = cameraDistance * 10;
+		this.controls.saveState();
 
 		this.controls.update();
 

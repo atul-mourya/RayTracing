@@ -34,6 +34,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 ### Resources and reads
 https://blog.traverseresearch.nl/dynamic-diffuse-global-illumination-b56dc0525a0a
+https://github.com/knightcrawler25/GLSL-PathTracer/tree/master
 
 
 ### Plan for Hybrid Rendering:

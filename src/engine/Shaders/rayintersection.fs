@@ -55,7 +55,7 @@ HitInfo RayTriangle( Ray ray, Triangle tri ) {
 	vec3 h = cross( ray.direction, edge2 );
 	float a = dot( edge1, h );
 
-	if( abs( a ) < 1e-6 )
+	if( abs( a ) < 1e-8 )
 		return result; // Ray is parallel to the triangle
 
 	float f = 1.0 / a;
@@ -73,7 +73,7 @@ HitInfo RayTriangle( Ray ray, Triangle tri ) {
 
 	float t = f * dot( edge2, q );
 
-	if( t > 1e-6 && t < result.dst ) {
+	if( t > 1e-8 && t < result.dst ) {
 		result.didHit = true;
 		result.dst = t;
 		result.hitPoint = ray.origin + t * ray.direction;
