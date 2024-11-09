@@ -236,12 +236,12 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		vec3 chosenBRDF;
 		float chosenWeight;
 
-		if( RandomValue( rngState ) < 0.5 ) {
+		if( RandomValue( rngState ) < 0.5 ) { // better for specular materials
 			chosenDir = cosSampleDir;
 			chosenPDF = cosPDF;
 			chosenBRDF = cosBRDF;
 			chosenWeight = cosWeight;
-		} else {
+		} else { // better for diffuse materials
 			chosenDir = L;
 			chosenPDF = brdfPDF;
 			chosenBRDF = brdfValue;
