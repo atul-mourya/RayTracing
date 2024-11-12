@@ -118,8 +118,18 @@ const MainViewport = () => {
 					</span>
 				)}
 			</div>
-			<div className="flex absolute bottom-2 right-2 text-xs text-foreground bg-background p-1 rounded">
+			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-sm">
 				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Camera size={12} className="bg-transparent border-white text-white" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Take Screenshot</p>
+						</TooltipContent>
+					</Tooltip>
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button onClick={handleResetCamera} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
@@ -138,16 +148,6 @@ const MainViewport = () => {
 						</TooltipTrigger>
 						<TooltipContent>
 							<p>Fullscreen</p>
-						</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Camera size={12} className="bg-transparent border-white text-white" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Take Screenshot</p>
 						</TooltipContent>
 					</Tooltip>
 				</TooltipProvider>

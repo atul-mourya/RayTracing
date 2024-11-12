@@ -89,23 +89,8 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer.setSize( this.width, this.height );
 		this.container.appendChild( this.canvas );
 
-		this.stats = new Stats( { horizontal: true, trackGPU: true } );
-		this.stats.dom.style.position = 'absolute';
-		this.stats.dom.style.top = 'unset';
-		this.stats.dom.style.bottom = '48px';
-
-		this.stats.init( this.renderer );
-		this.stats.fpsPanel.fg = this.stats.msPanel.fg = '#ffffff';
-		this.stats.fpsPanel.bg = this.stats.msPanel.bg = '#1e293b';
-
-		if ( this.stats.gpuPanel ) {
-
-			this.stats.gpuPanel.fg = '#ffffff';
-			this.stats.gpuPanel.bg = '#1e293b';
-
-		}
-
-		this.container.appendChild( this.stats.dom );
+		// Setup stats
+		this.initStats();
 
 		// Setup canvas
 		this.canvas.style.position = 'absolute';
@@ -148,6 +133,42 @@ class PathTracerApp extends EventDispatcher {
 		this.animate();
 
 		window.addEventListener( 'resize', () => this.onResize() );
+
+	}
+
+	initStats() {
+
+		this.stats = new Stats( { horizontal: true, trackGPU: true } );
+		this.stats.dom.style.position = 'absolute';
+		this.stats.dom.style.top = 'unset';
+		this.stats.dom.style.bottom = '48px';
+
+		this.stats.init( this.renderer );
+		this.container.appendChild( this.stats.dom );
+
+		const foregroundColor = '#ffffff';
+		const backgroundColor = '#1e293b';
+		const gradiantStartColor = '#006666';
+		const gradiantEndColor = foregroundColor;
+
+		this.stats.fpsPanel.fg = this.stats.msPanel.fg = foregroundColor;
+		this.stats.fpsPanel.bg = this.stats.msPanel.bg = backgroundColor;
+
+		if ( this.stats.gpuPanel ) {
+
+			this.stats.gpuPanel.fg = foregroundColor;
+			this.stats.gpuPanel.bg = backgroundColor;
+
+		}
+
+		const gradient = this.stats.fpsPanel.context.createLinearGradient( 0, this.stats.fpsPanel.GRAPH_Y, 0, this.stats.fpsPanel.GRAPH_Y + this.stats.fpsPanel.GRAPH_HEIGHT );
+
+		gradient.addColorStop( 0, gradiantStartColor );
+		gradient.addColorStop( 1, gradiantEndColor );
+
+		this.stats.fpsPanel.gradient = gradient;
+		this.stats.gpuPanel.gradient = gradient;
+		this.stats.msPanel.gradient = gradient;
 
 	}
 

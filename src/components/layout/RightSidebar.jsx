@@ -846,7 +846,7 @@ const RightSidebar = () => {
 				>
 					<div className="space-y-4 p-4">
 						<div className="flex items-center justify-between">
-							<Slider label={"Intensity"} icon={Sunrise} min={0} max={2} step={0.1} value={[ directionalLightIntensity ]} onValueChange={handleDirectionalLightIntensityChange} />
+							<Slider label={"Intensity"} icon={Sunrise} min={0} max={20} step={0.1} value={[ directionalLightIntensity ]} onValueChange={handleDirectionalLightIntensityChange} />
 						</div>
 						<div className="flex items-center justify-between">
 							<ColorInput label={"Color"} icon={Rainbow} value={directionalLightColor} onChange={color => handleDirectionalLightColorChange( color )} />
