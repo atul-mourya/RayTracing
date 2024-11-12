@@ -58,6 +58,7 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer = new WebGLRenderer( {
 			powerPreference: "high-performance",
 			antialias: false,
+			preserveDrawingBuffer: true
 		} );
 
 		// Initialize other properties
@@ -444,6 +445,27 @@ class PathTracerApp extends EventDispatcher {
 	selectObject( object ) {
 
 		this.outlinePass.selectedObjects = object ? [ object ] : [];
+
+	}
+
+	takeScreenshot() {
+
+		let screenshot;
+		if ( this.pathTracingPass.isComplete && this.denoiser.enabled ) {
+
+			screenshot = this.denoiser.denoisedCanvas.toDataURL( 'image/png' );
+			return;
+
+		} else {
+
+			screenshot = this.renderer.domElement.toDataURL( 'image/png' );
+
+		}
+
+		const link = document.createElement( 'a' );
+		link.href = screenshot;
+		link.download = 'screenshot.png';
+		link.click();
 
 	}
 

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import Viewport3D from './Viewport3D';
 import { DEFAULT_STATE } from '@/engine/Processor/Constants';
-import { Loader2 } from 'lucide-react';
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { TooltipProvider } from '@radix-ui/react-tooltip';
+import { Loader2, Maximize, Target, Camera } from 'lucide-react';
 
 const MainViewport = () => {
 
@@ -76,6 +78,25 @@ const MainViewport = () => {
 
 	};
 
+	const handleFullscreen = () => {
+
+		if ( ! window.pathTracerApp ) return;
+		document.fullscreenElement ? document.exitFullscreen() : window.pathTracerApp.container.requestFullscreen();
+
+	};
+
+	const handleResetCamera = () => {
+
+		window.pathTracerApp && window.pathTracerApp.controls.reset();
+
+	};
+
+	const handleScreenshot = () => {
+
+		window.pathTracerApp && window.pathTracerApp.takeScreenshot();
+
+	};
+
 	return (
 		<div className="w-full h-full relative">
 			<Viewport3D onStatsUpdate={setStats} />
@@ -96,6 +117,40 @@ const MainViewport = () => {
 						{maxSamples}
 					</span>
 				)}
+			</div>
+			<div className="flex absolute bottom-2 right-2 text-xs text-foreground bg-background p-1 rounded">
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleResetCamera} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Target size={12} className="bg-transparent border-white text-white" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Reset Camera</p>
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleFullscreen} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Maximize size={12} className="bg-transparent border-white text-white" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Fullscreen</p>
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Camera size={12} className="bg-transparent border-white text-white" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Take Screenshot</p>
+						</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
 			</div>
 			{isDenoising && (
 				<div className="absolute top-2 left-1/2 transform -translate-x-1/2">
