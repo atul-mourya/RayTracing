@@ -144,6 +144,53 @@ vec3 sampleBackgroundLighting(int bounceIndex, vec3 direction) {
 
 }
 
+struct IndirectLightingResult {
+    vec3 direction;
+    vec3 throughput;
+};
+
+IndirectLightingResult calculateIndirectLightingMIS(vec3 V, vec3 N, RayTracingMaterial material, vec3 brdfValue, float brdfPDF, vec3 L, int sampleIndex, int bounceIndex, inout uint rngState) {
+    // Sample cosine-weighted direction
+    vec2 indirectSample = getRandomSample(gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, -1);
+    vec3 cosSampleDir = cosineWeightedSample(N, indirectSample);
+    float cosPDF = cosineWeightedPDF(max(dot(N, cosSampleDir), 0.0));
+    vec3 cosBRDF = evaluateBRDF(V, cosSampleDir, N, material);
+
+    // Ensure BRDF PDF is never zero
+    brdfPDF = max(brdfPDF, 0.001);
+
+    // Calculate MIS weights
+    float cosWeight = powerHeuristic(cosPDF, brdfPDF);
+    float brdfWeight = powerHeuristic(brdfPDF, cosPDF);
+
+    // Choose between cosine and BRDF sampling
+    vec3 chosenDir;
+    float chosenPDF;
+    vec3 chosenBRDF;
+    float chosenWeight;
+
+    if (RandomValue(rngState) < 0.5) { // better for specular materials
+        chosenDir = cosSampleDir;
+        chosenPDF = cosPDF;
+        chosenBRDF = cosBRDF;
+        chosenWeight = cosWeight;
+    } else { // better for diffuse materials
+        chosenDir = L;
+        chosenPDF = brdfPDF;
+        chosenBRDF = brdfValue;
+        chosenWeight = brdfWeight;
+    }
+
+    // Calculate final contribution
+    float NoL = max(dot(N, chosenDir), 0.0);
+    vec3 f = chosenBRDF * NoL * chosenWeight / max(chosenPDF, 0.001);
+    
+    IndirectLightingResult result;
+    result.direction = chosenDir;
+    result.throughput = clamp(f, vec3(0.0), vec3(1.0));
+    return result;
+}
+
 vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
@@ -220,46 +267,14 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 
 		// Indirect lighting using MIS
-		vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i + 1, rngState, -1 );
-		vec3 cosSampleDir = cosineWeightedSample( N, indirectSample );
-		float cosPDF = cosineWeightedPDF( max( dot( N, cosSampleDir ), 0.0 ) );
-		vec3 cosBRDF = evaluateBRDF( V, cosSampleDir, N, material );
-
-		float brdfPDF = max( pdf, 0.001 );  // Ensure BRDF PDF is never zero
-
-		float cosWeight = powerHeuristic( cosPDF, brdfPDF );
-		float brdfWeight = powerHeuristic( brdfPDF, cosPDF );
-
-		// Choose between cosine and BRDF sampling
-		vec3 chosenDir;
-		float chosenPDF;
-		vec3 chosenBRDF;
-		float chosenWeight;
-
-		if( RandomValue( rngState ) < 0.5 ) { // better for specular materials
-			chosenDir = cosSampleDir;
-			chosenPDF = cosPDF;
-			chosenBRDF = cosBRDF;
-			chosenWeight = cosWeight;
-		} else { // better for diffuse materials
-			chosenDir = L;
-			chosenPDF = brdfPDF;
-			chosenBRDF = brdfValue;
-			chosenWeight = brdfWeight;
-		}
+		IndirectLightingResult indirectResult = calculateIndirectLightingMIS(V, N, material, brdfValue, pdf, L, sampleIndex, i, rngState);
 
 		// Update ray for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
-		ray.direction = chosenDir;
+		ray.direction = indirectResult.direction;
 
-		// Update throughput and alpha
-		float NoL = max( dot( N, chosenDir ), 0.0 );
-		vec3 f = chosenBRDF * NoL * chosenWeight / max( chosenPDF, 0.001 );
-		throughput *= clamp( f, vec3( 0.0 ), vec3( 1.0 ) );  // Ensure energy conservation
-		alpha *= material.color.a;
-
-		// Firefly reduction
-		throughput = reduceFireflies( throughput, 5.0 );
+		// Update throughput
+		throughput *= indirectResult.throughput;
 
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
@@ -271,6 +286,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Calculate emitted light
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
 		radiance += emittedLight * throughput * PI * 10.0; // added PI * 10.0 to compensate for low intensity
+
+		alpha *= material.color.a;
 
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( depth, throughput, randomSample.z ) ) {
