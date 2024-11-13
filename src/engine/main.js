@@ -148,27 +148,21 @@ class PathTracerApp extends EventDispatcher {
 
 		const foregroundColor = '#ffffff';
 		const backgroundColor = '#1e293b';
-		const gradiantStartColor = '#006666';
-		const gradiantEndColor = foregroundColor;
+
+		const gradient = this.stats.fpsPanel.context.createLinearGradient( 0, this.stats.fpsPanel.GRAPH_Y, 0, this.stats.fpsPanel.GRAPH_Y + this.stats.fpsPanel.GRAPH_HEIGHT );
+		gradient.addColorStop( 0, foregroundColor );
 
 		this.stats.fpsPanel.fg = this.stats.msPanel.fg = foregroundColor;
 		this.stats.fpsPanel.bg = this.stats.msPanel.bg = backgroundColor;
+		this.stats.fpsPanel.gradient = this.stats.msPanel.gradient = gradient;
 
 		if ( this.stats.gpuPanel ) {
 
 			this.stats.gpuPanel.fg = foregroundColor;
 			this.stats.gpuPanel.bg = backgroundColor;
+			this.stats.gpuPanel.gradient = gradient;
 
 		}
-
-		const gradient = this.stats.fpsPanel.context.createLinearGradient( 0, this.stats.fpsPanel.GRAPH_Y, 0, this.stats.fpsPanel.GRAPH_Y + this.stats.fpsPanel.GRAPH_HEIGHT );
-
-		gradient.addColorStop( 0, gradiantStartColor );
-		gradient.addColorStop( 1, gradiantEndColor );
-
-		this.stats.fpsPanel.gradient = gradient;
-		this.stats.gpuPanel.gradient = gradient;
-		this.stats.msPanel.gradient = gradient;
 
 	}
 
