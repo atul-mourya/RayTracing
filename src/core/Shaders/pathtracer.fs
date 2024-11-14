@@ -127,10 +127,12 @@ vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	return finalBRDF;
 }
 
-bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue ) {
-	uint minBounces = 5u;
+bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTracingMaterial material ) {
+
+	uint minBounces = uint(mix(3.0, 5.0, max(luminance(material.color.rgb), material.metalness)));
+	float importanceValue = max(luminance(rayColor), max(material.metalness, material.transmission));
+	float rrProb = mix(importanceValue, 1.0, float(depth < minBounces));
 	float depthProb = float( depth < minBounces );
-	float rrProb = luminance( rayColor );
 	rrProb = sqrt( rrProb );
 	rrProb = max( rrProb, depthProb );
 	rrProb = min( rrProb, 1.0 );
@@ -296,7 +298,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		alpha *= material.color.a;
 
 		// Russian roulette path termination
-		if( ! handleRussianRoulette( depth, throughput, randomSample.z ) ) {
+		if( ! handleRussianRoulette( depth, throughput, randomSample.z, material ) ) {
 			break;
 		}
 	}
