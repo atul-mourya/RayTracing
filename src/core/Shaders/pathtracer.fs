@@ -30,12 +30,6 @@ uniform bool useAdaptiveSampling;
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-float getMaterialImportance( RayTracingMaterial material ) {
-	float specularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
-	float diffuseWeight = ( 1.0 - material.metalness ) * material.roughness;
-	return specularWeight / ( specularWeight + diffuseWeight );
-}
-
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
 
 	float specularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
@@ -208,50 +202,6 @@ vec3 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 	return sampleEnvironment( direction, bounceIndex );
 
-}
-
-struct IndirectLightingResult {
-	vec3 direction;
-	vec3 throughput;
-};
-
-IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingMaterial material, vec3 brdfValue, float brdfPDF, vec3 L, int sampleIndex, int bounceIndex, inout uint rngState ) {
-    // Sample cosine-weighted direction
-	vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
-
-    // Choose sampling strategy based on material properties
-	float materialImportance = getMaterialImportance( material );
-	vec3 sampleDir;
-	float samplePdf;
-	vec3 sampleBrdf;
-
-	if( RandomValue( rngState ) < materialImportance ) {
-        // Use BRDF sampling
-		sampleDir = L;
-		samplePdf = brdfPDF;
-		sampleBrdf = brdfValue;
-	} else {
-        // Use cosine sampling
-		sampleDir = cosineWeightedSample( N, indirectSample );
-		samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
-		sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
-	}
-
-    // Ensure PDFs are never zero
-	samplePdf = max( samplePdf, 0.001 );
-	brdfPDF = max( brdfPDF, 0.001 );
-
-    // Calculate MIS weights
-	float misWeight = powerHeuristic( samplePdf, brdfPDF );
-
-    // Calculate final contribution
-	float NoL = max( dot( N, sampleDir ), 0.0 );
-	vec3 throughput = sampleBrdf * NoL * misWeight / max( samplePdf, 0.001 );
-
-	IndirectLightingResult result;
-	result.direction = sampleDir;
-	result.throughput = clamp( throughput, vec3( 0.0 ), vec3( 1.0 ) );
-	return result;
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {

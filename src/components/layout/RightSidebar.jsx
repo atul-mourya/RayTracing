@@ -24,6 +24,7 @@ const RightSidebar = () => {
 	const [ model, setModel ] = useState( DEFAULT_STATE.model );
 	const [ environment, setEnvironment ] = useState( DEFAULT_STATE.environment );
 	const [ environmentIntensity, setEnvironmentIntensity ] = useState( DEFAULT_STATE.environmentIntensity );
+	const [ GIIntensity, setGIIntensity ] = useState( DEFAULT_STATE.globalIlluminationIntensity );
 	const [ fov, setFov ] = useState( DEFAULT_STATE.fov );
 	const [ focusDistance, setFocusDistance ] = useState( DEFAULT_STATE.focusDistance );
 	const [ aperture, setAperture ] = useState( DEFAULT_STATE.aperture );
@@ -160,6 +161,18 @@ const RightSidebar = () => {
 
 			window.pathTracerApp.scene.environmentIntensity = value;
 			window.pathTracerApp.pathTracingPass.material.uniforms.environmentIntensity.value = value;
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
+	const handleGIIntensityChange = ( value ) => {
+
+		setGIIntensity( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = value * Math.PI;
 			window.pathTracerApp.reset();
 
 		}
@@ -637,6 +650,9 @@ const RightSidebar = () => {
 						</div>
 						<div className="flex items-center justify-between">
 							<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} onValueChange={handleGIIntensityChange} />
 						</div>
 					</div>
 				</TabsContent>

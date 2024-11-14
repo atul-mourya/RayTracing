@@ -214,6 +214,7 @@ export const DEFAULT_STATE = {
 	model: 9,
 	environment: 2,
 	environmentIntensity: 1,
+	globalIlluminationIntensity: 1,
 	fov: 75,
 	focusDistance: 0.1,
 	aperture: 16,

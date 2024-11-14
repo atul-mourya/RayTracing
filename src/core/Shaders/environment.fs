@@ -4,7 +4,6 @@ uniform float environmentIntensity;
 
 uniform EquirectHdrInfo envMapInfo;
 
-
 // ray sampling x and z are swapped to align with expected background view
 vec2 directionToTextureCoordinate( vec3 direction ) {
 
@@ -19,7 +18,6 @@ vec2 directionToTextureCoordinate( vec3 direction ) {
 
 }
 
-
 // samples the the given environment map in the given direction
 vec3 sampleEquirectColor( sampler2D envMap, vec3 direction ) {
 
@@ -33,7 +31,7 @@ float equirectDirectionPdf( vec3 direction ) {
 	vec2 uv = directionToTextureCoordinate( direction );
 	float theta = uv.y * PI;
 	float sinTheta = sin( theta );
-	if ( sinTheta == 0.0 ) {
+	if( sinTheta == 0.0 ) {
 
 		return 0.0;
 
@@ -47,7 +45,7 @@ float equirectDirectionPdf( vec3 direction ) {
 float sampleEquirect( vec3 direction, inout vec3 color ) {
 
 	float totalSum = envMapInfo.totalSum;
-	if ( totalSum == 0.0 ) {
+	if( totalSum == 0.0 ) {
 
 		color = vec3( 0.0 );
 		return 1.0;
@@ -109,17 +107,13 @@ float sampleEquirectProbability( vec2 r, inout vec3 color, inout vec3 direction 
 const float MIN_PDF = 0.001;
 const float lightsDenom = 1.0;
 
-vec3 sampleEnvironment(vec3 direction, int bounceIndex) {
-    if (!enableEnvironmentLight) {
-        return vec3(0.0);
-    }
+vec3 sampleEnvironment( vec3 direction, int bounceIndex ) {
+	if( ! enableEnvironmentLight ) {
+		return vec3( 0.0 );
+	}
 
-    vec2 uv = directionToTextureCoordinate(direction);
-    vec3 color = texture2D(environment, uv).rgb;
+	vec2 uv = directionToTextureCoordinate( direction );
+	vec3 color = texture2D( environment, uv ).rgb;
 
-    if (bounceIndex == 0) {
-        return color * PI;
-    }
-
-	return color * environmentIntensity * PI;
+	return color * environmentIntensity;
 }
