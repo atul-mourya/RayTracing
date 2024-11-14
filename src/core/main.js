@@ -253,7 +253,7 @@ class PathTracerApp extends EventDispatcher {
 
 			this.controls.update();
 
-			this.temporalReprojectionPass.enabled = this.pathTracingPass.material.uniforms.frame.value > 5 || false;
+			// this.temporalReprojectionPass.enabled = this.pathTracingPass.material.uniforms.frame.value > 5 || false;
 
 			if ( this.tileHighlightPass.enabled ) {
 
