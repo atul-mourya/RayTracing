@@ -13,9 +13,6 @@ uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
 uniform bool useAdaptiveSampling;
-uniform int adaptiveSamplingMin;
-uniform int adaptiveSamplingMax;
-uniform float varianceThreshold;
 
 // Include statements
 #include common.fs
@@ -33,18 +30,23 @@ uniform float varianceThreshold;
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
+float getMaterialImportance(RayTracingMaterial material) {
+    float specularWeight = (1.0 - material.roughness) * (0.5 + 0.5 * material.metalness);
+    float diffuseWeight = (1.0 - material.metalness) * material.roughness;
+    return specularWeight / (specularWeight + diffuseWeight);
+}
+
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
 	
 	float specularWeight = (1.0 - material.roughness) * (0.5 + 0.5 * material.metalness);
-    float diffuseRatio = (1.0 - specularWeight) * (1.0 - material.metalness);
+    float diffuseWeight = (1.0 - specularWeight) * (1.0 - material.metalness);
     
     // Normalize weights
-    float total = specularWeight + diffuseRatio;
-    specularWeight /= total;
-    diffuseRatio /= total;
+    float total = specularWeight + diffuseWeight;
+    diffuseWeight /= total;
 
 	// decide between diffuse and specular based on material properties
-	if( RandomValue( rngState ) < diffuseRatio ) {
+	if( RandomValue( rngState ) < diffuseWeight ) {
 		// Sample diffuse BRDF
 		L = ImportanceSampleCosine( N, xi );
 		pdf = max( dot( N, L ), 0.0 ) / PI;
@@ -159,45 +161,39 @@ struct IndirectLightingResult {
 IndirectLightingResult calculateIndirectLightingMIS(vec3 V, vec3 N, RayTracingMaterial material, vec3 brdfValue, float brdfPDF, vec3 L, int sampleIndex, int bounceIndex, inout uint rngState) {
     // Sample cosine-weighted direction
     vec2 indirectSample = getRandomSample(gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, -1);
-    vec3 cosSampleDir = cosineWeightedSample(N, indirectSample);
-    float cosPDF = cosineWeightedPDF(max(dot(N, cosSampleDir), 0.0));
-    vec3 cosBRDF = evaluateBRDF(V, cosSampleDir, N, material);
+    
+    // Choose sampling strategy based on material properties
+    float materialImportance = getMaterialImportance(material);
+    vec3 sampleDir;
+    float samplePdf;
+    vec3 sampleBrdf;
+    
+    if (RandomValue(rngState) < materialImportance) {
+        // Use BRDF sampling
+        sampleDir = L;
+        samplePdf = brdfPDF;
+        sampleBrdf = brdfValue;
+    } else {
+        // Use cosine sampling
+        sampleDir = cosineWeightedSample(N, indirectSample);
+        samplePdf = cosineWeightedPDF(max(dot(N, sampleDir), 0.0));
+        sampleBrdf = evaluateBRDF(V, sampleDir, N, material);
+    }
 
-    // Ensure BRDF PDF is never zero
+    // Ensure PDFs are never zero
+    samplePdf = max(samplePdf, 0.001);
     brdfPDF = max(brdfPDF, 0.001);
 
     // Calculate MIS weights
-    float cosWeight = powerHeuristic(cosPDF, brdfPDF);
-    float brdfWeight = powerHeuristic(brdfPDF, cosPDF);
-
-    // Choose between cosine and BRDF sampling
-    vec3 chosenDir;
-    float chosenPDF;
-    vec3 chosenBRDF;
-    float chosenWeight;
-
-	float specularStrength = (1.0 - material.roughness) * material.metalness;
-    float brdfSampleProb = mix(0.5, 0.9, specularStrength);
-
-    if (RandomValue(rngState) > brdfSampleProb) { // better for specular materials
-        chosenDir = cosSampleDir;
-        chosenPDF = cosPDF;
-        chosenBRDF = cosBRDF;
-        chosenWeight = cosWeight;
-    } else { // better for diffuse materials
-        chosenDir = L;
-        chosenPDF = brdfPDF;
-        chosenBRDF = brdfValue;
-        chosenWeight = brdfWeight;
-    }
-
+    float misWeight = powerHeuristic(samplePdf, brdfPDF);
+    
     // Calculate final contribution
-    float NoL = max(dot(N, chosenDir), 0.0);
-    vec3 f = chosenBRDF * NoL * chosenWeight / max(chosenPDF, 0.001);
+    float NoL = max(dot(N, sampleDir), 0.0);
+    vec3 throughput = sampleBrdf * NoL * misWeight / max(samplePdf, 0.001);
     
     IndirectLightingResult result;
-    result.direction = chosenDir;
-    result.throughput = clamp(f, vec3(0.0), vec3(1.0));
+    result.direction = sampleDir;
+    result.throughput = clamp(throughput, vec3(0.0), vec3(1.0));
     return result;
 }
 
@@ -360,6 +356,7 @@ bool shouldRenderPixel( ) {
 }
 
 #include debugger.fs
+#include adaptiveSampling.fs
 
 void main( ) {
 
@@ -371,7 +368,6 @@ void main( ) {
 	pixel.variance = 0.0;
 	pixel.samples = 0;
 
-	vec4 squaredMean = vec4( 0.0 );
 	uint seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * uint(resolution.x) + frame * uint(resolution.x) * uint(resolution.y);
 	int pixelIndex = int( gl_FragCoord.y ) * int( resolution.x ) + int( gl_FragCoord.x );
 
@@ -400,6 +396,8 @@ void main( ) {
 
 			if( visMode > 0 ) {
 				_sample = TraceDebugMode( ray.origin, ray.direction );
+			} else if ( useAdaptiveSampling ) {
+				_sample = adaptivePathTrace( ray, seed, pixelIndex );
 			} else {
 				_sample = Trace( ray, seed, rayIndex, pixelIndex );
 			}
@@ -407,19 +405,6 @@ void main( ) {
 			pixel.color += _sample;
 			pixel.samples ++;
 
-			if( useAdaptiveSampling ) {
-				squaredMean += _sample * _sample;
-
-				// Calculate variance after minimum samples
-				if( pixel.samples >= adaptiveSamplingMin ) {
-					pixel.variance = calculateVariance( pixel.color / float( pixel.samples ), squaredMean / float( pixel.samples ), pixel.samples );
-
-					// Check if we've reached the desired quality
-					if( pixel.variance < varianceThreshold ) {
-						break;
-					}
-				}
-			}
 		}
 
 		pixel.color /= float( pixel.samples );

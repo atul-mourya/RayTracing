@@ -105,10 +105,10 @@ vec3 calculateDirectLightingMIS(HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 br
     vec3 totalLighting = vec3(0.0);
     vec3 N = hitInfo.normal;
 
-    // Directional light calculations
+    // Directional lights
     for (int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i++) {
         DirectionalLight light = getDirectionalLight(i);
-        
+
         if (light.intensity <= 0.0) continue;
 
         vec3 L = normalize(light.direction);
@@ -120,32 +120,28 @@ vec3 calculateDirectLightingMIS(HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 br
         // Check for shadows
         if (isPointInShadow(hitInfo.hitPoint, N, L, stats)) continue;
 
+        // Light contribution
         vec3 lightContribution = light.color * light.intensity * PI;
-
-        // Evaluate BRDF for the light direction
         vec3 brdfValueForLight = evaluateBRDF(V, L, N, hitInfo.material);
-        float misWeightLight = powerHeuristic(1.0, brdfPdf);
-        vec3 lightSampleContribution = lightContribution * brdfValueForLight * NoL * misWeightLight;
 
-        // BRDF sampling contribution
-        float NoL_brdf = max(dot(N, sampleDir), 0.0);
-        vec3 brdfSampleContribution = vec3(0.0);
-        if (NoL_brdf > 0.0 && brdfPdf > 0.0) {
-            // Check if the BRDF sample direction hits the light
-            float alignment = dot(sampleDir, L);
-            if (alignment > 0.9) { // Allow for some tolerance due to floating-point precision
-                // MIS weight for BRDF sampling
-                float misWeightBRDF = powerHeuristic(brdfPdf, 1.0);
-                brdfSampleContribution = lightContribution * brdfValue * NoL_brdf * misWeightBRDF / brdfPdf;
-            }
-        }
+        // MIS weights
+        float lightPdf = 1.0; // Directional light has uniform PDF
+        float misWeightLight = powerHeuristic(lightPdf, brdfPdf);
+        float misWeightBRDF = powerHeuristic(brdfPdf, lightPdf);
 
-        totalLighting += lightSampleContribution + brdfSampleContribution;
+        // Combine contributions
+        totalLighting += lightContribution * brdfValueForLight * NoL * misWeightLight;
         
+        // Add BRDF sampling contribution
+        // Check if the BRDF sample direction hits the light
+        float alignmentThreshold = 0.99; // Allow for some tolerance
+        float alignment = dot(sampleDir, L);
+        if (alignment > alignmentThreshold && brdfPdf > 0.0) {
+            totalLighting += lightContribution * brdfValue * NoL * misWeightBRDF / max(brdfPdf, 0.001);
+        }
     }
 
     #if MAX_AREA_LIGHTS > 0
-    // Area light calculations
     for (int i = 0; i < MAX_AREA_LIGHTS / 13 ; i++) {
         AreaLight light = getAreaLight(i);
         // return normalize(light.color);
@@ -158,34 +154,24 @@ vec3 calculateDirectLightingMIS(HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 br
         float NoL = max(dot(N, L), 0.0);
         if (NoL <= 0.0) continue;
 
-        float lightDistance = length(lightPos - hitInfo.hitPoint);
-
-        
-        // Check for shadows
         if (isPointInShadow(hitInfo.hitPoint, N, L, stats)) continue;
 
-
+        float lightDistance = length(lightPos - hitInfo.hitPoint);
         vec3 lightContribution = evaluateAreaLight(light, hitInfo.hitPoint, L, lightDistance);
 
-        // Evaluate BRDF for the light direction
-        vec3 brdfValueForLight = evaluateBRDF(V, L, N, hitInfo.material);
+        // MIS weights
         float misWeightLight = powerHeuristic(lightPdf, brdfPdf);
-        vec3 lightSampleContribution = lightContribution * brdfValueForLight * NoL * misWeightLight / lightPdf;
+        float misWeightBRDF = powerHeuristic(brdfPdf, lightPdf);
 
+        // Light sampling contribution
+        totalLighting += lightContribution * evaluateBRDF(V, L, N, hitInfo.material) * NoL * misWeightLight / max(lightPdf, 0.001);
+        
         // BRDF sampling contribution
-        float NoL_brdf = max(dot(N, sampleDir), 0.0);
-        vec3 brdfSampleContribution = vec3(0.0);
-        if (NoL_brdf > 0.0 && brdfPdf > 0.0) {
-            vec3 hitPointOnLight = hitInfo.hitPoint + sampleDir * lightDistance;
-            if (pointInRectangle(hitPointOnLight, light.position, light.u, light.v)) {
-                vec3 lightContributionBRDF = evaluateAreaLight(light, hitInfo.hitPoint, sampleDir, lightDistance);
-                float misWeightBRDF = powerHeuristic(brdfPdf, lightPdf);
-                brdfSampleContribution = lightContributionBRDF * brdfValue * NoL_brdf * misWeightBRDF / brdfPdf;
-            }
+        vec3 hitPointOnLight = hitInfo.hitPoint + sampleDir * lightDistance;
+        if (pointInRectangle(hitPointOnLight, light.position, light.u, light.v)) {
+            vec3 brdfLightContribution = evaluateAreaLight(light, hitInfo.hitPoint, sampleDir, lightDistance);
+            totalLighting += brdfLightContribution * brdfValue * NoL * misWeightBRDF / max(brdfPdf, 0.001);
         }
-
-        vec3 finalContribution = lightSampleContribution + brdfSampleContribution;
-        totalLighting += finalContribution;
     }
     #endif
 
