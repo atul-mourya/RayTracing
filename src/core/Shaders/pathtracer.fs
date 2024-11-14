@@ -35,8 +35,15 @@ float pdf;
 
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
 	
-	float diffuseRatio = 0.5 * ( 1.0 - material.metalness );
+	float specularWeight = (1.0 - material.roughness) * (0.5 + 0.5 * material.metalness);
+    float diffuseRatio = (1.0 - specularWeight) * (1.0 - material.metalness);
+    
+    // Normalize weights
+    float total = specularWeight + diffuseRatio;
+    specularWeight /= total;
+    diffuseRatio /= total;
 
+	// decide between diffuse and specular based on material properties
 	if( RandomValue( rngState ) < diffuseRatio ) {
 		// Sample diffuse BRDF
 		L = ImportanceSampleCosine( N, xi );
@@ -169,7 +176,10 @@ IndirectLightingResult calculateIndirectLightingMIS(vec3 V, vec3 N, RayTracingMa
     vec3 chosenBRDF;
     float chosenWeight;
 
-    if (RandomValue(rngState) < 0.5) { // better for specular materials
+	float specularStrength = (1.0 - material.roughness) * material.metalness;
+    float brdfSampleProb = mix(0.5, 0.9, specularStrength);
+
+    if (RandomValue(rngState) > brdfSampleProb) { // better for specular materials
         chosenDir = cosSampleDir;
         chosenPDF = cosPDF;
         chosenBRDF = cosBRDF;
