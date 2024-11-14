@@ -116,6 +116,10 @@ export class PathTracerPass extends Pass {
 				bvhTexture: { value: null },
 				materialTexture: { value: null },
 
+				triangleTexSize: { value: new Vector2() },
+				bvhTexSize: { value: new Vector2() },
+				materialTexSize: { value: new Vector2() }
+
 			},
 
 			vertexShader: VertexShader,
@@ -234,6 +238,11 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.triangleTexture.value = sdfs.triangleTexture;
 		this.material.uniforms.bvhTexture.value = sdfs.bvhTexture;
 		this.material.uniforms.materialTexture.value = sdfs.materialTexture;
+
+		// Update texture sizes
+		this.material.uniforms.triangleTexSize.value.set( sdfs.triangleTexture.image.width, sdfs.triangleTexture.image.height );
+		this.material.uniforms.bvhTexSize.value.set( sdfs.bvhTexture.image.width, sdfs.bvhTexture.image.height );
+		this.material.uniforms.materialTexSize.value.set( sdfs.materialTexture.image.width, sdfs.materialTexture.image.height );
 
 		// Update light uniforms
 		this.updateLights();
