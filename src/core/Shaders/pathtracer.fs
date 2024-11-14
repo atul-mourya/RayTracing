@@ -61,7 +61,6 @@ vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 
 }
 
 vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, uint rngState ) {
-
 	bool entering = dot( ray.direction, hitInfo.normal ) < 0.0;
 	float n1 = entering ? 1.0 : material.ior;
 	float n2 = entering ? material.ior : 1.0;
@@ -70,21 +69,29 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	vec3 reflectDir = reflect( ray.direction, normal );
 	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
 
+    // Calculate Fresnel term using Schlick's approximation
 	float cosTheta = abs( dot( - ray.direction, normal ) );
-	float fresnel = fresnelSchlick( cosTheta, 0.04 );
+	float F0 = pow( ( n1 - n2 ) / ( n1 + n2 ), 2.0 ); // Fresnel reflectance at normal incidence
+	float fresnel = fresnelSchlick( cosTheta, F0 );
+
+    // Energy conservation factor
+	float energyFactor = ( n2 * n2 ) / ( n1 * n1 );
 
 	if( length( refractDir ) < 0.001 || RandomValue( rngState ) < fresnel ) {
+        // Handle total internal reflection or fresnel reflection
 		ray.direction = reflectDir;
 		return material.color.rgb;
 	} else {
 		ray.direction = refractDir;
 		if( entering ) {
+            // Handle absorption when entering the medium
 			vec3 absorption = ( vec3( 1.0 ) - material.color.rgb ) * material.thickness * 0.5;
-			return exp( - absorption * hitInfo.dst );
+			return exp( - absorption * hitInfo.dst ) * energyFactor;
+		} else {
+            // Handle exit from medium with color contribution
+			return mix( vec3( 1.0 ), material.color.rgb, 0.5 ) * energyFactor;
 		}
-		return mix( vec3( 1.0 ), material.color.rgb, 0.5 );
 	}
-
 }
 
 // Helper function to calculate energy conservation for layered materials
