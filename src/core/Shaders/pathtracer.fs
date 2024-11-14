@@ -30,20 +30,20 @@ uniform bool useAdaptiveSampling;
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-float getMaterialImportance(RayTracingMaterial material) {
-    float specularWeight = (1.0 - material.roughness) * (0.5 + 0.5 * material.metalness);
-    float diffuseWeight = (1.0 - material.metalness) * material.roughness;
-    return specularWeight / (specularWeight + diffuseWeight);
+float getMaterialImportance( RayTracingMaterial material ) {
+	float specularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
+	float diffuseWeight = ( 1.0 - material.metalness ) * material.roughness;
+	return specularWeight / ( specularWeight + diffuseWeight );
 }
 
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
-	
-	float specularWeight = (1.0 - material.roughness) * (0.5 + 0.5 * material.metalness);
-    float diffuseWeight = (1.0 - specularWeight) * (1.0 - material.metalness);
-    
+
+	float specularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
+	float diffuseWeight = ( 1.0 - specularWeight ) * ( 1.0 - material.metalness );
+
     // Normalize weights
-    float total = specularWeight + diffuseWeight;
-    diffuseWeight /= total;
+	float total = specularWeight + diffuseWeight;
+	diffuseWeight /= total;
 
 	// decide between diffuse and specular based on material properties
 	if( RandomValue( rngState ) < diffuseWeight ) {
@@ -90,7 +90,7 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 		}
 		return mix( vec3( 1.0 ), material.color.rgb, 0.5 );
 	}
-	
+
 }
 
 vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
@@ -129,9 +129,9 @@ vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 
 bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTracingMaterial material ) {
 
-	uint minBounces = uint(mix(3.0, 5.0, max(luminance(material.color.rgb), material.metalness)));
-	float importanceValue = max(luminance(rayColor), max(material.metalness, material.transmission));
-	float rrProb = mix(importanceValue, 1.0, float(depth < minBounces));
+	uint minBounces = uint( mix( 3.0, 5.0, max( luminance( material.color.rgb ), material.metalness ) ) );
+	float importanceValue = max( luminance( rayColor ), max( material.metalness, material.transmission ) );
+	float rrProb = mix( importanceValue, 1.0, float( depth < minBounces ) );
 	float depthProb = float( depth < minBounces );
 	rrProb = sqrt( rrProb );
 	rrProb = max( rrProb, depthProb );
@@ -145,58 +145,58 @@ bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTra
 	return true;
 }
 
-vec3 sampleBackgroundLighting(int bounceIndex, vec3 direction) {
+vec3 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
-	if (bounceIndex == 0 && !showBackground) {
-        return vec3(0.0);
-    }
-    
-    return sampleEnvironment(direction, bounceIndex);
+	if( bounceIndex == 0 && ! showBackground ) {
+		return vec3( 0.0 );
+	}
+
+	return sampleEnvironment( direction, bounceIndex );
 
 }
 
 struct IndirectLightingResult {
-    vec3 direction;
-    vec3 throughput;
+	vec3 direction;
+	vec3 throughput;
 };
 
-IndirectLightingResult calculateIndirectLightingMIS(vec3 V, vec3 N, RayTracingMaterial material, vec3 brdfValue, float brdfPDF, vec3 L, int sampleIndex, int bounceIndex, inout uint rngState) {
+IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingMaterial material, vec3 brdfValue, float brdfPDF, vec3 L, int sampleIndex, int bounceIndex, inout uint rngState ) {
     // Sample cosine-weighted direction
-    vec2 indirectSample = getRandomSample(gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, -1);
-    
+	vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
+
     // Choose sampling strategy based on material properties
-    float materialImportance = getMaterialImportance(material);
-    vec3 sampleDir;
-    float samplePdf;
-    vec3 sampleBrdf;
-    
-    if (RandomValue(rngState) < materialImportance) {
+	float materialImportance = getMaterialImportance( material );
+	vec3 sampleDir;
+	float samplePdf;
+	vec3 sampleBrdf;
+
+	if( RandomValue( rngState ) < materialImportance ) {
         // Use BRDF sampling
-        sampleDir = L;
-        samplePdf = brdfPDF;
-        sampleBrdf = brdfValue;
-    } else {
+		sampleDir = L;
+		samplePdf = brdfPDF;
+		sampleBrdf = brdfValue;
+	} else {
         // Use cosine sampling
-        sampleDir = cosineWeightedSample(N, indirectSample);
-        samplePdf = cosineWeightedPDF(max(dot(N, sampleDir), 0.0));
-        sampleBrdf = evaluateBRDF(V, sampleDir, N, material);
-    }
+		sampleDir = cosineWeightedSample( N, indirectSample );
+		samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
+		sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
+	}
 
     // Ensure PDFs are never zero
-    samplePdf = max(samplePdf, 0.001);
-    brdfPDF = max(brdfPDF, 0.001);
+	samplePdf = max( samplePdf, 0.001 );
+	brdfPDF = max( brdfPDF, 0.001 );
 
     // Calculate MIS weights
-    float misWeight = powerHeuristic(samplePdf, brdfPDF);
-    
+	float misWeight = powerHeuristic( samplePdf, brdfPDF );
+
     // Calculate final contribution
-    float NoL = max(dot(N, sampleDir), 0.0);
-    vec3 throughput = sampleBrdf * NoL * misWeight / max(samplePdf, 0.001);
-    
-    IndirectLightingResult result;
-    result.direction = sampleDir;
-    result.throughput = clamp(throughput, vec3(0.0), vec3(1.0));
-    return result;
+	float NoL = max( dot( N, sampleDir ), 0.0 );
+	vec3 throughput = sampleBrdf * NoL * misWeight / max( samplePdf, 0.001 );
+
+	IndirectLightingResult result;
+	result.direction = sampleDir;
+	result.throughput = clamp( throughput, vec3( 0.0 ), vec3( 1.0 ) );
+	return result;
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
@@ -211,8 +211,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
-			vec3 envColor = sampleBackgroundLighting(i, ray.direction);
-			radiance += reduceFireflies( envColor * throughput * (i == 0 ? 1.0 : environmentIntensity), 5.0 );
+			vec3 envColor = sampleBackgroundLighting( i, ray.direction );
+			radiance += reduceFireflies( envColor * throughput * ( i == 0 ? 1.0 : environmentIntensity ), 5.0 );
 
 			// return vec4(envColor, 1.0);
 			break;
@@ -222,8 +222,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
 		// Handle opacity
-		if( material.opacity < 1.0) {
-			if( RandomValue(rngState) < material.opacity ) {
+		if( material.opacity < 1.0 ) {
+			if( RandomValue( rngState ) < material.opacity ) {
 				throughput *= material.color.rgb;
 				alpha *= material.opacity;
 				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
@@ -273,9 +273,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		}
 		// return vec4(brdfValue, 1.0);
 
-
 		// Indirect lighting using MIS
-		IndirectLightingResult indirectResult = calculateIndirectLightingMIS(V, N, material, brdfValue, pdf, L, sampleIndex, i, rngState);
+		IndirectLightingResult indirectResult = calculateIndirectLightingMIS( V, N, material, brdfValue, pdf, L, sampleIndex, i, rngState );
 
 		// Update ray for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
@@ -305,7 +304,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 	return vec4( max( radiance, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
 }
 
-
 bool shouldRenderPixel( ) {
 	ivec2 pixelCoord = ivec2( gl_FragCoord.xy );
 
@@ -315,32 +313,32 @@ bool shouldRenderPixel( ) {
 
 	} else if( renderMode == 1 ) { // Checkered rendering
 
-		int frameNumber = int(frame);
-        int n = checkeredFrameInterval; // n x n blocks, n frame cycle
+		int frameNumber = int( frame );
+		int n = checkeredFrameInterval; // n x n blocks, n frame cycle
 
         // Calculate which block this pixel belongs to
-        int blockX = pixelCoord.x / n;
-        int blockY = pixelCoord.y / n;
+		int blockX = pixelCoord.x / n;
+		int blockY = pixelCoord.y / n;
 
         // Calculate position within the block
-        int pixelXInBlock = pixelCoord.x % n;
-        int pixelYInBlock = pixelCoord.y % n;
+		int pixelXInBlock = pixelCoord.x % n;
+		int pixelYInBlock = pixelCoord.y % n;
 
         // Determine which frame in the cycle we're on
-        int cycleFrame = frameNumber % (n * n);
+		int cycleFrame = frameNumber % ( n * n );
 
         // Calculate the rendering order within the block
-        int renderOrder = (pixelYInBlock * n + pixelXInBlock);
+		int renderOrder = ( pixelYInBlock * n + pixelXInBlock );
 
         // Determine if this pixel should be rendered in this frame
-        bool shouldRender = (renderOrder == cycleFrame);
+		bool shouldRender = ( renderOrder == cycleFrame );
 
         // Alternate the pattern for odd blocks
-        if ((blockX + blockY) % 2 == 1) {
-            shouldRender = !shouldRender;
-        }
+		if( ( blockX + blockY ) % 2 == 1 ) {
+			shouldRender = ! shouldRender;
+		}
 
-        return shouldRender;
+		return shouldRender;
 
 	} else if( renderMode == 2 ) { // Tiled rendering
 
@@ -370,7 +368,7 @@ void main( ) {
 	pixel.variance = 0.0;
 	pixel.samples = 0;
 
-	uint seed = uint(gl_FragCoord.x) + uint(gl_FragCoord.y) * uint(resolution.x) + frame * uint(resolution.x) * uint(resolution.y);
+	uint seed = uint( gl_FragCoord.x ) + uint( gl_FragCoord.y ) * uint( resolution.x ) + frame * uint( resolution.x ) * uint( resolution.y );
 	int pixelIndex = int( gl_FragCoord.y ) * int( resolution.x ) + int( gl_FragCoord.x );
 
 	bool shouldRender = shouldRenderPixel( );
@@ -381,7 +379,7 @@ void main( ) {
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			vec4 _sample = vec4( 0.0 );
 
-			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, -1 );
+			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, - 1 );
 
 			if( visMode == 5 ) {
 				// to be refactored
@@ -398,7 +396,7 @@ void main( ) {
 
 			if( visMode > 0 ) {
 				_sample = TraceDebugMode( ray.origin, ray.direction );
-			} else if ( useAdaptiveSampling ) {
+			} else if( useAdaptiveSampling ) {
 				_sample = adaptivePathTrace( ray, seed, pixelIndex );
 			} else {
 				_sample = Trace( ray, seed, rayIndex, pixelIndex );
@@ -418,7 +416,7 @@ void main( ) {
 
 	// pixel.color.rgb = toneMapACESFilmic(pixel.color.rgb);
 	// pixel.color.rgb = gammaCorrection(pixel.color.rgb);
-	pixel.color.rgb = applyDithering(pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5); // 0.5 is the dithering amount
+	pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
 
 	gl_FragColor = vec4( pixel.color.rgb, 1.0 );
 }
