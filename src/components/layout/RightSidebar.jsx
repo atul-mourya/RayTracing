@@ -12,7 +12,7 @@ import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { HDR_FILES, MODEL_FILES, DEFAULT_STATE, DEBUG_MODELS } from '../../engine/Processor/Constants';
+import { HDR_FILES, MODEL_FILES, DEFAULT_STATE, DEBUG_MODELS } from '../../core/Processor/Constants';
 
 const RightSidebar = () => {
 

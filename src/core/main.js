@@ -230,13 +230,15 @@ class PathTracerApp extends EventDispatcher {
 		this.floorPlane = new Mesh(
 			new PlaneGeometry(),
 			new MeshPhysicalMaterial( {
-				transparent: false,
+				transparent: true,
 				color: 0xffffff,
-				roughness: 0.0,
-				metalness: 0.1,
+				roughness: 0,
+				metalness: 1,
+				opacity: 0,
+				transmission: 1,
 			} )
 		);
-		// this.scene.add(this.floorPlane);
+		// this.scene.add( this.floorPlane );
 
 	}
 

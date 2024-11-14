@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import PathTracerApp from '../../engine/main';
+import PathTracerApp from '../../core/main';
 import { Loader2, Upload } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from '@/hooks/use-toast';

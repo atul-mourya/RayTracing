@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import Viewport3D from './Viewport3D';
-import { DEFAULT_STATE } from '@/engine/Processor/Constants';
+import { DEFAULT_STATE } from '@/core/Processor/Constants';
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { Loader2, Maximize, Target, Camera } from 'lucide-react';
