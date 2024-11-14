@@ -93,38 +93,93 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 
 }
 
-vec3 sampleClearCoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
+// Helper function to calculate energy conservation for layered materials
+float calculateLayerAttenuation( float clearcoat, float VoH ) {
+    // Fresnel term for clearcoat layer (using f0 = 0.04 for dielectric)
+	float F = fresnelSchlick( VoH, 0.04 );
+    // Attenuate base layer by clearcoat layer's reflection
+	return ( 1.0 - clearcoat * F );
+}
+
+// Evaluate both clearcoat and base layer BRDFs
+vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
+	vec3 H = normalize( V + L );
+	float NoL = max( dot( N, L ), 0.001 );
+	float NoV = max( dot( N, V ), 0.001 );
+	float NoH = max( dot( N, H ), 0.001 );
+	float VoH = max( dot( V, H ), 0.001 );
+
+    // Clearcoat layer
+	float clearcoatD = DistributionGGX( N, H, material.clearcoatRoughness );
+	float clearcoatG = GeometrySmith( N, V, L, material.clearcoatRoughness );
+	float clearcoatF = fresnelSchlick( VoH, 0.04 );
+	vec3 clearcoatBRDF = vec3( clearcoatD * clearcoatG * clearcoatF ) / ( 4.0 * NoV * NoL );
+
+    // Calculate attenuation for base layer
+	float baseAttenuation = calculateLayerAttenuation( material.clearcoat, VoH );
+
+    // Base layer (using existing BRDF evaluation)
+	vec3 baseBRDF = evaluateBRDF( V, L, N, material );
+
+    // Combine layers
+	return clearcoatBRDF * material.clearcoat + baseBRDF * baseAttenuation;
+}
+
+// Improved clearcoat sampling function
+vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
 	vec3 N = hitInfo.normal;
 	vec3 V = - ray.direction;
 
-	// Sample microfacet normal for clear coat layer
-	vec2 Xi = randomSample.xy;
-	vec3 H = ImportanceSampleGGX( N, material.clearcoatRoughness, Xi );
+    // Choose between sampling clearcoat or base layer
+	float clearcoatProb = material.clearcoat * 0.2; // Adjust weight based on clearcoat strength
+	bool sampleClearcoat = RandomValue( rngState ) < clearcoatProb;
+
+	vec3 H;
+	if( sampleClearcoat ) {
+        // Sample clearcoat microfacet normal
+		H = ImportanceSampleGGX( N, material.clearcoatRoughness, randomSample.xy );
+	} else {
+        // Sample base layer
+		if( material.metalness > 0.0 ) {
+			H = ImportanceSampleGGX( N, material.roughness, randomSample.xy );
+		} else {
+            // For dielectric materials, use cosine weighted sampling
+			H = ImportanceSampleCosine( N, randomSample.xy );
+		}
+	}
+
+    // Calculate reflection direction
 	L = reflect( - V, H );
 
-	float NoL = max( dot( N, L ), 0.0 );
-	float NoH = max( dot( N, H ), 0.0 );
-	float NoV = max( dot( N, V ), 0.0 );
-	float VoH = max( dot( V, H ), 0.0 );
+    // Calculate PDFs
+	float NoV = max( dot( N, V ), 0.001 );
+	float NoL = max( dot( N, L ), 0.001 );
+	float NoH = max( dot( N, H ), 0.001 );
+	float VoH = max( dot( V, H ), 0.001 );
 
-	// Specular BRDF for clear coat
-	float D = DistributionGGX( N, H, material.clearcoatRoughness );
-	float G = GeometrySmith( N, V, L, material.clearcoatRoughness );
-	float F = fresnelSchlick( VoH, 0.04 ); // Fresnel term for clear coat (approximate with 0.04 as F0)
-	vec3 clearcoatBRDF = vec3( D * G * F ) / ( 4.0 * NoV * NoL + 0.001 );
+	float clearcoatPDF = 0.0;
+	float basePDF = 0.0;
 
-	pdf = ( D * NoH ) / ( 4.0 * VoH );
+    // Calculate clearcoat PDF
+	if( material.clearcoat > 0.0 ) {
+		float D = DistributionGGX( N, H, material.clearcoatRoughness );
+		clearcoatPDF = ( D * NoH ) / ( 4.0 * VoH ) * clearcoatProb;
+	}
 
-	// Blend with base layer BRDF
-	vec3 baseBRDF;
-	float basePDF;
-	baseBRDF = sampleBRDF( V, N, material, randomSample.zw, L, basePDF, rngState );
+    // Calculate base layer PDF
+	if( material.metalness > 0.0 ) {
+		float D = DistributionGGX( N, H, material.roughness );
+		basePDF = ( D * NoH ) / ( 4.0 * VoH ) * ( 1.0 - clearcoatProb );
+	} else {
+		basePDF = NoL / PI * ( 1.0 - clearcoatProb );
+	}
 
-	// Compute final BRDF and PDF
-	vec3 finalBRDF = mix( baseBRDF, clearcoatBRDF, material.clearcoat * F );
-	pdf = mix( basePDF, pdf, material.clearcoat * F );
+    // Combined PDF using MIS
+	pdf = clearcoatPDF + basePDF;
+	pdf = max( pdf, 0.001 ); // Ensure PDF is never zero
 
-	return finalBRDF;
+    // Evaluate full BRDF
+	return evaluateLayeredBRDF( V, L, N, material );
 }
 
 bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTracingMaterial material ) {
@@ -267,7 +322,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Handle clear coat
 		if( material.clearcoat > 0.0 ) {
-			brdfValue = sampleClearCoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
+			brdfValue = sampleClearcoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
 		} else {
 			brdfValue = sampleBRDF( V, N, material, randomSample.xy, L, pdf, rngState );
 		}
