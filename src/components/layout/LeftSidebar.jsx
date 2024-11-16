@@ -32,7 +32,7 @@ const LayerTreeItem = ( { item, depth } ) => {
 		<Collapsible open={isOpen} onOpenChange={setIsOpen}>
 			<CollapsibleTrigger
 				onClick={() => handleNodeClick( item )}
-				className="flex items-center space-x-2 p-1 hover:bg-secondary rounded cursor-pointer w-full text-left"
+				className="flex items-center space-x-2 p-1 hover:bg-secondary rounded cursor-pointer w-full text-left opacity-50"
 				style={{ paddingLeft: `${depth * 12 + 4}px` }}
 			>
 				{item.children.length > 0 && (
