@@ -1,87 +1,106 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { cn } from "@/lib/utils";
 
-const SNAP_THRESHOLD = 5; // Percentage of width/height to trigger snapping
+const SNAP_THRESHOLD = 5;
+const VIEW_BOX = "-3 -3 106 106"; // Add some padding to the viewBox to avoid clipping the at edges otherwide it should be 0 0 100 100
+const INITIAL_POSITION = { x: 50, y: 50 };
 
-export function Trackpad( { className, points = [], onMove, ...props } ) {
+export function Trackpad( { className, points = [], onMove, label, ...props } ) {
 
-	const [ position, setPosition ] = useState( { x: 50, y: 50 } ); // Start in the center
+	const [ position, setPosition ] = useState( INITIAL_POSITION );
 	const [ isDragging, setIsDragging ] = useState( false );
 	const [ snappedPoint, setSnappedPoint ] = useState( null );
 	const svgRef = useRef( null );
 
-	const handleMouseDown = ( event ) => {
+	// Memoize the position calculation function
+	const calculatePosition = useCallback( ( clientX, clientY ) => {
+
+		const rect = svgRef.current?.getBoundingClientRect();
+		if ( ! rect ) return null;
+
+		return {
+			x: ( ( clientX - rect.left ) / rect.width ) * 100,
+			y: ( ( clientY - rect.top ) / rect.height ) * 100
+		};
+
+	}, [] );
+
+	// Memoize the snap detection function
+	const findNearestPoint = useCallback( ( x, y ) => {
+
+		return points.reduce( ( nearest, point ) => {
+
+			const distance = Math.hypot( x - point.x, y - point.y );
+			return distance < SNAP_THRESHOLD && ( ! nearest || distance < nearest.distance )
+				? { point, distance }
+				: nearest;
+
+		}, null );
+
+	}, [ points ] );
+
+	const updatePosition = useCallback( ( event ) => {
+
+		const newPosition = calculatePosition( event.clientX, event.clientY );
+		if ( ! newPosition ) return;
+
+		const nearestPoint = findNearestPoint( newPosition.x, newPosition.y );
+
+		if ( nearestPoint ) {
+
+			setPosition( nearestPoint.point );
+			setSnappedPoint( nearestPoint.point );
+
+		} else {
+
+			setPosition( newPosition );
+			setSnappedPoint( null );
+
+		}
+
+	}, [ calculatePosition, findNearestPoint ] );
+
+	const handleMouseDown = useCallback( ( event ) => {
 
 		setIsDragging( true );
 		updatePosition( event );
 
-	};
+	}, [ updatePosition ] );
 
-	const handleMouseMove = ( event ) => {
+	const handleMouseMove = useCallback( ( event ) => {
 
 		if ( isDragging ) {
 
 			updatePosition( event );
-			onMove && onMove( position );
+			onMove?.( position );
 
 		}
 
-	};
+	}, [ isDragging, updatePosition, onMove, position ] );
 
-	const handleMouseUp = () => {
+	const handleMouseUp = useCallback( () => {
 
 		setIsDragging( false );
 		if ( snappedPoint ) {
 
-			snappedPoint.onClick && snappedPoint.onClick();
+			onMove?.( snappedPoint );
 			setSnappedPoint( null );
-			onMove && onMove( snappedPoint );
 
+		} else {
 
-		}
-
-	};
-
-	const updatePosition = ( event ) => {
-
-		if ( svgRef.current ) {
-
-			const rect = svgRef.current.getBoundingClientRect();
-			const x = ( ( event.clientX - rect.left ) / rect.width ) * 100;
-			const y = ( ( event.clientY - rect.top ) / rect.height ) * 100;
-
-			// Check for nearby points to snap to
-			const nearestPoint = points.reduce( ( nearest, point ) => {
-
-				const distance = Math.sqrt( Math.pow( x - point.x, 2 ) + Math.pow( y - point.y, 2 ) );
-				return distance < SNAP_THRESHOLD && ( ! nearest || distance < nearest.distance )
-					? { point, distance }
-					: nearest;
-
-			}, null );
-
-			if ( nearestPoint ) {
-
-				setPosition( { x: nearestPoint.point.x, y: nearestPoint.point.y } );
-				setSnappedPoint( nearestPoint.point );
-
-			} else {
-
-				setPosition( { x, y } );
-				setSnappedPoint( null );
-
-			}
+			onMove?.( position );
 
 		}
 
-	};
+	}, [ snappedPoint, position, onMove ] );
 
+	// Global mouse up handler
 	useEffect( () => {
 
 		const handleGlobalMouseUp = () => {
 
 			setIsDragging( false );
-			if ( snappedPoint ) {
+			if ( snappedPoint?.onClick ) {
 
 				snappedPoint.onClick();
 				setSnappedPoint( null );
@@ -97,19 +116,20 @@ export function Trackpad( { className, points = [], onMove, ...props } ) {
 
 	return (
 		<>
-			<span className="opacity-50 text-xs truncate">{props.label}</span>
+			{label && <span className="opacity-50 text-xs truncate">{label}</span>}
 			<div className={cn( "w-full h-full", className )} {...props}>
 				<svg
 					ref={svgRef}
-					viewBox="-3 -3 106 106" // Add some padding to the viewBox to avoid clipping the at edges
+					viewBox={VIEW_BOX}
 					className="w-full h-full border rounded-lg shadow-md"
 					onMouseDown={handleMouseDown}
 					onMouseMove={handleMouseMove}
 					onMouseUp={handleMouseUp}
 					role="application"
-					aria-label="Trackpad">
-					{/* Glow filter */}
+					aria-label="Trackpad"
+				>
 					<defs>
+						{/* Glow filter */}
 						<filter id="glow" x="-150%" y="-150%" width="400%" height="400%">
 							<feGaussianBlur stdDeviation="3.5" result="coloredBlur" />
 							<feMerge>
@@ -121,13 +141,13 @@ export function Trackpad( { className, points = [], onMove, ...props } ) {
 
 					<rect x="0" y="0" width="100" height="100" fill="transparent" />
 
-					{/* Center lines */}
-					<line x1="50" y1="0" x2="50" y2="100" className='stroke-primary opacity-30 [stroke-dasharray:2,2]' />
-					<line x1="0" y1="50" x2="100" y2="50" className='stroke-primary opacity-30 [stroke-dasharray:2,2]' />
-
-					{/* Guide lines (always visible) */}
-					<line x1={position.x} y1="0" x2={position.x} y2="100" className='stroke-primary'/>
-					<line x1="0" y1={position.y} x2="100" y2={position.y} className='stroke-primary'/>
+					{/* Guidelines */}
+					<g className="stroke-primary">
+						<line x1="50" y1="0" x2="50" y2="100" className="opacity-30 [stroke-dasharray:2,2]" />
+						<line x1="0" y1="50" x2="100" y2="50" className="opacity-30 [stroke-dasharray:2,2]" />
+						<line x1={position.x} y1="0" x2={position.x} y2="100" />
+						<line x1="0" y1={position.y} x2="100" y2={position.y} />
+					</g>
 
 					{/* Interactive points */}
 					{points.map( ( point, index ) => (
@@ -135,7 +155,8 @@ export function Trackpad( { className, points = [], onMove, ...props } ) {
 					) )}
 
 					{/* Cursor circle */}
-					<circle cx={position.x} cy={position.y} r="3" className="stroke-primary fill-primary pointer-events-none" style={{ filter: 'url(#glow)' }} />
+					<circle cx={position.x} cy={position.y} r="3" className="stroke-primary fill-primary pointer-events-none" style={{ filter: 'url(#glow)' }}
+					/>
 				</svg>
 			</div>
 		</>
