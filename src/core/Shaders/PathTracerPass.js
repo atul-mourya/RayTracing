@@ -74,6 +74,7 @@ export class PathTracerPass extends Pass {
 				focusDistance: { value: DEFAULT_STATE.focusDistance }, // Subject 3 meters away
 				focalLength: { value: DEFAULT_STATE.focalLength }, // 2mm lens
 				aperture: { value: DEFAULT_STATE.aperture }, // f/2.8 aperture
+				apertureScale: { value: 1.0 },
 
 				directionalLights: { value: null },
 				pointLights: { value: null },

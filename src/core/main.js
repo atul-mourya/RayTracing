@@ -437,6 +437,24 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.build( this.scene );
 		this.pathTracingPass.reset();
 		this.pauseRendering = false;
+
+		// Calculate scene scale factor based on model size
+		// We'll consider a "standard" model size to be 1 meter
+		const sceneScale = maxDim;
+
+		// Store scene scale for use in camera settings
+		this.sceneScale = sceneScale;
+
+		// Update camera parameters scaled to scene size
+		this.camera.near = maxDim / 100;
+		this.camera.far = maxDim * 100;
+
+		// Scale the default focus distance to scene size
+		this.pathTracingPass.material.uniforms.focusDistance.value = DEFAULT_STATE.focusDistance * ( sceneScale / 1.0 );
+
+		// Update aperture scale factor in the path tracer
+		this.pathTracingPass.material.uniforms.apertureScale.value = sceneScale;
+
 		this.dispatchEvent( { type: 'SceneRebuild' } );
 
 	}

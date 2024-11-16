@@ -4,6 +4,7 @@ uniform mat4 cameraProjectionMatrixInverse;
 uniform float focusDistance;
 uniform float aperture;
 uniform float focalLength;
+uniform float apertureScale;
 
 struct Ray {
 	vec3 origin;
@@ -11,34 +12,51 @@ struct Ray {
 };
 
 Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
-	vec4 rayStart = cameraProjectionMatrixInverse * vec4( screenPosition, - 1.0, 1.0 );
-	vec4 rayEnd = cameraProjectionMatrixInverse * vec4( screenPosition, 1.0, 1.0 );
+    // Convert screen position to NDC (Normalized Device Coordinates)
+	vec3 ndcPos = vec3( screenPosition.xy, 1.0 );
 
-	rayStart /= rayStart.w;
-	rayEnd /= rayEnd.w;
+    // Convert NDC to camera space
+	vec4 rayDirCameraSpace = cameraProjectionMatrixInverse * vec4( ndcPos, 1.0 );
+	rayDirCameraSpace.xyz /= rayDirCameraSpace.w;
+	rayDirCameraSpace.xyz = normalize( rayDirCameraSpace.xyz );
 
-	vec4 worldStart = cameraWorldMatrix * rayStart;
-	vec4 worldEnd = cameraWorldMatrix * rayEnd;
+    // Convert to world space
+	vec3 rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] );
+	vec3 rayDirectionWorld = normalize( mat3( cameraWorldMatrix ) * rayDirCameraSpace.xyz );
 
-	vec3 rayOrigin = worldStart.xyz;
-	vec3 rayDirection = normalize( worldEnd.xyz - worldStart.xyz );
-
-	// Calculate the focal point
-	vec3 focalPoint = rayOrigin + rayDirection * ( focusDistance * 1000.0 ); // Convert meters to mm
-
-    // Calculate aperture diameter from focal length and f-number
-	float apertureSize = focalLength / aperture;
-
-	// Generate a random point on the lens
-	vec3 lensOffset = RandomPointInCircle3( rngState ) * ( apertureSize * 0.5 );
-	vec3 newRayOrigin = rayOrigin + ( cameraWorldMatrix * vec4( lensOffset, 0.0 ) ).xyz;
-
-	// Calculate the new ray direction
-	vec3 newRayDirection = normalize( focalPoint - newRayOrigin );
-
+    // Set up basic ray
 	Ray ray;
-	ray.origin = newRayOrigin;
-	ray.direction = newRayDirection;
+	ray.origin = rayOriginWorld;
+	ray.direction = rayDirectionWorld;
+
+    // Skip depth of field calculations if aperture is too small (pinhole camera)
+	if( aperture > 16.0 || focalLength <= 0.0 ) {
+		return ray;
+	}
+
+    // Calculate focal point - where rays converge
+	vec3 focalPoint = rayOriginWorld + rayDirectionWorld * focusDistance;
+
+    // Calculate aperture diameter and scale appropriately
+    // Use larger scaling factors to make the effect more visible
+    // focalLength is in mm, we want to scale it to have a noticeable but controlled effect
+	float focalLengthMeters = focalLength * 0.001; // Convert mm to meters
+
+    // Calculate the aperture size - using real-world-inspired scaling
+    // Multiply by a larger factor to make the effect more pronounced
+	float apertureRadius = ( focalLengthMeters / ( 2.0 * aperture ) ) * 0.1 * apertureScale;
+
+    // Generate random point on aperture disk
+	vec2 randomAperturePoint = RandomPointInCircle( rngState );
+	vec3 right = normalize( cross( rayDirectionWorld, vec3( 0.0, 1.0, 0.0 ) ) );
+	vec3 up = normalize( cross( right, rayDirectionWorld ) );
+
+    // Apply the aperture offset
+	vec3 apertureOffset = ( right * randomAperturePoint.x + up * randomAperturePoint.y ) * apertureRadius;
+	ray.origin = rayOriginWorld + apertureOffset;
+
+    // Update ray direction to point through focal point
+	ray.direction = normalize( focalPoint - ray.origin );
 
 	return ray;
 }
