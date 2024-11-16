@@ -1,17 +1,16 @@
 import { useState } from 'react';
-import { Sliders, Camera, Box, Sun, Bug, Waypoints, Grip, Sunrise, Rainbow } from 'lucide-react';
+import { Sliders, Camera, Box, Sun, Bug, Waypoints, Grip } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Vector3Component } from "@/components/ui/vector3";
-import { ColorInput } from "@/components/ui/colorinput";
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import SceneTab from './SceneTab';
 import CameraTab from './CameraTab';
+import LightsTab from './LightsTab'; // Import the new LightsTab component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE, DEBUG_MODELS } from '../../core/Processor/Constants';
 
@@ -36,9 +35,6 @@ const RightSidebar = () => {
 	const [ tilesHelper, setTilesHelper ] = useState( DEFAULT_STATE.tilesHelper );
 	const [ resolution, setResolution ] = useState( DEFAULT_STATE.resolution );
 	const [ downSampledMovement, setDownSampledMovement ] = useState( DEFAULT_STATE.downSampledMovement );
-	const [ directionalLightIntensity, setDirectionalLightIntensity ] = useState( DEFAULT_STATE.directionalLightIntensity );
-	const [ directionalLightColor, setDirectionalLightColor ] = useState( DEFAULT_STATE.directionalLightColor );
-	const [ directionalLightPosition, setDirectionalLightPosition ] = useState( DEFAULT_STATE.directionalLightPosition );
 	const [ enableOIDN, setEnableOIDN ] = useState( DEFAULT_STATE.enableOIDN );
 	const [ useGBuffer, setUseGBuffer ] = useState( DEFAULT_STATE.useGBuffer );
 	const [ useAlbedoMap, setUseAlbedoMap ] = useState( DEFAULT_STATE.useAlbedoMap );
@@ -292,45 +288,6 @@ const RightSidebar = () => {
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDirectionalLightIntensityChange = ( value ) => {
-
-		setDirectionalLightIntensity( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.directionalLight.intensity = value[ 0 ];
-			window.pathTracerApp.pathTracingPass.updateLights();
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDirectionalLightColorChange = ( value ) => {
-
-		setDirectionalLightColor( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.directionalLight.color.set( value );
-			window.pathTracerApp.pathTracingPass.updateLights();
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDirectionalLightPositionChange = ( value ) => {
-
-		setDirectionalLightPosition( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.directionalLight.position.set( ...value );
-			window.pathTracerApp.pathTracingPass.updateLights();
 			window.pathTracerApp.reset();
 
 		}
@@ -700,17 +657,7 @@ const RightSidebar = () => {
 				<TabsContent value="light"
 					className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col"
 				>
-					<div className="space-y-4 p-4">
-						<div className="flex items-center justify-between">
-							<Slider label={"Intensity"} icon={Sunrise} min={0} max={20} step={0.1} value={[ directionalLightIntensity ]} onValueChange={handleDirectionalLightIntensityChange} />
-						</div>
-						<div className="flex items-center justify-between">
-							<ColorInput label={"Color"} icon={Rainbow} value={directionalLightColor} onChange={color => handleDirectionalLightColorChange( color )} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Vector3Component label="Position" value={directionalLightPosition} onValueChange={handleDirectionalLightPositionChange} />
-						</div>
-					</div>
+					<LightsTab /> {/* Use the new LightsTab component */}
 				</TabsContent>
 				<TabsContent
 					value="assets"
