@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Ruler, Telescope, Aperture } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
