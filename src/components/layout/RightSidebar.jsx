@@ -10,7 +10,9 @@ import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
+import { Trackpad } from "@/components/ui/trackpad";
 import { useToast } from "@/hooks/use-toast";
+import { remap } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE, DEBUG_MODELS } from '../../core/Processor/Constants';
 
@@ -612,6 +614,43 @@ const RightSidebar = () => {
 
 	};
 
+	const handleCameraMove = ( point ) => {
+
+		if ( ! window.pathTracerApp || ! window.pathTracerApp.controls ) return;
+
+		console.log( point );
+
+		const controls = window.pathTracerApp.controls;
+		const camera = window.pathTracerApp.camera;
+
+		const target = controls.target.clone();
+		const distance = camera.position.distanceTo( target );
+		const phi = remap( point.y, 0, 100, 0, - Math.PI );
+		const theta = remap( point.x, 0, 100, 0, - Math.PI );
+
+		// Calculate the new camera position in spherical coordinates
+		const newX = target.x + distance * Math.sin( phi ) * Math.cos( theta );
+		const newY = target.y + distance * Math.cos( phi ); // Adjusts for vertical position
+		const newZ = target.z + distance * Math.sin( phi ) * Math.sin( theta );
+
+		camera.position.set( newX, newY, newZ );
+		camera.lookAt( target ); // Ensure the camera still looks at the target
+		controls.update();
+
+	};
+
+	const cameraPoints = [
+		{ x: 0, y: 50, }, // left view
+		{ x: 50, y: 50, }, // front view
+		{ x: 100, y: 50, }, // right view
+		{ x: 50, y: 0, }, // top view
+		{ x: 50, y: 100, }, // bottom view
+		{ x: 25, y: 25, }, // top left view
+		{ x: 75, y: 25, }, // top right view
+		{ x: 25, y: 75, }, // bottom left view
+		{ x: 75, y: 75, }, // bottom right view
+	];
+
 	return (
 		<div className="relative border-l flex flex-col overflow-hidden h-full w-full">
 			<Tabs defaultValue="pathtracer" className="flex flex-col h-full w-full">
@@ -685,6 +724,9 @@ const RightSidebar = () => {
 						</div>
 						<div className="flex items-center justify-between">
 							<Slider label={"Focal Length (mm)"} icon={Ruler} min={0} max={0.1} step={0.001} value={[ focalLength ]} onValueChange={handleFocalLengthChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Trackpad label={"Camera Position"} points={cameraPoints} onMove={handleCameraMove} className="w-[110px] h-[110px]"/>
 						</div>
 					</div>
 				</TabsContent>
