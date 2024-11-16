@@ -17,8 +17,10 @@ export class AlbedoNormalGenerator {
 		this.scene = scene;
 		this.camera = camera;
 		this.renderer = renderer;
-		this.width = renderer.domElement.width * renderer.getPixelRatio();
-		this.height = renderer.domElement.height * renderer.getPixelRatio();
+
+		// Ensure width and height are integers
+		this.width = Math.floor( renderer.domElement.width * renderer.getPixelRatio() );
+		this.height = Math.floor( renderer.domElement.height * renderer.getPixelRatio() );
 
 		this.generateAlbedoMap = true;
 		this.generateNormalMap = true;
@@ -31,19 +33,31 @@ export class AlbedoNormalGenerator {
 		this.originalMaterials = new WeakMap();
 		this.originalOverrideMaterial = scene.overrideMaterial;
 
-		// Pre-allocate buffers
-		this.albedoBuffer = new Float32Array( this.width * this.height * 4 );
-		this.normalBuffer = new Float32Array( this.width * this.height * 4 );
-		this.albedoData = new Uint8ClampedArray( this.width * this.height * 4 );
-		this.normalData = new Uint8ClampedArray( this.width * this.height * 4 );
+		// Ensure buffer sizes are correct (width * height * 4 components)
+		const bufferSize = this.width * this.height * 4;
 
-		// Pre-create ImageData objects
-		this.albedoImageData = new ImageData( this.albedoData, this.width, this.height );
-		this.normalImageData = new ImageData( this.normalData, this.width, this.height );
+		// Pre-allocate buffers with verified sizes
+		this.albedoBuffer = new Float32Array( bufferSize );
+		this.normalBuffer = new Float32Array( bufferSize );
+		this.albedoData = new Uint8ClampedArray( bufferSize );
+		this.normalData = new Uint8ClampedArray( bufferSize );
 
-		// Create DataTextures for efficient GPU upload
-		this.albedoDataTexture = new DataTexture( this.albedoData, this.width, this.height, RGBAFormat );
-		this.normalDataTexture = new DataTexture( this.normalData, this.width, this.height, RGBAFormat );
+		// Verify dimensions before creating ImageData
+		if ( this.width > 0 && this.height > 0 ) {
+
+			// Create ImageData objects
+			this.albedoImageData = new ImageData( this.albedoData, this.width, this.height );
+			this.normalImageData = new ImageData( this.normalData, this.width, this.height );
+
+			// Create DataTextures
+			this.albedoDataTexture = new DataTexture( this.albedoData, this.width, this.height, RGBAFormat );
+			this.normalDataTexture = new DataTexture( this.normalData, this.width, this.height, RGBAFormat );
+
+		} else {
+
+			throw new Error( 'Invalid dimensions: width and height must be positive integers' );
+
+		}
 
 	}
 

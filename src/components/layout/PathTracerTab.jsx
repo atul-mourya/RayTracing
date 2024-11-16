@@ -7,6 +7,8 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 
+const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
+
 const PathTracerTab = () => {
 
 	const [ enablePathTracer, setEnablePathTracer ] = useState( DEFAULT_STATE.enablePathTracer );
@@ -418,7 +420,7 @@ const PathTracerTab = () => {
 				</ToggleGroup>
 			</div>
 			<div className="flex items-center justify-between">
-				<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
+				<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} disabled={isMobileDevice}/>
 			</div>
 			{enableOIDN && ( <>
 				<div className="flex items-center justify-between">
