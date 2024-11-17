@@ -1,10 +1,10 @@
-import { useState } from 'react';
 import { Ruler, Telescope, Aperture, Camera } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trackpad } from "@/components/ui/trackpad";
 import { remap } from "@/lib/utils";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
+import { create } from 'zustand';
 
 const CAMERA_RANGES = {
 	fov: {
@@ -80,44 +80,56 @@ const CAMERA_PRESETS = {
 	}
 };
 
+const useCameraStore = create( ( set ) => ( {
+	fov: CAMERA_RANGES.fov.default,
+	focusDistance: CAMERA_RANGES.focusDistance.default,
+	aperture: CAMERA_RANGES.aperture.default,
+	focalLength: CAMERA_RANGES.focalLength.default,
+	activePreset: "custom",
+	setFov: ( value ) => set( { fov: value, activePreset: "custom" } ),
+	setFocusDistance: ( value ) => set( { focusDistance: value, activePreset: "custom" } ),
+	setAperture: ( value ) => set( { aperture: value, activePreset: "custom" } ),
+	setFocalLength: ( value ) => set( { focalLength: value, activePreset: "custom" } ),
+	setPreset: ( presetKey ) => {
+
+		if ( presetKey === "custom" ) return;
+		const preset = CAMERA_PRESETS[ presetKey ];
+		set( {
+			fov: preset.fov,
+			focusDistance: preset.focusDistance,
+			aperture: preset.aperture,
+			focalLength: preset.focalLength,
+			activePreset: presetKey
+		} );
+
+	}
+} ) );
+
 const CameraTab = () => {
 
-	const [ fov, setFov ] = useState( CAMERA_RANGES.fov.default );
-	const [ focusDistance, setFocusDistance ] = useState( CAMERA_RANGES.focusDistance.default );
-	const [ aperture, setAperture ] = useState( CAMERA_RANGES.aperture.default );
-	const [ focalLength, setFocalLength ] = useState( CAMERA_RANGES.focalLength.default );
-	const [ activePreset, setActivePreset ] = useState( "custom" );
+	const { fov, focusDistance, aperture, focalLength, activePreset, setFov, setFocusDistance, setAperture, setFocalLength, setPreset } = useCameraStore();
 
 	const handlePresetChange = ( presetKey ) => {
 
+		setPreset( presetKey );
 		if ( presetKey === "custom" ) return;
-
 		const preset = CAMERA_PRESETS[ presetKey ];
-		setFov( preset.fov );
-		setFocusDistance( preset.focusDistance );
-		setAperture( preset.aperture );
-		setFocalLength( preset.focalLength );
-
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.camera.fov = preset.fov;
 			window.pathTracerApp.camera.updateProjectionMatrix();
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value =
-			preset.focusDistance * window.pathTracerApp.sceneScale;
+			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = preset.focusDistance * window.pathTracerApp.sceneScale;
 			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = preset.aperture;
 			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = preset.focalLength;
 			window.pathTracerApp.reset();
 
 		}
 
-		setActivePreset( presetKey );
-
 	};
 
 	const handleFovChange = ( value ) => {
 
 		setFov( value );
-		setActivePreset( "custom" );
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.camera.fov = value;
@@ -131,7 +143,6 @@ const CameraTab = () => {
 	const handleFocusDistanceChange = ( value ) => {
 
 		setFocusDistance( value );
-		setActivePreset( "custom" );
 		if ( window.pathTracerApp ) {
 
 			const scaledFocusDistance = value * window.pathTracerApp.sceneScale;
@@ -145,7 +156,6 @@ const CameraTab = () => {
 	const handleApertureChange = ( value ) => {
 
 		setAperture( value );
-		setActivePreset( "custom" );
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = value;
@@ -158,7 +168,6 @@ const CameraTab = () => {
 	const handleFocalLengthChange = ( value ) => {
 
 		setFocalLength( value );
-		setActivePreset( "custom" );
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = value;
