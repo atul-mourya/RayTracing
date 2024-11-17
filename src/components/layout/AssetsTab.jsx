@@ -1,17 +1,32 @@
-
-import { useState } from 'react';
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HDR_FILES, MODEL_FILES, DEBUG_MODELS, DEFAULT_STATE } from '../../core/Processor/Constants';
 import { useToast } from "@/hooks/use-toast";
+import { create } from 'zustand';
+
+const useAssetsStore = create( ( set ) => ( {
+	...DEFAULT_STATE,
+	activeTab: "models",
+	setActiveTab: ( tab ) => set( { activeTab: tab } ),
+	setModel: ( model ) => set( { model } ),
+	setEnvironment: ( env ) => set( { environment: env } ),
+	setDebugModel: ( model ) => set( { debugModel: model } )
+} ) );
 
 const AssetsTab = () => {
 
 	const { toast } = useToast();
-	const [ model, setModel ] = useState( DEFAULT_STATE.model );
-	const [ environment, setEnvironment ] = useState( DEFAULT_STATE.environment );
-	const [ debugModel, setDebugModel ] = useState( DEFAULT_STATE.debugModel );
+	const {
+		activeTab,
+		model,
+		environment,
+		debugModel,
+		setActiveTab,
+		setModel,
+		setEnvironment,
+		setDebugModel
+	} = useAssetsStore();
 
 	const handleEnvironmentChange = ( value ) => {
 
@@ -74,14 +89,15 @@ const AssetsTab = () => {
 		setDebugModel( value );
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url ).then( () => {
+			window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url )
+				.then( () => {
 
-				toast( {
-					title: "Model Loaded Successfully",
-					description: `${MODEL_FILES[ value ].name}`,
-				} );
+					toast( {
+						title: "Model Loaded Successfully",
+						description: `${MODEL_FILES[ value ].name}`,
+					} );
 
-			} )
+				} )
 				.catch( ( error ) => {
 
 					toast( {
@@ -97,18 +113,22 @@ const AssetsTab = () => {
 	};
 
 	return (
-		<div className='absolute h-[calc(100%-48px)] w-full'>
+		<div className="absolute h-[calc(100%-48px)] w-full">
 			<Separator className="bg-primary"/>
-			<Tabs defaultValue="models" className="flex flex-col h-full w-full">
+			<Tabs
+				value={activeTab}
+				onValueChange={setActiveTab}
+				className="flex flex-col h-full w-full"
+			>
 				<TabsList className="relative grid w-full grid-cols-3 h-auto p-0">
-					<TabsTrigger value="models" className="text-xs truncate py-2" >
-						Models
+					<TabsTrigger value="models" className="text-xs truncate py-2">
+            Models
 					</TabsTrigger>
 					<TabsTrigger value="environments" className="text-xs truncate py-2">
-						Env
+            Env
 					</TabsTrigger>
 					<TabsTrigger value="tests" className="text-xs truncate py-2">
-						Tests
+            Tests
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="models" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
