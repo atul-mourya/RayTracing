@@ -1,16 +1,22 @@
-
-import { useState } from 'react';
 import { Sunrise, Rainbow } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
+import { create } from 'zustand';
+
+const useLightStore = create( ( set ) => ( {
+	directionalLightIntensity: DEFAULT_STATE.directionalLightIntensity,
+	directionalLightColor: DEFAULT_STATE.directionalLightColor,
+	directionalLightPosition: DEFAULT_STATE.directionalLightPosition,
+	setDirectionalLightIntensity: ( value ) => set( { directionalLightIntensity: value } ),
+	setDirectionalLightColor: ( value ) => set( { directionalLightColor: value } ),
+	setDirectionalLightPosition: ( value ) => set( { directionalLightPosition: value } )
+} ) );
 
 const LightsTab = () => {
 
-	const [ directionalLightIntensity, setDirectionalLightIntensity ] = useState( DEFAULT_STATE.directionalLightIntensity );
-	const [ directionalLightColor, setDirectionalLightColor ] = useState( DEFAULT_STATE.directionalLightColor );
-	const [ directionalLightPosition, setDirectionalLightPosition ] = useState( DEFAULT_STATE.directionalLightPosition );
+	const { directionalLightIntensity, directionalLightColor, directionalLightPosition, setDirectionalLightIntensity, setDirectionalLightColor, setDirectionalLightPosition } = useLightStore();
 
 	const handleDirectionalLightIntensityChange = ( value ) => {
 
