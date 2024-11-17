@@ -1,20 +1,26 @@
-
-import { useState } from 'react';
 import { Sun, Sunrise } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { SliderToggle } from "@/components/ui/slider-toggle";
 import { Switch } from "@/components/ui/switch";
-import { useToast } from "@/hooks/use-toast";
-import { HDR_FILES, DEFAULT_STATE } from '../../core/Processor/Constants';
+import { DEFAULT_STATE } from '../../core/Processor/Constants';
+import { create } from 'zustand';
+
+const useSceneStore = create( ( set ) => ( {
+	exposure: DEFAULT_STATE.exposure,
+	enableEnvironment: DEFAULT_STATE.enableEnvironment,
+	showBackground: DEFAULT_STATE.showBackground,
+	environmentIntensity: DEFAULT_STATE.environmentIntensity,
+	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
+	setExposure: ( value ) => set( { exposure: value } ),
+	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
+	setShowBackground: ( value ) => set( { showBackground: value } ),
+	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
+	setGIIntensity: ( value ) => set( { GIIntensity: value } )
+} ) );
 
 const SceneTab = () => {
 
-	const { toast } = useToast();
-	const [ exposure, setExposure ] = useState( DEFAULT_STATE.exposure );
-	const [ enableEnvironment, setEnableEnvironment ] = useState( DEFAULT_STATE.enableEnvironment );
-	const [ showBackground, setShowBackground ] = useState( DEFAULT_STATE.showBackground );
-	const [ environmentIntensity, setEnvironmentIntensity ] = useState( DEFAULT_STATE.environmentIntensity );
-	const [ GIIntensity, setGIIntensity ] = useState( DEFAULT_STATE.globalIlluminationIntensity );
+	const { exposure, enableEnvironment, showBackground, environmentIntensity, GIIntensity, setExposure, setEnableEnvironment, setShowBackground, setEnvironmentIntensity, setGIIntensity } = useSceneStore();
 
 	const handleExposureChange = ( value ) => {
 
