@@ -6,9 +6,7 @@ import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { create } from 'zustand';
 
 const useLightStore = create( ( set ) => ( {
-	directionalLightIntensity: DEFAULT_STATE.directionalLightIntensity,
-	directionalLightColor: DEFAULT_STATE.directionalLightColor,
-	directionalLightPosition: DEFAULT_STATE.directionalLightPosition,
+	...DEFAULT_STATE,
 	setDirectionalLightIntensity: ( value ) => set( { directionalLightIntensity: value } ),
 	setDirectionalLightColor: ( value ) => set( { directionalLightColor: value } ),
 	setDirectionalLightPosition: ( value ) => set( { directionalLightPosition: value } )

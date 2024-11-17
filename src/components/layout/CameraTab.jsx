@@ -81,10 +81,7 @@ const CAMERA_PRESETS = {
 };
 
 const useCameraStore = create( ( set ) => ( {
-	fov: CAMERA_RANGES.fov.default,
-	focusDistance: CAMERA_RANGES.focusDistance.default,
-	aperture: CAMERA_RANGES.aperture.default,
-	focalLength: CAMERA_RANGES.focalLength.default,
+	...DEFAULT_STATE,
 	activePreset: "custom",
 	setFov: ( value ) => set( { fov: value, activePreset: "custom" } ),
 	setFocusDistance: ( value ) => set( { focusDistance: value, activePreset: "custom" } ),

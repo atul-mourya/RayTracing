@@ -6,10 +6,7 @@ import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { create } from 'zustand';
 
 const useSceneStore = create( ( set ) => ( {
-	exposure: DEFAULT_STATE.exposure,
-	enableEnvironment: DEFAULT_STATE.enableEnvironment,
-	showBackground: DEFAULT_STATE.showBackground,
-	environmentIntensity: DEFAULT_STATE.environmentIntensity,
+	...DEFAULT_STATE,
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
 	setExposure: ( value ) => set( { exposure: value } ),
 	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
@@ -20,7 +17,13 @@ const useSceneStore = create( ( set ) => ( {
 
 const SceneTab = () => {
 
-	const { exposure, enableEnvironment, showBackground, environmentIntensity, GIIntensity, setExposure, setEnableEnvironment, setShowBackground, setEnvironmentIntensity, setGIIntensity } = useSceneStore();
+	const {
+		exposure, setExposure,
+		enableEnvironment, setEnableEnvironment,
+		showBackground, setShowBackground,
+		environmentIntensity, setEnvironmentIntensity,
+		GIIntensity, setGIIntensity
+	} = useSceneStore();
 
 	const handleExposureChange = ( value ) => {
 
