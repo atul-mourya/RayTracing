@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -18,6 +18,8 @@ const ItemsCatalog = ( {
 } ) => {
 
 	const [ searchTerm, setSearchTerm ] = useState( '' );
+	const selectedItemRef = useRef( null );
+	const scrollAreaRef = useRef( null );
 
 	// Memoize filtered items for better performance
 	const filteredItems = useMemo( () => {
@@ -27,6 +29,25 @@ const ItemsCatalog = ( {
 		);
 
 	}, [ data, searchTerm ] );
+
+	// Scroll to selected item when value changes or component mounts
+	useEffect( () => {
+
+		if ( selectedItemRef.current && scrollAreaRef.current ) {
+
+			// Wait for next frame to ensure DOM is updated
+			requestAnimationFrame( () => {
+
+				selectedItemRef.current.scrollIntoView( {
+					behavior: 'smooth',
+					block: 'nearest',
+				} );
+
+			} );
+
+		}
+
+	}, [ value, filteredItems.length ] );
 
 	const handleMoreInfo = ( redirection, e ) => {
 
@@ -70,7 +91,7 @@ const ItemsCatalog = ( {
 					/>
 				</div>
 				<Separator className="my-2"/>
-				<ScrollArea className="flex-1">
+				<ScrollArea ref={scrollAreaRef} className="flex-1">
 					{isLoading ? (
 						<div className="flex items-center justify-center h-64">
 							<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -85,6 +106,7 @@ const ItemsCatalog = ( {
 								<Tooltip key={item.name}>
 									<TooltipTrigger asChild>
 										<Card
+											ref={index.toString() === value.toString() ? selectedItemRef : null}
 											className={cn(
 												"cursor-pointer transition-all hover:scale-105",
 												index.toString() === value.toString()
