@@ -129,13 +129,21 @@ const ItemsCatalog = ( {
 											}}
 										>
 											<CardContent className="relative p-2">
+												<div className="relative aspect-square mb-2 rounded-sm overflow-hidden">
+													<img
+														src={item.preview}
+														alt={item.name}
+														className="w-full h-full object-cover transition-transform hover:scale-110"
+														loading="lazy"
+													/>
+												</div>
 												{item.redirection && (
 													<Tooltip>
 														<TooltipTrigger asChild>
 															<Button
 																variant="ghost"
-																size="icon"
-																className="absolute right-1 top-1 h-6 w-6 bg-background/80 backdrop-blur-sm hover:bg-background/90"
+																size={12}
+																className="absolute rounded-full right-1 top-1 h-4 w-4 bg-background/80 backdrop-blur-sm hover:bg-background/90"
 																onClick={( e ) => handleMoreInfo( item.redirection, e )}
 																aria-label={`More information about ${item.name}`}
 															>
@@ -147,14 +155,6 @@ const ItemsCatalog = ( {
 														</TooltipContent>
 													</Tooltip>
 												)}
-												<div className="relative aspect-square mb-2 rounded-sm overflow-hidden">
-													<img
-														src={item.preview}
-														alt={item.name}
-														className="w-full h-full object-cover transition-transform hover:scale-110"
-														loading="lazy"
-													/>
-												</div>
 												<p className={cn(
 													"opacity-50 text-xs truncate text-center",
 													index.toString() === value.toString() ? "opacity-100" : "opacity-50"
