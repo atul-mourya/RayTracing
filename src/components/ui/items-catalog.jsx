@@ -87,8 +87,8 @@ const ItemsCatalog = ( {
 										<Card
 											className={cn(
 												"cursor-pointer transition-all hover:scale-105",
-												index.toString() === value
-													? "bg-primary/5"
+												index.toString() === value.toString()
+													? "bg-primary text-white"
 													: "hover:bg-accent"
 											)}
 											onClick={() => handleItemSelection( item.name )}
@@ -133,7 +133,10 @@ const ItemsCatalog = ( {
 														loading="lazy"
 													/>
 												</div>
-												<p className="opacity-50 text-xs truncate text-center">
+												<p className={cn(
+													"opacity-50 text-xs truncate text-center",
+													index.toString() === value.toString() ? "opacity-100" : "opacity-50"
+												)}>
 													{item.name}
 												</p>
 											</CardContent>
