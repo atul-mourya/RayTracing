@@ -1,41 +1,71 @@
-import { useState } from 'react';
 import { Waypoints, Grip, Bug } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { create } from 'zustand';
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 
 const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
+const useStore = create( ( set ) => ( {
+	...DEFAULT_STATE,
+	setEnablePathTracer: ( value ) => set( { enablePathTracer: value } ),
+	setEnableAccumulation: ( value ) => set( { enableAccumulation: value } ),
+	setBounces: ( value ) => set( { bounces: value } ),
+	setSamplesPerPixel: ( value ) => set( { samplesPerPixel: value } ),
+	setSamplingTechnique: ( value ) => set( { samplingTechnique: value } ),
+	setAdaptiveSampling: ( value ) => set( { adaptiveSampling: value } ),
+	setAdaptiveSamplingMin: ( value ) => set( { adaptiveSamplingMin: value } ),
+	setAdaptiveSamplingMax: ( value ) => set( { adaptiveSamplingMax: value } ),
+	setAdaptiveSamplingVarianceThreshold: ( value ) => set( { adaptiveSamplingVarianceThreshold: value } ),
+	setRenderMode: ( value ) => set( { renderMode: value } ),
+	setCheckeredSize: ( value ) => set( { checkeredSize: value } ),
+	setTiles: ( value ) => set( { tiles: value } ),
+	setTilesHelper: ( value ) => set( { tilesHelper: value } ),
+	setResolution: ( value ) => set( { resolution: value } ),
+	setDownSampledMovement: ( value ) => set( { downSampledMovement: value } ),
+	setEnableOIDN: ( value ) => set( { enableOIDN: value } ),
+	setUseGBuffer: ( value ) => set( { useGBuffer: value } ),
+	setUseAlbedoMap: ( value ) => set( { useAlbedoMap: value } ),
+	setUseNormalMap: ( value ) => set( { useNormalMap: value } ),
+	setEnableRealtimeDenoiser: ( value ) => set( { enableRealtimeDenoiser: value } ),
+	setDenoiserBlurStrength: ( value ) => set( { denoiserBlurStrength: value } ),
+	setDenoiserBlurRadius: ( value ) => set( { denoiserBlurRadius: value } ),
+	setDenoiserDetailPreservation: ( value ) => set( { denoiserDetailPreservation: value } ),
+	setDebugMode: ( value ) => set( { debugMode: value } ),
+	setDebugThreshold: ( value ) => set( { debugThreshold: value } ),
+} ) );
 
 const PathTracerTab = () => {
 
-	const [ enablePathTracer, setEnablePathTracer ] = useState( DEFAULT_STATE.enablePathTracer );
-	const [ enableAccumulation, setEnableAccumulation ] = useState( DEFAULT_STATE.enableAccumulation );
-	const [ bounces, setBounces ] = useState( DEFAULT_STATE.bounces );
-	const [ samplesPerPixel, setSamplesPerPixel ] = useState( DEFAULT_STATE.samplesPerPixel );
-	const [ samplingTechnique, setSamplingTechnique ] = useState( DEFAULT_STATE.samplingTechnique );
-	const [ adaptiveSampling, setAdaptiveSampling ] = useState( DEFAULT_STATE.adaptiveSampling );
-	const [ adaptiveSamplingMin, setAdaptiveSamplingMin ] = useState( DEFAULT_STATE.adaptiveSamplingMin );
-	const [ adaptiveSamplingMax, setAdaptiveSamplingMax ] = useState( DEFAULT_STATE.adaptiveSamplingMax );
-	const [ adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold ] = useState( DEFAULT_STATE.adaptiveSamplingVarianceThreshold );
-	const [ renderMode, setRenderMode ] = useState( DEFAULT_STATE.renderMode );
-	const [ checkeredSize, setCheckeredSize ] = useState( DEFAULT_STATE.checkeredSize );
-	const [ tiles, setTiles ] = useState( DEFAULT_STATE.tiles );
-	const [ tilesHelper, setTilesHelper ] = useState( DEFAULT_STATE.tilesHelper );
-	const [ resolution, setResolution ] = useState( DEFAULT_STATE.resolution );
-	const [ downSampledMovement, setDownSampledMovement ] = useState( DEFAULT_STATE.downSampledMovement );
-	const [ enableOIDN, setEnableOIDN ] = useState( DEFAULT_STATE.enableOIDN );
-	const [ useGBuffer, setUseGBuffer ] = useState( DEFAULT_STATE.useGBuffer );
-	const [ useAlbedoMap, setUseAlbedoMap ] = useState( DEFAULT_STATE.useAlbedoMap );
-	const [ useNormalMap, setUseNormalMap ] = useState( DEFAULT_STATE.useNormalMap );
-	const [ enableRealtimeDenoiser, setEnableRealtimeDenoiser ] = useState( DEFAULT_STATE.enableRealtimeDenoiser );
-	const [ denoiserBlurStrength, setDenoiserBlurStrength ] = useState( DEFAULT_STATE.denoiserBlurStrength );
-	const [ denoiserBlurRadius, setDenoiserBlurRadius ] = useState( DEFAULT_STATE.denoiserBlurRadius );
-	const [ denoiserDetailPreservation, setDenoiserDetailPreservation ] = useState( DEFAULT_STATE.denoiserDetailPreservation );
-	const [ debugMode, setDebugMode ] = useState( DEFAULT_STATE.debugMode );
-	const [ debugThreshold, setDebugThreshold ] = useState( DEFAULT_STATE.debugThreshold );
+	const {
+		enablePathTracer, setEnablePathTracer,
+		enableAccumulation, setEnableAccumulation,
+		bounces, setBounces,
+		samplesPerPixel, setSamplesPerPixel,
+		samplingTechnique, setSamplingTechnique,
+		adaptiveSampling, setAdaptiveSampling,
+		adaptiveSamplingMin, setAdaptiveSamplingMin,
+		adaptiveSamplingMax, setAdaptiveSamplingMax,
+		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
+		renderMode, setRenderMode,
+		checkeredSize, setCheckeredSize,
+		tiles, setTiles,
+		tilesHelper, setTilesHelper,
+		resolution, setResolution,
+		downSampledMovement, setDownSampledMovement,
+		enableOIDN, setEnableOIDN,
+		useGBuffer, setUseGBuffer,
+		useAlbedoMap, setUseAlbedoMap,
+		useNormalMap, setUseNormalMap,
+		enableRealtimeDenoiser, setEnableRealtimeDenoiser,
+		denoiserBlurStrength, setDenoiserBlurStrength,
+		denoiserBlurRadius, setDenoiserBlurRadius,
+		denoiserDetailPreservation, setDenoiserDetailPreservation,
+		debugMode, setDebugMode,
+		debugThreshold, setDebugThreshold
+	} = useStore();
 
 	const handlePathTracerChange = ( value ) => {
 
