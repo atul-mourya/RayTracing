@@ -242,6 +242,13 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	refreshFrame = () => {
+
+		this.accPass.iteration -= 1;
+		this.pathTracingPass.isComplete = false;
+
+	};
+
 	animate = () => {
 
 		this.animationFrameId = requestAnimationFrame( this.animate );

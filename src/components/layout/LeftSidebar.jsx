@@ -10,21 +10,21 @@ const LayerTreeItem = ( { item, depth } ) => {
 
 	const handleNodeClick = ( item ) => {
 
-		if ( window.pathTracerApp ) {
+		if ( ! window.pathTracerApp ) return;
 
-			if ( selectedNode && selectedNode?.uuid === item.uuid ) {
+		if ( selectedNode && selectedNode?.uuid === item.uuid ) {
 
-				window.pathTracerApp.selectObject( null );
-				setSelectedNode( null );
-				return;
-
-			}
-
-			const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
-			object && window.pathTracerApp.selectObject( object );
-			setSelectedNode( item.uuid );
+			window.pathTracerApp.selectObject( null );
+			setSelectedNode( null );
+			return;
 
 		}
+
+		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+		object && window.pathTracerApp.selectObject( object );
+		window.pathTracerApp.refreshFrame();
+		setSelectedNode( item.uuid );
+
 
 	};
 
