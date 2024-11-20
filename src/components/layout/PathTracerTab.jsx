@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { create } from 'zustand';
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
+import { Separator } from '../ui/separator';
 
 const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
 const useStore = create( ( set ) => ( {
@@ -35,6 +36,12 @@ const useStore = create( ( set ) => ( {
 	setDenoiserDetailPreservation: ( value ) => set( { denoiserDetailPreservation: value } ),
 	setDebugMode: ( value ) => set( { debugMode: value } ),
 	setDebugThreshold: ( value ) => set( { debugThreshold: value } ),
+	bloomStrength: 0.2,
+	bloomRadius: 0.15,
+	bloomThreshold: 0.85,
+	setBloomThreshold: ( value ) => set( { bloomThreshold: value } ),
+	setBloomStrength: ( value ) => set( { bloomStrength: value } ),
+	setBloomRadius: ( value ) => set( { bloomRadius: value } ),
 } ) );
 
 const PathTracerTab = () => {
@@ -64,7 +71,10 @@ const PathTracerTab = () => {
 		denoiserBlurRadius, setDenoiserBlurRadius,
 		denoiserDetailPreservation, setDenoiserDetailPreservation,
 		debugMode, setDebugMode,
-		debugThreshold, setDebugThreshold
+		debugThreshold, setDebugThreshold,
+		bloomThreshold, setBloomThreshold,
+		bloomStrength, setBloomStrength,
+		bloomRadius, setBloomRadius
 	} = useStore();
 
 	const handlePathTracerChange = ( value ) => {
@@ -384,6 +394,42 @@ const PathTracerTab = () => {
 
 	};
 
+	const handleBloomThresholdChange = ( value ) => {
+
+		setBloomThreshold( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.bloomPass.threshold = value[ 0 ];
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
+	const handleBloomStrengthChange = ( value ) => {
+
+		setBloomStrength( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.bloomPass.strength = value[ 0 ];
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
+	const handleBloomRadiusChange = ( value ) => {
+
+		setBloomRadius( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.bloomPass.radius = value[ 0 ];
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
 	return (
 		<div className="space-y-4 p-4">
 			<div className="flex items-center justify-between">
@@ -449,6 +495,7 @@ const PathTracerTab = () => {
 					</ToggleGroupItem>
 				</ToggleGroup>
 			</div>
+			<Separator />
 			<div className="flex items-center justify-between">
 				<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} disabled={isMobileDevice}/>
 			</div>
@@ -479,9 +526,7 @@ const PathTracerTab = () => {
 					<Slider label={"Detail Preservation"} min={0.01} max={0.1} step={0.01} value={[ denoiserDetailPreservation ]} onValueChange={handleDenoiserDetailPreservationChange} />
 				</div>
 			</> )}
-			<div className="flex items-center justify-between">
-				<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
-			</div>
+			<Separator />
 			<div className="flex items-center justify-between">
 				<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
 					<span className="opacity-50 text-xs truncate">Sampler</span>
@@ -494,6 +539,9 @@ const PathTracerTab = () => {
 						) )}
 					</SelectContent>
 				</Select>
+			</div>
+			<div className="flex items-center justify-between">
+				<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
@@ -509,6 +557,17 @@ const PathTracerTab = () => {
 					<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 				</div>
 			</> )}
+			<Separator />
+			<div className="flex items-center justify-between">
+				<Slider label={"Bloom Strength"} min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={handleBloomStrengthChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
+			</div>
+			<Separator />
 			{enablePathTracer && (
 				<Accordion type="single" collapsible>
 					<AccordionItem value="debug">

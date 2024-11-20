@@ -28,7 +28,8 @@ import {
 	OutlinePass,
 	OutputPass,
 	RGBELoader,
-	DRACOLoader
+	DRACOLoader,
+	UnrealBloomPass
 } from 'three/examples/jsm/Addons';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import Stats from 'stats-gl';
@@ -216,6 +217,9 @@ class PathTracerApp extends EventDispatcher {
 		this.tileHighlightPass = new TileHighlightPass( new Vector2( this.width, this.height ) );
 		this.tileHighlightPass.enabled = DEFAULT_STATE.tilesHelper;
 		this.composer.addPass( this.tileHighlightPass );
+
+		this.bloomPass = new UnrealBloomPass( new Vector2( this.width, this.height ), 0.2, 0.15, 0.85 );
+		this.composer.addPass( this.bloomPass );
 
 		const outputPass = new OutputPass();
 		this.composer.addPass( outputPass );
