@@ -567,11 +567,10 @@ const PathTracerTab = () => {
 			<div className="flex items-center justify-between">
 				<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
 			</div>
-			<Separator />
 			{enablePathTracer && (
 				<Accordion type="single" collapsible>
 					<AccordionItem value="debug">
-						<AccordionTrigger className="text-sm">
+						<AccordionTrigger className="text-sm py-2 border-t">
 							<div className="flex items-center">
 								<Bug className="h-4 w-4 mr-2" />
                                 Debugging
