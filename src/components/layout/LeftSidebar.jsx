@@ -111,12 +111,9 @@ const LeftSidebar = () => {
 
 	useEffect( () => {
 
-		window.pathTracerApp?.addEventListener( 'SceneRebuild', updateLayers );
-		return () => {
-
-			window.pathTracerApp?.removeEventListener( 'SceneRebuild', updateLayers );
-
-		};
+		const handleSceneUpdate = () => updateLayers();
+		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
+		return () => window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
 
 	}, [ updateLayers ] );
 

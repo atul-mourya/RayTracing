@@ -466,7 +466,7 @@ class PathTracerApp extends EventDispatcher {
 		// Update aperture scale factor in the path tracer
 		this.pathTracingPass.material.uniforms.apertureScale.value = sceneScale;
 
-		this.dispatchEvent( { type: 'SceneRebuild' } );
+		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 	}
 

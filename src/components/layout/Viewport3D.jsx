@@ -19,7 +19,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 		if ( containerRef.current ) {
 
 			appRef.current = new PathTracerApp( containerRef.current );
-			window.pathTracerApp = appRef.current; // Move this line here
+			window.pathTracerApp = appRef.current;
 			appRef.current.setOnStatsUpdate( onStatsUpdate );
 
 			appRef.current.init().then( () => {
