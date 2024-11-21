@@ -331,6 +331,33 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	updateMaterialDataTexture( materialIndex, property, value ) {
+
+		const data = this.material.uniforms.materialTexture.value.image.data;
+		const stride = materialIndex * 72; // 18 pixels * 4 components per pixel
+
+		switch ( property ) {
+
+			case 'color':
+				data.set( [ value.r, value.g, value.b ], stride );
+				break;
+			case 'roughness':
+				data[ stride + 7 ] = value;
+				break;
+			case 'metalness':
+				data[ stride + 3 ] = value;
+				break;
+			case 'transparent':
+				data[ stride + 32 ] = value ? 1 : 0;
+				break;
+
+		}
+
+		this.material.uniforms.materialTexture.value.needsUpdate = true;
+		this.reset();
+
+	}
+
 	reset() {
 
 		// Reset accumulated samples

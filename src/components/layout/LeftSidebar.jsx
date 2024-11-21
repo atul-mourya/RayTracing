@@ -1,21 +1,22 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Layers, Box, Circle, Cylinder, Cone, Lightbulb, Camera, ChevronRight, ChevronDown } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useStore } from '@/store';
 
 const LayerTreeItem = ( { item, depth } ) => {
 
 	const [ isOpen, setIsOpen ] = useState( true );
-	const [ selectedNode, setSelectedNode ] = useState( null );
+	const selectedObject = useStore( ( state ) => state.selectedObject );
+	const setSelectedObject = useStore( ( state ) => state.setSelectedObject );
 
 	const handleNodeClick = ( item ) => {
 
 		if ( ! window.pathTracerApp ) return;
 
-		if ( selectedNode && selectedNode?.uuid === item.uuid ) {
+		if ( selectedObject && selectedObject.uuid === item.uuid ) {
 
 			window.pathTracerApp.selectObject( null );
-			setSelectedNode( null );
+			setSelectedObject( null );
 			return;
 
 		}
@@ -23,8 +24,7 @@ const LayerTreeItem = ( { item, depth } ) => {
 		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
 		object && window.pathTracerApp.selectObject( object );
 		window.pathTracerApp.refreshFrame();
-		setSelectedNode( item.uuid );
-
+		setSelectedObject( object );
 
 	};
 
@@ -35,9 +35,7 @@ const LayerTreeItem = ( { item, depth } ) => {
 				className="flex items-center space-x-2 p-1 hover:bg-secondary rounded cursor-pointer w-full text-left opacity-50"
 				style={{ paddingLeft: `${depth * 12 + 4}px` }}
 			>
-				{item.children.length > 0 && (
-					isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />
-				)}
+				{item.children.length > 0 && ( isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} /> )}
 				{item.icon}
 				<span className="text-xs py-1 text-secondary-foreground">{item.name}</span>
 			</CollapsibleTrigger>
@@ -94,7 +92,7 @@ const LeftSidebar = () => {
 				type: object.type,
 				uuid: object.uuid,
 				icon: icon,
-				children: object.children.map( createLayerItem )
+				children: object.children.map( createLayerItem ),
 			};
 
 		};
@@ -119,17 +117,21 @@ const LeftSidebar = () => {
 
 	const renderFilteredLayers = ( layers, searchTerm ) => {
 
-		return layers.filter( layer => {
+		return layers
+			.filter( ( layer ) => {
 
-			const matchesSearch = layer.name.toLowerCase().includes( searchTerm.toLowerCase() ) ||
-                            layer.type.toLowerCase().includes( searchTerm.toLowerCase() );
-			const hasMatchingChildren = layer.children.length > 0 && renderFilteredLayers( layer.children, searchTerm ).length > 0;
-			return matchesSearch || hasMatchingChildren;
+				const matchesSearch =
+					layer.name.toLowerCase().includes( searchTerm.toLowerCase() ) ||
+					layer.type.toLowerCase().includes( searchTerm.toLowerCase() );
+				const hasMatchingChildren =
+					layer.children.length > 0 && renderFilteredLayers( layer.children, searchTerm ).length > 0;
+				return matchesSearch || hasMatchingChildren;
 
-		} ).map( layer => ( {
-			...layer,
-			children: renderFilteredLayers( layer.children, searchTerm )
-		} ) );
+			} )
+			.map( ( layer ) => ( {
+				...layer,
+				children: renderFilteredLayers( layer.children, searchTerm ),
+			} ) );
 
 	};
 

@@ -1,13 +1,19 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Paintbrush } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const ColorInput = ( { onChange, className, ...props } ) => {
+const ColorInput = ( { onChange, className, value, ...props } ) => {
 
-	const [ color, setColor ] = useState( props.value || "#000000" );
+	const [ color, setColor ] = useState( value || "#000000" );
 	const colorInputRef = useRef( null );
+
+	useEffect( () => {
+
+		setColor( value );
+
+	}, [ value ] );
 
 	const handleChange = ( event ) => {
 
@@ -35,7 +41,7 @@ const ColorInput = ( { onChange, className, ...props } ) => {
 						className="absolute h-full bg-primary pl-8 pr-10 rounded-full"
 					/>
 					<span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-            #
+						#
 					</span>
 					<div
 						className="absolute left-1 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full cursor-pointer"

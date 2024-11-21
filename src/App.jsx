@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/resizable";
 import { useDebouncedCallback } from 'use-debounce';
 
-
 const App = () => {
 
 	const handleResize = useDebouncedCallback( () => window.dispatchEvent( new Event( 'resize' ) ), 500 );

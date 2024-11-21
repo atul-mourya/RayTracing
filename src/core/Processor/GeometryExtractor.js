@@ -84,6 +84,7 @@ export default class GeometryExtractor {
 	processMesh( mesh ) {
 
 		const materialIndex = this.processMaterial( mesh.material );
+		mesh.userData.materialIndex = materialIndex;
 		this.extractGeometry( mesh, materialIndex );
 
 	}
@@ -115,6 +116,7 @@ export default class GeometryExtractor {
 		const emissive = material.emissive ?? new Color( 0, 0, 0 );
 
 		return {
+			uuid: material.uuid,
 			color: material.color,
 			emissive: emissive,
 			emissiveIntensity: material.emissiveIntensity,
