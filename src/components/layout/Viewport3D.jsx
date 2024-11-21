@@ -24,6 +24,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			appRef.current.init().then( () => {
 
 				setIsLoading( false );
+				window.pathTracerApp = appRef.current; // Move this line here
 
 			} ).catch( ( err ) => {
 
@@ -38,8 +39,6 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			} );
 
 		}
-
-		window.pathTracerApp = appRef.current;
 
 	}, [ onStatsUpdate ] );
 
