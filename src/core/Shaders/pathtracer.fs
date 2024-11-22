@@ -236,10 +236,16 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Handle opacity
 		if( material.opacity < 1.0 ) {
 			if( RandomValue( rngState ) < material.opacity ) {
-				throughput *= material.color.rgb;
+        		// Surface hit - contribute to radiance and continue
+				radiance += material.color.rgb * throughput * material.opacity;
+				throughput *= material.color.rgb * material.opacity;
 				alpha *= material.opacity;
 				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-
+				continue;
+			} else {
+        		// Ray passes through - update alpha and continue
+				alpha *= ( 1.0 - material.opacity );
+				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 				continue;
 			}
 		}
