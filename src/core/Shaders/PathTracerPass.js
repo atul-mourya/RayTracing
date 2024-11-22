@@ -347,8 +347,32 @@ export class PathTracerPass extends Pass {
 			case 'metalness':
 				data[ stride + 3 ] = value;
 				break;
-			case 'transparent':
-				data[ stride + 32 ] = value ? 1 : 0;
+			case 'ior':
+				data[ stride + 8 ] = value;
+				break;
+			case 'transmission':
+				data[ stride + 9 ] = value;
+				break;
+			case 'thickness':
+				data[ stride + 10 ] = value;
+				break;
+			case 'emissiveIntensity':
+				data[ stride + 11 ] = value;
+				break;
+			case 'clearcoat':
+				data[ stride + 15 ] = value;
+				break;
+			case 'clearcoatRoughness':
+				data[ stride + 19 ] = value;
+				break;
+			case 'opacity':
+				data[ stride + 20 ] = value;
+				break;
+			case 'side':
+				data[ stride + 21 ] = value;
+				break;
+			case 'emissive':
+				data.set( [ value.r, value.g, value.b ], stride + 4 );
 				break;
 
 		}
