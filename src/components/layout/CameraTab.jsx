@@ -30,6 +30,14 @@ const CAMERA_RANGES = {
 
 // Define photography presets
 const CAMERA_PRESETS = {
+	sharp: {
+		name: "Sharp",
+		description: "Infinite focus, everything in focus",
+		fov: 65,
+		focusDistance: 0,
+		aperture: 16.0,
+		focalLength: 0
+	},
 	portrait: {
 		name: "Portrait",
 		description: "Shallow depth of field, background blur",
