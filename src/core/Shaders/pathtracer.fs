@@ -233,19 +233,13 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
-		// Handle opacity
+		// Handle material opacity
 		if( material.opacity < 1.0 ) {
-			if( RandomValue( rngState ) < material.opacity ) {
-        		// Surface hit - contribute to radiance and continue
-				radiance += material.color.rgb * throughput * material.opacity;
-				throughput *= material.color.rgb * material.opacity;
+			if( RandomValue( rngState ) > material.opacity ) {
+				throughput *= material.color.rgb;
 				alpha *= material.opacity;
 				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-				continue;
-			} else {
-        		// Ray passes through - update alpha and continue
-				alpha *= ( 1.0 - material.opacity );
-				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+
 				continue;
 			}
 		}
