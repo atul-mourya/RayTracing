@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { ColorInput } from "@/components/ui/colorinput";
-import { Select } from "@/components/ui/select";
+import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
 import { useStore } from '@/store';
 
 const MaterialTab = () => {
@@ -21,12 +20,6 @@ const MaterialTab = () => {
 	const [ side, setSide ] = useState( 0 );
 	const [ emissive, setEmissive ] = useState( '#000000' );
 
-	const sideOptions = [
-		{ label: 'Front', value: 0 },
-		{ label: 'Back', value: 1 },
-		{ label: 'Double', value: 2 }
-	];
-
 	useEffect( () => {
 
 		if ( selectedObject && selectedObject.isMesh ) {
@@ -43,7 +36,6 @@ const MaterialTab = () => {
 			setOpacity( selectedObject.material.opacity ?? 1 );
 			setSide( selectedObject.material.side ?? 0 );
 			setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
-			console.log( selectedObject.material.color );
 
 		}
 
@@ -198,9 +190,8 @@ const MaterialTab = () => {
 
 	};
 
-	const handleSideChange = ( event ) => {
+	const handleSideChange = ( value ) => {
 
-		const value = parseInt( event.target.value, 10 );
 		setSide( value );
 		if ( selectedObject && selectedObject.isMesh ) {
 
@@ -272,7 +263,17 @@ const MaterialTab = () => {
 				<Slider label={"Transmission Thickness"} min={0} max={1} step={0.01} value={[ thickness ]} onValueChange={handleThicknessChange} />
 			</div>
 			<div className="flex items-center justify-between">
-				<Select label={"Side"} value={side} onChange={handleSideChange} options={sideOptions} />
+				<Select value={side} onValueChange={handleSideChange}>
+					<span className="opacity-50 text-xs truncate">Side</span>
+					<SelectTrigger className="max-w-20 h-5 rounded-full" >
+						<SelectValue placeholder="Select quality" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value={0}>Front</SelectItem>
+						<SelectItem value={1}>Back</SelectItem>
+						<SelectItem value={2}>Double</SelectItem>
+					</SelectContent>
+				</Select>
 			</div>
 		</div>
 	);
