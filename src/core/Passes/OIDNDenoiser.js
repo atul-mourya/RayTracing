@@ -21,7 +21,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.useAlbedoMap = DEFAULT_STATE.useAlbedoMap;
 
 		this.denoiser = new Denoiser( "webgl" );
-		this.denoiser.quality = 'fast';
+		this.denoiser.quality = DEFAULT_STATE.oidnQuality;
 		this.denoiser.hdr = false;
 		this.denoiser.height = this.sourceCanvas.height;
 		this.denoiser.width = this.sourceCanvas.width;

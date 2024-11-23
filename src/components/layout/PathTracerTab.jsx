@@ -42,6 +42,7 @@ const useStore = create( ( set ) => ( {
 	setBloomThreshold: ( value ) => set( { bloomThreshold: value } ),
 	setBloomStrength: ( value ) => set( { bloomStrength: value } ),
 	setBloomRadius: ( value ) => set( { bloomRadius: value } ),
+	setOidnQuality: ( value ) => set( { oidnQuality: value } ),
 } ) );
 
 const PathTracerTab = () => {
@@ -74,7 +75,8 @@ const PathTracerTab = () => {
 		debugThreshold, setDebugThreshold,
 		bloomThreshold, setBloomThreshold,
 		bloomStrength, setBloomStrength,
-		bloomRadius, setBloomRadius
+		bloomRadius, setBloomRadius,
+		oidnQuality, setOidnQuality,
 	} = useStore();
 
 	const handlePathTracerChange = ( value ) => {
@@ -430,6 +432,17 @@ const PathTracerTab = () => {
 
 	};
 
+	const handleOidnQualityChange = ( value ) => {
+
+		setOidnQuality( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.denoiser.quality = value;
+
+		}
+
+	};
+
 	return (
 		<div className="space-y-4 p-4">
 			<div className="flex items-center justify-between">
@@ -444,7 +457,7 @@ const PathTracerTab = () => {
 			<div className="flex items-center justify-between">
 				<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
 					<span className="opacity-50 text-xs truncate">Render Mode</span>
-					<SelectTrigger className="max-w-32 h-5 rounded-full" >
+					<SelectTrigger className="max-w-24 h-5 rounded-full" >
 						<SelectValue placeholder="Select mode" />
 					</SelectTrigger>
 					<SelectContent>
@@ -501,6 +514,18 @@ const PathTracerTab = () => {
 			</div>
 			{enableOIDN && ( <>
 				<div className="flex items-center justify-between">
+					<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
+						<span className="opacity-50 text-xs truncate">OIDN Quality</span>
+						<SelectTrigger className="max-w-20 h-5 rounded-full" >
+							<SelectValue placeholder="Select quality" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="fast">Fast</SelectItem>
+							<SelectItem value="balance">Balance</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+				<div className="flex items-center justify-between">
 					<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
 				</div>
 				{useGBuffer && ( <>
@@ -530,7 +555,7 @@ const PathTracerTab = () => {
 			<div className="flex items-center justify-between">
 				<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
 					<span className="opacity-50 text-xs truncate">Sampler</span>
-					<SelectTrigger className="max-w-32 h-5 rounded-full" >
+					<SelectTrigger className="max-w-24 h-5 rounded-full" >
 						<SelectValue placeholder="Select sampler" />
 					</SelectTrigger>
 					<SelectContent>

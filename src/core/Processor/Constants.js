@@ -240,6 +240,7 @@ export const DEFAULT_STATE = {
 	directionalLightColor: "#ffffff",
 	directionalLightPosition: [ 0.3, 1, 3 ],
 	enableOIDN: false,
+	oidnQuality: 'fast', // 'fast', 'balance', 'high'
 	useGBuffer: true,
 	useAlbedoMap: true,
 	useNormalMap: false,
