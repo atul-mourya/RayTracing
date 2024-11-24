@@ -38,23 +38,16 @@ const ColorInput = ( { onChange, className, value, ...props } ) => {
 						type="text"
 						value={color}
 						onChange={handleChange}
-						className="absolute h-full bg-primary pl-8 pr-10 rounded-full"
+						className="absolute h-full bg-primary text-xs text-center tracking-widest rounded-full"
 					/>
-					<span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-						#
-					</span>
+					<div className="h-full w-5 absolute left-0 text-center">
+						<Paintbrush size={14} className="h-full w-full p-1"/>
+					</div>
 					<div
-						className="absolute left-1 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full cursor-pointer"
+						className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full cursor-pointer"
+						onClick={openColorPicker}
 						style={{ backgroundColor: color }}
 					/>
-					<Button
-						variant="ghost"
-						size="icon"
-						className="h-full w-8 absolute right-0 top-0"
-						onClick={openColorPicker}
-					>
-						<Paintbrush className="h-4 w-4" />
-					</Button>
 				</div>
 				<input
 					ref={colorInputRef}
