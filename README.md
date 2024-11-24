@@ -10,7 +10,6 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 ### Feature:
 
-- better camera dof control
 - auto focus based on object distance
 - Scene based directional lights support
 - scene based camera support,
@@ -27,6 +26,8 @@ Demo here https://atul-mourya.github.io/RayTracing/
 //https://schuttejoe.github.io/post/disneybsdf/
 
 - oidn denioser https://github.com/DennisSmolek/Denoiser
+- cleanup path tracer ui panel.
+- group post processing effects customization elements in UI
 
 ### Refactor:
 - WebGPU version using TSL 
