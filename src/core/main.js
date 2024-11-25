@@ -59,7 +59,8 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer = new WebGLRenderer( {
 			powerPreference: "high-performance",
 			antialias: false,
-			preserveDrawingBuffer: true
+			preserveDrawingBuffer: true,
+			precision: "highp",
 		} );
 
 		// Initialize other properties
