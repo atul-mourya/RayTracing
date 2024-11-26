@@ -47,24 +47,25 @@ mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
 
 RayTracingMaterial getMaterial(int materialIndex) {
 
-    vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 18);
-    vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 18);
-    vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 18);
-    vec4 data4 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 3, 18);
-    vec4 data5 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 4, 18);
-    vec4 data6 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 5, 18);
-    vec4 data7 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 6, 18);
-    vec4 data8 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 7, 18);
-	vec4 data9 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 8, 18);
-	vec4 data10 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 9, 18);
-	vec4 data11 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 10, 18);
-	vec4 data12 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 11, 18);
-	vec4 data13 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 12, 18);
-	vec4 data14 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 13, 18);
-	vec4 data15 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 14, 18);
-	vec4 data16 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 15, 18);
-	vec4 data17 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 16, 18);
-	vec4 data18 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 17, 18);
+    vec4 data1 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 0, 19);
+    vec4 data2 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 1, 19);
+    vec4 data3 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 2, 19);
+    vec4 data4 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 3, 19);
+    vec4 data5 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 4, 19);
+    vec4 data6 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 5, 19);
+    vec4 data7 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 6, 19);
+    vec4 data8 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 7, 19);
+	vec4 data9 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 8, 19);
+	vec4 data10 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 9, 19);
+	vec4 data11 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 10, 19);
+	vec4 data12 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 11, 19);
+	vec4 data13 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 12, 19);
+	vec4 data14 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 13, 19);
+	vec4 data15 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 14, 19);
+	vec4 data16 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 15, 19);
+	vec4 data17 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 16, 19);
+	vec4 data18 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 17, 19);
+	vec4 data19 = getDatafromDataTexture(materialTexture, materialTexSize, materialIndex, 18, 19);
 
     RayTracingMaterial material;
 
@@ -91,14 +92,19 @@ RayTracingMaterial getMaterial(int materialIndex) {
 
     material.opacity = data6.r;
     material.side = int(data6.g);
-    material.normalScale = vec2(data6.b, data6.a);
+	material.transparent = bool(data6.b);
+	material.alphaTest = data6.a;
 
-	material.albedoTransform = arrayToMat3( data7, data8 );
-	material.emissiveTransform = arrayToMat3( data9, data10 );
-	material.normalTransform = arrayToMat3( data11, data12 );
-	material.bumpTransform = arrayToMat3( data13, data14 );
-	material.metalnessTransform = arrayToMat3( data15, data16 );
-	material.roughnessTransform = arrayToMat3( data17, data18 );
+	material.alphaMode = int(data7.r);
+	material.alphaCutoff = data7.g;
+    material.normalScale = vec2(data7.b, data7.a);
+
+	material.albedoTransform = arrayToMat3( data8, data9 );
+	material.emissiveTransform = arrayToMat3( data10, data11 );
+	material.normalTransform = arrayToMat3( data12, data13 );
+	material.bumpTransform = arrayToMat3( data14, data15 );
+	material.metalnessTransform = arrayToMat3( data16, data17 );
+	material.roughnessTransform = arrayToMat3( data18, data19 );
 
     return material;
 }

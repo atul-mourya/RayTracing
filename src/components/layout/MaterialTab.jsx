@@ -19,6 +19,8 @@ const MaterialTab = () => {
 	const [ opacity, setOpacity ] = useState( 1 );
 	const [ side, setSide ] = useState( 0 );
 	const [ emissive, setEmissive ] = useState( '#000000' );
+	const [ transparent, setTransparent ] = useState( false );
+	const [ alphaTest, setAlphaTest ] = useState( 0 );
 
 	useEffect( () => {
 
@@ -36,6 +38,8 @@ const MaterialTab = () => {
 			setOpacity( selectedObject.material.opacity ?? 1 );
 			setSide( selectedObject.material.side ?? 0 );
 			setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
+			setTransparent( selectedObject.material.transparent ?? false );
+			setAlphaTest( selectedObject.material.alphaTest ?? 0 );
 
 		}
 
@@ -59,6 +63,8 @@ const MaterialTab = () => {
 				setOpacity( selectedObject.material.opacity ?? 1 );
 				setSide( selectedObject.material.side ?? 0 );
 				setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
+				setTransparent( selectedObject.material.transparent ?? false );
+				setAlphaTest( selectedObject.material.alphaTest ?? 0 );
 
 			}
 
@@ -215,6 +221,30 @@ const MaterialTab = () => {
 
 	};
 
+	const handleTransparentChange = ( value ) => {
+
+		setTransparent( value );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.transparent = value;
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'transparent', value ? 1 : 0 );
+
+		}
+
+	};
+
+	const handleAlphaTestChange = ( value ) => {
+
+		setAlphaTest( value[ 0 ] );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.alphaTest = value[ 0 ];
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'alphaTest', value[ 0 ] );
+
+		}
+
+	};
+
 	if ( ! selectedObject ) {
 
 		return <div className="p-4">Please select an object to customize its material properties.</div>;
@@ -261,6 +291,13 @@ const MaterialTab = () => {
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Transmission Thickness"} min={0} max={1} step={0.01} value={[ thickness ]} onValueChange={handleThicknessChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Alpha Test"} min={0} max={1} step={0.01} value={[ alphaTest ]} onValueChange={handleAlphaTestChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<label className="opacity-50 text-xs truncate">Transparent</label>
+				<input type="checkbox" checked={transparent} onChange={( e ) => handleTransparentChange( e.target.checked )} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Select value={side} onValueChange={handleSideChange}>

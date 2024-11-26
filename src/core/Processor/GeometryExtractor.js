@@ -111,9 +111,20 @@ export default class GeometryExtractor {
 
 	}
 
+	getMaterialAlphaMode( material ) {
+
+		if ( material.transparent ) return 2; //'BLEND';
+		if ( material.alphaTest > 0.0 ) return 1;// 'MASK';
+		return 0; //'OPAQUE';
+
+	}
+
+
 	createMaterialObject( material ) {
 
 		const emissive = material.emissive ?? new Color( 0, 0, 0 );
+		const alphaMode = this.getMaterialAlphaMode( material );
+		const alphaCutoff = alphaMode === 1 ? material.alphaTest : 0.0;
 
 		return {
 			uuid: material.uuid,
@@ -130,6 +141,10 @@ export default class GeometryExtractor {
 			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,
 			side: this.getMaterialSide( material ),
 			normalScale: material.normalScale ?? { x: 1, y: 1 },
+			transparent: material.transparent ? 1 : 0,
+			alphaTest: material.alphaTest ?? 0.0,
+			alphaMode: alphaMode,
+			alphaCutoff: alphaCutoff,
 
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),

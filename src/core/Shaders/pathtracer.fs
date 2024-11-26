@@ -233,24 +233,31 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
-		// Handle material opacity
-		if( material.opacity < 1.0 ) {
+		// cases to handle opaque, transparent, alphaTest
+		if( material.alphaMode == 0 ) { // Opaque. So all alpha values are 1.0
+			alpha = 1.0;
+		} else if( material.alphaTest > 0.0 ) { // Mask
+			if( material.color.a < material.alphaTest ) {
+				alpha *= material.color.a;
+				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+				continue;
+			}
+		} else if( material.transparent && material.opacity < 1.0 ) { // Transparent
 			if( RandomValue( rngState ) > material.opacity ) {
 				throughput *= material.color.rgb;
 				alpha *= material.opacity;
 				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-
 				continue;
 			}
-		}
-
-		// Handle alpha blending
-		float surfaceAlpha = material.color.a;
-		if( surfaceAlpha < 1.0 ) {
-			radiance = mix( radiance, material.color.rgb * throughput, surfaceAlpha );
-			throughput *= ( 1.0 - surfaceAlpha );
-			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-			continue;
+		} else {
+			// Handle alpha blending
+			float surfaceAlpha = material.color.a;
+			if( surfaceAlpha < 1.0 ) {
+				radiance = mix( radiance, material.color.rgb * throughput, surfaceAlpha );
+				throughput *= ( 1.0 - surfaceAlpha );
+				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+				continue;
+			}
 		}
 
 		// Calculate tangent space and perturb normal

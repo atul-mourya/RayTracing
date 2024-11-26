@@ -10,6 +10,10 @@ struct RayTracingMaterial {
 	float clearcoat;
 	float clearcoatRoughness;
 	float opacity;
+	bool transparent;
+	float alphaTest;
+	int alphaMode;      // 0: OPAQUE, 1: MASK, 2: BLEND
+    float alphaCutoff;  // Used for MASK mode
 	int side;
 	int albedoMapIndex;
 	int emissiveMapIndex;
