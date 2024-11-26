@@ -1,4 +1,3 @@
-
 import * as React from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 
@@ -9,9 +8,9 @@ const Slider = React.forwardRef( ( { className, icon: Icon, ...props }, ref ) =>
 	const [ isEditing, setIsEditing ] = React.useState( false );
 	const [ inputValue, setInputValue ] = React.useState( props.value );
 
-	const handleEditClick = ( e ) => {
+	const handleEditDoubleClick = ( e ) => {
 
-		e.stopPropagation(); // Prevent slider change when clicking on the value
+		e.stopPropagation(); // Prevent slider change when double-clicking on the value
 		setIsEditing( true );
 
 	};
@@ -48,7 +47,7 @@ const Slider = React.forwardRef( ( { className, icon: Icon, ...props }, ref ) =>
 			<span className="opacity-50 text-xs truncate">{props.label}</span>
 			<SliderPrimitive.Root
 				ref={ref}
-				className={cn( "relative flex h-5 w-full touch-none select-none items-center max-w-32", className )}
+				className={cn( "relative flex h-5 w-full touch-none select-none items-center max-w-32 cursor-ew-resize", className )}
 				{...props}
 			>
 				<SliderPrimitive.Track className="relative h-full w-full grow overflow-hidden rounded-full bg-primary/20">
@@ -74,7 +73,7 @@ const Slider = React.forwardRef( ( { className, icon: Icon, ...props }, ref ) =>
 				) : (
 					<span
 						className="text-xs absolute h-full right-2 cursor-text text-foreground inline-flex items-center"
-						onClick={handleEditClick}
+						onDoubleClick={handleEditDoubleClick}
 					>
 						{props.value}
 					</span>

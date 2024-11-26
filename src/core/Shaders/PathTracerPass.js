@@ -374,6 +374,12 @@ export class PathTracerPass extends Pass {
 			case 'emissive':
 				data.set( [ value.r, value.g, value.b ], stride + 4 );
 				break;
+			case 'transparent':
+				data[ stride + 22 ] = value;
+				break;
+			case 'alphaTest':
+				data[ stride + 23 ] = value;
+				break;
 
 		}
 
