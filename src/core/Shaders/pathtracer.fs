@@ -110,20 +110,29 @@ vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) 
 	float NoH = max( dot( N, H ), 0.001 );
 	float VoH = max( dot( V, H ), 0.001 );
 
-    // Clearcoat layer
-	float clearcoatD = DistributionGGX( N, H, material.clearcoatRoughness );
-	float clearcoatG = GeometrySmith( N, V, L, material.clearcoatRoughness );
+    // Base layer BRDF
+	vec3 F0 = mix( vec3( 0.04 ), material.color.rgb, material.metalness );
+	float D = DistributionGGX( N, H, material.roughness );
+	float G = GeometrySmith( N, V, L, material.roughness );
+	vec3 F = fresnelSchlick3( VoH, F0 );
+	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * NoV * NoL );
+
+    // Add diffuse component for non-metallic surfaces
+	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) / PI;
+	vec3 baseLayer = diffuse + baseBRDF;
+
+    // Clearcoat layer (using constant IOR of 1.5 -> F0 = 0.04)
+	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 ); // Prevent artifacts at 0 roughness
+	float clearcoatD = DistributionGGX( N, H, clearcoatRoughness );
+	float clearcoatG = GeometrySmith( N, V, L, clearcoatRoughness );
 	float clearcoatF = fresnelSchlick( VoH, 0.04 );
-	vec3 clearcoatBRDF = vec3( clearcoatD * clearcoatG * clearcoatF ) / ( 4.0 * NoV * NoL );
+	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) / ( 4.0 * NoV * NoL );
 
-    // Calculate attenuation for base layer
-	float baseAttenuation = calculateLayerAttenuation( material.clearcoat, VoH );
+    // Energy conservation: base layer is attenuated by clearcoat Fresnel
+	float attenuation = calculateLayerAttenuation( material.clearcoat, VoH );
 
-    // Base layer (using existing BRDF evaluation)
-	vec3 baseBRDF = evaluateBRDF( V, L, N, material );
-
-    // Combine layers
-	return clearcoatBRDF * material.clearcoat + baseBRDF * baseAttenuation;
+    // Combine layers with energy conservation
+	return baseLayer * attenuation + vec3( clearcoatBRDF ) * material.clearcoat;
 }
 
 // Improved clearcoat sampling function
@@ -131,55 +140,55 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	vec3 N = hitInfo.normal;
 	vec3 V = - ray.direction;
 
-    // Choose between sampling clearcoat or base layer
-	float clearcoatProb = material.clearcoat * 0.2; // Adjust weight based on clearcoat strength
-	bool sampleClearcoat = RandomValue( rngState ) < clearcoatProb;
+    // Clamp clearcoat roughness to avoid artifacts
+	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
+	float baseRoughness = max( material.roughness, 0.089 );
 
+    // Calculate sampling weights based on material properties
+	float specularWeight = ( 1.0 - baseRoughness ) * ( 0.5 + 0.5 * material.metalness );
+	float clearcoatWeight = material.clearcoat * ( 1.0 - clearcoatRoughness );
+	float diffuseWeight = ( 1.0 - specularWeight ) * ( 1.0 - material.metalness );
+
+    // Normalize weights
+	float total = specularWeight + clearcoatWeight + diffuseWeight;
+	specularWeight /= total;
+	clearcoatWeight /= total;
+	diffuseWeight /= total;
+
+    // Choose which layer to sample
+	float rand = RandomValue( rngState );
 	vec3 H;
-	if( sampleClearcoat ) {
-        // Sample clearcoat microfacet normal
-		H = ImportanceSampleGGX( N, material.clearcoatRoughness, randomSample.xy );
+
+	if( rand < clearcoatWeight ) {
+        // Sample clearcoat layer
+		H = ImportanceSampleGGX( N, clearcoatRoughness, randomSample.xy );
+		L = reflect( - V, H );
+	} else if( rand < clearcoatWeight + specularWeight ) {
+        // Sample base specular
+		H = ImportanceSampleGGX( N, baseRoughness, randomSample.xy );
+		L = reflect( - V, H );
 	} else {
-        // Sample base layer
-		if( material.metalness > 0.0 ) {
-			H = ImportanceSampleGGX( N, material.roughness, randomSample.xy );
-		} else {
-            // For dielectric materials, use cosine weighted sampling
-			H = ImportanceSampleCosine( N, randomSample.xy );
-		}
+        // Sample diffuse
+		L = ImportanceSampleCosine( N, randomSample.xy );
+		H = normalize( V + L );
 	}
 
-    // Calculate reflection direction
-	L = reflect( - V, H );
-
-    // Calculate PDFs
+    // Calculate PDFs for both layers
 	float NoV = max( dot( N, V ), 0.001 );
 	float NoL = max( dot( N, L ), 0.001 );
 	float NoH = max( dot( N, H ), 0.001 );
 	float VoH = max( dot( V, H ), 0.001 );
 
-	float clearcoatPDF = 0.0;
-	float basePDF = 0.0;
-
-    // Calculate clearcoat PDF
-	if( material.clearcoat > 0.0 ) {
-		float D = DistributionGGX( N, H, material.clearcoatRoughness );
-		clearcoatPDF = ( D * NoH ) / ( 4.0 * VoH ) * clearcoatProb;
-	}
-
-    // Calculate base layer PDF
-	if( material.metalness > 0.0 ) {
-		float D = DistributionGGX( N, H, material.roughness );
-		basePDF = ( D * NoH ) / ( 4.0 * VoH ) * ( 1.0 - clearcoatProb );
-	} else {
-		basePDF = NoL / PI * ( 1.0 - clearcoatProb );
-	}
+    // Calculate individual PDFs
+	float clearcoatPDF = DistributionGGX( N, H, clearcoatRoughness ) * NoH / ( 4.0 * VoH ) * clearcoatWeight;
+	float specularPDF = DistributionGGX( N, H, baseRoughness ) * NoH / ( 4.0 * VoH ) * specularWeight;
+	float diffusePDF = NoL / PI * diffuseWeight;
 
     // Combined PDF using MIS
-	pdf = clearcoatPDF + basePDF;
+	pdf = clearcoatPDF + specularPDF + diffusePDF;
 	pdf = max( pdf, 0.001 ); // Ensure PDF is never zero
 
-    // Evaluate full BRDF
+    // Evaluate complete BRDF
 	return evaluateLayeredBRDF( V, L, N, material );
 }
 
@@ -305,7 +314,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, rngState, stats );
-		// radiance += mix( vec3( 0.0 ), directLight, material.color.a ) * throughput * 3.14;
 		radiance += reduceFireflies( directLight * throughput, 5.0 );
 		// return vec4(directLight, 1.0);
 

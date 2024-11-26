@@ -341,11 +341,14 @@ export class PathTracerPass extends Pass {
 			case 'color':
 				data.set( [ value.r, value.g, value.b ], stride );
 				break;
-			case 'roughness':
-				data[ stride + 7 ] = value;
-				break;
 			case 'metalness':
 				data[ stride + 3 ] = value;
+				break;
+			case 'emissive':
+				data.set( [ value.r, value.g, value.b ], stride + 4 );
+				break;
+			case 'roughness':
+				data[ stride + 7 ] = value;
 				break;
 			case 'ior':
 				data[ stride + 8 ] = value;
@@ -360,7 +363,7 @@ export class PathTracerPass extends Pass {
 				data[ stride + 11 ] = value;
 				break;
 			case 'clearcoat':
-				data[ stride + 15 ] = value;
+				data[ stride + 18 ] = value;
 				break;
 			case 'clearcoatRoughness':
 				data[ stride + 19 ] = value;
@@ -370,9 +373,6 @@ export class PathTracerPass extends Pass {
 				break;
 			case 'side':
 				data[ stride + 21 ] = value;
-				break;
-			case 'emissive':
-				data.set( [ value.r, value.g, value.b ], stride + 4 );
 				break;
 			case 'transparent':
 				data[ stride + 22 ] = value;
