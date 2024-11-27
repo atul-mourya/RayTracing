@@ -208,6 +208,7 @@ export const DEBUG_MODELS = debugModelsData
 
 export const DEFAULT_STATE = {
 	originalPixelRatio: window.devicePixelRatio / 2,
+	toneMapping: 4,
 	exposure: 1,
 	enableEnvironment: true,
 	showBackground: true,

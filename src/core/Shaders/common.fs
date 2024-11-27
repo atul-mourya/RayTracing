@@ -32,12 +32,6 @@ vec3 gammaCorrection(vec3 color) {
 	return pow(color, vec3(1.0 / 2.2));
 }
 
-vec3 toneMapACESFilmic(vec3 color) {
-	color *= 0.6;
-	color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
-	return pow(color, vec3(1.0 / 2.2));
-}
-
 // float luminance( vec3 color ) {
 
 // 	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;

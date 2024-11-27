@@ -88,7 +88,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Setup renderer
 		this.renderer.setClearColor( 0x000000, 1 );
-		this.renderer.toneMapping = ACESFilmicToneMapping;
+		this.renderer.toneMapping = DEFAULT_STATE.toneMapping;
 		this.renderer.toneMappingExposure = Math.pow( DEFAULT_STATE.exposure, 4.0 );
 		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.setPixelRatio( DEFAULT_STATE.originalPixelRatio );
