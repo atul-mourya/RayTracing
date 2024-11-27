@@ -30,6 +30,7 @@ export class PathTracerPass extends Pass {
 		this.renderer = renderer;
 		this.scene = scene;
 		this.tiles = DEFAULT_STATE.tiles;
+		this.cameras = [];
 
 		this.name = 'PathTracerPass';
 
@@ -214,6 +215,7 @@ export class PathTracerPass extends Pass {
 		this.dispose();
 
 		const sdfs = new TriangleSDF( scene );
+		this.cameras = sdfs.cameras;
 
 		this.material.defines = {
 			MAX_SPHERE_COUNT: sdfs.spheres.length,

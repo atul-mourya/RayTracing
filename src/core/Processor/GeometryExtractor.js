@@ -15,6 +15,7 @@ export default class GeometryExtractor {
 		this.roughnessMaps = [];
 		this.emissiveMaps = [];
 		this.directionalLights = [];
+		this.cameras = [];
 
 		this.posA = new Vector3();
 		this.posB = new Vector3();
@@ -51,6 +52,10 @@ export default class GeometryExtractor {
 		} else if ( object.isDirectionalLight ) {
 
 			this.directionalLights.push( object );
+
+		} else if ( object.isCamera ) {
+
+			this.cameras.push( object );
 
 		}
 
@@ -364,7 +369,8 @@ export default class GeometryExtractor {
 			metalnessMaps: this.metalnessMaps,
 			emissiveMaps: this.emissiveMaps,
 			roughnessMaps: this.roughnessMaps,
-			directionalLights: this.directionalLights
+			directionalLights: this.directionalLights,
+			cameras: this.cameras
 		};
 
 	}

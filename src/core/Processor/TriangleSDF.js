@@ -16,6 +16,7 @@ export default class TriangleSDF {
 		this.emissiveMaps = [];
 		this.directionalLights = [];
 		this.spheres = [];
+		this.cameras = [];
 
 		this.geometryExtractor = new GeometryExtractor();
 		this.bvhBuilder = new BVHBuilder();
@@ -43,6 +44,7 @@ export default class TriangleSDF {
 		this.metalnessMaps = extractedData.metalnessMaps;
 		this.emissiveMaps = extractedData.emissiveMaps;
 		this.directionalLights = extractedData.directionalLights;
+		this.cameras = extractedData.cameras;
 
 	}
 

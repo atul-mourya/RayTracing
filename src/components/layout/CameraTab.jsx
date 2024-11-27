@@ -5,6 +5,7 @@ import { Trackpad } from "@/components/ui/trackpad";
 import { remap } from "@/lib/utils";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { create } from 'zustand';
+import { useState, useEffect } from 'react';
 
 const CAMERA_RANGES = {
 	fov: {
@@ -91,6 +92,8 @@ const CAMERA_PRESETS = {
 const useCameraStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	activePreset: "custom",
+	cameraNames: [], setCameraNames: ( names ) => set( { cameraNames: names } ),
+	selectedCameraIndex: 0, setSelectedCameraIndex: ( index ) => set( { selectedCameraIndex: index } ),
 	setFov: ( value ) => set( { fov: value, activePreset: "custom" } ),
 	setFocusDistance: ( value ) => set( { focusDistance: value, activePreset: "custom" } ),
 	setAperture: ( value ) => set( { aperture: value, activePreset: "custom" } ),
@@ -112,7 +115,18 @@ const useCameraStore = create( ( set ) => ( {
 
 const CameraTab = () => {
 
-	const { fov, focusDistance, aperture, focalLength, activePreset, setFov, setFocusDistance, setAperture, setFocalLength, setPreset } = useCameraStore();
+	const { fov, focusDistance, aperture, focalLength, activePreset, cameraNames, selectedCameraIndex, setFov, setFocusDistance, setAperture, setFocalLength, setPreset, setCameraNames, setSelectedCameraIndex } = useCameraStore();
+
+	useEffect( () => {
+
+		if ( window.pathTracerApp ) {
+
+			setCameraNames( window.pathTracerApp.getCameraNames() );
+			setSelectedCameraIndex( window.pathTracerApp.currentCameraIndex );
+
+		}
+
+	}, [] );
 
 	const handlePresetChange = ( presetKey ) => {
 
@@ -204,6 +218,17 @@ const CameraTab = () => {
 
 	};
 
+	const handleCameraChange = ( index ) => {
+
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.switchCamera( index );
+			setSelectedCameraIndex( index );
+
+		}
+
+	};
+
 	const cameraPoints = [
 		{ x: 0, y: 50 }, // left view
 		{ x: 50, y: 50 }, // front view
@@ -218,6 +243,22 @@ const CameraTab = () => {
 
 	return (
 		<div className="space-y-4 p-4">
+			<div className="flex items-center justify-between">
+				<Select value={selectedCameraIndex.toString()} onValueChange={handleCameraChange}>
+					<span className="opacity-50 text-xs truncate">Select Camera</span>
+					<SelectTrigger className="max-w-32 h-5 rounded-full">
+						<div className="h-full pr-1 inline-flex justify-start items-center">
+							<Camera size={12} className="z-10" />
+						</div>
+						<SelectValue placeholder="Select camera" />
+					</SelectTrigger>
+					<SelectContent>
+						{cameraNames.map( ( name, index ) => (
+							<SelectItem key={index} value={index.toString()}>{name}</SelectItem>
+						) )}
+					</SelectContent>
+				</Select>
+			</div>
 			<div className="flex items-center justify-between">
 				<Select value={activePreset} onValueChange={handlePresetChange}>
 					<span className="opacity-50 text-xs truncate">Camera Preset</span>
@@ -293,14 +334,16 @@ const CameraTab = () => {
 				/>
 			</div>
 
-			<div className="flex items-center justify-between">
-				<Trackpad
-					label={"Camera Position"}
-					points={cameraPoints}
-					onMove={handleCameraMove}
-					className="w-[110px] h-[110px]"
-				/>
-			</div>
+			{selectedCameraIndex == 0 && (
+				<div className="flex items-center justify-between">
+					<Trackpad
+						label={"Camera Position"}
+						points={cameraPoints}
+						onMove={handleCameraMove}
+						className="w-[110px] h-[110px]"
+					/>
+				</div>
+			)}
 		</div>
 	);
 

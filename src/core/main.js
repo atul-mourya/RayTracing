@@ -78,6 +78,10 @@ class PathTracerApp extends EventDispatcher {
 		this.pauseRendering = true;
 		this.canvas = this.renderer.domElement;
 
+		this.cameras = [];
+		this.currentCameraIndex = 0;
+		this.defaultCamera = this.camera;
+
 	}
 
 	async init() {
@@ -109,6 +113,8 @@ class PathTracerApp extends EventDispatcher {
 		this.controls = new OrbitControls( this.camera, this.canvas );
 		this.controls.addEventListener( 'change', () => this.reset() );
 		this.controls.update();
+
+		this.cameras = [ this.defaultCamera ];
 
 		// Setup lighting
 		this.directionalLight = new DirectionalLight( DEFAULT_STATE.directionalLightColor, DEFAULT_STATE.directionalLightIntensity );
@@ -301,6 +307,35 @@ class PathTracerApp extends EventDispatcher {
 
 	};
 
+	getCameraNames() {
+
+		return this.cameras.map( ( camera, index ) => `Camera ${index + 1}` );
+
+	}
+
+	switchCamera( index ) {
+
+		// Ensure index is within bounds
+		if ( index < 0 || index >= this.cameras.length ) {
+
+			console.warn( `Invalid camera index ${index}. Using default camera.` );
+			index = 0;
+
+		}
+
+		this.currentCameraIndex = index;
+		this.camera = this.cameras[ index ];
+
+		// Update camera-dependent passes
+		if ( this.pathTracingPass ) this.pathTracingPass.camera = this.camera;
+		if ( this.temporalReprojectionPass ) this.temporalReprojectionPass.camera = this.camera;
+		if ( this.outlinePass ) this.outlinePass.camera = this.camera;
+
+		this.onResize();
+		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index } );
+
+	}
+
 	async loadEnvironment( index ) {
 
 		const envUrl = `${HDR_FILES[ index ].url}`;
@@ -447,6 +482,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Rebuild path tracing
 		this.pathTracingPass.build( this.scene );
+		this.cameras = [ this.defaultCamera ].concat( this.pathTracingPass.cameras );
 		this.pathTracingPass.reset();
 		this.pauseRendering = false;
 
@@ -467,6 +503,7 @@ class PathTracerApp extends EventDispatcher {
 		// Update aperture scale factor in the path tracer
 		this.pathTracingPass.material.uniforms.apertureScale.value = sceneScale;
 
+		this.switchCamera( 0 );
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 	}
