@@ -6,20 +6,16 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ## TODO:
 
 ### Bug:
-- texture matrix transforms for metalnessmap not working
 
 ### Feature:
 
 - auto focus based on object distance
 - Scene based directional lights support
-- scene based camera support,
 - caustic support
-- SAH based BVH
 - wasm BVH https://github.com/madmann91/bvh
 - BVH in compute shader using webgpu: https://x.com/AddisonPrairie/status/1823934213764341981
 -  jump flood algorithm for non blocking UI interactions
 - Object dynamic transformation changes
-- material dynamic changes
 - Hybrid Rendering
 -  sheen, sheen roughness, etc
 -  Explore Disney BSDF 

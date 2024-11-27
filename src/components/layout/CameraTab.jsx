@@ -5,7 +5,7 @@ import { Trackpad } from "@/components/ui/trackpad";
 import { remap } from "@/lib/utils";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { create } from 'zustand';
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 
 const CAMERA_RANGES = {
 	fov: {
