@@ -6,18 +6,24 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ## TODO:
 
 ### Bug:
+- transmission value change does not impact the transmission intensity
+- denoiser not working well with full resolution path tracing
 
 ### Feature:
 
-- auto focus based on object distance
-- Scene based directional lights support
+- implement transmission attennuation
+- implement dispersion
+- implement specular color support
+- implement sheen color and sheen roughness support
+- implement iridescence support
+- implement auto focus based on object distance
+- implement Scene based directional lights support
 - caustic support
 - wasm BVH https://github.com/madmann91/bvh
 - BVH in compute shader using webgpu: https://x.com/AddisonPrairie/status/1823934213764341981
 -  jump flood algorithm for non blocking UI interactions
 - Object dynamic transformation changes
 - Hybrid Rendering
--  sheen, sheen roughness, etc
 -  Explore Disney BSDF 
 //https://schuttejoe.github.io/post/disneybsdf/
 
