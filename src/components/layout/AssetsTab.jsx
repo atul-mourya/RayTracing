@@ -4,6 +4,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HDR_FILES, MODEL_FILES, DEBUG_MODELS, DEFAULT_STATE } from '../../core/Processor/Constants';
 import { useToast } from "@/hooks/use-toast";
 import { create } from 'zustand';
+import { useEffect } from 'react';
+import { useStore } from '@/store';
 
 const useAssetsStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
@@ -11,22 +13,47 @@ const useAssetsStore = create( ( set ) => ( {
 	setActiveTab: ( tab ) => set( { activeTab: tab } ),
 	setModel: ( model ) => set( { model } ),
 	setEnvironment: ( env ) => set( { environment: env } ),
-	setDebugModel: ( model ) => set( { debugModel: model } )
+	setDebugModel: ( model ) => set( { debugModel: model } ),
+	materials: [],
+	setMaterials: ( materials ) => set( { materials } ),
 } ) );
 
 const AssetsTab = () => {
 
+	const selectedObject = useStore( ( state ) => state.selectedObject );
 	const { toast } = useToast();
 	const {
 		activeTab,
 		model,
 		environment,
 		debugModel,
+		materials,
 		setActiveTab,
 		setModel,
 		setEnvironment,
-		setDebugModel
+		setDebugModel,
+		setMaterials
 	} = useAssetsStore();
+
+	useEffect( () => {
+
+		const onMaterialFetch = ( data ) => {
+
+			let materials = data.map( ( mData ) => ( {
+				...mData,
+				preview: mData.reference[ 0 ]
+
+			} ) );
+			setMaterials( materials );
+
+		};
+
+		fetch( 'https://api.physicallybased.info/materials' )
+			.then( response => response.json() )
+			.then( data => onMaterialFetch( data ) )
+			.catch( error => console.error( 'Error fetching materials:', error ) );
+
+	}, [] );
 
 	const handleEnvironmentChange = ( value ) => {
 
@@ -112,6 +139,79 @@ const AssetsTab = () => {
 
 	};
 
+	function applyMaterialInfo( info, material ) {
+
+		// defaults
+		material.color.set( 0xffffff );
+		material.transmission = 0.0;
+		material.attenuationDistance = Infinity;
+		// material.attenuationColor.set( 0xffffff );
+		// material.specularColor.set( 0xffffff );
+		material.metalness = 0.0;
+		material.roughness = 1.0;
+		material.ior = 1.5;
+		material.thickness = 1.0;
+		// material.iridescence = 0.0;
+		// material.iridescenceIOR = 1.0;
+		// material.iridescenceThicknessRange = [ 0, 0 ];
+
+		// apply database values
+		// if ( info.specularColor ) material.specularColor.setRGB( ...info.specularColor );
+		if ( 'metalness' in info ) material.metalness = info.metalness;
+		if ( 'roughness' in info ) material.roughness = info.roughness;
+		if ( 'ior' in info ) material.ior = info.ior;
+		if ( 'transmission' in info ) material.transmission = info.transmission;
+		if ( 'thinFilmThickness' in info ) {
+
+			// material.iridescence = 1.0;
+			// material.iridescenceIOR = info.thinFilmIor;
+			// material.iridescenceThicknessRange = [ info.thinFilmThickness, info.thinFilmThickness ];
+
+		}
+
+		if ( material.transmission ) {
+
+			if ( info.color ) {
+
+				// material.attenuationColor.setRGB( ...info.color );
+
+			}
+
+			// Blender uses 1 / density when exporting volume transmission which doesn't look
+			// exactly right. But because the scene is 1000x in size we multiply by 1000 here.
+			// material.attenuationDistance = 1000 / info.density;
+
+		} else {
+
+			if ( info.color ) {
+
+				material.color.setRGB( ...info.color );
+
+			}
+
+		}
+
+	}
+
+	const handleMaterialChange = ( value ) => {
+
+		if ( ! selectedObject ) {
+
+			toast( {
+				title: "No Object Selected",
+				description: "Please select an object to apply material to",
+				variant: "destructive",
+			} );
+			return;
+
+		}
+
+		applyMaterialInfo( materials[ value ], selectedObject.material );
+		window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture( selectedObject.userData.materialIndex, selectedObject.material );
+		window.pathTracerApp.reset();
+
+	};
+
 	return (
 		<div className="absolute h-[calc(100%-48px)] w-full">
 			<Separator className="bg-primary"/>
@@ -120,19 +220,25 @@ const AssetsTab = () => {
 				onValueChange={setActiveTab}
 				className="flex flex-col h-full w-full"
 			>
-				<TabsList className="relative grid w-full grid-cols-3 h-auto p-0">
+				<TabsList className="relative grid w-full grid-cols-4 h-auto p-0">
 					<TabsTrigger value="models" className="text-xs truncate py-2">
-            Models
+            			Models
+					</TabsTrigger>
+					<TabsTrigger value="materials" className="text-xs truncate py-2">
+            			Materials
 					</TabsTrigger>
 					<TabsTrigger value="environments" className="text-xs truncate py-2">
-            Env
+            			Env
 					</TabsTrigger>
 					<TabsTrigger value="tests" className="text-xs truncate py-2">
-            Tests
+            			Tests
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="models" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
 					<ItemsCatalog data={MODEL_FILES} value={model} onValueChange={handleModelChange}/>
+				</TabsContent>
+				<TabsContent value="materials" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
+					<ItemsCatalog data={materials} value={null} onValueChange={handleMaterialChange} />
 				</TabsContent>
 				<TabsContent value="environments" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
 					<ItemsCatalog data={HDR_FILES} value={environment} onValueChange={handleEnvironmentChange} />

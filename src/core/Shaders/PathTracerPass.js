@@ -31,6 +31,7 @@ export class PathTracerPass extends Pass {
 		this.scene = scene;
 		this.tiles = DEFAULT_STATE.tiles;
 		this.cameras = [];
+		this.sdfs = null;
 
 		this.name = 'PathTracerPass';
 
@@ -214,39 +215,39 @@ export class PathTracerPass extends Pass {
 
 		this.dispose();
 
-		const sdfs = new TriangleSDF( scene );
-		this.cameras = sdfs.cameras;
+		this.sdfs = new TriangleSDF( scene );
+		this.cameras = this.sdfs.cameras;
 
 		this.material.defines = {
-			MAX_SPHERE_COUNT: sdfs.spheres.length,
+			MAX_SPHERE_COUNT: this.sdfs.spheres.length,
 			MAX_DIRECTIONAL_LIGHTS: 0,
 			MAX_POINT_LIGHTS: 0,
 			MAX_SPOT_LIGHTS: 0
 		  };
 
 		// Update sphere uniforms
-		this.material.uniforms.spheres.value = sdfs.spheres;
+		this.material.uniforms.spheres.value = this.sdfs.spheres;
 
 		// Update environment uniforms
 		this.material.uniforms.envMapInfo.value.updateFrom( scene.environment );
 
 		// Update texture uniforms
-		this.material.uniforms.albedoMaps.value = sdfs.albedoTextures;
-		this.material.uniforms.emissiveMaps.value = sdfs.emissiveTextures;
-		this.material.uniforms.normalMaps.value = sdfs.normalTextures;
-		this.material.uniforms.bumpMaps.value = sdfs.bumpTextures;
-		this.material.uniforms.roughnessMaps.value = sdfs.roughnessTextures;
-		this.material.uniforms.metalnessMaps.value = sdfs.metalnessTextures;
+		this.material.uniforms.albedoMaps.value = this.sdfs.albedoTextures;
+		this.material.uniforms.emissiveMaps.value = this.sdfs.emissiveTextures;
+		this.material.uniforms.normalMaps.value = this.sdfs.normalTextures;
+		this.material.uniforms.bumpMaps.value = this.sdfs.bumpTextures;
+		this.material.uniforms.roughnessMaps.value = this.sdfs.roughnessTextures;
+		this.material.uniforms.metalnessMaps.value = this.sdfs.metalnessTextures;
 
 		// Update geometry uniforms
-		this.material.uniforms.triangleTexture.value = sdfs.triangleTexture;
-		this.material.uniforms.bvhTexture.value = sdfs.bvhTexture;
-		this.material.uniforms.materialTexture.value = sdfs.materialTexture;
+		this.material.uniforms.triangleTexture.value = this.sdfs.triangleTexture;
+		this.material.uniforms.bvhTexture.value = this.sdfs.bvhTexture;
+		this.material.uniforms.materialTexture.value = this.sdfs.materialTexture;
 
 		// Update texture sizes
-		this.material.uniforms.triangleTexSize.value.set( sdfs.triangleTexture.image.width, sdfs.triangleTexture.image.height );
-		this.material.uniforms.bvhTexSize.value.set( sdfs.bvhTexture.image.width, sdfs.bvhTexture.image.height );
-		this.material.uniforms.materialTexSize.value.set( sdfs.materialTexture.image.width, sdfs.materialTexture.image.height );
+		this.material.uniforms.triangleTexSize.value.set( this.sdfs.triangleTexture.image.width, this.sdfs.triangleTexture.image.height );
+		this.material.uniforms.bvhTexSize.value.set( this.sdfs.bvhTexture.image.width, this.sdfs.bvhTexture.image.height );
+		this.material.uniforms.materialTexSize.value.set( this.sdfs.materialTexture.image.width, this.sdfs.materialTexture.image.height );
 
 		// Update light uniforms
 		this.updateLights();
@@ -389,6 +390,20 @@ export class PathTracerPass extends Pass {
 		this.reset();
 
 	}
+
+	rebuildMaterialDataTexture( materialIndex, material ) {
+
+		let materialData = this.sdfs.geometryExtractor.createMaterialObject( material );
+
+		// itarate over materialData and update the materialTexture
+		for ( const property in materialData ) {
+
+			this.updateMaterialDataTexture( materialIndex, property, materialData[ property ] );
+
+		}
+
+	}
+
 
 	reset() {
 

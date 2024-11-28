@@ -7,6 +7,16 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from "@/lib/utils";
 
+/** data []: Array of objects representing items to display in the catalog {
+	// Required Properties
+	name: string;      // Used for item identification and display
+	preview: string;   // URL/path to item's preview image
+	// Optional Properties
+	label?: string;    // Alternative display text (shown in tooltip)
+	redirection?: string;  // URL for "More Info" button link
+}
+*/
+
 const ItemsCatalog = ( {
 	className,
 	data = [],
@@ -106,10 +116,10 @@ const ItemsCatalog = ( {
 								<Tooltip key={item.name}>
 									<TooltipTrigger asChild>
 										<Card
-											ref={index.toString() === value.toString() ? selectedItemRef : null}
+											ref={value !== null && index.toString() === value.toString() ? selectedItemRef : null}
 											className={cn(
 												"cursor-pointer transition-all hover:scale-105",
-												index.toString() === value.toString()
+												value !== null && index.toString() === value.toString()
 													? "bg-primary text-white"
 													: "hover:bg-accent"
 											)}
@@ -157,7 +167,7 @@ const ItemsCatalog = ( {
 												)}
 												<p className={cn(
 													"opacity-50 text-xs truncate text-center",
-													index.toString() === value.toString() ? "opacity-100" : "opacity-50"
+													value !== null && index.toString() === value.toString() ? "opacity-100" : "opacity-50"
 												)}>
 													{item.name}
 												</p>
