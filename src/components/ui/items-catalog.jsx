@@ -1,11 +1,16 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { InfoIcon, Search, Loader2 } from "lucide-react";
+import { InfoIcon, Search, Loader2, Filter } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
 
 /** data []: Array of objects representing items to display in the catalog {
 	// Required Properties
@@ -13,11 +18,13 @@ import { cn } from "@/lib/utils";
 	preview: string;   // URL/path to item's preview image
 	// Optional Properties
 	label?: string;    // Alternative display text (shown in tooltip)
+	category?: string[];  // Array of categories for filtering
+	tags?: string[];      // Array of tags for filtering
 	redirection?: string;  // URL for "More Info" button link
 }
 */
 
-const ItemsCatalog = ( {
+export const ItemsCatalog = ( {
 	className,
 	data = [],
 	value,
@@ -28,154 +35,208 @@ const ItemsCatalog = ( {
 } ) => {
 
 	const [ searchTerm, setSearchTerm ] = useState( '' );
-	const selectedItemRef = useRef( null );
-	const scrollAreaRef = useRef( null );
+	const [ filterType, setFilterType ] = useState( '' );
+	const [ filterValue, setFilterValue ] = useState( '' );
 
-	// Memoize filtered items for better performance
+	const categories = useMemo( () => {
+
+		return Array.from( new Set( data.filter( item => item.category ).map( item => item.category ).flat() ) ).filter( tag => tag );
+
+	}, [ data ] );
+
+	const tags = useMemo( () => {
+
+		return Array.from( new Set( data.filter( item => item.tags ).map( item => item.tags ).flat() ) ).filter( tag => tag );
+
+	}, [ data ] );
+
 	const filteredItems = useMemo( () => {
 
-		return data.filter( item =>
-			item.name.toLowerCase().includes( searchTerm.toLowerCase() )
-		);
+		return data.filter( item => {
 
-	}, [ data, searchTerm ] );
+			const matchesSearch = item.name.toLowerCase().includes( searchTerm.toLowerCase() );
 
-	// Scroll to selected item when value changes or component mounts
-	useEffect( () => {
+			// If no filter is selected or filter type is 'all', only apply search
+			if ( ! filterType || filterType === 'all' ) {
 
-		if ( selectedItemRef.current && scrollAreaRef.current ) {
+				return matchesSearch;
 
-			// Wait for next frame to ensure DOM is updated
-			requestAnimationFrame( () => {
+			}
 
-				selectedItemRef.current.scrollIntoView( {
-					behavior: 'smooth',
-					block: 'nearest',
-				} );
+			// Apply category filter
+			if ( filterType === 'category' && filterValue ) {
 
-			} );
+				return matchesSearch && item.category?.includes( filterValue );
 
-		}
+			}
 
-	}, [ value, filteredItems.length ] );
+			// Apply tag filter
+			if ( filterType === 'tag' && filterValue ) {
 
-	const handleMoreInfo = ( redirection, e ) => {
+				return matchesSearch && item.tags?.includes( filterValue );
 
-		e.stopPropagation(); // Prevent card selection when clicking info button
-		if ( redirection ) {
+			}
 
-			window.open( redirection, "_blank", "noopener noreferrer" );
+			return matchesSearch;
 
-		}
+		} );
 
-	};
+	}, [ data, searchTerm, filterType, filterValue ] );
+
+	const handleItemSelection = useCallback( ( name ) => {
+
+		const index = data.findIndex( item => item.name === name );
+		onValueChange( index.toString() );
+
+	}, [ data, onValueChange ] );
+
+	const handleFilterTypeChange = useCallback( ( newType ) => {
+
+		setFilterType( newType );
+		setFilterValue( '' ); // Reset filter value when type changes
+
+	}, [] );
+
+	const handleFilterValueChange = useCallback( ( newValue ) => {
+
+		setFilterValue( newValue );
+
+	}, [] );
 
 	if ( error ) {
 
 		return (
-			<div className="flex items-center justify-center h-64 text-red-500">
+			<div className="flex items-center justify-center h-64 text-red-500" role="alert">
 				<p>{error}</p>
 			</div>
 		);
 
 	}
 
-	const handleItemSelection = ( name ) => {
-
-		const index = data.findIndex( item => item.name === name );
-		onValueChange( index );
-
-	};
+	const showFilters = categories.length > 0 || tags.length > 0;
 
 	return (
 		<TooltipProvider>
-			<div className={cn( "flex flex-col h-full px-1", className )} {...props}>
-				<div className="flex items-center px-3 py-1 rounded-full bg-primary/20">
-					<Search size={14} className="mx-2" />
-					<input
-						type="text"
-						placeholder="Search"
-						className="bg-transparent outline-none text-xs w-full"
-						value={searchTerm}
-						onChange={( e ) => setSearchTerm( e.target.value )}
-					/>
+			<div className={cn( "flex flex-col h-full mx-2", className )} {...props}>
+				<div className="flex items-center mb-2 gap-2">
+					<div className="relative flex-grow">
+						<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+						<Input
+							type="text"
+							placeholder="Search items..."
+							className="h-5 pl-5 outline-none text-xs w-full rounded-full bg-primary/20"
+							value={searchTerm}
+							onChange={( e ) => setSearchTerm( e.target.value )}
+							aria-label="Search items"
+						/>
+					</div>
+					{showFilters && (
+						<Popover>
+							<PopoverTrigger asChild>
+								<Button variant="outline" className="h-5 w-[120px] text-xs rounded-full">
+									<Filter size={12} className="mr-2" />
+									Filter
+								</Button>
+							</PopoverTrigger>
+							<PopoverContent className="w-[200px] p-0" align="end">
+								<div className="p-1 space-y-1">
+									<Select value={filterType} onValueChange={handleFilterTypeChange}>
+										<SelectTrigger aria-label="Filter type" className="h-5 rounded-full">
+											<SelectValue placeholder="Filter by" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="all">All</SelectItem>
+											{categories.length > 0 && <SelectItem value="category">Category</SelectItem>}
+											{tags.length > 0 && <SelectItem value="tag">Tag</SelectItem>}
+										</SelectContent>
+									</Select>
+									{filterType && filterType !== 'all' && (
+										<Select value={filterValue} onValueChange={handleFilterValueChange}>
+											<SelectTrigger aria-label={`Select ${filterType}`} className="h-5 rounded-full">
+												<SelectValue placeholder={`Select ${filterType}`} />
+											</SelectTrigger>
+											<SelectContent>
+												{filterType === 'category'
+													? categories.map( category => (
+														<SelectItem key={category} value={category}>{category}</SelectItem>
+													) )
+													: tags.map( tag => (
+														<SelectItem key={tag} value={tag}>{tag}</SelectItem>
+													) )
+												}
+											</SelectContent>
+										</Select>
+									)}
+								</div>
+							</PopoverContent>
+						</Popover>
+					)}
 				</div>
-				<Separator className="my-2"/>
-				<ScrollArea ref={scrollAreaRef} className="flex-1">
+				{( filterType || filterValue ) && (
+					<div className="flex items-center space-x-2 mb-2">
+						<p className="text-xs text-muted-foreground">Active filters:</p>
+						{filterType && (
+							<Badge variant="secondary" className="text-xs">
+								{filterType}: {filterValue || 'All'}
+							</Badge>
+						)}
+					</div>
+				)}
+				<Separator className="mb-4" />
+				<ScrollArea className="flex-1">
 					{isLoading ? (
 						<div className="flex items-center justify-center h-64">
-							<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+							<Loader2 className="h-8 w-8 animate-spin text-primary" />
 						</div>
 					) : filteredItems.length === 0 ? (
 						<div className="flex items-center justify-center h-64 text-muted-foreground">
-							<p className='opacity-50 text-xs truncate'>No items found</p>
+							<p className="text-center">No items found. Try adjusting your search or filters.</p>
 						</div>
 					) : (
-						<div className="grid grid-cols-2 gap-4">
+						<div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4">
 							{filteredItems.map( ( item, index ) => (
 								<Tooltip key={item.name}>
 									<TooltipTrigger asChild>
 										<Card
-											ref={value !== null && index.toString() === value.toString() ? selectedItemRef : null}
 											className={cn(
-												"cursor-pointer transition-all hover:scale-105",
-												value !== null && index.toString() === value.toString()
-													? "bg-primary text-white"
-													: "hover:bg-accent"
+												"cursor-pointer transition-all hover:shadow-md",
+												value !== null && index.toString() === value
+													? "ring-2 ring-primary"
+													: "hover:bg-accent/50"
 											)}
 											onClick={() => handleItemSelection( item.name )}
-											role="button"
-											aria-pressed={index.toString() === value}
-											tabIndex={0}
-											onKeyDown={( e ) => {
-
-												if ( e.key === 'Enter' || e.key === ' ' ) {
-
-													e.preventDefault();
-													handleItemSelection( item.name );
-
-												}
-
-											}}
 										>
-											<CardContent className="relative p-2">
-												<div className="relative aspect-square mb-2 rounded-sm overflow-hidden">
+											<CardContent className="p-3">
+												<div className="relative aspect-square mb-2 rounded-md overflow-hidden">
 													<img
 														src={item.preview}
 														alt={item.name}
-														className="w-full h-full object-cover transition-transform hover:scale-110"
+														className="w-full h-full object-cover transition-transform hover:scale-105"
 														loading="lazy"
 													/>
+													{item.redirection && (
+														<Button
+															variant="secondary"
+															size="icon"
+															className="absolute right-1 bottom-1 h-6 w-6 rounded-full opacity-80 hover:opacity-100"
+															onClick={( e ) => {
+
+																e.stopPropagation();
+																window.open( item.redirection, "_blank", "noopener noreferrer" );
+
+															}}
+															aria-label={`More information about ${item.name}`}
+														>
+															<InfoIcon className="h-3 w-3" />
+														</Button>
+													)}
 												</div>
-												{item.redirection && (
-													<Tooltip>
-														<TooltipTrigger asChild>
-															<Button
-																variant="ghost"
-																size={12}
-																className="absolute rounded-full right-1 top-1 h-4 w-4 bg-background/80 backdrop-blur-sm hover:bg-background/90"
-																onClick={( e ) => handleMoreInfo( item.redirection, e )}
-																aria-label={`More information about ${item.name}`}
-															>
-																<InfoIcon className="h-4 w-4" />
-															</Button>
-														</TooltipTrigger>
-														<TooltipContent>
-															<p>View more information</p>
-														</TooltipContent>
-													</Tooltip>
-												)}
-												<p className={cn(
-													"opacity-50 text-xs truncate text-center",
-													value !== null && index.toString() === value.toString() ? "opacity-100" : "opacity-50"
-												)}>
-													{item.name}
-												</p>
+												<p className="text-sm font-medium text-center truncate">{item.name}</p>
 											</CardContent>
 										</Card>
 									</TooltipTrigger>
 									<TooltipContent>
-										<p>{item.label || item.name}</p>
+										<p>{item.name}</p>
 									</TooltipContent>
 								</Tooltip>
 							) )}
@@ -188,4 +249,4 @@ const ItemsCatalog = ( {
 
 };
 
-export { ItemsCatalog };
+export default ItemsCatalog;

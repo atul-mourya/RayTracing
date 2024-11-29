@@ -10,12 +10,11 @@ import { useStore } from '@/store';
 const useAssetsStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	activeTab: "models",
+	materials: [], setMaterials: ( materials ) => set( { materials } ),
 	setActiveTab: ( tab ) => set( { activeTab: tab } ),
 	setModel: ( model ) => set( { model } ),
 	setEnvironment: ( env ) => set( { environment: env } ),
 	setDebugModel: ( model ) => set( { debugModel: model } ),
-	materials: [],
-	setMaterials: ( materials ) => set( { materials } ),
 } ) );
 
 const AssetsTab = () => {
@@ -32,7 +31,7 @@ const AssetsTab = () => {
 		setModel,
 		setEnvironment,
 		setDebugModel,
-		setMaterials
+		setMaterials,
 	} = useAssetsStore();
 
 	useEffect( () => {
@@ -144,7 +143,7 @@ const AssetsTab = () => {
 		// defaults
 		material.color.set( 0xffffff );
 		material.transmission = 0.0;
-		material.attenuationDistance = Infinity;
+		// material.attenuationDistance = Infinity;
 		// material.attenuationColor.set( 0xffffff );
 		// material.specularColor.set( 0xffffff );
 		material.metalness = 0.0;
