@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Slider } from "@/components/ui/slider";
 import { ColorInput } from "@/components/ui/colorinput";
+import { DraggableInput } from "@/components/ui/draggable-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
 import { useStore } from '@/store';
 
@@ -13,6 +14,8 @@ const MaterialTab = () => {
 	const [ ior, setIor ] = useState( 1.5 );
 	const [ transmission, setTransmission ] = useState( 0 );
 	const [ thickness, setThickness ] = useState( 0.1 );
+	const [ attenuationColor, setAttenuationColor ] = useState( '#ffffff' );
+	const [ attenuationDistance, setAttenuationDistance ] = useState( 0 );
 	const [ emissiveIntensity, setEmissiveIntensity ] = useState( 1 );
 	const [ clearcoat, setClearcoat ] = useState( 0 );
 	const [ clearcoatRoughness, setClearcoatRoughness ] = useState( 0 );
@@ -32,6 +35,8 @@ const MaterialTab = () => {
 			setIor( selectedObject.material.ior ?? 1.5 );
 			setTransmission( selectedObject.material.transmission ?? 0 );
 			setThickness( selectedObject.material.thickness ?? 0.1 );
+			setAttenuationColor( `#${selectedObject.material.attenuationColor.getHexString()}` );
+			setAttenuationDistance( selectedObject.material.attenuationDistance ?? 0 );
 			setEmissiveIntensity( selectedObject.material.emissiveIntensity ?? 1 );
 			setClearcoat( selectedObject.material.clearcoat ?? 0 );
 			setClearcoatRoughness( selectedObject.material.clearcoatRoughness ?? 0 );
@@ -57,6 +62,8 @@ const MaterialTab = () => {
 				setIor( selectedObject.material.ior ?? 1.5 );
 				setTransmission( selectedObject.material.transmission ?? 0 );
 				setThickness( selectedObject.material.thickness ?? 0.1 );
+				setAttenuationColor( `#${selectedObject.material.attenuationColor.getHexString()}` );
+				setAttenuationDistance( selectedObject.material.attenuationDistance ?? 0 );
 				setEmissiveIntensity( selectedObject.material.emissiveIntensity ?? 1 );
 				setClearcoat( selectedObject.material.clearcoat ?? 0 );
 				setClearcoatRoughness( selectedObject.material.clearcoatRoughness ?? 0 );
@@ -143,6 +150,31 @@ const MaterialTab = () => {
 
 			selectedObject.material.thickness = value[ 0 ];
 			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'thickness', value[ 0 ] );
+
+		}
+
+	};
+
+	const handleAttenuationColorChange = ( value ) => {
+
+		setAttenuationColor( value );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.attenuationColor.set( value );
+			const attenuationColor = selectedObject.material.attenuationColor;
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'attenuationColor', attenuationColor );
+
+		}
+
+	};
+
+	const handleAttenuationDistanceChange = ( value ) => {
+
+		setAttenuationDistance( value );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.attenuationDistance = value;
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'attenuationDistance', value );
 
 		}
 
@@ -291,6 +323,12 @@ const MaterialTab = () => {
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Transmission Thickness"} min={0} max={1} step={0.01} value={[ thickness ]} onValueChange={handleThicknessChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<ColorInput label={"Attenuation Color"} value={attenuationColor} onChange={handleAttenuationColorChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<DraggableInput label={"Attenuation Distance"} min={0} max={10000} step={1} value={attenuationDistance} onValueChange={handleAttenuationDistanceChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Alpha Test"} min={0} max={1} step={0.01} value={[ alphaTest ]} onValueChange={handleAlphaTestChange} />

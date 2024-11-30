@@ -131,6 +131,9 @@ export default class GeometryExtractor {
 		const alphaMode = this.getMaterialAlphaMode( material );
 		const alphaCutoff = alphaMode === 1 ? material.alphaTest : 0.0;
 
+		material.attenuationColor = material.attenuationColor ?? new Color( 0xffffff );
+		material.attenuationDistance = material.attenuationDistance ?? Infinity;
+
 		return {
 			uuid: material.uuid,
 			color: material.color,
@@ -141,6 +144,12 @@ export default class GeometryExtractor {
 			ior: material.ior ?? 0,
 			opacity: material.opacity ?? 0,
 			transmission: material.transmission ?? 0.0,
+			attenuationColor: material.attenuationColor,
+			attenuationDistance: material.attenuationDistance,
+			dispersion: material.dispersion ?? 0.0,
+			sheen: material.sheen ?? 0.0,
+			sheenRoughness: material.sheenRoughness ?? 0.0,
+			sheenColor: material.sheenColor ?? new Color().setHex( 0xffffff ),
 			thickness: material.thickness ?? 0.1,
 			clearcoat: material.clearcoat ?? 0.0,
 			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,

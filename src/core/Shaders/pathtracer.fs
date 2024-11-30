@@ -69,29 +69,67 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	vec3 reflectDir = reflect( ray.direction, normal );
 	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
 
-    // Calculate Fresnel term using Schlick's approximation
-	float cosTheta = abs( dot( - ray.direction, normal ) );
+    // Calculate Fresnel coefficient for reflection vs transmission
+	float cosTheta = abs( dot( normal, ray.direction ) );
 	float F0 = pow( ( n1 - n2 ) / ( n1 + n2 ), 2.0 ); // Fresnel reflectance at normal incidence
-	float fresnel = fresnelSchlick( cosTheta, F0 );
+	float Fr = fresnelSchlick( cosTheta, F0 );
 
-    // Energy conservation factor
-	float energyFactor = ( n2 * n2 ) / ( n1 * n1 );
+    // Blend between pure Fresnel and forced transmission based on transmission value
+    // As transmission increases, we reduce the Fresnel effect and force more transmission
+	Fr = mix( Fr, Fr * ( 1.0 - material.transmission ), material.transmission );
 
-	if( length( refractDir ) < 0.001 || RandomValue( rngState ) < fresnel ) {
-        // Handle total internal reflection or fresnel reflection
-		ray.direction = reflectDir;
-		return material.color.rgb;
-	} else {
-		ray.direction = refractDir;
-		if( entering ) {
-            // Handle absorption when entering the medium
-			vec3 absorption = ( vec3( 1.0 ) - material.color.rgb ) * material.thickness * 0.5;
-			return exp( - absorption * hitInfo.dst ) * energyFactor;
-		} else {
-            // Handle exit from medium with color contribution
-			return mix( vec3( 1.0 ), material.color.rgb, 0.5 ) * energyFactor;
+    // Determine if we reflect or refract
+	bool shouldReflect = ( refractDir == vec3( 0.0 ) ) || ( RandomValue( rngState ) < Fr );
+
+    // Update ray direction based on reflection/refraction
+	ray.direction = shouldReflect ? reflectDir : refractDir;
+
+    // Calculate beer's law absorption for transmitted light
+	vec3 throughput = vec3( 1.0 );
+	if( ! shouldReflect && entering ) {
+        // Only apply absorption when entering the medium (to avoid double-counting)
+		float dist = material.thickness;
+		if( material.attenuationDistance > 0.0 ) {
+            // Convert RGB attenuation color to absorption coefficients
+			vec3 absorbtion = - log( max( material.attenuationColor, vec3( 0.001 ) ) ) / material.attenuationDistance;
+            // Apply Beer's law
+			throughput *= exp( - absorbtion * dist );
 		}
 	}
+
+    // Handle dispersion if enabled
+	if( material.dispersion > 0 && ! shouldReflect ) {
+        // Simulate wavelength-dependent IOR variation
+		float dispersionStrength = float( material.dispersion ) * 0.02; // Scale factor for dispersion
+		vec3 dispersionOffsets = vec3( - 1.0, 0.0, 1.0 ) * dispersionStrength;
+
+        // Randomly select one wavelength channel
+		float randWavelength = RandomValue( rngState );
+		if( randWavelength < 0.33 ) {
+            // Red channel
+			float adjustedIOR = material.ior * ( 1.0 + dispersionOffsets.r );
+			ray.direction = refract( ray.direction, normal, entering ? 1.0 / adjustedIOR : adjustedIOR );
+			throughput *= vec3( 3.0, 0.0, 0.0 ); // Boost red channel
+		} else if( randWavelength < 0.66 ) {
+            // Green channel
+			float adjustedIOR = material.ior * ( 1.0 + dispersionOffsets.g );
+			ray.direction = refract( ray.direction, normal, entering ? 1.0 / adjustedIOR : adjustedIOR );
+			throughput *= vec3( 0.0, 3.0, 0.0 ); // Boost green channel
+		} else {
+            // Blue channel
+			float adjustedIOR = material.ior * ( 1.0 + dispersionOffsets.b );
+			ray.direction = refract( ray.direction, normal, entering ? 1.0 / adjustedIOR : adjustedIOR );
+			throughput *= vec3( 0.0, 0.0, 3.0 ); // Boost blue channel
+		}
+	}
+
+    // Apply material color and adjust for transmission
+    // For transmitted light, we can optionally reduce the influence of the material color
+    // as transmission increases to simulate more transparent materials
+	vec3 materialColor = shouldReflect ? material.color.rgb : mix( material.color.rgb, vec3( 1.0 ), material.transmission * 0.5 );
+	throughput *= materialColor;
+
+	return throughput;
 }
 
 // Helper function to calculate energy conservation for layered materials
@@ -277,6 +315,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
 		material.roughness = sampleRoughnessMap( material, hitInfo.uv );
 		material.roughness = clamp( material.roughness, 0.05, 1.0 );
+		material.attenuationDistance = max( material.attenuationDistance, 0.05 );
 
 		// Handle transparent materials
 		if( material.transmission > 0.0 ) {

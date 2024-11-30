@@ -11,6 +11,12 @@ struct RayTracingMaterial {
 	float clearcoatRoughness;
 	float opacity;
 	bool transparent;
+	vec3 attenuationColor;
+	float attenuationDistance;
+	float dispersion;
+	float sheen;
+	float sheenRoughness;
+	vec3 sheenColor;
 	float alphaTest;
 	int alphaMode;      // 0: OPAQUE, 1: MASK, 2: BLEND
     float alphaCutoff;  // Used for MASK mode

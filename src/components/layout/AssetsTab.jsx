@@ -142,13 +142,13 @@ const AssetsTab = () => {
 
 		// defaults
 		material.color.set( 0xffffff );
-		material.transmission = 0.0;
-		// material.attenuationDistance = Infinity;
-		// material.attenuationColor.set( 0xffffff );
+		material.transmission = info.transmission ?? 0.0;
+		material.attenuationDistance = Infinity;
+		material.attenuationColor.set( 0xffffff );
 		// material.specularColor.set( 0xffffff );
-		material.metalness = 0.0;
-		material.roughness = 1.0;
-		material.ior = 1.5;
+		material.metalness = info.metalness ?? 0.0;
+		material.roughness = info.roughness ?? 1.0;
+		material.ior = info.ior ?? 1.5;
 		material.thickness = 1.0;
 		// material.iridescence = 0.0;
 		// material.iridescenceIOR = 1.0;
@@ -156,10 +156,6 @@ const AssetsTab = () => {
 
 		// apply database values
 		// if ( info.specularColor ) material.specularColor.setRGB( ...info.specularColor );
-		if ( 'metalness' in info ) material.metalness = info.metalness;
-		if ( 'roughness' in info ) material.roughness = info.roughness;
-		if ( 'ior' in info ) material.ior = info.ior;
-		if ( 'transmission' in info ) material.transmission = info.transmission;
 		if ( 'thinFilmThickness' in info ) {
 
 			// material.iridescence = 1.0;
@@ -172,13 +168,13 @@ const AssetsTab = () => {
 
 			if ( info.color ) {
 
-				// material.attenuationColor.setRGB( ...info.color );
+				material.attenuationColor.setRGB( ...info.color );
 
 			}
 
 			// Blender uses 1 / density when exporting volume transmission which doesn't look
 			// exactly right. But because the scene is 1000x in size we multiply by 1000 here.
-			// material.attenuationDistance = 1000 / info.density;
+			material.attenuationDistance = 1000 / info.density;
 
 		} else {
 
