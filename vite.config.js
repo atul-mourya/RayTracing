@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
 import topLevelAwait from "vite-plugin-top-level-await";
+import process from 'process';
 const __dirname = path.resolve();
 
 export default defineConfig( {
@@ -26,11 +27,14 @@ export default defineConfig( {
 		topLevelAwait( {
 			promiseExportName: "__tla",
 			promiseImportName: i => `__tla_${i}`
-		  } )
+		} )
 	],
 	resolve: {
 		alias: {
 			"@": path.resolve( __dirname, "./src" ),
 		},
 	},
+	define: {
+		'process.env': process.env
+	}
 } );
