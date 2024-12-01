@@ -8,26 +8,21 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ### Bug:
 - transmission value change does not impact the transmission intensity
 - denoiser not working well with full resolution path tracing
+- dispersion sometimes too harsh
+
 
 ### Feature:
 
-- implement transmission attennuation
-- implement dispersion
 - implement specular color support
 - implement sheen color and sheen roughness support
 - implement iridescence support
+- implement subsurface scattering
 - implement auto focus based on object distance
 - implement Scene based directional lights support
 - caustic support
-- wasm BVH https://github.com/madmann91/bvh
-- BVH in compute shader using webgpu: https://x.com/AddisonPrairie/status/1823934213764341981
--  jump flood algorithm for non blocking UI interactions
+- jump flood algorithm for non blocking UI interactions
 - Object dynamic transformation changes
 - Hybrid Rendering
--  Explore Disney BSDF 
-//https://schuttejoe.github.io/post/disneybsdf/
-
-- oidn denioser https://github.com/DennisSmolek/Denoiser
 - cleanup path tracer ui panel.
 - group post processing effects customization elements in UI
 
@@ -36,9 +31,12 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - https://github.com/gnikoloff/webgpu-raytracer
 
 ### Resources and reads
-https://blog.traverseresearch.nl/dynamic-diffuse-global-illumination-b56dc0525a0a
-https://github.com/knightcrawler25/GLSL-PathTracer/tree/master
-better blue noise https://www.shadertoy.com/view/wltcRS and https://github.com/knightcrawler25/GLSL-PathTracer/blob/master/src/shaders/common/globals.glsl
+- Explore Disney BSDF  https://schuttejoe.github.io/post/disneybsdf/
+- wasm BVH https://github.com/madmann91/bvh
+- BVH in compute shader using webgpu: https://x.com/AddisonPrairie/status/1823934213764341981
+- https://blog.traverseresearch.nl/dynamic-diffuse-global-illumination-b56dc0525a0a
+- https://github.com/knightcrawler25/GLSL-PathTracer/tree/master
+- better blue noise https://www.shadertoy.com/view/wltcRS and https://github.com/knightcrawler25/GLSL-PathTracer/blob/master/src/shaders/common/globals.glsl
 
 ### Plan for Hybrid Rendering:
 Here's how the hybrid approach works in practice:
