@@ -57,6 +57,7 @@ const AuthProvider = ( { children } ) => {
 						supabaseClient={supabase}
 						appearance={{ theme: ThemeSupa }}
 						providers={[ 'google' ]}
+						redirectTo='window.location.origin'
 					/>
 				</DialogContent>
 			</Dialog>
