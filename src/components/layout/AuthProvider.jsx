@@ -57,7 +57,7 @@ const AuthProvider = ( { children } ) => {
 						supabaseClient={supabase}
 						appearance={{ theme: ThemeSupa }}
 						providers={[ 'google' ]}
-						redirectTo={`${window.location.href}RayTracing/`}
+						redirectTo={`${window.location.href}`}
 					/>
 				</DialogContent>
 			</Dialog>
