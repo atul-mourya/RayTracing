@@ -98,7 +98,7 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	}
 
     // Handle dispersion if enabled
-	if( material.dispersion > 0 && ! shouldReflect ) {
+	if( material.dispersion > 0.0 && ! shouldReflect ) {
         // Simulate wavelength-dependent IOR variation
 		float dispersionStrength = float( material.dispersion ) * 0.02; // Scale factor for dispersion
 		vec3 dispersionOffsets = vec3( - 1.0, 0.0, 1.0 ) * dispersionStrength;
