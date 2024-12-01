@@ -26,6 +26,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from '@/hooks/use-toast';
+import AuthProvider from './AuthProvider';
+import { NavUser } from '@/components/ui/nav-user';
 
 const TopBar = () => {
 
@@ -158,134 +160,144 @@ const TopBar = () => {
 	};
 
 	return (
-		<div className="flex items-center h-[48px] border-b border-[#4a4a4a]">
-			<div className="flex items-center space-x-2 mr-4 px-2">
-				<Menu size={18} />
-				<span className="font-semibold">RayCanvas</span>
-			</div>
+		<AuthProvider>
+			{( { user, handleLoginClick, handleSignOut } ) => (
+				<div className="flex items-center h-[48px] border-b border-[#4a4a4a]">
+					<div className="flex items-center space-x-2 mr-4 px-2">
+						<Menu size={18} />
+						<span className="font-semibold">RayCanvas</span>
+					</div>
 
-			<Menubar className="border-none">
-				<MenubarMenu>
-					<MenubarTrigger className="font-normal">File</MenubarTrigger>
-					<MenubarContent>
-						<MenubarItem disabled className="flex items-center">
-							<FolderOpen className="mr-2 h-4 w-4" />
-							<span>Open</span>
-						</MenubarItem>
-						<MenubarItem onSelect={() => setIsImportModalOpen( true )} className="flex items-center">
-							<Link className="mr-2 h-4 w-4" />
-							<span>Import from URL</span>
-						</MenubarItem>
-						<MenubarItem disabled className="flex items-center">
-							<Save className="mr-2 h-4 w-4" />
-							<span>Save</span>
-						</MenubarItem>
-						<MenubarSeparator />
-						<MenubarItem disabled>Exit</MenubarItem>
-					</MenubarContent>
-				</MenubarMenu>
+					<Menubar className="border-none">
+						<MenubarMenu>
+							<MenubarTrigger className="font-normal">File</MenubarTrigger>
+							<MenubarContent>
+								<MenubarItem disabled className="flex items-center">
+									<FolderOpen className="mr-2 h-4 w-4" />
+									<span>Open</span>
+								</MenubarItem>
+								<MenubarItem onSelect={() => setIsImportModalOpen( true )} className="flex items-center">
+									<Link className="mr-2 h-4 w-4" />
+									<span>Import from URL</span>
+								</MenubarItem>
+								<MenubarItem disabled className="flex items-center">
+									<Save className="mr-2 h-4 w-4" />
+									<span>Save</span>
+								</MenubarItem>
+								<MenubarSeparator />
+								<MenubarItem disabled>Exit</MenubarItem>
+							</MenubarContent>
+						</MenubarMenu>
 
-				<MenubarMenu>
-					<MenubarTrigger className="font-normal">Edit</MenubarTrigger>
-					<MenubarContent>
-						<MenubarItem disabled className="flex items-center">
-							<Undo className="mr-2 h-4 w-4" />
-							<span>Undo</span>
-						</MenubarItem>
-						<MenubarItem disabled className="flex items-center">
-							<Redo className="mr-2 h-4 w-4" />
-							<span>Redo</span>
-						</MenubarItem>
-						<MenubarSeparator />
-						<MenubarItem disabled className="flex items-center">
-							<Copy className="mr-2 h-4 w-4" />
-							<span>Copy</span>
-						</MenubarItem>
-						<MenubarItem disabled className="flex items-center">
-							<ClipboardPaste className="mr-2 h-4 w-4" />
-							<span>Paste</span>
-						</MenubarItem>
-					</MenubarContent>
-				</MenubarMenu>
+						<MenubarMenu>
+							<MenubarTrigger className="font-normal">Edit</MenubarTrigger>
+							<MenubarContent>
+								<MenubarItem disabled className="flex items-center">
+									<Undo className="mr-2 h-4 w-4" />
+									<span>Undo</span>
+								</MenubarItem>
+								<MenubarItem disabled className="flex items-center">
+									<Redo className="mr-2 h-4 w-4" />
+									<span>Redo</span>
+								</MenubarItem>
+								<MenubarSeparator />
+								<MenubarItem disabled className="flex items-center">
+									<Copy className="mr-2 h-4 w-4" />
+									<span>Copy</span>
+								</MenubarItem>
+								<MenubarItem disabled className="flex items-center">
+									<ClipboardPaste className="mr-2 h-4 w-4" />
+									<span>Paste</span>
+								</MenubarItem>
+							</MenubarContent>
+						</MenubarMenu>
 
-				<MenubarMenu>
-					<MenubarTrigger className="font-normal">View</MenubarTrigger>
-					<MenubarContent>
-						<MenubarItem disabled className="flex items-center">
-							<ZoomIn className="mr-2 h-4 w-4" />
-							<span>Zoom In</span>
-						</MenubarItem>
-						<MenubarItem disabled className="flex items-center">
-							<ZoomOut className="mr-2 h-4 w-4" />
-							<span>Zoom Out</span>
-						</MenubarItem>
-						<MenubarItem disabled className="flex items-center">
-							<Focus className="mr-2 h-4 w-4" />
-							<span>Reset View</span>
-						</MenubarItem>
-					</MenubarContent>
-				</MenubarMenu>
-			</Menubar>
+						<MenubarMenu>
+							<MenubarTrigger className="font-normal">View</MenubarTrigger>
+							<MenubarContent>
+								<MenubarItem disabled className="flex items-center">
+									<ZoomIn className="mr-2 h-4 w-4" />
+									<span>Zoom In</span>
+								</MenubarItem>
+								<MenubarItem disabled className="flex items-center">
+									<ZoomOut className="mr-2 h-4 w-4" />
+									<span>Zoom Out</span>
+								</MenubarItem>
+								<MenubarItem disabled className="flex items-center">
+									<Focus className="mr-2 h-4 w-4" />
+									<span>Reset View</span>
+								</MenubarItem>
+							</MenubarContent>
+						</MenubarMenu>
+					</Menubar>
 
-			<div className="flex-grow" />
+					<div className="flex-grow" />
 
-			<Button
-				variant="default"
-				size="sm"
-				className="flex items-center space-x-1"
-				onClick={handlePlayPauseClick}
-			>
-				{isPlaying ? <Pause size={14} /> : <Play size={14} />}
-				<span>{isPlaying ? 'Pause' : 'Play'}</span>
-			</Button>
+					<Button
+						variant="default"
+						size="sm"
+						className="flex items-center space-x-1"
+						onClick={handlePlayPauseClick}
+					>
+						{isPlaying ? <Pause size={14} /> : <Play size={14} />}
+						<span>{isPlaying ? 'Pause' : 'Play'}</span>
+					</Button>
 
-			<div className="flex-grow" />
-			<div className="flex items-center px-2 space-x-2">
-				<ThemeToggle />
-				<div className="text-xs">v3.0</div>
-				<ChevronDown size={14} />
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Github className="cursor-pointer" onClick={handleGithubRedirection} />
-						</TooltipTrigger>
-						<TooltipContent>View on GitHub</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			</div>
-
-			{/* Import from URL Modal */}
-			<Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Import from URL</DialogTitle>
-						<DialogDescription>
-              Enter the URL of the GLB / GLTF file you want to import.
-						</DialogDescription>
-					</DialogHeader>
-					<Input
-						value={importUrl}
-						onChange={( e ) => setImportUrl( e.target.value )}
-						placeholder="Enter URL"
-					/>
-					<DialogFooter>
-						<Button variant="outline" onClick={() => setIsImportModalOpen( false )} disabled={isImporting}>
-              Cancel
-						</Button>
-						<Button onClick={handleImportFromUrl} disabled={isImporting}>
-							{isImporting ? (
-								<>
-									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Importing...
-								</>
-							) : (
-								'Import'
+					<div className="flex-grow" />
+					<div className="flex items-center px-2 space-x-2">
+						<ThemeToggle />
+						<div className="text-xs">v3.0</div>
+						<ChevronDown size={14} />
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Github className="cursor-pointer" onClick={handleGithubRedirection} />
+								</TooltipTrigger>
+								<TooltipContent>View on GitHub</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+						{user ?
+							<NavUser user={user} onLogout={handleSignOut}/> : (
+								<Button variant="default" size="sm" onClick={handleLoginClick}>
+								Login
+								</Button>
 							)}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-		</div>
+					</div>
+
+					{/* Import from URL Modal */}
+					<Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
+						<DialogContent>
+							<DialogHeader>
+								<DialogTitle>Import from URL</DialogTitle>
+								<DialogDescription>
+									Enter the URL of the GLB / GLTF file you want to import.
+								</DialogDescription>
+							</DialogHeader>
+							<Input
+								value={importUrl}
+								onChange={( e ) => setImportUrl( e.target.value )}
+								placeholder="Enter URL"
+							/>
+							<DialogFooter>
+								<Button variant="outline" onClick={() => setIsImportModalOpen( false )} disabled={isImporting}>
+									Cancel
+								</Button>
+								<Button onClick={handleImportFromUrl} disabled={isImporting}>
+									{isImporting ? (
+										<>
+											<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+											Importing...
+										</>
+									) : (
+										'Import'
+									)}
+								</Button>
+							</DialogFooter>
+						</DialogContent>
+					</Dialog>
+				</div>
+			)}
+		</AuthProvider>
 	);
 
 };
