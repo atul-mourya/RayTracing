@@ -19,8 +19,8 @@ struct RayTracingMaterial {
 	vec3 sheenColor;
 	float alphaTest;
 	int alphaMode;      // 0: OPAQUE, 1: MASK, 2: BLEND
-    float alphaCutoff;  // Used for MASK mode
 	int side;
+	int depthWrite;
 	int albedoMapIndex;
 	int emissiveMapIndex;
 	int normalMapIndex;

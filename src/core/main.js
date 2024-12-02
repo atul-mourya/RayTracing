@@ -17,7 +17,8 @@ import {
 	Box3,
 	Vector3,
 	EventDispatcher,
-	RectAreaLight
+	RectAreaLight,
+	TextureLoader
 } from 'three';
 
 import {
@@ -43,6 +44,7 @@ import { OIDNDenoiser } from './Passes/OIDNDenoiser';
 import { TemporalReprojectionPass } from './Passes/TemporalReprojectionPass';
 import { disposeObjectFromMemory, generateMaterialSpheres } from './Processor/utils';
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from './Processor/Constants';
+import radialTexture from '../../public/radial-gradient.png';
 
 class PathTracerApp extends EventDispatcher {
 
@@ -130,7 +132,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Setup composer and passes
 		this.setupComposer();
-		this.setupFloorPlane();
+		await this.setupFloorPlane();
 
 		// Load HDR background and model
 		await this.loadEnvironment( DEFAULT_STATE.environment );
@@ -236,17 +238,20 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
-	setupFloorPlane() {
+	async setupFloorPlane() {
 
+		const texture = await new TextureLoader().loadAsync( radialTexture );
 		this.floorPlane = new Mesh(
 			new PlaneGeometry(),
 			new MeshPhysicalMaterial( {
 				transparent: true,
-				color: 0xffffff,
-				roughness: 0,
+				color: 0xFFFFFF,
+				roughness: 1,
 				metalness: 1,
-				opacity: 0,
-				transmission: 1,
+				opacity: 1,
+				transmission: 0,
+				map: texture,
+				depthWrite: false,
 			} )
 		);
 		// this.scene.add( this.floorPlane );
@@ -478,7 +483,7 @@ class PathTracerApp extends EventDispatcher {
 		const floorY = box.min.y;
 		this.floorPlane.position.y = floorY;
 		this.floorPlane.rotation.x = - Math.PI / 2;
-		this.floorPlane.scale.setScalar( maxDim * 3 );
+		this.floorPlane.scale.setScalar( maxDim * 5 );
 
 		// Rebuild path tracing
 		this.pathTracingPass.build( this.scene );

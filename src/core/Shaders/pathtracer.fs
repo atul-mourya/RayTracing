@@ -296,6 +296,15 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 				continue;
 			}
+		} else if( material.transparent && material.opacity >= 1.0 ) { // Transparent
+
+			if( RandomValue( rngState ) > material.color.a ) {
+				// throughput *= material.color.rgb;
+				alpha *= material.color.a;
+				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+				continue;
+			}
+
 		} else {
 			// Handle alpha blending
 			float surfaceAlpha = material.color.a;

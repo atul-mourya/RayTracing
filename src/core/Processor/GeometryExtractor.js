@@ -129,7 +129,6 @@ export default class GeometryExtractor {
 
 		const emissive = material.emissive ?? new Color( 0, 0, 0 );
 		const alphaMode = this.getMaterialAlphaMode( material );
-		const alphaCutoff = alphaMode === 1 ? material.alphaTest : 0.0;
 
 		material.attenuationColor = material.attenuationColor ?? new Color( 0xffffff );
 		material.attenuationDistance = material.attenuationDistance ?? Infinity;
@@ -158,7 +157,7 @@ export default class GeometryExtractor {
 			transparent: material.transparent ? 1 : 0,
 			alphaTest: material.alphaTest ?? 0.0,
 			alphaMode: alphaMode,
-			alphaCutoff: alphaCutoff,
+			depthWrite: material.depthWrite ? 1 : 0,
 
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),

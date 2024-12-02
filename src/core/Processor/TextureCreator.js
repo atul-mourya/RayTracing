@@ -64,7 +64,7 @@ export default class TextureCreator {
 				mat.map, 					mat.normalMap, 				mat.roughnessMap, 			mat.metalnessMap,			// pixel 7 - Map indices and properties
 				mat.emissiveMap, 			mat.bumpMap, 				mat.clearcoat, 				mat.clearcoatRoughness,		// pixel 8 - More map indices and properties
 				mat.opacity, 				mat.side, 					mat.transparent, 			mat.alphaTest,				// pixel 9 - Opacity, side, transparency, and alpha test
-				mat.alphaMode, 				mat.alphaCutoff, 			mat.normalScale?.x ?? 1, 	mat.normalScale?.y ?? 1,	// pixel 10 - Opacity, side, and normal scale
+				mat.alphaMode, 				mat.depthWrite, 			mat.normalScale?.x ?? 1, 	mat.normalScale?.y ?? 1,	// pixel 10 - Opacity, side, and normal scale
 				mapMatrix[ 0 ], 			mapMatrix[ 1 ], 			mapMatrix[ 2 ], 			mapMatrix[ 3 ],				// pixel 11 - Map matrices - 1
 				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			1,							// pixel 12 - Map matrices - 2
 				normalMapMatrices[ 0 ], 	normalMapMatrices[ 1 ], 	normalMapMatrices[ 2 ], 	normalMapMatrices[ 3 ],		// pixel 13 - Normal matrices - 1

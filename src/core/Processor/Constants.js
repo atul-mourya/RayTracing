@@ -239,7 +239,7 @@ export const DEFAULT_STATE = {
 	downSampledMovement: false,
 	directionalLightIntensity: 0,
 	directionalLightColor: "#ffffff",
-	directionalLightPosition: [ 0.3, 1, 3 ],
+	directionalLightPosition: [ 1, 1, 1 ],
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
 	useGBuffer: true,

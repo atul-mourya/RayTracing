@@ -13,6 +13,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 ### Feature:
 
+- add custom floor with shadow catcher
 - implement specular color support
 - implement sheen color and sheen roughness support
 - implement iridescence support
