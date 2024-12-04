@@ -32,6 +32,8 @@ export class PathTracerPass extends Pass {
 		this.tiles = DEFAULT_STATE.tiles;
 		this.cameras = [];
 		this.sdfs = null;
+		this.sdfs = new TriangleSDF();
+
 
 		this.name = 'PathTracerPass';
 
@@ -211,11 +213,14 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	build( scene ) {
+	async build( scene ) {
 
 		this.dispose();
 
-		this.sdfs = new TriangleSDF( scene );
+		const timeStart = performance.now();
+		await this.sdfs.buildBVH( scene );
+		const timeEnd = performance.now();
+		console.log( 'BVH build time:', ( timeEnd - timeStart ).toFixed( 2 ), 'ms' );
 		this.cameras = this.sdfs.cameras;
 
 		this.material.defines = {

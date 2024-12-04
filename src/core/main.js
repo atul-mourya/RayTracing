@@ -385,25 +385,30 @@ class PathTracerApp extends EventDispatcher {
 
 	async loadModel( modelUrl ) {
 
-		const loader = await this.createGLTFLoader();
-		this.pauseRendering = true;
+		let loader = null;
 
 		try {
 
-			const gltf = await loader.loadAsync( modelUrl );
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
-			this.targetModel = gltf.scene;
-			// this.targetModel = generateMaterialSpheres();
-			this.onModelLoad( this.targetModel );
-			this.pauseRendering = false;
-			loader.dracoLoader.dispose();
+			loader = await this.createGLTFLoader();
+			this.pauseRendering = true;
+
+			const data = await loader.loadAsync( modelUrl );
+
+			this.targetModel && disposeObjectFromMemory( this.targetModel );
+			this.targetModel = data.scene;
+
+			await this.onModelLoad( this.targetModel );
+			return data;
 
 		} catch ( error ) {
 
-			this.pauseRendering = false;
-			loader.dracoLoader.dispose();
 			console.error( "Error loading model:", error );
 			throw error;
+
+		} finally {
+
+			loader?.dracoLoader && loader.dracoLoader.dispose();
+			this.pauseRendering = false;
 
 		}
 
@@ -425,26 +430,32 @@ class PathTracerApp extends EventDispatcher {
 
 	async loadGLBFromArrayBuffer( arrayBuffer ) {
 
-		// const loader = new GLTFLoader().setMeshoptDecoder( MeshoptDecoder );
-		const loader = await this.createGLTFLoader();
-		loader.parse( arrayBuffer, '', gltf => {
+		try {
+
+			const loader = await this.createGLTFLoader();
+			const data = await new Promise( ( resolve, reject ) => loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) ) );
 
 			disposeObjectFromMemory( this.targetModel );
-			this.targetModel = gltf.scene;
-			this.onModelLoad( this.targetModel );
-			this.pauseRendering = false;
-			loader.dracoLoader.dispose();
+			this.targetModel = data.scene;
 
-		}, undefined, ( error ) => {
+			await this.onModelLoad( this.targetModel );
+			loader.dracoLoader && loader.dracoLoader.dispose();
 
-			alert( 'Error loading GLB:', error );
 			this.pauseRendering = false;
 
-		} );
+			return data;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading GLB:', error );
+			this.pauseRendering = false;
+			throw error;
+
+		}
 
 	}
 
-	onModelLoad( model ) {
+	async onModelLoad( model ) {
 
 		this.scene.add( model );
 
@@ -486,7 +497,7 @@ class PathTracerApp extends EventDispatcher {
 		this.floorPlane.scale.setScalar( maxDim * 5 );
 
 		// Rebuild path tracing
-		this.pathTracingPass.build( this.scene );
+		await this.pathTracingPass.build( this.scene );
 		this.cameras = [ this.defaultCamera ].concat( this.pathTracingPass.cameras );
 		this.pathTracingPass.reset();
 		this.pauseRendering = false;

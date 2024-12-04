@@ -4,7 +4,7 @@ import TextureCreator from './TextureCreator.js';
 import GeometryExtractor from './GeometryExtractor.js';
 export default class TriangleSDF {
 
-	constructor( object ) {
+	constructor() {
 
 		this.triangles = [];
 		this.materials = [];
@@ -18,21 +18,17 @@ export default class TriangleSDF {
 		this.spheres = [];
 		this.cameras = [];
 
-		this.geometryExtractor = new GeometryExtractor();
-		this.bvhBuilder = new BVHBuilder();
-		this.textureCreator = new TextureCreator();
-
-		this.extractData( object );
-		this.buildBVH();
-		this.createTextures();
-		this.spheres = this.createSpheres();
-
-		this.resetArrays();
-		this.geometryExtractor.resetArrays();
+		this.geometryExtractor = null;
+		this.bvhBuilder = null;
+		this.textureCreator = null;
 
 	}
 
-	extractData( object ) {
+	async buildBVH( object ) {
+
+		this.geometryExtractor = new GeometryExtractor();
+		this.bvhBuilder = new BVHBuilder();
+		this.textureCreator = new TextureCreator();
 
 		const extractedData = this.geometryExtractor.extract( object );
 		this.triangles = extractedData.triangles;
@@ -46,11 +42,15 @@ export default class TriangleSDF {
 		this.directionalLights = extractedData.directionalLights;
 		this.cameras = extractedData.cameras;
 
-	}
-
-	buildBVH() {
-
 		this.bvhRoot = this.bvhBuilder.build( this.triangles );
+
+		this.createTextures();
+		this.spheres = this.createSpheres();
+
+		this.resetArrays();
+		this.geometryExtractor.resetArrays();
+
+		return Promise.resolve( this );
 
 	}
 
@@ -67,7 +67,6 @@ export default class TriangleSDF {
 		this.bvhTexture = this.textureCreator.createBVHDataTexture( this.bvhRoot );
 
 	}
-
 
 	createSpheres() {
 
