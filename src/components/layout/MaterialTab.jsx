@@ -17,6 +17,7 @@ const MaterialTab = () => {
 	const [ thickness, setThickness ] = useState( 0.1 );
 	const [ attenuationColor, setAttenuationColor ] = useState( '#ffffff' );
 	const [ attenuationDistance, setAttenuationDistance ] = useState( 0 );
+	const [ dispersion, setDispersion ] = useState( 0 );
 	const [ emissiveIntensity, setEmissiveIntensity ] = useState( 1 );
 	const [ clearcoat, setClearcoat ] = useState( 0 );
 	const [ clearcoatRoughness, setClearcoatRoughness ] = useState( 0 );
@@ -39,6 +40,7 @@ const MaterialTab = () => {
 			setThickness( selectedObject.material.thickness ?? 0.1 );
 			setAttenuationColor( `#${selectedObject.material.attenuationColor.getHexString()}` );
 			setAttenuationDistance( selectedObject.material.attenuationDistance ?? 0 );
+			setDispersion( selectedObject.material.dispersion ?? 0 );
 			setEmissiveIntensity( selectedObject.material.emissiveIntensity ?? 1 );
 			setClearcoat( selectedObject.material.clearcoat ?? 0 );
 			setClearcoatRoughness( selectedObject.material.clearcoatRoughness ?? 0 );
@@ -67,6 +69,7 @@ const MaterialTab = () => {
 				setThickness( selectedObject.material.thickness ?? 0.1 );
 				setAttenuationColor( `#${selectedObject.material.attenuationColor.getHexString()}` );
 				setAttenuationDistance( selectedObject.material.attenuationDistance ?? 0 );
+				setDispersion( selectedObject.material.dispersion ?? 0 );
 				setEmissiveIntensity( selectedObject.material.emissiveIntensity ?? 1 );
 				setClearcoat( selectedObject.material.clearcoat ?? 0 );
 				setClearcoatRoughness( selectedObject.material.clearcoatRoughness ?? 0 );
@@ -179,6 +182,18 @@ const MaterialTab = () => {
 
 			selectedObject.material.attenuationDistance = value;
 			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'attenuationDistance', value );
+
+		}
+
+	};
+
+	const handleDispersionChange = ( value ) => {
+
+		setDispersion( value[ 0 ] );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.dispersion = value[ 0 ];
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'dispersion', value[ 0 ] );
 
 		}
 
@@ -348,6 +363,9 @@ const MaterialTab = () => {
 			</div>
 			<div className="flex items-center justify-between">
 				<DraggableInput label={"Attenuation Distance"} min={0} max={10000} step={1} value={attenuationDistance} onValueChange={handleAttenuationDistanceChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Dispersion"} min={0} max={1} step={0.001} value={[ dispersion ]} onValueChange={handleDispersionChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Alpha Test"} min={0} max={1} step={0.01} value={[ alphaTest ]} onValueChange={handleAlphaTestChange} />
