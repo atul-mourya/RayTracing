@@ -371,6 +371,18 @@ export class PathTracerPass extends Pass {
 			case 'attenuationDistance':
 				data[ stride + 15 ] = value;
 				break;
+			case 'dispersion':
+				data[ stride + 16 ] = value;
+				break;
+			case 'visible':
+				data[ stride + 17 ] = value;
+				break;
+			case 'sheenRoughness':
+				data[ stride + 18 ] = value;
+				break;
+			case 'sheenColor':
+				data[ stride + 19 ] = value;
+				break;
 			case 'clearcoat':
 				data[ stride + 30 ] = value;
 				break;

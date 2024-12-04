@@ -4,6 +4,7 @@ import { ColorInput } from "@/components/ui/colorinput";
 import { DraggableInput } from "@/components/ui/draggable-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
 import { useStore } from '@/store';
+import { Switch } from '@/components/ui/switch';
 
 const MaterialTab = () => {
 
@@ -24,6 +25,7 @@ const MaterialTab = () => {
 	const [ emissive, setEmissive ] = useState( '#000000' );
 	const [ transparent, setTransparent ] = useState( false );
 	const [ alphaTest, setAlphaTest ] = useState( 0 );
+	const [ visible, setVisible ] = useState( true );
 
 	useEffect( () => {
 
@@ -45,6 +47,7 @@ const MaterialTab = () => {
 			setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
 			setTransparent( selectedObject.material.transparent ?? false );
 			setAlphaTest( selectedObject.material.alphaTest ?? 0 );
+			setVisible( selectedObject.visible );
 
 		}
 
@@ -72,6 +75,7 @@ const MaterialTab = () => {
 				setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
 				setTransparent( selectedObject.material.transparent ?? false );
 				setAlphaTest( selectedObject.material.alphaTest ?? 0 );
+				setVisible( selectedObject.visible );
 
 			}
 
@@ -277,6 +281,18 @@ const MaterialTab = () => {
 
 	};
 
+	const handleVisibleChange = ( value ) => {
+
+		setVisible( value );
+		if ( selectedObject ) {
+
+			selectedObject.visible = value;
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'visible', value ? 1 : 0 );
+
+		}
+
+	};
+
 	if ( ! selectedObject ) {
 
 		return <div className="p-4">Please select an object to customize its material properties.</div>;
@@ -291,6 +307,9 @@ const MaterialTab = () => {
 
 	return (
 		<div className="space-y-4 p-4">
+			<div className="flex items-center justify-between">
+				<Switch label="Visible" checked={visible} onCheckedChange={handleVisibleChange} />
+			</div>
 			<div className="flex items-center justify-between">
 				<ColorInput label={"Color"} value={color} onChange={handleColorChange} />
 			</div>

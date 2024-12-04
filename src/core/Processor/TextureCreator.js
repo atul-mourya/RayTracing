@@ -59,7 +59,7 @@ export default class TextureCreator {
 				mat.emissive.r, 			mat.emissive.g, 			mat.emissive.b, 			mat.roughness,				// pixel 2 - Emissive and roughness
 				mat.ior, 					mat.transmission, 			mat.thickness, 				mat.emissiveIntensity,		// pixel 3 - IOR, transmission, thickness, and emissive intensity
 				mat.attenuationColor.r, 	mat.attenuationColor.g, 	mat.attenuationColor.b, 	mat.attenuationDistance,	// pixel 4 - Attenuation color and distance
-				mat.dispersion, 			mat.sheen, 					mat.sheenRoughness, 		1, 							// pixel 5 - Dispersion, sheen, sheen roughness
+				mat.dispersion, 			mat.visible, 				mat.sheen, 					mat.sheenRoughness, 							// pixel 5 - Dispersion, sheen, sheen roughness
 				mat.sheenColor.r, 			mat.sheenColor.g, 			mat.sheenColor.b, 			1,							// pixel 6 - Sheen color and tint
 				mat.map, 					mat.normalMap, 				mat.roughnessMap, 			mat.metalnessMap,			// pixel 7 - Map indices and properties
 				mat.emissiveMap, 			mat.bumpMap, 				mat.clearcoat, 				mat.clearcoatRoughness,		// pixel 8 - More map indices and properties

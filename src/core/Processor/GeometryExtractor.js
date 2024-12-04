@@ -158,6 +158,7 @@ export default class GeometryExtractor {
 			alphaTest: material.alphaTest ?? 0.0,
 			alphaMode: alphaMode,
 			depthWrite: material.depthWrite ? 1 : 0,
+			visible: material.visible ? 1 : 0,
 
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),

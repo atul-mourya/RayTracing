@@ -21,6 +21,7 @@ struct RayTracingMaterial {
 	int alphaMode;      // 0: OPAQUE, 1: MASK, 2: BLEND
 	int side;
 	int depthWrite;
+	bool visible;
 	int albedoMapIndex;
 	int emissiveMapIndex;
 	int normalMapIndex;

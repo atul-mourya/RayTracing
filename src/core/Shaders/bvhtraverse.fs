@@ -87,6 +87,7 @@ RayTracingMaterial getMaterial(int materialIndex) {
 	material.attenuationDistance = data4.a;
 
 	material.dispersion = data5.r;
+	material.visible = bool(data5.g);
 	material.sheen = data5.g;
 	material.sheenRoughness = data5.b;
 
@@ -184,7 +185,9 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 						case BackSide -> material.side = 1;
 						case DoubleSide -> material.side = 2;
 					*/
-					if( hit.material.side == 0 && dot( ray.direction, hit.normal ) > 0.0001 ) {
+					if( hit.material.visible == false ) {
+						hit.didHit = false;
+					} else if( hit.material.side == 0 && dot( ray.direction, hit.normal ) > 0.0001 ) {
 						hit.didHit = false;
 					} else if( hit.material.side == 1 && dot( ray.direction, hit.normal ) < 0.0001 ) {
 						hit.didHit = false;
