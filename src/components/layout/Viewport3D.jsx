@@ -1,15 +1,17 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import PathTracerApp from '../../core/main';
-import { Loader2, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from '@/hooks/use-toast';
+import { useStore } from '@/store';
+import LoadingOverlay from './LoadingOverlay';
 
 const Viewport3D = ( { onStatsUpdate } ) => {
 
 	const { toast } = useToast();
 	const containerRef = useRef( null );
 	const appRef = useRef( null );
-	const [ isLoading, setIsLoading ] = useState( true );
+	const setIsLoading = useStore( ( state ) => state.setIsLoading );
 	const [ isDragging, setIsDragging ] = useState( false );
 
 	useEffect( () => {
@@ -22,6 +24,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			window.pathTracerApp = appRef.current;
 			appRef.current.setOnStatsUpdate( onStatsUpdate );
 
+			setIsLoading( true );
 			appRef.current.init().then( () => {
 
 				setIsLoading( false );
@@ -40,7 +43,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 		}
 
-	}, [ onStatsUpdate ] );
+	}, [ onStatsUpdate, setIsLoading, toast ] );
 
 	const handleDragOver = useCallback( ( e ) => {
 
@@ -109,7 +112,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 		}
 
-	}, [] );
+	}, [ setIsLoading, toast ] );
 
 	return (
 		<div
@@ -120,14 +123,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 		>
 			<div ref={containerRef} className="w-full h-full" />
 			<Toaster />
-			{isLoading && (
-				<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-					<div className="flex flex-col items-center space-y-4">
-						<Loader2 className="h-8 w-8 animate-spin text-primary" />
-						<p className="text-lg font-medium text-foreground">Loading...</p>
-					</div>
-				</div>
-			)}
+			<LoadingOverlay />
 			{isDragging && (
 				<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
 					<div className="flex flex-col items-center space-y-4">

@@ -20,6 +20,7 @@ const useAssetsStore = create( ( set ) => ( {
 const AssetsTab = () => {
 
 	const selectedObject = useStore( ( state ) => state.selectedObject );
+	const setIsLoading = useStore( ( state ) => state.setIsLoading );
 	const { toast } = useToast();
 	const {
 		activeTab,
@@ -59,9 +60,11 @@ const AssetsTab = () => {
 		setEnvironment( value );
 		if ( window.pathTracerApp ) {
 
+			setIsLoading( true );
 			window.pathTracerApp.loadEnvironment( value )
 				.then( () => {
 
+					setIsLoading( false );
 					toast( {
 						title: "Environment Loaded Successfully",
 						description: `${HDR_FILES[ value ].name}`,
@@ -70,6 +73,7 @@ const AssetsTab = () => {
 				} )
 				.catch( ( error ) => {
 
+					setIsLoading( false );
 					toast( {
 						title: "Error Loading Environment",
 						description: `${HDR_FILES[ value ].name}: ${error.message}`,
@@ -87,9 +91,11 @@ const AssetsTab = () => {
 		setModel( value );
 		if ( window.pathTracerApp ) {
 
+			setIsLoading( true );
 			window.pathTracerApp.loadExampleModels( value )
 				.then( () => {
 
+					setIsLoading( false );
 					toast( {
 						title: "Model Loaded Successfully",
 						description: `${MODEL_FILES[ value ].name}`,
@@ -98,6 +104,7 @@ const AssetsTab = () => {
 				} )
 				.catch( ( error ) => {
 
+					setIsLoading( false );
 					toast( {
 						title: "Error Loading Model",
 						description: `${MODEL_FILES[ value ].name}: ${error.message}`,
@@ -115,9 +122,11 @@ const AssetsTab = () => {
 		setDebugModel( value );
 		if ( window.pathTracerApp ) {
 
+			setIsLoading( true );
 			window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url )
 				.then( () => {
 
+					setIsLoading( false );
 					toast( {
 						title: "Model Loaded Successfully",
 						description: `${MODEL_FILES[ value ].name}`,
@@ -126,6 +135,7 @@ const AssetsTab = () => {
 				} )
 				.catch( ( error ) => {
 
+					setIsLoading( false );
 					toast( {
 						title: "Error Loading Model",
 						description: `${error.message}`,
@@ -145,7 +155,7 @@ const AssetsTab = () => {
 		material.transmission = info.transmission ?? 0.0;
 		material.attenuationDistance = Infinity;
 		material.attenuationColor.set( 0xffffff );
-		// material.specularColor.set( 0xffffff );
+		// material.specularColor.set(0xffffff);
 		material.metalness = info.metalness ?? 0.0;
 		material.roughness = info.roughness ?? 1.0;
 		material.ior = info.ior ?? 1.5;
@@ -201,15 +211,17 @@ const AssetsTab = () => {
 
 		}
 
+		setIsLoading( true );
 		applyMaterialInfo( materials[ value ], selectedObject.material );
 		window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture( selectedObject.userData.materialIndex, selectedObject.material );
 		window.pathTracerApp.reset();
+		setIsLoading( false );
 
 	};
 
 	return (
 		<div className="absolute h-[calc(100%-48px)] w-full">
-			<Separator className="bg-primary"/>
+			<Separator className="bg-primary" />
 			<Tabs
 				value={activeTab}
 				onValueChange={setActiveTab}
@@ -217,20 +229,20 @@ const AssetsTab = () => {
 			>
 				<TabsList className="relative grid w-full grid-cols-4 h-auto p-0">
 					<TabsTrigger value="models" className="text-xs truncate py-2">
-            			Models
+						Models
 					</TabsTrigger>
 					<TabsTrigger value="materials" className="text-xs truncate py-2">
-            			Materials
+						Materials
 					</TabsTrigger>
 					<TabsTrigger value="environments" className="text-xs truncate py-2">
-            			Env
+						Env
 					</TabsTrigger>
 					<TabsTrigger value="tests" className="text-xs truncate py-2">
-            			Tests
+						Tests
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="models" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<ItemsCatalog data={MODEL_FILES} value={model} onValueChange={handleModelChange}/>
+					<ItemsCatalog data={MODEL_FILES} value={model} onValueChange={handleModelChange} />
 				</TabsContent>
 				<TabsContent value="materials" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
 					<ItemsCatalog data={materials} value={null} onValueChange={handleMaterialChange} />
