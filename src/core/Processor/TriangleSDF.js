@@ -42,9 +42,23 @@ export default class TriangleSDF {
 		this.directionalLights = extractedData.directionalLights;
 		this.cameras = extractedData.cameras;
 
-		this.bvhRoot = this.bvhBuilder.build( this.triangles );
+		let time = performance.now();
+		try {
 
+			this.bvhRoot = await this.bvhBuilder.build( this.triangles );
+
+		} catch ( error ) {
+
+			console.error( 'Error building BVH:', error );
+			throw error;
+
+		}
+
+		console.log( 'BVH build time:', performance.now() - time );
+
+		time = performance.now();
 		this.createTextures();
+		console.log( 'Texture creation time:', performance.now() - time );
 		this.spheres = this.createSpheres();
 
 		this.resetArrays();

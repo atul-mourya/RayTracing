@@ -217,10 +217,7 @@ export class PathTracerPass extends Pass {
 
 		this.dispose();
 
-		const timeStart = performance.now();
 		await this.sdfs.buildBVH( scene );
-		const timeEnd = performance.now();
-		console.log( 'BVH build time:', ( timeEnd - timeStart ).toFixed( 2 ), 'ms' );
 		this.cameras = this.sdfs.cameras;
 
 		this.material.defines = {

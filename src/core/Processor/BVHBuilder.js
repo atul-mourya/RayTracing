@@ -17,15 +17,105 @@ class BVHNode {
 
 export default class BVHBuilder {
 
+	constructor() {
+
+		this.useWorker = true;
+
+	}
+
 	build( triangles, depth ) {
+
+		if ( this.useWorker && typeof Worker !== 'undefined' ) {
+
+			console.log( "Using Worker" );
+			return new Promise( ( resolve, reject ) => {
+
+				try {
+
+					const worker = new Worker(
+						new URL( './BVHWorker.js', import.meta.url ),
+						{ type: 'module' }
+					);
+
+					worker.onmessage = ( e ) => {
+
+						const { bvhRoot, triangles: newTriangles, error } = e.data;
+
+						if ( error ) {
+
+							worker.terminate();
+							reject( new Error( error ) );
+							return;
+
+						}
+
+						// Update triangles array
+						triangles.length = newTriangles.length;
+						for ( let i = 0; i < newTriangles.length; i ++ ) {
+
+							triangles[ i ] = newTriangles[ i ];
+
+						}
+
+						// bvhRoot can be used directly
+						worker.terminate();
+						resolve( bvhRoot );
+
+					};
+
+					worker.onerror = ( error ) => {
+
+						worker.terminate();
+						reject( error );
+
+					};
+
+					worker.postMessage( { triangles, depth } );
+
+				} catch ( error ) {
+
+					console.warn( 'Worker creation failed, falling back to synchronous build:', error );
+					resolve( this.buildSync( triangles, depth ) );
+
+				}
+
+			} );
+
+		} else {
+
+			return Promise.resolve( this.buildSync( triangles, depth ) );
+
+		}
+
+	}
+
+	// Add this to your BVHBuilder class, replacing the existing buildSync method
+
+	buildSync( triangles, depth, reorderedTriangles = [] ) {
+
+		if ( reorderedTriangles === triangles ) {
+
+			reorderedTriangles = [];
+
+		}
 
 		const maxTrianglesPerLeaf = 6;
 		const binCount = 8; // Number of bins per axis for spatial binning
-
 		let nodeCount = 0;
 		let leafCount = 0;
-		const leafDepths = [];
-		const leafTriangles = [];
+
+		class BuildItem {
+
+			constructor( triangles, depth, parent = null, isLeftChild = true ) {
+
+				this.triangles = triangles;
+				this.depth = depth;
+				this.parent = parent;
+				this.isLeftChild = isLeftChild;
+
+			}
+
+		}
 
 		const computeSurfaceArea = ( min, max ) => {
 
@@ -50,53 +140,88 @@ export default class BVHBuilder {
 
 		};
 
-		const buildNode = ( _triangles, depth = 0 ) => {
+		// Start with root
+		const stack = [];
+		const rootNode = new BVHNode();
+		nodeCount ++;
 
-			nodeCount ++;
+		stack.push( new BuildItem( triangles, depth ) );
+		let currentNode = rootNode;
+
+		while ( stack.length > 0 ) {
+
+			const item = stack.pop();
+			const triangles = item.triangles;
+			const depth = item.depth;
+
 			const node = new BVHNode();
+			nodeCount ++;
 
-			if ( _triangles.length <= maxTrianglesPerLeaf ) {
+			// Link node to parent if not root
+			if ( item.parent ) {
+
+				if ( item.isLeftChild ) {
+
+					item.parent.leftChild = node;
+
+				} else {
+
+					item.parent.rightChild = node;
+
+				}
+
+			} else {
+
+				currentNode = node; // This is the root node
+
+			}
+
+			// Leaf node case
+			if ( triangles.length <= maxTrianglesPerLeaf ) {
 
 				node.boundsMin.set( Infinity, Infinity, Infinity );
 				node.boundsMax.set( - Infinity, - Infinity, - Infinity );
-				_triangles.forEach( tri => {
+				triangles.forEach( tri => {
 
 					node.boundsMin.min( tri.posA ).min( tri.posB ).min( tri.posC );
 					node.boundsMax.max( tri.posA ).max( tri.posB ).max( tri.posC );
 
 				} );
-				node.triangleOffset = triangles.length;
-				node.triangleCount = _triangles.length;
-				triangles.push( ..._triangles );
 
-				// Collect leaf statistics
+				node.triangleOffset = reorderedTriangles.length;
+				node.triangleCount = triangles.length;
+				for ( let i = 0; i < triangles.length; i ++ ) {
+
+					reorderedTriangles[ node.triangleOffset + i ] = triangles[ i ];
+
+				}
+
 				leafCount ++;
-				leafDepths.push( depth );
-				leafTriangles.push( _triangles.length );
-
-				return node;
+				continue;
 
 			}
 
+			// Find best split
 			let bestCost = Infinity;
 			let bestAxis = - 1;
 			let bestSplitIndex = - 1;
 			let bestLeftTriangles = [];
 			let bestRightTriangles = [];
 
+			// Try each axis
 			for ( let axisIdx = 0; axisIdx < 3; axisIdx ++ ) {
 
 				const axis = [ 'x', 'y', 'z' ][ axisIdx ];
 
-				// Sort triangles by centroids along current axis
-				const centroids = _triangles.map( tri => {
+				// Sort triangles by centroids
+				const centroids = triangles.map( tri => {
 
 					const centroid = new Vector3();
 					centroid.add( tri.posA ).add( tri.posB ).add( tri.posC ).divideScalar( 3 );
 					return centroid[ axis ]; // Correctly get the centroid's coordinate along the chosen axis
 
 				} );
-				const sortedTriangles = _triangles
+				const sortedTriangles = triangles
 					.map( ( tri, i ) => ( { tri, centroid: centroids[ i ] } ) )
 					.sort( ( a, b ) => a.centroid - b.centroid )
 					.map( item => item.tri );
@@ -105,7 +230,7 @@ export default class BVHBuilder {
 				const bins = Array.from( { length: binCount }, () => [] );
 				sortedTriangles.forEach( ( tri, i ) => {
 
-					const binIndex = Math.floor( i / ( _triangles.length / binCount ) );
+					const binIndex = Math.floor( i / ( triangles.length / binCount ) );
 					if ( binIndex >= 0 && binIndex < binCount ) {
 
 						bins[ binIndex ].push( tri );
@@ -142,59 +267,38 @@ export default class BVHBuilder {
 			}
 
 			// If no optimal split found, fallback to median split
-			if ( bestAxis === - 1 || bestSplitIndex === - 1 || bestCost === Infinity ) {
+			if ( bestAxis === - 1 || bestSplitIndex === - 1 ) {
 
-				_triangles.sort( ( a, b ) => {
+				triangles.sort( ( a, b ) => {
 
 					const centroidA = ( a.posA.x + a.posB.x + a.posC.x ) / 3; // Use x for centroid
 					const centroidB = ( b.posA.x + b.posB.x + b.posC.x ) / 3; // Use x for centroid
 					return centroidA - centroidB;
 
 				} );
-				const mid = Math.floor( _triangles.length / 2 );
-				bestLeftTriangles = _triangles.slice( 0, mid );
-				bestRightTriangles = _triangles.slice( mid );
+				const mid = Math.floor( triangles.length / 2 );
+				bestLeftTriangles = triangles.slice( 0, mid );
+				bestRightTriangles = triangles.slice( mid );
 
 			}
 
-			// Recursively build children
-			node.leftChild = buildNode( bestLeftTriangles, depth + 1 );
-			node.rightChild = buildNode( bestRightTriangles, depth + 1 );
-
+			// Set node bounds
+			const [ nodeMin, nodeMax ] = calculateBoundingBox( triangles );
 			// Set node bounds based on child bounds
-			node.boundsMin.copy( node.leftChild.boundsMin ).min( node.rightChild.boundsMin );
-			node.boundsMax.copy( node.leftChild.boundsMax ).max( node.rightChild.boundsMax );
+			node.boundsMin.copy( nodeMin );
+			node.boundsMax.copy( nodeMax );
 
-			return node;
+			// Push children to stack
+			stack.push( new BuildItem( bestRightTriangles, depth + 1, node, false ) );
+			stack.push( new BuildItem( bestLeftTriangles, depth + 1, node, true ) );
 
-		};
+		}
 
-		const startTime = performance.now();
-		const bvhRoot = buildNode( triangles, depth );
-		const endTime = performance.now();
-
-		// Calculate leaf statistics
-		// const minLeafDepth = Math.min( ...leafDepths );
-		// const maxLeafDepth = Math.max( ...leafDepths );
-		// const meanLeafDepth = leafDepths.reduce( ( a, b ) => a + b, 0 ) / leafDepths.length;
-
-		// const minLeafTris = Math.min( ...leafTriangles );
-		// const maxLeafTris = Math.max( ...leafTriangles );
-		// const meanLeafTris = leafTriangles.reduce( ( a, b ) => a + b, 0 ) / leafTriangles.length;
-
-		// Log the statistics
-		console.log( 'Time (ms):', endTime - startTime );
-		console.log( 'Triangles:', triangles.length );
 		console.log( 'Node Count:', nodeCount );
 		console.log( 'Leaf Count:', leafCount );
-		// console.log( 'Leaf Depth - Min:', minLeafDepth );
-		// console.log( 'Leaf Depth - Max:', maxLeafDepth );
-		// console.log( 'Leaf Depth - Mean:', meanLeafDepth );
-		// console.log( 'Leaf Tris - Min:', minLeafTris );
-		// console.log( 'Leaf Tris - Max:', maxLeafTris );
-		// console.log( 'Leaf Tris - Mean:', meanLeafTris );
+		console.log( 'Triangles:', reorderedTriangles.length );
 
-		return bvhRoot;
+		return currentNode;
 
 	}
 
