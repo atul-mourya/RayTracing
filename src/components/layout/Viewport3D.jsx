@@ -11,7 +11,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 	const { toast } = useToast();
 	const containerRef = useRef( null );
 	const appRef = useRef( null );
-	const setIsLoading = useStore( ( state ) => state.setIsLoading );
+	const setLoading = useStore( ( state ) => state.setLoading );
 	const [ isDragging, setIsDragging ] = useState( false );
 
 	useEffect( () => {
@@ -24,12 +24,8 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			window.pathTracerApp = appRef.current;
 			appRef.current.setOnStatsUpdate( onStatsUpdate );
 
-			setIsLoading( true );
-			appRef.current.init().then( () => {
-
-				setIsLoading( false );
-
-			} ).catch( ( err ) => {
+			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
+			appRef.current.init().catch( ( err ) => {
 
 				console.error( "Error initializing PathTracerApp:", err );
 				toast( {
@@ -37,13 +33,18 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 					description: "Uh oh!! Something went wrong. Please try again.",
 					variant: "destructive",
 				} );
-				setIsLoading( false );
+
+			} ).finally( () => {
+
+				setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
+				setTimeout( () => useStore.getState().resetLoading(), 1000 );
+				window.pathTracerApp.reset();
 
 			} );
 
 		}
 
-	}, [ onStatsUpdate, setIsLoading, toast ] );
+	}, [ onStatsUpdate, setLoading, toast ] );
 
 	const handleDragOver = useCallback( ( e ) => {
 
@@ -67,7 +68,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 		const file = e.dataTransfer.files[ 0 ];
 		if ( file && file.name.toLowerCase().endsWith( '.glb' ) ) {
 
-			setIsLoading( true );
+			setLoading( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
 			const reader = new FileReader();
 			reader.onload = ( event ) => {
 
@@ -77,7 +78,6 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 					appRef.current.loadGLBFromArrayBuffer( arrayBuffer )
 						.then( () => {
 
-							setIsLoading( false );
 							toast( {
 								title: "Model Loaded",
 								description: `Successfully loaded model !!`,
@@ -86,13 +86,17 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 						} )
 						.catch( ( err ) => {
 
-							setIsLoading( false );
 							console.error( "Error loading GLB file:", err );
 							toast( {
 								title: "Failed to load GLB file",
 								description: "Please try again.",
 								variant: "destructive",
 							} );
+
+						} ).finally( () => {
+
+							setLoading( { isLoading: true, title: "Loading", status: "Loading Complete !", progress: 100 } );
+							setTimeout( () => useStore.getState().resetLoading(), 1000 );
 
 						} );
 
@@ -112,7 +116,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 		}
 
-	}, [ setIsLoading, toast ] );
+	}, [ setLoading, toast ] );
 
 	return (
 		<div

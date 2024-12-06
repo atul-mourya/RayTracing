@@ -42,7 +42,7 @@ import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
 import { TemporalReprojectionPass } from './Passes/TemporalReprojectionPass';
-import { disposeObjectFromMemory, generateMaterialSpheres } from './Processor/utils';
+import { disposeObjectFromMemory, generateMaterialSpheres, updateLoading } from './Processor/utils';
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from './Processor/Constants';
 import radialTexture from '../../public/radial-gradient.png';
 
@@ -393,6 +393,8 @@ class PathTracerApp extends EventDispatcher {
 			this.pauseRendering = true;
 
 			const data = await loader.loadAsync( modelUrl );
+			debugger;
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
 
 			this.targetModel && disposeObjectFromMemory( this.targetModel );
 			this.targetModel = data.scene;
@@ -408,6 +410,7 @@ class PathTracerApp extends EventDispatcher {
 		} finally {
 
 			loader?.dracoLoader && loader.dracoLoader.dispose();
+			updateLoading( { isLoading: true, status: "Ready", progress: 90 } );
 			this.pauseRendering = false;
 
 		}
@@ -438,6 +441,7 @@ class PathTracerApp extends EventDispatcher {
 			disposeObjectFromMemory( this.targetModel );
 			this.targetModel = data.scene;
 
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
 			await this.onModelLoad( this.targetModel );
 			loader.dracoLoader && loader.dracoLoader.dispose();
 
@@ -450,6 +454,10 @@ class PathTracerApp extends EventDispatcher {
 			console.error( 'Error loading GLB:', error );
 			this.pauseRendering = false;
 			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
 
 		}
 

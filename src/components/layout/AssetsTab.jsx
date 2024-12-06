@@ -20,7 +20,7 @@ const useAssetsStore = create( ( set ) => ( {
 const AssetsTab = () => {
 
 	const selectedObject = useStore( ( state ) => state.selectedObject );
-	const setIsLoading = useStore( ( state ) => state.setIsLoading );
+	const setLoading = useStore( ( state ) => state.setLoading );
 	const { toast } = useToast();
 	const {
 		activeTab,
@@ -60,11 +60,10 @@ const AssetsTab = () => {
 		setEnvironment( value );
 		if ( window.pathTracerApp ) {
 
-			setIsLoading( true );
+			setLoading( { isLoading: true, title: "Loading", status: "Loading Enviroment...", progress: 0 } );
 			window.pathTracerApp.loadEnvironment( value )
 				.then( () => {
 
-					setIsLoading( false );
 					toast( {
 						title: "Environment Loaded Successfully",
 						description: `${HDR_FILES[ value ].name}`,
@@ -73,12 +72,17 @@ const AssetsTab = () => {
 				} )
 				.catch( ( error ) => {
 
-					setIsLoading( false );
 					toast( {
 						title: "Error Loading Environment",
 						description: `${HDR_FILES[ value ].name}: ${error.message}`,
 						variant: "destructive",
 					} );
+
+				} ).finally( () => {
+
+					window.pathTracerApp.reset();
+					setLoading( { isLoading: true, title: "Loading", status: "Loading Enviroment...", progress: 100 } );
+					setTimeout( () => useStore.getState().resetLoading(), 1000 );
 
 				} );
 
@@ -91,11 +95,10 @@ const AssetsTab = () => {
 		setModel( value );
 		if ( window.pathTracerApp ) {
 
-			setIsLoading( true );
+			setLoading( { isLoading: true, title: "Loading", status: "Loading Model..." } );
 			window.pathTracerApp.loadExampleModels( value )
 				.then( () => {
 
-					setIsLoading( false );
 					toast( {
 						title: "Model Loaded Successfully",
 						description: `${MODEL_FILES[ value ].name}`,
@@ -104,12 +107,17 @@ const AssetsTab = () => {
 				} )
 				.catch( ( error ) => {
 
-					setIsLoading( false );
 					toast( {
 						title: "Error Loading Model",
 						description: `${MODEL_FILES[ value ].name}: ${error.message}`,
 						variant: "destructive",
 					} );
+
+				} ).finally( () => {
+
+					window.pathTracerApp.reset();
+					setLoading( { isLoading: true, title: "Loading", status: "Model Loaded...", progress: 100 } );
+					setTimeout( () => useStore.getState().resetLoading(), 1000 );
 
 				} );
 
@@ -122,11 +130,10 @@ const AssetsTab = () => {
 		setDebugModel( value );
 		if ( window.pathTracerApp ) {
 
-			setIsLoading( true );
+			setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 0 } );
 			window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url )
 				.then( () => {
 
-					setIsLoading( false );
 					toast( {
 						title: "Model Loaded Successfully",
 						description: `${MODEL_FILES[ value ].name}`,
@@ -135,12 +142,17 @@ const AssetsTab = () => {
 				} )
 				.catch( ( error ) => {
 
-					setIsLoading( false );
 					toast( {
 						title: "Error Loading Model",
 						description: `${error.message}`,
 						variant: "destructive",
 					} );
+
+				} ).finally( () => {
+
+					window.pathTracerApp.reset();
+					setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 100 } );
+					setTimeout( () => useStore.getState().resetLoading(), 1000 );
 
 				} );
 
@@ -211,11 +223,11 @@ const AssetsTab = () => {
 
 		}
 
-		setIsLoading( true );
+		setLoading( { isLoading: true, title: "Apply", status: "Processing Material...", progress: 0 } );
 		applyMaterialInfo( materials[ value ], selectedObject.material );
 		window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture( selectedObject.userData.materialIndex, selectedObject.material );
 		window.pathTracerApp.reset();
-		setIsLoading( false );
+		useStore.getState().resetLoading();
 
 	};
 

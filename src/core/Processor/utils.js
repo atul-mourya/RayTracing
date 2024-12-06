@@ -1,4 +1,15 @@
 import { SphereGeometry, Mesh, MeshPhysicalMaterial, Group, Object3D, Color, Vector3 } from 'three';
+import { useStore } from '@/store';
+
+export const resetLoading = () => useStore.getState().resetLoading();
+export const updateLoading = ( loadingState ) => {
+
+	const state = useStore.getState();
+	const loading = state.loading;
+	const newLoading = { ...loading, ...loadingState };
+	state.setLoading( newLoading );
+
+};
 
 export function disposeMaterial( material ) {
 
