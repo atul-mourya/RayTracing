@@ -6,10 +6,12 @@ import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@
 import { useStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { TextRow } from '../ui/text-row';
 
 const MaterialTab = () => {
 
 	const selectedObject = useStore( ( state ) => state.selectedObject );
+	const name = selectedObject?.name ?? "Unknown";
 	const [ color, setColor ] = useState( '#ffffff' );
 	const [ roughness, setRoughness ] = useState( 0.5 );
 	const [ metalness, setMetalness ] = useState( 0.5 );
@@ -272,6 +274,9 @@ const MaterialTab = () => {
 
 	return (
 		<div className="space-y-4 p-4">
+			<div className="flex items-center justify-between">
+				<TextRow label="Name" text={name}/>
+			</div>
 			<div className="flex items-center justify-between">
 				<Switch label="Visible" checked={visible} onCheckedChange={handleVisibleChange} />
 			</div>
