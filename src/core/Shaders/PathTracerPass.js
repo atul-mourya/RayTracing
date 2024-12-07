@@ -394,23 +394,33 @@ export class PathTracerPass extends Pass {
 			case 'specularColor':
 				data.set( [ value.r, value.g, value.b ], stride + 25 );
 				break;
+			case 'iridescence':
+				data[ stride + 28 ] = value;
+				break;
+			case 'iridescenceIOR':
+				data[ stride + 29 ] = value;
+				break;
+			case 'iridescenceThicknessRange':
+				data[ stride + 30 ] = value[ 0 ];
+				data[ stride + 31 ] = value[ 1 ];
+				break;
 			case 'clearcoat':
-				data[ stride + 34 ] = value;
-				break;
-			case 'clearcoatRoughness':
-				data[ stride + 35 ] = value;
-				break;
-			case 'opacity':
-				data[ stride + 36 ] = value;
-				break;
-			case 'side':
-				data[ stride + 37 ] = value;
-				break;
-			case 'transparent':
 				data[ stride + 38 ] = value;
 				break;
-			case 'alphaTest':
+			case 'clearcoatRoughness':
 				data[ stride + 39 ] = value;
+				break;
+			case 'opacity':
+				data[ stride + 40 ] = value;
+				break;
+			case 'side':
+				data[ stride + 41 ] = value;
+				break;
+			case 'transparent':
+				data[ stride + 42 ] = value;
+				break;
+			case 'alphaTest':
+				data[ stride + 43 ] = value;
 				break;
 
 		}

@@ -175,7 +175,7 @@ vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) 
 
 	float D = DistributionGGX( N, H, material.roughness );
 	float G = GeometrySmith( N, V, L, material.roughness );
-	vec3 F = fresnelSchlick3( VoH, F0 );
+	vec3 F = fresnelSchlick( VoH, F0 );
 	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * NoV * NoL );
 
     // Add diffuse component for non-metallic surfaces

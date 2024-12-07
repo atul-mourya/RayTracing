@@ -172,17 +172,17 @@ const AssetsTab = () => {
 		material.roughness = info.roughness ?? 1.0;
 		material.ior = info.ior ?? 1.5;
 		material.thickness = 1.0;
-		// material.iridescence = 0.0;
-		// material.iridescenceIOR = 1.0;
-		// material.iridescenceThicknessRange = [ 0, 0 ];
+		material.iridescence = 0.0;
+		material.iridescenceIOR = 1.0;
+		material.iridescenceThicknessRange = [ 100, 400 ];
 
 		// apply database values
 		if ( info.specularColor ) material.specularColor.setRGB( ...info.specularColor );
 		if ( 'thinFilmThickness' in info ) {
 
-			// material.iridescence = 1.0;
-			// material.iridescenceIOR = info.thinFilmIor;
-			// material.iridescenceThicknessRange = [ info.thinFilmThickness, info.thinFilmThickness ];
+			material.iridescence = 1.0;
+			material.iridescenceIOR = info.thinFilmIor;
+			material.iridescenceThicknessRange = [ info.thinFilmThickness, info.thinFilmThickness ];
 
 		}
 

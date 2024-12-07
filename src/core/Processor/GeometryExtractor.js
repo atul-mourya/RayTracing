@@ -138,6 +138,9 @@ export default class GeometryExtractor {
 		material.sheenColor = material.sheenColor ?? new Color().setHex( 0x00000 );
 		material.specularIntensity = material.specularIntensity ?? 1.0;
 		material.specularColor = material.specularColor ?? new Color( 0xffffff );
+		material.iridescence = material.iridescence ?? 0.0;
+		material.iridescenceIOR = material.iridescenceIOR ?? 1.0;
+		material.iridescenceThicknessRange = material.iridescenceThicknessRange ?? [ 100, 400 ];
 
 		return {
 			uuid: material.uuid,
@@ -160,6 +163,9 @@ export default class GeometryExtractor {
 			thickness: material.thickness ?? 0.1,
 			clearcoat: material.clearcoat ?? 0.0,
 			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,
+			iridescence: material.iridescence,
+			iridescenceIOR: material.iridescenceIOR,
+			iridescenceThicknessRange: material.iridescenceThicknessRange,
 			side: this.getMaterialSide( material ),
 			normalScale: material.normalScale ?? { x: 1, y: 1 },
 			transparent: material.transparent ? 1 : 0,

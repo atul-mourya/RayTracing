@@ -35,6 +35,9 @@ const MaterialTab = () => {
 	const [ sheenColor, setSheenColor ] = useState( '#000000' );
 	const [ specularIntensity, setSpecularIntensity ] = useState( 1 );
 	const [ specularColor, setSpecularColor ] = useState( '#ffffff' );
+	const [ iridescence, setIridescence ] = useState( 0 );
+	const [ iridescenceIOR, setIridescenceIOR ] = useState( 1.5 );
+	const [ iridescenceThicknessRange, setIridescenceThicknessRange ] = useState( [ 100, 400 ] );
 
 	const updateMaterialStates = useCallback( () => {
 
@@ -63,6 +66,9 @@ const MaterialTab = () => {
 			setSheenColor( `#${selectedObject.material.sheenColor.getHexString()}` );
 			setSpecularIntensity( selectedObject.material.specularIntensity ?? 1 );
 			setSpecularColor( `#${selectedObject.material.specularColor.getHexString()}` );
+			setIridescence( selectedObject.material.iridescence ?? 0 );
+			setIridescenceIOR( selectedObject.material.iridescenceIOR ?? 1.5 );
+			setIridescenceThicknessRange( selectedObject.material.iridescenceThicknessRange ?? [ 100, 400 ] );
 
 		}
 
@@ -260,6 +266,27 @@ const MaterialTab = () => {
 
 	};
 
+	const handleIridescenceChange = ( value ) => {
+
+		setIridescence( value[ 0 ] );
+		updateMaterialProperty( 'iridescence', value[ 0 ] );
+
+	};
+
+	const handleIridescenceIORChange = ( value ) => {
+
+		setIridescenceIOR( value[ 0 ] );
+		updateMaterialProperty( 'iridescenceIOR', value[ 0 ] );
+
+	};
+
+	const handleIridescenceThicknessRangeChange = ( value ) => {
+
+		setIridescenceThicknessRange( value );
+		updateMaterialProperty( 'iridescenceThicknessRange', value );
+
+	};
+
 	if ( ! selectedObject ) {
 
 		return <div className="p-4">Please select an object to customize its material properties.</div>;
@@ -319,6 +346,16 @@ const MaterialTab = () => {
 			<div className="flex items-center justify-between">
 				<Slider label={"Emissive Intensity"} min={0} max={10} step={0.1} value={[ emissiveIntensity ]} onValueChange={handleEmissiveIntensityChange} />
 			</div>
+			<Separator />
+			<div className="flex items-center justify-between">
+				<Slider label={"Iridescence"} min={0} max={1} step={0.01} value={[ iridescence ]} onValueChange={handleIridescenceChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Iridescence IOR"} min={1} max={2.5} step={0.01} value={[ iridescenceIOR ]} onValueChange={handleIridescenceIORChange} />
+			</div>
+			{/* <div className="flex items-center justify-between">
+				<DraggableInput label={"Iridescence Thickness Range"} min={0} max={1000} step={1} value={iridescenceThicknessRange} onValueChange={handleIridescenceThicknessRangeChange} />
+			</div> */}
 			<Separator />
 			<div className="flex items-center justify-between">
 				<Slider label={"Opacity"} min={0} max={1} step={0.01} value={[ opacity ]} onValueChange={handleOpacityChange} />

@@ -14,7 +14,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ### Feature:
 
 - add custom floor with shadow catcher
-- implement iridescence support
+- implement transparent background support
 - implement subsurface scattering
 - implement auto focus based on object distance
 - implement Scene based directional lights support

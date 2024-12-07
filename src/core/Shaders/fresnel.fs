@@ -6,6 +6,19 @@ float fresnelSchlick( float cosTheta, float F0 ) {
 	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
 }
 
-vec3 fresnelSchlick3( float cosTheta, vec3 F0 ) {
+vec3 fresnelSchlick( float cosTheta, vec3 F0 ) {
 	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
+}
+
+vec3 fresnel0ToIor( vec3 fresnel0 ) {
+	vec3 sqrtF0 = sqrt( fresnel0 );
+	return ( vec3( 1.0 ) + sqrtF0 ) / ( vec3( 1.0 ) - sqrtF0 );
+}
+
+vec3 iorToFresnel0( vec3 transmittedIor, float incidentIor ) {
+	return square( ( transmittedIor - vec3( incidentIor ) ) / ( transmittedIor + vec3( incidentIor ) ) );
+}
+
+float iorToFresnel0( float transmittedIor, float incidentIor ) {
+	return square( ( transmittedIor - incidentIor ) / ( transmittedIor + incidentIor ) );
 }

@@ -70,6 +70,7 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	vec4 data21 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 20, 23 );
 	vec4 data22 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 21, 23 );
 	vec4 data23 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 22, 23 );
+	vec4 data24 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 23, 23 );
 
 	RayTracingMaterial material;
 
@@ -97,31 +98,35 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.specularIntensity = data7.r;
 	material.specularColor = data7.gba;
 
-	material.albedoMapIndex = int( data8.r );
-	material.normalMapIndex = int( data8.g );
-	material.roughnessMapIndex = int( data8.b );
-	material.metalnessMapIndex = int( data8.a );
+	material.iridescence = data8.r;
+	material.iridescenceIOR = data8.g;
+	material.iridescenceThicknessRange = data8.ba;
 
-	material.emissiveMapIndex = int( data9.r );
-	material.bumpMapIndex = int( data9.g );
-	material.clearcoat = data9.b;
-	material.clearcoatRoughness = data9.a;
+	material.albedoMapIndex = int( data9.r );
+	material.normalMapIndex = int( data9.g );
+	material.roughnessMapIndex = int( data9.b );
+	material.metalnessMapIndex = int( data9.a );
 
-	material.opacity = data10.r;
-	material.side = int( data10.g );
-	material.transparent = bool( data10.b );
-	material.alphaTest = data10.a;
+	material.emissiveMapIndex = int( data10.r );
+	material.bumpMapIndex = int( data10.g );
+	material.clearcoat = data10.b;
+	material.clearcoatRoughness = data10.a;
 
-	material.alphaMode = int( data11.r );
-	material.depthWrite = int( data11.g );
-	material.normalScale = vec2( data11.b, data11.a );
+	material.opacity = data11.r;
+	material.side = int( data11.g );
+	material.transparent = bool( data11.b );
+	material.alphaTest = data11.a;
 
-	material.albedoTransform = arrayToMat3( data12, data13 );
-	material.emissiveTransform = arrayToMat3( data14, data15 );
-	material.normalTransform = arrayToMat3( data16, data17 );
-	material.bumpTransform = arrayToMat3( data18, data19 );
-	material.metalnessTransform = arrayToMat3( data20, data21 );
-	material.roughnessTransform = arrayToMat3( data22, data23 );
+	material.alphaMode = int( data12.r );
+	material.depthWrite = int( data12.g );
+	material.normalScale = vec2( data12.b, data12.a );
+
+	material.albedoTransform = arrayToMat3( data13, data14 );
+	material.emissiveTransform = arrayToMat3( data15, data16 );
+	material.normalTransform = arrayToMat3( data17, data18 );
+	material.bumpTransform = arrayToMat3( data19, data20 );
+	material.metalnessTransform = arrayToMat3( data21, data22 );
+	material.roughnessTransform = arrayToMat3( data23, data24 );
 
 	return material;
 }

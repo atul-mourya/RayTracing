@@ -37,6 +37,9 @@ struct RayTracingMaterial {
 	mat3 bumpTransform;
 	mat3 metalnessTransform;
 	mat3 roughnessTransform;
+	float iridescence;
+	float iridescenceIOR;
+	vec2 iridescenceThicknessRange;
 };
 
 struct Sphere {

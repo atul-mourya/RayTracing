@@ -32,6 +32,22 @@ vec3 gammaCorrection(vec3 color) {
 	return pow(color, vec3(1.0 / 2.2));
 }
 
+// XYZ to sRGB color space conversion matrix
+const mat3 XYZ_TO_REC709 = mat3(
+    3.2404542, -0.9692660,  0.0556434,
+    -1.5371385,  1.8760108, -0.2040259,
+    -0.4985314,  0.0415560,  1.0572252
+);
+
+float square( float x ) {
+	return x * x;
+}
+
+vec3 square( vec3 x ) {
+	return x * x;
+}
+
+
 // float luminance( vec3 color ) {
 
 // 	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
