@@ -391,10 +391,9 @@ class PathTracerApp extends EventDispatcher {
 
 			loader = await this.createGLTFLoader();
 			this.pauseRendering = true;
-
+			updateLoading( { status: "Loading Model...", progress: 5 } );
 			const data = await loader.loadAsync( modelUrl );
-			debugger;
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { status: "Processing Data...", progress: 30 } );
 
 			this.targetModel && disposeObjectFromMemory( this.targetModel );
 			this.targetModel = data.scene;
@@ -410,7 +409,7 @@ class PathTracerApp extends EventDispatcher {
 		} finally {
 
 			loader?.dracoLoader && loader.dracoLoader.dispose();
-			updateLoading( { isLoading: true, status: "Ready", progress: 90 } );
+			updateLoading( { status: "Ready", progress: 90 } );
 			this.pauseRendering = false;
 
 		}

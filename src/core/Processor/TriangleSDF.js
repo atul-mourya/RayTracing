@@ -2,6 +2,7 @@ import { Color } from "three";
 import BVHBuilder from './BVHBuilder.js';
 import TextureCreator from './TextureCreator.js';
 import GeometryExtractor from './GeometryExtractor.js';
+import { updateLoading } from '../Processor/utils.js';
 export default class TriangleSDF {
 
 	constructor() {
@@ -45,6 +46,7 @@ export default class TriangleSDF {
 		let time = performance.now();
 		try {
 
+			updateLoading( { status: "Building BVH...", progress: 60 } );
 			this.bvhRoot = await this.bvhBuilder.build( this.triangles );
 
 		} catch ( error ) {
@@ -57,6 +59,7 @@ export default class TriangleSDF {
 		console.log( 'BVH build time:', performance.now() - time );
 
 		time = performance.now();
+		updateLoading( { status: "Processing Textures...", progress: 80 } );
 		this.createTextures();
 		console.log( 'Texture creation time:', performance.now() - time );
 		this.spheres = this.createSpheres();
