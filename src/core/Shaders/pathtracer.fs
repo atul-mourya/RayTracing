@@ -324,6 +324,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
 		material.roughness = sampleRoughnessMap( material, hitInfo.uv );
 		material.roughness = clamp( material.roughness, 0.05, 1.0 );
+		material.sheenRoughness = clamp( material.sheenRoughness, 0.05, 1.0 );
 		material.attenuationDistance = max( material.attenuationDistance, 0.05 );
 
 		// Handle transparent materials

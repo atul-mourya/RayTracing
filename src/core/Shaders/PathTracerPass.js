@@ -379,11 +379,14 @@ export class PathTracerPass extends Pass {
 			case 'visible':
 				data[ stride + 17 ] = value;
 				break;
-			case 'sheenRoughness':
+			case 'sheen':
 				data[ stride + 18 ] = value;
 				break;
-			case 'sheenColor':
+			case 'sheenRoughness':
 				data[ stride + 19 ] = value;
+				break;
+			case 'sheenColor':
+				data.set( [ value.r, value.g, value.b ], stride + 20 );
 				break;
 			case 'clearcoat':
 				data[ stride + 30 ] = value;

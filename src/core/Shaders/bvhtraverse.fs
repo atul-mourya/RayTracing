@@ -88,8 +88,8 @@ RayTracingMaterial getMaterial(int materialIndex) {
 
 	material.dispersion = data5.r;
 	material.visible = bool(data5.g);
-	material.sheen = data5.g;
-	material.sheenRoughness = data5.b;
+	material.sheen = data5.b;
+	material.sheenRoughness = data5.a;
 
 	material.sheenColor = data6.rgb;
 

@@ -73,6 +73,18 @@ float GeometrySmith( vec3 N, vec3 V, vec3 L, float roughness ) {
 	return ggx1 * ggx2;
 }
 
+float SheenDistribution(vec3 N, vec3 H, float roughness) {
+    float alpha = roughness * roughness;
+    float invAlpha = 1.0 / alpha;
+    float cos_theta = max(dot(N, H), 0.0);
+    float cos_theta_2 = cos_theta * cos_theta;
+    
+    float inv_a2 = invAlpha * invAlpha;
+    float d = (cos_theta_2 * (inv_a2 - 1.0) + 1.0);
+    return inv_a2 / (PI * d * d);
+}
+
+
 vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 	vec3 H = normalize( V + L );
 	float NoL = max( dot( N, L ), 0.001 );
@@ -91,7 +103,23 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 	// Diffuse BRDF
 	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) / PI;
 
-	return diffuse + specular;
+	// Base layer without sheen
+    vec3 baseLayer = diffuse + specular;
+
+    // Only add sheen if it's enabled
+    if(material.sheen > 0.0) {
+        // Sheen BRDF
+        float sheenDistribution = SheenDistribution(N, H, material.sheenRoughness);
+        vec3 sheenColor = material.sheenColor * material.sheen;
+        vec3 sheen = sheenColor * sheenDistribution * NoL;
+        
+        // Energy compensation - only apply scaling when sheen is present
+        float sheenScaling = 1.0 - material.sheen * max(max(sheenColor.r, sheenColor.g), sheenColor.b);
+        return baseLayer * sheenScaling + sheen;
+    }
+    
+    return baseLayer;
+
 }
 
 // calculate pixel variance

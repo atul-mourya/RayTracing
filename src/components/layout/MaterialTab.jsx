@@ -27,6 +27,9 @@ const MaterialTab = () => {
 	const [ transparent, setTransparent ] = useState( false );
 	const [ alphaTest, setAlphaTest ] = useState( 0 );
 	const [ visible, setVisible ] = useState( true );
+	const [ sheen, setSheen ] = useState( 0 );
+	const [ sheenRoughness, setSheenRoughness ] = useState( 1 );
+	const [ sheenColor, setSheenColor ] = useState( '#000000' );
 
 	useEffect( () => {
 
@@ -50,6 +53,9 @@ const MaterialTab = () => {
 			setTransparent( selectedObject.material.transparent ?? false );
 			setAlphaTest( selectedObject.material.alphaTest ?? 0 );
 			setVisible( selectedObject.visible );
+			setSheen( selectedObject.material.sheen ?? 0 );
+			setSheenRoughness( selectedObject.material.sheenRoughness ?? 1 );
+			setSheenColor( `#${selectedObject.material.sheenColor.getHexString()}` );
 
 		}
 
@@ -79,6 +85,9 @@ const MaterialTab = () => {
 				setTransparent( selectedObject.material.transparent ?? false );
 				setAlphaTest( selectedObject.material.alphaTest ?? 0 );
 				setVisible( selectedObject.visible );
+				setSheen( selectedObject.material.sheen ?? 0 );
+				setSheenRoughness( selectedObject.material.sheenRoughness ?? 1 );
+				setSheenColor( `#${selectedObject.material.sheenColor.getHexString()}` );
 
 			}
 
@@ -308,6 +317,43 @@ const MaterialTab = () => {
 
 	};
 
+	const handleSheenChange = ( value ) => {
+
+		setSheen( value[ 0 ] );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.sheen = value[ 0 ];
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'sheen', value[ 0 ] );
+
+		}
+
+	};
+
+	const handleSheenRoughnessChange = ( value ) => {
+
+		setSheenRoughness( value[ 0 ] );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.sheenRoughness = value[ 0 ];
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'sheenRoughness', value[ 0 ] );
+
+		}
+
+	};
+
+	const handleSheenColorChange = ( value ) => {
+
+		setSheenColor( value );
+		if ( selectedObject && selectedObject.isMesh ) {
+
+			selectedObject.material.sheenColor.set( value );
+			const sheenColor = selectedObject.material.sheenColor;
+			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'sheenColor', sheenColor );
+
+		}
+
+	};
+
 	if ( ! selectedObject ) {
 
 		return <div className="p-4">Please select an object to customize its material properties.</div>;
@@ -386,6 +432,15 @@ const MaterialTab = () => {
 						<SelectItem value={2}>Double</SelectItem>
 					</SelectContent>
 				</Select>
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Sheen"} min={0} max={1} step={0.01} value={[ sheen ]} onValueChange={handleSheenChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Slider label={"Sheen Roughness"} min={0} max={1} step={0.01} value={[ sheenRoughness ]} onValueChange={handleSheenRoughnessChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<ColorInput label={"Sheen Color"} value={sheenColor} onChange={handleSheenColorChange} />
 			</div>
 		</div>
 	);

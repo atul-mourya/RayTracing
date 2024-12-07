@@ -15,13 +15,11 @@ Demo here https://atul-mourya.github.io/RayTracing/
 
 - add custom floor with shadow catcher
 - implement specular color support
-- implement sheen color and sheen roughness support
 - implement iridescence support
 - implement subsurface scattering
 - implement auto focus based on object distance
 - implement Scene based directional lights support
 - caustic support
-- jump flood algorithm for non blocking UI interactions
 - Object dynamic transformation changes
 - Hybrid Rendering
 - cleanup path tracer ui panel.
