@@ -32,31 +32,51 @@ float pdf;
 
 vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
 
-	float specularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
-	float diffuseWeight = ( 1.0 - specularWeight ) * ( 1.0 - material.metalness );
+	float baseSpecularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
+	float specularWeight = baseSpecularWeight * material.specularIntensity;
+	float sheenWeight = material.sheen * max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
+	float diffuseWeight = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
+
+    // Only include sheen in the weights if it's enabled
+	if( material.sheen > 0.0 ) {
+		diffuseWeight *= ( 1.0 - sheenWeight );
+	} else {
+		sheenWeight = 0.0;
+	}
 
     // Normalize weights
-	float total = specularWeight + diffuseWeight;
+	float total = specularWeight + diffuseWeight + sheenWeight;
+	specularWeight /= total;
 	diffuseWeight /= total;
+	sheenWeight /= total;
 
-	// decide between diffuse and specular based on material properties
-	if( RandomValue( rngState ) < diffuseWeight ) {
-		// Sample diffuse BRDF
+	float rand = RandomValue( rngState );
+	vec3 H;
+
+	if( rand < diffuseWeight ) {
+        // Sample diffuse BRDF
 		L = ImportanceSampleCosine( N, xi );
 		pdf = max( dot( N, L ), 0.0 ) / PI;
-	} else {
-		// Sample specular BRDF
-		vec3 H = ImportanceSampleGGX( N, material.roughness, xi );
+	} else if( rand < diffuseWeight + specularWeight ) {
+        // Sample specular BRDF
+		H = ImportanceSampleGGX( N, material.roughness, xi );
 		L = reflect( - V, H );
 		float NoH = max( dot( N, H ), 0.0 );
 		float VoH = max( dot( V, H ), 0.0 );
 		pdf = DistributionGGX( N, H, material.roughness ) * NoH / ( 4.0 * VoH );
+	} else {
+        // Sample sheen BRDF
+		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
+		L = reflect( - V, H );
+		float NoH = max( dot( N, H ), 0.0 );
+		float VoH = max( dot( V, H ), 0.0 );
+		pdf = SheenDistribution( N, H, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
 	}
 
-	// Ensure the PDF is never zero
+    // Ensure the PDF is never zero
 	pdf = max( pdf, 0.001 );
 
-	// Evaluate BRDF
+    // Evaluate complete BRDF
 	return evaluateBRDF( V, L, N, material );
 }
 
@@ -148,8 +168,11 @@ vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) 
 	float NoH = max( dot( N, H ), 0.001 );
 	float VoH = max( dot( V, H ), 0.001 );
 
-    // Base layer BRDF
-	vec3 F0 = mix( vec3( 0.04 ), material.color.rgb, material.metalness );
+    // Base F0 calculation with specular parameters
+	vec3 baseF0 = vec3( 0.04 );
+	vec3 F0 = mix( baseF0 * material.specularColor, material.color.rgb, material.metalness );
+	F0 *= material.specularIntensity;
+
 	float D = DistributionGGX( N, H, material.roughness );
 	float G = GeometrySmith( N, V, L, material.roughness );
 	vec3 F = fresnelSchlick3( VoH, F0 );
@@ -160,16 +183,15 @@ vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) 
 	vec3 baseLayer = diffuse + baseBRDF;
 
     // Clearcoat layer (using constant IOR of 1.5 -> F0 = 0.04)
-	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 ); // Prevent artifacts at 0 roughness
+	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
 	float clearcoatD = DistributionGGX( N, H, clearcoatRoughness );
 	float clearcoatG = GeometrySmith( N, V, L, clearcoatRoughness );
 	float clearcoatF = fresnelSchlick( VoH, 0.04 );
 	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) / ( 4.0 * NoV * NoL );
 
-    // Energy conservation: base layer is attenuated by clearcoat Fresnel
+    // Energy conservation
 	float attenuation = calculateLayerAttenuation( material.clearcoat, VoH );
 
-    // Combine layers with energy conservation
 	return baseLayer * attenuation + vec3( clearcoatBRDF ) * material.clearcoat;
 }
 

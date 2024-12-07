@@ -39,27 +39,27 @@ const RightSidebar = () => {
 					</TabsTrigger>
 				</TabsList>
 
-				<TabsContent value="scene" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
+				<TabsContent value="scene" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 					<SceneTab />
 				</TabsContent>
 
-				<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
+				<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 					<CameraTab />
 				</TabsContent>
 
-				<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
+				<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 					<PathTracerTab />
 				</TabsContent>
 
-				<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
+				<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 					<LightsTab />
 				</TabsContent>
 
-				<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col mt-0">
+				<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col mt-0 overflow-y-auto">
 					<AssetsTab />
 				</TabsContent>
 
-				<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
+				<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 					<MaterialTab />
 				</TabsContent>
 			</Tabs>

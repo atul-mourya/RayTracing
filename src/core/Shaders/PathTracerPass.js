@@ -339,7 +339,7 @@ export class PathTracerPass extends Pass {
 	updateMaterialDataTexture( materialIndex, property, value ) {
 
 		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 88; // 22 pixels * 4 components per pixel
+		const stride = materialIndex * 92; // 23 pixels * 4 components per pixel
 
 		switch ( property ) {
 
@@ -388,23 +388,29 @@ export class PathTracerPass extends Pass {
 			case 'sheenColor':
 				data.set( [ value.r, value.g, value.b ], stride + 20 );
 				break;
+			case 'specularIntensity':
+				data[ stride + 24 ] = value;
+				break;
+			case 'specularColor':
+				data.set( [ value.r, value.g, value.b ], stride + 25 );
+				break;
 			case 'clearcoat':
-				data[ stride + 30 ] = value;
-				break;
-			case 'clearcoatRoughness':
-				data[ stride + 31 ] = value;
-				break;
-			case 'opacity':
-				data[ stride + 32 ] = value;
-				break;
-			case 'side':
-				data[ stride + 33 ] = value;
-				break;
-			case 'transparent':
 				data[ stride + 34 ] = value;
 				break;
-			case 'alphaTest':
+			case 'clearcoatRoughness':
 				data[ stride + 35 ] = value;
+				break;
+			case 'opacity':
+				data[ stride + 36 ] = value;
+				break;
+			case 'side':
+				data[ stride + 37 ] = value;
+				break;
+			case 'transparent':
+				data[ stride + 38 ] = value;
+				break;
+			case 'alphaTest':
+				data[ stride + 39 ] = value;
 				break;
 
 		}

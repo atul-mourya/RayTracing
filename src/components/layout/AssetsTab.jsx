@@ -167,7 +167,7 @@ const AssetsTab = () => {
 		material.transmission = info.transmission ?? 0.0;
 		material.attenuationDistance = Infinity;
 		material.attenuationColor.set( 0xffffff );
-		// material.specularColor.set(0xffffff);
+		material.specularColor.set( 0xffffff );
 		material.metalness = info.metalness ?? 0.0;
 		material.roughness = info.roughness ?? 1.0;
 		material.ior = info.ior ?? 1.5;
@@ -177,7 +177,7 @@ const AssetsTab = () => {
 		// material.iridescenceThicknessRange = [ 0, 0 ];
 
 		// apply database values
-		// if ( info.specularColor ) material.specularColor.setRGB( ...info.specularColor );
+		if ( info.specularColor ) material.specularColor.setRGB( ...info.specularColor );
 		if ( 'thinFilmThickness' in info ) {
 
 			// material.iridescence = 1.0;

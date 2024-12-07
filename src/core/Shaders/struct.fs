@@ -17,6 +17,8 @@ struct RayTracingMaterial {
 	float sheen;
 	float sheenRoughness;
 	vec3 sheenColor;
+	float specularIntensity;
+	vec3 specularColor;
 	float alphaTest;
 	int alphaMode;      // 0: OPAQUE, 1: MASK, 2: BLEND
 	int side;

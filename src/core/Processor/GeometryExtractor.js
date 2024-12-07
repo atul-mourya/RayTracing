@@ -136,6 +136,8 @@ export default class GeometryExtractor {
 		material.sheen = material.sheen ?? 0.0;
 		material.sheenRoughness = material.sheenRoughness ?? 1;
 		material.sheenColor = material.sheenColor ?? new Color().setHex( 0x00000 );
+		material.specularIntensity = material.specularIntensity ?? 1.0;
+		material.specularColor = material.specularColor ?? new Color( 0xffffff );
 
 		return {
 			uuid: material.uuid,
@@ -153,6 +155,8 @@ export default class GeometryExtractor {
 			sheen: material.sheen,
 			sheenRoughness: material.sheenRoughness,
 			sheenColor: material.sheenColor,
+			specularIntensity: material.specularIntensity,
+			specularColor: material.specularColor,
 			thickness: material.thickness ?? 0.1,
 			clearcoat: material.clearcoat ?? 0.0,
 			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,
