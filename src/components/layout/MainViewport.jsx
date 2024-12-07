@@ -123,7 +123,7 @@ const MainViewport = () => {
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Camera size={12} className="bg-transparent border-white text-white" />
+								<Camera size={12} className="bg-transparent border-white text-forground/50" />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
@@ -133,7 +133,7 @@ const MainViewport = () => {
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button onClick={handleResetCamera} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Target size={12} className="bg-transparent border-white text-white" />
+								<Target size={12} className="bg-transparent border-white text-forground/50" />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
@@ -143,7 +143,7 @@ const MainViewport = () => {
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button onClick={handleFullscreen} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Maximize size={12} className="bg-transparent border-white text-white" />
+								<Maximize size={12} className="bg-transparent border-white text-forground/50" />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
