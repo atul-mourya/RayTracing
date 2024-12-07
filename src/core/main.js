@@ -45,6 +45,7 @@ import { TemporalReprojectionPass } from './Passes/TemporalReprojectionPass';
 import { disposeObjectFromMemory, generateMaterialSpheres, updateLoading } from './Processor/utils';
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from './Processor/Constants';
 import radialTexture from '../../public/radial-gradient.png';
+import { useStore } from '@/store';
 
 class PathTracerApp extends EventDispatcher {
 
@@ -395,6 +396,7 @@ class PathTracerApp extends EventDispatcher {
 			const data = await loader.loadAsync( modelUrl );
 			updateLoading( { status: "Processing Data...", progress: 30 } );
 
+			useStore.getState().setSelectedObject( null );
 			this.targetModel && disposeObjectFromMemory( this.targetModel );
 			this.targetModel = data.scene;
 
@@ -437,6 +439,7 @@ class PathTracerApp extends EventDispatcher {
 			const loader = await this.createGLTFLoader();
 			const data = await new Promise( ( resolve, reject ) => loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) ) );
 
+			useStore.getState().setSelectedObject( null );
 			disposeObjectFromMemory( this.targetModel );
 			this.targetModel = data.scene;
 

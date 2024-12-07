@@ -5,7 +5,7 @@ const TextRow = ( { className, ...props } ) => {
 	return (
 		<>
 			<span className="opacity-50 text-xs truncate">{props.label}</span>
-			<div className={cn( "relative flex h-5 w-full items-center max-w-32 opacity-50 text-xs truncate", className )}>
+			<div className={cn( "relative h-5 w-full text-right max-w-32 opacity-50 text-xs truncate", className )}>
 				{props.text}
 			</div>
 		</>
