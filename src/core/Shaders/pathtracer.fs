@@ -80,7 +80,7 @@ vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 
 	return evaluateBRDF( V, L, N, material );
 }
 
-vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, uint rngState ) {
+vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState ) {
 	bool entering = dot( ray.direction, hitInfo.normal ) < 0.0;
 	float n1 = entering ? 1.0 : material.ior;
 	float n2 = entering ? material.ior : 1.0;
@@ -101,9 +101,6 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
     // Determine if we reflect or refract
 	bool shouldReflect = ( refractDir == vec3( 0.0 ) ) || ( RandomValue( rngState ) < Fr );
 
-    // Update ray direction based on reflection/refraction
-	ray.direction = shouldReflect ? reflectDir : refractDir;
-
     // Calculate beer's law absorption for transmitted light
 	vec3 throughput = vec3( 1.0 );
 	if( ! shouldReflect && entering ) {
@@ -117,36 +114,53 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 		}
 	}
 
-    // Handle dispersion if enabled
+    // Handle dispersion if enabled and we're refracting
 	if( material.dispersion > 0.0 && ! shouldReflect ) {
-        // Simulate wavelength-dependent IOR variation
-		float dispersionStrength = float( material.dispersion ) * 0.02; // Scale factor for dispersion
-		vec3 dispersionOffsets = vec3( - 1.0, 0.0, 1.0 ) * dispersionStrength;
+        // Cauchy's equation coefficients for common glass
+        // These values are approximated for typical crown glass
+		float B = material.ior; // Base IOR
+		float C = material.dispersion; // Dispersion strength
 
-        // Randomly select one wavelength channel
+        // Wavelengths for RGB (in micrometers)
+		const vec3 wavelengths = vec3( 0.65, 0.55, 0.45 ); // Red, Green, Blue
+
+        // Calculate wavelength-dependent IOR using Cauchy's equation
+        // n(λ) = B + C/λ²
+		vec3 wavelengthDependendIOR = B + C / ( wavelengths * wavelengths );
+
+        // Randomly select one wavelength channel based on energy distribution
 		float randWavelength = RandomValue( rngState );
+		vec3 refractDirRGB;
+
 		if( randWavelength < 0.33 ) {
             // Red channel
-			float adjustedIOR = material.ior * ( 1.0 + dispersionOffsets.r );
-			ray.direction = refract( ray.direction, normal, entering ? 1.0 / adjustedIOR : adjustedIOR );
-			throughput *= vec3( 3.0, 0.0, 0.0 ); // Boost red channel
+			float iorRed = wavelengthDependendIOR.r;
+			float ratio = entering ? 1.0 / iorRed : iorRed;
+			refractDirRGB = refract( ray.direction, normal, ratio );
+			throughput = vec3( 3.0, 0.0, 0.0 ); // Boost red
 		} else if( randWavelength < 0.66 ) {
             // Green channel
-			float adjustedIOR = material.ior * ( 1.0 + dispersionOffsets.g );
-			ray.direction = refract( ray.direction, normal, entering ? 1.0 / adjustedIOR : adjustedIOR );
-			throughput *= vec3( 0.0, 3.0, 0.0 ); // Boost green channel
+			float iorGreen = wavelengthDependendIOR.g;
+			float ratio = entering ? 1.0 / iorGreen : iorGreen;
+			refractDirRGB = refract( ray.direction, normal, ratio );
+			throughput = vec3( 0.0, 3.0, 0.0 ); // Boost green
 		} else {
             // Blue channel
-			float adjustedIOR = material.ior * ( 1.0 + dispersionOffsets.b );
-			ray.direction = refract( ray.direction, normal, entering ? 1.0 / adjustedIOR : adjustedIOR );
-			throughput *= vec3( 0.0, 0.0, 3.0 ); // Boost blue channel
+			float iorBlue = wavelengthDependendIOR.b;
+			float ratio = entering ? 1.0 / iorBlue : iorBlue;
+			refractDirRGB = refract( ray.direction, normal, ratio );
+			throughput = vec3( 0.0, 0.0, 3.0 ); // Boost blue
 		}
+
+		ray.direction = refractDirRGB;
+	} else {
+        // No dispersion, use regular refraction
+		ray.direction = shouldReflect ? reflectDir : refractDir;
 	}
 
-    // Apply material color and adjust for transmission
-    // For transmitted light, we can optionally reduce the influence of the material color
-    // as transmission increases to simulate more transparent materials
+    // Apply material color
 	vec3 materialColor = shouldReflect ? material.color.rgb : mix( material.color.rgb, vec3( 1.0 ), material.transmission * 0.5 );
+
 	throughput *= materialColor;
 
 	return throughput;

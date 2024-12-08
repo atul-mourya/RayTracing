@@ -1,3 +1,49 @@
+float getMaterialImportance( RayTracingMaterial material ) {
+    // Base specular and diffuse weights
+	float specularWeight = ( 1.0 - material.roughness ) * ( 0.75 + 0.25 * material.metalness );
+	float diffuseWeight = ( 1.0 - material.metalness ) * material.roughness;
+
+    // Specular intensity contribution
+	specularWeight *= material.specularIntensity;
+
+    // Clearcoat contribution
+	float clearcoatWeight = material.clearcoat * ( 1.0 - material.clearcoatRoughness ) * 0.5;
+
+    // Sheen contribution
+	float sheenLuminance = dot( material.sheenColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+	float sheenWeight = material.sheen * ( 1.0 - material.sheenRoughness ) * sheenLuminance * 0.5;
+
+    // Iridescence contribution
+	float iridescenceThicknessRange = material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x;
+	float iridescenceWeight = material.iridescence *
+		( 1.0 - material.roughness ) * // More prominent on smooth surfaces
+		( 0.5 + 0.5 * iridescenceThicknessRange / 1000.0 ) * // Scale based on thickness range
+		( 0.5 + 0.5 * material.iridescenceIOR / 2.0 ) * // Consider IOR influence
+		0.5; // Overall scaling factor for iridescence
+
+    // Transmission/Refraction contribution with improved dispersion consideration
+	float transmissionWeight = material.transmission *
+		( 1.0 - material.roughness ) * // Smoother surfaces show more transmission effects
+		( 0.5 + 0.5 * material.ior / 2.0 ) * // Base IOR influence
+		( 1.0 + material.dispersion * 0.5 ) * // Increase importance with dispersion (changed from reduction)
+		0.7; // Overall scaling for transmission
+
+    // Emissive contribution
+	float emissiveWeight = length( material.emissive ) * material.emissiveIntensity * 0.5;
+
+    // Combine all weights
+	float total = specularWeight +
+		diffuseWeight +
+		clearcoatWeight +
+		sheenWeight +
+		iridescenceWeight +
+		transmissionWeight +
+		emissiveWeight;
+
+    // Return normalized importance value, prioritizing the most significant component
+	return max( max( max( specularWeight, clearcoatWeight ), max( sheenWeight, iridescenceWeight ) ), max( max( transmissionWeight, emissiveWeight ), diffuseWeight ) ) / total;
+}
+
 vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
 
 	float alpha = roughness * roughness;

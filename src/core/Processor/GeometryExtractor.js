@@ -131,7 +131,7 @@ export default class GeometryExtractor {
 		const alphaMode = this.getMaterialAlphaMode( material );
 
 		material.attenuationColor = material.attenuationColor ?? new Color( 0xffffff );
-		material.attenuationDistance = material.attenuationDistance ?? Infinity;
+		material.attenuationDistance = material.attenuationDistance ?? 1e20;
 		material.dispersion = material.dispersion ?? 0.0;
 		material.sheen = material.sheen ?? 0.0;
 		material.sheenRoughness = material.sheenRoughness ?? 1;

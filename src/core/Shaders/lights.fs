@@ -162,34 +162,6 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 b
     return totalLighting;
 }
 
-float getMaterialImportance( RayTracingMaterial material ) {
-    // Base specular and diffuse weights
-    float specularWeight = ( 1.0 - material.roughness ) * ( 0.75 + 0.25 * material.metalness );
-    float diffuseWeight = ( 1.0 - material.metalness ) * material.roughness;
-
-    // Clearcoat contribution
-    float clearcoatWeight = material.clearcoat * ( 1.0 - material.clearcoatRoughness ) * 0.5;
-
-    // Sheen contribution
-    // Weight based on sheen intensity and color luminance
-    float sheenLuminance = dot( material.sheenColor, vec3( 0.2126, 0.7152, 0.0722 ) );
-    float sheenWeight = material.sheen * ( 1.0 - material.sheenRoughness ) * sheenLuminance * 0.5;
-
-    // Iridescence contribution
-    // Weight based on iridescence intensity and thickness range
-    float iridescenceThicknessRange = material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x;
-    float iridescenceWeight = material.iridescence *
-        ( 1.0 - material.roughness ) * // More prominent on smooth surfaces
-        ( 0.5 + 0.5 * iridescenceThicknessRange / 1000.0 ) * // Scale based on thickness range
-        0.5; // Overall scaling factor for iridescence
-
-    // Combine all weights
-    float total = specularWeight + diffuseWeight + clearcoatWeight + sheenWeight + iridescenceWeight;
-
-    // Return normalized importance value, prioritizing the most significant component
-    return max( max( max( specularWeight, clearcoatWeight ), max( sheenWeight, iridescenceWeight ) ), diffuseWeight ) / total;
-}
-
 struct IndirectLightingResult {
     vec3 direction;
     vec3 throughput;
