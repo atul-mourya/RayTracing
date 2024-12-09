@@ -1,3 +1,4 @@
+// TextureCreator.js
 import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
 
 const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize;
@@ -5,7 +6,398 @@ const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
 export default class TextureCreator {
 
-	createMaterialDataTexture( materials ) {
+	constructor() {
+
+		this.useWorkers = typeof Worker !== 'undefined';
+		// Limit concurrent workers (adjust based on your needs)
+		this.maxConcurrentWorkers = 4;
+		this.maxConcurrentWorkers = Math.min( navigator.hardwareConcurrency || 4, 4 );
+		this.activeWorkers = 0;
+
+	}
+
+	// Add a worker queue handler
+	async executeWorker( workerPath, data ) {
+
+		// Wait if too many workers are active
+		while ( this.activeWorkers >= this.maxConcurrentWorkers ) {
+
+			await new Promise( resolve => setTimeout( resolve, 10 ) );
+
+		}
+
+		this.activeWorkers ++;
+		try {
+
+			const worker = new Worker( workerPath, { type: 'module' } );
+			const result = await new Promise( ( resolve, reject ) => {
+
+				worker.onmessage = ( e ) => {
+
+					if ( e.data.error ) {
+
+						reject( new Error( e.data.error ) );
+
+					} else {
+
+						resolve( e.data );
+
+					}
+
+				};
+
+				worker.onerror = reject;
+				worker.postMessage( data );
+
+			} );
+			worker.terminate();
+			return result;
+
+		} finally {
+
+			this.activeWorkers --;
+
+		}
+
+	}
+
+	async createAllTextures( params ) {
+
+		const {
+			materials,
+			triangles,
+			maps,
+			normalMaps,
+			bumpMaps,
+			roughnessMaps,
+			metalnessMaps,
+			emissiveMaps,
+			bvhRoot
+		} = params;
+
+		try {
+
+			const texturePromises = [];
+
+			// Material texture
+			if ( materials?.length ) {
+
+				texturePromises.push(
+					this.createMaterialDataTexture( materials )
+						.then( texture => ( { type: 'material', texture } ) )
+				);
+
+			}
+
+			// Triangle texture
+			if ( triangles?.length ) {
+
+				texturePromises.push(
+					this.createTriangleDataTexture( triangles )
+						.then( texture => ( { type: 'triangle', texture } ) )
+				);
+
+			}
+
+			// Maps textures
+			const mapPromises = [
+				{ data: maps, type: 'albedo' },
+				{ data: normalMaps, type: 'normal' },
+				{ data: bumpMaps, type: 'bump' },
+				{ data: roughnessMaps, type: 'roughness' },
+				{ data: metalnessMaps, type: 'metalness' },
+				{ data: emissiveMaps, type: 'emissive' }
+			].filter( ( { data } ) => data?.length > 0 )
+				.map( ( { data, type } ) =>
+					this.createTexturesToDataTexture( data )
+						.then( texture => ( { type, texture } ) )
+				);
+
+			texturePromises.push( ...mapPromises );
+
+			// BVH texture
+			if ( bvhRoot ) {
+
+				texturePromises.push(
+					this.createBVHDataTexture( bvhRoot )
+						.then( texture => ( { type: 'bvh', texture } ) )
+				);
+
+			}
+
+			// Wait for all textures to be created
+			const results = await Promise.all( texturePromises );
+
+			// Organize results into an object
+			return results.reduce( ( acc, { type, texture } ) => {
+
+				acc[ `${type}Texture` ] = texture;
+				return acc;
+
+			}, {} );
+
+		} catch ( error ) {
+
+			console.error( 'Error creating textures:', error );
+			throw error;
+
+		}
+
+	}
+
+	async createMaterialDataTexture( materials ) {
+
+		if ( this.useWorkers ) {
+
+			try {
+
+				const worker = new Worker(
+					new URL( './workers/MaterialTextureWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+				const result = await new Promise( ( resolve, reject ) => {
+
+					worker.onmessage = ( e ) => {
+
+						const { data, width, height, error } = e.data;
+						if ( error ) {
+
+							reject( new Error( error ) );
+							return;
+
+						}
+
+						resolve( { data, width, height } );
+
+					};
+
+					worker.onerror = ( error ) => reject( error );
+					worker.postMessage( { materials, DEFAULT_TEXTURE_MATRIX } );
+
+				} );
+
+				worker.terminate();
+
+				const texture = new DataTexture(
+					new Float32Array( result.data ),
+					result.width,
+					result.height,
+					RGBAFormat,
+					FloatType
+				);
+				texture.needsUpdate = true;
+				return texture;
+
+			} catch ( error ) {
+
+				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				return this.createMaterialDataTextureSync( materials );
+
+			}
+
+		}
+
+		return this.createMaterialDataTextureSync( materials );
+
+	}
+
+	async createTriangleDataTexture( triangles ) {
+
+		if ( this.useWorkers ) {
+
+			try {
+
+				const worker = new Worker(
+					new URL( './workers/TriangleTextureWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+				const result = await new Promise( ( resolve, reject ) => {
+
+					worker.onmessage = ( e ) => {
+
+						const { data, width, height, error } = e.data;
+						if ( error ) {
+
+							reject( new Error( error ) );
+							return;
+
+						}
+
+						resolve( { data, width, height } );
+
+					};
+
+					worker.onerror = ( error ) => reject( error );
+					worker.postMessage( { triangles } );
+
+				} );
+
+				worker.terminate();
+
+				const texture = new DataTexture(
+					new Float32Array( result.data ),
+					result.width,
+					result.height,
+					RGBAFormat,
+					FloatType
+				);
+				texture.needsUpdate = true;
+				return texture;
+
+			} catch ( error ) {
+
+				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				return this.createTriangleDataTextureSync( triangles );
+
+			}
+
+		}
+
+		return this.createTriangleDataTextureSync( triangles );
+
+	}
+
+	async createTexturesToDataTexture( textures ) {
+
+		if ( textures.length === 0 ) return null;
+
+		if ( this.useWorkers ) {
+
+			try {
+
+				const worker = new Worker(
+					new URL( './workers/TexturesWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+				const texturesData = textures.map( texture => ( {
+					width: texture.image.width,
+					height: texture.image.height,
+					data: this.getImageData( texture.image )
+				} ) );
+
+				const result = await new Promise( ( resolve, reject ) => {
+
+					worker.onmessage = ( e ) => {
+
+						const { data, width, height, depth, error } = e.data;
+						if ( error ) {
+
+							reject( new Error( error ) );
+							return;
+
+						}
+
+						resolve( { data, width, height, depth } );
+
+					};
+
+					worker.onerror = ( error ) => reject( error );
+					worker.postMessage( { textures: texturesData, maxTextureSize } );
+
+				} );
+
+				worker.terminate();
+
+				const texture = new DataArrayTexture(
+					new Uint8Array( result.data ),
+					result.width,
+					result.height,
+					result.depth
+				);
+				texture.minFilter = LinearFilter;
+				texture.magFilter = LinearFilter;
+				texture.format = RGBAFormat;
+				texture.type = UnsignedByteType;
+				texture.needsUpdate = true;
+				texture.generateMipmaps = false;
+				return texture;
+
+			} catch ( error ) {
+
+				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				return this.createTexturesToDataTextureSync( textures );
+
+			}
+
+		}
+
+		return this.createTexturesToDataTextureSync( textures );
+
+	}
+
+	async createBVHDataTexture( bvhRoot ) {
+
+		if ( this.useWorkers ) {
+
+			try {
+
+				const worker = new Worker(
+					new URL( './workers/BVHTextureWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+				const result = await new Promise( ( resolve, reject ) => {
+
+					worker.onmessage = ( e ) => {
+
+						const { data, width, height, error } = e.data;
+						if ( error ) {
+
+							reject( new Error( error ) );
+							return;
+
+						}
+
+						resolve( { data, width, height } );
+
+					};
+
+					worker.onerror = ( error ) => reject( error );
+					worker.postMessage( { bvhRoot } );
+
+				} );
+
+				worker.terminate();
+
+				const texture = new DataTexture(
+					new Float32Array( result.data ),
+					result.width,
+					result.height,
+					RGBAFormat,
+					FloatType
+				);
+				texture.needsUpdate = true;
+				return texture;
+
+			} catch ( error ) {
+
+				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				return this.createBVHDataTextureSync( bvhRoot );
+
+			}
+
+		}
+
+		return this.createBVHDataTextureSync( bvhRoot );
+
+	}
+
+	// Helper method to get image data
+	getImageData( image ) {
+
+		const canvas = document.createElement( 'canvas' );
+		canvas.width = image.width;
+		canvas.height = image.height;
+		const ctx = canvas.getContext( '2d' );
+		ctx.drawImage( image, 0, 0 );
+		return ctx.getImageData( 0, 0, image.width, image.height ).data;
+
+	}
+
+	createMaterialDataTextureSync( materials ) {
 
 		const pixelsRequired = 23; // 22 pixels per material
 		const dataInEachPixel = 4; // RGBA components
@@ -91,7 +483,7 @@ export default class TextureCreator {
 
 	}
 
-	createTriangleDataTexture( triangles ) {
+	createTriangleDataTextureSync( triangles ) {
 
 		const vec4PerTriangle = 3 + 3 + 2; // 3 vec4s for positions, 3 for normals, 2 for UVs and material index
 		const floatsPerTriangle = vec4PerTriangle * 4; // Each vec4 contains 4 floats
@@ -135,7 +527,7 @@ export default class TextureCreator {
 
 	}
 
-	createTexturesToDataTexture( textures ) {
+	createTexturesToDataTextureSync( textures ) {
 
 		if ( textures.length == 0 ) return null;
 
@@ -202,7 +594,7 @@ export default class TextureCreator {
 
 	}
 
-	createBVHDataTexture( bvhRoot ) {
+	createBVHDataTextureSync( bvhRoot ) {
 
 		const nodes = [];
 		const flattenBVH = ( node ) => {

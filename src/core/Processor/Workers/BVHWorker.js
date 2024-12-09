@@ -1,4 +1,4 @@
-import BVHBuilder from './BVHBuilder.js';
+import BVHBuilder from '../BVHBuilder.js';
 
 self.onmessage = function ( e ) {
 

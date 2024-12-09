@@ -33,7 +33,7 @@ export default class BVHBuilder {
 				try {
 
 					const worker = new Worker(
-						new URL( './BVHWorker.js', import.meta.url ),
+						new URL( './Workers/BVHWorker.js', import.meta.url ),
 						{ type: 'module' }
 					);
 

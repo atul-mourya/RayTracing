@@ -60,7 +60,7 @@ export default class TriangleSDF {
 
 		time = performance.now();
 		updateLoading( { status: "Processing Textures...", progress: 80 } );
-		this.createTextures();
+		await this.createTextures();
 		console.log( 'Texture creation time:', performance.now() - time );
 		this.spheres = this.createSpheres();
 
@@ -71,17 +71,40 @@ export default class TriangleSDF {
 
 	}
 
-	createTextures() {
+	async createTextures() {
 
-		this.materialTexture = this.textureCreator.createMaterialDataTexture( this.materials );
-		this.triangleTexture = this.textureCreator.createTriangleDataTexture( this.triangles );
-		this.albedoTextures = this.textureCreator.createTexturesToDataTexture( this.maps );
-		this.normalTextures = this.textureCreator.createTexturesToDataTexture( this.normalMaps );
-		this.bumpTextures = this.textureCreator.createTexturesToDataTexture( this.bumpMaps );
-		this.roughnessTextures = this.textureCreator.createTexturesToDataTexture( this.roughnessMaps );
-		this.metalnessTextures = this.textureCreator.createTexturesToDataTexture( this.metalnessMaps );
-		this.emissiveTextures = this.textureCreator.createTexturesToDataTexture( this.emissiveMaps );
-		this.bvhTexture = this.textureCreator.createBVHDataTexture( this.bvhRoot );
+		const params = {
+			materials: this.materials,
+			triangles: this.triangles,
+			maps: this.maps,
+			normalMaps: this.normalMaps,
+			bumpMaps: this.bumpMaps,
+			roughnessMaps: this.roughnessMaps,
+			metalnessMaps: this.metalnessMaps,
+			emissiveMaps: this.emissiveMaps,
+			bvhRoot: this.bvhRoot
+		};
+
+		try {
+
+			const textures = await this.textureCreator.createAllTextures( params );
+
+			this.materialTexture = textures.materialTexture;
+			this.triangleTexture = textures.triangleTexture;
+			this.albedoTextures = textures.albedoTexture;
+			this.normalTextures = textures.normalTexture;
+			this.bumpTextures = textures.bumpTexture;
+			this.roughnessTextures = textures.roughnessTexture;
+			this.metalnessTextures = textures.metalnessTexture;
+			this.emissiveTextures = textures.emissiveTexture;
+			this.bvhTexture = textures.bvhTexture;
+
+		} catch ( error ) {
+
+			console.error( 'Error in parallel texture creation:', error );
+			throw error;
+
+		}
 
 	}
 
@@ -118,10 +141,29 @@ export default class TriangleSDF {
 
 	dispose() {
 
-		this.materialTexture.dispose();
-		this.triangleTexture.dispose();
-		this.diffuseTextures.dispose();
-		this.bvhTexture.dispose();
+		const textures = [
+			'materialTexture',
+			'triangleTexture',
+			'albedoTextures',
+			'normalTextures',
+			'bumpTextures',
+			'roughnessTextures',
+			'metalnessTextures',
+			'emissiveTextures',
+			'bvhTexture'
+		];
+
+		textures.forEach( textureName => {
+
+			if ( this[ textureName ] ) {
+
+				this[ textureName ].dispose();
+				this[ textureName ] = null;
+
+			}
+
+		} );
+
 		this.resetArrays();
 		this.spheres = [];
 

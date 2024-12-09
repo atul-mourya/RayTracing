@@ -345,15 +345,15 @@ export default class GeometryExtractor {
 	addTriangle( materialIndex ) {
 
 		this.triangles.push( {
-			posA: this.posA.clone(),
-			posB: this.posB.clone(),
-			posC: this.posC.clone(),
-			normalA: this.normalA.clone(),
-			normalB: this.normalB.clone(),
-			normalC: this.normalC.clone(),
-			uvA: this.uvA.clone(),
-			uvB: this.uvB.clone(),
-			uvC: this.uvC.clone(),
+			posA: { x: this.posA.x, y: this.posA.y, z: this.posA.z },
+			posB: { x: this.posB.x, y: this.posB.y, z: this.posB.z },
+			posC: { x: this.posC.x, y: this.posC.y, z: this.posC.z },
+			normalA: { x: this.normalA.x, y: this.normalA.y, z: this.normalA.z },
+			normalB: { x: this.normalB.x, y: this.normalB.y, z: this.normalB.z },
+			normalC: { x: this.normalC.x, y: this.normalC.y, z: this.normalC.z },
+			uvA: { x: this.uvA.x, y: this.uvA.y },
+			uvB: { x: this.uvB.x, y: this.uvB.y },
+			uvC: { x: this.uvC.x, y: this.uvC.y },
 			materialIndex: materialIndex
 		} );
 
