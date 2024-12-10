@@ -339,7 +339,7 @@ export class PathTracerPass extends Pass {
 	updateMaterialDataTexture( materialIndex, property, value ) {
 
 		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 92; // 23 pixels * 4 components per pixel
+		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
 
 		switch ( property ) {
 

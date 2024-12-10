@@ -47,30 +47,30 @@ mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
 
 RayTracingMaterial getMaterial( int materialIndex ) {
 
-	vec4 data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 0, 23 );
-	vec4 data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 1, 23 );
-	vec4 data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 2, 23 );
-	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 3, 23 );
-	vec4 data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 23 );
-	vec4 data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 5, 23 );
-	vec4 data7 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 6, 23 );
-	vec4 data8 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 7, 23 );
-	vec4 data9 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 8, 23 );
-	vec4 data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 9, 23 );
-	vec4 data11 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, 23 );
-	vec4 data12 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 11, 23 );
-	vec4 data13 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 12, 23 );
-	vec4 data14 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 13, 23 );
-	vec4 data15 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 14, 23 );
-	vec4 data16 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 15, 23 );
-	vec4 data17 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 16, 23 );
-	vec4 data18 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 17, 23 );
-	vec4 data19 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 18, 23 );
-	vec4 data20 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 19, 23 );
-	vec4 data21 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 20, 23 );
-	vec4 data22 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 21, 23 );
-	vec4 data23 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 22, 23 );
-	vec4 data24 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 23, 23 );
+	vec4 data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 0, 24 );
+	vec4 data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 1, 24 );
+	vec4 data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 2, 24 );
+	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 3, 24 );
+	vec4 data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 24 );
+	vec4 data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 5, 24 );
+	vec4 data7 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 6, 24 );
+	vec4 data8 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 7, 24 );
+	vec4 data9 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 8, 24 );
+	vec4 data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 9, 24 );
+	vec4 data11 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, 24 );
+	vec4 data12 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 11, 24 );
+	vec4 data13 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 12, 24 );
+	vec4 data14 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 13, 24 );
+	vec4 data15 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 14, 24 );
+	vec4 data16 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 15, 24 );
+	vec4 data17 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 16, 24 );
+	vec4 data18 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 17, 24 );
+	vec4 data19 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 18, 24 );
+	vec4 data20 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 19, 24 );
+	vec4 data21 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 20, 24 );
+	vec4 data22 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 21, 24 );
+	vec4 data23 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 22, 24 );
+	vec4 data24 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 23, 24 );
 
 	RayTracingMaterial material;
 
@@ -122,11 +122,11 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.normalScale = vec2( data12.b, data12.a );
 
 	material.albedoTransform = arrayToMat3( data13, data14 );
-	material.emissiveTransform = arrayToMat3( data15, data16 );
-	material.normalTransform = arrayToMat3( data17, data18 );
-	material.bumpTransform = arrayToMat3( data19, data20 );
-	material.metalnessTransform = arrayToMat3( data21, data22 );
-	material.roughnessTransform = arrayToMat3( data23, data24 );
+	material.normalTransform = arrayToMat3( data15, data16 );
+	material.roughnessTransform = arrayToMat3( data17, data18 );
+	material.metalnessTransform = arrayToMat3( data19, data20 );
+	material.emissiveTransform = arrayToMat3( data21, data22 );
+	material.bumpTransform = arrayToMat3( data23, data24 );
 
 	return material;
 }

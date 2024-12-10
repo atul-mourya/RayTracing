@@ -4,7 +4,7 @@ self.onmessage = function ( e ) {
 
 	try {
 
-		const pixelsRequired = 23;
+		const pixelsRequired = 24;
 		const dataInEachPixel = 4;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;

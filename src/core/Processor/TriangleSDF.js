@@ -30,6 +30,7 @@ export default class TriangleSDF {
 		this.geometryExtractor = new GeometryExtractor();
 		this.bvhBuilder = new BVHBuilder();
 		this.textureCreator = new TextureCreator();
+		this.textureCreator.useWorkers = false;
 
 		const extractedData = this.geometryExtractor.extract( object );
 		this.triangles = extractedData.triangles;

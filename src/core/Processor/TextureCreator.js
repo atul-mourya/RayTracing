@@ -399,7 +399,7 @@ export default class TextureCreator {
 
 	createMaterialDataTextureSync( materials ) {
 
-		const pixelsRequired = 23; // 22 pixels per material
+		const pixelsRequired = 24; // 24 pixels per material
 		const dataInEachPixel = 4; // RGBA components
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
