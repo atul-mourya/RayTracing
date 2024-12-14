@@ -386,6 +386,16 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		}
 		// return vec4(brdfValue, 1.0);
 
+		// Direct lighting using MIS
+		// Calculate direct lighting using Multiple Importance Sampling
+		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, rngState, stats );
+		radiance += reduceFireflies( directLight * throughput, 5.0 );
+		// return vec4(directLight, 1.0);
+
+		// Calculate emitted light
+		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
+		radiance += emittedLight * throughput * PI;// * 10.0; // added PI * 10.0 to compensate for low intensity
+
 		// Indirect lighting using MIS
 		IndirectLightingResult indirectResult = calculateIndirectLightingMIS( V, N, material, brdfValue, pdf, L, sampleIndex, i, rngState );
 		// Update throughput
@@ -396,15 +406,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
 
-		// Direct lighting using MIS
-		// Calculate direct lighting using Multiple Importance Sampling
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, rngState, stats );
-		radiance += reduceFireflies( directLight * throughput, 5.0 );
-		// return vec4(directLight, 1.0);
-
-		// Calculate emitted light
-		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		radiance += emittedLight * throughput * PI * 10.0; // added PI * 10.0 to compensate for low intensity
 
 		alpha *= material.color.a;
 
