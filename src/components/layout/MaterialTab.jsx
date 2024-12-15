@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Slider } from "@/components/ui/slider";
 import { ColorInput } from "@/components/ui/colorinput";
-import { DraggableInput } from "@/components/ui/draggable-input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
 import { useStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
@@ -373,7 +373,7 @@ const MaterialTab = () => {
 				<ColorInput label={"Attenuation Color"} value={attenuationColor} onChange={handleAttenuationColorChange} />
 			</div>
 			<div className="flex items-center justify-between">
-				<DraggableInput label={"Attenuation Distance"} min={0} max={10000} step={1} value={attenuationDistance} onValueChange={handleAttenuationDistanceChange} />
+				<NumberInput label={"Attenuation Distance"} min={0} max={1000} step={1} value={attenuationDistance} onValueChange={handleAttenuationDistanceChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Dispersion"} min={0} max={1} step={0.001} value={[ dispersion ]} onValueChange={handleDispersionChange} />
