@@ -152,7 +152,7 @@ export default class TextureCreator {
 			try {
 
 				const worker = new Worker(
-					new URL( './workers/MaterialTextureWorker.js', import.meta.url ),
+					new URL( './Workers/MaterialTextureWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);
 
@@ -209,7 +209,7 @@ export default class TextureCreator {
 			try {
 
 				const worker = new Worker(
-					new URL( './workers/TriangleTextureWorker.js', import.meta.url ),
+					new URL( './Workers/TriangleTextureWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);
 
@@ -268,7 +268,7 @@ export default class TextureCreator {
 			try {
 
 				const worker = new Worker(
-					new URL( './workers/TexturesWorker.js', import.meta.url ),
+					new URL( './Workers/TexturesWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);
 
@@ -335,7 +335,7 @@ export default class TextureCreator {
 			try {
 
 				const worker = new Worker(
-					new URL( './workers/BVHTextureWorker.js', import.meta.url ),
+					new URL( './Workers/BVHTextureWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);
 
