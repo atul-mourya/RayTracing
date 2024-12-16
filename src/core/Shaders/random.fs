@@ -50,18 +50,43 @@ vec2 owen_scrambled_sobol2D(uint index, uint seed) {
     );
 }
 
-vec4 sampleSTBN( vec2 pixelCoords ) {
-	vec3 stbnr = spatioTemporalBlueNoiseReolution;
-	vec2 textureSize = vec2( stbnr.x, stbnr.y * stbnr.z );
-	vec2 texCoord = ( pixelCoords + vec2( 0.5 ) ) / float( stbnr.x );
-	texCoord.y = ( texCoord.y + float( int( frame ) % int( stbnr.z ) ) ) / float( stbnr.z );
-	vec4 noise = texture2D( spatioTemporalBlueNoiseTexture, texCoord );
-
-	// Combine with PCG hash for extended variation by adding offset
-	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
-	float random = float( pcg_hash( seed ) ) / 4294967295.0;
-
-	return fract( noise + random ); // Combine blue noise with PCG hash
+// spatio-temporal blue noise texture sampling
+vec4 sampleSTBN(vec2 pixelCoords) {
+    // Constants optimized for 64x64 L32 texture
+    const float GOLDEN_RATIO = 1.618033988749895;
+    const vec2 RESOLUTION = vec2(64.0);
+    const float FRAMES = 32.0;
+    
+    // Calculate frame sequence using golden ratio for better distribution
+    float frameOffset = float(frame % 32u) * GOLDEN_RATIO;
+    
+    // Scale and wrap coordinates to match texture resolution
+    vec2 scaledCoords = pixelCoords / RESOLUTION;
+    
+    // Add temporal jittering based on frame sequence
+    vec2 temporalOffset = vec2(
+        sin(frameOffset * 0.1) * 0.5,
+        cos(frameOffset * 0.1) * 0.5
+    );
+    
+    // Calculate texture coordinates with temporal offset
+    vec2 texCoord = fract(scaledCoords + temporalOffset);
+    
+    // Add vertical offset for frame sequence (optimized for 32 frames)
+    texCoord.y = (texCoord.y + float(int(frame) % int(FRAMES))) / FRAMES;
+    
+    // Sample the blue noise texture
+    vec4 blueNoise = texture2D(spatioTemporalBlueNoiseTexture, texCoord);
+    
+    // Generate decorrelated random value using PCG
+    uint seed = uint(pixelCoords.x) * 12487u + 
+                uint(pixelCoords.y) * 78191u + 
+                uint(frame) * 34033u;
+    float random = float(pcg_hash(seed)) / 4294967295.0;
+    
+    // Combine noise sources while preserving blue noise characteristics
+    // Use a 80-20 mix to maintain blue noise properties while adding variation
+    return fract(blueNoise + random * 0.2);
 }
 
 float RandomValue( inout uint state ) {
