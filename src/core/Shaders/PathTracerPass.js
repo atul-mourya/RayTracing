@@ -148,7 +148,7 @@ export class PathTracerPass extends Pass {
 			texture.wrapT = RepeatWrapping;
 			texture.generateMipmaps = false;
 
-			this.material.uniforms.spatioTemporalBlueNoiseTexture = texture;
+			this.material.uniforms.spatioTemporalBlueNoiseTexture.value = texture;
 
 		} );
 
@@ -160,7 +160,7 @@ export class PathTracerPass extends Pass {
 			texture.wrapT = RepeatWrapping;
 			texture.generateMipmaps = false;
 
-			this.material.uniforms.blueNoiseTexture = texture;
+			this.material.uniforms.blueNoiseTexture.value = texture;
 
 		} );
 

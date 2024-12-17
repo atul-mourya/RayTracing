@@ -51,42 +51,18 @@ vec2 owen_scrambled_sobol2D(uint index, uint seed) {
 }
 
 // spatio-temporal blue noise texture sampling
-vec4 sampleSTBN(vec2 pixelCoords) {
-    // Constants optimized for 64x64 L32 texture
-    const float GOLDEN_RATIO = 1.618033988749895;
-    const vec2 RESOLUTION = vec2(64.0);
-    const float FRAMES = 32.0;
-    
-    // Calculate frame sequence using golden ratio for better distribution
-    float frameOffset = float(frame % 32u) * GOLDEN_RATIO;
-    
-    // Scale and wrap coordinates to match texture resolution
-    vec2 scaledCoords = pixelCoords / RESOLUTION;
-    
-    // Add temporal jittering based on frame sequence
-    vec2 temporalOffset = vec2(
-        sin(frameOffset * 0.1) * 0.5,
-        cos(frameOffset * 0.1) * 0.5
-    );
-    
-    // Calculate texture coordinates with temporal offset
-    vec2 texCoord = fract(scaledCoords + temporalOffset);
-    
-    // Add vertical offset for frame sequence (optimized for 32 frames)
-    texCoord.y = (texCoord.y + float(int(frame) % int(FRAMES))) / FRAMES;
-    
-    // Sample the blue noise texture
-    vec4 blueNoise = texture2D(spatioTemporalBlueNoiseTexture, texCoord);
-    
-    // Generate decorrelated random value using PCG
-    uint seed = uint(pixelCoords.x) * 12487u + 
-                uint(pixelCoords.y) * 78191u + 
-                uint(frame) * 34033u;
-    float random = float(pcg_hash(seed)) / 4294967295.0;
-    
-    // Combine noise sources while preserving blue noise characteristics
-    // Use a 80-20 mix to maintain blue noise properties while adding variation
-    return fract(blueNoise + random * 0.2);
+vec4 sampleSTBN( vec2 pixelCoords ) {
+	vec3 stbnr = spatioTemporalBlueNoiseReolution;
+	vec2 textureSize = vec2( stbnr.x, stbnr.y * stbnr.z );
+	vec2 texCoord = ( pixelCoords + vec2( 0.5 ) ) / float( stbnr.x );
+	texCoord.y = ( texCoord.y + float( int( frame ) % int( stbnr.z ) ) ) / float( stbnr.z );
+	vec4 noise = texture2D( spatioTemporalBlueNoiseTexture, texCoord );
+
+	// Combine with PCG hash for extended variation by adding offset
+	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
+	float random = float( pcg_hash( seed ) ) / 4294967295.0;
+
+	return fract( noise + random ); // Combine blue noise with PCG hash
 }
 
 float RandomValue( inout uint state ) {
@@ -259,7 +235,46 @@ vec2 sampleBlueNoise(vec2 pixelCoords) {
 	return fract( noise + random ); // Combine blue noise with PCG hash
 }
 
-vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex) {
+// PCG-4D state and functions
+struct RNGState {
+    uvec4 state;
+    ivec2 pixel;
+};
+
+void pcg4d(inout uvec4 v) {
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y*v.w; 
+    v.y += v.z*v.x; 
+    v.z += v.x*v.y; 
+    v.w += v.y*v.z;
+    v = v ^ (v>>16u);
+    v.x += v.y*v.w; 
+    v.y += v.z*v.x; 
+    v.z += v.x*v.y; 
+    v.w += v.y*v.z;
+}
+
+void initializeRNG(inout RNGState rState, vec2 pixel, int frame, int sampleIndex) {
+    rState.pixel = ivec2(pixel);
+    // Combine frame, sample index and pixel position for better variation
+    rState.state = uvec4(
+        uint(frame), 
+        uint(frame * 15843 + sampleIndex), 
+        uint(frame * 31 + 4566 + sampleIndex * 7), 
+        uint(frame * 2345 + 58585 + sampleIndex * 13)
+    );
+}
+
+ivec2 getBlueNoiseOffset(inout RNGState rState) {
+    pcg4d(rState.state);
+    return (rState.pixel + ivec2(rState.state.xy % 0x0fffffffu)) % textureSize(blueNoiseTexture, 0).x;
+}
+
+vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex, int frame) {
+    // Initialize RNG state
+    RNGState rState;
+    initializeRNG(rState, pixelCoord, frame, sampleIndex);
+    
     // Calculate stratum
     int strataSize = int(sqrt(float(numRaysPerPixel)));
     int strataX = sampleIndex % strataSize;
@@ -271,11 +286,20 @@ vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex) {
         (float(strataY) + 0.5) / float(strataSize)
     );
 
-    // Sample noise texture
-    vec2 noiseValue = texture(blueNoiseTexture, pixelCoord / float(textureSize(blueNoiseTexture, 0))).xy;
+    // Get temporally-varying blue noise
+    ivec2 noiseOffset = getBlueNoiseOffset(rState);
+    vec2 noiseValue = texelFetch(blueNoiseTexture, noiseOffset, 0).xy;
 
-    // Offset sample using noise
-    vec2 offset = (noiseValue - 0.5) / float(strataSize);
+    // Generate additional temporal variation
+    pcg4d(rState.state);
+    vec2 temporalJitter = vec2(
+        float(rState.state.x),
+        float(rState.state.y)
+    ) / 4294967295.0;
+
+    // Combine stratification with noise
+    vec2 offset = (noiseValue - 0.5 + (temporalJitter - 0.5) * 0.2) / float(strataSize);
+    
     return fract(stratifiedSample + offset);
 }
 
@@ -291,7 +315,7 @@ vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout ui
 			return sampleBlueNoise(pixelCoord);
 
 		case 6: // Stratified Blue Noise
-			return stratifiedBlueNoiseSample(pixelCoord, sampleIndex);
+            return stratifiedBlueNoiseSample(pixelCoord, sampleIndex, int(frame));
         
         case 0: // PCG
             return vec2(RandomValue(rngState), RandomValue(rngState));
@@ -318,8 +342,8 @@ vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout 
 
 	} else if( samplingTechnique == 4 ) { // Stratified
 		return vec4(
-			stratifiedBlueNoiseSample(pixelCoord, sampleIndex * 2),
-			stratifiedBlueNoiseSample(pixelCoord, sampleIndex * 2 + 1)
+			stratifiedBlueNoiseSample( pixelCoord, sampleIndex, int( frame ) ),
+			stratifiedBlueNoiseSample( pixelCoord, sampleIndex + 1, int( frame ) )
 		);
 
 	} else if ( samplingTechnique == 5 ) { // Simple 2D Blue Noise
@@ -329,7 +353,7 @@ vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout 
 
 	} else if ( samplingTechnique == 6 ) { // Stratified Blue Noise
 	
-		vec2 noise = stratifiedBlueNoiseSample( pixelCoord, sampleIndex );
+		vec2 noise = stratifiedBlueNoiseSample( pixelCoord, sampleIndex, int( frame ) );
 		return vec4( noise, noise );
 		
 	} else { // Halton or Sobol
