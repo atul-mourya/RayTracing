@@ -6,6 +6,7 @@ import { remap } from "@/lib/utils";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { create } from 'zustand';
 import { useEffect } from 'react';
+import { FieldOfView } from "@/assets/icons";
 
 const CAMERA_RANGES = {
 	fov: {
@@ -285,6 +286,7 @@ const CameraTab = () => {
 			<div className="flex items-center justify-between">
 				<Slider
 					label={"FOV"}
+					icon={FieldOfView}
 					min={CAMERA_RANGES.fov.min}
 					max={CAMERA_RANGES.fov.max}
 					step={5}

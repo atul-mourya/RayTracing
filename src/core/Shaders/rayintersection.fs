@@ -6,61 +6,6 @@ uniform float aperture;
 uniform float focalLength;
 uniform float apertureScale;
 
-struct Ray {
-	vec3 origin;
-	vec3 direction;
-};
-
-Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
-    // Convert screen position to NDC (Normalized Device Coordinates)
-	vec3 ndcPos = vec3( screenPosition.xy, 1.0 );
-
-    // Convert NDC to camera space
-	vec4 rayDirCameraSpace = cameraProjectionMatrixInverse * vec4( ndcPos, 1.0 );
-	rayDirCameraSpace.xyz /= rayDirCameraSpace.w;
-	rayDirCameraSpace.xyz = normalize( rayDirCameraSpace.xyz );
-
-    // Convert to world space
-	vec3 rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] );
-	vec3 rayDirectionWorld = normalize( mat3( cameraWorldMatrix ) * rayDirCameraSpace.xyz );
-
-    // Set up basic ray
-	Ray ray;
-	ray.origin = rayOriginWorld;
-	ray.direction = rayDirectionWorld;
-
-    // Skip depth of field calculations if aperture is too small (pinhole camera)
-	if( aperture > 16.0 || focalLength <= 0.0 ) {
-		return ray;
-	}
-
-    // Calculate focal point - where rays converge
-	vec3 focalPoint = rayOriginWorld + rayDirectionWorld * focusDistance;
-
-    // Calculate aperture diameter and scale appropriately
-    // Use larger scaling factors to make the effect more visible
-    // focalLength is in mm, we want to scale it to have a noticeable but controlled effect
-	float focalLengthMeters = focalLength * 0.001; // Convert mm to meters
-
-    // Calculate the aperture size - using real-world-inspired scaling
-    // Multiply by a larger factor to make the effect more pronounced
-	float apertureRadius = ( focalLengthMeters / ( 2.0 * aperture ) ) * 0.1 * apertureScale;
-
-    // Generate random point on aperture disk
-	vec2 randomAperturePoint = RandomPointInCircle( rngState );
-	vec3 right = normalize( cross( rayDirectionWorld, vec3( 0.0, 1.0, 0.0 ) ) );
-	vec3 up = normalize( cross( right, rayDirectionWorld ) );
-
-    // Apply the aperture offset
-	vec3 apertureOffset = ( right * randomAperturePoint.x + up * randomAperturePoint.y ) * apertureRadius;
-	ray.origin = rayOriginWorld + apertureOffset;
-
-    // Update ray direction to point through focal point
-	ray.direction = normalize( focalPoint - ray.origin );
-
-	return ray;
-}
-
 // Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
 // Thanks to https://stackoverflow.com/a/42752998
 HitInfo RayTriangle( Ray ray, Triangle tri ) {

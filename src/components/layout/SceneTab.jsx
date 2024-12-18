@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { create } from 'zustand';
+import { Exposure } from '@/assets/icons';
 
 const useSceneStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
@@ -129,7 +130,7 @@ const SceneTab = () => {
 				</Select>
 			</div>
 			<div className="flex items-center justify-between">
-				<Slider label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} onValueChange={handleExposureChange} />
+				<Slider icon={Exposure} label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} onValueChange={handleExposureChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Switch label={"Show Background"} checked={showBackground} onCheckedChange={handleShowBackgroundChange} />

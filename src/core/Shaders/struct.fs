@@ -1,3 +1,9 @@
+
+struct Ray {
+	vec3 origin;
+	vec3 direction;
+};
+
 struct RayTracingMaterial {
 	vec4 color;
 	vec3 emissive;
