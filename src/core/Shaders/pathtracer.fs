@@ -267,20 +267,22 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 }
 
 bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTracingMaterial material ) {
+    // OPTIMIZATION: Early exit for very dark paths
+	float pathIntensity = max( max( rayColor.r, rayColor.g ), rayColor.b );
+	if( pathIntensity < 0.01 && depth > 2u )
+		return false;
 
 	uint minBounces = uint( mix( 3.0, 5.0, max( luminance( material.color.rgb ), material.metalness ) ) );
-	float importanceValue = max( luminance( rayColor ), max( material.metalness, material.transmission ) );
-	float rrProb = mix( importanceValue, 1.0, float( depth < minBounces ) );
-	float depthProb = float( depth < minBounces );
-	rrProb = sqrt( rrProb );
-	rrProb = max( rrProb, depthProb );
-	rrProb = min( rrProb, 1.0 );
+
+	float rrProb = clamp( pathIntensity, 0.05, 1.0 );
+	if( depth < minBounces )
+		rrProb = 1.0;
 
 	if( randomValue > rrProb ) {
 		return false;
 	}
 
-	rayColor *= min( 1.0 / rrProb, 20.0 );
+	rayColor *= 1.0 / rrProb;
 	return true;
 }
 
@@ -405,7 +407,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Update ray for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
-
 
 		alpha *= material.color.a;
 

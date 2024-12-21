@@ -178,58 +178,64 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 		int nodeIndex = stack[ -- stackSize ];
 		BVHNode node = getBVHNode( nodeIndex );
 		stats[ 0 ] ++;
+
 		if( node.leftChild < 0 ) { // Leaf node
 			for( int i = 0; i < int( node.triOffset.y ); i ++ ) {
 				stats[ 1 ] ++;
 				int triIndex = int( node.triOffset.x ) + i;
 				Triangle tri = getTriangle( triIndex );
 				HitInfo hit = RayTriangle( ray, tri );
+
 				if( hit.didHit && hit.dst < closestHit.dst ) {
 					hit.material = getMaterial( tri.materialIndex );
 
-					/* skip if 
-						use ray direction and hit normal and check below cases to determine we need to skip or not
-						case FrontSide -> material.side = 0;
-						case BackSide -> material.side = 1;
-						case DoubleSide -> material.side = 2;
-					*/
-					if( hit.material.visible == false ) {
-						hit.didHit = false;
-					} else if( hit.material.side == 0 && dot( ray.direction, hit.normal ) > 0.0001 ) {
-						hit.didHit = false;
-					} else if( hit.material.side == 1 && dot( ray.direction, hit.normal ) < 0.0001 ) {
-						hit.didHit = false;
-					} else {
+                    // Material visibility check
+					float rayDotNormal = dot( ray.direction, hit.normal );
+					bool visible = hit.material.visible && ( hit.material.side == 2 || // DoubleSide
+						( hit.material.side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
+						( hit.material.side == 1 && rayDotNormal > 0.0001 )     // BackSide
+					);
+
+					if( visible ) {
 						closestHit = hit;
 					}
-
 				}
 			}
-		} else {
-
-			int childAIndex = node.leftChild;
-			int childBIndex = node.rightChild;
-
-			BVHNode childA = getBVHNode( childAIndex );
-			BVHNode childB = getBVHNode( childBIndex );
-
-			float dstA = RayBoundingBoxDst( ray, childA.boundsMin, childA.boundsMax );
-			float dstB = RayBoundingBoxDst( ray, childB.boundsMin, childB.boundsMax );
-
-			bool isNearestA = dstA < dstB;
-
-			float dstNear = isNearestA ? dstA : dstB;
-			float dstFar = isNearestA ? dstB : dstA;
-
-			int childIndexNear = isNearestA ? childAIndex : childBIndex;
-			int childIndexFar = isNearestA ? childBIndex : childAIndex;
-
-			// we want closest child to be looked at first, so it should be pushed last
-			if( dstFar < closestHit.dst ) stack[ stackSize ++ ] = childIndexFar;
-			if( dstNear < closestHit.dst ) stack[ stackSize ++ ] = childIndexNear;
-
+			continue;
 		}
 
+        // Internal node - fetch both children at once
+		BVHNode childA = getBVHNode( node.leftChild );
+		BVHNode childB = getBVHNode( node.rightChild );
+
+        // Compute distances before branching
+		float dstA = RayBoundingBoxDst( ray, childA.boundsMin, childA.boundsMax );
+		float dstB = RayBoundingBoxDst( ray, childB.boundsMin, childB.boundsMax );
+
+        // Skip subtrees if we can't possibly hit anything closer
+		if( dstA >= closestHit.dst && dstB >= closestHit.dst ) {
+			continue;
+		}
+
+        // Push children onto stack in far-to-near order
+        // This ensures we process nearest potential hits first
+		if( dstA < dstB ) {
+            // Child A is closer
+			if( dstB < closestHit.dst ) {
+				stack[ stackSize ++ ] = node.rightChild;
+			}
+			if( dstA < closestHit.dst ) {
+				stack[ stackSize ++ ] = node.leftChild;
+			}
+		} else {
+            // Child B is closer
+			if( dstA < closestHit.dst ) {
+				stack[ stackSize ++ ] = node.leftChild;
+			}
+			if( dstB < closestHit.dst ) {
+				stack[ stackSize ++ ] = node.rightChild;
+			}
+		}
 	}
 
 	return closestHit;
