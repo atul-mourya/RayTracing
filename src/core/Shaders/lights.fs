@@ -83,6 +83,10 @@ bool pointInRectangle( vec3 point, vec3 center, vec3 u, vec3 v ) {
 vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 brdfValue, float brdfPdf, inout uint rngState, inout ivec2 stats ) {
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
+    float NoV = max( dot( N, V ), 0.001 );
+
+    // Pre-compute shadow ray origin
+    vec3 shadowOrigin = hitInfo.hitPoint + N * 0.001;
 
     // Directional lights
     for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i ++ ) {
@@ -92,18 +96,18 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 b
             continue;
 
         vec3 L = normalize( light.direction );
-        float NoL = max( dot( N, L ), 0.0 );
+        float NoL = dot( N, L );
 
         // check if light coming from behind
         if( NoL <= 0.0 )
             continue;
 
         // Check for shadows
-        if( isPointInShadow( hitInfo.hitPoint, N, L, stats ) )
+        if( isPointInShadow( shadowOrigin, N, L, stats ) )
             continue;
 
         // Light contribution
-        vec3 lightContribution = light.color * light.intensity * PI;
+        vec3 lightContribution = light.color * light.intensity;
         vec3 brdfValueForLight = evaluateBRDF( V, L, N, hitInfo.material );
 
         // MIS weights
@@ -116,9 +120,8 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 b
 
         // Add BRDF sampling contribution
         // Check if the BRDF sample direction hits the light
-        float alignmentThreshold = 0.99; // Allow for some tolerance
         float alignment = dot( sampleDir, L );
-        if( alignment > alignmentThreshold && brdfPdf > 0.0 ) {
+        if( alignment > 0.99 && brdfPdf > 0.0 ) {
             totalLighting += lightContribution * brdfValue * NoL * misWeightBRDF / max( brdfPdf, 0.001 );
         }
     }
@@ -128,16 +131,19 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 b
         AreaLight light = getAreaLight( i );
         // return normalize(light.color);
 
+        if( light.intensity <= 0.0 )
+            continue;
+
         vec3 lightPos;
         float lightPdf;
         vec2 xi = getRandomSample( gl_FragCoord.xy, i, 0, rngState, 6 );
         vec3 L = sampleAreaLight( light, xi, lightPos, lightPdf );
 
-        float NoL = max( dot( N, L ), 0.0 );
+        float NoL = dot( N, L );
         if( NoL <= 0.0 )
             continue;
 
-        if( isPointInShadow( hitInfo.hitPoint, N, L, stats ) )
+        if( isPointInShadow( shadowOrigin, N, L, stats ) )
             continue;
 
         float lightDistance = length( lightPos - hitInfo.hitPoint );

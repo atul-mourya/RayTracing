@@ -13,9 +13,9 @@ const uint V[32] = uint[32](
 // PCG hash function (already defined in your code)
 uint pcg_hash(uint state) {
     state = state * 747796405u + 2891336453u;
-    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    word = (word >> 22u) ^ word;
-    return word;
+    state = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    state = (state >> 22u) ^ state;
+    return state;
 }
 
 // Owen scrambling function
@@ -67,13 +67,13 @@ vec4 sampleSTBN( vec2 pixelCoords ) {
 
 float RandomValue( inout uint state ) {
 	state = pcg_hash( state );
-	return float( state ) / 4294967296.0;
+    return float(state >> 8) * (1.0 / 16777216.0);
 }
 
 // Random value in normal distribution (with mean=0 and sd=1)
 float RandomValueNormalDistribution( inout uint state ) {
 	// Thanks to https://stackoverflow.com/a/6178290
-	float theta = 2.0 * 3.1415926 * RandomValue( state );
+	float theta = 2.0 * PI * RandomValue( state );
 	float rho = sqrt( - 2.0 * log( RandomValue( state ) ) );
 	return rho * cos( theta );
 }
@@ -82,11 +82,10 @@ float RandomValueNormalDistribution( inout uint state ) {
 // Note: there are many alternative methods for computing this,
 // with varying trade-offs between speed and accuracy.
 vec3 RandomDirection( inout uint state ) {
-	// Thanks to https://math.stackexchange.com/a/1585996
-	float x = RandomValueNormalDistribution( state );
-	float y = RandomValueNormalDistribution( state );
-	float z = RandomValueNormalDistribution( state );
-	return normalize( vec3( x, y, z ) );
+	float z = RandomValue( state ) * 2.0 - 1.0;
+    float phi = RandomValue( state ) * 2.0 * PI;
+    float r = sqrt( 1.0 - z * z );
+    return vec3( r * cos( phi ), r * sin( phi ), z );
 }
 
 vec3 RandomHemiSphereDirection( vec3 normal, inout uint rngState ) {
