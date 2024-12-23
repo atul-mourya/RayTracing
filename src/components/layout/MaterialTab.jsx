@@ -376,7 +376,7 @@ const MaterialTab = () => {
 				<NumberInput label={"Attenuation Distance"} min={0} max={1000} step={1} value={attenuationDistance} onValueChange={handleAttenuationDistanceChange} />
 			</div>
 			<div className="flex items-center justify-between">
-				<Slider label={"Dispersion"} min={0} max={1} step={0.001} value={[ dispersion ]} onValueChange={handleDispersionChange} />
+				<Slider label={"Dispersion"} min={0} max={10} step={0.01} value={[ dispersion ]} onValueChange={handleDispersionChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Alpha Test"} min={0} max={1} step={0.01} value={[ alphaTest ]} onValueChange={handleAlphaTestChange} />

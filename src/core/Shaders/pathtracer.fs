@@ -86,23 +86,29 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	float n2 = entering ? material.ior : 1.0;
 	vec3 normal = entering ? hitInfo.normal : - hitInfo.normal;
 
+	float cosThetaI = abs( dot( normal, ray.direction ) );
+	float sinThetaT2 = ( n1 * n1 ) / ( n2 * n2 ) * ( 1.0 - cosThetaI * cosThetaI );
+	bool totalInternalReflection = sinThetaT2 > 1.0;
+
 	vec3 reflectDir = reflect( ray.direction, normal );
 	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
 
     // Calculate Fresnel coefficient for reflection vs transmission
-	float cosTheta = abs( dot( normal, ray.direction ) );
 	float F0 = pow( ( n1 - n2 ) / ( n1 + n2 ), 2.0 ); // Fresnel reflectance at normal incidence
-	float Fr = fresnelSchlick( cosTheta, F0 );
+	float Fr = totalInternalReflection ? 1.0 : fresnelSchlick( cosThetaI, F0 );
 
     // Blend between pure Fresnel and forced transmission based on transmission value
     // As transmission increases, we reduce the Fresnel effect and force more transmission
-	Fr = mix( Fr, Fr * ( 1.0 - material.transmission ), material.transmission );
+	float reflectProb = mix( Fr, Fr * ( 1.0 - material.transmission ), material.transmission );
+	bool shouldReflect = totalInternalReflection || ( RandomValue( rngState ) < reflectProb );
 
-    // Determine if we reflect or refract
-	bool shouldReflect = ( refractDir == vec3( 0.0 ) ) || ( RandomValue( rngState ) < Fr );
-
-    // Calculate beer's law absorption for transmitted light
+    // Calculate initial throughput with importance sampling
 	vec3 throughput = vec3( 1.0 );
+	if( ! shouldReflect ) {
+		throughput *= 1.0 / ( 1.0 - reflectProb );
+	}
+
+    // Apply Beer's law absorption for transmitted light
 	if( ! shouldReflect && entering ) {
         // Only apply absorption when entering the medium (to avoid double-counting)
 		float dist = material.thickness;
@@ -118,27 +124,27 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	if( material.dispersion > 0.0 && ! shouldReflect ) {
         // Cauchy's equation coefficients for common glass
         // These values are approximated for typical crown glass
-		float B = material.ior; // Base IOR
-		float C = material.dispersion; // Dispersion strength
+		float A = material.ior; // Base IOR
+		float B = material.dispersion * 0.001; // Dispersion strength * scale in micron
 
         // Wavelengths for RGB (in micrometers)
-		const vec3 wavelengths = vec3( 0.65, 0.55, 0.45 ); // Red, Green, Blue
+		const vec3 wavelengths = vec3( 0.65, 0.53, 0.44 );
 
         // Calculate wavelength-dependent IOR using Cauchy's equation
-        // n(λ) = B + C/λ²
-		vec3 wavelengthDependendIOR = B + C / ( wavelengths * wavelengths );
+        // n(λ) = A + B/λ²
+		vec3 wavelengthDependendIOR = A + B / ( wavelengths * wavelengths );
 
         // Randomly select one wavelength channel based on energy distribution
 		float randWavelength = RandomValue( rngState );
 		vec3 refractDirRGB;
 
-		if( randWavelength < 0.33 ) {
+		if( randWavelength < 0.333 ) {
             // Red channel
 			float iorRed = wavelengthDependendIOR.r;
 			float ratio = entering ? 1.0 / iorRed : iorRed;
 			refractDirRGB = refract( ray.direction, normal, ratio );
 			throughput = vec3( 3.0, 0.0, 0.0 ); // Boost red
-		} else if( randWavelength < 0.66 ) {
+		} else if( randWavelength < 0.666 ) {
             // Green channel
 			float iorGreen = wavelengthDependendIOR.g;
 			float ratio = entering ? 1.0 / iorGreen : iorGreen;

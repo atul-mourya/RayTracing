@@ -18,6 +18,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - implement subsurface scattering
 - implement auto focus based on object distance
 - implement Scene based directional lights support
+- implement volumetric rendering
 - caustic support
 - Object dynamic transformation changes
 - Hybrid Rendering
