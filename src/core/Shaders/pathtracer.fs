@@ -423,13 +423,11 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Indirect lighting using MIS
 		IndirectLightingResult indirectResult = calculateIndirectLightingMIS( V, N, material, brdfValue, pdf, L, sampleIndex, i, rngState );
-		// Update throughput
-		// throughput *= indirectResult.throughput;
 		throughput *= reduceFireflies( indirectResult.throughput, 5.0 );
 
 		// Update ray for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
-		ray.direction = indirectResult.direction;
+		ray.direction = L;
 
 		alpha *= material.color.a;
 
