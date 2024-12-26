@@ -58,12 +58,29 @@ vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 
 		L = ImportanceSampleCosine( N, xi );
 		pdf = max( dot( N, L ), 0.0 ) / PI;
 	} else if( rand < diffuseWeight + specularWeight ) {
-        // Sample specular BRDF
-		H = ImportanceSampleGGX( N, material.roughness, xi );
+        // Fast local space transform
+		vec3 localV = V.z < 0.999 ? V : vec3( 0.0, 0.0, 1.0 );
+
+    	// Sample VNDF directly in local space
+		vec3 H = sampleGGXVNDF( localV, material.roughness, xi );
+
+    	// Transform back to world space if needed
+		if( V.z < 0.999 ) {
+			vec3 up = vec3( 0.0, 0.0, 1.0 );
+			vec3 tangent = normalize( cross( up, N ) );
+			vec3 bitangent = cross( N, tangent );
+			H = tangent * H.x + bitangent * H.y + N * H.z;
+		}
+
 		L = reflect( - V, H );
-		float NoH = max( dot( N, H ), 0.0 );
-		float VoH = max( dot( V, H ), 0.0 );
-		pdf = DistributionGGX( N, H, material.roughness ) * NoH / ( 4.0 * VoH );
+
+    	// Calculate PDF
+		float NoV = max( dot( N, V ), 0.001 );
+		float NoH = max( dot( N, H ), 0.001 );
+		float VoH = max( dot( V, H ), 0.001 );
+		float D = DistributionGGX( N, H, material.roughness );
+		float G1 = GeometrySchlickGGX( NoV, material.roughness );
+		pdf = D * G1 * VoH / ( NoV * 4.0 );
 	} else {
         // Sample sheen BRDF
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );

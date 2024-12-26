@@ -85,6 +85,32 @@ vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 	return normalize( T * localDir.x + B * localDir.y + N * localDir.z );
 }
 
+// VNDF sampling helper functions
+vec3 sampleGGXVNDF(vec3 V, float roughness, vec2 Xi) {
+    float alpha = roughness * roughness;
+    
+    // Approximate orthonormal basis without cross products
+    vec3 N = vec3(0.0, 0.0, 1.0); // Assuming we're in local space already
+    vec3 T = (V.z < 0.999) ? normalize(vec3(-V.y, V.x, 0.0)) : vec3(1.0, 0.0, 0.0);
+    vec3 B = vec3(-T.y, T.x, 0.0); // Cheaper than cross product
+
+    // Sample point with polar coordinates (r, phi)
+    float r = sqrt(Xi.x);
+    float phi = 2.0 * PI * Xi.y;
+    float t = r * cos(phi);
+    float b = r * sin(phi);
+    float s = 0.5 * (1.0 + V.z);
+    b = mix(sqrt(1.0 - t * t), b, s);
+
+    // Compute normal in local space
+    vec3 H = t * T + b * B + sqrt(max(0.0, 1.0 - t * t - b * b)) * N;
+    
+    // Apply roughness stretching
+    H = normalize(vec3(alpha * H.x, alpha * H.y, max(0.0, H.z)));
+    
+    return H;
+}
+
 float DistributionGGX( vec3 N, vec3 H, float roughness ) {
 
 	float alpha = roughness * roughness;
