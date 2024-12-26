@@ -1,3 +1,26 @@
+BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
+	BRDFWeights weights;
+
+    // Base calculations
+	float baseSpecularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
+	weights.specular = baseSpecularWeight * material.specularIntensity;
+	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
+	weights.sheen = material.sheen * max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
+	weights.clearcoat = material.clearcoat * ( 1.0 - material.clearcoatRoughness ) * 0.5;
+	weights.transmission = material.transmission * ( 1.0 - material.roughness ) *
+		( 0.5 + 0.5 * material.ior / 2.0 ) * ( 1.0 + material.dispersion * 0.5 ) * 0.7;
+
+    // Normalize weights
+	float total = weights.specular + weights.diffuse + weights.sheen + weights.clearcoat + weights.transmission;
+	weights.specular /= total;
+	weights.diffuse /= total;
+	weights.sheen /= total;
+	weights.clearcoat /= total;
+	weights.transmission /= total;
+
+	return weights;
+}
+
 float getMaterialImportance( RayTracingMaterial material ) {
     // Base specular and diffuse weights
 	float specularWeight = ( 1.0 - material.roughness ) * ( 0.75 + 0.25 * material.metalness );

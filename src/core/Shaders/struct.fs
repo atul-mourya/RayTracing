@@ -86,3 +86,18 @@ struct Pixel {
 	float variance;
 	int samples;
 };
+
+struct BRDFSample {
+	vec3 direction;   // Sampled direction
+	vec3 value;       // BRDF value
+	float pdf;        // Probability density
+};
+
+struct BRDFWeights {
+	float specular;
+	float diffuse;
+	float sheen;
+	float clearcoat;
+	float transmission;
+};
+

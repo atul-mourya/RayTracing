@@ -80,10 +80,9 @@ bool pointInRectangle( vec3 point, vec3 center, vec3 u, vec3 v ) {
     return abs( projU ) <= length( u ) && abs( projV ) <= length( v );
 }
 
-vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 brdfValue, float brdfPdf, inout uint rngState, inout ivec2 stats ) {
+vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample, inout uint rngState, inout ivec2 stats ) {
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
-    float NoV = max( dot( N, V ), 0.001 );
 
     // Pre-compute shadow ray origin
     vec3 shadowOrigin = hitInfo.hitPoint + N * 0.001;
@@ -112,17 +111,17 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 b
 
         // MIS weights
         float lightPdf = 1.0; // Directional light has uniform PDF
-        float misWeightLight = powerHeuristic( lightPdf, brdfPdf );
-        float misWeightBRDF = powerHeuristic( brdfPdf, lightPdf );
+        float misWeightLight = powerHeuristic( lightPdf, brdfSample.pdf );
+        float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightPdf );
 
         // Combine contributions
         totalLighting += lightContribution * brdfValueForLight * NoL * misWeightLight;
 
         // Add BRDF sampling contribution
         // Check if the BRDF sample direction hits the light
-        float alignment = dot( sampleDir, L );
-        if( alignment > 0.99 && brdfPdf > 0.0 ) {
-            totalLighting += lightContribution * brdfValue * NoL * misWeightBRDF / max( brdfPdf, 0.001 );
+        float alignment = dot( brdfSample.direction, L );
+        if( alignment > 0.99 && brdfSample.pdf > 0.0 ) {
+            totalLighting += lightContribution * brdfSample.value * NoL * misWeightBRDF / max( brdfSample.pdf, 0.001 );
         }
     }
 
@@ -150,17 +149,17 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, vec3 sampleDir, vec3 b
         vec3 lightContribution = evaluateAreaLight( light, hitInfo.hitPoint, L, lightDistance );
 
         // MIS weights
-        float misWeightLight = powerHeuristic( lightPdf, brdfPdf );
-        float misWeightBRDF = powerHeuristic( brdfPdf, lightPdf );
+        float misWeightLight = powerHeuristic( lightPdf, brdfSample.pdf );
+        float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightPdf );
 
         // Light sampling contribution
         totalLighting += lightContribution * evaluateBRDF( V, L, N, hitInfo.material ) * NoL * misWeightLight / max( lightPdf, 0.001 );
 
         // BRDF sampling contribution
-        vec3 hitPointOnLight = hitInfo.hitPoint + sampleDir * lightDistance;
+        vec3 hitPointOnLight = hitInfo.hitPoint + brdfSample.direction * lightDistance;
         if( pointInRectangle( hitPointOnLight, light.position, light.u, light.v ) ) {
             vec3 brdfLightContribution = evaluateAreaLight( light, hitInfo.hitPoint, sampleDir, lightDistance );
-            totalLighting += brdfLightContribution * brdfValue * NoL * misWeightBRDF / max( brdfPdf, 0.001 );
+            totalLighting += brdfLightContribution * brdfSample.value * NoL * misWeightBRDF / max( brdfSample.pdf, 0.001 );
         }
     }
     #endif
@@ -173,7 +172,7 @@ struct IndirectLightingResult {
     vec3 throughput;
 };
 
-IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingMaterial material, vec3 brdfValue, float brdfPDF, vec3 L, int sampleIndex, int bounceIndex, inout uint rngState ) {
+IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingMaterial material, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
     // Sample cosine-weighted direction
     vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
 
@@ -185,9 +184,9 @@ IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingM
 
     if( RandomValue( rngState ) < materialImportance ) {
         // Use BRDF sampling
-        sampleDir = L;
-        samplePdf = brdfPDF;
-        sampleBrdf = brdfValue;
+        sampleDir = brdfSample.direction;
+        samplePdf = brdfSample.pdf;
+        sampleBrdf = brdfSample.value;
     } else {
         // Use cosine sampling
         sampleDir = cosineWeightedSample( N, indirectSample );
@@ -197,7 +196,7 @@ IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingM
 
     // Ensure PDFs are never zero
     samplePdf = max( samplePdf, 0.001 );
-    brdfPDF = max( brdfPDF, 0.001 );
+    float brdfPDF = max( brdfSample.pdf, 0.001 );
 
     // Calculate MIS weights
     float misWeight = powerHeuristic( samplePdf, brdfPDF );

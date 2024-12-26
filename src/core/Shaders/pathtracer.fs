@@ -30,34 +30,22 @@ uniform bool useAdaptiveSampling;
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 L, out float pdf, inout uint rngState ) {
+BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState ) {
 
-	float baseSpecularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
-	float specularWeight = baseSpecularWeight * material.specularIntensity;
-	float sheenWeight = material.sheen * max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
-	float diffuseWeight = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
-
-    // Only include sheen in the weights if it's enabled
-	if( material.sheen > 0.0 ) {
-		diffuseWeight *= ( 1.0 - sheenWeight );
-	} else {
-		sheenWeight = 0.0;
-	}
-
-    // Normalize weights
-	float total = specularWeight + diffuseWeight + sheenWeight;
-	specularWeight /= total;
-	diffuseWeight /= total;
-	sheenWeight /= total;
+	BRDFWeights weights = calculateBRDFWeights( material );
+	BRDFSample result;
 
 	float rand = RandomValue( rngState );
 	vec3 H;
 
-	if( rand < diffuseWeight ) {
+	if( rand < weights.diffuse ) {
+
         // Sample diffuse BRDF
-		L = ImportanceSampleCosine( N, xi );
-		pdf = max( dot( N, L ), 0.0 ) / PI;
-	} else if( rand < diffuseWeight + specularWeight ) {
+		result.direction = ImportanceSampleCosine( N, xi );
+		result.pdf = max( dot( N, result.direction ), 0.0 ) / PI;
+
+	} else if( rand < weights.diffuse + weights.specular ) {
+
         // Fast local space transform
 		vec3 localV = V.z < 0.999 ? V : vec3( 0.0, 0.0, 1.0 );
 
@@ -72,29 +60,33 @@ vec3 sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, out vec3 
 			H = tangent * H.x + bitangent * H.y + N * H.z;
 		}
 
-		L = reflect( - V, H );
-
     	// Calculate PDF
 		float NoV = max( dot( N, V ), 0.001 );
 		float NoH = max( dot( N, H ), 0.001 );
 		float VoH = max( dot( V, H ), 0.001 );
 		float D = DistributionGGX( N, H, material.roughness );
 		float G1 = GeometrySchlickGGX( NoV, material.roughness );
-		pdf = D * G1 * VoH / ( NoV * 4.0 );
+
+		result.direction = reflect( - V, H );
+		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
+
 	} else {
+
         // Sample sheen BRDF
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
-		L = reflect( - V, H );
 		float NoH = max( dot( N, H ), 0.0 );
 		float VoH = max( dot( V, H ), 0.0 );
-		pdf = SheenDistribution( N, H, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
+
+		result.direction = reflect( - V, H );
+		result.pdf = SheenDistribution( N, H, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
+
 	}
 
     // Ensure the PDF is never zero
-	pdf = max( pdf, 0.001 );
+	result.pdf = max( result.pdf, 0.001 );
+	result.value = evaluateBRDF( V, result.direction, N, material );
 
-    // Evaluate complete BRDF
-	return evaluateBRDF( V, L, N, material );
+	return result;
 }
 
 vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState ) {
@@ -400,34 +392,36 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		vec3 V = - ray.direction;
 		vec3 N = hitInfo.normal;
-		vec3 L; // Light direction
-		vec3 brdfValue;
-
+		
+		BRDFSample brdfSample;
 		// Handle clear coat
 		if( material.clearcoat > 0.0 ) {
-			brdfValue = sampleClearcoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
+			vec3 L;
+			float pdf;
+			brdfSample.value = sampleClearcoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
+			brdfSample.direction = L;
+			brdfSample.pdf = pdf;
 		} else {
-			brdfValue = sampleBRDF( V, N, material, randomSample.xy, L, pdf, rngState );
+			brdfSample = sampleBRDF( V, N, material, randomSample.xy, rngState );
 		}
-		// return vec4(brdfValue, 1.0);
-
+		
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, L, brdfValue, pdf, rngState, stats );
+		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rngState, stats );
 		radiance += reduceFireflies( directLight * throughput, 5.0 );
 		// return vec4(directLight, 1.0);
 
 		// Calculate emitted light
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
-		radiance += emittedLight * throughput * PI;// * 10.0; // added PI * 10.0 to compensate for low intensity
+		radiance += emittedLight * throughput * PI;
 
 		// Indirect lighting using MIS
-		IndirectLightingResult indirectResult = calculateIndirectLightingMIS( V, N, material, brdfValue, pdf, L, sampleIndex, i, rngState );
+		IndirectLightingResult indirectResult = calculateIndirectLightingMIS( V, N, material, brdfSample, sampleIndex, i, rngState );
 		throughput *= reduceFireflies( indirectResult.throughput, 5.0 );
 
 		// Update ray for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
-		ray.direction = L;
+		ray.direction = brdfSample.direction;
 
 		alpha *= material.color.a;
 
