@@ -313,14 +313,6 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 
 }
 
-// calculate pixel variance
-float calculateVariance( vec4 mean, vec4 squaredMean, int n ) {
-	if( n < 2 )
-		return 0.0;
-	vec4 variance = squaredMean - mean * mean;
-	return ( variance.r + variance.g + variance.b ) / 3.0;
-}
-
 vec3 cosineWeightedSample( vec3 N, vec2 xi ) {
 	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
 	vec3 B = cross( N, T );
