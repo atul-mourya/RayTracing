@@ -70,14 +70,6 @@ float RandomValue( inout uint state ) {
     return float(state >> 8) * (1.0 / 16777216.0);
 }
 
-// Random value in normal distribution (with mean=0 and sd=1)
-float RandomValueNormalDistribution( inout uint state ) {
-	// Thanks to https://stackoverflow.com/a/6178290
-	float theta = 2.0 * PI * RandomValue( state );
-	float rho = sqrt( - 2.0 * log( RandomValue( state ) ) );
-	return rho * cos( theta );
-}
-
 // Calculate a random direction.
 // Note: there are many alternative methods for computing this,
 // with varying trade-offs between speed and accuracy.
@@ -107,21 +99,10 @@ vec3 BlueNoiseRandomDirection( vec2 pixelCoords, int sampleIndex, int bounceInde
 	return normalize( vec3( x, y, z ) );
 }
 
-vec3 BlueNoiseRandomHemisphereDirection( vec3 normal, vec2 pixelCoords, int sampleIndex, int bounceIndex ) {
-	vec3 dir = BlueNoiseRandomDirection( pixelCoords, sampleIndex, bounceIndex );
-	return dir * sign( dot( normal, dir ) );
-}
-
 vec2 RandomPointInCircle( inout uint rngState ) {
 	float angle = RandomValue( rngState ) * 2.0 * PI;
 	vec2 pointOnCircle = vec2( cos( angle ), sin( angle ) );
 	return pointOnCircle * sqrt( RandomValue( rngState ) );
-}
-
-vec3 RandomPointInCircle3( inout uint rngState ) {
-	float angle = 2.0 * PI * RandomValue( rngState );
-	float radius = sqrt( RandomValue( rngState ) );
-	return vec3( radius * cos( angle ), radius * sin( angle ), 0.0 );
 }
 
 // Halton sequence generator
@@ -161,22 +142,6 @@ vec2 HybridRandomSample2D( inout uint state, int sampleIndex, int pixelIndex ) {
     }
     vec2 pseudo = vec2(RandomValue(state), RandomValue(state));
     return fract(quasi + pseudo); // Combine and wrap to [0, 1)
-}
-
-// Quasi-random direction on a hemisphere
-vec3 QuasiRandomHemisphereDirection( vec3 normal, int sampleIndex, int pixelIndex ) {
-	vec2 s = QuasiRandomSample2D( sampleIndex, pixelIndex );
-
-	float cosTheta = sqrt( 1.0 - s.x );
-	float sinTheta = sqrt( s.x );
-	float phi = 2.0 * PI * s.y;
-
-	vec3 tangentSpaceDir = vec3( cos( phi ) * sinTheta, sin( phi ) * sinTheta, cosTheta );
-
-	// Convert tangent space direction to world space
-	vec3 tangent = normalize( cross( normal, vec3( 0.0, 1.0, 0.0 ) ) );
-	vec3 bitangent = cross( normal, tangent );
-	return tangent * tangentSpaceDir.x + bitangent * tangentSpaceDir.y + normal * tangentSpaceDir.z;
 }
 
 // Hybrid quasi-random and pseudo-random direction on a hemisphere
@@ -365,13 +330,3 @@ vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout 
 		
 	}
 }
-
-vec3 sampleSphere( vec2 uv ) {
-
-		float u = ( uv.x - 0.5 ) * 2.0;
-		float t = uv.y * PI * 2.0;
-		float f = sqrt( 1.0 - u * u );
-
-		return vec3( f * cos( t ), f * sin( t ), u );
-
-	}
