@@ -7,64 +7,42 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
 	weights.sheen = material.sheen * max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
 	weights.clearcoat = material.clearcoat * ( 1.0 - material.clearcoatRoughness ) * 0.5;
-	weights.transmission = material.transmission * ( 1.0 - material.roughness ) *
-		( 0.5 + 0.5 * material.ior / 2.0 ) * ( 1.0 + material.dispersion * 0.5 ) * 0.7;
+	weights.transmission = material.transmission *
+		( 1.0 - material.roughness ) * // Smoother surfaces show more transmission effects
+		( 0.5 + 0.5 * material.ior / 2.0 ) * // Base IOR influence
+		( 1.0 + material.dispersion * 0.5 ) * // Increase importance with dispersion
+		0.7; // Overall scaling for transmission
 
-    // Normalize weights
-	float total = weights.specular + weights.diffuse + weights.sheen + weights.clearcoat + weights.transmission;
-	weights.specular /= total;
-	weights.diffuse /= total;
-	weights.sheen /= total;
-	weights.clearcoat /= total;
-	weights.transmission /= total;
-
-	return weights;
-}
-
-float getMaterialImportance( RayTracingMaterial material ) {
-    // Base specular and diffuse weights
-	float specularWeight = ( 1.0 - material.roughness ) * ( 0.75 + 0.25 * material.metalness );
-	float diffuseWeight = ( 1.0 - material.metalness ) * material.roughness;
-
-    // Specular intensity contribution
-	specularWeight *= material.specularIntensity;
-
-    // Clearcoat contribution
-	float clearcoatWeight = material.clearcoat * ( 1.0 - material.clearcoatRoughness ) * 0.5;
-
-    // Sheen contribution
-	float sheenLuminance = dot( material.sheenColor, vec3( 0.2126, 0.7152, 0.0722 ) );
-	float sheenWeight = material.sheen * ( 1.0 - material.sheenRoughness ) * sheenLuminance * 0.5;
-
-    // Iridescence contribution
+    // Iridescence
 	float iridescenceThicknessRange = material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x;
-	float iridescenceWeight = material.iridescence *
+	weights.iridescence = material.iridescence *
 		( 1.0 - material.roughness ) * // More prominent on smooth surfaces
 		( 0.5 + 0.5 * iridescenceThicknessRange / 1000.0 ) * // Scale based on thickness range
 		( 0.5 + 0.5 * material.iridescenceIOR / 2.0 ) * // Consider IOR influence
 		0.5; // Overall scaling factor for iridescence
 
-    // Transmission/Refraction contribution with improved dispersion consideration
-	float transmissionWeight = material.transmission *
-		( 1.0 - material.roughness ) * // Smoother surfaces show more transmission effects
-		( 0.5 + 0.5 * material.ior / 2.0 ) * // Base IOR influence
-		( 1.0 + material.dispersion * 0.5 ) * // Increase importance with dispersion (changed from reduction)
-		0.7; // Overall scaling for transmission
+    // Normalize weights
+	float total = weights.specular + weights.diffuse + weights.sheen + weights.clearcoat + weights.transmission + weights.iridescence;
+	weights.specular /= total;
+	weights.diffuse /= total;
+	weights.sheen /= total;
+	weights.clearcoat /= total;
+	weights.transmission /= total;
+	weights.iridescence /= total;
 
-    // Emissive contribution
-	float emissiveWeight = length( material.emissive ) * material.emissiveIntensity * 0.5;
+	return weights;
+}
 
-    // Combine all weights
-	float total = specularWeight +
-		diffuseWeight +
-		clearcoatWeight +
-		sheenWeight +
-		iridescenceWeight +
-		transmissionWeight +
-		emissiveWeight;
+float getMaterialImportance( RayTracingMaterial material ) {
+    // Early out for specialized materials
+	if( material.transmission > 0.0 || material.clearcoat > 0.0 ) {
+		return 0.95;
+	}
 
-    // Return normalized importance value, prioritizing the most significant component
-	return max( max( max( specularWeight, clearcoatWeight ), max( sheenWeight, iridescenceWeight ) ), max( max( transmissionWeight, emissiveWeight ), diffuseWeight ) ) / total;
+	BRDFWeights weights = calculateBRDFWeights( material );
+
+    // For importance sampling, we care about the most significant component
+	return max( max( max( weights.specular, weights.diffuse ), weights.sheen ), max( weights.clearcoat, weights.transmission ) );
 }
 
 vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
@@ -109,29 +87,29 @@ vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 }
 
 // VNDF sampling helper functions
-vec3 sampleGGXVNDF(vec3 V, float roughness, vec2 Xi) {
-    float alpha = roughness * roughness;
-    
+vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
+	float alpha = roughness * roughness;
+
     // Approximate orthonormal basis without cross products
-    vec3 N = vec3(0.0, 0.0, 1.0); // Assuming we're in local space already
-    vec3 T = (V.z < 0.999) ? normalize(vec3(-V.y, V.x, 0.0)) : vec3(1.0, 0.0, 0.0);
-    vec3 B = vec3(-T.y, T.x, 0.0); // Cheaper than cross product
+	vec3 N = vec3( 0.0, 0.0, 1.0 ); // Assuming we're in local space already
+	vec3 T = ( V.z < 0.999 ) ? normalize( vec3( - V.y, V.x, 0.0 ) ) : vec3( 1.0, 0.0, 0.0 );
+	vec3 B = vec3( - T.y, T.x, 0.0 ); // Cheaper than cross product
 
     // Sample point with polar coordinates (r, phi)
-    float r = sqrt(Xi.x);
-    float phi = 2.0 * PI * Xi.y;
-    float t = r * cos(phi);
-    float b = r * sin(phi);
-    float s = 0.5 * (1.0 + V.z);
-    b = mix(sqrt(1.0 - t * t), b, s);
+	float r = sqrt( Xi.x );
+	float phi = 2.0 * PI * Xi.y;
+	float t = r * cos( phi );
+	float b = r * sin( phi );
+	float s = 0.5 * ( 1.0 + V.z );
+	b = mix( sqrt( 1.0 - t * t ), b, s );
 
     // Compute normal in local space
-    vec3 H = t * T + b * B + sqrt(max(0.0, 1.0 - t * t - b * b)) * N;
-    
+	vec3 H = t * T + b * B + sqrt( max( 0.0, 1.0 - t * t - b * b ) ) * N;
+
     // Apply roughness stretching
-    H = normalize(vec3(alpha * H.x, alpha * H.y, max(0.0, H.z)));
-    
-    return H;
+	H = normalize( vec3( alpha * H.x, alpha * H.y, max( 0.0, H.z ) ) );
+
+	return H;
 }
 
 float DistributionGGX( vec3 N, vec3 H, float roughness ) {
@@ -255,9 +233,9 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
 vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 
 	// Early exit for purely diffuse materials
-	if (material.roughness > 0.98 && material.metalness < 0.02 && 
-		material.transmission == 0.0 && material.clearcoat == 0.0) {
-		return material.color.rgb * (1.0 - material.metalness) / PI;
+	if( material.roughness > 0.98 && material.metalness < 0.02 &&
+		material.transmission == 0.0 && material.clearcoat == 0.0 ) {
+		return material.color.rgb * ( 1.0 - material.metalness ) / PI;
 	}
 
 	// Calculate half vector

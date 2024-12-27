@@ -20,6 +20,8 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - implement Scene based directional lights support
 - implement volumetric rendering
 - caustic support
+- implement high res environment map selection option
+- implement custom environment map support
 - Object dynamic transformation changes
 - Hybrid Rendering
 - cleanup path tracer ui panel.

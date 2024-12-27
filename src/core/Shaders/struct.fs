@@ -99,5 +99,6 @@ struct BRDFWeights {
 	float sheen;
 	float clearcoat;
 	float transmission;
+	float iridescence;
 };
 
