@@ -38,13 +38,20 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	float rand = RandomValue( rngState );
 	vec3 H;
 
-	if( rand < weights.diffuse ) {
+    // Cumulative probabilities
+	float cumulativeDiffuse = weights.diffuse;
+	float cumulativeSpecular = cumulativeDiffuse + weights.specular;
+	float cumulativeSheen = cumulativeSpecular + weights.sheen;
+	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
+    // transmission is last: cumulativeClearcoat + weights.transmission should equal 1.0
+
+	if( rand < cumulativeDiffuse ) {
 
         // Sample diffuse BRDF
 		result.direction = ImportanceSampleCosine( N, xi );
 		result.pdf = max( dot( N, result.direction ), 0.0 ) / PI;
 
-	} else if( rand < weights.diffuse + weights.specular ) {
+	} else if( rand < cumulativeSpecular ) {
 
         // Fast local space transform
 		vec3 localV = V.z < 0.999 ? V : vec3( 0.0, 0.0, 1.0 );
@@ -70,7 +77,7 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 		result.direction = reflect( - V, H );
 		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
 
-	} else {
+	} else if( rand < cumulativeSheen ) {
 
         // Sample sheen BRDF
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
@@ -79,6 +86,43 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 
 		result.direction = reflect( - V, H );
 		result.pdf = SheenDistribution( N, H, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
+
+	} else if( rand < cumulativeClearcoat ) {
+
+        // Sample clearcoat
+		float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
+		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
+		float NoH = max( dot( N, H ), 0.0 );
+		float VoH = max( dot( V, H ), 0.0 );
+
+		result.direction = reflect( - V, H );
+		float D = DistributionGGX( N, H, clearcoatRoughness );
+		float G1 = GeometrySchlickGGX( max( dot( N, V ), 0.001 ), clearcoatRoughness );
+		result.pdf = D * G1 * VoH / ( max( dot( N, V ), 0.001 ) * 4.0 );
+
+	} else {
+
+        // Sample transmission
+		float ior = material.ior;
+		bool entering = dot( V, N ) < 0.0;
+		float eta = entering ? 1.0 / ior : ior;
+
+        // For dispersion, randomly select wavelength
+		if( material.dispersion > 0.0 ) {
+			float randWL = RandomValue( rngState );
+			float B = material.dispersion * 0.001;
+			if( randWL < 0.333 ) {
+				eta = entering ? 1.0 / ( ior + B / 0.4225 ) : ( ior + B / 0.4225 ); // Red
+			} else if( randWL < 0.666 ) {
+				eta = entering ? 1.0 / ( ior + B / 0.2809 ) : ( ior + B / 0.2809 ); // Green
+			} else {
+				eta = entering ? 1.0 / ( ior + B / 0.1936 ) : ( ior + B / 0.1936 ); // Blue
+			}
+		}
+
+		result.direction = refract( - V, entering ? N : - N, eta );
+        // Simplified PDF for transmission
+		result.pdf = 1.0; // This is a simplification, could be improved
 
 	}
 
@@ -359,7 +403,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			}
 
 		} else {
-			// Handle alpha blending
+			// Handle alpha blending: Comment this section for testing
 			float surfaceAlpha = material.color.a;
 			if( surfaceAlpha < 1.0 ) {
 				radiance = mix( radiance, material.color.rgb * throughput, surfaceAlpha );
@@ -380,7 +424,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		material.sheenRoughness = clamp( material.sheenRoughness, 0.05, 1.0 );
 		material.attenuationDistance = max( material.attenuationDistance, 0.05 );
 
-		// Handle transparent materials
+		// Handle transparent materials with transmission
 		if( material.transmission > 0.0 ) {
 			throughput *= sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
 			alpha *= ( 1.0 - material.transmission ) * material.color.a;
