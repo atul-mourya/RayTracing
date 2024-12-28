@@ -61,8 +61,20 @@ vec3 evaluateAreaLight( AreaLight light, vec3 hitPoint, vec3 lightDir, float lig
     float cosTheta = dot( lightDir, cross( light.u, light.v ) );
     if( cosTheta <= 0.0 )
         return vec3( 0.0 );
-    float falloff = 1.0 / ( lightDistance * lightDistance );
-    return light.color * light.intensity * falloff * cosTheta;
+
+    // Calculate actual area of the light
+    vec3 lightArea = cross( light.u, light.v );
+    float area = length( lightArea );
+
+    // Physical light falloff
+    float falloff = area / ( 4.0 * PI * lightDistance * lightDistance );
+
+    // Convert light intensity from lumens to radiance
+    // Typical LED bulb: 800-1600 lumens
+    // Conversion factor: ~1/683 watts per lumen for white light
+    float radianceScale = 1.0 / 683.0;
+
+    return light.color * ( light.intensity * radianceScale ) * falloff * cosTheta;
 }
 
 bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats ) {
@@ -105,8 +117,18 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
         if( isPointInShadow( shadowOrigin, N, L, stats ) )
             continue;
 
-        // Light contribution
-        vec3 lightContribution = light.color * light.intensity;
+        // Physical sun intensity with atmospheric effects
+        // Base solar irradiance: ~1000 W/m²
+        // Typical clear sky transmittance: ~70%
+        // Additional atmospheric scattering: ~50%
+        float baseIrradiance = 1000.0;  // W/m²
+        float atmosphericTransmittance = 0.7;  // Clear sky
+        float scatteringFactor = 0.5;   // Account for scatter
+        float adjustmentScale = 0.1;  // Scale factor to adjust intensity
+
+        float sunIrradiance = baseIrradiance * atmosphericTransmittance * scatteringFactor;
+        vec3 lightContribution = light.color * ( light.intensity * sunIrradiance ) * adjustmentScale;
+
         vec3 brdfValueForLight = evaluateBRDF( V, L, N, hitInfo.material );
 
         // MIS weights
@@ -158,7 +180,7 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
         // BRDF sampling contribution
         vec3 hitPointOnLight = hitInfo.hitPoint + brdfSample.direction * lightDistance;
         if( pointInRectangle( hitPointOnLight, light.position, light.u, light.v ) ) {
-            vec3 brdfLightContribution = evaluateAreaLight( light, hitInfo.hitPoint, sampleDir, lightDistance );
+            vec3 brdfLightContribution = evaluateAreaLight( light, hitInfo.hitPoint, brdfSample.direction, lightDistance );
             totalLighting += brdfLightContribution * brdfSample.value * NoL * misWeightBRDF / max( brdfSample.pdf, 0.001 );
         }
     }
