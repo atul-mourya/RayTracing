@@ -53,24 +53,21 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 
 	} else if( rand < cumulativeSpecular ) {
 
-        // Fast local space transform
-		vec3 localV = V.z < 0.999 ? V : vec3( 0.0, 0.0, 1.0 );
+		// Transform view vector to local space
+		mat3 TBN = constructTBN( N );
+		vec3 localV = transpose( TBN ) * V;
 
-    	// Sample VNDF directly in local space
-		vec3 H = sampleGGXVNDF( localV, material.roughness, xi );
+		// Sample VNDF in local space
+		vec3 localH = sampleGGXVNDF( localV, material.roughness, xi );
 
-    	// Transform back to world space if needed
-		if( V.z < 0.999 ) {
-			vec3 up = vec3( 0.0, 0.0, 1.0 );
-			vec3 tangent = normalize( cross( up, N ) );
-			vec3 bitangent = cross( N, tangent );
-			H = tangent * H.x + bitangent * H.y + N * H.z;
-		}
+		// Transform half vector back to world space
+		vec3 H = TBN * localH;
 
-    	// Calculate PDF
+		// Calculate reflection direction and PDF
 		float NoV = max( dot( N, V ), 0.001 );
 		float NoH = max( dot( N, H ), 0.001 );
 		float VoH = max( dot( V, H ), 0.001 );
+
 		float D = DistributionGGX( N, H, material.roughness );
 		float G1 = GeometrySchlickGGX( NoV, material.roughness );
 
@@ -436,7 +433,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		vec3 V = - ray.direction;
 		vec3 N = hitInfo.normal;
-		
+
 		BRDFSample brdfSample;
 		// Handle clear coat
 		if( material.clearcoat > 0.0 ) {
@@ -448,7 +445,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		} else {
 			brdfSample = sampleBRDF( V, N, material, randomSample.xy, rngState );
 		}
-		
+
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rngState, stats );

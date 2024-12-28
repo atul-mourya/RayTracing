@@ -89,27 +89,28 @@ vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 // VNDF sampling helper functions
 vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
 	float alpha = roughness * roughness;
+    // Transform view direction to local space
+	vec3 Vh = normalize( vec3( alpha * V.x, alpha * V.y, V.z ) );
 
-    // Approximate orthonormal basis without cross products
-	vec3 N = vec3( 0.0, 0.0, 1.0 ); // Assuming we're in local space already
-	vec3 T = ( V.z < 0.999 ) ? normalize( vec3( - V.y, V.x, 0.0 ) ) : vec3( 1.0, 0.0, 0.0 );
-	vec3 B = vec3( - T.y, T.x, 0.0 ); // Cheaper than cross product
+    // Construct orthonormal basis around view direction
+	float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+	vec3 T1 = lensq > 0.0 ? vec3( - Vh.y, Vh.x, 0.0 ) / sqrt( lensq ) : vec3( 1.0, 0.0, 0.0 );
+	vec3 T2 = cross( Vh, T1 );
 
     // Sample point with polar coordinates (r, phi)
 	float r = sqrt( Xi.x );
 	float phi = 2.0 * PI * Xi.y;
-	float t = r * cos( phi );
-	float b = r * sin( phi );
-	float s = 0.5 * ( 1.0 + V.z );
-	b = mix( sqrt( 1.0 - t * t ), b, s );
+	float t1 = r * cos( phi );
+	float t2 = r * sin( phi );
+	float s = 0.5 * ( 1.0 + Vh.z );
+	t2 = ( 1.0 - s ) * sqrt( 1.0 - t1 * t1 ) + s * t2;
 
-    // Compute normal in local space
-	vec3 H = t * T + b * B + sqrt( max( 0.0, 1.0 - t * t - b * b ) ) * N;
+    // Compute normal
+	vec3 Nh = t1 * T1 + t2 * T2 + sqrt( max( 0.0, 1.0 - t1 * t1 - t2 * t2 ) ) * Vh;
 
-    // Apply roughness stretching
-	H = normalize( vec3( alpha * H.x, alpha * H.y, max( 0.0, H.z ) ) );
-
-	return H;
+    // Transform the normal back to the ellipsoid configuration
+	vec3 Ne = normalize( vec3( alpha * Nh.x, alpha * Nh.y, max( 0.0, Nh.z ) ) );
+	return Ne;
 }
 
 float DistributionGGX( vec3 N, vec3 H, float roughness ) {
