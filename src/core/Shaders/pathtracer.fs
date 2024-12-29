@@ -446,7 +446,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			brdfSample = sampleBRDF( V, N, material, randomSample.xy, rngState );
 		}
 
-
 		// Calculate emitted light
 		vec3 emittedLight = sampleEmissiveMap( material, hitInfo.uv );
 		radiance += emittedLight * throughput * PI;

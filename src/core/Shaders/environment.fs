@@ -2,8 +2,6 @@ uniform bool enableEnvironmentLight;
 uniform sampler2D environment;
 uniform float environmentIntensity;
 
-uniform EquirectHdrInfo envMapInfo;
-
 // ray sampling x and z are swapped to align with expected background view
 vec2 directionToTextureCoordinate( vec3 direction ) {
 

@@ -13,7 +13,6 @@ import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
 import TriangleSDF from '../Processor/TriangleSDF';
-import { EquirectHdrInfoUniform } from '../Processor/EquirectHdrInfoUniform';
 import spatioTemporalBlueNoiseImage from '../../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; // where file name is width, height, frame cycle, color precision in bits. spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
 import blueNoiseImage from '../../../public/noise/simple_bluenoise3.png'; //simple blue noise image
 import { DEFAULT_STATE } from '../Processor/Constants';
@@ -71,7 +70,6 @@ export class PathTracerPass extends Pass {
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI }, // Convert from lux to lumens
-				envMapInfo: { value: new EquirectHdrInfoUniform() },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
@@ -229,9 +227,6 @@ export class PathTracerPass extends Pass {
 
 		// Update sphere uniforms
 		this.material.uniforms.spheres.value = this.sdfs.spheres;
-
-		// Update environment uniforms
-		this.material.uniforms.envMapInfo.value.updateFrom( scene.environment );
 
 		// Update texture uniforms
 		this.material.uniforms.albedoMaps.value = this.sdfs.albedoTextures;
