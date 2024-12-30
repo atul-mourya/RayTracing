@@ -187,24 +187,25 @@ vec2 stratifiedSample( int pixelIndex, int sampleIndex, int totalSamples, inout 
 }
 
 
-vec2 sampleBlueNoise(vec2 pixelCoords) {
-    vec2 uv = pixelCoords / resolution;
-    vec2 blueNoiseUV = mod(pixelCoords / vec2(textureSize(blueNoiseTexture, 0)), vec2(1.0));
-    vec2 noise = texture2D(blueNoiseTexture, blueNoiseUV).xy;
-
-	// Combine with PCG hash for extended variation by adding offset
-	uint seed = uint( pixelCoords.x ) * 1973u + uint( pixelCoords.y ) * 9277u + uint( frame ) * 26699u;
-	float random = float( pcg_hash( seed ) ) / 4294967295.0;
-
-	return fract( noise + random ); // Combine blue noise with PCG hash
-}
-
 // PCG-4D state and functions
 struct RNGState {
     uvec4 state;
     ivec2 pixel;
 };
 
+// Initialize RNG state 
+void initializeRNG(inout RNGState rState, vec2 pixel, int frame, int sampleIndex) {
+    rState.pixel = ivec2(pixel);
+    // Combine frame, sample index and pixel position for better variation
+    rState.state = uvec4(
+        uint(frame), 
+        uint(frame * 15843 + sampleIndex), 
+        uint(frame * 31 + 4566 + sampleIndex * 7), 
+        uint(frame * 2345 + 58585 + sampleIndex * 13)
+    );
+}
+
+// PCG-4D hash function
 void pcg4d(inout uvec4 v) {
     v = v * 1664525u + 1013904223u;
     v.x += v.y*v.w; 
@@ -218,20 +219,21 @@ void pcg4d(inout uvec4 v) {
     v.w += v.y*v.z;
 }
 
-void initializeRNG(inout RNGState rState, vec2 pixel, int frame, int sampleIndex) {
-    rState.pixel = ivec2(pixel);
-    // Combine frame, sample index and pixel position for better variation
-    rState.state = uvec4(
-        uint(frame), 
-        uint(frame * 15843 + sampleIndex), 
-        uint(frame * 31 + 4566 + sampleIndex * 7), 
-        uint(frame * 2345 + 58585 + sampleIndex * 13)
-    );
-}
-
+// Get blue noise offset
 ivec2 getBlueNoiseOffset(inout RNGState rState) {
     pcg4d(rState.state);
     return (rState.pixel + ivec2(rState.state.xy % 0x0fffffffu)) % textureSize(blueNoiseTexture, 0).x;
+}
+
+// Modified sampleBlueNoise function
+vec2 sampleBlueNoise(vec2 pixelCoords) {
+    // Initialize RNG state
+    RNGState rState;
+    initializeRNG(rState, pixelCoords, int(frame), 0);
+    
+    // Get offset and sample blue noise texture
+    ivec2 noiseOffset = getBlueNoiseOffset(rState);
+    return texelFetch(blueNoiseTexture, noiseOffset, 0).xy;
 }
 
 vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex, int frame) {

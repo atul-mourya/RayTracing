@@ -14,7 +14,7 @@ import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
 import TriangleSDF from '../Processor/TriangleSDF';
 import spatioTemporalBlueNoiseImage from '../../../public/noise/blue_noise_sequence/64x64_l32_s16.png'; // where file name is width, height, frame cycle, color precision in bits. spatio temporal blue noise image sequence https://tellusim.com/improved-blue-noise/
-import blueNoiseImage from '../../../public/noise/simple_bluenoise3.png'; //simple blue noise image
+import blueNoiseImage from '../../../public/noise/simple_bluenoise.png'; //simple blue noise image
 import { DEFAULT_STATE } from '../Processor/Constants';
 
 export class PathTracerPass extends Pass {
