@@ -1,12 +1,11 @@
 import { Waypoints, Grip, Bug } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { create } from 'zustand';
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
-import { Separator } from '../ui/separator';
+import { ControlGroup } from '@/components/ui/control-group';
 
 const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
 const useStore = create( ( set ) => ( {
@@ -444,191 +443,184 @@ const PathTracerTab = () => {
 	};
 
 	return (
-		<div className="space-y-4 p-4">
-			<div className="flex items-center justify-between">
-				<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Bounces"} icon={Waypoints} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
-					<span className="opacity-50 text-xs truncate">Render Mode</span>
-					<SelectTrigger className="max-w-24 h-5 rounded-full" >
-						<SelectValue placeholder="Select mode" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="0">Regular</SelectItem>
-						<SelectItem value="1">Checkered</SelectItem>
-						<SelectItem value="2">Tiled</SelectItem>
-					</SelectContent>
-				</Select>
-			</div>
-			{renderMode === '1' && (
+		<div className="">
+			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<div className="flex items-center justify-between">
-					<Slider label={"Checkered Size"} min={1} max={10} step={1} value={[ checkeredSize ]} onValueChange={handleCheckeredRenderingSize} />
+					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
 				</div>
-			)}
-			{renderMode === '2' && (
-				<>
-					<div className="flex items-center justify-between">
-						<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-					</div>
-				</>
-			)}
-			<div className="flex items-center justify-between">
-				<span className="opacity-50 text-xs truncate">Resolution</span>
-				<ToggleGroup className="bg-secondary" type="single" value={resolution.toString()} onValueChange={handleResolutionChange}>
-					<ToggleGroupItem
-						className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
-						value="0"
-						aria-label="Quarter Resolution"
-					>
-                        1:4
-					</ToggleGroupItem>
-					<ToggleGroupItem
-						className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
-						value="1"
-						aria-label="Half Resolution"
-					>
-                        1:2
-					</ToggleGroupItem>
-					<ToggleGroupItem
-						className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
-						value="2"
-						aria-label="Full Resolution"
-					>
-                        1:1
-					</ToggleGroupItem>
-				</ToggleGroup>
-			</div>
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} disabled={isMobileDevice}/>
-			</div>
-			{enableOIDN && ( <>
 				<div className="flex items-center justify-between">
-					<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
-						<span className="opacity-50 text-xs truncate">OIDN Quality</span>
-						<SelectTrigger className="max-w-20 h-5 rounded-full" >
-							<SelectValue placeholder="Select quality" />
+					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
+						<span className="opacity-50 text-xs truncate">Render Mode</span>
+						<SelectTrigger className="max-w-24 h-5 rounded-full" >
+							<SelectValue placeholder="Select mode" />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="fast">Fast</SelectItem>
-							<SelectItem value="balance">Balance</SelectItem>
+							<SelectItem value="0">Regular</SelectItem>
+							<SelectItem value="1">Checkered</SelectItem>
+							<SelectItem value="2">Tiled</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+				{renderMode === '1' && (
+					<div className="flex items-center justify-between">
+						<Slider label={"Checkered Size"} min={1} max={10} step={1} value={[ checkeredSize ]} onValueChange={handleCheckeredRenderingSize} />
+					</div>
+				)}
+				{renderMode === '2' && (
+					<>
+						<div className="flex items-center justify-between">
+							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
+						</div>
+					</>
+				)}
+				<div className="flex items-center justify-between">
+					<span className="opacity-50 text-xs truncate">Resolution</span>
+					<ToggleGroup className="bg-secondary" type="single" value={resolution.toString()} onValueChange={handleResolutionChange}>
+						<ToggleGroupItem
+							className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
+							value="0"
+							aria-label="Quarter Resolution"
+						>
+                        1:4
+						</ToggleGroupItem>
+						<ToggleGroupItem
+							className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
+							value="1"
+							aria-label="Half Resolution"
+						>
+                        1:2
+						</ToggleGroupItem>
+						<ToggleGroupItem
+							className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
+							value="2"
+							aria-label="Full Resolution"
+						>
+                        1:1
+						</ToggleGroupItem>
+					</ToggleGroup>
+				</div>
+			</ControlGroup>
+			<ControlGroup name="Denoising">
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} disabled={isMobileDevice}/>
+				</div>
+				{enableOIDN && ( <>
+					<div className="flex items-center justify-between">
+						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
+							<span className="opacity-50 text-xs truncate">OIDN Quality</span>
+							<SelectTrigger className="max-w-20 h-5 rounded-full" >
+								<SelectValue placeholder="Select quality" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="fast">Fast</SelectItem>
+								<SelectItem value="balance">Balance</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
+					</div>
+					{useGBuffer && ( <>
+						<div className="flex items-center justify-between">
+							<Switch label={"Use Albedo Map"} checked={useAlbedoMap} onCheckedChange={handleUseAlbedoMapChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Switch label={"Use Normal Map"} checked={useNormalMap} onCheckedChange={handleUseNormalMapChange} />
+						</div>
+					</> )}
+				</> )}
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable Realtime Denoiser"} checked={enableRealtimeDenoiser} onCheckedChange={handleEnableRealtimeDenoiserChange} />
+				</div>
+				{enableRealtimeDenoiser && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Blur Strength"} min={0.5} max={5} step={0.1} value={[ denoiserBlurStrength ]} onValueChange={handleDenoiserBlurStrengthChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Blur Radius"} min={1} max={3} step={0.1} value={[ denoiserBlurRadius ]} onValueChange={handleDenoiserBlurRadiusChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Detail Preservation"} min={0.01} max={0.1} step={0.01} value={[ denoiserDetailPreservation ]} onValueChange={handleDenoiserDetailPreservationChange} />
+					</div>
+				</> )}
+			</ControlGroup>
+			<ControlGroup name="Sampling">
+				<div className="flex items-center justify-between">
+					<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
+						<span className="opacity-50 text-xs truncate">Sampler</span>
+						<SelectTrigger className="max-w-24 h-5 rounded-full" >
+							<SelectValue placeholder="Select sampler" />
+						</SelectTrigger>
+						<SelectContent>
+							{[ 'PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise', 'Stratified Blue Noise' ].map( ( sampler, i ) => (
+								<SelectItem key={sampler} value={i.toString()}>{sampler}</SelectItem>
+							) )}
 						</SelectContent>
 					</Select>
 				</div>
 				<div className="flex items-center justify-between">
-					<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
+					<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
 				</div>
-				{useGBuffer && ( <>
+				<div className="flex items-center justify-between">
+					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
+				</div>
+				{adaptiveSampling && ( <>
 					<div className="flex items-center justify-between">
-						<Switch label={"Use Albedo Map"} checked={useAlbedoMap} onCheckedChange={handleUseAlbedoMapChange} />
+						<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Switch label={"Use Normal Map"} checked={useNormalMap} onCheckedChange={handleUseNormalMapChange} />
+						<Slider label={"Max Samples"} min={4} max={8} step={1} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 					</div>
 				</> )}
-			</> )}
-			<div className="flex items-center justify-between">
-				<Switch label={"Enable Realtime Denoiser"} checked={enableRealtimeDenoiser} onCheckedChange={handleEnableRealtimeDenoiserChange} />
-			</div>
-			{enableRealtimeDenoiser && ( <>
+			</ControlGroup>
+			<ControlGroup name="Bloom">
 				<div className="flex items-center justify-between">
-					<Slider label={"Blur Strength"} min={0.5} max={5} step={0.1} value={[ denoiserBlurStrength ]} onValueChange={handleDenoiserBlurStrengthChange} />
+					<Slider label={"Bloom Strength"} min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={handleBloomStrengthChange} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Blur Radius"} min={1} max={3} step={0.1} value={[ denoiserBlurRadius ]} onValueChange={handleDenoiserBlurRadiusChange} />
+					<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Detail Preservation"} min={0.01} max={0.1} step={0.01} value={[ denoiserDetailPreservation ]} onValueChange={handleDenoiserDetailPreservationChange} />
+					<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
 				</div>
-			</> )}
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
-					<span className="opacity-50 text-xs truncate">Sampler</span>
-					<SelectTrigger className="max-w-24 h-5 rounded-full" >
-						<SelectValue placeholder="Select sampler" />
-					</SelectTrigger>
-					<SelectContent>
-						{[ 'PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise', 'Stratified Blue Noise' ].map( ( sampler, i ) => (
-							<SelectItem key={sampler} value={i.toString()}>{sampler}</SelectItem>
-						) )}
-					</SelectContent>
-				</Select>
-			</div>
-			<div className="flex items-center justify-between">
-				<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
-			</div>
-			{adaptiveSampling && ( <>
-				<div className="flex items-center justify-between">
-					<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
-				</div>
-				<div className="flex items-center justify-between">
-					<Slider label={"Max Samples"} min={4} max={8} step={1} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
-				</div>
-				<div className="flex items-center justify-between">
-					<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
-				</div>
-			</> )}
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Slider label={"Bloom Strength"} min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={handleBloomStrengthChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
-			</div>
+			</ControlGroup>
 			{enablePathTracer && (
-				<Accordion type="single" collapsible>
-					<AccordionItem value="debug">
-						<AccordionTrigger className="text-sm py-2 border-t">
-							<div className="flex items-center">
-								<Bug className="h-4 w-4 mr-2" />
-                                Debugging
-							</div>
-						</AccordionTrigger>
-						<AccordionContent>
-							<div className="space-y-4 pt-4">
-								<div className="flex items-center justify-between">
-									<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
-								</div>
-								<div className="flex items-center justify-between">
-									<Select value={debugMode.toString()} onValueChange={handleDebugModeChange}>
-										<span className="opacity-50 text-xs truncate">Mode</span>
-										<SelectTrigger className="max-w-32 h-5 rounded-full" >
-											<SelectValue placeholder="Select mode" />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="0">Beauty</SelectItem>
-											<SelectItem value="1">Triangle test count</SelectItem>
-											<SelectItem value="2">Box test count</SelectItem>
-											<SelectItem value="3">Distance</SelectItem>
-											<SelectItem value="4">Normal</SelectItem>
-											<SelectItem value="5">Sampling</SelectItem>
-										</SelectContent>
-									</Select>
-								</div>
-								<div className="flex items-center justify-between">
-									<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ debugThreshold ]} onValueChange={handleDebugThresholdChange} />
-								</div>
-							</div>
-						</AccordionContent>
-					</AccordionItem>
-				</Accordion>
+				<ControlGroup name="Debugging">
+					<div className="flex items-center justify-between">
+						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Select value={debugMode.toString()} onValueChange={handleDebugModeChange}>
+							<span className="opacity-50 text-xs truncate">Mode</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full" >
+								<SelectValue placeholder="Select mode" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="0">Beauty</SelectItem>
+								<SelectItem value="1">Triangle test count</SelectItem>
+								<SelectItem value="2">Box test count</SelectItem>
+								<SelectItem value="3">Distance</SelectItem>
+								<SelectItem value="4">Normal</SelectItem>
+								<SelectItem value="5">Sampling</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ debugThreshold ]} onValueChange={handleDebugThresholdChange} />
+					</div>
+				</ControlGroup>
 			)}
 		</div>
 	);

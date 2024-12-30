@@ -101,7 +101,7 @@ const MainViewport = () => {
 		<div className="w-full h-full relative">
 			<Viewport3D onStatsUpdate={setStats} />
 			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-          Time: {stats.timeElapsed.toFixed( 2 )}s | Samples: {stats.samples} /{' '}
+          Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
 				{isEditing ? (
 					<input
 						className="bg-transparent border-b border-white text-white w-12"
