@@ -23,12 +23,15 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 
     // Normalize weights
 	float total = weights.specular + weights.diffuse + weights.sheen + weights.clearcoat + weights.transmission + weights.iridescence;
-	weights.specular /= total;
-	weights.diffuse /= total;
-	weights.sheen /= total;
-	weights.clearcoat /= total;
-	weights.transmission /= total;
-	weights.iridescence /= total;
+
+    // Normalize all weights
+	float invTotal = 1.0 / max( total, 0.001 );
+	weights.specular *= invTotal;
+	weights.diffuse *= invTotal;
+	weights.sheen *= invTotal;
+	weights.clearcoat *= invTotal;
+	weights.transmission *= invTotal;
+	weights.iridescence *= invTotal;
 
 	return weights;
 }

@@ -22,6 +22,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - caustic support
 - implement high res environment map selection option
 - implement custom environment map support
+- improve adaptive sampling performance
 - Object dynamic transformation changes
 - Hybrid Rendering
 - cleanup path tracer ui panel.

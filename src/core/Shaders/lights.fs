@@ -225,10 +225,17 @@ IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingM
 
     // Calculate final contribution
     float NoL = max( dot( N, sampleDir ), 0.0 );
-    vec3 throughput = sampleBrdf * NoL * misWeight * globalIlluminationIntensity / max( samplePdf, 0.001 );
+    vec3 throughput = sampleBrdf * NoL * misWeight / samplePdf;
+
+    // A surface can reflect more than 100% of incoming light in certain directions
+    // due to the combination of BRDF and geometric terms
+    float maxValue = 5.0; // Allow for higher energy concentration in certain directions
+    throughput = clamp( throughput, vec3( 0.0 ), vec3( maxValue ) );
+    throughput *= globalIlluminationIntensity;
 
     IndirectLightingResult result;
     result.direction = sampleDir;
-    result.throughput = clamp( throughput, vec3( 0.0 ), vec3( 1.0 ) );
+    result.throughput = throughput;
+
     return result;
 }
