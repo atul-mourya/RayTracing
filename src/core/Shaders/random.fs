@@ -314,8 +314,14 @@ vec4 getRandomSample4( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout 
 
 	} else if ( samplingTechnique == 5 ) { // Simple 2D Blue Noise
 
-		vec2 noise = sampleBlueNoise( pixelCoord + vec2( float( sampleIndex ) * 13.37, float( bounceIndex ) * 31.41 ) );
-		return vec4( noise, noise );
+		RNGState rState1, rState2;
+        initializeRNG(rState1, pixelCoord, int(frame), sampleIndex);
+        initializeRNG(rState2, pixelCoord, int(frame), sampleIndex + bounceIndex);
+        
+        vec2 noise1 = texelFetch(blueNoiseTexture, getBlueNoiseOffset(rState1), 0).xy;
+        vec2 noise2 = texelFetch(blueNoiseTexture, getBlueNoiseOffset(rState2), 0).xy;
+        
+        return vec4(noise1, noise2);
 
 	} else if ( samplingTechnique == 6 ) { // Stratified Blue Noise
 	
