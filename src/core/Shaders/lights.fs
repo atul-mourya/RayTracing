@@ -77,12 +77,50 @@ vec3 evaluateAreaLight( AreaLight light, vec3 hitPoint, vec3 lightDir, float lig
     return light.color * ( light.intensity * radianceScale ) * falloff * cosTheta;
 }
 
-bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats ) {
+bool isPointInShadow(vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats) {
     Ray shadowRay;
-    shadowRay.origin = point + normal * 0.001; // shadow bais or Offset to avoid self-intersection
+    shadowRay.origin = point + normal * 0.001; // shadow bias
     shadowRay.direction = lightDir;
-    HitInfo shadowHit = traverseBVH( shadowRay, stats );
-    return shadowHit.didHit;
+    
+    float opacity = 0.0;
+    const int MAX_SHADOW_STEPS = 32; // Limit shadow ray bounces
+    
+    for(int i = 0; i < MAX_SHADOW_STEPS; i++) {
+        HitInfo shadowHit = traverseBVH(shadowRay, stats);
+        
+        if(!shadowHit.didHit) {
+            return false; // Ray reached light without being fully blocked
+        }
+        
+        // Handle transparent materials
+        if(shadowHit.material.transparent || shadowHit.material.transmission > 0.0) {
+            // Calculate accumulated opacity
+            float hitOpacity = shadowHit.material.transparent ? 
+                             shadowHit.material.opacity : 
+                             (1.0 - shadowHit.material.transmission);
+                             
+            // Apply material's alpha if using alpha texture
+            if(shadowHit.material.alphaMode != 0) { // Not OPAQUE
+                hitOpacity *= shadowHit.material.color.a;
+            }
+            
+            opacity += hitOpacity * (1.0 - opacity); // Accumulate opacity
+            
+            if(opacity >= 0.99) {
+                return true; // Effectively opaque
+            }
+            
+            // Continue ray
+            shadowRay.origin = shadowHit.hitPoint + lightDir * 0.001;
+            continue;
+        }
+        
+        // Opaque material hit
+        return true;
+    }
+    
+    // If we've exceeded MAX_SHADOW_STEPS, consider it shadowed
+    return opacity >= 0.99;
 }
 
 bool pointInRectangle( vec3 point, vec3 center, vec3 u, vec3 v ) {
