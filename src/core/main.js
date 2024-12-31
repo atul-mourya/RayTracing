@@ -215,7 +215,6 @@ class PathTracerApp extends EventDispatcher {
 		this.temporalReprojectionPass.material.uniforms.blendFactor.value = 0.9;
 		this.temporalReprojectionPass.material.uniforms.neighborhoodClampIntensity.value = 0.5;
 		this.composer.addPass( this.temporalReprojectionPass );
-		window.temporalReprojectionPass = this.temporalReprojectionPass;
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );

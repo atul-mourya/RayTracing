@@ -6,43 +6,59 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { create } from 'zustand';
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { ControlGroup } from '@/components/ui/control-group';
+import { Separator } from '@/components/ui/separator';
+import { SliderToggle } from '@/components/ui/slider-toggle';
 
 const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
 const useStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
-	setEnablePathTracer: ( value ) => set( { enablePathTracer: value } ),
-	setEnableAccumulation: ( value ) => set( { enableAccumulation: value } ),
-	setBounces: ( value ) => set( { bounces: value } ),
-	setSamplesPerPixel: ( value ) => set( { samplesPerPixel: value } ),
-	setSamplingTechnique: ( value ) => set( { samplingTechnique: value } ),
-	setAdaptiveSampling: ( value ) => set( { adaptiveSampling: value } ),
-	setAdaptiveSamplingMin: ( value ) => set( { adaptiveSamplingMin: value } ),
-	setAdaptiveSamplingMax: ( value ) => set( { adaptiveSamplingMax: value } ),
-	setAdaptiveSamplingVarianceThreshold: ( value ) => set( { adaptiveSamplingVarianceThreshold: value } ),
-	setRenderMode: ( value ) => set( { renderMode: value } ),
-	setCheckeredSize: ( value ) => set( { checkeredSize: value } ),
-	setTiles: ( value ) => set( { tiles: value } ),
-	setTilesHelper: ( value ) => set( { tilesHelper: value } ),
-	setResolution: ( value ) => set( { resolution: value } ),
-	setDownSampledMovement: ( value ) => set( { downSampledMovement: value } ),
-	setEnableOIDN: ( value ) => set( { enableOIDN: value } ),
-	setUseGBuffer: ( value ) => set( { useGBuffer: value } ),
-	setUseAlbedoMap: ( value ) => set( { useAlbedoMap: value } ),
-	setUseNormalMap: ( value ) => set( { useNormalMap: value } ),
-	setEnableRealtimeDenoiser: ( value ) => set( { enableRealtimeDenoiser: value } ),
-	setDenoiserBlurStrength: ( value ) => set( { denoiserBlurStrength: value } ),
-	setDenoiserBlurRadius: ( value ) => set( { denoiserBlurRadius: value } ),
-	setDenoiserDetailPreservation: ( value ) => set( { denoiserDetailPreservation: value } ),
-	setDebugMode: ( value ) => set( { debugMode: value } ),
-	setDebugThreshold: ( value ) => set( { debugThreshold: value } ),
+	setEnablePathTracer: value => set( { enablePathTracer: value } ),
+	setEnableAccumulation: value => set( { enableAccumulation: value } ),
+	setBounces: value => set( { bounces: value } ),
+	setSamplesPerPixel: value => set( { samplesPerPixel: value } ),
+	setSamplingTechnique: value => set( { samplingTechnique: value } ),
+	setAdaptiveSampling: value => set( { adaptiveSampling: value } ),
+	setAdaptiveSamplingMin: value => set( { adaptiveSamplingMin: value } ),
+	setAdaptiveSamplingMax: value => set( { adaptiveSamplingMax: value } ),
+	setAdaptiveSamplingVarianceThreshold: value => set( { adaptiveSamplingVarianceThreshold: value } ),
+	setRenderMode: value => set( { renderMode: value } ),
+	setCheckeredSize: value => set( { checkeredSize: value } ),
+	setTiles: value => set( { tiles: value } ),
+	setTilesHelper: value => set( { tilesHelper: value } ),
+	setResolution: value => set( { resolution: value } ),
+	setDownSampledMovement: value => set( { downSampledMovement: value } ),
+	setEnableOIDN: value => set( { enableOIDN: value } ),
+	setUseGBuffer: value => set( { useGBuffer: value } ),
+	setUseAlbedoMap: value => set( { useAlbedoMap: value } ),
+	setUseNormalMap: value => set( { useNormalMap: value } ),
+	setEnableRealtimeDenoiser: value => set( { enableRealtimeDenoiser: value } ),
+	setDenoiserBlurStrength: value => set( { denoiserBlurStrength: value } ),
+	setDenoiserBlurRadius: value => set( { denoiserBlurRadius: value } ),
+	setDenoiserDetailPreservation: value => set( { denoiserDetailPreservation: value } ),
+	setDebugMode: value => set( { debugMode: value } ),
+	setDebugThreshold: value => set( { debugThreshold: value } ),
 	bloomStrength: 0.2,
 	bloomRadius: 0.15,
 	bloomThreshold: 0.85,
-	setBloomThreshold: ( value ) => set( { bloomThreshold: value } ),
-	setBloomStrength: ( value ) => set( { bloomStrength: value } ),
-	setBloomRadius: ( value ) => set( { bloomRadius: value } ),
-	setOidnQuality: ( value ) => set( { oidnQuality: value } ),
+	setEnableBloom: value => set( { enableBloom: value } ),
+	setBloomThreshold: value => set( { bloomThreshold: value } ),
+	setBloomStrength: value => set( { bloomStrength: value } ),
+	setBloomRadius: value => set( { bloomRadius: value } ),
+	setTemporalReprojection: value => set( { temporalReprojection: value } ),
+	setOidnQuality: value => set( { oidnQuality: value } ),
 } ) );
+
+const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
+
+	setter( value );
+	if ( window.pathTracerApp ) {
+
+		appUpdater( value );
+		needsReset && window.pathTracerApp.reset();
+
+	}
+
+};
 
 const PathTracerTab = () => {
 
@@ -72,375 +88,85 @@ const PathTracerTab = () => {
 		denoiserDetailPreservation, setDenoiserDetailPreservation,
 		debugMode, setDebugMode,
 		debugThreshold, setDebugThreshold,
+		enableBloom, setEnableBloom,
 		bloomThreshold, setBloomThreshold,
 		bloomStrength, setBloomStrength,
 		bloomRadius, setBloomRadius,
+		temporalReprojection, setTemporalReprojection,
 		oidnQuality, setOidnQuality,
 	} = useStore();
 
-	const handlePathTracerChange = ( value ) => {
+	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
 
-		setEnablePathTracer( value );
-		if ( window.pathTracerApp ) {
+		window.pathTracerApp.accPass.enabled = value;
+		window.pathTracerApp.temporalReprojectionPass.enabled = value;
+		window.pathTracerApp.pathTracingPass.enabled = value;
+		window.pathTracerApp.renderPass.enabled = ! value;
 
-			window.pathTracerApp.accPass.enabled = value;
-			window.pathTracerApp.temporalReprojectionPass.enabled = value;
-			window.pathTracerApp.pathTracingPass.enabled = value;
-			window.pathTracerApp.renderPass.enabled = ! value;
-			window.pathTracerApp.reset();
+	} );
 
-		}
+	const handleAccumulationChange = handleChange( setEnableAccumulation, value => window.pathTracerApp.accPass.enabled = value );
+	const handleBouncesChange = handleChange( setBounces, value => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = value );
+	const handleSamplesPerPixelChange = handleChange( setSamplesPerPixel, value => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = value );
+	const handleSamplingTechniqueChange = handleChange( setSamplingTechnique, value => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = value );
+	const handleAdaptiveSamplingChange = handleChange( setAdaptiveSampling, value => window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value );
+	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
+	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
+	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
+	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
+	const handleCheckeredRenderingSize = handleChange( setCheckeredSize, value => window.pathTracerApp.pathTracingPass.material.uniforms.checkeredFrameInterval.value = value[ 0 ] );
+	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
+	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 2 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
 
-	};
 
-	const handleAccumulationChange = ( value ) => {
+	const handleResolutionChange = handleChange( setResolution, value => {
 
-		setEnableAccumulation( value );
-		if ( window.pathTracerApp ) {
+		let result;
+		switch ( value ) {
 
-			window.pathTracerApp.accPass.enabled = value;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleBouncesChange = ( value ) => {
-
-		setBounces( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = value;
-			window.pathTracerApp.reset();
+			case '1': result = 0.5; break;
+			case '2': result = 1; break;
+			default: result = 0.25;
 
 		}
 
-	};
+		window.pathTracerApp.updateResolution( window.devicePixelRatio * result );
 
-	const handleSamplesPerPixelChange = ( value ) => {
+	} );
+	const handleDownSampledMovementChange = handleChange( setDownSampledMovement, value => window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value, false );
+	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
+	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiserPass.useGBuffer = value, false );
+	const handleUseAlbedoMapChange = handleChange( setUseAlbedoMap, value => window.pathTracerApp.denoiserPass.useAlbedoMap = value, false );
+	const handleUseNormalMapChange = handleChange( setUseNormalMap, value => window.pathTracerApp.denoiserPass.useNormalMap = value, false );
+	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
+	const handleDenoiserBlurStrengthChange = handleChange( setDenoiserBlurStrength, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = value[ 0 ], false );
+	const handleDenoiserBlurRadiusChange = handleChange( setDenoiserBlurRadius, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = value[ 0 ], false );
+	const handleDenoiserDetailPreservationChange = handleChange( setDenoiserDetailPreservation, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = value[ 0 ], false );
 
-		setSamplesPerPixel( value );
-		if ( window.pathTracerApp ) {
+	const handleDebugModeChange = handleChange( setDebugMode, value => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = value;
-			window.pathTracerApp.reset();
+		let mode;
+		switch ( value ) {
 
-		}
-
-	};
-
-	const handleSamplingTechniqueChange = ( value ) => {
-
-		setSamplingTechnique( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = value;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleAdaptiveSamplingChange = ( value ) => {
-
-		setAdaptiveSampling( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value;
-			window.pathTracerApp.reset();
+			case '1': mode = 1; break;
+			case '2': mode = 2; break;
+			case '3': mode = 3; break;
+			case '4': mode = 4; break;
+			case '5': mode = 5; break;
+			default: mode = 0;
 
 		}
 
-	};
-
-	const handleAdaptiveSamplingMinChange = ( value ) => {
-
-		setAdaptiveSamplingMin( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleAdaptiveSamplingMaxChange = ( value ) => {
-
-		setAdaptiveSamplingMax( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleAdaptiveSamplingVarianceThresholdChange = ( value ) => {
-
-		setAdaptiveSamplingVarianceThreshold( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleRenderModeChange = ( value ) => {
-
-		setRenderMode( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value );
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleCheckeredRenderingSize = ( value ) => {
-
-		setCheckeredSize( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.checkeredFrameInterval.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleTileUpdate = ( value ) => {
-
-		setTiles( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.tiles = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleTileHelperToggle = ( value ) => {
-
-		setTilesHelper( value );
-		if ( window.pathTracerApp && parseInt( renderMode ) === 2 ) {
-
-			window.pathTracerApp.tileHighlightPass.enabled = value;
-
-		}
-
-	};
-
-	const handleResolutionChange = ( value ) => {
-
-		setResolution( value );
-		let result = 0.25;
-		if ( window.pathTracerApp ) {
-
-			switch ( value ) {
-
-				case '0': result = 0.25; break;
-				case '1': result = 0.5; break;
-				case '2': result = 1; break;
-
-			}
-
-			window.pathTracerApp.updateResolution( window.devicePixelRatio * result );
-
-		}
-
-	};
-
-	const handleDownSampledMovementChange = ( value ) => {
-
-		setDownSampledMovement( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleEnableOIDNChange = ( value ) => {
-
-		setEnableOIDN( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiser.enabled = value;
-
-		}
-
-	};
-
-	const handleUseGBufferChange = ( value ) => {
-
-		setUseGBuffer( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.useGBuffer = value;
-
-		}
-
-	};
-
-	const handleUseAlbedoMapChange = ( value ) => {
-
-		setUseAlbedoMap( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.useAlbedoMap = value;
-
-		}
-
-	};
-
-	const handleUseNormalMapChange = ( value ) => {
-
-		setUseNormalMap( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.useNormalMap = value;
-
-		}
-
-	};
-
-	const handleEnableRealtimeDenoiserChange = ( value ) => {
-
-		setEnableRealtimeDenoiser( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.enabled = value;
-
-		}
-
-	};
-
-	const handleDenoiserBlurStrengthChange = ( value ) => {
-
-		setDenoiserBlurStrength( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDenoiserBlurRadiusChange = ( value ) => {
-
-		setDenoiserBlurRadius( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDenoiserDetailPreservationChange = ( value ) => {
-
-		setDenoiserDetailPreservation( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDebugModeChange = ( value ) => {
-
-		setDebugMode( value );
-		if ( window.pathTracerApp ) {
-
-			let mode = 0;
-			switch ( value ) {
-
-				case '0': mode = 0; break; //beauty
-				case '1': mode = 1; break; //triangle
-				case '2': mode = 2; break; //box
-				case '3': mode = 3; break; //distance
-				case '4': mode = 4; break; //normal
-				case '5': mode = 5; break; //sampling
-
-			}
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleDebugThresholdChange = ( value ) => {
-
-		setDebugThreshold( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleBloomThresholdChange = ( value ) => {
-
-		setBloomThreshold( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.bloomPass.threshold = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleBloomStrengthChange = ( value ) => {
-
-		setBloomStrength( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.bloomPass.strength = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleBloomRadiusChange = ( value ) => {
-
-		setBloomRadius( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.bloomPass.radius = value[ 0 ];
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleOidnQualityChange = ( value ) => {
-
-		setOidnQuality( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.denoiser.quality = value;
-
-		}
-
-	};
+		window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
+
+	} );
+	const handleDebugThresholdChange = handleChange( setDebugThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = value[ 0 ] );
+	const handleEnableBloomChange = handleChange( setEnableBloom, value => window.pathTracerApp.bloomPass.enabled = value );
+	const handleBloomThresholdChange = handleChange( setBloomThreshold, value => window.pathTracerApp.bloomPass.threshold = value[ 0 ] );
+	const handleBloomStrengthChange = handleChange( setBloomStrength, value => window.pathTracerApp.bloomPass.strength = value[ 0 ] );
+	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
+	const handleTemporalReprojectionChange = handleChange( setTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
+	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.quality = value, false );
 
 	return (
 		<div className="">
@@ -585,15 +311,21 @@ const PathTracerTab = () => {
 					</div>
 				</> )}
 			</ControlGroup>
-			<ControlGroup name="Bloom">
+			<ControlGroup name="Post Processing">
 				<div className="flex items-center justify-between">
-					<Slider label={"Bloom Strength"} min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={handleBloomStrengthChange} />
+					<SliderToggle label={"Bloom Strength"} enabled={ enableBloom } min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={ handleBloomStrengthChange } onToggleChange={ handleEnableBloomChange } />
 				</div>
+				{enableBloom && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
+					</div></>
+				)}
+				<Separator />
 				<div className="flex items-center justify-between">
-					<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
-				</div>
-				<div className="flex items-center justify-between">
-					<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
+					<Switch label={"Temporal Reprojection"} checked={temporalReprojection} onCheckedChange={handleTemporalReprojectionChange} />
 				</div>
 			</ControlGroup>
 			{enablePathTracer && (
