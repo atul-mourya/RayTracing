@@ -12,7 +12,7 @@ vec3 calculateDispersiveIOR( float baseIOR, float dispersionStrength ) {
 	float B = dispersionStrength * 0.001; // Scale factor for dispersion strength
 
     // Wavelengths for RGB (in micrometers)
-	const vec3 wavelengths = vec3( 0.65, 0.53, 0.44 ); // Red, Green, Blue
+    const vec3 wavelengths = vec3( 0.6563, 0.5461, 0.4358 ); // Red, Green, Blue (precise wavelengths)
 
     // Apply Cauchy's equation: n(λ) = A + B/λ²
 	return A + B / ( wavelengths * wavelengths );
@@ -74,17 +74,21 @@ TransmissionResult handleTransmission(
 
 			if( randWL < 0.333 ) {
 				selectIOR = wavelengthIOR.r;
-				result.throughput = vec3( 3.0, 0.0, 0.0 ); // Boost red
+				result.throughput = vec3( 1.5, 0.2, 0.2 ); // Boost red
 			} else if( randWL < 0.666 ) {
 				selectIOR = wavelengthIOR.g;
-				result.throughput = vec3( 0.0, 3.0, 0.0 ); // Boost green
+				result.throughput = vec3( 0.2, 1.5, 0.2); // Boost green
 			} else {
 				selectIOR = wavelengthIOR.b;
-				result.throughput = vec3( 0.0, 0.0, 3.0 ); // Boost blue
+				result.throughput = vec3( 0.2, 0.2, 1.5 ); // Boost blue
 			}
 
 			float ratio = entering ? 1.0 / selectIOR : selectIOR;
 			result.direction = refract( rayDir, N, ratio );
+
+            // Normalize throughput to maintain energy conservation
+            result.throughput *= 0.8; // Slight energy loss due to dispersion
+            
 		} else {
             // Regular refraction without dispersion
 			result.direction = refract( rayDir, N, n1 / n2 );
