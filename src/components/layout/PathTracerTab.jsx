@@ -1,4 +1,4 @@
-import { Waypoints, Grip, Bug } from 'lucide-react';
+import { Grip } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -37,14 +37,11 @@ const useStore = create( ( set ) => ( {
 	setDenoiserDetailPreservation: value => set( { denoiserDetailPreservation: value } ),
 	setDebugMode: value => set( { debugMode: value } ),
 	setDebugThreshold: value => set( { debugThreshold: value } ),
-	bloomStrength: 0.2,
-	bloomRadius: 0.15,
-	bloomThreshold: 0.85,
 	setEnableBloom: value => set( { enableBloom: value } ),
 	setBloomThreshold: value => set( { bloomThreshold: value } ),
 	setBloomStrength: value => set( { bloomStrength: value } ),
 	setBloomRadius: value => set( { bloomRadius: value } ),
-	setTemporalReprojection: value => set( { temporalReprojection: value } ),
+	setEnableTemporalReprojection: value => set( { enableTemporalReprojection: value } ),
 	setOidnQuality: value => set( { oidnQuality: value } ),
 } ) );
 
@@ -92,7 +89,7 @@ const PathTracerTab = () => {
 		bloomThreshold, setBloomThreshold,
 		bloomStrength, setBloomStrength,
 		bloomRadius, setBloomRadius,
-		temporalReprojection, setTemporalReprojection,
+		enableTemporalReprojection, setEnableTemporalReprojection,
 		oidnQuality, setOidnQuality,
 	} = useStore();
 
@@ -165,7 +162,7 @@ const PathTracerTab = () => {
 	const handleBloomThresholdChange = handleChange( setBloomThreshold, value => window.pathTracerApp.bloomPass.threshold = value[ 0 ] );
 	const handleBloomStrengthChange = handleChange( setBloomStrength, value => window.pathTracerApp.bloomPass.strength = value[ 0 ] );
 	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
-	const handleTemporalReprojectionChange = handleChange( setTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
+	const handleTemporalReprojectionChange = handleChange( setEnableTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
 	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.quality = value, false );
 
 	return (
@@ -325,7 +322,7 @@ const PathTracerTab = () => {
 				)}
 				<Separator />
 				<div className="flex items-center justify-between">
-					<Switch label={"Temporal Reprojection"} checked={temporalReprojection} onCheckedChange={handleTemporalReprojectionChange} />
+					<Switch label={"Temporal Reprojection"} checked={enableTemporalReprojection} onCheckedChange={handleTemporalReprojectionChange} />
 				</div>
 			</ControlGroup>
 			{enablePathTracer && (

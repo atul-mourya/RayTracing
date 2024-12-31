@@ -2,7 +2,6 @@ import {
 	Scene,
 	PerspectiveCamera,
 	WebGLRenderer,
-	ACESFilmicToneMapping,
 	SRGBColorSpace,
 	DirectionalLight,
 	WebGLRenderTarget,
@@ -212,6 +211,7 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.setAccumulationPass( this.accPass );
 
 		this.temporalReprojectionPass = new TemporalReprojectionPass( this.scene, this.camera, this.width, this.height );
+		this.temporalReprojectionPass.enabled = DEFAULT_STATE.enableTemporalReprojection;
 		this.temporalReprojectionPass.material.uniforms.blendFactor.value = 0.9;
 		this.temporalReprojectionPass.material.uniforms.neighborhoodClampIntensity.value = 0.5;
 		this.composer.addPass( this.temporalReprojectionPass );
@@ -227,7 +227,11 @@ class PathTracerApp extends EventDispatcher {
 		this.tileHighlightPass.enabled = DEFAULT_STATE.tilesHelper;
 		this.composer.addPass( this.tileHighlightPass );
 
-		this.bloomPass = new UnrealBloomPass( new Vector2( this.width, this.height ), 0.2, 0.15, 0.85 );
+		this.bloomPass = new UnrealBloomPass( new Vector2( this.width, this.height ) );
+		this.bloomPass.enabled = DEFAULT_STATE.enableBloom;
+		this.bloomPass.strength = DEFAULT_STATE.bloomStrength;
+		this.bloomPass.radius = DEFAULT_STATE.bloomRadius;
+		this.bloomPass.threshold = DEFAULT_STATE.bloomThreshold;
 		this.composer.addPass( this.bloomPass );
 
 		const outputPass = new OutputPass();

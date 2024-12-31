@@ -251,7 +251,12 @@ export const DEFAULT_STATE = {
 	denoiserDetailPreservation: 0.05,
 	debugMode: 0,
 	debugThreshold: 100,
-	debugModel: 0
+	debugModel: 0,
+	enableBloom: false,
+	bloomStrength: 0.2,
+	bloomRadius: 0.15,
+	bloomThreshold: 0.85,
+	enableTemporalReprojection: true,
 };
 
 
