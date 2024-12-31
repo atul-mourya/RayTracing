@@ -24,6 +24,7 @@ uniform bool useAdaptiveSampling;
 #include texture_sampling.fs
 #include fresnel.fs
 #include brdfs.fs
+#include transmission.fs
 #include lights.fs
 
 // Global variables
@@ -128,98 +129,6 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	result.value = evaluateBRDF( V, result.direction, N, material );
 
 	return result;
-}
-
-vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState ) {
-	bool entering = dot( ray.direction, hitInfo.normal ) < 0.0;
-	float n1 = entering ? 1.0 : material.ior;
-	float n2 = entering ? material.ior : 1.0;
-	vec3 normal = entering ? hitInfo.normal : - hitInfo.normal;
-
-	float cosThetaI = abs( dot( normal, ray.direction ) );
-	float sinThetaT2 = ( n1 * n1 ) / ( n2 * n2 ) * ( 1.0 - cosThetaI * cosThetaI );
-	bool totalInternalReflection = sinThetaT2 > 1.0;
-
-	vec3 reflectDir = reflect( ray.direction, normal );
-	vec3 refractDir = refract( ray.direction, normal, n1 / n2 );
-
-    // Calculate Fresnel coefficient for reflection vs transmission
-	float F0 = pow( ( n1 - n2 ) / ( n1 + n2 ), 2.0 ); // Fresnel reflectance at normal incidence
-	float Fr = totalInternalReflection ? 1.0 : fresnelSchlick( cosThetaI, F0 );
-
-    // Blend between pure Fresnel and forced transmission based on transmission value
-    // As transmission increases, we reduce the Fresnel effect and force more transmission
-	float reflectProb = mix( Fr, Fr * ( 1.0 - material.transmission ), material.transmission );
-	bool shouldReflect = totalInternalReflection || ( RandomValue( rngState ) < reflectProb );
-
-    // Calculate initial throughput with importance sampling
-	vec3 throughput = vec3( 1.0 );
-	if( ! shouldReflect ) {
-		throughput *= 1.0 / ( 1.0 - reflectProb );
-	}
-
-    // Apply Beer's law absorption for transmitted light
-	if( ! shouldReflect && entering ) {
-        // Only apply absorption when entering the medium (to avoid double-counting)
-		float dist = material.thickness;
-		if( material.attenuationDistance > 0.0 ) {
-            // Convert RGB attenuation color to absorption coefficients
-			vec3 absorbtion = - log( max( material.attenuationColor, vec3( 0.001 ) ) ) / material.attenuationDistance;
-            // Apply Beer's law
-			throughput *= exp( - absorbtion * dist );
-		}
-	}
-
-    // Handle dispersion if enabled and we're refracting
-	if( material.dispersion > 0.0 && ! shouldReflect ) {
-        // Cauchy's equation coefficients for common glass
-        // These values are approximated for typical crown glass
-		float A = material.ior; // Base IOR
-		float B = material.dispersion * 0.001; // Dispersion strength * scale in micron
-
-        // Wavelengths for RGB (in micrometers)
-		const vec3 wavelengths = vec3( 0.65, 0.53, 0.44 );
-
-        // Calculate wavelength-dependent IOR using Cauchy's equation
-        // n(λ) = A + B/λ²
-		vec3 wavelengthDependendIOR = A + B / ( wavelengths * wavelengths );
-
-        // Randomly select one wavelength channel based on energy distribution
-		float randWavelength = RandomValue( rngState );
-		vec3 refractDirRGB;
-
-		if( randWavelength < 0.333 ) {
-            // Red channel
-			float iorRed = wavelengthDependendIOR.r;
-			float ratio = entering ? 1.0 / iorRed : iorRed;
-			refractDirRGB = refract( ray.direction, normal, ratio );
-			throughput = vec3( 3.0, 0.0, 0.0 ); // Boost red
-		} else if( randWavelength < 0.666 ) {
-            // Green channel
-			float iorGreen = wavelengthDependendIOR.g;
-			float ratio = entering ? 1.0 / iorGreen : iorGreen;
-			refractDirRGB = refract( ray.direction, normal, ratio );
-			throughput = vec3( 0.0, 3.0, 0.0 ); // Boost green
-		} else {
-            // Blue channel
-			float iorBlue = wavelengthDependendIOR.b;
-			float ratio = entering ? 1.0 / iorBlue : iorBlue;
-			refractDirRGB = refract( ray.direction, normal, ratio );
-			throughput = vec3( 0.0, 0.0, 3.0 ); // Boost blue
-		}
-
-		ray.direction = refractDirRGB;
-	} else {
-        // No dispersion, use regular refraction
-		ray.direction = shouldReflect ? reflectDir : refractDir;
-	}
-
-    // Apply material color
-	vec3 materialColor = shouldReflect ? material.color.rgb : mix( material.color.rgb, vec3( 1.0 ), material.transmission * 0.5 );
-
-	throughput *= materialColor;
-
-	return throughput;
 }
 
 // Helper function to calculate energy conservation for layered materials
@@ -423,7 +332,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Handle transparent materials with transmission
 		if( material.transmission > 0.0 ) {
-			throughput *= sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
+			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
+			throughput *= transmissionThroughput;
 			alpha *= ( 1.0 - material.transmission ) * material.color.a;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			continue;

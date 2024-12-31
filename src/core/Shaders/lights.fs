@@ -84,6 +84,7 @@ bool isPointInShadow(vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats) 
     
     float opacity = 0.0;
     const int MAX_SHADOW_STEPS = 32; // Limit shadow ray bounces
+    uint rngState = uint(gl_FragCoord.x + gl_FragCoord.y * 1024.0); // Initialize RNG state
     
     for(int i = 0; i < MAX_SHADOW_STEPS; i++) {
         HitInfo shadowHit = traverseBVH(shadowRay, stats);
@@ -92,26 +93,51 @@ bool isPointInShadow(vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats) 
             return false; // Ray reached light without being fully blocked
         }
         
-        // Handle transparent materials
+        // Handle transparent and transmissive materials
         if(shadowHit.material.transparent || shadowHit.material.transmission > 0.0) {
-            // Calculate accumulated opacity
-            float hitOpacity = shadowHit.material.transparent ? 
-                             shadowHit.material.opacity : 
-                             (1.0 - shadowHit.material.transmission);
-                             
-            // Apply material's alpha if using alpha texture
-            if(shadowHit.material.alphaMode != 0) { // Not OPAQUE
-                hitOpacity *= shadowHit.material.color.a;
+            float materialOpacity;
+            vec3 newDirection;
+            
+            if(shadowHit.material.transmission > 0.0) {
+                // Use the transmission utilities for consistent handling
+                bool entering = dot(shadowRay.direction, shadowHit.normal) < 0.0;
+                TransmissionResult transResult = handleTransmission(
+                    shadowRay.direction,
+                    shadowHit.normal,
+                    shadowHit.material,
+                    entering,
+                    rngState
+                );
+                
+                // Update shadow ray direction
+                newDirection = transResult.direction;
+                
+                // Calculate effective opacity based on transmission result
+                float transmissionFactor = length(transResult.throughput) / 3.0;
+                materialOpacity = 1.0 - (shadowHit.material.transmission * transmissionFactor);
+            } else {
+                // Handle regular transparency
+                materialOpacity = shadowHit.material.transparent ? 
+                                shadowHit.material.opacity : 
+                                1.0;
+                newDirection = shadowRay.direction;
             }
             
-            opacity += hitOpacity * (1.0 - opacity); // Accumulate opacity
+            // Apply material's alpha if using alpha texture
+            if(shadowHit.material.alphaMode != 0) {
+                materialOpacity *= shadowHit.material.color.a;
+            }
+            
+            // Accumulate opacity
+            opacity += materialOpacity * (1.0 - opacity);
             
             if(opacity >= 0.99) {
                 return true; // Effectively opaque
             }
             
-            // Continue ray
-            shadowRay.origin = shadowHit.hitPoint + lightDir * 0.001;
+            // Continue ray with potentially modified direction
+            shadowRay.origin = shadowHit.hitPoint + newDirection * 0.001;
+            shadowRay.direction = newDirection;
             continue;
         }
         
@@ -119,7 +145,7 @@ bool isPointInShadow(vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats) 
         return true;
     }
     
-    // If we've exceeded MAX_SHADOW_STEPS, consider it shadowed
+    // If we've exceeded MAX_SHADOW_STEPS, consider it shadowed if accumulated opacity is high enough
     return opacity >= 0.99;
 }
 
