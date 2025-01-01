@@ -8,7 +8,6 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ### Bug:
 - transmission value change does not impact the transmission intensity
 - denoiser not working well with full resolution path tracing
-- dispersion sometimes too harsh
 
 
 ### Feature:
@@ -23,10 +22,9 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - implement high res environment map selection option
 - implement custom environment map support
 - improve adaptive sampling performance
-- Object dynamic transformation changes
+- Dynamic BVH update
 - Hybrid Rendering
-- cleanup path tracer ui panel.
-- group post processing effects customization elements in UI
+- offsreen canvas rendering
 
 ### Refactor:
 - WebGPU version using TSL 
