@@ -361,7 +361,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		radiance += emittedLight * throughput * PI;
 
 		// Indirect lighting using MIS
-		IndirectLightingResult indirectResult = calculateIndirectLightingMIS( V, N, material, brdfSample, sampleIndex, i, rngState );
+		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, sampleIndex, i, rngState );
 		throughput *= reduceFireflies( indirectResult.throughput, 5.0 );
 
 		// Direct lighting using MIS

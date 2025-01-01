@@ -258,23 +258,38 @@ struct IndirectLightingResult {
     vec3 throughput;
 };
 
-IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingMaterial material, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
+IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMaterial material, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
     // Sample cosine-weighted direction
     vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
 
-    // Choose sampling strategy based on material properties
+    // Get material-based importance for sampling strategy selection
     float materialImportance = getMaterialImportance( material );
+
+    // Sample environment map
+    EnvMapSample envSample = sampleEnvironmentMap( indirectSample );
+
+    // Three-way sampling strategy selection
+    float rand = RandomValue( rngState );
+    float envWeight = enableEnvironmentLight ? 0.3 : 0.0;
+    float brdfWeight = materialImportance * 0.7;
+    float cosineWeight = 1.0 - envWeight - brdfWeight;
+
     vec3 sampleDir;
     float samplePdf;
     vec3 sampleBrdf;
 
-    if( RandomValue( rngState ) < materialImportance ) {
-        // Use BRDF sampling
+    if( rand < envWeight && envSample.pdf > 0.0 ) {
+        // Use environment map sample
+        sampleDir = envSample.direction;
+        samplePdf = envSample.pdf;
+        sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
+    } else if( rand < envWeight + brdfWeight ) {
+        // Use BRDF sample
         sampleDir = brdfSample.direction;
         samplePdf = brdfSample.pdf;
         sampleBrdf = brdfSample.value;
     } else {
-        // Use cosine sampling
+        // Use cosine-weighted sample
         sampleDir = cosineWeightedSample( N, indirectSample );
         samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
@@ -282,10 +297,14 @@ IndirectLightingResult calculateIndirectLightingMIS( vec3 V, vec3 N, RayTracingM
 
     // Ensure PDFs are never zero
     samplePdf = max( samplePdf, 0.001 );
-    float brdfPDF = max( brdfSample.pdf, 0.001 );
+    float brdfPdf = max( brdfSample.pdf, 0.001 );
+    float envPdf = enableEnvironmentLight ? max( calcEnvMapPdf( sampleDir ), 0.001 ) : 0.0;
+    float cosinePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
 
-    // Calculate MIS weights
-    float misWeight = powerHeuristic( samplePdf, brdfPDF );
+    // Calculate MIS weights using the power heuristic
+    float misWeight = powerHeuristic( samplePdf, envPdf * envWeight +
+        brdfPdf * brdfWeight +
+        cosinePdf * cosineWeight );
 
     // Calculate final contribution
     float NoL = max( dot( N, sampleDir ), 0.0 );
