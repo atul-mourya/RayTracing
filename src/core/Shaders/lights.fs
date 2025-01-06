@@ -1,5 +1,5 @@
 #if MAX_DIRECTIONAL_LIGHTS > 0
-uniform float directionalLights[ MAX_DIRECTIONAL_LIGHTS * 7 ]; // 7 values per light;
+uniform float directionalLights[ MAX_DIRECTIONAL_LIGHTS * 7 ];
 #else
 uniform float directionalLights[ 1 ]; // Dummy array to avoid compilation error
 #endif
@@ -10,10 +10,12 @@ struct AreaLight {
     vec3 v; // Second axis of the rectangular light
     vec3 color;
     float intensity;
+    vec3 normal;
+    float area;
 };
 
 #if MAX_AREA_LIGHTS > 0
-uniform float areaLights[ MAX_AREA_LIGHTS * 13 ]; // 13 values per light;
+uniform float areaLights[ MAX_AREA_LIGHTS * 13 ];
 #else
 uniform float areaLights[ 1 ]; // Dummy array to avoid compilation error
 #endif
@@ -44,37 +46,74 @@ AreaLight getAreaLight( int index ) {
     light.v = vec3( areaLights[ baseIndex + 6 ], areaLights[ baseIndex + 7 ], areaLights[ baseIndex + 8 ] );
     light.color = vec3( areaLights[ baseIndex + 9 ], areaLights[ baseIndex + 10 ], areaLights[ baseIndex + 11 ] );
     light.intensity = areaLights[ baseIndex + 12 ];
-
+    light.normal = normalize( cross( light.u, light.v ) );
+    light.area = length( cross( light.u, light.v ) );
     return light;
 }
 
-vec3 sampleAreaLight( AreaLight light, vec2 xi, out vec3 lightPos, out float pdf ) {
-    vec3 randomPos = light.position + light.u * ( xi.x - 0.5 ) + light.v * ( xi.y - 0.5 );
-    lightPos = randomPos;
-    vec3 lightArea = cross( light.u, light.v );
-    float area = length( lightArea );
-    pdf = 1.0 / area;
-    return normalize( lightPos );
+// Light record structure for better organization of light sampling data
+struct LightRecord {
+    vec3 direction;
+    vec3 position;
+    float pdf;
+    vec3 emission;
+    float area;
+    bool didHit;
+    int type;  // 0: directional, 1: area
+};
+
+LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, vec2 ruv ) {
+    LightRecord record;
+
+    // Early out for degenerate lights
+    if( light.area < 1e-6 ) {
+        record.didHit = false;
+        return record;
+    }
+
+    // Generate random position on light surface
+    vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
+
+    // Calculate vector to light and its properties
+    vec3 toLight = lightPos - fromPoint;
+    float dist = length( toLight );
+    vec3 direction = toLight / dist;
+
+    // Only contribute when the light is facing the point being lit
+    // dot(direction, light.normal) should be negative for the light to face the point
+    if( dot( direction, light.normal ) >= 0.0 ) {
+        record.didHit = false;
+        return record;
+    }
+
+    // Calculate PDF following physical light principles
+    float cosTheta = abs( dot( direction, light.normal ) );
+    float distSq = dist * dist;
+    float pdf = distSq / ( max( cosTheta * light.area, 1e-6 ) );
+
+    record.direction = direction;
+    record.position = lightPos;
+    record.pdf = pdf;
+    record.emission = light.color * light.intensity;
+    record.area = light.area;
+    record.didHit = true;
+
+    return record;
 }
 
-vec3 evaluateAreaLight( AreaLight light, vec3 hitPoint, vec3 lightDir, float lightDistance ) {
-    float cosTheta = dot( lightDir, cross( light.u, light.v ) );
+vec3 evaluateAreaLight( AreaLight light, LightRecord record ) {
+    if( ! record.didHit )
+        return vec3( 0.0 );
+
+    float cosTheta = - dot( record.direction, light.normal );
     if( cosTheta <= 0.0 )
         return vec3( 0.0 );
 
-    // Calculate actual area of the light
-    vec3 lightArea = cross( light.u, light.v );
-    float area = length( lightArea );
-
     // Physical light falloff
-    float falloff = area / ( 4.0 * PI * lightDistance * lightDistance );
+    float distanceSqr = dot( record.position - light.position, record.position - light.position );
+    float falloff = light.area / ( 4.0 * PI * distanceSqr );
 
-    // Convert light intensity from lumens to radiance
-    // Typical LED bulb: 800-1600 lumens
-    // Conversion factor: ~1/683 watts per lumen for white light
-    float radianceScale = 1.0 / 683.0;
-
-    return light.color * ( light.intensity * radianceScale ) * falloff * cosTheta;
+    return record.emission * falloff * cosTheta;
 }
 
 bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats ) {
@@ -141,106 +180,173 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats 
     return opacity >= 0.99;
 }
 
-bool pointInRectangle( vec3 point, vec3 center, vec3 u, vec3 v ) {
-    vec3 d = point - center;
-    float projU = dot( d, normalize( u ) );
-    float projV = dot( d, normalize( v ) );
+bool intersectRectangle( vec3 position, vec3 u, vec3 v, vec3 rayOrigin, vec3 rayDirection, out float dist ) {
+    // Get light plane normal
+    vec3 normal = normalize( cross( u, v ) );
+
+    // Calculate intersection with light plane
+    float denom = dot( normal, rayDirection );
+
+    // Skip if ray is parallel to plane or facing away (backface)
+    if( abs( denom ) < 1e-6 || denom > 0.0 ) {
+        return false;
+    }
+
+    // Calculate intersection distance
+    dist = dot( position - rayOrigin, normal ) / denom;
+
+    // Skip if intersection is behind ray
+    if( dist < 0.0 ) {
+        return false;
+    }
+
+    // Calculate intersection point
+    vec3 hitPoint = rayOrigin + rayDirection * dist;
+    vec3 localPoint = hitPoint - position;
+
+    // Project onto light's axes
+    float projU = dot( localPoint, normalize( u ) );
+    float projV = dot( localPoint, normalize( v ) );
+
+    // Check if point is within rectangle bounds
     return abs( projU ) <= length( u ) && abs( projV ) <= length( v );
+}
+
+// Area light contribution calculation with MIS
+vec3 calculateAreaLightContribution(
+    AreaLight light,
+    vec3 hitPoint,
+    vec3 normal,
+    vec3 viewDir,
+    RayTracingMaterial material,
+    BRDFSample brdfSample,
+    inout uint rngState,
+    inout ivec2 stats
+) {
+    vec3 contribution = vec3( 0.0 );
+    vec3 shadowOrigin = hitPoint + normal * 0.001;
+
+    // Light sampling strategy
+    vec2 xi = getRandomSample( gl_FragCoord.xy, 0, 0, rngState, 6 );
+    LightRecord lightRecord = sampleAreaLight( light, hitPoint, xi );
+
+    if( lightRecord.didHit ) {
+        float NoL = dot( normal, lightRecord.direction );
+
+        if( NoL > 0.0 && ! isPointInShadow( shadowOrigin, normal, lightRecord.direction, stats ) ) {
+            // Evaluate light and BRDF
+            vec3 lightContribution = evaluateAreaLight( light, lightRecord );
+            vec3 brdfValue = evaluateBRDF( viewDir, lightRecord.direction, normal, material );
+
+            // MIS weight calculation
+            float misWeightLight = powerHeuristic( lightRecord.pdf, brdfSample.pdf );
+            contribution += lightContribution * brdfValue * NoL * misWeightLight / max( lightRecord.pdf, 0.001 );
+        }
+    }
+
+    // BRDF sampling contribution
+    vec3 brdfHitPoint = hitPoint + brdfSample.direction * 1000.0;
+    float dist;
+    if( intersectRectangle( light.position, light.u, light.v, hitPoint, brdfSample.direction, dist ) ) {
+        vec3 hitPos = hitPoint + brdfSample.direction * dist;
+        float brdfDist = length( hitPos - hitPoint );
+
+        LightRecord brdfRecord;
+        brdfRecord.direction = brdfSample.direction;
+        brdfRecord.position = hitPos;
+        brdfRecord.emission = light.color * light.intensity;
+        brdfRecord.didHit = true;
+
+        float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightRecord.pdf );
+        vec3 brdfLightContribution = evaluateAreaLight( light, brdfRecord );
+        contribution += brdfLightContribution * brdfSample.value * misWeightBRDF / max( brdfSample.pdf, 0.001 );
+    }
+
+    return contribution;
+}
+
+struct LightSampleRec {
+    vec3 direction;
+    vec3 emission;
+    float pdf;
+    float dist;
+    bool didHit;
+    int type;  // 0: directional, 1: area
+};
+
+bool isDirectionValid( vec3 direction, vec3 normal, vec3 faceNormal ) {
+    // Check if sample direction is valid relative to the surface
+    // For non-transmissive materials, the light direction should be above the surface
+    return dot( direction, faceNormal ) >= 0.0;
+}
+
+LightSampleRec sampleDirectionalLight( DirectionalLight light, vec3 hitPoint, vec3 normal, vec3 faceNormal ) {
+    LightSampleRec rec;
+    rec.direction = normalize( light.direction );
+    rec.emission = light.color * light.intensity;
+    rec.pdf = 1.0;  // Directional lights have uniform PDF
+    rec.dist = 1e10; // Effectively infinite distance
+    rec.type = 0;
+
+    // Check if the light is facing the surface
+    bool isSampleBelowSurface = dot( faceNormal, rec.direction ) < 0.0;
+    rec.didHit = ! isSampleBelowSurface && isDirectionValid( rec.direction, normal, faceNormal );
+
+    return rec;
 }
 
 vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample, inout uint rngState, inout ivec2 stats ) {
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
-
-    // Pre-compute shadow ray origin
-    vec3 shadowOrigin = hitInfo.hitPoint + N * 0.001;
+    vec3 faceNormal = hitInfo.normal; // Or compute face normal if different from shading normal
+    vec3 rayOrigin = hitInfo.hitPoint + N * 0.001; // Shadow bias
 
     // Directional lights
-    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i ++ ) {
+    #if MAX_DIRECTIONAL_LIGHTS > 0
+    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS; i ++ ) {
         DirectionalLight light = getDirectionalLight( i );
-
         if( light.intensity <= 0.0 )
             continue;
 
-        vec3 L = normalize( light.direction );
-        float NoL = dot( N, L );
+        LightSampleRec lightRec = sampleDirectionalLight( light, rayOrigin, N, faceNormal );
 
-        // check if light coming from behind
-        if( NoL <= 0.0 )
-            continue;
-
-        // Check for shadows
-        if( isPointInShadow( shadowOrigin, N, L, stats ) )
+        if( ! lightRec.didHit )
             continue;
 
         // Physical sun intensity with atmospheric effects
-        // Base solar irradiance: ~1000 W/m²
-        // Typical clear sky transmittance: ~70%
-        // Additional atmospheric scattering: ~50%
         float baseIrradiance = 1000.0;  // W/m²
         float atmosphericTransmittance = 0.7;  // Clear sky
         float scatteringFactor = 0.5;   // Account for scatter
-        float adjustmentScale = 0.1;  // Scale factor to adjust intensity
+        float adjustmentScale = 0.1;    // Scale factor
 
-        float sunIrradiance = baseIrradiance * atmosphericTransmittance * scatteringFactor;
-        vec3 lightContribution = light.color * ( light.intensity * sunIrradiance ) * adjustmentScale;
+        // Check visibility
+        if( ! isPointInShadow( rayOrigin, N, lightRec.direction, stats ) ) {
+            float NoL = max( dot( N, lightRec.direction ), 0.0 );
+            vec3 brdfValue = evaluateBRDF( V, lightRec.direction, N, hitInfo.material );
 
-        vec3 brdfValueForLight = evaluateBRDF( V, L, N, hitInfo.material );
+            // For directional lights we use pure light sampling (no MIS needed)
+            vec3 lightContribution = lightRec.emission *
+                ( baseIrradiance * atmosphericTransmittance * scatteringFactor ) *
+                adjustmentScale;
 
-        // MIS weights
-        float lightPdf = 1.0; // Directional light has uniform PDF
-        float misWeightLight = powerHeuristic( lightPdf, brdfSample.pdf );
-        float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightPdf );
-
-        // Combine contributions
-        totalLighting += lightContribution * brdfValueForLight * NoL * misWeightLight;
-
-        // Add BRDF sampling contribution
-        // Check if the BRDF sample direction hits the light
-        float alignment = dot( brdfSample.direction, L );
-        if( alignment > 0.99 && brdfSample.pdf > 0.0 ) {
-            totalLighting += lightContribution * brdfSample.value * NoL * misWeightBRDF / max( brdfSample.pdf, 0.001 );
-        }
-    }
-
-    #if MAX_AREA_LIGHTS > 0
-    for( int i = 0; i < MAX_AREA_LIGHTS / 13; i ++ ) {
-        AreaLight light = getAreaLight( i );
-        // return normalize(light.color);
-
-        if( light.intensity <= 0.0 )
-            continue;
-
-        vec3 lightPos;
-        float lightPdf;
-        vec2 xi = getRandomSample( gl_FragCoord.xy, i, 0, rngState, 6 );
-        vec3 L = sampleAreaLight( light, xi, lightPos, lightPdf );
-
-        float NoL = dot( N, L );
-        if( NoL <= 0.0 )
-            continue;
-
-        if( isPointInShadow( shadowOrigin, N, L, stats ) )
-            continue;
-
-        float lightDistance = length( lightPos - hitInfo.hitPoint );
-        vec3 lightContribution = evaluateAreaLight( light, hitInfo.hitPoint, L, lightDistance );
-
-        // MIS weights
-        float misWeightLight = powerHeuristic( lightPdf, brdfSample.pdf );
-        float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightPdf );
-
-        // Light sampling contribution
-        totalLighting += lightContribution * evaluateBRDF( V, L, N, hitInfo.material ) * NoL * misWeightLight / max( lightPdf, 0.001 );
-
-        // BRDF sampling contribution
-        vec3 hitPointOnLight = hitInfo.hitPoint + brdfSample.direction * lightDistance;
-        if( pointInRectangle( hitPointOnLight, light.position, light.u, light.v ) ) {
-            vec3 brdfLightContribution = evaluateAreaLight( light, hitInfo.hitPoint, brdfSample.direction, lightDistance );
-            totalLighting += brdfLightContribution * brdfSample.value * NoL * misWeightBRDF / max( brdfSample.pdf, 0.001 );
+            totalLighting += lightContribution * brdfValue * NoL;
         }
     }
     #endif
+
+    // Area lights
+    #if MAX_AREA_LIGHTS > 0 
+    for( int i = 0; i < MAX_AREA_LIGHTS; i ++ ) {
+        AreaLight light = getAreaLight( i );
+        if( light.intensity <= 0.0 )
+            continue;
+
+        totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, rngState, stats );
+    }
+    #endif
+
+    // Environment lighting contribution could be added here
+    // if(enableEnvironmentLight) { ... }
 
     return totalLighting;
 }
@@ -313,4 +419,45 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     result.throughput = throughput;
 
     return result;
+}
+
+vec3 evaluateAreaLightHelper( AreaLight light, Ray ray, out bool didHit ) {
+    // Get light plane normal
+    vec3 lightNormal = normalize( cross( light.u, light.v ) );
+
+    // Calculate intersection with the light plane
+    float denom = dot( lightNormal, ray.direction );
+
+    // Skip if ray is parallel to plane
+    if( abs( denom ) < 1e-6 ) {
+        didHit = false;
+        return vec3( 0.0 );
+    }
+
+    // Calculate intersection distance
+    float t = dot( light.position - ray.origin, lightNormal ) / denom;
+
+    // Skip if intersection is behind ray
+    if( t < 0.0 ) {
+        didHit = false;
+        return vec3( 0.0 );
+    }
+
+    // Calculate intersection point
+    vec3 hitPoint = ray.origin + ray.direction * t;
+    vec3 localPoint = hitPoint - light.position;
+
+    // Project onto light's axes
+    float u = dot( localPoint, normalize( light.u ) );
+    float v = dot( localPoint, normalize( light.v ) );
+
+    // Check if point is within rectangle bounds
+    if( abs( u ) <= length( light.u ) && abs( v ) <= length( light.v ) ) {
+        didHit = true;
+        // Return visualization color based on light properties
+        return light.color * light.intensity * 0.1; // Scale for visibility
+    }
+
+    didHit = false;
+    return vec3( 0.0 );
 }

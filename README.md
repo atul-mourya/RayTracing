@@ -25,6 +25,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - Dynamic BVH update
 - Hybrid Rendering
 - offsreen canvas rendering
+- refactor lights and pass as data texture instead of uniform buffer
 
 ### Refactor:
 - WebGPU version using TSL 

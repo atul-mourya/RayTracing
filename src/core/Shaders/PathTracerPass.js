@@ -9,6 +9,7 @@ import {
 	HalfFloatType,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { LightDataTransfer } from '../Processor/LightDataTransfer';
 import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
@@ -32,7 +33,7 @@ export class PathTracerPass extends Pass {
 		this.cameras = [];
 		this.sdfs = null;
 		this.sdfs = new TriangleSDF();
-
+		this.lightDataTransfer = new LightDataTransfer();
 
 		this.name = 'PathTracerPass';
 
@@ -57,8 +58,6 @@ export class PathTracerPass extends Pass {
 			defines: {
 				MAX_SPHERE_COUNT: 0,
 				MAX_DIRECTIONAL_LIGHTS: 0,
-				MAX_POINT_LIGHTS: 0,
-				MAX_SPOT_LIGHTS: 0,
 				MAX_AREA_LIGHTS: 0
 			},
 
@@ -218,12 +217,7 @@ export class PathTracerPass extends Pass {
 		await this.sdfs.buildBVH( scene );
 		this.cameras = this.sdfs.cameras;
 
-		this.material.defines = {
-			MAX_SPHERE_COUNT: this.sdfs.spheres.length,
-			MAX_DIRECTIONAL_LIGHTS: 0,
-			MAX_POINT_LIGHTS: 0,
-			MAX_SPOT_LIGHTS: 0
-		  };
+		this.material.defines.MAX_SPHERE_COUNT = this.sdfs.spheres.length;
 
 		// Update sphere uniforms
 		this.material.uniforms.spheres.value = this.sdfs.spheres;
@@ -253,81 +247,7 @@ export class PathTracerPass extends Pass {
 
 	updateLights() {
 
-		const directionalLights = [];
-		const pointLights = [];
-		const spotLights = [];
-		const areaLights = [];
-
-		this.scene.traverse( ( object ) => {
-
-			if ( object.isDirectionalLight ) {
-
-				const direction = object.position.clone();
-				directionalLights.push( direction.x, direction.y, direction.z );
-				directionalLights.push( object.color.r, object.color.g, object.color.b );
-				directionalLights.push( object.intensity );
-
-			} else if ( object.isPointLight ) {
-
-				pointLights.push( {
-					position: object.position.clone(),
-					color: object.color.clone(),
-					intensity: object.intensity,
-					distance: object.distance,
-					decay: object.decay
-				} );
-
-			} else if ( object.isSpotLight ) {
-
-				spotLights.push( {
-					position: object.position.clone(),
-					direction: object.target.position.clone().sub( object.position ),
-					color: object.color.clone(),
-					intensity: object.intensity,
-					distance: object.distance,
-					decay: object.decay,
-					coneCos: Math.cos( object.angle ),
-					penumbraCos: Math.cos( object.angle * ( 1 - object.penumbra ) )
-				} );
-
-			} else if ( object.isRectAreaLight ) {
-
-				const width = object.width;
-				const height = object.height;
-				const halfWidth = width / 2;
-				const halfHeight = height / 2;
-
-				// Calculate the light's local axes
-				const forward = new Vector3( 0, 0, - 1 );
-				const up = new Vector3( 0, 1, 0 );
-				const right = new Vector3( 1, 0, 0 );
-
-				forward.applyQuaternion( object.quaternion );
-				up.applyQuaternion( object.quaternion );
-				right.applyQuaternion( object.quaternion );
-
-				const u = right.multiplyScalar( halfWidth );
-				const v = up.multiplyScalar( halfHeight );
-
-				areaLights.push( object.position.x, object.position.y, object.position.z );
-				areaLights.push( u.x, u.y, u.z );
-				areaLights.push( v.x, v.y, v.z );
-				areaLights.push( object.color.r, object.color.g, object.color.b );
-				areaLights.push( object.intensity );
-
-			}
-
-		} );
-
-		this.material.defines.MAX_DIRECTIONAL_LIGHTS = directionalLights.length;
-		this.material.defines.MAX_POINT_LIGHTS = pointLights.length;
-		this.material.defines.MAX_SPOT_LIGHTS = spotLights.length;
-		this.material.defines.MAX_AREA_LIGHTS = areaLights.length;
-
-		this.material.uniforms.directionalLights.value = directionalLights;
-		this.material.uniforms.pointLights.value = pointLights;
-		this.material.uniforms.spotLights.value = spotLights;
-		this.material.uniforms.areaLights.value = areaLights;
+		this.lightDataTransfer.processSceneLights( this.scene, this.material );
 
 	}
 
@@ -338,85 +258,35 @@ export class PathTracerPass extends Pass {
 
 		switch ( property ) {
 
-			case 'color':
-				data.set( [ value.r, value.g, value.b ], stride + 0 );
-				break;
-			case 'metalness':
-				data[ stride + 3 ] = value;
-				break;
-			case 'emissive':
-				data.set( [ value.r, value.g, value.b ], stride + 4 );
-				break;
-			case 'roughness':
-				data[ stride + 7 ] = value;
-				break;
-			case 'ior':
-				data[ stride + 8 ] = value;
-				break;
-			case 'transmission':
-				data[ stride + 9 ] = value;
-				break;
-			case 'thickness':
-				data[ stride + 10 ] = value;
-				break;
-			case 'emissiveIntensity':
-				data[ stride + 11 ] = value;
-				break;
-			case 'attenuationColor':
-				data.set( [ value.r, value.g, value.b ], stride + 12 );
-				break;
-			case 'attenuationDistance':
-				data[ stride + 15 ] = value;
-				break;
-			case 'dispersion':
-				data[ stride + 16 ] = value;
-				break;
-			case 'visible':
-				data[ stride + 17 ] = value;
-				break;
-			case 'sheen':
-				data[ stride + 18 ] = value;
-				break;
-			case 'sheenRoughness':
-				data[ stride + 19 ] = value;
-				break;
-			case 'sheenColor':
-				data.set( [ value.r, value.g, value.b ], stride + 20 );
-				break;
-			case 'specularIntensity':
-				data[ stride + 24 ] = value;
-				break;
-			case 'specularColor':
-				data.set( [ value.r, value.g, value.b ], stride + 25 );
-				break;
-			case 'iridescence':
-				data[ stride + 28 ] = value;
-				break;
-			case 'iridescenceIOR':
-				data[ stride + 29 ] = value;
-				break;
+			case 'color': 				data.set( [ value.r, value.g, value.b ], stride + 0 ); break;
+			case 'metalness': 			data[ stride + 3 ] = value; break;
+			case 'emissive': 			data.set( [ value.r, value.g, value.b ], stride + 4 ); break;
+			case 'roughness': 			data[ stride + 7 ] = value; break;
+			case 'ior': 				data[ stride + 8 ] = value; break;
+			case 'transmission': 		data[ stride + 9 ] = value; break;
+			case 'thickness': 			data[ stride + 10 ] = value; break;
+			case 'emissiveIntensity': 	data[ stride + 11 ] = value; break;
+			case 'attenuationColor': 	data.set( [ value.r, value.g, value.b ], stride + 12 ); break;
+			case 'attenuationDistance': data[ stride + 15 ] = value; break;
+			case 'dispersion': 			data[ stride + 16 ] = value; break;
+			case 'visible': 			data[ stride + 17 ] = value; break;
+			case 'sheen': 				data[ stride + 18 ] = value; break;
+			case 'sheenRoughness': 		data[ stride + 19 ] = value; break;
+			case 'sheenColor': 			data.set( [ value.r, value.g, value.b ], stride + 20 ); break;
+			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
+			case 'specularColor': 		data.set( [ value.r, value.g, value.b ], stride + 25 ); break;
+			case 'iridescence': 		data[ stride + 28 ] = value; break;
+			case 'iridescenceIOR': 		data[ stride + 29 ] = value; break;
 			case 'iridescenceThicknessRange':
 				data[ stride + 30 ] = value[ 0 ];
 				data[ stride + 31 ] = value[ 1 ];
 				break;
-			case 'clearcoat':
-				data[ stride + 38 ] = value;
-				break;
-			case 'clearcoatRoughness':
-				data[ stride + 39 ] = value;
-				break;
-			case 'opacity':
-				data[ stride + 40 ] = value;
-				break;
-			case 'side':
-				data[ stride + 41 ] = value;
-				break;
-			case 'transparent':
-				data[ stride + 42 ] = value;
-				break;
-			case 'alphaTest':
-				data[ stride + 43 ] = value;
-				break;
+			case 'clearcoat': 			data[ stride + 38 ] = value; break;
+			case 'clearcoatRoughness': 	data[ stride + 39 ] = value; break;
+			case 'opacity': 			data[ stride + 40 ] = value; break;
+			case 'side': 				data[ stride + 41 ] = value; break;
+			case 'transparent': 		data[ stride + 42 ] = value; break;
+			case 'alphaTest': 			data[ stride + 43 ] = value; break;
 
 		}
 

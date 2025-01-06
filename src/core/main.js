@@ -17,7 +17,8 @@ import {
 	Vector3,
 	EventDispatcher,
 	RectAreaLight,
-	TextureLoader
+	TextureLoader,
+	Color,
 } from 'three';
 
 import {
@@ -508,6 +509,32 @@ class PathTracerApp extends EventDispatcher {
 		this.floorPlane.position.y = floorY;
 		this.floorPlane.rotation.x = - Math.PI / 2;
 		this.floorPlane.scale.setScalar( maxDim * 5 );
+
+		model.traverse( ( object ) => {
+
+			const userData = object.userData;
+			if ( object.name.startsWith( 'RectAreaLightPlaceholder' ) && userData.name && userData.name.includes( "ceilingLight" ) ) {
+
+				if ( userData.type === 'RectAreaLight' ) {
+
+					const light = new RectAreaLight(
+						new Color( ...userData.color ),
+						userData.intensity,
+						userData.width,
+						userData.height
+					);
+
+					// flip light in x axis by 180 degrees
+					// light.rotation.x = Math.PI;
+					light.position.z = - 10;
+					light.name = userData.name;
+					object.add( light );
+
+				}
+
+			}
+
+		} );
 
 		// Rebuild path tracing
 		await this.pathTracingPass.build( this.scene );
