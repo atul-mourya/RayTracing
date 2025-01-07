@@ -341,8 +341,8 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		vec4 randomSample = getRandomSample4( gl_FragCoord.xy, sampleIndex, i, rngState );
 
-		vec3 V = - ray.direction;
-		vec3 N = hitInfo.normal;
+		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
+		vec3 N = hitInfo.normal; // Normal at hit point
 
 		BRDFSample brdfSample;
 		// Handle clear coat
@@ -366,7 +366,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rngState, stats );
+		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, sampleIndex, i, rngState, stats );
 		radiance += reduceFireflies( directLight * throughput, 5.0 );
 		// return vec4(directLight, 1.0);
 

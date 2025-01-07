@@ -62,7 +62,7 @@ struct LightRecord {
     int type;  // 0: directional, 1: area
 };
 
-LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, vec2 ruv ) {
+LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, int sampleIndex, int bounceIndex, inout uint rngState ) {
     LightRecord record;
 
     // Early out for degenerate lights
@@ -71,6 +71,8 @@ LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, vec2 ruv ) {
         return record;
     }
 
+    // Light sampling strategy
+    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, 6 );
     // Generate random position on light surface
     vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
 
@@ -93,7 +95,7 @@ LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, vec2 ruv ) {
 
     record.direction = direction;
     record.position = lightPos;
-    record.pdf = pdf;
+    record.pdf = max( pdf, 0.001 ); // Avoid division by zero
     record.emission = light.color * light.intensity;
     record.area = light.area;
     record.didHit = true;
@@ -116,22 +118,27 @@ vec3 evaluateAreaLight( AreaLight light, LightRecord record ) {
     return record.emission * falloff * cosTheta;
 }
 
-bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats ) {
+bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, inout ivec2 stats ) {
     Ray shadowRay;
     shadowRay.origin = point + normal * 0.001; // shadow bias
     shadowRay.direction = lightDir;
 
+    // First quick check without transparency handling
+    HitInfo shadowHit = traverseBVH( shadowRay, stats );
+
+    // Fast path: if no hit or hit an opaque surface
+    if( ! shadowHit.didHit ) {
+        return false;
+    }
+    if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 ) {
+        return true;
+    }
+
+    // Complex path: handle transparent/transmissive materials
     float opacity = 0.0;
-    const int MAX_SHADOW_STEPS = 32; // Limit shadow ray bounces
-    uint rngState = uint( gl_FragCoord.x + gl_FragCoord.y * 1024.0 ); // Initialize RNG state
+    const int MAX_SHADOW_STEPS = 32;
 
     for( int i = 0; i < MAX_SHADOW_STEPS; i ++ ) {
-        HitInfo shadowHit = traverseBVH( shadowRay, stats );
-
-        if( ! shadowHit.didHit ) {
-            return false; // Ray reached light without being fully blocked
-        }
-
         // Handle transparent and transmissive materials
         if( shadowHit.material.transparent || shadowHit.material.transmission > 0.0 ) {
             float materialOpacity;
@@ -169,6 +176,13 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, inout ivec2 stats 
             // Continue ray with potentially modified direction
             shadowRay.origin = shadowHit.hitPoint + newDirection * 0.001;
             shadowRay.direction = newDirection;
+
+            // Check next intersection
+            shadowHit = traverseBVH( shadowRay, stats );
+            if( ! shadowHit.didHit ) {
+                return false;
+            }
+
             continue;
         }
 
@@ -220,20 +234,20 @@ vec3 calculateAreaLightContribution(
     vec3 viewDir,
     RayTracingMaterial material,
     BRDFSample brdfSample,
+    int sampleIndex,
+    int bounceIndex,
     inout uint rngState,
     inout ivec2 stats
 ) {
     vec3 contribution = vec3( 0.0 );
     vec3 shadowOrigin = hitPoint + normal * 0.001;
 
-    // Light sampling strategy
-    vec2 xi = getRandomSample( gl_FragCoord.xy, 0, 0, rngState, 6 );
-    LightRecord lightRecord = sampleAreaLight( light, hitPoint, xi );
+    LightRecord lightRecord = sampleAreaLight( light, hitPoint, sampleIndex, bounceIndex, rngState );
 
     if( lightRecord.didHit ) {
         float NoL = dot( normal, lightRecord.direction );
 
-        if( NoL > 0.0 && ! isPointInShadow( shadowOrigin, normal, lightRecord.direction, stats ) ) {
+        if( NoL > 0.0 && ! isPointInShadow( shadowOrigin, normal, lightRecord.direction, rngState, stats ) ) {
             // Evaluate light and BRDF
             vec3 lightContribution = evaluateAreaLight( light, lightRecord );
             vec3 brdfValue = evaluateBRDF( viewDir, lightRecord.direction, normal, material );
@@ -295,7 +309,7 @@ LightSampleRec sampleDirectionalLight( DirectionalLight light, vec3 hitPoint, ve
     return rec;
 }
 
-vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample, inout uint rngState, inout ivec2 stats ) {
+vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState, inout ivec2 stats ) {
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
     vec3 faceNormal = hitInfo.normal; // Or compute face normal if different from shading normal
@@ -303,7 +317,7 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
 
     // Directional lights
     #if MAX_DIRECTIONAL_LIGHTS > 0
-    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS; i ++ ) {
+    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i ++ ) {
         DirectionalLight light = getDirectionalLight( i );
         if( light.intensity <= 0.0 )
             continue;
@@ -320,7 +334,7 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
         float adjustmentScale = 0.1;    // Scale factor
 
         // Check visibility
-        if( ! isPointInShadow( rayOrigin, N, lightRec.direction, stats ) ) {
+        if( ! isPointInShadow( rayOrigin, N, lightRec.direction, rngState, stats ) ) {
             float NoL = max( dot( N, lightRec.direction ), 0.0 );
             vec3 brdfValue = evaluateBRDF( V, lightRec.direction, N, hitInfo.material );
 
@@ -336,12 +350,12 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
 
     // Area lights
     #if MAX_AREA_LIGHTS > 0 
-    for( int i = 0; i < MAX_AREA_LIGHTS; i ++ ) {
+    for( int i = 0; i < MAX_AREA_LIGHTS / 13; i ++ ) {
         AreaLight light = getAreaLight( i );
         if( light.intensity <= 0.0 )
             continue;
 
-        totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, rngState, stats );
+        totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, sampleIndex, bounceIndex, rngState, stats );
     }
     #endif
 
