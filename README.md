@@ -16,7 +16,6 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - implement transparent background support
 - implement subsurface scattering
 - implement auto focus based on object distance
-- implement Scene based directional lights support
 - implement volumetric rendering
 - caustic support
 - implement high res environment map selection option

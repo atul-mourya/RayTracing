@@ -1,71 +1,115 @@
-import { Sunrise, Rainbow } from 'lucide-react';
+import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { create } from 'zustand';
+import { Separator } from '@/components/ui/separator';
+import { useEffect } from 'react';
 
 const useLightStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
-	setDirectionalLightIntensity: ( value ) => set( { directionalLightIntensity: value } ),
-	setDirectionalLightColor: ( value ) => set( { directionalLightColor: value } ),
-	setDirectionalLightPosition: ( value ) => set( { directionalLightPosition: value } )
+	lights: [],
+	setLights: ( lights ) => set( { lights } ),
+	updateLight: ( index, property, value ) => set( state => {
+
+		const lights = [ ...state.lights ];
+		lights[ index ][ property ] = value;
+		return { lights };
+
+	} )
 } ) );
 
 const LightsTab = () => {
 
-	const { directionalLightIntensity, directionalLightColor, directionalLightPosition, setDirectionalLightIntensity, setDirectionalLightColor, setDirectionalLightPosition } = useLightStore();
+	const { lights, setLights, updateLight } = useLightStore();
 
-	const handleDirectionalLightIntensityChange = ( value ) => {
+	const handleLightChange = ( index, property, value ) => {
 
-		setDirectionalLightIntensity( value );
+		updateLight( index, property, value );
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.directionalLight.intensity = value[ 0 ];
-			window.pathTracerApp.pathTracingPass.updateLights();
-			window.pathTracerApp.reset();
+			const light = window.pathTracerApp.scene.getObjectsByProperty( 'isLight', true ).find( child => child.uuid === lights[ index ].uuid );
+			if ( light ) {
+
+				if ( property === 'intensity' ) light.intensity = value[ 0 ];
+				else if ( property === 'color' ) light.color.set( value );
+				else if ( property === 'position' ) light.position.set( ...value );
+
+				window.pathTracerApp.pathTracingPass.updateLights();
+				window.pathTracerApp.reset();
+
+			}
 
 		}
 
 	};
 
-	const handleDirectionalLightColorChange = ( value ) => {
+	const getLightIcon = ( type ) => {
 
-		setDirectionalLightColor( value );
+		switch ( type ) {
+
+			case 'DirectionalLight': return <ArrowsUpFromLine size="14" className="mr-2 rotate-45 -scale-100" />;
+			case 'PointLight': return <Lightbulb size="14" className="mr-2" />;
+			case 'RectAreaLight': return <Grid3X3 size="14" className="mr-2" />;
+			default: return <Sun className="mr-2" />;
+
+		}
+
+	};
+
+	const updateLightsFromScene = () => {
+
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.directionalLight.color.set( value );
-			window.pathTracerApp.pathTracingPass.updateLights();
-			window.pathTracerApp.reset();
+			const sceneLights = window.pathTracerApp.scene.getObjectsByProperty( 'isLight', true ).map( light => ( {
+				uuid: light.uuid,
+				name: light.name || light.uuid,
+				type: light.type,
+				intensity: light.intensity,
+				color: `#${light.color.getHexString()}`,
+				position: [ light.position.x, light.position.y, light.position.z ]
+			} ) );
+			setLights( sceneLights );
 
 		}
 
 	};
 
-	const handleDirectionalLightPositionChange = ( value ) => {
+	useEffect( () => {
 
-		setDirectionalLightPosition( value );
-		if ( window.pathTracerApp ) {
+		updateLightsFromScene();
+		window.addEventListener( 'SceneRebuild', updateLightsFromScene );
 
-			window.pathTracerApp.directionalLight.position.set( ...value );
-			window.pathTracerApp.pathTracingPass.updateLights();
-			window.pathTracerApp.reset();
+		return () => window.removeEventListener( 'SceneRebuild', updateLightsFromScene );
 
-		}
-
-	};
+	}, [] );
 
 	return (
 		<div className="space-y-4 p-4">
-			<div className="flex items-center justify-between">
-				<Slider label={"Intensity"} icon={Sunrise} min={0} max={5} step={0.1} value={[ directionalLightIntensity ]} onValueChange={handleDirectionalLightIntensityChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<ColorInput label={"Color"} icon={Rainbow} value={directionalLightColor} onChange={color => handleDirectionalLightColorChange( color )} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Vector3Component label="Position" value={directionalLightPosition} onValueChange={handleDirectionalLightPositionChange} />
-			</div>
+			{lights.map( ( light, index ) => (
+				<div key={light.uuid} className="space-y-4">
+					<div className="flex items-center justify-between">
+						<span className="flex items-center text-sm opacity-65 truncate">
+							{getLightIcon( light.type )}
+							{light.name}
+						</span>
+					</div>
+					<div className="flex items-center justify-end">
+						<div className="text-xs opacity-65">{light.type}</div>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={`Intensity ${index + 1}`} icon={Sunrise} min={0} max={5} step={0.1} value={[ light.intensity ]} onValueChange={value => handleLightChange( index, 'intensity', value )} />
+					</div>
+					<div className="flex items-center justify-between">
+						<ColorInput label={`Color ${index + 1}`} icon={Rainbow} value={light.color} onChange={color => handleLightChange( index, 'color', color )} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Vector3Component label={`Position ${index + 1}`} value={light.position} onValueChange={value => handleLightChange( index, 'position', value )} />
+					</div>
+					<Separator />
+				</div>
+			) )}
 		</div>
 	);
 
