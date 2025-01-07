@@ -132,9 +132,9 @@ const PathTracerTab = () => {
 	} );
 	const handleDownSampledMovementChange = handleChange( setDownSampledMovement, value => window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value, false );
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
-	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiserPass.useGBuffer = value, false );
-	const handleUseAlbedoMapChange = handleChange( setUseAlbedoMap, value => window.pathTracerApp.denoiserPass.useAlbedoMap = value, false );
-	const handleUseNormalMapChange = handleChange( setUseNormalMap, value => window.pathTracerApp.denoiserPass.useNormalMap = value, false );
+	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
+	const handleUseAlbedoMapChange = handleChange( setUseAlbedoMap, value => window.pathTracerApp.denoiser.useAlbedoMap = value, false );
+	const handleUseNormalMapChange = handleChange( setUseNormalMap, value => window.pathTracerApp.denoiser.useNormalMap = value, false );
 	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
 	const handleDenoiserBlurStrengthChange = handleChange( setDenoiserBlurStrength, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = value[ 0 ], false );
 	const handleDenoiserBlurRadiusChange = handleChange( setDenoiserBlurRadius, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = value[ 0 ], false );
@@ -163,7 +163,7 @@ const PathTracerTab = () => {
 	const handleBloomStrengthChange = handleChange( setBloomStrength, value => window.pathTracerApp.bloomPass.strength = value[ 0 ] );
 	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
 	const handleTemporalReprojectionChange = handleChange( setEnableTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
-	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.quality = value, false );
+	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
 
 	return (
 		<div className="">

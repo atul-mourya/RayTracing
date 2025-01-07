@@ -16,15 +16,20 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.isDenoising = false;
 		this.enabled = true;
-		this.useGBuffers = DEFAULT_STATE.useGBuffers;
+		this.useGBuffers = DEFAULT_STATE.useGBuffer;
 		this.useNormalMap = DEFAULT_STATE.useNormalMap;
 		this.useAlbedoMap = DEFAULT_STATE.useAlbedoMap;
 
 		this.denoiser = new Denoiser( "webgl" );
+		this.denoiser.inputMode = 'webgl';
+		this.denoiser.outputMode = 'webgl';
 		this.denoiser.quality = DEFAULT_STATE.oidnQuality;
 		this.denoiser.hdr = false;
 		this.denoiser.height = this.sourceCanvas.height;
 		this.denoiser.width = this.sourceCanvas.width;
+		this.denoiser.weightsUrl = "https://cdn.jsdelivr.net/npm/denoiser/tzas";
+		this.denoiser.useNormalMap = DEFAULT_STATE.useNormalMap;
+		this.denoiser.useAlbedoMap = DEFAULT_STATE.useAlbedoMap;
 
 		this.denoisedCanvas = document.createElement( 'canvas' );
 		this.denoisedCanvas.width = this.sourceCanvas.width;
