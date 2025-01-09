@@ -81,24 +81,26 @@ LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, int sampleIndex, i
     float dist = length( toLight );
     vec3 direction = toLight / dist;
 
-    // Only contribute when the light is facing the point being lit
-    // dot(direction, light.normal) should be negative for the light to face the point
-    if( dot( direction, light.normal ) <= 0.0 ) {
+    // Check if the light is facing the point
+    // The light should emit in the opposite direction of its normal
+    float lightAlignment = dot( direction, light.normal );
+    if( lightAlignment > - 0.001 ) {  // Small epsilon to avoid precision issues
         record.didHit = false;
         return record;
     }
 
     // Calculate PDF following physical light principles
-    float cosTheta = abs( dot( direction, light.normal ) );
+    float cosTheta = abs( lightAlignment );  // Use absolute value of alignment
     float distSq = dist * dist;
     float pdf = distSq / ( max( cosTheta * light.area, 1e-6 ) );
 
     record.direction = direction;
     record.position = lightPos;
-    record.pdf = max( pdf, 0.001 ); // Avoid division by zero
+    record.pdf = max( pdf, 0.001 );  // Avoid division by zero
     record.emission = light.color * light.intensity;
     record.area = light.area;
     record.didHit = true;
+    record.type = 1;  // Area light type
 
     return record;
 }
