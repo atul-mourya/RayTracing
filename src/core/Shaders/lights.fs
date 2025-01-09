@@ -228,6 +228,87 @@ bool intersectRectangle( vec3 position, vec3 u, vec3 v, vec3 rayOrigin, vec3 ray
     return abs( projU ) <= length( u ) && abs( projV ) <= length( v );
 }
 
+float calculateAreaLightVisibility(
+    vec3 hitPoint,
+    vec3 normal,
+    AreaLight light,
+    int sampleIndex,
+    int bounceIndex,
+    inout uint rngState,
+    inout ivec2 stats
+) {
+    const int SHADOW_SAMPLES = 4; // Adjust based on quality requirements
+    float visibility = 0.0;
+
+    // Generate stratified samples across the light surface
+    for( int i = 0; i < SHADOW_SAMPLES; i ++ ) {
+        // Get stratified random position on light surface
+        vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex * SHADOW_SAMPLES + i, bounceIndex, rngState, - 1 );
+        vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
+
+        // Calculate shadow ray
+        vec3 shadowOrigin = hitPoint + normal * 0.001; // Apply shadow bias
+        vec3 toLight = lightPos - shadowOrigin;
+        float lightDist = length( toLight );
+        vec3 shadowDir = toLight / lightDist;
+
+        // Skip samples facing away from the light
+        float alignment = dot( shadowDir, light.normal );
+        if( alignment > - 0.001 )
+            continue;
+
+        // Cast shadow ray
+        Ray shadowRay;
+        shadowRay.origin = shadowOrigin;
+        shadowRay.direction = shadowDir;
+
+        float transmittance = 1.0;
+        const int MAX_SHADOW_STEPS = 16;
+        bool isShadowed = false;
+
+        for( int step = 0; step < MAX_SHADOW_STEPS; step ++ ) {
+            HitInfo shadowHit = traverseBVH( shadowRay, stats );
+
+            if( ! shadowHit.didHit || length( shadowHit.hitPoint - shadowOrigin ) > lightDist ) {
+                // No hit or hit is beyond light - this sample is unoccluded
+                break;
+            }
+
+            // Handle opaque objects
+            if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 ) {
+                isShadowed = true;
+                break;
+            }
+
+            // Handle transparent/transmissive materials
+            float materialOpacity = shadowHit.material.transparent ? shadowHit.material.opacity : ( 1.0 - shadowHit.material.transmission );
+
+            // Apply material's alpha if using alpha texture
+            if( shadowHit.material.alphaMode != 0 ) {
+                materialOpacity *= shadowHit.material.color.a;
+            }
+
+            // Accumulate transmittance
+            transmittance *= ( 1.0 - materialOpacity );
+
+            // Stop if accumulated opacity is too high
+            if( transmittance < 0.01 ) {
+                isShadowed = true;
+                break;
+            }
+
+            // Continue ray
+            shadowRay.origin = shadowHit.hitPoint + shadowDir * 0.001;
+        }
+
+        // Add sample contribution
+        visibility += isShadowed ? 0.0 : transmittance;
+    }
+
+    // Average visibility across all samples
+    return visibility / float( SHADOW_SAMPLES );
+}
+
 // Area light contribution calculation with MIS
 vec3 calculateAreaLightContribution(
     AreaLight light,
@@ -242,30 +323,33 @@ vec3 calculateAreaLightContribution(
     inout ivec2 stats
 ) {
     vec3 contribution = vec3( 0.0 );
-    vec3 shadowOrigin = hitPoint + normal * 0.001;
 
+    // Light sampling contribution
     LightRecord lightRecord = sampleAreaLight( light, hitPoint, sampleIndex, bounceIndex, rngState );
 
     if( lightRecord.didHit ) {
         float NoL = dot( normal, lightRecord.direction );
 
         if( NoL > 0.0 ) {
-            // Evaluate light and BRDF
-            vec3 lightContribution = evaluateAreaLight( light, lightRecord );
-            vec3 brdfValue = evaluateBRDF( viewDir, lightRecord.direction, normal, material );
+            // Calculate shadow visibility
+            float visibility = calculateAreaLightVisibility( hitPoint, normal, light, sampleIndex, bounceIndex, rngState, stats );
 
-            // MIS weight calculation
-            float misWeightLight = powerHeuristic( lightRecord.pdf, brdfSample.pdf );
-            contribution += lightContribution * brdfValue * NoL * misWeightLight / max( lightRecord.pdf, 0.001 );
+            if( visibility > 0.0 ) {
+                // Evaluate light and BRDF
+                vec3 lightContribution = evaluateAreaLight( light, lightRecord );
+                vec3 brdfValue = evaluateBRDF( viewDir, lightRecord.direction, normal, material );
+
+                // MIS weight calculation
+                float misWeightLight = powerHeuristic( lightRecord.pdf, brdfSample.pdf );
+                contribution += lightContribution * brdfValue * NoL * misWeightLight * visibility / max( lightRecord.pdf, 0.001 );
+            }
         }
     }
 
     // BRDF sampling contribution
-    vec3 brdfHitPoint = hitPoint + brdfSample.direction * 1000.0;
     float dist;
     if( intersectRectangle( light.position, light.u, light.v, hitPoint, brdfSample.direction, dist ) ) {
         vec3 hitPos = hitPoint + brdfSample.direction * dist;
-        float brdfDist = length( hitPos - hitPoint );
 
         LightRecord brdfRecord;
         brdfRecord.direction = brdfSample.direction;
@@ -273,9 +357,14 @@ vec3 calculateAreaLightContribution(
         brdfRecord.emission = light.color * light.intensity;
         brdfRecord.didHit = true;
 
-        float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightRecord.pdf );
-        vec3 brdfLightContribution = evaluateAreaLight( light, brdfRecord );
-        contribution += brdfLightContribution * brdfSample.value * misWeightBRDF / max( brdfSample.pdf, 0.001 );
+        // Calculate shadow visibility for BRDF sample
+        float visibility = calculateAreaLightVisibility( hitPoint, normal, light, sampleIndex, bounceIndex, rngState, stats );
+
+        if( visibility > 0.0 ) {
+            float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightRecord.pdf );
+            vec3 brdfLightContribution = evaluateAreaLight( light, brdfRecord );
+            contribution += brdfLightContribution * brdfSample.value * misWeightBRDF * visibility / max( brdfSample.pdf, 0.001 );
+        }
     }
 
     return contribution;

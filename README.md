@@ -37,6 +37,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - https://blog.traverseresearch.nl/dynamic-diffuse-global-illumination-b56dc0525a0a
 - https://github.com/knightcrawler25/GLSL-PathTracer/tree/master
 - better blue noise https://www.shadertoy.com/view/wltcRS and https://github.com/knightcrawler25/GLSL-PathTracer/blob/master/src/shaders/common/globals.glsl
+- color science https://www.youtube.com/watch?v=II_rnWU7Uq8
 
 ### Plan for Hybrid Rendering:
 Here's how the hybrid approach works in practice:
