@@ -83,7 +83,7 @@ LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, int sampleIndex, i
 
     // Only contribute when the light is facing the point being lit
     // dot(direction, light.normal) should be negative for the light to face the point
-    if( dot( direction, light.normal ) >= 0.0 ) {
+    if( dot( direction, light.normal ) <= 0.0 ) {
         record.didHit = false;
         return record;
     }

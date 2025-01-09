@@ -552,8 +552,8 @@ class PathTracerApp extends EventDispatcher {
 					);
 
 					// flip light in x axis by 180 degrees
-					// light.rotation.x = Math.PI;
-					light.position.z = - 10;
+					light.rotation.x = Math.PI;
+					light.position.z = - 2;
 					light.name = userData.name;
 					object.add( light );
 
