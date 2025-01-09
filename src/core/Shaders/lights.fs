@@ -72,7 +72,7 @@ LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, int sampleIndex, i
     }
 
     // Light sampling strategy
-    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, 6 );
+    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, - 1 );
     // Generate random position on light surface
     vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
 
