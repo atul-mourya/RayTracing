@@ -54,7 +54,7 @@ export class LightDataTransfer {
 			u.x, u.y, u.z, // u vector (3)
 			v.x, v.y, v.z, // v vector (3)
 			light.color.r, light.color.g, light.color.b, // color (3)
-			light.intensity * 100// intensity (1)
+			light.intensity // intensity (1)
 		);
 
 	}

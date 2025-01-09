@@ -58,6 +58,18 @@ const LightsTab = () => {
 
 	};
 
+	const getMinMaxStep = ( type ) => { // where type is type of light
+
+		switch ( type ) {
+
+			case 'DirectionalLight': return { min: 0, max: 5, step: 0.1 };
+			case 'RectAreaLight': return { min: 0, max: 1000, step: 50 };
+			default: return { min: 0, max: 5, step: 0.1 };
+
+		}
+
+	};
+
 	const updateLightsFromScene = () => {
 
 		if ( window.pathTracerApp ) {
@@ -99,7 +111,7 @@ const LightsTab = () => {
 						<div className="text-xs opacity-65">{light.type}</div>
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={`Intensity ${index + 1}`} icon={Sunrise} min={0} max={5} step={0.1} value={[ light.intensity ]} onValueChange={value => handleLightChange( index, 'intensity', value )} />
+						<Slider label={`Intensity ${index + 1}`} icon={Sunrise} min={ getMinMaxStep( light.type ).min } max={ getMinMaxStep( light.type ).max } step={ getMinMaxStep( light.type ).step } value={[ light.intensity ]} onValueChange={value => handleLightChange( index, 'intensity', value )} />
 					</div>
 					<div className="flex items-center justify-between">
 						<ColorInput label={`Color ${index + 1}`} icon={Rainbow} value={light.color} onChange={color => handleLightChange( index, 'color', color )} />

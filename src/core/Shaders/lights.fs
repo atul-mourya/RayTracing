@@ -72,7 +72,7 @@ LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, int sampleIndex, i
     }
 
     // Light sampling strategy
-    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, 6 );
+    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, 6 );
     // Generate random position on light surface
     vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
 
@@ -247,7 +247,7 @@ vec3 calculateAreaLightContribution(
     if( lightRecord.didHit ) {
         float NoL = dot( normal, lightRecord.direction );
 
-        if( NoL > 0.0 && ! isPointInShadow( shadowOrigin, normal, lightRecord.direction, rngState, stats ) ) {
+        if( NoL > 0.0 ) {
             // Evaluate light and BRDF
             vec3 lightContribution = evaluateAreaLight( light, lightRecord );
             vec3 brdfValue = evaluateBRDF( viewDir, lightRecord.direction, normal, material );
