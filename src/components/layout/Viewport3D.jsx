@@ -30,7 +30,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 				console.error( "Error initializing PathTracerApp:", err );
 				toast( {
 					title: "Failed to load application",
-					description: "Uh oh!! Something went wrong. Please try again.",
+					description: err.message || "Uh oh!! Something went wrong. Please try again.",
 					variant: "destructive",
 				} );
 
