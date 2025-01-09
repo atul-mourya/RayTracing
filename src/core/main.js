@@ -87,6 +87,13 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	getQueryParameter( name ) {
+
+		const urlParams = new URLSearchParams( window.location.search );
+		return urlParams.get( name );
+
+	}
+
 	async init() {
 
 		// Setup renderer
@@ -135,9 +142,29 @@ class PathTracerApp extends EventDispatcher {
 		this.setupComposer();
 		await this.setupFloorPlane();
 
-		// Load HDR background and model
+		// Check for model URL in query parameters
+		const modelUrl = this.getQueryParameter( 'model' );
 		await this.loadEnvironment( DEFAULT_STATE.environment );
-		await this.loadExampleModels( DEFAULT_STATE.model );
+		if ( modelUrl ) {
+
+			 try {
+
+				await this.loadModel( modelUrl );
+
+			} catch ( error ) {
+
+				console.error( 'Failed to load model from URL:', error );
+				// Fall back to default model loading
+				await this.loadExampleModels( DEFAULT_STATE.model );
+
+			}
+
+		} else {
+
+			await this.loadExampleModels( DEFAULT_STATE.model );
+
+		}
+
 		this.pauseRendering = false;
 
 		// Start animation loop
