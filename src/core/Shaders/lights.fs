@@ -120,6 +120,38 @@ vec3 evaluateAreaLight( AreaLight light, LightRecord record ) {
     return record.emission * falloff * cosTheta;
 }
 
+float getMaterialTransparency(HitInfo shadowHit, Ray shadowRay, inout uint rngState) {
+    // Check if the material has transmission (like glass)
+    if (shadowHit.material.transmission > 0.0) {
+        // Check if ray is entering or exiting the material
+        bool isEntering = dot(shadowRay.direction, shadowHit.normal) < 0.0;
+        
+        // Get transmission data (color, direction changes due to refraction)
+        TransmissionResult transResult = handleTransmission(
+            shadowRay.direction,
+            shadowHit.normal,
+            shadowHit.material,
+            isEntering,
+            rngState
+        );
+        
+        // Calculate how much light gets through
+        // Average the RGB components of throughput (divide by 3.0)
+        float transmissionFactor = length(transResult.throughput) / 3.0;
+        
+        // Calculate opacity: 1.0 minus (transmission * how much gets through)
+        return 1.0 - (shadowHit.material.transmission * transmissionFactor);
+    } 
+    // If no transmission, check if it's transparent
+    else if (shadowHit.material.transparent) {
+        return shadowHit.material.opacity;
+    }
+    // If neither transmissive nor transparent, it's fully opaque
+    else {
+        return 1.0;
+    }
+}
+
 bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, inout ivec2 stats ) {
     Ray shadowRay;
     shadowRay.origin = point + normal * 0.001; // shadow bias
@@ -129,70 +161,39 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, ino
     HitInfo shadowHit = traverseBVH( shadowRay, stats );
 
     // Fast path: if no hit or hit an opaque surface
-    if( ! shadowHit.didHit ) {
+    if( ! shadowHit.didHit )
         return false;
-    }
-    if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 ) {
+    if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 )
         return true;
-    }
 
     // Complex path: handle transparent/transmissive materials
     float opacity = 0.0;
-    const int MAX_SHADOW_STEPS = 32;
+    const int MAX_SHADOW_STEPS = 16;
 
     for( int i = 0; i < MAX_SHADOW_STEPS; i ++ ) {
+        if( opacity >= 0.99 )
+            return true; // Early exit if accumulated opacity is high enough
+
         // Handle transparent and transmissive materials
-        if( shadowHit.material.transparent || shadowHit.material.transmission > 0.0 ) {
-            float materialOpacity;
-            vec3 newDirection;
+        float materialOpacity = getMaterialTransparency(shadowHit, shadowRay, rngState);
 
-            if( shadowHit.material.transmission > 0.0 ) {
-                // Use the transmission utilities for consistent handling
-                bool entering = dot( shadowRay.direction, shadowHit.normal ) < 0.0;
-                TransmissionResult transResult = handleTransmission( shadowRay.direction, shadowHit.normal, shadowHit.material, entering, rngState );
-
-                // Update shadow ray direction
-                newDirection = transResult.direction;
-
-                // Calculate effective opacity based on transmission result
-                float transmissionFactor = length( transResult.throughput ) / 3.0;
-                materialOpacity = 1.0 - ( shadowHit.material.transmission * transmissionFactor );
-            } else {
-                // Handle regular transparency
-                materialOpacity = shadowHit.material.transparent ? shadowHit.material.opacity : 1.0;
-                newDirection = shadowRay.direction;
-            }
-
-            // Apply material's alpha if using alpha texture
-            if( shadowHit.material.alphaMode != 0 ) {
-                materialOpacity *= shadowHit.material.color.a;
-            }
-
-            // Accumulate opacity
-            opacity += materialOpacity * ( 1.0 - opacity );
-
-            if( opacity >= 0.99 ) {
-                return true; // Effectively opaque
-            }
-
-            // Continue ray with potentially modified direction
-            shadowRay.origin = shadowHit.hitPoint + newDirection * 0.001;
-            shadowRay.direction = newDirection;
-
-            // Check next intersection
-            shadowHit = traverseBVH( shadowRay, stats );
-            if( ! shadowHit.didHit ) {
-                return false;
-            }
-
-            continue;
+        // Apply material's alpha
+        if( shadowHit.material.alphaMode != 0 ) {
+            materialOpacity *= shadowHit.material.color.a;
         }
 
-        // Opaque material hit
-        return true;
+        // Accumulate opacity with early exit check
+        opacity += materialOpacity * ( 1.0 - opacity );
+        if( opacity >= 0.99 )
+            return true;
+
+        // Continue ray
+        shadowRay.origin = shadowHit.hitPoint + shadowRay.direction * 0.001;
+        shadowHit = traverseBVH( shadowRay, stats );
+        if( ! shadowHit.didHit )
+            return false;
     }
 
-    // If we've exceeded MAX_SHADOW_STEPS, consider it shadowed if accumulated opacity is high enough
     return opacity >= 0.99;
 }
 
@@ -237,36 +238,46 @@ float calculateAreaLightVisibility(
     inout uint rngState,
     inout ivec2 stats
 ) {
-    const int SHADOW_SAMPLES = 4; // Adjust based on quality requirements
+    const int SHADOW_SAMPLES = 4;
     float visibility = 0.0;
 
-    // Generate stratified samples across the light surface
-    for( int i = 0; i < SHADOW_SAMPLES; i ++ ) {
-        // Get stratified random position on light surface
-        vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex * SHADOW_SAMPLES + i, bounceIndex, rngState, - 1 );
-        vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
+    // Pre-calculated common values
+    vec3 shadowOrigin = hitPoint + normal * 0.001;
+    vec3 centerToLight = light.position - shadowOrigin;
+    float maxLightDist = length( centerToLight ) + length( light.u ) + length( light.v );
 
-        // Calculate shadow ray
-        vec3 shadowOrigin = hitPoint + normal * 0.001; // Apply shadow bias
+    // Use stratified sampling for better coverage
+    for( int i = 0; i < SHADOW_SAMPLES; i ++ ) {
+        vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex * SHADOW_SAMPLES + i, bounceIndex, rngState, - 1 );
+
+        // Generate stratified position on light surface
+        vec3 lightPos = light.position +
+            light.u * ( ( ruv.x / float( SHADOW_SAMPLES ) + float( i % 2 ) / 2.0 ) - 0.5 ) +
+            light.v * ( ( ruv.y / float( SHADOW_SAMPLES ) + float( i / 2 ) / 2.0 ) - 0.5 );
+
         vec3 toLight = lightPos - shadowOrigin;
         float lightDist = length( toLight );
+
+        // Skip if beyond maximum possible distance
+        if( lightDist > maxLightDist )
+            continue;
+
         vec3 shadowDir = toLight / lightDist;
+        float alignment = dot( shadowDir, light.normal );
 
         // Skip samples facing away from the light
-        float alignment = dot( shadowDir, light.normal );
         if( alignment > - 0.001 )
             continue;
 
-        // Cast shadow ray
+        // Cast shadow ray with simplified transparency handling
         Ray shadowRay;
         shadowRay.origin = shadowOrigin;
         shadowRay.direction = shadowDir;
 
         float transmittance = 1.0;
-        const int MAX_SHADOW_STEPS = 16;
         bool isShadowed = false;
 
-        for( int step = 0; step < MAX_SHADOW_STEPS; step ++ ) {
+        for( int step = 0; step < 8; step ++ ) { // Reduced from 16 steps
             HitInfo shadowHit = traverseBVH( shadowRay, stats );
 
             if( ! shadowHit.didHit || length( shadowHit.hitPoint - shadowOrigin ) > lightDist ) {
@@ -274,7 +285,7 @@ float calculateAreaLightVisibility(
                 break;
             }
 
-            // Handle opaque objects
+            // Handle opaque objects with early exit
             if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 ) {
                 isShadowed = true;
                 break;
@@ -297,15 +308,12 @@ float calculateAreaLightVisibility(
                 break;
             }
 
-            // Continue ray
             shadowRay.origin = shadowHit.hitPoint + shadowDir * 0.001;
         }
 
-        // Add sample contribution
         visibility += isShadowed ? 0.0 : transmittance;
     }
 
-    // Average visibility across all samples
     return visibility / float( SHADOW_SAMPLES );
 }
 
@@ -403,8 +411,12 @@ LightSampleRec sampleDirectionalLight( DirectionalLight light, vec3 hitPoint, ve
 vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState, inout ivec2 stats ) {
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
-    vec3 faceNormal = hitInfo.normal; // Or compute face normal if different from shading normal
-    vec3 rayOrigin = hitInfo.hitPoint + N * 0.001; // Shadow bias
+    vec3 rayOrigin = hitInfo.hitPoint + N * 0.001;
+
+    // Cache common values
+    float NoV = max( dot( N, V ), 0.0 );
+    bool isMetallic = hitInfo.material.metalness > 0.9;
+    bool isGlossy = hitInfo.material.roughness < 0.2;
 
     // Directional lights
     #if MAX_DIRECTIONAL_LIGHTS > 0
@@ -413,45 +425,43 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
         if( light.intensity <= 0.0 )
             continue;
 
-        LightSampleRec lightRec = sampleDirectionalLight( light, rayOrigin, N, faceNormal );
+        // Skip some directional light calculations for metallic surfaces facing away
+        float NoL = dot( N, light.direction );
+        if( isMetallic && NoL <= 0.0 )
+            continue;
 
+        LightSampleRec lightRec = sampleDirectionalLight( light, rayOrigin, N, N );
         if( ! lightRec.didHit )
             continue;
 
-        // Physical sun intensity with atmospheric effects
-        float baseIrradiance = 1000.0;  // W/m²
-        float atmosphericTransmittance = 0.7;  // Clear sky
-        float scatteringFactor = 0.5;   // Account for scatter
-        float adjustmentScale = 0.1;    // Scale factor
-
-        // Check visibility
-        if( ! isPointInShadow( rayOrigin, N, lightRec.direction, rngState, stats ) ) {
-            float NoL = max( dot( N, lightRec.direction ), 0.0 );
+        // Only check shadows if the light contribution would be significant
+        float potentialContribution = light.intensity * max( NoL, 0.0 );
+        if( potentialContribution > 0.01 && ! isPointInShadow( rayOrigin, N, lightRec.direction, rngState, stats ) ) {
             vec3 brdfValue = evaluateBRDF( V, lightRec.direction, N, hitInfo.material );
-
-            // For directional lights we use pure light sampling (no MIS needed)
-            vec3 lightContribution = lightRec.emission *
-                ( baseIrradiance * atmosphericTransmittance * scatteringFactor ) *
-                adjustmentScale;
-
-            totalLighting += lightContribution * brdfValue * NoL;
+            totalLighting += lightRec.emission * brdfValue * NoL;
         }
     }
     #endif
 
-    // Area lights
+    // Area lights with adaptive sampling
     #if MAX_AREA_LIGHTS > 0 
     for( int i = 0; i < MAX_AREA_LIGHTS / 13; i ++ ) {
         AreaLight light = getAreaLight( i );
         if( light.intensity <= 0.0 )
             continue;
 
+        // Skip distant or back-facing lights
+        vec3 lightCenter = light.position - rayOrigin;
+        float distSq = dot( lightCenter, lightCenter );
+        float cosTheta = dot( normalize( lightCenter ), N );
+
+        // Early exit for lights that won't contribute much
+        if( distSq > ( light.intensity * 100.0 ) || ( isMetallic && cosTheta <= 0.0 ) )
+            continue;
+
         totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, sampleIndex, bounceIndex, rngState, stats );
     }
     #endif
-
-    // Environment lighting contribution could be added here
-    // if(enableEnvironmentLight) { ... }
 
     return totalLighting;
 }
@@ -459,10 +469,11 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
 struct IndirectLightingResult {
     vec3 direction;
     vec3 throughput;
+    float misWeight;
 };
 
 IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMaterial material, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
-    // Sample cosine-weighted direction
+    // Sample cosine-weighted direction with adaptive weights
     vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
 
     // Get material-based importance for sampling strategy selection
@@ -471,16 +482,17 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     // Sample environment map
     EnvMapSample envSample = sampleEnvironmentMap( indirectSample );
 
-    // Three-way sampling strategy selection
-    float rand = RandomValue( rngState );
-    float envWeight = enableEnvironmentLight ? 0.3 : 0.0;
+    // Adaptive sampling weights based on material properties
+    float envWeight = enableEnvironmentLight ? ( 0.3 * ( 1.0 - material.metalness ) ) : 0.0;
     float brdfWeight = materialImportance * 0.7;
     float cosineWeight = 1.0 - envWeight - brdfWeight;
 
     vec3 sampleDir;
     float samplePdf;
     vec3 sampleBrdf;
+    float rand = RandomValue( rngState );
 
+    // Importance sampling strategy selection
     if( rand < envWeight && envSample.pdf > 0.0 ) {
         // Use environment map sample
         sampleDir = envSample.direction;
@@ -498,31 +510,25 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
         sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
     }
 
-    // Ensure PDFs are never zero
+    // Ensure valid PDFs and calculate MIS weight
     samplePdf = max( samplePdf, 0.001 );
     float brdfPdf = max( brdfSample.pdf, 0.001 );
     float envPdf = enableEnvironmentLight ? max( calcEnvMapPdf( sampleDir ), 0.001 ) : 0.0;
     float cosinePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
 
     // Calculate MIS weights using the power heuristic
-    float misWeight = powerHeuristic( samplePdf, envPdf * envWeight +
-        brdfPdf * brdfWeight +
-        cosinePdf * cosineWeight );
+    float misWeight = powerHeuristic( samplePdf, envPdf * envWeight + brdfPdf * brdfWeight + cosinePdf * cosineWeight );
 
-    // Calculate final contribution
+    // Calculate final contribution with energy conservation
     float NoL = max( dot( N, sampleDir ), 0.0 );
     vec3 throughput = sampleBrdf * NoL * misWeight / samplePdf;
-
-    // A surface can reflect more than 100% of incoming light in certain directions
-    // due to the combination of BRDF and geometric terms
-    float maxValue = 5.0; // Allow for higher energy concentration in certain directions
-    throughput = clamp( throughput, vec3( 0.0 ), vec3( maxValue ) );
+    throughput = clamp( throughput, vec3( 0.0 ), vec3( 5.0 ) );
     throughput *= globalIlluminationIntensity;
 
     IndirectLightingResult result;
     result.direction = sampleDir;
     result.throughput = throughput;
-
+    result.misWeight = misWeight;
     return result;
 }
 
