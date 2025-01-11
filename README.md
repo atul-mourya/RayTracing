@@ -8,7 +8,6 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ### Bug:
 - transmission value change does not impact the transmission intensity
 - denoiser not working well with full resolution path tracing
-- directional light intensity not high enough.
 
 
 ### Feature:
