@@ -8,6 +8,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 ### Bug:
 - transmission value change does not impact the transmission intensity
 - denoiser not working well with full resolution path tracing
+- directional light intensity not high enough.
 
 
 ### Feature:
@@ -25,6 +26,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - Hybrid Rendering
 - offsreen canvas rendering
 - refactor lights and pass as data texture instead of uniform buffer
+- UI - add scene elements like lights and camera, etc
 
 ### Refactor:
 - WebGPU version using TSL 

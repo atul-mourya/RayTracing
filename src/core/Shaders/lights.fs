@@ -434,11 +434,20 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
         if( ! lightRec.didHit )
             continue;
 
+        // Physical sun intensity with atmospheric effects
+        float baseIrradiance = 1000.0;  // W/m²
+        float atmosphericTransmittance = 0.7;  // Clear sky
+        float scatteringFactor = 0.5;   // Account for scatter
+        float adjustmentScale = 0.01;    // Scale factor
+        float emissionFactor = ( baseIrradiance * atmosphericTransmittance * scatteringFactor ) * adjustmentScale;
+
         // Only check shadows if the light contribution would be significant
         float potentialContribution = light.intensity * max( NoL, 0.0 );
         if( potentialContribution > 0.01 && ! isPointInShadow( rayOrigin, N, lightRec.direction, rngState, stats ) ) {
             vec3 brdfValue = evaluateBRDF( V, lightRec.direction, N, hitInfo.material );
-            totalLighting += lightRec.emission * brdfValue * NoL;
+            // For directional lights we use pure light sampling (no MIS needed)
+            vec3 lightContribution = lightRec.emission * emissionFactor;    
+            totalLighting += lightContribution * brdfValue * NoL;
         }
     }
     #endif
