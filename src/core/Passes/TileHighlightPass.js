@@ -39,7 +39,7 @@ export class TileHighlightPass extends Pass {
                 void main() {
                     vec4 texel = texture2D(tDiffuse, vUv);
                     
-                    if (renderMode != 2) {
+                    if (renderMode != 1) {
                         gl_FragColor = texel;
                         return;
                     }

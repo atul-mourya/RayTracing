@@ -95,7 +95,6 @@ export class PathTracerPass extends Pass {
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				tiles: { value: this.tiles },
-				checkeredFrameInterval: { value: DEFAULT_STATE.checkeredSize },
 				previousFrameTexture: { value: null },
 
 				spatioTemporalBlueNoiseTexture: { value: null },
@@ -316,7 +315,7 @@ export class PathTracerPass extends Pass {
 		this.renderer.setRenderTarget( this.previousRenderTarget );
 		this.renderer.clear();
 
-		if ( this.material.uniforms.frame.value === 0 && this.material.uniforms.renderMode.value === 2 ) {
+		if ( this.material.uniforms.frame.value === 0 && this.material.uniforms.renderMode.value === 1 ) {
 
 			this.material.uniforms.tiles.value = 1;
 
@@ -423,11 +422,11 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 		this.material.uniforms.frame.value ++;
 
-		if ( this.material.uniforms.renderMode.value === 2 && this.material.uniforms.frame.value >= Math.pow( this.tiles, 2 ) * this.material.uniforms.maxFrames.value ) {
+		if ( this.material.uniforms.renderMode.value === 1 && this.material.uniforms.frame.value >= Math.pow( this.tiles, 2 ) * this.material.uniforms.maxFrames.value ) {
 
 			this.isComplete = true;
 
-		} else if ( this.material.uniforms.renderMode.value !== 2 && this.material.uniforms.frame.value >= this.material.uniforms.maxFrames.value ) {
+		} else if ( this.material.uniforms.renderMode.value !== 1 && this.material.uniforms.frame.value >= this.material.uniforms.maxFrames.value ) {
 
 			this.isComplete = true;
 

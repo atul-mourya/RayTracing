@@ -325,7 +325,7 @@ class PathTracerApp extends EventDispatcher {
 
 				this.onStatsUpdate( {
 					timeElapsed: this.accPass.timeElapsed,
-					samples: this.pathTracingPass.material.uniforms.renderMode.value == 2 ?
+					samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
 						Math.floor( this.accPass.iteration / Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) ) :
 						this.accPass.iteration
 				} );

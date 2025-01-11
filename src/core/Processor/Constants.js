@@ -232,7 +232,6 @@ export const DEFAULT_STATE = {
 	adaptiveSamplingMax: 4,
 	adaptiveSamplingVarianceThreshold: 0.001,
 	renderMode: 0,
-	checkeredSize: 2,
 	tiles: 2,
 	tilesHelper: false,
 	resolution: 1,

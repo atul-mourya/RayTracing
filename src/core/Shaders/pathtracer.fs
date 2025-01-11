@@ -6,9 +6,8 @@ uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform bool showBackground;
-uniform int checkeredFrameInterval;
 uniform sampler2D previousFrameTexture;
-uniform int renderMode; // 0: Regular, 1: Checkered, 2: Tiled
+uniform int renderMode; // 0: Regular, 1: Tiled
 uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
@@ -391,36 +390,7 @@ bool shouldRenderPixel( ) {
 
 		return true;
 
-	} else if( renderMode == 1 ) { // Checkered rendering
-
-		int frameNumber = int( frame );
-		int n = checkeredFrameInterval; // n x n blocks, n frame cycle
-
-        // Calculate which block this pixel belongs to
-		int blockX = pixelCoord.x / n;
-		int blockY = pixelCoord.y / n;
-
-        // Calculate position within the block
-		int pixelXInBlock = pixelCoord.x % n;
-		int pixelYInBlock = pixelCoord.y % n;
-
-        // Determine which frame in the cycle we're on
-		int cycleFrame = frameNumber % ( n * n );
-
-        // Calculate the rendering order within the block
-		int renderOrder = ( pixelYInBlock * n + pixelXInBlock );
-
-        // Determine if this pixel should be rendered in this frame
-		bool shouldRender = ( renderOrder == cycleFrame );
-
-        // Alternate the pattern for odd blocks
-		if( ( blockX + blockY ) % 2 == 1 ) {
-			shouldRender = ! shouldRender;
-		}
-
-		return shouldRender;
-
-	} else if( renderMode == 2 ) { // Tiled rendering
+	} else if( renderMode == 1 ) { // Tiled rendering
 
 		ivec2 tileCount = ivec2( resolution ) / ( ivec2( resolution ) / tiles );
 		ivec2 tileCoord = pixelCoord / ( ivec2( resolution ) / tiles );

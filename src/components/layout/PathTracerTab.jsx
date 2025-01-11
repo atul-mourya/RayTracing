@@ -22,7 +22,6 @@ const useStore = create( ( set ) => ( {
 	setAdaptiveSamplingMax: value => set( { adaptiveSamplingMax: value } ),
 	setAdaptiveSamplingVarianceThreshold: value => set( { adaptiveSamplingVarianceThreshold: value } ),
 	setRenderMode: value => set( { renderMode: value } ),
-	setCheckeredSize: value => set( { checkeredSize: value } ),
 	setTiles: value => set( { tiles: value } ),
 	setTilesHelper: value => set( { tilesHelper: value } ),
 	setResolution: value => set( { resolution: value } ),
@@ -70,7 +69,6 @@ const PathTracerTab = () => {
 		adaptiveSamplingMax, setAdaptiveSamplingMax,
 		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
 		renderMode, setRenderMode,
-		checkeredSize, setCheckeredSize,
 		tiles, setTiles,
 		tilesHelper, setTilesHelper,
 		resolution, setResolution,
@@ -111,9 +109,8 @@ const PathTracerTab = () => {
 	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
 	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
 	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
-	const handleCheckeredRenderingSize = handleChange( setCheckeredSize, value => window.pathTracerApp.pathTracingPass.material.uniforms.checkeredFrameInterval.value = value[ 0 ] );
 	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
-	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 2 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
+	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
 
 
 	const handleResolutionChange = handleChange( setResolution, value => {
@@ -185,17 +182,11 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="0">Regular</SelectItem>
-							<SelectItem value="1">Checkered</SelectItem>
-							<SelectItem value="2">Tiled</SelectItem>
+							<SelectItem value="1">Tiled</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
 				{renderMode === '1' && (
-					<div className="flex items-center justify-between">
-						<Slider label={"Checkered Size"} min={1} max={10} step={1} value={[ checkeredSize ]} onValueChange={handleCheckeredRenderingSize} />
-					</div>
-				)}
-				{renderMode === '2' && (
 					<>
 						<div className="flex items-center justify-between">
 							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
