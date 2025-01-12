@@ -132,12 +132,6 @@ class PathTracerApp extends EventDispatcher {
 
 		this.scene.add( this.directionalLight );
 
-		// add rectarea light
-		const rectLight = new RectAreaLight( 0xffffff, 1, 10, 10 );
-		rectLight.position.set( 1, 1, 1 );
-		rectLight.lookAt( 0, 0, 0 );
-		// this.scene.add(rectLight);
-
 		// Setup composer and passes
 		this.setupComposer();
 		await this.setupFloorPlane();
