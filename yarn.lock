@@ -1218,7 +1218,7 @@
     micromatch "^4.0.0"
     p-reduce "^2.0.0"
 
-"@semantic-release/github@^11.0.0":
+"@semantic-release/github@^11.0.0", "@semantic-release/github@^11.0.1":
   version "11.0.1"
   resolved "https://registry.npmjs.org/@semantic-release/github/-/github-11.0.1.tgz"
   integrity sha512-Z9cr0LgU/zgucbT9cksH0/pX9zmVda9hkDPcgIE0uvjMQ8w/mElDivGjx1w1pEQ+MuQJ5CBq3VCF16S6G4VH3A==
