@@ -8,8 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "lint-fix": "npx eslint --fix",
-    "preview": "vite preview",
-    "release": "semantic-release"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.1",
@@ -53,9 +52,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^11.0.1",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
@@ -77,18 +73,5 @@
   "optionalDependencies": {
     "@esbuild/linux-x64": "0.24.0",
     "@rollup/rollup-linux-x64-gnu": "4.9.5"
-  },
-  "release": {
-    "branches": [
-      "main"
-    ],
-    "plugins": [
-      "@semantic-release/commit-analyzer",
-      "@semantic-release/release-notes-generator",
-      "@semantic-release/changelog",
-      "@semantic-release/npm",
-      "@semantic-release/github",
-      "@semantic-release/git"
-    ]
   }
 }
