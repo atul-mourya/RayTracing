@@ -26,6 +26,7 @@ Demo here https://atul-mourya.github.io/RayTracing/
 - offsreen canvas rendering
 - refactor lights and pass as data texture instead of uniform buffer
 - UI - add scene elements like lights and camera, etc
+- implement sdf base models addition
 
 ### Refactor:
 - WebGPU version using TSL 
