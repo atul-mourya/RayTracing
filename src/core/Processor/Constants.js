@@ -255,7 +255,7 @@ export const DEFAULT_STATE = {
 	bloomStrength: 0.2,
 	bloomRadius: 0.15,
 	bloomThreshold: 0.85,
-	enableTemporalReprojection: true,
+	enableTemporalReprojection: false,
 };
 
 
