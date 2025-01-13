@@ -31,10 +31,15 @@ vec3 square( vec3 x ) {
 // }
 
 // power heuristic for multiple importance sampling
-float powerHeuristic( float pdfA, float pdfB ) {
-	float a = pdfA * pdfA;
-	float b = pdfB * pdfB;
-	return a / ( a + b );
+float powerHeuristic( float pdf1, float pdf2 ) {
+	// Fast path for clearly dominant PDF
+    if(pdf1 > pdf2 * 100.0) return 1.0;
+    if(pdf2 > pdf1 * 100.0) return 0.0;
+    
+    // Standard calculation for closer PDFs
+    float p1 = pdf1 * pdf1;
+    float p2 = pdf2 * pdf2;
+    return p1 / (p1 + p2);
 }
 
 vec3 applyDithering( vec3 color, vec2 uv, float ditheringAmount ) {
