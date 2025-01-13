@@ -153,6 +153,8 @@ float getMaterialTransparency(HitInfo shadowHit, Ray shadowRay, inout uint rngSt
 }
 
 bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, inout ivec2 stats ) {
+    
+    float maxShadowDistance = 1000.0; // Maximum shadow distance
     Ray shadowRay;
     shadowRay.origin = point + normal * 0.001; // shadow bias
     shadowRay.direction = lightDir;
@@ -163,6 +165,9 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, ino
     // Fast path: if no hit or hit an opaque surface
     if( ! shadowHit.didHit )
         return false;
+    if( shadowHit.didHit && length(shadowHit.hitPoint - point) > maxShadowDistance ) {
+        return false;
+    }
     if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 )
         return true;
 
@@ -238,8 +243,16 @@ float calculateAreaLightVisibility(
     inout uint rngState,
     inout ivec2 stats
 ) {
-    const int SHADOW_SAMPLES = 4;
+
+    int SHADOW_SAMPLES = 4;
     float visibility = 0.0;
+
+    // Calculate base importance
+    float distanceToLight = length(light.position - hitPoint);
+    float lightImportance = light.intensity / (distanceToLight * distanceToLight);
+    
+    // Adjust sample count (between 1-4 samples)
+    SHADOW_SAMPLES = int(clamp(lightImportance * float(SHADOW_SAMPLES), 1.0, 4.0));
 
     // Pre-calculated common values
     vec3 shadowOrigin = hitPoint + normal * 0.001;
