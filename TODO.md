@@ -18,6 +18,7 @@ RayTracing Project TODO
 -   [ ]  Caustic support
 -   [ ]  High-res environment map selection
 -   [ ]  Custom environment map support
+-   [ ]  support download of denoised image
 
 🔧 Performance Improvements
 ---------------------------
@@ -26,6 +27,9 @@ RayTracing Project TODO
 -   [ ]  Implement Dynamic BVH update
 -   [ ]  Implement offscreen canvas rendering
 -   [ ]  Refactor lights to use data texture instead of uniform buffer
+-   [ ]  Implement SDF-based model rendering
+-   [ ]  Implement CWBVH for faster BVH traversal
+-   [ ]  Implement offscreen canvas rendering for non-blocking UI
 
 🎨 UI Enhancements
 ------------------
@@ -34,7 +38,6 @@ RayTracing Project TODO
     -   [ ]  Lights control
     -   [ ]  Camera settings
     -   [ ]  Material editor
--   [ ]  Implement SDF-based model addition
 
 🔄 Major Refactoring
 --------------------
