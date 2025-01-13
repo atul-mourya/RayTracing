@@ -174,9 +174,9 @@ export class PathTracerPass extends Pass {
 
 		this.downsampledRenderTarget = new WebGLRenderTarget( width, height, {
 			format: RGBAFormat,
-			type: FloatType,
-			minFilter: LinearFilter,
-			magFilter: LinearFilter
+			type: HalfFloatType,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter
 		} );
 
 		// blend material for smooth transition
