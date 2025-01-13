@@ -64,6 +64,7 @@ class PathTracerApp extends EventDispatcher {
 			antialias: false,
 			preserveDrawingBuffer: true,
 			precision: "highp",
+			depth: false,
 		} );
 
 		// Initialize other properties
