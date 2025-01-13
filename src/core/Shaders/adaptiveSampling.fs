@@ -1,6 +1,6 @@
-uniform int adaptiveSamplingMin;
-uniform int adaptiveSamplingMax;
-uniform float varianceThreshold;
+uniform int adaptiveSamplingMin; // use this to set the minimum number of samples before adaptive sampling kicks in
+uniform int adaptiveSamplingMax; // use this to set the maximum number of samples before adaptive sampling stops
+uniform float varianceThreshold; // Base threshold for adaptive sampling
 
 // adaptive sampling structure
 struct AdaptiveSamplingState {
