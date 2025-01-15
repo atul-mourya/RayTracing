@@ -22,9 +22,9 @@ vec3 sampleEnvironment( vec3 direction, int bounceIndex ) {
 	}
 
 	vec2 uv = directionToTextureCoordinate( direction );
-	vec3 color = texture2D( environment, uv ).rgb;
+	vec4 texel = texture2D( environment, uv );
 
-	return color * environmentIntensity;
+	return texel.rgb * environmentIntensity * texel.a;
 }
 
 struct EnvMapSample {
@@ -91,7 +91,8 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 
     // Get color and calculate PDF
 	vec2 uv = directionToUV( result.direction );
-	result.value = texture2D( environment, uv ).rgb * environmentIntensity;
+	vec4 texel = texture2D( environment, uv );
+	result.value = texel.rgb * environmentIntensity * texel.a * PI; // why PI? is for the solid angle of the sphere
 
 	float sinTheta = sin( theta );
 	result.pdf = calcEnvMapPdf( result.direction );
