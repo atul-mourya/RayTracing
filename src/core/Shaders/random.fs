@@ -145,8 +145,10 @@ void pcg4d(inout uvec4 v) {
 
 vec4 sampleBlueNoise(vec2 pixelCoords) {
     initializeRNG(pixelCoords);
-    // pcg4d(rState.state);
-    ivec2 shift = ( rState.pixel + ivec2( rState.state.xy % 0x0fffffffu ) ) % blueNoiseTextureSize;
+    pcg4d(rState.state);
+    ivec2 shift = (rState.pixel + ivec2(rState.state.xy % 0x0fffffffu)) % blueNoiseTextureSize;
+    // Add temporal variation
+    shift = (shift + ivec2(frame * 1664525u)) % blueNoiseTextureSize;
     return texelFetch(blueNoiseTexture, shift, 0);
 
 }
@@ -198,9 +200,9 @@ vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex, int frame) {
 
     vec2 noiseValue = sampleBlueNoise(pixelCoord).xy;
 
-    // pcg4d(rState.state);
-    // vec2 temporalJitter = vec2(float(rState.state.x), float(rState.state.y)) / 4294967295.0;
-    // vec2 offset = (noiseValue - 0.5 + (temporalJitter - 0.5) * 0.2) / float(strataSize);
+    pcg4d(rState.state);
+    vec2 temporalJitter = vec2(float(rState.state.x), float(rState.state.y)) / 4294967295.0;
+    vec2 offset = (noiseValue - 0.5 + (temporalJitter - 0.5) * 0.2) / float(strataSize);
     
     return fract(stratifiedSample + noiseValue);
 }

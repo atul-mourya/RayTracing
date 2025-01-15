@@ -458,7 +458,7 @@ void main( ) {
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 
 			vec4 _sample = vec4( 0.0 );
-			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 6 );
+			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, - 1 );
 
 			if( visMode == 5 ) {
 				gl_FragColor = vec4( jitterSample, 1.0, 1.0 );
