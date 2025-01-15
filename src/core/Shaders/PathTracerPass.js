@@ -101,6 +101,7 @@ export class PathTracerPass extends Pass {
 				spatioTemporalBlueNoiseReolution: { value: new Vector3( 64, 64, 32 ) },
 
 				blueNoiseTexture: { value: null },
+				blueNoiseTextureSize: { value: new Vector2() },
 
 				visMode: { value: DEFAULT_STATE.debugMode },
 				debugVisScale: { value: DEFAULT_STATE.debugVisScale },
@@ -145,18 +146,22 @@ export class PathTracerPass extends Pass {
 			texture.generateMipmaps = false;
 
 			this.material.uniforms.spatioTemporalBlueNoiseTexture.value = texture;
+			this.material.needsUpdate = true;
 
 		} );
 
 		loader.load( blueNoiseImage, ( texture ) => {
 
-			texture.minFilter = NearestFilter;
-			texture.magFilter = NearestFilter;
+			texture.minFilter = LinearFilter;
+			texture.magFilter = LinearFilter;
 			texture.wrapS = RepeatWrapping;
 			texture.wrapT = RepeatWrapping;
+			texture.type = FloatType;
 			texture.generateMipmaps = false;
 
 			this.material.uniforms.blueNoiseTexture.value = texture;
+			this.material.uniforms.blueNoiseTextureSize.value = new Vector2( texture.image.width, texture.image.height );
+			this.material.needsUpdate = true;
 
 		} );
 

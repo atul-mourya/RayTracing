@@ -5,6 +5,7 @@ uniform sampler2D spatioTemporalBlueNoiseTexture;
 uniform vec3 spatioTemporalBlueNoiseReolution;
 uniform sampler2D blueNoiseTexture;
 uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
+uniform ivec2 blueNoiseTextureSize;
 
 // Sobol sequence direction vectors
 const uint V[32] = uint[32](
@@ -115,14 +116,16 @@ struct RNGState {
     ivec2 pixel;
 };
 
+RNGState rState;
+
 // Initialize RNG state
-void initializeRNG(inout RNGState rState, vec2 pixel, int frame, int sampleIndex) {
+void initializeRNG(vec2 pixel) {
     rState.pixel = ivec2(pixel);
     rState.state = uvec4(
-        uint(frame),
-        uint(frame * 15843 + sampleIndex),
-        uint(frame * 31 + 4566 + sampleIndex * 7),
-        uint(frame * 2345 + 58585 + sampleIndex * 13)
+        frame,
+        frame * 15843u,
+        frame * 31u + 4566u,
+        frame * 2345u + 58585u
     );
 }
 
@@ -140,10 +143,12 @@ void pcg4d(inout uvec4 v) {
     v.w += v.y*v.z;
 }
 
-// Get blue noise offset
-ivec2 getBlueNoiseOffset(inout RNGState rState) {
-    pcg4d(rState.state);
-    return (rState.pixel + ivec2(rState.state.xy % 0x0fffffffu)) % textureSize(blueNoiseTexture, 0).x;
+vec4 sampleBlueNoise(vec2 pixelCoords) {
+    initializeRNG(pixelCoords);
+    // pcg4d(rState.state);
+    ivec2 shift = ( rState.pixel + ivec2( rState.state.xy % 0x0fffffffu ) ) % blueNoiseTextureSize;
+    return texelFetch(blueNoiseTexture, shift, 0);
+
 }
 
 // Sample spatio-temporal blue noise
@@ -158,14 +163,6 @@ vec4 sampleSTBN(vec2 pixelCoords) {
     float random = float(pcg_hash(seed)) / 4294967295.0;
 
     return fract(noise + random);
-}
-
-// Sample basic blue noise
-vec2 sampleBlueNoise(vec2 pixelCoords) {
-    RNGState rState;
-    initializeRNG(rState, pixelCoords, int(frame), 0);
-    ivec2 noiseOffset = getBlueNoiseOffset(rState);
-    return texelFetch(blueNoiseTexture, noiseOffset, 0).xy;
 }
 
 // -----------------------------------------------------------------------------
@@ -189,8 +186,6 @@ vec2 stratifiedSample(int pixelIndex, int sampleIndex, int totalSamples, inout u
 
 // Stratified blue noise sampling
 vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex, int frame) {
-    RNGState rState;
-    initializeRNG(rState, pixelCoord, frame, sampleIndex);
     
     int strataSize = int(sqrt(float(numRaysPerPixel)));
     int strataX = sampleIndex % strataSize;
@@ -201,14 +196,13 @@ vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex, int frame) {
         (float(strataY) + 0.5) / float(strataSize)
     );
 
-    ivec2 noiseOffset = getBlueNoiseOffset(rState);
-    vec2 noiseValue = texelFetch(blueNoiseTexture, noiseOffset, 0).xy;
+    vec2 noiseValue = sampleBlueNoise(pixelCoord).xy;
 
-    pcg4d(rState.state);
-    vec2 temporalJitter = vec2(float(rState.state.x), float(rState.state.y)) / 4294967295.0;
-    vec2 offset = (noiseValue - 0.5 + (temporalJitter - 0.5) * 0.2) / float(strataSize);
+    // pcg4d(rState.state);
+    // vec2 temporalJitter = vec2(float(rState.state.x), float(rState.state.y)) / 4294967295.0;
+    // vec2 offset = (noiseValue - 0.5 + (temporalJitter - 0.5) * 0.2) / float(strataSize);
     
-    return fract(stratifiedSample + offset);
+    return fract(stratifiedSample + noiseValue);
 }
 
 // -----------------------------------------------------------------------------
@@ -256,59 +250,21 @@ vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout ui
     int technique = (preferredTechnique != -1) ? preferredTechnique : samplingTechnique;
     
     switch (technique) {
-        case 3: // Spatio Temporal Blue Noise
-            return sampleSTBN(pixelCoord + vec2(float(sampleIndex) * 13.37, float(bounceIndex) * 31.41)).xy;
-        case 5: // Simple 2D Blue Noise
-            return sampleBlueNoise(pixelCoord);
-        case 6: // Stratified Blue Noise
-            return stratifiedBlueNoiseSample(pixelCoord, sampleIndex, int(frame));
         case 0: // PCG
             return vec2(RandomValue(rngState), RandomValue(rngState));
+        case 1: // Halton
+        case 2: // Sobol
+            return HybridRandomSample2D(rngState, sampleIndex, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x));
+        case 3: // Spatio Temporal Blue Noise
+            return sampleSTBN(pixelCoord + vec2(float(sampleIndex) * 13.37, float(bounceIndex) * 31.41)).xy;
         case 4: // Stratified
             int pixelIndex = int(pixelCoord.y) * int(resolution.x) + int(pixelCoord.x);
             return stratifiedSample(pixelIndex, sampleIndex, numRaysPerPixel, rngState);
-        default: // Halton or Sobol
-            return HybridRandomSample2D(rngState, sampleIndex, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x));
-    }
-}
-
-// Get 4D random sample
-vec4 getRandomSample4(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState) {
-    switch (samplingTechnique) {
-        case 3: // Blue Noise
-            return sampleSTBN(pixelCoord + vec2(float(sampleIndex) * 13.37, float(bounceIndex) * 31.41));
-        
-        case 0: // PCG
-            return vec4(
-                RandomValue(rngState),
-                RandomValue(rngState),
-                RandomValue(rngState),
-                RandomValue(rngState)
-            );
-        
-        case 4: // Stratified
-            return vec4(
-                stratifiedBlueNoiseSample(pixelCoord, sampleIndex, int(frame)),
-                stratifiedBlueNoiseSample(pixelCoord, sampleIndex + 1, int(frame))
-            );
-        
         case 5: // Simple 2D Blue Noise
-            RNGState rState1, rState2;
-            initializeRNG(rState1, pixelCoord, int(frame), sampleIndex);
-            initializeRNG(rState2, pixelCoord, int(frame), sampleIndex + bounceIndex);
-            
-            vec2 noise1 = texelFetch(blueNoiseTexture, getBlueNoiseOffset(rState1), 0).xy;
-            vec2 noise2 = texelFetch(blueNoiseTexture, getBlueNoiseOffset(rState2), 0).xy;
-            return vec4(noise1, noise2);
-        
+            return sampleBlueNoise(pixelCoord).xy;
         case 6: // Stratified Blue Noise
-            vec2 noise = stratifiedBlueNoiseSample(pixelCoord, sampleIndex, int(frame));
-            return vec4(noise, noise);
-        
-        default: // Halton or Sobol
-            return vec4(
-                HybridRandomSample2D(rngState, sampleIndex, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x)),
-                HybridRandomSample2D(rngState, sampleIndex + 1, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x))
-            );
+            return stratifiedBlueNoiseSample(pixelCoord, sampleIndex, int(frame));
+        default:
+            return vec2(0.0);
     }
 }

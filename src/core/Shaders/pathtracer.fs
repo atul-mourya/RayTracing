@@ -35,7 +35,7 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	BRDFWeights weights = calculateBRDFWeights( material );
 	BRDFSample result;
 
-	float rand = RandomValue( rngState );
+	float rand = xi.x;
 	vec3 H;
 
     // Cumulative probabilities
@@ -174,7 +174,7 @@ vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) 
 }
 
 // Improved clearcoat sampling function
-vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec4 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
+vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec2 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
 	vec3 N = hitInfo.normal;
 	vec3 V = - ray.direction;
 
@@ -199,15 +199,15 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 
 	if( rand < clearcoatWeight ) {
         // Sample clearcoat layer
-		H = ImportanceSampleGGX( N, clearcoatRoughness, randomSample.xy );
+		H = ImportanceSampleGGX( N, clearcoatRoughness, randomSample );
 		L = reflect( - V, H );
 	} else if( rand < clearcoatWeight + specularWeight ) {
         // Sample base specular
-		H = ImportanceSampleGGX( N, baseRoughness, randomSample.xy );
+		H = ImportanceSampleGGX( N, baseRoughness, randomSample );
 		L = reflect( - V, H );
 	} else {
         // Sample diffuse
-		L = ImportanceSampleCosine( N, randomSample.xy );
+		L = ImportanceSampleCosine( N, randomSample );
 		H = normalize( V + L );
 	}
 
@@ -230,7 +230,7 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	return evaluateLayeredBRDF( V, L, N, material );
 }
 
-bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTracingMaterial material ) {
+bool handleRussianRoulette( uint depth, vec3 rayColor, RayTracingMaterial material, uint seed ) {
     // OPTIMIZATION: Early exit for very dark paths
 	float pathIntensity = max( max( rayColor.r, rayColor.g ), rayColor.b );
 	if( pathIntensity < 0.01 && depth > 2u )
@@ -242,6 +242,7 @@ bool handleRussianRoulette( uint depth, vec3 rayColor, float randomValue, RayTra
 	if( depth < minBounces )
 		rrProb = 1.0;
 
+	float randomValue = RandomValue( seed );
 	if( randomValue > rrProb ) {
 		return false;
 	}
@@ -265,6 +266,9 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 	vec3 throughput = vec3( 1.0 );
 	uint depth = 0u;
 	float alpha = 1.0;
+
+	// Store initial ray for helper visualization
+	Ray initialRay = ray;
 
 	for( int i = 0; i <= maxBounceCount; i ++ ) {
 		HitInfo hitInfo = traverseBVH( ray, stats );
@@ -338,7 +342,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			continue;
 		}
 
-		vec4 randomSample = getRandomSample4( gl_FragCoord.xy, sampleIndex, i, rngState );
+		vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i, rngState, - 1 );
 
 		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
 		vec3 N = hitInfo.normal; // Normal at hit point
@@ -352,7 +356,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			brdfSample.direction = L;
 			brdfSample.pdf = pdf;
 		} else {
-			brdfSample = sampleBRDF( V, N, material, randomSample.xy, rngState );
+			brdfSample = sampleBRDF( V, N, material, randomSample, rngState );
 		}
 
 		// Calculate emitted light
@@ -376,10 +380,35 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		alpha *= material.color.a;
 
 		// Russian roulette path termination
-		if( ! handleRussianRoulette( depth, throughput, randomSample.z, material ) ) {
+		if( ! handleRussianRoulette( depth, throughput, material, rngState ) ) {
 			break;
 		}
 	}
+
+	// #if MAX_AREA_LIGHTS > 0
+    // bool helperVisible = false;
+    // vec3 helperColor = vec3(0.0);
+
+    // for(int i = 0; i < MAX_AREA_LIGHTS / 13; i++) {
+    //     AreaLight light = getAreaLight(i);
+    //     if(light.intensity <= 0.0) continue;
+
+    //     bool didHit = false;
+    //     vec3 currentHelperColor = evaluateAreaLightHelper(light, initialRay, didHit);
+    //     if(didHit) {
+    //         helperVisible = true;
+    //         helperColor = currentHelperColor;
+    //         break;
+    //     }
+    // }
+
+    // // If helper is visible, blend it with the final result
+    // if(helperVisible) {
+    //     // Apply a semi-transparent overlay of the helper
+    //     radiance = mix(radiance, helperColor, 0.5);
+    // }
+    // #endif
+
 	return vec4( max( radiance, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
 }
 
@@ -427,15 +456,12 @@ void main( ) {
 		int samplesCount = useAdaptiveSampling ? adaptiveSamplingMax : numRaysPerPixel;
 
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
-			vec4 _sample = vec4( 0.0 );
 
-			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, - 1 );
+			vec4 _sample = vec4( 0.0 );
+			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 6 );
 
 			if( visMode == 5 ) {
-				// to be refactored
-				gl_FragColor = vec4( jitterSample, 0.0, 1.0 );
-				// float grayscale = length( jitterSample ) * 0.7071067811865476; // 0.7071... is 1/sqrt(2)
-				// gl_FragColor = vec4( vec3( grayscale ), 1.0 );
+				gl_FragColor = vec4( jitterSample, 1.0, 1.0 );
 				return;
 			}
 
