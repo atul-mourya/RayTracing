@@ -19,6 +19,7 @@ RayTracing Project TODO
 -   [ ]  High-res environment map selection
 -   [ ]  Custom environment map support
 -   [ ]  support download of denoised image
+-   [ ]  expose gamma correction in UI
 
 🔧 Performance Improvements
 ---------------------------
@@ -29,7 +30,7 @@ RayTracing Project TODO
 -   [ ]  Refactor lights to use data texture instead of uniform buffer
 -   [ ]  Implement SDF-based model rendering
 -   [ ]  Implement CWBVH for faster BVH traversal
--   [ ]  Implement offscreen canvas rendering for non-blocking UI
+-   [ ]  use Set to avoid duplicate texture entries in shader 
 
 🎨 UI Enhancements
 ------------------
@@ -44,6 +45,7 @@ RayTracing Project TODO
 
 -   [ ]  Develop WebGPU version using TSL
     -   Reference: <https://github.com/gnikoloff/webgpu-raytracer>
+-   [ ]  Implement offscreen canvas rendering for non-blocking UI
 
 🚀 Hybrid Rendering Implementation Plan
 ---------------------------------------
@@ -75,6 +77,8 @@ RayTracing Project TODO
     -   <https://www.shadertoy.com/view/wltcRS>
     -   <https://github.com/knightcrawler25/GLSL-PathTracer/blob/master/src/shaders/common/globals.glsl>
 -   Color Science: <https://www.youtube.com/watch?v=II_rnWU7Uq8>
+-   Examples: https://erichlof.github.io/THREE.js-PathTracing-Renderer/
+-   explore different types and formats of blue noise textures: https://github.com/Calinou/free-blue-noise-textures/tree/master/256_256
 
 ### Model Sources
 
