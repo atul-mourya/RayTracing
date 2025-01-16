@@ -30,6 +30,8 @@ RayTracing Project TODO
 -   [ ]  Refactor lights to use data texture instead of uniform buffer
 -   [ ]  Implement SDF-based model rendering
 -   [ ]  Implement CWBVH for faster BVH traversal
+-   [ ]  leverage primary ray from rasterization pass for path tracing
+
 
 🎨 UI Enhancements
 ------------------

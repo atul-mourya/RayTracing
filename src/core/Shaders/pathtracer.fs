@@ -469,5 +469,5 @@ void main( ) {
 	}
 	// pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
 
-	gl_FragColor = vec4( pixel.color.rgb, 1.0 );
+	gl_FragColor = vec4( pixel.color.rgb, pixel.color.a );
 }
