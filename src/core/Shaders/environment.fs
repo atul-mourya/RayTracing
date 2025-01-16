@@ -55,22 +55,6 @@ vec3 uvToDirection( vec2 uv ) {
 	return vec3( sinTheta * cosPhi, cosTheta, sinTheta * sinPhi );
 }
 
-// Calculate the PDF for a given direction in the environment map
-float calcEnvMapPdf( vec3 direction ) {
-	if( ! enableEnvironmentLight )
-		return 0.0;
-
-	vec2 uv = directionToUV( direction );
-	vec3 color = texture2D( environment, uv ).rgb;
-	float luminance = dot( color, vec3( 0.2126, 0.7152, 0.0722 ) );
-
-    // Account for the sine factor in spherical coordinates
-	float sinTheta = sin( uv.y * PI );
-	float envPdf = luminance / ( 2.0 * PI * PI * max( sinTheta, 0.001 ) );
-
-	return envPdf;
-}
-
 // Sample the environment map using importance sampling
 EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	EnvMapSample result;
@@ -92,10 +76,12 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
     // Get color and calculate PDF
 	vec2 uv = directionToUV( result.direction );
 	vec4 texel = texture2D( environment, uv );
-	result.value = texel.rgb * environmentIntensity * texel.a * PI; // why PI? is for the solid angle of the sphere
+	result.value = texel.rgb * environmentIntensity;
 
-	float sinTheta = sin( theta );
-	result.pdf = calcEnvMapPdf( result.direction );
+	// Rec. 709 luminance calculation
+	float luminance = dot( texel.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+	float sinTheta = sin( uv.y * PI );
+	result.pdf = luminance / ( 2.0 * PI * PI * max( sinTheta, 0.001 ) );
 
 	return result;
 }

@@ -535,7 +535,7 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     // Ensure valid PDFs and calculate MIS weight
     samplePdf = max( samplePdf, 0.001 );
     float brdfPdf = max( brdfSample.pdf, 0.001 );
-    float envPdf = enableEnvironmentLight ? max( calcEnvMapPdf( sampleDir ), 0.001 ) : 0.0;
+    float envPdf = enableEnvironmentLight ? max( envSample.pdf, 0.001 ) : 0.0;
     float cosinePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
 
     // Calculate MIS weights using the power heuristic
