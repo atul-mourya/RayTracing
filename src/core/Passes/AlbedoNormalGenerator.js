@@ -64,10 +64,8 @@ export class AlbedoNormalGenerator {
 	createRenderTarget() {
 
 		return new WebGLRenderTarget( this.width, this.height, {
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
 			type: FloatType,
-			format: RGBAFormat,
+			depthBuffer: false,
 		} );
 
 	}

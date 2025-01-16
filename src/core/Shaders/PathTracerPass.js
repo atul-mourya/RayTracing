@@ -39,10 +39,10 @@ export class PathTracerPass extends Pass {
 
 		// Create two render targets for ping-pong rendering
 		this.renderTargetA = new WebGLRenderTarget( width, height, {
-			format: RGBAFormat,
-			type: HalfFloatType,
 			minFilter: NearestFilter,
-			magFilter: NearestFilter
+			magFilter: NearestFilter,
+			type: FloatType,
+			depthBuffer: false,
 		} );
 		this.renderTargetB = this.renderTargetA.clone();
 
@@ -179,9 +179,11 @@ export class PathTracerPass extends Pass {
 
 		this.downsampledRenderTarget = new WebGLRenderTarget( width, height, {
 			format: RGBAFormat,
-			type: HalfFloatType,
+			type: FloatType,
 			minFilter: NearestFilter,
-			magFilter: NearestFilter
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
 		} );
 
 		// blend material for smooth transition

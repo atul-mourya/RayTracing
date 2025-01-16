@@ -213,10 +213,7 @@ class PathTracerApp extends EventDispatcher {
 	setupComposer() {
 
 		const renderTarget = new WebGLRenderTarget( this.width, this.height, {
-			format: RGBAFormat,
 			type: FloatType,
-			minFilter: NearestFilter,
-			magFilter: NearestFilter
 		} );
 
 		this.composer = new EffectComposer( this.renderer, renderTarget );

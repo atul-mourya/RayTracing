@@ -16,7 +16,8 @@ export class TemporalReprojectionPass extends Pass {
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
 			format: RGBAFormat,
-			type: FloatType
+			type: FloatType,
+			depthBuffer: false
 		} );
 		this.renderTargetB = this.renderTargetA.clone();
 		this.currentRenderTarget = this.renderTargetA;

@@ -5,6 +5,7 @@ import {
 	RGBAFormat,
 	FloatType,
 	WebGLRenderTarget,
+	NearestFilter,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { CopyShader } from 'three/addons/shaders/CopyShader.js';
@@ -73,14 +74,10 @@ export class AccumulationPass extends Pass {
 		this.lastResetTime = performance.now();
 
 		const params = {
-			minFilter: LinearFilter,
-			magFilter: LinearFilter,
-			format: RGBAFormat,
-			stencilBuffer: false,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
 			depthBuffer: false,
-			generateMipmaps: false,
 			type: FloatType,
-			antialias: false
 		};
 		this.prevFrameBuffer = new WebGLRenderTarget( width, height, params );
 		this.blendedFrameBuffer = new WebGLRenderTarget( width, height, params );
