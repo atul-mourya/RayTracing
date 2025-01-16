@@ -286,40 +286,25 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
-		// cases to handle opaque, transparent, alphaTest
-		if( material.alphaMode == 0 ) { // Opaque. So all alpha values are 1.0
-			alpha = 1.0;
-		} else if( material.alphaTest > 0.0 ) { // Mask
-			if( material.color.a < material.alphaTest ) {
-				alpha *= material.color.a;
-				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-				continue;
-			}
-		} else if( material.transparent && material.opacity < 1.0 ) { // Transparent
-			if( RandomValue( rngState ) > material.opacity ) {
-				throughput *= material.color.rgb;
-				alpha *= material.opacity;
-				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-				continue;
-			}
-		} else if( material.transparent && material.opacity >= 1.0 ) { // Transparent
+		// Handle material transparency
+		TransparencyResult transparencyResult = handleMaterialTransparency( material, material.color, rngState );
 
-			if( RandomValue( rngState ) > material.color.a ) {
-				// throughput *= material.color.rgb;
-				alpha *= material.color.a;
-				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-				continue;
-			}
+		if( transparencyResult.continueRay ) {
+			throughput *= transparencyResult.throughput;
+			alpha *= transparencyResult.alpha;
+			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+			continue;
+		}
 
-		} else {
-			// Handle alpha blending: Comment this section for testing
-			float surfaceAlpha = material.color.a;
-			if( surfaceAlpha < 1.0 ) {
-				radiance = mix( radiance, material.color.rgb * throughput, surfaceAlpha );
-				throughput *= ( 1.0 - surfaceAlpha );
-				ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-				continue;
-			}
+		alpha *= transparencyResult.alpha;
+
+		// Handle transparent materials with transmission
+		if( material.transmission > 0.0 ) {
+			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
+			throughput *= transmissionThroughput;
+			alpha *= ( 1.0 - material.transmission ) * material.color.a;
+			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+			continue;
 		}
 
 		// Calculate tangent space and perturb normal
@@ -331,16 +316,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		material.roughness = sampleRoughnessMap( material, hitInfo.uv );
 		material.roughness = clamp( material.roughness, 0.05, 1.0 );
 		material.sheenRoughness = clamp( material.sheenRoughness, 0.05, 1.0 );
-		material.attenuationDistance = max( material.attenuationDistance, 0.05 );
-
-		// Handle transparent materials with transmission
-		if( material.transmission > 0.0 ) {
-			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
-			throughput *= transmissionThroughput;
-			alpha *= ( 1.0 - material.transmission ) * material.color.a;
-			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-			continue;
-		}
 
 		vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i, rngState, - 1 );
 
@@ -376,8 +351,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		// Update ray for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = brdfSample.direction;
-
-		alpha *= material.color.a;
 
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( depth, throughput, material, rngState ) ) {

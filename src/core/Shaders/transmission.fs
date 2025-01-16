@@ -1,4 +1,3 @@
-
 struct TransmissionResult {
 	vec3 direction;    // New ray direction after transmission/reflection
 	vec3 throughput;   // Color throughput including absorption
@@ -12,7 +11,7 @@ vec3 calculateDispersiveIOR( float baseIOR, float dispersionStrength ) {
 	float B = dispersionStrength * 0.001; // Scale factor for dispersion strength
 
     // Wavelengths for RGB (in micrometers)
-    const vec3 wavelengths = vec3( 0.6563, 0.5461, 0.4358 ); // Red, Green, Blue (precise wavelengths)
+	const vec3 wavelengths = vec3( 0.6563, 0.5461, 0.4358 ); // Red, Green, Blue (precise wavelengths)
 
     // Apply Cauchy's equation: n(λ) = A + B/λ²
 	return A + B / ( wavelengths * wavelengths );
@@ -77,7 +76,7 @@ TransmissionResult handleTransmission(
 				result.throughput = vec3( 1.5, 0.2, 0.2 ); // Boost red
 			} else if( randWL < 0.666 ) {
 				selectIOR = wavelengthIOR.g;
-				result.throughput = vec3( 0.2, 1.5, 0.2); // Boost green
+				result.throughput = vec3( 0.2, 1.5, 0.2 ); // Boost green
 			} else {
 				selectIOR = wavelengthIOR.b;
 				result.throughput = vec3( 0.2, 0.2, 1.5 ); // Boost blue
@@ -87,8 +86,8 @@ TransmissionResult handleTransmission(
 			result.direction = refract( rayDir, N, ratio );
 
             // Normalize throughput to maintain energy conservation
-            result.throughput *= 0.8; // Slight energy loss due to dispersion
-            
+			result.throughput *= 0.8; // Slight energy loss due to dispersion
+
 		} else {
             // Regular refraction without dispersion
 			result.direction = refract( rayDir, N, n1 / n2 );
@@ -118,4 +117,62 @@ vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMater
 	ray.direction = result.direction;
 
 	return result.throughput;
+}
+
+struct TransparencyResult {
+	bool continueRay;      // Whether the ray should continue or be processed normally
+	vec3 throughput;       // Color modification for the ray
+	float alpha;           // Alpha modification
+};
+
+TransparencyResult handleMaterialTransparency( RayTracingMaterial material, vec4 albedo, inout uint rngState ) {
+	TransparencyResult result;
+	result.continueRay = false;
+	result.throughput = vec3( 1.0 );
+	result.alpha = 1.0;
+
+    // Handle different alpha modes according to glTF spec
+	if( material.alphaMode == 0 ) { // OPAQUE
+        // For opaque materials, ignore the alpha channel completely
+        // Keep color but force alpha to 1.0
+		result.throughput = albedo.rgb;
+		result.alpha = 1.0;
+		return result;
+	} else if( material.alphaMode == 2 ) { // BLEND
+		float finalAlpha = albedo.a * material.opacity;
+
+        // Use stochastic transparency for blend mode
+		if( RandomValue( rngState ) > finalAlpha ) {
+			result.continueRay = true;
+			result.throughput = vec3( 1.0 );  // No color modification when skipping
+			result.alpha = 0.0;
+			return result;
+		}
+
+		result.throughput = albedo.rgb;
+		result.alpha = finalAlpha;
+		return result;
+	} else if( material.alphaMode == 1 ) { // MASK
+		float cutoff = material.alphaTest > 0.0 ? material.alphaTest : 0.5;
+		if( albedo.a < cutoff ) {
+			result.continueRay = true;
+			result.alpha = 0.0;
+			return result;
+		}
+		result.throughput = albedo.rgb;
+		result.alpha = 1.0;
+		return result;
+	}
+
+    // Handle transmission if present
+	if( material.transmission > 0.0 ) {
+		if( RandomValue( rngState ) < material.transmission ) {
+			result.continueRay = true;
+			result.throughput = albedo.rgb;
+			result.alpha = 1.0 - material.transmission;
+			return result;
+		}
+	}
+
+	return result;
 }
