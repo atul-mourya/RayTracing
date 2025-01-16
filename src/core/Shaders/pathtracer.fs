@@ -277,7 +277,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
 			vec3 envColor = sampleBackgroundLighting( i, ray.direction );
-			radiance += reduceFireflies( envColor * throughput * ( i == 0 ? 1.0 : environmentIntensity ), 5.0 );
+			radiance += reduceFireflies( envColor * throughput * ( i == 0 ? 1.0 : environmentIntensity ), 1.0 );
 
 			// return vec4(envColor, 1.0);
 			break;
@@ -365,12 +365,12 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		// Indirect lighting using MIS
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, sampleIndex, i, rngState );
-		throughput *= reduceFireflies( indirectResult.throughput, 5.0 );
+		throughput *= reduceFireflies( indirectResult.throughput, 1.0 );
 
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, sampleIndex, i, rngState, stats );
-		radiance += reduceFireflies( directLight * throughput, 5.0 );
+		radiance += reduceFireflies( directLight * throughput, 1.0 );
 		// return vec4(directLight, 1.0);
 
 		// Update ray for next bounce

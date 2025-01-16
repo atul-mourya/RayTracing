@@ -30,7 +30,6 @@ RayTracing Project TODO
 -   [ ]  Refactor lights to use data texture instead of uniform buffer
 -   [ ]  Implement SDF-based model rendering
 -   [ ]  Implement CWBVH for faster BVH traversal
--   [ ]  use Set to avoid duplicate texture entries in shader 
 
 🎨 UI Enhancements
 ------------------
