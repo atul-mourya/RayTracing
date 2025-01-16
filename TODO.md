@@ -19,7 +19,6 @@ RayTracing Project TODO
 -   [ ]  High-res environment map selection
 -   [ ]  Custom environment map support
 -   [ ]  support download of denoised image
--   [ ]  expose gamma correction in UI
 
 🔧 Performance Improvements
 ---------------------------
