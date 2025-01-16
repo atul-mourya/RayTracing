@@ -6,6 +6,7 @@ uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform bool showBackground;
+uniform bool enableGammaCorrection;
 uniform sampler2D previousFrameTexture;
 uniform int renderMode; // 0: Regular, 1: Tiled
 uniform int tiles; // number of tiles
@@ -463,7 +464,9 @@ void main( ) {
 		pixel.color = texture2D( previousFrameTexture, gl_FragCoord.xy / resolution );
 	}
 
-	// pixel.color.rgb = gammaCorrection(pixel.color.rgb);
+	if( enableGammaCorrection ) {
+		pixel.color.rgb = gammaCorrection(pixel.color.rgb);
+	}
 	// pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
 
 	gl_FragColor = vec4( pixel.color.rgb, 1.0 );

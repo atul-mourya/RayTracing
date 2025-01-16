@@ -15,7 +15,8 @@ const useSceneStore = create( ( set ) => ( {
 	setShowBackground: ( value ) => set( { showBackground: value } ),
 	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
 	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
-	setToneMapping: ( value ) => set( { toneMapping: value } )
+	setToneMapping: ( value ) => set( { toneMapping: value } ),
+	setEnableGammaCorrection: ( value ) => set( { enableGammaCorrection: value } )
 } ) );
 
 const toneMappingOptions = [
@@ -36,7 +37,8 @@ const SceneTab = () => {
 		showBackground, setShowBackground,
 		environmentIntensity, setEnvironmentIntensity,
 		GIIntensity, setGIIntensity,
-		toneMapping, setToneMapping
+		toneMapping, setToneMapping,
+		enableGammaCorrection, setEnableGammaCorrection
 	} = useSceneStore();
 
 	const handleExposureChange = ( value ) => {
@@ -114,6 +116,18 @@ const SceneTab = () => {
 
 	};
 
+	const handleEnableGammaCorrectionChange = ( value ) => {
+
+		setEnableGammaCorrection( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.pathTracingPass.material.uniforms.enableGammaCorrection.value = value;
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
 	return (
 		<div className="space-y-4 p-4">
 			<div className="flex items-center justify-between">
@@ -140,6 +154,9 @@ const SceneTab = () => {
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} onValueChange={handleGIIntensityChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<Switch label={"Enable Gamma Correction"} checked={enableGammaCorrection} onCheckedChange={handleEnableGammaCorrectionChange} />
 			</div>
 		</div>
 	);

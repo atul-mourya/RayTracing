@@ -216,6 +216,7 @@ export const DEFAULT_STATE = {
 	environment: 2,
 	environmentIntensity: 1,
 	globalIlluminationIntensity: 1,
+	enableGammaCorrection: false,
 	fov: 50, // Standard 50mm lens equivalent FOV (~47 degrees)
 	focusDistance: 2.0, // 2 meters - good default middle distance
 	aperture: 5.6, // f/5.6 - good balance between depth of field and sharpness
