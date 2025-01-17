@@ -251,13 +251,13 @@ bool handleRussianRoulette( uint depth, vec3 rayColor, RayTracingMaterial materi
 	return true;
 }
 
-vec3 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
+vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 	if( bounceIndex == 0 && ! showBackground ) {
-		return vec3( 0.0 );
+		return vec4( 0.0, 0.0, 0.0, 1.0 );
 	}
 
-	return sampleEnvironment( direction, bounceIndex );
+	return sampleEnvironment( direction );
 
 }
 
@@ -276,9 +276,9 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
-			vec3 envColor = sampleBackgroundLighting( i, ray.direction );
-			radiance += reduceFireflies( envColor * throughput * ( i == 0 ? 1.0 : environmentIntensity ), 1.0 );
-
+			vec4 envColor = sampleBackgroundLighting( i, ray.direction );
+			radiance += reduceFireflies( envColor.rgb * throughput * ( i == 0 ? 1.0 : environmentIntensity ), 1.0 );
+			alpha *= envColor.a;
 			// return vec4(envColor, 1.0);
 			break;
 		}
@@ -465,5 +465,5 @@ void main( ) {
 
 	// pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
 
-	gl_FragColor = vec4( pixel.color.rgb, pixel.color.a );
+	gl_FragColor = vec4( pixel.color.rgb, 1.0 );
 }

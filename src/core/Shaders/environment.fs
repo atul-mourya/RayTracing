@@ -16,15 +16,15 @@ vec2 directionToTextureCoordinate( vec3 direction ) {
 
 }
 
-vec3 sampleEnvironment( vec3 direction, int bounceIndex ) {
+vec4 sampleEnvironment( vec3 direction ) {
 	if( ! enableEnvironmentLight ) {
-		return vec3( 0.0 );
+		return vec4( 0.0, 0.0, 0.0, 1.0 );
 	}
 
 	vec2 uv = directionToTextureCoordinate( direction );
 	vec4 texel = texture2D( environment, uv );
-
-	return texel.rgb * environmentIntensity * texel.a;
+	texel.rgb *= environmentIntensity;
+	return texel;
 }
 
 struct EnvMapSample {

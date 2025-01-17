@@ -125,7 +125,20 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}
 		>
-			<div ref={containerRef} className="w-full h-full" />
+			<div
+				ref={containerRef}
+				className="w-full h-full"
+				style={{
+					backgroundImage: `
+					linear-gradient(45deg, #ccc 26%, transparent 26%), 
+					linear-gradient(135deg, #ccc 26%, transparent 26%),
+					linear-gradient(45deg, transparent 75%, #ccc 75%),
+					linear-gradient(135deg, transparent 75%, #ccc 75%)
+				`,
+					backgroundSize: '20px 20px',
+					backgroundPosition: '0 0, 10px 0, 10px -10px, 0px 10px'
+				}}
+			/>
 			<Toaster />
 			<LoadingOverlay />
 			{isDragging && (
