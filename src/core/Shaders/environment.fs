@@ -78,10 +78,14 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	vec4 texel = texture2D( environment, uv );
 	result.value = texel.rgb * environmentIntensity;
 
-	// Rec. 709 luminance calculation
-	float luminance = dot( texel.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
 	float sinTheta = sin( uv.y * PI );
-	result.pdf = luminance / ( 2.0 * PI * PI * max( sinTheta, 0.001 ) );
+	result.pdf = sinTheta == 0.0 ? 0.0 : 1.0 / ( 2.0 * PI * PI * sinTheta );
+	return result;
+
+	// Rec. 709 luminance calculation
+	// float luminance = dot( texel.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+	// float sinTheta = sin( uv.y * PI );
+	// result.pdf = luminance / ( 2.0 * PI * PI * max( sinTheta, 0.001 ) );
 
 	return result;
 }

@@ -544,8 +544,7 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     // Calculate final contribution with energy conservation
     float NoL = max( dot( N, sampleDir ), 0.0 );
     vec3 throughput = sampleBrdf * NoL * misWeight / samplePdf;
-    throughput = clamp( throughput, vec3( 0.0 ), vec3( 5.0 ) );
-    throughput *= globalIlluminationIntensity;
+    throughput *= globalIlluminationIntensity * PI;
 
     IndirectLightingResult result;
     result.direction = sampleDir;
