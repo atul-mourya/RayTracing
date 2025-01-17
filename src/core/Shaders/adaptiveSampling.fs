@@ -1,6 +1,6 @@
 uniform int adaptiveSamplingMin; // use this to set the minimum number of samples before adaptive sampling kicks in
 uniform int adaptiveSamplingMax; // use this to set the maximum number of samples before adaptive sampling stops
-uniform float varianceThreshold; // Base threshold for adaptive sampling
+uniform float adaptiveSamplingVarianceThreshold; // Base threshold for adaptive sampling
 
 // adaptive sampling structure
 struct AdaptiveSamplingState {
@@ -89,7 +89,7 @@ float calculateAdaptiveThreshold( vec3 pixelColor, float averageSceneLuminance )
     float relativeLuminance = pixelLuminance / ( averageSceneLuminance + 0.001 );
 
     // Adjust threshold based on pixel brightness
-    float baseThreshold = varianceThreshold;
+    float baseThreshold = adaptiveSamplingVarianceThreshold;
     float luminanceScale = mix( 0.8, 1.5, smoothstep( 0.0, 1.5, relativeLuminance ) );
 
     // Add slight bias for very dark areas to prevent over-sampling

@@ -30,7 +30,7 @@ RayTracing Project TODO
 -   [ ]  Implement SDF-based model rendering
 -   [ ]  Implement CWBVH for faster BVH traversal
 -   [ ]  leverage primary ray from rasterization pass for path tracing
-
+-   [ ]  experiment with ray frustum culling
 
 🎨 UI Enhancements
 ------------------

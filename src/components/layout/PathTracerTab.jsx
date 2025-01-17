@@ -295,7 +295,7 @@ const PathTracerTab = () => {
 						<Slider label={"Max Samples"} min={4} max={8} step={1} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+						<Slider label={"Variance Threshold"} min={1} max={10} step={0.1} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 					</div>
 				</> )}
 			</ControlGroup>
