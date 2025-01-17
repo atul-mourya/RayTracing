@@ -85,9 +85,6 @@ TransmissionResult handleTransmission(
 			float ratio = entering ? 1.0 / selectIOR : selectIOR;
 			result.direction = refract( rayDir, N, ratio );
 
-            // Normalize throughput to maintain energy conservation
-			result.throughput *= 0.8; // Slight energy loss due to dispersion
-
 		} else {
             // Regular refraction without dispersion
 			result.direction = refract( rayDir, N, n1 / n2 );

@@ -298,15 +298,6 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 
 		alpha *= transparencyResult.alpha;
 
-		// Handle transparent materials with transmission
-		if( material.transmission > 0.0 ) {
-			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
-			throughput *= transmissionThroughput;
-			alpha *= ( 1.0 - material.transmission ) * material.color.a;
-			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-			continue;
-		}
-
 		// Calculate tangent space and perturb normal
 		vec3 tangent = normalize( cross( hitInfo.normal, vec3( 0.0, 1.0, 0.0 ) ) );
 		vec3 bitangent = normalize( cross( hitInfo.normal, tangent ) );
@@ -316,6 +307,15 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		material.roughness = sampleRoughnessMap( material, hitInfo.uv );
 		material.roughness = clamp( material.roughness, 0.05, 1.0 );
 		material.sheenRoughness = clamp( material.sheenRoughness, 0.05, 1.0 );
+
+		// Handle transparent materials with transmission
+		if( material.transmission > 0.0 ) {
+			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
+			throughput *= transmissionThroughput;
+			alpha *= ( 1.0 - material.transmission ) * material.color.a;
+			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+			continue;
+		}
 
 		vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i, rngState, - 1 );
 
