@@ -96,6 +96,7 @@ export class PathTracerPass extends Pass {
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				tiles: { value: this.tiles },
 				previousFrameTexture: { value: null },
+				accumulatedFrameTexture: { value: null },
 
 				spatioTemporalBlueNoiseTexture: { value: null },
 				spatioTemporalBlueNoiseReolution: { value: new Vector3( 64, 64, 32 ) },
@@ -441,6 +442,7 @@ export class PathTracerPass extends Pass {
 
 		// Set the previous frame texture
 		this.material.uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
+		this.material.uniforms.accumulatedFrameTexture.value = this.accumulationPass ? this.accumulationPass.blendedFrameBuffer.texture : null;
 
 		if ( this.useDownSampledInteractions ) {
 

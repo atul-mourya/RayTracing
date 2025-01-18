@@ -6,12 +6,10 @@ uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform bool showBackground;
-uniform sampler2D previousFrameTexture;
 uniform int renderMode; // 0: Regular, 1: Tiled
 uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
-uniform bool useAdaptiveSampling;
 
 // Include statements
 #include common.fs
@@ -428,6 +426,17 @@ void main( ) {
 	if( shouldRender ) {
 		int samplesCount = useAdaptiveSampling ? adaptiveSamplingMax : numRaysPerPixel;
 
+		if ( frame > 2u && useAdaptiveSampling ) {
+			// Adaptive sampling
+			AdaptiveSamplingResult adaptiveSamplingResult = getRequiredSamples( pixelIndex );
+			samplesCount = adaptiveSamplingResult.samples;
+			if( samplesCount == 0 ) {
+				pixel.color = adaptiveSamplingResult.color;
+				gl_FragColor = vec4( pixel.color.rgb, 1.0 );
+				return;
+			}
+		}
+
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 
 			vec4 _sample = vec4( 0.0 );
@@ -445,8 +454,6 @@ void main( ) {
 
 			if( visMode > 0 ) {
 				_sample = TraceDebugMode( ray.origin, ray.direction );
-			} else if( useAdaptiveSampling ) {
-				_sample = adaptivePathTrace( ray, seed, pixelIndex );
 			} else {
 				_sample = Trace( ray, seed, rayIndex, pixelIndex );
 			}

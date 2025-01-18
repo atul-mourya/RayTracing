@@ -1,222 +1,63 @@
-uniform int adaptiveSamplingMin; // use this to set the minimum number of samples before adaptive sampling kicks in
-uniform int adaptiveSamplingMax; // use this to set the maximum number of samples before adaptive sampling stops
-uniform float adaptiveSamplingVarianceThreshold; // Base threshold for adaptive sampling
+uniform bool useAdaptiveSampling;
+uniform int adaptiveSamplingMin;
+uniform int adaptiveSamplingMax;
+uniform float adaptiveSamplingVarianceThreshold;
+uniform sampler2D previousFrameTexture; // Texture from the previous frame
+uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame for temporal anti-aliasing
 
-// adaptive sampling structure
-struct AdaptiveSamplingState {
-    vec4 mean;          // Running mean of the samples
-    vec4 m2;            // Running M2 aggregator for variance
-    float variance;     // Current variance estimate
-    float localVariance; // Local neighborhood variance
-    int samples;        // Number of samples taken
-    bool converged;     // Whether the pixel has converged
+struct AdaptiveSamplingResult {
+    int samples;
+    vec4 color;
+
 };
 
-// Initialize adaptive sampling state
-AdaptiveSamplingState initAdaptiveSampling( ) {
-    AdaptiveSamplingState state;
-    state.mean = vec4( 0.0 );
-    state.m2 = vec4( 0.0 );
-    state.variance = 1e6;  // Start with high variance
-    state.localVariance = 0.0;
-    state.samples = 0;
-    state.converged = false;
-    return state;
-}
+// Get the number of samples required for this pixel based on variance
+// use the current pixel index to get the previous frame color
+// use the current pixel index to get the accumulated frame color. also look at its neighboring pixels to get the variance from the previous frame
+// calculate the variance between the previous frame and the accumulated frame
+// if all the neighborColors are the same, the variance will be 0, in which case we should return the samples as zero and skip sampling
+// if the variance is greater than the threshold, return the max samples
+// if the variance is less than the threshold, return the min samples
+// if the variance is between the min and max, return the number of samples that is proportional to the variance
+// return the number of samples
 
-float calculateFrameCoherence( vec2 pixelPos, vec2 resolution ) {
-    // Get current and previous frame colors
-    vec2 uv = pixelPos / resolution;
-    vec4 prevFrameColor = texture2D( previousFrameTexture, uv );
+AdaptiveSamplingResult adaptiveSamplingResult;
 
-    // For renderMode 0, we can use temporal information more effectively
-    if( renderMode == 0 ) {
-        // Check temporal stability
-        float frameDiff = 0.0;
-        const int temporalKernel = 1; // Small kernel for efficiency
+AdaptiveSamplingResult getRequiredSamples( int pixelIndex ) {
+    vec2 texCoord = gl_FragCoord.xy / resolution;  // Same as main function
+    
+    vec4 previousColor = texture2D(previousFrameTexture, texCoord);
+    vec4 accumulatedColor = texture2D(accumulatedFrameTexture, texCoord);
 
-        for( int i = - temporalKernel; i <= temporalKernel; i ++ ) {
-            for( int j = - temporalKernel; j <= temporalKernel; j ++ ) {
-                vec2 offset = vec2( float( i ), float( j ) ) / resolution;
-                vec4 neighborPrev = texture2D( previousFrameTexture, uv + offset );
-                frameDiff += length( neighborPrev - prevFrameColor );
-            }
-        }
+    float variance = 0.0;
+    bool allNeighborsSame = true;
+    vec4 firstNeighborColor = texture2D( accumulatedFrameTexture, texCoord + vec2( - 1, - 1 ) / resolution );
 
-        // Normalize and convert to confidence value (0-1)
-        float temporalStability = exp( - frameDiff * 2.0 );
-        return temporalStability;
-    }
-
-    // For renderMode 1 (tiled), be more conservative
-    return 0.5;
-}
-
-void updateVariance( inout AdaptiveSamplingState state, vec4 _sample ) {
-    state.samples ++;
-
-    // Clamp _samples to prevent numerical instability
-    _sample = clamp( _sample, vec4( 0.0 ), vec4( 100.0 ) );
-
-    // Regular variance update
-    vec4 delta = _sample - state.mean;
-    state.mean += delta / float( state.samples );
-
-    if( state.samples > 1 ) {
-        vec4 delta2 = _sample - state.mean;
-        state.m2 += delta * delta2;
-
-        vec4 variance = state.m2 / max( float( state.samples - 1 ), 1.0 );
-        state.variance = clamp( dot( max( variance.rgb, vec3( 0.0 ) ), vec3( 0.299, 0.587, 0.114 ) ), 0.0, 100.0 );
-
-        // Mode-specific variance adjustments
-        if( renderMode == 0 ) {
-            // For regular rendering, incorporate temporal feedback
-            float temporalStability = calculateFrameCoherence( gl_FragCoord.xy, resolution );
-
-            // Adjust variance based on temporal stability
-            if( temporalStability > 0.9 && state.samples > adaptiveSamplingMin ) {
-                // Reduce variance more quickly in stable regions
-                state.variance *= 0.9;
+    for( int x = - 1; x <= 1; x ++ ) {
+        for( int y = - 1; y <= 1; y ++ ) {
+            vec2 offset = vec2( x, y ) / resolution;
+            vec4 neighborColor = texture2D( accumulatedFrameTexture, texCoord + offset );
+            variance += distance( accumulatedColor.rgb, neighborColor.rgb );
+            if( distance( firstNeighborColor.rgb, neighborColor.rgb ) > 0.001 ) {
+                allNeighborsSame = false;
             }
         }
     }
-}
+    variance /= 9.0;
 
-// Calculate adaptive threshold based on scene characteristics
-float calculateAdaptiveThreshold( vec3 pixelColor, float averageSceneLuminance ) {
-    float pixelLuminance = dot( pixelColor, vec3( 0.299, 0.587, 0.114 ) );
-    float relativeLuminance = pixelLuminance / ( averageSceneLuminance + 0.001 );
-
-    // Adjust threshold based on pixel brightness
-    float baseThreshold = adaptiveSamplingVarianceThreshold;
-    float luminanceScale = mix( 0.8, 1.5, smoothstep( 0.0, 1.5, relativeLuminance ) );
-
-    // Add slight bias for very dark areas to prevent over-sampling
-    float darkRegionBias = smoothstep( 0.0, 0.1, pixelLuminance ) * 0.2;
-
-    return baseThreshold * luminanceScale + darkRegionBias;
-}
-
-// Calculate local variance using neighborhood samples
-float calculateLocalVariance( vec2 pixelPos, vec2 resolution ) {
-    // Ensure we stay within texture bounds
-    vec2 uv = pixelPos / resolution;
-    if( uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 ) {
-        return 1.0; // Return high variance for out-of-bounds
+    if( allNeighborsSame ) {
+        adaptiveSamplingResult.samples = 0;
+        adaptiveSamplingResult.color = accumulatedColor;
+    } else if( variance > adaptiveSamplingVarianceThreshold ) {
+        adaptiveSamplingResult.samples = adaptiveSamplingMax;
+        adaptiveSamplingResult.color = vec4( 0.0 );
+    } else if( variance < adaptiveSamplingVarianceThreshold * 0.5 ) {
+        adaptiveSamplingResult.samples = adaptiveSamplingMin;
+        adaptiveSamplingResult.color = vec4( 0.0 );
+    } else {
+        float t = ( variance - adaptiveSamplingVarianceThreshold * 0.5 ) / ( adaptiveSamplingVarianceThreshold * 0.5 );
+        adaptiveSamplingResult.samples = int( mix( float( adaptiveSamplingMin ), float( adaptiveSamplingMax ), t ) );
+        adaptiveSamplingResult.color = vec4( 0.0 );
     }
-
-    vec3 centerColor = texture2D( previousFrameTexture, uv ).rgb;
-    float totalVariance = 0.0;
-    float weight = 0.0;
-    float maxDiff = 0.0;  // Track maximum difference for stability check
-
-    // Use a smaller kernel for initial sampling
-    const int KERNEL_SIZE = 2;
-    for( int i = - KERNEL_SIZE; i <= KERNEL_SIZE; i ++ ) {
-        for( int j = - KERNEL_SIZE; j <= KERNEL_SIZE; j ++ ) {
-            if( i == 0 && j == 0 )
-                continue;
-
-            vec2 offset = vec2( float( i ), float( j ) );
-            vec2 sampleUV = ( pixelPos + offset ) / resolution;
-
-            // Bounds check
-            if( sampleUV.x < 0.0 || sampleUV.x > 1.0 ||
-                sampleUV.y < 0.0 || sampleUV.y > 1.0 )
-                continue;
-
-            vec3 neighborColor = texture2D( previousFrameTexture, sampleUV ).rgb;
-            float diff = length( neighborColor - centerColor );
-            maxDiff = max( maxDiff, diff );
-
-            // Use a more conservative weighting function
-            float w = 1.0 / ( 1.0 + float( i * i + j * j ) );
-            totalVariance += diff * w;
-            weight += w;
-        }
-    }
-
-    // Fallback for potential division by zero
-    if( weight < 0.001 ) {
-        return 1.0; // Conservative estimate
-    }
-
-    float avgVariance = totalVariance / weight;
-
-    // Stability check - if max difference is too high, be conservative
-    if( maxDiff > 5.0 ) {
-        return max( avgVariance, 0.5 ); // Ensure continued sampling for high-contrast areas
-    }
-
-    return avgVariance;
-}
-
-// convergence check with gradient awareness
-bool shouldContinueSampling( AdaptiveSamplingState state, vec3 pixelColor, float averageSceneLuminance ) {
-    // Early exit checks
-    if( state.samples < adaptiveSamplingMin ) {
-        return true;
-    }
-    if( state.samples >= adaptiveSamplingMax ) {
-        return false;
-    }
-
-    // Get base threshold
-    float threshold = calculateAdaptiveThreshold( pixelColor, averageSceneLuminance );
-
-    // Adjust sampling strategy based on render mode
-    if( renderMode == 0 ) {
-        // For regular rendering, use temporal coherence
-        float coherence = calculateFrameCoherence( gl_FragCoord.xy, resolution );
-
-        // Adjust threshold based on temporal stability
-        threshold *= mix( 0.8, 1.2, coherence );
-
-        // Reduce samples in temporally stable regions
-        if( coherence > 0.95 && state.samples > adaptiveSamplingMin * 2 ) {
-            threshold *= 0.8; // More likely to stop sampling
-        }
-
-        // Check local contrast
-        vec2 pixelPos = gl_FragCoord.xy;
-        float localVariance = calculateLocalVariance( pixelPos, resolution );
-
-        // In stable regions with low variance, be more aggressive about stopping
-        if( localVariance < threshold * 0.5 && coherence > 0.9 ) {
-            return false;
-        }
-    }
-
-    // Standard variance check
-    return state.variance > threshold;
-}
-
-// Main adaptive path tracing function
-vec4 adaptivePathTrace( Ray ray, inout uint rngState, int pixelIndex ) {
-    AdaptiveSamplingState state = initAdaptiveSampling( );
-    vec4 finalColor = vec4( 0.0 );
-
-    // Calculate average scene luminance (could be passed as uniform)
-    float averageSceneLuminance = 1.0; // This should be calculated from previous frame
-
-    // Adaptive sampling loop
-    while( ! state.converged ) {
-        // Trace path and get sample
-        vec4 _sample = Trace( ray, rngState, state.samples, pixelIndex );
-
-        // Update statistics
-        updateVariance( state, _sample );
-
-        // Accumulate color
-        finalColor = state.mean;
-
-        // Check convergence with enhanced criteria
-        state.converged = ! shouldContinueSampling( state, finalColor.rgb, averageSceneLuminance );
-    }
-
-    // Store confidence value for potential temporal reuse
-    float confidence = float( state.samples ) / float( adaptiveSamplingMax );
-
-    return finalColor;
+    return adaptiveSamplingResult;
 }
