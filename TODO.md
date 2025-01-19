@@ -24,13 +24,12 @@ RayTracing Project TODO
 🔧 Performance Improvements
 ---------------------------
 
--   [ ]  Improve adaptive sampling performance
 -   [ ]  Implement Dynamic BVH update
 -   [ ]  Implement offscreen canvas rendering
 -   [ ]  Refactor lights to use data texture instead of uniform buffer
 -   [ ]  Implement SDF-based model rendering
 -   [ ]  Implement CWBVH for faster BVH traversal
--   [ ]  leverage primary ray from rasterization pass for path tracing
+-   [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
 -   [ ]  experiment with ray frustum culling
 
 🎨 UI Enhancements
@@ -92,10 +91,3 @@ RayTracing Project TODO
 * * * * *
 
 *Project Demo: <https://atul-mourya.github.io/RayTracing/>*
-
-Remember:
-
--   Update tasks as they are completed using [x]
--   Add new issues and features as they are discovered
--   Regularly review and prioritize tasks
--   Document any new resources or references
