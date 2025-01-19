@@ -426,7 +426,7 @@ void main( ) {
 	if( shouldRender ) {
 		int samplesCount = useAdaptiveSampling ? adaptiveSamplingMax : numRaysPerPixel;
 
-		if ( frame > 2u && useAdaptiveSampling ) {
+		if( frame > 2u && useAdaptiveSampling ) {
 			// Adaptive sampling
 			AdaptiveSamplingResult adaptiveSamplingResult = getRequiredSamples( pixelIndex );
 			samplesCount = adaptiveSamplingResult.samples;

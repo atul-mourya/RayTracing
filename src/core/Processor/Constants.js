@@ -230,7 +230,7 @@ export const DEFAULT_STATE = {
 	adaptiveSampling: false,
 	adaptiveSamplingMin: 1,
 	adaptiveSamplingMax: 4,
-	adaptiveSamplingVarianceThreshold: 1,
+	adaptiveSamplingVarianceThreshold: 0.01,
 	renderMode: 0,
 	tiles: 2,
 	tilesHelper: false,
