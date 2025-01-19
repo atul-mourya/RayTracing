@@ -6,6 +6,7 @@ RayTracing Project TODO
 
 -   [ ]  Fix transmission value changes not impacting transmission intensity
 -   [ ]  Improve denoiser performance with full resolution path tracing
+-   [ ]  seethough like bumps on the surface with oidn
 
 ✨ Core Features
 ---------------
