@@ -100,19 +100,11 @@ const PathTracerTab = () => {
 
 	} );
 
+	// Path Tracer
 	const handleAccumulationChange = handleChange( setEnableAccumulation, value => window.pathTracerApp.accPass.enabled = value );
 	const handleBouncesChange = handleChange( setBounces, value => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = value );
 	const handleSamplesPerPixelChange = handleChange( setSamplesPerPixel, value => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = value );
 	const handleSamplingTechniqueChange = handleChange( setSamplingTechnique, value => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = value );
-	const handleAdaptiveSamplingChange = handleChange( setAdaptiveSampling, value => window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value );
-	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
-	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
-	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
-	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
-	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
-	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
-
-
 	const handleResolutionChange = handleChange( setResolution, value => {
 
 		let result;
@@ -127,16 +119,42 @@ const PathTracerTab = () => {
 		window.pathTracerApp.updateResolution( window.devicePixelRatio * result );
 
 	} );
+
+	// Adaptive Sampling
+	const handleAdaptiveSamplingChange = handleChange( setAdaptiveSampling, value => {
+
+		window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value;
+		window.pathTracerApp.adaptiveSamplingPass.enabled = value;
+		window.pathTracerApp.adaptiveSamplingPass.toggleHelper( value );
+
+	} );
+	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
+	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
+	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
+
+	// Render Mode
+	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
+	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
+	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
+
+	// movement sampling
 	const handleDownSampledMovementChange = handleChange( setDownSampledMovement, value => window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value, false );
+
+	// OIDN
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
+	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
 	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
 	const handleUseAlbedoMapChange = handleChange( setUseAlbedoMap, value => window.pathTracerApp.denoiser.useAlbedoMap = value, false );
 	const handleUseNormalMapChange = handleChange( setUseNormalMap, value => window.pathTracerApp.denoiser.useNormalMap = value, false );
+
+	// Realtime Denoiser
 	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
 	const handleDenoiserBlurStrengthChange = handleChange( setDenoiserBlurStrength, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = value[ 0 ], false );
 	const handleDenoiserBlurRadiusChange = handleChange( setDenoiserBlurRadius, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = value[ 0 ], false );
 	const handleDenoiserDetailPreservationChange = handleChange( setDenoiserDetailPreservation, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = value[ 0 ], false );
 
+	// Debugging
+	const handleDebugThresholdChange = handleChange( setDebugThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = value[ 0 ] );
 	const handleDebugModeChange = handleChange( setDebugMode, value => {
 
 		let mode;
@@ -147,6 +165,7 @@ const PathTracerTab = () => {
 			case '3': mode = 3; break;
 			case '4': mode = 4; break;
 			case '5': mode = 5; break;
+			case '6': mode = 6; break;
 			default: mode = 0;
 
 		}
@@ -154,13 +173,13 @@ const PathTracerTab = () => {
 		window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
 
 	} );
-	const handleDebugThresholdChange = handleChange( setDebugThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = value[ 0 ] );
+
+	// Post Processing
 	const handleEnableBloomChange = handleChange( setEnableBloom, value => window.pathTracerApp.bloomPass.enabled = value );
 	const handleBloomThresholdChange = handleChange( setBloomThreshold, value => window.pathTracerApp.bloomPass.threshold = value[ 0 ] );
 	const handleBloomStrengthChange = handleChange( setBloomStrength, value => window.pathTracerApp.bloomPass.strength = value[ 0 ] );
 	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
 	const handleTemporalReprojectionChange = handleChange( setEnableTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
-	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
 
 	return (
 		<div className="">
@@ -292,10 +311,10 @@ const PathTracerTab = () => {
 						<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Max Samples"} min={4} max={16} step={1} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
+						<Slider label={"Max Samples"} min={4} max={16} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Variance Threshold"} min={1} max={0.001} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+						<Slider label={"Variance Threshold"} min={0.001} max={1} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 					</div>
 				</> )}
 			</ControlGroup>
@@ -334,6 +353,7 @@ const PathTracerTab = () => {
 								<SelectItem value="3">Distance</SelectItem>
 								<SelectItem value="4">Normal</SelectItem>
 								<SelectItem value="5">Sampling</SelectItem>
+								<SelectItem value="6">Variance</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

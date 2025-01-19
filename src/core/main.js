@@ -38,6 +38,7 @@ import Stats from 'stats-gl';
 // Import custom passes and constants
 import { PathTracerPass } from './Shaders/PathTracerPass';
 import { AccumulationPass } from './Passes/AccumulationPass';
+import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
@@ -222,6 +223,10 @@ class PathTracerApp extends EventDispatcher {
 		this.renderPass.enabled = false;
 		this.composer.addPass( this.renderPass );
 
+		this.adaptiveSamplingPass = new AdaptiveSamplingPass( this.renderer, this.width, this.height );
+		this.adaptiveSamplingPass.enabled = DEFAULT_STATE.adaptiveSampling;
+		this.composer.addPass( this.adaptiveSamplingPass );
+
 		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
 		this.composer.addPass( this.pathTracingPass );
 
@@ -229,6 +234,9 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( this.accPass );
 
 		this.pathTracingPass.setAccumulationPass( this.accPass );
+
+		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
+		this.adaptiveSamplingPass.setTextures( this.pathTracingPass.material.uniforms.previousFrameTexture.value, this.accPass.blendedFrameBuffer.texture );
 
 		this.temporalReprojectionPass = new TemporalReprojectionPass( this.scene, this.camera, this.width, this.height );
 		this.temporalReprojectionPass.enabled = DEFAULT_STATE.enableTemporalReprojection;

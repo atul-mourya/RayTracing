@@ -89,9 +89,7 @@ export class PathTracerPass extends Pass {
 
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
-				adaptiveSamplingMin: { value: DEFAULT_STATE.adaptiveSamplingMin },
-				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
-				adaptiveSamplingVarianceThreshold: { value: DEFAULT_STATE.adaptiveSamplingVarianceThreshold },
+				adaptiveSamplingTexture: { value: null },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				tiles: { value: this.tiles },
@@ -172,6 +170,7 @@ export class PathTracerPass extends Pass {
 		this.interactionTimeout = null;
 		this.interactionDelay = 0.01; // seconds, increased for better debouncing
 		this.accumulationPass = null; // Reference to AccumulationPass, to be set later
+		this.adaptiveSamplingPass = null; // Reference to AdaptiveSamplingPass, to be set later
 		this.transitionDuration = 0.00; // Duration of transition in seconds
 		this.transitionClock = new Clock( false );
 		this.isTransitioning = false;
@@ -401,6 +400,12 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	setAdaptiveSamplingPass( asPass ) {
+
+		this.adaptiveSamplingPass = asPass;
+
+	}
+
 	dispose() {
 
 		this.material.uniforms.albedoMaps.value?.dispose();
@@ -443,6 +448,10 @@ export class PathTracerPass extends Pass {
 		// Set the previous frame texture
 		this.material.uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
 		this.material.uniforms.accumulatedFrameTexture.value = this.accumulationPass ? this.accumulationPass.blendedFrameBuffer.texture : null;
+		this.material.uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass ? this.adaptiveSamplingPass.renderTarget.texture : null;
+
+		this.adaptiveSamplingPass.setTextures( this.material.uniforms.previousFrameTexture.value, this.material.uniforms.accumulatedFrameTexture.value );
+
 
 		if ( this.useDownSampledInteractions ) {
 

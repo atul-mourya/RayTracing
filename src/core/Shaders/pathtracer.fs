@@ -10,6 +10,10 @@ uniform int renderMode; // 0: Regular, 1: Tiled
 uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
+uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from AdaptiveSamplingPass
+uniform sampler2D previousFrameTexture; // Texture from the previous frame
+uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame for temporal anti-aliasing
+uniform bool useAdaptiveSampling;
 
 // Include statements
 #include common.fs
@@ -406,7 +410,14 @@ bool shouldRenderPixel( ) {
 }
 
 #include debugger.fs
-#include adaptiveSampling.fs
+
+int getRequiredSamples(int pixelIndex) {
+    vec2 texCoord = gl_FragCoord.xy / resolution;
+    vec4 samplingData = texture2D(adaptiveSamplingTexture, texCoord);
+    
+    // The first component contains the number of samples required
+    return int(samplingData.x);
+}
 
 void main( ) {
 
@@ -424,18 +435,18 @@ void main( ) {
 	bool shouldRender = shouldRenderPixel( );
 
 	if( shouldRender ) {
-		int samplesCount = useAdaptiveSampling ? adaptiveSamplingMax : numRaysPerPixel;
+		int samplesCount = numRaysPerPixel;
 
-		if( frame > 2u && useAdaptiveSampling ) {
-			// Adaptive sampling
-			AdaptiveSamplingResult adaptiveSamplingResult = getRequiredSamples( pixelIndex );
-			samplesCount = adaptiveSamplingResult.samples;
-			if( samplesCount == 0 ) {
-				pixel.color = adaptiveSamplingResult.color;
-				gl_FragColor = vec4( pixel.color.rgb, 1.0 );
-				return;
-			}
-		}
+		if(frame > 2u && useAdaptiveSampling) {
+            // Get required samples from the adaptive sampling pass
+            samplesCount = getRequiredSamples(pixelIndex);
+            if(samplesCount == 0) {
+                // Use the previous frame's color
+                pixel.color = texture2D(accumulatedFrameTexture, gl_FragCoord.xy / resolution);
+                gl_FragColor = vec4(pixel.color.rgb, 1.0);
+                return;
+            }
+        }
 
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 

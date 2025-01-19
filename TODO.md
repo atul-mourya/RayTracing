@@ -19,6 +19,7 @@ RayTracing Project TODO
 -   [ ]  High-res environment map selection
 -   [ ]  Custom environment map support
 -   [ ]  support download of denoised image
+-   [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
 
 🔧 Performance Improvements
 ---------------------------
@@ -66,7 +67,7 @@ RayTracing Project TODO
 📚 Research & Resources
 -----------------------
 
-### To Explore
+### To Explore / Research
 
 -   Disney BSDF: <https://schuttejoe.github.io/post/disneybsdf/>
 -   WASM BVH: <https://github.com/madmann91/bvh>
@@ -79,6 +80,9 @@ RayTracing Project TODO
 -   Color Science: <https://www.youtube.com/watch?v=II_rnWU7Uq8>
 -   Examples: https://erichlof.github.io/THREE.js-PathTracing-Renderer/
 -   explore different types and formats of blue noise textures: https://github.com/Calinou/free-blue-noise-textures/tree/master/256_256
+-   Variable Rate Shading (VRS)
+-   Real-Time OIDN denoising
+-   TracerBoy - <https://github.com/wallisc/TracerBoy/blob/master/TracerBoy/RaytraceCS.hlsl>
 
 ### Model Sources
 
