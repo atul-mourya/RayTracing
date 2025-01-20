@@ -125,7 +125,7 @@ const PathTracerTab = () => {
 
 		window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value;
 		window.pathTracerApp.adaptiveSamplingPass.enabled = value;
-		window.pathTracerApp.adaptiveSamplingPass.toggleHelper( value );
+		window.pathTracerApp.adaptiveSamplingPass.toggleHelper( false );
 
 	} );
 	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );

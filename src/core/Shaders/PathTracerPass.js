@@ -450,7 +450,7 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.accumulatedFrameTexture.value = this.accumulationPass ? this.accumulationPass.blendedFrameBuffer.texture : null;
 		this.material.uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass ? this.adaptiveSamplingPass.renderTarget.texture : null;
 
-		this.adaptiveSamplingPass.setTextures( this.material.uniforms.previousFrameTexture.value, this.material.uniforms.accumulatedFrameTexture.value );
+		this.adaptiveSamplingPass.enabled && this.adaptiveSamplingPass.setTextures( this.material.uniforms.previousFrameTexture.value, this.material.uniforms.accumulatedFrameTexture.value );
 
 
 		if ( this.useDownSampledInteractions ) {

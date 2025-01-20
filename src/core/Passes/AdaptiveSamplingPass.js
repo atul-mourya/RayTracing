@@ -212,10 +212,10 @@ export class AdaptiveSamplingPass extends Pass {
 		this.fsQuad.render( renderer );
 
 		// If heatmap visualization is enabled, render it
-		this.heatmapMaterial.uniforms.samplingTexture.value = this.renderTarget.texture;
-		renderer.setRenderTarget( this.heatmapTarget );
-		this.heatmapQuad.render( renderer );
-		this.helper.update();
+		// this.heatmapMaterial.uniforms.samplingTexture.value = this.renderTarget.texture;
+		// renderer.setRenderTarget( this.heatmapTarget );
+		// this.heatmapQuad.render( renderer );
+		// this.helper.update();
 
 		// If this is the final pass in the chain, render to screen
 		if ( this.renderToScreen ) {

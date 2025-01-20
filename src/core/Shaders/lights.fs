@@ -202,38 +202,6 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, ino
     return opacity >= 0.99;
 }
 
-bool intersectRectangle( vec3 position, vec3 u, vec3 v, vec3 rayOrigin, vec3 rayDirection, out float dist ) {
-    // Get light plane normal
-    vec3 normal = normalize( cross( u, v ) );
-
-    // Calculate intersection with light plane
-    float denom = dot( normal, rayDirection );
-
-    // Skip if ray is parallel to plane or facing away (backface)
-    if( abs( denom ) < 1e-6 || denom > 0.0 ) {
-        return false;
-    }
-
-    // Calculate intersection distance
-    dist = dot( position - rayOrigin, normal ) / denom;
-
-    // Skip if intersection is behind ray
-    if( dist < 0.0 ) {
-        return false;
-    }
-
-    // Calculate intersection point
-    vec3 hitPoint = rayOrigin + rayDirection * dist;
-    vec3 localPoint = hitPoint - position;
-
-    // Project onto light's axes
-    float projU = dot( localPoint, normalize( u ) );
-    float projV = dot( localPoint, normalize( v ) );
-
-    // Check if point is within rectangle bounds
-    return abs( projU ) <= length( u ) && abs( projV ) <= length( v );
-}
-
 float calculateAreaLightVisibility(
     vec3 hitPoint,
     vec3 normal,
@@ -244,7 +212,7 @@ float calculateAreaLightVisibility(
     inout ivec2 stats
 ) {
 
-    int SHADOW_SAMPLES = 4;
+    int SHADOW_SAMPLES = 1; // Number of shadow samples
     float visibility = 0.0;
 
     // Calculate base importance
@@ -290,7 +258,14 @@ float calculateAreaLightVisibility(
         float transmittance = 1.0;
         bool isShadowed = false;
 
-        for( int step = 0; step < 8; step ++ ) { // Reduced from 16 steps
+        // Perform shadow ray traversal with early exit for opaque objects and transmissive materials
+        // here's how it works:
+        // 1. Cast shadow ray towards the light
+        // 2. If hit, check if the material is opaque or transmissive
+        // 3. If opaque, stop and mark as shadowed
+        // 4. If transmissive, accumulate transmittance and continue
+        // 5. Stop if accumulated opacity
+        for( int step = 0; step < 1; step ++ ) { // Only one step for now: no refractive shadows
             HitInfo shadowHit = traverseBVH( shadowRay, stats );
 
             if( ! shadowHit.didHit || length( shadowHit.hitPoint - shadowOrigin ) > lightDist ) {
@@ -343,52 +318,54 @@ vec3 calculateAreaLightContribution(
     inout uint rngState,
     inout ivec2 stats
 ) {
-    vec3 contribution = vec3( 0.0 );
-
-    // Light sampling contribution
-    LightRecord lightRecord = sampleAreaLight( light, hitPoint, sampleIndex, bounceIndex, rngState );
-
-    if( lightRecord.didHit ) {
-        float NoL = dot( normal, lightRecord.direction );
-
-        if( NoL > 0.0 ) {
-            // Calculate shadow visibility
-            float visibility = calculateAreaLightVisibility( hitPoint, normal, light, sampleIndex, bounceIndex, rngState, stats );
-
-            if( visibility > 0.0 ) {
-                // Evaluate light and BRDF
-                vec3 lightContribution = evaluateAreaLight( light, lightRecord );
-                vec3 brdfValue = evaluateBRDF( viewDir, lightRecord.direction, normal, material );
-
-                // MIS weight calculation
-                float misWeightLight = powerHeuristic( lightRecord.pdf, brdfSample.pdf );
-                contribution += lightContribution * brdfValue * NoL * misWeightLight * visibility / max( lightRecord.pdf, 0.001 );
-            }
-        }
+    // Light sampling
+    vec2 ruv = getRandomSample(gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, -1);
+    
+    // Generate position on light surface
+    vec3 lightPos = light.position + 
+        light.u * (ruv.x - 0.5) + 
+        light.v * (ruv.y - 0.5);
+    
+    // Calculate light direction and properties
+    vec3 toLight = lightPos - hitPoint;
+    float lightDist = length(toLight);
+    vec3 lightDir = toLight / lightDist;
+    
+    // Basic geometric checks
+    float NoL = dot(normal, lightDir);
+    float lightFacing = -dot(lightDir, light.normal);
+    
+    // Skip if light is not visible or facing away
+    if (NoL <= 0.0 || lightFacing <= 0.0) {
+        return vec3(0.0);
     }
-
-    // BRDF sampling contribution
-    float dist;
-    if( intersectRectangle( light.position, light.u, light.v, hitPoint, brdfSample.direction, dist ) ) {
-        vec3 hitPos = hitPoint + brdfSample.direction * dist;
-
-        LightRecord brdfRecord;
-        brdfRecord.direction = brdfSample.direction;
-        brdfRecord.position = hitPos;
-        brdfRecord.emission = light.color * light.intensity;
-        brdfRecord.didHit = true;
-
-        // Calculate shadow visibility for BRDF sample
-        float visibility = calculateAreaLightVisibility( hitPoint, normal, light, sampleIndex, bounceIndex, rngState, stats );
-
-        if( visibility > 0.0 ) {
-            float misWeightBRDF = powerHeuristic( brdfSample.pdf, lightRecord.pdf );
-            vec3 brdfLightContribution = evaluateAreaLight( light, brdfRecord );
-            contribution += brdfLightContribution * brdfSample.value * misWeightBRDF * visibility / max( brdfSample.pdf, 0.001 );
-        }
+    
+    // Calculate shadow visibility
+    float visibility = calculateAreaLightVisibility(
+        hitPoint, 
+        normal, 
+        light, 
+        sampleIndex, 
+        bounceIndex, 
+        rngState, 
+        stats
+    );
+    
+    if (visibility <= 0.0) {
+        return vec3(0.0);
     }
-
-    return contribution;
+    
+    // Calculate BRDF and light contribution
+    vec3 brdfValue = evaluateBRDF(viewDir, lightDir, normal, material);
+    
+    // Physical light falloff
+    float distanceSqr = lightDist * lightDist;
+    float falloff = light.area / (4.0 * PI * distanceSqr);
+    
+    // Final contribution
+    vec3 lightContribution = light.color * light.intensity * falloff * lightFacing;
+    
+    return lightContribution * brdfValue * NoL * visibility;
 }
 
 struct LightSampleRec {
@@ -434,32 +411,24 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
     // Directional lights
     #if MAX_DIRECTIONAL_LIGHTS > 0
     for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i ++ ) {
-        DirectionalLight light = getDirectionalLight( i );
-        if( light.intensity <= 0.0 )
-            continue;
+        DirectionalLight light = getDirectionalLight(i);
+        
+        // Skip inactive lights
+        if(light.intensity <= 0.0) continue;
+        
+        float NoL = dot(N, light.direction);
+        
+        // Skip back-facing lights and metallic optimization
+        if(NoL <= 0.0 || (isMetallic && NoL <= 0.0)) continue;
 
-        // Skip some directional light calculations for metallic surfaces facing away
-        float NoL = dot( N, light.direction );
-        if( isMetallic && NoL <= 0.0 )
-            continue;
-
-        LightSampleRec lightRec = sampleDirectionalLight( light, rayOrigin, N, N );
-        if( ! lightRec.didHit )
-            continue;
-
-        // Physical sun intensity with atmospheric effects
-        float baseIrradiance = 1000.0;  // W/m²
-        float atmosphericTransmittance = 0.7;  // Clear sky
-        float scatteringFactor = 0.5;   // Account for scatter
-        float adjustmentScale = 0.01;    // Scale factor
-        float emissionFactor = ( baseIrradiance * atmosphericTransmittance * scatteringFactor ) * adjustmentScale;
-
-        // Only check shadows if the light contribution would be significant
-        float potentialContribution = light.intensity * max( NoL, 0.0 );
-        if( potentialContribution > 0.01 && ! isPointInShadow( rayOrigin, N, lightRec.direction, rngState, stats ) ) {
-            vec3 brdfValue = evaluateBRDF( V, lightRec.direction, N, hitInfo.material );
-            // For directional lights we use pure light sampling (no MIS needed)
-            vec3 lightContribution = lightRec.emission * emissionFactor;    
+        // Only check shadows if light contribution would be significant
+        if(light.intensity * NoL > 0.01 && !isPointInShadow(rayOrigin, N, light.direction, rngState, stats)) {
+            vec3 brdfValue = evaluateBRDF(V, light.direction, N, hitInfo.material);
+            
+            // Simplified physical sun intensity
+            float intensity = light.intensity;  // Consolidated adjustment factor
+            
+            vec3 lightContribution = light.color * intensity;
             totalLighting += lightContribution * brdfValue * NoL;
         }
     }
