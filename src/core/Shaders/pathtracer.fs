@@ -26,6 +26,7 @@ uniform bool useAdaptiveSampling;
 #include fresnel.fs
 #include brdfs.fs
 #include transmission.fs
+#include clearcoat.fs
 #include lights.fs
 
 // Global variables
@@ -132,106 +133,6 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	return result;
 }
 
-// Helper function to calculate energy conservation for layered materials
-float calculateLayerAttenuation( float clearcoat, float VoH ) {
-    // Fresnel term for clearcoat layer (using f0 = 0.04 for dielectric)
-	float F = fresnelSchlick( VoH, 0.04 );
-    // Attenuate base layer by clearcoat layer's reflection
-	return ( 1.0 - clearcoat * F );
-}
-
-// Evaluate both clearcoat and base layer BRDFs
-vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
-	vec3 H = normalize( V + L );
-	float NoL = max( dot( N, L ), 0.001 );
-	float NoV = max( dot( N, V ), 0.001 );
-	float NoH = max( dot( N, H ), 0.001 );
-	float VoH = max( dot( V, H ), 0.001 );
-
-    // Base F0 calculation with specular parameters
-	vec3 baseF0 = vec3( 0.04 );
-	vec3 F0 = mix( baseF0 * material.specularColor, material.color.rgb, material.metalness );
-	F0 *= material.specularIntensity;
-
-	float D = DistributionGGX( N, H, material.roughness );
-	float G = GeometrySmith( N, V, L, material.roughness );
-	vec3 F = fresnelSchlick( VoH, F0 );
-	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * NoV * NoL );
-
-    // Add diffuse component for non-metallic surfaces
-	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) / PI;
-	vec3 baseLayer = diffuse + baseBRDF;
-
-    // Clearcoat layer (using constant IOR of 1.5 -> F0 = 0.04)
-	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
-	float clearcoatD = DistributionGGX( N, H, clearcoatRoughness );
-	float clearcoatG = GeometrySmith( N, V, L, clearcoatRoughness );
-	float clearcoatF = fresnelSchlick( VoH, 0.04 );
-	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) / ( 4.0 * NoV * NoL );
-
-    // Energy conservation
-	float attenuation = calculateLayerAttenuation( material.clearcoat, VoH );
-
-	return baseLayer * attenuation + vec3( clearcoatBRDF ) * material.clearcoat;
-}
-
-// Improved clearcoat sampling function
-vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec2 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
-	vec3 N = hitInfo.normal;
-	vec3 V = - ray.direction;
-
-    // Clamp clearcoat roughness to avoid artifacts
-	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
-	float baseRoughness = max( material.roughness, 0.089 );
-
-    // Calculate sampling weights based on material properties
-	float specularWeight = ( 1.0 - baseRoughness ) * ( 0.5 + 0.5 * material.metalness );
-	float clearcoatWeight = material.clearcoat * ( 1.0 - clearcoatRoughness );
-	float diffuseWeight = ( 1.0 - specularWeight ) * ( 1.0 - material.metalness );
-
-    // Normalize weights
-	float total = specularWeight + clearcoatWeight + diffuseWeight;
-	specularWeight /= total;
-	clearcoatWeight /= total;
-	diffuseWeight /= total;
-
-    // Choose which layer to sample
-	float rand = RandomValue( rngState );
-	vec3 H;
-
-	if( rand < clearcoatWeight ) {
-        // Sample clearcoat layer
-		H = ImportanceSampleGGX( N, clearcoatRoughness, randomSample );
-		L = reflect( - V, H );
-	} else if( rand < clearcoatWeight + specularWeight ) {
-        // Sample base specular
-		H = ImportanceSampleGGX( N, baseRoughness, randomSample );
-		L = reflect( - V, H );
-	} else {
-        // Sample diffuse
-		L = ImportanceSampleCosine( N, randomSample );
-		H = normalize( V + L );
-	}
-
-    // Calculate PDFs for both layers
-	float NoV = max( dot( N, V ), 0.001 );
-	float NoL = max( dot( N, L ), 0.001 );
-	float NoH = max( dot( N, H ), 0.001 );
-	float VoH = max( dot( V, H ), 0.001 );
-
-    // Calculate individual PDFs
-	float clearcoatPDF = DistributionGGX( N, H, clearcoatRoughness ) * NoH / ( 4.0 * VoH ) * clearcoatWeight;
-	float specularPDF = DistributionGGX( N, H, baseRoughness ) * NoH / ( 4.0 * VoH ) * specularWeight;
-	float diffusePDF = NoL / PI * diffuseWeight;
-
-    // Combined PDF using MIS
-	pdf = clearcoatPDF + specularPDF + diffusePDF;
-	pdf = max( pdf, 0.001 ); // Ensure PDF is never zero
-
-    // Evaluate complete BRDF
-	return evaluateLayeredBRDF( V, L, N, material );
-}
-
 bool handleRussianRoulette( uint depth, vec3 rayColor, RayTracingMaterial material, uint seed ) {
     // OPTIMIZATION: Early exit for very dark paths
 	float pathIntensity = max( max( rayColor.r, rayColor.g ), rayColor.b );
@@ -263,23 +164,23 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 }
 
-vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
+vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
 	uint depth = 0u;
 	float alpha = 1.0;
 
 	// Store initial ray for helper visualization
-	Ray initialRay = ray;
+	// Ray initialRay = ray;
 
-	for( int i = 0; i <= maxBounceCount; i ++ ) {
+	for( int bounceIndex = 0; bounceIndex <= maxBounceCount; bounceIndex ++ ) {
 		HitInfo hitInfo = traverseBVH( ray, stats );
 		depth ++;
 
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
-			vec4 envColor = sampleBackgroundLighting( i, ray.direction );
-			radiance += reduceFireflies( envColor.rgb * throughput * ( i == 0 ? 1.0 : environmentIntensity ), 1.0 );
+			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
+			radiance += reduceFireflies( envColor.rgb * throughput * ( bounceIndex == 0 ? 1.0 : environmentIntensity ), 1.0 );
 			alpha *= envColor.a;
 			// return vec4(envColor, 1.0);
 			break;
@@ -319,7 +220,7 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 			continue;
 		}
 
-		vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, i, rngState, - 1 );
+		vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, bounceIndex, rngState, - 1 );
 
 		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
 		vec3 N = hitInfo.normal; // Normal at hit point
@@ -341,12 +242,12 @@ vec4 Trace( Ray ray, inout uint rngState, int sampleIndex, int pixelIndex ) {
 		radiance += emittedLight * throughput * PI;
 
 		// Indirect lighting using MIS
-		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, sampleIndex, i, rngState );
+		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState );
 		throughput *= reduceFireflies( indirectResult.throughput, 1.0 );
 
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, sampleIndex, i, rngState, stats );
+		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
 		radiance += reduceFireflies( directLight * throughput, 1.0 );
 		// return vec4(directLight, 1.0);
 
