@@ -199,9 +199,7 @@ export class AdaptiveSamplingPass extends Pass {
 
 		if ( ! this.enabled ) return;
 
-		const { previousFrameTexture, accumulatedFrameTexture } = this.material.uniforms;
-
-		if ( ! previousFrameTexture.value || ! accumulatedFrameTexture.value ) {
+		if ( ! this.material.uniforms.previousFrameTexture.value || ! this.material.uniforms.accumulatedFrameTexture.value ) {
 
 			console.warn( 'AdaptiveSamplingPass: Missing required textures' );
 			return;
