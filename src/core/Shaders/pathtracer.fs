@@ -33,13 +33,12 @@ uniform bool useAdaptiveSampling;
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-// Optimization 1: Pre-calculate frequently used values
 const float MIN_ROUGHNESS = 0.05;
 const float MAX_ROUGHNESS = 1.0;
 const float MIN_PDF = 0.001;
 const float PI_INV = 1.0 / PI;
 
-// Optimization 2: Improved BRDF sampling with early exits and optimized math
+// BRDF sampling with early exits and optimized math
 BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState ) {
 
 	BRDFWeights weights = calculateBRDFWeights( material );
@@ -48,10 +47,9 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	float rand = xi.x;
 	vec3 H;
 
-    // Optimization: Use precalculated cumulative probabilities
 	float cumulativeDiffuse = weights.diffuse;
 	if( rand < cumulativeDiffuse ) {
-        // Optimized diffuse sampling
+        // Diffuse sampling
 		result.direction = ImportanceSampleCosine( N, xi );
 		result.pdf = max( dot( N, result.direction ), 0.0 ) * PI_INV;
 		result.value = evaluateBRDF( V, result.direction, N, material );
@@ -60,7 +58,7 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 
 	float cumulativeSpecular = cumulativeDiffuse + weights.specular;
 	if( rand < cumulativeSpecular ) {
-        // Optimized specular sampling
+        // specular sampling
 		mat3 TBN = constructTBN( N );
 		vec3 localV = transpose( TBN ) * V;
 		vec3 localH = sampleGGXVNDF( localV, material.roughness, xi );
@@ -84,14 +82,14 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
 
 	if( rand < cumulativeSheen ) {
-        // Optimized sheen sampling
+        // sheen sampling
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
 		float NoH = max( dot( N, H ), 0.0 );
 		float VoH = max( dot( V, H ), 0.0 );
 		result.direction = reflect( - V, H );
 		result.pdf = SheenDistribution( N, H, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
 	} else if( rand < cumulativeClearcoat ) {
-        // Optimized clearcoat sampling
+        // clearcoat sampling
 		float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
 		float NoH = max( dot( N, H ), 0.0 );
@@ -101,7 +99,7 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 		float G1 = GeometrySchlickGGX( max( dot( N, V ), 0.001 ), clearcoatRoughness );
 		result.pdf = D * G1 * VoH / ( max( dot( N, V ), 0.001 ) * 4.0 );
 	} else {
-        // Optimized transmission sampling
+        // transmission sampling
 		float eta = material.ior;
 		bool entering = dot( V, N ) < 0.0;
 		eta = entering ? 1.0 / eta : eta;
@@ -122,9 +120,9 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	return result;
 }
 
-// Optimization 3: Improved Russian Roulette with vectorized operations
+// Russian Roulette with vectorized operations
 bool handleRussianRoulette( int depth, vec3 rayColor, RayTracingMaterial material, uint seed ) {
-    // OPTIMIZATION: Early exit for very dark paths
+    // Early exit for very dark paths
 	float pathIntensity = max( max( rayColor.r, rayColor.g ), rayColor.b );
 	if( pathIntensity < 0.01 && depth > 2 )
 		return false;
@@ -143,7 +141,7 @@ bool handleRussianRoulette( int depth, vec3 rayColor, RayTracingMaterial materia
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 	if( bounceIndex == 0 && ! showBackground ) {
-		return vec4( 0.0, 0.0, 0.0, 1.0 );
+		return vec4( 0.0, 0.0, 0.0, 0.0 );
 	}
 
 	return sampleEnvironment( direction );
@@ -296,8 +294,8 @@ bool shouldRenderPixel( ) {
 #include debugger.fs
 
 int getRequiredSamples( int pixelIndex ) {
-    vec2 texCoord = gl_FragCoord.xy / resolution;
-    return int(texture2D( adaptiveSamplingTexture, texCoord ).r);
+	vec2 texCoord = gl_FragCoord.xy / resolution;
+	return int( texture2D( adaptiveSamplingTexture, texCoord ).r );
 }
 
 void main( ) {
