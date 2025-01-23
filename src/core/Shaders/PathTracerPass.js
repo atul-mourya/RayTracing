@@ -6,7 +6,6 @@ import {
 	RepeatWrapping,
 	LinearFilter,
 	Clock,
-	HalfFloatType,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { LightDataTransfer } from '../Processor/LightDataTransfer';

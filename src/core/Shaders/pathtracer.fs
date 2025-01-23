@@ -33,11 +33,6 @@ uniform bool useAdaptiveSampling;
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-const float MIN_ROUGHNESS = 0.05;
-const float MAX_ROUGHNESS = 1.0;
-const float MIN_PDF = 0.001;
-const float PI_INV = 1.0 / PI;
-
 // BRDF sampling with early exits and optimized math
 BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState ) {
 

@@ -1,5 +1,9 @@
 const float PI = 3.14159;
+const float PI_INV = 1.0 / PI;
 const float EPSILON = 0.001;
+const float MIN_ROUGHNESS = 0.05;
+const float MAX_ROUGHNESS = 1.0;
+const float MIN_PDF = 0.001;
 
 vec3 sRGBToLinear( vec3 srgbColor ) {
 	return pow( srgbColor, vec3( 2.2 ) );
