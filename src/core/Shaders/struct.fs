@@ -79,6 +79,7 @@ struct Triangle {
 	vec3 normalA, normalB, normalC;
 	RayTracingMaterial material;
 	int materialIndex;
+    float padding;
 };
 
 struct Pixel {
