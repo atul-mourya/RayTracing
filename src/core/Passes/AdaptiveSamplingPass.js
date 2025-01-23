@@ -2,9 +2,11 @@ import {
 	ShaderMaterial,
 	RGBAFormat,
 	FloatType,
+	RedFormat,
 	WebGLRenderTarget,
 	NearestFilter,
 	Vector2,
+	UnsignedByteType,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
@@ -27,8 +29,8 @@ export class AdaptiveSamplingPass extends Pass {
 
 		// Create the render target to store adaptive sampling data
 		this.renderTarget = new WebGLRenderTarget( width, height, {
-			format: RGBAFormat,
-			type: FloatType,
+			format: RedFormat, // Only need one channel
+			type: UnsignedByteType, // 8-bit integer is sufficient for 0-255
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
 			depthBuffer: false,

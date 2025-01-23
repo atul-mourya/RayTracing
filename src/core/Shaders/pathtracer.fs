@@ -297,10 +297,7 @@ bool shouldRenderPixel( ) {
 
 int getRequiredSamples( int pixelIndex ) {
     vec2 texCoord = gl_FragCoord.xy / resolution;
-    vec4 samplingData = texture2D( adaptiveSamplingTexture, texCoord );
-    
-    // The first component contains the number of samples required
-    return int(samplingData.x);
+    return int(texture2D( adaptiveSamplingTexture, texCoord ).r);
 }
 
 void main( ) {
