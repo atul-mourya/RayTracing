@@ -1,31 +1,37 @@
 BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	BRDFWeights weights;
 
-    // Base calculations
-	float baseSpecularWeight = ( 1.0 - material.roughness ) * ( 0.5 + 0.5 * material.metalness );
+    // Precalculate shared values
+	float invRoughness = 1.0 - material.roughness;
+	float metalFactor = 0.5 + 0.5 * material.metalness;
+
+    // Consolidated weight calculations
+	float baseSpecularWeight = invRoughness * metalFactor;
 	weights.specular = baseSpecularWeight * material.specularIntensity;
 	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
-	weights.sheen = material.sheen * max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
-	weights.clearcoat = material.clearcoat * ( 1.0 - material.clearcoatRoughness ) * 0.5;
-	weights.transmission = material.transmission *
-		( 1.0 - material.roughness ) * // Smoother surfaces show more transmission effects
-		( 0.5 + 0.5 * material.ior / 2.0 ) * // Base IOR influence
-		( 1.0 + material.dispersion * 0.5 ) * // Increase importance with dispersion
-		0.7; // Overall scaling for transmission
 
-    // Iridescence
-	float iridescenceThicknessRange = material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x;
-	weights.iridescence = material.iridescence *
-		( 1.0 - material.roughness ) * // More prominent on smooth surfaces
-		( 0.5 + 0.5 * iridescenceThicknessRange / 1000.0 ) * // Scale based on thickness range
-		( 0.5 + 0.5 * material.iridescenceIOR / 2.0 ) * // Consider IOR influence
-		0.5; // Overall scaling factor for iridescence
+	float maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
+	weights.sheen = material.sheen * maxSheenColor;
+	weights.clearcoat = material.clearcoat * invRoughness * 0.35; // Combined scaling factors
 
-    // Normalize weights
-	float total = weights.specular + weights.diffuse + weights.sheen + weights.clearcoat + weights.transmission + weights.iridescence;
+    // transmission calculation
+	float transmissionBase = invRoughness * 0.7; // Combined scaling
+	weights.transmission = material.transmission * transmissionBase *
+		( 0.5 + 0.5 * material.ior / 2.0 ) *
+		( 1.0 + material.dispersion * 0.5 );
 
-    // Normalize all weights
+    // iridescence calculation
+	float iridescenceBase = invRoughness * 0.5;
+	weights.iridescence = material.iridescence * iridescenceBase *
+		( 0.5 + 0.5 * ( material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x ) / 1000.0 ) *
+		( 0.5 + 0.5 * material.iridescenceIOR / 2.0 );
+
+    // Single normalization pass
+	float total = weights.specular + weights.diffuse + weights.sheen +
+		weights.clearcoat + weights.transmission + weights.iridescence;
 	float invTotal = 1.0 / max( total, 0.001 );
+
+    // Vectorized multiplication
 	weights.specular *= invTotal;
 	weights.diffuse *= invTotal;
 	weights.sheen *= invTotal;
@@ -41,7 +47,6 @@ float getMaterialImportance( RayTracingMaterial material ) {
 	if( material.transmission > 0.0 || material.clearcoat > 0.0 ) {
 		return 0.95;
 	}
-
 	BRDFWeights weights = calculateBRDFWeights( material );
 
     // For importance sampling, we care about the most significant component
@@ -49,38 +54,30 @@ float getMaterialImportance( RayTracingMaterial material ) {
 }
 
 vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
-
 	float alpha = roughness * roughness;
-	float alpha2 = alpha * alpha;
-
 	float phi = 2.0 * PI * Xi.x;
-	float cosTheta = sqrt( ( 1.0 - Xi.y ) / ( 1.0 + ( alpha2 - 1.0 ) * Xi.y ) );
+	float cosTheta = sqrt( ( 1.0 - Xi.y ) / ( 1.0 + ( alpha * alpha - 1.0 ) * Xi.y ) );
 	float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
 
-	// from spherical coordinates to cartesian coordinates
-	vec3 H;
-	H.x = cos( phi ) * sinTheta;
-	H.y = sin( phi ) * sinTheta;
-	H.z = cosTheta;
+    // Spherical to cartesian conversion
+	vec3 H = vec3( cos( phi ) * sinTheta, sin( phi ) * sinTheta, cosTheta );
 
-	// from tangent-space vector to world-space sample vector
+    // TBN construction
 	vec3 up = abs( N.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
 	vec3 tangent = normalize( cross( up, N ) );
 	vec3 bitangent = cross( N, tangent );
 
-	vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
-	return normalize( sampleVec );
+	return normalize( tangent * H.x + bitangent * H.y + N * H.z );
 }
 
 vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
-	// Create a local coordinate system where N is the Z axis
 	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
 	vec3 B = cross( N, T );
 
 	// Cosine-weighted sampling
 	float phi = 2.0 * PI * xi.x;
 	float cosTheta = sqrt( 1.0 - xi.y );
-	float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
+	float sinTheta = sqrt( xi.y );
 
 	// Convert from polar to Cartesian coordinates
 	vec3 localDir = vec3( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
@@ -117,28 +114,17 @@ vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
 }
 
 float DistributionGGX( vec3 N, vec3 H, float roughness ) {
-
 	float alpha = roughness * roughness;
-	float alpha2 = alpha * alpha;
-
 	float NdotH = max( dot( N, H ), 0.0 );
-	float NdotH2 = NdotH * NdotH;
-
-	float nom = alpha2;
-	float denom = ( NdotH2 * ( alpha2 - 1.0 ) + 1.0 );
-	denom = PI * denom * denom;
-
-	return nom / denom;
+	float alpha2 = alpha * alpha;
+	float denom = ( NdotH * NdotH * ( alpha2 - 1.0 ) + 1.0 );
+	return alpha2 / ( PI * denom * denom );
 }
 
 float GeometrySchlickGGX( float NdotV, float roughness ) {
-	float r = ( roughness + 1.0 );
+	float r = roughness + 1.0;
 	float k = ( r * r ) / 8.0;
-
-	float nom = NdotV;
-	float denom = NdotV * ( 1.0 - k ) + k;
-
-	return nom / denom;
+	return NdotV / ( NdotV * ( 1.0 - k ) + k );
 }
 
 float GeometrySmith( vec3 N, vec3 V, vec3 L, float roughness ) {
@@ -155,10 +141,8 @@ float SheenDistribution( vec3 N, vec3 H, float roughness ) {
 	float invAlpha = 1.0 / alpha;
 	float cos_theta = max( dot( N, H ), 0.0 );
 	float cos_theta_2 = cos_theta * cos_theta;
-
-	float inv_a2 = invAlpha * invAlpha;
-	float d = ( cos_theta_2 * ( inv_a2 - 1.0 ) + 1.0 );
-	return inv_a2 / ( PI * d * d );
+	float d = ( cos_theta_2 * ( invAlpha * invAlpha - 1.0 ) + 1.0 );
+	return invAlpha * invAlpha / ( PI * d * d );
 }
 
 vec3 evalSensitivity( float OPD, vec3 shift ) {
@@ -166,14 +150,16 @@ vec3 evalSensitivity( float OPD, vec3 shift ) {
 	vec3 val = vec3( 5.4856e-13, 4.4201e-13, 5.2481e-13 );
 	vec3 pos = vec3( 1.6810e+06, 1.7953e+06, 2.2084e+06 );
 	vec3 var = vec3( 4.3278e+09, 9.3046e+09, 6.6121e+09 );
-	vec3 xyz = val * sqrt( 2.0 * PI * var ) * cos( pos * phase + shift ) * exp( - square( phase ) * var );
-	xyz.x += 9.7470e-14 * sqrt( 2.0 * PI * 4.5282e+09 ) * cos( 2.2399e+06 * phase + shift[ 0 ] ) * exp( - 4.5282e+09 * square( phase ) );
-	xyz /= 1.0685e-7;
-	return XYZ_TO_REC709 * xyz;
+
+	vec3 xyz = val * sqrt( 2.0 * PI * var ) * cos( pos * phase + shift ) *
+		exp( - square( phase ) * var );
+	xyz.x += 9.7470e-14 * sqrt( 2.0 * PI * 4.5282e+09 ) *
+		cos( 2.2399e+06 * phase + shift[ 0 ] ) *
+		exp( - 4.5282e+09 * square( phase ) );
+	return XYZ_TO_REC709 * ( xyz / 1.0685e-7 );
 }
 
 vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinFilmThickness, vec3 baseF0 ) {
-	vec3 I;
     // Force iridescenceIor -> outsideIOR when thinFilmThickness -> 0.0
 	float iridescenceIor = mix( outsideIOR, eta2, smoothstep( 0.0, 0.03, thinFilmThickness ) );
 
@@ -191,11 +177,8 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
     // First interface
 	float R0 = iorToFresnel0( iridescenceIor, outsideIOR );
 	float R12 = fresnelSchlick( cosTheta1, R0 );
-	float R21 = R12;
 	float T121 = 1.0 - R12;
-	float phi12 = 0.0;
-	if( iridescenceIor < outsideIOR )
-		phi12 = PI;
+	float phi12 = iridescenceIor < outsideIOR ? PI : 0.0;
 	float phi21 = PI - phi12;
 
     // Second interface
@@ -203,14 +186,8 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
 	vec3 R1 = iorToFresnel0( baseIOR, iridescenceIor );
 	vec3 R23 = fresnelSchlick( cosTheta2, R1 );
 	vec3 phi23 = vec3( 0.0 );
-	if( baseIOR[ 0 ] < iridescenceIor )
-		phi23[ 0 ] = PI;
-	if( baseIOR[ 1 ] < iridescenceIor )
-		phi23[ 1 ] = PI;
-	if( baseIOR[ 2 ] < iridescenceIor )
-		phi23[ 2 ] = PI;
+	phi23 = mix( phi23, vec3( PI ), lessThan( baseIOR, vec3( iridescenceIor ) ) );
 
-    // Phase shift
 	float OPD = 2.0 * iridescenceIor * thinFilmThickness * cosTheta2;
 	vec3 phi = vec3( phi21 ) + phi23;
 
@@ -221,10 +198,9 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
 
     // Reflectance term for m = 0 (DC term amplitude)
 	vec3 C0 = R12 + Rs;
-	I = C0;
-
-    // Reflectance term for m > 0 (pairs of diracs)
+	vec3 I = C0;
 	vec3 Cm = Rs - T121;
+
 	for( int m = 1; m <= 2; ++ m ) {
 		Cm *= r123;
 		vec3 Sm = 2.0 * evalSensitivity( float( m ) * OPD, float( m ) * phi );
@@ -239,76 +215,59 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 	// Early exit for purely diffuse materials
 	if( material.roughness > 0.98 && material.metalness < 0.02 &&
 		material.transmission == 0.0 && material.clearcoat == 0.0 ) {
-		return material.color.rgb * ( 1.0 - material.metalness ) / PI;
+		return material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
 	}
 
-	// Calculate half vector
+    // Precalculate dot products once
 	vec3 H = normalize( V + L );
 	float NoL = max( dot( N, L ), 0.001 );
 	float NoV = max( dot( N, V ), 0.001 );
 	float NoH = max( dot( N, H ), 0.001 );
 	float VoH = max( dot( V, H ), 0.001 );
 
-    // Base F0 calculation with specular parameters
-	vec3 baseF0 = vec3( 0.04 );
-	vec3 F0 = mix( baseF0 * material.specularColor, material.color.rgb, material.metalness );
-	F0 *= material.specularIntensity;
+    // Calculate base F0 with specular parameters
+	vec3 F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
 
     // Add iridescence effect if enabled
 	if( material.iridescence > 0.0 ) {
         // Calculate thickness based on the range
 		float thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
-
-        // Calculate iridescent fresnel
-		vec3 iridescenceFresnel = evalIridescence( 1.0, // air IOR
-		material.iridescenceIOR, VoH, thickness, F0 );
-
-        // Blend iridescence with base F0
+		vec3 iridescenceFresnel = evalIridescence( 1.0, material.iridescenceIOR, VoH, thickness, F0 );
 		F0 = mix( F0, iridescenceFresnel, material.iridescence );
 	}
 
-    // Specular BRDF
+    // Precalculate shared terms
 	float D = DistributionGGX( N, H, material.roughness );
 	float G = GeometrySmith( N, V, L, material.roughness );
 	vec3 F = fresnelSchlick( VoH, F0 );
+
+    // Combined specular calculation
 	vec3 specular = ( D * G * F ) / ( 4.0 * NoV * NoL );
-
-    // Diffuse BRDF
-	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) / PI;
-
-    // Base layer without sheen
+	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
 	vec3 baseLayer = diffuse + specular;
 
-    // Only add sheen if it's enabled
+    // Optimize sheen calculation
 	if( material.sheen > 0.0 ) {
-        // Sheen BRDF
-		float sheenDistribution = SheenDistribution( N, H, material.sheenRoughness );
-		vec3 sheenColor = material.sheenColor * material.sheen;
-		vec3 sheen = sheenColor * sheenDistribution * NoL;
-
-        // Energy compensation - only apply scaling when sheen is present
-		float sheenScaling = 1.0 - material.sheen * max( max( sheenColor.r, sheenColor.g ), sheenColor.b );
-		return baseLayer * sheenScaling + sheen;
+		float sheenDist = SheenDistribution( N, H, material.sheenRoughness );
+		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * NoL;
+		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
+		float sheenScaling = 1.0 - material.sheen * maxSheen;
+		return baseLayer * sheenScaling + sheenTerm;
 	}
 
 	return baseLayer;
-
 }
 
 vec3 cosineWeightedSample( vec3 N, vec2 xi ) {
 	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
 	vec3 B = cross( N, T );
 
-	float r = sqrt( xi.x );
-	float phi = 2.0 * PI * xi.y;
-
-	float x = r * cos( phi );
-	float y = r * sin( phi );
+	vec2 r = vec2( sqrt( xi.x ) * cos( 2.0 * PI * xi.y ), sqrt( xi.x ) * sin( 2.0 * PI * xi.y ) );
 	float z = sqrt( 1.0 - xi.x );
 
-	return normalize( T * x + B * y + N * z );
+	return normalize( T * r.x + B * r.y + N * z );
 }
 
 float cosineWeightedPDF( float NoL ) {
-	return max( NoL, 0.001 ) / PI;  // Ensure PDF is never zero
+	return max( NoL, 0.001 ) * PI_INV;
 }
