@@ -26,7 +26,7 @@ RayTracing Project TODO
 ---------------------------
 
 -   [ ]  Implement Dynamic BVH update
--   [ ]  Implement offscreen canvas rendering
+-   [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 -   [ ]  Refactor lights to use data texture instead of uniform buffer
 -   [ ]  Implement SDF-based model rendering
 -   [ ]  Implement CWBVH for faster BVH traversal
