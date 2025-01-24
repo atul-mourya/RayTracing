@@ -16,8 +16,8 @@ uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame f
 uniform bool useAdaptiveSampling;
 
 // Include statements
-#include common.fs
 #include struct.fs
+#include common.fs
 #include random.fs
 #include rayintersection.fs
 #include environment.fs
@@ -63,7 +63,7 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 		float NoH = max( dot( N, H ), 0.001 );
 		float VoH = max( dot( V, H ), 0.001 );
 
-		float D = DistributionGGX( N, H, material.roughness );
+		float D = DistributionGGX( NoH, material.roughness );
 		float G1 = GeometrySchlickGGX( NoV, material.roughness );
 
 		result.direction = reflect( - V, H );
@@ -82,17 +82,18 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 		float NoH = max( dot( N, H ), 0.0 );
 		float VoH = max( dot( V, H ), 0.0 );
 		result.direction = reflect( - V, H );
-		result.pdf = SheenDistribution( N, H, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
+		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
 	} else if( rand < cumulativeClearcoat ) {
         // clearcoat sampling
 		float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
 		float NoH = max( dot( N, H ), 0.0 );
 		float VoH = max( dot( V, H ), 0.0 );
+		float NoV = max( dot( N, V ), 0.001 );
 		result.direction = reflect( - V, H );
-		float D = DistributionGGX( N, H, clearcoatRoughness );
-		float G1 = GeometrySchlickGGX( max( dot( N, V ), 0.001 ), clearcoatRoughness );
-		result.pdf = D * G1 * VoH / ( max( dot( N, V ), 0.001 ) * 4.0 );
+		float D = DistributionGGX( NoH, clearcoatRoughness );
+		float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
+		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
 	} else {
         // transmission sampling
 		float eta = material.ior;

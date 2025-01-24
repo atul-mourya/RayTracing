@@ -7,36 +7,32 @@ float calculateLayerAttenuation( float clearcoat, float VoH ) {
 }
 
 // Evaluate both clearcoat and base layer BRDFs
-vec3 evaluateLayeredBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
-	vec3 H = normalize( V + L );
-	float NoL = max( dot( N, L ), 0.001 );
-	float NoV = max( dot( N, V ), 0.001 );
-	float NoH = max( dot( N, H ), 0.001 );
-	float VoH = max( dot( V, H ), 0.001 );
+vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
 
     // Base F0 calculation with specular parameters
 	vec3 baseF0 = vec3( 0.04 );
 	vec3 F0 = mix( baseF0 * material.specularColor, material.color.rgb, material.metalness );
 	F0 *= material.specularIntensity;
 
-	float D = DistributionGGX( N, H, material.roughness );
-	float G = GeometrySmith( N, V, L, material.roughness );
-	vec3 F = fresnelSchlick( VoH, F0 );
-	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * NoV * NoL );
+	float D = DistributionGGX( dots.NoH, material.roughness );
+	float G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
+	vec3 F = fresnelSchlick( dots.VoH, F0 );
+	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
 
     // Add diffuse component for non-metallic surfaces
 	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) / PI;
 	vec3 baseLayer = diffuse + baseBRDF;
 
-    // Clearcoat layer (using constant IOR of 1.5 -> F0 = 0.04)
+    // Clearcoat layer
 	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
-	float clearcoatD = DistributionGGX( N, H, clearcoatRoughness );
-	float clearcoatG = GeometrySmith( N, V, L, clearcoatRoughness );
-	float clearcoatF = fresnelSchlick( VoH, 0.04 );
-	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) / ( 4.0 * NoV * NoL );
+	float clearcoatD = DistributionGGX( dots.NoH, clearcoatRoughness );
+	float clearcoatG = GeometrySmith( dots.NoV, dots.NoL, clearcoatRoughness );
+	float clearcoatF = fresnelSchlick( dots.VoH, 0.04 );
+	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) /
+		( 4.0 * dots.NoV * dots.NoL );
 
     // Energy conservation
-	float attenuation = calculateLayerAttenuation( material.clearcoat, VoH );
+	float attenuation = calculateLayerAttenuation( material.clearcoat, dots.VoH );
 
 	return baseLayer * attenuation + vec3( clearcoatBRDF ) * material.clearcoat;
 }
@@ -79,21 +75,18 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 		H = normalize( V + L );
 	}
 
-    // Calculate PDFs for both layers
-	float NoV = max( dot( N, V ), 0.001 );
-	float NoL = max( dot( N, L ), 0.001 );
-	float NoH = max( dot( N, H ), 0.001 );
-	float VoH = max( dot( V, H ), 0.001 );
+	// Calculate dot products
+	DotProducts dots = computeDotProducts( N, V, L );
 
     // Calculate individual PDFs
-	float clearcoatPDF = DistributionGGX( N, H, clearcoatRoughness ) * NoH / ( 4.0 * VoH ) * clearcoatWeight;
-	float specularPDF = DistributionGGX( N, H, baseRoughness ) * NoH / ( 4.0 * VoH ) * specularWeight;
-	float diffusePDF = NoL / PI * diffuseWeight;
+	float clearcoatPDF = DistributionGGX( dots.NoH, clearcoatRoughness ) * dots.NoH / ( 4.0 * dots.VoH ) * clearcoatWeight;
+	float specularPDF = DistributionGGX( dots.NoH, baseRoughness ) * dots.NoH / ( 4.0 * dots.VoH ) * specularWeight;
+	float diffusePDF = dots.NoL / PI * diffuseWeight;
 
     // Combined PDF using MIS
 	pdf = clearcoatPDF + specularPDF + diffusePDF;
 	pdf = max( pdf, 0.001 ); // Ensure PDF is never zero
 
     // Evaluate complete BRDF
-	return evaluateLayeredBRDF( V, L, N, material );
+	return evaluateLayeredBRDF( dots, material );
 }

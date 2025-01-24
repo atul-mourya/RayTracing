@@ -113,11 +113,10 @@ vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
 	return Ne;
 }
 
-float DistributionGGX( vec3 N, vec3 H, float roughness ) {
+float DistributionGGX( float NoH, float roughness ) {
 	float alpha = roughness * roughness;
-	float NdotH = max( dot( N, H ), 0.0 );
 	float alpha2 = alpha * alpha;
-	float denom = ( NdotH * NdotH * ( alpha2 - 1.0 ) + 1.0 );
+	float denom = ( NoH * NoH * ( alpha2 - 1.0 ) + 1.0 );
 	return alpha2 / ( PI * denom * denom );
 }
 
@@ -127,21 +126,16 @@ float GeometrySchlickGGX( float NdotV, float roughness ) {
 	return NdotV / ( NdotV * ( 1.0 - k ) + k );
 }
 
-float GeometrySmith( vec3 N, vec3 V, vec3 L, float roughness ) {
-	float NdotV = max( dot( N, V ), 0.0 );
-	float NdotL = max( dot( N, L ), 0.0 );
-	float ggx2 = GeometrySchlickGGX( NdotV, roughness );
-	float ggx1 = GeometrySchlickGGX( NdotL, roughness );
-
+float GeometrySmith( float NoV, float NoL, float roughness ) {
+	float ggx2 = GeometrySchlickGGX( NoV, roughness );
+	float ggx1 = GeometrySchlickGGX( NoL, roughness );
 	return ggx1 * ggx2;
 }
 
-float SheenDistribution( vec3 N, vec3 H, float roughness ) {
+float SheenDistribution( float NoH, float roughness ) {
 	float alpha = roughness * roughness;
 	float invAlpha = 1.0 / alpha;
-	float cos_theta = max( dot( N, H ), 0.0 );
-	float cos_theta_2 = cos_theta * cos_theta;
-	float d = ( cos_theta_2 * ( invAlpha * invAlpha - 1.0 ) + 1.0 );
+	float d = ( NoH * NoH * ( invAlpha * invAlpha - 1.0 ) + 1.0 );
 	return invAlpha * invAlpha / ( PI * d * d );
 }
 
@@ -218,12 +212,9 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 		return material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
 	}
 
-    // Precalculate dot products once
+    // Calculate all dot products once
+	DotProducts dots = computeDotProducts( N, V, L );
 	vec3 H = normalize( V + L );
-	float NoL = max( dot( N, L ), 0.001 );
-	float NoV = max( dot( N, V ), 0.001 );
-	float NoH = max( dot( N, H ), 0.001 );
-	float VoH = max( dot( V, H ), 0.001 );
 
     // Calculate base F0 with specular parameters
 	vec3 F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
@@ -232,24 +223,24 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 	if( material.iridescence > 0.0 ) {
         // Calculate thickness based on the range
 		float thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
-		vec3 iridescenceFresnel = evalIridescence( 1.0, material.iridescenceIOR, VoH, thickness, F0 );
+		vec3 iridescenceFresnel = evalIridescence( 1.0, material.iridescenceIOR, dots.VoH, thickness, F0 );
 		F0 = mix( F0, iridescenceFresnel, material.iridescence );
 	}
 
     // Precalculate shared terms
-	float D = DistributionGGX( N, H, material.roughness );
-	float G = GeometrySmith( N, V, L, material.roughness );
-	vec3 F = fresnelSchlick( VoH, F0 );
+	float D = DistributionGGX( dots.NoH, material.roughness );
+	float G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
+	vec3 F = fresnelSchlick( dots.VoH, F0 );
 
     // Combined specular calculation
-	vec3 specular = ( D * G * F ) / ( 4.0 * NoV * NoL );
+	vec3 specular = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
 	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
 	vec3 baseLayer = diffuse + specular;
 
     // Optimize sheen calculation
 	if( material.sheen > 0.0 ) {
-		float sheenDist = SheenDistribution( N, H, material.sheenRoughness );
-		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * NoL;
+		float sheenDist = SheenDistribution( dots.NoH, material.sheenRoughness );
+		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * dots.NoL;
 		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
 		float sheenScaling = 1.0 - material.sheen * maxSheen;
 		return baseLayer * sheenScaling + sheenTerm;

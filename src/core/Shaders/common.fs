@@ -76,3 +76,17 @@ mat3 constructTBN( vec3 N ) {
 	vec3 B = normalize( cross( N, T ) );
 	return mat3( T, B, N );
 }
+
+DotProducts computeDotProducts(vec3 N, vec3 V, vec3 L) {
+    DotProducts dots;
+    vec3 H = normalize(V + L);
+    
+    dots.NoL = max(dot(N, L), 0.001);
+    dots.NoV = max(dot(N, V), 0.001);
+    dots.NoH = max(dot(N, H), 0.001);
+    dots.VoH = max(dot(V, H), 0.001);
+    dots.LoH = max(dot(L, H), 0.001);
+    dots.HoH = 1.0;
+    
+    return dots;
+}

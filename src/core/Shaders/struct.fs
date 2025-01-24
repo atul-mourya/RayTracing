@@ -103,3 +103,11 @@ struct BRDFWeights {
 	float iridescence;
 };
 
+struct DotProducts {
+    float NoL; // Normal • Light
+    float NoV; // Normal • View
+    float NoH; // Normal • Half
+    float VoH; // View • Half
+    float LoH; // Light • Half
+    float HoH; // Half • Half (always 1.0, included for completeness)
+};
