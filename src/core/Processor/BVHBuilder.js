@@ -1,6 +1,6 @@
 import { Vector3 } from "three";
 
-class BVHNode {
+class CWBVHNode {
 
 	constructor() {
 
@@ -20,10 +20,14 @@ export default class BVHBuilder {
 	constructor() {
 
 		this.useWorker = true;
+		this.maxLeafSize = 4;
+		this.numBins = 16;
+		this.nodes = [];
+		this.totalNodes = 0;
 
 	}
 
-	build( triangles, depth ) {
+	build( triangles, depth = 30 ) { // Set a default depth if not provided
 
 		if ( this.useWorker && typeof Worker !== 'undefined' ) {
 
@@ -89,216 +93,217 @@ export default class BVHBuilder {
 
 	}
 
-	// Add this to your BVHBuilder class, replacing the existing buildSync method
+	buildSync( triangles, depth = 30, reorderedTriangles = [] ) {
 
-	buildSync( triangles, depth, reorderedTriangles = [] ) {
+		// Reset state
+		this.nodes = [];
+		this.totalNodes = 0;
 
-		if ( reorderedTriangles === triangles ) {
+		// Create root node
+		const root = this.buildNodeRecursive( triangles, depth, reorderedTriangles );
 
-			reorderedTriangles = [];
+		console.log( 'BVH Statistics:', {
+			totalNodes: this.totalNodes,
+			triangleCount: reorderedTriangles.length,
+			maxDepth: depth
+		} );
+
+		return root;
+
+	}
+
+	buildNodeRecursive( triangles, depth, reorderedTriangles ) {
+
+		const node = new CWBVHNode();
+		this.nodes.push( node );
+		this.totalNodes ++;
+
+		// Update bounds
+		this.updateNodeBounds( node, triangles );
+
+		// Check for leaf conditions
+		if ( triangles.length <= this.maxLeafSize || depth <= 0 ) {
+
+			node.triangleOffset = reorderedTriangles.length;
+			node.triangleCount = triangles.length;
+			reorderedTriangles.push( ...triangles );
+			return node;
 
 		}
 
-		const maxTrianglesPerLeaf = 6;
-		const binCount = 8; // Number of bins per axis for spatial binning
-		let nodeCount = 0;
-		let leafCount = 0;
+		// Find split position
+		const splitInfo = this.findBestSplitPosition( triangles );
 
-		class BuildItem {
+		if ( ! splitInfo.success ) {
 
-			constructor( triangles, depth, parent = null, isLeftChild = true ) {
+			// Make a leaf node if split failed
+			node.triangleOffset = reorderedTriangles.length;
+			node.triangleCount = triangles.length;
+			reorderedTriangles.push( ...triangles );
+			return node;
 
-				this.triangles = triangles;
-				this.depth = depth;
-				this.parent = parent;
-				this.isLeftChild = isLeftChild;
+		}
+
+		// Partition triangles
+		const { left: leftTris, right: rightTris } = this.partitionTriangles(
+			triangles,
+			splitInfo.axis,
+			splitInfo.pos
+		);
+
+		// Fall back to leaf if partition failed
+		if ( leftTris.length === 0 || rightTris.length === 0 ) {
+
+			node.triangleOffset = reorderedTriangles.length;
+			node.triangleCount = triangles.length;
+			reorderedTriangles.push( ...triangles );
+			return node;
+
+		}
+
+		// Recursively build children
+		node.leftChild = this.buildNodeRecursive( leftTris, depth - 1, reorderedTriangles );
+		node.rightChild = this.buildNodeRecursive( rightTris, depth - 1, reorderedTriangles );
+
+		return node;
+
+	}
+
+	findBestSplitPosition( triangles ) {
+
+		let bestCost = Infinity;
+		let bestAxis = - 1;
+		let bestPos = 0;
+
+		for ( let axis = 0; axis < 3; axis ++ ) {
+
+			// Calculate bounds for centroids
+			let minCentroid = Infinity;
+			let maxCentroid = - Infinity;
+
+			// Compute centroids bounds
+			for ( const tri of triangles ) {
+
+				const centroid = ( tri.posA[ axis === 0 ? 'x' : axis === 1 ? 'y' : 'z' ] +
+                                tri.posB[ axis === 0 ? 'x' : axis === 1 ? 'y' : 'z' ] +
+                                tri.posC[ axis === 0 ? 'x' : axis === 1 ? 'y' : 'z' ] ) / 3;
+				minCentroid = Math.min( minCentroid, centroid );
+				maxCentroid = Math.max( maxCentroid, centroid );
+
+			}
+
+			// Try potential split positions
+			for ( let i = 1; i < this.numBins; i ++ ) {
+
+				const splitPos = minCentroid + ( maxCentroid - minCentroid ) * i / this.numBins;
+				const partition = this.partitionTriangles( triangles, axis === 0 ? 'x' : axis === 1 ? 'y' : 'z', splitPos );
+
+				if ( partition.left.length === 0 || partition.right.length === 0 ) continue;
+
+				const cost = this.evaluateSplitCost( partition.left, partition.right );
+				if ( cost < bestCost ) {
+
+					bestCost = cost;
+					bestAxis = axis === 0 ? 'x' : axis === 1 ? 'y' : 'z';
+					bestPos = splitPos;
+
+				}
 
 			}
 
 		}
 
-		const computeSurfaceArea = ( min, max ) => {
-
-			const dx = max.x - min.x;
-			const dy = max.y - min.y;
-			const dz = max.z - min.z;
-			return 2 * ( dx * dy + dy * dz + dz * dx );
-
+		return {
+			success: bestAxis !== - 1,
+			axis: bestAxis,
+			pos: bestPos
 		};
 
-		const calculateBoundingBox = ( triangles ) => {
+	}
 
-			const boundsMin = new Vector3( Infinity, Infinity, Infinity );
-			const boundsMax = new Vector3( - Infinity, - Infinity, - Infinity );
-			triangles.forEach( tri => {
+	partitionTriangles( triangles, axis, splitPos ) {
 
-				boundsMin.min( tri.posA ).min( tri.posB ).min( tri.posC );
-				boundsMax.max( tri.posA ).max( tri.posB ).max( tri.posC );
+		const left = [];
+		const right = [];
 
-			} );
-			return [ boundsMin, boundsMax ];
+		for ( const tri of triangles ) {
 
-		};
+			const centroid = ( tri.posA[ axis ] + tri.posB[ axis ] + tri.posC[ axis ] ) / 3;
+			if ( centroid <= splitPos ) {
 
-		// Start with root
-		const stack = [];
-		const rootNode = new BVHNode();
-		nodeCount ++;
-
-		stack.push( new BuildItem( triangles, depth ) );
-		let currentNode = rootNode;
-
-		while ( stack.length > 0 ) {
-
-			const item = stack.pop();
-			const triangles = item.triangles;
-			const depth = item.depth;
-
-			const node = new BVHNode();
-			nodeCount ++;
-
-			// Link node to parent if not root
-			if ( item.parent ) {
-
-				if ( item.isLeftChild ) {
-
-					item.parent.leftChild = node;
-
-				} else {
-
-					item.parent.rightChild = node;
-
-				}
+				left.push( tri );
 
 			} else {
 
-				currentNode = node; // This is the root node
+				right.push( tri );
 
 			}
-
-			// Leaf node case
-			if ( triangles.length <= maxTrianglesPerLeaf ) {
-
-				node.boundsMin.set( Infinity, Infinity, Infinity );
-				node.boundsMax.set( - Infinity, - Infinity, - Infinity );
-				triangles.forEach( tri => {
-
-					node.boundsMin.min( tri.posA ).min( tri.posB ).min( tri.posC );
-					node.boundsMax.max( tri.posA ).max( tri.posB ).max( tri.posC );
-
-				} );
-
-				node.triangleOffset = reorderedTriangles.length;
-				node.triangleCount = triangles.length;
-				for ( let i = 0; i < triangles.length; i ++ ) {
-
-					reorderedTriangles[ node.triangleOffset + i ] = triangles[ i ];
-
-				}
-
-				leafCount ++;
-				continue;
-
-			}
-
-			// Find best split
-			let bestCost = Infinity;
-			let bestAxis = - 1;
-			let bestSplitIndex = - 1;
-			let bestLeftTriangles = [];
-			let bestRightTriangles = [];
-
-			// Try each axis
-			for ( let axisIdx = 0; axisIdx < 3; axisIdx ++ ) {
-
-				const axis = [ 'x', 'y', 'z' ][ axisIdx ];
-
-				// Sort triangles by centroids
-				const centroids = triangles.map( tri => {
-
-					const centroid = new Vector3();
-					centroid.add( tri.posA ).add( tri.posB ).add( tri.posC ).divideScalar( 3 );
-					return centroid[ axis ]; // Correctly get the centroid's coordinate along the chosen axis
-
-				} );
-				const sortedTriangles = triangles
-					.map( ( tri, i ) => ( { tri, centroid: centroids[ i ] } ) )
-					.sort( ( a, b ) => a.centroid - b.centroid )
-					.map( item => item.tri );
-
-				// Divide triangles into bins and compute bounds for each bin
-				const bins = Array.from( { length: binCount }, () => [] );
-				sortedTriangles.forEach( ( tri, i ) => {
-
-					const binIndex = Math.floor( i / ( triangles.length / binCount ) );
-					if ( binIndex >= 0 && binIndex < binCount ) {
-
-						bins[ binIndex ].push( tri );
-
-					}
-
-				} );
-
-				// Evaluate SAH cost across bin edges
-				for ( let i = 1; i < binCount; i ++ ) {
-
-					const leftTriangles = bins.slice( 0, i ).flat();
-					const rightTriangles = bins.slice( i ).flat();
-
-					const [ leftMin, leftMax ] = calculateBoundingBox( leftTriangles );
-					const [ rightMin, rightMax ] = calculateBoundingBox( rightTriangles );
-
-					const leftArea = computeSurfaceArea( leftMin, leftMax );
-					const rightArea = computeSurfaceArea( rightMin, rightMax );
-					const cost = leftArea * leftTriangles.length + rightArea * rightTriangles.length;
-
-					if ( cost < bestCost ) {
-
-						bestCost = cost;
-						bestAxis = axisIdx;
-						bestSplitIndex = i;
-						bestLeftTriangles = leftTriangles;
-						bestRightTriangles = rightTriangles;
-
-					}
-
-				}
-
-			}
-
-			// If no optimal split found, fallback to median split
-			if ( bestAxis === - 1 || bestSplitIndex === - 1 ) {
-
-				triangles.sort( ( a, b ) => {
-
-					const centroidA = ( a.posA.x + a.posB.x + a.posC.x ) / 3; // Use x for centroid
-					const centroidB = ( b.posA.x + b.posB.x + b.posC.x ) / 3; // Use x for centroid
-					return centroidA - centroidB;
-
-				} );
-				const mid = Math.floor( triangles.length / 2 );
-				bestLeftTriangles = triangles.slice( 0, mid );
-				bestRightTriangles = triangles.slice( mid );
-
-			}
-
-			// Set node bounds
-			const [ nodeMin, nodeMax ] = calculateBoundingBox( triangles );
-			// Set node bounds based on child bounds
-			node.boundsMin.copy( nodeMin );
-			node.boundsMax.copy( nodeMax );
-
-			// Push children to stack
-			stack.push( new BuildItem( bestRightTriangles, depth + 1, node, false ) );
-			stack.push( new BuildItem( bestLeftTriangles, depth + 1, node, true ) );
 
 		}
 
-		console.log( 'Node Count:', nodeCount );
-		console.log( 'Leaf Count:', leafCount );
-		console.log( 'Triangles:', reorderedTriangles.length );
+		return { left, right };
 
-		return currentNode;
+	}
+
+	evaluateSplitCost( leftTris, rightTris ) {
+
+		const leftBounds = this.computeBounds( leftTris );
+		const rightBounds = this.computeBounds( rightTris );
+		const leftSA = this.computeSurfaceArea( leftBounds );
+		const rightSA = this.computeSurfaceArea( rightBounds );
+
+		return leftTris.length * leftSA + rightTris.length * rightSA;
+
+	}
+
+	updateNodeBounds( node, triangles ) {
+
+		node.boundsMin.set( Infinity, Infinity, Infinity );
+		node.boundsMax.set( - Infinity, - Infinity, - Infinity );
+
+		for ( const tri of triangles ) {
+
+			node.boundsMin.x = Math.min( node.boundsMin.x, tri.posA.x, tri.posB.x, tri.posC.x );
+			node.boundsMin.y = Math.min( node.boundsMin.y, tri.posA.y, tri.posB.y, tri.posC.y );
+			node.boundsMin.z = Math.min( node.boundsMin.z, tri.posA.z, tri.posB.z, tri.posC.z );
+
+			node.boundsMax.x = Math.max( node.boundsMax.x, tri.posA.x, tri.posB.x, tri.posC.x );
+			node.boundsMax.y = Math.max( node.boundsMax.y, tri.posA.y, tri.posB.y, tri.posC.y );
+			node.boundsMax.z = Math.max( node.boundsMax.z, tri.posA.z, tri.posB.z, tri.posC.z );
+
+		}
+
+	}
+
+	computeBounds( triangles ) {
+
+		const bounds = {
+			min: new Vector3( Infinity, Infinity, Infinity ),
+			max: new Vector3( - Infinity, - Infinity, - Infinity )
+		};
+
+		for ( const tri of triangles ) {
+
+			bounds.min.x = Math.min( bounds.min.x, tri.posA.x, tri.posB.x, tri.posC.x );
+			bounds.min.y = Math.min( bounds.min.y, tri.posA.y, tri.posB.y, tri.posC.y );
+			bounds.min.z = Math.min( bounds.min.z, tri.posA.z, tri.posB.z, tri.posC.z );
+
+			bounds.max.x = Math.max( bounds.max.x, tri.posA.x, tri.posB.x, tri.posC.x );
+			bounds.max.y = Math.max( bounds.max.y, tri.posA.y, tri.posB.y, tri.posC.y );
+			bounds.max.z = Math.max( bounds.max.z, tri.posA.z, tri.posB.z, tri.posC.z );
+
+		}
+
+		return bounds;
+
+	}
+
+	computeSurfaceArea( bounds ) {
+
+		const dx = bounds.max.x - bounds.min.x;
+		const dy = bounds.max.y - bounds.min.y;
+		const dz = bounds.max.z - bounds.min.z;
+		return 2 * ( dx * dy + dy * dz + dz * dx );
 
 	}
 
