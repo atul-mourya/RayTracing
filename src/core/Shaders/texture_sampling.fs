@@ -5,64 +5,66 @@ uniform sampler2DArray metalnessMaps;
 uniform sampler2DArray roughnessMaps;
 uniform sampler2DArray emissiveMaps;
 
-vec2 transformUV(vec2 uv, mat3 transform) {
-    vec3 transformedUV = transform * vec3(uv, 1.0);
-	return fract(transformedUV.xy);
+// Pre-compute UV transformation once and reuse
+vec2 getTransformedUV( vec2 uv, mat3 transform ) {
+    // Skip transformation if it's identity matrix
+	if( transform[ 0 ][ 0 ] == 1.0 && transform[ 1 ][ 1 ] == 1.0 &&
+		transform[ 0 ][ 1 ] == 0.0 && transform[ 1 ][ 0 ] == 0.0 &&
+		transform[ 2 ][ 0 ] == 0.0 && transform[ 2 ][ 1 ] == 0.0 ) {
+		return uv;
+	}
+	vec3 transformedUV = transform * vec3( uv, 1.0 );
+	return fract( transformedUV.xy );
 }
 
+// sampling with early exit
 vec4 sampleMap( sampler2DArray mapArray, int layer, vec2 uv ) {
-	if( layer >= 0 ) {
-		return texture( mapArray, vec3( uv, float( layer ) ) );
-	}
-	return vec4( 1.0 );
+	return layer >= 0 ? texture( mapArray, vec3( uv, float( layer ) ) ) : vec4( 1.0 );
 }
 
 vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
-	if( material.albedoMapIndex >= 0 ) {
-		uv = transformUV(uv, material.albedoTransform);
-		vec4 albedo = sampleMap( albedoMaps, material.albedoMapIndex, uv );
-		material.color *= vec4( sRGBToLinear( albedo.rgb ), albedo.a );
-	}
-	return material.color;
+	if( material.albedoMapIndex < 0 )
+		return material.color;
+
+	vec2 transformedUV = getTransformedUV( uv, material.albedoTransform );
+	vec4 albedo = sampleMap( albedoMaps, material.albedoMapIndex, transformedUV );
+	return material.color * vec4( sRGBToLinear( albedo.rgb ), albedo.a );
 }
 
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
 	vec3 emission = material.emissiveIntensity * material.emissive;
-	if( material.emissiveMapIndex >= 0 ) {
-		uv = transformUV(uv, material.emissiveTransform);
-		emission *= sRGBToLinear( sampleMap( emissiveMaps, material.emissiveMapIndex, uv ).rgb );
-	}
-	return emission;
+	if( material.emissiveMapIndex < 0 )
+		return emission;
+
+	vec2 transformedUV = getTransformedUV( uv, material.emissiveTransform );
+	return emission * sRGBToLinear( sampleMap( emissiveMaps, material.emissiveMapIndex, transformedUV ).rgb );
 }
 
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.metalnessMapIndex >= 0 ) {
-		uv = transformUV(uv, material.metalnessTransform); // enabling this line causeing the issue
-		material.metalness *= sampleMap( metalnessMaps, material.metalnessMapIndex, uv ).b;
-	}
-	return material.metalness;
+	if( material.metalnessMapIndex < 0 )
+		return material.metalness;
+
+	vec2 transformedUV = getTransformedUV( uv, material.metalnessTransform );
+	return material.metalness * sampleMap( metalnessMaps, material.metalnessMapIndex, transformedUV ).b;
 }
 
 float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.roughnessMapIndex >= 0 ) {
-		uv = transformUV(uv, material.roughnessTransform);
-		material.roughness *= sampleMap( roughnessMaps, material.roughnessMapIndex, uv ).g;
-	}
-	return material.roughness;
+	if( material.roughnessMapIndex < 0 )
+		return material.roughness;
+
+	vec2 transformedUV = getTransformedUV( uv, material.roughnessTransform );
+	return material.roughness * sampleMap( roughnessMaps, material.roughnessMapIndex, transformedUV ).g;
 }
 
 vec3 perturbNormal( vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv, RayTracingMaterial material ) {
-	vec3 resultNormal = normal;
-	vec2 normalScale = material.normalScale;
+	if( material.normalMapIndex < 0 )
+		return normal;
 
-	// Sample normal map
-	if( material.normalMapIndex >= 0 ) {
-		uv = transformUV(uv, material.normalTransform);
-		vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, uv ).xyz * 2.0 - 1.0;
-		normalMap.xy *= normalScale;
-		mat3 TBN = mat3( tangent, bitangent, normal );
-		resultNormal = normalize( TBN * normalMap );
-	}
+	vec2 transformedUV = getTransformedUV( uv, material.normalTransform );
+	vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, transformedUV ).xyz * 2.0 - 1.0;
+	normalMap.xy *= material.normalScale;
+	mat3 TBN = mat3( tangent, bitangent, normal );
+	return normalize( TBN * normalMap );
 
 	// Apply bump mapping
 	// if( material.bumpMapIndex >= 0 ) {
@@ -77,5 +79,5 @@ vec3 perturbNormal( vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv, RayTraci
 	// 	resultNormal = normalize( resultNormal + bumpNormal );
 	// }
 
-	return resultNormal;
+	// return resultNormal;
 }
