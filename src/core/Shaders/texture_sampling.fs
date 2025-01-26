@@ -49,21 +49,22 @@ float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
 }
 
 float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.roughnessMapIndex < 0 )
+	if( material.metalnessMapIndex < 0 ) // roughness map is stored in the metalness map texture in its green channel
 		return material.roughness;
 
 	vec2 transformedUV = getTransformedUV( uv, material.roughnessTransform );
-	return material.roughness * sampleMap( roughnessMaps, material.roughnessMapIndex, transformedUV ).g;
+	return material.roughness * sampleMap( roughnessMaps, material.metalnessMapIndex, transformedUV ).g;
 }
 
-vec3 perturbNormal( vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv, RayTracingMaterial material ) {
+vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 	if( material.normalMapIndex < 0 )
 		return normal;
 
 	vec2 transformedUV = getTransformedUV( uv, material.normalTransform );
 	vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, transformedUV ).xyz * 2.0 - 1.0;
 	normalMap.xy *= material.normalScale;
-	mat3 TBN = mat3( tangent, bitangent, normal );
+
+	mat3 TBN = constructTBN( normal );
 	return normalize( TBN * normalMap );
 
 	// Apply bump mapping

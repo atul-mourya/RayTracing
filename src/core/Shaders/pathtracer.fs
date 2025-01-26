@@ -179,13 +179,8 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 
 		alpha *= transparencyResult.alpha;
 
-		vec3 N = hitInfo.normal;
-
-		// Calculate tangent space and perturb normal
-		vec3 tangent = normalize( cross( N, vec3( 0.0, 1.0, 0.0 ) ) );
-		vec3 bitangent = cross( N, tangent );
-		N = perturbNormal( N, tangent, bitangent, hitInfo.uv, material );
-
+		// Calculate perturb normal
+		vec3 N = sampleNormalMap( material, hitInfo.uv, hitInfo.normal );
 		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
 		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
 		material.sheenRoughness = clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
