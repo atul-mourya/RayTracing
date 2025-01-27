@@ -261,16 +261,11 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 }
 
 bool shouldRenderPixel( ) {
-	ivec2 pixelCoord = ivec2( gl_FragCoord.xy );
 
-	if( renderMode == 0 ) { // Regular rendering
-
-		return true;
-
-	} else if( renderMode == 1 ) { // Tiled rendering
+	if( renderMode == 1 ) { // Tiled rendering
 
 		ivec2 tileCount = ivec2( resolution ) / ( ivec2( resolution ) / tiles );
-		ivec2 tileCoord = pixelCoord / ( ivec2( resolution ) / tiles );
+		ivec2 tileCoord = ivec2( gl_FragCoord.xy ) / ( ivec2( resolution ) / tiles );
 		int totalTiles = tileCount.x * tileCount.y;
 		int currentTile = int( frame ) % totalTiles;
 
@@ -279,10 +274,24 @@ bool shouldRenderPixel( ) {
 
 	}
 
-	return true; // Default to rendering all pixels
+	return true; // Default to rendering all pixels that is Regular rendering
 }
 
 #include debugger.fs
+
+vec3 dithering( vec3 color, uint seed ) {
+    //Calculate grid position
+	float grid_position = RandomValue( seed );
+
+    //Shift the individual colors differently, thus making it even harder to see the dithering pattern
+	vec3 dither_shift_RGB = vec3( 0.25 / 255.0, - 0.25 / 255.0, 0.25 / 255.0 );
+
+    //modify shift according to grid position.
+	dither_shift_RGB = mix( 2.0 * dither_shift_RGB, - 2.0 * dither_shift_RGB, grid_position );
+
+    //shift the color by dither_shift
+	return color + dither_shift_RGB;
+}
 
 int getRequiredSamples( int pixelIndex ) {
 	vec2 texCoord = gl_FragCoord.xy / resolution;
@@ -291,7 +300,6 @@ int getRequiredSamples( int pixelIndex ) {
 
 void main( ) {
 
-	vec2 pixelSize = 1.0 / resolution;
 	vec2 screenPosition = ( gl_FragCoord.xy / resolution ) * 2.0 - 1.0;
 
 	Pixel pixel;
@@ -328,7 +336,7 @@ void main( ) {
 				return;
 			}
 
-			vec2 jitter = ( jitterSample - 0.5 ) * 2.0 * pixelSize;
+			vec2 jitter = ( jitterSample - 0.5 ) * ( 1.0 / resolution ) * 2.0;
 			vec2 jitteredScreenPosition = screenPosition + jitter;
 
 			Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );
@@ -352,6 +360,7 @@ void main( ) {
 	}
 
 	// pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
+	// pixel.color.rgb = dithering( pixel.color.rgb, seed );
 
 	gl_FragColor = vec4( pixel.color.rgb, 1.0 );
 }
