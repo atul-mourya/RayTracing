@@ -43,25 +43,24 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	vec3 H;
 
 	float cumulativeDiffuse = weights.diffuse;
-	if( rand < cumulativeDiffuse ) {
+	if( rand < weights.diffuse ) {
         // Diffuse sampling
 		result.direction = ImportanceSampleCosine( N, xi );
-		result.pdf = max( dot( N, result.direction ), 0.0 ) * PI_INV;
+		result.pdf = clamp( dot( N, result.direction ), 0.0, 1.0 ) * PI_INV;
 		result.value = evaluateBRDF( V, result.direction, N, material );
 		return result;
 	}
 
-	float cumulativeSpecular = cumulativeDiffuse + weights.specular;
-	if( rand < cumulativeSpecular ) {
+	if( rand < weights.diffuse + weights.specular ) {
         // specular sampling
 		mat3 TBN = constructTBN( N );
 		vec3 localV = transpose( TBN ) * V;
 		vec3 localH = sampleGGXVNDF( localV, material.roughness, xi );
 		H = TBN * localH;
 
-		float NoV = max( dot( N, V ), 0.001 );
-		float NoH = max( dot( N, H ), 0.001 );
-		float VoH = max( dot( V, H ), 0.001 );
+		float NoV = clamp( dot( N, V ), 0.001, 1.0  );
+		float NoH = clamp( dot( N, H ), 0.001, 1.0  );
+		float VoH = clamp( dot( V, H ), 0.001, 1.0  );
 
 		float D = DistributionGGX( NoH, material.roughness );
 		float G1 = GeometrySchlickGGX( NoV, material.roughness );
@@ -73,23 +72,23 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 	}
 
     // Continue with other BRDFs following the same pattern...
-	float cumulativeSheen = cumulativeSpecular + weights.sheen;
+	float cumulativeSheen = weights.diffuse + weights.specular + weights.sheen;
 	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
 
 	if( rand < cumulativeSheen ) {
         // sheen sampling
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
-		float NoH = max( dot( N, H ), 0.0 );
-		float VoH = max( dot( V, H ), 0.0 );
+		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
+		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
 	} else if( rand < cumulativeClearcoat ) {
         // clearcoat sampling
-		float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
+		float clearcoatRoughness = clamp( material.clearcoatRoughness, 0.089, 1.0 );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
-		float NoH = max( dot( N, H ), 0.0 );
-		float VoH = max( dot( V, H ), 0.0 );
-		float NoV = max( dot( N, V ), 0.001 );
+		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
+		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
+		float NoV = clamp( dot( N, V ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		float D = DistributionGGX( NoH, clearcoatRoughness );
 		float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
@@ -168,7 +167,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
 		// Handle material transparency
-		TransparencyResult transparencyResult = handleMaterialTransparency( material, material.color, rngState );
+		TransparencyResult transparencyResult = handleMaterialTransparency( material, rngState );
 
 		if( transparencyResult.continueRay ) {
 			throughput *= transparencyResult.throughput;
@@ -183,7 +182,6 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		vec3 N = sampleNormalMap( material, hitInfo.uv, hitInfo.normal );
 		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
 		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
-		material.sheenRoughness = clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
 
 		// Handle transparent materials with transmission
 		if( material.transmission > 0.0 ) {
@@ -197,6 +195,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, bounceIndex, rngState, - 1 );
 
 		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
+		material.sheenRoughness = clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
 
 		BRDFSample brdfSample;
 		// Handle clear coat

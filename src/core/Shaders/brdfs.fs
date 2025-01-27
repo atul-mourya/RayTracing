@@ -214,7 +214,6 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 
     // Calculate all dot products once
 	DotProducts dots = computeDotProducts( N, V, L );
-	vec3 H = normalize( V + L );
 
     // Calculate base F0 with specular parameters
 	vec3 F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;

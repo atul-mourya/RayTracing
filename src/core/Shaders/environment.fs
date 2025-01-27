@@ -5,13 +5,9 @@ uniform float environmentIntensity;
 // ray sampling x and z are swapped to align with expected background view
 vec2 directionToTextureCoordinate( vec3 direction ) {
 
-	// from Spherical.setFromCartesianCoords
-	vec2 uv = vec2( atan( direction.z, direction.x ), acos( direction.y ) );
-	uv /= vec2( 2.0 * PI, PI );
-
-	// apply adjustments to get values in range [0, 1] and y right side up
-	uv.x += 0.5;
-	uv.y = 1.0 - uv.y;
+	vec2 uv;
+	uv.x = atan( direction.z, direction.x ) * ( 0.5 / PI ) + 0.5;
+	uv.y = 1.0 - acos( direction.y ) * PI_INV;
 	return uv;
 
 }
@@ -35,11 +31,8 @@ struct EnvMapSample {
 
 // Convert a normalized direction to UV coordinates for environment sampling
 vec2 directionToUV( vec3 direction ) {
-	float phi = atan( direction.z, direction.x );
-	float theta = acos( clamp( direction.y, - 1.0, 1.0 ) );
-
-	vec2 uv = vec2( phi / ( 2.0 * PI ) + 0.5, theta / PI );
-	return uv;
+    // Use precomputed PI_INV constant
+	return vec2( atan( direction.z, direction.x ) * ( 0.5 * PI_INV ) + 0.5, acos( clamp( direction.y, - 1.0, 1.0 ) ) * PI_INV );
 }
 
 // Convert UV coordinates back to direction
@@ -78,8 +71,8 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	vec4 texel = texture2D( environment, uv );
 	result.value = texel.rgb * environmentIntensity;
 
-	float sinTheta = sin( uv.y * PI );
-	result.pdf = sinTheta == 0.0 ? 0.0 : 1.0 / ( 2.0 * PI * PI * sinTheta );
+	float sinTheta = max( sin( uv.y * PI ), 0.001 ); // Avoid division by zero
+	result.pdf = 1.0 / ( 2.0 * PI * PI * sinTheta );
 	return result;
 
 	// Rec. 709 luminance calculation

@@ -122,7 +122,7 @@ struct TransparencyResult {
 	float alpha;           // Alpha modification
 };
 
-TransparencyResult handleMaterialTransparency( RayTracingMaterial material, vec4 albedo, inout uint rngState ) {
+TransparencyResult handleMaterialTransparency( RayTracingMaterial material, inout uint rngState ) {
 	TransparencyResult result;
 	result.continueRay = false;
 	result.throughput = vec3( 1.0 );
@@ -132,11 +132,11 @@ TransparencyResult handleMaterialTransparency( RayTracingMaterial material, vec4
 	if( material.alphaMode == 0 ) { // OPAQUE
         // For opaque materials, ignore the alpha channel completely
         // Keep color but force alpha to 1.0
-		result.throughput = albedo.rgb;
+		result.throughput = material.color.rgb;
 		result.alpha = 1.0;
 		return result;
 	} else if( material.alphaMode == 2 ) { // BLEND
-		float finalAlpha = albedo.a * material.opacity;
+		float finalAlpha = material.color.a * material.opacity;
 
         // Use stochastic transparency for blend mode
 		if( RandomValue( rngState ) > finalAlpha ) {
@@ -146,17 +146,17 @@ TransparencyResult handleMaterialTransparency( RayTracingMaterial material, vec4
 			return result;
 		}
 
-		result.throughput = albedo.rgb;
+		result.throughput = material.color.rgb;
 		result.alpha = finalAlpha;
 		return result;
 	} else if( material.alphaMode == 1 ) { // MASK
 		float cutoff = material.alphaTest > 0.0 ? material.alphaTest : 0.5;
-		if( albedo.a < cutoff ) {
+		if( material.color.a < cutoff ) {
 			result.continueRay = true;
 			result.alpha = 0.0;
 			return result;
 		}
-		result.throughput = albedo.rgb;
+		result.throughput = material.color.rgb;
 		result.alpha = 1.0;
 		return result;
 	}
@@ -165,7 +165,7 @@ TransparencyResult handleMaterialTransparency( RayTracingMaterial material, vec4
 	if( material.transmission > 0.0 ) {
 		if( RandomValue( rngState ) < material.transmission ) {
 			result.continueRay = true;
-			result.throughput = albedo.rgb;
+			result.throughput = material.color.rgb;
 			result.alpha = 1.0 - material.transmission;
 			return result;
 		}

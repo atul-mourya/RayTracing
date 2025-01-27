@@ -83,7 +83,6 @@ DotProducts computeDotProducts( vec3 N, vec3 V, vec3 L ) {
     dots.NoH = max( dot( N, H ), 0.001 );
     dots.VoH = max( dot( V, H ), 0.001 );
     dots.LoH = max( dot( L, H ), 0.001 );
-    dots.HoH = 1.0;
 
     return dots;
 }

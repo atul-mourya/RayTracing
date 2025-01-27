@@ -11,7 +11,7 @@ struct BVHNode {
 	int leftChild;
 	vec3 boundsMax;
 	int rightChild;
-	vec2 triOffset;
+	ivec2 triOffset;
 	vec2 padding;
 };
 
@@ -31,7 +31,7 @@ BVHNode getBVHNode( int index ) {
 	node.leftChild = int( data[ 0 ].w );
 	node.boundsMax = data[ 1 ].xyz;
 	node.rightChild = int( data[ 1 ].w );
-	node.triOffset = data[ 2 ].xy;
+	node.triOffset = ivec2( data[ 2 ].xy );
 	node.padding = vec2( 0.0 );
 	return node;
 }
@@ -139,8 +139,8 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 		stats[ 0 ] ++;
 
 		if( node.leftChild < 0 ) { // Leaf node
-			int triCount = int( node.triOffset.y );
-			int triStart = int( node.triOffset.x );
+			int triCount = node.triOffset.y;
+			int triStart = node.triOffset.x;
 
 			for( int i = 0; i < triCount; i ++ ) {
 				stats[ 1 ] ++;
