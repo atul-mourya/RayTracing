@@ -84,7 +84,6 @@ struct Triangle {
 
 struct Pixel {
 	vec4 color;
-	float variance;
 	int samples;
 };
 

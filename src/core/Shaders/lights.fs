@@ -464,36 +464,34 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
 
     // Calculate weights only if environment light is enabled
     float envWeight = 0.0;
-    float brdfWeight = 0.0;
+    float brdfWeight =  materialImportance;
     EnvMapSample envSample;
 
     if( enableEnvironmentLight ) {
         envSample = sampleEnvironmentMap( indirectSample );
         envWeight = 0.3 * ( 1.0 - material.metalness );
-        brdfWeight = materialImportance * 0.7;
-    } else {
-        brdfWeight = materialImportance;
+        brdfWeight *= 0.7;
     }
 
-    float cosineWeight = 1.0 - envWeight - brdfWeight;
 
     // Declare shared variables
     vec3 sampleDir;
     float samplePdf;
     vec3 sampleBrdf;
-    float NoL;
+    float NoL; // Single dot product variable to reuse
 
     // Select sampling strategy based on weights
     if( rand < envWeight && envSample.pdf > 0.0 ) {
-        // Environment sampling
         sampleDir = envSample.direction;
         samplePdf = envSample.pdf;
         sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
+        NoL = max( dot( N, sampleDir ), 0.0 );
     } else if( rand < envWeight + brdfWeight ) {
         // BRDF sampling - reuse existing values
         sampleDir = brdfSample.direction;
         samplePdf = brdfSample.pdf;
         sampleBrdf = brdfSample.value;
+        NoL = max( dot( N, sampleDir ), 0.0 );
     } else {
         // Cosine-weighted sampling
         sampleDir = cosineWeightedSample( N, indirectSample );
@@ -503,16 +501,16 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     }
 
     // Ensure valid PDFs
-    samplePdf = max( samplePdf, 0.001 );
+    // samplePdf = max( samplePdf, 0.001 );
     float brdfPdf = brdfSample.pdf;
     float envPdf = enableEnvironmentLight ? envSample.pdf : 0.0;
-    float cosinePdf = max( dot( N, sampleDir ), 0.0 ) * PI_INV;
+    float cosinePdf = NoL * PI_INV;
 
     // Calculate MIS weight using power heuristic
-    float misWeight = powerHeuristic( samplePdf, envPdf * envWeight + brdfPdf * brdfWeight + cosinePdf * cosineWeight );
+    float cosineWeight = 1.0 - envWeight - brdfWeight;
+    float misWeight = powerHeuristic( samplePdf, envPdf * envWeight + brdfSample.pdf * brdfWeight + cosinePdf * cosineWeight );
 
     // Calculate final throughput
-    NoL = max( dot( N, sampleDir ), 0.0 );
     vec3 throughput = sampleBrdf * NoL * misWeight / samplePdf;
     throughput *= globalIlluminationIntensity;
 

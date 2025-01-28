@@ -303,7 +303,6 @@ void main( ) {
 
 	Pixel pixel;
 	pixel.color = vec4( 0.0 );
-	pixel.variance = 0.0;
 	pixel.samples = 0;
 
 	uint seed = uint( gl_FragCoord.x ) + uint( gl_FragCoord.y ) * uint( resolution.x ) + frame * uint( resolution.x ) * uint( resolution.y );
