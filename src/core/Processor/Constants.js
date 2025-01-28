@@ -244,6 +244,7 @@ export const DEFAULT_STATE = {
 	useGBuffer: true,
 	useAlbedoMap: true,
 	useNormalMap: false,
+	debugGbufferMaps: false,
 	enableRealtimeDenoiser: false,
 	denoiserBlurStrength: 2,
 	denoiserBlurRadius: 1,

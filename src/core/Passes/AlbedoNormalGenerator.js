@@ -1,13 +1,14 @@
 import {
 	WebGLRenderTarget,
-	NearestFilter,
+	LinearFilter,
 	RGBAFormat,
 	FloatType,
 	MeshNormalMaterial,
 	RawShaderMaterial,
 	GLSL3,
 	Texture,
-	DataTexture
+	Matrix3,
+	NoBlending
 } from 'three';
 
 export class AlbedoNormalGenerator {
@@ -17,43 +18,22 @@ export class AlbedoNormalGenerator {
 		this.scene = scene;
 		this.camera = camera;
 		this.renderer = renderer;
-
-		// Ensure width and height are integers
-		this.width = Math.floor( renderer.domElement.width * renderer.getPixelRatio() );
-		this.height = Math.floor( renderer.domElement.height * renderer.getPixelRatio() );
-
-		this.generateAlbedoMap = true;
-		this.generateNormalMap = true;
-
-		this.albedoTarget = this.createRenderTarget();
-		this.normalTarget = this.createRenderTarget();
-
-		this.albedoMaterial = this.createAlbedoMaterial();
-		this.normalMaterial = new MeshNormalMaterial();
 		this.originalMaterials = new WeakMap();
 		this.originalOverrideMaterial = scene.overrideMaterial;
 
-		// Ensure buffer sizes are correct (width * height * 4 components)
-		const bufferSize = this.width * this.height * 4;
+		this._initializeSize();
+		this._createMaterials();
+		this._createRenderTargets();
 
-		// Pre-allocate buffers with verified sizes
-		this.albedoBuffer = new Float32Array( bufferSize );
-		this.normalBuffer = new Float32Array( bufferSize );
-		this.albedoData = new Uint8ClampedArray( bufferSize );
-		this.normalData = new Uint8ClampedArray( bufferSize );
+	}
 
-		// Verify dimensions before creating ImageData
-		if ( this.width > 0 && this.height > 0 ) {
+	_initializeSize() {
 
-			// Create ImageData objects
-			this.albedoImageData = new ImageData( this.albedoData, this.width, this.height );
-			this.normalImageData = new ImageData( this.normalData, this.width, this.height );
+		const pixelRatio = this.renderer.getPixelRatio();
+		this.width = Math.floor( this.renderer.domElement.width * pixelRatio );
+		this.height = Math.floor( this.renderer.domElement.height * pixelRatio );
 
-			// Create DataTextures
-			this.albedoDataTexture = new DataTexture( this.albedoData, this.width, this.height, RGBAFormat );
-			this.normalDataTexture = new DataTexture( this.normalData, this.width, this.height, RGBAFormat );
-
-		} else {
+		if ( this.width <= 0 || this.height <= 0 ) {
 
 			throw new Error( 'Invalid dimensions: width and height must be positive integers' );
 
@@ -61,26 +41,31 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	createRenderTarget() {
+	_createMaterials() {
 
-		return new WebGLRenderTarget( this.width, this.height, {
-			type: FloatType,
-			depthBuffer: false,
+		// Normal material with optimized settings
+		this.normalMaterial = new MeshNormalMaterial( {
+			blending: NoBlending,
+			depthTest: true,
+			depthWrite: true
 		} );
 
-	}
-
-	createAlbedoMaterial() {
-
-		return new RawShaderMaterial( {
+		// Albedo material with optimized settings
+		this.albedoMaterial = new RawShaderMaterial( {
+			uniforms: {
+				tDiffuse: { value: null },
+				uvTransform: { value: new Matrix3() }
+			},
 			vertexShader: `
                 in vec3 position;
                 in vec2 uv;
                 out vec2 vUv;
+                uniform mat3 uvTransform;
                 uniform mat4 modelViewMatrix;
                 uniform mat4 projectionMatrix;
+                
                 void main() {
-                    vUv = uv;
+                    vUv = (uvTransform * vec3(uv, 1.0)).xy;
                     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
             `,
@@ -89,29 +74,74 @@ export class AlbedoNormalGenerator {
                 uniform sampler2D tDiffuse;
                 in vec2 vUv;
                 out vec4 fragColor;
+                
                 void main() {
                     fragColor = texture(tDiffuse, vUv);
                 }
             `,
-			glslVersion: GLSL3
+			glslVersion: GLSL3,
+			blending: NoBlending,
+			depthTest: true,
+			depthWrite: true
 		} );
+
+	}
+
+	_createRenderTargets() {
+
+		const options = {
+			type: FloatType,
+			format: RGBAFormat,
+			depthBuffer: true,
+			samples: 4,
+			minFilter: LinearFilter,
+			magFilter: LinearFilter,
+			anisotropy: 16
+		};
+
+		this.albedoTarget = new WebGLRenderTarget( this.width, this.height, options );
+		this.normalTarget = new WebGLRenderTarget( this.width, this.height, options );
 
 	}
 
 	applyAlbedoMaterial() {
 
-		this.scene.traverse( ( object ) => {
+		this.scene.traverse( object => {
 
-			if ( object.isMesh ) {
+			if ( ! object.isMesh ) return;
 
-				this.originalMaterials.set( object, object.material );
-				const material = this.albedoMaterial.clone();
-				material.uniforms = {
-					tDiffuse: { value: object.material.map || new Texture() }
-				};
-				object.material = material;
+			this.originalMaterials.set( object, object.material );
+			const material = this.albedoMaterial.clone();
+			const map = object.material.map;
+
+			material.uniforms = {
+				tDiffuse: { value: map || new Texture() },
+				uvTransform: { value: new Matrix3() }
+			};
+
+			if ( map ) {
+
+				const uvTransform = material.uniforms.uvTransform.value;
+				uvTransform.setUvTransform(
+					map.offset.x,
+					map.offset.y,
+					map.repeat.x,
+					map.repeat.y,
+					map.rotation,
+					map.center.x,
+					map.center.y
+				);
+
+				Object.assign( material.uniforms.tDiffuse.value, {
+					wrapS: map.wrapS,
+					wrapT: map.wrapT,
+					flipY: map.flipY,
+					needsUpdate: true
+				} );
 
 			}
+
+			object.material = material;
 
 		} );
 
@@ -119,7 +149,7 @@ export class AlbedoNormalGenerator {
 
 	restoreOriginalMaterials() {
 
-		this.scene.traverse( ( object ) => {
+		this.scene.traverse( object => {
 
 			if ( object.isMesh && this.originalMaterials.has( object ) ) {
 
@@ -132,44 +162,53 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	renderAlbedo() {
+	generateMaps() {
 
+		const result = {};
+		const currentRenderTarget = this.renderer.getRenderTarget();
+
+		// Render albedo
 		this.applyAlbedoMaterial();
 		this.renderer.setRenderTarget( this.albedoTarget );
 		this.renderer.render( this.scene, this.camera );
+		result.albedo = this._readRenderTarget( this.albedoTarget );
 
-	}
-
-	renderNormal() {
-
+		// Render normal
 		this.scene.overrideMaterial = this.normalMaterial;
 		this.renderer.setRenderTarget( this.normalTarget );
 		this.renderer.render( this.scene, this.camera );
+		result.normal = this._readRenderTarget( this.normalTarget );
+
+		// Cleanup
+		this.restoreOriginalMaterials();
+		this.renderer.setRenderTarget( currentRenderTarget );
+
+		return result;
 
 	}
 
-	readPixelData( renderTarget ) {
+	_readRenderTarget( renderTarget ) {
 
 		const buffer = new Float32Array( this.width * this.height * 4 );
 		this.renderer.readRenderTargetPixels( renderTarget, 0, 0, this.width, this.height, buffer );
-		return buffer;
+		return new ImageData( this._convertToUint8( buffer ), this.width, this.height );
 
 	}
 
-	convertToUint8( buffer ) {
+	_convertToUint8( buffer ) {
 
 		const data = new Uint8ClampedArray( buffer.length );
+		const size = this.width * 4;
+
 		for ( let y = 0; y < this.height; y ++ ) {
 
-			for ( let x = 0; x < this.width; x ++ ) {
+			const invertedY = this.height - y - 1;
+			const sourceOffset = y * size;
+			const targetOffset = invertedY * size;
 
-				const sourceIndex = ( y * this.width + x ) * 4;
-				const targetIndex = ( ( this.height - y - 1 ) * this.width + x ) * 4;
-				for ( let i = 0; i < 4; i ++ ) {
+			for ( let x = 0; x < size; x ++ ) {
 
-					data[ targetIndex + i ] = Math.floor( buffer[ sourceIndex + i ] * 255 );
-
-				}
+				data[ targetOffset + x ] = Math.floor( buffer[ sourceOffset + x ] * 255 );
 
 			}
 
@@ -179,71 +218,26 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	generateMaps() {
-
-		const result = {};
-
-		if ( this.generateAlbedoMap ) {
-
-			this.renderAlbedo();
-			const albedoBuffer = this.readPixelData( this.albedoTarget );
-			const albedoData = this.convertToUint8( albedoBuffer );
-			result.albedo = new ImageData( albedoData, this.width, this.height );
-
-		}
-
-		if ( this.generateNormalMap ) {
-
-			this.renderNormal();
-			const normalBuffer = this.readPixelData( this.normalTarget );
-			const normalData = this.convertToUint8( normalBuffer );
-			result.normal = new ImageData( normalData, this.width, this.height );
-
-		}
-
-		this.restoreOriginalMaterials();
-		this.renderer.setRenderTarget( null );
-
-		return result;
-
-	}
-
 	setSize( width, height ) {
 
 		this.width = width;
 		this.height = height;
-
-		if ( this.generateAlbedoMap ) {
-
-			this.albedoTarget.setSize( width, height );
-
-		}
-
-		if ( this.generateNormalMap ) {
-
-			this.normalTarget.setSize( width, height );
-
-		}
+		this.albedoTarget.setSize( width, height );
+		this.normalTarget.setSize( width, height );
 
 	}
 
 	dispose() {
 
-		if ( this.generateAlbedoMap ) {
-
-			this.albedoTarget.dispose();
-
-		}
-
-		if ( this.generateNormalMap ) {
-
-			this.normalTarget.dispose();
-
-		}
+		this.albedoTarget.dispose();
+		this.normalTarget.dispose();
+		this.albedoMaterial.dispose();
+		this.normalMaterial.dispose();
 
 	}
 
 }
+
 
 export function renderImageDataToCanvas( imageData, canvasId ) {
 

@@ -62,10 +62,9 @@ class PathTracerApp extends EventDispatcher {
 		this.camera = new PerspectiveCamera( DEFAULT_STATE.fov, this.width / this.height, 0.01, 1000 );
 		this.renderer = new WebGLRenderer( {
 			powerPreference: "high-performance",
-			antialias: false,
+			antialias: true,
 			preserveDrawingBuffer: true,
 			precision: "highp",
-			depth: false,
 		} );
 
 		// Initialize other properties
@@ -265,7 +264,7 @@ class PathTracerApp extends EventDispatcher {
 		const outputPass = new OutputPass();
 		this.composer.addPass( outputPass );
 
-		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera );
+		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera, DEFAULT_STATE );
 		this.denoiser.enabled = DEFAULT_STATE.enableDenoiser;
 
 	}
@@ -283,7 +282,6 @@ class PathTracerApp extends EventDispatcher {
 				opacity: 1,
 				transmission: 0,
 				map: texture,
-				depthWrite: false,
 			} )
 		);
 		// this.scene.add( this.floorPlane );

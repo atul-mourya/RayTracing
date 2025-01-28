@@ -1,130 +1,209 @@
-//https://github.com/DennisSmolek/Denoiser
 import { Denoiser } from 'denoiser';
-import { AlbedoNormalGenerator } from './AlbedoNormalGenerator';
+import { AlbedoNormalGenerator, debugGeneratedMaps } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
-import { DEFAULT_STATE } from '../Processor/Constants';
-
 
 export class OIDNDenoiser extends EventDispatcher {
 
-	constructor( renderer, scene, camera ) {
+	constructor( renderer, scene, camera, options = {} ) {
 
 		super();
-		this.sourceCanvas = renderer.domElement;
+
+		this._initializeProperties( renderer, scene, camera, options );
+		this._setupDenoiser();
+		this._setupCanvas();
+		this._setupMapGenerator();
+
+	}
+
+	_initializeProperties( renderer, scene, camera, options ) {
+
 		this.renderer = renderer;
 		this.scene = scene;
 		this.camera = camera;
+		this.sourceCanvas = renderer.domElement;
+
+		// State
 		this.isDenoising = false;
-		this.enabled = true;
-		this.useGBuffers = DEFAULT_STATE.useGBuffer;
-		this.useNormalMap = DEFAULT_STATE.useNormalMap;
-		this.useAlbedoMap = DEFAULT_STATE.useAlbedoMap;
+		this.enabled = options.enabled ?? true;
+		this.useGBuffers = options.useGBuffers ?? true;
+		this.useNormalMap = options.useNormalMap ?? true;
+		this.useAlbedoMap = options.useAlbedoMap ?? true;
+		this.quality = options.quality ?? 'medium';
+		this.hdr = options.hdr ?? false;
+		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
+
+	}
+
+	_setupDenoiser() {
 
 		this.denoiser = new Denoiser( "webgl" );
-		this.denoiser.inputMode = 'webgl';
-		this.denoiser.outputMode = 'webgl';
-		this.denoiser.quality = DEFAULT_STATE.oidnQuality;
-		this.denoiser.hdr = false;
-		this.denoiser.height = this.sourceCanvas.height;
-		this.denoiser.width = this.sourceCanvas.width;
-		this.denoiser.weightsUrl = "https://cdn.jsdelivr.net/npm/denoiser/tzas";
-		this.denoiser.useNormalMap = DEFAULT_STATE.useNormalMap;
-		this.denoiser.useAlbedoMap = DEFAULT_STATE.useAlbedoMap;
+		Object.assign( this.denoiser, {
+			inputMode: 'webgl',
+			outputMode: 'webgl',
+			quality: this.quality,
+			hdr: this.hdr,
+			height: this.sourceCanvas.height,
+			width: this.sourceCanvas.width,
+			weightsUrl: "https://cdn.jsdelivr.net/npm/denoiser/tzas",
+			useNormalMap: this.useNormalMap,
+			useAlbedoMap: this.useAlbedoMap
+		} );
+
+	}
+
+	_setupCanvas() {
 
 		this.denoisedCanvas = document.createElement( 'canvas' );
-		this.denoisedCanvas.width = this.sourceCanvas.width;
-		this.denoisedCanvas.height = this.sourceCanvas.height;
-		this.denoisedCanvas.style.position = 'absolute';
-		this.denoisedCanvas.style.top = '0';
-		this.denoisedCanvas.style.left = '0';
-		this.denoisedCanvas.style.width = '100%';
-		this.denoisedCanvas.style.height = '100%';
-		this.denoisedCanvas.style.background = "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px;";
+		Object.assign( this.denoisedCanvas, {
+			width: this.sourceCanvas.width,
+			height: this.sourceCanvas.height
+		} );
+
+		Object.assign( this.denoisedCanvas.style, {
+			position: 'absolute',
+			top: '0',
+			left: '0',
+			width: '100%',
+			height: '100%',
+			background: "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px"
+		} );
 
 		this.denoiser.setCanvas( this.denoisedCanvas );
 		this.sourceCanvas.parentElement.prepend( this.denoisedCanvas );
 
-		this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
+	}
+
+	_setupMapGenerator() {
+
+		this.mapGenerator = new AlbedoNormalGenerator(
+			this.scene,
+			this.camera,
+			this.renderer
+		);
+
+	}
+
+	async start() {
+
+		if ( ! this.enabled || this.isDenoising ) return false;
+
+		const startTime = performance.now();
+		this.denoiser.setInputImage( 'color', this.sourceCanvas );
+
+		const success = await this.execute();
+
+		if ( success ) {
+
+			this.renderer?.resetState();
+			this.sourceCanvas.style.opacity = 0;
+			console.log( `Denoising completed in ${performance.now() - startTime}ms` );
+
+		}
+
+		return success;
 
 	}
 
 	async execute() {
 
 		if ( ! this.enabled ) return false;
-		this.isDenoising = true;
-		this.dispatchEvent( { type: 'start' } );
 
-		console.log( 'Executing denoising...' );
+		try {
 
-		if ( this.useGBuffers ) {
+			this.isDenoising = true;
+			this.dispatchEvent( { type: 'start' } );
 
-			this.mapGenerator.generateAlbedoMap = this.useAlbedoMap;
-			this.mapGenerator.generateNormalMap = this.useNormalMap;
-			const { albedo, normal } = this.mapGenerator.generateMaps();
-			// debugGeneratedMaps( albedo, normal );
+			if ( this.useGBuffers ) {
 
-			// Use albedoMap and normalMap in your denoiser
-			this.useAlbedoMap && this.denoiser.setInputImage( 'albedo', albedo );
-			this.useNormalMap && this.denoiser.setInputImage( 'normal', normal );
+				await this._processGBuffers();
+
+			}
+
+			await this.denoiser.execute();
+			this.renderResult();
+
+			return true;
+
+		} catch ( error ) {
+
+			console.error( 'Denoising error:', error );
+			return false;
+
+		} finally {
+
+			this.isDenoising = false;
+			this.dispatchEvent( { type: 'end' } );
 
 		}
 
-		await this.denoiser.execute();
-		this.isDenoising = false;
-		this.dispatchEvent( { type: 'end' } );
+	}
 
-		this.renderResult();
+	async _processGBuffers() {
+
+		this.mapGenerator.generateAlbedoMap = this.useAlbedoMap;
+		this.mapGenerator.generateNormalMap = this.useNormalMap;
+
+		const { albedo, normal } = this.mapGenerator.generateMaps();
+
+		if ( this.useAlbedoMap && albedo ) {
+
+			this.denoiser.setInputImage( 'albedo', albedo );
+
+		}
+
+		if ( this.useNormalMap && normal ) {
+
+			this.denoiser.setInputImage( 'normal', normal );
+
+		}
+
+		if ( this.debugGbufferMaps ) {
+
+			debugGeneratedMaps( albedo, normal );
+
+		}
+
 
 	}
 
 	renderResult() {
 
-		// Render the denoised result to the canvas
-		// @TODO: Implement this showing the denoised result on the canvas
-		console.log( 'Rendering denoised result' );
 		this.sourceCanvas.style.opacity = 0;
 
 	}
 
 	abort() {
 
-		if ( ! this.enabled ) return false;
-		if ( ! this.isDenoising ) return;
+		if ( ! this.enabled || ! this.isDenoising ) return;
+
 		this.denoiser.abort();
 		this.sourceCanvas.style.opacity = 1;
-		console.log( 'Denoising aborted' );
 		this.dispatchEvent( { type: 'end' } );
-
-	}
-
-	async start() {
-
-		if ( ! this.enabled ) return false;
-		if ( this.isDenoising ) return false;
-
-		const startTime = performance.now();
-
-		this.denoiser.setInputImage( 'color', this.sourceCanvas );
-
-		await this.execute();
-		if ( this.renderer ) this.renderer.resetState();
-		this.sourceCanvas.style.opacity = 0;
-
-		console.log( `Denoising took ${ performance.now() - startTime }ms` );
-
-		return true; // Indicates that denoising is complete
 
 	}
 
 	setSize( width, height ) {
 
-		width *= this.renderer.getPixelRatio();
-		height *= this.renderer.getPixelRatio();
-		this.denoiser.width = width;
-		this.denoiser.height = height;
-		this.mapGenerator.setSize( width, height );
-		this.denoisedCanvas.width = width;
-		this.denoisedCanvas.height = height;
+		const pixelRatio = this.renderer.getPixelRatio();
+		const scaledWidth = width * pixelRatio;
+		const scaledHeight = height * pixelRatio;
+
+		this.denoiser.width = scaledWidth;
+		this.denoiser.height = scaledHeight;
+		this.mapGenerator.setSize( scaledWidth, scaledHeight );
+
+		Object.assign( this.denoisedCanvas, {
+			width: scaledWidth,
+			height: scaledHeight
+		} );
+
+	}
+
+	dispose() {
+
+		this.mapGenerator.dispose();
+		this.denoiser?.dispose?.();
+		this.denoisedCanvas.remove();
 
 	}
 
