@@ -216,7 +216,7 @@ vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 	DotProducts dots = computeDotProducts( N, V, L );
 
     // Calculate base F0 with specular parameters
-	vec3 F0 = clamp( mix( vec3( 0.04 ), material.color.rgb, material.metalness ), vec3( 0.0 ), vec3( 0.99 ) );
+	vec3 F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
 
     // Add iridescence effect if enabled
 	if( material.iridescence > 0.0 ) {
