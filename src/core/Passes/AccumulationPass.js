@@ -51,8 +51,9 @@ export class AccumulationPass extends Pass {
                     vec4 texel1 = texture2D( tDiffuse1, vUv );
                     vec4 texel2 = texture2D( tDiffuse2, vUv );
 
-                    float weight = 1.0 / iteration;
-                    gl_FragColor = texel1 * ( 1.0 - weight ) + texel2 * weight;
+					// Calculate weight with a minimum threshold to avoid precision issues
+					float weight = max( 1.0 / iteration, 0.001 );
+					gl_FragColor = mix( texel1, texel2, weight );
         
                 }`
 		} );

@@ -58,9 +58,9 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 		vec3 localH = sampleGGXVNDF( localV, material.roughness, xi );
 		H = TBN * localH;
 
-		float NoV = clamp( dot( N, V ), 0.001, 1.0  );
-		float NoH = clamp( dot( N, H ), 0.001, 1.0  );
-		float VoH = clamp( dot( V, H ), 0.001, 1.0  );
+		float NoV = clamp( dot( N, V ), 0.001, 1.0 );
+		float NoH = clamp( dot( N, H ), 0.001, 1.0 );
+		float VoH = clamp( dot( V, H ), 0.001, 1.0 );
 
 		float D = DistributionGGX( NoH, material.roughness );
 		float G1 = GeometrySchlickGGX( NoV, material.roughness );
