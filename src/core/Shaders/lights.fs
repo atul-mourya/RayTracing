@@ -62,49 +62,6 @@ struct LightRecord {
     int type;  // 0: directional, 1: area
 };
 
-LightRecord sampleAreaLight( AreaLight light, vec3 fromPoint, int sampleIndex, int bounceIndex, inout uint rngState ) {
-    LightRecord record;
-
-    // Early out for degenerate lights
-    if( light.area < 1e-6 ) {
-        record.didHit = false;
-        return record;
-    }
-
-    // Light sampling strategy
-    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, - 1 );
-    // Generate random position on light surface
-    vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
-
-    // Calculate vector to light and its properties
-    vec3 toLight = lightPos - fromPoint;
-    float dist = length( toLight );
-    vec3 direction = toLight / dist;
-
-    // Check if the light is facing the point
-    // The light should emit in the opposite direction of its normal
-    float lightAlignment = dot( direction, light.normal );
-    if( lightAlignment > - 0.001 ) {  // Small epsilon to avoid precision issues
-        record.didHit = false;
-        return record;
-    }
-
-    // Calculate PDF following physical light principles
-    float cosTheta = abs( lightAlignment );  // Use absolute value of alignment
-    float distSq = dist * dist;
-    float pdf = distSq / ( max( cosTheta * light.area, 1e-6 ) );
-
-    record.direction = direction;
-    record.position = lightPos;
-    record.pdf = max( pdf, 0.001 );  // Avoid division by zero
-    record.emission = light.color * light.intensity;
-    record.area = light.area;
-    record.didHit = true;
-    record.type = 1;  // Area light type
-
-    return record;
-}
-
 vec3 evaluateAreaLight( AreaLight light, LightRecord record ) {
     if( ! record.didHit )
         return vec3( 0.0 );
@@ -147,53 +104,68 @@ float getMaterialTransparency( HitInfo shadowHit, Ray shadowRay, inout uint rngS
 }
 
 bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, inout ivec2 stats ) {
+    const float SHADOW_BIAS = 0.001;
+    const float MAX_SHADOW_DISTANCE = 1000.0;
+    const float OPACITY_THRESHOLD = 0.99;
+    const int MAX_SHADOW_STEPS = 16;
 
-    float maxShadowDistance = 1000.0; // Maximum shadow distance
+    // Initialize shadow ray (avoid struct initialization in loop)
     Ray shadowRay;
-    shadowRay.origin = point + normal * 0.001; // shadow bias
+    shadowRay.origin = point + normal * SHADOW_BIAS;
     shadowRay.direction = lightDir;
 
-    // First quick check without transparency handling
+    // First hit check
     HitInfo shadowHit = traverseBVH( shadowRay, stats );
 
     // Fast path: if no hit or hit an opaque surface
-    if( ! shadowHit.didHit )
-        return false;
-    if( shadowHit.didHit && length( shadowHit.hitPoint - point ) > maxShadowDistance ) {
-        return false;
+    if( ! shadowHit.didHit ||
+        length( shadowHit.hitPoint - point ) > MAX_SHADOW_DISTANCE ||
+        ( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 ) ) {
+        return shadowHit.didHit &&
+            length( shadowHit.hitPoint - point ) <= MAX_SHADOW_DISTANCE &&
+            ! shadowHit.material.transparent &&
+            shadowHit.material.transmission <= 0.0;
     }
-    if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 )
-        return true;
 
     // Complex path: handle transparent/transmissive materials
     float opacity = 0.0;
-    const int MAX_SHADOW_STEPS = 16;
+    vec3 rayOrigin = shadowRay.origin;
 
-    for( int i = 0; i < MAX_SHADOW_STEPS; i ++ ) {
-        if( opacity >= 0.99 )
-            return true; // Early exit if accumulated opacity is high enough
+    // Unrolled first iteration to avoid redundant checks
+    float materialOpacity = getMaterialTransparency( shadowHit, shadowRay, rngState );
+    if( shadowHit.material.alphaMode != 0 ) {
+        materialOpacity *= shadowHit.material.color.a;
+    }
+    opacity = materialOpacity;
 
-        // Handle transparent and transmissive materials
-        float materialOpacity = getMaterialTransparency( shadowHit, shadowRay, rngState );
+    // Early exit check
+    if( opacity >= OPACITY_THRESHOLD ) {
+        return true;
+    }
 
-        // Apply material's alpha
+    // Main loop (MAX_SHADOW_STEPS - 1 because we already did first iteration)
+    for( int i = 0; i < MAX_SHADOW_STEPS - 1; i ++ ) {
+        rayOrigin = shadowHit.hitPoint + lightDir * SHADOW_BIAS;
+        shadowRay.origin = rayOrigin;
+        shadowHit = traverseBVH( shadowRay, stats );
+
+        if( ! shadowHit.didHit ) {
+            return false;
+        }
+
+        materialOpacity = getMaterialTransparency( shadowHit, shadowRay, rngState );
         if( shadowHit.material.alphaMode != 0 ) {
             materialOpacity *= shadowHit.material.color.a;
         }
 
-        // Accumulate opacity with early exit check
+        // Optimized opacity accumulation
         opacity += materialOpacity * ( 1.0 - opacity );
-        if( opacity >= 0.99 )
+        if( opacity >= OPACITY_THRESHOLD ) {
             return true;
-
-        // Continue ray
-        shadowRay.origin = shadowHit.hitPoint + shadowRay.direction * 0.001;
-        shadowHit = traverseBVH( shadowRay, stats );
-        if( ! shadowHit.didHit )
-            return false;
+        }
     }
 
-    return opacity >= 0.99;
+    return opacity >= OPACITY_THRESHOLD;
 }
 
 float calculateAreaLightVisibility(
@@ -413,10 +385,7 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
         if( light.intensity * NoL > 0.01 && ! isPointInShadow( rayOrigin, N, light.direction, rngState, stats ) ) {
             vec3 brdfValue = evaluateBRDF( V, light.direction, N, hitInfo.material );
 
-            // Simplified physical sun intensity
-            float intensity = light.intensity;  // Consolidated adjustment factor
-
-            vec3 lightContribution = light.color * intensity;
+            vec3 lightContribution = light.color * light.intensity;
             totalLighting += lightContribution * brdfValue * NoL;
         }
     }
@@ -459,12 +428,9 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
     float rand = RandomValue( rngState );
 
-    // Get material-based importance once
-    float materialImportance = getMaterialImportance( material );
-
     // Calculate weights only if environment light is enabled
     float envWeight = 0.0;
-    float brdfWeight =  materialImportance;
+    float brdfWeight = getMaterialImportance( material ); // Get material-based importance once
     EnvMapSample envSample;
 
     if( enableEnvironmentLight ) {
@@ -472,7 +438,6 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
         envWeight = 0.3 * ( 1.0 - material.metalness );
         brdfWeight *= 0.7;
     }
-
 
     // Declare shared variables
     vec3 sampleDir;
