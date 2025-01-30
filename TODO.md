@@ -24,6 +24,8 @@ RayTracing Project TODO
 - [ ]  implement support for spot light
 - [ ]  implement support for IES light
 - [ ]  introduce viewports with different intents (preview, final render, etc)
+- [ ]  introduce tessalation free displacement mapping
+- [ ]  implement support for bumpmap
 
 🔧 Performance Improvements
 ---------------------------
@@ -35,6 +37,8 @@ RayTracing Project TODO
 - [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ]  experiment with ray frustum culling
 - [ ]  refactor path tracing to use to use define instead of if-else
+- [ ]  make use of MRT generating albedo and normal maps for denoiser
+- [ ]  make the path tracing shader as raw shader to make way for webgpu
 
 🎨 UI Enhancements
 ------------------
