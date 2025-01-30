@@ -373,6 +373,7 @@ class PathTracerApp extends EventDispatcher {
 		if ( this.pathTracingPass ) this.pathTracingPass.camera = this.camera;
 		if ( this.temporalReprojectionPass ) this.temporalReprojectionPass.camera = this.camera;
 		if ( this.outlinePass ) this.outlinePass.camera = this.camera;
+		if ( this.denoiser ) this.denoiser.mapGenerator.camera = this.camera;
 
 		this.onResize();
 		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index } );
