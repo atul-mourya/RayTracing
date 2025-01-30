@@ -4,65 +4,71 @@ RayTracing Project TODO
 🐛 Bugs & Issues
 ----------------
 
--   [ ]  Fix transmission value changes not impacting transmission intensity
--   [ ]  Improve denoiser performance with full resolution path tracing
--   [ ]  seethough like bumps on the surface with oidn
+- [ ]  Fix transmission value changes not impacting transmission intensity
+- [ ]  Improve denoiser performance with full resolution path tracing
+- [ ]  switch camera don't update the camera for all the post processing and denoiser
 
 ✨ Core Features
 ---------------
 
--   [ ]  Custom floor with shadow catcher
--   [ ]  Transparent background support
--   [ ]  Subsurface scattering implementation
--   [ ]  Auto focus based on object distance
--   [ ]  Volumetric rendering
--   [ ]  Caustic support
--   [ ]  High-res environment map selection
--   [ ]  Custom environment map support
--   [ ]  support download of denoised image
--   [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
+- [ ]  Custom floor with shadow catcher
+- [ ]  Transparent background support
+- [ ]  Subsurface scattering implementation
+- [ ]  Auto focus based on object distance
+- [ ]  Volumetric rendering
+- [ ]  Caustic support
+- [ ]  High-res environment map selection
+- [ ]  Custom environment map support
+- [ ]  support download of denoised image
+- [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
+- [ ]  implement support for point light
+- [ ]  implement support for spot light
+- [ ]  implement support for IES light
+- [ ]  introduce viewports with different intents (preview, final render, etc)
 
 🔧 Performance Improvements
 ---------------------------
 
--   [ ]  Implement Dynamic BVH update
--   [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
--   [ ]  Refactor lights to use data texture instead of uniform buffer
--   [ ]  Implement SDF-based model rendering
--   [ ]  Implement CWBVH for faster BVH traversal
--   [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
--   [ ]  experiment with ray frustum culling
+- [ ]  Implement Dynamic BVH update
+- [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
+- [ ]  Refactor lights to use data texture instead of uniform buffer
+- [ ]  Implement SDF-based model rendering
+- [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
+- [ ]  experiment with ray frustum culling
+- [ ]  refactor path tracing to use to use define instead of if-else
 
 🎨 UI Enhancements
 ------------------
 
--   [ ]  Add scene elements management
-    -   [ ]  Lights control
-    -   [ ]  Camera settings
-    -   [ ]  Material editor
+- [ ]  Add scene elements management
+    - [ ]  Lights control
+    - [ ]  Camera settings
+    - [ ]  Material editor
+- [ ]  upgrade to tailwind 4.0
+- [ ]  migrate to react 19.0
 
 🔄 Major Refactoring
 --------------------
 
--   [ ]  Develop WebGPU version using TSL
+- [ ]  Develop WebGPU version using TSL
     -   Reference: <https://github.com/gnikoloff/webgpu-raytracer>
--   [ ]  Implement offscreen canvas rendering for non-blocking UI
+- [ ]  Implement offscreen canvas rendering for non-blocking UI
 
 🚀 Hybrid Rendering Implementation Plan
 ---------------------------------------
 
 1.  Initial Render
-    -   [ ]  Implement rasterization-based first pass
-    -   [ ]  Set up initial scene representation
+    - [ ]  Implement rasterization-based first pass
+    - [ ]  Set up initial scene representation
 2.  Low-Resolution Path Tracing
-    -   [ ]  Implement quick low-res path tracing
-    -   [ ]  Set up blending with rasterized version
+    - [ ]  Implement quick low-res path tracing
+    - [ ]  Set up blending with rasterized version
 3.  High-Resolution Path Tracing
-    -   [ ]  Progressive refinement system
-    -   [ ]  Sample computation optimization
+    - [ ]  Progressive refinement system
+    - [ ]  Sample computation optimization
 4.  Blending System
-    -   [ ]  Implement gradual blend between renders
-    -   [ ]  Quality-based transition controls
+    - [ ]  Implement gradual blend between renders
+    - [ ]  Quality-based transition controls
 
 📚 Research & Resources
 -----------------------

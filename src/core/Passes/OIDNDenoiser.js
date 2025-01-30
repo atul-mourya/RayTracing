@@ -24,7 +24,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// State
 		this.isDenoising = false;
-		this.enabled = options.enabled ?? true;
+		this.enabled = options.enableOIDN ?? true;
 		this.useGBuffers = options.useGBuffers ?? true;
 		this.useNormalMap = options.useNormalMap ?? true;
 		this.useAlbedoMap = options.useAlbedoMap ?? true;

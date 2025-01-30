@@ -265,7 +265,7 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( outputPass );
 
 		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera, DEFAULT_STATE );
-		this.denoiser.enabled = DEFAULT_STATE.enableDenoiser;
+		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
 	}
 
@@ -332,7 +332,15 @@ class PathTracerApp extends EventDispatcher {
 
 		}
 
-		if ( this.pathTracingPass.isComplete && this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value ) {
+		if ( ! this.pathTracingPass.isComplete ) return;
+
+		if (
+			( this.pathTracingPass.material.uniforms.renderMode.value === 0 &&
+			this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value ) ||
+			( this.pathTracingPass.material.uniforms.renderMode.value === 1 &&
+			this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value *
+			Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) )
+		) {
 
 			this.pathTracingPass.material.uniforms.frame.value ++;
 			this.denoiser.start();
