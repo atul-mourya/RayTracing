@@ -8,7 +8,8 @@ import {
 	GLSL3,
 	Texture,
 	Matrix3,
-	NoBlending
+	NoBlending,
+	Color
 } from 'three';
 
 export class AlbedoNormalGenerator {
@@ -54,6 +55,8 @@ export class AlbedoNormalGenerator {
 		this.albedoMaterial = new RawShaderMaterial( {
 			uniforms: {
 				tDiffuse: { value: null },
+				useTexture: { value: 0 },
+				color: { value: new Color( 1, 1, 1 ) },
 				uvTransform: { value: new Matrix3() }
 			},
 			vertexShader: `
@@ -72,11 +75,17 @@ export class AlbedoNormalGenerator {
 			fragmentShader: `
                 precision highp float;
                 uniform sampler2D tDiffuse;
+                uniform vec3 color;
+                uniform int useTexture;
                 in vec2 vUv;
                 out vec4 fragColor;
                 
                 void main() {
-                    fragColor = texture(tDiffuse, vUv);
+                    if (useTexture == 1) {
+                        fragColor = texture(tDiffuse, vUv);
+                    } else {
+                        fragColor = vec4(color, 1.0);
+                    }
                 }
             `,
 			glslVersion: GLSL3,
@@ -112,13 +121,18 @@ export class AlbedoNormalGenerator {
 
 			this.originalMaterials.set( object, object.material );
 			const material = this.albedoMaterial.clone();
-			const map = object.material.map;
+			const originalMaterial = object.material;
+			const map = originalMaterial.map;
 
+			// Initialize uniforms
 			material.uniforms = {
 				tDiffuse: { value: map || new Texture() },
+				useTexture: { value: map ? 1 : 0 },
+				color: { value: new Color() },
 				uvTransform: { value: new Matrix3() }
 			};
 
+			// Handle diffuse map if present
 			if ( map ) {
 
 				const uvTransform = material.uniforms.uvTransform.value;
@@ -138,6 +152,13 @@ export class AlbedoNormalGenerator {
 					flipY: map.flipY,
 					needsUpdate: true
 				} );
+
+			} else {
+
+				// Use material color if no diffuse map
+				material.uniforms.color.value.copy(
+					originalMaterial.color || new Color( 1, 1, 1 )
+				);
 
 			}
 

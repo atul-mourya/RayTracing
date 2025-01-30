@@ -6,7 +6,6 @@ RayTracing Project TODO
 
 - [ ]  Fix transmission value changes not impacting transmission intensity
 - [ ]  Improve denoiser performance with full resolution path tracing
-- [ ]  albedomap for denioser not rendering non-albedo maps materials
 
 ✨ Core Features
 ---------------

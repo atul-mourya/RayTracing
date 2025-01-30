@@ -1,3 +1,4 @@
+//https://github.com/DennisSmolek/Denoiser
 import { Denoiser } from 'denoiser';
 import { AlbedoNormalGenerator, debugGeneratedMaps } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
