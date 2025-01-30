@@ -14,10 +14,10 @@ const LoadingOverlay = ( {
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center">
-			<div className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
+			<div className="absolute inset-0 bg-background/80 backdrop-blur-xs" />
 			<div className="relative flex flex-col items-center space-y-6 p-6 rounded-lg bg-card shadow-lg">
 				<div className="relative">
-					<div className="absolute -inset-1 bg-gradient-to-r from-primary to-primary-foreground opacity-75 blur-lg" />
+					<div className="absolute -inset-1 bg-linear-to-r from-primary to-primary-foreground opacity-75 blur-lg" />
 					<Loader2 className="relative h-12 w-12 animate-spin text-primary" />
 				</div>
 

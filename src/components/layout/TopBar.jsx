@@ -231,7 +231,7 @@ const TopBar = () => {
 						</MenubarMenu>
 					</Menubar>
 
-					<div className="flex-grow" />
+					<div className="grow" />
 
 					<Button
 						variant="default"
@@ -243,7 +243,7 @@ const TopBar = () => {
 						<span>{isPlaying ? 'Pause' : 'Play'}</span>
 					</Button>
 
-					<div className="flex-grow" />
+					<div className="grow" />
 					<div className="flex items-center px-2 space-x-2">
 						<ThemeToggle />
 						<div className="text-xs">v3.0</div>

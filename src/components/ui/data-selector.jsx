@@ -26,7 +26,7 @@ const DataSelector = ( { className, data, value, onValueChange, ...props } ) => 
 				<PopoverTrigger asChild>
 					<Button variant="outline" className={cn( "relative flex h-5 w-full rounded-full touch-none select-none items-center max-w-32", className )}>
 						<span className="text-xm truncate">{data[ value ].name}</span>
-						<ChevronDown size={14} className="flex-shrink-0" />
+						<ChevronDown size={14} className="shrink-0" />
 					</Button>
 				</PopoverTrigger>
 				<PopoverContent className="w-[300px] p-0" align="start">

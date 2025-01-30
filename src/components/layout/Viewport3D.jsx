@@ -142,7 +142,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			<Toaster />
 			<LoadingOverlay />
 			{isDragging && (
-				<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+				<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-xs">
 					<div className="flex flex-col items-center space-y-4">
 						<Upload className="h-16 w-16 text-primary" />
 						<p className="text-xl font-medium text-foreground">Drop GLB file here</p>

@@ -118,7 +118,7 @@ const MainViewport = () => {
 					</span>
 				)}
 			</div>
-			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-sm">
+			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
 				<TooltipProvider>
 					<Tooltip>
 						<TooltipTrigger asChild>

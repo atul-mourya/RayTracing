@@ -105,9 +105,9 @@ const LayerTreeItem = ( { item, depth } ) => {
 					onClick={handleNodeClick}
 					className={cn(
 						"relative flex items-center w-full select-none group",
-						"h-7 text-sm outline-none",
+						"h-7 text-sm outline-hidden",
 						"hover:bg-accent/50 hover:text-accent-foreground",
-						"focus-visible:outline-none",
+						"focus-visible:outline-hidden",
 						isSelected && "bg-accent/50 text-accent-foreground",
 					)}
 		  		>
@@ -262,7 +262,7 @@ const LeftSidebar = () => {
 			  <input
 						type="text"
 						placeholder="Search layers..."
-						className="bg-transparent text-xs w-full outline-none placeholder:text-muted-foreground/70"
+						className="bg-transparent text-xs w-full outline-hidden placeholder:text-muted-foreground/70"
 						value={searchTerm}
 						onChange={( e ) => setSearchTerm( e.target.value )}
 			  />

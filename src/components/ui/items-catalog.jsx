@@ -119,12 +119,12 @@ export const ItemsCatalog = ( {
 		<TooltipProvider>
 			<div className={cn( "flex flex-col h-full mx-2", className )} {...props}>
 				<div className="flex items-center mb-2 gap-2">
-					<div className="relative flex-grow">
+					<div className="relative grow">
 						<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
 						<Input
 							type="text"
 							placeholder="Search items..."
-							className="h-5 pl-5 outline-none text-xs w-full rounded-full bg-primary/20"
+							className="h-5 pl-5 outline-hidden text-xs w-full rounded-full bg-primary/20"
 							value={searchTerm}
 							onChange={( e ) => setSearchTerm( e.target.value )}
 							aria-label="Search items"

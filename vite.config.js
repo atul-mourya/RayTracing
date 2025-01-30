@@ -1,5 +1,6 @@
 import path from "path";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
 import topLevelAwait from "vite-plugin-top-level-await";
@@ -11,6 +12,7 @@ export default defineConfig( {
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
 		react(),
+		tailwindcss(),
 		glsl( {
 			include: [ // Glob pattern, or array of glob patterns to import
 			  '**/*.glsl', '**/*.wgsl',

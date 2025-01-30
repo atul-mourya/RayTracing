@@ -70,7 +70,7 @@ export function DraggableInput( {
 			<input
 				type={type || "number"}
 				className={cn(
-					"flex h-5 w-full max-w-28 px-3 text-right rounded-full border border-input bg-primary/20 text-xs shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+					"flex h-5 w-full max-w-28 px-3 text-right rounded-full border border-input bg-primary/20 text-xs shadow-xs transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
 					isDragging && "cursor-ew-resize",
 					className
 				)}
