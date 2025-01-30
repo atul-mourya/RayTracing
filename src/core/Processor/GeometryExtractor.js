@@ -238,6 +238,7 @@ export default class GeometryExtractor {
 		mesh.updateMatrixWorld();
 
 		const geometry = mesh.geometry;
+		if ( ! geometry.normals ) geometry.computeVertexNormals();
 		const positions = geometry.attributes.position;
 		const normals = geometry.attributes.normal;
 		const uvs = geometry.attributes.uv;
