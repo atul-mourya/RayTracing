@@ -28,8 +28,6 @@ const useStore = create( ( set ) => ( {
 	setDownSampledMovement: value => set( { downSampledMovement: value } ),
 	setEnableOIDN: value => set( { enableOIDN: value } ),
 	setUseGBuffer: value => set( { useGBuffer: value } ),
-	setUseAlbedoMap: value => set( { useAlbedoMap: value } ),
-	setUseNormalMap: value => set( { useNormalMap: value } ),
 	setEnableRealtimeDenoiser: value => set( { enableRealtimeDenoiser: value } ),
 	setDenoiserBlurStrength: value => set( { denoiserBlurStrength: value } ),
 	setDenoiserBlurRadius: value => set( { denoiserBlurRadius: value } ),
@@ -75,8 +73,6 @@ const PathTracerTab = () => {
 		downSampledMovement, setDownSampledMovement,
 		enableOIDN, setEnableOIDN,
 		useGBuffer, setUseGBuffer,
-		useAlbedoMap, setUseAlbedoMap,
-		useNormalMap, setUseNormalMap,
 		enableRealtimeDenoiser, setEnableRealtimeDenoiser,
 		denoiserBlurStrength, setDenoiserBlurStrength,
 		denoiserBlurRadius, setDenoiserBlurRadius,
@@ -144,8 +140,6 @@ const PathTracerTab = () => {
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
 	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
 	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
-	const handleUseAlbedoMapChange = handleChange( setUseAlbedoMap, value => window.pathTracerApp.denoiser.useAlbedoMap = value, false );
-	const handleUseNormalMapChange = handleChange( setUseNormalMap, value => window.pathTracerApp.denoiser.useNormalMap = value, false );
 
 	// Realtime Denoiser
 	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
@@ -262,14 +256,6 @@ const PathTracerTab = () => {
 					<div className="flex items-center justify-between">
 						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
 					</div>
-					{useGBuffer && ( <>
-						<div className="flex items-center justify-between">
-							<Switch label={"Use Albedo Map"} checked={useAlbedoMap} onCheckedChange={handleUseAlbedoMapChange} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Switch label={"Use Normal Map"} checked={useNormalMap} onCheckedChange={handleUseNormalMapChange} />
-						</div>
-					</> )}
 				</> )}
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable Realtime Denoiser"} checked={enableRealtimeDenoiser} onCheckedChange={handleEnableRealtimeDenoiserChange} />

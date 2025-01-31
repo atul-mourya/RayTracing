@@ -242,9 +242,7 @@ export const DEFAULT_STATE = {
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
 	useGBuffer: true,
-	useAlbedoMap: true,
-	useNormalMap: false,
-	debugGbufferMaps: false,
+	debugGbufferMaps: true,
 	enableRealtimeDenoiser: false,
 	denoiserBlurStrength: 2,
 	denoiserBlurRadius: 1,

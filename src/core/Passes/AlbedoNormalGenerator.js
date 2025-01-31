@@ -3,11 +3,11 @@ import {
 	LinearFilter,
 	RGBAFormat,
 	FloatType,
-	MeshNormalMaterial,
 	RawShaderMaterial,
 	GLSL3,
 	Texture,
 	Matrix3,
+	Matrix4,
 	NoBlending,
 	Color
 } from 'three';
@@ -44,50 +44,54 @@ export class AlbedoNormalGenerator {
 
 	_createMaterials() {
 
-		// Normal material with optimized settings
-		this.normalMaterial = new MeshNormalMaterial( {
-			blending: NoBlending,
-			depthTest: true,
-			depthWrite: true
-		} );
-
-		// Albedo material with optimized settings
-		this.albedoMaterial = new RawShaderMaterial( {
+		this.mrtMaterial = new RawShaderMaterial( {
 			uniforms: {
 				tDiffuse: { value: null },
 				useTexture: { value: 0 },
 				color: { value: new Color( 1, 1, 1 ) },
-				uvTransform: { value: new Matrix3() }
+				uvTransform: { value: new Matrix3() },
+				modelViewMatrix: { value: new Matrix4() },
+				projectionMatrix: { value: new Matrix4() },
+				normalMatrix: { value: new Matrix3() }
 			},
 			vertexShader: `
-                in vec3 position;
-                in vec2 uv;
-                out vec2 vUv;
-                uniform mat3 uvTransform;
-                uniform mat4 modelViewMatrix;
-                uniform mat4 projectionMatrix;
-                
-                void main() {
-                    vUv = (uvTransform * vec3(uv, 1.0)).xy;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
+				in vec3 position;
+				in vec2 uv;
+				in vec3 normal;
+				out vec2 vUv;
+				out vec3 vNormal;
+				uniform mat3 uvTransform;
+				uniform mat4 modelViewMatrix;
+				uniform mat4 projectionMatrix;
+				uniform mat3 normalMatrix;
+				
+				void main() {
+					vUv = (uvTransform * vec3(uv, 1.0)).xy;
+					vNormal = normalize(normalMatrix * normal);
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+				}
+			`,
 			fragmentShader: `
-                precision highp float;
-                uniform sampler2D tDiffuse;
-                uniform vec3 color;
-                uniform int useTexture;
-                in vec2 vUv;
-                out vec4 fragColor;
-                
-                void main() {
-                    if (useTexture == 1) {
-                        fragColor = texture(tDiffuse, vUv);
-                    } else {
-                        fragColor = vec4(color, 1.0);
-                    }
-                }
-            `,
+				precision highp float;
+				in vec2 vUv;
+				in vec3 vNormal;
+				uniform sampler2D tDiffuse;
+				uniform vec3 color;
+				uniform int useTexture;
+				layout(location = 0) out vec4 albedoOut;
+				layout(location = 1) out vec4 normalOut;
+				
+				void main() {
+					// Albedo
+					if (useTexture == 1) {
+						albedoOut = texture(tDiffuse, vUv);
+					} else {
+						albedoOut = vec4(color, 1.0);
+					}
+					// Normal (packed to [0,1])
+					normalOut = vec4(normalize(vNormal) * 0.5 + 0.5, 1.0);
+				}
+			`,
 			glslVersion: GLSL3,
 			blending: NoBlending,
 			depthTest: true,
@@ -108,8 +112,20 @@ export class AlbedoNormalGenerator {
 			anisotropy: 16
 		};
 
-		this.albedoTarget = new WebGLRenderTarget( this.width, this.height, options );
-		this.normalTarget = new WebGLRenderTarget( this.width, this.height, options );
+		this.multiTarget = new WebGLRenderTarget( this.width, this.height, { count: 2 } );
+		this.multiTarget.textures.forEach( ( texture ) => {
+
+			texture.type = options.type;
+			texture.format = options.format;
+			texture.minFilter = options.minFilter;
+			texture.magFilter = options.magFilter;
+			texture.anisotropy = options.anisotropy;
+
+		} );
+		this.multiTarget.depthBuffer = options.depthBuffer;
+		this.multiTarget.samples = options.samples;
+		this.multiTarget.textures[ 0 ].name = 'albedo';
+		this.multiTarget.textures[ 1 ].name = 'normal';
 
 	}
 
@@ -120,7 +136,7 @@ export class AlbedoNormalGenerator {
 			if ( ! object.isMesh ) return;
 
 			this.originalMaterials.set( object, object.material );
-			const material = this.albedoMaterial.clone();
+			const material = this.mrtMaterial.clone();
 			const originalMaterial = object.material;
 			const map = originalMaterial.map;
 
@@ -129,36 +145,25 @@ export class AlbedoNormalGenerator {
 				tDiffuse: { value: map || new Texture() },
 				useTexture: { value: map ? 1 : 0 },
 				color: { value: new Color() },
-				uvTransform: { value: new Matrix3() }
+				uvTransform: { value: new Matrix3() },
+				modelViewMatrix: { value: object.modelViewMatrix },
+				projectionMatrix: { value: this.camera.projectionMatrix },
+				normalMatrix: { value: new Matrix3().getNormalMatrix( object.matrixWorld ) }
 			};
 
-			// Handle diffuse map if present
+			// Handle UV transform
 			if ( map ) {
 
 				const uvTransform = material.uniforms.uvTransform.value;
 				uvTransform.setUvTransform(
-					map.offset.x,
-					map.offset.y,
-					map.repeat.x,
-					map.repeat.y,
-					map.rotation,
-					map.center.x,
-					map.center.y
+					map.offset.x, map.offset.y,
+					map.repeat.x, map.repeat.y,
+					map.rotation, map.center.x, map.center.y
 				);
-
-				Object.assign( material.uniforms.tDiffuse.value, {
-					wrapS: map.wrapS,
-					wrapT: map.wrapT,
-					flipY: map.flipY,
-					needsUpdate: true
-				} );
 
 			} else {
 
-				// Use material color if no diffuse map
-				material.uniforms.color.value.copy(
-					originalMaterial.color || new Color( 1, 1, 1 )
-				);
+				material.uniforms.color.value.copy( originalMaterial.color || new Color( 1, 1, 1 ) );
 
 			}
 
@@ -188,17 +193,14 @@ export class AlbedoNormalGenerator {
 		const result = {};
 		const currentRenderTarget = this.renderer.getRenderTarget();
 
-		// Render albedo
+		// Render to MRT
 		this.applyAlbedoMaterial();
-		this.renderer.setRenderTarget( this.albedoTarget );
+		this.renderer.setRenderTarget( this.multiTarget );
 		this.renderer.render( this.scene, this.camera );
-		result.albedo = this._readRenderTarget( this.albedoTarget );
 
-		// Render normal
-		this.scene.overrideMaterial = this.normalMaterial;
-		this.renderer.setRenderTarget( this.normalTarget );
-		this.renderer.render( this.scene, this.camera );
-		result.normal = this._readRenderTarget( this.normalTarget );
+		// Read albedo and normal from attachments
+		result.albedo = this._readRenderTarget( 0 );
+		result.normal = this._readRenderTarget( 1 );
 
 		// Cleanup
 		this.restoreOriginalMaterials();
@@ -208,10 +210,23 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	_readRenderTarget( renderTarget ) {
+	_readRenderTarget( attachmentIndex ) {
 
+		const gl = this.renderer.getContext();
 		const buffer = new Float32Array( this.width * this.height * 4 );
-		this.renderer.readRenderTargetPixels( renderTarget, 0, 0, this.width, this.height, buffer );
+
+		// Save current read buffer state
+		const prevReadBuffer = gl.getParameter( gl.READ_BUFFER );
+
+		// Set read buffer to the desired attachment
+		gl.readBuffer( gl.COLOR_ATTACHMENT0 + attachmentIndex );
+
+		// Read pixels from the currently bound framebuffer (already set by Three.js)
+		gl.readPixels( 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, buffer );
+
+		// Restore previous read buffer state
+		gl.readBuffer( prevReadBuffer );
+
 		return new ImageData( this._convertToUint8( buffer ), this.width, this.height );
 
 	}
@@ -243,17 +258,14 @@ export class AlbedoNormalGenerator {
 
 		this.width = width;
 		this.height = height;
-		this.albedoTarget.setSize( width, height );
-		this.normalTarget.setSize( width, height );
+		this.multiTarget.setSize( width, height );
 
 	}
 
 	dispose() {
 
-		this.albedoTarget.dispose();
-		this.normalTarget.dispose();
-		this.albedoMaterial.dispose();
-		this.normalMaterial.dispose();
+		this.multiTarget.dispose(); // Dispose MRT
+		this.mrtMaterial.dispose(); // Dispose the MRT material
 
 	}
 

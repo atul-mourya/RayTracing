@@ -27,8 +27,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.isDenoising = false;
 		this.enabled = options.enableOIDN ?? true;
 		this.useGBuffers = options.useGBuffers ?? true;
-		this.useNormalMap = options.useNormalMap ?? true;
-		this.useAlbedoMap = options.useAlbedoMap ?? true;
 		this.quality = options.quality ?? 'medium';
 		this.hdr = options.hdr ?? false;
 		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
@@ -46,8 +44,8 @@ export class OIDNDenoiser extends EventDispatcher {
 			height: this.sourceCanvas.height,
 			width: this.sourceCanvas.width,
 			weightsUrl: "https://cdn.jsdelivr.net/npm/denoiser/tzas",
-			useNormalMap: this.useNormalMap,
-			useAlbedoMap: this.useAlbedoMap
+			useNormalMap: this.useGBuffers,
+			useAlbedoMap: this.useGBuffers
 		} );
 
 	}
@@ -141,22 +139,10 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async _processGBuffers() {
 
-		this.mapGenerator.generateAlbedoMap = this.useAlbedoMap;
-		this.mapGenerator.generateNormalMap = this.useNormalMap;
-
 		const { albedo, normal } = this.mapGenerator.generateMaps();
 
-		if ( this.useAlbedoMap && albedo ) {
-
-			this.denoiser.setInputImage( 'albedo', albedo );
-
-		}
-
-		if ( this.useNormalMap && normal ) {
-
-			this.denoiser.setInputImage( 'normal', normal );
-
-		}
+		this.denoiser.setInputImage( 'albedo', albedo );
+		this.denoiser.setInputImage( 'normal', normal );
 
 		if ( this.debugGbufferMaps ) {
 
