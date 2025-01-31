@@ -9,7 +9,6 @@ RayTracing Project TODO
 ✨ Core Features
 ---------------
 
-- [ ]  Custom floor with shadow catcher
 - [ ]  Transparent background support
 - [ ]  Subsurface scattering implementation
 - [ ]  Auto focus based on object distance
@@ -17,7 +16,6 @@ RayTracing Project TODO
 - [ ]  Caustic support
 - [ ]  High-res environment map selection
 - [ ]  Custom environment map support
-- [ ]  support download of denoised image
 - [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
 - [ ]  implement support for point light
 - [ ]  implement support for spot light

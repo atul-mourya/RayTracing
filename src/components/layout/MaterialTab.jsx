@@ -60,7 +60,7 @@ const MaterialTab = () => {
 			setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
 			setTransparent( selectedObject.material.transparent ?? false );
 			setAlphaTest( selectedObject.material.alphaTest ?? 0 );
-			setVisible( selectedObject.visible );
+			setVisible( selectedObject.material.visible );
 			setSheen( selectedObject.material.sheen ?? 0 );
 			setSheenRoughness( selectedObject.material.sheenRoughness ?? 1 );
 			setSheenColor( `#${selectedObject.material.sheenColor.getHexString()}` );

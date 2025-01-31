@@ -5,12 +5,10 @@ import {
 	SRGBColorSpace,
 	DirectionalLight,
 	WebGLRenderTarget,
-	RGBAFormat,
 	FloatType,
-	NearestFilter,
 	Vector2,
 	Mesh,
-	PlaneGeometry,
+	CircleGeometry,
 	MeshPhysicalMaterial,
 	EquirectangularReflectionMapping,
 	Box3,
@@ -273,18 +271,20 @@ class PathTracerApp extends EventDispatcher {
 
 		const texture = await new TextureLoader().loadAsync( radialTexture );
 		this.floorPlane = new Mesh(
-			new PlaneGeometry(),
+			new CircleGeometry(),
 			new MeshPhysicalMaterial( {
 				transparent: true,
 				color: 0xFFFFFF,
-				roughness: 1,
+				roughness: 0.35,
 				metalness: 1,
 				opacity: 1,
 				transmission: 0,
 				map: texture,
+				visible: false
 			} )
 		);
-		// this.scene.add( this.floorPlane );
+		this.floorPlane.name = "Ground";
+		this.scene.add( this.floorPlane );
 
 	}
 
