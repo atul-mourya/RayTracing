@@ -625,10 +625,10 @@ class PathTracerApp extends EventDispatcher {
 	takeScreenshot() {
 
 		let screenshot;
-		if ( this.pathTracingPass.isComplete && this.denoiser.enabled ) {
+		// Check if denoising is active and completed
+		if ( this.denoiser.enabled && this.denoiser.denoisedCanvas && this.pathTracingPass.isComplete ) {
 
 			screenshot = this.denoiser.denoisedCanvas.toDataURL( 'image/png' );
-			return;
 
 		} else {
 
