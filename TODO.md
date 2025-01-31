@@ -26,14 +26,15 @@ RayTracing Project TODO
 - [ ]  introduce viewports with different intents (preview, final render, etc)
 - [ ]  introduce tessalation free displacement mapping
 - [ ]  implement support for bumpmap
+- [ ]  Implement SDF-based model rendering
+- [ ]  Implement Dynamic BVH update
+
 
 🔧 Performance Improvements
 ---------------------------
 
-- [ ]  Implement Dynamic BVH update
 - [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ]  Refactor lights to use data texture instead of uniform buffer
-- [ ]  Implement SDF-based model rendering
 - [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ]  experiment with ray frustum culling
 - [ ]  refactor path tracing to use to use define instead of if-else
@@ -47,8 +48,6 @@ RayTracing Project TODO
     - [ ]  Lights control
     - [ ]  Camera settings
     - [ ]  Material editor
-- [ ]  upgrade to tailwind 4.0
-- [ ]  migrate to react 19.0
 
 🔄 Major Refactoring
 --------------------
