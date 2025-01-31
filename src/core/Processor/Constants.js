@@ -241,6 +241,7 @@ export const DEFAULT_STATE = {
 	directionalLightPosition: [ 1, 1, 1 ],
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
+	oidnHDR: false,
 	useGBuffer: true,
 	debugGbufferMaps: false,
 	enableRealtimeDenoiser: false,

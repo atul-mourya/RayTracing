@@ -28,7 +28,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.enabled = options.enableOIDN ?? true;
 		this.useGBuffers = options.useGBuffers ?? true;
 		this.quality = options.quality ?? 'medium';
-		this.hdr = options.hdr ?? false;
+		this.hdr = options.oidnHdr ?? false;
 		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
 
 	}

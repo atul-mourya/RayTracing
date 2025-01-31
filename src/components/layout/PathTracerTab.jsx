@@ -40,6 +40,7 @@ const useStore = create( ( set ) => ( {
 	setBloomRadius: value => set( { bloomRadius: value } ),
 	setEnableTemporalReprojection: value => set( { enableTemporalReprojection: value } ),
 	setOidnQuality: value => set( { oidnQuality: value } ),
+	setOidnHdr: value => set( { oidnHdr: value } ),
 } ) );
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
@@ -85,6 +86,7 @@ const PathTracerTab = () => {
 		bloomRadius, setBloomRadius,
 		enableTemporalReprojection, setEnableTemporalReprojection,
 		oidnQuality, setOidnQuality,
+		oidnHdr, setOidnHdr,
 	} = useStore();
 
 	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
@@ -140,6 +142,7 @@ const PathTracerTab = () => {
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
 	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
 	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
+	const handleOidnHdrChange = handleChange( setOidnHdr, value => window.pathTracerApp.denoiser.denoiser.hdr = value, false );
 
 	// Realtime Denoiser
 	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
@@ -252,6 +255,9 @@ const PathTracerTab = () => {
 								<SelectItem value="balance">Balance</SelectItem>
 							</SelectContent>
 						</Select>
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"HDR"} checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
 					</div>
 					<div className="flex items-center justify-between">
 						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
