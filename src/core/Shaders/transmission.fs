@@ -103,12 +103,12 @@ TransmissionResult handleTransmission(
 	return result;
 }
 
-vec3 sampleTransmissiveMaterial( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, inout uint rngState ) {
+vec3 sampleTransmissiveMaterial( inout Ray ray, vec3 normal, RayTracingMaterial material, inout uint rngState ) {
     // Determine if ray is entering or exiting the medium
-	bool entering = dot( ray.direction, hitInfo.normal ) < 0.0;
+	bool entering = dot( ray.direction, normal ) < 0.0;
 
     // Use common transmission handler
-	TransmissionResult result = handleTransmission( ray.direction, hitInfo.normal, material, entering, rngState );
+	TransmissionResult result = handleTransmission( ray.direction, normal, material, entering, rngState );
 
     // Update ray direction
 	ray.direction = result.direction;

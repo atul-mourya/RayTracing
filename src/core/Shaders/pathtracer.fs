@@ -189,7 +189,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 
 		// Handle transparent materials with transmission
 		if( material.transmission > 0.0 ) {
-			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, hitInfo, material, rngState );
+			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, N, material, rngState );
 			throughput *= transmissionThroughput;
 			alpha *= ( 1.0 - material.transmission ) * material.color.a;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
