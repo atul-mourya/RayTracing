@@ -1,6 +1,6 @@
 //https://github.com/DennisSmolek/Denoiser
 import { Denoiser } from 'denoiser';
-import { AlbedoNormalGenerator, debugGeneratedMaps } from './AlbedoNormalGenerator';
+import { AlbedoNormalGenerator, renderImageDataToCanvas } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
 
 export class OIDNDenoiser extends EventDispatcher {
@@ -87,8 +87,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		if ( ! this.enabled || this.isDenoising ) return false;
 
 		const startTime = performance.now();
-		this.denoiser.setInputImage( 'color', this.sourceCanvas );
-
 		const success = await this.execute();
 
 		if ( success ) {
@@ -111,10 +109,21 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			this.isDenoising = true;
 			this.dispatchEvent( { type: 'start' } );
+			this.denoiser.setInputImage( 'color', this.sourceCanvas );
 
 			if ( this.useGBuffers ) {
 
-				await this._processGBuffers();
+				const { albedo, normal } = this.mapGenerator.generateMaps();
+
+				this.denoiser.setInputImage( 'albedo', albedo );
+				this.denoiser.setInputImage( 'normal', normal );
+
+				if ( this.debugGbufferMaps ) {
+
+					renderImageDataToCanvas( albedo, 'debugAlbedoCanvas' );
+					renderImageDataToCanvas( normal, 'debugNormalCanvas' );
+
+				}
 
 			}
 
@@ -134,22 +143,6 @@ export class OIDNDenoiser extends EventDispatcher {
 			this.dispatchEvent( { type: 'end' } );
 
 		}
-
-	}
-
-	async _processGBuffers() {
-
-		const { albedo, normal } = this.mapGenerator.generateMaps();
-
-		this.denoiser.setInputImage( 'albedo', albedo );
-		this.denoiser.setInputImage( 'normal', normal );
-
-		if ( this.debugGbufferMaps ) {
-
-			debugGeneratedMaps( albedo, normal );
-
-		}
-
 
 	}
 

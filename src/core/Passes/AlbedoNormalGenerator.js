@@ -288,19 +288,3 @@ export function renderImageDataToCanvas( imageData, canvasId ) {
 	}
 
 }
-
-export function debugGeneratedMaps( albedoImageData, normalImageData ) {
-
-	if ( albedoImageData ) {
-
-		renderImageDataToCanvas( albedoImageData, 'debugAlbedoCanvas' );
-
-	}
-
-	if ( normalImageData ) {
-
-		renderImageDataToCanvas( normalImageData, 'debugNormalCanvas' );
-
-	}
-
-}
