@@ -5,7 +5,6 @@ RayTracing Project TODO
 ----------------
 
 - [ ]  Fix transmission value changes not impacting transmission intensity
-- [ ]  Improve denoiser performance with full resolution path tracing
 
 ✨ Core Features
 ---------------
@@ -33,20 +32,19 @@ RayTracing Project TODO
 🔧 Performance Improvements
 ---------------------------
 
+- [ ]  improve light sampling as it is too slow - specially for area lights
 - [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ]  Refactor lights to use data texture instead of uniform buffer
 - [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ]  experiment with ray frustum culling
 - [ ]  refactor path tracing to use to use define instead of if-else
-- [ ]  make the path tracing shader as raw shader to make way for webgpu
 
 🎨 UI Enhancements
 ------------------
 
-- [ ]  Add scene elements management
-    - [ ]  Lights control
-    - [ ]  Camera settings
-    - [ ]  Material editor
+- [ ]  Add dynamic lights addition and removal
+- [ ]  Add dynamic camera addition and removal
+- [ ]  Add dynamic object addition and removal
 
 🔄 Major Refactoring
 --------------------

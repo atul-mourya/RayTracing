@@ -18,7 +18,7 @@ vec4 sampleEnvironment( vec3 direction ) {
 	}
 
 	vec2 uv = directionToTextureCoordinate( direction );
-	vec4 texel = texture2D( environment, uv );
+	vec4 texel = texture( environment, uv );
 	texel.rgb *= environmentIntensity;
 	return texel;
 }
@@ -68,7 +68,7 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 
     // Get color and calculate PDF
 	vec2 uv = directionToUV( result.direction );
-	vec4 texel = texture2D( environment, uv );
+	vec4 texel = texture( environment, uv );
 	result.value = texel.rgb * environmentIntensity;
 
 	float sinTheta = max( sin( uv.y * PI ), 0.001 ); // Avoid division by zero

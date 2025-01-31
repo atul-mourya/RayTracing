@@ -1,4 +1,8 @@
 precision highp float;
+precision highp int;
+precision highp sampler2DArray;
+
+out vec4 fragColor; 
 
 // Uniform declarations remain the same
 uniform uint frame;
@@ -294,7 +298,7 @@ vec3 dithering( vec3 color, uint seed ) {
 
 int getRequiredSamples( int pixelIndex ) {
 	vec2 texCoord = gl_FragCoord.xy / resolution;
-	return int( texture2D( adaptiveSamplingTexture, texCoord ).r );
+	return int( texture( adaptiveSamplingTexture, texCoord ).r );
 }
 
 void main( ) {
@@ -318,8 +322,8 @@ void main( ) {
 			samplesCount = getRequiredSamples( pixelIndex );
 			if( samplesCount == 0 ) {
                 // Use the previous frame's color
-				pixel.color = texture2D( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
-				gl_FragColor = vec4( pixel.color.rgb, 1.0 );
+				pixel.color = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
+				fragColor = vec4( pixel.color.rgb, 1.0 );
 				return;
 			}
 		}
@@ -330,7 +334,7 @@ void main( ) {
 			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 5 );
 
 			if( visMode == 5 ) {
-				gl_FragColor = vec4( jitterSample, 1.0, 1.0 );
+				fragColor = vec4( jitterSample, 1.0, 1.0 );
 				return;
 			}
 
@@ -354,11 +358,11 @@ void main( ) {
 
 	} else {
 		// For pixels that are not rendered in this frame, use the color from the previous frame
-		pixel.color = texture2D( previousFrameTexture, gl_FragCoord.xy / resolution );
+		pixel.color = texture( previousFrameTexture, gl_FragCoord.xy / resolution );
 	}
 
 	// pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
 	// pixel.color.rgb = dithering( pixel.color.rgb, seed );
 
-	gl_FragColor = vec4( pixel.color.rgb, 1.0 );
+	fragColor = vec4( pixel.color.rgb, 1.0 );
 }

@@ -28,11 +28,11 @@ vec3 square( vec3 x ) {
     return x * x;
 }
 
-// float luminance( vec3 color ) {
+float luminance( vec3 color ) {
 
-// 	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
 
-// }
+}
 
 // power heuristic for multiple importance sampling
 float powerHeuristic( float pdf1, float pdf2 ) {

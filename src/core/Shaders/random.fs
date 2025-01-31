@@ -2,7 +2,7 @@
 // Uniform declarations and constants
 // -----------------------------------------------------------------------------
 uniform sampler2D spatioTemporalBlueNoiseTexture;
-uniform vec3 spatioTemporalBlueNoiseReolution;
+uniform vec3 spatioTemporalBlueNoiseResolution;
 uniform sampler2D blueNoiseTexture;
 uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
 uniform ivec2 blueNoiseTextureSize;
@@ -155,11 +155,11 @@ vec4 sampleBlueNoise(vec2 pixelCoords) {
 
 // Sample spatio-temporal blue noise
 vec4 sampleSTBN(vec2 pixelCoords) {
-    vec3 stbnr = spatioTemporalBlueNoiseReolution;
+    vec3 stbnr = spatioTemporalBlueNoiseResolution;
     vec2 textureSize = vec2(stbnr.x, stbnr.y * stbnr.z);
-    vec2 texCoord = (pixelCoords + vec2(0.5)) / float(stbnr.x);
-    texCoord.y = (texCoord.y + float(int(frame) % int(stbnr.z))) / float(stbnr.z);
-    vec4 noise = texture2D(spatioTemporalBlueNoiseTexture, texCoord);
+    vec2 texCoord = (pixelCoords + vec2(0.5)) / stbnr.x;
+    texCoord.y = (texCoord.y + float(int(frame) % int(stbnr.z))) / stbnr.z;
+    vec4 noise = texture(spatioTemporalBlueNoiseTexture, texCoord);
 
     uint seed = uint(pixelCoords.x) * 1973u + uint(pixelCoords.y) * 9277u + uint(frame) * 26699u;
     float random = float(pcg_hash(seed)) / 4294967295.0;

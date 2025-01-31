@@ -6,6 +6,8 @@ import {
 	RepeatWrapping,
 	LinearFilter,
 	Clock,
+	RawShaderMaterial,
+	GLSL3
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { LightDataTransfer } from '../Processor/LightDataTransfer';
@@ -50,7 +52,7 @@ export class PathTracerPass extends Pass {
 		this.previousRenderTarget = this.renderTargetB;
 
 		this.name = 'PathTracerPass';
-		this.material = new ShaderMaterial( {
+		this.material = new RawShaderMaterial( {
 
 			name: 'PathTracingShader',
 
@@ -96,7 +98,7 @@ export class PathTracerPass extends Pass {
 				accumulatedFrameTexture: { value: null },
 
 				spatioTemporalBlueNoiseTexture: { value: null },
-				spatioTemporalBlueNoiseReolution: { value: new Vector3( 64, 64, 32 ) },
+				spatioTemporalBlueNoiseResolution: { value: new Vector3( 64, 64, 32 ) },
 
 				blueNoiseTexture: { value: null },
 				blueNoiseTextureSize: { value: new Vector2() },
@@ -125,6 +127,7 @@ export class PathTracerPass extends Pass {
 
 			vertexShader: VertexShader,
 			fragmentShader: FragmentShader,
+			glslVersion: GLSL3,
 
 		} );
 
