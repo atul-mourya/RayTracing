@@ -2,14 +2,14 @@ uniform bool enableEnvironmentLight;
 uniform sampler2D environment;
 uniform float environmentIntensity;
 
-// ray sampling x and z are swapped to align with expected background view
-vec2 directionToTextureCoordinate( vec3 direction ) {
 
-	vec2 uv;
-	uv.x = atan( direction.z, direction.x ) * ( 0.5 / PI ) + 0.5;
-	uv.y = 1.0 - acos( direction.y ) * PI_INV;
-	return uv;
-
+// Convert a normalized direction to UV coordinates for environment sampling
+vec2 directionToUV( vec3 direction ) {
+    // Use precomputed PI_INV constant
+	return vec2( 
+		atan( direction.z, direction.x ) * ( 0.5 * PI_INV ) + 0.5, 
+		1.0 - acos( direction.y ) * PI_INV 
+	);
 }
 
 vec4 sampleEnvironment( vec3 direction ) {
@@ -17,7 +17,7 @@ vec4 sampleEnvironment( vec3 direction ) {
 		return vec4( 0.0, 0.0, 0.0, 1.0 );
 	}
 
-	vec2 uv = directionToTextureCoordinate( direction );
+	vec2 uv = directionToUV( direction );
 	vec4 texel = texture( environment, uv );
 	texel.rgb *= environmentIntensity;
 	return texel;
@@ -29,11 +29,7 @@ struct EnvMapSample {
 	float pdf;
 };
 
-// Convert a normalized direction to UV coordinates for environment sampling
-vec2 directionToUV( vec3 direction ) {
-    // Use precomputed PI_INV constant
-	return vec2( atan( direction.z, direction.x ) * ( 0.5 * PI_INV ) + 0.5, acos( clamp( direction.y, - 1.0, 1.0 ) ) * PI_INV );
-}
+
 
 // Convert UV coordinates back to direction
 vec3 uvToDirection( vec2 uv ) {
@@ -64,19 +60,16 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	float theta = PI * xi.y;
 
     // Convert to direction
-	result.direction = uvToDirection( vec2( phi / ( 2.0 * PI ) + 0.5, theta / PI ) );
+	vec2 uv = vec2( phi / ( 2.0 * PI ) + 0.5, theta / PI );
+	result.direction = uvToDirection( uv );
+	result.value = sampleEnvironment( result.direction ).rgb;
+	
 
-    // Get color and calculate PDF
-	vec2 uv = directionToUV( result.direction );
-	vec4 texel = texture( environment, uv );
-	result.value = texel.rgb * environmentIntensity;
-
-	float sinTheta = max( sin( uv.y * PI ), 0.001 ); // Avoid division by zero
+	float sinTheta = sin( uv.y * PI ); // Avoid division by zero
 	result.pdf = 1.0 / ( 2.0 * PI * PI * sinTheta );
-	return result;
 
 	// Rec. 709 luminance calculation
-	// float luminance = dot( texel.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
+	// float luminance = dot( result.value, vec3( 0.2126, 0.7152, 0.0722 ) );
 	// float sinTheta = sin( uv.y * PI );
 	// result.pdf = luminance / ( 2.0 * PI * PI * max( sinTheta, 0.001 ) );
 
