@@ -6,6 +6,8 @@ import {
 	DirectionalLight,
 	WebGLRenderTarget,
 	FloatType,
+	LinearFilter,
+	LinearMipmapLinearFilter,
 	Vector2,
 	Mesh,
 	CircleGeometry,
@@ -137,7 +139,8 @@ class PathTracerApp extends EventDispatcher {
 
 		// Check for model URL in query parameters
 		const modelUrl = this.getQueryParameter( 'model' );
-		await this.loadEnvironment( DEFAULT_STATE.environment );
+		const envUrl = `${HDR_FILES[ DEFAULT_STATE.environment ].url}`;
+		await this.loadEnvironment( envUrl );
 		if ( modelUrl ) {
 
 			 try {
@@ -380,22 +383,23 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
-	async loadEnvironment( index ) {
+	async loadEnvironment( envUrl ) {
 
-		const envUrl = `${HDR_FILES[ index ].url}`;
 		const loader = new RGBELoader();
 		loader.setDataType( FloatType );
 		this.pauseRendering = true;
 
 		try {
 
-			const texture = await loader.loadAsync( envUrl );
-			texture.mapping = EquirectangularReflectionMapping;
+		  const texture = await loader.loadAsync( envUrl );
+		  texture.mapping = EquirectangularReflectionMapping;
+		  texture.minFilter = LinearMipmapLinearFilter;
+		  texture.magFilter = LinearFilter;
 
-			this.scene.background = texture;
-			this.scene.environment = texture;
+		  this.scene.background = texture;
+		  this.scene.environment = texture;
 
-			if ( this.pathTracingPass ) {
+		  if ( this.pathTracingPass ) {
 
 				this.pathTracingPass.material.uniforms.environmentIntensity.value = this.scene.environmentIntensity;
 				this.pathTracingPass.material.uniforms.environment.value = texture;
@@ -403,13 +407,13 @@ class PathTracerApp extends EventDispatcher {
 
 			}
 
-			this.pauseRendering = false;
+		  this.pauseRendering = false;
 
 		} catch ( error ) {
 
-			this.pauseRendering = false;
-			console.error( "Error loading HDR background:", error );
-			throw error;
+		  this.pauseRendering = false;
+		  console.error( "Error loading HDR background:", error );
+		  throw error;
 
 		}
 

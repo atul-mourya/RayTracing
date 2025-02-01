@@ -14,7 +14,6 @@ RayTracing Project TODO
 - [ ]  Auto focus based on object distance
 - [ ]  Volumetric rendering
 - [ ]  Caustic support
-- [ ]  High-res environment map selection
 - [ ]  Custom environment map support
 - [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
 - [ ]  implement support for point light
@@ -43,6 +42,7 @@ RayTracing Project TODO
 - [ ]  Add dynamic lights addition and removal
 - [ ]  Add dynamic camera addition and removal
 - [ ]  Add dynamic object addition and removal
+- [ ]  improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 
 🔄 Major Refactoring
 --------------------

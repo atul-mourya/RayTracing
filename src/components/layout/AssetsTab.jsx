@@ -1,7 +1,8 @@
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { HDR_FILES, MODEL_FILES, DEBUG_MODELS, DEFAULT_STATE } from '../../core/Processor/Constants';
+import { MODEL_FILES, DEBUG_MODELS, DEFAULT_STATE } from '../../core/Processor/Constants';
+import { EnvironmentCatalog } from '@/components/ui/env-catalog';
 import { useToast } from "@/hooks/use-toast";
 import { create } from 'zustand';
 import { useEffect } from 'react';
@@ -55,36 +56,38 @@ const AssetsTab = () => {
 
 	}, [] );
 
-	const handleEnvironmentChange = ( value ) => {
+	const handleEnvironmentChange = async ( envData ) => {
 
-		setEnvironment( value );
+		if ( ! envData || ! envData.url ) return;
+
+		setEnvironment( envData );
 		if ( window.pathTracerApp ) {
 
-			setLoading( { isLoading: true, title: "Loading", status: "Loading Enviroment...", progress: 0 } );
-			window.pathTracerApp.loadEnvironment( value )
-				.then( () => {
+			setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 0 } );
+			try {
 
-					toast( {
-						title: "Environment Loaded Successfully",
-						description: `${HDR_FILES[ value ].name}`,
-					} );
+				await window.pathTracerApp.loadEnvironment( envData.url );
 
-				} )
-				.catch( ( error ) => {
-
-					toast( {
-						title: "Error Loading Environment",
-						description: `${HDR_FILES[ value ].name}: ${error.message}`,
-						variant: "destructive",
-					} );
-
-				} ).finally( () => {
-
-					window.pathTracerApp.reset();
-					setLoading( { isLoading: true, title: "Loading", status: "Loading Enviroment...", progress: 100 } );
-					setTimeout( () => useStore.getState().resetLoading(), 1000 );
-
+				toast( {
+					title: "Environment Loaded Successfully",
+					description: envData.name,
 				} );
+
+			} catch ( error ) {
+
+				toast( {
+					title: "Error Loading Environment",
+					description: `${envData.name}: ${error.message}`,
+					variant: "destructive",
+				} );
+
+			} finally {
+
+				window.pathTracerApp.reset();
+				setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 100 } );
+				setTimeout( () => useStore.getState().resetLoading(), 1000 );
+
+			}
 
 		}
 
@@ -260,7 +263,7 @@ const AssetsTab = () => {
 					<ItemsCatalog data={materials} value={null} onValueChange={handleMaterialChange} />
 				</TabsContent>
 				<TabsContent value="environments" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<ItemsCatalog data={HDR_FILES} value={environment} onValueChange={handleEnvironmentChange} />
+					<EnvironmentCatalog value={environment?.id} onValueChange={handleEnvironmentChange} />
 				</TabsContent>
 				<TabsContent value="tests" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
 					<ItemsCatalog data={DEBUG_MODELS} value={debugModel} onValueChange={handleDebugModelChange} />
