@@ -1,5 +1,4 @@
 precision highp float;
-precision highp int;
 precision highp sampler2DArray;
 
 out vec4 fragColor; 
