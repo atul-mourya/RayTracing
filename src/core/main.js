@@ -30,7 +30,8 @@ import {
 	OutputPass,
 	RGBELoader,
 	DRACOLoader,
-	UnrealBloomPass
+	UnrealBloomPass,
+	EXRLoader,
 } from 'three/examples/jsm/Addons';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import Stats from 'stats-gl';
@@ -385,35 +386,47 @@ class PathTracerApp extends EventDispatcher {
 
 	async loadEnvironment( envUrl ) {
 
-		const loader = new RGBELoader();
-		loader.setDataType( FloatType );
+		const extension = envUrl.split( '.' ).pop().toLowerCase();
 		this.pauseRendering = true;
 
 		try {
 
-		  const texture = await loader.loadAsync( envUrl );
-		  texture.mapping = EquirectangularReflectionMapping;
-		  texture.minFilter = LinearMipmapLinearFilter;
-		  texture.magFilter = LinearFilter;
+			let texture;
+			if ( extension === 'hdr' || extension === 'exr' ) {
 
-		  this.scene.background = texture;
-		  this.scene.environment = texture;
+				const loader = extension === 'hdr' ? new RGBELoader() : new EXRLoader();
+				loader.setDataType( FloatType );
+				texture = await loader.loadAsync( envUrl );
 
-		  if ( this.pathTracingPass ) {
+			} else {
+
+				const loader = new TextureLoader();
+				texture = await loader.loadAsync( envUrl );
+
+			}
+
+			texture.mapping = EquirectangularReflectionMapping;
+			texture.minFilter = LinearMipmapLinearFilter;
+			texture.magFilter = LinearFilter;
+
+			this.scene.background = texture;
+			this.scene.environment = texture;
+
+			if ( this.pathTracingPass ) {
 
 				this.pathTracingPass.material.uniforms.environmentIntensity.value = this.scene.environmentIntensity;
 				this.pathTracingPass.material.uniforms.environment.value = texture;
 				this.pathTracingPass.reset();
 
-			}
+			 }
 
-		  this.pauseRendering = false;
+			this.pauseRendering = false;
 
 		} catch ( error ) {
 
-		  this.pauseRendering = false;
-		  console.error( "Error loading HDR background:", error );
-		  throw error;
+			this.pauseRendering = false;
+			console.error( "Error loading environment:", error );
+			throw error;
 
 		}
 

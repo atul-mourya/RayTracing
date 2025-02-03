@@ -5,6 +5,7 @@ RayTracing Project TODO
 ----------------
 
 - [ ]  Fix transmission value changes not impacting transmission intensity
+- [ ]  active catalog item not being highlighted in the UI
 
 ✨ Core Features
 ---------------
