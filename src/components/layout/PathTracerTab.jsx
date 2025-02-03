@@ -162,7 +162,6 @@ const PathTracerTab = () => {
 			case '3': mode = 3; break;
 			case '4': mode = 4; break;
 			case '5': mode = 5; break;
-			case '6': mode = 6; break;
 			default: mode = 0;
 
 		}
@@ -286,9 +285,13 @@ const PathTracerTab = () => {
 							<SelectValue placeholder="Select sampler" />
 						</SelectTrigger>
 						<SelectContent>
-							{[ 'PCG', 'Halton', 'Sobol', 'STBN', 'Stratified', 'BlueNoise', 'Stratified Blue Noise' ].map( ( sampler, i ) => (
-								<SelectItem key={sampler} value={i.toString()}>{sampler}</SelectItem>
-							) )}
+							<SelectItem key='PCG' value={"0"}>PCG</SelectItem>
+							<SelectItem key='Halton' value={"1"}>Halton</SelectItem>
+							<SelectItem key='Sobol' value={"2"}>Sobol</SelectItem>
+							<SelectItem key='STBN' value={"3"}>STBN</SelectItem>
+							<SelectItem key='Stratified' value={"4"}>Stratified</SelectItem>
+							<SelectItem key='BlueNoise' value={"5"}>BlueNoise</SelectItem>
+							<SelectItem key='Stratified Blue Noise' value={"6"}>Stratified Blue Noise</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
@@ -345,7 +348,6 @@ const PathTracerTab = () => {
 								<SelectItem value="3">Distance</SelectItem>
 								<SelectItem value="4">Normal</SelectItem>
 								<SelectItem value="5">Sampling</SelectItem>
-								<SelectItem value="6">Variance</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

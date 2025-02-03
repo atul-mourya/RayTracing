@@ -61,7 +61,7 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	result.direction = uvToDirection( uv );
 	result.value = sampleEnvironment( result.direction ).rgb;
 
-	float luminance = 1.0; //dot( result.value, vec3( 0.2126, 0.7152, 0.0722 ) ); // Rec. 709 luminance calculation
+	float luminance = dot( result.value, vec3( 0.2126, 0.7152, 0.0722 ) ); // Rec. 709 luminance calculation
 	float sinTheta = sin( uv.y * PI );
 	result.pdf = luminance / ( 2.0 * PI * PI * sinTheta );
 
