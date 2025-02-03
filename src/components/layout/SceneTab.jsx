@@ -10,9 +10,11 @@ import { Exposure } from '@/assets/icons';
 const useSceneStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
+	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
 	setExposure: ( value ) => set( { exposure: value } ),
 	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
 	setShowBackground: ( value ) => set( { showBackground: value } ),
+	setBackgroundIntensity: ( value ) => set( { backgroundIntensity: value } ),
 	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
 	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
 	setToneMapping: ( value ) => set( { toneMapping: value } ),
@@ -34,6 +36,7 @@ const SceneTab = () => {
 		exposure, setExposure,
 		enableEnvironment, setEnableEnvironment,
 		showBackground, setShowBackground,
+		backgroundIntensity, setBackgroundIntensity,
 		environmentIntensity, setEnvironmentIntensity,
 		GIIntensity, setGIIntensity,
 		toneMapping, setToneMapping,
@@ -70,6 +73,19 @@ const SceneTab = () => {
 
 			window.pathTracerApp.scene.background = value ? window.pathTracerApp.scene.environment : null;
 			window.pathTracerApp.pathTracingPass.material.uniforms.showBackground.value = value ? true : false;
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
+	const handleBackgroundIntensityChange = ( value ) => {
+
+		setBackgroundIntensity( value );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.scene.backgroundIntensity = value;
+			window.pathTracerApp.pathTracingPass.material.uniforms.backgroundIntensity.value = value;
 			window.pathTracerApp.reset();
 
 		}
@@ -133,13 +149,13 @@ const SceneTab = () => {
 				<Slider icon={Exposure} label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} onValueChange={handleExposureChange} />
 			</div>
 			<div className="flex items-center justify-between">
-				<Switch label={"Show Background"} checked={showBackground} onCheckedChange={handleShowBackgroundChange} />
-			</div>
-			<div className="flex items-center justify-between">
 				<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
 			</div>
 			<div className="flex items-center justify-between">
 				<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} onValueChange={handleGIIntensityChange} />
+			</div>
+			<div className="flex items-center justify-between">
+				<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
 			</div>
 		</div>
 	);

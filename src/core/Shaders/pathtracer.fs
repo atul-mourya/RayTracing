@@ -9,6 +9,7 @@ uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform bool showBackground;
+uniform float backgroundIntensity; // Add backgroundIntensity uniform
 uniform int renderMode; // 0: Regular, 1: Tiled
 uniform int tiles; // number of tiles
 uniform int visMode;
@@ -138,8 +139,9 @@ bool handleRussianRoulette( int depth, vec3 rayColor, RayTracingMaterial materia
 
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
-	if( bounceIndex == 0 && ! showBackground ) {
-		return vec4( 0.0, 0.0, 0.0, 0.0 );
+	if( bounceIndex == 0 ) {
+		
+		return showBackground ? sampleEnvironment( direction ) * backgroundIntensity : vec4( 0.0 );
 	}
 
 	return sampleEnvironment( direction );

@@ -415,6 +415,7 @@ class PathTracerApp extends EventDispatcher {
 			if ( this.pathTracingPass ) {
 
 				this.pathTracingPass.material.uniforms.environmentIntensity.value = this.scene.environmentIntensity;
+				this.pathTracingPass.material.uniforms.backgroundIntensity.value = this.scene.backgroundIntensity; // Set background intensity
 				this.pathTracingPass.material.uniforms.environment.value = texture;
 				this.pathTracingPass.reset();
 

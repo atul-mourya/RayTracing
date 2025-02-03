@@ -215,6 +215,7 @@ export const DEFAULT_STATE = {
 	model: 9,
 	environment: 2,
 	environmentIntensity: 1,
+	backgroundIntensity: 1,
 	globalIlluminationIntensity: 1,
 	fov: 50, // Standard 50mm lens equivalent FOV (~47 degrees)
 	focusDistance: 2.0, // 2 meters - good default middle distance
