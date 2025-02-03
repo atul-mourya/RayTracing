@@ -2,7 +2,6 @@ uniform bool enableEnvironmentLight;
 uniform sampler2D environment;
 uniform float environmentIntensity;
 
-
 // Convert a normalized direction to UV coordinates for environment sampling
 vec2 directionToUV( vec3 direction ) {
     // Use precomputed PI_INV constant
@@ -28,8 +27,6 @@ struct EnvMapSample {
 	vec3 value;
 	float pdf;
 };
-
-
 
 // Convert UV coordinates back to direction
 vec3 uvToDirection( vec2 uv ) {
@@ -63,15 +60,10 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	vec2 uv = vec2( phi / ( 2.0 * PI ) + 0.5, theta / PI );
 	result.direction = uvToDirection( uv );
 	result.value = sampleEnvironment( result.direction ).rgb;
-	
 
-	float sinTheta = sin( uv.y * PI ); // Avoid division by zero
-	result.pdf = 1.0 / ( 2.0 * PI * PI * sinTheta );
-
-	// Rec. 709 luminance calculation
-	// float luminance = dot( result.value, vec3( 0.2126, 0.7152, 0.0722 ) );
-	// float sinTheta = sin( uv.y * PI );
-	// result.pdf = luminance / ( 2.0 * PI * PI * max( sinTheta, 0.001 ) );
+	float luminance = 1.0; //dot( result.value, vec3( 0.2126, 0.7152, 0.0722 ) ); // Rec. 709 luminance calculation
+	float sinTheta = sin( uv.y * PI );
+	result.pdf = luminance / ( 2.0 * PI * PI * sinTheta );
 
 	return result;
 }
