@@ -21,6 +21,7 @@ const useStore = create( ( set ) => ( {
 	setAdaptiveSamplingMin: value => set( { adaptiveSamplingMin: value } ),
 	setAdaptiveSamplingMax: value => set( { adaptiveSamplingMax: value } ),
 	setAdaptiveSamplingVarianceThreshold: value => set( { adaptiveSamplingVarianceThreshold: value } ),
+	setFireflyThreshold: value => set( { fireflyThreshold: value } ),
 	setRenderMode: value => set( { renderMode: value } ),
 	setTiles: value => set( { tiles: value } ),
 	setTilesHelper: value => set( { tilesHelper: value } ),
@@ -67,6 +68,7 @@ const PathTracerTab = () => {
 		adaptiveSamplingMin, setAdaptiveSamplingMin,
 		adaptiveSamplingMax, setAdaptiveSamplingMax,
 		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
+		fireflyThreshold, setFireflyThreshold,
 		renderMode, setRenderMode,
 		tiles, setTiles,
 		tilesHelper, setTilesHelper,
@@ -129,6 +131,8 @@ const PathTracerTab = () => {
 	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
 	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
 	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
+
+	const handleFireflyThresholdChange = handleChange( setFireflyThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = value[ 0 ] );
 
 	// Render Mode
 	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
@@ -312,6 +316,9 @@ const PathTracerTab = () => {
 						<Slider label={"Variance Threshold"} min={0.001} max={1} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 					</div>
 				</> )}
+				<div className="flex items-center justify-between">
+					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
+				</div>
 			</ControlGroup>
 			<ControlGroup name="Post Processing">
 				<div className="flex items-center justify-between">

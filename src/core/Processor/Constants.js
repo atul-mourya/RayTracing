@@ -232,6 +232,7 @@ export const DEFAULT_STATE = {
 	adaptiveSamplingMin: 1,
 	adaptiveSamplingMax: 4,
 	adaptiveSamplingVarianceThreshold: 0.1,
+	fireflyThreshold: 1,
 	renderMode: 0,
 	tiles: 2,
 	tilesHelper: false,

@@ -92,6 +92,7 @@ export class PathTracerPass extends Pass {
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
 				adaptiveSamplingTexture: { value: null },
+				fireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				tiles: { value: this.tiles },

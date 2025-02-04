@@ -18,6 +18,7 @@ uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from Adapti
 uniform sampler2D previousFrameTexture; // Texture from the previous frame
 uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame for temporal anti-aliasing
 uniform bool useAdaptiveSampling;
+uniform float fireflyThreshold;
 
 // Include statements
 #include struct.fs
@@ -162,7 +163,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
 			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
-			radiance += reduceFireflies( envColor.rgb * throughput * ( bounceIndex == 0 ? 1.0 : environmentIntensity ), 1.0 );
+			radiance += reduceFireflies( envColor.rgb * throughput * ( bounceIndex == 0 ? 1.0 : environmentIntensity ), fireflyThreshold);
 			alpha *= envColor.a;
 			// return vec4(envColor, 1.0);
 			break;
@@ -219,12 +220,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 
 		// Indirect lighting using MIS
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState );
-		throughput *= reduceFireflies( indirectResult.throughput, 1.0 );
+		throughput *= reduceFireflies( indirectResult.throughput, fireflyThreshold );
 
 		// Direct lighting using MIS
 		// Calculate direct lighting using Multiple Importance Sampling
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
-		radiance += reduceFireflies( directLight * throughput, 1.0 );
+		radiance += reduceFireflies( directLight * throughput, fireflyThreshold );
 		// return vec4(directLight, 1.0);
 
         // Prepare for next bounce
