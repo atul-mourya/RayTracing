@@ -28,7 +28,7 @@ vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
 
 	vec2 transformedUV = getTransformedUV( uv, material.albedoTransform );
 	vec4 albedo = sampleMap( albedoMaps, material.albedoMapIndex, transformedUV );
-	return material.color * vec4( sRGBToLinear( albedo.rgb ), albedo.a );
+	return material.color * sRGBTransferEOTF( albedo );
 }
 
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
@@ -37,7 +37,7 @@ vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
 		return emission;
 
 	vec2 transformedUV = getTransformedUV( uv, material.emissiveTransform );
-	return emission * sRGBToLinear( sampleMap( emissiveMaps, material.emissiveMapIndex, transformedUV ).rgb );
+	return emission * sRGBTransferEOTF( sampleMap( emissiveMaps, material.emissiveMapIndex, transformedUV ) ).rgb;
 }
 
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {

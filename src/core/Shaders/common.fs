@@ -4,6 +4,19 @@ const float EPSILON = 0.001;
 const float MIN_ROUGHNESS = 0.05;
 const float MAX_ROUGHNESS = 1.0;
 const float MIN_PDF = 0.001;
+const vec3 REC709_LUMINANCE_COEFFICIENTS = vec3( 0.2126, 0.7152, 0.0722 );
+
+// EOTF is the Electro-Optical Transfer Function: 
+// This is the function that converts linear light values to non-linear display values.
+vec4 sRGBTransferEOTF( in vec4 value ) {
+	return vec4( mix( pow( value.rgb * 0.9478672986 + vec3( 0.0521327014 ), vec3( 2.4 ) ), value.rgb * 0.0773993808, vec3( lessThanEqual( value.rgb, vec3( 0.04045 ) ) ) ), value.a );
+}
+
+// OETF is the Opto-Electronic Transfer Function: 
+// This is the function that converts non-linear display values to linear light values.
+vec4 sRGBTransferOETF( in vec4 value ) {
+	return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92, vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
+}
 
 vec3 sRGBToLinear( vec3 srgbColor ) {
     return pow( srgbColor, vec3( 2.2 ) );
@@ -30,7 +43,7 @@ vec3 square( vec3 x ) {
 
 float luminance( vec3 color ) {
 
-	return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+	return REC709_LUMINANCE_COEFFICIENTS.x * color.r + REC709_LUMINANCE_COEFFICIENTS.y * color.g + REC709_LUMINANCE_COEFFICIENTS.x * color.b;
 
 }
 
@@ -59,7 +72,7 @@ vec3 applyDithering( vec3 color, vec2 uv, float ditheringAmount ) {
 }
 
 vec3 reduceFireflies( vec3 color, float maxValue ) {
-    float luminance = dot( color, vec3( 0.299, 0.587, 0.114 ) );
+    float luminance = dot( color, REC709_LUMINANCE_COEFFICIENTS );
     if( luminance > maxValue ) {
         color *= maxValue / luminance;
     }

@@ -1,7 +1,6 @@
 import { Sun, Sunrise } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { SliderToggle } from "@/components/ui/slider-toggle";
-import { Switch } from "@/components/ui/switch";
 import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { create } from 'zustand';

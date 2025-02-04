@@ -18,6 +18,7 @@ vec4 sampleEnvironment( vec3 direction ) {
 
 	vec2 uv = directionToUV( direction );
 	vec4 texel = texture( environment, uv );
+	// texel = sRGBTransferEOTF( texel );
 	texel.rgb *= environmentIntensity;
 	return texel;
 }
@@ -61,9 +62,8 @@ EnvMapSample sampleEnvironmentMap( vec2 xi ) {
 	result.direction = uvToDirection( uv );
 	result.value = sampleEnvironment( result.direction ).rgb;
 
-	float luminance = dot( result.value, vec3( 0.2126, 0.7152, 0.0722 ) ); // Rec. 709 luminance calculation
 	float sinTheta = sin( uv.y * PI );
-	result.pdf = luminance / ( 2.0 * PI * PI * sinTheta );
+	result.pdf = luminance( result.value ) / ( 2.0 * PI * PI * sinTheta );
 
 	return result;
 }
