@@ -60,6 +60,7 @@ class PathTracerApp extends EventDispatcher {
 
 		this.scene = new Scene();
 		this.scene.environmentIntensity = DEFAULT_STATE.environmentIntensity;
+		this.scene.backgroundIntensity = DEFAULT_STATE.backgroundIntensity;
 		this.camera = new PerspectiveCamera( DEFAULT_STATE.fov, this.width / this.height, 0.01, 1000 );
 		this.renderer = new WebGLRenderer( {
 			powerPreference: "high-performance",
@@ -406,7 +407,7 @@ class PathTracerApp extends EventDispatcher {
 			}
 
 			texture.mapping = EquirectangularReflectionMapping;
-			texture.minFilter = LinearMipmapLinearFilter;
+			texture.minFilter = LinearFilter;
 			texture.magFilter = LinearFilter;
 
 			this.scene.background = texture;
