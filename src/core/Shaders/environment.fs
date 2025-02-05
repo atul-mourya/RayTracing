@@ -21,15 +21,16 @@ vec4 sampleEnvironment(vec3 direction) {
 
     vec2 uv = directionToUV(direction);
     vec4 texSample = texture(environment, uv);
+	return texSample;
     
-    // Calculate PDF based on solid angle and luminance
-    float sinTheta = sin(uv.y * PI);
-    // float lumValue = luminance(texSample.rgb);
-    float lumValue = 10.0;
+    // // Calculate PDF based on solid angle and luminance
+    // float sinTheta = sin(uv.y * PI);
+    // // float lumValue = luminance(texSample.rgb);
+    // float lumValue = 10.0;
     
-    // PDF = luminance / (2π²sin(θ))
-    // Account for spherical distortion and prevent division by zero
-    float pdf = max(lumValue, MIN_PDF) / (2.0 * PI * PI * max(sinTheta, MIN_PDF));
+    // // PDF = luminance / (2π²sin(θ))
+    // // Account for spherical distortion and prevent division by zero
+    // float pdf = max(lumValue, MIN_PDF) / (2.0 * PI * PI * max(sinTheta, MIN_PDF));
     
-    return texSample / pdf;
+    // return texSample / pdf;
 }

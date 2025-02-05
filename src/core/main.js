@@ -7,7 +7,6 @@ import {
 	WebGLRenderTarget,
 	FloatType,
 	LinearFilter,
-	LinearMipmapLinearFilter,
 	Vector2,
 	Mesh,
 	CircleGeometry,

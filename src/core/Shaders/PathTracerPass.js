@@ -585,54 +585,5 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	async loadEnvironment( envUrl ) {
-
-		const extension = envUrl.split( '.' ).pop().toLowerCase();
-		this.pauseRendering = true;
-
-		try {
-
-			let texture;
-			if ( extension === 'hdr' || extension === 'exr' ) {
-
-				const loader = extension === 'hdr' ? new RGBELoader() : new EXRLoader();
-				loader.setDataType( FloatType );
-				texture = await loader.loadAsync( envUrl );
-
-			} else {
-
-				const loader = new TextureLoader();
-				texture = await loader.loadAsync( envUrl );
-
-			}
-
-			texture.mapping = EquirectangularReflectionMapping;
-			texture.minFilter = LinearMipmapLinearFilter;
-			texture.magFilter = LinearFilter;
-
-			this.scene.background = texture;
-			this.scene.environment = texture;
-
-			if ( this.pathTracingPass ) {
-
-				this.pathTracingPass.material.uniforms.environmentIntensity.value = this.scene.environmentIntensity;
-				this.pathTracingPass.material.uniforms.backgroundIntensity.value = this.scene.backgroundIntensity; // Set background intensity
-				this.pathTracingPass.material.uniforms.environment.value = texture;
-				this.pathTracingPass.reset();
-
-			 }
-
-			this.pauseRendering = false;
-
-		} catch ( error ) {
-
-			this.pauseRendering = false;
-			console.error( "Error loading environment:", error );
-			throw error;
-
-		}
-
-	}
-
 }
 
