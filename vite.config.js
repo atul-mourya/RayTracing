@@ -7,11 +7,19 @@ import topLevelAwait from "vite-plugin-top-level-await";
 import process from 'process';
 const __dirname = path.resolve();
 
+const ReactCompilerConfig = {}; // Define ReactCompilerConfig
+
 export default defineConfig( {
 	base: './',
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
-		react(),
+		react( {
+			babel: {
+			  plugins: [
+					[ "babel-plugin-react-compiler", ReactCompilerConfig ],
+			  ],
+			},
+		  } ),
 		tailwindcss(),
 		glsl( {
 			include: [ // Glob pattern, or array of glob patterns to import
