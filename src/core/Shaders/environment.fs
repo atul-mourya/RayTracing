@@ -5,9 +5,9 @@ uniform float environmentIntensity;
 // Convert a normalized direction to UV coordinates for environment sampling
 vec2 directionToUV( vec3 direction ) {
     // Use precomputed PI_INV constant
-	return vec2( 
-		atan( direction.z, direction.x ) * ( 0.5 * PI_INV ) + 0.5, 
-		1.0 - acos( direction.y ) * PI_INV 
+    return vec2( 
+		atan( direction.z, direction.x ) * ( 0.5 * PI_INV ) + 0.5,
+        1.0 - acos( direction.y ) * PI_INV 
 	);
 }
 
@@ -18,52 +18,28 @@ vec4 sampleEnvironment( vec3 direction ) {
 
 	vec2 uv = directionToUV( direction );
 	vec4 texel = texture( environment, uv );
-	// texel = sRGBTransferEOTF( texel );
-	texel.rgb *= environmentIntensity;
 	return texel;
 }
 
-struct EnvMapSample {
-	vec3 direction;
-	vec3 value;
-	float pdf;
-};
+vec4 sampleEnvironmentMap(vec3 direction) {
 
-// Convert UV coordinates back to direction
-vec3 uvToDirection( vec2 uv ) {
-	float phi = ( uv.x * 2.0 - 1.0 ) * PI;
-	float theta = uv.y * PI;
+	if (!enableEnvironmentLight) {
 
-	float cosTheta = cos( theta );
-	float sinTheta = sin( theta );
-	float cosPhi = cos( phi );
-	float sinPhi = sin( phi );
+        return vec4(0.0);
 
-	return vec3( sinTheta * cosPhi, cosTheta, sinTheta * sinPhi );
-}
+    }
 
-// Sample the environment map using importance sampling
-EnvMapSample sampleEnvironmentMap( vec2 xi ) {
-	EnvMapSample result;
-
-	if( ! enableEnvironmentLight ) {
-		result.direction = vec3( 0.0, 1.0, 0.0 );
-		result.value = vec3( 0.0 );
-		result.pdf = 0.0;
-		return result;
-	}
-
-    // Convert uniform random numbers to spherical coordinates
-	float phi = 2.0 * PI * xi.x;
-	float theta = PI * xi.y;
-
-    // Convert to direction
-	vec2 uv = vec2( phi / ( 2.0 * PI ) + 0.5, theta / PI );
-	result.direction = uvToDirection( uv );
-	result.value = sampleEnvironment( result.direction ).rgb;
-
-	float sinTheta = sin( uv.y * PI );
-	result.pdf = luminance( result.value ) / ( 2.0 * PI * PI * sinTheta );
-
-	return result;
+    vec2 uv = directionToUV(direction);
+    vec4 texSample = texture(environment, uv);
+    
+    // Calculate PDF based on solid angle and luminance
+    float sinTheta = sin(uv.y * PI);
+    // float lumValue = luminance(texSample.rgb);
+    float lumValue = 10.0;
+    
+    // PDF = luminance / (2π²sin(θ))
+    // Account for spherical distortion and prevent division by zero
+    float pdf = max(lumValue, MIN_PDF) / (2.0 * PI * PI * max(sinTheta, MIN_PDF));
+    
+    return texSample / pdf;
 }

@@ -43,7 +43,7 @@ vec3 square( vec3 x ) {
 
 float luminance( vec3 color ) {
 
-	return REC709_LUMINANCE_COEFFICIENTS.x * color.r + REC709_LUMINANCE_COEFFICIENTS.y * color.g + REC709_LUMINANCE_COEFFICIENTS.x * color.b;
+	return dot( color, REC709_LUMINANCE_COEFFICIENTS );
 
 }
 
