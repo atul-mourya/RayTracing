@@ -142,10 +142,10 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 	if( bounceIndex == 0 ) {
 		
-		return showBackground ? sampleEnvironmentMap( direction ) * backgroundIntensity : vec4( 0.0 );
+		return showBackground ? sampleEnvironment( direction ) * backgroundIntensity : vec4( 0.0 );
 	}
 
-	return sampleEnvironmentMap( direction );
+	return sampleEnvironment( direction );
 
 }
 

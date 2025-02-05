@@ -11,17 +11,7 @@ vec2 directionToUV( vec3 direction ) {
 	);
 }
 
-vec4 sampleEnvironment( vec3 direction ) {
-	if( ! enableEnvironmentLight ) {
-		return vec4( 0.0, 0.0, 0.0, 1.0 );
-	}
-
-	vec2 uv = directionToUV( direction );
-	vec4 texel = texture( environment, uv );
-	return texel;
-}
-
-vec4 sampleEnvironmentMap(vec3 direction) {
+vec4 sampleEnvironment(vec3 direction) {
 
 	if (!enableEnvironmentLight) {
 
