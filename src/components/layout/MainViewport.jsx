@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Viewport3D from './Viewport3D';
 import { DEFAULT_STATE } from '@/core/Processor/Constants';
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -12,6 +12,7 @@ const MainViewport = () => {
 	const [ isEditing, setIsEditing ] = useState( false );
 	const [ inputValue, setInputValue ] = useState( maxSamples );
 	const [ isDenoising, setIsDenoising ] = useState( false );
+	const containerRef = useRef( null );
 
 	useEffect( () => {
 
@@ -81,7 +82,15 @@ const MainViewport = () => {
 	const handleFullscreen = () => {
 
 		if ( ! window.pathTracerApp ) return;
-		document.fullscreenElement ? document.exitFullscreen() : window.pathTracerApp.container.requestFullscreen();
+		if ( document.fullscreenElement ) {
+
+			document.exitFullscreen();
+
+		} else {
+
+			containerRef.current.requestFullscreen();
+
+		}
 
 	};
 
@@ -98,7 +107,7 @@ const MainViewport = () => {
 	};
 
 	return (
-		<div className="w-full h-full relative">
+		<div ref={containerRef} className="w-full h-full relative">
 			<Viewport3D onStatsUpdate={setStats} />
 			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
           Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
