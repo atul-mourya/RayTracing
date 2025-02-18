@@ -23,11 +23,12 @@ vec4 sampleEnvironment( vec3 direction ) {
     vec2 uv = directionToUV( normalize( direction ) );
     vec4 texSample = texture( environment, uv );
 
+    float intensityScale = environmentIntensity * exposure;
+
     // Keep values in linear space, just apply basic intensity control
-    float lumValue = luminance( texSample.rgb );
+    float lumValue = luminance( texSample.rgb ) * intensityScale;
 
     // Softer scale for very bright areas to prevent harsh clipping
-    float intensityScale = environmentIntensity * exposure;
     if( lumValue > 1.0 ) {
         intensityScale *= 1.0 / ( 1.0 + log( lumValue ) );
     }
