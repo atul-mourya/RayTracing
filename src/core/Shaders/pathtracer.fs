@@ -142,7 +142,7 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 	if( bounceIndex == 0 ) {
 		
-		return showBackground ? sampleEnvironment( direction ) * backgroundIntensity : vec4( 0.0 );
+		return showBackground ? sampleEnvironment( direction ) * backgroundIntensity * PI_INV * 2.0 : vec4( 0.0 );
 	}
 
 	return sampleEnvironment( direction );
@@ -163,7 +163,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
 			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
-			radiance += reduceFireflies( envColor.rgb * throughput * environmentIntensity, fireflyThreshold);
+			radiance += reduceFireflies( envColor.rgb * throughput, fireflyThreshold);
 			alpha *= envColor.a;
 			// return vec4(envColor, 1.0);
 			break;

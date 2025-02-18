@@ -264,6 +264,7 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( this.bloomPass );
 
 		const outputPass = new OutputPass();
+		outputPass.material.toneMapped = true;
 		this.composer.addPass( outputPass );
 
 		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera, DEFAULT_STATE );

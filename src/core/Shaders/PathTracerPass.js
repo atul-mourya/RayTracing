@@ -7,7 +7,8 @@ import {
 	LinearFilter,
 	Clock,
 	RawShaderMaterial,
-	GLSL3
+	GLSL3,
+	LinearSRGBColorSpace
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { LightDataTransfer } from '../Processor/LightDataTransfer';
@@ -43,6 +44,7 @@ export class PathTracerPass extends Pass {
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
 			type: FloatType,
+			colorSpace: LinearSRGBColorSpace,
 			depthBuffer: false,
 		} );
 		this.renderTargetB = this.renderTargetA.clone();
@@ -65,6 +67,7 @@ export class PathTracerPass extends Pass {
 			uniforms: {
 
 				resolution: { value: new Vector2( width, height ) },
+				exposure: { value: DEFAULT_STATE.exposure },
 				enableEnvironmentLight: { value: DEFAULT_STATE.enableEnvironment },
 				environment: { value: scene.environment },
 				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity }, // Add backgroundIntensity uniform

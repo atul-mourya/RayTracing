@@ -47,6 +47,7 @@ const SceneTab = () => {
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.renderer.toneMappingExposure = value;
+			window.pathTracerApp.pathTracingPass.material.uniforms.exposure.value = value;
 			window.pathTracerApp.reset();
 
 		}
