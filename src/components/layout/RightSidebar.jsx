@@ -1,6 +1,5 @@
 import { Sliders, Camera, Box, Sun, SwatchBook } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import SceneTab from './SceneTab';
 import CameraTab from './CameraTab';
 import LightsTab from './LightsTab';
 import AssetsTab from './AssetsTab';
@@ -12,14 +11,10 @@ const RightSidebar = () => {
 	return (
 		<div className="relative border-l flex flex-col overflow-hidden h-full w-full">
 			<Tabs defaultValue="pathtracer" className="flex flex-col h-full w-full">
-				<TabsList className="relative grid w-full grid-cols-6 h-12 p-0">
+				<TabsList className="relative grid w-full grid-cols-5 h-12 p-0">
 					<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
 						<Sliders size={12} />
 						<span className="text-xs mt-1">Tracer</span>
-					</TabsTrigger>
-					<TabsTrigger value="scene" className="flex flex-col items-center py-2">
-						<Box size={12} />
-						<span className="text-xs mt-1">Scene</span>
 					</TabsTrigger>
 					<TabsTrigger value="camera" className="flex flex-col items-center py-2">
 						<Camera size={12} />
@@ -38,10 +33,6 @@ const RightSidebar = () => {
 						<span className="text-xs mt-1">Material</span>
 					</TabsTrigger>
 				</TabsList>
-
-				<TabsContent value="scene" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-					<SceneTab />
-				</TabsContent>
 
 				<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 					<CameraTab />

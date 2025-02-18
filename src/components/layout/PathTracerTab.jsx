@@ -1,4 +1,4 @@
-import { Grip } from 'lucide-react';
+import { Grip, Sun, Sunrise } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -8,6 +8,7 @@ import { DEFAULT_STATE } from '../../core/Processor/Constants';
 import { ControlGroup } from '@/components/ui/control-group';
 import { Separator } from '@/components/ui/separator';
 import { SliderToggle } from '@/components/ui/slider-toggle';
+import { Exposure } from '@/assets/icons';
 
 const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
 const useStore = create( ( set ) => ( {
@@ -42,6 +43,15 @@ const useStore = create( ( set ) => ( {
 	setEnableTemporalReprojection: value => set( { enableTemporalReprojection: value } ),
 	setOidnQuality: value => set( { oidnQuality: value } ),
 	setOidnHdr: value => set( { oidnHdr: value } ),
+	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
+	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
+	setExposure: ( value ) => set( { exposure: value } ),
+	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
+	setShowBackground: ( value ) => set( { showBackground: value } ),
+	setBackgroundIntensity: ( value ) => set( { backgroundIntensity: value } ),
+	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
+	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
+	setToneMapping: ( value ) => set( { toneMapping: value } ),
 } ) );
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
@@ -55,6 +65,16 @@ const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
 	}
 
 };
+
+const toneMappingOptions = [
+	{ label: 'None', value: 0 },
+	{ label: 'Linear', value: 1 },
+	{ label: 'Reinhard', value: 2 },
+	{ label: 'Cineon', value: 3 },
+	{ label: 'ACESFilmic', value: 4 },
+	{ label: 'AgXToneMapping', value: 6 },
+	{ label: 'NeutralToneMapping', value: 7 }
+];
 
 const PathTracerTab = () => {
 
@@ -89,6 +109,13 @@ const PathTracerTab = () => {
 		enableTemporalReprojection, setEnableTemporalReprojection,
 		oidnQuality, setOidnQuality,
 		oidnHdr, setOidnHdr,
+		exposure, setExposure,
+		enableEnvironment, setEnableEnvironment,
+		showBackground, setShowBackground,
+		backgroundIntensity, setBackgroundIntensity,
+		environmentIntensity, setEnvironmentIntensity,
+		GIIntensity, setGIIntensity,
+		toneMapping, setToneMapping,
 	} = useStore();
 
 	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
@@ -181,6 +208,61 @@ const PathTracerTab = () => {
 	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
 	const handleTemporalReprojectionChange = handleChange( setEnableTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
 
+	// Scene Settings
+	const handleExposureChange = handleChange( setExposure, value => {
+
+		window.pathTracerApp.renderer.toneMappingExposure = value;
+		window.pathTracerApp.pathTracingPass.material.uniforms.exposure.value = value;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleEnableEnvironmentChange = handleChange( setEnableEnvironment, value => {
+
+		window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = value;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleShowBackgroundChange = handleChange( setShowBackground, value => {
+
+		window.pathTracerApp.scene.background = value ? window.pathTracerApp.scene.environment : null;
+		window.pathTracerApp.pathTracingPass.material.uniforms.showBackground.value = value ? true : false;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleBackgroundIntensityChange = handleChange( setBackgroundIntensity, value => {
+
+		window.pathTracerApp.scene.backgroundIntensity = value;
+		window.pathTracerApp.pathTracingPass.material.uniforms.backgroundIntensity.value = value;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleEnvironmentIntensityChange = handleChange( setEnvironmentIntensity, value => {
+
+		window.pathTracerApp.scene.environmentIntensity = value;
+		window.pathTracerApp.pathTracingPass.material.uniforms.environmentIntensity.value = value;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleGIIntensityChange = handleChange( setGIIntensity, value => {
+
+		window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = value * Math.PI;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleToneMappingChange = handleChange( setToneMapping, value => {
+
+		value = parseInt( value );
+		window.pathTracerApp.renderer.toneMapping = value;
+		window.pathTracerApp.reset();
+
+	} );
+
 	return (
 		<div className="">
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
@@ -240,6 +322,33 @@ const PathTracerTab = () => {
                         1:1
 						</ToggleGroupItem>
 					</ToggleGroup>
+				</div>
+			</ControlGroup>
+			<ControlGroup name="Scene">
+				<div className="flex items-center justify-between">
+					<Select value={toneMapping.toString()} onValueChange={handleToneMappingChange}>
+						<span className="opacity-50 text-xs truncate">ToneMapping</span>
+						<SelectTrigger className="max-w-32 h-5 rounded-full" >
+							<SelectValue placeholder="Select ToneMapping" />
+						</SelectTrigger>
+						<SelectContent>
+							{toneMappingOptions.map( ( { label, value } ) => (
+								<SelectItem key={value} value={value.toString()}>{label}</SelectItem>
+							) )}
+						</SelectContent>
+					</Select>
+				</div>
+				<div className="flex items-center justify-between">
+					<Slider icon={Exposure} label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} onValueChange={handleExposureChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} onValueChange={handleGIIntensityChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
 				</div>
 			</ControlGroup>
 			<ControlGroup name="Denoising">
