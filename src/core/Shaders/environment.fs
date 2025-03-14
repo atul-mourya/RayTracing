@@ -20,20 +20,20 @@ vec4 sampleEnvironment( vec3 direction ) {
 
     }
 
-    vec2 uv = directionToUV( normalize( direction ) );
-    vec4 texSample = texture( environment, uv );
+    vec2 uv = directionToUV(direction);
+    vec4 texSample = texture(environment, uv);
 
-    float intensityScale = environmentIntensity * exposure;
+    // float intensityScale = environmentIntensity * exposure;
 
-    // Keep values in linear space, just apply basic intensity control
-    float lumValue = luminance( texSample.rgb ) * intensityScale;
+    // // Keep values in linear space, just apply basic intensity control
+    // float lumValue = luminance( texSample.rgb ) * intensityScale;
 
-    // Softer scale for very bright areas to prevent harsh clipping
-    if( lumValue > 1.0 ) {
-        intensityScale *= 1.0 / ( 1.0 + log( lumValue ) );
-    }
+    // // Softer scale for very bright areas to prevent harsh clipping
+    // if( lumValue > 1.0 ) {
+    //     intensityScale *= 1.0 / ( 1.0 + log( lumValue ) );
+    // }
 
-    texSample.rgb *= intensityScale * texSample.a;
+    // texSample.rgb *= intensityScale * texSample.a;
     return texSample;
 
 }
