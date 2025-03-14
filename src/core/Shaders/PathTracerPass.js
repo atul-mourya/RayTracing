@@ -171,55 +171,9 @@ export class PathTracerPass extends Pass {
 
 		} );
 
-		this.useDownSampledInteractions = DEFAULT_STATE.downSampledMovement;
-		this.downsampleFactor = 4;
-		this.isInteracting = false;
-		this.interactionTimeout = null;
-		this.interactionDelay = 0.01; // seconds, increased for better debouncing
-		this.accumulationPass = null; // Reference to AccumulationPass, to be set later
-		this.adaptiveSamplingPass = null; // Reference to AdaptiveSamplingPass, to be set later
-		this.transitionDuration = 0.00; // Duration of transition in seconds
-		this.transitionClock = new Clock( false );
-		this.isTransitioning = false;
-
 		this.isComplete = false;
-
-		this.downsampledRenderTarget = new WebGLRenderTarget( width, height, {
-			format: RGBAFormat,
-			type: FloatType,
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			depthBuffer: false,
-			stencilBuffer: false
-		} );
-
-		// blend material for smooth transition
-		this.blendMaterial = new ShaderMaterial( {
-			uniforms: {
-				tLowRes: { value: null },
-				tHighRes: { value: null },
-				blend: { value: 0.0 }
-			},
-			vertexShader: `
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: `
-				uniform sampler2D tLowRes;
-				uniform sampler2D tHighRes;
-				uniform float blend;
-				varying vec2 vUv;
-				void main() {
-					vec4 lowRes = texture2D(tLowRes, vUv);
-					vec4 highRes = texture2D(tHighRes, vUv);
-					gl_FragColor = mix(lowRes, highRes, blend);
-				}
-			`
-		} );
-		this.blendQuad = new FullScreenQuad( this.blendMaterial );
+		this.accumulationPass = null;
+		this.adaptiveSamplingPass = null;
 
 	}
 
@@ -335,18 +289,6 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		if ( this.useDownSampledInteractions ) {
-
-			// Start or restart the debounce timer
-			this.startDebounceTimer();
-
-			// Ensure we're in interaction mode
-			this.isInteracting = true;
-			this.isTransitioning = false;
-			this.transitionClock.stop();
-
-		}
-
 		if ( this.accumulationPass ) {
 
 			this.accumulationPass.reset( this.renderer );
@@ -365,40 +307,6 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.resolution.value.set( width, height );
 		this.renderTargetA.setSize( width, height );
 		this.renderTargetB.setSize( width, height );
-		this.downsampledRenderTarget.setSize( width / this.downsampleFactor, height / this.downsampleFactor );
-
-	}
-
-	startDebounceTimer() {
-
-		if ( ! this.useDownSampledInteractions ) return;
-
-		// Clear any existing timeout
-		if ( this.interactionTimeout ) {
-
-			clearTimeout( this.interactionTimeout );
-
-		}
-
-		// Set a new timeout
-		this.interactionTimeout = setTimeout( () => {
-
-			this.isInteracting = false;
-			this.startTransition();
-
-		}, this.interactionDelay * 1000 );
-
-	}
-
-	startTransition() {
-
-		if ( ! this.useDownSampledInteractions ) return;
-
-		this.isTransitioning = true;
-		this.transitionClock.start();
-		console.log( 'startTransition' );
-
-
 	}
 
 	setAccumulationPass( accPass ) {
@@ -468,123 +376,19 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 4. Handle rendering based on interaction mode
-		if ( this.useDownSampledInteractions ) {
-
-			this._handleInteractiveRendering( renderer, writeBuffer );
-
-		} else {
-
-			this._handleStandardRendering( renderer, writeBuffer );
-
-		}
-
-		// 5. Final updates
-		uniforms.tiles.value = this.tiles;
-		[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
-
-	}
-
-	// Private method to handle interactive rendering
-	_handleInteractiveRendering( renderer, writeBuffer ) {
-
-		const finalTarget = this.renderToScreen ? null : writeBuffer;
-
-		if ( this.isTransitioning ) {
-
-			this._renderTransition( renderer, finalTarget );
-
-		} else if ( this.isInteracting ) {
-
-			this._renderLowRes( renderer, finalTarget );
-
-		} else {
-
-			this._renderHighRes( renderer, finalTarget );
-
-		}
-
-	}
-
-	// Private method to handle standard rendering
-	_handleStandardRendering( renderer, writeBuffer ) {
-
-		const uniforms = this.material.uniforms;
-
-		// Render at full resolution
+		// 4. Standard rendering
 		renderer.setRenderTarget( this.currentRenderTarget );
 		uniforms.resolution.value.set( this.width, this.height );
 		this.fsQuad.render( renderer );
 
-		// Copy to output
+		// 5. Copy to output
 		this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.copyQuad.render( renderer );
 
-	}
-
-	// Private method to handle transition rendering
-	_renderTransition( renderer, finalTarget ) {
-
-		// Render low-res
-		renderer.setRenderTarget( this.downsampledRenderTarget );
-		this.material.uniforms.resolution.value.set(
-			this.width / this.downsampleFactor,
-			this.height / this.downsampleFactor
-		);
-		this.fsQuad.render( renderer );
-
-		// Render high-res
-		renderer.setRenderTarget( this.currentRenderTarget );
-		this.material.uniforms.resolution.value.set( this.width, this.height );
-		this.fsQuad.render( renderer );
-
-		// Blend between resolutions
-		const t = Math.min( this.transitionClock.getElapsedTime() / this.transitionDuration, 1 );
-		const blendUniforms = this.blendMaterial.uniforms;
-		blendUniforms.tLowRes.value = this.downsampledRenderTarget.texture;
-		blendUniforms.tHighRes.value = this.currentRenderTarget.texture;
-		blendUniforms.blend.value = t;
-
-		renderer.setRenderTarget( finalTarget );
-		this.blendQuad.render( renderer );
-
-		if ( t === 1 ) {
-
-			this.isTransitioning = false;
-			this.isInteracting = false;
-			this.transitionClock.stop();
-
-		}
-
-	}
-
-	// Private method to handle low-res rendering
-	_renderLowRes( renderer, finalTarget ) {
-
-		renderer.setRenderTarget( this.downsampledRenderTarget );
-		this.material.uniforms.resolution.value.set(
-			this.width / this.downsampleFactor,
-			this.height / this.downsampleFactor
-		);
-		this.fsQuad.render( renderer );
-
-		this.copyMaterial.uniforms.tDiffuse.value = this.downsampledRenderTarget.texture;
-		renderer.setRenderTarget( finalTarget );
-		this.copyQuad.render( renderer );
-
-	}
-
-	// Private method to handle high-res rendering
-	_renderHighRes( renderer, finalTarget ) {
-
-		renderer.setRenderTarget( this.currentRenderTarget );
-		this.material.uniforms.resolution.value.set( this.width, this.height );
-		this.fsQuad.render( renderer );
-
-		this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
-		renderer.setRenderTarget( finalTarget );
-		this.copyQuad.render( renderer );
+		// 6. Final updates
+		uniforms.tiles.value = this.tiles;
+		[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
 
 	}
 

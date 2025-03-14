@@ -27,7 +27,6 @@ const useStore = create( ( set ) => ( {
 	setTiles: value => set( { tiles: value } ),
 	setTilesHelper: value => set( { tilesHelper: value } ),
 	setResolution: value => set( { resolution: value } ),
-	setDownSampledMovement: value => set( { downSampledMovement: value } ),
 	setEnableOIDN: value => set( { enableOIDN: value } ),
 	setUseGBuffer: value => set( { useGBuffer: value } ),
 	setEnableRealtimeDenoiser: value => set( { enableRealtimeDenoiser: value } ),
@@ -93,7 +92,6 @@ const PathTracerTab = () => {
 		tiles, setTiles,
 		tilesHelper, setTilesHelper,
 		resolution, setResolution,
-		downSampledMovement, setDownSampledMovement,
 		enableOIDN, setEnableOIDN,
 		useGBuffer, setUseGBuffer,
 		enableRealtimeDenoiser, setEnableRealtimeDenoiser,
@@ -165,9 +163,6 @@ const PathTracerTab = () => {
 	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
 	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
 	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
-
-	// movement sampling
-	const handleDownSampledMovementChange = handleChange( setDownSampledMovement, value => window.pathTracerApp.pathTracingPass.useDownSampledInteractions = value, false );
 
 	// OIDN
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
@@ -407,9 +402,6 @@ const PathTracerTab = () => {
 							<SelectItem key='Stratified Blue Noise' value={"6"}>Stratified Blue Noise</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
-				<div className="flex items-center justify-between">
-					<Switch label={"Downsampled Movement"} checked={downSampledMovement} onCheckedChange={handleDownSampledMovementChange} />
 				</div>
 				<div className="flex items-center justify-between">
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />

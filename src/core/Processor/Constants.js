@@ -237,7 +237,6 @@ export const DEFAULT_STATE = {
 	tiles: 2,
 	tilesHelper: false,
 	resolution: 1,
-	downSampledMovement: false,
 	directionalLightIntensity: 0,
 	directionalLightColor: "#ffffff",
 	directionalLightPosition: [ 1, 1, 1 ],
