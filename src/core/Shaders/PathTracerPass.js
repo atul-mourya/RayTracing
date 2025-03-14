@@ -175,6 +175,19 @@ export class PathTracerPass extends Pass {
 		this.accumulationPass = null;
 		this.adaptiveSamplingPass = null;
 
+		// Performance optimization during interaction
+		this.interactionMode = false;
+		this.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled; // Add this line
+		this.interactionTimeout = null;
+		this.interactionDelay = 100; // delay before restoring quality
+		this.originalValues = {}; // Store original uniform values
+		this.interactionQualitySettings = {
+			// Define uniforms to be changed during interaction and their temporary values
+			maxBounceCount: 1,
+			numRaysPerPixel: 1
+			// Add more uniforms here as needed for performance tuning
+		};
+
 	}
 
 	async build( scene ) {
@@ -299,6 +312,94 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	enterInteractionMode() {
+
+		// Check if interaction mode is enabled globally
+		if ( ! this.interactionModeEnabled ) return;
+
+		if ( this.interactionMode ) {
+
+			// Already in interaction mode, just clear the timeout
+			clearTimeout( this.interactionTimeout );
+
+		} else {
+
+			// Enter interaction mode and save original values
+			this.interactionMode = true;
+			this.originalValues = {}; // Reset stored values
+
+			// Store and update each configured uniform
+			// Object.keys( this.interactionQualitySettings ).forEach( key => {
+
+			// 	if ( this.material.uniforms[ key ] ) {
+
+			// 		// Store original value
+			// 		this.originalValues[ key ] = this.material.uniforms[ key ].value;
+			// 		// Apply low-quality value
+			// 		this.material.uniforms[ key ].value = this.interactionQualitySettings[ key ];
+
+			// 	}
+
+			// } );
+
+			this.originalValues.dpr = this.renderer.getPixelRatio();
+			this.renderer.setPixelRatio( 0.5 ); // Lower resolution for interaction mode
+
+		}
+
+		// Set timeout to exit interaction mode
+		this.interactionTimeout = setTimeout( () => {
+
+			this.exitInteractionMode();
+
+		}, this.interactionDelay );
+
+	}
+
+	exitInteractionMode() {
+
+		if ( ! this.interactionMode ) return;
+
+		// Restore original values
+		// Object.keys( this.originalValues ).forEach( key => {
+
+		// 	if ( this.material.uniforms[ key ] ) {
+
+		// 		this.material.uniforms[ key ].value = this.originalValues[ key ];
+
+		// 	}
+
+		// } );
+
+		this.renderer.setPixelRatio( this.originalValues.dpr );
+
+		this.interactionMode = false;
+		this.reset(); // Reset the render to use the new values
+
+	}
+
+	setInteractionQuality( settingsObject ) {
+
+		// Update interaction quality settings
+		Object.assign( this.interactionQualitySettings, settingsObject );
+
+	}
+
+	// Add a method to toggle interaction mode
+	setInteractionModeEnabled( enabled ) {
+
+		this.interactionModeEnabled = enabled;
+
+		// If turning off while in interaction mode, exit immediately
+		if ( ! enabled && this.interactionMode ) {
+
+			clearTimeout( this.interactionTimeout );
+			this.exitInteractionMode();
+
+		}
+
+	}
+
 	setSize( width, height ) {
 
 		this.width = width;
@@ -307,6 +408,7 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.resolution.value.set( width, height );
 		this.renderTargetA.setSize( width, height );
 		this.renderTargetB.setSize( width, height );
+
 	}
 
 	setAccumulationPass( accPass ) {

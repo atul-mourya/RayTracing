@@ -121,9 +121,14 @@ class PathTracerApp extends EventDispatcher {
 		// Setup camera
 		this.camera.position.set( 0, 0, 5 );
 
-		// Setup controls
+		// Setup controls with interaction optimization
 		this.controls = new OrbitControls( this.camera, this.canvas );
-		this.controls.addEventListener( 'change', () => this.reset() );
+		this.controls.addEventListener( 'change', () => {
+
+			this.pathTracingPass && this.pathTracingPass.enterInteractionMode();
+			this.reset();
+
+		} );
 		this.controls.update();
 
 		this.cameras = [ this.defaultCamera ];
@@ -229,6 +234,8 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( this.adaptiveSamplingPass );
 
 		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
+		// Initialize the interaction mode setting
+		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
 		this.accPass = new AccumulationPass( this.scene, this.width, this.height );
@@ -686,6 +693,17 @@ class PathTracerApp extends EventDispatcher {
 	setOnStatsUpdate( callback ) {
 
 		this.onStatsUpdate = callback;
+
+	}
+
+	// Method to customize interaction quality settings
+	setInteractionQuality( settings ) {
+
+		if ( this.pathTracingPass ) {
+
+			this.pathTracingPass.setInteractionQuality( settings );
+
+		}
 
 	}
 

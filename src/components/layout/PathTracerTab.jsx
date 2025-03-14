@@ -51,6 +51,7 @@ const useStore = create( ( set ) => ( {
 	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
 	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
 	setToneMapping: ( value ) => set( { toneMapping: value } ),
+	setInteractionModeEnabled: value => set( { interactionModeEnabled: value } ),
 } ) );
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
@@ -114,6 +115,7 @@ const PathTracerTab = () => {
 		environmentIntensity, setEnvironmentIntensity,
 		GIIntensity, setGIIntensity,
 		toneMapping, setToneMapping,
+		interactionModeEnabled, setInteractionModeEnabled,
 	} = useStore();
 
 	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
@@ -258,11 +260,20 @@ const PathTracerTab = () => {
 
 	} );
 
+	const handleInteractionModeEnabledChange = handleChange( setInteractionModeEnabled, value => {
+
+		window.pathTracerApp.pathTracingPass.setInteractionModeEnabled( value );
+
+	} );
+
 	return (
 		<div className="">
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Switch label={"Interaction Mode"} checked={interactionModeEnabled} onCheckedChange={handleInteractionModeEnabledChange} />
 				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
