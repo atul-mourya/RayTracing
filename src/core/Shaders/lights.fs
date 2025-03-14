@@ -168,6 +168,47 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, ino
     return opacity >= OPACITY_THRESHOLD;
 }
 
+// Add this helper function for shadow rays
+float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState, inout ivec2 stats ) {
+    Ray shadowRay;
+    shadowRay.origin = origin;
+    shadowRay.direction = dir;
+
+    // Single BVH traversal for shadow
+    HitInfo shadowHit = traverseBVH( shadowRay, stats );
+
+    // No hit or hit beyond light distance
+    if( ! shadowHit.didHit || length( shadowHit.hitPoint - origin ) > maxDist )
+        return 1.0;
+
+    // Fast path for opaque objects
+    if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 )
+        return 0.0;
+
+    // Simple transparency accumulation (max 2 transparent surfaces)
+    float transmittance = 1.0;
+    for( int step = 0; step < 2; step ++ ) {
+        float opacity = shadowHit.material.transparent ? shadowHit.material.opacity : ( 1.0 - shadowHit.material.transmission );
+
+        if( shadowHit.material.alphaMode != 0 )
+            opacity *= shadowHit.material.color.a;
+
+        transmittance *= ( 1.0 - opacity );
+
+        if( transmittance < 0.02 )
+            return 0.0;
+
+        // Continue ray
+        shadowRay.origin = shadowHit.hitPoint + dir * 0.001;
+        shadowHit = traverseBVH( shadowRay, stats );
+
+        if( ! shadowHit.didHit || length( shadowHit.hitPoint - origin ) > maxDist )
+            break;
+    }
+
+    return transmittance;
+}
+
 float calculateAreaLightVisibility(
     vec3 hitPoint,
     vec3 normal,
@@ -177,95 +218,40 @@ float calculateAreaLightVisibility(
     inout uint rngState,
     inout ivec2 stats
 ) {
+    // Adaptive light sampling based on importance
+    float distanceToLight = length( light.position - hitPoint );
+    float lightArea = light.area;
+    float solidAngle = lightArea / ( distanceToLight * distanceToLight );
 
-    int SHADOW_SAMPLES = 1; // Number of shadow samples
+    // Early exit for distant lights with minimal contribution
+    if( solidAngle < 0.001 )
+        return 0.0;
+
+    // Adaptive sample count (1-4) based on light importance
+    int SHADOW_SAMPLES = clamp( int( solidAngle * 16.0 ), 1, 4 );
     float visibility = 0.0;
 
-    // Calculate base importance
-    float distanceToLight = length( light.position - hitPoint );
-    float lightImportance = light.intensity / ( distanceToLight * distanceToLight );
-
-    // Adjust sample count (between 1-4 samples)
-    SHADOW_SAMPLES = int( clamp( lightImportance * float( SHADOW_SAMPLES ), 1.0, 4.0 ) );
-
-    // Pre-calculated common values
+    // Pre-compute shared values
     vec3 shadowOrigin = hitPoint + normal * 0.001;
     vec3 centerToLight = light.position - shadowOrigin;
     float maxLightDist = length( centerToLight ) + length( light.u ) + length( light.v );
 
     // Use stratified sampling for better coverage
     for( int i = 0; i < SHADOW_SAMPLES; i ++ ) {
+        // Stratified position on light surface
         vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex * SHADOW_SAMPLES + i, bounceIndex, rngState, - 1 );
+        vec2 stratifiedOffset = vec2( ( ruv.x / float( SHADOW_SAMPLES ) + float( i % 2 ) / 2.0 ) - 0.5, ( ruv.y / float( SHADOW_SAMPLES ) + float( i / 2 ) / 2.0 ) - 0.5 );
 
-        // Generate stratified position on light surface
-        vec3 lightPos = light.position +
-            light.u * ( ( ruv.x / float( SHADOW_SAMPLES ) + float( i % 2 ) / 2.0 ) - 0.5 ) +
-            light.v * ( ( ruv.y / float( SHADOW_SAMPLES ) + float( i / 2 ) / 2.0 ) - 0.5 );
-
+        vec3 lightPos = light.position + light.u * stratifiedOffset.x + light.v * stratifiedOffset.y;
         vec3 toLight = lightPos - shadowOrigin;
         float lightDist = length( toLight );
 
-        // Skip if beyond maximum possible distance
-        if( lightDist > maxLightDist )
+        // Quick validity checks
+        if( lightDist > maxLightDist || dot( normalize( toLight ), light.normal ) > - 0.001 )
             continue;
 
-        vec3 shadowDir = toLight / lightDist;
-        float alignment = dot( shadowDir, light.normal );
-
-        // Skip samples facing away from the light
-        if( alignment > - 0.001 )
-            continue;
-
-        // Cast shadow ray with simplified transparency handling
-        Ray shadowRay;
-        shadowRay.origin = shadowOrigin;
-        shadowRay.direction = shadowDir;
-
-        float transmittance = 1.0;
-        bool isShadowed = false;
-
-        // Perform shadow ray traversal with early exit for opaque objects and transmissive materials
-        // here's how it works:
-        // 1. Cast shadow ray towards the light
-        // 2. If hit, check if the material is opaque or transmissive
-        // 3. If opaque, stop and mark as shadowed
-        // 4. If transmissive, accumulate transmittance and continue
-        // 5. Stop if accumulated opacity
-        for( int step = 0; step < 1; step ++ ) { // Only one step for now: no refractive shadows
-            HitInfo shadowHit = traverseBVH( shadowRay, stats );
-
-            if( ! shadowHit.didHit || length( shadowHit.hitPoint - shadowOrigin ) > lightDist ) {
-                // No hit or hit is beyond light - this sample is unoccluded
-                break;
-            }
-
-            // Handle opaque objects with early exit
-            if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 ) {
-                isShadowed = true;
-                break;
-            }
-
-            // Handle transparent/transmissive materials
-            float materialOpacity = shadowHit.material.transparent ? shadowHit.material.opacity : ( 1.0 - shadowHit.material.transmission );
-
-            // Apply material's alpha if using alpha texture
-            if( shadowHit.material.alphaMode != 0 ) {
-                materialOpacity *= shadowHit.material.color.a;
-            }
-
-            // Accumulate transmittance
-            transmittance *= ( 1.0 - materialOpacity );
-
-            // Stop if accumulated opacity is too high
-            if( transmittance < 0.01 ) {
-                isShadowed = true;
-                break;
-            }
-
-            shadowRay.origin = shadowHit.hitPoint + shadowDir * 0.001;
-        }
-
-        visibility += isShadowed ? 0.0 : transmittance;
+        // Fast shadow test with limited transparency
+        visibility += traceShadowRay( shadowOrigin, normalize( toLight ), lightDist, rngState, stats );
     }
 
     return visibility / float( SHADOW_SAMPLES );
