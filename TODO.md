@@ -12,10 +12,8 @@ RayTracing Project TODO
 
 - [ ]  Transparent background support
 - [ ]  Subsurface scattering implementation
-- [ ]  Auto focus based on object distance
 - [ ]  Volumetric rendering
 - [ ]  Caustic support
-- [ ]  Custom environment map support
 - [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
 - [ ]  implement support for point light
 - [ ]  implement support for spot light
@@ -30,7 +28,6 @@ RayTracing Project TODO
 🔧 Performance Improvements
 ---------------------------
 
-- [ ]  improve light sampling as it is too slow - specially for area lights
 - [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ]  Refactor lights to use data texture instead of uniform buffer
 - [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
