@@ -1,4 +1,5 @@
-import { Ruler, Telescope, Aperture, Camera } from 'lucide-react';
+import { Ruler, Telescope, Aperture, Camera, Target } from 'lucide-react';
+import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trackpad } from "@/components/ui/trackpad";
@@ -93,8 +94,12 @@ const CAMERA_PRESETS = {
 const useCameraStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	activePreset: "custom",
-	cameraNames: [], setCameraNames: ( names ) => set( { cameraNames: names } ),
-	selectedCameraIndex: 0, setSelectedCameraIndex: ( index ) => set( { selectedCameraIndex: index } ),
+	cameraNames: [],
+	setCameraNames: ( names ) => set( { cameraNames: names } ),
+	selectedCameraIndex: 0,
+	setSelectedCameraIndex: ( index ) => set( { selectedCameraIndex: index } ),
+	focusMode: false,
+	setFocusMode: ( mode ) => set( { focusMode: mode } ),
 	setFov: ( value ) => set( { fov: value, activePreset: "custom" } ),
 	setFocusDistance: ( value ) => set( { focusDistance: value, activePreset: "custom" } ),
 	setAperture: ( value ) => set( { aperture: value, activePreset: "custom" } ),
@@ -116,18 +121,73 @@ const useCameraStore = create( ( set ) => ( {
 
 const CameraTab = () => {
 
-	const { fov, focusDistance, aperture, focalLength, activePreset, cameraNames, selectedCameraIndex, setFov, setFocusDistance, setAperture, setFocalLength, setPreset, setCameraNames, setSelectedCameraIndex } = useCameraStore();
+	const {
+		fov, focusDistance, aperture, focalLength, activePreset, focusMode,
+		cameraNames, selectedCameraIndex,
+		setFov, setFocusDistance, setAperture, setFocalLength,
+		setPreset, setCameraNames, setSelectedCameraIndex, setFocusMode
+	} = useCameraStore();
 
 	useEffect( () => {
 
 		if ( window.pathTracerApp ) {
 
+			// Set up camera names and initial selection
 			setCameraNames( window.pathTracerApp.getCameraNames() );
 			setSelectedCameraIndex( window.pathTracerApp.currentCameraIndex );
+
+			// Initialize click-to-focus functionality
+			window.pathTracerApp.setupClickToFocus();
+
+			// Listen for focus change events
+			window.pathTracerApp.addEventListener( 'focusChanged', handleFocusChangeEvent );
+
+			// Clean up event listener on component unmount
+			return () => {
+
+				window.pathTracerApp.removeEventListener( 'focusChanged', handleFocusChangeEvent );
+
+			};
 
 		}
 
 	}, [] );
+
+	// Handle focus change events from the 3D view
+	const handleFocusChangeEvent = ( event ) => {
+
+		// Update the focus distance slider with the new value
+		setFocusDistance( event.distance );
+		setFocusMode( false );
+
+	};
+
+	// Toggle focus mode
+	const handleToggleFocusMode = () => {
+
+		if ( window.pathTracerApp ) {
+
+			const isActive = window.pathTracerApp.toggleFocusMode();
+			console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
+			setFocusMode( isActive );
+
+		}
+
+	};
+
+	// Update focus distance from slider
+	const handleFocusDistanceChange = ( value ) => {
+
+		setFocusDistance( value );
+		if ( window.pathTracerApp ) {
+
+			const scaledFocusDistance = value * window.pathTracerApp.sceneScale;
+			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = scaledFocusDistance;
+			window.pathTracerApp.reset();
+
+		}
+
+	};
 
 	const handlePresetChange = ( presetKey ) => {
 
@@ -154,19 +214,6 @@ const CameraTab = () => {
 
 			window.pathTracerApp.camera.fov = value;
 			window.pathTracerApp.camera.updateProjectionMatrix();
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleFocusDistanceChange = ( value ) => {
-
-		setFocusDistance( value );
-		if ( window.pathTracerApp ) {
-
-			const scaledFocusDistance = value * window.pathTracerApp.sceneScale;
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = scaledFocusDistance;
 			window.pathTracerApp.reset();
 
 		}
@@ -302,9 +349,18 @@ const CameraTab = () => {
 					min={CAMERA_RANGES.focusDistance.min}
 					max={CAMERA_RANGES.focusDistance.max}
 					step={0.1}
-					value={[ focusDistance ]}
-					onValueChange={handleFocusDistanceChange}
+					value={[ focusDistance.toFixed( 1 ) ]}
+					onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
 				/>
+				<Button
+					variant={focusMode ? "default" : "outline"}
+					size="icon"
+					onClick={handleToggleFocusMode}
+					className="ml-2 h-5 rounded-full"
+					title="Click in scene to set focus point"
+				>
+					<Target size={12} />
+				</Button>
 			</div>
 
 			<div className="flex items-center justify-between">

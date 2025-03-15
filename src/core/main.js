@@ -18,6 +18,9 @@ import {
 	RectAreaLight,
 	TextureLoader,
 	Color,
+	SphereGeometry,
+	MeshBasicMaterial,
+	Raycaster
 } from 'three';
 
 import {
@@ -149,7 +152,7 @@ class PathTracerApp extends EventDispatcher {
 		await this.loadEnvironment( envUrl );
 		if ( modelUrl ) {
 
-			 try {
+			try {
 
 				await this.loadModel( modelUrl );
 
@@ -348,10 +351,10 @@ class PathTracerApp extends EventDispatcher {
 
 		if (
 			( this.pathTracingPass.material.uniforms.renderMode.value === 0 &&
-			this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value ) ||
+				this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value ) ||
 			( this.pathTracingPass.material.uniforms.renderMode.value === 1 &&
-			this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value *
-			Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) )
+				this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value *
+				Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) )
 		) {
 
 			this.pathTracingPass.material.uniforms.frame.value ++;
@@ -427,7 +430,7 @@ class PathTracerApp extends EventDispatcher {
 				this.pathTracingPass.material.uniforms.environment.value = texture;
 				this.pathTracingPass.reset();
 
-			 }
+			}
 
 			this.pauseRendering = false;
 
@@ -707,10 +710,137 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	setupClickToFocus() {
+
+		// Ray caster for detecting clicked objects
+		this.raycaster = new Raycaster();
+		this.focusMode = false;
+		this.focusPointIndicator = null;
+
+	}
+
+	// Toggle focus mode
+	toggleFocusMode() {
+
+		this.focusMode = ! this.focusMode;
+
+		// Change cursor to indicate focus mode is active
+		this.canvas.style.cursor = this.focusMode ? 'crosshair' : 'auto';
+
+		// Disable orbit controls when in focus mode
+		if ( this.controls ) {
+
+			this.controls.enabled = ! this.focusMode;
+
+		}
+
+		// Set up click handler if entering focus mode
+		if ( this.focusMode ) {
+
+			this.canvas.addEventListener( 'click', this.handleFocusClick );
+
+		} else {
+
+			this.canvas.removeEventListener( 'click', this.handleFocusClick );
+
+		}
+
+		return this.focusMode;
+
+	}
+
+	// Handle click event when in focus mode
+	handleFocusClick = ( event ) => {
+
+		// Calculate mouse position in normalized device coordinates
+		const rect = this.canvas.getBoundingClientRect();
+		const x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+		const y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+
+		// Update the raycaster
+		this.raycaster.setFromCamera( { x, y }, this.camera );
+
+		// Check for intersections with the scene
+		const intersects = this.raycaster.intersectObjects( this.scene.children, true );
+
+		if ( intersects.length > 0 ) {
+
+			// Get the first intersection
+			const intersection = intersects[ 0 ];
+
+			// Calculate distance from camera to intersection point
+			const distance = intersection.distance;
+
+			// Set the focus distance
+			this.setFocusDistance( distance );
+
+			// Display focus point indicator
+			this.showFocusPoint( intersection.point );
+
+			// Exit focus mode
+			this.toggleFocusMode();
+
+			// Dispatch event to notify UI that focus has changed
+			this.dispatchEvent( { type: 'focusChanged', distance: distance / this.sceneScale } );
+
+		}
+
+	};
+
+	// Set focus distance
+	setFocusDistance( distance ) {
+
+		// Update path tracer uniforms
+		this.pathTracingPass.material.uniforms.focusDistance.value = distance;
+
+		// Reset rendering to apply changes
+		this.reset();
+
+	}
+
+	// Show a visual indicator at the focus point
+	showFocusPoint( point ) {
+
+		// Remove existing indicator if present
+		if ( this.focusPointIndicator ) {
+
+			this.scene.remove( this.focusPointIndicator );
+
+		}
+
+		// Create a small sphere to mark the focus point
+		const sphereSize = this.sceneScale * 0.02; // Size proportional to scene
+		const geometry = new SphereGeometry( sphereSize, 16, 16 );
+		const material = new MeshBasicMaterial( {
+			color: 0x00ff00,
+			transparent: true,
+			opacity: 0.8,
+			depthTest: false
+		} );
+
+		this.focusPointIndicator = new Mesh( geometry, material );
+		this.focusPointIndicator.position.copy( point );
+		this.scene.add( this.focusPointIndicator );
+
+		// Fade out and remove the indicator after a delay
+		setTimeout( () => {
+
+			if ( this.focusPointIndicator ) {
+
+				this.scene.remove( this.focusPointIndicator );
+				this.focusPointIndicator = null;
+
+			}
+
+		}, 2000 ); // Remove after 2 seconds
+
+	}
+
 	dispose() {
 
 		cancelAnimationFrame( this.animationFrameId );
 		// Dispose of js objects, remove event listeners, etc.
+		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 
 	}
 
