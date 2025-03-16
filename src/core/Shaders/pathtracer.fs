@@ -141,7 +141,7 @@ bool handleRussianRoulette( int depth, vec3 rayColor, RayTracingMaterial materia
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 	if( bounceIndex == 0 ) {
-		
+
 		return showBackground ? sampleEnvironment( direction ) * backgroundIntensity * PI_INV * 2.0 : vec4( 0.0 );
 	}
 
@@ -163,7 +163,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
 			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
-			radiance += reduceFireflies( envColor.rgb * throughput, fireflyThreshold);
+			radiance += reduceFireflies( envColor.rgb * throughput, fireflyThreshold );
 			alpha *= envColor.a;
 			// return vec4(envColor, 1.0);
 			break;
@@ -172,31 +172,25 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
-		// Handle material transparency
-		TransparencyResult transparencyResult = handleMaterialTransparency( material, rngState );
-
-		if( transparencyResult.continueRay ) {
-			throughput *= transparencyResult.throughput;
-			alpha *= transparencyResult.alpha;
-			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
-			continue;
-		}
-
-		alpha *= transparencyResult.alpha;
-
 		// Calculate perturb normal
 		vec3 N = sampleNormalMap( material, hitInfo.uv, hitInfo.normal );
 		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
 		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
 
 		// Handle transparent materials with transmission
-		if( material.transmission > 0.0 ) {
-			vec3 transmissionThroughput = sampleTransmissiveMaterial( ray, N, material, rngState );
-			throughput *= transmissionThroughput;
-			alpha *= ( 1.0 - material.transmission ) * material.color.a;
+		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState );
+
+		if( interaction.continueRay ) {
+            // If the ray continues, update throughput and alpha
+			throughput *= interaction.throughput;
+			alpha *= interaction.alpha;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
+			ray.direction = interaction.direction;
 			continue;
 		}
+
+        // Apply transparency alpha
+		alpha *= interaction.alpha;
 
 		vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, bounceIndex, rngState, - 1 );
 

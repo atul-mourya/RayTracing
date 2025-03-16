@@ -4,6 +4,14 @@ struct TransmissionResult {
 	bool didReflect;   // Whether the ray was reflected instead of transmitted
 };
 
+// Unified transparency and transmission result structure
+struct MaterialInteractionResult {
+	bool continueRay;      // Whether the ray should continue without further BRDF evaluation
+	vec3 direction;        // New ray direction if continuing
+	vec3 throughput;       // Color modification for the ray
+	float alpha;           // Alpha modification
+};
+
 // Calculate wavelength-dependent IOR for dispersion
 vec3 calculateDispersiveIOR( float baseIOR, float dispersionStrength ) {
     // Cauchy's equation coefficients
@@ -103,73 +111,86 @@ TransmissionResult handleTransmission(
 	return result;
 }
 
-vec3 sampleTransmissiveMaterial( inout Ray ray, vec3 normal, RayTracingMaterial material, inout uint rngState ) {
-    // Determine if ray is entering or exiting the medium
-	bool entering = dot( ray.direction, normal ) < 0.0;
-
-    // Use common transmission handler
-	TransmissionResult result = handleTransmission( ray.direction, normal, material, entering, rngState );
-
-    // Update ray direction
-	ray.direction = result.direction;
-
-	return result.throughput;
-}
-
-struct TransparencyResult {
-	bool continueRay;      // Whether the ray should continue or be processed normally
-	vec3 throughput;       // Color modification for the ray
-	float alpha;           // Alpha modification
-};
-
-TransparencyResult handleMaterialTransparency( RayTracingMaterial material, inout uint rngState ) {
-	TransparencyResult result;
+// Handle all material transparency effects: alpha modes, transmission
+MaterialInteractionResult handleMaterialTransparency(
+	Ray ray,
+	vec3 hitPoint,
+	vec3 normal,
+	RayTracingMaterial material,
+	inout uint rngState
+) {
+	MaterialInteractionResult result;
 	result.continueRay = false;
+	result.direction = ray.direction;
 	result.throughput = vec3( 1.0 );
 	result.alpha = 1.0;
 
-    // Handle different alpha modes according to glTF spec
-	if( material.alphaMode == 0 ) { // OPAQUE
-        // For opaque materials, ignore the alpha channel completely
-        // Keep color but force alpha to 1.0
-		result.throughput = material.color.rgb;
-		result.alpha = 1.0;
+    // -----------------------------------------------------------------
+    // Step 1: Fast path for completely opaque materials
+    // -----------------------------------------------------------------
+
+    // Quick early exit for fully opaque materials (most common case)
+	if( material.alphaMode == 0 && material.transmission <= 0.0 ) {
 		return result;
-	} else if( material.alphaMode == 2 ) { // BLEND
+	}
+
+    // -----------------------------------------------------------------
+    // Step 2: Handle alpha modes according to glTF spec
+    // -----------------------------------------------------------------
+
+	if( material.alphaMode == 2 ) { // BLEND
 		float finalAlpha = material.color.a * material.opacity;
 
         // Use stochastic transparency for blend mode
 		if( RandomValue( rngState ) > finalAlpha ) {
+            // Skip this surface entirely
 			result.continueRay = true;
-			result.throughput = vec3( 1.0 );  // No color modification when skipping
+			result.direction = ray.direction;
+			result.throughput = vec3( 1.0 );
 			result.alpha = 0.0;
 			return result;
 		}
 
-		result.throughput = material.color.rgb;
 		result.alpha = finalAlpha;
-		return result;
 	} else if( material.alphaMode == 1 ) { // MASK
 		float cutoff = material.alphaTest > 0.0 ? material.alphaTest : 0.5;
 		if( material.color.a < cutoff ) {
+            // Skip this surface entirely
 			result.continueRay = true;
+			result.direction = ray.direction;
+			result.throughput = vec3( 1.0 );
 			result.alpha = 0.0;
 			return result;
 		}
-		result.throughput = material.color.rgb;
+
 		result.alpha = 1.0;
-		return result;
 	}
 
-    // Handle transmission if present
+    // -----------------------------------------------------------------
+    // Step 3: Handle transmission if present
+    // -----------------------------------------------------------------
+
 	if( material.transmission > 0.0 ) {
+        // Only apply transmission with probability equal to the transmission value
 		if( RandomValue( rngState ) < material.transmission ) {
+            // Determine if ray is entering or exiting the medium
+			bool entering = dot( ray.direction, normal ) < 0.0;
+			vec3 N = entering ? normal : - normal;
+
+            // Use the pre-existing handleTransmission function for compatibility
+            // This will eventually calculate the same thing internally
+			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState );
+
+            // Apply the transmission result
+			result.direction = transResult.direction;
+			result.throughput = transResult.throughput;
 			result.continueRay = true;
-			result.throughput = material.color.rgb;
 			result.alpha = 1.0 - material.transmission;
+
 			return result;
 		}
 	}
 
+    // If we get here, handle like a regular material
 	return result;
 }
