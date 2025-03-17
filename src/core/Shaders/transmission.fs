@@ -16,7 +16,7 @@ struct MaterialInteractionResult {
 vec3 calculateDispersiveIOR( float baseIOR, float dispersionStrength ) {
     // Cauchy's equation coefficients
 	float A = baseIOR;
-	float B = dispersionStrength * 0.001; // Scale factor for dispersion strength
+	float B = dispersionStrength * 0.01; // Scale factor for dispersion strength
 
     // Wavelengths for RGB (in micrometers)
 	const vec3 wavelengths = vec3( 0.6563, 0.5461, 0.4358 ); // Red, Green, Blue (precise wavelengths)
@@ -79,15 +79,25 @@ TransmissionResult handleTransmission(
 			float randWL = RandomValue( rngState );
 			float selectIOR;
 
+    		// Calculate dispersion strength - stronger at edges, edges determined by dot product
+			float edgeFactor = 1.0 - abs( dot( N, rayDir ) );
+			float dispersionVisibility = material.dispersion * edgeFactor * 2.0;
+
+    		// Base color to maintain energy conservation
+			vec3 baseColor = mix( material.color.rgb, vec3( 1.0 ), material.transmission * 0.5 );
+
 			if( randWL < 0.333 ) {
 				selectIOR = wavelengthIOR.r;
-				result.throughput = vec3( 1.5, 0.2, 0.2 ); // Boost red
+				// Blend between full spectrum and red-heavy spectrum based on dispersion visibility
+				result.throughput = mix( baseColor, baseColor * vec3( 1.5, 0.25, 0.25 ), dispersionVisibility );
 			} else if( randWL < 0.666 ) {
 				selectIOR = wavelengthIOR.g;
-				result.throughput = vec3( 0.2, 1.5, 0.2 ); // Boost green
+				// Blend between full spectrum and green-heavy spectrum
+				result.throughput = mix( baseColor, baseColor * vec3( 0.25, 1.5, 0.25 ), dispersionVisibility );
 			} else {
 				selectIOR = wavelengthIOR.b;
-				result.throughput = vec3( 0.2, 0.2, 1.5 ); // Boost blue
+				// Blend between full spectrum and blue-heavy spectrum
+				result.throughput = mix( baseColor, baseColor * vec3( 0.25, 0.25, 1.5 ), dispersionVisibility );
 			}
 
 			float ratio = entering ? 1.0 / selectIOR : selectIOR;
