@@ -4,7 +4,7 @@ RayTracing Project TODO
 🐛 Bugs & Issues
 ----------------
 
-- [ ]  Fix transmission value changes not impacting transmission intensity
+- [ ]  Dispersion makes the object darker
 - [ ]  active catalog item not being highlighted in the UI
 
 ✨ Core Features
@@ -15,12 +15,12 @@ RayTracing Project TODO
 - [ ]  Volumetric rendering
 - [ ]  Caustic support
 - [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
-- [ ]  implement support for point light
-- [ ]  implement support for spot light
-- [ ]  implement support for IES light
-- [ ]  introduce viewports with different intents (preview, final render, etc)
-- [ ]  introduce tessalation free displacement mapping
-- [ ]  implement support for bumpmap
+- [ ]  Implement support for point light
+- [ ]  Implement support for spot light
+- [ ]  Implement support for IES light
+- [ ]  Introduce viewports with different intents (preview, final render, etc)
+- [ ]  Introduce tessalation free displacement mapping
+- [ ]  Implement support for bumpmap
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
 
@@ -30,7 +30,9 @@ RayTracing Project TODO
 
 - [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ]  Refactor lights to use data texture instead of uniform buffer
-- [ ]  experiment with leveraging primary ray from rasterization pass for path tracing
+- [ ]  Experiment with leveraging primary ray from rasterization pass for path tracing
+- [ ]  Experiment with ray frustum culling
+- [ ]  Refactor path tracing to use define instead of if-else
 - [ ]  experiment with ray frustum culling
 - [ ]  refactor path tracing to use to use define instead of if-else
 
