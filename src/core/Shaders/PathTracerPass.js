@@ -158,8 +158,8 @@ export class PathTracerPass extends Pass {
 
 		loader.load( blueNoiseImage, ( texture ) => {
 
-			texture.minFilter = LinearFilter;
-			texture.magFilter = LinearFilter;
+			texture.minFilter = NearestFilter;
+			texture.magFilter = NearestFilter;
 			texture.wrapS = RepeatWrapping;
 			texture.wrapT = RepeatWrapping;
 			texture.type = FloatType;
