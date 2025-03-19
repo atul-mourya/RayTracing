@@ -4,7 +4,6 @@ RayTracing Project TODO
 🐛 Bugs & Issues
 ----------------
 
-- [ ]  Dispersion makes the object darker
 - [ ]  active catalog item not being highlighted in the UI
 
 ✨ Core Features
@@ -91,6 +90,7 @@ RayTracing Project TODO
 
 -   <https://skfb.ly/oMGoU>
 -   <https://api.physicallybased.info/operations/get-materials>
+-   <https://repalash.com/archives>
 
 * * * * *
 
