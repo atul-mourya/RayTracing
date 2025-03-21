@@ -13,6 +13,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._setupDenoiser();
 		this._setupCanvas();
 		this._setupMapGenerator();
+		this._preloadDenoiser();
 
 	}
 
@@ -27,9 +28,13 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.isDenoising = false;
 		this.enabled = options.enableOIDN ?? true;
 		this.useGBuffers = options.useGBuffers ?? true;
-		this.quality = options.quality ?? 'medium';
+		this.quality = options.quality ?? 'balanced';
 		this.hdr = options.oidnHdr ?? false;
 		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
+		this.weightUrl = options.weightUrl ?? "https://cdn.jsdelivr.net/npm/denoiser/tzas";
+		this.isPreloaded = false;
+		this.currentDenoisePromise = null;
+		this.timeoutDuration = options.timeoutDuration ?? 10000; // 10 second timeout
 
 	}
 
@@ -43,12 +48,78 @@ export class OIDNDenoiser extends EventDispatcher {
 			hdr: this.hdr,
 			height: this.sourceCanvas.height,
 			width: this.sourceCanvas.width,
-			weightsUrl: "https://cdn.jsdelivr.net/npm/denoiser/tzas",
+			weightUrl: this.weightUrl,
 			useNormalMap: this.useGBuffers,
 			useAlbedoMap: this.useGBuffers
 		} );
 
 	}
+
+	async _preloadDenoiser() {
+
+		// if ( ! this.enabled ) return;
+
+		try {
+
+			// According to the docs, weights are loaded automatically when needed
+			this.isPreloaded = true;
+			console.log( "Denoiser initialized and ready" );
+
+			// Optional: Run a small warm-up denoising
+			await this._warmUp();
+
+		} catch ( error ) {
+
+			console.warn( "Failed to initialize denoiser:", error );
+
+		}
+
+	}
+
+	async _warmUp() {
+
+		// Create a tiny canvas for warm-up (minimal overhead)
+		const warmupCanvas = document.createElement( 'canvas' );
+		warmupCanvas.width = 64;
+		warmupCanvas.height = 64;
+		const ctx = warmupCanvas.getContext( '2d' );
+		ctx.fillStyle = 'gray';
+		ctx.fillRect( 0, 0, 64, 64 );
+
+		// Run a quick warm-up denoising pass
+		const tempDenoiser = new Denoiser( "webgl" );
+		tempDenoiser.quality = "low";
+		tempDenoiser.width = 64;
+		tempDenoiser.height = 64;
+		tempDenoiser.useNormalMap = false;
+		tempDenoiser.useAlbedoMap = false;
+		tempDenoiser.weightUrl = this.weightUrl;
+
+		try {
+
+			// According to docs, we can pass the image directly to execute
+			await tempDenoiser.execute( warmupCanvas );
+			console.log( "Denoiser warm-up completed" );
+
+		} catch ( e ) {
+
+			console.warn( "Denoiser warm-up failed:", e );
+
+		} finally {
+
+			tempDenoiser.dispose?.();
+
+		}
+
+	}
+
+	// setGbuffers( useGBuffers ) {
+
+	// 	this.useGBuffers = useGBuffers;
+	// 	this.denoiser.useNormalMap = useGBuffers;
+	// 	this.denoiser.useAlbedoMap = useGBuffers;
+
+	// }
 
 	_setupCanvas() {
 
@@ -87,13 +158,13 @@ export class OIDNDenoiser extends EventDispatcher {
 		if ( ! this.enabled || this.isDenoising ) return false;
 
 		const startTime = performance.now();
-		const success = await this.execute();
+		const success = await this.execute( { quality: this.quality, hdr: this.hdr } );
 
 		if ( success ) {
 
 			this.renderer?.resetState();
 			this.sourceCanvas.style.opacity = 0;
-			console.log( `Denoising completed in ${performance.now() - startTime}ms` );
+			console.log( `Denoising completed in ${performance.now() - startTime}ms (quality: ${this.quality})` );
 
 		}
 
@@ -101,14 +172,30 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	async execute() {
+	async execute( options = {} ) {
 
 		if ( ! this.enabled ) return false;
 
+		// Apply passed options or use defaults
+		const quality = options.quality || this.quality;
+		const hdr = options.hdr !== undefined ? options.hdr : this.hdr;
+		const useTimeout = options.timeout !== undefined ? options.timeout : true;
+
 		try {
+
+			// Abort any ongoing denoising
+			if ( this.isDenoising ) {
+
+				this.abort();
+
+			}
 
 			this.isDenoising = true;
 			this.dispatchEvent( { type: 'start' } );
+
+			// Update denoiser settings for this execution
+			this.denoiser.quality = quality;
+			this.denoiser.hdr = hdr;
 			this.denoiser.setInputImage( 'color', this.sourceCanvas );
 
 			if ( this.useGBuffers ) {
@@ -127,7 +214,25 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			}
 
-			await this.denoiser.execute();
+			// Set up a timeout for denoising
+			let timeoutId;
+			const timeoutPromise = useTimeout ? new Promise( ( _, reject ) => {
+
+				timeoutId = setTimeout( () => reject( new Error( "Denoising timed out" ) ), this.timeoutDuration );
+
+			} ) : Promise.resolve();
+
+			// Execute with timeout protection - no need to pass parameters as we've set inputs
+			this.currentDenoisePromise = Promise.race( [
+				this.denoiser.execute(),
+				timeoutPromise
+			] );
+
+			await this.currentDenoisePromise;
+
+			// Clear timeout if denoising completed successfully
+			if ( timeoutId ) clearTimeout( timeoutId );
+
 			this.renderResult();
 
 			return true;
@@ -135,11 +240,14 @@ export class OIDNDenoiser extends EventDispatcher {
 		} catch ( error ) {
 
 			console.error( 'Denoising error:', error );
+			// Restore original rendering on error
+			this.sourceCanvas.style.opacity = 1;
 			return false;
 
 		} finally {
 
 			this.isDenoising = false;
+			this.currentDenoisePromise = null;
 			this.dispatchEvent( { type: 'end' } );
 
 		}
@@ -158,6 +266,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		this.denoiser.abort();
 		this.sourceCanvas.style.opacity = 1;
+		this.isDenoising = false;
+		this.currentDenoisePromise = null;
 		this.dispatchEvent( { type: 'end' } );
 
 	}

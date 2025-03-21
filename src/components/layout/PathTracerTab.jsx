@@ -169,8 +169,8 @@ const PathTracerTab = () => {
 	// OIDN
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
 	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
-	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
 	const handleOidnHdrChange = handleChange( setOidnHdr, value => window.pathTracerApp.denoiser.denoiser.hdr = value, false );
+	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
 
 	// Realtime Denoiser
 	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
