@@ -27,7 +27,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		// State
 		this.isDenoising = false;
 		this.enabled = options.enableOIDN ?? true;
-		this.useGBuffers = options.useGBuffers ?? true;
+		this.useGBuffer = options.useGBuffer ?? true;
 		this.quality = options.quality ?? 'balanced';
 		this.hdr = options.oidnHdr ?? false;
 		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
@@ -49,8 +49,8 @@ export class OIDNDenoiser extends EventDispatcher {
 			height: this.sourceCanvas.height,
 			width: this.sourceCanvas.width,
 			weightUrl: this.weightUrl,
-			useNormalMap: this.useGBuffers,
-			useAlbedoMap: this.useGBuffers
+			useNormalMap: this.useGBuffer,
+			useAlbedoMap: this.useGBuffer
 		} );
 
 	}
@@ -113,11 +113,11 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	// setGbuffers( useGBuffers ) {
+	// setGbuffers( useGBuffer ) {
 
-	// 	this.useGBuffers = useGBuffers;
-	// 	this.denoiser.useNormalMap = useGBuffers;
-	// 	this.denoiser.useAlbedoMap = useGBuffers;
+	// 	this.useGBuffer = useGBuffer;
+	// 	this.denoiser.useNormalMap = useGBuffer;
+	// 	this.denoiser.useAlbedoMap = useGBuffer;
 
 	// }
 
@@ -198,7 +198,7 @@ export class OIDNDenoiser extends EventDispatcher {
 			this.denoiser.hdr = hdr;
 			this.denoiser.setInputImage( 'color', this.sourceCanvas );
 
-			if ( this.useGBuffers ) {
+			if ( this.useGBuffer ) {
 
 				const { albedo, normal } = this.mapGenerator.generateMaps();
 
