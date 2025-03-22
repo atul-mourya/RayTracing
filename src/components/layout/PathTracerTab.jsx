@@ -168,9 +168,9 @@ const PathTracerTab = () => {
 
 	// OIDN
 	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
-	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.denoiser.quality = value, false );
-	const handleOidnHdrChange = handleChange( setOidnHdr, value => window.pathTracerApp.denoiser.denoiser.hdr = value, false );
-	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.useGBuffer = value, false );
+	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.updateQuality( value ), false );
+	const handleOidnHdrChange = handleChange( setOidnHdr, value => window.pathTracerApp.denoiser.toggleHDR( value ), false );
+	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.toggleUseGBuffer( value ), false );
 
 	// Realtime Denoiser
 	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
@@ -371,11 +371,12 @@ const PathTracerTab = () => {
 							<SelectContent>
 								<SelectItem value="fast">Fast</SelectItem>
 								<SelectItem value="balance">Balance</SelectItem>
+								<SelectItem disabled value="high">High</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
 					<div className="flex items-center justify-between">
-						<Switch label={"HDR"} checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
+						<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
 					</div>
 					<div className="flex items-center justify-between">
 						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />

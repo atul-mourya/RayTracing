@@ -277,12 +277,7 @@ class PathTracerApp extends EventDispatcher {
 		outputPass.material.toneMapped = true;
 		this.composer.addPass( outputPass );
 
-		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera, {
-			...DEFAULT_STATE,
-			timeoutDuration: 15000, // 15 seconds max for denoising
-			// Detect if we're in a high-DPI environment and adjust HDR accordingly
-			oidnHdr: DEFAULT_STATE.enableOIDN && window.devicePixelRatio > 1
-		} );
+		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera, DEFAULT_STATE );
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
 	}

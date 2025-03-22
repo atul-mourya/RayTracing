@@ -1,5 +1,4 @@
-//https://github.com/DennisSmolek/Denoiser
-import { Denoiser } from 'denoiser';
+import { initUNetFromURL } from 'oidn-web';
 import { AlbedoNormalGenerator, renderImageDataToCanvas } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
 
@@ -9,126 +8,107 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		super();
 
-		this._initializeProperties( renderer, scene, camera, options );
-		this._setupDenoiser();
-		this._setupCanvas();
-		this._setupMapGenerator();
-		this._preloadDenoiser();
-
-	}
-
-	_initializeProperties( renderer, scene, camera, options ) {
-
+		// Initialize properties with defaults
 		this.renderer = renderer;
 		this.scene = scene;
 		this.camera = camera;
 		this.sourceCanvas = renderer.domElement;
 
-		// State
-		this.isDenoising = false;
+		// Configuration options with defaults
 		this.enabled = options.enableOIDN ?? true;
 		this.useGBuffer = options.useGBuffer ?? true;
-		this.quality = options.quality ?? 'balanced';
+		this.quality = options.oidnQuality ?? 'fast';
 		this.hdr = options.oidnHdr ?? false;
 		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
-		this.weightUrl = options.weightUrl ?? "https://cdn.jsdelivr.net/npm/denoiser/tzas";
-		this.isPreloaded = false;
-		this.currentDenoisePromise = null;
-		this.timeoutDuration = options.timeoutDuration ?? 10000; // 10 second timeout
+		this.tileSize = options.tileSize ?? 256;
+
+		// State
+		this.isDenoising = false;
+		this.abortDenoise = null;
+
+		// Setup
+		this._setupCanvas();
+		this._setupUNetDenoiser();
+		this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
 
 	}
 
-	_setupDenoiser() {
-
-		this.denoiser = new Denoiser( "webgl" );
-		Object.assign( this.denoiser, {
-			inputMode: 'webgl',
-			outputMode: 'webgl',
-			quality: this.quality,
-			hdr: this.hdr,
-			height: this.sourceCanvas.height,
-			width: this.sourceCanvas.width,
-			weightUrl: this.weightUrl,
-			useNormalMap: this.useGBuffer,
-			useAlbedoMap: this.useGBuffer
-		} );
-
-	}
-
-	async _preloadDenoiser() {
-
-		// if ( ! this.enabled ) return;
+	async _setupUNetDenoiser() {
 
 		try {
 
-			// According to the docs, weights are loaded automatically when needed
-			this.isPreloaded = true;
-			console.log( "Denoiser initialized and ready" );
-
-			// Optional: Run a small warm-up denoising
-			await this._warmUp();
+			this.dispatchEvent( { type: 'loading', message: 'Loading UNet denoiser...' } );
+			this.unet = await initUNetFromURL( this.getTzasUrl(), undefined, {
+				aux: this.useGBuffer,
+				hdr: this.hdr
+			} );
+			this.dispatchEvent( { type: 'loaded' } );
+			console.log( 'UNet denoiser loaded successfully' );
 
 		} catch ( error ) {
 
-			console.warn( "Failed to initialize denoiser:", error );
+			console.error( 'Failed to load UNet denoiser:', error );
+			this.dispatchEvent( { type: 'error', error } );
 
 		}
 
 	}
 
-	async _warmUp() {
+	async toggleUseGBuffer( value ) {
 
-		// Create a tiny canvas for warm-up (minimal overhead)
-		const warmupCanvas = document.createElement( 'canvas' );
-		warmupCanvas.width = 64;
-		warmupCanvas.height = 64;
-		const ctx = warmupCanvas.getContext( '2d' );
-		ctx.fillStyle = 'gray';
-		ctx.fillRect( 0, 0, 64, 64 );
-
-		// Run a quick warm-up denoising pass
-		const tempDenoiser = new Denoiser( "webgl" );
-		tempDenoiser.quality = "low";
-		tempDenoiser.width = 64;
-		tempDenoiser.height = 64;
-		tempDenoiser.useNormalMap = false;
-		tempDenoiser.useAlbedoMap = false;
-		tempDenoiser.weightUrl = this.weightUrl;
-
-		try {
-
-			// According to docs, we can pass the image directly to execute
-			await tempDenoiser.execute( warmupCanvas );
-			console.log( "Denoiser warm-up completed" );
-
-		} catch ( e ) {
-
-			console.warn( "Denoiser warm-up failed:", e );
-
-		} finally {
-
-			tempDenoiser.dispose?.();
-
-		}
+		this.unet.dispose();
+		this.useGBuffer = value;
+		await this._setupUNetDenoiser();
 
 	}
 
-	// setGbuffers( useGBuffer ) {
+	async toggleHDR( value ) {
 
-	// 	this.useGBuffer = useGBuffer;
-	// 	this.denoiser.useNormalMap = useGBuffer;
-	// 	this.denoiser.useAlbedoMap = useGBuffer;
+		this.unet.dispose();
+		this.hdr = value;
+		await this._setupUNetDenoiser();
 
-	// }
+	}
+
+	async updateQuality( value ) {
+
+		this.unet.dispose();
+		this.quality = value;
+		await this._setupUNetDenoiser();
+
+	}
+
+	getTzasUrl() {
+
+		const BASE_URL = 'https://cdn.jsdelivr.net/npm/denoiser/tzas/';
+
+		// Map quality setting to model size suffix
+		const modelSize = {
+		  'fast': '_small',
+		  'balanced': '',
+		  'high': '_large'
+		}[ this.quality ] || '';
+
+		// Map HDR boolean to dynamic range string
+		const dynamicRange = this.hdr ? '_hdr' : '_ldr';
+
+		// Add auxiliary buffers suffix if needed
+		const aux = this.useGBuffer ? '_alb_nrm' : '';
+
+		return `${BASE_URL}rt${dynamicRange}${aux}${modelSize}.tza`;
+
+	}
 
 	_setupCanvas() {
 
 		this.denoisedCanvas = document.createElement( 'canvas' );
-		Object.assign( this.denoisedCanvas, {
-			width: this.sourceCanvas.width,
-			height: this.sourceCanvas.height
-		} );
+		this.denoisedCanvas.willReadFrequently = true;
 
+		// Set dimensions
+		this.denoisedCanvas.width = this.sourceCanvas.width;
+		this.denoisedCanvas.height = this.sourceCanvas.height;
+
+		// Style canvas
 		Object.assign( this.denoisedCanvas.style, {
 			position: 'absolute',
 			top: '0',
@@ -138,18 +118,11 @@ export class OIDNDenoiser extends EventDispatcher {
 			background: "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px"
 		} );
 
-		this.denoiser.setCanvas( this.denoisedCanvas );
+		// Add to DOM
 		this.sourceCanvas.parentElement.prepend( this.denoisedCanvas );
 
-	}
-
-	_setupMapGenerator() {
-
-		this.mapGenerator = new AlbedoNormalGenerator(
-			this.scene,
-			this.camera,
-			this.renderer
-		);
+		// Create context with optimization flag
+		this.ctx = this.denoisedCanvas.getContext( '2d', { willReadFrequently: true } );
 
 	}
 
@@ -158,7 +131,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		if ( ! this.enabled || this.isDenoising ) return false;
 
 		const startTime = performance.now();
-		const success = await this.execute( { quality: this.quality, hdr: this.hdr } );
+		const success = await this.execute();
 
 		if ( success ) {
 
@@ -172,69 +145,20 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	async execute( options = {} ) {
+	async execute() {
 
 		if ( ! this.enabled ) return false;
 
-		// Apply passed options or use defaults
-		const quality = options.quality || this.quality;
-		const hdr = options.hdr !== undefined ? options.hdr : this.hdr;
-		const useTimeout = options.timeout !== undefined ? options.timeout : true;
-
 		try {
 
-			// Abort any ongoing denoising
-			if ( this.isDenoising ) {
-
-				this.abort();
-
-			}
+			// Abort any ongoing operation
+			this.isDenoising && this.abort();
 
 			this.isDenoising = true;
 			this.dispatchEvent( { type: 'start' } );
-
-			// Update denoiser settings for this execution
-			this.denoiser.quality = quality;
-			this.denoiser.hdr = hdr;
-			this.denoiser.setInputImage( 'color', this.sourceCanvas );
-
-			if ( this.useGBuffer ) {
-
-				const { albedo, normal } = this.mapGenerator.generateMaps();
-
-				this.denoiser.setInputImage( 'albedo', albedo );
-				this.denoiser.setInputImage( 'normal', normal );
-
-				if ( this.debugGbufferMaps ) {
-
-					renderImageDataToCanvas( albedo, 'debugAlbedoCanvas' );
-					renderImageDataToCanvas( normal, 'debugNormalCanvas' );
-
-				}
-
-			}
-
-			// Set up a timeout for denoising
-			let timeoutId;
-			const timeoutPromise = useTimeout ? new Promise( ( _, reject ) => {
-
-				timeoutId = setTimeout( () => reject( new Error( "Denoising timed out" ) ), this.timeoutDuration );
-
-			} ) : Promise.resolve();
-
-			// Execute with timeout protection - no need to pass parameters as we've set inputs
-			this.currentDenoisePromise = Promise.race( [
-				this.denoiser.execute(),
-				timeoutPromise
-			] );
-
-			await this.currentDenoisePromise;
-
-			// Clear timeout if denoising completed successfully
-			if ( timeoutId ) clearTimeout( timeoutId );
+			await this._executeUNet();
 
 			this.renderResult();
-
 			return true;
 
 		} catch ( error ) {
@@ -247,10 +171,65 @@ export class OIDNDenoiser extends EventDispatcher {
 		} finally {
 
 			this.isDenoising = false;
-			this.currentDenoisePromise = null;
 			this.dispatchEvent( { type: 'end' } );
 
 		}
+
+	}
+
+	async _executeUNet() {
+
+		// Clear any previous denoise operation
+		this.abort();
+
+		const w = this.denoisedCanvas.width;
+		const h = this.denoisedCanvas.height;
+
+		// Draw the current renderer output to our canvas
+		this.ctx.clearRect( 0, 0, w, h );
+		this.ctx.drawImage( this.sourceCanvas, 0, 0, w, h );
+
+		// Get the image data for denoising
+		const imageData = this.ctx.getImageData( 0, 0, w, h );
+
+		// Prepare additional data for G-Buffers if enabled
+		const additionalData = {};
+		if ( this.useGBuffer ) {
+
+			const { albedo, normal } = this.mapGenerator.generateMaps();
+			additionalData.albedo = albedo;
+			additionalData.normal = normal;
+
+			if ( this.debugGbufferMaps ) {
+
+				renderImageDataToCanvas( albedo, 'debugAlbedoCanvas' );
+				renderImageDataToCanvas( normal, 'debugNormalCanvas' );
+
+			}
+
+		}
+
+		// Execute the UNet denoiser in tiles
+		return new Promise( ( resolve ) => {
+
+			this.abortDenoise = this.unet.tileExecute( {
+				color: imageData,
+				...additionalData,
+				tileSize: this.tileSize,
+				done: () => {
+
+					this.abortDenoise = null;
+					resolve();
+
+				},
+				progress: ( _, tileData, tile ) => {
+
+					this.ctx.putImageData( tileData, tile.x, tile.y );
+
+				}
+			} );
+
+		} );
 
 	}
 
@@ -264,10 +243,15 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		if ( ! this.enabled || ! this.isDenoising ) return;
 
-		this.denoiser.abort();
+		if ( this.abortDenoise ) {
+
+			this.abortDenoise();
+			this.abortDenoise = null;
+
+		}
+
 		this.sourceCanvas.style.opacity = 1;
 		this.isDenoising = false;
-		this.currentDenoisePromise = null;
 		this.dispatchEvent( { type: 'end' } );
 
 	}
@@ -278,21 +262,24 @@ export class OIDNDenoiser extends EventDispatcher {
 		const scaledWidth = width * pixelRatio;
 		const scaledHeight = height * pixelRatio;
 
-		this.denoiser.width = scaledWidth;
-		this.denoiser.height = scaledHeight;
 		this.mapGenerator.setSize( scaledWidth, scaledHeight );
-
-		Object.assign( this.denoisedCanvas, {
-			width: scaledWidth,
-			height: scaledHeight
-		} );
+		this.denoisedCanvas.width = scaledWidth;
+		this.denoisedCanvas.height = scaledHeight;
 
 	}
 
 	dispose() {
 
 		this.mapGenerator.dispose();
-		this.denoiser?.dispose?.();
+		this.unet.dispose();
+
+		if ( this.abortDenoise ) {
+
+			this.abortDenoise();
+			this.abortDenoise = null;
+
+		}
+
 		this.denoisedCanvas.remove();
 
 	}

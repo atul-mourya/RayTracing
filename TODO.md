@@ -5,6 +5,8 @@ RayTracing Project TODO
 ----------------
 
 - [ ]  active catalog item not being highlighted in the UI
+- [ ]  drag and drop models retriggers the rendering blocking the UI and bvh generation delay
+- [ ]  environment intensity not being applied
 
 ✨ Core Features
 ---------------
