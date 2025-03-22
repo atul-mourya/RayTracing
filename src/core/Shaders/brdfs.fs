@@ -5,8 +5,8 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	float invRoughness = 1.0 - material.roughness;
 	float metalFactor = 0.5 + 0.5 * material.metalness;
 
-    // Consolidated weight calculations
-	float baseSpecularWeight = invRoughness * metalFactor;
+    // Ensure minimum specular contribution for metals regardless of roughness
+    float baseSpecularWeight = max(invRoughness * metalFactor, material.metalness * 0.1);
 	weights.specular = baseSpecularWeight * material.specularIntensity;
 	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
 
