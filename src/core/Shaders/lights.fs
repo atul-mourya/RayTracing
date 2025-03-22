@@ -264,7 +264,7 @@ vec3 calculateAreaLightContribution(
     vec3 normal,
     vec3 viewDir,
     RayTracingMaterial material,
-    BRDFSample brdfSample,
+    DirectionSample brdfSample,
     int sampleIndex,
     int bounceIndex,
     inout uint rngState,
@@ -300,7 +300,7 @@ vec3 calculateAreaLightContribution(
     }
 
     // Calculate BRDF and light contribution
-    vec3 brdfValue = evaluateBRDF( viewDir, lightDir, normal, material );
+    vec3 brdfValue = evaluateMaterialResponse( viewDir, lightDir, normal, material );
 
     // Physical light falloff
     float distanceSqr = lightDist * lightDist;
@@ -342,7 +342,7 @@ LightSampleRec sampleDirectionalLight( DirectionalLight light, vec3 hitPoint, ve
     return rec;
 }
 
-vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState, inout ivec2 stats ) {
+vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, DirectionSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState, inout ivec2 stats ) {
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
     vec3 rayOrigin = hitInfo.hitPoint + N * 0.001;
@@ -369,7 +369,7 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, BRDFSample brdfSample,
 
         // Only check shadows if light contribution would be significant
         if( light.intensity * NoL > 0.01 && ! isPointInShadow( rayOrigin, N, light.direction, rngState, stats ) ) {
-            vec3 brdfValue = evaluateBRDF( V, light.direction, N, hitInfo.material );
+            vec3 brdfValue = evaluateMaterialResponse( V, light.direction, N, hitInfo.material );
 
             vec3 lightContribution = light.color * light.intensity;
             totalLighting += lightContribution * brdfValue * NoL;
@@ -406,7 +406,7 @@ struct IndirectLightingResult {
     float misWeight;
 };
 
-IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMaterial material, BRDFSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
+IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMaterial material, DirectionSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
     // Initialize result
     IndirectLightingResult result;
 
@@ -418,37 +418,30 @@ IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMate
     float envWeight = 0.0;
     float brdfWeight = getMaterialImportance( material ); // Get material-based importance once
 
-    // Declare shared variables
-    vec3 sampleDir;
-    float samplePdf;
-    vec3 sampleBrdf;
-    float NoL; // Single dot product variable to reuse
+    vec3 sampleDir = brdfSample.direction;
+    float samplePdf = brdfSample.pdf;
+    vec3 sampleBrdfValue = brdfSample.value;
+    float NoL = max( dot( N, sampleDir ), 0.0 );
 
-    if( rand < brdfWeight ) {
-        // BRDF sampling - reuse existing values
-        sampleDir = brdfSample.direction;
-        samplePdf = brdfSample.pdf;
-        sampleBrdf = brdfSample.value;
-        NoL = max( dot( N, sampleDir ), 0.0 );
-    } else {
+    if( rand >= brdfWeight ) {
         // Cosine-weighted sampling
         sampleDir = cosineWeightedSample( N, indirectSample );
         NoL = max( dot( N, sampleDir ), 0.0 );
         samplePdf = NoL * PI_INV;
-        sampleBrdf = evaluateBRDF( V, sampleDir, N, material );
+        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
     }
 
     // Ensure valid PDFs
     // samplePdf = max( samplePdf, 0.001 );
     float brdfPdf = brdfSample.pdf;
     float cosinePdf = NoL * PI_INV;
-
-    // Calculate MIS weight using power heuristic
     float cosineWeight = 1.0 - envWeight - brdfWeight;
-    float misWeight = powerHeuristic( samplePdf, brdfSample.pdf * brdfWeight + cosinePdf * cosineWeight );
+    
+    // float combinedPdf = brdfPdf * brdfWeight + cosinePdf * cosineWeight;
+    float misWeight = powerHeuristic( samplePdf, cosineWeight );
 
     // Calculate final throughput
-    vec3 throughput = sampleBrdf * NoL * misWeight / samplePdf;
+    vec3 throughput = sampleBrdfValue * NoL * misWeight / samplePdf;
     throughput *= globalIlluminationIntensity;
 
     // Set result values

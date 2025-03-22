@@ -79,11 +79,11 @@ TransmissionResult handleTransmission(
 			float randWL = RandomValue( rngState );
 			float selectIOR;
 
-    		// Calculate dispersion strength - stronger at edges, edges determined by dot product
+            // Calculate dispersion strength - stronger at edges
 			float edgeFactor = 1.0 - abs( dot( N, rayDir ) );
 			float dispersionVisibility = material.dispersion * edgeFactor * 2.0;
 
-    		// Base color to maintain energy conservation
+            // Base color to maintain energy conservation
 			vec3 baseColor = mix( material.color.rgb, vec3( 1.0 ), material.transmission * 0.5 );
 
 			if( randWL < 0.333 ) {

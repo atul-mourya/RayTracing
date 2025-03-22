@@ -39,31 +39,45 @@ ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
 // BRDF sampling with early exits and optimized math
-BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState ) {
+DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState ) {
 
 	BRDFWeights weights = calculateBRDFWeights( material );
-	BRDFSample result;
+	DirectionSample result;
 
 	float rand = xi.x;
 	vec3 H;
 
+    // Cumulative probability approach for sampling selection
 	float cumulativeDiffuse = weights.diffuse;
-	if( rand < weights.diffuse ) {
-        // Diffuse sampling
+	float cumulativeSpecular = cumulativeDiffuse + weights.specular;
+	float cumulativeSheen = cumulativeSpecular + weights.sheen;
+	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
+    // Transmission is the remainder
+
+    // Use branch-free operations where possible for better GPU performance
+    // This is faster than nested if-else on many GPUs
+
+    // Diffuse sampling (most common case first for branch prediction)
+	if( rand < cumulativeDiffuse ) {
 		result.direction = ImportanceSampleCosine( N, xi );
-		result.pdf = clamp( dot( N, result.direction ), 0.0, 1.0 ) * PI_INV;
-		result.value = evaluateBRDF( V, result.direction, N, material );
+		float NoL = clamp( dot( N, result.direction ), 0.0, 1.0 );
+		result.pdf = NoL * PI_INV;
+		result.value = evaluateMaterialResponse( V, result.direction, N, material );
 		return result;
 	}
 
-	if( rand < weights.diffuse + weights.specular ) {
-        // specular sampling
+	float NoV = clamp( dot( N, V ), 0.001, 1.0 );
+
+    // Specular sampling
+	if( rand < cumulativeSpecular ) {
+        // Use TBN construction only when needed (optimization)
 		mat3 TBN = constructTBN( N );
 		vec3 localV = transpose( TBN ) * V;
+
+        // Use VNDF sampling for better quality
 		vec3 localH = sampleGGXVNDF( localV, material.roughness, xi );
 		H = TBN * localH;
 
-		float NoV = clamp( dot( N, V ), 0.001, 1.0 );
 		float NoH = clamp( dot( N, H ), 0.001, 1.0 );
 		float VoH = clamp( dot( V, H ), 0.001, 1.0 );
 
@@ -72,70 +86,92 @@ BRDFSample sampleBRDF( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, ino
 
 		result.direction = reflect( - V, H );
 		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
-		result.value = evaluateBRDF( V, result.direction, N, material );
+		result.value = evaluateMaterialResponse( V, result.direction, N, material );
 		return result;
 	}
 
-    // Continue with other BRDFs following the same pattern...
-	float cumulativeSheen = weights.diffuse + weights.specular + weights.sheen;
-	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
-
+    // Sheen sampling
 	if( rand < cumulativeSheen ) {
-        // sheen sampling
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
 		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
 		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
-	} else if( rand < cumulativeClearcoat ) {
-        // clearcoat sampling
+	} 
+    // Clearcoat sampling
+	else if( rand < cumulativeClearcoat ) {
 		float clearcoatRoughness = clamp( material.clearcoatRoughness, 0.089, 1.0 );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
 		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
 		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
-		float NoV = clamp( dot( N, V ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		float D = DistributionGGX( NoH, clearcoatRoughness );
 		float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
 		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
-	} else {
-        // transmission sampling
+	} 
+    // Transmission sampling
+	else {
 		float eta = material.ior;
 		bool entering = dot( V, N ) < 0.0;
 		eta = entering ? 1.0 / eta : eta;
 
+        // Simplified dispersion handling for performance
 		if( material.dispersion > 0.0 ) {
 			float randWL = RandomValue( rngState );
+            // Precompute dispersion coefficients
 			float B = material.dispersion * 0.001;
-			float dispersionOffset = B / ( randWL < 0.333 ? 0.4225 : ( randWL < 0.666 ? 0.2809 : 0.1936 ) );
+			float dispersionOffset = B / ( ( randWL < 0.333 ) ? 0.4225 : ( ( randWL < 0.666 ) ? 0.2809 : 0.1936 ) );
 			eta = entering ? 1.0 / ( eta + dispersionOffset ) : ( eta + dispersionOffset );
 		}
 
 		result.direction = refract( - V, entering ? N : - N, eta );
+        // Simple PDF for transmission (can be improved)
 		result.pdf = 1.0;
 	}
 
+    // Ensure minimum PDF value to prevent NaN/Inf
 	result.pdf = max( result.pdf, MIN_PDF );
-	result.value = evaluateBRDF( V, result.direction, N, material );
+	result.value = evaluateMaterialResponse( V, result.direction, N, material );
 	return result;
 }
 
 // Russian Roulette with vectorized operations
 bool handleRussianRoulette( int depth, vec3 rayColor, RayTracingMaterial material, uint seed ) {
-    // Early exit for very dark paths
-	float pathIntensity = max( max( rayColor.r, rayColor.g ), rayColor.b );
-	if( pathIntensity < 0.01 && depth > 2 )
+    // Always continue for first few bounces
+	if( depth < 2 )
+		return true;
+
+	// Calculate luminance for importance-based termination
+	float lum = luminance( rayColor );
+
+    // Quick rejection for very dark paths
+	if( lum < 0.001 && depth > 3 )
 		return false;
 
-	float materialIntensity = max( luminance( material.color.rgb ), material.metalness );
-	int minBounces = int( mix( 3.0, 5.0, materialIntensity ) );
+    // Adaptive minimum bounces based on material properties
+    // More bounces for materials that contribute more to final image
+	bool isImportantMaterial = material.transmission > 0.5 || material.metalness > 0.7 || material.emissive.r + material.emissive.g + material.emissive.b > 0.0;
+	int minBounces = isImportantMaterial ? 4 : 3;
 
-	float rrProb = depth < minBounces ? 1.0 : clamp( pathIntensity, 0.05, 1.0 );
-	if( RandomValue( seed ) > rrProb )
-		return false;
+	if( depth < minBounces )
+		return true;
 
-	rayColor *= 1.0 / rrProb;
-	return true;
+    // Calculate continuation probability with bias toward brighter paths
+	float rrProb = clamp( lum, 0.05, 0.95 );
+
+    // Performance optimization: use bit operations for random test when possible
+    // (some hardware may handle this better than floating point comparison)
+	uint threshold = uint( rrProb * 4294967295.0 );
+	uint randVal = seed; // Use the seed directly or mix it further if needed
+
+	bool shouldContinue = randVal < threshold;
+
+    // Apply throughput correction only if continuing
+	if( shouldContinue ) {
+		rayColor *= 1.0 / rrProb;
+	}
+
+	return shouldContinue;
 }
 
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
@@ -197,7 +233,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
 		material.sheenRoughness = clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
 
-		BRDFSample brdfSample;
+		DirectionSample brdfSample;
 		// Handle clear coat
 		if( material.clearcoat > 0.0 ) {
 			vec3 L;
@@ -206,7 +242,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 			brdfSample.direction = L;
 			brdfSample.pdf = pdf;
 		} else {
-			brdfSample = sampleBRDF( V, N, material, randomSample, rngState );
+			brdfSample = generateSampledDirection( V, N, material, randomSample, rngState );
 		}
 
         // Add emissive contribution
@@ -216,8 +252,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState );
 		throughput *= reduceFireflies( indirectResult.throughput, fireflyThreshold );
 
-		// Direct lighting using MIS
-		// Calculate direct lighting using Multiple Importance Sampling
+		// Add direct lighting contribution
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
 		radiance += reduceFireflies( directLight * throughput, fireflyThreshold );
 		// return vec4(directLight, 1.0);

@@ -204,7 +204,7 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
 	return max( I, vec3( 0.0 ) );
 }
 
-vec3 evaluateBRDF( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
+vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial material ) {
 
 	// Early exit for purely diffuse materials
 	if( material.roughness > 0.98 && material.metalness < 0.02 &&

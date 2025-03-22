@@ -87,7 +87,7 @@ struct Pixel {
 	int samples;
 };
 
-struct BRDFSample {
+struct DirectionSample {
 	vec3 direction;   // Sampled direction
 	vec3 value;       // BRDF value
 	float pdf;        // Probability density
