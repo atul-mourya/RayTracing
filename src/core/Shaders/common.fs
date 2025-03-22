@@ -1,8 +1,8 @@
 const float PI = 3.14159;
 const float PI_INV = 1.0 / PI;
 const float EPSILON = 0.001;
-const float MIN_ROUGHNESS = 0.05;
-const float MAX_ROUGHNESS = 1.0;
+const float MIN_ROUGHNESS = 0.01;
+const float MAX_ROUGHNESS = 0.99;
 const float MIN_PDF = 0.001;
 const vec3 REC709_LUMINANCE_COEFFICIENTS = vec3( 0.2126, 0.7152, 0.0722 );
 
@@ -96,6 +96,7 @@ DotProducts computeDotProducts( vec3 N, vec3 V, vec3 L ) {
     dots.NoH = max( dot( N, H ), 0.001 );
     dots.VoH = max( dot( V, H ), 0.001 );
     dots.LoH = max( dot( L, H ), 0.001 );
+    dots.VoN = max( dot( V, N ), 0.001 );
 
     return dots;
 }

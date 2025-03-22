@@ -54,10 +54,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
     // Transmission is the remainder
 
-    // Use branch-free operations where possible for better GPU performance
-    // This is faster than nested if-else on many GPUs
-
-    // Diffuse sampling (most common case first for branch prediction)
+    // Diffuse sampling
 	if( rand < cumulativeDiffuse ) {
 		result.direction = ImportanceSampleCosine( N, xi );
 		float NoL = clamp( dot( N, result.direction ), 0.0, 1.0 );
@@ -111,22 +108,16 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	} 
     // Transmission sampling
 	else {
-		float eta = material.ior;
-		bool entering = dot( V, N ) < 0.0;
-		eta = entering ? 1.0 / eta : eta;
-
-        // Simplified dispersion handling for performance
-		if( material.dispersion > 0.0 ) {
-			float randWL = RandomValue( rngState );
-            // Precompute dispersion coefficients
-			float B = material.dispersion * 0.001;
-			float dispersionOffset = B / ( ( randWL < 0.333 ) ? 0.4225 : ( ( randWL < 0.666 ) ? 0.2809 : 0.1936 ) );
-			eta = entering ? 1.0 / ( eta + dispersionOffset ) : ( eta + dispersionOffset );
-		}
-
-		result.direction = refract( - V, entering ? N : - N, eta );
-        // Simple PDF for transmission (can be improved)
-		result.pdf = 1.0;
+		// Use the shared microfacet transmission sampling function
+		bool entering = dot(V, N) < 0.0;
+		MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission(
+			V, N, material.ior, material.roughness, entering,
+			material.dispersion, xi, rngState
+		);
+		
+		// Set the direction and PDF from the result
+		result.direction = mtResult.direction;
+		result.pdf = mtResult.pdf;
 	}
 
     // Ensure minimum PDF value to prevent NaN/Inf

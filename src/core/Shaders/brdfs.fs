@@ -15,7 +15,9 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	weights.clearcoat = material.clearcoat * invRoughness * 0.35; // Combined scaling factors
 
     // transmission calculation
-	float transmissionBase = invRoughness * 0.7; // Combined scaling
+	float iorFactor = min( 2.0 / material.ior, 1.0 ); // Higher IOR = more likely to have TIR
+	float transmissionBase = iorFactor * invRoughness * 0.7; // Combined scaling
+    
 	weights.transmission = material.transmission * transmissionBase *
 		( 0.5 + 0.5 * material.ior / 2.0 ) *
 		( 1.0 + material.dispersion * 0.5 );
@@ -215,6 +217,51 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
     // Calculate all dot products once
 	DotProducts dots = computeDotProducts( N, V, L );
 
+    // Check if this is a transmission event (L and V on opposite sides of surface)
+	bool isTransmission = dots.VoN * dots.NoL < 0.0;
+
+    // If this is a transmission event and material has transmission property
+	if( isTransmission && material.transmission > 0.0 ) {
+        // Calculate refraction direction and check if it's valid
+		float eta = material.ior;
+		bool entering = dots.VoN > 0.0;
+		float etaRatio = entering ? ( 1.0 / eta ) : eta;
+
+        // Use microfacet BTDF for transmission
+        // Calculate half-vector for transmission
+		vec3 H = normalize( ( V + L * etaRatio ) / ( 1.0 + dot( V, L ) * etaRatio ) );
+		if( dot( H, N ) < 0.0 )
+			H = - H; // Ensure half-vector points in correct hemisphere
+
+		float NoH = abs( dot( N, H ) );
+		float VoH = abs( dot( V, H ) );
+		float LoH = abs( dot( L, H ) );
+
+        // GGX microfacet distribution with transmission roughness
+		float transmissionRoughness = max( 0.05, material.roughness );
+		float D = DistributionGGX( NoH, transmissionRoughness );
+
+        // Geometry term
+		float G = GeometrySmith( abs( dots.NoV ), abs( dots.NoL ), transmissionRoughness );
+
+        // Fresnel term - use 1-F for transmission
+		vec3 F0 = mix( vec3( 0.04 ), material.color.rgb, material.metalness );
+		vec3 F = fresnelSchlick( VoH, F0 );
+		vec3 transmissionFactor = vec3( 1.0 ) - F;
+
+        // Account for change of measure (Jacobian)
+		float sqrtDenom = VoH + etaRatio * LoH;
+		float jacobian = abs( LoH ) / ( sqrtDenom * sqrtDenom );
+
+        // Scale by material's transmission value
+		vec3 btdf = ( abs( dots.NoV ) * abs( dots.NoL ) * D * G * transmissionFactor * material.transmission * jacobian ) /
+			( 4.0 * abs( dots.NoV ) * abs( dots.NoL ) );
+
+        // Apply color tint
+		return btdf * material.color.rgb;
+	}
+
+    // Non-transmission case - use existing BRDF evaluation
     // Calculate base F0 with specular parameters
 	vec3 F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
 
