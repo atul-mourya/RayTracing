@@ -359,7 +359,7 @@ const PathTracerTab = () => {
 			</ControlGroup>
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
-					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} disabled={isMobileDevice}/>
+					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
 				</div>
 				{enableOIDN && ( <>
 					<div className="flex items-center justify-between">
