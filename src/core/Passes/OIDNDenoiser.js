@@ -12,7 +12,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.renderer = renderer;
 		this.scene = scene;
 		this.camera = camera;
-		this.sourceCanvas = renderer.domElement;
+		this.input = renderer.domElement;
 
 		// Configuration options with defaults
 		this.enabled = options.enableOIDN ?? true;
@@ -40,7 +40,8 @@ export class OIDNDenoiser extends EventDispatcher {
 			this.dispatchEvent( { type: 'loading', message: 'Loading UNet denoiser...' } );
 			this.unet = await initUNetFromURL( this.getTzasUrl(), undefined, {
 				aux: this.useGBuffer,
-				hdr: this.hdr
+				hdr: this.hdr,
+				maxTileSize: this.tileSize
 			} );
 			this.dispatchEvent( { type: 'loaded' } );
 			console.log( 'UNet denoiser loaded successfully' );
@@ -101,15 +102,15 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	_setupCanvas() {
 
-		this.denoisedCanvas = document.createElement( 'canvas' );
-		this.denoisedCanvas.willReadFrequently = true;
+		this.output = document.createElement( 'canvas' );
+		this.output.willReadFrequently = true;
 
 		// Set dimensions
-		this.denoisedCanvas.width = this.sourceCanvas.width;
-		this.denoisedCanvas.height = this.sourceCanvas.height;
+		this.output.width = this.input.width;
+		this.output.height = this.input.height;
 
 		// Style canvas
-		Object.assign( this.denoisedCanvas.style, {
+		Object.assign( this.output.style, {
 			position: 'absolute',
 			top: '0',
 			left: '0',
@@ -119,10 +120,10 @@ export class OIDNDenoiser extends EventDispatcher {
 		} );
 
 		// Add to DOM
-		this.sourceCanvas.parentElement.prepend( this.denoisedCanvas );
+		this.input.parentElement.prepend( this.output );
 
 		// Create context with optimization flag
-		this.ctx = this.denoisedCanvas.getContext( '2d', { willReadFrequently: true } );
+		this.ctx = this.output.getContext( '2d', { willReadFrequently: true } );
 
 	}
 
@@ -130,13 +131,15 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		if ( ! this.enabled || this.isDenoising ) return false;
 
+		this.dispatchEvent( { type: 'start' } );
+
 		const startTime = performance.now();
 		const success = await this.execute();
 
 		if ( success ) {
 
 			this.renderer?.resetState();
-			this.sourceCanvas.style.opacity = 0;
+			this.input.style.opacity = 0;
 			console.log( `Denoising completed in ${performance.now() - startTime}ms (quality: ${this.quality})` );
 
 		}
@@ -155,17 +158,17 @@ export class OIDNDenoiser extends EventDispatcher {
 			this.isDenoising && this.abort();
 
 			this.isDenoising = true;
-			this.dispatchEvent( { type: 'start' } );
+			this.input.style.opacity = 0;
+
 			await this._executeUNet();
 
-			this.renderResult();
 			return true;
 
 		} catch ( error ) {
 
 			console.error( 'Denoising error:', error );
 			// Restore original rendering on error
-			this.sourceCanvas.style.opacity = 1;
+			this.input.style.opacity = 1;
 			return false;
 
 		} finally {
@@ -182,12 +185,12 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Clear any previous denoise operation
 		this.abort();
 
-		const w = this.denoisedCanvas.width;
-		const h = this.denoisedCanvas.height;
+		const w = this.output.width;
+		const h = this.output.height;
 
 		// Draw the current renderer output to our canvas
 		this.ctx.clearRect( 0, 0, w, h );
-		this.ctx.drawImage( this.sourceCanvas, 0, 0, w, h );
+		this.ctx.drawImage( this.input, 0, 0, w, h );
 
 		// Get the image data for denoising
 		const imageData = this.ctx.getImageData( 0, 0, w, h );
@@ -215,7 +218,6 @@ export class OIDNDenoiser extends EventDispatcher {
 			this.abortDenoise = this.unet.tileExecute( {
 				color: imageData,
 				...additionalData,
-				tileSize: this.tileSize,
 				done: () => {
 
 					this.abortDenoise = null;
@@ -232,13 +234,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		} );
 
 	}
-
-	renderResult() {
-
-		this.sourceCanvas.style.opacity = 0;
-
-	}
-
 	abort() {
 
 		if ( ! this.enabled || ! this.isDenoising ) return;
@@ -250,7 +245,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		}
 
-		this.sourceCanvas.style.opacity = 1;
+		this.input.style.opacity = 1;
 		this.isDenoising = false;
 		this.dispatchEvent( { type: 'end' } );
 
@@ -263,8 +258,8 @@ export class OIDNDenoiser extends EventDispatcher {
 		const scaledHeight = height * pixelRatio;
 
 		this.mapGenerator.setSize( scaledWidth, scaledHeight );
-		this.denoisedCanvas.width = scaledWidth;
-		this.denoisedCanvas.height = scaledHeight;
+		this.output.width = scaledWidth;
+		this.output.height = scaledHeight;
 
 	}
 
@@ -280,7 +275,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		}
 
-		this.denoisedCanvas.remove();
+		this.output.remove();
 
 	}
 
