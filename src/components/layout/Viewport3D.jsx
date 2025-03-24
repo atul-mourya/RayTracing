@@ -1,18 +1,23 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import PathTracerApp from '../../core/main';
-import { Upload } from "lucide-react";
+import { Upload, Maximize, Target, Camera } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { TooltipProvider } from '@radix-ui/react-tooltip';
 import LoadingOverlay from './LoadingOverlay';
 
 const Viewport3D = ( { onStatsUpdate } ) => {
 
 	const { toast } = useToast();
 	const containerRef = useRef( null );
+	const primaryCanvasRef = useRef( null );
+	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const [ isDragging, setIsDragging ] = useState( false );
+	const [ dimensions, setDimensions ] = useState( { width: 512, height: 512 } );
 
 	useEffect( () => {
 
@@ -20,7 +25,7 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 		if ( containerRef.current ) {
 
-			appRef.current = new PathTracerApp( containerRef.current );
+			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
 			window.pathTracerApp = appRef.current;
 			appRef.current.setOnStatsUpdate( onStatsUpdate );
 
@@ -43,6 +48,23 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			} );
 
 		}
+
+		// Update dimensions when window resizes
+		const updateDimensions = () => {
+
+			if ( primaryCanvasRef.current ) {
+
+				const { width, height } = primaryCanvasRef.current;
+				containerRef.current.style.width = `${width}px`;
+				containerRef.current.style.height = `${height}px`;
+				console.log( "Dimensions updated:", width, height );
+				setDimensions( { width, height } );
+
+			}
+
+		};
+
+		window.addEventListener( 'resolution_changed', updateDimensions );
 
 	}, [ onStatsUpdate, setLoading, toast ] );
 
@@ -118,27 +140,90 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 	}, [ setLoading, toast ] );
 
+	const handleFullscreen = () => {
+
+		if ( ! containerRef.current ) return;
+		document.fullscreenElement ? document.exitFullscreen() : containerRef.current.requestFullscreen();
+
+	};
+
+	const handleResetCamera = () => window.pathTracerApp && window.pathTracerApp.controls.reset();
+	const handleScreenshot = () => window.pathTracerApp && window.pathTracerApp.takeScreenshot();
+
 	return (
-		<div
-			className={`relative w-full h-full ${isDragging ? 'bg-primary/10' : ''}`}
+		<div className="flex justify-center items-center h-full"
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}
 		>
 			<div
 				ref={containerRef}
-				className="w-full h-full"
+				className={`relative ${isDragging ? 'bg-primary/10' : ''}`}
 				style={{
-					backgroundImage: `
-					linear-gradient(45deg, #ccc 26%, transparent 26%), 
-					linear-gradient(135deg, #ccc 26%, transparent 26%),
-					linear-gradient(45deg, transparent 75%, #ccc 75%),
-					linear-gradient(135deg, transparent 75%, #ccc 75%)
-				`,
-					backgroundSize: '20px 20px',
-					backgroundPosition: '0 0, 10px 0, 10px -10px, 0px 10px'
+					position: "relative",
+					width: "512px",
+					height: "512px",
+					overflow: "hidden",
+					background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
 				}}
-			/>
+			>
+				{/* denoiser container */}
+				<canvas
+					ref={denoiserCanvasRef}
+					width="1024"
+					height="1024"
+					style={{ width: "512px", height: "512px" }}
+				/>
+				{/* primary container */}
+				<canvas
+					ref={primaryCanvasRef}
+					width="1024"
+					height="1024"
+					style={{ width: "512px", height: "512px" }}
+				/>
+
+				{/* Dimensions display */}
+				<div className="absolute left-0 bottom-0 right-0 text-center z-10">
+					<div className="text-xs text-background">{dimensions.width} x {dimensions.height}</div>
+				</div>
+
+
+			</div>
+			{/* Controls */}
+			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Camera size={12} className="bg-transparent border-white text-forground/50" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Take Screenshot</p>
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleResetCamera} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Target size={12} className="bg-transparent border-white text-forground/50" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Reset Camera</p>
+						</TooltipContent>
+					</Tooltip>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<button onClick={handleFullscreen} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
+								<Maximize size={12} className="bg-transparent border-white text-forground/50" />
+							</button>
+						</TooltipTrigger>
+						<TooltipContent>
+							<p>Fullscreen</p>
+						</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
+			</div>
 			<Toaster />
 			<LoadingOverlay />
 			{isDragging && (

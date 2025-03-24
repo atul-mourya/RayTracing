@@ -4,7 +4,7 @@ import { EventDispatcher } from 'three';
 
 export class OIDNDenoiser extends EventDispatcher {
 
-	constructor( renderer, scene, camera, options = {} ) {
+	constructor( output, renderer, scene, camera, options = {} ) {
 
 		super();
 
@@ -13,6 +13,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.scene = scene;
 		this.camera = camera;
 		this.input = renderer.domElement;
+		this.output = output;
 
 		// Configuration options with defaults
 		this.enabled = options.enableOIDN ?? true;
@@ -102,7 +103,6 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	_setupCanvas() {
 
-		this.output = document.createElement( 'canvas' );
 		this.output.willReadFrequently = true;
 
 		// Set dimensions
@@ -118,9 +118,6 @@ export class OIDNDenoiser extends EventDispatcher {
 			height: '100%',
 			background: "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px"
 		} );
-
-		// Add to DOM
-		this.input.parentElement.prepend( this.output );
 
 		// Create context with optimization flag
 		this.ctx = this.output.getContext( '2d', { willReadFrequently: true } );
@@ -253,13 +250,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	setSize( width, height ) {
 
-		const pixelRatio = this.renderer.getPixelRatio();
-		const scaledWidth = width * pixelRatio;
-		const scaledHeight = height * pixelRatio;
-
-		this.mapGenerator.setSize( scaledWidth, scaledHeight );
-		this.output.width = scaledWidth;
-		this.output.height = scaledHeight;
+		this.mapGenerator.setSize( width, height );
+		this.output.width = width;
+		this.output.height = height;
 
 	}
 

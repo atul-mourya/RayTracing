@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Viewport3D from './Viewport3D';
 import { DEFAULT_STATE } from '@/core/Processor/Constants';
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { TooltipProvider } from '@radix-ui/react-tooltip';
-import { Loader2, Maximize, Target, Camera } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 const MainViewport = () => {
 
@@ -39,17 +37,8 @@ const MainViewport = () => {
 
 	}, [] );
 
-	const handleEditClick = () => {
-
-		setIsEditing( true );
-
-	};
-
-	const handleInputChange = ( e ) => {
-
-		setInputValue( e.target.value );
-
-	};
+	const handleEditClick = () => setIsEditing( true );
+	const handleInputChange = ( e ) => setInputValue( e.target.value );
 
 	const handleInputBlur = () => {
 
@@ -79,38 +68,11 @@ const MainViewport = () => {
 
 	};
 
-	const handleFullscreen = () => {
-
-		if ( ! window.pathTracerApp ) return;
-		if ( document.fullscreenElement ) {
-
-			document.exitFullscreen();
-
-		} else {
-
-			containerRef.current.requestFullscreen();
-
-		}
-
-	};
-
-	const handleResetCamera = () => {
-
-		window.pathTracerApp && window.pathTracerApp.controls.reset();
-
-	};
-
-	const handleScreenshot = () => {
-
-		window.pathTracerApp && window.pathTracerApp.takeScreenshot();
-
-	};
-
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
 			<Viewport3D onStatsUpdate={setStats} />
 			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-          Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
+        		Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
 				{isEditing ? (
 					<input
 						className="bg-transparent border-b border-white text-white w-12"
@@ -127,40 +89,7 @@ const MainViewport = () => {
 					</span>
 				)}
 			</div>
-			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
-				<TooltipProvider>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Camera size={12} className="bg-transparent border-white text-forground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Take Screenshot</p>
-						</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleResetCamera} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Target size={12} className="bg-transparent border-white text-forground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Reset Camera</p>
-						</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleFullscreen} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Maximize size={12} className="bg-transparent border-white text-forground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Fullscreen</p>
-						</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			</div>
+
 			{isDenoising && (
 				<div className="absolute top-2 left-1/2 transform -translate-x-1/2">
 					<div className="bg-background opacity-50 text-xs text-foreground px-1 py-0 rounded-full flex items-center">

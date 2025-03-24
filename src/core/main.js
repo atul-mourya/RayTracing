@@ -53,12 +53,14 @@ import { useStore } from '@/store';
 
 class PathTracerApp extends EventDispatcher {
 
-	constructor( container ) {
+	constructor( primaryCanvas, denoiserCanvas ) {
 
 		super();
-		this.container = container;
-		this.width = container.clientWidth;
-		this.height = container.clientHeight;
+		this.container = primaryCanvas.parentElement;
+		this.canvas = primaryCanvas;
+		this.denoiserCanvas = denoiserCanvas;
+		this.width = this.canvas.clientWidth;
+		this.height = this.canvas.clientHeight;
 
 		this.scene = new Scene();
 		this.scene.environmentIntensity = DEFAULT_STATE.environmentIntensity;
@@ -69,6 +71,7 @@ class PathTracerApp extends EventDispatcher {
 			antialias: true,
 			preserveDrawingBuffer: true,
 			precision: "highp",
+			canvas: this.canvas
 		} );
 
 		// Initialize other properties
@@ -84,7 +87,6 @@ class PathTracerApp extends EventDispatcher {
 		this.floorPlane = null;
 		this.animationFrameId = null;
 		this.pauseRendering = true;
-		this.canvas = this.renderer.domElement;
 
 		this.cameras = [];
 		this.currentCameraIndex = 0;
@@ -187,7 +189,7 @@ class PathTracerApp extends EventDispatcher {
 		this.stats.dom.style.bottom = '48px';
 
 		this.stats.init( this.renderer );
-		this.container.appendChild( this.stats.dom );
+		this.container.parentElement.appendChild( this.stats.dom );
 
 		const foregroundColor = '#ffffff';
 		const backgroundColor = '#1e293b';
@@ -277,7 +279,7 @@ class PathTracerApp extends EventDispatcher {
 		outputPass.material.toneMapped = true;
 		this.composer.addPass( outputPass );
 
-		this.denoiser = new OIDNDenoiser( this.renderer, this.scene, this.camera, DEFAULT_STATE );
+		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, DEFAULT_STATE );
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
 	}
@@ -675,21 +677,16 @@ class PathTracerApp extends EventDispatcher {
 	onResize() {
 
 
-		const width = this.container.clientWidth;
-		const height = this.container.clientHeight;
+		this.width = this.canvas.width;
+		this.height = this.canvas.height;
 
-		this.camera.aspect = width / height;
+		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
-		this.renderer.setSize( width, height );
-		this.composer.setSize( width, height );
-		this.denoiser.setSize( width, height );
-		if ( this.temporalReprojectionPass ) {
-
-			this.temporalReprojectionPass.setSize( width, height );
-
-		}
+		this.denoiser.setSize( this.width, this.height );
 
 		this.reset();
+
+		window.dispatchEvent( new CustomEvent( 'resolution_changed' ) );
 
 	}
 

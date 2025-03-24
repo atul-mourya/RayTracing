@@ -137,13 +137,15 @@ const PathTracerTab = () => {
 		let result;
 		switch ( value ) {
 
-			case '1': result = 0.5; break;
-			case '2': result = 1; break;
-			default: result = 0.25;
+			case '1': result = window.devicePixelRatio * 0.5; break;
+			case '2': result = window.devicePixelRatio * 1; break;
+			case '3': result = window.devicePixelRatio * 2; break;
+			case '4': result = window.devicePixelRatio * 4; break;
+			default: result = window.devicePixelRatio * 0.25;
 
 		}
 
-		window.pathTracerApp.updateResolution( window.devicePixelRatio * result );
+		window.pathTracerApp.updateResolution( result );
 
 	} );
 
@@ -304,30 +306,19 @@ const PathTracerTab = () => {
 					</>
 				)}
 				<div className="flex items-center justify-between">
-					<span className="opacity-50 text-xs truncate">Resolution</span>
-					<ToggleGroup className="bg-secondary" type="single" value={resolution.toString()} onValueChange={handleResolutionChange}>
-						<ToggleGroupItem
-							className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
-							value="0"
-							aria-label="Quarter Resolution"
-						>
-                        1:4
-						</ToggleGroupItem>
-						<ToggleGroupItem
-							className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
-							value="1"
-							aria-label="Half Resolution"
-						>
-                        1:2
-						</ToggleGroupItem>
-						<ToggleGroupItem
-							className="h-full rounded-full data-[state=on]:bg-primary data-[state=on]:text-foreground"
-							value="2"
-							aria-label="Full Resolution"
-						>
-                        1:1
-						</ToggleGroupItem>
-					</ToggleGroup>
+					<Select value={resolution.toString()} onValueChange={handleResolutionChange}>
+						<span className="opacity-50 text-xs truncate">Resolution</span>
+						<SelectTrigger className="max-w-32 h-5 rounded-full">
+							<SelectValue placeholder="Select resolution" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="0">256</SelectItem>
+							<SelectItem value="1">512</SelectItem>
+							<SelectItem value="2">1024</SelectItem>
+							<SelectItem value="3">2048</SelectItem>
+							<SelectItem value="4">4096</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
 			</ControlGroup>
 			<ControlGroup name="Scene">
@@ -365,7 +356,7 @@ const PathTracerTab = () => {
 					<div className="flex items-center justify-between">
 						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
 							<span className="opacity-50 text-xs truncate">OIDN Quality</span>
-							<SelectTrigger className="max-w-20 h-5 rounded-full" >
+							<SelectTrigger className="max-w-32 h-5 rounded-full" >
 								<SelectValue placeholder="Select quality" />
 							</SelectTrigger>
 							<SelectContent>
@@ -401,7 +392,7 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
 						<span className="opacity-50 text-xs truncate">Sampler</span>
-						<SelectTrigger className="max-w-24 h-5 rounded-full" >
+						<SelectTrigger className="max-w-32 h-5 rounded-full" >
 							<SelectValue placeholder="Select sampler" />
 						</SelectTrigger>
 						<SelectContent>
