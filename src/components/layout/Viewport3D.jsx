@@ -7,17 +7,21 @@ import { useStore } from '@/store';
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import LoadingOverlay from './LoadingOverlay';
+import ViewportResizer from './ViewportResizer';
 
 const Viewport3D = ( { onStatsUpdate } ) => {
 
 	const { toast } = useToast();
-	const containerRef = useRef( null );
+	const viewportWrapperRef = useRef( null ); // Outer wrapper for scaling
+	const containerRef = useRef( null ); // Inner container that holds canvases
 	const primaryCanvasRef = useRef( null );
 	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const [ isDragging, setIsDragging ] = useState( false );
 	const [ dimensions, setDimensions ] = useState( { width: 512, height: 512 } );
+	const [ viewportScale, setViewportScale ] = useState( 100 );
+	const [ actualCanvasSize ] = useState( 512 ); // Fixed canvas size
 
 	useEffect( () => {
 
@@ -55,8 +59,6 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 			if ( primaryCanvasRef.current ) {
 
 				const { width, height } = primaryCanvasRef.current;
-				containerRef.current.style.width = `${width}px`;
-				containerRef.current.style.height = `${height}px`;
 				console.log( "Dimensions updated:", width, height );
 				setDimensions( { width, height } );
 
@@ -142,56 +144,74 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 	const handleFullscreen = () => {
 
-		if ( ! containerRef.current ) return;
-		document.fullscreenElement ? document.exitFullscreen() : containerRef.current.requestFullscreen();
+		if ( ! viewportWrapperRef.current ) return;
+		document.fullscreenElement ? document.exitFullscreen() : viewportWrapperRef.current.requestFullscreen();
 
 	};
 
 	const handleResetCamera = () => window.pathTracerApp && window.pathTracerApp.controls.reset();
 	const handleScreenshot = () => window.pathTracerApp && window.pathTracerApp.takeScreenshot();
+	const handleViewportResize = ( scale ) => setViewportScale( scale );
 
 	return (
-		<div className="flex justify-center items-center h-full"
+		<div
+			className="flex justify-center items-center h-full"
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}
 		>
+			{/* Outer wrapper div for applying scale transform */}
 			<div
-				ref={containerRef}
-				className={`relative ${isDragging ? 'bg-primary/10' : ''}`}
+				ref={viewportWrapperRef}
+				className="relative"
 				style={{
-					position: "relative",
-					width: "512px",
-					height: "512px",
-					overflow: "hidden",
-					background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
+					width: `${actualCanvasSize}px`,
+					height: `${actualCanvasSize}px`,
+					transform: `scale(${viewportScale / 100})`,
+					transformOrigin: 'center center',
+					transition: "transform 0.1s ease-out"
 				}}
 			>
-				{/* denoiser container */}
-				<canvas
-					ref={denoiserCanvasRef}
-					width="1024"
-					height="1024"
-					style={{ width: "512px", height: "512px" }}
-				/>
-				{/* primary container */}
-				<canvas
-					ref={primaryCanvasRef}
-					width="1024"
-					height="1024"
-					style={{ width: "512px", height: "512px" }}
-				/>
+				{/* Container with fixed size */}
+				<div
+					ref={containerRef}
+					className={`relative ${isDragging ? 'bg-primary/10' : ''}`}
+					style={{
+						position: "relative",
+						width: `${actualCanvasSize}px`,
+						height: `${actualCanvasSize}px`,
+						overflow: "hidden",
+						background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
+					}}
+				>
+					{/* denoiser container */}
+					<canvas
+						ref={denoiserCanvasRef}
+						width="1024"
+						height="1024"
+						style={{ width: `${actualCanvasSize}px`, height: `${actualCanvasSize}px` }}
+					/>
+					{/* primary container */}
+					<canvas
+						ref={primaryCanvasRef}
+						width="1024"
+						height="1024"
+						style={{ width: `${actualCanvasSize}px`, height: `${actualCanvasSize}px` }}
+					/>
 
-				{/* Dimensions display */}
-				<div className="absolute left-0 bottom-0 right-0 text-center z-10">
-					<div className="text-xs text-background">{dimensions.width} x {dimensions.height}</div>
+					{/* Dimensions display */}
+					<div className="absolute left-0 bottom-0 right-0 text-center z-10">
+						<div className="text-xs text-background">
+							{dimensions.width} × {dimensions.height} ({viewportScale}%)
+						</div>
+					</div>
 				</div>
-
 
 			</div>
 			{/* Controls */}
 			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
 				<TooltipProvider>
+					<ViewportResizer onResize={handleViewportResize} />
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">

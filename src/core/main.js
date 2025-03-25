@@ -189,7 +189,7 @@ class PathTracerApp extends EventDispatcher {
 		this.stats.dom.style.bottom = '48px';
 
 		this.stats.init( this.renderer );
-		this.container.parentElement.appendChild( this.stats.dom );
+		this.container.parentElement.parentElement.appendChild( this.stats.dom );
 
 		const foregroundColor = '#ffffff';
 		const backgroundColor = '#1e293b';
