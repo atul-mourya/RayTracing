@@ -45,7 +45,6 @@ import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
-import { TemporalReprojectionPass } from './Passes/TemporalReprojectionPass';
 import { disposeObjectFromMemory, generateMaterialSpheres, updateLoading } from './Processor/utils';
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from './Processor/Constants';
 import radialTexture from '../../public/radial-gradient.png';
@@ -81,7 +80,6 @@ class PathTracerApp extends EventDispatcher {
 		this.accPass = null;
 		this.denoiserPass = null;
 		this.tileHighlightPass = null;
-		this.temporalReprojectionPass = null;
 		this.denoiser = null;
 		this.targetModel = null;
 		this.floorPlane = null;
@@ -216,7 +214,6 @@ class PathTracerApp extends EventDispatcher {
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
 		this.accPass.reset( this.renderer );
-		this.temporalReprojectionPass.frameCount = 0;
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 
@@ -250,12 +247,6 @@ class PathTracerApp extends EventDispatcher {
 
 		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
 		this.adaptiveSamplingPass.setTextures( this.pathTracingPass.material.uniforms.previousFrameTexture.value, this.accPass.blendedFrameBuffer.texture );
-
-		this.temporalReprojectionPass = new TemporalReprojectionPass( this.scene, this.camera, this.width, this.height );
-		this.temporalReprojectionPass.enabled = DEFAULT_STATE.enableTemporalReprojection;
-		this.temporalReprojectionPass.material.uniforms.blendFactor.value = 0.9;
-		this.temporalReprojectionPass.material.uniforms.neighborhoodClampIntensity.value = 0.5;
-		this.composer.addPass( this.temporalReprojectionPass );
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
@@ -323,8 +314,6 @@ class PathTracerApp extends EventDispatcher {
 
 			this.controls.update();
 
-			// this.temporalReprojectionPass.enabled = this.pathTracingPass.material.uniforms.frame.value > 5 || false;
-
 			if ( this.tileHighlightPass.enabled ) {
 
 				this.tileHighlightPass.uniforms.frame.value = this.pathTracingPass.material.uniforms.frame.value + 1;
@@ -388,7 +377,6 @@ class PathTracerApp extends EventDispatcher {
 
 		// Update camera-dependent passes
 		if ( this.pathTracingPass ) this.pathTracingPass.camera = this.camera;
-		if ( this.temporalReprojectionPass ) this.temporalReprojectionPass.camera = this.camera;
 		if ( this.outlinePass ) this.outlinePass.camera = this.camera;
 		if ( this.denoiser ) this.denoiser.mapGenerator.camera = this.camera;
 
@@ -634,16 +622,6 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer.setPixelRatio( value );
 		this.composer.setPixelRatio( value );
 		this.onResize();
-
-	}
-
-	setTemporalBlendFactor( factor ) {
-
-		if ( this.temporalReprojectionPass ) {
-
-			this.temporalReprojectionPass.material.uniforms.blendFactor.value = factor;
-
-		}
 
 	}
 

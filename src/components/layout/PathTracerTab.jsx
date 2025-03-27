@@ -39,7 +39,6 @@ const useStore = create( ( set ) => ( {
 	setBloomThreshold: value => set( { bloomThreshold: value } ),
 	setBloomStrength: value => set( { bloomStrength: value } ),
 	setBloomRadius: value => set( { bloomRadius: value } ),
-	setEnableTemporalReprojection: value => set( { enableTemporalReprojection: value } ),
 	setOidnQuality: value => set( { oidnQuality: value } ),
 	setOidnHdr: value => set( { oidnHdr: value } ),
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
@@ -105,7 +104,6 @@ const PathTracerTab = () => {
 		bloomThreshold, setBloomThreshold,
 		bloomStrength, setBloomStrength,
 		bloomRadius, setBloomRadius,
-		enableTemporalReprojection, setEnableTemporalReprojection,
 		oidnQuality, setOidnQuality,
 		oidnHdr, setOidnHdr,
 		exposure, setExposure,
@@ -121,7 +119,6 @@ const PathTracerTab = () => {
 	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
 
 		window.pathTracerApp.accPass.enabled = value;
-		window.pathTracerApp.temporalReprojectionPass.enabled = value;
 		window.pathTracerApp.pathTracingPass.enabled = value;
 		window.pathTracerApp.renderPass.enabled = ! value;
 
@@ -205,7 +202,6 @@ const PathTracerTab = () => {
 	const handleBloomThresholdChange = handleChange( setBloomThreshold, value => window.pathTracerApp.bloomPass.threshold = value[ 0 ] );
 	const handleBloomStrengthChange = handleChange( setBloomStrength, value => window.pathTracerApp.bloomPass.strength = value[ 0 ] );
 	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
-	const handleTemporalReprojectionChange = handleChange( setEnableTemporalReprojection, value => window.pathTracerApp.temporalReprojectionPass.enabled = value, false );
 
 	// Scene Settings
 	const handleExposureChange = handleChange( setExposure, value => {
@@ -436,10 +432,6 @@ const PathTracerTab = () => {
 						<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
 					</div></>
 				)}
-				<Separator />
-				<div className="flex items-center justify-between">
-					<Switch label={"Temporal Reprojection"} checked={enableTemporalReprojection} onCheckedChange={handleTemporalReprojectionChange} />
-				</div>
 			</ControlGroup>
 			{enablePathTracer && (
 				<ControlGroup name="Debugging">
