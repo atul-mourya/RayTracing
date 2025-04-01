@@ -4,9 +4,9 @@ struct TransmissionResult {
 	bool didReflect;   // Whether the ray was reflected instead of transmitted
 };
 
-// Unified transparency and transmission result structure
 struct MaterialInteractionResult {
 	bool continueRay;      // Whether the ray should continue without further BRDF evaluation
+	bool isTransmissive;   // Flag to indicate this was a transmissive interaction
 	vec3 direction;        // New ray direction if continuing
 	vec3 throughput;       // Color modification for the ray
 	float alpha;           // Alpha modification
@@ -240,10 +240,12 @@ MaterialInteractionResult handleMaterialTransparency(
 	vec3 hitPoint,
 	vec3 normal,
 	RayTracingMaterial material,
-	inout uint rngState
+	inout uint rngState,
+	inout RenderState state
 ) {
 	MaterialInteractionResult result;
 	result.continueRay = false;
+	result.isTransmissive = false;  // Initialize to false
 	result.direction = ray.direction;
 	result.throughput = vec3( 1.0 );
 	result.alpha = 1.0;
@@ -293,21 +295,22 @@ MaterialInteractionResult handleMaterialTransparency(
     // Step 3: Handle transmission if present
     // -----------------------------------------------------------------
 
-	if( material.transmission > 0.0 ) {
+    // Check if we have transmissive traversals left
+	if( material.transmission > 0.0 && state.transmissiveTraversals > 0 ) {
         // Only apply transmission with probability equal to the transmission value
 		if( RandomValue( rngState ) < material.transmission ) {
             // Determine if ray is entering or exiting the medium
 			bool entering = dot( ray.direction, normal ) < 0.0;
 			vec3 N = entering ? normal : - normal;
 
-            // Use the pre-existing handleTransmission function for compatibility
-            // This will eventually calculate the same thing internally
+            // Use the pre-existing handleTransmission function
 			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState );
 
             // Apply the transmission result
 			result.direction = transResult.direction;
 			result.throughput = transResult.throughput;
 			result.continueRay = true;
+			result.isTransmissive = true;  // Mark as transmissive interaction
 			result.alpha = 1.0 - material.transmission;
 
 			return result;

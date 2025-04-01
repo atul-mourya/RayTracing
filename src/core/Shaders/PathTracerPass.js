@@ -91,6 +91,7 @@ export class PathTracerPass extends Pass {
 				maxFrames: { value: DEFAULT_STATE.maxSamples },
 				maxBounceCount: { value: DEFAULT_STATE.bounces },
 				numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
+				transmissiveBounces: { value: 8 },
 
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },

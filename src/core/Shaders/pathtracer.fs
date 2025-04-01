@@ -20,6 +20,14 @@ uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame f
 uniform bool useAdaptiveSampling;
 uniform float fireflyThreshold;
 
+struct RenderState {
+	int traversals;               // Remaining general bounces
+	int transmissiveTraversals;   // Remaining transmission-specific bounces
+	bool firstRay;                // Whether this is the first ray in the path
+};
+
+uniform int transmissiveBounces;  // Controls the number of allowed transmission bounces
+
 // Include statements
 #include struct.fs
 #include common.fs
@@ -109,12 +117,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
     // Transmission sampling
 	else {
 		// Use the shared microfacet transmission sampling function
-		bool entering = dot(V, N) < 0.0;
-		MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission(
-			V, N, material.ior, material.roughness, entering,
-			material.dispersion, xi, rngState
-		);
-		
+		bool entering = dot( V, N ) < 0.0;
+		MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState );
+
 		// Set the direction and PDF from the result
 		result.direction = mtResult.direction;
 		result.pdf = mtResult.pdf;
@@ -184,7 +189,15 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 	// Store initial ray for helper visualization
 	// Ray initialRay = ray;
 
+    // Initialize render state
+	RenderState state;
+	state.transmissiveTraversals = transmissiveBounces;
+
 	for( int bounceIndex = 0; bounceIndex <= maxBounceCount; bounceIndex ++ ) {
+        // Update state for this bounce
+		state.traversals = maxBounceCount - bounceIndex;
+		state.firstRay = ( bounceIndex == 0 ) && ( state.transmissiveTraversals == transmissiveBounces );
+
 		HitInfo hitInfo = traverseBVH( ray, stats );
 
 		if( ! hitInfo.didHit ) {
@@ -205,10 +218,22 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
 
 		// Handle transparent materials with transmission
-		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState );
+		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state );
 
 		if( interaction.continueRay ) {
-            // If the ray continues, update throughput and alpha
+            // If we have a transmissive interaction, track it separately
+			if( interaction.isTransmissive && state.transmissiveTraversals > 0 ) {
+                // Decrement transmissive bounces counter
+				state.transmissiveTraversals --;
+
+                // Don't increment the main bounce counter (effectively giving a "free" bounce)
+                // Only do this if we still have transmissive traversals left
+				if( state.transmissiveTraversals > 0 ) {
+					bounceIndex --;
+				}
+			}
+
+            // Update ray and continue
 			throughput *= interaction.throughput;
 			alpha *= interaction.alpha;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
