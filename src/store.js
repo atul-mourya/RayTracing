@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_STATE, CAMERA_PRESETS } from './Constants';
+import { DEFAULT_STATE, CAMERA_PRESETS } from '@/Constants';
 
 // Main store
 const useStore = create( ( set ) => ( {
