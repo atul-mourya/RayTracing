@@ -171,7 +171,7 @@ export const DEFAULT_STATE = {
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
-	maxSamples: 100,
+	maxSamples: 30,
 	bounces: 3,
 	samplesPerPixel: 1,
 	samplingTechnique: 1,

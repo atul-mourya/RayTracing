@@ -1,6 +1,7 @@
 import TopBar from './components/layout/TopBar';
 import LeftSidebar from '@/components/layout/LeftSidebar';
 import MainViewport from './components/layout/MainViewport';
+import ViewportTabs from './components/layout/ViewportTabs';
 import RightSidebar from './components/layout/RightSidebar';
 import { ThemeProvider } from "@/components/theme-provider";
 import {
@@ -24,7 +25,7 @@ const App = () => {
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel className="min-w-[200px]" defaultSize={60}>
-						<MainViewport />
+						<ViewportTabs />
 					</ResizablePanel>
 					<ResizableHandle withHandle />
 					<ResizablePanel onResize={handleResize} className="min-w-[200px] h-full" defaultSize={20}>

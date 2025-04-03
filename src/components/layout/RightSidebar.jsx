@@ -1,15 +1,20 @@
 import { Sliders, Camera, Box, Sun, SwatchBook } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useStore } from '@/store'; // Import the path tracer store
 import CameraTab from './CameraTab';
 import LightsTab from './LightsTab';
 import AssetsTab from './AssetsTab';
 import PathTracerTab from './PathTracerTab';
+import FinalRenderPanel from './FinalRenderPanel';
 import MaterialTab from './MaterialTab';
 
 const RightSidebar = () => {
 
-	return (
-		<div className="relative border-l flex flex-col overflow-hidden h-full w-full">
+	const appMode = useStore( state => state.appMode );
+
+	const interactiveModeMenu = () => {
+
+		return (
 			<Tabs defaultValue="pathtracer" className="flex flex-col h-full w-full">
 				<TabsList className="relative grid w-full grid-cols-5 h-12 p-0">
 					<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
@@ -54,6 +59,23 @@ const RightSidebar = () => {
 					<MaterialTab />
 				</TabsContent>
 			</Tabs>
+		);
+
+	};
+
+	const finalRenderModeMenu = () => {
+
+		return (
+			<div className="flex flex-col h-full w-full">
+				<FinalRenderPanel />
+			</div>
+		);
+
+	};
+
+	return (
+		<div className="relative border-l flex flex-col overflow-hidden h-full w-full">
+			{appMode === 'interactive' ? interactiveModeMenu() : finalRenderModeMenu() }
 		</div>
 	);
 

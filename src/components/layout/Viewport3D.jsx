@@ -22,12 +22,11 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 	const [ dimensions, setDimensions ] = useState( { width: 512, height: 512 } );
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize ] = useState( 512 ); // Fixed canvas size
+	const isInitialized = useRef( false );
 
 	useEffect( () => {
 
-		if ( appRef.current ) return;
-
-		if ( containerRef.current ) {
+		if ( ! appRef.current && containerRef.current ) {
 
 			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
 			window.pathTracerApp = appRef.current;
@@ -48,8 +47,14 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 				setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
 				setTimeout( () => useStore.getState().resetLoading(), 1000 );
 				window.pathTracerApp.reset();
+				isInitialized.current = true;
 
 			} );
+
+		} else if ( appRef.current ) {
+
+			// If app already exists, just update the stats callback
+			appRef.current.setOnStatsUpdate( onStatsUpdate );
 
 		}
 
@@ -67,6 +72,12 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 		};
 
 		window.addEventListener( 'resolution_changed', updateDimensions );
+
+		return () => {
+
+			window.removeEventListener( 'resolution_changed', updateDimensions );
+
+		};
 
 	}, [ onStatsUpdate, setLoading, toast ] );
 

@@ -8,6 +8,8 @@ const useStore = create( ( set ) => ( {
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: ( loadingState ) => set( ( state ) => ( { loading: { ...state.loading, ...loadingState } } ) ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
+	appMode: 'interactive', // 'interactive' or 'final'
+	setAppMode: ( mode ) => set( { appMode: mode } ),
 } ) );
 
 // Assets store
@@ -41,6 +43,7 @@ const usePathTracerStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
 	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
+	setMaxSamples: ( value ) => set( { maxSamples: value } ),
 	setEnablePathTracer: ( value ) => set( { enablePathTracer: value } ),
 	setEnableAccumulation: ( value ) => set( { enableAccumulation: value } ),
 	setBounces: ( value ) => set( { bounces: value } ),

@@ -1,16 +1,51 @@
 import { useState, useEffect, useRef } from 'react';
 import Viewport3D from './Viewport3D';
-import { DEFAULT_STATE } from '@/Constants';
 import { Loader2 } from 'lucide-react';
+import { usePathTracerStore } from '@/store'; // Import the store
 
-const MainViewport = () => {
+const MainViewport = ( { mode = "interactive" } ) => {
 
 	const [ stats, setStats ] = useState( { timeElapsed: 0, samples: 0 } );
-	const [ maxSamples, setMaxSamples ] = useState( DEFAULT_STATE.maxSamples );
 	const [ isEditing, setIsEditing ] = useState( false );
-	const [ inputValue, setInputValue ] = useState( maxSamples );
+	const [ inputValue, setInputValue ] = useState( 0 );
 	const [ isDenoising, setIsDenoising ] = useState( false );
 	const containerRef = useRef( null );
+	const isFirstRender = useRef( true );
+
+	// Access maxSamples from the store
+	const maxSamples = usePathTracerStore( ( state ) => state.maxSamples );
+	const setMaxSamples = usePathTracerStore( ( state ) => state.setMaxSamples );
+
+	// Update inputValue when maxSamples changes
+	useEffect( () => {
+
+		setInputValue( maxSamples );
+
+	}, [ maxSamples ] );
+
+	// Update maxSamples when mode changes
+	useEffect( () => {
+
+		if ( isFirstRender.current ) {
+
+			isFirstRender.current = false;
+			return;
+
+		}
+
+		const newMaxSamples = mode === "interactive" ? 30 : 100; // Set maxSamples based on mode
+		window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
+		setMaxSamples( newMaxSamples );
+
+		// If not first render, we're changing modes - update the stats display
+		if ( window.pathTracerApp ) {
+
+			// Reset the samples counter in our local state
+			setStats( prev => ( { ...prev, samples: 0 } ) );
+
+		}
+
+	}, [ mode, setMaxSamples ] );
 
 	useEffect( () => {
 
@@ -37,9 +72,6 @@ const MainViewport = () => {
 
 	}, [] );
 
-	const handleEditClick = () => setIsEditing( true );
-	const handleInputChange = ( e ) => setInputValue( e.target.value );
-
 	const handleInputBlur = () => {
 
 		setIsEditing( false );
@@ -58,33 +90,23 @@ const MainViewport = () => {
 
 	};
 
-	const handleKeyDown = ( e ) => {
-
-		if ( e.key === 'Enter' ) {
-
-			handleInputBlur();
-
-		}
-
-	};
-
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
-			<Viewport3D onStatsUpdate={setStats} />
+			<Viewport3D onStatsUpdate={setStats} viewportMode={mode} />
 			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-        		Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
+				Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
 				{isEditing ? (
 					<input
 						className="bg-transparent border-b border-white text-white w-12"
 						type="number"
 						value={inputValue}
-						onChange={handleInputChange}
+						onChange={( e ) => setInputValue( e.target.value )}
 						onBlur={handleInputBlur}
-						onKeyDown={handleKeyDown}
+						onKeyDown={( e ) => e.key === 'Enter' && handleInputBlur()}
 						autoFocus
 					/>
 				) : (
-					<span onClick={handleEditClick} className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300">
+					<span onClick={() => setIsEditing( true )} className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300">
 						{maxSamples}
 					</span>
 				)}
