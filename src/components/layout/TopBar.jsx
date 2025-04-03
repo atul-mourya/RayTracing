@@ -125,29 +125,13 @@ const TopBar = () => {
 
 	useEffect( () => {
 
-		const handleRenderComplete = () => {
-
-			setIsPlaying( false );
-
-		};
-
-		const handleRenderReset = () => {
-
-			setIsPlaying( true );
-
-		};
+		const handleRenderComplete = () => setIsPlaying( false );
+		const handleRenderReset = () => setIsPlaying( true );
 
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.addEventListener( 'RenderComplete', handleRenderComplete );
 			window.pathTracerApp.addEventListener( 'RenderReset', handleRenderReset );
-
-			return () => {
-
-				window.pathTracerApp.removeEventListener( 'RenderComplete', handleRenderComplete );
-				window.pathTracerApp.removeEventListener( 'RenderReset', handleRenderReset );
-
-			};
 
 		}
 
