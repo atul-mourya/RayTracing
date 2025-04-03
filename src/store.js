@@ -8,6 +8,7 @@ const useStore = create( ( set ) => ( {
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: ( loadingState ) => set( ( state ) => ( { loading: { ...state.loading, ...loadingState } } ) ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
+} ) );
 
 // Assets store
 const useAssetsStore = create( ( set ) => ( {
