@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { DEFAULT_STATE, CAMERA_PRESETS } from './Constants';
 
 // Main store
-export const useStore = create( ( set ) => ( {
+const useStore = create( ( set ) => ( {
 	selectedObject: null,
 	setSelectedObject: ( object ) => set( { selectedObject: object } ),
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
@@ -10,7 +10,7 @@ export const useStore = create( ( set ) => ( {
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
 
 // Assets store
-export const useAssetsStore = create( ( set ) => ( {
+const useAssetsStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	activeTab: "models",
 	materials: [],
@@ -22,7 +22,7 @@ export const useAssetsStore = create( ( set ) => ( {
 } ) );
 
 // Environment store
-export const useEnvironmentStore = create( ( set ) => ( {
+const useEnvironmentStore = create( ( set ) => ( {
 	apiData: null,
 	environments: [],
 	isLoading: true,
@@ -36,7 +36,7 @@ export const useEnvironmentStore = create( ( set ) => ( {
 } ) );
 
 // Path tracer store
-export const usePathTracerStore = create( ( set ) => ( {
+const usePathTracerStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
 	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
@@ -79,7 +79,7 @@ export const usePathTracerStore = create( ( set ) => ( {
 } ) );
 
 // Light store
-export const useLightStore = create( ( set ) => ( {
+const useLightStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	lights: [],
 	setLights: ( lights ) => set( { lights } ),
@@ -94,7 +94,7 @@ export const useLightStore = create( ( set ) => ( {
 } ) );
 
 // Camera store
-export const useCameraStore = create( ( set ) => ( {
+const useCameraStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	activePreset: "custom",
 	cameraNames: [],
@@ -121,4 +121,13 @@ export const useCameraStore = create( ( set ) => ( {
 
 	},
 } ) );
+
+export {
+	useStore,
+	useAssetsStore,
+	useEnvironmentStore,
+	usePathTracerStore,
+	useLightStore,
+	useCameraStore,
+};
 
