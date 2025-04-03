@@ -10,7 +10,7 @@ import {
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
-import { DEFAULT_STATE } from '../Processor/Constants.js';
+import { DEFAULT_STATE } from '../../Constants.js';
 
 export class AdaptiveSamplingPass extends Pass {
 

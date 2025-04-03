@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Viewport3D from './Viewport3D';
-import { DEFAULT_STATE } from '@/core/Processor/Constants';
+import { DEFAULT_STATE } from '@/Constants';
 import { Loader2 } from 'lucide-react';
 
 const MainViewport = () => {

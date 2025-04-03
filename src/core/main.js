@@ -46,7 +46,7 @@ import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
 import { disposeObjectFromMemory, generateMaterialSpheres, updateLoading } from './Processor/utils';
-import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from './Processor/Constants';
+import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from '../Constants';
 import radialTexture from '../../public/radial-gradient.png';
 import { useStore } from '@/store';
 

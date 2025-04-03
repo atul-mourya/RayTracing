@@ -1,22 +1,12 @@
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MODEL_FILES, DEBUG_MODELS, DEFAULT_STATE } from '../../core/Processor/Constants';
+import { MODEL_FILES, DEBUG_MODELS } from '../../Constants';
 import { EnvironmentCatalog } from '@/components/ui/env-catalog';
 import { useToast } from "@/hooks/use-toast";
-import { create } from 'zustand';
+import { useAssetsStore } from '@/store';
 import { useEffect } from 'react';
 import { useStore } from '@/store';
-
-const useAssetsStore = create( ( set ) => ( {
-	...DEFAULT_STATE,
-	activeTab: "models",
-	materials: [], setMaterials: ( materials ) => set( { materials } ),
-	setActiveTab: ( tab ) => set( { activeTab: tab } ),
-	setModel: ( model ) => set( { model } ),
-	setEnvironment: ( env ) => set( { environment: env } ),
-	setDebugModel: ( model ) => set( { debugModel: model } ),
-} ) );
 
 const AssetsTab = () => {
 

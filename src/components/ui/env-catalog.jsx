@@ -2,23 +2,10 @@ import { useEffect } from 'react';
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { create } from 'zustand';
+import { useEnvironmentStore } from '@/store';
 
 // Proxy URL for Poly Haven API requests
 const PROXY_URL = 'https://api.polyhaven.com';
-
-const useEnvironmentStore = create( ( set ) => ( {
-	apiData: null,
-	environments: [],
-	isLoading: true,
-	error: null,
-	selectedResolution: '1k',
-	setApiData: ( data ) => set( { apiData: data } ),
-	setEnvironments: ( environments ) => set( { environments } ),
-	setIsLoading: ( isLoading ) => set( { isLoading } ),
-	setError: ( error ) => set( { error } ),
-	setSelectedResolution: ( resolution ) => set( { selectedResolution: resolution } ),
-} ) );
 
 const EnvironmentCatalog = ( { value, onValueChange } ) => {
 

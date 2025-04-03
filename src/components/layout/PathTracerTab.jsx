@@ -1,59 +1,21 @@
 import { Grip, Sun, Sunrise } from 'lucide-react';
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { create } from 'zustand';
-import { DEFAULT_STATE } from '../../core/Processor/Constants';
+import { usePathTracerStore as useStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
-import { Separator } from '@/components/ui/separator';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 
-const isMobileDevice = /Mobi|Android|iPhone|iPad|iPod/.test( navigator.userAgent );
-const useStore = create( ( set ) => ( {
-	...DEFAULT_STATE,
-	setEnablePathTracer: value => set( { enablePathTracer: value } ),
-	setEnableAccumulation: value => set( { enableAccumulation: value } ),
-	setBounces: value => set( { bounces: value } ),
-	setSamplesPerPixel: value => set( { samplesPerPixel: value } ),
-	setSamplingTechnique: value => set( { samplingTechnique: value } ),
-	setAdaptiveSampling: value => set( { adaptiveSampling: value } ),
-	setAdaptiveSamplingMin: value => set( { adaptiveSamplingMin: value } ),
-	setAdaptiveSamplingMax: value => set( { adaptiveSamplingMax: value } ),
-	setAdaptiveSamplingVarianceThreshold: value => set( { adaptiveSamplingVarianceThreshold: value } ),
-	setFireflyThreshold: value => set( { fireflyThreshold: value } ),
-	setRenderMode: value => set( { renderMode: value } ),
-	setTiles: value => set( { tiles: value } ),
-	setTilesHelper: value => set( { tilesHelper: value } ),
-	setResolution: value => set( { resolution: value } ),
-	setEnableOIDN: value => set( { enableOIDN: value } ),
-	setUseGBuffer: value => set( { useGBuffer: value } ),
-	setEnableRealtimeDenoiser: value => set( { enableRealtimeDenoiser: value } ),
-	setDenoiserBlurStrength: value => set( { denoiserBlurStrength: value } ),
-	setDenoiserBlurRadius: value => set( { denoiserBlurRadius: value } ),
-	setDenoiserDetailPreservation: value => set( { denoiserDetailPreservation: value } ),
-	setDebugMode: value => set( { debugMode: value } ),
-	setDebugThreshold: value => set( { debugThreshold: value } ),
-	setEnableBloom: value => set( { enableBloom: value } ),
-	setBloomThreshold: value => set( { bloomThreshold: value } ),
-	setBloomStrength: value => set( { bloomStrength: value } ),
-	setBloomRadius: value => set( { bloomRadius: value } ),
-	setOidnQuality: value => set( { oidnQuality: value } ),
-	setOidnHdr: value => set( { oidnHdr: value } ),
-	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
-	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
-	setExposure: ( value ) => set( { exposure: value } ),
-	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
-	setShowBackground: ( value ) => set( { showBackground: value } ),
-	setBackgroundIntensity: ( value ) => set( { backgroundIntensity: value } ),
-	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
-	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
-	setToneMapping: ( value ) => set( { toneMapping: value } ),
-	setInteractionModeEnabled: value => set( { interactionModeEnabled: value } ),
-} ) );
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
+
+	if ( typeof setter !== 'function' ) {
+
+		console.error( "Invalid setter function passed to handleChange:", setter );
+		return;
+
+	}
 
 	setter( value );
 	if ( window.pathTracerApp ) {

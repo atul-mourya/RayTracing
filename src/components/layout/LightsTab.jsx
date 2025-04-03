@@ -2,23 +2,9 @@ import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine } from 'luc
 import { Slider } from "@/components/ui/slider";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
-import { DEFAULT_STATE } from '../../core/Processor/Constants';
-import { create } from 'zustand';
+import { useLightStore } from '@/store';
 import { Separator } from '@/components/ui/separator';
 import { useEffect } from 'react';
-
-const useLightStore = create( ( set ) => ( {
-	...DEFAULT_STATE,
-	lights: [],
-	setLights: ( lights ) => set( { lights } ),
-	updateLight: ( index, property, value ) => set( state => {
-
-		const lights = [ ...state.lights ];
-		lights[ index ][ property ] = value;
-		return { lights };
-
-	} )
-} ) );
 
 const LightsTab = () => {
 
