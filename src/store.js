@@ -10,6 +10,8 @@ const useStore = create( ( set ) => ( {
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
 	appMode: 'interactive', // 'interactive' or 'final'
 	setAppMode: ( mode ) => set( { appMode: mode } ),
+	layers: [],
+	setLayers: ( layers ) => set( { layers } ),
 } ) );
 
 // Assets store

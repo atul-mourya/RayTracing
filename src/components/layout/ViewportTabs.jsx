@@ -27,8 +27,8 @@ const ViewportTabs = () => {
 			setInteractionModeEnabled( true );
 			setEnableOIDN( false );
 			setResolution( '1' );
-			window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 );
 			window.pathTracerApp.controls.enabled = true;
+			setTimeout( () => window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 ), 100 );
 
 		} else {
 
@@ -37,8 +37,8 @@ const ViewportTabs = () => {
 			setInteractionModeEnabled( false );
 			setEnableOIDN( true );
 			setResolution( '3' );
-			window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 );
 			window.pathTracerApp.controls.enabled = false;
+			setTimeout( () => window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 ), 100 );
 
 		}
 

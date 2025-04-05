@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import Viewport3D from './Viewport3D';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Check, X } from 'lucide-react'; // Import icons
 import { usePathTracerStore } from '@/store'; // Import the store
+import { saveRender } from '@/utils/database'; // Import the database utility
 
 const MainViewport = ( { mode = "interactive" } ) => {
 
@@ -9,6 +10,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	const [ isEditing, setIsEditing ] = useState( false );
 	const [ inputValue, setInputValue ] = useState( 0 );
 	const [ isDenoising, setIsDenoising ] = useState( false );
+	const [ renderComplete, setRenderComplete ] = useState( false );
 	const containerRef = useRef( null );
 	const isFirstRender = useRef( true );
 
@@ -72,6 +74,28 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 	}, [] );
 
+	useEffect( () => {
+
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
+			window.pathTracerApp.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
+
+		}
+
+		return () => {
+
+			if ( window.pathTracerApp ) {
+
+				window.pathTracerApp.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
+				window.pathTracerApp.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
+
+			}
+
+		};
+
+	}, [] );
+
 	const handleInputBlur = () => {
 
 		setIsEditing( false );
@@ -89,6 +113,46 @@ const MainViewport = ( { mode = "interactive" } ) => {
 		}
 
 	};
+
+	const handleSave = async () => {
+
+		if ( window.pathTracerApp ) {
+
+			try {
+
+				console.log( 'Capturing render from canvas...' );
+				const canvas = window.pathTracerApp.denoiser.enabled && window.pathTracerApp.denoiser.output
+					? window.pathTracerApp.denoiser.output
+					: window.pathTracerApp.renderer.domElement;
+
+				console.log( 'Converting canvas to image data...' );
+				const imageData = canvas.toDataURL( 'image/png' );
+				console.log( 'Image data created, size:', imageData.length );
+
+				console.log( 'Saving render to database...' );
+				const id = await saveRender( imageData );
+				console.log( 'Render saved successfully with ID:', id );
+
+				// Dispatch a custom event to notify other components
+				window.dispatchEvent( new CustomEvent( 'render-saved', {
+					detail: { id }
+				} ) );
+
+				// Only set render complete to false if save was successful
+				setRenderComplete( false );
+
+			} catch ( error ) {
+
+				console.error( 'Failed to save render:', error );
+				alert( 'Failed to save render. See console for details.' );
+
+			}
+
+		}
+
+	};
+
+	const handleDiscard = () => setRenderComplete( false );
 
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
@@ -118,6 +182,23 @@ const MainViewport = ( { mode = "interactive" } ) => {
 						<span className="mr-2">Denoising</span>
 						<Loader2 className="h-5 w-5 animate-spin" />
 					</div>
+				</div>
+			)}
+
+			{renderComplete && stats.samples === maxSamples && mode === "final" && (
+				<div className="absolute top-2 right-2 flex space-x-2">
+					<button
+						onClick={handleSave}
+						className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-primary/90 transition-all cursor-pointer"
+					>
+						<Check size={14} className="mr-1" /> Save
+					</button>
+					<button
+						onClick={handleDiscard}
+						className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-secondary/90 transition-all cursor-pointer"
+					>
+						<X size={14} className="mr-1" /> Ignore
+					</button>
 				</div>
 			)}
 		</div>

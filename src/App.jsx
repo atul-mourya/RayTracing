@@ -1,3 +1,5 @@
+import React, { useEffect } from 'react';
+import { initDatabase } from '@/utils/database';
 import TopBar from './components/layout/TopBar';
 import LeftSidebar from '@/components/layout/LeftSidebar';
 import MainViewport from './components/layout/MainViewport';
@@ -14,6 +16,27 @@ import { useDebouncedCallback } from 'use-debounce';
 const App = () => {
 
 	const handleResize = useDebouncedCallback( () => window.dispatchEvent( new Event( 'resize' ) ), 500 );
+
+	useEffect( () => {
+
+		const init = async () => {
+
+		  try {
+
+				await initDatabase();
+				console.log( 'Database initialized successfully' );
+
+			} catch ( error ) {
+
+				console.error( 'Failed to initialize database:', error );
+
+			}
+
+		};
+
+		init();
+
+	}, [] );
 
 	return (
 		<ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
