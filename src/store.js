@@ -8,10 +8,12 @@ const useStore = create( ( set ) => ( {
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: ( loadingState ) => set( ( state ) => ( { loading: { ...state.loading, ...loadingState } } ) ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
-	appMode: 'interactive', // 'interactive' or 'final'
+	appMode: 'interactive', // 'interactive', 'final' or 'results'
 	setAppMode: ( mode ) => set( { appMode: mode } ),
 	layers: [],
 	setLayers: ( layers ) => set( { layers } ),
+	selectedResult: null,
+	setSelectedResult: ( imageData ) => set( { selectedResult: imageData } ),
 } ) );
 
 // Assets store
@@ -136,4 +138,3 @@ export {
 	useLightStore,
 	useCameraStore,
 };
-

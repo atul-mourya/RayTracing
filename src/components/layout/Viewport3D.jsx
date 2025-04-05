@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, forwardRef } from 'react';
 import PathTracerApp from '../../core/main';
 import { Upload, Maximize, Target, Camera } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
@@ -9,7 +9,7 @@ import { TooltipProvider } from '@radix-ui/react-tooltip';
 import LoadingOverlay from './LoadingOverlay';
 import ViewportResizer from './ViewportResizer';
 
-const Viewport3D = ( { onStatsUpdate } ) => {
+const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 	const { toast } = useToast();
 	const viewportWrapperRef = useRef( null ); // Outer wrapper for scaling
@@ -23,10 +23,17 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize ] = useState( 512 ); // Fixed canvas size
 	const isInitialized = useRef( false );
+	const appMode = useStore( state => state.appMode );
+
+	// Expose the app instance via ref
+	React.useImperativeHandle( ref, () => ( {
+		getPathTracerApp: () => appRef.current
+	} ) );
 
 	useEffect( () => {
 
-		if ( ! appRef.current && containerRef.current ) {
+		// Only initialize if the component is visible (not in results mode)
+		if ( ! appRef.current && containerRef.current && appMode !== 'results' ) {
 
 			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
 			window.pathTracerApp = appRef.current;
@@ -46,7 +53,12 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 
 				setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
 				setTimeout( () => useStore.getState().resetLoading(), 1000 );
-				window.pathTracerApp.reset();
+				if ( window.pathTracerApp ) {
+
+					window.pathTracerApp.reset();
+
+				}
+
 				isInitialized.current = true;
 
 			} );
@@ -76,10 +88,12 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 		return () => {
 
 			window.removeEventListener( 'resolution_changed', updateDimensions );
+			// Important: Don't destroy the PathTracerApp on unmount
+			// This allows it to persist when switching tabs
 
 		};
 
-	}, [ onStatsUpdate, setLoading, toast ] );
+	}, [ onStatsUpdate, setLoading, toast, appMode ] );
 
 	const handleDragOver = useCallback( ( e ) => {
 
@@ -217,8 +231,8 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 						</div>
 					</div>
 				</div>
-
 			</div>
+
 			{/* Controls */}
 			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
 				<TooltipProvider>
@@ -268,6 +282,8 @@ const Viewport3D = ( { onStatsUpdate } ) => {
 		</div>
 	);
 
-};
+} );
+
+Viewport3D.displayName = 'Viewport3D';
 
 export default React.memo( Viewport3D );

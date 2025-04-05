@@ -6,7 +6,19 @@ const LeftSidebar = () => {
 
 	const appMode = useStore( state => state.appMode );
 
-	return appMode === 'interactive' ? <Outliner /> : <Results />;
+	switch ( appMode ) {
+
+		case 'interactive':
+			return <Outliner />;
+		case 'final':
+			return <Outliner />;
+		case 'results':
+			return <Results />;
+		default:
+			return <Outliner />;
+
+	}
+
 
 };
 

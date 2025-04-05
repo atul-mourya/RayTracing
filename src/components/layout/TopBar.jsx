@@ -47,6 +47,15 @@ const TopBar = () => {
 	const setEnableOIDN = usePathTracerStore( state => state.setEnableOIDN );
 	const setResolution = usePathTracerStore( state => state.setResolution );
 
+	// Store the previous state to restore when switching back from results
+	const [ prevState, setPrevState ] = useState( {
+	    bounces: 2,
+	    samplesPerPixel: 1,
+	    interactionModeEnabled: true,
+	    enableOIDN: false,
+	    resolution: '1'
+	} );
+
 	// Update app mode when tab changes (moved from ViewportTabs)
 	useEffect( () => {
 
@@ -68,7 +77,7 @@ const TopBar = () => {
 
 			}
 
-		} else {
+		} else if ( activeTab === "final" ) {
 
 			setBounces( 8 );
 			setSamplesPerPixel( 4 );
@@ -82,9 +91,78 @@ const TopBar = () => {
 
 			}
 
+		} else if ( activeTab === "results" ) {
+
+			// Save current state before switching to results
+			if ( activeTab !== "results" && window.pathTracerApp ) {
+
+				setPrevState( {
+					bounces: usePathTracerStore.getState().bounces,
+					samplesPerPixel: usePathTracerStore.getState().samplesPerPixel,
+					interactionModeEnabled: usePathTracerStore.getState().interactionModeEnabled,
+					enableOIDN: usePathTracerStore.getState().enableOIDN,
+					resolution: usePathTracerStore.getState().resolution
+				} );
+
+			}
+
+			// Results mode - just hide the PathTracer output but don't destroy it
+			if ( window.pathTracerApp ) {
+
+				// Pause rendering to save resources
+				window.pathTracerApp.pauseRendering = true;
+
+				// Disable controls but keep the app instance
+				window.pathTracerApp.controls.enabled = false;
+
+				// Hide the canvas but don't destroy the app
+				if ( window.pathTracerApp.renderer && window.pathTracerApp.renderer.domElement ) {
+
+					window.pathTracerApp.renderer.domElement.style.display = 'none';
+
+				}
+
+				if ( window.pathTracerApp.denoiser && window.pathTracerApp.denoiser.output ) {
+
+					window.pathTracerApp.denoiser.output.style.display = 'none';
+
+				}
+
+			}
+
 		}
 
 	}, [ activeTab, setAppMode, setBounces, setSamplesPerPixel, setInteractionModeEnabled, setEnableOIDN, setResolution ] );
+
+	// When switching back from results, restore the canvas visibility
+	useEffect( () => {
+
+		if ( activeTab !== "results" && window.pathTracerApp ) {
+
+			// Show canvases again
+			if ( window.pathTracerApp.renderer && window.pathTracerApp.renderer.domElement ) {
+
+				window.pathTracerApp.renderer.domElement.style.display = 'block';
+
+			}
+
+			if ( window.pathTracerApp.denoiser && window.pathTracerApp.denoiser.output ) {
+
+				window.pathTracerApp.denoiser.output.style.display = 'block';
+
+			}
+
+			// Resume rendering if coming from results tab
+			if ( activeTab === "interactive" || activeTab === "final" ) {
+
+				window.pathTracerApp.pauseRendering = false;
+				window.pathTracerApp.reset();
+
+			}
+
+		}
+
+	}, [ activeTab ] );
 
 	const handleTabChange = ( value ) => {
 
@@ -238,7 +316,7 @@ const TopBar = () => {
 
 					<div className="grow" />
 
-					{/* Viewport tabs moved from ViewportTabs.jsx */}
+					{/* Viewport tabs with new Results tab */}
 					<Tabs
 						defaultValue="interactive"
 						value={activeTab}
@@ -247,6 +325,7 @@ const TopBar = () => {
 						<TabsList>
 							<TabsTrigger value="interactive">Interactive</TabsTrigger>
 							<TabsTrigger value="final">Final Render</TabsTrigger>
+							<TabsTrigger value="results">Results</TabsTrigger>
 						</TabsList>
 					</Tabs>
 
