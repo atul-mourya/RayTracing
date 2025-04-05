@@ -28,32 +28,67 @@ import { Button } from "@/components/ui/button";
 import { useToast } from '@/hooks/use-toast';
 import AuthProvider from './AuthProvider';
 import { NavUser } from '@/components/ui/nav-user';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useStore, usePathTracerStore } from '@/store';
 
 const TopBar = () => {
 
 	const { toast } = useToast();
-	const [ isPlaying, setIsPlaying ] = useState( false );
 	const [ isImportModalOpen, setIsImportModalOpen ] = useState( false );
 	const [ importUrl, setImportUrl ] = useState( '' );
 	const [ isImporting, setIsImporting ] = useState( false );
 
-	const handlePlayPauseClick = () => {
+	// Viewport tab state (moved from ViewportTabs)
+	const [ activeTab, setActiveTab ] = useState( "interactive" );
+	const setAppMode = useStore( state => state.setAppMode );
+	const setBounces = usePathTracerStore( state => state.setBounces );
+	const setSamplesPerPixel = usePathTracerStore( state => state.setSamplesPerPixel );
+	const setInteractionModeEnabled = usePathTracerStore( state => state.setInteractionModeEnabled );
+	const setEnableOIDN = usePathTracerStore( state => state.setEnableOIDN );
+	const setResolution = usePathTracerStore( state => state.setResolution );
 
-		setIsPlaying( ! isPlaying );
-		if ( window.pathTracerApp ) {
+	// Update app mode when tab changes (moved from ViewportTabs)
+	useEffect( () => {
 
-			if ( isPlaying ) {
+		// Update our global mode state when tab changes
+		setAppMode( activeTab );
 
-				window.pathTracerApp.pauseRendering = true;
+		// Configure the renderer settings based on mode
+		if ( activeTab === "interactive" ) {
 
-			} else {
+			setBounces( 2 );
+			setSamplesPerPixel( 1 );
+			setInteractionModeEnabled( true );
+			setEnableOIDN( false );
+			setResolution( '1' );
+			if ( window.pathTracerApp ) {
 
-				window.pathTracerApp.pauseRendering = false;
-				window.pathTracerApp.reset();
+				window.pathTracerApp.controls.enabled = true;
+				setTimeout( () => window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 ), 100 );
+
+			}
+
+		} else {
+
+			setBounces( 8 );
+			setSamplesPerPixel( 4 );
+			setInteractionModeEnabled( false );
+			setEnableOIDN( true );
+			setResolution( '3' );
+			if ( window.pathTracerApp ) {
+
+				window.pathTracerApp.controls.enabled = false;
+				setTimeout( () => window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 ), 100 );
 
 			}
 
 		}
+
+	}, [ activeTab, setAppMode, setBounces, setSamplesPerPixel, setInteractionModeEnabled, setEnableOIDN, setResolution ] );
+
+	const handleTabChange = ( value ) => {
+
+		setActiveTab( value );
 
 	};
 
@@ -122,20 +157,6 @@ const TopBar = () => {
 		}
 
 	};
-
-	useEffect( () => {
-
-		const handleRenderComplete = () => setIsPlaying( false );
-		const handleRenderReset = () => setIsPlaying( true );
-
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.addEventListener( 'RenderComplete', handleRenderComplete );
-			window.pathTracerApp.addEventListener( 'RenderReset', handleRenderReset );
-
-		}
-
-	}, [] );
 
 	const handleGithubRedirection = () => {
 
@@ -217,15 +238,17 @@ const TopBar = () => {
 
 					<div className="grow" />
 
-					<Button
-						variant="default"
-						size="sm"
-						className="flex items-center space-x-1"
-						onClick={handlePlayPauseClick}
+					{/* Viewport tabs moved from ViewportTabs.jsx */}
+					<Tabs
+						defaultValue="interactive"
+						value={activeTab}
+						onValueChange={handleTabChange}
 					>
-						{isPlaying ? <Pause size={14} /> : <Play size={14} />}
-						<span>{isPlaying ? 'Pause' : 'Play'}</span>
-					</Button>
+						<TabsList>
+							<TabsTrigger value="interactive">Interactive</TabsTrigger>
+							<TabsTrigger value="final">Final Render</TabsTrigger>
+						</TabsList>
+					</Tabs>
 
 					<div className="grow" />
 					<div className="flex items-center px-2 space-x-2">
@@ -241,9 +264,9 @@ const TopBar = () => {
 							</Tooltip>
 						</TooltipProvider>
 						{user ?
-							<NavUser user={user} onLogout={handleSignOut}/> : (
+							<NavUser user={user} onLogout={handleSignOut} /> : (
 								<Button variant="default" size="sm" onClick={handleLoginClick}>
-								Login
+                                    Login
 								</Button>
 							)}
 					</div>
@@ -254,7 +277,7 @@ const TopBar = () => {
 							<DialogHeader>
 								<DialogTitle>Import from URL</DialogTitle>
 								<DialogDescription>
-									Enter the URL of the GLB / GLTF file you want to import.
+                                    Enter the URL of the GLB / GLTF file you want to import.
 								</DialogDescription>
 							</DialogHeader>
 							<Input
@@ -264,13 +287,13 @@ const TopBar = () => {
 							/>
 							<DialogFooter>
 								<Button variant="outline" onClick={() => setIsImportModalOpen( false )} disabled={isImporting}>
-									Cancel
+                                    Cancel
 								</Button>
 								<Button onClick={handleImportFromUrl} disabled={isImporting}>
 									{isImporting ? (
 										<>
 											<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-											Importing...
+                                            Importing...
 										</>
 									) : (
 										'Import'

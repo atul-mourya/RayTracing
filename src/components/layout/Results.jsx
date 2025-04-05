@@ -122,38 +122,36 @@ const Results = () => {
 			)}
 
 			{! loading && ! error && renderedImages.length > 0 && (
-				<div className="flex-1 overflow-y-auto custom-scrollbar">
-					<div className="grid grid-cols-1 gap-2 p-2">
-						{renderedImages.map( ( image, index ) => (
-							<div
-								key={index}
-								className={`group relative overflow-hidden rounded-md transition-all duration-200 mb-4 ${
-									selectedImage === index ? 'ring-2 ring-blue-500' : 'hover:ring-1 hover:ring-blue-400'
-								}`}
-								onClick={() => setSelectedImage( index )}
-							>
-								<div className="relative aspect-square bg-slate-800 overflow-hidden">
-									<img
-										src={image.image}
-										alt={`Render ${index}`}
-										className="w-full h-full object-cover"
-										onError={( e ) => {
+				<div className="flex flex-wrap overflow-y-auto justify-center gap-2 p-2">
+					{renderedImages.map( ( image, index ) => (
+						<div
+							key={index}
+							className={`group max-w-32 relative overflow-hidden rounded-md mb-4 ${
+								selectedImage === index ? 'ring-2 ring-blue-500' : 'hover:ring-1 hover:ring-blue-400'
+							}`}
+							onClick={() => setSelectedImage( index )}
+						>
+							<div className="relative aspect-square bg-slate-800 overflow-hidden">
+								<img
+									src={image.image}
+									alt={`Render ${index}`}
+									className="w-full h-full object-cover"
+									onError={( e ) => {
 
-											e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3EImage Error%3C/text%3E%3C/svg%3E';
+										e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3EImage Error%3C/text%3E%3C/svg%3E';
 
-										}}
-									/>
-								</div>
-
-								<div className="p-2 bg-slate-800 text-xs">
-									<div className="font-medium text-white truncate">
-                    					Saved on: {formatDate( image.timestamp )}
-									</div>
-								</div>
-
+									}}
+								/>
 							</div>
-						) )}
-					</div>
+
+							<div className="p-2 bg-slate-800 text-xs">
+								<div className="font-medium text-white truncate">
+									Saved on: {formatDate( image.timestamp )}
+								</div>
+							</div>
+
+						</div>
+					) )}
 				</div>
 			)}
 
