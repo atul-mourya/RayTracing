@@ -174,16 +174,11 @@ const MainViewport = ( { mode = "interactive" } ) => {
 						{maxSamples}
 					</span>
 				)}
-			</div>
-
-			{isDenoising && (
-				<div className="absolute top-2 left-1/2 transform -translate-x-1/2">
-					<div className="bg-background opacity-50 text-xs text-foreground px-1 py-0 rounded-full flex items-center">
-						<span className="mr-2">Denoising</span>
-						<Loader2 className="h-5 w-5 animate-spin" />
-					</div>
+				<div className={`${isDenoising ? 'visible' : 'invisible'} py-1 rounded-full flex items-center`}>
+					<span className="mr-2">Denoising</span>
+					<Loader2 className="h-5 w-5 animate-spin" />
 				</div>
-			)}
+			</div>
 
 			{renderComplete && stats.samples === maxSamples && mode === "final" && (
 				<div className="absolute top-2 right-2 flex space-x-2">

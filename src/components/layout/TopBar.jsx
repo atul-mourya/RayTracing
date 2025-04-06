@@ -45,7 +45,9 @@ const TopBar = () => {
 	const setSamplesPerPixel = usePathTracerStore( state => state.setSamplesPerPixel );
 	const setInteractionModeEnabled = usePathTracerStore( state => state.setInteractionModeEnabled );
 	const setEnableOIDN = usePathTracerStore( state => state.setEnableOIDN );
+	const setUseGBuffer = usePathTracerStore( state => state.setUseGBuffer );
 	const setResolution = usePathTracerStore( state => state.setResolution );
+	const setRenderMode = usePathTracerStore( state => state.setRenderMode );
 
 	// Store the previous state to restore when switching back from results
 	const [ prevState, setPrevState ] = useState( {
@@ -69,11 +71,18 @@ const TopBar = () => {
 			setSamplesPerPixel( 1 );
 			setInteractionModeEnabled( true );
 			setEnableOIDN( false );
+			setUseGBuffer( false );
 			setResolution( '1' );
+			setRenderMode( 0 );
 			if ( window.pathTracerApp ) {
 
 				window.pathTracerApp.controls.enabled = true;
-				setTimeout( () => window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 ), 100 );
+				setTimeout( () => {
+
+					window.pathTracerApp.denoiser.toggleUseGBuffer( false );
+					window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 );
+
+				}, 100 );
 
 			}
 
@@ -83,11 +92,18 @@ const TopBar = () => {
 			setSamplesPerPixel( 4 );
 			setInteractionModeEnabled( false );
 			setEnableOIDN( true );
+			setUseGBuffer( true );
 			setResolution( '3' );
+			setRenderMode( 1 );
 			if ( window.pathTracerApp ) {
 
 				window.pathTracerApp.controls.enabled = false;
-				setTimeout( () => window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 ), 100 );
+				setTimeout( () => {
+
+					window.pathTracerApp.denoiser.toggleUseGBuffer( true );
+					window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 );
+
+				}, 100 );
 
 			}
 
