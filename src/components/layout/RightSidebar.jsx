@@ -1,4 +1,4 @@
-import { Sliders, Camera, Box, Sun, SwatchBook } from 'lucide-react';
+import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from '@/store'; // Import the path tracer store
 import CameraTab from './CameraTab';
@@ -7,6 +7,7 @@ import AssetsTab from './AssetsTab';
 import PathTracerTab from './PathTracerTab';
 import FinalRenderPanel from './FinalRenderPanel';
 import MaterialTab from './MaterialTab';
+import ColorCorrectionsTab from './ColorCorrectionsTab';
 
 const RightSidebar = () => {
 
@@ -73,9 +74,58 @@ const RightSidebar = () => {
 
 	};
 
+	const ResultsModeMenu = () => {
+
+		return (
+			<Tabs defaultValue="pathtracer" className="flex flex-col h-full w-full">
+				<TabsList className="relative grid w-full grid-cols-3 h-12 p-0">
+					<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
+						<Sliders size={12} />
+						<span className="text-xs mt-1">Adjust</span>
+					</TabsTrigger>
+					<TabsTrigger value="tool" className="flex flex-col items-center py-2">
+						<PocketKnife size={12} />
+						<span className="text-xs mt-1">Tool</span>
+					</TabsTrigger>
+					<TabsTrigger value="filters" className="flex flex-col items-center py-2">
+						<Blend size={12} />
+						<span className="text-xs mt-1">Filters</span>
+					</TabsTrigger>
+				</TabsList>
+
+				<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+					<ColorCorrectionsTab />
+				</TabsContent>
+
+				<TabsContent value="tool" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+					Coming Soon !!
+				</TabsContent>
+
+				<TabsContent value="filters" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+					Coming Soon !!
+				</TabsContent>
+
+			</Tabs>
+		);
+
+	};
+
 	return (
 		<div className="relative border-l flex flex-col overflow-hidden h-full w-full">
-			{appMode === 'interactive' ? interactiveModeMenu() : finalRenderModeMenu() }
+			{( () => {
+
+				switch ( appMode ) {
+
+					case 'interactive':
+						return interactiveModeMenu();
+					case 'results':
+						return ResultsModeMenu();
+					default:
+						return finalRenderModeMenu();
+
+				}
+
+			} )()}
 		</div>
 	);
 

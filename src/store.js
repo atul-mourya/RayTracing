@@ -14,6 +14,30 @@ const useStore = create( ( set ) => ( {
 	setLayers: ( layers ) => set( { layers } ),
 	selectedResult: null,
 	setSelectedResult: ( imageData ) => set( { selectedResult: imageData } ),
+	imageProcessing: {
+		brightness: 0,
+		contrast: 0,
+		saturation: 0,
+		hue: 0,
+		exposure: 0,
+	  },
+	  setImageProcessingParam: ( param, value ) =>
+		set( state => ( {
+		  imageProcessing: {
+				...state.imageProcessing,
+				[ param ]: value
+		  }
+		} ) ),
+	  resetImageProcessing: () =>
+		set( {
+		  imageProcessing: {
+				brightness: 0,
+				contrast: 0,
+				saturation: 0,
+				hue: 0,
+				exposure: 0,
+		  }
+		} ),
 } ) );
 
 // Assets store
