@@ -1,12 +1,14 @@
-import React, { useRef, useEffect, useState, forwardRef } from 'react';
-import { Camera, Maximize, Edit, RotateCcw } from "lucide-react"; // Added RotateCcw for reset
+import { useRef, useEffect, useState, forwardRef } from 'react';
+import { Camera, Maximize, RotateCcw, Save, X } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
 import { ImageProcessorComposer } from '@/utils/ImageProcessor';
+import ViewportResizer from './ViewportResizer';
+import { getDatabase } from '@/utils/database';
 
-const ResultsViewport = forwardRef( ( props, ref ) => {
+const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	const imageData = useStore( state => state.selectedResult );
 	const imageProcessing = useStore( state => state.imageProcessing );
@@ -20,31 +22,38 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 	const [ isImageDrawn, setIsImageDrawn ] = useState( false );
 	const [ showEditedCanvas, setShowEditedCanvas ] = useState( false );
 	const imageProcessorRef = useRef( null );
+	const [ selectedImageId, setSelectedImageId ] = useState( null );
 
-	// Expose ref functions
-	React.useImperativeHandle( ref, () => ( {
-		getCanvas: () => originalCanvasRef.current,
-		getEditedCanvas: () => editedCanvasRef.current,
-		getImageProcessor: () => imageProcessorRef.current
-	} ) );
+	// Expose ref functions with useImperativeHandle
+	useEffect( () => {
+
+		if ( ! ref ) return;
+
+		// In React 19, we update the ref directly instead of using useImperativeHandle
+		ref.current = {
+			getCanvas: () => originalCanvasRef.current,
+			getEditedCanvas: () => editedCanvasRef.current,
+			getImageProcessor: () => imageProcessorRef.current
+		};
+
+	}, [ ref ] );
 
 	const applyImageProcessing = () => {
 
 		if ( ! imageProcessorRef.current ) return;
 
-		// Update shader uniforms with current image processing parameters
 		const { brightness, contrast, saturation, hue, exposure } = imageProcessing;
 
 		// Update brightness/contrast pass
 		imageProcessorRef.current.brightnessContrastPass.uniforms[ 'brightness' ].value = brightness / 100;
 		imageProcessorRef.current.brightnessContrastPass.uniforms[ 'contrast' ].value = contrast / 100;
 
-		// You would add other shader passes for saturation, hue, exposure, etc.
+		// Update other shader passes
 		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'saturation' ].value = saturation / 100;
 		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'hue' ].value = hue;
 		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'exposure' ].value = exposure / 100;
 
-		// Then render the result
+		// Render the result
 		imageProcessorRef.current.render();
 
 	};
@@ -88,6 +97,7 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 		// Load the image
 		const img = new Image();
+
 		img.onload = () => {
 
 			// Calculate dimensions to maintain aspect ratio
@@ -117,6 +127,9 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 			}
 
+			// Check if this image has color correction data in the database
+			checkForColorCorrectionData();
+
 		};
 
 		img.src = imageData;
@@ -129,6 +142,116 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 	}, [ imageData ] );
 
+	// Check if the selected image has color correction data in the database
+	const checkForColorCorrectionData = async () => {
+
+		if ( ! imageData ) return;
+
+		try {
+
+			// Get database instance
+			const db = await getDatabase();
+
+			// Create a transaction and get the store
+			const transaction = db.transaction( 'renders', 'readonly' );
+			const store = transaction.objectStore( 'renders' );
+
+			// Get all renders to search for this image
+			const renders = await new Promise( ( resolve, reject ) => {
+
+				const request = store.getAll();
+				request.onsuccess = () => resolve( request.result );
+				request.onerror = ( event ) => reject( event.target.error );
+
+			} );
+
+			// First check for exact image match with color correction data
+			const exactMatch = renders.find( render =>
+				render.image === imageData &&
+				render.colorCorrection &&
+				render.isEdited
+			);
+
+			// Then check for matched original image
+			const originalMatch = renders.find( render =>
+				render.originalImage === imageData &&
+        render.colorCorrection &&
+        render.isEdited
+			);
+
+			if ( exactMatch && exactMatch.colorCorrection ) {
+
+				// Save the ID of the selected image for later use
+				setSelectedImageId( exactMatch.id );
+
+				// Apply the stored color correction settings
+				console.log( 'Found color correction data for this image, applying settings' );
+				const settings = exactMatch.colorCorrection;
+
+				// Update color correction parameters in the store
+				Object.keys( settings ).forEach( param => {
+
+					useStore.getState().setImageProcessingParam( param, settings[ param ] );
+
+				} );
+
+				// Show the edited view
+				setShowEditedCanvas( true );
+
+			} else if ( originalMatch && originalMatch.colorCorrection ) {
+
+				// Save the ID of the matched original for later use
+				setSelectedImageId( originalMatch.id );
+
+				// Apply color correction from a render that used this as the original
+				console.log( 'Found color correction data from a previous edit, applying settings' );
+				const settings = originalMatch.colorCorrection;
+
+				// Update color correction parameters in the store
+				Object.keys( settings ).forEach( param => {
+
+					useStore.getState().setImageProcessingParam( param, settings[ param ] );
+
+				} );
+
+				// Show the edited view
+				setShowEditedCanvas( true );
+
+			} else {
+
+				// Get the ID of the current image
+				const currentImage = renders.find( render =>
+					render.image === imageData
+				);
+
+				if ( currentImage && currentImage.id ) {
+
+					setSelectedImageId( currentImage.id );
+
+				} else {
+
+					setSelectedImageId( null );
+
+				}
+
+				// No color correction data found, use defaults
+				console.log( 'No color correction data found for this image, using defaults' );
+				useStore.getState().resetImageProcessing();
+				setShowEditedCanvas( false );
+
+			}
+
+		} catch ( error ) {
+
+			console.error( 'Error accessing database:', error );
+			// Use defaults if there's an error
+			useStore.getState().resetImageProcessing();
+			setShowEditedCanvas( false );
+
+		}
+
+	};
+
 	// Apply image processing when parameters change
 	useEffect( () => {
 
@@ -140,11 +263,26 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 	}, [ imageProcessing, isImageDrawn ] );
 
+	// Handle viewport scale change from ViewportResizer
+	const handleViewportResize = ( scale ) => {
+
+		setViewportScale( scale );
+
+	};
 
 	const handleFullscreen = () => {
 
 		if ( ! viewportWrapperRef.current ) return;
-		document.fullscreenElement ? document.exitFullscreen() : viewportWrapperRef.current.requestFullscreen();
+
+		if ( document.fullscreenElement ) {
+
+			document.exitFullscreen();
+
+		} else {
+
+			viewportWrapperRef.current.requestFullscreen();
+
+		}
 
 	};
 
@@ -167,12 +305,6 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 	};
 
-	const toggleEditedView = () => {
-
-		setShowEditedCanvas( ! showEditedCanvas );
-
-	};
-
 	const resetImageProcessing = () => {
 
 		useStore.getState().resetImageProcessing();
@@ -183,8 +315,207 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 	};
 
+	// Function to delete an existing edit based on selectedImageId
+	const deleteExistingEdit = async () => {
+
+		if ( ! selectedImageId ) return null;
+
+		try {
+
+			const db = await getDatabase();
+			const transaction = db.transaction( 'renders', 'readwrite' );
+			const store = transaction.objectStore( 'renders' );
+
+			// Get the render with the stored ID
+			const render = await new Promise( ( resolve, reject ) => {
+
+				const request = store.get( selectedImageId );
+				request.onsuccess = () => resolve( request.result );
+				request.onerror = ( event ) => reject( event.target.error );
+
+			} );
+
+			console.log( 'Render found:', render );
+
+			// Only delete if it's an edited version
+			if ( render && selectedImageId === render.id ) {
+
+				console.log( 'Deleting existing edit with ID:', selectedImageId );
+
+				await new Promise( ( resolve, reject ) => {
+
+					const deleteRequest = store.delete( selectedImageId );
+					deleteRequest.onsuccess = () => {
+
+						console.log( 'Successfully deleted existing edit' );
+						resolve( true );
+
+					};
+
+					deleteRequest.onerror = ( event ) => {
+
+						console.error( 'Error deleting existing edit:', event.target.error );
+						reject( event.target.error );
+
+					};
+
+				} );
+
+				return true;
+
+			}
+
+			// No edit to delete or it's not an edited version
+			return false;
+
+		} catch ( error ) {
+
+			console.error( 'Error in deleteExistingEdit:', error );
+			return false;
+
+		}
+
+	};
+
+	// Save edited image with color correction settings
+	const saveEditedImage = async () => {
+
+		if ( ! imageData || ! showEditedCanvas || ! editedCanvasRef.current ) return;
+
+		try {
+
+			// Get the current color correction settings
+			const colorCorrectionSettings = { ...imageProcessing };
+
+			console.log( 'Checking for existing edits to delete first' );
+
+			// Delete any existing edit of this image first
+			await deleteExistingEdit();
+
+			// Now create a new record
+			const db = await getDatabase();
+			const transaction = db.transaction( 'renders', 'readwrite' );
+			const store = transaction.objectStore( 'renders' );
+
+			// Create a new edit record
+			const saveData = {
+				image: imageData,
+				colorCorrection: colorCorrectionSettings,
+				timestamp: new Date(),
+				isEdited: true
+			};
+
+			console.log( 'Creating new record after deleting any existing edits' );
+
+			// Add the new record
+			const newId = await new Promise( ( resolve, reject ) => {
+
+				const addRequest = store.add( saveData );
+				addRequest.onsuccess = ( event ) => resolve( event.target.result );
+				addRequest.onerror = ( event ) => reject( event.target.error );
+
+			} );
+
+			console.log( 'New record created with ID:', newId );
+
+			// Update the selectedImageId with the new record's ID
+			setSelectedImageId( newId );
+
+			toast( {
+				title: "Edited Image Saved",
+				description: "Image with color correction settings has been saved.",
+			} );
+
+			// Dispatch event to refresh the results panel
+			window.dispatchEvent( new Event( 'render-saved' ) );
+
+		} catch ( error ) {
+
+			console.error( "Error saving edited image:", error );
+			toast( {
+				title: "Error Saving Image",
+				description: "There was a problem saving your edited image.",
+				variant: "destructive",
+			} );
+
+		}
+
+	};
+
+	// Ignore edits and reset image processing
+	const ignoreEdits = () => {
+
+		useStore.getState().resetImageProcessing();
+		setShowEditedCanvas( false );
+
+		toast( {
+			title: "Edits Discarded",
+			description: "All color correction settings have been reset.",
+		} );
+
+	};
+
 	return (
 		<div className="flex justify-center items-center h-full z-10">
+			{/* View mode tabs at the top */}
+			<div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20">
+				<div className="flex bg-black/80 rounded-md overflow-hidden shadow-md" style={{ border: '1px solid rgba(60, 60, 60, 0.8)' }}>
+					<button
+						onClick={() => setShowEditedCanvas( false )}
+						className={`px-4 py-2 text-xs font-medium transition-colors ${! showEditedCanvas ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
+						disabled={! imageData}
+					>
+            Original
+					</button>
+					<button
+						onClick={() => setShowEditedCanvas( true )}
+						className={`px-4 py-2 text-xs font-medium transition-colors ${showEditedCanvas ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
+						disabled={! imageData}
+					>
+            Edited
+					</button>
+				</div>
+			</div>
+
+			{/* Add Save/Ignore buttons when in edited view */}
+			{showEditedCanvas && imageData && (
+				<div className="absolute top-2 right-2 z-20 flex space-x-2">
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									onClick={saveEditedImage}
+									className="flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1 rounded-md text-xs"
+								>
+									<Save size={12} className="mr-1" />
+                  Save
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="bottom">
+								<p>Save edited image</p>
+							</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									onClick={ignoreEdits}
+									className="flex items-center justify-center bg-destructive hover:bg-destructive/90 text-destructive-foreground px-3 py-1 rounded-md text-xs"
+								>
+									<X size={12} className="mr-1" />
+                  Ignore
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="bottom">
+								<p>Discard all changes</p>
+							</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
+				</div>
+			)}
+
 			{/* Outer wrapper div for applying scale transform */}
 			<div
 				ref={viewportWrapperRef}
@@ -211,7 +542,7 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 				>
 					{/* Canvas to display the edited image */}
 					<canvas
-						ref={originalCanvasRef}
+						ref={editedCanvasRef}
 						width="1024"
 						height="1024"
 						style={{
@@ -224,7 +555,7 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 					{/* Canvas to display the original result */}
 					<canvas
-						ref={editedCanvasRef}
+						ref={originalCanvasRef}
 						width="1024"
 						height="1024"
 						style={{
@@ -245,7 +576,7 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 					{/* Dimensions display */}
 					<div className="absolute left-0 bottom-0 right-0 text-center z-10">
 						<div className="text-xs text-background">
-                            1024 × 1024 ({viewportScale}%) - {showEditedCanvas ? 'Edited View' : 'Original View'}
+              1024 × 1024 ({viewportScale}%)
 						</div>
 					</div>
 				</div>
@@ -254,37 +585,23 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 			{/* Controls */}
 			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
 				<TooltipProvider>
+					{/* Add ViewportResizer component */}
+					<ViewportResizer onResize={handleViewportResize} />
+
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button
-								onClick={toggleEditedView}
+								onClick={resetImageProcessing}
 								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-								disabled={! imageData}
+								disabled={! imageData || ! showEditedCanvas}
 							>
-								<Edit size={12} className={`bg-transparent border-white ${showEditedCanvas ? 'text-primary' : 'text-forground/50'}`} />
+								<RotateCcw size={12} className="bg-transparent border-white text-forground/50" />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
-							<p>{showEditedCanvas ? 'Show Original' : 'Show Edited'}</p>
+							<p>Reset Processing</p>
 						</TooltipContent>
 					</Tooltip>
-
-					{showEditedCanvas && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<button
-									onClick={resetImageProcessing}
-									className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-									disabled={! imageData}
-								>
-									<RotateCcw size={12} className="bg-transparent border-white text-forground/50" />
-								</button>
-							</TooltipTrigger>
-							<TooltipContent>
-								<p>Reset Processing</p>
-							</TooltipContent>
-						</Tooltip>
-					)}
 
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -321,6 +638,6 @@ const ResultsViewport = forwardRef( ( props, ref ) => {
 
 } );
 
-ResultsViewport.displayName = 'ResultsViewport';
+// No need for displayName in React 19 when using the named function in forwardRef
 
-export default React.memo( ResultsViewport );
+export default ResultsViewport;

@@ -156,7 +156,15 @@ export const saveRender = async ( imageData ) => {
 			// Add the new render to the store
 			const request = store.add( {
 				image: imageData,
-				timestamp: new Date()
+				colorCorrection: {
+					brightness: 0,
+					contrast: 0,
+					saturation: 0,
+					hue: 0,
+					exposure: 0,
+			 	},
+				timestamp: new Date(),
+				isEdited: false,
 			} );
 
 			request.onsuccess = () => {
@@ -272,6 +280,62 @@ export const getAllRenders = async () => {
 
 		console.error( 'Error in getAllRenders:', error );
 		return [];
+
+	}
+
+};
+// Add this function to your database.js file
+
+/**
+ * Delete a render from the database by ID
+ */
+export const deleteRender = async ( id ) => {
+
+	try {
+
+	  const db = await getDatabase();
+
+	  return new Promise( ( resolve, reject ) => {
+
+			const transaction = db.transaction( STORE_NAME, 'readwrite' );
+			const store = transaction.objectStore( STORE_NAME );
+
+			// Delete the render with the given ID
+			const request = store.delete( id );
+
+			request.onsuccess = () => {
+
+		  console.log( `Render with ID ${id} deleted successfully` );
+		  resolve( true );
+
+			};
+
+			request.onerror = ( event ) => {
+
+		  console.error( `Error deleting render with ID ${id}:`, event.target.error );
+		  reject( event.target.error );
+
+			};
+
+			transaction.oncomplete = () => {
+
+		  console.log( 'Delete transaction completed successfully' );
+
+			};
+
+			transaction.onerror = ( event ) => {
+
+		  console.error( 'Delete transaction error:', event.target.error );
+		  reject( event.target.error );
+
+			};
+
+		} );
+
+	} catch ( error ) {
+
+	  console.error( 'Error in deleteRender:', error );
+	  throw error;
 
 	}
 
