@@ -120,23 +120,28 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 			try {
 
-				console.log( 'Capturing render from canvas...' );
 				const canvas = window.pathTracerApp.denoiser.enabled && window.pathTracerApp.denoiser.output
 					? window.pathTracerApp.denoiser.output
 					: window.pathTracerApp.renderer.domElement;
 
-				console.log( 'Converting canvas to image data...' );
 				const imageData = canvas.toDataURL( 'image/png' );
-				console.log( 'Image data created, size:', imageData.length );
-
-				console.log( 'Saving render to database...' );
-				const id = await saveRender( imageData );
+				const saveData = {
+					image: imageData,
+					colorCorrection: {
+						brightness: 0,
+						contrast: 0,
+						saturation: 0,
+						hue: 0,
+						exposure: 0,
+					  },
+					timestamp: new Date(),
+					isEdited: true
+				};
+				const id = await saveRender( saveData );
 				console.log( 'Render saved successfully with ID:', id );
 
 				// Dispatch a custom event to notify other components
-				window.dispatchEvent( new CustomEvent( 'render-saved', {
-					detail: { id }
-				} ) );
+				window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
 
 				// Only set render complete to false if save was successful
 				setRenderComplete( false );

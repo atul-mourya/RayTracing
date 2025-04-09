@@ -141,7 +141,7 @@ export const getDatabase = async () => {
 /**
  * Save a rendered image to the database
  */
-export const saveRender = async ( imageData ) => {
+export const saveRender = async ( data ) => {
 
 	try {
 
@@ -155,13 +155,13 @@ export const saveRender = async ( imageData ) => {
 
 			// Add the new render to the store
 			const request = store.add( {
-				image: imageData,
+				image: data.image,
 				colorCorrection: {
-					brightness: 0,
-					contrast: 0,
-					saturation: 0,
-					hue: 0,
-					exposure: 0,
+					brightness: data.colorCorrection.brightness,
+					contrast: data.colorCorrection.contrast,
+					saturation: data.colorCorrection.saturation,
+					hue: data.colorCorrection.hue,
+					exposure: data.colorCorrection.exposure,
 			 	},
 				timestamp: new Date(),
 				isEdited: false,
@@ -336,6 +336,48 @@ export const deleteRender = async ( id ) => {
 
 	  console.error( 'Error in deleteRender:', error );
 	  throw error;
+
+	}
+
+};
+
+/**
+ * get render by ID
+ */
+export const getRenderById = async ( id ) => {
+
+	try {
+
+		const db = await getDatabase();
+
+		return new Promise( ( resolve, reject ) => {
+
+			const transaction = db.transaction( STORE_NAME, 'readonly' );
+			const store = transaction.objectStore( STORE_NAME );
+
+			// Get the render with the given ID
+			const request = store.get( id );
+
+			request.onsuccess = () => {
+
+				console.log( `Render with ID ${id} retrieved successfully` );
+				resolve( request.result );
+
+			};
+
+			request.onerror = ( event ) => {
+
+				console.error( `Error retrieving render with ID ${id}:`, event.target.error );
+				reject( event.target.error );
+
+			};
+
+		} );
+
+	} catch ( error ) {
+
+		console.error( 'Error in getRenderById:', error );
+		throw error;
 
 	}
 

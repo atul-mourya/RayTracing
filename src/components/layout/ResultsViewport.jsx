@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
 import { ImageProcessorComposer } from '@/utils/ImageProcessor';
 import ViewportResizer from './ViewportResizer';
-import { getDatabase } from '@/utils/database';
+import { getDatabase, deleteRender, saveRender, getRenderById, getAllRenders } from '@/utils/database';
 
 const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
@@ -98,7 +98,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		// Load the image
 		const img = new Image();
 
-		img.onload = () => {
+		img.onload = async () => {
 
 			// Calculate dimensions to maintain aspect ratio
 			const hRatio = originalCanvas.width / img.width;
@@ -175,8 +175,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			// Then check for matched original image
 			const originalMatch = renders.find( render =>
 				render.originalImage === imageData &&
-        render.colorCorrection &&
-        render.isEdited
+				render.colorCorrection &&
+				render.isEdited
 			);
 
 			if ( exactMatch && exactMatch.colorCorrection ) {
@@ -315,68 +315,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	};
 
-	// Function to delete an existing edit based on selectedImageId
-	const deleteExistingEdit = async () => {
-
-		if ( ! selectedImageId ) return null;
-
-		try {
-
-			const db = await getDatabase();
-			const transaction = db.transaction( 'renders', 'readwrite' );
-			const store = transaction.objectStore( 'renders' );
-
-			// Get the render with the stored ID
-			const render = await new Promise( ( resolve, reject ) => {
-
-				const request = store.get( selectedImageId );
-				request.onsuccess = () => resolve( request.result );
-				request.onerror = ( event ) => reject( event.target.error );
-
-			} );
-
-			console.log( 'Render found:', render );
-
-			// Only delete if it's an edited version
-			if ( render && selectedImageId === render.id ) {
-
-				console.log( 'Deleting existing edit with ID:', selectedImageId );
-
-				await new Promise( ( resolve, reject ) => {
-
-					const deleteRequest = store.delete( selectedImageId );
-					deleteRequest.onsuccess = () => {
-
-						console.log( 'Successfully deleted existing edit' );
-						resolve( true );
-
-					};
-
-					deleteRequest.onerror = ( event ) => {
-
-						console.error( 'Error deleting existing edit:', event.target.error );
-						reject( event.target.error );
-
-					};
-
-				} );
-
-				return true;
-
-			}
-
-			// No edit to delete or it's not an edited version
-			return false;
-
-		} catch ( error ) {
-
-			console.error( 'Error in deleteExistingEdit:', error );
-			return false;
-
-		}
-
-	};
-
 	// Save edited image with color correction settings
 	const saveEditedImage = async () => {
 
@@ -390,7 +328,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			console.log( 'Checking for existing edits to delete first' );
 
 			// Delete any existing edit of this image first
-			await deleteExistingEdit();
+			await deleteRender( selectedImageId );
+
 
 			// Now create a new record
 			const db = await getDatabase();
@@ -465,14 +404,14 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 						className={`px-4 py-2 text-xs font-medium transition-colors ${! showEditedCanvas ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
 						disabled={! imageData}
 					>
-            Original
+						Original
 					</button>
 					<button
 						onClick={() => setShowEditedCanvas( true )}
 						className={`px-4 py-2 text-xs font-medium transition-colors ${showEditedCanvas ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
 						disabled={! imageData}
 					>
-            Edited
+						Edited
 					</button>
 				</div>
 			</div>
@@ -488,7 +427,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 									className="flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1 rounded-md text-xs"
 								>
 									<Save size={12} className="mr-1" />
-                  Save
+									Save
 								</button>
 							</TooltipTrigger>
 							<TooltipContent side="bottom">
@@ -505,7 +444,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 									className="flex items-center justify-center bg-destructive hover:bg-destructive/90 text-destructive-foreground px-3 py-1 rounded-md text-xs"
 								>
 									<X size={12} className="mr-1" />
-                  Ignore
+									Ignore
 								</button>
 							</TooltipTrigger>
 							<TooltipContent side="bottom">
@@ -573,12 +512,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 						</div>
 					)}
 
-					{/* Dimensions display */}
-					<div className="absolute left-0 bottom-0 right-0 text-center z-10">
-						<div className="text-xs text-background">
-              1024 × 1024 ({viewportScale}%)
-						</div>
-					</div>
 				</div>
 			</div>
 
