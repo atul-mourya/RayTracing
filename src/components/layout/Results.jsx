@@ -127,7 +127,7 @@ const Results = memo( () => {
 				// Only update selected result if we're in results tab
 				if ( isResultsTabRef.current ) {
 
-					setSelectedResult( images[ 0 ].image );
+					setSelectedResult( images[ 0 ] );
 
 				}
 
@@ -225,7 +225,7 @@ const Results = memo( () => {
 			isResultsTabRef.current ) {
 
 			console.log( `Updating selected result (instance: ${INSTANCE_ID})` );
-			setSelectedResult( renderedImages[ selectedImageIndex ].image );
+			setSelectedResult( renderedImages[ selectedImageIndex ] );
 
 		}
 
@@ -241,7 +241,7 @@ const Results = memo( () => {
 
 		if ( isResultsTabRef.current && renderedImages[ index ] ) {
 
-			setSelectedResult( renderedImages[ index ].image );
+			setSelectedResult( renderedImages[ index ] );
 
 		}
 
@@ -322,7 +322,7 @@ const Results = memo( () => {
 				// Update the selected result if we're in results tab
 				if ( isResultsTabRef.current && freshImages[ newSelectedIndex ] ) {
 
-					setSelectedResult( freshImages[ newSelectedIndex ].image );
+					setSelectedResult( freshImages[ newSelectedIndex ] );
 
 				}
 
