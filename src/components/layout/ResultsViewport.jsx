@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, forwardRef } from 'react';
+import { useRef, useEffect, useState, forwardRef, useMemo } from 'react';
 import { Camera, Maximize, RotateCcw, Save } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
@@ -30,6 +30,19 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const [ isImageDrawn, setIsImageDrawn ] = useState( false );
 	const [ showEditedCanvas, setShowEditedCanvas ] = useState( false );
 	const [ selectedImageId, setSelectedImageId ] = useState( null );
+	const [ originalSettings, setOriginalSettings ] = useState( null );
+
+	// Calculate if changes have been made using useMemo for efficiency
+	const hasChanges = useMemo( () => {
+
+		if ( ! originalSettings || ! imageProcessing ) return false;
+
+		// Check if any property is different from original
+		return Object.keys( originalSettings ).some( key =>
+			originalSettings[ key ] !== imageProcessing[ key ]
+		);
+
+	}, [ originalSettings, imageProcessing ] );
 
 	// Expose ref functions
 	useEffect( () => {
@@ -138,8 +151,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			// Save the ID of the selected image for later use
 			setSelectedImageId( imageData.id );
 
-			// Apply the stored color correction settings
+			// Store the original color correction settings
 			const settings = imageData.colorCorrection;
+			setOriginalSettings( { ...settings } );
 
 			// Update color correction parameters in the store
 			Object.keys( settings ).forEach( param => {
@@ -212,11 +226,32 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	const resetImageProcessing = () => {
 
-		useStore.getState().resetImageProcessing();
-		toast( {
-			title: "Processing Reset",
-			description: "Image processing parameters have been reset to defaults.",
-		} );
+		// Check if we have original settings to reset to
+		if ( originalSettings ) {
+
+			// Reset each parameter to its original value
+			Object.keys( originalSettings ).forEach( param => {
+
+				useStore.getState().setImageProcessingParam( param, originalSettings[ param ] );
+
+			} );
+
+			toast( {
+				title: "Processing Reset",
+				description: "Image processing parameters have been reset to original values.",
+			} );
+
+		} else {
+
+			// If no original settings, use the default reset
+			useStore.getState().resetImageProcessing();
+
+			toast( {
+				title: "Processing Reset",
+				description: "Image processing parameters have been reset to defaults.",
+			} );
+
+		}
 
 	};
 
@@ -245,6 +280,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 			// Update the selectedImageId with the new record's ID
 			setSelectedImageId( newId );
+
+			// Update originalSettings to match the newly saved settings
+			setOriginalSettings( { ...colorCorrectionSettings } );
 
 			toast( {
 				title: "Edited Image Saved",
@@ -289,8 +327,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				</div>
 			</div>
 
-			{/* Save button when in edited view */}
-			{showEditedCanvas && imageData && (
+			{/* Save button only appears when in edited view AND changes have been made */}
+			{showEditedCanvas && imageData && hasChanges && (
 				<div className="absolute top-2 right-2 z-20 flex space-x-2">
 					<button
 						onClick={saveEditedImage}
@@ -371,9 +409,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							<button
 								onClick={resetImageProcessing}
 								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-								disabled={! imageData || ! showEditedCanvas}
+								disabled={! imageData || ! showEditedCanvas || ! hasChanges}
 							>
-								<RotateCcw size={12} className="bg-transparent border-white text-forground/50" />
+								<RotateCcw size={12} className={`bg-transparent border-white ${( ! imageData || ! showEditedCanvas || ! hasChanges ) ? 'text-foreground/30' : 'text-foreground/50'}`} />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
@@ -388,7 +426,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
 								disabled={! imageData}
 							>
-								<Camera size={12} className="bg-transparent border-white text-forground/50" />
+								<Camera size={12} className={`bg-transparent border-white ${! imageData ? 'text-foreground/30' : 'text-foreground/50'}`} />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
@@ -402,7 +440,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 								onClick={handleFullscreen}
 								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
 							>
-								<Maximize size={12} className="bg-transparent border-white text-forground/50" />
+								<Maximize size={12} className="bg-transparent border-white text-foreground/50" />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
