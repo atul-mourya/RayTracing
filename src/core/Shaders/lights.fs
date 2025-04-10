@@ -112,7 +112,7 @@ bool isPointInShadow( vec3 point, vec3 normal, vec3 lightDir, uint rngState, ino
     // Initialize shadow ray (avoid struct initialization in loop)
     Ray shadowRay;
     shadowRay.origin = point + normal * SHADOW_BIAS;
-    shadowRay.direction = lightDir;
+    shadowRay.direction = - normalize( lightDir );
 
     // First hit check
     HitInfo shadowHit = traverseBVH( shadowRay, stats );
@@ -368,7 +368,7 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, DirectionSample brdfSa
             continue;
 
         // Only check shadows if light contribution would be significant
-        if( light.intensity * NoL > 0.01 && ! isPointInShadow( rayOrigin, N, light.direction, rngState, stats ) ) {
+        if( light.intensity * NoL > 0.01 && ! isPointInShadow( rayOrigin, N, - light.direction, rngState, stats ) ) {
             vec3 brdfValue = evaluateMaterialResponse( V, light.direction, N, hitInfo.material );
 
             vec3 lightContribution = light.color * light.intensity;
