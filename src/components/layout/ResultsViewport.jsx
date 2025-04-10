@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState, forwardRef, useMemo } from 'react';
-import { Camera, Maximize, RotateCcw, Save } from "lucide-react";
+import { useRef, useEffect, useState, forwardRef, useMemo, useCallback } from 'react';
+import { Camera, Maximize, RotateCcw, Save, Eye } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { useToast } from '@/hooks/use-toast';
@@ -28,9 +28,12 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize ] = useState( 512 );
 	const [ isImageDrawn, setIsImageDrawn ] = useState( false );
-	const [ showEditedCanvas, setShowEditedCanvas ] = useState( false );
+	const [ viewingOriginal, setViewingOriginal ] = useState( false );
 	const [ selectedImageId, setSelectedImageId ] = useState( null );
 	const [ originalSettings, setOriginalSettings ] = useState( null );
+	const [ longPressActive, setLongPressActive ] = useState( false );
+	const longPressTimeoutRef = useRef( null );
+	const [ isHovering, setIsHovering ] = useState( false );
 
 	// Calculate if changes have been made using useMemo for efficiency
 	const hasChanges = useMemo( () => {
@@ -162,8 +165,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 			} );
 
-			// Show the edited view
-			setShowEditedCanvas( true );
+			// Default to edited view
+			setViewingOriginal( false );
 
 		};
 
@@ -188,6 +191,73 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	}, [ imageProcessing, isImageDrawn ] );
 
+	// Long press handling for original/edited view toggling
+	const startLongPress = useCallback( () => {
+
+		// Clear any existing timeout
+		if ( longPressTimeoutRef.current ) {
+
+			clearTimeout( longPressTimeoutRef.current );
+
+		}
+
+		// Start a timeout to activate long press
+		longPressTimeoutRef.current = setTimeout( () => {
+
+			setViewingOriginal( true );
+			setLongPressActive( true );
+
+		}, 200 ); // 200ms delay for long press to activate
+
+	}, [] );
+
+	const endLongPress = useCallback( () => {
+
+		// Clear the timeout
+		if ( longPressTimeoutRef.current ) {
+
+			clearTimeout( longPressTimeoutRef.current );
+			longPressTimeoutRef.current = null;
+
+		}
+
+		// If long press was active, switch back to edited view
+		if ( longPressActive ) {
+
+			setViewingOriginal( false );
+			setLongPressActive( false );
+
+		}
+
+	}, [ longPressActive ] );
+
+	// Cancel long press on mouse/touch move
+	const cancelLongPress = useCallback( () => {
+
+		if ( longPressTimeoutRef.current ) {
+
+			clearTimeout( longPressTimeoutRef.current );
+			longPressTimeoutRef.current = null;
+
+		}
+
+	}, [] );
+
+	// Cleanup timeout on unmount
+	useEffect( () => {
+
+		return () => {
+
+			if ( longPressTimeoutRef.current ) {
+
+				clearTimeout( longPressTimeoutRef.current );
+
+			}
+
+		};
+
+	}, [] );
+
 	// UI handlers
 	const handleViewportResize = ( scale ) => setViewportScale( scale );
 
@@ -209,17 +279,17 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	const handleScreenshot = () => {
 
-		if ( ! ( showEditedCanvas ? editedCanvasRef.current : originalCanvasRef.current ) || ! imageData ) return;
+		if ( ! ( ! viewingOriginal ? editedCanvasRef.current : originalCanvasRef.current ) || ! imageData ) return;
 
-		const canvasToDownload = showEditedCanvas ? editedCanvasRef.current : originalCanvasRef.current;
+		const canvasToDownload = ! viewingOriginal ? editedCanvasRef.current : originalCanvasRef.current;
 		const link = document.createElement( 'a' );
 		link.href = canvasToDownload.toDataURL( 'image/png' );
-		link.download = `raycanvas-${showEditedCanvas ? 'edited' : 'original'}-${new Date().getTime()}.png`;
+		link.download = `raycanvas-${! viewingOriginal ? 'edited' : 'original'}-${new Date().getTime()}.png`;
 		link.click();
 
 		toast( {
 			title: "Screenshot Saved",
-			description: `${showEditedCanvas ? 'Edited' : 'Original'} image has been downloaded.`,
+			description: `${! viewingOriginal ? 'Edited' : 'Original'} image has been downloaded.`,
 		} );
 
 	};
@@ -258,7 +328,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	// Save edited image with color correction settings
 	const saveEditedImage = async () => {
 
-		if ( ! imageData || ! showEditedCanvas || ! editedCanvasRef.current ) return;
+		if ( ! imageData || ! editedCanvasRef.current ) return;
 
 		try {
 
@@ -307,28 +377,18 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	return (
 		<div className="flex justify-center items-center h-full z-10">
-			{/* View mode tabs */}
-			<div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20">
-				<div className="flex bg-black/80 rounded-md overflow-hidden shadow-md" style={{ border: '1px solid rgba(60, 60, 60, 0.8)' }}>
-					<button
-						onClick={() => setShowEditedCanvas( false )}
-						className={`px-4 py-2 text-xs font-medium transition-colors ${! showEditedCanvas ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
-						disabled={! imageData}
-					>
-						Original
-					</button>
-					<button
-						onClick={() => setShowEditedCanvas( true )}
-						className={`px-4 py-2 text-xs font-medium transition-colors ${showEditedCanvas ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
-						disabled={! imageData}
-					>
-						Edited
-					</button>
+			{/* Long press hint - only shows when hovering over the canvas or actively viewing original */}
+			{imageData && ( isHovering || viewingOriginal ) && (
+				<div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20">
+					<div className="px-2 py-1 bg-black/80 rounded-md text-xs text-gray-300 flex items-center gap-1 shadow-md">
+						<Eye size={12} className="text-gray-400" />
+						{viewingOriginal ? "Viewing Original" : "Press & Hold to See Original"}
+					</div>
 				</div>
-			</div>
+			)}
 
-			{/* Save button only appears when in edited view AND changes have been made */}
-			{showEditedCanvas && imageData && hasChanges && (
+			{/* Save button only appears when changes have been made */}
+			{imageData && hasChanges && ! viewingOriginal && (
 				<div className="absolute top-2 right-2 z-20 flex space-x-2">
 					<button
 						onClick={saveEditedImage}
@@ -351,11 +411,24 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					transformOrigin: 'center center',
 					transition: "transform 0.1s ease-out"
 				}}
+				onMouseDown={imageData ? startLongPress : undefined}
+				onTouchStart={imageData ? startLongPress : undefined}
+				onMouseUp={imageData ? endLongPress : undefined}
+				onMouseLeave={( e ) => {
+
+					imageData && endLongPress( e );
+					setIsHovering( false );
+
+				}}
+				onTouchEnd={imageData ? endLongPress : undefined}
+				onMouseMove={imageData ? cancelLongPress : undefined}
+				onTouchMove={imageData ? cancelLongPress : undefined}
+				onMouseEnter={() => setIsHovering( true )}
 			>
 				{/* Container with fixed size */}
 				<div
 					ref={containerRef}
-					className="relative"
+					className="relative cursor-pointer"
 					style={{
 						position: "relative",
 						width: `${actualCanvasSize}px`,
@@ -373,7 +446,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
 							backgroundColor: 'black',
-							display: showEditedCanvas ? 'block' : 'none'
+							display: viewingOriginal ? 'none' : 'block'
 						}}
 					/>
 
@@ -386,7 +459,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
 							backgroundColor: 'black',
-							display: showEditedCanvas ? 'none' : 'block'
+							display: viewingOriginal ? 'block' : 'none'
 						}}
 					/>
 
@@ -409,9 +482,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							<button
 								onClick={resetImageProcessing}
 								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-								disabled={! imageData || ! showEditedCanvas || ! hasChanges}
+								disabled={! imageData || viewingOriginal || ! hasChanges}
 							>
-								<RotateCcw size={12} className={`bg-transparent border-white ${( ! imageData || ! showEditedCanvas || ! hasChanges ) ? 'text-foreground/30' : 'text-foreground/50'}`} />
+								<RotateCcw size={12} className={`bg-transparent border-white ${( ! imageData || viewingOriginal || ! hasChanges ) ? 'text-foreground/30' : 'text-foreground/50'}`} />
 							</button>
 						</TooltipTrigger>
 						<TooltipContent>
