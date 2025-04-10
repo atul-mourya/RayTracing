@@ -384,13 +384,13 @@ const Results = memo( () => {
 	}, [ updateState ] );
 
 	return (
-		<div className="h-full flex flex-col bg-slate-900 text-gray-200">
+		<div className="h-full flex flex-col bg-background text-foreground">
 			{/* Delete Confirmation Dialog */}
 			<AlertDialog open={deleteDialogOpen} onOpenChange={handleCancelDelete}>
-				<AlertDialogContent className="bg-slate-800 border border-slate-700 text-gray-200">
+				<AlertDialogContent className="border border-border">
 					<AlertDialogHeader>
-						<AlertDialogTitle className="text-white flex items-center gap-2">
-							<AlertTriangle size={18} className="text-red-400" />
+						<AlertDialogTitle className="flex items-center gap-2">
+							<AlertTriangle size={18} className="text-destructive" />
 							Confirm Deletion
 						</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -399,19 +399,19 @@ const Results = memo( () => {
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel
-							className="bg-transparent border border-slate-600 hover:bg-slate-700 text-gray-300"
+							className="bg-transparent border border-border hover:bg-muted"
 							disabled={isDeleting}
 						>
 							Cancel
 						</AlertDialogCancel>
 						<AlertDialogAction
-							className="bg-red-500 hover:bg-red-600 text-white"
+							className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
 							onClick={handleConfirmDelete}
 							disabled={isDeleting}
 						>
 							{isDeleting ? (
 								<>
-									<div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+									<div className="animate-spin h-4 w-4 border-2 border-background border-t-transparent rounded-full mr-2"></div>
 									Deleting...
 								</>
 							) : (
@@ -422,33 +422,33 @@ const Results = memo( () => {
 				</AlertDialogContent>
 			</AlertDialog>
 
-			<div className="p-4 border-b border-slate-700 bg-slate-800">
-				<h2 className="text-lg font-semibold text-white">Saved Renders</h2>
+			<div className="p-4 border-b border-border bg-card">
+				<h2 className="text-lg font-semibold">Saved Renders</h2>
 				{! loading && ! error && renderedImages.length > 0 && (
-					<p className="text-xs text-gray-400 mt-1">
+					<p className="text-xs text-muted-foreground mt-1">
 						Showing {renderedImages.length} render{renderedImages.length !== 1 ? 's' : ''}
 					</p>
 				)}
 			</div>
 
 			{loading && (
-				<div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+				<div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
 					<div className="flex flex-col items-center space-y-2">
-						<div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+						<div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
 						<span>Loading saved renders...</span>
 					</div>
 				</div>
 			)}
 
 			{error && (
-				<div className="p-4 m-3 text-sm text-red-400 bg-red-900/20 rounded-md border border-red-800">
+				<div className="p-4 m-3 text-sm text-destructive-foreground bg-destructive/10 rounded-md border border-destructive/20">
 					<div className="font-medium mb-1">Error loading renders</div>
 					{error}
 				</div>
 			)}
 
 			{! loading && ! error && renderedImages.length === 0 && (
-				<div className="flex-1 flex items-center justify-center p-4 text-sm text-gray-400">
+				<div className="flex-1 flex items-center justify-center p-4 text-sm text-muted-foreground">
 					<div className="text-center">
 						<div className="text-4xl mb-3">📷</div>
 						<div className="font-medium">No rendered images available</div>
@@ -466,46 +466,46 @@ const Results = memo( () => {
 							return (
 								<div
 									key={`render-${image.timestamp || index}`}
-									className={`overflow-hidden rounded-lg ${
-										selectedImageIndex === index
-											? 'ring-2 ring-blue-500 shadow-lg shadow-blue-500/20'
-											: 'ring-1 ring-slate-700'
+									className={`overflow-hidden rounded-md transition-all ${selectedImageIndex === index
+										? 'ring-2 ring-primary shadow-sm shadow-primary/20'
+										: 'ring-1 ring-border hover:ring-border/90'
 									}`}
 									onClick={() => handleImageSelect( index )}
 								>
-									<div className="relative rounded-t-lg overflow-hidden bg-slate-800 cursor-pointer">
+									<div className="relative rounded-t-md overflow-hidden bg-black cursor-pointer group">
 										<div className="aspect-w-16 aspect-h-9 w-full">
 											<img
 												src={image.image}
 												alt={`Render ${index + 1}`}
-												className="w-full h-full object-cover"
+												className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
 												onError={handleImageError}
 											/>
 										</div>
 
 										{/* Add a small badge for the selected item */}
 										{selectedImageIndex === index && (
-											<div className="absolute top-2 right-2 bg-blue-500 text-white text-xs py-0.5 px-2 rounded-full">
+											<div className="absolute top-2 right-2 bg-primary text-primary-foreground text-xs py-0.5 px-2 rounded-full">
 												Selected
 											</div>
 										)}
 									</div>
 
-									<div className="bg-slate-800 p-3">
+									<div className="bg-card p-3">
 										<div className="flex justify-between items-center">
-											<div className="flex items-center text-xs space-x-1 text-gray-300">
-												<Calendar size={12} className="text-gray-400" />
+											<div className="flex items-center text-xs space-x-1 text-muted-foreground">
+												<Calendar size={12} className="text-muted-foreground" />
 												<span>{formattedDate.date}</span>
 											</div>
-											<div className="flex items-center text-xs space-x-1 text-gray-300">
-												<Clock size={12} className="text-gray-400" />
+											<div className="flex items-center text-xs space-x-1 text-muted-foreground">
+												<Clock size={12} className="text-muted-foreground" />
 												<span>{formattedDate.time}</span>
 											</div>
 											<div
-												className="flex items-center justify-center p-1 rounded-full hover:bg-red-500/20 hover:text-red-400 transition-colors cursor-pointer"
+												className="flex items-center justify-center p-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer"
 												onClick={( e ) => handleDeleteClick( e, image, index )}
+												aria-label="Delete render"
 											>
-												<Trash2 size={14} className="text-gray-400 hover:text-red-400" />
+												<Trash2 size={14} className="text-muted-foreground hover:text-destructive" />
 											</div>
 										</div>
 									</div>
