@@ -35,7 +35,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
-		const newMaxSamples = mode === "interactive" ? 30 : 100; // Set maxSamples based on mode
+		const newMaxSamples = mode === "interactive" ? 30 : 30; // Set maxSamples based on mode
 		window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
 		setMaxSamples( newMaxSamples );
 

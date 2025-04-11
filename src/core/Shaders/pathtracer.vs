@@ -1,5 +1,3 @@
-in vec3 position;
-in vec2 uv;
 
 out vec2 vUv;
 

@@ -6,7 +6,6 @@ import {
 	RepeatWrapping,
 	LinearFilter,
 	Clock,
-	RawShaderMaterial,
 	GLSL3,
 	LinearSRGBColorSpace
 } from 'three';
@@ -54,7 +53,7 @@ export class PathTracerPass extends Pass {
 		this.previousRenderTarget = this.renderTargetB;
 
 		this.name = 'PathTracerPass';
-		this.material = new RawShaderMaterial( {
+		this.material = new ShaderMaterial( {
 
 			name: 'PathTracingShader',
 
