@@ -98,9 +98,9 @@ const TopBar = () => {
 			if ( window.pathTracerApp ) {
 
 				window.pathTracerApp.controls.enabled = false;
+				window.pathTracerApp.denoiser.toggleUseGBuffer( true );
 				setTimeout( () => {
 
-					window.pathTracerApp.denoiser.toggleUseGBuffer( true );
 					window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 );
 
 				}, 100 );
