@@ -181,7 +181,7 @@ export const DEFAULT_STATE = {
 	adaptiveSamplingVarianceThreshold: 0.1,
 	fireflyThreshold: 1,
 	renderMode: 0,
-	tiles: 2,
+	tiles: 4,
 	tilesHelper: false,
 	resolution: 1,
 	directionalLightIntensity: 0,

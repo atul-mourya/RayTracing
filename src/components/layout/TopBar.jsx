@@ -89,7 +89,7 @@ const TopBar = () => {
 		} else if ( activeTab === "final" ) {
 
 			setBounces( 8 );
-			setSamplesPerPixel( 4 );
+			setSamplesPerPixel( 1 );
 			setInteractionModeEnabled( false );
 			setEnableOIDN( true );
 			setUseGBuffer( true );
