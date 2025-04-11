@@ -33,11 +33,20 @@ vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
 
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
 	vec3 emission = material.emissiveIntensity * material.emissive;
-	if( material.emissiveMapIndex < 0 )
-		return emission;
 
-	vec2 transformedUV = getTransformedUV( uv, material.emissiveTransform );
-	return emission * sRGBTransferEOTF( sampleMap( emissiveMaps, material.emissiveMapIndex, transformedUV ) ).rgb;
+	// Check if emissive map is available
+	if( material.emissiveMapIndex >= 0 ) {
+		vec2 transformedUV = getTransformedUV( uv, material.emissiveTransform );
+		return emission * sRGBTransferEOTF( sampleMap( emissiveMaps, material.emissiveMapIndex, transformedUV ) ).rgb;
+	}
+	// If no emissive map but albedo map is available, use albedo as emissive
+	else if( material.albedoMapIndex >= 0 ) {
+		vec2 transformedUV = getTransformedUV( uv, material.albedoTransform );
+		vec4 albedo = sampleMap( albedoMaps, material.albedoMapIndex, transformedUV );
+		return emission * sRGBTransferEOTF( albedo ).rgb;
+	}
+	// Otherwise return just the emission value
+	return emission;
 }
 
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
