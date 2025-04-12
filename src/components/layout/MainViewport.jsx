@@ -1,14 +1,87 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Viewport3D from './Viewport3D';
-import { Loader2, Check, X } from 'lucide-react'; // Import icons
-import { usePathTracerStore } from '@/store'; // Import the store
-import { saveRender } from '@/utils/database'; // Import the database utility
+import { Loader2, Check, X } from 'lucide-react';
+import { usePathTracerStore } from '@/store';
+import { saveRender } from '@/utils/database';
+
+// Create a separate StatsDisplay component to prevent re-renders
+const StatsDisplay = ( { timeElapsed, samples, maxSamples, isDenoising, onMaxSamplesEdit } ) => {
+
+	const [ isEditing, setIsEditing ] = useState( false );
+	const [ inputValue, setInputValue ] = useState( maxSamples );
+
+	useEffect( () => {
+
+		setInputValue( maxSamples );
+
+	}, [ maxSamples ] );
+
+	const handleInputBlur = () => {
+
+		setIsEditing( false );
+		if ( inputValue !== maxSamples ) {
+
+			onMaxSamplesEdit( Number( inputValue ) );
+
+		}
+
+	};
+
+	return (
+		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
+      Time: {timeElapsed.toFixed( 2 )}s | Frames: {samples} /{' '}
+			{isEditing ? (
+				<input
+					className="bg-transparent border-b border-white text-white w-12"
+					type="number"
+					value={inputValue}
+					onChange={( e ) => setInputValue( e.target.value )}
+					onBlur={handleInputBlur}
+					onKeyDown={( e ) => e.key === 'Enter' && handleInputBlur()}
+					autoFocus
+				/>
+			) : (
+				<span
+					onClick={() => setIsEditing( true )}
+					className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300"
+				>
+					{maxSamples}
+				</span>
+			)}
+			<div className={`${isDenoising ? 'visible' : 'invisible'} py-1 rounded-full flex items-center`}>
+				<span className="mr-2">Denoising</span>
+				<Loader2 className="h-5 w-5 animate-spin" />
+			</div>
+		</div>
+	);
+
+};
+
+// Create a separate component for the save/discard buttons
+const RenderControls = ( { onSave, onDiscard } ) => {
+
+	return (
+		<div className="absolute top-2 right-2 flex space-x-2">
+			<button
+				onClick={onSave}
+				className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-primary/90 transition-all cursor-pointer"
+			>
+				<Check size={14} className="mr-1" /> Save
+			</button>
+			<button
+				onClick={onDiscard}
+				className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-secondary/90 transition-all cursor-pointer"
+			>
+				<X size={14} className="mr-1" /> Ignore
+			</button>
+		</div>
+	);
+
+};
 
 const MainViewport = ( { mode = "interactive" } ) => {
 
 	const [ stats, setStats ] = useState( { timeElapsed: 0, samples: 0 } );
-	const [ isEditing, setIsEditing ] = useState( false );
-	const [ inputValue, setInputValue ] = useState( 0 );
 	const [ isDenoising, setIsDenoising ] = useState( false );
 	const [ renderComplete, setRenderComplete ] = useState( false );
 	const containerRef = useRef( null );
@@ -18,12 +91,23 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	const maxSamples = usePathTracerStore( ( state ) => state.maxSamples );
 	const setMaxSamples = usePathTracerStore( ( state ) => state.setMaxSamples );
 
-	// Update inputValue when maxSamples changes
-	useEffect( () => {
+	// Memoize the stats updater function to prevent unnecessary renders
+	const handleStatsUpdate = useCallback( ( newStats ) => {
 
-		setInputValue( maxSamples );
+		setStats( prevStats => {
 
-	}, [ maxSamples ] );
+			// Only update if the values have actually changed to avoid unnecessary renders
+			if ( prevStats.timeElapsed !== newStats.timeElapsed || prevStats.samples !== newStats.samples ) {
+
+				return newStats;
+
+			}
+
+			return prevStats;
+
+		} );
+
+	}, [] );
 
 	// Update maxSamples when mode changes
 	useEffect( () => {
@@ -35,14 +119,11 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
-		const newMaxSamples = mode === "interactive" ? 60 : 30; // Set maxSamples based on mode
-		window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
-		setMaxSamples( newMaxSamples );
-
-		// If not first render, we're changing modes - update the stats display
+		const newMaxSamples = mode === "interactive" ? 60 : 30;
 		if ( window.pathTracerApp ) {
 
-			// Reset the samples counter in our local state
+			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
+			setMaxSamples( newMaxSamples );
 			setStats( prev => ( { ...prev, samples: 0 } ) );
 
 		}
@@ -53,33 +134,20 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		const handleDenoisingStart = () => setIsDenoising( true );
 		const handleDenoisingEnd = () => setIsDenoising( false );
-
-		if ( window.pathTracerApp && window.pathTracerApp.denoiser ) {
-
-			window.pathTracerApp.denoiser.addEventListener( 'start', handleDenoisingStart );
-			window.pathTracerApp.denoiser.addEventListener( 'end', handleDenoisingEnd );
-
-		}
-
-		return () => {
-
-			if ( window.pathTracerApp && window.pathTracerApp.denoiser ) {
-
-				window.pathTracerApp.denoiser.removeEventListener( 'start', handleDenoisingStart );
-				window.pathTracerApp.denoiser.removeEventListener( 'end', handleDenoisingEnd );
-
-			}
-
-		};
-
-	}, [] );
-
-	useEffect( () => {
+		const handleRenderComplete = () => setRenderComplete( true );
+		const handleRenderReset = () => setRenderComplete( false );
 
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
-			window.pathTracerApp.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
+			if ( window.pathTracerApp.denoiser ) {
+
+				window.pathTracerApp.denoiser.addEventListener( 'start', handleDenoisingStart );
+				window.pathTracerApp.denoiser.addEventListener( 'end', handleDenoisingEnd );
+
+			}
+
+			window.pathTracerApp.addEventListener( 'RenderComplete', handleRenderComplete );
+			window.pathTracerApp.addEventListener( 'RenderReset', handleRenderReset );
 
 		}
 
@@ -87,8 +155,15 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 			if ( window.pathTracerApp ) {
 
-				window.pathTracerApp.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
-				window.pathTracerApp.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
+				if ( window.pathTracerApp.denoiser ) {
+
+					window.pathTracerApp.denoiser.removeEventListener( 'start', handleDenoisingStart );
+					window.pathTracerApp.denoiser.removeEventListener( 'end', handleDenoisingEnd );
+
+				}
+
+				window.pathTracerApp.removeEventListener( 'RenderComplete', handleRenderComplete );
+				window.pathTracerApp.removeEventListener( 'RenderReset', handleRenderReset );
 
 			}
 
@@ -96,25 +171,19 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 	}, [] );
 
-	const handleInputBlur = () => {
+	const handleMaxSamplesEdit = useCallback( ( value ) => {
 
-		setIsEditing( false );
-		if ( inputValue !== maxSamples ) {
+		setMaxSamples( value );
+		if ( window.pathTracerApp ) {
 
-			const value = Number( inputValue );
-			setMaxSamples( value );
-			if ( window.pathTracerApp ) {
-
-				window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = value;
-				window.pathTracerApp.reset();
-
-			}
+			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = value;
+			window.pathTracerApp.reset();
 
 		}
 
-	};
+	}, [ setMaxSamples ] );
 
-	const handleSave = async () => {
+	const handleSave = useCallback( async () => {
 
 		if ( window.pathTracerApp ) {
 
@@ -133,17 +202,14 @@ const MainViewport = ( { mode = "interactive" } ) => {
 						saturation: 0,
 						hue: 0,
 						exposure: 0,
-					  },
+					},
 					timestamp: new Date(),
 					isEdited: true
 				};
 				const id = await saveRender( saveData );
 				console.log( 'Render saved successfully with ID:', id );
 
-				// Dispatch a custom event to notify other components
 				window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
-
-				// Only set render complete to false if save was successful
 				setRenderComplete( false );
 
 			} catch ( error ) {
@@ -155,51 +221,31 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
-	};
+	}, [] );
 
-	const handleDiscard = () => setRenderComplete( false );
+	const handleDiscard = useCallback( () => setRenderComplete( false ), [] );
+
+	// The shouldShowRenderControls calculation is memoized to avoid recalculation on every render
+	const shouldShowRenderControls = useMemo( () => {
+
+		return renderComplete && stats.samples === maxSamples && mode === "final";
+
+	}, [ renderComplete, stats.samples, maxSamples, mode ] );
 
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
-			<Viewport3D onStatsUpdate={setStats} viewportMode={mode} />
-			<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-				Time: {stats.timeElapsed.toFixed( 2 )}s | Frames: {stats.samples} /{' '}
-				{isEditing ? (
-					<input
-						className="bg-transparent border-b border-white text-white w-12"
-						type="number"
-						value={inputValue}
-						onChange={( e ) => setInputValue( e.target.value )}
-						onBlur={handleInputBlur}
-						onKeyDown={( e ) => e.key === 'Enter' && handleInputBlur()}
-						autoFocus
-					/>
-				) : (
-					<span onClick={() => setIsEditing( true )} className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300">
-						{maxSamples}
-					</span>
-				)}
-				<div className={`${isDenoising ? 'visible' : 'invisible'} py-1 rounded-full flex items-center`}>
-					<span className="mr-2">Denoising</span>
-					<Loader2 className="h-5 w-5 animate-spin" />
-				</div>
-			</div>
+			<Viewport3D onStatsUpdate={handleStatsUpdate} viewportMode={mode} />
 
-			{renderComplete && stats.samples === maxSamples && mode === "final" && (
-				<div className="absolute top-2 right-2 flex space-x-2">
-					<button
-						onClick={handleSave}
-						className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-primary/90 transition-all cursor-pointer"
-					>
-						<Check size={14} className="mr-1" /> Save
-					</button>
-					<button
-						onClick={handleDiscard}
-						className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-secondary/90 transition-all cursor-pointer"
-					>
-						<X size={14} className="mr-1" /> Ignore
-					</button>
-				</div>
+			<StatsDisplay
+				timeElapsed={stats.timeElapsed}
+				samples={stats.samples}
+				maxSamples={maxSamples}
+				isDenoising={isDenoising}
+				onMaxSamplesEdit={handleMaxSamplesEdit}
+			/>
+
+			{shouldShowRenderControls && (
+				<RenderControls onSave={handleSave} onDiscard={handleDiscard} />
 			)}
 		</div>
 	);
