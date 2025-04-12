@@ -133,6 +133,9 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 	int stackPtr = 0;
 	stack[ stackPtr ++ ] = 0; // Root node
 
+    // Precompute inverse direction just once
+	vec3 invDir = 1.0 / ray.direction;
+
 	while( stackPtr > 0 ) {
 		int nodeIndex = stack[ -- stackPtr ];
 		BVHNode node = getBVHNode( nodeIndex );
@@ -170,8 +173,8 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 		BVHNode childB = getBVHNode( node.rightChild );
 
         // Compute distances before branching
-		float dstA = RayBoundingBoxDst( ray, childA.boundsMin, childA.boundsMax );
-		float dstB = RayBoundingBoxDst( ray, childB.boundsMin, childB.boundsMax );
+		float dstA = fastRayAABBDst( ray, invDir, childA.boundsMin, childA.boundsMax );
+		float dstB = fastRayAABBDst( ray, invDir, childB.boundsMin, childB.boundsMax );
 
         // Skip subtrees if we can't possibly hit anything closer
 		if( dstA >= closestHit.dst && dstB >= closestHit.dst )

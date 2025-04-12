@@ -85,59 +85,17 @@ HitInfo RaySphere( Ray ray, Sphere sphere ) {
 	return hitInfo;
 }
 
-HitInfo RayIntersectsBox( Ray ray, vec3 minBB, vec3 maxBB ) {
-	HitInfo hitInfo;
-	hitInfo.didHit = false;
+// Fast ray-AABB distance calculation
+float fastRayAABBDst( Ray ray, vec3 invDir, vec3 boxMin, vec3 boxMax ) {
+	vec3 t1 = ( boxMin - ray.origin ) * invDir;
+	vec3 t2 = ( boxMax - ray.origin ) * invDir;
 
-	vec3 invDir = 1.0 / ray.direction;
-	vec3 tMin = ( minBB - ray.origin ) * invDir;
-	vec3 tMax = ( maxBB - ray.origin ) * invDir;
-	vec3 t1 = min( tMin, tMax );
-	vec3 t2 = max( tMin, tMax );
-	float tNear = max( max( t1.x, t1.y ), t1.z );
-	float tFar = min( min( t2.x, t2.y ), t2.z );
+	vec3 tMin = min( t1, t2 );
+	vec3 tMax = max( t1, t2 );
 
-	if( tNear <= tFar && tFar > 0.0 ) {
-		hitInfo.didHit = true;
-		hitInfo.dst = tNear;
-		hitInfo.hitPoint = ray.origin + tNear * ray.direction;
-		hitInfo.normal = vec3( 0.0 ); // Box normals can be calculated as needed
-	}
+	float dstNear = max( max( tMin.x, tMin.y ), tMin.z );
+	float dstFar = min( min( tMax.x, tMax.y ), tMax.z );
 
-	return hitInfo;
-}
-
-// Thanks to https://gist.github.com/DomNomNom/46bb1ce47f68d255fd5d
-bool RayBoundingBox( Ray ray, vec3 boxMin, vec3 boxMax ) {
-	vec3 invDir = 1.0 / ray.direction;
-	vec3 tMin = ( boxMin - ray.origin ) * invDir;
-	vec3 tMax = ( boxMax - ray.origin ) * invDir;
-	vec3 t1 = min( tMin, tMax );
-	vec3 t2 = max( tMin, tMax );
-	float tNear = max( max( t1.x, t1.y ), t1.z );
-	float tFar = min( min( t2.x, t2.y ), t2.z );
-	return tNear <= tFar;
-}
-
-float RayBoundingBoxDst( Ray ray, vec3 boxMin, vec3 boxMax ) {
-	vec3 invDir = 1.0 / ray.direction;
-	vec3 tMin = ( boxMin - ray.origin ) * invDir;
-	vec3 tMax = ( boxMax - ray.origin ) * invDir;
-	vec3 t1 = min( tMin, tMax );
-	vec3 t2 = max( tMin, tMax );
-	float dstNear = max( max( t1.x, t1.y ), t1.z );
-	float dstFar = min( min( t2.x, t2.y ), t2.z );
 	bool didHit = dstFar >= dstNear && dstFar > 0.0;
-	return didHit ? dstNear : 1e20; // 1e20 is almost infinite
-}
-
-bool intersectAABB( Ray ray, vec3 boxMin, vec3 boxMax, out float tMin, out float tMax ) {
-	vec3 invDir = 1.0 / ray.direction;
-	vec3 t0 = ( boxMin - ray.origin ) * invDir;
-	vec3 t1 = ( boxMax - ray.origin ) * invDir;
-	vec3 tNear = min( t0, t1 );
-	vec3 tFar = max( t0, t1 );
-	tMin = max( max( tNear.x, tNear.y ), tNear.z );
-	tMax = min( min( tFar.x, tFar.y ), tFar.z );
-	return tMax > tMin && tMax > 0.0;
+	return didHit ? dstNear : 1e20;
 }

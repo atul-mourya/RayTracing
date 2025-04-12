@@ -6,7 +6,6 @@ RayTracing Project TODO
 
 - [ ]  active catalog item not being highlighted in the UI
 - [ ]  drag and drop models retriggers the rendering blocking the UI and bvh generation delay
-- [ ]  environment intensity not being applied
 
 ✨ Core Features
 ---------------
@@ -19,7 +18,6 @@ RayTracing Project TODO
 - [ ]  Implement support for point light
 - [ ]  Implement support for spot light
 - [ ]  Implement support for IES light
-- [ ]  Introduce viewports with different intents (preview, final render, etc)
 - [ ]  Introduce tessalation free displacement mapping
 - [ ]  Implement support for bumpmap
 - [ ]  Implement SDF-based model rendering
