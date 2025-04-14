@@ -339,8 +339,8 @@ const TopBar = () => {
 						onValueChange={handleTabChange}
 					>
 						<TabsList>
-							<TabsTrigger value="interactive">Interactive</TabsTrigger>
-							<TabsTrigger value="final">Final Render</TabsTrigger>
+							<TabsTrigger value="interactive">Preview</TabsTrigger>
+							<TabsTrigger value="final">Render</TabsTrigger>
 							<TabsTrigger value="results">Results</TabsTrigger>
 						</TabsList>
 					</Tabs>

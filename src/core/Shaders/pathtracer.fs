@@ -181,6 +181,22 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 
 }
 
+vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathLength ) {
+	// Calculate path "unusualness" - paths with extreme throughput variations are less likely
+	float throughputVariation = max( max( throughput.r, throughput.g ), throughput.b ) /
+		( min( min( throughput.r, throughput.g ), throughput.b ) + 0.001 );
+
+	// Long paths with high variation are clamped more aggressively
+	float clampFactor = 1.0 / ( 1.0 + throughputVariation * pathLength * 0.1 );
+
+	// Smooth clamping that preserves color
+	float luminance = dot( contribution, vec3( 0.2126, 0.7152, 0.0722 ) );
+	float clampedLuminance = min( luminance, fireflyThreshold * clampFactor );
+
+	// Return color-preserving result
+	return contribution * ( clampedLuminance / max( luminance, 0.001 ) );
+}
+
 vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
@@ -272,6 +288,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
 		radiance += reduceFireflies( directLight * throughput, fireflyThreshold );
 		// return vec4(directLight, 1.0);
+
+		// Usage of regularization to prevent fireflies
+		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
 
         // Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
