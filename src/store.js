@@ -105,6 +105,7 @@ const usePathTracerStore = create( ( set ) => ( {
 	setShowBackground: ( value ) => set( { showBackground: value } ),
 	setBackgroundIntensity: ( value ) => set( { backgroundIntensity: value } ),
 	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
+	setEnvironmentRotation: ( value ) => set( { environmentRotation: value } ),
 	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
 	setToneMapping: ( value ) => set( { toneMapping: value } ),
 	setInteractionModeEnabled: ( value ) => set( { interactionModeEnabled: value } ),

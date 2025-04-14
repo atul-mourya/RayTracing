@@ -1,4 +1,4 @@
-import { Grip, Sun, Sunrise } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -73,6 +73,7 @@ const PathTracerTab = () => {
 		showBackground, setShowBackground,
 		backgroundIntensity, setBackgroundIntensity,
 		environmentIntensity, setEnvironmentIntensity,
+		environmentRotation, setEnvironmentRotation,
 		GIIntensity, setGIIntensity,
 		toneMapping, setToneMapping,
 		interactionModeEnabled, setInteractionModeEnabled,
@@ -205,6 +206,13 @@ const PathTracerTab = () => {
 
 	} );
 
+	const handleEnvironmentRotationChange = handleChange( setEnvironmentRotation, value => {
+
+		window.pathTracerApp.pathTracingPass.material.uniforms.environmentRotation.value = value[ 0 ] * ( Math.PI / 180 );
+		window.pathTracerApp.reset();
+
+	} );
+
 	const handleGIIntensityChange = handleChange( setGIIntensity, value => {
 
 		window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = value * Math.PI;
@@ -304,6 +312,9 @@ const PathTracerTab = () => {
 				</div>
 				<div className="flex items-center justify-between">
 					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} onValueChange={handleEnvironmentRotationChange} />
 				</div>
 			</ControlGroup>
 			<ControlGroup name="Denoising">

@@ -72,6 +72,7 @@ export class PathTracerPass extends Pass {
 				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity }, // Add backgroundIntensity uniform
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
+				environmentRotation: { value: DEFAULT_STATE.environmentRotation || 0.0 },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI }, // Convert from lux to lumens
 
 				cameraWorldMatrix: { value: new Matrix4() },
