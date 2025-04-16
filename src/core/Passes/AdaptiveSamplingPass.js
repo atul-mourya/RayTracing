@@ -22,6 +22,8 @@ export class AdaptiveSamplingPass extends Pass {
 		this.height = height;
 		this.renderer = renderer;
 		this.name = 'AdaptiveSamplingPass';
+		this.counter = 0;
+		this.delayByFrames = 5;
 
 		this.adaptiveSamplingMin = DEFAULT_STATE.adaptiveSamplingMin;
 		this.adaptiveSamplingMax = DEFAULT_STATE.adaptiveSamplingMax;
@@ -200,6 +202,12 @@ export class AdaptiveSamplingPass extends Pass {
 
 	}
 
+	reset() {
+
+		this.counter = 0;
+
+	}
+
 
 	setSize( width, height ) {
 
@@ -214,6 +222,9 @@ export class AdaptiveSamplingPass extends Pass {
 	render( renderer ) {
 
 		if ( ! this.enabled ) return;
+
+		this.counter ++;
+		if ( this.counter <= this.delayByFrames ) return;
 
 		if ( ! this.material.uniforms.previousFrameTexture.value || ! this.material.uniforms.accumulatedFrameTexture.value ) {
 
