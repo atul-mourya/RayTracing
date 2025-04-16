@@ -96,7 +96,8 @@ export class AdaptiveSamplingPass extends Pass {
 						float t = ( variance - adaptiveSamplingVarianceThreshold * 0.5 ) / ( adaptiveSamplingVarianceThreshold * 0.5 );
 						samples = int( mix( float( adaptiveSamplingMin ), float( adaptiveSamplingMax ), t ) );
 					}
-					gl_FragColor = vec4( samples, variance, 0.0, 1.0 );
+					float normalizedSamples = float(samples) / float(adaptiveSamplingMax);
+					gl_FragColor = vec4(normalizedSamples, variance, 0.0, 1.0);
 				}
 			`,
 		} );
@@ -146,9 +147,9 @@ export class AdaptiveSamplingPass extends Pass {
 					vec3 yellow  = vec3(1.0, 1.0, 0.0);
 					vec3 red     = vec3(1.0, 0.0, 0.0);    // Highest samples
 					
-					if(normalized == 0.0) {
+					if(normalized <= 0.0) {
 						return vec3(1.0);
-					} else if(normalized < 0.5) {
+					} else if(normalized < 0.25) {
 						return mix(blue, cyan, normalized * 4.0);
 					} else if(normalized < 0.5) {
 						return mix(cyan, green, (normalized - 0.25) * 4.0);
@@ -161,13 +162,16 @@ export class AdaptiveSamplingPass extends Pass {
 			
 				void main() {
 					vec4 samplingData = texture2D(samplingTexture, vUv);
-					float samples = samplingData.r; // Get number of samples from r channel
+    
+					// Get sample count from red channel - denormalize from 0-1 back to actual sample count
+					float normalizedSample = samplingData.r;  // Value between 0-1
+					float samples = normalizedSample * maxSamples;  // Actual sample count
 					
-					// Normalize samples to 0-1 range
-					float normalizedSamples = (samples - minSamples) / (maxSamples - minSamples);
+					// We now have the actual sample count, normalize for color mapping
+					float normalizedForColor = (samples - minSamples) / (maxSamples - minSamples);
 					
 					// Apply intensity and get rainbow color
-					vec3 heatmapColor = getRainbowColor(normalizedSamples * heatmapIntensity);
+					vec3 heatmapColor = getRainbowColor(normalizedForColor * heatmapIntensity);
 					
 					gl_FragColor = vec4(heatmapColor, 1.0);
 				}
@@ -224,7 +228,6 @@ export class AdaptiveSamplingPass extends Pass {
 			this.fsQuad.render( renderer );
 
 		}
-
 
 	}
 

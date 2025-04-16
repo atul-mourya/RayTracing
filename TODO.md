@@ -32,8 +32,6 @@ RayTracing Project TODO
 - [ ]  Experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ]  Experiment with ray frustum culling
 - [ ]  Refactor path tracing to use define instead of if-else
-- [ ]  experiment with ray frustum culling
-- [ ]  refactor path tracing to use to use define instead of if-else
 
 🎨 UI Enhancements
 ------------------
@@ -66,11 +64,14 @@ RayTracing Project TODO
     - [ ]  Implement gradual blend between renders
     - [ ]  Quality-based transition controls
 
+    https://claude.site/artifacts/5787ba64-d876-4b5c-a7ca-7bb7bbcf3765
+
 📚 Research & Resources
 -----------------------
 
 ### To Explore / Research
 
+-   using rasterization to for enhanced ray tracing: https://chatgpt.com/share/67ff4b6a-ff0c-8003-89db-2a41cbec6cfd
 -   Disney BSDF: <https://schuttejoe.github.io/post/disneybsdf/>
 -   WASM BVH: <https://github.com/madmann91/bvh>
 -   BVH in compute shader (WebGPU): <https://x.com/AddisonPrairie/status/1823934213764341981>
