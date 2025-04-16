@@ -26,6 +26,7 @@ export class AdaptiveSamplingPass extends Pass {
 		this.adaptiveSamplingMin = DEFAULT_STATE.adaptiveSamplingMin;
 		this.adaptiveSamplingMax = DEFAULT_STATE.adaptiveSamplingMax;
 		this.adaptiveSamplingVarianceThreshold = DEFAULT_STATE.adaptiveSamplingVarianceThreshold;
+		this.showAdaptiveSamplingHelper = DEFAULT_STATE.showAdaptiveSamplingHelper;
 
 		// Create the render target to store adaptive sampling data
 		this.renderTarget = new WebGLRenderTarget( width, height, {
@@ -179,15 +180,23 @@ export class AdaptiveSamplingPass extends Pass {
 		} );
 		this.heatmapQuad = new FullScreenQuad( this.heatmapMaterial );
 
-		this.helper = RenderTargetHelper( this.renderer, this.heatmapTarget );
-		this.toggleHelper( false );
+		this.helper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
+			width: 250,
+			height: 250,
+			position: 'bottom-right',
+			theme: 'dark',
+			title: 'Adaptive Sampling',
+			autoUpdate: false // We'll manually update when needed
+		} );
+		this.toggleHelper( this.showAdaptiveSamplingHelper );
 		document.body.appendChild( this.helper );
 
 	}
 
 	toggleHelper( signal ) {
 
-		this.helper.style.display = signal ? 'flex' : 'none';
+		signal ? this.helper.show() : this.helper.hide();
+		this.showAdaptiveSamplingHelper = signal;
 
 	}
 
@@ -197,6 +206,7 @@ export class AdaptiveSamplingPass extends Pass {
 		this.width = width;
 		this.height = height;
 		this.renderTarget.setSize( width, height );
+		this.heatmapTarget.setSize( width, height );
 		this.material.uniforms.resolution.value.set( width, height );
 
 	}
@@ -215,11 +225,15 @@ export class AdaptiveSamplingPass extends Pass {
 		renderer.setRenderTarget( this.renderTarget );
 		this.fsQuad.render( renderer );
 
-		// If heatmap visualization is enabled, render it
-		// this.heatmapMaterial.uniforms.samplingTexture.value = this.renderTarget.texture;
-		// renderer.setRenderTarget( this.heatmapTarget );
-		// this.heatmapQuad.render( renderer );
-		// this.helper.update();
+		// Only render heatmap visualization when helper is visible
+		if ( this.showAdaptiveSamplingHelper ) {
+
+			this.heatmapMaterial.uniforms.samplingTexture.value = this.renderTarget.texture;
+			renderer.setRenderTarget( this.heatmapTarget );
+			this.heatmapQuad.render( renderer );
+			this.helper.update();
+
+		}
 
 		// If this is the final pass in the chain, render to screen
 		if ( this.renderToScreen ) {
@@ -242,8 +256,12 @@ export class AdaptiveSamplingPass extends Pass {
 	dispose() {
 
 		this.renderTarget.dispose();
+		this.heatmapTarget.dispose();
 		this.material.dispose();
+		this.heatmapMaterial.dispose();
 		this.fsQuad.dispose();
+		this.heatmapQuad.dispose();
+		this.helper.dispose();
 
 	}
 

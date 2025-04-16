@@ -180,6 +180,7 @@ export const DEFAULT_STATE = {
 	adaptiveSamplingMin: 1,
 	adaptiveSamplingMax: 4,
 	adaptiveSamplingVarianceThreshold: 0.1,
+	showAdaptiveSamplingHelper: false,
 	fireflyThreshold: 1,
 	renderMode: 0,
 	tiles: 4,

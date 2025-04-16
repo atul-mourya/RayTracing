@@ -81,6 +81,7 @@ const usePathTracerStore = create( ( set ) => ( {
 	setAdaptiveSamplingMin: ( value ) => set( { adaptiveSamplingMin: value } ),
 	setAdaptiveSamplingMax: ( value ) => set( { adaptiveSamplingMax: value } ),
 	setAdaptiveSamplingVarianceThreshold: ( value ) => set( { adaptiveSamplingVarianceThreshold: value } ),
+	setShowAdaptiveSamplingHelper: ( value ) => set( { showAdaptiveSamplingHelper: value } ),
 	setFireflyThreshold: ( value ) => set( { fireflyThreshold: value } ),
 	setRenderMode: ( value ) => set( { renderMode: value } ),
 	setTiles: ( value ) => set( { tiles: value } ),

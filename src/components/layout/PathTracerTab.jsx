@@ -49,6 +49,7 @@ const PathTracerTab = () => {
 		adaptiveSamplingMin, setAdaptiveSamplingMin,
 		adaptiveSamplingMax, setAdaptiveSamplingMax,
 		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
+		showAdaptiveSamplingHelper, setShowAdaptiveSamplingHelper,
 		fireflyThreshold, setFireflyThreshold,
 		renderMode, setRenderMode,
 		tiles, setTiles,
@@ -120,6 +121,7 @@ const PathTracerTab = () => {
 	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
 	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
 	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
+	const handleAdaptiveSamplingHelperToggle = handleChange( setShowAdaptiveSamplingHelper, value => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( value ) );
 
 	const handleFireflyThresholdChange = handleChange( setFireflyThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = value[ 0 ] );
 
@@ -387,6 +389,9 @@ const PathTracerTab = () => {
 					</div>
 					<div className="flex items-center justify-between">
 						<Slider label={"Variance Threshold"} min={0.001} max={1} step={0.001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
 					</div>
 				</> )}
 				<div className="flex items-center justify-between">
