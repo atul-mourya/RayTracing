@@ -18,6 +18,7 @@ uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from Adapti
 uniform sampler2D previousFrameTexture; // Texture from the previous frame
 uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame for temporal anti-aliasing
 uniform bool useAdaptiveSampling;
+uniform int adaptiveSamplingMax;
 uniform float fireflyThreshold;
 
 struct RenderState {
@@ -364,7 +365,7 @@ vec3 dithering( vec3 color, uint seed ) {
 
 int getRequiredSamples( int pixelIndex ) {
 	vec2 texCoord = gl_FragCoord.xy / resolution;
-	return int( texture( adaptiveSamplingTexture, texCoord ).r );
+	return int( texture( adaptiveSamplingTexture, texCoord ).r * float( adaptiveSamplingMax ) );
 }
 
 void main( ) {

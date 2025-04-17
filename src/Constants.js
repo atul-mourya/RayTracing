@@ -179,7 +179,7 @@ export const DEFAULT_STATE = {
 	adaptiveSampling: false,
 	adaptiveSamplingMin: 1,
 	adaptiveSamplingMax: 4,
-	adaptiveSamplingVarianceThreshold: 0.1,
+	adaptiveSamplingVarianceThreshold: 0.001,
 	showAdaptiveSamplingHelper: false,
 	fireflyThreshold: 1,
 	renderMode: 0,

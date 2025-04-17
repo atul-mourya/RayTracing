@@ -96,6 +96,7 @@ export class PathTracerPass extends Pass {
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
 				adaptiveSamplingTexture: { value: null },
+				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
 				fireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
@@ -468,6 +469,7 @@ export class PathTracerPass extends Pass {
 		uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
 		uniforms.accumulatedFrameTexture.value = this.accumulationPass?.blendedFrameBuffer.texture || null;
 		uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass?.renderTarget.texture || null;
+		uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass?.adaptiveSamplingMax || 4;
 
 		// 3. Update adaptive sampling if enabled
 		if ( this.adaptiveSamplingPass?.enabled ) {

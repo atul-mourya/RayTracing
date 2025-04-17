@@ -67,40 +67,41 @@ export class AdaptiveSamplingPass extends Pass {
 				uniform float adaptiveSamplingVarianceThreshold;
 				
 				void main( ) {
-					vec2 texCoord = gl_FragCoord.xy / resolution;  // Same as main function
-    
-					vec4 previousColor = texture2D(previousFrameTexture, texCoord);
-					vec4 accumulatedColor = texture2D(accumulatedFrameTexture, texCoord);
+					vec2 texCoord = gl_FragCoord.xy / resolution;
 
-					int samples = 0;
-					float variance = 0.0;
-					bool allNeighborsSame = true;
-					vec4 firstNeighborColor = texture2D( accumulatedFrameTexture, texCoord + vec2( - 1, - 1 ) / resolution );
+					vec3 currentColor = texture2D(previousFrameTexture, texCoord).rgb;
+					vec3 accumulated = texture2D(accumulatedFrameTexture, texCoord).rgb;
 
-					for( int x = - 1; x <= 1; x ++ ) {
-						for( int y = - 1; y <= 1; y ++ ) {
-							vec2 offset = vec2( x, y ) / resolution;
-							vec4 neighborColor = texture2D( accumulatedFrameTexture, texCoord + offset );
-							variance += distance( accumulatedColor.rgb, neighborColor.rgb );
-							if( distance( firstNeighborColor.rgb, neighborColor.rgb ) > 0.001 ) {
-								allNeighborsSame = false;
-							}
+					float sum = 0.0;
+					float sumSq = 0.0;
+					for (int x = -1; x <= 1; x++) {
+						for (int y = -1; y <= 1; y++) {
+							vec2 offset = vec2(x, y) / resolution;
+							vec3 neighborColor = texture2D(accumulatedFrameTexture, texCoord + offset).rgb;
+							float l = dot(neighborColor, vec3(0.2126, 0.7152, 0.0722));
+							sum += l;
+							sumSq += l * l;
 						}
 					}
-					variance /= 9.0;
 
-					if( allNeighborsSame ) {
-						samples = 0;
-					} else if( variance > adaptiveSamplingVarianceThreshold ) {
-						samples = adaptiveSamplingMax;
-					} else if( variance < adaptiveSamplingVarianceThreshold * 0.5 ) {
+					float mean = sum / 9.0;
+					float variance = max(0.0, (sumSq / 9.0) - (mean * mean));
+					float temporalError = distance(currentColor, accumulated);
+					float totalVariance = mix(variance, temporalError, 0.3);
+
+					// Sample allocation based on total variance
+					int samples;
+					if (totalVariance < adaptiveSamplingVarianceThreshold * 0.5) {
 						samples = adaptiveSamplingMin;
+					} else if (totalVariance > adaptiveSamplingVarianceThreshold) {
+						samples = adaptiveSamplingMax;
 					} else {
-						float t = ( variance - adaptiveSamplingVarianceThreshold * 0.5 ) / ( adaptiveSamplingVarianceThreshold * 0.5 );
-						samples = int( mix( float( adaptiveSamplingMin ), float( adaptiveSamplingMax ), t ) );
+						float t = (totalVariance - adaptiveSamplingVarianceThreshold * 0.5) / (adaptiveSamplingVarianceThreshold * 0.5);
+						samples = int(mix(float(adaptiveSamplingMin), float(adaptiveSamplingMax), t));
 					}
+
 					float normalizedSamples = float(samples) / float(adaptiveSamplingMax);
-					gl_FragColor = vec4(normalizedSamples, variance, 0.0, 1.0);
+					gl_FragColor = vec4(normalizedSamples, totalVariance, 0.0, 1.0);
 				}
 			`,
 		} );
