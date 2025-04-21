@@ -401,53 +401,147 @@ vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, DirectionSample brdfSa
 }
 
 struct IndirectLightingResult {
-    vec3 direction;
-    vec3 throughput;
-    float misWeight;
+    vec3 direction;    // Sampled direction for next bounce
+    vec3 throughput;   // Light throughput along this path
+    float misWeight;   // MIS weight for this sample
+    float pdf;         // PDF of the generated sample
 };
 
-IndirectLightingResult calculateIndirectLighting( vec3 V, vec3 N, RayTracingMaterial material, DirectionSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState ) {
+IndirectLightingResult calculateIndirectLighting(
+    vec3 V,                      // View direction
+    vec3 N,                      // Surface normal
+    RayTracingMaterial material, // Material properties
+    DirectionSample brdfSample,  // Pre-computed BRDF sample
+    int sampleIndex,             // Current sample index
+    int bounceIndex,             // Current bounce depth
+    inout uint rngState,         // RNG state
+    ImportanceSamplingInfo samplingInfo  // Added sampling importance info
+) {
     // Initialize result
     IndirectLightingResult result;
 
-    // Sample base direction using random value
-    vec2 indirectSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
-    float rand = RandomValue( rngState );
+    // Get random sample for selection between sampling strategies
+    vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
+    float selectionRand = RandomValue( rngState );
 
-    // Calculate weights only if environment light is enabled
-    float envWeight = 0.0;
-    float brdfWeight = getMaterialImportance( material ); // Get material-based importance once
+    // Use the provided sampling importance values directly
+    float envWeight = samplingInfo.envmapImportance;
+    float diffuseWeight = samplingInfo.diffuseImportance;
+    float specularWeight = samplingInfo.specularImportance;
+    float transmissionWeight = samplingInfo.transmissionImportance;
+    float clearcoatWeight = samplingInfo.clearcoatImportance;
 
-    vec3 sampleDir = brdfSample.direction;
-    float samplePdf = brdfSample.pdf;
-    vec3 sampleBrdfValue = brdfSample.value;
-    float NoL = max( dot( N, sampleDir ), 0.0 );
+    // For simplified selection, combine similar strategies
+    float brdfWeight = specularWeight + transmissionWeight + clearcoatWeight;
+    float cosineWeight = diffuseWeight;
 
-    if( rand >= brdfWeight ) {
-        // Cosine-weighted sampling
-        sampleDir = cosineWeightedSample( N, indirectSample );
-        NoL = max( dot( N, sampleDir ), 0.0 );
-        samplePdf = NoL * PI_INV;
-        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+    // Ensure weights sum to 1.0 (sanity check)
+    float totalWeight = envWeight + brdfWeight + cosineWeight;
+    if( totalWeight <= 0.0 ) {
+        // Fallback weights if we have an issue
+        envWeight = 0.2;
+        brdfWeight = 0.5;
+        cosineWeight = 0.3;
+        totalWeight = 1.0;
+    } else if( abs( totalWeight - 1.0 ) > 0.01 ) {
+        // Normalize if not very close to 1.0
+        float invTotal = 1.0 / totalWeight;
+        envWeight *= invTotal;
+        brdfWeight *= invTotal;
+        cosineWeight *= invTotal;
     }
 
-    // Ensure valid PDFs
-    // samplePdf = max( samplePdf, 0.001 );
-    float brdfPdf = brdfSample.pdf;
-    float cosinePdf = NoL * PI_INV;
-    float cosineWeight = 1.0 - envWeight - brdfWeight;
-    
-    // float combinedPdf = brdfPdf * brdfWeight + cosinePdf * cosineWeight;
-    float misWeight = powerHeuristic( samplePdf, cosineWeight );
+    // Initialize sampling variables
+    vec3 sampleDir;
+    float samplePdf;
+    vec3 sampleBrdfValue;
+    int samplingStrategy = 0; // 0=env, 1=brdf, 2=cosine
 
-    // Calculate final throughput
-    vec3 throughput = sampleBrdfValue * NoL * misWeight / samplePdf;
+    // Cumulative probability technique for easier selection
+    float cumulativeEnv = envWeight;
+    float cumulativeBrdf = cumulativeEnv + brdfWeight;
+    // (cosine is the remainder)
+
+    // Select sampling technique based on random value and importance weights
+    if( selectionRand < cumulativeEnv && envWeight > 0.001 ) {
+        // Environment map importance sampling (if applicable)
+        // For simplicity, if environment sampling is selected but not implemented,
+        // fall back to cosine sampling
+        sampleDir = cosineWeightedSample( N, randomSample );
+        float NoL = max( dot( N, sampleDir ), 0.0 );
+        samplePdf = NoL * PI_INV;
+        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+        samplingStrategy = 0;
+    } else if( selectionRand < cumulativeBrdf && brdfWeight > 0.001 ) {
+        // Use the pre-computed BRDF sample
+        sampleDir = brdfSample.direction;
+        samplePdf = brdfSample.pdf;
+        sampleBrdfValue = brdfSample.value;
+        samplingStrategy = 1;
+    } else {
+        // Cosine-weighted hemisphere sampling
+        sampleDir = cosineWeightedSample( N, randomSample );
+        float NoL = max( dot( N, sampleDir ), 0.0 );
+        samplePdf = cosineWeightedPDF( NoL );
+        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+        samplingStrategy = 2;
+    }
+
+    // Ensure valid NoL (cos theta)
+    float NoL = max( dot( N, sampleDir ), 0.0 );
+
+    // Calculate PDFs for all strategies for MIS
+    float brdfPdf = max( brdfSample.pdf, MIN_PDF );
+    float cosinePdf = max( cosineWeightedPDF( NoL ), MIN_PDF );
+    // For environment mapping, typically would have an envPdf here
+    float envPdf = cosinePdf; // fallback to cosine if env map sampling not implemented
+
+    // Compute combined PDF for MIS
+    float combinedPdf = envWeight * envPdf +       // Environment sampling
+        brdfWeight * brdfPdf +     // BRDF sampling
+        cosineWeight * cosinePdf;  // Cosine sampling
+
+    // Ensure minimum PDF value to prevent NaN/Inf
+    samplePdf = max( samplePdf, MIN_PDF );
+    combinedPdf = max( combinedPdf, MIN_PDF );
+
+    // Apply balance heuristic for MIS
+    float misWeight = samplePdf / combinedPdf;
+
+    // For power heuristic, use this instead:
+    // float misWeight = powerHeuristic(samplePdf, combinedPdf - samplePdf);
+
+    // Calculate throughput
+    vec3 throughput = sampleBrdfValue * NoL / samplePdf;
+
+    // Apply global illumination scaling
     throughput *= globalIlluminationIntensity;
+
+    // Apply adaptive clamping based on material properties
+    float pathLengthFactor = 1.0 / pow( float( bounceIndex + 1 ), 0.5 );
+
+    // Adjust clamping threshold based on material type
+    float clampMultiplier = 1.0;
+    if( material.metalness > 0.7 )
+        clampMultiplier = 2.0; // Metals can be brighter
+    if( material.roughness < 0.2 )
+        clampMultiplier = 1.5; // Glossy surfaces can be brighter
+
+    float maxThroughput = fireflyThreshold * pathLengthFactor * clampMultiplier;
+
+    // Detect potential fireflies and apply color-preserving clamping
+    float maxComponent = max( max( throughput.r, throughput.g ), throughput.b );
+    if( maxComponent > maxThroughput ) {
+        // Apply smooth clamping to preserve color
+        float scale = maxThroughput / maxComponent;
+        throughput *= scale;
+    }
 
     // Set result values
     result.direction = sampleDir;
     result.throughput = throughput;
     result.misWeight = misWeight;
+    result.pdf = samplePdf;
 
     return result;
 }

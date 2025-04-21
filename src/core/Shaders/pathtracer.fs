@@ -133,40 +133,46 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 }
 
 // Russian Roulette with vectorized operations
-bool handleRussianRoulette( int depth, vec3 rayColor, RayTracingMaterial material, uint seed ) {
+bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, uint seed ) {
     // Always continue for first few bounces
-	if( depth < 2 )
+	if( depth < 3 ) {
 		return true;
+	}
 
-	// Calculate luminance for importance-based termination
-	float lum = luminance( rayColor );
+	// Calculate luminance of throughput for importance-based termination
+	float lum = luminance( throughput );
 
-    // Quick rejection for very dark paths
-	if( lum < 0.001 && depth > 3 )
+    // Quick rejection for very dark paths after several bounces
+	if( lum < 0.01 && depth > 4 ) {
 		return false;
+	}
 
-    // Adaptive minimum bounces based on material properties
-    // More bounces for materials that contribute more to final image
-	bool isImportantMaterial = material.transmission > 0.5 || material.metalness > 0.7 || material.emissive.r + material.emissive.g + material.emissive.b > 0.0;
-	int minBounces = isImportantMaterial ? 4 : 3;
+    // Determine minimum bounces based on material properties 
+	bool isImportantMaterial = material.transmission > 0.3 ||
+		material.metalness > 0.7 ||
+		dot( material.emissive, vec3( 1.0 ) ) > 0.0 ||
+		material.clearcoat > 0.5;
 
-	if( depth < minBounces )
+	int minBounces = isImportantMaterial ? 5 : 3;
+
+	if( depth < minBounces ) {
 		return true;
+	}
 
-    // Calculate continuation probability with bias toward brighter paths
+    // Adaptive continuation probability based on throughput and path depth
 	float rrProb = clamp( lum, 0.05, 0.95 );
 
-    // Performance optimization: use bit operations for random test when possible
-    // (some hardware may handle this better than floating point comparison)
-	uint threshold = uint( rrProb * 4294967295.0 );
-	uint randVal = seed; // Use the seed directly or mix it further if needed
-
-	bool shouldContinue = randVal < threshold;
-
-    // Apply throughput correction only if continuing
-	if( shouldContinue ) {
-		rayColor *= 1.0 / rrProb;
+    // Slower decay for important materials
+	if( isImportantMaterial ) {
+		rrProb = mix( rrProb, 1.0, 0.3 );
 	}
+
+    // Apply depth-based adjustment - higher probability of continuing for earlier bounces
+	rrProb = mix( rrProb, 1.0, 1.0 / float( depth ) );
+
+    // Make the RR test using bit operations for performance on some hardware
+	uint threshold = uint( rrProb * 4294967295.0 );
+	bool shouldContinue = seed < threshold;
 
 	return shouldContinue;
 }
@@ -183,19 +189,26 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 }
 
 vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathLength ) {
-	// Calculate path "unusualness" - paths with extreme throughput variations are less likely
+    // Calculate path "unusualness" factor
 	float throughputVariation = max( max( throughput.r, throughput.g ), throughput.b ) /
 		( min( min( throughput.r, throughput.g ), throughput.b ) + 0.001 );
 
-	// Long paths with high variation are clamped more aggressively
+    // Scale clamp threshold based on path length and throughput variation
 	float clampFactor = 1.0 / ( 1.0 + throughputVariation * pathLength * 0.1 );
+	float clampThreshold = fireflyThreshold * clampFactor;
 
-	// Smooth clamping that preserves color
+    // Get luminance of the contribution
 	float luminance = dot( contribution, vec3( 0.2126, 0.7152, 0.0722 ) );
-	float clampedLuminance = min( luminance, fireflyThreshold * clampFactor );
 
-	// Return color-preserving result
-	return contribution * ( clampedLuminance / max( luminance, 0.001 ) );
+    // Apply smooth clamping for values near the threshold
+	if( luminance > clampThreshold ) {
+        // Use smooth transition
+		float scale = clampThreshold / luminance;
+        // Preserve color by scaling
+		return contribution * scale;
+	}
+
+	return contribution;
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
@@ -220,7 +233,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		if( ! hitInfo.didHit ) {
 			// Environment lighting
 			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
-			radiance += reduceFireflies( envColor.rgb * throughput, fireflyThreshold );
+			radiance += regularizePathContribution( envColor.rgb * throughput, throughput, float( bounceIndex ) );
 			alpha *= envColor.a;
 			// return vec4(envColor, 1.0);
 			break;
@@ -281,21 +294,19 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
         // Add emissive contribution
 		radiance += sampleEmissiveMap( material, hitInfo.uv ) * throughput * PI;
 
+		ImportanceSamplingInfo samplingInfo = getImportanceSamplingInfo( material, bounceIndex );
+
 		// Indirect lighting using MIS
-		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState );
-		throughput *= reduceFireflies( indirectResult.throughput, fireflyThreshold );
+		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, samplingInfo );
+		throughput *= indirectResult.throughput;
 
 		// Add direct lighting contribution
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
-		radiance += reduceFireflies( directLight * throughput, fireflyThreshold );
-		// return vec4(directLight, 1.0);
-
-		// Usage of regularization to prevent fireflies
 		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
 
-        // Prepare for next bounce
+		// Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
-		ray.direction = brdfSample.direction;
+		ray.direction = indirectResult.direction;
 
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( bounceIndex, throughput, material, rngState ) ) {

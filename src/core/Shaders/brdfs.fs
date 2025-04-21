@@ -6,7 +6,7 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	float metalFactor = 0.5 + 0.5 * material.metalness;
 
     // Ensure minimum specular contribution for metals regardless of roughness
-    float baseSpecularWeight = max(invRoughness * metalFactor, material.metalness * 0.1);
+	float baseSpecularWeight = max( invRoughness * metalFactor, material.metalness * 0.1 );
 	weights.specular = baseSpecularWeight * material.specularIntensity;
 	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
 
@@ -17,7 +17,7 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
     // transmission calculation
 	float iorFactor = min( 2.0 / material.ior, 1.0 ); // Higher IOR = more likely to have TIR
 	float transmissionBase = iorFactor * invRoughness * 0.7; // Combined scaling
-    
+
 	weights.transmission = material.transmission * transmissionBase *
 		( 0.5 + 0.5 * material.ior / 2.0 ) *
 		( 1.0 + material.dispersion * 0.5 );
@@ -49,10 +49,95 @@ float getMaterialImportance( RayTracingMaterial material ) {
 	if( material.transmission > 0.0 || material.clearcoat > 0.0 ) {
 		return 0.95;
 	}
+
+    // Calculate weights for all BRDFs
 	BRDFWeights weights = calculateBRDFWeights( material );
 
+    // Consider the material's emissive properties
+	float emissiveImportance = 0.0;
+	if( material.emissive.r + material.emissive.g + material.emissive.b > 0.0 ) {
+		float emissiveLuminance = dot( material.emissive, vec3( 0.2126, 0.7152, 0.0722 ) );
+		emissiveImportance = min( 0.5, emissiveLuminance * material.emissiveIntensity * 0.2 );
+	}
+
     // For importance sampling, we care about the most significant component
-	return max( max( max( weights.specular, weights.diffuse ), weights.sheen ), max( weights.clearcoat, weights.transmission ) );
+	float brdfImportance = max( max( max( weights.specular, weights.diffuse ), weights.sheen ), max( weights.clearcoat, weights.transmission ) );
+
+    // Bias toward materials with high specular or transmission components
+	if( material.metalness > 0.5 || material.transmission > 0.0 ) {
+		brdfImportance = mix( brdfImportance, 1.0, 0.2 );
+	}
+
+    // Combine both factors
+	return max( brdfImportance, emissiveImportance );
+}
+
+struct ImportanceSamplingInfo {
+	float diffuseImportance;
+	float specularImportance;
+	float transmissionImportance;
+	float clearcoatImportance;
+	float envmapImportance;
+};
+
+ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex ) {
+	ImportanceSamplingInfo info;
+
+    // Start with weights from BRDF distribution
+	BRDFWeights weights = calculateBRDFWeights( material );
+
+    // Base importances on BRDF weights but with additional heuristics
+	info.diffuseImportance = weights.diffuse;
+	info.specularImportance = weights.specular;
+	info.transmissionImportance = weights.transmission;
+	info.clearcoatImportance = weights.clearcoat;
+
+    // Environment importance based on scene settings
+	float envStrength = backgroundIntensity * 0.2;
+	info.envmapImportance = envStrength > 0.01 ? envStrength : 0.0;
+
+    // Adjust importances based on bounce index
+	if( bounceIndex > 2 ) {
+        // For deeper bounces, favor diffuse and environment sampling
+        // as they contribute less to specular paths at higher bounces
+		info.specularImportance *= 0.7;
+		info.clearcoatImportance *= 0.7;
+		info.diffuseImportance *= 1.2;
+		info.envmapImportance *= 1.5;
+	}
+
+    // Special case for metals - always favor specular for first few bounces
+	if( material.metalness > 0.7 && bounceIndex < 3 ) {
+		info.specularImportance = max( info.specularImportance, 0.8 );
+		info.diffuseImportance *= 0.2;
+	}
+
+    // Special case for glass - always favor transmission
+	if( material.transmission > 0.7 ) {
+		info.transmissionImportance = max( info.transmissionImportance, 0.9 );
+		info.diffuseImportance *= 0.1;
+		info.specularImportance *= 0.5;
+	}
+
+    // Normalize importances to sum to 1.0
+	float sum = info.diffuseImportance + info.specularImportance +
+		info.transmissionImportance + info.clearcoatImportance +
+		info.envmapImportance;
+
+	if( sum > 0.0 ) {
+		float invSum = 1.0 / sum;
+		info.diffuseImportance *= invSum;
+		info.specularImportance *= invSum;
+		info.transmissionImportance *= invSum;
+		info.clearcoatImportance *= invSum;
+		info.envmapImportance *= invSum;
+	} else {
+        // Fallback if all importances are zero
+		info.diffuseImportance = 0.5;
+		info.envmapImportance = 0.5;
+	}
+
+	return info;
 }
 
 vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
@@ -296,15 +381,23 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 }
 
 vec3 cosineWeightedSample( vec3 N, vec2 xi ) {
+    // Construct a local coordinate system (TBN)
 	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
 	vec3 B = cross( N, T );
 
-	vec2 r = vec2( sqrt( xi.x ) * cos( 2.0 * PI * xi.y ), sqrt( xi.x ) * sin( 2.0 * PI * xi.y ) );
-	float z = sqrt( 1.0 - xi.x );
+    // Cosine-weighted sampling using concentric disk mapping
+    // Convert to polar coordinates
+	float phi = 2.0 * PI * xi.y;
+	float cosTheta = sqrt( 1.0 - xi.x );
+	float sinTheta = sqrt( xi.x );
 
-	return normalize( T * r.x + B * r.y + N * z );
+    // Convert from polar to Cartesian coordinates in tangent space
+	vec3 localDir = vec3( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
+
+    // Transform the sampled direction to world space
+	return normalize( T * localDir.x + B * localDir.y + N * localDir.z );
 }
 
 float cosineWeightedPDF( float NoL ) {
-	return max( NoL, 0.001 ) * PI_INV;
+	return max( NoL, MIN_PDF ) * PI_INV;
 }

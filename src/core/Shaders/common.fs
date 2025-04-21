@@ -37,7 +37,7 @@ float powerHeuristic( float pdf1, float pdf2 ) {
     if( pdf2 > pdf1 * 100.0 )
         return 0.0;
 
-    // Standard calculation for closer PDFs
+    // Calculate weights using power heuristic with beta=2
     float p1 = pdf1 * pdf1;
     float p2 = pdf2 * pdf2;
     return p1 / ( p1 + p2 );
