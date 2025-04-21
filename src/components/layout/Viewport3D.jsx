@@ -8,6 +8,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import LoadingOverlay from './LoadingOverlay';
 import ViewportResizer from './ViewportResizer';
+import { useAssetsStore } from '@/store';
 
 const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
@@ -24,6 +25,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 	const [ actualCanvasSize ] = useState( 512 ); // Fixed canvas size
 	const isInitialized = useRef( false );
 	const appMode = useStore( state => state.appMode );
+	const { setEnvironment } = useAssetsStore();
 
 	// Expose the app instance via ref
 	React.useImperativeHandle( ref, () => ( {
@@ -109,63 +111,169 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 	}, [] );
 
+	// Check if a file is an environment map (HDR, EXR, etc.)
+	const isEnvironmentMap = ( fileName ) => {
+
+		const extension = fileName.split( '.' ).pop().toLowerCase();
+		return [ 'hdr', 'exr', 'png', 'jpg', 'jpeg', 'webp' ].includes( extension );
+
+	};
+
+	// Handle environment map loading
+	const handleEnvironmentLoad = ( file ) => {
+
+		setLoading( { isLoading: true, title: "Loading", status: "Processing Environment Map...", progress: 0 } );
+
+		const url = URL.createObjectURL( file );
+
+		// Store file info in global context for reference in the loader
+		window.uploadedEnvironmentFileInfo = {
+			name: file.name,
+			type: file.type,
+			size: file.size
+		};
+
+		// Create environment data object
+		const customEnv = {
+			id: 'custom-upload',
+			name: file.name,
+			preview: null,
+			category: [],
+			tags: [],
+			redirection: '',
+			url: url
+		};
+
+		// Update the environment in store
+		setEnvironment( customEnv );
+
+		// Load the environment into the renderer
+		if ( appRef.current ) {
+
+			try {
+
+				appRef.current.loadEnvironment( url )
+					.then( () => {
+
+						toast( {
+							title: "Environment Loaded",
+							description: `Successfully loaded environment: ${file.name}`,
+						} );
+
+						appRef.current.reset();
+
+					} )
+					.catch( ( err ) => {
+
+						console.error( "Error loading environment file:", err );
+						toast( {
+							title: "Failed to load environment",
+							description: err.message || "Please try another file.",
+							variant: "destructive",
+						} );
+
+						// Clean up the blob URL on error
+						URL.revokeObjectURL( url );
+
+					} )
+					.finally( () => {
+
+						setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
+						setTimeout( () => useStore.getState().resetLoading(), 1000 );
+
+					} );
+
+			} catch ( error ) {
+
+				console.error( "Error in environment loading process:", error );
+				toast( {
+					title: "Error Loading Environment",
+					description: error.message || "An unexpected error occurred.",
+					variant: "destructive",
+				} );
+
+				// Clean up the blob URL on error
+				URL.revokeObjectURL( url );
+				setLoading( { isLoading: false } );
+
+			}
+
+		}
+
+	};
+
+	// Handle model loading
+	const handleModelLoad = ( file ) => {
+
+		setLoading( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
+
+		const reader = new FileReader();
+		reader.onload = ( event ) => {
+
+			const arrayBuffer = event.target.result;
+			if ( appRef.current && appRef.current.loadGLBFromArrayBuffer ) {
+
+				appRef.current.loadGLBFromArrayBuffer( arrayBuffer ).then( () => {
+
+					toast( {
+						title: "Model Loaded",
+						description: `Successfully loaded model: ${file.name}`,
+					} );
+
+				} ).catch( ( err ) => {
+
+					console.error( "Error loading GLB file:", err );
+					toast( {
+						title: "Failed to load GLB file",
+						description: err.message || "Please try again.",
+						variant: "destructive",
+					} );
+
+				} ).finally( () => {
+
+					setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
+					setTimeout( () => useStore.getState().resetLoading(), 1000 );
+
+				} );
+
+			}
+
+		};
+
+		reader.readAsArrayBuffer( file );
+
+	};
+
 	const handleDrop = useCallback( ( e ) => {
 
 		e.preventDefault();
 		setIsDragging( false );
 
 		const file = e.dataTransfer.files[ 0 ];
-		if ( file && file.name.toLowerCase().endsWith( '.glb' ) ) {
+		if ( ! file ) return;
 
-			setLoading( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
-			const reader = new FileReader();
-			reader.onload = ( event ) => {
+		const fileName = file.name.toLowerCase();
 
-				const arrayBuffer = event.target.result;
-				if ( appRef.current && appRef.current.loadGLBFromArrayBuffer ) {
+		// Check if it's a GLB or GLTF model
+		if ( fileName.endsWith( '.glb' ) || fileName.endsWith( '.gltf' ) ) {
 
-					appRef.current.loadGLBFromArrayBuffer( arrayBuffer )
-						.then( () => {
+			handleModelLoad( file );
 
-							toast( {
-								title: "Model Loaded",
-								description: `Successfully loaded model !!`,
-							} );
+		} else if ( isEnvironmentMap( fileName ) ) { // Check if it's an environment map
 
-						} )
-						.catch( ( err ) => {
+			handleEnvironmentLoad( file );
 
-							console.error( "Error loading GLB file:", err );
-							toast( {
-								title: "Failed to load GLB file",
-								description: "Please try again.",
-								variant: "destructive",
-							} );
-
-						} ).finally( () => {
-
-							setLoading( { isLoading: true, title: "Loading", status: "Loading Complete !", progress: 100 } );
-							setTimeout( () => useStore.getState().resetLoading(), 1000 );
-
-						} );
-
-				}
-
-			};
-
-			reader.readAsArrayBuffer( file );
-
-		} else {
+		} else { // Unsupported file type
 
 			toast( {
-				title: "Invalid File",
-				description: "Please drop a valid GLB file.",
+				title: "Unsupported File Type",
+				description: "Please drop a GLB model or an environment map (.hdr, .exr, .png, etc.)",
 				variant: "destructive",
 			} );
 
 		}
 
-	}, [ setLoading, toast ] );
+	}, [ setLoading, toast, setEnvironment ] );
 
 	const handleFullscreen = () => {
 
@@ -275,7 +383,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 				<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-xs">
 					<div className="flex flex-col items-center space-y-4">
 						<Upload className="h-16 w-16 text-primary" />
-						<p className="text-xl font-medium text-foreground">Drop GLB file here</p>
+						<p className="text-xl font-medium text-foreground">Drop GLB model or HDR environment</p>
 					</div>
 				</div>
 			)}

@@ -56,6 +56,17 @@ const AssetsTab = () => {
 			setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 0 } );
 			try {
 
+				// If this is a custom upload, get the file extension from the name
+				if ( envData.id === 'custom-upload' && envData.name ) {
+
+					// Store file info in global context for reference in the loader
+					window.uploadedEnvironmentFileInfo = {
+						name: envData.name,
+						url: envData.url
+					};
+
+				}
+
 				await window.pathTracerApp.loadEnvironment( envData.url );
 
 				toast( {
@@ -65,9 +76,11 @@ const AssetsTab = () => {
 
 			} catch ( error ) {
 
+				console.error( "Environment loading error:", error );
+
 				toast( {
 					title: "Error Loading Environment",
-					description: `${envData.name}: ${error.message}`,
+					description: `${envData.name}: ${error.message || "Unknown error"}`,
 					variant: "destructive",
 				} );
 

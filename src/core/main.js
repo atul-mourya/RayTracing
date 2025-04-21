@@ -387,22 +387,100 @@ class PathTracerApp extends EventDispatcher {
 
 	async loadEnvironment( envUrl ) {
 
-		const extension = envUrl.split( '.' ).pop().toLowerCase();
 		this.pauseRendering = true;
 
 		try {
 
 			let texture;
-			if ( extension === 'hdr' || extension === 'exr' ) {
 
-				const loader = extension === 'hdr' ? new RGBELoader() : new EXRLoader();
-				loader.setDataType( FloatType );
-				texture = await loader.loadAsync( envUrl );
+			// Check if it's a blob URL
+			if ( envUrl.startsWith( 'blob:' ) ) {
+
+				// For blob URLs, we need to fetch the blob to determine its type
+				const response = await fetch( envUrl );
+				const blob = await response.blob();
+
+				// Determine file type from mime type or filename if available in the original URL
+				let extension;
+				if ( blob.type === 'image/x-exr' || blob.type.includes( 'exr' ) ) {
+
+					extension = 'exr';
+
+				} else if ( blob.type === 'image/vnd.radiance' || blob.type.includes( 'hdr' ) ) {
+
+					extension = 'hdr';
+
+				} else {
+
+					// Try to get extension from original file name
+					// First, extract the file name from the environment data that might be stored
+					// in the blob URL's user data or from previous context
+					const fileNameMatch = envUrl.split( '/' ).pop();
+					if ( fileNameMatch ) {
+
+						const extMatch = fileNameMatch.match( /\.([^.]+)$/ );
+						if ( extMatch ) {
+
+							extension = extMatch[ 1 ].toLowerCase();
+
+						}
+
+					}
+
+				}
+
+				// If we still couldn't determine the extension, check stored environment data
+				if ( ! extension && window.uploadedEnvironmentFileInfo ) {
+
+					extension = window.uploadedEnvironmentFileInfo.name.split( '.' ).pop().toLowerCase();
+
+				}
+
+				console.log( `Determined file extension for blob: ${extension}` );
+
+				// Create a new blob URL for the file
+				const blobUrl = URL.createObjectURL( blob );
+
+				try {
+
+					if ( extension === 'hdr' || extension === 'exr' ) {
+
+						const loader = extension === 'hdr' ? new RGBELoader() : new EXRLoader();
+						loader.setDataType( FloatType );
+						texture = await loader.loadAsync( blobUrl );
+
+					} else {
+
+						// If we can't determine the extension, try loading as a regular texture
+						const loader = new TextureLoader();
+						texture = await loader.loadAsync( blobUrl );
+
+					}
+
+				} finally {
+
+					// Always revoke the blob URL to avoid memory leaks
+					URL.revokeObjectURL( blobUrl );
+
+				}
 
 			} else {
 
-				const loader = new TextureLoader();
-				texture = await loader.loadAsync( envUrl );
+				// Regular URL handling
+				const extension = envUrl.split( '.' ).pop().toLowerCase();
+
+				if ( extension === 'hdr' || extension === 'exr' ) {
+
+					const loader = extension === 'hdr' ? new RGBELoader() : new EXRLoader();
+					loader.setDataType( FloatType );
+					texture = await loader.loadAsync( envUrl );
+
+				} else {
+
+					const loader = new TextureLoader();
+					texture = await loader.loadAsync( envUrl );
+
+				}
 
 			}
 
@@ -416,7 +494,7 @@ class PathTracerApp extends EventDispatcher {
 			if ( this.pathTracingPass ) {
 
 				this.pathTracingPass.material.uniforms.environmentIntensity.value = this.scene.environmentIntensity;
-				this.pathTracingPass.material.uniforms.backgroundIntensity.value = this.scene.backgroundIntensity; // Set background intensity
+				this.pathTracingPass.material.uniforms.backgroundIntensity.value = this.scene.backgroundIntensity;
 				this.pathTracingPass.material.uniforms.environment.value = texture;
 				this.pathTracingPass.reset();
 

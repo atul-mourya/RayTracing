@@ -145,6 +145,14 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 					if ( file ) {
 
 						const url = URL.createObjectURL( file );
+
+						// Store the file information for reference when loading
+						window.uploadedEnvironmentFileInfo = {
+							name: file.name,
+							type: file.type,
+							size: file.size
+						};
+
 						const customEnv = {
 							id: 'custom-upload',
 							name: file.name,
