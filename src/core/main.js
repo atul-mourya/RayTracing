@@ -42,6 +42,7 @@ import Stats from 'stats-gl';
 import { PathTracerPass } from './Shaders/PathTracerPass';
 import { AccumulationPass } from './Passes/AccumulationPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
+import { TemporalStatisticsPass } from './Passes/TemporalStatisticsPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
@@ -214,6 +215,7 @@ class PathTracerApp extends EventDispatcher {
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
 		this.accPass.reset( this.renderer );
+		this.temporalStatsPass.reset();
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 
@@ -231,8 +233,12 @@ class PathTracerApp extends EventDispatcher {
 		this.renderPass.enabled = false;
 		this.composer.addPass( this.renderPass );
 
+		this.temporalStatsPass = new TemporalStatisticsPass( this.renderer, this.width, this.height );
+		// No need to add this pass to the composer - it's used for tracking statistics only
+
 		this.adaptiveSamplingPass = new AdaptiveSamplingPass( this.renderer, this.width, this.height );
 		this.adaptiveSamplingPass.enabled = DEFAULT_STATE.adaptiveSampling;
+		this.adaptiveSamplingPass.setTemporalStatisticsPass( this.temporalStatsPass );
 		this.composer.addPass( this.adaptiveSamplingPass );
 
 		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
@@ -323,6 +329,10 @@ class PathTracerApp extends EventDispatcher {
 			}
 
 			this.composer.render();
+
+			// After rendering, update the temporal statistics with the newest frame
+			this.temporalStatsPass.update( this.pathTracingPass.currentRenderTarget.texture );
+
 			this.stats.update();
 
 			if ( this.onStatsUpdate ) {
@@ -739,6 +749,7 @@ class PathTracerApp extends EventDispatcher {
 		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
 		this.denoiser.setSize( this.width, this.height );
+		this.temporalStatsPass.setSize( this.width, this.height );
 
 		this.reset();
 
@@ -896,6 +907,7 @@ class PathTracerApp extends EventDispatcher {
 		cancelAnimationFrame( this.animationFrameId );
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
+		this.temporalStatsPass.dispose();
 
 	}
 

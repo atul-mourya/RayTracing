@@ -376,7 +376,18 @@ vec3 dithering( vec3 color, uint seed ) {
 
 int getRequiredSamples( int pixelIndex ) {
 	vec2 texCoord = gl_FragCoord.xy / resolution;
-	return int( texture( adaptiveSamplingTexture, texCoord ).r * float( adaptiveSamplingMax ) );
+	vec4 samplingData = texture( adaptiveSamplingTexture, texCoord );
+
+    // Red channel contains normalized sample count (0-1)
+	float normalizedSamples = samplingData.r;
+
+    // Check if this pixel is converged or requires zero samples
+	if( normalizedSamples < 0.01 ) {
+		return 0; // Skip this pixel, it's already converged
+	}
+
+    // Convert to actual sample count (min to max range)
+	return int( normalizedSamples * float( adaptiveSamplingMax ) );
 }
 
 void main( ) {
@@ -396,10 +407,9 @@ void main( ) {
 		int samplesCount = numRaysPerPixel;
 
 		if( frame > 2u && useAdaptiveSampling ) {
-            // Get required samples from the adaptive sampling pass
 			samplesCount = getRequiredSamples( pixelIndex );
 			if( samplesCount == 0 ) {
-                // Use the previous frame's color
+				// Use the previous frame's color (it's converged or temporarily skipped)
 				pixel.color = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
 				fragColor = vec4( pixel.color.rgb, 1.0 );
 				return;

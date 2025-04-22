@@ -50,6 +50,9 @@ const PathTracerTab = () => {
 		adaptiveSamplingMax, setAdaptiveSamplingMax,
 		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
 		showAdaptiveSamplingHelper, setShowAdaptiveSamplingHelper,
+		temporalVarianceWeight, setTemporalVarianceWeight,
+		enableEarlyTermination, setEnableEarlyTermination,
+		earlyTerminationThreshold, setEarlyTerminationThreshold,
 		fireflyThreshold, setFireflyThreshold,
 		renderMode, setRenderMode,
 		tiles, setTiles,
@@ -122,6 +125,27 @@ const PathTracerTab = () => {
 	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
 	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
 	const handleAdaptiveSamplingHelperToggle = handleChange( setShowAdaptiveSamplingHelper, value => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( value ) );
+
+	const handleTemporalVarianceWeightChange = handleChange( setTemporalVarianceWeight, value => {
+
+		window.pathTracerApp.adaptiveSamplingPass.material.uniforms.temporalWeight.value = value[ 0 ];
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleEnableEarlyTerminationChange = handleChange( setEnableEarlyTermination, value => {
+
+		window.pathTracerApp.temporalStatsPass.setEnableEarlyTermination( value );
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleEarlyTerminationThresholdChange = handleChange( setEarlyTerminationThreshold, value => {
+
+		window.pathTracerApp.temporalStatsPass.setConvergenceThreshold( value[ 0 ] );
+		window.pathTracerApp.reset();
+
+	} );
 
 	const handleFireflyThresholdChange = handleChange( setFireflyThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = value[ 0 ] );
 
@@ -378,6 +402,9 @@ const PathTracerTab = () => {
 					</Select>
 				</div>
 				<div className="flex items-center justify-between">
+					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
+				</div>
+				<div className="flex items-center justify-between">
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
 				</div>
 				{adaptiveSampling && ( <>
@@ -394,9 +421,19 @@ const PathTracerTab = () => {
 						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
 					</div>
 				</> )}
-				<div className="flex items-center justify-between">
-					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
-				</div>
+				{adaptiveSampling && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Temporal Weight"} min={0} max={1} step={0.05} value={[ temporalVarianceWeight ]} onValueChange={handleTemporalVarianceWeightChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Early Termination"} checked={enableEarlyTermination} onCheckedChange={handleEnableEarlyTerminationChange} />
+					</div>
+					{enableEarlyTermination && (
+						<div className="flex items-center justify-between">
+							<Slider label={"Termination Threshold"} min={0.00001} max={0.001} step={0.00001} value={[ earlyTerminationThreshold ]} onValueChange={handleEarlyTerminationThresholdChange} />
+						</div>
+					)}
+				</> )}
 			</ControlGroup>
 			<ControlGroup name="Post Processing">
 				<div className="flex items-center justify-between">

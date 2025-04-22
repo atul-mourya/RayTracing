@@ -1,12 +1,12 @@
 import {
 	ShaderMaterial,
-	RGBAFormat,
-	FloatType,
 	RedFormat,
+	UnsignedByteType,
 	WebGLRenderTarget,
 	NearestFilter,
 	Vector2,
-	UnsignedByteType,
+	RGBAFormat,
+	FloatType
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
@@ -30,6 +30,9 @@ export class AdaptiveSamplingPass extends Pass {
 		this.adaptiveSamplingVarianceThreshold = DEFAULT_STATE.adaptiveSamplingVarianceThreshold;
 		this.showAdaptiveSamplingHelper = DEFAULT_STATE.showAdaptiveSamplingHelper;
 
+		// Temporal statistics reference (to be set from the outside)
+		this.temporalStatsPass = null;
+
 		// Create the render target to store adaptive sampling data
 		this.renderTarget = new WebGLRenderTarget( width, height, {
 			format: RedFormat, // Only need one channel
@@ -40,14 +43,19 @@ export class AdaptiveSamplingPass extends Pass {
 			stencilBuffer: false
 		} );
 
+		// material that uses both spatial and temporal variance
 		this.material = new ShaderMaterial( {
 			uniforms: {
 				resolution: { value: new Vector2( width, height ) },
 				previousFrameTexture: { value: null },
 				accumulatedFrameTexture: { value: null },
+				temporalVarianceTexture: { value: null }, // From TemporalStatisticsPass
+				meanTexture: { value: null }, // From TemporalStatisticsPass
 				adaptiveSamplingMin: { value: this.adaptiveSamplingMin },
 				adaptiveSamplingMax: { value: this.adaptiveSamplingMax },
 				adaptiveSamplingVarianceThreshold: { value: this.adaptiveSamplingVarianceThreshold },
+				temporalWeight: { value: 0.7 }, // Weight for temporal vs spatial variance
+				frameNumber: { value: 0 } // Current frame number
 			},
 			vertexShader: /* glsl */`
                 varying vec2 vUv;
@@ -62,46 +70,76 @@ export class AdaptiveSamplingPass extends Pass {
 				uniform vec2 resolution;
 				uniform sampler2D previousFrameTexture;
 				uniform sampler2D accumulatedFrameTexture;
+				uniform sampler2D temporalVarianceTexture;
+				uniform sampler2D meanTexture;
 				uniform int adaptiveSamplingMin;
 				uniform int adaptiveSamplingMax;
 				uniform float adaptiveSamplingVarianceThreshold;
+				uniform float temporalWeight;
+				uniform int frameNumber;
 				
-				void main( ) {
+				void main() {
 					vec2 texCoord = gl_FragCoord.xy / resolution;
 
-					vec3 currentColor = texture2D(previousFrameTexture, texCoord).rgb;
-					vec3 accumulated = texture2D(accumulatedFrameTexture, texCoord).rgb;
+					// Calculate spatial variance
+					vec3 currentColor = texture(previousFrameTexture, texCoord).rgb;
+					vec3 accumulated = texture(accumulatedFrameTexture, texCoord).rgb;
 
-					float sum = 0.0;
-					float sumSq = 0.0;
+					float spatialSum = 0.0;
+					float spatialSumSq = 0.0;
 					for (int x = -1; x <= 1; x++) {
 						for (int y = -1; y <= 1; y++) {
 							vec2 offset = vec2(x, y) / resolution;
-							vec3 neighborColor = texture2D(accumulatedFrameTexture, texCoord + offset).rgb;
+							vec3 neighborColor = texture(accumulatedFrameTexture, texCoord + offset).rgb;
 							float l = dot(neighborColor, vec3(0.2126, 0.7152, 0.0722));
-							sum += l;
-							sumSq += l * l;
+							spatialSum += l;
+							spatialSumSq += l * l;
 						}
 					}
 
-					float mean = sum / 9.0;
-					float variance = max(0.0, (sumSq / 9.0) - (mean * mean));
+					float spatialMean = spatialSum / 9.0;
+					float spatialVariance = max(0.0, (spatialSumSq / 9.0) - (spatialMean * spatialMean));
 					float temporalError = distance(currentColor, accumulated);
-					float totalVariance = mix(variance, temporalError, 0.3);
-
-					// Sample allocation based on total variance
+					
+					// Get temporal variance from TemporalStatisticsPass
+					vec4 temporalStats = texture(temporalVarianceTexture, texCoord);
+					vec3 temporalVariance = temporalStats.rgb;
+					float errorEstimate = temporalStats.a;
+					
+					// Get sample count from mean texture
+					float n = texture(meanTexture, texCoord).a;
+					
+					// Blend spatial and temporal variance
+					float temporalLuminanceVar = dot(temporalVariance, vec3(0.2126, 0.7152, 0.0722));
+					float blendedVariance;
+					
+					// In early frames, rely more on spatial variance
+					if (frameNumber < 10) {
+						float f = float(frameNumber) / 10.0;
+						blendedVariance = mix(spatialVariance, temporalLuminanceVar, f * temporalWeight);
+					} else {
+						blendedVariance = mix(spatialVariance, temporalLuminanceVar, temporalWeight);
+					}
+					
+					// Add early-exit optimization: if pixel has converged, use minimum samples
+					if (n > 10.0 && errorEstimate < adaptiveSamplingVarianceThreshold * 0.1) {
+						gl_FragColor = vec4(float(adaptiveSamplingMin) / float(adaptiveSamplingMax), 0.0, 0.0, 1.0);
+						return;
+					}
+					
+					// Sample allocation based on blended variance
 					int samples;
-					if (totalVariance < adaptiveSamplingVarianceThreshold * 0.5) {
+					if (blendedVariance < adaptiveSamplingVarianceThreshold * 0.5) {
 						samples = adaptiveSamplingMin;
-					} else if (totalVariance > adaptiveSamplingVarianceThreshold) {
+					} else if (blendedVariance > adaptiveSamplingVarianceThreshold) {
 						samples = adaptiveSamplingMax;
 					} else {
-						float t = (totalVariance - adaptiveSamplingVarianceThreshold * 0.5) / (adaptiveSamplingVarianceThreshold * 0.5);
+						float t = (blendedVariance - adaptiveSamplingVarianceThreshold * 0.5) / (adaptiveSamplingVarianceThreshold * 0.5);
 						samples = int(mix(float(adaptiveSamplingMin), float(adaptiveSamplingMax), t));
 					}
 
 					float normalizedSamples = float(samples) / float(adaptiveSamplingMax);
-					gl_FragColor = vec4(normalizedSamples, totalVariance, 0.0, 1.0);
+					gl_FragColor = vec4(normalizedSamples, blendedVariance, 0.0, 1.0);
 				}
 			`,
 		} );
@@ -124,7 +162,8 @@ export class AdaptiveSamplingPass extends Pass {
 				samplingTexture: { value: null },
 				heatmapIntensity: { value: 1.0 },
 				minSamples: { value: this.adaptiveSamplingMin },
-				maxSamples: { value: this.adaptiveSamplingMax }
+				maxSamples: { value: this.adaptiveSamplingMax },
+				varianceTexture: { value: null } // Show variance as an option
 			},
 			vertexShader: /* glsl */`
 				varying vec2 vUv;
@@ -135,6 +174,7 @@ export class AdaptiveSamplingPass extends Pass {
 			`,
 			fragmentShader: /* glsl */`
 				uniform sampler2D samplingTexture;
+				uniform sampler2D varianceTexture;
 				uniform float heatmapIntensity;
 				uniform float minSamples;
 				uniform float maxSamples;
@@ -171,6 +211,9 @@ export class AdaptiveSamplingPass extends Pass {
 					float normalizedSample = samplingData.r;  // Value between 0-1
 					float samples = normalizedSample * maxSamples;  // Actual sample count
 					
+					// Get variance for overlay display
+					vec4 varianceData = texture2D(varianceTexture, vUv);
+					
 					// We now have the actual sample count, normalize for color mapping
 					float normalizedForColor = (samples - minSamples) / (maxSamples - minSamples);
 					
@@ -196,6 +239,13 @@ export class AdaptiveSamplingPass extends Pass {
 
 	}
 
+	// Set reference to the TemporalStatisticsPass
+	setTemporalStatisticsPass( statsPass ) {
+
+		this.temporalStatsPass = statsPass;
+
+	}
+
 	toggleHelper( signal ) {
 
 		signal ? this.helper.show() : this.helper.hide();
@@ -206,9 +256,9 @@ export class AdaptiveSamplingPass extends Pass {
 	reset() {
 
 		this.counter = 0;
+		this.material.uniforms.frameNumber.value = 0;
 
 	}
-
 
 	setSize( width, height ) {
 
@@ -227,10 +277,20 @@ export class AdaptiveSamplingPass extends Pass {
 		this.counter ++;
 		if ( this.counter <= this.delayByFrames ) return;
 
+		this.material.uniforms.frameNumber.value ++;
+
 		if ( ! this.material.uniforms.previousFrameTexture.value || ! this.material.uniforms.accumulatedFrameTexture.value ) {
 
 			console.warn( 'AdaptiveSamplingPass: Missing required textures' );
 			return;
+
+		}
+
+		// Set temporal statistics textures if available
+		if ( this.temporalStatsPass ) {
+
+			this.material.uniforms.temporalVarianceTexture.value = this.temporalStatsPass.getVarianceTexture();
+			this.material.uniforms.meanTexture.value = this.temporalStatsPass.getMeanTexture();
 
 		}
 
@@ -241,6 +301,14 @@ export class AdaptiveSamplingPass extends Pass {
 		if ( this.showAdaptiveSamplingHelper ) {
 
 			this.heatmapMaterial.uniforms.samplingTexture.value = this.renderTarget.texture;
+
+			// Optionally display variance information in the heatmap
+			if ( this.temporalStatsPass ) {
+
+				this.heatmapMaterial.uniforms.varianceTexture.value = this.temporalStatsPass.getVarianceTexture();
+
+			}
+
 			renderer.setRenderTarget( this.heatmapTarget );
 			this.heatmapQuad.render( renderer );
 			this.helper.update();
