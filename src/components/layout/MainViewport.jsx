@@ -1,22 +1,30 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import Viewport3D from './Viewport3D';
 import { Loader2, Check, X } from 'lucide-react';
 import { usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
+import { shallow } from 'zustand/shallow';
 
-// Create a separate StatsDisplay component to prevent re-renders
-const StatsDisplay = ( { timeElapsed, samples, maxSamples, isDenoising, onMaxSamplesEdit } ) => {
+// Separate StatsDisplay component with memoization
+const StatsDisplay = memo( ( {
+	timeElapsed,
+	samples,
+	maxSamples,
+	isDenoising,
+	onMaxSamplesEdit
+} ) => {
 
 	const [ isEditing, setIsEditing ] = useState( false );
 	const [ inputValue, setInputValue ] = useState( maxSamples );
 
+	// Update input value when maxSamples changes
 	useEffect( () => {
 
 		setInputValue( maxSamples );
 
 	}, [ maxSamples ] );
 
-	const handleInputBlur = () => {
+	const handleInputBlur = useCallback( () => {
 
 		setIsEditing( false );
 		if ( inputValue !== maxSamples ) {
@@ -25,24 +33,46 @@ const StatsDisplay = ( { timeElapsed, samples, maxSamples, isDenoising, onMaxSam
 
 		}
 
-	};
+	}, [ inputValue, maxSamples, onMaxSamplesEdit ] );
+
+	const handleKeyDown = useCallback( ( e ) => {
+
+		if ( e.key === 'Enter' ) {
+
+			handleInputBlur();
+
+		}
+
+	}, [ handleInputBlur ] );
+
+	const handleInputChange = useCallback( ( e ) => {
+
+		setInputValue( e.target.value );
+
+	}, [] );
+
+	const startEditing = useCallback( () => {
+
+		setIsEditing( true );
+
+	}, [] );
 
 	return (
 		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-      Time: {timeElapsed.toFixed( 2 )}s | Frames: {samples} /{' '}
+			Time: {timeElapsed.toFixed( 2 )}s | Frames: {samples} /{' '}
 			{isEditing ? (
 				<input
 					className="bg-transparent border-b border-white text-white w-12"
 					type="number"
 					value={inputValue}
-					onChange={( e ) => setInputValue( e.target.value )}
+					onChange={handleInputChange}
 					onBlur={handleInputBlur}
-					onKeyDown={( e ) => e.key === 'Enter' && handleInputBlur()}
+					onKeyDown={handleKeyDown}
 					autoFocus
 				/>
 			) : (
 				<span
-					onClick={() => setIsEditing( true )}
+					onClick={startEditing}
 					className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300"
 				>
 					{maxSamples}
@@ -55,10 +85,12 @@ const StatsDisplay = ( { timeElapsed, samples, maxSamples, isDenoising, onMaxSam
 		</div>
 	);
 
-};
+} );
 
-// Create a separate component for the save/discard buttons
-const RenderControls = ( { onSave, onDiscard } ) => {
+StatsDisplay.displayName = 'StatsDisplay';
+
+// Separate RenderControls component with memoization
+const RenderControls = memo( ( { onSave, onDiscard } ) => {
 
 	return (
 		<div className="absolute top-2 right-2 flex space-x-2">
@@ -77,33 +109,49 @@ const RenderControls = ( { onSave, onDiscard } ) => {
 		</div>
 	);
 
-};
+} );
+
+RenderControls.displayName = 'RenderControls';
 
 const MainViewport = ( { mode = "interactive" } ) => {
 
-	const [ stats, setStats ] = useState( { timeElapsed: 0, samples: 0 } );
-	const [ isDenoising, setIsDenoising ] = useState( false );
-	const [ renderComplete, setRenderComplete ] = useState( false );
+	// References
 	const containerRef = useRef( null );
 	const isFirstRender = useRef( true );
 
-	// Access maxSamples from the store
-	const maxSamples = usePathTracerStore( ( state ) => state.maxSamples );
-	const setMaxSamples = usePathTracerStore( ( state ) => state.setMaxSamples );
+	// Consolidated state for better management
+	const [ viewportState, setViewportState ] = useState( {
+		stats: { timeElapsed: 0, samples: 0 },
+		isDenoising: false,
+		renderComplete: false
+	} );
 
-	// Memoize the stats updater function to prevent unnecessary renders
+	// Destructure state for readability
+	const { stats, isDenoising, renderComplete } = viewportState;
+
+	// Access store values directly to avoid infinite loops
+	const pathTracerStore = usePathTracerStore();
+
+	// Use useMemo to cache the extracted values
+	const { maxSamples, setMaxSamples } = useMemo( () => ( {
+		maxSamples: pathTracerStore.maxSamples,
+		setMaxSamples: pathTracerStore.setMaxSamples
+	} ), [ pathTracerStore.maxSamples, pathTracerStore.setMaxSamples ] );
+
+	// Update stats efficiently to avoid unnecessary re-renders
 	const handleStatsUpdate = useCallback( ( newStats ) => {
 
-		setStats( prevStats => {
+		setViewportState( prev => {
 
-			// Only update if the values have actually changed to avoid unnecessary renders
-			if ( prevStats.timeElapsed !== newStats.timeElapsed || prevStats.samples !== newStats.samples ) {
+			// Only update if values have changed
+			if ( prev.stats.timeElapsed !== newStats.timeElapsed ||
+				prev.stats.samples !== newStats.samples ) {
 
-				return newStats;
+				return { ...prev, stats: newStats };
 
 			}
 
-			return prevStats;
+			return prev;
 
 		} );
 
@@ -120,22 +168,31 @@ const MainViewport = ( { mode = "interactive" } ) => {
 		}
 
 		const newMaxSamples = mode === "interactive" ? 60 : 30;
+
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
 			setMaxSamples( newMaxSamples );
-			setStats( prev => ( { ...prev, samples: 0 } ) );
+			setViewportState( prev => ( { ...prev, stats: { ...prev.stats, samples: 0 } } ) );
 
 		}
 
 	}, [ mode, setMaxSamples ] );
 
+	// Set up event listeners for denoising and rendering
 	useEffect( () => {
 
-		const handleDenoisingStart = () => setIsDenoising( true );
-		const handleDenoisingEnd = () => setIsDenoising( false );
-		const handleRenderComplete = () => setRenderComplete( true );
-		const handleRenderReset = () => setRenderComplete( false );
+		const handleDenoisingStart = () =>
+			setViewportState( prev => ( { ...prev, isDenoising: true } ) );
+
+		const handleDenoisingEnd = () =>
+			setViewportState( prev => ( { ...prev, isDenoising: false } ) );
+
+		const handleRenderComplete = () =>
+			setViewportState( prev => ( { ...prev, renderComplete: true } ) );
+
+		const handleRenderReset = () =>
+			setViewportState( prev => ( { ...prev, renderComplete: false } ) );
 
 		if ( window.pathTracerApp ) {
 
@@ -171,6 +228,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 	}, [] );
 
+	// Handler for editing max samples
 	const handleMaxSamplesEdit = useCallback( ( value ) => {
 
 		setMaxSamples( value );
@@ -183,49 +241,54 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 	}, [ setMaxSamples ] );
 
+	// Handler for saving renders
 	const handleSave = useCallback( async () => {
 
-		if ( window.pathTracerApp ) {
+		if ( ! window.pathTracerApp ) return;
 
-			try {
+		try {
 
-				const canvas = window.pathTracerApp.denoiser.enabled && window.pathTracerApp.denoiser.output
-					? window.pathTracerApp.denoiser.output
-					: window.pathTracerApp.renderer.domElement;
+			const canvas = window.pathTracerApp.denoiser.enabled && window.pathTracerApp.denoiser.output
+				? window.pathTracerApp.denoiser.output
+				: window.pathTracerApp.renderer.domElement;
 
-				const imageData = canvas.toDataURL( 'image/png' );
-				const saveData = {
-					image: imageData,
-					colorCorrection: {
-						brightness: 0,
-						contrast: 0,
-						saturation: 0,
-						hue: 0,
-						exposure: 0,
-					},
-					timestamp: new Date(),
-					isEdited: true
-				};
-				const id = await saveRender( saveData );
-				console.log( 'Render saved successfully with ID:', id );
+			const imageData = canvas.toDataURL( 'image/png' );
+			const saveData = {
+				image: imageData,
+				colorCorrection: {
+					brightness: 0,
+					contrast: 0,
+					saturation: 0,
+					hue: 0,
+					exposure: 0,
+				},
+				timestamp: new Date(),
+				isEdited: true
+			};
 
-				window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
-				setRenderComplete( false );
+			const id = await saveRender( saveData );
+			console.log( 'Render saved successfully with ID:', id );
 
-			} catch ( error ) {
+			window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
+			setViewportState( prev => ( { ...prev, renderComplete: false } ) );
 
-				console.error( 'Failed to save render:', error );
-				alert( 'Failed to save render. See console for details.' );
+		} catch ( error ) {
 
-			}
+			console.error( 'Failed to save render:', error );
+			alert( 'Failed to save render. See console for details.' );
 
 		}
 
 	}, [] );
 
-	const handleDiscard = useCallback( () => setRenderComplete( false ), [] );
+	// Handler for discarding renders
+	const handleDiscard = useCallback( () => {
 
-	// The shouldShowRenderControls calculation is memoized to avoid recalculation on every render
+		setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+
+	}, [] );
+
+	// Memoize whether to show render controls
 	const shouldShowRenderControls = useMemo( () => {
 
 		return renderComplete && stats.samples === maxSamples && mode === "final";
@@ -234,7 +297,10 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
-			<Viewport3D onStatsUpdate={handleStatsUpdate} viewportMode={mode} />
+			<Viewport3D
+				onStatsUpdate={handleStatsUpdate}
+				viewportMode={mode}
+			/>
 
 			<StatsDisplay
 				timeElapsed={stats.timeElapsed}
@@ -245,11 +311,15 @@ const MainViewport = ( { mode = "interactive" } ) => {
 			/>
 
 			{shouldShowRenderControls && (
-				<RenderControls onSave={handleSave} onDiscard={handleDiscard} />
+				<RenderControls
+					onSave={handleSave}
+					onDiscard={handleDiscard}
+				/>
 			)}
 		</div>
 	);
 
 };
 
-export default MainViewport;
+// Export a memoized version of the component
+export default memo( MainViewport );

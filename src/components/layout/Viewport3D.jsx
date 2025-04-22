@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, forwardRef } from 'react';
+import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } from 'react';
 import PathTracerApp from '../../core/main';
 import { Upload, Maximize, Target, Camera } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,28 +10,108 @@ import LoadingOverlay from './LoadingOverlay';
 import ViewportResizer from './ViewportResizer';
 import { useAssetsStore } from '@/store';
 
+// Extract dropzone visualization to a separate component
+const DropzoneOverlay = ( { isActive } ) => {
+
+	if ( ! isActive ) return null;
+
+	return (
+		<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-xs">
+			<div className="flex flex-col items-center space-y-4">
+				<Upload className="h-16 w-16 text-primary" />
+				<p className="text-xl font-medium text-foreground">Drop GLB model or HDR environment</p>
+			</div>
+		</div>
+	);
+
+};
+
+// Extract dimension display to a separate component
+const DimensionDisplay = ( { width, height, scale } ) => (
+	<div className="absolute left-0 bottom-0 right-0 text-center z-10">
+		<div className="text-xs text-background">
+			{width} × {height} ({scale}%)
+		</div>
+	</div>
+);
+
+// Extract control buttons to a separate component
+const ViewportControls = ( { onScreenshot, onResetCamera, onFullscreen } ) => (
+	<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
+		<TooltipProvider>
+			<ViewportResizer onResize={onFullscreen} />
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						onClick={onScreenshot}
+						className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
+					>
+						<Camera size={12} className="bg-transparent border-white text-forground/50" />
+					</button>
+				</TooltipTrigger>
+				<TooltipContent>
+					<p>Take Screenshot</p>
+				</TooltipContent>
+			</Tooltip>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						onClick={onResetCamera}
+						className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
+					>
+						<Target size={12} className="bg-transparent border-white text-forground/50" />
+					</button>
+				</TooltipTrigger>
+				<TooltipContent>
+					<p>Reset Camera</p>
+				</TooltipContent>
+			</Tooltip>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						onClick={onFullscreen}
+						className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
+					>
+						<Maximize size={12} className="bg-transparent border-white text-forground/50" />
+					</button>
+				</TooltipTrigger>
+				<TooltipContent>
+					<p>Fullscreen</p>
+				</TooltipContent>
+			</Tooltip>
+		</TooltipProvider>
+	</div>
+);
+
 const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 	const { toast } = useToast();
-	const viewportWrapperRef = useRef( null ); // Outer wrapper for scaling
-	const containerRef = useRef( null ); // Inner container that holds canvases
+
+	// Refs
+	const viewportWrapperRef = useRef( null );
+	const containerRef = useRef( null );
 	const primaryCanvasRef = useRef( null );
 	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
+	const isInitialized = useRef( false );
+
+	// Store access
 	const setLoading = useStore( ( state ) => state.setLoading );
+	const appMode = useStore( state => state.appMode );
+	const { setEnvironment } = useAssetsStore();
+
+	// Local state
 	const [ isDragging, setIsDragging ] = useState( false );
 	const [ dimensions, setDimensions ] = useState( { width: 512, height: 512 } );
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize ] = useState( 512 ); // Fixed canvas size
-	const isInitialized = useRef( false );
-	const appMode = useStore( state => state.appMode );
-	const { setEnvironment } = useAssetsStore();
 
 	// Expose the app instance via ref
 	React.useImperativeHandle( ref, () => ( {
 		getPathTracerApp: () => appRef.current
-	} ) );
+	} ), [] );
 
+	// Effect for app initialization
 	useEffect( () => {
 
 		// Only initialize if the component is visible (not in results mode)
@@ -42,28 +122,32 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 			appRef.current.setOnStatsUpdate( onStatsUpdate );
 
 			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
-			appRef.current.init().catch( ( err ) => {
 
-				console.error( "Error initializing PathTracerApp:", err );
-				toast( {
-					title: "Failed to load application",
-					description: err.message || "Uh oh!! Something went wrong. Please try again.",
-					variant: "destructive",
+			appRef.current.init()
+				.catch( ( err ) => {
+
+					console.error( "Error initializing PathTracerApp:", err );
+					toast( {
+						title: "Failed to load application",
+						description: err.message || "Uh oh!! Something went wrong. Please try again.",
+						variant: "destructive",
+					} );
+
+				} )
+				.finally( () => {
+
+					setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
+					setTimeout( () => useStore.getState().resetLoading(), 1000 );
+
+					if ( window.pathTracerApp ) {
+
+						window.pathTracerApp.reset();
+
+					}
+
+					isInitialized.current = true;
+
 				} );
-
-			} ).finally( () => {
-
-				setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
-				setTimeout( () => useStore.getState().resetLoading(), 1000 );
-				if ( window.pathTracerApp ) {
-
-					window.pathTracerApp.reset();
-
-				}
-
-				isInitialized.current = true;
-
-			} );
 
 		} else if ( appRef.current ) {
 
@@ -72,13 +156,16 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 		}
 
-		// Update dimensions when window resizes
+	}, [ onStatsUpdate, setLoading, toast, appMode ] );
+
+	// Effect for dimension updates
+	useEffect( () => {
+
 		const updateDimensions = () => {
 
 			if ( primaryCanvasRef.current ) {
 
 				const { width, height } = primaryCanvasRef.current;
-				console.log( "Dimensions updated:", width, height );
 				setDimensions( { width, height } );
 
 			}
@@ -86,17 +173,23 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 		};
 
 		window.addEventListener( 'resolution_changed', updateDimensions );
-
 		return () => {
 
 			window.removeEventListener( 'resolution_changed', updateDimensions );
-			// Important: Don't destroy the PathTracerApp on unmount
-			// This allows it to persist when switching tabs
 
 		};
 
-	}, [ onStatsUpdate, setLoading, toast, appMode ] );
+	}, [] );
 
+	// File type detection helpers
+	const isEnvironmentMap = useCallback( ( fileName ) => {
+
+		const extension = fileName.split( '.' ).pop().toLowerCase();
+		return [ 'hdr', 'exr', 'png', 'jpg', 'jpeg', 'webp' ].includes( extension );
+
+	}, [] );
+
+	// Drag event handlers
 	const handleDragOver = useCallback( ( e ) => {
 
 		e.preventDefault();
@@ -111,16 +204,8 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 	}, [] );
 
-	// Check if a file is an environment map (HDR, EXR, etc.)
-	const isEnvironmentMap = ( fileName ) => {
-
-		const extension = fileName.split( '.' ).pop().toLowerCase();
-		return [ 'hdr', 'exr', 'png', 'jpg', 'jpeg', 'webp' ].includes( extension );
-
-	};
-
 	// Handle environment map loading
-	const handleEnvironmentLoad = ( file ) => {
+	const handleEnvironmentLoad = useCallback( ( file ) => {
 
 		setLoading( { isLoading: true, title: "Loading", status: "Processing Environment Map...", progress: 0 } );
 
@@ -200,10 +285,10 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 		}
 
-	};
+	}, [ setLoading, toast, setEnvironment ] );
 
 	// Handle model loading
-	const handleModelLoad = ( file ) => {
+	const handleModelLoad = useCallback( ( file ) => {
 
 		setLoading( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
 
@@ -213,28 +298,31 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 			const arrayBuffer = event.target.result;
 			if ( appRef.current && appRef.current.loadGLBFromArrayBuffer ) {
 
-				appRef.current.loadGLBFromArrayBuffer( arrayBuffer ).then( () => {
+				appRef.current.loadGLBFromArrayBuffer( arrayBuffer )
+					.then( () => {
 
-					toast( {
-						title: "Model Loaded",
-						description: `Successfully loaded model: ${file.name}`,
+						toast( {
+							title: "Model Loaded",
+							description: `Successfully loaded model: ${file.name}`,
+						} );
+
+					} )
+					.catch( ( err ) => {
+
+						console.error( "Error loading GLB file:", err );
+						toast( {
+							title: "Failed to load GLB file",
+							description: err.message || "Please try again.",
+							variant: "destructive",
+						} );
+
+					} )
+					.finally( () => {
+
+						setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
+						setTimeout( () => useStore.getState().resetLoading(), 1000 );
+
 					} );
-
-				} ).catch( ( err ) => {
-
-					console.error( "Error loading GLB file:", err );
-					toast( {
-						title: "Failed to load GLB file",
-						description: err.message || "Please try again.",
-						variant: "destructive",
-					} );
-
-				} ).finally( () => {
-
-					setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
-					setTimeout( () => useStore.getState().resetLoading(), 1000 );
-
-				} );
 
 			}
 
@@ -242,7 +330,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 		reader.readAsArrayBuffer( file );
 
-	};
+	}, [ setLoading, toast ] );
 
 	const handleDrop = useCallback( ( e ) => {
 
@@ -273,18 +361,57 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 		}
 
-	}, [ setLoading, toast, setEnvironment ] );
+	}, [ handleModelLoad, handleEnvironmentLoad, isEnvironmentMap, toast ] );
 
-	const handleFullscreen = () => {
+	// Control button handlers
+	const handleFullscreen = useCallback( () => {
 
 		if ( ! viewportWrapperRef.current ) return;
-		document.fullscreenElement ? document.exitFullscreen() : viewportWrapperRef.current.requestFullscreen();
+		document.fullscreenElement
+			? document.exitFullscreen()
+			: viewportWrapperRef.current.requestFullscreen();
 
-	};
+	}, [] );
 
-	const handleResetCamera = () => window.pathTracerApp && window.pathTracerApp.controls.reset();
-	const handleScreenshot = () => window.pathTracerApp && window.pathTracerApp.takeScreenshot();
-	const handleViewportResize = ( scale ) => setViewportScale( scale );
+	const handleResetCamera = useCallback( () => {
+
+		window.pathTracerApp && window.pathTracerApp.controls.reset();
+
+	}, [] );
+
+	const handleScreenshot = useCallback( () => {
+
+		window.pathTracerApp && window.pathTracerApp.takeScreenshot();
+
+	}, [] );
+
+	const handleViewportResize = useCallback( ( scale ) => {
+
+		setViewportScale( scale );
+
+	}, [] );
+
+	// Memoize style objects to prevent recreating them on each render
+	const wrapperStyle = useMemo( () => ( {
+		width: `${actualCanvasSize}px`,
+		height: `${actualCanvasSize}px`,
+		transform: `scale(${viewportScale / 100})`,
+		transformOrigin: 'center center',
+		transition: "transform 0.1s ease-out"
+	} ), [ actualCanvasSize, viewportScale ] );
+
+	const containerStyle = useMemo( () => ( {
+		position: "relative",
+		width: `${actualCanvasSize}px`,
+		height: `${actualCanvasSize}px`,
+		overflow: "hidden",
+		background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
+	} ), [ actualCanvasSize ] );
+
+	const canvasStyle = useMemo( () => ( {
+		width: `${actualCanvasSize}px`,
+		height: `${actualCanvasSize}px`
+	} ), [ actualCanvasSize ] );
 
 	return (
 		<div
@@ -297,96 +424,48 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 			<div
 				ref={viewportWrapperRef}
 				className="relative"
-				style={{
-					width: `${actualCanvasSize}px`,
-					height: `${actualCanvasSize}px`,
-					transform: `scale(${viewportScale / 100})`,
-					transformOrigin: 'center center',
-					transition: "transform 0.1s ease-out"
-				}}
+				style={wrapperStyle}
 			>
 				{/* Container with fixed size */}
 				<div
 					ref={containerRef}
 					className={`relative ${isDragging ? 'bg-primary/10' : ''}`}
-					style={{
-						position: "relative",
-						width: `${actualCanvasSize}px`,
-						height: `${actualCanvasSize}px`,
-						overflow: "hidden",
-						background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
-					}}
+					style={containerStyle}
 				>
 					{/* denoiser container */}
 					<canvas
 						ref={denoiserCanvasRef}
 						width="1024"
 						height="1024"
-						style={{ width: `${actualCanvasSize}px`, height: `${actualCanvasSize}px` }}
+						style={canvasStyle}
 					/>
 					{/* primary container */}
 					<canvas
 						ref={primaryCanvasRef}
 						width="1024"
 						height="1024"
-						style={{ width: `${actualCanvasSize}px`, height: `${actualCanvasSize}px` }}
+						style={canvasStyle}
 					/>
 
 					{/* Dimensions display */}
-					<div className="absolute left-0 bottom-0 right-0 text-center z-10">
-						<div className="text-xs text-background">
-							{dimensions.width} × {dimensions.height} ({viewportScale}%)
-						</div>
-					</div>
+					<DimensionDisplay
+						width={dimensions.width}
+						height={dimensions.height}
+						scale={viewportScale}
+					/>
 				</div>
 			</div>
 
 			{/* Controls */}
-			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
-				<TooltipProvider>
-					<ViewportResizer onResize={handleViewportResize} />
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleScreenshot} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Camera size={12} className="bg-transparent border-white text-forground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Take Screenshot</p>
-						</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleResetCamera} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Target size={12} className="bg-transparent border-white text-forground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Reset Camera</p>
-						</TooltipContent>
-					</Tooltip>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button onClick={handleFullscreen} className="flex cursor-default select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110">
-								<Maximize size={12} className="bg-transparent border-white text-forground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Fullscreen</p>
-						</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			</div>
+			<ViewportControls
+				onScreenshot={handleScreenshot}
+				onResetCamera={handleResetCamera}
+				onFullscreen={handleViewportResize}
+			/>
+
 			<Toaster />
 			<LoadingOverlay />
-			{isDragging && (
-				<div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-xs">
-					<div className="flex flex-col items-center space-y-4">
-						<Upload className="h-16 w-16 text-primary" />
-						<p className="text-xl font-medium text-foreground">Drop GLB model or HDR environment</p>
-					</div>
-				</div>
-			)}
+			<DropzoneOverlay isActive={isDragging} />
 		</div>
 	);
 
@@ -394,4 +473,5 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 Viewport3D.displayName = 'Viewport3D';
 
+// Export a memoized version of the component
 export default React.memo( Viewport3D );
