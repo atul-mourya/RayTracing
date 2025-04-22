@@ -2,6 +2,7 @@ import {
 	ShaderMaterial,
 	RGBAFormat,
 	FloatType,
+	HalfFloatType, // Using half-float for better performance
 	WebGLRenderTarget,
 	NearestFilter,
 	Vector2,
@@ -28,8 +29,21 @@ export class TemporalStatisticsPass extends Pass {
 		this.name = 'TemporalStatisticsPass';
 		this.enabled = true;
 
+		this.updateFrequency = 1; // Performance control. Update every frame by default
+		this.frameCounter = 0;
+
 		// Initialize floating-point buffers to store statistics
-		const params = {
+		const dataParams = {
+			format: RGBAFormat,
+			type: HalfFloatType,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			generateMipmaps: false
+		};
+
+		// Variance output needs higher precision
+		const varianceParams = {
 			format: RGBAFormat,
 			type: FloatType,
 			minFilter: NearestFilter,
@@ -39,15 +53,15 @@ export class TemporalStatisticsPass extends Pass {
 		};
 
 		// Buffer A: RGB = mean color, A = sample count
-		this.meanBuffer = new WebGLRenderTarget( width, height, params );
+		this.meanBuffer = new WebGLRenderTarget( width, height, dataParams );
 		this.meanBufferTemp = this.meanBuffer.clone();
 
 		// Buffer B: RGB = M2 (sum of squared differences), A = convergence status or flags
-		this.m2Buffer = new WebGLRenderTarget( width, height, params );
+		this.m2Buffer = new WebGLRenderTarget( width, height, dataParams );
 		this.m2BufferTemp = this.m2Buffer.clone();
 
 		// The variance buffer is computed from M2 and used by the adaptive sampling pass
-		this.varianceBuffer = new WebGLRenderTarget( width, height, params );
+		this.varianceBuffer = new WebGLRenderTarget( width, height, varianceParams );
 
 		// Create the mean update shader material
 		this.meanUpdateMaterial = new ShaderMaterial( {
@@ -83,12 +97,14 @@ export class TemporalStatisticsPass extends Pass {
                 void main() {
                     // Get current pixel statistics
                     vec4 meanData = texture2D(meanBuffer, vUv);
-                    vec4 m2Data = texture2D(m2Buffer, vUv);
-                    
-                    vec3 mean = meanData.rgb;
                     float n = meanData.a;
-                    vec3 m2 = m2Data.rgb;
-                    float converged = m2Data.a;
+                    vec3 mean = meanData.rgb;
+                    float converged = 0.0;
+                    
+                    // Only read m2 data if necessary (saves a texture read in many cases)
+                    if (enableEarlyTermination && n > 1.0) {
+                        converged = texture2D(m2Buffer, vUv).a;
+                    }
                     
                     // Get new sample
                     vec3 newSample = texture2D(newSampleBuffer, vUv).rgb;
@@ -149,10 +165,10 @@ export class TemporalStatisticsPass extends Pass {
                 void main() {
                     // Get current pixel statistics
                     vec4 meanData = texture2D(meanBuffer, vUv);
-                    vec4 m2Data = texture2D(m2Buffer, vUv);
-                    
-                    vec3 mean = meanData.rgb;
                     float n = meanData.a;
+                    vec3 mean = meanData.rgb;
+                    
+                    vec4 m2Data = texture2D(m2Buffer, vUv);
                     vec3 m2 = m2Data.rgb;
                     float converged = m2Data.a;
                     
@@ -171,12 +187,23 @@ export class TemporalStatisticsPass extends Pass {
                             vec3 delta = newSample - mean;
                             m2 = m2 + delta * (newSample - mean);
                             
-                            // Check for convergence (only if early termination is enabled)
+                            // Check for convergence (only if early termination with hysteresis)
                             if (enableEarlyTermination && n > 10.0) {
                                 vec3 variance = m2 / max(n - 1.0, 1.0);
                                 float luminanceVar = dot(variance, vec3(0.2126, 0.7152, 0.0722));
-                                if (luminanceVar / n < convergenceThreshold) {
-                                    converged = 1.0;
+                                float errorEstimate = sqrt(luminanceVar / n);
+                                
+                                // Apply hysteresis to prevent flickering
+                                if (converged > 0.5) {
+                                    // Already converged - only unconverge if variance increases significantly
+                                    if (errorEstimate > convergenceThreshold * 2.0) {
+                                        converged = 0.0;
+                                    }
+                                } else {
+                                    // Not yet converged - require stricter threshold to converge
+                                    if (errorEstimate < convergenceThreshold * 0.8) {
+                                        converged = 1.0;
+                                    }
                                 }
                             }
                         }
@@ -217,9 +244,9 @@ export class TemporalStatisticsPass extends Pass {
                 
                 void main() {
                     vec4 meanData = texture2D(meanBuffer, vUv);
-                    vec4 m2Data = texture2D(m2Buffer, vUv);
-                    
                     float n = max(meanData.a, 1.0);
+                    
+                    vec4 m2Data = texture2D(m2Buffer, vUv);
                     vec3 m2 = m2Data.rgb;
                     float converged = m2Data.a;
                     
@@ -257,6 +284,14 @@ export class TemporalStatisticsPass extends Pass {
 	reset() {
 
 		this.resetNeeded = true;
+		this.frameCounter = 0; // Reset frame counter on reset
+
+	}
+
+	// Set update frequency (how often to update statistics)
+	setUpdateFrequency( frequency ) {
+
+		this.updateFrequency = Math.max( 1, frequency );
 
 	}
 
@@ -281,6 +316,16 @@ export class TemporalStatisticsPass extends Pass {
 	update( newSampleTexture ) {
 
 		if ( ! this.enabled ) return;
+
+		// Performance: Skip updates based on frequency
+		this.frameCounter ++;
+		if ( this.frameCounter % this.updateFrequency !== 0 && ! this.resetNeeded ) {
+
+			// Still compute variance even when skipping updates (using existing data)
+			this.computeVariance();
+			return;
+
+		}
 
 		const resetValue = this.resetNeeded ? 1 : 0;
 
@@ -333,6 +378,25 @@ export class TemporalStatisticsPass extends Pass {
 		this.meanUpdateMaterial.uniforms.enableEarlyTermination.value = enabled;
 		this.m2UpdateMaterial.uniforms.enableEarlyTermination.value = enabled;
 		this.varianceComputeMaterial.uniforms.enableEarlyTermination.value = enabled;
+
+	}
+
+	// Set performance mode
+	setPerformanceMode( mode ) {
+
+		switch ( mode ) {
+
+			case 'low': // High performance, lower quality
+				this.setUpdateFrequency( 3 );
+				break;
+			case 'medium': // Balanced
+				this.setUpdateFrequency( 2 );
+				break;
+			case 'high': // Highest quality
+				this.setUpdateFrequency( 1 );
+				break;
+
+		}
 
 	}
 

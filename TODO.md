@@ -35,7 +35,7 @@ RayTracing Project TODO
 
 🎨 UI Enhancements
 ------------------
-
+- [ ]  Add a bvh builder progress bar
 - [ ]  Add dynamic lights addition and removal
 - [ ]  Add dynamic camera addition and removal
 - [ ]  Add dynamic object addition and removal

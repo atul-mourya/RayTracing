@@ -46,6 +46,7 @@ const PathTracerTab = () => {
 		samplesPerPixel, setSamplesPerPixel,
 		samplingTechnique, setSamplingTechnique,
 		adaptiveSampling, setAdaptiveSampling,
+		performanceModeAdaptive, setPerformanceModeAdaptive,
 		adaptiveSamplingMin, setAdaptiveSamplingMin,
 		adaptiveSamplingMax, setAdaptiveSamplingMax,
 		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
@@ -121,6 +122,7 @@ const PathTracerTab = () => {
 		window.pathTracerApp.adaptiveSamplingPass.toggleHelper( false );
 
 	} );
+	const handlePerformanceModeAdaptiveChange = handleChange( setPerformanceModeAdaptive, value => window.pathTracerApp.temporalStatsPass.setPerformanceMode( value ) );
 	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
 	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
 	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
@@ -408,6 +410,19 @@ const PathTracerTab = () => {
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
 				</div>
 				{adaptiveSampling && ( <>
+					<div className="flex items-center justify-between">
+						<Select value={performanceModeAdaptive} onValueChange={handlePerformanceModeAdaptiveChange}>
+							<span className="opacity-50 text-xs truncate">Performance Mode</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full">
+								<SelectValue placeholder="Select performance mode" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="low">Low (Faster)</SelectItem>
+								<SelectItem value="medium">Medium</SelectItem>
+								<SelectItem value="high">High (Slower)</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
 					<div className="flex items-center justify-between">
 						<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
 					</div>
