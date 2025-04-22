@@ -377,58 +377,201 @@ vec3 calculateAreaLightContribution(
     return contribution;
 }
 
-vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, DirectionSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState, inout ivec2 stats ) {
-    vec3 totalLighting = vec3( 0.0 );
+// Helper function to determine if a BRDF sample aligns with a directional light
+// Returns a value between 0 and 1 representing alignment (1 = perfect alignment)
+float directionalLightAlignment(vec3 brdfDirection, vec3 lightDirection, float threshold) {
+    float alignment = dot(brdfDirection, lightDirection);
+    
+    // Use smooth step for soft transition based on alignment threshold
+    // This allows partially aligned samples to contribute proportionally
+    return smoothstep(threshold - 0.02, threshold, alignment);
+}
+
+// Directional light sampling with MIS support
+vec3 calculateDirectionalLightContribution(
+    DirectionalLight light,
+    vec3 hitPoint,
+    vec3 normal,
+    vec3 viewDir,
+    RayTracingMaterial material,
+    DirectionSample brdfSample,
+    int bounceIndex,
+    inout uint rngState,
+    inout ivec2 stats
+) {
+    vec3 contribution = vec3(0.0);
+    bool isFirstBounce = bounceIndex == 0;
+    vec3 rayOrigin = hitPoint + normal * 0.001;
+    
+    // --------------------------
+    // 1. DIRECT LIGHT SAMPLING
+    // --------------------------
+    
+    float NoL = dot(normal, light.direction);
+    
+    // Skip lights facing away from surface
+    if (NoL > 0.0) {
+        // Apply material-specific optimizations
+        bool isMetallic = material.metalness > 0.7;
+        bool isDiffuse = material.roughness > 0.7 && material.metalness < 0.3;
+        bool isGlossy = material.roughness < 0.5;
+        
+        // Skip direct sampling for metals hit by lights at grazing angles
+        if (!(isMetallic && NoL < 0.1)) {
+            // Only perform shadow test if light would make significant contribution
+            bool inShadow = false;
+            
+            // Dynamic shadow trace threshold based on material and light
+            float shadowThreshold = light.intensity * NoL * 
+                (isGlossy ? 0.005 : 0.01); // Lower threshold for glossy materials
+            
+            if (light.intensity * NoL > shadowThreshold) {
+                // Optimized shadow test for directional lights
+                inShadow = isPointInShadow(rayOrigin, normal, -light.direction, rngState, stats);
+            }
+            
+            if (!inShadow) {
+                // Evaluate material response to directional light
+                vec3 brdfValue = evaluateMaterialResponse(viewDir, light.direction, normal, material);
+                
+                // Directional light contribution
+                vec3 directContribution = light.color * light.intensity * brdfValue * NoL;
+                
+                // Apply MIS weighting if this is the first bounce (for quality)
+                // Directional lights use a modified MIS weight calculation
+                if (isFirstBounce && brdfSample.pdf > 0.0) {
+                    // For directional lights, we use a simplified MIS
+                    // because the PDF for directional light sampling is a delta function
+                    // We still want to balance with BRDF samples that might align with the light
+                    float misWeight = 0.9; // Bias toward direct sampling for directional lights
+                    contribution += directContribution * misWeight;
+                } else {
+                    contribution += directContribution;
+                }
+            }
+        }
+    }
+    
+    // --------------------------
+    // 2. BRDF SAMPLING CONTRIBUTION
+    // --------------------------
+    
+    // Only consider MIS for first bounce (higher quality) 
+    // or for glossy/specular materials (where BRDF sampling is important)
+    if ((isFirstBounce || material.roughness < 0.5) && brdfSample.pdf > 0.0) {
+        // Check alignment between BRDF sample and directional light
+        // We use a threshold approach to handle delta distributions
+        float alignment = directionalLightAlignment(
+            brdfSample.direction, 
+            light.direction, 
+            0.999 - material.roughness * 0.2 // Adaptive threshold based on roughness
+        );
+        
+        if (alignment > 0.0) {
+            // Perform shadow test for the sample
+            bool inShadow = isPointInShadow(
+                rayOrigin, 
+                normal, 
+                -brdfSample.direction, 
+                rngState, 
+                stats
+            );
+            
+            if (!inShadow) {
+                // Calcplate contribution scaled by alignment
+                float NoL = max(dot(normal, brdfSample.direction), 0.0);
+                vec3 brdfContribution = light.color * light.intensity * 
+                    brdfSample.value * NoL * alignment;
+                
+                // MIS weight for BRDF sampling (simplified for directional lights)
+                float misWeight = 0.1; // Smaller weight for BRDF samples
+                
+                contribution += brdfContribution * misWeight;
+            }
+        }
+    }
+    
+    return contribution;
+}
+
+// Updated version of the calculateDirectLightingMIS function
+// that calls our new directional light function
+vec3 calculateDirectLightingMIS(
+    HitInfo hitInfo, 
+    vec3 V, 
+    DirectionSample brdfSample, 
+    int sampleIndex, 
+    int bounceIndex, 
+    inout uint rngState, 
+    inout ivec2 stats
+) {
+    vec3 totalLighting = vec3(0.0);
     vec3 N = hitInfo.normal;
     vec3 rayOrigin = hitInfo.hitPoint + N * 0.001;
 
-    // Cache common values
-    float NoV = max( dot( N, V ), 0.0 );
-    bool isMetallic = hitInfo.material.metalness > 0.9;
-    bool isGlossy = hitInfo.material.roughness < 0.2;
-
     // Directional lights
     #if MAX_DIRECTIONAL_LIGHTS > 0
-    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i ++ ) {
-        DirectionalLight light = getDirectionalLight( i );
-
-        // Skip inactive lights
-        if( light.intensity <= 0.0 )
-            continue;
-
-        float NoL = dot( N, light.direction );
-
-        // Skip back-facing lights and metallic optimization
-        if( NoL <= 0.0 || ( isMetallic && NoL <= 0.0 ) )
-            continue;
-
-        // Only check shadows if light contribution would be significant
-        if( light.intensity * NoL > 0.01 && ! isPointInShadow( rayOrigin, N, - light.direction, rngState, stats ) ) {
-            vec3 brdfValue = evaluateMaterialResponse( V, light.direction, N, hitInfo.material );
-
-            vec3 lightContribution = light.color * light.intensity;
-            totalLighting += lightContribution * brdfValue * NoL;
+    // Adaptive sampling based on material properties
+    bool isSpecular = hitInfo.material.roughness < 0.2 || hitInfo.material.metalness > 0.9;
+    bool isFirstBounce = bounceIndex == 0;
+    
+    // Only process every directional light on first bounce or for specular surfaces
+    // For diffuse surfaces on deeper bounces, potentially sample only some lights
+    if (isFirstBounce || isSpecular) {
+        // Process all lights when quality matters
+        for (int i = 0; i < MAX_DIRECTIONAL_LIGHTS / 7; i++) {
+            DirectionalLight light = getDirectionalLight(i);
+            if (light.intensity <= 0.0) continue;
+            
+            totalLighting += calculateDirectionalLightContribution(
+                light, hitInfo.hitPoint, N, V, hitInfo.material, 
+                brdfSample, bounceIndex, rngState, stats
+            );
+        }
+    } else {
+        // On deeper bounces for diffuse surfaces, potentially sample fewer lights
+        // Or use stratified sampling to reduce variance between samples
+        
+        // Seed-based selection to ensure consistency between nearby pixels
+        uint lightSeed = rngState ^ uint(sampleIndex * 117);
+        uint selectedLight = lightSeed % uint(MAX_DIRECTIONAL_LIGHTS / 7);
+        
+        // Get selected light - will be different for each sample but consistent spatially
+        DirectionalLight light = getDirectionalLight(int(selectedLight));
+        
+        // Compensate for sampling only one light
+        if (light.intensity > 0.0) {
+            vec3 contribution = calculateDirectionalLightContribution(
+                light, hitInfo.hitPoint, N, V, hitInfo.material, 
+                brdfSample, bounceIndex, rngState, stats
+            );
+            
+            // Scale by number of lights to maintain energy
+            totalLighting += contribution * float(MAX_DIRECTIONAL_LIGHTS / 7);
         }
     }
     #endif
 
-    // Area lights with adaptive sampling
+    // Area lights (keep your existing area light code)
     #if MAX_AREA_LIGHTS > 0 
-    for( int i = 0; i < MAX_AREA_LIGHTS / 13; i ++ ) {
-        AreaLight light = getAreaLight( i );
-        if( light.intensity <= 0.0 )
+    for (int i = 0; i < MAX_AREA_LIGHTS / 13; i++) {
+        AreaLight light = getAreaLight(i);
+        if (light.intensity <= 0.0)
             continue;
 
         // Skip distant or back-facing lights
         vec3 lightCenter = light.position - rayOrigin;
-        float distSq = dot( lightCenter, lightCenter );
-        float cosTheta = dot( normalize( lightCenter ), N );
+        float distSq = dot(lightCenter, lightCenter);
+        float cosTheta = dot(normalize(lightCenter), N);
 
         // Early exit for lights that won't contribute much
-        if( distSq > ( light.intensity * 100.0 ) || ( isMetallic && cosTheta <= 0.0 ) )
+        if (distSq > (light.intensity * 100.0) || (hitInfo.material.metalness > 0.9 && cosTheta <= 0.0))
             continue;
 
-        totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, sampleIndex, bounceIndex, rngState, stats );
+        totalLighting += calculateAreaLightContribution(
+            light, hitInfo.hitPoint, N, V, hitInfo.material, 
+            brdfSample, sampleIndex, bounceIndex, rngState, stats
+        );
     }
     #endif
 
