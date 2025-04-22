@@ -51,32 +51,6 @@ AreaLight getAreaLight( int index ) {
     return light;
 }
 
-// Light record structure for better organization of light sampling data
-struct LightRecord {
-    vec3 direction;
-    vec3 position;
-    float pdf;
-    vec3 emission;
-    float area;
-    bool didHit;
-    int type;  // 0: directional, 1: area
-};
-
-vec3 evaluateAreaLight( AreaLight light, LightRecord record ) {
-    if( ! record.didHit )
-        return vec3( 0.0 );
-
-    float cosTheta = - dot( record.direction, light.normal );
-    if( cosTheta <= 0.0 )
-        return vec3( 0.0 );
-
-    // Physical light falloff
-    float distanceSqr = dot( record.position - light.position, record.position - light.position );
-    float falloff = light.area / ( 4.0 * PI * distanceSqr );
-
-    return record.emission * falloff * cosTheta;
-}
-
 float getMaterialTransparency( HitInfo shadowHit, Ray shadowRay, inout uint rngState ) {
     // Check if the material has transmission (like glass)
     if( shadowHit.material.transmission > 0.0 ) {
@@ -209,55 +183,78 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
     return transmittance;
 }
 
-float calculateAreaLightVisibility(
-    vec3 hitPoint,
-    vec3 normal,
-    AreaLight light,
-    int sampleIndex,
-    int bounceIndex,
-    inout uint rngState,
-    inout ivec2 stats
-) {
-    // Adaptive light sampling based on importance
-    float distanceToLight = length( light.position - hitPoint );
-    float lightArea = light.area;
-    float solidAngle = lightArea / ( distanceToLight * distanceToLight );
+// checks if a ray intersects with an area light
+bool intersectAreaLight( AreaLight light, vec3 rayOrigin, vec3 rayDirection, inout float t ) {
+    // Fast path - precomputed normal
+    vec3 normal = light.normal;
+    float denom = dot( normal, rayDirection );
 
-    // Early exit for distant lights with minimal contribution
-    if( solidAngle < 0.001 )
-        return 0.0;
+    // Quick rejection (backface culling and near-parallel rays)
+    if( denom >= - 0.0001 )
+        return false;
 
-    // Adaptive sample count (1-4) based on light importance
-    int SHADOW_SAMPLES = clamp( int( solidAngle * 16.0 ), 1, 4 );
-    float visibility = 0.0;
+    // Calculate intersection distance
+    float invDenom = 1.0 / denom; // Multiply is faster than divide on many GPUs
+    t = dot( light.position - rayOrigin, normal ) * invDenom;
 
-    // Pre-compute shared values
-    vec3 shadowOrigin = hitPoint + normal * 0.001;
-    vec3 centerToLight = light.position - shadowOrigin;
-    float maxLightDist = length( centerToLight ) + length( light.u ) + length( light.v );
+    // Skip intersections behind the ray
+    if( t <= 0.001 )
+        return false;
 
-    // Use stratified sampling for better coverage
-    for( int i = 0; i < SHADOW_SAMPLES; i ++ ) {
-        // Stratified position on light surface
-        vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex * SHADOW_SAMPLES + i, bounceIndex, rngState, - 1 );
-        vec2 stratifiedOffset = vec2( ( ruv.x / float( SHADOW_SAMPLES ) + float( i % 2 ) / 2.0 ) - 0.5, ( ruv.y / float( SHADOW_SAMPLES ) + float( i / 2 ) / 2.0 ) - 0.5 );
+    // Optimized rectangle test using vector rejection
+    vec3 hitPoint = rayOrigin + rayDirection * t;
+    vec3 localPoint = hitPoint - light.position;
 
-        vec3 lightPos = light.position + light.u * stratifiedOffset.x + light.v * stratifiedOffset.y;
-        vec3 toLight = lightPos - shadowOrigin;
-        float lightDist = length( toLight );
+    // Normalized u/v directions
+    vec3 u_dir = light.u / length( light.u );
+    vec3 v_dir = light.v / length( light.v );
 
-        // Quick validity checks
-        if( lightDist > maxLightDist || dot( normalize( toLight ), light.normal ) > - 0.001 )
-            continue;
+    // Project onto axes
+    float u_proj = dot( localPoint, u_dir );
+    float v_proj = dot( localPoint, v_dir );
 
-        // Fast shadow test with limited transparency
-        visibility += traceShadowRay( shadowOrigin, normalize( toLight ), lightDist, rngState, stats );
-    }
-
-    return visibility / float( SHADOW_SAMPLES );
+    // Check within rectangle bounds (half-lengths)
+    return ( abs( u_proj ) <= length( light.u ) && abs( v_proj ) <= length( light.v ) );
 }
 
-// Area light contribution calculation with MIS
+// Light importance estimation - helps guide where to spend computation
+float estimateLightImportance(
+    AreaLight light,
+    vec3 hitPoint,
+    vec3 normal,
+    RayTracingMaterial material
+) {
+    // Distance-based importance
+    vec3 toLight = light.position - hitPoint;
+    float distSq = dot( toLight, toLight );
+    float distanceFactor = 1.0 / max( distSq, 0.01 );
+
+    // Angular importance - light facing toward surface?
+    vec3 lightDir = normalize( toLight );
+    float NoL = max( dot( normal, lightDir ), 0.0 );
+    float lightFacing = max( - dot( lightDir, light.normal ), 0.0 );
+
+    // Size importance
+    float sizeFactor = light.area;
+
+    // Brightness importance
+    float intensity = light.intensity * luminance( light.color );
+
+    // Material-specific factors
+    float materialFactor = 1.0;
+    if( material.metalness > 0.7 ) {
+        // Metals care more about bright lights for specular reflections
+        materialFactor = 2.0;
+    } else if( material.roughness > 0.8 ) {
+        // Rough diffuse surfaces care more about large lights
+        materialFactor = 0.8;
+    }
+
+    // Combined importance score
+    return distanceFactor * NoL * lightFacing * sizeFactor * intensity * materialFactor;
+}
+
+// Highly optimized area light contribution calculation
 vec3 calculateAreaLightContribution(
     AreaLight light,
     vec3 hitPoint,
@@ -270,76 +267,114 @@ vec3 calculateAreaLightContribution(
     inout uint rngState,
     inout ivec2 stats
 ) {
-    // Light sampling
-    vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, - 1 );
+    // Importance estimation to decide sampling strategy
+    float lightImportance = estimateLightImportance( light, hitPoint, normal, material );
 
-    // Generate position on light surface
-    vec3 lightPos = light.position +
-        light.u * ( ruv.x - 0.5 ) +
-        light.v * ( ruv.y - 0.5 );
-
-    // Calculate light direction and properties
-    vec3 toLight = lightPos - hitPoint;
-    float lightDist = length( toLight );
-    vec3 lightDir = toLight / lightDist;
-
-    // Basic geometric checks
-    float NoL = dot( normal, lightDir );
-    float lightFacing = - dot( lightDir, light.normal );
-
-    // Skip if light is not visible or facing away
-    if( NoL <= 0.0 || lightFacing <= 0.0 ) {
+    // Skip lights with negligible contribution 
+    if( lightImportance < 0.001 )
         return vec3( 0.0 );
+
+    // Pre-compute common values
+    vec3 contribution = vec3( 0.0 );
+    vec3 offset = normal * 0.001; // Ray offset to avoid self-intersection
+    vec3 rayOrigin = hitPoint + offset;
+
+    // Adaptive sampling strategy based on material and importance
+    // 1. For diffuse surfaces - prioritize light sampling
+    // 2. For specular/glossy - prioritize BRDF sampling
+    // 3. For first bounce - use both for better image quality
+    bool isDiffuse = material.roughness > 0.7 && material.metalness < 0.3;
+    bool isSpecular = material.roughness < 0.3 || material.metalness > 0.7;
+    bool isFirstBounce = bounceIndex == 0;
+
+    // ---------------------------
+    // LIGHT SAMPLING STRATEGY
+    // ---------------------------
+    if( isFirstBounce || isDiffuse || ( lightImportance > 0.1 && ! isSpecular ) ) {
+        // Get stratified sample point for better coverage
+        vec2 ruv = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, - 1 );
+
+        // Generate position on light surface (stratified to improve sampling)
+        vec3 lightPos = light.position +
+            light.u * ( ruv.x - 0.5 ) +
+            light.v * ( ruv.y - 0.5 );
+
+        // Calculate light direction and properties
+        vec3 toLight = lightPos - hitPoint;
+        float lightDistSq = dot( toLight, toLight );
+        float lightDist = sqrt( lightDistSq );
+        vec3 lightDir = toLight / lightDist;
+
+        // Geometric terms
+        float NoL = dot( normal, lightDir );
+        float lightFacing = - dot( lightDir, light.normal );
+
+        // Early exit for geometry facing away
+        if( NoL > 0.0 && lightFacing > 0.0 ) {
+            // Shadow test with single ray
+            float visibility = traceShadowRay( rayOrigin, lightDir, lightDist, rngState, stats );
+
+            if( visibility > 0.0 ) {
+                // BRDF evaluation
+                vec3 brdfValue = evaluateMaterialResponse( viewDir, lightDir, normal, material );
+
+                // Calculate PDFs for both strategies
+                float lightPdf = lightDistSq / ( light.area * lightFacing );
+                float brdfPdf = brdfSample.pdf;
+
+                // Light contribution with inverse-square falloff
+                float falloff = light.area / ( 4.0 * PI * lightDistSq );
+                vec3 lightContribution = light.color * light.intensity * falloff * lightFacing;
+
+                // MIS weight using power heuristic for better noise reduction
+                float misWeight = ( brdfPdf > 0.0 && isFirstBounce ) ? powerHeuristic( lightPdf, brdfPdf ) : 1.0;
+
+                contribution += lightContribution * brdfValue * NoL * visibility * misWeight;
+            }
+        }
     }
 
-    // Calculate shadow visibility
-    float visibility = calculateAreaLightVisibility( hitPoint, normal, light, sampleIndex, bounceIndex, rngState, stats );
+    // ---------------------------
+    // BRDF SAMPLING STRATEGY
+    // ---------------------------
+    if( ( isFirstBounce || isSpecular ) && brdfSample.pdf > 0.0 ) {
+        // Fast path - check if ray could possibly hit light before intersection test
+        // Use dot product to check if ray is pointing towards light's general direction
+        vec3 toLight = light.position - rayOrigin;
+        float rayToLightDot = dot( toLight, brdfSample.direction );
 
-    if( visibility <= 0.0 ) {
-        return vec3( 0.0 );
+        // Only proceed if ray is pointing toward light's general area
+        if( rayToLightDot > 0.0 ) {
+            float hitDistance = 0.0;
+            bool hitLight = intersectAreaLight( light, rayOrigin, brdfSample.direction, hitDistance );
+
+            if( hitLight ) {
+                // We hit the light with our BRDF sample!
+                float visibility = traceShadowRay( rayOrigin, brdfSample.direction, hitDistance, rngState, stats );
+
+                if( visibility > 0.0 ) {
+                    // Light geometric terms at hit point
+                    float lightFacing = - dot( brdfSample.direction, light.normal );
+
+                    if( lightFacing > 0.0 ) {
+                        // PDFs for MIS
+                        float lightPdf = ( hitDistance * hitDistance ) / ( light.area * lightFacing );
+
+                        // MIS weight using power heuristic
+                        float misWeight = powerHeuristic( brdfSample.pdf, lightPdf );
+
+                        // Direct light emission (no falloff needed as we hit the light directly)
+                        vec3 lightEmission = light.color * light.intensity;
+                        float NoL = max( dot( normal, brdfSample.direction ), 0.0 );
+
+                        contribution += lightEmission * brdfSample.value * NoL * visibility * misWeight;
+                    }
+                }
+            }
+        }
     }
 
-    // Calculate BRDF and light contribution
-    vec3 brdfValue = evaluateMaterialResponse( viewDir, lightDir, normal, material );
-
-    // Physical light falloff
-    float distanceSqr = lightDist * lightDist;
-    float falloff = light.area / ( 4.0 * PI * distanceSqr );
-
-    // Final contribution
-    vec3 lightContribution = light.color * light.intensity * falloff * lightFacing;
-
-    return lightContribution * brdfValue * NoL * visibility;
-}
-
-struct LightSampleRec {
-    vec3 direction;
-    vec3 emission;
-    float pdf;
-    float dist;
-    bool didHit;
-    int type;  // 0: directional, 1: area
-};
-
-bool isDirectionValid( vec3 direction, vec3 normal, vec3 faceNormal ) {
-    // Check if sample direction is valid relative to the surface
-    // For non-transmissive materials, the light direction should be above the surface
-    return dot( direction, faceNormal ) >= 0.0;
-}
-
-LightSampleRec sampleDirectionalLight( DirectionalLight light, vec3 hitPoint, vec3 normal, vec3 faceNormal ) {
-    LightSampleRec rec;
-    rec.direction = normalize( light.direction );
-    rec.emission = light.color * light.intensity;
-    rec.pdf = 1.0;  // Directional lights have uniform PDF
-    rec.dist = 1e10; // Effectively infinite distance
-    rec.type = 0;
-
-    // Check if the light is facing the surface
-    bool isSampleBelowSurface = dot( faceNormal, rec.direction ) < 0.0;
-    rec.didHit = ! isSampleBelowSurface && isDirectionValid( rec.direction, normal, faceNormal );
-
-    return rec;
+    return contribution;
 }
 
 vec3 calculateDirectLightingMIS( HitInfo hitInfo, vec3 V, DirectionSample brdfSample, int sampleIndex, int bounceIndex, inout uint rngState, inout ivec2 stats ) {

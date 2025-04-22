@@ -40,7 +40,7 @@ float powerHeuristic( float pdf1, float pdf2 ) {
     // Calculate weights using power heuristic with beta=2
     float p1 = pdf1 * pdf1;
     float p2 = pdf2 * pdf2;
-    return p1 / ( p1 + p2 );
+    return p1 / max( ( p1 + p2 ), 0.001 );
 }
 
 vec3 applyDithering( vec3 color, vec2 uv, float ditheringAmount ) {
