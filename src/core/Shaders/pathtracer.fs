@@ -139,11 +139,12 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 		return true;
 	}
 
-	// Calculate luminance of throughput for importance-based termination
-	float lum = luminance( throughput );
+    // Use max component instead of luminance for better color preservation
+    // This helps colored light paths survive longer
+	float maxComponent = max( max( throughput.r, throughput.g ), throughput.b );
 
     // Quick rejection for very dark paths after several bounces
-	if( lum < 0.01 && depth > 4 ) {
+	if( maxComponent < 0.01 && depth > 4 ) {
 		return false;
 	}
 
@@ -159,8 +160,8 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 		return true;
 	}
 
-    // Adaptive continuation probability based on throughput and path depth
-	float rrProb = clamp( lum, 0.05, 0.95 );
+    // Adaptive continuation probability based on max component
+	float rrProb = clamp( maxComponent, 0.05, 0.95 );
 
     // Slower decay for important materials
 	if( isImportantMaterial ) {
@@ -419,7 +420,7 @@ void main( ) {
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 
 			vec4 _sample = vec4( 0.0 );
-			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 5 );
+			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 3 );
 
 			if( visMode == 5 ) {
 				fragColor = vec4( jitterSample, 1.0, 1.0 );

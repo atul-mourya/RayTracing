@@ -93,7 +93,7 @@ export class PathTracerPass extends Pass {
 				numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
 				transmissiveBounces: { value: 8 },
 
-				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Spatio Temporal Blue Noise, 4: Stratified, 5: Simple Blue Noise
+				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Simple Blue Noise
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
 				adaptiveSamplingTexture: { value: null },
 				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
@@ -103,9 +103,6 @@ export class PathTracerPass extends Pass {
 				tiles: { value: this.tiles },
 				previousFrameTexture: { value: null },
 				accumulatedFrameTexture: { value: null },
-
-				spatioTemporalBlueNoiseTexture: { value: null },
-				spatioTemporalBlueNoiseResolution: { value: new Vector3( 64, 64, 32 ) },
 
 				blueNoiseTexture: { value: null },
 				blueNoiseTextureSize: { value: new Vector2() },
@@ -145,19 +142,6 @@ export class PathTracerPass extends Pass {
 		this.copyQuad = new FullScreenQuad( this.copyMaterial );
 
 		const loader = new TextureLoader();
-		loader.load( spatioTemporalBlueNoiseImage, ( texture ) => {
-
-			texture.minFilter = NearestFilter;
-			texture.magFilter = NearestFilter;
-			texture.wrapS = RepeatWrapping;
-			texture.wrapT = RepeatWrapping;
-			texture.generateMipmaps = false;
-
-			this.material.uniforms.spatioTemporalBlueNoiseTexture.value = texture;
-			this.material.needsUpdate = true;
-
-		} );
-
 		loader.load( blueNoiseImage, ( texture ) => {
 
 			texture.minFilter = NearestFilter;

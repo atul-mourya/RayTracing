@@ -396,10 +396,7 @@ const PathTracerTab = () => {
 							<SelectItem key='PCG' value={"0"}>PCG</SelectItem>
 							<SelectItem key='Halton' value={"1"}>Halton</SelectItem>
 							<SelectItem key='Sobol' value={"2"}>Sobol</SelectItem>
-							<SelectItem key='STBN' value={"3"}>STBN</SelectItem>
-							<SelectItem key='Stratified' value={"4"}>Stratified</SelectItem>
-							<SelectItem key='BlueNoise' value={"5"}>BlueNoise</SelectItem>
-							<SelectItem key='Stratified Blue Noise' value={"6"}>Stratified Blue Noise</SelectItem>
+							<SelectItem key='BlueNoise' value={"3"}>BlueNoise</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>

@@ -1,10 +1,8 @@
 // -----------------------------------------------------------------------------
 // Uniform declarations and constants
 // -----------------------------------------------------------------------------
-uniform sampler2D spatioTemporalBlueNoiseTexture;
-uniform vec3 spatioTemporalBlueNoiseResolution;
+uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
 uniform sampler2D blueNoiseTexture;
-uniform int samplingTechnique; // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise, 4: Stratified
 uniform ivec2 blueNoiseTextureSize;
 
 // Sobol sequence direction vectors
@@ -35,20 +33,6 @@ float RandomValue(inout uint state) {
 // -----------------------------------------------------------------------------
 // Directional sampling functions
 // -----------------------------------------------------------------------------
-
-// Generate random direction in 3D space
-vec3 RandomDirection(inout uint state) {
-    float z = RandomValue(state) * 2.0 - 1.0;
-    float phi = RandomValue(state) * 2.0 * PI;
-    float r = sqrt(1.0 - z * z);
-    return vec3(r * cos(phi), r * sin(phi), z);
-}
-
-// Generate random direction in hemisphere aligned with normal
-vec3 RandomHemiSphereDirection(vec3 normal, inout uint rngState) {
-    vec3 dir = RandomDirection(rngState);
-    return dir * sign(dot(normal, dir));
-}
 
 // Generate random point in unit circle
 vec2 RandomPointInCircle(inout uint rngState) {
@@ -143,68 +127,29 @@ void pcg4d(inout uvec4 v) {
     v.w += v.y*v.z;
 }
 
-vec4 sampleBlueNoise(vec2 pixelCoords) {
+uint scramblingRotation(uint seed, uint dimension) {
+    // Different scrambling for each dimension
+    return seed ^ (dimension * 0x9E3779B9u + 0x85EBCA6Bu);
+}
+
+vec4 sampleBlueNoise(vec2 pixelCoords, int sampleIndex, int bounceIndex) {
     initializeRNG(pixelCoords);
     pcg4d(rState.state);
+    
+    // Base shifting using pixel coordinates
     ivec2 shift = (rState.pixel + ivec2(rState.state.xy % 0x0fffffffu)) % blueNoiseTextureSize;
-    // Add temporal variation
-    shift = (shift + ivec2(frame * 1664525u)) % blueNoiseTextureSize;
+    
+    // Add temporal variation using frame number
+    uint offset = uint(frame) * 1664525u;
+    
+    // Add dimension-dependent scrambling
+    uint dimension = uint(bounceIndex * 4 + sampleIndex % 4);
+    offset = scramblingRotation(offset, dimension);
+    
+    // Apply the scrambled offset
+    shift = (shift + ivec2(offset & 0xFFFFu, (offset >> 16) & 0xFFFFu)) % blueNoiseTextureSize;
+    
     return texelFetch(blueNoiseTexture, shift, 0);
-
-}
-
-// Sample spatio-temporal blue noise
-vec4 sampleSTBN(vec2 pixelCoords) {
-    vec3 stbnr = spatioTemporalBlueNoiseResolution;
-    vec2 textureSize = vec2(stbnr.x, stbnr.y * stbnr.z);
-    vec2 texCoord = (pixelCoords + vec2(0.5)) / stbnr.x;
-    texCoord.y = (texCoord.y + float(int(frame) % int(stbnr.z))) / stbnr.z;
-    vec4 noise = texture(spatioTemporalBlueNoiseTexture, texCoord);
-
-    uint seed = uint(pixelCoords.x) * 1973u + uint(pixelCoords.y) * 9277u + uint(frame) * 26699u;
-    float random = float(pcg_hash(seed)) / 4294967295.0;
-
-    return fract(noise + random);
-}
-
-// -----------------------------------------------------------------------------
-// Stratified sampling
-// -----------------------------------------------------------------------------
-
-// Basic stratified sampling
-vec2 stratifiedSample(int pixelIndex, int sampleIndex, int totalSamples, inout uint rngState) {
-    int sqrtSamples = int(sqrt(float(totalSamples)));
-    int strataX = sampleIndex % sqrtSamples;
-    int strataY = sampleIndex / sqrtSamples;
-
-    float jitterX = RandomValue(rngState);
-    float jitterY = RandomValue(rngState);
-
-    return vec2(
-        (float(strataX) + jitterX) / float(sqrtSamples),
-        (float(strataY) + jitterY) / float(sqrtSamples)
-    );
-}
-
-// Stratified blue noise sampling
-vec2 stratifiedBlueNoiseSample(vec2 pixelCoord, int sampleIndex, int frame) {
-    
-    int strataSize = int(sqrt(float(numRaysPerPixel)));
-    int strataX = sampleIndex % strataSize;
-    int strataY = sampleIndex / strataSize;
-
-    vec2 stratifiedSample = vec2(
-        (float(strataX) + 0.5) / float(strataSize),
-        (float(strataY) + 0.5) / float(strataSize)
-    );
-
-    vec2 noiseValue = sampleBlueNoise(pixelCoord).xy;
-
-    pcg4d(rState.state);
-    vec2 temporalJitter = vec2(float(rState.state.x), float(rState.state.y)) / 4294967295.0;
-    vec2 offset = (noiseValue - 0.5 + (temporalJitter - 0.5) * 0.2) / float(strataSize);
-    
-    return fract(stratifiedSample + noiseValue);
 }
 
 // -----------------------------------------------------------------------------
@@ -224,25 +169,6 @@ vec2 HybridRandomSample2D(inout uint state, int sampleIndex, int pixelIndex) {
     return fract(quasi + pseudo);
 }
 
-// Generate hybrid random direction on hemisphere
-vec3 HybridRandomHemisphereDirection(vec3 normal, inout uint state, int sampleIndex, int pixelIndex) {
-    vec2 s = HybridRandomSample2D(state, sampleIndex, pixelIndex);
-
-    float cosTheta = sqrt(1.0 - s.x);
-    float sinTheta = sqrt(s.x);
-    float phi = 2.0 * PI * s.y;
-
-    vec3 tangentSpaceDir = vec3(
-        cos(phi) * sinTheta,
-        sin(phi) * sinTheta,
-        cosTheta
-    );
-
-    vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
-    vec3 bitangent = cross(normal, tangent);
-    return tangent * tangentSpaceDir.x + bitangent * tangentSpaceDir.y + normal * tangentSpaceDir.z;
-}
-
 // -----------------------------------------------------------------------------
 // Main sampling interface functions
 // -----------------------------------------------------------------------------
@@ -257,15 +183,23 @@ vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout ui
         case 1: // Halton
         case 2: // Sobol
             return HybridRandomSample2D(rngState, sampleIndex, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x));
-        case 3: // Spatio Temporal Blue Noise
-            return sampleSTBN(pixelCoord + vec2(float(sampleIndex) * 13.37, float(bounceIndex) * 31.41)).xy;
-        case 4: // Stratified
-            int pixelIndex = int(pixelCoord.y) * int(resolution.x) + int(pixelCoord.x);
-            return stratifiedSample(pixelIndex, sampleIndex, numRaysPerPixel, rngState);
-        case 5: // Simple 2D Blue Noise
-            return sampleBlueNoise(pixelCoord).xy;
-        case 6: // Stratified Blue Noise
-            return stratifiedBlueNoiseSample(pixelCoord, sampleIndex, int(frame));
+        case 3: // Blue Noise with dimensional awareness
+            vec4 noise = sampleBlueNoise(pixelCoord, sampleIndex, bounceIndex);
+            
+            // Use different components based on the bounce type to preserve blue noise properties
+            if (bounceIndex == 0) {
+                // Primary rays - use xy for pixel jittering
+                return noise.xy;
+            } else if (bounceIndex % 3 == 1) {
+                // Secondary bounces - use zw for BRDF sampling
+                return noise.zw;
+            } else if (bounceIndex % 3 == 2) {
+                // Tertiary bounces - use xz (mix channels)
+                return vec2(noise.x, noise.z);
+            } else {
+                // Other bounces - use yw (mix channels)
+                return vec2(noise.y, noise.w);
+            }
         default:
             return vec2(0.0);
     }

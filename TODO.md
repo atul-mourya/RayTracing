@@ -6,6 +6,7 @@ RayTracing Project TODO
 
 - [ ]  active catalog item not being highlighted in the UI
 - [ ]  drag and drop models retriggers the rendering blocking the UI and bvh generation delay
+- [ ]  on model load, the canvas size changes
 
 ✨ Core Features
 ---------------

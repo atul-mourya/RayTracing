@@ -175,7 +175,7 @@ export const DEFAULT_STATE = {
 	maxSamples: 30,
 	bounces: 3,
 	samplesPerPixel: 1,
-	samplingTechnique: 1,
+	samplingTechnique: 3,
 	adaptiveSampling: false,
 	adaptiveSamplingMin: 1,
 	adaptiveSamplingMax: 4,
