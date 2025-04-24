@@ -24,10 +24,19 @@ export default class BVHBuilder {
 		this.numBins = 16;
 		this.nodes = [];
 		this.totalNodes = 0;
+		this.processedTriangles = 0;
+		this.totalTriangles = 0;
+		this.lastProgressUpdate = 0;
+		this.progressUpdateInterval = 100; // ms
 
 	}
 
-	build( triangles, depth = 30 ) { // Set a default depth if not provided
+	build( triangles, depth = 30, progressCallback = null ) { // Added progressCallback parameter
+
+		// Store total triangles for progress calculation
+		this.totalTriangles = triangles.length;
+		this.processedTriangles = 0;
+		this.lastProgressUpdate = performance.now();
 
 		if ( this.useWorker && typeof Worker !== 'undefined' ) {
 
@@ -43,12 +52,20 @@ export default class BVHBuilder {
 
 					worker.onmessage = ( e ) => {
 
-						const { bvhRoot, triangles: newTriangles, error } = e.data;
+						const { bvhRoot, triangles: newTriangles, error, progress } = e.data;
 
 						if ( error ) {
 
 							worker.terminate();
 							reject( new Error( error ) );
+							return;
+
+						}
+
+						// Handle progress updates from worker
+						if ( progress !== undefined && progressCallback ) {
+
+							progressCallback( progress );
 							return;
 
 						}
@@ -74,12 +91,12 @@ export default class BVHBuilder {
 
 					};
 
-					worker.postMessage( { triangles, depth } );
+					worker.postMessage( { triangles, depth, reportProgress: !! progressCallback } );
 
 				} catch ( error ) {
 
 					console.warn( 'Worker creation failed, falling back to synchronous build:', error );
-					resolve( this.buildSync( triangles, depth ) );
+					resolve( this.buildSync( triangles, depth, [], progressCallback ) );
 
 				}
 
@@ -87,20 +104,23 @@ export default class BVHBuilder {
 
 		} else {
 
-			return Promise.resolve( this.buildSync( triangles, depth ) );
+			return Promise.resolve( this.buildSync( triangles, depth, [], progressCallback ) );
 
 		}
 
 	}
 
-	buildSync( triangles, depth = 30, reorderedTriangles = [] ) {
+	buildSync( triangles, depth = 30, reorderedTriangles = [], progressCallback = null ) {
 
 		// Reset state
 		this.nodes = [];
 		this.totalNodes = 0;
+		this.processedTriangles = 0;
+		this.totalTriangles = triangles.length;
+		this.lastProgressUpdate = performance.now();
 
 		// Create root node
-		const root = this.buildNodeRecursive( triangles, depth, reorderedTriangles );
+		const root = this.buildNodeRecursive( triangles, depth, reorderedTriangles, progressCallback );
 
 		console.log( 'BVH Statistics:', {
 			totalNodes: this.totalNodes,
@@ -108,11 +128,40 @@ export default class BVHBuilder {
 			maxDepth: depth
 		} );
 
+		// Ensure we send 100% progress at the end
+		if ( progressCallback ) {
+
+			progressCallback( 100 );
+
+		}
+
 		return root;
 
 	}
 
-	buildNodeRecursive( triangles, depth, reorderedTriangles ) {
+	updateProgress( trianglesProcessed, progressCallback ) {
+
+		if ( ! progressCallback ) return;
+
+		this.processedTriangles += trianglesProcessed;
+
+		// Limit progress updates to avoid overwhelming the UI
+		const now = performance.now();
+		if ( now - this.lastProgressUpdate < this.progressUpdateInterval ) {
+
+			return;
+
+		}
+
+		this.lastProgressUpdate = now;
+
+		// Calculate progress percentage (0-100)
+		const progress = Math.min( Math.floor( ( this.processedTriangles / this.totalTriangles ) * 100 ), 99 );
+		progressCallback( progress );
+
+	}
+
+	buildNodeRecursive( triangles, depth, reorderedTriangles, progressCallback ) {
 
 		const node = new CWBVHNode();
 		this.nodes.push( node );
@@ -127,6 +176,10 @@ export default class BVHBuilder {
 			node.triangleOffset = reorderedTriangles.length;
 			node.triangleCount = triangles.length;
 			reorderedTriangles.push( ...triangles );
+
+			// Update progress for leaf node creation
+			this.updateProgress( triangles.length, progressCallback );
+
 			return node;
 
 		}
@@ -140,6 +193,10 @@ export default class BVHBuilder {
 			node.triangleOffset = reorderedTriangles.length;
 			node.triangleCount = triangles.length;
 			reorderedTriangles.push( ...triangles );
+
+			// Update progress for leaf node creation after failed split
+			this.updateProgress( triangles.length, progressCallback );
+
 			return node;
 
 		}
@@ -157,13 +214,17 @@ export default class BVHBuilder {
 			node.triangleOffset = reorderedTriangles.length;
 			node.triangleCount = triangles.length;
 			reorderedTriangles.push( ...triangles );
+
+			// Update progress for leaf node creation after failed partition
+			this.updateProgress( triangles.length, progressCallback );
+
 			return node;
 
 		}
 
 		// Recursively build children
-		node.leftChild = this.buildNodeRecursive( leftTris, depth - 1, reorderedTriangles );
-		node.rightChild = this.buildNodeRecursive( rightTris, depth - 1, reorderedTriangles );
+		node.leftChild = this.buildNodeRecursive( leftTris, depth - 1, reorderedTriangles, progressCallback );
+		node.rightChild = this.buildNodeRecursive( rightTris, depth - 1, reorderedTriangles, progressCallback );
 
 		return node;
 

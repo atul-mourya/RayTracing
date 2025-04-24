@@ -47,8 +47,24 @@ export default class TriangleSDF {
 		let time = performance.now();
 		try {
 
+			// Initial BVH building status
 			updateLoading( { status: "Building BVH...", progress: 60 } );
-			this.bvhRoot = await this.bvhBuilder.build( this.triangles );
+
+			// Define progress callback to update loading status
+			const progressCallback = ( progress ) => {
+
+				// Scale progress to fit within 60-80% range of overall loading
+				const scaledProgress = 60 + Math.floor( progress * 0.2 );
+				const triangleCount = this.triangles.length.toLocaleString();
+				updateLoading( {
+					status: `Building BVH for ${triangleCount} triangles... ${progress}%`,
+					progress: scaledProgress
+				} );
+
+			};
+
+			// Pass the progress callback to the BVH builder
+			this.bvhRoot = await this.bvhBuilder.build( this.triangles, undefined, progressCallback );
 
 		} catch ( error ) {
 

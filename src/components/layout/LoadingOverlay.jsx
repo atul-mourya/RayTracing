@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2 } from "lucide-react";
 import { useStore } from '@/store';
 import { Progress } from "@/components/ui/progress";
@@ -9,6 +9,66 @@ const LoadingOverlay = ( {
 } ) => {
 
 	const loading = useStore( ( state ) => state.loading );
+	const [ progressAnimation, setProgressAnimation ] = useState( 0 );
+
+	// Smoothly animate progress
+	useEffect( () => {
+
+		if ( loading.isLoading && loading.progress > progressAnimation ) {
+
+			const timer = setTimeout( () => {
+
+				setProgressAnimation( prev => Math.min( prev + 1, loading.progress ) );
+
+			}, 20 );
+			return () => clearTimeout( timer );
+
+		} else if ( ! loading.isLoading ) {
+
+			setProgressAnimation( 0 );
+
+		}
+
+	}, [ progressAnimation, loading.isLoading, loading.progress ] );
+
+	// Calculate time elapsed since loading started
+	const [ elapsedTime, setElapsedTime ] = useState( 0 );
+
+	useEffect( () => {
+
+		let intervalId;
+
+		if ( loading.isLoading ) {
+
+			const startTime = Date.now();
+			intervalId = setInterval( () => {
+
+				setElapsedTime( Math.floor( ( Date.now() - startTime ) / 1000 ) );
+
+			}, 1000 );
+
+		} else {
+
+			setElapsedTime( 0 );
+
+		}
+
+		return () => {
+
+			if ( intervalId ) clearInterval( intervalId );
+
+		};
+
+	}, [ loading.isLoading ] );
+
+	// Format elapsed time in MM:SS format
+	const formatElapsedTime = ( seconds ) => {
+
+		const mins = Math.floor( seconds / 60 );
+		const secs = seconds % 60;
+		return `${mins.toString().padStart( 2, '0' )}:${secs.toString().padStart( 2, '0' )}`;
+
+	};
 
 	if ( ! loading.isLoading ) return null;
 
@@ -34,11 +94,21 @@ const LoadingOverlay = ( {
 
 					{showProgress && loading.progress > 0 && (
 						<div className="w-64">
-							<Progress value={loading.progress} className="h-2" />
-							<p className="text-xs text-muted-foreground text-center mt-2">
-								{loading.progress}%
-							</p>
+							<Progress value={progressAnimation} className="h-2" />
+							<div className="flex justify-between text-xs text-muted-foreground mt-2 w-full">
+								<p>{progressAnimation}%</p>
+								<p>Time: {formatElapsedTime( elapsedTime )}</p>
+							</div>
 						</div>
+					)}
+
+					{/* Show estimated time remaining for BVH building */}
+					{loading.status && loading.status.includes( 'Building BVH' ) && (
+						<p className="text-xs text-muted-foreground mt-1">
+							{loading.progress < 100
+								? "This may take a while for large models..."
+								: "Almost done..."}
+						</p>
 					)}
 				</div>
 			</div>
