@@ -3,7 +3,6 @@ import Viewport3D from './Viewport3D';
 import { Loader2, Check, X } from 'lucide-react';
 import { usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
-import { shallow } from 'zustand/shallow';
 
 // Separate StatsDisplay component with memoization
 const StatsDisplay = memo( ( {
@@ -182,17 +181,10 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// Set up event listeners for denoising and rendering
 	useEffect( () => {
 
-		const handleDenoisingStart = () =>
-			setViewportState( prev => ( { ...prev, isDenoising: true } ) );
-
-		const handleDenoisingEnd = () =>
-			setViewportState( prev => ( { ...prev, isDenoising: false } ) );
-
-		const handleRenderComplete = () =>
-			setViewportState( prev => ( { ...prev, renderComplete: true } ) );
-
-		const handleRenderReset = () =>
-			setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+		const handleDenoisingStart = () => setViewportState( prev => ( { ...prev, isDenoising: true } ) );
+		const handleDenoisingEnd = () => setViewportState( prev => ( { ...prev, isDenoising: false } ) );
+		const handleRenderComplete = () => setViewportState( prev => ( { ...prev, renderComplete: true } ) );
+		const handleRenderReset = () => setViewportState( prev => ( { ...prev, renderComplete: false } ) );
 
 		if ( window.pathTracerApp ) {
 
