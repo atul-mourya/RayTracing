@@ -298,6 +298,13 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 			const arrayBuffer = event.target.result;
 			if ( appRef.current && appRef.current.loadGLBFromArrayBuffer ) {
 
+				// Stop any ongoing rendering before loading new model
+				if ( appRef.current.pauseRendering !== undefined ) {
+
+					appRef.current.pauseRendering = true;
+
+				}
+
 				appRef.current.loadGLBFromArrayBuffer( arrayBuffer )
 					.then( () => {
 

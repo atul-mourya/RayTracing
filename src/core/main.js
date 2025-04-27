@@ -581,6 +581,7 @@ class PathTracerApp extends EventDispatcher {
 
 		try {
 
+			this.pauseRendering = true;
 			const loader = await this.createGLTFLoader();
 			const data = await new Promise( ( resolve, reject ) => loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) ) );
 

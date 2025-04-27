@@ -7,6 +7,7 @@ RayTracing Project TODO
 - [ ]  active catalog item not being highlighted in the UI
 - [ ]  drag and drop models retriggers the rendering blocking the UI and bvh generation delay
 - [ ]  on model load, the canvas size changes
+- [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 
 ✨ Core Features
 ---------------
