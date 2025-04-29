@@ -20,6 +20,7 @@ const useStore = create( ( set ) => ( {
 		saturation: 0,
 		hue: 0,
 		exposure: 0,
+		gamma: 0,
 	  },
 	  setImageProcessingParam: ( param, value ) =>
 		set( state => ( {
@@ -36,6 +37,7 @@ const useStore = create( ( set ) => ( {
 				saturation: 0,
 				hue: 0,
 				exposure: 0,
+				gamma: 2.2,
 		  }
 		} ),
 } ) );

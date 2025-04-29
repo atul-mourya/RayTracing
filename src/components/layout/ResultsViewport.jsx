@@ -91,7 +91,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 		if ( ! imageProcessorRef.current ) return;
 
-		const { brightness, contrast, saturation, hue, exposure } = imageProcessing;
+		const { brightness, contrast, saturation, hue, exposure, gamma } = imageProcessing;
 
 		// Update brightness/contrast pass
 		imageProcessorRef.current.brightnessContrastPass.uniforms[ 'brightness' ].value = brightness / 100;
@@ -101,6 +101,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'saturation' ].value = saturation / 100;
 		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'hue' ].value = hue;
 		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'exposure' ].value = exposure / 100;
+		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'gamma' ].value = gamma;
 
 		// Render the result
 		imageProcessorRef.current.render();
@@ -155,8 +156,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			setSelectedImageId( imageData.id );
 
 			// Store the original color correction settings
-			const settings = imageData.colorCorrection;
-			setOriginalSettings( { ...settings } );
+			const settings = { ...imageData.colorCorrection, gamma: imageData.colorCorrection.gamma ?? 2.2 };
+			setOriginalSettings( settings );
 
 			// Update color correction parameters in the store
 			Object.keys( settings ).forEach( param => {
@@ -440,8 +441,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					{/* Canvas for edited image */}
 					<canvas
 						ref={editedCanvasRef}
-						width="1024"
-						height="1024"
+						width="2048"
+						height="2048"
 						style={{
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
@@ -453,8 +454,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					{/* Canvas for original image */}
 					<canvas
 						ref={originalCanvasRef}
-						width="1024"
-						height="1024"
+						width="2048"
+						height="2048"
 						style={{
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,

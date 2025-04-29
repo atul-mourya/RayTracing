@@ -162,6 +162,7 @@ export const saveRender = async ( data ) => {
 					saturation: data.colorCorrection.saturation,
 					hue: data.colorCorrection.hue,
 					exposure: data.colorCorrection.exposure,
+					gamma: data.colorCorrection.gamma,
 			 	},
 				timestamp: new Date(),
 				isEdited: false,

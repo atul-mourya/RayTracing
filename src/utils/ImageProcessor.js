@@ -10,7 +10,8 @@ const ColorAdjustmentShader = {
 		"tDiffuse": { value: null },
 		"hue": { value: 0.0 },
 		"saturation": { value: 0.0 },
-		"exposure": { value: 0.0 }
+		"exposure": { value: 0.0 },
+		"gamma": { value: 2.2 }
 	},
 	vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -24,9 +25,34 @@ const ColorAdjustmentShader = {
         uniform float hue;
         uniform float saturation;
         uniform float exposure;
+        uniform float gamma;
         varying vec2 vUv;
 
-        // Function to convert RGB to HSL
+		// Function to decode from gamma space to linear space
+		vec3 gammaToLinear(vec3 color) {
+			return pow(color, vec3(2.2));
+		}
+
+		// Function to encode from linear space to gamma space
+		vec3 linearToGamma(vec3 color, float gamma) {
+			return pow(color, vec3(1.0 / gamma));
+		}
+
+		// Desaturate using luminosity factors
+		vec3 desaturated(vec3 color) {
+			// sRGB colorspace luminosity factor
+			vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+			float luminance = dot(color, luma);
+			return vec3(luminance);
+		}
+
+		// Apply saturation by mixing original color with desaturated version
+		vec3 applyColorSaturation(vec3 color, float value) {
+			vec3 gray = desaturated(color);
+			return mix(gray, color, 1.0 + value);
+		}
+
+		// Function to convert RGB to HSL (for hue only)
         vec3 rgb2hsl(vec3 color) {
             float maxColor = max(max(color.r, color.g), color.b);
             float minColor = min(min(color.r, color.g), color.b);
@@ -85,28 +111,29 @@ const ColorAdjustmentShader = {
 
         void main() {
             vec4 texel = texture2D(tDiffuse, vUv);
-            
-            // Apply hue shift and saturation
-            vec3 hslColor = rgb2hsl(texel.rgb);
-            
-            // Adjust hue (0-1 range)
-            hslColor.x = fract(hslColor.x + hue / 360.0);
-            
-            // Adjust saturation (-1 to 1 range mapped to appropriate adjustment)
-            if (saturation > 0.0) {
-                hslColor.y = mix(hslColor.y, 1.0, saturation);
-            } else {
-                hslColor.y = mix(hslColor.y, 0.0, -saturation);
-            }
-            
-            // Convert back to RGB
-            vec3 rgbColor = hsl2rgb(hslColor);
-            
-            // Apply exposure
-            rgbColor = rgbColor * pow(2.0, exposure);
-            
-            gl_FragColor = vec4(rgbColor, texel.a);
-        }
+			
+			// Decode from gamma space to linear space
+			vec3 linearColor = gammaToLinear(texel.rgb);
+			
+			// Apply saturation using luminosity-based approach
+			vec3 colorWithSaturation = applyColorSaturation(linearColor, saturation);
+			
+			// Apply hue shift (still using HSL but only for hue)
+			if (abs(hue) > 0.01) {
+				vec3 hslColor = rgb2hsl(colorWithSaturation);
+				hslColor.x = fract(hslColor.x + hue / 360.0);
+				// Keep original saturation and luminance, only change hue
+				colorWithSaturation = hsl2rgb(hslColor);
+			}
+			
+			// Apply exposure
+			vec3 colorWithExposure = colorWithSaturation * pow(2.0, exposure);
+			
+			// Encode back to gamma space using the gamma value
+			vec3 finalColor = linearToGamma(colorWithExposure, gamma);
+			
+			gl_FragColor = vec4(finalColor, texel.a);
+		}
     `
 };
 
@@ -160,9 +187,8 @@ export class ImageProcessorComposer {
 		this.colorAdjustmentPass.uniforms[ 'hue' ].value = 0;
 		this.colorAdjustmentPass.uniforms[ 'saturation' ].value = 0;
 		this.colorAdjustmentPass.uniforms[ 'exposure' ].value = 0;
+		this.colorAdjustmentPass.uniforms[ 'gamma' ].value = 2.2;
 		this.composer.addPass( this.colorAdjustmentPass );
-
-        window.imangeProcessor = this; // For debugging purposes
 
 	}
 
@@ -207,6 +233,12 @@ export class ImageProcessorComposer {
 		if ( params.exposure !== undefined ) {
 
 			this.colorAdjustmentPass.uniforms[ 'exposure' ].value = params.exposure / 100;
+
+		}
+
+		if ( params.gamma !== undefined ) {
+
+			this.colorAdjustmentPass.uniforms[ 'gamma' ].value = params.gamma;
 
 		}
 

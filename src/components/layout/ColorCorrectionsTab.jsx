@@ -1,9 +1,8 @@
-import React from 'react';
+
 import { Slider } from "@/components/ui/slider";
 import { useStore } from '@/store';
 import { Button } from "@/components/ui/button";
 import { RotateCcw } from "lucide-react";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { Separator } from '@/components/ui/separator';
 
@@ -45,6 +44,9 @@ const ColorCorrectionsTab = () => {
 				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Exposure"} min={- 100} max={100} step={1} value={[ imageProcessing.exposure ]} onValueChange={handleParamChange( 'exposure' )} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Slider label={"Gamma"} min={0.1} max={4} step={0.1} value={[ imageProcessing.gamma ]} onValueChange={handleParamChange( 'gamma' )} />
 				</div>
 			</div>
 		</div>
