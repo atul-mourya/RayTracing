@@ -661,7 +661,7 @@ class PathTracerApp extends EventDispatcher {
 
 					const light = new RectAreaLight(
 						new Color( ...userData.color ),
-						userData.intensity * 10,
+						userData.intensity,
 						userData.width,
 						userData.height
 					);

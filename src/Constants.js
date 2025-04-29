@@ -186,7 +186,7 @@ export const DEFAULT_STATE = {
 	enableEarlyTermination: true,
 	earlyTerminationThreshold: 0.0001,
 	showAdaptiveSamplingHelper: false,
-	fireflyThreshold: 1,
+	fireflyThreshold: 3,
 	renderMode: 0,
 	tiles: 4,
 	tilesHelper: false,
