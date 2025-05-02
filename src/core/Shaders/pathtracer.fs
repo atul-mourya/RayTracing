@@ -309,6 +309,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
 
+		// Check if path contribution is becoming negligible
+		float maxThroughput = max(max(throughput.r, throughput.g), throughput.b);
+		if(maxThroughput < 0.001 && bounceIndex > 2) {
+			break; // Path contribution too small, terminate early
+		}
+
 		// Russian roulette path termination
 		if( ! handleRussianRoulette( bounceIndex, throughput, material, rngState ) ) {
 			break;
