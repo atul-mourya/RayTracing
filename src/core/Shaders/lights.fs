@@ -172,7 +172,7 @@ float directionalLightAlignment( vec3 brdfDirection, vec3 lightDirection, float 
     float alignment = dot( brdfDirection, lightDirection );
 
     // Use smooth step for soft transition based on alignment threshold
-    return smoothstep( threshold - 0.02, threshold, alignment );
+    return smoothstep( threshold - 0.01, threshold, alignment );
 }
 
 // -----------------------------------------------------------------------------
@@ -414,7 +414,7 @@ vec3 calculateDirectionalLightContribution(
         return contribution;
 
     if( ( isFirstBounce || material.roughness < 0.5 ) && brdfSample.pdf > 0.0 ) {
-        float alignment = directionalLightAlignment( brdfSample.direction, light.direction, 0.999 - material.roughness * 0.2 );
+        float alignment = directionalLightAlignment( brdfSample.direction, light.direction, 0.999 - material.roughness * 0.5 );
 
         if( alignment > 0.05 ) {
             float visibility = traceShadowRay( rayOrigin, brdfSample.direction, 1000.0, rngState, stats );
@@ -462,118 +462,74 @@ vec3 calculateDirectLightingMIS(
     #if MAX_DIRECTIONAL_LIGHTS > 0
     int maxLights = MAX_DIRECTIONAL_LIGHTS / 7; // Total number of directional lights
 
-    // Strategy 1: First bounce - process all lights for quality
+    // Strategy 1: Always process all lights for first bounce (for quality)
     if( isFirstBounce ) {
         for( int i = 0; i < maxLights; i ++ ) {
             DirectionalLight light = getDirectionalLight( i );
             totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
         }
-    }
-    // Strategy 2: Specular materials - focus on brightest aligned light
-    else if( isSpecular ) {
-        float maxIntensity = 0.0;
-        int brightestLight = 0;
-
-        for( int i = 0; i < maxLights; i ++ ) {
-            DirectionalLight light = getDirectionalLight( i );
-            if( light.intensity <= 0.0 )
-                continue;
-
-            vec3 reflectDir = reflect( - V, N );
-            float alignment = max( 0.0, dot( reflectDir, light.direction ) );
-            float effectiveIntensity = light.intensity * pow( alignment, 2.0 );
-
-            if( effectiveIntensity > maxIntensity ) {
-                maxIntensity = effectiveIntensity;
-                brightestLight = i;
-            }
-        }
-
-        if( maxIntensity > 0.0 ) {
-            DirectionalLight light = getDirectionalLight( brightestLight );
-            totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
-        }
-    }
-    // Strategy 3: Deep bounces with many lights - use stratified sampling
-    else if( maxLights > 8 && bounceIndex > 1 ) {
-        int lightIndex = int( sampleIndex ) % maxLights;
-        DirectionalLight light = getDirectionalLight( lightIndex );
-        vec3 contribution = calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
-
-        totalLighting += contribution * float( maxLights );
-    }
-    // Strategy 4: Medium bounces - use importance sampling
-    else if( bounceIndex > 1 ) {
-        float totalImportance = 0.0;
-        float importance[ 16 ]; // Assuming no more than 16 directional lights
-
-        for( int i = 0; i < min( maxLights, 16 ); i ++ ) {
-            DirectionalLight light = getDirectionalLight( i );
-            float NoL = max( 0.0, dot( N, light.direction ) );
-            importance[ i ] = light.intensity * NoL;
-            totalImportance += importance[ i ];
-        }
-
-        if( totalImportance >= 0.01 ) {
-            float r = RandomValue( rngState ) * totalImportance;
-            float cumulative = 0.0;
-            int selectedLight = 0;
-
-            for( int i = 0; i < min( maxLights, 16 ); i ++ ) {
-                cumulative += importance[ i ];
-                if( r <= cumulative ) {
-                    selectedLight = i;
-                    break;
-                }
-            }
-
-            DirectionalLight light = getDirectionalLight( selectedLight );
-            vec3 contribution = calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
-
-            if( importance[ selectedLight ] > 0.0 ) {
-                totalLighting += contribution * ( totalImportance / importance[ selectedLight ] );
-            }
-        }
-    }
-    // Strategy 5: Bounce 1, non-specular - process top few important lights
+    } 
+    // Strategy 2: For secondary+ bounces, use unified importance sampling
     else {
-        struct LightImportance {
-            int index;
-            float importance;
-        };
-        LightImportance lightImportance[ 16 ];
+        // Use a single light selection method for all secondary bounces
+        int numToProcess = min(4, maxLights);
+        float importanceValues[16];
+        int lightIndices[16];
 
-        for( int i = 0; i < min( maxLights, 16 ); i ++ ) {
-            DirectionalLight light = getDirectionalLight( i );
-            lightImportance[ i ].index = i;
-            if( light.intensity <= 0.0 ) {
-                lightImportance[ i ].importance = 0.0;
-            } else {
-                float NoL = max( 0.0, dot( N, light.direction ) );
-                lightImportance[ i ].importance = light.intensity * NoL;
+        // Initialize arrays
+        #pragma unroll_loop_start
+        for (int i = 0; i < min(16, maxLights); i++) {
+            DirectionalLight light = getDirectionalLight(i);
+            float NoL = max(0.0, dot(N, light.direction));
+            
+            // Simple importance metric
+            importanceValues[i] = light.intensity * NoL;
+            
+            // Store original indices
+            lightIndices[i] = i;
+        }
+        #pragma unroll_loop_end
+
+        // Selection algorithm: find top N lights with linear scans
+        // This is more GPU-friendly than bubble sort (O(N·k) vs O(N²))
+        for (int k = 0; k < numToProcess; k++) {
+            int maxIdx = k;
+            float maxVal = importanceValues[k];
+            
+            // Single linear scan to find maximum remaining element
+            #pragma unroll_loop_start
+            for (int i = k + 1; i < min(16, maxLights); i++) {
+                // Branchless max using step function
+                bool isLarger = importanceValues[i] > maxVal;
+                maxIdx = isLarger ? i : maxIdx;
+                maxVal = isLarger ? importanceValues[i] : maxVal;
             }
+            #pragma unroll_loop_end
+            
+            // Swap elements (minimal data movement)
+            float tempVal = importanceValues[k];
+            int tempIdx = lightIndices[k];
+            
+            importanceValues[k] = importanceValues[maxIdx];
+            lightIndices[k] = lightIndices[maxIdx];
+            
+            importanceValues[maxIdx] = tempVal;
+            lightIndices[maxIdx] = tempIdx;
         }
 
-        // Simple bubble sort to find top lights
-        int numToProcess = min( 3, maxLights ); // Process top 3 lights
-        for( int i = 0; i < min( 16, maxLights ); i ++ ) {
-            for( int j = i + 1; j < min( 16, maxLights ); j ++ ) {
-                if( lightImportance[ j ].importance > lightImportance[ i ].importance ) {
-                    // Swap
-                    LightImportance temp = lightImportance[ i ];
-                    lightImportance[ i ] = lightImportance[ j ];
-                    lightImportance[ j ] = temp;
-                }
-            }
+        // Process only the top lights with highest importance
+        #pragma unroll_loop_start
+        for (int i = 0; i < numToProcess; i++) {
+            // Skip negligible contributions
+            if (importanceValues[i] < 0.01) continue;
+            
+            DirectionalLight light = getDirectionalLight(lightIndices[i]);
+            totalLighting += calculateDirectionalLightContribution(
+                light, hitInfo.hitPoint, N, V, hitInfo.material, 
+                brdfSample, bounceIndex, rngState, stats
+            );
         }
-
-        // Process the top N most important lights
-        for( int i = 0; i < numToProcess; i ++ ) {
-            if( lightImportance[ i ].importance > 0.01 ) {
-                DirectionalLight light = getDirectionalLight( lightImportance[ i ].index );
-                totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
-            }
-        }
+        #pragma unroll_loop_end
     }
     #endif // MAX_DIRECTIONAL_LIGHTS > 0
 
