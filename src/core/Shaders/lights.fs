@@ -99,36 +99,62 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
     shadowRay.origin = origin;
     shadowRay.direction = dir;
 
-    // Single BVH traversal for shadow
-    HitInfo shadowHit = traverseBVH( shadowRay, stats );
+    // Media tracking for shadow rays
+    MediumStack shadowMediaStack;
+    shadowMediaStack.depth = 0;
 
-    // No hit or hit beyond light distance
-    if( ! shadowHit.didHit || length( shadowHit.hitPoint - origin ) > maxDist )
-        return 1.0;
-
-    // Fast path for opaque objects
-    if( ! shadowHit.material.transparent && shadowHit.material.transmission <= 0.0 )
-        return 0.0;
-
-    // Simple transparency accumulation (max 2 transparent surfaces)
+    // Track accumulated transmittance
     float transmittance = 1.0;
-    for( int step = 0; step < 2; step ++ ) {
-        float opacity = shadowHit.material.transparent ? shadowHit.material.opacity : ( 1.0 - shadowHit.material.transmission );
 
-        if( shadowHit.material.alphaMode != 0 )
-            opacity *= shadowHit.material.color.a;
+    // Allow more steps through transparent media for shadow rays
+    const int MAX_SHADOW_TRANSMISSIONS = 8;
 
-        transmittance *= ( 1.0 - opacity );
+    for( int step = 0; step < MAX_SHADOW_TRANSMISSIONS; step ++ ) {
+        HitInfo shadowHit = traverseBVH( shadowRay, stats );
 
-        if( transmittance < 0.02 )
-            return 0.0;
-
-        // Continue ray
-        shadowRay.origin = shadowHit.hitPoint + dir * 0.001;
-        shadowHit = traverseBVH( shadowRay, stats );
-
+        // No hit or hit beyond light distance
         if( ! shadowHit.didHit || length( shadowHit.hitPoint - origin ) > maxDist )
             break;
+
+        // Special handling for transmissive materials
+        if( shadowHit.material.transmission > 0.0 ) {
+            // Determine if entering or exiting medium
+            bool entering = dot( shadowRay.direction, shadowHit.normal ) < 0.0;
+            vec3 N = entering ? shadowHit.normal : - shadowHit.normal;
+
+            // Apply absorption if exiting medium
+            if( ! entering && shadowHit.material.attenuationDistance > 0.0 ) {
+                float dist = length( shadowHit.hitPoint - shadowRay.origin );
+                vec3 absorption = calculateBeerLawAbsorption( shadowHit.material.attenuationColor, shadowHit.material.attenuationDistance, dist );
+                transmittance *= ( absorption.r + absorption.g + absorption.b ) / 3.0;
+            }
+
+            // Compute transmittance based on material properties
+            float fresnel = fresnelSchlick( abs( dot( shadowRay.direction, N ) ), iorToFresnel0( shadowHit.material.ior, 1.0 ) );
+
+            // Combine Fresnel with transmission property
+            float matTransmittance = ( 1.0 - fresnel ) * shadowHit.material.transmission;
+            transmittance *= matTransmittance;
+
+            // Early exit if almost no light passes through
+            if( transmittance < 0.005 )
+                return 0.0;
+
+            // Continue ray
+            shadowRay.origin = shadowHit.hitPoint + shadowRay.direction * 0.001;
+        } else if( shadowHit.material.transparent ) {
+            // Handle transparent materials
+            transmittance *= ( 1.0 - shadowHit.material.opacity );
+
+            if( transmittance < 0.005 )
+                return 0.0;
+
+            // Continue ray
+            shadowRay.origin = shadowHit.hitPoint + shadowRay.direction * 0.001;
+        } else {
+            // Fully opaque object blocks shadow ray
+            return 0.0;
+        }
     }
 
     return transmittance;
@@ -472,62 +498,60 @@ vec3 calculateDirectLightingMIS(
     // Strategy 2: For secondary+ bounces, use unified importance sampling
     else {
         // Use a single light selection method for all secondary bounces
-        int numToProcess = min(4, maxLights);
-        float importanceValues[16];
-        int lightIndices[16];
+        int numToProcess = min( 4, maxLights );
+        float importanceValues[ 16 ];
+        int lightIndices[ 16 ];
 
         // Initialize arrays
         #pragma unroll_loop_start
-        for (int i = 0; i < min(16, maxLights); i++) {
-            DirectionalLight light = getDirectionalLight(i);
-            float NoL = max(0.0, dot(N, light.direction));
-            
+        for( int i = 0; i < min( 16, maxLights ); i ++ ) {
+            DirectionalLight light = getDirectionalLight( i );
+            float NoL = max( 0.0, dot( N, light.direction ) );
+
             // Simple importance metric
-            importanceValues[i] = light.intensity * NoL;
-            
+            importanceValues[ i ] = light.intensity * NoL;
+
             // Store original indices
-            lightIndices[i] = i;
+            lightIndices[ i ] = i;
         }
         #pragma unroll_loop_end
 
         // Selection algorithm: find top N lights with linear scans
         // This is more GPU-friendly than bubble sort (O(N·k) vs O(N²))
-        for (int k = 0; k < numToProcess; k++) {
+        for( int k = 0; k < numToProcess; k ++ ) {
             int maxIdx = k;
-            float maxVal = importanceValues[k];
-            
+            float maxVal = importanceValues[ k ];
+
             // Single linear scan to find maximum remaining element
             #pragma unroll_loop_start
-            for (int i = k + 1; i < min(16, maxLights); i++) {
+            for( int i = k + 1; i < min( 16, maxLights ); i ++ ) {
                 // Branchless max using step function
-                bool isLarger = importanceValues[i] > maxVal;
+                bool isLarger = importanceValues[ i ] > maxVal;
                 maxIdx = isLarger ? i : maxIdx;
-                maxVal = isLarger ? importanceValues[i] : maxVal;
+                maxVal = isLarger ? importanceValues[ i ] : maxVal;
             }
             #pragma unroll_loop_end
-            
+
             // Swap elements (minimal data movement)
-            float tempVal = importanceValues[k];
-            int tempIdx = lightIndices[k];
-            
-            importanceValues[k] = importanceValues[maxIdx];
-            lightIndices[k] = lightIndices[maxIdx];
-            
-            importanceValues[maxIdx] = tempVal;
-            lightIndices[maxIdx] = tempIdx;
+            float tempVal = importanceValues[ k ];
+            int tempIdx = lightIndices[ k ];
+
+            importanceValues[ k ] = importanceValues[ maxIdx ];
+            lightIndices[ k ] = lightIndices[ maxIdx ];
+
+            importanceValues[ maxIdx ] = tempVal;
+            lightIndices[ maxIdx ] = tempIdx;
         }
 
         // Process only the top lights with highest importance
         #pragma unroll_loop_start
-        for (int i = 0; i < numToProcess; i++) {
+        for( int i = 0; i < numToProcess; i ++ ) {
             // Skip negligible contributions
-            if (importanceValues[i] < 0.01) continue;
-            
-            DirectionalLight light = getDirectionalLight(lightIndices[i]);
-            totalLighting += calculateDirectionalLightContribution(
-                light, hitInfo.hitPoint, N, V, hitInfo.material, 
-                brdfSample, bounceIndex, rngState, stats
-            );
+            if( importanceValues[ i ] < 0.01 )
+                continue;
+
+            DirectionalLight light = getDirectionalLight( lightIndices[ i ] );
+            totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
         }
         #pragma unroll_loop_end
     }

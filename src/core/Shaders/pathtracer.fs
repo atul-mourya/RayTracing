@@ -220,6 +220,10 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 	// Store initial ray for helper visualization
 	// Ray initialRay = ray;
 
+    // Initialize media stack
+    MediumStack mediumStack;
+    mediumStack.depth = 0;
+
     // Initialize render state
 	RenderState state;
 	state.transmissiveTraversals = transmissiveBounces;
@@ -249,7 +253,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
 
 		// Handle transparent materials with transmission
-		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state );
+		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );
 
 		if( interaction.continueRay ) {
             // If we have a transmissive interaction, track it separately

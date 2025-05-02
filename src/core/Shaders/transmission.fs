@@ -12,6 +12,21 @@ struct MaterialInteractionResult {
 	float alpha;           // Alpha modification
 };
 
+// Maximum number of nested media
+#define MAX_MEDIA_STACK 4
+
+struct Medium {
+	float ior;
+	vec3 attenuationColor;
+	float attenuationDistance;
+	float dispersion;
+};
+
+struct MediumStack {
+	Medium media[ MAX_MEDIA_STACK ];
+	int depth;
+};
+
 // Calculate wavelength-dependent IOR for dispersion
 vec3 calculateDispersiveIOR( float baseIOR, float dispersionStrength ) {
     // Cauchy's equation coefficients
@@ -146,6 +161,14 @@ TransmissionResult handleTransmission(
     // Adjust reflection probability based on material transmission value
 	float reflectProb = mix( Fr, Fr * ( 1.0 - material.transmission ), material.transmission );
 
+    // Ensure energy conservation between reflection and transmission
+	reflectProb = mix( reflectProb, 0.5 + 0.5 * Fr, material.metalness );
+	reflectProb = mix( reflectProb, reflectProb * ( 1.0 - material.transmission ), material.transmission );
+
+    // Ensure minimum reflection probability at grazing angles for realistic look
+	float grazingFactor = pow( 1.0 - abs( dot( normal, rayDir ) ), 5.0 );
+	reflectProb = max( reflectProb, grazingFactor * 0.5 );
+
     // Force reflection if TIR, otherwise probabilistically choose
 	result.didReflect = totalInternalReflection || ( RandomValue( rngState ) < reflectProb );
 
@@ -241,7 +264,8 @@ MaterialInteractionResult handleMaterialTransparency(
 	vec3 normal,
 	RayTracingMaterial material,
 	inout uint rngState,
-	inout RenderState state
+	inout RenderState state,
+	inout MediumStack mediumStack
 ) {
 	MaterialInteractionResult result;
 	result.continueRay = false;
@@ -302,6 +326,23 @@ MaterialInteractionResult handleMaterialTransparency(
             // Determine if ray is entering or exiting the medium
 			bool entering = dot( ray.direction, normal ) < 0.0;
 			vec3 N = entering ? normal : - normal;
+
+            // Update medium stack
+			if( entering ) {
+                // Push medium onto stack if not full
+				if( mediumStack.depth < MAX_MEDIA_STACK - 1 ) {
+					mediumStack.depth ++;
+					mediumStack.media[ mediumStack.depth ].ior = material.ior;
+					mediumStack.media[ mediumStack.depth ].attenuationColor = material.attenuationColor;
+					mediumStack.media[ mediumStack.depth ].attenuationDistance = material.attenuationDistance;
+					mediumStack.media[ mediumStack.depth ].dispersion = material.dispersion;
+				}
+			} else {
+                // Pop medium from stack if not empty
+				if( mediumStack.depth > 0 ) {
+					mediumStack.depth --;
+				}
+			}
 
             // Use the pre-existing handleTransmission function
 			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState );
