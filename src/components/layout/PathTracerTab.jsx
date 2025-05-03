@@ -75,6 +75,7 @@ const PathTracerTab = () => {
 		oidnHdr, setOidnHdr,
 		exposure, setExposure,
 		enableEnvironment, setEnableEnvironment,
+		useImportanceSampledEnvironment, setUseImportanceSampledEnvironment,
 		showBackground, setShowBackground,
 		backgroundIntensity, setBackgroundIntensity,
 		environmentIntensity, setEnvironmentIntensity,
@@ -180,6 +181,12 @@ const PathTracerTab = () => {
 			case '3': mode = 3; break;
 			case '4': mode = 4; break;
 			case '5': mode = 5; break;
+			case '6': mode = 6; break;
+			case '7': mode = 7; break;
+			case '8': mode = 8; break;
+			case '9': mode = 9; break;
+			case '10': mode = 10; break;
+			case '11': mode = 11; break;
 			default: mode = 0;
 
 		}
@@ -206,6 +213,13 @@ const PathTracerTab = () => {
 	const handleEnableEnvironmentChange = handleChange( setEnableEnvironment, value => {
 
 		window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = value;
+		window.pathTracerApp.reset();
+
+	} );
+
+	const handleUseImportanceSampledEnvironmentChange = handleChange( setUseImportanceSampledEnvironment, value => {
+
+		window.pathTracerApp.pathTracingPass.material.uniforms.useEnvMapIS.value = value;
 		window.pathTracerApp.reset();
 
 	} );
@@ -331,6 +345,9 @@ const PathTracerTab = () => {
 				</div>
 				<div className="flex items-center justify-between">
 					<Slider icon={Exposure} label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} onValueChange={handleExposureChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Switch label={"Use Importance Sampling"} checked={useImportanceSampledEnvironment} onCheckedChange={handleUseImportanceSampledEnvironmentChange} />
 				</div>
 				<div className="flex items-center justify-between">
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
@@ -478,6 +495,12 @@ const PathTracerTab = () => {
 								<SelectItem value="3">Distance</SelectItem>
 								<SelectItem value="4">Normal</SelectItem>
 								<SelectItem value="5">Sampling</SelectItem>
+								<SelectItem value="6">Env: IS Direction</SelectItem>
+								<SelectItem value="7">Env: IS PDF</SelectItem>
+								<SelectItem value="8">Env: Luminance</SelectItem>
+								<SelectItem value="9">Env: PDF Direction</SelectItem>
+								<SelectItem value="10">Env: Raw PDF</SelectItem>
+								<SelectItem value="11">Env: PDF Direction Map</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

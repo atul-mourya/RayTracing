@@ -161,14 +161,15 @@ export const DEFAULT_STATE = {
 	showBackground: true,
 	model: 9,
 	environment: 2,
+	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
 	environmentRotation: 0.0,
 	globalIlluminationIntensity: 1,
-	fov: 50, // Standard 50mm lens equivalent FOV (~47 degrees)
-	focusDistance: 2.0, // 2 meters - good default middle distance
-	aperture: 5.6, // f/5.6 - good balance between depth of field and sharpness
-	focalLength: 50.0, // 50mm - standard/normal lens focal length
+	fov: 65,
+	focusDistance: 0,
+	aperture: 16,
+	focalLength: 0.0,
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
@@ -210,7 +211,8 @@ export const DEFAULT_STATE = {
 	bloomStrength: 0.2,
 	bloomRadius: 0.15,
 	bloomThreshold: 0.85,
-	interactionModeEnabled: true
+	interactionModeEnabled: true,
+	debugVisScale: 100,
 };
 
 export const CAMERA_RANGES = {

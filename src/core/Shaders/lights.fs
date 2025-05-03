@@ -638,12 +638,21 @@ IndirectLightingResult calculateIndirectLighting(
 
     // Select sampling technique based on random value and importance weights
     if( selectionRand < cumulativeEnv && envWeight > 0.001 ) {
-        // Environment map importance sampling (fallback to cosine sampling)
-        sampleDir = cosineWeightedSample( N, randomSample );
-        float NoL = max( dot( N, sampleDir ), 0.0 );
-        samplePdf = NoL * PI_INV;
-        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
-        samplingStrategy = 0;
+        if( useEnvMapIS && enableEnvironmentLight ) {
+            // True environment map importance sampling
+            EnvMapSample envSample = sampleEnvironmentIS( randomSample );
+            sampleDir = envSample.direction;
+            samplePdf = envSample.pdf;
+            sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+            samplingStrategy = 0;
+        } else {
+            // Fallback to cosine-weighted sampling
+            sampleDir = cosineWeightedSample( N, randomSample );
+            float NoL = max( dot( N, sampleDir ), 0.0 );
+            samplePdf = NoL * PI_INV;
+            sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+            samplingStrategy = 0;
+        }
     } else if( selectionRand < cumulativeBrdf && brdfWeight > 0.001 ) {
         // Use the pre-computed BRDF sample
         sampleDir = brdfSample.direction;

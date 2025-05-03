@@ -111,6 +111,7 @@ const usePathTracerStore = create( ( set ) => ( {
 	setOidnHdr: ( value ) => set( { oidnHdr: value } ),
 	setExposure: ( value ) => set( { exposure: value } ),
 	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
+	setUseImportanceSampledEnvironment: ( value ) => set( { useImportanceSampledEnvironment: value } ),
 	setShowBackground: ( value ) => set( { showBackground: value } ),
 	setBackgroundIntensity: ( value ) => set( { backgroundIntensity: value } ),
 	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
