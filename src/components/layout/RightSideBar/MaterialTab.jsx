@@ -6,7 +6,7 @@ import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@
 import { useStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { TextRow } from '../ui/text-row';
+import { TextRow } from '@/components/ui/text-row';
 
 const MaterialTab = () => {
 

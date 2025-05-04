@@ -1,7 +1,7 @@
 import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MODEL_FILES, DEBUG_MODELS } from '../../Constants';
+import { MODEL_FILES, DEBUG_MODELS } from '../../../Constants';
 import { EnvironmentCatalog } from '@/components/ui/env-catalog';
 import { useToast } from "@/hooks/use-toast";
 import { useAssetsStore } from '@/store';

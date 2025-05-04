@@ -26,7 +26,6 @@ export const initDatabase = () => {
 
 			}
 
-			console.log( "Opening database to load previous renders..." );
 			const openRequest = indexedDB.open( DB_NAME, DB_VERSION );
 
 			openRequest.onupgradeneeded = ( event ) => {
@@ -101,7 +100,6 @@ export const initDatabase = () => {
 
 				} else {
 
-					console.log( "Database structure verified, ready to use" );
 					resolve( dbInstance );
 
 				}

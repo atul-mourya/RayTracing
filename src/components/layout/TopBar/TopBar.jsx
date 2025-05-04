@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useState } from 'react';
 import { Menu, Save, FolderOpen, Link, Undo, Redo, Copy, ClipboardPaste, ZoomIn, ZoomOut, Focus, Loader2, Github, ChevronDown } from 'lucide-react';
-import { ThemeToggle } from '../theme-toggle';
+import { ThemeToggle } from '../../theme-toggle';
 import {
 	Menubar,
 	MenubarContent,

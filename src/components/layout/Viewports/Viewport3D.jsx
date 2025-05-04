@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } from 'react';
-import PathTracerApp from '../../core/main';
+import PathTracerApp from '../../../core/main';
 import { Upload, Maximize, Target, Camera } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from '@/hooks/use-toast';

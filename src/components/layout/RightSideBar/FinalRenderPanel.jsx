@@ -4,7 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePathTracerStore as useStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
 
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
