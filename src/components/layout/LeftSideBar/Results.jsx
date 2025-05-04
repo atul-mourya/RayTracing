@@ -1,5 +1,5 @@
 import { useStore } from '@/store';
-import { useEffect, useState, useCallback, useRef, memo, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef, memo, useMemo } from 'react';
 import { getAllRenders, deleteRender } from '@/utils/database';
 import { Calendar, Clock, Trash2, AlertTriangle } from 'lucide-react';
 import {
@@ -12,6 +12,408 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+// Create Context for sharing state across components
+const ResultsContext = createContext( null );
+
+// Custom hook to use the Results context
+const useResultsContext = () => {
+
+	const context = useContext( ResultsContext );
+	if ( ! context ) {
+
+		throw new Error( 'useResultsContext must be used within a ResultsProvider' );
+
+	}
+
+	return context;
+
+};
+
+// Custom hook for handling images data and selection
+const useResultsData = () => {
+
+	const isMountedRef = useRef( true );
+	const isResultsTabRef = useRef( false );
+	const initialFetchDoneRef = useRef( false ); // Add ref to track initial fetch
+
+	const [ imagesState, setImagesState ] = useState( {
+		renderedImages: [],
+		selectedImageIndex: null,
+		loading: true,
+		error: null,
+		isFetching: false
+	} );
+
+	// Access store with direct references to avoid re-renders
+	const storeRef = useRef( null );
+	const appMode = useStore( state => {
+
+		storeRef.current = state;
+		return state.appMode;
+
+	} );
+
+	// Extract setSelectedResult from store using ref
+	const setSelectedResult = () => storeRef.current?.setSelectedResult || ( () => {} );
+
+	// Update isResultsTab ref when appMode changes
+	useEffect( () => {
+
+		isResultsTabRef.current = appMode === 'results';
+
+	}, [ appMode ] );
+
+	// Set up mount/unmount tracking
+	useEffect( () => {
+
+		isMountedRef.current = true;
+		return () => {
+
+			isMountedRef.current = false;
+
+		};
+
+	}, [] );
+
+	// Fetch images with proper state management
+	const fetchImages = useCallback( async ( options = {} ) => {
+
+		const { force = false } = options;
+
+		// Get current state values instead of using dependencies
+		const isFetching = imagesState.isFetching;
+
+		// Prevent duplicate fetches
+		if ( ( isFetching || ! isMountedRef.current ) && ! force ) return;
+
+		try {
+
+			setImagesState( prev => ( {
+				...prev,
+				isFetching: true,
+				loading: prev.renderedImages.length === 0,
+				error: null
+			} ) );
+
+			const images = await getAllRenders();
+
+			// Check if component is still mounted before updating state
+			if ( ! isMountedRef.current ) return;
+
+			setImagesState( prev => {
+
+				const newState = {
+					...prev,
+					renderedImages: images,
+					loading: false,
+					isFetching: false
+				};
+
+				// Auto-select the first image if available and none selected
+				if ( images.length > 0 && prev.selectedImageIndex === null ) {
+
+					newState.selectedImageIndex = 0;
+
+					// Only update selected result if we're in results tab
+					if ( isResultsTabRef.current ) {
+
+						setSelectedResult()( images[ 0 ] );
+
+					}
+
+				} else if ( images.length === 0 ) {
+
+					newState.selectedImageIndex = null;
+
+					if ( isResultsTabRef.current ) {
+
+						setSelectedResult()( null );
+
+					}
+
+				}
+
+				return newState;
+
+			} );
+
+		} catch ( err ) {
+
+			// Check if component is still mounted before updating state
+			if ( ! isMountedRef.current ) return;
+
+			setImagesState( prev => ( {
+				...prev,
+				error: err.message,
+				loading: false,
+				isFetching: false
+			} ) );
+
+		}
+
+	}, [] ); // Remove dependency on imagesState.isFetching
+
+	// Handle initial fetch - only run once
+	useEffect( () => {
+
+		// Only run if not already fetched
+		if ( ! initialFetchDoneRef.current && isMountedRef.current ) {
+
+			const initialFetchTimer = setTimeout( () => {
+
+				if ( isMountedRef.current ) {
+
+					initialFetchDoneRef.current = true; // Mark as fetched
+					fetchImages();
+
+				}
+
+			}, 500 );
+
+			return () => clearTimeout( initialFetchTimer );
+
+		}
+
+	}, [] );
+
+	// Set up event listeners for render-saved events
+	useEffect( () => {
+
+		// Create a named handler for proper cleanup
+		const handleRenderSaved = () => {
+
+			if ( ! isMountedRef.current ) return;
+
+			// Debounce the fetch to prevent multiple rapid fetches
+			const timeoutId = setTimeout( () => {
+
+				if ( isMountedRef.current ) {
+
+					fetchImages( { force: true } );
+
+				}
+
+			}, 100 );
+
+			return () => clearTimeout( timeoutId );
+
+		};
+
+		window.addEventListener( 'render-saved', handleRenderSaved );
+
+		return () => {
+
+			window.removeEventListener( 'render-saved', handleRenderSaved );
+
+		};
+
+	}, [] );
+
+	// Handle selected image change
+	useEffect( () => {
+
+		if ( ! isMountedRef.current ) return;
+
+		const { selectedImageIndex, renderedImages } = imagesState;
+
+		if ( selectedImageIndex !== null &&
+			renderedImages.length > 0 &&
+			isResultsTabRef.current ) {
+
+			setSelectedResult()( renderedImages[ selectedImageIndex ] );
+
+		}
+
+	}, [ imagesState.selectedImageIndex, imagesState.renderedImages ] );
+
+	// Handle image selection
+	const handleImageSelect = useCallback( ( index ) => {
+
+		if ( ! isMountedRef.current ) return;
+		setImagesState( prev => ( { ...prev, selectedImageIndex: index } ) );
+
+	}, [] );
+
+	return {
+		...imagesState,
+		isMountedRef,
+		isResultsTabRef,
+		fetchImages,
+		handleImageSelect,
+		setImagesState
+	};
+
+};
+
+// Custom hook for handling image deletion
+const useDeleteRender = ( imagesState, setImagesState, isMountedRef, isResultsTabRef ) => {
+
+	const [ deleteState, setDeleteState ] = useState( {
+		deleteDialogOpen: false,
+		renderToDelete: null,
+		isDeleting: false
+	} );
+
+	// Store reference for stable access
+	const storeRef = useRef( null );
+	useStore( state => {
+
+		storeRef.current = state;
+
+	} );
+
+	// Extract setSelectedResult from store using ref
+	const setSelectedResult = () => storeRef.current?.setSelectedResult || ( () => {} );
+
+	// Handle opening the delete confirmation dialog
+	const handleDeleteClick = useCallback( ( e, image, index ) => {
+
+		e.stopPropagation(); // Prevent selecting the image when clicking delete
+
+		if ( ! isMountedRef.current ) return;
+
+		setDeleteState( {
+			deleteDialogOpen: true,
+			renderToDelete: { image, index },
+			isDeleting: false
+		} );
+
+	}, [ isMountedRef ] );
+
+	// Handle confirming deletion
+	const handleConfirmDelete = useCallback( async () => {
+
+		const { renderToDelete } = deleteState;
+		const { selectedImageIndex } = imagesState;
+
+		if ( ! renderToDelete || ! renderToDelete.image || ! isMountedRef.current ) return;
+
+		try {
+
+			setDeleteState( prev => ( { ...prev, isDeleting: true } ) );
+
+			// Call the database function to delete the render
+			await deleteRender( renderToDelete.image.id );
+
+			// Check if component is still mounted before updating state
+			if ( ! isMountedRef.current ) return;
+
+			// Force a refresh from the database to ensure consistency
+			const freshImages = await getAllRenders();
+
+			if ( ! isMountedRef.current ) return;
+
+			// Calculate the new selected index
+			let newSelectedIndex = selectedImageIndex;
+
+			if ( freshImages.length === 0 ) {
+
+				newSelectedIndex = null;
+
+			} else if ( selectedImageIndex === renderToDelete.index ) {
+
+				// If the deleted image was selected, select the next one or the last one
+				newSelectedIndex = Math.min( selectedImageIndex, freshImages.length - 1 );
+
+				// Update the selected result if we're in results tab
+				if ( isResultsTabRef.current && freshImages[ newSelectedIndex ] ) {
+
+					setSelectedResult()( freshImages[ newSelectedIndex ] );
+
+				} else if ( freshImages.length === 0 ) {
+
+					setSelectedResult()( null );
+
+				}
+
+			} else if ( selectedImageIndex > renderToDelete.index ) {
+
+				// If the selected index is after the deleted one, decrement it
+				newSelectedIndex = selectedImageIndex - 1;
+
+			}
+
+			// Update image state
+			setImagesState( prev => ( {
+				...prev,
+				renderedImages: freshImages,
+				selectedImageIndex: newSelectedIndex
+			} ) );
+
+			// Reset delete state
+			setDeleteState( {
+				deleteDialogOpen: false,
+				renderToDelete: null,
+				isDeleting: false
+			} );
+
+		} catch ( error ) {
+
+			console.error( 'Error deleting render:', error );
+
+			// Check if component is still mounted before updating state
+			if ( ! isMountedRef.current ) return;
+
+			setImagesState( prev => ( {
+				...prev,
+				error: `Failed to delete: ${error.message}`
+			} ) );
+
+			setDeleteState( {
+				deleteDialogOpen: false,
+				renderToDelete: null,
+				isDeleting: false
+			} );
+
+		}
+
+	}, [ deleteState, imagesState.selectedImageIndex, isMountedRef, isResultsTabRef, setImagesState ] );
+
+	// Handle canceling deletion
+	const handleCancelDelete = useCallback( () => {
+
+		if ( ! isMountedRef.current ) return;
+
+		setDeleteState( {
+			deleteDialogOpen: false,
+			renderToDelete: null,
+			isDeleting: false
+		} );
+
+	}, [ isMountedRef ] );
+
+	return {
+		...deleteState,
+		handleDeleteClick,
+		handleConfirmDelete,
+		handleCancelDelete
+	};
+
+};
+
+// Memoized utility function for date formatting
+const useFormatDate = () => {
+
+	return useCallback( ( dateString ) => {
+
+		const date = new Date( dateString );
+		return {
+			date: date.toLocaleDateString( undefined, {
+				day: 'numeric',
+				month: 'short',
+				year: 'numeric'
+			} ),
+			time: date.toLocaleTimeString( undefined, {
+				hour: '2-digit',
+				minute: '2-digit',
+				hour12: false
+			} )
+		};
+
+	}, [] );
+
+};
 
 // Memoized render item component to prevent unnecessary re-renders
 const RenderItem = memo( ( {
@@ -137,378 +539,10 @@ const DeleteConfirmationDialog = memo( ( {
 
 DeleteConfirmationDialog.displayName = 'DeleteConfirmationDialog';
 
-// Main Results component
-const Results = memo( () => {
+// Component for header section
+const ResultsHeader = memo( ( { loading, error, renderedImages } ) => {
 
-	// Create refs for tracking component state
-	const isMountedRef = useRef( true );
-	const isResultsTabRef = useRef( false );
-
-	// Group related state to reduce re-renders
-	const [ imagesState, setImagesState ] = useState( {
-		renderedImages: [],
-		selectedImageIndex: null,
-		loading: true,
-		error: null,
-		isFetching: false
-	} );
-
-	const [ deleteState, setDeleteState ] = useState( {
-		deleteDialogOpen: false,
-		renderToDelete: null,
-		isDeleting: false
-	} );
-
-	// Extract state for readability
-	const { renderedImages, selectedImageIndex, loading, error, isFetching } = imagesState;
-	const { deleteDialogOpen, renderToDelete, isDeleting } = deleteState;
-
-	// Access store with direct references to avoid re-renders
-	const storeRef = useRef( null );
-	const appMode = useStore( state => {
-
-		storeRef.current = state;
-		return state.appMode;
-
-	} );
-
-	// Extract setSelectedResult from store using ref to avoid unnecessary re-renders
-	const setSelectedResult = () => {
-
-		if ( storeRef.current ) {
-
-			return storeRef.current.setSelectedResult;
-
-		}
-
-		return () => { };
-
-	};
-
-	// Update isResultsTab ref when appMode changes
-	useEffect( () => {
-
-		isResultsTabRef.current = appMode === 'results';
-
-	}, [ appMode ] );
-
-	// Set up mount/unmount tracking
-	useEffect( () => {
-
-		isMountedRef.current = true;
-
-		return () => {
-
-			isMountedRef.current = false;
-
-		};
-
-	}, [] );
-
-	// Stable image error handler
-	const handleImageError = useCallback( ( e ) => {
-
-		e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3EImage Error%3C/text%3E%3C/svg%3E';
-
-	}, [] );
-
-	// Format date with stable reference
-	const formatDate = useCallback( ( dateString ) => {
-
-		const date = new Date( dateString );
-		return {
-			date: date.toLocaleDateString( undefined, {
-				day: 'numeric',
-				month: 'short',
-				year: 'numeric'
-			} ),
-			time: date.toLocaleTimeString( undefined, {
-				hour: '2-digit',
-				minute: '2-digit',
-				hour12: false
-			} )
-		};
-
-	}, [] );
-
-	// Fetch images with proper state management
-	const fetchImages = useCallback( async ( options = {} ) => {
-
-		const { force = false } = options;
-
-		// Prevent duplicate fetches
-		if ( ( isFetching || ! isMountedRef.current ) && ! force ) return;
-
-		try {
-
-			setImagesState( prev => ( {
-				...prev,
-				isFetching: true,
-				loading: prev.renderedImages.length === 0,
-				error: null
-			} ) );
-
-			const images = await getAllRenders();
-
-			// Check if component is still mounted before updating state
-			if ( ! isMountedRef.current ) return;
-
-			setImagesState( prev => {
-
-				const newState = {
-					...prev,
-					renderedImages: images,
-					loading: false,
-					isFetching: false
-				};
-
-				// Auto-select the first image if available and none selected
-				if ( images.length > 0 && prev.selectedImageIndex === null ) {
-
-					newState.selectedImageIndex = 0;
-
-					// Only update selected result if we're in results tab
-					if ( isResultsTabRef.current ) {
-
-						setSelectedResult()( images[ 0 ] );
-
-					}
-
-				} else if ( images.length === 0 ) {
-
-					newState.selectedImageIndex = null;
-
-					if ( isResultsTabRef.current ) {
-
-						setSelectedResult()( null );
-
-					}
-
-				}
-
-				return newState;
-
-			} );
-
-		} catch ( err ) {
-
-			// Check if component is still mounted before updating state
-			if ( ! isMountedRef.current ) return;
-
-			setImagesState( prev => ( {
-				...prev,
-				error: err.message,
-				loading: false,
-				isFetching: false
-			} ) );
-
-		}
-
-	}, [] );
-
-	// Handle initial fetch - only run once
-	useEffect( () => {
-
-		const initialFetchTimer = setTimeout( () => {
-
-			if ( isMountedRef.current ) {
-
-				fetchImages();
-
-			}
-
-		}, 500 );
-
-		return () => clearTimeout( initialFetchTimer );
-
-	}, [ fetchImages ] );
-
-	// Set up event listeners for render-saved events
-	useEffect( () => {
-
-		// Create a named handler for proper cleanup
-		const handleRenderSaved = () => {
-
-			// If already fetching or component unmounted, don't queue another fetch
-			if ( ! isMountedRef.current ) return;
-
-			// Debounce the fetch to prevent multiple rapid fetches
-			const timeoutId = setTimeout( () => {
-
-				if ( isMountedRef.current ) {
-
-					fetchImages( { force: true } );
-
-				}
-
-			}, 100 );
-
-			return () => clearTimeout( timeoutId );
-
-		};
-
-		window.addEventListener( 'render-saved', handleRenderSaved );
-
-		// Clean up on unmount
-		return () => {
-
-			window.removeEventListener( 'render-saved', handleRenderSaved );
-
-		};
-
-	}, [ fetchImages ] );
-
-	// Handle selected image change
-	useEffect( () => {
-
-		if ( ! isMountedRef.current ) return;
-
-		if ( selectedImageIndex !== null &&
-			renderedImages.length > 0 &&
-			isResultsTabRef.current ) {
-
-			setSelectedResult()( renderedImages[ selectedImageIndex ] );
-
-		}
-
-	}, [ selectedImageIndex, renderedImages ] );
-
-	// Handle image selection
-	const handleImageSelect = useCallback( ( index ) => {
-
-		if ( ! isMountedRef.current ) return;
-
-		setImagesState( prev => ( { ...prev, selectedImageIndex: index } ) );
-
-	}, [] );
-
-	// Handle opening the delete confirmation dialog
-	const handleDeleteClick = useCallback( ( e, image, index ) => {
-
-		e.stopPropagation(); // Prevent selecting the image when clicking delete
-
-		if ( ! isMountedRef.current ) return;
-
-		setDeleteState( {
-			deleteDialogOpen: true,
-			renderToDelete: { image, index },
-			isDeleting: false
-		} );
-
-	}, [] );
-
-	// Handle confirming deletion
-	const handleConfirmDelete = useCallback( async () => {
-
-		if ( ! renderToDelete || ! renderToDelete.image || ! isMountedRef.current ) return;
-
-		try {
-
-			setDeleteState( prev => ( { ...prev, isDeleting: true } ) );
-
-			// Call the database function to delete the render
-			await deleteRender( renderToDelete.image.id );
-
-			// Check if component is still mounted before updating state
-			if ( ! isMountedRef.current ) return;
-
-			// Force a refresh from the database to ensure consistency
-			const freshImages = await getAllRenders();
-
-			if ( ! isMountedRef.current ) return;
-
-			// Calculate the new selected index
-			let newSelectedIndex = selectedImageIndex;
-
-			if ( freshImages.length === 0 ) {
-
-				newSelectedIndex = null;
-
-			} else if ( selectedImageIndex === renderToDelete.index ) {
-
-				// If the deleted image was selected, select the next one or the last one
-				newSelectedIndex = Math.min( selectedImageIndex, freshImages.length - 1 );
-
-				// Update the selected result if we're in results tab
-				if ( isResultsTabRef.current && freshImages[ newSelectedIndex ] ) {
-
-					setSelectedResult()( freshImages[ newSelectedIndex ] );
-
-				} else if ( freshImages.length === 0 ) {
-
-					setSelectedResult()( null );
-
-				}
-
-			} else if ( selectedImageIndex > renderToDelete.index ) {
-
-				// If the selected index is after the deleted one, decrement it
-				newSelectedIndex = selectedImageIndex - 1;
-
-			}
-
-			// Update image state
-			setImagesState( prev => ( {
-				...prev,
-				renderedImages: freshImages,
-				selectedImageIndex: newSelectedIndex
-			} ) );
-
-			// Reset delete state
-			setDeleteState( {
-				deleteDialogOpen: false,
-				renderToDelete: null,
-				isDeleting: false
-			} );
-
-		} catch ( error ) {
-
-			console.error( 'Error deleting render:', error );
-
-			// Check if component is still mounted before updating state
-			if ( ! isMountedRef.current ) return;
-
-			setImagesState( prev => ( {
-				...prev,
-				error: `Failed to delete: ${error.message}`
-			} ) );
-
-			setDeleteState( {
-				deleteDialogOpen: false,
-				renderToDelete: null,
-				isDeleting: false
-			} );
-
-			// Trigger a refresh to ensure database and UI are in sync
-			setTimeout( () => {
-
-				if ( isMountedRef.current ) {
-
-					fetchImages( { force: true } );
-
-				}
-
-			}, 500 );
-
-		}
-
-	}, [ renderToDelete, selectedImageIndex, fetchImages ] );
-
-	// Handle canceling deletion
-	const handleCancelDelete = useCallback( () => {
-
-		if ( ! isMountedRef.current ) return;
-
-		setDeleteState( {
-			deleteDialogOpen: false,
-			renderToDelete: null,
-			isDeleting: false
-		} );
-
-	}, [] );
-
-	// Memoize UI elements that don't need to re-render often
-	const headerSection = useMemo( () => (
+	return (
 		<div className="p-4 border-b border-border bg-card">
 			<h2 className="text-lg font-semibold">Saved Renders</h2>
 			{! loading && ! error && renderedImages.length > 0 && (
@@ -517,91 +551,145 @@ const Results = memo( () => {
 				</p>
 			)}
 		</div>
-	), [ loading, error, renderedImages.length ] );
+	);
 
-	const loadingSection = useMemo( () => {
+} );
 
-		if ( ! loading ) return null;
+ResultsHeader.displayName = 'ResultsHeader';
 
-		return (
-			<div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-				<div className="flex flex-col items-center space-y-2">
-					<div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
-					<span>Loading saved renders...</span>
-				</div>
+// Component for loading state
+const LoadingState = memo( () => (
+	<div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+		<div className="flex flex-col items-center space-y-2">
+			<div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+			<span>Loading saved renders...</span>
+		</div>
+	</div>
+) );
+
+LoadingState.displayName = 'LoadingState';
+
+// Component for error state
+const ErrorState = memo( ( { error } ) => (
+	<div className="p-4 m-3 text-sm text-destructive-foreground bg-destructive/10 rounded-md border border-destructive/20">
+		<div className="font-medium mb-1">Error loading renders</div>
+		{error}
+	</div>
+) );
+
+ErrorState.displayName = 'ErrorState';
+
+// Component for empty state
+const EmptyState = memo( () => (
+	<div className="flex-1 flex items-center justify-center p-4 text-sm text-muted-foreground">
+		<div className="text-center">
+			<div className="text-4xl mb-3">📷</div>
+			<div className="font-medium">No rendered images available</div>
+			<p className="text-xs mt-2 max-w-xs">Complete a render in the &quot;Final Render&quot; tab to see results here</p>
+		</div>
+	</div>
+) );
+
+EmptyState.displayName = 'EmptyState';
+
+// Component for render gallery
+const RenderGallery = memo( () => {
+
+	const { renderedImages, selectedImageIndex, handleImageSelect } = useResultsContext();
+	const formatDate = useFormatDate();
+	const { handleDeleteClick } = useResultsContext();
+
+	const handleImageError = useCallback( ( e ) => {
+
+		e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3EImage Error%3C/text%3E%3C/svg%3E';
+
+	}, [] );
+
+	return (
+		<div className="flex-1 overflow-y-auto custom-scrollbar">
+			<div className="grid grid-cols-1 gap-3 p-3">
+				{renderedImages.map( ( image, index ) => {
+
+					const formattedDate = formatDate( image.timestamp );
+					return (
+						<RenderItem
+							key={`render-${image.id || image.timestamp || index}`}
+							image={image}
+							index={index}
+							isSelected={selectedImageIndex === index}
+							formattedDate={formattedDate}
+							onSelect={handleImageSelect}
+							onDelete={handleDeleteClick}
+							handleImageError={handleImageError}
+						/>
+					);
+
+				} )}
 			</div>
-		);
+		</div>
+	);
 
-	}, [ loading ] );
+} );
 
-	const errorSection = useMemo( () => {
+RenderGallery.displayName = 'RenderGallery';
 
-		if ( ! error ) return null;
+// Results provider component for context
+const ResultsProvider = ( { children } ) => {
 
-		return (
-			<div className="p-4 m-3 text-sm text-destructive-foreground bg-destructive/10 rounded-md border border-destructive/20">
-				<div className="font-medium mb-1">Error loading renders</div>
-				{error}
-			</div>
-		);
-
-	}, [ error ] );
-
-	const emptySection = useMemo( () => {
-
-		if ( loading || error || renderedImages.length > 0 ) return null;
-
-		return (
-			<div className="flex-1 flex items-center justify-center p-4 text-sm text-muted-foreground">
-				<div className="text-center">
-					<div className="text-4xl mb-3">📷</div>
-					<div className="font-medium">No rendered images available</div>
-					<p className="text-xs mt-2 max-w-xs">Complete a render in the &quot;Final Render&quot; tab to see results here</p>
-				</div>
-			</div>
-		);
-
-	}, [ loading, error, renderedImages.length ] );
-
-	// Render gallery section only when needed
-	const gallerySection = useMemo( () => {
-
-		if ( loading || error || renderedImages.length === 0 ) return null;
-
-		return (
-			<div className="flex-1 overflow-y-auto custom-scrollbar">
-				<div className="grid grid-cols-1 gap-3 p-3">
-					{renderedImages.map( ( image, index ) => {
-
-						const formattedDate = formatDate( image.timestamp );
-						return (
-							<RenderItem
-								key={`render-${image.id || image.timestamp || index}`}
-								image={image}
-								index={index}
-								isSelected={selectedImageIndex === index}
-								formattedDate={formattedDate}
-								onSelect={handleImageSelect}
-								onDelete={handleDeleteClick}
-								handleImageError={handleImageError}
-							/>
-						);
-
-					} )}
-				</div>
-			</div>
-		);
-
-	}, [
-		loading,
-		error,
+	const resultsData = useResultsData();
+	const {
 		renderedImages,
 		selectedImageIndex,
-		formatDate,
-		handleImageSelect,
-		handleDeleteClick,
-		handleImageError
-	] );
+		loading,
+		error,
+		isMountedRef,
+		isResultsTabRef,
+		setImagesState
+	} = resultsData;
+
+	const deleteHandler = useDeleteRender(
+		{ renderedImages, selectedImageIndex },
+		setImagesState,
+		isMountedRef,
+		isResultsTabRef
+	);
+
+	const contextValue = useMemo( () => ( {
+		...resultsData,
+		...deleteHandler
+	} ), [ resultsData, deleteHandler ] );
+
+	return (
+		<ResultsContext.Provider value={contextValue}>
+			{children}
+		</ResultsContext.Provider>
+	);
+
+};
+
+// Main Results component
+const Results = memo( () => {
+
+	return (
+		<ResultsProvider>
+			<ResultsContent />
+		</ResultsProvider>
+	);
+
+} );
+
+// Content component using the provided context
+const ResultsContent = memo( () => {
+
+	const {
+		renderedImages,
+		loading,
+		error,
+		deleteDialogOpen,
+		handleCancelDelete,
+		handleConfirmDelete,
+		isDeleting
+	} = useResultsContext();
 
 	return (
 		<div className="h-full flex flex-col bg-background text-foreground">
@@ -613,15 +701,18 @@ const Results = memo( () => {
 				isDeleting={isDeleting}
 			/>
 
-			{headerSection}
-			{loadingSection}
-			{errorSection}
-			{emptySection}
-			{gallerySection}
+			<ResultsHeader loading={loading} error={error} renderedImages={renderedImages} />
+
+			{loading && <LoadingState />}
+			{error && <ErrorState error={error} />}
+			{! loading && ! error && renderedImages.length === 0 && <EmptyState />}
+			{! loading && ! error && renderedImages.length > 0 && <RenderGallery />}
 		</div>
 	);
 
 } );
+
+ResultsContent.displayName = 'ResultsContent';
 
 // Add display name for debugging
 Results.displayName = 'Results';
