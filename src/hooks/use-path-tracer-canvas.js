@@ -68,13 +68,13 @@ export function usePathTracerCanvas() {
 
 		if ( mode === "interactive" ) {
 
+			setRenderMode( 0 );
+			setInteractionModeEnabled( true );
 			setBounces( 2 );
 			setSamplesPerPixel( 1 );
-			setInteractionModeEnabled( true );
 			setEnableOIDN( false );
 			setUseGBuffer( false );
 			setResolution( '1' );
-			setRenderMode( 0 );
 
 			if ( window.pathTracerApp ) {
 
@@ -98,13 +98,13 @@ export function usePathTracerCanvas() {
 
 		} else if ( mode === "final" ) {
 
-			setBounces( 8 );
+			setRenderMode( 1 );
 			setSamplesPerPixel( 1 );
 			setInteractionModeEnabled( false );
 			setEnableOIDN( true );
 			setUseGBuffer( true );
 			setResolution( '3' );
-			setRenderMode( 1 );
+			setBounces( 8 );
 
 			if ( window.pathTracerApp ) {
 
