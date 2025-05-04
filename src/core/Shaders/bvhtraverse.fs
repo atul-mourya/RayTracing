@@ -66,6 +66,7 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.sheenRoughness = data[ 4 ].a;
 
 	material.sheenColor = data[ 5 ].rgb;
+	material.bumpScale = data[ 5 ].a;
 
 	material.specularIntensity = data[ 6 ].r;
 	material.specularColor = data[ 6 ].gba;

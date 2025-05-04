@@ -9,11 +9,11 @@ RayTracing Project TODO
 - [ ]  on model load, the canvas size changes
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 - [ ]  fullscreen canvas not working
+- [ ]  switching to render mode doent trigger oidn denoiser
 
 ✨ Core Features
 ---------------
 
-- [ ]  Implement support for bumpmap
 - [ ]  Transparent background support
 - [ ]  Subsurface scattering implementation
 - [ ]  Volumetric rendering

@@ -66,28 +66,38 @@ float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
 }
 
 vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
-	if( material.normalMapIndex < 0 )
-		return normal;
+	vec3 resultNormal = normal;
 
-	vec2 transformedUV = getTransformedUV( uv, material.normalTransform );
-	vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, transformedUV ).xyz * 2.0 - 1.0;
-	normalMap.xy *= material.normalScale;
+	// Apply normal mapping if available
+	if( material.normalMapIndex >= 0 ) {
+		vec2 transformedUV = getTransformedUV( uv, material.normalTransform );
+		vec3 normalMap = sampleMap( normalMaps, material.normalMapIndex, transformedUV ).xyz * 2.0 - 1.0;
+		normalMap.xy *= material.normalScale;
 
-	mat3 TBN = constructTBN( normal );
-	return normalize( TBN * normalMap );
+		mat3 TBN = constructTBN( normal );
+		resultNormal = normalize( TBN * normalMap );
+	}
 
-	// Apply bump mapping
-	// if( material.bumpMapIndex >= 0 ) {
-	// 	float bumpScale = 0.05; // Adjust this value to control the strength of the bump effect
-	// 	vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
+	// Apply bump mapping if available
+	if( material.bumpMapIndex >= 0 ) {
+		vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
+		vec2 transformedUV = getTransformedUV( uv, material.bumpTransform );
 
-	// 	float h0 = sampleMap( bumpMaps, material.bumpMapIndex, uv, material.bumpTransform ).r;
-	// 	float h1 = sampleMap( bumpMaps, material.bumpMapIndex, uv + vec2( texelSize.x, 0.0 ), material.bumpTransform ).r;
-	// 	float h2 = sampleMap( bumpMaps, material.bumpMapIndex, uv + vec2( 0.0, texelSize.y ), material.bumpTransform ).r;
+		// Sample height at current position and neighboring texels
+		float h0 = sampleMap( bumpMaps, material.bumpMapIndex, transformedUV ).r;
+		float h1 = sampleMap( bumpMaps, material.bumpMapIndex, transformedUV + vec2( texelSize.x, 0.0 ) ).r;
+		float h2 = sampleMap( bumpMaps, material.bumpMapIndex, transformedUV + vec2( 0.0, texelSize.y ) ).r;
 
-	// 	vec3 bumpNormal = normalize( vec3( h1 - h0, h2 - h0, bumpScale ) );
-	// 	resultNormal = normalize( resultNormal + bumpNormal );
-	// }
+		// Calculate a simple normal from the height difference
+		vec3 bumpNormal = normalize( vec3( h0 - h1, h0 - h2, material.bumpScale ) );
+		
+		// Create TBN matrix for the current normal
+		mat3 TBN = constructTBN( resultNormal );
+		
+		// Transform bump normal to world space and blend with existing normal
+		bumpNormal = TBN * bumpNormal;
+		resultNormal = normalize( mix(resultNormal, bumpNormal, material.normalScale.x) );
+	}
 
-	// return resultNormal;
+	return resultNormal;
 }

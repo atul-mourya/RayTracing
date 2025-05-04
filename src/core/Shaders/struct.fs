@@ -34,6 +34,7 @@ struct RayTracingMaterial {
 	int emissiveMapIndex;
 	int normalMapIndex;
 	int bumpMapIndex;
+	float bumpScale;
 	int metalnessMapIndex;
 	int roughnessMapIndex;
 	vec2 normalScale;

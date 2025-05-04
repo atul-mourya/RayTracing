@@ -168,6 +168,7 @@ export default class GeometryExtractor {
 			iridescenceThicknessRange: material.iridescenceThicknessRange,
 			side: this.getMaterialSide( material ),
 			normalScale: material.normalScale ?? { x: 1, y: 1 },
+			bumpScale: material.bumpScale ?? 1,
 			transparent: material.transparent ? 1 : 0,
 			alphaTest: material.alphaTest ?? 0.0,
 			alphaMode: alphaMode,
