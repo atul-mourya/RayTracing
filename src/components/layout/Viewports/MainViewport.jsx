@@ -117,6 +117,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// References
 	const containerRef = useRef( null );
 	const isFirstRender = useRef( true );
+	const prevMode = useRef( mode );
 
 	// Consolidated state for better management
 	const [ viewportState, setViewportState ] = useState( {
@@ -159,6 +160,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// Update maxSamples when mode changes
 	useEffect( () => {
 
+		// Only perform update if mode has actually changed (not on first render)
 		if ( isFirstRender.current ) {
 
 			isFirstRender.current = false;
@@ -166,11 +168,22 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
+		// Skip if mode hasn't changed
+		if ( prevMode.current === mode ) {
+
+			return;
+
+		}
+
+		prevMode.current = mode;
 		const newMaxSamples = mode === "interactive" ? 60 : 30;
 
 		if ( window.pathTracerApp ) {
 
+			// Batch these operations to minimize render cycles
 			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
+
+			// Use functional update to guarantee we're working with latest state
 			setMaxSamples( newMaxSamples );
 			setViewportState( prev => ( { ...prev, stats: { ...prev.stats, samples: 0 } } ) );
 
@@ -181,38 +194,40 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// Set up event listeners for denoising and rendering
 	useEffect( () => {
 
+		// Define handlers outside to avoid recreating them on each render
 		const handleDenoisingStart = () => setViewportState( prev => ( { ...prev, isDenoising: true } ) );
 		const handleDenoisingEnd = () => setViewportState( prev => ( { ...prev, isDenoising: false } ) );
 		const handleRenderComplete = () => setViewportState( prev => ( { ...prev, renderComplete: true } ) );
 		const handleRenderReset = () => setViewportState( prev => ( { ...prev, renderComplete: false } ) );
 
-		if ( window.pathTracerApp ) {
+		const app = window.pathTracerApp;
+		if ( app ) {
 
-			if ( window.pathTracerApp.denoiser ) {
+			if ( app.denoiser ) {
 
-				window.pathTracerApp.denoiser.addEventListener( 'start', handleDenoisingStart );
-				window.pathTracerApp.denoiser.addEventListener( 'end', handleDenoisingEnd );
+				app.denoiser.addEventListener( 'start', handleDenoisingStart );
+				app.denoiser.addEventListener( 'end', handleDenoisingEnd );
 
 			}
 
-			window.pathTracerApp.addEventListener( 'RenderComplete', handleRenderComplete );
-			window.pathTracerApp.addEventListener( 'RenderReset', handleRenderReset );
+			app.addEventListener( 'RenderComplete', handleRenderComplete );
+			app.addEventListener( 'RenderReset', handleRenderReset );
 
 		}
 
 		return () => {
 
-			if ( window.pathTracerApp ) {
+			if ( app ) {
 
-				if ( window.pathTracerApp.denoiser ) {
+				if ( app.denoiser ) {
 
-					window.pathTracerApp.denoiser.removeEventListener( 'start', handleDenoisingStart );
-					window.pathTracerApp.denoiser.removeEventListener( 'end', handleDenoisingEnd );
+					app.denoiser.removeEventListener( 'start', handleDenoisingStart );
+					app.denoiser.removeEventListener( 'end', handleDenoisingEnd );
 
 				}
 
-				window.pathTracerApp.removeEventListener( 'RenderComplete', handleRenderComplete );
-				window.pathTracerApp.removeEventListener( 'RenderReset', handleRenderReset );
+				app.removeEventListener( 'RenderComplete', handleRenderComplete );
+				app.removeEventListener( 'RenderReset', handleRenderReset );
 
 			}
 
@@ -223,6 +238,8 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// Handler for editing max samples
 	const handleMaxSamplesEdit = useCallback( ( value ) => {
 
+		if ( value === maxSamples ) return; // Skip if value hasn't changed
+
 		setMaxSamples( value );
 		if ( window.pathTracerApp ) {
 
@@ -231,7 +248,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
-	}, [ setMaxSamples ] );
+	}, [ setMaxSamples, maxSamples ] );
 
 	// Handler for saving renders
 	const handleSave = useCallback( async () => {

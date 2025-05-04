@@ -8,10 +8,12 @@ RayTracing Project TODO
 - [ ]  drag and drop models retriggers the rendering blocking the UI and bvh generation delay
 - [ ]  on model load, the canvas size changes
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
+- [ ]  fullscreen canvas not working
 
 ✨ Core Features
 ---------------
 
+- [ ]  Implement support for bumpmap
 - [ ]  Transparent background support
 - [ ]  Subsurface scattering implementation
 - [ ]  Volumetric rendering
@@ -21,7 +23,6 @@ RayTracing Project TODO
 - [ ]  Implement support for spot light
 - [ ]  Implement support for IES light
 - [ ]  Introduce tessalation free displacement mapping
-- [ ]  Implement support for bumpmap
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
 

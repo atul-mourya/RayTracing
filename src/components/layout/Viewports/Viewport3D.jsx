@@ -11,7 +11,7 @@ import ViewportResizer from './ViewportResizer';
 import { useAssetsStore } from '@/store';
 
 // Extract dropzone visualization to a separate component
-const DropzoneOverlay = ( { isActive } ) => {
+const DropzoneOverlay = React.memo( ( { isActive } ) => {
 
 	if ( ! isActive ) return null;
 
@@ -24,19 +24,23 @@ const DropzoneOverlay = ( { isActive } ) => {
 		</div>
 	);
 
-};
+} );
+
+DropzoneOverlay.displayName = 'DropzoneOverlay';
 
 // Extract dimension display to a separate component
-const DimensionDisplay = ( { width, height, scale } ) => (
+const DimensionDisplay = React.memo( ( { width, height, scale } ) => (
 	<div className="absolute left-0 bottom-0 right-0 text-center z-10">
 		<div className="text-xs text-background">
 			{width} × {height} ({scale}%)
 		</div>
 	</div>
-);
+) );
+
+DimensionDisplay.displayName = 'DimensionDisplay';
 
 // Extract control buttons to a separate component
-const ViewportControls = ( { onScreenshot, onResetCamera, onFullscreen } ) => (
+const ViewportControls = React.memo( ( { onScreenshot, onResetCamera, onFullscreen } ) => (
 	<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
 		<TooltipProvider>
 			<ViewportResizer onResize={onFullscreen} />
@@ -81,7 +85,9 @@ const ViewportControls = ( { onScreenshot, onResetCamera, onFullscreen } ) => (
 			</Tooltip>
 		</TooltipProvider>
 	</div>
-);
+) );
+
+ViewportControls.displayName = 'ViewportControls';
 
 const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
@@ -95,23 +101,28 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 	const appRef = useRef( null );
 	const isInitialized = useRef( false );
 
-	// Store access
+	// Consolidate related state to reduce re-renders
+	const [ viewportState, setViewportState ] = useState( {
+		isDragging: false,
+		dimensions: { width: 512, height: 512 },
+		viewportScale: 100,
+		actualCanvasSize: 512 // Fixed canvas size
+	} );
+
+	// Destructure for readability
+	const { isDragging, dimensions, viewportScale, actualCanvasSize } = viewportState;
+
+	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const appMode = useStore( state => state.appMode );
-	const { setEnvironment } = useAssetsStore();
-
-	// Local state
-	const [ isDragging, setIsDragging ] = useState( false );
-	const [ dimensions, setDimensions ] = useState( { width: 512, height: 512 } );
-	const [ viewportScale, setViewportScale ] = useState( 100 );
-	const [ actualCanvasSize ] = useState( 512 ); // Fixed canvas size
+	const setEnvironment = useAssetsStore( state => state.setEnvironment );
 
 	// Expose the app instance via ref
 	React.useImperativeHandle( ref, () => ( {
 		getPathTracerApp: () => appRef.current
 	} ), [] );
 
-	// Effect for app initialization
+	// Effect for app initialization - dependencies optimized
 	useEffect( () => {
 
 		// Only initialize if the component is visible (not in results mode)
@@ -137,7 +148,10 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 				.finally( () => {
 
 					setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
-					setTimeout( () => useStore.getState().resetLoading(), 1000 );
+
+					// Get a stable reference to the store function
+					const resetLoadingFn = useStore.getState().resetLoading;
+					setTimeout( () => resetLoadingFn(), 1000 );
 
 					if ( window.pathTracerApp ) {
 
@@ -166,7 +180,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 			if ( primaryCanvasRef.current ) {
 
 				const { width, height } = primaryCanvasRef.current;
-				setDimensions( { width, height } );
+				setViewportState( prev => ( { ...prev, dimensions: { width, height } } ) );
 
 			}
 
@@ -193,21 +207,25 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 	const handleDragOver = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setIsDragging( true );
+		setViewportState( prev => ( { ...prev, isDragging: true } ) );
 
 	}, [] );
 
 	const handleDragLeave = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setIsDragging( false );
+		setViewportState( prev => ( { ...prev, isDragging: false } ) );
 
 	}, [] );
 
 	// Handle environment map loading
 	const handleEnvironmentLoad = useCallback( ( file ) => {
 
-		setLoading( { isLoading: true, title: "Loading", status: "Processing Environment Map...", progress: 0 } );
+		// Capture the setLoading function from store to avoid closure issues
+		const setLoadingFn = useStore.getState().setLoading;
+		const resetLoadingFn = useStore.getState().resetLoading;
+
+		setLoadingFn( { isLoading: true, title: "Loading", status: "Processing Environment Map...", progress: 0 } );
 
 		const url = URL.createObjectURL( file );
 
@@ -263,8 +281,8 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 					} )
 					.finally( () => {
 
-						setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
-						setTimeout( () => useStore.getState().resetLoading(), 1000 );
+						setLoadingFn( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
+						setTimeout( () => resetLoadingFn(), 1000 );
 
 					} );
 
@@ -279,18 +297,22 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 				// Clean up the blob URL on error
 				URL.revokeObjectURL( url );
-				setLoading( { isLoading: false } );
+				setLoadingFn( { isLoading: false } );
 
 			}
 
 		}
 
-	}, [ setLoading, toast, setEnvironment ] );
+	}, [ toast, setEnvironment ] );
 
 	// Handle model loading
 	const handleModelLoad = useCallback( ( file ) => {
 
-		setLoading( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
+		// Capture the setLoading function from store to avoid closure issues
+		const setLoadingFn = useStore.getState().setLoading;
+		const resetLoadingFn = useStore.getState().resetLoading;
+
+		setLoadingFn( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
 
 		const reader = new FileReader();
 		reader.onload = ( event ) => {
@@ -326,8 +348,8 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 					} )
 					.finally( () => {
 
-						setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
-						setTimeout( () => useStore.getState().resetLoading(), 1000 );
+						setLoadingFn( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
+						setTimeout( () => resetLoadingFn(), 1000 );
 
 					} );
 
@@ -337,12 +359,12 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 		reader.readAsArrayBuffer( file );
 
-	}, [ setLoading, toast ] );
+	}, [ toast ] );
 
 	const handleDrop = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setIsDragging( false );
+		setViewportState( prev => ( { ...prev, isDragging: false } ) );
 
 		const file = e.dataTransfer.files[ 0 ];
 		if ( ! file ) return;
@@ -394,7 +416,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 	const handleViewportResize = useCallback( ( scale ) => {
 
-		setViewportScale( scale );
+		setViewportState( prev => ( { ...prev, viewportScale: scale } ) );
 
 	}, [] );
 
