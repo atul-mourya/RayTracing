@@ -1,33 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import Viewport3D from './Viewport3D';
-import { Check, X } from 'lucide-react';
 import { usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
 import StatsMeter from './StatsMeter';
-
-// Separate RenderControls component with memoization
-const RenderControls = memo( ( { onSave, onDiscard } ) => {
-
-	return (
-		<div className="absolute top-2 right-2 flex space-x-2">
-			<button
-				onClick={onSave}
-				className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-primary/90 transition-all cursor-pointer"
-			>
-				<Check size={14} className="mr-1" /> Save
-			</button>
-			<button
-				onClick={onDiscard}
-				className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-secondary/90 transition-all cursor-pointer"
-			>
-				<X size={14} className="mr-1" /> Ignore
-			</button>
-		</div>
-	);
-
-} );
-
-RenderControls.displayName = 'RenderControls';
+import SaveControls from './SaveControls';
 
 const MainViewport = ( { mode = "interactive" } ) => {
 
@@ -247,7 +223,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	}, [] );
 
 	// Memoize whether to show render controls
-	const shouldShowRenderControls = useMemo( () => {
+	const shouldShowSaveControls = useMemo( () => {
 
 		if ( isDenoising ) return false;
 		// Get the current samples count from the stats ref
@@ -257,6 +233,11 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	}, [ renderComplete, maxSamples, mode, isDenoising ] );
 
 	console.log( 'Rendering' );
+	console.log( 'renderComplete:', renderComplete );
+	console.log( 'maxSamples:', maxSamples );
+	console.log( 'isDenoising:', isDenoising );
+	console.log( 'mode:', mode );
+
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
 			<Viewport3D
@@ -269,8 +250,8 @@ const MainViewport = ( { mode = "interactive" } ) => {
 				onMaxSamplesEdit={handleMaxSamplesEdit}
 			/>
 
-			{shouldShowRenderControls && (
-				<RenderControls
+			{shouldShowSaveControls && (
+				<SaveControls
 					onSave={handleSave}
 					onDiscard={handleDiscard}
 				/>
