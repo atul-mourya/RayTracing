@@ -34,7 +34,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Viewport state
 	const [ viewportState, setViewportState ] = useState( {
 		isDragging: false,
-		dimensions: { width: 512, height: 512 },
 		viewportScale: 100,
 		actualCanvasSize: 512, // Fixed canvas size
 		isDenoising: false,
@@ -44,7 +43,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Destructure for readability
 	const {
 		isDragging,
-		dimensions,
 		viewportScale,
 		actualCanvasSize,
 		isDenoising,
@@ -254,29 +252,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 		}
 
 	}, [ handleStatsUpdate, setLoading, toast, appMode ] );
-
-	// Effect for dimension updates
-	useEffect( () => {
-
-		const updateDimensions = () => {
-
-			if ( primaryCanvasRef.current ) {
-
-				const { width, height } = primaryCanvasRef.current;
-				setViewportState( prev => ( { ...prev, dimensions: { width, height } } ) );
-
-			}
-
-		};
-
-		window.addEventListener( 'resolution_changed', updateDimensions );
-		return () => {
-
-			window.removeEventListener( 'resolution_changed', updateDimensions );
-
-		};
-
-	}, [] );
 
 	// Mode change handling (moved from MainViewport)
 	useEffect( () => {
@@ -523,11 +498,13 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
 
+		if ( ! window.pathTracingPass ) return false;
 		if ( isDenoising ) return false;
-		const currentSamples = statsRef.current ? statsRef.current.getStats().samples : 0;
-		return renderComplete && currentSamples === maxSamples && viewportMode === "final";
+		const currentSamples = window.pathTracingPass.material.uniforms.frames.value;
+		const currentMaxSamples = window.pathTracingPass.material.uniforms.maxFrames.value;
+		return renderComplete && currentSamples === currentMaxSamples && viewportMode === "final";
 
-	}, [ renderComplete, maxSamples, viewportMode, isDenoising ] );
+	}, [ renderComplete, viewportMode, isDenoising ] );
 
 	// Memoize style objects to prevent recreating them on each render
 	const wrapperStyle = useMemo( () => ( {
@@ -584,13 +561,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 						height="1024"
 						style={canvasStyle}
 					/>
-
-					{/* Dimensions display */}
-					<DimensionDisplay
-						width={dimensions.width}
-						height={dimensions.height}
-						scale={viewportScale}
-					/>
+					<DimensionDisplay canvasRef={primaryCanvasRef} scale={viewportScale} />
 				</div>
 			</div>
 
