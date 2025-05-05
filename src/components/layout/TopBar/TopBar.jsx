@@ -26,7 +26,8 @@ const TopBar = () => {
 		setEnableOIDN: pathTracerStore.setEnableOIDN,
 		setUseGBuffer: pathTracerStore.setUseGBuffer,
 		setResolution: pathTracerStore.setResolution,
-		setRenderMode: pathTracerStore.setRenderMode
+		setRenderMode: pathTracerStore.setRenderMode,
+		setOidnQuality: pathTracerStore.setOidnQuality,
 	} ), [ pathTracerStore ] );
 
 	// Use custom hooks

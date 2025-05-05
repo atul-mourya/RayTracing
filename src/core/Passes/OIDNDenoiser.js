@@ -27,19 +27,21 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.isDenoising = false;
 		this.abortDenoise = null;
 
+		this.currentTZAUrl = this.getTzasUrl();
+
 		// Setup
 		this._setupCanvas();
-		this._setupUNetDenoiser();
+		this._setupUNetDenoiser( this.currentTZAUrl );
 		this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
 
 	}
 
-	async _setupUNetDenoiser() {
+	async _setupUNetDenoiser( tzaUrl ) {
 
 		try {
 
 			this.dispatchEvent( { type: 'loading', message: 'Loading UNet denoiser...' } );
-			this.unet = await initUNetFromURL( this.getTzasUrl(), undefined, {
+			this.unet = await initUNetFromURL( tzaUrl, undefined, {
 				aux: this.useGBuffer,
 				hdr: this.hdr,
 				maxTileSize: this.tileSize
@@ -58,25 +60,34 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async toggleUseGBuffer( value ) {
 
-		this.unet.dispose();
 		this.useGBuffer = value;
-		await this._setupUNetDenoiser();
+		const tzaUrl = this.getTzasUrl();
+		if ( this.currentTZAUrl === tzaUrl ) return;
+		this.currentTZAUrl = tzaUrl;
+		this.unet.dispose();
+		await this._setupUNetDenoiser( tzaUrl );
 
 	}
 
 	async toggleHDR( value ) {
 
-		this.unet.dispose();
 		this.hdr = value;
-		await this._setupUNetDenoiser();
+		const tzaUrl = this.getTzasUrl();
+		if ( this.currentTZAUrl === tzaUrl ) return;
+		this.currentTZAUrl = tzaUrl;
+		this.unet.dispose();
+		await this._setupUNetDenoiser( tzaUrl );
 
 	}
 
 	async updateQuality( value ) {
 
-		this.unet.dispose();
+		const tzaUrl = this.getTzasUrl();
+		if ( this.currentTZAUrl === tzaUrl ) return;
+		this.currentTZAUrl = tzaUrl;
 		this.quality = value;
-		await this._setupUNetDenoiser();
+		this.unet.dispose();
+		await this._setupUNetDenoiser( tzaUrl );
 
 	}
 
@@ -179,9 +190,6 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async _executeUNet() {
 
-		// Clear any previous denoise operation
-		this.abort();
-
 		const w = this.output.width;
 		const h = this.output.height;
 
@@ -253,6 +261,12 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.mapGenerator.setSize( width, height );
 		this.output.width = width;
 		this.output.height = height;
+
+		const tzaUrl = this.getTzasUrl();
+		if ( this.currentTZAUrl === tzaUrl ) return;
+		this.currentTZAUrl = tzaUrl;
+		this.unet.dispose();
+		this._setupUNetDenoiser( tzaUrl );
 
 	}
 

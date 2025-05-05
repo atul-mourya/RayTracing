@@ -1,92 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import Viewport3D from './Viewport3D';
-import { Loader2, Check, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
-
-// Separate StatsDisplay component with memoization
-const StatsDisplay = memo( ( {
-	timeElapsed,
-	samples,
-	maxSamples,
-	isDenoising,
-	onMaxSamplesEdit
-} ) => {
-
-	const [ isEditing, setIsEditing ] = useState( false );
-	const [ inputValue, setInputValue ] = useState( maxSamples );
-
-	// Update input value when maxSamples changes
-	useEffect( () => {
-
-		setInputValue( maxSamples );
-
-	}, [ maxSamples ] );
-
-	const handleInputBlur = useCallback( () => {
-
-		setIsEditing( false );
-		if ( inputValue !== maxSamples ) {
-
-			onMaxSamplesEdit( Number( inputValue ) );
-
-		}
-
-	}, [ inputValue, maxSamples, onMaxSamplesEdit ] );
-
-	const handleKeyDown = useCallback( ( e ) => {
-
-		if ( e.key === 'Enter' ) {
-
-			handleInputBlur();
-
-		}
-
-	}, [ handleInputBlur ] );
-
-	const handleInputChange = useCallback( ( e ) => {
-
-		setInputValue( e.target.value );
-
-	}, [] );
-
-	const startEditing = useCallback( () => {
-
-		setIsEditing( true );
-
-	}, [] );
-
-	return (
-		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-			Time: {timeElapsed.toFixed( 2 )}s | Frames: {samples} /{' '}
-			{isEditing ? (
-				<input
-					className="bg-transparent border-b border-white text-white w-12"
-					type="number"
-					value={inputValue}
-					onChange={handleInputChange}
-					onBlur={handleInputBlur}
-					onKeyDown={handleKeyDown}
-					autoFocus
-				/>
-			) : (
-				<span
-					onClick={startEditing}
-					className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300"
-				>
-					{maxSamples}
-				</span>
-			)}
-			<div className={`${isDenoising ? 'visible' : 'invisible'} py-1 rounded-full flex items-center`}>
-				<span className="mr-2">Denoising</span>
-				<Loader2 className="h-5 w-5 animate-spin" />
-			</div>
-		</div>
-	);
-
-} );
-
-StatsDisplay.displayName = 'StatsDisplay';
+import StatsMeter from './StatsMeter';
 
 // Separate RenderControls component with memoization
 const RenderControls = memo( ( { onSave, onDiscard } ) => {
@@ -118,16 +35,16 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	const containerRef = useRef( null );
 	const isFirstRender = useRef( true );
 	const prevMode = useRef( mode );
+	const statsRef = useRef( null );
 
 	// Consolidated state for better management
 	const [ viewportState, setViewportState ] = useState( {
-		stats: { timeElapsed: 0, samples: 0 },
 		isDenoising: false,
 		renderComplete: false
 	} );
 
 	// Destructure state for readability
-	const { stats, isDenoising, renderComplete } = viewportState;
+	const { isDenoising, renderComplete } = viewportState;
 
 	// Access store values directly to avoid infinite loops
 	const pathTracerStore = usePathTracerStore();
@@ -138,24 +55,21 @@ const MainViewport = ( { mode = "interactive" } ) => {
 		setMaxSamples: pathTracerStore.setMaxSamples
 	} ), [ pathTracerStore.maxSamples, pathTracerStore.setMaxSamples ] );
 
-	// Update stats efficiently to avoid unnecessary re-renders
+	// Update stats efficiently without causing re-renders in the parent component
 	const handleStatsUpdate = useCallback( ( newStats ) => {
 
-		setViewportState( prev => {
+		// Use the ref to update stats directly
+		if ( statsRef.current ) {
 
-			// Only update if values have changed
-			if ( prev.stats.timeElapsed !== newStats.timeElapsed ||
-				prev.stats.samples !== newStats.samples ) {
+			statsRef.current.updateStats( {
+				timeElapsed: newStats.timeElapsed,
+				samples: newStats.samples,
+				maxSamples: maxSamples
+			} );
 
-				return { ...prev, stats: newStats };
+		}
 
-			}
-
-			return prev;
-
-		} );
-
-	}, [] );
+	}, [ maxSamples ] );
 
 	// Update maxSamples when mode changes
 	useEffect( () => {
@@ -185,7 +99,13 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 			// Use functional update to guarantee we're working with latest state
 			setMaxSamples( newMaxSamples );
-			setViewportState( prev => ( { ...prev, stats: { ...prev.stats, samples: 0 } } ) );
+
+			// Update the stats display through the ref
+			if ( statsRef.current ) {
+
+				statsRef.current.updateStats( { maxSamples: newMaxSamples, samples: 0 } );
+
+			}
 
 		}
 
@@ -195,8 +115,30 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	useEffect( () => {
 
 		// Define handlers outside to avoid recreating them on each render
-		const handleDenoisingStart = () => setViewportState( prev => ( { ...prev, isDenoising: true } ) );
-		const handleDenoisingEnd = () => setViewportState( prev => ( { ...prev, isDenoising: false } ) );
+		const handleDenoisingStart = () => {
+
+			console.log( "Denoising started" );
+			setViewportState( prev => ( { ...prev, isDenoising: true } ) );
+			if ( statsRef.current ) {
+
+				statsRef.current.updateStats( { isDenoising: true } );
+
+			}
+
+		};
+
+		const handleDenoisingEnd = () => {
+
+			console.log( "Denoising ended" );
+			setViewportState( prev => ( { ...prev, isDenoising: false } ) );
+			if ( statsRef.current ) {
+
+				statsRef.current.updateStats( { isDenoising: false } );
+
+			}
+
+		};
+
 		const handleRenderComplete = () => setViewportState( prev => ( { ...prev, renderComplete: true } ) );
 		const handleRenderReset = () => setViewportState( prev => ( { ...prev, renderComplete: false } ) );
 
@@ -245,6 +187,13 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = value;
 			window.pathTracerApp.reset();
+
+		}
+
+		// Update the stats display through the ref
+		if ( statsRef.current ) {
+
+			statsRef.current.updateStats( { maxSamples: value } );
 
 		}
 
@@ -300,10 +249,14 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// Memoize whether to show render controls
 	const shouldShowRenderControls = useMemo( () => {
 
-		return renderComplete && stats.samples === maxSamples && mode === "final";
+		if ( isDenoising ) return false;
+		// Get the current samples count from the stats ref
+		const currentSamples = statsRef.current ? statsRef.current.getStats().samples : 0;
+		return renderComplete && currentSamples === maxSamples && mode === "final";
 
-	}, [ renderComplete, stats.samples, maxSamples, mode ] );
+	}, [ renderComplete, maxSamples, mode, isDenoising ] );
 
+	console.log( 'Rendering' );
 	return (
 		<div ref={containerRef} className="w-full h-full relative">
 			<Viewport3D
@@ -311,11 +264,8 @@ const MainViewport = ( { mode = "interactive" } ) => {
 				viewportMode={mode}
 			/>
 
-			<StatsDisplay
-				timeElapsed={stats.timeElapsed}
-				samples={stats.samples}
-				maxSamples={maxSamples}
-				isDenoising={isDenoising}
+			<StatsMeter
+				ref={statsRef}
 				onMaxSamplesEdit={handleMaxSamplesEdit}
 			/>
 

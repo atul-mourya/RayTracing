@@ -9,6 +9,7 @@ export function usePathTracerCanvas() {
 		samplesPerPixel: 1,
 		interactionModeEnabled: true,
 		enableOIDN: false,
+		oidnQuality: 'fast',
 		resolution: '1'
 	} );
 
@@ -63,7 +64,8 @@ export function usePathTracerCanvas() {
 			setEnableOIDN,
 			setUseGBuffer,
 			setResolution,
-			setRenderMode
+			setRenderMode,
+			setOidnQuality
 		} = pathTracerActions;
 
 		if ( mode === "interactive" ) {
@@ -73,6 +75,7 @@ export function usePathTracerCanvas() {
 			setBounces( 2 );
 			setSamplesPerPixel( 1 );
 			setEnableOIDN( false );
+			setOidnQuality( 'fast' );
 			setUseGBuffer( false );
 			setResolution( '1' );
 
@@ -82,7 +85,10 @@ export function usePathTracerCanvas() {
 
 				requestAnimationFrame( () => {
 
-					window.pathTracerApp.denoiser.toggleUseGBuffer( false );
+					window.pathTracerApp.denoiser.enabled = false;
+					window.pathTracerApp.denoiser.quality = 'fast';
+					window.pathTracerApp.denoiser.hdr = false;
+					window.pathTracerApp.denoiser.useGBuffer = false;
 					window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 );
 
 					// Show canvases again if coming from results tab
@@ -102,6 +108,7 @@ export function usePathTracerCanvas() {
 			setSamplesPerPixel( 1 );
 			setInteractionModeEnabled( false );
 			setEnableOIDN( true );
+			setOidnQuality( 'balanced' );
 			setUseGBuffer( true );
 			setResolution( '3' );
 			setBounces( 8 );
@@ -112,7 +119,10 @@ export function usePathTracerCanvas() {
 
 				requestAnimationFrame( () => {
 
-					window.pathTracerApp.denoiser.toggleUseGBuffer( true );
+					window.pathTracerApp.denoiser.enabled = true;
+					window.pathTracerApp.denoiser.quality = 'balanced';
+					window.pathTracerApp.denoiser.hdr = false;
+					window.pathTracerApp.denoiser.useGBuffer = true;
 					window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 );
 
 					// Show canvases again if coming from results tab
