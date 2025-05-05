@@ -31,23 +31,12 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Get the setter function directly without subscription
 	const setMaxSamples = usePathTracerStore.getState().setMaxSamples;
 
-	// Viewport state
-	const [ viewportState, setViewportState ] = useState( {
-		isDragging: false,
-		viewportScale: 100,
-		actualCanvasSize: 512, // Fixed canvas size
-		isDenoising: false,
-		renderComplete: false
-	} );
-
-	// Destructure for readability
-	const {
-		isDragging,
-		viewportScale,
-		actualCanvasSize,
-		isDenoising,
-		renderComplete
-	} = viewportState;
+	// Viewport state - now using separate useState hooks
+	const [ isDragging, setIsDragging ] = useState( false );
+	const [ viewportScale, setViewportScale ] = useState( 100 );
+	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 ); // Fixed canvas size
+	const [ isDenoising, setIsDenoising ] = useState( false );
+	const [ renderComplete, setRenderComplete ] = useState( false );
 
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
@@ -122,7 +111,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 			const id = await saveRender( saveData );
 			window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
-			setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+			setRenderComplete( false );
 
 		} catch ( error ) {
 
@@ -139,7 +128,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	const handleDiscard = useCallback( () => {
 
-		setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+		setRenderComplete( false );
 
 	}, [] );
 
@@ -151,14 +140,14 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 		const handleDenoisingStart = () => {
 
-			setViewportState( prev => ( { ...prev, isDenoising: true } ) );
+			setIsDenoising( true );
 			updateStatsRef( { isDenoising: true } );
 
 		};
 
 		const handleDenoisingEnd = () => {
 
-			setViewportState( prev => ( { ...prev, isDenoising: false } ) );
+			setIsDenoising( false );
 			updateStatsRef( { isDenoising: false } );
 
 		};
@@ -170,13 +159,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 		}
 
-		app.addEventListener( 'RenderComplete', () =>
-			setViewportState( prev => ( { ...prev, renderComplete: true } ) )
-		);
-
-		app.addEventListener( 'RenderReset', () =>
-			setViewportState( prev => ( { ...prev, renderComplete: false } ) )
-		);
+		app.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
+		app.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
 
 		return () => {
 
@@ -187,12 +171,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 			}
 
-			app.removeEventListener( 'RenderComplete', () =>
-				setViewportState( prev => ( { ...prev, renderComplete: true } ) )
-			);
-			app.removeEventListener( 'RenderReset', () =>
-				setViewportState( prev => ( { ...prev, renderComplete: false } ) )
-			);
+			app.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
+			app.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
 
 		};
 
@@ -282,14 +262,14 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const handleDragOver = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setViewportState( prev => ( { ...prev, isDragging: true } ) );
+		setIsDragging( true );
 
 	}, [] );
 
 	const handleDragLeave = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setViewportState( prev => ( { ...prev, isDragging: false } ) );
+		setIsDragging( false );
 
 	}, [] );
 
@@ -439,7 +419,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const handleDrop = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setViewportState( prev => ( { ...prev, isDragging: false } ) );
+		setIsDragging( false );
 
 		const file = e.dataTransfer.files[ 0 ];
 		if ( ! file ) return;
@@ -470,7 +450,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Control button handlers
 	const handleViewportResize = useCallback( ( scale ) => {
 
-		setViewportState( prev => ( { ...prev, viewportScale: scale } ) );
+		setViewportScale( scale );
 
 	}, [] );
 
