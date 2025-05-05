@@ -9,7 +9,10 @@ RayTracing Project TODO
 - [ ]  on model load, the canvas size changes
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 - [ ]  fullscreen canvas not working
-- [ ]  switching to render mode doent trigger oidn denoiser
+- [ ]  when switching to render mode, the canvas size is not updated
+- [ ]  State management needs a complete overhaul
+- [ ]  main viewport rendering very frequently
+- [ ]  when switching to render mode, ongoing denoising process should be cancelled
 
 ✨ Core Features
 ---------------

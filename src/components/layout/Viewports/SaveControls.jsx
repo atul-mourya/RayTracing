@@ -1,7 +1,7 @@
-import { memo } from 'react';
+import React from 'react';
 import { Check, X } from 'lucide-react';
 
-const SaveControls = memo( ( { onSave, onDiscard } ) => {
+const SaveControls = ( { onSave, onDiscard } ) => {
 
 	return (
 		<div className="absolute top-2 right-2 flex space-x-2">
@@ -20,8 +20,6 @@ const SaveControls = memo( ( { onSave, onDiscard } ) => {
 		</div>
 	);
 
-} );
+};
 
-SaveControls.displayName = 'SaveControls';
-
-export default SaveControls;
+export default React.memo( SaveControls );

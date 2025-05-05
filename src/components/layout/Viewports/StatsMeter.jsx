@@ -1,7 +1,7 @@
-import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useState, useCallback, forwardRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
-const StatsMeter = forwardRef( ( { className = "", onMaxSamplesEdit }, ref ) => {
+const StatsMeter = forwardRef( ( { onMaxSamplesEdit }, ref ) => {
 
 	// State for editing mode (minimal state that doesn't affect parent rendering)
 	const [ isEditing, setIsEditing ] = useState( false );
@@ -64,7 +64,7 @@ const StatsMeter = forwardRef( ( { className = "", onMaxSamplesEdit }, ref ) => 
 	}, [] );
 
 	// Expose methods to update stats without re-rendering
-	useImperativeHandle( ref, () => ( {
+	React.useImperativeHandle( ref, () => ( {
 		updateStats: ( newStats ) => {
 
 			if ( ! containerRef.current ) return;
@@ -121,9 +121,9 @@ const StatsMeter = forwardRef( ( { className = "", onMaxSamplesEdit }, ref ) => 
 	return (
 		<div
 			ref={containerRef}
-			className={`absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded ${className}`}
+			className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded"
 		>
-            Time: <span ref={timeElapsedRef}>0.00</span>s | Frames: <span ref={samplesRef}>0</span> /{' '}
+			Time: <span ref={timeElapsedRef}>0.00</span>s | Frames: <span ref={samplesRef}>0</span> /{' '}
 			{isEditing ? (
 				<input
 					className="bg-transparent border-b border-white text-white w-12"
