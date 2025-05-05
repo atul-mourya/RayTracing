@@ -5,52 +5,29 @@ import { saveRender } from '@/utils/database';
 import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 
+// Extracted helper functions for better organization
+const getPathTracerApp = () => window.pathTracerApp;
+
 const MainViewport = ( { mode = "interactive" } ) => {
 
 	// References
-	const containerRef = useRef( null );
+	const statsRef = useRef( null );
 	const isFirstRender = useRef( true );
 	const prevMode = useRef( mode );
-	const statsRef = useRef( null );
 
-	// Consolidated state for better management
-	const [ viewportState, setViewportState ] = useState( {
-		isDenoising: false,
-		renderComplete: false
-	} );
+	// State management
+	const [ isDenoising, setIsDenoising ] = useState( false );
+	const [ renderComplete, setRenderComplete ] = useState( false );
 
-	// Destructure state for readability
-	const { isDenoising, renderComplete } = viewportState;
+	// Properly cache store access to prevent infinite loops in React 19
+	// Access reactive state with individual selectors
+	const maxSamples = usePathTracerStore( state => state.maxSamples );
+	// Get the setter function directly without subscription
+	const setMaxSamples = usePathTracerStore.getState().setMaxSamples;
 
-	// Access store values directly to avoid infinite loops
-	const pathTracerStore = usePathTracerStore();
-
-	// Use useMemo to cache the extracted values
-	const { maxSamples, setMaxSamples } = useMemo( () => ( {
-		maxSamples: pathTracerStore.maxSamples,
-		setMaxSamples: pathTracerStore.setMaxSamples
-	} ), [ pathTracerStore.maxSamples, pathTracerStore.setMaxSamples ] );
-
-	// Update stats efficiently without causing re-renders in the parent component
-	const handleStatsUpdate = useCallback( ( newStats ) => {
-
-		// Use the ref to update stats directly
-		if ( statsRef.current ) {
-
-			statsRef.current.updateStats( {
-				timeElapsed: newStats.timeElapsed,
-				samples: newStats.samples,
-				maxSamples: maxSamples
-			} );
-
-		}
-
-	}, [ maxSamples ] );
-
-	// Update maxSamples when mode changes
+	// Effect: Handle mode changes and update maxSamples
 	useEffect( () => {
 
-		// Only perform update if mode has actually changed (not on first render)
 		if ( isFirstRender.current ) {
 
 			isFirstRender.current = false;
@@ -58,133 +35,119 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
-		// Skip if mode hasn't changed
-		if ( prevMode.current === mode ) {
-
-			return;
-
-		}
+		if ( prevMode.current === mode ) return;
 
 		prevMode.current = mode;
 		const newMaxSamples = mode === "interactive" ? 60 : 30;
+		const app = getPathTracerApp();
 
-		if ( window.pathTracerApp ) {
+		if ( app ) {
 
-			// Batch these operations to minimize render cycles
-			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
-
-			// Use functional update to guarantee we're working with latest state
+			app.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
 			setMaxSamples( newMaxSamples );
-
-			// Update the stats display through the ref
-			if ( statsRef.current ) {
-
-				statsRef.current.updateStats( { maxSamples: newMaxSamples, samples: 0 } );
-
-			}
+			updateStatsRef( { maxSamples: newMaxSamples, samples: 0 } );
 
 		}
 
 	}, [ mode, setMaxSamples ] );
 
-	// Set up event listeners for denoising and rendering
+	// Effect: Set up event listeners for denoising and rendering
 	useEffect( () => {
 
-		// Define handlers outside to avoid recreating them on each render
+		const app = getPathTracerApp();
+		if ( ! app ) return;
+
 		const handleDenoisingStart = () => {
 
-			console.log( "Denoising started" );
-			setViewportState( prev => ( { ...prev, isDenoising: true } ) );
-			if ( statsRef.current ) {
-
-				statsRef.current.updateStats( { isDenoising: true } );
-
-			}
+			setIsDenoising( true );
+			updateStatsRef( { isDenoising: true } );
 
 		};
 
 		const handleDenoisingEnd = () => {
 
-			console.log( "Denoising ended" );
-			setViewportState( prev => ( { ...prev, isDenoising: false } ) );
-			if ( statsRef.current ) {
-
-				statsRef.current.updateStats( { isDenoising: false } );
-
-			}
+			setIsDenoising( false );
+			updateStatsRef( { isDenoising: false } );
 
 		};
 
-		const handleRenderComplete = () => setViewportState( prev => ( { ...prev, renderComplete: true } ) );
-		const handleRenderReset = () => setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+		if ( app.denoiser ) {
 
-		const app = window.pathTracerApp;
-		if ( app ) {
-
-			if ( app.denoiser ) {
-
-				app.denoiser.addEventListener( 'start', handleDenoisingStart );
-				app.denoiser.addEventListener( 'end', handleDenoisingEnd );
-
-			}
-
-			app.addEventListener( 'RenderComplete', handleRenderComplete );
-			app.addEventListener( 'RenderReset', handleRenderReset );
+			app.denoiser.addEventListener( 'start', handleDenoisingStart );
+			app.denoiser.addEventListener( 'end', handleDenoisingEnd );
 
 		}
 
+		app.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
+		app.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
+
 		return () => {
 
-			if ( app ) {
+			if ( app.denoiser ) {
 
-				if ( app.denoiser ) {
-
-					app.denoiser.removeEventListener( 'start', handleDenoisingStart );
-					app.denoiser.removeEventListener( 'end', handleDenoisingEnd );
-
-				}
-
-				app.removeEventListener( 'RenderComplete', handleRenderComplete );
-				app.removeEventListener( 'RenderReset', handleRenderReset );
+				app.denoiser.removeEventListener( 'start', handleDenoisingStart );
+				app.denoiser.removeEventListener( 'end', handleDenoisingEnd );
 
 			}
+
+			app.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
+			app.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
 
 		};
 
 	}, [] );
 
+	// Helper function to update stats reference
+	const updateStatsRef = useCallback( ( newStats ) => {
+
+		if ( statsRef.current ) {
+
+			statsRef.current.updateStats( newStats );
+
+		}
+
+	}, [] );
+
+	// Handler for stats updates from child components
+	const handleStatsUpdate = useCallback( ( newStats ) => {
+
+		updateStatsRef( {
+			timeElapsed: newStats.timeElapsed,
+			samples: newStats.samples,
+			maxSamples
+		} );
+
+	}, [ maxSamples, updateStatsRef ] );
+
 	// Handler for editing max samples
 	const handleMaxSamplesEdit = useCallback( ( value ) => {
 
-		if ( value === maxSamples ) return; // Skip if value hasn't changed
+		if ( value === maxSamples ) return;
 
 		setMaxSamples( value );
-		if ( window.pathTracerApp ) {
+		const app = getPathTracerApp();
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = value;
-			window.pathTracerApp.reset();
+		if ( app ) {
 
-		}
-
-		// Update the stats display through the ref
-		if ( statsRef.current ) {
-
-			statsRef.current.updateStats( { maxSamples: value } );
+			app.pathTracingPass.material.uniforms.maxFrames.value = value;
+			app.reset();
+			updateStatsRef( { maxSamples: value } );
 
 		}
 
-	}, [ setMaxSamples, maxSamples ] );
+	}, [ maxSamples, setMaxSamples, updateStatsRef ] );
 
 	// Handler for saving renders
 	const handleSave = useCallback( async () => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getPathTracerApp();
+		if ( ! app ) return;
 
 		try {
 
-			const canvas = window.pathTracerApp.denoiser.enabled && window.pathTracerApp.denoiser.output
-				? window.pathTracerApp.denoiser.output
-				: window.pathTracerApp.renderer.domElement;
+			const canvas = app.denoiser.enabled && app.denoiser.output
+				? app.denoiser.output
+				: app.renderer.domElement;
 
 			const imageData = canvas.toDataURL( 'image/png' );
 			const saveData = {
@@ -201,10 +164,8 @@ const MainViewport = ( { mode = "interactive" } ) => {
 			};
 
 			const id = await saveRender( saveData );
-			console.log( 'Render saved successfully with ID:', id );
-
 			window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
-			setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+			setRenderComplete( false );
 
 		} catch ( error ) {
 
@@ -218,28 +179,23 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	// Handler for discarding renders
 	const handleDiscard = useCallback( () => {
 
-		setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+		setRenderComplete( false );
 
 	}, [] );
 
-	// Memoize whether to show render controls
+	// Compute whether to show save controls - moved to a separate function
 	const shouldShowSaveControls = useMemo( () => {
 
 		if ( isDenoising ) return false;
-		// Get the current samples count from the stats ref
 		const currentSamples = statsRef.current ? statsRef.current.getStats().samples : 0;
 		return renderComplete && currentSamples === maxSamples && mode === "final";
 
 	}, [ renderComplete, maxSamples, mode, isDenoising ] );
 
-	console.log( 'Rendering' );
-	console.log( 'renderComplete:', renderComplete );
-	console.log( 'maxSamples:', maxSamples );
-	console.log( 'isDenoising:', isDenoising );
-	console.log( 'mode:', mode );
+	console.log( 'MainViewport render' );
 
 	return (
-		<div ref={containerRef} className="w-full h-full relative">
+		<div className="w-full h-full relative">
 			<Viewport3D
 				onStatsUpdate={handleStatsUpdate}
 				viewportMode={mode}
