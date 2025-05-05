@@ -1,14 +1,15 @@
 import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } from 'react';
 import PathTracerApp from '../../../core/main';
-import { Upload, Maximize, Target, Camera } from "lucide-react";
+import { Upload, Maximize, Target, Camera, Check, X, Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from '@/hooks/use-toast';
-import { useStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import LoadingOverlay from './LoadingOverlay';
 import ViewportResizer from './ViewportResizer';
 import { useAssetsStore } from '@/store';
+import { saveRender } from '@/utils/database';
 
 // Extract dropzone visualization to a separate component
 const DropzoneOverlay = React.memo( ( { isActive } ) => {
@@ -38,6 +39,187 @@ const DimensionDisplay = React.memo( ( { width, height, scale } ) => (
 ) );
 
 DimensionDisplay.displayName = 'DimensionDisplay';
+
+// Integrated StatsMeter component
+const StatsMeter = React.memo( forwardRef( ( { onMaxSamplesEdit }, ref ) => {
+
+	// State for editing mode (minimal state that doesn't affect parent rendering)
+	const [ isEditing, setIsEditing ] = useState( false );
+	const [ inputValue, setInputValue ] = useState( "60" );
+
+	// Create refs for DOM elements
+	const containerRef = useRef( null );
+	const timeElapsedRef = useRef( null );
+	const samplesRef = useRef( null );
+	const maxSamplesRef = useRef( null );
+	const denoisingRef = useRef( null );
+
+	// Stats data ref (not state)
+	const statsDataRef = useRef( {
+		timeElapsed: 0,
+		samples: 0,
+		maxSamples: 60,
+		isDenoising: false
+	} );
+
+	// Handle input blur to submit value
+	const handleInputBlur = useCallback( () => {
+
+		setIsEditing( false );
+		const numValue = Number( inputValue );
+		if ( numValue !== statsDataRef.current.maxSamples && ! isNaN( numValue ) ) {
+
+			// Call the parent callback with new value
+			onMaxSamplesEdit && onMaxSamplesEdit( numValue );
+
+		}
+
+	}, [ inputValue, onMaxSamplesEdit ] );
+
+	// Handle key press events
+	const handleKeyDown = useCallback( ( e ) => {
+
+		if ( e.key === 'Enter' ) {
+
+			handleInputBlur();
+
+		}
+
+	}, [ handleInputBlur ] );
+
+	// Handle input change
+	const handleInputChange = useCallback( ( e ) => {
+
+		setInputValue( e.target.value );
+
+	}, [] );
+
+	// Handle click to start editing
+	const startEditing = useCallback( () => {
+
+		setIsEditing( true );
+		// Initialize input value from current stats
+		setInputValue( String( statsDataRef.current.maxSamples ) );
+
+	}, [] );
+
+	// Expose methods to update stats without re-rendering
+	React.useImperativeHandle( ref, () => ( {
+		updateStats: ( newStats ) => {
+
+			if ( ! containerRef.current ) return;
+
+			// Update our internal ref data
+			if ( newStats.timeElapsed !== undefined ) {
+
+				statsDataRef.current.timeElapsed = newStats.timeElapsed;
+				if ( timeElapsedRef.current ) {
+
+					timeElapsedRef.current.textContent = newStats.timeElapsed.toFixed( 2 );
+
+				}
+
+			}
+
+			if ( newStats.samples !== undefined ) {
+
+				statsDataRef.current.samples = newStats.samples;
+				if ( samplesRef.current ) {
+
+					samplesRef.current.textContent = newStats.samples;
+
+				}
+
+			}
+
+			if ( newStats.maxSamples !== undefined ) {
+
+				statsDataRef.current.maxSamples = newStats.maxSamples;
+				if ( maxSamplesRef.current && ! isEditing ) {
+
+					maxSamplesRef.current.textContent = newStats.maxSamples;
+
+				}
+
+			}
+
+			if ( newStats.isDenoising !== undefined ) {
+
+				statsDataRef.current.isDenoising = newStats.isDenoising;
+				if ( denoisingRef.current ) {
+
+					denoisingRef.current.style.visibility = newStats.isDenoising ? 'visible' : 'hidden';
+
+				}
+
+			}
+
+		},
+		getStats: () => statsDataRef.current
+	} ), [ isEditing ] );
+
+	return (
+		<div
+			ref={containerRef}
+			className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded"
+		>
+      Time: <span ref={timeElapsedRef}>0.00</span>s | Frames: <span ref={samplesRef}>0</span> /{' '}
+			{isEditing ? (
+				<input
+					className="bg-transparent border-b border-white text-white w-12"
+					type="number"
+					value={inputValue}
+					onChange={handleInputChange}
+					onBlur={handleInputBlur}
+					onKeyDown={handleKeyDown}
+					autoFocus
+				/>
+			) : (
+				<span
+					ref={maxSamplesRef}
+					onClick={startEditing}
+					className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300"
+				>
+					{statsDataRef.current.maxSamples}
+				</span>
+			)}
+			<div
+				ref={denoisingRef}
+				className="py-1 rounded-full flex items-center invisible"
+			>
+				<span className="mr-2">Denoising</span>
+				<Loader2 className="h-5 w-5 animate-spin" />
+			</div>
+		</div>
+	);
+
+} ) );
+
+StatsMeter.displayName = 'StatsMeter';
+
+// Integrated SaveControls component
+const SaveControls = React.memo( ( { onSave, onDiscard } ) => {
+
+	return (
+		<div className="absolute top-2 right-2 flex space-x-2">
+			<button
+				onClick={onSave}
+				className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-primary/90 transition-all cursor-pointer"
+			>
+				<Check size={14} className="mr-1" /> Save
+			</button>
+			<button
+				onClick={onDiscard}
+				className="flex items-center bg-primary text-background text-xs px-3 py-1 rounded-full shadow-sm hover:bg-secondary/90 transition-all cursor-pointer"
+			>
+				<X size={14} className="mr-1" /> Ignore
+			</button>
+		</div>
+	);
+
+} );
+
+SaveControls.displayName = 'SaveControls';
 
 // Extract control buttons to a separate component
 const ViewportControls = React.memo( ( { onScreenshot, onResetCamera, onFullscreen } ) => (
@@ -89,7 +271,7 @@ const ViewportControls = React.memo( ( { onScreenshot, onResetCamera, onFullscre
 
 ViewportControls.displayName = 'ViewportControls';
 
-const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
+const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	const { toast } = useToast();
 
@@ -100,22 +282,181 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const isInitialized = useRef( false );
+	const statsRef = useRef( null );
 
-	// Consolidate related state to reduce re-renders
+	// Path tracer store state
+	const maxSamples = usePathTracerStore( state => state.maxSamples );
+	// Get the setter function directly without subscription
+	const setMaxSamples = usePathTracerStore.getState().setMaxSamples;
+
+	// Viewport state
 	const [ viewportState, setViewportState ] = useState( {
 		isDragging: false,
 		dimensions: { width: 512, height: 512 },
 		viewportScale: 100,
-		actualCanvasSize: 512 // Fixed canvas size
+		actualCanvasSize: 512, // Fixed canvas size
+		isDenoising: false,
+		renderComplete: false
 	} );
 
 	// Destructure for readability
-	const { isDragging, dimensions, viewportScale, actualCanvasSize } = viewportState;
+	const {
+		isDragging,
+		dimensions,
+		viewportScale,
+		actualCanvasSize,
+		isDenoising,
+		renderComplete
+	} = viewportState;
 
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const appMode = useStore( state => state.appMode );
 	const setEnvironment = useAssetsStore( state => state.setEnvironment );
+
+	// Stats handling
+	const updateStatsRef = useCallback( ( newStats ) => {
+
+		if ( statsRef.current ) {
+
+			statsRef.current.updateStats( newStats );
+
+		}
+
+	}, [] );
+
+	// Handler for stats updates
+	const handleStatsUpdate = useCallback( ( newStats ) => {
+
+		updateStatsRef( {
+			timeElapsed: newStats.timeElapsed,
+			samples: newStats.samples,
+			maxSamples
+		} );
+
+	}, [ maxSamples, updateStatsRef ] );
+
+	// Handler for editing max samples
+	const handleMaxSamplesEdit = useCallback( ( value ) => {
+
+		if ( value === maxSamples ) return;
+
+		setMaxSamples( value );
+		const app = appRef.current;
+
+		if ( app ) {
+
+			app.pathTracingPass.material.uniforms.maxFrames.value = value;
+			app.reset();
+			updateStatsRef( { maxSamples: value } );
+
+		}
+
+	}, [ maxSamples, setMaxSamples, updateStatsRef ] );
+
+	// Save/Discard Handlers
+	const handleSave = useCallback( async () => {
+
+		const app = appRef.current;
+		if ( ! app ) return;
+
+		try {
+
+			const canvas = app.denoiser.enabled && app.denoiser.output
+				? app.denoiser.output
+				: app.renderer.domElement;
+
+			const imageData = canvas.toDataURL( 'image/png' );
+			const saveData = {
+				image: imageData,
+				colorCorrection: {
+					brightness: 0,
+					contrast: 0,
+					saturation: 0,
+					hue: 0,
+					exposure: 0,
+				},
+				timestamp: new Date(),
+				isEdited: true
+			};
+
+			const id = await saveRender( saveData );
+			window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
+			setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+
+		} catch ( error ) {
+
+			console.error( 'Failed to save render:', error );
+			toast( {
+				title: "Failed to save render",
+				description: "See console for details.",
+				variant: "destructive",
+			} );
+
+		}
+
+	}, [ toast ] );
+
+	const handleDiscard = useCallback( () => {
+
+		setViewportState( prev => ( { ...prev, renderComplete: false } ) );
+
+	}, [] );
+
+	// Set up event listeners for denoising and rendering
+	useEffect( () => {
+
+		const app = appRef.current;
+		if ( ! app ) return;
+
+		const handleDenoisingStart = () => {
+
+			setViewportState( prev => ( { ...prev, isDenoising: true } ) );
+			updateStatsRef( { isDenoising: true } );
+
+		};
+
+		const handleDenoisingEnd = () => {
+
+			setViewportState( prev => ( { ...prev, isDenoising: false } ) );
+			updateStatsRef( { isDenoising: false } );
+
+		};
+
+		if ( app.denoiser ) {
+
+			app.denoiser.addEventListener( 'start', handleDenoisingStart );
+			app.denoiser.addEventListener( 'end', handleDenoisingEnd );
+
+		}
+
+		app.addEventListener( 'RenderComplete', () =>
+			setViewportState( prev => ( { ...prev, renderComplete: true } ) )
+		);
+
+		app.addEventListener( 'RenderReset', () =>
+			setViewportState( prev => ( { ...prev, renderComplete: false } ) )
+		);
+
+		return () => {
+
+			if ( app.denoiser ) {
+
+				app.denoiser.removeEventListener( 'start', handleDenoisingStart );
+				app.denoiser.removeEventListener( 'end', handleDenoisingEnd );
+
+			}
+
+			app.removeEventListener( 'RenderComplete', () =>
+				setViewportState( prev => ( { ...prev, renderComplete: true } ) )
+			);
+			app.removeEventListener( 'RenderReset', () =>
+				setViewportState( prev => ( { ...prev, renderComplete: false } ) )
+			);
+
+		};
+
+	}, [ updateStatsRef ] );
 
 	// Expose the app instance via ref
 	React.useImperativeHandle( ref, () => ( {
@@ -130,7 +471,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
 			window.pathTracerApp = appRef.current;
-			appRef.current.setOnStatsUpdate( onStatsUpdate );
+			appRef.current.setOnStatsUpdate( handleStatsUpdate );
 
 			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
 
@@ -147,7 +488,7 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 				} )
 				.finally( () => {
 
-					setLoading( { isLoading: true, title: "Starting", status: "Setting up Complete !", progress: 100 } );
+					setLoading( { isLoading: true, title: "Starting", status: "Setup Complete!", progress: 100 } );
 
 					// Get a stable reference to the store function
 					const resetLoadingFn = useStore.getState().resetLoading;
@@ -166,11 +507,11 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 		} else if ( appRef.current ) {
 
 			// If app already exists, just update the stats callback
-			appRef.current.setOnStatsUpdate( onStatsUpdate );
+			appRef.current.setOnStatsUpdate( handleStatsUpdate );
 
 		}
 
-	}, [ onStatsUpdate, setLoading, toast, appMode ] );
+	}, [ handleStatsUpdate, setLoading, toast, appMode ] );
 
 	// Effect for dimension updates
 	useEffect( () => {
@@ -194,6 +535,23 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 		};
 
 	}, [] );
+
+	// Mode change handling (moved from MainViewport)
+	useEffect( () => {
+
+		// Update maxSamples when viewportMode changes
+		const newMaxSamples = viewportMode === "interactive" ? 60 : 30;
+		const app = appRef.current;
+
+		if ( app ) {
+
+			app.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
+			setMaxSamples( newMaxSamples );
+			updateStatsRef( { maxSamples: newMaxSamples, samples: 0 } );
+
+		}
+
+	}, [ viewportMode, setMaxSamples, updateStatsRef ] );
 
 	// File type detection helpers
 	const isEnvironmentMap = useCallback( ( fileName ) => {
@@ -393,6 +751,12 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 	}, [ handleModelLoad, handleEnvironmentLoad, isEnvironmentMap, toast ] );
 
 	// Control button handlers
+	const handleViewportResize = useCallback( ( scale ) => {
+
+		setViewportState( prev => ( { ...prev, viewportScale: scale } ) );
+
+	}, [] );
+
 	const handleFullscreen = useCallback( () => {
 
 		if ( ! viewportWrapperRef.current ) return;
@@ -404,21 +768,24 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 
 	const handleResetCamera = useCallback( () => {
 
-		window.pathTracerApp && window.pathTracerApp.controls.reset();
+		appRef.current && appRef.current.controls.reset();
 
 	}, [] );
 
 	const handleScreenshot = useCallback( () => {
 
-		window.pathTracerApp && window.pathTracerApp.takeScreenshot();
+		appRef.current && appRef.current.takeScreenshot();
 
 	}, [] );
 
-	const handleViewportResize = useCallback( ( scale ) => {
+	// Compute whether to show save controls
+	const shouldShowSaveControls = useMemo( () => {
 
-		setViewportState( prev => ( { ...prev, viewportScale: scale } ) );
+		if ( isDenoising ) return false;
+		const currentSamples = statsRef.current ? statsRef.current.getStats().samples : 0;
+		return renderComplete && currentSamples === maxSamples && viewportMode === "final";
 
-	}, [] );
+	}, [ renderComplete, maxSamples, viewportMode, isDenoising ] );
 
 	// Memoize style objects to prevent recreating them on each render
 	const wrapperStyle = useMemo( () => ( {
@@ -484,6 +851,20 @@ const Viewport3D = forwardRef( ( { onStatsUpdate, viewportMode }, ref ) => {
 					/>
 				</div>
 			</div>
+
+			{/* Integrated Stats Meter */}
+			<StatsMeter
+				ref={statsRef}
+				onMaxSamplesEdit={handleMaxSamplesEdit}
+			/>
+
+			{/* Integrated Save Controls */}
+			{shouldShowSaveControls && (
+				<SaveControls
+					onSave={handleSave}
+					onDiscard={handleDiscard}
+				/>
+			)}
 
 			{/* Controls */}
 			<ViewportControls
