@@ -351,26 +351,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	}, [] );
 
-	const handleFullscreen = useCallback( () => {
-
-		if ( ! viewportWrapperRef.current ) return;
-		document.fullscreenElement
-			? document.exitFullscreen()
-			: viewportWrapperRef.current.requestFullscreen();
-
-	}, [] );
-
-	const handleResetCamera = useCallback( () => {
-
-		appRef.current && appRef.current.controls.reset();
-
-	}, [] );
-
-	const handleScreenshot = useCallback( () => {
-
-		appRef.current && appRef.current.takeScreenshot();
-
-	}, [] );
 
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
@@ -458,9 +438,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 			{/* Controls */}
 			<ViewportControls
-				onScreenshot={handleScreenshot}
-				onResetCamera={handleResetCamera}
-				onFullscreen={handleViewportResize}
+				onResize={handleViewportResize}
+				viewportWrapperRef={viewportWrapperRef}
+				appRef={appRef}
 			/>
 
 			<Toaster />
