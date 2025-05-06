@@ -4,12 +4,8 @@ import DimensionDisplay from './DimensionDisplay';
 import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 import ViewportControls from './ViewportControls';
-import DropzoneOverlay from './DropzoneOverlay';
-import LoadingOverlay from './LoadingOverlay';
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
-import { Toaster } from "@/components/ui/toaster";
-import { useAssetsStore } from '@/store';
 import { saveRender } from '@/utils/database';
 
 
@@ -27,7 +23,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const statsRef = useRef( null );
 
 	// Viewport state - now using separate useState hooks
-	const [ isDragging, setIsDragging ] = useState( false );
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 ); // Fixed canvas size
 	const [ renderComplete, setRenderComplete ] = useState( false );
@@ -35,7 +30,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const appMode = useStore( state => state.appMode );
-	const setEnvironment = useAssetsStore( state => state.setEnvironment );
 
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
@@ -147,203 +141,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	}, [ setLoading, toast, appMode ] );
 
-	// File type detection helpers
-	const isEnvironmentMap = useCallback( ( fileName ) => {
-
-		const extension = fileName.split( '.' ).pop().toLowerCase();
-		return [ 'hdr', 'exr', 'png', 'jpg', 'jpeg', 'webp' ].includes( extension );
-
-	}, [] );
-
-	// Drag event handlers
-	const handleDragOver = useCallback( ( e ) => {
-
-		e.preventDefault();
-		setIsDragging( true );
-
-	}, [] );
-
-	const handleDragLeave = useCallback( ( e ) => {
-
-		e.preventDefault();
-		setIsDragging( false );
-
-	}, [] );
-
-	// Handle environment map loading
-	const handleEnvironmentLoad = useCallback( ( file ) => {
-
-		// Capture the setLoading function from store to avoid closure issues
-		const setLoadingFn = useStore.getState().setLoading;
-		const resetLoadingFn = useStore.getState().resetLoading;
-
-		setLoadingFn( { isLoading: true, title: "Loading", status: "Processing Environment Map...", progress: 0 } );
-
-		const url = URL.createObjectURL( file );
-
-		// Store file info in global context for reference in the loader
-		window.uploadedEnvironmentFileInfo = {
-			name: file.name,
-			type: file.type,
-			size: file.size
-		};
-
-		// Create environment data object
-		const customEnv = {
-			id: 'custom-upload',
-			name: file.name,
-			preview: null,
-			category: [],
-			tags: [],
-			redirection: '',
-			url: url
-		};
-
-		// Update the environment in store
-		setEnvironment( customEnv );
-
-		// Load the environment into the renderer
-		if ( appRef.current ) {
-
-			try {
-
-				appRef.current.loadEnvironment( url )
-					.then( () => {
-
-						toast( {
-							title: "Environment Loaded",
-							description: `Successfully loaded environment: ${file.name}`,
-						} );
-
-						appRef.current.reset();
-
-					} )
-					.catch( ( err ) => {
-
-						console.error( "Error loading environment file:", err );
-						toast( {
-							title: "Failed to load environment",
-							description: err.message || "Please try another file.",
-							variant: "destructive",
-						} );
-
-						// Clean up the blob URL on error
-						URL.revokeObjectURL( url );
-
-					} )
-					.finally( () => {
-
-						setLoadingFn( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
-						setTimeout( () => resetLoadingFn(), 1000 );
-
-					} );
-
-			} catch ( error ) {
-
-				console.error( "Error in environment loading process:", error );
-				toast( {
-					title: "Error Loading Environment",
-					description: error.message || "An unexpected error occurred.",
-					variant: "destructive",
-				} );
-
-				// Clean up the blob URL on error
-				URL.revokeObjectURL( url );
-				setLoadingFn( { isLoading: false } );
-
-			}
-
-		}
-
-	}, [ toast, setEnvironment ] );
-
-	// Handle model loading
-	const handleModelLoad = useCallback( ( file ) => {
-
-		// Capture the setLoading function from store to avoid closure issues
-		const setLoadingFn = useStore.getState().setLoading;
-		const resetLoadingFn = useStore.getState().resetLoading;
-
-		setLoadingFn( { isLoading: true, title: "Loading", status: "Processing Model...", progress: 0 } );
-
-		const reader = new FileReader();
-		reader.onload = ( event ) => {
-
-			const arrayBuffer = event.target.result;
-			if ( appRef.current && appRef.current.loadGLBFromArrayBuffer ) {
-
-				// Stop any ongoing rendering before loading new model
-				if ( appRef.current.pauseRendering !== undefined ) {
-
-					appRef.current.pauseRendering = true;
-
-				}
-
-				appRef.current.loadGLBFromArrayBuffer( arrayBuffer )
-					.then( () => {
-
-						toast( {
-							title: "Model Loaded",
-							description: `Successfully loaded model: ${file.name}`,
-						} );
-
-					} )
-					.catch( ( err ) => {
-
-						console.error( "Error loading GLB file:", err );
-						toast( {
-							title: "Failed to load GLB file",
-							description: err.message || "Please try again.",
-							variant: "destructive",
-						} );
-
-					} )
-					.finally( () => {
-
-						setLoadingFn( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
-						setTimeout( () => resetLoadingFn(), 1000 );
-
-					} );
-
-			}
-
-		};
-
-		reader.readAsArrayBuffer( file );
-
-	}, [ toast ] );
-
-	const handleDrop = useCallback( ( e ) => {
-
-		e.preventDefault();
-		setIsDragging( false );
-
-		const file = e.dataTransfer.files[ 0 ];
-		if ( ! file ) return;
-
-		const fileName = file.name.toLowerCase();
-
-		// Check if it's a GLB or GLTF model
-		if ( fileName.endsWith( '.glb' ) || fileName.endsWith( '.gltf' ) ) {
-
-			handleModelLoad( file );
-
-		} else if ( isEnvironmentMap( fileName ) ) { // Check if it's an environment map
-
-			handleEnvironmentLoad( file );
-
-		} else { // Unsupported file type
-
-			toast( {
-				title: "Unsupported File Type",
-				description: "Please drop a GLB model or an environment map (.hdr, .exr, .png, etc.)",
-				variant: "destructive",
-			} );
-
-		}
-
-	}, [ handleModelLoad, handleEnvironmentLoad, isEnvironmentMap, toast ] );
-
 	// Control button handlers
 	const handleViewportResize = useCallback( ( scale ) => {
 
@@ -387,9 +184,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	return (
 		<div
 			className="flex justify-center items-center h-full"
-			onDragOver={handleDragOver}
-			onDragLeave={handleDragLeave}
-			onDrop={handleDrop}
 		>
 			{/* Outer wrapper div for applying scale transform */}
 			<div
@@ -400,7 +194,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				{/* Container with fixed size */}
 				<div
 					ref={containerRef}
-					className={`relative ${isDragging ? 'bg-primary/10' : ''}`}
+					className={`relative`}
 					style={containerStyle}
 				>
 					{/* denoiser container */}
@@ -443,9 +237,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				appRef={appRef}
 			/>
 
-			<Toaster />
-			<LoadingOverlay />
-			<DropzoneOverlay isActive={isDragging} />
 		</div>
 	);
 
