@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-const DimensionDisplay = ( { canvasRef, scale } ) => {
+const DimensionDisplay = ( { canvasRef } ) => {
 
 	const [ value, setValue ] = useState( {
 		dimensions: { width: 512, height: 512 }
@@ -32,7 +32,7 @@ const DimensionDisplay = ( { canvasRef, scale } ) => {
 	return (
 		<div className="absolute left-0 bottom-0 right-0 text-center z-10">
 			<div className="text-xs text-background">
-				{width} × {height} ({scale}%)
+				{width} × {height}
 			</div>
 		</div>
 

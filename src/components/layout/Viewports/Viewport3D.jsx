@@ -417,7 +417,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 						height="1024"
 						style={canvasStyle}
 					/>
-					<DimensionDisplay canvasRef={primaryCanvasRef} scale={viewportScale} />
+					<DimensionDisplay canvasRef={primaryCanvasRef} />
 				</div>
 			</div>
 
