@@ -1,42 +1,129 @@
-import React, { useRef, useState, useCallback, forwardRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
+import { usePathTracerStore } from '@/store';
 
-const StatsMeter = forwardRef( ( { onMaxSamplesEdit }, ref ) => {
+const StatsMeter = ( { viewportMode, appRef } ) => {
 
-	// State for editing mode (minimal state that doesn't affect parent rendering)
+	// Get store state and actions
+	const storeMaxSamples = usePathTracerStore( state => state.maxSamples );
+	const setStoreMaxSamples = usePathTracerStore.getState().setMaxSamples;
+
+	// Individual states for all metrics
+	const [ timeElapsed, setTimeElapsed ] = useState( 0 );
+	const [ samples, setSamples ] = useState( 0 );
+	const [ maxSamples, setMaxSamples ] = useState( 60 );
+	const [ isDenoising, setIsDenoising ] = useState( false );
+
+	// Editing state
 	const [ isEditing, setIsEditing ] = useState( false );
 	const [ inputValue, setInputValue ] = useState( "60" );
 
-	// Create refs for DOM elements
-	const containerRef = useRef( null );
-	const timeElapsedRef = useRef( null );
-	const samplesRef = useRef( null );
-	const maxSamplesRef = useRef( null );
-	const denoisingRef = useRef( null );
+	// Handle stats update from the path tracer
+	const handleStatsUpdate = useCallback( ( newStats ) => {
 
-	// Stats data ref (not state)
-	const statsDataRef = useRef( {
-		timeElapsed: 0,
-		samples: 0,
-		maxSamples: 60,
-		isDenoising: false
-	} );
+		if ( newStats.timeElapsed !== undefined ) {
 
-	// Handle input blur to submit value
+			setTimeElapsed( newStats.timeElapsed );
+
+		}
+
+		if ( newStats.samples !== undefined ) {
+
+			setSamples( newStats.samples );
+
+		}
+
+	}, [] );
+
+	// Handle editing max samples
+	const handleMaxSamplesEdit = useCallback( ( value ) => {
+
+		if ( value === storeMaxSamples ) return;
+
+		// Update store
+		setStoreMaxSamples( value );
+
+		// Update local state
+		setMaxSamples( value );
+
+		// Update app
+		const app = appRef.current;
+		if ( app ) {
+
+			app.pathTracingPass.material.uniforms.maxFrames.value = value;
+			app.reset();
+
+		}
+
+	}, [ storeMaxSamples, setStoreMaxSamples, appRef ] );
+
+	// Register stats update callback
+	useEffect( () => {
+
+		if ( ! appRef || ! appRef.current ) return;
+
+		// Register the callback once
+		appRef.current.setOnStatsUpdate( handleStatsUpdate );
+
+	}, [ appRef, handleStatsUpdate ] );
+
+	// Update based on viewport mode
+	useEffect( () => {
+
+		if ( ! appRef || ! appRef.current ) return;
+
+		const newMaxSamples = viewportMode === "interactive" ? 60 : 30;
+		const app = appRef.current;
+
+		if ( app ) {
+
+			app.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
+			setStoreMaxSamples( newMaxSamples );
+			setMaxSamples( newMaxSamples );
+			setSamples( 0 );
+
+		}
+
+	}, [ viewportMode, appRef, setStoreMaxSamples ] );
+
+	// Setup denoising event listeners
+	useEffect( () => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		if ( window.pathTracerApp.denoiser ) {
+
+			window.pathTracerApp.denoiser.addEventListener( 'start', () => setIsDenoising( true ) );
+			window.pathTracerApp.denoiser.addEventListener( 'end', () => setIsDenoising( false ) );
+
+		}
+
+		return () => {
+
+			if ( window.pathTracerApp.denoiser ) {
+
+				window.pathTracerApp.denoiser.removeEventListener( 'start', () => setIsDenoising( true ) );
+				window.pathTracerApp.denoiser.removeEventListener( 'end', () => setIsDenoising( false ) );
+
+			}
+
+		};
+
+	}, [] );
+
+	// Input field handlers
 	const handleInputBlur = useCallback( () => {
 
 		setIsEditing( false );
 		const numValue = Number( inputValue );
-		if ( numValue !== statsDataRef.current.maxSamples && ! isNaN( numValue ) ) {
+		if ( numValue !== maxSamples && ! isNaN( numValue ) ) {
 
-			// Call the parent callback with new value
-			onMaxSamplesEdit && onMaxSamplesEdit( numValue );
+			handleMaxSamplesEdit( numValue );
 
 		}
 
-	}, [ inputValue, onMaxSamplesEdit ] );
+	}, [ inputValue, maxSamples, handleMaxSamplesEdit ] );
 
-	// Handle key press events
 	const handleKeyDown = useCallback( ( e ) => {
 
 		if ( e.key === 'Enter' ) {
@@ -47,83 +134,22 @@ const StatsMeter = forwardRef( ( { onMaxSamplesEdit }, ref ) => {
 
 	}, [ handleInputBlur ] );
 
-	// Handle input change
 	const handleInputChange = useCallback( ( e ) => {
 
 		setInputValue( e.target.value );
 
 	}, [] );
 
-	// Handle click to start editing
 	const startEditing = useCallback( () => {
 
 		setIsEditing( true );
-		// Initialize input value from current stats
-		setInputValue( String( statsDataRef.current.maxSamples ) );
+		setInputValue( String( maxSamples ) );
 
-	}, [] );
-
-	// Expose methods to update stats without re-rendering
-	React.useImperativeHandle( ref, () => ( {
-		updateStats: ( newStats ) => {
-
-			if ( ! containerRef.current ) return;
-
-			// Update our internal ref data
-			if ( newStats.timeElapsed !== undefined ) {
-
-				statsDataRef.current.timeElapsed = newStats.timeElapsed;
-				if ( timeElapsedRef.current ) {
-
-					timeElapsedRef.current.textContent = newStats.timeElapsed.toFixed( 2 );
-
-				}
-
-			}
-
-			if ( newStats.samples !== undefined ) {
-
-				statsDataRef.current.samples = newStats.samples;
-				if ( samplesRef.current ) {
-
-					samplesRef.current.textContent = newStats.samples;
-
-				}
-
-			}
-
-			if ( newStats.maxSamples !== undefined ) {
-
-				statsDataRef.current.maxSamples = newStats.maxSamples;
-				if ( maxSamplesRef.current && ! isEditing ) {
-
-					maxSamplesRef.current.textContent = newStats.maxSamples;
-
-				}
-
-			}
-
-			if ( newStats.isDenoising !== undefined ) {
-
-				statsDataRef.current.isDenoising = newStats.isDenoising;
-				if ( denoisingRef.current ) {
-
-					denoisingRef.current.style.visibility = newStats.isDenoising ? 'visible' : 'hidden';
-
-				}
-
-			}
-
-		},
-		getStats: () => statsDataRef.current
-	} ), [ isEditing ] );
+	}, [ maxSamples ] );
 
 	return (
-		<div
-			ref={containerRef}
-			className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded"
-		>
-			Time: <span ref={timeElapsedRef}>0.00</span>s | Frames: <span ref={samplesRef}>0</span> /{' '}
+		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
+			Time: <span>{timeElapsed.toFixed( 2 )}</span>s | Frames: <span>{samples}</span> /{' '}
 			{isEditing ? (
 				<input
 					className="bg-transparent border-b border-white text-white w-12"
@@ -136,25 +162,21 @@ const StatsMeter = forwardRef( ( { onMaxSamplesEdit }, ref ) => {
 				/>
 			) : (
 				<span
-					ref={maxSamplesRef}
 					onClick={startEditing}
-					className="cursor-pointer border-b border-dotted border-white group-hover:border-blue-400 transition-colors duration-300"
+					className="cursor-pointer border-b border-dotted border-white hover:border-blue-400 transition-colors duration-300"
 				>
-					{statsDataRef.current.maxSamples}
+					{maxSamples}
 				</span>
 			)}
-			<div
-				ref={denoisingRef}
-				className="py-1 rounded-full flex items-center invisible"
-			>
-				<span className="mr-2">Denoising</span>
-				<Loader2 className="h-5 w-5 animate-spin" />
-			</div>
+			{isDenoising && (
+				<div className="py-1 rounded-full flex items-center">
+					<span className="mr-2">Denoising</span>
+					<Loader2 className="h-5 w-5 animate-spin" />
+				</div>
+			)}
 		</div>
 	);
 
-} );
-
-StatsMeter.displayName = 'StatsMeter';
+};
 
 export default StatsMeter;

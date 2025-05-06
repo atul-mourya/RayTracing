@@ -7,7 +7,7 @@ import ViewportControls from './ViewportControls';
 import DropzoneOverlay from './DropzoneOverlay';
 import LoadingOverlay from './LoadingOverlay';
 import { useToast } from '@/hooks/use-toast';
-import { useStore, usePathTracerStore } from '@/store';
+import { useStore } from '@/store';
 import { Toaster } from "@/components/ui/toaster";
 import { useAssetsStore } from '@/store';
 import { saveRender } from '@/utils/database';
@@ -26,62 +26,16 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const isInitialized = useRef( false );
 	const statsRef = useRef( null );
 
-	// Path tracer store state
-	const maxSamples = usePathTracerStore( state => state.maxSamples );
-	// Get the setter function directly without subscription
-	const setMaxSamples = usePathTracerStore.getState().setMaxSamples;
-
 	// Viewport state - now using separate useState hooks
 	const [ isDragging, setIsDragging ] = useState( false );
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 ); // Fixed canvas size
-	const [ isDenoising, setIsDenoising ] = useState( false );
 	const [ renderComplete, setRenderComplete ] = useState( false );
 
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const appMode = useStore( state => state.appMode );
 	const setEnvironment = useAssetsStore( state => state.setEnvironment );
-
-	// Stats handling
-	const updateStatsRef = useCallback( ( newStats ) => {
-
-		if ( statsRef.current ) {
-
-			statsRef.current.updateStats( newStats );
-
-		}
-
-	}, [] );
-
-	// Handler for stats updates
-	const handleStatsUpdate = useCallback( ( newStats ) => {
-
-		updateStatsRef( {
-			timeElapsed: newStats.timeElapsed,
-			samples: newStats.samples,
-			maxSamples
-		} );
-
-	}, [ maxSamples, updateStatsRef ] );
-
-	// Handler for editing max samples
-	const handleMaxSamplesEdit = useCallback( ( value ) => {
-
-		if ( value === maxSamples ) return;
-
-		setMaxSamples( value );
-		const app = appRef.current;
-
-		if ( app ) {
-
-			app.pathTracingPass.material.uniforms.maxFrames.value = value;
-			app.reset();
-			updateStatsRef( { maxSamples: value } );
-
-		}
-
-	}, [ maxSamples, setMaxSamples, updateStatsRef ] );
 
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
@@ -132,56 +86,22 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	}, [] );
 
-	// Set up event listeners for denoising and rendering
 	useEffect( () => {
 
 		const app = appRef.current;
 		if ( ! app ) return;
-
-		const handleDenoisingStart = () => {
-
-			setIsDenoising( true );
-			updateStatsRef( { isDenoising: true } );
-
-		};
-
-		const handleDenoisingEnd = () => {
-
-			setIsDenoising( false );
-			updateStatsRef( { isDenoising: false } );
-
-		};
-
-		if ( app.denoiser ) {
-
-			app.denoiser.addEventListener( 'start', handleDenoisingStart );
-			app.denoiser.addEventListener( 'end', handleDenoisingEnd );
-
-		}
 
 		app.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
 		app.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
 
 		return () => {
 
-			if ( app.denoiser ) {
-
-				app.denoiser.removeEventListener( 'start', handleDenoisingStart );
-				app.denoiser.removeEventListener( 'end', handleDenoisingEnd );
-
-			}
-
 			app.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
 			app.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
 
 		};
 
-	}, [ updateStatsRef ] );
-
-	// Expose the app instance via ref
-	React.useImperativeHandle( ref, () => ( {
-		getPathTracerApp: () => appRef.current
-	} ), [] );
+	}, [] );
 
 	// Effect for app initialization - dependencies optimized
 	useEffect( () => {
@@ -191,7 +111,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
 			window.pathTracerApp = appRef.current;
-			appRef.current.setOnStatsUpdate( handleStatsUpdate );
 
 			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
 
@@ -224,31 +143,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 				} );
 
-		} else if ( appRef.current ) {
-
-			// If app already exists, just update the stats callback
-			appRef.current.setOnStatsUpdate( handleStatsUpdate );
-
 		}
 
-	}, [ handleStatsUpdate, setLoading, toast, appMode ] );
-
-	// Mode change handling (moved from MainViewport)
-	useEffect( () => {
-
-		// Update maxSamples when viewportMode changes
-		const newMaxSamples = viewportMode === "interactive" ? 60 : 30;
-		const app = appRef.current;
-
-		if ( app ) {
-
-			app.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
-			setMaxSamples( newMaxSamples );
-			updateStatsRef( { maxSamples: newMaxSamples, samples: 0 } );
-
-		}
-
-	}, [ viewportMode, setMaxSamples, updateStatsRef ] );
+	}, [ setLoading, toast, appMode ] );
 
 	// File type detection helpers
 	const isEnvironmentMap = useCallback( ( fileName ) => {
@@ -478,13 +375,12 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
 
-		if ( ! window.pathTracingPass ) return false;
-		if ( isDenoising ) return false;
-		const currentSamples = window.pathTracingPass.material.uniforms.frames.value;
-		const currentMaxSamples = window.pathTracingPass.material.uniforms.maxFrames.value;
+		if ( ! window.pathTracerApp ) return false;
+		const currentSamples = window.pathTracerApp.pathTracingPass.material.uniforms.frame.value - 1;
+		const currentMaxSamples = window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value;
 		return renderComplete && currentSamples === currentMaxSamples && viewportMode === "final";
 
-	}, [ renderComplete, viewportMode, isDenoising ] );
+	}, [ renderComplete, viewportMode ] );
 
 	// Memoize style objects to prevent recreating them on each render
 	const wrapperStyle = useMemo( () => ( {
@@ -545,10 +441,11 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				</div>
 			</div>
 
-			{/* Integrated Stats Meter */}
+			{/* Integrated Stats Meter - now only passing appRef */}
 			<StatsMeter
+				viewportMode={viewportMode}
 				ref={statsRef}
-				onMaxSamplesEdit={handleMaxSamplesEdit}
+				appRef={appRef}
 			/>
 
 			{/* Integrated Save Controls */}

@@ -10,8 +10,6 @@ RayTracing Project TODO
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 - [ ]  fullscreen canvas not working
 - [ ]  when switching to render mode, the canvas size is not updated
-- [ ]  State management needs a complete overhaul
-- [ ]  main viewport rendering very frequently
 - [ ]  when switching to render mode, ongoing denoising process should be cancelled
 
 ✨ Core Features
@@ -45,6 +43,7 @@ RayTracing Project TODO
 - [ ]  Add dynamic camera addition and removal
 - [ ]  Add dynamic object addition and removal
 - [ ]  improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
+- [ ]  useHook - https://github.com/uidotdev/usehooks
 
 🔄 Major Refactoring
 --------------------
