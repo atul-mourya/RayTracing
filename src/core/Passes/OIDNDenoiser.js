@@ -82,10 +82,10 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async updateQuality( value ) {
 
+		this.quality = value;
 		const tzaUrl = this.getTzasUrl();
 		if ( this.currentTZAUrl === tzaUrl ) return;
 		this.currentTZAUrl = tzaUrl;
-		this.quality = value;
 		this.unet.dispose();
 		await this._setupUNetDenoiser( tzaUrl );
 
@@ -98,7 +98,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Map quality setting to model size suffix
 		const modelSize = {
 		  'fast': '_small',
-		  'balanced': '',
+		  'balance': '',
 		  'high': '_large'
 		}[ this.quality ] || '';
 

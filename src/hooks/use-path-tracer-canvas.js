@@ -108,7 +108,7 @@ export function usePathTracerCanvas() {
 			setSamplesPerPixel( 1 );
 			setInteractionModeEnabled( false );
 			setEnableOIDN( true );
-			setOidnQuality( 'balanced' );
+			setOidnQuality( 'balance' );
 			setUseGBuffer( true );
 			setResolution( '3' );
 			setBounces( 8 );
@@ -120,7 +120,7 @@ export function usePathTracerCanvas() {
 				requestAnimationFrame( () => {
 
 					window.pathTracerApp.denoiser.enabled = true;
-					window.pathTracerApp.denoiser.quality = 'balanced';
+					window.pathTracerApp.denoiser.quality = 'balance';
 					window.pathTracerApp.denoiser.hdr = false;
 					window.pathTracerApp.denoiser.useGBuffer = true;
 					window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 );
