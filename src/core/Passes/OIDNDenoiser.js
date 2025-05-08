@@ -231,6 +231,9 @@ export class OIDNDenoiser extends EventDispatcher {
 				},
 				progress: ( _, tileData, tile ) => {
 
+					// console.log( '_', _ );
+					// console.log( 'tileData', tileData );
+					// console.log( 'Tile:', tile );
 					this.ctx.putImageData( tileData, tile.x, tile.y );
 
 				}

@@ -637,8 +637,8 @@ IndirectLightingResult calculateIndirectLighting(
     float cumulativeBrdf = cumulativeEnv + brdfWeight;
 
     // Select sampling technique based on random value and importance weights
-    if( selectionRand < cumulativeEnv && envWeight > 0.001 ) {
-        if( useEnvMapIS && enableEnvironmentLight ) {
+    if( selectionRand < cumulativeEnv && envWeight > 0.001 && enableEnvironmentLight ) {
+        if( useEnvMapIS ) {
             // True environment map importance sampling
             EnvMapSample envSample = sampleEnvironmentIS( randomSample );
             sampleDir = envSample.direction;

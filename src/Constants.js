@@ -189,7 +189,7 @@ export const DEFAULT_STATE = {
 	showAdaptiveSamplingHelper: false,
 	fireflyThreshold: 3,
 	renderMode: 0,
-	tiles: 4,
+	tiles: 3,
 	tilesHelper: false,
 	resolution: 1,
 	directionalLightIntensity: 0,

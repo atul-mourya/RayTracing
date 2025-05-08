@@ -20,14 +20,18 @@ const TopBar = () => {
 
 	// Memoize the store actions to prevent re-renders
 	const pathTracerActions = useMemo( () => ( {
+		setMaxSamples: pathTracerStore.setMaxSamples,
 		setBounces: pathTracerStore.setBounces,
 		setSamplesPerPixel: pathTracerStore.setSamplesPerPixel,
-		setInteractionModeEnabled: pathTracerStore.setInteractionModeEnabled,
-		setEnableOIDN: pathTracerStore.setEnableOIDN,
-		setUseGBuffer: pathTracerStore.setUseGBuffer,
-		setResolution: pathTracerStore.setResolution,
 		setRenderMode: pathTracerStore.setRenderMode,
+		setTiles: pathTracerStore.setTiles,
+		setTilesHelper: pathTracerStore.setTilesHelper,
+		setResolution: pathTracerStore.setResolution,
+		setEnableOIDN: pathTracerStore.setEnableOIDN,
 		setOidnQuality: pathTracerStore.setOidnQuality,
+		setOidnHdr: pathTracerStore.setOidnHdr,
+		setUseGBuffer: pathTracerStore.setUseGBuffer,
+		setInteractionModeEnabled: pathTracerStore.setInteractionModeEnabled,
 	} ), [ pathTracerStore ] );
 
 	// Use custom hooks

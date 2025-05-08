@@ -74,7 +74,7 @@ export class PathTracerPass extends Pass {
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
 				environmentRotation: { value: DEFAULT_STATE.environmentRotation || 0.0 },
-				useEnvMapIS: { value: false },
+				useEnvMapIS: { value: true },
 				envCDF: { value: null },
 				envCDFSize: { value: new Vector2() },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI }, // Convert from lux to lumens
