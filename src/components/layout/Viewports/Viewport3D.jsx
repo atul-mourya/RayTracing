@@ -3,7 +3,7 @@ import PathTracerApp from '../../../core/main';
 import DimensionDisplay from './DimensionDisplay';
 import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
-import ViewportControls from './ViewportControls';
+import ViewportToolbar from './ViewportToolbar';
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
 import { saveRender } from '@/utils/database';
@@ -231,7 +231,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 			)}
 
 			{/* Controls */}
-			<ViewportControls
+			<ViewportToolbar
 				onResize={handleViewportResize}
 				viewportWrapperRef={viewportWrapperRef}
 				appRef={appRef}
