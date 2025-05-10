@@ -1,60 +1,53 @@
-
-import { forwardRef, useState } from "react";
-import * as SliderPrimitive from "@radix-ui/react-slider";
+import { forwardRef, useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Power, PowerOff } from "lucide-react";
+import { Slider } from "./slider"; // Import the Slider component
 
-const SliderToggle = forwardRef( ( { className, enabled, icon: Icon, onToggleChange, ...props }, ref ) => {
+const SliderToggle = forwardRef( ( {
+	className,
+	enabled = false,
+	icon: Icon,
+	onToggleChange,
+	value = 0,
+	onChange,
+	onValueChange,
+	onFinishChange,
+	onDragStart,
+	onDragEnd,
+	min = 0,
+	max = 100,
+	sliderMin,
+	sliderMax,
+	step = 1,
+	precision = 2,
+	disabled = false,
+	label,
+	...props
+}, ref ) => {
 
-	const [ isEditing, setIsEditing ] = useState( false );
-	const [ inputValue, setInputValue ] = useState( props.value );
+	// State for power toggle
 	const [ isPowerOn, setIsPowerOn ] = useState( enabled );
 
-	const handleEditClick = ( e ) => {
+	// Sync with external props
+	useEffect( () => {
 
-		e.stopPropagation();
-		setIsEditing( true );
+		setIsPowerOn( enabled );
 
-	};
+	}, [ enabled ] );
 
-	const handleInputBlur = () => {
-
-		setIsEditing( false );
-		if ( inputValue !== props.value ) {
-
-			props.onValueChange( inputValue );
-
-		}
-
-	};
-
-	const handleInputChange = ( e ) => {
-
-		setInputValue( e.target.value );
-
-	};
-
-	const handleKeyDown = ( e ) => {
-
-		if ( e.key === "Enter" ) {
-
-			handleInputBlur();
-
-		}
-
-	};
-
+	// Power toggle handler
 	const togglePower = () => {
 
-		setIsPowerOn( ! isPowerOn );
-		onToggleChange( ! isPowerOn );
+		const newPowerState = ! isPowerOn;
+		setIsPowerOn( newPowerState );
+		onToggleChange?.( newPowerState );
 
 	};
 
 	return (
 		<>
-			<span className="opacity-50 text-xs truncate">{props.label}</span>
+			<span className="opacity-50 text-xs truncate">{label}</span>
 			<span className="flex items-center max-w-32 w-full justify-end">
 				<div className="relative flex h-5 w-full overflow-hidden">
 					<div
@@ -63,47 +56,41 @@ const SliderToggle = forwardRef( ( { className, enabled, icon: Icon, onToggleCha
 							isPowerOn ? "translate-x-0" : "translate-x-full"
 						)}
 					>
-						<SliderPrimitive.Root
+						{/* Use the Slider component */}
+						<Slider
 							ref={ref}
-							className={cn(
-								"relative flex h-5 w-full touch-none select-none items-center",
-								className
-							)}
+							className={className}
+							icon={Icon}
+							value={value}
+							onChange={onChange}
+							onValueChange={onValueChange}
+							onFinishChange={onFinishChange}
+							onDragStart={onDragStart}
+							onDragEnd={onDragEnd}
+							min={min}
+							max={max}
+							sliderMin={sliderMin}
+							sliderMax={sliderMax}
+							step={step}
+							precision={precision}
+							disabled={disabled || ! isPowerOn}
+							label={null} // Label is handled by parent
 							{...props}
-						>
-							<SliderPrimitive.Track className="relative h-full w-full grow overflow-hidden rounded-full bg-primary/20">
-								{Icon && (
-									<div className="absolute h-full left-1 inline-flex justify-start items-center">
-										<Icon size={12} className="z-10" />
-									</div>
-								)}
-								<SliderPrimitive.Range className="absolute h-full bg-primary" />
-							</SliderPrimitive.Track>
-
-							{/* Editable value */}
-							{isEditing ? (
-								<input
-									className="text-xs absolute h-full text-right cursor-text text-foreground inline-flex items-center bg-transparent"
-									type="number"
-									value={inputValue}
-									onChange={handleInputChange}
-									onBlur={handleInputBlur}
-									onKeyDown={handleKeyDown}
-									autoFocus
-								/>
-							) : (
-								<span
-									className="text-xs absolute h-full right-2 cursor-text text-foreground inline-flex items-center"
-									onClick={handleEditClick}
-								>
-									{props.value}
-								</span>
-							)}
-						</SliderPrimitive.Root>
+						/>
 					</div>
 				</div>
-				<Button className="h-full px-1 py-1 text-xs rounded-full ml-2" onClick={togglePower}>
-					{isPowerOn ? <Power size={12} className="text-foreground"/> : <PowerOff size={12} className="text-secondary"/>}
+
+				{/* Power toggle button */}
+				<Button
+					className="h-full px-1 py-1 text-xs rounded-full ml-2"
+					onClick={togglePower}
+					disabled={disabled}
+				>
+					{isPowerOn ? (
+						<Power size={12} className="text-foreground" />
+					) : (
+						<PowerOff size={12} className="text-secondary" />
+					)}
 				</Button>
 			</span>
 		</>
@@ -111,6 +98,6 @@ const SliderToggle = forwardRef( ( { className, enabled, icon: Icon, onToggleCha
 
 } );
 
-SliderToggle.displayName = SliderPrimitive.Root.displayName;
+SliderToggle.displayName = "SliderToggle";
 
 export { SliderToggle };
