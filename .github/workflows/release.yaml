@@ -1,4 +1,5 @@
-name: Release
+# Updated release.yaml
+name: Release and Deploy
 
 on:
   push:
@@ -10,14 +11,50 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+          
       - run: npm ci
-      - run: npm run build
-      - run: npx semantic-release
+      
+      # Run semantic-release first to update version
+      - name: Semantic Release
+        id: semantic
+        run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      # Only proceed with deployment if a new release was created
+      - name: Build
+        if: steps.semantic.outcome == 'success'
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          
+      - name: Setup Pages
+        if: steps.semantic.outcome == 'success'
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        if: steps.semantic.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      - name: Deploy to GitHub Pages
+        if: steps.semantic.outcome == 'success'
+        id: deployment
+        uses: actions/deploy-pages@v4
