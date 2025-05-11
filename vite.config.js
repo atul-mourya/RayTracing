@@ -5,21 +5,9 @@ import glsl from 'vite-plugin-glsl';
 import { defineConfig } from "vite";
 import topLevelAwait from "vite-plugin-top-level-await";
 import process from 'process';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
-import getVersionFromGit from './scripts/get-version';
-
-// Get version from environment variable or git
-const version = process.env.PACKAGE_VERSION || getVersionFromGit();
-
 const __dirname = path.resolve();
 
 const ReactCompilerConfig = {}; // Define ReactCompilerConfig
-
-// Read version from package.json
-const packageJson = JSON.parse(
-	readFileSync( resolve( process.cwd(), 'package.json' ), 'utf-8' )
-);
 
 export default defineConfig( {
 	base: './',
@@ -57,10 +45,6 @@ export default defineConfig( {
 		},
 	},
 	define: {
-		'process.env': process.env,
-		// Make version available as a global constant
-		'__APP_VERSION__': JSON.stringify( packageJson.version ),
-		'__BUILD_DATE__': JSON.stringify( new Date().toISOString() ),
-		'import.meta.env.PACKAGE_VERSION': JSON.stringify( version )
+		'process.env': process.env
 	}
 } );

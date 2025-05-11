@@ -8,6 +8,3 @@ createRoot( document.getElementById( 'root' ) ).render(
 		<App />
 	</StrictMode>,
 );
-
-// Log the application version
-console.log( `RayTracing v${__APP_VERSION__} (Built: ${new Date( __BUILD_DATE__ ).toLocaleString()})` );
