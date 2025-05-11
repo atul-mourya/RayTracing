@@ -31,12 +31,18 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Important for git history and tags
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 20.11.1
           cache: 'npm'
+      
+      - name: Get version from git tag
+        id: get-version
+        run: echo "VERSION=$(git describe --tags --abbrev=0 || echo '0.0.0')" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: npm ci
@@ -49,6 +55,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          PACKAGE_VERSION: ${{ env.VERSION }}
           
       - name: Setup Pages
         uses: actions/configure-pages@v4

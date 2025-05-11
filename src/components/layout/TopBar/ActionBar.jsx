@@ -2,6 +2,7 @@ import { Github, ChevronDown } from 'lucide-react';
 import { ThemeToggle } from '../../theme-toggle';
 import { Button } from "@/components/ui/button";
 import { NavUser } from '@/components/ui/nav-user';
+import { Version } from '@/components/ui/version';
 import {
 	Tooltip,
 	TooltipContent,
@@ -14,7 +15,7 @@ const ActionBar = ( { user, onLoginClick, onSignOut, onGithubClick } ) => {
 	return (
 		<div className="flex items-center px-2 space-x-2">
 			<ThemeToggle />
-			<div className="text-xs">v3.0</div>
+			<Version />
 			<ChevronDown size={14} />
 			<TooltipProvider>
 				<Tooltip>
