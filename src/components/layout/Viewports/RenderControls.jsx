@@ -17,7 +17,7 @@ const ControlButton = ( { icon, label, onClick, isActive, disabled } ) => (
 				variant="ghost"
 				size="icon"
 				className={cn(
-					"w-8 h-full rounded-none border-0",
+					"w-8 h-full border-0",
 					isActive && "bg-primary/20 text-primary hover:bg-primary/30 hover:text-primary",
 					! isActive && ! disabled && "text-muted-foreground hover:text-foreground hover:bg-accent/50",
 					disabled && "opacity-50"
@@ -136,7 +136,7 @@ const RenderControls = () => {
 
 	return (
 		<div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-10">
-			<div className="flex bg-background/90 rounded overflow-hidden shadow-md border border-border">
+			<div className="flex h-8 bg-background/90 rounded-full overflow-hidden shadow-md border border-border">
 				<TooltipProvider>
 					{controls.map( ( control, index ) => (
 						<div key={control.label} className="flex items-center">

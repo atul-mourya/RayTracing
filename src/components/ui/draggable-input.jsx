@@ -169,7 +169,7 @@ const DraggableInput = React.forwardRef( ( {
 			<div
 				ref={setRefs}
 				className={cn(
-					"relative flex h-5 items-center rounded-md bg-input px-2 touch-none select-none",
+					"relative flex h-5 items-center rounded-full bg-input px-2 touch-none select-none",
 					disabled ? "cursor-not-allowed opacity-50" : "cursor-ew-resize",
 					className
 				)}
