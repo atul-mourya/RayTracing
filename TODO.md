@@ -100,6 +100,6 @@ RayTracing Project TODO
 -   <https://api.physicallybased.info/operations/get-materials>
 -   <https://repalash.com/archives>
 
-* * * * *
+* * * * * *
 
 *Project Demo: <https://atul-mourya.github.io/RayTracing/>*
