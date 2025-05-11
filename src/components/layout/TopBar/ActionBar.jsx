@@ -15,8 +15,7 @@ const ActionBar = ( { user, onLoginClick, onSignOut, onGithubClick } ) => {
 	return (
 		<div className="flex items-center px-2 space-x-2">
 			<ThemeToggle />
-			<div className="text-xs">v: {appVersion}</div>
-			<ChevronDown size={14} />
+			<div className="text-xs">v{appVersion}</div>
 			<TooltipProvider>
 				<Tooltip>
 					<TooltipTrigger asChild>
