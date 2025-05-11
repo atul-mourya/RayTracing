@@ -1,7 +1,7 @@
 {
   "name": "raytracing",
   "private": true,
-  "version": "1.32.3",
+  "version": "1.32.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,8 +9,7 @@
     "lint": "eslint .",
     "lint-fix": "npx eslint --fix",
     "preview": "vite preview",
-    "release": "cross-env $(cat .env | xargs) DEBUG=semantic-release:* semantic-release --no-ci",
-    "release:dry": "cross-env $(cat .env | xargs) DEBUG=semantic-release:* semantic-release --dry-run --no-ci"
+    "release": "cross-env $(cat .env | xargs) semantic-release --no-ci"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.1",
