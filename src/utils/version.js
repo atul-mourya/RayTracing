@@ -8,7 +8,6 @@ export const appVersion = packageJson.version === '0.0.0' ? 'dev' : packageJson.
 export function logVersion() {
 
 	console.log( `Application version: ${appVersion}` );
-	console.log( `Raw package.json version: ${packageJson.version}` );
 
 }
 
