@@ -26,6 +26,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 ); // Fixed canvas size
 	const [ renderComplete, setRenderComplete ] = useState( false );
+	const [ isDenoising, setIsDenoising ] = useState( false );
 
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
@@ -87,11 +88,15 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 		app.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
 		app.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
+		app.denoiser.addEventListener( 'start', () => setIsDenoising( true ) );
+		app.denoiser.addEventListener( 'end', () => setIsDenoising( false ) );
 
 		return () => {
 
 			app.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
 			app.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
+			app.denoiser.removeEventListener( 'start', () => setIsDenoising( true ) );
+			app.denoiser.removeEventListener( 'end', () => setIsDenoising( false ) );
 
 		};
 
@@ -153,11 +158,12 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const shouldShowSaveControls = useMemo( () => {
 
 		if ( ! window.pathTracerApp ) return false;
-		const currentSamples = window.pathTracerApp.pathTracingPass.material.uniforms.frame.value - 1;
-		const currentMaxSamples = window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value;
-		return renderComplete && currentSamples === currentMaxSamples && viewportMode === "final";
+		if ( viewportMode !== "final" ) return false;
+		if ( isDenoising ) return false;
+		if ( ! renderComplete ) return false;
+		return window.pathTracerApp.pathTracingPass.isComplete;
 
-	}, [ renderComplete, viewportMode ] );
+	}, [ renderComplete, isDenoising, viewportMode ] );
 
 	// Memoize style objects to prevent recreating them on each render
 	const wrapperStyle = useMemo( () => ( {
@@ -182,60 +188,23 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	} ), [ actualCanvasSize ] );
 
 	return (
-		<div
-			className="flex justify-center items-center h-full"
-		>
-			{/* Outer wrapper div for applying scale transform */}
-			<div
-				ref={viewportWrapperRef}
-				className="relative"
-				style={wrapperStyle}
-			>
-				{/* Container with fixed size */}
-				<div
-					ref={containerRef}
-					className={`relative`}
-					style={containerStyle}
-				>
-					{/* denoiser container */}
-					<canvas
-						ref={denoiserCanvasRef}
-						width="1024"
-						height="1024"
-						style={canvasStyle}
-					/>
-					{/* primary container */}
-					<canvas
-						ref={primaryCanvasRef}
-						width="1024"
-						height="1024"
-						style={canvasStyle}
-					/>
+		<div className="flex justify-center items-center h-full" >
+
+			<div ref={viewportWrapperRef} className="relative" style={wrapperStyle} >
+				<div ref={containerRef} className={`relative`} style={containerStyle} >
+					<canvas ref={denoiserCanvasRef} width="1024" height="1024" style={canvasStyle} />
+					<canvas ref={primaryCanvasRef} width="1024" height="1024" style={canvasStyle} />
 					<DimensionDisplay canvasRef={primaryCanvasRef} />
 				</div>
 			</div>
 
-			{/* Integrated Stats Meter - now only passing appRef */}
-			<StatsMeter
-				viewportMode={viewportMode}
-				ref={statsRef}
-				appRef={appRef}
-			/>
+			<StatsMeter viewportMode={viewportMode} ref={statsRef} appRef={appRef} />
 
-			{/* Integrated Save Controls */}
 			{shouldShowSaveControls && (
-				<SaveControls
-					onSave={handleSave}
-					onDiscard={handleDiscard}
-				/>
+				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />
 			)}
 
-			{/* Controls */}
-			<ViewportToolbar
-				onResize={handleViewportResize}
-				viewportWrapperRef={viewportWrapperRef}
-				appRef={appRef}
-			/>
+			<ViewportToolbar onResize={handleViewportResize} viewportWrapperRef={viewportWrapperRef} appRef={appRef} />
 
 		</div>
 	);
