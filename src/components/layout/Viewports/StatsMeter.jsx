@@ -1,39 +1,19 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { usePathTracerStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 
 const StatsMeter = ( { viewportMode, appRef } ) => {
 
 	// Get store state and actions
 	const storeMaxSamples = usePathTracerStore( state => state.maxSamples );
 	const setStoreMaxSamples = usePathTracerStore.getState().setMaxSamples;
+	const stats = useStore( state => state.stats );
+	const isDenoising = useStore( state => state.isDenoising );
 
-	// Individual states for all metrics
-	const [ timeElapsed, setTimeElapsed ] = useState( 0 );
-	const [ samples, setSamples ] = useState( 0 );
-	const [ maxSamples, setMaxSamples ] = useState( 60 );
-	const [ isDenoising, setIsDenoising ] = useState( false );
-
-	// Editing state
+	// Local state for UI editing
+	const [ maxSamples, setMaxSamples ] = useState( storeMaxSamples );
 	const [ isEditing, setIsEditing ] = useState( false );
-	const [ inputValue, setInputValue ] = useState( "60" );
-
-	// Handle stats update from the path tracer
-	const handleStatsUpdate = useCallback( ( newStats ) => {
-
-		if ( newStats.timeElapsed !== undefined ) {
-
-			setTimeElapsed( newStats.timeElapsed );
-
-		}
-
-		if ( newStats.samples !== undefined ) {
-
-			setSamples( newStats.samples );
-
-		}
-
-	}, [] );
+	const [ inputValue, setInputValue ] = useState( String( storeMaxSamples ) );
 
 	// Handle editing max samples
 	const handleMaxSamplesEdit = useCallback( ( value ) => {
@@ -57,16 +37,6 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 
 	}, [ storeMaxSamples, setStoreMaxSamples, appRef ] );
 
-	// Register stats update callback
-	useEffect( () => {
-
-		if ( ! appRef || ! appRef.current ) return;
-
-		// Register the callback once
-		appRef.current.setOnStatsUpdate( handleStatsUpdate );
-
-	}, [ appRef, handleStatsUpdate ] );
-
 	// Update based on viewport mode
 	useEffect( () => {
 
@@ -80,36 +50,17 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 			app.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
 			setStoreMaxSamples( newMaxSamples );
 			setMaxSamples( newMaxSamples );
-			setSamples( 0 );
 
 		}
 
 	}, [ viewportMode, appRef, setStoreMaxSamples ] );
 
-	// Setup denoising event listeners
+	// Update local maxSamples when store value changes
 	useEffect( () => {
 
-		if ( ! window.pathTracerApp ) return;
+		setMaxSamples( storeMaxSamples );
 
-		if ( window.pathTracerApp.denoiser ) {
-
-			window.pathTracerApp.denoiser.addEventListener( 'start', () => setIsDenoising( true ) );
-			window.pathTracerApp.denoiser.addEventListener( 'end', () => setIsDenoising( false ) );
-
-		}
-
-		return () => {
-
-			if ( window.pathTracerApp.denoiser ) {
-
-				window.pathTracerApp.denoiser.removeEventListener( 'start', () => setIsDenoising( true ) );
-				window.pathTracerApp.denoiser.removeEventListener( 'end', () => setIsDenoising( false ) );
-
-			}
-
-		};
-
-	}, [] );
+	}, [ storeMaxSamples ] );
 
 	// Input field handlers
 	const handleInputBlur = useCallback( () => {
@@ -149,7 +100,7 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 
 	return (
 		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
-			Time: <span>{timeElapsed.toFixed( 2 )}</span>s | Frames: <span>{samples}</span> /{' '}
+			Time: <span>{stats.timeElapsed.toFixed( 2 )}</span>s | Frames: <span>{stats.samples}</span> /{' '}
 			{isEditing ? (
 				<input
 					className="bg-transparent border-b border-white text-white w-12"

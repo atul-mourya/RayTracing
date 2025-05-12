@@ -46,7 +46,7 @@ import { TemporalStatisticsPass } from './Passes/TemporalStatisticsPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
-import { disposeObjectFromMemory, generateMaterialSpheres, updateLoading } from './Processor/utils';
+import { disposeObjectFromMemory, generateMaterialSpheres, updateLoading, updateStats } from './Processor/utils';
 import { HDR_FILES, MODEL_FILES, DEFAULT_STATE } from '../Constants';
 import radialTexture from '../../public/radial-gradient.png';
 import { useStore } from '@/store';
@@ -218,6 +218,7 @@ class PathTracerApp extends EventDispatcher {
 		this.temporalStatsPass.reset();
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
+		useStore.getState().setIsRenderComplete( false );
 
 	}
 
@@ -279,6 +280,10 @@ class PathTracerApp extends EventDispatcher {
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, DEFAULT_STATE );
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
+		// Set up denoiser event listeners to update store
+		this.denoiser.addEventListener( 'start', () => useStore.getState().setIsDenoising( true ) );
+		this.denoiser.addEventListener( 'end', () => useStore.getState().setIsDenoising( false ) );
+
 	}
 
 	async setupFloorPlane() {
@@ -335,16 +340,14 @@ class PathTracerApp extends EventDispatcher {
 
 			this.stats.update();
 
-			if ( this.onStatsUpdate ) {
 
-				this.onStatsUpdate( {
-					timeElapsed: this.accPass.timeElapsed,
-					samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
-						Math.floor( this.accPass.iteration / Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) ) :
-						this.accPass.iteration
-				} );
-
-			}
+			// This is already using the store so no need to modify this part
+			updateStats( {
+				timeElapsed: this.accPass.timeElapsed,
+				samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
+					Math.floor( this.accPass.iteration / Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) ) :
+					this.accPass.iteration
+			} );
 
 		}
 
@@ -361,6 +364,7 @@ class PathTracerApp extends EventDispatcher {
 			this.pathTracingPass.material.uniforms.frame.value ++;
 			this.denoiser.start();
 			this.dispatchEvent( { type: 'RenderComplete' } );
+			useStore.getState().setIsRenderComplete( true );
 
 		}
 
@@ -757,12 +761,6 @@ class PathTracerApp extends EventDispatcher {
 		this.reset();
 
 		window.dispatchEvent( new CustomEvent( 'resolution_changed' ) );
-
-	}
-
-	setOnStatsUpdate( callback ) {
-
-		this.onStatsUpdate = callback;
 
 	}
 

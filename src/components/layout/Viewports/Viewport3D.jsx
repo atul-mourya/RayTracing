@@ -24,8 +24,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Viewport state - now using separate useState hooks
 	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 ); // Fixed canvas size
-	const [ renderComplete, setRenderComplete ] = useState( false );
-	const [ isDenoising, setIsDenoising ] = useState( false );
+	const isDenoising = useStore( state => state.isDenoising );
+	const isRenderComplete = useStore( state => state.isRenderComplete );
+	const setIsRenderComplete = useStore( state => state.setIsRenderComplete );
 
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
@@ -59,7 +60,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 			const id = await saveRender( saveData );
 			window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
-			setRenderComplete( false );
+			// setRenderComplete( false );
+			setIsRenderComplete( false );
 
 		} catch ( error ) {
 
@@ -72,34 +74,14 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 		}
 
-	}, [ toast ] );
+	}, [ setIsRenderComplete, toast ] );
 
 	const handleDiscard = useCallback( () => {
 
-		setRenderComplete( false );
+		setIsRenderComplete( false );
 
 	}, [] );
 
-	useEffect( () => {
-
-		const app = appRef.current;
-		if ( ! app ) return;
-
-		app.addEventListener( 'RenderComplete', () => setRenderComplete( true ) );
-		app.addEventListener( 'RenderReset', () => setRenderComplete( false ) );
-		app.denoiser.addEventListener( 'start', () => setIsDenoising( true ) );
-		app.denoiser.addEventListener( 'end', () => setIsDenoising( false ) );
-
-		return () => {
-
-			app.removeEventListener( 'RenderComplete', () => setRenderComplete( true ) );
-			app.removeEventListener( 'RenderReset', () => setRenderComplete( false ) );
-			app.denoiser.removeEventListener( 'start', () => setIsDenoising( true ) );
-			app.denoiser.removeEventListener( 'end', () => setIsDenoising( false ) );
-
-		};
-
-	}, [] );
 
 	// Effect for app initialization - dependencies optimized
 	useEffect( () => {
@@ -158,11 +140,11 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 		if ( ! window.pathTracerApp ) return false;
 		if ( viewportMode !== "final" ) return false;
+		if ( ! isRenderComplete ) return false;
 		if ( isDenoising ) return false;
-		if ( ! renderComplete ) return false;
 		return window.pathTracerApp.pathTracingPass.isComplete;
 
-	}, [ renderComplete, isDenoising, viewportMode ] );
+	}, [ isRenderComplete, isDenoising, viewportMode ] );
 
 	// Memoize style objects to prevent recreating them on each render
 	const wrapperStyle = useMemo( () => ( {

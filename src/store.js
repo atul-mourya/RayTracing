@@ -7,6 +7,12 @@ const useStore = create( ( set ) => ( {
 	setSelectedObject: ( object ) => set( { selectedObject: object } ),
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: ( loadingState ) => set( ( state ) => ( { loading: { ...state.loading, ...loadingState } } ) ),
+	stats: { samples: 0, timeElapsed: 0 },
+	setStats: ( stats ) => set( { stats } ),
+	isDenoising: false,
+	setIsDenoising: ( value ) => set( { isDenoising: value } ),
+	isRenderComplete: false,
+	setIsRenderComplete: ( value ) => set( { isRenderComplete: value } ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
 	appMode: 'interactive', // 'interactive', 'final' or 'results'
 	setAppMode: ( mode ) => set( { appMode: mode } ),

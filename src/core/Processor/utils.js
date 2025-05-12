@@ -11,6 +11,15 @@ export const updateLoading = ( loadingState ) => {
 
 };
 
+export const updateStats = ( statsUpdate ) => {
+
+	const state = useStore.getState();
+	const stats = state.stats || {};
+	const newStats = { ...stats, ...statsUpdate };
+	state.setStats( newStats );
+
+};
+
 export function disposeMaterial( material ) {
 
 	if ( Array.isArray( material ) ) {
