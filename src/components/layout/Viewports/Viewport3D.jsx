@@ -20,7 +20,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const isInitialized = useRef( false );
-	const statsRef = useRef( null );
 
 	// Viewport state - now using separate useState hooks
 	const [ viewportScale, setViewportScale ] = useState( 100 );
@@ -198,7 +197,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				</div>
 			</div>
 
-			<StatsMeter viewportMode={viewportMode} ref={statsRef} appRef={appRef} />
+			<StatsMeter viewportMode={viewportMode} appRef={appRef} />
 
 			{shouldShowSaveControls && (
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />
