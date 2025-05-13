@@ -20,7 +20,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.useGBuffer = options.useGBuffer ?? true;
 		this.quality = options.oidnQuality ?? 'fast';
 		this.hdr = options.oidnHdr ?? false;
-		this.debugGbufferMaps = options.debugGbufferMaps ?? false;
+		this.debugGbufferMaps = options.debugGbufferMaps ?? true;
 		this.tileSize = options.tileSize ?? 256;
 
 		// State
