@@ -9,7 +9,7 @@ const FINAL_RENDER_STATE = {
 	samplesPerPixel: 1,
 	renderMode: 1,
 	tiles: 3,
-	tilesHelper: true,
+	tilesHelper: false,
 	resolution: 3,
 	enableOIDN: true,
 	oidnQuality: 'balance', // 'fast', 'balance', 'high'
