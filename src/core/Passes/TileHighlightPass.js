@@ -75,6 +75,8 @@ export class TileHighlightPass extends Pass {
 
 	render( renderer, writeBuffer, readBuffer ) {
 
+		if ( this.enabled === false ) return;
+
 		this.uniforms.tDiffuse.value = readBuffer.texture;
 		if ( this.renderToScreen ) {
 

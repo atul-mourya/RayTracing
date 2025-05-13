@@ -319,7 +319,10 @@ class PathTracerApp extends EventDispatcher {
 		this.animationFrameId = requestAnimationFrame( this.animate );
 
 		if ( this.pauseRendering ) return;
-		if ( this.pathTracingPass.isComplete && this.pathTracingPass.material.uniforms.frame.value >= this.pathTracingPass.material.uniforms.maxFrames.value ) return;
+
+		const pathtracingUniforms = this.pathTracingPass.material.uniforms;
+
+		if ( this.pathTracingPass.isComplete && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value ) return;
 
 		if ( ! this.pathTracingPass.isComplete ) {
 
@@ -327,9 +330,9 @@ class PathTracerApp extends EventDispatcher {
 
 			if ( this.tileHighlightPass.enabled ) {
 
-				this.tileHighlightPass.uniforms.frame.value = this.pathTracingPass.material.uniforms.frame.value + 1;
-				this.tileHighlightPass.uniforms.renderMode.value = this.pathTracingPass.material.uniforms.renderMode.value;
-				this.tileHighlightPass.uniforms.tiles.value = this.pathTracingPass.material.uniforms.tiles.value;
+				this.tileHighlightPass.uniforms.frame.value = pathtracingUniforms.frame.value + 1;
+				this.tileHighlightPass.uniforms.renderMode.value = pathtracingUniforms.renderMode.value;
+				this.tileHighlightPass.uniforms.tiles.value = pathtracingUniforms.tiles.value;
 
 			}
 
@@ -345,7 +348,7 @@ class PathTracerApp extends EventDispatcher {
 			updateStats( {
 				timeElapsed: this.accPass.timeElapsed,
 				samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
-					Math.floor( this.accPass.iteration / Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) ) :
+					Math.floor( this.accPass.iteration / Math.pow( pathtracingUniforms.tiles.value, 2 ) ) :
 					this.accPass.iteration
 			} );
 
@@ -354,14 +357,11 @@ class PathTracerApp extends EventDispatcher {
 		if ( ! this.pathTracingPass.isComplete ) return;
 
 		if (
-			( this.pathTracingPass.material.uniforms.renderMode.value === 0 &&
-				this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value ) ||
-			( this.pathTracingPass.material.uniforms.renderMode.value === 1 &&
-				this.pathTracingPass.material.uniforms.frame.value === this.pathTracingPass.material.uniforms.maxFrames.value *
-				Math.pow( this.pathTracingPass.material.uniforms.tiles.value, 2 ) )
+			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
+			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( pathtracingUniforms.tiles.value, 2 ) )
 		) {
 
-			this.pathTracingPass.material.uniforms.frame.value ++;
+			pathtracingUniforms.frame.value ++;
 			this.denoiser.start();
 			this.dispatchEvent( { type: 'RenderComplete' } );
 			useStore.getState().setIsRenderComplete( true );
