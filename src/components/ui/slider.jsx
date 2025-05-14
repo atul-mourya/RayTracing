@@ -102,25 +102,30 @@ const Slider = React.forwardRef( ( {
 	// Pointer event handlers
 	const handlePointerMove = React.useCallback( e => {
 
-		const deltaX = e.clientX - dragStartXRef.current;
-		const newValue = dragStartValueRef.current + deltaX * valuePerPixel;
+		if ( ! sliderRef.current ) return;
+
+		// Get slider element bounds
+		const sliderRect = sliderRef.current.getBoundingClientRect();
+
+		// Calculate position relative to slider (clamped between 0 and slider width)
+		const relativeX = Math.max( 0, Math.min( e.clientX - sliderRect.left, sliderWidth ) );
+
+		// Convert position to value based on slider range
+		const positionPercentage = relativeX / sliderWidth;
+		const newValue = actualSliderMin + positionPercentage * ( actualSliderMax - actualSliderMin );
 		const clampedValue = clampValue( newValue );
 
-		// Track total distance moved
+		// Update value
+		setIsEditing( false );
+		setCurrentValue( clampedValue );
+		lastValueRef.current = clampedValue;
+		handleChange( clampedValue );
+
+		// Still track total distance for other behaviors if needed
 		dragDistanceRef.current += Math.abs( e.clientX - lastPointerXRef.current );
 		lastPointerXRef.current = e.clientX;
 
-		// Only update if dragged enough (prevents accidental changes)
-		if ( dragDistanceRef.current > 10 ) {
-
-			setIsEditing( false );
-			setCurrentValue( clampedValue );
-			lastValueRef.current = clampedValue;
-			handleChange( clampedValue );
-
-		}
-
-	}, [ clampValue, handleChange, valuePerPixel ] );
+	}, [ sliderWidth, actualSliderMin, actualSliderMax, clampValue, handleChange ] );
 
 	const handlePointerDown = React.useCallback( e => {
 
@@ -128,8 +133,22 @@ const Slider = React.forwardRef( ( {
 
 		// Initialize drag tracking
 		dragDistanceRef.current = 0;
-		dragStartXRef.current = lastPointerXRef.current = e.clientX;
-		dragStartValueRef.current = currentValue;
+		lastPointerXRef.current = e.clientX;
+
+		// Immediately update value based on click position (same logic as move)
+		if ( sliderRef.current ) {
+
+			const sliderRect = sliderRef.current.getBoundingClientRect();
+			const relativeX = Math.max( 0, Math.min( e.clientX - sliderRect.left, sliderWidth ) );
+			const positionPercentage = relativeX / sliderWidth;
+			const newValue = actualSliderMin + positionPercentage * ( actualSliderMax - actualSliderMin );
+			const clampedValue = clampValue( newValue );
+
+			setCurrentValue( clampedValue );
+			lastValueRef.current = clampedValue;
+			handleChange( clampedValue );
+
+		}
 
 		// Set up pointer capture
 		const target = e.currentTarget;
@@ -137,7 +156,7 @@ const Slider = React.forwardRef( ( {
 		target.setPointerCapture( e.pointerId );
 		onDragStart?.();
 
-	}, [ currentValue, disabled, handlePointerMove, onDragStart ] );
+	}, [ currentValue, disabled, handlePointerMove, onDragStart, sliderWidth, actualSliderMin, actualSliderMax, clampValue, handleChange ] );
 
 	const handlePointerUp = React.useCallback( e => {
 
