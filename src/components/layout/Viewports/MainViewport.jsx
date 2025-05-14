@@ -6,7 +6,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Toaster } from "@/components/ui/toaster";
 import { useStore, useAssetsStore } from '@/store';
 
-
 // MainViewport component now serves as a simple wrapper for Viewport3D
 const MainViewport = ( { mode = "interactive" } ) => {
 
@@ -123,7 +122,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		}
 
-	}, [ toast, setEnvironment ] );
+	}, [ toast, setEnvironment, resetLoading, setLoading ] );
 
 	// Handle model loading
 	const handleModelLoad = useCallback( ( file ) => {
@@ -178,7 +177,7 @@ const MainViewport = ( { mode = "interactive" } ) => {
 
 		reader.readAsArrayBuffer( file );
 
-	}, [ toast ] );
+	}, [ toast, setLoading, resetLoading ] );
 
 	const handleDrop = useCallback( ( e ) => {
 

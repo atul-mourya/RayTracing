@@ -26,6 +26,7 @@ RayTracing Project TODO
 - [ ]  Introduce tessalation free displacement mapping
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
+- [ ]  Implement support for more file formats (OBJ, pbrt)
 
 
 🔧 Performance Improvements
