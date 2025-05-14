@@ -201,12 +201,12 @@ export class OIDNDenoiser extends EventDispatcher {
 		const imageData = this.ctx.getImageData( 0, 0, w, h );
 
 		// Prepare additional data for G-Buffers if enabled
-		const additionalData = {};
+		const config = { color: imageData, tileSize: this.tileSize, denoiseAlpha: true };
 		if ( this.useGBuffer ) {
 
 			const { albedo, normal } = this.mapGenerator.generateMaps();
-			additionalData.albedo = albedo;
-			additionalData.normal = normal;
+			config.albedo = albedo;
+			config.normal = normal;
 
 			if ( this.debugGbufferMaps ) {
 
@@ -221,15 +221,14 @@ export class OIDNDenoiser extends EventDispatcher {
 		return new Promise( ( resolve ) => {
 
 			this.abortDenoise = this.unet.tileExecute( {
-				color: imageData,
-				...additionalData,
+				...config,
 				done: () => {
 
 					this.abortDenoise = null;
 					resolve();
 
 				},
-				progress: ( _, tileData, tile ) => {
+				progress: ( outputData, tileData, tile, currentIdx, totalIdx ) => {
 
 					// console.log( '_', _ );
 					// console.log( 'tileData', tileData );
