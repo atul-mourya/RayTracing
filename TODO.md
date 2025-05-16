@@ -24,6 +24,7 @@ RayTracing Project TODO
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
 - [ ]  Implement support for more file formats (OBJ, pbrt)
+- [ ]  Implement mesh optimization before parsing and rendering
 
 
 🔧 Performance Improvements
