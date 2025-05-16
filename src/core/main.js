@@ -142,6 +142,13 @@ class PathTracerApp extends EventDispatcher {
 		);
 		this.assetLoader.setFloorPlane( this.floorPlane );
 
+		// Set initial optimization settings
+		if ( useStore.getState().optimizeMeshes !== undefined ) {
+
+			this.assetLoader.setOptimizeMeshes( useStore.getState().optimizeMeshes );
+
+		}
+
 		// Check for model URL in query parameters
 		const modelUrl = this.getQueryParameter( 'model' );
 		const envUrl = `${HDR_FILES[ DEFAULT_STATE.environment ].url}`;
@@ -606,6 +613,37 @@ class PathTracerApp extends EventDispatcher {
 			}
 
 		}, 2000 ); // Remove after 2 seconds
+
+	}
+
+	/**
+	 * Create Level of Detail (LOD) versions of the current model
+	 * @param {Array<number>} lodLevels - Array of percentage values (0-100) for each LOD level
+	 * @returns {Promise<Object3D>} - The LOD-optimized model
+	 */
+	async createModelLODs( lodLevels = [ 100, 50, 25, 10 ] ) {
+
+		return await this.assetLoader.createModelLODs( lodLevels );
+
+	}
+
+	/**
+	 * Get current mesh optimization status
+	 * @returns {Object} - Status object with optimization flags
+	 */
+	getOptimizationStatus() {
+
+		return this.assetLoader.getOptimizationStatus();
+
+	}
+
+	/**
+	 * Set whether to optimize meshes during loading
+	 * @param {boolean} enabled - Whether to optimize meshes
+	 */
+	setOptimizeMeshes( enabled ) {
+
+		this.assetLoader.setOptimizeMeshes( enabled );
 
 	}
 

@@ -154,6 +154,7 @@ export const DEBUG_MODELS = debugModelsData
 	} );
 
 export const DEFAULT_STATE = {
+	optimizeMeshes: false,
 	originalPixelRatio: window.devicePixelRatio / 2,
 	toneMapping: 4,
 	exposure: 1,

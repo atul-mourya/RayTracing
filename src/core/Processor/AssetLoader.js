@@ -6,7 +6,8 @@ import {
 	FloatType,
 	LinearFilter,
 	EquirectangularReflectionMapping,
-	TextureLoader
+	TextureLoader,
+	BufferAttribute
 } from 'three';
 
 import {
@@ -19,6 +20,35 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { disposeObjectFromMemory, updateLoading } from './utils';
 import { MODEL_FILES, DEFAULT_STATE } from '@/Constants';
 
+// Import MeshoptEncoder for mesh optimization
+// Note: You need to ensure the meshoptimizer package is properly installed
+// npm install meshoptimizer
+let MeshoptEncoder;
+
+// Load the MeshoptEncoder dynamically to avoid issues with SSR or environments
+// where it might not be available
+async function loadMeshoptEncoder() {
+
+	try {
+
+		// Dynamically import the meshoptimizer package
+		const module = await import( 'meshoptimizer' );
+		MeshoptEncoder = module.MeshoptEncoder;
+
+		// Wait for the encoder to be ready
+		await MeshoptEncoder.ready;
+		console.log( 'MeshoptEncoder loaded and ready' );
+		return true;
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to load MeshoptEncoder:', error );
+		return false;
+
+	}
+
+}
+
 class AssetLoader {
 
 	constructor( scene, camera, controls, pathTracingPass ) {
@@ -30,6 +60,19 @@ class AssetLoader {
 		this.targetModel = null;
 		this.floorPlane = null;
 		this.sceneScale = 1.0;
+
+		// Optimization settings
+		this.optimizeMeshes = DEFAULT_STATE.optimizeMeshes;
+		this.meshoptEncoderLoaded = false;
+
+		// Try to load the MeshoptEncoder
+		this.initMeshoptEncoder();
+
+	}
+
+	async initMeshoptEncoder() {
+
+		this.meshoptEncoderLoaded = await loadMeshoptEncoder();
 
 	}
 
@@ -164,6 +207,22 @@ class AssetLoader {
 
 	}
 
+	async createGLTFLoader() {
+
+		const dracoLoader = new DRACOLoader();
+		dracoLoader.setDecoderConfig( { type: 'js' } );
+		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
+
+		const loader = new GLTFLoader();
+		loader.setDRACOLoader( dracoLoader );
+
+		// Set up MeshoptDecoder for decompression
+		loader.setMeshoptDecoder( MeshoptDecoder );
+
+		return loader;
+
+	}
+
 	async loadModel( modelUrl ) {
 
 		let loader = null;
@@ -178,6 +237,14 @@ class AssetLoader {
 			if ( this.targetModel ) {
 
 				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			// Apply mesh optimizations if enabled
+			if ( this.optimizeMeshes ) {
+
+				updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
+				await this.optimizeModel( data.scene );
 
 			}
 
@@ -200,25 +267,13 @@ class AssetLoader {
 
 	}
 
-	async createGLTFLoader() {
-
-		const dracoLoader = new DRACOLoader();
-		dracoLoader.setDecoderConfig( { type: 'js' } );
-		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
-
-		const loader = new GLTFLoader();
-		loader.setDRACOLoader( dracoLoader );
-		loader.setMeshoptDecoder( MeshoptDecoder );
-
-		return loader;
-
-	}
-
 	async loadGLBFromArrayBuffer( arrayBuffer ) {
 
 		try {
 
 			const loader = await this.createGLTFLoader();
+			updateLoading( { isLoading: true, status: "Processing GLB Data...", progress: 10 } );
+
 			const data = await new Promise( ( resolve, reject ) =>
 				loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) )
 			);
@@ -226,6 +281,14 @@ class AssetLoader {
 			if ( this.targetModel ) {
 
 				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			// Apply mesh optimizations if enabled
+			if ( this.optimizeMeshes ) {
+
+				updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
+				await this.optimizeModel( data.scene );
 
 			}
 
@@ -247,6 +310,149 @@ class AssetLoader {
 			updateLoading( { status: "Ready", progress: 90 } );
 
 		}
+
+	}
+
+	/**
+     * Optimize a loaded model using MeshoptEncoder
+     * @param {Object3D} model - The loaded model scene
+     */
+	async optimizeModel( model ) {
+
+		if ( ! this.meshoptEncoderLoaded ) {
+
+			console.log( 'MeshoptEncoder not loaded, skipping optimization' );
+			return;
+
+		}
+
+		try {
+
+			// Process each mesh in the model
+			model.traverse( object => {
+
+				if ( object.isMesh && object.geometry ) {
+
+					this.optimizeMeshGeometry( object.geometry );
+
+				}
+
+			} );
+
+			console.log( 'Model optimization complete' );
+
+		} catch ( error ) {
+
+			console.error( 'Error during mesh optimization:', error );
+
+		}
+
+	}
+
+	/**
+     * Optimize a single mesh geometry using MeshoptEncoder
+     * @param {BufferGeometry} geometry - The geometry to optimize
+     */
+	optimizeMeshGeometry( geometry ) {
+
+		try {
+
+			// Make sure we have index and position attributes
+			if ( ! geometry.index || ! geometry.attributes.position ) {
+
+				return;
+
+			}
+
+			// Get the original indices
+			const indices = Array.from( geometry.index.array );
+			const triangles = true; // Assuming we're working with triangle meshes
+			const optsize = true; // Optimize for size (true) or performance (false)
+
+			// Use MeshoptEncoder to reorder the mesh for better compression and GPU performance
+			const [ remap, unique ] = MeshoptEncoder.reorderMesh( new Uint32Array( indices ), triangles, optsize );
+
+			if ( ! remap || ! unique ) {
+
+				console.warn( 'MeshoptEncoder.reorderMesh failed to produce valid output' );
+				return;
+
+			}
+
+			// Update the geometry with the optimized index buffer
+			const remappedIndices = new Uint32Array( indices.length );
+			for ( let i = 0; i < indices.length; i ++ ) {
+
+				remappedIndices[ i ] = remap[ indices[ i ] ];
+
+			}
+
+			// Create a new index buffer with the appropriate type
+			let newIndexBuffer;
+			if ( remappedIndices.every( idx => idx < 65536 ) ) {
+
+				newIndexBuffer = new Uint16Array( remappedIndices );
+
+			} else {
+
+				newIndexBuffer = remappedIndices;
+
+			}
+
+			// Update the geometry's index buffer
+			geometry.setIndex( new BufferAttribute( newIndexBuffer, 1 ) );
+
+			// Optimize vertex attributes for locality
+			this.optimizeAttributes( geometry, remap, unique );
+
+			console.log( `Optimized geometry: unique vertices ${unique}` );
+
+		} catch ( error ) {
+
+			console.error( 'Error optimizing geometry:', error );
+
+		}
+
+	}
+
+	/**
+     * Optimize vertex attributes based on the remapping from MeshoptEncoder
+     * @param {BufferGeometry} geometry - The geometry to optimize
+     * @param {Uint32Array} remap - The remap array from MeshoptEncoder
+     * @param {number} unique - The number of unique vertices
+     */
+	optimizeAttributes( geometry, remap, unique ) {
+
+		// Process each attribute in the geometry
+		Object.keys( geometry.attributes ).forEach( name => {
+
+			const attribute = geometry.attributes[ name ];
+			const itemSize = attribute.itemSize;
+			const count = attribute.count;
+
+			// Create a new optimized attribute
+			const newArray = new Float32Array( unique * itemSize );
+
+			// Remap the attribute data
+			for ( let i = 0; i < count; i ++ ) {
+
+				const newIndex = remap[ i ];
+				if ( newIndex !== 0xffffffff ) { // Skip unused vertices
+
+					for ( let j = 0; j < itemSize; j ++ ) {
+
+						newArray[ newIndex * itemSize + j ] = attribute.array[ i * itemSize + j ];
+
+					}
+
+				}
+
+			}
+
+			// Update the geometry attribute
+			geometry.setAttribute( name, new BufferAttribute( newArray, itemSize ) );
+
+		} );
 
 	}
 
@@ -367,8 +573,33 @@ class AssetLoader {
 
 	}
 
-	setPauseRendering( value ) {
+	/**
+     * Enable or disable mesh optimization
+     * @param {boolean} enabled - Whether to optimize meshes during loading
+     */
+	setOptimizeMeshes( enabled ) {
 
+		this.optimizeMeshes = enabled;
+
+		// If enabling, make sure MeshoptEncoder is loaded
+		if ( enabled && ! this.meshoptEncoderLoaded ) {
+
+			this.initMeshoptEncoder();
+
+		}
+
+	}
+
+	/**
+     * Get current mesh optimization status
+     * @returns {Object} - Status object with optimization flags
+     */
+	getOptimizationStatus() {
+
+		return {
+			optimizeMeshes: this.optimizeMeshes,
+			meshoptEncoderLoaded: this.meshoptEncoderLoaded,
+		};
 
 	}
 

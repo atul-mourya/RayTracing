@@ -1,10 +1,11 @@
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useState, useEffect } from 'react';
 import Viewport3D from './Viewport3D';
 import DropzoneOverlay from './DropzoneOverlay';
 import LoadingOverlay from './LoadingOverlay';
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from "@/components/ui/toaster";
 import { useStore, useAssetsStore } from '@/store';
+import { DEFAULT_STATE } from '@/Constants';
 
 // MainViewport component now serves as a simple wrapper for Viewport3D
 const MainViewport = ( { mode = "interactive" } ) => {
@@ -14,6 +15,18 @@ const MainViewport = ( { mode = "interactive" } ) => {
 	const setLoading = useStore( state => state.setLoading );
 	const resetLoading = useStore( state => state.resetLoading );
 	const { toast } = useToast();
+
+	// Effect to configure mesh optimization on app initialization
+	useEffect( () => {
+
+		const app = window.pathTracerApp;
+		if ( app && app.assetLoader ) {
+
+			app.assetLoader.setOptimizeMeshes( DEFAULT_STATE.optimizeMeshes );
+
+		}
+
+	}, [] );
 
 	// File type detection helpers
 	const isEnvironmentMap = useCallback( ( fileName ) => {
@@ -138,12 +151,8 @@ const MainViewport = ( { mode = "interactive" } ) => {
 			const app = window.pathTracerApp;
 			if ( app && app.loadGLBFromArrayBuffer ) {
 
-				// Stop any ongoing rendering before loading new model
-				if ( app.pauseRendering !== undefined ) {
-
-					app.pauseRendering = true;
-
-				}
+				// Set pause state through the app instance
+				app.pauseRendering = true;
 
 				app.loadGLBFromArrayBuffer( arrayBuffer )
 					.then( () => {
@@ -209,8 +218,6 @@ const MainViewport = ( { mode = "interactive" } ) => {
 		}
 
 	}, [ handleModelLoad, handleEnvironmentLoad, isEnvironmentMap, toast ] );
-
-	console.log( 'MainViewport render' );
 
 	return (
 		<div className="w-full h-full relative"
