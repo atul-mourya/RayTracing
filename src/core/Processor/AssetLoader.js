@@ -7,26 +7,59 @@ import {
 	LinearFilter,
 	EquirectangularReflectionMapping,
 	TextureLoader,
-	BufferAttribute
+	BufferAttribute,
+	Mesh,
+	MeshStandardMaterial,
+	Points,
+	PointsMaterial,
+	LoadingManager
 } from 'three';
 
 import {
 	GLTFLoader,
 	RGBELoader,
 	DRACOLoader,
-	EXRLoader
+	EXRLoader,
 } from 'three/examples/jsm/Addons';
+
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
-import { disposeObjectFromMemory, updateLoading } from './utils';
+import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
+import { disposeObjectFromMemory, updateLoading, resetLoading } from './utils';
 import { MODEL_FILES, DEFAULT_STATE } from '@/Constants';
+
+// Define supported file types
+const SUPPORTED_FORMATS = {
+	// 3D Models
+	'glb': { type: 'model', name: 'GLB (GLTF Binary)' },
+	'gltf': { type: 'model', name: 'GLTF' },
+	'fbx': { type: 'model', name: 'FBX' },
+	'obj': { type: 'model', name: 'OBJ' },
+	'stl': { type: 'model', name: 'STL' },
+	'ply': { type: 'model', name: 'PLY (Polygon File Format)' },
+	'dae': { type: 'model', name: 'Collada' },
+	'3mf': { type: 'model', name: '3D Manufacturing Format' },
+	'usdz': { type: 'model', name: 'Universal Scene Description' },
+
+	// Environment Maps
+	'hdr': { type: 'environment', name: 'HDR (High Dynamic Range)' },
+	'exr': { type: 'environment', name: 'EXR (OpenEXR)' },
+
+	// Basic Image Formats for Textures & Environments
+	'png': { type: 'image', name: 'PNG' },
+	'jpg': { type: 'image', name: 'JPEG' },
+	'jpeg': { type: 'image', name: 'JPEG' },
+	'webp': { type: 'image', name: 'WebP' },
+
+	// Archive
+	'zip': { type: 'archive', name: 'ZIP Archive' }
+};
 
 // Import MeshoptEncoder for mesh optimization
 // Note: You need to ensure the meshoptimizer package is properly installed
 // npm install meshoptimizer
 let MeshoptEncoder;
 
-// Load the MeshoptEncoder dynamically to avoid issues with SSR or environments
-// where it might not be available
+// Load the MeshoptEncoder dynamically
 async function loadMeshoptEncoder() {
 
 	try {
@@ -65,8 +98,72 @@ class AssetLoader {
 		this.optimizeMeshes = DEFAULT_STATE.optimizeMeshes;
 		this.meshoptEncoderLoaded = false;
 
-		// Try to load the MeshoptEncoder
+		// Loaders registry
+		this.loaders = {};
+
+		// Event listeners
+		this.eventListeners = {
+			'load': [],
+			'progress': [],
+			'error': []
+		};
+
+		// Initialize
 		this.initMeshoptEncoder();
+
+	}
+
+	/**
+     * Add an event listener
+     * @param {string} event - Event type ('load', 'progress', 'error')
+     * @param {Function} callback - Callback function
+     */
+	addEventListener( event, callback ) {
+
+		if ( this.eventListeners[ event ] ) {
+
+			this.eventListeners[ event ].push( callback );
+
+		}
+
+	}
+
+	/**
+     * Remove an event listener
+     * @param {string} event - Event type ('load', 'progress', 'error')
+     * @param {Function} callback - Callback function to remove
+     */
+	removeEventListener( event, callback ) {
+
+		if ( this.eventListeners[ event ] ) {
+
+			const index = this.eventListeners[ event ].indexOf( callback );
+			if ( index !== - 1 ) {
+
+				this.eventListeners[ event ].splice( index, 1 );
+
+			}
+
+		}
+
+	}
+
+	/**
+     * Dispatch an event
+     * @param {string} event - Event type
+     * @param {*} data - Event data
+     */
+	dispatchEvent( event, data ) {
+
+		if ( this.eventListeners[ event ] ) {
+
+			for ( const callback of this.eventListeners[ event ] ) {
+
+				callback( data );
+
+			}
+
+		}
 
 	}
 
@@ -75,6 +172,1003 @@ class AssetLoader {
 		this.meshoptEncoderLoaded = await loadMeshoptEncoder();
 
 	}
+
+	/**
+     * Check if a file format is supported
+     * @param {string} filename - Filename to check
+     * @returns {Object|null} - Format info or null if not supported
+     */
+	getFileFormat( filename ) {
+
+		const extension = filename.split( '.' ).pop().toLowerCase();
+		return SUPPORTED_FORMATS[ extension ] || null;
+
+	}
+
+	/**
+     * Load an asset from a file
+     * @param {File} file - File object to load
+     * @returns {Promise} - Promise that resolves when the asset is loaded
+     */
+	async loadAssetFromFile( file ) {
+
+		const filename = file.name;
+		const format = this.getFileFormat( filename );
+
+		if ( ! format ) {
+
+			throw new Error( `Unsupported file format: ${filename}` );
+
+		}
+
+		updateLoading( { isLoading: true, status: `Loading ${format.name}...`, progress: 5 } );
+
+		try {
+
+			switch ( format.type ) {
+
+				case 'model':
+					return await this.loadModelFromFile( file, filename );
+				case 'environment':
+				case 'image':
+					return await this.loadEnvironmentFromFile( file, filename );
+				case 'archive':
+					return await this.loadArchiveFromFile( file, filename );
+				default:
+					throw new Error( `Unknown asset type: ${format.type}` );
+
+			}
+
+		} catch ( error ) {
+
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 100 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load a model from a file
+     * @param {File} file - File object to load
+     * @param {string} filename - Name of the file
+     * @returns {Promise} - Promise that resolves when the model is loaded
+     */
+	async loadModelFromFile( file, filename ) {
+
+		const extension = filename.split( '.' ).pop().toLowerCase();
+
+		// Read the file as ArrayBuffer
+		const arrayBuffer = await this.readFileAsArrayBuffer( file );
+
+		switch ( extension ) {
+
+			case 'glb':
+			case 'gltf':
+				return await this.loadGLBFromArrayBuffer( arrayBuffer, filename );
+			case 'fbx':
+				return await this.loadFBXFromArrayBuffer( arrayBuffer, filename );
+			case 'obj':
+				return await this.loadOBJFromFile( file, filename );
+			case 'stl':
+				return await this.loadSTLFromArrayBuffer( arrayBuffer, filename );
+			case 'ply':
+				return await this.loadPLYFromArrayBuffer( arrayBuffer, filename );
+			case 'dae':
+				return await this.loadColladaFromFile( file, filename );
+			case '3mf':
+				return await this.load3MFFromArrayBuffer( arrayBuffer, filename );
+			case 'usdz':
+				return await this.loadUSDZFromArrayBuffer( arrayBuffer, filename );
+			default:
+				throw new Error( `Support for ${extension} files is not yet implemented` );
+
+		}
+
+	}
+
+	/**
+     * Load an environment map from a file
+     * @param {File} file - File object to load
+     * @param {string} filename - Name of the file
+     * @returns {Promise} - Promise that resolves when the environment is loaded
+     */
+	async loadEnvironmentFromFile( file, filename ) {
+
+		const extension = filename.split( '.' ).pop().toLowerCase();
+		const url = URL.createObjectURL( file );
+
+		// Store file info in global context for reference
+		window.uploadedEnvironmentFileInfo = {
+			name: filename,
+			type: file.type,
+			size: file.size
+		};
+
+		try {
+
+			const texture = await this.loadEnvironment( url );
+			this.dispatchEvent( 'load', { type: 'environment', texture, filename } );
+			return texture;
+
+		} finally {
+
+			// Clean up the blob URL
+			URL.revokeObjectURL( url );
+
+		}
+
+	}
+
+	/**
+     * Load a ZIP archive
+     * @param {File} file - ZIP file to load
+     * @param {string} filename - Name of the file
+     * @returns {Promise} - Promise that resolves when the archive contents are loaded
+     */
+	async loadArchiveFromFile( file, filename ) {
+
+		// Import the fflate library for ZIP handling
+		// const { unzipSync, strFromU8 } = await import( 'three/examples/jsm/libs/fflate.module.js' );
+
+		try {
+
+			const arrayBuffer = await this.readFileAsArrayBuffer( file );
+			const zip = unzipSync( new Uint8Array( arrayBuffer ) );
+
+			// Find all OBJ and MTL files in the archive
+			const objFiles = [];
+			const mtlFiles = [];
+
+			// First pass: categorize files by extension
+			for ( const path in zip ) {
+
+				const lowerPath = path.toLowerCase();
+				if ( lowerPath.endsWith( '.obj' ) ) {
+
+					objFiles.push( { path, content: zip[ path ] } );
+
+				} else if ( lowerPath.endsWith( '.mtl' ) ) {
+
+					mtlFiles.push( { path, content: zip[ path ] } );
+
+				}
+
+			}
+
+			// If we have both OBJ and MTL files, try to match them
+			if ( objFiles.length > 0 && mtlFiles.length > 0 ) {
+
+				console.log( `Found ${objFiles.length} OBJ files and ${mtlFiles.length} MTL files in ZIP` );
+
+				// Try to find matching pairs (same base name)
+				const matches = [];
+
+				for ( const objFile of objFiles ) {
+
+					// Get base name without extension and path
+					const objBaseName = objFile.path.split( '/' ).pop().replace( /\.obj$/i, '' ).toLowerCase();
+
+					// Look for MTL files with same base name
+					for ( const mtlFile of mtlFiles ) {
+
+						const mtlBaseName = mtlFile.path.split( '/' ).pop().replace( /\.mtl$/i, '' ).toLowerCase();
+
+						if ( objBaseName === mtlBaseName || objBaseName.includes( mtlBaseName ) || mtlBaseName.includes( objBaseName ) ) {
+
+							matches.push( { obj: objFile, mtl: mtlFile } );
+							break; // Found a match for this OBJ
+
+						}
+
+					}
+
+				}
+
+				// If we found matching pairs, load the first one
+				if ( matches.length > 0 ) {
+
+					console.log( `Found ${matches.length} matching OBJ+MTL pairs` );
+					return await this.loadOBJMTLPairFromZip( matches[ 0 ].obj, matches[ 0 ].mtl, zip, filename );
+
+				}
+
+				// If no matches by name but we have OBJ and MTL files, try the first of each
+				if ( matches.length === 0 ) {
+
+					console.log( 'No matching pairs by name, using first OBJ and MTL files' );
+					return await this.loadOBJMTLPairFromZip( objFiles[ 0 ], mtlFiles[ 0 ], zip, filename );
+
+				}
+
+			}
+
+			// Look for a main model file based on common conventions
+			const mainModelFiles = [
+				'scene.gltf', 'scene.glb', 'model.gltf', 'model.glb',
+				'main.gltf', 'main.glb', 'asset.gltf', 'asset.glb'
+			];
+
+			for ( const mainFile of mainModelFiles ) {
+
+				if ( zip[ mainFile ] ) {
+
+					console.log( `Found main model file: ${mainFile}` );
+					const extension = mainFile.split( '.' ).pop().toLowerCase();
+					return await this.loadModelFromZipEntry( zip[ mainFile ], mainFile, extension, zip );
+
+				}
+
+			}
+
+			// If no main model files, look for any supported model file
+			for ( const path in zip ) {
+
+				const extension = path.split( '.' ).pop().toLowerCase();
+				if ( SUPPORTED_FORMATS[ extension ] && SUPPORTED_FORMATS[ extension ].type === 'model' ) {
+
+					console.log( `Loading model file from ZIP: ${path}` );
+					return await this.loadModelFromZipEntry( zip[ path ], path, extension, zip );
+
+				}
+
+			}
+
+			throw new Error( 'No supported model files found in the ZIP archive' );
+
+		} catch ( error ) {
+
+			console.error( 'Error loading ZIP archive:', error );
+			throw error;
+
+		}
+
+	}
+
+	/**
+     * Load a model from a ZIP archive entry
+     * @param {Object} file - ZIP file entry
+     * @param {string} path - Path in the ZIP archive
+     * @param {string} extension - File extension
+     * @param {Object} zip - The full ZIP archive contents
+     * @returns {Promise} - Promise that resolves when the model is loaded
+     */
+	async loadOBJMTLPairFromZip( objFile, mtlFile, zip, filename ) {
+
+		const { MTLLoader } = await import( 'three/examples/jsm/loaders/MTLLoader.js' );
+		const { OBJLoader } = await import( 'three/examples/jsm/loaders/OBJLoader.js' );
+		// const { strFromU8 } = await import( 'three/examples/jsm/libs/fflate.module.js' );
+
+		// Keep track of created blob URLs for cleanup
+		const createdUrls = [];
+
+		// Create manager to handle textures
+		const manager = new LoadingManager();
+
+		// Log all files in the ZIP for debugging
+		console.log( "Files in ZIP:", Object.keys( zip ) );
+
+		// Extract directories for easier searching
+		const objDir = objFile.path.split( '/' ).slice( 0, - 1 ).join( '/' );
+		const mtlDir = mtlFile.path.split( '/' ).slice( 0, - 1 ).join( '/' );
+
+		manager.setURLModifier( function ( url ) {
+
+			// Remove any URL parameters or anchors
+			const cleanUrl = url.split( '?' )[ 0 ].split( '#' )[ 0 ];
+
+			// Log the requested texture URL
+			console.log( `Trying to resolve texture: ${cleanUrl}` );
+
+			// Clean up the URL by removing any problematic components
+			// 1. Remove leading "./" or "/"
+			let normalizedUrl = cleanUrl.replace( /^\.\/|^\//, '' );
+
+			// 2. Handle case where the MTL filename is incorrectly prepended
+			// Check if URL starts with the MTL filename
+			const mtlFilename = mtlFile.path.split( '/' ).pop();
+			if ( normalizedUrl.startsWith( mtlFilename ) ) {
+
+				normalizedUrl = normalizedUrl.substring( mtlFilename.length );
+				// Remove any leading slashes or dots
+				normalizedUrl = normalizedUrl.replace( /^\.\/|^\/|^\./, '' );
+
+			}
+
+			// Array of possible locations to try in order
+			const possibleLocations = [
+				normalizedUrl, // As is
+				`${objDir}/${normalizedUrl}`, // In OBJ directory
+				`${mtlDir}/${normalizedUrl}`, // In MTL directory
+				`textures/${normalizedUrl}`, // In a textures subdirectory
+				`texture/${normalizedUrl}`, // Alternate textures directory
+				`materials/${normalizedUrl}`, // In a materials directory
+				normalizedUrl.split( '/' ).pop() // Just the filename anywhere
+			];
+
+			// Try each possible location
+			for ( const location of possibleLocations ) {
+
+				if ( zip[ location ] ) {
+
+					console.log( `Found texture at: ${location}` );
+					const blob = new Blob( [ zip[ location ].buffer ], { type: 'application/octet-stream' } );
+					const blobUrl = URL.createObjectURL( blob );
+					createdUrls.push( blobUrl );
+					return blobUrl;
+
+				}
+
+			}
+
+			// If still not found, try more aggressive search - look for any file that ends with the texture filename
+			const textureFilename = normalizedUrl.split( '/' ).pop();
+			for ( const zipPath in zip ) {
+
+				if ( zipPath.endsWith( textureFilename ) ) {
+
+					console.log( `Found texture with fuzzy match at: ${zipPath}` );
+					const blob = new Blob( [ zip[ zipPath ].buffer ], { type: 'application/octet-stream' } );
+					const blobUrl = URL.createObjectURL( blob );
+					createdUrls.push( blobUrl );
+					return blobUrl;
+
+				}
+
+			}
+
+			// Last resort: try partial matches for the filename
+			if ( textureFilename && textureFilename.length > 5 ) {
+
+				for ( const zipPath in zip ) {
+
+					const zipFilename = zipPath.split( '/' ).pop();
+					// Check if the texture filename is contained within any ZIP file name
+					if ( zipFilename.includes( textureFilename ) || textureFilename.includes( zipFilename ) ) {
+
+						console.log( `Found texture with partial match: ${zipPath}` );
+						const blob = new Blob( [ zip[ zipPath ].buffer ], { type: 'application/octet-stream' } );
+						const blobUrl = URL.createObjectURL( blob );
+						createdUrls.push( blobUrl );
+						return blobUrl;
+
+					}
+
+				}
+
+			}
+
+			// If still not found, log the failure and return the original URL
+			console.warn( `Texture not found in ZIP: ${cleanUrl} (normalized: ${normalizedUrl})` );
+			return url;
+
+		} );
+
+		// Load the MTL file manually to fix any path issues before passing to the MTLLoader
+		const mtlContent = strFromU8( mtlFile.content );
+
+		// Fix common issues in MTL files
+		let fixedMtlContent = mtlContent
+		// Fix cases where texture paths have the MTL filename prepended
+			.replace( new RegExp( `${mtlFile.path.split( '/' ).pop()}\\s+`, 'g' ), ' ' )
+		// Make sure there's whitespace between directives and paths
+			.replace( /([a-zA-Z_]+)([\\/])/g, '$1 $2' );
+
+		// Parse MTL file
+		const materials = new MTLLoader( manager ).parse( fixedMtlContent, mtlDir );
+		materials.preload();
+
+		// Parse OBJ file with materials
+		const objLoader = new OBJLoader( manager );
+		objLoader.setMaterials( materials );
+		const objContent = strFromU8( objFile.content );
+		const object = objLoader.parse( objContent );
+
+		if ( this.targetModel ) {
+
+			disposeObjectFromMemory( this.targetModel );
+
+		}
+
+		this.targetModel = object;
+		await this.onModelLoad( this.targetModel );
+
+		// Clean up blob URLs
+		createdUrls.forEach( url => URL.revokeObjectURL( url ) );
+
+		this.dispatchEvent( 'load', {
+			type: 'model',
+			model: object,
+			filename: `${objFile.path} (from ${filename})`
+		} );
+
+		return object;
+
+	}
+
+	/**
+     * Load OBJ+MTL from a ZIP archive
+     * @param {Object} zip - ZIP archive contents
+     * @param {string} filename - ZIP filename
+     * @returns {Promise} - Promise that resolves when the model is loaded
+     */
+	async loadOBJMTLFromZip( zip, filename ) {
+
+		const { MTLLoader } = await import( 'three/examples/jsm/loaders/MTLLoader.js' );
+		const { OBJLoader } = await import( 'three/examples/jsm/loaders/OBJLoader.js' );
+		// const { strFromU8 } = await import( 'three/examples/jsm/libs/fflate.module.js' );
+
+		// Create manager to handle textures
+		const manager = new LoadingManager();
+		manager.setURLModifier( function ( url ) {
+
+			url = url.replace( /^(\.?\/)/, '' ); // remove './'
+			const zipFile = zip[ url ];
+
+			if ( zipFile ) {
+
+				console.log( 'Loading texture from ZIP:', url );
+				const blob = new Blob( [ zipFile.buffer ], { type: 'application/octet-stream' } );
+				return URL.createObjectURL( blob );
+
+			}
+
+			return url;
+
+		} );
+
+		// Parse MTL file
+		const materials = new MTLLoader( manager ).parse( strFromU8( zip[ 'materials.mtl' ] ) );
+
+		// Parse OBJ file with materials
+		const objLoader = new OBJLoader( manager );
+		objLoader.setMaterials( materials );
+		const object = objLoader.parse( strFromU8( zip[ 'model.obj' ] ) );
+
+		if ( this.targetModel ) {
+
+			disposeObjectFromMemory( this.targetModel );
+
+		}
+
+		this.targetModel = object;
+		await this.onModelLoad( this.targetModel );
+		this.dispatchEvent( 'load', { type: 'model', model: object, filename } );
+		return object;
+
+	}
+
+	/**
+     * Read a file as ArrayBuffer
+     * @param {File} file - File to read
+     * @returns {Promise<ArrayBuffer>} - Promise that resolves with the ArrayBuffer
+     */
+	readFileAsArrayBuffer( file ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			const reader = new FileReader();
+			reader.onload = ( event ) => resolve( event.target.result );
+			reader.onerror = ( error ) => reject( error );
+			reader.readAsArrayBuffer( file );
+
+		} );
+
+	}
+
+	/**
+     * Read a file as text
+     * @param {File} file - File to read
+     * @returns {Promise<string>} - Promise that resolves with the text content
+     */
+	readFileAsText( file ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			const reader = new FileReader();
+			reader.onload = ( event ) => resolve( event.target.result );
+			reader.onerror = ( error ) => reject( error );
+			reader.readAsText( file );
+
+		} );
+
+	}
+
+	// ---- Model Loading Methods ----
+
+	async createGLTFLoader() {
+
+		const dracoLoader = new DRACOLoader();
+		dracoLoader.setDecoderConfig( { type: 'js' } );
+		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
+
+		const loader = new GLTFLoader();
+		loader.setDRACOLoader( dracoLoader );
+
+		// Set up MeshoptDecoder for decompression
+		loader.setMeshoptDecoder( MeshoptDecoder );
+
+		return loader;
+
+	}
+
+	async loadExampleModels( index ) {
+
+		const modelUrl = `${MODEL_FILES[ index ].url}`;
+		return await this.loadModel( modelUrl );
+
+	}
+
+	async loadModel( modelUrl ) {
+
+		let loader = null;
+
+		try {
+
+			loader = await this.createGLTFLoader();
+			updateLoading( { status: "Loading Model...", progress: 5 } );
+			const data = await loader.loadAsync( modelUrl );
+			updateLoading( { status: "Processing Data...", progress: 30 } );
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			// Apply mesh optimizations if enabled
+			if ( this.optimizeMeshes ) {
+
+				updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
+				await this.optimizeModel( data.scene );
+
+			}
+
+			this.targetModel = data.scene;
+
+			await this.onModelLoad( this.targetModel );
+			this.dispatchEvent( 'load', { type: 'model', model: data.scene, filename: modelUrl.split( '/' ).pop() } );
+			return data;
+
+		} catch ( error ) {
+
+			console.error( "Error loading model:", error );
+			this.dispatchEvent( 'error', { message: error.message, filename: modelUrl } );
+			throw error;
+
+		} finally {
+
+			loader?.dracoLoader && loader.dracoLoader.dispose();
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load a GLB/GLTF model from an ArrayBuffer
+     * @param {ArrayBuffer} arrayBuffer - The binary data
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model data
+     */
+	async loadGLBFromArrayBuffer( arrayBuffer, filename = 'model.glb' ) {
+
+		try {
+
+			const loader = await this.createGLTFLoader();
+			updateLoading( { isLoading: true, status: "Processing GLB Data...", progress: 10 } );
+
+			const data = await new Promise( ( resolve, reject ) =>
+				loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) )
+			);
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			// Apply mesh optimizations if enabled
+			if ( this.optimizeMeshes ) {
+
+				updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
+				await this.optimizeModel( data.scene );
+
+			}
+
+			this.targetModel = data.scene;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+			loader.dracoLoader && loader.dracoLoader.dispose();
+
+			this.dispatchEvent( 'load', { type: 'model', model: data.scene, filename } );
+			return data;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading GLB:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load an FBX model from an ArrayBuffer
+     * @param {ArrayBuffer} arrayBuffer - The binary data
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async loadFBXFromArrayBuffer( arrayBuffer, filename = 'model.fbx' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing FBX Data...", progress: 10 } );
+
+			// Dynamically import the FBX loader
+			const { FBXLoader } = await import( 'three/examples/jsm/loaders/FBXLoader.js' );
+
+			const loader = new FBXLoader();
+			const object = loader.parse( arrayBuffer );
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = object;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: object, filename } );
+			return object;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading FBX:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load an OBJ model from a File
+     * @param {File} file - The OBJ file
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async loadOBJFromFile( file, filename = 'model.obj' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing OBJ Data...", progress: 10 } );
+
+			// Dynamically import the OBJ loader
+			const { OBJLoader } = await import( 'three/examples/jsm/loaders/OBJLoader.js' );
+
+			// Read the file as text
+			const contents = await this.readFileAsText( file );
+
+			const loader = new OBJLoader();
+			const object = loader.parse( contents );
+			object.name = filename;
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = object;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: object, filename } );
+			return object;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading OBJ:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load an STL model from an ArrayBuffer
+     * @param {ArrayBuffer} arrayBuffer - The binary data
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async loadSTLFromArrayBuffer( arrayBuffer, filename = 'model.stl' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing STL Data...", progress: 10 } );
+
+			// Dynamically import the STL loader
+			const { STLLoader } = await import( 'three/examples/jsm/loaders/STLLoader.js' );
+
+			const loader = new STLLoader();
+			const geometry = loader.parse( arrayBuffer );
+
+			// Create a mesh with the geometry
+			const material = new MeshStandardMaterial();
+			const mesh = new Mesh( geometry, material );
+			mesh.name = filename;
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = mesh;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: mesh, filename } );
+			return mesh;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading STL:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load a PLY model from an ArrayBuffer
+     * @param {ArrayBuffer} arrayBuffer - The binary data
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async loadPLYFromArrayBuffer( arrayBuffer, filename = 'model.ply' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing PLY Data...", progress: 10 } );
+
+			// Dynamically import the PLY loader
+			const { PLYLoader } = await import( 'three/examples/jsm/loaders/PLYLoader.js' );
+
+			const loader = new PLYLoader();
+			const geometry = loader.parse( arrayBuffer );
+
+			let object;
+
+			if ( geometry.index !== null ) {
+
+				// Create a mesh with the geometry
+				const material = new MeshStandardMaterial();
+				object = new Mesh( geometry, material );
+
+			} else {
+
+				// Create points for point clouds
+				const material = new PointsMaterial( { size: 0.01 } );
+				material.vertexColors = geometry.hasAttribute( 'color' );
+				object = new Points( geometry, material );
+
+			}
+
+			object.name = filename;
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = object;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: object, filename } );
+			return object;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading PLY:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load a Collada (DAE) model from a File
+     * @param {File} file - The DAE file
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async loadColladaFromFile( file, filename = 'model.dae' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing Collada Data...", progress: 10 } );
+
+			// Dynamically import the Collada loader
+			const { ColladaLoader } = await import( 'three/examples/jsm/loaders/ColladaLoader.js' );
+
+			// Read the file as text
+			const contents = await this.readFileAsText( file );
+
+			const loader = new ColladaLoader();
+			const collada = loader.parse( contents );
+			collada.scene.name = filename;
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = collada.scene;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: collada.scene, filename } );
+			return collada;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading Collada:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load a 3MF model from an ArrayBuffer
+     * @param {ArrayBuffer} arrayBuffer - The binary data
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async load3MFFromArrayBuffer( arrayBuffer, filename = 'model.3mf' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing 3MF Data...", progress: 10 } );
+
+			// Dynamically import the 3MF loader
+			const { ThreeMFLoader } = await import( 'three/examples/jsm/loaders/3MFLoader.js' );
+
+			const loader = new ThreeMFLoader();
+			const object = loader.parse( arrayBuffer );
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = object;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: object, filename } );
+			return object;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading 3MF:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	/**
+     * Load a USDZ model from an ArrayBuffer
+     * @param {ArrayBuffer} arrayBuffer - The binary data
+     * @param {string} filename - Optional filename for reference
+     * @returns {Promise<Object>} - The loaded model
+     */
+	async loadUSDZFromArrayBuffer( arrayBuffer, filename = 'model.usdz' ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: "Processing USDZ Data...", progress: 10 } );
+
+			// Dynamically import the USDZ loader
+			const { USDZLoader } = await import( 'three/examples/jsm/loaders/USDZLoader.js' );
+
+			const loader = new USDZLoader();
+			const object = loader.parse( arrayBuffer );
+			object.name = filename;
+
+			if ( this.targetModel ) {
+
+				disposeObjectFromMemory( this.targetModel );
+
+			}
+
+			this.targetModel = object;
+
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			await this.onModelLoad( this.targetModel );
+
+			this.dispatchEvent( 'load', { type: 'model', model: object, filename } );
+			return object;
+
+		} catch ( error ) {
+
+			console.error( 'Error loading USDZ:', error );
+			this.dispatchEvent( 'error', { message: error.message, filename } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
+
+		}
+
+	}
+
+	// ---- Environment Loading Methods ----
 
 	async loadEnvironment( envUrl ) {
 
@@ -189,127 +1283,129 @@ class AssetLoader {
 
 			}
 
+			this.dispatchEvent( 'load', { type: 'environment', texture } );
 			return texture;
 
 		} catch ( error ) {
 
 			console.error( "Error loading environment:", error );
+			this.dispatchEvent( 'error', { message: error.message, filename: envUrl } );
 			throw error;
 
 		}
 
 	}
 
-	async loadExampleModels( index ) {
+	// ---- Model Processing and Optimization Methods ----
 
-		const modelUrl = `${MODEL_FILES[ index ].url}`;
-		return await this.loadModel( modelUrl );
+	async onModelLoad( model ) {
 
-	}
+		this.scene.add( model );
 
-	async createGLTFLoader() {
+		// Center model and adjust camera
+		const box = new Box3().setFromObject( model );
+		const center = box.getCenter( new Vector3() );
+		const size = box.getSize( new Vector3() );
 
-		const dracoLoader = new DRACOLoader();
-		dracoLoader.setDecoderConfig( { type: 'js' } );
-		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
+		this.controls.target.copy( center );
 
-		const loader = new GLTFLoader();
-		loader.setDRACOLoader( dracoLoader );
+		const maxDim = Math.max( size.x, size.y, size.z );
+		const fov = this.camera.fov * ( Math.PI / 180 );
+		const cameraDistance = Math.abs( maxDim / Math.sin( fov / 2 ) / 2 );
 
-		// Set up MeshoptDecoder for decompression
-		loader.setMeshoptDecoder( MeshoptDecoder );
+		// Set up 2/3 angle projection (approximately 120° between axes)
+		// Calculate camera position for isometric-like view
+		const angle = Math.PI / 6; // 30 degrees
+		const pos = new Vector3(
+			Math.cos( angle ) * cameraDistance,
+			cameraDistance / Math.sqrt( 2 ), // Elevation
+			Math.sin( angle ) * cameraDistance
+		);
 
-		return loader;
+		this.camera.position.copy( pos.add( center ) );
+		this.camera.lookAt( center );
 
-	}
+		this.camera.near = maxDim / 100;
+		this.camera.far = maxDim * 100;
+		this.camera.updateProjectionMatrix();
+		this.controls.maxDistance = cameraDistance * 10;
+		this.controls.saveState();
 
-	async loadModel( modelUrl ) {
+		this.controls.update();
 
-		let loader = null;
+		// Adjust floor plane
+		if ( this.floorPlane ) {
 
-		try {
-
-			loader = await this.createGLTFLoader();
-			updateLoading( { status: "Loading Model...", progress: 5 } );
-			const data = await loader.loadAsync( modelUrl );
-			updateLoading( { status: "Processing Data...", progress: 30 } );
-
-			if ( this.targetModel ) {
-
-				disposeObjectFromMemory( this.targetModel );
-
-			}
-
-			// Apply mesh optimizations if enabled
-			if ( this.optimizeMeshes ) {
-
-				updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
-				await this.optimizeModel( data.scene );
-
-			}
-
-			this.targetModel = data.scene;
-
-			await this.onModelLoad( this.targetModel );
-			return data;
-
-		} catch ( error ) {
-
-			console.error( "Error loading model:", error );
-			throw error;
-
-		} finally {
-
-			loader?.dracoLoader && loader.dracoLoader.dispose();
-			updateLoading( { status: "Ready", progress: 90 } );
+			const floorY = box.min.y;
+			this.floorPlane.position.y = floorY;
+			this.floorPlane.rotation.x = - Math.PI / 2;
+			this.floorPlane.scale.setScalar( maxDim * 5 );
 
 		}
 
-	}
+		// Process model for lights
+		model.traverse( ( object ) => {
 
-	async loadGLBFromArrayBuffer( arrayBuffer ) {
+			const userData = object.userData;
+			if ( object.name.startsWith( 'RectAreaLightPlaceholder' ) && userData.name && userData.name.includes( "ceilingLight" ) ) {
 
-		try {
+				if ( userData.type === 'RectAreaLight' ) {
 
-			const loader = await this.createGLTFLoader();
-			updateLoading( { isLoading: true, status: "Processing GLB Data...", progress: 10 } );
+					const light = new RectAreaLight(
+						new Color( ...userData.color ),
+						userData.intensity,
+						userData.width,
+						userData.height
+					);
 
-			const data = await new Promise( ( resolve, reject ) =>
-				loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) )
-			);
+					// flip light in x axis by 180 degrees
+					light.rotation.x = Math.PI;
+					light.position.z = - 2;
+					light.name = userData.name;
+					object.add( light );
 
-			if ( this.targetModel ) {
-
-				disposeObjectFromMemory( this.targetModel );
-
-			}
-
-			// Apply mesh optimizations if enabled
-			if ( this.optimizeMeshes ) {
-
-				updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
-				await this.optimizeModel( data.scene );
+				}
 
 			}
 
-			this.targetModel = data.scene;
+		} );
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
-			await this.onModelLoad( this.targetModel );
-			loader.dracoLoader && loader.dracoLoader.dispose();
+		// Calculate scene scale factor based on model size
+		// We'll consider a "standard" model size to be 1 meter
+		const sceneScale = maxDim;
 
-			return data;
+		// Rebuild path tracing
+		if ( this.pathTracingPass ) {
 
-		} catch ( error ) {
+			await this.pathTracingPass.build( this.scene );
 
-			console.error( 'Error loading GLB:', error );
-			throw error;
+			// Store scene scale for use in camera settings
+			this.sceneScale = sceneScale;
 
-		} finally {
+			// Update camera parameters scaled to scene size
+			this.camera.near = maxDim / 100;
+			this.camera.far = maxDim * 100;
 
-			updateLoading( { status: "Ready", progress: 90 } );
+			// Scale the default focus distance to scene size
+			this.pathTracingPass.material.uniforms.focusDistance.value =
+                DEFAULT_STATE.focusDistance * ( sceneScale / 1.0 );
+
+			// Update aperture scale factor in the path tracer
+			this.pathTracingPass.material.uniforms.apertureScale.value = sceneScale;
+
+			this.pathTracingPass.reset();
 
 		}
+
+		// Notify that the model has been loaded and processed
+		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+
+		return {
+			center,
+			size,
+			maxDim,
+			sceneScale
+		};
 
 	}
 
@@ -456,116 +1552,7 @@ class AssetLoader {
 
 	}
 
-	async onModelLoad( model ) {
-
-		this.scene.add( model );
-
-		// Center model and adjust camera
-		const box = new Box3().setFromObject( model );
-		const center = box.getCenter( new Vector3() );
-		const size = box.getSize( new Vector3() );
-
-		this.controls.target.copy( center );
-
-		const maxDim = Math.max( size.x, size.y, size.z );
-		const fov = this.camera.fov * ( Math.PI / 180 );
-		const cameraDistance = Math.abs( maxDim / Math.sin( fov / 2 ) / 2 );
-
-		// Set up 2/3 angle projection (approximately 120° between axes)
-		// Calculate camera position for isometric-like view
-		const angle = Math.PI / 6; // 30 degrees
-		const pos = new Vector3(
-			Math.cos( angle ) * cameraDistance,
-			cameraDistance / Math.sqrt( 2 ), // Elevation
-			Math.sin( angle ) * cameraDistance
-		);
-
-		this.camera.position.copy( pos.add( center ) );
-		this.camera.lookAt( center );
-
-		this.camera.near = maxDim / 100;
-		this.camera.far = maxDim * 100;
-		this.camera.updateProjectionMatrix();
-		this.controls.maxDistance = cameraDistance * 10;
-		this.controls.saveState();
-
-		this.controls.update();
-
-		// Adjust floor plane
-		if ( this.floorPlane ) {
-
-			const floorY = box.min.y;
-			this.floorPlane.position.y = floorY;
-			this.floorPlane.rotation.x = - Math.PI / 2;
-			this.floorPlane.scale.setScalar( maxDim * 5 );
-
-		}
-
-		// Process model for lights
-		model.traverse( ( object ) => {
-
-			const userData = object.userData;
-			if ( object.name.startsWith( 'RectAreaLightPlaceholder' ) && userData.name && userData.name.includes( "ceilingLight" ) ) {
-
-				if ( userData.type === 'RectAreaLight' ) {
-
-					const light = new RectAreaLight(
-						new Color( ...userData.color ),
-						userData.intensity,
-						userData.width,
-						userData.height
-					);
-
-					// flip light in x axis by 180 degrees
-					light.rotation.x = Math.PI;
-					light.position.z = - 2;
-					light.name = userData.name;
-					object.add( light );
-
-				}
-
-			}
-
-		} );
-
-		// Calculate scene scale factor based on model size
-		// We'll consider a "standard" model size to be 1 meter
-		const sceneScale = maxDim;
-
-		// Rebuild path tracing
-		if ( this.pathTracingPass ) {
-
-			await this.pathTracingPass.build( this.scene );
-
-			// Store scene scale for use in camera settings
-			this.sceneScale = sceneScale;
-
-			// Update camera parameters scaled to scene size
-			this.camera.near = maxDim / 100;
-			this.camera.far = maxDim * 100;
-
-			// Scale the default focus distance to scene size
-			this.pathTracingPass.material.uniforms.focusDistance.value =
-                DEFAULT_STATE.focusDistance * ( sceneScale / 1.0 );
-
-			// Update aperture scale factor in the path tracer
-			this.pathTracingPass.material.uniforms.apertureScale.value = sceneScale;
-
-			this.pathTracingPass.reset();
-
-		}
-
-		// Notify that the model has been loaded and processed
-		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
-
-		return {
-			center,
-			size,
-			maxDim,
-			sceneScale
-		};
-
-	}
+	// ---- Utility Methods ----
 
 	setFloorPlane( floorPlane ) {
 
@@ -603,15 +1590,51 @@ class AssetLoader {
 
 	}
 
+	/**
+     * Get the current scene scale
+     * @returns {number} - The scene scale
+     */
 	getSceneScale() {
 
 		return this.sceneScale;
 
 	}
 
+	/**
+     * Get the current target model
+     * @returns {Object3D} - The target model
+     */
 	getTargetModel() {
 
 		return this.targetModel;
+
+	}
+
+	/**
+     * Get a list of all supported file formats
+     * @param {string} [type] - Filter by type (model, environment, etc.)
+     * @returns {Object} - Object with supported formats
+     */
+	getSupportedFormats( type = null ) {
+
+		if ( type ) {
+
+			const filtered = {};
+			for ( const [ ext, info ] of Object.entries( SUPPORTED_FORMATS ) ) {
+
+				if ( info.type === type ) {
+
+					filtered[ ext ] = info;
+
+				}
+
+			}
+
+			return filtered;
+
+		}
+
+		return SUPPORTED_FORMATS;
 
 	}
 

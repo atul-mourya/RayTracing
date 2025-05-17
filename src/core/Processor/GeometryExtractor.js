@@ -221,7 +221,7 @@ export default class GeometryExtractor {
 	processTexture( texture, textureArray ) {
 
 		if ( ! texture ) return - 1;
-		let textureIndex = textureArray.findIndex( x => x.source.uuid === texture.source.uuid );
+		let textureIndex = textureArray.length === 0 ? - 1 : textureArray.findIndex( x => x.source.uuid === texture.source.uuid );
 		if ( textureIndex === - 1 && textureArray.length < MAX_TEXTURES_LIMIT ) {
 
 			textureArray.push( texture );

@@ -180,6 +180,33 @@ class PathTracerApp extends EventDispatcher {
 		this.animate();
 
 		window.addEventListener( 'resize', () => this.onResize() );
+		this.assetLoader.addEventListener( 'load', ( event ) => {
+
+			// Reset the renderer when a new asset is loaded
+			if ( event.type === 'model' || event.type === 'environment' ) {
+
+				this.reset();
+
+			}
+
+			// Fire a custom event that UI components can listen for
+			this.dispatchEvent( {
+				type: event.type === 'model' ? 'ModelLoaded' : 'EnvironmentLoaded',
+				data: event
+			} );
+
+			// Set pause state back to false after loading
+			this.pauseRendering = false;
+
+		} );
+
+		this.assetLoader.addEventListener( 'error', ( event ) => {
+
+			console.error( "Asset loading error:", event.message );
+			this.dispatchEvent( { type: 'AssetError', data: event } );
+			this.pauseRendering = false;
+
+		} );
 
 	}
 
