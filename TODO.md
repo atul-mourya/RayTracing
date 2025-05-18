@@ -8,6 +8,7 @@ RayTracing Project TODO
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 - [ ]  fullscreen canvas not working
 - [ ]  when switching to render mode, ongoing denoising process should be cancelled
+- [ ]  throw error when model loaded is a multimaterial model
 
 ✨ Core Features
 ---------------
