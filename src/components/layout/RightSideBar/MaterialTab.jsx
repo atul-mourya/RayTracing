@@ -12,6 +12,8 @@ const MaterialTab = () => {
 
 	const selectedObject = useStore( ( state ) => state.selectedObject );
 	const name = selectedObject?.name ?? "Unknown";
+
+	// Material property states
 	const [ color, setColor ] = useState( '#ffffff' );
 	const [ roughness, setRoughness ] = useState( 0.5 );
 	const [ metalness, setMetalness ] = useState( 0.5 );
@@ -39,17 +41,30 @@ const MaterialTab = () => {
 	const [ iridescenceIOR, setIridescenceIOR ] = useState( 1.5 );
 	const [ iridescenceThicknessRange, setIridescenceThicknessRange ] = useState( [ 100, 400 ] );
 
+	// Update material states from selected object
 	const updateMaterialStates = useCallback( () => {
 
-		if ( selectedObject?.isMesh ) {
+		if ( ! selectedObject?.isMesh || ! selectedObject.material ) return;
 
-			setColor( `#${selectedObject.material.color.getHexString()}` );
-			setRoughness( selectedObject.material.roughness );
-			setMetalness( selectedObject.material.metalness );
+		try {
+
+			// Helper function to safely get hex string
+			const getHexString = ( colorObj ) => {
+
+				return colorObj && typeof colorObj.getHexString === 'function'
+					? `#${colorObj.getHexString()}`
+					: '#ffffff';
+
+			};
+
+			// Update all material states at once
+			setColor( getHexString( selectedObject.material.color ) );
+			setRoughness( selectedObject.material.roughness ?? 0.5 );
+			setMetalness( selectedObject.material.metalness ?? 0.5 );
 			setIor( selectedObject.material.ior ?? 1.5 );
 			setTransmission( selectedObject.material.transmission ?? 0 );
 			setThickness( selectedObject.material.thickness ?? 0.1 );
-			setAttenuationColor( `#${selectedObject.material.attenuationColor.getHexString()}` );
+			setAttenuationColor( getHexString( selectedObject.material.attenuationColor ) );
 			setAttenuationDistance( selectedObject.material.attenuationDistance ?? 0 );
 			setDispersion( selectedObject.material.dispersion ?? 0 );
 			setEmissiveIntensity( selectedObject.material.emissiveIntensity ?? 1 );
@@ -57,24 +72,28 @@ const MaterialTab = () => {
 			setClearcoatRoughness( selectedObject.material.clearcoatRoughness ?? 0 );
 			setOpacity( selectedObject.material.opacity ?? 1 );
 			setSide( selectedObject.material.side ?? 0 );
-			setEmissive( `#${selectedObject.material.emissive.getHexString()}` );
+			setEmissive( getHexString( selectedObject.material.emissive ) );
 			setTransparent( selectedObject.material.transparent ?? false );
 			setAlphaTest( selectedObject.material.alphaTest ?? 0 );
-			setVisible( selectedObject.material.visible );
+			setVisible( selectedObject.material.visible ?? true );
 			setSheen( selectedObject.material.sheen ?? 0 );
 			setSheenRoughness( selectedObject.material.sheenRoughness ?? 1 );
-			setSheenColor( `#${selectedObject.material.sheenColor.getHexString()}` );
+			setSheenColor( getHexString( selectedObject.material.sheenColor ) );
 			setSpecularIntensity( selectedObject.material.specularIntensity ?? 1 );
-			setSpecularColor( `#${selectedObject.material.specularColor.getHexString()}` );
+			setSpecularColor( getHexString( selectedObject.material.specularColor ) );
 			setIridescence( selectedObject.material.iridescence ?? 0 );
 			setIridescenceIOR( selectedObject.material.iridescenceIOR ?? 1.5 );
 			setIridescenceThicknessRange( selectedObject.material.iridescenceThicknessRange ?? [ 100, 400 ] );
+
+		} catch ( error ) {
+
+			console.error( "Error updating material states:", error );
 
 		}
 
 	}, [ selectedObject ] );
 
-	// Combine both effects into one
+	// Setup event listener for material updates
 	useEffect( () => {
 
 		updateMaterialStates();
@@ -84,209 +103,139 @@ const MaterialTab = () => {
 
 	}, [ updateMaterialStates ] );
 
-	// Update material property function remains the same
+	// Improved material property update function
 	const updateMaterialProperty = ( property, value ) => {
 
-		if ( selectedObject?.isMesh ) {
+		if ( ! selectedObject?.isMesh || ! selectedObject.material ) return;
 
+		try {
+
+			// Update the Three.js material property
 			selectedObject.material[ property ] = value;
-			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture(
-				selectedObject.userData.materialIndex,
-				property,
-				value
-			);
+
+			// Get material index with fallback
+			const materialIndex = selectedObject.userData?.materialIndex ?? 0;
+
+			// Update the path tracer material (supporting multiple APIs)
+			const pathTracer = window.pathTracerApp?.pathTracingPass;
+			if ( ! pathTracer ) {
+
+				console.warn( "Path tracer not available" );
+				return;
+
+			}
+
+			// Try different APIs in order of preference
+			if ( typeof pathTracer.updateMaterial === 'function' ) {
+
+				// New API - update entire material
+				pathTracer.updateMaterial( materialIndex, selectedObject.material );
+
+			} else if ( typeof pathTracer.updateMaterialProperty === 'function' ) {
+
+				// Mid-level API - update specific property
+				pathTracer.updateMaterialProperty( materialIndex, property, value );
+
+			} else if ( typeof pathTracer.updateMaterialDataTexture === 'function' ) {
+
+				// Legacy API - update through data texture
+				pathTracer.updateMaterialDataTexture( materialIndex, property, value );
+
+			} else if ( typeof pathTracer.rebuildMaterialDataTexture === 'function' ) {
+
+				// Oldest API - rebuild entire texture
+				pathTracer.rebuildMaterialDataTexture( materialIndex, selectedObject.material );
+
+			} else {
+
+				console.warn( "No compatible material update method found" );
+
+			}
+
+			// Reset rendering to apply changes
+			if ( window.pathTracerApp?.reset ) {
+
+				window.pathTracerApp.reset();
+
+			}
+
+		} catch ( error ) {
+
+			console.error( `Error updating material property ${property}:`, error );
 
 		}
 
 	};
 
-	const handleColorChange = ( value ) => {
+	// Handler functions (simplified to avoid repetition)
+	const createHandler = ( setter, property, transform = value => value ) => {
 
-		setColor( value );
-		updateMaterialProperty( 'color', selectedObject.material.color.set( value ) );
+		return ( value ) => {
 
-	};
+			setter( value );
+			updateMaterialProperty( property, transform( value ) );
 
-	const handleRoughnessChange = ( value ) => {
-
-		setRoughness( value[ 0 ] );
-		updateMaterialProperty( 'roughness', value[ 0 ] );
+		};
 
 	};
 
-	const handleMetalnessChange = ( value ) => {
+	// Create handlers for all properties
+	const handleColorChange = createHandler( setColor, 'color', value => selectedObject.material.color.set( value ) );
+	const handleRoughnessChange = createHandler( setRoughness, 'roughness', value => value[ 0 ] );
+	const handleMetalnessChange = createHandler( setMetalness, 'metalness', value => value[ 0 ] );
+	const handleIorChange = createHandler( setIor, 'ior', value => value[ 0 ] );
+	const handleTransmissionChange = createHandler( setTransmission, 'transmission', value => value[ 0 ] );
+	const handleThicknessChange = createHandler( setThickness, 'thickness', value => value[ 0 ] );
+	const handleAttenuationColorChange = createHandler(
+		setAttenuationColor,
+		'attenuationColor',
+		value => selectedObject.material.attenuationColor.set( value )
+	);
+	const handleAttenuationDistanceChange = createHandler( setAttenuationDistance, 'attenuationDistance' );
+	const handleDispersionChange = createHandler( setDispersion, 'dispersion', value => value[ 0 ] );
+	const handleEmissiveIntensityChange = createHandler( setEmissiveIntensity, 'emissiveIntensity', value => value[ 0 ] );
+	const handleClearcoatChange = createHandler( setClearcoat, 'clearcoat', value => value[ 0 ] );
+	const handleClearcoatRoughnessChange = createHandler( setClearcoatRoughness, 'clearcoatRoughness', value => value[ 0 ] );
+	const handleOpacityChange = createHandler( setOpacity, 'opacity', value => value[ 0 ] );
+	const handleSideChange = createHandler( setSide, 'side' );
+	const handleEmissiveChange = createHandler(
+		setEmissive,
+		'emissive',
+		value => selectedObject.material.emissive.set( value )
+	);
+	const handleTransparentChange = createHandler( setTransparent, 'transparent', value => value ? 1 : 0 );
+	const handleAlphaTestChange = createHandler( setAlphaTest, 'alphaTest', value => value[ 0 ] );
+	const handleSheenChange = createHandler( setSheen, 'sheen', value => value[ 0 ] );
+	const handleSheenRoughnessChange = createHandler( setSheenRoughness, 'sheenRoughness', value => value[ 0 ] );
+	const handleSheenColorChange = createHandler(
+		setSheenColor,
+		'sheenColor',
+		value => selectedObject.material.sheenColor.set( value )
+	);
+	const handleSpecularIntensityChange = createHandler( setSpecularIntensity, 'specularIntensity', value => value[ 0 ] );
+	const handleSpecularColorChange = createHandler(
+		setSpecularColor,
+		'specularColor',
+		value => selectedObject.material.specularColor.set( value )
+	);
+	const handleIridescenceChange = createHandler( setIridescence, 'iridescence', value => value[ 0 ] );
+	const handleIridescenceIORChange = createHandler( setIridescenceIOR, 'iridescenceIOR', value => value[ 0 ] );
+	const handleIridescenceThicknessRangeChange = createHandler( setIridescenceThicknessRange, 'iridescenceThicknessRange' );
 
-		setMetalness( value[ 0 ] );
-		updateMaterialProperty( 'metalness', value[ 0 ] );
-
-	};
-
-	const handleIorChange = ( value ) => {
-
-		setIor( value[ 0 ] );
-		updateMaterialProperty( 'ior', value[ 0 ] );
-
-	};
-
-	const handleTransmissionChange = ( value ) => {
-
-		setTransmission( value[ 0 ] );
-		updateMaterialProperty( 'transmission', value[ 0 ] );
-
-	};
-
-	const handleThicknessChange = ( value ) => {
-
-		setThickness( value[ 0 ] );
-		updateMaterialProperty( 'thickness', value[ 0 ] );
-
-	};
-
-	const handleAttenuationColorChange = ( value ) => {
-
-		setAttenuationColor( value );
-		updateMaterialProperty( 'attenuationColor', selectedObject.material.attenuationColor.set( value ) );
-
-	};
-
-	const handleAttenuationDistanceChange = ( value ) => {
-
-		setAttenuationDistance( value );
-		updateMaterialProperty( 'attenuationDistance', value );
-
-	};
-
-	const handleDispersionChange = ( value ) => {
-
-		setDispersion( value[ 0 ] );
-		updateMaterialProperty( 'dispersion', value[ 0 ] );
-
-	};
-
-	const handleEmissiveIntensityChange = ( value ) => {
-
-		setEmissiveIntensity( value[ 0 ] );
-		updateMaterialProperty( 'emissiveIntensity', value[ 0 ] );
-
-	};
-
-	const handleClearcoatChange = ( value ) => {
-
-		setClearcoat( value[ 0 ] );
-		updateMaterialProperty( 'clearcoat', value[ 0 ] );
-
-	};
-
-	const handleClearcoatRoughnessChange = ( value ) => {
-
-		setClearcoatRoughness( value[ 0 ] );
-		updateMaterialProperty( 'clearcoatRoughness', value[ 0 ] );
-
-	};
-
-	const handleOpacityChange = ( value ) => {
-
-		setOpacity( value[ 0 ] );
-		updateMaterialProperty( 'opacity', value[ 0 ] );
-
-	};
-
-	const handleSideChange = ( value ) => {
-
-		setSide( value );
-		updateMaterialProperty( 'side', value );
-
-	};
-
-	const handleEmissiveChange = ( value ) => {
-
-		setEmissive( value );
-		updateMaterialProperty( 'emissive', selectedObject.material.emissive.set( value ) );
-
-	};
-
-	const handleTransparentChange = ( value ) => {
-
-		setTransparent( value );
-		updateMaterialProperty( 'transparent', value ? 1 : 0 );
-
-	};
-
-	const handleAlphaTestChange = ( value ) => {
-
-		setAlphaTest( value[ 0 ] );
-		updateMaterialProperty( 'alphaTest', value[ 0 ] );
-
-	};
-
+	// Special handler for visibility that affects the object itself
 	const handleVisibleChange = ( value ) => {
 
 		setVisible( value );
 		if ( selectedObject ) {
 
 			selectedObject.visible = value;
-			window.pathTracerApp.pathTracingPass.updateMaterialDataTexture( selectedObject.userData.materialIndex, 'visible', value ? 1 : 0 );
+			updateMaterialProperty( 'visible', value ? 1 : 0 );
 
 		}
 
 	};
 
-	const handleSheenChange = ( value ) => {
-
-		setSheen( value[ 0 ] );
-		updateMaterialProperty( 'sheen', value[ 0 ] );
-
-	};
-
-	const handleSheenRoughnessChange = ( value ) => {
-
-		setSheenRoughness( value[ 0 ] );
-		updateMaterialProperty( 'sheenRoughness', value[ 0 ] );
-
-	};
-
-	const handleSheenColorChange = ( value ) => {
-
-		setSheenColor( value );
-		updateMaterialProperty( 'sheenColor', selectedObject.material.sheenColor.set( value ) );
-
-	};
-
-	const handleSpecularIntensityChange = ( value ) => {
-
-		setSpecularIntensity( value[ 0 ] );
-		updateMaterialProperty( 'specularIntensity', value[ 0 ] );
-
-	};
-
-	const handleSpecularColorChange = ( value ) => {
-
-		setSpecularColor( value );
-		updateMaterialProperty( 'specularColor', selectedObject.material.specularColor.set( value ) );
-
-	};
-
-	const handleIridescenceChange = ( value ) => {
-
-		setIridescence( value[ 0 ] );
-		updateMaterialProperty( 'iridescence', value[ 0 ] );
-
-	};
-
-	const handleIridescenceIORChange = ( value ) => {
-
-		setIridescenceIOR( value[ 0 ] );
-		updateMaterialProperty( 'iridescenceIOR', value[ 0 ] );
-
-	};
-
-	const handleIridescenceThicknessRangeChange = ( value ) => {
-
-		setIridescenceThicknessRange( value );
-		updateMaterialProperty( 'iridescenceThicknessRange', value );
-
-	};
-
+	// Render placeholders if no valid object is selected
 	if ( ! selectedObject ) {
 
 		return <div className="p-4">Please select an object to customize its material properties.</div>;

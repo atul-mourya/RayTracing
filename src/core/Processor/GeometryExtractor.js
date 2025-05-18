@@ -1,4 +1,7 @@
-import { Vector3, Vector2, Color, Matrix3, Matrix4, MeshPhysicalMaterial, FrontSide, BackSide, DoubleSide } from "three";
+import {
+	Vector3, Vector2, Color, Matrix3, Matrix4, MeshPhysicalMaterial,
+	FrontSide, BackSide, DoubleSide, BufferAttribute
+} from "three";
 
 const MAX_TEXTURES_LIMIT = 48;
 
@@ -6,31 +9,33 @@ export default class GeometryExtractor {
 
 	constructor() {
 
-		this.triangles = [];
-		this.materials = [];
-		this.maps = [];
-		this.normalMaps = [];
-		this.bumpMaps = [];
-		this.metalnessMaps = [];
-		this.roughnessMaps = [];
-		this.emissiveMaps = [];
-		this.directionalLights = [];
-		this.cameras = [];
+		// Object pools for reusing objects
+		this._vectorPool = {
+			vec3: Array( 9 ).fill().map( () => new Vector3() ),
+			vec2: Array( 6 ).fill().map( () => new Vector2() )
+		};
 
-		this.posA = new Vector3();
-		this.posB = new Vector3();
-		this.posC = new Vector3();
-		this.uvA = new Vector2();
-		this.uvB = new Vector2();
-		this.uvC = new Vector2();
+		this._matrixPool = {
+			mat3: new Matrix3(),
+			mat4: new Matrix4()
+		};
 
-		this.normal = new Vector3();
-		this.normalA = this.normal.clone();
-		this.normalB = this.normal.clone();
-		this.normalC = this.normal.clone();
+		// Arrays to store extracted data
+		this.resetArrays();
 
-		this.normalMatrix = new Matrix3();
-		this.worldMatrix = new Matrix4();
+	}
+
+	// Get a Vector3 from the pool
+	_getVec3( index = 0 ) {
+
+		return this._vectorPool.vec3[ index % this._vectorPool.vec3.length ];
+
+	}
+
+	// Get a Vector2 from the pool
+	_getVec2( index = 0 ) {
+
+		return this._vectorPool.vec2[ index % this._vectorPool.vec2.length ];
 
 	}
 
@@ -45,6 +50,7 @@ export default class GeometryExtractor {
 
 	traverseObject( object ) {
 
+		// Process the current object
 		if ( object.isMesh ) {
 
 			this.processMesh( object );
@@ -59,10 +65,10 @@ export default class GeometryExtractor {
 
 		}
 
-		// Recursively process children
+		// Process children recursively
 		if ( object.children ) {
 
-			for ( let child of object.children ) {
+			for ( const child of object.children ) {
 
 				this.traverseObject( child );
 
@@ -72,40 +78,39 @@ export default class GeometryExtractor {
 
 	}
 
-	processObject( obj ) {
+	processMesh( mesh ) {
 
-		if ( obj.isDirectionalLight ) {
+		if ( ! mesh.geometry || ! mesh.material ) {
 
-			this.directionalLights.push( obj );
-
-		} else if ( obj.isMesh ) {
-
-			this.processMesh( obj );
+			console.warn( 'Skipping mesh with missing geometry or material:', mesh );
+			return;
 
 		}
 
-	}
-
-	processMesh( mesh ) {
-
+		// Process material and get its index
 		const materialIndex = this.processMaterial( mesh.material );
 		mesh.userData.materialIndex = materialIndex;
+
+		// Extract geometry
 		this.extractGeometry( mesh, materialIndex );
 
 	}
 
 	processMaterial( material ) {
 
+		// Check if material already exists in our array
 		let materialIndex = this.materials.findIndex( x => x.uuid === material.uuid );
 		if ( materialIndex === - 1 ) {
 
+			// Force enable depth write if it's disabled
 			if ( material.depthWrite === false ) {
 
-				material.depthWrite = true; // Depth write is required for rastered rendering
+				material.depthWrite = true;
 				console.warn( "Depth write is disabled in material, enabling it for rastered rendering" );
 
 			}
 
+			// Create a new material object and add it to the array
 			const newMaterial = this.createMaterialObject( material );
 			this.materials.push( newMaterial );
 			materialIndex = this.materials.length - 1;
@@ -118,63 +123,76 @@ export default class GeometryExtractor {
 
 	getMaterialAlphaMode( material ) {
 
-		if ( material.transparent ) return 2; //'BLEND';
-		if ( material.alphaTest > 0.0 ) return 1;// 'MASK';
-		return 0; //'OPAQUE';
+		if ( material.transparent ) return 2; // 'BLEND'
+		if ( material.alphaTest > 0.0 ) return 1; // 'MASK'
+		return 0; // 'OPAQUE'
 
 	}
 
-
 	createMaterialObject( material ) {
 
-		const emissive = material.emissive ?? new Color( 0, 0, 0 );
-		const alphaMode = this.getMaterialAlphaMode( material );
+		// Create default values for missing properties
+		const defaultValues = {
+			emissive: new Color( 0, 0, 0 ),
+			attenuationColor: new Color( 0xffffff ),
+			attenuationDistance: 1e20,
+			dispersion: 0.0,
+			sheen: 0.0,
+			sheenRoughness: 1,
+			sheenColor: new Color( 0x000000 ),
+			specularIntensity: 1.0,
+			specularColor: new Color( 0xffffff ),
+			iridescence: 0.0,
+			iridescenceIOR: 1.0,
+			iridescenceThicknessRange: [ 100, 400 ],
+			roughness: 1.0,
+			metalness: 0.0,
+			ior: 0,
+			opacity: 1.0,
+			transmission: 0.0,
+			thickness: 0.1,
+			clearcoat: 0.0,
+			clearcoatRoughness: 0.0,
+			normalScale: { x: 1, y: 1 },
+			bumpScale: 1,
+			alphaTest: 0.0
+		};
 
-		material.attenuationColor = material.attenuationColor ?? new Color( 0xffffff );
-		material.attenuationDistance = material.attenuationDistance ?? 1e20;
-		material.dispersion = material.dispersion ?? 0.0;
-		material.sheen = material.sheen ?? 0.0;
-		material.sheenRoughness = material.sheenRoughness ?? 1;
-		material.sheenColor = material.sheenColor ?? new Color().setHex( 0x00000 );
-		material.specularIntensity = material.specularIntensity ?? 1.0;
-		material.specularColor = material.specularColor ?? new Color( 0xffffff );
-		material.iridescence = material.iridescence ?? 0.0;
-		material.iridescenceIOR = material.iridescenceIOR ?? 1.0;
-		material.iridescenceThicknessRange = material.iridescenceThicknessRange ?? [ 100, 400 ];
-
+		// Create material object, using defaults for missing properties
 		return {
 			uuid: material.uuid,
 			color: material.color,
-			emissive: emissive,
-			emissiveIntensity: material.emissiveIntensity,
-			roughness: material.roughness ?? 1.0,
-			metalness: material.metalness ?? 0.0,
-			ior: material.ior ?? 0,
-			opacity: material.opacity ?? 0,
-			transmission: material.transmission ?? 0.0,
-			attenuationColor: material.attenuationColor,
-			attenuationDistance: material.attenuationDistance,
-			dispersion: material.dispersion,
-			sheen: material.sheen,
-			sheenRoughness: material.sheenRoughness,
-			sheenColor: material.sheenColor,
-			specularIntensity: material.specularIntensity,
-			specularColor: material.specularColor,
-			thickness: material.thickness ?? 0.1,
-			clearcoat: material.clearcoat ?? 0.0,
-			clearcoatRoughness: material.clearcoatRoughness ?? 0.0,
-			iridescence: material.iridescence,
-			iridescenceIOR: material.iridescenceIOR,
-			iridescenceThicknessRange: material.iridescenceThicknessRange,
+			emissive: material.emissive || defaultValues.emissive,
+			emissiveIntensity: material.emissiveIntensity || 1.0,
+			roughness: material.roughness ?? defaultValues.roughness,
+			metalness: material.metalness ?? defaultValues.metalness,
+			ior: material.ior ?? defaultValues.ior,
+			opacity: material.opacity ?? defaultValues.opacity,
+			transmission: material.transmission ?? defaultValues.transmission,
+			attenuationColor: material.attenuationColor ?? defaultValues.attenuationColor,
+			attenuationDistance: material.attenuationDistance ?? defaultValues.attenuationDistance,
+			dispersion: material.dispersion ?? defaultValues.dispersion,
+			sheen: material.sheen ?? defaultValues.sheen,
+			sheenRoughness: material.sheenRoughness ?? defaultValues.sheenRoughness,
+			sheenColor: material.sheenColor ?? defaultValues.sheenColor,
+			specularIntensity: material.specularIntensity ?? defaultValues.specularIntensity,
+			specularColor: material.specularColor ?? defaultValues.specularColor,
+			thickness: material.thickness ?? defaultValues.thickness,
+			clearcoat: material.clearcoat ?? defaultValues.clearcoat,
+			clearcoatRoughness: material.clearcoatRoughness ?? defaultValues.clearcoatRoughness,
+			iridescence: material.iridescence ?? defaultValues.iridescence,
+			iridescenceIOR: material.iridescenceIOR ?? defaultValues.iridescenceIOR,
+			iridescenceThicknessRange: material.iridescenceThicknessRange ?? defaultValues.iridescenceThicknessRange,
 			side: this.getMaterialSide( material ),
-			normalScale: material.normalScale ?? { x: 1, y: 1 },
-			bumpScale: material.bumpScale ?? 1,
+			normalScale: material.normalScale ?? defaultValues.normalScale,
+			bumpScale: material.bumpScale ?? defaultValues.bumpScale,
 			transparent: material.transparent ? 1 : 0,
-			alphaTest: material.alphaTest ?? 0.0,
-			alphaMode: alphaMode,
+			alphaTest: material.alphaTest ?? defaultValues.alphaTest,
+			alphaMode: this.getMaterialAlphaMode( material ),
 			depthWrite: material.depthWrite ? 1 : 0,
 			visible: material.visible ? 1 : 0,
 
+			// Process textures
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),
 			bumpMap: this.processTexture( material.bumpMap, this.bumpMaps ),
@@ -184,13 +202,13 @@ export default class GeometryExtractor {
 			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
 			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] ),
 
+			// Process texture matrices
 			mapMatrix: this.getTextureMatrix( material.map ),
 			normalMapMatrices: this.getTextureMatrix( material.normalMap ),
 			bumpMapMatrices: this.getTextureMatrix( material.bumpMap ),
 			roughnessMapMatrices: this.getTextureMatrix( material.roughnessMap ),
 			metalnessMapMatrices: this.getTextureMatrix( material.metalnessMap ),
 			emissiveMapMatrices: this.getTextureMatrix( material.emissiveMap ),
-
 		};
 
 	}
@@ -198,7 +216,6 @@ export default class GeometryExtractor {
 	getTextureMatrix( texture ) {
 
 		if ( ! texture ) return new Matrix3().elements;
-
 		texture.updateMatrix();
 		return texture.matrix.elements;
 
@@ -212,11 +229,11 @@ export default class GeometryExtractor {
 			case FrontSide: return 0;
 			case BackSide: return 1;
 			case DoubleSide: return 2;
+			default: return 0;
 
 		}
 
 	}
-
 
 	processTexture( texture, textureArray ) {
 
@@ -246,118 +263,151 @@ export default class GeometryExtractor {
 		const indices = geometry.index ? geometry.index.array : null;
 
 		// Compute matrices
-		this.worldMatrix.copy( mesh.matrixWorld );
-		this.normalMatrix.getNormalMatrix( this.worldMatrix );
+		this._matrixPool.mat4.copy( mesh.matrixWorld );
+		this._matrixPool.mat3.getNormalMatrix( this._matrixPool.mat4 );
 
 		const triangleCount = indices ? indices.length / 3 : positions.count / 3;
 
+		// Extract triangles
+		this.extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex );
+
+	}
+
+	// More efficient triangle extraction that processes triangles in batches
+	extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex ) {
+
+		// Pre-allocate objects for positions, normals, and UVs
+		const posA = this._getVec3( 0 );
+		const posB = this._getVec3( 1 );
+		const posC = this._getVec3( 2 );
+
+		const normalA = this._getVec3( 3 );
+		const normalB = this._getVec3( 4 );
+		const normalC = this._getVec3( 5 );
+
+		const uvA = this._getVec2( 0 );
+		const uvB = this._getVec2( 1 );
+		const uvC = this._getVec2( 2 );
+
+		// Batch process triangles to avoid excessive function calls
 		for ( let i = 0; i < triangleCount; i ++ ) {
 
-			this.extractTriangle( positions, normals, uvs, indices, i, materialIndex );
+			const i3 = i * 3;
+
+			// Get vertices
+			if ( indices ) {
+
+				this.getVertexFromIndices( positions, indices[ i3 + 0 ], posA );
+				this.getVertexFromIndices( positions, indices[ i3 + 1 ], posB );
+				this.getVertexFromIndices( positions, indices[ i3 + 2 ], posC );
+
+				this.getVertexFromIndices( normals, indices[ i3 + 0 ], normalA );
+				this.getVertexFromIndices( normals, indices[ i3 + 1 ], normalB );
+				this.getVertexFromIndices( normals, indices[ i3 + 2 ], normalC );
+
+				if ( uvs ) {
+
+					this.getVertexFromIndices( uvs, indices[ i3 + 0 ], uvA );
+					this.getVertexFromIndices( uvs, indices[ i3 + 1 ], uvB );
+					this.getVertexFromIndices( uvs, indices[ i3 + 2 ], uvC );
+
+				} else {
+
+					uvA.set( 0, 0 );
+					uvB.set( 0, 0 );
+					uvC.set( 0, 0 );
+
+				}
+
+			} else {
+
+				this.getVertex( positions, i3 + 0, posA );
+				this.getVertex( positions, i3 + 1, posB );
+				this.getVertex( positions, i3 + 2, posC );
+
+				this.getVertex( normals, i3 + 0, normalA );
+				this.getVertex( normals, i3 + 1, normalB );
+				this.getVertex( normals, i3 + 2, normalC );
+
+				if ( uvs ) {
+
+					this.getVertex( uvs, i3 + 0, uvA );
+					this.getVertex( uvs, i3 + 1, uvB );
+					this.getVertex( uvs, i3 + 2, uvC );
+
+				} else {
+
+					uvA.set( 0, 0 );
+					uvB.set( 0, 0 );
+					uvC.set( 0, 0 );
+
+				}
+
+			}
+
+			// Apply world transformation
+			posA.applyMatrix4( this._matrixPool.mat4 );
+			posB.applyMatrix4( this._matrixPool.mat4 );
+			posC.applyMatrix4( this._matrixPool.mat4 );
+
+			normalA.applyMatrix3( this._matrixPool.mat3 ).normalize();
+			normalB.applyMatrix3( this._matrixPool.mat3 ).normalize();
+			normalC.applyMatrix3( this._matrixPool.mat3 ).normalize();
+
+			// Add the triangle to our array
+			this.triangles.push( {
+				posA: { x: posA.x, y: posA.y, z: posA.z },
+				posB: { x: posB.x, y: posB.y, z: posB.z },
+				posC: { x: posC.x, y: posC.y, z: posC.z },
+				normalA: { x: normalA.x, y: normalA.y, z: normalA.z },
+				normalB: { x: normalB.x, y: normalB.y, z: normalB.z },
+				normalC: { x: normalC.x, y: normalC.y, z: normalC.z },
+				uvA: { x: uvA.x, y: uvA.y },
+				uvB: { x: uvB.x, y: uvB.y },
+				uvC: { x: uvC.x, y: uvC.y },
+				materialIndex: materialIndex
+			} );
 
 		}
 
 	}
 
-	extractTriangle( positions, normals, uvs, indices, i, materialIndex ) {
+	// Optimized attribute access methods
+	getVertexFromIndices( attribute, index, target ) {
 
-		const i3 = i * 3;
+		if ( attribute.itemSize === 2 ) {
 
-		if ( indices ) {
+			target.x = attribute.array[ index * 2 ];
+			target.y = attribute.array[ index * 2 + 1 ];
 
-			this.setPositionsFromIndices( positions, indices, i3 );
-			this.setNormalsFromIndices( normals, indices, i3 );
-			if ( uvs ) this.setUVsFromIndices( uvs, indices, i3 );
+		} else if ( attribute.itemSize === 3 ) {
 
-		} else {
-
-			this.setPositions( positions, i3 );
-			this.setNormals( normals, i3 );
-			if ( uvs ) this.setUVs( uvs, i3 );
+			target.x = attribute.array[ index * 3 ];
+			target.y = attribute.array[ index * 3 + 1 ];
+			target.z = attribute.array[ index * 3 + 2 ];
 
 		}
 
-		this.applyWorldTransforms();
-		this.addTriangle( materialIndex );
+		return target;
 
 	}
 
-	setPositionsFromIndices( positions, indices, i3 ) {
+	getVertex( attribute, index, target ) {
 
-		this.posA.fromBufferAttribute( positions, indices[ i3 + 0 ] );
-		this.posB.fromBufferAttribute( positions, indices[ i3 + 1 ] );
-		this.posC.fromBufferAttribute( positions, indices[ i3 + 2 ] );
+		if ( attribute.itemSize === 2 ) {
 
-	}
+			target.x = attribute.array[ index * 2 ];
+			target.y = attribute.array[ index * 2 + 1 ];
 
-	setNormalsFromIndices( normals, indices, i3 ) {
+		} else if ( attribute.itemSize === 3 ) {
 
-		this.normalA.fromBufferAttribute( normals, indices[ i3 + 0 ] );
-		this.normalB.fromBufferAttribute( normals, indices[ i3 + 1 ] );
-		this.normalC.fromBufferAttribute( normals, indices[ i3 + 2 ] );
+			target.x = attribute.array[ index * 3 ];
+			target.y = attribute.array[ index * 3 + 1 ];
+			target.z = attribute.array[ index * 3 + 2 ];
 
-	}
+		}
 
-	setUVsFromIndices( uvs, indices, i3 ) {
-
-		this.uvA.fromBufferAttribute( uvs, indices[ i3 + 0 ] );
-		this.uvB.fromBufferAttribute( uvs, indices[ i3 + 1 ] );
-		this.uvC.fromBufferAttribute( uvs, indices[ i3 + 2 ] );
-
-	}
-
-	setPositions( positions, i3 ) {
-
-		this.posA.fromBufferAttribute( positions, i3 + 0 );
-		this.posB.fromBufferAttribute( positions, i3 + 1 );
-		this.posC.fromBufferAttribute( positions, i3 + 2 );
-
-	}
-
-	setNormals( normals, i3 ) {
-
-		this.normalA.fromBufferAttribute( normals, i3 + 0 );
-		this.normalB.fromBufferAttribute( normals, i3 + 1 );
-		this.normalC.fromBufferAttribute( normals, i3 + 2 );
-
-	}
-
-	setUVs( uvs, i3 ) {
-
-		this.uvA.fromBufferAttribute( uvs, i3 + 0 );
-		this.uvB.fromBufferAttribute( uvs, i3 + 1 );
-		this.uvC.fromBufferAttribute( uvs, i3 + 2 );
-
-	}
-
-	applyWorldTransforms() {
-
-		// Transform positions
-		this.posA.applyMatrix4( this.worldMatrix );
-		this.posB.applyMatrix4( this.worldMatrix );
-		this.posC.applyMatrix4( this.worldMatrix );
-
-		// Transform normals
-		this.normalA.applyMatrix3( this.normalMatrix ).normalize();
-		this.normalB.applyMatrix3( this.normalMatrix ).normalize();
-		this.normalC.applyMatrix3( this.normalMatrix ).normalize();
-
-	}
-
-	addTriangle( materialIndex ) {
-
-		this.triangles.push( {
-			posA: { x: this.posA.x, y: this.posA.y, z: this.posA.z },
-			posB: { x: this.posB.x, y: this.posB.y, z: this.posB.z },
-			posC: { x: this.posC.x, y: this.posC.y, z: this.posC.z },
-			normalA: { x: this.normalA.x, y: this.normalA.y, z: this.normalA.z },
-			normalB: { x: this.normalB.x, y: this.normalB.y, z: this.normalB.z },
-			normalC: { x: this.normalC.x, y: this.normalC.y, z: this.normalC.z },
-			uvA: { x: this.uvA.x, y: this.uvA.y },
-			uvB: { x: this.uvB.x, y: this.uvB.y },
-			uvC: { x: this.uvC.x, y: this.uvC.y },
-			materialIndex: materialIndex
-		} );
+		return target;
 
 	}
 
@@ -380,6 +430,7 @@ export default class GeometryExtractor {
 		this.emissiveMaps = [];
 		this.roughnessMaps = [];
 		this.directionalLights = [];
+		this.cameras = [];
 
 	}
 

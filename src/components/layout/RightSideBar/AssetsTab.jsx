@@ -26,23 +26,37 @@ const AssetsTab = () => {
 		setMaterials,
 	} = useAssetsStore();
 
+	// Fetch material catalog on component mount
 	useEffect( () => {
 
-		const onMaterialFetch = ( data ) => {
+		const fetchMaterials = async () => {
 
-			let materials = data.map( ( mData ) => ( {
-				...mData,
-				preview: mData.reference[ 0 ]
+			try {
 
-			} ) );
-			setMaterials( materials );
+				const response = await fetch( 'https://api.physicallybased.info/materials' );
+				const data = await response.json();
+
+				const processedMaterials = data.map( ( mData ) => ( {
+					...mData,
+					preview: mData.reference[ 0 ]
+				} ) );
+
+				setMaterials( processedMaterials );
+
+			} catch ( error ) {
+
+				console.error( 'Error fetching materials:', error );
+				toast( {
+					title: "Error Loading Materials",
+					description: "Failed to load material catalog",
+					variant: "destructive",
+				} );
+
+			}
 
 		};
 
-		fetch( 'https://api.physicallybased.info/materials' )
-			.then( response => response.json() )
-			.then( data => onMaterialFetch( data ) )
-			.catch( error => console.error( 'Error fetching materials:', error ) );
+		fetchMaterials();
 
 	}, [] );
 
@@ -51,168 +65,165 @@ const AssetsTab = () => {
 		if ( ! envData || ! envData.url ) return;
 
 		setEnvironment( envData );
-		if ( window.pathTracerApp ) {
+		if ( ! window.pathTracerApp ) return;
 
-			setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 0 } );
-			try {
+		setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 0 } );
 
-				// If this is a custom upload, get the file extension from the name
-				if ( envData.id === 'custom-upload' && envData.name ) {
+		try {
 
-					// Store file info in global context for reference in the loader
-					window.uploadedEnvironmentFileInfo = {
-						name: envData.name,
-						url: envData.url
-					};
+			// Handle custom environment uploads
+			if ( envData.id === 'custom-upload' && envData.name ) {
 
-				}
-
-				await window.pathTracerApp.loadEnvironment( envData.url );
-
-				toast( {
-					title: "Environment Loaded Successfully",
-					description: envData.name,
-				} );
-
-			} catch ( error ) {
-
-				console.error( "Environment loading error:", error );
-
-				toast( {
-					title: "Error Loading Environment",
-					description: `${envData.name}: ${error.message || "Unknown error"}`,
-					variant: "destructive",
-				} );
-
-			} finally {
-
-				window.pathTracerApp.reset();
-				setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 100 } );
-				setTimeout( () => useStore.getState().resetLoading(), 1000 );
+				window.uploadedEnvironmentFileInfo = {
+					name: envData.name,
+					url: envData.url
+				};
 
 			}
+
+			await window.pathTracerApp.loadEnvironment( envData.url );
+
+			toast( {
+				title: "Environment Loaded Successfully",
+				description: envData.name,
+			} );
+
+		} catch ( error ) {
+
+			console.error( "Environment loading error:", error );
+			toast( {
+				title: "Error Loading Environment",
+				description: `${envData.name}: ${error.message || "Unknown error"}`,
+				variant: "destructive",
+			} );
+
+		} finally {
+
+			window.pathTracerApp.reset();
+			setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 100 } );
+			setTimeout( () => useStore.getState().resetLoading(), 500 );
 
 		}
 
 	};
 
-	const handleModelChange = ( value ) => {
+	const handleModelChange = async ( value ) => {
 
 		setModel( value );
-		if ( window.pathTracerApp ) {
+		if ( ! window.pathTracerApp ) return;
 
-			setLoading( { isLoading: true, title: "Loading", status: "Loading Model..." } );
-			window.pathTracerApp.loadExampleModels( value )
-				.then( () => {
+		setLoading( { isLoading: true, title: "Loading", status: "Loading Model..." } );
 
-					toast( {
-						title: "Model Loaded Successfully",
-						description: `${MODEL_FILES[ value ].name}`,
-					} );
+		try {
 
-				} )
-				.catch( ( error ) => {
+			await window.pathTracerApp.loadExampleModels( value );
+			toast( {
+				title: "Model Loaded Successfully",
+				description: MODEL_FILES[ value ].name,
+			} );
 
-					toast( {
-						title: "Error Loading Model",
-						description: `${MODEL_FILES[ value ].name}: ${error.message}`,
-						variant: "destructive",
-					} );
+		} catch ( error ) {
 
-				} ).finally( () => {
+			toast( {
+				title: "Error Loading Model",
+				description: `${MODEL_FILES[ value ].name}: ${error.message}`,
+				variant: "destructive",
+			} );
 
-					window.pathTracerApp.reset();
-					setLoading( { isLoading: true, title: "Loading", status: "Model Loaded...", progress: 100 } );
-					setTimeout( () => useStore.getState().resetLoading(), 1000 );
+		} finally {
 
-				} );
+			window.pathTracerApp.reset();
+			setLoading( { isLoading: true, title: "Loading", status: "Model Loaded...", progress: 100 } );
+			setTimeout( () => useStore.getState().resetLoading(), 500 );
 
 		}
 
 	};
 
-	const handleDebugModelChange = ( value ) => {
+	const handleDebugModelChange = async ( value ) => {
 
 		setDebugModel( value );
-		if ( window.pathTracerApp ) {
+		if ( ! window.pathTracerApp ) return;
 
-			setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 0 } );
-			window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url )
-				.then( () => {
+		setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 0 } );
 
-					toast( {
-						title: "Model Loaded Successfully",
-						description: `${MODEL_FILES[ value ].name}`,
-					} );
+		try {
 
-				} )
-				.catch( ( error ) => {
+			await window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url );
+			toast( {
+				title: "Model Loaded Successfully",
+				description: DEBUG_MODELS[ value ].name,
+			} );
 
-					toast( {
-						title: "Error Loading Model",
-						description: `${error.message}`,
-						variant: "destructive",
-					} );
+		} catch ( error ) {
 
-				} ).finally( () => {
+			toast( {
+				title: "Error Loading Model",
+				description: error.message,
+				variant: "destructive",
+			} );
 
-					window.pathTracerApp.reset();
-					setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 100 } );
-					setTimeout( () => useStore.getState().resetLoading(), 1000 );
+		} finally {
 
-				} );
+			window.pathTracerApp.reset();
+			setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 100 } );
+			setTimeout( () => useStore.getState().resetLoading(), 500 );
 
 		}
 
 	};
 
-	function applyMaterialInfo( info, material ) {
+	function applyMaterialInfo( materialInfo, mat ) {
 
-		// defaults
-		material.color.set( 0xffffff );
-		material.transmission = info.transmission ?? 0.0;
-		material.attenuationDistance = Infinity;
-		material.attenuationColor.set( 0xffffff );
-		material.specularColor.set( 0xffffff );
-		material.metalness = info.metalness ?? 0.0;
-		material.roughness = info.roughness ?? 1.0;
-		material.ior = info.ior ?? 1.5;
-		material.thickness = 1.0;
-		material.iridescence = 0.0;
-		material.iridescenceIOR = 1.0;
-		material.iridescenceThicknessRange = [ 100, 400 ];
+		if ( ! mat ) return console.error( "Invalid material object provided" );
 
-		// apply database values
-		if ( info.specularColor ) material.specularColor.setRGB( ...info.specularColor );
-		if ( 'thinFilmThickness' in info ) {
+		// Helper function to safely set property if it exists
+		const setIfExists = ( obj, prop, value ) => prop in obj && ( obj[ prop ] = value );
 
-			material.iridescence = 1.0;
-			material.iridescenceIOR = info.thinFilmIor;
-			material.iridescenceThicknessRange = [ info.thinFilmThickness, info.thinFilmThickness ];
+		// Reset basic properties
+		mat.color?.set?.( 0xffffff );
+		mat.attenuationColor?.set?.( 0xffffff );
+		mat.specularColor?.set?.( 0xffffff );
 
-		}
+		// Set material properties if they exist
+		setIfExists( mat, 'transmission', materialInfo.transmission ?? 0.0 );
+		setIfExists( mat, 'attenuationDistance', Infinity );
+		setIfExists( mat, 'metalness', materialInfo.metalness ?? 0.0 );
+		setIfExists( mat, 'roughness', materialInfo.roughness ?? 1.0 );
+		setIfExists( mat, 'ior', materialInfo.ior ?? 1.5 );
+		setIfExists( mat, 'thickness', 1.0 );
 
-		if ( material.transmission ) {
+		// Apply specialized properties
+		materialInfo.specularColor && mat.specularColor?.setRGB?.( ...materialInfo.specularColor );
 
-			if ( info.color ) {
+		// Handle thin film iridescence
+		if ( 'thinFilmThickness' in materialInfo ) {
 
-				material.attenuationColor.setRGB( ...info.color );
-
-			}
-
-			// Blender uses 1 / density when exporting volume transmission which doesn't look
-			// exactly right. But because the scene is 1000x in size we multiply by 1000 here.
-			material.attenuationDistance = 1000 / info.density;
+			setIfExists( mat, 'iridescence', 1.0 );
+			setIfExists( mat, 'iridescenceIOR', materialInfo.thinFilmIor || 1.5 );
+			setIfExists( mat, 'iridescenceThicknessRange', [ materialInfo.thinFilmThickness, materialInfo.thinFilmThickness ] );
 
 		} else {
 
-			if ( info.color ) {
-
-				material.color.setRGB( ...info.color );
-
-			}
+			setIfExists( mat, 'iridescence', 0.0 );
+			setIfExists( mat, 'iridescenceIOR', 1.0 );
+			setIfExists( mat, 'iridescenceThicknessRange', [ 100, 400 ] );
 
 		}
+
+		// Handle transmission vs. diffuse materials
+		if ( mat.transmission > 0 ) {
+
+			materialInfo.color && mat.attenuationColor?.setRGB?.( ...materialInfo.color );
+			materialInfo.density && setIfExists( mat, 'attenuationDistance', 1000 / materialInfo.density );
+
+		} else {
+
+			materialInfo.color && mat.color?.setRGB?.( ...materialInfo.color );
+
+		}
+
+		setIfExists( mat, 'needsUpdate', true );
 
 	}
 
@@ -229,11 +240,95 @@ const AssetsTab = () => {
 
 		}
 
-		setLoading( { isLoading: true, title: "Apply", status: "Processing Material...", progress: 0 } );
-		applyMaterialInfo( materials[ value ], selectedObject.material );
-		window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture( selectedObject.userData.materialIndex, selectedObject.material );
-		window.pathTracerApp.reset();
-		useStore.getState().resetLoading();
+		if ( ! selectedObject.material ) {
+
+			toast( {
+				title: "Invalid Object",
+				description: "The selected object doesn't have a material property",
+				variant: "destructive",
+			} );
+			return;
+
+		}
+
+		setLoading( {
+			isLoading: true,
+			title: "Apply",
+			status: "Processing Material...",
+			progress: 0
+		} );
+
+		try {
+
+			// Output debug info
+			console.log( 'Applying material:', {
+				materialIndex: value,
+				materialData: materials[ value ],
+				targetObject: selectedObject,
+				targetMaterial: selectedObject.material
+			} );
+
+			// Apply material properties to the Three.js material
+			applyMaterialInfo( materials[ value ], selectedObject.material );
+
+			// Check if the material index exists
+			if ( selectedObject.userData?.materialIndex === undefined ) {
+
+				console.warn( 'Material index not found on selected object, using default index 0' );
+
+			}
+
+			const materialIndex = selectedObject.userData?.materialIndex ?? 0;
+
+			// Update the material in the path tracer
+			if ( window.pathTracerApp?.pathTracingPass?.updateMaterial ) {
+
+				// New API - preferred method with better organization
+				window.pathTracerApp.pathTracingPass.updateMaterial(
+					materialIndex,
+					selectedObject.material
+				);
+
+			} else if ( window.pathTracerApp?.pathTracingPass?.rebuildMaterialDataTexture ) {
+
+				// Legacy API - fallback for compatibility
+				window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture(
+					materialIndex,
+					selectedObject.material
+				);
+
+			} else {
+
+				console.warn( 'PathTracer material update function not found' );
+
+			}
+
+			// Reset renderer to apply changes
+			if ( window.pathTracerApp?.reset ) {
+
+				window.pathTracerApp.reset();
+
+			}
+
+			toast( {
+				title: "Material Applied",
+				description: materials[ value ]?.name || `Material #${value}`,
+			} );
+
+		} catch ( error ) {
+
+			console.error( "Error applying material:", error );
+			toast( {
+				title: "Error Applying Material",
+				description: error.message || "Unknown error occurred",
+				variant: "destructive",
+			} );
+
+		} finally {
+
+			useStore.getState().resetLoading();
+
+		}
 
 	};
 
@@ -247,16 +342,16 @@ const AssetsTab = () => {
 			>
 				<TabsList className="relative grid w-full grid-cols-4 h-auto p-0">
 					<TabsTrigger value="models" className="text-xs truncate py-2">
-						Models
+                        Models
 					</TabsTrigger>
 					<TabsTrigger value="materials" className="text-xs truncate py-2">
-						Materials
+                        Materials
 					</TabsTrigger>
 					<TabsTrigger value="environments" className="text-xs truncate py-2">
-						Env
+                        Env
 					</TabsTrigger>
 					<TabsTrigger value="tests" className="text-xs truncate py-2">
-						Tests
+                        Tests
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="models" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
