@@ -531,10 +531,39 @@ export default class TextureCreator {
 
 		if ( textures.length == 0 ) return null;
 
-		// Determine the maximum dimensions among all textures
+		// Filter out textures with null images and log warnings
+		const validTextures = textures.filter( ( map, index ) => {
+
+			if ( ! map || ! map.image ) {
+
+				console.warn( `Texture at index ${index} has null or invalid image. Creating fallback texture.` );
+				return false;
+
+			}
+
+			return true;
+
+		} );
+
+		// If no valid textures, create a single 1x1 black texture as fallback
+		if ( validTextures.length === 0 ) {
+
+			const data = new Uint8Array( 4 ); // RGBA, all zeros (black, fully transparent)
+			const texture = new DataArrayTexture( data, 1, 1, 1 );
+			texture.minFilter = LinearFilter;
+			texture.magFilter = LinearFilter;
+			texture.format = RGBAFormat;
+			texture.type = UnsignedByteType;
+			texture.needsUpdate = true;
+			texture.generateMipmaps = false;
+			return texture;
+
+		}
+
+		// Determine the maximum dimensions among all valid textures
 		let maxWidth = 0;
 		let maxHeight = 0;
-		for ( let map of textures ) {
+		for ( let map of validTextures ) {
 
 			maxWidth = Math.max( maxWidth, map.image.width );
 			maxHeight = Math.max( maxHeight, map.image.height );
@@ -554,7 +583,7 @@ export default class TextureCreator {
 		}
 
 		// Create a 3D data array
-		const depth = textures.length;
+		const depth = validTextures.length;
 		const data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
 
 		// Canvas for resizing textures
@@ -564,9 +593,9 @@ export default class TextureCreator {
 		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
 
 		// Fill the 3D texture data
-		for ( let i = 0; i < textures.length; i ++ ) {
+		for ( let i = 0; i < validTextures.length; i ++ ) {
 
-			const map = textures[ i ];
+			const map = validTextures[ i ];
 
 			// Clear canvas and draw the texture
 			ctx.clearRect( 0, 0, maxWidth, maxHeight );
@@ -589,6 +618,14 @@ export default class TextureCreator {
 		texture.type = UnsignedByteType;
 		texture.needsUpdate = true;
 		texture.generateMipmaps = false;
+
+		// Store the mapping between original texture indices and valid texture indices
+		texture.textureMapping = textures.map( ( tex, index ) => {
+
+			const validIndex = validTextures.indexOf( tex );
+			return validIndex >= 0 ? validIndex : - 1;
+
+		} );
 
 		return texture;
 

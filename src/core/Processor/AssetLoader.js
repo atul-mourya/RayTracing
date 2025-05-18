@@ -22,6 +22,7 @@ import {
 	EXRLoader,
 } from 'three/examples/jsm/Addons';
 
+import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading, resetLoading } from './utils';
@@ -425,6 +426,247 @@ class AssetLoader {
 
 			console.error( 'Error loading ZIP archive:', error );
 			throw error;
+
+		}
+
+	}
+
+	/**
+ * Load a model from a ZIP archive entry
+ * @param {Uint8Array} fileContent - ZIP file entry content
+ * @param {string} filePath - Path in the ZIP archive
+ * @param {string} extension - File extension
+ * @param {Object} zipContents - The full ZIP archive contents
+ * @returns {Promise} - Promise that resolves when the model is loaded
+ */
+	async loadModelFromZipEntry( fileContent, filePath, extension, zipContents ) {
+
+		try {
+
+			updateLoading( { isLoading: true, status: `Processing ${extension.toUpperCase()} from ZIP...`, progress: 20 } );
+
+			// Create a blob from the file content
+			const blob = new Blob( [ fileContent.buffer ], { type: 'application/octet-stream' } );
+			const blobUrl = URL.createObjectURL( blob );
+
+			let result;
+
+			switch ( extension ) {
+
+				case 'glb':
+				case 'gltf':
+					// For GLTF, we need to handle both binary and JSON formats
+					if ( extension === 'gltf' ) {
+
+						// Handle JSON GLTF by parsing it and resolving any referenced files from the ZIP
+						const gltfContent = strFromU8( fileContent );
+						const gltfJson = JSON.parse( gltfContent );
+
+						// Create a manager to handle loading referenced files from the ZIP
+						const manager = new LoadingManager();
+						manager.setURLModifier( url => {
+
+							// Remove any leading slashes or relative path indicators
+							const normalizedUrl = url.replace( /^\.\/|^\//, '' );
+
+							// Get the directory of the GLTF file
+							const gltfDir = filePath.split( '/' ).slice( 0, - 1 ).join( '/' );
+							const possiblePaths = [
+								normalizedUrl,
+								`${gltfDir}/${normalizedUrl}`,
+								normalizedUrl.split( '/' ).pop()
+							];
+
+							// Try to find the file in the ZIP
+							for ( const path of possiblePaths ) {
+
+								if ( zipContents[ path ] ) {
+
+									const fileBlob = new Blob( [ zipContents[ path ].buffer ], { type: 'application/octet-stream' } );
+									return URL.createObjectURL( fileBlob );
+
+								}
+
+							}
+
+							console.warn( `File not found in ZIP: ${url}` );
+							return url;
+
+						} );
+
+						// Create and configure GLTFLoader with the manager
+						const loader = await this.createGLTFLoader();
+						loader.manager = manager;
+
+						// Load the GLTF file from the blob URL
+						result = await new Promise( ( resolve, reject ) => {
+
+							loader.parse( gltfContent, '',
+								gltf => resolve( gltf ),
+								error => reject( error )
+							);
+
+						} );
+
+					} else {
+
+						// Handle binary GLB
+						const arrayBuffer = fileContent.buffer;
+						result = await this.loadGLBFromArrayBuffer( arrayBuffer, filePath );
+
+					}
+
+					break;
+
+				case 'fbx':
+					result = await this.loadFBXFromArrayBuffer( fileContent.buffer, filePath );
+					break;
+
+				case 'obj':
+					// For OBJ, we need to look for an associated MTL file
+					const objContent = strFromU8( fileContent );
+
+					// Look for referenced MTL files in the OBJ content
+					const mtlMatch = objContent.match( /mtllib\s+([^\s]+)/ );
+					let materials = null;
+
+					if ( mtlMatch && mtlMatch[ 1 ] ) {
+
+						const mtlFilename = mtlMatch[ 1 ];
+
+						// Get the directory of the OBJ file
+						const objDir = filePath.split( '/' ).slice( 0, - 1 ).join( '/' );
+						const possibleMtlPaths = [
+							mtlFilename,
+							`${objDir}/${mtlFilename}`,
+							mtlFilename.split( '/' ).pop()
+						];
+
+						// Try to find the MTL file in the ZIP
+						for ( const path of possibleMtlPaths ) {
+
+							if ( zipContents[ path ] ) {
+
+								const { MTLLoader } = await import( 'three/examples/jsm/loaders/MTLLoader.js' );
+								const mtlContent = strFromU8( zipContents[ path ] );
+
+								// Create a manager to handle loading textures from the ZIP
+								const manager = new LoadingManager();
+								manager.setURLModifier( url => {
+
+									// Remove any leading slashes or relative path indicators
+									const normalizedUrl = url.replace( /^\.\/|^\//, '' );
+
+									// Try different possible locations for the texture
+									const possiblePaths = [
+										normalizedUrl,
+										`${objDir}/${normalizedUrl}`,
+										normalizedUrl.split( '/' ).pop()
+									];
+
+									// Try to find the texture in the ZIP
+									for ( const texPath of possiblePaths ) {
+
+										if ( zipContents[ texPath ] ) {
+
+											const textureBlob = new Blob( [ zipContents[ texPath ].buffer ], { type: 'application/octet-stream' } );
+											return URL.createObjectURL( textureBlob );
+
+										}
+
+									}
+
+									console.warn( `Texture not found in ZIP: ${url}` );
+									return url;
+
+								} );
+
+								// Parse MTL file
+								const mtlLoader = new MTLLoader( manager );
+								materials = mtlLoader.parse( mtlContent, objDir );
+								materials.preload();
+								break;
+
+							}
+
+						}
+
+					}
+
+					// Load OBJ with materials if found
+					const { OBJLoader } = await import( 'three/examples/jsm/loaders/OBJLoader.js' );
+					const objLoader = new OBJLoader();
+
+					if ( materials ) {
+
+						objLoader.setMaterials( materials );
+
+					}
+
+					const object = objLoader.parse( objContent );
+					object.name = filePath;
+
+					if ( this.targetModel ) {
+
+						disposeObjectFromMemory( this.targetModel );
+
+					}
+
+					this.targetModel = object;
+					await this.onModelLoad( this.targetModel );
+					result = object;
+					break;
+
+				case 'stl':
+					result = await this.loadSTLFromArrayBuffer( fileContent.buffer, filePath );
+					break;
+
+				case 'ply':
+					result = await this.loadPLYFromArrayBuffer( fileContent.buffer, filePath );
+					break;
+
+				case 'dae':
+					const daeContent = strFromU8( fileContent );
+
+					// Create a file-like object for the Collada loader
+					const daeFile = new File( [ new Blob( [ daeContent ] ) ], filePath );
+					result = await this.loadColladaFromFile( daeFile, filePath );
+					break;
+
+				case '3mf':
+					result = await this.load3MFFromArrayBuffer( fileContent.buffer, filePath );
+					break;
+
+				case 'usdz':
+					result = await this.loadUSDZFromArrayBuffer( fileContent.buffer, filePath );
+					break;
+
+				default:
+					throw new Error( `Support for ${extension} files is not yet implemented` );
+
+			}
+
+			// Clean up the blob URL
+			URL.revokeObjectURL( blobUrl );
+
+			this.dispatchEvent( 'load', {
+				type: 'model',
+				model: this.targetModel,
+				filename: `${filePath} (from ZIP)`
+			} );
+
+			return result;
+
+		} catch ( error ) {
+
+			console.error( `Error loading ${extension} from ZIP:`, error );
+			this.dispatchEvent( 'error', { message: error.message, filename: filePath } );
+			throw error;
+
+		} finally {
+
+			updateLoading( { status: "Ready", progress: 90 } );
+			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -1300,8 +1542,6 @@ class AssetLoader {
 
 	async onModelLoad( model ) {
 
-		this.scene.add( model );
-
 		// Center model and adjust camera
 		const box = new Box3().setFromObject( model );
 		const center = box.getCenter( new Vector3() );
@@ -1343,7 +1583,7 @@ class AssetLoader {
 
 		}
 
-		// Process model for lights
+		// Process model for lights and multi-material meshes
 		model.traverse( ( object ) => {
 
 			const userData = object.userData;
@@ -1368,7 +1608,29 @@ class AssetLoader {
 
 			}
 
+			// Handle multi-material meshes
+			if ( object.isMesh && Array.isArray( object.material ) ) {
+
+				console.log( 'Found multi-material mesh:', object.name );
+
+				// Create separate meshes for each material
+				const group = createMeshesFromMultiMaterialMesh( object );
+
+				// replace the group to the object's parent
+				if ( object.parent ) {
+
+					object.parent.add( group );
+
+					// Remove the original multi-material mesh
+					object.parent.remove( object );
+
+				}
+
+			}
+
 		} );
+
+		this.scene.add( model );
 
 		// Calculate scene scale factor based on model size
 		// We'll consider a "standard" model size to be 1 meter
