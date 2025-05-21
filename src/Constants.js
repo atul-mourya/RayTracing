@@ -214,6 +214,15 @@ export const DEFAULT_STATE = {
 	bloomThreshold: 0.85,
 	interactionModeEnabled: true,
 	debugVisScale: 100,
+
+	// ASVGF defaults
+	enableASVGF: false,
+	asvgfIterations: 1,
+	asvgfTemporalWeight: 0.8,
+	asvgfSpatialSigma: 1.0,
+	asvgfFeatureSigma: 0.5,
+	asvgfUseTemporal: true,
+	asvgfDebug: false,
 };
 
 export const CAMERA_RANGES = {

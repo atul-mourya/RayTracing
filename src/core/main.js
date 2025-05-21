@@ -35,6 +35,7 @@ import { TemporalStatisticsPass } from './Passes/TemporalStatisticsPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
+import { ASVGFPass } from './Passes/ASVGFPass';
 import { updateStats } from './Processor/utils';
 import { HDR_FILES, DEFAULT_STATE } from '../Constants';
 import radialTexture from '../../public/radial-gradient.png';
@@ -246,6 +247,7 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.reset();
 		this.accPass.reset( this.renderer );
 		this.temporalStatsPass.reset();
+		if ( this.asvgfPass ) this.asvgfPass.reset();
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
@@ -287,6 +289,17 @@ class PathTracerApp extends EventDispatcher {
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
+
+		// Add ASVGF pass - insert before the denoiser pass
+		this.asvgfPass = new ASVGFPass( this.renderer, this.width, this.height );
+		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF;
+		this.asvgfPass.iterations = DEFAULT_STATE.asvgfIterations;
+		this.asvgfPass.temporalWeight = DEFAULT_STATE.asvgfTemporalWeight;
+		this.asvgfPass.spatialSigma = DEFAULT_STATE.asvgfSpatialSigma;
+		this.asvgfPass.featureSigma = DEFAULT_STATE.asvgfFeatureSigma;
+		this.asvgfPass.useTemporal = DEFAULT_STATE.asvgfUseTemporal;
+		this.asvgfPass.debug = DEFAULT_STATE.asvgfDebug;
+		this.composer.addPass( this.asvgfPass );
 
 		this.denoiserPass = new LygiaSmartDenoiserPass( this.width, this.height );
 		this.denoiserPass.enabled = false;
@@ -496,6 +509,7 @@ class PathTracerApp extends EventDispatcher {
 		this.camera.updateProjectionMatrix();
 		this.denoiser.setSize( this.width, this.height );
 		this.temporalStatsPass.setSize( this.width, this.height );
+		if ( this.asvgfPass ) this.asvgfPass.setSize( this.width, this.height );
 
 		this.reset();
 
@@ -686,6 +700,7 @@ class PathTracerApp extends EventDispatcher {
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 		this.temporalStatsPass.dispose();
+		if ( this.asvgfPass ) this.asvgfPass.dispose();
 
 	}
 

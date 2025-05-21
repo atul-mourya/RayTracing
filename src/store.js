@@ -125,6 +125,13 @@ const usePathTracerStore = create( ( set ) => ( {
 	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
 	setToneMapping: ( value ) => set( { toneMapping: value } ),
 	setInteractionModeEnabled: ( value ) => set( { interactionModeEnabled: value } ),
+	setEnableASVGF: ( value ) => set( { enableASVGF: value } ),
+	setASVGFIterations: ( value ) => set( { asvgfIterations: value } ),
+	setASVGFTemporalWeight: ( value ) => set( { asvgfTemporalWeight: value } ),
+	setASVGFSpatialSigma: ( value ) => set( { asvgfSpatialSigma: value } ),
+	setASVGFFeatureSigma: ( value ) => set( { asvgfFeatureSigma: value } ),
+	setASVGFUseTemporal: ( value ) => set( { asvgfUseTemporal: value } ),
+	setASVGFDebug: ( value ) => set( { asvgfDebug: value } ),
 } ) );
 
 // Light store

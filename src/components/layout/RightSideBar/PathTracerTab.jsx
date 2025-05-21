@@ -6,6 +6,7 @@ import { usePathTracerStore as useStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
+import { Separator } from '@/components/ui/separator';
 
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
@@ -83,6 +84,14 @@ const PathTracerTab = () => {
 		GIIntensity, setGIIntensity,
 		toneMapping, setToneMapping,
 		interactionModeEnabled, setInteractionModeEnabled,
+		// New ASVGF parameters
+		enableASVGF, setEnableASVGF,
+		asvgfIterations, setASVGFIterations,
+		asvgfTemporalWeight, setASVGFTemporalWeight,
+		asvgfSpatialSigma, setASVGFSpatialSigma,
+		asvgfFeatureSigma, setASVGFFeatureSigma,
+		asvgfUseTemporal, setASVGFUseTemporal,
+		asvgfDebug, setASVGFDebug,
 	} = useStore();
 
 	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
@@ -276,6 +285,64 @@ const PathTracerTab = () => {
 
 	} );
 
+	// ASVGF Handlers
+	const handleEnableASVGFChange = handleChange( setEnableASVGF, value => {
+
+		window.pathTracerApp.asvgfPass.enabled = value;
+		if ( value ) {
+
+			// Disable other denoising techniques when ASVGF is enabled
+			window.pathTracerApp.denoiser.enabled = false;
+			window.pathTracerApp.denoiserPass.enabled = false;
+			setEnableOIDN( false );
+			setEnableRealtimeDenoiser( false );
+
+		}
+
+	} );
+
+	const handleASVGFIterationsChange = handleChange( setASVGFIterations, value => {
+
+		window.pathTracerApp.asvgfPass.iterations = value[ 0 ];
+		window.pathTracerApp.reset();
+
+	}, false );
+
+	const handleASVGFTemporalWeightChange = handleChange( setASVGFTemporalWeight, value => {
+
+		window.pathTracerApp.asvgfPass.temporalWeight = value[ 0 ];
+		window.pathTracerApp.reset();
+
+	}, false );
+
+	const handleASVGFSpatialSigmaChange = handleChange( setASVGFSpatialSigma, value => {
+
+		window.pathTracerApp.asvgfPass.spatialSigma = value[ 0 ];
+		window.pathTracerApp.reset();
+
+	}, false );
+
+	const handleASVGFFeatureSigmaChange = handleChange( setASVGFFeatureSigma, value => {
+
+		window.pathTracerApp.asvgfPass.featureSigma = value[ 0 ];
+		window.pathTracerApp.reset();
+
+	}, false );
+
+	const handleASVGFUseTemporalChange = handleChange( setASVGFUseTemporal, value => {
+
+		window.pathTracerApp.asvgfPass.useTemporal = value;
+		window.pathTracerApp.reset();
+
+	}, false );
+
+	const handleASVGFDebugChange = handleChange( setASVGFDebug, value => {
+
+		window.pathTracerApp.asvgfPass.debug = value;
+		window.pathTracerApp.reset();
+
+	}, false );
+
 	return (
 		<div className="">
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
@@ -363,6 +430,30 @@ const PathTracerTab = () => {
 				</div>
 			</ControlGroup>
 			<ControlGroup name="Denoising">
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable ASVGF Denoising"} checked={enableASVGF} onCheckedChange={handleEnableASVGFChange} />
+				</div>
+				{enableASVGF && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Filter Iterations"} min={1} max={5} step={1} value={[ asvgfIterations ]} onValueChange={handleASVGFIterationsChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Temporal Weight"} min={0.0} max={0.9} step={0.1} value={[ asvgfTemporalWeight ]} onValueChange={handleASVGFTemporalWeightChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Strength"} min={0.1} max={3.0} step={0.1} value={[ asvgfSpatialSigma ]} onValueChange={handleASVGFSpatialSigmaChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Feature Strength"} min={0.1} max={1.0} step={0.1} value={[ asvgfFeatureSigma ]} onValueChange={handleASVGFFeatureSigmaChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Use Temporal Filter"} checked={asvgfUseTemporal} onCheckedChange={handleASVGFUseTemporalChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Debug View"} checked={asvgfDebug} onCheckedChange={handleASVGFDebugChange} />
+					</div>
+					<Separator className="my-2" />
+				</> )}
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
 				</div>
