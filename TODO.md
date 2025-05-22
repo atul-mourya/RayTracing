@@ -8,7 +8,6 @@ RayTracing Project TODO
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 - [ ]  fullscreen canvas not working
 - [ ]  when switching to render mode, ongoing denoising process should be cancelled
-- [ ]  throw error when model loaded is a multimaterial model
 
 ✨ Core Features
 ---------------
@@ -24,8 +23,7 @@ RayTracing Project TODO
 - [ ]  Introduce tessalation free displacement mapping
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
-- [ ]  Implement support for more file formats (OBJ, pbrt)
-- [ ]  Implement mesh optimization before parsing and rendering
+- [ ]  Implement support for Radiance Caching
 
 
 🔧 Performance Improvements
@@ -93,6 +91,7 @@ RayTracing Project TODO
 -   https://www.youtube.com/watch?v=XIxKo8k81XY - Lumen DOES NOT Use Ray Tracing the Way You Think it Does
 -   temporal variance adaptive sampling - https://chatgpt.com/c/680133d4-ed24-8003-b664-dd4fef735429
 -   path guiding - https://www.youtube.com/watch?v=BS1JLbNqGxI
+-   https://github.com/Pjbomb2/TrueTrace-Unity-Pathtracer
 
 ### Model Sources
 
