@@ -78,6 +78,7 @@ class PathTracerApp extends EventDispatcher {
 		this.cameras = [];
 		this.currentCameraIndex = 0;
 		this.defaultCamera = this.camera;
+		this.asvgfPass = null;
 
 	}
 
@@ -247,7 +248,7 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.reset();
 		this.accPass.reset( this.renderer );
 		this.temporalStatsPass.reset();
-		if ( this.asvgfPass ) this.asvgfPass.reset();
+		this.asvgfPass.reset();
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
@@ -281,6 +282,10 @@ class PathTracerApp extends EventDispatcher {
 
 		this.accPass = new AccumulationPass( this.scene, this.width, this.height );
 		this.composer.addPass( this.accPass );
+
+		this.asvgfPass = new ASVGFPass( this.width, this.height );
+		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF;
+		this.composer.addPass( this.asvgfPass );
 
 		this.pathTracingPass.setAccumulationPass( this.accPass );
 
@@ -509,11 +514,40 @@ class PathTracerApp extends EventDispatcher {
 		this.camera.updateProjectionMatrix();
 		this.denoiser.setSize( this.width, this.height );
 		this.temporalStatsPass.setSize( this.width, this.height );
-		if ( this.asvgfPass ) this.asvgfPass.setSize( this.width, this.height );
+		this.asvgfPass.setSize( this.width, this.height );
 
 		this.reset();
 
 		window.dispatchEvent( new CustomEvent( 'resolution_changed' ) );
+
+	}
+
+	setASVGFEnabled( enabled ) {
+
+		if ( this.asvgfPass ) {
+
+			this.asvgfPass.enabled = enabled;
+			// Optionally disable other denoisers when ASVGF is enabled
+			if ( enabled ) {
+
+				this.denoiserPass.enabled = false;
+
+			}
+
+			this.reset();
+
+		}
+
+	}
+
+	updateASVGFParameters( params ) {
+
+		if ( this.asvgfPass ) {
+
+			this.asvgfPass.updateParameters( params );
+			this.reset(); // Reset to apply new parameters
+
+		}
 
 	}
 
@@ -700,7 +734,7 @@ class PathTracerApp extends EventDispatcher {
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 		this.temporalStatsPass.dispose();
-		if ( this.asvgfPass ) this.asvgfPass.dispose();
+		this.asvgfPass.dispose();
 
 	}
 

@@ -215,14 +215,17 @@ export const DEFAULT_STATE = {
 	interactionModeEnabled: true,
 	debugVisScale: 100,
 
-	// ASVGF defaults
+	// ASVGF Parameters
 	enableASVGF: false,
-	asvgfIterations: 1,
-	asvgfTemporalWeight: 0.8,
-	asvgfSpatialSigma: 1.0,
-	asvgfFeatureSigma: 0.5,
-	asvgfUseTemporal: true,
-	asvgfDebug: false,
+	asvgfTemporalAlpha: 0.2,
+	asvgfVarianceClip: 4.0,
+	asvgfMomentClip: 64.0,
+	asvgfPhiColor: 10.0,
+	asvgfPhiNormal: 128.0,
+	asvgfPhiDepth: 0.5,
+	asvgfPhiLuminance: 4.0,
+	asvgfAtrousIterations: 1,
+	asvgfFilterSize: 3
 };
 
 export const CAMERA_RANGES = {
