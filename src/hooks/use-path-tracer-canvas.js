@@ -16,6 +16,7 @@ const FINAL_RENDER_STATE = {
 	oidnHDR: false,
 	useGBuffer: true,
 	interactionModeEnabled: false,
+	enableASVGF: false,
 };
 
 export function usePathTracerCanvas() {
@@ -34,6 +35,7 @@ export function usePathTracerCanvas() {
 		oidnHDR: false,
 		useGBuffer: true,
 		interactionModeEnabled: true,
+		enableASVGF: true,
 	} );
 
 	// Canvas visibility functions
@@ -89,6 +91,7 @@ export function usePathTracerCanvas() {
 			setOidnHdr,
 			setUseGBuffer,
 			setInteractionModeEnabled,
+			setEnableASVGF,
 		} = pathTracerActions;
 
 		if ( mode === "interactive" ) {
@@ -105,6 +108,7 @@ export function usePathTracerCanvas() {
 			setOidnHdr( false );
 			setUseGBuffer( true );
 			setInteractionModeEnabled( true );
+			setEnableASVGF( true );
 
 			if ( window.pathTracerApp ) {
 
@@ -119,6 +123,7 @@ export function usePathTracerCanvas() {
 					window.pathTracerApp.pathTracingPass.material.uniforms.tiles.value = 4;
 					window.pathTracerApp.tileHighlightPass.enabled = false;
 
+					window.pathTracerApp.setASVGFEnabled( true );
 					window.pathTracerApp.denoiser.enabled = false;
 					window.pathTracerApp.denoiser.quality = 'fast';
 					window.pathTracerApp.denoiser.hdr = false;
@@ -151,6 +156,7 @@ export function usePathTracerCanvas() {
 			setOidnHdr( FINAL_RENDER_STATE.oidnHDR );
 			setUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
 			setInteractionModeEnabled( FINAL_RENDER_STATE.interactionModeEnabled );
+			setEnableASVGF( FINAL_RENDER_STATE.enableASVGF );
 
 			if ( window.pathTracerApp ) {
 
@@ -166,6 +172,7 @@ export function usePathTracerCanvas() {
 					window.pathTracerApp.pathTracingPass.material.uniforms.tiles.value = FINAL_RENDER_STATE.tiles;
 					window.pathTracerApp.tileHighlightPass.enabled = FINAL_RENDER_STATE.tilesHelper;
 
+					window.pathTracerApp.setASVGFEnabled( FINAL_RENDER_STATE.enableASVGF );
 					window.pathTracerApp.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
 					window.pathTracerApp.denoiser.quality = FINAL_RENDER_STATE.oidnQuality;
 					window.pathTracerApp.denoiser.hdr = FINAL_RENDER_STATE.oidnHDR;

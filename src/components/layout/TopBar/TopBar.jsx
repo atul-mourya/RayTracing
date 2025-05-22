@@ -32,6 +32,7 @@ const TopBar = () => {
 		setOidnHdr: pathTracerStore.setOidnHdr,
 		setUseGBuffer: pathTracerStore.setUseGBuffer,
 		setInteractionModeEnabled: pathTracerStore.setInteractionModeEnabled,
+		setEnableASVGF: pathTracerStore.setEnableASVGF,
 	} ), [ pathTracerStore ] );
 
 	// Use custom hooks
