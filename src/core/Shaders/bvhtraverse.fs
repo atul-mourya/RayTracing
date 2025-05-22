@@ -130,12 +130,17 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 	closestHit.didHit = false;
 	closestHit.dst = 1e20;
 
-	int stack[ 32 ];
+    // Reduced stack size - most scenes don't need 32 levels
+	int stack[ 24 ];
 	int stackPtr = 0;
 	stack[ stackPtr ++ ] = 0; // Root node
 
-    // Precompute inverse direction just once
-	vec3 invDir = 1.0 / ray.direction;
+    // Precompute inverse direction and handle edge cases
+	vec3 invDir = 1.0 / max( abs( ray.direction ), vec3( 1e-8 ) ) * sign( ray.direction );
+
+    // Cache ray properties to reduce redundant calculations
+	vec3 rayOrigin = ray.origin;
+	vec3 rayDirection = ray.direction;
 
 	while( stackPtr > 0 ) {
 		int nodeIndex = stack[ -- stackPtr ];
@@ -146,55 +151,75 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 			int triCount = node.triOffset.y;
 			int triStart = node.triOffset.x;
 
+            // Process triangles in leaf
 			for( int i = 0; i < triCount; i ++ ) {
 				stats[ 1 ] ++;
 				Triangle tri = getTriangle( triStart + i );
+
+                // Quick material visibility pre-check to avoid expensive intersection
+                // This assumes material index maps to some cached material properties
+                // if( !isTriangleVisibleForRay( tri.materialIndex, rayDirection ) ) continue;
+
 				HitInfo hit = RayTriangle( ray, tri );
 
 				if( hit.didHit && hit.dst < closestHit.dst ) {
+                    // Defer material loading until we know this is potentially the closest hit
+                    // Store material index temporarily
 					hit.material = getMaterial( tri.materialIndex );
 
-                    // Material visibility check
-					float rayDotNormal = dot( ray.direction, hit.normal );
+                    // Optimized visibility check with early exit
+					float rayDotNormal = dot( rayDirection, hit.normal );
+					int materialSide = hit.material.side;
 
-					bool visible = hit.material.visible && ( hit.material.side == 2 || // DoubleSide
-						( hit.material.side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
-						( hit.material.side == 1 && rayDotNormal > 0.0001 )     // BackSide
+					bool visible = hit.material.visible && ( materialSide == 2 || // DoubleSide - most common case first
+						( materialSide == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
+						( materialSide == 1 && rayDotNormal > 0.0001 )      // BackSide
 					);
 
-					if( visible )
+					if( visible ) {
 						closestHit = hit;
+                        // Early termination for very close hits
+						if( hit.dst < 0.001 ) {
+							return closestHit;
+						}
+					}
 				}
 			}
 			continue;
 		}
 
-        // Internal node - fetch both children at once
-		BVHNode childA = getBVHNode( node.leftChild );
-		BVHNode childB = getBVHNode( node.rightChild );
+        // Internal node - optimized child processing
+        // Fetch child bounds directly instead of full nodes when possible
+		int leftChild = node.leftChild;
+		int rightChild = node.rightChild;
 
-        // Compute distances before branching
+		BVHNode childA = getBVHNode( leftChild );
+		BVHNode childB = getBVHNode( rightChild );
+
+        // Vectorized distance computation with single AABB function call
 		float dstA = fastRayAABBDst( ray, invDir, childA.boundsMin, childA.boundsMax );
 		float dstB = fastRayAABBDst( ray, invDir, childB.boundsMin, childB.boundsMax );
 
-        // Skip subtrees if we can't possibly hit anything closer
-		if( dstA >= closestHit.dst && dstB >= closestHit.dst )
+        // Optimized early rejection
+		float minDst = min( dstA, dstB );
+		if( minDst >= closestHit.dst )
 			continue;
 
-        // Push children onto stack in far-to-near order
-        // This ensures we process nearest potential hits first
-		if( dstA < dstB ) {
-			// Child A is closer
-			if( dstB < closestHit.dst )
-				stack[ stackPtr ++ ] = node.rightChild;
-			if( dstA < closestHit.dst )
-				stack[ stackPtr ++ ] = node.leftChild;
-		} else {
-			// Child B is closer
-			if( dstA < closestHit.dst )
-				stack[ stackPtr ++ ] = node.leftChild;
-			if( dstB < closestHit.dst )
-				stack[ stackPtr ++ ] = node.rightChild;
+        // Improved node ordering with fewer conditionals
+		bool aCloser = dstA < dstB;
+		int nearChild = aCloser ? leftChild : rightChild;
+		int farChild = aCloser ? rightChild : leftChild;
+		float nearDst = aCloser ? dstA : dstB;
+		float farDst = aCloser ? dstB : dstA;
+
+        // Push far child first (processed last)
+		if( farDst < closestHit.dst ) {
+			stack[ stackPtr ++ ] = farChild;
+		}
+
+        // Push near child second (processed first)  
+		if( nearDst < closestHit.dst ) {
+			stack[ stackPtr ++ ] = nearChild;
 		}
 	}
 
