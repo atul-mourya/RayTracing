@@ -125,20 +125,42 @@ Triangle getTriangle( int triangleIndex ) {
 	return tri;
 }
 
+bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
+	// Only fetch the data we need for visibility check
+	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 24 );
+	vec4 data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, 24 );
+
+	bool visible = bool( data4.g );
+	int side = int( data10.g );
+
+	if( ! visible )
+		return false;
+
+	// Check side visibility
+	float rayDotNormal = dot( rayDirection, normal );
+
+	return ( side == 2 || // DoubleSide - most common case first
+		( side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
+		( side == 1 && rayDotNormal > 0.0001 )     // BackSide
+	);
+}
+
+// Modified traverseBVH function
 HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 	HitInfo closestHit;
 	closestHit.didHit = false;
 	closestHit.dst = 1e20;
+	closestHit.materialIndex = - 1; // Initialize material index
 
-    // Reduced stack size - most scenes don't need 32 levels
+	// Reduced stack size - most scenes don't need 32 levels
 	int stack[ 24 ];
 	int stackPtr = 0;
 	stack[ stackPtr ++ ] = 0; // Root node
 
-    // Precompute inverse direction and handle edge cases
+	// Precompute inverse direction and handle edge cases
 	vec3 invDir = 1.0 / max( abs( ray.direction ), vec3( 1e-8 ) ) * sign( ray.direction );
 
-    // Cache ray properties to reduce redundant calculations
+	// Cache ray properties to reduce redundant calculations
 	vec3 rayOrigin = ray.origin;
 	vec3 rayDirection = ray.direction;
 
@@ -151,76 +173,72 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 			int triCount = node.triOffset.y;
 			int triStart = node.triOffset.x;
 
-            // Process triangles in leaf
+			// Process triangles in leaf
 			for( int i = 0; i < triCount; i ++ ) {
 				stats[ 1 ] ++;
 				Triangle tri = getTriangle( triStart + i );
 
-                // Quick material visibility pre-check to avoid expensive intersection
-                // This assumes material index maps to some cached material properties
-                // if( !isTriangleVisibleForRay( tri.materialIndex, rayDirection ) ) continue;
-
 				HitInfo hit = RayTriangle( ray, tri );
 
 				if( hit.didHit && hit.dst < closestHit.dst ) {
-                    // Defer material loading until we know this is potentially the closest hit
-                    // Store material index temporarily
-					hit.material = getMaterial( tri.materialIndex );
-
-                    // Optimized visibility check with early exit
-					float rayDotNormal = dot( rayDirection, hit.normal );
-					int materialSide = hit.material.side;
-
-					bool visible = hit.material.visible && ( materialSide == 2 || // DoubleSide - most common case first
-						( materialSide == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
-						( materialSide == 1 && rayDotNormal > 0.0001 )      // BackSide
-					);
-
-					if( visible ) {
+					// Check visibility without loading full material
+					if( isMaterialVisible( tri.materialIndex, rayDirection, hit.normal ) ) {
 						closestHit = hit;
-                        // Early termination for very close hits
+						closestHit.materialIndex = tri.materialIndex; // Store material index
+
+						// Early termination for very close hits
 						if( hit.dst < 0.001 ) {
-							return closestHit;
+							break; // Exit the triangle loop
 						}
 					}
 				}
 			}
+
+			// If we found a very close hit, we can terminate early
+			if( closestHit.didHit && closestHit.dst < 0.001 ) {
+				break; // Exit the main traversal loop
+			}
+
 			continue;
 		}
 
-        // Internal node - optimized child processing
-        // Fetch child bounds directly instead of full nodes when possible
+		// Internal node - optimized child processing
 		int leftChild = node.leftChild;
 		int rightChild = node.rightChild;
 
 		BVHNode childA = getBVHNode( leftChild );
 		BVHNode childB = getBVHNode( rightChild );
 
-        // Vectorized distance computation with single AABB function call
+		// Vectorized distance computation with single AABB function call
 		float dstA = fastRayAABBDst( ray, invDir, childA.boundsMin, childA.boundsMax );
 		float dstB = fastRayAABBDst( ray, invDir, childB.boundsMin, childB.boundsMax );
 
-        // Optimized early rejection
+		// Optimized early rejection
 		float minDst = min( dstA, dstB );
 		if( minDst >= closestHit.dst )
 			continue;
 
-        // Improved node ordering with fewer conditionals
+		// Improved node ordering with fewer conditionals
 		bool aCloser = dstA < dstB;
 		int nearChild = aCloser ? leftChild : rightChild;
 		int farChild = aCloser ? rightChild : leftChild;
 		float nearDst = aCloser ? dstA : dstB;
 		float farDst = aCloser ? dstB : dstA;
 
-        // Push far child first (processed last)
+		// Push far child first (processed last)
 		if( farDst < closestHit.dst ) {
 			stack[ stackPtr ++ ] = farChild;
 		}
 
-        // Push near child second (processed first)  
+		// Push near child second (processed first)  
 		if( nearDst < closestHit.dst ) {
 			stack[ stackPtr ++ ] = nearChild;
 		}
+	}
+
+	// Load full material data only for the closest hit
+	if( closestHit.didHit && closestHit.materialIndex >= 0 ) {
+		closestHit.material = getMaterial( closestHit.materialIndex );
 	}
 
 	return closestHit;

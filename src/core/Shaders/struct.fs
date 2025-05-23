@@ -72,6 +72,7 @@ struct HitInfo {
 	vec3 normal;
 	RayTracingMaterial material;
 	vec2 uv;
+	int materialIndex;
 };
 
 struct Triangle {
