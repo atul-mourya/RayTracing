@@ -46,13 +46,15 @@ class TriangleInfo {
 
 }
 
-export default class OptimizedBVHBuilder {
+export default class BVHBuilder {
 
 	constructor() {
 
 		this.useWorker = true;
 		this.maxLeafSize = 8; // Slightly larger for better performance
-		this.numBins = 32; // More bins for better quality
+		this.numBins = 32; // Base number of bins (will be adapted)
+		this.minBins = 8; // Minimum bins for sparse nodes
+		this.maxBins = 64; // Maximum bins for dense nodes
 		this.nodes = [];
 		this.totalNodes = 0;
 		this.processedTriangles = 0;
@@ -74,11 +76,20 @@ export default class OptimizedBVHBuilder {
 		this.splitStats = {
 			sahSplits: 0,
 			objectMedianSplits: 0,
-			failedSplits: 0
+			failedSplits: 0,
+			avgBinsUsed: 0,
+			totalSplitAttempts: 0
 		};
 
-		// Initialize bins
-		for ( let i = 0; i < this.numBins; i ++ ) {
+		// Pre-allocate maximum bin arrays to avoid reallocations
+		this.initializeBinArrays();
+
+	}
+
+	initializeBinArrays() {
+
+		// Pre-allocate for maximum bins to avoid reallocations
+		for ( let i = 0; i < this.maxBins; i ++ ) {
 
 			this.binBounds[ i ] = {
 				min: new Vector3(),
@@ -87,6 +98,60 @@ export default class OptimizedBVHBuilder {
 			this.binCounts[ i ] = 0;
 
 		}
+
+	}
+
+	getOptimalBinCount( triangleCount ) {
+
+		// Adaptive bin count based on triangle density
+		// More triangles = more bins for better quality
+		// Fewer triangles = fewer bins for better performance
+
+		if ( triangleCount <= 16 ) {
+
+			return this.minBins; // 8 bins for very sparse nodes
+
+		} else if ( triangleCount <= 64 ) {
+
+			return 16; // Medium bin count for moderate density
+
+		} else if ( triangleCount <= 256 ) {
+
+			return 32; // Standard bin count
+
+		} else if ( triangleCount <= 1024 ) {
+
+			return 48; // Higher bin count for dense nodes
+
+		} else {
+
+			return this.maxBins; // Maximum bins for very dense nodes
+
+		}
+
+	}
+
+	// Configuration method for fine-tuning adaptive behavior
+	setAdaptiveBinConfig( config ) {
+
+		if ( config.minBins !== undefined ) this.minBins = Math.max( 4, config.minBins );
+		if ( config.maxBins !== undefined ) this.maxBins = Math.min( 128, config.maxBins );
+		if ( config.baseBins !== undefined ) this.numBins = config.baseBins;
+
+		// Re-initialize bin arrays if max bins changed
+		if ( config.maxBins !== undefined ) {
+
+			this.binBounds = [];
+			this.binCounts = [];
+			this.initializeBinArrays();
+
+		}
+
+		console.log( 'Adaptive bin config updated:', {
+			minBins: this.minBins,
+			maxBins: this.maxBins,
+			baseBins: this.numBins
+		} );
 
 	}
 
@@ -178,7 +243,9 @@ export default class OptimizedBVHBuilder {
 		this.splitStats = {
 			sahSplits: 0,
 			objectMedianSplits: 0,
-			failedSplits: 0
+			failedSplits: 0,
+			avgBinsUsed: 0,
+			totalSplitAttempts: 0
 		};
 
 		// Convert to TriangleInfo for better performance
@@ -195,6 +262,12 @@ export default class OptimizedBVHBuilder {
 				SAH: this.splitStats.sahSplits,
 				objectMedian: this.splitStats.objectMedianSplits,
 				failed: this.splitStats.failedSplits
+			},
+			adaptiveBins: {
+				averageBinsUsed: Math.round( this.splitStats.avgBinsUsed * 10 ) / 10,
+				minBins: this.minBins,
+				maxBins: this.maxBins,
+				baseBins: this.numBins
 			}
 		} );
 
@@ -329,6 +402,13 @@ export default class OptimizedBVHBuilder {
 		const parentSA = this.computeSurfaceAreaFromBounds( parentNode.boundsMin, parentNode.boundsMax );
 		const leafCost = this.intersectionCost * triangleInfos.length;
 
+		// Use adaptive bin count based on triangle density
+		const currentBinCount = this.getOptimalBinCount( triangleInfos.length );
+
+		// Track statistics
+		this.splitStats.totalSplitAttempts ++;
+		this.splitStats.avgBinsUsed = ( ( this.splitStats.avgBinsUsed * ( this.splitStats.totalSplitAttempts - 1 ) ) + currentBinCount ) / this.splitStats.totalSplitAttempts;
+
 		for ( let axis = 0; axis < 3; axis ++ ) {
 
 			// Find centroid bounds for this axis
@@ -345,8 +425,8 @@ export default class OptimizedBVHBuilder {
 
 			if ( maxCentroid - minCentroid < 1e-6 ) continue; // Skip degenerate axis
 
-			// Reset bins
-			for ( let i = 0; i < this.numBins; i ++ ) {
+			// Reset bins (only the ones we're using)
+			for ( let i = 0; i < currentBinCount; i ++ ) {
 
 				this.binCounts[ i ] = 0;
 				this.binBounds[ i ].min.set( Infinity, Infinity, Infinity );
@@ -355,12 +435,12 @@ export default class OptimizedBVHBuilder {
 			}
 
 			// Place triangles into bins
-			const binScale = this.numBins / ( maxCentroid - minCentroid );
+			const binScale = currentBinCount / ( maxCentroid - minCentroid );
 			for ( const triInfo of triangleInfos ) {
 
 				const centroid = triInfo.centroid.getComponent( axis );
 				let binIndex = Math.floor( ( centroid - minCentroid ) * binScale );
-				binIndex = Math.min( binIndex, this.numBins - 1 );
+				binIndex = Math.min( binIndex, currentBinCount - 1 );
 
 				this.binCounts[ binIndex ] ++;
 				this.expandBounds( this.binBounds[ binIndex ], triInfo.bounds );
@@ -368,7 +448,7 @@ export default class OptimizedBVHBuilder {
 			}
 
 			// Evaluate splits between bins
-			for ( let i = 1; i < this.numBins; i ++ ) {
+			for ( let i = 1; i < currentBinCount; i ++ ) {
 
 				// Count triangles and compute bounds for left side
 				let leftCount = 0;
@@ -395,7 +475,7 @@ export default class OptimizedBVHBuilder {
 					max: new Vector3( - Infinity, - Infinity, - Infinity )
 				};
 
-				for ( let j = i; j < this.numBins; j ++ ) {
+				for ( let j = i; j < currentBinCount; j ++ ) {
 
 					if ( this.binCounts[ j ] > 0 ) {
 
@@ -420,7 +500,7 @@ export default class OptimizedBVHBuilder {
 
 					bestCost = cost;
 					bestAxis = axis;
-					bestPos = minCentroid + ( maxCentroid - minCentroid ) * i / this.numBins;
+					bestPos = minCentroid + ( maxCentroid - minCentroid ) * i / currentBinCount;
 
 				}
 
@@ -439,7 +519,8 @@ export default class OptimizedBVHBuilder {
 			success: bestAxis !== - 1,
 			axis: bestAxis,
 			pos: bestPos,
-			method: 'SAH'
+			method: 'SAH',
+			binsUsed: currentBinCount
 		};
 
 	}
