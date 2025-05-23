@@ -70,6 +70,13 @@ export default class OptimizedBVHBuilder {
 		this.binBounds = [];
 		this.binCounts = [];
 
+		// Split method statistics
+		this.splitStats = {
+			sahSplits: 0,
+			objectMedianSplits: 0,
+			failedSplits: 0
+		};
+
 		// Initialize bins
 		for ( let i = 0; i < this.numBins; i ++ ) {
 
@@ -167,6 +174,13 @@ export default class OptimizedBVHBuilder {
 		this.totalTriangles = triangles.length;
 		this.lastProgressUpdate = performance.now();
 
+		// Reset split statistics
+		this.splitStats = {
+			sahSplits: 0,
+			objectMedianSplits: 0,
+			failedSplits: 0
+		};
+
 		// Convert to TriangleInfo for better performance
 		const triangleInfos = triangles.map( ( tri, index ) => new TriangleInfo( tri, index ) );
 
@@ -176,7 +190,12 @@ export default class OptimizedBVHBuilder {
 		console.log( 'BVH Statistics:', {
 			totalNodes: this.totalNodes,
 			triangleCount: reorderedTriangles.length,
-			maxDepth: depth
+			maxDepth: depth,
+			splitMethods: {
+				SAH: this.splitStats.sahSplits,
+				objectMedian: this.splitStats.objectMedianSplits,
+				failed: this.splitStats.failedSplits
+			}
 		} );
 
 		if ( progressCallback ) {
@@ -240,6 +259,9 @@ export default class OptimizedBVHBuilder {
 
 		if ( ! splitInfo.success ) {
 
+			// Track failed splits
+			this.splitStats.failedSplits ++;
+
 			// Make a leaf node if split failed
 			node.triangleOffset = reorderedTriangles.length;
 			node.triangleCount = triangleInfos.length;
@@ -252,6 +274,17 @@ export default class OptimizedBVHBuilder {
 
 			this.updateProgress( triangleInfos.length, progressCallback );
 			return node;
+
+		}
+
+		// Track successful split method
+		if ( splitInfo.method === 'SAH' ) {
+
+			this.splitStats.sahSplits ++;
+
+		} else if ( splitInfo.method === 'object_median' ) {
+
+			this.splitStats.objectMedianSplits ++;
 
 		}
 
@@ -395,10 +428,107 @@ export default class OptimizedBVHBuilder {
 
 		}
 
+		// If SAH failed to find a good split, try object median as fallback
+		if ( bestAxis === - 1 ) {
+
+			return this.findObjectMedianSplit( triangleInfos );
+
+		}
+
 		return {
 			success: bestAxis !== - 1,
 			axis: bestAxis,
-			pos: bestPos
+			pos: bestPos,
+			method: 'SAH'
+		};
+
+	}
+
+	findObjectMedianSplit( triangleInfos ) {
+
+		let bestAxis = - 1;
+		let bestSpread = - 1;
+
+		// Find the axis with the largest spread
+		for ( let axis = 0; axis < 3; axis ++ ) {
+
+			let minCentroid = Infinity;
+			let maxCentroid = - Infinity;
+
+			for ( const triInfo of triangleInfos ) {
+
+				const centroid = triInfo.centroid.getComponent( axis );
+				minCentroid = Math.min( minCentroid, centroid );
+				maxCentroid = Math.max( maxCentroid, centroid );
+
+			}
+
+			const spread = maxCentroid - minCentroid;
+			if ( spread > bestSpread ) {
+
+				bestSpread = spread;
+				bestAxis = axis;
+
+			}
+
+		}
+
+		if ( bestAxis === - 1 || bestSpread < 1e-10 ) {
+
+			return { success: false, method: 'object_median_failed' };
+
+		}
+
+		// Sort triangles by centroid on the best axis
+		const sortedTriangles = [ ...triangleInfos ];
+		sortedTriangles.sort( ( a, b ) => {
+
+			return a.centroid.getComponent( bestAxis ) - b.centroid.getComponent( bestAxis );
+
+		} );
+
+		// Find median position
+		const medianIndex = Math.floor( sortedTriangles.length / 2 );
+		const medianCentroid = sortedTriangles[ medianIndex ].centroid.getComponent( bestAxis );
+
+		// Ensure we don't get an empty partition by using the actual median triangle's centroid
+		// and adjusting slightly if needed
+		let splitPos = medianCentroid;
+
+		// Check if this split would create balanced partitions
+		let leftCount = 0;
+		for ( const triInfo of triangleInfos ) {
+
+			if ( triInfo.centroid.getComponent( bestAxis ) <= splitPos ) {
+
+				leftCount ++;
+
+			}
+
+		}
+
+		// If the split is too unbalanced, adjust it
+		if ( leftCount === 0 || leftCount === triangleInfos.length ) {
+
+			// Use the position slightly before the median triangle
+			if ( medianIndex > 0 ) {
+
+				const prevCentroid = sortedTriangles[ medianIndex - 1 ].centroid.getComponent( bestAxis );
+				splitPos = ( prevCentroid + medianCentroid ) * 0.5;
+
+			} else {
+
+				return { success: false, method: 'object_median_degenerate' };
+
+			}
+
+		}
+
+		return {
+			success: true,
+			axis: bestAxis,
+			pos: splitPos,
+			method: 'object_median'
 		};
 
 	}
