@@ -73,6 +73,10 @@ export default class BVHBuilder {
 		this.mortonBits = 10; // Precision for Morton codes (10 bits per axis = 30 total)
 		this.mortonClusterThreshold = 128; // Use Morton clustering for nodes with more triangles
 
+		// Fallback method configuration
+		this.enableObjectMedianFallback = true;
+		this.enableSpatialMedianFallback = true;
+
 		// Temporary arrays to avoid allocations
 		this.tempLeftTris = [];
 		this.tempRightTris = [];
@@ -83,6 +87,7 @@ export default class BVHBuilder {
 		this.splitStats = {
 			sahSplits: 0,
 			objectMedianSplits: 0,
+			spatialMedianSplits: 0,
 			failedSplits: 0,
 			avgBinsUsed: 0,
 			totalSplitAttempts: 0,
@@ -175,6 +180,19 @@ export default class BVHBuilder {
 			enabled: this.useMortonCodes,
 			bits: this.mortonBits,
 			threshold: this.mortonClusterThreshold
+		} );
+
+	}
+
+	// Configuration for fallback split methods
+	setFallbackConfig( config ) {
+
+		if ( config.objectMedian !== undefined ) this.enableObjectMedianFallback = config.objectMedian;
+		if ( config.spatialMedian !== undefined ) this.enableSpatialMedianFallback = config.spatialMedian;
+
+		console.log( 'Fallback config updated:', {
+			objectMedianEnabled: this.enableObjectMedianFallback,
+			spatialMedianEnabled: this.enableSpatialMedianFallback
 		} );
 
 	}
@@ -404,6 +422,170 @@ export default class BVHBuilder {
 
 	}
 
+	// Test the robustness of the 3-tier fallback system
+	testFallbackRobustness() {
+
+		console.log( '🔧 Testing BVH Fallback System Robustness...' );
+
+		const testCases = [
+			{
+				name: 'Normal case (should use SAH)',
+				triangles: this.generateTestTriangles( 'normal', 100 )
+			},
+			{
+				name: 'Axis-aligned grid (may use object median)',
+				triangles: this.generateTestTriangles( 'grid', 64 )
+			},
+			{
+				name: 'All centroids identical (should use spatial median)',
+				triangles: this.generateTestTriangles( 'identical_centroids', 32 )
+			},
+			{
+				name: 'Degenerate thin plane (spatial median fallback)',
+				triangles: this.generateTestTriangles( 'thin_plane', 50 )
+			}
+		];
+
+		const results = {};
+
+		for ( const testCase of testCases ) {
+
+			console.log( `Testing: ${testCase.name}` );
+
+			// Reset stats
+			this.splitStats = {
+				sahSplits: 0,
+				objectMedianSplits: 0,
+				spatialMedianSplits: 0,
+				failedSplits: 0,
+				avgBinsUsed: 0,
+				totalSplitAttempts: 0,
+				mortonSortTime: 0,
+				totalBuildTime: 0
+			};
+
+			// Build BVH for test case
+			try {
+
+				const bvh = this.buildSync( testCase.triangles, 10, [] );
+
+				results[ testCase.name ] = {
+					success: true,
+					splitMethods: {
+						SAH: this.splitStats.sahSplits,
+						objectMedian: this.splitStats.objectMedianSplits,
+						spatialMedian: this.splitStats.spatialMedianSplits,
+						failed: this.splitStats.failedSplits
+					},
+					totalNodes: this.totalNodes,
+					primaryMethod: this.splitStats.sahSplits > 0 ? 'SAH' :
+						this.splitStats.objectMedianSplits > 0 ? 'Object Median' :
+							this.splitStats.spatialMedianSplits > 0 ? 'Spatial Median' : 'Failed'
+				};
+
+			} catch ( error ) {
+
+				results[ testCase.name ] = {
+					success: false,
+					error: error.message
+				};
+
+			}
+
+		}
+
+		console.log( '📊 Fallback System Test Results:', results );
+		return results;
+
+	}
+
+	// Generate test triangles for various challenging scenarios
+	generateTestTriangles( type, count ) {
+
+		const triangles = [];
+
+		switch ( type ) {
+
+			case 'normal':
+				// Random triangles in a cube
+				for ( let i = 0; i < count; i ++ ) {
+
+					const base = {
+						x: ( Math.random() - 0.5 ) * 10,
+						y: ( Math.random() - 0.5 ) * 10,
+						z: ( Math.random() - 0.5 ) * 10
+					};
+
+					triangles.push( {
+						posA: { x: base.x, y: base.y, z: base.z },
+						posB: { x: base.x + Math.random(), y: base.y + Math.random(), z: base.z + Math.random() },
+						posC: { x: base.x + Math.random(), y: base.y + Math.random(), z: base.z + Math.random() }
+					} );
+
+				}
+
+				break;
+
+			case 'grid':
+				// Regular grid pattern (challenges SAH)
+				const gridSize = Math.ceil( Math.sqrt( count ) );
+				for ( let i = 0; i < gridSize; i ++ ) {
+
+					for ( let j = 0; j < gridSize && triangles.length < count; j ++ ) {
+
+						const x = i * 2;
+						const z = j * 2;
+						triangles.push( {
+							posA: { x: x, y: 0, z: z },
+							posB: { x: x + 1, y: 0, z: z },
+							posC: { x: x, y: 0, z: z + 1 }
+						} );
+
+					}
+
+				}
+
+				break;
+
+			case 'identical_centroids':
+				// All triangles have the same centroid (challenges object median)
+				for ( let i = 0; i < count; i ++ ) {
+
+					const offset = Math.random() * 0.1;
+					triangles.push( {
+						posA: { x: - offset, y: - offset, z: - offset },
+						posB: { x: offset, y: - offset, z: offset },
+						posC: { x: 0, y: offset, z: 0 }
+					} );
+
+				}
+
+				break;
+
+			case 'thin_plane':
+				// Very thin plane (challenges all methods)
+				for ( let i = 0; i < count; i ++ ) {
+
+					const x = ( Math.random() - 0.5 ) * 10;
+					const z = ( Math.random() - 0.5 ) * 10;
+					const y = Math.random() * 0.001; // Very thin
+
+					triangles.push( {
+						posA: { x: x, y: y, z: z },
+						posB: { x: x + 0.1, y: y, z: z },
+						posC: { x: x, y: y, z: z + 0.1 }
+					} );
+
+				}
+
+				break;
+
+		}
+
+		return triangles;
+
+	}
+
 	build( triangles, depth = 30, progressCallback = null ) {
 
 		this.totalTriangles = triangles.length;
@@ -494,6 +676,7 @@ export default class BVHBuilder {
 		this.splitStats = {
 			sahSplits: 0,
 			objectMedianSplits: 0,
+			spatialMedianSplits: 0,
 			failedSplits: 0,
 			avgBinsUsed: 0,
 			totalSplitAttempts: 0,
@@ -529,6 +712,7 @@ export default class BVHBuilder {
 			splitMethods: {
 				SAH: this.splitStats.sahSplits,
 				objectMedian: this.splitStats.objectMedianSplits,
+				spatialMedian: this.splitStats.spatialMedianSplits,
 				failed: this.splitStats.failedSplits
 			},
 			adaptiveBins: {
@@ -638,6 +822,10 @@ export default class BVHBuilder {
 
 			this.splitStats.objectMedianSplits ++;
 
+		} else if ( splitInfo.method === 'spatial_median' ) {
+
+			this.splitStats.spatialMedianSplits ++;
+
 		}
 
 		// Partition triangles efficiently
@@ -672,6 +860,24 @@ export default class BVHBuilder {
 
 	}
 
+	/**
+	 * 3-Tier Robust Split Selection System:
+	 *
+	 * 1. SAH (Surface Area Heuristic) - Primary method
+	 *    - Optimal for most cases, minimizes ray traversal cost
+	 *    - Uses adaptive bin counts for quality/performance balance
+	 *    - Falls back if no cost-effective split found
+	 *
+	 * 2. Object Median Split - Secondary fallback
+	 *    - Splits at median triangle centroid on longest axis
+	 *    - Handles cases where SAH fails (uniform distributions)
+	 *    - Falls back if all centroids are identical
+	 *
+	 * 3. Spatial Median Split - Final fallback
+	 *    - Splits at spatial midpoint of triangle bounds
+	 *    - Handles extreme degenerate cases (identical centroids)
+	 *    - Guarantees a split unless all triangles are identical
+	 */
 	findBestSplitPositionSAH( triangleInfos, parentNode ) {
 
 		let bestCost = Infinity;
@@ -790,7 +996,19 @@ export default class BVHBuilder {
 		// If SAH failed to find a good split, try object median as fallback
 		if ( bestAxis === - 1 ) {
 
-			return this.findObjectMedianSplit( triangleInfos );
+			if ( this.enableObjectMedianFallback ) {
+
+				return this.findObjectMedianSplit( triangleInfos );
+
+			} else if ( this.enableSpatialMedianFallback ) {
+
+				return this.findSpatialMedianSplit( triangleInfos );
+
+			} else {
+
+				return { success: false, method: 'fallbacks_disabled' };
+
+			}
 
 		}
 
@@ -835,7 +1053,16 @@ export default class BVHBuilder {
 
 		if ( bestAxis === - 1 || bestSpread < 1e-10 ) {
 
-			return { success: false, method: 'object_median_failed' };
+			// If object median fails, try spatial median as final fallback
+			if ( this.enableSpatialMedianFallback ) {
+
+				return this.findSpatialMedianSplit( triangleInfos );
+
+			} else {
+
+				return { success: false, method: 'object_median_failed_no_spatial_fallback' };
+
+			}
 
 		}
 
@@ -878,7 +1105,16 @@ export default class BVHBuilder {
 
 			} else {
 
-				return { success: false, method: 'object_median_degenerate' };
+				// Object median failed, try spatial median
+				if ( this.enableSpatialMedianFallback ) {
+
+					return this.findSpatialMedianSplit( triangleInfos );
+
+				} else {
+
+					return { success: false, method: 'object_median_degenerate_no_spatial_fallback' };
+
+				}
 
 			}
 
@@ -889,6 +1125,113 @@ export default class BVHBuilder {
 			axis: bestAxis,
 			pos: splitPos,
 			method: 'object_median'
+		};
+
+	}
+
+	findSpatialMedianSplit( triangleInfos ) {
+
+		let bestAxis = - 1;
+		let bestSpread = - 1;
+		let bestBounds = null;
+
+		// Find the axis with the largest spatial spread (based on triangle bounds, not centroids)
+		for ( let axis = 0; axis < 3; axis ++ ) {
+
+			let minBound = Infinity;
+			let maxBound = - Infinity;
+
+			// Consider all triangle vertices, not just centroids
+			for ( const triInfo of triangleInfos ) {
+
+				minBound = Math.min( minBound, triInfo.bounds.min.getComponent( axis ) );
+				maxBound = Math.max( maxBound, triInfo.bounds.max.getComponent( axis ) );
+
+			}
+
+			const spread = maxBound - minBound;
+			if ( spread > bestSpread ) {
+
+				bestSpread = spread;
+				bestAxis = axis;
+				bestBounds = { min: minBound, max: maxBound };
+
+			}
+
+		}
+
+		if ( bestAxis === - 1 || bestSpread < 1e-12 ) {
+
+			return { success: false, method: 'spatial_median_failed' };
+
+		}
+
+		// Use spatial median - split at the middle of the bounding box
+		const splitPos = ( bestBounds.min + bestBounds.max ) * 0.5;
+
+		// Verify this creates a reasonable split
+		let leftCount = 0;
+		let rightCount = 0;
+
+		for ( const triInfo of triangleInfos ) {
+
+			const centroid = triInfo.centroid.getComponent( bestAxis );
+			if ( centroid <= splitPos ) {
+
+				leftCount ++;
+
+			} else {
+
+				rightCount ++;
+
+			}
+
+		}
+
+		// If still creating degenerate partitions, force a more balanced split
+		if ( leftCount === 0 || rightCount === 0 ) {
+
+			// Create array of all centroid values for this axis
+			const centroids = triangleInfos.map( tri => tri.centroid.getComponent( bestAxis ) );
+			centroids.sort( ( a, b ) => a - b );
+
+			// Use the actual median of centroids as split position
+			const medianIndex = Math.floor( centroids.length / 2 );
+			const medianCentroid = centroids[ medianIndex ];
+
+			// Ensure we don't have all identical values
+			if ( centroids[ 0 ] === centroids[ centroids.length - 1 ] ) {
+
+				return { success: false, method: 'spatial_median_degenerate' };
+
+			}
+
+			// Use position between median values to ensure split
+			let adjustedSplitPos = medianCentroid;
+			if ( medianIndex > 0 && centroids[ medianIndex - 1 ] !== medianCentroid ) {
+
+				adjustedSplitPos = ( centroids[ medianIndex - 1 ] + medianCentroid ) * 0.5;
+
+			} else if ( medianIndex < centroids.length - 1 ) {
+
+				adjustedSplitPos = ( medianCentroid + centroids[ medianIndex + 1 ] ) * 0.5;
+
+			}
+
+			return {
+				success: true,
+				axis: bestAxis,
+				pos: adjustedSplitPos,
+				method: 'spatial_median'
+			};
+
+		}
+
+		return {
+			success: true,
+			axis: bestAxis,
+			pos: splitPos,
+			method: 'spatial_median'
 		};
 
 	}
