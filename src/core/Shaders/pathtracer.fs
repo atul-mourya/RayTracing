@@ -132,50 +132,102 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	return result;
 }
 
+// Estimate path contribution potential
+float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material ) {
+    float throughputStrength = maxComponent( throughput );
+    
+    // Consider material importance
+    float materialImportance = 0.5;
+    if( material.metalness > 0.7 || material.transmission > 0.3 ) {
+        materialImportance = 0.8;
+    } else if( material.roughness > 0.8 ) {
+        materialImportance = 0.3;
+    }
+    
+    // Consider direction importance (if pointing toward bright areas)
+    float directionImportance = 0.5;
+    if( enableEnvironmentLight && useEnvMapIS ) {
+        // This will be higher for directions pointing toward bright environment areas
+        directionImportance = min( envMapSamplingPDF( direction ) * 0.1, 1.0 );
+    }
+    
+    return throughputStrength * mix( materialImportance, directionImportance, 0.5 );
+}
+
 // Russian Roulette with vectorized operations
-bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, uint seed ) {
+bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, uint seed ) {
     // Always continue for first few bounces
 	if( depth < 3 ) {
 		return true;
 	}
 
-    // Use max component instead of luminance for better color preservation
-    // This helps colored light paths survive longer
-	float maxComponent = max( max( throughput.r, throughput.g ), throughput.b );
+    // Get throughput strength using shared function
+	float throughputStrength = maxComponent( throughput );
 
-    // Quick rejection for very dark paths after several bounces
-	if( maxComponent < 0.01 && depth > 4 ) {
+    // Quick rejection for very dark paths
+	if( throughputStrength < 0.001 && depth > 5 ) {
 		return false;
 	}
 
-    // Determine minimum bounces based on material properties 
-	bool isImportantMaterial = material.transmission > 0.3 ||
-		material.metalness > 0.7 ||
-		dot( material.emissive, vec3( 1.0 ) ) > 0.0 ||
-		material.clearcoat > 0.5;
+    // Determine material importance more precisely
+	float materialImportance = 0.0;
 
-	int minBounces = isImportantMaterial ? 5 : 3;
+    // High importance materials
+	if( material.transmission > 0.3 ) {
+		materialImportance += 0.3 * material.transmission;
+	}
+	if( material.metalness > 0.7 ) {
+		materialImportance += 0.2 * material.metalness;
+	}
+	if( material.clearcoat > 0.5 ) {
+		materialImportance += 0.1 * material.clearcoat;
+	}
+	if( dot( material.emissive, vec3( 1.0 ) ) > 0.0 ) {
+		materialImportance += 0.4;
+	}
+
+	materialImportance = clamp( materialImportance, 0.0, 1.0 );
+
+    // Determine minimum bounces based on material importance
+	int minBounces = materialImportance > 0.5 ? 5 : 3;
 
 	if( depth < minBounces ) {
 		return true;
 	}
 
-    // Adaptive continuation probability based on max component
-	float rrProb = clamp( maxComponent, 0.05, 0.95 );
+    // Calculate path contribution estimate
+	float pathContribution = estimatePathContribution( throughput, rayDirection, material );
 
-    // Slower decay for important materials
-	if( isImportantMaterial ) {
-		rrProb = mix( rrProb, 1.0, 0.3 );
+    // Adaptive continuation probability
+	float rrProb;
+
+	if( depth < 5 ) {
+        // For early bounces, use path contribution directly
+		rrProb = clamp( pathContribution, 0.1, 0.95 );
+	} else if( depth < 8 ) {
+        // For medium depth, blend between contribution and throughput
+		float simpleProb = clamp( throughputStrength, 0.05, 0.9 );
+		rrProb = mix( simpleProb, pathContribution, 0.5 );
+	} else {
+        // For deep paths, be more aggressive with termination
+		rrProb = clamp( throughputStrength * 0.5, 0.02, 0.7 );
 	}
 
-    // Apply depth-based adjustment - higher probability of continuing for earlier bounces
-	rrProb = mix( rrProb, 1.0, 1.0 / float( depth ) );
+    // Boost probability for important materials
+	if( materialImportance > 0.5 ) {
+		rrProb = mix( rrProb, 1.0, materialImportance * 0.3 );
+	}
 
-    // Make the RR test using bit operations for performance on some hardware
+    // Apply smooth depth-based decay
+	float depthFactor = exp( - float( depth - minBounces ) * 0.15 );
+	rrProb *= depthFactor;
+
+    // Ensure minimum probability
+	rrProb = max( rrProb, 0.02 );
+
+    // Make the RR test
 	uint threshold = uint( rrProb * 4294967295.0 );
-	bool shouldContinue = seed < threshold;
-
-	return shouldContinue;
+	return seed < threshold;
 }
 
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
@@ -190,23 +242,26 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 }
 
 vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathLength ) {
-    // Calculate path "unusualness" factor
-	float throughputVariation = max( max( throughput.r, throughput.g ), throughput.b ) /
-		( min( min( throughput.r, throughput.g ), throughput.b ) + 0.001 );
+    // Use shared maxComponent function
+	float throughputMax = maxComponent( throughput );
+	float throughputMin = minComponent( throughput );
+
+    // Calculate path "unusualness" factor with better metric
+	float throughputVariation = ( throughputMax + 0.001 ) / ( throughputMin + 0.001 );
 
     // Scale clamp threshold based on path length and throughput variation
-	float clampFactor = 1.0 / ( 1.0 + throughputVariation * pathLength * 0.1 );
+	float clampFactor = 1.0 / ( 1.0 + log( 1.0 + throughputVariation ) * pathLength * 0.1 );
 	float clampThreshold = fireflyThreshold * clampFactor;
 
-    // Get luminance of the contribution
-	float luminance = dot( contribution, vec3( 0.2126, 0.7152, 0.0722 ) );
+    // Use shared luminance function
+	float lum = luminance( contribution );
 
     // Apply smooth clamping for values near the threshold
-	if( luminance > clampThreshold ) {
-        // Use smooth transition
-		float scale = clampThreshold / luminance;
-        // Preserve color by scaling
-		return contribution * scale;
+	if( lum > clampThreshold ) {
+        // Smooth transition using a softer curve
+		float excess = lum - clampThreshold;
+		float suppressionFactor = clampThreshold / ( clampThreshold + excess * 0.5 );
+		return contribution * suppressionFactor;
 	}
 
 	return contribution;
@@ -221,8 +276,8 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 	// Ray initialRay = ray;
 
     // Initialize media stack
-    MediumStack mediumStack;
-    mediumStack.depth = 0;
+	MediumStack mediumStack;
+	mediumStack.depth = 0;
 
     // Initialize render state
 	RenderState state;
@@ -314,13 +369,13 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		ray.direction = indirectResult.direction;
 
 		// Check if path contribution is becoming negligible
-		float maxThroughput = max(max(throughput.r, throughput.g), throughput.b);
-		if(maxThroughput < 0.001 && bounceIndex > 2) {
+		float maxThroughput = max( max( throughput.r, throughput.g ), throughput.b );
+		if( maxThroughput < 0.001 && bounceIndex > 2 ) {
 			break; // Path contribution too small, terminate early
 		}
 
 		// Russian roulette path termination
-		if( ! handleRussianRoulette( bounceIndex, throughput, material, rngState ) ) {
+		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState ) ) {
 			break;
 		}
 	}

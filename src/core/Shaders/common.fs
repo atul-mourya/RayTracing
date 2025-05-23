@@ -29,6 +29,21 @@ vec3 square( vec3 x ) {
     return x * x;
 }
 
+// Get maximum component of a vector
+float maxComponent( vec3 v ) {
+    return max( max( v.r, v.g ), v.b );
+}
+
+// Get minimum component of a vector  
+float minComponent( vec3 v ) {
+    return min( min( v.r, v.g ), v.b );
+}
+
+// Get luminance of a color
+// float luminance( vec3 color ) {
+//     return dot( color, REC709_LUMINANCE_COEFFICIENTS );
+// }
+
 // power heuristic for multiple importance sampling
 float powerHeuristic( float pdf1, float pdf2 ) {
 	// Fast path for clearly dominant PDF
