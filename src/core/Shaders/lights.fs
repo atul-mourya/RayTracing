@@ -447,6 +447,20 @@ vec3 calculateDirectLightingMIS(
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
 
+    // Early termination for materials that don't need direct lighting
+    if( hitInfo.material.emissiveIntensity > 10.0 ) {
+        // Highly emissive materials don't need direct lighting contribution
+        return vec3( 0.0 );
+    }
+
+    // Skip direct lighting for pure glass/transparent materials at deeper bounces
+    if( bounceIndex > 1 && hitInfo.material.transmission > 0.95 && hitInfo.material.roughness < 0.1 ) {
+        return vec3( 0.0 );
+    }
+
+    // Importance threshold that increases with bounce depth
+    float importanceThreshold = 0.001 * ( 1.0 + float( bounceIndex ) * 0.5 );
+
     // -----------------------------
     // Directional lights processing
     // -----------------------------
@@ -468,13 +482,18 @@ vec3 calculateDirectLightingMIS(
     }
 
     // Process lights in importance order (they're already sorted)
-    // This is MUCH faster than the previous sorting approach
     #pragma unroll_loop_start
     for( int i = 0; i < min( 16, directionalLightCount ); i ++ ) {
         if( i >= maxDirectionalLights )
             break;
 
         DirectionalLight light = getDirectionalLight( i );
+
+        // Quick importance check for directional lights
+        float quickDirImportance = light.intensity * max( dot( N, light.direction ), 0.0 );
+        if( quickDirImportance < importanceThreshold ) {
+            continue;
+        }
 
         totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
     }
@@ -485,19 +504,40 @@ vec3 calculateDirectLightingMIS(
     // Area lights processing
     // ----------------------
     #if MAX_AREA_LIGHTS > 0 
-    for( int i = 0; i < MAX_AREA_LIGHTS / 13; i ++ ) {
+    // For deeper bounces, limit area light count
+    int maxAreaLightCount = ( MAX_AREA_LIGHTS / 13 );
+    if( bounceIndex > 2 ) {
+        maxAreaLightCount = min( 2, maxAreaLightCount );
+    } else if( bounceIndex > 1 ) {
+        maxAreaLightCount = min( 4, maxAreaLightCount );
+    }
+
+    for( int i = 0; i < maxAreaLightCount; i ++ ) {
         AreaLight light = getAreaLight( i );
         if( light.intensity <= 0.0 )
             continue;
 
-        // Skip distant or back-facing lights
+        // Quick distance and facing checks
         vec3 lightCenter = light.position - hitInfo.hitPoint;
         float distSq = dot( lightCenter, lightCenter );
+
+        // Quick importance calculation for early culling
+        float quickImportance = light.intensity * light.area / max( distSq, 1.0 );
+        if( quickImportance < importanceThreshold ) {
+            continue;
+        }
+
         float cosTheta = dot( normalize( lightCenter ), N );
 
         // Early exit for lights that won't contribute much
-        if( distSq > ( light.intensity * 100.0 ) || ( hitInfo.material.metalness > 0.9 && cosTheta <= 0.0 ) )
+        if( distSq > ( light.intensity * 100.0 ) || ( hitInfo.material.metalness > 0.9 && cosTheta <= 0.0 ) ) {
             continue;
+        }
+
+        // Additional culling for rough materials at distance
+        if( hitInfo.material.roughness > 0.7 && distSq > light.area * 50.0 ) {
+            continue;
+        }
 
         totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, sampleIndex, bounceIndex, rngState, stats );
     }
