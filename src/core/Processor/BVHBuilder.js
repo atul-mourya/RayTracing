@@ -41,6 +41,8 @@ class TriangleInfo {
 				Math.max( triangle.posA.z, triangle.posB.z, triangle.posC.z )
 			)
 		};
+		// Morton code will be computed later during sorting
+		this.mortonCode = 0;
 
 	}
 
@@ -66,6 +68,11 @@ export default class BVHBuilder {
 		this.traversalCost = 1.0;
 		this.intersectionCost = 1.0;
 
+		// Morton code clustering settings
+		this.useMortonCodes = true; // Enable spatial clustering
+		this.mortonBits = 10; // Precision for Morton codes (10 bits per axis = 30 total)
+		this.mortonClusterThreshold = 128; // Use Morton clustering for nodes with more triangles
+
 		// Temporary arrays to avoid allocations
 		this.tempLeftTris = [];
 		this.tempRightTris = [];
@@ -78,7 +85,9 @@ export default class BVHBuilder {
 			objectMedianSplits: 0,
 			failedSplits: 0,
 			avgBinsUsed: 0,
-			totalSplitAttempts: 0
+			totalSplitAttempts: 0,
+			mortonSortTime: 0,
+			totalBuildTime: 0
 		};
 
 		// Pre-allocate maximum bin arrays to avoid reallocations
@@ -152,6 +161,246 @@ export default class BVHBuilder {
 			maxBins: this.maxBins,
 			baseBins: this.numBins
 		} );
+
+	}
+
+	// Configuration for Morton code clustering
+	setMortonConfig( config ) {
+
+		if ( config.enabled !== undefined ) this.useMortonCodes = config.enabled;
+		if ( config.bits !== undefined ) this.mortonBits = Math.max( 6, Math.min( 16, config.bits ) );
+		if ( config.threshold !== undefined ) this.mortonClusterThreshold = Math.max( 16, config.threshold );
+
+		console.log( 'Morton code config updated:', {
+			enabled: this.useMortonCodes,
+			bits: this.mortonBits,
+			threshold: this.mortonClusterThreshold
+		} );
+
+	}
+
+	// Morton code computation functions
+	// Expands a 10-bit integer by inserting 2 zeros after each bit
+	expandBits( value ) {
+
+		value = ( value * 0x00010001 ) & 0xFF0000FF;
+		value = ( value * 0x00000101 ) & 0x0F00F00F;
+		value = ( value * 0x00000011 ) & 0xC30C30C3;
+		value = ( value * 0x00000005 ) & 0x49249249;
+		return value;
+
+	}
+
+	// Computes Morton code for normalized 3D coordinates (0-1023 range)
+	morton3D( x, y, z ) {
+
+		return ( this.expandBits( z ) << 2 ) + ( this.expandBits( y ) << 1 ) + this.expandBits( x );
+
+	}
+
+	// How Morton codes work:
+	// Triangle centroids:
+	// Morton codes preserve spatial proximity:
+	//   (1,1,1) → 0b001001001  ┌─────┬─────┐  Nearby triangles get similar
+	//   (1,1,2) → 0b001001010  │  A  │  B  │  codes and end up adjacent
+	//   (1,2,1) → 0b001010001  ├─────┼─────┤  in the sorted array
+	//   (2,1,1) → 0b010001001  │  C  │  D  │
+	//                          └─────┴─────┘  Better cache locality!
+
+	// Compute Morton code for a triangle centroid
+	computeMortonCode( centroid, sceneMin, sceneMax ) {
+
+		// Normalize coordinates to [0, 1] range
+		const range = sceneMax.clone().sub( sceneMin );
+		const normalized = centroid.clone().sub( sceneMin );
+
+		// Avoid division by zero
+		if ( range.x > 0 ) normalized.x /= range.x;
+		if ( range.y > 0 ) normalized.y /= range.y;
+		if ( range.z > 0 ) normalized.z /= range.z;
+
+		// Clamp to [0, 1] and scale to Morton space
+		const mortonScale = ( 1 << this.mortonBits ) - 1;
+		const x = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.x * mortonScale ) ) );
+		const y = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.y * mortonScale ) ) );
+		const z = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.z * mortonScale ) ) );
+
+		return this.morton3D( x, y, z );
+
+	}
+
+	// Sort triangles by Morton code for better spatial locality
+	sortTrianglesByMortonCode( triangleInfos ) {
+
+		if ( ! this.useMortonCodes || triangleInfos.length < this.mortonClusterThreshold ) {
+
+			return triangleInfos; // Skip Morton sorting for small arrays
+
+		}
+
+		const startTime = performance.now();
+
+		// Compute scene bounds
+		const sceneMin = new Vector3( Infinity, Infinity, Infinity );
+		const sceneMax = new Vector3( - Infinity, - Infinity, - Infinity );
+
+		for ( const triInfo of triangleInfos ) {
+
+			sceneMin.min( triInfo.centroid );
+			sceneMax.max( triInfo.centroid );
+
+		}
+
+		// Compute Morton codes for all triangles
+		for ( const triInfo of triangleInfos ) {
+
+			triInfo.mortonCode = this.computeMortonCode( triInfo.centroid, sceneMin, sceneMax );
+
+		}
+
+		// Sort by Morton code
+		triangleInfos.sort( ( a, b ) => a.mortonCode - b.mortonCode );
+
+		// Track timing
+		this.splitStats.mortonSortTime += performance.now() - startTime;
+
+		return triangleInfos;
+
+	}
+
+	// Advanced recursive Morton clustering for extremely large datasets
+	recursiveMortonCluster( triangleInfos, maxClusterSize = 10000 ) {
+
+		if ( triangleInfos.length <= maxClusterSize ) {
+
+			return this.sortTrianglesByMortonCode( triangleInfos );
+
+		}
+
+		// For very large datasets, cluster recursively
+		const startTime = performance.now();
+
+		// Compute scene bounds
+		const sceneMin = new Vector3( Infinity, Infinity, Infinity );
+		const sceneMax = new Vector3( - Infinity, - Infinity, - Infinity );
+
+		for ( const triInfo of triangleInfos ) {
+
+			sceneMin.min( triInfo.centroid );
+			sceneMax.max( triInfo.centroid );
+
+		}
+
+		// Use coarser Morton codes for initial clustering
+		const coarseBits = Math.max( 6, this.mortonBits - 2 );
+
+		// Group triangles by coarse Morton codes
+		const clusters = new Map();
+		for ( const triInfo of triangleInfos ) {
+
+			// Compute coarse Morton code
+			const range = sceneMax.clone().sub( sceneMin );
+			const normalized = triInfo.centroid.clone().sub( sceneMin );
+
+			if ( range.x > 0 ) normalized.x /= range.x;
+			if ( range.y > 0 ) normalized.y /= range.y;
+			if ( range.z > 0 ) normalized.z /= range.z;
+
+			const mortonScale = ( 1 << coarseBits ) - 1;
+			const x = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.x * mortonScale ) ) );
+			const y = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.y * mortonScale ) ) );
+			const z = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.z * mortonScale ) ) );
+
+			const coarseMorton = this.morton3D( x, y, z );
+
+			if ( ! clusters.has( coarseMorton ) ) {
+
+				clusters.set( coarseMorton, [] );
+
+			}
+
+			clusters.get( coarseMorton ).push( triInfo );
+
+		}
+
+		// Sort clusters by Morton code and refine each cluster
+		const sortedClusters = Array.from( clusters.entries() ).sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
+		const result = [];
+
+		for ( const [ mortonCode, cluster ] of sortedClusters ) {
+
+			// Recursively sort each cluster
+			const sortedCluster = this.sortTrianglesByMortonCode( cluster );
+			result.push( ...sortedCluster );
+
+		}
+
+		this.splitStats.mortonSortTime += performance.now() - startTime;
+		return result;
+
+	}
+
+	// Benchmark method to compare with/without Morton codes
+	async benchmarkMortonCodes( triangles, depth = 30, iterations = 3 ) {
+
+		console.log( '🚀 Benchmarking Morton Code Performance...' );
+
+		const originalSetting = this.useMortonCodes;
+		const results = {};
+
+		// Test without Morton codes
+		this.useMortonCodes = false;
+		const withoutMortonTimes = [];
+
+		for ( let i = 0; i < iterations; i ++ ) {
+
+			const start = performance.now();
+			await this.build( triangles, depth );
+			withoutMortonTimes.push( performance.now() - start );
+
+		}
+
+		// Test with Morton codes
+		this.useMortonCodes = true;
+		const withMortonTimes = [];
+
+		for ( let i = 0; i < iterations; i ++ ) {
+
+			const start = performance.now();
+			await this.build( triangles, depth );
+			withMortonTimes.push( performance.now() - start );
+
+		}
+
+		// Calculate statistics
+		const avgWithout = withoutMortonTimes.reduce( ( a, b ) => a + b ) / iterations;
+		const avgWith = withMortonTimes.reduce( ( a, b ) => a + b ) / iterations;
+		const speedup = avgWithout / avgWith;
+
+		results.withoutMorton = {
+			times: withoutMortonTimes,
+			average: Math.round( avgWithout ),
+			trianglesPerSecond: Math.round( triangles.length / ( avgWithout / 1000 ) )
+		};
+
+		results.withMorton = {
+			times: withMortonTimes,
+			average: Math.round( avgWith ),
+			trianglesPerSecond: Math.round( triangles.length / ( avgWith / 1000 ) )
+		};
+
+		results.improvement = {
+			speedupFactor: Math.round( speedup * 100 ) / 100,
+			timeReduction: Math.round( ( 1 - 1 / speedup ) * 100 ),
+			absoluteTimeSaved: Math.round( avgWithout - avgWith )
+		};
+
+		console.log( '📊 Morton Code Benchmark Results:', results );
+
+		// Restore original setting
+		this.useMortonCodes = originalSetting;
+
+		return results;
 
 	}
 
@@ -232,6 +481,8 @@ export default class BVHBuilder {
 
 	buildSync( triangles, depth = 30, reorderedTriangles = [], progressCallback = null ) {
 
+		const buildStartTime = performance.now();
+
 		// Reset state
 		this.nodes = [];
 		this.totalNodes = 0;
@@ -245,14 +496,31 @@ export default class BVHBuilder {
 			objectMedianSplits: 0,
 			failedSplits: 0,
 			avgBinsUsed: 0,
-			totalSplitAttempts: 0
+			totalSplitAttempts: 0,
+			mortonSortTime: 0,
+			totalBuildTime: 0
 		};
 
 		// Convert to TriangleInfo for better performance
-		const triangleInfos = triangles.map( ( tri, index ) => new TriangleInfo( tri, index ) );
+		let triangleInfos = triangles.map( ( tri, index ) => new TriangleInfo( tri, index ) );
+
+		// Apply Morton code spatial clustering for better cache locality
+		// Use recursive clustering for very large datasets
+		if ( triangleInfos.length > 50000 ) {
+
+			triangleInfos = this.recursiveMortonCluster( triangleInfos );
+
+		} else {
+
+			triangleInfos = this.sortTrianglesByMortonCode( triangleInfos );
+
+		}
 
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
+
+		// Record total build time
+		this.splitStats.totalBuildTime = performance.now() - buildStartTime;
 
 		console.log( 'BVH Statistics:', {
 			totalNodes: this.totalNodes,
@@ -268,6 +536,17 @@ export default class BVHBuilder {
 				minBins: this.minBins,
 				maxBins: this.maxBins,
 				baseBins: this.numBins
+			},
+			performance: {
+				totalBuildTime: Math.round( this.splitStats.totalBuildTime ),
+				mortonSortTime: Math.round( this.splitStats.mortonSortTime ),
+				mortonSortPercentage: Math.round( ( this.splitStats.mortonSortTime / this.splitStats.totalBuildTime ) * 100 ),
+				trianglesPerSecond: Math.round( triangles.length / ( this.splitStats.totalBuildTime / 1000 ) )
+			},
+			mortonClustering: {
+				enabled: this.useMortonCodes,
+				threshold: this.mortonClusterThreshold,
+				bits: this.mortonBits
 			}
 		} );
 
