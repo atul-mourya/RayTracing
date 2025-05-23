@@ -112,3 +112,15 @@ struct DotProducts {
     float LoH; // Light • Half
 	float VoN; // View • Normal
 };
+
+struct MaterialCache {
+    vec3 F0;                    // Base reflectance
+    float NoV;                  // Normal dot View
+    vec3 diffuseColor;          // Precomputed diffuse color
+    vec3 specularColor;         // Precomputed specular color  
+    bool isMetallic;            // metalness > 0.7
+    bool isPurelyDiffuse;       // Optimized path flag
+    bool hasSpecialFeatures;    // Has transmission, clearcoat, etc.
+    float alpha;                // roughness squared
+    float k;                    // Geometry term constant
+};

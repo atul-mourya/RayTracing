@@ -234,6 +234,7 @@ vec3 calculateDirectionalLightContribution(
     vec3 normal,
     vec3 viewDir,
     RayTracingMaterial material,
+    MaterialCache matCache,
     DirectionSample brdfSample,
     int bounceIndex,
     inout uint rngState,
@@ -253,18 +254,16 @@ vec3 calculateDirectionalLightContribution(
         return vec3( 0.0 );
     }
 
-    // BRDF evaluation
-    vec3 brdfValue = evaluateMaterialResponse( viewDir, light.direction, normal, material );
+    // BRDF evaluation using cache
+    vec3 brdfValue = evaluateMaterialResponseCached( viewDir, light.direction, normal, material, matCache );
 
     // Base contribution
     vec3 contribution = light.color * light.intensity * brdfValue * NoL * visibility;
 
     // Simple MIS only for first bounce where it matters most
     if( bounceIndex == 0 && brdfSample.pdf > 0.0 ) {
-        // For directional lights, direct PDF is essentially a delta function
-        // Use simple heuristic rather than complex power heuristic
         float brdfAlignment = max( 0.0, dot( brdfSample.direction, light.direction ) );
-        float misWeight = mix( 0.9, 0.1, brdfAlignment ); // Favor direct sampling
+        float misWeight = mix( 0.9, 0.1, brdfAlignment );
         contribution *= misWeight;
     }
 
@@ -319,6 +318,7 @@ vec3 calculateAreaLightContribution(
     vec3 normal,
     vec3 viewDir,
     RayTracingMaterial material,
+    MaterialCache matCache,
     DirectionSample brdfSample,
     int sampleIndex,
     int bounceIndex,
@@ -371,7 +371,7 @@ vec3 calculateAreaLightContribution(
 
             if( visibility > 0.0 ) {
                 // BRDF evaluation
-                vec3 brdfValue = evaluateMaterialResponse( viewDir, lightDir, normal, material );
+                vec3 brdfValue = evaluateMaterialResponseCached( viewDir, lightDir, normal, material, matCache );
 
                 // Calculate PDFs for both strategies
                 float lightPdf = lightDistSq / ( light.area * lightFacing );
@@ -447,6 +447,8 @@ vec3 calculateDirectLightingMIS(
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
 
+    MaterialCache matCache = createMaterialCache( N, V, hitInfo.material );
+
     // Early termination for materials that don't need direct lighting
     if( hitInfo.material.emissiveIntensity > 10.0 ) {
         // Highly emissive materials don't need direct lighting contribution
@@ -495,7 +497,7 @@ vec3 calculateDirectLightingMIS(
             continue;
         }
 
-        totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, bounceIndex, rngState, stats );
+        totalLighting += calculateDirectionalLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, bounceIndex, rngState, stats );
     }
     #pragma unroll_loop_end
     #endif // MAX_DIRECTIONAL_LIGHTS > 0
@@ -539,7 +541,7 @@ vec3 calculateDirectLightingMIS(
             continue;
         }
 
-        totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, brdfSample, sampleIndex, bounceIndex, rngState, stats );
+        totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, sampleIndex, bounceIndex, rngState, stats );
     }
     #endif // MAX_AREA_LIGHTS > 0
 

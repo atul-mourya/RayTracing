@@ -380,6 +380,102 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 	return baseLayer;
 }
 
+MaterialCache createMaterialCache( vec3 N, vec3 V, RayTracingMaterial material ) {
+	MaterialCache cache;
+
+    // Precompute dot products
+	cache.NoV = max( dot( N, V ), 0.001 );
+
+    // Material type flags
+	cache.isPurelyDiffuse = material.roughness > 0.98 &&
+		material.metalness < 0.02 &&
+		material.transmission == 0.0 &&
+		material.clearcoat == 0.0;
+
+	cache.isMetallic = material.metalness > 0.7;
+	cache.hasSpecialFeatures = material.transmission > 0.0 ||
+		material.clearcoat > 0.0 ||
+		material.sheen > 0.0 ||
+		material.iridescence > 0.0;
+
+    // Precompute base reflectance
+	cache.F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
+
+    // Precompute diffuse and specular base colors
+	cache.diffuseColor = material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
+	cache.specularColor = material.color.rgb;
+
+    // Precompute roughness-based terms
+	cache.alpha = material.roughness * material.roughness;
+	float r = material.roughness + 1.0;
+	cache.k = ( r * r ) / 8.0;
+
+	return cache;
+}
+
+// Optimized material response evaluation using cache
+vec3 evaluateMaterialResponseCached(
+	vec3 V,
+	vec3 L,
+	vec3 N,
+	RayTracingMaterial material,
+	MaterialCache cache
+) {
+    // Fast path for purely diffuse materials
+	if( cache.isPurelyDiffuse ) {
+		return cache.diffuseColor;
+	}
+
+    // Calculate required dot products for this light
+	vec3 H = normalize( V + L );
+	float NoL = max( dot( N, L ), 0.001 );
+	float NoH = max( dot( N, H ), 0.001 );
+	float VoH = max( dot( V, H ), 0.001 );
+
+    // Check for transmission case
+	bool isTransmission = cache.NoV * NoL < 0.0;
+	if( isTransmission && material.transmission > 0.0 ) {
+        // Handle transmission - delegate to existing code
+		return evaluateMaterialResponse( V, L, N, material );
+	}
+
+    // Use precomputed F0 (with iridescence if needed)
+	vec3 F0 = cache.F0;
+	if( material.iridescence > 0.0 ) {
+		float thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
+		vec3 iridescenceFresnel = evalIridescence( 1.0, material.iridescenceIOR, VoH, thickness, F0 );
+		F0 = mix( F0, iridescenceFresnel, material.iridescence );
+	}
+
+    // Optimized GGX distribution
+	float alpha2 = cache.alpha * cache.alpha;
+	float denom = ( NoH * NoH * ( alpha2 - 1.0 ) + 1.0 );
+	float D = alpha2 / ( PI * denom * denom );
+
+    // Optimized geometry function using cached k
+	float ggx1 = NoL / ( NoL * ( 1.0 - cache.k ) + cache.k );
+	float ggx2 = cache.NoV / ( cache.NoV * ( 1.0 - cache.k ) + cache.k );
+	float G = ggx1 * ggx2;
+
+    // Fresnel
+	vec3 F = fresnelSchlick( VoH, F0 );
+
+    // Combine terms
+	vec3 specular = ( D * G * F ) / ( 4.0 * cache.NoV * NoL );
+	vec3 baseLayer = cache.diffuseColor + specular;
+
+    // Handle sheen if present
+	if( material.sheen > 0.0 ) {
+		float sheenDist = SheenDistribution( NoH, material.sheenRoughness );
+		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * NoL;
+		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
+		float sheenScaling = 1.0 - material.sheen * maxSheen;
+		return baseLayer * sheenScaling + sheenTerm;
+	}
+
+	return baseLayer;
+}
+
 vec3 cosineWeightedSample( vec3 N, vec2 xi ) {
     // Construct a local coordinate system (TBN)
 	vec3 T = normalize( cross( N, N.yzx + vec3( 0.1, 0.2, 0.3 ) ) );
