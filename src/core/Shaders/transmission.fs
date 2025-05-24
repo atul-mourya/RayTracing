@@ -27,6 +27,13 @@ struct MediumStack {
 	int depth;
 };
 
+float getCurrentMediumIOR( MediumStack mediumStack ) {
+	if( mediumStack.depth <= 0 ) {
+		return 1.0; // Air/vacuum
+	}
+	return mediumStack.media[ mediumStack.depth ].ior;
+}
+
 // Calculate wavelength-dependent IOR for dispersion
 vec3 calculateDispersiveIOR( float baseIOR, float dispersionStrength ) {
     // Cauchy's equation coefficients
@@ -50,6 +57,47 @@ vec3 calculateBeerLawAbsorption( vec3 attenuationColor, float attenuationDistanc
 
     // Apply Beer's law
 	return exp( - absorption * thickness );
+}
+
+float calculateShadowTransmittance(
+    vec3 rayDir,
+    vec3 normal, 
+    RayTracingMaterial material,
+    bool entering
+) {
+    // Simplified transmission for shadow rays
+    // Assumes air-to-material transitions only (no nested media tracking)
+    // This is sufficient for shadow calculations and much faster
+    
+    float n1 = entering ? 1.0 : material.ior;
+    float n2 = entering ? material.ior : 1.0;
+    
+    float cosThetaI = abs( dot( normal, rayDir ) );
+    float sinThetaT2 = ( n1 * n1 ) / ( n2 * n2 ) * ( 1.0 - cosThetaI * cosThetaI );
+    
+    // Handle total internal reflection
+    if( sinThetaT2 > 1.0 ) {
+        return 0.0; // No transmission through TIR
+    }
+    
+    // Calculate Fresnel reflectance
+    float F0 = iorToFresnel0( n2, n1 );
+    float Fr = fresnelSchlick( cosThetaI, F0 );
+    
+    // Base transmission: what gets through after Fresnel reflection
+    float baseTransmission = (1.0 - Fr) * material.transmission;
+    
+    // Apply Beer's law absorption for exiting rays
+    if( !entering && material.attenuationDistance > 0.0 ) {
+        vec3 absorption = calculateBeerLawAbsorption( 
+            material.attenuationColor, 
+            material.attenuationDistance, 
+            material.thickness 
+        );
+        baseTransmission *= (absorption.r + absorption.g + absorption.b) / 3.0;
+    }
+    
+    return clamp( baseTransmission, 0.0, 1.0 );
 }
 
 struct MicrofacetTransmissionResult {
@@ -133,7 +181,8 @@ TransmissionResult handleTransmission(
 	vec3 normal,           // Surface normal
 	RayTracingMaterial material,
 	bool entering,         // Whether ray is entering or exiting medium
-	inout uint rngState    // Random number generator state
+	inout uint rngState,    // Random number generator state
+	MediumStack mediumStack
 ) {
 	TransmissionResult result;
 	result.throughput = vec3( 1.0 );
@@ -144,9 +193,32 @@ TransmissionResult handleTransmission(
     // Incident direction (points toward the surface)
 	vec3 V = - rayDir;
 
-    // Calculate IOR values for Fresnel calculation
-	float n1 = entering ? 1.0 : material.ior;
-	float n2 = entering ? material.ior : 1.0;
+    // // Calculate IOR values for Fresnel calculation
+	// float n1 = entering ? 1.0 : material.ior;
+	// float n2 = entering ? material.ior : 1.0;
+
+	// Get current medium IOR from stack
+	float currentMediumIOR = getCurrentMediumIOR( mediumStack );
+
+	// Calculate IOR transition properly
+	float n1, n2;
+	if( entering ) {
+		// Ray entering new medium
+		n1 = currentMediumIOR;      // From current medium
+		n2 = material.ior;          // To new material
+	} else {
+		// Ray exiting current medium  
+		n1 = material.ior;          // From current material
+
+		// Determine what medium we're exiting into
+		if( mediumStack.depth > 1 ) {
+			// Exiting into previous medium on stack
+			n2 = mediumStack.media[ mediumStack.depth - 1 ].ior;
+		} else {
+			// Exiting into air/vacuum
+			n2 = 1.0;
+		}
+	}
 
     // Calculate basic reflection/refraction parameters
 	float cosThetaI = abs( dot( N, rayDir ) );
@@ -162,11 +234,10 @@ TransmissionResult handleTransmission(
 		reflectProb = 1.0; // Always reflect at TIR
 	} else {
 		// For dielectrics: balance Fresnel reflection with material transmission
-		float dielectricReflect = Fr + (1.0 - Fr) * (1.0 - material.transmission);
-		
-		// For metals: mostly reflect regardless of transmission setting  
+		float dielectricReflect = Fr + ( 1.0 - Fr ) * ( 1.0 - material.transmission );
+		// For metals: mostly reflect regardless of transmission setting
 		float metallicReflect = 0.95;
-		
+
 		// Blend based on metalness
 		reflectProb = mix( dielectricReflect, metallicReflect, material.metalness );
 	}
@@ -332,25 +403,29 @@ MaterialInteractionResult handleMaterialTransparency(
 			bool entering = dot( ray.direction, normal ) < 0.0;
 			vec3 N = entering ? normal : - normal;
 
+            // Use the pre-existing handleTransmission function
+			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState, mediumStack );
+			
             // Update medium stack
-			if( entering ) {
-                // Push medium onto stack if not full
-				if( mediumStack.depth < MAX_MEDIA_STACK - 1 ) {
-					mediumStack.depth ++;
-					mediumStack.media[ mediumStack.depth ].ior = material.ior;
-					mediumStack.media[ mediumStack.depth ].attenuationColor = material.attenuationColor;
-					mediumStack.media[ mediumStack.depth ].attenuationDistance = material.attenuationDistance;
-					mediumStack.media[ mediumStack.depth ].dispersion = material.dispersion;
-				}
-			} else {
-                // Pop medium from stack if not empty
-				if( mediumStack.depth > 0 ) {
-					mediumStack.depth --;
+			// Only update medium stack if we actually transmitted (didn't get TIR/reflection)
+			if( ! transResult.didReflect ) {
+				if( entering ) {
+					// Push new medium onto stack
+					if( mediumStack.depth < MAX_MEDIA_STACK - 1 ) {
+						mediumStack.depth ++;
+						mediumStack.media[ mediumStack.depth ].ior = material.ior;
+						mediumStack.media[ mediumStack.depth ].attenuationColor = material.attenuationColor;
+						mediumStack.media[ mediumStack.depth ].attenuationDistance = material.attenuationDistance;
+						mediumStack.media[ mediumStack.depth ].dispersion = material.dispersion;
+					}
+				} else {
+					// Pop medium from stack
+					if( mediumStack.depth > 0 ) {
+						mediumStack.depth --;
+					}
 				}
 			}
 
-            // Use the pre-existing handleTransmission function
-			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState );
 
             // Apply the transmission result
 			result.direction = transResult.direction;

@@ -75,14 +75,11 @@ float getMaterialTransparency( HitInfo shadowHit, Ray shadowRay, inout uint rngS
         // Check if ray is entering or exiting the material
         bool isEntering = dot( shadowRay.direction, shadowHit.normal ) < 0.0;
 
-        // Get transmission data
-        TransmissionResult transResult = handleTransmission( shadowRay.direction, shadowHit.normal, shadowHit.material, isEntering, rngState );
+        // Use simplified shadow transmission instead of full handleTransmission
+        float transmittance = calculateShadowTransmittance( shadowRay.direction, shadowHit.normal, shadowHit.material, isEntering );
 
-        // Calculate how much light gets through
-        float transmissionFactor = length( transResult.throughput ) / 3.0;
-
-        // Calculate opacity: 1.0 minus (transmission * how much gets through)
-        return 1.0 - ( shadowHit.material.transmission * transmissionFactor );
+        // Return opacity based on transmittance
+        return 1.0 - transmittance;
     } 
     // If no transmission, check if it's transparent
     else if( shadowHit.material.transparent ) {
