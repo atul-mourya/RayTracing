@@ -94,62 +94,10 @@ vec2 owen_scrambled_sobol2D(uint index, uint seed) {
 // Blue noise sampling
 // -----------------------------------------------------------------------------
 
-// RNG state structure for blue noise
-struct RNGState {
-    uvec4 state;
-    ivec2 pixel;
-};
-
-RNGState rState;
-
-// Initialize RNG state
-void initializeRNG(vec2 pixel) {
-    rState.pixel = ivec2(pixel);
-    rState.state = uvec4(
-        frame,
-        frame * 15843u,
-        frame * 31u + 4566u,
-        frame * 2345u + 58585u
-    );
-}
-
-// PCG-4D hash function for blue noise
-void pcg4d(inout uvec4 v) {
-    v = v * 1664525u + 1013904223u;
-    v.x += v.y*v.w;
-    v.y += v.z*v.x;
-    v.z += v.x*v.y;
-    v.w += v.y*v.z;
-    v = v ^ (v>>16u);
-    v.x += v.y*v.w;
-    v.y += v.z*v.x;
-    v.z += v.x*v.y;
-    v.w += v.y*v.z;
-}
-
-uint scramblingRotation(uint seed, uint dimension) {
-    // Different scrambling for each dimension
-    return seed ^ (dimension * 0x9E3779B9u + 0x85EBCA6Bu);
-}
-
 vec4 sampleBlueNoise(vec2 pixelCoords, int sampleIndex, int bounceIndex) {
-    initializeRNG(pixelCoords);
-    pcg4d(rState.state);
-    
-    // Base shifting using pixel coordinates
-    ivec2 shift = (rState.pixel + ivec2(rState.state.xy % 0x0fffffffu)) % blueNoiseTextureSize;
-    
-    // Add temporal variation using frame number
-    uint offset = uint(frame) * 1664525u;
-    
-    // Add dimension-dependent scrambling
-    uint dimension = uint(bounceIndex * 4 + sampleIndex % 4);
-    offset = scramblingRotation(offset, dimension);
-    
-    // Apply the scrambled offset
-    shift = (shift + ivec2(offset & 0xFFFFu, (offset >> 16) & 0xFFFFu)) % blueNoiseTextureSize;
-    
-    return texelFetch(blueNoiseTexture, shift, 0);
+    int frm = int( frame );
+    ivec2 coord = ivec2(pixelCoords + vec2(frm * 17, frm * 29)) % blueNoiseTextureSize;
+    return texelFetch(blueNoiseTexture, coord, 0);
 }
 
 // -----------------------------------------------------------------------------
