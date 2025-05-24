@@ -153,21 +153,26 @@ TransmissionResult handleTransmission(
 	float sinThetaT2 = ( n1 * n1 ) / ( n2 * n2 ) * ( 1.0 - cosThetaI * cosThetaI );
 	bool totalInternalReflection = sinThetaT2 > 1.0;
 
-    // Calculate Fresnel term with roughness adjustment
-	float F0 = pow( ( n1 - n2 ) / ( n1 + n2 ), 2.0 );
-	float microfacetF0 = mix( F0, 0.5, material.roughness * material.roughness );
-	float Fr = totalInternalReflection ? 1.0 : fresnelSchlick( cosThetaI, microfacetF0 );
+	float F0 = iorToFresnel0( n2, n1 );
+	float Fr = totalInternalReflection ? 1.0 : fresnelSchlick( cosThetaI, F0 );
 
-    // Adjust reflection probability based on material transmission value
-	float reflectProb = mix( Fr, Fr * ( 1.0 - material.transmission ), material.transmission );
+	float reflectProb;
 
-    // Ensure energy conservation between reflection and transmission
-	reflectProb = mix( reflectProb, 0.5 + 0.5 * Fr, material.metalness );
-	reflectProb = mix( reflectProb, reflectProb * ( 1.0 - material.transmission ), material.transmission );
+	if( totalInternalReflection ) {
+		reflectProb = 1.0; // Always reflect at TIR
+	} else {
+		// For dielectrics: balance Fresnel reflection with material transmission
+		float dielectricReflect = Fr + (1.0 - Fr) * (1.0 - material.transmission);
+		
+		// For metals: mostly reflect regardless of transmission setting  
+		float metallicReflect = 0.95;
+		
+		// Blend based on metalness
+		reflectProb = mix( dielectricReflect, metallicReflect, material.metalness );
+	}
 
-    // Ensure minimum reflection probability at grazing angles for realistic look
-	float grazingFactor = pow( 1.0 - abs( dot( normal, rayDir ) ), 5.0 );
-	reflectProb = max( reflectProb, grazingFactor * 0.5 );
+	// Safety clamp to prevent edge cases
+	reflectProb = clamp( reflectProb, 0.02, 0.98 );
 
     // Force reflection if TIR, otherwise probabilistically choose
 	result.didReflect = totalInternalReflection || ( RandomValue( rngState ) < reflectProb );
