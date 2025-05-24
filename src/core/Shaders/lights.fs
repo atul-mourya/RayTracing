@@ -536,11 +536,6 @@ vec3 calculateDirectLightingMIS(
             continue;
         }
 
-        // Additional culling for rough materials at distance
-        if( hitInfo.material.roughness > 0.7 && distSq > light.area * 50.0 ) {
-            continue;
-        }
-
         totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, sampleIndex, bounceIndex, rngState, stats );
     }
     #endif // MAX_AREA_LIGHTS > 0
