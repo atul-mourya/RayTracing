@@ -48,9 +48,15 @@ ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
 // BRDF sampling with early exits and optimized math
-DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState ) {
+DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState, inout PathState pathState ) {
 
-	BRDFWeights weights = calculateBRDFWeights( material );
+    // Compute BRDF weights only if not already cached
+	if( ! pathState.weightsComputed ) {
+		pathState.brdfWeights = calculateBRDFWeights( material );
+		pathState.weightsComputed = true;
+	}
+
+	BRDFWeights weights = pathState.brdfWeights;
 	DirectionSample result;
 
 	float rand = xi.x;
@@ -117,11 +123,11 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	} 
     // Transmission sampling
 	else {
-		// Use the shared microfacet transmission sampling function
+        // Use the shared microfacet transmission sampling function
 		bool entering = dot( V, N ) < 0.0;
 		MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState );
 
-		// Set the direction and PDF from the result
+        // Set the direction and PDF from the result
 		result.direction = mtResult.direction;
 		result.pdf = mtResult.pdf;
 	}
@@ -134,24 +140,24 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 
 // Estimate path contribution potential
 float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material ) {
-    float throughputStrength = maxComponent( throughput );
-    
+	float throughputStrength = maxComponent( throughput );
+
     // Consider material importance
-    float materialImportance = 0.5;
-    if( material.metalness > 0.7 || material.transmission > 0.3 ) {
-        materialImportance = 0.8;
-    } else if( material.roughness > 0.8 ) {
-        materialImportance = 0.3;
-    }
-    
+	float materialImportance = 0.5;
+	if( material.metalness > 0.7 || material.transmission > 0.3 ) {
+		materialImportance = 0.8;
+	} else if( material.roughness > 0.8 ) {
+		materialImportance = 0.3;
+	}
+
     // Consider direction importance (if pointing toward bright areas)
-    float directionImportance = 0.5;
-    if( enableEnvironmentLight && useEnvMapIS ) {
+	float directionImportance = 0.5;
+	if( enableEnvironmentLight && useEnvMapIS ) {
         // This will be higher for directions pointing toward bright environment areas
-        directionImportance = min( envMapSamplingPDF( direction ) * 0.1, 1.0 );
-    }
-    
-    return throughputStrength * mix( materialImportance, directionImportance, 0.5 );
+		directionImportance = min( envMapSamplingPDF( direction ) * 0.1, 1.0 );
+	}
+
+	return throughputStrength * mix( materialImportance, directionImportance, 0.5 );
 }
 
 // Russian Roulette with vectorized operations
@@ -268,12 +274,18 @@ vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathL
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
+	// Initialize environment rotation matrices once per pixel
+    // This could also be done once per frame if environmentRotation is uniform
+	if( rayIndex == 0 ) {
+		initializeEnvironmentRotation( );
+	}
+
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
 	float alpha = 1.0;
 
-	// Store initial ray for helper visualization
-	// Ray initialRay = ray;
+    // Store initial ray for helper visualization
+    // Ray initialRay = ray;
 
     // Initialize media stack
 	MediumStack mediumStack;
@@ -283,6 +295,10 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 	RenderState state;
 	state.transmissiveTraversals = transmissiveBounces;
 
+    // Initialize path state for caching
+	PathState pathState;
+	pathState.weightsComputed = false;
+
 	for( int bounceIndex = 0; bounceIndex <= maxBounceCount; bounceIndex ++ ) {
         // Update state for this bounce
 		state.traversals = maxBounceCount - bounceIndex;
@@ -291,23 +307,23 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		HitInfo hitInfo = traverseBVH( ray, stats );
 
 		if( ! hitInfo.didHit ) {
-			// Environment lighting
+            // Environment lighting
 			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
 			radiance += regularizePathContribution( envColor.rgb * throughput, throughput, float( bounceIndex ) );
 			alpha *= envColor.a;
-			// return vec4(envColor, 1.0);
+            // return vec4(envColor, 1.0);
 			break;
 		}
 
 		RayTracingMaterial material = hitInfo.material;
 		material.color = sampleAlbedoTexture( material, hitInfo.uv );
 
-		// Calculate perturb normal
+        // Calculate perturb normal
 		vec3 N = sampleNormalMap( material, hitInfo.uv, hitInfo.normal );
 		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
 		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
 
-		// Handle transparent materials with transmission
+        // Handle transparent materials with transmission
 		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );
 
 		if( interaction.continueRay ) {
@@ -328,6 +344,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 			alpha *= interaction.alpha;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			ray.direction = interaction.direction;
+
+            // Reset path state for new material
+			pathState.weightsComputed = false;
 			continue;
 		}
 
@@ -339,8 +358,13 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
 		material.sheenRoughness = clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
 
+        // Create material cache if not already created
+		if( ! pathState.weightsComputed ) {
+			pathState.materialCache = createMaterialCache( N, V, material );
+		}
+
 		DirectionSample brdfSample;
-		// Handle clear coat
+        // Handle clear coat
 		if( material.clearcoat > 0.0 ) {
 			vec3 L;
 			float pdf;
@@ -348,39 +372,42 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 			brdfSample.direction = L;
 			brdfSample.pdf = pdf;
 		} else {
-			brdfSample = generateSampledDirection( V, N, material, randomSample, rngState );
+			brdfSample = generateSampledDirection( V, N, material, randomSample, rngState, pathState );
 		}
 
         // Add emissive contribution
 		radiance += sampleEmissiveMap( material, hitInfo.uv ) * throughput * PI;
 
-		ImportanceSamplingInfo samplingInfo = getImportanceSamplingInfo( material, bounceIndex );
+        // Get importance sampling info with caching
+		if( ! pathState.weightsComputed || bounceIndex == 0 ) {
+			pathState.samplingInfo = getImportanceSamplingInfo( material, bounceIndex );
+		}
 
-		// Indirect lighting using MIS
-		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, samplingInfo );
+        // Indirect lighting using MIS with cached sampling info
+		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, pathState.samplingInfo );
 		throughput *= indirectResult.throughput;
 
-		// Add direct lighting contribution
+        // Add direct lighting contribution with cached material data
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
 		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
 
-		// Prepare for next bounce
+        // Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
 
-		// Check if path contribution is becoming negligible
+        // Check if path contribution is becoming negligible
 		float maxThroughput = max( max( throughput.r, throughput.g ), throughput.b );
 		if( maxThroughput < 0.001 && bounceIndex > 2 ) {
 			break; // Path contribution too small, terminate early
 		}
 
-		// Russian roulette path termination
+        // Russian roulette path termination
 		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState ) ) {
 			break;
 		}
 	}
 
-	// #if MAX_AREA_LIGHTS > 0
+    // #if MAX_AREA_LIGHTS > 0
     // bool helperVisible = false;
     // vec3 helperColor = vec3(0.0);
 
@@ -475,7 +502,7 @@ void main( ) {
 		if( frame > 2u && useAdaptiveSampling ) {
 			samplesCount = getRequiredSamples( pixelIndex );
 			if( samplesCount == 0 ) {
-				// Use the previous frame's color (it's converged or temporarily skipped)
+                // Use the previous frame's color (it's converged or temporarily skipped)
 				pixel.color = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
 				fragColor = vec4( pixel.color.rgb, 1.0 );
 				return;
@@ -511,12 +538,12 @@ void main( ) {
 		pixel.color /= float( pixel.samples );
 
 	} else {
-		// For pixels that are not rendered in this frame, use the color from the previous frame
+        // For pixels that are not rendered in this frame, use the color from the previous frame
 		pixel.color = texture( previousFrameTexture, gl_FragCoord.xy / resolution );
 	}
 
-	// pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
-	// pixel.color.rgb = dithering( pixel.color.rgb, seed );
+    // pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
+    // pixel.color.rgb = dithering( pixel.color.rgb, seed );
 
 	fragColor = vec4( pixel.color.rgb, 1.0 );
 }

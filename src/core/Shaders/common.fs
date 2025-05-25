@@ -44,18 +44,26 @@ float minComponent( vec3 v ) {
 //     return dot( color, REC709_LUMINANCE_COEFFICIENTS );
 // }
 
-// power heuristic for multiple importance sampling
+// Optimized power heuristic for multiple importance sampling
 float powerHeuristic( float pdf1, float pdf2 ) {
-	// Fast path for clearly dominant PDF
-    if( pdf1 > pdf2 * 100.0 )
+    // Fast path for clearly dominant PDF with more aggressive early exit
+    float ratio = pdf1 / max( pdf2, MIN_PDF );
+
+    if( ratio > 10.0 )
         return 1.0;
-    if( pdf2 > pdf1 * 100.0 )
+    if( ratio < 0.1 )
         return 0.0;
 
-    // Calculate weights using power heuristic with beta=2
+    // Additional fast paths for common cases
+    if( ratio > 5.0 )
+        return 0.95;
+    if( ratio < 0.2 )
+        return 0.05;
+
+    // Standard power heuristic calculation for intermediate cases
     float p1 = pdf1 * pdf1;
     float p2 = pdf2 * pdf2;
-    return p1 / max( ( p1 + p2 ), 0.001 );
+    return p1 / max( ( p1 + p2 ), MIN_PDF );
 }
 
 vec3 applyDithering( vec3 color, vec2 uv, float ditheringAmount ) {
@@ -69,9 +77,9 @@ vec3 applyDithering( vec3 color, vec2 uv, float ditheringAmount ) {
 }
 
 vec3 reduceFireflies( vec3 color, float maxValue ) {
-    float luminance = dot( color, REC709_LUMINANCE_COEFFICIENTS );
-    if( luminance > maxValue ) {
-        color *= maxValue / luminance;
+    float lum = luminance( color );
+    if( lum > maxValue ) {
+        color *= maxValue / lum;
     }
     return color;
 }

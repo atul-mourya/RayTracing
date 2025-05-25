@@ -540,6 +540,12 @@ vec3 calculateDirectLightingMIS(
     return totalLighting;
 }
 
+// Optimized strategy selection for indirect lighting
+struct SamplingStrategy {
+    int type;      // 0=env, 1=brdf, 2=cosine
+    float weight;  // Normalized weight for this strategy
+};
+
 IndirectLightingResult calculateIndirectLighting(
     vec3 V,
     vec3 N,
@@ -557,89 +563,122 @@ IndirectLightingResult calculateIndirectLighting(
     vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
     float selectionRand = RandomValue( rngState );
 
-    // Extract importance weights for different sampling strategies
-    float envWeight = samplingInfo.envmapImportance;
-    float diffuseWeight = samplingInfo.diffuseImportance;
-    float specularWeight = samplingInfo.specularImportance;
-    float transmissionWeight = samplingInfo.transmissionImportance;
-    float clearcoatWeight = samplingInfo.clearcoatImportance;
+    // Build list of active strategies with non-negligible weights
+    SamplingStrategy strategies[ 3 ];
+    int numActiveStrategies = 0;
+    float totalActiveWeight = 0.0;
 
-    // Combine related strategies for simplicity
-    float brdfWeight = specularWeight + transmissionWeight + clearcoatWeight;
-    float cosineWeight = diffuseWeight;
-
-    // Ensure weights sum to 1.0
-    float totalWeight = envWeight + brdfWeight + cosineWeight;
-    if( totalWeight <= 0.0 ) {
-        // Fallback weights if we have an issue
-        envWeight = 0.2;
-        brdfWeight = 0.5;
-        cosineWeight = 0.3;
-        totalWeight = 1.0;
-    } else if( abs( totalWeight - 1.0 ) > 0.01 ) {
-        // Normalize if not very close to 1.0
-        float invTotal = 1.0 / totalWeight;
-        envWeight *= invTotal;
-        brdfWeight *= invTotal;
-        cosineWeight *= invTotal;
+    // Environment sampling
+    if( samplingInfo.envmapImportance > 0.001 && enableEnvironmentLight ) {
+        strategies[ numActiveStrategies ].type = 0;
+        strategies[ numActiveStrategies ].weight = samplingInfo.envmapImportance;
+        totalActiveWeight += samplingInfo.envmapImportance;
+        numActiveStrategies ++;
     }
 
-    // Initialize sampling variables
+    // BRDF sampling (combine specular, transmission, clearcoat)
+    float brdfWeight = samplingInfo.specularImportance +
+        samplingInfo.transmissionImportance +
+        samplingInfo.clearcoatImportance;
+    if( brdfWeight > 0.001 ) {
+        strategies[ numActiveStrategies ].type = 1;
+        strategies[ numActiveStrategies ].weight = brdfWeight;
+        totalActiveWeight += brdfWeight;
+        numActiveStrategies ++;
+    }
+
+    // Cosine sampling (diffuse)
+    if( samplingInfo.diffuseImportance > 0.001 ) {
+        strategies[ numActiveStrategies ].type = 2;
+        strategies[ numActiveStrategies ].weight = samplingInfo.diffuseImportance;
+        totalActiveWeight += samplingInfo.diffuseImportance;
+        numActiveStrategies ++;
+    }
+
+    // Fallback if no strategies are active
+    if( numActiveStrategies == 0 ) {
+        // Default to cosine sampling
+        result.direction = cosineWeightedSample( N, randomSample );
+        result.pdf = cosineWeightedPDF( max( dot( N, result.direction ), 0.0 ) );
+        result.throughput = evaluateMaterialResponse( V, result.direction, N, material ) *
+            max( dot( N, result.direction ), 0.0 ) / result.pdf;
+        result.misWeight = 1.0;
+        return result;
+    }
+
+    // Select strategy based on normalized weights
+    int selectedStrategy = - 1;
+    float cumulativeWeight = 0.0;
+
+    for( int i = 0; i < numActiveStrategies; i ++ ) {
+        cumulativeWeight += strategies[ i ].weight / totalActiveWeight;
+        if( selectionRand < cumulativeWeight ) {
+            selectedStrategy = i;
+            break;
+        }
+    }
+
+    // Fallback to last strategy if rounding errors
+    if( selectedStrategy == - 1 ) {
+        selectedStrategy = numActiveStrategies - 1;
+    }
+
+    // Sample based on selected strategy
     vec3 sampleDir;
     float samplePdf;
     vec3 sampleBrdfValue;
-    int samplingStrategy = 0; // 0=env, 1=brdf, 2=cosine
+    int strategyType = strategies[ selectedStrategy ].type;
 
-    // Cumulative probability technique for easier selection
-    float cumulativeEnv = envWeight;
-    float cumulativeBrdf = cumulativeEnv + brdfWeight;
-
-    // Select sampling technique based on random value and importance weights
-    if( selectionRand < cumulativeEnv && envWeight > 0.001 && enableEnvironmentLight ) {
+    if( strategyType == 0 ) {
+        // Environment sampling
         if( useEnvMapIS ) {
-            // True environment map importance sampling
             EnvMapSample envSample = sampleEnvironmentIS( randomSample );
             sampleDir = envSample.direction;
             samplePdf = envSample.pdf;
-            sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
-            samplingStrategy = 0;
         } else {
-            // Fallback to cosine-weighted sampling
+            // Fallback to cosine sampling but mark as cosine strategy
             sampleDir = cosineWeightedSample( N, randomSample );
-            float NoL = max( dot( N, sampleDir ), 0.0 );
-            samplePdf = NoL * PI_INV;
-            sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
-            samplingStrategy = 0;
+            samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
+            strategyType = 2; // Mark as cosine for correct MIS
         }
-    } else if( selectionRand < cumulativeBrdf && brdfWeight > 0.001 ) {
-        // Use the pre-computed BRDF sample
+        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+    } else if( strategyType == 1 ) {
+        // BRDF sampling
         sampleDir = brdfSample.direction;
         samplePdf = brdfSample.pdf;
         sampleBrdfValue = brdfSample.value;
-        samplingStrategy = 1;
     } else {
-        // Cosine-weighted hemisphere sampling
+        // Cosine sampling
         sampleDir = cosineWeightedSample( N, randomSample );
-        float NoL = max( dot( N, sampleDir ), 0.0 );
-        samplePdf = cosineWeightedPDF( NoL );
+        samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
-        samplingStrategy = 2;
     }
 
-    // Ensure valid NoL (cos theta)
+    // Ensure valid NoL
     float NoL = max( dot( N, sampleDir ), 0.0 );
 
-    // Calculate PDFs for all strategies for MIS
-    float brdfPdf = max( brdfSample.pdf, MIN_PDF );
-    float cosinePdf = max( cosineWeightedPDF( NoL ), MIN_PDF );
-    float envPdf = cosinePdf; // fallback to cosine if env map sampling not implemented
+    // Lazy PDF evaluation for MIS - only compute PDFs we need
+    float combinedPdf = 0.0;
 
-    // Compute combined PDF for MIS
-    float combinedPdf = envWeight * envPdf +      // Environment sampling
-        brdfWeight * brdfPdf +     // BRDF sampling
-        cosineWeight * cosinePdf;  // Cosine sampling
+    // Add PDF contribution from each active strategy
+    for( int i = 0; i < numActiveStrategies; i ++ ) {
+        float stratPdf = 0.0;
 
-    // Ensure minimum PDF value to prevent NaN/Inf
+        if( strategies[ i ].type == 0 && useEnvMapIS ) {
+            // Environment PDF
+            stratPdf = envMapSamplingPDF( sampleDir );
+        } else if( strategies[ i ].type == 1 ) {
+            // BRDF PDF
+            stratPdf = brdfSample.pdf;
+        } else {
+            // Cosine PDF
+            stratPdf = cosineWeightedPDF( NoL );
+        }
+
+        combinedPdf += strategies[ i ].weight * stratPdf / totalActiveWeight;
+    }
+
+    // Ensure minimum PDF value
     samplePdf = max( samplePdf, MIN_PDF );
     combinedPdf = max( combinedPdf, MIN_PDF );
 
@@ -652,19 +691,26 @@ IndirectLightingResult calculateIndirectLighting(
     // Apply global illumination scaling
     throughput *= globalIlluminationIntensity;
 
-    // Apply adaptive clamping based on material properties
+    // Enhanced firefly clamping based on material and view
     float pathLengthFactor = 1.0 / pow( float( bounceIndex + 1 ), 0.5 );
 
     // Adjust clamping threshold based on material type
+    // View-dependent scaling for glossy materials
     float clampMultiplier = 1.0;
-    if( material.metalness > 0.7 )
+    if( material.metalness > 0.7 ) {
         clampMultiplier = 2.0; // Metals can be brighter
-    if( material.roughness < 0.2 )
-        clampMultiplier = 1.5; // Glossy surfaces can be brighter
+    }
+    if( material.roughness < 0.2 ) {
+        // Additional scaling based on specular alignment
+        vec3 reflectDir = reflect( - V, N );
+        float specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
+        float viewDependentScale = mix( 1.0, 2.0, pow( specularAlignment, 8.0 ) );
+        clampMultiplier *= viewDependentScale;
+    }
 
     float maxThroughput = fireflyThreshold * pathLengthFactor * clampMultiplier;
 
-    // Detect potential fireflies and apply color-preserving clamping
+    // Color-preserving clamping
     float maxComponent = max( max( throughput.r, throughput.g ), throughput.b );
     if( maxComponent > maxThroughput ) {
         // Apply smooth clamping to preserve color

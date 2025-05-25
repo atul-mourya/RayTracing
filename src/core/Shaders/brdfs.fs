@@ -72,14 +72,6 @@ float getMaterialImportance( RayTracingMaterial material ) {
 	return max( brdfImportance, emissiveImportance );
 }
 
-struct ImportanceSamplingInfo {
-	float diffuseImportance;
-	float specularImportance;
-	float transmissionImportance;
-	float clearcoatImportance;
-	float envmapImportance;
-};
-
 ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex ) {
 	ImportanceSamplingInfo info;
 

@@ -104,6 +104,15 @@ struct BRDFWeights {
 	float iridescence;
 };
 
+
+struct ImportanceSamplingInfo {
+	float diffuseImportance;
+	float specularImportance;
+	float transmissionImportance;
+	float clearcoatImportance;
+	float envmapImportance;
+};
+
 struct DotProducts {
     float NoL; // Normal • Light
     float NoV; // Normal • View
@@ -123,4 +132,11 @@ struct MaterialCache {
     bool hasSpecialFeatures;    // Has transmission, clearcoat, etc.
     float alpha;                // roughness squared
     float k;                    // Geometry term constant
+};
+
+struct PathState {
+	BRDFWeights brdfWeights;          // Cached BRDF weights
+	ImportanceSamplingInfo samplingInfo; // Cached importance sampling info
+	MaterialCache materialCache;       // Cached material properties
+	bool weightsComputed;              // Flag to track if weights are computed
 };
