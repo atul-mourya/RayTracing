@@ -20,6 +20,10 @@ export default class GeometryExtractor {
 			mat4: new Matrix4()
 		};
 
+		// OPTIMIZATION: Use Maps for O(1) material and texture lookups instead of O(n) findIndex
+		this._materialMap = new Map();
+		this._textureMap = new Map();
+
 		// Arrays to store extracted data
 		this.resetArrays();
 
@@ -42,7 +46,13 @@ export default class GeometryExtractor {
 	extract( object ) {
 
 		this.resetArrays();
+		this._materialMap.clear();
+		this._textureMap.clear();
+
+		const startTime = performance.now();
 		this.traverseObject( object );
+		console.log( `Geometry extraction completed in ${( performance.now() - startTime ).toFixed( 2 )}ms` );
+
 		this.logStats();
 		return this.getExtractedData();
 
@@ -87,6 +97,14 @@ export default class GeometryExtractor {
 
 		}
 
+		// OPTIMIZATION: Early exit for empty geometries
+		const geometry = mesh.geometry;
+		if ( ! geometry.attributes.position || geometry.attributes.position.count === 0 ) {
+
+			return;
+
+		}
+
 		// Process material and get its index
 		const materialIndex = this.processMaterial( mesh.material );
 		mesh.userData.materialIndex = materialIndex;
@@ -98,24 +116,26 @@ export default class GeometryExtractor {
 
 	processMaterial( material ) {
 
-		// Check if material already exists in our array
-		let materialIndex = this.materials.findIndex( x => x.uuid === material.uuid );
-		if ( materialIndex === - 1 ) {
+		// OPTIMIZATION: Use Map for O(1) lookup instead of O(n) findIndex
+		if ( this._materialMap.has( material.uuid ) ) {
 
-			// Force enable depth write if it's disabled
-			if ( material.depthWrite === false ) {
-
-				material.depthWrite = true;
-				console.warn( "Depth write is disabled in material, enabling it for rastered rendering" );
-
-			}
-
-			// Create a new material object and add it to the array
-			const newMaterial = this.createMaterialObject( material );
-			this.materials.push( newMaterial );
-			materialIndex = this.materials.length - 1;
+			return this._materialMap.get( material.uuid );
 
 		}
+
+		// Force enable depth write if it's disabled
+		if ( material.depthWrite === false ) {
+
+			material.depthWrite = true;
+			console.warn( "Depth write is disabled in material, enabling it for rastered rendering" );
+
+		}
+
+		// Create a new material object and add it to the array
+		const newMaterial = this.createMaterialObject( material );
+		const materialIndex = this.materials.length;
+		this.materials.push( newMaterial );
+		this._materialMap.set( material.uuid, materialIndex );
 
 		return materialIndex;
 
@@ -235,18 +255,28 @@ export default class GeometryExtractor {
 
 	}
 
+	// OPTIMIZATION: Use Map for O(1) texture lookup instead of O(n) findIndex
 	processTexture( texture, textureArray ) {
 
 		if ( ! texture ) return - 1;
-		let textureIndex = textureArray.length === 0 ? - 1 : textureArray.findIndex( x => x.source.uuid === texture.source.uuid );
-		if ( textureIndex === - 1 && textureArray.length < MAX_TEXTURES_LIMIT ) {
 
-			textureArray.push( texture );
-			return textureArray.length - 1;
+		const textureKey = texture.source.uuid;
+		if ( this._textureMap.has( textureKey ) ) {
+
+			return this._textureMap.get( textureKey );
 
 		}
 
-		return textureIndex;
+		if ( textureArray.length < MAX_TEXTURES_LIMIT ) {
+
+			const index = textureArray.length;
+			textureArray.push( texture );
+			this._textureMap.set( textureKey, index );
+			return index;
+
+		}
+
+		return - 1;
 
 	}
 
@@ -448,6 +478,15 @@ export default class GeometryExtractor {
 			directionalLights: this.directionalLights,
 			cameras: this.cameras
 		};
+
+	}
+
+	// Cleanup method
+	dispose() {
+
+		this._materialMap.clear();
+		this._textureMap.clear();
+		this.resetArrays();
 
 	}
 
