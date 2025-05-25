@@ -319,3 +319,5 @@ Khronos Group glTF-Sample-Assets: https://github.com/KhronosGroup/glTF-Sample-As
 https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/MosquitoInAmber/glTF-Binary/MosquitoInAmber.glb
 
  */
+
+// studio lights: https://stock.adobe.com/in/search?k=studio+hdri
