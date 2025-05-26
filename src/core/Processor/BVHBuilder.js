@@ -420,7 +420,19 @@ export default class BVHBuilder {
 				} catch ( error ) {
 
 					console.warn( 'Worker creation failed, falling back to synchronous build:', error );
-					resolve( this.buildSync( triangles, depth, [], progressCallback ) );
+
+					const reorderedTriangles = [];
+					const bvhRoot = this.buildSync( triangles, depth, reorderedTriangles, progressCallback );
+
+					// Update the original triangles array with reordered triangles
+					triangles.length = reorderedTriangles.length;
+					for ( let i = 0; i < reorderedTriangles.length; i ++ ) {
+
+						triangles[ i ] = reorderedTriangles[ i ];
+
+					}
+
+					resolve( bvhRoot );
 
 				}
 
@@ -428,7 +440,22 @@ export default class BVHBuilder {
 
 		} else {
 
-			return Promise.resolve( this.buildSync( triangles, depth, [], progressCallback ) );
+			return new Promise( ( resolve ) => {
+
+				const reorderedTriangles = [];
+				const bvhRoot = this.buildSync( triangles, depth, reorderedTriangles, progressCallback );
+
+				// Update the original triangles array with reordered triangles
+				triangles.length = reorderedTriangles.length;
+				for ( let i = 0; i < reorderedTriangles.length; i ++ ) {
+
+					triangles[ i ] = reorderedTriangles[ i ];
+
+				}
+
+				resolve( bvhRoot );
+
+			} );
 
 		}
 
