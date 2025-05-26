@@ -3,7 +3,7 @@ import {
 	FrontSide, BackSide, DoubleSide, BufferAttribute
 } from "three";
 
-const MAX_TEXTURES_LIMIT = 48;
+const MAX_TEXTURES_LIMIT = 128;
 
 export default class GeometryExtractor {
 
