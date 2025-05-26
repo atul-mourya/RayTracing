@@ -5,11 +5,12 @@ struct TransmissionResult {
 };
 
 struct MaterialInteractionResult {
-	bool continueRay;      // Whether the ray should continue without further BRDF evaluation
-	bool isTransmissive;   // Flag to indicate this was a transmissive interaction
-	vec3 direction;        // New ray direction if continuing
-	vec3 throughput;       // Color modification for the ray
-	float alpha;           // Alpha modification
+	bool continueRay;          // Whether the ray should continue without further BRDF evaluation
+	bool isTransmissive;       // Flag to indicate this was a transmissive interaction
+	bool isAlphaSkip;          // Flag to indicate this was an alpha skip (new)
+	vec3 direction;            // New ray direction if continuing
+	vec3 throughput;           // Color modification for the ray
+	float alpha;               // Alpha modification
 };
 
 // Maximum number of nested media
@@ -60,44 +61,40 @@ vec3 calculateBeerLawAbsorption( vec3 attenuationColor, float attenuationDistanc
 }
 
 float calculateShadowTransmittance(
-    vec3 rayDir,
-    vec3 normal, 
-    RayTracingMaterial material,
-    bool entering
+	vec3 rayDir,
+	vec3 normal,
+	RayTracingMaterial material,
+	bool entering
 ) {
     // Simplified transmission for shadow rays
     // Assumes air-to-material transitions only (no nested media tracking)
     // This is sufficient for shadow calculations and much faster
-    
-    float n1 = entering ? 1.0 : material.ior;
-    float n2 = entering ? material.ior : 1.0;
-    
-    float cosThetaI = abs( dot( normal, rayDir ) );
-    float sinThetaT2 = ( n1 * n1 ) / ( n2 * n2 ) * ( 1.0 - cosThetaI * cosThetaI );
-    
+
+	float n1 = entering ? 1.0 : material.ior;
+	float n2 = entering ? material.ior : 1.0;
+
+	float cosThetaI = abs( dot( normal, rayDir ) );
+	float sinThetaT2 = ( n1 * n1 ) / ( n2 * n2 ) * ( 1.0 - cosThetaI * cosThetaI );
+
     // Handle total internal reflection
-    if( sinThetaT2 > 1.0 ) {
-        return 0.0; // No transmission through TIR
-    }
-    
+	if( sinThetaT2 > 1.0 ) {
+		return 0.0; // No transmission through TIR
+	}
+
     // Calculate Fresnel reflectance
-    float F0 = iorToFresnel0( n2, n1 );
-    float Fr = fresnelSchlick( cosThetaI, F0 );
-    
+	float F0 = iorToFresnel0( n2, n1 );
+	float Fr = fresnelSchlick( cosThetaI, F0 );
+
     // Base transmission: what gets through after Fresnel reflection
-    float baseTransmission = (1.0 - Fr) * material.transmission;
-    
+	float baseTransmission = ( 1.0 - Fr ) * material.transmission;
+
     // Apply Beer's law absorption for exiting rays
-    if( !entering && material.attenuationDistance > 0.0 ) {
-        vec3 absorption = calculateBeerLawAbsorption( 
-            material.attenuationColor, 
-            material.attenuationDistance, 
-            material.thickness 
-        );
-        baseTransmission *= (absorption.r + absorption.g + absorption.b) / 3.0;
-    }
-    
-    return clamp( baseTransmission, 0.0, 1.0 );
+	if( ! entering && material.attenuationDistance > 0.0 ) {
+		vec3 absorption = calculateBeerLawAbsorption( material.attenuationColor, material.attenuationDistance, material.thickness );
+		baseTransmission *= ( absorption.r + absorption.g + absorption.b ) / 3.0;
+	}
+
+	return clamp( baseTransmission, 0.0, 1.0 );
 }
 
 struct MicrofacetTransmissionResult {
@@ -367,24 +364,26 @@ MaterialInteractionResult handleMaterialTransparency(
 		float finalAlpha = material.color.a * material.opacity;
 
         // Use stochastic transparency for blend mode
+		// For BLEND mode skip:
 		if( RandomValue( rngState ) > finalAlpha ) {
-            // Skip this surface entirely
 			result.continueRay = true;
 			result.direction = ray.direction;
 			result.throughput = vec3( 1.0 );
 			result.alpha = 0.0;
+			result.isAlphaSkip = true;  // Mark as alpha skip
 			return result;
 		}
 
 		result.alpha = finalAlpha;
 	} else if( material.alphaMode == 1 ) { // MASK
 		float cutoff = material.alphaTest > 0.0 ? material.alphaTest : 0.5;
+		// For MASK mode skip:
 		if( material.color.a < cutoff ) {
-            // Skip this surface entirely
 			result.continueRay = true;
 			result.direction = ray.direction;
 			result.throughput = vec3( 1.0 );
 			result.alpha = 0.0;
+			result.isAlphaSkip = true;  // Mark as alpha skip
 			return result;
 		}
 
@@ -405,7 +404,7 @@ MaterialInteractionResult handleMaterialTransparency(
 
             // Use the pre-existing handleTransmission function
 			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState, mediumStack );
-			
+
             // Update medium stack
 			// Only update medium stack if we actually transmitted (didn't get TIR/reflection)
 			if( ! transResult.didReflect ) {
@@ -425,7 +424,6 @@ MaterialInteractionResult handleMaterialTransparency(
 					}
 				}
 			}
-
 
             // Apply the transmission result
 			result.direction = transResult.direction;

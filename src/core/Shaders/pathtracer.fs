@@ -327,25 +327,24 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );
 
 		if( interaction.continueRay ) {
-            // If we have a transmissive interaction, track it separately
-			if( interaction.isTransmissive && state.transmissiveTraversals > 0 ) {
-                // Decrement transmissive bounces counter
+			// Handle both transmissive interactions and alpha skips as "free" bounces
+			if( ( interaction.isTransmissive || interaction.isAlphaSkip ) && state.transmissiveTraversals > 0 ) {
+				// Decrement transmissive bounces counter
 				state.transmissiveTraversals --;
 
-                // Don't increment the main bounce counter (effectively giving a "free" bounce)
-                // Only do this if we still have transmissive traversals left
+				// Don't increment the main bounce counter (effectively giving a "free" bounce)
 				if( state.transmissiveTraversals > 0 ) {
 					bounceIndex --;
 				}
 			}
 
-            // Update ray and continue
+			// Update ray and continue
 			throughput *= interaction.throughput;
 			alpha *= interaction.alpha;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			ray.direction = interaction.direction;
 
-            // Reset path state for new material
+			// Reset path state for new material
 			pathState.weightsComputed = false;
 			continue;
 		}
