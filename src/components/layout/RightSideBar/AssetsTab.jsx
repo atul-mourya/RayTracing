@@ -6,7 +6,7 @@ import { EnvironmentCatalog } from '@/components/ui/env-catalog';
 import { useToast } from "@/hooks/use-toast";
 import { useAssetsStore } from '@/store';
 import { useEffect } from 'react';
-import { useStore } from '@/store';
+import { useStore, useEnvironmentStore } from '@/store';
 
 const AssetsTab = () => {
 
@@ -19,11 +19,15 @@ const AssetsTab = () => {
 		environment,
 		debugModel,
 		materials,
+		selectedMaterial,
+		selectedEnvironmentIndex,
 		setActiveTab,
 		setModel,
 		setEnvironment,
 		setDebugModel,
 		setMaterials,
+		setSelectedMaterial,
+		setSelectedEnvironmentIndex,
 	} = useAssetsStore();
 
 	// Fetch material catalog on component mount
@@ -60,11 +64,28 @@ const AssetsTab = () => {
 
 	}, [] );
 
+	// Fix for environments - use stored environment index
+	const getEnvironmentIndex = () => {
+
+		return selectedEnvironmentIndex !== null && selectedEnvironmentIndex !== undefined
+			? selectedEnvironmentIndex.toString()
+			: null;
+
+	};
+
 	const handleEnvironmentChange = async ( envData ) => {
 
 		if ( ! envData || ! envData.url ) return;
 
+		// Update both environment and its index
 		setEnvironment( envData );
+
+		// Find and set the environment index
+		const environmentStore = useEnvironmentStore.getState();
+		const environments = environmentStore.environments || [];
+		const index = environments.findIndex( env => env.id === envData.id );
+		setSelectedEnvironmentIndex( index >= 0 ? index : null );
+
 		if ( ! window.pathTracerApp ) return;
 
 		setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 0 } );
@@ -109,24 +130,25 @@ const AssetsTab = () => {
 
 	const handleModelChange = async ( value ) => {
 
-		setModel( value );
+		const modelIndex = parseInt( value );
+		setModel( modelIndex );
 		if ( ! window.pathTracerApp ) return;
 
 		setLoading( { isLoading: true, title: "Loading", status: "Loading Model..." } );
 
 		try {
 
-			await window.pathTracerApp.loadExampleModels( value );
+			await window.pathTracerApp.loadExampleModels( modelIndex );
 			toast( {
 				title: "Model Loaded Successfully",
-				description: MODEL_FILES[ value ].name,
+				description: MODEL_FILES[ modelIndex ].name,
 			} );
 
 		} catch ( error ) {
 
 			toast( {
 				title: "Error Loading Model",
-				description: `${MODEL_FILES[ value ].name}: ${error.message}`,
+				description: `${MODEL_FILES[ modelIndex ].name}: ${error.message}`,
 				variant: "destructive",
 			} );
 
@@ -142,17 +164,18 @@ const AssetsTab = () => {
 
 	const handleDebugModelChange = async ( value ) => {
 
-		setDebugModel( value );
+		const modelIndex = parseInt( value );
+		setDebugModel( modelIndex );
 		if ( ! window.pathTracerApp ) return;
 
 		setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 0 } );
 
 		try {
 
-			await window.pathTracerApp.loadModel( DEBUG_MODELS[ value ].url );
+			await window.pathTracerApp.loadModel( DEBUG_MODELS[ modelIndex ].url );
 			toast( {
 				title: "Model Loaded Successfully",
-				description: DEBUG_MODELS[ value ].name,
+				description: DEBUG_MODELS[ modelIndex ].name,
 			} );
 
 		} catch ( error ) {
@@ -251,6 +274,11 @@ const AssetsTab = () => {
 
 		}
 
+		const materialIndex = parseInt( value );
+
+		// Track the selected material for highlighting
+		setSelectedMaterial( materialIndex );
+
 		setLoading( {
 			isLoading: true,
 			title: "Apply",
@@ -262,14 +290,14 @@ const AssetsTab = () => {
 
 			// Output debug info
 			console.log( 'Applying material:', {
-				materialIndex: value,
-				materialData: materials[ value ],
+				materialIndex,
+				materialData: materials[ materialIndex ],
 				targetObject: selectedObject,
 				targetMaterial: selectedObject.material
 			} );
 
 			// Apply material properties to the Three.js material
-			applyMaterialInfo( materials[ value ], selectedObject.material );
+			applyMaterialInfo( materials[ materialIndex ], selectedObject.material );
 
 			// Check if the material index exists
 			if ( selectedObject.userData?.materialIndex === undefined ) {
@@ -278,14 +306,14 @@ const AssetsTab = () => {
 
 			}
 
-			const materialIndex = selectedObject.userData?.materialIndex ?? 0;
+			const objMaterialIndex = selectedObject.userData?.materialIndex ?? 0;
 
 			// Update the material in the path tracer
 			if ( window.pathTracerApp?.pathTracingPass?.updateMaterial ) {
 
 				// New API - preferred method with better organization
 				window.pathTracerApp.pathTracingPass.updateMaterial(
-					materialIndex,
+					objMaterialIndex,
 					selectedObject.material
 				);
 
@@ -293,7 +321,7 @@ const AssetsTab = () => {
 
 				// Legacy API - fallback for compatibility
 				window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture(
-					materialIndex,
+					objMaterialIndex,
 					selectedObject.material
 				);
 
@@ -312,7 +340,7 @@ const AssetsTab = () => {
 
 			toast( {
 				title: "Material Applied",
-				description: materials[ value ]?.name || `Material #${value}`,
+				description: materials[ materialIndex ]?.name || `Material #${materialIndex}`,
 			} );
 
 		} catch ( error ) {
@@ -329,6 +357,25 @@ const AssetsTab = () => {
 			useStore.getState().resetLoading();
 
 		}
+
+	};
+
+	// Helper function to get safe string values for ItemsCatalog
+	const getModelValue = () => {
+
+		return model !== null && model !== undefined ? model.toString() : null;
+
+	};
+
+	const getMaterialValue = () => {
+
+		return selectedMaterial !== null && selectedMaterial !== undefined ? selectedMaterial.toString() : null;
+
+	};
+
+	const getDebugModelValue = () => {
+
+		return debugModel !== null && debugModel !== undefined ? debugModel.toString() : null;
 
 	};
 
@@ -355,16 +402,31 @@ const AssetsTab = () => {
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="models" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<ItemsCatalog data={MODEL_FILES} value={model} onValueChange={handleModelChange} />
+					<ItemsCatalog
+						data={MODEL_FILES}
+						value={getModelValue()}
+						onValueChange={handleModelChange}
+					/>
 				</TabsContent>
 				<TabsContent value="materials" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<ItemsCatalog data={materials} value={null} onValueChange={handleMaterialChange} />
+					<ItemsCatalog
+						data={materials}
+						value={getMaterialValue()}
+						onValueChange={handleMaterialChange}
+					/>
 				</TabsContent>
 				<TabsContent value="environments" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<EnvironmentCatalog value={environment?.id} onValueChange={handleEnvironmentChange} />
+					<EnvironmentCatalog
+						value={getEnvironmentIndex()}
+						onValueChange={handleEnvironmentChange}
+					/>
 				</TabsContent>
 				<TabsContent value="tests" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<ItemsCatalog data={DEBUG_MODELS} value={debugModel} onValueChange={handleDebugModelChange} />
+					<ItemsCatalog
+						data={DEBUG_MODELS}
+						value={getDebugModelValue()}
+						onValueChange={handleDebugModelChange}
+					/>
 				</TabsContent>
 			</Tabs>
 		</div>

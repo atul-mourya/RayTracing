@@ -49,14 +49,34 @@ const useStore = create( ( set ) => ( {
 } ) );
 
 // Assets store
-const useAssetsStore = create( ( set ) => ( {
+const useAssetsStore = create( ( set, get ) => ( {
 	...DEFAULT_STATE,
 	activeTab: "models",
 	materials: [],
+	selectedMaterial: null,
+	selectedEnvironmentIndex: null,
 	setMaterials: ( materials ) => set( { materials } ),
+	setSelectedMaterial: ( materialIndex ) => set( { selectedMaterial: materialIndex } ),
 	setActiveTab: ( tab ) => set( { activeTab: tab } ),
 	setModel: ( model ) => set( { model } ),
-	setEnvironment: ( env ) => set( { environment: env } ),
+	setEnvironment: ( env ) => {
+
+		// When setting environment, also update the selected index if we have environments
+		set( ( state ) => {
+
+			const environmentStore = useEnvironmentStore.getState();
+			const environments = environmentStore.environments || [];
+			const index = environments.findIndex( e => e.id === env.id );
+
+			return {
+				environment: env,
+				selectedEnvironmentIndex: index >= 0 ? index : null
+			};
+
+		} );
+
+	},
+	setSelectedEnvironmentIndex: ( index ) => set( { selectedEnvironmentIndex: index } ),
 	setDebugModel: ( model ) => set( { debugModel: model } ),
 } ) );
 

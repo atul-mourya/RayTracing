@@ -129,9 +129,11 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 
 	}, [ toast, selectedResolution, apiData ] );
 
-	const handleEnvironmentChange = ( index ) => {
+	const handleEnvironmentChange = ( indexString ) => {
 
-		const selectedEnvironment = environments[ parseInt( index ) ];
+		const index = parseInt( indexString );
+		const selectedEnvironment = environments[ index ];
+
 		if ( selectedEnvironment ) {
 
 			if ( selectedEnvironment.id === 'custom-upload' ) {
@@ -162,6 +164,8 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 							redirection: '',
 							url: url
 						};
+
+						// Call the parent's change handler with the environment object
 						onValueChange( customEnv );
 
 					}
@@ -172,6 +176,7 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 
 			} else {
 
+				// Call the parent's change handler with the environment object
 				onValueChange( selectedEnvironment );
 
 			}
@@ -181,8 +186,9 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 	};
 
 	return (
-		<div className="flex flex-col h-full">
-			<div className="flex items-center justify-between p-2">
+		<div className="flex flex-col h-full mx-2">
+			{/* Fixed header with resolution selector */}
+			<div className="flex items-center justify-between p-2 shrink-0">
 				<Select value={selectedResolution} onValueChange={setSelectedResolution}>
 					<span className="opacity-50 text-xs truncate">Resolution</span>
 					<SelectTrigger className="max-w-24 h-5 rounded-full">
@@ -195,13 +201,16 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 					</SelectContent>
 				</Select>
 			</div>
-			<div className="flex-1">
+
+			{/* Scrollable content area */}
+			<div className="flex-1 min-h-0">
 				<ItemsCatalog
 					data={environments}
 					value={value}
 					onValueChange={handleEnvironmentChange}
 					isLoading={isLoading}
 					error={error}
+					className="h-full"
 				/>
 			</div>
 		</div>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -37,6 +37,10 @@ export const ItemsCatalog = ( {
 	const [ searchTerm, setSearchTerm ] = useState( '' );
 	const [ filterType, setFilterType ] = useState( '' );
 	const [ filterValue, setFilterValue ] = useState( '' );
+
+	// Refs for scroll functionality
+	const scrollAreaRef = useRef( null );
+	const itemRefs = useRef( {} );
 
 	const categories = useMemo( () => {
 
@@ -102,6 +106,70 @@ export const ItemsCatalog = ( {
 		setFilterValue( newValue );
 
 	}, [] );
+
+	// Helper function to check if an item is selected
+	const isItemSelected = useCallback( ( item ) => {
+
+		if ( value === null || value === undefined ) return false;
+		const selectedIndex = parseInt( value );
+		const selectedItem = data[ selectedIndex ];
+		return selectedItem && selectedItem.name === item.name;
+
+	}, [ value, data ] );
+
+	// Auto-scroll to selected item
+	useEffect( () => {
+
+		if ( value !== null && value !== undefined && data.length > 0 ) {
+
+			const selectedIndex = parseInt( value );
+			const selectedItem = data[ selectedIndex ];
+
+			// Check if the selected item is in the filtered results
+			const isItemVisible = filteredItems.some( item => item.name === selectedItem?.name );
+
+			if ( selectedItem && isItemVisible && itemRefs.current[ selectedItem.name ] ) {
+
+				// Small delay to ensure the DOM is updated
+				const timeoutId = setTimeout( () => {
+
+					const element = itemRefs.current[ selectedItem.name ];
+					if ( element && element.isConnected ) {
+
+						element.scrollIntoView( {
+							behavior: 'smooth',
+							block: 'center',
+							inline: 'nearest'
+						} );
+
+					}
+
+				}, 50 );
+
+				return () => clearTimeout( timeoutId );
+
+			}
+
+		}
+
+	}, [ value, data, filteredItems ] );
+
+	// Clean up refs when data changes
+	useEffect( () => {
+
+		// Remove refs for items that are no longer in the data
+		const currentNames = new Set( data.map( item => item.name ) );
+		Object.keys( itemRefs.current ).forEach( name => {
+
+			if ( ! currentNames.has( name ) ) {
+
+				delete itemRefs.current[ name ];
+
+			}
+
+		} );
+
+	}, [ data ] );
 
 	if ( error ) {
 
@@ -183,7 +251,7 @@ export const ItemsCatalog = ( {
 					</div>
 				)}
 				<Separator className="mb-4" />
-				<ScrollArea className="flex-1">
+				<ScrollArea className="flex-1" ref={scrollAreaRef}>
 					{isLoading ? (
 						<div className="flex items-center justify-center h-64">
 							<Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -198,9 +266,14 @@ export const ItemsCatalog = ( {
 								<Tooltip key={item.name}>
 									<TooltipTrigger asChild>
 										<Card
+											ref={( el ) => {
+
+												if ( el ) itemRefs.current[ item.name ] = el;
+
+											}}
 											className={cn(
 												"cursor-pointer transition-all hover:shadow-md",
-												value !== null && index.toString() === value
+												isItemSelected( item )
 													? "ring-2 ring-primary"
 													: "hover:bg-accent/50"
 											)}
