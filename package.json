@@ -1,7 +1,7 @@
 {
   "name": "raytracing",
   "private": true,
-  "version": "1.42.3",
+  "version": "1.43.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
