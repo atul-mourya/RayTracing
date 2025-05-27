@@ -168,9 +168,9 @@ export const DEFAULT_STATE = {
 	environmentRotation: 0.0,
 	globalIlluminationIntensity: 1,
 	fov: 65,
-	focusDistance: 0,
+	focusDistance: 2.0,
 	aperture: 16,
-	focalLength: 0.0,
+	focalLength: 50.0,
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
@@ -241,10 +241,10 @@ export const CAMERA_RANGES = {
 	},
 	aperture: {
 		options: [ 1.4, 2.0, 2.8, 4.0, 5.6, 8.0, 11.0, 16.0 ],
-		default: DEFAULT_STATE.aperture // f/5.6 - good balance between depth of field and sharpness
+		default: DEFAULT_STATE.aperture // f/16 - sharp focus by default
 	},
 	focalLength: {
-		min: 16, // Ultra wide angle
+		min: 0, // 0 = disable depth of field
 		max: 200, // Telephoto
 		default: DEFAULT_STATE.focalLength // Standard lens
 	}
@@ -258,7 +258,7 @@ export const CAMERA_PRESETS = {
 		fov: 65,
 		focusDistance: 0,
 		aperture: 16.0,
-		focalLength: 0
+		focalLength: 0 // 0 disables DOF entirely
 	},
 	portrait: {
 		name: "Portrait",

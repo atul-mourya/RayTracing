@@ -252,22 +252,39 @@ Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
 	vec4 rayDirCS = cameraProjectionMatrixInverse * vec4( ndcPos, 1.0 );
 
 	// Convert to world space
-
 	vec3 rayDirectionWorld = normalize( mat3( cameraWorldMatrix ) * ( rayDirCS.xyz / rayDirCS.w ) );
 	vec3 rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] );
 
-	if( aperture > 16.0 || focalLength <= 0.0 ) {
+	// Disable depth of field if aperture is very small (pinhole) or focal length is 0
+	if( aperture >= 16.0 || focalLength <= 0.0 || focusDistance <= 0.001 ) {
 		return Ray( rayOriginWorld, rayDirectionWorld );
 	}
 
     // Calculate focal point - where rays converge
 	vec3 focalPoint = rayOriginWorld + rayDirectionWorld * focusDistance;
-	float apertureRadius = ( focalLength * 0.0001 ) * apertureScale / aperture;
 
+	// Calculate aperture radius using proper photographic formula
+	// Convert focal length from mm to scene units and calculate circle of confusion
+	float focalLengthMeters = focalLength * 0.001; // Convert mm to meters
+	float apertureRadius = ( focalLengthMeters * apertureScale ) / aperture;
+
+	// Scale by scene scale to maintain proper proportions
+	// apertureRadius *= 0.1; // Adjust this factor based on your scene scale
+
+	// Generate random point on aperture disk
 	vec2 randomPoint = RandomPointInCircle( rngState );
-	vec3 right = normalize( cross( rayDirectionWorld, vec3( 0.0, 1.0, 0.0 ) ) );
-	vec3 up = cross( right, rayDirectionWorld );
+
+	// Create camera coordinate system
+	vec3 forward = normalize( rayDirectionWorld );
+	vec3 right = normalize( cross( forward, vec3( 0.0, 1.0, 0.0 ) ) );
+	vec3 up = normalize( cross( right, forward ) );
+
+	// Apply aperture offset
 	vec3 offset = ( right * randomPoint.x + up * randomPoint.y ) * apertureRadius;
 
-	return Ray( rayOriginWorld + offset, normalize( focalPoint - ( rayOriginWorld + offset ) ) );
+	// Calculate new ray from offset origin to focal point
+	vec3 newOrigin = rayOriginWorld + offset;
+	vec3 newDirection = normalize( focalPoint - newOrigin );
+
+	return Ray( newOrigin, newDirection );
 }

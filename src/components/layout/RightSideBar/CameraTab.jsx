@@ -9,7 +9,6 @@ import { useCameraStore } from '@/store';
 import { useEffect } from 'react';
 import { FieldOfView } from "@/assets/icons";
 
-
 const CameraTab = () => {
 
 	const {
@@ -72,7 +71,9 @@ const CameraTab = () => {
 		setFocusDistance( value );
 		if ( window.pathTracerApp ) {
 
-			const scaledFocusDistance = value * window.pathTracerApp.sceneScale;
+			// Get scene scale factor for proper scaling
+			const sceneScale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
+			const scaledFocusDistance = value * sceneScale;
 			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = scaledFocusDistance;
 			window.pathTracerApp.reset();
 
@@ -84,14 +85,22 @@ const CameraTab = () => {
 
 		setPreset( presetKey );
 		if ( presetKey === "custom" ) return;
+
 		const preset = CAMERA_PRESETS[ presetKey ];
 		if ( window.pathTracerApp ) {
 
+			// Get scene scale factor
+			const sceneScale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
+
+			// Update Three.js camera
 			window.pathTracerApp.camera.fov = preset.fov;
 			window.pathTracerApp.camera.updateProjectionMatrix();
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = preset.focusDistance * window.pathTracerApp.sceneScale;
+
+			// Update path tracer uniforms
+			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = preset.focusDistance * sceneScale;
 			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = preset.aperture;
 			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = preset.focalLength;
+
 			window.pathTracerApp.reset();
 
 		}
@@ -128,7 +137,16 @@ const CameraTab = () => {
 		setFocalLength( value );
 		if ( window.pathTracerApp ) {
 
+			// Ensure focal length is properly set
 			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = value;
+
+			// If focal length is 0, ensure aperture is set to disable DOF
+			if ( value <= 0 ) {
+
+				window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = 16.0;
+
+			}
+
 			window.pathTracerApp.reset();
 
 		}
@@ -168,6 +186,17 @@ const CameraTab = () => {
 
 	};
 
+	const handleApertureScaleChange = ( value ) => {
+
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.pathTracingPass.material.uniforms.apertureScale.value = value;
+			window.pathTracerApp.reset();
+
+		}
+
+	};
+
 	const cameraPoints = [
 		{ x: 0, y: 50 }, // left view
 		{ x: 50, y: 50 }, // front view
@@ -198,6 +227,7 @@ const CameraTab = () => {
 					</SelectContent>
 				</Select>
 			</div>
+
 			<div className="flex items-center justify-between">
 				<Select value={activePreset} onValueChange={handlePresetChange}>
 					<span className="opacity-50 text-xs truncate">Camera Preset</span>
@@ -280,6 +310,18 @@ const CameraTab = () => {
 					step={1}
 					value={[ focalLength ]}
 					onValueChange={handleFocalLengthChange}
+				/>
+			</div>
+
+			<div className="flex items-center justify-between">
+				<Slider
+					label={"DOF Intensity"}
+					icon={Aperture}
+					min={0.1}
+					max={5.0}
+					step={0.1}
+					value={[ 2.0 ]} // Default value
+					onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
 				/>
 			</div>
 
