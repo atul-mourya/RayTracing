@@ -14,6 +14,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const { toast } = useToast();
 
 	// Refs
+	const viewportRef = useRef( null );
 	const viewportWrapperRef = useRef( null );
 	const containerRef = useRef( null );
 	const primaryCanvasRef = useRef( null );
@@ -169,7 +170,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	} ), [ actualCanvasSize ] );
 
 	return (
-		<div className="flex justify-center items-center h-full overflow-scroll" >
+		<div ref={viewportRef} className="flex justify-center items-center h-full overflow-scroll" >
 
 			<div ref={viewportWrapperRef} className="relative" style={wrapperStyle} >
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
@@ -185,7 +186,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />
 			)}
 
-			<ViewportToolbar onResize={handleViewportResize} viewportWrapperRef={viewportWrapperRef} appRef={appRef} />
+			<ViewportToolbar onResize={handleViewportResize} viewportWrapperRef={viewportRef} appRef={appRef} />
 
 		</div>
 	);
