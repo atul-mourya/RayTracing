@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { InfoIcon, Search, Loader2, Filter } from 'lucide-react';
+import { InfoIcon, Search, Loader2, Filter, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from "@/lib/utils";
@@ -34,58 +34,116 @@ export const ItemsCatalog = ( {
 	...props
 } ) => {
 
-	const [ searchTerm, setSearchTerm ] = useState( '' );
+	const [ searchInput, setSearchInput ] = useState( '' );
+	const [ debouncedSearchTerm, setDebouncedSearchTerm ] = useState( '' );
 	const [ filterType, setFilterType ] = useState( '' );
 	const [ filterValue, setFilterValue ] = useState( '' );
 
 	// Refs for scroll functionality
 	const scrollAreaRef = useRef( null );
 	const itemRefs = useRef( {} );
+	const debounceTimeoutRef = useRef( null );
+
+	// Debounce search input
+	useEffect( () => {
+
+		if ( debounceTimeoutRef.current ) {
+
+			clearTimeout( debounceTimeoutRef.current );
+
+		}
+
+		debounceTimeoutRef.current = setTimeout( () => {
+
+			setDebouncedSearchTerm( searchInput );
+
+		}, 150 );
+
+		return () => {
+
+			if ( debounceTimeoutRef.current ) {
+
+				clearTimeout( debounceTimeoutRef.current );
+
+			}
+
+		};
+
+	}, [ searchInput ] );
 
 	const categories = useMemo( () => {
 
-		return Array.from( new Set( data.filter( item => item.category ).map( item => item.category ).flat() ) ).filter( tag => tag );
+		return Array.from( new Set(
+			data.flatMap( item => item.category || [] ).filter( Boolean )
+		) );
 
 	}, [ data ] );
 
 	const tags = useMemo( () => {
 
-		return Array.from( new Set( data.filter( item => item.tags ).map( item => item.tags ).flat() ) ).filter( tag => tag );
+		return Array.from( new Set(
+			data.flatMap( item => item.tags || [] ).filter( Boolean )
+		) );
 
 	}, [ data ] );
 
-	const filteredItems = useMemo( () => {
+	// Pre-process search strings for better performance
+	const searchIndex = useMemo( () => {
 
-		return data.filter( item => {
+		return data.map( item => {
 
-			const matchesSearch = item.name.toLowerCase().includes( searchTerm.toLowerCase() );
+			const searchableText = [
+				item.name || '',
+				item.label || '',
+				...( item.category || [] ),
+				...( item.tags || [] )
+			].join( ' ' ).toLowerCase();
 
-			// If no filter is selected or filter type is 'all', only apply search
-			if ( ! filterType || filterType === 'all' ) {
-
-				return matchesSearch;
-
-			}
-
-			// Apply category filter
-			if ( filterType === 'category' && filterValue ) {
-
-				return matchesSearch && item.category?.includes( filterValue );
-
-			}
-
-			// Apply tag filter
-			if ( filterType === 'tag' && filterValue ) {
-
-				return matchesSearch && item.tags?.includes( filterValue );
-
-			}
-
-			return matchesSearch;
+			return {
+				item,
+				searchableText,
+				name: ( item.name || '' ).toLowerCase(),
+				tags: ( item.tags || [] ).map( tag => tag.toLowerCase() ),
+				categories: ( item.category || [] ).map( cat => cat.toLowerCase() )
+			};
 
 		} );
 
-	}, [ data, searchTerm, filterType, filterValue ] );
+	}, [ data ] );
+
+	// Optimized filtering with pre-computed search index
+	const filteredItems = useMemo( () => {
+
+		let results = searchIndex;
+
+		// Apply search filter
+		if ( debouncedSearchTerm ) {
+
+			const searchLower = debouncedSearchTerm.toLowerCase();
+			results = results.filter( ( { searchableText } ) =>
+				searchableText.includes( searchLower )
+			);
+
+		}
+
+		// Apply category/tag filters
+		if ( filterType === 'category' && filterValue ) {
+
+			results = results.filter( ( { categories } ) =>
+				categories.includes( filterValue.toLowerCase() )
+			);
+
+		} else if ( filterType === 'tag' && filterValue ) {
+
+			results = results.filter( ( { tags } ) =>
+				tags.includes( filterValue.toLowerCase() )
+			);
+
+		}
+
+		return results.map( ( { item } ) => item );
+
+	}, [ searchIndex, debouncedSearchTerm, filterType, filterValue ] );
 
 	const handleItemSelection = useCallback( ( name ) => {
 
@@ -97,13 +155,20 @@ export const ItemsCatalog = ( {
 	const handleFilterTypeChange = useCallback( ( newType ) => {
 
 		setFilterType( newType );
-		setFilterValue( '' ); // Reset filter value when type changes
+		setFilterValue( '' );
 
 	}, [] );
 
 	const handleFilterValueChange = useCallback( ( newValue ) => {
 
 		setFilterValue( newValue );
+
+	}, [] );
+
+	const handleClearSearch = useCallback( () => {
+
+		setSearchInput( '' );
+		setDebouncedSearchTerm( '' );
 
 	}, [] );
 
@@ -124,13 +189,10 @@ export const ItemsCatalog = ( {
 
 			const selectedIndex = parseInt( value );
 			const selectedItem = data[ selectedIndex ];
-
-			// Check if the selected item is in the filtered results
 			const isItemVisible = filteredItems.some( item => item.name === selectedItem?.name );
 
 			if ( selectedItem && isItemVisible && itemRefs.current[ selectedItem.name ] ) {
 
-				// Small delay to ensure the DOM is updated
 				const timeoutId = setTimeout( () => {
 
 					const element = itemRefs.current[ selectedItem.name ];
@@ -157,7 +219,6 @@ export const ItemsCatalog = ( {
 	// Clean up refs when data changes
 	useEffect( () => {
 
-		// Remove refs for items that are no longer in the data
 		const currentNames = new Set( data.map( item => item.name ) );
 		Object.keys( itemRefs.current ).forEach( name => {
 
@@ -170,6 +231,56 @@ export const ItemsCatalog = ( {
 		} );
 
 	}, [ data ] );
+
+	// Optimized highlight function - only compute when needed
+	const highlightSearchTerm = useCallback( ( text, searchTerm ) => {
+
+		if ( ! searchTerm || ! text || searchTerm.length < 2 ) return text;
+
+		try {
+
+			const regex = new RegExp( `(${searchTerm.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' )})`, 'gi' );
+			const parts = text.split( regex );
+
+			if ( parts.length === 1 ) return text;
+
+			return parts.map( ( part, index ) =>
+				regex.test( part ) ?
+					<mark key={index} className="bg-yellow-200 dark:bg-yellow-800 px-0.5 rounded">{part}</mark> :
+					part
+			);
+
+		} catch {
+
+			return text;
+
+		}
+
+	}, [] );
+
+	// Memoize search summary to avoid recalculation
+	const searchSummary = useMemo( () => {
+
+		if ( ! debouncedSearchTerm ) return null;
+
+		const totalResults = filteredItems.length;
+		const totalItems = data.length;
+
+		if ( totalResults === 0 ) {
+
+			return `No results found for "${debouncedSearchTerm}"`;
+
+		}
+
+		if ( totalResults === totalItems ) {
+
+			return null;
+
+		}
+
+		return `Found ${totalResults} of ${totalItems} items`;
+
+	}, [ debouncedSearchTerm, filteredItems.length, data.length ] );
 
 	if ( error ) {
 
@@ -191,12 +302,23 @@ export const ItemsCatalog = ( {
 						<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
 						<Input
 							type="text"
-							placeholder="Search items..."
-							className="h-5 pl-5 outline-hidden text-xs w-full rounded-full bg-primary/20"
-							value={searchTerm}
-							onChange={( e ) => setSearchTerm( e.target.value )}
-							aria-label="Search items"
+							placeholder="Search items, tags, categories..."
+							className="h-5 pl-5 pr-6 outline-hidden text-xs w-full rounded-full bg-primary/20"
+							value={searchInput}
+							onChange={( e ) => setSearchInput( e.target.value )}
+							aria-label="Search items, tags, and categories"
 						/>
+						{searchInput && (
+							<Button
+								variant="ghost"
+								size="icon"
+								className="absolute right-0.5 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
+								onClick={handleClearSearch}
+								aria-label="Clear search"
+							>
+								<X size={10} className="text-muted-foreground" />
+							</Button>
+						)}
 					</div>
 					{showFilters && (
 						<Popover>
@@ -240,6 +362,14 @@ export const ItemsCatalog = ( {
 						</Popover>
 					)}
 				</div>
+
+				{/* Search summary */}
+				{searchSummary && (
+					<div className="mb-2">
+						<p className="text-xs text-muted-foreground">{searchSummary}</p>
+					</div>
+				)}
+
 				{( filterType || filterValue ) && (
 					<div className="flex items-center space-x-2 mb-2">
 						<p className="text-xs text-muted-foreground">Active filters:</p>
@@ -258,61 +388,115 @@ export const ItemsCatalog = ( {
 						</div>
 					) : filteredItems.length === 0 ? (
 						<div className="flex items-center justify-center h-64 text-muted-foreground">
-							<p className="text-center">No items found. Try adjusting your search or filters.</p>
+							<div className="text-center">
+								<p className="mb-2">No items found.</p>
+								{debouncedSearchTerm && (
+									<p className="text-xs">Try different keywords or check your spelling.</p>
+								)}
+								{! debouncedSearchTerm && ( filterType || filterValue ) && (
+									<p className="text-xs">Try adjusting your filters.</p>
+								)}
+							</div>
 						</div>
 					) : (
 						<div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4">
-							{filteredItems.map( ( item, index ) => (
-								<Tooltip key={item.name}>
-									<TooltipTrigger asChild>
-										<Card
-											ref={( el ) => {
+							{filteredItems.map( ( item ) => {
 
-												if ( el ) itemRefs.current[ item.name ] = el;
+								// Only compute matching data for items that will be highlighted
+								const shouldHighlight = debouncedSearchTerm && debouncedSearchTerm.length >= 2;
+								const matchingTags = shouldHighlight ?
+									( item.tags || [] ).filter( tag => tag.toLowerCase().includes( debouncedSearchTerm.toLowerCase() ) ).slice( 0, 2 ) : [];
+								const matchingCategories = shouldHighlight ?
+									( item.category || [] ).filter( cat => cat.toLowerCase().includes( debouncedSearchTerm.toLowerCase() ) ).slice( 0, 2 ) : [];
 
-											}}
-											className={cn(
-												"cursor-pointer transition-all hover:shadow-md",
-												isItemSelected( item )
-													? "ring-2 ring-primary"
-													: "hover:bg-accent/50"
-											)}
-											onClick={() => handleItemSelection( item.name )}
-										>
-											<CardContent className="p-3">
-												<div className="relative aspect-square mb-2 rounded-md overflow-hidden">
-													<img
-														src={item.preview}
-														alt={item.name}
-														className="w-full h-full object-cover transition-transform hover:scale-105"
-														loading="lazy"
-													/>
-													{item.redirection && (
-														<Button
-															variant="secondary"
-															size="icon"
-															className="absolute right-1 bottom-1 h-6 w-6 rounded-full opacity-80 hover:opacity-100"
-															onClick={( e ) => {
+								return (
+									<Tooltip key={item.name}>
+										<TooltipTrigger asChild>
+											<Card
+												ref={( el ) => {
 
-																e.stopPropagation();
-																window.open( item.redirection, "_blank", "noopener noreferrer" );
+													if ( el ) itemRefs.current[ item.name ] = el;
 
-															}}
-															aria-label={`More information about ${item.name}`}
-														>
-															<InfoIcon className="h-3 w-3" />
-														</Button>
+												}}
+												className={cn(
+													"cursor-pointer transition-all hover:shadow-md",
+													isItemSelected( item )
+														? "ring-2 ring-primary"
+														: "hover:bg-accent/50"
+												)}
+												onClick={() => handleItemSelection( item.name )}
+											>
+												<CardContent className="p-3">
+													<div className="relative aspect-square mb-2 rounded-md overflow-hidden">
+														<img
+															src={item.preview}
+															alt={item.name}
+															className="w-full h-full object-cover transition-transform hover:scale-105"
+															loading="lazy"
+														/>
+														{item.redirection && (
+															<Button
+																variant="secondary"
+																size="icon"
+																className="absolute right-1 bottom-1 h-6 w-6 rounded-full opacity-80 hover:opacity-100"
+																onClick={( e ) => {
+
+																	e.stopPropagation();
+																	window.open( item.redirection, "_blank", "noopener noreferrer" );
+
+																}}
+																aria-label={`More information about ${item.name}`}
+															>
+																<InfoIcon className="h-3 w-3" />
+															</Button>
+														)}
+													</div>
+													<p className="text-sm font-medium text-center truncate">
+														{shouldHighlight ? highlightSearchTerm( item.name, debouncedSearchTerm ) : item.name}
+													</p>
+
+													{/* Show matching tags/categories when searching */}
+													{shouldHighlight && ( matchingTags.length > 0 || matchingCategories.length > 0 ) && (
+														<div className="mt-1 space-y-1">
+															{matchingTags.length > 0 && (
+																<div className="flex flex-wrap gap-1">
+																	{matchingTags.map( tag => (
+																		<Badge key={tag} variant="outline" className="text-xs px-1 py-0">
+																			{highlightSearchTerm( tag, debouncedSearchTerm )}
+																		</Badge>
+																	) )}
+																</div>
+															)}
+															{matchingCategories.length > 0 && (
+																<div className="flex flex-wrap gap-1">
+																	{matchingCategories.map( category => (
+																		<Badge key={category} variant="secondary" className="text-xs px-1 py-0">
+																			{highlightSearchTerm( category, debouncedSearchTerm )}
+																		</Badge>
+																	) )}
+																</div>
+															)}
+														</div>
 													)}
-												</div>
-												<p className="text-sm font-medium text-center truncate">{item.name}</p>
-											</CardContent>
-										</Card>
-									</TooltipTrigger>
-									<TooltipContent>
-										<p>{item.name}</p>
-									</TooltipContent>
-								</Tooltip>
-							) )}
+												</CardContent>
+											</Card>
+										</TooltipTrigger>
+										<TooltipContent>
+											<div>
+												<p className="font-medium">{item.name}</p>
+												{item.label && <p className="text-sm opacity-75">{item.label}</p>}
+												{item.tags && item.tags.length > 0 && (
+													<p className="text-xs opacity-75 mt-1">Tags: {item.tags.join( ', ' )}</p>
+												)}
+												{item.category && item.category.length > 0 && (
+													<p className="text-xs opacity-75">Categories: {item.category.join( ', ' )}</p>
+												)}
+											</div>
+										</TooltipContent>
+									</Tooltip>
+								);
+
+							} )}
 						</div>
 					)}
 				</ScrollArea>
