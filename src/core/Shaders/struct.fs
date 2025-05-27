@@ -122,6 +122,24 @@ struct DotProducts {
 	float VoN; // View • Normal
 };
 
+struct MaterialSamples {
+    vec4 albedo;
+    vec3 emissive;
+    float metalness;
+    float roughness;
+    vec3 normal;
+    bool hasTextures;
+};
+
+struct UVCache {
+    vec2 albedoUV;
+    vec2 normalUV;
+    vec2 metalnessUV;
+    vec2 emissiveUV;
+    vec2 bumpUV;
+};
+
+// Enhanced material cache
 struct MaterialCache {
     vec3 F0;                    // Base reflectance
     float NoV;                  // Normal dot View
@@ -132,11 +150,15 @@ struct MaterialCache {
     bool hasSpecialFeatures;    // Has transmission, clearcoat, etc.
     float alpha;                // roughness squared
     float k;                    // Geometry term constant
+    float alpha2;               // roughness to the fourth power
+    MaterialSamples texSamples; // Texture samples
 };
 
+// Update PathState to include texture samples
 struct PathState {
-	BRDFWeights brdfWeights;          // Cached BRDF weights
+    BRDFWeights brdfWeights;          // Cached BRDF weights
 	ImportanceSamplingInfo samplingInfo; // Cached importance sampling info
 	MaterialCache materialCache;       // Cached material properties
 	bool weightsComputed;              // Flag to track if weights are computed
+    bool texturesLoaded;               // Flag to track if textures are loaded
 };

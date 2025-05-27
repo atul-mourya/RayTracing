@@ -315,13 +315,15 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 			break;
 		}
 
-		RayTracingMaterial material = hitInfo.material;
-		material.color = sampleAlbedoTexture( material, hitInfo.uv );
+		// Sample all textures in one batch
+		MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
 
-        // Calculate perturb normal
-		vec3 N = sampleNormalMap( material, hitInfo.uv, hitInfo.normal );
-		material.metalness = sampleMetalnessMap( material, hitInfo.uv );
-		material.roughness = clamp( sampleRoughnessMap( material, hitInfo.uv ), MIN_ROUGHNESS, MAX_ROUGHNESS );
+        // Update material with samples
+		RayTracingMaterial material = hitInfo.material;
+		material.color = matSamples.albedo;
+		material.metalness = matSamples.metalness;
+		material.roughness = clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
+		vec3 N = matSamples.normal;
 
         // Handle transparent materials with transmission
 		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );
@@ -359,7 +361,8 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 
         // Create material cache if not already created
 		if( ! pathState.weightsComputed ) {
-			pathState.materialCache = createMaterialCache( N, V, material );
+			pathState.materialCache = createMaterialCache( N, V, material, matSamples );
+			pathState.texturesLoaded = true;
 		}
 
 		DirectionSample brdfSample;
@@ -375,7 +378,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		}
 
         // Add emissive contribution
-		radiance += sampleEmissiveMap( material, hitInfo.uv ) * throughput * PI;
+		radiance += matSamples.emissive * throughput * PI;
 
         // Get importance sampling info with caching
 		if( ! pathState.weightsComputed || bounceIndex == 0 ) {

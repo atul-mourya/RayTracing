@@ -444,7 +444,7 @@ vec3 calculateDirectLightingMIS(
     vec3 totalLighting = vec3( 0.0 );
     vec3 N = hitInfo.normal;
 
-    MaterialCache matCache = createMaterialCache( N, V, hitInfo.material );
+    MaterialCache matCache = createMaterialCacheLegacy( N, V, hitInfo.material );
 
     // Early termination for materials that don't need direct lighting
     if( hitInfo.material.emissiveIntensity > 10.0 ) {
