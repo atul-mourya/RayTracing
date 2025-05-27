@@ -28,6 +28,13 @@ import { cn } from "@/lib/utils";
  * @param {number} props.step - Step size for zoom slider
  * @param {number} props.zoomStep - Step size for zoom buttons
  * @param {number} props.defaultSize - Default zoom percentage
+ * @param {Object} props.controls - Configuration object for which controls to show
+ * @param {boolean} props.controls.resetZoom - Show reset zoom button
+ * @param {boolean} props.controls.zoomButtons - Show zoom in/out buttons
+ * @param {boolean} props.controls.zoomSlider - Show zoom slider
+ * @param {boolean} props.controls.screenshot - Show screenshot button
+ * @param {boolean} props.controls.resetCamera - Show reset camera button
+ * @param {boolean} props.controls.fullscreen - Show fullscreen button
  */
 const ViewportToolbar = ( {
 	// Core functionality
@@ -50,6 +57,16 @@ const ViewportToolbar = ( {
 	step = 5,
 	zoomStep = 25,
 	defaultSize = 100,
+
+	// Control configuration
+	controls = {
+		resetZoom: true,
+		zoomButtons: true,
+		zoomSlider: true,
+		screenshot: true,
+		resetCamera: true,
+		fullscreen: true
+	}
 
 } ) => {
 
@@ -118,14 +135,20 @@ const ViewportToolbar = ( {
 	}, [ appRef ] );
 
 	// Control button with different hover style
-	const ControlButton = ( { onClick, tooltip, icon } ) => (
+	const ControlButton = ( { onClick, tooltip, icon, disabled = false } ) => (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
-					onClick={onClick}
+					onClick={() => {
+
+						console.log( `Button clicked: ${tooltip}` );
+						onClick();
+
+					}}
 					variant={buttonVariant}
 					size={buttonSize}
-					className="h-6 w-6 p-1 hover:bg-primary/20 hover:scale-105 mx-1 rounded-full"
+					disabled={disabled}
+					className="h-6 w-6 p-1 hover:bg-primary/20 hover:scale-105 mx-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
 				>
 					{React.cloneElement( icon, { size: iconSize, className: "text-foreground/70" } )}
 				</Button>
@@ -136,6 +159,11 @@ const ViewportToolbar = ( {
 		</Tooltip>
 	);
 
+	// Determine if we need a separator between zoom and other controls
+	const hasZoomControls = controls.resetZoom || controls.zoomButtons || controls.zoomSlider;
+	const hasOtherControls = controls.screenshot || controls.resetCamera || controls.fullscreen;
+	const needsSeparator = hasZoomControls && hasOtherControls;
+
 	return (
 		<div className={cn(
 			"flex absolute h-8 text-xs text-foreground rounded-full bg-secondary backdrop-blur items-center",
@@ -143,14 +171,52 @@ const ViewportToolbar = ( {
 			className
 		)}>
 			<TooltipProvider>
-				<ControlButton onClick={handleResetZoom} tooltip="Reset Zoom" icon={<RotateCcw />}/>
-				<ControlButton onClick={handleZoomOut} tooltip="Zoom Out" icon={<ZoomOut />}/>
-				<Slider value={[ size ]} min={minSize} max={maxSize} step={step} onValueChange={handleSizeChange} className="w-30" />
-				<ControlButton onClick={handleZoomIn} icon={<ZoomIn />}/>
-				<Separator orientation="vertical" className="h-5 mx-1 my-1 bg-foreground/10" />
-				<ControlButton onClick={handleScreenshot} tooltip="Take Screenshot" icon={<Camera />}/>
-				<ControlButton onClick={handleResetCamera} tooltip="Reset Camera" icon={<Target />}/>
-				<ControlButton onClick={handleFullscreen} tooltip="Fullscreen" icon={<Maximize />}/>
+				{/* Zoom Controls Group */}
+				{controls.resetZoom && (
+					<ControlButton onClick={handleResetZoom} tooltip="Reset Zoom" icon={<RotateCcw />}/>
+				)}
+
+				{controls.zoomButtons && (
+					<ControlButton onClick={handleZoomOut} tooltip="Zoom Out" icon={<ZoomOut />}/>
+				)}
+
+				{controls.zoomSlider && (
+					<Slider
+						value={[ size ]}
+						min={minSize}
+						max={maxSize}
+						step={step}
+						onValueChange={handleSizeChange}
+						className="w-30"
+					/>
+				)}
+
+				{controls.zoomButtons && (
+					<ControlButton onClick={handleZoomIn} tooltip="Zoom In" icon={<ZoomIn />}/>
+				)}
+
+				{/* Separator between zoom and other controls */}
+				{needsSeparator && (
+					<Separator orientation="vertical" className="h-5 mx-1 my-1 bg-foreground/10" />
+				)}
+
+				{/* Other Controls Group */}
+				{controls.screenshot && (
+					<ControlButton
+						onClick={handleScreenshot}
+						tooltip="Take Screenshot"
+						icon={<Camera />}
+						disabled={false}
+					/>
+				)}
+
+				{controls.resetCamera && (
+					<ControlButton onClick={handleResetCamera} tooltip="Reset Camera" icon={<Target />}/>
+				)}
+
+				{controls.fullscreen && (
+					<ControlButton onClick={handleFullscreen} tooltip="Fullscreen" icon={<Maximize />}/>
+				)}
 			</TooltipProvider>
 		</div>
 	);

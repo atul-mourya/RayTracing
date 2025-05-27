@@ -5,7 +5,7 @@ import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
 import { ImageProcessorComposer } from '@/utils/ImageProcessor';
-import ViewportResizer from './ViewportResizer';
+import ViewportToolbar from './ViewportToolbar';
 import { deleteRender, saveRender } from '@/utils/database';
 
 const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
@@ -18,6 +18,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const { toast } = useToast();
 
 	// Refs
+	const viewportRef = useRef( null );
 	const viewportWrapperRef = useRef( null );
 	const containerRef = useRef( null );
 	const originalCanvasRef = useRef( null );
@@ -47,6 +48,68 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	}, [ originalSettings, imageProcessing ] );
 
+	// Screenshot handler - defined early to avoid reference issues
+	const handleScreenshot = useCallback( () => {
+
+		console.log( "Screenshot called in ResultsViewport" );
+
+		// Check if we have image data
+		if ( ! imageData ) {
+
+			console.log( "No image data" );
+			toast( {
+				title: "No Image",
+				description: "Please select an image first.",
+				variant: "destructive",
+			} );
+			return;
+
+		}
+
+		// Determine which canvas to download
+		const canvasToDownload = viewingOriginal ? originalCanvasRef.current : editedCanvasRef.current;
+
+		console.log( "Canvas to download:", canvasToDownload, "viewingOriginal:", viewingOriginal );
+
+		if ( ! canvasToDownload ) {
+
+			console.log( "No canvas available" );
+			toast( {
+				title: "Error",
+				description: "Canvas not available for screenshot.",
+				variant: "destructive",
+			} );
+			return;
+
+		}
+
+		try {
+
+			const link = document.createElement( 'a' );
+			link.href = canvasToDownload.toDataURL( 'image/png' );
+			link.download = `raycanvas-${viewingOriginal ? 'original' : 'edited'}-${new Date().getTime()}.png`;
+			link.click();
+
+			console.log( "Screenshot download triggered" );
+
+			toast( {
+				title: "Screenshot Saved",
+				description: `${viewingOriginal ? 'Original' : 'Edited'} image has been downloaded.`,
+			} );
+
+		} catch ( error ) {
+
+			console.error( "Screenshot error:", error );
+			toast( {
+				title: "Screenshot Failed",
+				description: "There was an error taking the screenshot.",
+				variant: "destructive",
+			} );
+
+		}
+
+	}, [ imageData, viewingOriginal, toast ] );
+
 	// Expose ref functions
 	useEffect( () => {
 
@@ -56,10 +119,11 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		ref.current = {
 			getCanvas: () => originalCanvasRef.current,
 			getEditedCanvas: () => editedCanvasRef.current,
-			getImageProcessor: () => imageProcessorRef.current
+			getImageProcessor: () => imageProcessorRef.current,
+			takeScreenshot: handleScreenshot
 		};
 
-	}, [ ref ] );
+	}, [ ref, handleScreenshot ] );
 
 	// Initialize image processor when canvases are ready
 	useEffect( () => {
@@ -262,39 +326,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	// UI handlers
 	const handleViewportResize = ( scale ) => setViewportScale( scale );
 
-	const handleFullscreen = () => {
-
-		if ( ! viewportWrapperRef.current ) return;
-
-		if ( document.fullscreenElement ) {
-
-			document.exitFullscreen();
-
-		} else {
-
-			viewportWrapperRef.current.requestFullscreen();
-
-		}
-
-	};
-
-	const handleScreenshot = () => {
-
-		if ( ! ( ! viewingOriginal ? editedCanvasRef.current : originalCanvasRef.current ) || ! imageData ) return;
-
-		const canvasToDownload = ! viewingOriginal ? editedCanvasRef.current : originalCanvasRef.current;
-		const link = document.createElement( 'a' );
-		link.href = canvasToDownload.toDataURL( 'image/png' );
-		link.download = `raycanvas-${! viewingOriginal ? 'edited' : 'original'}-${new Date().getTime()}.png`;
-		link.click();
-
-		toast( {
-			title: "Screenshot Saved",
-			description: `${! viewingOriginal ? 'Edited' : 'Original'} image has been downloaded.`,
-		} );
-
-	};
-
 	const resetImageProcessing = () => {
 
 		// Check if we have original settings to reset to
@@ -376,8 +407,20 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	};
 
+	// Create a mock app ref for ViewportToolbar compatibility
+	const mockAppRef = useRef( null );
+
+	// Update mockAppRef when handleScreenshot changes
+	useEffect( () => {
+
+		mockAppRef.current = {
+			takeScreenshot: handleScreenshot
+		};
+
+	}, [ handleScreenshot ] );
+
 	return (
-		<div className="flex justify-center items-center h-full z-10">
+		<div ref={viewportRef} className="flex justify-center items-center h-full z-10">
 			{/* Long press hint - only shows when hovering over the canvas or actively viewing original */}
 			{imageData && ( isHovering || viewingOriginal ) && (
 				<div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20">
@@ -398,6 +441,28 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 						<Save size={12} className="mr-1" />
 						Save
 					</button>
+				</div>
+			)}
+
+			{/* Reset Processing button - specific to image editing */}
+			{imageData && hasChanges && ! viewingOriginal && (
+				<div className="absolute bottom-2 left-2 z-20">
+					<TooltipProvider>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									onClick={resetImageProcessing}
+									className="flex items-center justify-center bg-secondary hover:bg-secondary/90 text-foreground px-2 py-1 rounded-full text-xs h-8"
+									disabled={! imageData || viewingOriginal || ! hasChanges}
+								>
+									<RotateCcw size={12} className={`${( ! imageData || viewingOriginal || ! hasChanges ) ? 'text-foreground/30' : 'text-foreground/70'}`} />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent>
+								<p className="text-xs">Reset Processing</p>
+							</TooltipContent>
+						</Tooltip>
+					</TooltipProvider>
 				</div>
 			)}
 
@@ -473,56 +538,25 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				</div>
 			</div>
 
-			{/* Controls */}
-			<div className="flex absolute bottom-2 right-2 text-xs text-foreground p-1 rounded bg-background/80 backdrop-blur-xs">
-				<TooltipProvider>
-					<ViewportResizer onResize={handleViewportResize} />
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								onClick={resetImageProcessing}
-								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-								disabled={! imageData || viewingOriginal || ! hasChanges}
-							>
-								<RotateCcw size={12} className={`bg-transparent border-white ${( ! imageData || viewingOriginal || ! hasChanges ) ? 'text-foreground/30' : 'text-foreground/50'}`} />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Reset Processing</p>
-						</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								onClick={handleScreenshot}
-								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-								disabled={! imageData}
-							>
-								<Camera size={12} className={`bg-transparent border-white ${! imageData ? 'text-foreground/30' : 'text-foreground/50'}`} />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Save Image</p>
-						</TooltipContent>
-					</Tooltip>
-
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<button
-								onClick={handleFullscreen}
-								className="flex cursor-pointer select-none items-center rounded-sm px-2 py-1 hover:bg-primary/90 hover:scale-110"
-							>
-								<Maximize size={12} className="bg-transparent border-white text-foreground/50" />
-							</button>
-						</TooltipTrigger>
-						<TooltipContent>
-							<p>Fullscreen</p>
-						</TooltipContent>
-					</Tooltip>
-				</TooltipProvider>
-			</div>
+			{/* ViewportToolbar - replaces the old custom controls */}
+			<ViewportToolbar
+				onResize={handleViewportResize}
+				viewportWrapperRef={viewportRef}
+				appRef={mockAppRef}
+				position="bottom-right"
+				defaultSize={100}
+				minSize={25}
+				maxSize={300}
+				zoomStep={25}
+				controls={{
+					resetZoom: true,
+					zoomButtons: true,
+					zoomSlider: true,
+					screenshot: true,
+					resetCamera: false, // Not applicable to static images
+					fullscreen: true
+				}}
+			/>
 		</div>
 	);
 
