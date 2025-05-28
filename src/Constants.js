@@ -178,16 +178,17 @@ export const DEFAULT_STATE = {
 	bounces: 3,
 	samplesPerPixel: 1,
 	samplingTechnique: 3,
+
 	adaptiveSampling: false,
-	adaptiveSamplingMin: 1,
-	adaptiveSamplingMax: 4,
-	adaptiveSamplingVarianceThreshold: 0.001,
-	temporalAdaptiveSampling: false,
-	temporalVarianceThreshold: 0.0005,
-	temporalVarianceWeight: 0.7,
+	adaptiveSamplingMin: 0,
+	adaptiveSamplingMax: 6, // Reduced from 8 to 6 for better performance
+	adaptiveSamplingVarianceThreshold: 0.005, // Increased for more aggressive convergence
+	temporalVarianceWeight: 0.6, // Reduced to rely less on temporal (which can be noisy)
 	enableEarlyTermination: true,
-	earlyTerminationThreshold: 0.0001,
+	earlyTerminationThreshold: 0.002, // More relaxed threshold
 	showAdaptiveSamplingHelper: false,
+	performanceModeAdaptive: 'medium',
+
 	fireflyThreshold: 2.2,
 	renderMode: 0,
 	tiles: 3,

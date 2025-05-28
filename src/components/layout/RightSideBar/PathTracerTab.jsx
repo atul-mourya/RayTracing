@@ -505,16 +505,14 @@ const PathTracerTab = () => {
 						<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Max Samples"} min={4} max={16} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
+						<Slider label={"Max Samples"} min={4} max={32} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.0005} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+						<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.0001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 					</div>
 					<div className="flex items-center justify-between">
 						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
 					</div>
-				</> )}
-				{adaptiveSampling && ( <>
 					<div className="flex items-center justify-between">
 						<Slider label={"Temporal Weight"} min={0} max={1} step={0.05} value={[ temporalVarianceWeight ]} onValueChange={handleTemporalVarianceWeightChange} />
 					</div>
@@ -523,7 +521,7 @@ const PathTracerTab = () => {
 					</div>
 					{enableEarlyTermination && (
 						<div className="flex items-center justify-between">
-							<Slider label={"Termination Threshold"} min={0.00001} max={0.001} step={0.00001} value={[ earlyTerminationThreshold ]} onValueChange={handleEarlyTerminationThresholdChange} />
+							<Slider label={"Termination Threshold"} min={0.0001} max={0.005} step={0.0001} value={[ earlyTerminationThreshold ]} onValueChange={handleEarlyTerminationThresholdChange} />
 						</div>
 					)}
 				</> )}

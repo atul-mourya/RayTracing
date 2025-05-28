@@ -539,6 +539,59 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	setAdaptiveSamplingParameters( params ) {
+
+		if ( params.min !== undefined ) {
+
+			this.adaptiveSamplingPass.adaptiveSamplingMin = params.min;
+			this.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = params.min;
+
+		}
+
+		if ( params.max !== undefined ) {
+
+			this.adaptiveSamplingPass.adaptiveSamplingMax = params.max;
+			this.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = params.max;
+			this.material.uniforms.adaptiveSamplingMax.value = params.max;
+
+		}
+
+		if ( params.threshold !== undefined ) {
+
+			this.adaptiveSamplingPass.adaptiveSamplingVarianceThreshold = params.threshold;
+			this.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = params.threshold;
+
+		}
+
+		if ( params.temporalWeight !== undefined ) {
+
+			this.adaptiveSamplingPass.material.uniforms.temporalWeight.value = params.temporalWeight;
+
+		}
+
+		if ( params.convergenceBoost !== undefined ) {
+
+			this.adaptiveSamplingPass.setConvergenceBoost( params.convergenceBoost );
+
+		}
+
+		this.reset();
+
+	}
+
+	getAdaptiveSamplingStats() {
+
+		// This method could be used to get statistics about the adaptive sampling
+		return {
+			enabled: this.material.uniforms.useAdaptiveSampling.value,
+			min: this.adaptiveSamplingPass.adaptiveSamplingMin,
+			max: this.adaptiveSamplingPass.adaptiveSamplingMax,
+			threshold: this.adaptiveSamplingPass.adaptiveSamplingVarianceThreshold,
+			frameNumber: this.adaptiveSamplingPass.material.uniforms.frameNumber.value
+		};
+
+	}
+
 	reset() {
 
 		// Reset accumulated samples

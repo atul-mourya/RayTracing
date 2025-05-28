@@ -473,16 +473,19 @@ int getRequiredSamples( int pixelIndex ) {
 	vec2 texCoord = gl_FragCoord.xy / resolution;
 	vec4 samplingData = texture( adaptiveSamplingTexture, texCoord );
 
-    // Red channel contains normalized sample count (0-1)
-	float normalizedSamples = samplingData.r;
-
-    // Check if this pixel is converged or requires zero samples
-	if( normalizedSamples < 0.01 ) {
-		return 0; // Skip this pixel, it's already converged
+	// Early exit for converged pixels
+	if( samplingData.b > 0.5 ) {
+		return 0;
 	}
 
-    // Convert to actual sample count (min to max range)
-	return int( normalizedSamples * float( adaptiveSamplingMax ) );
+	// Get normalized sample count
+	float normalizedSamples = samplingData.r;
+
+	// Fast conversion without branching
+	int samples = int( normalizedSamples * float( adaptiveSamplingMax ) + 0.5 );
+
+	// Clamp to valid range
+	return clamp( samples, 1, adaptiveSamplingMax );
 }
 
 void main( ) {
@@ -505,11 +508,14 @@ void main( ) {
 			samplesCount = getRequiredSamples( pixelIndex );
 			if( samplesCount == 0 ) {
                 // Use the previous frame's color (it's converged or temporarily skipped)
-				pixel.color = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
-				fragColor = vec4( pixel.color.rgb, 1.0 );
+				fragColor = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
 				return;
 			}
 		}
+
+		// Pre-calculate common values outside the loop
+		vec2 invResolution = 1.0 / resolution;
+		vec2 doubleInvResolution = 2.0 * invResolution;
 
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 
@@ -521,7 +527,7 @@ void main( ) {
 				return;
 			}
 
-			vec2 jitter = ( jitterSample - 0.5 ) * ( 1.0 / resolution ) * 2.0;
+			vec2 jitter = ( jitterSample - 0.5 ) * doubleInvResolution;
 			vec2 jitteredScreenPosition = screenPosition + jitter;
 
 			Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );

@@ -384,10 +384,22 @@ class PathTracerApp extends EventDispatcher {
 
 			}
 
+			// Update temporal statistics BEFORE rendering if we have previous frame data
+			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 && this.pathTracingPass.previousRenderTarget ) {
+
+				this.temporalStatsPass.update( this.pathTracingPass.previousRenderTarget.texture );
+
+			}
+
+			// Render the frame
 			this.composer.render();
 
-			// After rendering, update the temporal statistics with the newest frame
-			this.temporalStatsPass.update( this.pathTracingPass.currentRenderTarget.texture );
+			// For the first frame, initialize temporal statistics with the current frame
+			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value === 1 ) {
+
+				this.temporalStatsPass.update( this.pathTracingPass.currentRenderTarget.texture );
+
+			}
 
 			this.stats.update();
 
@@ -405,7 +417,7 @@ class PathTracerApp extends EventDispatcher {
 
 		if (
 			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
-			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( pathtracingUniforms.tiles.value, 2 ) )
+		( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( pathtracingUniforms.tiles.value, 2 ) )
 		) {
 
 			pathtracingUniforms.frame.value ++;
