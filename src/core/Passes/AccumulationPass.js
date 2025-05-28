@@ -47,15 +47,18 @@ export class AccumulationPass extends Pass {
                 varying vec2 vUv;
         
                 void main() {
-        
-                    vec4 texel1 = texture2D( tDiffuse1, vUv );
-                    vec4 texel2 = texture2D( tDiffuse2, vUv );
-
-					// Calculate weight with a minimum threshold to avoid precision issues
-					float weight = max( 1.0 / iteration, 0.001 );
-					gl_FragColor = mix( texel1, texel2, weight );
-        
-                }`
+				vec4 texel1 = texture2D( tDiffuse1, vUv ); // accumulated
+				vec4 texel2 = texture2D( tDiffuse2, vUv ); // new sample
+				
+				// More stable accumulation formula
+				if (iteration == 1.0) {
+					gl_FragColor = texel2;
+					return;
+				}
+				// This maintains better precision at high sample counts
+				float t = 1.0 / iteration;
+				gl_FragColor = texel1 + (texel2 - texel1) * t;
+			}`
 		} );
 
 		this.blendQuad = new FullScreenQuad( blendMat );
