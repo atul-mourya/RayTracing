@@ -25,103 +25,76 @@ self.onmessage = function ( e ) {
 
 	try {
 
-		let actualTriangleCount;
-
-		actualTriangleCount = triangleCount;
-		console.log( `[TriangleTextureWorker] Processing ${actualTriangleCount} triangles from Float32Array` );
+		console.log( `[TriangleTextureWorker] Processing ${triangleCount} triangles from Float32Array` );
 
 		// Calculate texture dimensions
 		const vec4PerTriangle = TEXTURE_CONSTANTS.VEC4_PER_TRIANGLE;
 		const floatsPerTriangle = vec4PerTriangle * TEXTURE_CONSTANTS.FLOATS_PER_VEC4;
-		const dataLength = actualTriangleCount * floatsPerTriangle;
+		const dataLength = triangleCount * floatsPerTriangle;
 
 		// Calculate dimensions for a square-like texture
 		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
 		const height = Math.ceil( dataLength / ( width * 4 ) );
 
 		// Create the data array
-		const size = width * height * 4; // Total size in floats
+		const size = width * height * 4;
 		const data = new Float32Array( size );
 
-		// Process triangles
-		for ( let i = 0; i < actualTriangleCount; i ++ ) {
+		// Pre-calculate constants to avoid repeated lookups
+		const LAYOUT = TRIANGLE_DATA_LAYOUT;
+		const inputStride = LAYOUT.FLOATS_PER_TRIANGLE;
 
-			const stride = i * floatsPerTriangle;
-			let tri;
+		// Process triangles in batches for better cache performance
+		const BATCH_SIZE = 64; // Process 64 triangles at a time
+		const batches = Math.ceil( triangleCount / BATCH_SIZE );
 
+		for ( let batch = 0; batch < batches; batch ++ ) {
 
-			// Extract triangle data from Float32Array
-			const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
-			tri = {
-				posA: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
-					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
-				},
-				posB: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
-					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
-				},
-				posC: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
-					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
-				},
-				normalA: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
-					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
-				},
-				normalB: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
-					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
-				},
-				normalC: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
-					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
-				},
-				uvA: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
-				},
-				uvB: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
-				},
-				uvC: {
-					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
-					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
-				},
-				materialIndex: triangleData[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
-			};
+			const batchStart = batch * BATCH_SIZE;
+			const batchEnd = Math.min( batchStart + BATCH_SIZE, triangleCount );
 
-			// Store positions (3 vec4s)
-			data[ stride + 0 ] = tri.posA.x; data[ stride + 1 ] = tri.posA.y; data[ stride + 2 ] = tri.posA.z; data[ stride + 3 ] = 0;
-			data[ stride + 4 ] = tri.posB.x; data[ stride + 5 ] = tri.posB.y; data[ stride + 6 ] = tri.posB.z; data[ stride + 7 ] = 0;
-			data[ stride + 8 ] = tri.posC.x; data[ stride + 9 ] = tri.posC.y; data[ stride + 10 ] = tri.posC.z; data[ stride + 11 ] = 0;
+			for ( let i = batchStart; i < batchEnd; i ++ ) {
 
-			// Store normals (3 vec4s)
-			data[ stride + 12 ] = tri.normalA.x; data[ stride + 13 ] = tri.normalA.y; data[ stride + 14 ] = tri.normalA.z; data[ stride + 15 ] = 0;
-			data[ stride + 16 ] = tri.normalB.x; data[ stride + 17 ] = tri.normalB.y; data[ stride + 18 ] = tri.normalB.z; data[ stride + 19 ] = 0;
-			data[ stride + 20 ] = tri.normalC.x; data[ stride + 21 ] = tri.normalC.y; data[ stride + 22 ] = tri.normalC.z; data[ stride + 23 ] = 0;
+				const inputBase = i * inputStride;
+				const outputBase = i * floatsPerTriangle;
 
-			// Store UVs (2 vec4s)
-			// First vec4: UV coordinates for vertices A and B
-			data[ stride + 24 ] = tri.uvA.x; data[ stride + 25 ] = tri.uvA.y; data[ stride + 26 ] = tri.uvB.x; data[ stride + 27 ] = tri.uvB.y;
-			// Second vec4: UV coordinates for vertex C, material index, and a padding value
-			data[ stride + 28 ] = tri.uvC.x; data[ stride + 29 ] = tri.uvC.y; data[ stride + 30 ] = tri.materialIndex; data[ stride + 31 ] = 0;
+				// Use direct indexing with pre-calculated base offsets
+				// Positions - copy 3 vec3s as vec4s with zero padding
+				const pABase = inputBase + LAYOUT.POSITION_A_OFFSET;
+				const pBBase = inputBase + LAYOUT.POSITION_B_OFFSET;
+				const pCBase = inputBase + LAYOUT.POSITION_C_OFFSET;
+
+				data[ outputBase + 0 ] = triangleData[ pABase ]; data[ outputBase + 1 ] = triangleData[ pABase + 1 ]; data[ outputBase + 2 ] = triangleData[ pABase + 2 ]; data[ outputBase + 3 ] = 0;
+				data[ outputBase + 4 ] = triangleData[ pBBase ]; data[ outputBase + 5 ] = triangleData[ pBBase + 1 ]; data[ outputBase + 6 ] = triangleData[ pBBase + 2 ]; data[ outputBase + 7 ] = 0;
+				data[ outputBase + 8 ] = triangleData[ pCBase ]; data[ outputBase + 9 ] = triangleData[ pCBase + 1 ]; data[ outputBase + 10 ] = triangleData[ pCBase + 2 ]; data[ outputBase + 11 ] = 0;
+
+				// Normals - copy 3 vec3s as vec4s with zero padding
+				const nABase = inputBase + LAYOUT.NORMAL_A_OFFSET;
+				const nBBase = inputBase + LAYOUT.NORMAL_B_OFFSET;
+				const nCBase = inputBase + LAYOUT.NORMAL_C_OFFSET;
+
+				data[ outputBase + 12 ] = triangleData[ nABase ]; data[ outputBase + 13 ] = triangleData[ nABase + 1 ]; data[ outputBase + 14 ] = triangleData[ nABase + 2 ]; data[ outputBase + 15 ] = 0;
+				data[ outputBase + 16 ] = triangleData[ nBBase ]; data[ outputBase + 17 ] = triangleData[ nBBase + 1 ]; data[ outputBase + 18 ] = triangleData[ nBBase + 2 ]; data[ outputBase + 19 ] = 0;
+				data[ outputBase + 20 ] = triangleData[ nCBase ]; data[ outputBase + 21 ] = triangleData[ nCBase + 1 ]; data[ outputBase + 22 ] = triangleData[ nCBase + 2 ]; data[ outputBase + 23 ] = 0;
+
+				// UVs and material - pack efficiently
+				const uvABase = inputBase + LAYOUT.UV_A_OFFSET;
+				const uvBBase = inputBase + LAYOUT.UV_B_OFFSET;
+				const uvCBase = inputBase + LAYOUT.UV_C_OFFSET;
+
+				data[ outputBase + 24 ] = triangleData[ uvABase ]; data[ outputBase + 25 ] = triangleData[ uvABase + 1 ]; data[ outputBase + 26 ] = triangleData[ uvBBase ]; data[ outputBase + 27 ] = triangleData[ uvBBase + 1 ];
+				data[ outputBase + 28 ] = triangleData[ uvCBase ]; data[ outputBase + 29 ] = triangleData[ uvCBase + 1 ]; data[ outputBase + 30 ] = triangleData[ inputBase + LAYOUT.MATERIAL_INDEX_OFFSET ]; data[ outputBase + 31 ] = 0;
+
+			}
 
 		}
 
-		// Send result back with transferable array buffer
+		// Send result back with Float32Array and transferable array buffer
 		self.postMessage( {
-			data: data.buffer,
+			data: data,
 			width,
 			height,
-			triangleCount: actualTriangleCount
+			triangleCount: triangleCount
 		}, [ data.buffer ] );
 
 	} catch ( error ) {

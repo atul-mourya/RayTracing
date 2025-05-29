@@ -1,7 +1,4 @@
-import {
-	Vector3, Vector2, Color, Matrix3, Matrix4, MeshPhysicalMaterial,
-	FrontSide, BackSide, DoubleSide, BufferAttribute
-} from "three";
+import { Vector3, Vector2, Color, Matrix3, Matrix4, FrontSide, BackSide, DoubleSide } from "three";
 
 const MAX_TEXTURES_LIMIT = 128;
 

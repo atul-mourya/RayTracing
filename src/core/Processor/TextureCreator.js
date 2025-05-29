@@ -380,24 +380,8 @@ export default class TextureCreator {
 
 				worker.terminate();
 
-				// Properly handle ArrayBuffer from worker
-				let textureData;
-				if ( result.data instanceof ArrayBuffer ) {
-
-					textureData = new Float32Array( result.data );
-
-				} else if ( result.data instanceof Float32Array ) {
-
-					textureData = result.data;
-
-				} else {
-
-					throw new Error( 'Invalid triangle data format from worker' );
-
-				}
-
 				const texture = new DataTexture(
-					textureData,
+					result.data,
 					result.width,
 					result.height,
 					RGBAFormat,
