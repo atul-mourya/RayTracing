@@ -237,7 +237,7 @@ export default class TextureCreator {
 				worker.terminate();
 
 				const texture = new DataTexture(
-					new Float32Array( result.data ),
+					result.data,
 					result.width,
 					result.height,
 					RGBAFormat,

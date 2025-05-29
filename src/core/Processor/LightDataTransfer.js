@@ -123,14 +123,6 @@ export class LightDataTransfer {
 
 		} );
 
-		// Log optimization info
-		if ( this.directionalLightCache.length > 0 ) {
-
-			console.log( `Preprocessed ${this.directionalLightCache.length} directional lights by importance` );
-			console.log( `Most important directional light has intensity: ${this.directionalLightCache[ 0 ].light.intensity}` );
-
-		}
-
 		if ( this.areaLightCache.length > 0 ) {
 
 			console.log( `Preprocessed ${this.areaLightCache.length} area lights by importance` );
