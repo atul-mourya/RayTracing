@@ -4,6 +4,70 @@ import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter,
 const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize;
 const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
+// Canvas pooling for efficient reuse of canvas elements
+class CanvasPool {
+
+	constructor() {
+
+		this.canvases = [];
+		this.contexts = [];
+		this.maxPoolSize = 10; // Prevent excessive pooling
+
+	}
+
+	getCanvas( width, height ) {
+
+		let canvas = this.canvases.pop();
+		if ( ! canvas ) {
+
+			canvas = document.createElement( 'canvas' );
+
+		}
+
+		canvas.width = width;
+		canvas.height = height;
+		return canvas;
+
+	}
+
+	getContext( canvas ) {
+
+		let ctx = this.contexts.pop();
+		if ( ! ctx ) {
+
+			ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+
+		} else {
+
+			ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+
+		}
+
+		return ctx;
+
+	}
+
+	releaseCanvas( canvas, ctx ) {
+
+		if ( this.canvases.length < this.maxPoolSize ) {
+
+			// Reset canvas to save memory
+			canvas.width = 1;
+			canvas.height = 1;
+			this.canvases.push( canvas );
+
+		}
+
+		if ( ctx && this.contexts.length < this.maxPoolSize ) {
+
+			this.contexts.push( ctx );
+
+		}
+
+	}
+
+}
+
 export default class TextureCreator {
 
 	constructor() {
@@ -13,6 +77,36 @@ export default class TextureCreator {
 		this.maxConcurrentWorkers = 4;
 		this.maxConcurrentWorkers = Math.min( navigator.hardwareConcurrency || 4, 4 );
 		this.activeWorkers = 0;
+
+		// Initialize canvas pool
+		this.canvasPool = new CanvasPool();
+
+		// Initialize buffer pool
+		this.bufferPool = new Map(); // size -> array pool
+		this.maxBufferPoolSize = 20;
+
+	}
+
+	// Get a buffer from the pool or create a new one
+	getBuffer( size, type = Float32Array ) {
+
+		const key = `${type.name}-${size}`;
+		const pool = this.bufferPool.get( key ) || [];
+		return pool.pop() || new type( size );
+
+	}
+
+	// Return a buffer to the pool
+	releaseBuffer( buffer, type = Float32Array ) {
+
+		const key = `${type.name}-${buffer.length}`;
+		const pool = this.bufferPool.get( key ) || [];
+		if ( pool.length < this.maxBufferPoolSize ) {
+
+			pool.push( buffer );
+			this.bufferPool.set( key, pool );
+
+		}
 
 	}
 
@@ -385,15 +479,18 @@ export default class TextureCreator {
 
 	}
 
-	// Helper method to get image data
+	// Helper method to get image data using canvas pool
 	getImageData( image ) {
 
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = image.width;
-		canvas.height = image.height;
-		const ctx = canvas.getContext( '2d' );
+		const canvas = this.canvasPool.getCanvas( image.width, image.height );
+		const ctx = this.canvasPool.getContext( canvas );
+
+		ctx.clearRect( 0, 0, canvas.width, canvas.height );
 		ctx.drawImage( image, 0, 0 );
-		return ctx.getImageData( 0, 0, image.width, image.height ).data;
+		const imageData = ctx.getImageData( 0, 0, image.width, image.height ).data;
+
+		this.canvasPool.releaseCanvas( canvas, ctx );
+		return imageData;
 
 	}
 
@@ -432,7 +529,7 @@ export default class TextureCreator {
 		bestHeight = Math.pow( 2, Math.ceil( Math.log2( bestHeight ) ) );
 
 		const size = bestWidth * bestHeight * dataInEachPixel;
-		const data = new Float32Array( size );
+		const data = this.getBuffer( size );
 
 		for ( let i = 0; i < totalMaterials; i ++ ) {
 
@@ -479,6 +576,20 @@ export default class TextureCreator {
 
 		const texture = new DataTexture( data, bestWidth, bestHeight, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
+
+		// Store the buffer for release when texture is disposed
+		texture.userData = { buffer: data, bufferType: Float32Array };
+		texture.addEventListener( 'dispose', () => {
+
+			if ( texture.userData.buffer ) {
+
+				this.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
+				texture.userData.buffer = null;
+
+			}
+
+		} );
+
 		return texture;
 
 	}
@@ -493,9 +604,9 @@ export default class TextureCreator {
 		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
 		const height = Math.ceil( dataLength / ( width * 4 ) );
 
-		// Create the data array
+		// Create the data array from the pool
 		const size = width * height * 4; // Total size in floats
-		const data = new Float32Array( size );
+		const data = this.getBuffer( size );
 
 		for ( let i = 0; i < triangles.length; i ++ ) {
 
@@ -523,6 +634,20 @@ export default class TextureCreator {
 		// Create and return the DataTexture
 		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
+
+		// Store the buffer for release when texture is disposed
+		texture.userData = { buffer: data, bufferType: Float32Array };
+		texture.addEventListener( 'dispose', () => {
+
+			if ( texture.userData.buffer ) {
+
+				this.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
+				texture.userData.buffer = null;
+
+			}
+
+		} );
+
 		return texture;
 
 	}
@@ -584,13 +709,11 @@ export default class TextureCreator {
 
 		// Create a 3D data array
 		const depth = validTextures.length;
-		const data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+		const data = this.getBuffer( maxWidth * maxHeight * depth * 4, Uint8Array );
 
-		// Canvas for resizing textures
-		const canvas = document.createElement( 'canvas' );
-		canvas.width = maxWidth;
-		canvas.height = maxHeight;
-		const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+		// Get canvas from pool
+		const canvas = this.canvasPool.getCanvas( maxWidth, maxHeight );
+		const ctx = this.canvasPool.getContext( canvas );
 
 		// Fill the 3D texture data
 		for ( let i = 0; i < validTextures.length; i ++ ) {
@@ -610,6 +733,9 @@ export default class TextureCreator {
 
 		}
 
+		// Return canvas to pool
+		this.canvasPool.releaseCanvas( canvas, ctx );
+
 		// Create and return the 3D texture
 		const texture = new DataArrayTexture( data, maxWidth, maxHeight, depth );
 		texture.minFilter = LinearFilter;
@@ -618,6 +744,19 @@ export default class TextureCreator {
 		texture.type = UnsignedByteType;
 		texture.needsUpdate = true;
 		texture.generateMipmaps = false;
+
+		// Store the buffer for release when texture is disposed
+		texture.userData = { buffer: data, bufferType: Uint8Array };
+		texture.addEventListener( 'dispose', () => {
+
+			if ( texture.userData.buffer ) {
+
+				this.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
+				texture.userData.buffer = null;
+
+			}
+
+		} );
 
 		// Store the mapping between original texture indices and valid texture indices
 		texture.textureMapping = textures.map( ( tex, index ) => {
@@ -657,7 +796,7 @@ export default class TextureCreator {
 		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
 		const height = Math.ceil( dataLength / ( 4 * width ) );
 		const size = width * height * 4;
-		const data = new Float32Array( size );
+		const data = this.getBuffer( size );
 
 		for ( let i = 0; i < nodes.length; i ++ ) {
 
@@ -688,7 +827,33 @@ export default class TextureCreator {
 
 		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
+
+		// Store the buffer for release when texture is disposed
+		texture.userData = { buffer: data, bufferType: Float32Array };
+		texture.addEventListener( 'dispose', () => {
+
+			if ( texture.userData.buffer ) {
+
+				this.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
+				texture.userData.buffer = null;
+
+			}
+
+		} );
+
 		return texture;
+
+	}
+
+	// Clean up method to release all pooled resources
+	dispose() {
+
+		// Clear buffer pools
+		this.bufferPool.clear();
+
+		// Clear canvas pools
+		this.canvasPool.canvases = [];
+		this.canvasPool.contexts = [];
 
 	}
 
