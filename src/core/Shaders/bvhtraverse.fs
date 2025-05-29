@@ -23,7 +23,7 @@ vec4 getDatafromDataTexture( sampler2D tex, ivec2 texSize, int stride, int sampl
 BVHNode getBVHNode( int index ) {
 	vec4 data[ 3 ];
 	for( int i = 0; i < 3; i ++ ) {
-		data[ i ] = getDatafromDataTexture( bvhTexture, bvhTexSize, index, i, 4 );
+		data[ i ] = getDatafromDataTexture( bvhTexture, bvhTexSize, index, i, 3 );
 	}
 
 	BVHNode node;

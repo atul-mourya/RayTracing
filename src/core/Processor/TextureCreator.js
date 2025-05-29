@@ -9,7 +9,7 @@ const TEXTURE_CONSTANTS = {
 	PIXELS_PER_MATERIAL: 24,
 	RGBA_COMPONENTS: 4,
 	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
-	VEC4_PER_BVH_NODE: 4,
+	VEC4_PER_BVH_NODE: 3,
 	FLOATS_PER_VEC4: 4,
 	MIN_TEXTURE_WIDTH: 4,
 	MAX_CONCURRENT_WORKERS: 4,
@@ -805,7 +805,8 @@ export default class TextureCreator {
 
 		flattenBVH( bvhRoot );
 
-		const dataLength = nodes.length * TEXTURE_CONSTANTS.VEC4_PER_BVH_NODE * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // 4 vec4s per node
+		// Optimized: Use only 3 vec4s per node instead of 4
+		const dataLength = nodes.length * TEXTURE_CONSTANTS.VEC4_PER_BVH_NODE * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // 3 vec4s per node
 		const width = Math.ceil( Math.sqrt( dataLength / TEXTURE_CONSTANTS.RGBA_COMPONENTS ) );
 		const height = Math.ceil( dataLength / ( TEXTURE_CONSTANTS.RGBA_COMPONENTS * width ) );
 		const size = width * height * TEXTURE_CONSTANTS.RGBA_COMPONENTS;
@@ -813,28 +814,26 @@ export default class TextureCreator {
 
 		for ( let i = 0; i < nodes.length; i ++ ) {
 
-			const stride = i * 16;
+			const stride = i * 12;
 			const node = nodes[ i ];
+
+			// Vec4 1: boundsMin + leftChild
 			data[ stride + 0 ] = node.boundsMin.x;
 			data[ stride + 1 ] = node.boundsMin.y;
 			data[ stride + 2 ] = node.boundsMin.z;
 			data[ stride + 3 ] = node.leftChild !== null ? node.leftChild : - 1;
 
+			// Vec4 2: boundsMax + rightChild
 			data[ stride + 4 ] = node.boundsMax.x;
 			data[ stride + 5 ] = node.boundsMax.y;
 			data[ stride + 6 ] = node.boundsMax.z;
 			data[ stride + 7 ] = node.rightChild !== null ? node.rightChild : - 1;
 
+			// Vec4 3: triangleOffset, triangleCount, and padding
 			data[ stride + 8 ] = node.triangleOffset;
 			data[ stride + 9 ] = node.triangleCount;
 			data[ stride + 10 ] = 0;
 			data[ stride + 11 ] = 0;
-
-			// You can use the remaining 4 floats for additional data if needed
-			data[ stride + 12 ] = 0;
-			data[ stride + 13 ] = 0;
-			data[ stride + 14 ] = 0;
-			data[ stride + 15 ] = 0;
 
 		}
 
