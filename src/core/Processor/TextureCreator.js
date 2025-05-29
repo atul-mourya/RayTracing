@@ -4,6 +4,19 @@ import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter,
 const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize;
 const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
+// Constants to avoid magic numbers
+const TEXTURE_CONSTANTS = {
+	PIXELS_PER_MATERIAL: 24,
+	RGBA_COMPONENTS: 4,
+	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
+	VEC4_PER_BVH_NODE: 4,
+	FLOATS_PER_VEC4: 4,
+	MIN_TEXTURE_WIDTH: 4,
+	MAX_CONCURRENT_WORKERS: 4,
+	WORKER_POOL_SIZE: 10,
+	BUFFER_POOL_SIZE: 20
+};
+
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
 
@@ -74,8 +87,8 @@ export default class TextureCreator {
 
 		this.useWorkers = typeof Worker !== 'undefined';
 		// Limit concurrent workers (adjust based on your needs)
-		this.maxConcurrentWorkers = 4;
-		this.maxConcurrentWorkers = Math.min( navigator.hardwareConcurrency || 4, 4 );
+		this.maxConcurrentWorkers = TEXTURE_CONSTANTS.MAX_CONCURRENT_WORKERS;
+		this.maxConcurrentWorkers = Math.min( navigator.hardwareConcurrency || TEXTURE_CONSTANTS.MAX_CONCURRENT_WORKERS, TEXTURE_CONSTANTS.MAX_CONCURRENT_WORKERS );
 		this.activeWorkers = 0;
 
 		// Initialize canvas pool
@@ -83,7 +96,7 @@ export default class TextureCreator {
 
 		// Initialize buffer pool
 		this.bufferPool = new Map(); // size -> array pool
-		this.maxBufferPoolSize = 20;
+		this.maxBufferPoolSize = TEXTURE_CONSTANTS.BUFFER_POOL_SIZE;
 
 	}
 
@@ -496,16 +509,16 @@ export default class TextureCreator {
 
 	createMaterialDataTextureSync( materials ) {
 
-		const pixelsRequired = 24; // 24 pixels per material
-		const dataInEachPixel = 4; // RGBA components
+		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL; // 24 pixels per material
+		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS; // RGBA components
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const totalMaterials = materials.length;
 
 		// Calculate the optimal dimensions
 		// Strategy: Find the smallest power of 2 width that minimizes unused space
 		const totalPixels = pixelsRequired * totalMaterials;
-		let bestWidth = 4; // Start with minimum reasonable width
-		let bestHeight = Math.ceil( totalPixels / 4 );
+		let bestWidth = TEXTURE_CONSTANTS.MIN_TEXTURE_WIDTH; // Start with minimum reasonable width
+		let bestHeight = Math.ceil( totalPixels / TEXTURE_CONSTANTS.MIN_TEXTURE_WIDTH );
 		let minWaste = bestWidth * bestHeight - totalPixels;
 
 		// Try different widths up to the square root of total pixels
@@ -596,8 +609,8 @@ export default class TextureCreator {
 
 	createTriangleDataTextureSync( triangles ) {
 
-		const vec4PerTriangle = 3 + 3 + 2; // 3 vec4s for positions, 3 for normals, 2 for UVs and material index
-		const floatsPerTriangle = vec4PerTriangle * 4; // Each vec4 contains 4 floats
+		const vec4PerTriangle = TEXTURE_CONSTANTS.VEC4_PER_TRIANGLE; // 3 vec4s for positions, 3 for normals, 2 for UVs and material index
+		const floatsPerTriangle = vec4PerTriangle * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // Each vec4 contains 4 floats
 		const dataLength = triangles.length * floatsPerTriangle;
 
 		// Calculate dimensions for a square-like texture
@@ -792,10 +805,10 @@ export default class TextureCreator {
 
 		flattenBVH( bvhRoot );
 
-		const dataLength = nodes.length * 4 * 4; // 4 vec4s per node
-		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
-		const height = Math.ceil( dataLength / ( 4 * width ) );
-		const size = width * height * 4;
+		const dataLength = nodes.length * TEXTURE_CONSTANTS.VEC4_PER_BVH_NODE * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // 4 vec4s per node
+		const width = Math.ceil( Math.sqrt( dataLength / TEXTURE_CONSTANTS.RGBA_COMPONENTS ) );
+		const height = Math.ceil( dataLength / ( TEXTURE_CONSTANTS.RGBA_COMPONENTS * width ) );
+		const size = width * height * TEXTURE_CONSTANTS.RGBA_COMPONENTS;
 		const data = this.getBuffer( size );
 
 		for ( let i = 0; i < nodes.length; i ++ ) {
