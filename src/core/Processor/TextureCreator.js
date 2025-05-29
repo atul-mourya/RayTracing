@@ -346,7 +346,7 @@ export default class TextureCreator {
 	async createTriangleDataTexture( triangles ) {
 
 		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-		console.log( `Creating triangle texture with ${triangleCount} triangles (zero-copy unified format)` );
+		console.log( `Creating triangle: ${triangleCount} triangles` );
 
 		// Calculate texture dimensions - data is already perfectly aligned
 		const floatsPerTriangle = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE; // 32 floats
@@ -356,20 +356,18 @@ export default class TextureCreator {
 		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
 		const height = Math.ceil( dataLength / ( width * 4 ) );
 
-		// Check if we can use the triangle data directly (zero-copy)
+		// Check if we can use the triangle data directly
 		const expectedSize = width * height * 4;
 		let textureData;
 
 		if ( dataLength === expectedSize ) {
 
-			// Perfect fit - use the triangle data directly (zero-copy!)
-			console.log( 'Zero-copy triangle texture: Perfect size match' );
+			// Perfect fit - use the triangle data directly
 			textureData = triangles;
 
 		} else {
 
 			// Need to pad the data slightly
-			console.log( `Zero-copy triangle texture: Padding from ${dataLength} to ${expectedSize} floats` );
 			textureData = new Float32Array( expectedSize );
 			textureData.set( triangles, 0 ); // Copy existing data, rest remains zeros
 
@@ -395,7 +393,7 @@ export default class TextureCreator {
 
 		}
 
-		console.log( `Triangle texture created: ${width}x${height}, ${triangleCount} triangles (optimized unified format)` );
+		console.log( `Triangle texture created: ${width}x${height}, ${triangleCount} triangles` );
 		return texture;
 
 	}
