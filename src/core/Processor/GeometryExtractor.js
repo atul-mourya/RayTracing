@@ -2,19 +2,23 @@ import { Vector3, Vector2, Color, Matrix3, Matrix4, FrontSide, BackSide, DoubleS
 
 const MAX_TEXTURES_LIMIT = 128;
 
-// Constants for triangle data layout in Float32Array
+// Unified triangle data layout - matches texture format for zero-copy optimization
 const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 25, // 3*3 positions + 3*3 normals + 3*2 uvs + 1 materialIndex
-	POSITION_A_OFFSET: 0, // 3 floats: x, y, z
-	POSITION_B_OFFSET: 3, // 3 floats: x, y, z
-	POSITION_C_OFFSET: 6, // 3 floats: x, y, z
-	NORMAL_A_OFFSET: 9, // 3 floats: x, y, z
-	NORMAL_B_OFFSET: 12, // 3 floats: x, y, z
-	NORMAL_C_OFFSET: 15, // 3 floats: x, y, z
-	UV_A_OFFSET: 18, // 2 floats: x, y
-	UV_B_OFFSET: 20, // 2 floats: x, y
-	UV_C_OFFSET: 22, // 2 floats: x, y
-	MATERIAL_INDEX_OFFSET: 24 // 1 float: materialIndex
+	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
+
+	// Positions (3 vec4s = 12 floats)
+	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
+	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
+	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
+
+	// Normals (3 vec4s = 12 floats)
+	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
+	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
+	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
+
+	// UVs and Material (2 vec4s = 8 floats)
+	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
 };
 
 export default class GeometryExtractor {
@@ -61,9 +65,9 @@ export default class GeometryExtractor {
 
 		// First pass: count triangles to pre-allocate Float32Array
 		this.triangleCount = this.countTriangles( object );
-		console.log( `Pre-allocating for ${this.triangleCount} triangles` );
+		console.log( `Pre-allocating for ${this.triangleCount} triangles (texture-aligned format)` );
 
-		// Allocate Float32Array for all triangle data
+		// Allocate Float32Array for all triangle data (texture-ready format)
 		this.triangleData = new Float32Array( this.triangleCount * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
 		this.currentTriangleIndex = 0;
 
@@ -337,7 +341,7 @@ export default class GeometryExtractor {
 
 	}
 
-	// More efficient triangle extraction that processes triangles in batches
+	// triangle extraction that stores directly in texture format
 	extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex ) {
 
 		// Pre-allocate objects for positions, normals, and UVs
@@ -425,8 +429,8 @@ export default class GeometryExtractor {
 			normalB.applyMatrix3( this._matrixPool.mat3 ).normalize();
 			normalC.applyMatrix3( this._matrixPool.mat3 ).normalize();
 
-			// Pack triangle data into Float32Array
-			this.packTriangleData(
+			// Pack triangle datas
+			this.packTriangleDataTextureFormat(
 				this.currentTriangleIndex,
 				posA, posB, posC,
 				normalA, normalB, normalC,
@@ -440,59 +444,59 @@ export default class GeometryExtractor {
 
 	}
 
-	// Pack triangle data into Float32Array at specified index
-	packTriangleData( triangleIndex, posA, posB, posC, normalA, normalB, normalC, uvA, uvB, uvC, materialIndex ) {
+	// Pack triangle data directly in texture format (32 floats with vec4 alignment)
+	packTriangleDataTextureFormat( triangleIndex, posA, posB, posC, normalA, normalB, normalC, uvA, uvB, uvC, materialIndex ) {
 
 		const offset = triangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 
-		// Position A
+		// Positions as vec4s (3 vec4s = 12 floats)
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ] = posA.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ] = posA.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ] = posA.z;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 3 ] = 0; // vec4 padding
 
-		// Position B
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ] = posB.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ] = posB.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ] = posB.z;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 3 ] = 0; // vec4 padding
 
-		// Position C
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ] = posC.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ] = posC.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ] = posC.z;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 3 ] = 0; // vec4 padding
 
-		// Normal A
+		// Normals as vec4s (3 vec4s = 12 floats)
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ] = normalA.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ] = normalA.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ] = normalA.z;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 3 ] = 0; // vec4 padding
 
-		// Normal B
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ] = normalB.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ] = normalB.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ] = normalB.z;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 3 ] = 0; // vec4 padding
 
-		// Normal C
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ] = normalC.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ] = normalC.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ] = normalC.z;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 3 ] = 0; // vec4 padding
 
-		// UV A
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ] = uvA.x;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ] = uvA.y;
+		// UVs and material index (2 vec4s = 8 floats)
+		// First vec4: uvA.x, uvA.y, uvB.x, uvB.y
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 0 ] = uvA.x;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 1 ] = uvA.y;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 2 ] = uvB.x;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 3 ] = uvB.y;
 
-		// UV B
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ] = uvB.x;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ] = uvB.y;
-
-		// UV C
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ] = uvC.x;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ] = uvC.y;
-
-		// Material Index
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ] = materialIndex;
+		// Second vec4: uvC.x, uvC.y, materialIndex, padding
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 0 ] = uvC.x;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 1 ] = uvC.y;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2 ] = materialIndex;
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ] = 0; // vec4 padding
 
 	}
 
-	// Get the raw Float32Array (optimal for worker transfer)
+	// Get the raw Float32Array (optimal for worker transfer and zero-copy textures)
 	getTriangleData() {
 
 		// Return only the used portion of the array
@@ -578,7 +582,7 @@ export default class GeometryExtractor {
 	getExtractedData() {
 
 		return {
-			triangleData: this.getTriangleData(), // Efficient Float32Array format
+			triangleData: this.getTriangleData(), // Texture-ready Float32Array format
 			triangleCount: this.getTriangleCount(),
 			materials: this.materials,
 			maps: this.maps,
@@ -595,5 +599,5 @@ export default class GeometryExtractor {
 
 }
 
-// Export the data layout constants for use in other modules
+// Export the data layout constants
 export { TRIANGLE_DATA_LAYOUT };

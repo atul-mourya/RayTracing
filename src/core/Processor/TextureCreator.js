@@ -1,4 +1,3 @@
-// TextureCreator.js
 import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
 
 const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize;
@@ -19,17 +18,21 @@ const TEXTURE_CONSTANTS = {
 
 // Triangle data layout constants (matching GeometryExtractor)
 const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 25,
-	POSITION_A_OFFSET: 0,
-	POSITION_B_OFFSET: 3,
-	POSITION_C_OFFSET: 6,
-	NORMAL_A_OFFSET: 9,
-	NORMAL_B_OFFSET: 12,
-	NORMAL_C_OFFSET: 15,
-	UV_A_OFFSET: 18,
-	UV_B_OFFSET: 20,
-	UV_C_OFFSET: 22,
-	MATERIAL_INDEX_OFFSET: 24
+	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
+
+	// Positions (3 vec4s = 12 floats)
+	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
+	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
+	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
+
+	// Normals (3 vec4s = 12 floats)
+	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
+	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
+	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
+
+	// UVs and Material (2 vec4s = 8 floats)
+	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
 };
 
 // Canvas pooling for efficient reuse of canvas elements
@@ -211,7 +214,7 @@ export default class TextureCreator {
 
 			}
 
-			// Triangle texture - handle both formats
+			// Triangle texture
 			if ( triangles && triangles.byteLength > 0 ) {
 
 				texturePromises.push(
@@ -343,63 +346,57 @@ export default class TextureCreator {
 	async createTriangleDataTexture( triangles ) {
 
 		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-		console.log( `Creating triangle texture with ${triangleCount} triangles` );
+		console.log( `Creating triangle texture with ${triangleCount} triangles (zero-copy unified format)` );
 
-		if ( this.useWorkers ) {
+		// Calculate texture dimensions - data is already perfectly aligned
+		const floatsPerTriangle = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE; // 32 floats
+		const dataLength = triangleCount * floatsPerTriangle;
 
-			try {
+		// Calculate dimensions for a square-like texture
+		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
+		const height = Math.ceil( dataLength / ( width * 4 ) );
 
-				const worker = new Worker(
-					new URL( './Workers/TriangleTextureWorker.js', import.meta.url ),
-					{ type: 'module' }
-				);
+		// Check if we can use the triangle data directly (zero-copy)
+		const expectedSize = width * height * 4;
+		let textureData;
 
-				// Prepare data for worker
-				const workerData = { triangleData: triangles, triangleCount };
+		if ( dataLength === expectedSize ) {
 
-				const result = await new Promise( ( resolve, reject ) => {
+			// Perfect fit - use the triangle data directly (zero-copy!)
+			console.log( 'Zero-copy triangle texture: Perfect size match' );
+			textureData = triangles;
 
-					worker.onmessage = ( e ) => {
+		} else {
 
-						const { data, width, height, error } = e.data;
-						if ( error ) {
-
-							reject( new Error( error ) );
-							return;
-
-						}
-
-						resolve( { data, width, height } );
-
-					};
-
-					worker.onerror = ( error ) => reject( error );
-					worker.postMessage( workerData );
-
-				} );
-
-				worker.terminate();
-
-				const texture = new DataTexture(
-					result.data,
-					result.width,
-					result.height,
-					RGBAFormat,
-					FloatType
-				);
-				texture.needsUpdate = true;
-				return texture;
-
-			} catch ( error ) {
-
-				console.warn( 'Worker creation failed for triangle texture, falling back to synchronous operation:', error );
-				return this.createTriangleDataTextureSync( triangles );
-
-			}
+			// Need to pad the data slightly
+			console.log( `Zero-copy triangle texture: Padding from ${dataLength} to ${expectedSize} floats` );
+			textureData = new Float32Array( expectedSize );
+			textureData.set( triangles, 0 ); // Copy existing data, rest remains zeros
 
 		}
 
-		return this.createTriangleDataTextureSync( triangles );
+		const texture = new DataTexture( textureData, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
+
+		// Store metadata for disposal
+		if ( textureData !== triangles ) {
+
+			texture.userData = { buffer: textureData, bufferType: Float32Array };
+			texture.addEventListener( 'dispose', () => {
+
+				if ( texture.userData.buffer ) {
+
+					this.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
+					texture.userData.buffer = null;
+
+				}
+
+			} );
+
+		}
+
+		console.log( `Triangle texture created: ${width}x${height}, ${triangleCount} triangles (optimized unified format)` );
+		return texture;
 
 	}
 
@@ -657,114 +654,6 @@ export default class TextureCreator {
 		}
 
 		const texture = new DataTexture( data, bestWidth, bestHeight, RGBAFormat, FloatType );
-		texture.needsUpdate = true;
-
-		// Store the buffer for release when texture is disposed
-		texture.userData = { buffer: data, bufferType: Float32Array };
-		texture.addEventListener( 'dispose', () => {
-
-			if ( texture.userData.buffer ) {
-
-				this.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
-				texture.userData.buffer = null;
-
-			}
-
-		} );
-
-		return texture;
-
-	}
-
-	createTriangleDataTextureSync( triangles ) {
-
-		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-
-		const vec4PerTriangle = TEXTURE_CONSTANTS.VEC4_PER_TRIANGLE; // 3 vec4s for positions, 3 for normals, 2 for UVs and material index
-		const floatsPerTriangle = vec4PerTriangle * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // Each vec4 contains 4 floats
-		const dataLength = triangleCount * floatsPerTriangle;
-
-		// Calculate dimensions for a square-like texture
-		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
-		const height = Math.ceil( dataLength / ( width * 4 ) );
-
-		// Create the data array from the pool
-		const size = width * height * 4; // Total size in floats
-		const data = this.getBuffer( size );
-
-		for ( let i = 0; i < triangleCount; i ++ ) {
-
-			const stride = i * floatsPerTriangle;
-			let tri;
-
-			// Extract triangle data from Float32Array
-			const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
-			tri = {
-				posA: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
-					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
-				},
-				posB: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
-					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
-				},
-				posC: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
-					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
-				},
-				normalA: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
-					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
-				},
-				normalB: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
-					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
-				},
-				normalC: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
-					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
-				},
-				uvA: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
-				},
-				uvB: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
-				},
-				uvC: {
-					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
-					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
-				},
-				materialIndex: triangles[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
-			};
-
-			// Store positions (3 vec4s)
-			data[ stride + 0 ] = tri.posA.x; data[ stride + 1 ] = tri.posA.y; data[ stride + 2 ] = tri.posA.z; data[ stride + 3 ] = 0;
-			data[ stride + 4 ] = tri.posB.x; data[ stride + 5 ] = tri.posB.y; data[ stride + 6 ] = tri.posB.z; data[ stride + 7 ] = 0;
-			data[ stride + 8 ] = tri.posC.x; data[ stride + 9 ] = tri.posC.y; data[ stride + 10 ] = tri.posC.z; data[ stride + 11 ] = 0;
-
-			// Store normals (3 vec4s)
-			data[ stride + 12 ] = tri.normalA.x; data[ stride + 13 ] = tri.normalA.y; data[ stride + 14 ] = tri.normalA.z; data[ stride + 15 ] = 0;
-			data[ stride + 16 ] = tri.normalB.x; data[ stride + 17 ] = tri.normalB.y; data[ stride + 18 ] = tri.normalB.z; data[ stride + 19 ] = 0;
-			data[ stride + 20 ] = tri.normalC.x; data[ stride + 21 ] = tri.normalC.y; data[ stride + 22 ] = tri.normalC.z; data[ stride + 23 ] = 0;
-
-			// Store UVs (2 vec4s)
-			// First vec4: UV coordinates for vertices A and B
-			data[ stride + 24 ] = tri.uvA.x; data[ stride + 25 ] = tri.uvA.y; data[ stride + 26 ] = tri.uvB.x; data[ stride + 27 ] = tri.uvB.y;
-			// Second vec4: UV coordinates for vertex C, material index, and a padding value
-			data[ stride + 28 ] = tri.uvC.x; data[ stride + 29 ] = tri.uvC.y; data[ stride + 30 ] = tri.materialIndex; data[ stride + 31 ] = 0;
-
-		}
-
-		// Create and return the DataTexture
-		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
 		texture.needsUpdate = true;
 
 		// Store the buffer for release when texture is disposed

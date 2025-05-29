@@ -1,18 +1,22 @@
 import { Vector3 } from "three";
 
-// Import the data layout constants
+// Import the unified data layout constants
 const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 25,
-	POSITION_A_OFFSET: 0,
-	POSITION_B_OFFSET: 3,
-	POSITION_C_OFFSET: 6,
-	NORMAL_A_OFFSET: 9,
-	NORMAL_B_OFFSET: 12,
-	NORMAL_C_OFFSET: 15,
-	UV_A_OFFSET: 18,
-	UV_B_OFFSET: 20,
-	UV_C_OFFSET: 22,
-	MATERIAL_INDEX_OFFSET: 24
+	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
+
+	// Positions (3 vec4s = 12 floats)
+	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
+	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
+	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
+
+	// Normals (3 vec4s = 12 floats)
+	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
+	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
+	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
+
+	// UVs and Material (2 vec4s = 8 floats)
+	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
 };
 
 class CWBVHNode {
@@ -31,7 +35,7 @@ class CWBVHNode {
 }
 
 // Helper class for better cache locality and performance
-// Updated to work with both object triangles and Float32Array triangles
+// Updated to work with triangle format (32 floats)
 class TriangleInfo {
 
 	constructor( triangle, index, triangleData = null ) {
@@ -78,7 +82,7 @@ class TriangleInfo {
 
 }
 
-// Wrapper class to provide object-like access to Float32Array triangle data
+// Wrapper class to provide object-like access to Float32Array triangle data (32-float format)
 class TriangleWrapper {
 
 	constructor( triangleData, triangleIndex ) {
@@ -152,8 +156,8 @@ class TriangleWrapper {
 	get uvA() {
 
 		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
+			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 0 ],
+			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 1 ]
 		};
 
 	}
@@ -161,8 +165,8 @@ class TriangleWrapper {
 	get uvB() {
 
 		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
+			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 2 ],
+			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 3 ]
 		};
 
 	}
@@ -170,15 +174,15 @@ class TriangleWrapper {
 	get uvC() {
 
 		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
+			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 0 ],
+			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 1 ]
 		};
 
 	}
 
 	get materialIndex() {
 
-		return this.data[ this.offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ];
+		return this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2 ];
 
 	}
 
@@ -496,13 +500,13 @@ export default class BVHBuilder {
 
 	build( triangles, depth = 30, progressCallback = null ) {
 
-		this.totalTriangles = Array.isArray( triangles ) ? triangles.length : triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		this.totalTriangles = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
 		this.processedTriangles = 0;
 		this.lastProgressUpdate = performance.now();
 
 		if ( this.useWorker && typeof Worker !== 'undefined' ) {
 
-			console.log( "Using Worker" );
+			console.log( "Using Worker for BVH construction" );
 			return new Promise( ( resolve, reject ) => {
 
 				try {
@@ -514,7 +518,7 @@ export default class BVHBuilder {
 
 					worker.onmessage = ( e ) => {
 
-						const { bvhRoot, triangles: newTriangles, triangleCount, format, error, progress } = e.data;
+						const { bvhRoot, triangles: newTriangles, error, progress } = e.data;
 
 						if ( error ) {
 
@@ -531,53 +535,9 @@ export default class BVHBuilder {
 
 						}
 
-						// Handle different triangle formats in response
-						if ( format === 'float32array' && newTriangles ) {
+						// Copy reordered data back to original array
+						triangles.set( newTriangles );
 
-							// Update original Float32Array with reordered data
-							if ( triangles instanceof Float32Array ) {
-
-								// Properly handle transferred ArrayBuffer
-								let reorderedData;
-								if ( newTriangles instanceof ArrayBuffer ) {
-
-									reorderedData = new Float32Array( newTriangles );
-
-								} else {
-
-									reorderedData = new Float32Array( newTriangles );
-
-								}
-
-								// Resize original array if needed
-								if ( triangles.length !== reorderedData.length ) {
-
-									// Create new Float32Array with correct size
-									const newArray = new Float32Array( reorderedData.length );
-									newArray.set( reorderedData );
-									// Note: Original array reference cannot be changed,
-									// so we need to handle this at a higher level
-									console.warn( 'Triangle array size changed during BVH build' );
-
-								} else {
-
-									triangles.set( reorderedData );
-
-								}
-
-							}
-
-						} else if ( Array.isArray( triangles ) && Array.isArray( newTriangles ) ) {
-
-							// Update original object array
-							triangles.length = newTriangles.length;
-							for ( let i = 0; i < newTriangles.length; i ++ ) {
-
-								triangles[ i ] = newTriangles[ i ];
-
-							}
-
-						}
 
 						worker.terminate();
 						resolve( bvhRoot );
@@ -595,32 +555,17 @@ export default class BVHBuilder {
 					let workerData;
 					let transferable = [];
 
-					if ( triangles instanceof Float32Array ) {
-
-						// Send Float32Array with transferable buffer
-						const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-						// Clone the buffer to avoid detachment issues
-						const bufferCopy = triangles.buffer.slice();
-						workerData = {
-							triangleData: bufferCopy,
-							triangleCount,
-							format: 'float32array',
-							depth,
-							reportProgress: !! progressCallback
-						};
-						transferable = [ bufferCopy ];
-
-					} else {
-
-						// Send traditional object array
-						workerData = {
-							triangles,
-							format: 'objects',
-							depth,
-							reportProgress: !! progressCallback
-						};
-
-					}
+					// Send Float32Array with transferable buffer
+					const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+					// Clone the buffer to avoid detachment issues
+					const bufferCopy = triangles.buffer.slice();
+					workerData = {
+						triangleData: bufferCopy,
+						triangleCount,
+						depth,
+						reportProgress: !! progressCallback
+					};
+					transferable = [ bufferCopy ];
 
 					worker.postMessage( workerData, transferable );
 
@@ -684,7 +629,7 @@ export default class BVHBuilder {
 		this.nodes = [];
 		this.totalNodes = 0;
 		this.processedTriangles = 0;
-		this.totalTriangles = Array.isArray( triangles ) ? triangles.length : triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		this.totalTriangles = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
 		this.lastProgressUpdate = performance.now();
 
 		// Reset split statistics
@@ -699,42 +644,19 @@ export default class BVHBuilder {
 			totalBuildTime: 0
 		};
 
-		// Convert to TriangleInfo for better performance
-		let triangleInfos;
+		// Float32Array-based triangles
+		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		let triangleInfos = [];
+		for ( let i = 0; i < triangleCount; i ++ ) {
 
-		if ( Array.isArray( triangles ) ) {
-
-			// Traditional object-based triangles
-			triangleInfos = triangles.map( ( tri, index ) => new TriangleInfo( tri, index ) );
-
-		} else if ( triangles instanceof Float32Array ) {
-
-			// Float32Array-based triangles
-			const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-			triangleInfos = [];
-			for ( let i = 0; i < triangleCount; i ++ ) {
-
-				triangleInfos.push( new TriangleInfo( null, i, triangles ) );
-
-			}
-
-		} else {
-
-			throw new Error( 'Unsupported triangle format' );
+			triangleInfos.push( new TriangleInfo( null, i, triangles ) );
 
 		}
+
 
 		// Apply Morton code spatial clustering for better cache locality
 		// Use recursive clustering for very large datasets
-		if ( triangleInfos.length > 50000 ) {
-
-			triangleInfos = this.recursiveMortonCluster( triangleInfos );
-
-		} else {
-
-			triangleInfos = this.sortTrianglesByMortonCode( triangleInfos );
-
-		}
+		triangleInfos = ( triangleInfos.length > 50000 ) ? this.recursiveMortonCluster( triangleInfos ) : this.sortTrianglesByMortonCode( triangleInfos );
 
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
@@ -771,11 +693,7 @@ export default class BVHBuilder {
 			}
 		} );
 
-		if ( progressCallback ) {
-
-			progressCallback( 100 );
-
-		}
+		progressCallback && progressCallback( 100 );
 
 		return root;
 
