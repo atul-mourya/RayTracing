@@ -112,7 +112,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 					// Get a stable reference to the store function
 					const resetLoadingFn = useStore.getState().resetLoading;
-					setTimeout( () => resetLoadingFn(), 1000 );
+					resetLoadingFn();
+					// setTimeout( () => resetLoadingFn(), 1000 );
 
 					if ( window.pathTracerApp ) {
 
