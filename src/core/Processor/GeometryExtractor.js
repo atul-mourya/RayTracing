@@ -495,79 +495,6 @@ export default class GeometryExtractor {
 
 	}
 
-	// Unpack triangle data from Float32Array at specified index
-	getTriangle( triangleIndex ) {
-
-		if ( triangleIndex < 0 || triangleIndex >= this.currentTriangleIndex ) {
-
-			throw new Error( `Triangle index ${triangleIndex} out of bounds` );
-
-		}
-
-		const offset = triangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
-
-		return {
-			posA: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
-				z: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
-			},
-			posB: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
-				z: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
-			},
-			posC: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
-				z: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
-			},
-			normalA: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
-				z: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
-			},
-			normalB: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
-				z: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
-			},
-			normalC: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
-				z: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
-			},
-			uvA: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
-			},
-			uvB: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
-			},
-			uvC: {
-				x: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
-				y: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
-			},
-			materialIndex: this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
-		};
-
-	}
-
-	// Get all triangles as an array of objects (for compatibility)
-	getTrianglesAsObjects() {
-
-		const triangles = [];
-		for ( let i = 0; i < this.currentTriangleIndex; i ++ ) {
-
-			triangles.push( this.getTriangle( i ) );
-
-		}
-
-		return triangles;
-
-	}
-
 	// Get the raw Float32Array (optimal for worker transfer)
 	getTriangleData() {
 
@@ -654,8 +581,6 @@ export default class GeometryExtractor {
 	getExtractedData() {
 
 		return {
-			// Return both formats for compatibility
-			triangles: this.getTrianglesAsObjects(), // Compatibility format
 			triangleData: this.getTriangleData(), // Efficient Float32Array format
 			triangleCount: this.getTriangleCount(),
 			materials: this.materials,

@@ -21,31 +21,14 @@ const TEXTURE_CONSTANTS = {
 
 self.onmessage = function ( e ) {
 
-	const { triangles, triangleData, triangleCount, format } = e.data;
+	const { triangleData, triangleCount } = e.data;
 
 	try {
 
 		let actualTriangleCount;
-		let isFloat32ArrayInput = false;
 
-		// Determine input format
-		if ( format === 'float32array' && triangleData ) {
-
-			actualTriangleCount = triangleCount;
-			isFloat32ArrayInput = true;
-			console.log( `[TriangleTextureWorker] Processing ${actualTriangleCount} triangles from Float32Array` );
-
-		} else if ( triangles && Array.isArray( triangles ) ) {
-
-			actualTriangleCount = triangles.length;
-			isFloat32ArrayInput = false;
-			console.log( `[TriangleTextureWorker] Processing ${actualTriangleCount} triangles from object array` );
-
-		} else {
-
-			throw new Error( 'Invalid triangle data format' );
-
-		}
+		actualTriangleCount = triangleCount;
+		console.log( `[TriangleTextureWorker] Processing ${actualTriangleCount} triangles from Float32Array` );
 
 		// Calculate texture dimensions
 		const vec4PerTriangle = TEXTURE_CONSTANTS.VEC4_PER_TRIANGLE;
@@ -66,62 +49,54 @@ self.onmessage = function ( e ) {
 			const stride = i * floatsPerTriangle;
 			let tri;
 
-			if ( isFloat32ArrayInput ) {
 
-				// Extract triangle data from Float32Array
-				const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
-				tri = {
-					posA: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
-						z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
-					},
-					posB: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
-						z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
-					},
-					posC: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
-						z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
-					},
-					normalA: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
-						z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
-					},
-					normalB: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
-						z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
-					},
-					normalC: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
-						z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
-					},
-					uvA: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
-					},
-					uvB: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
-					},
-					uvC: {
-						x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
-						y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
-					},
-					materialIndex: triangleData[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
-				};
-
-			} else {
-
-				// Use traditional object format
-				tri = triangles[ i ];
-
-			}
+			// Extract triangle data from Float32Array
+			const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+			tri = {
+				posA: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
+					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
+				},
+				posB: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
+					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
+				},
+				posC: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
+					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
+				},
+				normalA: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
+					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
+				},
+				normalB: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
+					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
+				},
+				normalC: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
+					z: triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
+				},
+				uvA: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
+				},
+				uvB: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
+				},
+				uvC: {
+					x: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
+					y: triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
+				},
+				materialIndex: triangleData[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
+			};
 
 			// Store positions (3 vec4s)
 			data[ stride + 0 ] = tri.posA.x; data[ stride + 1 ] = tri.posA.y; data[ stride + 2 ] = tri.posA.z; data[ stride + 3 ] = 0;

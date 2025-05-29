@@ -32,7 +32,6 @@ export default class TriangleSDF {
 		};
 
 		// Initialize geometry data containers
-		this.triangles = []; // Compatibility format (objects)
 		this.triangleData = null; // Efficient format (Float32Array)
 		this.triangleCount = 0; // Number of triangles
 		this.materials = [];
@@ -144,7 +143,6 @@ export default class TriangleSDF {
 				triangleCount: this.triangleCount,
 				materials: this.materials.length,
 				textures: this.maps.length,
-				useFloat32Array: this.config.useFloat32Array
 			} );
 
 			this.processingStage = 'complete';
@@ -188,26 +186,11 @@ export default class TriangleSDF {
 			// Extract geometry data
 			const extractedData = this.geometryExtractor.extract( object );
 
-			// Store extracted data based on configuration
-			if ( this.config.useFloat32Array ) {
+			this.triangleData = extractedData.triangleData;
+			this.triangleCount = extractedData.triangleCount;
 
-				// Use efficient Float32Array format
-				this.triangleData = extractedData.triangleData;
-				this.triangleCount = extractedData.triangleCount;
-				this.triangles = []; // Keep empty for compatibility, but not used
+			this._log( `Using Float32Array format: ${this.triangleCount} triangles, ${( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 )}MB` );
 
-				this._log( `Using Float32Array format: ${this.triangleCount} triangles, ${( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 )}MB` );
-
-			} else {
-
-				// Use traditional object format
-				this.triangles = extractedData.triangles;
-				this.triangleCount = this.triangles.length;
-				this.triangleData = null;
-
-				this._log( `Using object format: ${this.triangleCount} triangles` );
-
-			}
 
 			// Store other extracted data
 			this.materials = extractedData.materials;
@@ -224,7 +207,6 @@ export default class TriangleSDF {
 			this._log( `Geometry extraction complete (${duration.toFixed( 2 )}ms)`, {
 				triangleCount: this.triangleCount,
 				materials: this.materials.length,
-				format: this.config.useFloat32Array ? 'Float32Array' : 'Objects'
 			} );
 
 			updateLoading( {
@@ -279,14 +261,9 @@ export default class TriangleSDF {
 
 			};
 
-			// Choose triangle data format for BVH building
-			const triangleInput = this.config.useFloat32Array && this.triangleData
-				? this.triangleData
-				: this.triangles;
-
 			// Build the BVH
 			this.bvhRoot = await this.bvhBuilder.build(
-				triangleInput,
+				this.triangleData,
 				this.config.bvhDepth,
 				progressCallback
 			);
@@ -328,26 +305,10 @@ export default class TriangleSDF {
 
 		try {
 
-			// Prepare triangle data for texture creation
-			// TextureCreator expects object format for now, so convert if needed
-			let trianglesForTextures;
-
-			if ( this.config.useFloat32Array && this.triangleData ) {
-
-				// Convert Float32Array back to objects for texture creation
-				trianglesForTextures = this._convertFloat32ArrayToObjects();
-				this._log( 'Converted Float32Array to objects for texture creation' );
-
-			} else {
-
-				trianglesForTextures = this.triangles;
-
-			}
-
 			// Prepare parameters for texture creation
 			const params = {
 				materials: this.materials,
-				triangles: trianglesForTextures,
+				triangles: this.triangleData,
 				maps: this.maps,
 				normalMaps: this.normalMaps,
 				bumpMaps: this.bumpMaps,
@@ -547,76 +508,6 @@ export default class TriangleSDF {
 			}
 
 		} );
-
-	}
-
-	/**
-     * Get triangle data in the requested format
-     * @param {string} format - 'objects', 'float32array', or 'auto' (default)
-     * @returns {Array|Float32Array} Triangle data in requested format
-     */
-	getTriangles( format = 'auto' ) {
-
-		if ( format === 'auto' ) {
-
-			// Return the most efficient format available
-			return this.config.useFloat32Array && this.triangleData ? this.triangleData : this.triangles;
-
-		} else if ( format === 'float32array' ) {
-
-			return this.triangleData;
-
-		} else if ( format === 'objects' ) {
-
-			if ( this.triangles.length > 0 ) {
-
-				return this.triangles;
-
-			} else if ( this.triangleData ) {
-
-				// Convert on demand
-				return this._convertFloat32ArrayToObjects();
-
-			} else {
-
-				return [];
-
-			}
-
-		} else {
-
-			throw new Error( `Unknown triangle format: ${format}` );
-
-		}
-
-	}
-
-	/**
-     * Get triangle data optimized for worker transfer
-     * @returns {Object} Data prepared for worker transfer
-     */
-	getTrianglesForWorker() {
-
-		if ( this.config.useFloat32Array && this.triangleData ) {
-
-			return {
-				format: 'float32array',
-				data: this.triangleData,
-				count: this.triangleCount,
-				// Transfer ownership for efficiency
-				transferable: [ this.triangleData.buffer ]
-			};
-
-		} else {
-
-			return {
-				format: 'objects',
-				data: this.triangles,
-				count: this.triangles.length,
-				transferable: []
-			};
-
-		}
 
 	}
 

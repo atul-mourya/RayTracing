@@ -212,7 +212,7 @@ export default class TextureCreator {
 			}
 
 			// Triangle texture - handle both formats
-			if ( triangles && ( Array.isArray( triangles ) ? triangles.length : triangles.byteLength ) > 0 ) {
+			if ( triangles && triangles.byteLength > 0 ) {
 
 				texturePromises.push(
 					this.createTriangleDataTexture( triangles )
@@ -342,13 +342,8 @@ export default class TextureCreator {
 
 	async createTriangleDataTexture( triangles ) {
 
-		// Detect triangle format
-		const isFloat32Array = triangles instanceof Float32Array;
-		const triangleCount = isFloat32Array
-			? triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 )
-			: triangles.length;
-
-		console.log( `Creating triangle texture from ${isFloat32Array ? 'Float32Array' : 'object array'} with ${triangleCount} triangles` );
+		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		console.log( `Creating triangle texture with ${triangleCount} triangles` );
 
 		if ( this.useWorkers ) {
 
@@ -360,9 +355,7 @@ export default class TextureCreator {
 				);
 
 				// Prepare data for worker
-				const workerData = isFloat32Array
-					? { triangleData: triangles, triangleCount, format: 'float32array' }
-					: { triangles, format: 'objects' };
+				const workerData = { triangleData: triangles, triangleCount };
 
 				const result = await new Promise( ( resolve, reject ) => {
 
@@ -701,11 +694,7 @@ export default class TextureCreator {
 
 	createTriangleDataTextureSync( triangles ) {
 
-		// Detect input format
-		const isFloat32Array = triangles instanceof Float32Array;
-		const triangleCount = isFloat32Array
-			? triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 )
-			: triangles.length;
+		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
 
 		const vec4PerTriangle = TEXTURE_CONSTANTS.VEC4_PER_TRIANGLE; // 3 vec4s for positions, 3 for normals, 2 for UVs and material index
 		const floatsPerTriangle = vec4PerTriangle * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // Each vec4 contains 4 floats
@@ -724,62 +713,53 @@ export default class TextureCreator {
 			const stride = i * floatsPerTriangle;
 			let tri;
 
-			if ( isFloat32Array ) {
-
-				// Extract triangle data from Float32Array
-				const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
-				tri = {
-					posA: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
-						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
-					},
-					posB: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
-						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
-					},
-					posC: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
-						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
-					},
-					normalA: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
-						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
-					},
-					normalB: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
-						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
-					},
-					normalC: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
-						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
-					},
-					uvA: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
-					},
-					uvB: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
-					},
-					uvC: {
-						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
-						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
-					},
-					materialIndex: triangles[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
-				};
-
-			} else {
-
-				// Use traditional object format
-				tri = triangles[ i ];
-
-			}
+			// Extract triangle data from Float32Array
+			const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+			tri = {
+				posA: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
+					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
+				},
+				posB: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
+					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
+				},
+				posC: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
+					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
+				},
+				normalA: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
+					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
+				},
+				normalB: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
+					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
+				},
+				normalC: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
+					z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
+				},
+				uvA: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
+				},
+				uvB: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
+				},
+				uvC: {
+					x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
+					y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
+				},
+				materialIndex: triangles[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
+			};
 
 			// Store positions (3 vec4s)
 			data[ stride + 0 ] = tri.posA.x; data[ stride + 1 ] = tri.posA.y; data[ stride + 2 ] = tri.posA.z; data[ stride + 3 ] = 0;
