@@ -17,6 +17,21 @@ const TEXTURE_CONSTANTS = {
 	BUFFER_POOL_SIZE: 20
 };
 
+// Triangle data layout constants (matching GeometryExtractor)
+const TRIANGLE_DATA_LAYOUT = {
+	FLOATS_PER_TRIANGLE: 25,
+	POSITION_A_OFFSET: 0,
+	POSITION_B_OFFSET: 3,
+	POSITION_C_OFFSET: 6,
+	NORMAL_A_OFFSET: 9,
+	NORMAL_B_OFFSET: 12,
+	NORMAL_C_OFFSET: 15,
+	UV_A_OFFSET: 18,
+	UV_B_OFFSET: 20,
+	UV_C_OFFSET: 22,
+	MATERIAL_INDEX_OFFSET: 24
+};
+
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
 
@@ -196,8 +211,8 @@ export default class TextureCreator {
 
 			}
 
-			// Triangle texture
-			if ( triangles?.length ) {
+			// Triangle texture - handle both formats
+			if ( triangles && ( Array.isArray( triangles ) ? triangles.length : triangles.byteLength ) > 0 ) {
 
 				texturePromises.push(
 					this.createTriangleDataTexture( triangles )
@@ -286,8 +301,24 @@ export default class TextureCreator {
 
 				worker.terminate();
 
+				// Properly handle ArrayBuffer from worker
+				let textureData;
+				if ( result.data instanceof ArrayBuffer ) {
+
+					textureData = new Float32Array( result.data );
+
+				} else if ( result.data instanceof Float32Array ) {
+
+					textureData = result.data;
+
+				} else {
+
+					throw new Error( 'Invalid data format from worker' );
+
+				}
+
 				const texture = new DataTexture(
-					new Float32Array( result.data ),
+					textureData,
 					result.width,
 					result.height,
 					RGBAFormat,
@@ -298,7 +329,7 @@ export default class TextureCreator {
 
 			} catch ( error ) {
 
-				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				console.warn( 'Worker creation failed for material texture, falling back to synchronous operation:', error );
 				return this.createMaterialDataTextureSync( materials );
 
 			}
@@ -311,6 +342,14 @@ export default class TextureCreator {
 
 	async createTriangleDataTexture( triangles ) {
 
+		// Detect triangle format
+		const isFloat32Array = triangles instanceof Float32Array;
+		const triangleCount = isFloat32Array
+			? triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 )
+			: triangles.length;
+
+		console.log( `Creating triangle texture from ${isFloat32Array ? 'Float32Array' : 'object array'} with ${triangleCount} triangles` );
+
 		if ( this.useWorkers ) {
 
 			try {
@@ -319,6 +358,11 @@ export default class TextureCreator {
 					new URL( './Workers/TriangleTextureWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);
+
+				// Prepare data for worker
+				const workerData = isFloat32Array
+					? { triangleData: triangles, triangleCount, format: 'float32array' }
+					: { triangles, format: 'objects' };
 
 				const result = await new Promise( ( resolve, reject ) => {
 
@@ -337,14 +381,30 @@ export default class TextureCreator {
 					};
 
 					worker.onerror = ( error ) => reject( error );
-					worker.postMessage( { triangles } );
+					worker.postMessage( workerData );
 
 				} );
 
 				worker.terminate();
 
+				// Properly handle ArrayBuffer from worker
+				let textureData;
+				if ( result.data instanceof ArrayBuffer ) {
+
+					textureData = new Float32Array( result.data );
+
+				} else if ( result.data instanceof Float32Array ) {
+
+					textureData = result.data;
+
+				} else {
+
+					throw new Error( 'Invalid triangle data format from worker' );
+
+				}
+
 				const texture = new DataTexture(
-					result.data,
+					textureData,
 					result.width,
 					result.height,
 					RGBAFormat,
@@ -355,7 +415,7 @@ export default class TextureCreator {
 
 			} catch ( error ) {
 
-				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				console.warn( 'Worker creation failed for triangle texture, falling back to synchronous operation:', error );
 				return this.createTriangleDataTextureSync( triangles );
 
 			}
@@ -408,8 +468,24 @@ export default class TextureCreator {
 
 				worker.terminate();
 
+				// Properly handle ArrayBuffer from worker
+				let textureData;
+				if ( result.data instanceof ArrayBuffer ) {
+
+					textureData = new Uint8Array( result.data );
+
+				} else if ( result.data instanceof Uint8Array ) {
+
+					textureData = result.data;
+
+				} else {
+
+					throw new Error( 'Invalid texture array data format from worker' );
+
+				}
+
 				const texture = new DataArrayTexture(
-					new Uint8Array( result.data ),
+					textureData,
 					result.width,
 					result.height,
 					result.depth
@@ -424,7 +500,7 @@ export default class TextureCreator {
 
 			} catch ( error ) {
 
-				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				console.warn( 'Worker creation failed for texture array, falling back to synchronous operation:', error );
 				return this.createTexturesToDataTextureSync( textures );
 
 			}
@@ -469,8 +545,24 @@ export default class TextureCreator {
 
 				worker.terminate();
 
+				// Properly handle ArrayBuffer from worker
+				let textureData;
+				if ( result.data instanceof ArrayBuffer ) {
+
+					textureData = new Float32Array( result.data );
+
+				} else if ( result.data instanceof Float32Array ) {
+
+					textureData = result.data;
+
+				} else {
+
+					throw new Error( 'Invalid BVH data format from worker' );
+
+				}
+
 				const texture = new DataTexture(
-					new Float32Array( result.data ),
+					textureData,
 					result.width,
 					result.height,
 					RGBAFormat,
@@ -481,7 +573,7 @@ export default class TextureCreator {
 
 			} catch ( error ) {
 
-				console.warn( 'Worker creation failed, falling back to synchronous operation:', error );
+				console.warn( 'Worker creation failed for BVH texture, falling back to synchronous operation:', error );
 				return this.createBVHDataTextureSync( bvhRoot );
 
 			}
@@ -609,9 +701,15 @@ export default class TextureCreator {
 
 	createTriangleDataTextureSync( triangles ) {
 
+		// Detect input format
+		const isFloat32Array = triangles instanceof Float32Array;
+		const triangleCount = isFloat32Array
+			? triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 )
+			: triangles.length;
+
 		const vec4PerTriangle = TEXTURE_CONSTANTS.VEC4_PER_TRIANGLE; // 3 vec4s for positions, 3 for normals, 2 for UVs and material index
 		const floatsPerTriangle = vec4PerTriangle * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // Each vec4 contains 4 floats
-		const dataLength = triangles.length * floatsPerTriangle;
+		const dataLength = triangleCount * floatsPerTriangle;
 
 		// Calculate dimensions for a square-like texture
 		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
@@ -621,10 +719,67 @@ export default class TextureCreator {
 		const size = width * height * 4; // Total size in floats
 		const data = this.getBuffer( size );
 
-		for ( let i = 0; i < triangles.length; i ++ ) {
+		for ( let i = 0; i < triangleCount; i ++ ) {
 
 			const stride = i * floatsPerTriangle;
-			const tri = triangles[ i ];
+			let tri;
+
+			if ( isFloat32Array ) {
+
+				// Extract triangle data from Float32Array
+				const offset = i * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+				tri = {
+					posA: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
+						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
+					},
+					posB: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
+						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
+					},
+					posC: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
+						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
+					},
+					normalA: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
+						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
+					},
+					normalB: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
+						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
+					},
+					normalC: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
+						z: triangles[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
+					},
+					uvA: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_A_OFFSET + 1 ]
+					},
+					uvB: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_B_OFFSET + 1 ]
+					},
+					uvC: {
+						x: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 0 ],
+						y: triangles[ offset + TRIANGLE_DATA_LAYOUT.UV_C_OFFSET + 1 ]
+					},
+					materialIndex: triangles[ offset + TRIANGLE_DATA_LAYOUT.MATERIAL_INDEX_OFFSET ]
+				};
+
+			} else {
+
+				// Use traditional object format
+				tri = triangles[ i ];
+
+			}
 
 			// Store positions (3 vec4s)
 			data[ stride + 0 ] = tri.posA.x; data[ stride + 1 ] = tri.posA.y; data[ stride + 2 ] = tri.posA.z; data[ stride + 3 ] = 0;

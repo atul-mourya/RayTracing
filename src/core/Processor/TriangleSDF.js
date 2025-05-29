@@ -17,20 +17,24 @@ export default class TriangleSDF {
      * @param {number} [options.bvhDepth=30] - Maximum BVH tree depth
      * @param {number} [options.maxLeafSize=4] - Maximum triangles per BVH leaf
      * @param {boolean} [options.verbose=false] - Enable verbose logging
+     * @param {boolean} [options.useFloat32Array=true] - Use Float32Array for triangle data
      */
 	constructor( options = {} ) {
 
 		// Configuration options with defaults
 		this.config = {
-			useWorkers: false, // Default to false for compatibility
+			useWorkers: true, // Default to false for compatibility
 			bvhDepth: 30,
 			maxLeafSize: 4,
 			verbose: false,
+			useFloat32Array: true, // New option to control triangle data format
 			...options
 		};
 
 		// Initialize geometry data containers
-		this.triangles = [];
+		this.triangles = []; // Compatibility format (objects)
+		this.triangleData = null; // Efficient format (Float32Array)
+		this.triangleCount = 0; // Number of triangles
 		this.materials = [];
 		this.maps = [];
 		this.normalMaps = [];
@@ -137,9 +141,10 @@ export default class TriangleSDF {
 			this.spheres = this._createSpheres();
 
 			this._log( 'Processing complete', {
-				triangles: this.triangles.length,
+				triangleCount: this.triangleCount,
 				materials: this.materials.length,
-				textures: this.maps.length
+				textures: this.maps.length,
+				useFloat32Array: this.config.useFloat32Array
 			} );
 
 			this.processingStage = 'complete';
@@ -183,8 +188,28 @@ export default class TriangleSDF {
 			// Extract geometry data
 			const extractedData = this.geometryExtractor.extract( object );
 
-			// Store all extracted data to instance properties
-			this.triangles = extractedData.triangles;
+			// Store extracted data based on configuration
+			if ( this.config.useFloat32Array ) {
+
+				// Use efficient Float32Array format
+				this.triangleData = extractedData.triangleData;
+				this.triangleCount = extractedData.triangleCount;
+				this.triangles = []; // Keep empty for compatibility, but not used
+
+				this._log( `Using Float32Array format: ${this.triangleCount} triangles, ${( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 )}MB` );
+
+			} else {
+
+				// Use traditional object format
+				this.triangles = extractedData.triangles;
+				this.triangleCount = this.triangles.length;
+				this.triangleData = null;
+
+				this._log( `Using object format: ${this.triangleCount} triangles` );
+
+			}
+
+			// Store other extracted data
 			this.materials = extractedData.materials;
 			this.maps = extractedData.maps;
 			this.normalMaps = extractedData.normalMaps;
@@ -197,12 +222,13 @@ export default class TriangleSDF {
 
 			const duration = performance.now() - startTime;
 			this._log( `Geometry extraction complete (${duration.toFixed( 2 )}ms)`, {
-				triangles: this.triangles.length,
-				materials: this.materials.length
+				triangleCount: this.triangleCount,
+				materials: this.materials.length,
+				format: this.config.useFloat32Array ? 'Float32Array' : 'Objects'
 			} );
 
 			updateLoading( {
-				status: `Extracted ${this.triangles.length.toLocaleString()} triangles`,
+				status: `Extracted ${this.triangleCount.toLocaleString()} triangles`,
 				progress: 30
 			} );
 
@@ -230,7 +256,7 @@ export default class TriangleSDF {
 			progress: 30
 		} );
 
-		if ( ! this.triangles || this.triangles.length === 0 ) {
+		if ( this.triangleCount === 0 ) {
 
 			throw new Error( "No triangles to build BVH from" );
 
@@ -245,7 +271,7 @@ export default class TriangleSDF {
 			const progressCallback = ( progress ) => {
 
 				const scaledProgress = 30 + Math.floor( progress * 0.5 );
-				const triangleCount = this.triangles.length.toLocaleString();
+				const triangleCount = this.triangleCount.toLocaleString();
 				updateLoading( {
 					status: `Building BVH for ${triangleCount} triangles... ${progress}%`,
 					progress: scaledProgress
@@ -253,9 +279,14 @@ export default class TriangleSDF {
 
 			};
 
+			// Choose triangle data format for BVH building
+			const triangleInput = this.config.useFloat32Array && this.triangleData
+				? this.triangleData
+				: this.triangles;
+
 			// Build the BVH
 			this.bvhRoot = await this.bvhBuilder.build(
-				this.triangles,
+				triangleInput,
 				this.config.bvhDepth,
 				progressCallback
 			);
@@ -297,10 +328,26 @@ export default class TriangleSDF {
 
 		try {
 
+			// Prepare triangle data for texture creation
+			// TextureCreator expects object format for now, so convert if needed
+			let trianglesForTextures;
+
+			if ( this.config.useFloat32Array && this.triangleData ) {
+
+				// Convert Float32Array back to objects for texture creation
+				trianglesForTextures = this._convertFloat32ArrayToObjects();
+				this._log( 'Converted Float32Array to objects for texture creation' );
+
+			} else {
+
+				trianglesForTextures = this.triangles;
+
+			}
+
 			// Prepare parameters for texture creation
 			const params = {
 				materials: this.materials,
-				triangles: this.triangles,
+				triangles: trianglesForTextures,
 				maps: this.maps,
 				normalMaps: this.normalMaps,
 				bumpMaps: this.bumpMaps,
@@ -350,6 +397,78 @@ export default class TriangleSDF {
 	}
 
 	/**
+     * Convert Float32Array triangle data back to object format
+     * @private
+     * @returns {Array} Array of triangle objects
+     */
+	_convertFloat32ArrayToObjects() {
+
+		if ( ! this.triangleData || this.triangleCount === 0 ) {
+
+			return [];
+
+		}
+
+		const triangles = [];
+		const FLOATS_PER_TRIANGLE = 25;
+
+		for ( let i = 0; i < this.triangleCount; i ++ ) {
+
+			const offset = i * FLOATS_PER_TRIANGLE;
+
+			triangles.push( {
+				posA: {
+					x: this.triangleData[ offset + 0 ],
+					y: this.triangleData[ offset + 1 ],
+					z: this.triangleData[ offset + 2 ]
+				},
+				posB: {
+					x: this.triangleData[ offset + 3 ],
+					y: this.triangleData[ offset + 4 ],
+					z: this.triangleData[ offset + 5 ]
+				},
+				posC: {
+					x: this.triangleData[ offset + 6 ],
+					y: this.triangleData[ offset + 7 ],
+					z: this.triangleData[ offset + 8 ]
+				},
+				normalA: {
+					x: this.triangleData[ offset + 9 ],
+					y: this.triangleData[ offset + 10 ],
+					z: this.triangleData[ offset + 11 ]
+				},
+				normalB: {
+					x: this.triangleData[ offset + 12 ],
+					y: this.triangleData[ offset + 13 ],
+					z: this.triangleData[ offset + 14 ]
+				},
+				normalC: {
+					x: this.triangleData[ offset + 15 ],
+					y: this.triangleData[ offset + 16 ],
+					z: this.triangleData[ offset + 17 ]
+				},
+				uvA: {
+					x: this.triangleData[ offset + 18 ],
+					y: this.triangleData[ offset + 19 ]
+				},
+				uvB: {
+					x: this.triangleData[ offset + 20 ],
+					y: this.triangleData[ offset + 21 ]
+				},
+				uvC: {
+					x: this.triangleData[ offset + 22 ],
+					y: this.triangleData[ offset + 23 ]
+				},
+				materialIndex: this.triangleData[ offset + 24 ]
+			} );
+
+		}
+
+		return triangles;
+
+	}
+
+	/**
      * Create additional sphere objects if needed
      * @private
      * @returns {Array} - Array of sphere objects
@@ -383,6 +502,8 @@ export default class TriangleSDF {
 
 		// Reset all containers
 		this.triangles = [];
+		this.triangleData = null;
+		this.triangleCount = 0;
 		this.materials = [];
 		this.maps = [];
 		this.normalMaps = [];
@@ -430,21 +551,118 @@ export default class TriangleSDF {
 	}
 
 	/**
+     * Get triangle data in the requested format
+     * @param {string} format - 'objects', 'float32array', or 'auto' (default)
+     * @returns {Array|Float32Array} Triangle data in requested format
+     */
+	getTriangles( format = 'auto' ) {
+
+		if ( format === 'auto' ) {
+
+			// Return the most efficient format available
+			return this.config.useFloat32Array && this.triangleData ? this.triangleData : this.triangles;
+
+		} else if ( format === 'float32array' ) {
+
+			return this.triangleData;
+
+		} else if ( format === 'objects' ) {
+
+			if ( this.triangles.length > 0 ) {
+
+				return this.triangles;
+
+			} else if ( this.triangleData ) {
+
+				// Convert on demand
+				return this._convertFloat32ArrayToObjects();
+
+			} else {
+
+				return [];
+
+			}
+
+		} else {
+
+			throw new Error( `Unknown triangle format: ${format}` );
+
+		}
+
+	}
+
+	/**
+     * Get triangle data optimized for worker transfer
+     * @returns {Object} Data prepared for worker transfer
+     */
+	getTrianglesForWorker() {
+
+		if ( this.config.useFloat32Array && this.triangleData ) {
+
+			return {
+				format: 'float32array',
+				data: this.triangleData,
+				count: this.triangleCount,
+				// Transfer ownership for efficiency
+				transferable: [ this.triangleData.buffer ]
+			};
+
+		} else {
+
+			return {
+				format: 'objects',
+				data: this.triangles,
+				count: this.triangles.length,
+				transferable: []
+			};
+
+		}
+
+	}
+
+	/**
      * Get statistics about the current state
      * @returns {Object} - Statistics object
      */
 	getStatistics() {
 
 		return {
-			triangleCount: this.triangles.length,
+			triangleCount: this.triangleCount,
 			materialCount: this.materials.length,
 			textureCount: this.maps.length,
 			lightCount: this.directionalLights.length,
 			cameraCount: this.cameras.length,
 			processingComplete: this.processingStage === 'complete',
 			hasBVH: !! this.bvhRoot,
-			hasTextures: !! this.materialTexture && !! this.triangleTexture
+			hasTextures: !! this.materialTexture && !! this.triangleTexture,
+			useFloat32Array: this.config.useFloat32Array,
+			triangleDataSize: this.triangleData ? ( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 ) + 'MB' : '0MB'
 		};
+
+	}
+
+	/**
+     * Update configuration
+     * @param {Object} newConfig - New configuration options
+     */
+	updateConfig( newConfig ) {
+
+		Object.assign( this.config, newConfig );
+
+		// Update component configurations
+		if ( this.bvhBuilder ) {
+
+			this.bvhBuilder.maxLeafSize = this.config.maxLeafSize;
+
+		}
+
+		if ( this.textureCreator ) {
+
+			this.textureCreator.useWorkers = this.config.useWorkers;
+
+		}
+
+		this._log( 'Configuration updated', this.config );
 
 	}
 
