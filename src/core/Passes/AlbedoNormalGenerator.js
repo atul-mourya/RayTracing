@@ -258,7 +258,7 @@ export class AlbedoNormalGenerator {
 
 		this.width = width;
 		this.height = height;
-		this.multiTarget.setSize( width / this.renderer.getPixelRatio(), height / this.renderer.getPixelRatio() );
+		this.multiTarget.setSize( width, height );
 
 	}
 
