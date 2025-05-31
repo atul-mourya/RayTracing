@@ -68,15 +68,14 @@ const TopBar = () => {
 	// Memoize the logo
 	const logo = useMemo( () => (
 		<div className="flex items-center space-x-2 mr-4 px-2">
-			<Menu size={18} />
-			<span className="font-semibold">RayCanvas</span>
+			<span className="font-semibold">Rayzee</span>
 		</div>
 	), [] );
 
 	return (
 		<AuthProvider>
 			{ ( { user, handleLoginClick, handleSignOut } ) => (
-				<div className="flex items-center h-[48px] border-b border-[#4a4a4a]">
+				<div className="flex items-center h-10 border-b">
 					{logo}
 					<MenuBar onOpenImportModal={openImportModal} />
 

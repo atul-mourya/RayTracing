@@ -235,7 +235,7 @@ SearchBar.displayName = 'SearchBar';
 const OutlinerHeader = memo( ( { searchTerm, onSearchChange } ) => {
 
 	return (
-		<div className="p-4 border-b border-border">
+		<div className="p-2 border-b border-border">
 			<div className="flex items-center justify-between mb-3">
 				<span className="text-sm font-medium">Layers</span>
 				<Plus
