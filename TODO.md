@@ -4,9 +4,7 @@ RayTracing Project TODO
 🐛 Bugs & Issues
 ----------------
 
-- [ ]  active catalog item not being highlighted in the UI
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
-- [ ]  fullscreen canvas not working
 - [ ]  when switching to render mode, ongoing denoising process should be cancelled
 
 ✨ Core Features
@@ -35,13 +33,28 @@ RayTracing Project TODO
 - [ ]  Experiment with ray frustum culling
 - [ ]  Refactor path tracing to use define instead of if-else
 
-🎨 UI Enhancements
+🎨 UX Enhancements
 ------------------
 - [ ]  Add dynamic lights addition and removal
 - [ ]  Add dynamic camera addition and removal
 - [ ]  Add dynamic object addition and removal
 - [ ]  improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 - [ ]  useHook - https://github.com/uidotdev/usehooks
+- [ ]  Recent searches dropdown in catalog with clear button
+- [ ]  Esc: Deselect current item
+- [ ]  R: Reset camera
+- [ ]  Space: Play/pause rendering
+- [ ]  Star/heart button on each card catalog item
+- [ ]  "Favorites" tab in each category
+- [ ]  Estimated time remaining
+- [ ]  Model polycount
+- [ ]  More to do https://claude.ai/chat/70c8cdf7-519e-4d1f-a889-c226c707dd46
+
+BVH Construction Improvements
+-----------------------------
+- [ ]  BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
+- [ ]  Experiment with 4-way branching for GPU traversal
+- [ ]  Consider PLOC only if you need maximum performance and can invest in the more complex implementation
 
 🔄 Major Refactoring
 --------------------
@@ -98,6 +111,7 @@ RayTracing Project TODO
 -   <https://skfb.ly/oMGoU>
 -   <https://api.physicallybased.info/operations/get-materials>
 -   <https://repalash.com/archives>
+-   [HIGH Poly models]<https://sketchfab.com/RaphaelDay/collections/backgrounds-e025877a5574455b8f5863da7dc6fb05>
 
 * * * * * *
 

@@ -100,7 +100,7 @@ class CanvasPool {
 
 		const defaultOptions = {
 			willReadFrequently: true,
-			alpha: false,
+			alpha: true,
 			desynchronized: true
 		};
 		return canvas.getContext( '2d', { ...defaultOptions, ...options } );

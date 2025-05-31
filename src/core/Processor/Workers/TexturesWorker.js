@@ -34,7 +34,7 @@ function initializeWorker( maxTextureSize ) {
 	canvas = new OffscreenCanvas( maxTextureSize, maxTextureSize );
 	ctx = canvas.getContext( '2d', {
 		willReadFrequently: true,
-		alpha: false,
+		alpha: true,
 		desynchronized: true // Allow for better performance
 	} );
 
