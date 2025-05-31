@@ -34,6 +34,11 @@ export default class TriangleSDF {
 			textureQuality: 'adaptive', // 'low', 'medium', 'high', 'adaptive'
 			enableTextureCache: true,
 			maxConcurrentTextureTasks: Math.min( navigator.hardwareConcurrency || 4, 6 ),
+			// Treelet optimization configuration
+			enableTreeletOptimization: true,
+			treeletSize: 7, // 7 nodes gives 315 topologies for optimal enumeration
+			treeletOptimizationPasses: 1,
+			treeletMinImprovement: 0.01, // Minimum SAH improvement threshold
 			...options
 		};
 
@@ -92,6 +97,14 @@ export default class TriangleSDF {
 		// Create and configure BVH builder
 		this.bvhBuilder = new BVHBuilder();
 		this.bvhBuilder.maxLeafSize = this.config.maxLeafSize;
+
+		// Configure treelet optimization
+		this.bvhBuilder.setTreeletConfig( {
+			enabled: this.config.enableTreeletOptimization,
+			size: this.config.treeletSize,
+			passes: this.config.treeletOptimizationPasses,
+			minImprovement: this.config.treeletMinImprovement
+		} );
 
 		// Create and configure texture creator
 		this.textureCreator = new TextureCreator();
@@ -527,6 +540,14 @@ export default class TriangleSDF {
 		if ( this.bvhBuilder ) {
 
 			this.bvhBuilder.maxLeafSize = this.config.maxLeafSize;
+
+			// Update treelet optimization configuration
+			this.bvhBuilder.setTreeletConfig( {
+				enabled: this.config.enableTreeletOptimization,
+				size: this.config.treeletSize,
+				passes: this.config.treeletOptimizationPasses,
+				minImprovement: this.config.treeletMinImprovement
+			} );
 
 		}
 

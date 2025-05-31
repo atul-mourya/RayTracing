@@ -21,10 +21,17 @@ const TRIANGLE_DATA_LAYOUT = {
 
 self.onmessage = function ( e ) {
 
-	const { triangleData, triangleCount, depth, reportProgress } = e.data;
+	const { triangleData, triangleCount, depth, reportProgress, treeletOptimization } = e.data;
 	const builder = new BVHBuilder();
 
 	try {
+
+		// Configure treelet optimization if provided
+		if ( treeletOptimization ) {
+
+			builder.setTreeletConfig( treeletOptimization );
+
+		}
 
 		// Create progress callback if progress reporting is enabled
 		const progressCallback = reportProgress ? ( progress ) => {
@@ -49,6 +56,7 @@ self.onmessage = function ( e ) {
 			bvhRoot,
 			triangles: reorderedFloat32Array,
 			triangleCount: reorderedTriangles.length,
+			treeletStats: builder.splitStats
 		}, [ reorderedFloat32Array.buffer ] );
 
 

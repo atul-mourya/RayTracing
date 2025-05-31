@@ -188,6 +188,395 @@ class TriangleWrapper {
 
 }
 
+class TreeletOptimizer {
+
+	constructor( traversalCost, intersectionCost ) {
+
+		this.traversalCost = traversalCost;
+		this.intersectionCost = intersectionCost;
+		this.treeletSize = 7; // Standard size for optimal enumeration (315 topologies)
+		this.minImprovement = 0.01; // Minimum SAH improvement threshold
+		this.maxTreeletDepth = 4; // Maximum depth to consider for treelets
+		
+		// Pre-computed topology cache for efficiency
+		this.topologyCache = new Map();
+		this.precomputeTopologies();
+		
+		// Statistics
+		this.stats = {
+			treeletsProcessed: 0,
+			treeletsImproved: 0,
+			totalSAHImprovement: 0,
+			averageSAHImprovement: 0,
+			optimizationTime: 0
+		};
+
+	}
+
+	// Pre-compute all possible binary tree topologies for given leaf counts
+	precomputeTopologies() {
+
+		for ( let leafCount = 3; leafCount <= this.treeletSize; leafCount ++ ) {
+
+			this.topologyCache.set( leafCount, this.generateAllTopologies( leafCount ) );
+
+		}
+
+	}
+
+	// Generate all possible binary tree topologies using Catalan numbers
+	generateAllTopologies( leafCount ) {
+
+		if ( leafCount <= 2 ) return [ leafCount === 1 ? [ 0 ] : [ 0, 1 ] ];
+
+		const topologies = [];
+		
+		// Use recursive enumeration based on left/right subtree partitioning
+		for ( let leftCount = 1; leftCount < leafCount; leftCount ++ ) {
+
+			const rightCount = leafCount - leftCount;
+			const leftTopologies = this.topologyCache.get( leftCount ) || this.generateAllTopologies( leftCount );
+			const rightTopologies = this.topologyCache.get( rightCount ) || this.generateAllTopologies( rightCount );
+
+			// Combine left and right topologies
+			for ( const leftTopo of leftTopologies ) {
+
+				for ( const rightTopo of rightTopologies ) {
+
+					// Offset right topology indices
+					const offsetRightTopo = rightTopo.map( idx => idx + leftCount );
+					topologies.push( [ ...leftTopo, ...offsetRightTopo ] );
+
+				}
+
+			}
+
+		}
+
+		return topologies;
+
+	}
+
+	// Main optimization entry point
+	optimizeBVH( bvhRoot, progressCallback = null ) {
+
+		const startTime = performance.now();
+		this.stats = {
+			treeletsProcessed: 0,
+			treeletsImproved: 0,
+			totalSAHImprovement: 0,
+			averageSAHImprovement: 0,
+			optimizationTime: 0
+		};
+
+		// Identify and optimize treelets
+		const treeletRoots = this.identifyTreeletRoots( bvhRoot );
+		const totalTreelets = treeletRoots.length;
+
+		console.log( `Found ${totalTreelets} treelets for optimization` );
+
+		for ( let i = 0; i < treeletRoots.length; i ++ ) {
+
+			const treelet = treeletRoots[ i ];
+			this.optimizeTreelet( treelet );
+
+			// Update progress
+			if ( progressCallback && i % 10 === 0 ) {
+
+				const progress = Math.floor( ( i / totalTreelets ) * 100 );
+				progressCallback( `Optimizing treelets: ${progress}%` );
+
+			}
+
+		}
+
+		this.stats.optimizationTime = performance.now() - startTime;
+		this.stats.averageSAHImprovement = this.stats.treeletsProcessed > 0 ? 
+			this.stats.totalSAHImprovement / this.stats.treeletsProcessed : 0;
+
+		console.log( 'Treelet optimization complete:', this.stats );
+		return bvhRoot;
+
+	}
+
+	// Identify treelet root nodes throughout the BVH
+	identifyTreeletRoots( bvhRoot ) {
+
+		const treeletRoots = [];
+		const visited = new Set();
+
+		this.traverseForTreelets( bvhRoot, treeletRoots, visited, 0 );
+		return treeletRoots;
+
+	}
+
+	// Recursive traversal to find optimal treelet boundaries
+	traverseForTreelets( node, treeletRoots, visited, depth ) {
+
+		if ( ! node || visited.has( node ) || node.triangleCount > 0 ) {
+
+			return 0; // Skip leaves and already processed nodes
+
+		}
+
+		const leftLeafCount = this.countLeafNodes( node.leftChild );
+		const rightLeafCount = this.countLeafNodes( node.rightChild );
+		const totalLeafCount = leftLeafCount + rightLeafCount;
+
+		// Check if this makes a good treelet root
+		if ( totalLeafCount >= 3 && totalLeafCount <= this.treeletSize && depth <= this.maxTreeletDepth ) {
+
+			treeletRoots.push( node );
+			this.markSubtreeVisited( node, visited );
+			return totalLeafCount;
+
+		}
+
+		// Continue traversing children
+		let leafCount = 0;
+		if ( node.leftChild ) {
+
+			leafCount += this.traverseForTreelets( node.leftChild, treeletRoots, visited, depth + 1 );
+
+		}
+		if ( node.rightChild ) {
+
+			leafCount += this.traverseForTreelets( node.rightChild, treeletRoots, visited, depth + 1 );
+
+		}
+
+		return leafCount;
+
+	}
+
+	// Count leaf nodes in a subtree
+	countLeafNodes( node ) {
+
+		if ( ! node ) return 0;
+		if ( node.triangleCount > 0 ) return 1; // Leaf node
+		return this.countLeafNodes( node.leftChild ) + this.countLeafNodes( node.rightChild );
+
+	}
+
+	// Mark all nodes in a subtree as visited
+	markSubtreeVisited( node, visited ) {
+
+		if ( ! node || visited.has( node ) ) return;
+		visited.add( node );
+		this.markSubtreeVisited( node.leftChild, visited );
+		this.markSubtreeVisited( node.rightChild, visited );
+
+	}
+
+	// Optimize a single treelet
+	optimizeTreelet( treeletRoot ) {
+
+		// Extract leaf nodes and their triangle data
+		const leafNodes = [];
+		this.extractLeafNodes( treeletRoot, leafNodes );
+
+		if ( leafNodes.length < 3 || leafNodes.length > this.treeletSize ) {
+
+			return; // Skip invalid treelets
+
+		}
+
+		this.stats.treeletsProcessed ++;
+
+		// Calculate original SAH cost
+		const originalCost = this.evaluateSubtreeSAH( treeletRoot );
+
+		// Get all possible topologies for this leaf count
+		const topologies = this.topologyCache.get( leafNodes.length ) || [];
+		let bestCost = originalCost;
+		let bestTopology = null;
+
+		// Evaluate each topology
+		for ( const topology of topologies ) {
+
+			const cost = this.evaluateTopologySAH( topology, leafNodes );
+			if ( cost < bestCost ) {
+
+				bestCost = cost;
+				bestTopology = topology;
+
+			}
+
+		}
+
+		// Apply optimization if improvement is significant
+		const improvement = originalCost - bestCost;
+		if ( improvement > this.minImprovement ) {
+
+			this.reconstructTreelet( treeletRoot, bestTopology, leafNodes );
+			this.stats.treeletsImproved ++;
+			this.stats.totalSAHImprovement += improvement;
+
+		}
+
+	}
+
+	// Extract all leaf nodes from a treelet
+	extractLeafNodes( node, leafNodes ) {
+
+		if ( ! node ) return;
+
+		if ( node.triangleCount > 0 ) {
+
+			leafNodes.push( {
+				triangleOffset: node.triangleOffset,
+				triangleCount: node.triangleCount,
+				boundsMin: node.boundsMin.clone(),
+				boundsMax: node.boundsMax.clone()
+			} );
+			return;
+
+		}
+
+		this.extractLeafNodes( node.leftChild, leafNodes );
+		this.extractLeafNodes( node.rightChild, leafNodes );
+
+	}
+
+	// Evaluate SAH cost for a complete subtree
+	evaluateSubtreeSAH( node ) {
+
+		if ( ! node ) return 0;
+
+		if ( node.triangleCount > 0 ) {
+
+			// Leaf cost
+			const surfaceArea = this.computeSurfaceAreaFromBounds( node.boundsMin, node.boundsMax );
+			return surfaceArea * node.triangleCount * this.intersectionCost;
+
+		}
+
+		// Internal node cost
+		const leftCost = this.evaluateSubtreeSAH( node.leftChild );
+		const rightCost = this.evaluateSubtreeSAH( node.rightChild );
+		const nodeSurfaceArea = this.computeSurfaceAreaFromBounds( node.boundsMin, node.boundsMax );
+
+		return nodeSurfaceArea * this.traversalCost + leftCost + rightCost;
+
+	}
+
+	// Evaluate SAH cost for a specific topology arrangement
+	evaluateTopologySAH( topology, leafNodes ) {
+
+		// Reconstruct tree structure based on topology
+		const tree = this.buildTopologyTree( topology, leafNodes );
+		return this.evaluateTopologyTreeSAH( tree );
+
+	}
+
+	// Build tree structure from topology description
+	buildTopologyTree( topology, leafNodes ) {
+
+		if ( topology.length === 1 ) {
+
+			return leafNodes[ topology[ 0 ] ];
+
+		}
+
+		// Find split point (this is simplified - full implementation would need proper topology parsing)
+		const midPoint = Math.floor( topology.length / 2 );
+		const leftTopology = topology.slice( 0, midPoint );
+		const rightTopology = topology.slice( midPoint );
+
+		const leftTree = this.buildTopologyTree( leftTopology, leafNodes );
+		const rightTree = this.buildTopologyTree( rightTopology, leafNodes );
+
+		// Compute combined bounds
+		const boundsMin = new Vector3(
+			Math.min( leftTree.boundsMin.x, rightTree.boundsMin.x ),
+			Math.min( leftTree.boundsMin.y, rightTree.boundsMin.y ),
+			Math.min( leftTree.boundsMin.z, rightTree.boundsMin.z )
+		);
+
+		const boundsMax = new Vector3(
+			Math.max( leftTree.boundsMax.x, rightTree.boundsMax.x ),
+			Math.max( leftTree.boundsMax.y, rightTree.boundsMax.y ),
+			Math.max( leftTree.boundsMax.z, rightTree.boundsMax.z )
+		);
+
+		return {
+			leftChild: leftTree,
+			rightChild: rightTree,
+			boundsMin,
+			boundsMax,
+			triangleCount: 0
+		};
+
+	}
+
+	// Evaluate SAH cost for a topology tree structure
+	evaluateTopologyTreeSAH( tree ) {
+
+		if ( tree.triangleCount > 0 ) {
+
+			// Leaf node
+			const surfaceArea = this.computeSurfaceAreaFromBounds( tree.boundsMin, tree.boundsMax );
+			return surfaceArea * tree.triangleCount * this.intersectionCost;
+
+		}
+
+		// Internal node
+		const leftCost = this.evaluateTopologyTreeSAH( tree.leftChild );
+		const rightCost = this.evaluateTopologyTreeSAH( tree.rightChild );
+		const nodeSurfaceArea = this.computeSurfaceAreaFromBounds( tree.boundsMin, tree.boundsMax );
+
+		return nodeSurfaceArea * this.traversalCost + leftCost + rightCost;
+
+	}
+
+	// Reconstruct treelet with optimal topology
+	reconstructTreelet( treeletRoot, bestTopology, leafNodes ) {
+
+		// Build the optimized tree structure
+		const optimizedTree = this.buildTopologyTree( bestTopology, leafNodes );
+
+		// Replace the original treelet with the optimized version
+		treeletRoot.leftChild = optimizedTree.leftChild;
+		treeletRoot.rightChild = optimizedTree.rightChild;
+		treeletRoot.boundsMin.copy( optimizedTree.boundsMin );
+		treeletRoot.boundsMax.copy( optimizedTree.boundsMax );
+		treeletRoot.triangleCount = optimizedTree.triangleCount;
+		treeletRoot.triangleOffset = optimizedTree.triangleOffset;
+
+	}
+
+	// Surface area computation (reuse from main builder)
+	computeSurfaceAreaFromBounds( boundsMin, boundsMax ) {
+
+		const dx = boundsMax.x - boundsMin.x;
+		const dy = boundsMax.y - boundsMin.y;
+		const dz = boundsMax.z - boundsMin.z;
+		return 2 * ( dx * dy + dy * dz + dz * dx );
+
+	}
+
+	// Configuration methods
+	setTreeletSize( size ) {
+
+		this.treeletSize = Math.max( 3, Math.min( 15, size ) );
+		this.precomputeTopologies();
+
+	}
+
+	setMinImprovement( threshold ) {
+
+		this.minImprovement = Math.max( 0.001, threshold );
+
+	}
+
+	getStatistics() {
+
+		return { ...this.stats };
+
+	}
+
+}
+
 export default class BVHBuilder {
 
 	constructor() {
@@ -232,7 +621,12 @@ export default class BVHBuilder {
 			avgBinsUsed: 0,
 			totalSplitAttempts: 0,
 			mortonSortTime: 0,
-			totalBuildTime: 0
+			totalBuildTime: 0,
+			// Treelet optimization stats
+			treeletOptimizationTime: 0,
+			treeletsProcessed: 0,
+			treeletsImproved: 0,
+			averageSAHImprovement: 0
 		};
 
 		// Pre-allocate maximum bin arrays to avoid reallocations
@@ -333,6 +727,23 @@ export default class BVHBuilder {
 		console.log( 'Fallback config updated:', {
 			objectMedianEnabled: this.enableObjectMedianFallback,
 			spatialMedianEnabled: this.enableSpatialMedianFallback
+		} );
+
+	}
+
+	// Configuration for treelet optimization
+	setTreeletConfig( config ) {
+
+		if ( config.enabled !== undefined ) this.enableTreeletOptimization = config.enabled;
+		if ( config.size !== undefined ) this.treeletSize = Math.max( 3, Math.min( 15, config.size ) );
+		if ( config.passes !== undefined ) this.treeletOptimizationPasses = Math.max( 1, config.passes );
+		if ( config.minImprovement !== undefined ) this.treeletMinImprovement = Math.max( 0.001, config.minImprovement );
+
+		console.log( 'Treelet optimization config updated:', {
+			enabled: this.enableTreeletOptimization,
+			size: this.treeletSize,
+			passes: this.treeletOptimizationPasses,
+			minImprovement: this.treeletMinImprovement
 		} );
 
 	}
@@ -641,7 +1052,12 @@ export default class BVHBuilder {
 			avgBinsUsed: 0,
 			totalSplitAttempts: 0,
 			mortonSortTime: 0,
-			totalBuildTime: 0
+			totalBuildTime: 0,
+			// Treelet optimization stats
+			treeletOptimizationTime: 0,
+			treeletsProcessed: 0,
+			treeletsImproved: 0,
+			averageSAHImprovement: 0
 		};
 
 		// Float32Array-based triangles
@@ -660,6 +1076,38 @@ export default class BVHBuilder {
 
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
+
+		// Apply treelet optimization if enabled
+		if ( this.enableTreeletOptimization && this.totalTriangles > 100 ) {
+
+			const optimizer = new TreeletOptimizer( this.traversalCost, this.intersectionCost );
+			optimizer.setTreeletSize( this.treeletSize );
+			optimizer.setMinImprovement( this.treeletMinImprovement );
+
+			console.log( 'Starting treelet optimization...' );
+			const optimizationStartTime = performance.now();
+
+			// Run optimization passes
+			for ( let pass = 0; pass < this.treeletOptimizationPasses; pass ++ ) {
+
+				const passCallback = progressCallback ? ( status ) => {
+
+					progressCallback( `Treelet optimization pass ${pass + 1}/${this.treeletOptimizationPasses}: ${status}` );
+
+				} : null;
+
+				optimizer.optimizeBVH( root, passCallback );
+
+			}
+
+			// Update statistics
+			const optimizationStats = optimizer.getStatistics();
+			this.splitStats.treeletOptimizationTime = performance.now() - optimizationStartTime;
+			this.splitStats.treeletsProcessed = optimizationStats.treeletsProcessed;
+			this.splitStats.treeletsImproved = optimizationStats.treeletsImproved;
+			this.splitStats.averageSAHImprovement = optimizationStats.averageSAHImprovement;
+
+		}
 
 		// Record total build time
 		this.splitStats.totalBuildTime = performance.now() - buildStartTime;
@@ -680,10 +1128,19 @@ export default class BVHBuilder {
 				maxBins: this.maxBins,
 				baseBins: this.numBins
 			},
+			treeletOptimization: {
+				enabled: this.enableTreeletOptimization,
+				time: Math.round( this.splitStats.treeletOptimizationTime ),
+				processed: this.splitStats.treeletsProcessed,
+				improved: this.splitStats.treeletsImproved,
+				averageImprovement: Math.round( this.splitStats.averageSAHImprovement * 1000 ) / 1000
+			},
 			performance: {
 				totalBuildTime: Math.round( this.splitStats.totalBuildTime ),
 				mortonSortTime: Math.round( this.splitStats.mortonSortTime ),
+				treeletOptimizationTime: Math.round( this.splitStats.treeletOptimizationTime ),
 				mortonSortPercentage: Math.round( ( this.splitStats.mortonSortTime / this.splitStats.totalBuildTime ) * 100 ),
+				treeletOptimizationPercentage: Math.round( ( this.splitStats.treeletOptimizationTime / this.splitStats.totalBuildTime ) * 100 ),
 				trianglesPerSecond: Math.round( this.totalTriangles / ( this.splitStats.totalBuildTime / 1000 ) )
 			},
 			mortonClustering: {

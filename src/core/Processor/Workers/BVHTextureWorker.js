@@ -1,42 +1,19 @@
 self.onmessage = function ( e ) {
 
-	const { bvhRoot } = e.data;
-
 	try {
 
-		const nodes = [];
-		const flattenBVH = ( node ) => {
-
-			const nodeIndex = nodes.length;
-			nodes.push( node );
-			if ( node.leftChild ) {
-
-				const leftIndex = flattenBVH( node.leftChild );
-				const rightIndex = flattenBVH( node.rightChild );
-				node.leftChild = leftIndex;
-				node.rightChild = rightIndex;
-
-			}
-
-			return nodeIndex;
-
-		};
-
-		flattenBVH( bvhRoot );
-
-		// Use 3 vec4s per node (12 floats) to match TextureCreator
-		const VEC4_PER_BVH_NODE = 3;
-		const FLOATS_PER_VEC4 = 4;
-		const dataLength = nodes.length * VEC4_PER_BVH_NODE * FLOATS_PER_VEC4; // 3 vec4s per node
-		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
-		const height = Math.ceil( dataLength / ( 4 * width ) );
-		const size = width * height * 4;
-		const data = new Float32Array( size );
+		const { nodes, width, height } = e.data;
+		
+		// Calculate texture data
+		const dataInEachPixel = 4; // RGBA components
+		const vec4PerNode = 3; // Each BVH node uses 3 vec4s
+		const totalPixels = width * height;
+		const data = new Float32Array( totalPixels * dataInEachPixel );
 
 		for ( let i = 0; i < nodes.length; i ++ ) {
 
-			const stride = i * 12; // 12 floats per node (3 vec4s)
 			const node = nodes[ i ];
+			const stride = i * vec4PerNode * dataInEachPixel;
 
 			// Vec4 1: boundsMin + leftChild
 			data[ stride + 0 ] = node.boundsMin.x;
