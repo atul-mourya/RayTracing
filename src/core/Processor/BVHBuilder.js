@@ -1072,7 +1072,7 @@ export default class BVHBuilder {
 
 		// Apply Morton code spatial clustering for better cache locality
 		// Use recursive clustering for very large datasets
-		triangleInfos = ( triangleInfos.length > 50000 ) ? this.recursiveMortonCluster( triangleInfos ) : this.sortTrianglesByMortonCode( triangleInfos );
+		triangleInfos = this.sortTrianglesByMortonCode( triangleInfos );
 
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
