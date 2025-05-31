@@ -1,6 +1,5 @@
 import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
 
-const maxTextureSize = new WebGLRenderer().capabilities.maxTextureSize;
 const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
 // Constants to avoid magic numbers
@@ -13,7 +12,8 @@ const TEXTURE_CONSTANTS = {
 	MIN_TEXTURE_WIDTH: 4,
 	MAX_CONCURRENT_WORKERS: 4,
 	WORKER_POOL_SIZE: 10,
-	BUFFER_POOL_SIZE: 20
+	BUFFER_POOL_SIZE: 20,
+	MAX_TEXTURE_SIZE: new WebGLRenderer().capabilities.maxTextureSize || 4096 // Fallback to 4096 if not available
 };
 
 // Triangle data layout constants (matching GeometryExtractor)
@@ -380,7 +380,8 @@ export default class TextureCreator {
 		if ( textureData !== triangles ) {
 
 			texture.userData = { buffer: textureData, bufferType: Float32Array };
-			texture.addEventListener( 'dispose', () => {
+			const originalDispose = texture.dispose.bind( texture );
+			texture.dispose = () => {
 
 				if ( texture.userData.buffer ) {
 
@@ -389,7 +390,9 @@ export default class TextureCreator {
 
 				}
 
-			} );
+				originalDispose();
+
+			};
 
 		}
 
@@ -656,7 +659,8 @@ export default class TextureCreator {
 
 		// Store the buffer for release when texture is disposed
 		texture.userData = { buffer: data, bufferType: Float32Array };
-		texture.addEventListener( 'dispose', () => {
+		const originalDispose = texture.dispose.bind( texture );
+		texture.dispose = () => {
 
 			if ( texture.userData.buffer ) {
 
@@ -665,7 +669,9 @@ export default class TextureCreator {
 
 			}
 
-		} );
+			originalDispose();
+
+		};
 
 		return texture;
 
@@ -719,7 +725,7 @@ export default class TextureCreator {
 		maxHeight = Math.pow( 2, Math.ceil( Math.log2( maxHeight ) ) );
 
 		// Reduce dimensions if they exceed the maximum texture size
-		while ( maxWidth >= maxTextureSize / 2 || maxHeight >= maxTextureSize / 2 ) {
+		while ( maxWidth >= TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE / 2 || maxHeight >= TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE / 2 ) {
 
 			maxWidth = Math.max( 1, Math.floor( maxWidth / 2 ) );
 			maxHeight = Math.max( 1, Math.floor( maxHeight / 2 ) );
@@ -766,7 +772,8 @@ export default class TextureCreator {
 
 		// Store the buffer for release when texture is disposed
 		texture.userData = { buffer: data, bufferType: Uint8Array };
-		texture.addEventListener( 'dispose', () => {
+		const originalDispose = texture.dispose.bind( texture );
+		texture.dispose = () => {
 
 			if ( texture.userData.buffer ) {
 
@@ -775,7 +782,9 @@ export default class TextureCreator {
 
 			}
 
-		} );
+			originalDispose();
+
+		};
 
 		// Store the mapping between original texture indices and valid texture indices
 		texture.textureMapping = textures.map( ( tex, index ) => {
@@ -811,7 +820,7 @@ export default class TextureCreator {
 
 		flattenBVH( bvhRoot );
 
-		// Optimized: Use only 3 vec4s per node instead of 4
+		// 3 vec4s per node (12 floats)
 		const dataLength = nodes.length * TEXTURE_CONSTANTS.VEC4_PER_BVH_NODE * TEXTURE_CONSTANTS.FLOATS_PER_VEC4; // 3 vec4s per node
 		const width = Math.ceil( Math.sqrt( dataLength / TEXTURE_CONSTANTS.RGBA_COMPONENTS ) );
 		const height = Math.ceil( dataLength / ( TEXTURE_CONSTANTS.RGBA_COMPONENTS * width ) );
@@ -848,7 +857,8 @@ export default class TextureCreator {
 
 		// Store the buffer for release when texture is disposed
 		texture.userData = { buffer: data, bufferType: Float32Array };
-		texture.addEventListener( 'dispose', () => {
+		const originalDispose = texture.dispose.bind( texture );
+		texture.dispose = () => {
 
 			if ( texture.userData.buffer ) {
 
@@ -857,7 +867,9 @@ export default class TextureCreator {
 
 			}
 
-		} );
+			originalDispose();
+
+		};
 
 		return texture;
 
