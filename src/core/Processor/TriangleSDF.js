@@ -1,33 +1,39 @@
+// TriangleSDF.js - Minimal changes to integrate optimized texture processing
 import { Color } from "three";
 import BVHBuilder from './BVHBuilder.js';
-import TextureCreator from './TextureCreator.js';
+import TextureCreator from './TextureCreator.js'; // Using optimized TextureCreator
 import GeometryExtractor from './GeometryExtractor.js';
 import { updateLoading } from '../Processor/utils.js';
 
 /**
  * TriangleSDF - Handles the triangle-based signed distance field
- * processing for path tracing.
+ * processing for path tracing with peak performance optimizations.
  */
 export default class TriangleSDF {
 
 	/**
      * Create a new TriangleSDF processor
      * @param {Object} options - Configuration options
-     * @param {boolean} [options.useWorkers=false] - Use worker threads when available
+     * @param {boolean} [options.useWorkers=true] - Use worker threads when available
      * @param {number} [options.bvhDepth=30] - Maximum BVH tree depth
      * @param {number} [options.maxLeafSize=4] - Maximum triangles per BVH leaf
      * @param {boolean} [options.verbose=false] - Enable verbose logging
      * @param {boolean} [options.useFloat32Array=true] - Use Float32Array for triangle data
+     * @param {string} [options.textureQuality='adaptive'] - Texture quality mode
+     * @param {boolean} [options.enableTextureCache=true] - Enable texture caching
      */
 	constructor( options = {} ) {
 
 		// Configuration options with defaults
 		this.config = {
-			useWorkers: true, // Default to false for compatibility
+			useWorkers: true, // Enable workers by default for peak performance
 			bvhDepth: 30,
 			maxLeafSize: 4,
 			verbose: false,
-			useFloat32Array: true, // New option to control triangle data format
+			useFloat32Array: true,
+			textureQuality: 'adaptive', // 'low', 'medium', 'high', 'adaptive'
+			enableTextureCache: true,
+			maxConcurrentTextureTasks: Math.min( navigator.hardwareConcurrency || 4, 6 ),
 			...options
 		};
 
@@ -64,6 +70,14 @@ export default class TriangleSDF {
 		this.isProcessing = false;
 		this.processingStage = null;
 
+		// Performance tracking
+		this.performanceMetrics = {
+			textureCreationTime: 0,
+			geometryExtractionTime: 0,
+			bvhBuildTime: 0,
+			totalProcessingTime: 0
+		};
+
 	}
 
 	/**
@@ -81,15 +95,13 @@ export default class TriangleSDF {
 
 		// Create and configure texture creator
 		this.textureCreator = new TextureCreator();
-		this.textureCreator.useWorkers = this.config.useWorkers;
+		// The optimized TextureCreator will auto-detect capabilities and select optimal methods
 
 	}
 
 	/**
      * Log message if verbose mode is enabled
      * @private
-     * @param {string} message - Message to log
-     * @param {Object} [data] - Optional data to log
      */
 	_log( message, data ) {
 
@@ -117,6 +129,8 @@ export default class TriangleSDF {
 		this.isProcessing = true;
 		this.processingStage = 'init';
 
+		const totalStartTime = performance.now();
+
 		try {
 
 			// Reset state before beginning
@@ -125,24 +139,39 @@ export default class TriangleSDF {
 
 			// Step 1: Extract geometry (0-30%)
 			this.processingStage = 'extraction';
+			const extractionStartTime = performance.now();
 			await this._extractGeometry( object );
+			this.performanceMetrics.geometryExtractionTime = performance.now() - extractionStartTime;
 
 			// Step 2: Build BVH (30-80%)
 			this.processingStage = 'bvh';
+			const bvhStartTime = performance.now();
 			await this._buildBVH();
+			this.performanceMetrics.bvhBuildTime = performance.now() - bvhStartTime;
 
 			// Step 3: Create textures (80-100%)
 			this.processingStage = 'textures';
+			const textureStartTime = performance.now();
 			await this._createTextures();
+			this.performanceMetrics.textureCreationTime = performance.now() - textureStartTime;
 
 			// Create additional scene elements (spheres, etc.)
 			this.processingStage = 'finalize';
 			this.spheres = this._createSpheres();
 
+			// Calculate total performance
+			this.performanceMetrics.totalProcessingTime = performance.now() - totalStartTime;
+
 			this._log( 'Processing complete', {
 				triangleCount: this.triangleCount,
 				materials: this.materials.length,
 				textures: this.maps.length,
+				performance: {
+					total: this.performanceMetrics.totalProcessingTime.toFixed( 2 ) + 'ms',
+					extraction: this.performanceMetrics.geometryExtractionTime.toFixed( 2 ) + 'ms',
+					bvh: this.performanceMetrics.bvhBuildTime.toFixed( 2 ) + 'ms',
+					textures: this.performanceMetrics.textureCreationTime.toFixed( 2 ) + 'ms'
+				}
 			} );
 
 			this.processingStage = 'complete';
@@ -169,7 +198,6 @@ export default class TriangleSDF {
 	/**
      * Extract geometry data from the object
      * @private
-     * @param {Object3D} object - Three.js object to process
      */
 	async _extractGeometry( object ) {
 
@@ -190,7 +218,6 @@ export default class TriangleSDF {
 			this.triangleCount = extractedData.triangleCount;
 
 			this._log( `Using Float32Array format: ${this.triangleCount} triangles, ${( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 )}MB` );
-
 
 			// Store other extracted data
 			this.materials = extractedData.materials;
@@ -336,7 +363,8 @@ export default class TriangleSDF {
 			this._log( `Texture creation complete (${duration.toFixed( 2 )}ms)`, {
 				materialTexture: !! this.materialTexture,
 				triangleTexture: !! this.triangleTexture,
-				bvhTexture: !! this.bvhTexture
+				bvhTexture: !! this.bvhTexture,
+				textureCreatorCapabilities: this.textureCreator.capabilities
 			} );
 
 			updateLoading( {
@@ -360,7 +388,6 @@ export default class TriangleSDF {
 	/**
      * Create additional sphere objects if needed
      * @private
-     * @returns {Array} - Array of sphere objects
      */
 	_createSpheres() {
 
@@ -375,7 +402,6 @@ export default class TriangleSDF {
 			// { position: new Vector3( 4, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0 } },
 
 			// { position: new Vector3( 0, 2, 0 ), radius: 1, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0 } },
-
 		];
 
 	}
@@ -405,6 +431,14 @@ export default class TriangleSDF {
 		this.spheres = [];
 		this.bvhRoot = null;
 
+		// Reset performance metrics
+		this.performanceMetrics = {
+			textureCreationTime: 0,
+			geometryExtractionTime: 0,
+			bvhBuildTime: 0,
+			totalProcessingTime: 0
+		};
+
 	}
 
 	/**
@@ -413,7 +447,6 @@ export default class TriangleSDF {
      */
 	_disposeTextures() {
 
-		// List of texture properties to dispose
 		const textureProps = [
 			'materialTexture', 'triangleTexture', 'albedoTextures',
 			'normalTextures', 'bumpTextures', 'roughnessTextures',
@@ -445,7 +478,7 @@ export default class TriangleSDF {
      */
 	getStatistics() {
 
-		return {
+		const baseStats = {
 			triangleCount: this.triangleCount,
 			materialCount: this.materials.length,
 			textureCount: this.maps.length,
@@ -457,6 +490,28 @@ export default class TriangleSDF {
 			useFloat32Array: this.config.useFloat32Array,
 			triangleDataSize: this.triangleData ? ( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 ) + 'MB' : '0MB'
 		};
+
+		// Add performance metrics
+		if ( this.performanceMetrics.totalProcessingTime > 0 ) {
+
+			baseStats.performance = {
+				totalTime: this.performanceMetrics.totalProcessingTime,
+				textureTime: this.performanceMetrics.textureCreationTime,
+				bvhTime: this.performanceMetrics.bvhBuildTime,
+				extractionTime: this.performanceMetrics.geometryExtractionTime,
+				texturePercentage: ( ( this.performanceMetrics.textureCreationTime / this.performanceMetrics.totalProcessingTime ) * 100 ).toFixed( 1 ) + '%'
+			};
+
+		}
+
+		// Add texture creator capabilities if available
+		if ( this.textureCreator && this.textureCreator.capabilities ) {
+
+			baseStats.textureCapabilities = this.textureCreator.capabilities;
+
+		}
+
+		return baseStats;
 
 	}
 
@@ -475,11 +530,8 @@ export default class TriangleSDF {
 
 		}
 
-		if ( this.textureCreator ) {
-
-			this.textureCreator.useWorkers = this.config.useWorkers;
-
-		}
+		// Note: TextureCreator auto-configures based on capabilities
+		// but could be enhanced to accept runtime configuration updates
 
 		this._log( 'Configuration updated', this.config );
 
@@ -499,10 +551,17 @@ export default class TriangleSDF {
 		// Clear all data
 		this._reset();
 
-		// Clear reference to processing components
+		// Dispose texture creator
+		if ( this.textureCreator ) {
+
+			this.textureCreator.dispose();
+			this.textureCreator = null;
+
+		}
+
+		// Clear reference to other processing components
 		this.geometryExtractor = null;
 		this.bvhBuilder = null;
-		this.textureCreator = null;
 
 	}
 

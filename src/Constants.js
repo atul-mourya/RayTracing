@@ -155,22 +155,25 @@ export const DEBUG_MODELS = debugModelsData
 
 export const DEFAULT_STATE = {
 	optimizeMeshes: true,
+	model: 9,
+	environment: 2,
+
 	originalPixelRatio: window.devicePixelRatio / 2,
 	toneMapping: 4,
 	exposure: 1,
 	enableEnvironment: true,
 	showBackground: true,
-	model: 9,
-	environment: 2,
 	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
 	environmentRotation: 0.0,
 	globalIlluminationIntensity: 1,
+
 	fov: 65,
 	focusDistance: 2.0,
 	aperture: 16,
 	focalLength: 50.0,
+
 	enablePathTracer: true,
 	enableAccumulation: true,
 	pauseRendering: false,
@@ -194,21 +197,26 @@ export const DEFAULT_STATE = {
 	tiles: 3,
 	tilesHelper: false,
 	resolution: 1,
+
 	directionalLightIntensity: 0,
 	directionalLightColor: "#ffffff",
 	directionalLightPosition: [ 1, 1, 1 ],
+
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
 	oidnHDR: false,
 	useGBuffer: true,
 	debugGbufferMaps: false,
+
 	enableRealtimeDenoiser: false,
 	denoiserBlurStrength: 2,
 	denoiserBlurRadius: 1,
 	denoiserDetailPreservation: 0.05,
+
 	debugMode: 0,
 	debugThreshold: 100,
 	debugModel: 0,
+
 	enableBloom: false,
 	bloomStrength: 0.2,
 	bloomRadius: 0.15,
