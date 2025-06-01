@@ -127,17 +127,15 @@ Triangle getTriangle( int triangleIndex ) {
 
 bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
 	// Only fetch the data we need for visibility check
-	vec4 data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 24 );
-	vec4 data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, 24 );
+	vec4 visibilityData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 24 );
 
-	bool visible = bool( data4.g );
-	int side = int( data10.g );
-
-	if( ! visible )
+	if( ! bool( visibilityData.g ) )
 		return false;
 
 	// Check side visibility
 	float rayDotNormal = dot( rayDirection, normal );
+	vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, 24 );
+	int side = int( sideData.g );
 
 	return ( side == 2 || // DoubleSide - most common case first
 		( side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
