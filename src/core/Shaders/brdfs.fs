@@ -75,7 +75,7 @@ float getMaterialImportance( RayTracingMaterial material ) {
 ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex ) {
 	ImportanceSamplingInfo info;
 
-    // Start with weights from BRDF distribution
+    // Base BRDF weights
 	BRDFWeights weights = calculateBRDFWeights( material );
 
     // Base importances on BRDF weights but with additional heuristics
@@ -84,39 +84,68 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 	info.transmissionImportance = weights.transmission;
 	info.clearcoatImportance = weights.clearcoat;
 
-    // Environment importance based on scene settings
-	float envStrength = backgroundIntensity * 0.2;
-	info.envmapImportance = envStrength > 0.01 ? envStrength : 0.0;
+    // Enhanced environment importance calculation
+	float baseEnvStrength = backgroundIntensity * environmentIntensity * 0.05;
+	float envMaterialFactor = 1.0;
 
-    // Adjust importances based on bounce index
+	if( material.metalness > 0.7 ) {
+		envMaterialFactor = 2.5; // Metals strongly reflect environment
+	} else if( material.roughness > 0.8 ) {
+		envMaterialFactor = 1.8; // Rough materials sample environment diffusely
+	} else if( material.transmission > 0.5 ) {
+		envMaterialFactor = 0.4; // Transmissive materials interact less with environment
+	} else if( material.clearcoat > 0.5 ) {
+		envMaterialFactor = 1.6; // Clearcoat adds reflection layer
+	}
+
+    // Bounce-based environment importance
+	float bounceFactor = 1.0;
+	if( bounceIndex > maxEnvSamplingBounce ) {
+		bounceFactor = 0.1;
+	} else if( bounceIndex > 2 ) {
+		bounceFactor = 1.0 / ( 1.0 + float( bounceIndex - 2 ) * 0.5 );
+	}
+
+    // Hierarchical sampling boost
+	if( enableHierarchicalEnvSampling && bounceIndex > 1 ) {
+		bounceFactor *= 1.2;
+	}
+
+	info.envmapImportance = baseEnvStrength * envMaterialFactor * bounceFactor;
+
+    // Bounce-based strategy adjustments
 	if( bounceIndex > 2 ) {
-        // For deeper bounces, favor diffuse and environment sampling
-        // as they contribute less to specular paths at higher bounces
-		info.specularImportance *= 0.7;
-		info.clearcoatImportance *= 0.7;
-		info.diffuseImportance *= 1.2;
-		info.envmapImportance *= 1.5;
+		float depthFactor = 1.0 / float( bounceIndex - 1 );
+		info.specularImportance *= ( 0.7 + depthFactor * 0.3 );
+		info.clearcoatImportance *= ( 0.6 + depthFactor * 0.4 );
+		info.diffuseImportance *= ( 1.2 + depthFactor * 0.3 );
 	}
 
-    // Special case for metals - always favor specular for first few bounces
-	if( material.metalness > 0.7 && bounceIndex < 3 ) {
-		info.specularImportance = max( info.specularImportance, 0.8 );
+    // Material-specific adjustments
+	if( material.metalness > 0.8 && bounceIndex < 3 ) {
+		info.specularImportance = max( info.specularImportance, 0.6 );
+		info.envmapImportance = max( info.envmapImportance, 0.3 );
+		info.diffuseImportance *= 0.4;
+	}
+
+	if( material.transmission > 0.8 ) {
+		info.transmissionImportance = max( info.transmissionImportance, 0.8 );
 		info.diffuseImportance *= 0.2;
+		info.specularImportance *= 0.6;
+		info.envmapImportance *= 0.7;
 	}
 
-    // Special case for glass - always favor transmission
-	if( material.transmission > 0.7 ) {
-		info.transmissionImportance = max( info.transmissionImportance, 0.9 );
-		info.diffuseImportance *= 0.1;
-		info.specularImportance *= 0.5;
+	if( material.clearcoat > 0.7 ) {
+		info.clearcoatImportance = max( info.clearcoatImportance, 0.4 );
+		info.envmapImportance = max( info.envmapImportance, 0.2 );
 	}
 
-    // Normalize importances to sum to 1.0
+    // Normalize to sum to 1.0
 	float sum = info.diffuseImportance + info.specularImportance +
 		info.transmissionImportance + info.clearcoatImportance +
 		info.envmapImportance;
 
-	if( sum > 0.0 ) {
+	if( sum > 0.001 ) {
 		float invSum = 1.0 / sum;
 		info.diffuseImportance *= invSum;
 		info.specularImportance *= invSum;
@@ -124,9 +153,11 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 		info.clearcoatImportance *= invSum;
 		info.envmapImportance *= invSum;
 	} else {
-        // Fallback if all importances are zero
-		info.diffuseImportance = 0.5;
-		info.envmapImportance = 0.5;
+		info.diffuseImportance = 0.6;
+		info.envmapImportance = 0.4;
+		info.specularImportance = 0.0;
+		info.transmissionImportance = 0.0;
+		info.clearcoatImportance = 0.0;
 	}
 
 	return info;

@@ -563,20 +563,20 @@ IndirectLightingResult calculateIndirectLighting(
     vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
     float selectionRand = RandomValue( rngState );
 
-    // Build list of active strategies with non-negligible weights
+    // Build active sampling strategies
     SamplingStrategy strategies[ 3 ];
     int numActiveStrategies = 0;
     float totalActiveWeight = 0.0;
 
     // Environment sampling
-    if( samplingInfo.envmapImportance > 0.001 && enableEnvironmentLight ) {
+    if( samplingInfo.envmapImportance > 0.001 && enableEnvironmentLight && shouldUseEnvironmentSampling( bounceIndex, material ) ) {
         strategies[ numActiveStrategies ].type = 0;
         strategies[ numActiveStrategies ].weight = samplingInfo.envmapImportance;
         totalActiveWeight += samplingInfo.envmapImportance;
         numActiveStrategies ++;
     }
 
-    // BRDF sampling (combine specular, transmission, clearcoat)
+    // BRDF sampling strategy
     float brdfWeight = samplingInfo.specularImportance +
         samplingInfo.transmissionImportance +
         samplingInfo.clearcoatImportance;
@@ -606,7 +606,7 @@ IndirectLightingResult calculateIndirectLighting(
         return result;
     }
 
-    // Select strategy based on normalized weights
+    // Select sampling strategy based on weights
     int selectedStrategy = - 1;
     float cumulativeWeight = 0.0;
 
@@ -627,34 +627,58 @@ IndirectLightingResult calculateIndirectLighting(
     vec3 sampleDir;
     float samplePdf;
     vec3 sampleBrdfValue;
+    vec3 envContribution = vec3( 0.0 );
     int strategyType = strategies[ selectedStrategy ].type;
 
     if( strategyType == 0 ) {
         // Environment sampling
         if( useEnvMapIS ) {
-            EnvMapSample envSample = sampleEnvironmentIS( randomSample );
+            EnvMapSample envSample = sampleEnvironmentWithContext( randomSample, bounceIndex, material, V, N );
+
             sampleDir = envSample.direction;
             samplePdf = envSample.pdf;
+            envContribution = envSample.value;
+
+            // Enhanced firefly reduction for environment samples
+            float envLuminance = luminance( envContribution );
+            if( bounceIndex > 0 && envLuminance > 0.0 ) {
+                float maxEnvContribution = 20.0 / float( bounceIndex + 1 );
+
+                // Material-specific adjustments
+                if( material.roughness > 0.6 ) {
+                    maxEnvContribution *= 2.0; // Diffuse materials handle more variance
+                } else if( material.metalness > 0.8 ) {
+                    maxEnvContribution *= 0.7; // Metals need tighter control
+                }
+
+                if( envLuminance > maxEnvContribution ) {
+                    envContribution *= maxEnvContribution / envLuminance;
+                }
+            }
+
+            sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
         } else {
             // Fallback to cosine sampling but mark as cosine strategy
             sampleDir = cosineWeightedSample( N, randomSample );
             samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
             strategyType = 2; // Mark as cosine for correct MIS
+            sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+            envContribution = vec3( 1.0 );
         }
-        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
     } else if( strategyType == 1 ) {
         // BRDF sampling
         sampleDir = brdfSample.direction;
         samplePdf = brdfSample.pdf;
         sampleBrdfValue = brdfSample.value;
+        envContribution = vec3( 1.0 );
     } else {
         // Cosine sampling
         sampleDir = cosineWeightedSample( N, randomSample );
         samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+        envContribution = vec3( 1.0 );
     }
 
-    // Ensure valid NoL
     float NoL = max( dot( N, sampleDir ), 0.0 );
 
     // Lazy PDF evaluation for MIS - only compute PDFs we need
@@ -666,7 +690,7 @@ IndirectLightingResult calculateIndirectLighting(
 
         if( strategies[ i ].type == 0 && useEnvMapIS ) {
             // Environment PDF
-            stratPdf = envMapSamplingPDF( sampleDir );
+            stratPdf = envMapSamplingPDFWithContext( sampleDir, bounceIndex, material, V, N );
         } else if( strategies[ i ].type == 1 ) {
             // BRDF PDF
             stratPdf = brdfSample.pdf;
@@ -678,34 +702,54 @@ IndirectLightingResult calculateIndirectLighting(
         combinedPdf += strategies[ i ].weight * stratPdf / totalActiveWeight;
     }
 
-    // Ensure minimum PDF value
     samplePdf = max( samplePdf, MIN_PDF );
     combinedPdf = max( combinedPdf, MIN_PDF );
 
-    // Apply balance heuristic for MIS
+    // MIS weight calculation
     float misWeight = samplePdf / combinedPdf;
 
     // Calculate throughput
-    vec3 throughput = sampleBrdfValue * NoL / samplePdf;
+    vec3 throughput;
+
+    if( strategyType == 0 && useEnvMapIS ) {
+        // For environment sampling, include environment contribution directly
+        throughput = sampleBrdfValue * envContribution * NoL / samplePdf;
+    } else {
+        // For other strategies, standard calculation
+        throughput = sampleBrdfValue * NoL / samplePdf;
+    }
 
     // Apply global illumination scaling
     throughput *= globalIlluminationIntensity;
 
-    // Enhanced firefly clamping based on material and view
+    // Enhanced firefly clamping with material and environment awareness
     float pathLengthFactor = 1.0 / pow( float( bounceIndex + 1 ), 0.5 );
 
     // Adjust clamping threshold based on material type
     // View-dependent scaling for glossy materials
     float clampMultiplier = 1.0;
+
+    // Material-based clamping adjustments
     if( material.metalness > 0.7 ) {
-        clampMultiplier = 2.0; // Metals can be brighter
+        clampMultiplier = 1.5;
     }
     if( material.roughness < 0.2 ) {
         // Additional scaling based on specular alignment
         vec3 reflectDir = reflect( - V, N );
         float specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
-        float viewDependentScale = mix( 1.0, 2.0, pow( specularAlignment, 8.0 ) );
+        float viewDependentScale = mix( 1.0, 2.5, pow( specularAlignment, 4.0 ) );
         clampMultiplier *= viewDependentScale;
+    }
+
+    // Environment-specific adjustments
+    if( strategyType == 0 && enableEnvironmentLight ) {
+        float envScale = mix( 1.0, 1.8, ( envSamplingBias - 0.5 ) / 1.5 );
+        clampMultiplier *= envScale;
+    }
+
+    // Bounce-dependent scaling
+    if( bounceIndex > 2 ) {
+        clampMultiplier *= 0.8;
     }
 
     float maxThroughput = fireflyThreshold * pathLengthFactor * clampMultiplier;
@@ -713,9 +757,9 @@ IndirectLightingResult calculateIndirectLighting(
     // Color-preserving clamping
     float maxComponent = max( max( throughput.r, throughput.g ), throughput.b );
     if( maxComponent > maxThroughput ) {
-        // Apply smooth clamping to preserve color
-        float scale = maxThroughput / maxComponent;
-        throughput *= scale;
+        float excess = maxComponent - maxThroughput;
+        float suppressionFactor = maxThroughput / ( maxThroughput + excess * 0.25 );
+        throughput *= suppressionFactor;
     }
 
     // Set result values
