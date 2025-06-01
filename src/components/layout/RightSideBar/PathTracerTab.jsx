@@ -192,12 +192,6 @@ const PathTracerTab = () => {
 			case '3': mode = 3; break;
 			case '4': mode = 4; break;
 			case '5': mode = 5; break;
-			case '6': mode = 6; break;
-			case '7': mode = 7; break;
-			case '8': mode = 8; break;
-			case '9': mode = 9; break;
-			case '10': mode = 10; break;
-			case '11': mode = 11; break;
 			default: mode = 0;
 
 		}
@@ -557,12 +551,6 @@ const PathTracerTab = () => {
 								<SelectItem value="3">Distance</SelectItem>
 								<SelectItem value="4">Normal</SelectItem>
 								<SelectItem value="5">Sampling</SelectItem>
-								<SelectItem value="6">Env: IS Direction</SelectItem>
-								<SelectItem value="7">Env: IS PDF</SelectItem>
-								<SelectItem value="8">Env: Luminance</SelectItem>
-								<SelectItem value="9">Env: PDF Direction</SelectItem>
-								<SelectItem value="10">Env: Raw PDF</SelectItem>
-								<SelectItem value="11">Env: PDF Direction Map</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

@@ -25,54 +25,6 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 				return vec4( 0.0, 0.0, 0.0, 1.0 );
 			return vec4( vec3( hitInfo.normal * 0.5 + 0.5 ), 1.0 );
 		}
-		case 6: {
-            // Environment Importance Sampling Direction Visualization
-			if( enableEnvironmentLight && useEnvMapIS ) {
-                // Sample environment map at uniform intervals
-				vec2 xi = gl_FragCoord.xy / resolution;
-				EnvMapSample envSample = sampleEnvironmentIS( xi );
-
-                // Visualize direction by showing color-coded direction vectors
-				vec3 dirColor = envSample.direction * 0.5 + 0.5;
-				return vec4( dirColor, 1.0 );
-			}
-			return vec4( 1.0, 0.0, 1.0, 1.0 ); // Magenta if not enabled
-		}
-		case 7: {
-            // Environment Importance Sampling PDF Visualization
-			if( enableEnvironmentLight && useEnvMapIS ) {
-				// Show PDF values across the environment
-				vec2 xi = gl_FragCoord.xy / resolution;
-				EnvMapSample envSample = sampleEnvironmentIS( xi );
-
-				// PDF values are often very small, so we need logarithmic scaling
-				float pdf = envSample.pdf;
-
-				if( pdf <= 0.0 ) {
-					return vec4( 0.0, 0.0, 0.0, 1.0 ); // Black for zero PDF
-				}
-
-				// Use logarithmic scale for better visualization
-				float logPdf = log( pdf + 1e-5 );  // Add small value to avoid log(0)
-				float normalizedPdf = ( logPdf + 12.0 ) / 12.0;  // Roughly map to [0, 1]
-
-				// Apply debug scale manually
-				normalizedPdf *= debugVisScale;
-
-				// Color coding for better visualization
-				vec3 color;
-				if( normalizedPdf < 0.5 ) {
-					// Blue to Cyan for low PDFs
-					color = mix( vec3( 0.0, 0.0, 1.0 ), vec3( 0.0, 1.0, 1.0 ), normalizedPdf * 2.0 );
-				} else {
-					// Cyan to Yellow for high PDFs
-					color = mix( vec3( 0.0, 1.0, 1.0 ), vec3( 1.0, 1.0, 0.0 ), ( normalizedPdf - 0.5 ) * 2.0 );
-				}
-
-				return vec4( color, 1.0 );
-			}
-			return vec4( 1.0, 0.0, 1.0, 1.0 );
-		}
 		case 8: {
             // Environment Map Luminance Visualization
 			if( enableEnvironmentLight ) {
@@ -82,44 +34,6 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 				vec3 envColor = sampleEnvironment( direction ).rgb;
 				float luminance = dot( envColor, vec3( 0.2126, 0.7152, 0.0722 ) );
 				return vec4( vec3( luminance ), 1.0 );
-			}
-			return vec4( 1.0, 0.0, 1.0, 1.0 );
-		}
-		case 9: {
-
-			if( enableEnvironmentLight && useEnvMapIS ) {
-				vec2 xi = gl_FragCoord.xy / resolution;
-				EnvMapSample envSample = sampleEnvironmentIS( xi );
-
-				// Convert direction to spherical coordinates for visualization
-				float phi = atan( envSample.direction.x, envSample.direction.z );
-				float theta = acos( envSample.direction.y );
-
-				// Color code based on direction
-				vec3 color = vec3( ( phi + PI ) / ( 2.0 * PI ),  // Red: azimuth angle
-				theta / PI,                // Green: polar angle
-				envSample.pdf * 100.0     // Blue: PDF value (scaled)
-				);
-
-				return vec4( color, 1.0 );
-			}
-			return vec4( 1.0, 0.0, 1.0, 1.0 );
-		}
-		case 10: {
-			// Environment Importance Sampling Raw PDF
-			if( enableEnvironmentLight && useEnvMapIS ) {
-				vec2 xi = gl_FragCoord.xy / resolution;
-				EnvMapSample envSample = sampleEnvironmentIS( xi );
-
-				// Show raw PDF value with auto-scaling
-				float pdf = envSample.pdf;
-
-				// Find the maximum PDF value in the scene (approximate)
-				float maxPdf = 0.5;  // Typical max PDF for environment maps
-				float normalizedPdf = pdf / maxPdf;
-
-				// Simple grayscale visualization
-				return vec4( vec3( normalizedPdf ), 1.0 );
 			}
 			return vec4( 1.0, 0.0, 1.0, 1.0 );
 		}
