@@ -7,7 +7,7 @@ uniform bool useEnvMapIS;
 uniform sampler2D envCDF;    // Stores marginal and conditional CDFs
 uniform vec2 envCDFSize;     // Size of the CDF texture
 
-uniform bool enableHierarchicalEnvSampling;
+uniform bool useEnvMipMap;
 uniform float envSamplingBias;
 uniform int maxEnvSamplingBounce;
 uniform bool enableTemporalEnvJitter;
@@ -92,16 +92,15 @@ void determineEnvSamplingQuality(
 
     // ALWAYS use mip level 0 for primary rays (background)
     if( bounceIndex == 0 ) {
-        mipLevel = 0.0;
         return;
     }
 
-    if( ! enableHierarchicalEnvSampling )
+    if( ! useEnvMipMap )
         return;
 
     // Early quality reduction for deep bounces - but more conservative
     if( bounceIndex > maxEnvSamplingBounce ) {
-        mipLevel = 3.0; // Reduced from 6.0 to 3.0
+        mipLevel = 2.0; // Restored to more conservative value
         adaptiveBias = 0.7;
         return;
     }
@@ -129,13 +128,13 @@ void determineEnvSamplingQuality(
     if( qualityFactor > 0.8 ) {
         mipLevel = 0.0;
     } else if( qualityFactor > 0.6 ) {
-        mipLevel = 0.5; // Reduced from 1.0
+        mipLevel = 0.5;
     } else if( qualityFactor > 0.4 ) {
-        mipLevel = 1.0; // Reduced from 2.0
+        mipLevel = 1.0;
     } else if( qualityFactor > 0.2 ) {
-        mipLevel = 1.5; // Reduced from 3.0
+        mipLevel = 1.5;
     } else {
-        mipLevel = 2.0; // Reduced from 4.0
+        mipLevel = 2.0;
     }
 
     // Adaptive bias based on material
@@ -171,7 +170,7 @@ vec2 sampleCDFEnhanced( vec2 xi, float mipLevel, float importanceBias ) {
     }
 
     // Effective resolution based on mip level
-    float scaleFactor = enableHierarchicalEnvSampling ? exp2( mipLevel ) : 1.0;
+    float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
     vec2 effectiveSize = max( vec2( 4.0 ), cdfSize / scaleFactor );
 
     // Binary search for marginal distribution
@@ -247,7 +246,7 @@ float calculateEnhancedPDF( vec3 direction, float mipLevel, float importanceBias
 
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
-    float scaleFactor = enableHierarchicalEnvSampling ? exp2( mipLevel ) : 1.0;
+    float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
     vec2 effectiveSize = max( vec2( 4.0 ), cdfSize / scaleFactor );
 
     vec2 cellCoord = uv * ( effectiveSize - 1.0 );
@@ -306,17 +305,17 @@ EnvMapSample sampleEnvironmentWithContext(
     vec3 envValue = envColor.rgb * environmentIntensity;
     float envLuminance = luminance( envValue );
 
-    // More conservative tone mapping to preserve environment details
-    if( envLuminance > 2.0 ) { // Increased threshold from 1.0 to 2.0
-        float toneMapped = envLuminance / ( 1.0 + envLuminance * 0.3 ); // Reduced factor from 0.5 to 0.3
+    // More conservative tone mapping
+    if( envLuminance > 2.0 ) {
+        float toneMapped = envLuminance / ( 1.0 + envLuminance * 0.3 );
         envValue *= toneMapped / envLuminance;
     }
 
-    // Calculate importance and apply more conservative firefly reduction
+    // Calculate importance and apply conservative firefly reduction
     float importance = envLuminance / max( pdf, 0.0001 );
 
     if( bounceIndex > 0 ) {
-        float maxAllowedImportance = 100.0 / float( bounceIndex + 1 ); // Increased from 50.0
+        float maxAllowedImportance = 100.0 / float( bounceIndex + 1 );
         if( material.roughness > 0.5 )
             maxAllowedImportance *= 1.5;
         if( material.metalness > 0.7 )
@@ -387,7 +386,7 @@ vec4 getEnvironmentContribution( vec3 direction, int bounceIndex ) {
         return showBackground ? sampleEnvironment( direction ) * backgroundIntensity : vec4( 0.0 );
     } else {
         // Secondary rays: use conservative mip levels
-        float mipLevel = enableHierarchicalEnvSampling ? min( float( bounceIndex - 1 ) * 0.5, 2.0 ) : 0.0;
+        float mipLevel = useEnvMipMap ? min( float( bounceIndex - 1 ) * 0.5, 2.0 ) : 0.0;
         return sampleEnvironmentLOD( direction, mipLevel );
     }
 }

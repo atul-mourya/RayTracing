@@ -129,9 +129,9 @@ export class PathTracerPass extends Pass {
 				bvhTexSize: { value: new Vector2() },
 				materialTexSize: { value: new Vector2() },
 
-				enableHierarchicalEnvSampling: { value: true }, // Enable quality-based mip level selection
+				useEnvMipMap: { value: true }, // Enable quality-based mip level selection
 				envSamplingBias: { value: 1.2 }, // Bias toward bright areas (0.5-2.0)
-				maxEnvSamplingBounce: { value: 5 }, // Beyond this bounce, use simplified sampling
+				maxEnvSamplingBounce: { value: 3 }, // Beyond this bounce, use simplified sampling
 				enableTemporalEnvJitter: { value: true }, // Use temporal jittering to reduce noise
 
 			},

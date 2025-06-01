@@ -107,7 +107,7 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 	}
 
     // Hierarchical sampling boost
-	if( enableHierarchicalEnvSampling && bounceIndex > 1 ) {
+	if( useEnvMipMap && bounceIndex > 1 ) {
 		bounceFactor *= 1.2;
 	}
 

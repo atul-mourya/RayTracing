@@ -1,4 +1,4 @@
-import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping,
+import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping, LinearMipmapLinearFilter,
 	TextureLoader, BufferAttribute, Mesh, MeshStandardMaterial, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
 import { GLTFLoader, RGBELoader, DRACOLoader, EXRLoader } from 'three/examples/jsm/Addons';
@@ -198,6 +198,9 @@ class AssetLoader extends EventDispatcher {
 				texture = await this.loadEnvironmentByExtension( envUrl, extension );
 
 			}
+
+			texture.generateMipmaps = true;
+			// texture.minFilter = LinearMipmapLinearFilter;
 
 			this.applyEnvironmentToScene( texture );
 			this.dispatchEvent( { type: 'load', texture } );
