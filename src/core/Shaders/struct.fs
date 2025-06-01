@@ -131,12 +131,20 @@ struct MaterialSamples {
     bool hasTextures;
 };
 
+
 struct UVCache {
-    vec2 albedoUV;
-    vec2 normalUV;
-    vec2 metalnessUV;
-    vec2 emissiveUV;
-    vec2 bumpUV;
+	vec2 albedoUV;
+	vec2 normalUV;
+	vec2 metalnessUV;
+	vec2 emissiveUV;
+	vec2 bumpUV;
+	vec2 roughnessUV;
+
+	// Redundancy flags
+	bool normalBumpSameUV;
+	bool metalRoughSameUV;
+	bool albedoEmissiveSameUV;
+	bool allSameUV;
 };
 
 // Enhanced material cache
