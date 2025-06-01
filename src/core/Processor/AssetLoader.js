@@ -201,6 +201,7 @@ class AssetLoader extends EventDispatcher {
 
 			texture.generateMipmaps = true;
 			// texture.minFilter = LinearMipmapLinearFilter;
+			// texture.magFilter = LinearFilter;
 
 			this.applyEnvironmentToScene( texture );
 			this.dispatchEvent( { type: 'load', texture } );

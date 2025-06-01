@@ -639,6 +639,10 @@ IndirectLightingResult calculateIndirectLighting(
             samplePdf = envSample.pdf;
             envContribution = envSample.value;
 
+            // Use confidence for better firefly reduction
+            float confidenceScale = mix( 0.5, 1.0, envSample.confidence );
+            envContribution *= confidenceScale;
+
             // Enhanced firefly reduction for environment samples
             float envLuminance = luminance( envContribution );
             if( bounceIndex > 0 && envLuminance > 0.0 ) {
@@ -762,7 +766,6 @@ IndirectLightingResult calculateIndirectLighting(
         throughput *= suppressionFactor;
     }
 
-    // Set result values
     result.direction = sampleDir;
     result.throughput = throughput;
     result.misWeight = misWeight;
