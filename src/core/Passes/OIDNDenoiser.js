@@ -2,125 +2,105 @@ import { initUNetFromURL } from 'oidn-web';
 import { AlbedoNormalGenerator, renderImageDataToCanvas } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
 
+// Constants for better maintainability
+const MODEL_CONFIG = {
+	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
+	QUALITY_SUFFIXES: {
+		fast: '_small',
+		balance: '',
+		high: '_large'
+	},
+	DEFAULT_OPTIONS: {
+		enableOIDN: true,
+		useGBuffer: true,
+		oidnQuality: 'fast',
+		oidnHdr: false,
+		debugGbufferMaps: false,
+		tileSize: 256
+	}
+};
+
 export class OIDNDenoiser extends EventDispatcher {
 
 	constructor( output, renderer, scene, camera, options = {} ) {
 
 		super();
 
-		// Initialize properties with defaults
+		// Validate required parameters
+		if ( ! output || ! renderer || ! scene || ! camera ) {
+
+			throw new Error( 'OIDNDenoiser requires output canvas, renderer, scene, and camera' );
+
+		}
+
 		this.renderer = renderer;
 		this.scene = scene;
 		this.camera = camera;
 		this.input = renderer.domElement;
 		this.output = output;
 
-		// Configuration options with defaults
-		this.enabled = options.enableOIDN ?? true;
-		this.useGBuffer = options.useGBuffer ?? true;
-		this.quality = options.oidnQuality ?? 'fast';
-		this.hdr = options.oidnHdr ?? false;
-		this.debugGbufferMaps = options.debugGbufferMaps ?? true;
-		this.tileSize = options.tileSize ?? 256;
+		// Merge options with defaults
+		this.config = { ...MODEL_CONFIG.DEFAULT_OPTIONS, ...options };
 
-		// State
-		this.isDenoising = false;
-		this.abortDenoise = null;
+		// Destructure for easier access
+		this.enabled = this.config.enableOIDN;
+		this.useGBuffer = this.config.useGBuffer;
+		this.quality = this.config.oidnQuality;
+		this.hdr = this.config.oidnHdr;
+		this.debugGbufferMaps = this.config.debugGbufferMaps;
+		this.tileSize = this.config.tileSize;
 
-		this.currentTZAUrl = this.getTzasUrl();
+		// State management
+		this.state = {
+			isDenoising: false,
+			isLoading: false,
+			abortController: null
+		};
 
-		// Setup
-		this._setupCanvas();
-		this._setupUNetDenoiser( this.currentTZAUrl );
-		this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
+		this.currentTZAUrl = null;
+		this.unet = null;
+		this.mapGenerator = null;
+
+		// Initialize asynchronously
+		this._initialize().catch( error => {
+
+			console.error( 'Failed to initialize OIDNDenoiser:', error );
+			this.dispatchEvent( { type: 'error', error } );
+
+		} );
 
 	}
 
-	async _setupUNetDenoiser( tzaUrl ) {
+	async _initialize() {
 
 		try {
 
-			this.dispatchEvent( { type: 'loading', message: 'Loading UNet denoiser...' } );
-			this.unet = await initUNetFromURL( tzaUrl, undefined, {
-				aux: this.useGBuffer,
-				hdr: this.hdr,
-				maxTileSize: this.tileSize
-			} );
-			this.dispatchEvent( { type: 'loaded' } );
-			console.log( 'UNet denoiser loaded successfully' );
+			this._setupCanvas();
+			this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
+			await this._setupUNetDenoiser();
 
 		} catch ( error ) {
 
-			console.error( 'Failed to load UNet denoiser:', error );
-			this.dispatchEvent( { type: 'error', error } );
+			throw new Error( `Initialization failed: ${error.message}` );
 
 		}
 
 	}
 
-	async toggleUseGBuffer( value ) {
-
-		this.useGBuffer = value;
-		const tzaUrl = this.getTzasUrl();
-		if ( this.currentTZAUrl === tzaUrl ) return;
-		this.currentTZAUrl = tzaUrl;
-		this.unet.dispose();
-		await this._setupUNetDenoiser( tzaUrl );
-
-	}
-
-	async toggleHDR( value ) {
-
-		this.hdr = value;
-		const tzaUrl = this.getTzasUrl();
-		if ( this.currentTZAUrl === tzaUrl ) return;
-		this.currentTZAUrl = tzaUrl;
-		this.unet.dispose();
-		await this._setupUNetDenoiser( tzaUrl );
-
-	}
-
-	async updateQuality( value ) {
-
-		this.quality = value;
-		const tzaUrl = this.getTzasUrl();
-		if ( this.currentTZAUrl === tzaUrl ) return;
-		this.currentTZAUrl = tzaUrl;
-		this.unet.dispose();
-		await this._setupUNetDenoiser( tzaUrl );
-
-	}
-
-	getTzasUrl() {
-
-		const BASE_URL = 'https://cdn.jsdelivr.net/npm/denoiser/tzas/';
-
-		// Map quality setting to model size suffix
-		const modelSize = {
-		  'fast': '_small',
-		  'balance': '',
-		  'high': '_large'
-		}[ this.quality ] || '';
-
-		// Map HDR boolean to dynamic range string
-		const dynamicRange = this.hdr ? '_hdr' : '_ldr';
-
-		// Add auxiliary buffers suffix if needed
-		const aux = this.useGBuffer ? '_alb_nrm' : '';
-
-		return `${BASE_URL}rt${dynamicRange}${aux}${modelSize}.tza`;
-
-	}
-
 	_setupCanvas() {
 
-		this.output.willReadFrequently = true;
+		if ( ! this.output.getContext ) {
 
-		// Set dimensions
+			throw new Error( 'Output must be a valid Canvas element' );
+
+		}
+
+		// Configure canvas for optimal performance
+		this.output.willReadFrequently = true;
 		this.output.width = this.input.width;
 		this.output.height = this.input.height;
 
-		// Style canvas
+		// Apply styling efficiently
 		Object.assign( this.output.style, {
 			position: 'absolute',
 			top: '0',
@@ -130,14 +110,126 @@ export class OIDNDenoiser extends EventDispatcher {
 			background: "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px"
 		} );
 
-		// Create context with optimization flag
-		this.ctx = this.output.getContext( '2d', { willReadFrequently: true } );
+		this.ctx = this.output.getContext( '2d', {
+			willReadFrequently: true,
+			alpha: true
+		} );
+
+	}
+
+	async _setupUNetDenoiser() {
+
+		if ( this.state.isLoading ) return;
+
+		this.state.isLoading = true;
+		const tzaUrl = this._generateTzaUrl();
+
+		// Skip setup if URL hasn't changed
+		if ( this.currentTZAUrl === tzaUrl && this.unet ) {
+
+			this.state.isLoading = false;
+			return;
+
+		}
+
+		try {
+
+			this.dispatchEvent( { type: 'loading', message: 'Loading UNet denoiser...' } );
+
+			// Dispose previous instance
+			if ( this.unet ) {
+
+				this.unet.dispose();
+				this.unet = null;
+
+			}
+
+			this.unet = await initUNetFromURL( tzaUrl, undefined, {
+				aux: this.useGBuffer,
+				hdr: this.hdr,
+				maxTileSize: this.tileSize
+			} );
+
+			this.currentTZAUrl = tzaUrl;
+			this.dispatchEvent( { type: 'loaded' } );
+			console.log( 'UNet denoiser loaded successfully:', tzaUrl );
+
+		} catch ( error ) {
+
+			console.error( 'Failed to load UNet denoiser:', error );
+			this.dispatchEvent( { type: 'error', error: new Error( `Denoiser loading failed: ${error.message}` ) } );
+
+		} finally {
+
+			this.state.isLoading = false;
+
+		}
+
+	}
+
+	_generateTzaUrl() {
+
+		const { BASE_URL, QUALITY_SUFFIXES } = MODEL_CONFIG;
+
+		const modelSize = QUALITY_SUFFIXES[ this.quality ] || '';
+		const dynamicRange = this.hdr ? '_hdr' : '_ldr';
+		const aux = this.useGBuffer ? '_alb_nrm' : '';
+
+		return `${BASE_URL}rt${dynamicRange}${aux}${modelSize}.tza`;
+
+	}
+
+	// Public configuration methods with validation
+	async updateConfiguration( newConfig ) {
+
+		const hasChanged = Object.keys( newConfig ).some( key => this.config[ key ] !== newConfig[ key ] );
+
+		if ( ! hasChanged ) return;
+
+		// Update configuration
+		Object.assign( this.config, newConfig );
+		this.useGBuffer = this.config.useGBuffer;
+		this.quality = this.config.oidnQuality;
+		this.hdr = this.config.oidnHdr;
+		this.debugGbufferMaps = this.config.debugGbufferMaps;
+		this.tileSize = this.config.tileSize;
+
+		// Reload denoiser if necessary
+		await this._setupUNetDenoiser();
+
+	}
+
+	async toggleUseGBuffer( value ) {
+
+		await this.updateConfiguration( { useGBuffer: value } );
+
+	}
+
+	async toggleHDR( value ) {
+
+		await this.updateConfiguration( { oidnHdr: value } );
+
+	}
+
+	async updateQuality( value ) {
+
+		if ( ! MODEL_CONFIG.QUALITY_SUFFIXES.hasOwnProperty( value ) ) {
+
+			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_SUFFIXES ).join( ', ' )}` );
+
+		}
+
+		await this.updateConfiguration( { oidnQuality: value } );
 
 	}
 
 	async start() {
 
-		if ( ! this.enabled || this.isDenoising ) return false;
+		if ( ! this.enabled || this.state.isDenoising || this.state.isLoading ) {
+
+			return false;
+
+		}
 
 		this.dispatchEvent( { type: 'start' } );
 
@@ -146,9 +238,11 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		if ( success ) {
 
-			this.renderer?.resetState();
-			this.input.style.opacity = 0;
-			console.log( `Denoising completed in ${performance.now() - startTime}ms (quality: ${this.quality})` );
+			this.renderer?.resetState?.();
+			this.input.style.opacity = '0';
+
+			const duration = performance.now() - startTime;
+			console.log( `Denoising completed in ${duration.toFixed( 1 )}ms (quality: ${this.quality})` );
 
 		}
 
@@ -158,30 +252,38 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async execute() {
 
-		if ( ! this.enabled ) return false;
+		if ( ! this.enabled || ! this.unet ) return false;
+
+		// Create abort controller for this execution
+		this.state.abortController = new AbortController();
+		this.state.isDenoising = true;
+		this.input.style.opacity = '0';
 
 		try {
 
-			// Abort any ongoing operation
-			this.isDenoising && this.abort();
-
-			this.isDenoising = true;
-			this.input.style.opacity = 0;
-
 			await this._executeUNet();
-
 			return true;
 
 		} catch ( error ) {
 
-			console.error( 'Denoising error:', error );
+			if ( error.name === 'AbortError' ) {
+
+				console.log( 'Denoising was aborted' );
+
+			} else {
+
+				console.error( 'Denoising error:', error );
+
+			}
+
 			// Restore original rendering on error
-			this.input.style.opacity = 1;
+			this.input.style.opacity = '1';
 			return false;
 
 		} finally {
 
-			this.isDenoising = false;
+			this.state.isDenoising = false;
+			this.state.abortController = null;
 			this.dispatchEvent( { type: 'end' } );
 
 		}
@@ -190,24 +292,30 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async _executeUNet() {
 
-		const w = this.output.width;
-		const h = this.output.height;
+		const { width, height } = this.output;
 
-		// Draw the current renderer output to our canvas
-		this.ctx.clearRect( 0, 0, w, h );
-		this.ctx.drawImage( this.input, 0, 0, w, h );
+		// Clear and draw current renderer output
+		this.ctx.clearRect( 0, 0, width, height );
+		this.ctx.drawImage( this.input, 0, 0, width, height );
 
-		// Get the image data for denoising
-		const imageData = this.ctx.getImageData( 0, 0, w, h );
+		// Get image data for denoising
+		const imageData = this.ctx.getImageData( 0, 0, width, height );
 
-		// Prepare additional data for G-Buffers if enabled
-		const config = { color: imageData, tileSize: this.tileSize, denoiseAlpha: true };
-		if ( this.useGBuffer ) {
+		// Prepare denoising configuration
+		const config = {
+			color: imageData,
+			tileSize: this.tileSize,
+			denoiseAlpha: true
+		};
+
+		// Add G-buffer data if enabled
+		if ( this.useGBuffer && this.mapGenerator ) {
 
 			const { albedo, normal } = this.mapGenerator.generateMaps();
 			config.albedo = albedo;
 			config.normal = normal;
 
+			// Debug output if enabled
 			if ( this.debugGbufferMaps ) {
 
 				renderImageDataToCanvas( albedo, 'debugAlbedoCanvas' );
@@ -217,22 +325,61 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		}
 
-		// Execute the UNet denoiser in tiles
-		return new Promise( ( resolve ) => {
+		// Execute denoising with abort support
+		return this._executeWithAbort( config );
 
-			this.abortDenoise = this.unet.tileExecute( {
+	}
+
+	_executeWithAbort( config ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			// Check for abort before starting
+			if ( this.state.abortController?.signal.aborted ) {
+
+				reject( new DOMException( 'Aborted', 'AbortError' ) );
+				return;
+
+			}
+
+			let abortDenoise = null;
+
+			// Set up abort handling
+			const abortHandler = () => {
+
+				if ( abortDenoise ) {
+
+					abortDenoise();
+					abortDenoise = null;
+
+				}
+
+				reject( new DOMException( 'Aborted', 'AbortError' ) );
+
+			};
+
+			this.state.abortController.signal.addEventListener( 'abort', abortHandler, { once: true } );
+
+			// Execute denoising
+			abortDenoise = this.unet.tileExecute( {
 				...config,
 				done: () => {
 
-					this.abortDenoise = null;
+					this.state.abortController.signal.removeEventListener( 'abort', abortHandler );
+					abortDenoise = null;
 					resolve();
 
 				},
-				progress: ( outputData, tileData, tile, currentIdx, totalIdx ) => {
+				progress: ( outputData, tileData, tile ) => {
 
-					// console.log( '_', _ );
-					// console.log( 'tileData', tileData );
-					// console.log( 'Tile:', tile );
+					// Check for abort during progress
+					if ( this.state.abortController?.signal.aborted ) {
+
+						abortHandler();
+						return;
+
+					}
+
 					this.ctx.putImageData( tileData, tile.x, tile.y );
 
 				}
@@ -241,50 +388,68 @@ export class OIDNDenoiser extends EventDispatcher {
 		} );
 
 	}
+
 	abort() {
 
-		if ( ! this.enabled || ! this.isDenoising ) return;
+		if ( ! this.enabled || ! this.state.isDenoising ) return;
 
-		if ( this.abortDenoise ) {
+		// Signal abort to current operation
+		this.state.abortController?.abort();
 
-			this.abortDenoise();
-			this.abortDenoise = null;
+		// Restore input visibility
+		this.input.style.opacity = '1';
 
-		}
-
-		this.input.style.opacity = 1;
-		this.isDenoising = false;
-		this.dispatchEvent( { type: 'end' } );
+		console.log( 'Denoising aborted' );
 
 	}
 
 	setSize( width, height ) {
 
-		this.mapGenerator.setSize( width, height );
+		if ( width <= 0 || height <= 0 ) {
+
+			throw new Error( `Invalid dimensions: ${width}x${height}` );
+
+		}
+
+		this.mapGenerator?.setSize( width, height );
 		this.output.width = width;
 		this.output.height = height;
 
-		const tzaUrl = this.getTzasUrl();
-		if ( this.currentTZAUrl === tzaUrl ) return;
-		this.currentTZAUrl = tzaUrl;
-		this.unet.dispose();
-		this._setupUNetDenoiser( tzaUrl );
+		// Reinitialize denoiser if tile size changes relative to image size
+		this._setupUNetDenoiser().catch( error => {
+
+			console.error( 'Failed to reinitialize denoiser after size change:', error );
+
+		} );
 
 	}
 
 	dispose() {
 
-		this.mapGenerator.dispose();
-		this.unet.dispose();
+		// Abort any ongoing operations
+		this.abort();
 
-		if ( this.abortDenoise ) {
+		// Dispose resources
+		this.mapGenerator?.dispose();
+		this.unet?.dispose();
 
-			this.abortDenoise();
-			this.abortDenoise = null;
+		// Clean up DOM
+		if ( this.output?.parentNode ) {
+
+			this.output.remove();
 
 		}
 
-		this.output.remove();
+		// Clear references
+		this.mapGenerator = null;
+		this.unet = null;
+		this.ctx = null;
+		this.state.abortController = null;
+
+		// Remove all event listeners
+		this.removeAllListeners?.();
+
+		console.log( 'OIDNDenoiser disposed' );
 
 	}
 
