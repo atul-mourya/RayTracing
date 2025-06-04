@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trackpad } from "@/components/ui/trackpad";
-import { remap } from "@/lib/utils";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
 import { useCameraStore } from '@/store';
 import { useEffect } from 'react';
@@ -12,10 +11,31 @@ import { FieldOfView } from "@/assets/icons";
 const CameraTab = () => {
 
 	const {
-		fov, focusDistance, aperture, focalLength, activePreset, focusMode,
-		cameraNames, selectedCameraIndex,
-		setFov, setFocusDistance, setAperture, setFocalLength,
-		setPreset, setCameraNames, setSelectedCameraIndex, setFocusMode
+		// State
+		fov,
+		focusDistance,
+		aperture,
+		focalLength,
+		activePreset,
+		focusMode,
+		cameraNames,
+		selectedCameraIndex,
+
+		// Basic setters
+		setCameraNames,
+		setSelectedCameraIndex,
+
+		// Handlers
+		handleToggleFocusMode,
+		handleFocusDistanceChange,
+		handlePresetChange,
+		handleFovChange,
+		handleApertureChange,
+		handleFocalLengthChange,
+		handleCameraMove,
+		handleCameraChange,
+		handleApertureScaleChange,
+		handleFocusChangeEvent,
 	} = useCameraStore();
 
 	useEffect( () => {
@@ -42,160 +62,6 @@ const CameraTab = () => {
 		}
 
 	}, [] );
-
-	// Handle focus change events from the 3D view
-	const handleFocusChangeEvent = ( event ) => {
-
-		// Update the focus distance slider with the new value
-		setFocusDistance( event.distance );
-		setFocusMode( false );
-
-	};
-
-	// Toggle focus mode
-	const handleToggleFocusMode = () => {
-
-		if ( window.pathTracerApp ) {
-
-			const isActive = window.pathTracerApp.toggleFocusMode();
-			console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
-			setFocusMode( isActive );
-
-		}
-
-	};
-
-	// Update focus distance from slider
-	const handleFocusDistanceChange = ( value ) => {
-
-		setFocusDistance( value );
-		if ( window.pathTracerApp ) {
-
-			// Get scene scale factor for proper scaling
-			const sceneScale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
-			const scaledFocusDistance = value * sceneScale;
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = scaledFocusDistance;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handlePresetChange = ( presetKey ) => {
-
-		setPreset( presetKey );
-		if ( presetKey === "custom" ) return;
-
-		const preset = CAMERA_PRESETS[ presetKey ];
-		if ( window.pathTracerApp ) {
-
-			// Get scene scale factor
-			const sceneScale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
-
-			// Update Three.js camera
-			window.pathTracerApp.camera.fov = preset.fov;
-			window.pathTracerApp.camera.updateProjectionMatrix();
-
-			// Update path tracer uniforms
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = preset.focusDistance * sceneScale;
-			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = preset.aperture;
-			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = preset.focalLength;
-
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleFovChange = ( value ) => {
-
-		setFov( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.camera.fov = value;
-			window.pathTracerApp.camera.updateProjectionMatrix();
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleApertureChange = ( value ) => {
-
-		setAperture( value );
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = value;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleFocalLengthChange = ( value ) => {
-
-		setFocalLength( value );
-		if ( window.pathTracerApp ) {
-
-			// Ensure focal length is properly set
-			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = value;
-
-			// If focal length is 0, ensure aperture is set to disable DOF
-			if ( value <= 0 ) {
-
-				window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = 16.0;
-
-			}
-
-			window.pathTracerApp.reset();
-
-		}
-
-	};
-
-	const handleCameraMove = ( point ) => {
-
-		if ( ! window.pathTracerApp || ! window.pathTracerApp.controls ) return;
-
-		const controls = window.pathTracerApp.controls;
-		const camera = window.pathTracerApp.camera;
-
-		const target = controls.target.clone();
-		const distance = camera.position.distanceTo( target );
-		const phi = remap( point.y, 0, 100, 0, - Math.PI );
-		const theta = remap( point.x, 0, 100, 0, - Math.PI );
-
-		const newX = target.x + distance * Math.sin( phi ) * Math.cos( theta );
-		const newY = target.y + distance * Math.cos( phi );
-		const newZ = target.z + distance * Math.sin( phi ) * Math.sin( theta );
-
-		camera.position.set( newX, newY, newZ );
-		camera.lookAt( target );
-		controls.update();
-
-	};
-
-	const handleCameraChange = ( index ) => {
-
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.switchCamera( index );
-			setSelectedCameraIndex( index );
-
-		}
-
-	};
-
-	const handleApertureScaleChange = ( value ) => {
-
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.apertureScale.value = value;
-			window.pathTracerApp.reset();
-
-		}
-
-	};
 
 	const cameraPoints = [
 		{ x: 0, y: 50 }, // left view

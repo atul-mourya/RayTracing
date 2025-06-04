@@ -3,43 +3,80 @@ import { Slider } from "@/components/ui/slider";
 import { ColorInput } from "@/components/ui/colorinput";
 import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
-import { useStore } from '@/store';
+import { useStore, useMaterialStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { TextRow } from '@/components/ui/text-row';
 
+// Configuration for all material properties
+const MATERIAL_PROPERTIES = {
+	// Basic properties
+	color: { type: 'color', default: '#ffffff', label: 'Color' },
+	roughness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' },
+	metalness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' },
+	clearcoat: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat' },
+	clearcoatRoughness: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat Roughness' },
+
+	// Specular properties
+	specularIntensity: { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Specular Intensity', section: 'specular' },
+	specularColor: { type: 'color', default: '#ffffff', label: 'Specular Color', section: 'specular' },
+
+	// Sheen properties
+	sheen: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Sheen', section: 'sheen' },
+	sheenRoughness: { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Sheen Roughness', section: 'sheen' },
+	sheenColor: { type: 'color', default: '#000000', label: 'Sheen Color', section: 'sheen' },
+
+	// Emissive properties
+	emissive: { type: 'color', default: '#000000', label: 'Emissive', section: 'emissive' },
+	emissiveIntensity: { type: 'slider', default: 1, min: 0, max: 10, step: 0.1, label: 'Emissive Intensity', section: 'emissive' },
+
+	// Iridescence properties
+	iridescence: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Iridescence', section: 'iridescence' },
+	iridescenceIOR: { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'Iridescence IOR', section: 'iridescence' },
+
+	// Transmission properties
+	opacity: { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Opacity', section: 'transmission' },
+	ior: { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'IOR', section: 'transmission' },
+	transmission: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Transmission', section: 'transmission' },
+	thickness: { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Transmission Thickness', section: 'transmission' },
+	attenuationColor: { type: 'color', default: '#ffffff', label: 'Attenuation Color', section: 'transmission' },
+	attenuationDistance: { type: 'number', default: 0, min: 0, max: 1000, step: 1, label: 'Attenuation Distance', section: 'transmission' },
+	dispersion: { type: 'slider', default: 0, min: 0, max: 10, step: 0.01, label: 'Dispersion', section: 'transmission' },
+	alphaTest: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Alpha Test', section: 'transmission' },
+
+	// Special properties
+	transparent: { type: 'checkbox', default: false, label: 'Transparent', section: 'other' },
+	side: { type: 'select', default: 0, options: [ { value: 0, label: 'Front' }, { value: 1, label: 'Back' }, { value: 2, label: 'Double' } ], label: 'Side', section: 'other' },
+	visible: { type: 'switch', default: true, label: 'Visible', section: 'basic' },
+};
+
 const MaterialTab = () => {
 
-	const selectedObject = useStore( ( state ) => state.selectedObject );
+	const selectedObject = useStore( state => state.selectedObject );
 	const name = selectedObject?.name ?? "Unknown";
+	const materialStore = useMaterialStore();
 
-	// Material property states
-	const [ color, setColor ] = useState( '#ffffff' );
-	const [ roughness, setRoughness ] = useState( 0.5 );
-	const [ metalness, setMetalness ] = useState( 0.5 );
-	const [ ior, setIor ] = useState( 1.5 );
-	const [ transmission, setTransmission ] = useState( 0 );
-	const [ thickness, setThickness ] = useState( 0.1 );
-	const [ attenuationColor, setAttenuationColor ] = useState( '#ffffff' );
-	const [ attenuationDistance, setAttenuationDistance ] = useState( 0 );
-	const [ dispersion, setDispersion ] = useState( 0 );
-	const [ emissiveIntensity, setEmissiveIntensity ] = useState( 1 );
-	const [ clearcoat, setClearcoat ] = useState( 0 );
-	const [ clearcoatRoughness, setClearcoatRoughness ] = useState( 0 );
-	const [ opacity, setOpacity ] = useState( 1 );
-	const [ side, setSide ] = useState( 0 );
-	const [ emissive, setEmissive ] = useState( '#000000' );
-	const [ transparent, setTransparent ] = useState( false );
-	const [ alphaTest, setAlphaTest ] = useState( 0 );
-	const [ visible, setVisible ] = useState( true );
-	const [ sheen, setSheen ] = useState( 0 );
-	const [ sheenRoughness, setSheenRoughness ] = useState( 1 );
-	const [ sheenColor, setSheenColor ] = useState( '#000000' );
-	const [ specularIntensity, setSpecularIntensity ] = useState( 1 );
-	const [ specularColor, setSpecularColor ] = useState( '#ffffff' );
-	const [ iridescence, setIridescence ] = useState( 0 );
-	const [ iridescenceIOR, setIridescenceIOR ] = useState( 1.5 );
-	const [ iridescenceThicknessRange, setIridescenceThicknessRange ] = useState( [ 100, 400 ] );
+	// Single state object for all material properties
+	const [ materialState, setMaterialState ] = useState( () => {
+
+		const initialState = {};
+		Object.entries( MATERIAL_PROPERTIES ).forEach( ( [ key, config ] ) => {
+
+			initialState[ key ] = config.default;
+
+		} );
+		return initialState;
+
+	} );
+
+	// Helper function to safely get hex string
+	const getHexString = useCallback( ( colorObj ) => {
+
+		return colorObj && typeof colorObj.getHexString === 'function'
+			? `#${colorObj.getHexString()}`
+			: '#ffffff';
+
+	}, [] );
 
 	// Update material states from selected object
 	const updateMaterialStates = useCallback( () => {
@@ -48,42 +85,21 @@ const MaterialTab = () => {
 
 		try {
 
-			// Helper function to safely get hex string
-			const getHexString = ( colorObj ) => {
+			const newState = {};
+			Object.entries( MATERIAL_PROPERTIES ).forEach( ( [ key, config ] ) => {
 
-				return colorObj && typeof colorObj.getHexString === 'function'
-					? `#${colorObj.getHexString()}`
-					: '#ffffff';
+				if ( config.type === 'color' ) {
 
-			};
+					newState[ key ] = getHexString( selectedObject.material[ key ] );
 
-			// Update all material states at once
-			setColor( getHexString( selectedObject.material.color ) );
-			setRoughness( selectedObject.material.roughness ?? 0.5 );
-			setMetalness( selectedObject.material.metalness ?? 0.5 );
-			setIor( selectedObject.material.ior ?? 1.5 );
-			setTransmission( selectedObject.material.transmission ?? 0 );
-			setThickness( selectedObject.material.thickness ?? 0.1 );
-			setAttenuationColor( getHexString( selectedObject.material.attenuationColor ) );
-			setAttenuationDistance( selectedObject.material.attenuationDistance ?? 0 );
-			setDispersion( selectedObject.material.dispersion ?? 0 );
-			setEmissiveIntensity( selectedObject.material.emissiveIntensity ?? 1 );
-			setClearcoat( selectedObject.material.clearcoat ?? 0 );
-			setClearcoatRoughness( selectedObject.material.clearcoatRoughness ?? 0 );
-			setOpacity( selectedObject.material.opacity ?? 1 );
-			setSide( selectedObject.material.side ?? 0 );
-			setEmissive( getHexString( selectedObject.material.emissive ) );
-			setTransparent( selectedObject.material.transparent ?? false );
-			setAlphaTest( selectedObject.material.alphaTest ?? 0 );
-			setVisible( selectedObject.material.visible ?? true );
-			setSheen( selectedObject.material.sheen ?? 0 );
-			setSheenRoughness( selectedObject.material.sheenRoughness ?? 1 );
-			setSheenColor( getHexString( selectedObject.material.sheenColor ) );
-			setSpecularIntensity( selectedObject.material.specularIntensity ?? 1 );
-			setSpecularColor( getHexString( selectedObject.material.specularColor ) );
-			setIridescence( selectedObject.material.iridescence ?? 0 );
-			setIridescenceIOR( selectedObject.material.iridescenceIOR ?? 1.5 );
-			setIridescenceThicknessRange( selectedObject.material.iridescenceThicknessRange ?? [ 100, 400 ] );
+				} else {
+
+					newState[ key ] = selectedObject.material[ key ] ?? config.default;
+
+				}
+
+			} );
+			setMaterialState( newState );
 
 		} catch ( error ) {
 
@@ -91,149 +107,102 @@ const MaterialTab = () => {
 
 		}
 
-	}, [ selectedObject ] );
+	}, [ selectedObject, getHexString ] );
 
 	// Setup event listener for material updates
 	useEffect( () => {
 
 		updateMaterialStates();
-
 		window.addEventListener( 'MaterialUpdate', updateMaterialStates );
 		return () => window.removeEventListener( 'MaterialUpdate', updateMaterialStates );
 
 	}, [ updateMaterialStates ] );
 
-	// Improved material property update function
-	const updateMaterialProperty = ( property, value ) => {
+	// Generic handler for all property changes
+	const handlePropertyChange = useCallback( ( property, value ) => {
 
-		if ( ! selectedObject?.isMesh || ! selectedObject.material ) return;
+		// Update local state
+		setMaterialState( prev => ( { ...prev, [ property ]: value } ) );
 
-		try {
+		// Get the corresponding store handler
+		const handlerName = `handle${property.charAt( 0 ).toUpperCase() + property.slice( 1 )}Change`;
+		const handler = materialStore[ handlerName ];
 
-			// Update the Three.js material property
-			selectedObject.material[ property ] = value;
+		if ( handler && typeof handler === 'function' ) {
 
-			// Get material index with fallback
-			const materialIndex = selectedObject.userData?.materialIndex ?? 0;
+			handler( value );
 
-			// Update the path tracer material (supporting multiple APIs)
-			const pathTracer = window.pathTracerApp?.pathTracingPass;
-			if ( ! pathTracer ) {
+		} else {
 
-				console.warn( "Path tracer not available" );
-				return;
-
-			}
-
-			// Try different APIs in order of preference
-			if ( typeof pathTracer.updateMaterial === 'function' ) {
-
-				// New API - update entire material
-				pathTracer.updateMaterial( materialIndex, selectedObject.material );
-
-			} else if ( typeof pathTracer.updateMaterialProperty === 'function' ) {
-
-				// Mid-level API - update specific property
-				pathTracer.updateMaterialProperty( materialIndex, property, value );
-
-			} else if ( typeof pathTracer.updateMaterialDataTexture === 'function' ) {
-
-				// Legacy API - update through data texture
-				pathTracer.updateMaterialDataTexture( materialIndex, property, value );
-
-			} else if ( typeof pathTracer.rebuildMaterialDataTexture === 'function' ) {
-
-				// Oldest API - rebuild entire texture
-				pathTracer.rebuildMaterialDataTexture( materialIndex, selectedObject.material );
-
-			} else {
-
-				console.warn( "No compatible material update method found" );
-
-			}
-
-			// Reset rendering to apply changes
-			if ( window.pathTracerApp?.reset ) {
-
-				window.pathTracerApp.reset();
-
-			}
-
-		} catch ( error ) {
-
-			console.error( `Error updating material property ${property}:`, error );
+			console.warn( `No handler found for property: ${property}` );
 
 		}
 
-	};
+	}, [ materialStore ] );
 
-	// Handler functions (simplified to avoid repetition)
-	const createHandler = ( setter, property, transform = value => value ) => {
+	// Render component based on property configuration
+	const renderPropertyComponent = useCallback( ( property, config ) => {
 
-		return ( value ) => {
+		const value = materialState[ property ];
+		const onChange = ( newValue ) => handlePropertyChange( property, newValue );
 
-			setter( value );
-			updateMaterialProperty( property, transform( value ) );
+		switch ( config.type ) {
 
-		};
+			case 'color':
+				return <ColorInput label={config.label} value={value} onChange={onChange} />
 
-	};
+			case 'slider':
+				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={onChange} />
 
-	// Create handlers for all properties
-	const handleColorChange = createHandler( setColor, 'color', value => selectedObject.material.color.set( value ) );
-	const handleRoughnessChange = createHandler( setRoughness, 'roughness', value => value[ 0 ] );
-	const handleMetalnessChange = createHandler( setMetalness, 'metalness', value => value[ 0 ] );
-	const handleIorChange = createHandler( setIor, 'ior', value => value[ 0 ] );
-	const handleTransmissionChange = createHandler( setTransmission, 'transmission', value => value[ 0 ] );
-	const handleThicknessChange = createHandler( setThickness, 'thickness', value => value[ 0 ] );
-	const handleAttenuationColorChange = createHandler(
-		setAttenuationColor,
-		'attenuationColor',
-		value => selectedObject.material.attenuationColor.set( value )
-	);
-	const handleAttenuationDistanceChange = createHandler( setAttenuationDistance, 'attenuationDistance' );
-	const handleDispersionChange = createHandler( setDispersion, 'dispersion', value => value[ 0 ] );
-	const handleEmissiveIntensityChange = createHandler( setEmissiveIntensity, 'emissiveIntensity', value => value[ 0 ] );
-	const handleClearcoatChange = createHandler( setClearcoat, 'clearcoat', value => value[ 0 ] );
-	const handleClearcoatRoughnessChange = createHandler( setClearcoatRoughness, 'clearcoatRoughness', value => value[ 0 ] );
-	const handleOpacityChange = createHandler( setOpacity, 'opacity', value => value[ 0 ] );
-	const handleSideChange = createHandler( setSide, 'side' );
-	const handleEmissiveChange = createHandler(
-		setEmissive,
-		'emissive',
-		value => selectedObject.material.emissive.set( value )
-	);
-	const handleTransparentChange = createHandler( setTransparent, 'transparent', value => value ? 1 : 0 );
-	const handleAlphaTestChange = createHandler( setAlphaTest, 'alphaTest', value => value[ 0 ] );
-	const handleSheenChange = createHandler( setSheen, 'sheen', value => value[ 0 ] );
-	const handleSheenRoughnessChange = createHandler( setSheenRoughness, 'sheenRoughness', value => value[ 0 ] );
-	const handleSheenColorChange = createHandler(
-		setSheenColor,
-		'sheenColor',
-		value => selectedObject.material.sheenColor.set( value )
-	);
-	const handleSpecularIntensityChange = createHandler( setSpecularIntensity, 'specularIntensity', value => value[ 0 ] );
-	const handleSpecularColorChange = createHandler(
-		setSpecularColor,
-		'specularColor',
-		value => selectedObject.material.specularColor.set( value )
-	);
-	const handleIridescenceChange = createHandler( setIridescence, 'iridescence', value => value[ 0 ] );
-	const handleIridescenceIORChange = createHandler( setIridescenceIOR, 'iridescenceIOR', value => value[ 0 ] );
-	const handleIridescenceThicknessRangeChange = createHandler( setIridescenceThicknessRange, 'iridescenceThicknessRange' );
+			case 'number':
+				return <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />
 
-	// Special handler for visibility that affects the object itself
-	const handleVisibleChange = ( value ) => {
+			case 'switch':
+				return <Switch label={config.label} checked={value} onCheckedChange={onChange} />
 
-		setVisible( value );
-		if ( selectedObject ) {
+			case 'checkbox':
+				return (
+					<div className="flex items-center justify-between">
+						<label className="opacity-50 text-xs truncate">{config.label}</label>
+						<input type="checkbox" checked={value} onChange={( e ) => onChange( e.target.checked )} />
+					</div>
+				);
 
-			selectedObject.visible = value;
-			updateMaterialProperty( 'visible', value ? 1 : 0 );
+			case 'select':
+				return (
+					<div className="flex items-center justify-between">
+						<Select value={value} onValueChange={onChange}>
+							<span className="opacity-50 text-xs truncate">{config.label}</span>
+							<SelectTrigger className="max-w-20 h-5 rounded-full">
+								<SelectValue placeholder="Select" />
+							</SelectTrigger>
+							<SelectContent>
+								{config.options.map( option => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								) )}
+							</SelectContent>
+						</Select>
+					</div>
+				);
+
+			default:
+				return null;
 
 		}
 
-	};
+	}, [ materialState, handlePropertyChange ] );
+
+	// Group properties by section
+	const groupedProperties = Object.entries( MATERIAL_PROPERTIES ).reduce( ( acc, [ key, config ] ) => {
+
+		const section = config.section || 'basic';
+		if ( ! acc[ section ] ) acc[ section ] = [];
+		acc[ section ].push( [ key, config ] );
+		return acc;
+
+	}, {} );
 
 	// Render placeholders if no valid object is selected
 	if ( ! selectedObject ) {
@@ -251,103 +220,95 @@ const MaterialTab = () => {
 	return (
 		<div className="space-y-4 p-4">
 			<div className="flex items-center justify-between">
-				<TextRow label="Name" text={name}/>
+				<TextRow label="Name" text={name} />
 			</div>
-			<div className="flex items-center justify-between">
-				<Switch label="Visible" checked={visible} onCheckedChange={handleVisibleChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<ColorInput label={"Color"} value={color} onChange={handleColorChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Roughness"} min={0} max={1} step={0.01} value={[ roughness ]} onValueChange={handleRoughnessChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Metalness"} min={0} max={1} step={0.01} value={[ metalness ]} onValueChange={handleMetalnessChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Clearcoat"} min={0} max={1} step={0.01} value={[ clearcoat ]} onValueChange={handleClearcoatChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Clearcoat Roughness"} min={0} max={1} step={0.01} value={[ clearcoatRoughness ]} onValueChange={handleClearcoatRoughnessChange} />
-			</div>
+
+			{/* Basic Properties */}
+			{groupedProperties.basic?.map( ( [ property, config ] ) => (
+				<div key={property} className="flex items-center justify-between">
+					{renderPropertyComponent( property, config )}
+				</div>
+			) )}
+
+			{/* Core Material Properties */}
+			{groupedProperties.undefined?.map( ( [ property, config ] ) => (
+				<div key={property} className="flex items-center justify-between">
+					{renderPropertyComponent( property, config )}
+				</div>
+			) )}
+
 			<Separator />
-			<div className="flex items-center justify-between">
-				<Slider label={"Specular Intensity"} min={0} max={1} step={0.01} value={[ specularIntensity ]} onValueChange={handleSpecularIntensityChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<ColorInput label={"Specular Color"} value={specularColor} onChange={handleSpecularColorChange} />
-			</div>
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Slider label={"Sheen"} min={0} max={1} step={0.01} value={[ sheen ]} onValueChange={handleSheenChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Sheen Roughness"} min={0} max={1} step={0.01} value={[ sheenRoughness ]} onValueChange={handleSheenRoughnessChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<ColorInput label={"Sheen Color"} value={sheenColor} onChange={handleSheenColorChange} />
-			</div>
-			<Separator />
-			<div className="flex items-center justify-between">
-				<ColorInput label={"Emissive"} value={emissive} onChange={handleEmissiveChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Emissive Intensity"} min={0} max={10} step={0.1} value={[ emissiveIntensity ]} onValueChange={handleEmissiveIntensityChange} />
-			</div>
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Slider label={"Iridescence"} min={0} max={1} step={0.01} value={[ iridescence ]} onValueChange={handleIridescenceChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Iridescence IOR"} min={1} max={2.5} step={0.01} value={[ iridescenceIOR ]} onValueChange={handleIridescenceIORChange} />
-			</div>
-			{/* <div className="flex items-center justify-between">
-				<DraggableInput label={"Iridescence Thickness Range"} min={0} max={1000} step={1} value={iridescenceThicknessRange} onValueChange={handleIridescenceThicknessRangeChange} />
-			</div> */}
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Slider label={"Opacity"} min={0} max={1} step={0.01} value={[ opacity ]} onValueChange={handleOpacityChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"IOR"} min={1} max={2.5} step={0.01} value={[ ior ]} onValueChange={handleIorChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Transmission"} min={0} max={1} step={0.01} value={[ transmission ]} onValueChange={handleTransmissionChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Transmission Thickness"} min={0} max={1} step={0.01} value={[ thickness ]} onValueChange={handleThicknessChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<ColorInput label={"Attenuation Color"} value={attenuationColor} onChange={handleAttenuationColorChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<NumberInput label={"Attenuation Distance"} min={0} max={1000} step={1} value={attenuationDistance} onValueChange={handleAttenuationDistanceChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Dispersion"} min={0} max={10} step={0.01} value={[ dispersion ]} onValueChange={handleDispersionChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<Slider label={"Alpha Test"} min={0} max={1} step={0.01} value={[ alphaTest ]} onValueChange={handleAlphaTestChange} />
-			</div>
-			<div className="flex items-center justify-between">
-				<label className="opacity-50 text-xs truncate">Transparent</label>
-				<input type="checkbox" checked={transparent} onChange={( e ) => handleTransparentChange( e.target.checked )} />
-			</div>
-			<Separator />
-			<div className="flex items-center justify-between">
-				<Select value={side} onValueChange={handleSideChange}>
-					<span className="opacity-50 text-xs truncate">Side</span>
-					<SelectTrigger className="max-w-20 h-5 rounded-full" >
-						<SelectValue placeholder="Select quality" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value={0}>Front</SelectItem>
-						<SelectItem value={1}>Back</SelectItem>
-						<SelectItem value={2}>Double</SelectItem>
-					</SelectContent>
-				</Select>
-			</div>
+
+			{/* Specular Properties */}
+			{groupedProperties.specular && (
+				<>
+					{groupedProperties.specular.map( ( [ property, config ] ) => (
+						<div key={property} className="flex items-center justify-between">
+							{renderPropertyComponent( property, config )}
+						</div>
+					) )}
+					<Separator />
+				</>
+			)}
+
+			{/* Sheen Properties */}
+			{groupedProperties.sheen && (
+				<>
+					{groupedProperties.sheen.map( ( [ property, config ] ) => (
+						<div key={property} className="flex items-center justify-between">
+							{renderPropertyComponent( property, config )}
+						</div>
+					) )}
+					<Separator />
+				</>
+			)}
+
+			{/* Emissive Properties */}
+			{groupedProperties.emissive && (
+				<>
+					{groupedProperties.emissive.map( ( [ property, config ] ) => (
+						<div key={property} className="flex items-center justify-between">
+							{renderPropertyComponent( property, config )}
+						</div>
+					) )}
+					<Separator />
+				</>
+			)}
+
+			{/* Iridescence Properties */}
+			{groupedProperties.iridescence && (
+				<>
+					{groupedProperties.iridescence.map( ( [ property, config ] ) => (
+						<div key={property} className="flex items-center justify-between">
+							{renderPropertyComponent( property, config )}
+						</div>
+					) )}
+					<Separator />
+				</>
+			)}
+
+			{/* Transmission Properties */}
+			{groupedProperties.transmission && (
+				<>
+					{groupedProperties.transmission.map( ( [ property, config ] ) => (
+						<div key={property} className="flex items-center justify-between">
+							{renderPropertyComponent( property, config )}
+						</div>
+					) )}
+					<Separator />
+				</>
+			)}
+
+			{/* Other Properties */}
+			{groupedProperties.other && (
+				<>
+					{groupedProperties.other.map( ( [ property, config ] ) => (
+						<div key={property} className="flex items-center justify-between">
+							{renderPropertyComponent( property, config )}
+						</div>
+					) )}
+				</>
+			)}
 		</div>
 	);
 

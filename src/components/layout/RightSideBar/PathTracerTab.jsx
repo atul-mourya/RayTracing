@@ -2,31 +2,10 @@ import { Grip, Sun, Sunrise, RefreshCcwDot } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { usePathTracerStore as useStore } from '@/store';
+import { usePathTracerStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
-import { Separator } from '@/components/ui/separator';
-
-
-const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
-
-	if ( typeof setter !== 'function' ) {
-
-		console.error( "Invalid setter function passed to handleChange:", setter );
-		return;
-
-	}
-
-	setter( value );
-	if ( window.pathTracerApp ) {
-
-		appUpdater( value );
-		needsReset && window.pathTracerApp.reset();
-
-	}
-
-};
 
 const toneMappingOptions = [
 	{ label: 'None', value: 0 },
@@ -40,282 +19,110 @@ const toneMappingOptions = [
 
 const PathTracerTab = () => {
 
+	const pathTracerStore = usePathTracerStore();
+
+	// Destructure all state and handlers from the store
 	const {
-		enablePathTracer, setEnablePathTracer,
-		enableAccumulation, setEnableAccumulation,
-		bounces, setBounces,
-		samplesPerPixel, setSamplesPerPixel,
-		samplingTechnique, setSamplingTechnique,
-		adaptiveSampling, setAdaptiveSampling,
-		performanceModeAdaptive, setPerformanceModeAdaptive,
-		adaptiveSamplingMin, setAdaptiveSamplingMin,
-		adaptiveSamplingMax, setAdaptiveSamplingMax,
-		adaptiveSamplingVarianceThreshold, setAdaptiveSamplingVarianceThreshold,
-		showAdaptiveSamplingHelper, setShowAdaptiveSamplingHelper,
-		temporalVarianceWeight, setTemporalVarianceWeight,
-		enableEarlyTermination, setEnableEarlyTermination,
-		earlyTerminationThreshold, setEarlyTerminationThreshold,
-		fireflyThreshold, setFireflyThreshold,
-		renderMode, setRenderMode,
-		tiles, setTiles,
-		tilesHelper, setTilesHelper,
-		resolution, setResolution,
-		enableOIDN, setEnableOIDN,
-		useGBuffer, setUseGBuffer,
-		enableRealtimeDenoiser, setEnableRealtimeDenoiser,
-		denoiserBlurStrength, setDenoiserBlurStrength,
-		denoiserBlurRadius, setDenoiserBlurRadius,
-		denoiserDetailPreservation, setDenoiserDetailPreservation,
-		debugMode, setDebugMode,
-		debugThreshold, setDebugThreshold,
-		enableBloom, setEnableBloom,
-		bloomThreshold, setBloomThreshold,
-		bloomStrength, setBloomStrength,
-		bloomRadius, setBloomRadius,
-		oidnQuality, setOidnQuality,
-		oidnHdr, setOidnHdr,
-		exposure, setExposure,
-		enableEnvironment, setEnableEnvironment,
-		useImportanceSampledEnvironment, setUseImportanceSampledEnvironment,
-		showBackground, setShowBackground,
-		backgroundIntensity, setBackgroundIntensity,
-		environmentIntensity, setEnvironmentIntensity,
-		environmentRotation, setEnvironmentRotation,
-		GIIntensity, setGIIntensity,
-		toneMapping, setToneMapping,
-		interactionModeEnabled, setInteractionModeEnabled,
-		enableASVGF, setEnableASVGF,
-		asvgfTemporalAlpha, setAsvgfTemporalAlpha,
-		asvgfPhiColor, setAsvgfPhiColor,
-		asvgfPhiLuminance, setAsvgfPhiLuminance,
-		asvgfAtrousIterations, setAsvgfAtrousIterations,
-		asvgfVarianceClip, setAsvgfVarianceClip,
-		asvgfMomentClip, setAsvgfMomentClip,
-		asvgfPhiNormal, setAsvgfPhiNormal,
-		asvgfPhiDepth, setAsvgfPhiDepth,
-		asvgfFilterSize, setAsvgfFilterSize,
-	} = useStore();
-
-	const handlePathTracerChange = handleChange( setEnablePathTracer, value => {
-
-		window.pathTracerApp.accPass.enabled = value;
-		window.pathTracerApp.pathTracingPass.enabled = value;
-		window.pathTracerApp.renderPass.enabled = ! value;
-
-	} );
-
-	// Path Tracer
-	const handleAccumulationChange = handleChange( setEnableAccumulation, value => window.pathTracerApp.accPass.enabled = value );
-	const handleBouncesChange = handleChange( setBounces, value => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = value );
-	const handleSamplesPerPixelChange = handleChange( setSamplesPerPixel, value => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = value );
-	const handleSamplingTechniqueChange = handleChange( setSamplingTechnique, value => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = value );
-	const handleResolutionChange = handleChange( setResolution, value => {
-
-		let result;
-		switch ( value ) {
-
-			case '1': result = window.devicePixelRatio * 0.5; break;
-			case '2': result = window.devicePixelRatio * 1; break;
-			case '3': result = window.devicePixelRatio * 2; break;
-			case '4': result = window.devicePixelRatio * 4; break;
-			default: result = window.devicePixelRatio * 0.25;
-
-		}
-
-		window.pathTracerApp.updateResolution( result );
-
-	} );
-
-	// Adaptive Sampling
-	const handleAdaptiveSamplingChange = handleChange( setAdaptiveSampling, value => {
-
-		window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value;
-		window.pathTracerApp.adaptiveSamplingPass.enabled = value;
-		window.pathTracerApp.adaptiveSamplingPass.toggleHelper( false );
-
-	} );
-	const handlePerformanceModeAdaptiveChange = handleChange( setPerformanceModeAdaptive, value => window.pathTracerApp.temporalStatsPass.setPerformanceMode( value ) );
-	const handleAdaptiveSamplingMinChange = handleChange( setAdaptiveSamplingMin, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ] );
-	const handleAdaptiveSamplingMaxChange = handleChange( setAdaptiveSamplingMax, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ] );
-	const handleAdaptiveSamplingVarianceThresholdChange = handleChange( setAdaptiveSamplingVarianceThreshold, value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ] );
-	const handleAdaptiveSamplingHelperToggle = handleChange( setShowAdaptiveSamplingHelper, value => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( value ) );
-
-	const handleTemporalVarianceWeightChange = handleChange( setTemporalVarianceWeight, value => {
-
-		window.pathTracerApp.adaptiveSamplingPass.material.uniforms.temporalWeight.value = value[ 0 ];
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleEnableEarlyTerminationChange = handleChange( setEnableEarlyTermination, value => {
-
-		window.pathTracerApp.temporalStatsPass.setEnableEarlyTermination( value );
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleEarlyTerminationThresholdChange = handleChange( setEarlyTerminationThreshold, value => {
-
-		window.pathTracerApp.temporalStatsPass.setConvergenceThreshold( value[ 0 ] );
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleFireflyThresholdChange = handleChange( setFireflyThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = value[ 0 ] );
-
-	// Render Mode
-	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
-	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
-	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
-
-	// OIDN
-	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
-	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.updateQuality( value ), false );
-	const handleOidnHdrChange = handleChange( setOidnHdr, value => window.pathTracerApp.denoiser.toggleHDR( value ), false );
-	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.toggleUseGBuffer( value ), false );
-
-	// Realtime Denoiser
-	const handleEnableRealtimeDenoiserChange = handleChange( setEnableRealtimeDenoiser, value => window.pathTracerApp.denoiserPass.enabled = value, false );
-	const handleDenoiserBlurStrengthChange = handleChange( setDenoiserBlurStrength, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = value[ 0 ], false );
-	const handleDenoiserBlurRadiusChange = handleChange( setDenoiserBlurRadius, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = value[ 0 ], false );
-	const handleDenoiserDetailPreservationChange = handleChange( setDenoiserDetailPreservation, value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = value[ 0 ], false );
-
-	// Debugging
-	const handleDebugThresholdChange = handleChange( setDebugThreshold, value => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = value[ 0 ] );
-	const handleDebugModeChange = handleChange( setDebugMode, value => {
-
-		let mode;
-		switch ( value ) {
-
-			case '1': mode = 1; break;
-			case '2': mode = 2; break;
-			case '3': mode = 3; break;
-			case '4': mode = 4; break;
-			case '5': mode = 5; break;
-			default: mode = 0;
-
-		}
-
-		window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
-
-	} );
-
-	// Post Processing
-	const handleEnableBloomChange = handleChange( setEnableBloom, value => window.pathTracerApp.bloomPass.enabled = value );
-	const handleBloomThresholdChange = handleChange( setBloomThreshold, value => window.pathTracerApp.bloomPass.threshold = value[ 0 ] );
-	const handleBloomStrengthChange = handleChange( setBloomStrength, value => window.pathTracerApp.bloomPass.strength = value[ 0 ] );
-	const handleBloomRadiusChange = handleChange( setBloomRadius, value => window.pathTracerApp.bloomPass.radius = value[ 0 ] );
-
-	// Scene Settings
-	const handleExposureChange = handleChange( setExposure, value => {
-
-		window.pathTracerApp.renderer.toneMappingExposure = value;
-		window.pathTracerApp.pathTracingPass.material.uniforms.exposure.value = value;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleEnableEnvironmentChange = handleChange( setEnableEnvironment, value => {
-
-		window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = value;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleUseImportanceSampledEnvironmentChange = handleChange( setUseImportanceSampledEnvironment, value => {
-
-		window.pathTracerApp.pathTracingPass.material.uniforms.useEnvMapIS.value = value;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleShowBackgroundChange = handleChange( setShowBackground, value => {
-
-		window.pathTracerApp.scene.background = value ? window.pathTracerApp.scene.environment : null;
-		window.pathTracerApp.pathTracingPass.material.uniforms.showBackground.value = value ? true : false;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleBackgroundIntensityChange = handleChange( setBackgroundIntensity, value => {
-
-		window.pathTracerApp.scene.backgroundIntensity = value;
-		window.pathTracerApp.pathTracingPass.material.uniforms.backgroundIntensity.value = value;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleEnvironmentIntensityChange = handleChange( setEnvironmentIntensity, value => {
-
-		window.pathTracerApp.scene.environmentIntensity = value;
-		window.pathTracerApp.pathTracingPass.material.uniforms.environmentIntensity.value = value;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleEnvironmentRotationChange = handleChange( setEnvironmentRotation, value => {
-
-		window.pathTracerApp.pathTracingPass.material.uniforms.environmentRotation.value = value[ 0 ] * ( Math.PI / 180 );
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleGIIntensityChange = handleChange( setGIIntensity, value => {
-
-		window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = value * Math.PI;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleToneMappingChange = handleChange( setToneMapping, value => {
-
-		value = parseInt( value );
-		window.pathTracerApp.renderer.toneMapping = value;
-		window.pathTracerApp.reset();
-
-	} );
-
-	const handleInteractionModeEnabledChange = handleChange( setInteractionModeEnabled, value => {
-
-		window.pathTracerApp.pathTracingPass.setInteractionModeEnabled( value );
-
-	} );
-
-	const handleEnableASVGFChange = handleChange( setEnableASVGF, value => {
-
-		window.pathTracerApp.setASVGFEnabled( value );
-		if ( value ) {
-
-			window.pathTracerApp.denoiserPass.enabled = false;
-			setEnableRealtimeDenoiser( false );
-
-		}
-
-	}, false );
-
-	const handleAsvgfTemporalAlphaChange = handleChange( setAsvgfTemporalAlpha, value => {
-
-		window.pathTracerApp.updateASVGFParameters( { temporalAlpha: value[ 0 ] } );
-
-	}, false );
-
-	const handleAsvgfPhiColorChange = handleChange( setAsvgfPhiColor, value => {
-
-		window.pathTracerApp.updateASVGFParameters( { phiColor: value[ 0 ] } );
-
-	}, false );
-
-	const handleAsvgfPhiLuminanceChange = handleChange( setAsvgfPhiLuminance, value => {
-
-		window.pathTracerApp.updateASVGFParameters( { phiLuminance: value[ 0 ] } );
-
-	}, false );
-
-	const handleAsvgfAtrousIterationsChange = handleChange( setAsvgfAtrousIterations, value => {
-
-		window.pathTracerApp.updateASVGFParameters( { atrousIterations: value[ 0 ] } );
-
-	}, false );
+		// State
+		enablePathTracer,
+		enableAccumulation,
+		bounces,
+		samplesPerPixel,
+		samplingTechnique,
+		adaptiveSampling,
+		performanceModeAdaptive,
+		adaptiveSamplingMin,
+		adaptiveSamplingMax,
+		adaptiveSamplingVarianceThreshold,
+		showAdaptiveSamplingHelper,
+		temporalVarianceWeight,
+		enableEarlyTermination,
+		earlyTerminationThreshold,
+		fireflyThreshold,
+		renderMode,
+		tiles,
+		tilesHelper,
+		resolution,
+		enableOIDN,
+		useGBuffer,
+		enableRealtimeDenoiser,
+		denoiserBlurStrength,
+		denoiserBlurRadius,
+		denoiserDetailPreservation,
+		debugMode,
+		debugThreshold,
+		enableBloom,
+		bloomThreshold,
+		bloomStrength,
+		bloomRadius,
+		oidnQuality,
+		oidnHdr,
+		exposure,
+		enableEnvironment,
+		useImportanceSampledEnvironment,
+		showBackground,
+		backgroundIntensity,
+		environmentIntensity,
+		environmentRotation,
+		GIIntensity,
+		toneMapping,
+		interactionModeEnabled,
+		enableASVGF,
+		asvgfTemporalAlpha,
+		asvgfPhiColor,
+		asvgfPhiLuminance,
+		asvgfAtrousIterations,
+
+		// Handlers - now from store
+		handlePathTracerChange,
+		handleAccumulationChange,
+		handleBouncesChange,
+		handleSamplesPerPixelChange,
+		handleSamplingTechniqueChange,
+		handleResolutionChange,
+		handleAdaptiveSamplingChange,
+		handlePerformanceModeAdaptiveChange,
+		handleAdaptiveSamplingMinChange,
+		handleAdaptiveSamplingMaxChange,
+		handleAdaptiveSamplingVarianceThresholdChange,
+		handleAdaptiveSamplingHelperToggle,
+		handleTemporalVarianceWeightChange,
+		handleEnableEarlyTerminationChange,
+		handleEarlyTerminationThresholdChange,
+		handleFireflyThresholdChange,
+		handleRenderModeChange,
+		handleTileUpdate,
+		handleTileHelperToggle,
+		handleEnableOIDNChange,
+		handleOidnQualityChange,
+		handleOidnHdrChange,
+		handleUseGBufferChange,
+		handleEnableRealtimeDenoiserChange,
+		handleDenoiserBlurStrengthChange,
+		handleDenoiserBlurRadiusChange,
+		handleDenoiserDetailPreservationChange,
+		handleDebugThresholdChange,
+		handleDebugModeChange,
+		handleEnableBloomChange,
+		handleBloomThresholdChange,
+		handleBloomStrengthChange,
+		handleBloomRadiusChange,
+		handleExposureChange,
+		handleEnableEnvironmentChange,
+		handleUseImportanceSampledEnvironmentChange,
+		handleShowBackgroundChange,
+		handleBackgroundIntensityChange,
+		handleEnvironmentIntensityChange,
+		handleEnvironmentRotationChange,
+		handleGIIntensityChange,
+		handleToneMappingChange,
+		handleInteractionModeEnabledChange,
+		handleEnableASVGFChange,
+		handleAsvgfTemporalAlphaChange,
+		handleAsvgfPhiColorChange,
+		handleAsvgfPhiLuminanceChange,
+		handleAsvgfAtrousIterationsChange,
+	} = pathTracerStore;
 
 	return (
 		<div className="">
@@ -370,6 +177,7 @@ const PathTracerTab = () => {
 					</Select>
 				</div>
 			</ControlGroup>
+
 			<ControlGroup name="Scene">
 				<div className="flex items-center justify-between">
 					<Select value={toneMapping.toString()} onValueChange={handleToneMappingChange}>
@@ -403,6 +211,7 @@ const PathTracerTab = () => {
 					<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} onValueChange={handleEnvironmentRotationChange} />
 				</div>
 			</ControlGroup>
+
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable ASVGF"} checked={enableASVGF} onCheckedChange={handleEnableASVGFChange}/>
@@ -460,6 +269,7 @@ const PathTracerTab = () => {
 					</div>
 				</> )}
 			</ControlGroup>
+
 			<ControlGroup name="Sampling">
 				<div className="flex items-center justify-between">
 					<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
@@ -520,6 +330,7 @@ const PathTracerTab = () => {
 					)}
 				</> )}
 			</ControlGroup>
+
 			<ControlGroup name="Post Processing">
 				<div className="flex items-center justify-between">
 					<SliderToggle label={"Bloom Strength"} enabled={ enableBloom } min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={ handleBloomStrengthChange } onToggleChange={ handleEnableBloomChange } />
@@ -533,6 +344,7 @@ const PathTracerTab = () => {
 					</div></>
 				)}
 			</ControlGroup>
+
 			{enablePathTracer && (
 				<ControlGroup name="Debugging">
 					<div className="flex items-center justify-between">

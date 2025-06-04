@@ -6,7 +6,6 @@ import MenuBar from './MenuBar';
 import ViewportTabs from './ViewportTabs';
 import ActionBar from './ActionBar';
 import ImportUrlModal from './ImportUrlModal';
-import { usePathTracerCanvas } from '@/hooks/use-path-tracer-canvas';
 import { useImportUrl } from '@/hooks/use-import-url';
 
 const TopBar = () => {
@@ -15,28 +14,10 @@ const TopBar = () => {
 	const appMode = useStore( state => state.appMode );
 	const setAppMode = useStore( state => state.setAppMode );
 
-	// Access the path tracer store actions
-	const pathTracerStore = usePathTracerStore();
-
-	// Memoize the store actions to prevent re-renders
-	const pathTracerActions = useMemo( () => ( {
-		setMaxSamples: pathTracerStore.setMaxSamples,
-		setBounces: pathTracerStore.setBounces,
-		setSamplesPerPixel: pathTracerStore.setSamplesPerPixel,
-		setRenderMode: pathTracerStore.setRenderMode,
-		setTiles: pathTracerStore.setTiles,
-		setTilesHelper: pathTracerStore.setTilesHelper,
-		setResolution: pathTracerStore.setResolution,
-		setEnableOIDN: pathTracerStore.setEnableOIDN,
-		setOidnQuality: pathTracerStore.setOidnQuality,
-		setOidnHdr: pathTracerStore.setOidnHdr,
-		setUseGBuffer: pathTracerStore.setUseGBuffer,
-		setInteractionModeEnabled: pathTracerStore.setInteractionModeEnabled,
-		setEnableASVGF: pathTracerStore.setEnableASVGF,
-	} ), [ pathTracerStore ] );
+	// Access the path tracer mode change handler
+	const handleModeChange = usePathTracerStore( state => state.handleModeChange );
 
 	// Use custom hooks
-	const { configureForMode } = usePathTracerCanvas();
 	const {
 		modalState,
 		openImportModal,
@@ -51,12 +32,12 @@ const TopBar = () => {
 		// Only update if value has changed
 		if ( value !== appMode ) {
 
-			configureForMode( value, pathTracerActions );
+			handleModeChange( value );
 			setAppMode( value );
 
 		}
 
-	}, [ appMode, setAppMode, configureForMode, pathTracerActions ] );
+	}, [ appMode, setAppMode, handleModeChange ] );
 
 	// Handle GitHub redirect
 	const handleGithubRedirection = useCallback( () => {
