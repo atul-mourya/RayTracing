@@ -19,8 +19,9 @@ vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
 	vec3 F = fresnelSchlick( dots.VoH, F0 );
 	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
 
-    // Add diffuse component for non-metallic surfaces
-	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) / PI;
+    // Fresnel masking for diffuse component
+	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
+	vec3 diffuse = kD * material.color.rgb / PI;
 	vec3 baseLayer = diffuse + baseBRDF;
 
     // Clearcoat layer
@@ -31,10 +32,10 @@ vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
 	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) /
 		( 4.0 * dots.NoV * dots.NoL );
 
-    // Energy conservation
-	float attenuation = calculateLayerAttenuation( material.clearcoat, dots.VoH );
+    //  Energy conservation for clearcoat
+	float clearcoatAttenuation = 1.0 - material.clearcoat * clearcoatF;
 
-	return baseLayer * attenuation + vec3( clearcoatBRDF ) * material.clearcoat;
+	return baseLayer * clearcoatAttenuation + vec3( clearcoatBRDF ) * material.clearcoat;
 }
 
 // Improved clearcoat sampling function

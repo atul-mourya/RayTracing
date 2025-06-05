@@ -344,16 +344,22 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 
     // Combined specular calculation
 	vec3 specular = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
-	vec3 diffuse = material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
+	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
+	vec3 diffuse = kD * material.color.rgb * PI_INV;
+
 	vec3 baseLayer = diffuse + specular;
 
     // Optimize sheen calculation
 	if( material.sheen > 0.0 ) {
 		float sheenDist = SheenDistribution( dots.NoH, material.sheenRoughness );
 		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * dots.NoL;
+
+        // Physically-based sheen attenuation
 		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
-		float sheenScaling = 1.0 - material.sheen * maxSheen;
-		return baseLayer * sheenScaling + sheenTerm;
+		float sheenReflectance = material.sheen * maxSheen * sheenDist;
+		float sheenAttenuation = 1.0 - clamp( sheenReflectance, 0.0, 1.0 );
+
+		return baseLayer * sheenAttenuation + sheenTerm;
 	}
 
 	return baseLayer;
@@ -374,8 +380,9 @@ MaterialCache createMaterialCache( vec3 N, vec3 V, RayTracingMaterial material, 
 	float r = samples.roughness + 1.0;
 	cache.k = ( r * r ) / 8.0;
 
-	cache.F0 = mix( vec3( 0.04 ) * material.specularColor, samples.albedo.rgb, samples.metalness ) * material.specularIntensity;
-	cache.diffuseColor = samples.albedo.rgb * ( 1.0 - samples.metalness ) * PI_INV;
+	vec3 dielectricF0 = vec3( 0.04 ) * material.specularColor;
+	cache.F0 = mix( dielectricF0, samples.albedo.rgb, samples.metalness ) * material.specularIntensity;
+	cache.diffuseColor = samples.albedo.rgb * ( 1.0 - samples.metalness );
 	cache.specularColor = samples.albedo.rgb;
 	cache.texSamples = samples;
 
@@ -397,8 +404,9 @@ MaterialCache createMaterialCacheLegacy( vec3 N, vec3 V, RayTracingMaterial mate
 	float r = material.roughness + 1.0;
 	cache.k = ( r * r ) / 8.0;
 
-	cache.F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
-	cache.diffuseColor = material.color.rgb * ( 1.0 - material.metalness ) * PI_INV;
+	vec3 dielectricF0 = vec3( 0.04 ) * material.specularColor;
+	cache.F0 = mix( dielectricF0, material.color.rgb, material.metalness ) * material.specularIntensity;
+	cache.diffuseColor = material.color.rgb * ( 1.0 - material.metalness );
 	cache.specularColor = material.color.rgb;
 
     // Create dummy MaterialSamples for compatibility
@@ -445,14 +453,20 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 
 	vec3 F = fresnelSchlick( VoH, F0 );
 	vec3 specular = ( D * G * F ) / ( 4.0 * cache.NoV * NoL );
-	vec3 baseLayer = cache.diffuseColor + specular;
+
+	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
+	vec3 diffuse = kD * material.color.rgb * PI_INV;
+
+	vec3 baseLayer = diffuse + specular;
 
 	if( material.sheen > 0.0 ) {
 		float sheenDist = SheenDistribution( NoH, material.sheenRoughness );
 		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * NoL;
 		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
-		float sheenScaling = 1.0 - material.sheen * maxSheen;
-		return baseLayer * sheenScaling + sheenTerm;
+		float sheenReflectance = material.sheen * maxSheen * sheenDist;
+		float sheenAttenuation = 1.0 - clamp( sheenReflectance, 0.0, 1.0 );
+
+		return baseLayer * sheenAttenuation + sheenTerm;
 	}
 
 	return baseLayer;

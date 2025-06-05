@@ -381,7 +381,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		}
 
         // Add emissive contribution
-		radiance += matSamples.emissive * throughput * PI;
+		radiance += matSamples.emissive * throughput;
 
         // Get importance sampling info with caching
 		if( ! pathState.weightsComputed || bounceIndex == 0 ) {
