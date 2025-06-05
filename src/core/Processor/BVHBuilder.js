@@ -38,21 +38,11 @@ class CWBVHNode {
 // Updated to work with triangle format (32 floats)
 class TriangleInfo {
 
-	constructor( triangle, index, triangleData = null ) {
+	constructor( index, triangleData = null ) {
 
 		this.index = index;
 		this.triangleData = triangleData;
-
-		// If we have Float32Array data, create a triangle wrapper
-		if ( triangleData ) {
-
-			this.triangle = new TriangleWrapper( triangleData, index );
-
-		} else {
-
-			this.triangle = triangle;
-
-		}
+		this.triangle = new TriangleWrapper( triangleData, index );
 
 		// Pre-compute centroid for better performance
 		this.centroid = new Vector3(
@@ -1065,13 +1055,13 @@ export default class BVHBuilder {
 		let triangleInfos = [];
 		for ( let i = 0; i < triangleCount; i ++ ) {
 
-			triangleInfos.push( new TriangleInfo( null, i, triangles ) );
+			triangleInfos.push( new TriangleInfo( i, triangles ) );
 
 		}
 
 
 		// Apply Morton code spatial clustering for better cache locality
-		// Use recursive clustering for very large datasets
+		// Use recursive clustering for very large datasets - the implemetion is currently missing
 		triangleInfos = this.sortTrianglesByMortonCode( triangleInfos );
 
 		// Create root node
@@ -1182,7 +1172,7 @@ export default class BVHBuilder {
 		this.totalNodes ++;
 
 		// Update bounds using pre-computed triangle bounds
-		this.updateNodeBoundsOptimized( node, triangleInfos );
+		this.updateNodeBounds( node, triangleInfos );
 
 		// Check for leaf conditions
 		if ( triangleInfos.length <= this.maxLeafSize || depth <= 0 ) {
@@ -1659,7 +1649,7 @@ export default class BVHBuilder {
 
 	}
 
-	updateNodeBoundsOptimized( node, triangleInfos ) {
+	updateNodeBounds( node, triangleInfos ) {
 
 		node.boundsMin.set( Infinity, Infinity, Infinity );
 		node.boundsMax.set( - Infinity, - Infinity, - Infinity );
