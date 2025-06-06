@@ -1,4 +1,5 @@
 import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
+import { updateLoading } from '../Processor/utils.js';
 
 const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
@@ -368,16 +369,57 @@ export default class TextureCreator {
 
 	}
 
+	updateTextureProgress( progress, status ) {
+
+		// Simple progress mapping from 80% to 100%
+		const scaledProgress = 80 + ( progress * 0.2 );
+		updateLoading( {
+			status: status || `Processing textures... ${Math.round( progress )}%`,
+			progress: Math.round( scaledProgress )
+		} );
+
+	}
+
+	// Replace the existing createAllTextures method with this version:
 	async createAllTextures( params ) {
 
 		const promises = [];
+		let completedTasks = 0;
+
+		// Count total tasks
+		let totalTasks = 0;
+		if ( params.materials?.length ) totalTasks ++;
+		if ( params.triangles && params.triangles.byteLength > 0 ) totalTasks ++;
+		if ( params.bvhRoot ) totalTasks ++;
+
+		const mapTypes = [ 'maps', 'normalMaps', 'bumpMaps', 'roughnessMaps', 'metalnessMaps', 'emissiveMaps' ];
+		for ( const mapType of mapTypes ) {
+
+			if ( params[ mapType ]?.length > 0 ) totalTasks ++;
+
+		}
+
+		const updateProgress = ( taskName ) => {
+
+			completedTasks ++;
+			const progress = ( completedTasks / totalTasks ) * 100;
+			this.updateTextureProgress( progress, `Completed ${taskName}` );
+
+		};
+
+		this.updateTextureProgress( 0, "Starting texture creation..." );
 
 		// Material texture
 		if ( params.materials?.length ) {
 
 			promises.push(
 				this.createMaterialDataTexture( params.materials )
-					.then( texture => ( { type: 'material', texture } ) )
+					.then( texture => {
+
+						updateProgress( "material texture" );
+						return { type: 'material', texture };
+
+					} )
 			);
 
 		}
@@ -387,13 +429,18 @@ export default class TextureCreator {
 
 			promises.push(
 				this.createTriangleDataTexture( params.triangles )
-					.then( texture => ( { type: 'triangle', texture } ) )
+					.then( texture => {
+
+						updateProgress( "triangle texture" );
+						return { type: 'triangle', texture };
+
+					} )
 			);
 
 		}
 
-		// Map textures with optimized processing
-		const mapTypes = [
+		// Map textures
+		const mapTypesList = [
 			{ data: params.maps, type: 'albedo' },
 			{ data: params.normalMaps, type: 'normal' },
 			{ data: params.bumpMaps, type: 'bump' },
@@ -402,13 +449,18 @@ export default class TextureCreator {
 			{ data: params.emissiveMaps, type: 'emissive' }
 		];
 
-		for ( const { data, type } of mapTypes ) {
+		for ( const { data, type } of mapTypesList ) {
 
 			if ( data?.length > 0 ) {
 
 				promises.push(
 					this.createTexturesToDataTexture( data )
-						.then( texture => ( { type, texture } ) )
+						.then( texture => {
+
+							updateProgress( `${type} textures` );
+							return { type, texture };
+
+						} )
 				);
 
 			}
@@ -420,12 +472,20 @@ export default class TextureCreator {
 
 			promises.push(
 				this.createBVHDataTexture( params.bvhRoot )
-					.then( texture => ( { type: 'bvh', texture } ) )
+					.then( texture => {
+
+						updateProgress( "BVH texture" );
+						return { type: 'bvh', texture };
+
+					} )
 			);
 
 		}
 
 		const results = await Promise.all( promises );
+
+		this.updateTextureProgress( 100, "Texture creation complete!" );
+
 		return results.reduce( ( acc, { type, texture } ) => {
 
 			acc[ `${type}Texture` ] = texture;
