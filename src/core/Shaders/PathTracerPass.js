@@ -174,11 +174,30 @@ export class PathTracerPass extends Pass {
 		this.interactionTimeout = null;
 		this.interactionDelay = 100; // delay before restoring quality
 		this.originalValues = {}; // Store original uniform values
+
+		this.uniformsDirty = {
+			camera: true,
+			lights: true,
+			environment: true,
+			settings: true
+		};
+
+		// Pre-calculate completion thresholds
+		this.completionThreshold = 0;
+		this.updateCompletionThreshold();
+
+		// Cache frequently used objects
+		this.tempVector2 = new Vector2();
+		this.lastCameraMatrix = new Matrix4();
+		this.lastProjectionMatrix = new Matrix4();
+
+		// Enhanced interaction mode settings
 		this.interactionQualitySettings = {
-			// Define uniforms to be changed during interaction and their temporary values
 			maxBounceCount: 1,
-			numRaysPerPixel: 1
-			// Add more uniforms here as needed for performance tuning
+			numRaysPerPixel: 1,
+			useAdaptiveSampling: false,
+			useEnvMapIS: false,
+			pixelRatio: 0.25,
 		};
 
 	}
@@ -372,24 +391,60 @@ export class PathTracerPass extends Pass {
 
 	reset() {
 
-		// Reset accumulated samples
-		this.material.uniforms.frame.value = 0;
-		this.renderer.setRenderTarget( this.previousRenderTarget );
-		this.renderer.clear();
+		// Only clear if we actually have accumulated samples
+		if ( this.material.uniforms.frame.value > 0 ) {
 
-		if ( this.material.uniforms.frame.value === 0 && this.material.uniforms.renderMode.value === 1 ) {
+			this.material.uniforms.frame.value = 0;
+			this.renderer.setRenderTarget( this.previousRenderTarget );
+			this.renderer.clear();
 
-			this.material.uniforms.tiles.value = 1;
+			// Update completion threshold if render mode changed
+			this.updateCompletionThreshold();
+
+			if ( this.material.uniforms.renderMode.value === 1 ) {
+
+				this.material.uniforms.tiles.value = 1;
+
+			}
+
+			this.accumulationPass?.reset( this.renderer );
+			this.isComplete = false;
 
 		}
 
-		if ( this.accumulationPass ) {
+	}
 
-			this.accumulationPass.reset( this.renderer );
+	updateCompletionThreshold() {
+
+		const renderMode = this.material.uniforms.renderMode.value;
+		const maxFrames = this.material.uniforms.maxFrames.value;
+
+		this.completionThreshold = renderMode === 1
+			? Math.pow( this.tiles, 2 ) * maxFrames
+			: maxFrames;
+
+	}
+
+	// Track camera changes for dirty flags
+	updateCameraUniforms() {
+
+		// Check if camera actually moved
+		if ( ! this.lastCameraMatrix.equals( this.camera.matrixWorld ) ||
+            ! this.lastProjectionMatrix.equals( this.camera.projectionMatrixInverse ) ) {
+
+			this.material.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
+			this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
+
+			// Cache current matrices
+			this.lastCameraMatrix.copy( this.camera.matrixWorld );
+			this.lastProjectionMatrix.copy( this.camera.projectionMatrixInverse );
+
+			this.uniformsDirty.camera = false;
+			return true; // Camera changed
 
 		}
 
-		this.isComplete = false;
+		return false; // No change
 
 	}
 
@@ -409,22 +464,21 @@ export class PathTracerPass extends Pass {
 			this.interactionMode = true;
 			this.originalValues = {}; // Reset stored values
 
-			// Store and update each configured uniform
-			// Object.keys( this.interactionQualitySettings ).forEach( key => {
+			// Store and apply all interaction settings
+			Object.keys( this.interactionQualitySettings ).forEach( key => {
 
-			// 	if ( this.material.uniforms[ key ] ) {
+				if ( this.material.uniforms[ key ] ) {
 
-			// 		// Store original value
-			// 		this.originalValues[ key ] = this.material.uniforms[ key ].value;
-			// 		// Apply low-quality value
-			// 		this.material.uniforms[ key ].value = this.interactionQualitySettings[ key ];
+					this.originalValues[ key ] = this.material.uniforms[ key ].value;
+					this.material.uniforms[ key ].value = this.interactionQualitySettings[ key ];
 
-			// 	}
+				}
 
-			// } );
+			} );
 
+			// Store and reduce pixel ratio
 			this.originalValues.dpr = this.renderer.getPixelRatio();
-			this.renderer.setPixelRatio( 0.5 ); // Lower resolution for interaction mode
+			this.renderer.setPixelRatio( this.interactionQualitySettings.pixelRatio );
 
 		}
 
@@ -442,15 +496,15 @@ export class PathTracerPass extends Pass {
 		if ( ! this.interactionMode ) return;
 
 		// Restore original values
-		// Object.keys( this.originalValues ).forEach( key => {
+		Object.keys( this.originalValues ).forEach( key => {
 
-		// 	if ( this.material.uniforms[ key ] ) {
+			if ( this.material.uniforms[ key ] ) {
 
-		// 		this.material.uniforms[ key ].value = this.originalValues[ key ];
+				this.material.uniforms[ key ].value = this.originalValues[ key ];
 
-		// 	}
+			}
 
-		// } );
+		} );
 
 		this.renderer.setPixelRatio( this.originalValues.dpr );
 
@@ -528,51 +582,108 @@ export class PathTracerPass extends Pass {
 
 		if ( ! this.enabled || this.isComplete ) return;
 
-		// 1. Early completion check and frame update
+		// 1. Early completion check with pre-calculated threshold
 		this.material.uniforms.frame.value ++;
 		const frameValue = this.material.uniforms.frame.value;
-		const renderMode = this.material.uniforms.renderMode.value;
 
-		if ( ( renderMode === 1 && frameValue >= Math.pow( this.tiles, 2 ) * this.material.uniforms.maxFrames.value ) ||
-			( renderMode !== 1 && frameValue >= this.material.uniforms.maxFrames.value ) ) {
+		if ( frameValue >= this.completionThreshold ) {
 
 			this.isComplete = true;
 			return;
 
 		}
 
-		// 2. Update essential uniforms once
+		// 2. Only update uniforms that have changed
 		const uniforms = this.material.uniforms;
-		uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
-		uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
+
+		// Update camera only if it moved
+		this.updateCameraUniforms();
+
+		// Update frame-dependent uniforms (these always change)
 		uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
-		uniforms.accumulatedFrameTexture.value = this.accumulationPass?.blendedFrameBuffer.texture || null;
-		uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass?.renderTarget.texture || null;
-		uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass?.adaptiveSamplingMax || 4;
 
-		// 3. Update adaptive sampling if enabled
-		if ( this.adaptiveSamplingPass?.enabled ) {
+		// Update accumulation pass texture only if it exists and changed
+		const accumulatedTexture = this.accumulationPass?.blendedFrameBuffer.texture;
+		if ( uniforms.accumulatedFrameTexture.value !== accumulatedTexture ) {
 
-			this.adaptiveSamplingPass.setTextures(
-				uniforms.previousFrameTexture.value,
-				uniforms.accumulatedFrameTexture.value
-			);
+			uniforms.accumulatedFrameTexture.value = accumulatedTexture;
 
 		}
 
-		// 4. Standard rendering
+		// 3. Adaptive sampling optimization - skip during interaction
+		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
+
+			// Only update adaptive sampling every few frames
+			if ( frameValue % 4 === 0 ) {
+
+				uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass.renderTarget.texture;
+				uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass.adaptiveSamplingMax;
+
+				this.adaptiveSamplingPass.setTextures(
+					uniforms.previousFrameTexture.value,
+					uniforms.accumulatedFrameTexture.value
+				);
+
+			}
+
+		} else if ( this.interactionMode ) {
+
+			// Disable adaptive sampling during interaction
+			uniforms.adaptiveSamplingTexture.value = null;
+
+		}
+
+		// 4. Optimized resolution update (avoid if unchanged)
+		if ( uniforms.resolution.value.x !== this.width ||
+            uniforms.resolution.value.y !== this.height ) {
+
+			uniforms.resolution.value.set( this.width, this.height );
+
+		}
+
+		// 5. Render to target
 		renderer.setRenderTarget( this.currentRenderTarget );
-		uniforms.resolution.value.set( this.width, this.height );
 		this.fsQuad.render( renderer );
 
-		// 5. Copy to output
+		// 6. Copy to output
 		this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.copyQuad.render( renderer );
 
-		// 6. Final updates
-		uniforms.tiles.value = this.tiles;
-		[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
+		// 7. Update tiles only when needed (not every frame)
+		if ( uniforms.renderMode.value === 1 && uniforms.tiles.value !== this.tiles ) {
+
+			uniforms.tiles.value = this.tiles;
+
+		}
+
+		// 8. Swap render targets (ping-pong)
+		[ this.currentRenderTarget, this.previousRenderTarget ] =
+            [ this.previousRenderTarget, this.currentRenderTarget ];
+
+	}
+
+	updateUniforms( updates ) {
+
+		let needsReset = false;
+
+		Object.entries( updates ).forEach( ( [ key, value ] ) => {
+
+			if ( this.material.uniforms[ key ] &&
+                this.material.uniforms[ key ].value !== value ) {
+
+				this.material.uniforms[ key ].value = value;
+				needsReset = true;
+
+			}
+
+		} );
+
+		if ( needsReset ) {
+
+			this.reset();
+
+		}
 
 	}
 
