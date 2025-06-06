@@ -1,6 +1,14 @@
 let canvas, ctx;
 let imageBitmapCache = new Map();
 
+// Memory limits and chunking configuration
+const MEMORY_LIMITS = {
+	MAX_BYTES_PER_TEXTURE: 256 * 1024 * 1024, // 256MB per texture array
+	MAX_TEXTURE_DIMENSION: 4096, // Maximum dimension for a single texture
+	CHUNK_SIZE: 16, // Process textures in chunks of 16
+	MEMORY_SAFETY_FACTOR: 0.8 // Use only 80% of estimated available memory
+};
+
 self.onmessage = async function ( e ) {
 
 	const { textures, maxTextureSize, method = 'offscreen-optimized' } = e.data;
@@ -31,16 +39,28 @@ self.onmessage = async function ( e ) {
 function initializeWorker( maxTextureSize ) {
 
 	// Initialize OffscreenCanvas with optimal settings
-	canvas = new OffscreenCanvas( maxTextureSize, maxTextureSize );
+	const size = Math.min( maxTextureSize, MEMORY_LIMITS.MAX_TEXTURE_DIMENSION );
+	canvas = new OffscreenCanvas( size, size );
 	ctx = canvas.getContext( '2d', {
 		willReadFrequently: true,
 		alpha: true,
-		desynchronized: true // Allow for better performance
+		desynchronized: true
 	} );
 
 }
 
 async function processTextures( textures, maxTextureSize, method ) {
+
+	// Check if we need to use chunked processing
+	const dimensions = calculateOptimalDimensions( textures, maxTextureSize );
+	const estimatedBytes = dimensions.maxWidth * dimensions.maxHeight * textures.length * 4;
+
+	if ( estimatedBytes > MEMORY_LIMITS.MAX_BYTES_PER_TEXTURE ) {
+
+		console.log( `Large texture array detected (${( estimatedBytes / 1024 / 1024 ).toFixed( 2 )}MB), using chunked processing` );
+		return await processTexturesInChunks( textures, maxTextureSize, method );
+
+	}
 
 	switch ( method ) {
 
@@ -52,6 +72,146 @@ async function processTextures( textures, maxTextureSize, method ) {
 			return await processWithOffscreenOptimized( textures, maxTextureSize );
 
 	}
+
+}
+
+async function processTexturesInChunks( textures, maxTextureSize, method ) {
+
+	const dimensions = calculateOptimalDimensions( textures, maxTextureSize );
+	const { maxWidth, maxHeight } = dimensions;
+	const depth = textures.length;
+
+	// Process in smaller chunks to avoid memory issues
+	const chunkSize = Math.min( MEMORY_LIMITS.CHUNK_SIZE, depth );
+	const numChunks = Math.ceil( depth / chunkSize );
+
+	console.log( `Processing ${depth} textures in ${numChunks} chunks of up to ${chunkSize} textures each` );
+
+	// Allocate the full output array
+	let data;
+	try {
+
+		data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+
+	} catch ( error ) {
+
+		// If full allocation fails, fall back to reduced dimensions
+		console.warn( 'Failed to allocate full texture array, reducing dimensions' );
+		const reducedDimensions = calculateReducedDimensions( textures, maxTextureSize );
+		return await processWithReducedDimensions( textures, reducedDimensions, method );
+
+	}
+
+	// Process each chunk
+	for ( let chunkIndex = 0; chunkIndex < numChunks; chunkIndex ++ ) {
+
+		const startIdx = chunkIndex * chunkSize;
+		const endIdx = Math.min( startIdx + chunkSize, depth );
+		const chunkTextures = textures.slice( startIdx, endIdx );
+
+		const chunkResult = await processTextureChunk( chunkTextures, maxWidth, maxHeight, method );
+
+		// Copy chunk data to main array
+		const offset = startIdx * maxWidth * maxHeight * 4;
+		data.set( new Uint8Array( chunkResult.data ), offset );
+
+		// Allow garbage collection between chunks
+		await new Promise( resolve => setTimeout( resolve, 0 ) );
+
+	}
+
+	return {
+		data: data.buffer,
+		width: maxWidth,
+		height: maxHeight,
+		depth
+	};
+
+}
+
+async function processTextureChunk( textures, maxWidth, maxHeight, method ) {
+
+	// Resize canvas for this chunk if needed
+	if ( canvas.width !== maxWidth || canvas.height !== maxHeight ) {
+
+		canvas.width = maxWidth;
+		canvas.height = maxHeight;
+
+	}
+
+	const data = new Uint8Array( maxWidth * maxHeight * textures.length * 4 );
+
+	// Optimize context settings
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
+
+	for ( let i = 0; i < textures.length; i ++ ) {
+
+		const textureData = textures[ i ];
+
+		try {
+
+			let imageBitmap;
+
+			if ( textureData.isBlob ) {
+
+				const blob = new Blob( [ textureData.data ] );
+				imageBitmap = await createImageBitmap( blob, {
+					resizeWidth: maxWidth,
+					resizeHeight: maxHeight,
+					resizeQuality: 'high'
+				} );
+
+			} else {
+
+				const imageData = new ImageData(
+					new Uint8ClampedArray( textureData.data ),
+					textureData.width,
+					textureData.height
+				);
+				imageBitmap = await createImageBitmap( imageData, {
+					resizeWidth: maxWidth,
+					resizeHeight: maxHeight,
+					resizeQuality: 'high'
+				} );
+
+			}
+
+			ctx.clearRect( 0, 0, maxWidth, maxHeight );
+			ctx.drawImage( imageBitmap, 0, 0 );
+
+			const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
+			const offset = maxWidth * maxHeight * 4 * i;
+			data.set( imageData.data, offset );
+
+			imageBitmap.close();
+
+		} catch ( error ) {
+
+			console.warn( `Failed to process texture ${i}:`, error );
+			const offset = maxWidth * maxHeight * 4 * i;
+			data.fill( 0, offset, offset + maxWidth * maxHeight * 4 );
+
+		}
+
+	}
+
+	return {
+		data: data.buffer,
+		width: maxWidth,
+		height: maxHeight,
+		depth: textures.length
+	};
+
+}
+
+async function processWithReducedDimensions( textures, dimensions, method ) {
+
+	const { maxWidth, maxHeight } = dimensions;
+	console.log( `Using reduced dimensions: ${maxWidth}x${maxHeight}` );
+
+	// Process with reduced dimensions
+	return await processTextureChunk( textures, maxWidth, maxHeight, method );
 
 }
 
@@ -69,7 +229,20 @@ async function processWithOffscreenOptimized( textures, maxTextureSize ) {
 	}
 
 	const depth = textures.length;
-	const data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+
+	// Try to allocate memory with fallback
+	let data;
+	try {
+
+		data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+
+	} catch ( error ) {
+
+		console.error( 'Failed to allocate texture array:', error );
+		// Fall back to chunked processing
+		return await processTexturesInChunks( textures, maxTextureSize, 'offscreen-optimized' );
+
+	}
 
 	// Optimize context settings for batch processing
 	ctx.imageSmoothingEnabled = true;
@@ -149,7 +322,20 @@ async function processWithImageBitmapBatch( textures, maxTextureSize ) {
 	const { maxWidth, maxHeight } = dimensions;
 
 	const depth = textures.length;
-	const data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+
+	// Try to allocate memory with fallback
+	let data;
+	try {
+
+		data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+
+	} catch ( error ) {
+
+		console.error( 'Failed to allocate texture array:', error );
+		// Fall back to chunked processing
+		return await processTexturesInChunks( textures, maxTextureSize, 'imageBitmap-batch' );
+
+	}
 
 	// Process in batches for memory efficiency
 	const batchSize = Math.min( 4, textures.length );
@@ -244,8 +430,8 @@ function calculateOptimalDimensions( textures, maxTextureSize ) {
 	maxHeight = Math.pow( 2, Math.ceil( Math.log2( maxHeight ) ) );
 
 	// Respect texture size limits
-	maxWidth = Math.min( maxWidth, maxTextureSize );
-	maxHeight = Math.min( maxHeight, maxTextureSize );
+	maxWidth = Math.min( maxWidth, maxTextureSize, MEMORY_LIMITS.MAX_TEXTURE_DIMENSION );
+	maxHeight = Math.min( maxHeight, maxTextureSize, MEMORY_LIMITS.MAX_TEXTURE_DIMENSION );
 
 	// Additional safety check
 	while ( maxWidth >= maxTextureSize / 2 || maxHeight >= maxTextureSize / 2 ) {
@@ -256,6 +442,18 @@ function calculateOptimalDimensions( textures, maxTextureSize ) {
 	}
 
 	return { maxWidth, maxHeight };
+
+}
+
+function calculateReducedDimensions( textures, maxTextureSize ) {
+
+	// Calculate dimensions but reduce by factor of 2 for memory safety
+	const original = calculateOptimalDimensions( textures, maxTextureSize );
+
+	return {
+		maxWidth: Math.max( 1, Math.floor( original.maxWidth / 2 ) ),
+		maxHeight: Math.max( 1, Math.floor( original.maxHeight / 2 ) )
+	};
 
 }
 
