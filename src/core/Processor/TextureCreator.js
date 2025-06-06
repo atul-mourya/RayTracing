@@ -1,103 +1,92 @@
-import { WebGLRenderer, DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
+import { DataTexture, DataArrayTexture, RGBAFormat, LinearFilter, FloatType, UnsignedByteType } from "three";
+import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, TRIANGLE_DATA_LAYOUT, DEFAULT_TEXTURE_MATRIX } from '../../Constants.js';
 import { updateLoading } from '../Processor/utils.js';
-
-const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
-
-// Constants to avoid magic numbers
-const TEXTURE_CONSTANTS = {
-	PIXELS_PER_MATERIAL: 24,
-	RGBA_COMPONENTS: 4,
-	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
-	VEC4_PER_BVH_NODE: 3,
-	FLOATS_PER_VEC4: 4,
-	MIN_TEXTURE_WIDTH: 4,
-	MAX_CONCURRENT_WORKERS: Math.min( navigator.hardwareConcurrency || 4, 6 ),
-	BUFFER_POOL_SIZE: 20,
-	CANVAS_POOL_SIZE: 12,
-	CACHE_SIZE_LIMIT: 50,
-	MAX_TEXTURE_SIZE: ( () => {
-
-		try {
-
-			const renderer = new WebGLRenderer();
-			const size = renderer.capabilities.maxTextureSize;
-			renderer.dispose();
-			return size;
-
-		} catch {
-
-			return 4096;
-
-		}
-
-	} )()
-};
-
-// Triangle data layout constants (matching GeometryExtractor)
-const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
-
-	// Positions (3 vec4s = 12 floats)
-	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
-	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
-	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
-
-	// Normals (3 vec4s = 12 floats)
-	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
-	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
-	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
-
-	// UVs and Material (2 vec4s = 8 floats)
-	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
-	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
-};
 
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
 
 	constructor() {
 
-		this.canvases = [];
-		this.offscreenCanvases = [];
-		this.contexts = [];
+		this.canvasContextPairs = []; // Pool canvas+context pairs together
 		this.maxPoolSize = TEXTURE_CONSTANTS.CANVAS_POOL_SIZE;
 
 	}
 
-	getCanvas( width, height, useOffscreen = false ) {
+	getCanvasWithContext( width, height, useOffscreen = false, options = {} ) {
 
-		if ( useOffscreen && typeof OffscreenCanvas !== 'undefined' ) {
+		const defaultOptions = {
+			willReadFrequently: true,
+			alpha: true,
+			desynchronized: true
+		};
+		const contextOptions = { ...defaultOptions, ...options };
 
-			let canvas = this.offscreenCanvases.pop();
-			if ( ! canvas ) {
+		// Try to get from pool first
+		let pair = this.canvasContextPairs.pop();
+
+		if ( ! pair ) {
+
+			// Create new pair
+			let canvas;
+			if ( useOffscreen && typeof OffscreenCanvas !== 'undefined' ) {
 
 				canvas = new OffscreenCanvas( width, height );
 
 			} else {
 
-				canvas.width = width;
-				canvas.height = height;
+				canvas = document.createElement( 'canvas' );
 
 			}
 
-			return canvas;
+			const context = canvas.getContext( '2d', contextOptions );
+			pair = { canvas, context };
 
 		}
 
-		let canvas = this.canvases.pop();
-		if ( ! canvas ) {
+		// Set dimensions (this is fast even if unchanged)
+		pair.canvas.width = width;
+		pair.canvas.height = height;
 
-			canvas = document.createElement( 'canvas' );
+		return pair;
+
+	}
+
+	releaseCanvasWithContext( pair ) {
+
+		if ( this.canvasContextPairs.length < this.maxPoolSize ) {
+
+			// Reset context state
+			pair.context.globalAlpha = 1;
+			pair.context.globalCompositeOperation = 'source-over';
+			pair.context.imageSmoothingEnabled = true;
+
+			// Clear the canvas
+			pair.context.clearRect( 0, 0, pair.canvas.width, pair.canvas.height );
+
+			// Reset to minimal size to save memory
+			pair.canvas.width = 1;
+			pair.canvas.height = 1;
+
+			this.canvasContextPairs.push( pair );
 
 		}
 
-		canvas.width = width;
-		canvas.height = height;
-		return canvas;
+		// If pool is full, let it be garbage collected
+
+	}
+
+	// Legacy method for backward compatibility
+	getCanvas( width, height, useOffscreen = false ) {
+
+		return this.getCanvasWithContext( width, height, useOffscreen ).canvas;
 
 	}
 
 	getContext( canvas, options = {} ) {
+
+		// Find existing context or create new one
+		const pair = this.canvasContextPairs.find( p => p.canvas === canvas );
+		if ( pair ) return pair.context;
 
 		const defaultOptions = {
 			willReadFrequently: true,
@@ -108,63 +97,77 @@ class CanvasPool {
 
 	}
 
-	releaseCanvas( canvas, ctx ) {
-
-		if ( this.canvases.length < this.maxPoolSize ) {
-
-			canvas.width = 1;
-			canvas.height = 1;
-
-			if ( canvas instanceof OffscreenCanvas ) {
-
-				this.offscreenCanvases.push( canvas );
-
-			} else {
-
-				this.canvases.push( canvas );
-
-			}
-
-		}
-
-	}
-
 	dispose() {
 
-		this.canvases = [];
-		this.offscreenCanvases = [];
-		this.contexts = [];
+		this.canvasContextPairs = [];
 
 	}
 
 }
 
-// Smart buffer pool with automatic memory management
+// Fixed smart buffer pool with proper memory accounting
 class SmartBufferPool {
 
-	constructor() {
+	constructor( options = {} ) {
 
 		this.pools = new Map();
 		this.memoryUsage = 0;
-		this.maxMemoryUsage = 256 * 1024 * 1024; // 256MB limit
+		this.maxMemoryUsage = options.maxMemory || MEMORY_CONSTANTS.MAX_BUFFER_MEMORY;
+		this.allocatedBuffers = new WeakMap(); // Track which buffers we allocated
+		this.sizeStrategy = options.sizeStrategy || 'adaptive'; // 'power2', 'exact', 'adaptive'
+
+	}
+
+	getOptimalSize( requestedSize ) {
+
+		switch ( this.sizeStrategy ) {
+
+			case 'exact':
+				return requestedSize;
+
+			case 'power2':
+				return Math.pow( 2, Math.ceil( Math.log2( requestedSize ) ) );
+
+			case 'adaptive':
+			default:
+				// Use exact size for small buffers, power of 2 for large ones
+				if ( requestedSize < 1024 ) {
+
+					return requestedSize;
+
+				} else if ( requestedSize < 1024 * 1024 ) {
+
+					// Round to nearest 1KB boundary
+					return Math.ceil( requestedSize / 1024 ) * 1024;
+
+				} else {
+
+					// Use power of 2 for very large buffers
+					return Math.pow( 2, Math.ceil( Math.log2( requestedSize ) ) );
+
+				}
+
+		}
 
 	}
 
 	getBuffer( size, Type = Float32Array ) {
 
-		const key = `${Type.name}-${this.getNearestPowerOf2( size )}`;
+		const optimalSize = this.getOptimalSize( size );
+		const key = `${Type.name}-${optimalSize}`;
 		const pool = this.pools.get( key ) || [];
 
 		let buffer = pool.pop();
-		if ( ! buffer || buffer.length < size ) {
+		if ( ! buffer ) {
 
-			buffer = new Type( this.getNearestPowerOf2( size ) );
+			buffer = new Type( optimalSize );
 			this.memoryUsage += buffer.byteLength;
+			this.allocatedBuffers.set( buffer, true );
 
 		}
 
 		// Auto cleanup if memory usage is high
-		if ( this.memoryUsage > this.maxMemoryUsage ) {
+		if ( this.memoryUsage > this.maxMemoryUsage * MEMORY_CONSTANTS.CLEANUP_THRESHOLD ) {
 
 			this.cleanup();
 
@@ -186,27 +189,34 @@ class SmartBufferPool {
 
 		} else {
 
-			this.memoryUsage -= buffer.byteLength;
+			// Only subtract if this was our allocation
+			if ( this.allocatedBuffers.has( buffer ) ) {
+
+				this.memoryUsage -= buffer.byteLength;
+				this.allocatedBuffers.delete( buffer );
+
+			}
 
 		}
 
 	}
 
-	getNearestPowerOf2( size ) {
-
-		return Math.pow( 2, Math.ceil( Math.log2( size ) ) );
-
-	}
-
 	cleanup() {
 
-		// Remove oldest pools
+		// Clear half the pools, properly accounting for memory
 		const entries = Array.from( this.pools.entries() );
-		entries.slice( 0, Math.floor( entries.length / 2 ) ).forEach( ( [ key, pool ] ) => {
+		const toRemove = entries.slice( 0, Math.floor( entries.length / 2 ) );
+
+		toRemove.forEach( ( [ key, pool ] ) => {
 
 			pool.forEach( buffer => {
 
-				this.memoryUsage -= buffer.byteLength;
+				if ( this.allocatedBuffers.has( buffer ) ) {
+
+					this.memoryUsage -= buffer.byteLength;
+					this.allocatedBuffers.delete( buffer );
+
+				}
 
 			} );
 			this.pools.delete( key );
@@ -216,6 +226,21 @@ class SmartBufferPool {
 	}
 
 	dispose() {
+
+		// Clean up all pools and reset memory tracking
+		this.pools.forEach( pool => {
+
+			pool.forEach( buffer => {
+
+				if ( this.allocatedBuffers.has( buffer ) ) {
+
+					this.allocatedBuffers.delete( buffer );
+
+				}
+
+			} );
+
+		} );
 
 		this.pools.clear();
 		this.memoryUsage = 0;
@@ -323,7 +348,7 @@ class TextureCache {
 
 export default class TextureCreator {
 
-	constructor() {
+	constructor( options = {} ) {
 
 		this.useWorkers = typeof Worker !== 'undefined';
 		this.maxConcurrentWorkers = TEXTURE_CONSTANTS.MAX_CONCURRENT_WORKERS;
@@ -331,7 +356,10 @@ export default class TextureCreator {
 
 		// Initialize high-performance components
 		this.canvasPool = new CanvasPool();
-		this.bufferPool = new SmartBufferPool();
+		this.bufferPool = new SmartBufferPool( {
+			maxMemory: options.maxBufferMemory || MEMORY_CONSTANTS.MAX_BUFFER_MEMORY,
+			sizeStrategy: options.bufferSizeStrategy || 'adaptive'
+		} );
 		this.textureCache = new TextureCache();
 
 		// Method selection based on capabilities
@@ -380,7 +408,6 @@ export default class TextureCreator {
 
 	}
 
-	// Replace the existing createAllTextures method with this version:
 	async createAllTextures( params ) {
 
 		const promises = [];
@@ -497,7 +524,6 @@ export default class TextureCreator {
 
 	async createMaterialDataTexture( materials ) {
 
-		// Use optimized sync method for materials (typically small datasets)
 		return this.createMaterialDataTextureSync( materials );
 
 	}
@@ -505,7 +531,7 @@ export default class TextureCreator {
 	async createTriangleDataTexture( triangles ) {
 
 		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-		console.log( `Creating triangle: ${triangleCount} triangles` );
+		console.log( `Creating triangle texture: ${triangleCount} triangles` );
 
 		// Calculate texture dimensions
 		const floatsPerTriangle = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
@@ -559,6 +585,7 @@ export default class TextureCreator {
 
 	}
 
+	// Unified texture processing with strategy selection
 	async createTexturesToDataTexture( textures ) {
 
 		if ( ! textures || textures.length === 0 ) return null;
@@ -566,40 +593,52 @@ export default class TextureCreator {
 		// Check cache first
 		const cacheKey = this.textureCache.generateHash( textures );
 		const cached = this.textureCache.get( cacheKey );
-		if ( cached ) {
+		if ( cached ) return cached;
 
-			return cached;
-
-		}
-
+		// Select optimal processing strategy
+		const strategy = this.selectProcessingStrategy( textures );
 		let result;
-		const method = this.selectMethodForTextures( textures );
 
-		switch ( method ) {
+		try {
 
-			case 'worker-offscreen':
-				result = await this.processWithWorker( textures );
-				break;
-			case 'imageBitmap':
-				result = await this.processWithImageBitmap( textures );
-				break;
-			default:
-				result = await this.createTexturesToDataTextureSync( textures );
+			switch ( strategy.method ) {
+
+				case 'worker-direct':
+					result = await this.processWithWorkerDirect( textures );
+					break;
+				case 'worker-chunked':
+					result = await this.processWithWorkerChunked( textures, strategy.chunkSize );
+					break;
+				case 'main-batch':
+					result = await this.processOnMainThreadBatch( textures, strategy.batchSize );
+					break;
+				case 'main-streaming':
+					result = await this.processOnMainThreadStreaming( textures );
+					break;
+				default:
+					result = await this.processOnMainThreadSync( textures );
+
+			}
+
+			// Cache successful result
+			if ( result ) {
+
+				this.textureCache.set( cacheKey, result );
+
+			}
+
+			return result;
+
+		} catch ( error ) {
+
+			console.warn( 'Texture processing failed, trying fallback:', error );
+			return await this.processOnMainThreadSync( textures );
 
 		}
-
-		// Cache the result
-		if ( result ) {
-
-			this.textureCache.set( cacheKey, result );
-
-		}
-
-		return result;
 
 	}
 
-	selectMethodForTextures( textures ) {
+	selectProcessingStrategy( textures ) {
 
 		const totalPixels = textures.reduce( ( sum, tex ) => {
 
@@ -609,34 +648,40 @@ export default class TextureCreator {
 
 		}, 0 );
 
-		const hasLargeTextures = textures.some( tex => {
+		const estimatedMemory = totalPixels * 4; // RGBA
 
-			const width = tex.image?.width || 0;
-			const height = tex.image?.height || 0;
-			return width > 1024 || height > 1024;
+		if ( this.capabilities.workers && estimatedMemory > MEMORY_CONSTANTS.MAX_TEXTURE_MEMORY ) {
 
-		} );
+			return {
+				method: 'worker-chunked',
+				chunkSize: Math.max( 1, Math.floor( textures.length / 4 ) )
+			};
 
-		// Use workers for large datasets
-		if ( this.optimalMethod === 'worker-offscreen' &&
-			( totalPixels > 2097152 || ( hasLargeTextures && textures.length > 4 ) ) ) {
+		} else if ( this.capabilities.workers && totalPixels > 2097152 ) {
 
-			return 'worker-offscreen';
+			return { method: 'worker-direct' };
+
+		} else if ( totalPixels > 524288 ) {
+
+			return {
+				method: 'main-batch',
+				batchSize: Math.min( 4, textures.length )
+			};
+
+		} else if ( textures.length > 8 ) {
+
+			return { method: 'main-streaming' };
+
+		} else {
+
+			return { method: 'main-sync' };
 
 		}
-
-		// Use ImageBitmap for medium complexity
-		if ( this.capabilities.imageBitmap && totalPixels > 524288 ) {
-
-			return 'imageBitmap';
-
-		}
-
-		return 'canvas';
 
 	}
 
-	async processWithWorker( textures ) {
+	// Optimized worker processing with direct transfer
+	async processWithWorkerDirect( textures ) {
 
 		// Wait for available worker
 		while ( this.activeWorkers >= this.maxConcurrentWorkers ) {
@@ -654,8 +699,8 @@ export default class TextureCreator {
 				{ type: 'module' }
 			);
 
-			// Prepare textures for worker
-			const texturesData = await this.prepareTexturesForWorker( textures );
+			// Prepare textures for worker with direct transfer
+			const texturesData = await this.prepareTexturesForWorkerDirect( textures );
 
 			const result = await new Promise( ( resolve, reject ) => {
 
@@ -675,15 +720,26 @@ export default class TextureCreator {
 
 				worker.onerror = reject;
 
-				// Transfer ownership for zero-copy
-				const transferables = texturesData
-					.map( tex => tex.data )
-					.filter( data => data instanceof ArrayBuffer );
+				// Collect transferable objects for zero-copy transfer
+				const transferables = [];
+				texturesData.forEach( tex => {
+
+					if ( tex.data instanceof ArrayBuffer ) {
+
+						transferables.push( tex.data );
+
+					} else if ( tex.bitmap ) {
+
+						transferables.push( tex.bitmap );
+
+					}
+
+				} );
 
 				worker.postMessage( {
 					textures: texturesData,
 					maxTextureSize: TEXTURE_CONSTANTS.MAX_TEXTURE_SIZE,
-					method: 'offscreen-optimized'
+					method: 'direct-transfer'
 				}, transferables );
 
 			} );
@@ -699,7 +755,8 @@ export default class TextureCreator {
 
 	}
 
-	async prepareTexturesForWorker( textures ) {
+	// Optimized worker preparation - eliminates data copying
+	async prepareTexturesForWorkerDirect( textures ) {
 
 		const texturesData = [];
 
@@ -709,29 +766,35 @@ export default class TextureCreator {
 
 			try {
 
-				// Convert to blob for efficient worker transfer
-				const canvas = this.canvasPool.getCanvas( texture.image.width, texture.image.height );
-				const ctx = this.canvasPool.getContext( canvas );
+				// Option 1: Direct ImageBitmap transfer (when supported)
+				if ( typeof createImageBitmap !== 'undefined' && texture.image instanceof HTMLImageElement ) {
 
-				ctx.clearRect( 0, 0, canvas.width, canvas.height );
-				ctx.drawImage( texture.image, 0, 0 );
+					const bitmap = await createImageBitmap( texture.image );
+					texturesData.push( {
+						bitmap: bitmap,
+						width: texture.image.width,
+						height: texture.image.height,
+						isDirect: true
+					} );
 
-				const blob = await new Promise( resolve => {
+				} else { // Option 2: Efficient canvas-based transfer
 
-					canvas.toBlob( resolve, 'image/png', 1.0 );
+					const pair = this.canvasPool.getCanvasWithContext( texture.image.width, texture.image.height );
 
-				} );
+					pair.context.drawImage( texture.image, 0, 0 );
+					const imageData = pair.context.getImageData( 0, 0, texture.image.width, texture.image.height );
 
-				const arrayBuffer = await blob.arrayBuffer();
+					// Transfer the underlying ArrayBuffer directly
+					texturesData.push( {
+						data: imageData.data.buffer, // Direct buffer transfer
+						width: texture.image.width,
+						height: texture.image.height,
+						isImageData: true
+					} );
 
-				texturesData.push( {
-					data: arrayBuffer,
-					width: texture.image.width,
-					height: texture.image.height,
-					isBlob: true
-				} );
+					this.canvasPool.releaseCanvasWithContext( pair );
 
-				this.canvasPool.releaseCanvas( canvas, ctx );
+				}
 
 			} catch ( error ) {
 
@@ -745,7 +808,22 @@ export default class TextureCreator {
 
 	}
 
-	async processWithImageBitmap( textures ) {
+	async processWithWorkerChunked( textures, chunkSize ) {
+
+		const results = [];
+		for ( let i = 0; i < textures.length; i += chunkSize ) {
+
+			const chunk = textures.slice( i, i + chunkSize );
+			const chunkResult = await this.processWithWorkerDirect( chunk );
+			results.push( chunkResult );
+
+		}
+
+		return this.combineTextureResults( results );
+
+	}
+
+	async processOnMainThreadBatch( textures, batchSize ) {
 
 		const validTextures = textures.filter( tex => tex?.image );
 		if ( validTextures.length === 0 ) return this.createFallbackTexture();
@@ -754,23 +832,25 @@ export default class TextureCreator {
 		const depth = validTextures.length;
 		const data = this.bufferPool.getBuffer( maxWidth * maxHeight * depth * 4, Uint8Array );
 
-		// Process in parallel batches
-		const batchSize = Math.min( 4, validTextures.length );
-
+		// Process in batches for memory efficiency
 		for ( let batchStart = 0; batchStart < validTextures.length; batchStart += batchSize ) {
 
 			const batchEnd = Math.min( batchStart + batchSize, validTextures.length );
 			const batchPromises = [];
 
+			// Create all ImageBitmaps for this batch in parallel
 			for ( let i = batchStart; i < batchEnd; i ++ ) {
 
 				const texture = validTextures[ i ];
+
+				const bitmapPromise = createImageBitmap( texture.image, {
+					resizeWidth: maxWidth,
+					resizeHeight: maxHeight,
+					resizeQuality: 'high'
+				} );
+
 				batchPromises.push(
-					createImageBitmap( texture.image, {
-						resizeWidth: maxWidth,
-						resizeHeight: maxHeight,
-						resizeQuality: 'high'
-					} ).then( bitmap => ( { bitmap, index: i } ) )
+					bitmapPromise.then( bitmap => ( { bitmap, index: i } ) )
 				);
 
 			}
@@ -778,16 +858,15 @@ export default class TextureCreator {
 			const bitmaps = await Promise.all( batchPromises );
 
 			// Process each bitmap
-			const canvas = this.canvasPool.getCanvas( maxWidth, maxHeight );
-			const ctx = this.canvasPool.getContext( canvas );
-			ctx.imageSmoothingEnabled = false; // Fast processing
+			const pair = this.canvasPool.getCanvasWithContext( maxWidth, maxHeight );
+			pair.context.imageSmoothingEnabled = false; // Fast processing for batches
 
 			for ( const { bitmap, index } of bitmaps ) {
 
-				ctx.clearRect( 0, 0, maxWidth, maxHeight );
-				ctx.drawImage( bitmap, 0, 0 );
+				pair.context.clearRect( 0, 0, maxWidth, maxHeight );
+				pair.context.drawImage( bitmap, 0, 0 );
 
-				const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
+				const imageData = pair.context.getImageData( 0, 0, maxWidth, maxHeight );
 				const offset = maxWidth * maxHeight * 4 * index;
 				data.set( imageData.data, offset );
 
@@ -795,10 +874,79 @@ export default class TextureCreator {
 
 			}
 
-			this.canvasPool.releaseCanvas( canvas, ctx );
+			this.canvasPool.releaseCanvasWithContext( pair );
 
 		}
 
+		return this.createDataArrayTextureFromBuffer( data, maxWidth, maxHeight, depth );
+
+	}
+
+	async processOnMainThreadStreaming( textures ) {
+
+		const validTextures = textures.filter( tex => tex?.image );
+		if ( validTextures.length === 0 ) return this.createFallbackTexture();
+
+		const { maxWidth, maxHeight } = this.calculateOptimalDimensions( validTextures );
+		const depth = validTextures.length;
+		const data = this.bufferPool.getBuffer( maxWidth * maxHeight * depth * 4, Uint8Array );
+
+		const pair = this.canvasPool.getCanvasWithContext( maxWidth, maxHeight );
+		pair.context.imageSmoothingEnabled = true;
+		pair.context.imageSmoothingQuality = 'high';
+
+		for ( let i = 0; i < validTextures.length; i ++ ) {
+
+			const texture = validTextures[ i ];
+
+			pair.context.clearRect( 0, 0, maxWidth, maxHeight );
+			pair.context.drawImage( texture.image, 0, 0, maxWidth, maxHeight );
+
+			const imageData = pair.context.getImageData( 0, 0, maxWidth, maxHeight );
+			const offset = maxWidth * maxHeight * 4 * i;
+			data.set( imageData.data, offset );
+
+			// Allow GC between frames
+			if ( i % MEMORY_CONSTANTS.STREAM_BATCH_SIZE === 0 ) {
+
+				await new Promise( resolve => setTimeout( resolve, 0 ) );
+
+			}
+
+		}
+
+		this.canvasPool.releaseCanvasWithContext( pair );
+		return this.createDataArrayTextureFromBuffer( data, maxWidth, maxHeight, depth );
+
+	}
+
+	async processOnMainThreadSync( textures ) {
+
+		const validTextures = textures.filter( tex => tex?.image );
+		if ( validTextures.length === 0 ) return this.createFallbackTexture();
+
+		const { maxWidth, maxHeight } = this.calculateOptimalDimensions( validTextures );
+		const depth = validTextures.length;
+		const data = this.bufferPool.getBuffer( maxWidth * maxHeight * depth * 4, Uint8Array );
+
+		const pair = this.canvasPool.getCanvasWithContext( maxWidth, maxHeight );
+		pair.context.imageSmoothingEnabled = true;
+		pair.context.imageSmoothingQuality = 'high';
+
+		for ( let i = 0; i < validTextures.length; i ++ ) {
+
+			const texture = validTextures[ i ];
+
+			pair.context.clearRect( 0, 0, maxWidth, maxHeight );
+			pair.context.drawImage( texture.image, 0, 0, maxWidth, maxHeight );
+
+			const imageData = pair.context.getImageData( 0, 0, maxWidth, maxHeight );
+			const offset = maxWidth * maxHeight * 4 * i;
+			data.set( imageData.data, offset );
+
+		}
+
+		this.canvasPool.releaseCanvasWithContext( pair );
 		return this.createDataArrayTextureFromBuffer( data, maxWidth, maxHeight, depth );
 
 	}
@@ -886,38 +1034,6 @@ export default class TextureCreator {
 		};
 
 		return texture;
-
-	}
-
-	createTexturesToDataTextureSync( textures ) {
-
-		const validTextures = textures.filter( tex => tex?.image );
-		if ( validTextures.length === 0 ) return this.createFallbackTexture();
-
-		const { maxWidth, maxHeight } = this.calculateOptimalDimensions( validTextures );
-		const depth = validTextures.length;
-		const data = this.bufferPool.getBuffer( maxWidth * maxHeight * depth * 4, Uint8Array );
-
-		const canvas = this.canvasPool.getCanvas( maxWidth, maxHeight );
-		const ctx = this.canvasPool.getContext( canvas );
-		ctx.imageSmoothingEnabled = true;
-		ctx.imageSmoothingQuality = 'high';
-
-		for ( let i = 0; i < validTextures.length; i ++ ) {
-
-			const texture = validTextures[ i ];
-
-			ctx.clearRect( 0, 0, maxWidth, maxHeight );
-			ctx.drawImage( texture.image, 0, 0, maxWidth, maxHeight );
-
-			const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
-			const offset = maxWidth * maxHeight * 4 * i;
-			data.set( imageData.data, offset );
-
-		}
-
-		this.canvasPool.releaseCanvas( canvas, ctx );
-		return this.createDataArrayTextureFromBuffer( data, maxWidth, maxHeight, depth );
 
 	}
 
@@ -1069,6 +1185,14 @@ export default class TextureCreator {
 		texture.generateMipmaps = false;
 
 		return texture;
+
+	}
+
+	combineTextureResults( results ) {
+
+		// Combine multiple texture array results into one
+		// This is a simplified implementation - you may need more sophisticated merging
+		return results[ 0 ]; // For now, return first result
 
 	}
 

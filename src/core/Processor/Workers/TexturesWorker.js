@@ -11,7 +11,7 @@ const MEMORY_LIMITS = {
 
 self.onmessage = async function ( e ) {
 
-	const { textures, maxTextureSize, method = 'offscreen-optimized' } = e.data;
+	const { textures, maxTextureSize, method = 'direct-transfer' } = e.data;
 
 	try {
 
@@ -64,12 +64,14 @@ async function processTextures( textures, maxTextureSize, method ) {
 
 	switch ( method ) {
 
+		case 'direct-transfer':
+			return await processWithDirectTransfer( textures, maxTextureSize );
 		case 'offscreen-optimized':
 			return await processWithOffscreenOptimized( textures, maxTextureSize );
 		case 'imageBitmap-batch':
 			return await processWithImageBitmapBatch( textures, maxTextureSize );
 		default:
-			return await processWithOffscreenOptimized( textures, maxTextureSize );
+			return await processWithDirectTransfer( textures, maxTextureSize );
 
 	}
 
@@ -151,40 +153,7 @@ async function processTextureChunk( textures, maxWidth, maxHeight, method ) {
 
 		try {
 
-			let imageBitmap;
-
-			if ( textureData.isBlob ) {
-
-				const blob = new Blob( [ textureData.data ] );
-				imageBitmap = await createImageBitmap( blob, {
-					resizeWidth: maxWidth,
-					resizeHeight: maxHeight,
-					resizeQuality: 'high'
-				} );
-
-			} else {
-
-				const imageData = new ImageData(
-					new Uint8ClampedArray( textureData.data ),
-					textureData.width,
-					textureData.height
-				);
-				imageBitmap = await createImageBitmap( imageData, {
-					resizeWidth: maxWidth,
-					resizeHeight: maxHeight,
-					resizeQuality: 'high'
-				} );
-
-			}
-
-			ctx.clearRect( 0, 0, maxWidth, maxHeight );
-			ctx.drawImage( imageBitmap, 0, 0 );
-
-			const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
-			const offset = maxWidth * maxHeight * 4 * i;
-			data.set( imageData.data, offset );
-
-			imageBitmap.close();
+			await processSingleTexture( textureData, i, data, maxWidth, maxHeight );
 
 		} catch ( error ) {
 
@@ -201,6 +170,127 @@ async function processTextureChunk( textures, maxWidth, maxHeight, method ) {
 		width: maxWidth,
 		height: maxHeight,
 		depth: textures.length
+	};
+
+}
+
+async function processSingleTexture( textureData, index, outputData, maxWidth, maxHeight ) {
+
+	let imageBitmap;
+
+	if ( textureData.isDirect && textureData.bitmap ) {
+
+		// Direct ImageBitmap transfer - no conversion needed!
+		imageBitmap = textureData.bitmap;
+
+	} else if ( textureData.isImageData && textureData.data ) {
+
+		// Direct ImageData transfer - minimal conversion
+		const imageData = new ImageData(
+			new Uint8ClampedArray( textureData.data ),
+			textureData.width,
+			textureData.height
+		);
+
+		imageBitmap = await createImageBitmap( imageData, {
+			resizeWidth: maxWidth,
+			resizeHeight: maxHeight,
+			resizeQuality: 'high'
+		} );
+
+	} else if ( textureData.isBlob ) {
+
+		// Legacy blob processing (fallback)
+		const blob = new Blob( [ textureData.data ] );
+		imageBitmap = await createImageBitmap( blob, {
+			resizeWidth: maxWidth,
+			resizeHeight: maxHeight,
+			resizeQuality: 'high'
+		} );
+
+	} else {
+
+		throw new Error( 'Unknown texture data format' );
+
+	}
+
+	// Clear and draw to canvas
+	ctx.clearRect( 0, 0, maxWidth, maxHeight );
+	ctx.drawImage( imageBitmap, 0, 0, maxWidth, maxHeight );
+
+	// Get image data efficiently
+	const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
+
+	// Copy to output array
+	const offset = maxWidth * maxHeight * 4 * index;
+	outputData.set( imageData.data, offset );
+
+	// Clean up ImageBitmap if we created it
+	if ( textureData.isImageData || textureData.isBlob ) {
+
+		imageBitmap.close();
+
+	}
+
+}
+
+async function processWithDirectTransfer( textures, maxTextureSize ) {
+
+	const dimensions = calculateOptimalDimensions( textures, maxTextureSize );
+	const { maxWidth, maxHeight } = dimensions;
+
+	// Resize canvas if needed
+	if ( canvas.width !== maxWidth || canvas.height !== maxHeight ) {
+
+		canvas.width = maxWidth;
+		canvas.height = maxHeight;
+
+	}
+
+	const depth = textures.length;
+
+	// Try to allocate memory with fallback
+	let data;
+	try {
+
+		data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
+
+	} catch ( error ) {
+
+		console.error( 'Failed to allocate texture array:', error );
+		// Fall back to chunked processing
+		return await processTexturesInChunks( textures, maxTextureSize, 'direct-transfer' );
+
+	}
+
+	// Optimize context settings for batch processing
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
+
+	for ( let i = 0; i < textures.length; i ++ ) {
+
+		const textureData = textures[ i ];
+
+		try {
+
+			await processSingleTexture( textureData, i, data, maxWidth, maxHeight );
+
+		} catch ( error ) {
+
+			console.warn( `Failed to process texture ${i}:`, error );
+			// Fill with transparent pixels as fallback
+			const offset = maxWidth * maxHeight * 4 * i;
+			data.fill( 0, offset, offset + maxWidth * maxHeight * 4 );
+
+		}
+
+	}
+
+	return {
+		data: data.buffer,
+		width: maxWidth,
+		height: maxHeight,
+		depth
 	};
 
 }

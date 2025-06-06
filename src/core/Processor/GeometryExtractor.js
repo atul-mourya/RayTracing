@@ -1,25 +1,7 @@
 import { Vector3, Vector2, Color, Matrix3, Matrix4, FrontSide, BackSide, DoubleSide } from "three";
+import { TRIANGLE_DATA_LAYOUT } from '../../Constants.js';
 
 const MAX_TEXTURES_LIMIT = 128;
-
-// Unified triangle data layout - matches texture format for zero-copy optimization
-const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
-
-	// Positions (3 vec4s = 12 floats)
-	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
-	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
-	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
-
-	// Normals (3 vec4s = 12 floats)
-	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
-	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
-	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
-
-	// UVs and Material (2 vec4s = 8 floats)
-	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
-	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
-};
 
 export default class GeometryExtractor {
 

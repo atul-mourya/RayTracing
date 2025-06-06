@@ -20,6 +20,12 @@ export const updateStats = ( statsUpdate ) => {
 
 };
 
+export function getNearestPowerOf2( size ) {
+
+	return Math.pow( 2, Math.ceil( Math.log2( size ) ) );
+
+}
+
 export function disposeMaterial( material ) {
 
 	if ( Array.isArray( material ) ) {

@@ -1,4 +1,5 @@
 import debugModelsData from './DebugModels.json';
+import { WebGLRenderer } from 'three';
 
 //some samples at https://casual-effects.com/data/
 
@@ -317,6 +318,67 @@ export const CAMERA_PRESETS = {
 		aperture: 1.4,
 		focalLength: 135
 	}
+};
+
+// Triangle data layout constants - shared between GeometryExtractor and TextureCreator
+export const TRIANGLE_DATA_LAYOUT = {
+	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
+
+	// Positions (3 vec4s = 12 floats)
+	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
+	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
+	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
+
+	// Normals (3 vec4s = 12 floats)
+	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
+	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
+	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
+
+	// UVs and Material (2 vec4s = 8 floats)
+	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
+};
+
+// Texture processing constants
+export const TEXTURE_CONSTANTS = {
+	PIXELS_PER_MATERIAL: 24,
+	RGBA_COMPONENTS: 4,
+	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
+	VEC4_PER_BVH_NODE: 3,
+	FLOATS_PER_VEC4: 4,
+	MIN_TEXTURE_WIDTH: 4,
+	MAX_CONCURRENT_WORKERS: Math.min( navigator.hardwareConcurrency || 4, 6 ),
+	BUFFER_POOL_SIZE: 20,
+	CANVAS_POOL_SIZE: 12,
+	CACHE_SIZE_LIMIT: 50,
+	MAX_TEXTURE_SIZE: ( () => {
+
+		try {
+
+			const renderer = new WebGLRenderer();
+			const size = renderer.capabilities.maxTextureSize;
+			renderer.dispose();
+			return size;
+
+		} catch {
+
+			return 4096;
+
+		}
+
+	} )()
+};
+
+// Default texture matrix for materials
+export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
+
+// Memory management constants
+export const MEMORY_CONSTANTS = {
+	MAX_BUFFER_MEMORY: 256 * 1024 * 1024, // 256MB buffer pool limit
+	MAX_TEXTURE_MEMORY: 512 * 1024 * 1024, // 512MB texture processing limit
+	CLEANUP_THRESHOLD: 0.8, // Start cleanup at 80% memory usage
+	CHUNK_SIZE_THRESHOLD: 64 * 1024 * 1024, // 64MB - when to use chunked processing
+	STREAM_BATCH_SIZE: 4 // Default batch size for streaming operations
 };
 
 
