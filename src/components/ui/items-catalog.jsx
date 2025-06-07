@@ -399,7 +399,7 @@ export const ItemsCatalog = ( {
 							</div>
 						</div>
 					) : (
-						<div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4">
+						<div className="p-1 grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-2 gap-4">
 							{filteredItems.map( ( item ) => {
 
 								// Only compute matching data for items that will be highlighted
@@ -451,7 +451,7 @@ export const ItemsCatalog = ( {
 															</Button>
 														)}
 													</div>
-													<p className="text-sm font-medium text-center truncate">
+													<p className="text-xs text-foreground opacity-60 text-center truncate">
 														{shouldHighlight ? highlightSearchTerm( item.name, debouncedSearchTerm ) : item.name}
 													</p>
 
