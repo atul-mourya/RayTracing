@@ -112,17 +112,15 @@ void determineEnvSamplingQuality(
     }
 
     // Optimized material analysis using linear combinations instead of branching
-    float materialComplexity = 
-        0.4 * float(material.metalness > 0.7) +
-        0.3 * float(material.roughness < 0.3) +
-        0.2 * float(material.clearcoat > 0.5) -
-        0.3 * float(material.transmission > 0.5);
-    
-    float noisePotential = 
-        0.3 * float(material.metalness > 0.7) +
-        0.4 * float(material.roughness < 0.3) +
-        0.2 * float(material.clearcoat > 0.5) -
-        0.2 * float(material.transmission > 0.5);
+    float materialComplexity = 0.4 * float( material.metalness > 0.7 ) +
+        0.3 * float( material.roughness < 0.3 ) +
+        0.2 * float( material.clearcoat > 0.5 ) -
+        0.3 * float( material.transmission > 0.5 );
+
+    float noisePotential = 0.3 * float( material.metalness > 0.7 ) +
+        0.4 * float( material.roughness < 0.3 ) +
+        0.2 * float( material.clearcoat > 0.5 ) -
+        0.2 * float( material.transmission > 0.5 );
 
     float viewAngle = abs( dot( viewDirection, normal ) );
     float grazingFactor = 1.0 - viewAngle;
@@ -134,13 +132,13 @@ void determineEnvSamplingQuality(
     qualityFactor /= ( 1.0 + float( bounceIndex ) * 0.4 );
 
     // Optimized quality level assignment using step functions
-    float q1 = step(0.8, qualityFactor);
-    float q2 = step(0.6, qualityFactor) * (1.0 - q1);
-    float q3 = step(0.4, qualityFactor) * (1.0 - q1 - q2);
-    float q4 = step(0.2, qualityFactor) * (1.0 - q1 - q2 - q3);
-    
-    mipLevel = q1 * 0.0 + q2 * 0.3 + q3 * 0.7 + q4 * 1.0 + (1.0 - q1 - q2 - q3 - q4) * 1.5;
-    noiseReduction = q1 * 1.0 + q2 * 0.9 + q3 * 0.8 + q4 * 0.7 + (1.0 - q1 - q2 - q3 - q4) * 0.6;
+    float q1 = step( 0.8, qualityFactor );
+    float q2 = step( 0.6, qualityFactor ) * ( 1.0 - q1 );
+    float q3 = step( 0.4, qualityFactor ) * ( 1.0 - q1 - q2 );
+    float q4 = step( 0.2, qualityFactor ) * ( 1.0 - q1 - q2 - q3 );
+
+    mipLevel = q1 * 0.0 + q2 * 0.3 + q3 * 0.7 + q4 * 1.0 + ( 1.0 - q1 - q2 - q3 - q4 ) * 1.5;
+    noiseReduction = q1 * 1.0 + q2 * 0.9 + q3 * 0.8 + q4 * 0.7 + ( 1.0 - q1 - q2 - q3 - q4 ) * 0.6;
 
     // Adjust for noise potential
     if( noisePotential > 0.5 ) {
@@ -149,9 +147,9 @@ void determineEnvSamplingQuality(
     }
 
     // Enhanced bias calculation using linear combination
-    float biasMultiplier = 1.0 + 
-        0.2 * float(material.metalness > 0.7 || material.roughness < 0.3) -
-        0.1 * float(material.roughness > 0.8);
+    float biasMultiplier = 1.0 +
+        0.2 * float( material.metalness > 0.7 || material.roughness < 0.3 ) -
+        0.1 * float( material.roughness > 0.8 );
     adaptiveBias = envSamplingBias * biasMultiplier;
 }
 
@@ -338,7 +336,7 @@ EnvMapSample sampleEnvironmentWithContext(
     if( bounceIndex > 0 ) {
         // Simplified importance clamping
         float maxImportance = mix( 50.0, 150.0, noiseReduction ) / float( bounceIndex + 1 );
-        
+
         if( importance > maxImportance * 2.0 ) {
             // Hard clamp for extreme values only
             float scale = maxImportance / importance;

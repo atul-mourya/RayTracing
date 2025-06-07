@@ -14,7 +14,8 @@ import {
 	SphereGeometry,
 	MeshBasicMaterial,
 	Raycaster,
-	TextureLoader
+	TextureLoader,
+	RGBAFormat
 } from 'three';
 
 import {
@@ -62,7 +63,8 @@ class PathTracerApp extends EventDispatcher {
 			antialias: true,
 			preserveDrawingBuffer: true,
 			precision: "highp",
-			canvas: this.canvas
+			canvas: this.canvas,
+			alpha: true
 		} );
 
 		// Initialize other properties
@@ -92,7 +94,7 @@ class PathTracerApp extends EventDispatcher {
 	async init() {
 
 		// Setup renderer
-		this.renderer.setClearColor( 0x000000, 1 );
+		this.renderer.setClearColor( 0x000000, 0 ); // Set clear alpha to 0 for transparency
 		this.renderer.toneMapping = DEFAULT_STATE.toneMapping;
 		this.renderer.toneMappingExposure = Math.pow( DEFAULT_STATE.exposure, 4.0 );
 		this.renderer.outputColorSpace = SRGBColorSpace;
@@ -259,6 +261,8 @@ class PathTracerApp extends EventDispatcher {
 
 		const renderTarget = new WebGLRenderTarget( this.width, this.height, {
 			type: FloatType,
+			format: RGBAFormat,
+			depthBuffer: false,
 		} );
 
 		this.composer = new EffectComposer( this.renderer, renderTarget );
@@ -323,6 +327,7 @@ class PathTracerApp extends EventDispatcher {
 
 		const outputPass = new OutputPass();
 		outputPass.material.toneMapped = true;
+		outputPass.material.transparent = true;
 		this.composer.addPass( outputPass );
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, DEFAULT_STATE );
