@@ -111,26 +111,18 @@ void determineEnvSamplingQuality(
         return;
     }
 
-    // Enhanced material analysis for noise prediction
-    float materialComplexity = 0.0;
-    float noisePotential = 0.0;
-
-    if( material.metalness > 0.7 ) {
-        materialComplexity += 0.4;
-        noisePotential += 0.3; // Metals can be noisy with environment
-    }
-    if( material.roughness < 0.3 ) {
-        materialComplexity += 0.3;
-        noisePotential += 0.4; // Smooth surfaces show environment noise more
-    }
-    if( material.clearcoat > 0.5 ) {
-        materialComplexity += 0.2;
-        noisePotential += 0.2;
-    }
-    if( material.transmission > 0.5 ) {
-        materialComplexity -= 0.3;
-        noisePotential -= 0.2; // Transmission is generally less noisy
-    }
+    // Optimized material analysis using linear combinations instead of branching
+    float materialComplexity = 
+        0.4 * float(material.metalness > 0.7) +
+        0.3 * float(material.roughness < 0.3) +
+        0.2 * float(material.clearcoat > 0.5) -
+        0.3 * float(material.transmission > 0.5);
+    
+    float noisePotential = 
+        0.3 * float(material.metalness > 0.7) +
+        0.4 * float(material.roughness < 0.3) +
+        0.2 * float(material.clearcoat > 0.5) -
+        0.2 * float(material.transmission > 0.5);
 
     float viewAngle = abs( dot( viewDirection, normal ) );
     float grazingFactor = 1.0 - viewAngle;
@@ -141,23 +133,14 @@ void determineEnvSamplingQuality(
     float qualityFactor = clamp( materialComplexity + grazingFactor * 0.3, 0.0, 1.0 );
     qualityFactor /= ( 1.0 + float( bounceIndex ) * 0.4 );
 
-    // Noise-aware mip level selection
-    if( qualityFactor > 0.8 ) {
-        mipLevel = 0.0;
-        noiseReduction = 1.0;
-    } else if( qualityFactor > 0.6 ) {
-        mipLevel = 0.3; // Slightly higher quality
-        noiseReduction = 0.9;
-    } else if( qualityFactor > 0.4 ) {
-        mipLevel = 0.7; // More conservative
-        noiseReduction = 0.8;
-    } else if( qualityFactor > 0.2 ) {
-        mipLevel = 1.0;
-        noiseReduction = 0.7;
-    } else {
-        mipLevel = 1.5;
-        noiseReduction = 0.6;
-    }
+    // Optimized quality level assignment using step functions
+    float q1 = step(0.8, qualityFactor);
+    float q2 = step(0.6, qualityFactor) * (1.0 - q1);
+    float q3 = step(0.4, qualityFactor) * (1.0 - q1 - q2);
+    float q4 = step(0.2, qualityFactor) * (1.0 - q1 - q2 - q3);
+    
+    mipLevel = q1 * 0.0 + q2 * 0.3 + q3 * 0.7 + q4 * 1.0 + (1.0 - q1 - q2 - q3 - q4) * 1.5;
+    noiseReduction = q1 * 1.0 + q2 * 0.9 + q3 * 0.8 + q4 * 0.7 + (1.0 - q1 - q2 - q3 - q4) * 0.6;
 
     // Adjust for noise potential
     if( noisePotential > 0.5 ) {
@@ -165,12 +148,11 @@ void determineEnvSamplingQuality(
         noiseReduction = min( 1.0, noiseReduction + 0.1 );
     }
 
-    // Enhanced bias calculation
-    if( material.metalness > 0.7 || material.roughness < 0.3 ) {
-        adaptiveBias = envSamplingBias * 1.2; // Reduced from 1.3
-    } else if( material.roughness > 0.8 ) {
-        adaptiveBias = envSamplingBias * 0.9; // Less aggressive
-    }
+    // Enhanced bias calculation using linear combination
+    float biasMultiplier = 1.0 + 
+        0.2 * float(material.metalness > 0.7 || material.roughness < 0.3) -
+        0.1 * float(material.roughness > 0.8);
+    adaptiveBias = envSamplingBias * biasMultiplier;
 }
 
 // Improved stratified CDF sampling to reduce noise
@@ -181,42 +163,37 @@ vec2 sampleCDFEnhanced( vec2 xi, float mipLevel, float importanceBias, float noi
         return vec2( phi / ( 2.0 * PI ), acos( cosTheta ) / PI );
     }
 
+    // Precompute values once
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
+    float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
+    float invScaleFactor = 1.0 / scaleFactor;
+    vec2 effectiveSize = max( vec2( 4.0 ), cdfSize * invScaleFactor );
 
     // Enhanced bias application with noise consideration
     vec2 biasedXi = xi;
     if( importanceBias != 1.0 ) {
         // Soften bias to reduce noise
         float softenedBias = mix( 1.0, importanceBias, noiseReduction );
-        biasedXi.x = pow( xi.x, 1.0 / softenedBias );
-        biasedXi.y = pow( xi.y, 1.0 / softenedBias );
+        float invBias = 1.0 / softenedBias;
+        biasedXi.x = pow( xi.x, invBias );
+        biasedXi.y = pow( xi.y, invBias );
     }
 
-    // Improved temporal jittering - use blue noise pattern
+    // Optimized temporal jittering - simplified hash-based approach
     if( enableTemporalEnvJitter ) {
-        float temporalNoise = fract( float( frame ) * 0.618034 );
-        // Reduce jitter amount to decrease noise
-        float jitterAmount = mix( 0.02, 0.05, noiseReduction );
-        biasedXi.x = fract( biasedXi.x + temporalNoise * jitterAmount );
-        biasedXi.y = fract( biasedXi.y + temporalNoise * jitterAmount * 1.732 );
+        float jitter = fract( float( frame ) * 0.1 + xi.x * 1.618 ) * 0.04;
+        biasedXi += vec2( jitter, jitter * 1.732 );
+        biasedXi = fract( biasedXi );
     }
 
-    float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
-    vec2 effectiveSize = max( vec2( 4.0 ), cdfSize / scaleFactor );
-
-    // Enhanced binary search with better convergence
+    // Optimized binary search with early exit - reduced to 8 iterations max
     float marginalY = ( cdfSize.y - 0.5 ) * invSize.y;
     int low = 0;
     int high = int( effectiveSize.x ) - 1;
     int bestCol = high;
 
-    // Adaptive iteration count based on noise reduction needs
-    int maxIterations = int( mix( 8.0, 12.0, noiseReduction ) );
-
-    for( int iter = 0; iter < 12; iter ++ ) {
-        if( iter >= maxIterations || low >= high )
-            break;
+    for( int iter = 0; iter < 8 && ( high - low ) > 1; iter ++ ) {
         int mid = ( low + high ) >> 1;
         float sampleX = ( float( mid ) * scaleFactor + 0.5 ) * invSize.x;
         float cdfValue = textureLod( envCDF, vec2( sampleX, marginalY ), mipLevel ).r;
@@ -240,15 +217,13 @@ vec2 sampleCDFEnhanced( vec2 xi, float mipLevel, float importanceBias, float noi
     float t = denom > 0.0001 ? clamp( ( biasedXi.x - cdf0 ) / denom, 0.0, 1.0 ) : 0.5;
     float u = ( col0 + t * ( col1 - col0 ) + 0.5 ) * invSize.x;
 
-    // Enhanced conditional sampling
+    // Enhanced conditional sampling with optimized binary search
     float colX = ( col1 + 0.5 ) * invSize.x;
     low = 0;
     high = int( effectiveSize.y ) - 2;
     int bestRow = high;
 
-    for( int iter = 0; iter < 12; iter ++ ) {
-        if( iter >= maxIterations || low >= high )
-            break;
+    for( int iter = 0; iter < 8 && ( high - low ) > 1; iter ++ ) {
         int mid = ( low + high ) >> 1;
         float sampleY = ( float( mid ) * scaleFactor + 0.5 ) * invSize.y;
         float cdfValue = textureLod( envCDF, vec2( colX, sampleY ), mipLevel ).r;
@@ -280,19 +255,21 @@ float calculateEnhancedPDF( vec3 direction, float mipLevel, float importanceBias
         return 1.0 / ( 2.0 * PI );
 
     vec2 uv = directionToUV( direction );
-    float theta = uv.y * PI;
-    float sinTheta = sin( theta );
+    // Optimized sinTheta calculation - avoid expensive sin/acos
+    float sinTheta = sqrt( 1.0 - direction.y * direction.y );
     if( sinTheta <= 0.001 )
         return 0.0001;
 
+    // Precompute values
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
     float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
-    vec2 effectiveSize = max( vec2( 4.0 ), cdfSize / scaleFactor );
+    float invScaleFactor = 1.0 / scaleFactor;
+    vec2 effectiveSize = max( vec2( 4.0 ), cdfSize * invScaleFactor );
 
     vec2 cellCoord = uv * ( effectiveSize - 1.0 );
     vec2 cell = floor( cellCoord );
-    vec2 fullResCell = cell * ( cdfSize / effectiveSize );
+    vec2 fullResCell = cell * ( cdfSize * invScaleFactor );
 
     float marginalPdf = textureLod( envCDF, vec2( ( fullResCell.x + 0.5 ) * invSize.x, ( cdfSize.y - 0.5 ) * invSize.y ), mipLevel ).g;
     float conditionalPdf = textureLod( envCDF, vec2( ( fullResCell.x + 0.5 ) * invSize.x, ( fullResCell.y + 0.5 ) * invSize.y ), mipLevel ).g;
@@ -302,7 +279,8 @@ float calculateEnhancedPDF( vec3 direction, float mipLevel, float importanceBias
     // Softer bias application to reduce noise
     if( importanceBias != 1.0 ) {
         float softenedBias = mix( 1.0, importanceBias, noiseReduction );
-        pdf *= pow( max( pdf, 0.0001 ), ( softenedBias - 1.0 ) / softenedBias );
+        float biasExponent = ( softenedBias - 1.0 ) / softenedBias;
+        pdf *= pow( max( pdf, 0.0001 ), biasExponent );
     }
 
     return max( pdf, 0.0001 );
@@ -350,59 +328,30 @@ EnvMapSample sampleEnvironmentWithContext(
 
     float pdf = calculateEnhancedPDF( direction, mipLevel, adaptiveBias, noiseReduction );
 
-    // Enhanced tone mapping with noise considerations
+    // Simplified environment value calculation - removed complex tone mapping
     vec3 envValue = envColor.rgb * environmentIntensity;
-    float envLuminance = luminance( envValue );
 
-    // Adaptive tone mapping based on bounce index and material
-    float toneThreshold = mix( 1.5, 3.0, noiseReduction );
-    if( envLuminance > toneThreshold ) {
-        float compressionFactor = mix( 0.4, 0.2, noiseReduction );
-        float toneMapped = envLuminance / ( 1.0 + envLuminance * compressionFactor );
-        envValue *= toneMapped / envLuminance;
-        envLuminance = toneMapped;
-    }
-
-    // Advanced firefly reduction with confidence weighting
-    float importance = envLuminance / max( pdf, 0.0001 );
+    // Simplified firefly reduction
+    float importance = luminance( envValue ) / max( pdf, 0.0001 );
     float confidence = 1.0;
 
     if( bounceIndex > 0 ) {
-        // Adaptive importance clamping
-        float baseMaxImportance = mix( 50.0, 150.0, noiseReduction ) / float( bounceIndex + 1 );
-
-        // Material-specific adjustments
-        if( material.roughness > 0.5 ) {
-            baseMaxImportance *= 1.3; // Rough materials can handle more variation
-        }
-        if( material.metalness > 0.7 ) {
-            baseMaxImportance *= 0.9; // Metals need tighter control
-        }
-
-        // Gradual importance reduction instead of hard clamping
-        if( importance > baseMaxImportance ) {
-            float excessRatio = importance / baseMaxImportance;
-
-            if( excessRatio > 3.0 ) {
-                // Hard clamp for extreme values
-                float scale = baseMaxImportance / importance;
-                envValue *= scale;
-                importance = baseMaxImportance;
-                confidence = 0.3; // Low confidence for clamped samples
-            } else {
-                // Soft compression for moderate values
-                float compressionFactor = 1.0 / ( 1.0 + ( excessRatio - 1.0 ) * 0.5 );
-                envValue *= compressionFactor;
-                importance *= compressionFactor;
-                confidence = mix( 0.6, 1.0, 1.0 / excessRatio );
-            }
+        // Simplified importance clamping
+        float maxImportance = mix( 50.0, 150.0, noiseReduction ) / float( bounceIndex + 1 );
+        
+        if( importance > maxImportance * 2.0 ) {
+            // Hard clamp for extreme values only
+            float scale = maxImportance / importance;
+            envValue *= scale;
+            importance = maxImportance;
+            confidence = 0.4;
         }
     }
 
-    // Calculate sample confidence based on multiple factors
+    // Simplified confidence calculation
     confidence *= noiseReduction;
-    confidence *= clamp( pdf * 1000.0, 0.1, 1.0 ); // Low PDF = low confidence
-    confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 ); // Deep bounces = lower confidence
+    confidence *= clamp( pdf * 1000.0, 0.1, 1.0 );
+    confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 );
 
     result.direction = direction;
     result.value = envValue;
