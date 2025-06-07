@@ -172,7 +172,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	return (
 		<div ref={viewportRef} className="flex justify-center items-center h-full overflow-scroll" >
 
-			<div ref={viewportWrapperRef} className="relative" style={wrapperStyle} >
+			<div ref={viewportWrapperRef} className="relative shadow-2xl" style={wrapperStyle} >
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
 					<canvas ref={denoiserCanvasRef} width="1024" height="1024" style={canvasStyle} />
 					<canvas ref={primaryCanvasRef} width="1024" height="1024" style={canvasStyle} />
