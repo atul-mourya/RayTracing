@@ -628,18 +628,13 @@ IndirectLightingResult calculateIndirectLighting(
         envContribution = envSample.value;
 
         // Enhanced firefly reduction for environment samples
-        float envLuminance = luminance( envContribution );
-        if( bounceIndex > 0 && envLuminance > 0.0 ) {
-            float maxEnvContribution = 20.0 / float( bounceIndex + 1 );
+        if( bounceIndex > 0 ) {
+            float materialTolerance = getMaterialFireflyTolerance( material );
+            float envThreshold = calculateFireflyThreshold( 20.0, // Environment contribution base threshold
+            materialTolerance, bounceIndex );
 
-            // Material-specific adjustments (vectorized)
-            float roughnessFactor = mix( 0.7, 2.0, step( 0.6, material.roughness ) );
-            float metalnessFactor = mix( 1.0, 0.7, step( 0.8, material.metalness ) );
-            maxEnvContribution *= roughnessFactor * metalnessFactor;
-
-            if( envLuminance > maxEnvContribution ) {
-                envContribution *= maxEnvContribution / envLuminance;
-            }
+            envContribution = applySoftSuppressionRGB( envContribution, envThreshold, 0.5 // Moderate dampening for environment contributions
+            );
         }
 
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
@@ -702,31 +697,23 @@ IndirectLightingResult calculateIndirectLighting(
     float pathLengthFactor = 1.0 / pow( float( bounceIndex + 1 ), 0.5 );
 
     // Material-based clamping adjustments (vectorized)
-    float clampMultiplier = 1.0;
-    clampMultiplier *= mix( 1.0, 1.5, step( 0.7, material.metalness ) );
+    // Calculate comprehensive firefly threshold using shared utilities
+    float materialTolerance = getMaterialFireflyTolerance(material);
+    float viewTolerance = getViewDependentTolerance(material, sampleDir, V, N);
 
-    if( material.roughness < 0.2 ) {
-        vec3 reflectDir = reflect( - V, N );
-        float specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
-        float viewDependentScale = mix( 1.0, 2.5, pow( specularAlignment, 4.0 ) );
-        clampMultiplier *= viewDependentScale;
-    }
+    // Environment and bounce-specific adjustments
+    float contextMultiplier = 1.0;
+    contextMultiplier *= mix(1.0, 1.8, selectEnv * (envSamplingBias - 0.5) / 1.5); // Environment bias
+    contextMultiplier *= mix(1.0, 0.8, step(2.0, float(bounceIndex))); // Bounce scaling
 
-    // Environment-specific adjustments
-    clampMultiplier *= mix( 1.0, 1.8, selectEnv * ( envSamplingBias - 0.5 ) / 1.5 );
+    float finalThreshold = calculateFireflyThreshold(
+        fireflyThreshold,
+        materialTolerance * viewTolerance * contextMultiplier,
+        bounceIndex
+    );
 
-    // Bounce-dependent scaling
-    clampMultiplier *= mix( 1.0, 0.8, step( 2.0, float( bounceIndex ) ) );
-
-    float maxThroughput = fireflyThreshold * pathLengthFactor * clampMultiplier;
-
-    // Color-preserving clamping
-    float maxComponent = max( max( throughput.r, throughput.g ), throughput.b );
-    if( maxComponent > maxThroughput ) {
-        float excess = maxComponent - maxThroughput;
-        float suppressionFactor = maxThroughput / ( maxThroughput + excess * 0.25 );
-        throughput *= suppressionFactor;
-    }
+    // Apply consistent soft suppression
+    throughput = applySoftSuppressionRGB(throughput, finalThreshold, 0.25);
 
     result.direction = sampleDir;
     result.throughput = throughput;

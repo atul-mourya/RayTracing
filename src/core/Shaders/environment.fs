@@ -273,16 +273,20 @@ EnvMapSample sampleEnvironmentWithContext(
 
     // Single PDF calculation
     float pdf = calculateEnvironmentPDF( direction, mipLevel );
-
+    
     // Environment value calculation
     vec3 envValue = envColor.rgb * environmentIntensity;
-
-    // Firefly reduction
+    // Environment value calculation
+    // Context-specific firefly reduction for environment sampling
     float importance = luminance( envValue ) / max( pdf, 0.0001 );
     float confidence = 1.0;
 
     if( bounceIndex > 0 ) {
-        float maxImportance = 100.0 / float( bounceIndex + 1 );
+    // Use shared threshold calculation with environment-specific context
+        float envContextMultiplier = 100.0; // Environment-specific base multiplier
+        float maxImportance = calculateFireflyThreshold( envContextMultiplier, 1.0, // No material context for environment
+        bounceIndex );
+
         if( importance > maxImportance * 2.0 ) {
             float scale = maxImportance / importance;
             envValue *= scale;
@@ -291,7 +295,7 @@ EnvMapSample sampleEnvironmentWithContext(
         }
     }
 
-    // Confidence calculation
+// Confidence calculation (unchanged - environment-specific logic)
     confidence *= clamp( pdf * 1000.0, 0.1, 1.0 );
     confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 );
 

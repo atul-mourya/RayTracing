@@ -272,29 +272,22 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 }
 
 vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathLength ) {
-    // Use shared maxComponent function
+    // Calculate throughput variation factor (path-specific logic)
 	float throughputMax = maxComponent( throughput );
 	float throughputMin = minComponent( throughput );
 
     // Calculate path "unusualness" factor with better metric
 	float throughputVariation = ( throughputMax + 0.001 ) / ( throughputMin + 0.001 );
 
-    // Scale clamp threshold based on path length and throughput variation
-	float clampFactor = 1.0 / ( 1.0 + log( 1.0 + throughputVariation ) * pathLength * 0.1 );
-	float clampThreshold = fireflyThreshold * clampFactor;
+    // Path variation context multiplier
+	float variationMultiplier = 1.0 / ( 1.0 + log( 1.0 + throughputVariation ) * pathLength * 0.1 );
 
-    // Use shared luminance function
-	float lum = luminance( contribution );
+    // Use shared firefly threshold calculation
+	float threshold = calculateFireflyThreshold( fireflyThreshold, variationMultiplier, int( pathLength ) // Convert pathLength to bounce index approximation
+	);
 
-    // Apply smooth clamping for values near the threshold
-	if( lum > clampThreshold ) {
-        // Smooth transition using a softer curve
-		float excess = lum - clampThreshold;
-		float suppressionFactor = clampThreshold / ( clampThreshold + excess * 0.5 );
-		return contribution * suppressionFactor;
-	}
-
-	return contribution;
+    // Apply consistent soft suppression
+	return applySoftSuppressionRGB( contribution, threshold, 0.5 );
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
@@ -456,6 +449,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
     //     radiance = mix(radiance, helperColor, 0.5);
     // }
     // #endif
+
+	// Final firefly reduction pass for accumulated radiance
+	if( fireflyThreshold > 0.0 ) {
+		float globalThreshold = fireflyThreshold * 2.0; // More lenient for final result
+		radiance = applySoftSuppressionRGB( radiance, globalThreshold, 0.3 );
+	}
 
 	return vec4( max( radiance, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
 }

@@ -104,3 +104,72 @@ DotProducts computeDotProducts( vec3 N, vec3 V, vec3 L ) {
 
     return dots;
 }
+
+float calculateFireflyThreshold(
+    float baseThreshold,
+    float contextMultiplier,
+    int bounceIndex
+) {
+    float depthFactor = 1.0 / pow(float(bounceIndex + 1), 0.5);
+    return baseThreshold * contextMultiplier * depthFactor;
+}
+
+// Apply soft suppression to prevent harsh clipping
+float applySoftSuppression(
+    float value,
+    float threshold,
+    float dampingFactor
+) {
+    if(value <= threshold) return value;
+    float excess = value - threshold;
+    float suppressionFactor = threshold / (threshold + excess * dampingFactor);
+    return value * suppressionFactor;
+}
+
+// Apply soft suppression to RGB color while preserving hue
+vec3 applySoftSuppressionRGB(
+    vec3 color,
+    float threshold,
+    float dampingFactor
+) {
+    float lum = luminance(color);
+    if(lum <= threshold) return color;
+    float suppressedLum = applySoftSuppression(lum, threshold, dampingFactor);
+    return color * (suppressedLum / lum);
+}
+
+// Get material-specific firefly tolerance multiplier
+float getMaterialFireflyTolerance(RayTracingMaterial material) {
+    float tolerance = 1.0;
+    
+    // Metals can handle brighter values legitimately
+    tolerance *= mix(1.0, 1.5, step(0.7, material.metalness));
+    
+    // Rough surfaces need less aggressive clamping
+    tolerance *= mix(0.8, 1.2, material.roughness);
+    
+    // Transmissive materials have different brightness characteristics
+    tolerance *= mix(1.0, 0.9, material.transmission);
+    
+    return tolerance;
+}
+
+// Calculate view-dependent firefly tolerance for specular materials
+float getViewDependentTolerance(
+    RayTracingMaterial material,
+    vec3 sampleDir,
+    vec3 viewDir,
+    vec3 normal
+) {
+    float tolerance = 1.0;
+    
+    // For very smooth materials, allow brighter values in specular direction
+    if(material.roughness < 0.2) {
+        vec3 reflectDir = reflect(-viewDir, normal);
+        float specularAlignment = max(0.0, dot(sampleDir, reflectDir));
+        float viewDependentScale = mix(1.0, 2.5, pow(specularAlignment, 4.0));
+        tolerance *= viewDependentScale;
+    }
+    
+    return tolerance;
+}
