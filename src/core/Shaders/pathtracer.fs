@@ -50,10 +50,15 @@ float pdf;
 // BRDF sampling with early exits and optimized math
 DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState, inout PathState pathState ) {
 
-    // Compute BRDF weights only if not already cached
+    // Compute BRDF weights and classification if not already cached
 	if( ! pathState.weightsComputed ) {
 		pathState.brdfWeights = calculateBRDFWeights( material );
 		pathState.weightsComputed = true;
+	}
+
+	if( ! pathState.classificationCached ) {
+		pathState.materialClass = classifyMaterial( material );
+		pathState.classificationCached = true;
 	}
 
 	BRDFWeights weights = pathState.brdfWeights;
@@ -67,7 +72,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	float cumulativeSpecular = cumulativeDiffuse + weights.specular;
 	float cumulativeSheen = cumulativeSpecular + weights.sheen;
 	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
-    // Transmission is the remainder
+
+    // Use material classification for early exits
+	MaterialClassification mc = pathState.materialClass;
 
     // Diffuse sampling
 	if( rand < cumulativeDiffuse ) {
@@ -109,7 +116,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
-	} 
+	}
     // Clearcoat sampling
 	else if( rand < cumulativeClearcoat ) {
 		float clearcoatRoughness = clamp( material.clearcoatRoughness, 0.089, 1.0 );
@@ -120,7 +127,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		float D = DistributionGGX( NoH, clearcoatRoughness );
 		float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
 		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
-	} 
+	}
     // Transmission sampling
 	else {
         // Use the shared microfacet transmission sampling function
@@ -139,29 +146,34 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 }
 
 // Estimate path contribution potential
-float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material ) {
+float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material, PathState pathState ) {
 	float throughputStrength = maxComponent( throughput );
 
-    // Consider material importance
-	float materialImportance = 0.5;
-	if( material.metalness > 0.7 || material.transmission > 0.3 ) {
-		materialImportance = 0.8;
-	} else if( material.roughness > 0.8 ) {
-		materialImportance = 0.3;
+    // Use cached material classification if available
+	MaterialClassification mc;
+	if( pathState.classificationCached ) {
+		mc = pathState.materialClass;
+	} else {
+		mc = classifyMaterial( material );
 	}
 
-    // Consider direction importance (if pointing toward bright areas)
-	float directionImportance = 0.5;
+    // Fast material importance using classification
+	float materialImportance = mc.complexityScore;
+
+    // Direction importance calculation
+	float directionImportance = 0.5; // Default value
+
+    // Only calculate environment importance if it's enabled and useful
 	if( enableEnvironmentLight && useEnvMapIS ) {
-        // This will be higher for directions pointing toward bright environment areas
-		directionImportance = min( envMapSamplingPDF( direction ) * 0.1, 1.0 );
+        // Fast approximation using simplified PDF calculation
+		directionImportance = min( calculateEnvironmentPDF( direction, 0.0 ) * 0.1, 1.0 );
 	}
 
 	return throughputStrength * mix( materialImportance, directionImportance, 0.5 );
 }
 
 // Russian Roulette with vectorized operations
-bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, uint seed ) {
+bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, uint seed, PathState pathState ) {
     // Always continue for first few bounces
 	if( depth < 3 ) {
 		return true;
@@ -175,20 +187,19 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 		return false;
 	}
 
-    // Determine material importance more precisely
-	float materialImportance = 0.0;
+    // Use cached material classification
+	MaterialClassification mc;
+	if( pathState.classificationCached ) {
+		mc = pathState.materialClass;
+	} else {
+		mc = classifyMaterial( material );
+	}
 
-    // High importance materials
-	if( material.transmission > 0.3 ) {
-		materialImportance += 0.3 * material.transmission;
-	}
-	if( material.metalness > 0.7 ) {
-		materialImportance += 0.2 * material.metalness;
-	}
-	if( material.clearcoat > 0.5 ) {
-		materialImportance += 0.1 * material.clearcoat;
-	}
-	if( dot( material.emissive, vec3( 1.0 ) ) > 0.0 ) {
+    // Fast material importance using pre-computed complexity score
+	float materialImportance = mc.complexityScore;
+
+    // Additional importance for special materials
+	if( mc.isEmissive ) {
 		materialImportance += 0.4;
 	}
 
@@ -201,8 +212,13 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 		return true;
 	}
 
-    // Calculate path contribution estimate
-	float pathContribution = estimatePathContribution( throughput, rayDirection, material );
+    // Use cached path importance if available
+	float pathContribution;
+	if( pathState.classificationCached && pathState.weightsComputed ) {
+		pathContribution = pathState.pathImportance;
+	} else {
+		pathContribution = estimatePathContribution( throughput, rayDirection, material, pathState );
+	}
 
     // Adaptive continuation probability
 	float rrProb;
@@ -246,7 +262,12 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 		}
 	} else {
         // Secondary rays: use enhanced environment contribution with LOD
-		return getEnvironmentContribution( direction, bounceIndex );
+        // OPTIMIZED: When IS is enabled, use slightly higher quality for early bounces
+		if( useEnvMapIS && bounceIndex <= 2 ) {
+			return getEnvironmentContribution( direction, bounceIndex );
+		} else {
+			return getEnvironmentContribution( direction, bounceIndex );
+		}
 	}
 }
 
@@ -407,7 +428,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 		}
 
         // Russian roulette path termination
-		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState ) ) {
+		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState, pathState ) ) {
 			break;
 		}
 	}

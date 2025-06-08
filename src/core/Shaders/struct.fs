@@ -131,6 +131,15 @@ struct MaterialSamples {
     bool hasTextures;
 };
 
+struct MaterialClassification {
+    bool isMetallic;        // metalness > 0.7
+    bool isRough;          // roughness > 0.8  
+    bool isSmooth;         // roughness < 0.3
+    bool isTransmissive;   // transmission > 0.5
+    bool hasClearcoat;     // clearcoat > 0.5
+    bool isEmissive;       // has emissive contribution
+    float complexityScore; // 0-1 score for material complexity
+};
 
 struct UVCache {
 	vec2 albedoUV;
@@ -164,9 +173,22 @@ struct MaterialCache {
 
 // Update PathState to include texture samples
 struct PathState {
-    BRDFWeights brdfWeights;          // Cached BRDF weights
-	ImportanceSamplingInfo samplingInfo; // Cached importance sampling info
-	MaterialCache materialCache;       // Cached material properties
-	bool weightsComputed;              // Flag to track if weights are computed
-    bool texturesLoaded;               // Flag to track if textures are loaded
+    BRDFWeights brdfWeights;              // Cached BRDF weights
+	ImportanceSamplingInfo samplingInfo;   // Cached importance sampling info
+	MaterialCache materialCache;           // Cached material properties
+	MaterialClassification materialClass;  // Cached material classification
+	bool weightsComputed;                  // Flag to track if weights are computed
+	bool texturesLoaded;                   // Flag to track if textures are loaded
+	bool classificationCached;             // Flag for material classification
+	float pathImportance;                  // Cached path importance estimate
+};
+
+struct SamplingStrategyWeights {
+    float envWeight;
+    float brdfWeight;
+    float cosineWeight;
+    float totalWeight;
+    bool useEnv;
+    bool useBrdf;
+    bool useCosine;
 };

@@ -1,3 +1,24 @@
+// Pre-computed material classification for faster branching
+MaterialClassification classifyMaterial( RayTracingMaterial material ) {
+	MaterialClassification mc;
+
+	mc.isMetallic = material.metalness > 0.7;
+	mc.isRough = material.roughness > 0.8;
+	mc.isSmooth = material.roughness < 0.3;
+	mc.isTransmissive = material.transmission > 0.5;
+	mc.hasClearcoat = material.clearcoat > 0.5;
+	mc.isEmissive = dot( material.emissive, vec3( 1.0 ) ) > 0.0;
+
+    // Calculate complexity score for importance sampling
+	mc.complexityScore = 0.2 * float( mc.isMetallic ) +
+		0.3 * float( mc.isSmooth ) +
+		0.4 * float( mc.isTransmissive ) +
+		0.3 * float( mc.hasClearcoat ) +
+		0.2 * float( mc.isEmissive );
+
+	return mc;
+}
+
 BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	BRDFWeights weights;
 
@@ -50,26 +71,27 @@ float getMaterialImportance( RayTracingMaterial material ) {
 		return 0.95;
 	}
 
-    // Calculate weights for all BRDFs
-	BRDFWeights weights = calculateBRDFWeights( material );
+    // Use classification for faster computation
+	MaterialClassification mc = classifyMaterial( material );
 
-    // Consider the material's emissive properties
+    // Base importance from complexity score
+	float baseImportance = mc.complexityScore;
+
+    // Consider emissive properties
 	float emissiveImportance = 0.0;
-	if( material.emissive.r + material.emissive.g + material.emissive.b > 0.0 ) {
+	if( mc.isEmissive ) {
 		float emissiveLuminance = dot( material.emissive, vec3( 0.2126, 0.7152, 0.0722 ) );
 		emissiveImportance = min( 0.5, emissiveLuminance * material.emissiveIntensity * 0.2 );
 	}
 
-    // For importance sampling, we care about the most significant component
-	float brdfImportance = max( max( max( weights.specular, weights.diffuse ), weights.sheen ), max( weights.clearcoat, weights.transmission ) );
-
-    // Bias toward materials with high specular or transmission components
-	if( material.metalness > 0.5 || material.transmission > 0.0 ) {
-		brdfImportance = mix( brdfImportance, 1.0, 0.2 );
+    // Material-specific boosts
+	float materialBoost = 0.0;
+	if( mc.isMetallic || mc.isTransmissive ) {
+		materialBoost = 0.2;
 	}
 
     // Combine both factors
-	return max( brdfImportance, emissiveImportance );
+	return max( baseImportance + materialBoost, emissiveImportance );
 }
 
 ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex ) {
@@ -78,27 +100,26 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
     // Base BRDF weights
 	BRDFWeights weights = calculateBRDFWeights( material );
 
-    // Base importances on BRDF weights but with additional heuristics
+    // Classify material once
+	MaterialClassification mc = classifyMaterial( material );
+
+    // Base importances on BRDF weights
 	info.diffuseImportance = weights.diffuse;
 	info.specularImportance = weights.specular;
 	info.transmissionImportance = weights.transmission;
 	info.clearcoatImportance = weights.clearcoat;
 
-    // Enhanced environment importance calculation
+    // Vectorized environment importance calculation
 	float baseEnvStrength = backgroundIntensity * environmentIntensity * 0.05;
+
+    // Material-based environment factor (vectorized calculations)
 	float envMaterialFactor = 1.0;
+	envMaterialFactor *= mix( 1.0, 2.5, float( mc.isMetallic ) );           // Metals reflect environment strongly
+	envMaterialFactor *= mix( 1.0, 1.8, float( mc.isRough ) );              // Rough materials sample diffusely  
+	envMaterialFactor *= mix( 1.0, 0.4, float( mc.isTransmissive ) );       // Transmissive materials interact less
+	envMaterialFactor *= mix( 1.0, 1.6, float( mc.hasClearcoat ) );         // Clearcoat adds reflection
 
-	if( material.metalness > 0.7 ) {
-		envMaterialFactor = 2.5; // Metals strongly reflect environment
-	} else if( material.roughness > 0.8 ) {
-		envMaterialFactor = 1.8; // Rough materials sample environment diffusely
-	} else if( material.transmission > 0.5 ) {
-		envMaterialFactor = 0.4; // Transmissive materials interact less with environment
-	} else if( material.clearcoat > 0.5 ) {
-		envMaterialFactor = 1.6; // Clearcoat adds reflection layer
-	}
-
-    // Bounce-based environment importance
+    // Bounce-based environment importance (optimized for useEnvMapIS = true)
 	float bounceFactor = 1.0;
 	if( bounceIndex > maxEnvSamplingBounce ) {
 		bounceFactor = 0.1;
@@ -106,36 +127,38 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 		bounceFactor = 1.0 / ( 1.0 + float( bounceIndex - 2 ) * 0.5 );
 	}
 
-    // Hierarchical sampling boost
-	if( useEnvMipMap && bounceIndex > 1 ) {
-		bounceFactor *= 1.2;
+    // Enhanced factor for importance sampling
+	if( useEnvMapIS && bounceIndex <= 2 ) {
+		bounceFactor *= 1.4; // Boost for early bounces when IS is available
 	}
 
 	info.envmapImportance = baseEnvStrength * envMaterialFactor * bounceFactor;
 
-    // Bounce-based strategy adjustments
+    // Material-specific adjustments using classification
 	if( bounceIndex > 2 ) {
 		float depthFactor = 1.0 / float( bounceIndex - 1 );
+
+        // Vectorized depth adjustments
 		info.specularImportance *= ( 0.7 + depthFactor * 0.3 );
 		info.clearcoatImportance *= ( 0.6 + depthFactor * 0.4 );
 		info.diffuseImportance *= ( 1.2 + depthFactor * 0.3 );
 	}
 
-    // Material-specific adjustments
-	if( material.metalness > 0.8 && bounceIndex < 3 ) {
+    // Fast material-specific boosts using pre-computed classification
+	if( mc.isMetallic && bounceIndex < 3 ) {
 		info.specularImportance = max( info.specularImportance, 0.6 );
 		info.envmapImportance = max( info.envmapImportance, 0.3 );
 		info.diffuseImportance *= 0.4;
 	}
 
-	if( material.transmission > 0.8 ) {
+	if( mc.isTransmissive ) {
 		info.transmissionImportance = max( info.transmissionImportance, 0.8 );
 		info.diffuseImportance *= 0.2;
 		info.specularImportance *= 0.6;
 		info.envmapImportance *= 0.7;
 	}
 
-	if( material.clearcoat > 0.7 ) {
+	if( mc.hasClearcoat ) {
 		info.clearcoatImportance = max( info.clearcoatImportance, 0.4 );
 		info.envmapImportance = max( info.envmapImportance, 0.2 );
 	}
@@ -153,8 +176,14 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 		info.clearcoatImportance *= invSum;
 		info.envmapImportance *= invSum;
 	} else {
-		info.diffuseImportance = 0.6;
-		info.envmapImportance = 0.4;
+        // Fallback - prefer environment sampling when IS is available
+		if( useEnvMapIS && enableEnvironmentLight ) {
+			info.diffuseImportance = 0.4;
+			info.envmapImportance = 0.6;
+		} else {
+			info.diffuseImportance = 0.6;
+			info.envmapImportance = 0.4;
+		}
 		info.specularImportance = 0.0;
 		info.transmissionImportance = 0.0;
 		info.clearcoatImportance = 0.0;
@@ -369,17 +398,22 @@ MaterialCache createMaterialCache( vec3 N, vec3 V, RayTracingMaterial material, 
 	MaterialCache cache;
 
 	cache.NoV = max( dot( N, V ), 0.001 );
-	cache.isPurelyDiffuse = samples.roughness > 0.98 && samples.metalness < 0.02 &&
+
+    // Use material classification for faster checks
+	MaterialClassification mc = classifyMaterial( material );
+	cache.isPurelyDiffuse = mc.isRough && ! mc.isMetallic &&
 		material.transmission == 0.0 && material.clearcoat == 0.0;
-	cache.isMetallic = samples.metalness > 0.7;
-	cache.hasSpecialFeatures = material.transmission > 0.0 || material.clearcoat > 0.0 ||
+	cache.isMetallic = mc.isMetallic;
+	cache.hasSpecialFeatures = mc.isTransmissive || mc.hasClearcoat ||
 		material.sheen > 0.0 || material.iridescence > 0.0;
 
+    // Pre-compute frequently used values
 	cache.alpha = samples.roughness * samples.roughness;
 	cache.alpha2 = cache.alpha * cache.alpha;
 	float r = samples.roughness + 1.0;
 	cache.k = ( r * r ) / 8.0;
 
+    // Pre-compute F0 and colors
 	vec3 dielectricF0 = vec3( 0.04 ) * material.specularColor;
 	cache.F0 = mix( dielectricF0, samples.albedo.rgb, samples.metalness ) * material.specularIntensity;
 	cache.diffuseColor = samples.albedo.rgb * ( 1.0 - samples.metalness );

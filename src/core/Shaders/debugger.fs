@@ -47,7 +47,7 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 				vec3 direction = uvToDirection( uv );
 
 				// Get PDF for this direction
-				float pdf = envMapSamplingPDF( direction );
+				float pdf = calculateEnvironmentPDF( direction, 0.0 );
 
 				// Visualize with better scaling
 				float logPdf = log( pdf + 1e-8 );

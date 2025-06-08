@@ -10,7 +10,6 @@ uniform vec2 envCDFSize;     // Size of the CDF texture
 uniform bool useEnvMipMap;
 uniform float envSamplingBias;
 uniform int maxEnvSamplingBounce;
-uniform bool enableTemporalEnvJitter;
 
 // Structure to store sampling results
 struct EnvMapSample {
@@ -80,71 +79,52 @@ vec4 sampleEnvironment( vec3 direction ) {
     return texSample;
 }
 
-// Enhanced quality determination with noise considerations
+// Enhanced quality determination
 void determineEnvSamplingQuality(
     int bounceIndex,
     RayTracingMaterial material,
     vec3 viewDirection,
     vec3 normal,
     out float mipLevel,
-    out float adaptiveBias,
-    out float noiseReduction
+    out float adaptiveBias
 ) {
     mipLevel = 0.0;
     adaptiveBias = envSamplingBias;
-    noiseReduction = 1.0;
 
     // ALWAYS use highest quality for primary rays
     if( bounceIndex == 0 ) {
-        noiseReduction = 1.0; // Maximum noise reduction for background
         return;
     }
 
     if( ! useEnvMipMap )
         return;
 
-    // Noise-aware quality reduction
+    // Quality reduction for higher bounces
     if( bounceIndex > maxEnvSamplingBounce ) {
         mipLevel = 1.5; // More conservative than before
         adaptiveBias = 0.8; // Less aggressive bias
-        noiseReduction = 0.7; // Moderate noise reduction
         return;
     }
 
-    // Optimized material analysis using linear combinations instead of branching
+    // Material analysis using linear combinations
     float materialComplexity = 0.4 * float( material.metalness > 0.7 ) +
         0.3 * float( material.roughness < 0.3 ) +
         0.2 * float( material.clearcoat > 0.5 ) -
         0.3 * float( material.transmission > 0.5 );
 
-    float noisePotential = 0.3 * float( material.metalness > 0.7 ) +
-        0.4 * float( material.roughness < 0.3 ) +
-        0.2 * float( material.clearcoat > 0.5 ) -
-        0.2 * float( material.transmission > 0.5 );
-
     float viewAngle = abs( dot( viewDirection, normal ) );
     float grazingFactor = 1.0 - viewAngle;
-
-    // Grazing angles are more prone to noise
-    noisePotential += grazingFactor * 0.3;
 
     float qualityFactor = clamp( materialComplexity + grazingFactor * 0.3, 0.0, 1.0 );
     qualityFactor /= ( 1.0 + float( bounceIndex ) * 0.4 );
 
-    // Optimized quality level assignment using step functions
+    // Quality level assignment using step functions
     float q1 = step( 0.8, qualityFactor );
     float q2 = step( 0.6, qualityFactor ) * ( 1.0 - q1 );
     float q3 = step( 0.4, qualityFactor ) * ( 1.0 - q1 - q2 );
     float q4 = step( 0.2, qualityFactor ) * ( 1.0 - q1 - q2 - q3 );
 
     mipLevel = q1 * 0.0 + q2 * 0.3 + q3 * 0.7 + q4 * 1.0 + ( 1.0 - q1 - q2 - q3 - q4 ) * 1.5;
-    noiseReduction = q1 * 1.0 + q2 * 0.9 + q3 * 0.8 + q4 * 0.7 + ( 1.0 - q1 - q2 - q3 - q4 ) * 0.6;
-
-    // Adjust for noise potential
-    if( noisePotential > 0.5 ) {
-        mipLevel = max( 0.0, mipLevel - 0.2 ); // Use higher quality for noisy materials
-        noiseReduction = min( 1.0, noiseReduction + 0.1 );
-    }
 
     // Enhanced bias calculation using linear combination
     float biasMultiplier = 1.0 +
@@ -153,55 +133,37 @@ void determineEnvSamplingQuality(
     adaptiveBias = envSamplingBias * biasMultiplier;
 }
 
-// Improved stratified CDF sampling to reduce noise
-vec2 sampleCDFEnhanced( vec2 xi, float mipLevel, float importanceBias, float noiseReduction ) {
+// Single function that handles both IS and non-IS sampling
+vec2 sampleEnvironmentUV( vec2 xi, float mipLevel, float importanceBias ) {
+    // Fast path for non-importance sampling - simple uniform sphere sampling
     if( ! useEnvMapIS ) {
         float phi = 2.0 * PI * xi.x;
         float cosTheta = 1.0 - xi.y;
         return vec2( phi / ( 2.0 * PI ), acos( cosTheta ) / PI );
     }
 
-    // Precompute values once
+    // Importance sampling path - for CDF lookup
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
     float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
     float invScaleFactor = 1.0 / scaleFactor;
     vec2 effectiveSize = max( vec2( 4.0 ), cdfSize * invScaleFactor );
 
-    // Enhanced bias application with noise consideration
-    vec2 biasedXi = xi;
-    if( importanceBias != 1.0 ) {
-        // Soften bias to reduce noise
-        float softenedBias = mix( 1.0, importanceBias, noiseReduction );
-        float invBias = 1.0 / softenedBias;
-        biasedXi.x = pow( xi.x, invBias );
-        biasedXi.y = pow( xi.y, invBias );
-    }
-
-    // Optimized temporal jittering - simplified hash-based approach
-    if( enableTemporalEnvJitter ) {
-        float jitter = fract( float( frame ) * 0.1 + xi.x * 1.618 ) * 0.04;
-        biasedXi += vec2( jitter, jitter * 1.732 );
-        biasedXi = fract( biasedXi );
-    }
-
-    // Optimized binary search with early exit - reduced to 8 iterations max
+    // binary search for marginal CDF
     float marginalY = ( cdfSize.y - 0.5 ) * invSize.y;
-    int low = 0;
-    int high = int( effectiveSize.x ) - 1;
-    int bestCol = high;
+    int bestCol = int( effectiveSize.x ) - 1;
 
-    for( int iter = 0; iter < 8 && ( high - low ) > 1; iter ++ ) {
-        int mid = ( low + high ) >> 1;
+    // Unrolled binary search for better GPU performance
+    int step = bestCol >> 1;
+    for( int iter = 0; iter < 8 && step > 0; iter ++ ) {
+        int mid = bestCol - step;
         float sampleX = ( float( mid ) * scaleFactor + 0.5 ) * invSize.x;
         float cdfValue = textureLod( envCDF, vec2( sampleX, marginalY ), mipLevel ).r;
 
-        if( biasedXi.x <= cdfValue ) {
+        if( xi.x > cdfValue ) {
             bestCol = mid;
-            high = mid - 1;
-        } else {
-            low = mid + 1;
         }
+        step >>= 1;
     }
 
     // Interpolation for marginal
@@ -212,48 +174,47 @@ vec2 sampleCDFEnhanced( vec2 xi, float mipLevel, float importanceBias, float noi
 
     // Improved numerical stability
     float denom = cdf1 - cdf0;
-    float t = denom > 0.0001 ? clamp( ( biasedXi.x - cdf0 ) / denom, 0.0, 1.0 ) : 0.5;
+    float t = denom > 0.0001 ? clamp( ( xi.x - cdf0 ) / denom, 0.0, 1.0 ) : 0.5;
     float u = ( col0 + t * ( col1 - col0 ) + 0.5 ) * invSize.x;
 
-    // Enhanced conditional sampling with optimized binary search
+    // Conditional sampling with optimized binary search
     float colX = ( col1 + 0.5 ) * invSize.x;
-    low = 0;
-    high = int( effectiveSize.y ) - 2;
-    int bestRow = high;
+    int bestRow = int( effectiveSize.y ) - 2;
 
-    for( int iter = 0; iter < 8 && ( high - low ) > 1; iter ++ ) {
-        int mid = ( low + high ) >> 1;
+    step = bestRow >> 1;
+    for( int iter = 0; iter < 8 && step > 0; iter ++ ) {
+        int mid = bestRow - step;
         float sampleY = ( float( mid ) * scaleFactor + 0.5 ) * invSize.y;
         float cdfValue = textureLod( envCDF, vec2( colX, sampleY ), mipLevel ).r;
 
-        if( biasedXi.y <= cdfValue ) {
+        if( xi.y > cdfValue ) {
             bestRow = mid;
-            high = mid - 1;
-        } else {
-            low = mid + 1;
         }
+        step >>= 1;
     }
 
-    // Enhanced conditional interpolation
+    // conditional interpolation
     float row0 = float( max( 0, bestRow - 1 ) ) * scaleFactor;
     float row1 = float( bestRow ) * scaleFactor;
     float cdf0_cond = bestRow > 0 ? textureLod( envCDF, vec2( colX, ( row0 + 0.5 ) * invSize.y ), mipLevel ).r : 0.0;
     float cdf1_cond = textureLod( envCDF, vec2( colX, ( row1 + 0.5 ) * invSize.y ), mipLevel ).r;
 
     float denom_cond = cdf1_cond - cdf0_cond;
-    float t_cond = denom_cond > 0.0001 ? clamp( ( biasedXi.y - cdf0_cond ) / denom_cond, 0.0, 1.0 ) : 0.5;
+    float t_cond = denom_cond > 0.0001 ? clamp( ( xi.y - cdf0_cond ) / denom_cond, 0.0, 1.0 ) : 0.5;
     float v = ( row0 + t_cond * ( row1 - row0 ) + 0.5 ) * invSize.y;
 
     return vec2( u, v );
 }
 
-// Enhanced PDF calculation with noise awareness
-float calculateEnhancedPDF( vec3 direction, float mipLevel, float importanceBias, float noiseReduction ) {
-    if( ! useEnvMapIS )
-        return 1.0 / ( 2.0 * PI );
+// Single PDF calculation function
+float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
+    // Fast path for uniform sampling
+    if( ! useEnvMapIS ) {
+        return 1.0 / ( 4.0 * PI );
+    }
 
+    // Importance sampling PDF calculation
     vec2 uv = directionToUV( direction );
-    // Optimized sinTheta calculation - avoid expensive sin/acos
     float sinTheta = sqrt( 1.0 - direction.y * direction.y );
     if( sinTheta <= 0.001 )
         return 0.0001;
@@ -272,18 +233,10 @@ float calculateEnhancedPDF( vec3 direction, float mipLevel, float importanceBias
     float marginalPdf = textureLod( envCDF, vec2( ( fullResCell.x + 0.5 ) * invSize.x, ( cdfSize.y - 0.5 ) * invSize.y ), mipLevel ).g;
     float conditionalPdf = textureLod( envCDF, vec2( ( fullResCell.x + 0.5 ) * invSize.x, ( fullResCell.y + 0.5 ) * invSize.y ), mipLevel ).g;
 
-    float pdf = ( marginalPdf * conditionalPdf ) / sinTheta;
-
-    // Softer bias application to reduce noise
-    if( importanceBias != 1.0 ) {
-        float softenedBias = mix( 1.0, importanceBias, noiseReduction );
-        float biasExponent = ( softenedBias - 1.0 ) / softenedBias;
-        pdf *= pow( max( pdf, 0.0001 ), biasExponent );
-    }
-
-    return max( pdf, 0.0001 );
+    return max( ( marginalPdf * conditionalPdf ) / sinTheta, 0.0001 );
 }
 
+// Streamlined environment sampling
 EnvMapSample sampleEnvironmentWithContext(
     vec2 xi,
     int bounceIndex,
@@ -302,43 +255,35 @@ EnvMapSample sampleEnvironmentWithContext(
         return result;
     }
 
-    // Enhanced quality determination with noise analysis
-    float mipLevel, adaptiveBias, noiseReduction;
-    determineEnvSamplingQuality( bounceIndex, material, viewDirection, normal, mipLevel, adaptiveBias, noiseReduction );
+    // Quality determination
+    float mipLevel, adaptiveBias;
+    determineEnvSamplingQuality( bounceIndex, material, viewDirection, normal, mipLevel, adaptiveBias );
 
-    // Enhanced CDF sampling
-    vec2 uv = sampleCDFEnhanced( xi, mipLevel, adaptiveBias, noiseReduction );
+    // Single sampling call
+    vec2 uv = sampleEnvironmentUV( xi, mipLevel, adaptiveBias );
     vec3 direction = uvToDirection( uv );
 
-    // Multi-level sampling for better quality
+    // Environment value calculation with LOD
     vec4 envColor = textureLod( environment, uv, mipLevel );
 
-    // Enhanced fallback with gradual quality reduction
+    // Fallback handling
     if( length( envColor.rgb ) < 0.001 && mipLevel > 0.0 ) {
-        // Try intermediate mip levels first
-        float fallbackMip = max( 0.0, mipLevel - 0.5 );
-        envColor = textureLod( environment, uv, fallbackMip );
-
-        if( length( envColor.rgb ) < 0.001 ) {
-            envColor = texture( environment, uv );
-        }
+        envColor = texture( environment, uv );
     }
 
-    float pdf = calculateEnhancedPDF( direction, mipLevel, adaptiveBias, noiseReduction );
+    // Single PDF calculation
+    float pdf = calculateEnvironmentPDF( direction, mipLevel );
 
-    // Simplified environment value calculation - removed complex tone mapping
+    // Environment value calculation
     vec3 envValue = envColor.rgb * environmentIntensity;
 
-    // Simplified firefly reduction
+    // Firefly reduction
     float importance = luminance( envValue ) / max( pdf, 0.0001 );
     float confidence = 1.0;
 
     if( bounceIndex > 0 ) {
-        // Simplified importance clamping
-        float maxImportance = mix( 50.0, 150.0, noiseReduction ) / float( bounceIndex + 1 );
-
+        float maxImportance = 100.0 / float( bounceIndex + 1 );
         if( importance > maxImportance * 2.0 ) {
-            // Hard clamp for extreme values only
             float scale = maxImportance / importance;
             envValue *= scale;
             importance = maxImportance;
@@ -346,8 +291,7 @@ EnvMapSample sampleEnvironmentWithContext(
         }
     }
 
-    // Simplified confidence calculation
-    confidence *= noiseReduction;
+    // Confidence calculation
     confidence *= clamp( pdf * 1000.0, 0.1, 1.0 );
     confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 );
 
@@ -379,6 +323,7 @@ vec4 sampleEnvironmentLOD( vec3 direction, float mipLevel ) {
     return texSample;
 }
 
+// Entry point for PDF calculation
 float envMapSamplingPDFWithContext(
     vec3 direction,
     int bounceIndex,
@@ -386,13 +331,9 @@ float envMapSamplingPDFWithContext(
     vec3 viewDirection,
     vec3 normal
 ) {
-    float mipLevel, adaptiveBias, noiseReduction;
-    determineEnvSamplingQuality( bounceIndex, material, viewDirection, normal, mipLevel, adaptiveBias, noiseReduction );
-    return calculateEnhancedPDF( direction, mipLevel, adaptiveBias, noiseReduction );
-}
-
-float envMapSamplingPDF( vec3 direction ) {
-    return calculateEnhancedPDF( direction, 0.0, envSamplingBias, 1.0 );
+    float mipLevel, adaptiveBias;
+    determineEnvSamplingQuality( bounceIndex, material, viewDirection, normal, mipLevel, adaptiveBias );
+    return calculateEnvironmentPDF( direction, mipLevel );
 }
 
 bool shouldUseEnvironmentSampling( int bounceIndex, RayTracingMaterial material ) {

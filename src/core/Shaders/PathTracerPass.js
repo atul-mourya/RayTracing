@@ -132,7 +132,6 @@ export class PathTracerPass extends Pass {
 				useEnvMipMap: { value: true }, // Enable quality-based mip level selection
 				envSamplingBias: { value: 1.2 }, // Bias toward bright areas (0.5-2.0)
 				maxEnvSamplingBounce: { value: 3 }, // Beyond this bounce, use simplified sampling
-				enableTemporalEnvJitter: { value: true }, // Use temporal jittering to reduce noise
 
 			},
 
