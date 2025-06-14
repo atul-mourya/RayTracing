@@ -23,14 +23,13 @@ import {
 	EffectComposer,
 	RenderPass,
 	OutlinePass,
-	OutputPass,
 	UnrealBloomPass,
 } from 'three/examples/jsm/Addons';
 import Stats from 'stats-gl';
 
 // Import custom passes and constants
 import { PathTracerPass } from './Shaders/PathTracerPass';
-import { AccumulationPass } from './Passes/AccumulationPass';
+import { AdvancedAccumulationPass } from './Passes/AdvancedAccumulationPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
 import { TemporalStatisticsPass } from './Passes/TemporalStatisticsPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
@@ -284,7 +283,12 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
-		this.accPass = new AccumulationPass( this.scene, this.width, this.height );
+		this.accPass = new AdvancedAccumulationPass( this.width, this.height, {
+			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75,
+			edgeSharpenSpeed: DEFAULT_STATE.edgeSharpenSpeed || 0.05,
+			edgeThreshold: DEFAULT_STATE.edgeThreshold || 1.0,
+			fireflyThreshold: DEFAULT_STATE.fireflyThreshold || 10.0
+		} );
 		this.composer.addPass( this.accPass );
 
 		this.asvgfPass = new ASVGFPass( this.width, this.height );
@@ -294,7 +298,7 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.setAccumulationPass( this.accPass );
 
 		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
-		this.adaptiveSamplingPass.setTextures( this.pathTracingPass.material.uniforms.previousFrameTexture.value, this.accPass.blendedFrameBuffer.texture );
+		this.adaptiveSamplingPass.setTextures( this.pathTracingPass.material.uniforms.previousFrameTexture.value, this.accPass.currentAccumulation.texture );
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
@@ -324,11 +328,6 @@ class PathTracerApp extends EventDispatcher {
 		this.bloomPass.radius = DEFAULT_STATE.bloomRadius;
 		this.bloomPass.threshold = DEFAULT_STATE.bloomThreshold;
 		this.composer.addPass( this.bloomPass );
-
-		const outputPass = new OutputPass();
-		outputPass.material.toneMapped = true;
-		outputPass.material.transparent = true;
-		this.composer.addPass( outputPass );
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, DEFAULT_STATE );
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
@@ -380,6 +379,12 @@ class PathTracerApp extends EventDispatcher {
 		if ( ! this.pathTracingPass.isComplete ) {
 
 			this.controls.update();
+
+			this.accPass.updateUniforms( {
+				cameraIsMoving: this.pathTracingPass.interactionMode || false,
+				sceneIsDynamic: false, // Set based on your scene
+				time: this.accPass.timeElapsed
+			} );
 
 			if ( this.tileHighlightPass.enabled ) {
 
@@ -529,6 +534,8 @@ class PathTracerApp extends EventDispatcher {
 
 		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
+
+		this.accPass.setSize( this.width, this.height );
 		this.denoiser.setSize( this.width, this.height );
 		this.temporalStatsPass.setSize( this.width, this.height );
 		this.asvgfPass.setSize( this.width, this.height );
@@ -750,8 +757,13 @@ class PathTracerApp extends EventDispatcher {
 		cancelAnimationFrame( this.animationFrameId );
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
-		this.temporalStatsPass.dispose();
-		this.asvgfPass.dispose();
+
+		// Dispose of the two main passes
+		if ( this.pathTracingPass ) this.pathTracingPass.dispose();
+		if ( this.accPass ) this.accPass.dispose();
+		if ( this.temporalStatsPass ) this.temporalStatsPass.dispose();
+		if ( this.asvgfPass ) this.asvgfPass.dispose();
+
 
 	}
 

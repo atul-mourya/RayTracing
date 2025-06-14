@@ -602,7 +602,7 @@ export class PathTracerPass extends Pass {
 		uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
 
 		// Update accumulation pass texture only if it exists and changed
-		const accumulatedTexture = this.accumulationPass?.blendedFrameBuffer.texture;
+		const accumulatedTexture = this.accumulationPass?.currentAccumulation.texture;
 		if ( uniforms.accumulatedFrameTexture.value !== accumulatedTexture ) {
 
 			uniforms.accumulatedFrameTexture.value = accumulatedTexture;

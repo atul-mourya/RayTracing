@@ -203,6 +203,10 @@ export const DEFAULT_STATE = {
 	directionalLightColor: "#ffffff",
 	directionalLightPosition: [ 1, 1, 1 ],
 
+	pixelEdgeSharpness: 0.75,
+	edgeSharpenSpeed: 0.05,
+	edgeThreshold: 1.0,
+
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
 	oidnHDR: false,
