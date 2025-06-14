@@ -1,5 +1,6 @@
 const float PI = 3.14159;
 const float PI_INV = 1.0 / PI;
+const float TWO_PI = 2.0 * PI;
 const float EPSILON = 1e-6;
 const float MIN_ROUGHNESS = 0.05;
 const float MAX_ROUGHNESS = 1.0;

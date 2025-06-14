@@ -33,9 +33,22 @@ export class PathTracerPass extends Pass {
 		this.sdfs = null;
 		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
-		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer );
+
+		// Create improved CDF builder with production settings
+		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer, {
+			maxCDFSize: 1024,
+			minCDFSize: 256,
+			adaptiveResolution: true,
+			enableValidation: true,
+			enableDebug: true,
+			hotspotThreshold: 0.01 // Top 1% brightest pixels
+		} );
 
 		this.name = 'PathTracerPass';
+
+		// Store CDF validation results for debugging
+		this.lastCDFValidation = null;
+		this.cdfBuildTime = 0;
 
 		// Create two render targets for ping-pong rendering
 		this.renderTargetA = new WebGLRenderTarget( width, height, {
@@ -68,7 +81,7 @@ export class PathTracerPass extends Pass {
 				exposure: { value: DEFAULT_STATE.exposure },
 				enableEnvironmentLight: { value: DEFAULT_STATE.enableEnvironment },
 				environment: { value: scene.environment },
-				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity }, // Add backgroundIntensity uniform
+				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity },
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
 				environmentRotation: { value: DEFAULT_STATE.environmentRotation || 0.0 },
@@ -129,9 +142,9 @@ export class PathTracerPass extends Pass {
 				bvhTexSize: { value: new Vector2() },
 				materialTexSize: { value: new Vector2() },
 
-				useEnvMipMap: { value: true }, // Enable quality-based mip level selection
-				envSamplingBias: { value: 1.2 }, // Bias toward bright areas (0.5-2.0)
-				maxEnvSamplingBounce: { value: 3 }, // Beyond this bounce, use simplified sampling
+				useEnvMipMap: { value: true },
+				envSamplingBias: { value: 1.2 },
+				maxEnvSamplingBounce: { value: 3 },
 
 			},
 
@@ -169,7 +182,7 @@ export class PathTracerPass extends Pass {
 
 		// Performance optimization during interaction
 		this.interactionMode = false;
-		this.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled; // Add this line
+		this.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.interactionTimeout = null;
 		this.interactionDelay = 100; // delay before restoring quality
 		this.originalValues = {}; // Store original uniform values
@@ -203,23 +216,176 @@ export class PathTracerPass extends Pass {
 
 	async buildEnvironmentCDF() {
 
-		if ( ! this.scene.environment ) return;
+		if ( ! this.scene.environment ) {
 
-		const result = await this.environmentCDFBuilder.buildEnvironmentCDF( this.scene.environment );
+			// Clear existing CDF if no environment
+			this.material.uniforms.envCDF.value = null;
+			this.material.uniforms.useEnvMapIS.value = false;
+			return;
 
-		if ( result ) {
+		}
 
-			this.material.uniforms.envCDF.value = result.cdfTexture;
-			this.material.uniforms.envCDFSize.value.set( result.cdfSize.width, result.cdfSize.height );
-			this.material.uniforms.useEnvMapIS.value = true;
+		try {
 
-		} else {
+			const startTime = performance.now();
 
+			// Build CDF with improved algorithm
+			const result = await this.environmentCDFBuilder.buildEnvironmentCDF( this.scene.environment );
+
+			this.cdfBuildTime = performance.now() - startTime;
+
+			if ( result ) {
+
+				// Update shader uniforms
+				this.material.uniforms.envCDF.value = result.cdfTexture;
+				this.material.uniforms.envCDFSize.value.set( result.cdfSize.width, result.cdfSize.height );
+				this.material.uniforms.useEnvMapIS.value = true;
+
+				if ( this.environmentCDFBuilder.options.enableValidation ) {
+
+					// Store validation results for debugging
+					this.lastCDFValidation = result.validationResults;
+
+
+					// Log build information
+					console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (${result.cdfSize.width}x${result.cdfSize.height})` );
+
+					// Log validation results in development
+					if ( this.environmentCDFBuilder.options.enableDebug && result.validationResults ) {
+
+						const validation = result.validationResults;
+
+						if ( ! validation.isValid ) {
+
+							console.error( 'CDF validation failed:', validation.errors );
+
+						}
+
+						if ( validation.warnings.length > 0 ) {
+
+							console.warn( 'CDF warnings:', validation.warnings );
+
+						}
+
+						if ( validation.statistics ) {
+
+							const stats = validation.statistics;
+							console.log( `Energy conservation: ${( stats.energyConservation.relativeDifference * 100 ).toFixed( 2 )}%` );
+
+							if ( stats.hotspotPreservation ) {
+
+								console.log( `Hotspot preservation: ${( stats.hotspotPreservation.preservationRatio * 100 ).toFixed( 1 )}%` );
+
+							}
+
+						}
+
+					}
+
+					// Add debug visualization to DOM in development
+					if ( this.environmentCDFBuilder.options.enableDebug && result.debugVisualization ) {
+
+						this.addDebugVisualization( result.debugVisualization );
+
+					}
+
+				}
+
+			} else {
+
+				// Fallback to uniform sampling
+				this.material.uniforms.useEnvMapIS.value = false;
+				console.warn( 'Failed to build environment CDF, using uniform sampling' );
+
+			}
+
+		} catch ( error ) {
+
+			console.error( 'Error building environment CDF:', error );
 			this.material.uniforms.useEnvMapIS.value = false;
 
 		}
 
 	}
+
+
+	// =====================================================
+	// DEBUG UTILITIES
+	// =====================================================
+
+	addDebugVisualization( canvas ) {
+
+		// Remove existing debug visualization
+		const existing = document.getElementById( 'cdf-debug-visualization' );
+		if ( existing ) {
+
+			existing.remove();
+
+		}
+
+		// Style and add new visualization
+		canvas.id = 'cdf-debug-visualization';
+		canvas.style.position = 'fixed';
+		canvas.style.top = '10px';
+		canvas.style.right = '10px';
+		canvas.style.border = '2px solid #ff0000';
+		canvas.style.zIndex = '10000';
+		canvas.style.background = 'black';
+		canvas.title = 'Environment CDF Debug Visualization\nGray: Conditional CDFs\nBlue: Marginal CDF';
+
+		const container = document.getElementById( 'cdf-debug-visualization-container' );
+		container.appendChild( canvas );
+
+	}
+
+	getCDFStatistics() {
+
+		if ( ! this.material.uniforms.envCDF.value ) {
+
+			return null;
+
+		}
+
+		return {
+			buildTime: this.cdfBuildTime,
+			cdfSize: {
+				width: this.material.uniforms.envCDFSize.value.x,
+				height: this.material.uniforms.envCDFSize.value.y
+			},
+			isEnabled: this.material.uniforms.useEnvMapIS.value,
+			validation: this.lastCDFValidation
+		};
+
+	}
+
+	setCDFQuality( quality ) {
+
+		const qualitySettings = {
+			low: { maxCDFSize: 256, adaptiveResolution: false },
+			medium: { maxCDFSize: 512, adaptiveResolution: true },
+			high: { maxCDFSize: 1024, adaptiveResolution: true },
+			ultra: { maxCDFSize: 2048, adaptiveResolution: true }
+		};
+
+		const settings = qualitySettings[ quality ] || qualitySettings.medium;
+
+		// Update CDF builder options
+		this.environmentCDFBuilder.options = {
+			...this.environmentCDFBuilder.options,
+			...settings
+		};
+
+		// Rebuild CDF with new settings
+		if ( this.scene.environment ) {
+
+			this.buildEnvironmentCDF();
+
+		}
+
+	}
+
+
+
 
 	async build( scene ) {
 
@@ -319,19 +485,23 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	setEnvironmentMap( envMap ) {
+	async setEnvironmentMap( envMap ) {
 
 		this.scene.environment = envMap;
 		this.material.uniforms.environment.value = envMap;
 		if ( envMap ) {
 
-			this.buildEnvironmentCDF();
+			// Rebuild CDF asynchronously
+			await this.buildEnvironmentCDF();
 
 		} else {
 
+			this.material.uniforms.envCDF.value = null;
 			this.material.uniforms.useEnvMapIS.value = false;
 
 		}
+
+		this.reset();
 
 	}
 
@@ -568,6 +738,7 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.triangleTexture.value?.dispose();
 		this.material.uniforms.bvhTexture.value?.dispose();
 		this.material.uniforms.materialTexture.value?.dispose();
+		this.material.uniforms.envCDF.value?.dispose();
 		this.material.dispose();
 		this.fsQuad.dispose();
 		this.renderTargetA.dispose();

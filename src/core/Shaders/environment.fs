@@ -47,8 +47,8 @@ vec2 directionToUV( vec3 direction ) {
 
 // Convert UV coordinates to direction (reverse of directionToUV)
 vec3 uvToDirection( vec2 uv ) {
-    float phi = ( uv.x - 0.5 ) * 2.0 * PI;
-    float theta = uv.y * PI;
+    float phi = uv.x * TWO_PI; // 2π
+    float theta = ( 1.0 - uv.y ) * PI;
 
     float sinTheta = sin( theta );
     vec3 localDir = vec3( sinTheta * cos( phi ), cos( theta ), sinTheta * sin( phi ) );
@@ -77,6 +77,38 @@ vec4 sampleEnvironment( vec3 direction ) {
 
     texSample.rgb *= intensityScale * texSample.a;
     return texSample;
+}
+
+// Invert CDF using fixed iteration binary search for better GPU performance
+float invertCDF( sampler2D cdfTexture, float u, float v, float mipLevel, vec2 cdfSize, bool isMarginal ) {
+    vec2 invSize = 1.0 / cdfSize;
+
+    // For marginal CDF, sample from last row
+    float sampleV = isMarginal ? ( cdfSize.y - 0.5 ) * invSize.y : v;
+
+    // Fixed iteration binary search (no while loops for GPU efficiency)
+    int left = 0;
+    int right = int( cdfSize.x ) - 1;
+
+    // 10 iterations covers up to 1024 entries, sufficient for most CDFs
+    for( int i = 0; i < 10; i ++ ) {
+        if( left >= right )
+            break;
+
+        int mid = ( left + right ) / 2;
+        float sampleU = ( float( mid ) + 0.5 ) * invSize.x;
+        float cdfValue = textureLod( cdfTexture, vec2( sampleU, sampleV ), mipLevel ).r;
+
+        if( u <= cdfValue ) {
+            right = mid;
+        } else {
+            left = mid + 1;
+        }
+    }
+
+    // Simplified return (skip interpolation for performance)
+    int idx = clamp( left, 0, int( cdfSize.x ) - 1 );
+    return ( float( idx ) + 0.5 ) * invSize.x;
 }
 
 // Enhanced quality determination
@@ -137,71 +169,22 @@ void determineEnvSamplingQuality(
 vec2 sampleEnvironmentUV( vec2 xi, float mipLevel, float importanceBias ) {
     // Fast path for non-importance sampling - simple uniform sphere sampling
     if( ! useEnvMapIS ) {
-        float phi = 2.0 * PI * xi.x;
-        float cosTheta = 1.0 - xi.y;
-        return vec2( phi / ( 2.0 * PI ), acos( cosTheta ) / PI );
+        // Pre-computed constants for performance
+        float phi = TWO_PI * xi.x;  // 2π precomputed
+        float cosTheta = 1.0 - 2.0 * xi.y;  // Uniform in cosTheta
+        float theta = acos( clamp( cosTheta, - 1.0, 1.0 ) );
+        // OPTIMIZED: Pre-computed 1/(2π) and 1/π
+        return vec2( phi * 0.159154943, 1.0 - theta * 0.318309886 );
     }
 
-    // Importance sampling path - for CDF lookup
+    // Importance sampling with proper CDF inversion
     vec2 cdfSize = envCDFSize;
-    vec2 invSize = 1.0 / cdfSize;
-    float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
-    float invScaleFactor = 1.0 / scaleFactor;
-    vec2 effectiveSize = max( vec2( 4.0 ), cdfSize * invScaleFactor );
 
-    // binary search for marginal CDF
-    float marginalY = ( cdfSize.y - 0.5 ) * invSize.y;
-    int bestCol = int( effectiveSize.x ) - 1;
+    // Step 1: Sample marginal CDF to get u coordinate
+    float u = invertCDF( envCDF, xi.x, 0.0, mipLevel, cdfSize, true );
 
-    // Unrolled binary search for better GPU performance
-    int step = bestCol >> 1;
-    for( int iter = 0; iter < 8 && step > 0; iter ++ ) {
-        int mid = bestCol - step;
-        float sampleX = ( float( mid ) * scaleFactor + 0.5 ) * invSize.x;
-        float cdfValue = textureLod( envCDF, vec2( sampleX, marginalY ), mipLevel ).r;
-
-        if( xi.x > cdfValue ) {
-            bestCol = mid;
-        }
-        step >>= 1;
-    }
-
-    // Interpolation for marginal
-    float col0 = float( max( 0, bestCol - 1 ) ) * scaleFactor;
-    float col1 = float( bestCol ) * scaleFactor;
-    float cdf0 = bestCol > 0 ? textureLod( envCDF, vec2( ( col0 + 0.5 ) * invSize.x, marginalY ), mipLevel ).r : 0.0;
-    float cdf1 = textureLod( envCDF, vec2( ( col1 + 0.5 ) * invSize.x, marginalY ), mipLevel ).r;
-
-    // Improved numerical stability
-    float denom = cdf1 - cdf0;
-    float t = denom > 0.0001 ? clamp( ( xi.x - cdf0 ) / denom, 0.0, 1.0 ) : 0.5;
-    float u = ( col0 + t * ( col1 - col0 ) + 0.5 ) * invSize.x;
-
-    // Conditional sampling with optimized binary search
-    float colX = ( col1 + 0.5 ) * invSize.x;
-    int bestRow = int( effectiveSize.y ) - 2;
-
-    step = bestRow >> 1;
-    for( int iter = 0; iter < 8 && step > 0; iter ++ ) {
-        int mid = bestRow - step;
-        float sampleY = ( float( mid ) * scaleFactor + 0.5 ) * invSize.y;
-        float cdfValue = textureLod( envCDF, vec2( colX, sampleY ), mipLevel ).r;
-
-        if( xi.y > cdfValue ) {
-            bestRow = mid;
-        }
-        step >>= 1;
-    }
-
-    // conditional interpolation
-    float row0 = float( max( 0, bestRow - 1 ) ) * scaleFactor;
-    float row1 = float( bestRow ) * scaleFactor;
-    float cdf0_cond = bestRow > 0 ? textureLod( envCDF, vec2( colX, ( row0 + 0.5 ) * invSize.y ), mipLevel ).r : 0.0;
-    float cdf1_cond = textureLod( envCDF, vec2( colX, ( row1 + 0.5 ) * invSize.y ), mipLevel ).r;
-
-    float denom_cond = cdf1_cond - cdf0_cond;
-    float t_cond = denom_cond > 0.0001 ? clamp( ( xi.y - cdf0_cond ) / denom_cond, 0.0, 1.0 ) : 0.5;
-    float v = ( row0 + t_cond * ( row1 - row0 ) + 0.5 ) * invSize.y;
+    // Step 2: Sample conditional CDF at the selected u to get v coordinate  
+    float v = invertCDF( envCDF, xi.y, ( cdfSize.y - 0.5 ) / cdfSize.y, mipLevel, cdfSize, false );
 
     return vec2( u, v );
 }
@@ -215,25 +198,26 @@ float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
 
     // Importance sampling PDF calculation
     vec2 uv = directionToUV( direction );
-    float sinTheta = sqrt( 1.0 - direction.y * direction.y );
-    if( sinTheta <= 0.001 )
-        return 0.0001;
 
-    // Precompute values
+    float theta = ( 1.0 - uv.y ) * PI;
+    float sinTheta = sin( theta );
+
+    // Handle singularities at poles
+    if( sinTheta <= EPSILON ) {
+        return EPSILON;
+    }
+
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
-    float scaleFactor = useEnvMipMap ? exp2( mipLevel ) : 1.0;
-    float invScaleFactor = 1.0 / scaleFactor;
-    vec2 effectiveSize = max( vec2( 4.0 ), cdfSize * invScaleFactor );
 
-    vec2 cellCoord = uv * ( effectiveSize - 1.0 );
-    vec2 cell = floor( cellCoord );
-    vec2 fullResCell = cell * ( cdfSize * invScaleFactor );
+    // Get PDFs from .g channel (not .r which is CDF)
+    float marginalPdf = textureLod( envCDF, vec2( uv.x, ( cdfSize.y - 0.5 ) * invSize.y ), mipLevel ).g;
+    float conditionalPdf = textureLod( envCDF, uv, mipLevel ).g;
 
-    float marginalPdf = textureLod( envCDF, vec2( ( fullResCell.x + 0.5 ) * invSize.x, ( cdfSize.y - 0.5 ) * invSize.y ), mipLevel ).g;
-    float conditionalPdf = textureLod( envCDF, vec2( ( fullResCell.x + 0.5 ) * invSize.x, ( fullResCell.y + 0.5 ) * invSize.y ), mipLevel ).g;
+    // Pre-computed Jacobian constant for performance
+    float jacobian = sinTheta * 39.478417604;  // 2π * π precomputed
 
-    return max( ( marginalPdf * conditionalPdf ) / sinTheta, 0.0001 );
+    return max( ( marginalPdf * conditionalPdf ) / jacobian, EPSILON );
 }
 
 // Streamlined environment sampling
@@ -284,8 +268,7 @@ EnvMapSample sampleEnvironmentWithContext(
     if( bounceIndex > 0 ) {
     // Use shared threshold calculation with environment-specific context
         float envContextMultiplier = 100.0; // Environment-specific base multiplier
-        float maxImportance = calculateFireflyThreshold( envContextMultiplier, 1.0, // No material context for environment
-        bounceIndex );
+        float maxImportance = calculateFireflyThreshold( envContextMultiplier, 1.0, bounceIndex );
 
         if( importance > maxImportance * 2.0 ) {
             float scale = maxImportance / importance;
