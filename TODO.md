@@ -10,6 +10,7 @@ RayTracing Project TODO
 ✨ Core Features
 ---------------
 
+- [ ]  Oidn HRD denoising Support
 - [ ]  Transparent background support
 - [ ]  Subsurface scattering implementation
 - [ ]  Volumetric rendering
@@ -22,6 +23,10 @@ RayTracing Project TODO
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
 - [ ]  Implement support for Radiance Caching
+- [ ]  Implement Shadow Catcher
+- [ ]  Implement ground projection environment mapping
+- [ ]  Implement Bidirectional Path Tracing mode
+
 
 
 🔧 Performance Improvements
@@ -105,6 +110,7 @@ BVH Construction Improvements
 -   temporal variance adaptive sampling - https://chatgpt.com/c/680133d4-ed24-8003-b664-dd4fef735429
 -   path guiding - https://www.youtube.com/watch?v=BS1JLbNqGxI
 -   https://github.com/Pjbomb2/TrueTrace-Unity-Pathtracer
+-   Behind the scene - OIDN Denoiser https://blog.traverseresearch.nl/denoising-raytraced-images-using-oidn-f6566d605453
 
 ### Model Sources
 
