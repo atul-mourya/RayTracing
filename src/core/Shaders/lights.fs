@@ -620,23 +620,12 @@ IndirectLightingResult calculateIndirectLighting(
 
     // Use vectorized strategy execution
     if( selectEnv > 0.5 ) {
-        // Environment sampling - optimized path
+        // Environment sampling - direction only, NO environment radiance in throughput
         EnvMapSample envSample = sampleEnvironmentWithContext( randomSample, bounceIndex, material, V, N );
 
         sampleDir = envSample.direction;
         samplePdf = envSample.pdf;
-        envContribution = envSample.value;
-
-        // Enhanced firefly reduction for environment samples
-        if( bounceIndex > 0 ) {
-            float materialTolerance = getMaterialFireflyTolerance( material );
-            float envThreshold = calculateFireflyThreshold( 20.0, // Environment contribution base threshold
-            materialTolerance, bounceIndex );
-
-            envContribution = applySoftSuppressionRGB( envContribution, envThreshold, 0.5 // Moderate dampening for environment contributions
-            );
-        }
-
+        
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
 
     } else if( selectBrdf > 0.5 ) {
@@ -644,13 +633,13 @@ IndirectLightingResult calculateIndirectLighting(
         sampleDir = brdfSample.direction;
         samplePdf = brdfSample.pdf;
         sampleBrdfValue = brdfSample.value;
-
     } else {
         // Cosine sampling
         sampleDir = cosineWeightedSample( N, randomSample );
         samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
     }
+
 
     float NoL = max( dot( N, sampleDir ), 0.0 );
 
@@ -678,17 +667,8 @@ IndirectLightingResult calculateIndirectLighting(
     // MIS weight calculation
     float misWeight = samplePdf / combinedPdf;
 
-    // Calculate throughput
-    vec3 throughput;
-
     // Throughput calculation
-    if( selectEnv > 0.5 ) {
-        // For environment sampling, include environment contribution directly
-        throughput = sampleBrdfValue * envContribution * NoL / samplePdf;
-    } else {
-        // For other strategies, standard calculation
-        throughput = sampleBrdfValue * NoL / samplePdf;
-    }
+    vec3 throughput = sampleBrdfValue * NoL * misWeight / samplePdf;
 
     // Apply global illumination scaling
     throughput *= globalIlluminationIntensity;
