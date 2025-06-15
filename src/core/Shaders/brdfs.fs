@@ -194,7 +194,7 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 
 vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
 	float alpha = roughness * roughness;
-	float phi = 2.0 * PI * Xi.x;
+	float phi = TWO_PI * Xi.x;
 	float cosTheta = sqrt( ( 1.0 - Xi.y ) / ( 1.0 + ( alpha * alpha - 1.0 ) * Xi.y ) );
 	float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
 
@@ -214,7 +214,7 @@ vec3 ImportanceSampleCosine( vec3 N, vec2 xi ) {
 	vec3 B = cross( N, T );
 
 	// Cosine-weighted sampling
-	float phi = 2.0 * PI * xi.x;
+	float phi = TWO_PI * xi.x;
 	float cosTheta = sqrt( 1.0 - xi.y );
 	float sinTheta = sqrt( xi.y );
 
@@ -238,7 +238,7 @@ vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
 
     // Sample point with polar coordinates (r, phi)
 	float r = sqrt( Xi.x );
-	float phi = 2.0 * PI * Xi.y;
+	float phi = TWO_PI * Xi.y;
 	float t1 = r * cos( phi );
 	float t2 = r * sin( phi );
 	float s = 0.5 * ( 1.0 + Vh.z );
@@ -279,14 +279,14 @@ float SheenDistribution( float NoH, float roughness ) {
 }
 
 vec3 evalSensitivity( float OPD, vec3 shift ) {
-	float phase = 2.0 * PI * OPD * 1.0e-9;
+	float phase = TWO_PI * OPD * 1.0e-9;
 	vec3 val = vec3( 5.4856e-13, 4.4201e-13, 5.2481e-13 );
 	vec3 pos = vec3( 1.6810e+06, 1.7953e+06, 2.2084e+06 );
 	vec3 var = vec3( 4.3278e+09, 9.3046e+09, 6.6121e+09 );
 
-	vec3 xyz = val * sqrt( 2.0 * PI * var ) * cos( pos * phase + shift ) *
+	vec3 xyz = val * sqrt( TWO_PI * var ) * cos( pos * phase + shift ) *
 		exp( - square( phase ) * var );
-	xyz.x += 9.7470e-14 * sqrt( 2.0 * PI * 4.5282e+09 ) *
+	xyz.x += 9.7470e-14 * sqrt( TWO_PI * 4.5282e+09 ) *
 		cos( 2.2399e+06 * phase + shift[ 0 ] ) *
 		exp( - 4.5282e+09 * square( phase ) );
 	return XYZ_TO_REC709 * ( xyz / 1.0685e-7 );
@@ -513,7 +513,7 @@ vec3 cosineWeightedSample( vec3 N, vec2 xi ) {
 
     // Cosine-weighted sampling using concentric disk mapping
     // Convert to polar coordinates
-	float phi = 2.0 * PI * xi.y;
+	float phi = TWO_PI * xi.y;
 	float cosTheta = sqrt( 1.0 - xi.x );
 	float sinTheta = sqrt( xi.x );
 

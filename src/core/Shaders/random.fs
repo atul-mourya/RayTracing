@@ -36,7 +36,7 @@ float RandomValue(inout uint state) {
 
 // Generate random point in unit circle
 vec2 RandomPointInCircle(inout uint rngState) {
-    float angle = RandomValue(rngState) * 2.0 * PI;
+    float angle = RandomValue(rngState) * TWO_PI;
     vec2 pointOnCircle = vec2(cos(angle), sin(angle));
     return pointOnCircle * sqrt(RandomValue(rngState));
 }
