@@ -20,6 +20,8 @@ const Slider = React.forwardRef( ( {
 	precision = 2,
 	disabled = false,
 	label,
+	snapPoints,
+	snapThreshold = 3, // Percentage of range to consider snapping
 	...props
 }, ref ) => {
 
@@ -45,8 +47,6 @@ const Slider = React.forwardRef( ( {
 	const lastValueRef = React.useRef( currentValue );
 
 	// Dragging state refs
-	const dragStartXRef = React.useRef( 0 );
-	const dragStartValueRef = React.useRef( 0 );
 	const dragDistanceRef = React.useRef( 0 );
 	const lastPointerXRef = React.useRef( 0 );
 
@@ -68,19 +68,6 @@ const Slider = React.forwardRef( ( {
 
 	}, [] );
 
-	// Calculate value per pixel
-	const valuePerPixel = React.useMemo( () => {
-
-		if ( sliderWidth && actualSliderMax !== actualSliderMin ) {
-
-			return ( actualSliderMax - actualSliderMin ) / sliderWidth;
-
-		}
-
-		return step;
-
-	}, [ sliderWidth, actualSliderMin, actualSliderMax, step ] );
-
 	// Sync with external value changes
 	React.useEffect( () => {
 
@@ -89,15 +76,71 @@ const Slider = React.forwardRef( ( {
 
 	}, [ value ] );
 
+	// Snap to nearest snap point if within threshold
+	const snapToNearestPoint = React.useCallback( val => {
+
+		if ( ! snapPoints || snapPoints.length === 0 ) {
+
+			return val;
+
+		}
+
+		// Calculate threshold in actual value units
+		const range = actualSliderMax - actualSliderMin;
+		const thresholdValue = ( snapThreshold / 100 ) * range;
+
+		// Find the closest snap point
+		let closestPoint = snapPoints[ 0 ];
+		let minDistance = Math.abs( val - closestPoint );
+
+		for ( let i = 1; i < snapPoints.length; i ++ ) {
+
+			const distance = Math.abs( val - snapPoints[ i ] );
+			if ( distance < minDistance ) {
+
+				minDistance = distance;
+				closestPoint = snapPoints[ i ];
+
+			}
+
+		}
+
+		// Only snap if within threshold
+		if ( minDistance <= thresholdValue ) {
+
+			return closestPoint;
+
+		}
+
+		// Otherwise return the original value
+		return val;
+
+	}, [ snapPoints, snapThreshold, actualSliderMin, actualSliderMax ] );
+
 	// Clamp and format value
 	const clampValue = React.useCallback( val => {
 
 		const numVal = Number( val ) || 0;
 		const bounded = Math.min( Math.max( numVal, min ), max );
-		const snapped = Math.round( bounded / step ) * step;
-		return + snapped.toFixed( precision );
 
-	}, [ min, max, precision ] );
+		// Try snapping first if snap points are provided
+		if ( snapPoints && snapPoints.length > 0 ) {
+
+			const snappedValue = snapToNearestPoint( bounded );
+			// If snapping occurred, return the snapped value
+			if ( snappedValue !== bounded ) {
+
+				return + snappedValue.toFixed( precision );
+
+			}
+
+		}
+
+		// Otherwise use regular step-based snapping
+		const steppedValue = Math.round( bounded / step ) * step;
+		return + steppedValue.toFixed( precision );
+
+	}, [ min, max, step, precision, snapPoints, snapToNearestPoint ] );
 
 	// Pointer event handlers
 	const handlePointerMove = React.useCallback( e => {
@@ -176,7 +219,7 @@ const Slider = React.forwardRef( ( {
 	// Input handlers
 	const handleInputChange = e => {
 
-		const newValue = parseFloat( e.target.value ) || 0;
+		const newValue = Number.parseFloat( e.target.value ) || 0;
 		setCurrentValue( newValue );
 
 	};
@@ -214,14 +257,6 @@ const Slider = React.forwardRef( ( {
 		? Math.max( Math.min( ( currentValue - actualSliderMin ) / ( actualSliderMax - actualSliderMin ), 1 ), 0 ) * 100
 		: 0;
 
-	// Format display value
-	const getDisplayValue = () => {
-
-		if ( isNaN( currentValue ) ) return "-";
-		return currentValue.toFixed( precision );
-
-	};
-
 	return (
 		<>
 			<span className="opacity-50 text-xs truncate">{label}</span>
@@ -258,6 +293,28 @@ const Slider = React.forwardRef( ( {
 					</div>
 				)}
 
+				{/* Snap point indicators */}
+				{snapPoints && snapPoints.length > 0 && (
+					<div className="absolute w-full h-full pointer-events-none">
+						{snapPoints.map( ( point, index ) => {
+
+							const pointPercentage =
+				actualSliderMax !== actualSliderMin
+					? Math.max( Math.min( ( point - actualSliderMin ) / ( actualSliderMax - actualSliderMin ), 1 ), 0 ) * 100
+					: 0;
+
+							return (
+								<div
+									key={index}
+									className="absolute w-0.5 h-0.5 bg-muted-foreground/30 rounded-full top-1/2 transform -translate-y-1/2 -translate-x-0.5"
+									style={{ left: `${pointPercentage}%` }}
+								/>
+							);
+
+						} )}
+					</div>
+				)}
+
 				{/* Value display/editor */}
 				{isEditing && ! disabled ? (
 					<input
@@ -273,13 +330,11 @@ const Slider = React.forwardRef( ( {
 						onChange={handleInputChange}
 						onBlur={commitValue}
 						onKeyDown={handleEnterKey}
-						onFocus={e => e.target.select()}
+						onFocus={( e ) => e.target.select()}
 						autoFocus
 					/>
 				) : (
-					<span
-						className="text-xs absolute h-full right-2 cursor-text select-none text-foreground inline-flex items-center"
-					>
+					<span className="text-xs absolute h-full right-2 cursor-text select-none text-foreground inline-flex items-center">
 						{isNaN( currentValue ) ? "-" : + ( currentValue || 0 ).toFixed( precision )}
 					</span>
 				)}
