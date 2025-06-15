@@ -130,6 +130,7 @@ class PathTracerApp extends EventDispatcher {
 		// Setup lighting
 		this.directionalLight = new DirectionalLight( DEFAULT_STATE.directionalLightColor, DEFAULT_STATE.directionalLightIntensity );
 		this.directionalLight.position.fromArray( DEFAULT_STATE.directionalLightPosition );
+		this.directionalLight.name = "Sun Light";
 		this.scene.add( this.directionalLight );
 
 		// Setup composer and passes

@@ -84,14 +84,12 @@ const LightsTab = () => {
 	}, [] );
 
 	return (
-		<div className="space-y-4 p-4">
+		<div className="p-2">
 			{lights.map( ( light, index ) => (
 				<div key={light.uuid} className="space-y-4">
 					<div className="flex items-center justify-between">
-						<span className="flex items-center text-sm opacity-65 truncate">
-							{getLightIcon( light.type )}
-							{light.name}
-						</span>
+						{getLightIcon( light.type )}
+						<div className="text-xs opacity-65 truncate">{light.name}</div>
 					</div>
 					<div className="flex items-center justify-end">
 						<div className="text-xs opacity-65">{light.type}</div>
