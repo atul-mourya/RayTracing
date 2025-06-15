@@ -260,7 +260,7 @@ vec3 calculateDirectionalLightContribution(
     // Simple MIS only for first bounce where it matters most
     if( bounceIndex == 0 && brdfSample.pdf > 0.0 ) {
         float brdfAlignment = max( 0.0, dot( brdfSample.direction, light.direction ) );
-        float misWeight = mix( 0.9, 0.1, brdfAlignment );
+        float misWeight = mix( 1.0, 0.0, brdfAlignment );
         contribution *= misWeight;
     }
 

@@ -399,7 +399,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 
         // Indirect lighting using MIS with cached sampling info
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, pathState.samplingInfo );
-		throughput *= indirectResult.throughput;
+		throughput *= indirectResult.throughput * indirectResult.misWeight;
 
         // Add direct lighting contribution with cached material data
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
