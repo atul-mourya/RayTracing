@@ -84,7 +84,7 @@ export class PathTracerPass extends Pass {
 				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity },
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
-				environmentRotation: { value: DEFAULT_STATE.environmentRotation || 0.0 },
+				environmentMatrix: { value: new Matrix4() },
 				useEnvMapIS: { value: true },
 				envCDF: { value: null },
 				envCDFSize: { value: new Vector2() },
@@ -202,6 +202,7 @@ export class PathTracerPass extends Pass {
 		this.tempVector2 = new Vector2();
 		this.lastCameraMatrix = new Matrix4();
 		this.lastProjectionMatrix = new Matrix4();
+		this.environmentRotationMatrix = new Matrix4();
 
 		// Enhanced interaction mode settings
 		this.interactionQualitySettings = {
@@ -502,6 +503,14 @@ export class PathTracerPass extends Pass {
 		}
 
 		this.reset();
+
+	}
+
+	setEnvironmentRotation( rotationDegrees ) {
+
+		const rotationRadians = rotationDegrees * ( Math.PI / 180 );
+		this.environmentRotationMatrix.makeRotationY( rotationRadians );
+		this.material.uniforms.environmentMatrix.value.copy( this.environmentRotationMatrix );
 
 	}
 

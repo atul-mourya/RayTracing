@@ -291,11 +291,6 @@ vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathL
 }
 
 vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
-	// Initialize environment rotation matrices once per pixel
-    // This could also be done once per frame if environmentRotation is uniform
-	if( rayIndex == 0 ) {
-		initializeEnvironmentRotation( );
-	}
 
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );

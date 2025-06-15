@@ -515,7 +515,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( value ) => set( { environmentRotation: value } ),
 		value => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.environmentRotation.value = value[ 0 ] * ( Math.PI / 180 );
+			window.pathTracerApp.pathTracingPass.setEnvironmentRotation( value[ 0 ] );
 			window.pathTracerApp.reset();
 
 		}

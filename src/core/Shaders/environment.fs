@@ -2,7 +2,7 @@ uniform bool enableEnvironmentLight;
 uniform sampler2D environment;
 uniform float environmentIntensity;
 uniform float exposure;
-uniform float environmentRotation;
+uniform mat4 environmentMatrix;
 uniform bool useEnvMapIS;
 uniform sampler2D envCDF;    // Stores marginal and conditional CDFs
 uniform vec2 envCDFSize;     // Size of the CDF texture
@@ -20,26 +20,10 @@ struct EnvMapSample {
     float confidence;
 };
 
-// Pre-computed rotation matrix for environment
-mat3 envRotationMatrix;
-mat3 envRotationMatrixInverse;
-
-// Initialize rotation matrices (call this when environmentRotation changes)
-void initializeEnvironmentRotation( ) {
-    float cosA = cos( environmentRotation );
-    float sinA = sin( environmentRotation );
-
-    // Rotation matrix around Y axis
-    envRotationMatrix = mat3( cosA, 0.0, - sinA, 0.0, 1.0, 0.0, sinA, 0.0, cosA );
-
-    // Inverse rotation matrix
-    envRotationMatrixInverse = mat3( cosA, 0.0, sinA, 0.0, 1.0, 0.0, - sinA, 0.0, cosA );
-}
-
 // Convert a normalized direction to UV coordinates for environment sampling
 vec2 directionToUV( vec3 direction ) {
-    // Apply pre-computed rotation matrix
-    vec3 rotatedDir = envRotationMatrix * direction;
+    // Apply environment matrix rotation
+    vec3 rotatedDir = ( environmentMatrix * vec4( direction, 0.0 ) ).xyz;
     float phi = atan( rotatedDir.z, rotatedDir.x );
     float theta = acos( clamp( rotatedDir.y, - 1.0, 1.0 ) );
     return vec2( phi * ( 0.5 * PI_INV ) + 0.5, 1.0 - theta * PI_INV );
@@ -53,8 +37,8 @@ vec3 uvToDirection( vec2 uv ) {
     float sinTheta = sin( theta );
     vec3 localDir = vec3( sinTheta * cos( phi ), cos( theta ), sinTheta * sin( phi ) );
 
-    // Apply inverse rotation to get world direction
-    return envRotationMatrixInverse * localDir;
+    // Apply inverse environment matrix rotation
+    return ( transpose( environmentMatrix ) * vec4( localDir, 0.0 ) ).xyz;
 }
 
 vec4 sampleEnvironment( vec3 direction ) {
