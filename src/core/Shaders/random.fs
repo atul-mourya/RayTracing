@@ -133,22 +133,65 @@ vec2 getRandomSample(vec2 pixelCoord, int sampleIndex, int bounceIndex, inout ui
             return HybridRandomSample2D(rngState, sampleIndex, int(pixelCoord.x) + int(pixelCoord.y) * int(resolution.x));
         case 3: // Blue Noise with dimensional awareness
             vec4 noise = sampleBlueNoise(pixelCoord, sampleIndex, bounceIndex);
+
+            uint channelHash = pcg_hash(uint(bounceIndex * 1237 + sampleIndex * 2477));
+            float selector = float(channelHash >> 30) / 4.0; // 0.0 to 0.75
             
             // Use different components based on the bounce type to preserve blue noise properties
-            if (bounceIndex == 0) {
+            if (selector < 0.25) {
                 // Primary rays - use xy for pixel jittering
                 return noise.xy;
-            } else if (bounceIndex % 3 == 1) {
+            }
+            if (selector < 0.5) {
                 // Secondary bounces - use zw for BRDF sampling
                 return noise.zw;
-            } else if (bounceIndex % 3 == 2) {
+            }
+            if (selector < 0.75) {
                 // Tertiary bounces - use xz (mix channels)
                 return vec2(noise.x, noise.z);
-            } else {
-                // Other bounces - use yw (mix channels)
-                return vec2(noise.y, noise.w);
             }
+            // Other bounces - use yw (mix channels)
+            return vec2(noise.y, noise.w);
         default:
             return vec2(0.0);
     }
+}
+
+// -----------------------------------------------------------------------------
+// Other sampling utilities
+// -----------------------------------------------------------------------------
+
+vec2 getStratifiedSample(vec2 pixelCoord, int rayIndex, int totalRays, inout uint rngState) {
+    if(totalRays == 1) {
+        // Single sample - use regular jittering
+        return getRandomSample(pixelCoord, rayIndex, 0, rngState, -1);
+    }
+    
+    // Stratify samples across pixel for better distribution
+    int strataX = int(sqrt(float(totalRays)));
+    int strataY = (totalRays + strataX - 1) / strataX; // Ceiling division
+    
+    int strataIdx = rayIndex % (strataX * strataY);
+    int sx = strataIdx % strataX;
+    int sy = strataIdx / strataX;
+    
+    // Base stratified position
+    vec2 strataPos = vec2(float(sx), float(sy)) / vec2(float(strataX), float(strataY));
+    
+    // Add jitter within strata
+    vec2 jitter = getRandomSample(pixelCoord, rayIndex, 0, rngState, -1);
+    jitter /= vec2(float(strataX), float(strataY));
+    
+    return strataPos + jitter;
+}
+
+uint getDecorrelatedSeed(vec2 pixelCoord, int rayIndex, uint frame) {
+    // Base seed from pixel coordinates
+    uint pixelSeed = uint(pixelCoord.x) + uint(pixelCoord.y) * uint(resolution.x);
+    
+    // Decorrelate across frames using different primes
+    uint frameSeed = pcg_hash(frame * 1237u + uint(rayIndex) * 2477u);
+    
+    // Combine using XOR to avoid correlation
+    return pcg_hash(pixelSeed ^ frameSeed);
 }

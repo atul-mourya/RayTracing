@@ -32,9 +32,9 @@ uniform int transmissiveBounces;  // Controls the number of allowed transmission
 // Include statements
 #include struct.fs
 #include common.fs
-#include random.fs
 #include rayintersection.fs
 #include environment.fs
+#include random.fs
 #include bvhtraverse.fs
 #include texture_sampling.fs
 #include fresnel.fs
@@ -65,6 +65,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	DirectionSample result;
 
 	float rand = xi.x;
+	vec2 directionSample = vec2( xi.y, RandomValue( rngState ) ); // Get fresh second dimension
 	vec3 H;
 
     // Cumulative probability approach for sampling selection
@@ -73,12 +74,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	float cumulativeSheen = cumulativeSpecular + weights.sheen;
 	float cumulativeClearcoat = cumulativeSheen + weights.clearcoat;
 
-    // Use material classification for early exits
-	MaterialClassification mc = pathState.materialClass;
-
     // Diffuse sampling
 	if( rand < cumulativeDiffuse ) {
-		result.direction = ImportanceSampleCosine( N, xi );
+		result.direction = ImportanceSampleCosine( N, directionSample );
 		float NoL = clamp( dot( N, result.direction ), 0.0, 1.0 );
 		result.pdf = NoL * PI_INV;
 		result.value = evaluateMaterialResponse( V, result.direction, N, material );
@@ -248,8 +246,10 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 	rrProb = max( rrProb, 0.02 );
 
     // Make the RR test
+	// Hash the seed to avoid bias
+	uint hashedSeed = pcg_hash( seed );
 	uint threshold = uint( rrProb * 4294967295.0 );
-	return seed < threshold;
+	return hashedSeed < threshold;
 }
 
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
@@ -514,7 +514,7 @@ void main( ) {
 	pixel.color = vec4( 0.0 );
 	pixel.samples = 0;
 
-	uint seed = uint( gl_FragCoord.x ) + uint( gl_FragCoord.y ) * uint( resolution.x ) + frame * uint( resolution.x ) * uint( resolution.y );
+	uint baseSeed = getDecorrelatedSeed( gl_FragCoord.xy, 0, frame );
 	int pixelIndex = int( gl_FragCoord.y ) * int( resolution.x ) + int( gl_FragCoord.x );
 
 	bool shouldRender = shouldRenderPixel( );
@@ -531,25 +531,23 @@ void main( ) {
 			}
 		}
 
-		// Pre-calculate common values outside the loop
-		vec2 invResolution = 1.0 / resolution;
-		vec2 doubleInvResolution = 2.0 * invResolution;
-
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
+			uint seed = pcg_hash( baseSeed + uint( rayIndex ) );
 
-			vec4 _sample = vec4( 0.0 );
-			vec2 jitterSample = getRandomSample( gl_FragCoord.xy, rayIndex, 0, seed, 3 );
+            // Use stratified sampling for better distribution
+			vec2 stratifiedJitter = getStratifiedSample( gl_FragCoord.xy, rayIndex, samplesCount, seed );
 
 			if( visMode == 5 ) {
-				fragColor = vec4( jitterSample, 1.0, 1.0 );
+				fragColor = vec4( stratifiedJitter, 1.0, 1.0 );
 				return;
 			}
 
-			vec2 jitter = ( jitterSample - 0.5 ) * doubleInvResolution;
+			vec2 jitter = ( stratifiedJitter - 0.5 ) * ( 2.0 / resolution );
 			vec2 jitteredScreenPosition = screenPosition + jitter;
 
 			Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );
 
+			vec4 _sample;
 			if( visMode > 0 ) {
 				_sample = TraceDebugMode( ray.origin, ray.direction );
 			} else {

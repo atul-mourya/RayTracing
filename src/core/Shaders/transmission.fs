@@ -360,12 +360,16 @@ MaterialInteractionResult handleMaterialTransparency(
     // Step 2: Handle alpha modes according to glTF spec
     // -----------------------------------------------------------------
 
+	float alphaRand = RandomValue( rngState );
+	float transmissionRand = RandomValue( rngState );
+	uint transmissionSeed = pcg_hash( rngState ); // For transmission calculations
+
 	if( material.alphaMode == 2 ) { // BLEND
 		float finalAlpha = material.color.a * material.opacity;
 
         // Use stochastic transparency for blend mode
 		// For BLEND mode skip:
-		if( RandomValue( rngState ) > finalAlpha ) {
+		if( alphaRand > finalAlpha ) {
 			result.continueRay = true;
 			result.direction = ray.direction;
 			result.throughput = vec3( 1.0 );
@@ -397,13 +401,12 @@ MaterialInteractionResult handleMaterialTransparency(
     // Check if we have transmissive traversals left
 	if( material.transmission > 0.0 && state.transmissiveTraversals > 0 ) {
         // Only apply transmission with probability equal to the transmission value
-		if( RandomValue( rngState ) < material.transmission ) {
+		if( transmissionRand < material.transmission ) {
             // Determine if ray is entering or exiting the medium
 			bool entering = dot( ray.direction, normal ) < 0.0;
-			vec3 N = entering ? normal : - normal;
 
-            // Use the pre-existing handleTransmission function
-			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, rngState, mediumStack );
+            // Use transmissionSeed for transmission calculations instead of rngState
+			TransmissionResult transResult = handleTransmission( ray.direction, normal, material, entering, transmissionSeed, mediumStack );
 
             // Update medium stack
 			// Only update medium stack if we actually transmitted (didn't get TIR/reflection)
