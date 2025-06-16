@@ -46,7 +46,7 @@ struct IndirectLightingResult {
 DirectionalLight getDirectionalLight( int index ) {
     int baseIndex = index * 7;
     DirectionalLight light;
-    light.direction = vec3( directionalLights[ baseIndex ], directionalLights[ baseIndex + 1 ], directionalLights[ baseIndex + 2 ] );
+    light.direction = normalize( vec3( directionalLights[ baseIndex ], directionalLights[ baseIndex + 1 ], directionalLights[ baseIndex + 2 ] ) );
     light.color = vec3( directionalLights[ baseIndex + 3 ], directionalLights[ baseIndex + 4 ], directionalLights[ baseIndex + 5 ] );
     light.intensity = directionalLights[ baseIndex + 6 ];
     return light;
@@ -194,6 +194,25 @@ bool intersectAreaLight( AreaLight light, vec3 rayOrigin, vec3 rayDirection, ino
 // DIRECTIONAL LIGHT FUNCTIONS
 // -----------------------------------------------------------------------------
 
+// Calculate adaptive ray offset based on scene scale and surface properties
+vec3 calculateRayOffset( vec3 hitPoint, vec3 normal, RayTracingMaterial material ) {
+    // Base epsilon scaled by scene size
+    float scaleEpsilon = max( 1e-4, length( hitPoint ) * 1e-6 );
+
+    // Adjust for material properties
+    float materialEpsilon = scaleEpsilon;
+    if( material.transmission > 0.0 ) {
+        // Transmissive materials need larger offsets to avoid light leaking
+        materialEpsilon *= 2.0;
+    }
+    if( material.roughness < 0.1 ) {
+        // Smooth materials are more sensitive to precision issues
+        materialEpsilon *= 1.5;
+    }
+
+    return normal * materialEpsilon;
+}
+
 // Fast early exit checks for directional lights
 bool shouldSkipDirectionalLight(
     DirectionalLight light,
@@ -201,7 +220,7 @@ bool shouldSkipDirectionalLight(
     RayTracingMaterial material,
     int bounceIndex
 ) {
-    float NoL = dot( normal, light.direction );
+    float NoL = max( 0.0, dot( normal, light.direction ) );
 
     // Basic validity checks
     if( light.intensity <= 0.001 || NoL <= 0.001 ) {
@@ -219,12 +238,17 @@ bool shouldSkipDirectionalLight(
         if( material.metalness > 0.9 && NoL < 0.1 ) {
             return true;
         }
+
+        // Skip lights that won't contribute much to rough dielectrics
+        if( material.metalness < 0.1 && material.roughness > 0.9 && light.intensity < 0.1 ) {
+            return true;
+        }
     }
 
     return false;
 }
 
-// Simplified directional light contribution (much faster than before)
+// Directional light contribution
 vec3 calculateDirectionalLightContribution(
     DirectionalLight light,
     vec3 hitPoint,
@@ -242,11 +266,16 @@ vec3 calculateDirectionalLightContribution(
         return vec3( 0.0 );
     }
 
-    float NoL = dot( normal, light.direction );
-    vec3 rayOrigin = hitPoint + normal * 0.001;
+    float NoL = max( 0.0, dot( normal, light.direction ) );
 
-    // Shadow test
-    float visibility = traceShadowRay( rayOrigin, light.direction, 1000.0, rngState, stats );
+    // Calculate adaptive ray offset
+    vec3 rayOffset = calculateRayOffset( hitPoint, normal, material );
+    vec3 rayOrigin = hitPoint + rayOffset;
+
+    // Shadow test with appropriate distance for directional lights
+    // Use large but finite distance to avoid precision issues
+    float maxShadowDistance = 1e6;
+    float visibility = traceShadowRay( rayOrigin, light.direction, maxShadowDistance, rngState, stats );
     if( visibility <= 0.0 ) {
         return vec3( 0.0 );
     }
@@ -257,11 +286,19 @@ vec3 calculateDirectionalLightContribution(
     // Base contribution
     vec3 contribution = light.color * light.intensity * brdfValue * NoL * visibility;
 
-    // Simple MIS only for first bounce where it matters most
+    // MIS for directional lights (only on primary rays where it matters)
     if( bounceIndex == 0 && brdfSample.pdf > 0.0 ) {
-        float brdfAlignment = max( 0.0, dot( brdfSample.direction, light.direction ) );
-        float misWeight = mix( 1.0, 0.0, brdfAlignment );
-        contribution *= misWeight;
+        // Check alignment between BRDF sample and light direction
+        float alignment = max( 0.0, dot( normalize( brdfSample.direction ), light.direction ) );
+
+        // Only apply MIS if there's significant alignment (within ~5 degrees)
+        if( alignment > 0.996 ) {
+            // For directional lights, treat as delta function with very high PDF
+            float lightPdf = 1e6;  // High value representing delta function
+            float misWeight = powerHeuristic( lightPdf, brdfSample.pdf );
+            contribution *= misWeight;
+        }
+        // If no alignment, light sampling dominates (no reduction needed)
     }
 
     return contribution;
@@ -331,8 +368,8 @@ vec3 calculateAreaLightContribution(
 
     // Pre-compute common values
     vec3 contribution = vec3( 0.0 );
-    vec3 offset = normal * 0.001; // Ray offset to avoid self-intersection
-    vec3 rayOrigin = hitPoint + offset;
+    vec3 rayOffset = calculateRayOffset( hitPoint, normal, material );
+    vec3 rayOrigin = hitPoint + rayOffset;
 
     // Adaptive sampling strategy based on material and importance
     bool isDiffuse = material.roughness > 0.7 && material.metalness < 0.3;
@@ -358,8 +395,8 @@ vec3 calculateAreaLightContribution(
         vec3 lightDir = toLight / lightDist;
 
         // Geometric terms
-        float NoL = dot( normal, lightDir );
-        float lightFacing = - dot( lightDir, light.normal );
+        float NoL = max( 0.0, dot( normal, lightDir ) );
+        float lightFacing = max( 0.0, - dot( lightDir, light.normal ) );
 
         // Early exit for geometry facing away
         if( NoL > 0.0 && lightFacing > 0.0 ) {
@@ -405,7 +442,7 @@ vec3 calculateAreaLightContribution(
 
                 if( visibility > 0.0 ) {
                     // Light geometric terms at hit point
-                    float lightFacing = - dot( brdfSample.direction, light.normal );
+                    float lightFacing = max( 0.0, - dot( brdfSample.direction, light.normal ) );
 
                     if( lightFacing > 0.0 ) {
                         // PDFs for MIS
@@ -416,7 +453,7 @@ vec3 calculateAreaLightContribution(
 
                         // Direct light emission
                         vec3 lightEmission = light.color * light.intensity;
-                        float NoL = max( dot( normal, brdfSample.direction ), 0.0 );
+                        float NoL = max( 0.0, dot( normal, brdfSample.direction ) );
 
                         contribution += lightEmission * brdfSample.value * NoL * visibility * misWeight;
                     }
@@ -464,32 +501,31 @@ vec3 calculateDirectLightingMIS(
     // Directional lights processing
     // -----------------------------
     #if MAX_DIRECTIONAL_LIGHTS > 0
-    int maxDirectionalLights = MAX_DIRECTIONAL_LIGHTS / 7; // Total number of directional lights
 
     // Adaptive light count based on bounce depth and material
-    int directionalLightCount = maxDirectionalLights;
+    int directionalLightCount = MAX_DIRECTIONAL_LIGHTS;
     if( bounceIndex > 0 ) {
-        // Reduce light count for secondary bounces
+        // More aggressive reduction for secondary bounces
         if( bounceIndex == 1 ) {
-            directionalLightCount = min( 4, maxDirectionalLights );
+            directionalLightCount = max( 1, min( 4, MAX_DIRECTIONAL_LIGHTS ) );
         } else if( bounceIndex == 2 ) {
-            directionalLightCount = min( 2, maxDirectionalLights );
+            directionalLightCount = max( 1, min( 2, MAX_DIRECTIONAL_LIGHTS ) );
         } else {
             // For very deep bounces, only process the most important light
-            directionalLightCount = min( 1, maxDirectionalLights );
+            directionalLightCount = 1;
         }
     }
 
-    // Process lights in importance order (they're already sorted)
+    // Process lights in importance order (they should be pre-sorted by importance)
     #pragma unroll_loop_start
     for( int i = 0; i < min( 16, directionalLightCount ); i ++ ) {
-        if( i >= maxDirectionalLights )
+        if( i >= MAX_DIRECTIONAL_LIGHTS )
             break;
 
         DirectionalLight light = getDirectionalLight( i );
 
         // Quick importance check for directional lights
-        float quickDirImportance = light.intensity * max( dot( N, light.direction ), 0.0 );
+        float quickDirImportance = light.intensity * max( 0.0, dot( N, light.direction ) );
         if( quickDirImportance < importanceThreshold ) {
             continue;
         }
@@ -678,22 +714,18 @@ IndirectLightingResult calculateIndirectLighting(
 
     // Material-based clamping adjustments (vectorized)
     // Calculate comprehensive firefly threshold using shared utilities
-    float materialTolerance = getMaterialFireflyTolerance(material);
-    float viewTolerance = getViewDependentTolerance(material, sampleDir, V, N);
+    float materialTolerance = getMaterialFireflyTolerance( material );
+    float viewTolerance = getViewDependentTolerance( material, sampleDir, V, N );
 
     // Environment and bounce-specific adjustments
     float contextMultiplier = 1.0;
-    contextMultiplier *= mix(1.0, 1.8, selectEnv * (envSamplingBias - 0.5) / 1.5); // Environment bias
-    contextMultiplier *= mix(1.0, 0.8, step(2.0, float(bounceIndex))); // Bounce scaling
+    contextMultiplier *= mix( 1.0, 1.8, selectEnv * ( envSamplingBias - 0.5 ) / 1.5 ); // Environment bias
+    contextMultiplier *= mix( 1.0, 0.8, step( 2.0, float( bounceIndex ) ) ); // Bounce scaling
 
-    float finalThreshold = calculateFireflyThreshold(
-        fireflyThreshold,
-        materialTolerance * viewTolerance * contextMultiplier,
-        bounceIndex
-    );
+    float finalThreshold = calculateFireflyThreshold( fireflyThreshold, materialTolerance * viewTolerance * contextMultiplier, bounceIndex );
 
     // Apply consistent soft suppression
-    throughput = applySoftSuppressionRGB(throughput, finalThreshold, 0.25);
+    throughput = applySoftSuppressionRGB( throughput, finalThreshold, 0.25 );
 
     result.direction = sampleDir;
     result.throughput = throughput;
