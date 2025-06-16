@@ -461,9 +461,9 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 	}
 
 	vec3 H = normalize( V + L );
-	float NoL = max( dot( N, L ), 0.001 );
-	float NoH = max( dot( N, H ), 0.001 );
-	float VoH = max( dot( V, H ), 0.001 );
+	float NoL = max( dot( N, L ), EPSILON );
+	float NoH = max( dot( N, H ), EPSILON );
+	float VoH = max( dot( V, H ), EPSILON );
 
 	bool isTransmission = cache.NoV * NoL < 0.0;
 	if( isTransmission && material.transmission > 0.0 ) {
@@ -479,17 +479,24 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 
     // Use precomputed values
 	float denom = ( NoH * NoH * ( cache.alpha2 - 1.0 ) + 1.0 );
-	float D = cache.alpha2 / ( PI * denom * denom );
+	float D = cache.alpha2 / max( PI * denom * denom, EPSILON );
 
 	float ggx1 = NoL / ( NoL * ( 1.0 - cache.k ) + cache.k );
 	float ggx2 = cache.NoV / ( cache.NoV * ( 1.0 - cache.k ) + cache.k );
 	float G = ggx1 * ggx2;
 
 	vec3 F = fresnelSchlick( VoH, F0 );
-	vec3 specular = ( D * G * F ) / ( 4.0 * cache.NoV * NoL );
 
+    // Safer division for specular term
+	float specularDenom = max( 4.0 * cache.NoV * NoL, EPSILON );
+	vec3 specular = ( D * G * F ) / specularDenom;
+
+    // Energy conservation: ensure diffuse + specular doesn't exceed 1
 	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
 	vec3 diffuse = kD * material.color.rgb * PI_INV;
+
+    // Clamp specular to prevent fireflies
+	specular = min( specular, vec3( 16.0 ) ); // Reasonable upper bound
 
 	vec3 baseLayer = diffuse + specular;
 
