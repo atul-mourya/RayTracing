@@ -155,8 +155,11 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 	int stackPtr = 0;
 	stack[ stackPtr ++ ] = 0; // Root node
 
-	// Precompute inverse direction and handle edge cases
-	vec3 invDir = 1.0 / max( abs( ray.direction ), vec3( 1e-8 ) ) * sign( ray.direction );
+	// FIXED: Compact axis-aligned ray handling
+	const float HUGE_VAL = 1e8;
+	vec3 invDir = mix( 1.0 / ray.direction,                    // Normal case
+	HUGE_VAL * sign( ray.direction + 1e-10 ), // Axis-aligned case (add tiny value to avoid sign(0))
+	lessThan( abs( ray.direction ), vec3( 1e-8 ) ) );
 
 	// Cache ray properties to reduce redundant calculations
 	vec3 rayOrigin = ray.origin;
