@@ -290,11 +290,16 @@ vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathL
 	return applySoftSuppressionRGB( contribution, threshold, 0.5 );
 }
 
-vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
+vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3 objectNormal, out vec3 objectColor, out float objectID ) {
 
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
 	float alpha = 1.0;
+
+	// Initialize edge detection variables
+    objectNormal = vec3( 0.0 );
+    objectColor = vec3( 0.0 );
+    objectID = -1000.0;
 
     // Store initial ray for helper visualization
     // Ray initialRay = ray;
@@ -415,6 +420,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex ) {
 			break; // Path contribution too small, terminate early
 		}
 
+		if( bounceIndex == 0 && hitInfo.didHit ) {
+			objectNormal = N; // Surface normal from first hit
+			objectColor = material.color.rgb; // Surface color
+			objectID = float( hitInfo.materialIndex ); // Material/object identifier
+		}
+
         // Russian roulette path termination
 		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState, pathState ) ) {
 			break;
@@ -531,6 +542,11 @@ void main( ) {
 			}
 		}
 
+		vec3 objectNormal = vec3( 0.0 );
+		vec3 objectColor = vec3( 0.0 );
+		float objectID = -1000.0;
+		float pixelSharpness = 0.0;
+
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			uint seed = pcg_hash( baseSeed + uint( rayIndex ) );
 
@@ -551,7 +567,16 @@ void main( ) {
 			if( visMode > 0 ) {
 				_sample = TraceDebugMode( ray.origin, ray.direction );
 			} else {
-				_sample = Trace( ray, seed, rayIndex, pixelIndex );
+				vec3 sampleNormal, sampleColor;
+				float sampleID;
+				_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID );
+				
+				// Accumulate edge detection data from primary rays
+				if( rayIndex == 0 ) {
+					objectNormal = sampleNormal;
+					objectColor = sampleColor;
+					objectID = sampleID;
+				}
 			}
 
 			pixel.color += _sample;
@@ -560,6 +585,27 @@ void main( ) {
 		}
 
 		pixel.color /= float( pixel.samples );
+
+		// Edge Detection Logic
+		float edge0 = 0.2;
+		float edge1 = 0.6;
+		
+		float difference_Nx = fwidth( objectNormal.x );
+		float difference_Ny = fwidth( objectNormal.y );
+		float difference_Nz = fwidth( objectNormal.z );
+		float normalDifference = smoothstep( edge0, edge1, difference_Nx ) + 
+							smoothstep( edge0, edge1, difference_Ny ) + 
+							smoothstep( edge0, edge1, difference_Nz );
+		
+		float objectDifference = min( fwidth( objectID ), 1.0 );
+		float colorDifference = ( fwidth( objectColor.r ) + fwidth( objectColor.g ) + fwidth( objectColor.b ) ) > 0.0 ? 1.0 : 0.0;
+		
+		// Mark pixel as edge if any edge condition is met
+		if( colorDifference > 0.0 || normalDifference >= 0.9 || objectDifference >= 1.0 ) {
+			pixelSharpness = 1.0;
+		}
+		
+		pixel.color = vec4( pixel.color.rgb, pixelSharpness );
 
 	} else {
         // For pixels that are not rendered in this frame, use the color from the previous frame
