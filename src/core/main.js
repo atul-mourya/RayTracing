@@ -24,6 +24,7 @@ import {
 	RenderPass,
 	OutlinePass,
 	UnrealBloomPass,
+	OutputPass
 } from 'three/examples/jsm/Addons';
 import Stats from 'stats-gl';
 
@@ -288,7 +289,7 @@ class PathTracerApp extends EventDispatcher {
 			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75,
 			edgeSharpenSpeed: DEFAULT_STATE.edgeSharpenSpeed || 0.05,
 			edgeThreshold: DEFAULT_STATE.edgeThreshold || 1.0,
-			fireflyThreshold: DEFAULT_STATE.fireflyThreshold || 10.0
+			fireflyThreshold: DEFAULT_STATE.fireflyThreshold || 10.0,
 		} );
 		this.composer.addPass( this.accPass );
 
@@ -329,6 +330,11 @@ class PathTracerApp extends EventDispatcher {
 		this.bloomPass.radius = DEFAULT_STATE.bloomRadius;
 		this.bloomPass.threshold = DEFAULT_STATE.bloomThreshold;
 		this.composer.addPass( this.bloomPass );
+
+		const outputPass = new OutputPass();
+		outputPass.material.toneMapped = true;
+		outputPass.material.transparent = true;
+		this.composer.addPass( outputPass );
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, DEFAULT_STATE );
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;

@@ -28,11 +28,11 @@ export class AdvancedAccumulationPass extends Pass {
 		this.height = height;
 
 		// Configuration options
-		this.pixelEdgeSharpness = options.pixelEdgeSharpness || 0.75;
-		this.edgeSharpenSpeed = options.edgeSharpenSpeed || 0.05;
-		this.useToneMapping = options.useToneMapping !== false;
-		this.edgeThreshold = options.edgeThreshold || 1.0;
-		this.fireflyThreshold = options.fireflyThreshold || 10.0;
+		this.pixelEdgeSharpness = options.pixelEdgeSharpness ?? 0.75;
+		this.edgeSharpenSpeed = options.edgeSharpenSpeed ?? 0.05;
+		this.useToneMapping = options.useToneMapping ?? false;
+		this.edgeThreshold = options.edgeThreshold ?? 1.0;
+		this.fireflyThreshold = options.fireflyThreshold ?? 10.0;
 
 		// Accumulation state
 		this.iteration = 0;
@@ -128,6 +128,7 @@ export class AdvancedAccumulationPass extends Pass {
 				uSceneIsDynamic: { value: false },
 				uResolution: { value: new Vector2( width, height ) },
 				uTime: { value: 0.0 },
+				uUseToneMapping: { value: this.useToneMapping },
 			},
 
 			vertexShader: /* glsl */`
@@ -152,6 +153,7 @@ export class AdvancedAccumulationPass extends Pass {
 				uniform bool uSceneIsDynamic;
 				uniform vec2 uResolution;
 				uniform float uTime;
+				uniform bool uUseToneMapping;
 
 				#include <tonemapping_pars_fragment>
 
@@ -427,44 +429,50 @@ export class AdvancedAccumulationPass extends Pass {
 
 					// NOTE: Do NOT divide by iteration here - accumulation already handles averaging!
 
-					#ifdef LINEAR_TONE_MAPPING
+					// Apply tone mapping if enabled
+					if (uUseToneMapping) {
 
-						finalColor = LinearToneMapping( finalColor );
+						#ifdef LINEAR_TONE_MAPPING
 
-					#elif defined( REINHARD_TONE_MAPPING )
+							finalColor = LinearToneMapping( finalColor );
 
-						finalColor = ReinhardToneMapping( finalColor );
+						#elif defined( REINHARD_TONE_MAPPING )
 
-					#elif defined( CINEON_TONE_MAPPING )
+							finalColor = ReinhardToneMapping( finalColor );
 
-						finalColor = CineonToneMapping( finalColor );
+						#elif defined( CINEON_TONE_MAPPING )
 
-					#elif defined( ACES_FILMIC_TONE_MAPPING )
+							finalColor = CineonToneMapping( finalColor );
 
-						finalColor = ACESFilmicToneMapping( finalColor );
+						#elif defined( ACES_FILMIC_TONE_MAPPING )
 
-					#elif defined( AGX_TONE_MAPPING )
+							finalColor = ACESFilmicToneMapping( finalColor );
 
-						finalColor = AgXToneMapping( finalColor );
+						#elif defined( AGX_TONE_MAPPING )
 
-					#elif defined( NEUTRAL_TONE_MAPPING )
+							finalColor = AgXToneMapping( finalColor );
 
-						finalColor = NeutralToneMapping( finalColor );
+						#elif defined( NEUTRAL_TONE_MAPPING )
 
-					#endif
+							finalColor = NeutralToneMapping( finalColor );
 
+						#endif
 
+					}
+					
 					// Gamma correction for proper display brightness
 					// finalColor = sqrt(clamp(finalColor, 0.0, 1.0));
 
 					gl_FragColor = vec4(finalColor, centerPixel.a);
 
 					// color space
-					#ifdef SRGB_TRANSFER
+					if (uUseToneMapping) {
+						#ifdef SRGB_TRANSFER
 
-						gl_FragColor = sRGBTransferOETF( gl_FragColor );
+							gl_FragColor = sRGBTransferOETF( gl_FragColor );
 
-					#endif
+						#endif
+					}
 				}
 			`
 		} );
@@ -514,6 +522,7 @@ export class AdvancedAccumulationPass extends Pass {
 		if ( params.edgeThreshold !== undefined ) displayUniforms.uEdgeThreshold.value = params.edgeThreshold;
 		if ( params.fireflyThreshold !== undefined ) accUniforms.uFireflyThreshold.value = params.fireflyThreshold;
 		if ( params.time !== undefined ) displayUniforms.uTime.value = params.time;
+		if ( params.useToneMapping !== undefined ) displayUniforms.uUseToneMapping.value = params.useToneMapping;
 
 	}
 
