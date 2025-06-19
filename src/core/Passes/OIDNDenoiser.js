@@ -47,7 +47,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.useGBuffer = this.config.useGBuffer;
 		this.quality = this.config.oidnQuality;
 		this.hdr = this.config.oidnHdr;
-		this.debugGbufferMaps = true;
+		this.debugGbufferMaps = this.config.debugGbufferMaps;
 		this.tileSize = this.config.tileSize;
 
 		// State management
