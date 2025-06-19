@@ -601,8 +601,42 @@ export class AlbedoNormalGenerator {
 
 	_getUint8Buffer( size ) {
 
-		const buffer = this._uint8Pool.pop();
-		return buffer && buffer.length >= size ? buffer : new Uint8ClampedArray( size );
+		// Look for a buffer of the exact size first, then one that's large enough
+		for ( let i = this._uint8Pool.length - 1; i >= 0; i -- ) {
+
+			const buffer = this._uint8Pool[ i ];
+			if ( buffer.length === size ) {
+
+				return this._uint8Pool.splice( i, 1 )[ 0 ]; // Remove and return exact match
+
+			}
+
+		}
+
+		// If no exact match, look for one that's large enough
+		for ( let i = this._uint8Pool.length - 1; i >= 0; i -- ) {
+
+			const buffer = this._uint8Pool[ i ];
+			if ( buffer.length >= size ) {
+
+				return this._uint8Pool.splice( i, 1 )[ 0 ]; // Remove and return oversized buffer
+
+			}
+
+		}
+
+		// Create new buffer if none available
+		return new Uint8ClampedArray( size );
+
+	}
+
+	_returnUint8Buffer( buffer ) {
+
+		if ( this._uint8Pool.length < 5 ) { // Limit pool size
+
+			this._uint8Pool.push( buffer );
+
+		}
 
 	}
 
@@ -628,8 +662,9 @@ export class AlbedoNormalGenerator {
 
 	_convertToUint8( floatBuffer ) {
 
+		const expectedSize = this.width * this.height * 4;
 		const bufferSize = floatBuffer.length;
-		const data = this._getUint8Buffer( bufferSize );
+		const data = this._getUint8Buffer( expectedSize ); // Request exact size needed
 		const rowSize = this.width * 4;
 
 		// Flip Y-axis and convert to Uint8 in one pass
@@ -644,6 +679,14 @@ export class AlbedoNormalGenerator {
 				data[ targetOffset + x ] = Math.min( 255, Math.max( 0, floatBuffer[ sourceOffset + x ] * 255 ) ) | 0;
 
 			}
+
+		}
+
+		// Ensure the returned array is exactly the right size for ImageData
+		// If the pooled buffer is larger, create a properly sized view
+		if ( data.length !== expectedSize ) {
+
+			return new Uint8ClampedArray( data.buffer, 0, expectedSize );
 
 		}
 
