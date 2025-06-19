@@ -1,5 +1,5 @@
 import { initUNetFromURL } from 'oidn-web';
-import { AlbedoNormalGenerator, renderImageDataToCanvas } from './AlbedoNormalGenerator';
+import { AlbedoNormalGenerator } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
 
 // Constants for better maintainability
@@ -15,7 +15,7 @@ const MODEL_CONFIG = {
 		useGBuffer: true,
 		oidnQuality: 'fast',
 		oidnHdr: false,
-		debugGbufferMaps: false,
+		debugGbufferMaps: true,
 		tileSize: 256
 	}
 };
@@ -47,7 +47,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.useGBuffer = this.config.useGBuffer;
 		this.quality = this.config.oidnQuality;
 		this.hdr = this.config.oidnHdr;
-		this.debugGbufferMaps = this.config.debugGbufferMaps;
+		this.debugGbufferMaps = true;
 		this.tileSize = this.config.tileSize;
 
 		// State management
@@ -60,6 +60,9 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.currentTZAUrl = null;
 		this.unet = null;
 		this.mapGenerator = null;
+
+		// For debug visualization
+		this.debugHelpers = null;
 
 		// Initialize asynchronously
 		this._initialize().catch( error => {
@@ -318,8 +321,30 @@ export class OIDNDenoiser extends EventDispatcher {
 			// Debug output if enabled
 			if ( this.debugGbufferMaps ) {
 
-				renderImageDataToCanvas( albedo, 'debugAlbedoCanvas' );
-				renderImageDataToCanvas( normal, 'debugNormalCanvas' );
+				// Create debug helpers if they don't exist
+				if ( ! this.debugHelpers ) {
+
+					this.debugHelpers = this.mapGenerator.createDebugHelpers( this.renderer );
+
+					// Add helpers to DOM
+					if ( this.debugHelpers.albedo ) document.body.appendChild( this.debugHelpers.albedo );
+					if ( this.debugHelpers.normal ) document.body.appendChild( this.debugHelpers.normal );
+
+				}
+
+				// Visualize the G-buffer maps
+				this.mapGenerator.visualizeImageDataInTarget( albedo, this.mapGenerator.albedoDebugTarget, this.renderer );
+				this.mapGenerator.visualizeImageDataInTarget( normal, this.mapGenerator.normalDebugTarget, this.renderer );
+
+				// Update the helpers
+				if ( this.debugHelpers.albedo ) this.debugHelpers.albedo.update();
+				if ( this.debugHelpers.normal ) this.debugHelpers.normal.update();
+
+			} else if ( this.debugHelpers ) {
+
+				// Hide helpers if debug is disabled
+				if ( this.debugHelpers.albedo ) this.debugHelpers.albedo.hide();
+				if ( this.debugHelpers.normal ) this.debugHelpers.normal.hide();
 
 			}
 
@@ -432,6 +457,15 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Dispose resources
 		this.mapGenerator?.dispose();
 		this.unet?.dispose();
+
+		// Dispose debug helpers
+		if ( this.debugHelpers ) {
+
+			if ( this.debugHelpers.albedo ) this.debugHelpers.albedo.dispose();
+			if ( this.debugHelpers.normal ) this.debugHelpers.normal.dispose();
+			this.debugHelpers = null;
+
+		}
 
 		// Clean up DOM
 		if ( this.output?.parentNode ) {
