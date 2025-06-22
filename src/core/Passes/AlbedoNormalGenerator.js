@@ -46,7 +46,6 @@ export class AlbedoNormalGenerator {
 
 		this._initializeSize();
 		this._createRenderTargets();
-		this._createOverrideMaterials();
 		this._precompileShaders();
 
 	}
@@ -64,19 +63,6 @@ export class AlbedoNormalGenerator {
 			throw new Error( `Invalid dimensions: ${this.width}x${this.height}. Width and height must be positive.` );
 
 		}
-
-	}
-
-	_createOverrideMaterials() {
-
-		// Create albedo override material (MeshBasicMaterial) - reusable
-		this.albedoOverrideMaterial = new MeshBasicMaterial( {
-			color: 0xffffff,
-			vertexColors: false,
-		} );
-
-		// Create normal override material (MeshNormalMaterial) - reusable
-		this.normalOverrideMaterial = new MeshNormalMaterial();
 
 	}
 
@@ -363,34 +349,13 @@ export class AlbedoNormalGenerator {
 
 		// Check cache first
 		let cacheKey = `albedo_${uuid}`;
-		if ( this._materialCache.has( cacheKey ) ) {
-
-			return this._materialCache.get( cacheKey );
-
-		}
+		if ( this._materialCache.has( cacheKey ) ) return this._materialCache.get( cacheKey );
 
 		const albedoMaterial = new MeshBasicMaterial();
-
-		// Copy properties efficiently
-		if ( originalMaterial.map ) {
-
-			albedoMaterial.map = originalMaterial.map;
-
-		}
-
 		albedoMaterial.color.copy( originalMaterial.color || this._tempColor.setHex( 0xffffff ) );
-
-		if ( originalMaterial.transparent !== undefined ) {
-
-			albedoMaterial.transparent = originalMaterial.transparent;
-
-		}
-
-		if ( originalMaterial.opacity !== undefined ) {
-
-			albedoMaterial.opacity = originalMaterial.opacity;
-
-		}
+		originalMaterial.map && ( albedoMaterial.map = originalMaterial.map );
+		originalMaterial.transparent !== undefined && ( albedoMaterial.transparent = originalMaterial.transparent );
+		originalMaterial.opacity !== undefined && ( albedoMaterial.opacity = originalMaterial.opacity );
 
 		// Cache the material
 		this._materialCache.set( cacheKey, albedoMaterial );
@@ -830,10 +795,6 @@ export class AlbedoNormalGenerator {
 		this.normalTarget?.dispose();
 		this.albedoDebugTarget?.dispose();
 		this.normalDebugTarget?.dispose();
-
-		// Dispose override materials
-		this.albedoOverrideMaterial?.dispose();
-		this.normalOverrideMaterial?.dispose();
 
 		// Dispose cached materials
 		for ( const material of this._materialCache.values() ) {
