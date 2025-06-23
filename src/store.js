@@ -453,6 +453,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			window.pathTracerApp.renderer.toneMappingExposure = value;
 			window.pathTracerApp.pathTracingPass.material.uniforms.exposure.value = value;
+			window.pathTracerApp.denoiser.mapGenerator.syncWithRenderer();
 			window.pathTracerApp.reset();
 
 		}
@@ -537,6 +538,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			value = parseInt( value );
 			window.pathTracerApp.renderer.toneMapping = value;
+			window.pathTracerApp.denoiser.mapGenerator.syncWithRenderer();
 			window.pathTracerApp.reset();
 
 		}

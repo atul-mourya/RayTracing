@@ -1024,7 +1024,6 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	// NEW: Sync with renderer's tone mapping settings
 	syncWithRenderer() {
 
 		this.setToneMappingSettings( 'albedo', {
