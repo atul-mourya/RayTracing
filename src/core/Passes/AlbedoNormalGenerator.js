@@ -4,7 +4,6 @@ import {
 	RGBAFormat,
 	FloatType,
 	MeshBasicMaterial,
-	MeshNormalMaterial,
 	ShaderMaterial,
 	Color,
 	Vector2,
@@ -13,7 +12,12 @@ import {
 	PlaneGeometry,
 	Scene,
 	OrthographicCamera,
-	BufferAttribute
+	BufferAttribute,
+	NoToneMapping,
+	LinearToneMapping,
+	ReinhardToneMapping,
+	CineonToneMapping,
+	ACESFilmicToneMapping
 } from 'three';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
 
@@ -43,6 +47,22 @@ export class AlbedoNormalGenerator {
 		// Batch processing arrays
 		this._meshBatch = [];
 		this._materialBackup = new Map();
+
+		// Tone mapping settings
+		this.toneMapping = {
+			albedo: {
+				enabled: true,
+				type: ACESFilmicToneMapping, // Use ACES for albedo as it's most cinematic
+				exposure: 1.0,
+				gamma: 2.2
+			},
+			normal: {
+				enabled: false, // Normal maps usually don't need tone mapping
+				type: LinearToneMapping,
+				exposure: 1.0,
+				gamma: 2.2
+			}
+		};
 
 		this._initializeSize();
 		this._createRenderTargets();
@@ -162,6 +182,7 @@ export class AlbedoNormalGenerator {
 			type: FloatType,
 			format: RGBAFormat,
 			depthBuffer: true,
+			colorSpace: this.renderer.outputColorSpace,
 			minFilter: LinearFilter,
 			magFilter: LinearFilter,
 			anisotropy: Math.min( 16, this.renderer.capabilities.getMaxAnisotropy() )
@@ -506,7 +527,7 @@ export class AlbedoNormalGenerator {
 		this.renderer.setRenderTarget( this.albedoTarget );
 		this.renderer.render( this.scene, this.camera );
 
-		return this._readRenderTarget( this.albedoTarget );
+		return this._readRenderTarget( this.albedoTarget, 'albedo' );
 
 	}
 
@@ -518,7 +539,7 @@ export class AlbedoNormalGenerator {
 		this.renderer.setRenderTarget( this.normalTarget );
 		this.renderer.render( this.scene, this.camera );
 
-		return this._readRenderTarget( this.normalTarget );
+		return this._readRenderTarget( this.normalTarget, 'normal' );
 
 	}
 
@@ -605,7 +626,47 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	_readRenderTarget( renderTarget ) {
+	_applyToneMapping( value, type, exposure = 1.0 ) {
+
+		// Apply exposure first
+		const exposed = value * exposure;
+
+		switch ( type ) {
+
+			case NoToneMapping:
+				return exposed;
+
+			case LinearToneMapping:
+				return exposed;
+
+			case ReinhardToneMapping:
+				return exposed / ( 1.0 + exposed );
+
+			case CineonToneMapping:
+				// Cineon tone mapping
+				return Math.max( 0.0, exposed - 0.004 ) / ( exposed * ( 6.2 - exposed ) + 0.004 );
+
+			case ACESFilmicToneMapping:
+			default:
+				// ACES Filmic tone mapping
+				const a = 2.51;
+				const b = 0.03;
+				const c = 2.43;
+				const d = 0.59;
+				const e = 0.14;
+				return Math.max( 0.0, ( exposed * ( a * exposed + b ) ) / ( exposed * ( c * exposed + d ) + e ) );
+
+		}
+
+	}
+
+	_applyGamma( value, gamma ) {
+
+		return Math.pow( Math.max( 0.0, value ), 1.0 / gamma );
+
+	}
+
+	_readRenderTarget( renderTarget, mapType ) {
 
 		const gl = this.renderer.getContext();
 		const bufferSize = this.width * this.height * 4;
@@ -616,7 +677,7 @@ export class AlbedoNormalGenerator {
 		// Read pixels from the render target
 		gl.readPixels( 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, floatBuffer );
 
-		const uint8Data = this._convertToUint8( floatBuffer );
+		const uint8Data = this._convertToUint8( floatBuffer, mapType );
 
 		// Return buffer to pool
 		this._returnFloatBuffer( floatBuffer );
@@ -625,23 +686,45 @@ export class AlbedoNormalGenerator {
 
 	}
 
-	_convertToUint8( floatBuffer ) {
+	_convertToUint8( floatBuffer, mapType ) {
 
 		const expectedSize = this.width * this.height * 4;
 		const bufferSize = floatBuffer.length;
 		const data = this._getUint8Buffer( expectedSize ); // Request exact size needed
 		const rowSize = this.width * 4;
 
-		// Flip Y-axis and convert to Uint8 in one pass
+		const toneMappingSettings = this.toneMapping[ mapType ] || this.toneMapping.albedo;
+
+		// Flip Y-axis and convert to Uint8 with tone mapping in one pass
 		for ( let y = 0; y < this.height; y ++ ) {
 
 			const flippedY = this.height - y - 1;
 			const sourceOffset = y * rowSize;
 			const targetOffset = flippedY * rowSize;
 
-			for ( let x = 0; x < rowSize; x ++ ) {
+			for ( let x = 0; x < rowSize; x += 4 ) {
 
-				data[ targetOffset + x ] = Math.min( 255, Math.max( 0, floatBuffer[ sourceOffset + x ] * 255 ) ) | 0;
+				// Process RGB channels (skip alpha for tone mapping)
+				for ( let c = 0; c < 3; c ++ ) {
+
+					let value = floatBuffer[ sourceOffset + x + c ];
+
+					// Apply tone mapping if enabled
+					if ( toneMappingSettings.enabled ) {
+
+						value = this._applyToneMapping( value, toneMappingSettings.type, toneMappingSettings.exposure );
+						value = this._applyGamma( value, toneMappingSettings.gamma );
+
+					}
+
+					// Convert to 0-255 range and clamp
+					data[ targetOffset + x + c ] = Math.min( 255, Math.max( 0, value * 255 ) ) | 0;
+
+				}
+
+				// Handle alpha channel (no tone mapping)
+				const alphaValue = floatBuffer[ sourceOffset + x + 3 ];
+				data[ targetOffset + x + 3 ] = Math.min( 255, Math.max( 0, alphaValue * 255 ) ) | 0;
 
 			}
 
@@ -656,6 +739,34 @@ export class AlbedoNormalGenerator {
 		}
 
 		return data;
+
+	}
+
+	setToneMappingSettings( mapType, settings ) {
+
+		if ( ! this.toneMapping[ mapType ] ) {
+
+			this.toneMapping[ mapType ] = {};
+
+		}
+
+		Object.assign( this.toneMapping[ mapType ], settings );
+
+	}
+
+	getToneMappingSettings( mapType ) {
+
+		return { ...this.toneMapping[ mapType ] };
+
+	}
+
+	// To be called after renderer settings change
+	syncWithRenderer() {
+
+		this.setToneMappingSettings( 'albedo', {
+			type: this.renderer.toneMapping,
+			exposure: this.renderer.toneMappingExposure || 1.0
+		} );
 
 	}
 
