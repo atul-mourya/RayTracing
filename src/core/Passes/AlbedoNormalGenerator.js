@@ -48,7 +48,15 @@ export class AlbedoNormalGenerator {
 		this._meshBatch = [];
 		this._materialBackup = new Map();
 
-		// Tone mapping settings
+		// OIDN configuration
+		this.oidnConfig = {
+			enabled: false, // When true, outputs raw linear data for OIDN
+			normalSpace: 'view', // 'world' or 'view' - view space is more stable for display
+			normalRange: [ 0, 1 ], // [0,1] for display, [-1,1] for OIDN processing
+			preserveFloatPrecision: true // Keep float32 precision for OIDN
+		};
+
+		// Tone mapping settings (only applied when not in OIDN mode)
 		this.toneMapping = {
 			albedo: {
 				enabled: true,
@@ -110,48 +118,86 @@ export class AlbedoNormalGenerator {
 		return new ShaderMaterial( {
 			uniforms: {
 				normalMap: { value: null },
-				normalScale: { value: new Vector2( 1, 1 ) }
+				normalScale: { value: new Vector2( 1, 1 ) },
+				// OIDN configuration uniforms
+				normalSpace: { value: 1 }, // 0 = world, 1 = view (view space is more stable)
+				normalRange: { value: 1 } // 0 = [-1,1], 1 = [0,1] (start with standard encoding)
 			},
 			vertexShader: `
 				${hasTangents ? 'attribute vec4 tangent;' : ''}
 				
-				varying vec3 vNormal;
+				varying vec3 vViewNormal;
+				varying vec3 vWorldNormal;
 				varying vec2 vUv;
+				varying vec3 vViewPosition;
 				${hasTangents ? `
-					varying vec3 vTangent;
-					varying vec3 vBitangent;
+					varying vec3 vViewTangent;
+					varying vec3 vViewBitangent;
 				` : ''}
 				
 				void main() {
 					vUv = uv;
-					vNormal = normalize(normalMatrix * normal);
+					
+					// View space normal (camera-relative, more stable)
+					vViewNormal = normalize(normalMatrix * normal);
+					
+					// World normal for OIDN when needed
+					vWorldNormal = normalize(mat3(modelMatrix) * normal);
+					
+					// View space position for derivatives
+					vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+					vViewPosition = mvPosition.xyz;
 					
 					${hasTangents ? `
-						vTangent = normalize(normalMatrix * tangent.xyz);
-						vBitangent = normalize(cross(vNormal, vTangent) * tangent.w);
+						// View space tangent frame
+						vViewTangent = normalize(normalMatrix * tangent.xyz);
+						vViewBitangent = normalize(cross(vViewNormal, vViewTangent) * tangent.w);
 					` : ''}
 					
-					gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+					gl_Position = projectionMatrix * mvPosition;
 				}
 			`,
 			fragmentShader: `
 				precision highp float;
 				
-				varying vec3 vNormal;
+				varying vec3 vViewNormal;
+				varying vec3 vWorldNormal;
 				varying vec2 vUv;
+				varying vec3 vViewPosition;
 				${hasTangents ? `
-					varying vec3 vTangent;
-					varying vec3 vBitangent;
+					varying vec3 vViewTangent;
+					varying vec3 vViewBitangent;
 				` : ''}
 				
 				${hasNormalMap ? 'uniform sampler2D normalMap;' : ''}
 				${hasNormalMap ? 'uniform vec2 normalScale;' : ''}
+				uniform int normalSpace; // 0 = world, 1 = view
+				uniform int normalRange; // 0 = [-1,1], 1 = [0,1]
+				
+				${! hasTangents && hasNormalMap ? `
+				// Compute tangent frame from position derivatives when tangents missing
+				vec3 computeTangentFrame(vec3 normal, vec3 pos, vec2 uv) {
+					vec3 dPdx = dFdx(pos);
+					vec3 dPdy = dFdy(pos);
+					vec2 dUVdx = dFdx(uv);
+					vec2 dUVdy = dFdy(uv);
+					
+					vec3 N = normalize(normal);
+					vec3 T = normalize(dPdx * dUVdy.y - dPdy * dUVdx.y);
+					vec3 B = normalize(cross(N, T));
+					
+					return T;
+				}
+				` : ''}
 				
 				void main() {
-					vec3 normal = normalize(vNormal);
+					vec3 normal;
 					
-					${hasNormalMap && hasTangents ? `
-						// Apply normal mapping using tangent space
+					// Start with base normal in view space (more stable)
+					normal = normalize(vViewNormal);
+					
+					${hasNormalMap ? `
+						// Sample normal map
 						vec3 normalMapSample = texture2D(normalMap, vUv).xyz;
 						vec3 normalMapVector = normalize(normalMapSample * 2.0 - 1.0);
 						
@@ -159,17 +205,43 @@ export class AlbedoNormalGenerator {
 						normalMapVector.xy *= normalScale;
 						normalMapVector = normalize(normalMapVector);
 						
-						// Build TBN matrix and transform to world space
-						vec3 T = normalize(vTangent);
-						vec3 B = normalize(vBitangent);  
-						vec3 N = normalize(vNormal);
-						mat3 TBN = mat3(T, B, N);
+						// Build tangent frame
+						${hasTangents ? `
+							// Use provided tangents
+							vec3 T = normalize(vViewTangent);
+							vec3 B = normalize(vViewBitangent);
+							vec3 N = normalize(vViewNormal);
+						` : `
+							// Compute tangent frame from derivatives
+							vec3 T = computeTangentFrame(vViewNormal, vViewPosition, vUv);
+							vec3 N = normalize(vViewNormal);
+							vec3 B = normalize(cross(N, T));
+						`}
 						
+						// Ensure orthogonal TBN
+						T = normalize(T - dot(T, N) * N);
+						B = normalize(cross(N, T));
+						
+						mat3 TBN = mat3(T, B, N);
 						normal = normalize(TBN * normalMapVector);
 					` : ''}
 					
-					// Output normal in [0,1] range (standard normal map format)
-					gl_FragColor = vec4(normal * 0.5 + 0.5, 1.0);
+					// Convert to world space if requested for OIDN
+					if (normalSpace == 0) {
+						// Transform view space normal to world space
+						// This requires the inverse view matrix rotation
+						mat3 viewToWorld = transpose(mat3(viewMatrix));
+						normal = normalize(viewToWorld * normal);
+					}
+					
+					// Output in the requested range
+					if (normalRange == 0) {
+						// [-1,1] range for OIDN
+						gl_FragColor = vec4(normal, 1.0);
+					} else {
+						// [0,1] range for standard normal maps
+						gl_FragColor = vec4(normal * 0.5 + 0.5, 1.0);
+					}
 				}
 			`
 		} );
@@ -178,22 +250,29 @@ export class AlbedoNormalGenerator {
 
 	_createRenderTargets() {
 
+		// Base target options optimized for OIDN
 		const targetOptions = {
-			type: FloatType,
+			type: FloatType, // Float32 is optimal for OIDN
 			format: RGBAFormat,
 			depthBuffer: true,
-			colorSpace: this.renderer.outputColorSpace,
+			stencilBuffer: false, // Not needed for aux buffers
+			colorSpace: 'srgb-linear', // Linear color space for OIDN
 			minFilter: LinearFilter,
 			magFilter: LinearFilter,
-			anisotropy: Math.min( 16, this.renderer.capabilities.getMaxAnisotropy() )
+			generateMipmaps: false, // Not needed for aux buffers
+			anisotropy: 1 // Not needed for aux buffers
 		};
 
 		this.albedoTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 		this.normalTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 
 		// Configure textures with names for debugging
-		this.albedoTarget.texture.name = 'albedo';
-		this.normalTarget.texture.name = 'normal';
+		this.albedoTarget.texture.name = 'albedo-oidn';
+		this.normalTarget.texture.name = 'normal-oidn';
+
+		// Set proper texture parameters for OIDN
+		this.albedoTarget.texture.flipY = false; // OIDN expects non-flipped textures
+		this.normalTarget.texture.flipY = false;
 
 	}
 
@@ -389,7 +468,8 @@ export class AlbedoNormalGenerator {
 	_createNormalMaterial( originalMaterial, meshData ) {
 
 		const { uuid, hasTangents, hasNormalMap } = meshData;
-		const cacheKey = `normal_${uuid}_${hasTangents ? 'T' : ''}_${hasNormalMap ? 'N' : ''}`;
+		const oidnKey = this.oidnConfig.enabled ? '_oidn' : '';
+		const cacheKey = `normal_${uuid}_${hasTangents ? 'T' : ''}_${hasNormalMap ? 'N' : ''}${oidnKey}`;
 
 		// Check cache first
 		if ( this._materialCache.has( cacheKey ) ) {
@@ -403,6 +483,9 @@ export class AlbedoNormalGenerator {
 				cachedMaterial.uniforms.normalScale.value.copy( originalMaterial.normalScale || this._tempVector2 );
 
 			}
+
+			// Update OIDN configuration
+			this._updateNormalMaterialUniforms( cachedMaterial );
 
 			return cachedMaterial;
 
@@ -425,10 +508,30 @@ export class AlbedoNormalGenerator {
 
 		normalMaterial.side = originalMaterial.side || 0;
 
+		// Configure for OIDN
+		this._updateNormalMaterialUniforms( normalMaterial );
+
 		// Cache the material
 		this._materialCache.set( cacheKey, normalMaterial );
 
 		return normalMaterial;
+
+	}
+
+	// NEW: Update normal material uniforms based on OIDN configuration
+	_updateNormalMaterialUniforms( material ) {
+
+		if ( material.uniforms.normalSpace ) {
+
+			material.uniforms.normalSpace.value = this.oidnConfig.normalSpace === 'world' ? 0 : 1;
+
+		}
+
+		if ( material.uniforms.normalRange ) {
+
+			material.uniforms.normalRange.value = this.oidnConfig.normalRange[ 0 ] === - 1 ? 0 : 1;
+
+		}
 
 	}
 
@@ -626,6 +729,7 @@ export class AlbedoNormalGenerator {
 
 	}
 
+	// NEW: Tone mapping functions
 	_applyToneMapping( value, type, exposure = 1.0 ) {
 
 		// Apply exposure first
@@ -660,6 +764,7 @@ export class AlbedoNormalGenerator {
 
 	}
 
+	// NEW: Gamma correction
 	_applyGamma( value, gamma ) {
 
 		return Math.pow( Math.max( 0.0, value ), 1.0 / gamma );
@@ -693,9 +798,13 @@ export class AlbedoNormalGenerator {
 		const data = this._getUint8Buffer( expectedSize ); // Request exact size needed
 		const rowSize = this.width * 4;
 
+		// Get tone mapping settings for this map type
 		const toneMappingSettings = this.toneMapping[ mapType ] || this.toneMapping.albedo;
 
-		// Flip Y-axis and convert to Uint8 with tone mapping in one pass
+		// Skip tone mapping entirely if in OIDN mode
+		const applyToneMapping = ! this.oidnConfig.enabled && toneMappingSettings.enabled;
+
+		// Flip Y-axis and convert to Uint8 with optional tone mapping in one pass
 		for ( let y = 0; y < this.height; y ++ ) {
 
 			const flippedY = this.height - y - 1;
@@ -709,16 +818,28 @@ export class AlbedoNormalGenerator {
 
 					let value = floatBuffer[ sourceOffset + x + c ];
 
-					// Apply tone mapping if enabled
-					if ( toneMappingSettings.enabled ) {
+					// Apply tone mapping only if not in OIDN mode
+					if ( applyToneMapping ) {
 
 						value = this._applyToneMapping( value, toneMappingSettings.type, toneMappingSettings.exposure );
 						value = this._applyGamma( value, toneMappingSettings.gamma );
 
 					}
 
-					// Convert to 0-255 range and clamp
-					data[ targetOffset + x + c ] = Math.min( 255, Math.max( 0, value * 255 ) ) | 0;
+					// For OIDN mode, clamp to reasonable range but allow HDR values
+					if ( this.oidnConfig.enabled ) {
+
+						// Clamp to prevent extreme values but allow HDR
+						value = Math.max( - 10.0, Math.min( 10.0, value ) );
+						// Convert to 0-255 range with proper scaling for HDR
+						data[ targetOffset + x + c ] = Math.min( 255, Math.max( 0, ( value + 1.0 ) * 127.5 ) ) | 0;
+
+					} else {
+
+						// Standard 0-255 conversion
+						data[ targetOffset + x + c ] = Math.min( 255, Math.max( 0, value * 255 ) ) | 0;
+
+					}
 
 				}
 
@@ -742,6 +863,148 @@ export class AlbedoNormalGenerator {
 
 	}
 
+	// NEW: Get raw float data for OIDN (preserves full precision)
+	_readRenderTargetFloat( renderTarget ) {
+
+		const gl = this.renderer.getContext();
+		const bufferSize = this.width * this.height * 4;
+
+		// Get buffer from pool
+		const floatBuffer = this._getFloatBuffer( bufferSize );
+
+		// Read pixels from the render target
+		gl.readPixels( 0, 0, this.width, this.height, gl.RGBA, gl.FLOAT, floatBuffer );
+
+		// For OIDN, we want to preserve the raw float data
+		// Create a copy since we'll return the buffer to the pool
+		const result = new Float32Array( floatBuffer );
+
+		// Return buffer to pool
+		this._returnFloatBuffer( floatBuffer );
+
+		return {
+			data: result,
+			width: this.width,
+			height: this.height,
+			channels: 4
+		};
+
+	}
+
+	// NEW: Generate maps optimized for OIDN
+	generateMapsForOIDN() {
+
+		// Temporarily enable OIDN mode
+		const wasOIDNEnabled = this.oidnConfig.enabled;
+		this.oidnConfig.enabled = true;
+
+		const currentRenderTarget = this.renderer.getRenderTarget();
+
+		try {
+
+			const albedoData = this._renderAlbedoFloat();
+			const normalData = this._renderNormalFloat();
+
+			return {
+				albedo: albedoData,
+				normal: normalData
+			};
+
+		} finally {
+
+			// Restore OIDN mode and cleanup
+			this.oidnConfig.enabled = wasOIDNEnabled;
+			this._restoreOriginalMaterials();
+			this.renderer.setRenderTarget( currentRenderTarget );
+
+		}
+
+	}
+
+	_renderAlbedoFloat() {
+
+		this._prepareMaterialsForAlbedo();
+
+		// Render to albedo target
+		this.renderer.setRenderTarget( this.albedoTarget );
+		this.renderer.render( this.scene, this.camera );
+
+		return this._readRenderTargetFloat( this.albedoTarget );
+
+	}
+
+	_renderNormalFloat() {
+
+		this._prepareMaterialsForNormal();
+
+		// Render to normal target
+		this.renderer.setRenderTarget( this.normalTarget );
+		this.renderer.render( this.scene, this.camera );
+
+		return this._readRenderTargetFloat( this.normalTarget );
+
+	}
+
+	// NEW: Configure OIDN settings
+	setOIDNConfig( config ) {
+
+		Object.assign( this.oidnConfig, config );
+
+		// Clear material cache when OIDN config changes
+		// since it affects shader uniforms
+		this._materialCache.clear();
+
+	}
+
+	// NEW: Get current OIDN configuration
+	getOIDNConfig() {
+
+		return { ...this.oidnConfig };
+
+	}
+
+	setModeConfig( mode ) {
+
+		switch ( mode ) {
+
+			case 'display':
+				this.setOIDNConfig( {
+					enabled: false,
+					normalSpace: 'view',
+					normalRange: [ 0, 1 ],
+					preserveFloatPrecision: false
+				} );
+				this.setToneMappingSettings( 'albedo', { enabled: true } );
+				break;
+
+			case 'oidn':
+				this.setOIDNConfig( {
+					enabled: true,
+					normalSpace: 'world',
+					normalRange: [ - 1, 1 ],
+					preserveFloatPrecision: true
+				} );
+				this.setToneMappingSettings( 'albedo', { enabled: false } );
+				break;
+
+			case 'debug':
+				this.setOIDNConfig( {
+					enabled: false,
+					normalSpace: 'view',
+					normalRange: [ 0, 1 ],
+					preserveFloatPrecision: false
+				} );
+				this.setToneMappingSettings( 'albedo', { enabled: false } );
+				break;
+
+			default:
+				console.warn( `Unknown mode: ${mode}. Use 'display', 'oidn', or 'debug'` );
+
+		}
+
+	}
+
+	// NEW: Configure tone mapping settings
 	setToneMappingSettings( mapType, settings ) {
 
 		if ( ! this.toneMapping[ mapType ] ) {
@@ -754,13 +1017,14 @@ export class AlbedoNormalGenerator {
 
 	}
 
+	// NEW: Get current tone mapping settings
 	getToneMappingSettings( mapType ) {
 
 		return { ...this.toneMapping[ mapType ] };
 
 	}
 
-	// To be called after renderer settings change
+	// NEW: Sync with renderer's tone mapping settings
 	syncWithRenderer() {
 
 		this.setToneMappingSettings( 'albedo', {
@@ -897,6 +1161,22 @@ export class AlbedoNormalGenerator {
 
 	}
 
+	// NEW: Optimized method to check OIDN readiness
+	isOIDNReady() {
+
+		return {
+			hasFloatSupport: this.renderer.capabilities.isWebGL2 || this.renderer.extensions.get( 'OES_texture_float' ),
+			hasLinearFiltering: this.renderer.extensions.get( 'OES_texture_float_linear' ),
+			recommendedConfig: {
+				enabled: true,
+				normalSpace: 'world',
+				normalRange: [ - 1, 1 ],
+				preserveFloatPrecision: true
+			}
+		};
+
+	}
+
 	dispose() {
 
 		this._restoreOriginalMaterials();
@@ -945,4 +1225,3 @@ export class AlbedoNormalGenerator {
 	}
 
 }
-
