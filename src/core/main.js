@@ -118,6 +118,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Setup controls with interaction optimization
 		this.controls = new OrbitControls( this.camera, this.canvas );
+		// this.controls.zoomToCursor = true;
 		this.controls.addEventListener( 'change', () => {
 
 			this.pathTracingPass && this.pathTracingPass.enterInteractionMode();
@@ -263,7 +264,6 @@ class PathTracerApp extends EventDispatcher {
 		const renderTarget = new WebGLRenderTarget( this.width, this.height, {
 			type: FloatType,
 			format: RGBAFormat,
-			depthBuffer: false,
 		} );
 
 		this.composer = new EffectComposer( this.renderer, renderTarget );
