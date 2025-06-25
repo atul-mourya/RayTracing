@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { DEFAULT_STATE, CAMERA_PRESETS } from '@/Constants';
 
-const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
+const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 
 	if ( typeof setter !== 'function' ) {
 
@@ -10,10 +10,10 @@ const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
 
 	}
 
-	setter( value );
+	setter( val );
 	if ( window.pathTracerApp ) {
 
-		appUpdater( value );
+		appUpdater( val );
 		needsReset && window.pathTracerApp.reset();
 
 	}
@@ -21,50 +21,27 @@ const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
 };
 
 // Main store
-const useStore = create( ( set ) => ( {
+const useStore = create( set => ( {
 	selectedObject: null,
-	setSelectedObject: ( object ) => set( { selectedObject: object } ),
+	setSelectedObject: obj => set( { selectedObject: obj } ),
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
-	setLoading: ( loadingState ) => set( ( state ) => ( { loading: { ...state.loading, ...loadingState } } ) ),
+	setLoading: state => set( s => ( { loading: { ...s.loading, ...state } } ) ),
 	stats: { samples: 0, timeElapsed: 0 },
-	setStats: ( stats ) => set( { stats } ),
+	setStats: stats => set( { stats } ),
 	isDenoising: false,
-	setIsDenoising: ( value ) => set( { isDenoising: value } ),
+	setIsDenoising: val => set( { isDenoising: val } ),
 	isRenderComplete: false,
-	setIsRenderComplete: ( value ) => set( { isRenderComplete: value } ),
+	setIsRenderComplete: val => set( { isRenderComplete: val } ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
-	appMode: 'interactive', // 'interactive', 'final' or 'results'
-	setAppMode: ( mode ) => set( { appMode: mode } ),
+	appMode: 'interactive',
+	setAppMode: mode => set( { appMode: mode } ),
 	layers: [],
-	setLayers: ( layers ) => set( { layers } ),
+	setLayers: layers => set( { layers } ),
 	selectedResult: null,
-	setSelectedResult: ( imageData ) => set( { selectedResult: imageData } ),
-	imageProcessing: {
-		brightness: 0,
-		contrast: 0,
-		saturation: 0,
-		hue: 0,
-		exposure: 0,
-		gamma: 0,
-	},
-	setImageProcessingParam: ( param, value ) =>
-		set( state => ( {
-			imageProcessing: {
-				...state.imageProcessing,
-				[ param ]: value
-			}
-		} ) ),
-	resetImageProcessing: () =>
-		set( {
-			imageProcessing: {
-				brightness: 0,
-				contrast: 0,
-				saturation: 0,
-				hue: 0,
-				exposure: 0,
-				gamma: 2.2,
-			}
-		} ),
+	setSelectedResult: imageData => set( { selectedResult: imageData } ),
+	imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 0 },
+	setImageProcessingParam: ( param, val ) => set( s => ( { imageProcessing: { ...s.imageProcessing, [ param ]: val } } ) ),
+	resetImageProcessing: () => set( { imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 2.2 } } ),
 } ) );
 
 // Assets store
@@ -74,75 +51,47 @@ const useAssetsStore = create( ( set, get ) => ( {
 	materials: [],
 	selectedMaterial: null,
 	selectedEnvironmentIndex: null,
-	setMaterials: ( materials ) => set( { materials } ),
-	setSelectedMaterial: ( materialIndex ) => set( { selectedMaterial: materialIndex } ),
-	setActiveTab: ( tab ) => set( { activeTab: tab } ),
-	setModel: ( model ) => set( { model } ),
-	setEnvironment: ( env ) => {
+	setMaterials: materials => set( { materials } ),
+	setSelectedMaterial: idx => set( { selectedMaterial: idx } ),
+	setActiveTab: tab => set( { activeTab: tab } ),
+	setModel: model => set( { model } ),
+	setEnvironment: env => set( s => {
 
-		// When setting environment, also update the selected index if we have environments
-		set( ( state ) => {
+		const envStore = useEnvironmentStore.getState();
+		const envs = envStore.environments || [];
+		const idx = envs.findIndex( e => e.id === env.id );
+		return { environment: env, selectedEnvironmentIndex: idx >= 0 ? idx : null };
 
-			const environmentStore = useEnvironmentStore.getState();
-			const environments = environmentStore.environments || [];
-			const index = environments.findIndex( e => e.id === env.id );
-
-			return {
-				environment: env,
-				selectedEnvironmentIndex: index >= 0 ? index : null
-			};
-
-		} );
-
-	},
-	setSelectedEnvironmentIndex: ( index ) => set( { selectedEnvironmentIndex: index } ),
-	setDebugModel: ( model ) => set( { debugModel: model } ),
+	} ),
+	setSelectedEnvironmentIndex: idx => set( { selectedEnvironmentIndex: idx } ),
+	setDebugModel: model => set( { debugModel: model } ),
 } ) );
 
 // Environment store
-const useEnvironmentStore = create( ( set ) => ( {
+const useEnvironmentStore = create( set => ( {
 	apiData: null,
 	environments: [],
 	isLoading: true,
 	error: null,
 	selectedResolution: '1k',
-	setApiData: ( data ) => set( { apiData: data } ),
-	setEnvironments: ( environments ) => set( { environments } ),
-	setIsLoading: ( isLoading ) => set( { isLoading } ),
-	setError: ( error ) => set( { error } ),
-	setSelectedResolution: ( resolution ) => set( { selectedResolution: resolution } ),
+	setApiData: data => set( { apiData: data } ),
+	setEnvironments: envs => set( { environments: envs } ),
+	setIsLoading: loading => set( { isLoading: loading } ),
+	setError: err => set( { error: err } ),
+	setSelectedResolution: res => set( { selectedResolution: res } ),
 } ) );
 
 // Path tracer store with handlers
-const FINAL_RENDER_STATE = {
-	maxSamples: 30,
-	bounces: 20,
-	samplesPerPixel: 1,
-	renderMode: 1,
-	tiles: 3,
-	tilesHelper: false,
-	resolution: 3,
-	enableOIDN: true,
-	oidnQuality: 'balance',
-	oidnHDR: false,
-	useGBuffer: true,
-	interactionModeEnabled: false,
-	enableASVGF: false,
+const FINAL_STATE = {
+	maxSamples: 30, bounces: 20, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
+	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHDR: false, useGBuffer: true,
+	interactionModeEnabled: false, enableASVGF: false,
 };
 
-const INTERACTIVE_RENDER_STATE = {
-	bounces: 3,
-	samplesPerPixel: 1,
-	renderMode: 0,
-	tiles: 3,
-	tilesHelper: false,
-	resolution: 1,
-	enableOIDN: false,
-	oidnQuality: 'fast',
-	oidnHDR: false,
-	useGBuffer: true,
-	interactionModeEnabled: true,
-	enableASVGF: false,
+const INTERACTIVE_STATE = {
+	bounces: 3, samplesPerPixel: 1, renderMode: 0, tiles: 3, tilesHelper: false, resolution: 1,
+	enableOIDN: false, oidnQuality: 'fast', oidnHDR: false, useGBuffer: true,
+	interactionModeEnabled: true, enableASVGF: false,
 };
 
 const usePathTracerStore = create( ( set, get ) => ( {
@@ -151,414 +100,398 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
 	performanceModeAdaptive: 'medium',
 
-	// State setters
-	setMaxSamples: ( value ) => set( { maxSamples: value } ),
-	setEnablePathTracer: ( value ) => set( { enablePathTracer: value } ),
-	setEnableAccumulation: ( value ) => set( { enableAccumulation: value } ),
-	setBounces: ( value ) => set( { bounces: value } ),
-	setSamplesPerPixel: ( value ) => set( { samplesPerPixel: value } ),
-	setSamplingTechnique: ( value ) => set( { samplingTechnique: value } ),
-	setAdaptiveSampling: ( value ) => set( { adaptiveSampling: value } ),
-	setPerformanceModeAdaptive: ( value ) => set( { performanceModeAdaptive: value } ),
-	setAdaptiveSamplingMin: ( value ) => set( { adaptiveSamplingMin: value } ),
-	setAdaptiveSamplingMax: ( value ) => set( { adaptiveSamplingMax: value } ),
-	setAdaptiveSamplingVarianceThreshold: ( value ) => set( { adaptiveSamplingVarianceThreshold: value } ),
-	setTemporalVarianceThreshold: ( value ) => set( { temporalVarianceThreshold: value } ),
-	setTemporalVarianceWeight: ( value ) => set( { temporalVarianceWeight: value } ),
-	setEnableEarlyTermination: ( value ) => set( { enableEarlyTermination: value } ),
-	setEarlyTerminationThreshold: ( value ) => set( { earlyTerminationThreshold: value } ),
-	setShowAdaptiveSamplingHelper: ( value ) => set( { showAdaptiveSamplingHelper: value } ),
-	setFireflyThreshold: ( value ) => set( { fireflyThreshold: value } ),
-	setRenderMode: ( value ) => set( { renderMode: value } ),
-	setTiles: ( value ) => set( { tiles: value } ),
-	setTilesHelper: ( value ) => set( { tilesHelper: value } ),
-	setResolution: ( value ) => set( { resolution: value } ),
-	setEnableOIDN: ( value ) => set( { enableOIDN: value } ),
-	setUseGBuffer: ( value ) => set( { useGBuffer: value } ),
-	setEnableRealtimeDenoiser: ( value ) => set( { enableRealtimeDenoiser: value } ),
-	setDenoiserBlurStrength: ( value ) => set( { denoiserBlurStrength: value } ),
-	setDenoiserBlurRadius: ( value ) => set( { denoiserBlurRadius: value } ),
-	setDenoiserDetailPreservation: ( value ) => set( { denoiserDetailPreservation: value } ),
-	setDebugMode: ( value ) => set( { debugMode: value } ),
-	setDebugThreshold: ( value ) => set( { debugThreshold: value } ),
-	setEnableBloom: ( value ) => set( { enableBloom: value } ),
-	setBloomThreshold: ( value ) => set( { bloomThreshold: value } ),
-	setBloomStrength: ( value ) => set( { bloomStrength: value } ),
-	setBloomRadius: ( value ) => set( { bloomRadius: value } ),
-	setOidnQuality: ( value ) => set( { oidnQuality: value } ),
-	setOidnHdr: ( value ) => set( { oidnHdr: value } ),
-	setExposure: ( value ) => set( { exposure: value } ),
-	setEnableEnvironment: ( value ) => set( { enableEnvironment: value } ),
-	setUseImportanceSampledEnvironment: ( value ) => set( { useImportanceSampledEnvironment: value } ),
-	setShowBackground: ( value ) => set( { showBackground: value } ),
-	setBackgroundIntensity: ( value ) => set( { backgroundIntensity: value } ),
-	setEnvironmentIntensity: ( value ) => set( { environmentIntensity: value } ),
-	setEnvironmentRotation: ( value ) => set( { environmentRotation: value } ),
-	setGIIntensity: ( value ) => set( { GIIntensity: value } ),
-	setToneMapping: ( value ) => set( { toneMapping: value } ),
-	setInteractionModeEnabled: ( value ) => set( { interactionModeEnabled: value } ),
-	setEnableASVGF: ( value ) => set( { enableASVGF: value } ),
-	setAsvgfTemporalAlpha: ( value ) => set( { asvgfTemporalAlpha: value } ),
-	setAsvgfVarianceClip: ( value ) => set( { asvgfVarianceClip: value } ),
-	setAsvgfMomentClip: ( value ) => set( { asvgfMomentClip: value } ),
-	setAsvgfPhiColor: ( value ) => set( { asvgfPhiColor: value } ),
-	setAsvgfPhiNormal: ( value ) => set( { asvgfPhiNormal: value } ),
-	setAsvgfPhiDepth: ( value ) => set( { asvgfPhiDepth: value } ),
-	setAsvgfPhiLuminance: ( value ) => set( { asvgfPhiLuminance: value } ),
-	setAsvgfAtrousIterations: ( value ) => set( { asvgfAtrousIterations: value } ),
-	setAsvgfFilterSize: ( value ) => set( { asvgfFilterSize: value } ),
+	// Simple setters
+	setMaxSamples: val => set( { maxSamples: val } ),
+	setEnablePathTracer: val => set( { enablePathTracer: val } ),
+	setEnableAccumulation: val => set( { enableAccumulation: val } ),
+	setBounces: val => set( { bounces: val } ),
+	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
+	setSamplingTechnique: val => set( { samplingTechnique: val } ),
+	setAdaptiveSampling: val => set( { adaptiveSampling: val } ),
+	setPerformanceModeAdaptive: val => set( { performanceModeAdaptive: val } ),
+	setAdaptiveSamplingMin: val => set( { adaptiveSamplingMin: val } ),
+	setAdaptiveSamplingMax: val => set( { adaptiveSamplingMax: val } ),
+	setAdaptiveSamplingVarianceThreshold: val => set( { adaptiveSamplingVarianceThreshold: val } ),
+	setTemporalVarianceThreshold: val => set( { temporalVarianceThreshold: val } ),
+	setTemporalVarianceWeight: val => set( { temporalVarianceWeight: val } ),
+	setEnableEarlyTermination: val => set( { enableEarlyTermination: val } ),
+	setEarlyTerminationThreshold: val => set( { earlyTerminationThreshold: val } ),
+	setShowAdaptiveSamplingHelper: val => set( { showAdaptiveSamplingHelper: val } ),
+	setFireflyThreshold: val => set( { fireflyThreshold: val } ),
+	setRenderMode: val => set( { renderMode: val } ),
+	setTiles: val => set( { tiles: val } ),
+	setTilesHelper: val => set( { tilesHelper: val } ),
+	setResolution: val => set( { resolution: val } ),
+	setEnableOIDN: val => set( { enableOIDN: val } ),
+	setUseGBuffer: val => set( { useGBuffer: val } ),
+	setEnableRealtimeDenoiser: val => set( { enableRealtimeDenoiser: val } ),
+	setDenoiserBlurStrength: val => set( { denoiserBlurStrength: val } ),
+	setDenoiserBlurRadius: val => set( { denoiserBlurRadius: val } ),
+	setDenoiserDetailPreservation: val => set( { denoiserDetailPreservation: val } ),
+	setDebugMode: val => set( { debugMode: val } ),
+	setDebugThreshold: val => set( { debugThreshold: val } ),
+	setEnableBloom: val => set( { enableBloom: val } ),
+	setBloomThreshold: val => set( { bloomThreshold: val } ),
+	setBloomStrength: val => set( { bloomStrength: val } ),
+	setBloomRadius: val => set( { bloomRadius: val } ),
+	setOidnQuality: val => set( { oidnQuality: val } ),
+	setOidnHdr: val => set( { oidnHdr: val } ),
+	setExposure: val => set( { exposure: val } ),
+	setEnableEnvironment: val => set( { enableEnvironment: val } ),
+	setUseImportanceSampledEnvironment: val => set( { useImportanceSampledEnvironment: val } ),
+	setShowBackground: val => set( { showBackground: val } ),
+	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
+	setEnvironmentIntensity: val => set( { environmentIntensity: val } ),
+	setEnvironmentRotation: val => set( { environmentRotation: val } ),
+	setGIIntensity: val => set( { GIIntensity: val } ),
+	setToneMapping: val => set( { toneMapping: val } ),
+	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
+	setEnableASVGF: val => set( { enableASVGF: val } ),
+	setAsvgfTemporalAlpha: val => set( { asvgfTemporalAlpha: val } ),
+	setAsvgfVarianceClip: val => set( { asvgfVarianceClip: val } ),
+	setAsvgfMomentClip: val => set( { asvgfMomentClip: val } ),
+	setAsvgfPhiColor: val => set( { asvgfPhiColor: val } ),
+	setAsvgfPhiNormal: val => set( { asvgfPhiNormal: val } ),
+	setAsvgfPhiDepth: val => set( { asvgfPhiDepth: val } ),
+	setAsvgfPhiLuminance: val => set( { asvgfPhiLuminance: val } ),
+	setAsvgfAtrousIterations: val => set( { asvgfAtrousIterations: val } ),
+	setAsvgfFilterSize: val => set( { asvgfFilterSize: val } ),
 
-	// Handlers that combine state updates with app updates
+	// Handlers
 	handlePathTracerChange: handleChange(
-		( value ) => set( { enablePathTracer: value } ),
-		value => {
+		val => set( { enablePathTracer: val } ),
+		val => {
 
-			window.pathTracerApp.accPass.enabled = value;
-			window.pathTracerApp.pathTracingPass.enabled = value;
-			window.pathTracerApp.renderPass.enabled = ! value;
+			const app = window.pathTracerApp;
+			app.accPass.enabled = val;
+			app.pathTracingPass.enabled = val;
+			app.renderPass.enabled = ! val;
 
 		}
 	),
 
 	handleAccumulationChange: handleChange(
-		( value ) => set( { enableAccumulation: value } ),
-		value => window.pathTracerApp.accPass.enabled = value
+		val => set( { enableAccumulation: val } ),
+		val => window.pathTracerApp.accPass.enabled = val
 	),
 
 	handleBouncesChange: handleChange(
-		( value ) => set( { bounces: value } ),
-		value => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = value
+		val => set( { bounces: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = val
 	),
 
 	handleSamplesPerPixelChange: handleChange(
-		( value ) => set( { samplesPerPixel: value } ),
-		value => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = value
+		val => set( { samplesPerPixel: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = val
 	),
 
 	handleSamplingTechniqueChange: handleChange(
-		( value ) => set( { samplingTechnique: value } ),
-		value => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = value
+		val => set( { samplingTechnique: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = val
 	),
 
 	handleResolutionChange: handleChange(
-		( value ) => set( { resolution: value } ),
-		value => {
+		val => set( { resolution: val } ),
+		val => {
 
-			let result;
-			switch ( value ) {
-
-				case '1': result = window.devicePixelRatio * 0.5; break;
-				case '2': result = window.devicePixelRatio * 1; break;
-				case '3': result = window.devicePixelRatio * 2; break;
-				case '4': result = window.devicePixelRatio * 4; break;
-				default: result = window.devicePixelRatio * 0.25;
-
-			}
-
-			window.pathTracerApp.updateResolution( result );
+			const scale = { '1': 0.5, '2': 1, '3': 2, '4': 4 }[ val ] || 0.25;
+			window.pathTracerApp.updateResolution( window.devicePixelRatio * scale );
 
 		}
 	),
 
 	handleAdaptiveSamplingChange: handleChange(
-		( value ) => set( { adaptiveSampling: value } ),
-		value => {
+		val => set( { adaptiveSampling: val } ),
+		val => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.useAdaptiveSampling.value = value;
-			window.pathTracerApp.adaptiveSamplingPass.enabled = value;
-			window.pathTracerApp.adaptiveSamplingPass.toggleHelper( false );
+			const app = window.pathTracerApp;
+			app.pathTracingPass.material.uniforms.useAdaptiveSampling.value = val;
+			app.adaptiveSamplingPass.enabled = val;
+			app.adaptiveSamplingPass.toggleHelper( false );
 
 		}
 	),
 
 	handlePerformanceModeAdaptiveChange: handleChange(
-		( value ) => set( { performanceModeAdaptive: value } ),
-		value => window.pathTracerApp.temporalStatsPass.setPerformanceMode( value )
+		val => set( { performanceModeAdaptive: val } ),
+		val => window.pathTracerApp.temporalStatsPass.setPerformanceMode( val )
 	),
 
 	handleAdaptiveSamplingMinChange: handleChange(
-		( value ) => set( { adaptiveSamplingMin: value } ),
-		value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = value[ 0 ]
+		val => set( { adaptiveSamplingMin: val } ),
+		val => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = val[ 0 ]
 	),
 
 	handleAdaptiveSamplingMaxChange: handleChange(
-		( value ) => set( { adaptiveSamplingMax: value } ),
-		value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = value[ 0 ]
+		val => set( { adaptiveSamplingMax: val } ),
+		val => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = val[ 0 ]
 	),
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
-		( value ) => set( { adaptiveSamplingVarianceThreshold: value } ),
-		value => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = value[ 0 ]
+		val => set( { adaptiveSamplingVarianceThreshold: val } ),
+		val => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = val[ 0 ]
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
-		( value ) => set( { showAdaptiveSamplingHelper: value } ),
-		value => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( value )
+		val => set( { showAdaptiveSamplingHelper: val } ),
+		val => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( val )
 	),
 
 	handleTemporalVarianceWeightChange: handleChange(
-		( value ) => set( { temporalVarianceWeight: value } ),
-		value => {
+		val => set( { temporalVarianceWeight: val } ),
+		val => {
 
-			window.pathTracerApp.adaptiveSamplingPass.material.uniforms.temporalWeight.value = value[ 0 ];
+			window.pathTracerApp.adaptiveSamplingPass.material.uniforms.temporalWeight.value = val[ 0 ];
 			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleEnableEarlyTerminationChange: handleChange(
-		( value ) => set( { enableEarlyTermination: value } ),
-		value => {
+		val => set( { enableEarlyTermination: val } ),
+		val => {
 
-			window.pathTracerApp.temporalStatsPass.setEnableEarlyTermination( value );
+			window.pathTracerApp.temporalStatsPass.setEnableEarlyTermination( val );
 			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleEarlyTerminationThresholdChange: handleChange(
-		( value ) => set( { earlyTerminationThreshold: value } ),
-		value => {
+		val => set( { earlyTerminationThreshold: val } ),
+		val => {
 
-			window.pathTracerApp.temporalStatsPass.setConvergenceThreshold( value[ 0 ] );
-		 window.pathTracerApp.reset();
+			window.pathTracerApp.temporalStatsPass.setConvergenceThreshold( val[ 0 ] );
+			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleFireflyThresholdChange: handleChange(
-		( value ) => set( { fireflyThreshold: value } ),
-		value => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = value[ 0 ]
+		val => set( { fireflyThreshold: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = val[ 0 ]
 	),
 
 	handleRenderModeChange: handleChange(
-		( value ) => set( { renderMode: value } ),
-		value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value )
+		val => set( { renderMode: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( val )
 	),
 
 	handleTileUpdate: handleChange(
-		( value ) => set( { tiles: value } ),
-		value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ],
+		val => set( { tiles: val } ),
+		val => window.pathTracerApp.pathTracingPass.tiles = val[ 0 ],
 		false
 	),
 
 	handleTileHelperToggle: handleChange(
-		( value ) => set( { tilesHelper: value } ),
-		value => {
+		val => set( { tilesHelper: val } ),
+		val => {
 
 			const { renderMode } = get();
-			parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value );
+			parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = val );
 
 		},
 		false
 	),
 
 	handleEnableOIDNChange: handleChange(
-		( value ) => set( { enableOIDN: value } ),
-		value => window.pathTracerApp.denoiser.enabled = value,
+		val => set( { enableOIDN: val } ),
+		val => window.pathTracerApp.denoiser.enabled = val,
 		false
 	),
 
 	handleOidnQualityChange: handleChange(
-		( value ) => set( { oidnQuality: value } ),
-		value => window.pathTracerApp.denoiser.updateQuality( value ),
+		val => set( { oidnQuality: val } ),
+		val => window.pathTracerApp.denoiser.updateQuality( val ),
 		false
 	),
 
 	handleOidnHdrChange: handleChange(
-		( value ) => set( { oidnHdr: value } ),
-		value => window.pathTracerApp.denoiser.toggleHDR( value ),
+		val => set( { oidnHdr: val } ),
+		val => window.pathTracerApp.denoiser.toggleHDR( val ),
 		false
 	),
 
 	handleUseGBufferChange: handleChange(
-		( value ) => set( { useGBuffer: value } ),
-		value => window.pathTracerApp.denoiser.toggleUseGBuffer( value ),
+		val => set( { useGBuffer: val } ),
+		val => window.pathTracerApp.denoiser.toggleUseGBuffer( val ),
 		false
 	),
 
 	handleEnableRealtimeDenoiserChange: handleChange(
-		( value ) => set( { enableRealtimeDenoiser: value } ),
-		value => window.pathTracerApp.denoiserPass.enabled = value,
+		val => set( { enableRealtimeDenoiser: val } ),
+		val => window.pathTracerApp.denoiserPass.enabled = val,
 		false
 	),
 
 	handleDenoiserBlurStrengthChange: handleChange(
-		( value ) => set( { denoiserBlurStrength: value } ),
-		value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = value[ 0 ],
+		val => set( { denoiserBlurStrength: val } ),
+		val => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = val[ 0 ],
 		false
 	),
 
 	handleDenoiserBlurRadiusChange: handleChange(
-		( value ) => set( { denoiserBlurRadius: value } ),
-		value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = value[ 0 ],
+		val => set( { denoiserBlurRadius: val } ),
+		val => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = val[ 0 ],
 		false
 	),
 
 	handleDenoiserDetailPreservationChange: handleChange(
-		( value ) => set( { denoiserDetailPreservation: value } ),
-		value => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = value[ 0 ],
+		val => set( { denoiserDetailPreservation: val } ),
+		val => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = val[ 0 ],
 		false
 	),
 
 	handleDebugThresholdChange: handleChange(
-		( value ) => set( { debugThreshold: value } ),
-		value => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = value[ 0 ]
+		val => set( { debugThreshold: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = val[ 0 ]
 	),
 
 	handleDebugModeChange: handleChange(
-		( value ) => set( { debugMode: value } ),
-		value => {
+		val => set( { debugMode: val } ),
+		val => {
 
-			let mode;
-			switch ( value ) {
-
-				case '1': mode = 1; break;
-				case '2': mode = 2; break;
-				case '3': mode = 3; break;
-				case '4': mode = 4; break;
-				case '5': mode = 5; break;
-				default: mode = 0;
-
-			}
-
+			const mode = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5 }[ val ] || 0;
 			window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
 
 		}
 	),
 
 	handleEnableBloomChange: handleChange(
-		( value ) => set( { enableBloom: value } ),
-		value => window.pathTracerApp.bloomPass.enabled = value
+		val => set( { enableBloom: val } ),
+		val => window.pathTracerApp.bloomPass.enabled = val
 	),
 
 	handleBloomThresholdChange: handleChange(
-		( value ) => set( { bloomThreshold: value } ),
-		value => window.pathTracerApp.bloomPass.threshold = value[ 0 ]
+		val => set( { bloomThreshold: val } ),
+		val => window.pathTracerApp.bloomPass.threshold = val[ 0 ]
 	),
 
 	handleBloomStrengthChange: handleChange(
-		( value ) => set( { bloomStrength: value } ),
-		value => window.pathTracerApp.bloomPass.strength = value[ 0 ]
+		val => set( { bloomStrength: val } ),
+		val => window.pathTracerApp.bloomPass.strength = val[ 0 ]
 	),
 
 	handleBloomRadiusChange: handleChange(
-		( value ) => set( { bloomRadius: value } ),
-		value => window.pathTracerApp.bloomPass.radius = value[ 0 ]
+		val => set( { bloomRadius: val } ),
+		val => window.pathTracerApp.bloomPass.radius = val[ 0 ]
 	),
 
 	handleExposureChange: handleChange(
-		( value ) => set( { exposure: value } ),
-		value => {
+		val => set( { exposure: val } ),
+		val => {
 
-			window.pathTracerApp.renderer.toneMappingExposure = value;
-			window.pathTracerApp.pathTracingPass.material.uniforms.exposure.value = value;
-			window.pathTracerApp.denoiser.mapGenerator.syncWithRenderer();
-			window.pathTracerApp.reset();
+			const app = window.pathTracerApp;
+			app.renderer.toneMappingExposure = val;
+			app.pathTracingPass.material.uniforms.exposure.value = val;
+			app.denoiser.mapGenerator.syncWithRenderer();
+			app.reset();
 
 		}
 	),
 
 	handleEnableEnvironmentChange: handleChange(
-		( value ) => set( { enableEnvironment: value } ),
-		value => {
+		val => set( { enableEnvironment: val } ),
+		val => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = value;
+			window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
 			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleUseImportanceSampledEnvironmentChange: handleChange(
-		( value ) => set( { useImportanceSampledEnvironment: value } ),
-		value => {
+		val => set( { useImportanceSampledEnvironment: val } ),
+		val => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.useEnvMapIS.value = value;
+			window.pathTracerApp.pathTracingPass.material.uniforms.useEnvMapIS.value = val;
 			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleShowBackgroundChange: handleChange(
-		( value ) => set( { showBackground: value } ),
-		value => {
+		val => set( { showBackground: val } ),
+		val => {
 
-			window.pathTracerApp.scene.background = value ? window.pathTracerApp.scene.environment : null;
-			window.pathTracerApp.pathTracingPass.material.uniforms.showBackground.value = value ? true : false;
-			window.pathTracerApp.reset();
+			const app = window.pathTracerApp;
+			app.scene.background = val ? app.scene.environment : null;
+			app.pathTracingPass.material.uniforms.showBackground.value = val;
+			app.reset();
 
 		}
 	),
 
 	handleBackgroundIntensityChange: handleChange(
-		( value ) => set( { backgroundIntensity: value } ),
-		value => {
+		val => set( { backgroundIntensity: val } ),
+		val => {
 
-			window.pathTracerApp.scene.backgroundIntensity = value;
-			window.pathTracerApp.pathTracingPass.material.uniforms.backgroundIntensity.value = value;
-			window.pathTracerApp.reset();
+			const app = window.pathTracerApp;
+			app.scene.backgroundIntensity = val;
+			app.pathTracingPass.material.uniforms.backgroundIntensity.value = val;
+			app.reset();
 
 		}
 	),
 
 	handleEnvironmentIntensityChange: handleChange(
-		( value ) => set( { environmentIntensity: value } ),
-		value => {
+		val => set( { environmentIntensity: val } ),
+		val => {
 
-			window.pathTracerApp.scene.environmentIntensity = value;
-			window.pathTracerApp.pathTracingPass.material.uniforms.environmentIntensity.value = value;
-			window.pathTracerApp.reset();
+			const app = window.pathTracerApp;
+			app.scene.environmentIntensity = val;
+			app.pathTracingPass.material.uniforms.environmentIntensity.value = val;
+			app.reset();
 
 		}
 	),
 
 	handleEnvironmentRotationChange: handleChange(
-		( value ) => set( { environmentRotation: value } ),
-		value => {
+		val => set( { environmentRotation: val } ),
+		val => {
 
-			window.pathTracerApp.pathTracingPass.setEnvironmentRotation( value[ 0 ] );
+			window.pathTracerApp.pathTracingPass.setEnvironmentRotation( val[ 0 ] );
 			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleGIIntensityChange: handleChange(
-		( value ) => set( { GIIntensity: value } ),
-		value => {
+		val => set( { GIIntensity: val } ),
+		val => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = value * Math.PI;
+			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = val * Math.PI;
 			window.pathTracerApp.reset();
 
 		}
 	),
 
 	handleToneMappingChange: handleChange(
-		( value ) => set( { toneMapping: value } ),
-		value => {
+		val => set( { toneMapping: val } ),
+		val => {
 
-			value = parseInt( value );
-			window.pathTracerApp.renderer.toneMapping = value;
-			window.pathTracerApp.denoiser.mapGenerator.syncWithRenderer();
-			window.pathTracerApp.reset();
+			const app = window.pathTracerApp;
+			app.renderer.toneMapping = parseInt( val );
+			app.denoiser.mapGenerator.syncWithRenderer();
+			app.reset();
 
 		}
 	),
 
 	handleInteractionModeEnabledChange: handleChange(
-		( value ) => set( { interactionModeEnabled: value } ),
-		value => window.pathTracerApp.pathTracingPass.setInteractionModeEnabled( value )
+		val => set( { interactionModeEnabled: val } ),
+		val => window.pathTracerApp.pathTracingPass.setInteractionModeEnabled( val )
 	),
 
 	handleEnableASVGFChange: handleChange(
-		( value ) => set( { enableASVGF: value } ),
-		value => {
+		val => set( { enableASVGF: val } ),
+		val => {
 
-			window.pathTracerApp.setASVGFEnabled( value );
-			if ( value ) {
+			window.pathTracerApp.setASVGFEnabled( val );
+			if ( val ) {
 
 				window.pathTracerApp.denoiserPass.enabled = false;
-				const { setEnableRealtimeDenoiser } = get();
-				setEnableRealtimeDenoiser( false );
+				get().setEnableRealtimeDenoiser( false );
 
 			}
 
@@ -567,218 +500,141 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	),
 
 	handleAsvgfTemporalAlphaChange: handleChange(
-		( value ) => set( { asvgfTemporalAlpha: value } ),
-		value => window.pathTracerApp.updateASVGFParameters( { temporalAlpha: value[ 0 ] } ),
+		val => set( { asvgfTemporalAlpha: val } ),
+		val => window.pathTracerApp.updateASVGFParameters( { temporalAlpha: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfPhiColorChange: handleChange(
-		( value ) => set( { asvgfPhiColor: value } ),
-		value => window.pathTracerApp.updateASVGFParameters( { phiColor: value[ 0 ] } ),
+		val => set( { asvgfPhiColor: val } ),
+		val => window.pathTracerApp.updateASVGFParameters( { phiColor: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfPhiLuminanceChange: handleChange(
-		( value ) => set( { asvgfPhiLuminance: value } ),
-		value => window.pathTracerApp.updateASVGFParameters( { phiLuminance: value[ 0 ] } ),
+		val => set( { asvgfPhiLuminance: val } ),
+		val => window.pathTracerApp.updateASVGFParameters( { phiLuminance: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfAtrousIterationsChange: handleChange(
-		( value ) => set( { asvgfAtrousIterations: value } ),
-		value => window.pathTracerApp.updateASVGFParameters( { atrousIterations: value[ 0 ] } ),
+		val => set( { asvgfAtrousIterations: val } ),
+		val => window.pathTracerApp.updateASVGFParameters( { atrousIterations: val[ 0 ] } ),
 		false
 	),
 
 	// Canvas configuration handlers
 	handleConfigureForInteractive: () => {
 
-		const actions = get();
+		const a = get();
+		Object.entries( INTERACTIVE_STATE ).forEach( ( [ k, v ] ) => {
 
-		// Update store state
-		actions.setBounces( INTERACTIVE_RENDER_STATE.bounces );
-		actions.setSamplesPerPixel( INTERACTIVE_RENDER_STATE.samplesPerPixel );
-		actions.setRenderMode( INTERACTIVE_RENDER_STATE.renderMode.toString() );
-		actions.setTiles( INTERACTIVE_RENDER_STATE.tiles );
-		actions.setTilesHelper( INTERACTIVE_RENDER_STATE.tilesHelper );
-		actions.setResolution( INTERACTIVE_RENDER_STATE.resolution );
-		actions.setEnableOIDN( INTERACTIVE_RENDER_STATE.enableOIDN );
-		actions.setOidnQuality( INTERACTIVE_RENDER_STATE.oidnQuality );
-		actions.setOidnHdr( INTERACTIVE_RENDER_STATE.oidnHDR );
-		actions.setUseGBuffer( INTERACTIVE_RENDER_STATE.useGBuffer );
-		actions.setInteractionModeEnabled( INTERACTIVE_RENDER_STATE.interactionModeEnabled );
-		actions.setEnableASVGF( INTERACTIVE_RENDER_STATE.enableASVGF );
+			const setter = `set${k.charAt( 0 ).toUpperCase()}${k.slice( 1 )}`;
+			a[ setter ]?.( typeof v === 'number' ? v : v.toString() );
 
-		if ( window.pathTracerApp ) {
+		} );
 
-			window.pathTracerApp.controls.enabled = true;
+		if ( ! window.pathTracerApp ) return;
+		const app = window.pathTracerApp;
+		app.controls.enabled = true;
 
-			requestAnimationFrame( () => {
+		requestAnimationFrame( () => {
 
-				window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = INTERACTIVE_RENDER_STATE.bounces;
-				window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = INTERACTIVE_RENDER_STATE.samplesPerPixel;
-				window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = INTERACTIVE_RENDER_STATE.renderMode;
-				window.pathTracerApp.pathTracingPass.tiles = INTERACTIVE_RENDER_STATE.tiles;
-				window.pathTracerApp.tileHighlightPass.enabled = INTERACTIVE_RENDER_STATE.tilesHelper;
+			const uniforms = app.pathTracingPass.material.uniforms;
+			uniforms.maxBounceCount.value = INTERACTIVE_STATE.bounces;
+			uniforms.numRaysPerPixel.value = INTERACTIVE_STATE.samplesPerPixel;
+			uniforms.renderMode.value = INTERACTIVE_STATE.renderMode;
+			app.pathTracingPass.tiles = INTERACTIVE_STATE.tiles;
+			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
+			app.setASVGFEnabled( INTERACTIVE_STATE.enableASVGF );
+			app.denoiser.enabled = INTERACTIVE_STATE.enableOIDN;
+			app.denoiser.updateQuality( INTERACTIVE_STATE.oidnQuality );
+			app.denoiser.toggleHDR( INTERACTIVE_STATE.oidnHDR );
+			app.denoiser.toggleUseGBuffer( INTERACTIVE_STATE.useGBuffer );
+			app.updateResolution( window.devicePixelRatio * 0.5 );
 
-				window.pathTracerApp.setASVGFEnabled( INTERACTIVE_RENDER_STATE.enableASVGF );
-				window.pathTracerApp.denoiser.enabled = INTERACTIVE_RENDER_STATE.enableOIDN;
-				window.pathTracerApp.denoiser.updateQuality( INTERACTIVE_RENDER_STATE.oidnQuality );
-				window.pathTracerApp.denoiser.toggleHDR( INTERACTIVE_RENDER_STATE.oidnHDR );
-				window.pathTracerApp.denoiser.toggleUseGBuffer( INTERACTIVE_RENDER_STATE.useGBuffer );
+			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
+			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
 
-				window.pathTracerApp.updateResolution( window.devicePixelRatio * 0.5 );
+			app.pauseRendering = false;
+			app.reset();
 
-				// Show canvases
-				if ( window.pathTracerApp.renderer?.domElement ) {
-
-					window.pathTracerApp.renderer.domElement.style.display = 'block';
-
-				}
-
-				if ( window.pathTracerApp.denoiser?.output ) {
-
-					window.pathTracerApp.denoiser.output.style.display = 'block';
-
-				}
-
-				// Resume rendering
-				window.pathTracerApp.pauseRendering = false;
-				window.pathTracerApp.reset();
-
-			} );
-
-		}
+		} );
 
 	},
 
 	handleConfigureForFinal: () => {
 
-		const actions = get();
+		const a = get();
+		Object.entries( FINAL_STATE ).forEach( ( [ k, v ] ) => {
 
-		// Update store state
-		actions.setBounces( FINAL_RENDER_STATE.bounces );
-		actions.setSamplesPerPixel( FINAL_RENDER_STATE.samplesPerPixel );
-		actions.setRenderMode( FINAL_RENDER_STATE.renderMode.toString() );
-		actions.setTiles( FINAL_RENDER_STATE.tiles );
-		actions.setTilesHelper( FINAL_RENDER_STATE.tilesHelper );
-		actions.setResolution( FINAL_RENDER_STATE.resolution );
-		actions.setEnableOIDN( FINAL_RENDER_STATE.enableOIDN );
-		actions.setOidnQuality( FINAL_RENDER_STATE.oidnQuality );
-		actions.setOidnHdr( FINAL_RENDER_STATE.oidnHDR );
-		actions.setUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
-		actions.setInteractionModeEnabled( FINAL_RENDER_STATE.interactionModeEnabled );
-		actions.setEnableASVGF( FINAL_RENDER_STATE.enableASVGF );
+			const setter = `set${k.charAt( 0 ).toUpperCase()}${k.slice( 1 )}`;
+			a[ setter ]?.( typeof v === 'number' ? v : v.toString() );
 
-		if ( window.pathTracerApp ) {
+		} );
 
-			// Disable controls in final render mode
-			window.pathTracerApp.controls.enabled = false;
+		if ( ! window.pathTracerApp ) return;
+		const app = window.pathTracerApp;
+		app.controls.enabled = false;
 
-			requestAnimationFrame( () => {
+		requestAnimationFrame( () => {
 
-				window.pathTracerApp.pathTracingPass.material.uniforms.maxFrames.value = FINAL_RENDER_STATE.maxSamples;
-				window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = FINAL_RENDER_STATE.bounces;
-				window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = FINAL_RENDER_STATE.samplesPerPixel;
-				window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = FINAL_RENDER_STATE.renderMode;
-				window.pathTracerApp.pathTracingPass.tiles = FINAL_RENDER_STATE.tiles;
-				window.pathTracerApp.tileHighlightPass.enabled = FINAL_RENDER_STATE.tilesHelper;
+			const uniforms = app.pathTracingPass.material.uniforms;
+			uniforms.maxFrames.value = FINAL_STATE.maxSamples;
+			uniforms.maxBounceCount.value = FINAL_STATE.bounces;
+			uniforms.numRaysPerPixel.value = FINAL_STATE.samplesPerPixel;
+			uniforms.renderMode.value = FINAL_STATE.renderMode;
+			app.pathTracingPass.tiles = FINAL_STATE.tiles;
+			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
+			app.setASVGFEnabled( FINAL_STATE.enableASVGF );
+			app.denoiser.enabled = FINAL_STATE.enableOIDN;
+			app.denoiser.updateQuality( FINAL_STATE.oidnQuality );
+			app.denoiser.toggleHDR( FINAL_STATE.oidnHDR );
+			app.denoiser.toggleUseGBuffer( FINAL_STATE.useGBuffer );
+			app.updateResolution( window.devicePixelRatio * 2.0 );
 
-				window.pathTracerApp.setASVGFEnabled( FINAL_RENDER_STATE.enableASVGF );
-				window.pathTracerApp.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
-				window.pathTracerApp.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
-				window.pathTracerApp.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
-				window.pathTracerApp.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
+			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
+			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
 
-				window.pathTracerApp.updateResolution( window.devicePixelRatio * 2.0 );
+			app.pauseRendering = false;
+			app.reset();
 
-				// Show canvases
-				if ( window.pathTracerApp.renderer?.domElement ) {
-
-					window.pathTracerApp.renderer.domElement.style.display = 'block';
-
-				}
-
-				if ( window.pathTracerApp.denoiser?.output ) {
-
-					window.pathTracerApp.denoiser.output.style.display = 'block';
-
-				}
-
-				// Resume rendering
-				window.pathTracerApp.pauseRendering = false;
-				window.pathTracerApp.reset();
-
-			} );
-
-		}
+		} );
 
 	},
 
 	handleConfigureForResults: () => {
 
-		if ( window.pathTracerApp ) {
-
-			// Pause rendering to save resources
-			window.pathTracerApp.pauseRendering = true;
-
-			// Disable controls but keep the app instance
-			window.pathTracerApp.controls.enabled = false;
-
-			// Hide the canvas but don't destroy the app
-			if ( window.pathTracerApp.renderer?.domElement ) {
-
-				window.pathTracerApp.renderer.domElement.style.display = 'none';
-
-			}
-
-			if ( window.pathTracerApp.denoiser?.output ) {
-
-				window.pathTracerApp.denoiser.output.style.display = 'none';
-
-			}
-
-		}
+		if ( ! window.pathTracerApp ) return;
+		const app = window.pathTracerApp;
+		app.pauseRendering = true;
+		app.controls.enabled = false;
+		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'none' );
+		app.denoiser?.output && ( app.denoiser.output.style.display = 'none' );
 
 	},
 
-	handleModeChange: ( mode ) => {
+	handleModeChange: mode => {
 
-		const actions = get();
-
-		switch ( mode ) {
-
-			case "interactive":
-				actions.handleConfigureForInteractive();
-				break;
-			case "final":
-				actions.handleConfigureForFinal();
-				break;
-			case "results":
-				actions.handleConfigureForResults();
-				break;
-			default:
-				console.warn( `Unknown mode: ${mode}` );
-
-		}
+		const actions = { interactive: 'handleConfigureForInteractive', final: 'handleConfigureForFinal', results: 'handleConfigureForResults' };
+		const action = actions[ mode ];
+		action ? get()[ action ]() : console.warn( `Unknown mode: ${mode}` );
 
 	},
-
 } ) );
 
 // Light store
-const useLightStore = create( ( set ) => ( {
+const useLightStore = create( set => ( {
 	...DEFAULT_STATE,
 	lights: [],
-	setLights: ( lights ) => set( { lights } ),
-	updateLight: ( index, property, value ) =>
-		set( ( state ) => {
+	setLights: lights => set( { lights } ),
+	updateLight: ( idx, prop, val ) => set( s => {
 
-			const lights = [ ...state.lights ];
-			lights[ index ][ property ] = value;
-			return { lights };
+		const lights = [ ...s.lights ];
+		lights[ idx ][ prop ] = val;
+		return { lights };
 
-		} ),
+	} ),
 } ) );
 
 // Camera store
@@ -789,98 +645,77 @@ const useCameraStore = create( ( set, get ) => ( {
 	selectedCameraIndex: 0,
 	focusMode: false,
 
-	// State setters
-	setCameraNames: ( names ) => set( { cameraNames: names } ),
-	setSelectedCameraIndex: ( index ) => set( { selectedCameraIndex: index } ),
-	setFocusMode: ( mode ) => set( { focusMode: mode } ),
-	setFov: ( value ) => set( { fov: value, activePreset: "custom" } ),
-	setFocusDistance: ( value ) => set( { focusDistance: value, activePreset: "custom" } ),
-	setAperture: ( value ) => set( { aperture: value, activePreset: "custom" } ),
-	setFocalLength: ( value ) => set( { focalLength: value, activePreset: "custom" } ),
-	setPreset: ( presetKey ) => {
+	setCameraNames: names => set( { cameraNames: names } ),
+	setSelectedCameraIndex: idx => set( { selectedCameraIndex: idx } ),
+	setFocusMode: mode => set( { focusMode: mode } ),
+	setFov: val => set( { fov: val, activePreset: "custom" } ),
+	setFocusDistance: val => set( { focusDistance: val, activePreset: "custom" } ),
+	setAperture: val => set( { aperture: val, activePreset: "custom" } ),
+	setFocalLength: val => set( { focalLength: val, activePreset: "custom" } ),
+	setPreset: key => {
 
-		if ( presetKey === "custom" ) return;
-		const preset = CAMERA_PRESETS[ presetKey ];
-		set( {
-			fov: preset.fov,
-			focusDistance: preset.focusDistance,
-			aperture: preset.aperture,
-			focalLength: preset.focalLength,
-			activePreset: presetKey,
-		} );
+		if ( key === "custom" ) return;
+		const preset = CAMERA_PRESETS[ key ];
+		set( { ...preset, activePreset: key } );
 
 	},
 
-	// Handlers that combine state updates with app updates
 	handleToggleFocusMode: () => {
 
-		if ( window.pathTracerApp ) {
-
-			const isActive = window.pathTracerApp.toggleFocusMode();
-			console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
-			set( { focusMode: isActive } );
-
-		}
+		if ( ! window.pathTracerApp ) return;
+		const isActive = window.pathTracerApp.toggleFocusMode();
+		console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
+		set( { focusMode: isActive } );
 
 	},
 
-	handleFocusDistanceChange: ( value ) => {
+	handleFocusDistanceChange: val => {
 
-		set( { focusDistance: value, activePreset: "custom" } );
+		set( { focusDistance: val, activePreset: "custom" } );
 		if ( window.pathTracerApp ) {
 
-			const sceneScale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
-			const scaledFocusDistance = value * sceneScale;
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = scaledFocusDistance;
+			const scale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
+			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = val * scale;
 			window.pathTracerApp.reset();
 
 		}
 
 	},
 
-	handlePresetChange: ( presetKey ) => {
+	handlePresetChange: key => {
 
-		if ( presetKey === "custom" ) {
+		if ( key === "custom" ) {
 
 			set( { activePreset: "custom" } );
 			return;
 
 		}
 
-		const preset = CAMERA_PRESETS[ presetKey ];
-		set( {
-			fov: preset.fov,
-			focusDistance: preset.focusDistance,
-			aperture: preset.aperture,
-			focalLength: preset.focalLength,
-			activePreset: presetKey,
-		} );
+		const preset = CAMERA_PRESETS[ key ];
+		set( { ...preset, activePreset: key } );
 
 		if ( window.pathTracerApp ) {
 
-			const sceneScale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
-
-			// Update Three.js camera
-			window.pathTracerApp.camera.fov = preset.fov;
-			window.pathTracerApp.camera.updateProjectionMatrix();
-
-			// Update path tracer uniforms
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = preset.focusDistance * sceneScale;
-			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = preset.aperture;
-			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = preset.focalLength;
-
+			const scale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
+			const { camera, pathTracingPass } = window.pathTracerApp;
+			camera.fov = preset.fov;
+			camera.updateProjectionMatrix();
+			const uniforms = pathTracingPass.material.uniforms;
+			uniforms.focusDistance.value = preset.focusDistance * scale;
+			uniforms.aperture.value = preset.aperture;
+			uniforms.focalLength.value = preset.focalLength;
 			window.pathTracerApp.reset();
 
 		}
 
 	},
 
-	handleFovChange: ( value ) => {
+	handleFovChange: val => {
 
-		set( { fov: value, activePreset: "custom" } );
+		set( { fov: val, activePreset: "custom" } );
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.camera.fov = value;
+			window.pathTracerApp.camera.fov = val;
 			window.pathTracerApp.camera.updateProjectionMatrix();
 			window.pathTracerApp.reset();
 
@@ -888,366 +723,214 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	},
 
-	handleApertureChange: ( value ) => {
+	handleApertureChange: val => {
 
-		set( { aperture: value, activePreset: "custom" } );
+		set( { aperture: val, activePreset: "custom" } );
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = value;
+			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = val;
 			window.pathTracerApp.reset();
 
 		}
 
 	},
 
-	handleFocalLengthChange: ( value ) => {
+	handleFocalLengthChange: val => {
 
-		set( { focalLength: value, activePreset: "custom" } );
+		set( { focalLength: val, activePreset: "custom" } );
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.focalLength.value = value;
-
-			// If focal length is 0, ensure aperture is set to disable DOF
-			if ( value <= 0 ) {
-
-				window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = 16.0;
-
-			}
-
+			const uniforms = window.pathTracerApp.pathTracingPass.material.uniforms;
+			uniforms.focalLength.value = val;
+			val <= 0 && ( uniforms.aperture.value = 16.0 );
 			window.pathTracerApp.reset();
 
 		}
 
 	},
 
-	handleCameraMove: ( point ) => {
+	handleCameraMove: point => {
 
-		if ( ! window.pathTracerApp || ! window.pathTracerApp.controls ) return;
-
-		const controls = window.pathTracerApp.controls;
-		const camera = window.pathTracerApp.camera;
-
+		if ( ! window.pathTracerApp?.controls ) return;
+		const { controls, camera } = window.pathTracerApp;
 		const target = controls.target.clone();
 		const distance = camera.position.distanceTo( target );
-
-		// remap function inline since it's from utils
-		const remap = ( value, inMin, inMax, outMin, outMax ) => {
-
-			return ( value - inMin ) * ( outMax - outMin ) / ( inMax - inMin ) + outMin;
-
-		};
-
+		const remap = ( val, inMin, inMax, outMin, outMax ) => ( val - inMin ) * ( outMax - outMin ) / ( inMax - inMin ) + outMin;
 		const phi = remap( point.y, 0, 100, 0, - Math.PI );
 		const theta = remap( point.x, 0, 100, 0, - Math.PI );
-
 		const newX = target.x + distance * Math.sin( phi ) * Math.cos( theta );
 		const newY = target.y + distance * Math.cos( phi );
 		const newZ = target.z + distance * Math.sin( phi ) * Math.sin( theta );
-
 		camera.position.set( newX, newY, newZ );
 		camera.lookAt( target );
 		controls.update();
 
 	},
 
-	handleCameraChange: ( index ) => {
+	handleCameraChange: idx => {
 
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.switchCamera( index );
-			set( { selectedCameraIndex: index } );
+			window.pathTracerApp.switchCamera( idx );
+			set( { selectedCameraIndex: idx } );
 
 		}
 
 	},
 
-	handleApertureScaleChange: ( value ) => {
+	handleApertureScaleChange: val => {
 
 		if ( window.pathTracerApp ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.apertureScale.value = value;
+			window.pathTracerApp.pathTracingPass.material.uniforms.apertureScale.value = val;
 			window.pathTracerApp.reset();
 
 		}
 
 	},
 
-	// Event handler for focus changes from the 3D view
-	handleFocusChangeEvent: ( event ) => {
+	handleFocusChangeEvent: event => {
 
-		set( {
-			focusDistance: event.distance,
-			focusMode: false,
-			activePreset: "custom"
-		} );
+		set( { focusDistance: event.distance, focusMode: false, activePreset: "custom" } );
 
 	},
-
 } ) );
 
-// Material store for handling material property updates
+// Material store
 const useMaterialStore = create( ( set, get ) => ( {
-	// Material property update handler
-	updateMaterialProperty: ( property, value ) => {
+	updateMaterialProperty: ( prop, val ) => {
 
-		const selectedObject = useStore.getState().selectedObject;
-		if ( ! selectedObject?.isMesh || ! selectedObject.material ) return;
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
 
 		try {
 
-			// Update the Three.js material property
-			selectedObject.material[ property ] = value;
-
-			// Get material index with fallback
-			const materialIndex = selectedObject.userData?.materialIndex ?? 0;
-
-			// Update the path tracer material
-			const pathTracer = window.pathTracerApp?.pathTracingPass;
-			if ( ! pathTracer ) {
+			obj.material[ prop ] = val;
+			const idx = obj.userData?.materialIndex ?? 0;
+			const pt = window.pathTracerApp?.pathTracingPass;
+			if ( ! pt ) {
 
 				console.warn( "Path tracer not available" );
 				return;
 
 			}
 
-			// Try different APIs in order of preference
-			if ( typeof pathTracer.updateMaterial === 'function' ) {
+			const methods = [ 'updateMaterial', 'updateMaterialProperty', 'updateMaterialDataTexture', 'rebuildMaterialDataTexture' ];
+			const args = [
+				[ idx, obj.material ],
+				[ idx, prop, val ],
+				[ idx, prop, val ],
+				[ idx, obj.material ]
+			];
 
-				pathTracer.updateMaterial( materialIndex, selectedObject.material );
+			for ( let i = 0; i < methods.length; i ++ ) {
 
-			} else if ( typeof pathTracer.updateMaterialProperty === 'function' ) {
+				if ( typeof pt[ methods[ i ] ] === 'function' ) {
 
-				pathTracer.updateMaterialProperty( materialIndex, property, value );
+					pt[ methods[ i ] ]( ...args[ i ] );
+					break;
 
-			} else if ( typeof pathTracer.updateMaterialDataTexture === 'function' ) {
-
-				pathTracer.updateMaterialDataTexture( materialIndex, property, value );
-
-			} else if ( typeof pathTracer.rebuildMaterialDataTexture === 'function' ) {
-
-				pathTracer.rebuildMaterialDataTexture( materialIndex, selectedObject.material );
-
-			} else {
-
-				console.warn( "No compatible material update method found" );
+				}
 
 			}
 
-			// Reset rendering to apply changes
-			if ( window.pathTracerApp?.reset ) {
-
-				window.pathTracerApp.reset();
-
-			}
+			window.pathTracerApp?.reset();
 
 		} catch ( error ) {
 
-			console.error( `Error updating material property ${property}:`, error );
+			console.error( `Error updating material property ${prop}:`, error );
 
 		}
 
 	},
 
-	// Material handlers
-	handleColorChange: ( value ) => {
+	// Material handlers (shortened)
+	handleColorChange: val => {
 
-		const selectedObject = useStore.getState().selectedObject;
-		if ( selectedObject?.material?.color ) {
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material?.color ) {
 
-			selectedObject.material.color.set( value );
-			get().updateMaterialProperty( 'color', selectedObject.material.color );
-
-		}
-
-	},
-
-	handleRoughnessChange: ( value ) => {
-
-		get().updateMaterialProperty( 'roughness', value[ 0 ] );
-
-	},
-
-	handleMetalnessChange: ( value ) => {
-
-		get().updateMaterialProperty( 'metalness', value[ 0 ] );
-
-	},
-
-	handleIorChange: ( value ) => {
-
-		get().updateMaterialProperty( 'ior', value[ 0 ] );
-
-	},
-
-	handleTransmissionChange: ( value ) => {
-
-		get().updateMaterialProperty( 'transmission', value[ 0 ] );
-
-	},
-
-	handleThicknessChange: ( value ) => {
-
-		get().updateMaterialProperty( 'thickness', value[ 0 ] );
-
-	},
-
-	handleAttenuationColorChange: ( value ) => {
-
-		const selectedObject = useStore.getState().selectedObject;
-		if ( selectedObject?.material?.attenuationColor ) {
-
-			selectedObject.material.attenuationColor.set( value );
-			get().updateMaterialProperty( 'attenuationColor', selectedObject.material.attenuationColor );
+			obj.material.color.set( val );
+			get().updateMaterialProperty( 'color', obj.material.color );
 
 		}
 
 	},
+	handleRoughnessChange: val => get().updateMaterialProperty( 'roughness', val[ 0 ] ),
+	handleMetalnessChange: val => get().updateMaterialProperty( 'metalness', val[ 0 ] ),
+	handleIorChange: val => get().updateMaterialProperty( 'ior', val[ 0 ] ),
+	handleTransmissionChange: val => get().updateMaterialProperty( 'transmission', val[ 0 ] ),
+	handleThicknessChange: val => get().updateMaterialProperty( 'thickness', val[ 0 ] ),
+	handleAttenuationColorChange: val => {
 
-	handleAttenuationDistanceChange: ( value ) => {
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material?.attenuationColor ) {
 
-		get().updateMaterialProperty( 'attenuationDistance', value );
-
-	},
-
-	handleDispersionChange: ( value ) => {
-
-		get().updateMaterialProperty( 'dispersion', value[ 0 ] );
-
-	},
-
-	handleEmissiveIntensityChange: ( value ) => {
-
-		get().updateMaterialProperty( 'emissiveIntensity', value[ 0 ] );
-
-	},
-
-	handleClearcoatChange: ( value ) => {
-
-		get().updateMaterialProperty( 'clearcoat', value[ 0 ] );
-
-	},
-
-	handleClearcoatRoughnessChange: ( value ) => {
-
-		get().updateMaterialProperty( 'clearcoatRoughness', value[ 0 ] );
-
-	},
-
-	handleOpacityChange: ( value ) => {
-
-		get().updateMaterialProperty( 'opacity', value[ 0 ] );
-
-	},
-
-	handleSideChange: ( value ) => {
-
-		get().updateMaterialProperty( 'side', value );
-
-	},
-
-	handleEmissiveChange: ( value ) => {
-
-		const selectedObject = useStore.getState().selectedObject;
-		if ( selectedObject?.material?.emissive ) {
-
-			selectedObject.material.emissive.set( value );
-			get().updateMaterialProperty( 'emissive', selectedObject.material.emissive );
+			obj.material.attenuationColor.set( val );
+			get().updateMaterialProperty( 'attenuationColor', obj.material.attenuationColor );
 
 		}
 
 	},
+	handleAttenuationDistanceChange: val => get().updateMaterialProperty( 'attenuationDistance', val ),
+	handleDispersionChange: val => get().updateMaterialProperty( 'dispersion', val[ 0 ] ),
+	handleEmissiveIntensityChange: val => get().updateMaterialProperty( 'emissiveIntensity', val[ 0 ] ),
+	handleClearcoatChange: val => get().updateMaterialProperty( 'clearcoat', val[ 0 ] ),
+	handleClearcoatRoughnessChange: val => get().updateMaterialProperty( 'clearcoatRoughness', val[ 0 ] ),
+	handleOpacityChange: val => get().updateMaterialProperty( 'opacity', val[ 0 ] ),
+	handleSideChange: val => get().updateMaterialProperty( 'side', val ),
+	handleEmissiveChange: val => {
 
-	handleTransparentChange: ( value ) => {
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material?.emissive ) {
 
-		get().updateMaterialProperty( 'transparent', value ? 1 : 0 );
-
-	},
-
-	handleAlphaTestChange: ( value ) => {
-
-		get().updateMaterialProperty( 'alphaTest', value[ 0 ] );
-
-	},
-
-	handleSheenChange: ( value ) => {
-
-		get().updateMaterialProperty( 'sheen', value[ 0 ] );
-
-	},
-
-	handleSheenRoughnessChange: ( value ) => {
-
-		get().updateMaterialProperty( 'sheenRoughness', value[ 0 ] );
-
-	},
-
-	handleSheenColorChange: ( value ) => {
-
-		const selectedObject = useStore.getState().selectedObject;
-		if ( selectedObject?.material?.sheenColor ) {
-
-			selectedObject.material.sheenColor.set( value );
-			get().updateMaterialProperty( 'sheenColor', selectedObject.material.sheenColor );
+			obj.material.emissive.set( val );
+			get().updateMaterialProperty( 'emissive', obj.material.emissive );
 
 		}
 
 	},
+	handleTransparentChange: val => get().updateMaterialProperty( 'transparent', val ? 1 : 0 ),
+	handleAlphaTestChange: val => get().updateMaterialProperty( 'alphaTest', val[ 0 ] ),
+	handleSheenChange: val => get().updateMaterialProperty( 'sheen', val[ 0 ] ),
+	handleSheenRoughnessChange: val => get().updateMaterialProperty( 'sheenRoughness', val[ 0 ] ),
+	handleSheenColorChange: val => {
 
-	handleSpecularIntensityChange: ( value ) => {
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material?.sheenColor ) {
 
-		get().updateMaterialProperty( 'specularIntensity', value[ 0 ] );
-
-	},
-
-	handleSpecularColorChange: ( value ) => {
-
-		const selectedObject = useStore.getState().selectedObject;
-		if ( selectedObject?.material?.specularColor ) {
-
-			selectedObject.material.specularColor.set( value );
-			get().updateMaterialProperty( 'specularColor', selectedObject.material.specularColor );
+			obj.material.sheenColor.set( val );
+			get().updateMaterialProperty( 'sheenColor', obj.material.sheenColor );
 
 		}
 
 	},
+	handleSpecularIntensityChange: val => get().updateMaterialProperty( 'specularIntensity', val[ 0 ] ),
+	handleSpecularColorChange: val => {
 
-	handleIridescenceChange: ( value ) => {
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material?.specularColor ) {
 
-		get().updateMaterialProperty( 'iridescence', value[ 0 ] );
+			obj.material.specularColor.set( val );
+			get().updateMaterialProperty( 'specularColor', obj.material.specularColor );
 
-	},
-
-	handleIridescenceIORChange: ( value ) => {
-
-		get().updateMaterialProperty( 'iridescenceIOR', value[ 0 ] );
-
-	},
-
-	handleIridescenceThicknessRangeChange: ( value ) => {
-
-		get().updateMaterialProperty( 'iridescenceThicknessRange', value );
+		}
 
 	},
+	handleIridescenceChange: val => get().updateMaterialProperty( 'iridescence', val[ 0 ] ),
+	handleIridescenceIORChange: val => get().updateMaterialProperty( 'iridescenceIOR', val[ 0 ] ),
+	handleIridescenceThicknessRangeChange: val => get().updateMaterialProperty( 'iridescenceThicknessRange', val ),
+	handleVisibleChange: val => {
 
-	handleVisibleChange: ( value ) => {
+		const obj = useStore.getState().selectedObject;
+		if ( obj ) {
 
-		const selectedObject = useStore.getState().selectedObject;
-		if ( selectedObject ) {
-
-			selectedObject.visible = value;
-			get().updateMaterialProperty( 'visible', value ? 1 : 0 );
+			obj.visible = val;
+			get().updateMaterialProperty( 'visible', val ? 1 : 0 );
 
 		}
 
 	},
 } ) );
 
-export {
-	useStore,
-	useAssetsStore,
-	useEnvironmentStore,
-	usePathTracerStore,
-	useLightStore,
-	useCameraStore,
-	useMaterialStore,
-};
+export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore };
