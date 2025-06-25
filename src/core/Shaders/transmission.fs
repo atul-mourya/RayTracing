@@ -352,7 +352,7 @@ MaterialInteractionResult handleMaterialTransparency(
     // -----------------------------------------------------------------
 
     // Quick early exit for fully opaque materials (most common case)
-	if( material.transparent && material.alphaMode == 0 && material.transmission <= 0.0 ) {
+	if( material.alphaMode == 0 && material.transmission <= 0.0 ) {
 		return result;
 	}
 
