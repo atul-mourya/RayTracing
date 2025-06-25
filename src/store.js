@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_STATE, CAMERA_PRESETS } from '@/Constants';
+import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS } from '@/Constants';
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 
@@ -156,6 +156,17 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfPhiLuminance: val => set( { asvgfPhiLuminance: val } ),
 	setAsvgfAtrousIterations: val => set( { asvgfAtrousIterations: val } ),
 	setAsvgfFilterSize: val => set( { asvgfFilterSize: val } ),
+
+	applyASVGFQualityPreset( app, preset ) {
+
+		const settings = ASVGF_QUALITY_PRESETS[ preset ];
+		if ( settings && app.asvgfPass ) {
+
+			app.updateASVGFParameters( settings );
+
+		}
+
+	},
 
 	// Handlers
 	handlePathTracerChange: handleChange(

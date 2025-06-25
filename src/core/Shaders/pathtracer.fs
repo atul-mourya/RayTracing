@@ -1,7 +1,8 @@
 precision highp float;
 precision highp sampler2DArray;
 
-out vec4 fragColor; 
+layout( location = 0 ) out vec4 gColor;        // RGB + alpha
+layout( location = 1 ) out vec4 gNormalDepth;  // Normal(RGB) + depth(A)
 
 // Uniform declarations remain the same
 uniform uint frame;
@@ -297,9 +298,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	float alpha = 1.0;
 
 	// Initialize edge detection variables
-    objectNormal = vec3( 0.0 );
-    objectColor = vec3( 0.0 );
-    objectID = -1000.0;
+	objectNormal = vec3( 0.0 );
+	objectColor = vec3( 0.0 );
+	objectID = - 1000.0;
 
     // Store initial ray for helper visualization
     // Ray initialRay = ray;
@@ -517,6 +518,15 @@ int getRequiredSamples( int pixelIndex ) {
 	return clamp( samples, 1, adaptiveSamplingMax );
 }
 
+// Helper function to linearize depth for MRT
+float linearizeDepth( float depth ) {
+    // Simple linear depth - you can adjust near/far as needed
+	float near = 0.1;
+	float far = 1000.0;
+	float z = depth * 2.0 - 1.0;
+	return ( 2.0 * near * far ) / ( far + near - z * ( far - near ) ) / far;
+}
+
 void main( ) {
 
 	vec2 screenPosition = ( gl_FragCoord.xy / resolution ) * 2.0 - 1.0;
@@ -530,31 +540,35 @@ void main( ) {
 
 	bool shouldRender = shouldRenderPixel( );
 
+	// MRT data
+	vec3 worldNormal = vec3( 0.0, 0.0, 1.0 );
+	float linearDepth = 1.0;
+
 	if( shouldRender ) {
 		int samplesCount = numRaysPerPixel;
 
 		if( frame > 2u && useAdaptiveSampling ) {
 			samplesCount = getRequiredSamples( pixelIndex );
 			if( samplesCount == 0 ) {
-                // Use the previous frame's color (it's converged or temporarily skipped)
-				fragColor = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
+				gColor = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
+				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
 				return;
 			}
 		}
 
 		vec3 objectNormal = vec3( 0.0 );
 		vec3 objectColor = vec3( 0.0 );
-		float objectID = -1000.0;
+		float objectID = - 1000.0;
 		float pixelSharpness = 0.0;
 
 		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
 			uint seed = pcg_hash( baseSeed + uint( rayIndex ) );
 
-            // Use stratified sampling for better distribution
 			vec2 stratifiedJitter = getStratifiedSample( gl_FragCoord.xy, rayIndex, samplesCount, seed );
 
 			if( visMode == 5 ) {
-				fragColor = vec4( stratifiedJitter, 1.0, 1.0 );
+				gColor = vec4( stratifiedJitter, 1.0, 1.0 );
+				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
 				return;
 			}
 
@@ -576,6 +590,10 @@ void main( ) {
 					objectNormal = sampleNormal;
 					objectColor = sampleColor;
 					objectID = sampleID;
+
+					// Set MRT data from first hit
+					worldNormal = normalize( sampleNormal );
+					linearDepth = linearizeDepth( gl_FragCoord.z );
 				}
 			}
 
@@ -586,7 +604,7 @@ void main( ) {
 
 		pixel.color /= float( pixel.samples );
 
-		// Edge Detection Logic
+		// Edge Detection
 		float edge0 = 0.2;
 		float edge1 = 0.6;
 		
@@ -615,5 +633,7 @@ void main( ) {
     // pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
     // pixel.color.rgb = dithering( pixel.color.rgb, seed );
 
-	fragColor = vec4( pixel.color.rgb, 1.0 );
+	// Clean MRT output
+	gColor = vec4( pixel.color.rgb, 1.0 );
+	gNormalDepth = vec4( worldNormal * 0.5 + 0.5, linearDepth );
 }

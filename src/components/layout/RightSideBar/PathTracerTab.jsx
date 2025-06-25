@@ -6,6 +6,7 @@ import { usePathTracerStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
+import { Separator } from '@/components/ui/separator';
 
 const toneMappingOptions = [
 	{ label: 'None', value: 0 },
@@ -68,10 +69,7 @@ const PathTracerTab = () => {
 		toneMapping,
 		interactionModeEnabled,
 		enableASVGF,
-		asvgfTemporalAlpha,
-		asvgfPhiColor,
-		asvgfPhiLuminance,
-		asvgfAtrousIterations,
+		asvgfQualityPreset,
 
 		// Handlers - now from store
 		handlePathTracerChange,
@@ -118,10 +116,7 @@ const PathTracerTab = () => {
 		handleToneMappingChange,
 		handleInteractionModeEnabledChange,
 		handleEnableASVGFChange,
-		handleAsvgfTemporalAlphaChange,
-		handleAsvgfPhiColorChange,
-		handleAsvgfPhiLuminanceChange,
-		handleAsvgfAtrousIterationsChange,
+		handleAsvgfQualityPresetChange,
 	} = pathTracerStore;
 
 	return (
@@ -218,18 +213,22 @@ const PathTracerTab = () => {
 				</div>
 				{enableASVGF && ( <>
 					<div className="flex items-center justify-between">
-						<Slider label={"Temporal Alpha"} min={0.01} max={1.0} step={0.01} value={[ asvgfTemporalAlpha ]} onValueChange={handleAsvgfTemporalAlphaChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Color Sensitivity"} min={1.0} max={50.0} step={1.0} value={[ asvgfPhiColor ]} onValueChange={handleAsvgfPhiColorChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Luminance Sensitivity"} min={1.0} max={20.0} step={0.5} value={[ asvgfPhiLuminance ]} onValueChange={handleAsvgfPhiLuminanceChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Filter Iterations"} min={1} max={8} step={1} value={[ asvgfAtrousIterations ]} onValueChange={handleAsvgfAtrousIterationsChange} />
+						<Select value={asvgfQualityPreset} onValueChange={handleAsvgfQualityPresetChange}>
+							<span className="opacity-50 text-xs truncate">Quality Preset</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full" >
+								<SelectValue placeholder="Select preset" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="low">Low</SelectItem>
+								<SelectItem value="medium">Medium</SelectItem>
+								<SelectItem value="high">High</SelectItem>
+								<SelectItem value="ultra">Ultra</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
 				</> )}
+				<Separator />
+
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
 				</div>

@@ -280,8 +280,10 @@ class PathTracerApp extends EventDispatcher {
 		this.adaptiveSamplingPass.setTemporalStatisticsPass( this.temporalStatsPass );
 		this.composer.addPass( this.adaptiveSamplingPass );
 
+		// Initialize PathTracerPass with MRT support
 		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
-		// Initialize the interaction mode setting
+		this.pathTracingPass.setupMRTTargets();
+		this.pathTracingPass.enableMRT( DEFAULT_STATE.enableMRT || true );
 		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
@@ -293,28 +295,49 @@ class PathTracerApp extends EventDispatcher {
 		} );
 		this.composer.addPass( this.accPass );
 
-		this.asvgfPass = new ASVGFPass( this.width, this.height );
+		this.asvgfPass = new ASVGFPass( this.renderer, this.width, this.height, {
+			// Temporal parameters
+			temporalAlpha: DEFAULT_STATE.asvgfTemporalAlpha || 0.1,
+			temporalColorWeight: DEFAULT_STATE.asvgfTemporalColorWeight || 0.1,
+			temporalNormalWeight: DEFAULT_STATE.asvgfTemporalNormalWeight || 0.1,
+			temporalDepthWeight: DEFAULT_STATE.asvgfTemporalDepthWeight || 0.1,
+
+			// Variance parameters
+			varianceClip: DEFAULT_STATE.asvgfVarianceClip || 1.0,
+			maxAccumFrames: DEFAULT_STATE.asvgfMaxAccumFrames || 32,
+
+			// Edge-stopping parameters
+			phiColor: DEFAULT_STATE.asvgfPhiColor || 10.0,
+			phiNormal: DEFAULT_STATE.asvgfPhiNormal || 128.0,
+			phiDepth: DEFAULT_STATE.asvgfPhiDepth || 1.0,
+			phiLuminance: DEFAULT_STATE.asvgfPhiLuminance || 4.0,
+
+			// A-trous parameters
+			atrousIterations: DEFAULT_STATE.asvgfAtrousIterations || 4,
+			varianceBoost: DEFAULT_STATE.asvgfVarianceBoost || 1.0,
+
+			// Debug
+			enableDebug: DEFAULT_STATE.asvgfEnableDebug || false,
+			debugMode: DEFAULT_STATE.asvgfDebugMode || 0
+		} );
 		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF;
+
+		// Override the render method to pass camera
+		const originalRender = this.asvgfPass.render.bind( this.asvgfPass );
+		this.asvgfPass.render = ( renderer, writeBuffer, readBuffer ) => {
+
+			return originalRender( renderer, writeBuffer, readBuffer, this.camera );
+
+		};
+
 		this.composer.addPass( this.asvgfPass );
 
 		this.pathTracingPass.setAccumulationPass( this.accPass );
-
 		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
 		this.adaptiveSamplingPass.setTextures( this.pathTracingPass.material.uniforms.previousFrameTexture.value, this.accPass.currentAccumulation.texture );
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
-
-		// Add ASVGF pass - insert before the denoiser pass
-		this.asvgfPass = new ASVGFPass( this.renderer, this.width, this.height );
-		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF;
-		this.asvgfPass.iterations = DEFAULT_STATE.asvgfIterations;
-		this.asvgfPass.temporalWeight = DEFAULT_STATE.asvgfTemporalWeight;
-		this.asvgfPass.spatialSigma = DEFAULT_STATE.asvgfSpatialSigma;
-		this.asvgfPass.featureSigma = DEFAULT_STATE.asvgfFeatureSigma;
-		this.asvgfPass.useTemporal = DEFAULT_STATE.asvgfUseTemporal;
-		this.asvgfPass.debug = DEFAULT_STATE.asvgfDebug;
-		this.composer.addPass( this.asvgfPass );
 
 		this.denoiserPass = new LygiaSmartDenoiserPass( this.width, this.height );
 		this.denoiserPass.enabled = false;
@@ -387,9 +410,15 @@ class PathTracerApp extends EventDispatcher {
 
 			this.controls.update();
 
+			if ( this.asvgfPass.enabled ) {
+
+				this.asvgfPass.updateCameraMatrices( this.camera );
+
+			}
+
 			this.accPass.updateUniforms( {
 				cameraIsMoving: this.pathTracingPass.interactionMode || false,
-				sceneIsDynamic: false, // Set based on your scene
+				sceneIsDynamic: false,
 				time: this.accPass.timeElapsed
 			} );
 
@@ -411,7 +440,7 @@ class PathTracerApp extends EventDispatcher {
 			// Render the frame
 			this.composer.render();
 
-			// For the first frame, initialize temporal statistics with the current frame
+			// Initialize temporal statistics for first frame
 			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value === 1 ) {
 
 				this.temporalStatsPass.update( this.pathTracingPass.currentRenderTarget.texture );
@@ -420,7 +449,6 @@ class PathTracerApp extends EventDispatcher {
 
 			this.stats.update();
 
-			// This is already using the store so no need to modify this part
 			updateStats( {
 				timeElapsed: this.accPass.timeElapsed,
 				samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
@@ -558,7 +586,7 @@ class PathTracerApp extends EventDispatcher {
 		if ( this.asvgfPass ) {
 
 			this.asvgfPass.enabled = enabled;
-			// Optionally disable other denoisers when ASVGF is enabled
+			// Automatically disable other denoisers when ASVGF is enabled
 			if ( enabled ) {
 
 				this.denoiserPass.enabled = false;
@@ -576,7 +604,32 @@ class PathTracerApp extends EventDispatcher {
 		if ( this.asvgfPass ) {
 
 			this.asvgfPass.updateParameters( params );
-			this.reset(); // Reset to apply new parameters
+			this.reset();
+
+		}
+
+	}
+
+	setASVGFDebugMode( mode ) {
+
+		if ( this.asvgfPass ) {
+
+			this.asvgfPass.updateParameters( {
+				enableDebug: mode > 0,
+				debugMode: mode
+			} );
+
+		}
+
+	}
+
+	// Toggle between MRT and single output mode
+	toggleMRT( enabled ) {
+
+		if ( this.pathTracingPass ) {
+
+			this.pathTracingPass.enableMRT( enabled );
+			this.reset();
 
 		}
 

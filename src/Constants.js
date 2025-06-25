@@ -230,16 +230,74 @@ export const DEFAULT_STATE = {
 	debugVisScale: 100,
 
 	// ASVGF Parameters
-	enableASVGF: false,
-	asvgfTemporalAlpha: 0.2,
-	asvgfVarianceClip: 4.0,
-	asvgfMomentClip: 64.0,
-	asvgfPhiColor: 10.0,
-	asvgfPhiNormal: 128.0,
-	asvgfPhiDepth: 0.5,
-	asvgfPhiLuminance: 4.0,
-	asvgfAtrousIterations: 1,
-	asvgfFilterSize: 3
+	// MRT settings
+	enableMRT: true,
+
+	// Enhanced ASVGF settings
+	enableASVGF: true,
+
+	// Temporal accumulation parameters
+	asvgfTemporalAlpha: 0.1, // Base temporal accumulation rate
+	asvgfTemporalColorWeight: 0.1, // Color similarity weight for temporal accumulation
+	asvgfTemporalNormalWeight: 0.1, // Normal similarity weight
+	asvgfTemporalDepthWeight: 0.1, // Depth similarity weight
+
+	// Variance estimation
+	// asvgfVarianceClip: 1.0, // Variance clipping threshold
+	asvgfMaxAccumFrames: 32, // Maximum temporal accumulation frames
+	asvgfVarianceBoost: 1.0, // Variance boost factor for filtering guidance
+
+	// Edge-stopping functions for spatial filtering
+	asvgfPhiColor: 10.0, // Color edge threshold
+	asvgfPhiNormal: 128.0, // Normal edge threshold
+	asvgfPhiDepth: 1.0, // Depth edge threshold
+	asvgfPhiLuminance: 4.0, // Luminance edge threshold
+
+	// // A-trous wavelet filtering
+	asvgfAtrousIterations: 2, // Number of a-trous filtering iterations
+	asvgfFilterSize: 5, // Filter kernel size (5x5)
+
+	// // Debug and visualization
+	asvgfEnableDebug: false, // Enable debug visualization
+	asvgfDebugMode: 0, // Debug mode: 0=off, 1=variance, 2=history, 3=motion, 4=normals
+
+	// // Quality presets for easy switching
+	asvgfQualityPreset: 'high', // 'low', 'medium', 'high', 'ultra'
+};
+
+export const ASVGF_QUALITY_PRESETS = {
+	low: {
+		asvgfTemporalAlpha: 0.2,
+		asvgfAtrousIterations: 2,
+		asvgfPhiColor: 20.0,
+		asvgfPhiNormal: 64.0,
+		asvgfMaxAccumFrames: 16,
+		asvgfVarianceBoost: 0.5
+	},
+	medium: {
+		asvgfTemporalAlpha: 0.15,
+		asvgfAtrousIterations: 3,
+		asvgfPhiColor: 15.0,
+		asvgfPhiNormal: 96.0,
+		asvgfMaxAccumFrames: 24,
+		asvgfVarianceBoost: 0.75
+	},
+	high: {
+		asvgfTemporalAlpha: 0.1,
+		asvgfAtrousIterations: 4,
+		asvgfPhiColor: 10.0,
+		asvgfPhiNormal: 128.0,
+		asvgfMaxAccumFrames: 32,
+		asvgfVarianceBoost: 1.0
+	},
+	ultra: {
+		asvgfTemporalAlpha: 0.05,
+		asvgfAtrousIterations: 5,
+		asvgfPhiColor: 8.0,
+		asvgfPhiNormal: 160.0,
+		asvgfMaxAccumFrames: 48,
+		asvgfVarianceBoost: 1.2
+	}
 };
 
 export const CAMERA_RANGES = {

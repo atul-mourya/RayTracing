@@ -721,6 +721,8 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.resolution.value.set( width, height );
 		this.renderTargetA.setSize( width, height );
 		this.renderTargetB.setSize( width, height );
+		this.mrtTargetA.setSize( width, height );
+		this.mrtTargetB.setSize( width, height );
 
 	}
 
@@ -754,6 +756,85 @@ export class PathTracerPass extends Pass {
 		this.renderTargetB.dispose();
 		this.copyMaterial.dispose();
 		this.copyQuad.dispose();
+		this.mrtTargetA.dispose();
+		this.mrtTargetB.dispose();
+
+	}
+
+	setupMRTTargets() {
+
+		const targetOptions = {
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			type: FloatType,
+			colorSpace: LinearSRGBColorSpace,
+			depthBuffer: false,
+			count: 2
+		};
+
+		// Multiple Render Targets for ASVGF
+		this.mrtTargetA = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this.mrtTargetB = new WebGLRenderTarget( this.width, this.height, targetOptions );
+
+		// Set up texture names for debugging
+		this.mrtTargetA.textures[ 0 ].name = 'ColorTexture';
+		this.mrtTargetA.textures[ 1 ].name = 'NormalDepthTexture';
+		this.mrtTargetB.textures[ 0 ].name = 'ColorTexture';
+		this.mrtTargetB.textures[ 1 ].name = 'NormalDepthTexture';
+
+		// Start with A as current and B as previous
+		this.currentMRT = this.mrtTargetA;
+		this.previousMRT = this.mrtTargetB;
+
+		// Keep single-target versions for backward compatibility
+		this.renderTargetA = new WebGLRenderTarget( this.width, this.height, {
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			type: FloatType,
+			colorSpace: LinearSRGBColorSpace,
+			depthBuffer: false,
+		} );
+		this.renderTargetB = this.renderTargetA.clone();
+		this.currentRenderTarget = this.renderTargetA;
+		this.previousRenderTarget = this.renderTargetB;
+
+	}
+
+	enableMRT( enabled = true ) {
+
+		this.useMRT = enabled;
+
+		if ( enabled ) {
+
+			// Add MRT define to the shader
+			this.material.defines.USE_MRT = '';
+			this.material.needsUpdate = true;
+
+		} else {
+
+			// Remove MRT define
+			delete this.material.defines.USE_MRT;
+			this.material.needsUpdate = true;
+
+		}
+
+	}
+
+	getMRTTextures() {
+
+		if ( this.useMRT && this.currentMRT ) {
+
+			return {
+				color: this.currentMRT.textures[ 0 ],
+				normalDepth: this.currentMRT.textures[ 1 ]
+			};
+
+		}
+
+		return {
+			color: this.currentRenderTarget.texture,
+			normalDepth: null
+		};
 
 	}
 
@@ -773,21 +854,21 @@ export class PathTracerPass extends Pass {
 		}
 
 		// 2. Only update uniforms that have changed
+		this.updateCameraUniforms();
 		const uniforms = this.material.uniforms;
 
-		// Update camera only if it moved
-		this.updateCameraUniforms();
+		// Set previous frame texture appropriately
+		if ( this.useMRT ) {
 
-		// Update frame-dependent uniforms (these always change)
-		uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
+			uniforms.previousFrameTexture.value = this.previousMRT.textures[ 0 ];
 
-		// Update accumulation pass texture only if it exists and changed
-		const accumulatedTexture = this.accumulationPass?.currentAccumulation.texture;
-		if ( uniforms.accumulatedFrameTexture.value !== accumulatedTexture ) {
+		} else {
 
-			uniforms.accumulatedFrameTexture.value = accumulatedTexture;
+			uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
 
 		}
+
+		uniforms.accumulatedFrameTexture.value = this.accumulationPass?.currentAccumulation.texture;
 
 		// 3. Adaptive sampling optimization - skip during interaction
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
@@ -820,12 +901,30 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 5. Render to target
-		renderer.setRenderTarget( this.currentRenderTarget );
+		// Render to appropriate target
+		if ( this.useMRT ) {
+
+			renderer.setRenderTarget( this.currentMRT );
+
+		} else {
+
+			renderer.setRenderTarget( this.currentRenderTarget );
+
+		}
+
 		this.fsQuad.render( renderer );
 
-		// 6. Copy to output
-		this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
+		// Copy to output buffer
+		if ( this.useMRT ) {
+
+			this.copyMaterial.uniforms.tDiffuse.value = this.currentMRT.textures[ 0 ];
+
+		} else {
+
+			this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
+
+		}
+
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.copyQuad.render( renderer );
 
@@ -836,9 +935,16 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 8. Swap render targets (ping-pong)
-		[ this.currentRenderTarget, this.previousRenderTarget ] =
-            [ this.previousRenderTarget, this.currentRenderTarget ];
+		// Swap targets
+		if ( this.useMRT ) {
+
+			[ this.currentMRT, this.previousMRT ] = [ this.previousMRT, this.currentMRT ];
+
+		} else {
+
+			[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
+
+		}
 
 	}
 

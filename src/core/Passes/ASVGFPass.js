@@ -1,4 +1,3 @@
-import { DEFAULT_STATE } from '@/Constants';
 import {
 	ShaderMaterial,
 	LinearFilter,
@@ -7,35 +6,78 @@ import {
 	WebGLRenderTarget,
 	Vector2,
 	NearestFilter,
-	UniformsUtils
+	Matrix4,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 export class ASVGFPass extends Pass {
 
-	constructor( width, height, options = {} ) {
+	constructor( renderer, width, height, options = {} ) {
 
 		super();
 
 		this.name = 'ASVGFPass';
+		this.renderer = renderer;
 		this.width = width;
 		this.height = height;
 
-		// ASVGF parameters
+		// ASVGF parameters with proper defaults
 		this.params = {
-			temporalAlpha: options.temporalAlpha || DEFAULT_STATE.asvgfTemporalAlpha,
-			varianceClip: options.varianceClip || DEFAULT_STATE.asvgfVarianceClip,
-			momentClip: options.momentClip || DEFAULT_STATE.asvgfMomentClip,
-			phiColor: options.phiColor || DEFAULT_STATE.asvgfPhiColor,
-			phiNormal: options.phiNormal || DEFAULT_STATE.asvgfPhiNormal,
-			phiDepth: options.phiDepth || DEFAULT_STATE.asvgfPhiDepth,
-			phiLuminance: options.phiLuminance || DEFAULT_STATE.asvgfPhiLuminance,
-			atrousIterations: options.atrousIterations || DEFAULT_STATE.asvgfAtrousIterations,
-			filterSize: options.filterSize || DEFAULT_STATE.asvgfFilterSize,
+			// Temporal parameters
+			temporalAlpha: options.temporalAlpha ?? 0.1,
+			temporalColorWeight: options.temporalColorWeight ?? 0.1,
+			temporalNormalWeight: options.temporalNormalWeight ?? 0.1,
+			temporalDepthWeight: options.temporalDepthWeight ?? 0.1,
+
+			// Variance parameters
+			varianceClip: options.varianceClip ?? 1.0,
+			maxAccumFrames: options.maxAccumFrames ?? 32,
+
+			// Edge-stopping parameters
+			phiColor: options.phiColor ?? 10.0,
+			phiNormal: options.phiNormal ?? 128.0,
+			phiDepth: options.phiDepth ?? 1.0,
+			phiLuminance: options.phiLuminance ?? 4.0,
+
+			// A-trous parameters
+			atrousIterations: options.atrousIterations ?? 4,
+			filterSize: options.filterSize ?? 5,
+			varianceBoost: options.varianceBoost ?? 1.0,
+
+			// Debug options
+			enableDebug: options.enableDebug ?? false,
+			debugMode: options.debugMode ?? 0, // 0: off, 1: variance, 2: temporal weight, 3: spatial weight
+
 			...options
 		};
 
-		// Create render targets for temporal accumulation
+		// Camera matrices for motion vector calculation
+		this.prevViewMatrix = new Matrix4();
+		this.prevProjectionMatrix = new Matrix4();
+		this.prevViewProjectionMatrix = new Matrix4();
+		this.currentViewProjectionMatrix = new Matrix4();
+
+		// Create render targets
+		this.initRenderTargets();
+
+		// Initialize shaders
+		this.initMaterials();
+
+		// Frame tracking
+		this.frameCount = 0;
+		this.isFirstFrame = true;
+
+		// Create fullscreen quads
+		this.temporalQuad = new FullScreenQuad( this.temporalMaterial );
+		this.varianceQuad = new FullScreenQuad( this.varianceMaterial );
+		this.atrousQuad = new FullScreenQuad( this.atrousMaterial );
+		this.motionQuad = new FullScreenQuad( this.motionMaterial );
+		this.finalQuad = new FullScreenQuad( this.finalMaterial );
+
+	}
+
+	initRenderTargets() {
+
 		const targetOptions = {
 			minFilter: LinearFilter,
 			magFilter: LinearFilter,
@@ -44,42 +86,51 @@ export class ASVGFPass extends Pass {
 			depthBuffer: false
 		};
 
+		const nearestTargetOptions = {
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			format: RGBAFormat,
+			type: FloatType,
+			depthBuffer: false
+		};
+
+		// Motion vectors and depth
+		this.motionTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
+		this.prevMotionTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
+
 		// Temporal accumulation targets
-		this.temporalAccumTarget = new WebGLRenderTarget( width, height, targetOptions );
-		this.temporalMomentTarget = new WebGLRenderTarget( width, height, targetOptions );
-		this.varianceTarget = new WebGLRenderTarget( width, height, targetOptions );
+		this.temporalColorTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this.temporalMomentsTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this.temporalHistoryLengthTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
 
-		// A-trous filtering targets (ping-pong)
-		this.atrousTargetA = new WebGLRenderTarget( width, height, targetOptions );
-		this.atrousTargetB = new WebGLRenderTarget( width, height, targetOptions );
+		// Previous frame storage
+		this.prevColorTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this.prevMomentsTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this.prevHistoryLengthTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
+		this.prevNormalDepthTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
 
-		// Previous frame data
-		this.prevColorTarget = new WebGLRenderTarget( width, height, targetOptions );
-		this.prevMomentTarget = new WebGLRenderTarget( width, height, targetOptions );
+		// Variance estimation
+		this.varianceTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 
-		// Initialize materials
-		this.initMaterials();
+		// A-trous filtering (ping-pong)
+		this.atrousTargetA = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this.atrousTargetB = new WebGLRenderTarget( this.width, this.height, targetOptions );
 
-		// Track frame count for temporal accumulation
-		this.frameCount = 0;
-		this.isFirstFrame = true;
+		// Final output
+		this.outputTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 
 	}
 
 	initMaterials() {
 
-		// Temporal accumulation material
-		this.temporalMaterial = new ShaderMaterial( {
+		// Motion vector calculation
+		this.motionMaterial = new ShaderMaterial( {
 			uniforms: {
-				tCurrent: { value: null },
-				tPrevColor: { value: null },
-				tPrevMoment: { value: null },
-				tMotionVector: { value: null }, // If available
-				temporalAlpha: { value: this.params.temporalAlpha },
-				varianceClip: { value: this.params.varianceClip },
-				momentClip: { value: this.params.momentClip },
-				isFirstFrame: { value: true },
-				frameCount: { value: 0 }
+				tNormalDepth: { value: null },
+				tPrevNormalDepth: { value: null },
+				currentViewProjectionMatrix: { value: new Matrix4() },
+				prevViewProjectionMatrix: { value: new Matrix4() },
+				resolution: { value: new Vector2( this.width, this.height ) }
 			},
 			vertexShader: /* glsl */`
 				varying vec2 vUv;
@@ -89,15 +140,102 @@ export class ASVGFPass extends Pass {
 				}
 			`,
 			fragmentShader: /* glsl */`
-				uniform sampler2D tCurrent;
+				uniform sampler2D tNormalDepth;
+				uniform sampler2D tPrevNormalDepth;
+				uniform mat4 currentViewProjectionMatrix;
+				uniform mat4 prevViewProjectionMatrix;
+				uniform vec2 resolution;
+				
+				varying vec2 vUv;
+
+				vec3 getWorldPosition(vec2 uv, float depth, mat4 invViewProjMatrix) {
+					vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+					vec4 worldPos = invViewProjMatrix * clipPos;
+					return worldPos.xyz / worldPos.w;
+				}
+
+				void main() {
+					vec4 normalDepth = texture2D(tNormalDepth, vUv);
+					float depth = normalDepth.a;
+					
+					if (depth >= 1.0) {
+						// Sky/background - no motion
+						gl_FragColor = vec4(0.0, 0.0, depth, 1.0);
+						return;
+					}
+					
+					// Reconstruct world position
+					mat4 invCurrentVP = inverse(currentViewProjectionMatrix);
+					vec3 worldPos = getWorldPosition(vUv, depth, invCurrentVP);
+					
+					// Project to previous frame
+					vec4 prevClipPos = prevViewProjectionMatrix * vec4(worldPos, 1.0);
+					vec2 prevScreenPos = (prevClipPos.xy / prevClipPos.w) * 0.5 + 0.5;
+					
+					// Calculate motion vector
+					vec2 motion = vUv - prevScreenPos;
+					
+					// Validate motion vector
+					if (prevScreenPos.x < 0.0 || prevScreenPos.x > 1.0 || 
+						prevScreenPos.y < 0.0 || prevScreenPos.y > 1.0) {
+						// Outside screen bounds
+						motion = vec2(1000.0); // Invalid motion marker
+					}
+					
+					gl_FragColor = vec4(motion, depth, 1.0);
+				}
+			`
+		} );
+
+		// Temporal accumulation with variance
+		this.temporalMaterial = new ShaderMaterial( {
+			uniforms: {
+				tCurrentColor: { value: null },
+				tCurrentNormalDepth: { value: null },
+				tMotion: { value: null },
+				tPrevColor: { value: null },
+				tPrevMoments: { value: null },
+				tPrevHistoryLength: { value: null },
+				tPrevNormalDepth: { value: null },
+
+				temporalAlpha: { value: this.params.temporalAlpha },
+				temporalColorWeight: { value: this.params.temporalColorWeight },
+				temporalNormalWeight: { value: this.params.temporalNormalWeight },
+				temporalDepthWeight: { value: this.params.temporalDepthWeight },
+				varianceClip: { value: this.params.varianceClip },
+				maxAccumFrames: { value: this.params.maxAccumFrames },
+
+				isFirstFrame: { value: true },
+				frameCount: { value: 0 },
+				resolution: { value: new Vector2( this.width, this.height ) },
+				hasMotionVectors: { value: false }
+			},
+			vertexShader: /* glsl */`
+				varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				}
+			`,
+			fragmentShader: /* glsl */`
+				uniform sampler2D tCurrentColor;
+				uniform sampler2D tCurrentNormalDepth;
+				uniform sampler2D tMotion;
 				uniform sampler2D tPrevColor;
-				uniform sampler2D tPrevMoment;
-				uniform sampler2D tMotionVector;
+				uniform sampler2D tPrevMoments;
+				uniform sampler2D tPrevHistoryLength;
+				uniform sampler2D tPrevNormalDepth;
+				
 				uniform float temporalAlpha;
+				uniform float temporalColorWeight;
+				uniform float temporalNormalWeight;
+				uniform float temporalDepthWeight;
 				uniform float varianceClip;
-				uniform float momentClip;
+				uniform float maxAccumFrames;
+				
 				uniform bool isFirstFrame;
 				uniform float frameCount;
+				uniform vec2 resolution;
 				
 				varying vec2 vUv;
 
@@ -105,47 +243,84 @@ export class ASVGFPass extends Pass {
 					return dot(color, vec3(0.2126, 0.7152, 0.0722));
 				}
 
+				float computeWeight(vec3 currentNormal, vec3 prevNormal, float currentDepth, float prevDepth, vec3 currentColor, vec3 prevColor) {
+					// Normal similarity
+					float normalWeight = max(0.0, dot(currentNormal, prevNormal));
+					normalWeight = pow(normalWeight, temporalNormalWeight);
+					
+					// Depth similarity
+					float depthDiff = abs(currentDepth - prevDepth) / max(currentDepth, 1e-6);
+					float depthWeight = exp(-depthDiff / temporalDepthWeight);
+					
+					// Color similarity
+					float colorDiff = length(currentColor - prevColor);
+					float colorWeight = exp(-colorDiff / temporalColorWeight);
+					
+					return normalWeight * depthWeight * colorWeight;
+				}
+
 				void main() {
-					vec4 currentColor = texture2D(tCurrent, vUv);
+					vec4 currentColor = texture2D(tCurrentColor, vUv);
+					vec4 currentNormalDepth = texture2D(tCurrentNormalDepth, vUv);
+					vec4 motion = texture2D(tMotion, vUv);
 					
 					if (isFirstFrame) {
 						// Initialize temporal accumulation
-						gl_FragColor = vec4(currentColor.rgb, getLuma(currentColor.rgb));
+						float luma = getLuma(currentColor.rgb);
+						gl_FragColor = vec4(currentColor.rgb, 1.0); // Store in temporalColorTarget
 						return;
 					}
 					
-					// Sample previous frame (with motion compensation if available)
-					vec2 prevUV = vUv;
-					// TODO: Add motion vector sampling for better temporal coherence
-					// if (tMotionVector is available) prevUV = vUv + texture2D(tMotionVector, vUv).xy;
+					vec2 prevUV = vUv - motion.xy;
 					
+					// Check if reprojection is valid
+					bool validReprojection = (motion.x < 100.0) && 
+											(prevUV.x >= 0.0) && (prevUV.x <= 1.0) && 
+											(prevUV.y >= 0.0) && (prevUV.y <= 1.0);
+					
+					if (!validReprojection) {
+						// No valid history, use current frame
+						gl_FragColor = vec4(currentColor.rgb, 1.0);
+						return;
+					}
+					
+					// Sample previous frame data
 					vec4 prevColor = texture2D(tPrevColor, prevUV);
-					vec4 prevMoment = texture2D(tPrevMoment, prevUV);
+					vec4 prevMoments = texture2D(tPrevMoments, prevUV);
+					vec4 prevHistoryLength = texture2D(tPrevHistoryLength, prevUV);
+					vec4 prevNormalDepth = texture2D(tPrevNormalDepth, prevUV);
 					
-					float currentLum = getLuma(currentColor.rgb);
-					float prevLum = prevColor.a;
+					// Compute similarity weight
+					float weight = computeWeight(
+						currentNormalDepth.xyz, 
+						prevNormalDepth.xyz,
+						currentNormalDepth.w, 
+						prevNormalDepth.w,
+						currentColor.rgb, 
+						prevColor.rgb
+					);
 					
-					// Adaptive temporal weight based on luminance difference
-					float lumDiff = abs(currentLum - prevLum);
-					float adaptiveAlpha = temporalAlpha * exp(-lumDiff * 2.0);
+					// History length and adaptive alpha
+					float historyLength = min(prevHistoryLength.r + 1.0, maxAccumFrames);
+					float alpha = max(temporalAlpha, 1.0 / historyLength);
+					alpha *= (1.0 - weight * 0.5); // Reduce accumulation for dissimilar pixels
 					
-					// Temporal accumulation with variance estimation
-					vec3 temporalColor = mix(currentColor.rgb, prevColor.rgb, adaptiveAlpha);
-					float temporalLum = mix(currentLum, prevLum, adaptiveAlpha);
+					// Temporal accumulation
+					vec3 temporalColor = mix(prevColor.rgb, currentColor.rgb, alpha);
 					
-					// Store result
-					gl_FragColor = vec4(temporalColor, temporalLum);
+					gl_FragColor = vec4(temporalColor, historyLength);
 				}
 			`
 		} );
 
-		// Variance estimation material
+		// Variance estimation
 		this.varianceMaterial = new ShaderMaterial( {
 			uniforms: {
 				tColor: { value: null },
-				tPrevMoment: { value: null },
+				tPrevMoments: { value: null },
+				tHistoryLength: { value: null },
 				resolution: { value: new Vector2( this.width, this.height ) },
-				frameCount: { value: 0 }
+				varianceBoost: { value: this.params.varianceBoost }
 			},
 			vertexShader: /* glsl */`
 				varying vec2 vUv;
@@ -156,9 +331,10 @@ export class ASVGFPass extends Pass {
 			`,
 			fragmentShader: /* glsl */`
 				uniform sampler2D tColor;
-				uniform sampler2D tPrevMoment;
+				uniform sampler2D tPrevMoments;
+				uniform sampler2D tHistoryLength;
 				uniform vec2 resolution;
-				uniform float frameCount;
+				uniform float varianceBoost;
 				
 				varying vec2 vUv;
 
@@ -167,49 +343,57 @@ export class ASVGFPass extends Pass {
 				}
 
 				void main() {
-					vec2 texelSize = 1.0 / resolution;
 					vec3 currentColor = texture2D(tColor, vUv).rgb;
-					float currentLum = getLuma(currentColor);
+					float currentLuma = getLuma(currentColor);
+					vec4 historyLength = texture2D(tHistoryLength, vUv);
 					
-					// Calculate local mean and variance using 3x3 neighborhood
-					float sum = 0.0;
-					float sum2 = 0.0;
+					// Get previous moments
+					vec4 prevMoments = texture2D(tPrevMoments, vUv);
+					float prevMean = prevMoments.x;
+					float prevSecondMoment = prevMoments.y;
+					
+					// Temporal accumulation of moments
+					float alpha = 1.0 / max(historyLength.r, 1.0);
+					float newMean = mix(prevMean, currentLuma, alpha);
+					float newSecondMoment = mix(prevSecondMoment, currentLuma * currentLuma, alpha);
+					
+					// Compute variance
+					float variance = max(0.0, newSecondMoment - newMean * newMean);
+					variance *= varianceBoost;
+					
+					// Compute 3x3 neighborhood variance for spatial filtering guidance
+					vec2 texelSize = 1.0 / resolution;
+					float neighborhoodVariance = 0.0;
 					float count = 0.0;
 					
 					for (int x = -1; x <= 1; x++) {
 						for (int y = -1; y <= 1; y++) {
 							vec2 offset = vec2(float(x), float(y)) * texelSize;
 							vec3 neighborColor = texture2D(tColor, vUv + offset).rgb;
-							float neighborLum = getLuma(neighborColor);
-							
-							sum += neighborLum;
-							sum2 += neighborLum * neighborLum;
+							float neighborLuma = getLuma(neighborColor);
+							neighborhoodVariance += (neighborLuma - newMean) * (neighborLuma - newMean);
 							count += 1.0;
 						}
 					}
+					neighborhoodVariance /= count;
 					
-					float mean = sum / count;
-					float variance = max(0.0, (sum2 / count) - (mean * mean));
-					
-					// Temporal moment accumulation
-					vec2 prevMoment = texture2D(tPrevMoment, vUv).xy;
-					float alpha = min(1.0, 4.0 / (frameCount + 4.0));
-					
-					float newMean = mix(prevMoment.x, currentLum, alpha);
-					float newVariance = mix(prevMoment.y, variance, alpha);
-					
-					gl_FragColor = vec4(newMean, newVariance, variance, 1.0);
+					gl_FragColor = vec4(newMean, newSecondMoment, variance, neighborhoodVariance);
 				}
 			`
 		} );
 
-		// A-trous wavelet filtering material
+		// A-trous wavelet filtering
 		this.atrousMaterial = new ShaderMaterial( {
 			uniforms: {
 				tColor: { value: null },
 				tVariance: { value: null },
+				tNormalDepth: { value: null },
+				tHistoryLength: { value: null },
+
 				resolution: { value: new Vector2( this.width, this.height ) },
 				stepSize: { value: 1 },
+				iteration: { value: 0 },
+
 				phiColor: { value: this.params.phiColor },
 				phiNormal: { value: this.params.phiNormal },
 				phiDepth: { value: this.params.phiDepth },
@@ -225,8 +409,13 @@ export class ASVGFPass extends Pass {
 			fragmentShader: /* glsl */`
 				uniform sampler2D tColor;
 				uniform sampler2D tVariance;
+				uniform sampler2D tNormalDepth;
+				uniform sampler2D tHistoryLength;
+				
 				uniform vec2 resolution;
 				uniform int stepSize;
+				uniform int iteration;
+				
 				uniform float phiColor;
 				uniform float phiNormal;
 				uniform float phiDepth;
@@ -238,7 +427,7 @@ export class ASVGFPass extends Pass {
 					return dot(color, vec3(0.2126, 0.7152, 0.0722));
 				}
 
-				// 5x5 a-trous kernel
+				// A-trous wavelet kernel
 				const float kernel[25] = float[](
 					1.0/256.0, 4.0/256.0, 6.0/256.0, 4.0/256.0, 1.0/256.0,
 					4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
@@ -257,9 +446,20 @@ export class ASVGFPass extends Pass {
 
 				void main() {
 					vec2 texelSize = 1.0 / resolution;
+					
 					vec3 centerColor = texture2D(tColor, vUv).rgb;
-					float centerLum = getLuma(centerColor);
-					vec3 centerVariance = texture2D(tVariance, vUv).rgb;
+					vec4 centerNormalDepth = texture2D(tNormalDepth, vUv);
+					vec4 centerVariance = texture2D(tVariance, vUv);
+					vec4 centerHistory = texture2D(tHistoryLength, vUv);
+					
+					float centerLuma = getLuma(centerColor);
+					vec3 centerNormal = centerNormalDepth.xyz;
+					float centerDepth = centerNormalDepth.w;
+					
+					// Use variance to guide filter strength
+					float sigma_l = phiLuminance * sqrt(max(centerVariance.z, 1e-6));
+					float sigma_n = phiNormal;
+					float sigma_z = phiDepth;
 					
 					vec3 weightedSum = vec3(0.0);
 					float weightSum = 0.0;
@@ -268,29 +468,34 @@ export class ASVGFPass extends Pass {
 						vec2 offset = vec2(offsets[i]) * float(stepSize) * texelSize;
 						vec2 sampleUV = vUv + offset;
 						
-						if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) {
+						if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || 
+							sampleUV.y < 0.0 || sampleUV.y > 1.0) {
 							continue;
 						}
 						
 						vec3 sampleColor = texture2D(tColor, sampleUV).rgb;
-						float sampleLum = getLuma(sampleColor);
-						vec3 sampleVariance = texture2D(tVariance, sampleUV).rgb;
+						vec4 sampleNormalDepth = texture2D(tNormalDepth, sampleUV);
+						vec4 sampleHistory = texture2D(tHistoryLength, sampleUV);
 						
-						// Edge-stopping function based on color difference
-						float colorDist = length(centerColor - sampleColor);
-						float colorWeight = exp(-colorDist / (phiColor * sqrt(centerVariance.z + 1e-6)));
+						float sampleLuma = getLuma(sampleColor);
+						vec3 sampleNormal = sampleNormalDepth.xyz;
+						float sampleDepth = sampleNormalDepth.w;
 						
-						// Edge-stopping function based on luminance difference
-						float lumDist = abs(centerLum - sampleLum);
-						float lumWeight = exp(-lumDist / (phiLuminance * sqrt(centerVariance.y + 1e-6)));
+						// Edge-stopping functions
+						float w_l = exp(-abs(centerLuma - sampleLuma) / sigma_l);
+						float w_n = pow(max(0.0, dot(centerNormal, sampleNormal)), sigma_n);
+						float w_z = exp(-abs(centerDepth - sampleDepth) / (sigma_z * max(centerDepth, 1e-3)));
 						
-						float weight = kernel[i] * colorWeight * lumWeight;
+						// History-based weight (trust pixels with more samples)
+						float historyWeight = min(sampleHistory.r / max(centerHistory.r, 1.0), 2.0);
+						
+						float weight = kernel[i] * w_l * w_n * w_z * historyWeight;
 						
 						weightedSum += sampleColor * weight;
 						weightSum += weight;
 					}
 					
-					if (weightSum > 0.0) {
+					if (weightSum > 1e-6) {
 						gl_FragColor = vec4(weightedSum / weightSum, 1.0);
 					} else {
 						gl_FragColor = vec4(centerColor, 1.0);
@@ -299,10 +504,96 @@ export class ASVGFPass extends Pass {
 			`
 		} );
 
-		// Create fullscreen quads
-		this.temporalQuad = new FullScreenQuad( this.temporalMaterial );
-		this.varianceQuad = new FullScreenQuad( this.varianceMaterial );
-		this.atrousQuad = new FullScreenQuad( this.atrousMaterial );
+		// Final composition with debug modes
+		this.finalMaterial = new ShaderMaterial( {
+			uniforms: {
+				tColor: { value: null },
+				tVariance: { value: null },
+				tHistoryLength: { value: null },
+				tNormalDepth: { value: null },
+				tMotion: { value: null },
+
+				enableDebug: { value: this.params.enableDebug },
+				debugMode: { value: this.params.debugMode },
+				resolution: { value: new Vector2( this.width, this.height ) }
+			},
+			vertexShader: /* glsl */`
+				varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+				}
+			`,
+			fragmentShader: /* glsl */`
+				uniform sampler2D tColor;
+				uniform sampler2D tVariance;
+				uniform sampler2D tHistoryLength;
+				uniform sampler2D tNormalDepth;
+				uniform sampler2D tMotion;
+				
+				uniform bool enableDebug;
+				uniform int debugMode;
+				uniform vec2 resolution;
+				
+				varying vec2 vUv;
+
+				vec3 heatmap(float value) {
+					value = clamp(value, 0.0, 1.0);
+					return mix(
+						mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), value * 2.0),
+						mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (value - 0.5) * 2.0),
+						step(0.5, value)
+					);
+				}
+
+				void main() {
+					vec3 color = texture2D(tColor, vUv).rgb;
+					
+					if (!enableDebug) {
+						gl_FragColor = vec4(color, 1.0);
+						return;
+					}
+					
+					if (debugMode == 1) {
+						// Variance visualization
+						float variance = texture2D(tVariance, vUv).z;
+						gl_FragColor = vec4(heatmap(sqrt(variance) * 10.0), 1.0);
+					} else if (debugMode == 2) {
+						// History length visualization
+						float history = texture2D(tHistoryLength, vUv).r / 32.0;
+						gl_FragColor = vec4(heatmap(history), 1.0);
+					} else if (debugMode == 3) {
+						// Motion vectors visualization
+						vec2 motion = texture2D(tMotion, vUv).xy;
+						if (motion.x > 100.0) {
+							gl_FragColor = vec4(1.0, 0.0, 1.0, 1.0); // Magenta for invalid
+						} else {
+							gl_FragColor = vec4(abs(motion) * 50.0, 0.0, 1.0);
+						}
+					} else if (debugMode == 4) {
+						// Normal visualization
+						vec3 normal = texture2D(tNormalDepth, vUv).xyz;
+						gl_FragColor = vec4(normal * 0.5 + 0.5, 1.0);
+					} else {
+						gl_FragColor = vec4(color, 1.0);
+					}
+				}
+			`
+		} );
+
+	}
+
+	updateCameraMatrices( camera ) {
+
+		// Store previous matrices
+		this.prevViewMatrix.copy( this.currentViewMatrix || camera.matrixWorldInverse );
+		this.prevProjectionMatrix.copy( this.currentProjectionMatrix || camera.projectionMatrix );
+		this.prevViewProjectionMatrix.copy( this.currentViewProjectionMatrix || new Matrix4() );
+
+		// Update current matrices
+		this.currentViewMatrix = camera.matrixWorldInverse.clone();
+		this.currentProjectionMatrix = camera.projectionMatrix.clone();
+		this.currentViewProjectionMatrix.multiplyMatrices( this.currentProjectionMatrix, this.currentViewMatrix );
 
 	}
 
@@ -311,9 +602,30 @@ export class ASVGFPass extends Pass {
 		this.frameCount = 0;
 		this.isFirstFrame = true;
 
-		// Clear all render targets
-		// Note: In a real implementation, you'd want to clear these render targets
-		// using the renderer, but for simplicity we'll just reset the frame flags
+		// Clear render targets
+		const renderer = this.renderer;
+		const currentRenderTarget = renderer.getRenderTarget();
+
+		const targetsToClear = [
+			this.motionTarget,
+			this.temporalColorTarget,
+			this.temporalMomentsTarget,
+			this.temporalHistoryLengthTarget,
+			this.prevColorTarget,
+			this.prevMomentsTarget,
+			this.prevHistoryLengthTarget,
+			this.prevNormalDepthTarget,
+			this.varianceTarget
+		];
+
+		targetsToClear.forEach( target => {
+
+			renderer.setRenderTarget( target );
+			renderer.clear();
+
+		} );
+
+		renderer.setRenderTarget( currentRenderTarget );
 
 	}
 
@@ -323,17 +635,31 @@ export class ASVGFPass extends Pass {
 		this.height = height;
 
 		// Resize all render targets
-		this.temporalAccumTarget.setSize( width, height );
-		this.temporalMomentTarget.setSize( width, height );
-		this.varianceTarget.setSize( width, height );
-		this.atrousTargetA.setSize( width, height );
-		this.atrousTargetB.setSize( width, height );
-		this.prevColorTarget.setSize( width, height );
-		this.prevMomentTarget.setSize( width, height );
+		const targets = [
+			this.motionTarget,
+			this.prevMotionTarget,
+			this.temporalColorTarget,
+			this.temporalMomentsTarget,
+			this.temporalHistoryLengthTarget,
+			this.prevColorTarget,
+			this.prevMomentsTarget,
+			this.prevHistoryLengthTarget,
+			this.prevNormalDepthTarget,
+			this.varianceTarget,
+			this.atrousTargetA,
+			this.atrousTargetB,
+			this.outputTarget
+		];
+
+		targets.forEach( target => target.setSize( width, height ) );
 
 		// Update resolution uniforms
-		this.varianceMaterial.uniforms.resolution.value.set( width, height );
-		this.atrousMaterial.uniforms.resolution.value.set( width, height );
+		const resolutionVector = new Vector2( width, height );
+		this.motionMaterial.uniforms.resolution.value.copy( resolutionVector );
+		this.temporalMaterial.uniforms.resolution.value.copy( resolutionVector );
+		this.varianceMaterial.uniforms.resolution.value.copy( resolutionVector );
+		this.atrousMaterial.uniforms.resolution.value.copy( resolutionVector );
+		this.finalMaterial.uniforms.resolution.value.copy( resolutionVector );
 
 	}
 
@@ -343,87 +669,143 @@ export class ASVGFPass extends Pass {
 
 		// Update shader uniforms
 		this.temporalMaterial.uniforms.temporalAlpha.value = this.params.temporalAlpha;
+		this.temporalMaterial.uniforms.temporalColorWeight.value = this.params.temporalColorWeight;
+		this.temporalMaterial.uniforms.temporalNormalWeight.value = this.params.temporalNormalWeight;
+		this.temporalMaterial.uniforms.temporalDepthWeight.value = this.params.temporalDepthWeight;
 		this.temporalMaterial.uniforms.varianceClip.value = this.params.varianceClip;
-		this.temporalMaterial.uniforms.momentClip.value = this.params.momentClip;
+		this.temporalMaterial.uniforms.maxAccumFrames.value = this.params.maxAccumFrames;
+
+		this.varianceMaterial.uniforms.varianceBoost.value = this.params.varianceBoost;
 
 		this.atrousMaterial.uniforms.phiColor.value = this.params.phiColor;
 		this.atrousMaterial.uniforms.phiNormal.value = this.params.phiNormal;
 		this.atrousMaterial.uniforms.phiDepth.value = this.params.phiDepth;
 		this.atrousMaterial.uniforms.phiLuminance.value = this.params.phiLuminance;
 
+		this.finalMaterial.uniforms.enableDebug.value = this.params.enableDebug;
+		this.finalMaterial.uniforms.debugMode.value = this.params.debugMode;
+
 	}
 
-	render( renderer, writeBuffer, readBuffer ) {
+	render( renderer, writeBuffer, readBuffer, camera ) {
 
 		if ( ! this.enabled ) {
 
-			// Pass through the input
-			renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
-			renderer.clear();
-			// Copy readBuffer to writeBuffer (simplified)
+			// Pass through
+			this.copyTexture( renderer, readBuffer, writeBuffer );
 			return;
 
 		}
 
 		this.frameCount ++;
 
-		// Step 1: Temporal accumulation
-		this.temporalMaterial.uniforms.tCurrent.value = readBuffer.texture;
+		// Update camera matrices for motion vectors
+		this.updateCameraMatrices( camera );
+
+		// Extract textures from readBuffer (modern MRT approach)
+		let colorTexture, normalDepthTexture;
+
+		if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
+
+			// MRT input
+			colorTexture = readBuffer.textures[ 0 ];
+			normalDepthTexture = readBuffer.textures[ 1 ];
+
+		} else {
+
+			// Single texture input (fallback)
+			colorTexture = readBuffer.texture || readBuffer;
+			normalDepthTexture = null;
+
+		}
+
+		// Step 1: Calculate motion vectors (only if we have normal/depth data)
+		if ( normalDepthTexture ) {
+
+			this.motionMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
+			this.motionMaterial.uniforms.tPrevNormalDepth.value = this.prevNormalDepthTarget.texture;
+			this.motionMaterial.uniforms.currentViewProjectionMatrix.value.copy( this.currentViewProjectionMatrix );
+			this.motionMaterial.uniforms.prevViewProjectionMatrix.value.copy( this.prevViewProjectionMatrix );
+
+			renderer.setRenderTarget( this.motionTarget );
+			this.motionQuad.render( renderer );
+
+		}
+
+		// Step 2: Temporal accumulation
+		this.temporalMaterial.uniforms.tCurrentColor.value = colorTexture;
+		this.temporalMaterial.uniforms.tCurrentNormalDepth.value = normalDepthTexture;
+		this.temporalMaterial.uniforms.tMotion.value = normalDepthTexture ? this.motionTarget.texture : null;
+		this.temporalMaterial.uniforms.hasMotionVectors.value = normalDepthTexture !== null;
 		this.temporalMaterial.uniforms.tPrevColor.value = this.prevColorTarget.texture;
-		this.temporalMaterial.uniforms.tPrevMoment.value = this.prevMomentTarget.texture;
+		this.temporalMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
+		this.temporalMaterial.uniforms.tPrevHistoryLength.value = this.prevHistoryLengthTarget.texture;
+		this.temporalMaterial.uniforms.tPrevNormalDepth.value = this.prevNormalDepthTarget.texture;
 		this.temporalMaterial.uniforms.isFirstFrame.value = this.isFirstFrame;
 		this.temporalMaterial.uniforms.frameCount.value = this.frameCount;
 
-		renderer.setRenderTarget( this.temporalAccumTarget );
+		renderer.setRenderTarget( this.temporalColorTarget );
 		this.temporalQuad.render( renderer );
 
-		// Step 2: Variance estimation
-		this.varianceMaterial.uniforms.tColor.value = this.temporalAccumTarget.texture;
-		this.varianceMaterial.uniforms.tPrevMoment.value = this.prevMomentTarget.texture;
-		this.varianceMaterial.uniforms.frameCount.value = this.frameCount;
+		// Step 3: Variance estimation
+		this.varianceMaterial.uniforms.tColor.value = this.temporalColorTarget.texture;
+		this.varianceMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
+		this.varianceMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture; // History in alpha
 
 		renderer.setRenderTarget( this.varianceTarget );
 		this.varianceQuad.render( renderer );
 
-		// Step 3: A-trous wavelet filtering iterations
-		let currentInput = this.temporalAccumTarget;
+		// Step 4: A-trous wavelet filtering
+		let currentInput = this.temporalColorTarget;
 		let currentOutput = this.atrousTargetA;
 		let nextOutput = this.atrousTargetB;
 
 		this.atrousMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
+		this.atrousMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
+		this.atrousMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
 
 		for ( let i = 0; i < this.params.atrousIterations; i ++ ) {
 
 			this.atrousMaterial.uniforms.tColor.value = currentInput.texture;
 			this.atrousMaterial.uniforms.stepSize.value = Math.pow( 2, i );
+			this.atrousMaterial.uniforms.iteration.value = i;
 
 			renderer.setRenderTarget( currentOutput );
 			this.atrousQuad.render( renderer );
 
-			// Swap targets for next iteration
+			// Swap for next iteration
 			[ currentInput, currentOutput, nextOutput ] = [ currentOutput, nextOutput, currentInput ];
 
 		}
 
-		// Step 4: Output final result
-		const finalTexture = currentInput.texture;
+		// Step 5: Final composition
+		const finalInput = currentInput;
+
+		this.finalMaterial.uniforms.tColor.value = finalInput.texture;
+		this.finalMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
+		this.finalMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
+		this.finalMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
+		this.finalMaterial.uniforms.tMotion.value = normalDepthTexture ? this.motionTarget.texture : null;
 
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
+		this.finalQuad.render( renderer );
 
-		// Simple copy shader for final output
-		this.copyFinalResult( renderer, finalTexture );
+		// Step 6: Store history for next frame
+		this.copyTexture( renderer, this.temporalColorTarget, this.prevColorTarget );
+		this.copyTexture( renderer, this.varianceTarget, this.prevMomentsTarget );
+		this.copyTexture( renderer, this.temporalColorTarget, this.prevHistoryLengthTarget ); // History in alpha
+		if ( normalDepthTexture ) {
 
-		// Step 5: Store current frame data for next frame
-		this.copyTexture( renderer, this.temporalAccumTarget, this.prevColorTarget );
-		this.copyTexture( renderer, this.varianceTarget, this.prevMomentTarget );
+			this.copyTexture( renderer, { texture: normalDepthTexture }, this.prevNormalDepthTarget );
+
+		}
 
 		this.isFirstFrame = false;
 
 	}
 
-	copyFinalResult( renderer, sourceTexture ) {
+	copyTexture( renderer, source, destination ) {
 
-		// Create a simple copy material if not exists
 		if ( ! this.copyMaterial ) {
 
 			this.copyMaterial = new ShaderMaterial( {
@@ -449,44 +831,72 @@ export class ASVGFPass extends Pass {
 
 		}
 
-		this.copyMaterial.uniforms.tDiffuse.value = sourceTexture;
-		this.copyQuad.render( renderer );
-
-	}
-
-	copyTexture( renderer, source, destination ) {
-
-		// Simple texture copy implementation
 		const currentRenderTarget = renderer.getRenderTarget();
 
+		this.copyMaterial.uniforms.tDiffuse.value = source.texture || source;
 		renderer.setRenderTarget( destination );
-		this.copyFinalResult( renderer, source.texture );
+		this.copyQuad.render( renderer );
 
 		renderer.setRenderTarget( currentRenderTarget );
 
 	}
 
+	getTemporalData() {
+
+		return {
+			moments: this.momentsTarget?.texture || null,
+			history: this.historyTarget?.texture || null,
+			variance: this.varianceTarget?.texture || null
+		};
+
+	}
+
+	// Add method to get specific temporal metrics
+	getTemporalMetrics() {
+
+		return {
+			temporalAlpha: this.temporalAlpha,
+			maxAccumFrames: this.maxAccumFrames,
+			currentFrame: this.frameCount || 0
+		};
+
+	}
+
 	dispose() {
 
-		// Dispose of all render targets
-		this.temporalAccumTarget.dispose();
-		this.temporalMomentTarget.dispose();
-		this.varianceTarget.dispose();
-		this.atrousTargetA.dispose();
-		this.atrousTargetB.dispose();
-		this.prevColorTarget.dispose();
-		this.prevMomentTarget.dispose();
+		// Dispose render targets
+		const targets = [
+			this.motionTarget,
+			this.prevMotionTarget,
+			this.temporalColorTarget,
+			this.temporalMomentsTarget,
+			this.temporalHistoryLengthTarget,
+			this.prevColorTarget,
+			this.prevMomentsTarget,
+			this.prevHistoryLengthTarget,
+			this.prevNormalDepthTarget,
+			this.varianceTarget,
+			this.atrousTargetA,
+			this.atrousTargetB,
+			this.outputTarget
+		];
 
-		// Dispose of materials
+		targets.forEach( target => target.dispose() );
+
+		// Dispose materials
+		this.motionMaterial.dispose();
 		this.temporalMaterial.dispose();
 		this.varianceMaterial.dispose();
 		this.atrousMaterial.dispose();
+		this.finalMaterial.dispose();
 		this.copyMaterial?.dispose();
 
-		// Dispose of quads
+		// Dispose quads
 		this.temporalQuad.dispose();
 		this.varianceQuad.dispose();
 		this.atrousQuad.dispose();
+		this.motionQuad.dispose();
+		this.finalQuad.dispose();
 		this.copyQuad?.dispose();
 
 	}
