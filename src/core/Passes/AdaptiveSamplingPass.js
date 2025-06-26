@@ -1,7 +1,5 @@
 import {
 	ShaderMaterial,
-	RedFormat,
-	UnsignedByteType,
 	WebGLRenderTarget,
 	NearestFilter,
 	Vector2,
