@@ -6,6 +6,7 @@ RayTracing Project TODO
 
 - [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
 - [ ]  when switching to render mode, ongoing denoising process should be cancelled
+- [ ]  transparent true or false makes no difference
 
 ✨ Core Features
 ---------------

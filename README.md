@@ -8,13 +8,16 @@ Welcome to Rayzee, a realtime path tracing web application! Rayzee brings the po
 Path tracing is a global illumination algorithm that simulates how light interacts with objects in a scene. By tracing the paths of light rays as they bounce around, path tracing generates photorealistic images with accurate shadows, reflections, refractions, and indirect lighting. It's a widely used technique in the film and gaming industries for producing realistic renders.
 
 #### Key Features
-- **Physically-Based Rendering:** Achieve photorealistic lighting and material effects, including metals, glass, and diffuse surfaces.
-- **Tile Rendering:** Progressive rendering for smoother interactions, offering both low and high-resolution rendering.
-- **Spatiotemporal Blue Noise:** Reduces sampling artifacts and improves convergence in path tracing.
-- **Material Data Textures:** Efficient encoding of material properties for faster shader computations.
-- **Dynamic Scene Updates:** Real-time updates for geometry and material changes in the rendered scene.
-- **React Integration:** A seamless and responsive user interface for interaction and visualization.
-
+- **Advanced Path Tracing Engine:** Physically-accurate global illumination with support for complex materials, caustics, and multi-bounce light transport
+- **AI-Powered Denoising:** Intel Open Image Denoise (OIDN) and ASVGF temporal denoising for clean, artifact-free renders
+- **Adaptive Sampling & Variance Estimation:** Intelligently distributes samples where needed most, dramatically improving convergence speed
+- **Real-time Interactive Rendering:** Seamless transition between interactive navigation and high-quality final renders
+- **Photorealistic Materials:** Full PBR workflow with support for metals, glass, subsurface scattering, and complex BRDFs
+- **Production-Quality Camera Simulation:** Accurate depth of field, aperture control, and realistic camera response
+- **Acceleration Structures:** High-performance BVH (Bounding Volume Hierarchy) for efficient ray-scene intersection
+- **Advanced Post-Processing:** Bloom, tone mapping, and exposure control for professional-grade output
+- **HDR Environment Lighting:** Image-based lighting with importance sampling for realistic environmental illumination
+- **Modern UI & Visualization Tools:** Interactive parameter controls with real-time feedback and debug visualization
 
 #### Technologies Used
 - **Three.js:** For 3D rendering and scene management.
