@@ -32,7 +32,6 @@ import Stats from 'stats-gl';
 import { PathTracerPass } from './Shaders/PathTracerPass';
 import { AdvancedAccumulationPass } from './Passes/AdvancedAccumulationPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
-import { TemporalStatisticsPass } from './Passes/TemporalStatisticsPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
@@ -251,8 +250,8 @@ class PathTracerApp extends EventDispatcher {
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
 		this.accPass.reset( this.renderer );
-		this.temporalStatsPass.reset();
 		this.asvgfPass.reset();
+		this.adaptiveSamplingPass.reset();
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
@@ -272,12 +271,8 @@ class PathTracerApp extends EventDispatcher {
 		this.renderPass.enabled = false;
 		this.composer.addPass( this.renderPass );
 
-		this.temporalStatsPass = new TemporalStatisticsPass( this.renderer, this.width, this.height );
-		// No need to add this pass to the composer - it's used for tracking statistics only
-
 		this.adaptiveSamplingPass = new AdaptiveSamplingPass( this.renderer, this.width, this.height );
 		this.adaptiveSamplingPass.enabled = DEFAULT_STATE.adaptiveSampling;
-		this.adaptiveSamplingPass.setTemporalStatisticsPass( this.temporalStatsPass );
 		this.composer.addPass( this.adaptiveSamplingPass );
 
 		// Initialize PathTracerPass with MRT support
@@ -332,9 +327,12 @@ class PathTracerApp extends EventDispatcher {
 
 		this.composer.addPass( this.asvgfPass );
 
+		// Connect the new pipeline: PathTracer → ASVGF → AdaptiveSampling
 		this.pathTracingPass.setAccumulationPass( this.accPass );
 		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
-		this.adaptiveSamplingPass.setTextures( this.pathTracingPass.material.uniforms.previousFrameTexture.value, this.accPass.currentAccumulation.texture );
+
+		// Connect AdaptiveSamplingPass to ASVGF instead of TemporalStatisticsPass
+		this.adaptiveSamplingPass.setASVGFPass( this.asvgfPass );
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
@@ -430,22 +428,22 @@ class PathTracerApp extends EventDispatcher {
 
 			}
 
-			// Update temporal statistics BEFORE rendering if we have previous frame data
-			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 && this.pathTracingPass.previousRenderTarget ) {
+			// Update adaptive sampling with MRT textures instead of temporal statistics
+			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 ) {
 
-				this.temporalStatsPass.update( this.pathTracingPass.previousRenderTarget.texture );
+				// Get MRT textures from PathTracer
+				const mrtTextures = this.pathTracingPass.getMRTTextures();
+
+				// Set textures for adaptive sampling
+				this.adaptiveSamplingPass.setTextures(
+					mrtTextures.color, // Current color texture
+					mrtTextures.normalDepth // G-buffer: normal + depth
+				);
 
 			}
 
 			// Render the frame
 			this.composer.render();
-
-			// Initialize temporal statistics for first frame
-			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value === 1 ) {
-
-				this.temporalStatsPass.update( this.pathTracingPass.currentRenderTarget.texture );
-
-			}
 
 			this.stats.update();
 
@@ -572,7 +570,7 @@ class PathTracerApp extends EventDispatcher {
 
 		this.accPass.setSize( this.width, this.height );
 		this.denoiser.setSize( this.width, this.height );
-		this.temporalStatsPass.setSize( this.width, this.height );
+		this.adaptiveSamplingPass.setSize( this.width, this.height ); // 🚀 NEW: Resize new adaptive sampling
 		this.asvgfPass.setSize( this.width, this.height );
 
 		this.reset();
@@ -818,12 +816,11 @@ class PathTracerApp extends EventDispatcher {
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 
-		// Dispose of the two main passes
+		// Dispose of the main passes
 		if ( this.pathTracingPass ) this.pathTracingPass.dispose();
 		if ( this.accPass ) this.accPass.dispose();
-		if ( this.temporalStatsPass ) this.temporalStatsPass.dispose();
+		if ( this.adaptiveSamplingPass ) this.adaptiveSamplingPass.dispose();
 		if ( this.asvgfPass ) this.asvgfPass.dispose();
-
 
 	}
 

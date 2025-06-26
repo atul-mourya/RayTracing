@@ -1,4 +1,4 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,14 +31,14 @@ const PathTracerTab = () => {
 		samplesPerPixel,
 		samplingTechnique,
 		adaptiveSampling,
-		performanceModeAdaptive,
 		adaptiveSamplingMin,
 		adaptiveSamplingMax,
 		adaptiveSamplingVarianceThreshold,
 		showAdaptiveSamplingHelper,
-		temporalVarianceWeight,
-		enableEarlyTermination,
-		earlyTerminationThreshold,
+		adaptiveSamplingMaterialBias,
+		adaptiveSamplingEdgeBias,
+		adaptiveSamplingConvergenceSpeed,
+		adaptiveSamplingQualityPreset,
 		fireflyThreshold,
 		renderMode,
 		tiles,
@@ -79,14 +79,14 @@ const PathTracerTab = () => {
 		handleSamplingTechniqueChange,
 		handleResolutionChange,
 		handleAdaptiveSamplingChange,
-		handlePerformanceModeAdaptiveChange,
 		handleAdaptiveSamplingMinChange,
 		handleAdaptiveSamplingMaxChange,
 		handleAdaptiveSamplingVarianceThresholdChange,
 		handleAdaptiveSamplingHelperToggle,
-		handleTemporalVarianceWeightChange,
-		handleEnableEarlyTerminationChange,
-		handleEarlyTerminationThresholdChange,
+		handleAdaptiveSamplingMaterialBiasChange,
+		handleAdaptiveSamplingEdgeBiasChange,
+		handleAdaptiveSamplingConvergenceSpeedChange,
+		handleAdaptiveSamplingQualityPresetChange,
 		handleFireflyThresholdChange,
 		handleRenderModeChange,
 		handleTileUpdate,
@@ -287,20 +287,21 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
 				</div>
+				<Separator />
 				<div className="flex items-center justify-between">
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
 				</div>
 				{adaptiveSampling && ( <>
 					<div className="flex items-center justify-between">
-						<Select value={performanceModeAdaptive} onValueChange={handlePerformanceModeAdaptiveChange}>
-							<span className="opacity-50 text-xs truncate">Performance Mode</span>
+						<Select value={adaptiveSamplingQualityPreset} onValueChange={handleAdaptiveSamplingQualityPresetChange}>
+							<span className="opacity-50 text-xs truncate">Quality Preset</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full">
-								<SelectValue placeholder="Select performance mode" />
+								<SelectValue placeholder="Select preset" />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="low">Low (Faster)</SelectItem>
-								<SelectItem value="medium">Medium</SelectItem>
-								<SelectItem value="high">High (Slower)</SelectItem>
+								<SelectItem value="performance">Performance</SelectItem>
+								<SelectItem value="balanced">Balanced</SelectItem>
+								<SelectItem value="quality">Quality</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
@@ -311,22 +312,21 @@ const PathTracerTab = () => {
 						<Slider label={"Max Samples"} min={4} max={32} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Variance Threshold"} min={0.0001} max={0.01} step={0.0001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+						<Slider label={"Convergence Threshold"} min={0.0001} max={0.01} step={0.0001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+					</div>
+					<Separator />
+					<div className="flex items-center justify-between">
+						<Slider label={"Material Intelligence"} icon={Brain} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingMaterialBias ]} onValueChange={handleAdaptiveSamplingMaterialBiasChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Edge Focus"} icon={Zap} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingEdgeBias ]} onValueChange={handleAdaptiveSamplingEdgeBiasChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Convergence Speed"} icon={Target} min={0.5} max={5.0} step={0.1} value={[ adaptiveSamplingConvergenceSpeed ]} onValueChange={handleAdaptiveSamplingConvergenceSpeedChange} />
 					</div>
 					<div className="flex items-center justify-between">
 						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
 					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Temporal Weight"} min={0} max={1} step={0.05} value={[ temporalVarianceWeight ]} onValueChange={handleTemporalVarianceWeightChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"Early Termination"} checked={enableEarlyTermination} onCheckedChange={handleEnableEarlyTerminationChange} />
-					</div>
-					{enableEarlyTermination && (
-						<div className="flex items-center justify-between">
-							<Slider label={"Termination Threshold"} min={0.0001} max={0.005} step={0.0001} value={[ earlyTerminationThreshold ]} onValueChange={handleEarlyTerminationThresholdChange} />
-						</div>
-					)}
 				</> )}
 			</ControlGroup>
 

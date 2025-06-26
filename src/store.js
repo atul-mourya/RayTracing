@@ -100,6 +100,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
 	performanceModeAdaptive: 'medium',
 
+	adaptiveSamplingMaterialBias: 1.2,
+	adaptiveSamplingEdgeBias: 1.5,
+	adaptiveSamplingConvergenceSpeed: 2.0,
+	adaptiveSamplingQualityPreset: 'balanced',
+
 	// Simple setters
 	setMaxSamples: val => set( { maxSamples: val } ),
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),
@@ -112,10 +117,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAdaptiveSamplingMin: val => set( { adaptiveSamplingMin: val } ),
 	setAdaptiveSamplingMax: val => set( { adaptiveSamplingMax: val } ),
 	setAdaptiveSamplingVarianceThreshold: val => set( { adaptiveSamplingVarianceThreshold: val } ),
-	setTemporalVarianceThreshold: val => set( { temporalVarianceThreshold: val } ),
-	setTemporalVarianceWeight: val => set( { temporalVarianceWeight: val } ),
-	setEnableEarlyTermination: val => set( { enableEarlyTermination: val } ),
-	setEarlyTerminationThreshold: val => set( { earlyTerminationThreshold: val } ),
+	setAdaptiveSamplingMaterialBias: val => set( { adaptiveSamplingMaterialBias: val } ),
+	setAdaptiveSamplingEdgeBias: val => set( { adaptiveSamplingEdgeBias: val } ),
+	setAdaptiveSamplingConvergenceSpeed: val => set( { adaptiveSamplingConvergenceSpeed: val } ),
+	setAdaptiveSamplingQualityPreset: val => set( { adaptiveSamplingQualityPreset: val } ),
 	setShowAdaptiveSamplingHelper: val => set( { showAdaptiveSamplingHelper: val } ),
 	setFireflyThreshold: val => set( { fireflyThreshold: val } ),
 	setRenderMode: val => set( { renderMode: val } ),
@@ -156,6 +161,57 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfPhiLuminance: val => set( { asvgfPhiLuminance: val } ),
 	setAsvgfAtrousIterations: val => set( { asvgfAtrousIterations: val } ),
 	setAsvgfFilterSize: val => set( { asvgfFilterSize: val } ),
+
+	applyAdaptiveSamplingQualityPreset( app, preset ) {
+
+		const presets = {
+			performance: {
+				adaptiveSamplingMin: 1,
+				adaptiveSamplingMax: 4,
+				adaptiveSamplingVarianceThreshold: 0.01,
+				adaptiveSamplingMaterialBias: 1.0,
+				adaptiveSamplingEdgeBias: 1.2,
+				adaptiveSamplingConvergenceSpeed: 3.0
+			},
+			balanced: {
+				adaptiveSamplingMin: 2,
+				adaptiveSamplingMax: 8,
+				adaptiveSamplingVarianceThreshold: 0.005,
+				adaptiveSamplingMaterialBias: 1.2,
+				adaptiveSamplingEdgeBias: 1.5,
+				adaptiveSamplingConvergenceSpeed: 2.0
+			},
+			quality: {
+				adaptiveSamplingMin: 4,
+				adaptiveSamplingMax: 16,
+				adaptiveSamplingVarianceThreshold: 0.002,
+				adaptiveSamplingMaterialBias: 1.5,
+				adaptiveSamplingEdgeBias: 2.0,
+				adaptiveSamplingConvergenceSpeed: 1.0
+			}
+		};
+
+		const settings = presets[ preset ];
+		if ( settings && app.adaptiveSamplingPass ) {
+
+			// Update store state
+			Object.entries( settings ).forEach( ( [ key, value ] ) => {
+
+				const setter = `set${key.charAt( 0 ).toUpperCase()}${key.slice( 1 )}`;
+				if ( get()[ setter ] ) {
+
+					get()[ setter ]( value );
+
+				}
+
+			} );
+
+			// Update adaptive sampling pass parameters
+			app.pathTracingPass.setAdaptiveSamplingParameters( settings );
+
+		}
+
+	},
 
 	applyASVGFQualityPreset( app, preset ) {
 
@@ -223,24 +279,19 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		}
 	),
 
-	handlePerformanceModeAdaptiveChange: handleChange(
-		val => set( { performanceModeAdaptive: val } ),
-		val => window.pathTracerApp.temporalStatsPass.setPerformanceMode( val )
-	),
-
 	handleAdaptiveSamplingMinChange: handleChange(
 		val => set( { adaptiveSamplingMin: val } ),
-		val => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = val[ 0 ]
+		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
 	),
 
 	handleAdaptiveSamplingMaxChange: handleChange(
 		val => set( { adaptiveSamplingMax: val } ),
-		val => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = val[ 0 ]
+		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { max: val[ 0 ] } )
 	),
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
 		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		val => window.pathTracerApp.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = val[ 0 ]
+		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { threshold: val[ 0 ] } )
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
@@ -248,32 +299,38 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( val )
 	),
 
-	handleTemporalVarianceWeightChange: handleChange(
-		val => set( { temporalVarianceWeight: val } ),
+	handleAdaptiveSamplingMaterialBiasChange: handleChange(
+		val => set( { adaptiveSamplingMaterialBias: val } ),
 		val => {
 
-			window.pathTracerApp.adaptiveSamplingPass.material.uniforms.temporalWeight.value = val[ 0 ];
-			window.pathTracerApp.reset();
+			window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
 
 		}
 	),
 
-	handleEnableEarlyTerminationChange: handleChange(
-		val => set( { enableEarlyTermination: val } ),
+	handleAdaptiveSamplingEdgeBiasChange: handleChange(
+		val => set( { adaptiveSamplingEdgeBias: val } ),
 		val => {
 
-			window.pathTracerApp.temporalStatsPass.setEnableEarlyTermination( val );
-			window.pathTracerApp.reset();
+			window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
 
 		}
 	),
 
-	handleEarlyTerminationThresholdChange: handleChange(
-		val => set( { earlyTerminationThreshold: val } ),
+	handleAdaptiveSamplingConvergenceSpeedChange: handleChange(
+		val => set( { adaptiveSamplingConvergenceSpeed: val } ),
 		val => {
 
-			window.pathTracerApp.temporalStatsPass.setConvergenceThreshold( val[ 0 ] );
-			window.pathTracerApp.reset();
+			window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
+
+		}
+	),
+
+	handleAdaptiveSamplingQualityPresetChange: handleChange(
+		val => set( { adaptiveSamplingQualityPreset: val } ),
+		val => {
+
+			get().applyAdaptiveSamplingQualityPreset( window.pathTracerApp, val );
 
 		}
 	),

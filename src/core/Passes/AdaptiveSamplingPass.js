@@ -30,13 +30,12 @@ export class AdaptiveSamplingPass extends Pass {
 		this.adaptiveSamplingVarianceThreshold = DEFAULT_STATE.adaptiveSamplingVarianceThreshold;
 		this.showAdaptiveSamplingHelper = DEFAULT_STATE.showAdaptiveSamplingHelper;
 
-		// Temporal statistics reference (to be set from the outside)
-		this.temporalStatsPass = null;
+		this.asvgfPass = null;
 
 		// Create the render target to store adaptive sampling data
 		this.renderTarget = new WebGLRenderTarget( width, height, {
-			format: RedFormat, // Only need one channel
-			type: UnsignedByteType, // 8-bit integer is sufficient for 0-255
+			format: RGBAFormat,
+			type: FloatType,
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
 			depthBuffer: false,
@@ -47,112 +46,294 @@ export class AdaptiveSamplingPass extends Pass {
 		this.material = new ShaderMaterial( {
 			uniforms: {
 				resolution: { value: new Vector2( width, height ) },
-				previousFrameTexture: { value: null },
-				accumulatedFrameTexture: { value: null },
-				temporalVarianceTexture: { value: null }, // From TemporalStatisticsPass
-				meanTexture: { value: null }, // From TemporalStatisticsPass
+
+				// ASVGF temporal data
+				asvgfColorTexture: { value: null },
+				asvgfVarianceTexture: { value: null },
+
+				// G-buffer data
+				normalDepthTexture: { value: null },
+				currentColorTexture: { value: null },
+
+				// Boolean flags for texture availability
+				hasASVGFColor: { value: false },
+				hasASVGFVariance: { value: false },
+				hasNormalDepth: { value: false },
+				hasCurrentColor: { value: false },
+
+				// Sampling parameters
 				adaptiveSamplingMin: { value: this.adaptiveSamplingMin },
 				adaptiveSamplingMax: { value: this.adaptiveSamplingMax },
 				adaptiveSamplingVarianceThreshold: { value: this.adaptiveSamplingVarianceThreshold },
-				temporalWeight: { value: 0.7 }, // Weight for temporal vs spatial variance
-				frameNumber: { value: 0 }, // Current frame number
-				convergenceBoost: { value: 1.5 }, // Boost factor for converged pixels
+
+				// Temporal adaptation controls
+				materialBias: { value: 1.2 },
+				edgeBias: { value: 1.5 },
+				frameNumber: { value: 0 },
+				convergenceSpeedUp: { value: 2.0 },
+
+				// Temporal adaptation parameters
+				minConvergenceFrames: { value: 50.0 }, // Much higher minimum before considering convergence
+				maxConvergenceFrames: { value: 200.0 }, // Gradual reduction over more frames
+				temporalAdaptationRate: { value: 0.95 }, // How quickly to adapt (0.95 = slow, 0.8 = fast)
+				varianceDecayRate: { value: 0.98 }, // How quickly variance importance decays
+
+				// Debug controls
+				debugMode: { value: true },
+				showTemporalEvolution: { value: true },
 			},
+
 			vertexShader: /* glsl */`
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
+				varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+				}
+			`,
+
 			fragmentShader: /* glsl */`
 				precision highp float;
 
 				uniform vec2 resolution;
-				uniform sampler2D previousFrameTexture;
-				uniform sampler2D accumulatedFrameTexture;
-				uniform sampler2D temporalVarianceTexture;
-				uniform sampler2D meanTexture;
+				uniform sampler2D asvgfColorTexture;
+				uniform sampler2D asvgfVarianceTexture;
+				uniform sampler2D normalDepthTexture;
+				uniform sampler2D currentColorTexture;
+				
+				// Boolean flags for available inputs
+				uniform bool hasASVGFColor;
+				uniform bool hasASVGFVariance;
+				uniform bool hasNormalDepth;
+				uniform bool hasCurrentColor;
+				
 				uniform int adaptiveSamplingMin;
 				uniform int adaptiveSamplingMax;
 				uniform float adaptiveSamplingVarianceThreshold;
-				uniform float temporalWeight;
+				uniform float materialBias;
+				uniform float edgeBias;
 				uniform int frameNumber;
-				uniform float convergenceBoost;
+				uniform float convergenceSpeedUp;
 				
-				// Optimized luminance calculation
-				float getLuminance(vec3 color) {
-					return dot(color, vec3(0.299, 0.587, 0.114)); // Use Rec.601 for better performance
+				// Temporal adaptation
+				uniform float minConvergenceFrames;
+				uniform float maxConvergenceFrames;
+				uniform float temporalAdaptationRate;
+				uniform float varianceDecayRate;
+				
+				uniform bool debugMode;
+				uniform bool showTemporalEvolution;
+				
+				varying vec2 vUv;
+
+				// Test pattern with temporal variation
+				vec4 generateTestPattern() {
+					vec2 uv = gl_FragCoord.xy / resolution;
+					
+					// Add temporal variation to make changes visible
+					float time = float(frameNumber) * 0.1;
+					float pattern = sin(uv.x * 20.0 + time) * sin(uv.y * 20.0 + time);
+					pattern = (pattern + 1.0) * 0.5;
+					
+					// Create areas that change over time
+					float temporalFactor = sin(time * 0.5) * 0.3 + 0.7;
+					pattern *= temporalFactor;
+					
+					float samples = mix(float(adaptiveSamplingMin), float(adaptiveSamplingMax), pattern);
+					float normalizedSamples = samples / float(adaptiveSamplingMax);
+					
+					return vec4(normalizedSamples, pattern, temporalFactor, 1.0);
 				}
-				
+
+				// Material classification with temporal awareness
+				float classifyMaterial(vec3 normal, float depth, vec3 color, float historyLength) {
+					if (length(normal) < 0.1) return 1.0;
+					
+					// Calculate complexity
+					float normalVariation = length(fwidth(normal));
+					float depthVariation = abs(fwidth(depth));
+					float colorVariation = length(fwidth(color));
+					
+					float baseComplexity = normalVariation * 8.0 + depthVariation * 4.0 + colorVariation * 2.0;
+					
+					// Complexity importance over time (temporal adaptation)
+					float temporalFactor = 1.0;
+					if (historyLength > minConvergenceFrames) {
+						temporalFactor = pow(temporalAdaptationRate, (historyLength - minConvergenceFrames) / 10.0);
+					}
+					
+					float complexity = baseComplexity * temporalFactor;
+					return clamp(complexity, 0.3, 2.5);
+				}
+
+				// Enhanced edge detection with temporal adaptation
+				float detectEdges(vec2 uv, float historyLength) {
+					if (!hasNormalDepth) return 0.0;
+					
+					vec2 texelSize = 1.0 / resolution;
+					
+					// Sample normal variations
+					vec3 n0 = texture2D(normalDepthTexture, uv).rgb * 2.0 - 1.0;
+					vec3 n1 = texture2D(normalDepthTexture, uv + vec2(texelSize.x, 0.0)).rgb * 2.0 - 1.0;
+					vec3 n2 = texture2D(normalDepthTexture, uv + vec2(0.0, texelSize.y)).rgb * 2.0 - 1.0;
+					vec3 n3 = texture2D(normalDepthTexture, uv + vec2(-texelSize.x, 0.0)).rgb * 2.0 - 1.0;
+					vec3 n4 = texture2D(normalDepthTexture, uv + vec2(0.0, -texelSize.y)).rgb * 2.0 - 1.0;
+					
+					float normalEdge = length(n0 - n1) + length(n0 - n2) + length(n0 - n3) + length(n0 - n4);
+					
+					// Sample depth variations
+					float d0 = texture2D(normalDepthTexture, uv).a;
+					float d1 = texture2D(normalDepthTexture, uv + vec2(texelSize.x, 0.0)).a;
+					float d2 = texture2D(normalDepthTexture, uv + vec2(0.0, texelSize.y)).a;
+					float d3 = texture2D(normalDepthTexture, uv + vec2(-texelSize.x, 0.0)).a;
+					float d4 = texture2D(normalDepthTexture, uv + vec2(0.0, -texelSize.y)).a;
+					
+					float depthEdge = abs(d0 - d1) + abs(d0 - d2) + abs(d0 - d3) + abs(d0 - d4);
+					
+					float edgeStrength = (normalEdge + depthEdge * 15.0) * 1.5;
+					
+					// Gradual edge importance reduction over time
+					if (historyLength > minConvergenceFrames) {
+						float edgeDecay = pow(0.97, (historyLength - minConvergenceFrames) / 5.0);
+						edgeStrength *= edgeDecay;
+					}
+					
+					return clamp(edgeStrength, 0.0, 1.0);
+				}
+
+				// Progressive convergence function
+				float calculateConvergenceWeight(float historyLength, float variance) {
+					// No convergence before minimum frames
+					if (historyLength < minConvergenceFrames) {
+						return 0.0;
+					}
+					
+					// Very gradual convergence between min and max frames
+					float convergenceProgress = (historyLength - minConvergenceFrames) / (maxConvergenceFrames - minConvergenceFrames);
+					convergenceProgress = clamp(convergenceProgress, 0.0, 1.0);
+					
+					// Smooth convergence curve
+					float convergenceCurve = 1.0 - pow(1.0 - convergenceProgress, 2.0);
+					
+					// Variance-based convergence strength
+					float varianceWeight = 1.0 - clamp(variance / adaptiveSamplingVarianceThreshold, 0.0, 1.0);
+					
+					return convergenceCurve * varianceWeight;
+				}
+
 				void main() {
 					vec2 texCoord = gl_FragCoord.xy / resolution;
 
-					// Get temporal statistics
-					vec4 temporalStats = texture(temporalVarianceTexture, texCoord);
-					float temporalLuminanceVar = getLuminance(temporalStats.rgb);
-					float errorEstimate = temporalStats.a;
+					// Sample available inputs
+					vec4 asvgfColor = vec4(0.5, 0.5, 0.5, 1.0);
+					vec4 asvgfVariance = vec4(0.5, 0.5, 0.5, 0.5);
+					vec4 normalDepth = vec4(0.0, 0.0, 1.0, 1.0);
+					vec3 currentColor = vec3(0.5);
 					
-					// Get sample count
-					float n = texture(meanTexture, texCoord).a;
+					if (hasASVGFColor) {
+						asvgfColor = texture2D(asvgfColorTexture, texCoord);
+					}
 					
-					// Early frames get default sampling
-					if (frameNumber < 3) {
-						float samples = float(adaptiveSamplingMin + adaptiveSamplingMax) * 0.5;
-						gl_FragColor = vec4(samples / float(adaptiveSamplingMax), 0.0, 0.0, 1.0);
+					if (hasASVGFVariance) {
+						asvgfVariance = texture2D(asvgfVarianceTexture, texCoord);
+					}
+					
+					if (hasNormalDepth) {
+						normalDepth = texture2D(normalDepthTexture, texCoord);
+					}
+					
+					if (hasCurrentColor) {
+						currentColor = texture2D(currentColorTexture, texCoord).rgb;
+					}
+
+					// Generate test pattern if no inputs (with temporal variation)
+					if (!hasASVGFColor && !hasNormalDepth && debugMode) {
+						gl_FragColor = generateTestPattern();
 						return;
 					}
+
+					// Extract temporal data
+					float historyLength = hasASVGFColor ? asvgfColor.a : 1.0;
+					float variance = hasASVGFVariance ? asvgfVariance.a : 0.5;
+					vec3 normal = hasNormalDepth ? normalDepth.rgb * 2.0 - 1.0 : vec3(0.0, 0.0, 1.0);
+					float depth = hasNormalDepth ? normalDepth.a : 1.0;
+
+					// Progressive convergence instead of binary
+					float convergenceWeight = calculateConvergenceWeight(historyLength, variance);
 					
-					// Simple convergence check with more relaxed threshold
-					bool isConverged = false;
-					float convergenceThreshold = adaptiveSamplingVarianceThreshold;
+					// Material analysis with temporal adaptation
+					float materialComplexity = hasNormalDepth ? 
+						classifyMaterial(normal, depth, asvgfColor.rgb, historyLength) : 1.0;
 					
-					// Progressive convergence - relax threshold over time
-					if (n > 50.0) {
-						convergenceThreshold *= 2.0;
-					} else if (n > 100.0) {
-						convergenceThreshold *= 3.0;
-					}
-					
-					if (n > 20.0 && errorEstimate < convergenceThreshold) {
-						isConverged = true;
-					}
-					
-					// Calculate sample allocation
-					float sampleFactor;
-					
-					if (isConverged) {
-						// Converged pixels get minimum samples
-						sampleFactor = 0.0;
+					// Edge detection with temporal adaptation
+					float edgeStrength = detectEdges(texCoord, historyLength);
+
+					// Base sample requirement with temporal evolution
+					float baseRequirement;
+					if (hasASVGFVariance) {
+						// Use variance, but make it evolve over time
+						float adaptedVariance = variance * pow(varianceDecayRate, historyLength / 20.0);
+						baseRequirement = adaptedVariance / adaptiveSamplingVarianceThreshold;
 					} else {
-						// Simple linear mapping based on error
-						float normalizedError = errorEstimate / (adaptiveSamplingVarianceThreshold * 5.0);
-						sampleFactor = clamp(normalizedError, 0.0, 1.0);
-						
-						// Boost samples for pixels that are close to convergence
-						if (n > 10.0 && normalizedError < 0.5) {
-							sampleFactor = max(sampleFactor, 0.3); // Ensure at least 30% samples
-						}
+						// Fallback with temporal variation
+						baseRequirement = 0.5 + sin(float(frameNumber) * 0.1) * 0.2;
+					}
+					baseRequirement = clamp(baseRequirement, 0.0, 1.0);
+					
+					// Apply intelligent biases with temporal adaptation
+					float finalRequirement = baseRequirement;
+					finalRequirement *= materialComplexity * materialBias;
+					finalRequirement += edgeStrength * edgeBias * 0.4;
+
+					// Progressive sample reduction based on convergence
+					float convergenceReduction = convergenceWeight * 0.7; // Max 70% reduction
+					finalRequirement *= (1.0 - convergenceReduction);
+					
+					// Ensure gradual change over time
+					if (hasASVGFColor && historyLength > 10.0) {
+						float temporalSmoothing = 0.1 + convergenceWeight * 0.1;
+						finalRequirement = mix(0.5, finalRequirement, temporalSmoothing);
 					}
 					
-					// Convert to actual sample count with smooth interpolation
-					float samples = mix(float(adaptiveSamplingMin), float(adaptiveSamplingMax), sampleFactor);
+					// Convert to sample count with smoother transitions
+					float sampleCount = mix(
+						float(adaptiveSamplingMin), 
+						float(adaptiveSamplingMax), 
+						clamp(finalRequirement, 0.0, 1.0)
+					);
 					
-					// Round to nearest integer
-					samples = floor(samples + 0.5);
+					// Early frame boosting
+					if (frameNumber < 10) {
+						float earlyBoost = (10.0 - float(frameNumber)) / 10.0 * 0.3;
+						sampleCount = max(sampleCount, float(adaptiveSamplingMax) * (0.5 + earlyBoost));
+					}
 					
-					// Normalize for storage
-					float normalizedSamples = samples / float(adaptiveSamplingMax);
+					// Store normalized result
+					float normalizedSamples = sampleCount / float(adaptiveSamplingMax);
 					
-					// Store results
-					gl_FragColor = vec4(normalizedSamples, errorEstimate / adaptiveSamplingVarianceThreshold, isConverged ? 1.0 : 0.0, 1.0);
+					// Debug output showing temporal evolution
+					if (debugMode) {
+						gl_FragColor = vec4(
+							normalizedSamples,
+							hasASVGFColor ? convergenceWeight : 0.0, // Show convergence progress
+							hasNormalDepth ? (historyLength / maxConvergenceFrames) : 0.0, // Show temporal progress
+							materialComplexity / 2.5
+						);
+					} else {
+						// Normal output
+						gl_FragColor = vec4(
+							normalizedSamples,
+							variance / adaptiveSamplingVarianceThreshold, 
+							convergenceWeight,
+							materialComplexity / 2.5
+						);
+					}
 				}
 			`,
 		} );
 
 		this.fsQuad = new FullScreenQuad( this.material );
 
-		// render target for the variance heatmap visualization
+		// Heatmap visualization showing temporal evolution
 		this.heatmapTarget = new WebGLRenderTarget( width, height, {
 			format: RGBAFormat,
 			type: FloatType,
@@ -169,7 +350,9 @@ export class AdaptiveSamplingPass extends Pass {
 				heatmapIntensity: { value: 1.0 },
 				minSamples: { value: this.adaptiveSamplingMin },
 				maxSamples: { value: this.adaptiveSamplingMax },
-				showConverged: { value: false } // Option to highlight converged pixels
+				showDebugInfo: { value: true },
+				debugMode: { value: true },
+				showTemporalEvolution: { value: true }
 			},
 			vertexShader: /* glsl */`
 				varying vec2 vUv;
@@ -183,57 +366,65 @@ export class AdaptiveSamplingPass extends Pass {
 				uniform float heatmapIntensity;
 				uniform float minSamples;
 				uniform float maxSamples;
-				uniform bool showConverged;
+				uniform bool showDebugInfo;
+				uniform bool debugMode;
+				uniform bool showTemporalEvolution;
 				varying vec2 vUv;
-			
-				// Improved color mapping for better visibility
-				vec3 getHeatmapColor(float value) {
-					// Colors from cold to hot
-					vec3 color0 = vec3(0.0, 0.0, 0.5);   // Dark blue - minimum samples
-					vec3 color1 = vec3(0.0, 0.5, 1.0);   // Light blue
-					vec3 color2 = vec3(0.0, 1.0, 0.5);   // Cyan-green
-					vec3 color3 = vec3(1.0, 1.0, 0.0);   // Yellow
-					vec3 color4 = vec3(1.0, 0.5, 0.0);   // Orange
-					vec3 color5 = vec3(1.0, 0.0, 0.0);   // Red - maximum samples
+
+				// Colormap with temporal information
+				vec3 getTemporalHeatmap(float samples, float convergence, float temporal) {
+					// Base sample heatmap
+					vec3 sampleColor;
+					if (samples < 0.2) sampleColor = vec3(0.0, 0.0, 1.0);      // Blue - minimum
+					else if (samples < 0.4) sampleColor = vec3(0.0, 1.0, 1.0); // Cyan
+					else if (samples < 0.6) sampleColor = vec3(0.0, 1.0, 0.0); // Green
+					else if (samples < 0.8) sampleColor = vec3(1.0, 1.0, 0.0); // Yellow  
+					else sampleColor = vec3(1.0, 0.0, 0.0);                    // Red - maximum
 					
-					float t = clamp(value, 0.0, 1.0);
-					
-					if (t < 0.2) {
-						return mix(color0, color1, t * 5.0);
-					} else if (t < 0.4) {
-						return mix(color1, color2, (t - 0.2) * 5.0);
-					} else if (t < 0.6) {
-						return mix(color2, color3, (t - 0.4) * 5.0);
-					} else if (t < 0.8) {
-						return mix(color3, color4, (t - 0.6) * 5.0);
-					} else {
-						return mix(color4, color5, (t - 0.8) * 5.0);
+					if (showTemporalEvolution) {
+						// Show convergence as desaturation
+						float desaturation = convergence * 0.6;
+						vec3 gray = vec3(dot(sampleColor, vec3(0.299, 0.587, 0.114)));
+						sampleColor = mix(sampleColor, gray, desaturation);
+						
+						// Show temporal progress as brightness modulation
+						float brightness = 0.7 + temporal * 0.3;
+						sampleColor *= brightness;
 					}
+					
+					return sampleColor;
 				}
 			
 				void main() {
 					vec4 samplingData = texture2D(samplingTexture, vUv);
 					
-					// Get normalized sample count and convergence status
-					float normalizedSamples = samplingData.r;
-					float variance = samplingData.g;
-					bool isConverged = samplingData.b > 0.5;
+					float samples = samplingData.r;
+					float convergence = samplingData.g; // Convergence progress or ASVGF availability
+					float temporal = samplingData.b;    // Temporal progress or G-buffer availability
+					float complexity = samplingData.a;  // Material complexity
 					
-					// Convert back to actual sample count for display
-					float samples = normalizedSamples * maxSamples;
-					float displayValue = (samples - minSamples) / (maxSamples - minSamples);
+					vec3 color;
 					
-					vec3 color = getHeatmapColor(displayValue * heatmapIntensity);
-					
-					// Highlight converged pixels if enabled
-					if (showConverged && isConverged) {
-						// Add white outline or tint for converged pixels
-						color = mix(color, vec3(1.0), 0.3);
+					if (debugMode && showDebugInfo) {
+						// Show temporal evolution heatmap
+						color = getTemporalHeatmap(samples, convergence, temporal);
+						
+						// Add border indicators for convergence levels
+						vec2 border = abs(vUv - 0.5);
+						float maxBorder = max(border.x, border.y);
+						if (maxBorder > 0.48 && maxBorder < 0.49) {
+							if (convergence > 0.8) color = mix(color, vec3(1.0, 1.0, 1.0), 0.5); // White border for high convergence
+							else if (convergence > 0.5) color = mix(color, vec3(1.0, 1.0, 0.0), 0.3); // Yellow border for medium convergence
+						}
+						
+					} else {
+						// Standard heatmap
+						color = getTemporalHeatmap(samples, 0.0, 0.0);
 					}
 					
-					// Add subtle grid pattern for better visibility
-					vec2 grid = fract(gl_FragCoord.xy * 0.1);
-					float gridLine = 1.0 - step(0.98, max(grid.x, grid.y)) * 0.1;
+					// Subtle grid for clarity
+					vec2 grid = fract(gl_FragCoord.xy * 0.02);
+					float gridLine = 1.0 - step(0.92, max(grid.x, grid.y)) * 0.2;
 					color *= gridLine;
 					
 					gl_FragColor = vec4(color, 1.0);
@@ -242,33 +433,36 @@ export class AdaptiveSamplingPass extends Pass {
 		} );
 		this.heatmapQuad = new FullScreenQuad( this.heatmapMaterial );
 
+		// Enhanced helper with temporal information
 		this.helper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
-			width: 250,
-			height: 250,
+			width: 400,
+			height: 400,
 			position: 'bottom-right',
 			theme: 'dark',
-			title: 'Adaptive Sampling',
-			autoUpdate: false // We'll manually update when needed
+			title: 'Adaptive Sampling (Temporal Evolution)',
+			autoUpdate: false
 		} );
 		this.toggleHelper( this.showAdaptiveSamplingHelper );
 		document.body.appendChild( this.helper );
 
 	}
 
-	// Set reference to the TemporalStatisticsPass
-	setTemporalStatisticsPass( statsPass ) {
+	// Set reference to ASVGF pass
+	setASVGFPass( asvgfPass ) {
 
-		this.temporalStatsPass = statsPass;
+		this.asvgfPass = asvgfPass;
 
 	}
 
+	// Toggle visualization helper
 	toggleHelper( signal ) {
 
 		signal ? this.helper.show() : this.helper.hide();
 		this.showAdaptiveSamplingHelper = signal;
 		if ( this.heatmapMaterial ) {
 
-			this.heatmapMaterial.uniforms.showConverged.value = signal;
+			this.heatmapMaterial.uniforms.showDebugInfo.value = signal;
+			this.heatmapMaterial.uniforms.showTemporalEvolution.value = signal;
 
 		}
 
@@ -291,6 +485,35 @@ export class AdaptiveSamplingPass extends Pass {
 
 	}
 
+	// Temporal adaptation parameters
+	setTemporalAdaptationParameters( params ) {
+
+		if ( params.minConvergenceFrames !== undefined ) {
+
+			this.material.uniforms.minConvergenceFrames.value = params.minConvergenceFrames;
+
+		}
+
+		if ( params.maxConvergenceFrames !== undefined ) {
+
+			this.material.uniforms.maxConvergenceFrames.value = params.maxConvergenceFrames;
+
+		}
+
+		if ( params.temporalAdaptationRate !== undefined ) {
+
+			this.material.uniforms.temporalAdaptationRate.value = params.temporalAdaptationRate;
+
+		}
+
+		if ( params.varianceDecayRate !== undefined ) {
+
+			this.material.uniforms.varianceDecayRate.value = params.varianceDecayRate;
+
+		}
+
+	}
+
 	render( renderer ) {
 
 		if ( ! this.enabled ) return;
@@ -300,30 +523,47 @@ export class AdaptiveSamplingPass extends Pass {
 
 		this.material.uniforms.frameNumber.value ++;
 
-		if ( ! this.material.uniforms.previousFrameTexture.value || ! this.material.uniforms.accumulatedFrameTexture.value ) {
+		// Get ASVGF temporal data and update flags
+		let hasASVGFColor = false;
+		let hasASVGFVariance = false;
 
-			console.warn( 'AdaptiveSamplingPass: Missing required textures' );
-			return;
+		if ( this.asvgfPass ) {
+
+			const colorTexture = this.asvgfPass.temporalColorTarget?.texture;
+			const varianceTexture = this.asvgfPass.varianceTarget?.texture;
+
+			if ( colorTexture ) {
+
+				this.material.uniforms.asvgfColorTexture.value = colorTexture;
+				hasASVGFColor = true;
+
+			}
+
+			if ( varianceTexture ) {
+
+				this.material.uniforms.asvgfVarianceTexture.value = varianceTexture;
+				hasASVGFVariance = true;
+
+			}
 
 		}
 
-		// Set temporal statistics textures if available
-		if ( this.temporalStatsPass ) {
+		// Update boolean flags
+		this.material.uniforms.hasASVGFColor.value = hasASVGFColor;
+		this.material.uniforms.hasASVGFVariance.value = hasASVGFVariance;
+		this.material.uniforms.hasNormalDepth.value = !! this.material.uniforms.normalDepthTexture.value;
+		this.material.uniforms.hasCurrentColor.value = !! this.material.uniforms.currentColorTexture.value;
 
-			this.material.uniforms.temporalVarianceTexture.value = this.temporalStatsPass.getVarianceTexture();
-			this.material.uniforms.meanTexture.value = this.temporalStatsPass.getMeanTexture();
-
-		}
-
-		// Update adaptive sampling parameters
+		// Update parameters
 		this.material.uniforms.adaptiveSamplingMin.value = this.adaptiveSamplingMin;
 		this.material.uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingMax;
 		this.material.uniforms.adaptiveSamplingVarianceThreshold.value = this.adaptiveSamplingVarianceThreshold;
 
+		// Render adaptive sampling decision
 		renderer.setRenderTarget( this.renderTarget );
 		this.fsQuad.render( renderer );
 
-		// Only render heatmap visualization when helper is visible
+		// Update visualization if enabled
 		if ( this.showAdaptiveSamplingHelper ) {
 
 			this.heatmapMaterial.uniforms.samplingTexture.value = this.renderTarget.texture;
@@ -336,7 +576,7 @@ export class AdaptiveSamplingPass extends Pass {
 
 		}
 
-		// If this is the final pass in the chain, render to screen
+		// Render to screen if final pass
 		if ( this.renderToScreen ) {
 
 			renderer.setRenderTarget( null );
@@ -346,18 +586,15 @@ export class AdaptiveSamplingPass extends Pass {
 
 	}
 
-	// Set the input textures
-	setTextures( previousFrame, accumulatedFrame ) {
+	// Set input textures from MRT pipeline
+	setTextures( currentColorTexture, normalDepthTexture ) {
 
-		this.material.uniforms.previousFrameTexture.value = previousFrame;
-		this.material.uniforms.accumulatedFrameTexture.value = accumulatedFrame;
+		this.material.uniforms.currentColorTexture.value = currentColorTexture;
+		this.material.uniforms.normalDepthTexture.value = normalDepthTexture;
 
-	}
-
-	// Update convergence boost
-	setConvergenceBoost( value ) {
-
-		this.material.uniforms.convergenceBoost.value = value;
+		// Update boolean flags
+		this.material.uniforms.hasCurrentColor.value = !! currentColorTexture;
+		this.material.uniforms.hasNormalDepth.value = !! normalDepthTexture;
 
 	}
 
