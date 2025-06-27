@@ -278,7 +278,6 @@ class PathTracerApp extends EventDispatcher {
 		// Initialize PathTracerPass with MRT support
 		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
 		this.pathTracingPass.setupMRTTargets();
-		this.pathTracingPass.enableMRT( DEFAULT_STATE.enableMRT || true );
 		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
@@ -431,13 +430,10 @@ class PathTracerApp extends EventDispatcher {
 			// Update adaptive sampling with MRT textures instead of temporal statistics
 			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 ) {
 
-				// Get MRT textures from PathTracer
-				const mrtTextures = this.pathTracingPass.getMRTTextures();
-
 				// Set textures for adaptive sampling
 				this.adaptiveSamplingPass.setTextures(
-					mrtTextures.color, // Current color texture
-					mrtTextures.normalDepth // G-buffer: normal + depth
+					this.pathTracingPass.currentMRT.textures[ 0 ], // Current color texture
+					this.pathTracingPass.currentMRT.textures[ 1 ] // G-buffer: normal + depth
 				);
 
 			}

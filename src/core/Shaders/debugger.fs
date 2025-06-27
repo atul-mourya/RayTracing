@@ -25,7 +25,7 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 				return vec4( 0.0, 0.0, 0.0, 1.0 );
 			return vec4( vec3( hitInfo.normal * 0.5 + 0.5 ), 1.0 );
 		}
-		case 8: {
+		case 6: {
             // Environment Map Luminance Visualization
 			if( enableEnvironmentLight ) {
                 // Show the environment map luminance directly
@@ -37,7 +37,7 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 			}
 			return vec4( 1.0, 0.0, 1.0, 1.0 );
 		}
-		case 11: {
+		case 7: {
 			// Environment Importance Sampling PDF Direction Map
 			if( enableEnvironmentLight && useEnvMapIS ) {
 				// Instead of randomly sampling, use screen space to map UV coordinates

@@ -39,8 +39,8 @@ export class PathTracerPass extends Pass {
 			maxCDFSize: 1024,
 			minCDFSize: 256,
 			adaptiveResolution: true,
-			enableValidation: true,
-			enableDebug: true,
+			enableValidation: false,
+			enableDebug: false,
 			hotspotThreshold: 0.01 // Top 1% brightest pixels
 		} );
 

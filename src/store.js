@@ -419,7 +419,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { debugMode: val } ),
 		val => {
 
-			const mode = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5 }[ val ] || 0;
+			const mode = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7 }[ val ] || 0;
 			window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
 
 		}
@@ -462,8 +462,30 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { enableEnvironment: val } ),
 		val => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
-			window.pathTracerApp.reset();
+			console.log( "Environment enabled:", val );
+
+			if ( window.pathTracerApp ) {
+
+				// Set the uniform
+				window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
+
+				// TEMPORARY: Make the effect more obvious by adjusting other settings
+				if ( val ) {
+
+					// When environment is ON, boost environment intensity
+					window.pathTracerApp.pathTracingPass.material.uniforms.environmentIntensity.value = 2.0;
+					window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = 0.5;
+
+				} else {
+
+					// When environment is OFF, reduce GI to make difference more obvious
+					window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = 0.1;
+
+				}
+
+				window.pathTracerApp.reset();
+
+			}
 
 		}
 	),
