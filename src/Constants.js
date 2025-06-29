@@ -229,11 +229,7 @@ export const DEFAULT_STATE = {
 	interactionModeEnabled: true,
 	debugVisScale: 100,
 
-	// ASVGF Parameters
-	// MRT settings
-	enableMRT: true,
-
-	// Enhanced ASVGF settings
+	// ASVGF settings
 	enableASVGF: true,
 
 	// Temporal accumulation parameters

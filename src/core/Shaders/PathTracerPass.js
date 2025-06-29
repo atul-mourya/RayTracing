@@ -1,3 +1,4 @@
+// PathTracerPass.js - Clean Consolidated Refactor
 import {
 	ShaderMaterial, Vector2, Matrix4, WebGLRenderTarget,
 	FloatType,
@@ -14,7 +15,7 @@ import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
 import TriangleSDF from '../Processor/TriangleSDF';
 import { EnvironmentCDFBuilder } from '../Processor/EnvironmentCDFBuilder';
-import blueNoiseImage from '../../../public/noise/simple_bluenoise.png'; //simple blue noise image
+import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
 import { DEFAULT_STATE } from '../../Constants';
 
 export class PathTracerPass extends Pass {
@@ -41,7 +42,7 @@ export class PathTracerPass extends Pass {
 			adaptiveResolution: true,
 			enableValidation: false,
 			enableDebug: false,
-			hotspotThreshold: 0.01 // Top 1% brightest pixels
+			hotspotThreshold: 0.01
 		} );
 
 		this.name = 'PathTracerPass';
@@ -50,39 +51,33 @@ export class PathTracerPass extends Pass {
 		this.lastCDFValidation = null;
 		this.cdfBuildTime = 0;
 
-		// Create accumulation targets (ping-pong for temporal accumulation)
-		this.accumulationTargetA = new WebGLRenderTarget( width, height, {
+		// ========================================
+		// UNIFIED RENDER TARGET SYSTEM
+		// ========================================
+
+		const targetOptions = {
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
 			type: FloatType,
 			colorSpace: LinearSRGBColorSpace,
 			depthBuffer: false,
-		} );
-		this.accumulationTargetB = this.accumulationTargetA.clone();
+			count: 2, // Always MRT: Color + NormalDepth
+			samples: 0 // IMPORTANT: No multisampling to avoid blitFramebuffer issues
+		};
 
-		// Raw sample targets (for debugging/fallback)
-		this.renderTargetA = new WebGLRenderTarget( width, height, {
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			type: FloatType,
-			colorSpace: LinearSRGBColorSpace,
-			depthBuffer: false,
-		} );
-		this.renderTargetB = this.renderTargetA.clone();
+		// Single pair of ping-pong MRT targets
+		this.currentTarget = new WebGLRenderTarget( width, height, targetOptions );
+		this.previousTarget = new WebGLRenderTarget( width, height, targetOptions );
 
-		// Start with A as current and B as previous
-		this.currentAccumulation = this.accumulationTargetA;
-		this.previousAccumulation = this.accumulationTargetB;
-		this.currentRawSample = this.renderTargetA;
-		this.previousRawSample = this.renderTargetB;
+		// Set texture names for debugging
+		this.currentTarget.textures[ 0 ].name = 'CurrentColor';
+		this.currentTarget.textures[ 1 ].name = 'CurrentNormalDepth';
+		this.previousTarget.textures[ 0 ].name = 'PreviousColor';
+		this.previousTarget.textures[ 1 ].name = 'PreviousNormalDepth';
 
 		// Accumulation state
 		this.accumulationIteration = 0;
-		this.accumulationEnabled = true; // Can be toggled for debugging
-
-		// Create two render targets for ping-pong rendering (keep for backward compatibility)
-		this.currentRenderTarget = this.renderTargetA;
-		this.previousRenderTarget = this.renderTargetB;
+		this.accumulationEnabled = true;
 
 		this.name = 'PathTracerPass';
 		this.material = new ShaderMaterial( {
@@ -109,13 +104,13 @@ export class PathTracerPass extends Pass {
 				useEnvMapIS: { value: true },
 				envCDF: { value: null },
 				envCDFSize: { value: new Vector2() },
-				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI }, // Convert from lux to lumens
+				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
-				focusDistance: { value: DEFAULT_STATE.focusDistance }, // Subject 3 meters away
-				focalLength: { value: DEFAULT_STATE.focalLength }, // 2mm lens
-				aperture: { value: DEFAULT_STATE.aperture }, // f/2.8 aperture
+				focusDistance: { value: DEFAULT_STATE.focusDistance },
+				focalLength: { value: DEFAULT_STATE.focalLength },
+				aperture: { value: DEFAULT_STATE.aperture },
 				apertureScale: { value: 2.0 },
 
 				directionalLights: { value: null },
@@ -129,7 +124,7 @@ export class PathTracerPass extends Pass {
 				numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
 				transmissiveBounces: { value: 8 },
 
-				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique }, // 0: PCG, 1: Halton, 2: Sobol, 3: Simple Blue Noise
+				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique },
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
 				adaptiveSamplingTexture: { value: null },
 				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
@@ -145,9 +140,9 @@ export class PathTracerPass extends Pass {
 				accumulationIteration: { value: 0.0 },
 				enableAccumulation: { value: true },
 				accumulationFireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold * 2.0 },
-				accumulationAlpha: { value: 0.0 }, // Calculated dynamically
+				accumulationAlpha: { value: 0.0 },
 				cameraIsMoving: { value: false },
-				hasPreviousAccumulated: { value: false }, // NEW: Boolean for texture validity
+				hasPreviousAccumulated: { value: false },
 
 				blueNoiseTexture: { value: null },
 				blueNoiseTextureSize: { value: new Vector2() },
@@ -186,10 +181,6 @@ export class PathTracerPass extends Pass {
 
 		this.fsQuad = new FullScreenQuad( this.material );
 
-		// Create CopyShader material
-		this.copyMaterial = new ShaderMaterial( CopyShader );
-		this.copyQuad = new FullScreenQuad( this.copyMaterial );
-
 		const loader = new TextureLoader();
 		loader.load( blueNoiseImage, ( texture ) => {
 
@@ -207,15 +198,14 @@ export class PathTracerPass extends Pass {
 		} );
 
 		this.isComplete = false;
-		this.accumulationPass = null;
 		this.adaptiveSamplingPass = null;
 
 		// Performance optimization during interaction
 		this.interactionMode = false;
 		this.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.interactionTimeout = null;
-		this.interactionDelay = 100; // delay before restoring quality
-		this.originalValues = {}; // Store original uniform values
+		this.interactionDelay = 100;
+		this.originalValues = {};
 
 		this.uniformsDirty = {
 			camera: true,
@@ -241,6 +231,27 @@ export class PathTracerPass extends Pass {
 			useAdaptiveSampling: false,
 			useEnvMapIS: false,
 			pixelRatio: 0.25,
+		};
+
+	}
+
+	getCurrentAccumulation() {
+
+		return this.currentTarget;
+
+	}
+
+	getCurrentRawSample() {
+
+		return this.currentTarget;
+
+	}
+
+	getMRTTextures() {
+
+		return {
+			color: this.currentTarget.textures[ 0 ],
+			normalDepth: this.currentTarget.textures[ 1 ]
 		};
 
 	}
@@ -277,48 +288,8 @@ export class PathTracerPass extends Pass {
 					// Store validation results for debugging
 					this.lastCDFValidation = result.validationResults;
 
-
 					// Log build information
 					console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (${result.cdfSize.width}x${result.cdfSize.height})` );
-
-					// Log validation results in development
-					if ( this.environmentCDFBuilder.options.enableDebug && result.validationResults ) {
-
-						const validation = result.validationResults;
-
-						if ( ! validation.isValid ) {
-
-							console.error( 'CDF validation failed:', validation.errors );
-
-						}
-
-						if ( validation.warnings.length > 0 ) {
-
-							console.warn( 'CDF warnings:', validation.warnings );
-
-						}
-
-						if ( validation.statistics ) {
-
-							const stats = validation.statistics;
-							console.log( `Energy conservation: ${( stats.energyConservation.relativeDifference * 100 ).toFixed( 2 )}%` );
-
-							if ( stats.hotspotPreservation ) {
-
-								console.log( `Hotspot preservation: ${( stats.hotspotPreservation.preservationRatio * 100 ).toFixed( 1 )}%` );
-
-							}
-
-						}
-
-					}
-
-					// Add debug visualization to DOM in development
-					if ( this.environmentCDFBuilder.options.enableDebug && result.debugVisualization ) {
-
-						this.addDebugVisualization( result.debugVisualization );
-
-					}
 
 				}
 
@@ -338,85 +309,6 @@ export class PathTracerPass extends Pass {
 		}
 
 	}
-
-
-	// =====================================================
-	// DEBUG UTILITIES
-	// =====================================================
-
-	addDebugVisualization( canvas ) {
-
-		// Remove existing debug visualization
-		const existing = document.getElementById( 'cdf-debug-visualization' );
-		if ( existing ) {
-
-			existing.remove();
-
-		}
-
-		// Style and add new visualization
-		canvas.id = 'cdf-debug-visualization';
-		canvas.style.position = 'fixed';
-		canvas.style.top = '10px';
-		canvas.style.right = '10px';
-		canvas.style.border = '2px solid #ff0000';
-		canvas.style.zIndex = '10000';
-		canvas.style.background = 'black';
-		canvas.title = 'Environment CDF Debug Visualization\nGray: Conditional CDFs\nBlue: Marginal CDF';
-
-		const container = document.getElementById( 'cdf-debug-visualization-container' );
-		container.appendChild( canvas );
-
-	}
-
-	getCDFStatistics() {
-
-		if ( ! this.material.uniforms.envCDF.value ) {
-
-			return null;
-
-		}
-
-		return {
-			buildTime: this.cdfBuildTime,
-			cdfSize: {
-				width: this.material.uniforms.envCDFSize.value.x,
-				height: this.material.uniforms.envCDFSize.value.y
-			},
-			isEnabled: this.material.uniforms.useEnvMapIS.value,
-			validation: this.lastCDFValidation
-		};
-
-	}
-
-	setCDFQuality( quality ) {
-
-		const qualitySettings = {
-			low: { maxCDFSize: 256, adaptiveResolution: false },
-			medium: { maxCDFSize: 512, adaptiveResolution: true },
-			high: { maxCDFSize: 1024, adaptiveResolution: true },
-			ultra: { maxCDFSize: 2048, adaptiveResolution: true }
-		};
-
-		const settings = qualitySettings[ quality ] || qualitySettings.medium;
-
-		// Update CDF builder options
-		this.environmentCDFBuilder.options = {
-			...this.environmentCDFBuilder.options,
-			...settings
-		};
-
-		// Rebuild CDF with new settings
-		if ( this.scene.environment ) {
-
-			this.buildEnvironmentCDF();
-
-		}
-
-	}
-
-
-
 
 	async build( scene ) {
 
@@ -459,167 +351,6 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	updateMaterialDataTexture( materialIndex, property, value ) {
-
-		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
-
-		switch ( property ) {
-
-			case 'color': 				data.set( [ value.r, value.g, value.b ], stride + 0 ); break;
-			case 'metalness': 			data[ stride + 3 ] = value; break;
-			case 'emissive': 			data.set( [ value.r, value.g, value.b ], stride + 4 ); break;
-			case 'roughness': 			data[ stride + 7 ] = value; break;
-			case 'ior': 				data[ stride + 8 ] = value; break;
-			case 'transmission': 		data[ stride + 9 ] = value; break;
-			case 'thickness': 			data[ stride + 10 ] = value; break;
-			case 'emissiveIntensity': 	data[ stride + 11 ] = value; break;
-			case 'attenuationColor': 	data.set( [ value.r, value.g, value.b ], stride + 12 ); break;
-			case 'attenuationDistance': data[ stride + 15 ] = value; break;
-			case 'dispersion': 			data[ stride + 16 ] = value; break;
-			case 'visible': 			data[ stride + 17 ] = value; break;
-			case 'sheen': 				data[ stride + 18 ] = value; break;
-			case 'sheenRoughness': 		data[ stride + 19 ] = value; break;
-			case 'sheenColor': 			data.set( [ value.r, value.g, value.b ], stride + 20 ); break;
-			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
-			case 'specularColor': 		data.set( [ value.r, value.g, value.b ], stride + 25 ); break;
-			case 'iridescence': 		data[ stride + 28 ] = value; break;
-			case 'iridescenceIOR': 		data[ stride + 29 ] = value; break;
-			case 'iridescenceThicknessRange':
-				data[ stride + 30 ] = value[ 0 ];
-				data[ stride + 31 ] = value[ 1 ];
-				break;
-			case 'clearcoat': 			data[ stride + 38 ] = value; break;
-			case 'clearcoatRoughness': 	data[ stride + 39 ] = value; break;
-			case 'opacity': 			data[ stride + 40 ] = value; break;
-			case 'side': 				data[ stride + 41 ] = value; break;
-			case 'transparent': 		data[ stride + 42 ] = value; break;
-			case 'alphaTest': 			data[ stride + 43 ] = value; break;
-
-		}
-
-		this.material.uniforms.materialTexture.value.needsUpdate = true;
-		this.reset();
-
-	}
-
-	rebuildMaterialDataTexture( materialIndex, material ) {
-
-		let materialData = this.sdfs.geometryExtractor.createMaterialObject( material );
-
-		// itarate over materialData and update the materialTexture
-		for ( const property in materialData ) {
-
-			this.updateMaterialDataTexture( materialIndex, property, materialData[ property ] );
-
-		}
-
-	}
-
-	async setEnvironmentMap( envMap ) {
-
-		this.scene.environment = envMap;
-		this.material.uniforms.environment.value = envMap;
-		if ( envMap ) {
-
-			// Rebuild CDF asynchronously
-			await this.buildEnvironmentCDF();
-
-		} else {
-
-			this.material.uniforms.envCDF.value = null;
-			this.material.uniforms.useEnvMapIS.value = false;
-
-		}
-
-		this.reset();
-
-	}
-
-	setEnvironmentRotation( rotationDegrees ) {
-
-		const rotationRadians = rotationDegrees * ( Math.PI / 180 );
-		this.environmentRotationMatrix.makeRotationY( rotationRadians );
-		this.material.uniforms.environmentMatrix.value.copy( this.environmentRotationMatrix );
-
-	}
-
-	setAdaptiveSamplingParameters( params ) {
-
-		if ( ! this.adaptiveSamplingPass ) {
-
-			console.warn( 'AdaptiveSamplingPass not connected' );
-			return;
-
-		}
-
-		// Update adaptive sampling pass parameters directly
-		if ( params.min !== undefined ) {
-
-			this.adaptiveSamplingPass.adaptiveSamplingMin = params.min;
-			this.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMin.value = params.min;
-
-		}
-
-		if ( params.max !== undefined ) {
-
-			this.adaptiveSamplingPass.adaptiveSamplingMax = params.max;
-			this.adaptiveSamplingPass.material.uniforms.adaptiveSamplingMax.value = params.max;
-			this.material.uniforms.adaptiveSamplingMax.value = params.max;
-
-		}
-
-		if ( params.threshold !== undefined ) {
-
-			this.adaptiveSamplingPass.adaptiveSamplingVarianceThreshold = params.threshold;
-			this.adaptiveSamplingPass.material.uniforms.adaptiveSamplingVarianceThreshold.value = params.threshold;
-
-		}
-
-		if ( params.materialBias !== undefined ) {
-
-			this.adaptiveSamplingPass.material.uniforms.materialBias.value = params.materialBias;
-
-		}
-
-		if ( params.edgeBias !== undefined ) {
-
-			this.adaptiveSamplingPass.material.uniforms.edgeBias.value = params.edgeBias;
-
-		}
-
-		if ( params.convergenceSpeedUp !== undefined ) {
-
-			this.adaptiveSamplingPass.material.uniforms.convergenceSpeedUp.value = params.convergenceSpeedUp;
-
-		}
-
-		this.reset();
-
-	}
-
-	getAdaptiveSamplingStats() {
-
-		if ( ! this.adaptiveSamplingPass ) {
-
-			return null;
-
-		}
-
-		return {
-			enabled: this.material.uniforms.useAdaptiveSampling.value,
-			min: this.adaptiveSamplingPass.adaptiveSamplingMin,
-			max: this.adaptiveSamplingPass.adaptiveSamplingMax,
-			threshold: this.adaptiveSamplingPass.adaptiveSamplingVarianceThreshold,
-			frameNumber: this.adaptiveSamplingPass.material.uniforms.frameNumber.value,
-			materialBias: this.adaptiveSamplingPass.material.uniforms.materialBias.value,
-			edgeBias: this.adaptiveSamplingPass.material.uniforms.edgeBias.value,
-			memoryUsage: '4MB', // Much improved from old 96MB!
-			integration: 'ASVGF' // No longer uses TemporalStatisticsPass
-		};
-
-	}
-
 	reset() {
 
 		// Reset accumulation state
@@ -628,27 +359,15 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.frame.value = 0;
 		this.material.uniforms.hasPreviousAccumulated.value = false;
 
-		// Clear accumulation targets
-		this.renderer.setRenderTarget( this.currentAccumulation );
-		this.renderer.clear();
-		this.renderer.setRenderTarget( this.previousAccumulation );
-		this.renderer.clear();
+		// Clear both targets
+		const currentRenderTarget = this.renderer.getRenderTarget();
 
-		// Clear raw sample targets
-		this.renderer.setRenderTarget( this.currentRawSample );
+		this.renderer.setRenderTarget( this.currentTarget );
 		this.renderer.clear();
-		this.renderer.setRenderTarget( this.previousRawSample );
+		this.renderer.setRenderTarget( this.previousTarget );
 		this.renderer.clear();
 
-		// Clear MRT targets
-		if ( this.currentMRT ) {
-
-			this.renderer.setRenderTarget( this.currentMRT );
-			this.renderer.clear();
-			this.renderer.setRenderTarget( this.previousMRT );
-			this.renderer.clear();
-
-		}
+		this.renderer.setRenderTarget( currentRenderTarget );
 
 		// Update completion threshold if render mode changed
 		this.updateCompletionThreshold();
@@ -790,7 +509,6 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	// Add a method to toggle interaction mode
 	setInteractionModeEnabled( enabled ) {
 
 		this.interactionModeEnabled = enabled;
@@ -812,155 +530,13 @@ export class PathTracerPass extends Pass {
 
 		this.material.uniforms.resolution.value.set( width, height );
 
-		// Resize accumulation targets
-		this.accumulationTargetA.setSize( width, height );
-		this.accumulationTargetB.setSize( width, height );
-
-		// Resize raw sample targets
-		this.renderTargetA.setSize( width, height );
-		this.renderTargetB.setSize( width, height );
-
-		// Resize MRT targets
-		if ( this.mrtTargetA ) {
-
-			this.mrtTargetA.setSize( width, height );
-			this.mrtTargetB.setSize( width, height );
-
-		}
+		// Resize unified targets
+		this.currentTarget.setSize( width, height );
+		this.previousTarget.setSize( width, height );
 
 	}
 
-	// Get the current accumulated result (for external passes)
-	getCurrentAccumulation() {
-
-		return this.accumulationEnabled ? this.currentAccumulation : this.currentRawSample;
-
-	}
-
-	// Get current raw sample (for debugging)
-	getCurrentRawSample() {
-
-		return this.currentRawSample;
-
-	}
-
-	setAccumulationPass( accPass ) {
-
-		this.accumulationPass = accPass;
-
-	}
-
-	setAdaptiveSamplingPass( asPass ) {
-
-		this.adaptiveSamplingPass = asPass;
-
-	}
-
-	dispose() {
-
-		// Dispose accumulation targets
-		this.accumulationTargetA.dispose();
-		this.accumulationTargetB.dispose();
-
-		this.material.uniforms.albedoMaps.value?.dispose();
-		this.material.uniforms.emissiveMaps.value?.dispose();
-		this.material.uniforms.normalMaps.value?.dispose();
-		this.material.uniforms.bumpMaps.value?.dispose();
-		this.material.uniforms.roughnessMaps.value?.dispose();
-		this.material.uniforms.metalnessMaps.value?.dispose();
-		this.material.uniforms.triangleTexture.value?.dispose();
-		this.material.uniforms.bvhTexture.value?.dispose();
-		this.material.uniforms.materialTexture.value?.dispose();
-		this.material.uniforms.envCDF.value?.dispose();
-		this.material.dispose();
-		this.fsQuad.dispose();
-		this.renderTargetA.dispose();
-		this.renderTargetB.dispose();
-		this.copyMaterial.dispose();
-		this.copyQuad.dispose();
-		this.mrtTargetA.dispose();
-		this.mrtTargetB.dispose();
-
-	}
-
-	setupMRTTargets() {
-
-		const targetOptions = {
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			type: FloatType,
-			colorSpace: LinearSRGBColorSpace,
-			depthBuffer: false,
-			count: 2
-		};
-
-		// Multiple Render Targets for ASVGF
-		this.mrtTargetA = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.mrtTargetB = new WebGLRenderTarget( this.width, this.height, targetOptions );
-
-		// Set up texture names for debugging
-		this.mrtTargetA.textures[ 0 ].name = 'ColorTexture';
-		this.mrtTargetA.textures[ 1 ].name = 'NormalDepthTexture';
-		this.mrtTargetB.textures[ 0 ].name = 'ColorTexture';
-		this.mrtTargetB.textures[ 1 ].name = 'NormalDepthTexture';
-
-		// Start with A as current and B as previous
-		this.currentMRT = this.mrtTargetA;
-		this.previousMRT = this.mrtTargetB;
-
-		// Keep single-target versions for backward compatibility
-		this.renderTargetA = new WebGLRenderTarget( this.width, this.height, {
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			type: FloatType,
-			colorSpace: LinearSRGBColorSpace,
-			depthBuffer: false,
-		} );
-		this.renderTargetB = this.renderTargetA.clone();
-		this.currentRenderTarget = this.renderTargetA;
-		this.previousRenderTarget = this.renderTargetB;
-
-	}
-
-	enableMRT( enabled = true ) {
-
-		this.useMRT = enabled;
-
-		if ( enabled ) {
-
-			// Add MRT define to the shader
-			this.material.defines.USE_MRT = '';
-			this.material.needsUpdate = true;
-
-		} else {
-
-			// Remove MRT define
-			delete this.material.defines.USE_MRT;
-			this.material.needsUpdate = true;
-
-		}
-
-	}
-
-	getMRTTextures() {
-
-		if ( this.useMRT && this.currentMRT ) {
-
-			return {
-				color: this.currentMRT.textures[ 0 ],
-				normalDepth: this.currentMRT.textures[ 1 ]
-			};
-
-		}
-
-		return {
-			color: this.currentRenderTarget.texture,
-			normalDepth: null
-		};
-
-	}
-
-	render( renderer, writeBuffer ) {
+	render( renderer, writeBuffer, readBuffer ) {
 
 		if ( ! this.enabled || this.isComplete ) return;
 
@@ -986,11 +562,10 @@ export class PathTracerPass extends Pass {
 			uniforms.accumulationIteration.value = this.accumulationIteration;
 
 			// Calculate adaptive accumulation alpha
-			// Use 1/iteration for standard progressive accumulation
 			uniforms.accumulationAlpha.value = 1.0 / this.accumulationIteration;
 
 			// Set previous accumulated texture and validity flag
-			uniforms.previousAccumulatedTexture.value = this.previousAccumulation.texture;
+			uniforms.previousAccumulatedTexture.value = this.previousTarget.textures[ 0 ];
 			uniforms.hasPreviousAccumulated.value = this.accumulationIteration > 1;
 
 		} else {
@@ -1003,33 +578,23 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// Set previous frame texture appropriately
-		if ( this.useMRT ) {
-
-			uniforms.previousFrameTexture.value = this.previousMRT.textures[ 0 ];
-
-		} else {
-
-			uniforms.previousFrameTexture.value = this.previousRenderTarget.texture;
-
-		}
-
-		uniforms.accumulatedFrameTexture.value = this.accumulationPass?.currentAccumulation.texture;
+		// Set previous frame texture
+		uniforms.previousFrameTexture.value = this.previousTarget.textures[ 0 ];
 
 		// 4. Adaptive sampling optimization - skip during interaction
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
 
 			// Only update adaptive sampling every few frames for better performance
-			if ( frameValue % 2 === 0 ) { // Update every 2 frames instead of 4 for better responsiveness
+			if ( frameValue % 2 === 0 ) {
 
 				uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass.renderTarget.texture;
 				uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass.adaptiveSamplingMax;
 
-				// Set MRT textures for new adaptive sampling implementation
+				// Set MRT textures for adaptive sampling
 				const mrtTextures = this.getMRTTextures();
 				this.adaptiveSamplingPass.setTextures(
-					mrtTextures.color, // Current frame color
-					mrtTextures.normalDepth // G-buffer data
+					mrtTextures.color,
+					mrtTextures.normalDepth
 				);
 
 			}
@@ -1041,74 +606,103 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 5. Optimized resolution update (avoid if unchanged)
-		if ( uniforms.resolution.value.x !== this.width ||
-            uniforms.resolution.value.y !== this.height ) {
-
-			uniforms.resolution.value.set( this.width, this.height );
-
-		}
-
-		// 6. Render to appropriate target
-		let renderTarget;
-		if ( this.accumulationEnabled && ! this.interactionMode ) {
-
-			// Render to accumulation target
-			renderTarget = this.useMRT ? this.currentMRT : this.currentAccumulation;
-
-		} else {
-
-			// Render to raw sample target (for interaction or debugging)
-			renderTarget = this.useMRT ? this.currentMRT : this.currentRawSample;
-
-		}
-
-		renderer.setRenderTarget( renderTarget );
+		// 5. Render to our internal MRT target for accumulation and data
+		renderer.setRenderTarget( this.currentTarget );
 		this.fsQuad.render( renderer );
 
-		// 7. Copy to output buffer
-		let sourceTexture;
-		if ( this.accumulationEnabled && ! this.interactionMode ) {
+		// 6. Simple, efficient copy to writeBuffer (when needed)
+		if ( writeBuffer || this.renderToScreen ) {
 
-			sourceTexture = this.useMRT ? this.currentMRT.textures[ 0 ] : this.currentAccumulation.texture;
-
-		} else {
-
-			sourceTexture = this.useMRT ? this.currentMRT.textures[ 0 ] : this.currentRawSample.texture;
+			this.efficientCopyColorOutput( renderer, writeBuffer );
 
 		}
 
-		this.copyMaterial.uniforms.tDiffuse.value = sourceTexture;
-		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
-		this.copyQuad.render( renderer );
-
-		// 8. Update tiles only when needed (not every frame)
+		// 7. Update tiles only when needed
 		if ( uniforms.renderMode.value === 1 && uniforms.tiles.value !== this.tiles ) {
 
 			uniforms.tiles.value = this.tiles;
 
 		}
 
-		// 9. Swap targets
-		if ( this.accumulationEnabled && ! this.interactionMode ) {
+		// 8. Single target swap
+		[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
 
-			// Swap accumulation targets
-			[ this.currentAccumulation, this.previousAccumulation ] =
-			[ this.previousAccumulation, this.currentAccumulation ];
+	}
+
+	efficientCopyColorOutput( renderer, writeBuffer ) {
+
+		if ( ! this.copyMaterial ) {
+
+			this.copyMaterial = new ShaderMaterial( {
+				uniforms: {
+					tDiffuse: { value: null }
+				},
+
+				vertexShader: `
+					varying vec2 vUv;
+					void main() {
+						vUv = uv;
+						gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+					}
+				`,
+
+				fragmentShader: `
+					uniform sampler2D tDiffuse;
+					varying vec2 vUv;
+					void main() {
+						gl_FragColor = texture2D( tDiffuse, vUv );
+					}
+				`,
+
+				depthTest: false,
+				depthWrite: false,
+				transparent: false,
+			} );
+
+			this.copyQuad = new FullScreenQuad( this.copyMaterial );
+
+		}
+
+		// Set source texture (color output from our MRT)
+		this.copyMaterial.uniforms.tDiffuse.value = this.currentTarget.textures[ 0 ];
+
+		// Render to destination
+		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
+		this.copyQuad.render( renderer );
+
+	}
+
+	async setEnvironmentMap( envMap ) {
+
+		this.scene.environment = envMap;
+		this.material.uniforms.environment.value = envMap;
+		if ( envMap ) {
+
+			// Rebuild CDF asynchronously
+			await this.buildEnvironmentCDF();
 
 		} else {
 
-			// Swap raw sample targets
-			[ this.currentRawSample, this.previousRawSample ] =
-			[ this.previousRawSample, this.currentRawSample ];
+			this.material.uniforms.envCDF.value = null;
+			this.material.uniforms.useEnvMapIS.value = false;
 
 		}
 
-		if ( this.useMRT ) {
+		this.reset();
 
-			[ this.currentMRT, this.previousMRT ] = [ this.previousMRT, this.currentMRT ];
+	}
 
-		}
+	setEnvironmentRotation( rotationDegrees ) {
+
+		const rotationRadians = rotationDegrees * ( Math.PI / 180 );
+		this.environmentRotationMatrix.makeRotationY( rotationRadians );
+		this.material.uniforms.environmentMatrix.value.copy( this.environmentRotationMatrix );
+
+	}
+
+	setAdaptiveSamplingPass( asPass ) {
+
+		this.adaptiveSamplingPass = asPass;
 
 	}
 
@@ -1133,6 +727,32 @@ export class PathTracerPass extends Pass {
 			this.reset();
 
 		}
+
+	}
+
+	dispose() {
+
+		// Dispose unified targets
+		this.currentTarget.dispose();
+		this.previousTarget.dispose();
+
+		// Dispose copy materials
+		this.copyMaterial?.dispose();
+		this.copyQuad?.dispose();
+
+		// Dispose other resources
+		this.material.uniforms.albedoMaps.value?.dispose();
+		this.material.uniforms.emissiveMaps.value?.dispose();
+		this.material.uniforms.normalMaps.value?.dispose();
+		this.material.uniforms.bumpMaps.value?.dispose();
+		this.material.uniforms.roughnessMaps.value?.dispose();
+		this.material.uniforms.metalnessMaps.value?.dispose();
+		this.material.uniforms.triangleTexture.value?.dispose();
+		this.material.uniforms.bvhTexture.value?.dispose();
+		this.material.uniforms.materialTexture.value?.dispose();
+		this.material.uniforms.envCDF.value?.dispose();
+		this.material.dispose();
+		this.fsQuad.dispose();
 
 	}
 

@@ -281,9 +281,7 @@ class PathTracerApp extends EventDispatcher {
 		this.adaptiveSamplingPass.enabled = DEFAULT_STATE.adaptiveSampling;
 		this.composer.addPass( this.adaptiveSamplingPass );
 
-		// Initialize PathTracerPass with MRT support
 		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
-		this.pathTracingPass.setupMRTTargets();
 		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
@@ -624,18 +622,6 @@ class PathTracerApp extends EventDispatcher {
 				enableDebug: mode > 0,
 				debugMode: mode
 			} );
-
-		}
-
-	}
-
-	// Toggle between MRT and single output mode
-	toggleMRT( enabled ) {
-
-		if ( this.pathTracingPass ) {
-
-			this.pathTracingPass.enableMRT( enabled );
-			this.reset();
 
 		}
 

@@ -1,6 +1,7 @@
 precision highp float;
 precision highp sampler2DArray;
 
+// MRT outputs (no longer conditional)
 layout( location = 0 ) out vec4 gColor;        // RGB + alpha
 layout( location = 1 ) out vec4 gNormalDepth;  // Normal(RGB) + depth(A)
 
@@ -566,6 +567,7 @@ void main( ) {
 				#else
 				gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
 				#endif
+				// Always output normal/depth for MRT
 				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
 				return;
 			}
@@ -599,7 +601,7 @@ void main( ) {
 				vec3 sampleNormal, sampleColor;
 				float sampleID;
 				_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID );
-				
+
 				// Accumulate edge detection data from primary rays
 				if( rayIndex == 0 ) {
 					objectNormal = sampleNormal;
@@ -622,22 +624,22 @@ void main( ) {
 		// Edge Detection
 		float edge0 = 0.2;
 		float edge1 = 0.6;
-		
+
 		float difference_Nx = fwidth( objectNormal.x );
 		float difference_Ny = fwidth( objectNormal.y );
 		float difference_Nz = fwidth( objectNormal.z );
-		float normalDifference = smoothstep( edge0, edge1, difference_Nx ) + 
-							smoothstep( edge0, edge1, difference_Ny ) + 
-							smoothstep( edge0, edge1, difference_Nz );
-		
+		float normalDifference = smoothstep( edge0, edge1, difference_Nx ) +
+			smoothstep( edge0, edge1, difference_Ny ) +
+			smoothstep( edge0, edge1, difference_Nz );
+
 		float objectDifference = min( fwidth( objectID ), 1.0 );
 		float colorDifference = ( fwidth( objectColor.r ) + fwidth( objectColor.g ) + fwidth( objectColor.b ) ) > 0.0 ? 1.0 : 0.0;
-		
+
 		// Mark pixel as edge if any edge condition is met
 		if( colorDifference > 0.0 || normalDifference >= 0.9 || objectDifference >= 1.0 ) {
 			pixelSharpness = 1.0;
 		}
-		
+
 		pixel.color = vec4( pixel.color.rgb, pixelSharpness );
 
 	} else {
@@ -655,17 +657,16 @@ void main( ) {
 
 	// Temporal accumulation logic
 	vec3 finalColor = pixel.color.rgb;
-	
+
 	#ifdef ENABLE_ACCUMULATION
-	if( enableAccumulation && !cameraIsMoving && accumulationIteration > 1.0 && hasPreviousAccumulated ) {
-		
+	if( enableAccumulation && ! cameraIsMoving && accumulationIteration > 1.0 && hasPreviousAccumulated ) {
+
 		// Get previous accumulated color
 		vec3 previousColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution ).rgb;
 		finalColor = previousColor + ( pixel.color.rgb - previousColor ) * accumulationAlpha;
-		
+
 	}
 	#endif
-
 
     // pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
     // pixel.color.rgb = dithering( pixel.color.rgb, seed );
