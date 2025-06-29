@@ -32,10 +32,8 @@ import Stats from 'stats-gl';
 import { PathTracerPass } from './Shaders/PathTracerPass';
 import { EdgeAwareFilteringPass } from './Passes/EdgeAwareFilteringPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
-import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
-import { ASVGFPass } from './Passes/ASVGFPass';
 import { updateStats } from './Processor/utils';
 import { HDR_FILES, DEFAULT_STATE } from '../Constants';
 import radialTexture from '../../public/radial-gradient.png';
@@ -71,7 +69,6 @@ class PathTracerApp extends EventDispatcher {
 		this.composer = null;
 		this.pathTracingPass = null;
 		this.edgeAwareFilterPass = null;
-		this.denoiserPass = null;
 		this.tileHighlightPass = null;
 		this.denoiser = null;
 		this.animationFrameId = null;
@@ -82,7 +79,6 @@ class PathTracerApp extends EventDispatcher {
 		this.cameras = [];
 		this.currentCameraIndex = 0;
 		this.defaultCamera = this.camera;
-		this.asvgfPass = null;
 
 	}
 
@@ -255,9 +251,8 @@ class PathTracerApp extends EventDispatcher {
 
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
-		this.edgeAwareFilterPass.reset( this.renderer );
-		this.asvgfPass.reset();
-		this.adaptiveSamplingPass.reset();
+		this.edgeAwareFilterPass && this.edgeAwareFilterPass.reset( this.renderer );
+		this.adaptiveSamplingPass && this.adaptiveSamplingPass.reset();
 		this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
@@ -294,55 +289,11 @@ class PathTracerApp extends EventDispatcher {
 		} );
 		this.composer.addPass( this.edgeAwareFilterPass );
 
-		this.asvgfPass = new ASVGFPass( this.renderer, this.width, this.height, {
-			// Temporal parameters
-			temporalAlpha: DEFAULT_STATE.asvgfTemporalAlpha || 0.1,
-			temporalColorWeight: DEFAULT_STATE.asvgfTemporalColorWeight || 0.1,
-			temporalNormalWeight: DEFAULT_STATE.asvgfTemporalNormalWeight || 0.1,
-			temporalDepthWeight: DEFAULT_STATE.asvgfTemporalDepthWeight || 0.1,
-
-			// Variance parameters
-			varianceClip: DEFAULT_STATE.asvgfVarianceClip || 1.0,
-			maxAccumFrames: DEFAULT_STATE.asvgfMaxAccumFrames || 32,
-
-			// Edge-stopping parameters
-			phiColor: DEFAULT_STATE.asvgfPhiColor || 10.0,
-			phiNormal: DEFAULT_STATE.asvgfPhiNormal || 128.0,
-			phiDepth: DEFAULT_STATE.asvgfPhiDepth || 1.0,
-			phiLuminance: DEFAULT_STATE.asvgfPhiLuminance || 4.0,
-
-			// A-trous parameters
-			atrousIterations: DEFAULT_STATE.asvgfAtrousIterations || 4,
-			varianceBoost: DEFAULT_STATE.asvgfVarianceBoost || 1.0,
-
-			// Debug
-			enableDebug: DEFAULT_STATE.asvgfEnableDebug || false,
-			debugMode: DEFAULT_STATE.asvgfDebugMode || 0
-		} );
-		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF;
-
-		// Override the render method to pass camera
-		const originalRender = this.asvgfPass.render.bind( this.asvgfPass );
-		this.asvgfPass.render = ( renderer, writeBuffer, readBuffer ) => {
-
-			return originalRender( renderer, writeBuffer, readBuffer, this.camera );
-
-		};
-
-		this.composer.addPass( this.asvgfPass );
-
 		// Connect the new pipeline: PathTracer → ASVGF → AdaptiveSampling
 		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
 
-		// Connect AdaptiveSamplingPass to ASVGF
-		this.adaptiveSamplingPass.setASVGFPass( this.asvgfPass );
-
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
-
-		this.denoiserPass = new LygiaSmartDenoiserPass( this.width, this.height );
-		this.denoiserPass.enabled = false;
-		this.composer.addPass( this.denoiserPass );
 
 		this.tileHighlightPass = new TileHighlightPass( new Vector2( this.width, this.height ) );
 		this.tileHighlightPass.enabled = DEFAULT_STATE.tilesHelper;
@@ -410,12 +361,6 @@ class PathTracerApp extends EventDispatcher {
 		if ( ! this.pathTracingPass.isComplete ) {
 
 			this.controls.update();
-
-			if ( this.asvgfPass.enabled ) {
-
-				this.asvgfPass.updateCameraMatrices( this.camera );
-
-			}
 
 			this.edgeAwareFilterPass.updateUniforms( {
 				cameraIsMoving: this.pathTracingPass.interactionMode || false,
@@ -577,53 +522,10 @@ class PathTracerApp extends EventDispatcher {
 		this.edgeAwareFilterPass.setSize( this.width, this.height );
 		this.denoiser.setSize( this.width, this.height );
 		this.adaptiveSamplingPass.setSize( this.width, this.height );
-		this.asvgfPass.setSize( this.width, this.height );
 
 		this.reset();
 
 		window.dispatchEvent( new CustomEvent( 'resolution_changed' ) );
-
-	}
-
-	setASVGFEnabled( enabled ) {
-
-		if ( this.asvgfPass ) {
-
-			this.asvgfPass.enabled = enabled;
-			// Automatically disable other denoisers when ASVGF is enabled
-			if ( enabled ) {
-
-				this.denoiserPass.enabled = false;
-
-			}
-
-			this.reset();
-
-		}
-
-	}
-
-	updateASVGFParameters( params ) {
-
-		if ( this.asvgfPass ) {
-
-			this.asvgfPass.updateParameters( params );
-			this.reset();
-
-		}
-
-	}
-
-	setASVGFDebugMode( mode ) {
-
-		if ( this.asvgfPass ) {
-
-			this.asvgfPass.updateParameters( {
-				enableDebug: mode > 0,
-				debugMode: mode
-			} );
-
-		}
 
 	}
 
@@ -803,7 +705,6 @@ class PathTracerApp extends EventDispatcher {
 		if ( this.pathTracingPass ) this.pathTracingPass.dispose();
 		if ( this.edgeAwareFilterPass ) this.edgeAwareFilterPass.dispose();
 		if ( this.adaptiveSamplingPass ) this.adaptiveSamplingPass.dispose();
-		if ( this.asvgfPass ) this.asvgfPass.dispose();
 
 	}
 

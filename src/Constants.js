@@ -213,11 +213,6 @@ export const DEFAULT_STATE = {
 	useGBuffer: true,
 	debugGbufferMaps: false,
 
-	enableRealtimeDenoiser: false,
-	denoiserBlurStrength: 2,
-	denoiserBlurRadius: 1,
-	denoiserDetailPreservation: 0.05,
-
 	debugMode: 0,
 	debugThreshold: 100,
 	debugModel: 0,
@@ -229,91 +224,6 @@ export const DEFAULT_STATE = {
 	interactionModeEnabled: true,
 	debugVisScale: 100,
 
-	// ASVGF settings
-	enableASVGF: true,
-
-	// Temporal accumulation parameters
-	asvgfTemporalAlpha: 0.1, // Base temporal accumulation rate
-	asvgfTemporalColorWeight: 0.1, // Color similarity weight for temporal accumulation
-	asvgfTemporalNormalWeight: 0.1, // Normal similarity weight
-	asvgfTemporalDepthWeight: 0.1, // Depth similarity weight
-
-	// Variance estimation
-	// asvgfVarianceClip: 1.0, // Variance clipping threshold
-	asvgfMaxAccumFrames: 32, // Maximum temporal accumulation frames
-	asvgfVarianceBoost: 1.0, // Variance boost factor for filtering guidance
-
-	// Edge-stopping functions for spatial filtering
-	asvgfPhiColor: 10.0, // Color edge threshold
-	asvgfPhiNormal: 128.0, // Normal edge threshold
-	asvgfPhiDepth: 1.0, // Depth edge threshold
-	asvgfPhiLuminance: 4.0, // Luminance edge threshold
-
-	// // A-trous wavelet filtering
-	asvgfAtrousIterations: 2, // Number of a-trous filtering iterations
-	asvgfFilterSize: 5, // Filter kernel size (5x5)
-
-	// // Debug and visualization
-	asvgfEnableDebug: false, // Enable debug visualization
-	asvgfDebugMode: 0, // Debug mode: 0=off, 1=variance, 2=history, 3=motion, 4=normals
-
-	// // Quality presets for easy switching
-	asvgfQualityPreset: 'high', // 'low', 'medium', 'high', 'ultra'
-};
-
-export const ASVGF_QUALITY_PRESETS = {
-	low: {
-		asvgfTemporalAlpha: 0.8, // Very fast accumulation - more noise but responsive
-		asvgfAtrousIterations: 1, // Minimal spatial filtering
-		asvgfPhiColor: 50.0, // Very loose - accepts more noise
-		asvgfPhiNormal: 10.0, // Very loose normal matching
-		asvgfPhiDepth: 5.0, // Very loose depth matching
-		asvgfPhiLuminance: 20.0, // Very loose luminance matching
-		asvgfMaxAccumFrames: 4, // Very short history
-		asvgfVarianceBoost: 0.1, // Low variance sensitivity
-		asvgfTemporalColorWeight: 0.8,
-		asvgfTemporalNormalWeight: 0.8,
-		asvgfTemporalDepthWeight: 0.8
-	},
-	medium: {
-		asvgfTemporalAlpha: 0.15,
-		asvgfAtrousIterations: 3,
-		asvgfPhiColor: 15.0,
-		asvgfPhiNormal: 96.0,
-		asvgfPhiDepth: 1.0,
-		asvgfPhiLuminance: 6.0,
-		asvgfMaxAccumFrames: 24,
-		asvgfVarianceBoost: 0.75,
-		asvgfTemporalColorWeight: 0.15,
-		asvgfTemporalNormalWeight: 0.15,
-		asvgfTemporalDepthWeight: 0.15
-	},
-	high: {
-		asvgfTemporalAlpha: 0.1,
-		asvgfAtrousIterations: 4,
-		asvgfPhiColor: 10.0,
-		asvgfPhiNormal: 128.0,
-		asvgfPhiDepth: 1.0,
-		asvgfPhiLuminance: 4.0,
-		asvgfMaxAccumFrames: 32,
-		asvgfVarianceBoost: 1.0,
-		asvgfTemporalColorWeight: 0.1,
-		asvgfTemporalNormalWeight: 0.1,
-		asvgfTemporalDepthWeight: 0.1
-	},
-	ultra: {
-		asvgfTemporalAlpha: 0.01, // Very slow accumulation - maximum quality
-		asvgfAtrousIterations: 8, // Extensive spatial filtering
-		asvgfPhiColor: 2.0, // Very tight - preserves detail
-		asvgfPhiNormal: 512.0, // Very tight normal matching
-		asvgfPhiDepth: 0.1, // Very tight depth matching
-		asvgfPhiLuminance: 1.0, // Very tight luminance matching
-		asvgfMaxAccumFrames: 128, // Very long history
-		asvgfVarianceBoost: 2.0, // High variance sensitivity
-		asvgfTemporalColorWeight: 0.01,
-		asvgfTemporalNormalWeight: 0.01,
-		asvgfTemporalDepthWeight: 0.01
-	}
 };
 
 export const CAMERA_RANGES = {

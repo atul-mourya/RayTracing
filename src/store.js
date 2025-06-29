@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS } from '@/Constants';
+import { DEFAULT_STATE, CAMERA_PRESETS } from '@/Constants';
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 
@@ -85,13 +85,13 @@ const useEnvironmentStore = create( set => ( {
 const FINAL_STATE = {
 	maxSamples: 30, bounces: 20, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
 	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHDR: false, useGBuffer: true,
-	interactionModeEnabled: false, enableASVGF: false,
+	interactionModeEnabled: false,
 };
 
 const INTERACTIVE_STATE = {
 	bounces: 3, samplesPerPixel: 1, renderMode: 0, tiles: 3, tilesHelper: false, resolution: 1,
 	enableOIDN: false, oidnQuality: 'fast', oidnHDR: false, useGBuffer: true,
-	interactionModeEnabled: true, enableASVGF: false,
+	interactionModeEnabled: true,
 };
 
 const usePathTracerStore = create( ( set, get ) => ( {
@@ -129,10 +129,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setResolution: val => set( { resolution: val } ),
 	setEnableOIDN: val => set( { enableOIDN: val } ),
 	setUseGBuffer: val => set( { useGBuffer: val } ),
-	setEnableRealtimeDenoiser: val => set( { enableRealtimeDenoiser: val } ),
-	setDenoiserBlurStrength: val => set( { denoiserBlurStrength: val } ),
-	setDenoiserBlurRadius: val => set( { denoiserBlurRadius: val } ),
-	setDenoiserDetailPreservation: val => set( { denoiserDetailPreservation: val } ),
 	setDebugMode: val => set( { debugMode: val } ),
 	setDebugThreshold: val => set( { debugThreshold: val } ),
 	setEnableBloom: val => set( { enableBloom: val } ),
@@ -151,8 +147,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setGIIntensity: val => set( { GIIntensity: val } ),
 	setToneMapping: val => set( { toneMapping: val } ),
 	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
-	setEnableASVGF: val => set( { enableASVGF: val } ),
-	setAsvgfQualityPreset: val => set( { asvgfQualityPreset: val } ),
 	setAsvgfTemporalAlpha: val => set( { asvgfTemporalAlpha: val } ),
 	setAsvgfVarianceClip: val => set( { asvgfVarianceClip: val } ),
 	setAsvgfMomentClip: val => set( { asvgfMomentClip: val } ),
@@ -209,41 +203,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Update adaptive sampling pass parameters
 			app.pathTracingPass.setAdaptiveSamplingParameters( settings );
-
-		}
-
-	},
-
-	applyASVGFQualityPreset( app, preset ) {
-
-		const settings = ASVGF_QUALITY_PRESETS[ preset ];
-		if ( settings && app.asvgfPass ) {
-
-			// Update store state for ALL preset parameters
-			Object.entries( settings ).forEach( ( [ key, value ] ) => {
-
-				const setter = `set${key.charAt( 0 ).toUpperCase()}${key.slice( 1 )}`;
-				if ( get()[ setter ] ) {
-
-					get()[ setter ]( value );
-
-				}
-
-			} );
-
-			// Map parameters for the ASVGF pass (remove asvgf prefix if needed)
-			const mappedSettings = {};
-			Object.entries( settings ).forEach( ( [ key, value ] ) => {
-
-				const cleanKey = key.startsWith( 'asvgf' ) ?
-					key.charAt( 5 ).toLowerCase() + key.slice( 6 ) :
-					key;
-				mappedSettings[ cleanKey ] = value;
-
-			} );
-
-			// Update ASVGF pass parameters
-			app.updateASVGFParameters( mappedSettings );
 
 		}
 
@@ -411,30 +370,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false
 	),
 
-	handleEnableRealtimeDenoiserChange: handleChange(
-		val => set( { enableRealtimeDenoiser: val } ),
-		val => window.pathTracerApp.denoiserPass.enabled = val,
-		false
-	),
-
-	handleDenoiserBlurStrengthChange: handleChange(
-		val => set( { denoiserBlurStrength: val } ),
-		val => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.sigma.value = val[ 0 ],
-		false
-	),
-
-	handleDenoiserBlurRadiusChange: handleChange(
-		val => set( { denoiserBlurRadius: val } ),
-		val => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.kSigma.value = val[ 0 ],
-		false
-	),
-
-	handleDenoiserDetailPreservationChange: handleChange(
-		val => set( { denoiserDetailPreservation: val } ),
-		val => window.pathTracerApp.denoiserPass.denoiseQuad.material.uniforms.threshold.value = val[ 0 ],
-		false
-	),
-
 	handleDebugThresholdChange: handleChange(
 		val => set( { debugThreshold: val } ),
 		val => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = val[ 0 ]
@@ -598,31 +533,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => window.pathTracerApp.pathTracingPass.setInteractionModeEnabled( val )
 	),
 
-	handleEnableASVGFChange: handleChange(
-		val => set( { enableASVGF: val } ),
-		val => {
-
-			window.pathTracerApp.setASVGFEnabled( val );
-			if ( val ) {
-
-				window.pathTracerApp.denoiserPass.enabled = false;
-				get().setEnableRealtimeDenoiser( false );
-
-			}
-
-		},
-		false
-	),
-
-	handleAsvgfQualityPresetChange: handleChange(
-		val => set( { asvgfQualityPreset: val } ),
-		val => {
-
-			get().applyASVGFQualityPreset( window.pathTracerApp, val );
-
-		}
-	),
-
 	handleAsvgfTemporalAlphaChange: handleChange(
 		val => set( { asvgfTemporalAlpha: val } ),
 		val => window.pathTracerApp.updateASVGFParameters( { temporalAlpha: val[ 0 ] } ),
@@ -670,7 +580,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.renderMode.value = INTERACTIVE_STATE.renderMode;
 			app.pathTracingPass.tiles = INTERACTIVE_STATE.tiles;
 			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
-			app.setASVGFEnabled( INTERACTIVE_STATE.enableASVGF );
 			app.denoiser.enabled = INTERACTIVE_STATE.enableOIDN;
 			app.denoiser.updateQuality( INTERACTIVE_STATE.oidnQuality );
 			app.denoiser.toggleHDR( INTERACTIVE_STATE.oidnHDR );
@@ -710,7 +619,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.renderMode.value = FINAL_STATE.renderMode;
 			app.pathTracingPass.tiles = FINAL_STATE.tiles;
 			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
-			app.setASVGFEnabled( FINAL_STATE.enableASVGF );
 			app.denoiser.enabled = FINAL_STATE.enableOIDN;
 			app.denoiser.updateQuality( FINAL_STATE.oidnQuality );
 			app.denoiser.toggleHDR( FINAL_STATE.oidnHDR );

@@ -46,10 +46,6 @@ const PathTracerTab = () => {
 		resolution,
 		enableOIDN,
 		useGBuffer,
-		enableRealtimeDenoiser,
-		denoiserBlurStrength,
-		denoiserBlurRadius,
-		denoiserDetailPreservation,
 		debugMode,
 		debugThreshold,
 		enableBloom,
@@ -68,8 +64,6 @@ const PathTracerTab = () => {
 		GIIntensity,
 		toneMapping,
 		interactionModeEnabled,
-		enableASVGF,
-		asvgfQualityPreset,
 
 		// Handlers - now from store
 		handlePathTracerChange,
@@ -95,10 +89,6 @@ const PathTracerTab = () => {
 		handleOidnQualityChange,
 		handleOidnHdrChange,
 		handleUseGBufferChange,
-		handleEnableRealtimeDenoiserChange,
-		handleDenoiserBlurStrengthChange,
-		handleDenoiserBlurRadiusChange,
-		handleDenoiserDetailPreservationChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
 		handleEnableBloomChange,
@@ -115,8 +105,6 @@ const PathTracerTab = () => {
 		handleGIIntensityChange,
 		handleToneMappingChange,
 		handleInteractionModeEnabledChange,
-		handleEnableASVGFChange,
-		handleAsvgfQualityPresetChange,
 	} = pathTracerStore;
 
 	return (
@@ -209,27 +197,6 @@ const PathTracerTab = () => {
 
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
-					<Switch label={"Enable ASVGF"} checked={enableASVGF} onCheckedChange={handleEnableASVGFChange}/>
-				</div>
-				{enableASVGF && ( <>
-					<div className="flex items-center justify-between">
-						<Select value={asvgfQualityPreset} onValueChange={handleAsvgfQualityPresetChange}>
-							<span className="opacity-50 text-xs truncate">Quality Preset</span>
-							<SelectTrigger className="max-w-32 h-5 rounded-full" >
-								<SelectValue placeholder="Select preset" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="low">Low</SelectItem>
-								<SelectItem value="medium">Medium</SelectItem>
-								<SelectItem value="high">High</SelectItem>
-								<SelectItem value="ultra">Ultra</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-				</> )}
-				<Separator />
-
-				<div className="flex items-center justify-between">
 					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
 				</div>
 				{enableOIDN && ( <>
@@ -251,20 +218,6 @@ const PathTracerTab = () => {
 					</div>
 					<div className="flex items-center justify-between">
 						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
-					</div>
-				</> )}
-				<div className="flex items-center justify-between">
-					<Switch label={"Enable Realtime Denoiser"} checked={enableRealtimeDenoiser} onCheckedChange={handleEnableRealtimeDenoiserChange} />
-				</div>
-				{enableRealtimeDenoiser && ( <>
-					<div className="flex items-center justify-between">
-						<Slider label={"Blur Strength"} min={0.5} max={5} step={0.1} value={[ denoiserBlurStrength ]} onValueChange={handleDenoiserBlurStrengthChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Blur Radius"} min={1} max={3} step={0.1} value={[ denoiserBlurRadius ]} onValueChange={handleDenoiserBlurRadiusChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Detail Preservation"} min={0.01} max={0.1} step={0.01} value={[ denoiserDetailPreservation ]} onValueChange={handleDenoiserDetailPreservationChange} />
 					</div>
 				</> )}
 			</ControlGroup>
