@@ -756,32 +756,38 @@ export class ASVGFPass extends Pass {
 		this.varianceQuad.render( renderer );
 
 		// Step 4: A-trous wavelet filtering
-		let currentInput = this.temporalColorTarget;
+		// Start with temporal color as input for first iteration
+		let inputTexture = this.temporalColorTarget.texture;
 		let currentOutput = this.atrousTargetA;
 		let nextOutput = this.atrousTargetB;
 
+		// Set static uniforms once
 		this.atrousMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
 		this.atrousMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
 		this.atrousMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
 
 		for ( let i = 0; i < this.params.atrousIterations; i ++ ) {
 
-			this.atrousMaterial.uniforms.tColor.value = currentInput.texture;
+			// Set input texture for this iteration
+			this.atrousMaterial.uniforms.tColor.value = inputTexture;
 			this.atrousMaterial.uniforms.stepSize.value = Math.pow( 2, i );
 			this.atrousMaterial.uniforms.iteration.value = i;
 
+			// Render to current output
 			renderer.setRenderTarget( currentOutput );
 			this.atrousQuad.render( renderer );
 
-			// Swap for next iteration
-			[ currentInput, currentOutput, nextOutput ] = [ currentOutput, nextOutput, currentInput ];
+			// For next iteration: input becomes current output, swap ping-pong buffers
+			inputTexture = currentOutput.texture;
+			[ currentOutput, nextOutput ] = [ nextOutput, currentOutput ];
 
 		}
 
-		// Step 5: Final composition
-		const finalInput = currentInput;
+		// The final result is in inputTexture (last output)
+		const finalFilteredTexture = inputTexture;
 
-		this.finalMaterial.uniforms.tColor.value = finalInput.texture;
+		// Step 5: Final composition
+		this.finalMaterial.uniforms.tColor.value = finalFilteredTexture;
 		this.finalMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
 		this.finalMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
 		this.finalMaterial.uniforms.tNormalDepth.value = normalDepthTexture;

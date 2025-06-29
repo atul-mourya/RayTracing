@@ -50,7 +50,17 @@ export class PathTracerPass extends Pass {
 		this.lastCDFValidation = null;
 		this.cdfBuildTime = 0;
 
-		// Create two render targets for ping-pong rendering
+		// Create accumulation targets (ping-pong for temporal accumulation)
+		this.accumulationTargetA = new WebGLRenderTarget( width, height, {
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			type: FloatType,
+			colorSpace: LinearSRGBColorSpace,
+			depthBuffer: false,
+		} );
+		this.accumulationTargetB = this.accumulationTargetA.clone();
+
+		// Raw sample targets (for debugging/fallback)
 		this.renderTargetA = new WebGLRenderTarget( width, height, {
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
@@ -61,6 +71,16 @@ export class PathTracerPass extends Pass {
 		this.renderTargetB = this.renderTargetA.clone();
 
 		// Start with A as current and B as previous
+		this.currentAccumulation = this.accumulationTargetA;
+		this.previousAccumulation = this.accumulationTargetB;
+		this.currentRawSample = this.renderTargetA;
+		this.previousRawSample = this.renderTargetB;
+
+		// Accumulation state
+		this.accumulationIteration = 0;
+		this.accumulationEnabled = true; // Can be toggled for debugging
+
+		// Create two render targets for ping-pong rendering (keep for backward compatibility)
 		this.currentRenderTarget = this.renderTargetA;
 		this.previousRenderTarget = this.renderTargetB;
 
@@ -72,7 +92,8 @@ export class PathTracerPass extends Pass {
 			defines: {
 				MAX_SPHERE_COUNT: 0,
 				MAX_DIRECTIONAL_LIGHTS: 0,
-				MAX_AREA_LIGHTS: 0
+				MAX_AREA_LIGHTS: 0,
+				ENABLE_ACCUMULATION: '',
 			},
 
 			uniforms: {
@@ -118,6 +139,15 @@ export class PathTracerPass extends Pass {
 				tiles: { value: this.tiles },
 				previousFrameTexture: { value: null },
 				accumulatedFrameTexture: { value: null },
+
+				// Accumulation uniforms
+				previousAccumulatedTexture: { value: null },
+				accumulationIteration: { value: 0.0 },
+				enableAccumulation: { value: true },
+				accumulationFireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold * 2.0 },
+				accumulationAlpha: { value: 0.0 }, // Calculated dynamically
+				cameraIsMoving: { value: false },
+				hasPreviousAccumulated: { value: false }, // NEW: Boolean for texture validity
 
 				blueNoiseTexture: { value: null },
 				blueNoiseTextureSize: { value: new Vector2() },
@@ -592,26 +622,44 @@ export class PathTracerPass extends Pass {
 
 	reset() {
 
-		// Only clear if we actually have accumulated samples
-		if ( this.material.uniforms.frame.value > 0 ) {
+		// Reset accumulation state
+		this.accumulationIteration = 0;
+		this.material.uniforms.accumulationIteration.value = 0;
+		this.material.uniforms.frame.value = 0;
+		this.material.uniforms.hasPreviousAccumulated.value = false;
 
-			this.material.uniforms.frame.value = 0;
-			this.renderer.setRenderTarget( this.previousRenderTarget );
+		// Clear accumulation targets
+		this.renderer.setRenderTarget( this.currentAccumulation );
+		this.renderer.clear();
+		this.renderer.setRenderTarget( this.previousAccumulation );
+		this.renderer.clear();
+
+		// Clear raw sample targets
+		this.renderer.setRenderTarget( this.currentRawSample );
+		this.renderer.clear();
+		this.renderer.setRenderTarget( this.previousRawSample );
+		this.renderer.clear();
+
+		// Clear MRT targets
+		if ( this.currentMRT ) {
+
+			this.renderer.setRenderTarget( this.currentMRT );
+			this.renderer.clear();
+			this.renderer.setRenderTarget( this.previousMRT );
 			this.renderer.clear();
 
-			// Update completion threshold if render mode changed
-			this.updateCompletionThreshold();
+		}
 
-			if ( this.material.uniforms.renderMode.value === 1 ) {
+		// Update completion threshold if render mode changed
+		this.updateCompletionThreshold();
 
-				this.material.uniforms.tiles.value = 1;
+		if ( this.material.uniforms.renderMode.value === 1 ) {
 
-			}
-
-			this.accumulationPass?.reset( this.renderer );
-			this.isComplete = false;
+			this.material.uniforms.tiles.value = 1;
 
 		}
+
+		this.isComplete = false;
 
 	}
 
@@ -677,6 +725,10 @@ export class PathTracerPass extends Pass {
 
 			} );
 
+			// Disable accumulation during interaction for immediate feedback
+			this.material.uniforms.enableAccumulation.value = false;
+			this.material.uniforms.cameraIsMoving.value = true;
+
 			// Store and reduce pixel ratio
 			this.originalValues.dpr = this.renderer.getPixelRatio();
 			this.renderer.setPixelRatio( this.interactionQualitySettings.pixelRatio );
@@ -709,15 +761,32 @@ export class PathTracerPass extends Pass {
 
 		this.renderer.setPixelRatio( this.originalValues.dpr );
 
+		// Re-enable accumulation and reset
+		this.material.uniforms.enableAccumulation.value = this.accumulationEnabled;
+		this.material.uniforms.cameraIsMoving.value = false;
+
 		this.interactionMode = false;
-		this.reset(); // Reset the render to use the new values
+		this.reset(); // Reset to start fresh accumulation
 
 	}
 
-	setInteractionQuality( settingsObject ) {
+	setAccumulationEnabled( enabled ) {
 
-		// Update interaction quality settings
-		Object.assign( this.interactionQualitySettings, settingsObject );
+		this.accumulationEnabled = enabled;
+		this.material.uniforms.enableAccumulation.value = enabled;
+		if ( enabled ) {
+
+			// If enabling, enable the define
+			this.material.defines.ENABLE_ACCUMULATION = '';
+
+		} else {
+
+			// If disabling, remove the define
+			delete this.material.defines.ENABLE_ACCUMULATION;
+
+		}
+
+		this.material.needsUpdate = true;
 
 	}
 
@@ -742,10 +811,36 @@ export class PathTracerPass extends Pass {
 		this.height = height;
 
 		this.material.uniforms.resolution.value.set( width, height );
+
+		// Resize accumulation targets
+		this.accumulationTargetA.setSize( width, height );
+		this.accumulationTargetB.setSize( width, height );
+
+		// Resize raw sample targets
 		this.renderTargetA.setSize( width, height );
 		this.renderTargetB.setSize( width, height );
-		this.mrtTargetA.setSize( width, height );
-		this.mrtTargetB.setSize( width, height );
+
+		// Resize MRT targets
+		if ( this.mrtTargetA ) {
+
+			this.mrtTargetA.setSize( width, height );
+			this.mrtTargetB.setSize( width, height );
+
+		}
+
+	}
+
+	// Get the current accumulated result (for external passes)
+	getCurrentAccumulation() {
+
+		return this.accumulationEnabled ? this.currentAccumulation : this.currentRawSample;
+
+	}
+
+	// Get current raw sample (for debugging)
+	getCurrentRawSample() {
+
+		return this.currentRawSample;
 
 	}
 
@@ -762,6 +857,10 @@ export class PathTracerPass extends Pass {
 	}
 
 	dispose() {
+
+		// Dispose accumulation targets
+		this.accumulationTargetA.dispose();
+		this.accumulationTargetB.dispose();
 
 		this.material.uniforms.albedoMaps.value?.dispose();
 		this.material.uniforms.emissiveMaps.value?.dispose();
@@ -880,6 +979,30 @@ export class PathTracerPass extends Pass {
 		this.updateCameraUniforms();
 		const uniforms = this.material.uniforms;
 
+		// 3. Update accumulation state
+		if ( this.accumulationEnabled && ! this.interactionMode ) {
+
+			this.accumulationIteration ++;
+			uniforms.accumulationIteration.value = this.accumulationIteration;
+
+			// Calculate adaptive accumulation alpha
+			// Use 1/iteration for standard progressive accumulation
+			uniforms.accumulationAlpha.value = 1.0 / this.accumulationIteration;
+
+			// Set previous accumulated texture and validity flag
+			uniforms.previousAccumulatedTexture.value = this.previousAccumulation.texture;
+			uniforms.hasPreviousAccumulated.value = this.accumulationIteration > 1;
+
+		} else {
+
+			// During interaction, no accumulation
+			uniforms.accumulationIteration.value = 1;
+			uniforms.accumulationAlpha.value = 1.0;
+			uniforms.previousAccumulatedTexture.value = null;
+			uniforms.hasPreviousAccumulated.value = false;
+
+		}
+
 		// Set previous frame texture appropriately
 		if ( this.useMRT ) {
 
@@ -893,7 +1016,7 @@ export class PathTracerPass extends Pass {
 
 		uniforms.accumulatedFrameTexture.value = this.accumulationPass?.currentAccumulation.texture;
 
-		// 3. Adaptive sampling optimization - skip during interaction
+		// 4. Adaptive sampling optimization - skip during interaction
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
 
 			// Only update adaptive sampling every few frames for better performance
@@ -918,7 +1041,7 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 4. Optimized resolution update (avoid if unchanged)
+		// 5. Optimized resolution update (avoid if unchanged)
 		if ( uniforms.resolution.value.x !== this.width ||
             uniforms.resolution.value.y !== this.height ) {
 
@@ -926,48 +1049,64 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// Render to appropriate target
-		if ( this.useMRT ) {
+		// 6. Render to appropriate target
+		let renderTarget;
+		if ( this.accumulationEnabled && ! this.interactionMode ) {
 
-			renderer.setRenderTarget( this.currentMRT );
+			// Render to accumulation target
+			renderTarget = this.useMRT ? this.currentMRT : this.currentAccumulation;
 
 		} else {
 
-			renderer.setRenderTarget( this.currentRenderTarget );
+			// Render to raw sample target (for interaction or debugging)
+			renderTarget = this.useMRT ? this.currentMRT : this.currentRawSample;
 
 		}
 
+		renderer.setRenderTarget( renderTarget );
 		this.fsQuad.render( renderer );
 
-		// Copy to output buffer
-		if ( this.useMRT ) {
+		// 7. Copy to output buffer
+		let sourceTexture;
+		if ( this.accumulationEnabled && ! this.interactionMode ) {
 
-			this.copyMaterial.uniforms.tDiffuse.value = this.currentMRT.textures[ 0 ];
+			sourceTexture = this.useMRT ? this.currentMRT.textures[ 0 ] : this.currentAccumulation.texture;
 
 		} else {
 
-			this.copyMaterial.uniforms.tDiffuse.value = this.currentRenderTarget.texture;
+			sourceTexture = this.useMRT ? this.currentMRT.textures[ 0 ] : this.currentRawSample.texture;
 
 		}
 
+		this.copyMaterial.uniforms.tDiffuse.value = sourceTexture;
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.copyQuad.render( renderer );
 
-		// 7. Update tiles only when needed (not every frame)
+		// 8. Update tiles only when needed (not every frame)
 		if ( uniforms.renderMode.value === 1 && uniforms.tiles.value !== this.tiles ) {
 
 			uniforms.tiles.value = this.tiles;
 
 		}
 
-		// Swap targets
-		if ( this.useMRT ) {
+		// 9. Swap targets
+		if ( this.accumulationEnabled && ! this.interactionMode ) {
 
-			[ this.currentMRT, this.previousMRT ] = [ this.previousMRT, this.currentMRT ];
+			// Swap accumulation targets
+			[ this.currentAccumulation, this.previousAccumulation ] =
+			[ this.previousAccumulation, this.currentAccumulation ];
 
 		} else {
 
-			[ this.currentRenderTarget, this.previousRenderTarget ] = [ this.previousRenderTarget, this.currentRenderTarget ];
+			// Swap raw sample targets
+			[ this.currentRawSample, this.previousRawSample ] =
+			[ this.previousRawSample, this.currentRawSample ];
+
+		}
+
+		if ( this.useMRT ) {
+
+			[ this.currentMRT, this.previousMRT ] = [ this.previousMRT, this.currentMRT ];
 
 		}
 

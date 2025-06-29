@@ -267,36 +267,56 @@ export const DEFAULT_STATE = {
 
 export const ASVGF_QUALITY_PRESETS = {
 	low: {
-		asvgfTemporalAlpha: 0.2,
-		asvgfAtrousIterations: 2,
-		asvgfPhiColor: 20.0,
-		asvgfPhiNormal: 64.0,
-		asvgfMaxAccumFrames: 16,
-		asvgfVarianceBoost: 0.5
+		asvgfTemporalAlpha: 0.8, // Very fast accumulation - more noise but responsive
+		asvgfAtrousIterations: 1, // Minimal spatial filtering
+		asvgfPhiColor: 50.0, // Very loose - accepts more noise
+		asvgfPhiNormal: 10.0, // Very loose normal matching
+		asvgfPhiDepth: 5.0, // Very loose depth matching
+		asvgfPhiLuminance: 20.0, // Very loose luminance matching
+		asvgfMaxAccumFrames: 4, // Very short history
+		asvgfVarianceBoost: 0.1, // Low variance sensitivity
+		asvgfTemporalColorWeight: 0.8,
+		asvgfTemporalNormalWeight: 0.8,
+		asvgfTemporalDepthWeight: 0.8
 	},
 	medium: {
 		asvgfTemporalAlpha: 0.15,
 		asvgfAtrousIterations: 3,
 		asvgfPhiColor: 15.0,
 		asvgfPhiNormal: 96.0,
+		asvgfPhiDepth: 1.0,
+		asvgfPhiLuminance: 6.0,
 		asvgfMaxAccumFrames: 24,
-		asvgfVarianceBoost: 0.75
+		asvgfVarianceBoost: 0.75,
+		asvgfTemporalColorWeight: 0.15,
+		asvgfTemporalNormalWeight: 0.15,
+		asvgfTemporalDepthWeight: 0.15
 	},
 	high: {
 		asvgfTemporalAlpha: 0.1,
 		asvgfAtrousIterations: 4,
 		asvgfPhiColor: 10.0,
 		asvgfPhiNormal: 128.0,
+		asvgfPhiDepth: 1.0,
+		asvgfPhiLuminance: 4.0,
 		asvgfMaxAccumFrames: 32,
-		asvgfVarianceBoost: 1.0
+		asvgfVarianceBoost: 1.0,
+		asvgfTemporalColorWeight: 0.1,
+		asvgfTemporalNormalWeight: 0.1,
+		asvgfTemporalDepthWeight: 0.1
 	},
 	ultra: {
-		asvgfTemporalAlpha: 0.05,
-		asvgfAtrousIterations: 5,
-		asvgfPhiColor: 8.0,
-		asvgfPhiNormal: 160.0,
-		asvgfMaxAccumFrames: 48,
-		asvgfVarianceBoost: 1.2
+		asvgfTemporalAlpha: 0.01, // Very slow accumulation - maximum quality
+		asvgfAtrousIterations: 8, // Extensive spatial filtering
+		asvgfPhiColor: 2.0, // Very tight - preserves detail
+		asvgfPhiNormal: 512.0, // Very tight normal matching
+		asvgfPhiDepth: 0.1, // Very tight depth matching
+		asvgfPhiLuminance: 1.0, // Very tight luminance matching
+		asvgfMaxAccumFrames: 128, // Very long history
+		asvgfVarianceBoost: 2.0, // High variance sensitivity
+		asvgfTemporalColorWeight: 0.01,
+		asvgfTemporalNormalWeight: 0.01,
+		asvgfTemporalDepthWeight: 0.01
 	}
 };
 

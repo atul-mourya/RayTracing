@@ -152,6 +152,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setToneMapping: val => set( { toneMapping: val } ),
 	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
 	setEnableASVGF: val => set( { enableASVGF: val } ),
+	setAsvgfQualityPreset: val => set( { asvgfQualityPreset: val } ),
 	setAsvgfTemporalAlpha: val => set( { asvgfTemporalAlpha: val } ),
 	setAsvgfVarianceClip: val => set( { asvgfVarianceClip: val } ),
 	setAsvgfMomentClip: val => set( { asvgfMomentClip: val } ),
@@ -218,7 +219,31 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const settings = ASVGF_QUALITY_PRESETS[ preset ];
 		if ( settings && app.asvgfPass ) {
 
-			app.updateASVGFParameters( settings );
+			// Update store state for ALL preset parameters
+			Object.entries( settings ).forEach( ( [ key, value ] ) => {
+
+				const setter = `set${key.charAt( 0 ).toUpperCase()}${key.slice( 1 )}`;
+				if ( get()[ setter ] ) {
+
+					get()[ setter ]( value );
+
+				}
+
+			} );
+
+			// Map parameters for the ASVGF pass (remove asvgf prefix if needed)
+			const mappedSettings = {};
+			Object.entries( settings ).forEach( ( [ key, value ] ) => {
+
+				const cleanKey = key.startsWith( 'asvgf' ) ?
+					key.charAt( 5 ).toLowerCase() + key.slice( 6 ) :
+					key;
+				mappedSettings[ cleanKey ] = value;
+
+			} );
+
+			// Update ASVGF pass parameters
+			app.updateASVGFParameters( mappedSettings );
 
 		}
 
@@ -239,7 +264,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAccumulationChange: handleChange(
 		val => set( { enableAccumulation: val } ),
-		val => window.pathTracerApp.accPass.enabled = val
+		val => window.pathTracerApp.pathTracingPass.setAccumulationEnabled( val )
 	),
 
 	handleBouncesChange: handleChange(
@@ -587,6 +612,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		},
 		false
+	),
+
+	handleAsvgfQualityPresetChange: handleChange(
+		val => set( { asvgfQualityPreset: val } ),
+		val => {
+
+			get().applyASVGFQualityPreset( window.pathTracerApp, val );
+
+		}
 	),
 
 	handleAsvgfTemporalAlphaChange: handleChange(

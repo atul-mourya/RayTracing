@@ -30,7 +30,7 @@ import Stats from 'stats-gl';
 
 // Import custom passes and constants
 import { PathTracerPass } from './Shaders/PathTracerPass';
-import { AdvancedAccumulationPass } from './Passes/AdvancedAccumulationPass';
+import { EdgeAwareFilteringPass } from './Passes/EdgeAwareFilteringPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
 import { LygiaSmartDenoiserPass } from './Passes/LygiaSmartDenoiserPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
@@ -70,11 +70,14 @@ class PathTracerApp extends EventDispatcher {
 		this.controls = null;
 		this.composer = null;
 		this.pathTracingPass = null;
-		this.accPass = null;
+		this.edgeAwareFilterPass = null;
 		this.denoiserPass = null;
 		this.tileHighlightPass = null;
 		this.denoiser = null;
 		this.animationFrameId = null;
+		this.timeElapsed = 0;
+		this.lastResetTime = performance.now();
+
 
 		this.cameras = [];
 		this.currentCameraIndex = 0;
@@ -247,9 +250,12 @@ class PathTracerApp extends EventDispatcher {
 
 	reset() {
 
+		this.timeElapsed = 0;
+		this.lastResetTime = performance.now();
+
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
-		this.accPass.reset( this.renderer );
+		this.edgeAwareFilterPass.reset( this.renderer );
 		this.asvgfPass.reset();
 		this.adaptiveSamplingPass.reset();
 		this.denoiser.abort();
@@ -281,13 +287,14 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
-		this.accPass = new AdvancedAccumulationPass( this.width, this.height, {
+		this.edgeAwareFilterPass = new EdgeAwareFilteringPass( this.width, this.height, {
 			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75,
 			edgeSharpenSpeed: DEFAULT_STATE.edgeSharpenSpeed || 0.05,
 			edgeThreshold: DEFAULT_STATE.edgeThreshold || 1.0,
 			fireflyThreshold: DEFAULT_STATE.fireflyThreshold || 10.0,
+			filteringEnabled: true, // Can be toggled
 		} );
-		this.composer.addPass( this.accPass );
+		this.composer.addPass( this.edgeAwareFilterPass );
 
 		this.asvgfPass = new ASVGFPass( this.renderer, this.width, this.height, {
 			// Temporal parameters
@@ -327,10 +334,9 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( this.asvgfPass );
 
 		// Connect the new pipeline: PathTracer → ASVGF → AdaptiveSampling
-		this.pathTracingPass.setAccumulationPass( this.accPass );
 		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
 
-		// Connect AdaptiveSamplingPass to ASVGF instead of TemporalStatisticsPass
+		// Connect AdaptiveSamplingPass to ASVGF
 		this.adaptiveSamplingPass.setASVGFPass( this.asvgfPass );
 
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
@@ -388,7 +394,7 @@ class PathTracerApp extends EventDispatcher {
 
 	refreshFrame = () => {
 
-		this.accPass.iteration -= 1;
+		this.edgeAwareFilterPass.iteration -= 1;
 		this.pathTracingPass.isComplete = false;
 
 	};
@@ -413,10 +419,10 @@ class PathTracerApp extends EventDispatcher {
 
 			}
 
-			this.accPass.updateUniforms( {
+			this.edgeAwareFilterPass.updateUniforms( {
 				cameraIsMoving: this.pathTracingPass.interactionMode || false,
 				sceneIsDynamic: false,
-				time: this.accPass.timeElapsed
+				time: this.timeElapsed
 			} );
 
 			if ( this.tileHighlightPass.enabled ) {
@@ -427,13 +433,16 @@ class PathTracerApp extends EventDispatcher {
 
 			}
 
-			// Update adaptive sampling with MRT textures instead of temporal statistics
+			// Update adaptive sampling with MRT textures
 			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 ) {
 
-				// Set textures for adaptive sampling
+				// Get textures from PathTracerPass (now includes accumulated results)
+				const currentAccumulation = this.pathTracingPass.getCurrentAccumulation();
+				const mrtTextures = this.pathTracingPass.getMRTTextures();
+
 				this.adaptiveSamplingPass.setTextures(
-					this.pathTracingPass.currentMRT.textures[ 0 ], // Current color texture
-					this.pathTracingPass.currentMRT.textures[ 1 ] // G-buffer: normal + depth
+					currentAccumulation.texture, // Accumulated color texture
+					mrtTextures.normalDepth // G-buffer: normal + depth
 				);
 
 			}
@@ -441,13 +450,16 @@ class PathTracerApp extends EventDispatcher {
 			// Render the frame
 			this.composer.render();
 
+			const currentTime = performance.now();
+			this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
+
 			this.stats.update();
 
 			updateStats( {
-				timeElapsed: this.accPass.timeElapsed,
+				timeElapsed: this.timeElapsed,
 				samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
-					Math.floor( this.accPass.iteration / Math.pow( pathtracingUniforms.tiles.value, 2 ) ) :
-					this.accPass.iteration
+					Math.floor( this.pathTracingPass.accumulationIteration / Math.pow( pathtracingUniforms.tiles.value, 2 ) ) :
+					this.pathTracingPass.accumulationIteration // Use PathTracerPass accumulation count
 			} );
 
 		}
@@ -564,9 +576,9 @@ class PathTracerApp extends EventDispatcher {
 		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
 
-		this.accPass.setSize( this.width, this.height );
+		this.edgeAwareFilterPass.setSize( this.width, this.height );
 		this.denoiser.setSize( this.width, this.height );
-		this.adaptiveSamplingPass.setSize( this.width, this.height ); // 🚀 NEW: Resize new adaptive sampling
+		this.adaptiveSamplingPass.setSize( this.width, this.height );
 		this.asvgfPass.setSize( this.width, this.height );
 
 		this.reset();
@@ -624,17 +636,6 @@ class PathTracerApp extends EventDispatcher {
 
 			this.pathTracingPass.enableMRT( enabled );
 			this.reset();
-
-		}
-
-	}
-
-	// Method to customize interaction quality settings
-	setInteractionQuality( settings ) {
-
-		if ( this.pathTracingPass ) {
-
-			this.pathTracingPass.setInteractionQuality( settings );
 
 		}
 
@@ -814,7 +815,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Dispose of the main passes
 		if ( this.pathTracingPass ) this.pathTracingPass.dispose();
-		if ( this.accPass ) this.accPass.dispose();
+		if ( this.edgeAwareFilterPass ) this.edgeAwareFilterPass.dispose();
 		if ( this.adaptiveSamplingPass ) this.adaptiveSamplingPass.dispose();
 		if ( this.asvgfPass ) this.asvgfPass.dispose();
 

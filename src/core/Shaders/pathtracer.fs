@@ -4,7 +4,6 @@ precision highp sampler2DArray;
 layout( location = 0 ) out vec4 gColor;        // RGB + alpha
 layout( location = 1 ) out vec4 gNormalDepth;  // Normal(RGB) + depth(A)
 
-// Uniform declarations remain the same
 uniform uint frame;
 uniform vec2 resolution;
 uniform int maxBounceCount;
@@ -16,11 +15,19 @@ uniform int tiles; // number of tiles
 uniform int visMode;
 uniform float debugVisScale;
 uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from AdaptiveSamplingPass
-uniform sampler2D previousFrameTexture; // Texture from the previous frame
-uniform sampler2D accumulatedFrameTexture; // texture of the accumulated frame for temporal anti-aliasing
 uniform bool useAdaptiveSampling;
 uniform int adaptiveSamplingMax;
 uniform float fireflyThreshold;
+
+#ifdef ENABLE_ACCUMULATION
+uniform sampler2D previousAccumulatedTexture;
+uniform float accumulationIteration;
+uniform bool enableAccumulation;
+uniform float accumulationFireflyThreshold;
+uniform float accumulationAlpha;
+uniform bool cameraIsMoving;
+uniform bool hasPreviousAccumulated;
+#endif
 
 struct RenderState {
 	int traversals;               // Remaining general bounces
@@ -550,7 +557,15 @@ void main( ) {
 		if( frame > 2u && useAdaptiveSampling ) {
 			samplesCount = getRequiredSamples( pixelIndex );
 			if( samplesCount == 0 ) {
-				gColor = texture( accumulatedFrameTexture, gl_FragCoord.xy / resolution );
+				#ifdef ENABLE_ACCUMULATION
+				if( enableAccumulation && hasPreviousAccumulated ) {
+					gColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
+				} else {
+					gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
+				}
+				#else
+				gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
+				#endif
 				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
 				return;
 			}
@@ -626,14 +641,36 @@ void main( ) {
 		pixel.color = vec4( pixel.color.rgb, pixelSharpness );
 
 	} else {
-        // For pixels that are not rendered in this frame, use the color from the previous frame
-		pixel.color = texture( previousFrameTexture, gl_FragCoord.xy / resolution );
+		// For pixels that are not rendered in this frame, use previous accumulated
+		#ifdef ENABLE_ACCUMULATION
+		if( enableAccumulation && hasPreviousAccumulated ) {
+			pixel.color = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
+		} else {
+			pixel.color = vec4( 0.0, 0.0, 0.0, 1.0 );
+		}
+		#else
+		pixel.color = vec4( 0.0, 0.0, 0.0, 1.0 );
+		#endif
 	}
+
+	// Temporal accumulation logic
+	vec3 finalColor = pixel.color.rgb;
+	
+	#ifdef ENABLE_ACCUMULATION
+	if( enableAccumulation && !cameraIsMoving && accumulationIteration > 1.0 && hasPreviousAccumulated ) {
+		
+		// Get previous accumulated color
+		vec3 previousColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution ).rgb;
+		finalColor = previousColor + ( pixel.color.rgb - previousColor ) * accumulationAlpha;
+		
+	}
+	#endif
+
 
     // pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
     // pixel.color.rgb = dithering( pixel.color.rgb, seed );
 
 	// Clean MRT output
-	gColor = vec4( pixel.color.rgb, 1.0 );
+	gColor = vec4( finalColor, 1.0 );
 	gNormalDepth = vec4( worldNormal * 0.5 + 0.5, linearDepth );
 }

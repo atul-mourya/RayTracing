@@ -1,3 +1,4 @@
+// SimplifiedAdvancedAccumulationPass.js - Focuses on edge-aware filtering rather than accumulation
 import {
 	ShaderMaterial,
 	Vector2,
@@ -17,29 +18,30 @@ import {
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
-export class AdvancedAccumulationPass extends Pass {
+export class EdgeAwareFilteringPass extends Pass {
 
 	constructor( width, height, options = {} ) {
 
 		super();
 
-		this.name = 'AdvancedAccumulationPass';
+		this.name = 'EdgeAwareFilteringPass';
 		this.width = width;
 		this.height = height;
 
-		// Configuration options
+		// Configuration options - focused on filtering rather than accumulation
 		this.pixelEdgeSharpness = options.pixelEdgeSharpness ?? 0.75;
 		this.edgeSharpenSpeed = options.edgeSharpenSpeed ?? 0.05;
 		this.useToneMapping = options.useToneMapping ?? false;
 		this.edgeThreshold = options.edgeThreshold ?? 1.0;
 		this.fireflyThreshold = options.fireflyThreshold ?? 10.0;
+		this.filteringEnabled = options.filteringEnabled ?? true;
 
-		// Accumulation state
+		// State tracking
 		this.iteration = 0;
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
 
-		// Create ping-pong render targets for accumulation (store RAW values)
+		// Single render target for output (no accumulation targets needed)
 		const targetOptions = {
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
@@ -49,86 +51,24 @@ export class AdvancedAccumulationPass extends Pass {
 			depthBuffer: false,
 		};
 
-		this.accumulationTargetA = new WebGLRenderTarget( width, height, targetOptions );
-		this.accumulationTargetB = new WebGLRenderTarget( width, height, targetOptions );
+		this.outputTarget = new WebGLRenderTarget( width, height, targetOptions );
 
-		// Start with A as current, B as previous
-		this.currentAccumulation = this.accumulationTargetA;
-		this.previousAccumulation = this.accumulationTargetB;
-
-		// Accumulation shader (stores raw values)
-		this.accumulationMaterial = new ShaderMaterial( {
-			name: 'AccumulationShader',
+		// Edge-aware filtering shader
+		this.filteringMaterial = new ShaderMaterial( {
+			name: 'EdgeAwareFilteringShader',
 			uniforms: {
-				tNewSample: { value: null },
-				tPrevAccumulation: { value: null },
-				uIteration: { value: 0.0 },
-				uFireflyThreshold: { value: this.fireflyThreshold },
-			},
-
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-
-			fragmentShader: /* glsl */`
-				precision highp float;
-				uniform sampler2D tNewSample;
-				uniform sampler2D tPrevAccumulation;
-				uniform float uIteration;
-				uniform float uFireflyThreshold;
-				varying vec2 vUv;
-
-				// Firefly reduction
-				vec3 clampFireflies(vec3 color, float threshold) {
-					float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-					if (luminance > threshold) {
-						return color * (threshold / luminance);
-					}
-					return color;
-				}
-
-				void main() {
-					vec4 newSample = texture2D(tNewSample, vUv);
-					vec4 prevAccumulation = texture2D(tPrevAccumulation, vUv);
-
-					// Firefly reduction on new sample
-					newSample.rgb = clampFireflies(newSample.rgb, uFireflyThreshold);
-
-					vec3 accumulatedColor;
-
-					// Standard progressive accumulation formula
-					if (uIteration <= 1.0) {
-						accumulatedColor = newSample.rgb;
-					} else {
-						// Standard averaging: prev + (new - prev) / iteration
-						float t = 1.0 / uIteration;
-						accumulatedColor = prevAccumulation.rgb + (newSample.rgb - prevAccumulation.rgb) * t;
-					}
-
-					// Store RAW accumulated values (no tone mapping here!)
-					gl_FragColor = vec4(accumulatedColor, newSample.a);
-				}
-			`
-		} );
-
-		// Full-featured display shader with complete edge-aware denoising
-		this.displayMaterial = new ShaderMaterial( {
-			name: 'FullEdgeAwareDisplayShader',
-			uniforms: {
-				tAccumulated: { value: null },
+				tInput: { value: null },
 				uIteration: { value: 0.0 },
 				uPixelEdgeSharpness: { value: this.pixelEdgeSharpness },
 				uEdgeSharpenSpeed: { value: this.edgeSharpenSpeed },
 				uEdgeThreshold: { value: this.edgeThreshold },
+				uFireflyThreshold: { value: this.fireflyThreshold },
 				uCameraIsMoving: { value: false },
 				uSceneIsDynamic: { value: false },
 				uResolution: { value: new Vector2( width, height ) },
 				uTime: { value: 0.0 },
 				uUseToneMapping: { value: this.useToneMapping },
+				uFilteringEnabled: { value: this.filteringEnabled },
 			},
 
 			vertexShader: /* glsl */`
@@ -144,16 +84,18 @@ export class AdvancedAccumulationPass extends Pass {
 				precision highp int;
 				precision highp sampler2D;
 
-				uniform sampler2D tAccumulated;
+				uniform sampler2D tInput;
 				uniform float uIteration;
 				uniform float uPixelEdgeSharpness;
 				uniform float uEdgeSharpenSpeed;
 				uniform float uEdgeThreshold;
+				uniform float uFireflyThreshold;
 				uniform bool uCameraIsMoving;
 				uniform bool uSceneIsDynamic;
 				uniform vec2 uResolution;
 				uniform float uTime;
 				uniform bool uUseToneMapping;
+				uniform bool uFilteringEnabled;
 
 				#include <tonemapping_pars_fragment>
 
@@ -162,51 +104,77 @@ export class AdvancedAccumulationPass extends Pass {
 				#define TRUE 1
 				#define FALSE 0
 
+				// Additional firefly reduction for already accumulated data
+				vec3 reduceFireflies(vec3 color, float threshold) {
+					if (threshold <= 0.0) return color;
+					
+					float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+					if (luminance > threshold) {
+						return color * (threshold / luminance);
+					}
+					return color;
+				}
+
 				void main() {
-					// 37-pixel kernel for edge-aware denoising
+					vec4 inputColor = texture2D(tInput, vUv);
+					
+					// If filtering is disabled, just pass through (with optional firefly reduction)
+					if (!uFilteringEnabled) {
+						vec3 finalColor = inputColor.rgb;
+						
+						// Apply firefly reduction
+						if (uFireflyThreshold > 0.0) {
+							finalColor = reduceFireflies(finalColor, uFireflyThreshold);
+						}
+						
+						gl_FragColor = vec4(finalColor, inputColor.a);
+						return;
+					}
+
+					// 37-pixel kernel for edge-aware denoising (same as original)
 					vec4 m37[37];
 					
 					vec2 texelSize = 1.0 / uResolution;
 					vec2 coord = vUv;
 
 					// Sample 37 pixels in roughly circular pattern
-					m37[ 0] = texture2D(tAccumulated, coord + vec2(-1, 3) * texelSize);
-					m37[ 1] = texture2D(tAccumulated, coord + vec2( 0, 3) * texelSize);
-					m37[ 2] = texture2D(tAccumulated, coord + vec2( 1, 3) * texelSize);
-					m37[ 3] = texture2D(tAccumulated, coord + vec2(-2, 2) * texelSize);
-					m37[ 4] = texture2D(tAccumulated, coord + vec2(-1, 2) * texelSize);
-					m37[ 5] = texture2D(tAccumulated, coord + vec2( 0, 2) * texelSize);
-					m37[ 6] = texture2D(tAccumulated, coord + vec2( 1, 2) * texelSize);
-					m37[ 7] = texture2D(tAccumulated, coord + vec2( 2, 2) * texelSize);
-					m37[ 8] = texture2D(tAccumulated, coord + vec2(-3, 1) * texelSize);
-					m37[ 9] = texture2D(tAccumulated, coord + vec2(-2, 1) * texelSize);
-					m37[10] = texture2D(tAccumulated, coord + vec2(-1, 1) * texelSize);
-					m37[11] = texture2D(tAccumulated, coord + vec2( 0, 1) * texelSize);
-					m37[12] = texture2D(tAccumulated, coord + vec2( 1, 1) * texelSize);
-					m37[13] = texture2D(tAccumulated, coord + vec2( 2, 1) * texelSize);
-					m37[14] = texture2D(tAccumulated, coord + vec2( 3, 1) * texelSize);
-					m37[15] = texture2D(tAccumulated, coord + vec2(-3, 0) * texelSize);
-					m37[16] = texture2D(tAccumulated, coord + vec2(-2, 0) * texelSize);
-					m37[17] = texture2D(tAccumulated, coord + vec2(-1, 0) * texelSize);
-					m37[18] = texture2D(tAccumulated, coord + vec2( 0, 0) * texelSize); // center
-					m37[19] = texture2D(tAccumulated, coord + vec2( 1, 0) * texelSize);
-					m37[20] = texture2D(tAccumulated, coord + vec2( 2, 0) * texelSize);
-					m37[21] = texture2D(tAccumulated, coord + vec2( 3, 0) * texelSize);
-					m37[22] = texture2D(tAccumulated, coord + vec2(-3,-1) * texelSize);
-					m37[23] = texture2D(tAccumulated, coord + vec2(-2,-1) * texelSize);
-					m37[24] = texture2D(tAccumulated, coord + vec2(-1,-1) * texelSize);
-					m37[25] = texture2D(tAccumulated, coord + vec2( 0,-1) * texelSize);
-					m37[26] = texture2D(tAccumulated, coord + vec2( 1,-1) * texelSize);
-					m37[27] = texture2D(tAccumulated, coord + vec2( 2,-1) * texelSize);
-					m37[28] = texture2D(tAccumulated, coord + vec2( 3,-1) * texelSize);
-					m37[29] = texture2D(tAccumulated, coord + vec2(-2,-2) * texelSize);
-					m37[30] = texture2D(tAccumulated, coord + vec2(-1,-2) * texelSize);
-					m37[31] = texture2D(tAccumulated, coord + vec2( 0,-2) * texelSize);
-					m37[32] = texture2D(tAccumulated, coord + vec2( 1,-2) * texelSize);
-					m37[33] = texture2D(tAccumulated, coord + vec2( 2,-2) * texelSize);
-					m37[34] = texture2D(tAccumulated, coord + vec2(-1,-3) * texelSize);
-					m37[35] = texture2D(tAccumulated, coord + vec2( 0,-3) * texelSize);
-					m37[36] = texture2D(tAccumulated, coord + vec2( 1,-3) * texelSize);
+					m37[ 0] = texture2D(tInput, coord + vec2(-1, 3) * texelSize);
+					m37[ 1] = texture2D(tInput, coord + vec2( 0, 3) * texelSize);
+					m37[ 2] = texture2D(tInput, coord + vec2( 1, 3) * texelSize);
+					m37[ 3] = texture2D(tInput, coord + vec2(-2, 2) * texelSize);
+					m37[ 4] = texture2D(tInput, coord + vec2(-1, 2) * texelSize);
+					m37[ 5] = texture2D(tInput, coord + vec2( 0, 2) * texelSize);
+					m37[ 6] = texture2D(tInput, coord + vec2( 1, 2) * texelSize);
+					m37[ 7] = texture2D(tInput, coord + vec2( 2, 2) * texelSize);
+					m37[ 8] = texture2D(tInput, coord + vec2(-3, 1) * texelSize);
+					m37[ 9] = texture2D(tInput, coord + vec2(-2, 1) * texelSize);
+					m37[10] = texture2D(tInput, coord + vec2(-1, 1) * texelSize);
+					m37[11] = texture2D(tInput, coord + vec2( 0, 1) * texelSize);
+					m37[12] = texture2D(tInput, coord + vec2( 1, 1) * texelSize);
+					m37[13] = texture2D(tInput, coord + vec2( 2, 1) * texelSize);
+					m37[14] = texture2D(tInput, coord + vec2( 3, 1) * texelSize);
+					m37[15] = texture2D(tInput, coord + vec2(-3, 0) * texelSize);
+					m37[16] = texture2D(tInput, coord + vec2(-2, 0) * texelSize);
+					m37[17] = texture2D(tInput, coord + vec2(-1, 0) * texelSize);
+					m37[18] = texture2D(tInput, coord + vec2( 0, 0) * texelSize); // center
+					m37[19] = texture2D(tInput, coord + vec2( 1, 0) * texelSize);
+					m37[20] = texture2D(tInput, coord + vec2( 2, 0) * texelSize);
+					m37[21] = texture2D(tInput, coord + vec2( 3, 0) * texelSize);
+					m37[22] = texture2D(tInput, coord + vec2(-3,-1) * texelSize);
+					m37[23] = texture2D(tInput, coord + vec2(-2,-1) * texelSize);
+					m37[24] = texture2D(tInput, coord + vec2(-1,-1) * texelSize);
+					m37[25] = texture2D(tInput, coord + vec2( 0,-1) * texelSize);
+					m37[26] = texture2D(tInput, coord + vec2( 1,-1) * texelSize);
+					m37[27] = texture2D(tInput, coord + vec2( 2,-1) * texelSize);
+					m37[28] = texture2D(tInput, coord + vec2( 3,-1) * texelSize);
+					m37[29] = texture2D(tInput, coord + vec2(-2,-2) * texelSize);
+					m37[30] = texture2D(tInput, coord + vec2(-1,-2) * texelSize);
+					m37[31] = texture2D(tInput, coord + vec2( 0,-2) * texelSize);
+					m37[32] = texture2D(tInput, coord + vec2( 1,-2) * texelSize);
+					m37[33] = texture2D(tInput, coord + vec2( 2,-2) * texelSize);
+					m37[34] = texture2D(tInput, coord + vec2(-1,-3) * texelSize);
+					m37[35] = texture2D(tInput, coord + vec2( 0,-3) * texelSize);
+					m37[36] = texture2D(tInput, coord + vec2( 1,-3) * texelSize);
 
 					vec4 centerPixel = m37[18];
 					vec3 filteredPixelColor, edgePixelColor;
@@ -217,7 +185,7 @@ export class AdvancedAccumulationPass extends Pass {
 					// Start with center pixel
 					filteredPixelColor = centerPixel.rgb;
 
-					// STAGE 1: Large Kernel Filtering (37 pixels) with Directional Edge-Aware Walking
+					// STAGE 1: Large Kernel Filtering with Directional Edge-Aware Walking
 					
 					// Search above
 					if (m37[11].a < threshold) {
@@ -315,7 +283,7 @@ export class AdvancedAccumulationPass extends Pass {
 						nextToAnEdgePixel = TRUE;
 					}
 
-					// Diagonal searches
+					// Diagonal searches (abbreviated for brevity - include all from original)
 					if (m37[10].a < threshold) {
 						filteredPixelColor += m37[10].rgb;
 						count++; 
@@ -395,7 +363,7 @@ export class AdvancedAccumulationPass extends Pass {
 								       m37[31].rgb;
 					edgePixelColor *= 0.0769230769; // 1/13
 
-					// Scene-Adaptive Behavior
+					// Scene-Adaptive Behavior (adapted for pre-accumulated input)
 					if (uSceneIsDynamic) {
 						// Dynamic scenes: More aggressive real-time filtering
 						if (uCameraIsMoving) {
@@ -410,9 +378,9 @@ export class AdvancedAccumulationPass extends Pass {
 							if (nextToAnEdgePixel == TRUE)
 								filteredPixelColor = mix(edgePixelColor, centerPixel.rgb, 0.25);
 						} else if (centerPixel.a == 1.0) {
-							// Edge sharpening: Gradually increases edge sharpness after accumulation
-							filteredPixelColor = mix(filteredPixelColor, centerPixel.rgb, 
-								clamp(uIteration * uEdgeSharpenSpeed, 0.0, 1.0));
+							// Edge sharpening: Gradually increases edge sharpness
+							float sharpeningFactor = clamp(uIteration * uEdgeSharpenSpeed, 0.0, 1.0);
+							filteredPixelColor = mix(filteredPixelColor, centerPixel.rgb, sharpeningFactor);
 						} else if (uIteration > 500.0 && nextToAnEdgePixel == TRUE) {
 							// Advanced edge sharpening after 500+ samples
 							filteredPixelColor = centerPixel.rgb;
@@ -427,7 +395,10 @@ export class AdvancedAccumulationPass extends Pass {
 					// Final Processing Pipeline
 					vec3 finalColor = filteredPixelColor;
 
-					// NOTE: Do NOT divide by iteration here - accumulation already handles averaging!
+					// Apply additional firefly reduction to filtered result
+					if (uFireflyThreshold > 0.0) {
+						finalColor = reduceFireflies(finalColor, uFireflyThreshold);
+					}
 
 					// Apply tone mapping if enabled
 					if (uUseToneMapping) {
@@ -459,13 +430,10 @@ export class AdvancedAccumulationPass extends Pass {
 						#endif
 
 					}
-					
-					// Gamma correction for proper display brightness
-					// finalColor = sqrt(clamp(finalColor, 0.0, 1.0));
 
 					gl_FragColor = vec4(finalColor, centerPixel.a);
 
-					// color space
+					// Color space conversion
 					if (uUseToneMapping) {
 						#ifdef SRGB_TRANSFER
 
@@ -477,8 +445,7 @@ export class AdvancedAccumulationPass extends Pass {
 			`
 		} );
 
-		this.accumulationQuad = new FullScreenQuad( this.accumulationMaterial );
-		this.displayQuad = new FullScreenQuad( this.displayMaterial );
+		this.filteringQuad = new FullScreenQuad( this.filteringMaterial );
 
 	}
 
@@ -488,15 +455,12 @@ export class AdvancedAccumulationPass extends Pass {
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
 
-		// Clear both accumulation targets
-		renderer.setRenderTarget( this.accumulationTargetA );
-		renderer.clear();
-		renderer.setRenderTarget( this.accumulationTargetB );
+		// Clear output target
+		renderer.setRenderTarget( this.outputTarget );
 		renderer.clear();
 
 		// Reset uniforms
-		this.accumulationMaterial.uniforms.uIteration.value = this.iteration;
-		this.displayMaterial.uniforms.uIteration.value = this.iteration;
+		this.filteringMaterial.uniforms.uIteration.value = this.iteration;
 
 	}
 
@@ -504,25 +468,31 @@ export class AdvancedAccumulationPass extends Pass {
 
 		this.width = width;
 		this.height = height;
-		this.displayMaterial.uniforms.uResolution.value.set( width, height );
-		this.accumulationTargetA.setSize( width, height );
-		this.accumulationTargetB.setSize( width, height );
+		this.filteringMaterial.uniforms.uResolution.value.set( width, height );
+		this.outputTarget.setSize( width, height );
 
 	}
 
 	updateUniforms( params ) {
 
-		const displayUniforms = this.displayMaterial.uniforms;
-		const accUniforms = this.accumulationMaterial.uniforms;
+		const uniforms = this.filteringMaterial.uniforms;
 
-		if ( params.cameraIsMoving !== undefined ) displayUniforms.uCameraIsMoving.value = params.cameraIsMoving;
-		if ( params.sceneIsDynamic !== undefined ) displayUniforms.uSceneIsDynamic.value = params.sceneIsDynamic;
-		if ( params.pixelEdgeSharpness !== undefined ) displayUniforms.uPixelEdgeSharpness.value = params.pixelEdgeSharpness;
-		if ( params.edgeSharpenSpeed !== undefined ) displayUniforms.uEdgeSharpenSpeed.value = params.edgeSharpenSpeed;
-		if ( params.edgeThreshold !== undefined ) displayUniforms.uEdgeThreshold.value = params.edgeThreshold;
-		if ( params.fireflyThreshold !== undefined ) accUniforms.uFireflyThreshold.value = params.fireflyThreshold;
-		if ( params.time !== undefined ) displayUniforms.uTime.value = params.time;
-		if ( params.useToneMapping !== undefined ) displayUniforms.uUseToneMapping.value = params.useToneMapping;
+		if ( params.cameraIsMoving !== undefined ) uniforms.uCameraIsMoving.value = params.cameraIsMoving;
+		if ( params.sceneIsDynamic !== undefined ) uniforms.uSceneIsDynamic.value = params.sceneIsDynamic;
+		if ( params.pixelEdgeSharpness !== undefined ) uniforms.uPixelEdgeSharpness.value = params.pixelEdgeSharpness;
+		if ( params.edgeSharpenSpeed !== undefined ) uniforms.uEdgeSharpenSpeed.value = params.edgeSharpenSpeed;
+		if ( params.edgeThreshold !== undefined ) uniforms.uEdgeThreshold.value = params.edgeThreshold;
+		if ( params.fireflyThreshold !== undefined ) uniforms.uFireflyThreshold.value = params.fireflyThreshold;
+		if ( params.time !== undefined ) uniforms.uTime.value = params.time;
+		if ( params.useToneMapping !== undefined ) uniforms.uUseToneMapping.value = params.useToneMapping;
+		if ( params.filteringEnabled !== undefined ) uniforms.uFilteringEnabled.value = params.filteringEnabled;
+
+	}
+
+	setFilteringEnabled( enabled ) {
+
+		this.filteringEnabled = enabled;
+		this.filteringMaterial.uniforms.uFilteringEnabled.value = enabled;
 
 	}
 
@@ -537,65 +507,48 @@ export class AdvancedAccumulationPass extends Pass {
 
 		}
 
-		// Increment iteration counter
+		// Increment iteration counter for edge sharpening progression
 		this.iteration ++;
 		const currentTime = performance.now();
 		this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
 
-		// rebuild defines if required
-
+		// Rebuild defines if required
 		if ( this._outputColorSpace !== renderer.outputColorSpace || this._toneMapping !== renderer.toneMapping ) {
 
 			this._outputColorSpace = renderer.outputColorSpace;
 			this._toneMapping = renderer.toneMapping;
 
-			this.displayMaterial.defines = {};
+			this.filteringMaterial.defines = {};
 
-			if ( ColorManagement.getTransfer( this._outputColorSpace ) === SRGBTransfer ) this.displayMaterial.defines.SRGB_TRANSFER = '';
+			if ( ColorManagement.getTransfer( this._outputColorSpace ) === SRGBTransfer ) this.filteringMaterial.defines.SRGB_TRANSFER = '';
 
-			if ( this._toneMapping === LinearToneMapping ) this.displayMaterial.defines.LINEAR_TONE_MAPPING = '';
-			else if ( this._toneMapping === ReinhardToneMapping ) this.displayMaterial.defines.REINHARD_TONE_MAPPING = '';
-			else if ( this._toneMapping === CineonToneMapping ) this.displayMaterial.defines.CINEON_TONE_MAPPING = '';
-			else if ( this._toneMapping === ACESFilmicToneMapping ) this.displayMaterial.defines.ACES_FILMIC_TONE_MAPPING = '';
-			else if ( this._toneMapping === AgXToneMapping ) this.displayMaterial.defines.AGX_TONE_MAPPING = '';
-			else if ( this._toneMapping === NeutralToneMapping ) this.displayMaterial.defines.NEUTRAL_TONE_MAPPING = '';
+			if ( this._toneMapping === LinearToneMapping ) this.filteringMaterial.defines.LINEAR_TONE_MAPPING = '';
+			else if ( this._toneMapping === ReinhardToneMapping ) this.filteringMaterial.defines.REINHARD_TONE_MAPPING = '';
+			else if ( this._toneMapping === CineonToneMapping ) this.filteringMaterial.defines.CINEON_TONE_MAPPING = '';
+			else if ( this._toneMapping === ACESFilmicToneMapping ) this.filteringMaterial.defines.ACES_FILMIC_TONE_MAPPING = '';
+			else if ( this._toneMapping === AgXToneMapping ) this.filteringMaterial.defines.AGX_TONE_MAPPING = '';
+			else if ( this._toneMapping === NeutralToneMapping ) this.filteringMaterial.defines.NEUTRAL_TONE_MAPPING = '';
 
-			this.displayMaterial.needsUpdate = true;
+			this.filteringMaterial.needsUpdate = true;
 
 		}
 
-		// Update iteration uniforms
-		this.accumulationMaterial.uniforms.uIteration.value = this.iteration;
-		this.displayMaterial.uniforms.uIteration.value = this.iteration;
-		this.displayMaterial.uniforms.uTime.value = this.timeElapsed;
+		// Update uniforms
+		this.filteringMaterial.uniforms.uIteration.value = this.iteration;
+		this.filteringMaterial.uniforms.uTime.value = this.timeElapsed;
+		this.filteringMaterial.uniforms.tInput.value = readBuffer.texture;
 
-		// STEP 1: Accumulate samples (stores RAW values)
-		this.accumulationMaterial.uniforms.tNewSample.value = readBuffer.texture;
-		this.accumulationMaterial.uniforms.tPrevAccumulation.value = this.previousAccumulation.texture;
-
-		renderer.setRenderTarget( this.currentAccumulation );
-		this.accumulationQuad.render( renderer );
-
-		// STEP 2: Apply full edge-aware denoising and display processing
-		this.displayMaterial.uniforms.tAccumulated.value = this.currentAccumulation.texture;
-
+		// Apply edge-aware filtering
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
-		this.displayQuad.render( renderer );
-
-		// Swap accumulation targets for next frame
-		[ this.currentAccumulation, this.previousAccumulation ] =
-		[ this.previousAccumulation, this.currentAccumulation ];
+		this.filteringQuad.render( renderer );
 
 	}
 
 	dispose() {
 
-		this.accumulationMaterial.dispose();
-		this.displayMaterial.dispose();
-		this.accumulationQuad.dispose();
-		this.displayQuad.dispose();
-		this.accumulationTargetA.dispose();
-		this.accumulationTargetB.dispose();
+		this.filteringMaterial.dispose();
+		this.filteringQuad.dispose();
+		this.outputTarget.dispose();
 
 	}
 
