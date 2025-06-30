@@ -411,7 +411,7 @@ class PathTracerApp extends EventDispatcher {
 
 		if (
 			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
-		( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( pathtracingUniforms.tiles.value, 2 ) )
+			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( pathtracingUniforms.tiles.value, 2 ) )
 		) {
 
 			pathtracingUniforms.frame.value ++;

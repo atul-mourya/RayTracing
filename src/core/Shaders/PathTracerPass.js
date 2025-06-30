@@ -10,7 +10,6 @@ import {
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { LightDataTransfer } from '../Processor/LightDataTransfer';
-import { CopyShader } from 'three/examples/jsm/Addons.js';
 import FragmentShader from './pathtracer.fs';
 import VertexShader from './pathtracer.vs';
 import TriangleSDF from '../Processor/TriangleSDF';
@@ -351,6 +350,63 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	updateMaterialDataTexture( materialIndex, property, value ) {
+
+		const data = this.material.uniforms.materialTexture.value.image.data;
+		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
+
+		switch ( property ) {
+
+			case 'color': 				data.set( [ value.r, value.g, value.b ], stride + 0 ); break;
+			case 'metalness': 			data[ stride + 3 ] = value; break;
+			case 'emissive': 			data.set( [ value.r, value.g, value.b ], stride + 4 ); break;
+			case 'roughness': 			data[ stride + 7 ] = value; break;
+			case 'ior': 				data[ stride + 8 ] = value; break;
+			case 'transmission': 		data[ stride + 9 ] = value; break;
+			case 'thickness': 			data[ stride + 10 ] = value; break;
+			case 'emissiveIntensity': 	data[ stride + 11 ] = value; break;
+			case 'attenuationColor': 	data.set( [ value.r, value.g, value.b ], stride + 12 ); break;
+			case 'attenuationDistance': data[ stride + 15 ] = value; break;
+			case 'dispersion': 			data[ stride + 16 ] = value; break;
+			case 'visible': 			data[ stride + 17 ] = value; break;
+			case 'sheen': 				data[ stride + 18 ] = value; break;
+			case 'sheenRoughness': 		data[ stride + 19 ] = value; break;
+			case 'sheenColor': 			data.set( [ value.r, value.g, value.b ], stride + 20 ); break;
+			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
+			case 'specularColor': 		data.set( [ value.r, value.g, value.b ], stride + 25 ); break;
+			case 'iridescence': 		data[ stride + 28 ] = value; break;
+			case 'iridescenceIOR': 		data[ stride + 29 ] = value; break;
+			case 'iridescenceThicknessRange':
+				data[ stride + 30 ] = value[ 0 ];
+				data[ stride + 31 ] = value[ 1 ];
+				break;
+			case 'clearcoat': 			data[ stride + 38 ] = value; break;
+			case 'clearcoatRoughness': 	data[ stride + 39 ] = value; break;
+			case 'opacity': 			data[ stride + 40 ] = value; break;
+			case 'side': 				data[ stride + 41 ] = value; break;
+			case 'transparent': 		data[ stride + 42 ] = value; break;
+			case 'alphaTest': 			data[ stride + 43 ] = value; break;
+
+		}
+
+		this.material.uniforms.materialTexture.value.needsUpdate = true;
+		this.reset();
+
+	}
+
+	rebuildMaterialDataTexture( materialIndex, material ) {
+
+		let materialData = this.sdfs.geometryExtractor.createMaterialObject( material );
+
+		// itarate over materialData and update the materialTexture
+		for ( const property in materialData ) {
+
+			this.updateMaterialDataTexture( materialIndex, property, materialData[ property ] );
+
+		}
+
+	}
+
 	reset() {
 
 		// Reset accumulation state
@@ -541,19 +597,20 @@ export class PathTracerPass extends Pass {
 		if ( ! this.enabled || this.isComplete ) return;
 
 		// 1. Early completion check with pre-calculated threshold
-		this.material.uniforms.frame.value ++;
-		const frameValue = this.material.uniforms.frame.value;
-
-		if ( frameValue >= this.completionThreshold ) {
+		if ( this.material.uniforms.frame.value >= this.completionThreshold ) {
 
 			this.isComplete = true;
 			return;
 
 		}
 
+		this.material.uniforms.frame.value ++;
+
+		const uniforms = this.material.uniforms;
+		const frameValue = uniforms.frame.value;
+
 		// 2. Only update uniforms that have changed
 		this.updateCameraUniforms();
-		const uniforms = this.material.uniforms;
 
 		// 3. Update accumulation state
 		if ( this.accumulationEnabled && ! this.interactionMode ) {
