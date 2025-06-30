@@ -478,17 +478,24 @@ bool shouldRenderPixel( ) {
 
 	if( renderMode == 1 ) { // Tiled rendering
 
-		ivec2 tileCount = ivec2( resolution ) / ( ivec2( resolution ) / tiles );
-		ivec2 tileCoord = ivec2( gl_FragCoord.xy ) / ( ivec2( resolution ) / tiles );
-		int totalTiles = tileCount.x * tileCount.y;
+        // Calculate tile size using ceiling division to ensure all pixels are covered
+		ivec2 tileSize = ( ivec2( resolution ) + tiles - 1 ) / tiles;
+
+        // Calculate which tile this pixel belongs to
+		ivec2 tileCoord = ivec2( gl_FragCoord.xy ) / tileSize;
+
+        // Clamp tile coordinates to valid range (handles edge pixels that would otherwise be out-of-bounds)
+		tileCoord = min( tileCoord, ivec2( tiles - 1 ) );
+
+        // Calculate tile indices
+		int totalTiles = tiles * tiles;
 		int currentTile = int( frame ) % totalTiles;
+		int tileIndex = tileCoord.y * tiles + tileCoord.x;
 
-		int tileIndex = tileCoord.y * tileCount.x + tileCoord.x;
 		return tileIndex == currentTile;
-
 	}
 
-	return true; // Default to rendering all pixels that is Regular rendering
+	return true; // Regular rendering - render all pixels
 }
 
 #include debugger.fs
