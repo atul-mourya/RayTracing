@@ -1,4 +1,4 @@
-import { ShaderMaterial, UniformsUtils, Vector2, Vector3 } from 'three';
+import { ShaderMaterial, UniformsUtils, Vector2, Vector3, Vector4 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 export class TileHighlightPass extends Pass {
@@ -14,7 +14,8 @@ export class TileHighlightPass extends Pass {
 			tiles: { value: 4 },
 			renderMode: { value: 0 },
 			highlightColor: { value: new Vector3( 1, 0, 0 ) }, // Red by default
-			borderWidthPixels: { value: 2.0 } // Border width in pixels
+			borderWidthPixels: { value: 2.0 }, // Border width in pixels
+			currentTileBounds: { value: new Vector4( 0, 0, 0, 0 ) } // x, y, width, height
 		} );
 
 		this.material = new ShaderMaterial( {
@@ -34,6 +35,7 @@ export class TileHighlightPass extends Pass {
                 uniform int renderMode;
                 uniform vec3 highlightColor;
                 uniform float borderWidthPixels;
+                uniform vec4 currentTileBounds; // x, y, width, height in pixels
                 varying vec2 vUv;
 
                 void main() {
@@ -45,20 +47,25 @@ export class TileHighlightPass extends Pass {
                         return;
                     }
 
-                    int totalTiles = tiles * tiles;
-                    int currentTile = tileIndex;
+                    // Convert UV to pixel coordinates
+                    vec2 pixelCoord = vUv * resolution;
                     
-                    vec2 tileSize = vec2(1.0 / float(tiles));
-                    vec2 currentTileCoord = vec2(
-                        float(currentTile % tiles),
-                        float(currentTile / tiles)
-                    ) * tileSize;
+                    // Check if we're within the current tile bounds
+                    bool inTileX = pixelCoord.x >= currentTileBounds.x && 
+                                   pixelCoord.x < (currentTileBounds.x + currentTileBounds.z);
+                    bool inTileY = pixelCoord.y >= currentTileBounds.y && 
+                                   pixelCoord.y < (currentTileBounds.y + currentTileBounds.w);
                     
-                    vec2 tilePos = (vUv - currentTileCoord) / tileSize;
-                    vec2 borderWidth = (borderWidthPixels / resolution) / tileSize;
-                    
-                    if (all(greaterThanEqual(tilePos, vec2(0.0))) && all(lessThan(tilePos, vec2(1.0)))) {
-                        if (any(lessThan(tilePos, borderWidth)) || any(greaterThan(tilePos, vec2(1.0) - borderWidth))) {
+                    if (inTileX && inTileY) {
+                        // We're inside the current tile, check if we're on the border
+                        vec2 distanceFromEdge = min(
+                            pixelCoord - currentTileBounds.xy,  // Distance from left/bottom edge
+                            (currentTileBounds.xy + currentTileBounds.zw) - pixelCoord  // Distance from right/top edge
+                        );
+                        
+                        float minDistance = min(distanceFromEdge.x, distanceFromEdge.y);
+                        
+                        if (minDistance < borderWidthPixels) {
                             gl_FragColor = vec4(highlightColor, 1.0);
                         } else {
                             gl_FragColor = texel;
@@ -71,6 +78,21 @@ export class TileHighlightPass extends Pass {
 		} );
 
 		this.fsQuad = new FullScreenQuad( this.material );
+
+	}
+
+	/**
+	 * Update the current tile bounds for highlighting
+	 * @param {Object} bounds - Tile bounds {x, y, width, height}
+	 */
+	setCurrentTileBounds( bounds ) {
+
+		this.uniforms.currentTileBounds.value.set(
+			bounds.x,
+			bounds.y,
+			bounds.width,
+			bounds.height
+		);
 
 	}
 

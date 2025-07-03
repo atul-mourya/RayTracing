@@ -11,9 +11,7 @@ uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform bool showBackground;
 uniform float backgroundIntensity; // Add backgroundIntensity uniform
-uniform int renderMode; // 0: Regular, 1: Tiled
-uniform int tiles; // number of tiles
-uniform int tileIndex; // current tile index for tiled rendering
+uniform int renderMode; // 0: Regular, 1: Tiled (but handled via scissor now)
 uniform int visMode;
 uniform float debugVisScale;
 uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from AdaptiveSamplingPass
@@ -473,35 +471,6 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	return vec4( max( radiance, vec3( 0.0 ) ), alpha );  // Ensure non-negative output
 }
 
-bool shouldRenderPixel( ) {
-	if( renderMode == 1 ) { // Tiled rendering
-
-        // Special case: if tileIndex is -1, render all pixels (full image on first frame)
-		if( tileIndex == - 1 ) {
-			return true;
-		}
-
-        // Calculate tile size using ceiling division to ensure all pixels are covered
-		ivec2 tileSize = ( ivec2( resolution ) + tiles - 1 ) / tiles;
-
-        // Calculate which tile this pixel belongs to
-		ivec2 tileCoord = ivec2( gl_FragCoord.xy ) / tileSize;
-
-        // Clamp tile coordinates to valid range (handles edge pixels that would otherwise be out-of-bounds)
-		tileCoord = min( tileCoord, ivec2( tiles - 1 ) );
-
-        // Calculate tile index for this pixel
-		int pixelTileIndex = tileCoord.y * tiles + tileCoord.x;
-
-        // Only render if this pixel belongs to the current tile
-		return pixelTileIndex == tileIndex;
-	}
-
-	return true; // Regular rendering - render all pixels
-}
-
-#include debugger.fs
-
 vec3 dithering( vec3 color, uint seed ) {
     //Calculate grid position
 	float grid_position = RandomValue( seed );
@@ -544,6 +513,8 @@ float linearizeDepth( float depth ) {
 	return ( 2.0 * near * far ) / ( far + near - z * ( far - near ) ) / far;
 }
 
+#include debugger.fs
+
 void main( ) {
 
 	vec2 screenPosition = ( gl_FragCoord.xy / resolution ) * 2.0 - 1.0;
@@ -555,114 +526,98 @@ void main( ) {
 	uint baseSeed = getDecorrelatedSeed( gl_FragCoord.xy, 0, frame );
 	int pixelIndex = int( gl_FragCoord.y ) * int( resolution.x ) + int( gl_FragCoord.x );
 
-	bool shouldRender = shouldRenderPixel( );
-
 	// MRT data
 	vec3 worldNormal = vec3( 0.0, 0.0, 1.0 );
 	float linearDepth = 1.0;
 
-	if( shouldRender ) {
-		int samplesCount = numRaysPerPixel;
+	int samplesCount = numRaysPerPixel;
 
-		if( frame > 2u && useAdaptiveSampling ) {
-			samplesCount = getRequiredSamples( pixelIndex );
-			if( samplesCount == 0 ) {
-				#ifdef ENABLE_ACCUMULATION
-				if( enableAccumulation && hasPreviousAccumulated ) {
-					gColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
-				} else {
-					gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
-				}
-				#else
-				gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
-				#endif
-				// Always output normal/depth for MRT
-				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
-				return;
-			}
-		}
-
-		vec3 objectNormal = vec3( 0.0 );
-		vec3 objectColor = vec3( 0.0 );
-		float objectID = - 1000.0;
-		float pixelSharpness = 0.0;
-
-		for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
-			uint seed = pcg_hash( baseSeed + uint( rayIndex ) );
-
-			vec2 stratifiedJitter = getStratifiedSample( gl_FragCoord.xy, rayIndex, samplesCount, seed );
-
-			if( visMode == 5 ) {
-				gColor = vec4( stratifiedJitter, 1.0, 1.0 );
-				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
-				return;
-			}
-
-			vec2 jitter = ( stratifiedJitter - 0.5 ) * ( 2.0 / resolution );
-			vec2 jitteredScreenPosition = screenPosition + jitter;
-
-			Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );
-
-			vec4 _sample;
-			if( visMode > 0 ) {
-				_sample = TraceDebugMode( ray.origin, ray.direction );
+	if( frame > 2u && useAdaptiveSampling ) {
+		samplesCount = getRequiredSamples( pixelIndex );
+		if( samplesCount == 0 ) {
+			#ifdef ENABLE_ACCUMULATION
+			if( enableAccumulation && hasPreviousAccumulated ) {
+				gColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
 			} else {
-				vec3 sampleNormal, sampleColor;
-				float sampleID;
-				_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID );
-
-				// Accumulate edge detection data from primary rays
-				if( rayIndex == 0 ) {
-					objectNormal = sampleNormal;
-					objectColor = sampleColor;
-					objectID = sampleID;
-
-					// Set MRT data from first hit
-					worldNormal = normalize( sampleNormal );
-					linearDepth = linearizeDepth( gl_FragCoord.z );
-				}
+				gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
 			}
-
-			pixel.color += _sample;
-			pixel.samples ++;
-
+			#else
+			gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
+			#endif
+			// Always output normal/depth for MRT
+			gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
+			return;
 		}
-
-		pixel.color /= float( pixel.samples );
-
-		// Edge Detection
-		float edge0 = 0.2;
-		float edge1 = 0.6;
-
-		float difference_Nx = fwidth( objectNormal.x );
-		float difference_Ny = fwidth( objectNormal.y );
-		float difference_Nz = fwidth( objectNormal.z );
-		float normalDifference = smoothstep( edge0, edge1, difference_Nx ) +
-			smoothstep( edge0, edge1, difference_Ny ) +
-			smoothstep( edge0, edge1, difference_Nz );
-
-		float objectDifference = min( fwidth( objectID ), 1.0 );
-		float colorDifference = ( fwidth( objectColor.r ) + fwidth( objectColor.g ) + fwidth( objectColor.b ) ) > 0.0 ? 1.0 : 0.0;
-
-		// Mark pixel as edge if any edge condition is met
-		if( colorDifference > 0.0 || normalDifference >= 0.9 || objectDifference >= 1.0 ) {
-			pixelSharpness = 1.0;
-		}
-
-		pixel.color = vec4( pixel.color.rgb, pixelSharpness );
-
-	} else {
-		// For pixels that are not rendered in this frame, use previous accumulated
-		#ifdef ENABLE_ACCUMULATION
-		if( enableAccumulation && hasPreviousAccumulated ) {
-			pixel.color = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
-		} else {
-			pixel.color = vec4( 0.0, 0.0, 0.0, 1.0 );
-		}
-		#else
-		pixel.color = vec4( 0.0, 0.0, 0.0, 1.0 );
-		#endif
 	}
+
+	vec3 objectNormal = vec3( 0.0 );
+	vec3 objectColor = vec3( 0.0 );
+	float objectID = - 1000.0;
+	float pixelSharpness = 0.0;
+
+	for( int rayIndex = 0; rayIndex < samplesCount; rayIndex ++ ) {
+		uint seed = pcg_hash( baseSeed + uint( rayIndex ) );
+
+		vec2 stratifiedJitter = getStratifiedSample( gl_FragCoord.xy, rayIndex, samplesCount, seed );
+
+		if( visMode == 5 ) {
+			gColor = vec4( stratifiedJitter, 1.0, 1.0 );
+			gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
+			return;
+		}
+
+		vec2 jitter = ( stratifiedJitter - 0.5 ) * ( 2.0 / resolution );
+		vec2 jitteredScreenPosition = screenPosition + jitter;
+
+		Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );
+
+		vec4 _sample;
+		if( visMode > 0 ) {
+			_sample = TraceDebugMode( ray.origin, ray.direction );
+		} else {
+			vec3 sampleNormal, sampleColor;
+			float sampleID;
+			_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID );
+
+			// Accumulate edge detection data from primary rays
+			if( rayIndex == 0 ) {
+				objectNormal = sampleNormal;
+				objectColor = sampleColor;
+				objectID = sampleID;
+
+				// Set MRT data from first hit
+				worldNormal = normalize( sampleNormal );
+				linearDepth = linearizeDepth( gl_FragCoord.z );
+			}
+		}
+
+		pixel.color += _sample;
+		pixel.samples ++;
+
+	}
+
+	pixel.color /= float( pixel.samples );
+
+	// Edge Detection
+	float edge0 = 0.2;
+	float edge1 = 0.6;
+
+	float difference_Nx = fwidth( objectNormal.x );
+	float difference_Ny = fwidth( objectNormal.y );
+	float difference_Nz = fwidth( objectNormal.z );
+	float normalDifference = smoothstep( edge0, edge1, difference_Nx ) +
+		smoothstep( edge0, edge1, difference_Ny ) +
+		smoothstep( edge0, edge1, difference_Nz );
+
+	float objectDifference = min( fwidth( objectID ), 1.0 );
+	float colorDifference = ( fwidth( objectColor.r ) + fwidth( objectColor.g ) + fwidth( objectColor.b ) ) > 0.0 ? 1.0 : 0.0;
+
+	// Mark pixel as edge if any edge condition is met
+	if( colorDifference > 0.0 || normalDifference >= 0.9 || objectDifference >= 1.0 ) {
+		pixelSharpness = 1.0;
+	}
+
+	pixel.color = vec4( pixel.color.rgb, pixelSharpness );
 
 	// Temporal accumulation logic
 	vec3 finalColor = pixel.color.rgb;

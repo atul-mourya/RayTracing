@@ -1,4 +1,3 @@
-// PathTracerPass.js - Clean Consolidated Refactor
 import {
 	ShaderMaterial, Vector2, Matrix4, WebGLRenderTarget,
 	FloatType,
@@ -34,6 +33,10 @@ export class PathTracerPass extends Pass {
 		this.cameras = [];
 		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
+
+		// Tile rendering state
+		this.currentTileBounds = null;
+		this.scissorEnabled = false;
 
 		// Create improved CDF builder with production settings
 		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer, {
@@ -130,8 +133,6 @@ export class PathTracerPass extends Pass {
 				fireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold },
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
-				tiles: { value: this.tiles },
-				tileIndex: { value: 0 },
 				previousFrameTexture: { value: null },
 				accumulatedFrameTexture: { value: null },
 
@@ -229,9 +230,79 @@ export class PathTracerPass extends Pass {
 			useAdaptiveSampling: false,
 			useEnvMapIS: false,
 			pixelRatio: 0.25,
-			tiles: 1,
 			enableAccumulation: false,
 		};
+
+	}
+
+	/**
+	 * Calculate the scissor bounds for a given tile
+	 * @param {number} tileIndex - The index of the tile
+	 * @param {number} totalTiles - Total number of tiles per row/column
+	 * @param {number} width - Render target width
+	 * @param {number} height - Render target height
+	 * @returns {Object} - Scissor bounds {x, y, width, height}
+	 */
+	calculateTileBounds( tileIndex, totalTiles, width, height ) {
+
+		// Calculate tile size using ceiling division to ensure all pixels are covered
+		const tileWidth = Math.ceil( width / totalTiles );
+		const tileHeight = Math.ceil( height / totalTiles );
+
+		// Calculate tile coordinates
+		const tileX = tileIndex % totalTiles;
+		const tileY = Math.floor( tileIndex / totalTiles );
+
+		// Calculate pixel bounds
+		const x = tileX * tileWidth;
+		const y = tileY * tileHeight;
+
+		// Clamp to actual render target bounds
+		const clampedWidth = Math.min( tileWidth, width - x );
+		const clampedHeight = Math.min( tileHeight, height - y );
+
+		return {
+			x: x,
+			y: y,
+			width: clampedWidth,
+			height: clampedHeight
+		};
+
+	}
+
+	/**
+	 * Set up scissor testing for tile rendering
+	 * @param {WebGLRenderer} renderer - The Three.js renderer
+	 * @param {Object} bounds - Scissor bounds {x, y, width, height}
+	 */
+	enableScissorForTile( renderer, bounds ) {
+
+		const gl = renderer.getContext();
+
+		// Enable scissor testing
+		gl.enable( gl.SCISSOR_TEST );
+
+		// Set scissor rectangle
+		// Note: WebGL scissor coordinates are from bottom-left, Three.js render targets are top-left
+		// We need to flip the Y coordinate
+		const flippedY = this.height - bounds.y - bounds.height;
+		gl.scissor( bounds.x, flippedY, bounds.width, bounds.height );
+
+		this.scissorEnabled = true;
+		this.currentTileBounds = bounds;
+
+	}
+
+	/**
+	 * Disable scissor testing
+	 * @param {WebGLRenderer} renderer - The Three.js renderer
+	 */
+	disableScissor( renderer ) {
+
+		const gl = renderer.getContext();
+		gl.disable( gl.SCISSOR_TEST );
+		this.scissorEnabled = false;
+		this.currentTileBounds = null;
 
 	}
 
@@ -412,7 +483,6 @@ export class PathTracerPass extends Pass {
 
 		// Reset accumulation state
 		this.material.uniforms.frame.value = 0;
-		this.material.uniforms.tileIndex.value = 0;
 		this.material.uniforms.hasPreviousAccumulated.value = false;
 
 		this.spiralOrder = this.generateSpiralOrder( this.tiles );
@@ -436,9 +506,7 @@ export class PathTracerPass extends Pass {
 	setTileCount( newTileCount ) {
 
 		this.tiles = newTileCount;
-		this.material.uniforms.tiles.value = newTileCount;
 		this.tileIndex = 0; // Reset tile index when tile count changes
-		this.material.uniforms.tileIndex.value = 0; // Reset uniform as well
 		this.spiralOrder = this.generateSpiralOrder( newTileCount );
 		this.updateCompletionThreshold(); // Recalculate based on new tile count
 		this.reset(); // Reset accumulation
@@ -660,34 +728,41 @@ export class PathTracerPass extends Pass {
 		const frameValue = uniforms.frame.value;
 		const renderMode = uniforms.renderMode.value;
 
+		// Track if we should swap targets this frame
+		let shouldSwapTargets = true;
+
+		// 2. Handle tile rendering with scissor testing
 		if ( renderMode === 1 ) {
 
 			const totalTiles = Math.pow( this.tiles, 2 );
 
 			if ( frameValue === 0 ) {
 
-				// First frame: render entire image
+				// First frame: render entire image, disable scissor
+				this.disableScissor( renderer );
 				this.tileIndex = - 1;
-				uniforms.tileIndex.value = - 1;
-				uniforms.tiles.value = 1;
 
 			} else {
 
 				// Calculate current tile index (frames 1+ are tile-based)
 				const linearTileIndex = ( frameValue - 1 ) % totalTiles;
-
 				this.tileIndex = this.spiralOrder[ linearTileIndex ];
 
-				uniforms.tileIndex.value = this.tileIndex;
-				uniforms.tiles.value = this.tiles;
+				// Set up scissor testing for current tile
+				const tileBounds = this.calculateTileBounds( this.tileIndex, this.tiles, this.width, this.height );
+				this.enableScissorForTile( renderer, tileBounds );
+
+				// Only swap targets after completing all tiles in a sample
+				// Don't swap if we're still rendering tiles within the same sample
+				shouldSwapTargets = ( linearTileIndex === totalTiles - 1 );
 
 			}
 
 		} else {
 
-			// Regular rendering mode
+			// Regular rendering mode: disable scissor
+			this.disableScissor( renderer );
 			this.tileIndex = - 1;
-			uniforms.tileIndex.value = - 1;
 
 		}
 
@@ -703,16 +778,13 @@ export class PathTracerPass extends Pass {
 
 				if ( uniforms.frame.value === 0 ) {
 
-					// First frame: render entire image with tiles = 1 for immediate preview
-					uniforms.tiles.value = 1;
+					// First frame: render entire image for immediate preview
 					uniforms.accumulationAlpha.value = 1.0;
 					uniforms.hasPreviousAccumulated.value = false;
 
 				} else {
 
 					// Subsequent frames: use tile rendering with proper accumulation
-					uniforms.tiles.value = this.tiles;
-
 					// Calculate how many times the current tile has been rendered
 					// Frame 0 was full image (sample 1), frames 1+ are tile-based
 					// So frame 1-totalTiles is sample 2, frame (totalTiles+1)-(2*totalTiles) is sample 3, etc.
@@ -770,32 +842,40 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// Update tiles for tiled rendering
-		if ( renderMode === 1 && frameValue === 0 ) {
-
-			uniforms.tiles.value = 1;
-
-		} else if ( renderMode === 1 && uniforms.tiles.value !== this.tiles ) {
-
-			uniforms.tiles.value = this.tiles;
-
-		}
-
-		// 6. Render to our internal MRT target for accumulation and data
+		// 6. Render to our internal MRT target with scissor testing
 		renderer.setRenderTarget( this.currentTarget );
 		this.fsQuad.render( renderer );
 
-		// 7. Simple, efficient copy to writeBuffer (when needed)
+		// 7. Always copy the full accumulated result to writeBuffer
 		if ( writeBuffer || this.renderToScreen ) {
 
+			// Temporarily disable scissor for final copy to ensure full image is copied
+			const wasScissorEnabled = this.scissorEnabled;
+			if ( wasScissorEnabled ) {
+
+				this.disableScissor( renderer );
+
+			}
+
 			this.efficientCopyColorOutput( renderer, writeBuffer );
+
+			// Restore scissor state if it was enabled
+			if ( wasScissorEnabled && this.currentTileBounds ) {
+
+				this.enableScissorForTile( renderer, this.currentTileBounds );
+
+			}
 
 		}
 
 		uniforms.frame.value ++;
 
-		// 9. Single target swap
-		[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
+		// 8. Conditional target swap - only swap when completing a full sample
+		if ( shouldSwapTargets ) {
+
+			[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
+
+		}
 
 	}
 
@@ -902,6 +982,13 @@ export class PathTracerPass extends Pass {
 
 	dispose() {
 
+		// Clean up scissor state
+		if ( this.scissorEnabled ) {
+
+			this.disableScissor( this.renderer );
+
+		}
+
 		// Dispose unified targets
 		this.currentTarget.dispose();
 		this.previousTarget.dispose();
@@ -927,4 +1014,3 @@ export class PathTracerPass extends Pass {
 	}
 
 }
-

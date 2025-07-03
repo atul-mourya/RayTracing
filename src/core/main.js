@@ -368,11 +368,25 @@ class PathTracerApp extends EventDispatcher {
 				time: this.timeElapsed
 			} );
 
+			// Update tile highlight pass with current tile information
 			if ( this.tileHighlightPass.enabled ) {
 
 				this.tileHighlightPass.uniforms.tileIndex.value = this.pathTracingPass.tileIndex;
 				this.tileHighlightPass.uniforms.renderMode.value = pathtracingUniforms.renderMode.value;
-				this.tileHighlightPass.uniforms.tiles.value = pathtracingUniforms.tiles.value;
+				this.tileHighlightPass.uniforms.tiles.value = this.pathTracingPass.tiles;
+
+				// Update tile bounds for highlighting - only when actually rendering tiles
+				if ( pathtracingUniforms.renderMode.value === 1 && this.pathTracingPass.tileIndex >= 0 ) {
+
+					const tileBounds = this.pathTracingPass.calculateTileBounds(
+						this.pathTracingPass.tileIndex,
+						this.pathTracingPass.tiles,
+						this.width,
+						this.height
+					);
+					this.tileHighlightPass.setCurrentTileBounds( tileBounds );
+
+				}
 
 			}
 
@@ -401,7 +415,7 @@ class PathTracerApp extends EventDispatcher {
 			updateStats( {
 				timeElapsed: this.timeElapsed,
 				samples: pathtracingUniforms.renderMode.value == 1 ?
-					Math.floor( pathtracingUniforms.frame.value / Math.pow( pathtracingUniforms.tiles.value, 2 ) ) :
+					Math.floor( pathtracingUniforms.frame.value / Math.pow( this.pathTracingPass.tiles, 2 ) ) :
 					pathtracingUniforms.frame.value
 			} );
 
@@ -411,7 +425,7 @@ class PathTracerApp extends EventDispatcher {
 
 		if (
 			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
-			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( pathtracingUniforms.tiles.value, 2 ) )
+			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tiles, 2 ) )
 		) {
 
 			pathtracingUniforms.frame.value ++;
