@@ -29,8 +29,9 @@ export class PathTracerPass extends Pass {
 		this.renderer = renderer;
 		this.scene = scene;
 		this.tiles = DEFAULT_STATE.tiles;
+		this.tileIndex = 0;
+		this.spiralOrder = this.generateSpiralOrder( this.tiles );
 		this.cameras = [];
-		this.sdfs = null;
 		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
 
@@ -130,6 +131,7 @@ export class PathTracerPass extends Pass {
 
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				tiles: { value: this.tiles },
+				tileIndex: { value: 0 },
 				previousFrameTexture: { value: null },
 				accumulatedFrameTexture: { value: null },
 
@@ -410,7 +412,10 @@ export class PathTracerPass extends Pass {
 
 		// Reset accumulation state
 		this.material.uniforms.frame.value = 0;
+		this.material.uniforms.tileIndex.value = 0;
 		this.material.uniforms.hasPreviousAccumulated.value = false;
+
+		this.spiralOrder = this.generateSpiralOrder( this.tiles );
 
 		// Clear both targets
 		const currentRenderTarget = this.renderer.getRenderTarget();
@@ -432,8 +437,56 @@ export class PathTracerPass extends Pass {
 
 		this.tiles = newTileCount;
 		this.material.uniforms.tiles.value = newTileCount;
+		this.tileIndex = 0; // Reset tile index when tile count changes
+		this.material.uniforms.tileIndex.value = 0; // Reset uniform as well
+		this.spiralOrder = this.generateSpiralOrder( newTileCount );
 		this.updateCompletionThreshold(); // Recalculate based on new tile count
 		this.reset(); // Reset accumulation
+
+	}
+
+	generateSpiralOrder( tiles ) {
+
+		const totalTiles = tiles * tiles;
+		const center = ( tiles - 1 ) / 2;
+		const tilePositions = [];
+
+		// Create array of tile positions with their distances from center
+		for ( let i = 0; i < totalTiles; i ++ ) {
+
+			const x = i % tiles;
+			const y = Math.floor( i / tiles );
+			const distanceFromCenter = Math.sqrt( Math.pow( x - center, 2 ) + Math.pow( y - center, 2 ) );
+
+			// Calculate angle for spiral ordering within same distance rings
+			const angle = Math.atan2( y - center, x - center );
+
+			tilePositions.push( {
+				index: i,
+				x,
+				y,
+				distance: distanceFromCenter,
+				angle: angle
+			} );
+
+		}
+
+		// Sort by distance from center, then by angle for spiral effect
+		tilePositions.sort( ( a, b ) => {
+
+			const distanceDiff = a.distance - b.distance;
+			if ( Math.abs( distanceDiff ) < 0.01 ) {
+
+				// Within same distance ring, sort by angle for spiral
+				return a.angle - b.angle;
+
+			}
+
+			return distanceDiff;
+
+		} );
+
+		return tilePositions.map( pos => pos.index );
 
 	}
 
@@ -607,10 +660,41 @@ export class PathTracerPass extends Pass {
 		const frameValue = uniforms.frame.value;
 		const renderMode = uniforms.renderMode.value;
 
-		// 2. Only update uniforms that have changed
+		if ( renderMode === 1 ) {
+
+			const totalTiles = Math.pow( this.tiles, 2 );
+
+			if ( frameValue === 0 ) {
+
+				// First frame: render entire image
+				this.tileIndex = - 1;
+				uniforms.tileIndex.value = - 1;
+				uniforms.tiles.value = 1;
+
+			} else {
+
+				// Calculate current tile index (frames 1+ are tile-based)
+				const linearTileIndex = ( frameValue - 1 ) % totalTiles;
+
+				this.tileIndex = this.spiralOrder[ linearTileIndex ];
+
+				uniforms.tileIndex.value = this.tileIndex;
+				uniforms.tiles.value = this.tiles;
+
+			}
+
+		} else {
+
+			// Regular rendering mode
+			this.tileIndex = - 1;
+			uniforms.tileIndex.value = - 1;
+
+		}
+
+		// 3. Only update uniforms that have changed
 		this.updateCameraUniforms();
 
-		// 3. Update accumulation state
+		// 4. Update accumulation state
 		if ( this.accumulationEnabled && ! this.interactionMode ) {
 
 			if ( renderMode !== 0 ) {
@@ -661,7 +745,7 @@ export class PathTracerPass extends Pass {
 		// Set previous frame texture
 		uniforms.previousFrameTexture.value = this.previousTarget.textures[ 0 ];
 
-		// 4. Adaptive sampling optimization - skip during interaction
+		// 5. Adaptive sampling optimization - skip during interaction
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
 
 			// Only update adaptive sampling every few frames for better performance
@@ -697,11 +781,11 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 5. Render to our internal MRT target for accumulation and data
+		// 6. Render to our internal MRT target for accumulation and data
 		renderer.setRenderTarget( this.currentTarget );
 		this.fsQuad.render( renderer );
 
-		// 6. Simple, efficient copy to writeBuffer (when needed)
+		// 7. Simple, efficient copy to writeBuffer (when needed)
 		if ( writeBuffer || this.renderToScreen ) {
 
 			this.efficientCopyColorOutput( renderer, writeBuffer );
@@ -710,7 +794,7 @@ export class PathTracerPass extends Pass {
 
 		uniforms.frame.value ++;
 
-		// 8. Single target swap
+		// 9. Single target swap
 		[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
 
 	}

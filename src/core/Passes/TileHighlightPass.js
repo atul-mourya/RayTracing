@@ -10,7 +10,7 @@ export class TileHighlightPass extends Pass {
 		this.uniforms = UniformsUtils.clone( {
 			tDiffuse: { value: null },
 			resolution: { value: new Vector2( resolution.x, resolution.y ) },
-			frame: { value: 0 },
+			tileIndex: { value: - 1 },
 			tiles: { value: 4 },
 			renderMode: { value: 0 },
 			highlightColor: { value: new Vector3( 1, 0, 0 ) }, // Red by default
@@ -29,7 +29,7 @@ export class TileHighlightPass extends Pass {
 			fragmentShader: `
                 uniform sampler2D tDiffuse;
                 uniform vec2 resolution;
-                uniform int frame;
+                uniform int tileIndex;
                 uniform int tiles;
                 uniform int renderMode;
                 uniform vec3 highlightColor;
@@ -39,13 +39,14 @@ export class TileHighlightPass extends Pass {
                 void main() {
                     vec4 texel = texture2D(tDiffuse, vUv);
                     
-                    if (renderMode != 1) {
+                    // Only show highlights in tiled rendering mode and when a valid tile is being rendered
+                    if (renderMode != 1 || tileIndex < 0) {
                         gl_FragColor = texel;
                         return;
                     }
 
                     int totalTiles = tiles * tiles;
-                    int currentTile = frame % totalTiles;
+                    int currentTile = tileIndex;
                     
                     vec2 tileSize = vec2(1.0 / float(tiles));
                     vec2 currentTileCoord = vec2(

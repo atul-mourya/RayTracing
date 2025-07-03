@@ -13,6 +13,7 @@ uniform bool showBackground;
 uniform float backgroundIntensity; // Add backgroundIntensity uniform
 uniform int renderMode; // 0: Regular, 1: Tiled
 uniform int tiles; // number of tiles
+uniform int tileIndex; // current tile index for tiled rendering
 uniform int visMode;
 uniform float debugVisScale;
 uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from AdaptiveSamplingPass
@@ -473,8 +474,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 }
 
 bool shouldRenderPixel( ) {
-
 	if( renderMode == 1 ) { // Tiled rendering
+
+        // Special case: if tileIndex is -1, render all pixels (full image on first frame)
+		if( tileIndex == - 1 ) {
+			return true;
+		}
 
         // Calculate tile size using ceiling division to ensure all pixels are covered
 		ivec2 tileSize = ( ivec2( resolution ) + tiles - 1 ) / tiles;
@@ -485,12 +490,11 @@ bool shouldRenderPixel( ) {
         // Clamp tile coordinates to valid range (handles edge pixels that would otherwise be out-of-bounds)
 		tileCoord = min( tileCoord, ivec2( tiles - 1 ) );
 
-        // Calculate tile indices
-		int totalTiles = tiles * tiles;
-		int currentTile = int( frame - 2u ) % totalTiles;
-		int tileIndex = tileCoord.y * tiles + tileCoord.x;
+        // Calculate tile index for this pixel
+		int pixelTileIndex = tileCoord.y * tiles + tileCoord.x;
 
-		return tileIndex == currentTile;
+        // Only render if this pixel belongs to the current tile
+		return pixelTileIndex == tileIndex;
 	}
 
 	return true; // Regular rendering - render all pixels

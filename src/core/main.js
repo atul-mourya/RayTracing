@@ -370,7 +370,7 @@ class PathTracerApp extends EventDispatcher {
 
 			if ( this.tileHighlightPass.enabled ) {
 
-				this.tileHighlightPass.uniforms.frame.value = Math.max( pathtracingUniforms.frame.value - 2, 0 ); // Adjust for initial frame offset
+				this.tileHighlightPass.uniforms.tileIndex.value = this.pathTracingPass.tileIndex;
 				this.tileHighlightPass.uniforms.renderMode.value = pathtracingUniforms.renderMode.value;
 				this.tileHighlightPass.uniforms.tiles.value = pathtracingUniforms.tiles.value;
 
