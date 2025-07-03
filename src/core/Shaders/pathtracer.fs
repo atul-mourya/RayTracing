@@ -22,9 +22,7 @@ uniform float fireflyThreshold;
 
 #ifdef ENABLE_ACCUMULATION
 uniform sampler2D previousAccumulatedTexture;
-uniform float accumulationIteration;
 uniform bool enableAccumulation;
-uniform float accumulationFireflyThreshold;
 uniform float accumulationAlpha;
 uniform bool cameraIsMoving;
 uniform bool hasPreviousAccumulated;
@@ -489,7 +487,7 @@ bool shouldRenderPixel( ) {
 
         // Calculate tile indices
 		int totalTiles = tiles * tiles;
-		int currentTile = int( frame ) % totalTiles;
+		int currentTile = int( frame - 2u ) % totalTiles;
 		int tileIndex = tileCoord.y * tiles + tileCoord.x;
 
 		return tileIndex == currentTile;
@@ -666,7 +664,7 @@ void main( ) {
 	vec3 finalColor = pixel.color.rgb;
 
 	#ifdef ENABLE_ACCUMULATION
-	if( enableAccumulation && ! cameraIsMoving && accumulationIteration > 1.0 && hasPreviousAccumulated ) {
+	if( enableAccumulation && ! cameraIsMoving && frame > 1u && hasPreviousAccumulated ) {
 
 		// Get previous accumulated color
 		vec3 previousColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution ).rgb;

@@ -63,7 +63,7 @@ const FinalRenderPanel = () => {
 
 	// Render Mode
 	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
-	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.tiles = value[ 0 ], false );
+	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.setTileCount( value[ 0 ] ), false );
 	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
 
 	// OIDN

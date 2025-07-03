@@ -370,7 +370,7 @@ class PathTracerApp extends EventDispatcher {
 
 			if ( this.tileHighlightPass.enabled ) {
 
-				this.tileHighlightPass.uniforms.frame.value = pathtracingUniforms.frame.value + 1;
+				this.tileHighlightPass.uniforms.frame.value = Math.max( pathtracingUniforms.frame.value - 2, 0 ); // Adjust for initial frame offset
 				this.tileHighlightPass.uniforms.renderMode.value = pathtracingUniforms.renderMode.value;
 				this.tileHighlightPass.uniforms.tiles.value = pathtracingUniforms.tiles.value;
 
@@ -400,9 +400,9 @@ class PathTracerApp extends EventDispatcher {
 
 			updateStats( {
 				timeElapsed: this.timeElapsed,
-				samples: this.pathTracingPass.material.uniforms.renderMode.value == 1 ?
-					Math.floor( this.pathTracingPass.accumulationIteration / Math.pow( pathtracingUniforms.tiles.value, 2 ) ) :
-					this.pathTracingPass.accumulationIteration // Use PathTracerPass accumulation count
+				samples: pathtracingUniforms.renderMode.value == 1 ?
+					Math.floor( pathtracingUniforms.frame.value / Math.pow( pathtracingUniforms.tiles.value, 2 ) ) :
+					pathtracingUniforms.frame.value
 			} );
 
 		}

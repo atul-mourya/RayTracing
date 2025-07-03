@@ -75,7 +75,6 @@ export class PathTracerPass extends Pass {
 		this.previousTarget.textures[ 1 ].name = 'PreviousNormalDepth';
 
 		// Accumulation state
-		this.accumulationIteration = 0;
 		this.accumulationEnabled = true;
 
 		this.name = 'PathTracerPass';
@@ -136,9 +135,7 @@ export class PathTracerPass extends Pass {
 
 				// Accumulation uniforms
 				previousAccumulatedTexture: { value: null },
-				accumulationIteration: { value: 0.0 },
 				enableAccumulation: { value: true },
-				accumulationFireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold * 2.0 },
 				accumulationAlpha: { value: 0.0 },
 				cameraIsMoving: { value: false },
 				hasPreviousAccumulated: { value: false },
@@ -230,6 +227,8 @@ export class PathTracerPass extends Pass {
 			useAdaptiveSampling: false,
 			useEnvMapIS: false,
 			pixelRatio: 0.25,
+			tiles: 1,
+			enableAccumulation: false,
 		};
 
 	}
@@ -410,8 +409,6 @@ export class PathTracerPass extends Pass {
 	reset() {
 
 		// Reset accumulation state
-		this.accumulationIteration = 0;
-		this.material.uniforms.accumulationIteration.value = 0;
 		this.material.uniforms.frame.value = 0;
 		this.material.uniforms.hasPreviousAccumulated.value = false;
 
@@ -427,14 +424,16 @@ export class PathTracerPass extends Pass {
 
 		// Update completion threshold if render mode changed
 		this.updateCompletionThreshold();
-
-		if ( this.material.uniforms.renderMode.value === 1 ) {
-
-			this.material.uniforms.tiles.value = 1;
-
-		}
-
 		this.isComplete = false;
+
+	}
+
+	setTileCount( newTileCount ) {
+
+		this.tiles = newTileCount;
+		this.material.uniforms.tiles.value = newTileCount;
+		this.updateCompletionThreshold(); // Recalculate based on new tile count
+		this.reset(); // Reset accumulation
 
 	}
 
@@ -604,10 +603,9 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		this.material.uniforms.frame.value ++;
-
 		const uniforms = this.material.uniforms;
 		const frameValue = uniforms.frame.value;
+		const renderMode = uniforms.renderMode.value;
 
 		// 2. Only update uniforms that have changed
 		this.updateCameraUniforms();
@@ -615,20 +613,45 @@ export class PathTracerPass extends Pass {
 		// 3. Update accumulation state
 		if ( this.accumulationEnabled && ! this.interactionMode ) {
 
-			this.accumulationIteration ++;
-			uniforms.accumulationIteration.value = this.accumulationIteration;
+			if ( renderMode !== 0 ) {
 
-			// Calculate adaptive accumulation alpha
-			uniforms.accumulationAlpha.value = 1.0 / this.accumulationIteration;
+				const totalTiles = Math.pow( this.tiles, 2 );
 
-			// Set previous accumulated texture and validity flag
+				if ( uniforms.frame.value === 0 ) {
+
+					// First frame: render entire image with tiles = 1 for immediate preview
+					uniforms.tiles.value = 1;
+					uniforms.accumulationAlpha.value = 1.0;
+					uniforms.hasPreviousAccumulated.value = false;
+
+				} else {
+
+					// Subsequent frames: use tile rendering with proper accumulation
+					uniforms.tiles.value = this.tiles;
+
+					// Calculate how many times the current tile has been rendered
+					// Frame 0 was full image (sample 1), frames 1+ are tile-based
+					// So frame 1-totalTiles is sample 2, frame (totalTiles+1)-(2*totalTiles) is sample 3, etc.
+					const timesCurrentTileRendered = Math.floor( ( uniforms.frame.value - 1 ) / totalTiles ) + 2;
+
+					uniforms.accumulationAlpha.value = 1.0 / timesCurrentTileRendered;
+					uniforms.hasPreviousAccumulated.value = true; // Frame 0 provided initial accumulation
+
+				}
+
+			} else {
+
+				uniforms.accumulationAlpha.value = 1.0 / Math.max( uniforms.frame.value, 1 );
+				uniforms.hasPreviousAccumulated.value = uniforms.frame.value >= 1;
+
+			}
+
+			// Set previous accumulated texture
 			uniforms.previousAccumulatedTexture.value = this.previousTarget.textures[ 0 ];
-			uniforms.hasPreviousAccumulated.value = this.accumulationIteration > 1;
 
 		} else {
 
 			// During interaction, no accumulation
-			uniforms.accumulationIteration.value = 1;
 			uniforms.accumulationAlpha.value = 1.0;
 			uniforms.previousAccumulatedTexture.value = null;
 			uniforms.hasPreviousAccumulated.value = false;
@@ -663,6 +686,17 @@ export class PathTracerPass extends Pass {
 
 		}
 
+		// Update tiles for tiled rendering
+		if ( renderMode === 1 && frameValue === 0 ) {
+
+			uniforms.tiles.value = 1;
+
+		} else if ( renderMode === 1 && uniforms.tiles.value !== this.tiles ) {
+
+			uniforms.tiles.value = this.tiles;
+
+		}
+
 		// 5. Render to our internal MRT target for accumulation and data
 		renderer.setRenderTarget( this.currentTarget );
 		this.fsQuad.render( renderer );
@@ -674,12 +708,7 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// 7. Update tiles only when needed
-		if ( uniforms.renderMode.value === 1 && uniforms.tiles.value !== this.tiles ) {
-
-			uniforms.tiles.value = this.tiles;
-
-		}
+		uniforms.frame.value ++;
 
 		// 8. Single target swap
 		[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
