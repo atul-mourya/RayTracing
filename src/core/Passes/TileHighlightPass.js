@@ -35,7 +35,7 @@ export class TileHighlightPass extends Pass {
                 uniform int renderMode;
                 uniform vec3 highlightColor;
                 uniform float borderWidthPixels;
-                uniform vec4 currentTileBounds; // x, y, width, height in pixels
+                uniform vec4 currentTileBounds; // x, y, width, height in pixels (top-left origin)
                 varying vec2 vUv;
 
                 void main() {
@@ -47,20 +47,26 @@ export class TileHighlightPass extends Pass {
                         return;
                     }
 
-                    // Convert UV to pixel coordinates
+                    // Convert UV to pixel coordinates (WebGL uses bottom-left origin)
                     vec2 pixelCoord = vUv * resolution;
                     
-                    // Check if we're within the current tile bounds
-                    bool inTileX = pixelCoord.x >= currentTileBounds.x && 
-                                   pixelCoord.x < (currentTileBounds.x + currentTileBounds.z);
-                    bool inTileY = pixelCoord.y >= currentTileBounds.y && 
-                                   pixelCoord.y < (currentTileBounds.y + currentTileBounds.w);
+                    // Convert tile bounds from top-left origin to bottom-left origin to match WebGL
+                    // Original bounds: (x, y, width, height) with (0,0) at top-left
+                    // WebGL coords: (0,0) at bottom-left
+                    float tileLeft = currentTileBounds.x;
+                    float tileBottom = resolution.y - (currentTileBounds.y + currentTileBounds.w); // Flip Y
+                    float tileRight = currentTileBounds.x + currentTileBounds.z;
+                    float tileTop = resolution.y - currentTileBounds.y; // Flip Y
+                    
+                    // Check if we're within the current tile bounds (using WebGL coordinates)
+                    bool inTileX = pixelCoord.x >= tileLeft && pixelCoord.x < tileRight;
+                    bool inTileY = pixelCoord.y >= tileBottom && pixelCoord.y < tileTop;
                     
                     if (inTileX && inTileY) {
                         // We're inside the current tile, check if we're on the border
                         vec2 distanceFromEdge = min(
-                            pixelCoord - currentTileBounds.xy,  // Distance from left/bottom edge
-                            (currentTileBounds.xy + currentTileBounds.zw) - pixelCoord  // Distance from right/top edge
+                            vec2(pixelCoord.x - tileLeft, pixelCoord.y - tileBottom),  // Distance from left/bottom edge
+                            vec2(tileRight - pixelCoord.x, tileTop - pixelCoord.y)     // Distance from right/top edge
                         );
                         
                         float minDistance = min(distanceFromEdge.x, distanceFromEdge.y);
@@ -83,7 +89,7 @@ export class TileHighlightPass extends Pass {
 
 	/**
 	 * Update the current tile bounds for highlighting
-	 * @param {Object} bounds - Tile bounds {x, y, width, height}
+	 * @param {Object} bounds - Tile bounds {x, y, width, height} in top-left coordinate system
 	 */
 	setCurrentTileBounds( bounds ) {
 

@@ -297,6 +297,7 @@ class PathTracerApp extends EventDispatcher {
 		this.tileHighlightPass = new TileHighlightPass( new Vector2( this.width, this.height ) );
 		this.tileHighlightPass.enabled = DEFAULT_STATE.tilesHelper;
 		this.composer.addPass( this.tileHighlightPass );
+		this.pathTracingPass.setTileHighlightPass( this.tileHighlightPass );
 
 		this.bloomPass = new UnrealBloomPass( new Vector2( this.width, this.height ) );
 		this.bloomPass.enabled = DEFAULT_STATE.enableBloom;
@@ -366,28 +367,6 @@ class PathTracerApp extends EventDispatcher {
 				sceneIsDynamic: false,
 				time: this.timeElapsed
 			} );
-
-			// Update tile highlight pass with current tile information
-			if ( this.tileHighlightPass.enabled ) {
-
-				this.tileHighlightPass.uniforms.tileIndex.value = this.pathTracingPass.tileIndex;
-				this.tileHighlightPass.uniforms.renderMode.value = pathtracingUniforms.renderMode.value;
-				this.tileHighlightPass.uniforms.tiles.value = this.pathTracingPass.tiles;
-
-				// Update tile bounds for highlighting - only when actually rendering tiles
-				if ( pathtracingUniforms.renderMode.value === 1 && this.pathTracingPass.tileIndex >= 0 ) {
-
-					const tileBounds = this.pathTracingPass.calculateTileBounds(
-						this.pathTracingPass.tileIndex,
-						this.pathTracingPass.tiles,
-						this.width,
-						this.height
-					);
-					this.tileHighlightPass.setCurrentTileBounds( tileBounds );
-
-				}
-
-			}
 
 			// Update adaptive sampling with MRT textures
 			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 ) {

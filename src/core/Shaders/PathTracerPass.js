@@ -37,6 +37,7 @@ export class PathTracerPass extends Pass {
 		// Tile rendering state
 		this.currentTileBounds = null;
 		this.scissorEnabled = false;
+		this.tileHighlightPass = null;
 
 		// Create improved CDF builder with production settings
 		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer, {
@@ -303,6 +304,12 @@ export class PathTracerPass extends Pass {
 		gl.disable( gl.SCISSOR_TEST );
 		this.scissorEnabled = false;
 		this.currentTileBounds = null;
+
+	}
+
+	setTileHighlightPass( tileHighlightPass ) {
+
+		this.tileHighlightPass = tileHighlightPass;
 
 	}
 
@@ -752,6 +759,16 @@ export class PathTracerPass extends Pass {
 				const tileBounds = this.calculateTileBounds( this.tileIndex, this.tiles, this.width, this.height );
 				this.enableScissorForTile( renderer, tileBounds );
 
+				// Update tile highlight pass immediately when tileIndex changes
+				if ( this.tileHighlightPass && this.tileHighlightPass.enabled ) {
+
+					this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
+					this.tileHighlightPass.uniforms.renderMode.value = renderMode;
+					this.tileHighlightPass.uniforms.tiles.value = this.tiles;
+					this.tileHighlightPass.setCurrentTileBounds( tileBounds );
+
+				}
+
 				// Only swap targets after completing all tiles in a sample
 				// Don't swap if we're still rendering tiles within the same sample
 				shouldSwapTargets = ( linearTileIndex === totalTiles - 1 );
@@ -763,6 +780,15 @@ export class PathTracerPass extends Pass {
 			// Regular rendering mode: disable scissor
 			this.disableScissor( renderer );
 			this.tileIndex = - 1;
+
+			// Update tile highlight pass for non-tiled mode
+			if ( this.tileHighlightPass && this.tileHighlightPass.enabled ) {
+
+				this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
+				this.tileHighlightPass.uniforms.renderMode.value = renderMode;
+				this.tileHighlightPass.uniforms.tiles.value = this.tiles;
+
+			}
 
 		}
 
