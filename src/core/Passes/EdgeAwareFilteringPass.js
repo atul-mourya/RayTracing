@@ -33,7 +33,6 @@ export class EdgeAwareFilteringPass extends Pass {
 		this.edgeSharpenSpeed = options.edgeSharpenSpeed ?? 0.05;
 		this.useToneMapping = options.useToneMapping ?? false;
 		this.edgeThreshold = options.edgeThreshold ?? 1.0;
-		this.fireflyThreshold = options.fireflyThreshold ?? 10.0;
 		this.filteringEnabled = options.filteringEnabled ?? true;
 
 		// State tracking
@@ -62,7 +61,6 @@ export class EdgeAwareFilteringPass extends Pass {
 				uPixelEdgeSharpness: { value: this.pixelEdgeSharpness },
 				uEdgeSharpenSpeed: { value: this.edgeSharpenSpeed },
 				uEdgeThreshold: { value: this.edgeThreshold },
-				uFireflyThreshold: { value: this.fireflyThreshold },
 				uCameraIsMoving: { value: false },
 				uSceneIsDynamic: { value: false },
 				uResolution: { value: new Vector2( width, height ) },
@@ -89,7 +87,6 @@ export class EdgeAwareFilteringPass extends Pass {
 				uniform float uPixelEdgeSharpness;
 				uniform float uEdgeSharpenSpeed;
 				uniform float uEdgeThreshold;
-				uniform float uFireflyThreshold;
 				uniform bool uCameraIsMoving;
 				uniform bool uSceneIsDynamic;
 				uniform vec2 uResolution;
@@ -120,14 +117,7 @@ export class EdgeAwareFilteringPass extends Pass {
 					
 					// If filtering is disabled, just pass through (with optional firefly reduction)
 					if (!uFilteringEnabled) {
-						vec3 finalColor = inputColor.rgb;
-						
-						// Apply firefly reduction
-						if (uFireflyThreshold > 0.0) {
-							finalColor = reduceFireflies(finalColor, uFireflyThreshold);
-						}
-						
-						gl_FragColor = vec4(finalColor, inputColor.a);
+						gl_FragColor = inputColor;
 						return;
 					}
 
@@ -395,11 +385,6 @@ export class EdgeAwareFilteringPass extends Pass {
 					// Final Processing Pipeline
 					vec3 finalColor = filteredPixelColor;
 
-					// Apply additional firefly reduction to filtered result
-					if (uFireflyThreshold > 0.0) {
-						finalColor = reduceFireflies(finalColor, uFireflyThreshold);
-					}
-
 					// Apply tone mapping if enabled
 					if (uUseToneMapping) {
 
@@ -482,7 +467,6 @@ export class EdgeAwareFilteringPass extends Pass {
 		if ( params.pixelEdgeSharpness !== undefined ) uniforms.uPixelEdgeSharpness.value = params.pixelEdgeSharpness;
 		if ( params.edgeSharpenSpeed !== undefined ) uniforms.uEdgeSharpenSpeed.value = params.edgeSharpenSpeed;
 		if ( params.edgeThreshold !== undefined ) uniforms.uEdgeThreshold.value = params.edgeThreshold;
-		if ( params.fireflyThreshold !== undefined ) uniforms.uFireflyThreshold.value = params.fireflyThreshold;
 		if ( params.time !== undefined ) uniforms.uTime.value = params.time;
 		if ( params.useToneMapping !== undefined ) uniforms.uUseToneMapping.value = params.useToneMapping;
 		if ( params.filteringEnabled !== undefined ) uniforms.uFilteringEnabled.value = params.filteringEnabled;

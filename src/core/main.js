@@ -284,8 +284,7 @@ class PathTracerApp extends EventDispatcher {
 			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75,
 			edgeSharpenSpeed: DEFAULT_STATE.edgeSharpenSpeed || 0.05,
 			edgeThreshold: DEFAULT_STATE.edgeThreshold || 1.0,
-			fireflyThreshold: DEFAULT_STATE.fireflyThreshold || 10.0,
-			filteringEnabled: true, // Can be toggled
+			filteringEnabled: false, // Can be toggled
 		} );
 		this.composer.addPass( this.edgeAwareFilterPass );
 
