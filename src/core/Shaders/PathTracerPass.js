@@ -104,7 +104,7 @@ export class PathTracerPass extends Pass {
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
 				environmentMatrix: { value: new Matrix4() },
-				useEnvMapIS: { value: true },
+				useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },
 				envCDF: { value: null },
 				envCDFSize: { value: new Vector2() },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI },
@@ -114,7 +114,7 @@ export class PathTracerPass extends Pass {
 				focusDistance: { value: DEFAULT_STATE.focusDistance },
 				focalLength: { value: DEFAULT_STATE.focalLength },
 				aperture: { value: DEFAULT_STATE.aperture },
-				apertureScale: { value: 2.0 },
+				apertureScale: { value: 1.0 },
 
 				directionalLights: { value: null },
 				pointLights: { value: null },

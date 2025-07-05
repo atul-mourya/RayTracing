@@ -184,9 +184,9 @@ const CameraTab = () => {
 					label={"DOF Intensity"}
 					icon={Aperture}
 					min={0.1}
-					max={5.0}
+					max={2.0}
 					step={0.1}
-					value={[ 2.0 ]} // Default value
+					value={[ 1.0 ]} // Default value
 					onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
 				/>
 			</div>
