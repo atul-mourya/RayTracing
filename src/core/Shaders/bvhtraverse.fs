@@ -257,31 +257,28 @@ Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
 	vec3 rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] );
 
 	// Disable depth of field if aperture is very small (pinhole) or focal length is 0
-	if( aperture >= 16.0 || focalLength <= 0.0 || focusDistance <= 0.001 ) {
+	if( focalLength <= 0.0 || aperture >= 64.0 || focusDistance <= 0.001 ) {
 		return Ray( rayOriginWorld, rayDirectionWorld );
 	}
 
     // Calculate focal point - where rays converge
 	vec3 focalPoint = rayOriginWorld + rayDirectionWorld * focusDistance;
 
-	// Calculate aperture radius using proper photographic formula
-	// Convert focal length from mm to scene units and calculate circle of confusion
-	float focalLengthMeters = focalLength * 0.001; // Convert mm to meters
-	float apertureRadius = ( focalLengthMeters * apertureScale ) / aperture;
-
-	// Scale by scene scale to maintain proper proportions
-	// apertureRadius *= 0.1; // Adjust this factor based on your scene scale
+    // Physical aperture calculation
+	float effectiveAperture = focalLength / aperture;
+	float apertureRadius = ( effectiveAperture * 0.001 ) * apertureScale;
 
 	// Generate random point on aperture disk
 	vec2 randomPoint = RandomPointInCircle( rngState );
 
-	// Create camera coordinate system
-	vec3 forward = normalize( rayDirectionWorld );
-	vec3 right = normalize( cross( forward, vec3( 0.0, 1.0, 0.0 ) ) );
-	vec3 up = normalize( cross( right, forward ) );
+    // Extract camera coordinate system directly from camera matrix
+    // This is guaranteed to be consistent with the camera's actual orientation
+	vec3 cameraRight = normalize( vec3( cameraWorldMatrix[ 0 ] ) );
+	vec3 cameraUp = normalize( vec3( cameraWorldMatrix[ 1 ] ) );
+    // Note: cameraForward would be -normalize( vec3( cameraWorldMatrix[2] ) ) but we don't need it
 
-	// Apply aperture offset
-	vec3 offset = ( right * randomPoint.x + up * randomPoint.y ) * apertureRadius;
+    // Apply aperture offset using camera's actual coordinate system
+	vec3 offset = ( cameraRight * randomPoint.x + cameraUp * randomPoint.y ) * apertureRadius;
 
 	// Calculate new ray from offset origin to focal point
 	vec3 newOrigin = rayOriginWorld + offset;
