@@ -197,6 +197,10 @@ export class PathTracerPass extends Pass {
 
 		} );
 
+		this.asvgfPass = null;
+		this.lastRenderMode = - 1;
+		this.tileCompletionFrame = 0;
+
 		this.isComplete = false;
 		this.adaptiveSamplingPass = null;
 
@@ -310,6 +314,12 @@ export class PathTracerPass extends Pass {
 	setTileHighlightPass( tileHighlightPass ) {
 
 		this.tileHighlightPass = tileHighlightPass;
+
+	}
+
+	setASVGFPass( asvgfPass ) {
+
+		this.asvgfPass = asvgfPass;
 
 	}
 
@@ -491,6 +501,11 @@ export class PathTracerPass extends Pass {
 		// Reset accumulation state
 		this.material.uniforms.frame.value = 0;
 		this.material.uniforms.hasPreviousAccumulated.value = false;
+
+		this.lastRenderMode = - 1;
+		this.tileCompletionFrame = 0;
+
+		if ( this.asvgfPass ) this.asvgfPass.reset();
 
 		this.spiralOrder = this.generateSpiralOrder( this.tiles );
 
@@ -735,6 +750,8 @@ export class PathTracerPass extends Pass {
 		const frameValue = uniforms.frame.value;
 		const renderMode = uniforms.renderMode.value;
 
+		if ( this.asvgfPass ) this.manageASVGFForRenderMode( renderMode, frameValue );
+
 		// Track if we should swap targets this frame
 		let shouldSwapTargets = true;
 
@@ -902,6 +919,90 @@ export class PathTracerPass extends Pass {
 			[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
 
 		}
+
+	}
+
+	manageASVGFForRenderMode( renderMode, frameValue ) {
+
+		// Detect render mode changes
+		if ( renderMode !== this.lastRenderMode ) {
+
+			this.lastRenderMode = renderMode;
+			this.onRenderModeChanged( renderMode );
+
+		}
+
+		if ( renderMode === 1 ) { // Tiled rendering
+
+			this.handleTiledASVGF( frameValue );
+
+		} else { // Full quad rendering
+
+			this.handleFullQuadASVGF( frameValue );
+
+		}
+
+	}
+
+	onRenderModeChanged( newMode ) {
+
+		if ( ! this.asvgfPass ) return;
+
+		if ( newMode === 1 ) {
+
+			// Switching to tiled - prepare ASVGF
+			console.log( 'ASVGF: Switching to tiled rendering mode' );
+			this.asvgfPass.updateParameters( {
+				enableDebug: false, // Disable debug during tiles
+				temporalAlpha: 0.15 // Slightly higher for tile transitions
+			} );
+
+		} else {
+
+			// Switching to full quad - optimize for temporal consistency
+			console.log( 'ASVGF: Switching to full quad rendering mode' );
+			this.asvgfPass.updateParameters( {
+				temporalAlpha: 0.1, // Normal temporal blending
+			} );
+
+		}
+
+		// Reset ASVGF temporal data when switching modes
+		this.asvgfPass.reset();
+
+	}
+
+	handleTiledASVGF( frameValue ) {
+
+		const totalTiles = Math.pow( this.tiles, 2 );
+		const isFirstFrame = frameValue === 0;
+		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % totalTiles );
+		const isLastTileInSample = currentTileIndex === totalTiles - 1;
+
+		if ( isFirstFrame ) {
+
+			// Full screen first frame - enable temporal
+			this.asvgfPass.setTemporalEnabled && this.asvgfPass.setTemporalEnabled( true );
+
+		} else if ( isLastTileInSample ) {
+
+			// Last tile of sample - enable full temporal processing
+			this.asvgfPass.setTemporalEnabled && this.asvgfPass.setTemporalEnabled( true );
+			this.tileCompletionFrame = frameValue;
+
+		} else {
+
+			// Middle of tile sequence - spatial only
+			this.asvgfPass.setTemporalEnabled && this.asvgfPass.setTemporalEnabled( false );
+
+		}
+
+	}
+
+	handleFullQuadASVGF( frameValue ) {
+
+		// Full quad mode - always enable temporal
+		this.asvgfPass.setTemporalEnabled && this.asvgfPass.setTemporalEnabled( true );
 
 	}
 

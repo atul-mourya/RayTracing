@@ -12,7 +12,7 @@ import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 export class ASVGFPass extends Pass {
 
-	constructor( renderer, width, height, options = {} ) {
+	constructor( renderer, camera, width, height, options = {} ) {
 
 		super();
 
@@ -20,6 +20,7 @@ export class ASVGFPass extends Pass {
 		this.renderer = renderer;
 		this.width = width;
 		this.height = height;
+		this.camera = camera;
 
 		// ASVGF parameters with proper defaults
 		this.params = {
@@ -66,6 +67,11 @@ export class ASVGFPass extends Pass {
 		// Frame tracking
 		this.frameCount = 0;
 		this.isFirstFrame = true;
+
+		// Tile handling state
+		this.temporalEnabled = true;
+		this.tileMode = false;
+		this.lastTileIndex = - 1;
 
 		// Create fullscreen quads
 		this.temporalQuad = new FullScreenQuad( this.temporalMaterial );
@@ -685,9 +691,63 @@ export class ASVGFPass extends Pass {
 		this.finalMaterial.uniforms.enableDebug.value = this.params.enableDebug;
 		this.finalMaterial.uniforms.debugMode.value = this.params.debugMode;
 
+		// Store original values for restoration
+		if ( params.temporalAlpha !== undefined ) {
+
+			this.originalTemporalAlpha = params.temporalAlpha;
+
+		}
+
 	}
 
-	render( renderer, writeBuffer, readBuffer, camera ) {
+	setTemporalEnabled( enabled ) {
+
+		this.temporalEnabled = enabled;
+
+		if ( enabled ) {
+
+			// Normal temporal processing
+			this.temporalMaterial.uniforms.temporalAlpha.value = this.params.temporalAlpha;
+
+		} else {
+
+			// Spatial-only mode for tiles
+			this.temporalMaterial.uniforms.temporalAlpha.value = 1.0;
+
+		}
+
+	}
+
+	// Enhanced render method with tile awareness
+	render( renderer, writeBuffer, readBuffer ) {
+
+		if ( ! this.enabled ) {
+
+			this.copyTexture( renderer, readBuffer, writeBuffer );
+			return;
+
+		}
+
+		// Update camera matrices for motion vectors
+		this.updateCameraMatrices( this.camera );
+
+		// Handle tile vs full-screen differently
+		if ( this.temporalEnabled ) {
+
+			this.renderWithTemporal( renderer, writeBuffer, readBuffer, this.camera );
+
+		} else {
+
+			this.renderSpatialOnly( renderer, writeBuffer, readBuffer, this.camera );
+
+		}
+
+	}
+
+	renderWithTemporal( renderer, writeBuffer, readBuffer, camera ) {
+
+		// Full ASVGF pipeline
+		this.frameCount ++;
 
 		if ( ! this.enabled ) {
 
@@ -807,6 +867,63 @@ export class ASVGFPass extends Pass {
 		}
 
 		this.isFirstFrame = false;
+
+	}
+
+	renderSpatialOnly( renderer, writeBuffer, readBuffer, camera ) {
+
+		// Skip temporal accumulation and motion vectors
+		// Only do variance estimation and A-trous filtering
+
+		let colorTexture, normalDepthTexture;
+		if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
+
+			colorTexture = readBuffer.textures[ 0 ];
+			normalDepthTexture = readBuffer.textures[ 1 ];
+
+		} else {
+
+			colorTexture = readBuffer.texture || readBuffer;
+			normalDepthTexture = null;
+
+		}
+
+		// Skip to variance estimation
+		this.varianceMaterial.uniforms.tColor.value = colorTexture;
+		this.varianceMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
+		this.varianceMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
+
+		renderer.setRenderTarget( this.varianceTarget );
+		this.varianceQuad.render( renderer );
+
+		// A-trous filtering with reduced iterations for performance
+		let inputTexture = colorTexture;
+		let currentOutput = this.atrousTargetA;
+		let nextOutput = this.atrousTargetB;
+
+		const spatialIterations = Math.max( 2, Math.floor( this.params.atrousIterations / 2 ) );
+
+		for ( let i = 0; i < spatialIterations; i ++ ) {
+
+			this.atrousMaterial.uniforms.tColor.value = inputTexture;
+			this.atrousMaterial.uniforms.stepSize.value = Math.pow( 2, i );
+			this.atrousMaterial.uniforms.iteration.value = i;
+
+			renderer.setRenderTarget( currentOutput );
+			this.atrousQuad.render( renderer );
+
+			inputTexture = currentOutput.texture;
+			[ currentOutput, nextOutput ] = [ nextOutput, currentOutput ];
+
+		}
+
+		// Final output
+		this.finalMaterial.uniforms.tColor.value = inputTexture;
+		this.finalMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
+		this.finalMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
+
+		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
+		this.finalQuad.render( renderer );
 
 	}
 

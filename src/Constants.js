@@ -224,6 +224,38 @@ export const DEFAULT_STATE = {
 	interactionModeEnabled: true,
 	debugVisScale: 100,
 
+	enableASVGF: false,
+	asvgfTemporalAlpha: 0.1,
+	asvgfAtrousIterations: 8,
+	asvgfPhiColor: 10.0,
+	asvgfPhiNormal: 128.0,
+	asvgfPhiDepth: 1.0,
+	asvgfVarianceBoost: 1.0,
+	asvgfMaxAccumFrames: 32,
+	asvgfDebugMode: 1, // 0 = off, 1 = temporal, 2 = atrous, 3 = both
+	asvgfQualityPreset: 'medium', // 'low', 'medium', 'high'
+
+};
+
+export const ASVGF_QUALITY_PRESETS = {
+	low: {
+		temporalAlpha: 0.2,
+		atrousIterations: 2,
+		phiColor: 20.0,
+		maxAccumFrames: 16
+	},
+	medium: {
+		temporalAlpha: 0.1,
+		atrousIterations: 4,
+		phiColor: 10.0,
+		maxAccumFrames: 32
+	},
+	high: {
+		temporalAlpha: 0.05,
+		atrousIterations: 6,
+		phiColor: 5.0,
+		maxAccumFrames: 64
+	}
 };
 
 export const CAMERA_RANGES = {

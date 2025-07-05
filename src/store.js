@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DEFAULT_STATE, CAMERA_PRESETS } from '@/Constants';
+import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS } from '@/Constants';
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 
@@ -147,6 +147,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setGIIntensity: val => set( { GIIntensity: val } ),
 	setToneMapping: val => set( { toneMapping: val } ),
 	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
+	setEnableASVGF: val => set( { enableASVGF: val } ),
 	setAsvgfTemporalAlpha: val => set( { asvgfTemporalAlpha: val } ),
 	setAsvgfVarianceClip: val => set( { asvgfVarianceClip: val } ),
 	setAsvgfMomentClip: val => set( { asvgfMomentClip: val } ),
@@ -156,6 +157,89 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfPhiLuminance: val => set( { asvgfPhiLuminance: val } ),
 	setAsvgfAtrousIterations: val => set( { asvgfAtrousIterations: val } ),
 	setAsvgfFilterSize: val => set( { asvgfFilterSize: val } ),
+	setAsvgfVarianceBoost: val => set( { asvgfVarianceBoost: val } ),
+	setAsvgfMaxAccumFrames: val => set( { asvgfMaxAccumFrames: val } ),
+	setAsvgfDebugMode: val => set( { asvgfDebugMode: val } ),
+	setAsvgfPreset: val => set( { asvgfQualityPreset: val } ),
+
+	handleAsvgfQualityPresetChange: handleChange(
+		val => set( { asvgfQualityPreset: val } ),
+		val => {
+
+			const preset = ASVGF_QUALITY_PRESETS[ val ];
+			if ( preset && window.pathTracerApp ) {
+
+				const store = get();
+
+				// Update store state
+				Object.entries( preset ).forEach( ( [ key, value ] ) => {
+
+					const setter = `setAsvgf${key.charAt( 0 ).toUpperCase()}${key.slice( 1 )}`;
+					if ( store[ setter ] ) {
+
+						store[ setter ]( value );
+
+					}
+
+				} );
+
+				// Update ASVGF pass
+				window.pathTracerApp.asvgfPass.updateParameters( preset );
+
+			}
+
+		}
+	),
+
+	handleAsvgfDebugModeChange: handleChange(
+		val => set( { asvgfDebugMode: val } ),
+		val => {
+
+			window.pathTracerApp.asvgfPass.updateParameters( {
+				debugMode: parseInt( val ),
+				enableDebug: parseInt( val ) > 0
+			} );
+
+		},
+		false
+	),
+
+	// Smart ASVGF configuration based on render mode
+	handleConfigureASVGFForMode: ( mode ) => {
+
+		if ( ! window.pathTracerApp?.asvgfPass ) return;
+
+		const configs = {
+			interactive: {
+				enabled: false, // Disable during interaction
+				temporalAlpha: 0.5
+			},
+			progressive: {
+				enabled: true,
+				temporalAlpha: 0.1,
+				atrousIterations: 4
+			},
+			final: {
+				enabled: true,
+				temporalAlpha: 0.05,
+				atrousIterations: 6
+			}
+		};
+
+		const config = configs[ mode ];
+		if ( config ) {
+
+			const app = window.pathTracerApp;
+			app.asvgfPass.enabled = config.enabled;
+			if ( config.enabled ) {
+
+				app.asvgfPass.updateParameters( config );
+
+			}
+
+		}
+
+	},
 
 	applyAdaptiveSamplingQualityPreset( app, preset ) {
 
@@ -534,16 +618,33 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	),
 
 	handleAsvgfTemporalAlphaChange: handleChange(
-		val => set( { asvgfTemporalAlpha: val } ),
-		val => window.pathTracerApp.updateASVGFParameters( { temporalAlpha: val[ 0 ] } ),
+		val => set( { asvgfTemporalAlpha: val[ 0 ] } ),
+		val => window.pathTracerApp.asvgfPass.updateParameters( { temporalAlpha: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfPhiColorChange: handleChange(
-		val => set( { asvgfPhiColor: val } ),
-		val => window.pathTracerApp.updateASVGFParameters( { phiColor: val[ 0 ] } ),
+		val => set( { asvgfPhiColor: val[ 0 ] } ),
+		val => window.pathTracerApp.asvgfPass.updateParameters( { phiColor: val[ 0 ] } ),
 		false
 	),
+
+	handleEnableASVGFChange: handleChange(
+		val => set( { enableASVGF: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			app.asvgfPass.enabled = val;
+
+			// Coordinate with EdgeAware filtering
+			app.edgeAwareFilterPass.setFilteringEnabled( ! val );
+
+			// Reset when toggling
+			app.reset();
+
+		}
+	),
+
 
 	handleAsvgfPhiLuminanceChange: handleChange(
 		val => set( { asvgfPhiLuminance: val } ),
@@ -552,8 +653,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	),
 
 	handleAsvgfAtrousIterationsChange: handleChange(
-		val => set( { asvgfAtrousIterations: val } ),
-		val => window.pathTracerApp.updateASVGFParameters( { atrousIterations: val[ 0 ] } ),
+		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
+		val => window.pathTracerApp.asvgfPass.updateParameters( { atrousIterations: val[ 0 ] } ),
 		false
 	),
 

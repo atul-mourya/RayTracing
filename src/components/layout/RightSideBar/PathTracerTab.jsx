@@ -64,6 +64,8 @@ const PathTracerTab = () => {
 		GIIntensity,
 		toneMapping,
 		interactionModeEnabled,
+		enableASVGF,
+		asvgfQualityPreset,
 
 		// Handlers - now from store
 		handlePathTracerChange,
@@ -105,6 +107,8 @@ const PathTracerTab = () => {
 		handleGIIntensityChange,
 		handleToneMappingChange,
 		handleInteractionModeEnabledChange,
+		handleEnableASVGFChange,
+		handleAsvgfQualityPresetChange,
 	} = pathTracerStore;
 
 	return (
@@ -196,6 +200,26 @@ const PathTracerTab = () => {
 			</ControlGroup>
 
 			<ControlGroup name="Denoising">
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable ASVGF"} checked={enableASVGF} onCheckedChange={handleEnableASVGFChange}/>
+				</div>
+				{enableASVGF && ( <>
+					<div className="flex items-center justify-between">
+						<Select value={asvgfQualityPreset} onValueChange={handleAsvgfQualityPresetChange}>
+							<span className="opacity-50 text-xs truncate">Quality Preset</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full" >
+								<SelectValue placeholder="Select preset" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="low">Low</SelectItem>
+								<SelectItem value="medium">Medium</SelectItem>
+								<SelectItem value="high">High</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+				</> )}
+				<Separator />
+
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
 				</div>

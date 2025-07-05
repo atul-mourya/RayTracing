@@ -31,6 +31,7 @@ import Stats from 'stats-gl';
 // Import custom passes and constants
 import { PathTracerPass } from './Shaders/PathTracerPass';
 import { EdgeAwareFilteringPass } from './Passes/EdgeAwareFilteringPass';
+import { ASVGFPass } from './Passes/ASVGFPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
 import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
@@ -251,6 +252,7 @@ class PathTracerApp extends EventDispatcher {
 
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
+		this.asvgfPass && this.asvgfPass.reset();
 		this.edgeAwareFilterPass && this.edgeAwareFilterPass.reset( this.renderer );
 		this.adaptiveSamplingPass && this.adaptiveSamplingPass.reset();
 		this.denoiser.abort();
@@ -280,11 +282,24 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
 		this.composer.addPass( this.pathTracingPass );
 
+		this.asvgfPass = new ASVGFPass( this.renderer, this.camera, this.width, this.height, {
+			temporalAlpha: DEFAULT_STATE.asvgfTemporalAlpha || 0.1,
+			atrousIterations: DEFAULT_STATE.asvgfAtrousIterations || 4,
+			phiColor: DEFAULT_STATE.asvgfPhiColor || 10.0,
+			phiNormal: DEFAULT_STATE.asvgfPhiNormal || 128.0,
+			phiDepth: DEFAULT_STATE.asvgfPhiDepth || 1.0,
+			enableDebug: true
+		} );
+		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF || false;
+		this.composer.addPass( this.asvgfPass );
+
+		// Connect PathTracer to ASVGF
+		this.pathTracingPass.setASVGFPass( this.asvgfPass );
+
 		this.edgeAwareFilterPass = new EdgeAwareFilteringPass( this.width, this.height, {
+			// Reduce edge filtering when ASVGF is active
+			filteringEnabled: ! this.asvgfPass.enabled,
 			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75,
-			edgeSharpenSpeed: DEFAULT_STATE.edgeSharpenSpeed || 0.05,
-			edgeThreshold: DEFAULT_STATE.edgeThreshold || 1.0,
-			filteringEnabled: false, // Can be toggled
 		} );
 		this.composer.addPass( this.edgeAwareFilterPass );
 
