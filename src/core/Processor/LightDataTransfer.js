@@ -53,12 +53,17 @@ export class LightDataTransfer {
 		// Calculate importance for sorting
 		const importance = this.calculateLightImportance( light, 'directional' );
 
+		// Get angle parameter from light (default to 0 for sharp shadows)
+		// You can add this as a custom property to your DirectionalLight
+		const angle = light.userData.angle || light.angle || 0.0; // In radians
+
 		// Store in cache with importance
 		this.directionalLightCache.push( {
 			data: [
 				position.x, position.y, position.z, // position (3)
 				light.color.r, light.color.g, light.color.b, // color (3)
-				light.intensity // intensity (1)
+				light.intensity, // intensity (1)
+				angle // angular diameter in radians (1)
 			],
 			importance: importance,
 			light: light

@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine } from 'lucide-react';
+import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
@@ -8,7 +8,7 @@ import { useEffect } from 'react';
 
 const LightsTab = () => {
 
-	const { lights, setLights, updateLight } = useLightStore();
+	const { lights, setLights, updateLight, updateDirectionalLightAngle } = useLightStore();
 
 	const handleLightChange = ( index, property, value ) => {
 
@@ -21,6 +21,12 @@ const LightsTab = () => {
 				if ( property === 'intensity' ) light.intensity = value[ 0 ];
 				else if ( property === 'color' ) light.color.set( value );
 				else if ( property === 'position' ) light.position.set( ...value );
+				else if ( property === 'angle' && light.type === 'DirectionalLight' ) {
+
+					// Store angle in radians for shader
+					light.angle = value[ 0 ] * ( Math.PI / 180 ); // Convert degrees to radians
+
+				}
 
 				window.pathTracerApp.pathTracingPass.updateLights();
 				window.pathTracerApp.reset();
@@ -28,6 +34,15 @@ const LightsTab = () => {
 			}
 
 		}
+
+	};
+
+	// Add angle change handler specifically for directional lights
+	const handleDirectionalLightAngleChange = ( index, value ) => {
+
+		const angleInDegrees = value[ 0 ];
+		updateDirectionalLightAngle( index, angleInDegrees );
+		handleLightChange( index, 'angle', value );
 
 	};
 
@@ -66,7 +81,9 @@ const LightsTab = () => {
 				type: light.type,
 				intensity: light.intensity,
 				color: `#${light.color.getHexString()}`,
-				position: [ light.position.x, light.position.y, light.position.z ]
+				position: [ light.position.x, light.position.y, light.position.z ],
+				// Add angle property for directional lights (convert from radians to degrees for UI)
+				angle: light.type === 'DirectionalLight' ? ( light.angle || 0 ) * ( 180 / Math.PI ) : 0
 			} ) );
 			setLights( sceneLights );
 
@@ -103,6 +120,19 @@ const LightsTab = () => {
 					<div className="flex items-center justify-between">
 						<Vector3Component label={`Position ${index + 1}`} value={light.position} onValueChange={value => handleLightChange( index, 'position', value )} />
 					</div>
+					{light.type === 'DirectionalLight' && (
+						<div className="flex items-center justify-between">
+							<Slider
+								label={`Soft Shadow Angle ${index + 1}`}
+								icon={CircleDot}
+								min={0}
+								max={10}
+								step={0.1}
+								value={[ light.angle || 0 ]}
+								onValueChange={value => handleDirectionalLightAngleChange( index, value )}
+							/>
+						</div>
+					)}
 					<Separator />
 				</div>
 			) )}

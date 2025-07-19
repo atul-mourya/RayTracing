@@ -202,6 +202,7 @@ export const DEFAULT_STATE = {
 	directionalLightIntensity: 0,
 	directionalLightColor: "#ffffff",
 	directionalLightPosition: [ 1, 1, 1 ],
+	directionalLightAngle: 0.0, // Angular diameter in radians (0 = sharp shadows)
 
 	pixelEdgeSharpness: 0.75,
 	edgeSharpenSpeed: 0.05,

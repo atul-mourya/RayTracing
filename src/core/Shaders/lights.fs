@@ -3,7 +3,7 @@
 // -----------------------------------------------------------------------------
 
 #if MAX_DIRECTIONAL_LIGHTS > 0
-uniform float directionalLights[ MAX_DIRECTIONAL_LIGHTS * 7 ];
+uniform float directionalLights[ MAX_DIRECTIONAL_LIGHTS * 8 ]; // Updated from 7 to 8 for angle parameter
 #else
 uniform float directionalLights[ 1 ]; // Dummy array to avoid compilation error
 #endif
@@ -20,6 +20,7 @@ struct DirectionalLight {
     vec3 direction;
     vec3 color;
     float intensity;
+    float angle;  // Angular diameter in radians
 };
 
 struct AreaLight {
@@ -44,11 +45,12 @@ struct IndirectLightingResult {
 // -----------------------------------------------------------------------------
 
 DirectionalLight getDirectionalLight( int index ) {
-    int baseIndex = index * 7;
+    int baseIndex = index * 8;  // Updated from 7 to 8
     DirectionalLight light;
     light.direction = normalize( vec3( directionalLights[ baseIndex ], directionalLights[ baseIndex + 1 ], directionalLights[ baseIndex + 2 ] ) );
     light.color = vec3( directionalLights[ baseIndex + 3 ], directionalLights[ baseIndex + 4 ], directionalLights[ baseIndex + 5 ] );
     light.intensity = directionalLights[ baseIndex + 6 ];
+    light.angle = directionalLights[ baseIndex + 7 ];  // New angle parameter
     return light;
 }
 
@@ -63,6 +65,28 @@ AreaLight getAreaLight( int index ) {
     light.normal = normalize( cross( light.u, light.v ) );
     light.area = length( cross( light.u, light.v ) );
     return light;
+}
+
+// -----------------------------------------------------------------------------
+// Cone Sampling for Soft Directional Shadows
+// -----------------------------------------------------------------------------
+
+// Sample direction within a cone for soft shadows
+vec3 sampleCone( vec3 direction, float halfAngle, vec2 xi ) {
+    // Sample within cone using spherical coordinates
+    float cosHalfAngle = cos( halfAngle );
+    float cosTheta = mix( cosHalfAngle, 1.0, xi.x );
+    float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
+    float phi = TWO_PI * xi.y;
+
+    // Create local coordinate system
+    vec3 up = abs( direction.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
+    vec3 tangent = normalize( cross( up, direction ) );
+    vec3 bitangent = cross( direction, tangent );
+
+    // Convert to world space
+    vec3 localDir = vec3( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
+    return normalize( tangent * localDir.x + bitangent * localDir.y + direction * localDir.z );
 }
 
 // -----------------------------------------------------------------------------
@@ -248,7 +272,7 @@ bool shouldSkipDirectionalLight(
     return false;
 }
 
-// Directional light contribution
+// Directional light contribution with soft shadows
 vec3 calculateDirectionalLightContribution(
     DirectionalLight light,
     vec3 hitPoint,
@@ -266,35 +290,53 @@ vec3 calculateDirectionalLightContribution(
         return vec3( 0.0 );
     }
 
-    float NoL = max( 0.0, dot( normal, light.direction ) );
-
     // Calculate adaptive ray offset
     vec3 rayOffset = calculateRayOffset( hitPoint, normal, material );
     vec3 rayOrigin = hitPoint + rayOffset;
 
-    // Shadow test with appropriate distance for directional lights
-    // Use large but finite distance to avoid precision issues
+    // Determine shadow sampling strategy based on light angle
+    vec3 shadowDirection;
+    float lightPdf = 1e6; // Default for sharp shadows
+
+    if( light.angle > 0.001 ) {
+        // Soft shadows: sample direction within cone
+        vec2 xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+        float halfAngle = light.angle * 0.5;
+        shadowDirection = sampleCone( light.direction, halfAngle, xi );
+
+        // Calculate PDF for cone sampling
+        float cosHalfAngle = cos( halfAngle );
+        lightPdf = 1.0 / ( TWO_PI * ( 1.0 - cosHalfAngle ) );
+    } else {
+        // Sharp shadows: use original direction
+        shadowDirection = light.direction;
+    }
+
+    float NoL = max( 0.0, dot( normal, shadowDirection ) );
+    if( NoL <= 0.0 ) {
+        return vec3( 0.0 );
+    }
+
+    // Shadow test
     float maxShadowDistance = 1e6;
-    float visibility = traceShadowRay( rayOrigin, light.direction, maxShadowDistance, rngState, stats );
+    float visibility = traceShadowRay( rayOrigin, shadowDirection, maxShadowDistance, rngState, stats );
     if( visibility <= 0.0 ) {
         return vec3( 0.0 );
     }
 
-    // BRDF evaluation using cache
-    vec3 brdfValue = evaluateMaterialResponseCached( viewDir, light.direction, normal, material, matCache );
+    // BRDF evaluation using sampled direction
+    vec3 brdfValue = evaluateMaterialResponseCached( viewDir, shadowDirection, normal, material, matCache );
 
     // Base contribution
     vec3 contribution = light.color * light.intensity * brdfValue * NoL * visibility;
 
     // MIS for directional lights (only on primary rays where it matters)
     if( bounceIndex == 0 && brdfSample.pdf > 0.0 ) {
-        // Check alignment between BRDF sample and light direction
-        float alignment = max( 0.0, dot( normalize( brdfSample.direction ), light.direction ) );
+        // Check alignment between BRDF sample and shadow direction
+        float alignment = max( 0.0, dot( normalize( brdfSample.direction ), shadowDirection ) );
 
-        // Only apply MIS if there's significant alignment (within ~5 degrees)
+        // Only apply MIS if there's significant alignment
         if( alignment > 0.996 ) {
-            // For directional lights, treat as delta function with very high PDF
-            float lightPdf = 1e6;  // High value representing delta function
             float misWeight = powerHeuristic( lightPdf, brdfSample.pdf );
             contribution *= misWeight;
         }
@@ -661,7 +703,7 @@ IndirectLightingResult calculateIndirectLighting(
 
         sampleDir = envSample.direction;
         samplePdf = envSample.pdf;
-        
+
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
 
     } else if( selectBrdf > 0.5 ) {
@@ -675,7 +717,6 @@ IndirectLightingResult calculateIndirectLighting(
         samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
     }
-
 
     float NoL = max( dot( N, sampleDir ), 0.0 );
 

@@ -439,6 +439,22 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	// Add method to update individual light properties
+	updateDirectionalLightAngle( lightIndex, angleInRadians ) {
+
+		// Update the directional lights uniform array
+		const directionalLights = this.material.uniforms.directionalLights.value;
+		if ( directionalLights && lightIndex < directionalLights.length / 8 ) {
+
+			// Each directional light uses 8 floats, angle is at offset 7
+			const baseIndex = lightIndex * 8;
+			directionalLights[ baseIndex + 7 ] = angleInRadians;
+			this.material.uniforms.directionalLights.needsUpdate = true;
+
+		}
+
+	}
+
 	updateMaterialDataTexture( materialIndex, property, value ) {
 
 		const data = this.material.uniforms.materialTexture.value.image.data;

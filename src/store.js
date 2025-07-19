@@ -768,6 +768,20 @@ const useLightStore = create( set => ( {
 		return { lights };
 
 	} ),
+
+	// Add angle support for directional lights
+	updateDirectionalLightAngle: ( idx, angle ) => set( s => {
+
+		const lights = [ ...s.lights ];
+		if ( lights[ idx ] && lights[ idx ].type === 'DirectionalLight' ) {
+
+			lights[ idx ].angle = angle;
+
+		}
+
+		return { lights };
+
+	} ),
 } ) );
 
 // Camera store
