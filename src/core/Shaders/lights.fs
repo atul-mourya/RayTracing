@@ -618,7 +618,6 @@ vec3 calculateDirectLightingMIS(
     return totalLighting;
 }
 
-
 float calculateTransmissionPDF( vec3 V, vec3 L, vec3 N, float ior, float roughness, bool entering ) {
     // Calculate the half vector for transmission
     float eta = entering ? 1.0 / ior : ior;
@@ -665,59 +664,58 @@ bool validateSamplingInfo( ImportanceSamplingInfo info ) {
 // Fast paths for common material types
 struct MaterialFastPath {
     bool isPureDiffuse;
-    bool isPureMetal; 
+    bool isPureMetal;
     bool isPureGlass;
     bool isSimpleMaterial;
     int primaryStrategy;
     int secondaryStrategy;
 };
 
-MaterialFastPath analyzeMaterialForOptimization(RayTracingMaterial material, int bounceIndex) {
+MaterialFastPath analyzeMaterialForOptimization( RayTracingMaterial material, int bounceIndex ) {
     MaterialFastPath path;
-    
+
     // Pure diffuse: rough, non-metallic, no special features
-    path.isPureDiffuse = (material.roughness > 0.8 && 
-                         material.metalness < 0.05 && 
-                         material.transmission < 0.01 && 
-                         material.clearcoat < 0.01);
-    
+    path.isPureDiffuse = ( material.roughness > 0.8 &&
+        material.metalness < 0.05 &&
+        material.transmission < 0.01 &&
+        material.clearcoat < 0.01 );
+
     // Pure metal: high metalness, low transmission
-    path.isPureMetal = (material.metalness > 0.9 && 
-                       material.transmission < 0.01 && 
-                       material.clearcoat < 0.01);
-    
+    path.isPureMetal = ( material.metalness > 0.9 &&
+        material.transmission < 0.01 &&
+        material.clearcoat < 0.01 );
+
     // Pure glass: high transmission, low metalness
-    path.isPureGlass = (material.transmission > 0.9 && 
-                       material.metalness < 0.05 && 
-                       material.clearcoat < 0.01);
-    
+    path.isPureGlass = ( material.transmission > 0.9 &&
+        material.metalness < 0.05 &&
+        material.clearcoat < 0.01 );
+
     // Simple material: only 1-2 important components
     int activeComponents = 0;
-    activeComponents += int(material.metalness > 0.1);
-    activeComponents += int(material.transmission > 0.1); 
-    activeComponents += int(material.clearcoat > 0.1);
-    activeComponents += int(material.roughness > 0.7); // Diffuse
-    
-    path.isSimpleMaterial = (activeComponents <= 2);
-    
+    activeComponents += int( material.metalness > 0.1 );
+    activeComponents += int( material.transmission > 0.1 );
+    activeComponents += int( material.clearcoat > 0.1 );
+    activeComponents += int( material.roughness > 0.7 ); // Diffuse
+
+    path.isSimpleMaterial = ( activeComponents <= 2 );
+
     // Determine primary strategies based on material type
-    if(path.isPureDiffuse) {
+    if( path.isPureDiffuse ) {
         path.primaryStrategy = 2; // Diffuse
         path.secondaryStrategy = 0; // Environment
-    } else if(path.isPureMetal) {
+    } else if( path.isPureMetal ) {
         path.primaryStrategy = 1; // Specular
         path.secondaryStrategy = 0; // Environment
-    } else if(path.isPureGlass) {
+    } else if( path.isPureGlass ) {
         path.primaryStrategy = 3; // Transmission
         path.secondaryStrategy = 1; // Specular (reflection)
     } else {
-        path.primaryStrategy = -1; // Use full MIS
-        path.secondaryStrategy = -1;
+        path.primaryStrategy = - 1; // Use full MIS
+        path.secondaryStrategy = - 1;
     }
-    
+
     return path;
 }
-
 
 SamplingStrategyWeights computeSamplingInfo(
     ImportanceSamplingInfo samplingInfo,
