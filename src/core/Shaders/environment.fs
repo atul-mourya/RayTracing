@@ -151,11 +151,10 @@ void determineEnvSamplingQuality(
 
 // Single function that handles both IS and non-IS sampling
 vec2 sampleEnvironmentUV( vec2 xi, float mipLevel, float importanceBias ) {
-    // Fast path for non-importance sampling - simple uniform sphere sampling
     if( ! useEnvMapIS ) {
-        // Pre-computed constants for performance
-        float phi = TWO_PI * xi.x;  // 2π precomputed
-        float cosTheta = 1.0 - 2.0 * xi.y;  // Uniform in cosTheta
+        // Uniform sphere sampling
+        float phi = TWO_PI * xi.x;
+        float cosTheta = 1.0 - 2.0 * xi.y;
         float theta = acos( clamp( cosTheta, - 1.0, 1.0 ) );
         // OPTIMIZED: Pre-computed 1/(2π) and 1/π
         return vec2( phi * 0.159154943, 1.0 - theta * 0.318309886 );
@@ -164,11 +163,12 @@ vec2 sampleEnvironmentUV( vec2 xi, float mipLevel, float importanceBias ) {
     // Importance sampling with proper CDF inversion
     vec2 cdfSize = envCDFSize;
 
+    // 2D CDF sampling
     // Step 1: Sample marginal CDF to get u coordinate
     float u = invertCDF( envCDF, xi.x, 0.0, mipLevel, cdfSize, true );
 
-    // Step 2: Sample conditional CDF at the selected u to get v coordinate  
-    float v = invertCDF( envCDF, xi.y, ( cdfSize.y - 0.5 ) / cdfSize.y, mipLevel, cdfSize, false );
+    // Step 2: Sample conditional CDF at the sampled u coordinate
+    float v = invertCDF( envCDF, xi.y, u, mipLevel, cdfSize, false );
 
     return vec2( u, v );
 }
@@ -183,6 +183,7 @@ float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
     // Importance sampling PDF calculation
     vec2 uv = directionToUV( direction );
 
+    // Calculate theta for Jacobian
     float theta = ( 1.0 - uv.y ) * PI;
     float sinTheta = sin( theta );
 
@@ -194,12 +195,12 @@ float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
 
-    // Get PDFs from .g channel (not .r which is CDF)
+    // Sample PDFs from texture (G channel)
     float marginalPdf = textureLod( envCDF, vec2( uv.x, ( cdfSize.y - 0.5 ) * invSize.y ), mipLevel ).g;
     float conditionalPdf = textureLod( envCDF, uv, mipLevel ).g;
 
-    // Pre-computed Jacobian constant for performance
-    float jacobian = sinTheta * 19.739208802;  // 2π² precomputed
+    // Apply Jacobian for spherical coordinates
+    float jacobian = sinTheta * TWO_PI * PI;  // 2π²
 
     return max( ( marginalPdf * conditionalPdf ) / jacobian, EPSILON );
 }
@@ -244,25 +245,21 @@ EnvMapSample sampleEnvironmentWithContext(
     
     // Environment value calculation
     vec3 envValue = envColor.rgb * environmentIntensity;
-    // Environment value calculation
-    // Context-specific firefly reduction for environment sampling
+
+    // MUCH more lenient firefly control for IS
     float importance = luminance( envValue ) / max( pdf, 0.0001 );
     float confidence = 1.0;
 
-    if( bounceIndex > 0 ) {
-    // Use shared threshold calculation with environment-specific context
-        float envContextMultiplier = 100.0; // Environment-specific base multiplier
-        float maxImportance = calculateFireflyThreshold( envContextMultiplier, 1.0, bounceIndex );
-
-        if( importance > maxImportance * 2.0 ) {
-            float scale = maxImportance / importance;
+    // Only clamp on deep bounces and be very conservative
+    if( bounceIndex > 4 ) {
+        float maxImportance = fireflyThreshold * 50.0; // Much higher threshold
+        if( importance > maxImportance ) {
+            float scale = sqrt( maxImportance / importance ); // Gentler scaling
             envValue *= scale;
-            importance = maxImportance;
-            confidence = 0.4;
+            confidence = 0.7;
         }
     }
 
-// Confidence calculation (unchanged - environment-specific logic)
     confidence *= clamp( pdf * 1000.0, 0.1, 1.0 );
     confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 );
 
