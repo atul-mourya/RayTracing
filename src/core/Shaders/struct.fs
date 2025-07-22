@@ -185,10 +185,15 @@ struct PathState {
 
 struct SamplingStrategyWeights {
     float envWeight;
-    float brdfWeight;
-    float cosineWeight;
+    float specularWeight;
+    float diffuseWeight;
+    float transmissionWeight;
+    float clearcoatWeight;
     float totalWeight;
+
     bool useEnv;
-    bool useBrdf;
-    bool useCosine;
+    bool useSpecular;
+    bool useDiffuse;
+    bool useTransmission;
+    bool useClearcoat;
 };

@@ -618,6 +618,107 @@ vec3 calculateDirectLightingMIS(
     return totalLighting;
 }
 
+
+float calculateTransmissionPDF( vec3 V, vec3 L, vec3 N, float ior, float roughness, bool entering ) {
+    // Calculate the half vector for transmission
+    float eta = entering ? 1.0 / ior : ior;
+    vec3 H = normalize( V + L * eta );
+
+    if( dot( H, N ) < 0.0 )
+        H = - H; // Ensure H points into the correct hemisphere
+
+    float VoH = abs( dot( V, H ) );
+    float LoH = abs( dot( L, H ) );
+    float NoH = abs( dot( N, H ) );
+
+    // GGX distribution
+    float D = DistributionGGX( NoH, roughness );
+
+    // Jacobian for transmission
+    float denom = square( VoH + LoH * eta );
+    float jacobian = ( LoH * eta * eta ) / max( denom, EPSILON );
+
+    return D * NoH * jacobian;
+}
+
+float calculateClearcoatPDF( vec3 V, vec3 L, vec3 N, float clearcoatRoughness ) {
+    vec3 H = normalize( V + L );
+    float NoH = max( dot( N, H ), 0.0 );
+    float VoH = max( dot( V, H ), 0.0 );
+    float NoV = max( dot( N, V ), 0.0 );
+
+    float D = DistributionGGX( NoH, clearcoatRoughness );
+    float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
+
+    return ( D * G1 * VoH ) / ( NoV * 4.0 );
+}
+
+// Validation function for sampling info
+bool validateSamplingInfo( ImportanceSamplingInfo info ) {
+    return ( info.diffuseImportance >= 0.0 ) &&
+        ( info.specularImportance >= 0.0 ) &&
+        ( info.transmissionImportance >= 0.0 ) &&
+        ( info.clearcoatImportance >= 0.0 ) &&
+        ( info.envmapImportance >= 0.0 );
+}
+
+// Fast paths for common material types
+struct MaterialFastPath {
+    bool isPureDiffuse;
+    bool isPureMetal; 
+    bool isPureGlass;
+    bool isSimpleMaterial;
+    int primaryStrategy;
+    int secondaryStrategy;
+};
+
+MaterialFastPath analyzeMaterialForOptimization(RayTracingMaterial material, int bounceIndex) {
+    MaterialFastPath path;
+    
+    // Pure diffuse: rough, non-metallic, no special features
+    path.isPureDiffuse = (material.roughness > 0.8 && 
+                         material.metalness < 0.05 && 
+                         material.transmission < 0.01 && 
+                         material.clearcoat < 0.01);
+    
+    // Pure metal: high metalness, low transmission
+    path.isPureMetal = (material.metalness > 0.9 && 
+                       material.transmission < 0.01 && 
+                       material.clearcoat < 0.01);
+    
+    // Pure glass: high transmission, low metalness
+    path.isPureGlass = (material.transmission > 0.9 && 
+                       material.metalness < 0.05 && 
+                       material.clearcoat < 0.01);
+    
+    // Simple material: only 1-2 important components
+    int activeComponents = 0;
+    activeComponents += int(material.metalness > 0.1);
+    activeComponents += int(material.transmission > 0.1); 
+    activeComponents += int(material.clearcoat > 0.1);
+    activeComponents += int(material.roughness > 0.7); // Diffuse
+    
+    path.isSimpleMaterial = (activeComponents <= 2);
+    
+    // Determine primary strategies based on material type
+    if(path.isPureDiffuse) {
+        path.primaryStrategy = 2; // Diffuse
+        path.secondaryStrategy = 0; // Environment
+    } else if(path.isPureMetal) {
+        path.primaryStrategy = 1; // Specular
+        path.secondaryStrategy = 0; // Environment
+    } else if(path.isPureGlass) {
+        path.primaryStrategy = 3; // Transmission
+        path.secondaryStrategy = 1; // Specular (reflection)
+    } else {
+        path.primaryStrategy = -1; // Use full MIS
+        path.secondaryStrategy = -1;
+    }
+    
+    return path;
+}
+
+
 SamplingStrategyWeights computeSamplingInfo(
     ImportanceSamplingInfo samplingInfo,
     int bounceIndex,
@@ -633,31 +734,97 @@ SamplingStrategyWeights computeSamplingInfo(
         info.useEnv = info.envWeight > 0.001;
     }
 
-    // BRDF sampling weight (specular + transmission + clearcoat)
-    info.brdfWeight = samplingInfo.specularImportance +
-        samplingInfo.transmissionImportance +
-        samplingInfo.clearcoatImportance;
-    info.useBrdf = info.brdfWeight > 0.001;
+    // Separate each sampling strategy
+    info.specularWeight = samplingInfo.specularImportance;
+    info.useSpecular = info.specularWeight > 0.001;
 
-    // Cosine sampling weight (diffuse)
-    info.cosineWeight = samplingInfo.diffuseImportance;
-    info.useCosine = info.cosineWeight > 0.001;
+    info.diffuseWeight = samplingInfo.diffuseImportance;
+    info.useDiffuse = info.diffuseWeight > 0.001;
+
+    info.transmissionWeight = samplingInfo.transmissionImportance;
+    info.useTransmission = info.transmissionWeight > 0.001;
+
+    info.clearcoatWeight = samplingInfo.clearcoatImportance;
+    info.useClearcoat = info.clearcoatWeight > 0.001;
 
     // Calculate total weight
-    info.totalWeight = info.envWeight + info.brdfWeight + info.cosineWeight;
+    info.totalWeight = info.envWeight + info.specularWeight + info.diffuseWeight +
+        info.transmissionWeight + info.clearcoatWeight;
 
-    // Fallback if no strategies are active
+    // Proper normalization and fallback
     if( info.totalWeight < 0.001 ) {
-        info.cosineWeight = 1.0;
-        info.useCosine = true;
+        // Safe fallback to diffuse sampling
+        info = SamplingStrategyWeights( 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, false, false, true, false, false );
+    } else {
+        // CRITICAL: Normalize weights to sum to 1.0
+        float invTotal = 1.0 / info.totalWeight;
+        info.envWeight *= invTotal;
+        info.specularWeight *= invTotal;
+        info.diffuseWeight *= invTotal;
+        info.transmissionWeight *= invTotal;
+        info.clearcoatWeight *= invTotal;
         info.totalWeight = 1.0;
-        info.envWeight = 0.0;
-        info.brdfWeight = 0.0;
-        info.useEnv = false;
-        info.useBrdf = false;
     }
 
     return info;
+}
+
+// Fixed strategy selection with proper cumulative distribution
+void selectSamplingStrategy(
+    SamplingStrategyWeights weights,
+    float randomValue,
+    out int selectedStrategy,
+    out float strategyPdf
+) {
+    // Strategy IDs: 0=env, 1=specular, 2=diffuse, 3=transmission, 4=clearcoat
+
+    float cumulative = 0.0;
+
+    if( weights.useEnv ) {
+        cumulative += weights.envWeight;
+        if( randomValue < cumulative ) {
+            selectedStrategy = 0;
+            strategyPdf = weights.envWeight;
+            return;
+        }
+    }
+
+    if( weights.useSpecular ) {
+        cumulative += weights.specularWeight;
+        if( randomValue < cumulative ) {
+            selectedStrategy = 1;
+            strategyPdf = weights.specularWeight;
+            return;
+        }
+    }
+
+    if( weights.useDiffuse ) {
+        cumulative += weights.diffuseWeight;
+        if( randomValue < cumulative ) {
+            selectedStrategy = 2;
+            strategyPdf = weights.diffuseWeight;
+            return;
+        }
+    }
+
+    if( weights.useTransmission ) {
+        cumulative += weights.transmissionWeight;
+        if( randomValue < cumulative ) {
+            selectedStrategy = 3;
+            strategyPdf = weights.transmissionWeight;
+            return;
+        }
+    }
+
+    if( weights.useClearcoat ) {
+        selectedStrategy = 4;
+        strategyPdf = weights.clearcoatWeight;
+        return;
+    }
+
+    // Fallback
+    selectedStrategy = 2; // Diffuse
+    strategyPdf = weights.useDiffuse ? weights.diffuseWeight : 1.0;
 }
 
 IndirectLightingResult calculateIndirectLighting(
@@ -673,71 +840,99 @@ IndirectLightingResult calculateIndirectLighting(
     // Initialize result
     IndirectLightingResult result;
 
-    // Pre-compute all sampling strategy information
-    SamplingStrategyWeights optInfo = computeSamplingInfo( samplingInfo, bounceIndex, material );
+    // Validate input sampling info
+    if( samplingInfo.diffuseImportance < 0.0 ||
+        samplingInfo.specularImportance < 0.0 ||
+        samplingInfo.transmissionImportance < 0.0 ||
+        samplingInfo.clearcoatImportance < 0.0 ||
+        samplingInfo.envmapImportance < 0.0 ) {
+        // Fallback to diffuse sampling
+        result.direction = cosineWeightedSample( N, vec2( RandomValue( rngState ), RandomValue( rngState ) ) );
+        result.throughput = material.color.rgb;
+        result.misWeight = 1.0;
+        result.pdf = 1.0;
+        return result;
+    }
 
-    // Get random sample for selection between sampling strategies
-    vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );
+    // Use corrected sampling info
+    SamplingStrategyWeights weights = computeSamplingInfo( samplingInfo, bounceIndex, material );
+
     float selectionRand = RandomValue( rngState );
+    vec2 sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
-    // Strategy selection using cumulative weights (branch-free)
-    float normalizedRand = selectionRand * optInfo.totalWeight;
-    float cumulativeEnv = optInfo.envWeight;
-    float cumulativeBrdf = cumulativeEnv + optInfo.brdfWeight;
+    // Strategy selection
+    int selectedStrategy;
+    float strategySelectionPdf;
+    selectSamplingStrategy( weights, selectionRand, selectedStrategy, strategySelectionPdf );
 
-    // Determine selected strategy using step functions (more GPU-friendly)
-    float selectEnv = step( normalizedRand, cumulativeEnv ) * float( optInfo.useEnv );
-    float selectBrdf = step( normalizedRand, cumulativeBrdf ) * ( 1.0 - selectEnv ) * float( optInfo.useBrdf );
-    float selectCosine = ( 1.0 - selectEnv - selectBrdf );
-
-    // Sample based on selected strategy
     vec3 sampleDir;
     float samplePdf;
     vec3 sampleBrdfValue;
-    vec3 envContribution = vec3( 1.0 );
 
-    // Use vectorized strategy execution
-    if( selectEnv > 0.5 ) {
-        // Environment sampling - direction only, NO environment radiance in throughput
-        EnvMapSample envSample = sampleEnvironmentWithContext( randomSample, bounceIndex, material, V, N );
-
+    // Execute selected strategy
+    if( selectedStrategy == 0 ) { // Environment
+        EnvMapSample envSample = sampleEnvironmentWithContext( sampleRand, bounceIndex, material, V, N );
         sampleDir = envSample.direction;
         samplePdf = envSample.pdf;
-
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
 
-    } else if( selectBrdf > 0.5 ) {
-        // BRDF sampling
+    } else if( selectedStrategy == 1 ) { // Specular
         sampleDir = brdfSample.direction;
         samplePdf = brdfSample.pdf;
         sampleBrdfValue = brdfSample.value;
-    } else {
-        // Cosine sampling
-        sampleDir = cosineWeightedSample( N, randomSample );
+
+    } else if( selectedStrategy == 2 ) { // Diffuse
+        sampleDir = cosineWeightedSample( N, sampleRand );
         samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+
+    } else if( selectedStrategy == 3 ) { // Transmission
+        bool entering = dot( V, N ) < 0.0;
+        MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState );
+        sampleDir = mtResult.direction;
+        samplePdf = mtResult.pdf;
+        sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+
+    } else { // Clearcoat (strategy 4)
+        // Note: This needs to be implemented properly based on your clearcoat sampling
+        sampleDir = brdfSample.direction; // Fallback for now
+        samplePdf = brdfSample.pdf;
+        sampleBrdfValue = brdfSample.value;
     }
 
     float NoL = max( dot( N, sampleDir ), 0.0 );
 
-    // MIS calculation using pre-computed weights
+    // Calculate combined PDF for MIS (all active strategies)
     float combinedPdf = 0.0;
 
-    // Calculate PDFs only for active strategies
-    if( optInfo.useEnv ) {
+    if( weights.useEnv ) {
         float envPdf = envMapSamplingPDFWithContext( sampleDir, bounceIndex, material, V, N );
-        combinedPdf += optInfo.envWeight * envPdf / optInfo.totalWeight;
+        combinedPdf += weights.envWeight * envPdf;
     }
 
-    if( optInfo.useBrdf ) {
-        combinedPdf += optInfo.brdfWeight * brdfSample.pdf / optInfo.totalWeight;
+    if( weights.useSpecular ) {
+        combinedPdf += weights.specularWeight * brdfSample.pdf;
     }
 
-    if( optInfo.useCosine ) {
-        float cosinePdf = cosineWeightedPDF( NoL );
-        combinedPdf += optInfo.cosineWeight * cosinePdf / optInfo.totalWeight;
+    if( weights.useDiffuse ) {
+        float diffusePdf = cosineWeightedPDF( NoL );
+        combinedPdf += weights.diffuseWeight * diffusePdf;
     }
 
+    if( weights.useTransmission && material.transmission > 0.0 ) {
+        // Calculate transmission PDF for this direction
+        bool entering = dot( V, N ) < 0.0;
+        float transmissionPdf = calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering );
+        combinedPdf += weights.transmissionWeight * transmissionPdf;
+    }
+
+    if( weights.useClearcoat && material.clearcoat > 0.0 ) {
+        // Calculate clearcoat PDF for this direction
+        float clearcoatPdf = calculateClearcoatPDF( V, sampleDir, N, material.clearcoatRoughness );
+        combinedPdf += weights.clearcoatWeight * clearcoatPdf;
+    }
+
+    // Ensure valid PDFs
     samplePdf = max( samplePdf, MIN_PDF );
     combinedPdf = max( combinedPdf, MIN_PDF );
 
@@ -750,22 +945,10 @@ IndirectLightingResult calculateIndirectLighting(
     // Apply global illumination scaling
     throughput *= globalIlluminationIntensity;
 
-    // firefly clamping
-    float pathLengthFactor = 1.0 / pow( float( bounceIndex + 1 ), 0.5 );
-
-    // Material-based clamping adjustments (vectorized)
-    // Calculate comprehensive firefly threshold using shared utilities
+    // Apply firefly reduction with proper material context
     float materialTolerance = getMaterialFireflyTolerance( material );
     float viewTolerance = getViewDependentTolerance( material, sampleDir, V, N );
-
-    // Environment and bounce-specific adjustments
-    float contextMultiplier = 1.0;
-    contextMultiplier *= mix( 1.0, 1.8, selectEnv * ( envSamplingBias - 0.5 ) / 1.5 ); // Environment bias
-    contextMultiplier *= mix( 1.0, 0.8, step( 2.0, float( bounceIndex ) ) ); // Bounce scaling
-
-    float finalThreshold = calculateFireflyThreshold( fireflyThreshold, materialTolerance * viewTolerance * contextMultiplier, bounceIndex );
-
-    // Apply consistent soft suppression
+    float finalThreshold = calculateFireflyThreshold( fireflyThreshold, materialTolerance * viewTolerance, bounceIndex );
     throughput = applySoftSuppressionRGB( throughput, finalThreshold, 0.25 );
 
     result.direction = sampleDir;
