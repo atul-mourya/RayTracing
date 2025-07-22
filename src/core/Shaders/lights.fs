@@ -618,7 +618,7 @@ vec3 calculateDirectLightingMIS(
     return totalLighting;
 }
 
-SamplingStrategyWeights computeOptimizedSamplingInfo(
+SamplingStrategyWeights computeSamplingInfo(
     ImportanceSamplingInfo samplingInfo,
     int bounceIndex,
     RayTracingMaterial material
@@ -674,7 +674,7 @@ IndirectLightingResult calculateIndirectLighting(
     IndirectLightingResult result;
 
     // Pre-compute all sampling strategy information
-    SamplingStrategyWeights optInfo = computeOptimizedSamplingInfo( samplingInfo, bounceIndex, material );
+    SamplingStrategyWeights optInfo = computeSamplingInfo( samplingInfo, bounceIndex, material );
 
     // Get random sample for selection between sampling strategies
     vec2 randomSample = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex + 1, rngState, - 1 );

@@ -199,7 +199,7 @@ float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
     float conditionalPdf = textureLod( envCDF, uv, mipLevel ).g;
 
     // Pre-computed Jacobian constant for performance
-    float jacobian = sinTheta * 39.478417604;  // 2π * π precomputed
+    float jacobian = sinTheta * 19.739208802;  // 2π² precomputed
 
     return max( ( marginalPdf * conditionalPdf ) / jacobian, EPSILON );
 }

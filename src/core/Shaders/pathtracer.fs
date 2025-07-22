@@ -268,12 +268,7 @@ vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
 		}
 	} else {
         // Secondary rays: use enhanced environment contribution with LOD
-        // OPTIMIZED: When IS is enabled, use slightly higher quality for early bounces
-		if( useEnvMapIS && bounceIndex <= 2 ) {
-			return getEnvironmentContribution( direction, bounceIndex );
-		} else {
-			return getEnvironmentContribution( direction, bounceIndex );
-		}
+		return getEnvironmentContribution( direction, bounceIndex );
 	}
 }
 
@@ -400,13 +395,13 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			brdfSample = generateSampledDirection( V, N, material, randomSample, rngState, pathState );
 		}
 
-        // Add emissive contribution
-		radiance += matSamples.emissive * throughput;
-
         // Get importance sampling info with caching
 		if( ! pathState.weightsComputed || bounceIndex == 0 ) {
 			pathState.samplingInfo = getImportanceSamplingInfo( material, bounceIndex );
 		}
+
+        // Add emissive contribution
+		radiance += matSamples.emissive * throughput;
 
         // Indirect lighting using MIS with cached sampling info
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, pathState.samplingInfo );
