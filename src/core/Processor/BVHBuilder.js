@@ -187,11 +187,11 @@ class TreeletOptimizer {
 		this.treeletSize = 7; // Standard size for optimal enumeration (315 topologies)
 		this.minImprovement = 0.01; // Minimum SAH improvement threshold
 		this.maxTreeletDepth = 4; // Maximum depth to consider for treelets
-		
+
 		// Pre-computed topology cache for efficiency
 		this.topologyCache = new Map();
 		this.precomputeTopologies();
-		
+
 		// Statistics
 		this.stats = {
 			treeletsProcessed: 0,
@@ -220,7 +220,7 @@ class TreeletOptimizer {
 		if ( leafCount <= 2 ) return [ leafCount === 1 ? [ 0 ] : [ 0, 1 ] ];
 
 		const topologies = [];
-		
+
 		// Use recursive enumeration based on left/right subtree partitioning
 		for ( let leftCount = 1; leftCount < leafCount; leftCount ++ ) {
 
@@ -281,7 +281,7 @@ class TreeletOptimizer {
 		}
 
 		this.stats.optimizationTime = performance.now() - startTime;
-		this.stats.averageSAHImprovement = this.stats.treeletsProcessed > 0 ? 
+		this.stats.averageSAHImprovement = this.stats.treeletsProcessed > 0 ?
 			this.stats.totalSAHImprovement / this.stats.treeletsProcessed : 0;
 
 		console.log( 'Treelet optimization complete:', this.stats );
@@ -329,6 +329,7 @@ class TreeletOptimizer {
 			leafCount += this.traverseForTreelets( node.leftChild, treeletRoots, visited, depth + 1 );
 
 		}
+
 		if ( node.rightChild ) {
 
 			leafCount += this.traverseForTreelets( node.rightChild, treeletRoots, visited, depth + 1 );
@@ -1102,43 +1103,36 @@ export default class BVHBuilder {
 		// Record total build time
 		this.splitStats.totalBuildTime = performance.now() - buildStartTime;
 
-		console.log( 'BVH Statistics:', {
+		const stats = {
 			totalNodes: this.totalNodes,
 			triangleCount: reorderedTriangles.length,
 			maxDepth: depth,
-			splitMethods: {
-				SAH: this.splitStats.sahSplits,
-				objectMedian: this.splitStats.objectMedianSplits,
-				spatialMedian: this.splitStats.spatialMedianSplits,
-				failed: this.splitStats.failedSplits
-			},
-			adaptiveBins: {
-				averageBinsUsed: Math.round( this.splitStats.avgBinsUsed * 10 ) / 10,
-				minBins: this.minBins,
-				maxBins: this.maxBins,
-				baseBins: this.numBins
-			},
-			treeletOptimization: {
-				enabled: this.enableTreeletOptimization,
-				time: Math.round( this.splitStats.treeletOptimizationTime ),
-				processed: this.splitStats.treeletsProcessed,
-				improved: this.splitStats.treeletsImproved,
-				averageImprovement: Math.round( this.splitStats.averageSAHImprovement * 1000 ) / 1000
-			},
-			performance: {
-				totalBuildTime: Math.round( this.splitStats.totalBuildTime ),
-				mortonSortTime: Math.round( this.splitStats.mortonSortTime ),
-				treeletOptimizationTime: Math.round( this.splitStats.treeletOptimizationTime ),
-				mortonSortPercentage: Math.round( ( this.splitStats.mortonSortTime / this.splitStats.totalBuildTime ) * 100 ),
-				treeletOptimizationPercentage: Math.round( ( this.splitStats.treeletOptimizationTime / this.splitStats.totalBuildTime ) * 100 ),
-				trianglesPerSecond: Math.round( this.totalTriangles / ( this.splitStats.totalBuildTime / 1000 ) )
-			},
-			mortonClustering: {
-				enabled: this.useMortonCodes,
-				threshold: this.mortonClusterThreshold,
-				bits: this.mortonBits
-			}
-		} );
+			'Split Method: SAH': this.splitStats.sahSplits,
+			'Split Method: Object Median': this.splitStats.objectMedianSplits,
+			'Split Method: Spatial Median': this.splitStats.spatialMedianSplits,
+			'Split Method: Failed': this.splitStats.failedSplits,
+			'Adaptive Bins: Avg Used': Math.round( this.splitStats.avgBinsUsed * 10 ) / 10,
+			'Adaptive Bins: Min': this.minBins,
+			'Adaptive Bins: Max': this.maxBins,
+			'Adaptive Bins: Base': this.numBins,
+			'Treelet Opt: Enabled': this.enableTreeletOptimization,
+			'Treelet Opt: Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ),
+			'Treelet Opt: Processed': this.splitStats.treeletsProcessed,
+			'Treelet Opt: Improved': this.splitStats.treeletsImproved,
+			'Treelet Opt: Avg SAH Improvement': Math.round( this.splitStats.averageSAHImprovement * 1000 ) / 1000,
+			'Perf: Total Build Time (ms)': Math.round( this.splitStats.totalBuildTime ),
+			'Perf: Morton Sort Time (ms)': Math.round( this.splitStats.mortonSortTime ),
+			'Perf: Treelet Opt Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ),
+			'Perf: Morton %': Math.round( ( this.splitStats.mortonSortTime / this.splitStats.totalBuildTime ) * 100 ),
+			'Perf: Treelet Opt %': Math.round( ( this.splitStats.treeletOptimizationTime / this.splitStats.totalBuildTime ) * 100 ),
+			'Perf: Triangles/sec': Math.round( this.totalTriangles / ( this.splitStats.totalBuildTime / 1000 ) ),
+			'Morton Clustering: Enabled': this.useMortonCodes,
+			'Morton Clustering: Threshold': this.mortonClusterThreshold,
+			'Morton Clustering: Bits': this.mortonBits,
+		};
+
+		console.log( 'BVH Statistics:' );
+		console.table( stats );
 
 		progressCallback && progressCallback( 100 );
 
