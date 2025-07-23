@@ -2,7 +2,7 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 	Ray ray;
 	ray.origin = rayOrigin;
 	ray.direction = rayDir;
-	HitInfo hitInfo = traverseBVH( ray, stats );
+	HitInfo hitInfo = traverseBVH( ray, stats, false );
 
 	switch( visMode ) {
 		case 1: {

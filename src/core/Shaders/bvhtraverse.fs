@@ -40,6 +40,12 @@ mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
 	return mat3( data1.xyz, vec3( data1.w, data2.xy ), vec3( data2.zw, 1.0 ) );
 }
 
+bool isTriangleVisible( int triangleIndex, vec3 rayDirection ) {
+    // Fetch only the essential visibility data (1 texture read vs full material)
+	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, triangleIndex, 4, 24 );
+	return bool( visData.g ); // visible flag
+}
+
 RayTracingMaterial getMaterial( int materialIndex ) {
 	RayTracingMaterial material;
 
@@ -144,7 +150,7 @@ bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
 }
 
 // Modified traverseBVH function
-HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
+HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	HitInfo closestHit;
 	closestHit.didHit = false;
 	closestHit.dst = 1e20;
@@ -182,14 +188,18 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats ) {
 				HitInfo hit = RayTriangle( ray, tri );
 
 				if( hit.didHit && hit.dst < closestHit.dst ) {
-					// Check visibility without loading full material
-					if( isMaterialVisible( tri.materialIndex, rayDirection, hit.normal ) ) {
-						closestHit = hit;
-						closestHit.materialIndex = tri.materialIndex; // Store material index
-
-						// Early termination for very close hits
-						if( hit.dst < 0.001 ) {
-							break; // Exit the triangle loop
+					if( shadowRay ) {
+						// For shadow rays, only check basic visibility
+						if( isTriangleVisible( tri.materialIndex, rayDirection ) ) {
+							closestHit = hit;
+							closestHit.materialIndex = tri.materialIndex;
+							// Don't load full material for shadow rays
+						}
+					} else {
+						// For primary rays, do full material check
+						if( isMaterialVisible( tri.materialIndex, rayDirection, hit.normal ) ) {
+							closestHit = hit;
+							closestHit.materialIndex = tri.materialIndex;
 						}
 					}
 				}

@@ -322,7 +322,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		state.traversals = maxBounceCount - bounceIndex;
 		state.firstRay = ( bounceIndex == 0 ) && ( state.transmissiveTraversals == transmissiveBounces );
 
-		HitInfo hitInfo = traverseBVH( ray, stats );
+		HitInfo hitInfo = traverseBVH( ray, stats, false );
 
 		if( ! hitInfo.didHit ) {
             // Environment lighting

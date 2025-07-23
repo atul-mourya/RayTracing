@@ -131,7 +131,7 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
     const int MAX_SHADOW_TRANSMISSIONS = 8;
 
     for( int step = 0; step < MAX_SHADOW_TRANSMISSIONS; step ++ ) {
-        HitInfo shadowHit = traverseBVH( shadowRay, stats );
+        HitInfo shadowHit = traverseBVH( shadowRay, stats, true );
 
         // No hit or hit beyond light distance
         if( ! shadowHit.didHit || length( shadowHit.hitPoint - origin ) > maxDist )
