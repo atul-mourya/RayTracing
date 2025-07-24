@@ -111,6 +111,7 @@ export class PathTracerPass extends Pass {
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
+				enableDOF: { value: DEFAULT_STATE.enableDOF },
 				focusDistance: { value: DEFAULT_STATE.focusDistance },
 				focalLength: { value: DEFAULT_STATE.focalLength },
 				aperture: { value: DEFAULT_STATE.aperture },

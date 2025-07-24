@@ -18,6 +18,7 @@ uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from Adapti
 uniform bool useAdaptiveSampling;
 uniform int adaptiveSamplingMax;
 uniform float fireflyThreshold;
+uniform bool enableDOF;
 
 #ifdef ENABLE_ACCUMULATION
 uniform sampler2D previousAccumulatedTexture;

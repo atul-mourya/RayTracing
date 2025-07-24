@@ -2,11 +2,13 @@ import { Ruler, Telescope, Aperture, Camera, Target } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Trackpad } from "@/components/ui/trackpad";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
 import { useCameraStore } from '@/store';
 import { useEffect } from 'react';
 import { FieldOfView } from "@/assets/icons";
+import { Separator } from "@/components/ui/separator";
 
 const CameraTab = () => {
 
@@ -16,6 +18,7 @@ const CameraTab = () => {
 		focusDistance,
 		aperture,
 		focalLength,
+		enableDOF,
 		activePreset,
 		focusMode,
 		cameraNames,
@@ -32,6 +35,7 @@ const CameraTab = () => {
 		handleFovChange,
 		handleApertureChange,
 		handleFocalLengthChange,
+		handleEnableDOFChange,
 		handleCameraMove,
 		handleCameraChange,
 		handleApertureScaleChange,
@@ -95,29 +99,6 @@ const CameraTab = () => {
 			</div>
 
 			<div className="flex items-center justify-between">
-				<Select value={activePreset} onValueChange={handlePresetChange}>
-					<span className="opacity-50 text-xs truncate">Camera Preset</span>
-					<SelectTrigger className="max-w-32 h-5 rounded-full">
-						<div className="h-full pr-1 inline-flex justify-start items-center">
-							<Camera size={12} className="z-10" />
-						</div>
-						<SelectValue placeholder="Select preset" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="custom">Custom</SelectItem>
-						{Object.entries( CAMERA_PRESETS ).map( ( [ key, preset ] ) => (
-							<SelectItem key={key} value={key}>
-								<div>
-									<div className="font-medium">{preset.name}</div>
-									<div className="text-xs opacity-50">{preset.description}</div>
-								</div>
-							</SelectItem>
-						) )}
-					</SelectContent>
-				</Select>
-			</div>
-
-			<div className="flex items-center justify-between">
 				<Slider
 					label={"FOV"}
 					icon={FieldOfView}
@@ -129,67 +110,106 @@ const CameraTab = () => {
 				/>
 			</div>
 
-			<div className="flex items-center justify-between">
-				<Slider
-					label={"Focal Distance (m)"}
-					icon={Telescope}
-					min={CAMERA_RANGES.focusDistance.min}
-					max={CAMERA_RANGES.focusDistance.max}
-					step={0.1}
-					value={[ focusDistance.toFixed( 1 ) ]}
-					onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
-				/>
-				<Button
-					variant={focusMode ? "default" : "outline"}
-					size="icon"
-					onClick={handleToggleFocusMode}
-					className="ml-2 h-5 rounded-full"
-					title="Click in scene to set focus point"
-				>
-					<Target size={12} />
-				</Button>
-			</div>
+			<Separator />
 
 			<div className="flex items-center justify-between">
-				<Select value={aperture.toString()} onValueChange={handleApertureChange}>
-					<span className="opacity-50 text-xs truncate">Aperture (f)</span>
-					<SelectTrigger className="max-w-32 h-5 rounded-full">
-						<div className="h-full pr-1 inline-flex justify-start items-center">
-							<Aperture size={12} className="z-10" />
-						</div>
-						<SelectValue placeholder="Select aperture" />
-					</SelectTrigger>
-					<SelectContent>
-						{CAMERA_RANGES.aperture.options.map( f => (
-							<SelectItem key={f} value={f.toString()}>{f}</SelectItem>
-						) )}
-					</SelectContent>
-				</Select>
-			</div>
-
-			<div className="flex items-center justify-between">
-				<Slider
-					label={"Focal Length (mm)"}
-					icon={Ruler}
-					min={CAMERA_RANGES.focalLength.min}
-					max={CAMERA_RANGES.focalLength.max}
-					step={1}
-					value={[ focalLength ]}
-					onValueChange={handleFocalLengthChange}
+				<Switch
+					checked={enableDOF}
+					label="Depth of Field"
+					onCheckedChange={handleEnableDOFChange}
 				/>
 			</div>
 
-			<div className="flex items-center justify-between">
-				<Slider
-					label={"DOF Intensity"}
-					icon={Aperture}
-					min={0.1}
-					max={2.0}
-					step={0.1}
-					value={[ 1.0 ]} // Default value
-					onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
-				/>
-			</div>
+			{enableDOF && (
+				<>
+					<div className="flex items-center justify-between">
+						<Select value={activePreset} onValueChange={handlePresetChange}>
+							<span className="opacity-50 text-xs truncate">DOF Preset</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full">
+								<div className="h-full pr-1 inline-flex justify-start items-center">
+									<Camera size={12} className="z-10" />
+								</div>
+								<SelectValue placeholder="Select preset" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="custom">Custom</SelectItem>
+								{Object.entries( CAMERA_PRESETS ).map( ( [ key, preset ] ) => (
+									<SelectItem key={key} value={key}>
+										<div>
+											<div className="font-medium">{preset.name}</div>
+											<div className="text-xs opacity-50">{preset.description}</div>
+										</div>
+									</SelectItem>
+								) )}
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className="flex items-center justify-between">
+						<Slider
+							label={"Focal Distance (m)"}
+							icon={Telescope}
+							min={CAMERA_RANGES.focusDistance.min}
+							max={CAMERA_RANGES.focusDistance.max}
+							step={0.1}
+							value={[ focusDistance.toFixed( 1 ) ]}
+							onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
+						/>
+						<Button
+							variant={focusMode ? "default" : "outline"}
+							size="icon"
+							onClick={handleToggleFocusMode}
+							className="ml-2 h-5 rounded-full"
+							title="Click in scene to set focus point"
+						>
+							<Target size={12} />
+						</Button>
+					</div>
+
+					<div className="flex items-center justify-between">
+						<Select value={aperture.toString()} onValueChange={handleApertureChange}>
+							<span className="opacity-50 text-xs truncate">Aperture (f)</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full">
+								<div className="h-full pr-1 inline-flex justify-start items-center">
+									<Aperture size={12} className="z-10" />
+								</div>
+								<SelectValue placeholder="Select aperture" />
+							</SelectTrigger>
+							<SelectContent>
+								{CAMERA_RANGES.aperture.options.map( f => (
+									<SelectItem key={f} value={f.toString()}>{f}</SelectItem>
+								) )}
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className="flex items-center justify-between">
+						<Slider
+							label={"Focal Length (mm)"}
+							icon={Ruler}
+							min={CAMERA_RANGES.focalLength.min}
+							max={CAMERA_RANGES.focalLength.max}
+							step={1}
+							value={[ focalLength ]}
+							onValueChange={handleFocalLengthChange}
+						/>
+					</div>
+
+					<div className="flex items-center justify-between">
+						<Slider
+							label={"DOF Intensity"}
+							icon={Aperture}
+							min={0.1}
+							max={2.0}
+							step={0.1}
+							value={[ 1.0 ]} // Default value
+							onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
+						/>
+					</div>
+				</>
+			)}
+
+			<Separator />
 
 			{selectedCameraIndex == 0 && (
 				<div className="flex items-center justify-between">

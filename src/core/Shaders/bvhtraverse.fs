@@ -266,8 +266,8 @@ Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
 	vec3 rayDirectionWorld = normalize( mat3( cameraWorldMatrix ) * ( rayDirCS.xyz / rayDirCS.w ) );
 	vec3 rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] );
 
-	// Disable depth of field if aperture is very small (pinhole) or focal length is 0
-	if( focalLength <= 0.0 || aperture >= 64.0 || focusDistance <= 0.001 ) {
+	// Check if DOF is disabled or conditions make it ineffective
+	if( !enableDOF || focalLength <= 0.0 || aperture >= 64.0 || focusDistance <= 0.001 ) {
 		return Ray( rayOriginWorld, rayDirectionWorld );
 	}
 

@@ -170,10 +170,11 @@ export const DEFAULT_STATE = {
 	environmentRotation: 0.0,
 	globalIlluminationIntensity: 1,
 
+	enableDOF: false,
 	fov: 65,
-	focusDistance: 2.0,
-	aperture: 16,
-	focalLength: 0,
+	focusDistance: 0.8,
+	aperture: 5.6,
+	focalLength: 50,
 
 	enablePathTracer: true,
 	enableAccumulation: true,
@@ -283,14 +284,6 @@ export const CAMERA_RANGES = {
 
 // Define photography presets
 export const CAMERA_PRESETS = {
-	sharp: {
-		name: "Sharp",
-		description: "Infinite focus, everything in focus",
-		fov: 65,
-		focusDistance: 0,
-		aperture: 16.0,
-		focalLength: 0 // 0 disables DOF entirely
-	},
 	portrait: {
 		name: "Portrait",
 		description: "Shallow depth of field, background blur",
@@ -318,7 +311,7 @@ export const CAMERA_PRESETS = {
 	product: {
 		name: "Product",
 		description: "Sharp detail with subtle background separation",
-		fov: 50,
+		fov: 65,
 		focusDistance: 0.8,
 		aperture: 5.6,
 		focalLength: 50

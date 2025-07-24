@@ -787,7 +787,7 @@ const useLightStore = create( set => ( {
 // Camera store
 const useCameraStore = create( ( set, get ) => ( {
 	...DEFAULT_STATE,
-	activePreset: "custom",
+	activePreset: "product",
 	cameraNames: [],
 	selectedCameraIndex: 0,
 	focusMode: false,
@@ -799,6 +799,7 @@ const useCameraStore = create( ( set, get ) => ( {
 	setFocusDistance: val => set( { focusDistance: val, activePreset: "custom" } ),
 	setAperture: val => set( { aperture: val, activePreset: "custom" } ),
 	setFocalLength: val => set( { focalLength: val, activePreset: "custom" } ),
+	setEnableDOF: val => set( { enableDOF: val, activePreset: "custom" } ),
 	setPreset: key => {
 
 		if ( key === "custom" ) return;
@@ -813,6 +814,18 @@ const useCameraStore = create( ( set, get ) => ( {
 		const isActive = window.pathTracerApp.toggleFocusMode();
 		console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
 		set( { focusMode: isActive } );
+
+	},
+
+	handleEnableDOFChange: val => {
+
+		set( { enableDOF: val, activePreset: "custom" } );
+		if ( window.pathTracerApp ) {
+
+			window.pathTracerApp.pathTracingPass.material.uniforms.enableDOF.value = val;
+			window.pathTracerApp.reset();
+
+		}
 
 	},
 
