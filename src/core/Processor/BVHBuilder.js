@@ -965,7 +965,14 @@ export default class BVHBuilder {
 						triangleData: bufferCopy,
 						triangleCount,
 						depth,
-						reportProgress: !! progressCallback
+						reportProgress: !! progressCallback,
+						// Include treelet optimization configuration
+						treeletOptimization: {
+							enabled: this.enableTreeletOptimization,
+							size: this.treeletSize,
+							passes: this.treeletOptimizationPasses,
+							minImprovement: this.treeletMinImprovement
+						}
 					};
 					transferable = [ bufferCopy ];
 

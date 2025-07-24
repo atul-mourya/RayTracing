@@ -173,7 +173,7 @@ export const DEFAULT_STATE = {
 	fov: 65,
 	focusDistance: 2.0,
 	aperture: 16,
-	focalLength: 50.0,
+	focalLength: 0,
 
 	enablePathTracer: true,
 	enableAccumulation: true,
