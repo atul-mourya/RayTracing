@@ -1,4 +1,4 @@
-import { Vector3, Vector2, Color, Matrix3, Matrix4, FrontSide, BackSide, DoubleSide } from "three";
+import { Vector3, Vector2, Color, Matrix3, Matrix4, FrontSide, BackSide, DoubleSide, RGBAFormat } from "three";
 import { TRIANGLE_DATA_LAYOUT } from '../../Constants.js';
 
 const MAX_TEXTURES_LIMIT = 128;
@@ -173,92 +173,256 @@ export default class GeometryExtractor {
 
 	getMaterialAlphaMode( material ) {
 
-		if ( material.transparent ) return 2; // 'BLEND'
-		if ( material.alphaTest > 0.0 ) return 1; // 'MASK'
-		return 0; // 'OPAQUE'
+		// Follow glTF 2.0 specification for alphaMode
+		// Check if material explicitly sets alphaMode (from glTF loader)
+		if ( material.userData?.gltfExtensions?.KHR_materials_unlit?.alphaMode ) {
+
+			const mode = material.userData.gltfExtensions.KHR_materials_unlit.alphaMode;
+			if ( mode === 'BLEND' ) return 2;
+			if ( mode === 'MASK' ) return 1;
+			return 0; // OPAQUE
+
+		}
+
+		// Fallback logic based on material properties
+		if ( material.alphaTest > 0.0 ) {
+
+			return 1; // MASK - alphaTest takes priority
+
+		}
+
+		if ( material.transparent && material.opacity < 1.0 ) {
+
+			return 2; // BLEND - transparent with opacity < 1
+
+		}
+
+		// Check for alpha in diffuse texture
+		if ( material.map && material.map.format === RGBAFormat && material.transparent ) {
+
+			return 2; // BLEND - has alpha texture and transparent flag
+
+		}
+
+		return 0; // OPAQUE
+
+	}
+
+	getMaterialType( material ) {
+
+		// Detect material type for appropriate property mapping
+		if ( material.isMeshPhysicalMaterial ) return 'physical';
+		if ( material.isMeshStandardMaterial ) return 'standard';
+		if ( material.isMeshPhongMaterial ) return 'phong';
+		if ( material.isMeshLambertMaterial ) return 'lambert';
+		if ( material.isMeshBasicMaterial ) return 'basic';
+		if ( material.isMeshToonMaterial ) return 'toon';
+		return 'unknown';
+
+	}
+
+	getPhysicalDefaults() {
+
+		// Defaults optimized for physically-based path tracing
+		return {
+			emissive: new Color( 0, 0, 0 ),
+			emissiveIntensity: 1.0,
+			roughness: 1.0,
+			metalness: 0.0,
+			ior: 1.5, // Common dielectric IOR (glass, plastic)
+			opacity: 1.0,
+			transmission: 0.0,
+			thickness: 0.1,
+			attenuationColor: new Color( 0xffffff ),
+			attenuationDistance: Infinity, // No attenuation by default
+			dispersion: 0.0,
+			sheen: 0.0,
+			sheenRoughness: 1.0,
+			sheenColor: new Color( 0x000000 ),
+			specularIntensity: 1.0,
+			specularColor: new Color( 0xffffff ),
+			clearcoat: 0.0,
+			clearcoatRoughness: 0.0,
+			iridescence: 0.0,
+			iridescenceIOR: 1.3,
+			iridescenceThicknessRange: [ 100, 400 ],
+			normalScale: { x: 1, y: 1 },
+			bumpScale: 1.0,
+			alphaTest: 0.0
+		};
+
+	}
+
+	mapLegacyMaterialToPhysical( material, materialType ) {
+
+		// Map legacy material properties to physically-based equivalents
+		const mapped = {};
+
+		switch ( materialType ) {
+
+			case 'basic':
+				// MeshBasicMaterial -> Unlit/Emissive material
+				mapped.emissive = material.color.clone();
+				mapped.emissiveIntensity = 1.0;
+				mapped.color = new Color( 0x000000 ); // No diffuse reflection
+				mapped.roughness = 1.0;
+				mapped.metalness = 0.0;
+				break;
+
+			case 'lambert':
+				// MeshLambertMaterial -> Pure diffuse
+				mapped.roughness = 1.0;
+				mapped.metalness = 0.0;
+				mapped.specularIntensity = 0.0; // No specular
+				break;
+
+			case 'phong':
+				// MeshPhongMaterial -> Convert shininess to roughness
+				const shininess = material.shininess || 30;
+				mapped.roughness = Math.sqrt( 2.0 / ( shininess + 2 ) );
+				mapped.metalness = 0.0;
+
+				// Convert specular color to specular intensity
+				if ( material.specular ) {
+
+					const specularLuminance = material.specular.r * 0.299 +
+                                        material.specular.g * 0.587 +
+                                        material.specular.b * 0.114;
+					mapped.specularIntensity = Math.min( specularLuminance * 2.0, 1.0 );
+					mapped.specularColor = material.specular.clone();
+
+				}
+
+				break;
+
+			case 'toon':
+				// MeshToonMaterial -> Stylized but physically plausible
+				mapped.roughness = 0.9;
+				mapped.metalness = 0.0;
+				break;
+
+			case 'standard':
+			case 'physical':
+				// Already physically-based, no conversion needed
+				break;
+
+		}
+
+		return mapped;
 
 	}
 
 	createMaterialObject( material ) {
 
-		// Create default values for missing properties
-		const defaultValues = {
-			emissive: new Color( 0, 0, 0 ),
-			attenuationColor: new Color( 0xffffff ),
-			attenuationDistance: 1e20,
-			dispersion: 0.0,
-			sheen: 0.0,
-			sheenRoughness: 1,
-			sheenColor: new Color( 0x000000 ),
-			specularIntensity: 1.0,
-			specularColor: new Color( 0xffffff ),
-			iridescence: 0.0,
-			iridescenceIOR: 1.0,
-			iridescenceThicknessRange: [ 100, 400 ],
-			roughness: 1.0,
-			metalness: 0.0,
-			ior: 0,
-			opacity: 1.0,
-			transmission: 0.0,
-			thickness: 0.1,
-			clearcoat: 0.0,
-			clearcoatRoughness: 0.0,
-			normalScale: { x: 1, y: 1 },
-			bumpScale: 1,
-			alphaTest: 0.0
-		};
+		const defaults = this.getPhysicalDefaults();
+		const materialType = this.getMaterialType( material );
+		const legacyMapping = this.mapLegacyMaterialToPhysical( material, materialType );
 
-		// Create material object, using defaults for missing properties
+		// Determine if material should be treated as dielectric or metallic
+		const isMetallic = ( material.metalness ?? legacyMapping.metalness ?? 0.0 ) > 0.1;
+
+		// Set appropriate IOR based on material type
+		let defaultIOR = defaults.ior;
+		if ( isMetallic ) {
+
+			defaultIOR = 2.5; // Typical metallic IOR
+
+		} else if ( material.transmission > 0.0 ) {
+
+			defaultIOR = 1.5; // Glass-like for transmissive materials
+
+		}
+
+		// Handle color conversion for different material types
+		let baseColor = material.color || new Color( 0xffffff );
+		if ( materialType === 'basic' && ! material.map ) {
+
+			// For basic materials without textures, treat color as emissive
+			baseColor = new Color( 0x000000 );
+
+		}
+
 		return {
 			uuid: material.uuid,
-			color: material.color,
-			emissive: material.emissive || defaultValues.emissive,
-			emissiveIntensity: material.emissiveIntensity || 1.0,
-			roughness: material.roughness ?? defaultValues.roughness,
-			metalness: material.metalness ?? defaultValues.metalness,
-			ior: material.ior ?? defaultValues.ior,
-			opacity: material.opacity ?? defaultValues.opacity,
-			transmission: material.transmission ?? defaultValues.transmission,
-			attenuationColor: material.attenuationColor ?? defaultValues.attenuationColor,
-			attenuationDistance: material.attenuationDistance ?? defaultValues.attenuationDistance,
-			dispersion: material.dispersion ?? defaultValues.dispersion,
-			sheen: material.sheen ?? defaultValues.sheen,
-			sheenRoughness: material.sheenRoughness ?? defaultValues.sheenRoughness,
-			sheenColor: material.sheenColor ?? defaultValues.sheenColor,
-			specularIntensity: material.specularIntensity ?? defaultValues.specularIntensity,
-			specularColor: material.specularColor ?? defaultValues.specularColor,
-			thickness: material.thickness ?? defaultValues.thickness,
-			clearcoat: material.clearcoat ?? defaultValues.clearcoat,
-			clearcoatRoughness: material.clearcoatRoughness ?? defaultValues.clearcoatRoughness,
-			iridescence: material.iridescence ?? defaultValues.iridescence,
-			iridescenceIOR: material.iridescenceIOR ?? defaultValues.iridescenceIOR,
-			iridescenceThicknessRange: material.iridescenceThicknessRange ?? defaultValues.iridescenceThicknessRange,
-			side: this.getMaterialSide( material ),
-			normalScale: material.normalScale ?? defaultValues.normalScale,
-			bumpScale: material.bumpScale ?? defaultValues.bumpScale,
-			transparent: material.transparent ? 1 : 0,
-			alphaTest: material.alphaTest ?? defaultValues.alphaTest,
-			alphaMode: this.getMaterialAlphaMode( material ),
-			depthWrite: material.depthWrite ? 1 : 0,
-			visible: material.visible ? 1 : 0,
 
-			// Process textures
+			// Base material properties
+			color: baseColor,
+			emissive: legacyMapping.emissive || material.emissive || defaults.emissive,
+			emissiveIntensity: legacyMapping.emissiveIntensity || material.emissiveIntensity || defaults.emissiveIntensity,
+
+			// Surface properties
+			roughness: Math.max( 0.05, legacyMapping.roughness ?? material.roughness ?? defaults.roughness ),
+			metalness: legacyMapping.metalness ?? material.metalness ?? defaults.metalness,
+
+			// Optical properties
+			ior: material.ior ?? defaultIOR,
+			opacity: material.opacity ?? defaults.opacity,
+
+			// Transmission properties (MeshPhysicalMaterial only)
+			transmission: material.transmission ?? defaults.transmission,
+			thickness: material.thickness ?? defaults.thickness,
+			attenuationColor: material.attenuationColor ?? defaults.attenuationColor,
+			attenuationDistance: material.attenuationDistance ?? defaults.attenuationDistance,
+
+			// Advanced properties (MeshPhysicalMaterial only)
+			dispersion: material.dispersion ?? defaults.dispersion,
+			sheen: material.sheen ?? defaults.sheen,
+			sheenRoughness: material.sheenRoughness ?? defaults.sheenRoughness,
+			sheenColor: material.sheenColor ?? defaults.sheenColor,
+			clearcoat: material.clearcoat ?? defaults.clearcoat,
+			clearcoatRoughness: material.clearcoatRoughness ?? defaults.clearcoatRoughness,
+			iridescence: material.iridescence ?? defaults.iridescence,
+			iridescenceIOR: material.iridescenceIOR ?? defaults.iridescenceIOR,
+			iridescenceThicknessRange: material.iridescenceThicknessRange ?? defaults.iridescenceThicknessRange,
+
+			// Specular properties (for compatibility)
+			specularIntensity: legacyMapping.specularIntensity ?? material.specularIntensity ?? defaults.specularIntensity,
+			specularColor: legacyMapping.specularColor ?? material.specularColor ?? defaults.specularColor,
+
+			// Surface detail properties
+			normalScale: material.normalScale ?? defaults.normalScale,
+			bumpScale: material.bumpScale ?? defaults.bumpScale,
+
+			// Transparency and alpha
+			transparent: material.transparent ? 1 : 0,
+			alphaTest: material.alphaTest ?? defaults.alphaTest,
+			alphaMode: this.getMaterialAlphaMode( material ),
+
+			// Rendering properties
+			side: this.getMaterialSide( material ),
+			depthWrite: material.depthWrite ?? true ? 1 : 0,
+			visible: material.visible ?? true ? 1 : 0,
+
+			// Texture processing
 			map: this.processTexture( material.map, this.maps ),
 			normalMap: this.processTexture( material.normalMap, this.normalMaps ),
 			bumpMap: this.processTexture( material.bumpMap, this.bumpMaps ),
 			roughnessMap: this.processTexture( material.roughnessMap, this.roughnessMaps ),
 			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
 			emissiveMap: this.processTexture( material.emissiveMap, this.emissiveMaps ),
+
+			// Advanced texture maps (MeshPhysicalMaterial only)
 			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
 			clearcoatRoughnessMap: this.processTexture( material.clearcoatRoughnessMap, [] ),
+			transmissionMap: this.processTexture( material.transmissionMap, [] ),
+			thicknessMap: this.processTexture( material.thicknessMap, [] ),
+			sheenColorMap: this.processTexture( material.sheenColorMap, [] ),
+			sheenRoughnessMap: this.processTexture( material.sheenRoughnessMap, [] ),
+			specularIntensityMap: this.processTexture( material.specularIntensityMap, [] ),
+			specularColorMap: this.processTexture( material.specularColorMap, [] ),
+			iridescenceMap: this.processTexture( material.iridescenceMap, [] ),
+			iridescenceThicknessMap: this.processTexture( material.iridescenceThicknessMap, [] ),
 
-			// Process texture matrices
+			// Texture transformation matrices
 			mapMatrix: this.getTextureMatrix( material.map ),
 			normalMapMatrices: this.getTextureMatrix( material.normalMap ),
 			bumpMapMatrices: this.getTextureMatrix( material.bumpMap ),
 			roughnessMapMatrices: this.getTextureMatrix( material.roughnessMap ),
 			metalnessMapMatrices: this.getTextureMatrix( material.metalnessMap ),
 			emissiveMapMatrices: this.getTextureMatrix( material.emissiveMap ),
+
+			// Material type for debugging/optimization
+			originalType: materialType
 		};
 
 	}

@@ -126,7 +126,7 @@ export class PathTracerPass extends Pass {
 				maxFrames: { value: DEFAULT_STATE.maxSamples },
 				maxBounceCount: { value: DEFAULT_STATE.bounces },
 				numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
-				transmissiveBounces: { value: 8 },
+				transmissiveBounces: { value: DEFAULT_STATE.transmissiveBounces },
 
 				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique },
 				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },

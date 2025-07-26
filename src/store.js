@@ -320,6 +320,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = val
 	),
 
+	handleTransmissiveBouncesChange: handleChange(
+		val => set( { transmissiveBounces: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.transmissiveBounces.value = val
+	),
+
 	handleSamplingTechniqueChange: handleChange(
 		val => set( { samplingTechnique: val } ),
 		val => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = val

@@ -29,6 +29,7 @@ const PathTracerTab = () => {
 		enableAccumulation,
 		bounces,
 		samplesPerPixel,
+		transmissiveBounces,
 		samplingTechnique,
 		adaptiveSampling,
 		adaptiveSamplingMin,
@@ -72,6 +73,7 @@ const PathTracerTab = () => {
 		handleAccumulationChange,
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
+		handleTransmissiveBouncesChange,
 		handleSamplingTechniqueChange,
 		handleResolutionChange,
 		handleAdaptiveSamplingChange,
@@ -125,6 +127,9 @@ const PathTracerTab = () => {
 				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
+				</div>
+				<div className="flex items-center justify-between">
+					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
 				</div>
 				<div className="flex items-center justify-between">
 					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
