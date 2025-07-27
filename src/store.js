@@ -83,13 +83,13 @@ const useEnvironmentStore = create( set => ( {
 
 // Path tracer store with handlers
 const FINAL_STATE = {
-	maxSamples: 30, bounces: 20, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
+	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
 	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHDR: false, useGBuffer: true,
 	interactionModeEnabled: false,
 };
 
 const INTERACTIVE_STATE = {
-	bounces: 3, samplesPerPixel: 1, renderMode: 0, tiles: 3, tilesHelper: false, resolution: 1,
+	bounces: 3, samplesPerPixel: 1, renderMode: 0, transmissiveBounces: 3, tiles: 3, tilesHelper: false, resolution: 1,
 	enableOIDN: false, oidnQuality: 'fast', oidnHDR: false, useGBuffer: true,
 	interactionModeEnabled: true,
 };
@@ -298,7 +298,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => {
 
 			const app = window.pathTracerApp;
-			app.accPass.enabled = val;
+			app.pathTracingPass.setAccumulationEnabled( val );
 			app.pathTracingPass.enabled = val;
 			app.renderPass.enabled = ! val;
 
@@ -662,6 +662,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.maxBounceCount.value = INTERACTIVE_STATE.bounces;
 			uniforms.numRaysPerPixel.value = INTERACTIVE_STATE.samplesPerPixel;
 			uniforms.renderMode.value = INTERACTIVE_STATE.renderMode;
+			uniforms.transmissiveBounces.value = INTERACTIVE_STATE.transmissiveBounces;
 			app.pathTracingPass.tiles = INTERACTIVE_STATE.tiles;
 			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
 			app.denoiser.enabled = INTERACTIVE_STATE.enableOIDN;
@@ -701,6 +702,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.maxBounceCount.value = FINAL_STATE.bounces;
 			uniforms.numRaysPerPixel.value = FINAL_STATE.samplesPerPixel;
 			uniforms.renderMode.value = FINAL_STATE.renderMode;
+			uniforms.transmissiveBounces.value = FINAL_STATE.transmissiveBounces;
 			app.pathTracingPass.tiles = FINAL_STATE.tiles;
 			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
 			app.denoiser.enabled = FINAL_STATE.enableOIDN;

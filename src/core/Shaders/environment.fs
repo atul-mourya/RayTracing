@@ -8,8 +8,8 @@ uniform sampler2D envCDF;    // Stores marginal and conditional CDFs
 uniform vec2 envCDFSize;     // Size of the CDF texture
 
 uniform bool useEnvMipMap;
-uniform float envSamplingBias;
-uniform int maxEnvSamplingBounce;
+uniform float envSamplingBias; // Bias for mip level selection
+uniform int maxEnvSamplingBounce; // Maximum bounces for environment sampling
 
 // Structure to store sampling results
 struct EnvMapSample {
