@@ -511,30 +511,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { enableEnvironment: val } ),
 		val => {
 
-			console.log( "Environment enabled:", val );
-
-			if ( window.pathTracerApp ) {
-
-				// Set the uniform
-				window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
-
-				// TEMPORARY: Make the effect more obvious by adjusting other settings
-				if ( val ) {
-
-					// When environment is ON, boost environment intensity
-					window.pathTracerApp.pathTracingPass.material.uniforms.environmentIntensity.value = 2.0;
-					window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = 0.5;
-
-				} else {
-
-					// When environment is OFF, reduce GI to make difference more obvious
-					window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = 0.1;
-
-				}
-
-				window.pathTracerApp.reset();
-
-			}
+			window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
+			window.pathTracerApp.reset();
 
 		}
 	),
