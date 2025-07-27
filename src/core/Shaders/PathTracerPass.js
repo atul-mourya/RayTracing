@@ -39,6 +39,12 @@ export class PathTracerPass extends Pass {
 		this.scissorEnabled = false;
 		this.tileHighlightPass = null;
 
+		// Performance caches
+		this.tileBoundsCache = new Map();
+		this.totalTilesCache = this.tiles * this.tiles;
+		this.mrtTexturesCache = { color: null, normalDepth: null };
+		this.adaptiveSamplingFrameToggle = false;
+
 		// Create improved CDF builder with production settings
 		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer, {
 			maxCDFSize: 1024,
@@ -202,6 +208,11 @@ export class PathTracerPass extends Pass {
 		this.lastRenderMode = - 1;
 		this.tileCompletionFrame = 0;
 
+		// Add render mode change debouncing
+		this.renderModeChangeTimeout = null;
+		this.renderModeChangeDelay = 50; // ms
+		this.pendingRenderMode = null;
+
 		this.isComplete = false;
 		this.adaptiveSamplingPass = null;
 
@@ -251,6 +262,14 @@ export class PathTracerPass extends Pass {
 	 */
 	calculateTileBounds( tileIndex, totalTiles, width, height ) {
 
+		// Use cache to avoid recalculation
+		const cacheKey = `${tileIndex}-${totalTiles}-${width}-${height}`;
+		if ( this.tileBoundsCache.has( cacheKey ) ) {
+
+			return this.tileBoundsCache.get( cacheKey );
+
+		}
+
 		// Calculate tile size using ceiling division to ensure all pixels are covered
 		const tileWidth = Math.ceil( width / totalTiles );
 		const tileHeight = Math.ceil( height / totalTiles );
@@ -267,12 +286,16 @@ export class PathTracerPass extends Pass {
 		const clampedWidth = Math.min( tileWidth, width - x );
 		const clampedHeight = Math.min( tileHeight, height - y );
 
-		return {
+		const bounds = {
 			x: x,
 			y: y,
 			width: clampedWidth,
 			height: clampedHeight
 		};
+
+		// Cache the result
+		this.tileBoundsCache.set( cacheKey, bounds );
+		return bounds;
 
 	}
 
@@ -282,6 +305,18 @@ export class PathTracerPass extends Pass {
 	 * @param {Object} bounds - Scissor bounds {x, y, width, height}
 	 */
 	enableScissorForTile( renderer, bounds ) {
+
+		// Skip if already set to these exact bounds
+		if ( this.scissorEnabled &&
+			 this.currentTileBounds &&
+			 this.currentTileBounds.x === bounds.x &&
+			 this.currentTileBounds.y === bounds.y &&
+			 this.currentTileBounds.width === bounds.width &&
+			 this.currentTileBounds.height === bounds.height ) {
+
+			return;
+
+		}
 
 		const gl = renderer.getContext();
 
@@ -295,7 +330,7 @@ export class PathTracerPass extends Pass {
 		gl.scissor( bounds.x, flippedY, bounds.width, bounds.height );
 
 		this.scissorEnabled = true;
-		this.currentTileBounds = bounds;
+		this.currentTileBounds = { ...bounds };
 
 	}
 
@@ -338,10 +373,10 @@ export class PathTracerPass extends Pass {
 
 	getMRTTextures() {
 
-		return {
-			color: this.currentTarget.textures[ 0 ],
-			normalDepth: this.currentTarget.textures[ 1 ]
-		};
+		// Reuse cached object to avoid allocation
+		this.mrtTexturesCache.color = this.currentTarget.textures[ 0 ];
+		this.mrtTexturesCache.normalDepth = this.currentTarget.textures[ 1 ];
+		return this.mrtTexturesCache;
 
 	}
 
@@ -545,9 +580,11 @@ export class PathTracerPass extends Pass {
 	setTileCount( newTileCount ) {
 
 		this.tiles = newTileCount;
+		this.totalTilesCache = newTileCount * newTileCount; // Cache total tiles
 		this.tileIndex = 0; // Reset tile index when tile count changes
 		this.spiralOrder = this.generateSpiralOrder( newTileCount );
 		this.updateCompletionThreshold(); // Recalculate based on new tile count
+		this.tileBoundsCache.clear(); // Clear cache when tile count changes
 		this.reset(); // Reset accumulation
 
 	}
@@ -603,7 +640,7 @@ export class PathTracerPass extends Pass {
 		const maxFrames = this.material.uniforms.maxFrames.value;
 
 		this.completionThreshold = renderMode === 1
-			? Math.pow( this.tiles, 2 ) * maxFrames
+			? this.totalTilesCache * maxFrames
 			: maxFrames;
 
 	}
@@ -753,12 +790,11 @@ export class PathTracerPass extends Pass {
 
 	render( renderer, writeBuffer, readBuffer ) {
 
-		if ( ! this.enabled || this.isComplete ) return;
+		// Combine early exit conditions for better performance
+		if ( ! this.enabled || this.isComplete ||
+			 this.material.uniforms.frame.value >= this.completionThreshold ) {
 
-		// 1. Early completion check with pre-calculated threshold
-		if ( this.material.uniforms.frame.value >= this.completionThreshold ) {
-
-			this.isComplete = true;
+			if ( ! this.isComplete ) this.isComplete = true;
 			return;
 
 		}
@@ -775,8 +811,6 @@ export class PathTracerPass extends Pass {
 		// 2. Handle tile rendering with scissor testing
 		if ( renderMode === 1 ) {
 
-			const totalTiles = Math.pow( this.tiles, 2 );
-
 			if ( frameValue === 0 ) {
 
 				// First frame: render entire image, disable scissor
@@ -786,26 +820,36 @@ export class PathTracerPass extends Pass {
 			} else {
 
 				// Calculate current tile index (frames 1+ are tile-based)
-				const linearTileIndex = ( frameValue - 1 ) % totalTiles;
+				const linearTileIndex = ( frameValue - 1 ) % this.totalTilesCache;
 				this.tileIndex = this.spiralOrder[ linearTileIndex ];
 
 				// Set up scissor testing for current tile
 				const tileBounds = this.calculateTileBounds( this.tileIndex, this.tiles, this.width, this.height );
 				this.enableScissorForTile( renderer, tileBounds );
 
-				// Update tile highlight pass immediately when tileIndex changes
+				// Update tile highlight pass only when values change
 				if ( this.tileHighlightPass && this.tileHighlightPass.enabled ) {
 
-					this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
-					this.tileHighlightPass.uniforms.renderMode.value = renderMode;
-					this.tileHighlightPass.uniforms.tiles.value = this.tiles;
-					this.tileHighlightPass.setCurrentTileBounds( tileBounds );
+					const needsUpdate = (
+						this.tileHighlightPass.uniforms.tileIndex.value !== this.tileIndex ||
+						this.tileHighlightPass.uniforms.renderMode.value !== renderMode ||
+						this.tileHighlightPass.uniforms.tiles.value !== this.tiles
+					);
+
+					if ( needsUpdate ) {
+
+						this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
+						this.tileHighlightPass.uniforms.renderMode.value = renderMode;
+						this.tileHighlightPass.uniforms.tiles.value = this.tiles;
+						this.tileHighlightPass.setCurrentTileBounds( tileBounds );
+
+					}
 
 				}
 
 				// Only swap targets after completing all tiles in a sample
 				// Don't swap if we're still rendering tiles within the same sample
-				shouldSwapTargets = ( linearTileIndex === totalTiles - 1 );
+				shouldSwapTargets = ( linearTileIndex === this.totalTilesCache - 1 );
 
 			}
 
@@ -815,12 +859,22 @@ export class PathTracerPass extends Pass {
 			this.disableScissor( renderer );
 			this.tileIndex = - 1;
 
-			// Update tile highlight pass for non-tiled mode
+			// Update tile highlight pass for non-tiled mode only when needed
 			if ( this.tileHighlightPass && this.tileHighlightPass.enabled ) {
 
-				this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
-				this.tileHighlightPass.uniforms.renderMode.value = renderMode;
-				this.tileHighlightPass.uniforms.tiles.value = this.tiles;
+				const needsUpdate = (
+					this.tileHighlightPass.uniforms.tileIndex.value !== this.tileIndex ||
+					this.tileHighlightPass.uniforms.renderMode.value !== renderMode ||
+					this.tileHighlightPass.uniforms.tiles.value !== this.tiles
+				);
+
+				if ( needsUpdate ) {
+
+					this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
+					this.tileHighlightPass.uniforms.renderMode.value = renderMode;
+					this.tileHighlightPass.uniforms.tiles.value = this.tiles;
+
+				}
 
 			}
 
@@ -834,8 +888,6 @@ export class PathTracerPass extends Pass {
 
 			if ( renderMode !== 0 ) {
 
-				const totalTiles = Math.pow( this.tiles, 2 );
-
 				if ( uniforms.frame.value === 0 ) {
 
 					// First frame: render entire image for immediate preview
@@ -845,10 +897,9 @@ export class PathTracerPass extends Pass {
 				} else {
 
 					// Subsequent frames: use tile rendering with proper accumulation
-					// Calculate how many times the current tile has been rendered
 					// Frame 0 was full image (sample 1), frames 1+ are tile-based
 					// So frame 1-totalTiles is sample 2, frame (totalTiles+1)-(2*totalTiles) is sample 3, etc.
-					const timesCurrentTileRendered = Math.floor( ( uniforms.frame.value - 1 ) / totalTiles ) + 2;
+					const timesCurrentTileRendered = Math.floor( ( uniforms.frame.value - 1 ) / this.totalTilesCache ) + 2;
 
 					uniforms.accumulationAlpha.value = 1.0 / timesCurrentTileRendered;
 					uniforms.hasPreviousAccumulated.value = true; // Frame 0 provided initial accumulation
@@ -877,11 +928,11 @@ export class PathTracerPass extends Pass {
 		// Set previous frame texture
 		uniforms.previousFrameTexture.value = this.previousTarget.textures[ 0 ];
 
-		// 5. Adaptive sampling optimization - skip during interaction
+		// 5. Adaptive sampling optimization - use toggle instead of modulo
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
 
-			// Only update adaptive sampling every few frames for better performance
-			if ( frameValue % 2 === 0 ) {
+			this.adaptiveSamplingFrameToggle = ! this.adaptiveSamplingFrameToggle;
+			if ( this.adaptiveSamplingFrameToggle ) {
 
 				uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass.renderTarget.texture;
 				uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass.adaptiveSamplingMax;
@@ -941,11 +992,31 @@ export class PathTracerPass extends Pass {
 
 	manageASVGFForRenderMode( renderMode, frameValue ) {
 
-		// Detect render mode changes
+		// Only process render mode changes if actually different
 		if ( renderMode !== this.lastRenderMode ) {
 
-			this.lastRenderMode = renderMode;
-			this.onRenderModeChanged( renderMode );
+			// Debounce rapid render mode changes
+			if ( this.renderModeChangeTimeout ) {
+
+				clearTimeout( this.renderModeChangeTimeout );
+
+			}
+
+			this.pendingRenderMode = renderMode;
+
+			this.renderModeChangeTimeout = setTimeout( () => {
+
+				if ( this.pendingRenderMode !== null && this.pendingRenderMode !== this.lastRenderMode ) {
+
+					this.lastRenderMode = this.pendingRenderMode;
+					this.onRenderModeChanged( this.pendingRenderMode );
+
+				}
+
+				this.renderModeChangeTimeout = null;
+				this.pendingRenderMode = null;
+
+			}, this.renderModeChangeDelay );
 
 		}
 
@@ -968,7 +1039,6 @@ export class PathTracerPass extends Pass {
 		if ( newMode === 1 ) {
 
 			// Switching to tiled - prepare ASVGF
-			console.log( 'ASVGF: Switching to tiled rendering mode' );
 			this.asvgfPass.updateParameters( {
 				enableDebug: false, // Disable debug during tiles
 				temporalAlpha: 0.15 // Slightly higher for tile transitions
@@ -977,7 +1047,6 @@ export class PathTracerPass extends Pass {
 		} else {
 
 			// Switching to full quad - optimize for temporal consistency
-			console.log( 'ASVGF: Switching to full quad rendering mode' );
 			this.asvgfPass.updateParameters( {
 				temporalAlpha: 0.1, // Normal temporal blending
 			} );
@@ -991,10 +1060,9 @@ export class PathTracerPass extends Pass {
 
 	handleTiledASVGF( frameValue ) {
 
-		const totalTiles = Math.pow( this.tiles, 2 );
 		const isFirstFrame = frameValue === 0;
-		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % totalTiles );
-		const isLastTileInSample = currentTileIndex === totalTiles - 1;
+		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % this.totalTilesCache );
+		const isLastTileInSample = currentTileIndex === this.totalTilesCache - 1;
 
 		if ( isFirstFrame ) {
 
@@ -1132,6 +1200,17 @@ export class PathTracerPass extends Pass {
 			this.disableScissor( this.renderer );
 
 		}
+
+		// Clear render mode change timeout
+		if ( this.renderModeChangeTimeout ) {
+
+			clearTimeout( this.renderModeChangeTimeout );
+			this.renderModeChangeTimeout = null;
+
+		}
+
+		// Clear caches
+		this.tileBoundsCache.clear();
 
 		// Dispose unified targets
 		this.currentTarget.dispose();
