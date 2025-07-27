@@ -8,13 +8,13 @@ import {
 	LinearSRGBColorSpace,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { LightDataTransfer } from '../Processor/LightDataTransfer';
-import FragmentShader from './pathtracer.fs';
-import VertexShader from './pathtracer.vs';
-import TriangleSDF from '../Processor/TriangleSDF';
-import { EnvironmentCDFBuilder } from '../Processor/EnvironmentCDFBuilder';
-import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
-import { DEFAULT_STATE } from '../../Constants';
+import { LightDataTransfer } from './Processor/LightDataTransfer';
+import FragmentShader from './Shaders/pathtracer.fs';
+import VertexShader from './Shaders/pathtracer.vs';
+import TriangleSDF from './Processor/TriangleSDF';
+import { EnvironmentCDFBuilder } from './Processor/EnvironmentCDFBuilder';
+import blueNoiseImage from '../../public/noise/simple_bluenoise.png';
+import { DEFAULT_STATE } from '../Constants';
 
 export class PathTracerPass extends Pass {
 

@@ -29,7 +29,7 @@ import {
 import Stats from 'stats-gl';
 
 // Import custom passes and constants
-import { PathTracerPass } from './Shaders/PathTracerPass';
+import { PathTracerPass } from './PathTracerPass';
 import { EdgeAwareFilteringPass } from './Passes/EdgeAwareFilteringPass';
 import { ASVGFPass } from './Passes/ASVGFPass';
 import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
