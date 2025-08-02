@@ -7,6 +7,8 @@ import ViewportToolbar from './ViewportToolbar';
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
 import { saveRender } from '@/utils/database';
+import { useAutoFitScale } from '@/hooks/useAutoFitScale';
+import { generateViewportStyles } from '@/utils/viewport';
 
 
 const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
@@ -22,9 +24,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const appRef = useRef( null );
 	const isInitialized = useRef( false );
 
-	// Viewport state - now using separate useState hooks
-	const [ viewportScale, setViewportScale ] = useState( 100 );
-	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 ); // Fixed canvas size
+	// Viewport state
+	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 );
+	const [ canvasReady, setCanvasReady ] = useState( false );
 	const isDenoising = useStore( state => state.isDenoising );
 	const isRenderComplete = useStore( state => state.isRenderComplete );
 	const setIsRenderComplete = useStore( state => state.setIsRenderComplete );
@@ -32,6 +34,42 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( ( state ) => state.setLoading );
 	const appMode = useStore( state => state.appMode );
+
+	// Auto-fit scaling logic - only initialize after canvases are ready
+	const {
+		viewportScale,
+		autoFitScale,
+		isManualScale,
+		handleViewportResize,
+		handleResetToAutoFit
+	} = useAutoFitScale( {
+		viewportRef,
+		canvasSize: actualCanvasSize,
+		padding: 40,
+		minScale: 25,
+		maxScale: 200,
+		enabled: canvasReady // Only enable auto-fit after canvases are ready
+	} );
+
+
+	// Effect to mark canvases as ready
+	useEffect( () => {
+
+		if ( primaryCanvasRef.current && denoiserCanvasRef.current ) {
+
+			// Small delay to ensure DOM is fully rendered
+			const timer = setTimeout( () => {
+
+				setCanvasReady( true );
+
+			}, 100 );
+
+			return () => clearTimeout( timer );
+
+		}
+
+	}, [ actualCanvasSize ] );
+
 
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
@@ -128,13 +166,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	}, [ setLoading, toast, appMode ] );
 
-	// Control button handlers
-	const handleViewportResize = useCallback( ( scale ) => {
-
-		setViewportScale( scale );
-
-	}, [] );
-
 
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
@@ -147,35 +178,29 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 	}, [ isRenderComplete, isDenoising, viewportMode ] );
 
-	// Memoize style objects to prevent recreating them on each render
-	const wrapperStyle = useMemo( () => ( {
-		width: `${actualCanvasSize}px`,
-		height: `${actualCanvasSize}px`,
-		transform: `scale(${viewportScale / 100})`,
-		transformOrigin: 'center center',
-		transition: "transform 0.1s ease-out"
-	} ), [ actualCanvasSize, viewportScale ] );
-
-	const containerStyle = useMemo( () => ( {
-		position: "relative",
-		width: `${actualCanvasSize}px`,
-		height: `${actualCanvasSize}px`,
-		overflow: "hidden",
-		background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
-	} ), [ actualCanvasSize ] );
-
-	const canvasStyle = useMemo( () => ( {
-		width: `${actualCanvasSize}px`,
-		height: `${actualCanvasSize}px`
-	} ), [ actualCanvasSize ] );
+	// Memoize style objects
+	const { wrapperStyle, containerStyle, canvasStyle } = useMemo( () =>
+		generateViewportStyles( actualCanvasSize, viewportScale ),
+	[ actualCanvasSize, viewportScale ]
+	);
 
 	return (
 		<div ref={viewportRef} className="flex justify-center items-center h-full overflow-scroll" >
 
 			<div ref={viewportWrapperRef} className="relative shadow-2xl" style={wrapperStyle} >
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
-					<canvas ref={denoiserCanvasRef} width="1024" height="1024" style={canvasStyle} />
-					<canvas ref={primaryCanvasRef} width="1024" height="1024" style={canvasStyle} />
+					<canvas
+						ref={denoiserCanvasRef}
+						width={actualCanvasSize * 2}
+						height={actualCanvasSize * 2}
+						style={canvasStyle}
+					/>
+					<canvas
+						ref={primaryCanvasRef}
+						width={actualCanvasSize * 2}
+						height={actualCanvasSize * 2}
+						style={canvasStyle}
+					/>
 					<DimensionDisplay canvasRef={primaryCanvasRef} />
 				</div>
 			</div>
@@ -186,7 +211,16 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />
 			)}
 
-			<ViewportToolbar onResize={handleViewportResize} viewportWrapperRef={viewportRef} appRef={appRef} />
+			{canvasReady && (
+				<ViewportToolbar
+					onResize={handleViewportResize}
+					viewportWrapperRef={viewportRef}
+					appRef={appRef}
+					autoFitScale={autoFitScale}
+					isManualScale={isManualScale}
+					onResetToAutoFit={handleResetToAutoFit}
+				/>
+			)}
 
 		</div>
 	);

@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize, Target, Camera } from "lucide-react";
+import React, { useState, useCallback, useEffect } from 'react';
+import { ZoomIn, ZoomOut, RotateCcw, Maximize, Target, Camera, Minimize } from "lucide-react";
 import {
 	Tooltip,
 	TooltipTrigger,
@@ -42,6 +42,11 @@ const ViewportToolbar = ( {
 	viewportWrapperRef,
 	appRef,
 
+	// Auto-fit functionality
+	autoFitScale = 100,
+	isManualScale = false,
+	onResetToAutoFit,
+
 	// Appearance
 	className,
 	position = "bottom-right",
@@ -72,6 +77,17 @@ const ViewportToolbar = ( {
 
 	// Size state for resizer
 	const [ size, setSize ] = useState( defaultSize );
+
+	// Sync slider value with auto-fit scale when it changes and not in manual mode
+	useEffect( () => {
+
+		if ( ! isManualScale && onResetToAutoFit ) {
+
+			setSize( autoFitScale );
+
+		}
+
+	}, [ autoFitScale, isManualScale, onResetToAutoFit ] );
 
 	// Define position classes based on position prop
 	const positionClasses = {
@@ -107,8 +123,19 @@ const ViewportToolbar = ( {
 
 	const handleResetZoom = () => {
 
-		setSize( defaultSize );
-		onResize?.( defaultSize );
+		if ( onResetToAutoFit ) {
+
+			// Reset to auto-fit scale
+			onResetToAutoFit();
+			setSize( autoFitScale );
+
+		} else {
+
+			// Fallback to default behavior
+			setSize( defaultSize );
+			onResize?.( defaultSize );
+
+		}
 
 	};
 
@@ -134,27 +161,34 @@ const ViewportToolbar = ( {
 
 	}, [ appRef ] );
 
-	// Control button with different hover style
-	const ControlButton = ( { onClick, tooltip, icon, disabled = false } ) => (
+	// Enhanced Control button with auto-fit indicator
+	const ControlButton = ( { onClick, tooltip, icon, disabled = false, isAutoFit = false } ) => (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
-					onClick={() => {
-
-						console.log( `Button clicked: ${tooltip}` );
-						onClick();
-
-					}}
+					onClick={onClick}
 					variant={buttonVariant}
 					size={buttonSize}
 					disabled={disabled}
-					className="h-6 w-6 p-1 hover:bg-primary/20 hover:scale-105 mx-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+					className={cn(
+						"h-6 w-6 p-1 hover:bg-primary/20 hover:scale-105 mx-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed",
+						isAutoFit && ! isManualScale && "bg-primary/30 text-primary"
+					)}
 				>
-					{React.cloneElement( icon, { size: iconSize, className: "text-foreground/70" } )}
+					{React.cloneElement( icon, {
+						size: iconSize,
+						className: cn(
+							"text-foreground/70",
+							isAutoFit && ! isManualScale && "text-primary"
+						)
+					} )}
 				</Button>
 			</TooltipTrigger>
 			<TooltipContent>
-				<p className="text-xs">{tooltip}</p>
+				<p className="text-xs">
+					{tooltip}
+					{isAutoFit && ! isManualScale && " (Auto-fit active)"}
+				</p>
 			</TooltipContent>
 		</Tooltip>
 	);
@@ -173,7 +207,12 @@ const ViewportToolbar = ( {
 			<TooltipProvider>
 				{/* Zoom Controls Group */}
 				{controls.resetZoom && (
-					<ControlButton onClick={handleResetZoom} tooltip="Reset Zoom" icon={<RotateCcw />}/>
+					<ControlButton
+						onClick={handleResetZoom}
+						tooltip={onResetToAutoFit ? "Auto-fit" : "Reset Zoom"}
+						icon={onResetToAutoFit ? <Minimize /> : <RotateCcw />}
+						isAutoFit={!! onResetToAutoFit}
+					/>
 				)}
 
 				{controls.zoomButtons && (
@@ -188,6 +227,8 @@ const ViewportToolbar = ( {
 						step={step}
 						onValueChange={handleSizeChange}
 						className="w-30"
+						snapPoints={onResetToAutoFit ? [ autoFitScale ] : undefined}
+						snapThreshold={5}
 					/>
 				)}
 

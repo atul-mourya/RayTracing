@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, forwardRef, useMemo, useCallback } from 'react';
-import { Camera, Maximize, RotateCcw, Save, Eye } from "lucide-react";
+import { RotateCcw, Save, Eye } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { useToast } from '@/hooks/use-toast';
@@ -7,6 +7,8 @@ import { useStore } from '@/store';
 import { ImageProcessorComposer } from '@/utils/ImageProcessor';
 import ViewportToolbar from './ViewportToolbar';
 import { deleteRender, saveRender } from '@/utils/database';
+import { useAutoFitScale } from '@/hooks/useAutoFitScale';
+import { generateViewportStyles } from '@/utils/viewport';
 
 const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
@@ -26,7 +28,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const imageProcessorRef = useRef( null );
 
 	// Local state
-	const [ viewportScale, setViewportScale ] = useState( 100 );
 	const [ actualCanvasSize ] = useState( 512 );
 	const [ isImageDrawn, setIsImageDrawn ] = useState( false );
 	const [ viewingOriginal, setViewingOriginal ] = useState( false );
@@ -35,6 +36,21 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const [ longPressActive, setLongPressActive ] = useState( false );
 	const longPressTimeoutRef = useRef( null );
 	const [ isHovering, setIsHovering ] = useState( false );
+
+	// Auto-fit scaling logic
+	const {
+		viewportScale,
+		autoFitScale,
+		isManualScale,
+		handleViewportResize,
+		handleResetToAutoFit
+	} = useAutoFitScale( {
+		viewportRef,
+		canvasSize: actualCanvasSize,
+		padding: 80,
+		minScale: 25,
+		maxScale: 300
+	} );
 
 	// Calculate if changes have been made using useMemo for efficiency
 	const hasChanges = useMemo( () => {
@@ -323,9 +339,13 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	}, [] );
 
-	// UI handlers
-	const handleViewportResize = ( scale ) => setViewportScale( scale );
+	// Memoize style objects
+	const { wrapperStyle, containerStyle, canvasStyle } = useMemo( () =>
+		generateViewportStyles( actualCanvasSize, viewportScale ),
+	[ actualCanvasSize, viewportScale ]
+	);
 
+	// UI handlers
 	const resetImageProcessing = () => {
 
 		// Check if we have original settings to reset to
@@ -470,13 +490,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			<div
 				ref={viewportWrapperRef}
 				className="relative"
-				style={{
-					width: `${actualCanvasSize}px`,
-					height: `${actualCanvasSize}px`,
-					transform: `scale(${viewportScale / 100})`,
-					transformOrigin: 'center center',
-					transition: "transform 0.1s ease-out"
-				}}
+				style={wrapperStyle}
 				onMouseDown={imageData ? startLongPress : undefined}
 				onTouchStart={imageData ? startLongPress : undefined}
 				onMouseUp={imageData ? endLongPress : undefined}
@@ -495,13 +509,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				<div
 					ref={containerRef}
 					className="relative cursor-pointer"
-					style={{
-						position: "relative",
-						width: `${actualCanvasSize}px`,
-						height: `${actualCanvasSize}px`,
-						overflow: "hidden",
-						background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
-					}}
+					style={containerStyle}
 				>
 					{/* Canvas for edited image */}
 					<canvas
@@ -548,6 +556,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				minSize={25}
 				maxSize={300}
 				zoomStep={25}
+				autoFitScale={autoFitScale}
+				isManualScale={isManualScale}
+				onResetToAutoFit={handleResetToAutoFit}
 				controls={{
 					resetZoom: true,
 					zoomButtons: true,
