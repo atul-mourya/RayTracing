@@ -1,13 +1,12 @@
 import {
-	ShaderMaterial, Vector2, Matrix4, WebGLRenderTarget,
-	FloatType,
-	NearestFilter,
-	TextureLoader,
-	RepeatWrapping,
-	GLSL3,
-	LinearSRGBColorSpace,
+	Vector2, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, GLSL3
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+import { TileRenderingManager } from './Processor/TileRenderingManager.js';
+import { InteractionModeController } from './Processor/InteractionModeController.js';
+import { RenderTargetManager } from './Processor/RenderTargetManager.js';
+import { PathTracerUtils } from './Processor/PathTracerUtils.js';
 import { LightDataTransfer } from './Processor/LightDataTransfer';
 import FragmentShader from './Shaders/pathtracer.fs';
 import VertexShader from './Shaders/pathtracer.vs';
@@ -27,25 +26,13 @@ export class PathTracerPass extends Pass {
 		this.height = height;
 		this.renderer = renderer;
 		this.scene = scene;
-		this.tiles = DEFAULT_STATE.tiles;
-		this.tileIndex = 0;
-		this.spiralOrder = this.generateSpiralOrder( this.tiles );
-		this.cameras = [];
+		this.name = 'PathTracerPass';
+
+		this.tileManager = new TileRenderingManager( width, height, DEFAULT_STATE.tiles );
+		this.targetManager = new RenderTargetManager( width, height, renderer );
+
 		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
-
-		// Tile rendering state
-		this.currentTileBounds = null;
-		this.scissorEnabled = false;
-		this.tileHighlightPass = null;
-
-		// Performance caches
-		this.tileBoundsCache = new Map();
-		this.totalTilesCache = this.tiles * this.tiles;
-		this.mrtTexturesCache = { color: null, normalDepth: null };
-		this.adaptiveSamplingFrameToggle = false;
-
-		// Create improved CDF builder with production settings
 		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer, {
 			maxCDFSize: 1024,
 			minCDFSize: 256,
@@ -55,57 +42,75 @@ export class PathTracerPass extends Pass {
 			hotspotThreshold: 0.01
 		} );
 
-		this.name = 'PathTracerPass';
+		// State management
+		this.accumulationEnabled = true;
+		this.isComplete = false;
+		this.cameras = [];
 
-		// Store CDF validation results for debugging
+		// Pass connections
+		this.asvgfPass = null;
+		this.adaptiveSamplingPass = null;
+		this.tileHighlightPass = null;
+
+		// Performance monitoring
+		this.performanceMonitor = PathTracerUtils.createPerformanceMonitor();
+		this.completionThreshold = 0;
+
+		// Create shader material
+		this.setupMaterial();
+		this.setupBlueNoise();
+
+		// Now that material is created, we can update completion threshold
+		this.updateCompletionThreshold();
+
+		// Initialize interaction controller after material is created
+		this.interactionController = new InteractionModeController( renderer, this.material, {
+			enabled: DEFAULT_STATE.interactionModeEnabled,
+			qualitySettings: {
+				maxBounceCount: 1,
+				numRaysPerPixel: 1,
+				useAdaptiveSampling: false,
+				useEnvMapIS: false,
+				pixelRatio: 0.25,
+				enableAccumulation: false,
+			},
+			onReset: () => this.reset()
+		} );
+
+		// Cache frequently used objects
+		this.tempVector2 = new Vector2();
+		this.lastCameraMatrix = new Matrix4();
+		this.lastProjectionMatrix = new Matrix4();
+		this.environmentRotationMatrix = new Matrix4();
+
+		this.fsQuad = new FullScreenQuad( this.material );
+
+		// Denoising management state
+		this.lastRenderMode = - 1;
+		this.tileCompletionFrame = 0;
+		this.renderModeChangeTimeout = null;
+		this.renderModeChangeDelay = 50;
+		this.pendingRenderMode = null;
+
+		// Environment and CDF state
 		this.lastCDFValidation = null;
 		this.cdfBuildTime = 0;
 
-		// ========================================
-		// UNIFIED RENDER TARGET SYSTEM
-		// ========================================
+		// Adaptive sampling state
+		this.adaptiveSamplingFrameToggle = false;
 
-		const targetOptions = {
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			type: FloatType,
-			colorSpace: LinearSRGBColorSpace,
-			depthBuffer: false,
-			count: 2, // Always MRT: Color + NormalDepth
-			samples: 0 // IMPORTANT: No multisampling to avoid blitFramebuffer issues
-		};
+	}
 
-		// Single pair of ping-pong MRT targets
-		this.currentTarget = new WebGLRenderTarget( width, height, targetOptions );
-		this.previousTarget = new WebGLRenderTarget( width, height, targetOptions );
+	setupMaterial() {
 
-		// Set texture names for debugging
-		this.currentTarget.textures[ 0 ].name = 'CurrentColor';
-		this.currentTarget.textures[ 1 ].name = 'CurrentNormalDepth';
-		this.previousTarget.textures[ 0 ].name = 'PreviousColor';
-		this.previousTarget.textures[ 1 ].name = 'PreviousNormalDepth';
-
-		// Accumulation state
-		this.accumulationEnabled = true;
-
-		this.name = 'PathTracerPass';
-		this.material = new ShaderMaterial( {
-
-			name: 'PathTracingShader',
-
-			defines: {
-				MAX_SPHERE_COUNT: 0,
-				MAX_DIRECTIONAL_LIGHTS: 0,
-				MAX_AREA_LIGHTS: 0,
-				ENABLE_ACCUMULATION: '',
-			},
-
+		this.material = PathTracerUtils.createPathTracingMaterial( {
+			vertexShader: VertexShader,
+			fragmentShader: FragmentShader,
 			uniforms: {
-
-				resolution: { value: new Vector2( width, height ) },
+				resolution: { value: new Vector2( this.width, this.height ) },
 				exposure: { value: DEFAULT_STATE.exposure },
 				enableEnvironmentLight: { value: DEFAULT_STATE.enableEnvironment },
-				environment: { value: scene.environment },
+				environment: { value: this.scene.environment },
 				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity },
 				showBackground: { value: DEFAULT_STATE.showBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
@@ -159,6 +164,7 @@ export class PathTracerPass extends Pass {
 
 				spheres: { value: [] },
 
+				// Material textures
 				albedoMaps: { value: null },
 				emissiveMaps: { value: null },
 				normalMaps: { value: null },
@@ -166,6 +172,7 @@ export class PathTracerPass extends Pass {
 				roughnessMaps: { value: null },
 				metalnessMaps: { value: null },
 
+				// Geometry textures
 				triangleTexture: { value: null },
 				bvhTexture: { value: null },
 				materialTexture: { value: null },
@@ -177,16 +184,12 @@ export class PathTracerPass extends Pass {
 				useEnvMipMap: { value: true },
 				envSamplingBias: { value: 1.2 },
 				maxEnvSamplingBounce: { value: 3 },
-
-			},
-
-			vertexShader: VertexShader,
-			fragmentShader: FragmentShader,
-			glslVersion: GLSL3,
-
+			}
 		} );
 
-		this.fsQuad = new FullScreenQuad( this.material );
+	}
+
+	setupBlueNoise() {
 
 		const loader = new TextureLoader();
 		loader.load( blueNoiseImage, ( texture ) => {
@@ -204,235 +207,9 @@ export class PathTracerPass extends Pass {
 
 		} );
 
-		this.asvgfPass = null;
-		this.lastRenderMode = - 1;
-		this.tileCompletionFrame = 0;
-
-		// Add render mode change debouncing
-		this.renderModeChangeTimeout = null;
-		this.renderModeChangeDelay = 50; // ms
-		this.pendingRenderMode = null;
-
-		this.isComplete = false;
-		this.adaptiveSamplingPass = null;
-
-		// Performance optimization during interaction
-		this.interactionMode = false;
-		this.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
-		this.interactionTimeout = null;
-		this.interactionDelay = 100;
-		this.originalValues = {};
-
-		this.uniformsDirty = {
-			camera: true,
-			lights: true,
-			environment: true,
-			settings: true
-		};
-
-		// Pre-calculate completion thresholds
-		this.completionThreshold = 0;
-		this.updateCompletionThreshold();
-
-		// Cache frequently used objects
-		this.tempVector2 = new Vector2();
-		this.lastCameraMatrix = new Matrix4();
-		this.lastProjectionMatrix = new Matrix4();
-		this.environmentRotationMatrix = new Matrix4();
-
-		// Enhanced interaction mode settings
-		this.interactionQualitySettings = {
-			maxBounceCount: 1,
-			numRaysPerPixel: 1,
-			useAdaptiveSampling: false,
-			useEnvMapIS: false,
-			pixelRatio: 0.25,
-			enableAccumulation: false,
-		};
-
 	}
 
-	/**
-	 * Calculate the scissor bounds for a given tile
-	 * @param {number} tileIndex - The index of the tile
-	 * @param {number} totalTiles - Total number of tiles per row/column
-	 * @param {number} width - Render target width
-	 * @param {number} height - Render target height
-	 * @returns {Object} - Scissor bounds {x, y, width, height}
-	 */
-	calculateTileBounds( tileIndex, totalTiles, width, height ) {
-
-		// Use cache to avoid recalculation
-		const cacheKey = `${tileIndex}-${totalTiles}-${width}-${height}`;
-		if ( this.tileBoundsCache.has( cacheKey ) ) {
-
-			return this.tileBoundsCache.get( cacheKey );
-
-		}
-
-		// Calculate tile size using ceiling division to ensure all pixels are covered
-		const tileWidth = Math.ceil( width / totalTiles );
-		const tileHeight = Math.ceil( height / totalTiles );
-
-		// Calculate tile coordinates
-		const tileX = tileIndex % totalTiles;
-		const tileY = Math.floor( tileIndex / totalTiles );
-
-		// Calculate pixel bounds
-		const x = tileX * tileWidth;
-		const y = tileY * tileHeight;
-
-		// Clamp to actual render target bounds
-		const clampedWidth = Math.min( tileWidth, width - x );
-		const clampedHeight = Math.min( tileHeight, height - y );
-
-		const bounds = {
-			x: x,
-			y: y,
-			width: clampedWidth,
-			height: clampedHeight
-		};
-
-		// Cache the result
-		this.tileBoundsCache.set( cacheKey, bounds );
-		return bounds;
-
-	}
-
-	/**
-	 * Set up scissor testing for tile rendering
-	 * @param {WebGLRenderer} renderer - The Three.js renderer
-	 * @param {Object} bounds - Scissor bounds {x, y, width, height}
-	 */
-	enableScissorForTile( renderer, bounds ) {
-
-		// Skip if already set to these exact bounds
-		if ( this.scissorEnabled &&
-			 this.currentTileBounds &&
-			 this.currentTileBounds.x === bounds.x &&
-			 this.currentTileBounds.y === bounds.y &&
-			 this.currentTileBounds.width === bounds.width &&
-			 this.currentTileBounds.height === bounds.height ) {
-
-			return;
-
-		}
-
-		const gl = renderer.getContext();
-
-		// Enable scissor testing
-		gl.enable( gl.SCISSOR_TEST );
-
-		// Set scissor rectangle
-		// Note: WebGL scissor coordinates are from bottom-left, Three.js render targets are top-left
-		// We need to flip the Y coordinate
-		const flippedY = this.height - bounds.y - bounds.height;
-		gl.scissor( bounds.x, flippedY, bounds.width, bounds.height );
-
-		this.scissorEnabled = true;
-		this.currentTileBounds = { ...bounds };
-
-	}
-
-	/**
-	 * Disable scissor testing
-	 * @param {WebGLRenderer} renderer - The Three.js renderer
-	 */
-	disableScissor( renderer ) {
-
-		const gl = renderer.getContext();
-		gl.disable( gl.SCISSOR_TEST );
-		this.scissorEnabled = false;
-		this.currentTileBounds = null;
-
-	}
-
-	setTileHighlightPass( tileHighlightPass ) {
-
-		this.tileHighlightPass = tileHighlightPass;
-
-	}
-
-	setASVGFPass( asvgfPass ) {
-
-		this.asvgfPass = asvgfPass;
-
-	}
-
-	getCurrentAccumulation() {
-
-		return this.currentTarget;
-
-	}
-
-	getCurrentRawSample() {
-
-		return this.currentTarget;
-
-	}
-
-	getMRTTextures() {
-
-		// Reuse cached object to avoid allocation
-		this.mrtTexturesCache.color = this.currentTarget.textures[ 0 ];
-		this.mrtTexturesCache.normalDepth = this.currentTarget.textures[ 1 ];
-		return this.mrtTexturesCache;
-
-	}
-
-	async buildEnvironmentCDF() {
-
-		if ( ! this.scene.environment ) {
-
-			// Clear existing CDF if no environment
-			this.material.uniforms.envCDF.value = null;
-			this.material.uniforms.useEnvMapIS.value = false;
-			return;
-
-		}
-
-		try {
-
-			const startTime = performance.now();
-
-			// Build CDF with improved algorithm
-			const result = await this.environmentCDFBuilder.buildEnvironmentCDF( this.scene.environment );
-
-			this.cdfBuildTime = performance.now() - startTime;
-
-			if ( result ) {
-
-				// Update shader uniforms
-				this.material.uniforms.envCDF.value = result.cdfTexture;
-				this.material.uniforms.envCDFSize.value.set( result.cdfSize.width, result.cdfSize.height );
-				this.material.uniforms.useEnvMapIS.value = true;
-
-				if ( this.environmentCDFBuilder.options.enableValidation ) {
-
-					// Store validation results for debugging
-					this.lastCDFValidation = result.validationResults;
-
-					// Log build information
-					console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (${result.cdfSize.width}x${result.cdfSize.height})` );
-
-				}
-
-			} else {
-
-				// Fallback to uniform sampling
-				this.material.uniforms.useEnvMapIS.value = false;
-				console.warn( 'Failed to build environment CDF, using uniform sampling' );
-
-			}
-
-		} catch ( error ) {
-
-			console.error( 'Error building environment CDF:', error );
-			this.material.uniforms.useEnvMapIS.value = false;
-
-		}
-
-	}
+	// ===== PUBLIC API METHODS (Maintain compatibility with main.js) =====
 
 	async build( scene ) {
 
@@ -442,6 +219,14 @@ export class PathTracerPass extends Pass {
 		this.cameras = this.sdfs.cameras;
 
 		this.material.defines.MAX_SPHERE_COUNT = this.sdfs.spheres.length;
+
+		// Update uniforms with scene data
+		this.updateSceneUniforms();
+		this.updateLights();
+
+	}
+
+	updateSceneUniforms() {
 
 		// Update sphere uniforms
 		this.material.uniforms.spheres.value = this.sdfs.spheres;
@@ -464,87 +249,11 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.bvhTexSize.value.set( this.sdfs.bvhTexture.image.width, this.sdfs.bvhTexture.image.height );
 		this.material.uniforms.materialTexSize.value.set( this.sdfs.materialTexture.image.width, this.sdfs.materialTexture.image.height );
 
-		// Update light uniforms
-		this.updateLights();
-
 	}
 
 	updateLights() {
 
 		this.lightDataTransfer.processSceneLights( this.scene, this.material );
-
-	}
-
-	// Add method to update individual light properties
-	updateDirectionalLightAngle( lightIndex, angleInRadians ) {
-
-		// Update the directional lights uniform array
-		const directionalLights = this.material.uniforms.directionalLights.value;
-		if ( directionalLights && lightIndex < directionalLights.length / 8 ) {
-
-			// Each directional light uses 8 floats, angle is at offset 7
-			const baseIndex = lightIndex * 8;
-			directionalLights[ baseIndex + 7 ] = angleInRadians;
-			this.material.uniforms.directionalLights.needsUpdate = true;
-
-		}
-
-	}
-
-	updateMaterialDataTexture( materialIndex, property, value ) {
-
-		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
-
-		switch ( property ) {
-
-			case 'color': 				data.set( [ value.r, value.g, value.b ], stride + 0 ); break;
-			case 'metalness': 			data[ stride + 3 ] = value; break;
-			case 'emissive': 			data.set( [ value.r, value.g, value.b ], stride + 4 ); break;
-			case 'roughness': 			data[ stride + 7 ] = value; break;
-			case 'ior': 				data[ stride + 8 ] = value; break;
-			case 'transmission': 		data[ stride + 9 ] = value; break;
-			case 'thickness': 			data[ stride + 10 ] = value; break;
-			case 'emissiveIntensity': 	data[ stride + 11 ] = value; break;
-			case 'attenuationColor': 	data.set( [ value.r, value.g, value.b ], stride + 12 ); break;
-			case 'attenuationDistance': data[ stride + 15 ] = value; break;
-			case 'dispersion': 			data[ stride + 16 ] = value; break;
-			case 'visible': 			data[ stride + 17 ] = value; break;
-			case 'sheen': 				data[ stride + 18 ] = value; break;
-			case 'sheenRoughness': 		data[ stride + 19 ] = value; break;
-			case 'sheenColor': 			data.set( [ value.r, value.g, value.b ], stride + 20 ); break;
-			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
-			case 'specularColor': 		data.set( [ value.r, value.g, value.b ], stride + 25 ); break;
-			case 'iridescence': 		data[ stride + 28 ] = value; break;
-			case 'iridescenceIOR': 		data[ stride + 29 ] = value; break;
-			case 'iridescenceThicknessRange':
-				data[ stride + 30 ] = value[ 0 ];
-				data[ stride + 31 ] = value[ 1 ];
-				break;
-			case 'clearcoat': 			data[ stride + 38 ] = value; break;
-			case 'clearcoatRoughness': 	data[ stride + 39 ] = value; break;
-			case 'opacity': 			data[ stride + 40 ] = value; break;
-			case 'side': 				data[ stride + 41 ] = value; break;
-			case 'transparent': 		data[ stride + 42 ] = value; break;
-			case 'alphaTest': 			data[ stride + 43 ] = value; break;
-
-		}
-
-		this.material.uniforms.materialTexture.value.needsUpdate = true;
-		this.reset();
-
-	}
-
-	rebuildMaterialDataTexture( materialIndex, material ) {
-
-		let materialData = this.sdfs.geometryExtractor.createMaterialObject( material );
-
-		// itarate over materialData and update the materialTexture
-		for ( const property in materialData ) {
-
-			this.updateMaterialDataTexture( materialIndex, property, materialData[ property ] );
-
-		}
 
 	}
 
@@ -554,190 +263,38 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.frame.value = 0;
 		this.material.uniforms.hasPreviousAccumulated.value = false;
 
-		this.lastRenderMode = - 1;
-		this.tileCompletionFrame = 0;
-
 		if ( this.asvgfPass ) this.asvgfPass.reset();
 
-		this.spiralOrder = this.generateSpiralOrder( this.tiles );
+		// Reset managers
+		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
+		this.targetManager.clearTargets();
 
-		// Clear both targets
-		const currentRenderTarget = this.renderer.getRenderTarget();
-
-		this.renderer.setRenderTarget( this.currentTarget );
-		this.renderer.clear();
-		this.renderer.setRenderTarget( this.previousTarget );
-		this.renderer.clear();
-
-		this.renderer.setRenderTarget( currentRenderTarget );
-
-		// Update completion threshold if render mode changed
+		// Update completion threshold
 		this.updateCompletionThreshold();
 		this.isComplete = false;
+		this.performanceMonitor.reset();
+
+		this.lastRenderMode = - 1;
+		this.tileCompletionFrame = 0;
 
 	}
 
 	setTileCount( newTileCount ) {
 
-		this.tiles = newTileCount;
-		this.totalTilesCache = newTileCount * newTileCount; // Cache total tiles
-		this.tileIndex = 0; // Reset tile index when tile count changes
-		this.spiralOrder = this.generateSpiralOrder( newTileCount );
-		this.updateCompletionThreshold(); // Recalculate based on new tile count
-		this.tileBoundsCache.clear(); // Clear cache when tile count changes
-		this.reset(); // Reset accumulation
+		this.tileManager.setTileCount( newTileCount );
+		this.updateCompletionThreshold();
+		this.reset();
 
 	}
 
-	generateSpiralOrder( tiles ) {
+	setSize( width, height ) {
 
-		const totalTiles = tiles * tiles;
-		const center = ( tiles - 1 ) / 2;
-		const tilePositions = [];
+		this.width = width;
+		this.height = height;
 
-		// Create array of tile positions with their distances from center
-		for ( let i = 0; i < totalTiles; i ++ ) {
-
-			const x = i % tiles;
-			const y = Math.floor( i / tiles );
-			const distanceFromCenter = Math.sqrt( Math.pow( x - center, 2 ) + Math.pow( y - center, 2 ) );
-
-			// Calculate angle for spiral ordering within same distance rings
-			const angle = Math.atan2( y - center, x - center );
-
-			tilePositions.push( {
-				index: i,
-				x,
-				y,
-				distance: distanceFromCenter,
-				angle: angle
-			} );
-
-		}
-
-		// Sort by distance from center, then by angle for spiral effect
-		tilePositions.sort( ( a, b ) => {
-
-			const distanceDiff = a.distance - b.distance;
-			if ( Math.abs( distanceDiff ) < 0.01 ) {
-
-				// Within same distance ring, sort by angle for spiral
-				return a.angle - b.angle;
-
-			}
-
-			return distanceDiff;
-
-		} );
-
-		return tilePositions.map( pos => pos.index );
-
-	}
-
-	updateCompletionThreshold() {
-
-		const renderMode = this.material.uniforms.renderMode.value;
-		const maxFrames = this.material.uniforms.maxFrames.value;
-
-		this.completionThreshold = renderMode === 1
-			? this.totalTilesCache * maxFrames
-			: maxFrames;
-
-	}
-
-	// Track camera changes for dirty flags
-	updateCameraUniforms() {
-
-		// Check if camera actually moved
-		if ( ! this.lastCameraMatrix.equals( this.camera.matrixWorld ) ||
-            ! this.lastProjectionMatrix.equals( this.camera.projectionMatrixInverse ) ) {
-
-			this.material.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
-			this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
-
-			// Cache current matrices
-			this.lastCameraMatrix.copy( this.camera.matrixWorld );
-			this.lastProjectionMatrix.copy( this.camera.projectionMatrixInverse );
-
-			this.uniformsDirty.camera = false;
-			return true; // Camera changed
-
-		}
-
-		return false; // No change
-
-	}
-
-	enterInteractionMode() {
-
-		// Check if interaction mode is enabled globally
-		if ( ! this.interactionModeEnabled ) return;
-
-		if ( this.interactionMode ) {
-
-			// Already in interaction mode, just clear the timeout
-			clearTimeout( this.interactionTimeout );
-
-		} else {
-
-			// Enter interaction mode and save original values
-			this.interactionMode = true;
-			this.originalValues = {}; // Reset stored values
-
-			// Store and apply all interaction settings
-			Object.keys( this.interactionQualitySettings ).forEach( key => {
-
-				if ( this.material.uniforms[ key ] ) {
-
-					this.originalValues[ key ] = this.material.uniforms[ key ].value;
-					this.material.uniforms[ key ].value = this.interactionQualitySettings[ key ];
-
-				}
-
-			} );
-
-			// Disable accumulation during interaction for immediate feedback
-			this.material.uniforms.enableAccumulation.value = false;
-			this.material.uniforms.cameraIsMoving.value = true;
-
-			// Store and reduce pixel ratio
-			this.originalValues.dpr = this.renderer.getPixelRatio();
-			this.renderer.setPixelRatio( this.interactionQualitySettings.pixelRatio );
-
-		}
-
-		// Set timeout to exit interaction mode
-		this.interactionTimeout = setTimeout( () => {
-
-			this.exitInteractionMode();
-
-		}, this.interactionDelay );
-
-	}
-
-	exitInteractionMode() {
-
-		if ( ! this.interactionMode ) return;
-
-		// Restore original values
-		Object.keys( this.originalValues ).forEach( key => {
-
-			if ( this.material.uniforms[ key ] ) {
-
-				this.material.uniforms[ key ].value = this.originalValues[ key ];
-
-			}
-
-		} );
-
-		this.renderer.setPixelRatio( this.originalValues.dpr );
-
-		// Re-enable accumulation and reset
-		this.material.uniforms.enableAccumulation.value = this.accumulationEnabled;
-		this.material.uniforms.cameraIsMoving.value = false;
-
-		this.interactionMode = false;
-		this.reset(); // Reset to start fresh accumulation
+		this.material.uniforms.resolution.value.set( width, height );
+		this.tileManager.setSize( width, height );
+		this.targetManager.setSize( width, height );
 
 	}
 
@@ -761,36 +318,77 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	// ===== MANAGER DELEGATION METHODS =====
+
+	getCurrentAccumulation() {
+
+		return this.targetManager.getCurrentAccumulation();
+
+	}
+
+	getCurrentRawSample() {
+
+		return this.targetManager.getCurrentRawSample();
+
+	}
+
+	getMRTTextures() {
+
+		return this.targetManager.getMRTTextures();
+
+	}
+
+	enterInteractionMode() {
+
+		this.interactionController.enterInteractionMode();
+
+	}
+
 	setInteractionModeEnabled( enabled ) {
 
-		this.interactionModeEnabled = enabled;
-
-		// If turning off while in interaction mode, exit immediately
-		if ( ! enabled && this.interactionMode ) {
-
-			clearTimeout( this.interactionTimeout );
-			this.exitInteractionMode();
-
-		}
+		this.interactionController.setInteractionModeEnabled( enabled );
 
 	}
 
-	setSize( width, height ) {
+	// ===== PASS CONNECTIONS (Maintain compatibility) =====
 
-		this.width = width;
-		this.height = height;
+	setASVGFPass( asvgfPass ) {
 
-		this.material.uniforms.resolution.value.set( width, height );
-
-		// Resize unified targets
-		this.currentTarget.setSize( width, height );
-		this.previousTarget.setSize( width, height );
+		this.asvgfPass = asvgfPass;
 
 	}
+
+	setAdaptiveSamplingPass( adaptiveSamplingPass ) {
+
+		this.adaptiveSamplingPass = adaptiveSamplingPass;
+
+	}
+
+	setTileHighlightPass( tileHighlightPass ) {
+
+		this.tileHighlightPass = tileHighlightPass;
+
+	}
+
+	// ===== PROPERTY GETTERS (Maintain compatibility) =====
+
+	get tiles() {
+
+		return this.tileManager.tiles;
+
+	}
+
+	get interactionMode() {
+
+		return this.interactionController.isInInteractionMode();
+
+	}
+
+	// ===== CORE RENDER METHOD =====
 
 	render( renderer, writeBuffer, readBuffer ) {
 
-		// Combine early exit conditions for better performance
+		// Early exit conditions
 		if ( ! this.enabled || this.isComplete ||
 			 this.material.uniforms.frame.value >= this.completionThreshold ) {
 
@@ -799,122 +397,110 @@ export class PathTracerPass extends Pass {
 
 		}
 
+		this.performanceMonitor.start();
+
 		const uniforms = this.material.uniforms;
 		const frameValue = uniforms.frame.value;
 		const renderMode = uniforms.renderMode.value;
 
-		if ( this.asvgfPass ) this.manageASVGFForRenderMode( renderMode, frameValue );
+		// Handle ASVGF denoising
+		this.manageASVGFForRenderMode( renderMode, frameValue );
 
-		// Track if we should swap targets this frame
-		let shouldSwapTargets = true;
+		// Handle tile rendering with the manager
+		const tileInfo = this.tileManager.handleTileRendering(
+			renderer,
+			renderMode,
+			frameValue,
+			this.tileHighlightPass
+		);
 
-		// 2. Handle tile rendering with scissor testing
-		if ( renderMode === 1 ) {
+		// Update camera and interaction
+		const cameraChanged = this.updateCameraUniforms();
+		this.interactionController.updateInteractionMode( cameraChanged );
 
-			if ( frameValue === 0 ) {
+		// Update accumulation state
+		this.updateAccumulationUniforms( frameValue, renderMode );
 
-				// First frame: render entire image, disable scissor
-				this.disableScissor( renderer );
-				this.tileIndex = - 1;
+		// Set previous frame texture
+		const previousTextures = this.targetManager.getPreviousTextures();
+		uniforms.previousFrameTexture.value = previousTextures.color;
 
-			} else {
+		// Handle adaptive sampling
+		this.updateAdaptiveSampling( frameValue );
 
-				// Calculate current tile index (frames 1+ are tile-based)
-				const linearTileIndex = ( frameValue - 1 ) % this.totalTilesCache;
-				this.tileIndex = this.spiralOrder[ linearTileIndex ];
+		// Render to current target
+		renderer.setRenderTarget( this.targetManager.currentTarget );
+		this.fsQuad.render( renderer );
 
-				// Set up scissor testing for current tile
-				const tileBounds = this.calculateTileBounds( this.tileIndex, this.tiles, this.width, this.height );
-				this.enableScissorForTile( renderer, tileBounds );
+		// Copy to output buffer
+		if ( writeBuffer || this.renderToScreen ) {
 
-				// Update tile highlight pass only when values change
-				if ( this.tileHighlightPass && this.tileHighlightPass.enabled ) {
+			// Temporarily disable scissor for final copy to ensure full image is copied
+			const wasScissorEnabled = this.tileManager.scissorEnabled;
+			if ( wasScissorEnabled ) {
 
-					const needsUpdate = (
-						this.tileHighlightPass.uniforms.tileIndex.value !== this.tileIndex ||
-						this.tileHighlightPass.uniforms.renderMode.value !== renderMode ||
-						this.tileHighlightPass.uniforms.tiles.value !== this.tiles
-					);
-
-					if ( needsUpdate ) {
-
-						this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
-						this.tileHighlightPass.uniforms.renderMode.value = renderMode;
-						this.tileHighlightPass.uniforms.tiles.value = this.tiles;
-						this.tileHighlightPass.setCurrentTileBounds( tileBounds );
-
-					}
-
-				}
-
-				// Only swap targets after completing all tiles in a sample
-				// Don't swap if we're still rendering tiles within the same sample
-				shouldSwapTargets = ( linearTileIndex === this.totalTilesCache - 1 );
+				this.tileManager.disableScissor( renderer );
 
 			}
 
-		} else {
+			this.targetManager.efficientCopyColorOutput( renderer, writeBuffer, this.renderToScreen );
 
-			// Regular rendering mode: disable scissor
-			this.disableScissor( renderer );
-			this.tileIndex = - 1;
+			// Restore scissor state if it was enabled
+			if ( wasScissorEnabled && this.tileManager.currentTileBounds ) {
 
-			// Update tile highlight pass for non-tiled mode only when needed
-			if ( this.tileHighlightPass && this.tileHighlightPass.enabled ) {
-
-				const needsUpdate = (
-					this.tileHighlightPass.uniforms.tileIndex.value !== this.tileIndex ||
-					this.tileHighlightPass.uniforms.renderMode.value !== renderMode ||
-					this.tileHighlightPass.uniforms.tiles.value !== this.tiles
-				);
-
-				if ( needsUpdate ) {
-
-					this.tileHighlightPass.uniforms.tileIndex.value = this.tileIndex;
-					this.tileHighlightPass.uniforms.renderMode.value = renderMode;
-					this.tileHighlightPass.uniforms.tiles.value = this.tiles;
-
-				}
+				this.tileManager.enableScissorForTile( renderer, this.tileManager.currentTileBounds );
 
 			}
 
 		}
 
-		// 3. Only update uniforms that have changed
-		this.updateCameraUniforms();
+		uniforms.frame.value ++;
 
-		// 4. Update accumulation state
-		if ( this.accumulationEnabled && ! this.interactionMode ) {
+		// Conditional target swap
+		if ( tileInfo.shouldSwapTargets ) {
 
-			if ( renderMode !== 0 ) {
+			this.targetManager.swapTargets();
 
-				if ( uniforms.frame.value === 0 ) {
+		}
 
-					// First frame: render entire image for immediate preview
-					uniforms.accumulationAlpha.value = 1.0;
-					uniforms.hasPreviousAccumulated.value = false;
+		this.performanceMonitor.end();
 
-				} else {
+	}
 
-					// Subsequent frames: use tile rendering with proper accumulation
-					// Frame 0 was full image (sample 1), frames 1+ are tile-based
-					// So frame 1-totalTiles is sample 2, frame (totalTiles+1)-(2*totalTiles) is sample 3, etc.
-					const timesCurrentTileRendered = Math.floor( ( uniforms.frame.value - 1 ) / this.totalTilesCache ) + 2;
+	updateCameraUniforms() {
 
-					uniforms.accumulationAlpha.value = 1.0 / timesCurrentTileRendered;
-					uniforms.hasPreviousAccumulated.value = true; // Frame 0 provided initial accumulation
+		// Check if camera actually moved
+		if ( ! this.lastCameraMatrix.equals( this.camera.matrixWorld ) ||
+            ! this.lastProjectionMatrix.equals( this.camera.projectionMatrixInverse ) ) {
 
-				}
+			this.material.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
+			this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 
-			} else {
+			// Cache current matrices
+			this.lastCameraMatrix.copy( this.camera.matrixWorld );
+			this.lastProjectionMatrix.copy( this.camera.projectionMatrixInverse );
 
-				uniforms.accumulationAlpha.value = 1.0 / Math.max( uniforms.frame.value, 1 );
-				uniforms.hasPreviousAccumulated.value = uniforms.frame.value >= 1;
+			return true; // Camera changed
 
-			}
+		}
 
-			// Set previous accumulated texture
-			uniforms.previousAccumulatedTexture.value = this.previousTarget.textures[ 0 ];
+		return false; // No change
+
+	}
+
+	updateAccumulationUniforms( frameValue, renderMode ) {
+
+		const uniforms = this.material.uniforms;
+
+		if ( this.accumulationEnabled && ! this.interactionController.isInInteractionMode() ) {
+
+			uniforms.accumulationAlpha.value = PathTracerUtils.calculateAccumulationAlpha(
+				frameValue,
+				renderMode,
+				this.tileManager.totalTilesCache
+			);
+			uniforms.hasPreviousAccumulated.value = frameValue >= 1;
+			uniforms.previousAccumulatedTexture.value = this.targetManager.getPreviousTextures().color;
 
 		} else {
 
@@ -925,11 +511,13 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// Set previous frame texture
-		uniforms.previousFrameTexture.value = this.previousTarget.textures[ 0 ];
+	}
 
-		// 5. Adaptive sampling optimization - use toggle instead of modulo
-		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionMode ) {
+	updateAdaptiveSampling( frameValue ) {
+
+		const uniforms = this.material.uniforms;
+
+		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionController.isInInteractionMode() ) {
 
 			this.adaptiveSamplingFrameToggle = ! this.adaptiveSamplingFrameToggle;
 			if ( this.adaptiveSamplingFrameToggle ) {
@@ -938,7 +526,7 @@ export class PathTracerPass extends Pass {
 				uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass.adaptiveSamplingMax;
 
 				// Set MRT textures for adaptive sampling
-				const mrtTextures = this.getMRTTextures();
+				const mrtTextures = this.targetManager.getMRTTextures();
 				this.adaptiveSamplingPass.setTextures(
 					mrtTextures.color,
 					mrtTextures.normalDepth
@@ -946,49 +534,29 @@ export class PathTracerPass extends Pass {
 
 			}
 
-		} else if ( this.interactionMode ) {
+		} else if ( this.interactionController.isInInteractionMode() ) {
 
 			// Disable adaptive sampling during interaction
 			uniforms.adaptiveSamplingTexture.value = null;
 
 		}
 
-		// 6. Render to our internal MRT target with scissor testing
-		renderer.setRenderTarget( this.currentTarget );
-		this.fsQuad.render( renderer );
+	}
 
-		// 7. Always copy the full accumulated result to writeBuffer
-		if ( writeBuffer || this.renderToScreen ) {
+	updateCompletionThreshold() {
 
-			// Temporarily disable scissor for final copy to ensure full image is copied
-			const wasScissorEnabled = this.scissorEnabled;
-			if ( wasScissorEnabled ) {
+		const renderMode = this.material.uniforms.renderMode.value;
+		const maxFrames = this.material.uniforms.maxFrames.value;
 
-				this.disableScissor( renderer );
-
-			}
-
-			this.efficientCopyColorOutput( renderer, writeBuffer );
-
-			// Restore scissor state if it was enabled
-			if ( wasScissorEnabled && this.currentTileBounds ) {
-
-				this.enableScissorForTile( renderer, this.currentTileBounds );
-
-			}
-
-		}
-
-		uniforms.frame.value ++;
-
-		// 8. Conditional target swap - only swap when completing a full sample
-		if ( shouldSwapTargets ) {
-
-			[ this.currentTarget, this.previousTarget ] = [ this.previousTarget, this.currentTarget ];
-
-		}
+		this.completionThreshold = PathTracerUtils.updateCompletionThreshold(
+			renderMode,
+			maxFrames,
+			this.tileManager.totalTilesCache
+		);
 
 	}
+
+	// ===== ASVGF DENOISING MANAGEMENT =====
 
 	manageASVGFForRenderMode( renderMode, frameValue ) {
 
@@ -1061,8 +629,8 @@ export class PathTracerPass extends Pass {
 	handleTiledASVGF( frameValue ) {
 
 		const isFirstFrame = frameValue === 0;
-		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % this.totalTilesCache );
-		const isLastTileInSample = currentTileIndex === this.totalTilesCache - 1;
+		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % this.tileManager.totalTilesCache );
+		const isLastTileInSample = currentTileIndex === this.tileManager.totalTilesCache - 1;
 
 		if ( isFirstFrame ) {
 
@@ -1091,46 +659,59 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	efficientCopyColorOutput( renderer, writeBuffer ) {
+	// ===== ENVIRONMENT MANAGEMENT =====
 
-		if ( ! this.copyMaterial ) {
+	async buildEnvironmentCDF() {
 
-			this.copyMaterial = new ShaderMaterial( {
-				uniforms: {
-					tDiffuse: { value: null }
-				},
+		if ( ! this.scene.environment ) {
 
-				vertexShader: `
-					varying vec2 vUv;
-					void main() {
-						vUv = uv;
-						gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-					}
-				`,
-
-				fragmentShader: `
-					uniform sampler2D tDiffuse;
-					varying vec2 vUv;
-					void main() {
-						gl_FragColor = texture2D( tDiffuse, vUv );
-					}
-				`,
-
-				depthTest: false,
-				depthWrite: false,
-				transparent: false,
-			} );
-
-			this.copyQuad = new FullScreenQuad( this.copyMaterial );
+			// Clear existing CDF if no environment
+			this.material.uniforms.envCDF.value = null;
+			this.material.uniforms.useEnvMapIS.value = false;
+			return;
 
 		}
 
-		// Set source texture (color output from our MRT)
-		this.copyMaterial.uniforms.tDiffuse.value = this.currentTarget.textures[ 0 ];
+		try {
 
-		// Render to destination
-		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
-		this.copyQuad.render( renderer );
+			const startTime = performance.now();
+
+			// Build CDF with improved algorithm
+			const result = await this.environmentCDFBuilder.buildEnvironmentCDF( this.scene.environment );
+
+			this.cdfBuildTime = performance.now() - startTime;
+
+			if ( result ) {
+
+				// Update shader uniforms
+				this.material.uniforms.envCDF.value = result.cdfTexture;
+				this.material.uniforms.envCDFSize.value.set( result.cdfSize.width, result.cdfSize.height );
+				this.material.uniforms.useEnvMapIS.value = true;
+
+				if ( this.environmentCDFBuilder.options.enableValidation ) {
+
+					// Store validation results for debugging
+					this.lastCDFValidation = result.validationResults;
+
+					// Log build information
+					console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (${result.cdfSize.width}x${result.cdfSize.height})` );
+
+				}
+
+			} else {
+
+				// Fallback to uniform sampling
+				this.material.uniforms.useEnvMapIS.value = false;
+				console.warn( 'Failed to build environment CDF, using uniform sampling' );
+
+			}
+
+		} catch ( error ) {
+
+			console.error( 'Error building environment CDF:', error );
+			this.material.uniforms.useEnvMapIS.value = false;
+
+		}
 
 	}
 
@@ -1162,29 +743,87 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	setAdaptiveSamplingPass( asPass ) {
+	// ===== MATERIAL MANAGEMENT =====
 
-		this.adaptiveSamplingPass = asPass;
+	updateDirectionalLightAngle( lightIndex, angleInRadians ) {
+
+		// Update the directional lights uniform array
+		const directionalLights = this.material.uniforms.directionalLights.value;
+		if ( directionalLights && lightIndex < directionalLights.length / 8 ) {
+
+			// Each directional light uses 8 floats, angle is at offset 7
+			const baseIndex = lightIndex * 8;
+			directionalLights[ baseIndex + 7 ] = angleInRadians;
+			this.material.uniforms.directionalLights.needsUpdate = true;
+
+		}
 
 	}
 
+	updateMaterialDataTexture( materialIndex, property, value ) {
+
+		const data = this.material.uniforms.materialTexture.value.image.data;
+		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
+
+		switch ( property ) {
+
+			case 'color': 				data.set( [ value.r, value.g, value.b ], stride + 0 ); break;
+			case 'metalness': 			data[ stride + 3 ] = value; break;
+			case 'emissive': 			data.set( [ value.r, value.g, value.b ], stride + 4 ); break;
+			case 'roughness': 			data[ stride + 7 ] = value; break;
+			case 'ior': 				data[ stride + 8 ] = value; break;
+			case 'transmission': 		data[ stride + 9 ] = value; break;
+			case 'thickness': 			data[ stride + 10 ] = value; break;
+			case 'emissiveIntensity': 	data[ stride + 11 ] = value; break;
+			case 'attenuationColor': 	data.set( [ value.r, value.g, value.b ], stride + 12 ); break;
+			case 'attenuationDistance': data[ stride + 15 ] = value; break;
+			case 'dispersion': 			data[ stride + 16 ] = value; break;
+			case 'visible': 			data[ stride + 17 ] = value; break;
+			case 'sheen': 				data[ stride + 18 ] = value; break;
+			case 'sheenRoughness': 		data[ stride + 19 ] = value; break;
+			case 'sheenColor': 			data.set( [ value.r, value.g, value.b ], stride + 20 ); break;
+			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
+			case 'specularColor': 		data.set( [ value.r, value.g, value.b ], stride + 25 ); break;
+			case 'iridescence': 		data[ stride + 28 ] = value; break;
+			case 'iridescenceIOR': 		data[ stride + 29 ] = value; break;
+			case 'iridescenceThicknessRange':
+				data[ stride + 30 ] = value[ 0 ];
+				data[ stride + 31 ] = value[ 1 ];
+				break;
+			case 'clearcoat': 			data[ stride + 38 ] = value; break;
+			case 'clearcoatRoughness': 	data[ stride + 39 ] = value; break;
+			case 'opacity': 			data[ stride + 40 ] = value; break;
+			case 'side': 				data[ stride + 41 ] = value; break;
+			case 'transparent': 		data[ stride + 42 ] = value; break;
+			case 'alphaTest': 			data[ stride + 43 ] = value; break;
+
+		}
+
+		this.material.uniforms.materialTexture.value.needsUpdate = true;
+		this.reset();
+
+	}
+
+	rebuildMaterialDataTexture( materialIndex, material ) {
+
+		let materialData = this.sdfs.geometryExtractor.createMaterialObject( material );
+
+		// iterate over materialData and update the materialTexture
+		for ( const property in materialData ) {
+
+			this.updateMaterialDataTexture( materialIndex, property, materialData[ property ] );
+
+		}
+
+	}
+
+	// ===== UTILITY METHODS =====
+
 	updateUniforms( updates ) {
 
-		let needsReset = false;
+		const hasChanges = PathTracerUtils.validateAndUpdateUniforms( this.material, updates );
 
-		Object.entries( updates ).forEach( ( [ key, value ] ) => {
-
-			if ( this.material.uniforms[ key ] &&
-                this.material.uniforms[ key ].value !== value ) {
-
-				this.material.uniforms[ key ].value = value;
-				needsReset = true;
-
-			}
-
-		} );
-
-		if ( needsReset ) {
+		if ( hasChanges ) {
 
 			this.reset();
 
@@ -1195,9 +834,9 @@ export class PathTracerPass extends Pass {
 	dispose() {
 
 		// Clean up scissor state
-		if ( this.scissorEnabled ) {
+		if ( this.tileManager.scissorEnabled ) {
 
-			this.disableScissor( this.renderer );
+			this.tileManager.disableScissor( this.renderer );
 
 		}
 
@@ -1209,18 +848,12 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// Clear caches
-		this.tileBoundsCache.clear();
+		// Dispose managers
+		this.tileManager.dispose();
+		this.targetManager.dispose();
+		this.interactionController.dispose();
 
-		// Dispose unified targets
-		this.currentTarget.dispose();
-		this.previousTarget.dispose();
-
-		// Dispose copy materials
-		this.copyMaterial?.dispose();
-		this.copyQuad?.dispose();
-
-		// Dispose other resources
+		// Dispose remaining resources
 		this.material.uniforms.albedoMaps.value?.dispose();
 		this.material.uniforms.emissiveMaps.value?.dispose();
 		this.material.uniforms.normalMaps.value?.dispose();

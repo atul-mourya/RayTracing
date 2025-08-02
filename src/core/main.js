@@ -408,7 +408,7 @@ class PathTracerApp extends EventDispatcher {
 			updateStats( {
 				timeElapsed: this.timeElapsed,
 				samples: pathtracingUniforms.renderMode.value == 1 ?
-					Math.floor( pathtracingUniforms.frame.value / Math.pow( this.pathTracingPass.tiles, 2 ) ) :
+					Math.floor( pathtracingUniforms.frame.value / Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) ) :
 					pathtracingUniforms.frame.value
 			} );
 
@@ -418,7 +418,7 @@ class PathTracerApp extends EventDispatcher {
 
 		if (
 			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
-			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tiles, 2 ) )
+			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) )
 		) {
 
 			pathtracingUniforms.frame.value ++;

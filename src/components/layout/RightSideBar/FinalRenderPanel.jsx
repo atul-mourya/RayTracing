@@ -7,70 +7,31 @@ import { ControlGroup } from '@/components/ui/control-group';
 import { Separator } from '@/components/ui/separator';
 
 
-const handleChange = ( setter, appUpdater, needsReset = true ) => value => {
-
-	if ( typeof setter !== 'function' ) {
-
-		console.error( "Invalid setter function passed to handleChange:", setter );
-		return;
-
-	}
-
-	setter( value );
-	if ( window.pathTracerApp ) {
-
-		appUpdater( value );
-		needsReset && window.pathTracerApp.reset();
-
-	}
-
-};
-
 const FinalRenderPanel = () => {
 
 	const {
-		bounces, setBounces,
-		samplesPerPixel, setSamplesPerPixel,
-		renderMode, setRenderMode,
-		tiles, setTiles,
-		tilesHelper, setTilesHelper,
-		resolution, setResolution,
-		enableOIDN, setEnableOIDN,
-		useGBuffer, setUseGBuffer,
-		oidnQuality, setOidnQuality,
-		oidnHdr, setOidnHdr,
+		bounces,
+		samplesPerPixel,
+		renderMode,
+		tiles,
+		tilesHelper,
+		resolution,
+		enableOIDN,
+		useGBuffer,
+		oidnQuality,
+		oidnHdr,
+
+		handleBouncesChange,
+		handleSamplesPerPixelChange,
+		handleRenderModeChange,
+		handleTileUpdate,
+		handleTileHelperToggle,
+		handleResolutionChange,
+		handleEnableOIDNChange,
+		handleOidnQualityChange,
+		handleOidnHdrChange,
+		handleUseGBufferChange,
 	} = useStore();
-
-	// Path Tracer
-	const handleBouncesChange = handleChange( setBounces, value => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = value );
-	const handleSamplesPerPixelChange = handleChange( setSamplesPerPixel, value => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = value );
-	const handleResolutionChange = handleChange( setResolution, value => {
-
-		let result;
-		switch ( value ) {
-
-			case '1': result = window.devicePixelRatio * 0.5; break;
-			case '2': result = window.devicePixelRatio * 1; break;
-			case '3': result = window.devicePixelRatio * 2; break;
-			case '4': result = window.devicePixelRatio * 4; break;
-			default: result = window.devicePixelRatio * 0.25;
-
-		}
-
-		window.pathTracerApp.updateResolution( result );
-
-	} );
-
-	// Render Mode
-	const handleRenderModeChange = handleChange( setRenderMode, value => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( value ) );
-	const handleTileUpdate = handleChange( setTiles, value => window.pathTracerApp.pathTracingPass.setTileCount( value[ 0 ] ), false );
-	const handleTileHelperToggle = handleChange( setTilesHelper, value => parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = value, false ) );
-
-	// OIDN
-	const handleEnableOIDNChange = handleChange( setEnableOIDN, value => window.pathTracerApp.denoiser.enabled = value, false );
-	const handleOidnQualityChange = handleChange( setOidnQuality, value => window.pathTracerApp.denoiser.updateQuality( value ), false );
-	const handleOidnHdrChange = handleChange( setOidnHdr, value => window.pathTracerApp.denoiser.toggleHDR( value ), false );
-	const handleUseGBufferChange = handleChange( setUseGBuffer, value => window.pathTracerApp.denoiser.toggleUseGBuffer( value ), false );
 
 	return (
 		<div className="">

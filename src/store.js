@@ -420,7 +420,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTileUpdate: handleChange(
 		val => set( { tiles: val } ),
-		val => window.pathTracerApp.pathTracingPass.tiles = val[ 0 ],
+		val => window.pathTracerApp.pathTracingPass.tileManager.tiles = val[ 0 ],
 		false
 	),
 
@@ -663,7 +663,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.numRaysPerPixel.value = INTERACTIVE_STATE.samplesPerPixel;
 			uniforms.renderMode.value = INTERACTIVE_STATE.renderMode;
 			uniforms.transmissiveBounces.value = INTERACTIVE_STATE.transmissiveBounces;
-			app.pathTracingPass.tiles = INTERACTIVE_STATE.tiles;
+			app.pathTracingPass.tileManager.tiles = INTERACTIVE_STATE.tiles;
 			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
 			app.denoiser.enabled = INTERACTIVE_STATE.enableOIDN;
 			app.denoiser.updateQuality( INTERACTIVE_STATE.oidnQuality );
@@ -703,7 +703,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.numRaysPerPixel.value = FINAL_STATE.samplesPerPixel;
 			uniforms.renderMode.value = FINAL_STATE.renderMode;
 			uniforms.transmissiveBounces.value = FINAL_STATE.transmissiveBounces;
-			app.pathTracingPass.tiles = FINAL_STATE.tiles;
+			app.pathTracingPass.tileManager.tiles = FINAL_STATE.tiles;
 			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
 			app.denoiser.enabled = FINAL_STATE.enableOIDN;
 			app.denoiser.updateQuality( FINAL_STATE.oidnQuality );
