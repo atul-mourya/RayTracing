@@ -191,17 +191,17 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
 					<canvas
 						ref={denoiserCanvasRef}
-						width={actualCanvasSize * 2}
-						height={actualCanvasSize * 2}
+						width={actualCanvasSize}
+						height={actualCanvasSize}
 						style={canvasStyle}
 					/>
 					<canvas
 						ref={primaryCanvasRef}
-						width={actualCanvasSize * 2}
-						height={actualCanvasSize * 2}
+						width={actualCanvasSize}
+						height={actualCanvasSize}
 						style={canvasStyle}
 					/>
-					<DimensionDisplay canvasRef={primaryCanvasRef} />
+					<DimensionDisplay dimension={{ width: actualCanvasSize, height: actualCanvasSize }} />
 				</div>
 			</div>
 

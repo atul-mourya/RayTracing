@@ -184,7 +184,7 @@ class PathTracerApp extends EventDispatcher {
 		// Start animation loop
 		this.animate();
 
-		window.addEventListener( 'resize', () => this.onResize() );
+		// window.addEventListener( 'resize', () => this.onResize() ); // weird bug with this
 		this.assetLoader.addEventListener( 'load', ( event ) => {
 
 			// Reset the renderer when a new asset is loaded
