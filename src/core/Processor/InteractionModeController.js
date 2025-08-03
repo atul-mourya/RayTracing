@@ -18,6 +18,7 @@ export class InteractionModeController {
 		this.interactionMode = false;
 		this.interactionTimeout = null;
 		this.originalValues = {};
+		this.wasAccumulationEnabled = true; // Track original accumulation state
 
 		// Enhanced interaction mode settings for reduced quality during interaction
 		this.interactionQualitySettings = {
@@ -56,6 +57,13 @@ export class InteractionModeController {
 			this.interactionMode = true;
 			this.originalValues = {}; // Reset stored values
 
+			// Store original accumulation state before any changes
+			if ( this.material.uniforms.enableAccumulation ) {
+
+				this.wasAccumulationEnabled = this.material.uniforms.enableAccumulation.value;
+
+			}
+
 			// Store and apply all interaction settings
 			Object.keys( this.interactionQualitySettings ).forEach( key => {
 
@@ -64,6 +72,11 @@ export class InteractionModeController {
 					// Handle pixel ratio separately
 					this.originalValues.dpr = this.renderer.getPixelRatio();
 					this.renderer.setPixelRatio( this.interactionQualitySettings.pixelRatio );
+
+				} else if ( key === 'enableAccumulation' ) {
+
+					// Handle accumulation separately - don't store in originalValues yet
+					// We'll handle this in the uniform update below
 
 				} else if ( this.material.uniforms[ key ] ) {
 
@@ -75,15 +88,17 @@ export class InteractionModeController {
 
 			} );
 
-			// Disable accumulation during interaction for immediate feedback
+			// Store original accumulation value and disable it
 			if ( this.material.uniforms.enableAccumulation ) {
 
+				this.originalValues.enableAccumulation = this.material.uniforms.enableAccumulation.value;
 				this.material.uniforms.enableAccumulation.value = false;
 
 			}
 
 			if ( this.material.uniforms.cameraIsMoving ) {
 
+				this.originalValues.cameraIsMoving = this.material.uniforms.cameraIsMoving.value;
 				this.material.uniforms.cameraIsMoving.value = true;
 
 			}
@@ -113,7 +128,7 @@ export class InteractionModeController {
 
 		if ( ! this.interactionMode ) return;
 
-		// Restore original values
+		// Restore original values in correct order
 		Object.keys( this.originalValues ).forEach( key => {
 
 			if ( key === 'dpr' ) {
@@ -130,31 +145,17 @@ export class InteractionModeController {
 
 		} );
 
-		// Re-enable accumulation
-		if ( this.material.uniforms.enableAccumulation ) {
-
-			this.material.uniforms.enableAccumulation.value = this.originalValues.enableAccumulation !== undefined
-				? this.originalValues.enableAccumulation
-				: true;
-
-		}
-
-		if ( this.material.uniforms.cameraIsMoving ) {
-
-			this.material.uniforms.cameraIsMoving.value = false;
-
-		}
-
 		this.interactionMode = false;
+		this.originalValues = {}; // Clear stored values
 
-		// Call exit callback
+		// Call exit callback first (this may trigger a reset)
 		if ( this.onExitCallback ) {
 
 			this.onExitCallback();
 
 		}
 
-		// Reset rendering to start fresh accumulation
+		// Reset rendering to start fresh accumulation (critical to prevent contamination)
 		if ( this.onResetCallback ) {
 
 			this.onResetCallback();
@@ -246,7 +247,8 @@ export class InteractionModeController {
 			interactionDelay: this.interactionDelay,
 			hasTimeout: this.interactionTimeout !== null,
 			qualitySettings: { ...this.interactionQualitySettings },
-			originalValues: { ...this.originalValues }
+			originalValues: { ...this.originalValues },
+			wasAccumulationEnabled: this.wasAccumulationEnabled
 		};
 
 	}

@@ -180,9 +180,17 @@ export class PathTracerUtils {
      * @param {number} frameValue - Current frame number
      * @param {number} renderMode - Render mode (0 or 1)
      * @param {number} totalTiles - Total number of tiles
+     * @param {boolean} isInteractionMode - Whether currently in interaction mode
      * @returns {number} - Alpha value for accumulation
      */
-	static calculateAccumulationAlpha( frameValue, renderMode, totalTiles ) {
+	static calculateAccumulationAlpha( frameValue, renderMode, totalTiles, isInteractionMode = false ) {
+
+		// During interaction mode, always use alpha = 1.0 to avoid accumulating low-quality frames
+		if ( isInteractionMode ) {
+
+			return 1.0;
+
+		}
 
 		if ( renderMode === 0 ) {
 

@@ -99,6 +99,10 @@ export class PathTracerPass extends Pass {
 		// Adaptive sampling state
 		this.adaptiveSamplingFrameToggle = false;
 
+		// Track interaction mode state for accumulation
+		this.lastInteractionModeState = false;
+		this.interactionModeChangeFrame = 0;
+
 	}
 
 	setupMaterial() {
@@ -276,6 +280,10 @@ export class PathTracerPass extends Pass {
 
 		this.lastRenderMode = - 1;
 		this.tileCompletionFrame = 0;
+
+		// Reset interaction mode tracking
+		this.lastInteractionModeState = false;
+		this.interactionModeChangeFrame = 0;
 
 	}
 
@@ -491,20 +499,59 @@ export class PathTracerPass extends Pass {
 	updateAccumulationUniforms( frameValue, renderMode ) {
 
 		const uniforms = this.material.uniforms;
+		const currentInteractionMode = this.interactionController.isInInteractionMode();
 
-		if ( this.accumulationEnabled && ! this.interactionController.isInInteractionMode() ) {
+		// Check if interaction mode state changed
+		if ( currentInteractionMode !== this.lastInteractionModeState ) {
 
-			uniforms.accumulationAlpha.value = PathTracerUtils.calculateAccumulationAlpha(
-				frameValue,
-				renderMode,
-				this.tileManager.totalTilesCache
-			);
-			uniforms.hasPreviousAccumulated.value = frameValue >= 1;
-			uniforms.previousAccumulatedTexture.value = this.targetManager.getPreviousTextures().color;
+			this.lastInteractionModeState = currentInteractionMode;
+			this.interactionModeChangeFrame = frameValue;
+
+			// Reset accumulation when switching modes to prevent contamination
+			uniforms.hasPreviousAccumulated.value = false;
+			uniforms.previousAccumulatedTexture.value = null;
+
+		}
+
+		if ( this.accumulationEnabled ) {
+
+			if ( currentInteractionMode ) {
+
+				// During interaction mode: no accumulation to avoid low-quality contamination
+				uniforms.accumulationAlpha.value = 1.0;
+				uniforms.hasPreviousAccumulated.value = false;
+				uniforms.previousAccumulatedTexture.value = null;
+
+			} else {
+
+				// Normal mode: calculate proper accumulation alpha
+				const effectiveFrame = frameValue - this.interactionModeChangeFrame;
+
+				uniforms.accumulationAlpha.value = PathTracerUtils.calculateAccumulationAlpha(
+					Math.max( effectiveFrame, 0 ),
+					renderMode,
+					this.tileManager.totalTilesCache,
+					false
+				);
+
+				// Only enable accumulation if we have at least one clean frame
+				uniforms.hasPreviousAccumulated.value = effectiveFrame >= 1;
+
+				if ( uniforms.hasPreviousAccumulated.value ) {
+
+					uniforms.previousAccumulatedTexture.value = this.targetManager.getPreviousTextures().color;
+
+				} else {
+
+					uniforms.previousAccumulatedTexture.value = null;
+
+				}
+
+			}
 
 		} else {
 
-			// During interaction, no accumulation
+			// Accumulation disabled
 			uniforms.accumulationAlpha.value = 1.0;
 			uniforms.previousAccumulatedTexture.value = null;
 			uniforms.hasPreviousAccumulated.value = false;
