@@ -31,22 +31,22 @@ const ColorCorrectionsTab = () => {
 				</div>
 				<Separator className="my-2" />
 				<div className="flex items-center justify-between">
-					<Slider label={"Brightness"} min={- 100} max={100} step={1} value={[ imageProcessing.brightness ]} onValueChange={handleParamChange( 'brightness' )} />
+					<Slider label={"Brightness"} min={- 100} max={100} step={1} snapPoints={[ - 100, - 50, 0, 50, 100 ]} value={[ imageProcessing.brightness ]} onValueChange={handleParamChange( 'brightness' )} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Contrast"} min={- 100} max={100} step={1} value={[ imageProcessing.contrast ]} onValueChange={handleParamChange( 'contrast' )} />
+					<Slider label={"Contrast"} min={- 100} max={100} step={1} snapPoints={[ - 100, - 50, 0, 50, 100 ]} value={[ imageProcessing.contrast ]} onValueChange={handleParamChange( 'contrast' )} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Saturation"} min={- 100} max={100} step={1} value={[ imageProcessing.saturation ]} onValueChange={handleParamChange( 'saturation' )} />
+					<Slider label={"Saturation"} min={- 100} max={100} step={1} snapPoints={[ - 100, - 50, 0, 50, 100 ]} value={[ imageProcessing.saturation ]} onValueChange={handleParamChange( 'saturation' )} />
 				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Hue"} min={- 180} max={180} step={1} value={[ imageProcessing.hue ]} onValueChange={handleParamChange( 'hue' )} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Exposure"} min={- 100} max={100} step={1} value={[ imageProcessing.exposure ]} onValueChange={handleParamChange( 'exposure' )} />
+					<Slider label={"Exposure"} min={- 100} max={100} step={1} snapPoints={[ - 100, - 50, 0, 50, 100 ]} value={[ imageProcessing.exposure ]} onValueChange={handleParamChange( 'exposure' )} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Gamma"} min={0.1} max={4} step={0.1} value={[ imageProcessing.gamma ]} onValueChange={handleParamChange( 'gamma' )} />
+					<Slider label={"Gamma"} min={0.1} max={4} step={0.1} snapPoints={[ 0.1, 1, 2.2, 3, 4 ]} value={[ imageProcessing.gamma ]} onValueChange={handleParamChange( 'gamma' )} />
 				</div>
 			</div>
 		</div>

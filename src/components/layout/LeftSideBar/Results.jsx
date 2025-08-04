@@ -401,14 +401,12 @@ const useFormatDate = () => {
 		return {
 			date: date.toLocaleDateString( undefined, {
 				day: 'numeric',
-				month: 'short',
-				year: 'numeric'
-			} ),
-			time: date.toLocaleTimeString( undefined, {
+				month: 'numeric',
+				year: 'numeric',
 				hour: '2-digit',
 				minute: '2-digit',
 				hour12: false
-			} )
+			} ),
 		};
 
 	}, [] );
@@ -464,12 +462,7 @@ const RenderItem = memo( ( {
 			<div className="bg-card p-3">
 				<div className="flex justify-between items-center">
 					<div className="flex items-center text-xs space-x-1 text-muted-foreground">
-						<Calendar size={12} className="text-muted-foreground" />
 						<span>{formattedDate.date}</span>
-					</div>
-					<div className="flex items-center text-xs space-x-1 text-muted-foreground">
-						<Clock size={12} className="text-muted-foreground" />
-						<span>{formattedDate.time}</span>
 					</div>
 					<div
 						className="flex items-center justify-center p-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer"
@@ -607,7 +600,7 @@ const RenderGallery = memo( () => {
 
 	return (
 		<div className="flex-1 overflow-y-auto custom-scrollbar">
-			<div className="grid grid-cols-1 gap-3 p-3">
+			<div className="grid grid-cols-2 gap-3 p-3">
 				{renderedImages.map( ( image, index ) => {
 
 					const formattedDate = formatDate( image.timestamp );
