@@ -252,10 +252,10 @@ class PathTracerApp extends EventDispatcher {
 
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
-		this.asvgfPass && this.asvgfPass.reset();
-		this.edgeAwareFilterPass && this.edgeAwareFilterPass.reset( this.renderer );
-		this.adaptiveSamplingPass && this.adaptiveSamplingPass.reset();
-		this.denoiser.abort();
+		this.asvgfPass?.enabled && this.asvgfPass.reset();
+		this.edgeAwareFilterPass?.enabled && this.edgeAwareFilterPass.reset( this.renderer );
+		this.adaptiveSamplingPass?.enabled && this.adaptiveSamplingPass.reset();
+		this.denoiser?.enabled && this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
 

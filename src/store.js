@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { devtools } from 'zustand/middleware';
 import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS } from '@/Constants';
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
@@ -22,7 +21,7 @@ const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 };
 
 // Main store
-const useStore = create( devtools( set => ( {
+const useStore = create( set => ( {
 	selectedObject: null,
 	setSelectedObject: obj => set( { selectedObject: obj } ),
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
@@ -43,10 +42,10 @@ const useStore = create( devtools( set => ( {
 	imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 0 },
 	setImageProcessingParam: ( param, val ) => set( s => ( { imageProcessing: { ...s.imageProcessing, [ param ]: val } } ) ),
 	resetImageProcessing: () => set( { imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 2.2 } } ),
-} ), { name: 'main-store' } ) );
+} ) );
 
 // Assets store
-const useAssetsStore = create( devtools( set => ( {
+const useAssetsStore = create( set => ( {
 	...DEFAULT_STATE,
 	activeTab: "models",
 	materials: [],
@@ -66,10 +65,10 @@ const useAssetsStore = create( devtools( set => ( {
 	} ),
 	setSelectedEnvironmentIndex: idx => set( { selectedEnvironmentIndex: idx } ),
 	setDebugModel: model => set( { debugModel: model } ),
-} ), { name: 'assets-store' } ) );
+} ) );
 
 // Environment store
-const useEnvironmentStore = create( devtools( set => ( {
+const useEnvironmentStore = create( set => ( {
 	apiData: null,
 	environments: [],
 	isLoading: true,
@@ -80,7 +79,7 @@ const useEnvironmentStore = create( devtools( set => ( {
 	setIsLoading: loading => set( { isLoading: loading } ),
 	setError: err => set( { error: err } ),
 	setSelectedResolution: res => set( { selectedResolution: res } ),
-} ), { name: 'environment-store' } ) );
+} ) );
 
 // Path tracer store with handlers
 const FINAL_STATE = {
@@ -95,7 +94,7 @@ const INTERACTIVE_STATE = {
 	interactionModeEnabled: true,
 };
 
-const usePathTracerStore = create( devtools( ( set, get ) => ( {
+const usePathTracerStore = create( ( set, get ) => ( {
 	...DEFAULT_STATE,
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
 	backgroundIntensity: DEFAULT_STATE.backgroundIntensity,
@@ -747,7 +746,7 @@ const usePathTracerStore = create( devtools( ( set, get ) => ( {
 		action ? get()[ action ]() : console.warn( `Unknown mode: ${mode}` );
 
 	},
-} ), { name: 'path-tracer-store' } ) );
+} ) );
 
 // Light store
 const useLightStore = create( set => ( {
