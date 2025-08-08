@@ -667,6 +667,9 @@ const usePathTracerStore = create( devtools( ( set, get ) => ( {
 			uniforms.transmissiveBounces.value = INTERACTIVE_STATE.transmissiveBounces;
 			app.pathTracingPass.tileManager.tiles = INTERACTIVE_STATE.tiles;
 			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
+
+			// Abort any ongoing denoising before switching modes
+			app.denoiser.abort();
 			app.denoiser.enabled = INTERACTIVE_STATE.enableOIDN;
 			app.denoiser.updateQuality( INTERACTIVE_STATE.oidnQuality );
 			app.denoiser.toggleHDR( INTERACTIVE_STATE.oidnHDR );
@@ -707,6 +710,9 @@ const usePathTracerStore = create( devtools( ( set, get ) => ( {
 			uniforms.transmissiveBounces.value = FINAL_STATE.transmissiveBounces;
 			app.pathTracingPass.tileManager.tiles = FINAL_STATE.tiles;
 			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
+
+			// Abort any ongoing denoising before switching modes
+			app.denoiser.abort();
 			app.denoiser.enabled = FINAL_STATE.enableOIDN;
 			app.denoiser.updateQuality( FINAL_STATE.oidnQuality );
 			app.denoiser.toggleHDR( FINAL_STATE.oidnHDR );

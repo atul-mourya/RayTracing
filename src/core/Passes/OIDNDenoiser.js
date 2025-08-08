@@ -424,6 +424,10 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Restore input visibility
 		this.input.style.opacity = '1';
 
+		// Reset denoising state and dispatch end event
+		this.state.isDenoising = false;
+		this.dispatchEvent( { type: 'end' } );
+
 		console.log( 'Denoising aborted' );
 
 	}
