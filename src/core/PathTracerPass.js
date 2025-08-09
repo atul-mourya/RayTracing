@@ -792,50 +792,126 @@ export class PathTracerPass extends Pass {
 
 	// ===== MATERIAL MANAGEMENT =====
 
-	updateDirectionalLightAngle( lightIndex, angleInRadians ) {
+	updateMaterial( materialIndex, material ) {
 
-		// Update the directional lights uniform array
-		const directionalLights = this.material.uniforms.directionalLights.value;
-		if ( directionalLights && lightIndex < directionalLights.length / 8 ) {
+		// Create a complete material object using GeometryExtractor's logic
+		const completeMaterialData = this.sdfs.geometryExtractor.createMaterialObject( material );
 
-			// Each directional light uses 8 floats, angle is at offset 7
-			const baseIndex = lightIndex * 8;
-			directionalLights[ baseIndex + 7 ] = angleInRadians;
-			this.material.uniforms.directionalLights.needsUpdate = true;
-
-		}
+		// Update the material data texture with the complete material
+		this.updateMaterialDataFromObject( materialIndex, completeMaterialData );
 
 	}
 
-	updateMaterialDataTexture( materialIndex, property, value ) {
+	updateMaterialProperty( materialIndex, property, value ) {
 
+		// Direct property update - much more efficient for single changes
 		const data = this.material.uniforms.materialTexture.value.image.data;
 		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
 
 		switch ( property ) {
 
-			case 'color': 				data.set( [ value.r, value.g, value.b ], stride + 0 ); break;
+			case 'color':
+				if ( value.r !== undefined ) {
+
+					data[ stride + 0 ] = value.r;
+					data[ stride + 1 ] = value.g;
+					data[ stride + 2 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + 0 ] = value[ 0 ];
+					data[ stride + 1 ] = value[ 1 ];
+					data[ stride + 2 ] = value[ 2 ];
+
+				}
+
+				break;
 			case 'metalness': 			data[ stride + 3 ] = value; break;
-			case 'emissive': 			data.set( [ value.r, value.g, value.b ], stride + 4 ); break;
+			case 'emissive':
+				if ( value.r !== undefined ) {
+
+					data[ stride + 4 ] = value.r;
+					data[ stride + 5 ] = value.g;
+					data[ stride + 6 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + 4 ] = value[ 0 ];
+					data[ stride + 5 ] = value[ 1 ];
+					data[ stride + 6 ] = value[ 2 ];
+
+				}
+
+				break;
 			case 'roughness': 			data[ stride + 7 ] = value; break;
 			case 'ior': 				data[ stride + 8 ] = value; break;
 			case 'transmission': 		data[ stride + 9 ] = value; break;
 			case 'thickness': 			data[ stride + 10 ] = value; break;
 			case 'emissiveIntensity': 	data[ stride + 11 ] = value; break;
-			case 'attenuationColor': 	data.set( [ value.r, value.g, value.b ], stride + 12 ); break;
+			case 'attenuationColor':
+				if ( value.r !== undefined ) {
+
+					data[ stride + 12 ] = value.r;
+					data[ stride + 13 ] = value.g;
+					data[ stride + 14 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + 12 ] = value[ 0 ];
+					data[ stride + 13 ] = value[ 1 ];
+					data[ stride + 14 ] = value[ 2 ];
+
+				}
+
+				break;
 			case 'attenuationDistance': data[ stride + 15 ] = value; break;
 			case 'dispersion': 			data[ stride + 16 ] = value; break;
 			case 'visible': 			data[ stride + 17 ] = value; break;
 			case 'sheen': 				data[ stride + 18 ] = value; break;
 			case 'sheenRoughness': 		data[ stride + 19 ] = value; break;
-			case 'sheenColor': 			data.set( [ value.r, value.g, value.b ], stride + 20 ); break;
+			case 'sheenColor':
+				if ( value.r !== undefined ) {
+
+					data[ stride + 20 ] = value.r;
+					data[ stride + 21 ] = value.g;
+					data[ stride + 22 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + 20 ] = value[ 0 ];
+					data[ stride + 21 ] = value[ 1 ];
+					data[ stride + 22 ] = value[ 2 ];
+
+				}
+
+				break;
 			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
-			case 'specularColor': 		data.set( [ value.r, value.g, value.b ], stride + 25 ); break;
+			case 'specularColor':
+				if ( value.r !== undefined ) {
+
+					data[ stride + 25 ] = value.r;
+					data[ stride + 26 ] = value.g;
+					data[ stride + 27 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + 25 ] = value[ 0 ];
+					data[ stride + 26 ] = value[ 1 ];
+					data[ stride + 27 ] = value[ 2 ];
+
+				}
+
+				break;
 			case 'iridescence': 		data[ stride + 28 ] = value; break;
 			case 'iridescenceIOR': 		data[ stride + 29 ] = value; break;
 			case 'iridescenceThicknessRange':
-				data[ stride + 30 ] = value[ 0 ];
-				data[ stride + 31 ] = value[ 1 ];
+				if ( Array.isArray( value ) ) {
+
+					data[ stride + 30 ] = value[ 0 ];
+					data[ stride + 31 ] = value[ 1 ];
+
+				}
+
 				break;
 			case 'clearcoat': 			data[ stride + 38 ] = value; break;
 			case 'clearcoatRoughness': 	data[ stride + 39 ] = value; break;
@@ -843,24 +919,115 @@ export class PathTracerPass extends Pass {
 			case 'side': 				data[ stride + 41 ] = value; break;
 			case 'transparent': 		data[ stride + 42 ] = value; break;
 			case 'alphaTest': 			data[ stride + 43 ] = value; break;
+			default:
+				console.warn( `Unknown material property: ${property}` );
+				return;
 
 		}
 
+		// Mark texture for update
 		this.material.uniforms.materialTexture.value.needsUpdate = true;
 		this.reset();
 
 	}
 
-	rebuildMaterialDataTexture( materialIndex, material ) {
+	updateMaterialDataFromObject( materialIndex, materialData ) {
 
-		let materialData = this.sdfs.geometryExtractor.createMaterialObject( material );
+		// Update all material properties in the texture
+		const data = this.material.uniforms.materialTexture.value.image.data;
+		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
 
-		// iterate over materialData and update the materialTexture
-		for ( const property in materialData ) {
+		// Base material properties
+		if ( materialData.color ) {
 
-			this.updateMaterialDataTexture( materialIndex, property, materialData[ property ] );
+			data[ stride + 0 ] = materialData.color.r || materialData.color[ 0 ] || 1;
+			data[ stride + 1 ] = materialData.color.g || materialData.color[ 1 ] || 1;
+			data[ stride + 2 ] = materialData.color.b || materialData.color[ 2 ] || 1;
 
 		}
+
+		data[ stride + 3 ] = materialData.metalness || 0;
+
+		if ( materialData.emissive ) {
+
+			data[ stride + 4 ] = materialData.emissive.r || materialData.emissive[ 0 ] || 0;
+			data[ stride + 5 ] = materialData.emissive.g || materialData.emissive[ 1 ] || 0;
+			data[ stride + 6 ] = materialData.emissive.b || materialData.emissive[ 2 ] || 0;
+
+		}
+
+		data[ stride + 7 ] = materialData.roughness || 1;
+		data[ stride + 8 ] = materialData.ior || 1.5;
+		data[ stride + 9 ] = materialData.transmission || 0;
+		data[ stride + 10 ] = materialData.thickness || 0.1;
+		data[ stride + 11 ] = materialData.emissiveIntensity || 1;
+
+		if ( materialData.attenuationColor ) {
+
+			data[ stride + 12 ] = materialData.attenuationColor.r || materialData.attenuationColor[ 0 ] || 1;
+			data[ stride + 13 ] = materialData.attenuationColor.g || materialData.attenuationColor[ 1 ] || 1;
+			data[ stride + 14 ] = materialData.attenuationColor.b || materialData.attenuationColor[ 2 ] || 1;
+
+		}
+
+		data[ stride + 15 ] = materialData.attenuationDistance !== undefined ? materialData.attenuationDistance : Infinity;
+		data[ stride + 16 ] = materialData.dispersion || 0;
+		data[ stride + 17 ] = materialData.visible !== undefined ? materialData.visible : 1;
+		data[ stride + 18 ] = materialData.sheen || 0;
+		data[ stride + 19 ] = materialData.sheenRoughness || 1;
+
+		if ( materialData.sheenColor ) {
+
+			data[ stride + 20 ] = materialData.sheenColor.r || materialData.sheenColor[ 0 ] || 0;
+			data[ stride + 21 ] = materialData.sheenColor.g || materialData.sheenColor[ 1 ] || 0;
+			data[ stride + 22 ] = materialData.sheenColor.b || materialData.sheenColor[ 2 ] || 0;
+
+		}
+
+		data[ stride + 24 ] = materialData.specularIntensity || 1;
+
+		if ( materialData.specularColor ) {
+
+			data[ stride + 25 ] = materialData.specularColor.r || materialData.specularColor[ 0 ] || 1;
+			data[ stride + 26 ] = materialData.specularColor.g || materialData.specularColor[ 1 ] || 1;
+			data[ stride + 27 ] = materialData.specularColor.b || materialData.specularColor[ 2 ] || 1;
+
+		}
+
+		data[ stride + 28 ] = materialData.iridescence || 0;
+		data[ stride + 29 ] = materialData.iridescenceIOR || 1.3;
+
+		if ( materialData.iridescenceThicknessRange ) {
+
+			data[ stride + 30 ] = materialData.iridescenceThicknessRange[ 0 ] || 100;
+			data[ stride + 31 ] = materialData.iridescenceThicknessRange[ 1 ] || 400;
+
+		}
+
+		data[ stride + 38 ] = materialData.clearcoat || 0;
+		data[ stride + 39 ] = materialData.clearcoatRoughness || 0;
+		data[ stride + 40 ] = materialData.opacity !== undefined ? materialData.opacity : 1;
+		data[ stride + 41 ] = materialData.side !== undefined ? materialData.side : 0;
+		data[ stride + 42 ] = materialData.transparent !== undefined ? materialData.transparent : 0;
+		data[ stride + 43 ] = materialData.alphaTest !== undefined ? materialData.alphaTest : 0;
+
+		// Mark texture for update
+		this.material.uniforms.materialTexture.value.needsUpdate = true;
+		this.reset();
+
+	}
+
+	updateMaterialDataTexture( materialIndex, property, value ) {
+
+		// Delegate to the more efficient updateMaterialProperty method
+		this.updateMaterialProperty( materialIndex, property, value );
+
+	}
+
+	rebuildMaterialDataTexture( materialIndex, material ) {
+
+		// Use the new updateMaterial method for consistency
+		this.updateMaterial( materialIndex, material );
 
 	}
 

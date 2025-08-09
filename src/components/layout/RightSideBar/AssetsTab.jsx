@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAssetsStore } from '@/store';
 import { useEffect } from 'react';
 import { useStore, useEnvironmentStore } from '@/store';
+import { Color } from 'three';
 
 const AssetsTab = () => {
 
@@ -196,57 +197,178 @@ const AssetsTab = () => {
 
 	};
 
+	// Helper method to create complete material object with defaults (similar to GeometryExtractor)
+	const createCompleteMaterialFromAPI = ( apiMaterialInfo ) => {
+
+		// Default values matching GeometryExtractor's getPhysicalDefaults
+		const defaults = {
+			color: [ 1, 1, 1 ], // white
+			emissive: [ 0, 0, 0 ], // black
+			emissiveIntensity: 1.0,
+			roughness: 1.0,
+			metalness: 0.0,
+			ior: 1.5,
+			opacity: 1.0,
+			transmission: 0.0,
+			thickness: 0.1,
+			attenuationColor: [ 1, 1, 1 ], // white
+			attenuationDistance: Infinity,
+			dispersion: 0.0,
+			sheen: 0.0,
+			sheenRoughness: 1.0,
+			sheenColor: [ 0, 0, 0 ], // black
+			specularIntensity: 1.0,
+			specularColor: [ 1, 1, 1 ], // white
+			clearcoat: 0.0,
+			clearcoatRoughness: 0.0,
+			iridescence: 0.0,
+			iridescenceIOR: 1.3,
+			iridescenceThicknessRange: [ 100, 400 ],
+			visible: 1,
+			transparent: 0,
+			alphaTest: 0.0,
+			side: 0 // FrontSide
+		};
+
+		// Create complete material by merging API data with defaults
+		const completeMaterial = { ...defaults };
+
+		// Apply API properties if they exist
+		if ( apiMaterialInfo.color ) completeMaterial.color = apiMaterialInfo.color;
+		if ( typeof apiMaterialInfo.metalness === 'number' ) completeMaterial.metalness = apiMaterialInfo.metalness;
+		if ( typeof apiMaterialInfo.roughness === 'number' ) completeMaterial.roughness = Math.max( 0.05, apiMaterialInfo.roughness );
+		if ( typeof apiMaterialInfo.ior === 'number' ) completeMaterial.ior = apiMaterialInfo.ior;
+		if ( typeof apiMaterialInfo.transmission === 'number' ) completeMaterial.transmission = apiMaterialInfo.transmission;
+
+		// Handle density -> attenuationDistance conversion
+		if ( typeof apiMaterialInfo.density === 'number' && apiMaterialInfo.density > 0 ) {
+
+			completeMaterial.attenuationDistance = 1000 / apiMaterialInfo.density;
+
+		}
+
+		// Handle transmission materials - set appropriate properties
+		if ( completeMaterial.transmission > 0 ) {
+
+			completeMaterial.transparent = 1;
+			completeMaterial.side = 2; // DoubleSide for transmissive materials
+
+			// For transmissive materials, use color as attenuation color
+			if ( completeMaterial.color ) {
+
+				completeMaterial.attenuationColor = [ ...completeMaterial.color ];
+
+			}
+
+		}
+
+		// Handle thin film properties
+		if ( typeof apiMaterialInfo.thinFilmThickness === 'number' ) {
+
+			completeMaterial.iridescence = 1.0;
+			completeMaterial.iridescenceThicknessRange = [ apiMaterialInfo.thinFilmThickness, apiMaterialInfo.thinFilmThickness ];
+
+			if ( typeof apiMaterialInfo.thinFilmIor === 'number' ) {
+
+				completeMaterial.iridescenceIOR = apiMaterialInfo.thinFilmIor;
+
+			}
+
+		}
+
+		return completeMaterial;
+
+	};
+
 	function applyMaterialInfo( materialInfo, mat ) {
 
 		if ( ! mat ) return console.error( "Invalid material object provided" );
 
-		// Helper function to safely set property if it exists
-		const setIfExists = ( obj, prop, value ) => prop in obj && ( obj[ prop ] = value );
+		// Helper function to ensure property exists and set it
+		const ensureAndSet = ( obj, prop, value ) => {
 
-		// Reset basic properties
-		mat.color?.set?.( 0xffffff );
-		mat.attenuationColor?.set?.( 0xffffff );
-		mat.specularColor?.set?.( 0xffffff );
+			if ( ! ( prop in obj ) ) {
 
-		// Set material properties if they exist
-		setIfExists( mat, 'transmission', materialInfo.transmission ?? 0.0 );
-		setIfExists( mat, 'attenuationDistance', Infinity );
-		setIfExists( mat, 'metalness', materialInfo.metalness ?? 0.0 );
-		setIfExists( mat, 'roughness', materialInfo.roughness ?? 1.0 );
-		setIfExists( mat, 'ior', materialInfo.ior ?? 1.5 );
-		setIfExists( mat, 'thickness', 1.0 );
+				// Create the property if it doesn't exist
+				obj[ prop ] = value;
 
-		// Apply specialized properties
-		materialInfo.specularColor && mat.specularColor?.setRGB?.( ...materialInfo.specularColor );
+			} else {
 
-		// Handle thin film iridescence
-		if ( 'thinFilmThickness' in materialInfo ) {
+				obj[ prop ] = value;
 
-			setIfExists( mat, 'iridescence', 1.0 );
-			setIfExists( mat, 'iridescenceIOR', materialInfo.thinFilmIor || 1.5 );
-			setIfExists( mat, 'iridescenceThicknessRange', [ materialInfo.thinFilmThickness, materialInfo.thinFilmThickness ] );
+			}
 
-		} else {
+		};
 
-			setIfExists( mat, 'iridescence', 0.0 );
-			setIfExists( mat, 'iridescenceIOR', 1.0 );
-			setIfExists( mat, 'iridescenceThicknessRange', [ 100, 400 ] );
+		// Helper function for color properties
+		const ensureAndSetColor = ( obj, prop, colorArray ) => {
 
-		}
+			if ( Array.isArray( colorArray ) && colorArray.length >= 3 ) {
 
-		// Handle transmission vs. diffuse materials
-		if ( mat.transmission > 0 ) {
+				if ( ! ( prop in obj ) ) {
 
-			materialInfo.color && mat.attenuationColor?.setRGB?.( ...materialInfo.color );
-			materialInfo.density && setIfExists( mat, 'attenuationDistance', 1000 / materialInfo.density );
+					// Create Color object if property doesn't exist
+					obj[ prop ] = new Color();
 
-		} else {
+				}
 
-			materialInfo.color && mat.color?.setRGB?.( ...materialInfo.color );
+				if ( obj[ prop ]?.setRGB ) {
 
-		}
+					obj[ prop ].setRGB( colorArray[ 0 ], colorArray[ 1 ], colorArray[ 2 ] );
 
-		setIfExists( mat, 'needsUpdate', true );
+				}
+
+			}
+
+		};
+
+		// Create complete material with defaults first
+		const completeMaterial = createCompleteMaterialFromAPI( materialInfo );
+
+		// Ensure and set all material properties to create a complete PBR material
+		// Base colors
+		ensureAndSetColor( mat, 'color', completeMaterial.color );
+		ensureAndSetColor( mat, 'emissive', completeMaterial.emissive );
+		ensureAndSetColor( mat, 'attenuationColor', completeMaterial.attenuationColor );
+		ensureAndSetColor( mat, 'specularColor', completeMaterial.specularColor );
+		ensureAndSetColor( mat, 'sheenColor', completeMaterial.sheenColor );
+
+		// Basic material properties
+		ensureAndSet( mat, 'emissiveIntensity', completeMaterial.emissiveIntensity );
+		ensureAndSet( mat, 'roughness', completeMaterial.roughness );
+		ensureAndSet( mat, 'metalness', completeMaterial.metalness );
+		ensureAndSet( mat, 'ior', completeMaterial.ior );
+		ensureAndSet( mat, 'opacity', completeMaterial.opacity );
+
+		// Transmission properties
+		ensureAndSet( mat, 'transmission', completeMaterial.transmission );
+		ensureAndSet( mat, 'thickness', completeMaterial.thickness );
+		ensureAndSet( mat, 'attenuationDistance', completeMaterial.attenuationDistance );
+
+		// Advanced properties
+		ensureAndSet( mat, 'dispersion', completeMaterial.dispersion );
+		ensureAndSet( mat, 'sheen', completeMaterial.sheen );
+		ensureAndSet( mat, 'sheenRoughness', completeMaterial.sheenRoughness );
+		ensureAndSet( mat, 'specularIntensity', completeMaterial.specularIntensity );
+		ensureAndSet( mat, 'clearcoat', completeMaterial.clearcoat );
+		ensureAndSet( mat, 'clearcoatRoughness', completeMaterial.clearcoatRoughness );
+
+		// Iridescence properties
+		ensureAndSet( mat, 'iridescence', completeMaterial.iridescence );
+		ensureAndSet( mat, 'iridescenceIOR', completeMaterial.iridescenceIOR );
+		ensureAndSet( mat, 'iridescenceThicknessRange', completeMaterial.iridescenceThicknessRange );
+
+		// Rendering properties
+		ensureAndSet( mat, 'transparent', completeMaterial.transparent > 0 );
+		ensureAndSet( mat, 'alphaTest', completeMaterial.alphaTest );
+		ensureAndSet( mat, 'visible', completeMaterial.visible > 0 );
+
+		// Handle side property (convert number to Three.js constants)
+		const sideMap = { 0: 0, 1: 1, 2: 2 }; // FrontSide, BackSide, DoubleSide
+		ensureAndSet( mat, 'side', sideMap[ completeMaterial.side ] ?? 0 );
+
+		// Ensure needsUpdate exists and set it
+		ensureAndSet( mat, 'needsUpdate', true );
 
 	}
 
@@ -289,7 +411,7 @@ const AssetsTab = () => {
 		try {
 
 			// Output debug info
-			console.log( 'Applying material:', {
+			console.debug( 'Applying complete API material:', {
 				materialIndex,
 				materialData: materials[ materialIndex ],
 				targetObject: selectedObject,
@@ -308,10 +430,11 @@ const AssetsTab = () => {
 
 			const objMaterialIndex = selectedObject.userData?.materialIndex ?? 0;
 
-			// Update the material in the path tracer
+			// For API materials, we need to use the complete material update (updateMaterial)
+			// because API materials only have partial properties
 			if ( window.pathTracerApp?.pathTracingPass?.updateMaterial ) {
 
-				// New API - preferred method with better organization
+				// Use updateMaterial for complete material reconstruction from API data
 				window.pathTracerApp.pathTracingPass.updateMaterial(
 					objMaterialIndex,
 					selectedObject.material
@@ -319,7 +442,7 @@ const AssetsTab = () => {
 
 			} else if ( window.pathTracerApp?.pathTracingPass?.rebuildMaterialDataTexture ) {
 
-				// Legacy API - fallback for compatibility
+				// Legacy fallback
 				window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture(
 					objMaterialIndex,
 					selectedObject.material

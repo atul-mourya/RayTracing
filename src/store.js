@@ -955,6 +955,8 @@ const useMaterialStore = create( ( set, get ) => ( {
 		try {
 
 			obj.material[ prop ] = val;
+			obj.material.needsUpdate = true;
+
 			const idx = obj.userData?.materialIndex ?? 0;
 			const pt = window.pathTracerApp?.pathTracingPass;
 			if ( ! pt ) {
@@ -964,26 +966,21 @@ const useMaterialStore = create( ( set, get ) => ( {
 
 			}
 
-			const methods = [ 'updateMaterial', 'updateMaterialProperty', 'updateMaterialDataTexture', 'rebuildMaterialDataTexture' ];
-			const args = [
-				[ idx, obj.material ],
-				[ idx, prop, val ],
-				[ idx, prop, val ],
-				[ idx, obj.material ]
-			];
+			if ( typeof pt.updateMaterialProperty === 'function' ) {
 
-			for ( let i = 0; i < methods.length; i ++ ) {
+				pt.updateMaterialProperty( idx, prop, val );
 
-				if ( typeof pt[ methods[ i ] ] === 'function' ) {
+			} else if ( typeof pt.updateMaterialDataTexture === 'function' ) {
 
-					pt[ methods[ i ] ]( ...args[ i ] );
-					break;
+				// Fallback to legacy method
+				pt.updateMaterialDataTexture( idx, prop, val );
 
-				}
+			} else {
+
+				console.warn( "No material update method available" );
 
 			}
 
-			window.pathTracerApp?.reset();
 
 		} catch ( error ) {
 
