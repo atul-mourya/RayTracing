@@ -205,6 +205,21 @@ class PathTracerApp extends EventDispatcher {
 
 		} );
 
+		// Listen for model processing completion (includes camera extraction)
+		this.assetLoader.addEventListener( 'modelProcessed', ( event ) => {
+
+			// Always reset cameras and add new ones from the current model
+			this.resetCamerasAndAddFromModel( event.cameras );
+
+			// Dispatch event to update UI
+			this.dispatchEvent( {
+				type: 'CamerasUpdated',
+				cameras: this.cameras,
+				cameraNames: this.getCameraNames()
+			} );
+
+		} );
+
 		this.assetLoader.addEventListener( 'error', ( event ) => {
 
 			console.error( "Asset loading error:", event.message );
@@ -430,9 +445,52 @@ class PathTracerApp extends EventDispatcher {
 
 	};
 
+	// Updated method to reset cameras and add only from current model
+	resetCamerasAndAddFromModel( modelCameras ) {
+
+		// Always start fresh with only the default camera
+		const defaultCamera = this.defaultCamera; // Store reference to original default camera
+		this.cameras = [ defaultCamera ];
+
+		// Add cameras from the current model only
+		if ( modelCameras && modelCameras.length > 0 ) {
+
+			modelCameras.forEach( camera => {
+
+				this.cameras.push( camera );
+
+			} );
+
+		}
+
+		// Always reset to default camera (index 0) when new model is loaded
+		this.currentCameraIndex = 0;
+		this.camera = this.cameras[ 0 ];
+
+		// Update camera-dependent passes
+		if ( this.pathTracingPass ) this.pathTracingPass.camera = this.camera;
+		if ( this.outlinePass ) this.outlinePass.camera = this.camera;
+		if ( this.denoiser ) this.denoiser.mapGenerator.camera = this.camera;
+
+		console.log( `Reset cameras. Total cameras: ${this.cameras.length} (1 default + ${modelCameras?.length || 0} from model). Using default camera.` );
+
+	}
+
 	getCameraNames() {
 
-		return this.cameras.map( ( camera, index ) => `Camera ${index + 1}` );
+		return this.cameras.map( ( camera, index ) => {
+
+			if ( index === 0 ) {
+
+				return 'Default Camera';
+
+			} else {
+
+				return camera.name || `Camera ${index}`;
+
+			}
+
+		} );
 
 	}
 

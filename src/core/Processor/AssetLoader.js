@@ -1119,6 +1119,9 @@ class AssetLoader extends EventDispatcher {
 	// Model processing methods
 	async onModelLoad( model ) {
 
+		// Extract cameras from the loaded model
+		const extractedCameras = this.extractCamerasFromModel( model );
+
 		// Center model and adjust camera
 		const box = new Box3().setFromObject( model );
 		const center = box.getCenter( new Vector3() );
@@ -1176,10 +1179,55 @@ class AssetLoader extends EventDispatcher {
 		// Rebuild path tracing
 		await this.setupPathTracing( model, sceneScale, maxDim );
 
+		// Dispatch event with cameras if found
+		this.dispatchEvent( {
+			type: 'modelProcessed',
+			model: model,
+			cameras: extractedCameras,
+			sceneData: { center, size, maxDim, sceneScale }
+		} );
+
 		// Notify model loaded and processed
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 		return { center, size, maxDim, sceneScale };
+
+	}
+
+	// New method to extract cameras from loaded models
+	extractCamerasFromModel( model ) {
+
+		const cameras = [];
+
+		model.traverse( ( object ) => {
+
+			if ( object.isCamera ) {
+
+				// Clone the camera to avoid modifying the original
+				const camera = object.clone();
+
+				// Set a meaningful name
+				if ( ! camera.name || camera.name === '' ) {
+
+					camera.name = `Model Camera ${cameras.length + 1}`;
+
+				}
+
+				// Ensure the camera has proper aspect ratio
+				if ( camera.isPerspectiveCamera ) {
+
+					camera.aspect = this.camera.aspect;
+					camera.updateProjectionMatrix();
+
+				}
+
+				cameras.push( camera );
+
+			}
+
+		} );
+
+		return cameras;
 
 	}
 

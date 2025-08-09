@@ -47,8 +47,15 @@ const CameraTab = () => {
 		if ( window.pathTracerApp ) {
 
 			// Set up camera names and initial selection
-			setCameraNames( window.pathTracerApp.getCameraNames() );
-			setSelectedCameraIndex( window.pathTracerApp.currentCameraIndex );
+			const updateCameraList = () => {
+
+				setCameraNames( window.pathTracerApp.getCameraNames() );
+				setSelectedCameraIndex( window.pathTracerApp.currentCameraIndex );
+
+			};
+
+			// Initial setup
+			updateCameraList();
 
 			// Initialize click-to-focus functionality
 			window.pathTracerApp.setupClickToFocus();
@@ -56,10 +63,28 @@ const CameraTab = () => {
 			// Listen for focus change events
 			window.pathTracerApp.addEventListener( 'focusChanged', handleFocusChangeEvent );
 
-			// Clean up event listener on component unmount
+			// Listen for camera updates from model loading
+			const handleCameraUpdate = ( event ) => {
+
+				updateCameraList();
+
+				// Always reset to default camera (index 0) in UI as well
+				if ( window.pathTracerApp.currentCameraIndex === 0 ) {
+
+					// Force UI update to show default camera is selected
+					setSelectedCameraIndex( 0 );
+
+				}
+
+			};
+
+			window.pathTracerApp.addEventListener( 'CamerasUpdated', handleCameraUpdate );
+
+			// Clean up event listeners on component unmount
 			return () => {
 
 				window.pathTracerApp.removeEventListener( 'focusChanged', handleFocusChangeEvent );
+				window.pathTracerApp.removeEventListener( 'CamerasUpdated', handleCameraUpdate );
 
 			};
 
