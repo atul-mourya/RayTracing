@@ -9,6 +9,10 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
 
+  /* Custom text size - smaller than xs */
+  --text-xxs: 0.625rem;
+  --text-xxs--line-height: calc(0.75 / 0.625);
+
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
 
