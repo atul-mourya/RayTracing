@@ -271,7 +271,26 @@ export class EnvironmentCDFBuilder {
 		let totalLuminance = 0;
 		let maxLuminance = 0;
 
+		// Pole regions for enhanced handling
+		const poleRegionSize = Math.max( 1, Math.floor( height * 0.02 ) ); // Top/bottom 2%
+		let poleMaxLuminance = 0;
+		let polePixelCount = 0;
+
 		for ( let y = 0; y < height; y ++ ) {
+
+			// Enhanced sin(theta) weighting with pole singularity handling
+			const theta = ( y + 0.5 ) / height * Math.PI;
+			let sinTheta = Math.sin( theta );
+
+			// Detect pole regions
+			const isNearPole = y < poleRegionSize || y >= height - poleRegionSize;
+
+			// Enhanced pole handling: clamp sinTheta and apply dampening
+			if ( isNearPole ) {
+
+				sinTheta = Math.max( sinTheta, 0.01 ); // Prevent extreme weighting at poles
+
+			}
 
 			for ( let x = 0; x < width; x ++ ) {
 
@@ -280,14 +299,28 @@ export class EnvironmentCDFBuilder {
 				const g = pixelData[ i + 1 ];
 				const b = pixelData[ i + 2 ];
 
-				// Account for sin(theta) weighting for equirectangular projection
-				const theta = ( y + 0.5 ) / height * Math.PI;
-				const sinTheta = Math.sin( theta );
+				// Calculate base luminance
+				let lum = ( 0.2126 * r + 0.7152 * g + 0.0722 * b ) * sinTheta;
 
-				// Calculate luminance using standard coefficients
-				const lum = ( 0.2126 * r + 0.7152 * g + 0.0722 * b ) * sinTheta;
+				// Enhanced pole region handling
+				if ( isNearPole ) {
+
+					// Track pole statistics
+					const rawLum = ( 0.2126 * r + 0.7152 * g + 0.0722 * b );
+					poleMaxLuminance = Math.max( poleMaxLuminance, rawLum );
+					polePixelCount ++;
+
+					// Apply additional dampening for extreme pole values
+					if ( rawLum > 0.1 ) { // Bright pole pixel
+
+						const dampingFactor = Math.max( 0.1, sinTheta );
+						lum = rawLum * dampingFactor;
+
+					}
+
+				}
+
 				luminance[ y * width + x ] = lum;
-
 				totalLuminance += lum;
 				maxLuminance = Math.max( maxLuminance, lum );
 
@@ -295,13 +328,26 @@ export class EnvironmentCDFBuilder {
 
 		}
 
-		// Store debug info
+		// Enhanced debug info with pole statistics
 		this.debugInfo.luminanceStats = {
 			total: totalLuminance,
 			max: maxLuminance,
 			average: totalLuminance / ( width * height ),
-			nonZeroPixels: luminance.filter( l => l > 1e-8 ).length
+			nonZeroPixels: luminance.filter( l => l > 1e-8 ).length,
+			poleStats: {
+				maxLuminance: poleMaxLuminance,
+				pixelCount: polePixelCount,
+				avgLuminance: polePixelCount > 0 ? poleMaxLuminance / polePixelCount : 0,
+				hasBrightPoles: poleMaxLuminance > 0.1
+			}
 		};
+
+		// Warn about bright poles that could cause fireflies
+		if ( poleMaxLuminance > 1.0 ) {
+
+			console.warn( `Bright poles detected (max: ${poleMaxLuminance.toFixed( 3 )}). Applying singularity mitigation.` );
+
+		}
 
 		return luminance;
 
@@ -390,26 +436,31 @@ export class EnvironmentCDFBuilder {
 		const cdfHeight = cdfSize + 1;
 		const cdfData = new Float32Array( cdfSize * cdfHeight * 4 );
 
-		// Track statistics for debugging
+		// Enhanced tracking with pole awareness
 		let emptyRows = 0;
 		let validRows = 0;
 		let totalSampledEnergy = 0;
 		let maxCellValue = 0;
 		let biasPreventionCount = 0;
+		let poleSingularityCount = 0;
 
-		// Build conditional CDFs with ENHANCED sampling and bias prevention
+		// Identify pole regions in CDF space
+		const poleCDFRegion = Math.max( 1, Math.floor( cdfSize * 0.02 ) );
+
+		// Build conditional CDFs with enhanced pole handling
 		for ( let cdfY = 0; cdfY < cdfSize; cdfY ++ ) {
 
 			let rowSum = 0.0;
 			const rowData = new Float32Array( cdfSize );
 
-			// Calculate source row range
+			// Check if this CDF row corresponds to pole regions
 			const srcYStart = Math.floor( cdfY * height / cdfSize );
 			const srcYEnd = Math.min( Math.ceil( ( cdfY + 1 ) * height / cdfSize ), height );
-
-			// Ensure we always have at least one row
 			const actualSrcYStart = srcYStart;
 			const actualSrcYEnd = Math.max( srcYEnd, srcYStart + 1 );
+
+			// Detect if we're sampling pole regions
+			const isNearPole = ( actualSrcYStart < height * 0.02 ) || ( actualSrcYEnd > height * 0.98 );
 
 			for ( let cdfX = 0; cdfX < cdfSize; cdfX ++ ) {
 
@@ -453,8 +504,16 @@ export class EnvironmentCDFBuilder {
 				let finalCellValue;
 				if ( hotspotCount > 0 || maxCellLuminance > avgCellLuminance * 3 ) {
 
-					// For cells with bright spots: blend max and average with bias toward max
-					const blendRatio = Math.min( hotspotCount / cellCount + 0.3, 0.8 );
+					let blendRatio = Math.min( hotspotCount / cellCount + 0.3, 0.8 );
+
+					// Enhanced pole handling: reduce blend ratio for pole regions
+					if ( isNearPole && maxCellLuminance > avgCellLuminance * 10 ) {
+
+						blendRatio = Math.min( blendRatio * 0.5, 0.4 ); // More conservative blending
+						poleSingularityCount ++;
+
+					}
+
 					finalCellValue = mix( avgCellLuminance, maxCellLuminance, blendRatio );
 					biasPreventionCount ++;
 
@@ -465,6 +524,13 @@ export class EnvironmentCDFBuilder {
 
 				}
 
+				// Additional pole region clamping
+				if ( isNearPole && finalCellValue > maxCellValue * 0.5 ) {
+
+					finalCellValue = Math.min( finalCellValue, maxCellValue * 0.5 );
+
+				}
+
 				rowData[ cdfX ] = finalCellValue;
 				rowSum += finalCellValue;
 				maxCellValue = Math.max( maxCellValue, finalCellValue );
@@ -472,11 +538,18 @@ export class EnvironmentCDFBuilder {
 
 			}
 
-			// Minimum threshold calculation
-			const adaptiveMinThreshold = Math.max(
+			// Minimum threshold with pole awareness
+			let adaptiveMinThreshold = Math.max(
 				this.options.minLuminanceThreshold,
-				maxCellValue * 1e-6 // Relative to brightest cell
+				maxCellValue * 1e-6
 			);
+
+			// Higher minimum for pole regions to prevent singularities
+			if ( isNearPole ) {
+
+				adaptiveMinThreshold = Math.max( adaptiveMinThreshold, maxCellValue * 1e-5 );
+
+			}
 
 			if ( rowSum < adaptiveMinThreshold ) {
 
@@ -524,7 +597,7 @@ export class EnvironmentCDFBuilder {
 
 		}
 
-		// Marginal CDF building
+		// Marginal CDF with pole handling
 		let marginalSum = 0.0;
 		const marginalData = new Float32Array( cdfSize );
 		const marginalY = cdfSize;
@@ -543,8 +616,12 @@ export class EnvironmentCDFBuilder {
 			let maxColLuminance = 0.0;
 			let colCount = 0;
 			let colHotspotCount = 0;
+			let colPoleContribution = 0.0;
 
 			for ( let srcY = 0; srcY < height; srcY ++ ) {
+
+				// Check if this is a pole row
+				const isPoleSrcRow = srcY < height * 0.02 || srcY >= height * 0.98;
 
 				for ( let srcX = actualSrcXStart; srcX < actualSrcXEnd; srcX ++ ) {
 
@@ -552,6 +629,12 @@ export class EnvironmentCDFBuilder {
 					maxColLuminance = Math.max( maxColLuminance, lum );
 					colSum += lum;
 					colCount ++;
+
+					if ( isPoleSrcRow ) {
+
+						colPoleContribution += lum;
+
+					}
 
 					if ( lum > this.debugInfo.avgLuminance * 5 ) {
 
@@ -569,7 +652,16 @@ export class EnvironmentCDFBuilder {
 			let finalColValue;
 			if ( colHotspotCount > 0 || maxColLuminance > avgColLuminance * 3 ) {
 
-				const blendRatio = Math.min( colHotspotCount / colCount + 0.2, 0.6 ); // Less aggressive for marginal
+				let blendRatio = Math.min( colHotspotCount / colCount + 0.2, 0.6 );
+
+				// Reduce blend if significant pole contribution
+				const poleRatio = colPoleContribution / Math.max( colSum, 1e-8 );
+				if ( poleRatio > 0.3 ) {
+
+					blendRatio *= ( 1.0 - poleRatio * 0.5 );
+
+				}
+
 				finalColValue = mix( avgColLuminance, maxColLuminance, blendRatio );
 
 			} else {
@@ -602,7 +694,7 @@ export class EnvironmentCDFBuilder {
 
 		}
 
-		// Build marginal CDF with enhanced precision
+		// Build marginal CDF
 		let cumulativeSum = 0.0;
 		const invMarginalSum = 1.0 / marginalSum;
 
@@ -635,13 +727,15 @@ export class EnvironmentCDFBuilder {
 			totalSampledEnergy,
 			maxCellValue,
 			biasPreventionCount,
+			poleSingularityCount,
+			hasPoleIssues: poleSingularityCount > 0,
 			energyRatio: totalSampledEnergy / Math.max( this.debugInfo.luminanceStats.total, 1e-8 ),
 			minThreshold: this.options.minLuminanceThreshold
 		};
 
-		console.log( 'Enhanced CDF Build Stats:', this.debugInfo.cdfStats );
+		console.log( 'Enhanced CDF Build Stats (with pole handling):', this.debugInfo.cdfStats );
 
-		// Create texture with better filtering
+		// Create texture with linear filtering
 		const cdfTexture = new DataTexture(
 			cdfData,
 			cdfSize,
@@ -651,7 +745,7 @@ export class EnvironmentCDFBuilder {
 			UVMapping,
 			RepeatWrapping,
 			RepeatWrapping,
-			LinearFilter, // Use linear filtering for better interpolation
+			LinearFilter,
 			LinearFilter
 		);
 		cdfTexture.needsUpdate = true;

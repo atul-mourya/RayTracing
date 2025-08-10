@@ -74,21 +74,37 @@ float getEnvironmentMipLevel( int bounce ) {
 vec2 directionToUV( vec3 direction ) {
     // Apply environment matrix rotation
     vec3 rotatedDir = ( environmentMatrix * vec4( direction, 0.0 ) ).xyz;
+
+    // Clamp Y component to prevent singularities at poles
+    rotatedDir.y = clamp( rotatedDir.y, - 0.99999, 0.99999 );
+
     float phi = atan( rotatedDir.z, rotatedDir.x );
     float theta = acos( clamp( rotatedDir.y, - 1.0, 1.0 ) );
-    return vec2( phi * ( 0.5 * PI_INV ) + 0.5, 1.0 - theta * PI_INV );
+
+    // Enhanced UV calculation with pole handling
+    float u = phi * ( 0.5 * PI_INV ) + 0.5;
+    float v = 1.0 - theta * PI_INV;
+
+    // Clamp UV coordinates to valid range with small epsilon
+    return clamp( vec2( u, v ), vec2( 1e-6 ), vec2( 1.0 - 1e-6 ) );
 }
 
 // Convert UV coordinates to direction (reverse of directionToUV)
 vec3 uvToDirection( vec2 uv ) {
-    float phi = uv.x * TWO_PI; // 2π
+    // Clamp UV to prevent extreme pole values
+    uv = clamp( uv, vec2( 1e-6 ), vec2( 1.0 - 1e-6 ) );
+
+    float phi = uv.x * TWO_PI;
     float theta = ( 1.0 - uv.y ) * PI;
+
+    // Clamp theta away from exact poles
+    theta = clamp( theta, 1e-4, PI - 1e-4 );
 
     float sinTheta = sin( theta );
     vec3 localDir = vec3( sinTheta * cos( phi ), cos( theta ), sinTheta * sin( phi ) );
 
     // Apply inverse environment matrix rotation
-    return ( transpose( environmentMatrix ) * vec4( localDir, 0.0 ) ).xyz;
+    return normalize( ( transpose( environmentMatrix ) * vec4( localDir, 0.0 ) ).xyz );
 }
 
 vec4 sampleEnvironment( vec3 direction ) {
@@ -232,25 +248,8 @@ vec2 sampleEnvironmentUV( vec2 xi, float mipLevel, float importanceBias ) {
     return vec2( u, v );
 }
 
-// Single PDF calculation function
-float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
-    // Fast path for uniform sampling
-    if( ! useEnvMapIS ) {
-        return 1.0 / ( 4.0 * PI );
-    }
-
-    // Importance sampling PDF calculation
-    vec2 uv = directionToUV( direction );
-
-    // Calculate theta for Jacobian
-    float theta = ( 1.0 - uv.y ) * PI;
-    float sinTheta = sin( theta );
-
-    // Handle singularities at poles
-    if( sinTheta <= EPSILON ) {
-        return 1e-4; // Higher than EPSILON but still small
-    }
-
+// Normal PDF calculation for cleaner pole handling
+float calculateNormalPDF( vec2 uv, float mipLevel, float sinTheta ) {
     vec2 cdfSize = envCDFSize;
     vec2 invSize = 1.0 / cdfSize;
 
@@ -263,18 +262,48 @@ float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
     float marginalPdf = textureLod( envCDF, vec2( uv.x, ( cdfSize.y - 0.5 ) * invSize.y ), mipLevel ).g;
     float conditionalPdf = textureLod( envCDF, uv, mipLevel ).g;
 
-    // Enhanced PDF validation
-    marginalPdf = max( marginalPdf, 1e-8 );
-    conditionalPdf = max( conditionalPdf, 1e-8 );
+    // PDF validation with pole-aware limits
+    marginalPdf = clamp( marginalPdf, 1e-6, 100.0 );
+    conditionalPdf = clamp( conditionalPdf, 1e-6, 100.0 );
 
-    // Apply Jacobian for spherical coordinates
-    float jacobian = sinTheta * TWO_PI * PI;  // 2π²
-    jacobian = max( jacobian, EPSILON );  // Prevent division by zero
+    // Apply Jacobian with enhanced precision
+    float jacobian = sinTheta * TWO_PI * PI;
+    jacobian = max( jacobian, 1e-5 ); // Higher minimum for pole regions
 
     float finalPdf = ( marginalPdf * conditionalPdf ) / jacobian;
 
-    // Clamp to reasonable bounds to prevent fireflies and undersampling
-    return clamp( finalPdf, EPSILON, 1000.0 );
+    // Enhanced clamping to prevent both fireflies and undersampling near poles
+    return clamp( finalPdf, 1e-5, 500.0 );
+}
+
+// Single PDF calculation function
+float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
+    // Fast path for uniform sampling
+    if( ! useEnvMapIS ) {
+        return 1.0 / ( 4.0 * PI );
+    }
+
+    // Importance sampling PDF calculation with enhanced pole handling
+    vec2 uv = directionToUV( direction );
+
+    // Calculate theta for Jacobian with enhanced precision
+    float theta = ( 1.0 - uv.y ) * PI;
+
+    // Enhanced pole singularity handling
+    float sinTheta = sin( theta );
+
+    // Progressive clamping near poles to prevent fireflies
+    if( sinTheta <= 1e-4 ) {
+        // Very close to poles - use conservative fallback
+        return 1e-3;
+    } else if( sinTheta <= 1e-3 ) {
+        // Near poles - blend between fallback and normal calculation
+        float blendFactor = ( sinTheta - 1e-4 ) / ( 1e-3 - 1e-4 );
+        float normalPdf = calculateNormalPDF( uv, mipLevel, sinTheta );
+        return mix( 1e-3, normalPdf, blendFactor );
+    }
+
+    return calculateNormalPDF( uv, mipLevel, sinTheta );
 }
 
 // Streamlined environment sampling
