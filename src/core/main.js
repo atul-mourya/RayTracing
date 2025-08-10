@@ -362,7 +362,7 @@ class PathTracerApp extends EventDispatcher {
 				metalness: 1,
 				opacity: 1,
 				transmission: 0,
-				map: texture,
+				// map: texture,
 				visible: false
 			} )
 		);

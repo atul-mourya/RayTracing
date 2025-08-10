@@ -309,22 +309,33 @@ export class EnvironmentCDFBuilder {
 
 	analyzeLuminanceData( luminance, width, height ) {
 
-		// Find bright spots for debugging
+		// Find bright spots for debugging with enhanced analysis
 		const sortedLum = [ ...luminance ].sort( ( a, b ) => b - a );
 		const total = luminance.length;
 
 		const topPercent = Math.floor( total * 0.01 );
 		const hotspotThreshold = sortedLum[ topPercent ];
 
+		// Hotspot detection with spatial clustering
 		let hotspots = [];
+		let totalHotspotEnergy = 0;
+
 		for ( let y = 0; y < height; y ++ ) {
 
 			for ( let x = 0; x < width; x ++ ) {
 
 				const lum = luminance[ y * width + x ];
-				if ( lum >= hotspotThreshold && hotspots.length < 10 ) {
+				if ( lum >= hotspotThreshold && hotspots.length < 20 ) { // Increased limit
 
-					hotspots.push( { x, y, luminance: lum } );
+					hotspots.push( {
+						x,
+						y,
+						luminance: lum,
+						// Add UV coordinates for better tracking
+						u: ( x + 0.5 ) / width,
+						v: ( y + 0.5 ) / height
+					} );
+					totalHotspotEnergy += lum;
 
 				}
 
@@ -332,10 +343,26 @@ export class EnvironmentCDFBuilder {
 
 		}
 
+		// Calculate contrast ratio for bias detection
+		const avgLuminance = sortedLum.reduce( ( a, b ) => a + b, 0 ) / sortedLum.length;
+		const maxLuminance = sortedLum[ 0 ];
+		const contrastRatio = maxLuminance / Math.max( avgLuminance, 1e-8 );
+
 		this.debugInfo.hotspots = hotspots;
 		this.debugInfo.hotspotThreshold = hotspotThreshold;
+		this.debugInfo.totalHotspotEnergy = totalHotspotEnergy;
+		this.debugInfo.contrastRatio = contrastRatio;
+		this.debugInfo.avgLuminance = avgLuminance;
+		this.debugInfo.maxLuminance = maxLuminance;
 
-		console.log( 'Luminance Analysis:', this.debugInfo );
+		// Warn about high contrast that could cause bias
+		if ( contrastRatio > 100 ) {
+
+			console.warn( `High contrast ratio detected: ${contrastRatio.toFixed( 2 )}. Consider bias mitigation.` );
+
+		}
+
+		console.log( 'Enhanced Luminance Analysis:', this.debugInfo );
 
 	}
 
@@ -366,72 +393,102 @@ export class EnvironmentCDFBuilder {
 		// Track statistics for debugging
 		let emptyRows = 0;
 		let validRows = 0;
+		let totalSampledEnergy = 0;
+		let maxCellValue = 0;
+		let biasPreventionCount = 0;
 
-		// Build conditional CDFs with FIXED sampling
+		// Build conditional CDFs with ENHANCED sampling and bias prevention
 		for ( let cdfY = 0; cdfY < cdfSize; cdfY ++ ) {
 
 			let rowSum = 0.0;
 			const rowData = new Float32Array( cdfSize );
 
-			// Calculate which source rows this CDF row represents
+			// Calculate source row range
 			const srcYStart = Math.floor( cdfY * height / cdfSize );
-			const srcYEnd = Math.min( Math.floor( ( cdfY + 1 ) * height / cdfSize ), height );
+			const srcYEnd = Math.min( Math.ceil( ( cdfY + 1 ) * height / cdfSize ), height );
 
-			// If the range is empty, use the single closest row
+			// Ensure we always have at least one row
 			const actualSrcYStart = srcYStart;
 			const actualSrcYEnd = Math.max( srcYEnd, srcYStart + 1 );
 
 			for ( let cdfX = 0; cdfX < cdfSize; cdfX ++ ) {
 
-				// Calculate which source columns this CDF column represents
+				// Calculate source column range
 				const srcXStart = Math.floor( cdfX * width / cdfSize );
-				const srcXEnd = Math.min( Math.floor( ( cdfX + 1 ) * width / cdfSize ), width );
+				const srcXEnd = Math.min( Math.ceil( ( cdfX + 1 ) * width / cdfSize ), width );
 
-				// If the range is empty, use the single closest column
 				const actualSrcXStart = srcXStart;
 				const actualSrcXEnd = Math.max( srcXEnd, srcXStart + 1 );
 
-				// Sample all pixels in this cell and find the MAXIMUM (preserve hotspots)
+				// Multi-strategy sampling to prevent bright spot loss
 				let cellLuminance = 0.0;
-				let cellCount = 0;
 				let maxCellLuminance = 0.0;
+				let cellCount = 0;
+				let hotspotCount = 0;
 
+				// Sample all pixels in this cell
 				for ( let srcY = actualSrcYStart; srcY < actualSrcYEnd; srcY ++ ) {
 
 					for ( let srcX = actualSrcXStart; srcX < actualSrcXEnd; srcX ++ ) {
 
 						const lum = luminance[ srcY * width + srcX ];
-
-						// Use MAXIMUM instead of average to preserve hotspots
 						maxCellLuminance = Math.max( maxCellLuminance, lum );
 						cellLuminance += lum;
 						cellCount ++;
+
+						// Count potential hotspots
+						if ( lum > this.debugInfo.avgLuminance * 5 ) {
+
+							hotspotCount ++;
+
+						}
 
 					}
 
 				}
 
-				// Use the maximum value to preserve bright spots
-				// but also consider the average for overall energy
-				const finalCellValue = Math.max( maxCellLuminance, cellLuminance / Math.max( cellCount, 1 ) );
+				// Preservation strategy for bright spots
+				const avgCellLuminance = cellLuminance / Math.max( cellCount, 1 );
+
+				let finalCellValue;
+				if ( hotspotCount > 0 || maxCellLuminance > avgCellLuminance * 3 ) {
+
+					// For cells with bright spots: blend max and average with bias toward max
+					const blendRatio = Math.min( hotspotCount / cellCount + 0.3, 0.8 );
+					finalCellValue = mix( avgCellLuminance, maxCellLuminance, blendRatio );
+					biasPreventionCount ++;
+
+				} else {
+
+					// For regular cells: use average
+					finalCellValue = avgCellLuminance;
+
+				}
 
 				rowData[ cdfX ] = finalCellValue;
 				rowSum += finalCellValue;
+				maxCellValue = Math.max( maxCellValue, finalCellValue );
+				totalSampledEnergy += finalCellValue;
 
 			}
 
-			// Add minimum threshold to prevent completely zero rows
-			if ( rowSum < this.options.minLuminanceThreshold ) {
+			// Minimum threshold calculation
+			const adaptiveMinThreshold = Math.max(
+				this.options.minLuminanceThreshold,
+				maxCellValue * 1e-6 // Relative to brightest cell
+			);
 
-				// Distribute minimal energy uniformly
-				const minValue = this.options.minLuminanceThreshold / cdfSize;
+			if ( rowSum < adaptiveMinThreshold ) {
+
+				// Distribute minimal energy distribution
+				const minValue = adaptiveMinThreshold / cdfSize;
 				for ( let x = 0; x < cdfSize; x ++ ) {
 
 					rowData[ x ] = Math.max( rowData[ x ], minValue );
 
 				}
 
-				rowSum = this.options.minLuminanceThreshold;
+				rowSum = adaptiveMinThreshold;
 				emptyRows ++;
 
 			} else {
@@ -442,25 +499,32 @@ export class EnvironmentCDFBuilder {
 
 			// Build CDF from PDF
 			let cumulativeSum = 0.0;
+			const invRowSum = 1.0 / rowSum; // Pre-calculate for better precision
+
 			for ( let cdfX = 0; cdfX < cdfSize; cdfX ++ ) {
 
 				cumulativeSum += rowData[ cdfX ];
 
 				const idx = ( cdfY * cdfSize + cdfX ) * 4;
-				cdfData[ idx ] = cumulativeSum / rowSum; // Normalized CDF
-				cdfData[ idx + 1 ] = rowData[ cdfX ] / rowSum; // Normalized PDF
-				cdfData[ idx + 2 ] = 0.0; // Unused
+
+				// Enhanced precision for CDF values
+				const normalizedCDF = Math.min( cumulativeSum * invRowSum, 1.0 );
+				const normalizedPDF = rowData[ cdfX ] * invRowSum;
+
+				cdfData[ idx ] = normalizedCDF;
+				cdfData[ idx + 1 ] = normalizedPDF;
+				cdfData[ idx + 2 ] = 0.0; // Reserved for future use
 				cdfData[ idx + 3 ] = 1.0; // Alpha
 
 			}
 
-			// Ensure the last CDF value is exactly 1.0
+			// Ensure the last CDF value is exactly 1.0 for precision
 			const lastIdx = ( cdfY * cdfSize + ( cdfSize - 1 ) ) * 4;
 			cdfData[ lastIdx ] = 1.0;
 
 		}
 
-		// Build marginal CDF with FIXED sampling
+		// Marginal CDF building
 		let marginalSum = 0.0;
 		const marginalData = new Float32Array( cdfSize );
 		const marginalY = cdfSize;
@@ -469,15 +533,16 @@ export class EnvironmentCDFBuilder {
 
 			// Calculate which source columns this CDF column represents
 			const srcXStart = Math.floor( cdfX * width / cdfSize );
-			const srcXEnd = Math.min( Math.floor( ( cdfX + 1 ) * width / cdfSize ), width );
+			const srcXEnd = Math.min( Math.ceil( ( cdfX + 1 ) * width / cdfSize ), width );
 
 			const actualSrcXStart = srcXStart;
 			const actualSrcXEnd = Math.max( srcXEnd, srcXStart + 1 );
 
-			// Sum the entire column with proper sampling
+			// Column sampling with hotspot preservation
 			let colSum = 0.0;
-			let colCount = 0;
 			let maxColLuminance = 0.0;
+			let colCount = 0;
+			let colHotspotCount = 0;
 
 			for ( let srcY = 0; srcY < height; srcY ++ ) {
 
@@ -488,44 +553,72 @@ export class EnvironmentCDFBuilder {
 					colSum += lum;
 					colCount ++;
 
+					if ( lum > this.debugInfo.avgLuminance * 5 ) {
+
+						colHotspotCount ++;
+
+					}
+
 				}
 
 			}
 
-			// Use maximum for hotspot preservation but scale by area
-			const avgLuminance = colSum / Math.max( colCount, 1 );
-			const finalColValue = Math.max( maxColLuminance * 0.1, avgLuminance ); // Weight max lower for marginal
+			// Apply same enhanced preservation strategy for marginal
+			const avgColLuminance = colSum / Math.max( colCount, 1 );
+
+			let finalColValue;
+			if ( colHotspotCount > 0 || maxColLuminance > avgColLuminance * 3 ) {
+
+				const blendRatio = Math.min( colHotspotCount / colCount + 0.2, 0.6 ); // Less aggressive for marginal
+				finalColValue = mix( avgColLuminance, maxColLuminance, blendRatio );
+
+			} else {
+
+				finalColValue = avgColLuminance;
+
+			}
 
 			marginalData[ cdfX ] = finalColValue;
 			marginalSum += finalColValue;
 
 		}
 
-		// Add minimum threshold for marginal CDF
-		if ( marginalSum < this.options.minLuminanceThreshold ) {
+		// Enhanced marginal minimum threshold
+		const marginalMinThreshold = Math.max(
+			this.options.minLuminanceThreshold,
+			maxCellValue * 1e-6
+		);
 
-			const minValue = this.options.minLuminanceThreshold / cdfSize;
+		if ( marginalSum < marginalMinThreshold ) {
+
+			const minValue = marginalMinThreshold / cdfSize;
 			for ( let x = 0; x < cdfSize; x ++ ) {
 
 				marginalData[ x ] = Math.max( marginalData[ x ], minValue );
 
 			}
 
-			marginalSum = this.options.minLuminanceThreshold;
+			marginalSum = marginalMinThreshold;
 
 		}
 
-		// Build marginal CDF
+		// Build marginal CDF with enhanced precision
 		let cumulativeSum = 0.0;
+		const invMarginalSum = 1.0 / marginalSum;
+
 		for ( let cdfX = 0; cdfX < cdfSize; cdfX ++ ) {
 
 			cumulativeSum += marginalData[ cdfX ];
 
 			const idx = ( marginalY * cdfSize + cdfX ) * 4;
-			cdfData[ idx ] = cumulativeSum / marginalSum; // Normalized CDF
-			cdfData[ idx + 1 ] = marginalData[ cdfX ] / marginalSum; // Normalized PDF
-			cdfData[ idx + 2 ] = 0.0; // Unused
-			cdfData[ idx + 3 ] = 1.0; // Alpha
+
+			const normalizedCDF = Math.min( cumulativeSum * invMarginalSum, 1.0 );
+			const normalizedPDF = marginalData[ cdfX ] * invMarginalSum;
+
+			cdfData[ idx ] = normalizedCDF;
+			cdfData[ idx + 1 ] = normalizedPDF;
+			cdfData[ idx + 2 ] = 0.0;
+			cdfData[ idx + 3 ] = 1.0;
 
 		}
 
@@ -533,18 +626,22 @@ export class EnvironmentCDFBuilder {
 		const lastMarginalIdx = ( marginalY * cdfSize + ( cdfSize - 1 ) ) * 4;
 		cdfData[ lastMarginalIdx ] = 1.0;
 
-		// Update debug info
+		// Enhanced debug info
 		this.debugInfo.cdfStats = {
 			cdfSize,
 			emptyRows,
 			validRows,
 			marginalSum,
+			totalSampledEnergy,
+			maxCellValue,
+			biasPreventionCount,
+			energyRatio: totalSampledEnergy / Math.max( this.debugInfo.luminanceStats.total, 1e-8 ),
 			minThreshold: this.options.minLuminanceThreshold
 		};
 
-		console.log( 'CDF Build Stats:', this.debugInfo.cdfStats );
+		console.log( 'Enhanced CDF Build Stats:', this.debugInfo.cdfStats );
 
-		// Create texture
+		// Create texture with better filtering
 		const cdfTexture = new DataTexture(
 			cdfData,
 			cdfSize,
@@ -554,7 +651,7 @@ export class EnvironmentCDFBuilder {
 			UVMapping,
 			RepeatWrapping,
 			RepeatWrapping,
-			LinearFilter,
+			LinearFilter, // Use linear filtering for better interpolation
 			LinearFilter
 		);
 		cdfTexture.needsUpdate = true;
@@ -917,5 +1014,12 @@ export class CDFValidator {
 		return canvas;
 
 	}
+
+}
+
+// Helper function for mixing values (since this might not be available)
+function mix( a, b, t ) {
+
+	return a * ( 1 - t ) + b * t;
 
 }

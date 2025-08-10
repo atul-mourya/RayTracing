@@ -577,7 +577,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { GIIntensity: val } ),
 		val => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = val * Math.PI;
+			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = val;
 			window.pathTracerApp.reset();
 
 		}

@@ -64,7 +64,7 @@ const LightsTab = () => {
 		switch ( type ) {
 
 			case 'DirectionalLight': return { min: 0, max: 5, step: 0.1 };
-			case 'RectAreaLight': return { min: 0, max: 1000, step: 50 };
+			case 'RectAreaLight': return { min: 0, max: 2000, step: 50 };
 			default: return { min: 0, max: 5, step: 0.1 };
 
 		}

@@ -260,16 +260,19 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 }
 
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
+	if( bounceIndex == 0 && ! showBackground ) {
+		return vec4( 0.0 );
+	}
+
+    // Primary rays
+	vec4 envColor = sampleEnvironment( direction ) * environmentIntensity; // hardcoded multiplier for testing
+
 	if( bounceIndex == 0 ) {
-        // Primary rays: use background intensity scaling
-		if( showBackground ) {
-			return sampleEnvironment( direction ) * backgroundIntensity;
-		} else {
-			return vec4( 0.0 );
-		}
+		// Primary rays: always use full resolution for background
+		return envColor * backgroundIntensity;
 	} else {
-        // Secondary rays: use enhanced environment contribution with LOD
-		return getEnvironmentContribution( direction, bounceIndex );
+        // Secondary rays
+		return envColor * 2.0;
 	}
 }
 

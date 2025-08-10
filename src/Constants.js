@@ -195,7 +195,7 @@ export const DEFAULT_STATE = {
 	showAdaptiveSamplingHelper: false,
 	performanceModeAdaptive: 'medium',
 
-	fireflyThreshold: 2.2,
+	fireflyThreshold: 1.8,
 	renderMode: 0,
 	tiles: 3,
 	tilesHelper: false,

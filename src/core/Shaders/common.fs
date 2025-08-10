@@ -174,3 +174,24 @@ float getViewDependentTolerance(
     
     return tolerance;
 }
+
+// Pre-computed material classification for faster branching
+MaterialClassification classifyMaterial( RayTracingMaterial material ) {
+	MaterialClassification mc;
+
+	mc.isMetallic = material.metalness > 0.7;
+	mc.isRough = material.roughness > 0.8;
+	mc.isSmooth = material.roughness < 0.3;
+	mc.isTransmissive = material.transmission > 0.5;
+	mc.hasClearcoat = material.clearcoat > 0.5;
+	mc.isEmissive = dot( material.emissive, vec3( 1.0 ) ) > 0.0;
+
+    // Calculate complexity score for importance sampling
+	mc.complexityScore = 0.2 * float( mc.isMetallic ) +
+		0.3 * float( mc.isSmooth ) +
+		0.4 * float( mc.isTransmissive ) +
+		0.3 * float( mc.hasClearcoat ) +
+		0.2 * float( mc.isEmissive );
+
+	return mc;
+}

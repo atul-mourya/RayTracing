@@ -122,7 +122,7 @@ export class PathTracerPass extends Pass {
 				useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },
 				envCDF: { value: null },
 				envCDFSize: { value: new Vector2() },
-				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity * Math.PI },
+				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity },
 
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
