@@ -62,8 +62,14 @@ const App = () => {
 
 				case 'r':
 				case 'R':
-					event.preventDefault();
-					handleResetCamera();
+					// Only trigger if no modifier keys are pressed
+					if ( ! event.ctrlKey && ! event.altKey && ! event.shiftKey && ! event.metaKey ) {
+
+						event.preventDefault();
+						handleResetCamera();
+
+					}
+
 					break;
 
 				case ' ':
