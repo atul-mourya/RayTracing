@@ -6,7 +6,7 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 
 	// Get store state and actions
 	const storeMaxSamples = usePathTracerStore( state => state.maxSamples );
-	const setStoreMaxSamples = usePathTracerStore.getState().setMaxSamples;
+	const setStoreMaxSamples = usePathTracerStore( state => state.setMaxSamples );
 	const stats = useStore( state => state.stats );
 	const isDenoising = useStore( state => state.isDenoising );
 
@@ -14,6 +14,48 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 	const [ maxSamples, setMaxSamples ] = useState( storeMaxSamples );
 	const [ isEditing, setIsEditing ] = useState( false );
 	const [ inputValue, setInputValue ] = useState( String( storeMaxSamples ) );
+	const [ sceneStats, setSceneStats ] = useState( null );
+
+	// Get scene statistics from the path tracer
+	const updateSceneStats = useCallback( () => {
+
+		const app = appRef.current;
+		if ( app?.pathTracingPass?.sdfs ) {
+
+			try {
+
+				const statistics = app.pathTracingPass.sdfs.getStatistics();
+				setSceneStats( statistics );
+
+			} catch ( error ) {
+
+				console.warn( 'Could not get scene statistics:', error );
+				setSceneStats( null );
+
+			}
+
+		}
+
+	}, [ appRef ] );
+
+	// Update scene stats when the scene changes
+	useEffect( () => {
+
+		const handleSceneUpdate = () => updateSceneStats();
+
+		// Listen for scene rebuild events
+		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
+
+		// Initial update
+		updateSceneStats();
+
+		return () => {
+
+			window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
+
+		};
+
+	}, [ updateSceneStats ] );
 
 	// Handle editing max samples
 	const handleMaxSamplesEdit = useCallback( ( value ) => {
@@ -100,6 +142,9 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 
 	return (
 		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded">
+			{sceneStats?.triangleCount > 0 && (
+				<span>Triangles: <span>{sceneStats.triangleCount.toLocaleString()}</span> | </span>
+			)}
 			Time: <span>{stats.timeElapsed.toFixed( 2 )}</span>s | Frames: <span>{stats.samples}</span> /{' '}
 			{isEditing ? (
 				<input
