@@ -27,6 +27,7 @@ const TestsTab = () => {
 			data={DEBUG_MODELS}
 			value={getDebugModelValue()}
 			onValueChange={handleDebugModelChange}
+			catalogType="tests"
 		/>
 	);
 

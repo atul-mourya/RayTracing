@@ -27,6 +27,7 @@ const ModelsTab = () => {
 			data={MODEL_FILES}
 			value={getModelValue()}
 			onValueChange={handleModelChange}
+			catalogType="models"
 		/>
 	);
 

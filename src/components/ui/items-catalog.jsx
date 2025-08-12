@@ -1,15 +1,16 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { InfoIcon, Search, Loader2, Filter, X } from 'lucide-react';
+import { InfoIcon, Search, Loader2, Filter, X, Clock, Trash2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useRecentSearches } from '@/hooks/useRecentSearches';
 
 
 /** data []: Array of objects representing items to display in the catalog {
@@ -31,6 +32,7 @@ export const ItemsCatalog = ( {
 	onValueChange,
 	isLoading = false,
 	error = null,
+	catalogType = 'default', // New prop for identifying catalog type
 	...props
 } ) => {
 
@@ -39,10 +41,20 @@ export const ItemsCatalog = ( {
 	const [ filterType, setFilterType ] = useState( '' );
 	const [ filterValue, setFilterValue ] = useState( '' );
 
+	// Recent searches hook
+	const {
+		recentSearches,
+		addRecentSearch,
+		removeRecentSearch,
+		clearRecentSearches,
+		hasRecentSearches
+	} = useRecentSearches( catalogType );
+
 	// Refs for scroll functionality
 	const scrollAreaRef = useRef( null );
 	const itemRefs = useRef( {} );
 	const debounceTimeoutRef = useRef( null );
+	const searchInputRef = useRef( null );
 
 	// Debounce search input
 	useEffect( () => {
@@ -150,7 +162,14 @@ export const ItemsCatalog = ( {
 		const index = data.findIndex( item => item.name === name );
 		onValueChange( index.toString() );
 
-	}, [ data, onValueChange ] );
+		// Save current search term when user selects an item (indicates successful search)
+		if ( searchInput && searchInput.trim().length >= 2 ) {
+
+			addRecentSearch( searchInput.trim() );
+
+		}
+
+	}, [ data, onValueChange, searchInput, addRecentSearch ] );
 
 	const handleFilterTypeChange = useCallback( ( newType ) => {
 
@@ -163,7 +182,14 @@ export const ItemsCatalog = ( {
 
 		setFilterValue( newValue );
 
-	}, [] );
+		// Save current search term when user applies filter (indicates active searching)
+		if ( searchInput && searchInput.trim().length >= 2 ) {
+
+			addRecentSearch( searchInput.trim() );
+
+		}
+
+	}, [ searchInput, addRecentSearch ] );
 
 	const handleClearSearch = useCallback( () => {
 
@@ -171,6 +197,45 @@ export const ItemsCatalog = ( {
 		setDebouncedSearchTerm( '' );
 
 	}, [] );
+
+	// Handle selecting a recent search
+	const handleRecentSearchSelect = useCallback( ( searchTerm ) => {
+
+		setSearchInput( searchTerm );
+		setDebouncedSearchTerm( searchTerm );
+		if ( searchInputRef.current ) {
+
+			searchInputRef.current.focus();
+
+		}
+
+	}, [] );
+
+	// Handle removing a single recent search
+	const handleRemoveRecentSearch = useCallback( ( searchTerm, e ) => {
+
+		e.stopPropagation();
+		removeRecentSearch( searchTerm );
+
+	}, [ removeRecentSearch ] );
+
+	// Handle input focus - could show recent searches
+	const handleInputFocus = useCallback( () => {
+
+		// Focus behavior can be added here if needed
+
+	}, [] );
+
+	// Handle Enter key for search
+	const handleSearchKeyDown = useCallback( ( e ) => {
+
+		if ( e.key === 'Enter' && searchInput.trim().length >= 2 ) {
+
+			addRecentSearch( searchInput.trim() );
+
+		}
+
+	}, [ searchInput, addRecentSearch ] );
 
 	// Helper function to check if an item is selected
 	const isItemSelected = useCallback( ( item ) => {
@@ -301,11 +366,14 @@ export const ItemsCatalog = ( {
 					<div className="relative grow">
 						<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
 						<Input
+							ref={searchInputRef}
 							type="text"
 							placeholder="Search items, tags, categories..."
 							className="h-5 pl-5 pr-6 outline-hidden text-xs w-full rounded-full bg-primary/20"
 							value={searchInput}
 							onChange={( e ) => setSearchInput( e.target.value )}
+							onFocus={handleInputFocus}
+							onKeyDown={handleSearchKeyDown}
 							aria-label="Search items, tags, and categories"
 						/>
 						{searchInput && (
@@ -318,6 +386,67 @@ export const ItemsCatalog = ( {
 							>
 								<X size={10} className="text-muted-foreground" />
 							</Button>
+						)}
+						
+						{/* Recent Searches Dropdown */}
+						{hasRecentSearches && (
+							<Popover>
+								<PopoverTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon"
+										className="absolute right-5 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
+										aria-label="Show recent searches"
+									>
+										<Clock size={10} className="text-muted-foreground" />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent className="w-[280px] p-0" align="start">
+									<div className="p-2">
+										<div className="flex items-center justify-between mb-2">
+											<h4 className="text-sm font-medium">Recent Searches</h4>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={clearRecentSearches}
+												className="h-6 px-2 text-xs hover:bg-destructive hover:text-destructive-foreground"
+												aria-label="Clear all recent searches"
+											>
+												<Trash2 size={12} className="mr-1" />
+												Clear
+											</Button>
+										</div>
+										<ScrollArea className="max-h-[200px]">
+											<div className="space-y-1">
+												{recentSearches.map( ( searchTerm, index ) => (
+													<div
+														key={index}
+														className="flex items-center group hover:bg-accent rounded-sm"
+													>
+														<Button
+															variant="ghost"
+															className="flex-1 justify-start h-7 px-2 text-xs truncate"
+															onClick={() => handleRecentSearchSelect( searchTerm )}
+														>
+															<Clock size={10} className="mr-2 flex-shrink-0 text-muted-foreground" />
+															<span className="truncate">{searchTerm}</span>
+														</Button>
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-destructive hover:text-destructive-foreground"
+															onClick={( e ) => handleRemoveRecentSearch( searchTerm, e )}
+															aria-label={`Remove "${searchTerm}" from recent searches`}
+														>
+															<X size={10} />
+														</Button>
+													</div>
+												) )}
+											</div>
+										</ScrollArea>
+									</div>
+								</PopoverContent>
+							</Popover>
 						)}
 					</div>
 					{showFilters && (

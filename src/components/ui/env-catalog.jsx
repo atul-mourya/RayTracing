@@ -211,6 +211,7 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 					isLoading={isLoading}
 					error={error}
 					className="h-full"
+					catalogType="environments"
 				/>
 			</div>
 		</div>

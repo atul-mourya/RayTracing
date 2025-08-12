@@ -18,6 +18,7 @@ const MaterialsTab = () => {
 			data={materials}
 			value={getMaterialValue()}
 			onValueChange={applyMaterial}
+			catalogType="materials"
 		/>
 	);
 
