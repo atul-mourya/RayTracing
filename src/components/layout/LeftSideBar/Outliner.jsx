@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 const ObjectIcon = memo( ( { object } ) => {
 
 	const iconProps = {
-		size: 13,
+		size: 10,
 		className: "text-muted-foreground/70"
 	};
 
