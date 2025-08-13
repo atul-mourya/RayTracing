@@ -1,7 +1,7 @@
 import { useStore } from '@/store';
 import Outliner from './Outliner';
 import Results from './Results';
-import { memo, useMemo, useState, useEffect } from 'react';
+import { memo, useMemo, useState, useEffect, useCallback } from 'react';
 
 // Create a wrapped version of Outliner that only loads when needed
 const LazyOutliner = memo( () => {
@@ -81,8 +81,8 @@ SidebarContent.displayName = 'SidebarContent';
 // Main LeftSidebar component
 const LeftSidebar = memo( () => {
 
-	// Access store state with useMemo to prevent infinite loop issues
-	const appMode = useStore( state => state.appMode );
+	// Access store state with optimized selector to prevent unnecessary re-renders
+	const appMode = useStore( useCallback( state => state.appMode, [] ) );
 
 	// Memoize the mode value to avoid unnecessary re-renders of children
 	const memoizedMode = useMemo( () => appMode, [ appMode ] );

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { initDatabase } from '@/utils/database';
 import TopBar from './components/layout/TopBar/TopBar';
 import LeftSidebar from '@/components/layout/LeftSideBar/LeftSidebar';
@@ -15,7 +15,11 @@ import { useStore } from '@/store';
 
 const App = () => {
 
-	const handleResize = useDebouncedCallback( () => window.dispatchEvent( new Event( 'resize' ) ), 500 );
+	// Memoized resize handler to prevent recreation on every render
+	const handleResize = useDebouncedCallback(
+		useCallback( () => window.dispatchEvent( new Event( 'resize' ) ), [] ),
+		500
+	);
 
 	useEffect( () => {
 
