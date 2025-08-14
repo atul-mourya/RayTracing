@@ -10,9 +10,9 @@ import { DEFAULT_STATE } from '@/Constants';
 const MainViewport = ( { mode = "interactive" } ) => {
 
 	const [ isDragging, setIsDragging ] = useState( false );
-	const setEnvironment = useAssetsStore( state => state.setEnvironment );
-	const setLoading = useStore( state => state.setLoading );
-	const resetLoading = useStore( state => state.resetLoading );
+	const setEnvironment = useAssetsStore( useCallback( state => state.setEnvironment, [] ) );
+	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
+	const resetLoading = useStore( useCallback( state => state.resetLoading, [] ) );
 	const { toast } = useToast();
 
 	useEffect( () => {

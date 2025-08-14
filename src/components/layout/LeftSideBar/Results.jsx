@@ -47,12 +47,12 @@ const useResultsData = () => {
 
 	// Access store with direct references to avoid re-renders
 	const storeRef = useRef( null );
-	const appMode = useStore( state => {
+	const appMode = useStore( useCallback( state => {
 
 		storeRef.current = state;
 		return state.appMode;
 
-	} );
+	}, [] ) );
 
 	// Extract setSelectedResult from store using ref
 	const setSelectedResult = () => storeRef.current?.setSelectedResult || ( () => {} );
@@ -257,11 +257,11 @@ const useDeleteRender = ( imagesState, setImagesState, isMountedRef, isResultsTa
 
 	// Store reference for stable access
 	const storeRef = useRef( null );
-	useStore( state => {
+	useStore( useCallback( state => {
 
 		storeRef.current = state;
 
-	} );
+	}, [] ) );
 
 	// Extract setSelectedResult from store using ref
 	const setSelectedResult = () => storeRef.current?.setSelectedResult || ( () => {} );

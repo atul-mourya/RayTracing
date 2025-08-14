@@ -27,13 +27,15 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Viewport state
 	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 );
 	const [ canvasReady, setCanvasReady ] = useState( false );
-	const isDenoising = useStore( state => state.isDenoising );
-	const isRenderComplete = useStore( state => state.isRenderComplete );
-	const setIsRenderComplete = useStore( state => state.setIsRenderComplete );
+
+	// Optimized store subscriptions
+	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
+	const isRenderComplete = useStore( useCallback( state => state.isRenderComplete, [] ) );
+	const setIsRenderComplete = useStore( useCallback( state => state.setIsRenderComplete, [] ) );
 
 	// Store access - memoized to prevent recreation
-	const setLoading = useStore( ( state ) => state.setLoading );
-	const appMode = useStore( state => state.appMode );
+	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
+	const appMode = useStore( useCallback( state => state.appMode, [] ) );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -119,7 +121,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 
 		setIsRenderComplete( false );
 
-	}, [] );
+	}, [ setIsRenderComplete ] );
 
 
 	// Effect for app initialization - dependencies optimized

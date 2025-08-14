@@ -52,7 +52,7 @@ const MATERIAL_PROPERTIES = {
 
 const MaterialTab = () => {
 
-	const selectedObject = useStore( state => state.selectedObject );
+	const selectedObject = useStore( useCallback( state => state.selectedObject, [] ) );
 	const name = selectedObject?.name ?? "Unknown";
 	const materialStore = useMaterialStore();
 

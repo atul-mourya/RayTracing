@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useCallback } from 'react';
 import MainViewport from './MainViewport';
 import ResultsViewport from './ResultsViewport';
 import RenderControls from './RenderControls';
@@ -6,7 +6,7 @@ import { useStore } from '@/store';
 
 const ViewportTabs = () => {
 
-	const appMode = useStore( state => state.appMode );
+	const appMode = useStore( useCallback( state => state.appMode, [] ) );
 	const mainViewportRef = useRef( null );
 	const resultsViewportRef = useRef( null );
 

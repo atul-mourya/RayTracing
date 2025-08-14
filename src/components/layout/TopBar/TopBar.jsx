@@ -1,5 +1,4 @@
 import { useMemo, useCallback } from 'react';
-import { Menu } from 'lucide-react';
 import { useStore, usePathTracerStore } from '@/store';
 import AuthProvider from './AuthProvider';
 import MenuBar from './MenuBar';
@@ -10,12 +9,12 @@ import { useImportUrl } from '@/hooks/use-import-url';
 
 const TopBar = () => {
 
-	// Get the store values and actions
-	const appMode = useStore( state => state.appMode );
-	const setAppMode = useStore( state => state.setAppMode );
+	// Optimized store subscriptions - only subscribe to what we need
+	const appMode = useStore( useCallback( state => state.appMode, [] ) );
+	const setAppMode = useStore( useCallback( state => state.setAppMode, [] ) );
 
 	// Access the path tracer mode change handler
-	const handleModeChange = usePathTracerStore( state => state.handleModeChange );
+	const handleModeChange = usePathTracerStore( useCallback( state => state.handleModeChange, [] ) );
 
 	// Use custom hooks
 	const {

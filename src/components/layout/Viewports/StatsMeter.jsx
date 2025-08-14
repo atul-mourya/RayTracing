@@ -4,11 +4,11 @@ import { useStore, usePathTracerStore } from '@/store';
 
 const StatsMeter = ( { viewportMode, appRef } ) => {
 
-	// Get store state and actions
-	const storeMaxSamples = usePathTracerStore( state => state.maxSamples );
-	const setStoreMaxSamples = usePathTracerStore( state => state.setMaxSamples );
-	const stats = useStore( state => state.stats );
-	const isDenoising = useStore( state => state.isDenoising );
+	// Optimized store subscriptions - only subscribe to specific values
+	const storeMaxSamples = usePathTracerStore( useCallback( state => state.maxSamples, [] ) );
+	const setStoreMaxSamples = usePathTracerStore( useCallback( state => state.setMaxSamples, [] ) );
+	const stats = useStore( useCallback( state => state.stats, [] ) );
+	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
 
 	// Local state for UI editing
 	const [ maxSamples, setMaxSamples ] = useState( storeMaxSamples );

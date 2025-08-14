@@ -13,8 +13,8 @@ import { generateViewportStyles } from '@/utils/viewport';
 const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	// State from store
-	const imageData = useStore( state => state.selectedResult );
-	const imageProcessing = useStore( state => state.imageProcessing );
+	const imageData = useStore( useCallback( state => state.selectedResult, [] ) );
+	const imageProcessing = useStore( useCallback( state => state.imageProcessing, [] ) );
 
 	// Hooks
 	const { toast } = useToast();
