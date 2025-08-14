@@ -380,15 +380,35 @@ class PathTracerApp extends EventDispatcher {
 
 	animate = () => {
 
-		this.animationFrameId = requestAnimationFrame( this.animate );
+		// Early exit: Check pause state first to avoid unnecessary requestAnimationFrame
+		if ( this.pauseRendering ) {
 
-		if ( this.pauseRendering ) return;
+			this.animationFrameId = requestAnimationFrame( this.animate );
+			return;
+
+		}
 
 		const pathtracingUniforms = this.pathTracingPass.material.uniforms;
 
-		if ( this.pathTracingPass.isComplete && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value ) return;
+		// Early exit: Check completion state before expensive operations
+		if ( this.pathTracingPass.isComplete && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value ) {
+
+			this.animationFrameId = requestAnimationFrame( this.animate );
+			return;
+
+		}
+
+		// Schedule next frame only if we're going to do work
+		this.animationFrameId = requestAnimationFrame( this.animate );
 
 		if ( ! this.pathTracingPass.isComplete ) {
+
+			// Early exit: Skip expensive operations if controls are not active and no interaction
+			if ( ! this.pathTracingPass.interactionMode && this.controls && ! this.controls.enabled ) {
+
+				return;
+
+			}
 
 			this.controls.update();
 
@@ -398,7 +418,7 @@ class PathTracerApp extends EventDispatcher {
 				time: this.timeElapsed
 			} );
 
-			// Update adaptive sampling with MRT textures
+			// Update adaptive sampling with MRT textures (early exit if disabled)
 			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 ) {
 
 				// Get textures from PathTracerPass (now includes accumulated results)
@@ -429,8 +449,10 @@ class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Early exit: Return immediately if path tracing is not complete
 		if ( ! this.pathTracingPass.isComplete ) return;
 
+		// Early exit: Check frame count before expensive completion operations
 		if (
 			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
 			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) )
