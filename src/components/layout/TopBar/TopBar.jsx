@@ -1,11 +1,25 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, lazy, Suspense } from 'react';
 import { useStore, usePathTracerStore } from '@/store';
 import AuthProvider from './AuthProvider';
 import MenuBar from './MenuBar';
 import ViewportTabs from './ViewportTabs';
 import ActionBar from './ActionBar';
-import ImportUrlModal from './ImportUrlModal';
 import { useImportUrl } from '@/hooks/use-import-url';
+
+// Lazy load the ImportUrlModal since it's only used when opening import dialog
+const ImportUrlModal = lazy( () => import( './ImportUrlModal' ) );
+
+// Loading fallback for modal
+const ModalLoadingFallback = () => (
+	<div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
+		<div className="bg-background rounded-lg p-6 shadow-lg">
+			<div className="flex items-center space-x-3">
+				<div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full"></div>
+				<span className="text-sm">Loading...</span>
+			</div>
+		</div>
+	</div>
+);
 
 const TopBar = () => {
 
@@ -70,14 +84,16 @@ const TopBar = () => {
 						onGithubClick={handleGithubRedirection}
 					/>
 
-					<ImportUrlModal
-						isOpen={modalState.isImportModalOpen}
-						onClose={closeImportModal}
-						importUrl={modalState.importUrl}
-						setImportUrl={setImportUrl}
-						onImport={handleImportFromUrl}
-						isImporting={modalState.isImporting}
-					/>
+					<Suspense fallback={<ModalLoadingFallback />}>
+						<ImportUrlModal
+							isOpen={modalState.isImportModalOpen}
+							onClose={closeImportModal}
+							importUrl={modalState.importUrl}
+							setImportUrl={setImportUrl}
+							onImport={handleImportFromUrl}
+							isImporting={modalState.isImporting}
+						/>
+					</Suspense>
 				</div>
 			) }
 		</AuthProvider>

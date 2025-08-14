@@ -1,10 +1,23 @@
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAssetsStore } from '@/store';
-import ModelsTab from './tabs/ModelsTab';
-import MaterialsTab from './tabs/MaterialsTab';
-import EnvironmentsTab from './tabs/EnvironmentsTab';
-import TestsTab from './tabs/TestsTab';
+import { lazy, Suspense } from 'react';
+
+// Lazy load heavy catalog components for better performance
+const ModelsTab = lazy( () => import( './tabs/ModelsTab' ) );
+const MaterialsTab = lazy( () => import( './tabs/MaterialsTab' ) );
+const EnvironmentsTab = lazy( () => import( './tabs/EnvironmentsTab' ) );
+const TestsTab = lazy( () => import( './tabs/TestsTab' ) );
+
+// Loading fallback for sub-tabs
+const SubTabLoadingFallback = () => (
+	<div className="flex items-center justify-center h-40">
+		<div className="flex flex-col items-center space-y-3">
+			<div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+			<span className="text-xs text-muted-foreground">Loading catalog...</span>
+		</div>
+	</div>
+);
 
 const AssetsTab = () => {
 
@@ -33,16 +46,24 @@ const AssetsTab = () => {
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="models" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<ModelsTab />
+					<Suspense fallback={<SubTabLoadingFallback />}>
+						<ModelsTab />
+					</Suspense>
 				</TabsContent>
 				<TabsContent value="materials" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<MaterialsTab />
+					<Suspense fallback={<SubTabLoadingFallback />}>
+						<MaterialsTab />
+					</Suspense>
 				</TabsContent>
 				<TabsContent value="environments" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<EnvironmentsTab />
+					<Suspense fallback={<SubTabLoadingFallback />}>
+						<EnvironmentsTab />
+					</Suspense>
 				</TabsContent>
 				<TabsContent value="tests" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
-					<TestsTab />
+					<Suspense fallback={<SubTabLoadingFallback />}>
+						<TestsTab />
+					</Suspense>
 				</TabsContent>
 			</Tabs>
 		</div>

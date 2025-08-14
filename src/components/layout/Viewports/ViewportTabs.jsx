@@ -1,8 +1,20 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, lazy, Suspense } from 'react';
 import MainViewport from './MainViewport';
-import ResultsViewport from './ResultsViewport';
 import RenderControls from './RenderControls';
 import { useStore } from '@/store';
+
+// Lazy load ResultsViewport as it's only needed when in results mode
+const ResultsViewport = lazy( () => import( './ResultsViewport' ) );
+
+// Loading fallback for viewport
+const ViewportLoadingFallback = () => (
+	<div className="w-full h-full flex items-center justify-center bg-background">
+		<div className="flex flex-col items-center space-y-4">
+			<div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full"></div>
+			<span className="text-sm text-muted-foreground">Loading viewport...</span>
+		</div>
+	</div>
+);
 
 const ViewportTabs = () => {
 
@@ -23,7 +35,9 @@ const ViewportTabs = () => {
 			{/* Results viewport - only show when results tab is active */}
 			{appMode === "results" && (
 				<div style={{ width: '100%', height: '100%' }}>
-					<ResultsViewport ref={resultsViewportRef} />
+					<Suspense fallback={<ViewportLoadingFallback />}>
+						<ResultsViewport ref={resultsViewportRef} />
+					</Suspense>
 				</div>
 			)}
 

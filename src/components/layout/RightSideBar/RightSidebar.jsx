@@ -1,14 +1,23 @@
-import { useMemo, memo, useCallback } from 'react';
+import { useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from '@/store';
-import CameraTab from './CameraTab';
-import LightsTab from './LightsTab';
-import AssetsTab from './AssetsTab';
-import PathTracerTab from './PathTracerTab';
 import FinalRenderPanel from './FinalRenderPanel';
-import MaterialTab from './MaterialTab';
-import ColorCorrectionsTab from './ColorCorrectionsTab';
+
+// Lazy load tab components for better initial performance
+const CameraTab = lazy( () => import( './CameraTab' ) );
+const LightsTab = lazy( () => import( './LightsTab' ) );
+const AssetsTab = lazy( () => import( './AssetsTab' ) );
+const PathTracerTab = lazy( () => import( './PathTracerTab' ) );
+const MaterialTab = lazy( () => import( './MaterialTab' ) );
+const ColorCorrectionsTab = lazy( () => import( './ColorCorrectionsTab' ) );
+
+// Loading fallback component
+const TabLoadingFallback = () => (
+	<div className="flex items-center justify-center h-32">
+		<div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+	</div>
+);
 
 // Memoized tab content components to prevent unnecessary re-renders
 
@@ -38,23 +47,33 @@ const InteractiveModeTabs = memo( () => (
 		</TabsList>
 
 		<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			<CameraTab />
+			<Suspense fallback={<TabLoadingFallback />}>
+				<CameraTab />
+			</Suspense>
 		</TabsContent>
 
 		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			<PathTracerTab />
+			<Suspense fallback={<TabLoadingFallback />}>
+				<PathTracerTab />
+			</Suspense>
 		</TabsContent>
 
 		<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			<LightsTab />
+			<Suspense fallback={<TabLoadingFallback />}>
+				<LightsTab />
+			</Suspense>
 		</TabsContent>
 
 		<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col mt-0 overflow-y-auto">
-			<AssetsTab />
+			<Suspense fallback={<TabLoadingFallback />}>
+				<AssetsTab />
+			</Suspense>
 		</TabsContent>
 
 		<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			<MaterialTab />
+			<Suspense fallback={<TabLoadingFallback />}>
+				<MaterialTab />
+			</Suspense>
 		</TabsContent>
 	</Tabs>
 ) );
@@ -87,7 +106,9 @@ const ResultsModeTabs = memo( () => (
 		</TabsList>
 
 		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			<ColorCorrectionsTab />
+			<Suspense fallback={<TabLoadingFallback />}>
+				<ColorCorrectionsTab />
+			</Suspense>
 		</TabsContent>
 
 		<TabsContent value="tool" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
