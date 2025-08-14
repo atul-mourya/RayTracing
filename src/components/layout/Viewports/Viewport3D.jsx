@@ -5,7 +5,7 @@ import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import { useToast } from '@/hooks/use-toast';
-import { useStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
@@ -27,6 +27,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Viewport state
 	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 );
 	const [ canvasReady, setCanvasReady ] = useState( false );
+	const [ renderResolution, setRenderResolution ] = useState( { width: 512, height: 512 } );
+	const [ isAppInitialized, setIsAppInitialized ] = useState( false );
 
 	// Optimized store subscriptions
 	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
@@ -36,6 +38,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
 	const appMode = useStore( useCallback( state => state.appMode, [] ) );
+	
+	// Get current resolution from pathtracer store
+	const currentResolution = usePathTracerStore( useCallback( state => state.resolution, [] ) );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -71,6 +76,33 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 		}
 
 	}, [ actualCanvasSize ] );
+
+	// Effect to listen for resolution changes and update render resolution
+	useEffect( () => {
+
+		const handleResolutionChange = ( { width, height } ) => {
+
+			setRenderResolution( { width, height } );
+
+		};
+
+		// Listen for resolution change events
+		window.addEventListener( 'resolution_changed', ( event ) => handleResolutionChange( event.detail ) );
+
+		// Set initial resolution when app is initialized
+		if ( isAppInitialized && appRef.current ) {
+
+			handleResolutionChange( { width: currentResolution.width, height: currentResolution.height } );
+
+		}
+
+		return () => {
+
+			window.removeEventListener( 'resolution_changed', handleResolutionChange );
+
+		};
+
+	}, [ isAppInitialized ] );
 
 
 	// Save/Discard Handlers
@@ -161,6 +193,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 					}
 
 					isInitialized.current = true;
+					setIsAppInitialized( true );
 
 				} );
 
@@ -203,7 +236,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 						height={actualCanvasSize}
 						style={canvasStyle}
 					/>
-					<DimensionDisplay dimension={{ width: actualCanvasSize, height: actualCanvasSize }} />
+					<DimensionDisplay dimension={renderResolution} />
 				</div>
 			</div>
 

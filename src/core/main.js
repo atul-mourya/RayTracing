@@ -593,7 +593,7 @@ class PathTracerApp extends EventDispatcher {
 
 		this.reset();
 
-		window.dispatchEvent( new CustomEvent( 'resolution_changed' ) );
+		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: this.width, height: this.height } } ) );
 
 	}
 
