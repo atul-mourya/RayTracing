@@ -1,4 +1,5 @@
 import { Moon, Sun } from "lucide-react";
+import { useCallback } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +14,11 @@ export function ThemeToggle() {
 
 	const { setTheme } = useTheme();
 
+	// Memoized theme change handlers
+	const handleLightTheme = useCallback( () => setTheme( "light" ), [ setTheme ] );
+	const handleDarkTheme = useCallback( () => setTheme( "dark" ), [ setTheme ] );
+	const handleSystemTheme = useCallback( () => setTheme( "system" ), [ setTheme ] );
+
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -23,13 +29,13 @@ export function ThemeToggle() {
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
-				<DropdownMenuItem onClick={() => setTheme( "light" )}>
+				<DropdownMenuItem onClick={handleLightTheme}>
           Light
 				</DropdownMenuItem>
-				<DropdownMenuItem onClick={() => setTheme( "dark" )}>
+				<DropdownMenuItem onClick={handleDarkTheme}>
           Dark
 				</DropdownMenuItem>
-				<DropdownMenuItem onClick={() => setTheme( "system" )}>
+				<DropdownMenuItem onClick={handleSystemTheme}>
           System
 				</DropdownMenuItem>
 			</DropdownMenuContent>

@@ -219,6 +219,13 @@ export const ItemsCatalog = ( {
 
 	}, [ removeRecentSearch ] );
 
+	// Handle search input change - memoized to prevent recreation
+	const handleSearchInputChange = useCallback( ( e ) => {
+
+		setSearchInput( e.target.value );
+
+	}, [] );
+
 	// Handle input focus - could show recent searches
 	const handleInputFocus = useCallback( () => {
 
@@ -371,7 +378,7 @@ export const ItemsCatalog = ( {
 							placeholder="Search items, tags, categories..."
 							className="h-5 pl-5 pr-6 outline-hidden text-xs w-full rounded-full bg-primary/20"
 							value={searchInput}
-							onChange={( e ) => setSearchInput( e.target.value )}
+							onChange={handleSearchInputChange}
 							onFocus={handleInputFocus}
 							onKeyDown={handleSearchKeyDown}
 							aria-label="Search items, tags, and categories"

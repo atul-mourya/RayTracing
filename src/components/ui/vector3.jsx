@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { DraggableInput } from "./draggable-input"; // Import the DraggableInput component
 
 const Vector3Component = ( {
@@ -13,8 +13,8 @@ const Vector3Component = ( {
 
 	const [ vector, setVector ] = useState( props.value || [ 0, 0, 0 ] );
 
-	// Handle component change
-	const handleComponentChange = ( index ) => ( value ) => {
+	// Handle component change - memoized to prevent recreation
+	const handleComponentChange = useCallback( ( index ) => ( value ) => {
 
 		const newVector = [ ...vector ];
 		newVector[ index ] = value;
@@ -27,7 +27,7 @@ const Vector3Component = ( {
 
 		}
 
-	};
+	}, [ vector, onValueChange ] );
 
 	// Define label components with colors
 	const XLabel = () => <div className="text-xs text-red-500">X</div>;
