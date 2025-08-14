@@ -5,7 +5,8 @@ let imageBitmapCache = new Map();
 const MEMORY_LIMITS = {
 	MAX_BYTES_PER_TEXTURE: 256 * 1024 * 1024, // 256MB per texture array
 	MAX_TEXTURE_DIMENSION: 4096, // Maximum dimension for a single texture
-	CHUNK_SIZE: 16, // Process textures in chunks of 16
+	CHUNK_SIZE: 8, // Optimized: Process textures in chunks of 8 for better memory locality
+	ADAPTIVE_CHUNK_SIZE: true, // Enable adaptive chunk sizing based on texture dimensions
 	MEMORY_SAFETY_FACTOR: 0.8 // Use only 80% of estimated available memory
 };
 
@@ -83,11 +84,12 @@ async function processTexturesInChunks( textures, maxTextureSize, method ) {
 	const { maxWidth, maxHeight } = dimensions;
 	const depth = textures.length;
 
-	// Process in smaller chunks to avoid memory issues
-	const chunkSize = Math.min( MEMORY_LIMITS.CHUNK_SIZE, depth );
+	// Optimize chunk size based on texture dimensions and memory constraints
+	const chunkSize = calculateOptimalChunkSize( maxWidth, maxHeight, depth );
 	const numChunks = Math.ceil( depth / chunkSize );
 
 	console.log( `Processing ${depth} textures in ${numChunks} chunks of up to ${chunkSize} textures each` );
+	console.log( `Texture dimensions: ${maxWidth}x${maxHeight}, Est. memory per chunk: ${( maxWidth * maxHeight * chunkSize * 4 / 1024 / 1024 ).toFixed( 2 )}MB` );
 
 	// Allocate the full output array
 	let data;
@@ -95,7 +97,7 @@ async function processTexturesInChunks( textures, maxTextureSize, method ) {
 
 		data = new Uint8Array( maxWidth * maxHeight * depth * 4 );
 
-	} catch ( error ) {
+	} catch {
 
 		// If full allocation fails, fall back to reduced dimensions
 		console.warn( 'Failed to allocate full texture array, reducing dimensions' );
@@ -104,21 +106,37 @@ async function processTexturesInChunks( textures, maxTextureSize, method ) {
 
 	}
 
-	// Process each chunk
+	// Pre-allocate chunk buffer for reuse
+	const chunkBufferSize = maxWidth * maxHeight * chunkSize * 4;
+	const chunkBuffer = new Uint8Array( chunkBufferSize );
+
+	// Process each chunk with optimized memory reuse
 	for ( let chunkIndex = 0; chunkIndex < numChunks; chunkIndex ++ ) {
 
 		const startIdx = chunkIndex * chunkSize;
 		const endIdx = Math.min( startIdx + chunkSize, depth );
+		const actualChunkSize = endIdx - startIdx;
 		const chunkTextures = textures.slice( startIdx, endIdx );
 
-		const chunkResult = await processTextureChunk( chunkTextures, maxWidth, maxHeight, method );
+		const chunkResult = await processTextureChunkOptimized(
+			chunkTextures,
+			maxWidth,
+			maxHeight,
+			chunkBuffer.subarray( 0, maxWidth * maxHeight * actualChunkSize * 4 )
+		);
 
 		// Copy chunk data to main array
 		const offset = startIdx * maxWidth * maxHeight * 4;
-		data.set( new Uint8Array( chunkResult.data ), offset );
+		const copySize = actualChunkSize * maxWidth * maxHeight * 4;
+		data.set( new Uint8Array( chunkResult.data.slice( 0, copySize ) ), offset );
 
-		// Allow garbage collection between chunks
-		await new Promise( resolve => setTimeout( resolve, 0 ) );
+		// Micro-yield to prevent blocking the thread
+
+		if ( chunkIndex % 2 === 1 ) { // Yield every 2 chunks instead of every chunk
+
+			await new Promise( resolve => setTimeout( resolve, 0 ) );
+
+		}
 
 	}
 
@@ -131,7 +149,151 @@ async function processTexturesInChunks( textures, maxTextureSize, method ) {
 
 }
 
-async function processTextureChunk( textures, maxWidth, maxHeight, method ) {
+function calculateOptimalChunkSize( maxWidth, maxHeight, totalTextures ) {
+
+	if ( ! MEMORY_LIMITS.ADAPTIVE_CHUNK_SIZE ) {
+
+		return Math.min( MEMORY_LIMITS.CHUNK_SIZE, totalTextures );
+
+	}
+
+	// Calculate memory per texture in MB
+	const bytesPerTexture = maxWidth * maxHeight * 4;
+	const mbPerTexture = bytesPerTexture / ( 1024 * 1024 );
+
+	// Adaptive chunk sizing based on texture size
+	let optimalChunkSize;
+
+	if ( mbPerTexture <= 1 ) { // Small textures (<=1MB)
+
+		optimalChunkSize = 16; // Process more at once
+
+	} else if ( mbPerTexture <= 4 ) { // Medium textures (1-4MB)
+
+		optimalChunkSize = 8; // Balanced approach
+
+	} else if ( mbPerTexture <= 16 ) { // Large textures (4-16MB)
+
+		optimalChunkSize = 4; // Conservative
+
+	} else { // Very large textures (>16MB)
+
+		optimalChunkSize = 2; // Very conservative
+
+	}
+
+	// Don't exceed total texture count or configured limits
+	return Math.min( optimalChunkSize, totalTextures, MEMORY_LIMITS.CHUNK_SIZE * 2 );
+
+}
+
+async function processTextureChunkOptimized( textures, maxWidth, maxHeight, outputBuffer ) {
+
+	// Resize canvas for this chunk if needed
+	if ( canvas.width !== maxWidth || canvas.height !== maxHeight ) {
+
+		canvas.width = maxWidth;
+		canvas.height = maxHeight;
+
+	}
+
+	// Use provided buffer to avoid allocation
+	const bytesPerTexture = maxWidth * maxHeight * 4;
+
+	// Optimize context settings once per chunk
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'high';
+
+	// Process textures with optimized single texture processing
+	for ( let i = 0; i < textures.length; i ++ ) {
+
+		const textureData = textures[ i ];
+
+		try {
+
+			const offset = i * bytesPerTexture;
+			await processSingleTextureOptimized( textureData, outputBuffer, offset, maxWidth, maxHeight );
+
+		} catch ( error ) {
+
+			console.warn( `Failed to process texture ${i}:`, error );
+			// Fill with transparent pixels as fallback
+			const offset = i * bytesPerTexture;
+			outputBuffer.fill( 0, offset, offset + bytesPerTexture );
+
+		}
+
+	}
+
+	return {
+		data: outputBuffer.buffer,
+		width: maxWidth,
+		height: maxHeight,
+		depth: textures.length
+	};
+
+}
+
+async function processSingleTextureOptimized( textureData, outputData, offset, maxWidth, maxHeight ) {
+
+	let imageBitmap;
+
+	if ( textureData.isDirect && textureData.bitmap ) {
+
+		// Direct ImageBitmap transfer - no conversion needed!
+		imageBitmap = textureData.bitmap;
+
+	} else if ( textureData.isImageData && textureData.data ) {
+
+		// Direct ImageData transfer - minimal conversion
+		const imageData = new ImageData(
+			new Uint8ClampedArray( textureData.data ),
+			textureData.width,
+			textureData.height
+		);
+
+		imageBitmap = await createImageBitmap( imageData, {
+			resizeWidth: maxWidth,
+			resizeHeight: maxHeight,
+			resizeQuality: 'high'
+		} );
+
+	} else if ( textureData.isBlob ) {
+
+		// Legacy blob processing (fallback)
+		const blob = new Blob( [ textureData.data ] );
+		imageBitmap = await createImageBitmap( blob, {
+			resizeWidth: maxWidth,
+			resizeHeight: maxHeight,
+			resizeQuality: 'high'
+		} );
+
+	} else {
+
+		throw new Error( 'Unknown texture data format' );
+
+	}
+
+	// Clear and draw to canvas
+	ctx.clearRect( 0, 0, maxWidth, maxHeight );
+	ctx.drawImage( imageBitmap, 0, 0, maxWidth, maxHeight );
+
+	// Get image data efficiently
+	const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
+
+	// Copy directly to the specified offset in output buffer
+	outputData.set( imageData.data, offset );
+
+	// Clean up ImageBitmap if we created it
+	if ( textureData.isImageData || textureData.isBlob ) {
+
+		imageBitmap.close();
+
+	}
+
+}
+
+async function processTextureChunk( textures, maxWidth, maxHeight ) {
 
 	// Resize canvas for this chunk if needed
 	if ( canvas.width !== maxWidth || canvas.height !== maxHeight ) {
@@ -427,8 +589,8 @@ async function processWithImageBitmapBatch( textures, maxTextureSize ) {
 
 	}
 
-	// Process in batches for memory efficiency
-	const batchSize = Math.min( 4, textures.length );
+	// Process in batches for memory efficiency - optimized batch size
+	const batchSize = Math.min( calculateOptimalChunkSize( maxWidth, maxHeight, textures.length ), textures.length );
 
 	for ( let batchStart = 0; batchStart < textures.length; batchStart += batchSize ) {
 
