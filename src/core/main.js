@@ -429,6 +429,23 @@ class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Early exit: Return immediately if path tracing is not complete
+		if ( ! this.pathTracingPass.isComplete ) return;
+
+		// Early exit: Check frame count before expensive completion operations
+		if (
+			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
+			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) )
+		) {
+
+			pathtracingUniforms.frame.value ++;
+			this.denoiser.start();
+			this.dispatchEvent( { type: 'RenderComplete' } );
+			useStore.getState().setIsRenderComplete( true );
+
+		}
+
+
 	};
 
 	// Updated method to reset cameras and add only from current model
