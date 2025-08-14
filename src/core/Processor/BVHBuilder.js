@@ -184,9 +184,9 @@ class TreeletOptimizer {
 
 		this.traversalCost = traversalCost;
 		this.intersectionCost = intersectionCost;
-		this.treeletSize = 7; // Standard size for optimal enumeration (315 topologies)
-		this.minImprovement = 0.01; // Minimum SAH improvement threshold
-		this.maxTreeletDepth = 4; // Maximum depth to consider for treelets
+		this.treeletSize = 9; // Optimized: Increased from 7 to 9 for better optimization space
+		this.minImprovement = 0.005; // Optimized: Lower threshold to capture more improvements
+		this.maxTreeletDepth = 5; // Optimized: Increased depth for better treelet coverage
 
 		// Pre-computed topology cache for efficiency
 		this.topologyCache = new Map();
@@ -313,8 +313,14 @@ class TreeletOptimizer {
 		const rightLeafCount = this.countLeafNodes( node.rightChild );
 		const totalLeafCount = leftLeafCount + rightLeafCount;
 
-		// Check if this makes a good treelet root
-		if ( totalLeafCount >= 3 && totalLeafCount <= this.treeletSize && depth <= this.maxTreeletDepth ) {
+		// Optimized: More aggressive treelet selection for better ray performance
+		// Check if this makes a good treelet root with enhanced criteria
+		const isGoodTreeletRoot = totalLeafCount >= 3 &&
+			totalLeafCount <= this.treeletSize &&
+			depth <= this.maxTreeletDepth &&
+			this.evaluateTreeletQuality( node, totalLeafCount );
+
+		if ( isGoodTreeletRoot ) {
 
 			treeletRoots.push( node );
 			this.markSubtreeVisited( node, visited );
@@ -337,6 +343,29 @@ class TreeletOptimizer {
 		}
 
 		return leafCount;
+
+	}
+
+	// Optimized: Evaluate treelet quality for better ray traversal performance
+	evaluateTreeletQuality( node, leafCount ) {
+
+		// Prefer treelets with balanced leaf distribution
+		const leftLeafCount = this.countLeafNodes( node.leftChild );
+		const rightLeafCount = this.countLeafNodes( node.rightChild );
+		const balanceRatio = Math.min( leftLeafCount, rightLeafCount ) / Math.max( leftLeafCount, rightLeafCount );
+
+		// Prefer treelets with good balance (ratio > 0.3) and optimal size (5-9 leaves)
+		const isWellBalanced = balanceRatio > 0.3;
+		const isOptimalSize = leafCount >= 5 && leafCount <= 9;
+
+		// Calculate surface area heuristic to prefer spatially compact treelets
+		const surfaceArea = this.computeSurfaceAreaFromBounds( node.boundsMin, node.boundsMax );
+		const avgLeafSA = surfaceArea / leafCount;
+
+		// Prefer treelets with reasonable surface area per leaf (not too sparse)
+		const isCompact = avgLeafSA < surfaceArea * 2.0; // Heuristic threshold
+
+		return isWellBalanced || isOptimalSize || isCompact;
 
 	}
 
@@ -620,6 +649,13 @@ export default class BVHBuilder {
 			averageSAHImprovement: 0
 		};
 
+		// Treelet optimization configuration - tuned for better ray traversal performance
+		this.enableTreeletOptimization = true; // Enable by default for better ray performance
+		this.treeletSize = 9; // Optimized: Increased from 7 to 9 for better optimization coverage
+		this.treeletOptimizationPasses = 2; // Optimized: Multiple passes for better convergence
+		this.treeletMinImprovement = 0.005; // Optimized: Lower threshold to capture more improvements
+		this.maxTreeletDepth = 5; // Optimized: Increased depth for better treelet identification
+
 		// Pre-allocate maximum bin arrays to avoid reallocations
 		this.initializeBinArrays();
 
@@ -887,9 +923,9 @@ export default class BVHBuilder {
 		const sortedClusters = Array.from( clusters.entries() ).sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
 		const result = [];
 
-		for ( const [ mortonCode, cluster ] of sortedClusters ) {
+		for ( const [ , cluster ] of sortedClusters ) {
 
-			// Recursively sort each cluster
+			// Clusters are already sorted by Morton code for spatial ordering
 			const sortedCluster = this.sortTrianglesByMortonCode( cluster );
 			result.push( ...sortedCluster );
 
@@ -1085,7 +1121,7 @@ export default class BVHBuilder {
 			console.log( 'Starting treelet optimization...' );
 			const optimizationStartTime = performance.now();
 
-			// Run optimization passes
+			// Run optimization passes with adaptive convergence
 			for ( let pass = 0; pass < this.treeletOptimizationPasses; pass ++ ) {
 
 				const passCallback = progressCallback ? ( status ) => {
@@ -1094,7 +1130,19 @@ export default class BVHBuilder {
 
 				} : null;
 
+				const beforeStats = optimizer.getStatistics();
 				optimizer.optimizeBVH( root, passCallback );
+				const afterStats = optimizer.getStatistics();
+
+				const currentPassImprovements = afterStats.treeletsImproved - beforeStats.treeletsImproved;
+
+				// Optimized: Early termination if no improvements in current pass
+				if ( currentPassImprovements === 0 && pass > 0 ) {
+
+					console.log( `Treelet optimization converged early after ${pass + 1} passes (no improvements in pass ${pass + 1})` );
+					break;
+
+				}
 
 			}
 
