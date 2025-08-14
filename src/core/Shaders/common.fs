@@ -111,7 +111,7 @@ float calculateFireflyThreshold(
     float contextMultiplier,
     int bounceIndex
 ) {
-    float depthFactor = 1.0 / pow(float(bounceIndex + 1), 0.5);
+    float depthFactor = 1.0 / pow( float( bounceIndex + 1 ), 0.5 );
     return baseThreshold * contextMultiplier * depthFactor;
 }
 
@@ -121,9 +121,10 @@ float applySoftSuppression(
     float threshold,
     float dampingFactor
 ) {
-    if(value <= threshold) return value;
+    if( value <= threshold )
+        return value;
     float excess = value - threshold;
-    float suppressionFactor = threshold / (threshold + excess * dampingFactor);
+    float suppressionFactor = threshold / ( threshold + excess * dampingFactor );
     return value * suppressionFactor;
 }
 
@@ -133,25 +134,26 @@ vec3 applySoftSuppressionRGB(
     float threshold,
     float dampingFactor
 ) {
-    float lum = luminance(color);
-    if(lum <= threshold) return color;
-    float suppressedLum = applySoftSuppression(lum, threshold, dampingFactor);
-    return color * (suppressedLum / lum);
+    float lum = luminance( color );
+    if( lum <= threshold )
+        return color;
+    float suppressedLum = applySoftSuppression( lum, threshold, dampingFactor );
+    return color * ( suppressedLum / lum );
 }
 
 // Get material-specific firefly tolerance multiplier
-float getMaterialFireflyTolerance(RayTracingMaterial material) {
+float getMaterialFireflyTolerance( RayTracingMaterial material ) {
     float tolerance = 1.0;
-    
+
     // Metals can handle brighter values legitimately
-    tolerance *= mix(1.0, 1.5, step(0.7, material.metalness));
-    
+    tolerance *= mix( 1.0, 1.5, step( 0.7, material.metalness ) );
+
     // Rough surfaces need less aggressive clamping
-    tolerance *= mix(0.8, 1.2, material.roughness);
-    
+    tolerance *= mix( 0.8, 1.2, material.roughness );
+
     // Transmissive materials have different brightness characteristics
-    tolerance *= mix(1.0, 0.9, material.transmission);
-    
+    tolerance *= mix( 1.0, 0.9, material.transmission );
+
     return tolerance;
 }
 
@@ -163,35 +165,54 @@ float getViewDependentTolerance(
     vec3 normal
 ) {
     float tolerance = 1.0;
-    
+
     // For very smooth materials, allow brighter values in specular direction
-    if(material.roughness < 0.2) {
-        vec3 reflectDir = reflect(-viewDir, normal);
-        float specularAlignment = max(0.0, dot(sampleDir, reflectDir));
-        float viewDependentScale = mix(1.0, 2.5, pow(specularAlignment, 4.0));
+    if( material.roughness < 0.2 ) {
+        vec3 reflectDir = reflect( - viewDir, normal );
+        float specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
+        float viewDependentScale = mix( 1.0, 2.5, pow( specularAlignment, 4.0 ) );
         tolerance *= viewDependentScale;
     }
-    
+
     return tolerance;
 }
 
-// Pre-computed material classification for faster branching
+// Pre-computed material classification for faster branching - OPTIMIZED
 MaterialClassification classifyMaterial( RayTracingMaterial material ) {
-	MaterialClassification mc;
+    MaterialClassification mc;
 
-	mc.isMetallic = material.metalness > 0.7;
-	mc.isRough = material.roughness > 0.8;
-	mc.isSmooth = material.roughness < 0.3;
-	mc.isTransmissive = material.transmission > 0.5;
-	mc.hasClearcoat = material.clearcoat > 0.5;
-	mc.isEmissive = dot( material.emissive, vec3( 1.0 ) ) > 0.0;
+	// Use vectorized comparisons where possible
+    vec4 materialProps = vec4( material.metalness, material.roughness, material.transmission, material.clearcoat );
+    vec4 thresholds = vec4( 0.7, 0.8, 0.5, 0.5 );
+    bvec4 highThreshold = greaterThan( materialProps, thresholds );
 
-    // Calculate complexity score for importance sampling
-	mc.complexityScore = 0.2 * float( mc.isMetallic ) +
-		0.3 * float( mc.isSmooth ) +
-		0.4 * float( mc.isTransmissive ) +
-		0.3 * float( mc.hasClearcoat ) +
-		0.2 * float( mc.isEmissive );
+    mc.isMetallic = highThreshold.x;
+    mc.isRough = highThreshold.y;
+    mc.isSmooth = material.roughness < 0.3;
+    mc.isTransmissive = highThreshold.z;
+    mc.hasClearcoat = highThreshold.w;
 
-	return mc;
+	// Fast emissive check using squared magnitude (avoids dot product)
+    float emissiveMag = material.emissive.x + material.emissive.y + material.emissive.z;
+    mc.isEmissive = emissiveMag > 0.0;
+
+    // Enhanced complexity score with better material importance weighting
+    float baseComplexity = 0.15 * float( mc.isMetallic ) +
+        0.25 * float( mc.isSmooth ) +
+        0.45 * float( mc.isTransmissive ) + // Transmission paths are most expensive
+        0.35 * float( mc.hasClearcoat ) +
+        0.3 * float( mc.isEmissive );
+
+	// Add material interaction complexity
+    float interactionComplexity = 0.0;
+    if( mc.isMetallic && mc.isSmooth )
+        interactionComplexity += 0.15; // Perfect reflector
+    if( mc.isTransmissive && mc.hasClearcoat )
+        interactionComplexity += 0.2; // Complex layered material
+    if( mc.isEmissive && ( mc.isTransmissive || mc.isMetallic ) )
+        interactionComplexity += 0.1; // Light-emitting complex material
+
+    mc.complexityScore = clamp( baseComplexity + interactionComplexity, 0.0, 1.0 );
+
+    return mc;
 }

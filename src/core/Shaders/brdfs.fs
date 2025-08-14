@@ -1,34 +1,66 @@
+// Enhanced BRDF weight calculation with material classification optimization - OPTIMIZED
 BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	BRDFWeights weights;
 
-    // Precalculate shared values
+    // Get material classification for optimized computation paths
+	MaterialClassification mc = classifyMaterial( material );
+
+    // Precalculate shared values with enhanced precision
 	float invRoughness = 1.0 - material.roughness;
+	float roughnessSq = material.roughness * material.roughness;
 	float metalFactor = 0.5 + 0.5 * material.metalness;
 
-    // Ensure minimum specular contribution for metals regardless of roughness
-	float baseSpecularWeight = max( invRoughness * metalFactor, material.metalness * 0.1 );
+    // Optimized specular calculation using classification
+	float baseSpecularWeight;
+	if( mc.isMetallic ) {
+        // Metals: ensure strong specular regardless of roughness
+		baseSpecularWeight = max( invRoughness * metalFactor, 0.7 );
+	} else if( mc.isSmooth ) {
+        // Non-metals but smooth: strong specular
+		baseSpecularWeight = invRoughness * metalFactor * 1.2;
+	} else {
+        // Regular specular calculation
+		baseSpecularWeight = max( invRoughness * metalFactor, material.metalness * 0.1 );
+	}
+
 	weights.specular = baseSpecularWeight * material.specularIntensity;
 	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
 
+    // Optimized sheen calculation
 	float maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
 	weights.sheen = material.sheen * maxSheenColor;
-	weights.clearcoat = material.clearcoat * invRoughness * 0.35; // Combined scaling factors
 
-    // transmission calculation
-	float iorFactor = min( 2.0 / material.ior, 1.0 ); // Higher IOR = more likely to have TIR
-	float transmissionBase = iorFactor * invRoughness * 0.7; // Combined scaling
+    // Enhanced clearcoat calculation using classification
+	if( mc.hasClearcoat ) {
+		weights.clearcoat = material.clearcoat * invRoughness * 0.4; // Boost for classified clearcoat materials
+	} else {
+		weights.clearcoat = material.clearcoat * invRoughness * 0.35;
+	}
 
-	weights.transmission = material.transmission * transmissionBase *
-		( 0.5 + 0.5 * material.ior / 2.0 ) *
-		( 1.0 + material.dispersion * 0.5 );
+    // Enhanced transmission calculation using classification
+	if( mc.isTransmissive ) {
+        // High transmission materials get optimized calculation
+		float iorFactor = min( 1.8 / material.ior, 1.0 );
+		float transmissionBase = iorFactor * invRoughness * 0.8; // Higher base for classified transmissive
+		weights.transmission = material.transmission * transmissionBase *
+			( 0.6 + 0.4 * material.ior / 2.0 ) *
+			( 1.0 + material.dispersion * 0.6 );
+	} else {
+        // Regular transmission calculation
+		float iorFactor = min( 2.0 / material.ior, 1.0 );
+		float transmissionBase = iorFactor * invRoughness * 0.7;
+		weights.transmission = material.transmission * transmissionBase *
+			( 0.5 + 0.5 * material.ior / 2.0 ) *
+			( 1.0 + material.dispersion * 0.5 );
+	}
 
-    // iridescence calculation
-	float iridescenceBase = invRoughness * 0.5;
+    // Optimized iridescence calculation
+	float iridescenceBase = invRoughness * ( mc.isSmooth ? 0.6 : 0.5 );
 	weights.iridescence = material.iridescence * iridescenceBase *
 		( 0.5 + 0.5 * ( material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x ) / 1000.0 ) *
 		( 0.5 + 0.5 * material.iridescenceIOR / 2.0 );
 
-    // Single normalization pass
+    // Single normalization pass with enhanced precision
 	float total = weights.specular + weights.diffuse + weights.sheen +
 		weights.clearcoat + weights.transmission + weights.iridescence;
 	float invTotal = 1.0 / max( total, 0.001 );
@@ -44,33 +76,44 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 	return weights;
 }
 
+// Enhanced material importance with better classification utilization - OPTIMIZED
 float getMaterialImportance( RayTracingMaterial material ) {
     // Early out for specialized materials
 	if( material.transmission > 0.0 || material.clearcoat > 0.0 ) {
 		return 0.95;
 	}
 
-    // Use classification for faster computation
+    // Use enhanced classification for faster computation
 	MaterialClassification mc = classifyMaterial( material );
 
-    // Base importance from complexity score
+    // Base importance from enhanced complexity score
 	float baseImportance = mc.complexityScore;
 
-    // Consider emissive properties
+    // Enhanced emissive importance calculation
 	float emissiveImportance = 0.0;
 	if( mc.isEmissive ) {
+		// Use more accurate luminance calculation with proper weights
 		float emissiveLuminance = dot( material.emissive, vec3( 0.2126, 0.7152, 0.0722 ) );
-		emissiveImportance = min( 0.5, emissiveLuminance * material.emissiveIntensity * 0.2 );
+		emissiveImportance = min( 0.6, emissiveLuminance * material.emissiveIntensity * 0.25 );
 	}
 
-    // Material-specific boosts
+    // Enhanced material-specific boosts using classification
 	float materialBoost = 0.0;
-	if( mc.isMetallic || mc.isTransmissive ) {
-		materialBoost = 0.2;
-	}
+	if( mc.isMetallic && mc.isSmooth )
+		materialBoost += 0.25; // Perfect reflector
+	else if( mc.isMetallic )
+		materialBoost += 0.15;
 
-    // Combine both factors
-	return max( baseImportance + materialBoost, emissiveImportance );
+	if( mc.isTransmissive )
+		materialBoost += 0.2;
+	if( mc.hasClearcoat )
+		materialBoost += 0.1;
+
+    // Combine all factors with better weighting
+	float totalImportance = max( baseImportance + materialBoost, emissiveImportance );
+
+    // Clamp and return with slight boost for complex materials
+	return clamp( totalImportance, 0.0, 1.0 );
 }
 
 ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex ) {

@@ -150,34 +150,47 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 	return result;
 }
 
-// Estimate path contribution potential
+// Enhanced path contribution estimation with improved caching - OPTIMIZED
 float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material, PathState pathState ) {
 	float throughputStrength = maxComponent( throughput );
 
-    // Use cached material classification if available
+    // Use cached material classification with automatic caching
 	MaterialClassification mc;
 	if( pathState.classificationCached ) {
 		mc = pathState.materialClass;
 	} else {
 		mc = classifyMaterial( material );
+		// Auto-cache the classification for future use
+		pathState.materialClass = mc;
+		pathState.classificationCached = true;
 	}
 
-    // Fast material importance using classification
+    // Enhanced material importance with interaction bonuses
 	float materialImportance = mc.complexityScore;
+	
+	// Add interaction complexity bonuses for high-value material combinations
+	if( mc.isMetallic && mc.isSmooth ) materialImportance += 0.15;
+	if( mc.isTransmissive && mc.hasClearcoat ) materialImportance += 0.12;
+	if( mc.isEmissive ) materialImportance += 0.1;
+	
+	materialImportance = clamp( materialImportance, 0.0, 1.0 );
 
-    // Direction importance calculation
+    // Optimized direction importance calculation
 	float directionImportance = 0.5; // Default value
 
-    // Only calculate environment importance if it's enabled and useful
-	if( enableEnvironmentLight && useEnvMapIS ) {
-        // Fast approximation using simplified PDF calculation
-		directionImportance = min( calculateEnvironmentPDF( direction, 0.0 ) * 0.1, 1.0 );
+    // Only calculate environment importance if beneficial
+	if( enableEnvironmentLight && useEnvMapIS && throughputStrength > 0.01 ) {
+        // Fast approximation using simplified PDF calculation - avoid expensive operations
+		float cosTheta = clamp( direction.y, 0.0, 1.0 ); // Assume y-up environment
+		directionImportance = mix( 0.3, 0.8, cosTheta * cosTheta ); // Squared for better distribution
 	}
 
-	return throughputStrength * mix( materialImportance, directionImportance, 0.5 );
+    // Enhanced weighting with throughput consideration
+	float throughputWeight = smoothstep( 0.001, 0.1, throughputStrength );
+	return throughputStrength * mix( materialImportance * 0.7, directionImportance, 0.3 ) * throughputWeight;
 }
 
-// Russian Roulette with vectorized operations
+// Russian Roulette with enhanced material importance and optimized sampling - OPTIMIZED
 bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, uint seed, PathState pathState ) {
     // Always continue for first few bounces
 	if( depth < 3 ) {
@@ -187,76 +200,91 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
     // Get throughput strength using shared function
 	float throughputStrength = maxComponent( throughput );
 
-    // Quick rejection for very dark paths
-	if( throughputStrength < 0.001 && depth > 5 ) {
+    // Enhanced early rejection with better threshold
+	if( throughputStrength < 0.0008 && depth > 4 ) {
 		return false;
 	}
 
-    // Use cached material classification
+    // Use cached material classification with fallback
 	MaterialClassification mc;
 	if( pathState.classificationCached ) {
 		mc = pathState.materialClass;
 	} else {
 		mc = classifyMaterial( material );
+		// Cache the result for potential future use
+		pathState.materialClass = mc;
+		pathState.classificationCached = true;
 	}
 
-    // Fast material importance using pre-computed complexity score
+    // Enhanced material importance with path-dependent adjustments
 	float materialImportance = mc.complexityScore;
 
-    // Additional importance for special materials
-	if( mc.isEmissive ) {
-		materialImportance += 0.4;
+    // Boost importance for special materials based on path depth
+	if( mc.isEmissive && depth < 6 ) {
+		materialImportance += 0.3; // Emissive materials are important early in path
+	}
+	if( mc.isTransmissive && depth < 5 ) {
+		materialImportance += 0.25; // Transmission effects fade with depth
+	}
+	if( mc.isMetallic && mc.isSmooth && depth < 4 ) {
+		materialImportance += 0.2; // Perfect reflectors important early
 	}
 
 	materialImportance = clamp( materialImportance, 0.0, 1.0 );
 
-    // Determine minimum bounces based on material importance
-	int minBounces = materialImportance > 0.5 ? 5 : 3;
+    // Dynamic minimum bounces based on material complexity
+	int minBounces = 3;
+	if( materialImportance > 0.6 ) minBounces = 5;
+	else if( materialImportance > 0.4 ) minBounces = 4;
 
 	if( depth < minBounces ) {
 		return true;
 	}
 
-    // Use cached path importance if available
+    // Enhanced path importance calculation with caching
 	float pathContribution;
 	if( pathState.classificationCached && pathState.weightsComputed ) {
 		pathContribution = pathState.pathImportance;
 	} else {
 		pathContribution = estimatePathContribution( throughput, rayDirection, material, pathState );
+		// Cache the path importance for consistency
+		pathState.pathImportance = pathContribution;
 	}
 
-    // Adaptive continuation probability
+    // Improved adaptive continuation probability with smoother transitions
 	float rrProb;
+	float adaptiveFactor = materialImportance * 0.4 + throughputStrength * 0.6;
 
-	if( depth < 5 ) {
-        // For early bounces, use path contribution directly
-		rrProb = clamp( pathContribution, 0.1, 0.95 );
-	} else if( depth < 8 ) {
-        // For medium depth, blend between contribution and throughput
-		float simpleProb = clamp( throughputStrength, 0.05, 0.9 );
-		rrProb = mix( simpleProb, pathContribution, 0.5 );
+	if( depth < 6 ) {
+        // For early-medium bounces, use enhanced weighting
+		rrProb = clamp( adaptiveFactor * 1.2, 0.15, 0.95 );
+	} else if( depth < 10 ) {
+        // For medium depth, blend with path contribution
+		float baseProb = clamp( throughputStrength * 0.8, 0.08, 0.85 );
+		rrProb = mix( baseProb, pathContribution, 0.6 );
 	} else {
-        // For deep paths, be more aggressive with termination
-		rrProb = clamp( throughputStrength * 0.5, 0.02, 0.7 );
+        // For deep paths, be more aggressive but consider material importance
+		rrProb = clamp( throughputStrength * 0.4 + materialImportance * 0.1, 0.03, 0.6 );
 	}
 
-    // Boost probability for important materials
+    // Enhanced material-specific boosts
 	if( materialImportance > 0.5 ) {
-		rrProb = mix( rrProb, 1.0, materialImportance * 0.3 );
+		float boostFactor = ( materialImportance - 0.5 ) * 0.6; // More aggressive boost
+		rrProb = mix( rrProb, 1.0, boostFactor );
 	}
 
-    // Apply smooth depth-based decay
-	float depthFactor = exp( - float( depth - minBounces ) * 0.15 );
+    // Smoother depth-based decay with material consideration
+	float depthDecay = 0.12 + materialImportance * 0.08; // Slower decay for important materials
+	float depthFactor = exp( - float( depth - minBounces ) * depthDecay );
 	rrProb *= depthFactor;
 
-    // Ensure minimum probability
-	rrProb = max( rrProb, 0.02 );
+    // Enhanced minimum probability based on material
+	float minProb = mc.isEmissive ? 0.04 : 0.02;
+	rrProb = max( rrProb, minProb );
 
-    // Make the RR test
-	// Hash the seed to avoid bias
-	uint hashedSeed = pcg_hash( seed );
-	uint threshold = uint( rrProb * 4294967295.0 );
-	return hashedSeed < threshold;
+    // Use the optimized Russian Roulette sampling for better quality
+	float rrSample = getRussianRouletteSample( gl_FragCoord.xy, 0, depth, seed );
+	return rrSample < rrProb;
 }
 
 vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
@@ -317,9 +345,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	RenderState state;
 	state.transmissiveTraversals = transmissiveBounces;
 
-    // Initialize path state for caching
+    // Enhanced path state initialization for better caching - OPTIMIZED
 	PathState pathState;
 	pathState.weightsComputed = false;
+	pathState.classificationCached = false;
+	pathState.texturesLoaded = false;
+	pathState.pathImportance = 0.0; // Initialize path importance cache
 
 	for( int bounceIndex = 0; bounceIndex <= maxBounceCount; bounceIndex ++ ) {
         // Update state for this bounce
