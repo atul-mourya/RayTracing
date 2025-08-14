@@ -12,7 +12,7 @@ import FragmentShader from './Shaders/pathtracer.fs';
 import VertexShader from './Shaders/pathtracer.vs';
 import TriangleSDF from './Processor/TriangleSDF';
 import { EnvironmentCDFBuilder } from './Processor/EnvironmentCDFBuilder';
-import blueNoiseImage from '../../public/noise/simple_bluenoise.png';
+import blueNoiseImage from '../../public/noise/simple_bluenoise3.png';
 import { DEFAULT_STATE } from '../Constants';
 
 export class PathTracerPass extends Pass {
