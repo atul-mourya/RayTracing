@@ -248,6 +248,12 @@ export class AdaptiveSamplingPass extends Pass {
 						gl_FragColor = generateTestPattern();
 						return;
 					}
+					
+					// Fallback for missing inputs - provide reasonable defaults
+					if (!hasASVGFColor && !hasNormalDepth) {
+						gl_FragColor = vec4(0.5, 0.5, 0.0, 1.0); // Use middle sampling level
+						return;
+					}
 
 					// Extract temporal data
 					float historyLength = hasASVGFColor ? asvgfColor.a : 1.0;
@@ -308,12 +314,16 @@ export class AdaptiveSamplingPass extends Pass {
 					// Store normalized result
 					float normalizedSamples = sampleCount / float(adaptiveSamplingMax);
 					
+					// Determine if pixel is converged (for optimization)
+					bool pixelConverged = convergenceWeight > 0.8 && hasASVGFColor && historyLength > minConvergenceFrames;
+					float convergenceFlag = pixelConverged ? 1.0 : 0.0;
+					
 					// Debug output showing temporal evolution
 					if (debugMode) {
 						gl_FragColor = vec4(
 							normalizedSamples,
 							hasASVGFColor ? convergenceWeight : 0.0, // Show convergence progress
-							hasNormalDepth ? (historyLength / maxConvergenceFrames) : 0.0, // Show temporal progress
+							convergenceFlag, // Convergence flag for optimization
 							materialComplexity / 2.5
 						);
 					} else {
@@ -321,7 +331,7 @@ export class AdaptiveSamplingPass extends Pass {
 						gl_FragColor = vec4(
 							normalizedSamples,
 							variance / adaptiveSamplingVarianceThreshold, 
-							convergenceWeight,
+							convergenceFlag, // Convergence flag for optimization
 							materialComplexity / 2.5
 						);
 					}
@@ -512,6 +522,28 @@ export class AdaptiveSamplingPass extends Pass {
 
 	}
 
+	// Add setter methods for external parameter updates
+	setAdaptiveSamplingMin( value ) {
+
+		this.adaptiveSamplingMin = value;
+		this.material.uniforms.adaptiveSamplingMin.value = value;
+
+	}
+
+	setAdaptiveSamplingMax( value ) {
+
+		this.adaptiveSamplingMax = value;
+		this.material.uniforms.adaptiveSamplingMax.value = value;
+
+	}
+
+	setAdaptiveSamplingVarianceThreshold( value ) {
+
+		this.adaptiveSamplingVarianceThreshold = value;
+		this.material.uniforms.adaptiveSamplingVarianceThreshold.value = value;
+
+	}
+
 	render( renderer ) {
 
 		if ( ! this.enabled ) return;
@@ -552,7 +584,7 @@ export class AdaptiveSamplingPass extends Pass {
 		this.material.uniforms.hasNormalDepth.value = !! this.material.uniforms.normalDepthTexture.value;
 		this.material.uniforms.hasCurrentColor.value = !! this.material.uniforms.currentColorTexture.value;
 
-		// Update parameters
+		// Update parameters - ensure they're always current
 		this.material.uniforms.adaptiveSamplingMin.value = this.adaptiveSamplingMin;
 		this.material.uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingMax;
 		this.material.uniforms.adaptiveSamplingVarianceThreshold.value = this.adaptiveSamplingVarianceThreshold;
@@ -560,6 +592,13 @@ export class AdaptiveSamplingPass extends Pass {
 		// Render adaptive sampling decision
 		renderer.setRenderTarget( this.renderTarget );
 		this.fsQuad.render( renderer );
+
+		// Validate the output - debug logging if needed
+		if ( this.material.uniforms.frameNumber.value % 60 === 0 && ! hasASVGFColor && ! this.material.uniforms.hasNormalDepth.value ) {
+
+			console.warn( 'AdaptiveSamplingPass: No ASVGF or G-buffer data available, using fallback sampling' );
+
+		}
 
 		// Update visualization if enabled
 		if ( this.showAdaptiveSamplingHelper ) {

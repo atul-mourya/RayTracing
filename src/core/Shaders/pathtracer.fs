@@ -565,18 +565,24 @@ void main( ) {
 	if( frame > 2u && useAdaptiveSampling ) {
 		samplesCount = getRequiredSamples( pixelIndex );
 		if( samplesCount == 0 ) {
+			// Pixel is converged - use accumulated result
 			#ifdef ENABLE_ACCUMULATION
 			if( enableAccumulation && hasPreviousAccumulated ) {
 				gColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
 			} else {
-				gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
+				// No accumulation available, still need to render at least 1 sample
+				samplesCount = 1;
 			}
 			#else
-			gColor = vec4( 0.0, 0.0, 0.0, 1.0 );
+			// No accumulation enabled, render at least 1 sample
+			samplesCount = 1;
 			#endif
-			// Always output normal/depth for MRT
-			gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
-			return;
+			
+			if( samplesCount == 0 ) {
+				// Always output normal/depth for MRT even for converged pixels
+				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
+				return;
+			}
 		}
 	}
 

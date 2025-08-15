@@ -372,6 +372,49 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	setAdaptiveSamplingParameters( params ) {
+
+		if ( ! this.adaptiveSamplingPass ) return;
+
+		// Update adaptive sampling pass parameters using new setter methods
+		if ( params.min !== undefined ) {
+
+			this.adaptiveSamplingPass.setAdaptiveSamplingMin( params.min );
+
+		}
+
+		if ( params.max !== undefined ) {
+
+			this.adaptiveSamplingPass.setAdaptiveSamplingMax( params.max );
+
+		}
+
+		if ( params.threshold !== undefined ) {
+
+			this.adaptiveSamplingPass.setAdaptiveSamplingVarianceThreshold( params.threshold );
+
+		}
+
+		if ( params.materialBias !== undefined ) {
+
+			this.adaptiveSamplingPass.material.uniforms.materialBias.value = params.materialBias;
+
+		}
+
+		if ( params.edgeBias !== undefined ) {
+
+			this.adaptiveSamplingPass.material.uniforms.edgeBias.value = params.edgeBias;
+
+		}
+
+		if ( params.convergenceSpeedUp !== undefined ) {
+
+			this.adaptiveSamplingPass.material.uniforms.convergenceSpeedUp.value = params.convergenceSpeedUp;
+
+		}
+
+	}
+
 	setTileHighlightPass( tileHighlightPass ) {
 
 		this.tileHighlightPass = tileHighlightPass;
@@ -566,20 +609,16 @@ export class PathTracerPass extends Pass {
 
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionController.isInInteractionMode() ) {
 
-			this.adaptiveSamplingFrameToggle = ! this.adaptiveSamplingFrameToggle;
-			if ( this.adaptiveSamplingFrameToggle ) {
+			// Always update the adaptive sampling texture - remove frame toggling
+			uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass.renderTarget.texture;
+			uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass.adaptiveSamplingMax;
 
-				uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass.renderTarget.texture;
-				uniforms.adaptiveSamplingMax.value = this.adaptiveSamplingPass.adaptiveSamplingMax;
-
-				// Set MRT textures for adaptive sampling
-				const mrtTextures = this.targetManager.getMRTTextures();
-				this.adaptiveSamplingPass.setTextures(
-					mrtTextures.color,
-					mrtTextures.normalDepth
-				);
-
-			}
+			// Set MRT textures for adaptive sampling
+			const mrtTextures = this.targetManager.getMRTTextures();
+			this.adaptiveSamplingPass.setTextures(
+				mrtTextures.color,
+				mrtTextures.normalDepth
+			);
 
 		} else if ( this.interactionController.isInInteractionMode() ) {
 

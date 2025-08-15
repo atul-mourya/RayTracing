@@ -251,7 +251,7 @@
 - [ ] Add dynamic object addition and removal
 - [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 - [ ] useHook - https://github.com/uidotdev/usehooks
-- [ ] Recent searches dropdown in catalog with clear button
+- [x] **Recent searches dropdown in catalog with clear button**
 - [x] **Keyboard shortcuts: Esc (deselect), R (reset camera), Space (play/pause)**
 - [ ] Star/heart button on each catalog item
 - [ ] "Favorites" tab in each category
