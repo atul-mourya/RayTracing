@@ -486,6 +486,136 @@ export default class TriangleSDF {
 	}
 
 	/**
+     * Rebuild only materials and textures without touching triangle/BVH data
+     * @param {Object3D} object - Three.js object to extract materials from
+     * @returns {Promise<TriangleSDF>} - This instance (for chaining)
+     */
+	async rebuildMaterials( object ) {
+
+		if ( this.isProcessing ) {
+
+			throw new Error( "Already processing. Cannot rebuild materials during processing." );
+
+		}
+
+		this._log( 'Rebuilding materials and textures' );
+		const startTime = performance.now();
+
+		try {
+
+			// Set processing flag to prevent concurrent operations
+			this.isProcessing = true;
+
+			// Extract only material-related data from the scene
+			const extractedData = this.geometryExtractor.extract( object );
+
+			// Dispose old texture resources BEFORE updating arrays
+			this._disposeMaterialTextures();
+
+			// Update material arrays (but keep existing triangle data)
+			this.materials = extractedData.materials;
+			this.maps = extractedData.maps;
+			this.normalMaps = extractedData.normalMaps;
+			this.bumpMaps = extractedData.bumpMaps;
+			this.roughnessMaps = extractedData.roughnessMaps;
+			this.metalnessMaps = extractedData.metalnessMaps;
+			this.emissiveMaps = extractedData.emissiveMaps;
+
+			// Create new material and texture data only
+			const params = {
+				materials: this.materials,
+				triangles: this.triangleData, // Reuse existing triangle data
+				maps: this.maps,
+				normalMaps: this.normalMaps,
+				bumpMaps: this.bumpMaps,
+				roughnessMaps: this.roughnessMaps,
+				metalnessMaps: this.metalnessMaps,
+				emissiveMaps: this.emissiveMaps,
+				bvhRoot: this.bvhRoot // Reuse existing BVH
+			};
+
+			// Create only material and texture-related textures
+			const textures = await this.textureCreator.createMaterialTextures( params );
+
+			// Update texture references (keep triangle and BVH textures unchanged)
+			this.materialTexture = textures.materialTexture;
+			this.albedoTextures = textures.albedoTexture;
+			this.normalTextures = textures.normalTexture;
+			this.bumpTextures = textures.bumpTexture;
+			this.roughnessTextures = textures.roughnessTexture;
+			this.metalnessTextures = textures.metalnessTexture;
+			this.emissiveTextures = textures.emissiveTexture;
+
+			const duration = performance.now() - startTime;
+			this._log( `Material rebuild complete (${duration.toFixed( 2 )}ms)`, {
+				materials: this.materials.length,
+				textures: this.maps.length
+			} );
+
+			return this;
+
+		} catch ( error ) {
+
+			console.error( '[TriangleSDF] Material rebuild error:', error );
+			throw error;
+
+		} finally {
+
+			// Always clear processing flag
+			this.isProcessing = false;
+
+		}
+
+	}
+
+	/**
+     * Dispose only material-related textures
+     * @private
+     */
+	_disposeMaterialTextures() {
+
+		const materialTextureProps = [
+			'materialTexture', 'albedoTextures', 'normalTextures', 
+			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures'
+		];
+
+		materialTextureProps.forEach( prop => {
+
+			if ( this[ prop ] ) {
+
+				try {
+
+					if ( typeof this[ prop ].dispose === 'function' ) {
+
+						this[ prop ].dispose();
+
+					}
+
+				} catch ( error ) {
+
+					console.warn( `[TriangleSDF] Error disposing ${prop}:`, error );
+
+				} finally {
+
+					this[ prop ] = null;
+
+				}
+
+			}
+
+		} );
+
+		// Clear texture creator cache to prevent stale references
+		if ( this.textureCreator && this.textureCreator.textureCache ) {
+
+			this.textureCreator.textureCache.dispose();
+			this.textureCreator.textureCache = new ( this.textureCreator.textureCache.constructor )();
+
+		}
+
+	}
+
+	/**
      * Get statistics about the current state
      * @returns {Object} - Statistics object
      */

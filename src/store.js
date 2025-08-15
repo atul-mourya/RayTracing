@@ -51,6 +51,14 @@ const useAssetsStore = create( set => ( {
 	materials: [],
 	selectedMaterial: null,
 	selectedEnvironmentIndex: null,
+	
+	// PolyHaven-specific state
+	polyHavenMaterials: [],
+	polyHavenLoading: false,
+	polyHavenResolution: '2k',
+	materialsSource: 'current', // 'current' or 'polyhaven'
+	
+	// Traditional setters
 	setMaterials: materials => set( { materials } ),
 	setSelectedMaterial: idx => set( { selectedMaterial: idx } ),
 	setActiveTab: tab => set( { activeTab: tab } ),
@@ -65,6 +73,12 @@ const useAssetsStore = create( set => ( {
 	} ),
 	setSelectedEnvironmentIndex: idx => set( { selectedEnvironmentIndex: idx } ),
 	setDebugModel: model => set( { debugModel: model } ),
+	
+	// PolyHaven setters
+	setPolyHavenMaterials: materials => set( { polyHavenMaterials: materials } ),
+	setPolyHavenLoading: loading => set( { polyHavenLoading: loading } ),
+	setPolyHavenResolution: resolution => set( { polyHavenResolution: resolution } ),
+	setMaterialsSource: source => set( { materialsSource: source } ),
 } ) );
 
 // Environment store

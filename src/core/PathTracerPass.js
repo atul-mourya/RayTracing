@@ -1122,4 +1122,55 @@ export class PathTracerPass extends Pass {
 
 	}
 
+	async rebuildMaterials( scene ) {
+
+		if ( ! this.sdfs ) {
+
+			throw new Error( "Scene not built yet. Call build() first." );
+
+		}
+
+		try {
+
+			console.log( 'PathTracer: Starting material rebuild...' );
+
+			// Rebuild materials and textures only
+			await this.sdfs.rebuildMaterials( scene );
+
+			// Update scene uniforms with new material data
+			this.updateSceneUniforms();
+
+			// Update lights in case any emissive materials changed
+			this.updateLights();
+
+			// Force material needsUpdate to ensure GPU upload
+			this.material.needsUpdate = true;
+
+			// Reset accumulation to apply changes
+			this.reset();
+
+			console.log( 'PathTracer materials rebuilt successfully' );
+
+		} catch ( error ) {
+
+			console.error( 'Error rebuilding PathTracer materials:', error );
+			
+			// Try to recover by forcing a complete reset
+			try {
+
+				console.warn( 'Attempting recovery by resetting path tracer...' );
+				this.reset();
+
+			} catch ( recoveryError ) {
+
+				console.error( 'Recovery failed:', recoveryError );
+
+			}
+
+			throw error;
+
+		}
+
+	}
+
 }

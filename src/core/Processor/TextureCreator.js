@@ -1105,6 +1105,204 @@ export default class TextureCreator {
 
 	}
 
+	/**
+	 * Create only material and texture-related textures (excludes triangle and BVH textures)
+	 * @param {Object} params - Parameters object
+	 * @returns {Promise<Object>} - Object containing created textures
+	 */
+	async createMaterialTextures( params ) {
+
+		const { materials, maps, normalMaps, bumpMaps, roughnessMaps, metalnessMaps, emissiveMaps } = params;
+
+		console.log( '[TextureCreator] Creating material textures only' );
+		const startTime = performance.now();
+
+		try {
+
+			// Validate inputs
+			if ( ! materials || materials.length === 0 ) {
+
+				throw new Error( 'No materials provided for texture creation' );
+
+			}
+
+			// Clear any cached textures that might interfere
+			this.textureCache.dispose();
+			this.textureCache = new TextureCache();
+
+			// Create material data texture using the existing method
+			const materialTexture = await this.createMaterialDataTexture( materials );
+
+			if ( ! materialTexture ) {
+
+				throw new Error( 'Failed to create material data texture' );
+
+			}
+
+			// Create texture arrays
+			const texturePromises = [];
+
+			if ( maps && maps.length > 0 ) {
+
+				texturePromises.push( 
+					this.createTexturesToDataTexture( maps )
+						.then( tex => ({ type: 'albedo', texture: tex }) )
+						.catch( error => {
+
+							console.warn( 'Failed to create albedo textures:', error );
+							return { type: 'albedo', texture: null };
+
+						} )
+				);
+
+			}
+
+			if ( normalMaps && normalMaps.length > 0 ) {
+
+				texturePromises.push( 
+					this.createTexturesToDataTexture( normalMaps )
+						.then( tex => ({ type: 'normal', texture: tex }) )
+						.catch( error => {
+
+							console.warn( 'Failed to create normal textures:', error );
+							return { type: 'normal', texture: null };
+
+						} )
+				);
+
+			}
+
+			if ( bumpMaps && bumpMaps.length > 0 ) {
+
+				texturePromises.push( 
+					this.createTexturesToDataTexture( bumpMaps )
+						.then( tex => ({ type: 'bump', texture: tex }) )
+						.catch( error => {
+
+							console.warn( 'Failed to create bump textures:', error );
+							return { type: 'bump', texture: null };
+
+						} )
+				);
+
+			}
+
+			if ( roughnessMaps && roughnessMaps.length > 0 ) {
+
+				texturePromises.push( 
+					this.createTexturesToDataTexture( roughnessMaps )
+						.then( tex => ({ type: 'roughness', texture: tex }) )
+						.catch( error => {
+
+							console.warn( 'Failed to create roughness textures:', error );
+							return { type: 'roughness', texture: null };
+
+						} )
+				);
+
+			}
+
+			if ( metalnessMaps && metalnessMaps.length > 0 ) {
+
+				texturePromises.push( 
+					this.createTexturesToDataTexture( metalnessMaps )
+						.then( tex => ({ type: 'metalness', texture: tex }) )
+						.catch( error => {
+
+							console.warn( 'Failed to create metalness textures:', error );
+							return { type: 'metalness', texture: null };
+
+						} )
+				);
+
+			}
+
+			if ( emissiveMaps && emissiveMaps.length > 0 ) {
+
+				texturePromises.push( 
+					this.createTexturesToDataTexture( emissiveMaps )
+						.then( tex => ({ type: 'emissive', texture: tex }) )
+						.catch( error => {
+
+							console.warn( 'Failed to create emissive textures:', error );
+							return { type: 'emissive', texture: null };
+
+						} )
+				);
+
+			}
+
+			// Wait for all texture arrays to complete
+			const textureResults = await Promise.allSettled( texturePromises );
+
+			// Organize results - start with material texture
+			const textures = { 
+				materialTexture: materialTexture
+			};
+
+			// Process texture results (successful or failed)
+			textureResults.forEach( ( result ) => {
+
+				if ( result.status === 'fulfilled' && result.value ) {
+
+					const { type, texture } = result.value;
+					
+					if ( texture ) {
+
+						switch ( type ) {
+
+							case 'albedo': textures.albedoTexture = texture; break;
+							case 'normal': textures.normalTexture = texture; break;
+							case 'bump': textures.bumpTexture = texture; break;
+							case 'roughness': textures.roughnessTexture = texture; break;
+							case 'metalness': textures.metalnessTexture = texture; break;
+							case 'emissive': textures.emissiveTexture = texture; break;
+
+						}
+
+					}
+
+				}
+
+			} );
+
+			const duration = performance.now() - startTime;
+			console.log( `[TextureCreator] Material texture creation complete (${duration.toFixed( 2 )}ms)` );
+
+			return textures;
+
+		} catch ( error ) {
+
+			console.error( '[TextureCreator] Material texture creation error:', error );
+			
+			// Try a fallback approach - call createAllTextures with full params but ignore triangle/BVH results
+			try {
+
+				console.log( '[TextureCreator] Attempting fallback texture creation...' );
+				const allTextures = await this.createAllTextures( params );
+				
+				// Return only the material-related textures
+				return {
+					materialTexture: allTextures.materialTexture,
+					albedoTexture: allTextures.albedoTexture,
+					normalTexture: allTextures.normalTexture,
+					bumpTexture: allTextures.bumpTexture,
+					roughnessTexture: allTextures.roughnessTexture,
+					metalnessTexture: allTextures.metalnessTexture,
+					emissiveTexture: allTextures.emissiveTexture
+				};
+
+			} catch ( fallbackError ) {
+
+				console.error( '[TextureCreator] Fallback texture creation also failed:', fallbackError );
+				throw new Error( `Material texture creation failed: ${error.message}` );
+
+			}
+
+		}
+
+	}
+
 	// Helper methods
 	calculateOptimalDimensions( textures ) {
 
