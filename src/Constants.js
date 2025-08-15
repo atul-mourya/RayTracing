@@ -235,29 +235,33 @@ export const DEFAULT_STATE = {
 	asvgfPhiDepth: 1.0,
 	asvgfVarianceBoost: 1.0,
 	asvgfMaxAccumFrames: 32,
-	asvgfDebugMode: 1, // 0 = off, 1 = temporal, 2 = atrous, 3 = both
+	asvgfDebugMode: 3, // 0 = off, 1 = temporal, 2 = atrous, 3 = both
 	asvgfQualityPreset: 'medium', // 'low', 'medium', 'high'
+	showAsvgfHeatmap: false, // Show ASVGF heatmap visualization
 
 };
 
 export const ASVGF_QUALITY_PRESETS = {
 	low: {
-		temporalAlpha: 0.2,
-		atrousIterations: 2,
-		phiColor: 20.0,
-		maxAccumFrames: 16
+		temporalAlpha: 0.3,
+		atrousIterations: 1,
+		phiColor: 30.0,
+		maxAccumFrames: 8,
+		varianceBoost: 0.5
 	},
 	medium: {
 		temporalAlpha: 0.1,
 		atrousIterations: 4,
 		phiColor: 10.0,
-		maxAccumFrames: 32
+		maxAccumFrames: 32,
+		varianceBoost: 1.0
 	},
 	high: {
 		temporalAlpha: 0.05,
-		atrousIterations: 6,
+		atrousIterations: 8,
 		phiColor: 5.0,
-		maxAccumFrames: 64
+		maxAccumFrames: 64,
+		varianceBoost: 1.5
 	}
 };
 

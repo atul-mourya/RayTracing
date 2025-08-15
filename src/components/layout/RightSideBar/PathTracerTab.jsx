@@ -67,6 +67,7 @@ const PathTracerTab = () => {
 		interactionModeEnabled,
 		enableASVGF,
 		asvgfQualityPreset,
+		showAsvgfHeatmap,
 
 		// Handlers - now from store
 		handlePathTracerChange,
@@ -111,6 +112,7 @@ const PathTracerTab = () => {
 		handleInteractionModeEnabledChange,
 		handleEnableASVGFChange,
 		handleAsvgfQualityPresetChange,
+		handleShowAsvgfHeatmapChange,
 	} = pathTracerStore;
 
 	return (
@@ -221,6 +223,9 @@ const PathTracerTab = () => {
 								<SelectItem value="high">High</SelectItem>
 							</SelectContent>
 						</Select>
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Show Heatmap"} checked={showAsvgfHeatmap} onCheckedChange={handleShowAsvgfHeatmapChange}/>
 					</div>
 				</> )}
 				<Separator />

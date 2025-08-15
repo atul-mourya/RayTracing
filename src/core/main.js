@@ -267,7 +267,8 @@ class PathTracerApp extends EventDispatcher {
 
 		this.canvas.style.opacity = 1;
 		this.pathTracingPass.reset();
-		this.asvgfPass?.enabled && this.asvgfPass.reset();
+		// Always reset ASVGF pass if it exists, regardless of enabled state
+		this.asvgfPass?.reset();
 		this.edgeAwareFilterPass?.enabled && this.edgeAwareFilterPass.reset( this.renderer );
 		this.adaptiveSamplingPass?.enabled && this.adaptiveSamplingPass.reset();
 		this.denoiser?.enabled && this.denoiser.abort();

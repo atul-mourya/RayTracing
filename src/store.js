@@ -148,6 +148,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setToneMapping: val => set( { toneMapping: val } ),
 	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
 	setEnableASVGF: val => set( { enableASVGF: val } ),
+	setShowAsvgfHeatmap: val => set( { showAsvgfHeatmap: val } ),
 	setAsvgfTemporalAlpha: val => set( { asvgfTemporalAlpha: val } ),
 	setAsvgfVarianceClip: val => set( { asvgfVarianceClip: val } ),
 	setAsvgfMomentClip: val => set( { asvgfMomentClip: val } ),
@@ -185,6 +186,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				// Update ASVGF pass
 				window.pathTracerApp.asvgfPass.updateParameters( preset );
+
+				// Force reset to see the change immediately
+				window.pathTracerApp.reset();
 
 			}
 
@@ -619,11 +623,42 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			const app = window.pathTracerApp;
 			app.asvgfPass.enabled = val;
 
+			if ( val ) {
+
+				// When enabling ASVGF, ensure temporal processing is enabled
+				app.asvgfPass.setTemporalEnabled && app.asvgfPass.setTemporalEnabled( true );
+
+				// Apply current quality preset parameters
+				const store = get();
+				const preset = ASVGF_QUALITY_PRESETS[ store.asvgfQualityPreset ];
+
+				if ( preset ) {
+
+					console.log( `Applying current preset (${store.asvgfQualityPreset}):`, preset );
+					app.asvgfPass.updateParameters( preset );
+
+				}
+
+			}
+
 			// Coordinate with EdgeAware filtering
 			app.edgeAwareFilterPass.setFilteringEnabled( ! val );
 
 			// Reset when toggling
 			app.reset();
+
+		}
+	),
+
+	handleShowAsvgfHeatmapChange: handleChange(
+		val => set( { showAsvgfHeatmap: val } ),
+		val => {
+
+			if ( window.pathTracerApp?.asvgfPass ) {
+
+				window.pathTracerApp.asvgfPass.toggleHeatmap && window.pathTracerApp.asvgfPass.toggleHeatmap( val );
+
+			}
 
 		}
 	),

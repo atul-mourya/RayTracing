@@ -9,6 +9,8 @@ import {
 	Matrix4,
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
+import { DEFAULT_STATE } from '../../Constants.js';
 
 export class ASVGFPass extends Pass {
 
@@ -79,6 +81,9 @@ export class ASVGFPass extends Pass {
 		this.atrousQuad = new FullScreenQuad( this.atrousMaterial );
 		this.motionQuad = new FullScreenQuad( this.motionMaterial );
 		this.finalQuad = new FullScreenQuad( this.finalMaterial );
+
+		// Initialize heatmap system
+		this.initHeatmapVisualization();
 
 	}
 
@@ -556,6 +561,9 @@ export class ASVGFPass extends Pass {
 					vec3 color = texture2D(tColor, vUv).rgb;
 					
 					if (!enableDebug) {
+						// Add subtle visual indicator that ASVGF is active
+						// Slight warm tint to show ASVGF is processing
+						color = color * vec3(1.02, 1.01, 0.98);
 						gl_FragColor = vec4(color, 1.0);
 						return;
 					}
@@ -586,6 +594,152 @@ export class ASVGFPass extends Pass {
 				}
 			`
 		} );
+
+	}
+
+	initHeatmapVisualization() {
+
+		// Create heatmap render target
+		this.heatmapTarget = new WebGLRenderTarget( this.width, this.height, {
+			format: RGBAFormat,
+			type: FloatType,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+
+		// Create heatmap material
+		this.heatmapMaterial = new ShaderMaterial( {
+			uniforms: {
+				tVariance: { value: null },
+				tHistoryLength: { value: null },
+				tNormalDepth: { value: null },
+				tMotion: { value: null },
+				heatmapMode: { value: 1 }, // 1=variance, 2=history, 3=motion, 4=normal
+				intensityScale: { value: 1.0 }
+			},
+			vertexShader: /* glsl */`
+				varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+				}
+			`,
+			fragmentShader: /* glsl */`
+				uniform sampler2D tVariance;
+				uniform sampler2D tHistoryLength;
+				uniform sampler2D tNormalDepth;
+				uniform sampler2D tMotion;
+				uniform int heatmapMode;
+				uniform float intensityScale;
+				
+				varying vec2 vUv;
+
+				vec3 heatmap(float value) {
+					value = clamp(value, 0.0, 1.0);
+					if (value < 0.25) {
+						return mix(vec3(0.0, 0.0, 0.5), vec3(0.0, 0.0, 1.0), value * 4.0);
+					} else if (value < 0.5) {
+						return mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 1.0), (value - 0.25) * 4.0);
+					} else if (value < 0.75) {
+						return mix(vec3(0.0, 1.0, 1.0), vec3(0.0, 1.0, 0.0), (value - 0.5) * 4.0);
+					} else {
+						return mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), (value - 0.75) * 4.0);
+					}
+				}
+
+				void main() {
+					vec3 color = vec3(0.0);
+					float value = 0.0;
+
+					if (heatmapMode == 1) {
+						// Variance visualization
+						vec4 variance = texture2D(tVariance, vUv);
+						value = sqrt(variance.z) * intensityScale * 10.0;
+						color = heatmap(value);
+					} else if (heatmapMode == 2) {
+						// History length visualization
+						vec4 history = texture2D(tHistoryLength, vUv);
+						value = history.r / 32.0;
+						color = heatmap(value);
+					} else if (heatmapMode == 3) {
+						// Motion vectors visualization
+						vec4 motion = texture2D(tMotion, vUv);
+						if (motion.x > 100.0) {
+							color = vec3(1.0, 0.0, 1.0); // Magenta for invalid
+						} else {
+							value = length(motion.xy) * 50.0;
+							color = heatmap(value);
+						}
+					} else if (heatmapMode == 4) {
+						// Normal visualization
+						vec3 normal = texture2D(tNormalDepth, vUv).xyz;
+						color = normal * 0.5 + 0.5;
+					}
+
+					gl_FragColor = vec4(color, 1.0);
+				}
+			`
+		} );
+
+		this.heatmapQuad = new FullScreenQuad( this.heatmapMaterial );
+
+		// Create helper for visualization
+		this.heatmapHelper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
+			width: 400,
+			height: 400,
+			position: 'bottom-left',
+			theme: 'dark',
+			title: 'ASVGF Debug Visualization',
+			autoUpdate: false
+		} );
+
+		this.showHeatmap = DEFAULT_STATE.showAsvgfHeatmap;
+		document.body.appendChild( this.heatmapHelper );
+
+		// Hide helper by default as per constants
+		if ( ! this.showHeatmap ) {
+
+			this.heatmapHelper.hide();
+
+		}
+
+	}
+
+	toggleHeatmap( enabled ) {
+
+		this.showHeatmap = enabled;
+		if ( enabled ) {
+
+			this.heatmapHelper.show();
+
+		} else {
+
+			this.heatmapHelper.hide();
+
+		}
+
+	}
+
+	updateHeatmapVisualization( renderer, normalDepthTexture ) {
+
+		if ( ! this.showHeatmap || ! this.heatmapMaterial ) return;
+
+		// Update heatmap uniforms
+		this.heatmapMaterial.uniforms.tVariance.value = this.varianceTarget?.texture || null;
+		this.heatmapMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget?.texture || null;
+		this.heatmapMaterial.uniforms.tNormalDepth.value = normalDepthTexture || null;
+		this.heatmapMaterial.uniforms.tMotion.value = this.motionTarget?.texture || null;
+
+		// Render heatmap
+		const currentRenderTarget = renderer.getRenderTarget();
+		renderer.setRenderTarget( this.heatmapTarget );
+		this.heatmapQuad.render( renderer );
+		renderer.setRenderTarget( currentRenderTarget );
+
+		// Update helper
+		this.heatmapHelper.update();
 
 	}
 
@@ -757,8 +911,6 @@ export class ASVGFPass extends Pass {
 
 		}
 
-		this.frameCount ++;
-
 		// Update camera matrices for motion vectors
 		this.updateCameraMatrices( camera );
 
@@ -856,6 +1008,9 @@ export class ASVGFPass extends Pass {
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.finalQuad.render( renderer );
 
+		// Update heatmap visualization if enabled
+		this.updateHeatmapVisualization( renderer, normalDepthTexture );
+
 		// Step 6: Store history for next frame
 		this.copyTexture( renderer, this.temporalColorTarget, this.prevColorTarget );
 		this.copyTexture( renderer, this.varianceTarget, this.prevMomentsTarget );
@@ -870,7 +1025,7 @@ export class ASVGFPass extends Pass {
 
 	}
 
-	renderSpatialOnly( renderer, writeBuffer, readBuffer, camera ) {
+	renderSpatialOnly( renderer, writeBuffer, readBuffer ) {
 
 		// Skip temporal accumulation and motion vectors
 		// Only do variance estimation and A-trous filtering
@@ -924,6 +1079,9 @@ export class ASVGFPass extends Pass {
 
 		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
 		this.finalQuad.render( renderer );
+
+		// Update heatmap visualization if enabled
+		this.updateHeatmapVisualization( renderer, normalDepthTexture );
 
 	}
 
