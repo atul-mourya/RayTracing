@@ -47,7 +47,7 @@ const MATERIAL_PROPERTIES = {
 	alphaTest: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Alpha Test', section: 'transmission' },
 
 	// Special properties
-	transparent: { type: 'checkbox', default: false, label: 'Transparent', section: 'other' },
+	transparent: { type: 'switch', default: false, label: 'Transparent', section: 'other' },
 	side: { type: 'select', default: 0, options: [ { value: 0, label: 'Front' }, { value: 1, label: 'Back' }, { value: 2, label: 'Double' } ], label: 'Side', section: 'other' },
 	visible: { type: 'switch', default: true, label: 'Visible', section: 'basic' },
 };
@@ -172,10 +172,10 @@ const MaterialTab = () => {
 
 			case 'select':
 				return (
-					<div className="flex items-center justify-between">
+					<div className="flex items-center justify-between w-full">
+						<div className="opacity-50 text-xs truncate">{config.label}</div>
 						<Select value={value} onValueChange={onChange}>
-							<span className="opacity-50 text-xs truncate">{config.label}</span>
-							<SelectTrigger className="max-w-20 h-5 rounded-full">
+							<SelectTrigger className="max-w-25 h-5 rounded-full">
 								<SelectValue placeholder="Select" />
 							</SelectTrigger>
 							<SelectContent>
@@ -220,7 +220,7 @@ const MaterialTab = () => {
 	}
 
 	return (
-		<div className="space-y-4 p-4">
+		<div className="space-y-3 p-2">
 			<div className="flex items-center justify-between">
 				<TextRow label="Name" text={name} />
 			</div>
