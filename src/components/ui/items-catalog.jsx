@@ -370,12 +370,12 @@ export const ItemsCatalog = ( {
 		<TooltipProvider>
 			<div className={cn( "flex flex-col h-full mx-2", className )} {...props}>
 				<div className="flex items-center mb-2 gap-2">
-					<div className="relative grow">
+					<div className="relative grow py-1">
 						<Search size={14} className="absolute left-1 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
 						<Input
 							ref={searchInputRef}
 							type="text"
-							placeholder="Search items, tags, categories..."
+							placeholder="item, tag, category"
 							className="h-5 pl-5 pr-6 outline-hidden text-xs w-full rounded-full bg-primary/20"
 							value={searchInput}
 							onChange={handleSearchInputChange}
@@ -394,7 +394,7 @@ export const ItemsCatalog = ( {
 								<X size={10} className="text-muted-foreground" />
 							</Button>
 						)}
-						
+
 						{/* Recent Searches Dropdown */}
 						{hasRecentSearches && (
 							<Popover>
@@ -402,7 +402,7 @@ export const ItemsCatalog = ( {
 									<Button
 										variant="ghost"
 										size="icon"
-										className="absolute right-5 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
+										className="absolute right-1 top-1/2 transform -translate-y-1/2 h-4 w-4 rounded-full hover:bg-muted"
 										aria-label="Show recent searches"
 									>
 										<Clock size={10} className="text-muted-foreground" />
@@ -459,9 +459,12 @@ export const ItemsCatalog = ( {
 					{showFilters && (
 						<Popover>
 							<PopoverTrigger asChild>
-								<Button variant="outline" className="h-5 w-[120px] text-xs rounded-full">
-									<Filter size={12} className="mr-2" />
-									Filter
+								<Button
+									size="icon"
+									variant="outline"
+									className="h-5 w-5 text-xs rounded-full hover:bg-accent bg-primary/20"
+								>
+									<Filter size={11}/>
 								</Button>
 							</PopoverTrigger>
 							<PopoverContent className="w-[200px] p-0" align="end">
@@ -501,7 +504,7 @@ export const ItemsCatalog = ( {
 
 				{/* Search summary */}
 				{searchSummary && (
-					<div className="mb-2">
+					<div >
 						<p className="text-xs text-muted-foreground">{searchSummary}</p>
 					</div>
 				)}
@@ -516,7 +519,7 @@ export const ItemsCatalog = ( {
 						)}
 					</div>
 				)}
-				<Separator className="mb-4" />
+				{/* <Separator /> */}
 				<ScrollArea className="flex-1" ref={scrollAreaRef}>
 					{isLoading ? (
 						<div className="flex items-center justify-center h-64">

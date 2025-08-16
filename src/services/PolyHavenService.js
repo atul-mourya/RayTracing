@@ -431,8 +431,6 @@ export class PolyHavenService {
 
 		try {
 
-			console.log( 'Fetching Poly Haven texture materials...', { resolution, categories, limit } );
-
 			// Fetch texture assets
 			const assetsData = await this.getAssets( 'textures', categories );
 
@@ -442,7 +440,6 @@ export class PolyHavenService {
 			// Limit results if specified
 			const limitedMaterials = limit > 0 ? materials.slice( 0, limit ) : materials;
 
-			console.log( `Processed ${limitedMaterials.length} Poly Haven materials` );
 			return limitedMaterials;
 
 		} catch ( error ) {
