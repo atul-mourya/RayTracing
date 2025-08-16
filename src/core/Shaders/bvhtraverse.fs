@@ -98,7 +98,7 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 
 	material.alphaMode = int( data[ 11 ].r );
 	material.depthWrite = int( data[ 11 ].g );
-	material.normalScale = data[ 11 ].ba;
+	material.normalScale = vec2( data[ 11 ].b, data[ 11 ].b );
 
 	material.albedoTransform = arrayToMat3( data[ 12 ], data[ 13 ] );
 	material.normalTransform = arrayToMat3( data[ 14 ], data[ 15 ] );

@@ -924,6 +924,8 @@ export class PathTracerPass extends Pass {
 				}
 
 				break;
+			case 'normalScale': 		data[ stride + 46 ] = value; break; // Use data[11].b slot
+			case 'bumpScale': 			data[ stride + 23 ] = value; break; // Keep in data[5].a slot - this is correct
 			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
 			case 'specularColor':
 				if ( value.r !== undefined ) {
@@ -1023,6 +1025,8 @@ export class PathTracerPass extends Pass {
 
 		}
 
+		// Store bumpScale in its correct location (data[5].a = stride + 23)
+		data[ stride + 23 ] = materialData.bumpScale || 1;
 		data[ stride + 24 ] = materialData.specularIntensity || 1;
 
 		if ( materialData.specularColor ) {
@@ -1049,6 +1053,8 @@ export class PathTracerPass extends Pass {
 		data[ stride + 41 ] = materialData.side !== undefined ? materialData.side : 0;
 		data[ stride + 42 ] = materialData.transparent !== undefined ? materialData.transparent : 0;
 		data[ stride + 43 ] = materialData.alphaTest !== undefined ? materialData.alphaTest : 0;
+		// Store normalScale in data[11].b (stride + 46)
+		data[ stride + 46 ] = materialData.normalScale || 1;
 
 		// Mark texture for update
 		this.material.uniforms.materialTexture.value.needsUpdate = true;
@@ -1154,7 +1160,7 @@ export class PathTracerPass extends Pass {
 		} catch ( error ) {
 
 			console.error( 'Error rebuilding PathTracer materials:', error );
-			
+
 			// Try to recover by forcing a complete reset
 			try {
 

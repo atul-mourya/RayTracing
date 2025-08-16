@@ -240,7 +240,8 @@ vec3 processNormalFromBatch( TextureBatch batch, vec3 geometryNormal, vec2 norma
 	}
 
 	vec3 normalMap = batch.normalSample.xyz * 2.0 - 1.0;
-	normalMap.xy *= normalScale;
+	// Apply normal scale - use the X component since we duplicate the value
+	normalMap.xy *= normalScale.x;
 
 	// Fast TBN construction
 	vec3 up = abs( geometryNormal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
@@ -251,12 +252,11 @@ vec3 processNormalFromBatch( TextureBatch batch, vec3 geometryNormal, vec2 norma
 }
 
 vec3 processBumpFromBatch( TextureBatch batch, vec3 currentNormal, float bumpScale, vec2 normalScale, UVCache uvCache, RayTracingMaterial material ) {
-	if( ! batch.hasBump ) {
+	if( ! batch.hasBump || material.bumpMapIndex < 0 ) {
 		return currentNormal;
 	}
 
 	// For bump mapping, we need neighboring samples for gradient calculation
-	// This is one area where we can't easily batch due to the need for offset samples
 	vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
 
 	float h_c = batch.bumpSample.r;
@@ -266,12 +266,17 @@ vec3 processBumpFromBatch( TextureBatch batch, vec3 currentNormal, float bumpSca
 	vec2 gradient = vec2( h_u - h_c, h_v - h_c ) * bumpScale;
 	vec3 bumpNormal = normalize( vec3( - gradient.x, - gradient.y, 1.0 ) );
 
+	// Build TBN matrix using the current normal (could be geometry normal or normal from normal map)
 	vec3 up = abs( currentNormal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
 	vec3 tangent = normalize( cross( up, currentNormal ) );
 	vec3 bitangent = cross( currentNormal, tangent );
 	mat3 TBN = mat3( tangent, bitangent, currentNormal );
 
-	return normalize( mix( currentNormal, TBN * bumpNormal, normalScale.x ) );
+	// Transform bump normal to world space
+	vec3 perturbedNormal = TBN * bumpNormal;
+	
+	// Apply bumpScale as a blend factor - when bumpScale is 0, no bump effect
+	return normalize( mix( currentNormal, perturbedNormal, clamp( bumpScale, 0.0, 1.0 ) ) );
 }
 
 vec3 processEmissiveFromBatch( TextureBatch batch, RayTracingMaterial material, vec3 baseEmissive, float intensity, vec4 albedoColor ) {
@@ -377,7 +382,8 @@ vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 		vec2 transformedUV = getTransformedUV( uv, material.normalTransform );
 		vec3 normalSample = texture( normalMaps, vec3( transformedUV, float( material.normalMapIndex ) ) ).xyz;
 		vec3 normalMap = normalSample * 2.0 - 1.0;
-		normalMap.xy *= material.normalScale;
+		// Apply normal scale using X component
+		normalMap.xy *= material.normalScale.x;
 
 		vec3 up = abs( normal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
 		vec3 tangent = normalize( cross( up, normal ) );
@@ -386,6 +392,7 @@ vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 		resultNormal = normalize( tangent * normalMap.x + bitangent * normalMap.y + normal * normalMap.z );
 	}
 
+	// Handle bump mapping - this should work regardless of whether there's a normal map
 	if( material.bumpMapIndex >= 0 ) {
 		vec2 transformedUV = getTransformedUV( uv, material.bumpTransform );
 		vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
@@ -397,12 +404,15 @@ vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 		vec2 gradient = vec2( h_u - h_c, h_v - h_c ) * material.bumpScale;
 		vec3 bumpNormal = normalize( vec3( - gradient.x, - gradient.y, 1.0 ) );
 
+		// Use resultNormal (which could be geometry normal or normal from normal map)
 		vec3 up = abs( resultNormal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
 		vec3 tangent = normalize( cross( up, resultNormal ) );
 		vec3 bitangent = cross( resultNormal, tangent );
 		mat3 TBN = mat3( tangent, bitangent, resultNormal );
 
-		resultNormal = normalize( mix( resultNormal, TBN * bumpNormal, material.normalScale.x ) );
+		// Apply bumpScale to control the intensity of the bump effect
+		vec3 perturbedNormal = TBN * bumpNormal;
+		resultNormal = normalize( mix( resultNormal, perturbedNormal, clamp( material.bumpScale, 0.0, 1.0 ) ) );
 	}
 
 	return resultNormal;

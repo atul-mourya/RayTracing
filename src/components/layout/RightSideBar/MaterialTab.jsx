@@ -14,6 +14,8 @@ const MATERIAL_PROPERTIES = {
 	color: { type: 'color', default: '#ffffff', label: 'Color' },
 	roughness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' },
 	metalness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' },
+	normalScale: { type: 'slider', default: 1, min: 0, max: 5, step: 0.1, label: 'Normal Scale' },
+	bumpScale: { type: 'slider', default: 1, min: 0, max: 5, step: 0.1, label: 'Bump Scale' },
 	clearcoat: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat' },
 	clearcoatRoughness: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat Roughness' },
 

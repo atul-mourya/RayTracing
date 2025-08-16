@@ -51,13 +51,13 @@ const useAssetsStore = create( set => ( {
 	materials: [],
 	selectedMaterial: null,
 	selectedEnvironmentIndex: null,
-	
+
 	// PolyHaven-specific state
 	polyHavenMaterials: [],
 	polyHavenLoading: false,
 	polyHavenResolution: '2k',
 	materialsSource: 'current', // 'current' or 'polyhaven'
-	
+
 	// Traditional setters
 	setMaterials: materials => set( { materials } ),
 	setSelectedMaterial: idx => set( { selectedMaterial: idx } ),
@@ -73,7 +73,7 @@ const useAssetsStore = create( set => ( {
 	} ),
 	setSelectedEnvironmentIndex: idx => set( { selectedEnvironmentIndex: idx } ),
 	setDebugModel: model => set( { debugModel: model } ),
-	
+
 	// PolyHaven setters
 	setPolyHavenMaterials: materials => set( { polyHavenMaterials: materials } ),
 	setPolyHavenLoading: loading => set( { polyHavenLoading: loading } ),
@@ -377,12 +377,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingMaxChange: handleChange(
 		val => set( { adaptiveSamplingMax: val } ),
-		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { max: val[ 0 ] } )
+		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { max: Array.isArray( val ) ? val[ 0 ] : val } )
 	),
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
 		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { threshold: val[ 0 ] } )
+		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
@@ -1126,6 +1126,8 @@ const useMaterialStore = create( ( set, get ) => ( {
 		}
 
 	},
+	handleNormalScaleChange: val => get().updateMaterialProperty( 'normalScale', Array.isArray( val ) ? val[ 0 ] : val ),
+	handleBumpScaleChange: val => get().updateMaterialProperty( 'bumpScale', Array.isArray( val ) ? val[ 0 ] : val ),
 } ) );
 
 export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore };
