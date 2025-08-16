@@ -6,7 +6,7 @@ import { lazy, Suspense } from 'react';
 // Lazy load heavy catalog components for better performance
 const ModelsTab = lazy( () => import( './tabs/ModelsTab' ) );
 const HierarchicalMaterialsTab = lazy( () => import( './tabs/HierarchicalMaterialsTab' ) );
-const EnvironmentsTab = lazy( () => import( './tabs/EnvironmentsTab' ) );
+const HierarchicalEnvironmentsTab = lazy( () => import( './tabs/HierarchicalEnvironmentsTab' ) );
 const TestsTab = lazy( () => import( './tabs/TestsTab' ) );
 
 // Loading fallback for sub-tabs
@@ -57,7 +57,7 @@ const AssetsTab = () => {
 				</TabsContent>
 				<TabsContent value="environments" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">
 					<Suspense fallback={<SubTabLoadingFallback />}>
-						<EnvironmentsTab />
+						<HierarchicalEnvironmentsTab />
 					</Suspense>
 				</TabsContent>
 				<TabsContent value="tests" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col">

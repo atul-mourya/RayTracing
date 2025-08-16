@@ -103,6 +103,141 @@ export class PolyHavenService {
 	}
 
 	/**
+	 * Get the best available HDRI file for an asset at the requested resolution
+	 * @param {string} assetId - Asset ID
+	 * @param {string} requestedResolution - Target resolution ('1k', '2k', '4k', '8k')
+	 * @returns {Promise<Object>} Object containing HDRI file URL and actual resolution
+	 */
+	static async getAssetHDRIFile( assetId, requestedResolution = '1k' ) {
+
+		try {
+
+			const files = await this.getAssetFiles( assetId );
+
+			// Look for HDR files in the response
+			const hdrFiles = files.hdri || files.hdr || {};
+
+			if ( ! hdrFiles || typeof hdrFiles !== 'object' ) {
+
+				throw new Error( `No HDRI files found for asset ${assetId}` );
+
+			}
+
+			// Get available resolutions
+			const availableResolutions = Object.keys( hdrFiles );
+
+			if ( availableResolutions.length === 0 ) {
+
+				throw new Error( `No HDRI resolutions available for asset ${assetId}` );
+
+			}
+
+			// Define resolution hierarchy (preferred order)
+			const resolutionHierarchy = [ '8k', '4k', '2k', '1k' ];
+			const requestedIndex = resolutionHierarchy.indexOf( requestedResolution );
+
+			// Try to find the best available resolution
+			let selectedResolution = null;
+			let selectedFile = null;
+
+			// First, try to get the exact requested resolution
+			if ( availableResolutions.includes( requestedResolution ) ) {
+
+				selectedResolution = requestedResolution;
+
+			} else {
+
+				// If exact resolution not available, find the closest available one
+				// First try lower resolutions (more likely to be available)
+				for ( let i = requestedIndex + 1; i < resolutionHierarchy.length; i ++ ) {
+
+					const fallbackRes = resolutionHierarchy[ i ];
+					if ( availableResolutions.includes( fallbackRes ) ) {
+
+						selectedResolution = fallbackRes;
+						break;
+
+					}
+
+				}
+
+				// If no lower resolution found, try higher resolutions
+				if ( ! selectedResolution ) {
+
+					for ( let i = requestedIndex - 1; i >= 0; i -- ) {
+
+						const fallbackRes = resolutionHierarchy[ i ];
+						if ( availableResolutions.includes( fallbackRes ) ) {
+
+							selectedResolution = fallbackRes;
+							break;
+
+						}
+
+					}
+
+				}
+
+				// If still no resolution found, take the first available one
+				if ( ! selectedResolution ) {
+
+					selectedResolution = availableResolutions[ 0 ];
+
+				}
+
+			}
+
+			// Get the file for the selected resolution
+			const resolutionFiles = hdrFiles[ selectedResolution ];
+			if ( ! resolutionFiles || typeof resolutionFiles !== 'object' ) {
+
+				throw new Error( `No files found for resolution ${selectedResolution} of asset ${assetId}` );
+
+			}
+
+			// Prefer HDR format, but accept EXR as fallback
+			if ( resolutionFiles.hdr ) {
+
+				selectedFile = resolutionFiles.hdr;
+
+			} else if ( resolutionFiles.exr ) {
+
+				selectedFile = resolutionFiles.exr;
+
+			} else {
+
+				// Take the first available format
+				const formats = Object.keys( resolutionFiles );
+				if ( formats.length > 0 ) {
+
+					selectedFile = resolutionFiles[ formats[ 0 ] ];
+
+				} else {
+
+					throw new Error( `No valid file formats found for ${selectedResolution} resolution of asset ${assetId}` );
+
+				}
+
+			}
+
+			return {
+				url: selectedFile.url || selectedFile,
+				resolution: selectedResolution,
+				actualResolution: selectedResolution,
+				requestedResolution,
+				fileInfo: selectedFile
+			};
+
+		} catch ( error ) {
+
+			console.error( `Error getting HDRI file for ${assetId}:`, error );
+			throw new Error( `Failed to get HDRI file: ${error.message}` );
+
+		}
+
+	}
+
+	/**
 	 * Fetch categories for a specific asset type
 	 * @param {string} type - Asset type
 	 * @returns {Promise<Object>} Categories with counts
@@ -460,8 +595,6 @@ export class PolyHavenService {
 
 		try {
 
-			console.log( 'Loading complete Poly Haven material:', materialData.name );
-
 			// Fetch texture files for the asset
 			const textureFiles = await this.getAssetTextureFiles(
 				materialData.assetId,
@@ -470,8 +603,6 @@ export class PolyHavenService {
 
 			// Create material configuration
 			const materialConfig = await this.createMaterialFromTextures( materialData, textureFiles );
-
-			console.log( `Loaded material "${materialData.name}" with ${Object.keys( textureFiles ).length} textures` );
 
 			return materialConfig;
 
