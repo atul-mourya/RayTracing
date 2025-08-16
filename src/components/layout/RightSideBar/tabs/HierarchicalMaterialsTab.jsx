@@ -506,7 +506,7 @@ const HierarchicalMaterialsTab = () => {
 			>
 				<TabsList className="grid w-full grid-cols-2 h-auto p-0 border">
 					<TabsTrigger value="current" className="text-xs rounded-full">
-						Current Source
+						Physically Based
 					</TabsTrigger>
 					<TabsTrigger value="polyhaven" className="text-xs rounded-full">
 						PolyHaven
