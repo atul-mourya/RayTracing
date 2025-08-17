@@ -8,48 +8,59 @@ import { useStore, useMaterialStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { TextRow } from '@/components/ui/text-row';
+import { TexturePreview } from '@/components/ui/texture-preview';
 
-// Configuration for all material properties
+// Configuration for all material properties - pregrouped by section
 const MATERIAL_PROPERTIES = {
-	// Basic properties
-	color: { type: 'color', default: '#ffffff', label: 'Color' },
-	roughness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' },
-	metalness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' },
-	clearcoat: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat' },
-	clearcoatRoughness: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat Roughness' },
-
-	// Specular properties
-	specularIntensity: { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Specular Intensity', section: 'specular' },
-	specularColor: { type: 'color', default: '#ffffff', label: 'Specular Color', section: 'specular' },
-
-	// Sheen properties
-	sheen: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Sheen', section: 'sheen' },
-	sheenRoughness: { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Sheen Roughness', section: 'sheen' },
-	sheenColor: { type: 'color', default: '#000000', label: 'Sheen Color', section: 'sheen' },
-
-	// Emissive properties
-	emissive: { type: 'color', default: '#000000', label: 'Emissive', section: 'emissive' },
-	emissiveIntensity: { type: 'slider', default: 1, min: 0, max: 10, step: 0.1, label: 'Emissive Intensity', section: 'emissive' },
-
-	// Iridescence properties
-	iridescence: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Iridescence', section: 'iridescence' },
-	iridescenceIOR: { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'Iridescence IOR', section: 'iridescence' },
-
-	// Transmission properties
-	opacity: { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Opacity', section: 'transmission' },
-	ior: { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'IOR', section: 'transmission' },
-	transmission: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Transmission', section: 'transmission' },
-	thickness: { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Transmission Thickness', section: 'transmission' },
-	attenuationColor: { type: 'color', default: '#ffffff', label: 'Attenuation Color', section: 'transmission' },
-	attenuationDistance: { type: 'number', default: 0, min: 0, max: 1000, step: 1, label: 'Attenuation Distance', section: 'transmission' },
-	dispersion: { type: 'slider', default: 0, min: 0, max: 10, step: 0.01, label: 'Dispersion', section: 'transmission' },
-	alphaTest: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Alpha Test', section: 'transmission' },
-
-	// Special properties
-	transparent: { type: 'switch', default: false, label: 'Transparent', section: 'other' },
-	side: { type: 'select', default: 0, options: [ { value: 0, label: 'Front' }, { value: 1, label: 'Back' }, { value: 2, label: 'Double' } ], label: 'Side', section: 'other' },
-	visible: { type: 'switch', default: true, label: 'Visible', section: 'basic' },
+	basic: [
+		[ 'visible', { type: 'switch', default: true, label: 'Visible' } ],
+		[ 'color', { type: 'color', default: '#ffffff', label: 'Color' } ],
+		[ 'roughness', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' } ],
+		[ 'metalness', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' } ],
+		[ 'clearcoat', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat' } ],
+		[ 'clearcoatRoughness', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat Roughness' } ],
+	],
+	specular: [
+		[ 'specularIntensity', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Specular Intensity' } ],
+		[ 'specularColor', { type: 'color', default: '#ffffff', label: 'Specular Color' } ],
+	],
+	sheen: [
+		[ 'sheen', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Sheen' } ],
+		[ 'sheenRoughness', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Sheen Roughness' } ],
+		[ 'sheenColor', { type: 'color', default: '#000000', label: 'Sheen Color' } ],
+	],
+	emissive: [
+		[ 'emissive', { type: 'color', default: '#000000', label: 'Emissive' } ],
+		[ 'emissiveIntensity', { type: 'slider', default: 1, min: 0, max: 10, step: 0.1, label: 'Emissive Intensity' } ],
+	],
+	iridescence: [
+		[ 'iridescence', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Iridescence' } ],
+		[ 'iridescenceIOR', { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'Iridescence IOR' } ],
+	],
+	transmission: [
+		[ 'opacity', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Opacity' } ],
+		[ 'ior', { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'IOR' } ],
+		[ 'transmission', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Transmission' } ],
+		[ 'thickness', { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Transmission Thickness' } ],
+		[ 'attenuationColor', { type: 'color', default: '#ffffff', label: 'Attenuation Color' } ],
+		[ 'attenuationDistance', { type: 'number', default: 0, min: 0, max: 1000, step: 1, label: 'Attenuation Distance' } ],
+		[ 'dispersion', { type: 'slider', default: 0, min: 0, max: 10, step: 0.01, label: 'Dispersion' } ],
+		[ 'alphaTest', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Alpha Test' } ],
+	],
+	other: [
+		[ 'transparent', { type: 'switch', default: false, label: 'Transparent' } ],
+		[ 'side', { type: 'select', default: 0, options: [ { value: 0, label: 'Front' }, { value: 1, label: 'Back' }, { value: 2, label: 'Double' } ], label: 'Side' } ],
+	]
 };
+
+// Flattened properties for initialization
+const ALL_MATERIAL_PROPERTIES = Object.values( MATERIAL_PROPERTIES ).flat().reduce( ( acc, [ key, config ] ) => {
+
+	acc[ key ] = config;
+	return acc;
+
+}, {} );
+
 
 // Texture properties configuration
 const TEXTURE_PROPERTIES = {
@@ -81,7 +92,7 @@ const MaterialTab = () => {
 	const [ materialState, setMaterialState ] = useState( () => {
 
 		const initialState = {};
-		Object.entries( MATERIAL_PROPERTIES ).forEach( ( [ key, config ] ) => {
+		Object.entries( ALL_MATERIAL_PROPERTIES ).forEach( ( [ key, config ] ) => {
 
 			initialState[ key ] = config.default;
 
@@ -111,7 +122,7 @@ const MaterialTab = () => {
 		try {
 
 			const newState = {};
-			Object.entries( MATERIAL_PROPERTIES ).forEach( ( [ key, config ] ) => {
+			Object.entries( ALL_MATERIAL_PROPERTIES ).forEach( ( [ key, config ] ) => {
 
 				if ( config.type === 'color' ) {
 
@@ -152,7 +163,7 @@ const MaterialTab = () => {
 		COMMON_TEXTURE_NAMES.forEach( textureName => {
 
 			const texture = material[ textureName ];
-			if ( texture && texture.isTexture ) {
+			if ( texture?.isTexture ) {
 
 				textures.push( {
 					name: textureName,
@@ -184,31 +195,29 @@ const MaterialTab = () => {
 
 	}, [ selectedObject ] );
 
-	// Setup event listener for material updates
+	// Setup event listeners
 	useEffect( () => {
 
 		updateMaterialStates();
-		window.addEventListener( 'MaterialUpdate', updateMaterialStates );
-		return () => window.removeEventListener( 'MaterialUpdate', updateMaterialStates );
-
-	}, [ updateMaterialStates ] );
-
-	// Setup event listener for texture updates
-	useEffect( () => {
-
 		updateAvailableTextures();
-		window.addEventListener( 'MaterialUpdate', updateAvailableTextures );
-		return () => window.removeEventListener( 'MaterialUpdate', updateAvailableTextures );
 
-	}, [ updateAvailableTextures ] );
+		const handleUpdate = () => {
+
+			updateMaterialStates();
+			updateAvailableTextures();
+
+		};
+
+		window.addEventListener( 'MaterialUpdate', handleUpdate );
+		return () => window.removeEventListener( 'MaterialUpdate', handleUpdate );
+
+	}, [ updateMaterialStates, updateAvailableTextures ] );
 
 	// Generic handler for all property changes
 	const handlePropertyChange = useCallback( ( property, value ) => {
 
-		// Update local state
 		setMaterialState( prev => ( { ...prev, [ property ]: value } ) );
 
-		// Get the corresponding store handler
 		const handlerName = `handle${property.charAt( 0 ).toUpperCase() + property.slice( 1 )}Change`;
 		const handler = materialStore[ handlerName ];
 
@@ -227,7 +236,6 @@ const MaterialTab = () => {
 	// Handle texture property changes
 	const handleTexturePropertyChange = useCallback( ( textureName, property, value ) => {
 
-		// Update local state
 		setTextureStates( prev => ( {
 			...prev,
 			[ textureName ]: {
@@ -236,98 +244,65 @@ const MaterialTab = () => {
 			}
 		} ) );
 
-		// Apply to store which will update the material data texture
-		switch ( property ) {
+		// Consolidated switch with fallback
+		const handlers = {
+			offset: () => materialStore.handleTextureOffsetChange( textureName, value ),
+			repeat: () => materialStore.handleTextureRepeatChange( textureName, value ),
+			rotation: () => materialStore.handleTextureRotationChange( textureName, value ),
+			normalScale: () => materialStore.handleNormalScaleChange( value ),
+			bumpScale: () => materialStore.handleBumpScaleChange( value )
+		};
 
-			case 'offset':
-				materialStore.handleTextureOffsetChange( textureName, value );
-				break;
-			case 'repeat':
-				materialStore.handleTextureRepeatChange( textureName, value );
-				break;
-			case 'rotation':
-				materialStore.handleTextureRotationChange( textureName, value );
-				break;
-			case 'normalScale':
-				materialStore.handleNormalScaleChange( value );
-				break;
-			case 'bumpScale':
-				materialStore.handleBumpScaleChange( value );
-				break;
-
-		}
+		handlers[ property ]?.();
 
 	}, [ materialStore ] );
 
-	// Render component based on property configuration
+	// Optimized render function with memoized components
 	const renderPropertyComponent = useCallback( ( property, config ) => {
 
 		const value = materialState[ property ];
 		const onChange = ( newValue ) => handlePropertyChange( property, newValue );
 
-		switch ( config.type ) {
+		const components = {
+			color: () => <ColorInput label={config.label} value={value} onChange={onChange} />,
+			slider: () => <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={onChange} />,
+			number: () => <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />,
+			switch: () => <Switch label={config.label} checked={value} onCheckedChange={onChange} />,
+			select: () => (
+				<div className="flex items-center justify-between w-full">
+					<div className="opacity-50 text-xs truncate">{config.label}</div>
+					<Select value={value} onValueChange={onChange}>
+						<SelectTrigger className="max-w-25 h-5 rounded-full">
+							<SelectValue placeholder="Select" />
+						</SelectTrigger>
+						<SelectContent>
+							{config.options.map( option => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							) )}
+						</SelectContent>
+					</Select>
+				</div>
+			)
+		};
 
-			case 'color':
-				return <ColorInput label={config.label} value={value} onChange={onChange} />;
-
-			case 'slider':
-				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={onChange} />;
-
-			case 'number':
-				return <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />;
-
-			case 'switch':
-				return <Switch label={config.label} checked={value} onCheckedChange={onChange} />;
-
-			case 'checkbox':
-				return (
-					<div className="flex items-center justify-between">
-						<label className="opacity-50 text-xs truncate">{config.label}</label>
-						<input type="checkbox" checked={value} onChange={( e ) => onChange( e.target.checked )} />
-					</div>
-				);
-
-			case 'select':
-				return (
-					<div className="flex items-center justify-between w-full">
-						<div className="opacity-50 text-xs truncate">{config.label}</div>
-						<Select value={value} onValueChange={onChange}>
-							<SelectTrigger className="max-w-25 h-5 rounded-full">
-								<SelectValue placeholder="Select" />
-							</SelectTrigger>
-							<SelectContent>
-								{config.options.map( option => (
-									<SelectItem key={option.value} value={option.value}>
-										{option.label}
-									</SelectItem>
-								) )}
-							</SelectContent>
-						</Select>
-					</div>
-				);
-
-			default:
-				return null;
-
-		}
+		const component = components[ config.type ]?.();
+		return component ? (
+			<div key={property} className="flex items-center justify-between">
+				{component}
+			</div>
+		) : null;
 
 	}, [ materialState, handlePropertyChange ] );
 
-	// Render texture property component
+	// Simplified texture property renderer
 	const renderTexturePropertyComponent = useCallback( ( textureName, property, config ) => {
 
 		const textureState = textureStates[ textureName ];
-		if ( ! textureState ) return null;
-
-		// Check if this property applies to this texture type
-		if ( config.textureTypes && ! config.textureTypes.includes( textureName ) ) {
-
-			return null;
-
-		}
-
-		// Skip if the property doesn't exist for this texture
-		if ( textureState[ property ] === undefined ) {
+		if ( ! textureState ||
+			( config.textureTypes && ! config.textureTypes.includes( textureName ) ) ||
+			textureState[ property ] === undefined ) {
 
 			return null;
 
@@ -358,13 +333,11 @@ const MaterialTab = () => {
 						</div>
 					</>
 				);
-
 			case 'slider':
-				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={( val ) => onChange( val[ 0 ] )} />;
+				return <Slider className="h-4" label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={( val ) => onChange( val[ 0 ] )} />;
+			case 'number':
+			{
 
-			case 'number': {
-
-				// Ensure value is a number for scale properties
 				const numericValue = typeof value === 'number' ? value : ( value?.x ?? 1 );
 				return <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={numericValue} onValueChange={onChange} />;
 
@@ -377,17 +350,17 @@ const MaterialTab = () => {
 
 	}, [ textureStates, handleTexturePropertyChange ] );
 
-	// Group properties by section
-	const groupedProperties = Object.entries( MATERIAL_PROPERTIES ).reduce( ( acc, [ key, config ] ) => {
+	// Render section helper
+	const renderSection = useCallback( ( sectionName, properties ) => (
+		properties?.length > 0 && (
+			<>
+				{properties.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+				<Separator />
+			</>
+		)
+	), [ renderPropertyComponent ] );
 
-		const section = config.section || 'basic';
-		if ( ! acc[ section ] ) acc[ section ] = [];
-		acc[ section ].push( [ key, config ] );
-		return acc;
-
-	}, {} );
-
-	// Render placeholders if no valid object is selected
+	// Early returns for invalid states
 	if ( ! selectedObject ) {
 
 		return <div className="p-4">Please select an object to customize its material properties.</div>;
@@ -402,16 +375,14 @@ const MaterialTab = () => {
 
 	return (
 		<div className="flex flex-col h-full">
-			<div className="flex items-center justify-between p-2">
-				<TextRow label="Name" text={name} />
+			<div className="py-1 flex-shrink-0">
+				<div className="text-xs text-center px-2 font-medium truncate" title={name}>
+					{name}
+				</div>
 			</div>
 
-			<Tabs
-				value={activeTab}
-				onValueChange={setActiveTab}
-				className="flex flex-col h-full"
-			>
-				<TabsList className="grid w-full grid-cols-2 h-auto p-0 border">
+			<Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full flex-1 min-h-0">
+				<TabsList className="grid w-full grid-cols-2 h-auto p-0 border flex-shrink-0">
 					<TabsTrigger value="properties" className="text-xs rounded-full">
 						Properties
 					</TabsTrigger>
@@ -421,130 +392,44 @@ const MaterialTab = () => {
 				</TabsList>
 
 				{/* Properties Tab */}
-				<TabsContent value="properties" className="flex-1 min-h-0 mx-2 pb-2">
-					<div className="space-y-3">
-						{/* Basic Properties */}
-						{groupedProperties.basic?.map( ( [ property, config ] ) => (
-							<div key={property} className="flex items-center justify-between">
-								{renderPropertyComponent( property, config )}
-							</div>
-						) )}
-
-						{/* Core Material Properties */}
-						{groupedProperties.undefined?.map( ( [ property, config ] ) => (
-							<div key={property} className="flex items-center justify-between">
-								{renderPropertyComponent( property, config )}
-							</div>
-						) )}
-
-						<Separator />
-
-						{/* Specular Properties */}
-						{groupedProperties.specular && (
-							<>
-								{groupedProperties.specular.map( ( [ property, config ] ) => (
-									<div key={property} className="flex items-center justify-between">
-										{renderPropertyComponent( property, config )}
-									</div>
-								) )}
-								<Separator />
-							</>
-						)}
-
-						{/* Sheen Properties */}
-						{groupedProperties.sheen && (
-							<>
-								{groupedProperties.sheen.map( ( [ property, config ] ) => (
-									<div key={property} className="flex items-center justify-between">
-										{renderPropertyComponent( property, config )}
-									</div>
-								) )}
-								<Separator />
-							</>
-						)}
-
-						{/* Emissive Properties */}
-						{groupedProperties.emissive && (
-							<>
-								{groupedProperties.emissive.map( ( [ property, config ] ) => (
-									<div key={property} className="flex items-center justify-between">
-										{renderPropertyComponent( property, config )}
-									</div>
-								) )}
-								<Separator />
-							</>
-						)}
-
-						{/* Iridescence Properties */}
-						{groupedProperties.iridescence && (
-							<>
-								{groupedProperties.iridescence.map( ( [ property, config ] ) => (
-									<div key={property} className="flex items-center justify-between">
-										{renderPropertyComponent( property, config )}
-									</div>
-								) )}
-								<Separator />
-							</>
-						)}
-
-						{/* Transmission Properties */}
-						{groupedProperties.transmission && (
-							<>
-								{groupedProperties.transmission.map( ( [ property, config ] ) => (
-									<div key={property} className="flex items-center justify-between">
-										{renderPropertyComponent( property, config )}
-									</div>
-								) )}
-								<Separator />
-							</>
-						)}
-
-						{/* Other Properties */}
-						{groupedProperties.other && (
-							<>
-								{groupedProperties.other.map( ( [ property, config ] ) => (
-									<div key={property} className="flex items-center justify-between">
-										{renderPropertyComponent( property, config )}
-									</div>
-								) )}
-							</>
-						)}
-					</div>
+				<TabsContent value="properties" className="flex-1 min-h-0 overflow-y-auto mx-2 py-2 space-y-3">
+					{MATERIAL_PROPERTIES.basic.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+					<Separator />
+					{renderSection( 'specular', MATERIAL_PROPERTIES.specular )}
+					{renderSection( 'sheen', MATERIAL_PROPERTIES.sheen )}
+					{renderSection( 'emissive', MATERIAL_PROPERTIES.emissive )}
+					{renderSection( 'iridescence', MATERIAL_PROPERTIES.iridescence )}
+					{renderSection( 'transmission', MATERIAL_PROPERTIES.transmission )}
+					{MATERIAL_PROPERTIES.other?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
 				</TabsContent>
 
 				{/* Textures Tab */}
-				<TabsContent value="textures" className="flex-1 min-h-0 mx-2 pb-2">
-					<div className="">
-						{availableTextures.length === 0 ? (
-							<div className="text-center text-muted-foreground text-sm py-8">
-								No textures available on this material
-							</div>
-						) : (
-							availableTextures.map( ( { name, displayName } ) => (
+				<TabsContent value="textures" className="flex-1 min-h-0 overflow-y-auto mx-2 py-2 space-y-3">
+					{availableTextures.length === 0 ? (
+						<div className="text-center text-muted-foreground text-sm py-8">
+							No textures available on this material
+						</div>
+					) : (
+						<div className="space-y-4">
+							{availableTextures.map( ( { name, displayName, texture } ) => (
 								<div key={name} className="space-y-3">
 									<div className="text-center opacity-50 text-xs bg-primary/20 rounded-full">{displayName}</div>
-
+									<TexturePreview texture={texture} />
 									{Object.entries( TEXTURE_PROPERTIES ).map( ( [ property, config ] ) => {
 
 										const component = renderTexturePropertyComponent( name, property, config );
-
-										if ( ! component ) return null;
-
-										return (
-											<div
-												key={`${name}-${property}`}
-												className="flex items-center justify-between"
-											>
+										return component ? (
+											<div key={`${name}-${property}`} className="flex items-center justify-between">
 												{component}
 											</div>
-										);
+										) : null;
 
 									} )}
-									<Separator />
+									<Separator className="mb-2" />
 								</div>
-							) )
-						)}
-					</div>
+							) )}
+						</div>
+					)}
 				</TabsContent>
 			</Tabs>
 		</div>
@@ -553,3 +438,5 @@ const MaterialTab = () => {
 };
 
 export default MaterialTab;
+
+
