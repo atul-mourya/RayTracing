@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore, useMaterialStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { TextRow } from '@/components/ui/text-row';
 import { TexturePreview } from '@/components/ui/texture-preview';
 
 // Configuration for all material properties - pregrouped by section
