@@ -831,6 +831,54 @@ export class PathTracerPass extends Pass {
 
 	// ===== MATERIAL MANAGEMENT =====
 
+	updateTextureTransform( materialIndex, textureName, transformMatrix ) {
+
+		if ( ! this.material.uniforms.materialTexture.value ) {
+
+			console.warn( "Material texture not available" );
+			return;
+
+		}
+
+		const data = this.material.uniforms.materialTexture.value.image.data;
+		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
+
+		// Map texture names to their transform locations in the material data
+		const transformOffsets = {
+			'map': 48, // albedoTransform starts at pixel 12 (stride + 48)
+			'normalMap': 60, // normalTransform starts at pixel 15 (stride + 60)
+			'bumpMap': 84, // bumpTransform starts at pixel 21 (stride + 84)
+			'roughnessMap': 72, // roughnessTransform starts at pixel 18 (stride + 72)
+			'metalnessMap': 72, // metalnessTransform starts at pixel 18 (stride + 72) - shared with roughness
+			'emissiveMap': 56 // emissiveTransform starts at pixel 14 (stride + 56)
+		};
+
+		const offset = transformOffsets[ textureName ];
+		if ( offset === undefined ) {
+
+			console.warn( `Unknown texture name for transform update: ${textureName}` );
+			return;
+
+		}
+
+		// Store the 3x3 transform matrix in the data texture
+		// Matrix is stored as [m00, m01, m02, m10, m11, m12, m20, m21, m22]
+		for ( let i = 0; i < 9; i ++ ) {
+
+			if ( stride + offset + i < data.length ) {
+
+				data[ stride + offset + i ] = transformMatrix[ i ];
+
+			}
+
+		}
+
+		// Mark texture for update
+		this.material.uniforms.materialTexture.value.needsUpdate = true;
+		this.reset();
+
+	}
+
 	updateMaterial( materialIndex, material ) {
 
 		// Create a complete material object using GeometryExtractor's logic

@@ -3,6 +3,7 @@ import { Slider } from "@/components/ui/slider";
 import { ColorInput } from "@/components/ui/colorinput";
 import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore, useMaterialStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
@@ -52,11 +53,29 @@ const MATERIAL_PROPERTIES = {
 	visible: { type: 'switch', default: true, label: 'Visible', section: 'basic' },
 };
 
+// Texture properties configuration
+const TEXTURE_PROPERTIES = {
+	offset: { type: 'vector2', default: { x: 0, y: 0 }, label: 'Offset' },
+	repeat: { type: 'vector2', default: { x: 1, y: 1 }, label: 'Repeat' },
+	rotation: { type: 'slider', default: 0, min: 0, max: 360, step: 1, label: 'Rotation (°)' }
+};
+
+// Common texture names that might be available on materials
+const COMMON_TEXTURE_NAMES = [
+	'map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap',
+	'emissiveMap', 'bumpMap', 'displacementMap', 'alphaMap',
+	'specularMap', 'envMap', 'lightMap', 'clearcoatMap',
+	'clearcoatNormalMap', 'clearcoatRoughnessMap'
+];
+
 const MaterialTab = () => {
 
 	const selectedObject = useStore( useCallback( state => state.selectedObject, [] ) );
 	const name = selectedObject?.name ?? "Unknown";
 	const materialStore = useMaterialStore();
+
+	// Tab state
+	const [ activeTab, setActiveTab ] = useState( 'properties' );
 
 	// Single state object for all material properties
 	const [ materialState, setMaterialState ] = useState( () => {
@@ -70,6 +89,10 @@ const MaterialTab = () => {
 		return initialState;
 
 	} );
+
+	// Texture state for available textures
+	const [ availableTextures, setAvailableTextures ] = useState( [] );
+	const [ textureStates, setTextureStates ] = useState( {} );
 
 	// Helper function to safely get hex string
 	const getHexString = useCallback( ( colorObj ) => {
@@ -111,6 +134,48 @@ const MaterialTab = () => {
 
 	}, [ selectedObject, getHexString ] );
 
+	// Update available textures when selected object changes
+	const updateAvailableTextures = useCallback( () => {
+
+		if ( ! selectedObject?.isMesh || ! selectedObject.material ) {
+
+			setAvailableTextures( [] );
+			setTextureStates( {} );
+			return;
+
+		}
+
+		const material = selectedObject.material;
+		const textures = [];
+		const newTextureStates = {};
+
+		COMMON_TEXTURE_NAMES.forEach( textureName => {
+
+			const texture = material[ textureName ];
+			if ( texture && texture.isTexture ) {
+
+				textures.push( {
+					name: textureName,
+					displayName: textureName.replace( /([A-Z])/g, ' $1' ).replace( /^./, str => str.toUpperCase() ),
+					texture: texture
+				} );
+
+				// Initialize texture state
+				newTextureStates[ textureName ] = {
+					offset: { x: texture.offset?.x ?? 0, y: texture.offset?.y ?? 0 },
+					repeat: { x: texture.repeat?.x ?? 1, y: texture.repeat?.y ?? 1 },
+					rotation: texture.rotation ?? 0
+				};
+
+			}
+
+		} );
+
+		setAvailableTextures( textures );
+		setTextureStates( newTextureStates );
+
+	}, [ selectedObject ] );
+
 	// Setup event listener for material updates
 	useEffect( () => {
 
@@ -119,6 +184,15 @@ const MaterialTab = () => {
 		return () => window.removeEventListener( 'MaterialUpdate', updateMaterialStates );
 
 	}, [ updateMaterialStates ] );
+
+	// Setup event listener for texture updates
+	useEffect( () => {
+
+		updateAvailableTextures();
+		window.addEventListener( 'MaterialUpdate', updateAvailableTextures );
+		return () => window.removeEventListener( 'MaterialUpdate', updateAvailableTextures );
+
+	}, [ updateAvailableTextures ] );
 
 	// Generic handler for all property changes
 	const handlePropertyChange = useCallback( ( property, value ) => {
@@ -142,6 +216,35 @@ const MaterialTab = () => {
 
 	}, [ materialStore ] );
 
+	// Handle texture property changes
+	const handleTexturePropertyChange = useCallback( ( textureName, property, value ) => {
+
+		// Update local state
+		setTextureStates( prev => ( {
+			...prev,
+			[ textureName ]: {
+				...prev[ textureName ],
+				[ property ]: value
+			}
+		} ) );
+
+		// Apply to store which will update the material data texture
+		switch ( property ) {
+
+			case 'offset':
+				materialStore.handleTextureOffsetChange( textureName, value );
+				break;
+			case 'repeat':
+				materialStore.handleTextureRepeatChange( textureName, value );
+				break;
+			case 'rotation':
+				materialStore.handleTextureRotationChange( textureName, value );
+				break;
+
+		}
+
+	}, [ materialStore ] );
+
 	// Render component based on property configuration
 	const renderPropertyComponent = useCallback( ( property, config ) => {
 
@@ -151,16 +254,16 @@ const MaterialTab = () => {
 		switch ( config.type ) {
 
 			case 'color':
-				return <ColorInput label={config.label} value={value} onChange={onChange} />
+				return <ColorInput label={config.label} value={value} onChange={onChange} />;
 
 			case 'slider':
-				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={onChange} />
+				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={onChange} />;
 
 			case 'number':
-				return <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />
+				return <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />;
 
 			case 'switch':
-				return <Switch label={config.label} checked={value} onCheckedChange={onChange} />
+				return <Switch label={config.label} checked={value} onCheckedChange={onChange} />;
 
 			case 'checkbox':
 				return (
@@ -196,6 +299,48 @@ const MaterialTab = () => {
 
 	}, [ materialState, handlePropertyChange ] );
 
+	// Render texture property component
+	const renderTexturePropertyComponent = useCallback( ( textureName, property, config ) => {
+
+		const textureState = textureStates[ textureName ];
+		if ( ! textureState ) return null;
+
+		const value = textureState[ property ];
+		const onChange = ( newValue ) => handleTexturePropertyChange( textureName, property, newValue );
+
+		switch ( config.type ) {
+
+			case 'vector2':
+				return (
+					<>
+						<div className="opacity-50 text-xs">{config.label}</div>
+						<div className="grid grid-cols-2 gap-y-1">
+							<NumberInput
+								label="X"
+								value={value.x}
+								step={0.1}
+								onValueChange={( x ) => onChange( { ...value, x } )}
+							/>
+							<NumberInput
+								label="Y"
+								value={value.y}
+								step={0.1}
+								onValueChange={( y ) => onChange( { ...value, y } )}
+							/>
+						</div>
+					</>
+				);
+
+			case 'slider':
+				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={( val ) => onChange( val[0] )} />;
+
+			default:
+				return null;
+
+		}
+
+	}, [ textureStates, handleTexturePropertyChange ] );
+
 	// Group properties by section
 	const groupedProperties = Object.entries( MATERIAL_PROPERTIES ).reduce( ( acc, [ key, config ] ) => {
 
@@ -220,97 +365,141 @@ const MaterialTab = () => {
 	}
 
 	return (
-		<div className="space-y-3 p-2">
-			<div className="flex items-center justify-between">
+		<div className="flex flex-col h-full">
+			<div className="flex items-center justify-between p-2">
 				<TextRow label="Name" text={name} />
 			</div>
 
-			{/* Basic Properties */}
-			{groupedProperties.basic?.map( ( [ property, config ] ) => (
-				<div key={property} className="flex items-center justify-between">
-					{renderPropertyComponent( property, config )}
-				</div>
-			) )}
+			<Tabs
+				value={activeTab}
+				onValueChange={setActiveTab}
+				className="flex flex-col h-full"
+			>
+				<TabsList className="grid w-full grid-cols-2 h-auto p-0 border">
+					<TabsTrigger value="properties" className="text-xs rounded-full">
+						Properties
+					</TabsTrigger>
+					<TabsTrigger value="textures" className="text-xs rounded-full">
+						Textures
+					</TabsTrigger>
+				</TabsList>
 
-			{/* Core Material Properties */}
-			{groupedProperties.undefined?.map( ( [ property, config ] ) => (
-				<div key={property} className="flex items-center justify-between">
-					{renderPropertyComponent( property, config )}
-				</div>
-			) )}
+				{/* Properties Tab */}
+				<TabsContent value="properties" className="flex-1 min-h-0 mx-2 pb-2">
+					<div className="space-y-3">
+						{/* Basic Properties */}
+						{groupedProperties.basic?.map( ( [ property, config ] ) => (
+							<div key={property} className="flex items-center justify-between">
+								{renderPropertyComponent( property, config )}
+							</div>
+						) )}
 
-			<Separator />
+						{/* Core Material Properties */}
+						{groupedProperties.undefined?.map( ( [ property, config ] ) => (
+							<div key={property} className="flex items-center justify-between">
+								{renderPropertyComponent( property, config )}
+							</div>
+						) )}
 
-			{/* Specular Properties */}
-			{groupedProperties.specular && (
-				<>
-					{groupedProperties.specular.map( ( [ property, config ] ) => (
-						<div key={property} className="flex items-center justify-between">
-							{renderPropertyComponent( property, config )}
-						</div>
-					) )}
-					<Separator />
-				</>
-			)}
+						<Separator />
 
-			{/* Sheen Properties */}
-			{groupedProperties.sheen && (
-				<>
-					{groupedProperties.sheen.map( ( [ property, config ] ) => (
-						<div key={property} className="flex items-center justify-between">
-							{renderPropertyComponent( property, config )}
-						</div>
-					) )}
-					<Separator />
-				</>
-			)}
+						{/* Specular Properties */}
+						{groupedProperties.specular && (
+							<>
+								{groupedProperties.specular.map( ( [ property, config ] ) => (
+									<div key={property} className="flex items-center justify-between">
+										{renderPropertyComponent( property, config )}
+									</div>
+								) )}
+								<Separator />
+							</>
+						)}
 
-			{/* Emissive Properties */}
-			{groupedProperties.emissive && (
-				<>
-					{groupedProperties.emissive.map( ( [ property, config ] ) => (
-						<div key={property} className="flex items-center justify-between">
-							{renderPropertyComponent( property, config )}
-						</div>
-					) )}
-					<Separator />
-				</>
-			)}
+						{/* Sheen Properties */}
+						{groupedProperties.sheen && (
+							<>
+								{groupedProperties.sheen.map( ( [ property, config ] ) => (
+									<div key={property} className="flex items-center justify-between">
+										{renderPropertyComponent( property, config )}
+									</div>
+								) )}
+								<Separator />
+							</>
+						)}
 
-			{/* Iridescence Properties */}
-			{groupedProperties.iridescence && (
-				<>
-					{groupedProperties.iridescence.map( ( [ property, config ] ) => (
-						<div key={property} className="flex items-center justify-between">
-							{renderPropertyComponent( property, config )}
-						</div>
-					) )}
-					<Separator />
-				</>
-			)}
+						{/* Emissive Properties */}
+						{groupedProperties.emissive && (
+							<>
+								{groupedProperties.emissive.map( ( [ property, config ] ) => (
+									<div key={property} className="flex items-center justify-between">
+										{renderPropertyComponent( property, config )}
+									</div>
+								) )}
+								<Separator />
+							</>
+						)}
 
-			{/* Transmission Properties */}
-			{groupedProperties.transmission && (
-				<>
-					{groupedProperties.transmission.map( ( [ property, config ] ) => (
-						<div key={property} className="flex items-center justify-between">
-							{renderPropertyComponent( property, config )}
-						</div>
-					) )}
-					<Separator />
-				</>
-			)}
+						{/* Iridescence Properties */}
+						{groupedProperties.iridescence && (
+							<>
+								{groupedProperties.iridescence.map( ( [ property, config ] ) => (
+									<div key={property} className="flex items-center justify-between">
+										{renderPropertyComponent( property, config )}
+									</div>
+								) )}
+								<Separator />
+							</>
+						)}
 
-			{/* Other Properties */}
-			{groupedProperties.other && (
-				<>
-					{groupedProperties.other.map( ( [ property, config ] ) => (
-						<div key={property} className="flex items-center justify-between">
-							{renderPropertyComponent( property, config )}
-						</div>
-					) )}
-				</>
-			)}
+						{/* Transmission Properties */}
+						{groupedProperties.transmission && (
+							<>
+								{groupedProperties.transmission.map( ( [ property, config ] ) => (
+									<div key={property} className="flex items-center justify-between">
+										{renderPropertyComponent( property, config )}
+									</div>
+								) )}
+								<Separator />
+							</>
+						)}
+
+						{/* Other Properties */}
+						{groupedProperties.other && (
+							<>
+								{groupedProperties.other.map( ( [ property, config ] ) => (
+									<div key={property} className="flex items-center justify-between">
+										{renderPropertyComponent( property, config )}
+									</div>
+								) )}
+							</>
+						)}
+					</div>
+				</TabsContent>
+
+				{/* Textures Tab */}
+				<TabsContent value="textures" className="flex-1 min-h-0 mx-2 pb-2">
+					<div className="space-y-3">
+						{availableTextures.length === 0 ? (
+							<div className="text-center text-muted-foreground text-sm py-8">
+								No textures available on this material
+							</div>
+						) : (
+							availableTextures.map( ( { name, displayName } ) => (
+								<>
+									<div className="text-center opacity-50 text-xs bg-primary/20 rounded-full">{displayName}</div>
+
+									{Object.entries( TEXTURE_PROPERTIES ).map( ( [ property, config ] ) => (
+										<div key={property} className="flex items-center justify-between">
+											{renderTexturePropertyComponent( name, property, config )}
+										</div>
+									) )}
+									<Separator />
+								</>
+							) )
+						)}
+					</div>
+				</TabsContent>
+			</Tabs>
 		</div>
 	);
 

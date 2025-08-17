@@ -1039,6 +1039,150 @@ const useMaterialStore = create( ( set, get ) => ( {
 
 	},
 
+	// Texture property handlers - update texture transforms in material data texture
+	handleTextureOffsetChange: ( textureName, value ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.material || ! obj.material[ textureName ] ) return;
+
+		try {
+
+			// Update the actual texture
+			obj.material[ textureName ].offset.set( value.x, value.y );
+			obj.material[ textureName ].needsUpdate = true;
+
+			// Update the material data texture with the new transform
+			get().updateTextureTransform( textureName, obj.material[ textureName ] );
+
+		} catch ( error ) {
+
+			console.error( `Error updating texture offset for ${textureName}:`, error );
+
+		}
+
+	},
+
+	handleTextureRepeatChange: ( textureName, value ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.material || ! obj.material[ textureName ] ) return;
+
+		try {
+
+			// Update the actual texture
+			obj.material[ textureName ].repeat.set( value.x, value.y );
+			obj.material[ textureName ].needsUpdate = true;
+
+			// Update the material data texture with the new transform
+			get().updateTextureTransform( textureName, obj.material[ textureName ] );
+
+		} catch ( error ) {
+
+			console.error( `Error updating texture repeat for ${textureName}:`, error );
+
+		}
+
+	},
+
+	handleTextureFlipYChange: ( textureName, value ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.material || ! obj.material[ textureName ] ) return;
+
+		try {
+
+			// Update the actual texture
+			obj.material[ textureName ].flipY = value;
+			obj.material[ textureName ].needsUpdate = true;
+
+			// Update the material data texture with the new transform
+			get().updateTextureTransform( textureName, obj.material[ textureName ] );
+
+		} catch ( error ) {
+
+			console.error( `Error updating texture flipY for ${textureName}:`, error );
+
+		}
+
+	},
+
+	handleTextureRotationChange: ( textureName, value ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.material || ! obj.material[ textureName ] ) return;
+
+		try {
+
+			// Update the actual texture
+			obj.material[ textureName ].rotation = value * Math.PI / 180; // Convert degrees to radians
+			obj.material[ textureName ].needsUpdate = true;
+
+			// Update the material data texture with the new transform
+			get().updateTextureTransform( textureName, obj.material[ textureName ] );
+
+		} catch ( error ) {
+
+			console.error( `Error updating texture rotation for ${textureName}:`, error );
+
+		}
+
+	},
+
+	updateTextureTransform: ( textureName, texture ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.material ) return;
+
+		const materialIndex = obj.userData?.materialIndex ?? 0;
+		const pt = window.pathTracerApp?.pathTracingPass;
+
+		if ( ! pt ) {
+
+			console.warn( "Path tracer not available" );
+			return;
+
+		}
+
+		// Create transform matrix from texture properties
+		const transform = new Float32Array( 9 ); // 3x3 matrix
+		const sx = texture.repeat.x;
+		const sy = texture.repeat.y;
+		const ox = texture.offset.x;
+		const oy = texture.offset.y;
+		const rotation = texture.rotation ?? 0; // rotation in radians
+
+		// Calculate rotation matrix components
+		const cos = Math.cos( rotation );
+		const sin = Math.sin( rotation );
+
+		// Combined transform matrix with rotation, scale, and offset
+		// T * R * S where T = translation, R = rotation, S = scale
+		// [sx*cos  -sx*sin  ox]
+		// [sy*sin   sy*cos  oy]
+		// [0        0       1 ]
+		transform[ 0 ] = sx * cos; // m00
+		transform[ 1 ] = -sx * sin; // m01
+		transform[ 2 ] = ox; // m02
+		transform[ 3 ] = sy * sin; // m10
+		transform[ 4 ] = sy * cos; // m11
+		transform[ 5 ] = oy; // m12
+		transform[ 6 ] = 0; // m20
+		transform[ 7 ] = 0; // m21
+		transform[ 8 ] = 1; // m22
+
+		// Update the appropriate transform in material data texture
+		if ( typeof pt.updateTextureTransform === 'function' ) {
+
+			pt.updateTextureTransform( materialIndex, textureName, transform );
+
+		} else {
+
+			console.warn( `No texture transform update method available for ${textureName}` );
+
+		}
+
+	},
+
 	// Material handlers (shortened)
 	handleColorChange: val => {
 
