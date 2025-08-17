@@ -1161,7 +1161,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 		// [sy*sin   sy*cos  oy]
 		// [0        0       1 ]
 		transform[ 0 ] = sx * cos; // m00
-		transform[ 1 ] = -sx * sin; // m01
+		transform[ 1 ] = - sx * sin; // m01
 		transform[ 2 ] = ox; // m02
 		transform[ 3 ] = sy * sin; // m10
 		transform[ 4 ] = sy * cos; // m11
@@ -1270,8 +1270,37 @@ const useMaterialStore = create( ( set, get ) => ( {
 		}
 
 	},
-	handleNormalScaleChange: val => get().updateMaterialProperty( 'normalScale', Array.isArray( val ) ? val[ 0 ] : val ),
-	handleBumpScaleChange: val => get().updateMaterialProperty( 'bumpScale', Array.isArray( val ) ? val[ 0 ] : val ),
+	handleNormalScaleChange: val => {
+
+		const value = Array.isArray( val ) ? val[ 0 ] : val;
+		get().updateMaterialProperty( 'normalScale', value );
+
+		// Also update the material object directly for UI consistency
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material ) {
+
+			obj.material.normalScale = value;
+			obj.material.needsUpdate = true;
+
+		}
+
+	},
+	handleBumpScaleChange: val => {
+
+		const value = Array.isArray( val ) ? val[ 0 ] : val;
+		get().updateMaterialProperty( 'bumpScale', value );
+
+		// Also update the material object directly for UI consistency
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material ) {
+
+			obj.material.bumpScale = value;
+			obj.material.needsUpdate = true;
+
+		}
+
+	},
+
 } ) );
 
 export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore };

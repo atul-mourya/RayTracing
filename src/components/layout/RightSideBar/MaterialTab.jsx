@@ -15,8 +15,6 @@ const MATERIAL_PROPERTIES = {
 	color: { type: 'color', default: '#ffffff', label: 'Color' },
 	roughness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' },
 	metalness: { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' },
-	normalScale: { type: 'slider', default: 1, min: 0, max: 5, step: 0.1, label: 'Normal Scale' },
-	bumpScale: { type: 'slider', default: 1, min: 0, max: 5, step: 0.1, label: 'Bump Scale' },
 	clearcoat: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat' },
 	clearcoatRoughness: { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat Roughness' },
 
@@ -57,7 +55,9 @@ const MATERIAL_PROPERTIES = {
 const TEXTURE_PROPERTIES = {
 	offset: { type: 'vector2', default: { x: 0, y: 0 }, label: 'Offset' },
 	repeat: { type: 'vector2', default: { x: 1, y: 1 }, label: 'Repeat' },
-	rotation: { type: 'slider', default: 0, min: 0, max: 360, step: 1, label: 'Rotation (°)' }
+	normalScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Normal Scale', textureTypes: [ 'normalMap' ] },
+	bumpScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Bump Scale', textureTypes: [ 'bumpMap' ] },
+	rotation: { type: 'slider', default: 0, min: 0, max: 360, step: 1, label: 'Rotation (°)' },
 };
 
 // Common texture names that might be available on materials
@@ -164,7 +164,15 @@ const MaterialTab = () => {
 				newTextureStates[ textureName ] = {
 					offset: { x: texture.offset?.x ?? 0, y: texture.offset?.y ?? 0 },
 					repeat: { x: texture.repeat?.x ?? 1, y: texture.repeat?.y ?? 1 },
-					rotation: texture.rotation ?? 0
+					rotation: texture.rotation ?? 0,
+					normalScale: textureName === 'normalMap' ? (
+						typeof material.normalScale === 'number' ? material.normalScale :
+							material.normalScale?.x ?? 1
+					) : undefined,
+					bumpScale: textureName === 'bumpMap' ? (
+						typeof material.bumpScale === 'number' ? material.bumpScale :
+							material.bumpScale?.x ?? 1
+					) : undefined
 				};
 
 			}
@@ -240,6 +248,12 @@ const MaterialTab = () => {
 			case 'rotation':
 				materialStore.handleTextureRotationChange( textureName, value );
 				break;
+			case 'normalScale':
+				materialStore.handleNormalScaleChange( value );
+				break;
+			case 'bumpScale':
+				materialStore.handleBumpScaleChange( value );
+				break;
 
 		}
 
@@ -305,6 +319,20 @@ const MaterialTab = () => {
 		const textureState = textureStates[ textureName ];
 		if ( ! textureState ) return null;
 
+		// Check if this property applies to this texture type
+		if ( config.textureTypes && ! config.textureTypes.includes( textureName ) ) {
+
+			return null;
+
+		}
+
+		// Skip if the property doesn't exist for this texture
+		if ( textureState[ property ] === undefined ) {
+
+			return null;
+
+		}
+
 		const value = textureState[ property ];
 		const onChange = ( newValue ) => handleTexturePropertyChange( textureName, property, newValue );
 
@@ -332,7 +360,15 @@ const MaterialTab = () => {
 				);
 
 			case 'slider':
-				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={( val ) => onChange( val[0] )} />;
+				return <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={( val ) => onChange( val[ 0 ] )} />;
+
+			case 'number': {
+
+				// Ensure value is a number for scale properties
+				const numericValue = typeof value === 'number' ? value : ( value?.x ?? 1 );
+				return <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={numericValue} onValueChange={onChange} />;
+
+			}
 
 			default:
 				return null;
@@ -478,23 +514,34 @@ const MaterialTab = () => {
 
 				{/* Textures Tab */}
 				<TabsContent value="textures" className="flex-1 min-h-0 mx-2 pb-2">
-					<div className="space-y-3">
+					<div className="">
 						{availableTextures.length === 0 ? (
 							<div className="text-center text-muted-foreground text-sm py-8">
 								No textures available on this material
 							</div>
 						) : (
 							availableTextures.map( ( { name, displayName } ) => (
-								<>
+								<div key={name} className="space-y-3">
 									<div className="text-center opacity-50 text-xs bg-primary/20 rounded-full">{displayName}</div>
 
-									{Object.entries( TEXTURE_PROPERTIES ).map( ( [ property, config ] ) => (
-										<div key={property} className="flex items-center justify-between">
-											{renderTexturePropertyComponent( name, property, config )}
-										</div>
-									) )}
+									{Object.entries( TEXTURE_PROPERTIES ).map( ( [ property, config ] ) => {
+
+										const component = renderTexturePropertyComponent( name, property, config );
+
+										if ( ! component ) return null;
+
+										return (
+											<div
+												key={`${name}-${property}`}
+												className="flex items-center justify-between"
+											>
+												{component}
+											</div>
+										);
+
+									} )}
 									<Separator />
-								</>
+								</div>
 							) )
 						)}
 					</div>
