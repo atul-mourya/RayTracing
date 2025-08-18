@@ -207,8 +207,10 @@ export class PathTracerUtils {
 			} else {
 
 				// Frame 0 was full image (sample 1), frames 1+ are tile-based
-				const timesCurrentTileRendered = Math.floor( ( frameValue - 1 ) / totalTiles ) + 2;
-				return 1.0 / timesCurrentTileRendered;
+				// Calculate total samples: 1 (from frame 0) + completed tile cycles
+				const completedTileCycles = Math.floor( ( frameValue - 1 ) / totalTiles );
+				const totalSamples = 1 + completedTileCycles;
+				return 1.0 / ( totalSamples + 1 ); // +1 for the current sample being added
 
 			}
 
