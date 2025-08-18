@@ -57,15 +57,15 @@
   - [ ] Import/export material definitions
 
 - [ ] **Scene Management & Asset Pipeline**
-  - [ ] Hierarchical scene outliner with search/filter
-  - [ ] Asset browser with thumbnails and metadata
-  - [ ] Drag-and-drop import from various formats
+  - [x] Hierarchical scene outliner with search/filter
+  - [x] Asset browser with thumbnails and metadata
+  - [x] Drag-and-drop import from various formats
   - [ ] Scene templates and presets
   - [ ] Version control integration (Git LFS)
 
 - [ ] **Advanced Camera Controls**
   - [ ] Cinema-grade camera with physical parameters
-  - [ ] Multiple camera views and switching
+  - [x] Multiple camera views and switching
   - [ ] Camera animation and keyframing
   - [ ] Virtual camera with gamepad support
 
@@ -78,7 +78,7 @@
 
 - [ ] **Advanced Denoising Pipeline**
   - [ ] Real-time OIDN with WebAssembly optimization
-  - [ ] Temporal denoising (SVGF/A-SVGF improvements)
+  - [x] Temporal denoising (SVGF/A-SVGF improvements)
   - [ ] Machine learning denoising models
   - [ ] Custom denoising parameter profiles
 
@@ -89,7 +89,7 @@
 ### Performance Optimization
 - [ ] **Next-Gen BVH & Acceleration**
   - [ ] GPU-accelerated BVH construction
-  - [ ] Compressed wide BVH (CWBVH) implementation
+  - [x] Compressed wide BVH (CWBVH) implementation
   - [ ] Dynamic BVH updates for animated scenes
   - [ ] Ray frustum culling
   - [ ] Primitive specialization (curves, volumes)
@@ -103,9 +103,9 @@
 ### Advanced Sampling & Convergence
 - [ ] **Intelligent Sampling**
   - [ ] Adaptive sampling 2.0 with ML guidance
-  - [ ] Variance-guided sample distribution
+  - [x] Variance-guided sample distribution
   - [ ] Importance sampling for complex lighting
-  - [ ] Blue noise sampling optimization
+  - [x] Blue noise sampling optimization
 
 - [ ] **Convergence Acceleration**
   - [ ] Reservoir sampling (ReSTIR)
@@ -126,8 +126,8 @@
 
 - [ ] **Built-in Asset Library**
   - [ ] Curated high-quality 3D models
-  - [ ] HDR environment collection (8K+)
-  - [ ] Material library with physical accuracy
+  - [x] HDR environment collection (8K+)
+  - [x] Material library with physical accuracy
   - [ ] Procedural content generation
 
 ### Community Features
@@ -197,7 +197,6 @@
 
 ### Current Issues (from existing TODO)
 - [ ] some meshes in outliner shows as group and i'm not able to activate material editor (example bistro)
-- [ ] when switching to render mode, ongoing denoising process should be cancelled
 - [ ] transparent true or false makes no difference
 - [ ] wip tile rendering - https://claude.ai/chat/47f754db-f674-4965-849e-5afa2748dc8b
 
