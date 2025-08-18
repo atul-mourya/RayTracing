@@ -186,9 +186,9 @@ export const DEFAULT_STATE = {
 	samplingTechnique: 3,
 
 	adaptiveSampling: false,
-	adaptiveSamplingMin: 0,
-	adaptiveSamplingMax: 6, // Reduced from 8 to 6 for better performance
-	adaptiveSamplingVarianceThreshold: 0.005, // Increased for more aggressive convergence
+	adaptiveSamplingMin: 1, // Guarantee minimum 1 sample per pixel
+	adaptiveSamplingMax: 8, // 8 for quality when needed
+	adaptiveSamplingVarianceThreshold: 0.003, // More sensitive threshold for better quality
 	temporalVarianceWeight: 0.6, // Reduced to rely less on temporal (which can be noisy)
 	enableEarlyTermination: true,
 	earlyTerminationThreshold: 0.002, // More relaxed threshold

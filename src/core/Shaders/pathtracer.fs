@@ -527,10 +527,11 @@ int getRequiredSamples( int pixelIndex ) {
 	// Get normalized sample count
 	float normalizedSamples = samplingData.r;
 
-	// Fast conversion without branching
-	int samples = int( normalizedSamples * float( adaptiveSamplingMax ) + 0.5 );
+	// Stable conversion with minimum guarantee  
+	float targetSamples = normalizedSamples * float( adaptiveSamplingMax );
+	int samples = int( floor( targetSamples + 0.5 ) ); // More stable rounding
 
-	// Clamp to valid range
+	// Ensure minimum samples and valid range
 	return clamp( samples, 1, adaptiveSamplingMax );
 }
 

@@ -606,8 +606,37 @@ export class PathTracerPass extends Pass {
 	updateAdaptiveSampling( frameValue ) {
 
 		const uniforms = this.material.uniforms;
+		const renderMode = uniforms.renderMode.value;
 
 		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionController.isInInteractionMode() ) {
+
+			// Configure tile mode if using tiled rendering
+			const isTileMode = renderMode === 1;
+			if ( isTileMode ) {
+
+				// Get current tile bounds from tile manager
+				const currentTileIndex = frameValue > 0 ? ( ( frameValue - 1 ) % this.tileManager.totalTilesCache ) : - 1;
+				if ( currentTileIndex >= 0 ) {
+
+					const tileBounds = this.tileManager.calculateTileBounds(
+						currentTileIndex,
+						this.tileManager.tiles,
+						this.width,
+						this.height
+					);
+					this.adaptiveSamplingPass.setTileMode( true, tileBounds );
+
+				} else {
+
+					this.adaptiveSamplingPass.setTileMode( false );
+
+				}
+
+			} else {
+
+				this.adaptiveSamplingPass.setTileMode( false );
+
+			}
 
 			// Always update the adaptive sampling texture - remove frame toggling
 			uniforms.adaptiveSamplingTexture.value = this.adaptiveSamplingPass.renderTarget.texture;

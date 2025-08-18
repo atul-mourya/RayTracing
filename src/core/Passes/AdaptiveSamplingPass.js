@@ -3,6 +3,7 @@ import {
 	WebGLRenderTarget,
 	NearestFilter,
 	Vector2,
+	Vector4,
 	RGBAFormat,
 	FloatType
 } from 'three';
@@ -76,6 +77,20 @@ export class AdaptiveSamplingPass extends Pass {
 				temporalAdaptationRate: { value: 0.95 }, // How quickly to adapt (0.95 = slow, 0.8 = fast)
 				varianceDecayRate: { value: 0.98 }, // How quickly variance importance decays
 
+				// Variance reliability and smoothing
+				varianceSmoothingFactor: { value: 0.1 }, // Temporal smoothing for variance
+				spatialVarianceWeight: { value: 0.3 }, // Weight for spatial variance estimation
+				minSampleGuarantee: { value: 1.0 }, // Minimum samples per pixel
+
+				// Hysteresis parameters for convergence stability
+				convergenceThresholdLow: { value: 0.75 }, // Threshold to enter convergence
+				convergenceThresholdHigh: { value: 0.9 }, // Threshold to exit convergence
+				temporalStabilityFrames: { value: 10.0 }, // Frames to maintain stability
+
+				// Tile rendering parameters
+				isTileMode: { value: false },
+				currentTileBounds: { value: new Vector4( 0, 0, 1, 1 ) }, // x, y, w, h
+
 				// Debug controls
 				debugMode: { value: true },
 				showTemporalEvolution: { value: true },
@@ -103,6 +118,20 @@ export class AdaptiveSamplingPass extends Pass {
 				uniform bool hasASVGFVariance;
 				uniform bool hasNormalDepth;
 				uniform bool hasCurrentColor;
+				
+				// Reliability and smoothing parameters
+				uniform float varianceSmoothingFactor;
+				uniform float spatialVarianceWeight;
+				uniform float minSampleGuarantee;
+				
+				// Hysteresis parameters
+				uniform float convergenceThresholdLow;
+				uniform float convergenceThresholdHigh;
+				uniform float temporalStabilityFrames;
+				
+				// Tile rendering support
+				uniform bool isTileMode;
+				uniform vec4 currentTileBounds; // x, y, width, height in pixels
 				
 				uniform int adaptiveSamplingMin;
 				uniform int adaptiveSamplingMax;
@@ -163,31 +192,53 @@ export class AdaptiveSamplingPass extends Pass {
 					return clamp(complexity, 0.3, 2.5);
 				}
 
-				// Enhanced edge detection with temporal adaptation
+				// Tile-aware edge detection with temporal adaptation
 				float detectEdges(vec2 uv, float historyLength) {
 					if (!hasNormalDepth) return 0.0;
 					
 					vec2 texelSize = 1.0 / resolution;
+					vec2 pixelCoord = uv * resolution;
 					
-					// Sample normal variations
+					// Center sample
 					vec3 n0 = texture2D(normalDepthTexture, uv).rgb * 2.0 - 1.0;
-					vec3 n1 = texture2D(normalDepthTexture, uv + vec2(texelSize.x, 0.0)).rgb * 2.0 - 1.0;
-					vec3 n2 = texture2D(normalDepthTexture, uv + vec2(0.0, texelSize.y)).rgb * 2.0 - 1.0;
-					vec3 n3 = texture2D(normalDepthTexture, uv + vec2(-texelSize.x, 0.0)).rgb * 2.0 - 1.0;
-					vec3 n4 = texture2D(normalDepthTexture, uv + vec2(0.0, -texelSize.y)).rgb * 2.0 - 1.0;
-					
-					float normalEdge = length(n0 - n1) + length(n0 - n2) + length(n0 - n3) + length(n0 - n4);
-					
-					// Sample depth variations
 					float d0 = texture2D(normalDepthTexture, uv).a;
-					float d1 = texture2D(normalDepthTexture, uv + vec2(texelSize.x, 0.0)).a;
-					float d2 = texture2D(normalDepthTexture, uv + vec2(0.0, texelSize.y)).a;
-					float d3 = texture2D(normalDepthTexture, uv + vec2(-texelSize.x, 0.0)).a;
-					float d4 = texture2D(normalDepthTexture, uv + vec2(0.0, -texelSize.y)).a;
 					
-					float depthEdge = abs(d0 - d1) + abs(d0 - d2) + abs(d0 - d3) + abs(d0 - d4);
+					// Check which neighbors are valid in tile mode
+					vec2 coord1 = uv + vec2(texelSize.x, 0.0);
+					vec2 coord2 = uv + vec2(0.0, texelSize.y);
+					vec2 coord3 = uv + vec2(-texelSize.x, 0.0);
+					vec2 coord4 = uv + vec2(0.0, -texelSize.y);
 					
-					float edgeStrength = (normalEdge + depthEdge * 15.0) * 1.5;
+					bool valid1 = !isTileMode || (coord1.x * resolution.x < currentTileBounds.x + currentTileBounds.z);
+					bool valid2 = !isTileMode || (coord2.y * resolution.y < currentTileBounds.y + currentTileBounds.w);
+					bool valid3 = !isTileMode || (coord3.x * resolution.x >= currentTileBounds.x);
+					bool valid4 = !isTileMode || (coord4.y * resolution.y >= currentTileBounds.y);
+					
+					// Sample valid neighbors, fallback to center for invalid ones
+					vec3 n1 = valid1 ? texture2D(normalDepthTexture, coord1).rgb * 2.0 - 1.0 : n0;
+					vec3 n2 = valid2 ? texture2D(normalDepthTexture, coord2).rgb * 2.0 - 1.0 : n0;
+					vec3 n3 = valid3 ? texture2D(normalDepthTexture, coord3).rgb * 2.0 - 1.0 : n0;
+					vec3 n4 = valid4 ? texture2D(normalDepthTexture, coord4).rgb * 2.0 - 1.0 : n0;
+					
+					float d1 = valid1 ? texture2D(normalDepthTexture, coord1).a : d0;
+					float d2 = valid2 ? texture2D(normalDepthTexture, coord2).a : d0;
+					float d3 = valid3 ? texture2D(normalDepthTexture, coord3).a : d0;
+					float d4 = valid4 ? texture2D(normalDepthTexture, coord4).a : d0;
+					
+					// Calculate edge strength only from valid neighbors
+					float normalEdge = 0.0;
+					float depthEdge = 0.0;
+					float validCount = 0.0;
+					
+					if (valid1) { normalEdge += length(n0 - n1); depthEdge += abs(d0 - d1); validCount += 1.0; }
+					if (valid2) { normalEdge += length(n0 - n2); depthEdge += abs(d0 - d2); validCount += 1.0; }
+					if (valid3) { normalEdge += length(n0 - n3); depthEdge += abs(d0 - d3); validCount += 1.0; }
+					if (valid4) { normalEdge += length(n0 - n4); depthEdge += abs(d0 - d4); validCount += 1.0; }
+					
+					// Average by valid neighbors, or return 0 if no valid neighbors
+					if (validCount == 0.0) return 0.0;
+					
+					float edgeStrength = ((normalEdge + depthEdge * 15.0) / validCount) * 1.5;
 					
 					// Gradual edge importance reduction over time
 					if (historyLength > minConvergenceFrames) {
@@ -198,8 +249,8 @@ export class AdaptiveSamplingPass extends Pass {
 					return clamp(edgeStrength, 0.0, 1.0);
 				}
 
-				// Progressive convergence function
-				float calculateConvergenceWeight(float historyLength, float variance) {
+				// Progressive convergence function with hysteresis
+				float calculateConvergenceWeight(float historyLength, float variance, float previousConvergence) {
 					// No convergence before minimum frames
 					if (historyLength < minConvergenceFrames) {
 						return 0.0;
@@ -215,7 +266,21 @@ export class AdaptiveSamplingPass extends Pass {
 					// Variance-based convergence strength
 					float varianceWeight = 1.0 - clamp(variance / adaptiveSamplingVarianceThreshold, 0.0, 1.0);
 					
-					return convergenceCurve * varianceWeight;
+					float baseConvergence = convergenceCurve * varianceWeight;
+					
+					// Apply hysteresis to prevent flickering
+					float threshold = (previousConvergence > 0.5) ? convergenceThresholdHigh : convergenceThresholdLow;
+					
+					if (baseConvergence > threshold) {
+						// Smoothly transition into convergence
+						return mix(previousConvergence, baseConvergence, 0.1);
+					} else if (baseConvergence < (threshold - 0.1)) {
+						// Only exit convergence with clear evidence
+						return mix(previousConvergence, baseConvergence, 0.05);
+					} else {
+						// Maintain current state in threshold zone
+						return previousConvergence;
+					}
 				}
 
 				void main() {
@@ -261,8 +326,9 @@ export class AdaptiveSamplingPass extends Pass {
 					vec3 normal = hasNormalDepth ? normalDepth.rgb * 2.0 - 1.0 : vec3(0.0, 0.0, 1.0);
 					float depth = hasNormalDepth ? normalDepth.a : 1.0;
 
-					// Progressive convergence instead of binary
-					float convergenceWeight = calculateConvergenceWeight(historyLength, variance);
+					// Progressive convergence with hysteresis (use previous frame's convergence)
+					float previousConvergence = hasASVGFColor ? asvgfColor.g : 0.0;
+					float convergenceWeight = calculateConvergenceWeight(historyLength, variance, previousConvergence);
 					
 					// Material analysis with temporal adaptation
 					float materialComplexity = hasNormalDepth ? 
@@ -271,16 +337,76 @@ export class AdaptiveSamplingPass extends Pass {
 					// Edge detection with temporal adaptation
 					float edgeStrength = detectEdges(texCoord, historyLength);
 
-					// Base sample requirement with temporal evolution
-					float baseRequirement;
-					if (hasASVGFVariance) {
-						// Use variance, but make it evolve over time
-						float adaptedVariance = variance * pow(varianceDecayRate, historyLength / 20.0);
-						baseRequirement = adaptedVariance / adaptiveSamplingVarianceThreshold;
-					} else {
-						// Fallback with temporal variation
-						baseRequirement = 0.5 + sin(float(frameNumber) * 0.1) * 0.2;
+					// Compute spatial variance when ASVGF variance unavailable
+					float spatialVariance = 0.0;
+					if (!hasASVGFVariance && hasCurrentColor) {
+						vec2 texelSize = 1.0 / resolution;
+						vec3 centerColor = texture2D(currentColorTexture, texCoord).rgb;
+						
+						// Tile-aware neighbor sampling
+						vec2 pixelCoord = gl_FragCoord.xy;
+						float validSamples = 1.0; // Center pixel always valid
+						vec3 colorAccum = centerColor;
+						
+						// Check if neighbors are within tile bounds (if in tile mode)
+						vec2 rightCoord = texCoord + vec2(texelSize.x, 0.0);
+						vec2 downCoord = texCoord + vec2(0.0, texelSize.y);
+						vec2 leftCoord = texCoord - vec2(texelSize.x, 0.0);
+						vec2 upCoord = texCoord - vec2(0.0, texelSize.y);
+						
+						bool rightValid = !isTileMode || (rightCoord.x * resolution.x < currentTileBounds.x + currentTileBounds.z);
+						bool downValid = !isTileMode || (downCoord.y * resolution.y < currentTileBounds.y + currentTileBounds.w);
+						bool leftValid = !isTileMode || (leftCoord.x * resolution.x >= currentTileBounds.x);
+						bool upValid = !isTileMode || (upCoord.y * resolution.y >= currentTileBounds.y);
+						
+						// Sample valid neighbors only
+						vec3 rightColor = rightValid ? texture2D(currentColorTexture, rightCoord).rgb : centerColor;
+						vec3 downColor = downValid ? texture2D(currentColorTexture, downCoord).rgb : centerColor;
+						vec3 leftColor = leftValid ? texture2D(currentColorTexture, leftCoord).rgb : centerColor;
+						vec3 upColor = upValid ? texture2D(currentColorTexture, upCoord).rgb : centerColor;
+						
+						// Calculate variance from valid color differences
+						float colorDiff = 0.0;
+						if (rightValid) colorDiff += length(centerColor - rightColor);
+						if (downValid) colorDiff += length(centerColor - downColor);
+						if (leftValid) colorDiff += length(centerColor - leftColor);
+						if (upValid) colorDiff += length(centerColor - upColor);
+						
+						// Average by number of valid samples
+						float validNeighbors = float(rightValid) + float(downValid) + float(leftValid) + float(upValid);
+						spatialVariance = validNeighbors > 0.0 ? (colorDiff / validNeighbors) : 0.0;
 					}
+					
+					// Reliable variance calculation with fallback hierarchy
+					float reliableVariance;
+					if (hasASVGFVariance) {
+						// Primary: Use ASVGF variance with temporal smoothing
+						float temporallyStabilizedVariance = variance;
+						if (historyLength > 5.0) {
+							// Apply gentle temporal decay only after initial settling
+							temporallyStabilizedVariance *= pow(varianceDecayRate, (historyLength - 5.0) / 30.0);
+						}
+						reliableVariance = temporallyStabilizedVariance;
+					} else if (hasCurrentColor) {
+						// Secondary: Use spatial variance estimation
+						reliableVariance = spatialVariance * spatialVarianceWeight;
+					} else {
+						// Final fallback: Conservative estimate based on material complexity
+						reliableVariance = materialComplexity * 0.1;
+					}
+					
+					// Material-aware threshold adjustment
+					float adaptiveThreshold = adaptiveSamplingVarianceThreshold;
+					if (materialComplexity > 2.0) {
+						// More sensitive threshold for complex materials
+						adaptiveThreshold *= 0.7;
+					} else if (materialComplexity < 0.8) {
+						// More relaxed threshold for simple materials  
+						adaptiveThreshold *= 1.3;
+					}
+					
+					// Base sample requirement from reliable variance
+					float baseRequirement = reliableVariance / adaptiveThreshold;
 					baseRequirement = clamp(baseRequirement, 0.0, 1.0);
 					
 					// Apply intelligent biases with temporal adaptation
@@ -298,24 +424,41 @@ export class AdaptiveSamplingPass extends Pass {
 						finalRequirement = mix(0.5, finalRequirement, temporalSmoothing);
 					}
 					
+					// Ensure minimum sample guarantee
+					float minSamples = max(minSampleGuarantee, float(adaptiveSamplingMin));
+					
 					// Convert to sample count with smoother transitions
-					float sampleCount = mix(
-						float(adaptiveSamplingMin), 
+					float targetSampleCount = mix(
+						minSamples, 
 						float(adaptiveSamplingMax), 
 						clamp(finalRequirement, 0.0, 1.0)
 					);
 					
-					// Early frame boosting
-					if (frameNumber < 10) {
-						float earlyBoost = (10.0 - float(frameNumber)) / 10.0 * 0.3;
-						sampleCount = max(sampleCount, float(adaptiveSamplingMax) * (0.5 + earlyBoost));
+					// Temporal smoothing to prevent quantization oscillations
+					float previousSampleCount = minSamples;
+					if (hasASVGFColor && historyLength > 3.0) {
+						// Extract previous sample count from stored data (if available)
+						previousSampleCount = mix(minSamples, float(adaptiveSamplingMax), asvgfColor.b);
+						// Apply temporal smoothing
+						targetSampleCount = mix(previousSampleCount, targetSampleCount, varianceSmoothingFactor);
 					}
+					
+					// Early frame boosting (more conservative to avoid conflicts)
+					if (frameNumber < 5) {
+						float earlyBoost = (5.0 - float(frameNumber)) / 5.0 * 0.2;
+						float boostedCount = float(adaptiveSamplingMax) * (0.6 + earlyBoost);
+						targetSampleCount = max(targetSampleCount, boostedCount);
+					}
+					
+					float sampleCount = targetSampleCount;
 					
 					// Store normalized result
 					float normalizedSamples = sampleCount / float(adaptiveSamplingMax);
 					
-					// Determine if pixel is converged (for optimization)
-					bool pixelConverged = convergenceWeight > 0.8 && hasASVGFColor && historyLength > minConvergenceFrames;
+					// Determine if pixel is converged with hysteresis
+					bool pixelConverged = convergenceWeight > convergenceThresholdHigh && 
+										  hasASVGFColor && 
+										  historyLength > (minConvergenceFrames + temporalStabilityFrames);
 					float convergenceFlag = pixelConverged ? 1.0 : 0.0;
 					
 					// Debug output showing temporal evolution
@@ -632,6 +775,25 @@ export class AdaptiveSamplingPass extends Pass {
 		// Update boolean flags
 		this.material.uniforms.hasCurrentColor.value = !! currentColorTexture;
 		this.material.uniforms.hasNormalDepth.value = !! normalDepthTexture;
+
+	}
+
+	// Configure tile rendering mode
+	setTileMode( enabled, tileBounds = null ) {
+
+		this.material.uniforms.isTileMode.value = enabled;
+
+		if ( enabled && tileBounds ) {
+
+			// tileBounds: {x, y, width, height} in pixels
+			this.material.uniforms.currentTileBounds.value.set(
+				tileBounds.x,
+				tileBounds.y,
+				tileBounds.width,
+				tileBounds.height
+			);
+
+		}
 
 	}
 
