@@ -435,11 +435,10 @@ class PathTracerApp extends EventDispatcher {
 
 		// Early exit: Check frame count before expensive completion operations
 		if (
-			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value ) ||
-			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value === pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) )
+			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value ) ||
+			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) )
 		) {
 
-			pathtracingUniforms.frame.value ++;
 			this.denoiser.start();
 			this.dispatchEvent( { type: 'RenderComplete' } );
 			useStore.getState().setIsRenderComplete( true );

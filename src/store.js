@@ -438,7 +438,20 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTileUpdate: handleChange(
 		val => set( { tiles: val } ),
-		val => window.pathTracerApp.pathTracingPass.tileManager.tiles = val[ 0 ],
+		val => {
+
+			const tileCount = val[ 0 ];
+
+			// Validate tile count before applying
+			if ( tileCount < 1 || tileCount > 10 ) {
+
+				console.warn( `Store: Tile count ${tileCount} is outside recommended range (1-10)` );
+
+			}
+
+			window.pathTracerApp.pathTracingPass.setTileCount( tileCount );
+
+		},
 		false
 	),
 
@@ -713,8 +726,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.numRaysPerPixel.value = INTERACTIVE_STATE.samplesPerPixel;
 			uniforms.renderMode.value = INTERACTIVE_STATE.renderMode;
 			uniforms.transmissiveBounces.value = INTERACTIVE_STATE.transmissiveBounces;
-			app.pathTracingPass.tileManager.tiles = INTERACTIVE_STATE.tiles;
+
+			// Use setTileCount to properly update completion threshold
+			app.pathTracingPass.setTileCount( INTERACTIVE_STATE.tiles );
 			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
+
+			// Ensure completion threshold is updated after render mode change
+			app.pathTracingPass.updateCompletionThreshold();
 
 			// Abort any ongoing denoising before switching modes
 			app.denoiser.abort();
@@ -756,8 +774,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			uniforms.numRaysPerPixel.value = FINAL_STATE.samplesPerPixel;
 			uniforms.renderMode.value = FINAL_STATE.renderMode;
 			uniforms.transmissiveBounces.value = FINAL_STATE.transmissiveBounces;
-			app.pathTracingPass.tileManager.tiles = FINAL_STATE.tiles;
+
+			// Use setTileCount to properly update completion threshold
+			app.pathTracingPass.setTileCount( FINAL_STATE.tiles );
 			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
+
+			// Ensure completion threshold is updated after render mode change
+			app.pathTracingPass.updateCompletionThreshold();
 
 			// Abort any ongoing denoising before switching modes
 			app.denoiser.abort();

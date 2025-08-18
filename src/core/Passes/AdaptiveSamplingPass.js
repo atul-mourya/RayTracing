@@ -209,10 +209,14 @@ export class AdaptiveSamplingPass extends Pass {
 					vec2 coord3 = uv + vec2(-texelSize.x, 0.0);
 					vec2 coord4 = uv + vec2(0.0, -texelSize.y);
 					
-					bool valid1 = !isTileMode || (coord1.x * resolution.x < currentTileBounds.x + currentTileBounds.z);
-					bool valid2 = !isTileMode || (coord2.y * resolution.y < currentTileBounds.y + currentTileBounds.w);
-					bool valid3 = !isTileMode || (coord3.x * resolution.x >= currentTileBounds.x);
-					bool valid4 = !isTileMode || (coord4.y * resolution.y >= currentTileBounds.y);
+					// Improved tile bounds validation using normalized coordinates
+					vec2 tileMinUV = vec2(currentTileBounds.x, currentTileBounds.y) / resolution;
+					vec2 tileMaxUV = vec2(currentTileBounds.x + currentTileBounds.z, currentTileBounds.y + currentTileBounds.w) / resolution;
+					
+					bool valid1 = !isTileMode || (coord1.x >= tileMinUV.x && coord1.x < tileMaxUV.x && coord1.y >= tileMinUV.y && coord1.y < tileMaxUV.y);
+					bool valid2 = !isTileMode || (coord2.x >= tileMinUV.x && coord2.x < tileMaxUV.x && coord2.y >= tileMinUV.y && coord2.y < tileMaxUV.y);
+					bool valid3 = !isTileMode || (coord3.x >= tileMinUV.x && coord3.x < tileMaxUV.x && coord3.y >= tileMinUV.y && coord3.y < tileMaxUV.y);
+					bool valid4 = !isTileMode || (coord4.x >= tileMinUV.x && coord4.x < tileMaxUV.x && coord4.y >= tileMinUV.y && coord4.y < tileMaxUV.y);
 					
 					// Sample valid neighbors, fallback to center for invalid ones
 					vec3 n1 = valid1 ? texture2D(normalDepthTexture, coord1).rgb * 2.0 - 1.0 : n0;
@@ -354,10 +358,14 @@ export class AdaptiveSamplingPass extends Pass {
 						vec2 leftCoord = texCoord - vec2(texelSize.x, 0.0);
 						vec2 upCoord = texCoord - vec2(0.0, texelSize.y);
 						
-						bool rightValid = !isTileMode || (rightCoord.x * resolution.x < currentTileBounds.x + currentTileBounds.z);
-						bool downValid = !isTileMode || (downCoord.y * resolution.y < currentTileBounds.y + currentTileBounds.w);
-						bool leftValid = !isTileMode || (leftCoord.x * resolution.x >= currentTileBounds.x);
-						bool upValid = !isTileMode || (upCoord.y * resolution.y >= currentTileBounds.y);
+						// Improved tile bounds validation using normalized coordinates
+						vec2 tileMinUV = vec2(currentTileBounds.x, currentTileBounds.y) / resolution;
+						vec2 tileMaxUV = vec2(currentTileBounds.x + currentTileBounds.z, currentTileBounds.y + currentTileBounds.w) / resolution;
+						
+						bool rightValid = !isTileMode || (rightCoord.x >= tileMinUV.x && rightCoord.x < tileMaxUV.x && rightCoord.y >= tileMinUV.y && rightCoord.y < tileMaxUV.y);
+						bool downValid = !isTileMode || (downCoord.x >= tileMinUV.x && downCoord.x < tileMaxUV.x && downCoord.y >= tileMinUV.y && downCoord.y < tileMaxUV.y);
+						bool leftValid = !isTileMode || (leftCoord.x >= tileMinUV.x && leftCoord.x < tileMaxUV.x && leftCoord.y >= tileMinUV.y && leftCoord.y < tileMaxUV.y);
+						bool upValid = !isTileMode || (upCoord.x >= tileMinUV.x && upCoord.x < tileMaxUV.x && upCoord.y >= tileMinUV.y && upCoord.y < tileMaxUV.y);
 						
 						// Sample valid neighbors only
 						vec3 rightColor = rightValid ? texture2D(currentColorTexture, rightCoord).rgb : centerColor;

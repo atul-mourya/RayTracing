@@ -97,11 +97,26 @@ export class TileRenderingManager {
 		// Enable scissor testing
 		gl.enable( gl.SCISSOR_TEST );
 
-		// Set scissor rectangle
+		// Set scissor rectangle with bounds validation
 		// Note: WebGL scissor coordinates are from bottom-left, Three.js render targets are top-left
 		// We need to flip the Y coordinate
 		const flippedY = this.height - bounds.y - bounds.height;
-		gl.scissor( bounds.x, flippedY, bounds.width, bounds.height );
+
+		// Validate scissor bounds to prevent WebGL errors
+		const scissorX = Math.max( 0, Math.min( bounds.x, this.width ) );
+		const scissorY = Math.max( 0, Math.min( flippedY, this.height ) );
+		const scissorWidth = Math.max( 0, Math.min( bounds.width, this.width - scissorX ) );
+		const scissorHeight = Math.max( 0, Math.min( bounds.height, this.height - scissorY ) );
+
+		// Warn if clamping occurred
+		if ( scissorX !== bounds.x || scissorY !== flippedY ||
+			 scissorWidth !== bounds.width || scissorHeight !== bounds.height ) {
+
+			console.warn( `TileRenderingManager: Scissor bounds clamped from (${bounds.x},${flippedY},${bounds.width},${bounds.height}) to (${scissorX},${scissorY},${scissorWidth},${scissorHeight})` );
+
+		}
+
+		gl.scissor( scissorX, scissorY, scissorWidth, scissorHeight );
 
 		this.scissorEnabled = true;
 		this.currentTileBounds = { ...bounds };
@@ -129,7 +144,6 @@ export class TileRenderingManager {
 	generateSpiralOrder( tiles ) {
 
 		const totalTiles = tiles * tiles;
-		const center = ( tiles - 1 ) / 2;
 		const tilePositions = [];
 
 		// Create array of tile positions with their distances from center
@@ -137,33 +151,67 @@ export class TileRenderingManager {
 
 			const x = i % tiles;
 			const y = Math.floor( i / tiles );
-			const distanceFromCenter = Math.sqrt( Math.pow( x - center, 2 ) + Math.pow( y - center, 2 ) );
 
-			// Calculate angle for spiral ordering within same distance rings
-			const angle = Math.atan2( y - center, x - center );
+			// Improved distance calculation for better ordering with any tile count
+			const center = ( tiles - 1 ) / 2;
+			const dx = x - center;
+			const dy = y - center;
+
+			// Use Manhattan distance as primary sort key for more predictable ordering
+			const manhattanDistance = Math.abs( dx ) + Math.abs( dy );
+
+			// Use Euclidean distance as secondary sort key for smooth transitions
+			const euclideanDistance = Math.sqrt( dx * dx + dy * dy );
+
+			// Calculate angle with better precision for spiral ordering
+			let angle = Math.atan2( dy, dx );
+			// Normalize angle to 0-2π range
+			if ( angle < 0 ) angle += 2 * Math.PI;
+
+			// Add small offset based on position to ensure deterministic ordering
+			const positionOffset = ( x + y * tiles ) * 0.001;
 
 			tilePositions.push( {
 				index: i,
 				x,
 				y,
-				distance: distanceFromCenter,
-				angle: angle
+				manhattanDistance,
+				euclideanDistance,
+				angle,
+				positionOffset
 			} );
 
 		}
 
-		// Sort by distance from center, then by angle for spiral effect
+		// Improved sorting: Manhattan distance first, then Euclidean, then angle
 		tilePositions.sort( ( a, b ) => {
 
-			const distanceDiff = a.distance - b.distance;
-			if ( Math.abs( distanceDiff ) < 0.01 ) {
+			// Primary: Manhattan distance (creates more predictable rings)
+			const manhattanDiff = a.manhattanDistance - b.manhattanDistance;
+			if ( Math.abs( manhattanDiff ) > 0.01 ) {
 
-				// Within same distance ring, sort by angle for spiral
-				return a.angle - b.angle;
+				return manhattanDiff;
 
 			}
 
-			return distanceDiff;
+			// Secondary: Euclidean distance (smooth transitions within rings)
+			const euclideanDiff = a.euclideanDistance - b.euclideanDistance;
+			if ( Math.abs( euclideanDiff ) > 0.01 ) {
+
+				return euclideanDiff;
+
+			}
+
+			// Tertiary: Angle for spiral effect within same distance
+			const angleDiff = a.angle - b.angle;
+			if ( Math.abs( angleDiff ) > 0.01 ) {
+
+				return angleDiff;
+
+			}
+
+			// Final: Position offset for deterministic ordering
+			return a.positionOffset - b.positionOffset;
 
 		} );
 
@@ -276,6 +324,28 @@ export class TileRenderingManager {
      * @param {number} newTileCount - New tile count per row/column
      */
 	setTileCount( newTileCount ) {
+
+		// Validate tile count and provide warnings
+		if ( newTileCount < 1 ) {
+
+			console.warn( 'TileRenderingManager: Tile count must be at least 1, clamping to 1' );
+			newTileCount = 1;
+
+		}
+
+		if ( newTileCount > 10 ) {
+
+			console.warn( 'TileRenderingManager: Tile count > 10 may cause performance issues' );
+
+		}
+
+		if ( newTileCount > 6 ) {
+
+			const totalTiles = newTileCount * newTileCount;
+			console.warn( `TileRenderingManager: ${newTileCount}x${newTileCount} = ${totalTiles} tiles may impact performance and memory usage` );
+
+		}
+
 
 		this.tiles = newTileCount;
 		this.totalTilesCache = newTileCount * newTileCount;

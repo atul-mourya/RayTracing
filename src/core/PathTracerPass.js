@@ -505,7 +505,17 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		uniforms.frame.value ++;
+		// Only increment frame counter if not at completion threshold
+		if ( uniforms.frame.value < this.completionThreshold ) {
+
+			uniforms.frame.value ++;
+
+		} else if ( uniforms.frame.value > this.completionThreshold ) {
+
+			// Debug log if frame counter somehow exceeded threshold
+			console.warn( `PathTracerPass: Frame counter (${uniforms.frame.value}) exceeded completion threshold (${this.completionThreshold})` );
+
+		}
 
 		// Conditional target swap
 		if ( tileInfo.shouldSwapTargets ) {
