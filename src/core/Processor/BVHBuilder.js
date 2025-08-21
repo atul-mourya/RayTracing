@@ -184,12 +184,13 @@ class TreeletOptimizer {
 
 		this.traversalCost = traversalCost;
 		this.intersectionCost = intersectionCost;
-		this.treeletSize = 9; // Optimized: Increased from 7 to 9 for better optimization space
-		this.minImprovement = 0.005; // Optimized: Lower threshold to capture more improvements
-		this.maxTreeletDepth = 5; // Optimized: Increased depth for better treelet coverage
+		this.treeletSize = 7; // Safe: Reduced back to 7 to prevent memory explosion
+		this.minImprovement = 0.01; // Safe: Higher threshold to reduce computation
+		this.maxTreeletDepth = 3; // Safe: Reduced depth to prevent deep recursion
 
-		// Pre-computed topology cache for efficiency
+		// Memory-controlled topology cache
 		this.topologyCache = new Map();
+		this.maxTopologyEntries = 1000; // Limit cache size to prevent memory issues
 		this.precomputeTopologies();
 
 		// Statistics
@@ -204,53 +205,113 @@ class TreeletOptimizer {
 	}
 
 	// Pre-compute all possible binary tree topologies for given leaf counts
+	// With safety limits to prevent memory explosion
 	precomputeTopologies() {
 
 		for ( let leafCount = 3; leafCount <= this.treeletSize; leafCount ++ ) {
 
-			this.topologyCache.set( leafCount, this.generateAllTopologies( leafCount ) );
+			try {
 
-		}
+				// Check cache size before adding more entries
+				if ( this.topologyCache.size > this.maxTopologyEntries ) {
 
-	}
-
-	// Generate all possible binary tree topologies using Catalan numbers
-	generateAllTopologies( leafCount ) {
-
-		if ( leafCount <= 2 ) return [ leafCount === 1 ? [ 0 ] : [ 0, 1 ] ];
-
-		const topologies = [];
-
-		// Use recursive enumeration based on left/right subtree partitioning
-		for ( let leftCount = 1; leftCount < leafCount; leftCount ++ ) {
-
-			const rightCount = leafCount - leftCount;
-			const leftTopologies = this.topologyCache.get( leftCount ) || this.generateAllTopologies( leftCount );
-			const rightTopologies = this.topologyCache.get( rightCount ) || this.generateAllTopologies( rightCount );
-
-			// Combine left and right topologies
-			for ( const leftTopo of leftTopologies ) {
-
-				for ( const rightTopo of rightTopologies ) {
-
-					// Offset right topology indices
-					const offsetRightTopo = rightTopo.map( idx => idx + leftCount );
-					topologies.push( [ ...leftTopo, ...offsetRightTopo ] );
+					console.warn( `TreeletOptimizer: Topology cache limit reached (${this.maxTopologyEntries}). Skipping larger treelets.` );
+					break;
 
 				}
+
+				const topologies = this.generateAllTopologies( leafCount );
+				
+				// Safety check: don't cache if too many topologies
+				if ( topologies.length > 10000 ) {
+
+					console.warn( `TreeletOptimizer: Too many topologies for leafCount ${leafCount} (${topologies.length}). Skipping.` );
+					continue;
+
+				}
+				
+				this.topologyCache.set( leafCount, topologies );
+
+			} catch ( error ) {
+
+				console.error( `TreeletOptimizer: Failed to precompute topologies for leafCount ${leafCount}:`, error );
+				break;
 
 			}
 
 		}
 
-		return topologies;
+	}
+
+	// Generate all possible binary tree topologies using iterative approach
+	// to prevent stack overflow for large treelet sizes
+	generateAllTopologies( leafCount ) {
+
+		if ( leafCount <= 2 ) return [ leafCount === 1 ? [ 0 ] : [ 0, 1 ] ];
+
+		// Use iterative dynamic programming approach instead of recursion
+		const dp = new Map();
+		dp.set( 1, [[ 0 ]] );
+		dp.set( 2, [[ 0, 1 ]] );
+
+		// Build up solutions iteratively
+		for ( let n = 3; n <= leafCount; n ++ ) {
+
+			const topologies = [];
+			const maxIterations = Math.min( n - 1, 50 ); // Safety limit on iterations
+
+			for ( let leftCount = 1; leftCount < n && leftCount <= maxIterations; leftCount ++ ) {
+
+				const rightCount = n - leftCount;
+				
+				// Safety check to prevent excessive memory usage
+				if ( rightCount > 50 ) continue;
+				
+				const leftTopologies = dp.get( leftCount ) || [];
+				const rightTopologies = dp.get( rightCount ) || [];
+
+				// Limit the number of combinations to prevent memory explosion
+				const maxCombinations = 1000;
+				let combinationCount = 0;
+
+				for ( const leftTopo of leftTopologies ) {
+
+					for ( const rightTopo of rightTopologies ) {
+
+						if ( combinationCount >= maxCombinations ) {
+
+							console.warn( `TreeletOptimizer: Reached max combinations limit for leafCount ${n}` );
+							break;
+
+						}
+
+						// Offset right topology indices
+						const offsetRightTopo = rightTopo.map( idx => idx + leftCount );
+						topologies.push( [ ...leftTopo, ...offsetRightTopo ] );
+						combinationCount ++;
+
+					}
+
+					if ( combinationCount >= maxCombinations ) break;
+
+				}
+
+			}
+
+			dp.set( n, topologies );
+
+		}
+
+		return dp.get( leafCount ) || [];
 
 	}
 
-	// Main optimization entry point
+	// Main optimization entry point with safety limits
 	optimizeBVH( bvhRoot, progressCallback = null ) {
 
 		const startTime = performance.now();
+		const maxOptimizationTime = 30000; // 30 second timeout to prevent browser freeze
+		
 		this.stats = {
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
@@ -259,19 +320,37 @@ class TreeletOptimizer {
 			optimizationTime: 0
 		};
 
-		// Identify and optimize treelets
+		// Identify and optimize treelets with safety limits
 		const treeletRoots = this.identifyTreeletRoots( bvhRoot );
-		const totalTreelets = treeletRoots.length;
+		const totalTreelets = Math.min( treeletRoots.length, 5000 ); // Limit max treelets to prevent excessive computation
 
-		console.log( `Found ${totalTreelets} treelets for optimization` );
+		console.log( `Found ${treeletRoots.length} treelets, processing first ${totalTreelets} for optimization` );
 
-		for ( let i = 0; i < treeletRoots.length; i ++ ) {
+		for ( let i = 0; i < totalTreelets; i ++ ) {
+
+			// Check timeout to prevent browser freeze
+			if ( performance.now() - startTime > maxOptimizationTime ) {
+
+				console.warn( `TreeletOptimizer: Timeout reached after ${Math.round( performance.now() - startTime )}ms. Processed ${i}/${totalTreelets} treelets.` );
+				break;
+
+			}
 
 			const treelet = treeletRoots[ i ];
-			this.optimizeTreelet( treelet );
+			
+			try {
 
-			// Update progress
-			if ( progressCallback && i % 10 === 0 ) {
+				this.optimizeTreelet( treelet );
+
+			} catch ( error ) {
+
+				console.error( `TreeletOptimizer: Error optimizing treelet ${i}:`, error );
+				continue; // Skip problematic treelets instead of crashing
+
+			}
+
+			// Update progress every 50 treelets to avoid excessive callback overhead
+			if ( progressCallback && i % 50 === 0 ) {
 
 				const progress = Math.floor( ( i / totalTreelets ) * 100 );
 				progressCallback( `Optimizing treelets: ${progress}%` );
@@ -300,24 +379,35 @@ class TreeletOptimizer {
 
 	}
 
-	// Recursive traversal to find optimal treelet boundaries
+	// Recursive traversal to find optimal treelet boundaries with safety limits
 	traverseForTreelets( node, treeletRoots, visited, depth ) {
 
-		if ( ! node || visited.has( node ) || node.triangleCount > 0 ) {
+		// Safety checks to prevent infinite recursion and memory issues
+		if ( ! node || visited.has( node ) || node.triangleCount > 0 || depth > 10 ) {
 
-			return 0; // Skip leaves and already processed nodes
+			return 0; // Skip leaves, already processed nodes, and deep recursion
 
 		}
+
+		// Add current node to visited set immediately to prevent cycles
+		visited.add( node );
 
 		const leftLeafCount = this.countLeafNodes( node.leftChild );
 		const rightLeafCount = this.countLeafNodes( node.rightChild );
 		const totalLeafCount = leftLeafCount + rightLeafCount;
 
-		// Optimized: More aggressive treelet selection for better ray performance
-		// Check if this makes a good treelet root with enhanced criteria
+		// Safety check: skip nodes with excessive leaf counts
+		if ( totalLeafCount > this.treeletSize * 2 ) {
+
+			return totalLeafCount;
+
+		}
+
+		// More conservative treelet selection criteria to prevent problematic cases
 		const isGoodTreeletRoot = totalLeafCount >= 3 &&
 			totalLeafCount <= this.treeletSize &&
 			depth <= this.maxTreeletDepth &&
+			leftLeafCount > 0 && rightLeafCount > 0 && // Ensure balanced
 			this.evaluateTreeletQuality( node, totalLeafCount );
 
 		if ( isGoodTreeletRoot ) {
@@ -330,13 +420,13 @@ class TreeletOptimizer {
 
 		// Continue traversing children
 		let leafCount = 0;
-		if ( node.leftChild ) {
+		if ( node.leftChild && ! visited.has( node.leftChild ) ) {
 
 			leafCount += this.traverseForTreelets( node.leftChild, treeletRoots, visited, depth + 1 );
 
 		}
 
-		if ( node.rightChild ) {
+		if ( node.rightChild && ! visited.has( node.rightChild ) ) {
 
 			leafCount += this.traverseForTreelets( node.rightChild, treeletRoots, visited, depth + 1 );
 
@@ -369,22 +459,25 @@ class TreeletOptimizer {
 
 	}
 
-	// Count leaf nodes in a subtree
-	countLeafNodes( node ) {
+	// Count leaf nodes in a subtree with safety limits
+	countLeafNodes( node, depth = 0 ) {
 
-		if ( ! node ) return 0;
+		if ( ! node || depth > 20 ) return 0; // Prevent deep recursion
 		if ( node.triangleCount > 0 ) return 1; // Leaf node
-		return this.countLeafNodes( node.leftChild ) + this.countLeafNodes( node.rightChild );
+		
+		return this.countLeafNodes( node.leftChild, depth + 1 ) +
+		       this.countLeafNodes( node.rightChild, depth + 1 );
 
 	}
 
-	// Mark all nodes in a subtree as visited
-	markSubtreeVisited( node, visited ) {
+	// Mark all nodes in a subtree as visited with safety limits
+	markSubtreeVisited( node, visited, depth = 0 ) {
 
-		if ( ! node || visited.has( node ) ) return;
+		if ( ! node || visited.has( node ) || depth > 20 ) return; // Prevent cycles and deep recursion
+		
 		visited.add( node );
-		this.markSubtreeVisited( node.leftChild, visited );
-		this.markSubtreeVisited( node.rightChild, visited );
+		this.markSubtreeVisited( node.leftChild, visited, depth + 1 );
+		this.markSubtreeVisited( node.rightChild, visited, depth + 1 );
 
 	}
 
@@ -649,12 +742,12 @@ export default class BVHBuilder {
 			averageSAHImprovement: 0
 		};
 
-		// Treelet optimization configuration - tuned for better ray traversal performance
+		// Treelet optimization configuration - conservative settings to prevent crashes
 		this.enableTreeletOptimization = true; // Enable by default for better ray performance
-		this.treeletSize = 9; // Optimized: Increased from 7 to 9 for better optimization coverage
-		this.treeletOptimizationPasses = 2; // Optimized: Multiple passes for better convergence
-		this.treeletMinImprovement = 0.005; // Optimized: Lower threshold to capture more improvements
-		this.maxTreeletDepth = 5; // Optimized: Increased depth for better treelet identification
+		this.treeletSize = 7; // Conservative: Reduced from 9 to 7 to prevent memory issues
+		this.treeletOptimizationPasses = 1; // Conservative: Single pass to prevent excessive computation
+		this.treeletMinImprovement = 0.01; // Conservative: Higher threshold to reduce computation load
+		this.maxTreeletDepth = 3; // Conservative: Reduced depth to prevent deep recursion
 
 		// Pre-allocate maximum bin arrays to avoid reallocations
 		this.initializeBinArrays();
@@ -758,12 +851,12 @@ export default class BVHBuilder {
 
 	}
 
-	// Configuration for treelet optimization
+	// Configuration for treelet optimization with enhanced safety
 	setTreeletConfig( config ) {
 
 		if ( config.enabled !== undefined ) this.enableTreeletOptimization = config.enabled;
-		if ( config.size !== undefined ) this.treeletSize = Math.max( 3, Math.min( 15, config.size ) );
-		if ( config.passes !== undefined ) this.treeletOptimizationPasses = Math.max( 1, config.passes );
+		if ( config.size !== undefined ) this.treeletSize = Math.max( 3, Math.min( 12, config.size ) ); // Cap at 12 for safety
+		if ( config.passes !== undefined ) this.treeletOptimizationPasses = Math.max( 1, Math.min( 3, config.passes ) ); // Cap at 3 passes
 		if ( config.minImprovement !== undefined ) this.treeletMinImprovement = Math.max( 0.001, config.minImprovement );
 
 		console.log( 'Treelet optimization config updated:', {
@@ -772,6 +865,14 @@ export default class BVHBuilder {
 			passes: this.treeletOptimizationPasses,
 			minImprovement: this.treeletMinImprovement
 		} );
+
+	}
+
+	// Method to safely disable treelet optimization
+	disableTreeletOptimization() {
+
+		this.enableTreeletOptimization = false;
+		console.log( 'Treelet optimization disabled for safety' );
 
 	}
 
@@ -1111,8 +1212,8 @@ export default class BVHBuilder {
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
 
-		// Apply treelet optimization if enabled - disabled for low-poly models to prevent crashes
-		if ( this.enableTreeletOptimization && this.totalTriangles > 500 ) {
+		// Apply treelet optimization if enabled - with enhanced safety checks
+		if ( this.enableTreeletOptimization && this.totalTriangles > 1000 ) { // Increased threshold from 500 to 1000
 
 			const optimizer = new TreeletOptimizer( this.traversalCost, this.intersectionCost );
 			optimizer.setTreeletSize( this.treeletSize );
@@ -1121,7 +1222,7 @@ export default class BVHBuilder {
 			console.log( 'Starting treelet optimization...' );
 			const optimizationStartTime = performance.now();
 
-			// Run optimization passes with adaptive convergence
+			// Run optimization passes with adaptive convergence and timeout protection
 			for ( let pass = 0; pass < this.treeletOptimizationPasses; pass ++ ) {
 
 				const passCallback = progressCallback ? ( status ) => {
@@ -1131,15 +1232,27 @@ export default class BVHBuilder {
 				} : null;
 
 				const beforeStats = optimizer.getStatistics();
-				optimizer.optimizeBVH( root, passCallback );
+				
+				try {
+
+					optimizer.optimizeBVH( root, passCallback );
+
+				} catch ( error ) {
+
+					console.error( `TreeletOptimizer: Error in pass ${pass + 1}:`, error );
+					break; // Stop optimization on error instead of crashing
+
+				}
+				
 				const afterStats = optimizer.getStatistics();
 
 				const currentPassImprovements = afterStats.treeletsImproved - beforeStats.treeletsImproved;
 
-				// Optimized: Early termination if no improvements in current pass
-				if ( currentPassImprovements === 0 && pass > 0 ) {
+				// Early termination if no improvements in current pass or if taking too long
+				const passTime = performance.now() - optimizationStartTime;
+				if ( ( currentPassImprovements === 0 && pass > 0 ) || passTime > 15000 ) {
 
-					console.log( `Treelet optimization converged early after ${pass + 1} passes (no improvements in pass ${pass + 1})` );
+					console.log( `Treelet optimization stopped after ${pass + 1} passes (improvements: ${currentPassImprovements}, time: ${Math.round( passTime )}ms)` );
 					break;
 
 				}
@@ -1153,9 +1266,9 @@ export default class BVHBuilder {
 			this.splitStats.treeletsImproved = optimizationStats.treeletsImproved;
 			this.splitStats.averageSAHImprovement = optimizationStats.averageSAHImprovement;
 
-		} else if ( this.enableTreeletOptimization && this.totalTriangles <= 500 ) {
+		} else if ( this.enableTreeletOptimization && this.totalTriangles <= 1000 ) {
 
-			console.log( `Skipping treelet optimization for low-poly model (${this.totalTriangles} triangles < 500 threshold)` );
+			console.log( `Skipping treelet optimization for model with ${this.totalTriangles} triangles (below 1000 triangle threshold for safety)` );
 
 		}
 
