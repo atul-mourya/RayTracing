@@ -1111,8 +1111,8 @@ export default class BVHBuilder {
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
 
-		// Apply treelet optimization if enabled
-		if ( this.enableTreeletOptimization && this.totalTriangles > 100 ) {
+		// Apply treelet optimization if enabled - disabled for low-poly models to prevent crashes
+		if ( this.enableTreeletOptimization && this.totalTriangles > 500 ) {
 
 			const optimizer = new TreeletOptimizer( this.traversalCost, this.intersectionCost );
 			optimizer.setTreeletSize( this.treeletSize );
@@ -1152,6 +1152,10 @@ export default class BVHBuilder {
 			this.splitStats.treeletsProcessed = optimizationStats.treeletsProcessed;
 			this.splitStats.treeletsImproved = optimizationStats.treeletsImproved;
 			this.splitStats.averageSAHImprovement = optimizationStats.averageSAHImprovement;
+
+		} else if ( this.enableTreeletOptimization && this.totalTriangles <= 500 ) {
+
+			console.log( `Skipping treelet optimization for low-poly model (${this.totalTriangles} triangles < 500 threshold)` );
 
 		}
 

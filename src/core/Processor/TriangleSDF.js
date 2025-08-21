@@ -289,6 +289,20 @@ export default class TriangleSDF {
 
 		try {
 
+			// Dynamically disable treelet optimization for low-poly models
+			const originalTreeletEnabled = this.config.enableTreeletOptimization;
+			if ( this.triangleCount <= 500 && originalTreeletEnabled ) {
+
+				this._log( `Disabling treelet optimization for low-poly model (${this.triangleCount} triangles <= 500)` );
+				this.bvhBuilder.setTreeletConfig( {
+					enabled: false,
+					size: this.config.treeletSize,
+					passes: this.config.treeletOptimizationPasses,
+					minImprovement: this.config.treeletMinImprovement
+				} );
+
+			}
+
 			// Define progress callback
 			const progressCallback = ( progress ) => {
 
@@ -307,6 +321,17 @@ export default class TriangleSDF {
 				this.config.bvhDepth,
 				progressCallback
 			);
+
+			if ( this.triangleCount <= 500 && originalTreeletEnabled ) {
+
+				this.bvhBuilder.setTreeletConfig( {
+					enabled: originalTreeletEnabled,
+					size: this.config.treeletSize,
+					passes: this.config.treeletOptimizationPasses,
+					minImprovement: this.config.treeletMinImprovement
+				} );
+
+			}
 
 			const duration = performance.now() - startTime;
 			this._log( `BVH building complete (${duration.toFixed( 2 )}ms)` );
