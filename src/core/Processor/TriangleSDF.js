@@ -600,7 +600,7 @@ export default class TriangleSDF {
 	_disposeMaterialTextures() {
 
 		const materialTextureProps = [
-			'materialTexture', 'albedoTextures', 'normalTextures', 
+			'materialTexture', 'albedoTextures', 'normalTextures',
 			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures'
 		];
 

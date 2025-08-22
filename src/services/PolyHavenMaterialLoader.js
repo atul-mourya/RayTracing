@@ -323,7 +323,7 @@ export class PolyHavenMaterialLoader {
 		} catch ( error ) {
 
 			console.error( 'Error updating path tracer material:', error );
-			
+
 			// Try to trigger a UI refresh even if path tracer update failed
 			try {
 

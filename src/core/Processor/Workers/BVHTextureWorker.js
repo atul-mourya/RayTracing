@@ -3,7 +3,7 @@ self.onmessage = function ( e ) {
 	try {
 
 		const { nodes, width, height } = e.data;
-		
+
 		// Calculate texture data
 		const dataInEachPixel = 4; // RGBA components
 		const vec4PerNode = 3; // Each BVH node uses 3 vec4s

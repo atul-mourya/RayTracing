@@ -38,7 +38,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
 	const appMode = useStore( useCallback( state => state.appMode, [] ) );
-	
+
 	// Get current resolution from pathtracer store
 	const currentResolution = usePathTracerStore( useCallback( state => state.resolution, [] ) );
 

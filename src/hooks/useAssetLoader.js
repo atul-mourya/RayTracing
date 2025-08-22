@@ -52,7 +52,7 @@ export const useAssetLoader = () => {
 		try {
 
 			const result = await AssetLoaderService.loadExampleModel( modelIndex, MODEL_FILES );
-			
+
 			toast( {
 				title: "Model Loaded Successfully",
 				description: result.modelName,

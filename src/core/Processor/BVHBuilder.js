@@ -221,7 +221,7 @@ class TreeletOptimizer {
 				}
 
 				const topologies = this.generateAllTopologies( leafCount );
-				
+
 				// Safety check: don't cache if too many topologies
 				if ( topologies.length > 10000 ) {
 
@@ -229,7 +229,7 @@ class TreeletOptimizer {
 					continue;
 
 				}
-				
+
 				this.topologyCache.set( leafCount, topologies );
 
 			} catch ( error ) {
@@ -263,10 +263,10 @@ class TreeletOptimizer {
 			for ( let leftCount = 1; leftCount < n && leftCount <= maxIterations; leftCount ++ ) {
 
 				const rightCount = n - leftCount;
-				
+
 				// Safety check to prevent excessive memory usage
 				if ( rightCount > 50 ) continue;
-				
+
 				const leftTopologies = dp.get( leftCount ) || [];
 				const rightTopologies = dp.get( rightCount ) || [];
 
@@ -311,7 +311,7 @@ class TreeletOptimizer {
 
 		const startTime = performance.now();
 		const maxOptimizationTime = 30000; // 30 second timeout to prevent browser freeze
-		
+
 		this.stats = {
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
@@ -337,7 +337,7 @@ class TreeletOptimizer {
 			}
 
 			const treelet = treeletRoots[ i ];
-			
+
 			try {
 
 				this.optimizeTreelet( treelet );
@@ -464,7 +464,7 @@ class TreeletOptimizer {
 
 		if ( ! node || depth > 20 ) return 0; // Prevent deep recursion
 		if ( node.triangleCount > 0 ) return 1; // Leaf node
-		
+
 		return this.countLeafNodes( node.leftChild, depth + 1 ) +
 		       this.countLeafNodes( node.rightChild, depth + 1 );
 
@@ -474,7 +474,7 @@ class TreeletOptimizer {
 	markSubtreeVisited( node, visited, depth = 0 ) {
 
 		if ( ! node || visited.has( node ) || depth > 20 ) return; // Prevent cycles and deep recursion
-		
+
 		visited.add( node );
 		this.markSubtreeVisited( node.leftChild, visited, depth + 1 );
 		this.markSubtreeVisited( node.rightChild, visited, depth + 1 );
@@ -1232,7 +1232,7 @@ export default class BVHBuilder {
 				} : null;
 
 				const beforeStats = optimizer.getStatistics();
-				
+
 				try {
 
 					optimizer.optimizeBVH( root, passCallback );
@@ -1243,7 +1243,7 @@ export default class BVHBuilder {
 					break; // Stop optimization on error instead of crashing
 
 				}
-				
+
 				const afterStats = optimizer.getStatistics();
 
 				const currentPassImprovements = afterStats.treeletsImproved - beforeStats.treeletsImproved;
