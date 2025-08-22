@@ -849,7 +849,7 @@ const useLightStore = create( set => ( {
 } ) );
 
 // Camera store
-const useCameraStore = create( ( set, get ) => ( {
+const useCameraStore = create( ( set ) => ( {
 	...DEFAULT_STATE,
 	activePreset: "product",
 	cameraNames: [],

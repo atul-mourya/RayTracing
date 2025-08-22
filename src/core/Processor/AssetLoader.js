@@ -454,9 +454,14 @@ class AssetLoader extends EventDispatcher {
 					result = await this.loadPLYFromArrayBuffer( fileContent.buffer, filePath );
 					break;
 				case 'dae':
-					const daeContent = strFromU8( fileContent );
-					const daeFile = new File( [ new Blob( [ daeContent ] ) ], filePath );
-					result = await this.loadColladaFromFile( daeFile, filePath );
+					{
+
+						const daeContent = strFromU8( fileContent );
+						const daeFile = new File( [ new Blob( [ daeContent ] ) ], filePath );
+						result = await this.loadColladaFromFile( daeFile, filePath );
+
+					}
+
 					break;
 				case '3mf':
 					result = await this.load3MFFromArrayBuffer( fileContent.buffer, filePath );
