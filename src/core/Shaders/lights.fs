@@ -14,6 +14,18 @@ uniform float areaLights[ MAX_AREA_LIGHTS * 13 ];
 uniform float areaLights[ 1 ]; // Dummy array to avoid compilation error
 #endif
 
+#if MAX_POINT_LIGHTS > 0
+uniform float pointLights[ MAX_POINT_LIGHTS * 7 ]; // position(3) + color(3) + intensity(1)
+#else
+uniform float pointLights[ 1 ]; // Dummy array to avoid compilation error
+#endif
+
+#if MAX_SPOT_LIGHTS > 0
+uniform float spotLights[ MAX_SPOT_LIGHTS * 11 ]; // position(3) + direction(3) + color(3) + intensity(1) + angle(1)
+#else
+uniform float spotLights[ 1 ]; // Dummy array to avoid compilation error
+#endif
+
 uniform float globalIlluminationIntensity;
 
 struct DirectionalLight {
@@ -31,6 +43,20 @@ struct AreaLight {
     float intensity;
     vec3 normal;
     float area;
+};
+
+struct PointLight {
+    vec3 position;
+    vec3 color;
+    float intensity;
+};
+
+struct SpotLight {
+    vec3 position;
+    vec3 direction;
+    vec3 color;
+    float intensity;
+    float angle; // cone half-angle in radians
 };
 
 struct IndirectLightingResult {
@@ -64,6 +90,26 @@ AreaLight getAreaLight( int index ) {
     light.intensity = areaLights[ baseIndex + 12 ];
     light.normal = normalize( cross( light.u, light.v ) );
     light.area = length( cross( light.u, light.v ) );
+    return light;
+}
+
+PointLight getPointLight( int index ) {
+    int baseIndex = index * 7;
+    PointLight light;
+    light.position = vec3( pointLights[ baseIndex ], pointLights[ baseIndex + 1 ], pointLights[ baseIndex + 2 ] );
+    light.color = vec3( pointLights[ baseIndex + 3 ], pointLights[ baseIndex + 4 ], pointLights[ baseIndex + 5 ] );
+    light.intensity = pointLights[ baseIndex + 6 ];
+    return light;
+}
+
+SpotLight getSpotLight( int index ) {
+    int baseIndex = index * 11;
+    SpotLight light;
+    light.position = vec3( spotLights[ baseIndex ], spotLights[ baseIndex + 1 ], spotLights[ baseIndex + 2 ] );
+    light.direction = normalize( vec3( spotLights[ baseIndex + 3 ], spotLights[ baseIndex + 4 ], spotLights[ baseIndex + 5 ] ) );
+    light.color = vec3( spotLights[ baseIndex + 6 ], spotLights[ baseIndex + 7 ], spotLights[ baseIndex + 8 ] );
+    light.intensity = spotLights[ baseIndex + 9 ];
+    light.angle = spotLights[ baseIndex + 10 ];
     return light;
 }
 
@@ -508,6 +554,114 @@ vec3 calculateAreaLightContribution(
 }
 
 // -----------------------------------------------------------------------------
+// Point Light Contribution Calculation
+// -----------------------------------------------------------------------------
+vec3 calculatePointLightContribution(
+    PointLight light,
+    vec3 hitPoint,
+    vec3 normal,
+    vec3 viewDir,
+    RayTracingMaterial material,
+    MaterialCache matCache,
+    DirectionSample brdfSample,
+    int bounceIndex,
+    inout uint rngState,
+    inout ivec2 stats
+) {
+    // Calculate vector from surface to light
+    vec3 toLight = light.position - hitPoint;
+    float distance = length(toLight);
+    
+    // Early exit for extremely far lights (performance optimization)
+    if (distance > 1000.0) return vec3(0.0);
+    
+    vec3 lightDir = toLight / distance;
+    
+    // Check if light is on same side of surface as normal
+    float NdotL = dot(normal, lightDir);
+    if (NdotL <= 0.0) return vec3(0.0);
+    
+    // Calculate attenuation using inverse square law
+    float attenuation = 1.0 / (distance * distance);
+    
+    // Apply intensity and color
+    vec3 lightRadiance = light.color * light.intensity * attenuation;
+    
+    // Calculate shadow ray offset
+    vec3 rayOffset = calculateRayOffset(hitPoint, normal, material);
+    vec3 rayOrigin = hitPoint + rayOffset;
+    
+    // Trace shadow ray
+    float visibility = traceShadowRay(rayOrigin, lightDir, distance - 0.001, rngState, stats);
+    if (visibility <= 0.0) return vec3(0.0);
+    
+    // Calculate BRDF contribution
+    vec3 brdfValue = evaluateMaterialResponse(viewDir, lightDir, normal, material);
+    
+    // Final contribution
+    return brdfValue * lightRadiance * NdotL * visibility;
+}
+
+// -----------------------------------------------------------------------------
+// Spot Light Contribution Calculation
+// -----------------------------------------------------------------------------
+vec3 calculateSpotLightContribution(
+    SpotLight light,
+    vec3 hitPoint,
+    vec3 normal,
+    vec3 viewDir,
+    RayTracingMaterial material,
+    MaterialCache matCache,
+    DirectionSample brdfSample,
+    int bounceIndex,
+    inout uint rngState,
+    inout ivec2 stats
+) {
+    // Calculate vector from surface to light
+    vec3 toLight = light.position - hitPoint;
+    float distance = length(toLight);
+    
+    // Early exit for extremely far lights (performance optimization)
+    if (distance > 1000.0) return vec3(0.0);
+    
+    vec3 lightDir = toLight / distance;
+    
+    // Check if light is on same side of surface as normal
+    float NdotL = dot(normal, lightDir);
+    if (NdotL <= 0.0) return vec3(0.0);
+    
+    // Calculate spot light cone attenuation
+    float spotCosAngle = dot(-lightDir, light.direction);
+    float coneCosAngle = cos(light.angle);
+    
+    // Early exit if outside the cone
+    if (spotCosAngle < coneCosAngle) return vec3(0.0);
+    
+    // Smooth falloff at cone edge using smoothstep
+    float coneAttenuation = smoothstep(coneCosAngle, coneCosAngle + 0.1, spotCosAngle);
+    
+    // Calculate distance attenuation using inverse square law
+    float distanceAttenuation = 1.0 / (distance * distance);
+    
+    // Apply intensity, color, and both attenuations
+    vec3 lightRadiance = light.color * light.intensity * distanceAttenuation * coneAttenuation;
+    
+    // Calculate shadow ray offset
+    vec3 rayOffset = calculateRayOffset(hitPoint, normal, material);
+    vec3 rayOrigin = hitPoint + rayOffset;
+    
+    // Trace shadow ray
+    float visibility = traceShadowRay(rayOrigin, lightDir, distance - 0.001, rngState, stats);
+    if (visibility <= 0.0) return vec3(0.0);
+    
+    // Calculate BRDF contribution
+    vec3 brdfValue = evaluateMaterialResponse(viewDir, lightDir, normal, material);
+    
+    // Final contribution
+    return brdfValue * lightRadiance * NdotL * visibility;
+}
+
+// -----------------------------------------------------------------------------
 // MASTER LIGHTING FUNCTION
 // -----------------------------------------------------------------------------
 
@@ -614,6 +768,70 @@ vec3 calculateDirectLightingMIS(
         totalLighting += calculateAreaLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, sampleIndex, bounceIndex, rngState, stats );
     }
     #endif // MAX_AREA_LIGHTS > 0
+
+    // ----------------------
+    // Point lights processing
+    // ----------------------
+    #if MAX_POINT_LIGHTS > 0
+    // For deeper bounces, limit point light count
+    int maxPointLightCount = MAX_POINT_LIGHTS;
+    if( bounceIndex > 2 ) {
+        maxPointLightCount = min( 2, MAX_POINT_LIGHTS );
+    } else if( bounceIndex > 1 ) {
+        maxPointLightCount = min( 4, MAX_POINT_LIGHTS );
+    }
+
+    for( int i = 0; i < maxPointLightCount; i ++ ) {
+        if( i >= MAX_POINT_LIGHTS )
+            break;
+            
+        PointLight light = getPointLight( i );
+        if( light.intensity <= 0.0 )
+            continue;
+
+        // Quick distance check for early culling
+        vec3 toLight = light.position - hitInfo.hitPoint;
+        float distSq = dot( toLight, toLight );
+        
+        // Skip extremely distant or weak lights
+        if( distSq > ( light.intensity * 10000.0 ) || distSq < 0.001 )
+            continue;
+
+        totalLighting += calculatePointLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, bounceIndex, rngState, stats );
+    }
+    #endif // MAX_POINT_LIGHTS > 0
+
+    // ----------------------
+    // Spot lights processing
+    // ----------------------
+    #if MAX_SPOT_LIGHTS > 0
+    // For deeper bounces, limit spot light count
+    int maxSpotLightCount = MAX_SPOT_LIGHTS;
+    if( bounceIndex > 2 ) {
+        maxSpotLightCount = min( 2, MAX_SPOT_LIGHTS );
+    } else if( bounceIndex > 1 ) {
+        maxSpotLightCount = min( 4, MAX_SPOT_LIGHTS );
+    }
+
+    for( int i = 0; i < maxSpotLightCount; i ++ ) {
+        if( i >= MAX_SPOT_LIGHTS )
+            break;
+            
+        SpotLight light = getSpotLight( i );
+        if( light.intensity <= 0.0 )
+            continue;
+
+        // Quick distance check for early culling
+        vec3 toLight = light.position - hitInfo.hitPoint;
+        float distSq = dot( toLight, toLight );
+        
+        // Skip extremely distant or weak lights
+        if( distSq > ( light.intensity * 10000.0 ) || distSq < 0.001 )
+            continue;
+
+        totalLighting += calculateSpotLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, bounceIndex, rngState, stats );
+    }
+    #endif // MAX_SPOT_LIGHTS > 0
 
     return totalLighting;
 }

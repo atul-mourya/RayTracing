@@ -27,6 +27,12 @@ const LightsTab = () => {
 					light.angle = value[ 0 ] * ( Math.PI / 180 ); // Convert degrees to radians
 
 				}
+				else if ( property === 'angle' && light.type === 'SpotLight' ) {
+
+					// Store angle in radians for shader (already converted in the UI handler)
+					light.angle = value[ 0 ];
+
+				}
 
 				window.pathTracerApp.pathTracingPass.updateLights();
 				window.pathTracerApp.reset();
@@ -64,6 +70,8 @@ const LightsTab = () => {
 		switch ( type ) {
 
 			case 'DirectionalLight': return { min: 0, max: 5, step: 0.1 };
+			case 'PointLight': return { min: 0, max: 1000, step: 10 };
+			case 'SpotLight': return { min: 0, max: 1000, step: 10 };
 			case 'RectAreaLight': return { min: 0, max: 2000, step: 50 };
 			default: return { min: 0, max: 5, step: 0.1 };
 
@@ -82,8 +90,9 @@ const LightsTab = () => {
 				intensity: light.intensity,
 				color: `#${light.color.getHexString()}`,
 				position: [ light.position.x, light.position.y, light.position.z ],
-				// Add angle property for directional lights (convert from radians to degrees for UI)
-				angle: light.type === 'DirectionalLight' ? ( light.angle || 0 ) * ( 180 / Math.PI ) : 0
+				// Add angle property for directional and spot lights (convert from radians to degrees for UI)
+				angle: light.type === 'DirectionalLight' ? ( light.angle || 0 ) * ( 180 / Math.PI ) : 
+					   light.type === 'SpotLight' ? ( light.angle || Math.PI / 4 ) * ( 180 / Math.PI ) : 0
 			} ) );
 			setLights( sceneLights );
 
@@ -130,6 +139,19 @@ const LightsTab = () => {
 								step={0.1}
 								value={[ light.angle || 0 ]}
 								onValueChange={value => handleDirectionalLightAngleChange( index, value )}
+							/>
+						</div>
+					)}
+					{light.type === 'SpotLight' && (
+						<div className="flex items-center justify-between">
+							<Slider
+								label={`Cone Angle ${index + 1}`}
+								icon={CircleDot}
+								min={0}
+								max={90}
+								step={1}
+								value={[ (light.angle || Math.PI / 4) * (180 / Math.PI) ]}
+								onValueChange={value => handleLightChange( index, 'angle', [value[0] * (Math.PI / 180)] )}
 							/>
 						</div>
 					)}

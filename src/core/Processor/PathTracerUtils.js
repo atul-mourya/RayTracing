@@ -86,6 +86,8 @@ export class PathTracerUtils {
 				MAX_SPHERE_COUNT: 0,
 				MAX_DIRECTIONAL_LIGHTS: 0,
 				MAX_AREA_LIGHTS: 0,
+				MAX_POINT_LIGHTS: 0,
+				MAX_SPOT_LIGHTS: 0,
 				ENABLE_ACCUMULATION: '',
 				...defines
 			},

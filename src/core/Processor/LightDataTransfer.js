@@ -6,12 +6,16 @@ export class LightDataTransfer {
 
 		this.lightData = {
 			directional: [],
-			rectArea: []
+			rectArea: [],
+			point: [],
+			spot: []
 		};
 
 		// Cache for preprocessed lights
 		this.directionalLightCache = [];
 		this.areaLightCache = [];
+		this.pointLightCache = [];
+		this.spotLightCache = [];
 
 	}
 
@@ -19,8 +23,12 @@ export class LightDataTransfer {
 
 		this.lightData.directional = [];
 		this.lightData.rectArea = [];
+		this.lightData.point = [];
+		this.lightData.spot = [];
 		this.directionalLightCache = [];
 		this.areaLightCache = [];
+		this.pointLightCache = [];
+		this.spotLightCache = [];
 
 	}
 
@@ -35,6 +43,17 @@ export class LightDataTransfer {
 
 			const area = light.width * light.height;
 			importance *= Math.sqrt( area ); // Larger lights are more important
+
+		} else if ( type === 'point' ) {
+
+			// Point lights get additional importance based on range/distance falloff
+			importance *= Math.sqrt( light.distance || 100.0 ); // Consider light range
+
+		} else if ( type === 'spot' ) {
+
+			// Spot lights get additional importance based on cone angle and range
+			const coneMultiplier = Math.sin( light.angle || Math.PI / 4 ); // Wider cones are more important
+			importance *= Math.sqrt( light.distance || 100.0 ) * coneMultiplier;
 
 		}
 
@@ -104,6 +123,58 @@ export class LightDataTransfer {
 
 	}
 
+	addPointLight( light ) {
+
+		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
+
+		light.updateMatrixWorld();
+
+		const position = light.getWorldPosition( new Vector3() );
+
+		// Calculate importance for sorting
+		const importance = this.calculateLightImportance( light, 'point' );
+
+		// Store in cache with importance
+		this.pointLightCache.push( {
+			data: [
+				position.x, position.y, position.z, // position (3)
+				light.color.r, light.color.g, light.color.b, // color (3)
+				light.intensity // intensity (1)
+			],
+			importance: importance,
+			light: light
+		} );
+
+	}
+
+	addSpotLight( light ) {
+
+		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
+
+		light.updateMatrixWorld();
+
+		const position = light.getWorldPosition( new Vector3() );
+		const target = light.target ? light.target.getWorldPosition( new Vector3() ) : new Vector3( 0, 0, - 1 );
+		const direction = target.sub( position ).normalize();
+
+		// Calculate importance for sorting
+		const importance = this.calculateLightImportance( light, 'spot' );
+
+		// Store in cache with importance
+		this.spotLightCache.push( {
+			data: [
+				position.x, position.y, position.z, // position (3)
+				direction.x, direction.y, direction.z, // direction (3)
+				light.color.r, light.color.g, light.color.b, // color (3)
+				light.intensity, // intensity (1)
+				light.angle || Math.PI / 4 // cone half-angle in radians (1)
+			],
+			importance: importance,
+			light: light
+		} );
+
+	}
+
 	preprocessLights() {
 
 		// Sort directional lights by importance (highest first)
@@ -112,9 +183,17 @@ export class LightDataTransfer {
 		// Sort area lights by importance (highest first)
 		this.areaLightCache.sort( ( a, b ) => b.importance - a.importance );
 
+		// Sort point lights by importance (highest first)
+		this.pointLightCache.sort( ( a, b ) => b.importance - a.importance );
+
+		// Sort spot lights by importance (highest first)
+		this.spotLightCache.sort( ( a, b ) => b.importance - a.importance );
+
 		// Flatten sorted data arrays
 		this.lightData.directional = [];
 		this.lightData.rectArea = [];
+		this.lightData.point = [];
+		this.lightData.spot = [];
 
 		this.directionalLightCache.forEach( lightCache => {
 
@@ -128,9 +207,33 @@ export class LightDataTransfer {
 
 		} );
 
+		this.pointLightCache.forEach( lightCache => {
+
+			this.lightData.point.push( ...lightCache.data );
+
+		} );
+
+		this.spotLightCache.forEach( lightCache => {
+
+			this.lightData.spot.push( ...lightCache.data );
+
+		} );
+
 		if ( this.areaLightCache.length > 0 ) {
 
 			console.log( `Preprocessed ${this.areaLightCache.length} area lights by importance` );
+
+		}
+
+		if ( this.pointLightCache.length > 0 ) {
+
+			console.log( `Preprocessed ${this.pointLightCache.length} point lights by importance` );
+
+		}
+
+		if ( this.spotLightCache.length > 0 ) {
+
+			console.log( `Preprocessed ${this.spotLightCache.length} spot lights by importance` );
 
 		}
 
@@ -141,14 +244,20 @@ export class LightDataTransfer {
 		// Use size constants to calculate counts
 		const directionalCount = this.lightData.directional.length;
 		const areaCount = this.lightData.rectArea.length;
+		const pointCount = this.lightData.point.length;
+		const spotCount = this.lightData.spot.length;
 
 		// Update light counts in shader defines
 		material.defines.MAX_DIRECTIONAL_LIGHTS = directionalCount;
 		material.defines.MAX_AREA_LIGHTS = areaCount;
+		material.defines.MAX_POINT_LIGHTS = pointCount;
+		material.defines.MAX_SPOT_LIGHTS = spotCount;
 
 		// Update uniforms with type arrays
 		material.uniforms.directionalLights.value = new Float32Array( this.lightData.directional );
 		material.uniforms.areaLights.value = new Float32Array( this.lightData.rectArea );
+		material.uniforms.pointLights.value = new Float32Array( this.lightData.point );
+		material.uniforms.spotLights.value = new Float32Array( this.lightData.spot );
 
 		material.needsUpdate = true;
 
@@ -168,6 +277,14 @@ export class LightDataTransfer {
 			} else if ( object.isRectAreaLight ) {
 
 				this.addRectAreaLight( object );
+
+			} else if ( object.isPointLight ) {
+
+				this.addPointLight( object );
+
+			} else if ( object.isSpotLight ) {
+
+				this.addSpotLight( object );
 
 			}
 
