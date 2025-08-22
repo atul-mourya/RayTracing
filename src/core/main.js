@@ -14,7 +14,7 @@ import {
 	SphereGeometry,
 	MeshBasicMaterial,
 	Raycaster,
-	TextureLoader,
+	// TextureLoader,
 	RGBAFormat
 } from 'three';
 
@@ -37,7 +37,7 @@ import { TileHighlightPass } from './Passes/TileHighlightPass';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
 import { updateStats } from './Processor/utils';
 import { HDR_FILES, DEFAULT_STATE } from '../Constants';
-import radialTexture from '../../public/radial-gradient.png';
+// import radialTexture from '../../public/radial-gradient.png';
 import { useStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader';
 
@@ -353,7 +353,7 @@ class PathTracerApp extends EventDispatcher {
 
 	async setupFloorPlane() {
 
-		const texture = await new TextureLoader().loadAsync( radialTexture );
+		// const texture = await new TextureLoader().loadAsync( radialTexture );
 		this.floorPlane = new Mesh(
 			new CircleGeometry(),
 			new MeshPhysicalMaterial( {

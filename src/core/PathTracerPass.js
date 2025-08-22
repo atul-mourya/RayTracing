@@ -1,5 +1,5 @@
 import {
-	Vector2, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, GLSL3
+	Vector2, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter
 } from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
@@ -437,7 +437,7 @@ export class PathTracerPass extends Pass {
 
 	// ===== CORE RENDER METHOD =====
 
-	render( renderer, writeBuffer, readBuffer ) {
+	render( renderer, writeBuffer ) {
 
 		// Early exit conditions
 		if ( ! this.enabled || this.isComplete ||
@@ -777,7 +777,7 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	handleFullQuadASVGF( frameValue ) {
+	handleFullQuadASVGF() {
 
 		// Full quad mode - always enable temporal
 		this.asvgfPass.setTemporalEnabled && this.asvgfPass.setTemporalEnabled( true );
