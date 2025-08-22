@@ -1239,7 +1239,40 @@ const useMaterialStore = create( ( set, get ) => ( {
 	handleEmissiveIntensityChange: val => get().updateMaterialProperty( 'emissiveIntensity', val[ 0 ] ),
 	handleClearcoatChange: val => get().updateMaterialProperty( 'clearcoat', val[ 0 ] ),
 	handleClearcoatRoughnessChange: val => get().updateMaterialProperty( 'clearcoatRoughness', val[ 0 ] ),
-	handleOpacityChange: val => get().updateMaterialProperty( 'opacity', val[ 0 ] ),
+	handleOpacityChange: val => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+
+		// Update opacity property
+		const opacity = val[ 0 ];
+		obj.material.opacity = opacity;
+		get().updateMaterialProperty( 'opacity', opacity );
+
+		// Recalculate alphaMode if transparent is enabled
+		if ( obj.material.transparent ) {
+
+			let alphaMode = 0; // OPAQUE
+			if ( obj.material.alphaTest > 0.0 ) {
+
+				alphaMode = 1; // MASK
+
+			} else if ( opacity < 1.0 ) {
+
+				alphaMode = 2; // BLEND
+
+			} else if ( obj.material.map && obj.material.map.format === 1023 ) { // 1023 = RGBAFormat
+
+				alphaMode = 2; // BLEND
+
+			}
+
+			// Update alphaMode
+			get().updateMaterialProperty( 'alphaMode', alphaMode );
+
+		}
+
+	},
 	handleSideChange: val => get().updateMaterialProperty( 'side', val ),
 	handleEmissiveChange: val => {
 
@@ -1252,7 +1285,35 @@ const useMaterialStore = create( ( set, get ) => ( {
 		}
 
 	},
-	handleTransparentChange: val => get().updateMaterialProperty( 'transparent', val ? 1 : 0 ),
+	handleTransparentChange: val => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+
+		// Update transparent property
+		obj.material.transparent = val;
+		get().updateMaterialProperty( 'transparent', val ? 1 : 0 );
+
+		// Recalculate alphaMode based on new transparent state
+		let alphaMode = 0; // OPAQUE
+		if ( obj.material.alphaTest > 0.0 ) {
+
+			alphaMode = 1; // MASK
+
+		} else if ( val && obj.material.opacity < 1.0 ) {
+
+			alphaMode = 2; // BLEND
+
+		} else if ( obj.material.map && obj.material.map.format === 1023 && val ) { // 1023 = RGBAFormat
+
+			alphaMode = 2; // BLEND
+
+		}
+
+		// Update alphaMode
+		get().updateMaterialProperty( 'alphaMode', alphaMode );
+
+	},
 	handleAlphaTestChange: val => get().updateMaterialProperty( 'alphaTest', val[ 0 ] ),
 	handleSheenChange: val => get().updateMaterialProperty( 'sheen', val[ 0 ] ),
 	handleSheenRoughnessChange: val => get().updateMaterialProperty( 'sheenRoughness', val[ 0 ] ),

@@ -1047,6 +1047,7 @@ export class PathTracerPass extends Pass {
 			case 'side': 				data[ stride + 41 ] = value; break;
 			case 'transparent': 		data[ stride + 42 ] = value; break;
 			case 'alphaTest': 			data[ stride + 43 ] = value; break;
+			case 'alphaMode': 			data[ stride + 44 ] = value; break;
 			default:
 				console.warn( `Unknown material property: ${property}` );
 				return;

@@ -40,10 +40,10 @@ const MATERIAL_PROPERTIES = {
 		[ 'opacity', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Opacity' } ],
 		[ 'ior', { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'IOR' } ],
 		[ 'transmission', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Transmission' } ],
-		[ 'thickness', { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Transmission Thickness' } ],
 		[ 'attenuationColor', { type: 'color', default: '#ffffff', label: 'Attenuation Color' } ],
 		[ 'attenuationDistance', { type: 'number', default: 0, min: 0, max: 1000, step: 1, label: 'Attenuation Distance' } ],
 		[ 'dispersion', { type: 'slider', default: 0, min: 0, max: 10, step: 0.01, label: 'Dispersion' } ],
+		[ 'thickness', { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Thickness' } ],
 		[ 'alphaTest', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Alpha Test' } ],
 	],
 	other: [
