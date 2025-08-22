@@ -1326,4 +1326,73 @@ const useMaterialStore = create( ( set, get ) => ( {
 
 } ) );
 
-export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore };
+// Favorites store
+const useFavoritesStore = create( ( set, get ) => ( {
+	favorites: JSON.parse( localStorage.getItem( 'rayzee-favorites' ) || '{}' ),
+
+	addFavorite: ( catalogType, itemId ) => set( state => {
+
+		const newFavorites = {
+			...state.favorites,
+			[ catalogType ]: [ ...( state.favorites[ catalogType ] || [] ), itemId ]
+		};
+
+		localStorage.setItem( 'rayzee-favorites', JSON.stringify( newFavorites ) );
+		return { favorites: newFavorites };
+
+	} ),
+
+	removeFavorite: ( catalogType, itemId ) => set( state => {
+
+		const newFavorites = {
+			...state.favorites,
+			[ catalogType ]: ( state.favorites[ catalogType ] || [] ).filter( id => id !== itemId )
+		};
+
+		localStorage.setItem( 'rayzee-favorites', JSON.stringify( newFavorites ) );
+		return { favorites: newFavorites };
+
+	} ),
+
+	toggleFavorite: ( catalogType, itemId ) => {
+
+		const currentFavorites = get().favorites[ catalogType ] || [];
+		const isFavorite = currentFavorites.includes( itemId );
+
+		if ( isFavorite ) {
+
+			get().removeFavorite( catalogType, itemId );
+
+		} else {
+
+			get().addFavorite( catalogType, itemId );
+
+		}
+
+	},
+
+	isFavorite: ( catalogType, itemId ) => {
+
+		const favorites = get().favorites[ catalogType ] || [];
+		return favorites.includes( itemId );
+
+	},
+
+	getFavorites: ( catalogType ) => {
+
+		return get().favorites[ catalogType ] || [];
+
+	},
+
+	clearFavorites: ( catalogType ) => set( state => {
+
+		const newFavorites = { ...state.favorites };
+		delete newFavorites[ catalogType ];
+
+		localStorage.setItem( 'rayzee-favorites', JSON.stringify( newFavorites ) );
+		return { favorites: newFavorites };
+
+	} )
+} ) );
+
+export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore, useFavoritesStore };

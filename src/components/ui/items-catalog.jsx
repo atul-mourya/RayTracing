@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { InfoIcon, Search, Loader2, Filter, X, Clock, Trash2 } from 'lucide-react';
+import { InfoIcon, Search, Loader2, Filter, X, Clock, Trash2, Star } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -11,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useRecentSearches } from '@/hooks/useRecentSearches';
+import { useFavoritesStore } from '@/store';
 
 
 /** data []: Array of objects representing items to display in the catalog {
@@ -49,6 +49,9 @@ export const ItemsCatalog = ( {
 		clearRecentSearches,
 		hasRecentSearches
 	} = useRecentSearches( catalogType );
+
+	// Favorites hook
+	const { toggleFavorite, isFavorite } = useFavoritesStore();
 
 	// Refs for scroll functionality
 	const scrollAreaRef = useRef( null );
@@ -123,7 +126,7 @@ export const ItemsCatalog = ( {
 
 	}, [ data ] );
 
-	// Optimized filtering with pre-computed search index
+	// Optimized filtering with pre-computed search index and favorites sorting
 	const filteredItems = useMemo( () => {
 
 		let results = searchIndex;
@@ -153,9 +156,24 @@ export const ItemsCatalog = ( {
 
 		}
 
-		return results.map( ( { item } ) => item );
+		// Sort by favorites first, then by original order
+		const items = results.map( ( { item } ) => item );
 
-	}, [ searchIndex, debouncedSearchTerm, filterType, filterValue ] );
+		return items.sort( ( a, b ) => {
+
+			const aIsFavorite = isFavorite( catalogType, a.id || a.name );
+			const bIsFavorite = isFavorite( catalogType, b.id || b.name );
+
+			// Favorites come first
+			if ( aIsFavorite && ! bIsFavorite ) return - 1;
+			if ( ! aIsFavorite && bIsFavorite ) return 1;
+
+			// Maintain original order for items with same favorite status
+			return 0;
+
+		} );
+
+	}, [ searchIndex, debouncedSearchTerm, filterType, filterValue, catalogType, isFavorite ] );
 
 	const handleItemSelection = useCallback( ( name ) => {
 
@@ -243,6 +261,14 @@ export const ItemsCatalog = ( {
 		}
 
 	}, [ searchInput, addRecentSearch ] );
+
+	// Handle favorite toggle
+	const handleFavoriteToggle = useCallback( ( item, e ) => {
+
+		e.stopPropagation();
+		toggleFavorite( catalogType, item.id || item.name );
+
+	}, [ catalogType, toggleFavorite ] );
 
 	// Helper function to check if an item is selected
 	const isItemSelected = useCallback( ( item ) => {
@@ -519,7 +545,6 @@ export const ItemsCatalog = ( {
 						)}
 					</div>
 				)}
-				{/* <Separator /> */}
 				<ScrollArea className="flex-1" ref={scrollAreaRef}>
 					{isLoading ? (
 						<div className="flex items-center justify-center h-64">
@@ -558,21 +583,38 @@ export const ItemsCatalog = ( {
 
 												}}
 												className={cn(
-													"cursor-pointer transition-all hover:shadow-md",
+													"cursor-pointer transition-all hover:shadow-md rounded-md border-0",
 													isItemSelected( item )
-														? "ring-2 ring-primary"
+														? "ring-1 ring-primary bg-accent"
 														: "hover:bg-accent/50"
 												)}
 												onClick={() => handleItemSelection( item.name )}
 											>
-												<CardContent className="p-3">
-													<div className="relative aspect-square mb-2 rounded-md overflow-hidden">
+												<CardContent className="p-1">
+													<div className="relative aspect-square mb-1 overflow-hidden">
 														<img
 															src={item.preview}
 															alt={item.name}
-															className="w-full h-full object-cover transition-transform hover:scale-105"
+															className="w-full h-full object-cover transition-transform hover:scale-105 rounded-lg"
 															loading="lazy"
 														/>
+														{/* Favorite button */}
+														<Button
+															variant="secondary"
+															size="icon"
+															className="absolute left-[1px] top-[1px] h-3 w-3 rounded-full bg-white/0 hover:bg-white/0 cursor-pointer"
+															onClick={( e ) => handleFavoriteToggle( item, e )}
+															aria-label={`${isFavorite( catalogType, item.id || item.name ) ? 'Remove from' : 'Add to'} favorites`}
+														>
+															<Star
+																className={cn(
+																	"h-3 w-3 opacity-60",
+																	isFavorite( catalogType, item.id || item.name )
+																		? "fill-red-800 text-red-800"
+																		: "fill-white text-red-400"
+																)}
+															/>
+														</Button>
 														{item.redirection && (
 															<Button
 																variant="secondary"
