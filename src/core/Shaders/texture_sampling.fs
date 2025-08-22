@@ -212,20 +212,20 @@ vec2 processMetalnessRoughnessFromBatch( TextureBatch batch, RayTracingMaterial 
 	vec2 result;
 
 	if( material.metalnessMapIndex == material.roughnessMapIndex && material.metalnessMapIndex >= 0 ) {
-		// Same texture - extract both values
-		result.x = batch.metalnessRoughnessSample.b; // Metalness from blue channel
-		result.y = batch.metalnessRoughnessSample.g;  // Roughness from green channel
+		// Same texture - extract both values and multiply with uniforms
+		result.x = material.metalness * batch.metalnessRoughnessSample.b; // Metalness from blue channel
+		result.y = material.roughness * batch.metalnessRoughnessSample.g;  // Roughness from green channel
 	} else {
 		// Different textures or only one available
 		if( material.metalnessMapIndex >= 0 ) {
-			result.x = batch.metalnessRoughnessSample.b;
+			result.x = material.metalness * batch.metalnessRoughnessSample.b;
 		} else {
 			result.x = material.metalness;
 		}
 
 		if( material.roughnessMapIndex >= 0 ) {
 			// Need to sample roughness separately if not already done
-			result.y = batch.metalnessRoughnessSample.g;
+			result.y = material.roughness * batch.metalnessRoughnessSample.g;
 		} else {
 			result.y = material.roughness;
 		}
