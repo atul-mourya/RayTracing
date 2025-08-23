@@ -195,10 +195,12 @@
 
 ## 🐛 Critical Bug Fixes & Improvements
 
-### Current Issues (from existing TODO)
+### Known Issues
 - [ ] some meshes in outliner shows as group and i'm not able to activate material editor (example bistro)
-- [ ] transparent true or false makes no difference
+- [x] transparent true or false makes no difference
 - [ ] wip tile rendering - https://claude.ai/chat/47f754db-f674-4965-849e-5afa2748dc8b
+- [ ] after each tile rendering cycle, the rendered image is becomes dim/low quality
+- [x] some lowpoly models with texture fails to load. it crashes the application
 
 ### Code Quality
 - [ ] **Performance Profiling**
@@ -215,7 +217,7 @@
 
 ---
 
-## ✨ Core Features (from existing TODO)
+## ✨ Core Features
 
 ### Advanced Rendering
 - [ ] OIDN HDR denoising Support
@@ -224,10 +226,11 @@
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
 - [ ] Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
+- [ ] Study dot grid / moiré–like effect and its impact on rendering
 
 ### Lighting & Materials
-- [ ] Implement support for point light
-- [ ] Implement support for spot light
+- [x] Implement support for point light
+- [x] Implement support for spot light
 - [ ] Implement support for IES light
 - [ ] Introduce tessellation free displacement mapping
 - [ ] Implement SDF-based model rendering
@@ -236,6 +239,7 @@
 - [ ] Implement Bidirectional Path Tracing mode
 
 ### Performance & Architecture
+- [ ] separate pipeline for path tracing related passes and rasterization related passes like tilehelper, bloom, outline, etc.
 - [ ] Implement Dynamic BVH update
 - [ ] Implement support for Radiance Caching
 - [ ] Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
@@ -252,8 +256,7 @@
 - [ ] useHook - https://github.com/uidotdev/usehooks
 - [x] **Recent searches dropdown in catalog with clear button**
 - [x] **Keyboard shortcuts: Esc (deselect), R (reset camera), Space (play/pause)**
-- [ ] Star/heart button on each catalog item
-- [ ] "Favorites" tab in each category
+- [x] Star/heart button on each catalog item
 - [ ] Estimated time remaining display
 - [x] **Model polycount information**
 
