@@ -20,6 +20,14 @@ uniform int adaptiveSamplingMax;
 uniform float fireflyThreshold;
 uniform bool enableDOF;
 
+uniform sampler2D triangleTexture;
+uniform sampler2D materialTexture;
+uniform sampler2D bvhTexture;
+
+uniform ivec2 triangleTexSize;
+uniform ivec2 materialTexSize;
+uniform ivec2 bvhTexSize;
+
 #ifdef ENABLE_ACCUMULATION
 uniform sampler2D previousAccumulatedTexture;
 uniform bool enableAccumulation;
@@ -42,8 +50,9 @@ uniform int transmissiveBounces;  // Controls the number of allowed transmission
 #include rayintersection.fs
 #include environment.fs
 #include random.fs
-#include bvhtraverse.fs
 #include texture_sampling.fs
+#include displacement.fs
+#include bvhtraverse.fs
 #include fresnel.fs
 #include brdfs.fs
 #include transmission.fs
@@ -377,6 +386,20 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		material.metalness = matSamples.metalness;
 		material.roughness = clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
 		vec3 N = matSamples.normal;
+
+		// Apply displacement mapping if enabled
+		if( material.displacementMapIndex >= 0 && material.displacementScale > 0.0 ) {
+			float heightSample = sampleDisplacementMap( material.displacementMapIndex, hitInfo.uv, material.displacementTransform );
+			// Convert height sample from [0,1] to [-0.5, 0.5] for better displacement
+			float displacementHeight = (heightSample - 0.5) * material.displacementScale;
+			vec3 displacement = N * displacementHeight;
+			hitInfo.hitPoint += displacement;
+			
+			// For better visual effect, also calculate displaced normal
+			if( material.displacementScale > 0.01 ) {
+				N = calculateDisplacedNormal( hitInfo.hitPoint, N, hitInfo.uv, material );
+			}
+		}
 
         // Handle transparent materials with transmission
 		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );

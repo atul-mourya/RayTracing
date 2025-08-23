@@ -38,6 +38,7 @@ struct RayTracingMaterial {
 	float displacementScale;
 	int metalnessMapIndex;
 	int roughnessMapIndex;
+	int displacementMapIndex;
 	vec2 normalScale;
 	mat3 albedoTransform;
 	mat3 emissiveTransform;

@@ -4,6 +4,7 @@ uniform sampler2DArray bumpMaps;
 uniform sampler2DArray metalnessMaps;
 uniform sampler2DArray roughnessMaps;
 uniform sampler2DArray emissiveMaps;
+uniform sampler2DArray displacementMaps;
 
 // ================================================================================
 // FAST UTILITY FUNCTIONS
@@ -28,7 +29,8 @@ bool materialHasTextures( RayTracingMaterial material ) {
 		material.roughnessMapIndex >= 0 ||
 		material.metalnessMapIndex >= 0 ||
 		material.emissiveMapIndex >= 0 ||
-		material.bumpMapIndex >= 0 );
+		material.bumpMapIndex >= 0 ||
+		material.displacementMapIndex >= 0 );
 }
 
 // Check if two transforms are identical (for batching)
@@ -416,4 +418,15 @@ vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 	}
 
 	return resultNormal;
+}
+
+// Sample displacement map at given UV coordinates
+float sampleDisplacementMap(int displacementMapIndex, vec2 uv, mat3 transform) {
+    if (displacementMapIndex < 0) return 0.0;
+    
+    // Apply texture transform
+    vec2 transformedUV = getTransformedUV(uv, transform);
+    
+    // Sample displacement texture (assuming it's in the red channel)
+    return texture(displacementMaps, vec3(transformedUV, float(displacementMapIndex))).r;
 }

@@ -1385,6 +1385,23 @@ const useMaterialStore = create( ( set, get ) => ( {
 
 	},
 
+	// Displacement mapping handlers
+	handleDisplacementScaleChange: val => {
+
+		const value = Array.isArray( val ) ? val[ 0 ] : val;
+		get().updateMaterialProperty( 'displacementScale', value );
+
+		// Also update the material object directly for UI consistency
+		const obj = useStore.getState().selectedObject;
+		if ( obj?.material ) {
+
+			obj.material.displacementScale = value;
+			obj.material.needsUpdate = true;
+
+		}
+
+	},
+
 } ) );
 
 // Favorites store

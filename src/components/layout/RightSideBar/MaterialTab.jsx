@@ -254,7 +254,8 @@ const MaterialTab = () => {
 			repeat: () => materialStore.handleTextureRepeatChange( textureName, value ),
 			rotation: () => materialStore.handleTextureRotationChange( textureName, value ),
 			normalScale: () => materialStore.handleNormalScaleChange( value ),
-			bumpScale: () => materialStore.handleBumpScaleChange( value )
+			bumpScale: () => materialStore.handleBumpScaleChange( value ),
+			displacementScale: () => materialStore.handleDisplacementScaleChange( value )
 		};
 
 		handlers[ property ]?.();
