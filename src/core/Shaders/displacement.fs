@@ -41,22 +41,28 @@ vec3 calculateDisplacedNormal(vec3 point, vec3 baseNormal, vec2 uv, RayTracingMa
         return baseNormal;
     }
     
-    const float h = 0.001; // Small offset for finite differences
+    // Use larger offset for smoother normal variation - prevents overly sharp/glossy appearance
+    float h = 0.01; // Increased from 0.001 for smoother results
     
     // Sample heights at nearby UV coordinates
     float heightCenter = getDisplacedHeight(point, baseNormal, uv, material);
     float heightU = getDisplacedHeight(point, baseNormal, uv + vec2(h, 0.0), material);
     float heightV = getDisplacedHeight(point, baseNormal, uv + vec2(0.0, h), material);
     
-    // Calculate partial derivatives
+    // Calculate partial derivatives with smoothing
     float dHdU = (heightU - heightCenter) / h;
     float dHdV = (heightV - heightCenter) / h;
+    
+    // Scale down the gradient strength to avoid overly sharp normals
+    float gradientStrength = 0.5; // Reduce from 1.0 to make it less aggressive
+    dHdU *= gradientStrength;
+    dHdV *= gradientStrength;
     
     // Create tangent vectors (simplified - assumes UV corresponds to world space)
     vec3 tangentU = normalize(cross(baseNormal, vec3(0.0, 1.0, 0.0)));
     vec3 tangentV = normalize(cross(baseNormal, tangentU));
     
-    // Perturb normal based on height gradients
+    // Perturb normal based on height gradients with reduced strength
     vec3 displacedNormal = baseNormal - dHdU * tangentU - dHdV * tangentV;
     return normalize(displacedNormal);
 }

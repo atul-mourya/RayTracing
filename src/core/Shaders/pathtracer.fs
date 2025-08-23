@@ -395,9 +395,14 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			vec3 displacement = N * displacementHeight;
 			hitInfo.hitPoint += displacement;
 			
-			// For better visual effect, also calculate displaced normal
+			// Calculate displaced normal but blend with original to preserve material characteristics
 			if( material.displacementScale > 0.01 ) {
-				N = calculateDisplacedNormal( hitInfo.hitPoint, N, hitInfo.uv, material );
+				vec3 displacedNormal = calculateDisplacedNormal( hitInfo.hitPoint, N, hitInfo.uv, material );
+				// Blend displaced normal with original based on roughness to preserve material characteristics
+				float blendFactor = clamp( material.displacementScale * 0.5, 0.1, 0.8 );
+				// Reduce blend factor for rough materials to preserve their surface characteristics
+				blendFactor *= (1.0 - material.roughness * 0.5);
+				N = normalize( mix( N, displacedNormal, blendFactor ) );
 			}
 		}
 
