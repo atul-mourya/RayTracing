@@ -36,13 +36,13 @@ const InteractiveModeTabs = memo( () => (
 				<Sun size={12} />
 				<span className="text-xs mt-1">Light</span>
 			</TabsTrigger>
-			<TabsTrigger value="assets" className="flex flex-col items-center py-2">
-				<Box size={12} />
-				<span className="text-xs mt-1">Assets</span>
-			</TabsTrigger>
 			<TabsTrigger value="material" className="flex flex-col items-center py-2">
 				<SwatchBook size={12} />
 				<span className="text-xs mt-1">Material</span>
+			</TabsTrigger>
+			<TabsTrigger value="assets" className="flex flex-col items-center py-2">
+				<Box size={12} />
+				<span className="text-xs mt-1">Assets</span>
 			</TabsTrigger>
 		</TabsList>
 
@@ -64,15 +64,15 @@ const InteractiveModeTabs = memo( () => (
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col mt-0 overflow-y-auto">
-			<Suspense fallback={<TabLoadingFallback />}>
-				<AssetsTab />
-			</Suspense>
-		</TabsContent>
-
 		<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<MaterialTab />
+			</Suspense>
+		</TabsContent>
+
+		<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col mt-0 overflow-y-auto">
+			<Suspense fallback={<TabLoadingFallback />}>
+				<AssetsTab />
 			</Suspense>
 		</TabsContent>
 	</Tabs>
