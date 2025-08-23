@@ -13,7 +13,7 @@ import VertexShader from './Shaders/pathtracer.vs';
 import TriangleSDF from './Processor/TriangleSDF';
 import { EnvironmentCDFBuilder } from './Processor/EnvironmentCDFBuilder';
 import blueNoiseImage from '../../public/noise/simple_bluenoise.png';
-import { DEFAULT_STATE } from '../Constants';
+import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../Constants';
 
 export class PathTracerPass extends Pass {
 
@@ -175,6 +175,7 @@ export class PathTracerPass extends Pass {
 				bumpMaps: { value: null },
 				roughnessMaps: { value: null },
 				metalnessMaps: { value: null },
+				displacementMaps: { value: null },
 
 				// Geometry textures
 				triangleTexture: { value: null },
@@ -242,6 +243,7 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.bumpMaps.value = this.sdfs.bumpTextures;
 		this.material.uniforms.roughnessMaps.value = this.sdfs.roughnessTextures;
 		this.material.uniforms.metalnessMaps.value = this.sdfs.metalnessTextures;
+		this.material.uniforms.displacementMaps.value = this.sdfs.displacementTextures;
 
 		// Update geometry uniforms
 		this.material.uniforms.triangleTexture.value = this.sdfs.triangleTexture;
@@ -879,17 +881,21 @@ export class PathTracerPass extends Pass {
 
 		}
 
+		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
+		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
+		const stride = materialIndex * dataLengthPerMaterial;
 
 		// Map texture names to their transform locations in the material data
 		const transformOffsets = {
-			'map': 48, // albedoTransform starts at pixel 12 (stride + 48)
-			'normalMap': 60, // normalTransform starts at pixel 15 (stride + 60)
-			'bumpMap': 84, // bumpTransform starts at pixel 21 (stride + 84)
-			'roughnessMap': 72, // roughnessTransform starts at pixel 18 (stride + 72)
-			'metalnessMap': 72, // metalnessTransform starts at pixel 18 (stride + 72) - shared with roughness
-			'emissiveMap': 56 // emissiveTransform starts at pixel 14 (stride + 56)
+			'map': 52,						// Pixel 14-15: Map matrix
+			'normalMap': 60,				// Pixel 16-17: Normal map matrix
+			'roughnessMap': 68,				// Pixel 18-19: Roughness map matrix
+			'metalnessMap': 76,				// Pixel 20-21: Metalness map matrix
+			'emissiveMap': 84,				// Pixel 22-23: Emissive map matrix
+			'bumpMap': 92,					// Pixel 24-25: Bump map matrix
+			'displacementMap': 100			// Pixel 26-27: Displacement map matrix
 		};
 
 		const offset = transformOffsets[ textureName ];
@@ -932,7 +938,10 @@ export class PathTracerPass extends Pass {
 
 		// Direct property update - much more efficient for single changes
 		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
+		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
+		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
+		const stride = materialIndex * dataLengthPerMaterial;
 
 		switch ( property ) {
 
@@ -1011,8 +1020,6 @@ export class PathTracerPass extends Pass {
 				}
 
 				break;
-			case 'normalScale': 		data[ stride + 46 ] = value; break; // Use data[11].b slot
-			case 'bumpScale': 			data[ stride + 23 ] = value; break; // Keep in data[5].a slot - this is correct
 			case 'specularIntensity': 	data[ stride + 24 ] = value; break;
 			case 'specularColor':
 				if ( value.r !== undefined ) {
@@ -1048,6 +1055,23 @@ export class PathTracerPass extends Pass {
 			case 'transparent': 		data[ stride + 42 ] = value; break;
 			case 'alphaTest': 			data[ stride + 43 ] = value; break;
 			case 'alphaMode': 			data[ stride + 44 ] = value; break;
+			case 'depthWrite': 			data[ stride + 45 ] = value; break;
+			case 'normalScale':
+				if ( value.x !== undefined ) {
+
+					data[ stride + 46 ] = value.x;
+					data[ stride + 47 ] = value.y;
+
+				} else if ( typeof value === 'number' ) {
+
+					data[ stride + 46 ] = value;
+					data[ stride + 47 ] = value;
+
+				}
+
+				break;
+			case 'bumpScale': 			data[ stride + 48 ] = value; break;
+			case 'displacementScale': 	data[ stride + 49 ] = value; break;
 			default:
 				console.warn( `Unknown material property: ${property}` );
 				return;
@@ -1064,7 +1088,10 @@ export class PathTracerPass extends Pass {
 
 		// Update all material properties in the texture
 		const data = this.material.uniforms.materialTexture.value.image.data;
-		const stride = materialIndex * 96; // 24 pixels * 4 components per pixel
+		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
+		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
+		const stride = materialIndex * dataLengthPerMaterial;
 
 		// Base material properties
 		if ( materialData.color ) {
@@ -1113,8 +1140,6 @@ export class PathTracerPass extends Pass {
 
 		}
 
-		// Store bumpScale in its correct location (data[5].a = stride + 23)
-		data[ stride + 23 ] = materialData.bumpScale || 1;
 		data[ stride + 24 ] = materialData.specularIntensity || 1;
 
 		if ( materialData.specularColor ) {
@@ -1141,8 +1166,10 @@ export class PathTracerPass extends Pass {
 		data[ stride + 41 ] = materialData.side !== undefined ? materialData.side : 0;
 		data[ stride + 42 ] = materialData.transparent !== undefined ? materialData.transparent : 0;
 		data[ stride + 43 ] = materialData.alphaTest !== undefined ? materialData.alphaTest : 0;
-		// Store normalScale in data[11].b (stride + 46)
+
 		data[ stride + 46 ] = materialData.normalScale || 1;
+		data[ stride + 48 ] = materialData.bumpScale || 1;
+		data[ stride + 49 ] = materialData.displacementScale || 1;
 
 		// Mark texture for update
 		this.material.uniforms.materialTexture.value.needsUpdate = true;

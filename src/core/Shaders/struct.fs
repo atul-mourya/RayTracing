@@ -35,6 +35,7 @@ struct RayTracingMaterial {
 	int normalMapIndex;
 	int bumpMapIndex;
 	float bumpScale;
+	float displacementScale;
 	int metalnessMapIndex;
 	int roughnessMapIndex;
 	vec2 normalScale;
@@ -44,6 +45,7 @@ struct RayTracingMaterial {
 	mat3 bumpTransform;
 	mat3 metalnessTransform;
 	mat3 roughnessTransform;
+	mat3 displacementTransform;
 	float iridescence;
 	float iridescenceIOR;
 	vec2 iridescenceThicknessRange;

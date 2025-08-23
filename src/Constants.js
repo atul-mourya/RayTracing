@@ -360,7 +360,7 @@ export const TRIANGLE_DATA_LAYOUT = {
 
 // Texture processing constants
 export const TEXTURE_CONSTANTS = {
-	PIXELS_PER_MATERIAL: 24,
+	PIXELS_PER_MATERIAL: 27,
 	RGBA_COMPONENTS: 4,
 	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
 	VEC4_PER_BVH_NODE: 3,

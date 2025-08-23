@@ -67,6 +67,7 @@ const TEXTURE_PROPERTIES = {
 	repeat: { type: 'vector2', default: { x: 1, y: 1 }, label: 'Repeat' },
 	normalScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Normal Scale', textureTypes: [ 'normalMap' ] },
 	bumpScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Bump Scale', textureTypes: [ 'bumpMap' ] },
+	displacementScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Displacement Scale', textureTypes: [ 'displacementMap' ] },
 	rotation: { type: 'slider', default: 0, min: 0, max: 360, step: 1, label: 'Rotation (°)' },
 };
 
@@ -182,7 +183,11 @@ const MaterialTab = () => {
 					bumpScale: textureName === 'bumpMap' ? (
 						typeof material.bumpScale === 'number' ? material.bumpScale :
 							material.bumpScale?.x ?? 1
-					) : undefined
+					) : undefined,
+					displacementScale: textureName === 'displacementMap' ? (
+						typeof material.displacementScale === 'number' ? material.displacementScale :
+							material.displacementScale?.x ?? 1
+					) : undefined,
 				};
 
 			}

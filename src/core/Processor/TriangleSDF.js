@@ -52,6 +52,7 @@ export default class TriangleSDF {
 		this.roughnessMaps = [];
 		this.metalnessMaps = [];
 		this.emissiveMaps = [];
+		this.displacementMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 		this.spheres = [];
@@ -66,6 +67,7 @@ export default class TriangleSDF {
 		this.roughnessTextures = null;
 		this.metalnessTextures = null;
 		this.emissiveTextures = null;
+		this.displacementTextures = null;
 		this.bvhTexture = null;
 
 		// Initialize processing components
@@ -240,6 +242,7 @@ export default class TriangleSDF {
 			this.roughnessMaps = extractedData.roughnessMaps;
 			this.metalnessMaps = extractedData.metalnessMaps;
 			this.emissiveMaps = extractedData.emissiveMaps;
+			this.displacementMaps = extractedData.displacementMaps;
 			this.directionalLights = extractedData.directionalLights;
 			this.cameras = extractedData.cameras;
 
@@ -380,6 +383,7 @@ export default class TriangleSDF {
 				roughnessMaps: this.roughnessMaps,
 				metalnessMaps: this.metalnessMaps,
 				emissiveMaps: this.emissiveMaps,
+				displacementMaps: this.displacementMaps,
 				bvhRoot: this.bvhRoot
 			};
 
@@ -395,6 +399,7 @@ export default class TriangleSDF {
 			this.roughnessTextures = textures.roughnessTexture;
 			this.metalnessTextures = textures.metalnessTexture;
 			this.emissiveTextures = textures.emissiveTexture;
+			this.displacementTextures = textures.displacementTexture;
 			this.bvhTexture = textures.bvhTexture;
 
 			const duration = performance.now() - startTime;
@@ -464,6 +469,7 @@ export default class TriangleSDF {
 		this.roughnessMaps = [];
 		this.metalnessMaps = [];
 		this.emissiveMaps = [];
+		this.displacementMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 		this.spheres = [];
@@ -488,7 +494,7 @@ export default class TriangleSDF {
 		const textureProps = [
 			'materialTexture', 'triangleTexture', 'albedoTextures',
 			'normalTextures', 'bumpTextures', 'roughnessTextures',
-			'metalnessTextures', 'emissiveTextures', 'bvhTexture'
+			'metalnessTextures', 'emissiveTextures', 'displacementTextures', 'bvhTexture'
 		];
 
 		// Dispose each texture if it exists
@@ -545,6 +551,7 @@ export default class TriangleSDF {
 			this.roughnessMaps = extractedData.roughnessMaps;
 			this.metalnessMaps = extractedData.metalnessMaps;
 			this.emissiveMaps = extractedData.emissiveMaps;
+			this.displacementMaps = extractedData.displacementMaps;
 
 			// Create new material and texture data only
 			const params = {
@@ -556,6 +563,7 @@ export default class TriangleSDF {
 				roughnessMaps: this.roughnessMaps,
 				metalnessMaps: this.metalnessMaps,
 				emissiveMaps: this.emissiveMaps,
+				displacementMaps: this.displacementMaps,
 				bvhRoot: this.bvhRoot // Reuse existing BVH
 			};
 
@@ -570,6 +578,7 @@ export default class TriangleSDF {
 			this.roughnessTextures = textures.roughnessTexture;
 			this.metalnessTextures = textures.metalnessTexture;
 			this.emissiveTextures = textures.emissiveTexture;
+			this.displacementTextures = textures.displacementTexture;
 
 			const duration = performance.now() - startTime;
 			this._log( `Material rebuild complete (${duration.toFixed( 2 )}ms)`, {
@@ -601,7 +610,8 @@ export default class TriangleSDF {
 
 		const materialTextureProps = [
 			'materialTexture', 'albedoTextures', 'normalTextures',
-			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures'
+			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures',
+			'displacementTextures'
 		];
 
 		materialTextureProps.forEach( prop => {

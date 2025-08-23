@@ -248,6 +248,7 @@ export default class GeometryExtractor {
 			iridescenceThicknessRange: [ 100, 400 ],
 			normalScale: { x: 1, y: 1 },
 			bumpScale: 1.0,
+			displacementScale: 1.0,
 			alphaTest: 0.0
 		};
 
@@ -278,9 +279,13 @@ export default class GeometryExtractor {
 
 			case 'phong':
 				// MeshPhongMaterial -> Convert shininess to roughness
-				const shininess = material.shininess || 30;
-				mapped.roughness = Math.sqrt( 2.0 / ( shininess + 2 ) );
-				mapped.metalness = 0.0;
+				{
+
+					const shininess = material.shininess || 30;
+					mapped.roughness = Math.sqrt( 2.0 / ( shininess + 2 ) );
+					mapped.metalness = 0.0;
+
+				}
 
 				// Convert specular color to specular intensity
 				if ( material.specular ) {
@@ -382,6 +387,7 @@ export default class GeometryExtractor {
 			// Surface detail properties
 			normalScale: material.normalScale ?? defaults.normalScale,
 			bumpScale: material.bumpScale ?? defaults.bumpScale,
+			displacementScale: material.displacementScale ?? defaults.displacementScale,
 
 			// Transparency and alpha
 			transparent: material.transparent ? 1 : 0,
@@ -400,6 +406,7 @@ export default class GeometryExtractor {
 			roughnessMap: this.processTexture( material.roughnessMap, this.roughnessMaps ),
 			metalnessMap: this.processTexture( material.metalnessMap, this.metalnessMaps ),
 			emissiveMap: this.processTexture( material.emissiveMap, this.emissiveMaps ),
+			displacementMap: this.processTexture( material.displacementMap, this.displacementMaps ),
 
 			// Advanced texture maps (MeshPhysicalMaterial only)
 			clearcoatMap: this.processTexture( material.clearcoatMap, [] ),
@@ -420,6 +427,7 @@ export default class GeometryExtractor {
 			roughnessMapMatrices: this.getTextureMatrix( material.roughnessMap ),
 			metalnessMapMatrices: this.getTextureMatrix( material.metalnessMap ),
 			emissiveMapMatrices: this.getTextureMatrix( material.emissiveMap ),
+			displacementMapMatrices: this.getTextureMatrix( material.displacementMap ),
 
 			// Material type for debugging/optimization
 			originalType: materialType
@@ -720,6 +728,7 @@ export default class GeometryExtractor {
 		this.metalnessMaps = [];
 		this.emissiveMaps = [];
 		this.roughnessMaps = [];
+		this.displacementMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
 
@@ -737,6 +746,7 @@ export default class GeometryExtractor {
 			metalnessMaps: this.metalnessMaps,
 			emissiveMaps: this.emissiveMaps,
 			roughnessMaps: this.roughnessMaps,
+			displacementMaps: this.displacementMaps,
 			directionalLights: this.directionalLights,
 			cameras: this.cameras
 		};

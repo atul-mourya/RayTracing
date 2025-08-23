@@ -6,6 +6,8 @@ uniform ivec2 triangleTexSize;
 uniform ivec2 materialTexSize;
 uniform ivec2 bvhTexSize;
 
+#define MATERIAL_SLOTS 27
+
 struct BVHNode {
 	vec3 boundsMin;
 	int leftChild;
@@ -42,16 +44,16 @@ mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
 
 bool isTriangleVisible( int triangleIndex, vec3 rayDirection ) {
     // Fetch only the essential visibility data (1 texture read vs full material)
-	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, triangleIndex, 4, 24 );
+	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, triangleIndex, 4, MATERIAL_SLOTS );
 	return bool( visData.g ); // visible flag
 }
 
 RayTracingMaterial getMaterial( int materialIndex ) {
 	RayTracingMaterial material;
 
-	vec4 data[ 24 ];
-	for( int i = 0; i < 24; i ++ ) {
-		data[ i ] = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, i, 24 );
+	vec4 data[ MATERIAL_SLOTS ];
+	for( int i = 0; i < MATERIAL_SLOTS; i ++ ) {
+		data[ i ] = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, i, MATERIAL_SLOTS );
 	}
 
 	material.color = vec4( data[ 0 ].rgb, 1.0 );
@@ -72,7 +74,6 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 	material.sheenRoughness = data[ 4 ].a;
 
 	material.sheenColor = data[ 5 ].rgb;
-	material.bumpScale = data[ 5 ].a;
 
 	material.specularIntensity = data[ 6 ].r;
 	material.specularColor = data[ 6 ].gba;
@@ -98,14 +99,18 @@ RayTracingMaterial getMaterial( int materialIndex ) {
 
 	material.alphaMode = int( data[ 11 ].r );
 	material.depthWrite = int( data[ 11 ].g );
-	material.normalScale = vec2( data[ 11 ].b, data[ 11 ].b );
 
-	material.albedoTransform = arrayToMat3( data[ 12 ], data[ 13 ] );
-	material.normalTransform = arrayToMat3( data[ 14 ], data[ 15 ] );
-	material.roughnessTransform = arrayToMat3( data[ 16 ], data[ 17 ] );
-	material.metalnessTransform = arrayToMat3( data[ 18 ], data[ 19 ] );
-	material.emissiveTransform = arrayToMat3( data[ 20 ], data[ 21 ] );
-	material.bumpTransform = arrayToMat3( data[ 22 ], data[ 23 ] );
+	material.normalScale = vec2( data[ 11 ].b, data[ 11 ].b );
+	material.bumpScale = data[ 12 ].r;
+	material.displacementScale = data[ 12 ].g;
+
+	material.albedoTransform = arrayToMat3( data[ 13 ], data[ 14 ] );
+	material.normalTransform = arrayToMat3( data[ 15 ], data[ 16 ] );
+	material.roughnessTransform = arrayToMat3( data[ 17 ], data[ 18 ] );
+	material.metalnessTransform = arrayToMat3( data[ 19 ], data[ 20 ] );
+	material.emissiveTransform = arrayToMat3( data[ 21 ], data[ 22 ] );
+	material.bumpTransform = arrayToMat3( data[ 23 ], data[ 24 ] );
+	material.displacementTransform = arrayToMat3( data[ 25 ], data[ 26 ] );
 
 	return material;
 }
@@ -133,14 +138,14 @@ Triangle getTriangle( int triangleIndex ) {
 
 bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
 	// Only fetch the data we need for visibility check
-	vec4 visibilityData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, 24 );
+	vec4 visibilityData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
 
 	if( ! bool( visibilityData.g ) )
 		return false;
 
 	// Check side visibility
 	float rayDotNormal = dot( rayDirection, normal );
-	vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, 24 );
+	vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, MATERIAL_SLOTS );
 	int side = int( sideData.g );
 
 	return ( side == 2 || // DoubleSide - most common case first

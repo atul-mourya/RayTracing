@@ -419,7 +419,7 @@ export default class TextureCreator {
 		if ( params.triangles && params.triangles.byteLength > 0 ) totalTasks ++;
 		if ( params.bvhRoot ) totalTasks ++;
 
-		const mapTypes = [ 'maps', 'normalMaps', 'bumpMaps', 'roughnessMaps', 'metalnessMaps', 'emissiveMaps' ];
+		const mapTypes = [ 'maps', 'normalMaps', 'bumpMaps', 'roughnessMaps', 'metalnessMaps', 'emissiveMaps', 'displacementMaps' ];
 		for ( const mapType of mapTypes ) {
 
 			if ( params[ mapType ]?.length > 0 ) totalTasks ++;
@@ -473,7 +473,8 @@ export default class TextureCreator {
 			{ data: params.bumpMaps, type: 'bump' },
 			{ data: params.roughnessMaps, type: 'roughness' },
 			{ data: params.metalnessMaps, type: 'metalness' },
-			{ data: params.emissiveMaps, type: 'emissive' }
+			{ data: params.emissiveMaps, type: 'emissive' },
+			{ data: params.displacementMaps, type: 'displacement' }
 		];
 
 		for ( const { data, type } of mapTypesList ) {
@@ -982,6 +983,7 @@ export default class TextureCreator {
 			const metalnessMapMatrices = mat.metalnessMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
 			const emissiveMapMatrices = mat.emissiveMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
 			const bumpMapMatrices = mat.bumpMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+			const displacementMapMatrices = mat.displacementMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
 
 			const materialData = [
 				mat.color.r, 				mat.color.g, 				mat.color.b, 				mat.metalness,				// pixel 1 - Base color and metalness
@@ -996,18 +998,21 @@ export default class TextureCreator {
 				mat.emissiveMap, 			mat.bumpMap, 				mat.clearcoat, 				mat.clearcoatRoughness,		// pixel 10 - More map indices and properties
 				mat.opacity, 				mat.side, 					mat.transparent, 			mat.alphaTest,				// pixel 11 - Opacity, side, transparency, and alpha test
 				mat.alphaMode, 				mat.depthWrite, 			mat.normalScale?.x ?? 1, 	mat.normalScale?.y ?? 1,	// pixel 12 - Opacity, side, and normal scale
-				mapMatrix[ 0 ], 			mapMatrix[ 1 ], 			mapMatrix[ 2 ], 			mapMatrix[ 3 ],				// pixel 13 - Map matrices - 1
-				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			1,							// pixel 14 - Map matrices - 2
-				normalMapMatrices[ 0 ], 	normalMapMatrices[ 1 ], 	normalMapMatrices[ 2 ], 	normalMapMatrices[ 3 ],		// pixel 15 - Normal matrices - 1
-				normalMapMatrices[ 4 ], 	normalMapMatrices[ 5 ], 	normalMapMatrices[ 6 ], 	1,							// pixel 16 - Normal matrices - 2
-				roughnessMapMatrices[ 0 ], 	roughnessMapMatrices[ 1 ], 	roughnessMapMatrices[ 2 ], 	roughnessMapMatrices[ 3 ],	// pixel 17 - Roughness matrices - 1
-				roughnessMapMatrices[ 4 ], 	roughnessMapMatrices[ 5 ], 	roughnessMapMatrices[ 6 ], 	1,							// pixel 18 - Roughness matrices - 2
-				metalnessMapMatrices[ 0 ], 	metalnessMapMatrices[ 1 ], 	metalnessMapMatrices[ 2 ], 	metalnessMapMatrices[ 3 ], 	// pixel 19 - Metalness matrices - 1
-				metalnessMapMatrices[ 4 ], 	metalnessMapMatrices[ 5 ], 	metalnessMapMatrices[ 6 ], 	1,							// pixel 20 - Metalness matrices - 2
-				emissiveMapMatrices[ 0 ], 	emissiveMapMatrices[ 1 ], 	emissiveMapMatrices[ 2 ], 	emissiveMapMatrices[ 3 ],	// pixel 21 - Emissive matrices - 1
-				emissiveMapMatrices[ 4 ], 	emissiveMapMatrices[ 5 ], 	emissiveMapMatrices[ 6 ], 	1,							// pixel 22 - Emissive matrices - 2
-				bumpMapMatrices[ 0 ], 		bumpMapMatrices[ 1 ], 		bumpMapMatrices[ 2 ], 		bumpMapMatrices[ 3 ],		// pixel 23 - Bump map matrices - 1
-				bumpMapMatrices[ 4 ], 		bumpMapMatrices[ 5 ],	 	bumpMapMatrices[ 6 ], 		1,							// pixel 24 - Bump map matrices - 2
+				mat.bumpScale,				mat.displacementScale,		mat.displacementMap,		0,							// pixel 13 - Bump scale and displacement scale
+				mapMatrix[ 0 ], 			mapMatrix[ 1 ], 			mapMatrix[ 2 ], 			mapMatrix[ 3 ],				// pixel 14 - Map matrices - 1
+				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			1,							// pixel 15 - Map matrices - 2
+				normalMapMatrices[ 0 ], 	normalMapMatrices[ 1 ], 	normalMapMatrices[ 2 ], 	normalMapMatrices[ 3 ],		// pixel 16 - Normal matrices - 1
+				normalMapMatrices[ 4 ], 	normalMapMatrices[ 5 ], 	normalMapMatrices[ 6 ], 	1,							// pixel 17 - Normal matrices - 2
+				roughnessMapMatrices[ 0 ], 	roughnessMapMatrices[ 1 ], 	roughnessMapMatrices[ 2 ], 	roughnessMapMatrices[ 3 ],	// pixel 18 - Roughness matrices - 1
+				roughnessMapMatrices[ 4 ], 	roughnessMapMatrices[ 5 ], 	roughnessMapMatrices[ 6 ], 	1,							// pixel 19 - Roughness matrices - 2
+				metalnessMapMatrices[ 0 ], 	metalnessMapMatrices[ 1 ], 	metalnessMapMatrices[ 2 ], 	metalnessMapMatrices[ 3 ], 	// pixel 20 - Metalness matrices - 1
+				metalnessMapMatrices[ 4 ], 	metalnessMapMatrices[ 5 ], 	metalnessMapMatrices[ 6 ], 	1,							// pixel 21 - Metalness matrices - 2
+				emissiveMapMatrices[ 0 ], 	emissiveMapMatrices[ 1 ], 	emissiveMapMatrices[ 2 ], 	emissiveMapMatrices[ 3 ],	// pixel 22 - Emissive matrices - 1
+				emissiveMapMatrices[ 4 ], 	emissiveMapMatrices[ 5 ], 	emissiveMapMatrices[ 6 ], 	1,							// pixel 23 - Emissive matrices - 2
+				bumpMapMatrices[ 0 ], 		bumpMapMatrices[ 1 ], 		bumpMapMatrices[ 2 ], 		bumpMapMatrices[ 3 ],		// pixel 24 - Bump map matrices - 1
+				bumpMapMatrices[ 4 ], 		bumpMapMatrices[ 5 ],	 	bumpMapMatrices[ 6 ], 		1,							// pixel 25 - Bump map matrices - 2
+				displacementMapMatrices[ 0 ], displacementMapMatrices[ 1 ], displacementMapMatrices[ 2 ], displacementMapMatrices[ 3 ], // pixel 26 - Displacement map matrices - 1
+				displacementMapMatrices[ 4 ], displacementMapMatrices[ 5 ], displacementMapMatrices[ 6 ], 1,					// pixel 27 - Displacement map matrices - 2
 			];
 
 			data.set( materialData, stride );
@@ -1112,7 +1117,7 @@ export default class TextureCreator {
 	 */
 	async createMaterialTextures( params ) {
 
-		const { materials, maps, normalMaps, bumpMaps, roughnessMaps, metalnessMaps, emissiveMaps } = params;
+		const { materials, maps, normalMaps, bumpMaps, roughnessMaps, metalnessMaps, emissiveMaps, displacementMaps } = params;
 
 		console.log( '[TextureCreator] Creating material textures only' );
 		const startTime = performance.now();
@@ -1232,6 +1237,21 @@ export default class TextureCreator {
 
 			}
 
+			if ( displacementMaps && displacementMaps.length > 0 ) {
+
+				texturePromises.push(
+					this.createTexturesToDataTexture( displacementMaps )
+						.then( tex => ( { type: 'displacement', texture: tex } ) )
+						.catch( error => {
+
+							console.warn( 'Failed to create displacement textures:', error );
+							return { type: 'displacement', texture: null };
+
+						} )
+				);
+
+			}
+
 			// Wait for all texture arrays to complete
 			const textureResults = await Promise.allSettled( texturePromises );
 
@@ -1257,6 +1277,7 @@ export default class TextureCreator {
 							case 'roughness': textures.roughnessTexture = texture; break;
 							case 'metalness': textures.metalnessTexture = texture; break;
 							case 'emissive': textures.emissiveTexture = texture; break;
+							case 'displacement': textures.displacementTexture = texture; break;
 
 						}
 
@@ -1289,7 +1310,8 @@ export default class TextureCreator {
 					bumpTexture: allTextures.bumpTexture,
 					roughnessTexture: allTextures.roughnessTexture,
 					metalnessTexture: allTextures.metalnessTexture,
-					emissiveTexture: allTextures.emissiveTexture
+					emissiveTexture: allTextures.emissiveTexture,
+					displacementTexture: allTextures.displacementTexture
 				};
 
 			} catch ( fallbackError ) {
