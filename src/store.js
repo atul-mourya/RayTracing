@@ -42,6 +42,29 @@ const useStore = create( set => ( {
 	imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 0 },
 	setImageProcessingParam: ( param, val ) => set( s => ( { imageProcessing: { ...s.imageProcessing, [ param ]: val } } ) ),
 	resetImageProcessing: () => set( { imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 2.2 } } ),
+	toggleMeshVisibility: uuid => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', uuid );
+		if ( ! object?.isMesh || ! object.material ) return;
+
+		// Toggle Three.js object visibility
+		object.visible = ! object.visible;
+
+		// Update material visible property for path tracing
+		const materialIndex = object.userData?.materialIndex ?? 0;
+		const pt = window.pathTracerApp?.pathTracingPass;
+		if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+
+			pt.updateMaterialProperty( materialIndex, 'visible', object.visible ? 1 : 0 );
+
+		}
+
+		// Reset path tracer to see changes
+		window.pathTracerApp.reset();
+
+	},
 } ) );
 
 // Assets store

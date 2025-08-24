@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, memo, useMemo } from 'react';
-import { Plus, Search, Box, Circle, Cylinder, Camera, ChevronRight, ChevronDown, Sun, Flashlight, Boxes, Folder, Shapes, Triangle, LampDesk } from 'lucide-react';
+import { Plus, Search, Box, Circle, Cylinder, Camera, ChevronRight, ChevronDown, Sun, Flashlight, Boxes, Folder, Shapes, Triangle, LampDesk, Eye, EyeOff } from 'lucide-react';
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { useStore } from '@/store';
 
@@ -78,6 +78,52 @@ const ChevronToggle = memo( ( { isOpen, onToggle, hasChildren } ) => {
 
 ChevronToggle.displayName = 'ChevronToggle';
 
+// Extract the visibility toggle into its own component
+const VisibilityToggle = memo( ( { item } ) => {
+
+	const toggleMeshVisibility = useStore( ( state ) => state.toggleMeshVisibility );
+
+	const getMeshVisibility = useCallback( () => {
+
+		if ( ! window.pathTracerApp ) return true;
+		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+		return object?.visible ?? true;
+
+	}, [ item.uuid ] );
+
+	const [ isVisible, setIsVisible ] = useState( getMeshVisibility );
+
+	const handleToggle = useCallback( ( e ) => {
+
+		e.stopPropagation();
+		toggleMeshVisibility( item.uuid );
+		setIsVisible( prev => ! prev );
+
+	}, [ toggleMeshVisibility, item.uuid ] );
+
+	// Only show visibility toggle for meshes, return empty space for alignment
+	if ( item.type !== 'Mesh' ) {
+
+		return <div className="w-4 h-4" />;
+
+	}
+
+	return (
+		<div
+			onClick={handleToggle}
+			className="flex items-center justify-center w-4 h-4 hover:bg-accent/50 cursor-pointer rounded-sm"
+		>
+			{isVisible ?
+				<Eye className="h-3 w-3 text-muted-foreground/70 hover:text-foreground" /> :
+				<EyeOff className="h-3 w-3 text-muted-foreground/70 hover:text-foreground" />
+			}
+		</div>
+	);
+
+} );
+
+VisibilityToggle.displayName = 'VisibilityToggle';
+
 // Extract the layer item node header into its own component
 const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeClick, onToggle } ) => {
 
@@ -101,13 +147,14 @@ const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeCli
 					className="flex items-center gap-0.5 px-1"
 					style={{ paddingLeft }}
 				>
+					<VisibilityToggle item={item} />
 					<ChevronToggle
 						isOpen={isOpen}
 						onToggle={onToggle}
 						hasChildren={hasChildren}
 					/>
 					<div className={cn(
-						"flex items-center gap-1",
+						"flex items-center gap-1 flex-1",
 						"text-muted-foreground/70",
 						"group-hover:text-accent-foreground/90",
 						isSelected && "text-accent-foreground/90"
@@ -115,7 +162,7 @@ const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeCli
 						<div className="w-4 h-4 flex items-center justify-center opacity-50">
 							<ObjectIcon object={item} />
 						</div>
-						<span className="text-xs truncate">
+						<span className="text-xs truncate flex-1">
 							{item.name}
 						</span>
 					</div>
