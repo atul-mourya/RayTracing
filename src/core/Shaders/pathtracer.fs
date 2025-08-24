@@ -470,6 +470,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, pathState.samplingInfo );
 		throughput *= indirectResult.throughput * indirectResult.misWeight;
 
+		// Early ray termination - check immediately after throughput update
+		float maxThroughput = max( max( throughput.r, throughput.g ), throughput.b );
+		if( maxThroughput < 0.001 && bounceIndex > 2 ) {
+			break; // Path contribution too small, terminate early
+		}
+
         // Add direct lighting contribution with cached material data
 		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
 		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
@@ -477,12 +483,6 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
         // Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
-
-        // Check if path contribution is becoming negligible
-		float maxThroughput = max( max( throughput.r, throughput.g ), throughput.b );
-		if( maxThroughput < 0.001 && bounceIndex > 2 ) {
-			break; // Path contribution too small, terminate early
-		}
 
 		if( bounceIndex == 0 && hitInfo.didHit ) {
 			objectNormal = N; // Surface normal from first hit
