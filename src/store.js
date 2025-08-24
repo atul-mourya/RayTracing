@@ -862,6 +862,16 @@ const useLightStore = create( set => ( {
 
 					}
 
+				} else if ( prop === 'target' ) {
+
+					if ( light.type === 'SpotLight' ) {
+
+						const targetPos = Array.isArray( val ) ? val : [ value.x || value[ 0 ], value.y || value[ 1 ], value.z || value[ 2 ] ];
+						light.target.position.set( ...targetPos );
+						light.target.updateMatrixWorld();
+
+					}
+
 				}
 
 				window.pathTracerApp.pathTracingPass.updateLights();

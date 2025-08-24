@@ -196,17 +196,26 @@ const LightsTab = () => {
 							</div>
 						)}
 						{light.type === 'SpotLight' && (
-							<div className="flex items-center justify-between">
-								<Slider
-									label={`Cone Angle`}
-									icon={CircleDot}
-									min={0}
-									max={90}
-									step={1}
-									value={[ light.angle ]}
-									onValueChange={value => handleLightChange( index, 'angle', value )}
-								/>
-							</div>
+							<>
+								<div className="flex items-center justify-between">
+									<Vector3Component
+										label={`Target`}
+										value={light.target || [ 0, 0, - 1 ]}
+										onValueChange={value => handleLightChange( index, 'target', value )}
+									/>
+								</div>
+								<div className="flex items-center justify-between">
+									<Slider
+										label={`Cone Angle`}
+										icon={CircleDot}
+										min={0}
+										max={90}
+										step={1}
+										value={[ light.angle ]}
+										onValueChange={value => handleLightChange( index, 'angle', value )}
+									/>
+								</div>
+							</>
 						)}
 					</div>
 				) ) )}
