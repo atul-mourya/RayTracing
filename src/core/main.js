@@ -29,7 +29,8 @@ import {
 	RenderPass,
 	OutlinePass,
 	UnrealBloomPass,
-	OutputPass
+	OutputPass,
+	RectAreaLightUniformsLib
 } from 'three/examples/jsm/Addons';
 import Stats from 'stats-gl';
 
@@ -69,6 +70,9 @@ class PathTracerApp extends EventDispatcher {
 			canvas: this.canvas,
 			alpha: true
 		} );
+
+		// Initialize RectAreaLight uniforms
+		RectAreaLightUniformsLib.init( this.renderer );
 
 		// Initialize other properties
 		this.controls = null;
