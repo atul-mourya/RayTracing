@@ -368,13 +368,13 @@ const MaterialTab = () => {
 	// Early returns for invalid states
 	if ( ! selectedObject ) {
 
-		return <div className="p-4">Please select an object to customize its material properties.</div>;
+		return <div className="p-4"><p className="text-sm text-center text-muted-foreground">Please select an object to customize its material properties</p></div>;
 
 	}
 
 	if ( ! selectedObject.isMesh ) {
 
-		return <div className="p-4">Selected object is not a mesh. Please select a mesh object.</div>;
+		return <div className="p-4"><p className="text-sm text-center text-muted-foreground">Selected object is not a mesh. Please select a mesh object</p></div>;
 
 	}
 
