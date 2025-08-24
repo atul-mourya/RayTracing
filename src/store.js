@@ -828,7 +828,49 @@ const useLightStore = create( set => ( {
 	updateLight: ( idx, prop, val ) => set( s => {
 
 		const lights = [ ...s.lights ];
-		lights[ idx ][ prop ] = val;
+		if ( ! lights[ idx ] ) return s;
+
+		// Handle array values (from sliders)
+		const value = Array.isArray( val ) ? val[ 0 ] : val;
+		lights[ idx ][ prop ] = value;
+
+		// Update the actual Three.js light object
+		if ( window.pathTracerApp ) {
+
+			const light = window.pathTracerApp.scene.getObjectByProperty( 'uuid', lights[ idx ].uuid );
+			if ( light ) {
+
+				if ( prop === 'intensity' ) {
+
+					light.intensity = value;
+
+				} else if ( prop === 'color' ) {
+
+					light.color.set( value );
+
+				} else if ( prop === 'position' ) {
+
+					const pos = Array.isArray( val ) ? val : [ value.x || value[ 0 ], value.y || value[ 1 ], value.z || value[ 2 ] ];
+					light.position.set( ...pos );
+
+				} else if ( prop === 'angle' ) {
+
+					if ( light.type === 'DirectionalLight' || light.type === 'SpotLight' ) {
+
+						// Convert degrees to radians for Three.js
+						light.angle = value * ( Math.PI / 180 );
+
+					}
+
+				}
+
+				window.pathTracerApp.pathTracingPass.updateLights();
+				window.pathTracerApp.reset();
+
+			}
+
+		}
+
 		return { lights };
 
 	} ),
@@ -846,6 +888,57 @@ const useLightStore = create( set => ( {
 		return { lights };
 
 	} ),
+
+	// Add light to scene
+	addLight: ( lightType ) => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		const newLight = window.pathTracerApp.addLight( lightType );
+		if ( newLight ) {
+
+			set( s => ( { lights: [ ...s.lights, newLight ] } ) );
+			window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+
+		}
+
+	},
+
+	// Remove light from scene
+	removeLight: ( lightIndex ) => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		set( s => {
+
+			if ( lightIndex < 0 || lightIndex >= s.lights.length ) return s;
+
+			const lightToRemove = s.lights[ lightIndex ];
+			const success = window.pathTracerApp.removeLight( lightToRemove.uuid );
+
+			if ( success ) {
+
+				window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+				return { lights: s.lights.filter( ( _, idx ) => idx !== lightIndex ) };
+
+			}
+
+			return s;
+
+		} );
+
+	},
+
+	// Clear all lights
+	clearAllLights: () => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		window.pathTracerApp.clearLights();
+		set( { lights: [] } );
+		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+
+	},
 } ) );
 
 // Camera store

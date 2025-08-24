@@ -4,6 +4,9 @@ import {
 	WebGLRenderer,
 	SRGBColorSpace,
 	DirectionalLight,
+	PointLight,
+	SpotLight,
+	Object3D,
 	WebGLRenderTarget,
 	FloatType,
 	Vector2,
@@ -15,7 +18,9 @@ import {
 	MeshBasicMaterial,
 	Raycaster,
 	// TextureLoader,
-	RGBAFormat
+	RGBAFormat,
+	RectAreaLight,
+	MathUtils
 } from 'three';
 
 import {
@@ -127,12 +132,6 @@ class PathTracerApp extends EventDispatcher {
 		this.controls.update();
 
 		this.cameras = [ this.defaultCamera ];
-
-		// Setup lighting
-		this.directionalLight = new DirectionalLight( DEFAULT_STATE.directionalLightColor, DEFAULT_STATE.directionalLightIntensity );
-		this.directionalLight.position.fromArray( DEFAULT_STATE.directionalLightPosition );
-		this.directionalLight.name = "Sun Light";
-		this.scene.add( this.directionalLight );
 
 		// Setup composer and passes
 		this.setupComposer();
@@ -760,6 +759,126 @@ class PathTracerApp extends EventDispatcher {
 	getTargetModel() {
 
 		return this.assetLoader.getTargetModel();
+
+	}
+
+	// Light management methods
+	addLight( type ) {
+
+		const defaults = {
+			DirectionalLight: { position: [ 1, 1, 1 ], intensity: 1.0, color: '#ffffff' },
+			PointLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff' },
+			SpotLight: { position: [ 0, 1, 0 ], intensity: 300, color: '#ffffff', angle: 15 },
+			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 500, color: '#ffffff', width: 2, height: 2 }
+		};
+
+		const props = defaults[ type ];
+		if ( ! props ) return null;
+
+		let light;
+
+		if ( type === 'DirectionalLight' ) {
+
+			light = new DirectionalLight( props.color, props.intensity );
+			light.position.fromArray( props.position );
+
+		} else if ( type === 'PointLight' ) {
+
+			light = new PointLight( props.color, props.intensity );
+			light.position.fromArray( props.position );
+
+		} else if ( type === 'SpotLight' ) {
+
+			light = new SpotLight( props.color, props.intensity );
+			light.position.fromArray( props.position );
+			light.angle = MathUtils.degToRad( props.angle );
+			const target = new Object3D();
+			this.scene.add( target );
+			light.target = target;
+
+		} else if ( type === 'RectAreaLight' ) {
+
+			light = new RectAreaLight( props.color, props.intensity, props.width, props.height );
+			light.position.fromArray( props.position );
+			light.lookAt( 0, 0, 0 );
+
+		}
+
+		const count = this.scene.getObjectsByProperty( 'isLight', true ).length;
+		light.name = `${type.replace( 'Light', '' )} ${count + 1}`;
+		this.scene.add( light );
+		this.pathTracingPass.updateLights();
+		this.reset();
+
+		return {
+			uuid: light.uuid,
+			name: light.name,
+			type: light.type,
+			intensity: light.intensity,
+			color: `#${light.color.getHexString()}`,
+			position: [ light.position.x, light.position.y, light.position.z ],
+			angle: light.angle
+		};
+
+	}
+
+	removeLight( uuid ) {
+
+		const light = this.scene.getObjectByProperty( 'uuid', uuid );
+		if ( ! light || ! light.isLight ) return false;
+
+		if ( light.target ) this.scene.remove( light.target );
+		this.scene.remove( light );
+		this.pathTracingPass.updateLights();
+		this.reset();
+		return true;
+
+	}
+
+	clearLights() {
+
+		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
+
+			if ( light.target ) this.scene.remove( light.target );
+			this.scene.remove( light );
+
+		} );
+		this.pathTracingPass.updateLights();
+		this.reset();
+
+	}
+
+	getLights() {
+
+		return this.scene.getObjectsByProperty( 'isLight', true ).map( light => {
+
+			let angle = 0;
+			if ( light.type === 'DirectionalLight' && light.angle !== undefined ) {
+
+				angle = MathUtils.radToDeg( light.angle );
+
+			} else if ( light.type === 'SpotLight' ) {
+
+				// For SpotLights, check for valid angle values
+				if ( light.angle !== undefined ) {
+
+					angle = MathUtils.radToDeg( light.angle );
+
+				}
+
+			}
+
+			return {
+				uuid: light.uuid,
+				name: light.name,
+				type: light.type,
+				intensity: light.intensity,
+				color: `#${light.color.getHexString()}`,
+				position: [ light.position.x, light.position.y, light.position.z ],
+				angle: angle
+			};
+
+		} );
 
 	}
 
