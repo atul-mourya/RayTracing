@@ -42,6 +42,7 @@
     "@supabase/supabase-js": "^2.46.2",
     "@tailwindcss/postcss": "^4.0.1",
     "@tailwindcss/vite": "^4.0.1",
+    "@uidotdev/usehooks": "^2.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.462.0",
@@ -54,7 +55,6 @@
     "tailwind-merge": "^2.5.3",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.172.0",
-    "use-debounce": "^10.0.4",
     "zustand": "^5.0.1"
   },
   "devDependencies": {

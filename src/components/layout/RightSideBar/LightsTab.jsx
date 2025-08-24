@@ -26,8 +26,7 @@ const LightsTab = () => {
 					// Store angle in radians for shader
 					light.angle = value[ 0 ] * ( Math.PI / 180 ); // Convert degrees to radians
 
-				}
-				else if ( property === 'angle' && light.type === 'SpotLight' ) {
+				} else if ( property === 'angle' && light.type === 'SpotLight' ) {
 
 					// Store angle in radians for shader (already converted in the UI handler)
 					light.angle = value[ 0 ];
@@ -91,7 +90,7 @@ const LightsTab = () => {
 				color: `#${light.color.getHexString()}`,
 				position: [ light.position.x, light.position.y, light.position.z ],
 				// Add angle property for directional and spot lights (convert from radians to degrees for UI)
-				angle: light.type === 'DirectionalLight' ? ( light.angle || 0 ) * ( 180 / Math.PI ) : 
+				angle: light.type === 'DirectionalLight' ? ( light.angle || 0 ) * ( 180 / Math.PI ) :
 					   light.type === 'SpotLight' ? ( light.angle || Math.PI / 4 ) * ( 180 / Math.PI ) : 0
 			} ) );
 			setLights( sceneLights );
@@ -150,8 +149,8 @@ const LightsTab = () => {
 								min={0}
 								max={90}
 								step={1}
-								value={[ (light.angle || Math.PI / 4) * (180 / Math.PI) ]}
-								onValueChange={value => handleLightChange( index, 'angle', [value[0] * (Math.PI / 180)] )}
+								value={[ ( light.angle || Math.PI / 4 ) * ( 180 / Math.PI ) ]}
+								onValueChange={value => handleLightChange( index, 'angle', [ value[ 0 ] * ( Math.PI / 180 ) ] )}
 							/>
 						</div>
 					)}

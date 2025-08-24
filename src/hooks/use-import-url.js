@@ -1,31 +1,29 @@
 import { useState, useCallback } from 'react';
+import { useToggle } from '@uidotdev/usehooks';
 import { useToast } from '@/hooks/use-toast';
 
 export function useImportUrl() {
 
 	const { toast } = useToast();
-
-	const [ modalState, setModalState ] = useState( {
-		isImportModalOpen: false,
-		importUrl: '',
-		isImporting: false
-	} );
+	const [ isImportModalOpen, toggleImportModal ] = useToggle( false );
+	const [ importUrl, setImportUrl ] = useState( '' );
+	const [ isImporting, setIsImporting ] = useState( false );
 
 	const openImportModal = useCallback( () => {
 
-		setModalState( prev => ( { ...prev, isImportModalOpen: true } ) );
+		toggleImportModal( true );
 
-	}, [] );
+	}, [ toggleImportModal ] );
 
 	const closeImportModal = useCallback( () => {
 
-		setModalState( prev => ( { ...prev, isImportModalOpen: false } ) );
+		toggleImportModal( false );
 
-	}, [] );
+	}, [ toggleImportModal ] );
 
-	const setImportUrl = useCallback( ( url ) => {
+	const setImportUrlValue = useCallback( ( url ) => {
 
-		setModalState( prev => ( { ...prev, importUrl: url } ) );
+		setImportUrl( url );
 
 	}, [] );
 
@@ -51,8 +49,6 @@ export function useImportUrl() {
 	// Handle import from URL
 	const handleImportFromUrl = useCallback( () => {
 
-		const { importUrl } = modalState;
-
 		if ( ! validateUrl( importUrl ) ) {
 
 			toast( {
@@ -64,19 +60,16 @@ export function useImportUrl() {
 
 		}
 
-		setModalState( prev => ( { ...prev, isImporting: true } ) );
+		setIsImporting( true );
 
 		if ( window.pathTracerApp ) {
 
 			window.pathTracerApp.loadModel( importUrl )
 				.then( () => {
 
-					setModalState( prev => ( {
-						...prev,
-						isImporting: false,
-						importUrl: '',
-						isImportModalOpen: false
-					} ) );
+					setIsImporting( false );
+					setImportUrl( '' );
+					toggleImportModal( false );
 
 					toast( {
 						title: "Model Loaded",
@@ -86,7 +79,7 @@ export function useImportUrl() {
 				} )
 				.catch( ( error ) => {
 
-					setModalState( prev => ( { ...prev, isImporting: false } ) );
+					setIsImporting( false );
 
 					toast( {
 						title: "Error Loading Model",
@@ -98,17 +91,21 @@ export function useImportUrl() {
 
 		} else {
 
-			setModalState( prev => ( { ...prev, isImporting: false } ) );
+			setIsImporting( false );
 
 		}
 
-	}, [ modalState, toast, validateUrl ] );
+	}, [ importUrl, toast, validateUrl, toggleImportModal ] );
 
 	return {
-		modalState,
+		modalState: {
+			isImportModalOpen,
+			importUrl,
+			isImporting
+		},
 		openImportModal,
 		closeImportModal,
-		setImportUrl,
+		setImportUrl: setImportUrlValue,
 		handleImportFromUrl
 	};
 

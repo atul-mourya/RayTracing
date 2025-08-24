@@ -197,10 +197,8 @@
 
 ### Known Issues
 - [ ] some meshes in outliner shows as group and i'm not able to activate material editor (example bistro)
-- [x] transparent true or false makes no difference
 - [ ] wip tile rendering - https://claude.ai/chat/47f754db-f674-4965-849e-5afa2748dc8b
 - [ ] after each tile rendering cycle, the rendered image is becomes dim/low quality
-- [x] some lowpoly models with texture fails to load. it crashes the application
 
 ### Code Quality
 - [ ] **Performance Profiling**
@@ -253,7 +251,7 @@
 - [ ] Add dynamic camera addition and removal
 - [ ] Add dynamic object addition and removal
 - [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
-- [ ] useHook - https://github.com/uidotdev/usehooks
+- [x] useHook - https://github.com/uidotdev/usehooks
 - [x] **Recent searches dropdown in catalog with clear button**
 - [x] **Keyboard shortcuts: Esc (deselect), R (reset camera), Space (play/pause)**
 - [x] Star/heart button on each catalog item

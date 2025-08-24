@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { initDatabase } from '@/utils/database';
 import TopBar from './components/layout/TopBar/TopBar';
 import LeftSidebar from '@/components/layout/LeftSideBar/LeftSidebar';
@@ -10,16 +10,27 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { useDebouncedCallback } from 'use-debounce';
 import { useStore } from '@/store';
 
 const App = () => {
 
-	// Memoized resize handler to prevent recreation on every render
-	const handleResize = useDebouncedCallback(
-		useCallback( () => window.dispatchEvent( new Event( 'resize' ) ), [] ),
-		500
-	);
+	// Memoized debounced resize handler to prevent recreation on every render
+	const timeoutRef = useRef( null );
+	const handleResize = useCallback( () => {
+
+		if ( timeoutRef.current ) {
+
+			clearTimeout( timeoutRef.current );
+
+		}
+
+		timeoutRef.current = setTimeout( () => {
+
+			window.dispatchEvent( new Event( 'resize' ) );
+
+		}, 500 );
+
+	}, [] );
 
 	useEffect( () => {
 

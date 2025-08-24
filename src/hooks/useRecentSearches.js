@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useLocalStorage } from '@uidotdev/usehooks';
 
-const STORAGE_KEY = 'raytracer-recent-searches';
 const MAX_RECENT_SEARCHES = 10;
 
 /**
@@ -10,53 +10,7 @@ const MAX_RECENT_SEARCHES = 10;
  */
 export const useRecentSearches = ( catalogType = 'default' ) => {
 
-	const [ recentSearches, setRecentSearches ] = useState( [] );
-
-	// Load recent searches from localStorage on mount
-	useEffect( () => {
-
-		const loadRecentSearches = () => {
-
-			try {
-
-				const stored = localStorage.getItem( `${STORAGE_KEY}-${catalogType}` );
-				if ( stored ) {
-
-					const parsed = JSON.parse( stored );
-					if ( Array.isArray( parsed ) ) {
-
-						setRecentSearches( parsed );
-
-					}
-
-				}
-
-			} catch ( error ) {
-
-				console.warn( 'Failed to load recent searches:', error );
-
-			}
-
-		};
-
-		loadRecentSearches();
-
-	}, [ catalogType ] );
-
-	// Save recent searches to localStorage
-	const saveToStorage = useCallback( ( searches ) => {
-
-		try {
-
-			localStorage.setItem( `${STORAGE_KEY}-${catalogType}`, JSON.stringify( searches ) );
-
-		} catch ( error ) {
-
-			console.warn( 'Failed to save recent searches:', error );
-
-		}
-
-	}, [ catalogType ] );
+	const [ recentSearches, setRecentSearches ] = useLocalStorage( `raytracer-recent-searches-${catalogType}`, [] );
 
 	// Add a new search term to recent searches
 	const addRecentSearch = useCallback( ( searchTerm ) => {
@@ -107,35 +61,25 @@ export const useRecentSearches = ( catalogType = 'default' ) => {
 			// Add to beginning
 			const updated = [ trimmedTerm, ...filtered ].slice( 0, MAX_RECENT_SEARCHES );
 
-			// Save to storage
-			saveToStorage( updated );
-
 			return updated;
 
 		} );
 
-	}, [ saveToStorage ] );
+	}, [ setRecentSearches ] );
 
 	// Remove a specific search term
 	const removeRecentSearch = useCallback( ( searchTerm ) => {
 
-		setRecentSearches( ( prev ) => {
+		setRecentSearches( ( prev ) => prev.filter( term => term !== searchTerm ) );
 
-			const updated = prev.filter( term => term !== searchTerm );
-			saveToStorage( updated );
-			return updated;
-
-		} );
-
-	}, [ saveToStorage ] );
+	}, [ setRecentSearches ] );
 
 	// Clear all recent searches
 	const clearRecentSearches = useCallback( () => {
 
 		setRecentSearches( [] );
-		saveToStorage( [] );
 
-	}, [ saveToStorage ] );
+	}, [ setRecentSearches ] );
 
 	return {
 		recentSearches,
