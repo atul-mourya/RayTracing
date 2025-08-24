@@ -359,6 +359,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	PathState pathState;
 	pathState.weightsComputed = false;
 	pathState.classificationCached = false;
+	pathState.materialCacheCached = false;
 	pathState.texturesLoaded = false;
 	pathState.pathImportance = 0.0; // Initialize path importance cache
 
@@ -441,10 +442,10 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		vec3 V = - ray.direction; // View direction, negative means pointing towards camera
 		material.sheenRoughness = clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
 
-        // Create material cache if not already created
-		if( ! pathState.weightsComputed ) {
+        // Create material cache if not already cached
+		if( ! pathState.materialCacheCached ) {
 			pathState.materialCache = createMaterialCache( N, V, material, matSamples, pathState.materialClass );
-			pathState.texturesLoaded = true;
+			pathState.materialCacheCached = true;
 		}
 
 		DirectionSample brdfSample;

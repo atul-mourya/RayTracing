@@ -183,6 +183,7 @@ struct PathState {
 	bool weightsComputed;                  // Flag to track if weights are computed
 	bool texturesLoaded;                   // Flag to track if textures are loaded
 	bool classificationCached;             // Flag for material classification
+	bool materialCacheCached;              // Flag for material cache creation
 	float pathImportance;                  // Cached path importance estimate
 };
 
