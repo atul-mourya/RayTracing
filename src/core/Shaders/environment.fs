@@ -363,6 +363,11 @@ EnvMapSample sampleEnvironmentWithContext(
 
     confidence *= clamp( pdf * 1000.0, 0.1, 1.0 );
     confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 );
+    
+    // Additional confidence boost for well-sampled directions (away from poles)
+    float theta = (1.0 - uv.y) * PI;
+    float directionQuality = clamp( sin(theta) * 2.0, 0.5, 1.0 );
+    confidence *= directionQuality;
 
     result.direction = direction;
     result.value = envValue;
