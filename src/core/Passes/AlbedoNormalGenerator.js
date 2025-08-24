@@ -751,7 +751,8 @@ export class AlbedoNormalGenerator {
 				return Math.max( 0.0, exposed - 0.004 ) / ( exposed * ( 6.2 - exposed ) + 0.004 );
 
 			case ACESFilmicToneMapping:
-			default:
+			default: {
+
 				// ACES Filmic tone mapping
 				const a = 2.51;
 				const b = 0.03;
@@ -759,6 +760,8 @@ export class AlbedoNormalGenerator {
 				const d = 0.59;
 				const e = 0.14;
 				return Math.max( 0.0, ( exposed * ( a * exposed + b ) ) / ( exposed * ( c * exposed + d ) + e ) );
+
+			}
 
 		}
 

@@ -216,7 +216,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async updateQuality( value ) {
 
-		if ( ! MODEL_CONFIG.QUALITY_SUFFIXES.hasOwnProperty( value ) ) {
+		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_SUFFIXES, value ) ) {
 
 			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_SUFFIXES ).join( ', ' )}` );
 
