@@ -720,8 +720,10 @@ vec3 calculateDirectLightingMIS(
 
         DirectionalLight light = getDirectionalLight( i );
 
-        // Quick importance check for directional lights
-        float quickDirImportance = light.intensity * max( 0.0, dot( N, light.direction ) );
+        // Material-aware importance check for directional lights
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
+                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float quickDirImportance = light.intensity * materialWeight * max( 0.0, dot( N, light.direction ) );
         if( quickDirImportance < importanceThreshold ) {
             continue;
         }
@@ -752,8 +754,10 @@ vec3 calculateDirectLightingMIS(
         vec3 lightCenter = light.position - hitInfo.hitPoint;
         float distSq = dot( lightCenter, lightCenter );
 
-        // Quick importance calculation for early culling
-        float quickImportance = light.intensity * light.area / max( distSq, 1.0 );
+        // Material-aware importance calculation for early culling
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
+                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float quickImportance = (light.intensity * light.area * materialWeight) / max( distSq, 1.0 );
         if( quickImportance < importanceThreshold ) {
             continue;
         }
@@ -789,12 +793,15 @@ vec3 calculateDirectLightingMIS(
         if( light.intensity <= 0.0 )
             continue;
 
-        // Quick distance check for early culling
+        // Material-aware distance check for early culling
         vec3 toLight = light.position - hitInfo.hitPoint;
         float distSq = dot( toLight, toLight );
         
-        // Skip extremely distant or weak lights
-        if( distSq > ( light.intensity * 10000.0 ) || distSq < 0.001 )
+        // Material-aware culling with distance check
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
+                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float effectiveIntensity = light.intensity * materialWeight;
+        if( distSq > ( effectiveIntensity * 10000.0 ) || distSq < 0.001 )
             continue;
 
         totalLighting += calculatePointLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, bounceIndex, rngState, stats );
@@ -821,12 +828,15 @@ vec3 calculateDirectLightingMIS(
         if( light.intensity <= 0.0 )
             continue;
 
-        // Quick distance check for early culling
+        // Material-aware distance check for early culling
         vec3 toLight = light.position - hitInfo.hitPoint;
         float distSq = dot( toLight, toLight );
         
-        // Skip extremely distant or weak lights
-        if( distSq > ( light.intensity * 10000.0 ) || distSq < 0.001 )
+        // Material-aware culling with distance check
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
+                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float effectiveIntensity = light.intensity * materialWeight;
+        if( distSq > ( effectiveIntensity * 10000.0 ) || distSq < 0.001 )
             continue;
 
         totalLighting += calculateSpotLightContribution( light, hitInfo.hitPoint, N, V, hitInfo.material, matCache, brdfSample, bounceIndex, rngState, stats );
