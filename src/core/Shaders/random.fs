@@ -386,12 +386,3 @@ vec2 getBRDFSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uin
         return randomSample;
     }
 }
-
-// Get sample for Russian roulette (1D)
-float getRussianRouletteSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
-    if( samplingTechnique == 3 ) { // Blue noise
-        // Use a different dimension for Russian roulette
-        return sampleBlueNoise1D( pixelCoord, sampleIndex, bounceIndex * 4 + 3 );
-    }
-    return RandomValue( rngState );
-}

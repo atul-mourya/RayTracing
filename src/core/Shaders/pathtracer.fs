@@ -201,7 +201,7 @@ float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMater
 }
 
 // Russian Roulette with enhanced material importance and optimized sampling - OPTIMIZED
-bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, uint seed, PathState pathState ) {
+bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, inout uint rngState, PathState pathState ) {
     // Always continue for first few bounces
 	if( depth < 3 ) {
 		return true;
@@ -292,8 +292,8 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 	float minProb = mc.isEmissive ? 0.04 : 0.02;
 	rrProb = max( rrProb, minProb );
 
-    // Use the optimized Russian Roulette sampling for better quality
-	float rrSample = getRussianRouletteSample( gl_FragCoord.xy, 0, depth, seed );
+    // Use decorrelated sequence for better quality with minimal code
+	float rrSample = RandomValue( rngState ); // Already decorrelated by depth
 	return rrSample < rrProb;
 }
 
