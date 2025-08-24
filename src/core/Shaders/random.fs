@@ -309,13 +309,19 @@ vec2 getStratifiedSample( vec2 pixelCoord, int rayIndex, int totalRays, inout ui
     // Base stratified position
     vec2 strataPos = vec2( float( sx ), float( sy ) ) / vec2( float( strataX ), float( strataY ) );
 
-    // Get jitter based on sampling technique
+    // Enhanced jitter based on sampling technique with blue noise fallback for better convergence
     vec2 jitter;
-    if( samplingTechnique == 3 ) { // Blue noise
-        // Use progressive blue noise for stratified sampling
+    if( samplingTechnique == 3 ) { // Blue noise - improved progressive sampling
         jitter = sampleProgressiveBlueNoise( pixelCoord, rayIndex, totalRays );
     } else {
+        // Enhanced fallback: use regular sampling with slight blue noise influence for better convergence
         jitter = getRandomSample( pixelCoord, rayIndex, 0, rngState, - 1 );
+        
+        // Add subtle blue noise influence even for non-blue-noise techniques
+        if( totalRays > 4 ) { // Only for multi-sample scenarios
+            vec2 blueNoiseInfluence = sampleBlueNoise2D( pixelCoord, rayIndex, 0 ) * 0.1;
+            jitter = mix( jitter, blueNoiseInfluence, 0.2 ); // 20% blue noise influence
+        }
     }
 
     jitter /= vec2( float( strataX ), float( strataY ) );
@@ -342,23 +348,43 @@ uint getDecorrelatedSeed( vec2 pixelCoord, int rayIndex, uint frame ) {
 // Specialized sampling functions
 // -----------------------------------------------------------------------------
 
-// Get sample optimized for primary rays (pixel anti-aliasing)
+// Get sample optimized for primary rays (pixel anti-aliasing) with enhanced blue noise fallback
 vec2 getPrimaryRaySample( vec2 pixelCoord, int sampleIndex, int totalSamples, inout uint rngState ) {
-    if( samplingTechnique == 3 ) { // Blue noise
+    if( samplingTechnique == 3 ) { // Blue noise - optimal for primary rays
         return sampleProgressiveBlueNoise( pixelCoord, sampleIndex, totalSamples );
+    } else {
+        // Enhanced stratified sampling with blue noise influence for better convergence
+        vec2 stratifiedSample = getStratifiedSample( pixelCoord, sampleIndex, totalSamples, rngState );
+        
+        // Add blue noise influence for improved anti-aliasing convergence
+        if( totalSamples > 1 ) {
+            vec2 blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, 1 ) * 0.15;
+            stratifiedSample = mix( stratifiedSample, blueNoiseHint, 0.25 ); // 25% blue noise influence
+        }
+        
+        return stratifiedSample;
     }
-    return getStratifiedSample( pixelCoord, sampleIndex, totalSamples, rngState );
 }
 
-// Get sample optimized for BRDF sampling
+// Get sample optimized for BRDF sampling with enhanced convergence
 vec2 getBRDFSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uint rngState ) {
     // BRDF sampling benefits from different dimensions than pixel sampling
     int dimensionOffset = 2 + bounceIndex * 2; // Start at dimension 2
 
-    if( samplingTechnique == 3 ) { // Blue noise
+    if( samplingTechnique == 3 ) { // Blue noise - optimal for BRDF sampling
         return sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset );
+    } else {
+        // Enhanced random sampling with subtle blue noise influence for better BRDF convergence
+        vec2 randomSample = getRandomSample( pixelCoord, sampleIndex, bounceIndex, rngState, - 1 );
+        
+        // Add blue noise influence for deeper bounces where quality matters
+        if( bounceIndex > 0 ) {
+            vec2 blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset ) * 0.12;
+            randomSample = mix( randomSample, blueNoiseHint, 0.15 ); // 15% blue noise influence
+        }
+        
+        return randomSample;
     }
-    return getRandomSample( pixelCoord, sampleIndex, bounceIndex, rngState, - 1 );
 }
 
 // Get sample for Russian roulette (1D)
