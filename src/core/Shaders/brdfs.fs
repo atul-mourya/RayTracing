@@ -1,9 +1,6 @@
 // Enhanced BRDF weight calculation with material classification optimization - OPTIMIZED
-BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
+BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassification mc ) {
 	BRDFWeights weights;
-
-    // Get material classification for optimized computation paths
-	MaterialClassification mc = classifyMaterial( material );
 
     // Precalculate shared values with enhanced precision
 	float invRoughness = 1.0 - material.roughness;
@@ -77,14 +74,11 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material ) {
 }
 
 // Enhanced material importance with better classification utilization - OPTIMIZED
-float getMaterialImportance( RayTracingMaterial material ) {
+float getMaterialImportance( RayTracingMaterial material, MaterialClassification mc ) {
     // Early out for specialized materials
 	if( material.transmission > 0.0 || material.clearcoat > 0.0 ) {
 		return 0.95;
 	}
-
-    // Use enhanced classification for faster computation
-	MaterialClassification mc = classifyMaterial( material );
 
     // Base importance from enhanced complexity score
 	float baseImportance = mc.complexityScore;
@@ -116,14 +110,11 @@ float getMaterialImportance( RayTracingMaterial material ) {
 	return clamp( totalImportance, 0.0, 1.0 );
 }
 
-ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex ) {
+ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex, MaterialClassification mc ) {
 	ImportanceSamplingInfo info;
 
     // Base BRDF weights
-	BRDFWeights weights = calculateBRDFWeights( material );
-
-    // Classify material once
-	MaterialClassification mc = classifyMaterial( material );
+	BRDFWeights weights = calculateBRDFWeights( material, mc );
 
     // Base importances on BRDF weights
 	info.diffuseImportance = weights.diffuse;
@@ -416,13 +407,12 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 	return baseLayer;
 }
 
-MaterialCache createMaterialCache( vec3 N, vec3 V, RayTracingMaterial material, MaterialSamples samples ) {
+MaterialCache createMaterialCache( vec3 N, vec3 V, RayTracingMaterial material, MaterialSamples samples, MaterialClassification mc ) {
 	MaterialCache cache;
 
 	cache.NoV = max( dot( N, V ), 0.001 );
 
-    // Use material classification for faster checks
-	MaterialClassification mc = classifyMaterial( material );
+    // Use pre-computed material classification for faster checks
 	cache.isPurelyDiffuse = mc.isRough && ! mc.isMetallic &&
 		material.transmission == 0.0 && material.clearcoat == 0.0;
 	cache.isMetallic = mc.isMetallic;

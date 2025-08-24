@@ -66,15 +66,16 @@ float pdf;
 // BRDF sampling with early exits and optimized math
 DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState, inout PathState pathState ) {
 
-    // Compute BRDF weights and classification if not already cached
-	if( ! pathState.weightsComputed ) {
-		pathState.brdfWeights = calculateBRDFWeights( material );
-		pathState.weightsComputed = true;
-	}
-
+    // Compute material classification if not already cached
 	if( ! pathState.classificationCached ) {
 		pathState.materialClass = classifyMaterial( material );
 		pathState.classificationCached = true;
+	}
+
+    // Compute BRDF weights using cached classification
+	if( ! pathState.weightsComputed ) {
+		pathState.brdfWeights = calculateBRDFWeights( material, pathState.materialClass );
+		pathState.weightsComputed = true;
 	}
 
 	BRDFWeights weights = pathState.brdfWeights;
@@ -442,7 +443,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
         // Create material cache if not already created
 		if( ! pathState.weightsComputed ) {
-			pathState.materialCache = createMaterialCache( N, V, material, matSamples );
+			pathState.materialCache = createMaterialCache( N, V, material, matSamples, pathState.materialClass );
 			pathState.texturesLoaded = true;
 		}
 
@@ -460,7 +461,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
         // Get importance sampling info with caching
 		if( ! pathState.weightsComputed || bounceIndex == 0 ) {
-			pathState.samplingInfo = getImportanceSamplingInfo( material, bounceIndex );
+			pathState.samplingInfo = getImportanceSamplingInfo( material, bounceIndex, pathState.materialClass );
 		}
 
         // Add emissive contribution
