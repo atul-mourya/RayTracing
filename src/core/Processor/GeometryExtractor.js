@@ -47,7 +47,6 @@ export default class GeometryExtractor {
 
 		// First pass: count triangles to pre-allocate Float32Array
 		this.triangleCount = this.countTriangles( object );
-		console.log( `Pre-allocating for ${this.triangleCount} triangles (texture-aligned format)` );
 
 		// Allocate Float32Array for all triangle data (texture-ready format)
 		this.triangleData = new Float32Array( this.triangleCount * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );

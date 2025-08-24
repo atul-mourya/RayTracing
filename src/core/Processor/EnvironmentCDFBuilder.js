@@ -408,7 +408,7 @@ export class EnvironmentCDFBuilder {
 
 		}
 
-		console.log( 'Enhanced Luminance Analysis:', this.debugInfo );
+		console.debug( 'Enhanced Luminance Analysis:', this.debugInfo );
 
 	}
 
@@ -733,7 +733,7 @@ export class EnvironmentCDFBuilder {
 			minThreshold: this.options.minLuminanceThreshold
 		};
 
-		console.log( 'Enhanced CDF Build Stats (with pole handling):', this.debugInfo.cdfStats );
+		console.debug( 'Enhanced CDF Build Stats (with pole handling):', this.debugInfo.cdfStats );
 
 		// Create texture with linear filtering
 		const cdfTexture = new DataTexture(

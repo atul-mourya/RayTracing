@@ -42,7 +42,6 @@ self.onmessage = function ( e ) {
 
 		// Determine input format and prepare data
 		let inputTriangles = new Float32Array( triangleData );
-		console.log( `[BVHWorker] Processing ${triangleCount} triangles from Float32Array (${inputTriangles.byteLength} bytes, ${TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE} floats per triangle)` );
 
 		// Build BVH - builder can handle both formats
 		const reorderedTriangles = [];

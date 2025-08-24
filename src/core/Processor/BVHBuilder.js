@@ -363,7 +363,6 @@ class TreeletOptimizer {
 		this.stats.averageSAHImprovement = this.stats.treeletsProcessed > 0 ?
 			this.stats.totalSAHImprovement / this.stats.treeletsProcessed : 0;
 
-		console.log( 'Treelet optimization complete:', this.stats );
 		return bvhRoot;
 
 	}

@@ -101,8 +101,6 @@ export class RenderTargetManager {
 			this.previousTarget.textures[ 0 ].name = 'PreviousColor';
 			this.previousTarget.textures[ 1 ].name = 'PreviousNormalDepth';
 
-			console.log( 'RenderTargetManager: Successfully created MRT targets' );
-
 		} catch ( error ) {
 
 			console.error( 'RenderTargetManager: Error creating MRT targets:', error );
