@@ -373,8 +373,10 @@ vec3 calculateDirectionalLightContribution(
     // BRDF evaluation using sampled direction
     vec3 brdfValue = evaluateMaterialResponseCached( viewDir, shadowDirection, normal, material, matCache );
 
-    // Base contribution
-    vec3 contribution = light.color * light.intensity * brdfValue * NoL * visibility;
+    // Physical light contribution
+    // The BRDF already includes material color, so we apply light radiance properly
+    vec3 lightRadiance = light.color * light.intensity;
+    vec3 contribution = lightRadiance * brdfValue * NoL * visibility;
 
     // MIS for directional lights (only on primary rays where it matters)
     if( bounceIndex == 0 && brdfSample.pdf > 0.0 ) {

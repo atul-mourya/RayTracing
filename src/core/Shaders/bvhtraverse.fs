@@ -119,7 +119,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 							closestHit = hit;
 							closestHit.materialIndex = tri.materialIndex;
 							// Early exit for shadow rays - any hit is sufficient
-							return closestHit;
+							// return closestHit;
 						}
 					} else {
 						// For primary rays, do full material check

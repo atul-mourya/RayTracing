@@ -371,7 +371,8 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		HitInfo hitInfo = traverseBVH( ray, stats, false );
 
 		if( ! hitInfo.didHit ) {
-            // Environment lighting
+            // ENVIRONMENT LIGHTING (Contextual)
+			// Handle rays that escape the scene - this is naturally part of the light transport
 			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
 			radiance += regularizePathContribution( envColor.rgb * throughput, throughput, float( bounceIndex ) );
 			alpha *= envColor.a;
@@ -460,15 +461,28 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			brdfSample = generateSampledDirection( V, N, material, randomSample, rngState, pathState );
 		}
 
-        // Get importance sampling info with caching
+        // 1. EMISSIVE CONTRIBUTION (First)
+		// Add emissive contribution immediately when hitting emissive surface
+		if( length( matSamples.emissive ) > 0.0 ) {
+			radiance += matSamples.emissive * throughput;
+		}
+
+		// Update hitInfo with texture-sampled material and normal for accurate direct lighting
+		hitInfo.material = material;
+		hitInfo.normal = N;
+
+		// 2. DIRECT LIGHTING (Second) 
+		// Calculate direct illumination from light sources at hit point using texture-sampled material
+		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
+		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
+
+		// Get importance sampling info with caching for indirect lighting
 		if( ! pathState.weightsComputed || bounceIndex == 0 ) {
 			pathState.samplingInfo = getImportanceSamplingInfo( material, bounceIndex, pathState.materialClass );
 		}
 
-        // Add emissive contribution
-		radiance += matSamples.emissive * throughput;
-
-        // Indirect lighting using MIS with cached sampling info
+        // 3. INDIRECT LIGHTING (Third)
+		// Sample BRDF to determine next ray direction for path continuation
 		IndirectLightingResult indirectResult = calculateIndirectLighting( V, N, material, brdfSample, rayIndex, bounceIndex, rngState, pathState.samplingInfo );
 		throughput *= indirectResult.throughput * indirectResult.misWeight;
 
@@ -477,10 +491,6 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		if( maxThroughput < 0.001 && bounceIndex > 2 ) {
 			break; // Path contribution too small, terminate early
 		}
-
-        // Add direct lighting contribution with cached material data
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
-		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
 
         // Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
@@ -492,7 +502,8 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			objectID = float( hitInfo.materialIndex ); // Material/object identifier
 		}
 
-        // Russian roulette path termination
+        // 4. RUSSIAN ROULETTE (Fourth)
+		// Probabilistic path termination to avoid infinite bounces while maintaining unbiasedness
 		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState, pathState ) ) {
 			break;
 		}
