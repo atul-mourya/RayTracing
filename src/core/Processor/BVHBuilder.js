@@ -232,7 +232,7 @@ export default class BVHBuilder {
 		};
 
 		// Treelet optimization configuration - conservative settings to prevent crashes
-		this.enableTreeletOptimization = true; // Enable by default for better ray performance
+		this.enableTreeletOptimization = false; // Enable by default for better ray performance
 		this.treeletSize = 7; // Conservative: Reduced from 9 to 7 to prevent memory issues
 		this.treeletOptimizationPasses = 1; // Conservative: Single pass to prevent excessive computation
 		this.treeletMinImprovement = 0.01; // Conservative: Higher threshold to reduce computation load

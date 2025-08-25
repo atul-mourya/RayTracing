@@ -35,7 +35,6 @@ export default class TriangleSDF {
 			enableTextureCache: true,
 			maxConcurrentTextureTasks: Math.min( navigator.hardwareConcurrency || 4, 6 ),
 			// Treelet optimization configuration
-			enableTreeletOptimization: true,
 			treeletSize: 7, // 7 nodes gives 315 topologies for optimal enumeration
 			treeletOptimizationPasses: 1,
 			treeletMinImprovement: 0.01, // Minimum SAH improvement threshold
