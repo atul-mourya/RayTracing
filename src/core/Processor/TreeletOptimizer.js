@@ -209,11 +209,17 @@ export default class TreeletOptimizer {
 		if ( ! node || visited.has( node ) || node.triangleCount > 0 || depth > 25 ) {
 
 			if ( depth === 0 && node ) {
+
 				console.log( `Root node check: triangleCount=${node.triangleCount}, depth=${depth}` );
+
 			}
+
 			if ( depth > 25 ) {
+
 				console.log( `Skipping node at depth ${depth} (too deep)` );
+
 			}
+
 			return 0; // Skip leaves, already processed nodes, and deep recursion
 
 		}
@@ -256,7 +262,7 @@ export default class TreeletOptimizer {
 
 			console.log( `Found treelet at depth ${depth}: ${totalLeafCount} leaves` );
 
-		
+
 			treeletRoots.push( node );
 			this.markSubtreeVisited( node, visited );
 			return totalLeafCount;

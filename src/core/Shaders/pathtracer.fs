@@ -36,10 +36,19 @@ uniform bool cameraIsMoving;
 uniform bool hasPreviousAccumulated;
 #endif
 
+// Ray type enumeration for proper classification
+const int RAY_TYPE_CAMERA = 0;        // Primary rays from camera
+const int RAY_TYPE_REFLECTION = 1;     // Reflection rays
+const int RAY_TYPE_TRANSMISSION = 2;   // Transmission/refraction rays
+const int RAY_TYPE_DIFFUSE = 3;        // Diffuse indirect rays
+const int RAY_TYPE_SHADOW = 4;         // Shadow rays
+
 struct RenderState {
 	int traversals;               // Remaining general bounces
 	int transmissiveTraversals;   // Remaining transmission-specific bounces
-	bool firstRay;                // Whether this is the first ray in the path
+	int rayType;                  // Current ray type (RAY_TYPE_*)
+	bool isPrimaryRay;            // True only for camera rays (bounceIndex == 0)
+	int actualBounceDepth;        // True depth without manipulation
 };
 
 uniform int transmissiveBounces;  // Controls the number of allowed transmission bounces
@@ -297,19 +306,21 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 	return rrSample < rrProb;
 }
 
-vec4 sampleBackgroundLighting( int bounceIndex, vec3 direction ) {
-	if( bounceIndex == 0 && ! showBackground ) {
+vec4 sampleBackgroundLighting( RenderState state, vec3 direction ) {
+	// Only hide background for primary camera rays when showBackground is false
+	if( state.isPrimaryRay && ! showBackground ) {
 		return vec4( 0.0 );
 	}
 
-    // Primary rays
-	vec4 envColor = sampleEnvironment( direction ) * environmentIntensity; // hardcoded multiplier for testing
-
-	if( bounceIndex == 0 ) {
-		// Primary rays: always use full resolution for background
+	vec4 envColor = sampleEnvironment( direction ) * environmentIntensity;
+	
+	// Use consistent background intensity scaling
+	if( state.isPrimaryRay ) {
+		// Primary camera rays: use user-controlled background intensity
 		return envColor * backgroundIntensity;
 	} else {
-        // Secondary rays
+		// Secondary rays: use environment intensity for realistic lighting
+		// This ensures energy conservation and proper global illumination
 		return envColor * 2.0;
 	}
 }
@@ -354,6 +365,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
     // Initialize render state
 	RenderState state;
 	state.transmissiveTraversals = transmissiveBounces;
+	state.rayType = RAY_TYPE_CAMERA;
+	state.isPrimaryRay = true;
+	state.actualBounceDepth = 0;
 
     // Enhanced path state initialization for better caching - OPTIMIZED
 	PathState pathState;
@@ -363,17 +377,26 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	pathState.texturesLoaded = false;
 	pathState.pathImportance = 0.0; // Initialize path importance cache
 
-	for( int bounceIndex = 0; bounceIndex <= maxBounceCount; bounceIndex ++ ) {
+	// Track effective bounces separately from transmissive bounces
+	int effectiveBounces = 0;
+	
+	for( int bounceIndex = 0; bounceIndex <= maxBounceCount + transmissiveBounces; bounceIndex ++ ) {
         // Update state for this bounce
-		state.traversals = maxBounceCount - bounceIndex;
-		state.firstRay = ( bounceIndex == 0 ) && ( state.transmissiveTraversals == transmissiveBounces );
+		state.traversals = maxBounceCount - effectiveBounces;
+		state.isPrimaryRay = ( bounceIndex == 0 );
+		state.actualBounceDepth = bounceIndex;
+		
+		// Check if we've exceeded our effective bounce budget
+		if( effectiveBounces > maxBounceCount ) {
+			break;
+		}
 
 		HitInfo hitInfo = traverseBVH( ray, stats, false );
 
 		if( ! hitInfo.didHit ) {
             // ENVIRONMENT LIGHTING (Contextual)
 			// Handle rays that escape the scene - this is naturally part of the light transport
-			vec4 envColor = sampleBackgroundLighting( bounceIndex, ray.direction );
+			vec4 envColor = sampleBackgroundLighting( state, ray.direction );
 			radiance += regularizePathContribution( envColor.rgb * throughput, throughput, float( bounceIndex ) );
 			alpha *= envColor.a;
             // return vec4(envColor, 1.0);
@@ -413,15 +436,18 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );
 
 		if( interaction.continueRay ) {
-			// Handle both transmissive interactions and alpha skips as "free" bounces
-			if( ( interaction.isTransmissive || interaction.isAlphaSkip ) && state.transmissiveTraversals > 0 ) {
+			// Handle transmissive interactions with proper ray type tracking
+			bool isFreeBounce = false;
+
+			if( interaction.isTransmissive && state.transmissiveTraversals > 0 ) {
 				// Decrement transmissive bounces counter
 				state.transmissiveTraversals --;
-
-				// Don't increment the main bounce counter (effectively giving a "free" bounce)
-				if( state.transmissiveTraversals > 0 ) {
-					bounceIndex --;
-				}
+				state.rayType = RAY_TYPE_TRANSMISSION;
+				isFreeBounce = true; // Transmissive bounces don't count against main budget
+			} else if( interaction.isAlphaSkip ) {
+				// Alpha skip doesn't change ray type, just continues through
+				state.rayType = state.rayType; // Keep current type
+				isFreeBounce = true; // Alpha skips are also free
 			}
 
 			// Update ray and continue
@@ -429,9 +455,18 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			alpha *= interaction.alpha;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			ray.direction = interaction.direction;
+			
+			// Update state for continuation
+			state.isPrimaryRay = false; // No longer a primary ray after any interaction
 
 			// Reset path state for new material
 			pathState.weightsComputed = false;
+			
+			// Only increment effective bounces for non-free bounces
+			if( !isFreeBounce ) {
+				effectiveBounces++;
+			}
+			
 			continue;
 		}
 
@@ -495,6 +530,19 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
         // Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
+		
+		// Update ray type based on BRDF sampling for next bounce
+		state.isPrimaryRay = false; // Never primary after first bounce
+		
+		// Determine ray type based on material interaction
+		// Note: This is a simplified classification - more sophisticated logic could be added
+		if( material.metalness > 0.7 && material.roughness < 0.3 ) {
+			state.rayType = RAY_TYPE_REFLECTION;
+		} else if( material.transmission > 0.5 ) {
+			state.rayType = RAY_TYPE_TRANSMISSION;
+		} else {
+			state.rayType = RAY_TYPE_DIFFUSE;
+		}
 
 		if( bounceIndex == 0 && hitInfo.didHit ) {
 			objectNormal = N; // Surface normal from first hit
@@ -504,9 +552,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
         // 4. RUSSIAN ROULETTE (Fourth)
 		// Probabilistic path termination to avoid infinite bounces while maintaining unbiasedness
-		if( ! handleRussianRoulette( bounceIndex, throughput, material, ray.direction, rngState, pathState ) ) {
+		if( ! handleRussianRoulette( state.actualBounceDepth, throughput, material, ray.direction, rngState, pathState ) ) {
 			break;
 		}
+		
+		// Increment effective bounces for regular BRDF interactions
+		effectiveBounces++;
 	}
 
     // #if MAX_AREA_LIGHTS > 0
