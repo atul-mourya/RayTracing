@@ -85,7 +85,7 @@ HitInfo RaySphere( Ray ray, Sphere sphere ) {
 	return hitInfo;
 }
 
-// Fast ray-AABB distance calculation
+// Fast ray-AABB distance calculation with early exit optimization
 float fastRayAABBDst( Ray ray, vec3 invDir, vec3 boxMin, vec3 boxMax ) {
 	vec3 t1 = ( boxMin - ray.origin ) * invDir;
 	vec3 t2 = ( boxMax - ray.origin ) * invDir;
@@ -96,6 +96,6 @@ float fastRayAABBDst( Ray ray, vec3 invDir, vec3 boxMin, vec3 boxMax ) {
 	float dstNear = max( max( tMin.x, tMin.y ), tMin.z );
 	float dstFar = min( min( tMax.x, tMax.y ), tMax.z );
 
-	bool didHit = dstFar >= dstNear && dstFar > 0.0;
-	return didHit ? dstNear : 1e20;
+	// Optimized early rejection - no need to check dstNear if dstFar is invalid
+	return ( dstFar >= max( dstNear, 0.0 ) ) ? max( dstNear, 0.0 ) : 1e20;
 }

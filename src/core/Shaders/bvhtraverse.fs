@@ -118,7 +118,8 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 						if( isTriangleVisible( tri.materialIndex, rayDirection ) ) {
 							closestHit = hit;
 							closestHit.materialIndex = tri.materialIndex;
-							// Don't load full material for shadow rays
+							// Early exit for shadow rays - any hit is sufficient
+							return closestHit;
 						}
 					} else {
 						// For primary rays, do full material check
@@ -138,16 +139,24 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 			continue;
 		}
 
-		// Internal node - optimized child processing
+		// Internal node - optimized child processing with bounds-only reads
 		int leftChild = node.leftChild;
 		int rightChild = node.rightChild;
 
-		BVHNode childA = getBVHNode( leftChild );
-		BVHNode childB = getBVHNode( rightChild );
+		// Optimized: Read only bounds data (2 texture reads instead of 6)
+		vec4 leftData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, 0, 3 );
+		vec4 leftData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, 1, 3 );
+		vec4 rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, 0, 3 );
+		vec4 rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, 1, 3 );
 
-		// Vectorized distance computation with single AABB function call
-		float dstA = fastRayAABBDst( ray, invDir, childA.boundsMin, childA.boundsMax );
-		float dstB = fastRayAABBDst( ray, invDir, childB.boundsMin, childB.boundsMax );
+		vec3 childA_boundsMin = leftData0.xyz;
+		vec3 childA_boundsMax = leftData1.xyz;
+		vec3 childB_boundsMin = rightData0.xyz;
+		vec3 childB_boundsMax = rightData1.xyz;
+
+		// Vectorized distance computation
+		float dstA = fastRayAABBDst( ray, invDir, childA_boundsMin, childA_boundsMax );
+		float dstB = fastRayAABBDst( ray, invDir, childB_boundsMin, childB_boundsMax );
 
 		// Optimized early rejection
 		float minDst = min( dstA, dstB );
