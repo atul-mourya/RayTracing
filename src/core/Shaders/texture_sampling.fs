@@ -244,6 +244,8 @@ vec3 processNormalFromBatch( TextureBatch batch, vec3 geometryNormal, vec2 norma
 	vec3 normalMap = batch.normalSample.xyz * 2.0 - 1.0;
 	// Apply normal scale - use the X component since we duplicate the value
 	normalMap.xy *= normalScale.x;
+	// Fix inverted normal map by flipping Y coordinate
+	normalMap.y = -normalMap.y;
 
 	// Fast TBN construction
 	vec3 up = abs( geometryNormal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
@@ -386,6 +388,8 @@ vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 		vec3 normalMap = normalSample * 2.0 - 1.0;
 		// Apply normal scale using X component
 		normalMap.xy *= material.normalScale.x;
+		// Fix inverted normal map by flipping Y coordinate
+		normalMap.y = -normalMap.y;
 
 		vec3 up = abs( normal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
 		vec3 tangent = normalize( cross( up, normal ) );
