@@ -48,7 +48,7 @@ const LightsTab = () => {
 			case 'DirectionalLight': return { min: 0, max: 100, step: 0.5 };
 			case 'PointLight': return { min: 0, max: 100, step: 0.5 };
 			case 'SpotLight': return { min: 0, max: 100, step: 0.5 };
-			case 'RectAreaLight': return { min: 0, max: 2000, step: 50 };
+			case 'RectAreaLight': return { min: 0, max: 200, step: 5 };
 			default: return { min: 0, max: 100, step: 0.5 };
 
 		}

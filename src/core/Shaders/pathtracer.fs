@@ -507,8 +507,8 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		hitInfo.normal = N;
 
 		// 2. DIRECT LIGHTING (Second) 
-		// Calculate direct illumination from light sources at hit point using texture-sampled material
-		vec3 directLight = calculateDirectLightingMIS( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
+		// Calculate direct illumination from light sources at hit point using improved unified MIS
+		vec3 directLight = calculateDirectLightingUnified( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
 		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
 
 		// Get importance sampling info with caching for indirect lighting

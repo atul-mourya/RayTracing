@@ -1250,7 +1250,7 @@ class AssetLoader extends EventDispatcher {
 
 					const light = new RectAreaLight(
 						new Color( ...userData.color ),
-						userData.intensity,
+						userData.intensity / 10,
 						userData.width,
 						userData.height
 					);
