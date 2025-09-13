@@ -1,7 +1,7 @@
 import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping, LinearMipmapLinearFilter,
 	TextureLoader, BufferAttribute, Mesh, MeshStandardMaterial, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
-import { GLTFLoader, RGBELoader, DRACOLoader, EXRLoader } from 'three/examples/jsm/Addons';
+import { GLTFLoader, HDRLoader, DRACOLoader, EXRLoader } from 'three/examples/jsm/Addons';
 import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
@@ -274,7 +274,7 @@ class AssetLoader extends EventDispatcher {
 		if ( extension === 'hdr' || extension === 'exr' ) {
 
 			const loader = extension === 'hdr'
-				? ( this.loaderCache.rgbe || ( this.loaderCache.rgbe = new RGBELoader().setDataType( FloatType ) ) )
+				? ( this.loaderCache.hdr || ( this.loaderCache.hdr = new HDRLoader().setDataType( FloatType ) ) )
 				: ( this.loaderCache.exr || ( this.loaderCache.exr = new EXRLoader().setDataType( FloatType ) ) );
 			texture = await loader.loadAsync( url );
 
