@@ -251,6 +251,7 @@
 
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { uniform, vec3, vec4, float, Fn, screenUV, sin, cos, length, abs, max, min, normalize, dot, mix, pow, exp, cross, and, or, not } from 'three/tsl';
         
         // Check for WebGPU support
         if (!navigator.gpu) {
@@ -277,180 +278,172 @@
         const container = document.querySelector('.canvas-container');
         container.appendChild(renderer.domElement);
         
-        // Create fullscreen quad for rendering
-        const quadGeometry = new THREE.PlaneGeometry(2, 2);
+        // Create fullscreen quad that covers the entire screen
+        const quadGeometry = new THREE.PlaneGeometry(2, 2); // This will be rendered in clip space (-1 to 1)
         
-        // Define the WGSL shader code for path tracing
-        const shaderCode = `
-            struct Uniforms {
-                resolution: vec2<f32>,
-                time: f32,
-                cameraPosition: vec3<f32>,
-                cameraTarget: vec3<f32>,
-                cameraUp: vec3<f32>
-            };
+        // Create uniforms using TSL
+        const resolutionUniform = uniform(new THREE.Vector2());
+        const timeUniform = uniform(0);
+        const cameraPositionUniform = uniform(new THREE.Vector3());
+        const cameraTargetUniform = uniform(new THREE.Vector3(0, 0, 0));
+        const cameraUpUniform = uniform(new THREE.Vector3(0, 1, 0));
+        
+        // Create custom shader function using TSL - Fullscreen Ray Tracer
+        const pathTracingShader = Fn(() => {
+            // Get screen coordinates from the fullscreen quad
+            // screenUV gives us 0-1 coordinates, convert to -1 to 1
+            const uv = screenUV.sub(0.5).mul(2.0);
             
-            @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+            // Access uniforms
+            const time = timeUniform;
+            const cameraPos = cameraPositionUniform;
             
-            struct Ray {
-                origin: vec3<f32>,
-                direction: vec3<f32>
-            };
-            
-            struct Hit {
-                position: vec3<f32>,
-                normal: vec3<f32>,
-                distance: f32,
-                material: vec3<f32>
-            };
-            
-            // Signed Distance Functions
-            fn sdBox(p: vec3<f32>, b: vec3<f32>) -> f32 {
-                let q = abs(p) - b;
-                return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
-            }
-            
-            fn sceneSDF(p: vec3<f32>) -> f32 {
-                // Rotate the box over time
-                let a = uniforms.time * 0.3;
-                let rot = mat3x3<f32>(
-                    cos(a), 0.0, sin(a),
-                    0.0, 1.0, 0.0,
-                    -sin(a), 0.0, cos(a)
+            // Cube SDF
+            const cubeSDF = Fn(([p]) => {
+                // Rotate the cube
+                const angle = time.mul(0.8);
+                const c = cos(angle);
+                const s = sin(angle);
+                
+                // Y-axis rotation
+                let rotP = vec3(
+                    p.x.mul(c).add(p.z.mul(s)),
+                    p.y,
+                    p.x.mul(s.negate()).add(p.z.mul(c))
                 );
-                let pRot = rot * p;
                 
-                // Main box
-                let box = sdBox(pRot, vec3<f32>(0.8, 0.8, 0.8));
+                // X-axis rotation for better 3D view
+                const angleX = time.mul(0.4);
+                const cX = cos(angleX);
+                const sX = sin(angleX);
                 
-                // Subtract a smaller box to create a frame
-                let innerBox = sdBox(pRot, vec3<f32>(0.7, 0.7, 0.9));
-                return max(box, -innerBox);
-            }
+                rotP = vec3(
+                    rotP.x,
+                    rotP.y.mul(cX).add(rotP.z.mul(sX)),
+                    rotP.y.mul(sX.negate()).add(rotP.z.mul(cX))
+                );
+                
+                // Cube with size 1.0
+                const cubeSize = vec3(1.0, 1.0, 1.0);
+                const d = abs(rotP).sub(cubeSize);
+                
+                // Proper SDF for cube
+                return length(max(d, vec3(0.0))).add(min(max(d.x, max(d.y, d.z)), 0.0));
+            });
             
-            fn estimateNormal(p: vec3<f32>) -> vec3<f32> {
-                let eps = 0.001;
-                return normalize(vec3<f32>(
-                    sceneSDF(vec3<f32>(p.x + eps, p.y, p.z)) - sceneSDF(vec3<f32>(p.x - eps, p.y, p.z)),
-                    sceneSDF(vec3<f32>(p.x, p.y + eps, p.z)) - sceneSDF(vec3<f32>(p.x, p.y - eps, p.z)),
-                    sceneSDF(vec3<f32>(p.x, p.y, p.z + eps)) - sceneSDF(vec3<f32>(p.x, p.y, p.z - eps))
+            // Calculate surface normal
+            const calcNormal = Fn(([p]) => {
+                const eps = float(0.001);
+                const h = vec3(eps, 0.0, 0.0);
+                return normalize(vec3(
+                    cubeSDF(p.add(h.xyy)).sub(cubeSDF(p.sub(h.xyy))),
+                    cubeSDF(p.add(h.yxy)).sub(cubeSDF(p.sub(h.yxy))),
+                    cubeSDF(p.add(h.yyx)).sub(cubeSDF(p.sub(h.yyx)))
                 ));
-            }
+            });
             
-            fn rayMarch(ray: Ray) -> Hit {
-                var hit: Hit;
-                hit.distance = 0.0;
-                var maxSteps = 128;
-                var maxDist = 100.0;
+            // Proper ray marching
+            const rayMarch = Fn(([rayOrigin, rayDirection]) => {
+                let totalDist = float(0.0).toVar();
+                const maxDist = float(20.0);
+                const threshold = float(0.001);
                 
-                for (var i = 0; i < maxSteps; i++) {
-                    hit.position = ray.origin + ray.direction * hit.distance;
-                    let dist = sceneSDF(hit.position);
+                // Manual loop unrolling for better compatibility
+                for (let i = 0; i < 32; i++) {
+                    const currentPos = rayOrigin.add(rayDirection.mul(totalDist));
+                    const distToSurface = cubeSDF(currentPos);
                     
-                    if (abs(dist) < 0.001) {
-                        hit.normal = estimateNormal(hit.position);
-                        hit.material = vec3<f32>(0.8, 0.5, 0.2);
-                        return hit;
-                    }
+                    // If we're very close to surface, we've hit it
+                    const hasHit = abs(distToSurface).lessThan(threshold);
                     
-                    hit.distance += dist;
+                    // If we hit or went too far, stop marching
+                    const shouldStop = hasHit.or(totalDist.greaterThan(maxDist));
                     
-                    if (hit.distance > maxDist) {
-                        break;
-                    }
+                    // Only advance if we haven't stopped
+                    const advance = abs(distToSurface).mul(shouldStop.not().toFloat());
+                    totalDist.addAssign(advance);
                 }
                 
-                // No hit
-                hit.distance = -1.0;
-                return hit;
-            }
+                // Return distance and hit status
+                const hit = totalDist.lessThan(maxDist);
+                return vec4(totalDist, hit.toFloat(), 0.0, 0.0);
+            });
             
-            fn calculateLighting(hit: Hit) -> vec3<f32> {
-                // Key light
-                let lightPos = vec3<f32>(2.0 * sin(uniforms.time * 0.5), 3.0, 2.0 * cos(uniforms.time * 0.5));
-                let lightDir = normalize(lightPos - hit.position);
-                
-                // Diffuse lighting
-                let diff = max(dot(hit.normal, lightDir), 0.1);
-                
-                // Simple shadow
-                var shadowRay: Ray;
-                shadowRay.origin = hit.position + hit.normal * 0.01;
-                shadowRay.direction = lightDir;
-                let shadowHit = rayMarch(shadowRay);
-                let shadow = shadowHit.distance > 0.0 ? 0.3 : 1.0;
-                
-                // Ambient occlusion approximation
-                let ao = 1.0 - (1.0 / (1.0 + 0.1 * hit.distance));
-                
-                // Combine lighting
-                return hit.material * diff * shadow * ao;
-            }
+            // Set up camera ray direction from the virtual camera position
+            const target = cameraTargetUniform; // Use the actual OrbitControls target
+            const up = vec3(0.0, 1.0, 0.0);
             
-            @fragment
-            fn main(@builtin(position) coord: vec4<f32>) -> @location(0) vec4<f32> {
-                // Pixel coordinates
-                let fragCoord = coord.xy;
-                
-                // Normalized pixel coordinates
-                let uv = (fragCoord - 0.5 * uniforms.resolution) / uniforms.resolution.y;
-                
-                // Camera setup
-                let lookAt = vec3<f32>(0.0, 0.0, 0.0);
-                let ro = uniforms.cameraPosition;
-                let ta = lookAt;
-                let camUp = uniforms.cameraUp;
-                
-                // Camera matrix
-                let camDir = normalize(ta - ro);
-                let camRight = normalize(cross(camDir, camUp));
-                let camUp2 = cross(camRight, camDir);
-                let fov = 1.5;
-                
-                // Ray direction
-                var rd = normalize(uv.x * camRight + uv.y * camUp2 + fov * camDir);
-                
-                // Create ray
-                var ray: Ray;
-                ray.origin = ro;
-                ray.direction = rd;
-                
-                // Perform ray marching
-                let hit = rayMarch(ray);
-                
-                // Background gradient
-                var col = mix(vec3<f32>(0.05, 0.05, 0.1), vec3<f32>(0.1, 0.15, 0.3), length(uv) * 0.5 + 0.5);
-                
-                // If we hit the object
-                if (hit.distance >= 0.0) {
-                    col = calculateLighting(hit);
-                    
-                    // Distance fog
-                    col = mix(col, vec3<f32>(0.1, 0.15, 0.3), 1.0 - exp(-0.02 * hit.distance * hit.distance));
-                }
-                
-                // Gamma correction
-                col = pow(col, vec3<f32>(0.4545));
-                
-                return vec4<f32>(col, 1.0);
-            }
-        `;
-        
-        // Create custom shader material
-        const material = new THREE.ShaderMaterial({
-            uniforms: {
-                resolution: { value: new THREE.Vector2() },
-                time: { value: 0 },
-                cameraPosition: { value: new THREE.Vector3() },
-                cameraTarget: { value: new THREE.Vector3(0, 0, 0) },
-                cameraUp: { value: new THREE.Vector3(0, 1, 0) }
-            },
-            fragmentShader: shaderCode,
-            wireframe: false
+            // Camera matrix calculation using the OrbitControls camera
+            // This should match exactly how OrbitControls calculates its view
+            const forward = normalize(target.sub(cameraPos));
+            const right = normalize(cross(forward, up));
+            const newUp = normalize(cross(right, forward));
+            
+            // Create ray direction with field of view
+            // Note: We need to flip the Y coordinate to match OrbitControls behavior
+            const fov = float(1.0);
+            const rayDir = normalize(
+                right.mul(uv.x)
+                .add(newUp.mul(uv.y.negate())) // Flip Y to match OrbitControls
+                .add(forward.mul(fov))
+            );
+            
+            // March the ray
+            const result = rayMarch(cameraPos, rayDir);
+            const dist = result.x;
+            const hit = result.y;
+            
+            // Calculate hit position and normal
+            const hitPos = cameraPos.add(rayDir.mul(dist));
+            const normal = calcNormal(hitPos);
+            
+            // Lighting
+            const lightDir = normalize(vec3(1.0, 1.0, 0.5));
+            const diffuse = max(dot(normal, lightDir), 0.2);
+            
+            // Ambient light
+            const ambient = float(0.3);
+            const lighting = diffuse.add(ambient);
+            
+            // Cube color - different colors for different faces
+            const cubeColor = vec3(
+                abs(normal.x).mul(0.8).add(0.2),
+                abs(normal.y).mul(0.6).add(0.3),
+                abs(normal.z).mul(0.4).add(0.4)
+            ).mul(lighting);
+            
+            // Background gradient
+            const bg = mix(
+                vec3(0.1, 0.2, 0.4),
+                vec3(0.2, 0.4, 0.7),
+                length(uv).mul(0.3).add(0.2)
+            );
+            
+            // Final color
+            const finalColor = mix(bg, cubeColor, hit);
+            
+            return vec4(finalColor, 1.0);
         });
         
+        // Create material using NodeMaterial with TSL for fullscreen rendering
+        const material = new THREE.NodeMaterial({
+            wireframe: false,
+            side: THREE.DoubleSide
+        });
+        
+        // Set the fragment node to our custom shader
+        material.fragmentNode = pathTracingShader();
+        
+        // Create the fullscreen quad mesh
         const quad = new THREE.Mesh(quadGeometry, material);
-        scene.add(quad);
+        
+        // Create a simple scene with orthographic camera for fullscreen rendering
+        const orthoScene = new THREE.Scene();
+        const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        orthoScene.add(quad);
+        
+        // The original scene and camera are used for the ray tracer's camera position
+        scene.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }))); // Hidden reference object
         
         // Add OrbitControls
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -460,8 +453,8 @@
         controls.enablePan = true;
         controls.minDistance = 2;
         controls.maxDistance = 10;
-        controls.minPolarAngle = Math.PI / 6;
-        controls.maxPolarAngle = Math.PI - Math.PI / 6;
+        // controls.minPolarAngle = Math.PI / 6;
+        // controls.maxPolarAngle = Math.PI - Math.PI / 6;
         
         // Handle window resize
         function onWindowResize() {
@@ -471,7 +464,7 @@
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
             renderer.setSize(width, height);
-            material.uniforms.resolution.value.set(width, height);
+            resolutionUniform.value.set(width, height);
         }
         
         window.addEventListener('resize', onWindowResize);
@@ -479,13 +472,17 @@
         
         // Animation loop
         function animate(time) {
-            material.uniforms.time.value = time * 0.001;
-            material.uniforms.cameraPosition.value.copy(camera.position);
+            // timeUniform.value = time * 0.001;
             
-            // Update controls
+            // Use the OrbitControls camera position and target for the ray tracer
+            cameraPositionUniform.value.copy(camera.position);
+            cameraTargetUniform.value.copy(controls.target); // Use the actual OrbitControls target
+            
+            // Update controls (this moves the ray tracer's virtual camera)
             controls.update();
             
-            renderer.render(scene, camera);
+            // Render the fullscreen quad with the ray tracer
+            renderer.render(orthoScene, orthoCamera);
             
             // Hide loading screen after first render
             const loadingEl = document.getElementById('loading');
