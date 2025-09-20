@@ -30,3 +30,32 @@ export const Exposure = createLucideIcon( "Exposure", [
 
 ] );
 
+export const CustomLinkIcon = createLucideIcon( "CustomLinkIcon", [
+	// Link chain part
+	[ "path", { d: "M9 17H7A5 5 0 0 1 7 7h2", key: "left-link" } ],
+	[ "path", { d: "M15 7h2a5 5 0 1 1 0 10h-2", key: "right-link" } ],
+	[ "line", { x1: "8", x2: "16", y1: "12", y2: "12", key: "connection" } ],
+
+	// Extension lines for linkage visualization
+	[ "line", { x1: "12", x2: "12", y1: "4", y2: "-11", key: "top-line" } ],
+	[ "line", { x1: "12", x2: "23", y1: "-11", y2: "-11", key: "top-horizontal" } ],
+	[ "line", { x1: "12", x2: "12", y1: "20", y2: "35", key: "bottom-line" } ],
+	[ "line", { x1: "12", x2: "23", y1: "35", y2: "35", key: "bottom-horizontal" } ]
+] );
+
+export const CustomUnlinkIcon = createLucideIcon( "CustomUnlinkIcon", [
+	// Link chain part
+	[ "path", { d: "M9 17H7A5 5 0 0 1 7 7h2", key: "left-link" } ],
+	[ "path", { d: "M15 7h2a5 5 0 1 1 0 10h-2", key: "right-link" } ],
+	[ "line", { x1: "8", x2: "16", y1: "12", y2: "12", key: "connection" } ],
+
+	// Extension lines for linkage visualization
+	[ "line", { x1: "12", x2: "12", y1: "4", y2: "-11", key: "top-line" } ],
+	[ "line", { x1: "12", x2: "23", y1: "-11", y2: "-11", key: "top-horizontal" } ],
+	[ "line", { x1: "12", x2: "12", y1: "20", y2: "35", key: "bottom-line" } ],
+	[ "line", { x1: "12", x2: "23", y1: "35", y2: "35", key: "bottom-horizontal" } ],
+
+	// X mark to indicate broken link
+	[ "line", { x1: "2", x2: "22", y1: "2", y2: "22", key: "unlink-mark" } ]
+] );
+

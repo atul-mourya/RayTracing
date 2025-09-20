@@ -8,6 +8,7 @@ import { useStore, useMaterialStore } from '@/store';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { TexturePreview } from '@/components/ui/texture-preview';
+import { LinkableVector2 } from '@/components/ui/linkable-vector2';
 
 // Configuration for all material properties - pregrouped by section
 const MATERIAL_PROPERTIES = {
@@ -63,8 +64,8 @@ const ALL_MATERIAL_PROPERTIES = Object.values( MATERIAL_PROPERTIES ).flat().redu
 
 // Texture properties configuration
 const TEXTURE_PROPERTIES = {
-	offset: { type: 'vector2', default: { x: 0, y: 0 }, label: 'Offset' },
-	repeat: { type: 'vector2', default: { x: 1, y: 1 }, label: 'Repeat' },
+	offset: { type: 'linkable-vector2', default: { x: 0, y: 0 }, label: 'Offset' },
+	repeat: { type: 'linkable-vector2', default: { x: 1, y: 1 }, label: 'Repeat' },
 	normalScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Normal Scale', textureTypes: [ 'normalMap' ] },
 	bumpScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Bump Scale', textureTypes: [ 'bumpMap' ] },
 	displacementScale: { type: 'number', default: 1, min: 0, max: 5, step: 0.1, label: 'Displacement Scale', textureTypes: [ 'displacementMap' ] },
@@ -322,7 +323,7 @@ const MaterialTab = () => {
 				return (
 					<>
 						<div className="opacity-50 text-xs">{config.label}</div>
-						<div className="grid grid-cols-2 gap-y-1">
+						<div className="grid grid-cols-2 gap-y-1 items-center">
 							<NumberInput
 								label="X"
 								value={value.x}
@@ -337,6 +338,17 @@ const MaterialTab = () => {
 							/>
 						</div>
 					</>
+				);
+			case 'linkable-vector2':
+				return (
+					<LinkableVector2
+						label={config.label}
+						value={value}
+						onChange={onChange}
+						step={0.1}
+						min={config.min}
+						max={config.max}
+					/>
 				);
 			case 'slider':
 				return <Slider className="h-4" label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={( val ) => onChange( val[ 0 ] )} />;
