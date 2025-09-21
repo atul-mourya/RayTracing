@@ -1,33 +1,6 @@
 
 
 
-struct BVHNode {
-	vec3 boundsMin;
-	int leftChild;
-	vec3 boundsMax;
-	int rightChild;
-	ivec2 triOffset;
-	vec2 padding;
-};
-
-
-BVHNode getBVHNode( int index ) {
-	vec4 data[ 3 ];
-	for( int i = 0; i < 3; i ++ ) {
-		data[ i ] = getDatafromDataTexture( bvhTexture, bvhTexSize, index, i, 3 );
-	}
-
-	BVHNode node;
-	node.boundsMin = data[ 0 ].xyz;
-	node.leftChild = int( data[ 0 ].w );
-	node.boundsMax = data[ 1 ].xyz;
-	node.rightChild = int( data[ 1 ].w );
-	node.triOffset = ivec2( data[ 2 ].xy );
-	node.padding = vec2( 0.0 );
-	return node;
-}
-
-
 bool isTriangleVisible( int triangleIndex, vec3 rayDirection ) {
     // Fetch only the essential visibility data (1 texture read vs full material)
 	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, triangleIndex, 4, MATERIAL_SLOTS );
@@ -98,12 +71,20 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 
 	while( stackPtr > 0 ) {
 		int nodeIndex = stack[ -- stackPtr ];
-		BVHNode node = getBVHNode( nodeIndex );
+
+		// OPTIMIZED: Read only first 2 texture slots to get child indices and basic node info
+		vec4 nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, 0, 3 );
+		vec4 nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, 1, 3 );
+
+		int leftChild = int( nodeData0.w );
+		int rightChild = int( nodeData1.w );
 		stats[ 0 ] ++;
 
-		if( node.leftChild < 0 ) { // Leaf node
-			int triCount = node.triOffset.y;
-			int triStart = node.triOffset.x;
+		if( leftChild < 0 ) { // Leaf node
+			// Read the third slot only for leaf nodes to get triangle data
+			vec4 nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, 2, 3 );
+			int triStart = int( nodeData2.x );
+			int triCount = int( nodeData2.y );
 
 			// Process triangles in leaf
 			for( int i = 0; i < triCount; i ++ ) {
@@ -139,11 +120,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 			continue;
 		}
 
-		// Internal node - optimized child processing with bounds-only reads
-		int leftChild = node.leftChild;
-		int rightChild = node.rightChild;
-
-		// Optimized: Read only bounds data (2 texture reads instead of 6)
+		// Read child bounds efficiently
 		vec4 leftData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, 0, 3 );
 		vec4 leftData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, 1, 3 );
 		vec4 rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, 0, 3 );
@@ -175,7 +152,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 			stack[ stackPtr ++ ] = farChild;
 		}
 
-		// Push near child second (processed first)  
+		// Push near child second (processed first)
 		if( nearDst < closestHit.dst ) {
 			stack[ stackPtr ++ ] = nearChild;
 		}
