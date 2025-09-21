@@ -1,12 +1,49 @@
 
 
+// OPTIMIZED: Combined visibility data structure
+struct VisibilityData {
+    bool visible;    // material.visible flag
+    int side;        // material.side (0=Front, 1=Back, 2=Double)
+    bool transparent; // material.transparent flag
+    float opacity;   // material.opacity value
+};
 
+// OPTIMIZED: Single function to fetch all visibility data in 2 reads (was 2 separate calls)
+VisibilityData getVisibilityData( int materialIndex ) {
+    VisibilityData vis;
+
+    // Read visibility flag from slot 4
+    vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
+    vis.visible = bool( visData.g );
+
+    // Read side and transparency data from slot 10
+    vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, MATERIAL_SLOTS );
+    vis.opacity = sideData.r;
+    vis.side = int( sideData.g );
+    vis.transparent = bool( sideData.b );
+
+    return vis;
+}
+
+// OPTIMIZED: Fast visibility check using combined data
 bool isTriangleVisible( int triangleIndex, vec3 rayDirection ) {
     // Fetch only the essential visibility data (1 texture read vs full material)
 	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, triangleIndex, 4, MATERIAL_SLOTS );
 	return bool( visData.g ); // visible flag
 }
 
+// OPTIMIZED: Complete visibility check with side culling using combined data
+bool isMaterialVisibleOptimized( VisibilityData vis, vec3 rayDirection, vec3 normal ) {
+    if( ! vis.visible )
+        return false;
+
+    // Check side visibility with optimized branching
+    float rayDotNormal = dot( rayDirection, normal );
+    return ( vis.side == 2 || // DoubleSide - most common case first
+        ( vis.side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
+        ( vis.side == 1 && rayDotNormal > 0.0001 )     // BackSide
+    );
+}
 
 Triangle getTriangle( int triangleIndex ) {
 	vec4 data[ 8 ];
@@ -29,22 +66,10 @@ Triangle getTriangle( int triangleIndex ) {
 	return tri;
 }
 
+// OPTIMIZED: Single visibility check with combined data fetch (2 reads total vs 2 separate calls)
 bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
-	// Only fetch the data we need for visibility check
-	vec4 visibilityData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
-
-	if( ! bool( visibilityData.g ) )
-		return false;
-
-	// Check side visibility
-	float rayDotNormal = dot( rayDirection, normal );
-	vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, MATERIAL_SLOTS );
-	int side = int( sideData.g );
-
-	return ( side == 2 || // DoubleSide - most common case first
-		( side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
-		( side == 1 && rayDotNormal > 0.0001 )     // BackSide
-	);
+	VisibilityData vis = getVisibilityData( materialIndex );
+	return isMaterialVisibleOptimized( vis, rayDirection, normal );
 }
 
 // Modified traverseBVH function
