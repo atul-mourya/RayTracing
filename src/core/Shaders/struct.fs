@@ -185,6 +185,7 @@ struct PathState {
 	bool classificationCached;             // Flag for material classification
 	bool materialCacheCached;              // Flag for material cache creation
 	float pathImportance;                  // Cached path importance estimate
+	int lastMaterialIndex;                 // Track material changes to preserve cache
 };
 
 struct SamplingStrategyWeights {

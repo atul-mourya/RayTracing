@@ -72,18 +72,29 @@ uniform int transmissiveBounces;  // Controls the number of allowed transmission
 ivec2 stats; // num triangle tests, num bounding box tests
 float pdf;
 
-// BRDF sampling with early exits and optimized math
-DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, vec2 xi, inout uint rngState, inout PathState pathState ) {
-
-    // Compute material classification if not already cached
-	if( ! pathState.classificationCached ) {
+// OPTIMIZED: Consolidated material classification function with material change detection
+MaterialClassification getOrCreateMaterialClassification( RayTracingMaterial material, int materialIndex, inout PathState pathState ) {
+	// Only recompute classification if material actually changed or not cached yet
+	if( ! pathState.classificationCached || pathState.lastMaterialIndex != materialIndex ) {
 		pathState.materialClass = classifyMaterial( material );
 		pathState.classificationCached = true;
+		pathState.lastMaterialIndex = materialIndex;
+		// Reset dependent caches when material changes
+		pathState.weightsComputed = false;
+		pathState.materialCacheCached = false;
 	}
+	return pathState.materialClass;
+}
+
+// BRDF sampling with early exits and optimized math
+DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, int materialIndex, vec2 xi, inout uint rngState, inout PathState pathState ) {
+
+    // OPTIMIZED: Use consolidated classification function
+	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
 
     // Compute BRDF weights using cached classification
 	if( ! pathState.weightsComputed ) {
-		pathState.brdfWeights = calculateBRDFWeights( material, pathState.materialClass );
+		pathState.brdfWeights = calculateBRDFWeights( material, mc );
 		pathState.weightsComputed = true;
 	}
 
@@ -170,19 +181,11 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 }
 
 // Enhanced path contribution estimation with improved caching - OPTIMIZED
-float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material, PathState pathState ) {
+float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material, int materialIndex, PathState pathState ) {
 	float throughputStrength = maxComponent( throughput );
 
-    // Use cached material classification with automatic caching
-	MaterialClassification mc;
-	if( pathState.classificationCached ) {
-		mc = pathState.materialClass;
-	} else {
-		mc = classifyMaterial( material );
-		// Auto-cache the classification for future use
-		pathState.materialClass = mc;
-		pathState.classificationCached = true;
-	}
+    // OPTIMIZED: Use cached material classification with guaranteed single computation
+	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
 
     // Enhanced material importance with interaction bonuses
 	float materialImportance = mc.complexityScore;
@@ -210,7 +213,7 @@ float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMater
 }
 
 // Russian Roulette with enhanced material importance and optimized sampling - OPTIMIZED
-bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, vec3 rayDirection, inout uint rngState, PathState pathState ) {
+bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, int materialIndex, vec3 rayDirection, inout uint rngState, PathState pathState ) {
     // Always continue for first few bounces
 	if( depth < 3 ) {
 		return true;
@@ -224,16 +227,8 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 		return false;
 	}
 
-    // Use cached material classification with fallback
-	MaterialClassification mc;
-	if( pathState.classificationCached ) {
-		mc = pathState.materialClass;
-	} else {
-		mc = classifyMaterial( material );
-		// Cache the result for potential future use
-		pathState.materialClass = mc;
-		pathState.classificationCached = true;
-	}
+    // OPTIMIZED: Use consolidated classification function
+	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
 
     // Enhanced material importance with path-dependent adjustments
 	float materialImportance = mc.complexityScore;
@@ -265,7 +260,7 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 	if( pathState.classificationCached && pathState.weightsComputed ) {
 		pathContribution = pathState.pathImportance;
 	} else {
-		pathContribution = estimatePathContribution( throughput, rayDirection, material, pathState );
+		pathContribution = estimatePathContribution( throughput, rayDirection, material, materialIndex, pathState );
 		// Cache the path importance for consistency
 		pathState.pathImportance = pathContribution;
 	}
@@ -376,6 +371,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	pathState.materialCacheCached = false;
 	pathState.texturesLoaded = false;
 	pathState.pathImportance = 0.0; // Initialize path importance cache
+	pathState.lastMaterialIndex = -1; // Initialize material tracking
 
 	// Track effective bounces separately from transmissive bounces
 	int effectiveBounces = 0;
@@ -459,8 +455,10 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			// Update state for continuation
 			state.isPrimaryRay = false; // No longer a primary ray after any interaction
 
-			// Reset path state for new material
+			// OPTIMIZED: Only reset path state for new material, preserve classification cache
+			// Material classification stays valid across ray continuations unless material changes
 			pathState.weightsComputed = false;
+			// Note: classificationCached remains true to avoid redundant classification
 			
 			// Only increment effective bounces for non-free bounces
 			if( !isFreeBounce ) {
@@ -493,7 +491,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			brdfSample.direction = L;
 			brdfSample.pdf = pdf;
 		} else {
-			brdfSample = generateSampledDirection( V, N, material, randomSample, rngState, pathState );
+			brdfSample = generateSampledDirection( V, N, material, hitInfo.materialIndex, randomSample, rngState, pathState );
 		}
 
         // 1. EMISSIVE CONTRIBUTION (First)
@@ -552,7 +550,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
         // 4. RUSSIAN ROULETTE (Fourth)
 		// Probabilistic path termination to avoid infinite bounces while maintaining unbiasedness
-		if( ! handleRussianRoulette( state.actualBounceDepth, throughput, material, ray.direction, rngState, pathState ) ) {
+		if( ! handleRussianRoulette( state.actualBounceDepth, throughput, material, hitInfo.materialIndex, ray.direction, rngState, pathState ) ) {
 			break;
 		}
 		
