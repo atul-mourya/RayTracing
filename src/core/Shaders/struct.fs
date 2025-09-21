@@ -164,7 +164,7 @@ struct MaterialCache {
     vec3 F0;                    // Base reflectance
     float NoV;                  // Normal dot View
     vec3 diffuseColor;          // Precomputed diffuse color
-    vec3 specularColor;         // Precomputed specular color  
+    vec3 specularColor;         // Precomputed specular color
     bool isMetallic;            // metalness > 0.7
     bool isPurelyDiffuse;       // Optimized path flag
     bool hasSpecialFeatures;    // Has transmission, clearcoat, etc.
@@ -172,6 +172,12 @@ struct MaterialCache {
     float k;                    // Geometry term constant
     float alpha2;               // roughness to the fourth power
     MaterialSamples texSamples; // Texture samples
+
+    // BRDF optimization: precomputed shared values
+    float invRoughness;         // 1.0 - roughness
+    float metalFactor;          // 0.5 + 0.5 * metalness
+    float iorFactor;            // min(2.0 / ior, 1.0)
+    float maxSheenColor;        // max component of sheen color
 };
 
 // Update PathState to include texture samples

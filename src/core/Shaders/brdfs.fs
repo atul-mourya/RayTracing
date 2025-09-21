@@ -1,11 +1,10 @@
-// Enhanced BRDF weight calculation with material classification optimization - OPTIMIZED
-BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassification mc ) {
+// OPTIMIZED: Enhanced BRDF weight calculation using cached values
+BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassification mc, MaterialCache cache ) {
 	BRDFWeights weights;
 
-    // Precalculate shared values with enhanced precision
-	float invRoughness = 1.0 - material.roughness;
-	float roughnessSq = material.roughness * material.roughness;
-	float metalFactor = 0.5 + 0.5 * material.metalness;
+    // Use precomputed values from cache - eliminates redundant calculations
+	float invRoughness = cache.invRoughness;
+	float metalFactor = cache.metalFactor;
 
     // Optimized specular calculation using classification
 	float baseSpecularWeight;
@@ -23,9 +22,8 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassific
 	weights.specular = baseSpecularWeight * material.specularIntensity;
 	weights.diffuse = ( 1.0 - baseSpecularWeight ) * ( 1.0 - material.metalness );
 
-    // Optimized sheen calculation
-	float maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
-	weights.sheen = material.sheen * maxSheenColor;
+    // Optimized sheen calculation using cached value
+	weights.sheen = material.sheen * cache.maxSheenColor;
 
     // Enhanced clearcoat calculation using classification
 	if( mc.hasClearcoat ) {
@@ -34,18 +32,16 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassific
 		weights.clearcoat = material.clearcoat * invRoughness * 0.35;
 	}
 
-    // Enhanced transmission calculation using classification
+    // Enhanced transmission calculation using cached IOR factor
 	if( mc.isTransmissive ) {
         // High transmission materials get optimized calculation
-		float iorFactor = min( 1.8 / material.ior, 1.0 );
-		float transmissionBase = iorFactor * invRoughness * 0.8; // Higher base for classified transmissive
+		float transmissionBase = cache.iorFactor * invRoughness * 0.8; // Higher base for classified transmissive
 		weights.transmission = material.transmission * transmissionBase *
 			( 0.6 + 0.4 * material.ior / 2.0 ) *
 			( 1.0 + material.dispersion * 0.6 );
 	} else {
-        // Regular transmission calculation
-		float iorFactor = min( 2.0 / material.ior, 1.0 );
-		float transmissionBase = iorFactor * invRoughness * 0.7;
+        // Regular transmission calculation using cached iorFactor
+		float transmissionBase = cache.iorFactor * invRoughness * 0.7;
 		weights.transmission = material.transmission * transmissionBase *
 			( 0.5 + 0.5 * material.ior / 2.0 ) *
 			( 1.0 + material.dispersion * 0.5 );
@@ -113,8 +109,13 @@ float getMaterialImportance( RayTracingMaterial material, MaterialClassification
 ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, int bounceIndex, MaterialClassification mc ) {
 	ImportanceSamplingInfo info;
 
-    // Base BRDF weights
-	BRDFWeights weights = calculateBRDFWeights( material, mc );
+    // Base BRDF weights using temporary cache
+	MaterialCache tempCache;
+	tempCache.invRoughness = 1.0 - material.roughness;
+	tempCache.metalFactor = 0.5 + 0.5 * material.metalness;
+	tempCache.iorFactor = min( 2.0 / material.ior, 1.0 );
+	tempCache.maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
+	BRDFWeights weights = calculateBRDFWeights( material, mc, tempCache );
 
     // Base importances on BRDF weights
 	info.diffuseImportance = weights.diffuse;
@@ -432,6 +433,12 @@ MaterialCache createMaterialCache( vec3 N, vec3 V, RayTracingMaterial material, 
 	cache.specularColor = samples.albedo.rgb;
 	cache.texSamples = samples;
 
+    // OPTIMIZED: Pre-compute BRDF shared values to eliminate redundant calculations
+	cache.invRoughness = 1.0 - samples.roughness;
+	cache.metalFactor = 0.5 + 0.5 * samples.metalness;
+	cache.iorFactor = min( 2.0 / material.ior, 1.0 );
+	cache.maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
+
 	return cache;
 }
 
@@ -462,6 +469,12 @@ MaterialCache createMaterialCacheLegacy( vec3 N, vec3 V, RayTracingMaterial mate
 	cache.texSamples.roughness = material.roughness;
 	cache.texSamples.normal = N;
 	cache.texSamples.hasTextures = false;
+
+    // OPTIMIZED: Pre-compute BRDF shared values for legacy cache too
+	cache.invRoughness = 1.0 - material.roughness;
+	cache.metalFactor = 0.5 + 0.5 * material.metalness;
+	cache.iorFactor = min( 2.0 / material.ior, 1.0 );
+	cache.maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
 
 	return cache;
 }

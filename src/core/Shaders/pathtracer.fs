@@ -92,9 +92,20 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
     // OPTIMIZED: Use consolidated classification function
 	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
 
-    // Compute BRDF weights using cached classification
+    // OPTIMIZED: Compute BRDF weights using cached values when available
 	if( ! pathState.weightsComputed ) {
-		pathState.brdfWeights = calculateBRDFWeights( material, mc );
+		if( pathState.materialCacheCached ) {
+			// Use precomputed cache values
+			pathState.brdfWeights = calculateBRDFWeights( material, mc, pathState.materialCache );
+		} else {
+			// Create minimal temporary cache for BRDF calculations
+			MaterialCache tempCache;
+			tempCache.invRoughness = 1.0 - material.roughness;
+			tempCache.metalFactor = 0.5 + 0.5 * material.metalness;
+			tempCache.iorFactor = min( 2.0 / material.ior, 1.0 );
+			tempCache.maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
+			pathState.brdfWeights = calculateBRDFWeights( material, mc, tempCache );
+		}
 		pathState.weightsComputed = true;
 	}
 
