@@ -10,6 +10,7 @@ uniform vec2 envCDFSize;     // Size of the CDF texture
 uniform bool useEnvMipMap;
 uniform float envSamplingBias; // Bias for mip level selection
 uniform int maxEnvSamplingBounce; // Maximum bounces for environment sampling
+uniform float envMapTotalLuminance; // Total luminance for proper PDF normalization
 
 // Structure to store sampling results
 struct EnvMapSample {
@@ -278,34 +279,38 @@ float calculateNormalPDF( vec2 uv, float mipLevel, float sinTheta ) {
     return clamp( finalPdf, 1e-5, 500.0 );
 }
 
-// Single PDF calculation function
-float calculateEnvironmentPDF( vec3 direction, float mipLevel ) {
-    // Fast path for uniform sampling
-    if( ! useEnvMapIS ) {
-        return 1.0 / ( 4.0 * PI );
+// IMPROVEMENT: Multi-resolution environment sampling for better MIS
+float calculateEnvironmentPDFWithMIS(vec3 direction, float roughness) {
+    if (!useEnvMapIS) {
+        return 1.0 / (4.0 * PI);
     }
 
-    // Importance sampling PDF calculation with enhanced pole handling
-    vec2 uv = directionToUV( direction );
+    // Use different mip levels based on roughness for better importance sampling
+    // Environment maps typically have up to 8-10 mip levels, use 7.0 as reasonable max
+    float mipLevel = roughness * 7.0;
 
-    // Calculate theta for Jacobian with enhanced precision
-    float theta = ( 1.0 - uv.y ) * PI;
+    vec2 uv = directionToUV(direction);
+    float theta = (1.0 - uv.y) * PI;
+    float sinTheta = sin(theta);
 
-    // Enhanced pole singularity handling
-    float sinTheta = sin( theta );
-
-    // Progressive clamping near poles to prevent fireflies
-    if( sinTheta <= 1e-4 ) {
-        // Very close to poles - use conservative fallback
-        return 1e-3;
-    } else if( sinTheta <= 1e-3 ) {
-        // Near poles - blend between fallback and normal calculation
-        float blendFactor = ( sinTheta - 1e-4 ) / ( 1e-3 - 1e-4 );
-        float normalPdf = calculateNormalPDF( uv, mipLevel, sinTheta );
-        return mix( 1e-3, normalPdf, blendFactor );
+    if (sinTheta <= 1e-4) {
+        return 1e-3; // Pole handling
     }
 
-    return calculateNormalPDF( uv, mipLevel, sinTheta );
+    // Sample luminance at appropriate mip level
+    vec3 envColor = textureLod(environment, uv, mipLevel).rgb;
+    float luminance = dot(envColor, REC709_LUMINANCE_COEFFICIENTS);
+
+    // Calculate PDF with better normalization
+    float pdf = luminance * sinTheta;
+
+    // Normalize by total luminance (this should be precomputed)
+    pdf /= envMapTotalLuminance;
+
+    // Add Jacobian for spherical coordinates
+    pdf /= (2.0 * PI * PI);
+
+    return clamp(pdf, 1e-5, 1000.0);
 }
 
 // Streamlined environment sampling
@@ -344,8 +349,9 @@ EnvMapSample sampleEnvironmentWithContext(
         envColor = texture( environment, uv );
     }
 
-    // Single PDF calculation
-    float pdf = calculateEnvironmentPDF( direction, mipLevel );
+    // Single PDF calculation using improved MIS
+    float roughness = material.roughness;
+    float pdf = calculateEnvironmentPDFWithMIS( direction, roughness );
 
     // Environment value calculation
     vec3 envValue = envColor.rgb;
@@ -392,7 +398,8 @@ float envMapSamplingPDFWithContext(
     MaterialClassification mc = classifyMaterial( material );
     float mipLevel, adaptiveBias;
     determineEnvSamplingQuality( bounceIndex, mc, mipLevel, adaptiveBias );
-    return calculateEnvironmentPDF( direction, mipLevel );
+    float roughness = material.roughness;
+    return calculateEnvironmentPDFWithMIS( direction, roughness );
 }
 
 bool shouldUseEnvironmentSampling( int bounceIndex, RayTracingMaterial material ) {

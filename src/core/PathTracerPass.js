@@ -122,6 +122,7 @@ export class PathTracerPass extends Pass {
 				useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },
 				envCDF: { value: null },
 				envCDFSize: { value: new Vector2() },
+				envMapTotalLuminance: { value: 1.0 },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity },
 
 				cameraWorldMatrix: { value: new Matrix4() },
@@ -795,6 +796,7 @@ export class PathTracerPass extends Pass {
 			// Clear existing CDF if no environment
 			this.material.uniforms.envCDF.value = null;
 			this.material.uniforms.useEnvMapIS.value = false;
+			this.material.uniforms.envMapTotalLuminance.value = 1.0;
 			return;
 
 		}
@@ -814,6 +816,7 @@ export class PathTracerPass extends Pass {
 				this.material.uniforms.envCDF.value = result.cdfTexture;
 				this.material.uniforms.envCDFSize.value.set( result.cdfSize.width, result.cdfSize.height );
 				this.material.uniforms.useEnvMapIS.value = true;
+				this.material.uniforms.envMapTotalLuminance.value = result.debugInfo?.luminanceStats?.total || 1.0;
 
 				if ( this.environmentCDFBuilder.options.enableValidation ) {
 
@@ -829,6 +832,7 @@ export class PathTracerPass extends Pass {
 
 				// Fallback to uniform sampling
 				this.material.uniforms.useEnvMapIS.value = false;
+				this.material.uniforms.envMapTotalLuminance.value = 1.0;
 				console.warn( 'Failed to build environment CDF, using uniform sampling' );
 
 			}
@@ -837,6 +841,7 @@ export class PathTracerPass extends Pass {
 
 			console.error( 'Error building environment CDF:', error );
 			this.material.uniforms.useEnvMapIS.value = false;
+			this.material.uniforms.envMapTotalLuminance.value = 1.0;
 
 		}
 
@@ -855,6 +860,7 @@ export class PathTracerPass extends Pass {
 
 			this.material.uniforms.envCDF.value = null;
 			this.material.uniforms.useEnvMapIS.value = false;
+			this.material.uniforms.envMapTotalLuminance.value = 1.0;
 
 		}
 
