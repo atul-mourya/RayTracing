@@ -89,6 +89,11 @@ MaterialClassification getOrCreateMaterialClassification( RayTracingMaterial mat
 // BRDF sampling with early exits and optimized math
 DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, int materialIndex, vec2 xi, inout uint rngState, inout PathState pathState ) {
 
+    // IMPROVEMENT: Use multi-lobe MIS for complex materials
+    if( material.clearcoat > 0.1 || material.transmission > 0.1 || material.sheen > 0.1 || material.iridescence > 0.1 ) {
+        return sampleMaterialWithMultiLobeMIS( V, N, material, xi, rngState );
+    }
+
     // OPTIMIZED: Use consolidated classification function
 	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
 

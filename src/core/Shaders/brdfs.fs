@@ -559,3 +559,236 @@ vec3 cosineWeightedSample( vec3 N, vec2 xi ) {
 float cosineWeightedPDF( float NoL ) {
 	return max( NoL, MIN_PDF ) * PI_INV;
 }
+
+// IMPROVEMENT: Enhanced sampling weights calculation for multi-lobe MIS
+MultiLobeWeights calculateSamplingWeights(vec3 V, vec3 N, RayTracingMaterial material) {
+    MultiLobeWeights weights;
+
+    // Get material classification for optimized calculations
+    MaterialClassification mc = classifyMaterial(material);
+
+    // Create temporary cache for calculations
+    MaterialCache tempCache;
+    tempCache.invRoughness = 1.0 - material.roughness;
+    tempCache.metalFactor = 0.5 + 0.5 * material.metalness;
+    tempCache.iorFactor = min(2.0 / material.ior, 1.0);
+    tempCache.maxSheenColor = max(material.sheenColor.r, max(material.sheenColor.g, material.sheenColor.b));
+
+    // Calculate base BRDF weights
+    BRDFWeights brdfWeights = calculateBRDFWeights(material, mc, tempCache);
+
+    // Calculate view-dependent factors
+    float NoV = max(dot(N, V), 0.0);
+    float fresnelFactor = pow(1.0 - NoV, 5.0);
+
+    // Enhanced diffuse weight (reduced at grazing angles)
+    weights.diffuse = brdfWeights.diffuse * (1.0 - fresnelFactor * 0.3);
+
+    // Enhanced specular weight (increased at grazing angles)
+    weights.specular = brdfWeights.specular * (1.0 + fresnelFactor * 0.5);
+
+    // Clearcoat weight with fresnel enhancement
+    weights.clearcoat = brdfWeights.clearcoat * (1.0 + fresnelFactor * 0.8);
+
+    // Transmission weight (view-dependent)
+    weights.transmission = brdfWeights.transmission * tempCache.iorFactor;
+
+    // Sheen weight (enhanced at grazing angles)
+    weights.sheen = brdfWeights.sheen * (1.0 + fresnelFactor);
+
+    // Iridescence weight
+    weights.iridescence = brdfWeights.iridescence * (1.0 + fresnelFactor * 0.6);
+
+    // Calculate total weight for normalization
+    weights.totalWeight = weights.diffuse + weights.specular + weights.clearcoat +
+                         weights.transmission + weights.sheen + weights.iridescence;
+
+    // Ensure minimum total weight to prevent division by zero
+    weights.totalWeight = max(weights.totalWeight, 1e-6);
+
+    // Normalize weights
+    float invTotal = 1.0 / weights.totalWeight;
+    weights.diffuse *= invTotal;
+    weights.specular *= invTotal;
+    weights.clearcoat *= invTotal;
+    weights.transmission *= invTotal;
+    weights.sheen *= invTotal;
+    weights.iridescence *= invTotal;
+
+    return weights;
+}
+
+// Calculate MIS weight considering all possible sampling strategies
+float calculateMultiLobeMISWeight(
+    vec3 sampledDirection,
+    vec3 V,
+    vec3 N,
+    RayTracingMaterial material,
+    MultiLobeWeights weights,
+    float selectedPdf
+) {
+    // Calculate PDFs for all possible sampling strategies
+    float diffusePdf = 0.0;
+    float specularPdf = 0.0;
+    float clearcoatPdf = 0.0;
+    float transmissionPdf = 0.0;
+    float sheenPdf = 0.0;
+
+    float NoL = dot(N, sampledDirection);
+
+    // Diffuse PDF
+    if (NoL > 0.0) {
+        diffusePdf = NoL / PI;
+    }
+
+    // Specular PDF
+    vec3 H = normalize(V + sampledDirection);
+    float NoH = max(dot(N, H), 0.0);
+    float VoH = max(dot(V, H), 0.0);
+    float NoV = max(dot(N, V), 0.0);
+
+    if (NoH > 0.0 && VoH > 0.0 && NoV > 0.0) {
+        float D = DistributionGGX(NoH, material.roughness);
+        float G1 = GeometrySchlickGGX(NoV, material.roughness);
+        specularPdf = D * G1 * VoH / (NoV * 4.0);
+
+        // Clearcoat PDF (using clearcoat roughness)
+        if (material.clearcoat > 0.0) {
+            float DClearcoat = DistributionGGX(NoH, material.clearcoatRoughness);
+            float G1Clearcoat = GeometrySchlickGGX(NoV, material.clearcoatRoughness);
+            clearcoatPdf = DClearcoat * G1Clearcoat * VoH / (NoV * 4.0);
+        }
+    }
+
+    // Transmission PDF (simplified)
+    if (material.transmission > 0.0 && NoL < 0.0) {
+        // For transmission, we're sampling the opposite hemisphere
+        transmissionPdf = abs(NoL) / PI; // Simplified transmission PDF
+    }
+
+    // Sheen PDF (approximated as diffuse)
+    if (material.sheen > 0.0 && NoL > 0.0) {
+        sheenPdf = NoL / PI;
+    }
+
+    // Weighted combination of all PDFs for MIS
+    float totalPdf = weights.diffuse * diffusePdf +
+                     weights.specular * specularPdf +
+                     weights.clearcoat * clearcoatPdf +
+                     weights.transmission * transmissionPdf +
+                     weights.sheen * sheenPdf +
+                     weights.iridescence * diffusePdf; // Iridescence uses diffuse-like sampling
+
+    // Power heuristic for MIS weight
+    float misWeight = 1.0;
+    if (totalPdf > 0.0 && selectedPdf > 0.0) {
+        float selectedPdfSquared = selectedPdf * selectedPdf;
+        float totalPdfSquared = totalPdf * totalPdf;
+        misWeight = selectedPdfSquared / (selectedPdfSquared + totalPdfSquared);
+    }
+
+    return misWeight;
+}
+
+// IMPROVEMENT: Multi-lobe MIS for complex materials
+SamplingResult sampleMaterialWithMultiLobeMIS(
+    vec3 V,
+    vec3 N,
+    RayTracingMaterial material,
+    vec2 xi,
+    inout uint rngState
+) {
+    SamplingResult result;
+
+    // Calculate individual lobe weights
+    MultiLobeWeights weights = calculateSamplingWeights(V, N, material);
+
+    // Multi-importance sampling across different lobes
+    float rand = RandomValue(rngState);
+    float cumulativeDiffuse = weights.diffuse;
+    float cumulativeSpecular = cumulativeDiffuse + weights.specular;
+    float cumulativeClearcoat = cumulativeSpecular + weights.clearcoat;
+    float cumulativeTransmission = cumulativeClearcoat + weights.transmission;
+    float cumulativeSheen = cumulativeTransmission + weights.sheen;
+    float cumulativeIridescence = cumulativeSheen + weights.iridescence;
+
+    vec3 sampledDirection;
+    float lobePdf;
+
+    if (rand < cumulativeDiffuse) {
+        // Diffuse sampling
+        sampledDirection = ImportanceSampleCosine(N, xi);
+        lobePdf = max(dot(N, sampledDirection), 0.0) / PI;
+        result.pdf = lobePdf * weights.diffuse;
+
+    } else if (rand < cumulativeSpecular) {
+        // Specular sampling
+        vec3 H = ImportanceSampleGGX(N, material.roughness, xi);
+        sampledDirection = reflect(-V, H);
+
+        if (dot(N, sampledDirection) > 0.0) {
+            float NoH = max(dot(N, H), 0.0);
+            float VoH = max(dot(V, H), 0.0);
+            float NoV = max(dot(N, V), 0.0);
+
+            float D = DistributionGGX(NoH, material.roughness);
+            float G1 = GeometrySchlickGGX(NoV, material.roughness);
+            lobePdf = D * G1 * VoH / (NoV * 4.0);
+        } else {
+            lobePdf = 0.0;
+        }
+        result.pdf = lobePdf * weights.specular;
+
+    } else if (rand < cumulativeClearcoat && material.clearcoat > 0.0) {
+        // Clearcoat sampling
+        vec3 H = ImportanceSampleGGX(N, material.clearcoatRoughness, xi);
+        sampledDirection = reflect(-V, H);
+
+        if (dot(N, sampledDirection) > 0.0) {
+            float NoH = max(dot(N, H), 0.0);
+            float VoH = max(dot(V, H), 0.0);
+            float NoV = max(dot(N, V), 0.0);
+
+            float D = DistributionGGX(NoH, material.clearcoatRoughness);
+            float G1 = GeometrySchlickGGX(NoV, material.clearcoatRoughness);
+            lobePdf = D * G1 * VoH / (NoV * 4.0);
+        } else {
+            lobePdf = 0.0;
+        }
+        result.pdf = lobePdf * weights.clearcoat;
+
+    } else if (rand < cumulativeTransmission && material.transmission > 0.0) {
+        // Transmission sampling - simplified approach
+        vec3 H = ImportanceSampleGGX(N, material.roughness, xi);
+        vec3 refractionDir = refract(-V, H, 1.0 / material.ior);
+
+        if (length(refractionDir) > 0.0) {
+            sampledDirection = normalize(refractionDir);
+            float NoH = max(dot(N, H), 0.0);
+            float VoH = max(dot(V, H), 0.0);
+
+            float D = DistributionGGX(NoH, material.roughness);
+            float G1 = GeometrySchlickGGX(max(dot(N, V), 0.0), material.roughness);
+            lobePdf = D * G1 * VoH / (max(dot(N, V), 0.0) * 4.0);
+        } else {
+            // Total internal reflection - fallback to specular
+            sampledDirection = reflect(-V, H);
+            lobePdf = 0.1; // Small fallback PDF
+        }
+        result.pdf = lobePdf * weights.transmission;
+
+    } else {
+        // Fallback to diffuse sampling for sheen/iridescence
+        sampledDirection = ImportanceSampleCosine(N, xi);
+        lobePdf = max(dot(N, sampledDirection), 0.0) / PI;
+        result.pdf = lobePdf * (weights.sheen + weights.iridescence);
+    }
+
+    // Calculate MIS weight considering all possible sampling strategies
+    float misWeight = calculateMultiLobeMISWeight(sampledDirection, V, N, material, weights, result.pdf);
+    result.pdf *= misWeight; // Apply MIS weight to the PDF
+    result.direction = sampledDirection;
+    result.value = evaluateMaterialResponse(V, sampledDirection, N, material);
+
+    return result;
+}

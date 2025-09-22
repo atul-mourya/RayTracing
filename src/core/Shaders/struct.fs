@@ -218,3 +218,19 @@ struct MISStrategy {
     bool useLightSampling;
     bool useEnvSampling;
 };
+
+// IMPROVEMENT: Multi-layer MIS type aliases and extensions
+// Use existing structs with clear naming for multi-lobe MIS
+#define MaterialWeights BRDFWeights
+#define SamplingResult DirectionSample
+
+// Enhanced material weights for multi-lobe sampling
+struct MultiLobeWeights {
+    float diffuse;
+    float specular;
+    float clearcoat;
+    float transmission;
+    float sheen;
+    float iridescence;
+    float totalWeight;
+};
