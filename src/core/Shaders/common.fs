@@ -218,6 +218,49 @@ MaterialClassification classifyMaterial( RayTracingMaterial material ) {
     return mc;
 }
 
+// IMPROVEMENT: Dynamic MIS strategy based on material properties
+MISStrategy selectOptimalMISStrategy(RayTracingMaterial material, int bounceIndex, vec3 throughput) {
+    MISStrategy strategy;
+
+    float materialComplexity = classifyMaterial(material).complexityScore;
+    float throughputStrength = maxComponent(throughput);
+
+    // Adaptive strategy based on material and path state
+    if (material.roughness < 0.1 && material.metalness > 0.8) {
+        // Highly specular materials - favor BRDF sampling
+        strategy.brdfWeight = 0.7;
+        strategy.lightWeight = 0.2;
+        strategy.envWeight = 0.1;
+        strategy.useBRDFSampling = true;
+        strategy.useLightSampling = throughputStrength > 0.01;
+        strategy.useEnvSampling = bounceIndex < 3;
+    } else if (material.roughness > 0.7) {
+        // Diffuse materials - favor light sampling
+        strategy.brdfWeight = 0.3;
+        strategy.lightWeight = 0.5;
+        strategy.envWeight = 0.2;
+        strategy.useBRDFSampling = true;
+        strategy.useLightSampling = true;
+        strategy.useEnvSampling = true; // Will be checked against enableEnvironmentLight where used
+    } else {
+        // Balanced approach for mixed materials
+        strategy.brdfWeight = 0.4;
+        strategy.lightWeight = 0.4;
+        strategy.envWeight = 0.2;
+        strategy.useBRDFSampling = true;
+        strategy.useLightSampling = true;
+        strategy.useEnvSampling = bounceIndex < 4; // Will be checked against enableEnvironmentLight where used
+    }
+
+    // Adjust based on bounce depth
+    if (bounceIndex > 3) {
+        strategy.lightWeight *= 0.7; // Reduce light sampling for deep bounces
+        strategy.envWeight *= 0.8;
+    }
+
+    return strategy;
+}
+
 // Material data texture access functions
 vec4 getDatafromDataTexture( sampler2D tex, ivec2 texSize, int stride, int sampleIndex, int dataOffset ) {
 	int pixelIndex = stride * dataOffset + sampleIndex;

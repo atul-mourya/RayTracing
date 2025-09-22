@@ -1221,12 +1221,16 @@ vec3 calculateDirectLightingUnified(
 ) {
     vec3 totalContribution = vec3( 0.0 );
     vec3 rayOrigin = hitInfo.hitPoint + hitInfo.normal * 0.001;
-    
+
     // Early exit for highly emissive surfaces
     if( hitInfo.material.emissiveIntensity > 10.0 ) {
         return vec3( 0.0 );
     }
-    
+
+    // IMPROVEMENT: Adaptive MIS Strategy Selection
+    vec3 currentThroughput = vec3(1.0); // This should be passed from caller, using 1.0 as fallback
+    MISStrategy misStrategy = selectOptimalMISStrategy(hitInfo.material, bounceIndex, currentThroughput);
+
     // Adaptive light processing based on bounce depth
     int totalLights = getTotalLightCount();
     if( totalLights == 0 ) {
@@ -1236,15 +1240,39 @@ vec3 calculateDirectLightingUnified(
     // Importance threshold that increases with bounce depth for early termination
     float importanceThreshold = 0.001 * ( 1.0 + float( bounceIndex ) * 0.5 );
     
-    // Calculate total denominator including environment if enabled
-    float lightsDenom = float( totalLights );
-    if( enableEnvironmentLight && bounceIndex < 2 ) {
-        lightsDenom += 1.0;
+    // Calculate total denominator using adaptive strategy
+    float totalSamplingWeight = 0.0;
+    if( misStrategy.useLightSampling ) totalSamplingWeight += misStrategy.lightWeight;
+    if( misStrategy.useBRDFSampling ) totalSamplingWeight += misStrategy.brdfWeight;
+    if( misStrategy.useEnvSampling && enableEnvironmentLight ) totalSamplingWeight += misStrategy.envWeight;
+
+    // Ensure we have valid weights
+    if( totalSamplingWeight <= 0.0 ) {
+        totalSamplingWeight = 1.0;
+        // Fallback to light sampling
+        misStrategy.useLightSampling = true;
+        misStrategy.lightWeight = 1.0;
     }
-    
-    // Use stratified sampling for better distribution
+
+    // Use stratified sampling for better distribution with adaptive weights
     vec2 stratifiedRandom = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, -1 );
-    bool sampleLights = stratifiedRandom.x < float( totalLights ) / lightsDenom;
+
+    // Determine sampling technique based on adaptive strategy
+    float rand = stratifiedRandom.x;
+    bool sampleLights = false;
+    bool sampleBRDF = false;
+    bool sampleEnv = false;
+
+    if( rand < misStrategy.lightWeight / totalSamplingWeight && misStrategy.useLightSampling ) {
+        sampleLights = true;
+    } else if( rand < (misStrategy.lightWeight + misStrategy.brdfWeight) / totalSamplingWeight && misStrategy.useBRDFSampling ) {
+        sampleBRDF = true;
+    } else if( misStrategy.useEnvSampling && enableEnvironmentLight ) {
+        sampleEnv = true;
+    } else {
+        // Fallback to light sampling
+        sampleLights = true;
+    }
     
     if( sampleLights ) {
         // 1. IMPORTANCE-WEIGHTED LIGHT SAMPLING STRATEGY
@@ -1268,26 +1296,33 @@ vec3 calculateDirectLightingUnified(
                     // Calculate BSDF PDF for this direction for improved MIS
                     float brdfPdf = calculateMaterialPDF( viewDir, lightSample.direction, hitInfo.normal, hitInfo.material );
                     
-                    // Enhanced MIS weight calculation for all light types
+                    // Enhanced MIS weight calculation using adaptive strategy
                     float misWeight = 1.0;
-                    if( brdfPdf > 0.0 ) {
+                    if( brdfPdf > 0.0 && misStrategy.useBRDFSampling ) {
+                        // Apply adaptive MIS weights based on selected strategy
+                        float lightPdfWeighted = lightSample.pdf * misStrategy.lightWeight;
+                        float brdfPdfWeighted = brdfPdf * misStrategy.brdfWeight;
+
                         if( lightSample.lightType == LIGHT_TYPE_AREA ) {
-                            misWeight = powerHeuristic( lightSample.pdf, brdfPdf );
+                            misWeight = powerHeuristic( lightPdfWeighted, brdfPdfWeighted );
                         } else if( bounceIndex == 0 && lightSample.lightType == LIGHT_TYPE_DIRECTIONAL ) {
                             // Apply MIS for directional lights on primary rays only
-                            misWeight = powerHeuristic( lightSample.pdf, brdfPdf );
+                            misWeight = powerHeuristic( lightPdfWeighted, brdfPdfWeighted );
                         }
                     }
                     
                     // Light contribution with improved MIS
                     vec3 lightContribution = lightSample.emission * brdfValue * NoL * visibility * misWeight / lightSample.pdf;
-                    totalContribution += lightContribution * lightsDenom; // Compensate for selection probability
+                    totalContribution += lightContribution * totalSamplingWeight / misStrategy.lightWeight; // Compensate for adaptive selection probability
                 }
             }
         }
         
+    }
+
+    if( sampleBRDF ) {
         // 2. ENHANCED BSDF SAMPLING STRATEGY (optimized for better MIS)
-        if( brdfSample.pdf > 0.0 && bounceIndex < 3 ) { // Limit BSDF sampling to first few bounces
+        if( brdfSample.pdf > 0.0 && misStrategy.useBRDFSampling ) {
             float NoL = max( 0.0, dot( hitInfo.normal, brdfSample.direction ) );
             
             if( NoL > 0.0 && isDirectionValid( brdfSample.direction, hitInfo.normal ) ) {
@@ -1335,13 +1370,15 @@ vec3 calculateDirectLightingUnified(
                                 float lightPdf = lightDistSq / ( light.area * lightFacing );
                                 lightPdf /= float( totalLights ); // Account for light selection probability
                                 
-                                // Enhanced MIS weight using power heuristic
-                                float misWeight = powerHeuristic( brdfSample.pdf, lightPdf );
-                                
+                                // Enhanced MIS weight using adaptive strategy
+                                float brdfPdfWeighted = brdfSample.pdf * misStrategy.brdfWeight;
+                                float lightPdfWeighted = lightPdf * misStrategy.lightWeight;
+                                float misWeight = powerHeuristic( brdfPdfWeighted, lightPdfWeighted );
+
                                 // BSDF sampling contribution with importance weighting
                                 vec3 lightEmission = light.color * light.intensity;
                                 vec3 brdfContribution = lightEmission * brdfSample.value * NoL * visibility * misWeight / brdfSample.pdf;
-                                totalContribution += brdfContribution * lightsDenom;
+                                totalContribution += brdfContribution * totalSamplingWeight / misStrategy.brdfWeight;
                             }
                         }
                     }
@@ -1349,13 +1386,40 @@ vec3 calculateDirectLightingUnified(
                 #endif
             }
         }
-    } else if( enableEnvironmentLight && bounceIndex < 2 ) {
-        // 3. ENVIRONMENT SAMPLING
-        vec2 envRandom = vec2( RandomValue( rngState ), RandomValue( rngState ) );
-        
-        // Sample environment map with importance sampling
-        // This would need to be implemented based on your environment system
-        // For now, we'll skip environment sampling in this unified function
+    }
+
+    if( sampleEnv ) {
+        // 3. ADAPTIVE ENVIRONMENT SAMPLING
+        if( enableEnvironmentLight && misStrategy.useEnvSampling ) {
+            vec2 envRandom = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+
+            // Sample environment map with importance sampling using our improved function
+            EnvMapSample envSample = sampleEnvironmentWithContext( envRandom, bounceIndex, hitInfo.material, viewDir, hitInfo.normal );
+
+            if( envSample.pdf > 0.0 ) {
+                float NoL = max( 0.0, dot( hitInfo.normal, envSample.direction ) );
+
+                if( NoL > 0.0 && isDirectionValid( envSample.direction, hitInfo.normal ) ) {
+                    // Shadow test for environment direction
+                    float visibility = traceShadowRay( rayOrigin, envSample.direction, 1000.0, rngState, stats );
+
+                    if( visibility > 0.0 ) {
+                        // Calculate BRDF response for environment direction
+                        vec3 brdfValue = evaluateMaterialResponse( viewDir, envSample.direction, hitInfo.normal, hitInfo.material );
+                        float brdfPdf = calculateMaterialPDF( viewDir, envSample.direction, hitInfo.normal, hitInfo.material );
+
+                        // MIS weight using adaptive strategy
+                        float envPdfWeighted = envSample.pdf * misStrategy.envWeight;
+                        float brdfPdfWeighted = brdfPdf * misStrategy.brdfWeight;
+                        float misWeight = (brdfPdf > 0.0) ? powerHeuristic( envPdfWeighted, brdfPdfWeighted ) : 1.0;
+
+                        // Environment contribution with adaptive MIS
+                        vec3 envContribution = envSample.value * brdfValue * NoL * visibility * misWeight / envSample.pdf;
+                        totalContribution += envContribution * totalSamplingWeight / misStrategy.envWeight;
+                    }
+                }
+            }
+        }
     }
     
     return totalContribution;

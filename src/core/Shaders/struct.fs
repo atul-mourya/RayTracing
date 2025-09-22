@@ -208,3 +208,13 @@ struct SamplingStrategyWeights {
     bool useTransmission;
     bool useClearcoat;
 };
+
+// IMPROVEMENT: Dynamic MIS strategy based on material properties
+struct MISStrategy {
+    float brdfWeight;
+    float lightWeight;
+    float envWeight;
+    bool useBRDFSampling;
+    bool useLightSampling;
+    bool useEnvSampling;
+};
