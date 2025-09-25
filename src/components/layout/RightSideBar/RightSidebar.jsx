@@ -1,5 +1,5 @@
 import { useMemo, memo, useCallback, lazy, Suspense } from 'react';
-import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife } from 'lucide-react';
+import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife, Bot } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore } from '@/store';
 import FinalRenderPanel from './FinalRenderPanel';
@@ -11,6 +11,7 @@ const AssetsTab = lazy( () => import( './AssetsTab' ) );
 const PathTracerTab = lazy( () => import( './PathTracerTab' ) );
 const MaterialTab = lazy( () => import( './MaterialTab' ) );
 const ColorCorrectionsTab = lazy( () => import( './ColorCorrectionsTab' ) );
+const AITab = lazy( () => import( './AITab' ) );
 
 // Loading fallback component
 const TabLoadingFallback = () => (
@@ -90,7 +91,7 @@ FinalRenderModeTabs.displayName = 'FinalRenderModeTabs';
 
 const ResultsModeTabs = memo( () => (
 	<Tabs defaultValue="pathtracer" className="flex flex-col h-full w-full">
-		<TabsList className="relative grid w-full grid-cols-3 h-12 p-0">
+		<TabsList className="relative grid w-full grid-cols-4 h-12 p-0">
 			<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
 				<Sliders size={12} />
 				<span className="text-xs mt-1">Adjust</span>
@@ -98,6 +99,10 @@ const ResultsModeTabs = memo( () => (
 			<TabsTrigger value="tool" className="flex flex-col items-center py-2">
 				<PocketKnife size={12} />
 				<span className="text-xs mt-1">Tool</span>
+			</TabsTrigger>
+			<TabsTrigger value="ai" className="flex flex-col items-center py-2">
+				<Bot size={12} />
+				<span className="text-xs mt-1">AI</span>
 			</TabsTrigger>
 			<TabsTrigger value="filters" className="flex flex-col items-center py-2">
 				<Blend size={12} />
@@ -113,6 +118,12 @@ const ResultsModeTabs = memo( () => (
 
 		<TabsContent value="tool" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
 			Coming Soon !!
+		</TabsContent>
+
+		<TabsContent value="ai" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+			<Suspense fallback={<TabLoadingFallback />}>
+				<AITab />
+			</Suspense>
 		</TabsContent>
 
 		<TabsContent value="filters" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
