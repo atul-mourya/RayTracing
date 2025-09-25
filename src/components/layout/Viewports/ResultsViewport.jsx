@@ -255,7 +255,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 				setIsImageDrawn( true );
 				setImageLoadState( { loaded: true, error: false } );
-				console.log( '4K image loaded successfully' );
 
 				// Initialize image processor with the new image
 				if ( imageProcessorRef.current && ! abortController.signal.aborted ) {
@@ -307,8 +306,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 		};
 
-		// Start loading the 4K image
-		console.log( 'Starting to load 4K image, size:', imageData.image?.length || 0, 'bytes' );
 		img.src = imageData.image;
 
 		return () => {
