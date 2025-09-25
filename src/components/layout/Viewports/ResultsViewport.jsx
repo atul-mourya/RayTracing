@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, forwardRef, useMemo, useCallback } from 'react';
+import { debounce } from 'lodash';
 import { RotateCcw, Save, Eye } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
@@ -12,9 +13,10 @@ import { generateViewportStyles } from '@/utils/viewport';
 
 const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
-	// State from store
-	const imageData = useStore( useCallback( state => state.selectedResult, [] ) );
-	const imageProcessing = useStore( useCallback( state => state.imageProcessing, [] ) );
+	// Access store values directly to avoid selector issues
+	const imageData = useStore( state => state.selectedResult );
+	const imageProcessing = useStore( state => state.imageProcessing );
+	const setImageProcessingParam = useStore( state => state.setImageProcessingParam );
 
 	// Hooks
 	const { toast } = useToast();
@@ -27,8 +29,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const editedCanvasRef = useRef( null );
 	const imageProcessorRef = useRef( null );
 
-	// Local state
-	const [ actualCanvasSize ] = useState( 512 );
+	// Dynamic canvas size based on viewport and image quality
+	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 );
+	const [ imageLoadState, setImageLoadState ] = useState( { loaded: false, error: false } );
 	const [ isImageDrawn, setIsImageDrawn ] = useState( false );
 	const [ viewingOriginal, setViewingOriginal ] = useState( false );
 	const [ selectedImageId, setSelectedImageId ] = useState( null );
@@ -167,7 +170,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	}, [] );
 
 	// Apply current image processing settings
-	const applyImageProcessing = () => {
+	const applyImageProcessing = useCallback( () => {
 
 		if ( ! imageProcessorRef.current ) return;
 
@@ -186,91 +189,155 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		// Render the result
 		imageProcessorRef.current.render();
 
-	};
+	}, [ imageProcessing ] );
 
-	// Draw original image when image data changes
+	// Debounced version for performance - critical for 4K images
+	const debouncedApplyImageProcessing = useMemo(
+		() => debounce( applyImageProcessing, 150 ), // 150ms debounce for smooth 4K processing
+		[ applyImageProcessing ]
+	);
+
+	// Optimized image loading for 4K images
 	useEffect( () => {
 
-		if ( ! originalCanvasRef.current || ! editedCanvasRef.current || ! imageData ) return;
+		if ( ! originalCanvasRef.current || ! editedCanvasRef.current || ! imageData || ! imageData.image ) {
+
+			console.log( 'Missing required data for image loading:', {
+				originalCanvas: !! originalCanvasRef.current,
+				editedCanvas: !! editedCanvasRef.current,
+				imageData: !! imageData,
+				imageDataImage: !! imageData?.image
+			} );
+			return;
+
+		}
 
 		const originalCanvas = originalCanvasRef.current;
 		const originalCtx = originalCanvas.getContext( '2d' );
+		const abortController = new AbortController();
 
-		// Clear canvases
+		// Clear canvases and reset state
 		originalCtx.clearRect( 0, 0, originalCanvas.width, originalCanvas.height );
 		setIsImageDrawn( false );
+		setImageLoadState( { loaded: false, error: false } );
 
-		// Load the image
+		// Create image with optimized loading
 		const img = new Image();
+		img.crossOrigin = 'anonymous'; // Enable CORS for 4K images
 
-		img.onload = async () => {
+		// Direct image loading without complex async wrapper
+		img.onload = () => {
 
-			// Calculate dimensions to maintain aspect ratio
-			const hRatio = originalCanvas.width / img.width;
-			const vRatio = originalCanvas.height / img.height;
-			const ratio = Math.min( hRatio, vRatio );
+			if ( abortController.signal.aborted ) return;
 
-			// Center the image
-			const centerX = ( originalCanvas.width - img.width * ratio ) / 2;
-			const centerY = ( originalCanvas.height - img.height * ratio ) / 2;
+			try {
 
-			// Draw the image on original canvas
-			originalCtx.drawImage(
-				img, 0, 0, img.width, img.height,
-				centerX, centerY, img.width * ratio, img.height * ratio
-			);
+				// Calculate optimal canvas size based on image and viewport
+				const maxCanvasSize = Math.min( img.width, img.height, 2048 ); // Limit for 4K
+				setActualCanvasSize( Math.min( maxCanvasSize, 1024 ) ); // Reasonable default
 
-			setIsImageDrawn( true );
+				// Calculate dimensions to maintain aspect ratio
+				const hRatio = originalCanvas.width / img.width;
+				const vRatio = originalCanvas.height / img.height;
+				const ratio = Math.min( hRatio, vRatio );
 
-			// Initialize image processor with the new image
-			if ( imageProcessorRef.current ) {
+				// Center the image
+				const centerX = ( originalCanvas.width - img.width * ratio ) / 2;
+				const centerY = ( originalCanvas.height - img.height * ratio ) / 2;
 
-				// Update the texture with the new image
-				imageProcessorRef.current.quad.material.map.needsUpdate = true;
-				// Apply processing and render to edited canvas
-				applyImageProcessing();
+				// Use drawImage with smoothing disabled for crisp 4K rendering
+				originalCtx.imageSmoothingEnabled = false;
+				originalCtx.drawImage(
+					img, 0, 0, img.width, img.height,
+					centerX, centerY, img.width * ratio, img.height * ratio
+				);
+				originalCtx.imageSmoothingEnabled = true;
+
+				setIsImageDrawn( true );
+				setImageLoadState( { loaded: true, error: false } );
+				console.log( '4K image loaded successfully' );
+
+				// Initialize image processor with the new image
+				if ( imageProcessorRef.current && ! abortController.signal.aborted ) {
+
+					// Update the texture with the new image
+					imageProcessorRef.current.quad.material.map.needsUpdate = true;
+					// Note: processing will be applied automatically via the debounced effect
+
+				}
+
+				// Save the ID of the selected image for later use
+				setSelectedImageId( imageData.id );
+
+				// Store the original color correction settings
+				const settings = { ...imageData.colorCorrection, gamma: imageData.colorCorrection.gamma ?? 2.2 };
+				setOriginalSettings( settings );
+
+				// Update color correction parameters in the store
+				Object.keys( settings ).forEach( param => {
+
+					setImageProcessingParam( param, settings[ param ] );
+
+				} );
+
+				// Default to edited view
+				setViewingOriginal( false );
+
+			} catch ( error ) {
+
+				if ( ! abortController.signal.aborted ) {
+
+					console.error( 'Error processing 4K image:', error );
+					setImageLoadState( { loaded: false, error: true } );
+
+				}
 
 			}
 
-			// Save the ID of the selected image for later use
-			setSelectedImageId( imageData.id );
+		};
 
-			// Store the original color correction settings
-			const settings = { ...imageData.colorCorrection, gamma: imageData.colorCorrection.gamma ?? 2.2 };
-			setOriginalSettings( settings );
+		img.onerror = ( error ) => {
 
-			// Update color correction parameters in the store
-			Object.keys( settings ).forEach( param => {
+			if ( ! abortController.signal.aborted ) {
 
-				useStore.getState().setImageProcessingParam( param, settings[ param ] );
+				console.error( 'Failed to load 4K image:', imageData.image, error );
+				setImageLoadState( { loaded: false, error: true } );
 
-			} );
-
-			// Default to edited view
-			setViewingOriginal( false );
+			}
 
 		};
 
+		// Start loading the 4K image
+		console.log( 'Starting to load 4K image, size:', imageData.image?.length || 0, 'bytes' );
 		img.src = imageData.image;
 
 		return () => {
 
+			abortController.abort();
 			img.onload = null;
+			img.onerror = null;
 
 		};
 
-	}, [ imageData ] );
+	}, [ imageData, setImageProcessingParam ] );
 
-	// Apply image processing when parameters change
+	// Apply image processing when parameters change (debounced for 4K performance)
 	useEffect( () => {
 
 		if ( isImageDrawn && imageProcessorRef.current ) {
 
-			applyImageProcessing();
+			debouncedApplyImageProcessing();
 
 		}
 
-	}, [ imageProcessing, isImageDrawn ] );
+		// Cleanup debounce on unmount
+		return () => {
+
+			debouncedApplyImageProcessing.cancel();
+
+		};
+
+	}, [ imageProcessing, isImageDrawn, debouncedApplyImageProcessing ] );
 
 	// Long press handling for original/edited view toggling
 	const startLongPress = useCallback( () => {
@@ -340,7 +407,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	}, [] );
 
 	// Memoize style objects
-	const { wrapperStyle, containerStyle, canvasStyle } = useMemo( () =>
+	const { wrapperStyle, containerStyle } = useMemo( () =>
 		generateViewportStyles( actualCanvasSize, viewportScale ),
 	[ actualCanvasSize, viewportScale ]
 	);
@@ -511,7 +578,27 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					className="relative cursor-pointer"
 					style={containerStyle}
 				>
-					{/* Canvas for edited image */}
+					{/* Loading indicator for 4K images */}
+					{imageData && ! imageLoadState.loaded && ! imageLoadState.error && (
+						<div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
+							<div className="flex flex-col items-center space-y-2">
+								<div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+								<p className="text-sm">Loading 4K image...</p>
+							</div>
+						</div>
+					)}
+
+					{/* Error state for 4K image loading */}
+					{imageData && imageLoadState.error && (
+						<div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
+							<div className="text-center">
+								<p className="text-sm text-red-400 mb-2">Failed to load 4K image</p>
+								<p className="text-xs text-gray-400">The image may be corrupted or too large</p>
+							</div>
+						</div>
+					)}
+
+					{/* Canvas for edited image - optimized for 4K */}
 					<canvas
 						ref={editedCanvasRef}
 						width="2048"
@@ -520,11 +607,12 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
 							backgroundColor: 'black',
-							display: viewingOriginal ? 'none' : 'block'
+							display: ( viewingOriginal || ! imageLoadState.loaded ) ? 'none' : 'block',
+							imageRendering: 'pixelated' // Better for 4K images
 						}}
 					/>
 
-					{/* Canvas for original image */}
+					{/* Canvas for original image - optimized for 4K */}
 					<canvas
 						ref={originalCanvasRef}
 						width="2048"
@@ -533,7 +621,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
 							backgroundColor: 'black',
-							display: viewingOriginal ? 'block' : 'none'
+							display: ( viewingOriginal && imageLoadState.loaded ) ? 'block' : 'none',
+							imageRendering: 'pixelated' // Better for 4K images
 						}}
 					/>
 

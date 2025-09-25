@@ -1,6 +1,7 @@
 import { useStore } from '@/store';
 import { createContext, useContext, useEffect, useState, useCallback, useRef, memo, useMemo } from 'react';
 import { getAllRenders, deleteRender } from '@/utils/database';
+import { debounce } from 'lodash';
 import { Trash2, AlertTriangle } from 'lucide-react';
 import {
 	AlertDialog,
@@ -30,32 +31,32 @@ const useResultsContext = () => {
 
 };
 
-// Custom hook for handling images data and selection
+// Database cache for 4K images
+const imageCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache for 4K images
+let lastFetchTime = 0;
+
+// Custom hook for handling images data and selection with caching
 const useResultsData = () => {
 
 	const isMountedRef = useRef( true );
 	const isResultsTabRef = useRef( false );
-	const initialFetchDoneRef = useRef( false ); // Add ref to track initial fetch
+	const initialFetchDoneRef = useRef( false );
+	const fetchTimeoutRef = useRef( null );
 
 	const [ imagesState, setImagesState ] = useState( {
 		renderedImages: [],
 		selectedImageIndex: null,
 		loading: true,
 		error: null,
-		isFetching: false
+		isFetching: false,
+		lastCacheUpdate: 0
 	} );
 
-	// Access store with direct references to avoid re-renders
-	const storeRef = useRef( null );
-	const appMode = useStore( useCallback( state => {
-
-		storeRef.current = state;
-		return state.appMode;
-
-	}, [] ) );
-
-	// Extract setSelectedResult from store using ref
-	const setSelectedResult = () => storeRef.current?.setSelectedResult || ( () => {} );
+	// Access store values directly to avoid selector issues
+	const appMode = useStore( state => state.appMode );
+	const setSelectedResultRef = useRef();
+	setSelectedResultRef.current = useStore( state => state.setSelectedResult );
 
 	// Update isResultsTab ref when appMode changes
 	useEffect( () => {
@@ -76,16 +77,53 @@ const useResultsData = () => {
 
 	}, [] );
 
-	// Fetch images with proper state management
+	// Optimized fetch with caching for 4K images
 	const fetchImages = useCallback( async ( options = {} ) => {
 
 		const { force = false } = options;
+		const now = Date.now();
 
-		// Get current state values instead of using dependencies
-		const isFetching = imagesState.isFetching;
+		// Check cache first for 4K images
+		if ( ! force && imageCache.has( 'renders' ) && ( now - lastFetchTime < CACHE_DURATION ) ) {
+
+			const cachedData = imageCache.get( 'renders' );
+			if ( cachedData && isMountedRef.current ) {
+
+				setImagesState( prev => ( {
+					...prev,
+					renderedImages: cachedData.images,
+					loading: false,
+					isFetching: false,
+					lastCacheUpdate: cachedData.timestamp
+				} ) );
+
+				// Handle selection from cache
+				if ( cachedData.images.length > 0 && prev.selectedImageIndex === null ) {
+
+					setImagesState( prev => ( { ...prev, selectedImageIndex: 0 } ) );
+					if ( isResultsTabRef.current ) {
+
+						setSelectedResult( cachedData.images[ 0 ] );
+
+					}
+
+				}
+
+				return;
+
+			}
+
+		}
 
 		// Prevent duplicate fetches
-		if ( ( isFetching || ! isMountedRef.current ) && ! force ) return;
+		if ( ( imagesState.isFetching || ! isMountedRef.current ) && ! force ) return;
+
+		// Clear any pending timeouts
+		if ( fetchTimeoutRef.current ) {
+
+			clearTimeout( fetchTimeoutRef.current );
+
+		}
 
 		try {
 
@@ -98,8 +136,14 @@ const useResultsData = () => {
 
 			const images = await getAllRenders();
 
-			// Check if component is still mounted before updating state
 			if ( ! isMountedRef.current ) return;
+
+			// Cache the results for 4K images
+			lastFetchTime = now;
+			imageCache.set( 'renders', {
+				images,
+				timestamp: now
+			} );
 
 			setImagesState( prev => {
 
@@ -107,7 +151,8 @@ const useResultsData = () => {
 					...prev,
 					renderedImages: images,
 					loading: false,
-					isFetching: false
+					isFetching: false,
+					lastCacheUpdate: now
 				};
 
 				// Auto-select the first image if available and none selected
@@ -118,7 +163,7 @@ const useResultsData = () => {
 					// Only update selected result if we're in results tab
 					if ( isResultsTabRef.current ) {
 
-						setSelectedResult()( images[ 0 ] );
+						setSelectedResultRef.current( images[ 0 ] );
 
 					}
 
@@ -128,7 +173,7 @@ const useResultsData = () => {
 
 					if ( isResultsTabRef.current ) {
 
-						setSelectedResult()( null );
+						setSelectedResultRef.current( null );
 
 					}
 
@@ -140,7 +185,6 @@ const useResultsData = () => {
 
 		} catch ( err ) {
 
-			// Check if component is still mounted before updating state
 			if ( ! isMountedRef.current ) return;
 
 			setImagesState( prev => ( {
@@ -152,7 +196,7 @@ const useResultsData = () => {
 
 		}
 
-	}, [] ); // Remove dependency on imagesState.isFetching
+	}, [] ); // Remove dependency to prevent infinite loops
 
 	// Handle initial fetch - only run once
 	useEffect( () => {
@@ -177,26 +221,32 @@ const useResultsData = () => {
 
 	}, [] );
 
+	// Debounced fetch for render-saved events to prevent cache thrashing with 4K images
+	const debouncedFetch = useMemo(
+		() => debounce( () => {
+
+			if ( isMountedRef.current ) {
+
+				// Clear cache when new render is saved
+				imageCache.delete( 'renders' );
+				fetchImages( { force: true } );
+
+			}
+
+		}, 300 ), // 300ms debounce for 4K image operations
+		[ fetchImages ]
+	);
+
 	// Set up event listeners for render-saved events
 	useEffect( () => {
 
-		// Create a named handler for proper cleanup
 		const handleRenderSaved = () => {
 
-			if ( ! isMountedRef.current ) return;
+			if ( isMountedRef.current ) {
 
-			// Debounce the fetch to prevent multiple rapid fetches
-			const timeoutId = setTimeout( () => {
+				debouncedFetch();
 
-				if ( isMountedRef.current ) {
-
-					fetchImages( { force: true } );
-
-				}
-
-			}, 100 );
-
-			return () => clearTimeout( timeoutId );
+			}
 
 		};
 
@@ -205,12 +255,13 @@ const useResultsData = () => {
 		return () => {
 
 			window.removeEventListener( 'render-saved', handleRenderSaved );
+			debouncedFetch.cancel(); // Cancel pending debounced calls
 
 		};
 
-	}, [] );
+	}, [ debouncedFetch ] );
 
-	// Handle selected image change
+	// Handle selected image change with optimized updates
 	useEffect( () => {
 
 		if ( ! isMountedRef.current ) return;
@@ -221,7 +272,7 @@ const useResultsData = () => {
 			renderedImages.length > 0 &&
 			isResultsTabRef.current ) {
 
-			setSelectedResult()( renderedImages[ selectedImageIndex ] );
+			setSelectedResultRef.current( renderedImages[ selectedImageIndex ] );
 
 		}
 
@@ -241,7 +292,8 @@ const useResultsData = () => {
 		isResultsTabRef,
 		fetchImages,
 		handleImageSelect,
-		setImagesState
+		setImagesState,
+		debouncedFetch
 	};
 
 };
@@ -255,16 +307,8 @@ const useDeleteRender = ( imagesState, setImagesState, isMountedRef, isResultsTa
 		isDeleting: false
 	} );
 
-	// Store reference for stable access
-	const storeRef = useRef( null );
-	useStore( useCallback( state => {
-
-		storeRef.current = state;
-
-	}, [] ) );
-
-	// Extract setSelectedResult from store using ref
-	const setSelectedResult = () => storeRef.current?.setSelectedResult || ( () => {} );
+	// Access store value directly
+	const storeSetSelectedResult = useStore( state => state.setSelectedResult );
 
 	// Handle opening the delete confirmation dialog
 	const handleDeleteClick = useCallback( ( e, image, index ) => {
@@ -319,11 +363,11 @@ const useDeleteRender = ( imagesState, setImagesState, isMountedRef, isResultsTa
 				// Update the selected result if we're in results tab
 				if ( isResultsTabRef.current && freshImages[ newSelectedIndex ] ) {
 
-					setSelectedResult()( freshImages[ newSelectedIndex ] );
+					storeSetSelectedResult( freshImages[ newSelectedIndex ] );
 
 				} else if ( freshImages.length === 0 ) {
 
-					setSelectedResult()( null );
+					storeSetSelectedResult( null );
 
 				}
 
@@ -413,7 +457,87 @@ const useFormatDate = () => {
 
 };
 
-// Memoized render item component to prevent unnecessary re-renders
+// Lazy-loaded image component optimized for 4K thumbnails
+const LazyImage = memo( ( { src, alt, className, onError, onLoad } ) => {
+
+	const [ imageLoaded, setImageLoaded ] = useState( false );
+	const [ imageError, setImageError ] = useState( false );
+	const imgRef = useRef();
+
+	useEffect( () => {
+
+		const img = imgRef.current;
+		if ( ! img ) return;
+
+		const observer = new IntersectionObserver(
+			( [ entry ] ) => {
+
+				if ( entry.isIntersecting ) {
+
+					img.src = src;
+					observer.unobserve( img );
+
+				}
+
+			},
+			{ rootMargin: '50px' } // Preload 50px before visible
+		);
+
+		observer.observe( img );
+
+		return () => {
+
+			if ( img ) observer.unobserve( img );
+
+		};
+
+	}, [ src ] );
+
+	const handleLoad = useCallback( () => {
+
+		setImageLoaded( true );
+		onLoad?.();
+
+	}, [ onLoad ] );
+
+	const handleError = useCallback( ( e ) => {
+
+		setImageError( true );
+		onError?.( e );
+
+	}, [ onError ] );
+
+	return (
+		<div className="relative w-full h-full">
+			{! imageLoaded && ! imageError && (
+				<div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+					<div className="animate-pulse bg-gray-700 w-8 h-8 rounded"></div>
+				</div>
+			)}
+
+			{imageError && (
+				<div className="absolute inset-0 flex items-center justify-center bg-gray-800 text-gray-400 text-xs">
+					Image Error
+				</div>
+			)}
+
+			<img
+				ref={imgRef}
+				alt={alt}
+				className={`${className} transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+				onLoad={handleLoad}
+				onError={handleError}
+				decoding="async"
+				loading="lazy"
+			/>
+		</div>
+	);
+
+} );
+
+LazyImage.displayName = 'LazyImage';
+
+// Memoized render item component optimized for 4K images
 const RenderItem = memo( ( {
 	image,
 	index,
@@ -434,7 +558,7 @@ const RenderItem = memo( ( {
 
 	return (
 		<div
-			key={`render-${image.timestamp || index}`}
+			key={`render-${image.id || image.timestamp || index}`}
 			className={`overflow-hidden rounded-md transition-all ${isSelected
 				? 'ring-2 ring-primary shadow-sm shadow-primary/20'
 				: 'ring-1 ring-border hover:ring-border/90'
@@ -443,9 +567,9 @@ const RenderItem = memo( ( {
 		>
 			<div className="relative rounded-t-md overflow-hidden bg-black cursor-pointer group">
 				<div className="aspect-w-16 aspect-h-9 w-full">
-					<img
+					<LazyImage
 						src={image.image}
-						alt={`Render ${index + 1}`}
+						alt={`4K Render ${index + 1}`}
 						className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
 						onError={handleImageError}
 					/>
@@ -585,16 +709,137 @@ const EmptyState = memo( () => (
 
 EmptyState.displayName = 'EmptyState';
 
-// Component for render gallery
-const RenderGallery = memo( () => {
+// Virtual scrolling component for efficient 4K image gallery rendering
+const VirtualizedGallery = memo( () => {
 
-	const { renderedImages, selectedImageIndex, handleImageSelect } = useResultsContext();
+	const { renderedImages, selectedImageIndex, handleImageSelect, handleDeleteClick } = useResultsContext();
 	const formatDate = useFormatDate();
-	const { handleDeleteClick } = useResultsContext();
+	const containerRef = useRef();
+	const [ visibleRange, setVisibleRange ] = useState( { start: 0, end: 20 } ); // Show 20 items initially
+	const [ containerHeight, setContainerHeight ] = useState( 600 );
+
+	// Item dimensions for 4K thumbnails
+	const ITEM_HEIGHT = 180; // Height per grid item
+	const ITEMS_PER_ROW = 2;
+	const BUFFER_SIZE = 4; // Extra items to render outside viewport
 
 	const handleImageError = useCallback( ( e ) => {
 
-		e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3EImage Error%3C/text%3E%3C/svg%3E';
+		e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3E4K Error%3C/text%3E%3C/svg%3E';
+
+	}, [] );
+
+	// Calculate total rows and visible range
+	const totalRows = Math.ceil( renderedImages.length / ITEMS_PER_ROW );
+	const totalHeight = totalRows * ITEM_HEIGHT;
+
+	// Optimize scroll handling for 4K images
+	const handleScroll = useMemo(
+		() => debounce( ( e ) => {
+
+			const scrollTop = e.target.scrollTop;
+			const viewportHeight = e.target.clientHeight;
+
+			const startRow = Math.floor( scrollTop / ITEM_HEIGHT );
+			const endRow = Math.ceil( ( scrollTop + viewportHeight ) / ITEM_HEIGHT );
+
+			// Fixed: prevent excessive item creation
+			const start = Math.max( 0, startRow * ITEMS_PER_ROW - 2 );
+			const end = Math.min( renderedImages.length, endRow * ITEMS_PER_ROW + 2 );
+
+			// Only update if range actually changed
+			setVisibleRange( prev => {
+
+				if ( prev.start !== start || prev.end !== end ) {
+
+					return { start, end };
+
+				}
+
+				return prev;
+
+			} );
+
+		}, 16 ), // 60fps scrolling
+		[ renderedImages.length ]
+	);
+
+	// Update container height on mount
+	useEffect( () => {
+
+		if ( containerRef.current ) {
+
+			setContainerHeight( containerRef.current.clientHeight );
+
+		}
+
+	}, [] );
+
+	// Reset visible range when images change
+	useEffect( () => {
+
+		setVisibleRange( { start: 0, end: Math.min( 20, renderedImages.length ) } );
+
+	}, [ renderedImages.length ] );
+
+	const visibleImages = renderedImages.slice( visibleRange.start, visibleRange.end );
+	const offsetY = Math.floor( visibleRange.start / ITEMS_PER_ROW ) * ITEM_HEIGHT;
+
+	return (
+		<div
+			ref={containerRef}
+			className="flex-1 overflow-y-auto custom-scrollbar"
+			onScroll={handleScroll}
+			style={{ position: 'relative' }}
+		>
+			{/* Virtual container with total height */}
+			<div style={{ height: totalHeight, position: 'relative' }}>
+				{/* Visible items container */}
+				<div
+					className="grid grid-cols-2 gap-3 p-3"
+					style={{
+						position: 'absolute',
+						top: offsetY,
+						width: '100%',
+						// transform removed - using top positioning instead
+					}}
+				>
+					{visibleImages.map( ( image, virtualIndex ) => {
+
+						const actualIndex = visibleRange.start + virtualIndex;
+						const formattedDate = formatDate( image.timestamp );
+						return (
+							<RenderItem
+								key={`render-${image.id || image.timestamp || actualIndex}`}
+								image={image}
+								index={actualIndex}
+								isSelected={selectedImageIndex === actualIndex}
+								formattedDate={formattedDate}
+								onSelect={handleImageSelect}
+								onDelete={handleDeleteClick}
+								handleImageError={handleImageError}
+							/>
+						);
+
+					} )}
+				</div>
+			</div>
+		</div>
+	);
+
+} );
+
+VirtualizedGallery.displayName = 'VirtualizedGallery';
+
+// Fallback component for smaller lists (< 50 items)
+const SimpleGallery = memo( () => {
+
+	const { renderedImages, selectedImageIndex, handleImageSelect, handleDeleteClick } = useResultsContext();
+	const formatDate = useFormatDate();
+
+	const handleImageError = useCallback( ( e ) => {
+
+		e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="%23374151"/%3E%3Ctext x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14px" fill="%23F9FAFB"%3E4K Error%3C/text%3E%3C/svg%3E';
 
 	}, [] );
 
@@ -621,6 +866,20 @@ const RenderGallery = memo( () => {
 			</div>
 		</div>
 	);
+
+} );
+
+SimpleGallery.displayName = 'SimpleGallery';
+
+// Smart gallery component that chooses between virtual and simple rendering
+const RenderGallery = memo( () => {
+
+	const { renderedImages } = useResultsContext();
+
+	// Use virtual scrolling only for very large collections to avoid issues
+	const shouldUseVirtualScrolling = renderedImages.length > 100;
+
+	return shouldUseVirtualScrolling ? <VirtualizedGallery /> : <SimpleGallery />;
 
 } );
 

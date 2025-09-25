@@ -47,6 +47,7 @@
     "@uidotdev/usehooks": "^2.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "lodash": "^4.17.21",
     "lucide-react": "^0.541.0",
     "meshoptimizer": "^0.23.0",
     "mime": "^4.1.0",
@@ -59,7 +60,7 @@
     "tailwind-merge": "^2.5.3",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.180.0",
-    "zustand": "^5.0.1"
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",
