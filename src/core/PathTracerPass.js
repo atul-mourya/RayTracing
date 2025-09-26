@@ -1102,80 +1102,80 @@ export class PathTracerPass extends Pass {
 		// Base material properties
 		if ( materialData.color ) {
 
-			data[ stride + 0 ] = materialData.color.r || materialData.color[ 0 ] || 1;
-			data[ stride + 1 ] = materialData.color.g || materialData.color[ 1 ] || 1;
-			data[ stride + 2 ] = materialData.color.b || materialData.color[ 2 ] || 1;
+			data[ stride + 0 ] = materialData.color.r ?? materialData.color[ 0 ] ?? 1;
+			data[ stride + 1 ] = materialData.color.g ?? materialData.color[ 1 ] ?? 1;
+			data[ stride + 2 ] = materialData.color.b ?? materialData.color[ 2 ] ?? 1;
 
 		}
 
-		data[ stride + 3 ] = materialData.metalness || 0;
+		data[ stride + 3 ] = materialData.metalness ?? 0;
 
 		if ( materialData.emissive ) {
 
-			data[ stride + 4 ] = materialData.emissive.r || materialData.emissive[ 0 ] || 0;
-			data[ stride + 5 ] = materialData.emissive.g || materialData.emissive[ 1 ] || 0;
-			data[ stride + 6 ] = materialData.emissive.b || materialData.emissive[ 2 ] || 0;
+			data[ stride + 4 ] = materialData.emissive.r ?? materialData.emissive[ 0 ] ?? 0;
+			data[ stride + 5 ] = materialData.emissive.g ?? materialData.emissive[ 1 ] ?? 0;
+			data[ stride + 6 ] = materialData.emissive.b ?? materialData.emissive[ 2 ] ?? 0;
 
 		}
 
-		data[ stride + 7 ] = materialData.roughness || 1;
-		data[ stride + 8 ] = materialData.ior || 1.5;
-		data[ stride + 9 ] = materialData.transmission || 0;
-		data[ stride + 10 ] = materialData.thickness || 0.1;
-		data[ stride + 11 ] = materialData.emissiveIntensity || 1;
+		data[ stride + 7 ] = materialData.roughness ?? 1;
+		data[ stride + 8 ] = materialData.ior ?? 1.5;
+		data[ stride + 9 ] = materialData.transmission ?? 0;
+		data[ stride + 10 ] = materialData.thickness ?? 0.1;
+		data[ stride + 11 ] = materialData.emissiveIntensity ?? 1;
 
 		if ( materialData.attenuationColor ) {
 
-			data[ stride + 12 ] = materialData.attenuationColor.r || materialData.attenuationColor[ 0 ] || 1;
-			data[ stride + 13 ] = materialData.attenuationColor.g || materialData.attenuationColor[ 1 ] || 1;
-			data[ stride + 14 ] = materialData.attenuationColor.b || materialData.attenuationColor[ 2 ] || 1;
+			data[ stride + 12 ] = materialData.attenuationColor.r ?? materialData.attenuationColor[ 0 ] ?? 1;
+			data[ stride + 13 ] = materialData.attenuationColor.g ?? materialData.attenuationColor[ 1 ] ?? 1;
+			data[ stride + 14 ] = materialData.attenuationColor.b ?? materialData.attenuationColor[ 2 ] ?? 1;
 
 		}
 
-		data[ stride + 15 ] = materialData.attenuationDistance !== undefined ? materialData.attenuationDistance : Infinity;
-		data[ stride + 16 ] = materialData.dispersion || 0;
-		data[ stride + 17 ] = materialData.visible !== undefined ? materialData.visible : 1;
-		data[ stride + 18 ] = materialData.sheen || 0;
-		data[ stride + 19 ] = materialData.sheenRoughness || 1;
+		data[ stride + 15 ] = materialData.attenuationDistance ?? Infinity;
+		data[ stride + 16 ] = materialData.dispersion ?? 0;
+		data[ stride + 17 ] = materialData.visible ?? 1;
+		data[ stride + 18 ] = materialData.sheen ?? 0;
+		data[ stride + 19 ] = materialData.sheenRoughness ?? 1;
 
 		if ( materialData.sheenColor ) {
 
-			data[ stride + 20 ] = materialData.sheenColor.r || materialData.sheenColor[ 0 ] || 0;
-			data[ stride + 21 ] = materialData.sheenColor.g || materialData.sheenColor[ 1 ] || 0;
-			data[ stride + 22 ] = materialData.sheenColor.b || materialData.sheenColor[ 2 ] || 0;
+			data[ stride + 20 ] = materialData.sheenColor.r ?? materialData.sheenColor[ 0 ] ?? 0;
+			data[ stride + 21 ] = materialData.sheenColor.g ?? materialData.sheenColor[ 1 ] ?? 0;
+			data[ stride + 22 ] = materialData.sheenColor.b ?? materialData.sheenColor[ 2 ] ?? 0;
 
 		}
 
-		data[ stride + 24 ] = materialData.specularIntensity || 1;
+		data[ stride + 24 ] = materialData.specularIntensity ?? 1;
 
 		if ( materialData.specularColor ) {
 
-			data[ stride + 25 ] = materialData.specularColor.r || materialData.specularColor[ 0 ] || 1;
-			data[ stride + 26 ] = materialData.specularColor.g || materialData.specularColor[ 1 ] || 1;
-			data[ stride + 27 ] = materialData.specularColor.b || materialData.specularColor[ 2 ] || 1;
+			data[ stride + 25 ] = materialData.specularColor.r ?? materialData.specularColor[ 0 ] ?? 1;
+			data[ stride + 26 ] = materialData.specularColor.g ?? materialData.specularColor[ 1 ] ?? 1;
+			data[ stride + 27 ] = materialData.specularColor.b ?? materialData.specularColor[ 2 ] ?? 1;
 
 		}
 
-		data[ stride + 28 ] = materialData.iridescence || 0;
-		data[ stride + 29 ] = materialData.iridescenceIOR || 1.3;
+		data[ stride + 28 ] = materialData.iridescence ?? 0;
+		data[ stride + 29 ] = materialData.iridescenceIOR ?? 1.3;
 
 		if ( materialData.iridescenceThicknessRange ) {
 
-			data[ stride + 30 ] = materialData.iridescenceThicknessRange[ 0 ] || 100;
-			data[ stride + 31 ] = materialData.iridescenceThicknessRange[ 1 ] || 400;
+			data[ stride + 30 ] = materialData.iridescenceThicknessRange[ 0 ] ?? 100;
+			data[ stride + 31 ] = materialData.iridescenceThicknessRange[ 1 ] ?? 400;
 
 		}
 
-		data[ stride + 38 ] = materialData.clearcoat || 0;
-		data[ stride + 39 ] = materialData.clearcoatRoughness || 0;
-		data[ stride + 40 ] = materialData.opacity !== undefined ? materialData.opacity : 1;
-		data[ stride + 41 ] = materialData.side !== undefined ? materialData.side : 0;
-		data[ stride + 42 ] = materialData.transparent !== undefined ? materialData.transparent : 0;
-		data[ stride + 43 ] = materialData.alphaTest !== undefined ? materialData.alphaTest : 0;
+		data[ stride + 38 ] = materialData.clearcoat ?? 0;
+		data[ stride + 39 ] = materialData.clearcoatRoughness ?? 0;
+		data[ stride + 40 ] = materialData.opacity ?? 1;
+		data[ stride + 41 ] = materialData.side ?? 0;
+		data[ stride + 42 ] = materialData.transparent ?? 0;
+		data[ stride + 43 ] = materialData.alphaTest ?? 0;
 
-		data[ stride + 46 ] = materialData.normalScale || 1;
-		data[ stride + 48 ] = materialData.bumpScale || 1;
-		data[ stride + 49 ] = materialData.displacementScale || 1;
+		data[ stride + 46 ] = materialData.normalScale ?? 1;
+		data[ stride + 48 ] = materialData.bumpScale ?? 1;
+		data[ stride + 49 ] = materialData.displacementScale ?? 1;
 
 		// Mark texture for update
 		this.material.uniforms.materialTexture.value.needsUpdate = true;

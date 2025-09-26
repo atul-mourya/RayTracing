@@ -351,8 +351,8 @@ export default class GeometryExtractor {
 
 			// Base material properties
 			color: baseColor,
-			emissive: legacyMapping.emissive || material.emissive || defaults.emissive,
-			emissiveIntensity: legacyMapping.emissiveIntensity || material.emissiveIntensity || defaults.emissiveIntensity,
+			emissive: legacyMapping.emissive ?? material.emissive ?? defaults.emissive,
+			emissiveIntensity: legacyMapping.emissiveIntensity ?? material.emissiveIntensity ?? defaults.emissiveIntensity,
 
 			// Surface properties
 			roughness: Math.max( 0.05, legacyMapping.roughness ?? material.roughness ?? defaults.roughness ),
