@@ -1,7 +1,7 @@
 {
   "name": "raytracing",
   "private": true,
-  "version": "1.71.3",
+  "version": "1.72.0",
   "type": "module",
   "engines": {
     "node": ">=20.11.1"
