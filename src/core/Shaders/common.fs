@@ -219,14 +219,14 @@ MaterialClassification classifyMaterial( RayTracingMaterial material ) {
 }
 
 // IMPROVEMENT: Dynamic MIS strategy based on material properties
-MISStrategy selectOptimalMISStrategy(RayTracingMaterial material, int bounceIndex, vec3 throughput) {
+MISStrategy selectOptimalMISStrategy( RayTracingMaterial material, int bounceIndex, vec3 throughput ) {
     MISStrategy strategy;
 
-    float materialComplexity = classifyMaterial(material).complexityScore;
-    float throughputStrength = maxComponent(throughput);
+    float materialComplexity = classifyMaterial( material ).complexityScore;
+    float throughputStrength = maxComponent( throughput );
 
     // Adaptive strategy based on material and path state
-    if (material.roughness < 0.1 && material.metalness > 0.8) {
+    if( material.roughness < 0.1 && material.metalness > 0.8 ) {
         // Highly specular materials - favor BRDF sampling
         strategy.brdfWeight = 0.7;
         strategy.lightWeight = 0.2;
@@ -234,7 +234,7 @@ MISStrategy selectOptimalMISStrategy(RayTracingMaterial material, int bounceInde
         strategy.useBRDFSampling = true;
         strategy.useLightSampling = throughputStrength > 0.01;
         strategy.useEnvSampling = bounceIndex < 3;
-    } else if (material.roughness > 0.7) {
+    } else if( material.roughness > 0.7 ) {
         // Diffuse materials - favor light sampling
         strategy.brdfWeight = 0.3;
         strategy.lightWeight = 0.5;
@@ -253,7 +253,7 @@ MISStrategy selectOptimalMISStrategy(RayTracingMaterial material, int bounceInde
     }
 
     // Adjust based on bounce depth
-    if (bounceIndex > 3) {
+    if( bounceIndex > 3 ) {
         strategy.lightWeight *= 0.7; // Reduce light sampling for deep bounces
         strategy.envWeight *= 0.8;
     }
@@ -263,78 +263,78 @@ MISStrategy selectOptimalMISStrategy(RayTracingMaterial material, int bounceInde
 
 // Material data texture access functions
 vec4 getDatafromDataTexture( sampler2D tex, ivec2 texSize, int stride, int sampleIndex, int dataOffset ) {
-	int pixelIndex = stride * dataOffset + sampleIndex;
-	return texelFetch( tex, ivec2( pixelIndex % texSize.x, pixelIndex / texSize.x ), 0 );
+    int pixelIndex = stride * dataOffset + sampleIndex;
+    return texelFetch( tex, ivec2( pixelIndex % texSize.x, pixelIndex / texSize.x ), 0 );
 }
 
 mat3 arrayToMat3( vec4 data1, vec4 data2 ) {
-	return mat3( data1.xyz, vec3( data1.w, data2.xy ), vec3( data2.zw, 1.0 ) );
+    return mat3( data1.xyz, vec3( data1.w, data2.xy ), vec3( data2.zw, 1.0 ) );
 }
 
 RayTracingMaterial getMaterial( int materialIndex ) {
-	RayTracingMaterial material;
+    RayTracingMaterial material;
 
-	vec4 data[ MATERIAL_SLOTS ];
-	for( int i = 0; i < MATERIAL_SLOTS; i ++ ) {
-		data[ i ] = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, i, MATERIAL_SLOTS );
-	}
+    vec4 data[ MATERIAL_SLOTS ];
+    for( int i = 0; i < MATERIAL_SLOTS; i ++ ) {
+        data[ i ] = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, i, MATERIAL_SLOTS );
+    }
 
-	material.color = vec4( data[ 0 ].rgb, 1.0 );
-	material.metalness = data[ 0 ].a;
-	material.emissive = data[ 1 ].rgb;
-	material.roughness = data[ 1 ].a;
-	material.ior = data[ 2 ].r;
-	material.transmission = data[ 2 ].g;
-	material.thickness = data[ 2 ].b;
-	material.emissiveIntensity = data[ 2 ].a;
+    material.color = vec4( data[ 0 ].rgb, 1.0 );
+    material.metalness = data[ 0 ].a;
+    material.emissive = data[ 1 ].rgb;
+    material.roughness = data[ 1 ].a;
+    material.ior = data[ 2 ].r;
+    material.transmission = data[ 2 ].g;
+    material.thickness = data[ 2 ].b;
+    material.emissiveIntensity = data[ 2 ].a;
 
-	material.attenuationColor = data[ 3 ].rgb;
-	material.attenuationDistance = data[ 3 ].a;
+    material.attenuationColor = data[ 3 ].rgb;
+    material.attenuationDistance = data[ 3 ].a;
 
-	material.dispersion = data[ 4 ].r;
-	material.visible = bool( data[ 4 ].g );
-	material.sheen = data[ 4 ].b;
-	material.sheenRoughness = data[ 4 ].a;
+    material.dispersion = data[ 4 ].r;
+    material.visible = bool( data[ 4 ].g );
+    material.sheen = data[ 4 ].b;
+    material.sheenRoughness = data[ 4 ].a;
 
-	material.sheenColor = data[ 5 ].rgb;
+    material.sheenColor = data[ 5 ].rgb;
 
-	material.specularIntensity = data[ 6 ].r;
-	material.specularColor = data[ 6 ].gba;
+    material.specularIntensity = data[ 6 ].r;
+    material.specularColor = data[ 6 ].gba;
 
-	material.iridescence = data[ 7 ].r;
-	material.iridescenceIOR = data[ 7 ].g;
-	material.iridescenceThicknessRange = data[ 7 ].ba;
+    material.iridescence = data[ 7 ].r;
+    material.iridescenceIOR = data[ 7 ].g;
+    material.iridescenceThicknessRange = data[ 7 ].ba;
 
-	material.albedoMapIndex = int( data[ 8 ].r );
-	material.normalMapIndex = int( data[ 8 ].g );
-	material.roughnessMapIndex = int( data[ 8 ].b );
-	material.metalnessMapIndex = int( data[ 8 ].a );
+    material.albedoMapIndex = int( data[ 8 ].r );
+    material.normalMapIndex = int( data[ 8 ].g );
+    material.roughnessMapIndex = int( data[ 8 ].b );
+    material.metalnessMapIndex = int( data[ 8 ].a );
 
-	material.emissiveMapIndex = int( data[ 9 ].r );
-	material.bumpMapIndex = int( data[ 9 ].g );
-	material.clearcoat = data[ 9 ].b;
-	material.clearcoatRoughness = data[ 9 ].a;
+    material.emissiveMapIndex = int( data[ 9 ].r );
+    material.bumpMapIndex = int( data[ 9 ].g );
+    material.clearcoat = data[ 9 ].b;
+    material.clearcoatRoughness = data[ 9 ].a;
 
-	material.opacity = data[ 10 ].r;
-	material.side = int( data[ 10 ].g );
-	material.transparent = bool( data[ 10 ].b );
-	material.alphaTest = data[ 10 ].a;
+    material.opacity = data[ 10 ].r;
+    material.side = int( data[ 10 ].g );
+    material.transparent = bool( data[ 10 ].b );
+    material.alphaTest = data[ 10 ].a;
 
-	material.alphaMode = int( data[ 11 ].r );
-	material.depthWrite = int( data[ 11 ].g );
+    material.alphaMode = int( data[ 11 ].r );
+    material.depthWrite = int( data[ 11 ].g );
 
-	material.normalScale = vec2( data[ 11 ].b, data[ 11 ].b );
-	material.bumpScale = data[ 12 ].r;
-	material.displacementScale = data[ 12 ].g;
-	material.displacementMapIndex = int( data[ 12 ].b );
+    material.normalScale = vec2( data[ 11 ].b, data[ 11 ].b );
+    material.bumpScale = data[ 12 ].r;
+    material.displacementScale = data[ 12 ].g;
+    material.displacementMapIndex = int( data[ 12 ].b );
 
-	material.albedoTransform = arrayToMat3( data[ 13 ], data[ 14 ] );
-	material.normalTransform = arrayToMat3( data[ 15 ], data[ 16 ] );
-	material.roughnessTransform = arrayToMat3( data[ 17 ], data[ 18 ] );
-	material.metalnessTransform = arrayToMat3( data[ 19 ], data[ 20 ] );
-	material.emissiveTransform = arrayToMat3( data[ 21 ], data[ 22 ] );
-	material.bumpTransform = arrayToMat3( data[ 23 ], data[ 24 ] );
-	material.displacementTransform = arrayToMat3( data[ 25 ], data[ 26 ] );
+    material.albedoTransform = arrayToMat3( data[ 13 ], data[ 14 ] );
+    material.normalTransform = arrayToMat3( data[ 15 ], data[ 16 ] );
+    material.roughnessTransform = arrayToMat3( data[ 17 ], data[ 18 ] );
+    material.metalnessTransform = arrayToMat3( data[ 19 ], data[ 20 ] );
+    material.emissiveTransform = arrayToMat3( data[ 21 ], data[ 22 ] );
+    material.bumpTransform = arrayToMat3( data[ 23 ], data[ 24 ] );
+    material.displacementTransform = arrayToMat3( data[ 25 ], data[ 26 ] );
 
-	return material;
+    return material;
 }

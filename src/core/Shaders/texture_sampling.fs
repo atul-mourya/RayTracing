@@ -40,7 +40,7 @@ bool materialHasTextures( RayTracingMaterial material ) {
 float hashTransform( mat3 t ) {
 	// Create a simple hash from key matrix components
 	// Uses prime multipliers to reduce hash collisions
-	return t[0][0] + t[1][1] * 7.0 + t[2][0] * 13.0 + t[2][1] * 17.0;
+	return t[ 0 ][ 0 ] + t[ 1 ][ 1 ] * 7.0 + t[ 2 ][ 0 ] * 13.0 + t[ 2 ][ 1 ] * 17.0;
 }
 
 // OPTIMIZED: Fast transform equality using hash comparison
@@ -48,7 +48,8 @@ bool transformsEqual( mat3 a, mat3 b ) {
 	// Quick hash-based rejection for most cases
 	float hashA = hashTransform( a );
 	float hashB = hashTransform( b );
-	if( abs( hashA - hashB ) > 0.001 ) return false;
+	if( abs( hashA - hashB ) > 0.001 )
+		return false;
 
 	// Only do expensive comparison if hashes match
 	return ( abs( a[ 0 ][ 0 ] - b[ 0 ][ 0 ] ) < 0.001 &&
@@ -60,7 +61,6 @@ bool transformsEqual( mat3 a, mat3 b ) {
 // ================================================================================
 // OPTIMIZED UV CACHE WITH REDUNDANCY DETECTION
 // ================================================================================
-
 
 // OPTIMIZED UV cache computation with hash-based transform optimization
 // Performance improvement: 60-80% reduction in transform operations
@@ -288,7 +288,7 @@ vec3 processNormalFromBatch( TextureBatch batch, vec3 geometryNormal, vec2 norma
 	// Apply normal scale - use the X component since we duplicate the value
 	normalMap.xy *= normalScale.x;
 	// Fix inverted normal map by flipping Y coordinate
-	normalMap.y = -normalMap.y;
+	normalMap.y = - normalMap.y;
 
 	// Fast TBN construction
 	vec3 up = abs( geometryNormal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
@@ -321,7 +321,7 @@ vec3 processBumpFromBatch( TextureBatch batch, vec3 currentNormal, float bumpSca
 
 	// Transform bump normal to world space
 	vec3 perturbedNormal = TBN * bumpNormal;
-	
+
 	// Apply bumpScale as a blend factor - when bumpScale is 0, no bump effect
 	return normalize( mix( currentNormal, perturbedNormal, clamp( bumpScale, 0.0, 1.0 ) ) );
 }
@@ -385,28 +385,28 @@ MaterialSamples sampleAllMaterialTextures( RayTracingMaterial material, vec2 uv,
 // OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
 	// Use batched sampling for consistency and performance
-	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3( 0.0, 1.0, 0.0 ) );
 	return samples.albedo;
 }
 
 // OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
 	// Use batched sampling for consistency and performance
-	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3( 0.0, 1.0, 0.0 ) );
 	return samples.emissive;
 }
 
 // OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
 	// Use batched sampling for consistency and performance
-	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3( 0.0, 1.0, 0.0 ) );
 	return samples.metalness;
 }
 
 // OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
 	// Use batched sampling for consistency and performance
-	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3( 0.0, 1.0, 0.0 ) );
 	return samples.roughness;
 }
 
@@ -418,12 +418,13 @@ vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
 }
 
 // Sample displacement map at given UV coordinates
-float sampleDisplacementMap(int displacementMapIndex, vec2 uv, mat3 transform) {
-    if (displacementMapIndex < 0) return 0.0;
-    
+float sampleDisplacementMap( int displacementMapIndex, vec2 uv, mat3 transform ) {
+	if( displacementMapIndex < 0 )
+		return 0.0;
+
     // Apply texture transform
-    vec2 transformedUV = getTransformedUV(uv, transform);
-    
+	vec2 transformedUV = getTransformedUV( uv, transform );
+
     // Sample displacement texture (assuming it's in the red channel)
-    return texture(displacementMaps, vec3(transformedUV, float(displacementMapIndex))).r;
+	return texture( displacementMaps, vec3( transformedUV, float( displacementMapIndex ) ) ).r;
 }

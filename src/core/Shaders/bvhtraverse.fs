@@ -1,78 +1,76 @@
-
-
 precision highp float;
 
 // OPTIMIZED: Combined visibility data structure
 struct VisibilityData {
-    bool visible;    // material.visible flag
-    int side;        // material.side (0=Front, 1=Back, 2=Double)
-    bool transparent; // material.transparent flag
-    float opacity;   // material.opacity value
+	bool visible;    // material.visible flag
+	int side;        // material.side (0=Front, 1=Back, 2=Double)
+	bool transparent; // material.transparent flag
+	float opacity;   // material.opacity value
 };
 
 // OPTIMIZED: Single function to fetch all visibility data in 2 reads (was 2 separate calls)
 VisibilityData getVisibilityData( int materialIndex ) {
-    VisibilityData vis;
+	VisibilityData vis;
 
     // Read visibility flag from slot 4
-    vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
-    vis.visible = bool( visData.g );
+	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
+	vis.visible = bool( visData.g );
 
     // Read side and transparency data from slot 10
-    vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, MATERIAL_SLOTS );
-    vis.opacity = sideData.r;
-    vis.side = int( sideData.g );
-    vis.transparent = bool( sideData.b );
+	vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10, MATERIAL_SLOTS );
+	vis.opacity = sideData.r;
+	vis.side = int( sideData.g );
+	vis.transparent = bool( sideData.b );
 
-    return vis;
+	return vis;
 }
 
 // OPTIMIZED: Visibility cache for early rejection - reduces redundant texture reads
 struct VisibilityCache {
-    int lastMaterialIndex;
-    bool lastVisible;
-    int lastSide;
-    bool lastTransparent;
+	int lastMaterialIndex;
+	bool lastVisible;
+	int lastSide;
+	bool lastTransparent;
 };
 
 // Global visibility cache (reset per ray)
-VisibilityCache visCache = VisibilityCache(-1, false, 0, false);
+VisibilityCache visCache = VisibilityCache( - 1, false, 0, false );
 
 // OPTIMIZED: Fast visibility check with caching to reduce texture reads
 // Performance gain: ~30% reduction in material texture reads during BVH traversal
 bool isTriangleVisibleCached( int materialIndex, vec3 rayDirection ) {
     // Check cache first - avoid texture read if we just checked this material
-    if( materialIndex == visCache.lastMaterialIndex ) {
-        return visCache.lastVisible;
-    }
+	if( materialIndex == visCache.lastMaterialIndex ) {
+		return visCache.lastVisible;
+	}
 
     // Fetch only the essential visibility data (1 texture read vs full material)
-    vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
-    bool visible = bool( visData.g );
+	vec4 visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4, MATERIAL_SLOTS );
+	bool visible = bool( visData.g );
 
     // Update cache
-    visCache.lastMaterialIndex = materialIndex;
-    visCache.lastVisible = visible;
+	visCache.lastMaterialIndex = materialIndex;
+	visCache.lastVisible = visible;
 
-    return visible;
+	return visible;
 }
 
 // Legacy function for compatibility
 bool isTriangleVisible( int triangleIndex, vec3 rayDirection ) {
-    return isTriangleVisibleCached( triangleIndex, rayDirection );
+	return isTriangleVisibleCached( triangleIndex, rayDirection );
 }
 
 // OPTIMIZED: Complete visibility check with side culling using combined data
 bool isMaterialVisibleOptimized( VisibilityData vis, vec3 rayDirection, vec3 normal ) {
-    if( ! vis.visible )
-        return false;
+	if( ! vis.visible )
+		return false;
 
     // Check side visibility with optimized branching
-    float rayDotNormal = dot( rayDirection, normal );
-    return ( vis.side == 2 || // DoubleSide - most common case first
-        ( vis.side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
-        ( vis.side == 1 && rayDotNormal > 0.0001 )     // BackSide
-    );
+	float rayDotNormal = dot( rayDirection, normal );
+	return ( vis.side == 2 || // DoubleSide - most common case first
+		( vis.side == 0 && rayDotNormal < - 0.0001 ) || // FrontSide
+		( vis.side == 1 && rayDotNormal > 0.0001 )     // BackSide
+	);
 }
 
 Triangle getTriangle( int triangleIndex ) {
@@ -105,7 +103,7 @@ bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
 // Modified traverseBVH function with material caching
 HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	// Reset visibility cache for this ray
-	visCache.lastMaterialIndex = -1;
+	visCache.lastMaterialIndex = - 1;
 	visCache.lastVisible = false;
 
 	HitInfo closestHit;
@@ -155,7 +153,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 				if( hit.didHit && hit.dst < closestHit.dst ) {
 					// OPTIMIZED: Early material rejection before expensive visibility checks
 					// Check basic visibility first using cached material data
-					if( !isTriangleVisibleCached( tri.materialIndex, rayDirection ) ) {
+					if( ! isTriangleVisibleCached( tri.materialIndex, rayDirection ) ) {
 						continue; // Skip invisible materials early
 					}
 
@@ -227,7 +225,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	}
 
 	// Clear visibility cache after traversal to prevent cross-ray contamination
-	visCache.lastMaterialIndex = -1;
+	visCache.lastMaterialIndex = - 1;
 
 	return closestHit;
 }
@@ -244,7 +242,7 @@ Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
 	vec3 rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] );
 
 	// Check if DOF is disabled or conditions make it ineffective
-	if( !enableDOF || focalLength <= 0.0 || aperture >= 64.0 || focusDistance <= 0.001 ) {
+	if( ! enableDOF || focalLength <= 0.0 || aperture >= 64.0 || focusDistance <= 0.001 ) {
 		return Ray( rayOriginWorld, rayDirectionWorld );
 	}
 

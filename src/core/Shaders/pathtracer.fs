@@ -90,9 +90,9 @@ MaterialClassification getOrCreateMaterialClassification( RayTracingMaterial mat
 DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, int materialIndex, vec2 xi, inout uint rngState, inout PathState pathState ) {
 
     // IMPROVEMENT: Use multi-lobe MIS for complex materials
-    if( material.clearcoat > 0.1 || material.transmission > 0.1 || material.sheen > 0.1 || material.iridescence > 0.1 ) {
-        return sampleMaterialWithMultiLobeMIS( V, N, material, xi, rngState );
-    }
+	if( material.clearcoat > 0.1 || material.transmission > 0.1 || material.sheen > 0.1 || material.iridescence > 0.1 ) {
+		return sampleMaterialWithMultiLobeMIS( V, N, material, xi, rngState );
+	}
 
     // OPTIMIZED: Use consolidated classification function
 	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
@@ -205,12 +205,15 @@ float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMater
 
     // Enhanced material importance with interaction bonuses
 	float materialImportance = mc.complexityScore;
-	
+
 	// Add interaction complexity bonuses for high-value material combinations
-	if( mc.isMetallic && mc.isSmooth ) materialImportance += 0.15;
-	if( mc.isTransmissive && mc.hasClearcoat ) materialImportance += 0.12;
-	if( mc.isEmissive ) materialImportance += 0.1;
-	
+	if( mc.isMetallic && mc.isSmooth )
+		materialImportance += 0.15;
+	if( mc.isTransmissive && mc.hasClearcoat )
+		materialImportance += 0.12;
+	if( mc.isEmissive )
+		materialImportance += 0.1;
+
 	materialImportance = clamp( materialImportance, 0.0, 1.0 );
 
     // Optimized direction importance calculation
@@ -264,8 +267,10 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 
     // Dynamic minimum bounces based on material complexity
 	int minBounces = 3;
-	if( materialImportance > 0.6 ) minBounces = 5;
-	else if( materialImportance > 0.4 ) minBounces = 4;
+	if( materialImportance > 0.6 )
+		minBounces = 5;
+	else if( materialImportance > 0.4 )
+		minBounces = 4;
 
 	if( depth < minBounces ) {
 		return true;
@@ -324,7 +329,7 @@ vec4 sampleBackgroundLighting( RenderState state, vec3 direction ) {
 	}
 
 	vec4 envColor = sampleEnvironment( direction ) * environmentIntensity;
-	
+
 	// Use consistent background intensity scaling
 	if( state.isPrimaryRay ) {
 		// Primary camera rays: use user-controlled background intensity
@@ -387,17 +392,17 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	pathState.materialCacheCached = false;
 	pathState.texturesLoaded = false;
 	pathState.pathImportance = 0.0; // Initialize path importance cache
-	pathState.lastMaterialIndex = -1; // Initialize material tracking
+	pathState.lastMaterialIndex = - 1; // Initialize material tracking
 
 	// Track effective bounces separately from transmissive bounces
 	int effectiveBounces = 0;
-	
+
 	for( int bounceIndex = 0; bounceIndex <= maxBounceCount + transmissiveBounces; bounceIndex ++ ) {
         // Update state for this bounce
 		state.traversals = maxBounceCount - effectiveBounces;
 		state.isPrimaryRay = ( bounceIndex == 0 );
 		state.actualBounceDepth = bounceIndex;
-		
+
 		// Check if we've exceeded our effective bounce budget
 		if( effectiveBounces > maxBounceCount ) {
 			break;
@@ -429,17 +434,17 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		if( material.displacementMapIndex >= 0 && material.displacementScale > 0.0 ) {
 			float heightSample = sampleDisplacementMap( material.displacementMapIndex, hitInfo.uv, material.displacementTransform );
 			// Convert height sample from [0,1] to [-0.5, 0.5] for better displacement
-			float displacementHeight = (heightSample - 0.5) * material.displacementScale;
+			float displacementHeight = ( heightSample - 0.5 ) * material.displacementScale;
 			vec3 displacement = N * displacementHeight;
 			hitInfo.hitPoint += displacement;
-			
+
 			// Calculate displaced normal but blend with original to preserve material characteristics
 			if( material.displacementScale > 0.01 ) {
 				vec3 displacedNormal = calculateDisplacedNormal( hitInfo.hitPoint, N, hitInfo.uv, material );
 				// Blend displaced normal with original based on roughness to preserve material characteristics
 				float blendFactor = clamp( material.displacementScale * 0.5, 0.1, 0.8 );
 				// Reduce blend factor for rough materials to preserve their surface characteristics
-				blendFactor *= (1.0 - material.roughness * 0.5);
+				blendFactor *= ( 1.0 - material.roughness * 0.5 );
 				N = normalize( mix( N, displacedNormal, blendFactor ) );
 			}
 		}
@@ -467,7 +472,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			alpha *= interaction.alpha;
 			ray.origin = hitInfo.hitPoint + ray.direction * 0.001;
 			ray.direction = interaction.direction;
-			
+
 			// Update state for continuation
 			state.isPrimaryRay = false; // No longer a primary ray after any interaction
 
@@ -475,12 +480,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			// Material classification stays valid across ray continuations unless material changes
 			pathState.weightsComputed = false;
 			// Note: classificationCached remains true to avoid redundant classification
-			
+
 			// Only increment effective bounces for non-free bounces
-			if( !isFreeBounce ) {
-				effectiveBounces++;
+			if( ! isFreeBounce ) {
+				effectiveBounces ++;
 			}
-			
+
 			continue;
 		}
 
@@ -544,10 +549,10 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
         // Prepare for next bounce
 		ray.origin = hitInfo.hitPoint + N * 0.001;
 		ray.direction = indirectResult.direction;
-		
+
 		// Update ray type based on BRDF sampling for next bounce
 		state.isPrimaryRay = false; // Never primary after first bounce
-		
+
 		// Determine ray type based on material interaction
 		// Note: This is a simplified classification - more sophisticated logic could be added
 		if( material.metalness > 0.7 && material.roughness < 0.3 ) {
@@ -569,9 +574,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		if( ! handleRussianRoulette( state.actualBounceDepth, throughput, material, hitInfo.materialIndex, ray.direction, rngState, pathState ) ) {
 			break;
 		}
-		
+
 		// Increment effective bounces for regular BRDF interactions
-		effectiveBounces++;
+		effectiveBounces ++;
 	}
 
     // #if MAX_AREA_LIGHTS > 0
@@ -684,7 +689,7 @@ void main( ) {
 			// No accumulation enabled, render at least 1 sample
 			samplesCount = 1;
 			#endif
-			
+
 			if( samplesCount == 0 ) {
 				// Always output normal/depth for MRT even for converged pixels
 				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );

@@ -64,8 +64,8 @@ int getMaterialQualityIndex( MaterialClassification mc ) {
     // Use integer arithmetic for maximum efficiency
     // Priority: transmission(3) > metallic(2) > smooth(1) > diffuse(0)
     return int( mc.isTransmissive ) * 3 +
-           int( mc.isMetallic ) * 2 * int( !mc.isTransmissive ) +
-           int( mc.isSmooth ) * int( !mc.isMetallic ) * int( !mc.isTransmissive );
+        int( mc.isMetallic ) * 2 * int( ! mc.isTransmissive ) +
+        int( mc.isSmooth ) * int( ! mc.isMetallic ) * int( ! mc.isTransmissive );
 }
 
 // OPTIMIZED: Branch-free environment quality lookup
@@ -286,26 +286,26 @@ float calculateNormalPDF( vec2 uv, float mipLevel, float sinTheta ) {
 }
 
 // IMPROVEMENT: Multi-resolution environment sampling for better MIS
-float calculateEnvironmentPDFWithMIS(vec3 direction, float roughness) {
-    if (!useEnvMapIS) {
-        return 1.0 / (4.0 * PI);
+float calculateEnvironmentPDFWithMIS( vec3 direction, float roughness ) {
+    if( ! useEnvMapIS ) {
+        return 1.0 / ( 4.0 * PI );
     }
 
     // Use different mip levels based on roughness for better importance sampling
     // Environment maps typically have up to 8-10 mip levels, use 7.0 as reasonable max
     float mipLevel = roughness * 7.0;
 
-    vec2 uv = directionToUV(direction);
-    float theta = (1.0 - uv.y) * PI;
-    float sinTheta = sin(theta);
+    vec2 uv = directionToUV( direction );
+    float theta = ( 1.0 - uv.y ) * PI;
+    float sinTheta = sin( theta );
 
-    if (sinTheta <= 1e-4) {
+    if( sinTheta <= 1e-4 ) {
         return 1e-3; // Pole handling
     }
 
     // Sample luminance at appropriate mip level
-    vec3 envColor = textureLod(environment, uv, mipLevel).rgb;
-    float luminance = dot(envColor, REC709_LUMINANCE_COEFFICIENTS);
+    vec3 envColor = textureLod( environment, uv, mipLevel ).rgb;
+    float luminance = dot( envColor, REC709_LUMINANCE_COEFFICIENTS );
 
     // Calculate PDF with better normalization
     float pdf = luminance * sinTheta;
@@ -314,9 +314,9 @@ float calculateEnvironmentPDFWithMIS(vec3 direction, float roughness) {
     pdf /= envMapTotalLuminance;
 
     // Add Jacobian for spherical coordinates
-    pdf /= (2.0 * PI * PI);
+    pdf /= ( 2.0 * PI * PI );
 
-    return clamp(pdf, 1e-5, 1000.0);
+    return clamp( pdf, 1e-5, 1000.0 );
 }
 
 // Streamlined environment sampling
@@ -378,10 +378,10 @@ EnvMapSample sampleEnvironmentWithContext(
 
     confidence *= clamp( pdf * 1000.0, 0.1, 1.0 );
     confidence *= clamp( 1.0 - float( bounceIndex ) * 0.15, 0.2, 1.0 );
-    
+
     // Additional confidence boost for well-sampled directions (away from poles)
-    float theta = (1.0 - uv.y) * PI;
-    float directionQuality = clamp( sin(theta) * 2.0, 0.5, 1.0 );
+    float theta = ( 1.0 - uv.y ) * PI;
+    float directionQuality = clamp( sin( theta ) * 2.0, 0.5, 1.0 );
     confidence *= directionQuality;
 
     result.direction = direction;

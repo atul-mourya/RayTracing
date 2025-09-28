@@ -444,10 +444,11 @@ float calculateDirectionalLightImportance(
     int bounceIndex
 ) {
     float NoL = max( 0.0, dot( normal, light.direction ) );
-    if( NoL <= 0.0 ) return 0.0;
-    
+    if( NoL <= 0.0 )
+        return 0.0;
+
     float intensity = light.intensity * luminance( light.color );
-    
+
     // Material-specific weighting
     float materialWeight = 1.0;
     if( material.metalness > 0.7 ) {
@@ -455,10 +456,10 @@ float calculateDirectionalLightImportance(
     } else if( material.roughness > 0.8 ) {
         materialWeight = 0.7; // Rough surfaces less sensitive to directional lights
     }
-    
+
     // Reduce importance on secondary bounces
     float bounceWeight = 1.0 / ( 1.0 + float( bounceIndex ) * 0.5 );
-    
+
     return intensity * NoL * materialWeight * bounceWeight;
 }
 
@@ -471,22 +472,23 @@ float calculatePointLightImportance(
 ) {
     vec3 toLight = light.position - hitPoint;
     float distSq = dot( toLight, toLight );
-    if( distSq < 0.001 ) return 0.0; // Too close
-    
+    if( distSq < 0.001 )
+        return 0.0; // Too close
+
     vec3 lightDir = toLight / sqrt( distSq );
     float NoL = max( 0.0, dot( normal, lightDir ) );
-    if( NoL <= 0.0 ) return 0.0;
-    
+    if( NoL <= 0.0 )
+        return 0.0;
+
     // Distance attenuation
     float distanceFactor = 1.0 / max( distSq, 0.01 );
-    
+
     // Intensity and color
     float intensity = light.intensity * luminance( light.color );
-    
+
     // Material weighting
-    float materialWeight = material.metalness > 0.7 ? 1.5 : 
-                          (material.roughness > 0.8 ? 0.8 : 1.0);
-    
+    float materialWeight = material.metalness > 0.7 ? 1.5 : ( material.roughness > 0.8 ? 0.8 : 1.0 );
+
     return intensity * distanceFactor * NoL * materialWeight;
 }
 
@@ -499,30 +501,32 @@ float calculateSpotLightImportance(
 ) {
     vec3 toLight = light.position - hitPoint;
     float distSq = dot( toLight, toLight );
-    if( distSq < 0.001 ) return 0.0;
-    
+    if( distSq < 0.001 )
+        return 0.0;
+
     vec3 lightDir = toLight / sqrt( distSq );
     float NoL = max( 0.0, dot( normal, lightDir ) );
-    if( NoL <= 0.0 ) return 0.0;
-    
+    if( NoL <= 0.0 )
+        return 0.0;
+
     // Check if point is within spot cone
-    float spotCosAngle = dot( -lightDir, light.direction );
+    float spotCosAngle = dot( - lightDir, light.direction );
     float coneCosAngle = cos( light.angle );
-    if( spotCosAngle < coneCosAngle ) return 0.0;
-    
+    if( spotCosAngle < coneCosAngle )
+        return 0.0;
+
     // Distance attenuation
     float distanceFactor = 1.0 / max( distSq, 0.01 );
-    
+
     // Cone attenuation
     float coneAttenuation = smoothstep( coneCosAngle, coneCosAngle + 0.1, spotCosAngle );
-    
+
     // Intensity and color
     float intensity = light.intensity * luminance( light.color );
-    
+
     // Material weighting
-    float materialWeight = material.metalness > 0.7 ? 1.5 : 
-                          (material.roughness > 0.8 ? 0.8 : 1.0);
-    
+    float materialWeight = material.metalness > 0.7 ? 1.5 : ( material.roughness > 0.8 ? 0.8 : 1.0 );
+
     return intensity * distanceFactor * coneAttenuation * NoL * materialWeight;
 }
 
@@ -663,34 +667,37 @@ vec3 calculatePointLightContribution(
 ) {
     // Calculate vector from surface to light
     vec3 toLight = light.position - hitPoint;
-    float distance = length(toLight);
-    
+    float distance = length( toLight );
+
     // Early exit for extremely far lights (performance optimization)
-    if (distance > 1000.0) return vec3(0.0);
-    
+    if( distance > 1000.0 )
+        return vec3( 0.0 );
+
     vec3 lightDir = toLight / distance;
-    
+
     // Check if light is on same side of surface as normal
-    float NdotL = dot(normal, lightDir);
-    if (NdotL <= 0.0) return vec3(0.0);
-    
+    float NdotL = dot( normal, lightDir );
+    if( NdotL <= 0.0 )
+        return vec3( 0.0 );
+
     // Calculate attenuation using inverse square law
-    float attenuation = 1.0 / (distance * distance);
-    
+    float attenuation = 1.0 / ( distance * distance );
+
     // Apply intensity and color
     vec3 lightRadiance = light.color * light.intensity * attenuation;
-    
+
     // Calculate shadow ray offset
-    vec3 rayOffset = calculateRayOffset(hitPoint, normal, material);
+    vec3 rayOffset = calculateRayOffset( hitPoint, normal, material );
     vec3 rayOrigin = hitPoint + rayOffset;
-    
+
     // Trace shadow ray
-    float visibility = traceShadowRay(rayOrigin, lightDir, distance - 0.001, rngState, stats);
-    if (visibility <= 0.0) return vec3(0.0);
-    
+    float visibility = traceShadowRay( rayOrigin, lightDir, distance - 0.001, rngState, stats );
+    if( visibility <= 0.0 )
+        return vec3( 0.0 );
+
     // Calculate BRDF contribution
-    vec3 brdfValue = evaluateMaterialResponse(viewDir, lightDir, normal, material);
-    
+    vec3 brdfValue = evaluateMaterialResponse( viewDir, lightDir, normal, material );
+
     // Final contribution
     return brdfValue * lightRadiance * NdotL * visibility;
 }
@@ -712,44 +719,48 @@ vec3 calculateSpotLightContribution(
 ) {
     // Calculate vector from surface to light
     vec3 toLight = light.position - hitPoint;
-    float distance = length(toLight);
-    
+    float distance = length( toLight );
+
     // Early exit for extremely far lights (performance optimization)
-    if (distance > 1000.0) return vec3(0.0);
-    
+    if( distance > 1000.0 )
+        return vec3( 0.0 );
+
     vec3 lightDir = toLight / distance;
-    
+
     // Check if light is on same side of surface as normal
-    float NdotL = dot(normal, lightDir);
-    if (NdotL <= 0.0) return vec3(0.0);
-    
+    float NdotL = dot( normal, lightDir );
+    if( NdotL <= 0.0 )
+        return vec3( 0.0 );
+
     // Calculate spot light cone attenuation
-    float spotCosAngle = dot(-lightDir, light.direction);
-    float coneCosAngle = cos(light.angle);
-    
+    float spotCosAngle = dot( - lightDir, light.direction );
+    float coneCosAngle = cos( light.angle );
+
     // Early exit if outside the cone
-    if (spotCosAngle < coneCosAngle) return vec3(0.0);
-    
+    if( spotCosAngle < coneCosAngle )
+        return vec3( 0.0 );
+
     // Smooth falloff at cone edge using smoothstep
-    float coneAttenuation = smoothstep(coneCosAngle, coneCosAngle + 0.1, spotCosAngle);
-    
+    float coneAttenuation = smoothstep( coneCosAngle, coneCosAngle + 0.1, spotCosAngle );
+
     // Calculate distance attenuation using inverse square law
-    float distanceAttenuation = 1.0 / (distance * distance);
-    
+    float distanceAttenuation = 1.0 / ( distance * distance );
+
     // Apply intensity, color, and both attenuations
     vec3 lightRadiance = light.color * light.intensity * distanceAttenuation * coneAttenuation;
-    
+
     // Calculate shadow ray offset
-    vec3 rayOffset = calculateRayOffset(hitPoint, normal, material);
+    vec3 rayOffset = calculateRayOffset( hitPoint, normal, material );
     vec3 rayOrigin = hitPoint + rayOffset;
-    
+
     // Trace shadow ray
-    float visibility = traceShadowRay(rayOrigin, lightDir, distance - 0.001, rngState, stats);
-    if (visibility <= 0.0) return vec3(0.0);
-    
+    float visibility = traceShadowRay( rayOrigin, lightDir, distance - 0.001, rngState, stats );
+    if( visibility <= 0.0 )
+        return vec3( 0.0 );
+
     // Calculate BRDF contribution
-    vec3 brdfValue = evaluateMaterialResponse(viewDir, lightDir, normal, material);
-    
+    vec3 brdfValue = evaluateMaterialResponse( viewDir, lightDir, normal, material );
+
     // Final contribution
     return brdfValue * lightRadiance * NdotL * visibility;
 }
@@ -785,11 +796,11 @@ struct LightSample {
 // Distance attenuation based on Frostbite PBR
 float getDistanceAttenuation( float lightDistance, float cutoffDistance, float decayExponent ) {
     float distanceFalloff = 1.0 / max( pow( lightDistance, decayExponent ), 0.01 );
-    
+
     if( cutoffDistance > 0.0 ) {
         distanceFalloff *= pow( clamp( 1.0 - pow( lightDistance / cutoffDistance, 4.0 ), 0.0, 1.0 ), 2.0 );
     }
-    
+
     return distanceFalloff;
 }
 
@@ -804,19 +815,19 @@ bool isDirectionValid( vec3 direction, vec3 surfaceNormal ) {
 }
 
 // Get total number of lights in the scene
-int getTotalLightCount() {
+int getTotalLightCount( ) {
     int count = 0;
     #if MAX_DIRECTIONAL_LIGHTS > 0
-        count += MAX_DIRECTIONAL_LIGHTS;
+    count += MAX_DIRECTIONAL_LIGHTS;
     #endif
     #if MAX_AREA_LIGHTS > 0
-        count += MAX_AREA_LIGHTS;
+    count += MAX_AREA_LIGHTS;
     #endif
     #if MAX_POINT_LIGHTS > 0
-        count += MAX_POINT_LIGHTS;
+    count += MAX_POINT_LIGHTS;
     #endif
     #if MAX_SPOT_LIGHTS > 0
-        count += MAX_SPOT_LIGHTS;
+    count += MAX_SPOT_LIGHTS;
     #endif
     return count;
 }
@@ -825,21 +836,21 @@ int getTotalLightCount() {
 LightSample sampleRectAreaLight( AreaLight light, vec3 rayOrigin, vec2 ruv, float lightSelectionPdf ) {
     // Sample random position on rectangle
     vec3 randomPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
-    
+
     vec3 toLight = randomPos - rayOrigin;
     float lightDistSq = dot( toLight, toLight );
     float dist = sqrt( lightDistSq );
     vec3 direction = toLight / dist;
     vec3 lightNormal = normalize( cross( light.u, light.v ) );
-    
+
     LightSample lightSample;
     lightSample.lightType = LIGHT_TYPE_AREA;
     lightSample.emission = light.color * light.intensity;
     lightSample.distance = dist;
     lightSample.direction = direction;
-    lightSample.pdf = ( lightDistSq / ( light.area * max( dot( -direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
-    lightSample.valid = dot( -direction, lightNormal ) > 0.0;
-    
+    lightSample.pdf = ( lightDistSq / ( light.area * max( dot( - direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
+    lightSample.valid = dot( - direction, lightNormal ) > 0.0;
+
     return lightSample;
 }
 
@@ -849,23 +860,23 @@ LightSample sampleCircAreaLight( AreaLight light, vec3 rayOrigin, vec2 ruv, floa
     float theta = ruv.y * 2.0 * PI;
     float x = r * cos( theta );
     float y = r * sin( theta );
-    
+
     vec3 randomPos = light.position + light.u * x + light.v * y;
-    
+
     vec3 toLight = randomPos - rayOrigin;
     float lightDistSq = dot( toLight, toLight );
     float dist = sqrt( lightDistSq );
     vec3 direction = toLight / dist;
     vec3 lightNormal = normalize( cross( light.u, light.v ) );
-    
+
     LightSample lightSample;
     lightSample.lightType = LIGHT_TYPE_AREA;
     lightSample.emission = light.color * light.intensity;
     lightSample.distance = dist;
     lightSample.direction = direction;
-    lightSample.pdf = ( lightDistSq / ( light.area * max( dot( -direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
-    lightSample.valid = dot( -direction, lightNormal ) > 0.0;
-    
+    lightSample.pdf = ( lightDistSq / ( light.area * max( dot( - direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
+    lightSample.valid = dot( - direction, lightNormal ) > 0.0;
+
     return lightSample;
 }
 
@@ -874,28 +885,28 @@ LightSample sampleSpotLightWithRadius( SpotLight light, vec3 rayOrigin, vec2 ruv
     vec3 toLight = light.position - rayOrigin;
     float lightDist = length( toLight );
     vec3 lightDir = toLight / lightDist;
-    
+
     // Check cone attenuation
-    float spotCosAngle = dot( -lightDir, light.direction );
+    float spotCosAngle = dot( - lightDir, light.direction );
     float coneCosAngle = cos( light.angle );
-    
+
     LightSample lightSample;
     lightSample.lightType = LIGHT_TYPE_SPOT;
     lightSample.direction = lightDir;
     lightSample.distance = lightDist;
     lightSample.pdf = lightSelectionPdf;
     lightSample.valid = spotCosAngle >= coneCosAngle;
-    
+
     if( lightSample.valid ) {
         float penumbraCosAngle = cos( light.angle * 0.9 ); // 10% penumbra
         float coneAttenuation = getSpotAttenuation( coneCosAngle, penumbraCosAngle, spotCosAngle );
         float distanceAttenuation = getDistanceAttenuation( lightDist, 0.0, 2.0 );
-        
+
         lightSample.emission = light.color * light.intensity * distanceAttenuation * coneAttenuation;
     } else {
         lightSample.emission = vec3( 0.0 );
     }
-    
+
     return lightSample;
 }
 
@@ -904,10 +915,10 @@ LightSample samplePointLightWithAttenuation( PointLight light, vec3 rayOrigin, f
     vec3 toLight = light.position - rayOrigin;
     float lightDist = length( toLight );
     vec3 lightDir = toLight / lightDist;
-    
+
     // Calculate distance attenuation
     float distanceAttenuation = getDistanceAttenuation( lightDist, 0.0, 2.0 );
-    
+
     LightSample lightSample;
     lightSample.lightType = LIGHT_TYPE_POINT;
     lightSample.direction = lightDir;
@@ -915,83 +926,84 @@ LightSample samplePointLightWithAttenuation( PointLight light, vec3 rayOrigin, f
     lightSample.emission = light.color * light.intensity * distanceAttenuation;
     lightSample.pdf = lightSelectionPdf;
     lightSample.valid = true;
-    
+
     return lightSample;
 }
 
 // Enhanced light sampling with importance weighting for better noise reduction
-LightSample sampleLightWithImportance( 
-    vec3 rayOrigin, 
-    vec3 normal, 
+LightSample sampleLightWithImportance(
+    vec3 rayOrigin,
+    vec3 normal,
     RayTracingMaterial material,
-    vec2 randomSeed, 
+    vec2 randomSeed,
     int bounceIndex,
-    inout uint rngState 
+    inout uint rngState
 ) {
     LightSample result;
     result.valid = false;
     result.pdf = 0.0;
-    
-    int totalLights = getTotalLightCount();
-    if( totalLights == 0 ) return result;
-    
+
+    int totalLights = getTotalLightCount( );
+    if( totalLights == 0 )
+        return result;
+
     // Calculate light importance weights for better sampling
-    float lightWeights[16]; // Assuming max 16 total lights
+    float lightWeights[ 16 ]; // Assuming max 16 total lights
     float totalWeight = 0.0;
     int lightIndex = 0;
-    
+
     // Calculate importance for each light type
     #if MAX_DIRECTIONAL_LIGHTS > 0
-    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS && lightIndex < 16; i++ ) {
+    for( int i = 0; i < MAX_DIRECTIONAL_LIGHTS && lightIndex < 16; i ++ ) {
         DirectionalLight light = getDirectionalLight( i );
         float importance = calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex );
-        lightWeights[lightIndex] = importance;
+        lightWeights[ lightIndex ] = importance;
         totalWeight += importance;
-        lightIndex++;
+        lightIndex ++;
     }
     #endif
-    
+
     #if MAX_AREA_LIGHTS > 0
-    for( int i = 0; i < MAX_AREA_LIGHTS && lightIndex < 16; i++ ) {
+    for( int i = 0; i < MAX_AREA_LIGHTS && lightIndex < 16; i ++ ) {
         AreaLight light = getAreaLight( i );
         float importance = estimateLightImportance( light, rayOrigin, normal, material );
-        lightWeights[lightIndex] = importance;
+        lightWeights[ lightIndex ] = importance;
         totalWeight += importance;
-        lightIndex++;
+        lightIndex ++;
     }
     #endif
-    
+
     #if MAX_POINT_LIGHTS > 0
-    for( int i = 0; i < MAX_POINT_LIGHTS && lightIndex < 16; i++ ) {
+    for( int i = 0; i < MAX_POINT_LIGHTS && lightIndex < 16; i ++ ) {
         PointLight light = getPointLight( i );
         float importance = calculatePointLightImportance( light, rayOrigin, normal, material );
-        lightWeights[lightIndex] = importance;
+        lightWeights[ lightIndex ] = importance;
         totalWeight += importance;
-        lightIndex++;
+        lightIndex ++;
     }
     #endif
-    
+
     #if MAX_SPOT_LIGHTS > 0
-    for( int i = 0; i < MAX_SPOT_LIGHTS && lightIndex < 16; i++ ) {
+    for( int i = 0; i < MAX_SPOT_LIGHTS && lightIndex < 16; i ++ ) {
         SpotLight light = getSpotLight( i );
         float importance = calculateSpotLightImportance( light, rayOrigin, normal, material );
-        lightWeights[lightIndex] = importance;
+        lightWeights[ lightIndex ] = importance;
         totalWeight += importance;
-        lightIndex++;
+        lightIndex ++;
     }
     #endif
-    
+
     if( totalWeight <= 0.0 ) {
         // Fallback to uniform sampling - select a random light uniformly
         float lightSelection = randomSeed.x * float( totalLights );
         int selectedLight = int( lightSelection );
         float lightSelectionPdf = 1.0 / float( totalLights );
-        
+
         // Simple uniform sampling fallback
         LightSample fallbackResult;
         fallbackResult.valid = false;
         fallbackResult.pdf = lightSelectionPdf;
-        
+
         // For simplicity, just sample first available directional light as fallback
         #if MAX_DIRECTIONAL_LIGHTS > 0
         if( selectedLight < MAX_DIRECTIONAL_LIGHTS ) {
@@ -1005,32 +1017,32 @@ LightSample sampleLightWithImportance(
             }
         }
         #endif
-        
+
         return fallbackResult;
     }
-    
+
     // Importance-based light selection
     float selectionValue = randomSeed.x * totalWeight;
     float cumulative = 0.0;
     int selectedLight = 0;
-    
-    for( int i = 0; i < totalLights && i < 16; i++ ) {
-        cumulative += lightWeights[i];
+
+    for( int i = 0; i < totalLights && i < 16; i ++ ) {
+        cumulative += lightWeights[ i ];
         if( selectionValue <= cumulative ) {
             selectedLight = i;
             break;
         }
     }
-    
-    float lightSelectionPdf = lightWeights[selectedLight] / totalWeight;
-    
+
+    float lightSelectionPdf = lightWeights[ selectedLight ] / totalWeight;
+
     // Now sample the selected light with importance weighting
     result.valid = false;
     result.pdf = lightSelectionPdf;
-    
+
     // Map selectedLight index to the appropriate light type and index
     int currentIndex = 0;
-    
+
     // Sample directional lights
     #if MAX_DIRECTIONAL_LIGHTS > 0
     if( selectedLight < currentIndex + MAX_DIRECTIONAL_LIGHTS ) {
@@ -1039,25 +1051,25 @@ LightSample sampleLightWithImportance(
         if( light.intensity > 0.0 ) {
             vec3 direction;
             float pdf = 1.0;
-            
+
             if( light.angle > 0.0 ) {
                 // Soft directional light - sample within cone
                 float cosHalfAngle = cos( light.angle * 0.5 );
                 float cosTheta = mix( cosHalfAngle, 1.0, randomSeed.y );
                 float sinTheta = sqrt( max( 0.0, 1.0 - cosTheta * cosTheta ) );
                 float phi = 2.0 * PI * RandomValue( rngState );
-                
+
                 // Create local coordinate system around light direction
                 vec3 w = normalize( light.direction );
                 vec3 u = normalize( cross( abs( w.x ) > 0.9 ? vec3( 0, 1, 0 ) : vec3( 1, 0, 0 ), w ) );
                 vec3 v = cross( w, u );
-                
+
                 direction = normalize( cosTheta * w + sinTheta * ( cos( phi ) * u + sin( phi ) * v ) );
                 pdf = 1.0 / ( 2.0 * PI * ( 1.0 - cosHalfAngle ) );
             } else {
                 direction = normalize( light.direction );
             }
-            
+
             result.direction = direction;
             result.emission = light.color * light.intensity;
             result.distance = 1e6;
@@ -1069,7 +1081,7 @@ LightSample sampleLightWithImportance(
     }
     currentIndex += MAX_DIRECTIONAL_LIGHTS;
     #endif
-    
+
     // Sample area lights with enhanced sampling
     #if MAX_AREA_LIGHTS > 0
     if( selectedLight < currentIndex + MAX_AREA_LIGHTS ) {
@@ -1082,7 +1094,7 @@ LightSample sampleLightWithImportance(
     }
     currentIndex += MAX_AREA_LIGHTS;
     #endif
-    
+
     // Sample point lights with enhanced attenuation
     #if MAX_POINT_LIGHTS > 0
     if( selectedLight < currentIndex + MAX_POINT_LIGHTS ) {
@@ -1094,7 +1106,7 @@ LightSample sampleLightWithImportance(
     }
     currentIndex += MAX_POINT_LIGHTS;
     #endif
-    
+
     // Sample spot lights with enhanced features
     #if MAX_SPOT_LIGHTS > 0
     if( selectedLight < currentIndex + MAX_SPOT_LIGHTS ) {
@@ -1106,7 +1118,7 @@ LightSample sampleLightWithImportance(
         }
     }
     #endif
-    
+
     return result;
 }
 
@@ -1117,24 +1129,25 @@ float calculateMaterialPDF( vec3 viewDir, vec3 lightDir, vec3 normal, RayTracing
     vec3 H = normalize( viewDir + lightDir );
     float NoH = max( 0.0, dot( normal, H ) );
     float VoH = max( 0.0, dot( viewDir, H ) );
-    
+
     // Calculate lobe weights
     float diffuseWeight = ( 1.0 - material.metalness ) * ( 1.0 - material.transmission );
     float specularWeight = 1.0 - diffuseWeight * ( 1.0 - material.metalness );
     float totalWeight = diffuseWeight + specularWeight;
-    
-    if( totalWeight <= 0.0 ) return 0.0;
-    
+
+    if( totalWeight <= 0.0 )
+        return 0.0;
+
     diffuseWeight /= totalWeight;
     specularWeight /= totalWeight;
-    
+
     float pdf = 0.0;
-    
+
     // Diffuse PDF (cosine-weighted hemisphere)
     if( diffuseWeight > 0.0 && NoL > 0.0 ) {
         pdf += diffuseWeight * NoL * PI_INV;
     }
-    
+
     // Specular PDF (GGX distribution)
     if( specularWeight > 0.0 && NoL > 0.0 ) {
         float roughness = max( material.roughness, 0.02 );
@@ -1142,7 +1155,7 @@ float calculateMaterialPDF( vec3 viewDir, vec3 lightDir, vec3 normal, RayTracing
         float G1 = GeometrySchlickGGX( NoV, roughness );
         pdf += specularWeight * D * G1 * VoH / max( NoV, 0.001 );
     }
-    
+
     return max( pdf, 1e-8 );
 }
 
@@ -1159,53 +1172,53 @@ vec3 sampleAreaLightContribution(
     // Sample random position on light surface
     vec2 ruv = vec2( RandomValue( rngState ), RandomValue( rngState ) );
     vec3 lightPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
-    
+
     vec3 toLight = lightPos - rayOrigin;
     float lightDistSq = dot( toLight, toLight );
     float lightDist = sqrt( lightDistSq );
     vec3 lightDir = toLight / lightDist;
-    
+
     // Check if light is facing the surface
     vec3 lightNormal = normalize( cross( light.u, light.v ) );
-    float lightFacing = dot( -lightDir, lightNormal );
-    
+    float lightFacing = dot( - lightDir, lightNormal );
+
     if( lightFacing <= 0.0 ) {
         return vec3( 0.0 );
     }
-    
+
     // Check if surface is facing the light
     float surfaceFacing = dot( surf.normal, lightDir );
     if( surfaceFacing <= 0.0 ) {
         return vec3( 0.0 );
     }
-    
+
     // Validate direction
-    if( !isDirectionValid( lightDir, surf.normal ) ) {
+    if( ! isDirectionValid( lightDir, surf.normal ) ) {
         return vec3( 0.0 );
     }
-    
+
     // Test for occlusion
     float visibility = traceShadowRay( rayOrigin, lightDir, lightDist - 0.001, rngState, stats );
     if( visibility <= 0.0 ) {
         return vec3( 0.0 );
     }
-    
+
     // Calculate BRDF
     vec3 brdfColor = evaluateMaterialResponse( worldWo, lightDir, surf.normal, surf.material );
-    
+
     // Calculate light PDF
     float lightPdf = lightDistSq / ( light.area * lightFacing );
-    
+
     // Calculate BRDF PDF for MIS
     float brdfPdf = calculateMaterialPDF( worldWo, lightDir, surf.normal, surf.material );
-    
+
     // Apply MIS weighting
     float misWeight = ( brdfPdf > 0.0 ) ? misHeuristic( lightPdf, brdfPdf ) : 1.0;
-    
+
     // Calculate final contribution
     vec3 lightEmission = light.color * light.intensity;
     vec3 contribution = lightEmission * brdfColor * surfaceFacing * visibility * misWeight / lightPdf;
-    
+
     return contribution;
 }
 
@@ -1228,23 +1241,26 @@ vec3 calculateDirectLightingUnified(
     }
 
     // IMPROVEMENT: Adaptive MIS Strategy Selection
-    vec3 currentThroughput = vec3(1.0); // This should be passed from caller, using 1.0 as fallback
-    MISStrategy misStrategy = selectOptimalMISStrategy(hitInfo.material, bounceIndex, currentThroughput);
+    vec3 currentThroughput = vec3( 1.0 ); // This should be passed from caller, using 1.0 as fallback
+    MISStrategy misStrategy = selectOptimalMISStrategy( hitInfo.material, bounceIndex, currentThroughput );
 
     // Adaptive light processing based on bounce depth
-    int totalLights = getTotalLightCount();
+    int totalLights = getTotalLightCount( );
     if( totalLights == 0 ) {
         return vec3( 0.0 );
     }
-    
+
     // Importance threshold that increases with bounce depth for early termination
     float importanceThreshold = 0.001 * ( 1.0 + float( bounceIndex ) * 0.5 );
-    
+
     // Calculate total denominator using adaptive strategy
     float totalSamplingWeight = 0.0;
-    if( misStrategy.useLightSampling ) totalSamplingWeight += misStrategy.lightWeight;
-    if( misStrategy.useBRDFSampling ) totalSamplingWeight += misStrategy.brdfWeight;
-    if( misStrategy.useEnvSampling && enableEnvironmentLight ) totalSamplingWeight += misStrategy.envWeight;
+    if( misStrategy.useLightSampling )
+        totalSamplingWeight += misStrategy.lightWeight;
+    if( misStrategy.useBRDFSampling )
+        totalSamplingWeight += misStrategy.brdfWeight;
+    if( misStrategy.useEnvSampling && enableEnvironmentLight )
+        totalSamplingWeight += misStrategy.envWeight;
 
     // Ensure we have valid weights
     if( totalSamplingWeight <= 0.0 ) {
@@ -1255,7 +1271,7 @@ vec3 calculateDirectLightingUnified(
     }
 
     // Use stratified sampling for better distribution with adaptive weights
-    vec2 stratifiedRandom = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, -1 );
+    vec2 stratifiedRandom = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, - 1 );
 
     // Determine sampling technique based on adaptive strategy
     float rand = stratifiedRandom.x;
@@ -1265,7 +1281,7 @@ vec3 calculateDirectLightingUnified(
 
     if( rand < misStrategy.lightWeight / totalSamplingWeight && misStrategy.useLightSampling ) {
         sampleLights = true;
-    } else if( rand < (misStrategy.lightWeight + misStrategy.brdfWeight) / totalSamplingWeight && misStrategy.useBRDFSampling ) {
+    } else if( rand < ( misStrategy.lightWeight + misStrategy.brdfWeight ) / totalSamplingWeight && misStrategy.useBRDFSampling ) {
         sampleBRDF = true;
     } else if( misStrategy.useEnvSampling && enableEnvironmentLight ) {
         sampleEnv = true;
@@ -1273,29 +1289,29 @@ vec3 calculateDirectLightingUnified(
         // Fallback to light sampling
         sampleLights = true;
     }
-    
+
     if( sampleLights ) {
         // 1. IMPORTANCE-WEIGHTED LIGHT SAMPLING STRATEGY
         vec2 lightRandom = vec2( stratifiedRandom.y, RandomValue( rngState ) );
         LightSample lightSample = sampleLightWithImportance( rayOrigin, hitInfo.normal, hitInfo.material, lightRandom, bounceIndex, rngState );
-        
+
         if( lightSample.valid && lightSample.pdf > 0.0 ) {
             float NoL = max( 0.0, dot( hitInfo.normal, lightSample.direction ) );
-            
+
             // Early termination for low-contribution lights
             float lightImportance = lightSample.emission.r + lightSample.emission.g + lightSample.emission.b;
             if( NoL > 0.0 && lightImportance * NoL > importanceThreshold && isDirectionValid( lightSample.direction, hitInfo.normal ) ) {
                 // Shadow test with distance optimization
                 float shadowDistance = min( lightSample.distance - 0.001, 1000.0 );
                 float visibility = traceShadowRay( rayOrigin, lightSample.direction, shadowDistance, rngState, stats );
-                
+
                 if( visibility > 0.0 ) {
                     // Evaluate BSDF for light direction
                     vec3 brdfValue = evaluateMaterialResponse( viewDir, lightSample.direction, hitInfo.normal, hitInfo.material );
-                    
+
                     // Calculate BSDF PDF for this direction for improved MIS
                     float brdfPdf = calculateMaterialPDF( viewDir, lightSample.direction, hitInfo.normal, hitInfo.material );
-                    
+
                     // Enhanced MIS weight calculation using adaptive strategy
                     float misWeight = 1.0;
                     if( brdfPdf > 0.0 && misStrategy.useBRDFSampling ) {
@@ -1310,37 +1326,39 @@ vec3 calculateDirectLightingUnified(
                             misWeight = powerHeuristic( lightPdfWeighted, brdfPdfWeighted );
                         }
                     }
-                    
+
                     // Light contribution with improved MIS
                     vec3 lightContribution = lightSample.emission * brdfValue * NoL * visibility * misWeight / lightSample.pdf;
                     totalContribution += lightContribution * totalSamplingWeight / misStrategy.lightWeight; // Compensate for adaptive selection probability
                 }
             }
         }
-        
+
     }
 
     if( sampleBRDF ) {
         // 2. ENHANCED BSDF SAMPLING STRATEGY (optimized for better MIS)
         if( brdfSample.pdf > 0.0 && misStrategy.useBRDFSampling ) {
             float NoL = max( 0.0, dot( hitInfo.normal, brdfSample.direction ) );
-            
+
             if( NoL > 0.0 && isDirectionValid( brdfSample.direction, hitInfo.normal ) ) {
                 // Adaptive area light intersection testing based on importance
                 #if MAX_AREA_LIGHTS > 0
                 bool foundIntersection = false;
                 float maxImportance = 0.0;
-                int maxImportanceLight = -1;
-                
+                int maxImportanceLight = - 1;
+
                 // First pass: find most important intersected light
-                for( int i = 0; i < MAX_AREA_LIGHTS && !foundIntersection; i++ ) {
+                for( int i = 0; i < MAX_AREA_LIGHTS && ! foundIntersection; i ++ ) {
                     AreaLight light = getAreaLight( i );
-                    if( light.intensity <= 0.0 ) continue;
-                    
+                    if( light.intensity <= 0.0 )
+                        continue;
+
                     // Quick importance check before expensive intersection test
                     float lightImportance = estimateLightImportance( light, hitInfo.hitPoint, hitInfo.normal, hitInfo.material );
-                    if( lightImportance < importanceThreshold ) continue;
-                    
+                    if( lightImportance < importanceThreshold )
+                        continue;
+
                     // Test intersection with area light
                     float hitDistance = 1e6;
                     if( intersectAreaLight( light, rayOrigin, brdfSample.direction, hitDistance ) ) {
@@ -1351,25 +1369,25 @@ vec3 calculateDirectLightingUnified(
                         foundIntersection = true;
                     }
                 }
-                
+
                 // Process the most important intersected light
                 if( foundIntersection && maxImportanceLight >= 0 ) {
                     AreaLight light = getAreaLight( maxImportanceLight );
                     float hitDistance = 1e6;
-                    
+
                     if( intersectAreaLight( light, rayOrigin, brdfSample.direction, hitDistance ) ) {
                         // Shadow test with distance optimization
                         float shadowDistance = min( hitDistance - 0.001, 1000.0 );
                         float visibility = traceShadowRay( rayOrigin, brdfSample.direction, shadowDistance, rngState, stats );
-                        
+
                         if( visibility > 0.0 ) {
                             // Calculate light PDF for this intersection
-                            float lightFacing = max( 0.0, -dot( brdfSample.direction, light.normal ) );
+                            float lightFacing = max( 0.0, - dot( brdfSample.direction, light.normal ) );
                             if( lightFacing > 0.0 ) {
                                 float lightDistSq = hitDistance * hitDistance;
                                 float lightPdf = lightDistSq / ( light.area * lightFacing );
                                 lightPdf /= float( totalLights ); // Account for light selection probability
-                                
+
                                 // Enhanced MIS weight using adaptive strategy
                                 float brdfPdfWeighted = brdfSample.pdf * misStrategy.brdfWeight;
                                 float lightPdfWeighted = lightPdf * misStrategy.lightWeight;
@@ -1411,7 +1429,7 @@ vec3 calculateDirectLightingUnified(
                         // MIS weight using adaptive strategy
                         float envPdfWeighted = envSample.pdf * misStrategy.envWeight;
                         float brdfPdfWeighted = brdfPdf * misStrategy.brdfWeight;
-                        float misWeight = (brdfPdf > 0.0) ? powerHeuristic( envPdfWeighted, brdfPdfWeighted ) : 1.0;
+                        float misWeight = ( brdfPdf > 0.0 ) ? powerHeuristic( envPdfWeighted, brdfPdfWeighted ) : 1.0;
 
                         // Environment contribution with adaptive MIS
                         vec3 envContribution = envSample.value * brdfValue * NoL * visibility * misWeight / envSample.pdf;
@@ -1421,7 +1439,7 @@ vec3 calculateDirectLightingUnified(
             }
         }
     }
-    
+
     return totalContribution;
 }
 
@@ -1485,8 +1503,7 @@ vec3 calculateDirectLightingMIS(
         DirectionalLight light = getDirectionalLight( i );
 
         // Material-aware importance check for directional lights
-        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
-                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : ( hitInfo.material.roughness > 0.8 ? 0.7 : 1.0 );
         float quickDirImportance = light.intensity * materialWeight * max( 0.0, dot( N, light.direction ) );
         if( quickDirImportance < importanceThreshold ) {
             continue;
@@ -1519,9 +1536,8 @@ vec3 calculateDirectLightingMIS(
         float distSq = dot( lightCenter, lightCenter );
 
         // Material-aware importance calculation for early culling
-        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
-                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
-        float quickImportance = (light.intensity * light.area * materialWeight) / max( distSq, 1.0 );
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : ( hitInfo.material.roughness > 0.8 ? 0.7 : 1.0 );
+        float quickImportance = ( light.intensity * light.area * materialWeight ) / max( distSq, 1.0 );
         if( quickImportance < importanceThreshold ) {
             continue;
         }
@@ -1552,7 +1568,7 @@ vec3 calculateDirectLightingMIS(
     for( int i = 0; i < maxPointLightCount; i ++ ) {
         if( i >= MAX_POINT_LIGHTS )
             break;
-            
+
         PointLight light = getPointLight( i );
         if( light.intensity <= 0.0 )
             continue;
@@ -1560,10 +1576,9 @@ vec3 calculateDirectLightingMIS(
         // Material-aware distance check for early culling
         vec3 toLight = light.position - hitInfo.hitPoint;
         float distSq = dot( toLight, toLight );
-        
+
         // Material-aware culling with distance check
-        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
-                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : ( hitInfo.material.roughness > 0.8 ? 0.7 : 1.0 );
         float effectiveIntensity = light.intensity * materialWeight;
         if( distSq > ( effectiveIntensity * 10000.0 ) || distSq < 0.001 )
             continue;
@@ -1587,7 +1602,7 @@ vec3 calculateDirectLightingMIS(
     for( int i = 0; i < maxSpotLightCount; i ++ ) {
         if( i >= MAX_SPOT_LIGHTS )
             break;
-            
+
         SpotLight light = getSpotLight( i );
         if( light.intensity <= 0.0 )
             continue;
@@ -1595,10 +1610,9 @@ vec3 calculateDirectLightingMIS(
         // Material-aware distance check for early culling
         vec3 toLight = light.position - hitInfo.hitPoint;
         float distSq = dot( toLight, toLight );
-        
+
         // Material-aware culling with distance check
-        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : 
-                               (hitInfo.material.roughness > 0.8 ? 0.7 : 1.0);
+        float materialWeight = hitInfo.material.metalness > 0.7 ? 1.5 : ( hitInfo.material.roughness > 0.8 ? 0.7 : 1.0 );
         float effectiveIntensity = light.intensity * materialWeight;
         if( distSq > ( effectiveIntensity * 10000.0 ) || distSq < 0.001 )
             continue;

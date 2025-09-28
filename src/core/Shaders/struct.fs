@@ -1,4 +1,3 @@
-
 struct Ray {
 	vec3 origin;
 	vec3 direction;
@@ -84,7 +83,7 @@ struct Triangle {
 	vec3 normalA, normalB, normalC;
 	RayTracingMaterial material;
 	int materialIndex;
-    float padding;
+	float padding;
 };
 
 struct Pixel {
@@ -107,7 +106,6 @@ struct BRDFWeights {
 	float iridescence;
 };
 
-
 struct ImportanceSamplingInfo {
 	float diffuseImportance;
 	float specularImportance;
@@ -117,31 +115,31 @@ struct ImportanceSamplingInfo {
 };
 
 struct DotProducts {
-    float NoL; // Normal • Light
-    float NoV; // Normal • View
-    float NoH; // Normal • Half
-    float VoH; // View • Half
-    float LoH; // Light • Half
+	float NoL; // Normal • Light
+	float NoV; // Normal • View
+	float NoH; // Normal • Half
+	float VoH; // View • Half
+	float LoH; // Light • Half
 	float VoN; // View • Normal
 };
 
 struct MaterialSamples {
-    vec4 albedo;
-    vec3 emissive;
-    float metalness;
-    float roughness;
-    vec3 normal;
-    bool hasTextures;
+	vec4 albedo;
+	vec3 emissive;
+	float metalness;
+	float roughness;
+	vec3 normal;
+	bool hasTextures;
 };
 
 struct MaterialClassification {
-    bool isMetallic;        // metalness > 0.7
-    bool isRough;          // roughness > 0.8  
-    bool isSmooth;         // roughness < 0.3
-    bool isTransmissive;   // transmission > 0.5
-    bool hasClearcoat;     // clearcoat > 0.5
-    bool isEmissive;       // has emissive contribution
-    float complexityScore; // 0-1 score for material complexity
+	bool isMetallic;        // metalness > 0.7
+	bool isRough;          // roughness > 0.8  
+	bool isSmooth;         // roughness < 0.3
+	bool isTransmissive;   // transmission > 0.5
+	bool hasClearcoat;     // clearcoat > 0.5
+	bool isEmissive;       // has emissive contribution
+	float complexityScore; // 0-1 score for material complexity
 };
 
 struct UVCache {
@@ -161,28 +159,28 @@ struct UVCache {
 
 // Enhanced material cache
 struct MaterialCache {
-    vec3 F0;                    // Base reflectance
-    float NoV;                  // Normal dot View
-    vec3 diffuseColor;          // Precomputed diffuse color
-    vec3 specularColor;         // Precomputed specular color
-    bool isMetallic;            // metalness > 0.7
-    bool isPurelyDiffuse;       // Optimized path flag
-    bool hasSpecialFeatures;    // Has transmission, clearcoat, etc.
-    float alpha;                // roughness squared
-    float k;                    // Geometry term constant
-    float alpha2;               // roughness to the fourth power
-    MaterialSamples texSamples; // Texture samples
+	vec3 F0;                    // Base reflectance
+	float NoV;                  // Normal dot View
+	vec3 diffuseColor;          // Precomputed diffuse color
+	vec3 specularColor;         // Precomputed specular color
+	bool isMetallic;            // metalness > 0.7
+	bool isPurelyDiffuse;       // Optimized path flag
+	bool hasSpecialFeatures;    // Has transmission, clearcoat, etc.
+	float alpha;                // roughness squared
+	float k;                    // Geometry term constant
+	float alpha2;               // roughness to the fourth power
+	MaterialSamples texSamples; // Texture samples
 
     // BRDF optimization: precomputed shared values
-    float invRoughness;         // 1.0 - roughness
-    float metalFactor;          // 0.5 + 0.5 * metalness
-    float iorFactor;            // min(2.0 / ior, 1.0)
-    float maxSheenColor;        // max component of sheen color
+	float invRoughness;         // 1.0 - roughness
+	float metalFactor;          // 0.5 + 0.5 * metalness
+	float iorFactor;            // min(2.0 / ior, 1.0)
+	float maxSheenColor;        // max component of sheen color
 };
 
 // Update PathState to include texture samples
 struct PathState {
-    BRDFWeights brdfWeights;              // Cached BRDF weights
+	BRDFWeights brdfWeights;              // Cached BRDF weights
 	ImportanceSamplingInfo samplingInfo;   // Cached importance sampling info
 	MaterialCache materialCache;           // Cached material properties
 	MaterialClassification materialClass;  // Cached material classification
@@ -195,28 +193,28 @@ struct PathState {
 };
 
 struct SamplingStrategyWeights {
-    float envWeight;
-    float specularWeight;
-    float diffuseWeight;
-    float transmissionWeight;
-    float clearcoatWeight;
-    float totalWeight;
+	float envWeight;
+	float specularWeight;
+	float diffuseWeight;
+	float transmissionWeight;
+	float clearcoatWeight;
+	float totalWeight;
 
-    bool useEnv;
-    bool useSpecular;
-    bool useDiffuse;
-    bool useTransmission;
-    bool useClearcoat;
+	bool useEnv;
+	bool useSpecular;
+	bool useDiffuse;
+	bool useTransmission;
+	bool useClearcoat;
 };
 
 // IMPROVEMENT: Dynamic MIS strategy based on material properties
 struct MISStrategy {
-    float brdfWeight;
-    float lightWeight;
-    float envWeight;
-    bool useBRDFSampling;
-    bool useLightSampling;
-    bool useEnvSampling;
+	float brdfWeight;
+	float lightWeight;
+	float envWeight;
+	bool useBRDFSampling;
+	bool useLightSampling;
+	bool useEnvSampling;
 };
 
 // IMPROVEMENT: Multi-layer MIS type aliases and extensions
@@ -226,11 +224,11 @@ struct MISStrategy {
 
 // Enhanced material weights for multi-lobe sampling
 struct MultiLobeWeights {
-    float diffuse;
-    float specular;
-    float clearcoat;
-    float transmission;
-    float sheen;
-    float iridescence;
-    float totalWeight;
+	float diffuse;
+	float specular;
+	float clearcoat;
+	float transmission;
+	float sheen;
+	float iridescence;
+	float totalWeight;
 };

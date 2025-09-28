@@ -29,60 +29,60 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
             // Environment Map Luminance Visualization
 			if( enableEnvironmentLight ) {
                 // Sample the environment map at the ray direction
-                vec4 envSample = sampleEnvironment( rayDir );
-                
+				vec4 envSample = sampleEnvironment( rayDir );
+
                 // Calculate luminance from the RGB values
-                float envLuminance = luminance( envSample.rgb );
-                
+				float envLuminance = luminance( envSample.rgb );
+
                 // Try multiple scaling approaches to diagnose the issue
-                float rawLuminance = envLuminance;
-                
+				float rawLuminance = envLuminance;
+
                 // Use adaptive scaling instead of fixed debugVisScale
-                float adaptiveScale = max( debugVisScale * 0.1, 0.001 ); // Much smaller scale
-                float scaledLuminance = envLuminance / adaptiveScale;
-                
+				float adaptiveScale = max( debugVisScale * 0.1, 0.001 ); // Much smaller scale
+				float scaledLuminance = envLuminance / adaptiveScale;
+
                 // Alternative: Use logarithmic scaling for better dynamic range
-                float logLuminance = log( envLuminance + 1e-6 );
-                float logScaled = ( logLuminance + 10.0 ) / 10.0; // Adjust range
-                
+				float logLuminance = log( envLuminance + 1e-6 );
+				float logScaled = ( logLuminance + 10.0 ) / 10.0; // Adjust range
+
                 // Choose which scaling to use based on debugVisScale value
-                float finalValue = debugVisScale > 1.0 ? scaledLuminance : logScaled;
-                
+				float finalValue = debugVisScale > 1.0 ? scaledLuminance : logScaled;
+
                 // Create a heat map visualization with extended range
-                vec3 color;
-                if( finalValue < 0.2 ) {
+				vec3 color;
+				if( finalValue < 0.2 ) {
                     // Very dark areas: black to dark blue
-                    color = mix( vec3( 0.0, 0.0, 0.0 ), vec3( 0.0, 0.0, 0.5 ), finalValue * 5.0 );
-                } else if( finalValue < 0.4 ) {
+					color = mix( vec3( 0.0, 0.0, 0.0 ), vec3( 0.0, 0.0, 0.5 ), finalValue * 5.0 );
+				} else if( finalValue < 0.4 ) {
                     // Dark areas: dark blue to blue
-                    color = mix( vec3( 0.0, 0.0, 0.5 ), vec3( 0.0, 0.0, 1.0 ), ( finalValue - 0.2 ) * 5.0 );
-                } else if( finalValue < 0.6 ) {
+					color = mix( vec3( 0.0, 0.0, 0.5 ), vec3( 0.0, 0.0, 1.0 ), ( finalValue - 0.2 ) * 5.0 );
+				} else if( finalValue < 0.6 ) {
                     // Medium areas: blue to green
-                    color = mix( vec3( 0.0, 0.0, 1.0 ), vec3( 0.0, 1.0, 0.0 ), ( finalValue - 0.4 ) * 5.0 );
-                } else if( finalValue < 0.8 ) {
+					color = mix( vec3( 0.0, 0.0, 1.0 ), vec3( 0.0, 1.0, 0.0 ), ( finalValue - 0.4 ) * 5.0 );
+				} else if( finalValue < 0.8 ) {
                     // Bright areas: green to yellow
-                    color = mix( vec3( 0.0, 1.0, 0.0 ), vec3( 1.0, 1.0, 0.0 ), ( finalValue - 0.6 ) * 5.0 );
-                } else if( finalValue < 1.0 ) {
+					color = mix( vec3( 0.0, 1.0, 0.0 ), vec3( 1.0, 1.0, 0.0 ), ( finalValue - 0.6 ) * 5.0 );
+				} else if( finalValue < 1.0 ) {
                     // Very bright areas: yellow to red
-                    color = mix( vec3( 1.0, 1.0, 0.0 ), vec3( 1.0, 0.0, 0.0 ), ( finalValue - 0.8 ) * 5.0 );
-                } else {
+					color = mix( vec3( 1.0, 1.0, 0.0 ), vec3( 1.0, 0.0, 0.0 ), ( finalValue - 0.8 ) * 5.0 );
+				} else {
                     // Extremely bright areas: red to white
-                    color = mix( vec3( 1.0, 0.0, 0.0 ), vec3( 1.0, 1.0, 1.0 ), min( finalValue - 1.0, 1.0 ) );
-                }
-                
+					color = mix( vec3( 1.0, 0.0, 0.0 ), vec3( 1.0, 1.0, 1.0 ), min( finalValue - 1.0, 1.0 ) );
+				}
+
                 // Debug: Show raw values in specific screen regions
-                vec2 screenPos = gl_FragCoord.xy / resolution;
-                if( screenPos.x < 0.1 && screenPos.y < 0.1 ) {
+				vec2 screenPos = gl_FragCoord.xy / resolution;
+				if( screenPos.x < 0.1 && screenPos.y < 0.1 ) {
                     // Top-left corner: show raw luminance scaled by 1000
-                    float debugValue = rawLuminance * 1.0;
-                    color = vec3( debugValue );
-                } else if( screenPos.x > 0.9 && screenPos.y < 0.1 ) {
+					float debugValue = rawLuminance * 1.0;
+					color = vec3( debugValue );
+				} else if( screenPos.x > 0.9 && screenPos.y < 0.1 ) {
                     // Top-right corner: show environment sample RGB directly
-                    color = envSample.rgb * 1.0; // Amplify to see if there's any signal
-                }
-                
-                return vec4( color, 1.0 );
-            }
+					color = envSample.rgb * 1.0; // Amplify to see if there's any signal
+				}
+
+				return vec4( color, 1.0 );
+			}
 			return vec4( 1.0, 0.0, 1.0, 1.0 );
 		}
 		case 7: {

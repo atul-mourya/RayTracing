@@ -14,37 +14,37 @@ const float INV_PHI2 = 0.38196601125;
 
 // Sobol sequence direction vectors using function lookup for compatibility
 uint getSobolDirectionVector(int index) {
-    if (index == 0) return 2147483648u;
-    if (index == 1) return 1073741824u;
-    if (index == 2) return 536870912u;
-    if (index == 3) return 268435456u;
-    if (index == 4) return 134217728u;
-    if (index == 5) return 67108864u;
-    if (index == 6) return 33554432u;
-    if (index == 7) return 16777216u;
-    if (index == 8) return 8388608u;
-    if (index == 9) return 4194304u;
-    if (index == 10) return 2097152u;
-    if (index == 11) return 1048576u;
-    if (index == 12) return 524288u;
-    if (index == 13) return 262144u;
-    if (index == 14) return 131072u;
-    if (index == 15) return 65536u;
-    if (index == 16) return 32768u;
-    if (index == 17) return 16384u;
-    if (index == 18) return 8192u;
-    if (index == 19) return 4096u;
-    if (index == 20) return 2048u;
-    if (index == 21) return 1024u;
-    if (index == 22) return 512u;
-    if (index == 23) return 256u;
-    if (index == 24) return 128u;
-    if (index == 25) return 64u;
-    if (index == 26) return 32u;
-    if (index == 27) return 16u;
-    if (index == 28) return 8u;
-    if (index == 29) return 4u;
-    if (index == 30) return 2u;
+    if( index == 0 ) return 2147483648u;
+    if( index == 1 ) return 1073741824u;
+    if( index == 2 ) return 536870912u;
+    if( index == 3 ) return 268435456u;
+    if( index == 4 ) return 134217728u;
+    if( index == 5 ) return 67108864u;
+    if( index == 6 ) return 33554432u;
+    if( index == 7 ) return 16777216u;
+    if( index == 8 ) return 8388608u;
+    if( index == 9 ) return 4194304u;
+    if( index == 10 ) return 2097152u;
+    if( index == 11 ) return 1048576u;
+    if( index == 12 ) return 524288u;
+    if( index == 13 ) return 262144u;
+    if( index == 14 ) return 131072u;
+    if( index == 15 ) return 65536u;
+    if( index == 16 ) return 32768u;
+    if( index == 17 ) return 16384u;
+    if( index == 18 ) return 8192u;
+    if( index == 19 ) return 4096u;
+    if( index == 20 ) return 2048u;
+    if( index == 21 ) return 1024u;
+    if( index == 22 ) return 512u;
+    if( index == 23 ) return 256u;
+    if( index == 24 ) return 128u;
+    if( index == 25 ) return 64u;
+    if( index == 26 ) return 32u;
+    if( index == 27 ) return 16u;
+    if( index == 28 ) return 8u;
+    if( index == 29 ) return 4u;
+    if( index == 30 ) return 2u;
     return 1u;
 }
 
@@ -266,7 +266,7 @@ vec4 getRandomSampleND( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout
             uint scramble = pcg_hash( uint( pixelCoord.x ) + uint( pixelCoord.y ) * uint( resolution.x ) );
             // Use function-based prime lookup for compatibility
             for( int i = 0; i < dimensions; i ++ ) {
-                int prime = (i == 0) ? 2 : (i == 1) ? 3 : (i == 2) ? 5 : 7;
+                int prime = ( i == 0 ) ? 2 : ( i == 1 ) ? 3 : ( i == 2 ) ? 5 : 7;
                 result[ i ] = haltonScrambled( sampleIndex, prime, scramble );
             }
         }
@@ -362,7 +362,7 @@ vec2 getStratifiedSample( vec2 pixelCoord, int rayIndex, int totalRays, inout ui
     } else {
         // Enhanced fallback: use fast sampling with slight blue noise influence for better convergence
         jitter = vec2( RandomValueFast( rngState ), RandomValueFast( rngState ) );
-        
+
         // Add subtle blue noise influence even for non-blue-noise techniques
         if( totalRays > 4 ) { // Only for multi-sample scenarios
             vec2 blueNoiseInfluence = sampleBlueNoise2D( pixelCoord, rayIndex, 0 ) * 0.1;
@@ -401,13 +401,13 @@ vec2 getPrimaryRaySample( vec2 pixelCoord, int sampleIndex, int totalSamples, in
     } else {
         // Enhanced stratified sampling with blue noise influence for better convergence
         vec2 stratifiedSample = getStratifiedSample( pixelCoord, sampleIndex, totalSamples, rngState );
-        
+
         // Add blue noise influence for improved anti-aliasing convergence
         if( totalSamples > 1 ) {
             vec2 blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, 1 ) * 0.15;
             stratifiedSample = mix( stratifiedSample, blueNoiseHint, 0.25 ); // 25% blue noise influence
         }
-        
+
         return stratifiedSample;
     }
 }
@@ -423,13 +423,13 @@ vec2 getBRDFSample( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout uin
         // Enhanced random sampling with subtle blue noise influence for better BRDF convergence
         // Use fast RNG for BRDF sampling where speed is more important than perfect distribution
         vec2 randomSample = vec2( RandomValueFast( rngState ), RandomValueFast( rngState ) );
-        
+
         // Add blue noise influence for deeper bounces where quality matters
         if( bounceIndex > 0 ) {
             vec2 blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset ) * 0.12;
             randomSample = mix( randomSample, blueNoiseHint, 0.15 ); // 15% blue noise influence
         }
-        
+
         return randomSample;
     }
 }
