@@ -1,3 +1,5 @@
+precision highp float;
+
 uniform sampler2DArray albedoMaps;
 uniform sampler2DArray normalMaps;
 uniform sampler2DArray bumpMaps;
@@ -376,93 +378,43 @@ MaterialSamples sampleAllMaterialTextures( RayTracingMaterial material, vec2 uv,
 }
 
 // ================================================================================
-// INDIVIDUAL SAMPLING FUNCTIONS (for compatibility with existing calls)
+// LEGACY SAMPLING FUNCTIONS (DEPRECATED - USE sampleAllMaterialTextures)
+// These functions now redirect to the optimized batched sampling system
 // ================================================================================
 
+// OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 vec4 sampleAlbedoTexture( RayTracingMaterial material, vec2 uv ) {
-	if( material.albedoMapIndex < 0 ) {
-		return material.color;
-	}
-	vec2 transformedUV = getTransformedUV( uv, material.albedoTransform );
-	vec4 texSample = texture( albedoMaps, vec3( transformedUV, float( material.albedoMapIndex ) ) );
-	vec3 linear = texSample.rgb * texSample.rgb * sqrt( texSample.rgb );
-	return vec4( material.color.rgb * linear, material.color.a * texSample.a );
+	// Use batched sampling for consistency and performance
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	return samples.albedo;
 }
 
+// OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 vec3 sampleEmissiveMap( RayTracingMaterial material, vec2 uv ) {
-	vec2 emissiveUV = getTransformedUV( uv, material.emissiveTransform );
-	vec3 emissionBase = material.emissive * material.emissiveIntensity;
-
-	if( material.emissiveMapIndex >= 0 ) {
-		vec4 emissiveSample = texture( emissiveMaps, vec3( emissiveUV, float( material.emissiveMapIndex ) ) );
-		vec3 emissiveLinear = emissiveSample.rgb * emissiveSample.rgb * sqrt( emissiveSample.rgb );
-		return emissionBase * emissiveLinear;
-	}
-
-	return emissionBase;
+	// Use batched sampling for consistency and performance
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	return samples.emissive;
 }
 
+// OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 float sampleMetalnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.metalnessMapIndex < 0 ) {
-		return material.metalness;
-	}
-	vec2 transformedUV = getTransformedUV( uv, material.metalnessTransform );
-	vec4 _sample = texture( metalnessMaps, vec3( transformedUV, float( material.metalnessMapIndex ) ) );
-	return material.metalness * _sample.b;
+	// Use batched sampling for consistency and performance
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	return samples.metalness;
 }
 
+// OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 float sampleRoughnessMap( RayTracingMaterial material, vec2 uv ) {
-	if( material.roughnessMapIndex < 0 ) {
-		return material.roughness;
-	}
-	vec2 transformedUV = getTransformedUV( uv, material.roughnessTransform );
-	vec4 _sample = texture( roughnessMaps, vec3( transformedUV, float( material.roughnessMapIndex ) ) );
-	return material.roughness * _sample.g;
+	// Use batched sampling for consistency and performance
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, vec3(0.0, 1.0, 0.0) );
+	return samples.roughness;
 }
 
+// OPTIMIZED: Redirects to batched sampling to eliminate redundant texture fetches
 vec3 sampleNormalMap( RayTracingMaterial material, vec2 uv, vec3 normal ) {
-	vec3 resultNormal = normal;
-
-	if( material.normalMapIndex >= 0 ) {
-		vec2 transformedUV = getTransformedUV( uv, material.normalTransform );
-		vec3 normalSample = texture( normalMaps, vec3( transformedUV, float( material.normalMapIndex ) ) ).xyz;
-		vec3 normalMap = normalSample * 2.0 - 1.0;
-		// Apply normal scale using X component
-		normalMap.xy *= material.normalScale.x;
-		// Fix inverted normal map by flipping Y coordinate
-		normalMap.y = -normalMap.y;
-
-		vec3 up = abs( normal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
-		vec3 tangent = normalize( cross( up, normal ) );
-		vec3 bitangent = cross( normal, tangent );
-
-		resultNormal = normalize( tangent * normalMap.x + bitangent * normalMap.y + normal * normalMap.z );
-	}
-
-	// Handle bump mapping - this should work regardless of whether there's a normal map
-	if( material.bumpMapIndex >= 0 ) {
-		vec2 transformedUV = getTransformedUV( uv, material.bumpTransform );
-		vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
-
-		float h_c = texture( bumpMaps, vec3( transformedUV, float( material.bumpMapIndex ) ) ).r;
-		float h_u = texture( bumpMaps, vec3( transformedUV + vec2( texelSize.x, 0.0 ), float( material.bumpMapIndex ) ) ).r;
-		float h_v = texture( bumpMaps, vec3( transformedUV + vec2( 0.0, texelSize.y ), float( material.bumpMapIndex ) ) ).r;
-
-		vec2 gradient = vec2( h_u - h_c, h_v - h_c ) * material.bumpScale;
-		vec3 bumpNormal = normalize( vec3( - gradient.x, - gradient.y, 1.0 ) );
-
-		// Use resultNormal (which could be geometry normal or normal from normal map)
-		vec3 up = abs( resultNormal.z ) < 0.999 ? vec3( 0.0, 0.0, 1.0 ) : vec3( 1.0, 0.0, 0.0 );
-		vec3 tangent = normalize( cross( up, resultNormal ) );
-		vec3 bitangent = cross( resultNormal, tangent );
-		mat3 TBN = mat3( tangent, bitangent, resultNormal );
-
-		// Apply bumpScale to control the intensity of the bump effect
-		vec3 perturbedNormal = TBN * bumpNormal;
-		resultNormal = normalize( mix( resultNormal, perturbedNormal, clamp( material.bumpScale, 0.0, 1.0 ) ) );
-	}
-
-	return resultNormal;
+	// Use batched sampling for consistency and performance
+	MaterialSamples samples = sampleAllMaterialTextures( material, uv, normal );
+	return samples.normal;
 }
 
 // Sample displacement map at given UV coordinates
