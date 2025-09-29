@@ -371,6 +371,20 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
     // Surface BRDF evaluation only
     // Calculate base F0 with specular parameters
 	vec3 F0 = mix( vec3( 0.04 ) * material.specularColor, material.color.rgb, material.metalness ) * material.specularIntensity;
+	
+	// Modify material color for dispersive materials to enhance color separation
+	vec3 materialColor = material.color.rgb;
+	if( material.dispersion > 0.0 && material.transmission > 0.5 ) {
+		// For highly dispersive transmissive materials, boost color saturation
+		float dispersionEffect = clamp( material.dispersion * 0.1, 0.0, 0.8 );
+		// Convert to HSV-like saturation boost
+		float maxComp = max( max( materialColor.r, materialColor.g ), materialColor.b );
+		float minComp = min( min( materialColor.r, materialColor.g ), materialColor.b );
+		if( maxComp > minComp ) {
+			vec3 saturatedColor = ( materialColor - minComp ) / ( maxComp - minComp );
+			materialColor = mix( materialColor, saturatedColor, dispersionEffect * 0.3 );
+		}
+	}
 
     // Add iridescence effect if enabled
 	if( material.iridescence > 0.0 ) {
@@ -388,7 +402,7 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
     // Combined specular calculation
 	vec3 specular = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
 	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
-	vec3 diffuse = kD * material.color.rgb * PI_INV;
+	vec3 diffuse = kD * materialColor * PI_INV;
 
 	vec3 baseLayer = diffuse + specular;
 

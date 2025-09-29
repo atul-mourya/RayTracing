@@ -154,6 +154,9 @@ float getMaterialFireflyTolerance( RayTracingMaterial material ) {
 
     // Transmissive materials have different brightness characteristics
     tolerance *= mix( 1.0, 0.9, material.transmission );
+    
+    // Dispersive materials need more aggressive clamping to reduce color noise
+    tolerance *= mix( 1.0, 0.7, clamp( material.dispersion * 0.1, 0.0, 1.0 ) );
 
     return tolerance;
 }
