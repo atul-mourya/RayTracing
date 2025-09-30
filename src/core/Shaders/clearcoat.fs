@@ -1,42 +1,5 @@
-// Helper function to calculate energy conservation for layered materials
-float calculateLayerAttenuation( float clearcoat, float VoH ) {
-    // Fresnel term for clearcoat layer (using f0 = 0.04 for dielectric)
-	float F = fresnelSchlick( VoH, 0.04 );
-    // Attenuate base layer by clearcoat layer's reflection
-	return ( 1.0 - clearcoat * F );
-}
-
-// Evaluate both clearcoat and base layer BRDFs
-vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
-
-    // Base F0 calculation with specular parameters
-	vec3 baseF0 = vec3( 0.04 );
-	vec3 F0 = mix( baseF0 * material.specularColor, material.color.rgb, material.metalness );
-	F0 *= material.specularIntensity;
-
-	float D = DistributionGGX( dots.NoH, material.roughness );
-	float G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
-	vec3 F = fresnelSchlick( dots.VoH, F0 );
-	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
-
-    // Fresnel masking for diffuse component
-	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
-	vec3 diffuse = kD * material.color.rgb / PI;
-	vec3 baseLayer = diffuse + baseBRDF;
-
-    // Clearcoat layer
-	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
-	float clearcoatD = DistributionGGX( dots.NoH, clearcoatRoughness );
-	float clearcoatG = GeometrySmith( dots.NoV, dots.NoL, clearcoatRoughness );
-	float clearcoatF = fresnelSchlick( dots.VoH, 0.04 );
-	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) /
-		( 4.0 * dots.NoV * dots.NoL );
-
-    //  Energy conservation for clearcoat
-	float clearcoatAttenuation = 1.0 - material.clearcoat * clearcoatF;
-
-	return baseLayer * clearcoatAttenuation + vec3( clearcoatBRDF ) * material.clearcoat;
-}
+// Note: evaluateLayeredBRDF and calculateLayerAttenuation functions
+// have been moved to material_evaluation.fs
 
 // Improved clearcoat sampling function
 vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial material, vec2 randomSample, out vec3 L, out float pdf, inout uint rngState ) {
