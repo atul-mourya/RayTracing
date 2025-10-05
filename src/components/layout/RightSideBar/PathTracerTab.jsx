@@ -208,7 +208,7 @@ const PathTracerTab = () => {
 
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
-					<Switch label={"Enable ASVGF"} checked={enableASVGF} onCheckedChange={handleEnableASVGFChange}/>
+					<Switch label={"Enable ASVGF"} disabled checked={enableASVGF} onCheckedChange={handleEnableASVGFChange}/>
 				</div>
 				{enableASVGF && ( <>
 					<div className="flex items-center justify-between">
