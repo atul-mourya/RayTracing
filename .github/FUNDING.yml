@@ -1,0 +1,41 @@
+# Funding Configuration for Rayzee Real-Time Path Tracer
+# Support the development of this cutting-edge web-based path tracing engine
+
+# GitHub Sponsors (Primary funding platform)
+github: [atul-mourya]
+
+# Patreon for recurring monthly support
+patreon: # Add your Patreon username if you create one
+
+# Open Collective for transparent community funding
+open_collective: # Add your Open Collective project name if you create one
+
+# Ko-fi for one-time donations and monthly supporters
+ko_fi: # Add your Ko-fi username if you create one
+
+# Buy Me a Coffee for simple one-time support
+# Uncomment and add your username: buy_me_a_coffee: your_username
+
+# Tidelift for enterprise support
+# Uncomment if you join Tidelift: tidelift: npm/raytracing
+
+# Community Bridge (Linux Foundation)
+# Uncomment if you join: community_bridge: rayzee-path-tracer
+
+# IssueHunt for bounty-based development
+# Uncomment if you join: issuehunt: atul-mourya
+
+# Liberapay for recurring donations
+# Uncomment and add: liberapay: your_username
+
+# Custom funding URLs for additional platforms
+custom: [
+  # PayPal for direct donations
+  # "https://paypal.me/YourPayPalUsername",
+  
+  # Stripe/Custom donation page
+  # "https://your-website.com/donate",
+  
+  # Cryptocurrency donations
+  # "https://your-website.com/crypto-donations"
+]
