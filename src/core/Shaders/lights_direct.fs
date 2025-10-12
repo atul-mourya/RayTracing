@@ -160,35 +160,58 @@ float estimateLightImportance(
 ) {
     // Distance-based importance
     vec3 toLight = light.position - hitPoint;
-    float distSq = dot( toLight, toLight );
-    float distanceFactor = 1.0 / max( distSq, 0.01 );
+    float dist = length( toLight );
+    float distSq = dist * dist;
 
     // Angular importance - light facing toward surface?
-    vec3 lightDir = normalize( toLight );
+    vec3 lightDir = toLight / dist;
     float NoL = max( dot( normal, lightDir ), 0.0 );
+    if( NoL <= 0.0 )
+        return 0.0; // Early exit for back-facing lights
+
     float lightFacing = max( - dot( lightDir, light.normal ), 0.0 );
+    if( lightFacing <= 0.0 )
+        return 0.0; // Light pointing away
 
-    // Size importance
-    float sizeFactor = light.area;
+    // importance calculation using solid angle
+    // Solid angle = Area / distance²
+    float solidAngle = light.area / max( distSq, 0.1 );
 
-    // Brightness importance
-    float intensity = light.intensity * luminance( light.color );
+    // Radiant power = intensity × luminance × area
+    float power = light.intensity * luminance( light.color ) * light.area;
 
-    // Material-specific factors
+    // BRDF-aware material weighting (view-independent approximation)
     float materialFactor = 1.0;
+
+    // Metallic surfaces benefit more from bright, concentrated lights
     if( material.metalness > 0.7 ) {
-        // Metals care more about bright lights for specular reflections
-        materialFactor = 2.0;
-    } else if( material.roughness > 0.8 ) {
-        // Rough diffuse surfaces care more about large lights
-        materialFactor = 0.8;
+        // Boost importance for metals (specular highlights)
+        materialFactor *= 1.5;
+
+        // Smooth metals prefer smaller, brighter lights
+        if( material.roughness < 0.3 ) {
+            materialFactor *= 1.0 + ( 1.0 - material.roughness ) * 0.5;
+        }
     }
 
-    // Combined importance score
-    return distanceFactor * NoL * lightFacing * sizeFactor * intensity * materialFactor;
+    // Rough diffuse surfaces prefer larger area lights
+    if( material.roughness > 0.6 && material.metalness < 0.3 ) {
+        // Weight by relative light size
+        float sizeBoost = min( light.area * 2.0, 2.0 );
+        materialFactor *= sizeBoost;
+    }
+
+    // Transmission/glass materials care about both intensity and geometry
+    if( material.transmission > 0.5 ) {
+        materialFactor *= 1.0 + material.transmission * 0.3;
+    }
+
+    // Combined importance: power × solid angle × geometry × BRDF weight
+    // This gives us a physically-motivated importance metric
+    return power * solidAngle * NoL * lightFacing * materialFactor;
 }
 
-// Point light importance calculation
+// Enhanced point light importance calculation
 float calculatePointLightImportance(
     PointLight light,
     vec3 hitPoint,
@@ -200,21 +223,42 @@ float calculatePointLightImportance(
     if( distSq < 0.001 )
         return 0.0; // Too close
 
-    vec3 lightDir = toLight / sqrt( distSq );
+    float dist = sqrt( distSq );
+    vec3 lightDir = toLight / dist;
     float NoL = max( 0.0, dot( normal, lightDir ) );
     if( NoL <= 0.0 )
         return 0.0;
 
-    // Distance attenuation
-    float distanceFactor = 1.0 / max( distSq, 0.01 );
+    // Physical inverse-square falloff
+    float distanceFactor = 1.0 / max( distSq, 0.1 );
 
-    // Intensity and color
-    float intensity = light.intensity * luminance( light.color );
+    // Power calculation (luminous intensity)
+    float power = light.intensity * luminance( light.color );
 
-    // Material weighting
-    float materialWeight = material.metalness > 0.7 ? 1.5 : ( material.roughness > 0.8 ? 0.8 : 1.0 );
+    // Material-aware weighting
+    float materialFactor = 1.0;
 
-    return intensity * distanceFactor * NoL * materialWeight;
+    // Metals benefit from bright point sources (sharp specular)
+    if( material.metalness > 0.7 ) {
+        materialFactor *= 1.5;
+
+        // Smooth metals create sharper highlights
+        if( material.roughness < 0.3 ) {
+            materialFactor *= 1.0 + ( 1.0 - material.roughness ) * 0.4;
+        }
+    }
+
+    // Rough surfaces have more uniform response
+    if( material.roughness > 0.6 ) {
+        materialFactor *= 0.9; // Slightly reduce since point lights less effective
+    }
+
+    // Transmission materials
+    if( material.transmission > 0.5 ) {
+        materialFactor *= 1.0 + material.transmission * 0.2;
+    }
+
+    return power * distanceFactor * NoL * materialFactor;
 }
 
 // Spot light importance calculation
