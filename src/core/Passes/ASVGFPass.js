@@ -882,6 +882,17 @@ export class ASVGFPass extends Pass {
 
 		}
 
+		// Skip ASVGF during interaction mode for performance
+		// Check if PathTracerPass is in interaction mode
+		const pathTracerPass = window.pathTracerApp?.pathTracingPass;
+		if ( pathTracerPass && pathTracerPass.interactionMode ) {
+
+			// Pass through without denoising during interaction
+			this.copyTexture( renderer, readBuffer, writeBuffer );
+			return;
+
+		}
+
 		// Update camera matrices for motion vectors
 		this.updateCameraMatrices( this.camera );
 
@@ -903,31 +914,35 @@ export class ASVGFPass extends Pass {
 		// Full ASVGF pipeline
 		this.frameCount ++;
 
-		if ( ! this.enabled ) {
-
-			// Pass through
-			this.copyTexture( renderer, readBuffer, writeBuffer );
-			return;
-
-		}
-
 		// Update camera matrices for motion vectors
 		this.updateCameraMatrices( camera );
 
-		// Extract textures from readBuffer (modern MRT approach)
+		// Get MRT textures directly from PathTracerPass's internal target
+		// The readBuffer only has color, so we need to access the PathTracerPass directly
 		let colorTexture, normalDepthTexture;
 
-		if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
+		const pathTracerPass = window.pathTracerApp?.pathTracingPass;
+		if ( pathTracerPass && pathTracerPass.targetManager ) {
 
-			// MRT input
-			colorTexture = readBuffer.textures[ 0 ];
-			normalDepthTexture = readBuffer.textures[ 1 ];
+			// Access MRT textures directly from PathTracerPass's internal target
+			const mrtTextures = pathTracerPass.getMRTTextures();
+			colorTexture = mrtTextures.color;
+			normalDepthTexture = mrtTextures.normalDepth;
 
 		} else {
 
-			// Single texture input (fallback)
-			colorTexture = readBuffer.texture || readBuffer;
-			normalDepthTexture = null;
+			// Fallback: try to read from readBuffer (legacy compatibility)
+			if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
+
+				colorTexture = readBuffer.textures[ 0 ];
+				normalDepthTexture = readBuffer.textures[ 1 ];
+
+			} else {
+
+				colorTexture = readBuffer.texture || readBuffer;
+				normalDepthTexture = null;
+
+			}
 
 		}
 
@@ -1030,16 +1045,31 @@ export class ASVGFPass extends Pass {
 		// Skip temporal accumulation and motion vectors
 		// Only do variance estimation and A-trous filtering
 
+		// Get MRT textures directly from PathTracerPass's internal target
 		let colorTexture, normalDepthTexture;
-		if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
 
-			colorTexture = readBuffer.textures[ 0 ];
-			normalDepthTexture = readBuffer.textures[ 1 ];
+		const pathTracerPass = window.pathTracerApp?.pathTracingPass;
+		if ( pathTracerPass && pathTracerPass.targetManager ) {
+
+			// Access MRT textures directly from PathTracerPass's internal target
+			const mrtTextures = pathTracerPass.getMRTTextures();
+			colorTexture = mrtTextures.color;
+			normalDepthTexture = mrtTextures.normalDepth;
 
 		} else {
 
-			colorTexture = readBuffer.texture || readBuffer;
-			normalDepthTexture = null;
+			// Fallback: try to read from readBuffer
+			if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
+
+				colorTexture = readBuffer.textures[ 0 ];
+				normalDepthTexture = readBuffer.textures[ 1 ];
+
+			} else {
+
+				colorTexture = readBuffer.texture || readBuffer;
+				normalDepthTexture = null;
+
+			}
 
 		}
 

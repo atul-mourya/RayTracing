@@ -130,7 +130,8 @@ class PathTracerApp extends EventDispatcher {
 		this.controls.addEventListener( 'change', () => {
 
 			this.pathTracingPass && this.pathTracingPass.enterInteractionMode();
-			this.reset();
+			// Soft reset - preserve buffers to avoid black flash during camera movement
+			this.reset( false );
 
 		} );
 		this.controls.update();
@@ -263,13 +264,13 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
-	reset() {
+	reset( clearBuffers = true ) {
 
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
 
 		this.canvas.style.opacity = 1;
-		this.pathTracingPass.reset();
+		this.pathTracingPass.reset( clearBuffers );
 		// Always reset ASVGF pass if it exists, regardless of enabled state
 		this.asvgfPass?.reset();
 		this.edgeAwareFilterPass?.enabled && this.edgeAwareFilterPass.reset( this.renderer );

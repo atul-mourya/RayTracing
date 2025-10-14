@@ -264,7 +264,7 @@ export class PathTracerPass extends Pass {
 
 	}
 
-	reset() {
+	reset( clearBuffers = true ) {
 
 		// Reset accumulation state
 		this.material.uniforms.frame.value = 0;
@@ -274,7 +274,13 @@ export class PathTracerPass extends Pass {
 
 		// Reset managers
 		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
-		this.targetManager.clearTargets();
+
+		// Only clear targets if explicitly requested (not when exiting interaction mode)
+		if ( clearBuffers ) {
+
+			this.targetManager.clearTargets();
+
+		}
 
 		// Update completion threshold
 		this.updateCompletionThreshold();
@@ -482,14 +488,15 @@ export class PathTracerPass extends Pass {
 		// Handle adaptive sampling
 		this.updateAdaptiveSampling( frameValue );
 
-		// Render to current target
+		// Render to current target (MRT with color + normal/depth)
 		renderer.setRenderTarget( this.targetManager.currentTarget );
 		this.fsQuad.render( renderer );
 
-		// Copy to output buffer
-		if ( writeBuffer || this.renderToScreen ) {
+		// Copy only the color output to writeBuffer for the composer's pipeline
+		// ASVGF will read the full MRT directly from our internal target
+		if ( writeBuffer ) {
 
-			// Temporarily disable scissor for final copy to ensure full image is copied
+			// Temporarily disable scissor for full-screen copy
 			const wasScissorEnabled = this.tileManager.scissorEnabled;
 			if ( wasScissorEnabled ) {
 
@@ -497,9 +504,28 @@ export class PathTracerPass extends Pass {
 
 			}
 
-			this.targetManager.efficientCopyColorOutput( renderer, writeBuffer, this.renderToScreen );
+			// Copy only color to writeBuffer (composer expects single texture)
+			this.targetManager.efficientCopyColorOutput( renderer, writeBuffer, false );
 
 			// Restore scissor state if it was enabled
+			if ( wasScissorEnabled && this.tileManager.currentTileBounds ) {
+
+				this.tileManager.enableScissorForTile( renderer, this.tileManager.currentTileBounds );
+
+			}
+
+		} else if ( this.renderToScreen ) {
+
+			// When rendering to screen, copy the color output
+			const wasScissorEnabled = this.tileManager.scissorEnabled;
+			if ( wasScissorEnabled ) {
+
+				this.tileManager.disableScissor( renderer );
+
+			}
+
+			this.targetManager.efficientCopyColorOutput( renderer, null, true );
+
 			if ( wasScissorEnabled && this.tileManager.currentTileBounds ) {
 
 				this.tileManager.enableScissorForTile( renderer, this.tileManager.currentTileBounds );
@@ -563,9 +589,15 @@ export class PathTracerPass extends Pass {
 			this.lastInteractionModeState = currentInteractionMode;
 			this.interactionModeChangeFrame = frameValue;
 
-			// Reset accumulation when switching modes to prevent contamination
-			uniforms.hasPreviousAccumulated.value = false;
-			uniforms.previousAccumulatedTexture.value = null;
+			// When ENTERING interaction mode, disable accumulation to prevent contamination
+			if ( currentInteractionMode ) {
+
+				uniforms.hasPreviousAccumulated.value = false;
+				uniforms.previousAccumulatedTexture.value = null;
+
+			}
+			// When EXITING interaction mode, keep the previous accumulated result visible
+			// Don't reset accumulation here - let it continue from the last good frame
 
 		}
 
@@ -590,8 +622,9 @@ export class PathTracerPass extends Pass {
 					false
 				);
 
-				// Only enable accumulation if we have at least one clean frame
-				uniforms.hasPreviousAccumulated.value = effectiveFrame >= 1;
+				// Enable accumulation immediately after exiting interaction mode (frame 0)
+				// This allows the first high-quality frame to blend with the previous result
+				uniforms.hasPreviousAccumulated.value = effectiveFrame >= 0 && frameValue > 0;
 
 				if ( uniforms.hasPreviousAccumulated.value ) {
 
@@ -756,6 +789,8 @@ export class PathTracerPass extends Pass {
 
 	handleTiledASVGF( frameValue ) {
 
+		if ( ! this.asvgfPass ) return;
+
 		const isFirstFrame = frameValue === 0;
 		const currentTileIndex = isFirstFrame ? - 1 : ( ( frameValue - 1 ) % this.tileManager.totalTilesCache );
 		const isLastTileInSample = currentTileIndex === this.tileManager.totalTilesCache - 1;
@@ -781,6 +816,8 @@ export class PathTracerPass extends Pass {
 	}
 
 	handleFullQuadASVGF() {
+
+		if ( ! this.asvgfPass ) return;
 
 		// Full quad mode - always enable temporal
 		this.asvgfPass.setTemporalEnabled && this.asvgfPass.setTemporalEnabled( true );
