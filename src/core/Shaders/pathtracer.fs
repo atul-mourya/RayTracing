@@ -10,7 +10,7 @@ uniform vec2 resolution;
 uniform int maxBounceCount;
 uniform int numRaysPerPixel;
 uniform bool showBackground;
-uniform float backgroundIntensity; // Add backgroundIntensity uniform
+uniform float backgroundIntensity;
 uniform int renderMode; // 0: Regular, 1: Tiled (but handled via scissor now)
 uniform int visMode;
 uniform float debugVisScale;

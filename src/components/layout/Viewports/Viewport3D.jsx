@@ -5,7 +5,7 @@ import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import { useToast } from '@/hooks/use-toast';
-import { useStore, usePathTracerStore } from '@/store';
+import { useStore } from '@/store';
 import { saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
@@ -38,9 +38,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
 	const appMode = useStore( useCallback( state => state.appMode, [] ) );
-
-	// Get current resolution from pathtracer store
-	const currentResolution = usePathTracerStore( useCallback( state => state.resolution, [] ) );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -92,7 +89,13 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 		// Set initial resolution when app is initialized
 		if ( isAppInitialized && appRef.current ) {
 
-			handleResolutionChange( { width: currentResolution.width, height: currentResolution.height } );
+			// Get the actual canvas dimensions from the app
+			const app = appRef.current;
+			if ( app && app.width && app.height ) {
+
+				handleResolutionChange( { width: app.width, height: app.height } );
+
+			}
 
 		}
 
