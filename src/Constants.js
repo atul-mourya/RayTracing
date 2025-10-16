@@ -341,7 +341,7 @@ export const CAMERA_PRESETS = {
 
 // Triangle data layout constants - shared between GeometryExtractor and TextureCreator
 export const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
+	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material/mesh
 
 	// Positions (3 vec4s = 12 floats)
 	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
@@ -355,7 +355,7 @@ export const TRIANGLE_DATA_LAYOUT = {
 
 	// UVs and Material (2 vec4s = 8 floats)
 	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
-	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, meshIndex
 };
 
 // Texture processing constants

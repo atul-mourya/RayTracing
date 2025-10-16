@@ -235,6 +235,7 @@ export default class TriangleSDF {
 
 			// Store other extracted data
 			this.materials = extractedData.materials;
+			this.meshes = extractedData.meshes; // Add mesh data
 			this.maps = extractedData.maps;
 			this.normalMaps = extractedData.normalMaps;
 			this.bumpMaps = extractedData.bumpMaps;
@@ -544,6 +545,7 @@ export default class TriangleSDF {
 
 			// Update material arrays (but keep existing triangle data)
 			this.materials = extractedData.materials;
+			this.meshes = extractedData.meshes; // Update mesh data
 			this.maps = extractedData.maps;
 			this.normalMaps = extractedData.normalMaps;
 			this.bumpMaps = extractedData.bumpMaps;

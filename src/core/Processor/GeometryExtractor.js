@@ -140,8 +140,13 @@ export default class GeometryExtractor {
 		const materialIndex = this.processMaterial( mesh.material );
 		mesh.userData.materialIndex = materialIndex;
 
-		// Extract geometry
-		this.extractGeometry( mesh, materialIndex );
+		// Assign mesh index and store mesh reference
+		const meshIndex = this.meshes.length;
+		this.meshes.push( mesh );
+		mesh.userData.meshIndex = meshIndex;
+
+		// Extract geometry with both material and mesh indices
+		this.extractGeometry( mesh, materialIndex, meshIndex );
 
 	}
 
@@ -471,7 +476,7 @@ export default class GeometryExtractor {
 
 	}
 
-	extractGeometry( mesh, materialIndex ) {
+	extractGeometry( mesh, materialIndex, meshIndex ) {
 
 		mesh.updateMatrix();
 		mesh.updateMatrixWorld();
@@ -489,13 +494,13 @@ export default class GeometryExtractor {
 
 		const triangleCount = indices ? indices.length / 3 : positions.count / 3;
 
-		// Extract triangles
-		this.extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex );
+		// Extract triangles with both material and mesh indices
+		this.extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex, meshIndex );
 
 	}
 
 	// triangle extraction that stores directly in texture format
-	extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex ) {
+	extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex, meshIndex ) {
 
 		// Pre-allocate objects for positions, normals, and UVs
 		const posA = this._getVec3( 0 );
@@ -588,7 +593,8 @@ export default class GeometryExtractor {
 				posA, posB, posC,
 				normalA, normalB, normalC,
 				uvA, uvB, uvC,
-				materialIndex
+				materialIndex,
+				meshIndex
 			);
 
 			this.currentTriangleIndex ++;
@@ -598,7 +604,7 @@ export default class GeometryExtractor {
 	}
 
 	// Pack triangle data directly in texture format (32 floats with vec4 alignment)
-	packTriangleDataTextureFormat( triangleIndex, posA, posB, posC, normalA, normalB, normalC, uvA, uvB, uvC, materialIndex ) {
+	packTriangleDataTextureFormat( triangleIndex, posA, posB, posC, normalA, normalB, normalC, uvA, uvB, uvC, materialIndex, meshIndex ) {
 
 		const offset = triangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 
@@ -641,11 +647,11 @@ export default class GeometryExtractor {
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 2 ] = uvB.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 3 ] = uvB.y;
 
-		// Second vec4: uvC.x, uvC.y, materialIndex, padding
+		// Second vec4: uvC.x, uvC.y, materialIndex, meshIndex
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 0 ] = uvC.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 1 ] = uvC.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2 ] = materialIndex;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ] = 0; // vec4 padding
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ] = meshIndex; // Store mesh index
 
 	}
 
@@ -721,6 +727,7 @@ export default class GeometryExtractor {
 
 		// Reset other arrays
 		this.materials = [];
+		this.meshes = []; // Add mesh tracking
 		this.maps = [];
 		this.normalMaps = [];
 		this.bumpMaps = [];
@@ -739,6 +746,7 @@ export default class GeometryExtractor {
 			triangleData: this.getTriangleData(), // Texture-ready Float32Array format
 			triangleCount: this.getTriangleCount(),
 			materials: this.materials,
+			meshes: this.meshes, // Add mesh data
 			maps: this.maps,
 			normalMaps: this.normalMaps,
 			bumpMaps: this.bumpMaps,

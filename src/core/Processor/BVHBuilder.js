@@ -177,6 +177,12 @@ class TriangleWrapper {
 
 	}
 
+	get meshIndex() {
+
+		return this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ];
+
+	}
+
 }
 
 export default class BVHBuilder {

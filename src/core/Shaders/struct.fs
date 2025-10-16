@@ -75,6 +75,7 @@ struct HitInfo {
 	RayTracingMaterial material;
 	vec2 uv;
 	int materialIndex;
+	int meshIndex;
 };
 
 struct Triangle {
@@ -83,7 +84,7 @@ struct Triangle {
 	vec3 normalA, normalB, normalC;
 	RayTracingMaterial material;
 	int materialIndex;
-	float padding;
+	int meshIndex;
 };
 
 struct Pixel {

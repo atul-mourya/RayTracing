@@ -90,7 +90,7 @@ Triangle getTriangle( int triangleIndex ) {
 	tri.uvB = data[ 6 ].zw;
 	tri.uvC = data[ 7 ].xy;
 	tri.materialIndex = int( data[ 7 ].z );
-	tri.padding = 0.0;
+	tri.meshIndex = int( data[ 7 ].w );
 	return tri;
 }
 
@@ -110,6 +110,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	closestHit.didHit = false;
 	closestHit.dst = 1e20;
 	closestHit.materialIndex = - 1; // Initialize material index
+	closestHit.meshIndex = - 1; // Initialize mesh index
 
 	// Reduced stack size - most scenes don't need 32 levels
 	int stack[ 24 ];
@@ -161,6 +162,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 						// For shadow rays, basic visibility check is sufficient
 						closestHit = hit;
 						closestHit.materialIndex = tri.materialIndex;
+						closestHit.meshIndex = tri.meshIndex;
 						// Early exit for shadow rays - any hit is sufficient
 						// return closestHit;
 					} else {
@@ -168,6 +170,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 						if( isMaterialVisible( tri.materialIndex, rayDirection, hit.normal ) ) {
 							closestHit = hit;
 							closestHit.materialIndex = tri.materialIndex;
+							closestHit.meshIndex = tri.meshIndex;
 						}
 					}
 				}
