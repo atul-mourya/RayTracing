@@ -145,11 +145,11 @@ const RightSidebar = () => {
 
 		switch ( appMode ) {
 
-			case 'interactive':
+			case 'preview':
 				return <InteractiveModeTabs />;
 			case 'results':
 				return <ResultsModeTabs />;
-			default: // 'final'
+			default: // 'final-render'
 				return <FinalRenderModeTabs />;
 
 		}

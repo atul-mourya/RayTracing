@@ -11,7 +11,7 @@ import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
 
 
-const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
+const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 	const { toast } = useToast();
 
@@ -209,7 +209,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "interactive" }, ref ) => {
 	const shouldShowSaveControls = useMemo( () => {
 
 		if ( ! window.pathTracerApp ) return false;
-		if ( viewportMode !== "final" ) return false;
+		if ( viewportMode !== "final-render" ) return false;
 		if ( ! isRenderComplete ) return false;
 		if ( isDenoising ) return false;
 		return window.pathTracerApp.pathTracingPass.isComplete;

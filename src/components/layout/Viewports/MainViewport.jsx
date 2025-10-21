@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { useStore, useAssetsStore } from '@/store';
 import { DEFAULT_STATE } from '@/Constants';
 
-const MainViewport = ( { mode = "interactive" } ) => {
+const MainViewport = ( { mode = "preview" } ) => {
 
 	const [ isDragging, setIsDragging ] = useState( false );
 	const setEnvironment = useAssetsStore( useCallback( state => state.setEnvironment, [] ) );

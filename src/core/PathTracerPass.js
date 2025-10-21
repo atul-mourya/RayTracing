@@ -4,7 +4,7 @@ import {
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 import { TileRenderingManager } from './Processor/TileRenderingManager.js';
-import { InteractionModeController } from './Processor/InteractionModeController.js';
+import { CameraMovementOptimizer } from './Processor/CameraMovementOptimizer.js';
 import { RenderTargetManager } from './Processor/RenderTargetManager.js';
 import { PathTracerUtils } from './Processor/PathTracerUtils.js';
 import { LightDataTransfer } from './Processor/LightDataTransfer';
@@ -63,8 +63,8 @@ export class PathTracerPass extends Pass {
 		// Now that material is created, we can update completion threshold
 		this.updateCompletionThreshold();
 
-		// Initialize interaction controller after material is created
-		this.interactionController = new InteractionModeController( renderer, this.material, {
+		// Initialize camera movement optimizer after material is created
+		this.cameraOptimizer = new CameraMovementOptimizer( renderer, this.material, {
 			enabled: DEFAULT_STATE.interactionModeEnabled,
 			qualitySettings: {
 				maxBounceCount: 1,
@@ -385,13 +385,13 @@ export class PathTracerPass extends Pass {
 
 	enterInteractionMode() {
 
-		this.interactionController.enterInteractionMode();
+		this.cameraOptimizer.enterInteractionMode();
 
 	}
 
 	setInteractionModeEnabled( enabled ) {
 
-		this.interactionController.setInteractionModeEnabled( enabled );
+		this.cameraOptimizer.setInteractionModeEnabled( enabled );
 
 	}
 
@@ -468,7 +468,7 @@ export class PathTracerPass extends Pass {
 
 	get interactionMode() {
 
-		return this.interactionController.isInInteractionMode();
+		return this.cameraOptimizer.isInInteractionMode();
 
 	}
 
@@ -502,9 +502,9 @@ export class PathTracerPass extends Pass {
 			this.tileHighlightPass
 		);
 
-		// Update camera and interaction
+		// Update camera and movement optimization
 		const cameraChanged = this.updateCameraUniforms();
-		this.interactionController.updateInteractionMode( cameraChanged );
+		this.cameraOptimizer.updateInteractionMode( cameraChanged );
 
 		// Update accumulation state
 		this.updateAccumulationUniforms( frameValue, renderMode );
@@ -609,7 +609,7 @@ export class PathTracerPass extends Pass {
 	updateAccumulationUniforms( frameValue, renderMode ) {
 
 		const uniforms = this.material.uniforms;
-		const currentInteractionMode = this.interactionController.isInInteractionMode();
+		const currentInteractionMode = this.cameraOptimizer.isInInteractionMode();
 
 		// Check if interaction mode state changed
 		if ( currentInteractionMode !== this.lastInteractionModeState ) {
@@ -682,7 +682,7 @@ export class PathTracerPass extends Pass {
 		const uniforms = this.material.uniforms;
 		const renderMode = uniforms.renderMode.value;
 
-		if ( this.adaptiveSamplingPass?.enabled && ! this.interactionController.isInInteractionMode() ) {
+		if ( this.adaptiveSamplingPass?.enabled && ! this.cameraOptimizer.isInInteractionMode() ) {
 
 			// Configure tile mode if using tiled rendering
 			const isTileMode = renderMode === 1;
@@ -723,7 +723,7 @@ export class PathTracerPass extends Pass {
 				mrtTextures.normalDepth
 			);
 
-		} else if ( this.interactionController.isInInteractionMode() ) {
+		} else if ( this.cameraOptimizer.isInInteractionMode() ) {
 
 			// Disable adaptive sampling during interaction
 			uniforms.adaptiveSamplingTexture.value = null;
@@ -1296,7 +1296,7 @@ export class PathTracerPass extends Pass {
 		// Dispose managers
 		this.tileManager.dispose();
 		this.targetManager.dispose();
-		this.interactionController.dispose();
+		this.cameraOptimizer.dispose();
 
 		// Dispose remaining resources
 		this.material.uniforms.albedoMaps.value?.dispose();

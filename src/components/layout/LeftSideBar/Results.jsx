@@ -702,7 +702,7 @@ const EmptyState = memo( () => (
 		<div className="text-center">
 			<div className="text-4xl mb-3">📷</div>
 			<div className="font-medium">No rendered images available</div>
-			<p className="text-xs mt-2 max-w-xs">Complete a render in the &quot;Final Render&quot; tab to see results here</p>
+			<p className="text-xs mt-2 max-w-xs">Complete a render in the &quot;Render&quot; tab to see results here</p>
 		</div>
 	</div>
 ) );

@@ -84,7 +84,7 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 
 		if ( ! appRef || ! appRef.current ) return;
 
-		const newMaxSamples = viewportMode === "interactive" ? 60 : 30;
+		const newMaxSamples = viewportMode === "preview" ? 60 : 30;
 		const app = appRef.current;
 
 		if ( app ) {

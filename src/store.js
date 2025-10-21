@@ -33,7 +33,7 @@ const useStore = create( set => ( {
 	isRenderComplete: false,
 	setIsRenderComplete: val => set( { isRenderComplete: val } ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
-	appMode: 'interactive',
+	appMode: 'preview',
 	setAppMode: mode => set( { appMode: mode } ),
 	layers: [],
 	setLayers: layers => set( { layers } ),
@@ -119,13 +119,35 @@ const useEnvironmentStore = create( set => ( {
 } ) );
 
 // Path tracer store with handlers
-const FINAL_STATE = {
+//
+// RENDERING MODE ARCHITECTURE:
+// This application has a two-level rendering optimization system:
+//
+// 1. GLOBAL RENDERING MODES (Store Level):
+//    - PREVIEW_STATE: Fast preview rendering for interactive scene exploration
+//    - FINAL_RENDER_STATE: High-quality rendering for final output
+//    - Results mode: View completed renders
+//
+// 2. DYNAMIC CAMERA OPTIMIZATION (CameraMovementOptimizer Level):
+//    - Temporarily reduces quality during camera movement within any global mode
+//    - Automatically restores quality when camera movement stops
+//    - Provides smooth interaction without interrupting the global rendering quality
+//
+// MODE VALUES:
+//    - 'preview': Uses PREVIEW_STATE configuration
+//    - 'final-render': Uses FINAL_RENDER_STATE configuration
+//    - 'results': Pauses rendering for viewing completed images
+//
+// This clean separation eliminates naming confusion and provides clear,
+// self-documenting code for the rendering pipeline.
+
+const FINAL_RENDER_STATE = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
 	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHDR: false, useGBuffer: true,
 	interactionModeEnabled: false,
 };
 
-const INTERACTIVE_STATE = {
+const PREVIEW_STATE = {
 	bounces: 3, samplesPerPixel: 1, renderMode: 0, transmissiveBounces: 3, tiles: 3, tilesHelper: false, resolution: 1,
 	enableOIDN: false, oidnQuality: 'fast', oidnHDR: false, useGBuffer: true,
 	interactionModeEnabled: true,
@@ -253,8 +275,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		if ( ! window.pathTracerApp?.asvgfPass ) return;
 
 		const configs = {
-			interactive: {
-				enabled: false, // Disable during interaction
+			preview: {
+				enabled: false, // Disable during preview for performance
 				temporalAlpha: 0.5
 			},
 			progressive: {
@@ -262,7 +284,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				temporalAlpha: 0.1,
 				atrousIterations: 4
 			},
-			final: {
+			'final-render': {
 				enabled: true,
 				temporalAlpha: 0.05,
 				atrousIterations: 6
@@ -740,10 +762,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	),
 
 	// Canvas configuration handlers
-	handleConfigureForInteractive: () => {
+	handleConfigureForPreview: () => {
 
 		const a = get();
-		Object.entries( INTERACTIVE_STATE ).forEach( ( [ k, v ] ) => {
+		Object.entries( PREVIEW_STATE ).forEach( ( [ k, v ] ) => {
 
 			const setter = `set${k[ 0 ].toUpperCase()}${k.slice( 1 )}`;
 			const value = Array.isArray( v ) ? [ ...v ] : ( v && typeof v === 'object' ) ? { ...v } : v;
@@ -758,24 +780,24 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		requestAnimationFrame( () => {
 
 			const uniforms = app.pathTracingPass.material.uniforms;
-			uniforms.maxBounceCount.value = INTERACTIVE_STATE.bounces;
-			uniforms.numRaysPerPixel.value = INTERACTIVE_STATE.samplesPerPixel;
-			uniforms.renderMode.value = INTERACTIVE_STATE.renderMode;
-			uniforms.transmissiveBounces.value = INTERACTIVE_STATE.transmissiveBounces;
+			uniforms.maxBounceCount.value = PREVIEW_STATE.bounces;
+			uniforms.numRaysPerPixel.value = PREVIEW_STATE.samplesPerPixel;
+			uniforms.renderMode.value = PREVIEW_STATE.renderMode;
+			uniforms.transmissiveBounces.value = PREVIEW_STATE.transmissiveBounces;
 
 			// Use setTileCount to properly update completion threshold
-			app.pathTracingPass.setTileCount( INTERACTIVE_STATE.tiles );
-			app.tileHighlightPass.enabled = INTERACTIVE_STATE.tilesHelper;
+			app.pathTracingPass.setTileCount( PREVIEW_STATE.tiles );
+			app.tileHighlightPass.enabled = PREVIEW_STATE.tilesHelper;
 
 			// Ensure completion threshold is updated after render mode change
 			app.pathTracingPass.updateCompletionThreshold();
 
 			// Abort any ongoing denoising before switching modes
 			app.denoiser.abort();
-			app.denoiser.enabled = INTERACTIVE_STATE.enableOIDN;
-			app.denoiser.updateQuality( INTERACTIVE_STATE.oidnQuality );
-			app.denoiser.toggleHDR( INTERACTIVE_STATE.oidnHDR );
-			app.denoiser.toggleUseGBuffer( INTERACTIVE_STATE.useGBuffer );
+			app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
+			app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
+			app.denoiser.toggleHDR( PREVIEW_STATE.oidnHDR );
+			app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
 			app.updateResolution( window.devicePixelRatio * 0.5 );
 
 			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
@@ -788,10 +810,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
-	handleConfigureForFinal: () => {
+	handleConfigureForFinalRender: () => {
 
 		const a = get();
-		Object.entries( FINAL_STATE ).forEach( ( [ k, v ] ) => {
+		Object.entries( FINAL_RENDER_STATE ).forEach( ( [ k, v ] ) => {
 
 			const setter = `set${k.charAt( 0 ).toUpperCase()}${k.slice( 1 )}`;
 			a[ setter ]?.( typeof v === 'number' ? v : v.toString() );
@@ -805,25 +827,25 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		requestAnimationFrame( () => {
 
 			const uniforms = app.pathTracingPass.material.uniforms;
-			uniforms.maxFrames.value = FINAL_STATE.maxSamples;
-			uniforms.maxBounceCount.value = FINAL_STATE.bounces;
-			uniforms.numRaysPerPixel.value = FINAL_STATE.samplesPerPixel;
-			uniforms.renderMode.value = FINAL_STATE.renderMode;
-			uniforms.transmissiveBounces.value = FINAL_STATE.transmissiveBounces;
+			uniforms.maxFrames.value = FINAL_RENDER_STATE.maxSamples;
+			uniforms.maxBounceCount.value = FINAL_RENDER_STATE.bounces;
+			uniforms.numRaysPerPixel.value = FINAL_RENDER_STATE.samplesPerPixel;
+			uniforms.renderMode.value = FINAL_RENDER_STATE.renderMode;
+			uniforms.transmissiveBounces.value = FINAL_RENDER_STATE.transmissiveBounces;
 
 			// Use setTileCount to properly update completion threshold
-			app.pathTracingPass.setTileCount( FINAL_STATE.tiles );
-			app.tileHighlightPass.enabled = FINAL_STATE.tilesHelper;
+			app.pathTracingPass.setTileCount( FINAL_RENDER_STATE.tiles );
+			app.tileHighlightPass.enabled = FINAL_RENDER_STATE.tilesHelper;
 
 			// Ensure completion threshold is updated after render mode change
 			app.pathTracingPass.updateCompletionThreshold();
 
 			// Abort any ongoing denoising before switching modes
 			app.denoiser.abort();
-			app.denoiser.enabled = FINAL_STATE.enableOIDN;
-			app.denoiser.updateQuality( FINAL_STATE.oidnQuality );
-			app.denoiser.toggleHDR( FINAL_STATE.oidnHDR );
-			app.denoiser.toggleUseGBuffer( FINAL_STATE.useGBuffer );
+			app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
+			app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
+			app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
+			app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
 			app.updateResolution( window.devicePixelRatio * 2.0 );
 
 			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
@@ -849,7 +871,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleModeChange: mode => {
 
-		const actions = { interactive: 'handleConfigureForInteractive', final: 'handleConfigureForFinal', results: 'handleConfigureForResults' };
+		const actions = {
+			preview: 'handleConfigureForPreview',
+			'final-render': 'handleConfigureForFinalRender',
+			results: 'handleConfigureForResults'
+		};
 		const action = actions[ mode ];
 		action ? get()[ action ]() : console.warn( `Unknown mode: ${mode}` );
 

@@ -28,11 +28,11 @@ const ViewportTabs = ( { currentMode, onModeChange } ) => {
 	const tabs = [
 		{
 			label: 'Preview',
-			value: 'interactive',
+			value: 'preview',
 		},
 		{
 			label: 'Render',
-			value: 'final',
+			value: 'final-render',
 		},
 		{
 			label: 'Results',

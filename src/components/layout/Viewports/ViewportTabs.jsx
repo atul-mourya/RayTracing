@@ -22,8 +22,8 @@ const ViewportTabs = () => {
 	const mainViewportRef = useRef( null );
 	const resultsViewportRef = useRef( null );
 
-	// Show controls only in interactive and final modes
-	const showControls = appMode === "interactive" || appMode === "final";
+	// Show controls only in preview and final render modes
+	const showControls = appMode === "preview" || appMode === "final-render";
 
 	return (
 		<div className="w-full h-full relative">
@@ -41,7 +41,7 @@ const ViewportTabs = () => {
 				</div>
 			)}
 
-			{/* Unity-style controls overlay - only shown in interactive and final modes */}
+			{/* Unity-style controls overlay - only shown in preview and final render modes */}
 			{showControls && (
 				<RenderControls pathTracerApp={window.pathTracerApp} />
 			)}
