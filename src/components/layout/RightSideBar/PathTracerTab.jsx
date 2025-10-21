@@ -31,6 +31,8 @@ const PathTracerTab = () => {
 		samplesPerPixel,
 		transmissiveBounces,
 		samplingTechnique,
+		enableEmissiveTriangleSampling,
+		emissiveBoost,
 		adaptiveSampling,
 		adaptiveSamplingMin,
 		adaptiveSamplingMax,
@@ -76,6 +78,8 @@ const PathTracerTab = () => {
 		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
 		handleSamplingTechniqueChange,
+		handleEnableEmissiveTriangleSamplingChange,
+		handleEmissiveBoostChange,
 		handleResolutionChange,
 		handleAdaptiveSamplingChange,
 		handleAdaptiveSamplingMinChange,
@@ -274,6 +278,9 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
 				</div>
+				<div className="flex items-center justify-between">
+					<SliderToggle label={"Emissive Mesh Sampling"} enabled={ enableEmissiveTriangleSampling } min={1} max={1000} step={1} value={[ emissiveBoost ]} onValueChange={ handleEmissiveBoostChange } onToggleChange={ handleEnableEmissiveTriangleSamplingChange } />
+				</div>
 				{/* Feature disabled temporarily */}
 				<Separator />
 				<div className="flex items-center justify-between">
@@ -352,6 +359,7 @@ const PathTracerTab = () => {
 								<SelectItem value="5">Sampling</SelectItem>
 								<SelectItem value="6">EnvMap Luminance</SelectItem>
 								<SelectItem value="7">Env MIS PDF Direction</SelectItem>
+								<SelectItem value="8">Emissive Lighting</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

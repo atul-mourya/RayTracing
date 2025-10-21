@@ -323,7 +323,26 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
 		// 2. DIRECT LIGHTING
 		vec3 directLight = calculateDirectLightingUnified( hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats );
+
+		// Apply firefly suppression to regular direct lighting
 		radiance += regularizePathContribution( directLight * throughput, throughput, float( bounceIndex ) );
+
+		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING (separate to bypass firefly suppression)
+		// Emissive contributions are not fireflies - they're legitimate bright samples from area lights
+		if( enableEmissiveTriangleSampling && totalTriangleCount > 0 ) {
+			vec3 emissiveContribution = calculateEmissiveTriangleContribution(
+				hitInfo.hitPoint,
+				hitInfo.normal,
+				V,
+				material,
+				totalTriangleCount,
+				bounceIndex,
+				rngState,
+				stats
+			);
+			// Add directly without firefly suppression
+			radiance += emissiveContribution * throughput;
+		}
 
 		// Get importance sampling info with caching
 		if( ! pathState.weightsComputed || bounceIndex == 0 ) {

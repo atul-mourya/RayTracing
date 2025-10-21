@@ -3,6 +3,7 @@ import { Color } from "three";
 import BVHBuilder from './BVHBuilder.js';
 import TextureCreator from './TextureCreator.js'; // Using optimized TextureCreator
 import GeometryExtractor from './GeometryExtractor.js';
+import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
 
 /**
@@ -68,6 +69,8 @@ export default class TriangleSDF {
 		this.emissiveTextures = null;
 		this.displacementTextures = null;
 		this.bvhTexture = null;
+		this.emissiveTriangleTexture = null;
+		this.emissiveTriangleCount = 0;
 
 		// Initialize processing components
 		this._initProcessors();
@@ -110,6 +113,9 @@ export default class TriangleSDF {
 		// Create and configure texture creator
 		this.textureCreator = new TextureCreator();
 		// The optimized TextureCreator will auto-detect capabilities and select optimal methods
+
+		// Create emissive triangle builder for direct lighting
+		this.emissiveTriangleBuilder = new EmissiveTriangleBuilder();
 
 	}
 
@@ -409,6 +415,24 @@ export default class TriangleSDF {
 				bvhTexture: !! this.bvhTexture,
 				textureCreatorCapabilities: this.textureCreator.capabilities
 			} );
+
+			// Extract emissive triangles for direct lighting
+			updateLoading( {
+				status: "Building emissive triangle index...",
+				progress: 95
+			} );
+
+			this.emissiveTriangleCount = this.emissiveTriangleBuilder.extractEmissiveTriangles(
+				this.triangleData,
+				this.materials,
+				this.triangleCount
+			);
+
+			// Create emissive triangle texture for GPU
+			this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
+
+			const emissiveStats = this.emissiveTriangleBuilder.getStats();
+			this._log( `Emissive triangle extraction complete`, emissiveStats );
 
 			updateLoading( {
 				status: "Texture processing complete",

@@ -23,10 +23,16 @@ uniform bool enableDOF;
 uniform sampler2D triangleTexture;
 uniform sampler2D materialTexture;
 uniform sampler2D bvhTexture;
+uniform sampler2D emissiveTriangleTexture;
 
 uniform ivec2 triangleTexSize;
 uniform ivec2 materialTexSize;
 uniform ivec2 bvhTexSize;
+uniform ivec2 emissiveTriangleTexSize;
+uniform int totalTriangleCount;
+uniform int emissiveTriangleCount;
+uniform bool enableEmissiveTriangleSampling;
+uniform float emissiveBoost;
 
 #ifdef ENABLE_ACCUMULATION
 uniform sampler2D previousAccumulatedTexture;
@@ -78,6 +84,7 @@ uniform int transmissiveBounces;  // Controls the number of allowed transmission
 // Lighting system
 #include lights_core.fs
 #include lights_direct.fs
+#include emissive_sampling.fs
 #include lights_sampling.fs
 #include lights_indirect.fs
 

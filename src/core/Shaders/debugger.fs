@@ -115,6 +115,60 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 			}
 			return vec4( 1.0, 0.0, 1.0, 1.0 );
 		}
+		case 8: {
+			// Emissive Triangle Direct Lighting Visualization
+			if( ! enableEmissiveTriangleSampling || totalTriangleCount <= 0 ) {
+				return vec4( 1.0, 0.0, 1.0, 1.0 ); // Magenta if disabled
+			}
+
+			// Trace primary ray
+			if( ! hitInfo.didHit ) {
+				return vec4( 0.0, 0.0, 0.0, 1.0 ); // Black for background
+			}
+
+			// Get material and normal
+			MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
+			RayTracingMaterial material = hitInfo.material;
+			material.color = matSamples.albedo;
+			material.metalness = matSamples.metalness;
+			material.roughness = clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
+			vec3 N = matSamples.normal;
+			vec3 V = - rayDir;
+
+			// Sample emissive contribution
+			uint tempRng = pcg_hash( uint( gl_FragCoord.x + gl_FragCoord.y * resolution.x ) + frame * 12345u );
+			ivec2 tempStats = ivec2( 0 );
+
+			EmissiveContributionResult emissiveResult = calculateEmissiveTriangleContributionDebug(
+				hitInfo.hitPoint,
+				N,
+				V,
+				material,
+				totalTriangleCount,
+				0, // primary bounce
+				tempRng,
+				tempStats
+			);
+
+			// Visualize the result
+			if( ! emissiveResult.hasEmissive ) {
+				// No emissive found - dark blue
+				return vec4( 0.0, 0.0, 0.1, 1.0 );
+			}
+
+			// Show emissive contribution with intensity mapping
+			vec3 contribution = emissiveResult.contribution;
+			float intensity = length( contribution );
+
+			// Scale for visualization
+			vec3 visualColor = contribution / max( intensity * 0.1, 0.001 );
+
+			// Add distance-based tint (closer = warmer)
+			float distanceFactor = clamp( 1.0 - emissiveResult.distance / 10.0, 0.0, 1.0 );
+			visualColor = mix( visualColor, visualColor * vec3( 1.0, 0.8, 0.6 ), distanceFactor * 0.3 );
+
+			return vec4( visualColor, 1.0 );
+		}
 		default: {
 			// Invalid test mode
 			return vec4( 1.0, 0.0, 1.0, 1.0 );

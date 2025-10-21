@@ -591,5 +591,9 @@ vec3 calculateDirectLightingUnified(
         }
     }
 
+    // EMISSIVE TRIANGLE DIRECT LIGHTING
+    // NOTE: Emissive triangle sampling is handled separately in pathtracer_core.fs
+    // to bypass firefly suppression. Do not add it here to avoid double-counting.
+
     return totalContribution;
 }

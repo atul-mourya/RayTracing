@@ -149,6 +149,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setBounces: val => set( { bounces: val } ),
 	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
 	setSamplingTechnique: val => set( { samplingTechnique: val } ),
+	setEnableEmissiveTriangleSampling: val => set( { enableEmissiveTriangleSampling: val } ),
+	setEmissiveBoost: val => set( { emissiveBoost: val } ),
 	setAdaptiveSampling: val => set( { adaptiveSampling: val } ),
 	setPerformanceModeAdaptive: val => set( { performanceModeAdaptive: val } ),
 	setAdaptiveSamplingMin: val => set( { adaptiveSamplingMin: val } ),
@@ -371,6 +373,16 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = val
 	),
 
+	handleEnableEmissiveTriangleSamplingChange: handleChange(
+		val => set( { enableEmissiveTriangleSampling: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.enableEmissiveTriangleSampling.value = val
+	),
+
+	handleEmissiveBoostChange: handleChange(
+		val => set( { emissiveBoost: val } ),
+		val => window.pathTracerApp.pathTracingPass.material.uniforms.emissiveBoost.value = val
+	),
+
 	handleResolutionChange: handleChange(
 		val => set( { resolution: val } ),
 		val => {
@@ -522,7 +534,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { debugMode: val } ),
 		val => {
 
-			const mode = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7 }[ val ] || 0;
+			const mode = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8 }[ val ] || 0;
 			window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
 
 		}

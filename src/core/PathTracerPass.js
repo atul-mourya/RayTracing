@@ -73,6 +73,7 @@ export class PathTracerPass extends Pass {
 				useEnvMapIS: false,
 				pixelRatio: 0.25,
 				enableAccumulation: false,
+				enableEmissiveTriangleSampling: false, // Disable during interaction for performance
 			},
 			onReset: () => this.reset()
 		} );
@@ -182,10 +183,16 @@ export class PathTracerPass extends Pass {
 				triangleTexture: { value: null },
 				bvhTexture: { value: null },
 				materialTexture: { value: null },
+				emissiveTriangleTexture: { value: null },
 
 				triangleTexSize: { value: new Vector2() },
 				bvhTexSize: { value: new Vector2() },
 				materialTexSize: { value: new Vector2() },
+				emissiveTriangleTexSize: { value: new Vector2() },
+				totalTriangleCount: { value: 0 },
+				emissiveTriangleCount: { value: 0 },
+				enableEmissiveTriangleSampling: { value: true },
+			emissiveBoost: { value: 100.0 },
 
 				useEnvMipMap: { value: true },
 				envSamplingBias: { value: 1.2 },
@@ -255,6 +262,27 @@ export class PathTracerPass extends Pass {
 		this.material.uniforms.triangleTexSize.value.set( this.sdfs.triangleTexture.image.width, this.sdfs.triangleTexture.image.height );
 		this.material.uniforms.bvhTexSize.value.set( this.sdfs.bvhTexture.image.width, this.sdfs.bvhTexture.image.height );
 		this.material.uniforms.materialTexSize.value.set( this.sdfs.materialTexture.image.width, this.sdfs.materialTexture.image.height );
+
+		// Update triangle count for emissive triangle sampling
+		this.material.uniforms.totalTriangleCount.value = this.sdfs.triangleCount || 0;
+
+		// Update emissive triangle data
+		if ( this.sdfs.emissiveTriangleTexture ) {
+
+			this.material.uniforms.emissiveTriangleTexture.value = this.sdfs.emissiveTriangleTexture;
+			this.material.uniforms.emissiveTriangleTexSize.value.set(
+				this.sdfs.emissiveTriangleTexture.image.width,
+				this.sdfs.emissiveTriangleTexture.image.height
+			);
+			this.material.uniforms.emissiveTriangleCount.value = this.sdfs.emissiveTriangleCount || 0;
+
+			console.log( `[PathTracerPass] Emissive triangle data updated: ${this.sdfs.emissiveTriangleCount} emissives` );
+
+		} else {
+
+			this.material.uniforms.emissiveTriangleCount.value = 0;
+
+		}
 
 	}
 
