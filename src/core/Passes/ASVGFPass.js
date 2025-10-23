@@ -921,30 +921,11 @@ export class ASVGFPass extends Pass {
 		// The readBuffer only has color, so we need to access the PathTracerPass directly
 		let colorTexture, normalDepthTexture;
 
+		// Access MRT textures directly from PathTracerPass's internal target
 		const pathTracerPass = window.pathTracerApp?.pathTracingPass;
-		if ( pathTracerPass && pathTracerPass.targetManager ) {
-
-			// Access MRT textures directly from PathTracerPass's internal target
-			const mrtTextures = pathTracerPass.getMRTTextures();
-			colorTexture = mrtTextures.color;
-			normalDepthTexture = mrtTextures.normalDepth;
-
-		} else {
-
-			// Fallback: try to read from readBuffer (legacy compatibility)
-			if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
-
-				colorTexture = readBuffer.textures[ 0 ];
-				normalDepthTexture = readBuffer.textures[ 1 ];
-
-			} else {
-
-				colorTexture = readBuffer.texture || readBuffer;
-				normalDepthTexture = null;
-
-			}
-
-		}
+		const mrtTextures = pathTracerPass.getMRTTextures();
+		colorTexture = mrtTextures.color;
+		normalDepthTexture = mrtTextures.normalDepth;
 
 		// Step 1: Calculate motion vectors (only if we have normal/depth data)
 		if ( normalDepthTexture ) {
@@ -1048,30 +1029,12 @@ export class ASVGFPass extends Pass {
 		// Get MRT textures directly from PathTracerPass's internal target
 		let colorTexture, normalDepthTexture;
 
+		// Access MRT textures directly from PathTracerPass's internal target
 		const pathTracerPass = window.pathTracerApp?.pathTracingPass;
-		if ( pathTracerPass && pathTracerPass.targetManager ) {
+		const mrtTextures = pathTracerPass.getMRTTextures();
+		colorTexture = mrtTextures.color;
+		normalDepthTexture = mrtTextures.normalDepth;
 
-			// Access MRT textures directly from PathTracerPass's internal target
-			const mrtTextures = pathTracerPass.getMRTTextures();
-			colorTexture = mrtTextures.color;
-			normalDepthTexture = mrtTextures.normalDepth;
-
-		} else {
-
-			// Fallback: try to read from readBuffer
-			if ( readBuffer.textures && readBuffer.textures.length > 1 ) {
-
-				colorTexture = readBuffer.textures[ 0 ];
-				normalDepthTexture = readBuffer.textures[ 1 ];
-
-			} else {
-
-				colorTexture = readBuffer.texture || readBuffer;
-				normalDepthTexture = null;
-
-			}
-
-		}
 
 		// Skip to variance estimation
 		this.varianceMaterial.uniforms.tColor.value = colorTexture;
