@@ -151,6 +151,9 @@ export class PathTracerPass extends Pass {
 				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
 				fireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold },
 
+				enableEmissiveTriangleSampling: { value: DEFAULT_STATE.enableEmissiveTriangleSampling },
+				emissiveBoost: { value: DEFAULT_STATE.emissiveBoost },
+
 				renderMode: { value: DEFAULT_STATE.renderMode },
 				previousFrameTexture: { value: null },
 				accumulatedFrameTexture: { value: null },
@@ -191,8 +194,6 @@ export class PathTracerPass extends Pass {
 				emissiveTriangleTexSize: { value: new Vector2() },
 				totalTriangleCount: { value: 0 },
 				emissiveTriangleCount: { value: 0 },
-				enableEmissiveTriangleSampling: { value: true },
-			emissiveBoost: { value: 100.0 },
 
 				useEnvMipMap: { value: true },
 				envSamplingBias: { value: 1.2 },
