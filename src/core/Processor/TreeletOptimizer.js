@@ -9,11 +9,15 @@ export default class TreeletOptimizer {
 		this.treeletSize = 5; // Conservative: Reduced to 5 to prevent browser crashes
 		this.minImprovement = 0.01; // Safe: Higher threshold to reduce computation
 		this.maxTreeletDepth = 10; // Allow deeper treelets for complex scenes
+		this.maxTreelets = 20; // Default max treelets per scene (adaptive)
 
 		// Memory-controlled topology cache
 		this.topologyCache = new Map();
 		this.maxTopologyEntries = 1000; // Limit cache size to prevent memory issues
 		this.precomputeTopologies();
+
+		// Memoization cache for leaf counting to prevent repeated computation
+		this.leafCountCache = new WeakMap();
 
 		// Statistics
 		this.stats = {
@@ -144,9 +148,9 @@ export default class TreeletOptimizer {
 
 		// Identify and optimize treelets with safety limits
 		const treeletRoots = this.identifyTreeletRoots( bvhRoot );
-		const totalTreelets = Math.min( treeletRoots.length, 50 ); // Limit max treelets to prevent browser crashes
+		const totalTreelets = Math.min( treeletRoots.length, this.maxTreelets ); // Use adaptive limit
 
-		console.log( `Found ${treeletRoots.length} treelets, processing first ${totalTreelets} for optimization` );
+		console.log( `Found ${treeletRoots.length} treelets, processing first ${totalTreelets} for optimization (adaptive limit: ${this.maxTreelets})` );
 
 		for ( let i = 0; i < totalTreelets; i ++ ) {
 
@@ -310,14 +314,27 @@ export default class TreeletOptimizer {
 
 	}
 
-	// Count leaf nodes in a subtree with safety limits
+	// Count leaf nodes in a subtree with safety limits and memoization
 	countLeafNodes( node, depth = 0 ) {
 
 		if ( ! node || depth > 35 ) return 0; // Prevent deep recursion
 		if ( node.triangleCount > 0 ) return 1; // Leaf node
 
-		return this.countLeafNodes( node.leftChild, depth + 1 ) +
-               this.countLeafNodes( node.rightChild, depth + 1 );
+		// Check memoization cache to prevent repeated computation
+		if ( this.leafCountCache.has( node ) ) {
+
+			return this.leafCountCache.get( node );
+
+		}
+
+		const leftCount = this.countLeafNodes( node.leftChild, depth + 1 );
+		const rightCount = this.countLeafNodes( node.rightChild, depth + 1 );
+		const totalCount = leftCount + rightCount;
+
+		// Cache the result for future use
+		this.leafCountCache.set( node, totalCount );
+
+		return totalCount;
 
 	}
 
@@ -355,16 +372,22 @@ export default class TreeletOptimizer {
 		let bestCost = originalCost;
 		let bestTopology = null;
 
-		// Safety limit: skip if too many topologies to prevent browser freeze
-		if ( topologies.length > 1000 ) {
+		// Aggressive safety limits: reduce topology count for complex scenes
+		const maxTopologiesToEvaluate = leafNodes.length <= 4 ? 50 :
+			leafNodes.length <= 5 ? 100 :
+				200; // Cap at 200 max
 
-			return;
+		if ( topologies.length > maxTopologiesToEvaluate ) {
+
+			console.warn( `TreeletOptimizer: Limiting topology evaluation from ${topologies.length} to ${maxTopologiesToEvaluate} for performance` );
 
 		}
 
+		const topologiesToEvaluate = topologies.slice( 0, maxTopologiesToEvaluate );
+
 		// Evaluate each topology with timeout protection
 		const evaluationStartTime = performance.now();
-		for ( const topology of topologies ) {
+		for ( const topology of topologiesToEvaluate ) {
 
 			// Timeout check to prevent browser freeze
 			if ( performance.now() - evaluationStartTime > 100 ) {
@@ -545,6 +568,13 @@ export default class TreeletOptimizer {
 	setMinImprovement( threshold ) {
 
 		this.minImprovement = Math.max( 0.001, threshold );
+
+	}
+
+	setMaxTreelets( maxTreelets ) {
+
+		this.maxTreelets = Math.max( 5, Math.min( 50, maxTreelets ) );
+		console.log( `TreeletOptimizer: Max treelets set to ${this.maxTreelets}` );
 
 	}
 

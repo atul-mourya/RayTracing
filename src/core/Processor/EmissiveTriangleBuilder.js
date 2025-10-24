@@ -263,9 +263,9 @@ export class EmissiveTriangleBuilder {
 
 			const offset = i * 4;
 			data[ offset + 0 ] = this.emissiveIndicesArray[ i ]; // R: triangle index
-			data[ offset + 1 ] = this.emissivePowerArray[ i ];    // G: power
-			data[ offset + 2 ] = this.cdfArray[ i ];              // B: CDF value
-			data[ offset + 3 ] = 0;                                // A: unused
+			data[ offset + 1 ] = this.emissivePowerArray[ i ]; // G: power
+			data[ offset + 2 ] = this.cdfArray[ i ]; // B: CDF value
+			data[ offset + 3 ] = 0; // A: unused
 
 		}
 

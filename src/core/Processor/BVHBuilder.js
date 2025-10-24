@@ -237,12 +237,16 @@ export default class BVHBuilder {
 			averageSAHImprovement: 0
 		};
 
-		// Treelet optimization configuration - conservative settings to prevent crashes
-		this.enableTreeletOptimization = false; // Enable by default for better ray performance
-		this.treeletSize = 7; // Conservative: Reduced from 9 to 7 to prevent memory issues
+		// Treelet optimization configuration - adaptive settings based on scene complexity
+		this.enableTreeletOptimization = true; // Enable by default for better ray performance
+		this.treeletSize = 5; // Ultra-conservative: Reduced to 5 to prevent combinatorial explosion
 		this.treeletOptimizationPasses = 1; // Conservative: Single pass to prevent excessive computation
-		this.treeletMinImprovement = 0.01; // Conservative: Higher threshold to reduce computation load
+		this.treeletMinImprovement = 0.02; // Higher threshold to reduce computation load
 		this.maxTreeletDepth = 3; // Conservative: Reduced depth to prevent deep recursion
+
+		// Dynamic scaling based on scene complexity
+		this.maxTreeletsPerScene = 20; // Adaptive limit based on triangle count
+		this.treeletComplexityThreshold = 50000; // Triangle count threshold for aggressive limiting
 
 		// Pre-allocate maximum bin arrays to avoid reallocations
 		this.initializeBinArrays();
@@ -707,12 +711,20 @@ export default class BVHBuilder {
 		// Create root node
 		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
 
-		// Apply treelet optimization if enabled - with enhanced safety checks
+		// Apply treelet optimization if enabled - with enhanced safety checks and adaptive scaling
 		if ( this.enableTreeletOptimization && this.totalTriangles > 1000 ) { // Increased threshold from 500 to 1000
 
+			// Adaptive treelet configuration based on scene complexity
+			const isLargeScene = this.totalTriangles > this.treeletComplexityThreshold;
+			const adaptiveTreeletSize = isLargeScene ? 3 : this.treeletSize; // Ultra-conservative for large scenes
+			const adaptiveMaxTreelets = isLargeScene ? 10 : this.maxTreeletsPerScene; // Severely limit large scenes
+
+			console.log( `Treelet optimization: Scene size=${this.totalTriangles}, isLarge=${isLargeScene}, treeletSize=${adaptiveTreeletSize}, maxTreelets=${adaptiveMaxTreelets}` );
+
 			const optimizer = new TreeletOptimizer( this.traversalCost, this.intersectionCost );
-			optimizer.setTreeletSize( this.treeletSize );
+			optimizer.setTreeletSize( adaptiveTreeletSize );
 			optimizer.setMinImprovement( this.treeletMinImprovement );
+			optimizer.setMaxTreelets( adaptiveMaxTreelets );
 
 			console.log( 'Starting treelet optimization...' );
 			const optimizationStartTime = performance.now();
