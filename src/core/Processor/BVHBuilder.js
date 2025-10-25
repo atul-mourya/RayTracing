@@ -238,7 +238,7 @@ export default class BVHBuilder {
 		};
 
 		// Treelet optimization configuration - adaptive settings based on scene complexity
-		this.enableTreeletOptimization = true; // Enable by default for better ray performance
+		this.enableTreeletOptimization = false; // Enable by default for better ray performance
 		this.treeletSize = 5; // Ultra-conservative: Reduced to 5 to prevent combinatorial explosion
 		this.treeletOptimizationPasses = 1; // Conservative: Single pass to prevent excessive computation
 		this.treeletMinImprovement = 0.02; // Higher threshold to reduce computation load

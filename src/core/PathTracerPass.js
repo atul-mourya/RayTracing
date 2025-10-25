@@ -71,7 +71,7 @@ export class PathTracerPass extends Pass {
 				numRaysPerPixel: 1,
 				useAdaptiveSampling: false,
 				useEnvMapIS: false,
-				pixelRatio: 0.25,
+				// pixelRatio: 0.25,
 				enableAccumulation: false,
 				enableEmissiveTriangleSampling: false, // Disable during interaction for performance
 			},

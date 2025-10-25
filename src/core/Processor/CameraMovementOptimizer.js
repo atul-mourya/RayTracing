@@ -28,7 +28,7 @@ export class CameraMovementOptimizer {
 			numRaysPerPixel: 1,
 			useAdaptiveSampling: false,
 			useEnvMapIS: false,
-			pixelRatio: 0.25,
+			// pixelRatio: 0.25,
 			enableAccumulation: false,
 			...settings.qualitySettings
 		};
