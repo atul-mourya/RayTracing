@@ -490,7 +490,23 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleRenderModeChange: handleChange(
 		val => set( { renderMode: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( val )
+		val => {
+
+			window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( val );
+
+			// Enable/disable tile highlight based on render mode and tilesHelper state
+			const { tilesHelper } = get();
+			if ( parseInt( val ) === 1 && tilesHelper ) {
+
+				window.pathTracerApp.tileHighlightPass.enabled = true;
+
+			} else if ( parseInt( val ) !== 1 ) {
+
+				window.pathTracerApp.tileHighlightPass.enabled = false;
+
+			}
+
+		}
 	),
 
 	handleTileUpdate: handleChange(

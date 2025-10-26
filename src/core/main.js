@@ -34,13 +34,19 @@ import {
 } from 'three/examples/jsm/Addons';
 import Stats from 'stats-gl';
 
-// Import custom passes and constants
-import { PathTracerPass } from './PathTracerPass';
-import { EdgeAwareFilteringPass } from './Passes/EdgeAwareFilteringPass';
-import { ASVGFPass } from './Passes/ASVGFPass';
-import { AdaptiveSamplingPass } from './Passes/AdaptiveSamplingPass';
-import { TileHighlightPass } from './Passes/TileHighlightPass';
+// Import denoiser
 import { OIDNDenoiser } from './Passes/OIDNDenoiser';
+
+// Import pipeline architecture
+import { PassPipeline } from './Pipeline/PassPipeline';
+import { PipelineWrapperPass } from './Pipeline/PipelineWrapperPass';
+import {
+	PathTracerStage,
+	ASVGFStage,
+	AdaptiveSamplingStage,
+	EdgeAwareFilteringStage,
+	TileHighlightStage
+} from './Stages';
 import { updateStats } from './Processor/utils';
 import { HDR_FILES, DEFAULT_STATE } from '../Constants';
 // import radialTexture from '../../public/radial-gradient.png';
@@ -85,6 +91,9 @@ class PathTracerApp extends EventDispatcher {
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
 
+		// Pipeline architecture
+		this.pipeline = null;
+		this.pipelineWrapperPass = null;
 
 		this.cameras = [];
 		this.currentCameraIndex = 0;
@@ -264,17 +273,16 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
-	reset( clearBuffers = true ) {
+	reset() {
 
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
 
 		this.canvas.style.opacity = 1;
-		this.pathTracingPass.reset( clearBuffers );
-		// Always reset ASVGF pass if it exists, regardless of enabled state
-		this.asvgfPass?.reset();
-		this.edgeAwareFilterPass?.enabled && this.edgeAwareFilterPass.reset( this.renderer );
-		this.adaptiveSamplingPass?.enabled && this.adaptiveSamplingPass.reset();
+
+		// Reset pipeline
+		this.pipeline?.reset();
+
 		this.denoiser?.enabled && this.denoiser.abort();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
@@ -294,45 +302,12 @@ class PathTracerApp extends EventDispatcher {
 		this.renderPass.enabled = false;
 		this.composer.addPass( this.renderPass );
 
-		this.adaptiveSamplingPass = new AdaptiveSamplingPass( this.renderer, this.width, this.height );
-		this.adaptiveSamplingPass.enabled = DEFAULT_STATE.adaptiveSampling;
-		this.composer.addPass( this.adaptiveSamplingPass );
+		// Setup pipeline architecture
+		this.setupPipeline();
 
-		this.pathTracingPass = new PathTracerPass( this.renderer, this.scene, this.camera, this.width, this.height );
-		this.pathTracingPass.interactionModeEnabled = DEFAULT_STATE.interactionModeEnabled;
-		this.composer.addPass( this.pathTracingPass );
-
-		this.asvgfPass = new ASVGFPass( this.renderer, this.camera, this.width, this.height, {
-			temporalAlpha: DEFAULT_STATE.asvgfTemporalAlpha || 0.1,
-			atrousIterations: DEFAULT_STATE.asvgfAtrousIterations || 4,
-			phiColor: DEFAULT_STATE.asvgfPhiColor || 10.0,
-			phiNormal: DEFAULT_STATE.asvgfPhiNormal || 128.0,
-			phiDepth: DEFAULT_STATE.asvgfPhiDepth || 1.0,
-			enableDebug: true
-		} );
-		this.asvgfPass.enabled = DEFAULT_STATE.enableASVGF || false;
-		this.composer.addPass( this.asvgfPass );
-
-		// Connect PathTracer to ASVGF
-		this.pathTracingPass.setASVGFPass( this.asvgfPass );
-
-		this.edgeAwareFilterPass = new EdgeAwareFilteringPass( this.width, this.height, {
-			// Reduce edge filtering when ASVGF is active
-			filteringEnabled: ! this.asvgfPass.enabled,
-			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75,
-		} );
-		this.composer.addPass( this.edgeAwareFilterPass );
-
-		// Connect the new pipeline: PathTracer → ASVGF → AdaptiveSampling
-		this.pathTracingPass.setAdaptiveSamplingPass( this.adaptiveSamplingPass );
-
+		// Common passes (outside pipeline)
 		this.outlinePass = new OutlinePass( new Vector2( this.width, this.height ), this.scene, this.camera );
 		this.composer.addPass( this.outlinePass );
-
-		this.tileHighlightPass = new TileHighlightPass( new Vector2( this.width, this.height ) );
-		this.tileHighlightPass.enabled = DEFAULT_STATE.tilesHelper;
-		this.composer.addPass( this.tileHighlightPass );
-		this.pathTracingPass.setTileHighlightPass( this.tileHighlightPass );
 
 		this.bloomPass = new UnrealBloomPass( new Vector2( this.width, this.height ) );
 		this.bloomPass.enabled = DEFAULT_STATE.enableBloom;
@@ -352,6 +327,76 @@ class PathTracerApp extends EventDispatcher {
 		// Set up denoiser event listeners to update store
 		this.denoiser.addEventListener( 'start', () => useStore.getState().setIsDenoising( true ) );
 		this.denoiser.addEventListener( 'end', () => useStore.getState().setIsDenoising( false ) );
+
+	}
+
+	setupPipeline() {
+
+		console.log( '[PathTracerApp] Initializing pipeline architecture' );
+
+		// Create the new pipeline
+		this.pipeline = new PassPipeline( this.renderer );
+
+		// Create stages in execution order
+		const pathTracerStage = new PathTracerStage( this.renderer, this.scene, this.camera, {
+			width: this.width,
+			height: this.height,
+			enabled: true
+		} );
+
+		const asvgfStage = new ASVGFStage( {
+			renderer: this.renderer,
+			camera: this.camera,
+			width: this.width,
+			height: this.height,
+			enabled: DEFAULT_STATE.enableASVGF || false,
+			temporalAlpha: DEFAULT_STATE.asvgfTemporalAlpha || 0.1,
+			atrousIterations: DEFAULT_STATE.asvgfAtrousIterations || 4,
+			phiColor: DEFAULT_STATE.asvgfPhiColor || 10.0,
+			phiNormal: DEFAULT_STATE.asvgfPhiNormal || 128.0,
+			phiDepth: DEFAULT_STATE.asvgfPhiDepth || 1.0,
+			enableDebug: true
+		} );
+
+		const adaptiveSamplingStage = new AdaptiveSamplingStage( {
+			renderer: this.renderer,
+			width: this.width,
+			height: this.height,
+			enabled: DEFAULT_STATE.adaptiveSampling
+		} );
+
+		const edgeFilteringStage = new EdgeAwareFilteringStage( {
+			width: this.width,
+			height: this.height,
+			enabled: ! ( DEFAULT_STATE.enableASVGF || false ),
+			filteringEnabled: ! ( DEFAULT_STATE.enableASVGF || false ),
+			pixelEdgeSharpness: DEFAULT_STATE.pixelEdgeSharpness || 0.75
+		} );
+
+		const tileHighlightStage = new TileHighlightStage( {
+			renderer: this.renderer,
+			width: this.width,
+			height: this.height,
+			enabled: DEFAULT_STATE.tilesHelper
+		} );
+
+		// Add stages to pipeline in execution order
+		this.pipeline.addStage( pathTracerStage );
+		this.pipeline.addStage( asvgfStage );
+		this.pipeline.addStage( adaptiveSamplingStage );
+		this.pipeline.addStage( edgeFilteringStage );
+		this.pipeline.addStage( tileHighlightStage );
+
+		// Wrap pipeline in a Pass for EffectComposer compatibility
+		this.pipelineWrapperPass = new PipelineWrapperPass( this.pipeline );
+		this.composer.addPass( this.pipelineWrapperPass );
+
+		// Create proxy references for backward compatibility
+		this.pathTracingPass = pathTracerStage;
+		this.asvgfPass = asvgfStage;
+		this.adaptiveSamplingPass = adaptiveSamplingStage;
+		this.edgeAwareFilterPass = edgeFilteringStage;
+		this.tileHighlightPass = tileHighlightStage;
 
 	}
 
@@ -397,25 +442,13 @@ class PathTracerApp extends EventDispatcher {
 
 			this.controls.update();
 
-			this.edgeAwareFilterPass.updateUniforms( {
-				cameraIsMoving: this.pathTracingPass.interactionMode || false,
-				sceneIsDynamic: false,
-				time: this.timeElapsed
-			} );
+			// Pipeline architecture - stages handle their own updates via events
+			// Edge filtering stage listens to context state updates
+			this.pipeline.context.setState( 'cameraIsMoving', this.pathTracingPass.interactionMode || false );
+			this.pipeline.context.setState( 'sceneIsDynamic', false );
+			this.pipeline.context.setState( 'time', this.timeElapsed );
 
-			// Update adaptive sampling with MRT textures
-			if ( this.adaptiveSamplingPass.enabled && pathtracingUniforms.frame.value > 0 ) {
-
-				// Get textures from PathTracerPass (now includes accumulated results)
-				const currentAccumulation = this.pathTracingPass.getCurrentAccumulation();
-				const mrtTextures = this.pathTracingPass.getMRTTextures();
-
-				this.adaptiveSamplingPass.setTextures(
-					currentAccumulation.texture, // Accumulated color texture
-					mrtTextures.normalDepth // G-buffer: normal + depth
-				);
-
-			}
+			// Adaptive sampling stage automatically reads textures from context
 
 			// Render the frame
 			this.composer.render();
@@ -591,9 +624,10 @@ class PathTracerApp extends EventDispatcher {
 		this.camera.aspect = this.width / this.height;
 		this.camera.updateProjectionMatrix();
 
-		this.edgeAwareFilterPass.setSize( this.width, this.height );
+		// Pipeline architecture - resize all stages
+		this.pipeline?.setSize( this.width, this.height );
+
 		this.denoiser.setSize( this.width, this.height );
-		this.adaptiveSamplingPass.setSize( this.width, this.height );
 
 		this.reset();
 
@@ -893,10 +927,8 @@ class PathTracerApp extends EventDispatcher {
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 
-		// Dispose of the main passes
-		if ( this.pathTracingPass ) this.pathTracingPass.dispose();
-		if ( this.edgeAwareFilterPass ) this.edgeAwareFilterPass.dispose();
-		if ( this.adaptiveSamplingPass ) this.adaptiveSamplingPass.dispose();
+		// Pipeline architecture cleanup
+		if ( this.pipeline ) this.pipeline.dispose();
 
 	}
 
