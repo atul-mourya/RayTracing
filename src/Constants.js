@@ -171,6 +171,7 @@ export const DEFAULT_STATE = {
 	globalIlluminationIntensity: 1,
 
 	enableDOF: false,
+	zoomToCursor: true,
 	fov: 65,
 	focusDistance: 0.8,
 	aperture: 5.6,

@@ -1045,6 +1045,7 @@ const useCameraStore = create( ( set ) => ( {
 	setAperture: val => set( { aperture: val, activePreset: "custom" } ),
 	setFocalLength: val => set( { focalLength: val, activePreset: "custom" } ),
 	setEnableDOF: val => set( { enableDOF: val, activePreset: "custom" } ),
+	setZoomToCursor: val => set( { zoomToCursor: val } ),
 	setPreset: key => {
 
 		if ( key === "custom" ) return;
@@ -1069,6 +1070,17 @@ const useCameraStore = create( ( set ) => ( {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.enableDOF.value = val;
 			window.pathTracerApp.reset();
+
+		}
+
+	},
+
+	handleZoomToCursorChange: val => {
+
+		set( { zoomToCursor: val } );
+		if ( window.pathTracerApp?.controls ) {
+
+			window.pathTracerApp.controls.zoomToCursor = val;
 
 		}
 

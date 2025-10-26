@@ -135,7 +135,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Setup controls with interaction optimization
 		this.controls = new OrbitControls( this.camera, this.canvas );
-		// this.controls.zoomToCursor = true;
+		this.controls.zoomToCursor = true;
 		this.controls.addEventListener( 'change', () => {
 
 			this.pathTracingPass && this.pathTracingPass.enterInteractionMode();

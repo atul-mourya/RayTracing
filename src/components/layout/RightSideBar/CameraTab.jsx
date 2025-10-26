@@ -19,6 +19,7 @@ const CameraTab = () => {
 		aperture,
 		focalLength,
 		enableDOF,
+		zoomToCursor,
 		activePreset,
 		focusMode,
 		cameraNames,
@@ -36,6 +37,7 @@ const CameraTab = () => {
 		handleApertureChange,
 		handleFocalLengthChange,
 		handleEnableDOFChange,
+		handleZoomToCursorChange,
 		handleCameraMove,
 		handleCameraChange,
 		handleApertureScaleChange,
@@ -132,6 +134,14 @@ const CameraTab = () => {
 					step={5}
 					value={[ fov ]}
 					onValueChange={handleFovChange}
+				/>
+			</div>
+
+			<div className="flex items-center justify-between">
+				<Switch
+					checked={zoomToCursor}
+					label="Zoom to Cursor"
+					onCheckedChange={handleZoomToCursorChange}
 				/>
 			</div>
 
