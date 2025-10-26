@@ -142,6 +142,20 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			takeScreenshot: handleScreenshot
 		};
 
+		// Also expose globally for real-time color correction
+		window.resultsViewportRef = ref;
+
+		// Cleanup global reference on unmount
+		return () => {
+
+			if ( window.resultsViewportRef === ref ) {
+
+				window.resultsViewportRef = null;
+
+			}
+
+		};
+
 	}, [ ref, handleScreenshot ] );
 
 	// Initialize image processor when canvases are ready
@@ -176,26 +190,49 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 		const { brightness, contrast, saturation, hue, exposure, gamma } = imageProcessing;
 
-		// Update brightness/contrast pass
-		imageProcessorRef.current.brightnessContrastPass.uniforms[ 'brightness' ].value = brightness / 100;
-		imageProcessorRef.current.brightnessContrastPass.uniforms[ 'contrast' ].value = contrast / 100;
-
-		// Update other shader passes
-		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'saturation' ].value = saturation / 100;
-		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'hue' ].value = hue;
-		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'exposure' ].value = exposure / 100;
-		imageProcessorRef.current.colorAdjustmentPass.uniforms[ 'gamma' ].value = gamma;
+		// Update all parameters at once for better performance
+		imageProcessorRef.current.setParameters( {
+			brightness,
+			contrast,
+			saturation,
+			hue,
+			exposure,
+			gamma
+		} );
 
 		// Render the result
 		imageProcessorRef.current.render();
 
 	}, [ imageProcessing ] );
 
-	// Debounced version for performance - critical for 4K images
-	const debouncedApplyImageProcessing = useMemo(
-		() => debounce( applyImageProcessing, 150 ), // 150ms debounce for smooth 4K processing
-		[ applyImageProcessing ]
-	);
+	// Create debounced version using useEffect
+	const debouncedApplyRef = useRef();
+	useEffect( () => {
+
+		debouncedApplyRef.current = debounce( () => {
+
+			if ( ! imageProcessorRef.current ) return;
+
+			const { brightness, contrast, saturation, hue, exposure, gamma } = useStore.getState().imageProcessing;
+			imageProcessorRef.current.setParameters( {
+				brightness,
+				contrast,
+				saturation,
+				hue,
+				exposure,
+				gamma
+			} );
+			imageProcessorRef.current.render();
+
+		}, 50 );
+
+		return () => {
+
+			debouncedApplyRef.current?.cancel();
+
+		};
+
+	}, [] );
 
 	// Optimized image loading for 4K images
 	useEffect( () => {
@@ -323,18 +360,19 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 		if ( isImageDrawn && imageProcessorRef.current ) {
 
-			debouncedApplyImageProcessing();
+			// Use direct application for immediate updates (real-time handlers will bypass this)
+			applyImageProcessing();
 
 		}
 
 		// Cleanup debounce on unmount
 		return () => {
 
-			debouncedApplyImageProcessing.cancel();
+			debouncedApplyRef.current?.cancel();
 
 		};
 
-	}, [ imageProcessing, isImageDrawn, debouncedApplyImageProcessing ] );
+	}, [ imageProcessing, isImageDrawn, applyImageProcessing ] );
 
 	// Long press handling for original/edited view toggling
 	const startLongPress = useCallback( () => {
