@@ -1,11 +1,13 @@
 import { ShaderMaterial, UniformsUtils, Vector2, Vector3, Vector4 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { PipelineStage } from '../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
  * TileHighlightStage - Draws borders around tiles during tiled rendering
  *
  * Refactored from TileHighlightPass to use the new pipeline architecture.
+ *
+ * Execution: ALWAYS - Must run every frame to provide visual feedback during tile rendering
  *
  * Key changes from TileHighlightPass:
  * - Extends PipelineStage instead of Pass
@@ -21,7 +23,10 @@ export class TileHighlightStage extends PipelineStage {
 
 	constructor( options = {} ) {
 
-		super( 'TileHighlight', options );
+		super( 'TileHighlight', {
+			...options,
+			executionMode: StageExecutionMode.ALWAYS // Must run every frame for visual feedback
+		} );
 
 		const resolution = options.resolution || { x: 1920, y: 1080 };
 

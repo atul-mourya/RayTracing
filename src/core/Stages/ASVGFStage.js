@@ -9,7 +9,7 @@ import {
 	Matrix4,
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { PipelineStage } from '../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
 import { DEFAULT_STATE } from '../../Constants.js';
 
@@ -17,6 +17,10 @@ import { DEFAULT_STATE } from '../../Constants.js';
  * ASVGFStage - Adaptive Spatially Varying Gradient Filter (ASVGF) denoiser
  *
  * Refactored from ASVGFPass to use the new pipeline architecture.
+ *
+ * Execution: PER_CYCLE - Only runs when tile rendering cycle completes
+ * This ensures the denoiser works on complete frame data and prevents artifacts
+ * from denoising intermediate tile states.
  *
  * Key changes from ASVGFPass:
  * - Extends PipelineStage instead of Pass
@@ -40,7 +44,10 @@ export class ASVGFStage extends PipelineStage {
 
 	constructor( options = {} ) {
 
-		super( 'ASVGF', options );
+		super( 'ASVGF', {
+			...options,
+			executionMode: StageExecutionMode.PER_CYCLE // Only denoise complete frames
+		} );
 
 		this.renderer = options.renderer || null;
 		this.camera = options.camera || null;

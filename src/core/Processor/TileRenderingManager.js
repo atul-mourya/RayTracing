@@ -225,21 +225,24 @@ export class TileRenderingManager {
      * @param {number} renderMode - Current render mode (0 = full, 1 = tiled)
      * @param {number} frameValue - Current frame number
      * @param {TileHighlightPass} tileHighlightPass - Optional tile highlight pass
-     * @returns {Object} - Tile rendering info {tileIndex, tileBounds, shouldSwapTargets}
+     * @returns {Object} - Tile rendering info {tileIndex, tileBounds, shouldSwapTargets, isCompleteCycle}
      */
 	handleTileRendering( renderer, renderMode, frameValue, tileHighlightPass = null ) {
 
 		let shouldSwapTargets = true;
 		let currentTileIndex = - 1;
 		let tileBounds = null;
+		let isCompleteCycle = true; // Progressive mode is always complete
 
 		if ( renderMode === 1 ) { // Tiled rendering
 
 			if ( frameValue === 0 ) {
 
 				// First frame: render entire image, disable scissor
+				// This is a complete cycle (full screen render)
 				this.disableScissor( renderer );
 				currentTileIndex = - 1;
+				isCompleteCycle = true;
 
 			} else {
 
@@ -258,16 +261,21 @@ export class TileRenderingManager {
 
 				}
 
+				// Check if this is the last tile in the cycle
+				isCompleteCycle = ( linearTileIndex === this.totalTilesCache - 1 );
+
 				// Only swap targets after completing all tiles in a sample
-				shouldSwapTargets = ( linearTileIndex === this.totalTilesCache - 1 );
+				shouldSwapTargets = isCompleteCycle;
 
 			}
 
 		} else {
 
 			// Regular rendering mode: disable scissor
+			// Every frame is a complete cycle in progressive mode
 			this.disableScissor( renderer );
 			currentTileIndex = - 1;
+			isCompleteCycle = true;
 
 			// Update tile highlight pass for non-tiled mode only when needed
 			if ( tileHighlightPass?.enabled ) {
@@ -283,7 +291,8 @@ export class TileRenderingManager {
 		return {
 			tileIndex: currentTileIndex,
 			tileBounds,
-			shouldSwapTargets
+			shouldSwapTargets,
+			isCompleteCycle // New flag for pipeline stage execution control
 		};
 
 	}

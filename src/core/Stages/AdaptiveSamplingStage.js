@@ -8,7 +8,7 @@ import {
 	FloatType
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { PipelineStage } from '../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
 import { DEFAULT_STATE } from '../../Constants.js';
 
@@ -16,6 +16,10 @@ import { DEFAULT_STATE } from '../../Constants.js';
  * AdaptiveSamplingStage - Adaptive sampling guidance for path tracing
  *
  * Refactored from AdaptiveSamplingPass to use the new pipeline architecture.
+ *
+ * Execution: PER_CYCLE - Only updates sampling guidance when tile cycle completes
+ * This ensures variance analysis is based on complete frame data, providing
+ * better quality guidance for the next sampling pass.
  *
  * Key changes from AdaptiveSamplingPass:
  * - Extends PipelineStage instead of Pass
@@ -36,7 +40,10 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 	constructor( options = {} ) {
 
-		super( 'AdaptiveSampling', options );
+		super( 'AdaptiveSampling', {
+			...options,
+			executionMode: StageExecutionMode.PER_CYCLE // Only update guidance on complete frames
+		} );
 
 		this.width = options.width || 1920;
 		this.height = options.height || 1080;

@@ -17,12 +17,16 @@ import {
 	SRGBTransfer
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { PipelineStage } from '../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
  * EdgeAwareFilteringStage - Edge-aware temporal filtering
  *
  * Refactored from EdgeAwareFilteringPass to use the new pipeline architecture.
+ *
+ * Execution: PER_CYCLE - Only runs when tile rendering cycle completes
+ * This ensures temporal filtering works on complete frame data and maintains
+ * temporal consistency without intermediate tile artifacts.
  *
  * Key changes from EdgeAwareFilteringPass:
  * - Extends PipelineStage instead of Pass
@@ -41,7 +45,10 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 
 	constructor( options = {} ) {
 
-		super( 'EdgeAwareFiltering', options );
+		super( 'EdgeAwareFiltering', {
+			...options,
+			executionMode: StageExecutionMode.PER_CYCLE // Only filter complete frames
+		} );
 
 		this.width = options.width || 1920;
 		this.height = options.height || 1080;

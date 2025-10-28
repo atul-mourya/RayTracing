@@ -63,6 +63,7 @@ export class PassPipeline {
 		// Performance tracking
 		this.stats = {
 			enabled: false,
+			logSkipped: false, // Log skipped stages for debugging tile rendering
 			timings: new Map(),
 			frameCount: 0,
 		};
@@ -161,7 +162,19 @@ export class PassPipeline {
 
 		for ( const stage of this.stages ) {
 
-			if ( ! stage.enabled ) continue;
+			// Check if stage should execute this frame (handles enabled state + execution mode)
+			if ( ! stage.shouldExecuteThisFrame( this.context ) ) {
+
+				// Stage skipped - log in debug mode
+				if ( this.stats.enabled && this.stats.logSkipped ) {
+
+					console.log( `[Pipeline] Skipped stage '${stage.name}' (executionMode: ${stage.executionMode})` );
+
+				}
+
+				continue;
+
+			}
 
 			try {
 

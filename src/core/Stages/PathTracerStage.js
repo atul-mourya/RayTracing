@@ -2,7 +2,7 @@ import {
 	Vector2, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { PipelineStage } from '../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 import { TileRenderingManager } from '../Processor/TileRenderingManager.js';
 import { CameraMovementOptimizer } from '../Processor/CameraMovementOptimizer.js';
@@ -20,6 +20,9 @@ import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../Constants';
  * PathTracerStage - Core path tracing renderer
  *
  * Refactored from PathTracerPass to use the new pipeline architecture.
+ *
+ * Execution: ALWAYS - Must run every frame to accumulate samples
+ * This is the primary rendering stage that builds up the path traced image.
  *
  * Key changes from PathTracerPass:
  * - Extends PipelineStage instead of Pass
@@ -47,7 +50,10 @@ export class PathTracerStage extends PipelineStage {
 
 	constructor( renderer, scene, camera, options = {} ) {
 
-		super( 'PathTracer', options );
+		super( 'PathTracer', {
+			...options,
+			executionMode: StageExecutionMode.ALWAYS // Must run every frame
+		} );
 
 		const width = options.width || 1920;
 		const height = options.height || 1080;
@@ -544,6 +550,9 @@ export class PathTracerStage extends PipelineStage {
 			frameValue,
 			null // No longer pass tileHighlightPass - emit event instead
 		);
+
+		// Publish tile cycle completion state to context for stage execution control
+		context.setState( 'tileRenderingComplete', tileInfo.isCompleteCycle );
 
 		// Emit tile:changed event for TileHighlightStage
 		if ( tileInfo.tileIndex >= 0 ) {

@@ -1,8 +1,50 @@
 /**
+ * Execution modes for pipeline stages in tile rendering
+ *
+ * @enum {string}
+ */
+export const StageExecutionMode = {
+	/**
+	 * ALWAYS - Execute every frame regardless of tile state
+	 * Use for: Accumulator stages (PathTracer), visualization overlays (TileHighlight)
+	 */
+	ALWAYS: 'always',
+
+	/**
+	 * PER_CYCLE - Execute only when tile rendering cycle completes
+	 * Use for: Post-processing, denoisers, filters (ASVGF, EdgeAwareFiltering, OIDN)
+	 *
+	 * Complete cycle means:
+	 * - Progressive mode (renderMode=0): Every frame
+	 * - Tile mode (renderMode=1): Only when all tiles have been rendered
+	 */
+	PER_CYCLE: 'per_cycle',
+
+	/**
+	 * PER_TILE - Execute for each tile, including intermediate tiles
+	 * Use for: Per-tile analysis stages (if needed in the future)
+	 */
+	PER_TILE: 'per_tile',
+
+	/**
+	 * CONDITIONAL - Stage decides execution via shouldExecute() method
+	 * Use for: Stages with complex execution logic (AdaptiveSampling)
+	 */
+	CONDITIONAL: 'conditional'
+};
+
+/**
  * PipelineStage - Base class for all pipeline stages
  *
  * Provides standard lifecycle methods and event handling capabilities.
  * All rendering passes should extend this class and implement the render() method.
+ *
+ * Execution Modes:
+ * Stages can declare their tile rendering behavior via executionMode:
+ * - ALWAYS: Run every frame (default, backward compatible)
+ * - PER_CYCLE: Run only when tile cycles complete (denoisers, filters)
+ * - PER_TILE: Run for every tile including intermediates
+ * - CONDITIONAL: Custom logic via shouldExecute() override
  *
  * Lifecycle:
  * 1. constructor() - Create stage with name and options
@@ -14,9 +56,12 @@
  * 7. dispose() - Called when stage is destroyed (optional)
  *
  * @example
- * class MyStage extends PipelineStage {
+ * class MyDenoiserStage extends PipelineStage {
  *   constructor() {
- *     super('MyStage', { enabled: true });
+ *     super('MyDenoiser', {
+ *       enabled: true,
+ *       executionMode: StageExecutionMode.PER_CYCLE
+ *     });
  *   }
  *
  *   setupEventListeners() {
@@ -24,16 +69,9 @@
  *   }
  *
  *   render(context, writeBuffer) {
- *     // Read from context
+ *     // This will only run when tile cycles complete
  *     const inputTexture = context.getTexture('pathtracer:color');
- *
- *     // Do rendering...
- *
- *     // Write to context
- *     context.setTexture('mystage:output', outputTexture);
- *
- *     // Emit events
- *     this.emit('mystage:complete', { frame: context.getState('frame') });
+ *     // ... denoising logic ...
  *   }
  * }
  */
@@ -44,11 +82,13 @@ export class PipelineStage {
 	 * @param {string} name - Stage name (used for debugging and logging)
 	 * @param {Object} options - Stage options
 	 * @param {boolean} [options.enabled=true] - Whether stage is enabled
+	 * @param {string} [options.executionMode=StageExecutionMode.ALWAYS] - When to execute in tile rendering
 	 */
 	constructor( name, options = {} ) {
 
 		this.name = name;
 		this.enabled = options.enabled !== false;
+		this.executionMode = options.executionMode || StageExecutionMode.ALWAYS;
 
 		// Set by initialize()
 		this.context = null;
@@ -82,6 +122,79 @@ export class PipelineStage {
 	 */
 	setupEventListeners() {
 		// Override in subclasses
+	}
+
+	/**
+	 * Check if this stage should execute this frame based on execution mode
+	 * Called by pipeline before render()
+	 *
+	 * @param {PipelineContext} context - Shared pipeline context
+	 * @returns {boolean} True if stage should execute this frame
+	 */
+	shouldExecuteThisFrame( context ) {
+
+		// Check enabled state first
+		if ( ! this.enabled ) {
+
+			return false;
+
+		}
+
+		const renderMode = context.getState( 'renderMode' ) || 0;
+		const tileRenderingComplete = context.getState( 'tileRenderingComplete' );
+		const frame = context.getState( 'frame' ) || 0;
+
+		switch ( this.executionMode ) {
+
+			case StageExecutionMode.ALWAYS:
+				// Always execute when enabled
+				return true;
+
+			case StageExecutionMode.PER_CYCLE:
+				// Only execute when tile cycle is complete
+				// In progressive mode (renderMode=0), every frame is a complete cycle
+				// In tile mode (renderMode=1), only execute when all tiles are rendered
+				if ( renderMode === 0 ) {
+
+					return true; // Progressive mode: always complete
+
+				} else {
+
+					// Tile mode: check completion flag
+					return tileRenderingComplete === true;
+
+				}
+
+			case StageExecutionMode.PER_TILE:
+				// Execute for every tile, including intermediates
+				// Only skip if not in tile mode and frame is 0
+				return true;
+
+			case StageExecutionMode.CONDITIONAL:
+				// Delegate to subclass implementation
+				return this.shouldExecute( context );
+
+			default:
+				this.warn( `Unknown execution mode: ${this.executionMode}` );
+				return true; // Fail-safe: execute
+
+		}
+
+	}
+
+	/**
+	 * Custom execution logic for CONDITIONAL mode
+	 * Override in subclasses that use StageExecutionMode.CONDITIONAL
+	 *
+	 * @param {PipelineContext} context - Shared pipeline context
+	 * @returns {boolean} True if stage should execute
+	 */
+	shouldExecute( context ) {
+
+		// Default: always execute
+		// Override in subclasses for custom logic
+		return true;
+
 	}
 
 	/**

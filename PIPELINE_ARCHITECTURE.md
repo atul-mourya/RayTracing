@@ -81,6 +81,15 @@ context.incrementFrame();
 context.reset();
 ```
 
+**Important State Keys:**
+| Key | Type | Description |
+|-----|------|-------------|
+| `frame` | number | Current frame counter |
+| `renderMode` | number | 0=progressive, 1=tiled |
+| `tileRenderingComplete` | boolean | True when tile cycle completes (used by PER_CYCLE stages) |
+| `interactionMode` | boolean | True during camera movement |
+| `width` / `height` | number | Viewport dimensions |
+
 **Example:**
 ```javascript
 // PathTracerStage publishes its output
@@ -169,6 +178,60 @@ pipeline.dispose();
 
 Base class for all stages.
 
+#### Execution Modes
+
+Stages can declare when they should execute during tile rendering via `executionMode`:
+
+```javascript
+export const StageExecutionMode = {
+    // Execute every frame regardless of tile state
+    ALWAYS: 'always',
+
+    // Execute only when tile rendering cycle completes
+    // (Progressive mode: every frame, Tile mode: only when all tiles rendered)
+    PER_CYCLE: 'per_cycle',
+
+    // Execute for each tile including intermediates
+    PER_TILE: 'per_tile',
+
+    // Custom execution logic via shouldExecute() override
+    CONDITIONAL: 'conditional'
+};
+```
+
+**Usage by Stage Type:**
+
+| Mode | Use Case | Example Stages |
+|------|----------|---------------|
+| `ALWAYS` | Accumulator stages, real-time feedback | PathTracerStage, TileHighlightStage |
+| `PER_CYCLE` | Post-processing, denoisers, filters | ASVGFStage, EdgeAwareFilteringStage, AdaptiveSamplingStage |
+| `PER_TILE` | Per-tile analysis (future use) | - |
+| `CONDITIONAL` | Complex custom logic | - |
+
+**Rationale:**
+
+During tile rendering, intermediate tiles contain incomplete frame data. Post-processing stages (denoisers, filters) should only operate on complete frames to:
+- Prevent artifacts from partial data
+- Improve performance by skipping redundant operations
+- Maintain temporal consistency
+
+**Example:**
+```javascript
+export class MyDenoiserStage extends PipelineStage {
+    constructor(options = {}) {
+        super('MyDenoiser', {
+            ...options,
+            executionMode: StageExecutionMode.PER_CYCLE
+        });
+    }
+
+    render(context, writeBuffer) {
+        // This automatically skips during intermediate tile rendering
+        // Only runs when: (renderMode === 0) || (all tiles complete)
+    }
+}
+```
+
 **Key Methods to Override:**
 ```javascript
 class MyStage extends PipelineStage {
@@ -233,6 +296,7 @@ this.disable();
 ### PathTracerStage
 
 **Purpose:** Core ray tracing renderer
+**Execution Mode:** `ALWAYS` - Must accumulate samples every frame
 
 **Input:** Scene geometry, materials, camera
 **Output:**
@@ -254,6 +318,7 @@ this.disable();
 ### ASVGFStage
 
 **Purpose:** Adaptive Spatially-Varying Global Filtering (denoiser)
+**Execution Mode:** `PER_CYCLE` - Only denoises complete frames
 
 **Input:**
 - `pathtracer:color`
@@ -274,11 +339,14 @@ this.disable();
 **Events Listened:**
 - `asvgf:reset` - Reset temporal history
 
+**Rationale:** Denoising intermediate tiles causes artifacts. ASVGF skips until all tiles are rendered.
+
 ---
 
 ### AdaptiveSamplingStage
 
 **Purpose:** Variance-based adaptive sampling
+**Execution Mode:** `PER_CYCLE` - Only analyzes complete frames
 
 **Input:**
 - `asvgf:variance` or compute from color
@@ -297,11 +365,14 @@ this.disable();
 **Events Listened:**
 - `tile:changed` - Update for current tile
 
+**Rationale:** Variance analysis requires complete frame data for accurate guidance.
+
 ---
 
 ### EdgeAwareFilteringStage
 
 **Purpose:** Temporal edge-aware filtering (alternative to ASVGF)
+**Execution Mode:** `PER_CYCLE` - Only filters complete frames
 
 **Input:**
 - `pathtracer:color`
@@ -318,11 +389,14 @@ this.disable();
 
 **Note:** Typically disabled when ASVGF is enabled
 
+**Rationale:** Temporal filtering needs complete frames to maintain consistency.
+
 ---
 
 ### TileHighlightStage
 
 **Purpose:** Visualize tile boundaries during tiled rendering
+**Execution Mode:** `ALWAYS` - Provides real-time visual feedback
 
 **Input:**
 - `edgeFiltering:output` OR
@@ -340,34 +414,93 @@ this.disable();
 **Events Listened:**
 - `tile:changed` - Update tile bounds
 
+**Rationale:** Must run every frame to show which tile is currently being rendered.
+
 ---
 
 ## Execution Flow
 
-### Normal Frame
+### Progressive Rendering (renderMode=0)
+
+All stages execute every frame:
 
 ```
-1. PathTracerStage.render()
-   ↓ emits 'tile:changed' (if tiled)
+1. PathTracerStage.render() [ALWAYS]
    ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
+   ↓ sets 'tileRenderingComplete' = true
 
-2. ASVGFStage.render() (if enabled)
+2. ASVGFStage.render() [PER_CYCLE] ✅ Executes
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'asvgf:output', 'asvgf:variance' to context
 
-3. AdaptiveSamplingStage.render() (if enabled)
+3. AdaptiveSamplingStage.render() [PER_CYCLE] ✅ Executes
    ↓ reads 'asvgf:variance' or 'pathtracer:color'
    ↓ writes 'adaptiveSampling:output' to context
 
-4. EdgeAwareFilteringStage.render() (if enabled && !ASVGF)
+4. EdgeAwareFilteringStage.render() [PER_CYCLE] ✅ Executes
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'edgeFiltering:output' to context
 
-5. TileHighlightStage.render() (if enabled && tiled mode)
+5. TileHighlightStage.render() [ALWAYS] ✅ Executes
    ↓ reads last filter output
-   ↓ draws borders
    ↓ writes to writeBuffer → EffectComposer → Screen
 ```
+
+### Tile Rendering - Intermediate Tile (renderMode=1, tiles 1-15 of 16)
+
+Post-processing stages skip intermediate tiles:
+
+```
+1. PathTracerStage.render() [ALWAYS] ✅ Executes
+   ↓ renders tile 5 (for example)
+   ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
+   ↓ sets 'tileRenderingComplete' = false
+
+2. ASVGFStage.render() [PER_CYCLE] ⏭️ SKIPPED
+   (Would denoise incomplete frame - causes artifacts)
+
+3. AdaptiveSamplingStage.render() [PER_CYCLE] ⏭️ SKIPPED
+   (Variance analysis needs complete frame data)
+
+4. EdgeAwareFilteringStage.render() [PER_CYCLE] ⏭️ SKIPPED
+   (Temporal filtering needs complete frame data)
+
+5. TileHighlightStage.render() [ALWAYS] ✅ Executes
+   ↓ draws border around current tile
+   ↓ writes to writeBuffer → EffectComposer → Screen
+```
+
+### Tile Rendering - Cycle Complete (renderMode=1, tile 16 of 16)
+
+All stages execute when cycle completes:
+
+```
+1. PathTracerStage.render() [ALWAYS] ✅ Executes
+   ↓ renders final tile (16)
+   ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
+   ↓ sets 'tileRenderingComplete' = true
+
+2. ASVGFStage.render() [PER_CYCLE] ✅ Executes
+   ↓ denoises complete frame
+   ↓ writes 'asvgf:output', 'asvgf:variance' to context
+
+3. AdaptiveSamplingStage.render() [PER_CYCLE] ✅ Executes
+   ↓ analyzes variance on complete frame
+   ↓ writes 'adaptiveSampling:output' to context
+
+4. EdgeAwareFilteringStage.render() [PER_CYCLE] ✅ Executes
+   ↓ filters complete frame
+   ↓ writes 'edgeFiltering:output' to context
+
+5. TileHighlightStage.render() [ALWAYS] ✅ Executes
+   ↓ draws final composited result
+   ↓ writes to writeBuffer → EffectComposer → Screen
+```
+
+**Performance Impact:**
+- Progressive mode: All stages every frame (standard overhead)
+- Tile mode intermediate: Only PathTracer + TileHighlight (reduced overhead)
+- Tile mode complete: All stages (standard overhead, but less frequent)
 
 ### Pipeline Integration
 
@@ -408,15 +541,24 @@ writeBuffer → OutlinePass → BloomPass → OutputPass → Screen
 
 ### Step 1: Create Stage Class
 
+**Choose the Right Execution Mode:**
+- **ALWAYS** - If your stage accumulates data or provides real-time feedback
+- **PER_CYCLE** - If your stage does post-processing/filtering (most common for new stages)
+- **PER_TILE** - If you need per-tile analysis (rare)
+- **CONDITIONAL** - If you have complex custom logic
+
 ```javascript
-import { PipelineStage } from '../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { ShaderMaterial, WebGLRenderTarget } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
 export class MyCustomStage extends PipelineStage {
 
     constructor(options = {}) {
-        super('MyCustom', options);
+        super('MyCustom', {
+            ...options,
+            executionMode: StageExecutionMode.PER_CYCLE // Choose appropriate mode
+        });
 
         // Create render target
         this.outputTarget = new WebGLRenderTarget(
@@ -517,10 +659,12 @@ handleMyCustomIntensity: handleChange(
 - **Use context for texture sharing** - Don't pass textures directly between stages
 - **Emit events for state changes** - Let other stages react
 - **Check enabled state** - Early return if disabled
+- **Choose correct execution mode** - PER_CYCLE for post-processing, ALWAYS for accumulators
 - **Dispose resources** - Clean up in dispose()
 - **Use meaningful texture keys** - Format: `stageName:textureName`
 - **Document events** - What data is emitted
 - **Handle missing inputs gracefully** - Check if textures exist
+- **Test in tile mode** - Ensure your stage works correctly with tiled rendering
 
 ### Don'ts ❌
 
@@ -606,6 +750,22 @@ window.pathTracerApp.pipeline.eventBus.listenerCount('tile:changed');
 // Check event listeners
 ```
 
+### Debug Tile Rendering Execution
+
+```javascript
+// Enable logging of skipped stages during tile rendering
+window.pathTracerApp.pipeline.stats.enabled = true;
+window.pathTracerApp.pipeline.stats.logSkipped = true;
+
+// Console will show:
+// [Pipeline] Skipped stage 'ASVGF' (executionMode: per_cycle)
+// [Pipeline] Skipped stage 'AdaptiveSampling' (executionMode: per_cycle)
+
+// Check tile completion state
+window.pathTracerApp.pipeline.context.getState('tileRenderingComplete');
+// Returns: true (cycle complete) or false (intermediate tile)
+```
+
 ---
 
 ## Common Patterns
@@ -671,7 +831,10 @@ The Pipeline architecture provides:
 - ✅ **Testability** - Mock context/events for unit tests
 - ✅ **Extensibility** - Add stages without modifying existing code
 - ✅ **Maintainability** - Clear responsibilities, easy to understand
-- ✅ **Performance** - Enable/disable stages dynamically
+- ✅ **Performance** - Enable/disable stages dynamically, smart execution modes
 - ✅ **Flexibility** - Events enable reactive workflows
+- ✅ **Tile-Aware** - Automatic optimization for tiled rendering via execution modes
+
+**Key Innovation:** The execution mode system allows stages to declaratively control when they run during tile rendering, ensuring post-processing only operates on complete frames for optimal quality and performance.
 
 **Result:** Clean, maintainable, and scalable rendering pipeline.
