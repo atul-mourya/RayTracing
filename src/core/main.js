@@ -139,8 +139,18 @@ class PathTracerApp extends EventDispatcher {
 		this.controls.addEventListener( 'change', () => {
 
 			this.pathTracingPass && this.pathTracingPass.enterInteractionMode();
+			// Reset ASVGF temporal accumulation when camera moves to prevent frozen screen
+			// Only emit if pipeline exists (it's created later in setupComposer)
+			if ( this.pipeline && this.pipeline.emit ) {
+
+				this.pipeline.emit( 'asvgf:reset' );
+
+			}
+
+			// Fallback: directly reset ASVGF if available
+			this.asvgfPass?.reset();
 			// Soft reset - preserve buffers to avoid black flash during camera movement
-			this.reset( false );
+			this.reset();
 
 		} );
 		this.controls.update();
@@ -366,6 +376,7 @@ class PathTracerApp extends EventDispatcher {
 		} );
 
 		const edgeFilteringStage = new EdgeAwareFilteringStage( {
+			renderer: this.renderer,
 			width: this.width,
 			height: this.height,
 			enabled: ! ( DEFAULT_STATE.enableASVGF || false ),
@@ -444,9 +455,13 @@ class PathTracerApp extends EventDispatcher {
 
 			// Pipeline architecture - stages handle their own updates via events
 			// Edge filtering stage listens to context state updates
-			this.pipeline.context.setState( 'cameraIsMoving', this.pathTracingPass.interactionMode || false );
-			this.pipeline.context.setState( 'sceneIsDynamic', false );
-			this.pipeline.context.setState( 'time', this.timeElapsed );
+			if ( this.pipeline && this.pipeline.context ) {
+
+				this.pipeline.context.setState( 'cameraIsMoving', this.pathTracingPass.interactionMode || false );
+				this.pipeline.context.setState( 'sceneIsDynamic', false );
+				this.pipeline.context.setState( 'time', this.timeElapsed );
+
+			}
 
 			// Adaptive sampling stage automatically reads textures from context
 

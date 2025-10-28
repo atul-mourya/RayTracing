@@ -45,6 +45,7 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 
 		this.width = options.width || 1920;
 		this.height = options.height || 1080;
+		this.renderer = options.renderer || null;
 
 		// Configuration options - focused on filtering rather than accumulation
 		this.pixelEdgeSharpness = options.pixelEdgeSharpness ?? 0.75;
@@ -573,17 +574,69 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 
 		}
 
-		// Update uniforms
-		this.filteringMaterial.uniforms.uIteration.value = this.iteration;
-		this.filteringMaterial.uniforms.uTime.value = this.timeElapsed;
-		this.filteringMaterial.uniforms.tInput.value = inputTexture;
+		// Detect camera movement from context for interactive mode
+		const cameraIsMoving = context.getState( 'cameraIsMoving' );
+		this.filteringMaterial.uniforms.uCameraIsMoving.value = !! cameraIsMoving;
 
-		// Apply edge-aware filtering
-		renderer.setRenderTarget( this.renderToScreen ? null : writeBuffer );
-		this.filteringQuad.render( renderer );
+		// Always render into internal outputTarget first for consistent publication
+		if ( cameraIsMoving ) {
 
-		// Publish output to context
-		this.publishTexturesToContext( context, writeBuffer );
+			// Fast path: copy raw input to outputTarget
+			renderer.setRenderTarget( this.outputTarget );
+			this.fastCopy( renderer, inputTexture );
+
+		} else {
+
+			// Full filtering path
+			this.filteringMaterial.uniforms.uIteration.value = this.iteration;
+			this.filteringMaterial.uniforms.uTime.value = this.timeElapsed;
+			this.filteringMaterial.uniforms.tInput.value = inputTexture;
+			renderer.setRenderTarget( this.outputTarget );
+			this.filteringQuad.render( renderer );
+
+		}
+
+		// If we have a pipeline writeBuffer and not rendering to screen, copy result out
+		if ( writeBuffer && ! this.renderToScreen ) {
+
+			// Copy internal outputTarget to pipeline writeBuffer
+			renderer.setRenderTarget( writeBuffer );
+			this.fastCopy( renderer, this.outputTarget.texture );
+
+		}
+
+		// Publish outputTarget texture to context
+		this.publishTexturesToContext( context );
+
+	}
+
+	fastCopy( renderer, texture ) {
+
+		if ( ! this._copyMaterial ) {
+
+			this._copyMaterial = new ShaderMaterial( {
+				uniforms: { tInput: { value: null } },
+				vertexShader: /* glsl */`
+					varying vec2 vUv;
+					void main(){
+						vUv = uv;
+						gl_Position = vec4( position, 1.0 );
+					}
+				`,
+				fragmentShader: /* glsl */`
+					uniform sampler2D tInput;
+					varying vec2 vUv;
+					void main(){
+						gl_FragColor = texture2D( tInput, vUv );
+					}
+				`
+			} );
+			this._copyQuad = new FullScreenQuad( this._copyMaterial );
+
+		}
+
+		this._copyMaterial.uniforms.tInput.value = texture;
+		this._copyQuad.render( renderer );
 
 	}
 
@@ -592,11 +645,11 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 	 * @param {PipelineContext} context - Pipeline context
 	 * @param {THREE.WebGLRenderTarget} writeBuffer - Output buffer
 	 */
-	publishTexturesToContext( context, writeBuffer ) {
+	publishTexturesToContext( context ) {
 
-		if ( writeBuffer && writeBuffer.texture ) {
+		if ( this.outputTarget && this.outputTarget.texture ) {
 
-			context.setTexture( 'edgeFiltering:output', writeBuffer.texture );
+			context.setTexture( 'edgeFiltering:output', this.outputTarget.texture );
 
 		}
 

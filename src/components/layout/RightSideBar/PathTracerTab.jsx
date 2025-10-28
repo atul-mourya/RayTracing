@@ -47,7 +47,6 @@ const PathTracerTab = () => {
 		tiles,
 		tilesHelper,
 		resolution,
-		enableOIDN,
 		useGBuffer,
 		debugMode,
 		debugThreshold,
@@ -67,9 +66,12 @@ const PathTracerTab = () => {
 		GIIntensity,
 		toneMapping,
 		interactionModeEnabled,
-		enableASVGF,
 		asvgfQualityPreset,
 		showAsvgfHeatmap,
+		denoiserStrategy,
+		pixelEdgeSharpness,
+		edgeSharpenSpeed,
+		edgeThreshold,
 
 		// Handlers - now from store
 		handlePathTracerChange,
@@ -94,7 +96,6 @@ const PathTracerTab = () => {
 		handleRenderModeChange,
 		handleTileUpdate,
 		handleTileHelperToggle,
-		handleEnableOIDNChange,
 		handleOidnQualityChange,
 		handleOidnHdrChange,
 		handleUseGBufferChange,
@@ -114,9 +115,12 @@ const PathTracerTab = () => {
 		handleGIIntensityChange,
 		handleToneMappingChange,
 		handleInteractionModeEnabledChange,
-		handleEnableASVGFChange,
 		handleAsvgfQualityPresetChange,
 		handleShowAsvgfHeatmapChange,
+		handleDenoiserStrategyChange,
+		handlePixelEdgeSharpnessChange,
+		handleEdgeSharpenSpeedChange,
+		handleEdgeThresholdChange,
 	} = pathTracerStore;
 
 	return (
@@ -212,9 +216,33 @@ const PathTracerTab = () => {
 
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
-					<Switch label={"Enable ASVGF"} checked={enableASVGF} onCheckedChange={handleEnableASVGFChange}/>
+					<Select value={denoiserStrategy} onValueChange={handleDenoiserStrategyChange}>
+						<span className="opacity-50 text-xs truncate">Denoiser Strategy</span>
+						<SelectTrigger className="max-w-32 h-5 rounded-full" >
+							<SelectValue placeholder="Select strategy" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="none">None</SelectItem>
+							<SelectItem value="edgeaware">EdgeAware</SelectItem>
+							<SelectItem value="asvgf">ASVGF</SelectItem>
+							<SelectItem value="oidn">OIDN</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
-				{enableASVGF && ( <>
+
+				{denoiserStrategy === 'edgeaware' && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Edge Sharpness"} min={0} max={2} step={0.01} value={[ pixelEdgeSharpness ]} onValueChange={handlePixelEdgeSharpnessChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Sharpen Speed"} min={0} max={0.2} step={0.001} value={[ edgeSharpenSpeed ]} onValueChange={handleEdgeSharpenSpeedChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Edge Threshold"} min={0} max={5} step={0.1} value={[ edgeThreshold ]} onValueChange={handleEdgeThresholdChange} />
+					</div>
+				</> )}
+
+				{denoiserStrategy === 'asvgf' && ( <>
 					<div className="flex items-center justify-between">
 						<Select value={asvgfQualityPreset} onValueChange={handleAsvgfQualityPresetChange}>
 							<span className="opacity-50 text-xs truncate">Quality Preset</span>
@@ -232,12 +260,8 @@ const PathTracerTab = () => {
 						<Switch label={"Show Heatmap"} checked={showAsvgfHeatmap} onCheckedChange={handleShowAsvgfHeatmapChange}/>
 					</div>
 				</> )}
-				<Separator />
 
-				<div className="flex items-center justify-between">
-					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
-				</div>
-				{enableOIDN && ( <>
+				{denoiserStrategy === 'oidn' && ( <>
 					<div className="flex items-center justify-between">
 						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
 							<span className="opacity-50 text-xs truncate">OIDN Quality</span>

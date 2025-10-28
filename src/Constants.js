@@ -230,6 +230,9 @@ export const DEFAULT_STATE = {
 	interactionModeEnabled: true,
 	debugVisScale: 100,
 
+	// Denoising strategy: 'edgeaware', 'asvgf', 'oidn'
+	denoiserStrategy: 'edgeaware',
+
 	enableASVGF: false,
 	asvgfTemporalAlpha: 0.1,
 	asvgfAtrousIterations: 8,

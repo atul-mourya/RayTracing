@@ -279,6 +279,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfDebugMode: val => set( { asvgfDebugMode: val } ),
 	setAsvgfPreset: val => set( { asvgfQualityPreset: val } ),
 
+	// Denoiser strategy and EdgeAware filter setters
+	setDenoiserStrategy: val => set( { denoiserStrategy: val } ),
+	setPixelEdgeSharpness: val => set( { pixelEdgeSharpness: val } ),
+	setEdgeSharpenSpeed: val => set( { edgeSharpenSpeed: val } ),
+	setEdgeThreshold: val => set( { edgeThreshold: val } ),
+
 	handleAsvgfQualityPresetChange: handleChange(
 		val => set( { asvgfQualityPreset: val } ),
 		val => {
@@ -618,6 +624,136 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false
 	),
 
+	// Denoiser strategy and EdgeAware filter handlers
+	handleDenoiserStrategyChange: handleChange(
+		val => set( { denoiserStrategy: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app ) return;
+
+			// Disable all denoisers first
+			app.asvgfPass.enabled = false;
+			app.denoiser.enabled = false;
+			app.edgeAwareFilterPass.setFilteringEnabled( false );
+
+			// Enable the selected denoiser
+			switch ( val ) {
+
+				case 'none':
+					// All denoisers already disabled above
+					// Clear any stale denoiser outputs to ensure clean pipeline
+					if ( app.pipeline?.context ) {
+
+						const ctx = app.pipeline.context;
+						ctx.removeTexture( 'asvgf:output' );
+						ctx.removeTexture( 'asvgf:temporalColor' );
+						ctx.removeTexture( 'asvgf:variance' );
+						ctx.removeTexture( 'edgeFiltering:output' );
+
+					}
+
+					break;
+
+				case 'asvgf': {
+
+					app.asvgfPass.enabled = true;
+					app.asvgfPass.setTemporalEnabled && app.asvgfPass.setTemporalEnabled( true );
+
+					// Apply current quality preset parameters
+					const store = get();
+					const preset = ASVGF_QUALITY_PRESETS[ store.asvgfQualityPreset ];
+					if ( preset ) {
+
+						app.asvgfPass.updateParameters( preset );
+
+					}
+
+					break;
+
+				}
+
+				case 'oidn':
+					app.denoiser.enabled = true;
+					break;
+
+				case 'edgeaware':
+				default:
+					app.edgeAwareFilterPass.setFilteringEnabled( true );
+					// Clear any stale ASVGF outputs so EdgeAware reads live path tracer texture
+					if ( app.pipeline?.context ) {
+
+						const ctx = app.pipeline.context;
+						ctx.removeTexture( 'asvgf:output' );
+						ctx.removeTexture( 'asvgf:temporalColor' );
+						ctx.removeTexture( 'asvgf:variance' );
+
+					}
+
+					break;
+
+			}
+
+			// Update store state for individual toggles (for backward compatibility)
+			set( {
+				enableASVGF: val === 'asvgf',
+				enableOIDN: val === 'oidn'
+			} );
+
+			// Reset when switching denoiser strategy
+			app.reset();
+
+		}
+	),
+
+	handlePixelEdgeSharpnessChange: handleChange(
+		val => set( { pixelEdgeSharpness: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( app?.edgeAwareFilterPass ) {
+
+				const value = Array.isArray( val ) ? val[ 0 ] : val;
+				app.edgeAwareFilterPass.updateUniforms( { pixelEdgeSharpness: value } );
+
+			}
+
+		},
+		true // Enable reset to see changes immediately
+	),
+
+	handleEdgeSharpenSpeedChange: handleChange(
+		val => set( { edgeSharpenSpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( app?.edgeAwareFilterPass ) {
+
+				const value = Array.isArray( val ) ? val[ 0 ] : val;
+				app.edgeAwareFilterPass.updateUniforms( { edgeSharpenSpeed: value } );
+
+			}
+
+		},
+		true // Enable reset to see changes immediately
+	),
+
+	handleEdgeThresholdChange: handleChange(
+		val => set( { edgeThreshold: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( app?.edgeAwareFilterPass ) {
+
+				const value = Array.isArray( val ) ? val[ 0 ] : val;
+				app.edgeAwareFilterPass.updateUniforms( { edgeThreshold: value } );
+
+			}
+
+		},
+		true // Enable reset to see changes immediately
+	),
+
 	handleDebugThresholdChange: handleChange(
 		val => set( { debugThreshold: val } ),
 		val => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = val[ 0 ]
@@ -790,7 +926,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				if ( preset ) {
 
-					console.log( `Applying current preset (${store.asvgfQualityPreset}):`, preset );
 					app.asvgfPass.updateParameters( preset );
 
 				}

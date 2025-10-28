@@ -584,9 +584,6 @@ export class ASVGFStage extends PipelineStage {
 					vec3 color = texture2D(tColor, vUv).rgb;
 					
 					if (!enableDebug) {
-						// Add subtle visual indicator that ASVGF is active
-						// Slight warm tint to show ASVGF is processing
-						color = color * vec3(1.02, 1.01, 0.98);
 						gl_FragColor = vec4(color, 1.0);
 						return;
 					}
@@ -954,16 +951,6 @@ export class ASVGFStage extends PipelineStage {
 
 		}
 
-		// Skip ASVGF during interaction mode for performance
-		// Read interaction mode from context instead of global access
-		const interactionMode = context.getState( 'interactionMode' );
-		if ( interactionMode ) {
-
-			// During interaction, pass through without denoising
-			return;
-
-		}
-
 		// Read PathTracer MRT textures from context
 		const colorTexture = context.getTexture( 'pathtracer:color' );
 		const normalDepthTexture = context.getTexture( 'pathtracer:normalDepth' );
@@ -975,22 +962,38 @@ export class ASVGFStage extends PipelineStage {
 
 		}
 
-		// Update camera matrices for motion vectors
-		this.updateCameraMatrices( this.camera );
+		// Check interaction mode for adaptive processing
+		const interactionMode = context.getState( 'interactionMode' );
 
-		// Handle tile vs full-screen differently
-		if ( this.temporalEnabled ) {
+		if ( interactionMode ) {
 
-			this.renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, this.camera );
+			// Fast path: copy raw path tracer color for immediate feedback
+			this.renderInteractionFastCopy( renderer, colorTexture );
 
 		} else {
 
-			this.renderSpatialOnly( renderer, writeBuffer, colorTexture, normalDepthTexture, this.camera );
+			// Normal operation with full temporal processing
+			this.renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, this.camera );
 
 		}
 
 		// Publish textures to context
 		this.publishTexturesToContext( context );
+
+	}
+
+	/**
+	 * Fast copy path used during interaction mode to keep responsiveness high.
+	 * Avoids any temporal or spatial filtering cost.
+	 */
+	renderInteractionFastCopy( renderer, colorTexture ) {
+
+		if ( ! this.outputTarget ) return;
+
+		// Use existing copyTexture helper for reliability
+		// Wrap colorTexture into an object with .texture to match expected interface
+		const source = { texture: colorTexture };
+		this.copyTexture( renderer, source, this.outputTarget );
 
 	}
 
@@ -1179,7 +1182,7 @@ export class ASVGFStage extends PipelineStage {
 					varying vec2 vUv;
 					void main() {
 						vUv = uv;
-						gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+						gl_Position = vec4( position, 1.0 );
 					}
 				`,
 				fragmentShader: /* glsl */`
