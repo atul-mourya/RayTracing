@@ -67,6 +67,7 @@ const PathTracerTab = () => {
 		toneMapping,
 		interactionModeEnabled,
 		asvgfQualityPreset,
+		asvgfDebugMode,
 		showAsvgfHeatmap,
 		denoiserStrategy,
 		pixelEdgeSharpness,
@@ -116,6 +117,7 @@ const PathTracerTab = () => {
 		handleToneMappingChange,
 		handleInteractionModeEnabledChange,
 		handleAsvgfQualityPresetChange,
+		handleAsvgfDebugModeChange,
 		handleShowAsvgfHeatmapChange,
 		handleDenoiserStrategyChange,
 		handlePixelEdgeSharpnessChange,
@@ -259,6 +261,24 @@ const PathTracerTab = () => {
 					<div className="flex items-center justify-between">
 						<Switch label={"Show Heatmap"} checked={showAsvgfHeatmap} onCheckedChange={handleShowAsvgfHeatmapChange}/>
 					</div>
+					{showAsvgfHeatmap && (
+						<div className="flex items-center justify-between">
+							<Select value={asvgfDebugMode.toString()} onValueChange={handleAsvgfDebugModeChange}>
+								<span className="opacity-50 text-xs truncate">Debug View</span>
+								<SelectTrigger className="max-w-32 h-5 rounded-full" >
+									<SelectValue placeholder="Select view" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="0">Beauty</SelectItem>
+									<SelectItem value="1">Variance</SelectItem>
+									<SelectItem value="2">History Length</SelectItem>
+									<SelectItem value="3">Motion Vectors</SelectItem>
+									<SelectItem value="4">Normals</SelectItem>
+									<SelectItem value="5">Temporal Gradient</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+					)}
 				</> )}
 
 				{denoiserStrategy === 'oidn' && ( <>
