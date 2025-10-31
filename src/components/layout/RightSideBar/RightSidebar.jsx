@@ -1,6 +1,7 @@
 import { useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife, Bot } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/store';
 import FinalRenderPanel from './FinalRenderPanel';
 
@@ -47,31 +48,31 @@ const InteractiveModeTabs = memo( () => (
 			</TabsTrigger>
 		</TabsList>
 
-		<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+		<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<CameraTab />
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<PathTracerTab />
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+		<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<LightsTab />
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+		<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<MaterialTab />
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col mt-0 overflow-y-auto">
+		<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<AssetsTab />
 			</Suspense>
@@ -110,24 +111,24 @@ const ResultsModeTabs = memo( () => (
 			</TabsTrigger>
 		</TabsList>
 
-		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<ColorCorrectionsTab />
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="tool" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			Coming Soon !!
+		<TabsContent value="tool" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+			<div><Separator className="bg-primary" /><p className="pt-4 text-sm text-center text-muted-foreground">Coming Soon !!</p></div>
 		</TabsContent>
 
-		<TabsContent value="ai" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
+		<TabsContent value="ai" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 			<Suspense fallback={<TabLoadingFallback />}>
 				<AITab />
 			</Suspense>
 		</TabsContent>
 
-		<TabsContent value="filters" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto">
-			Coming Soon !!
+		<TabsContent value="filters" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+			<div><Separator className="bg-primary" /><p className="pt-4 text-sm text-center text-muted-foreground">Coming Soon !!</p></div>
 		</TabsContent>
 	</Tabs>
 ) );

@@ -127,6 +127,7 @@ const PathTracerTab = () => {
 
 	return (
 		<div className="">
+			<Separator className="bg-primary" />
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />

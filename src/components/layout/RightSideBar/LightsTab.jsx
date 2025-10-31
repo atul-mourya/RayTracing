@@ -105,6 +105,7 @@ const LightsTab = () => {
 
 	return (
 		<div className="px-2 space-y-4">
+			<Separator className="bg-primary" />
 			{/* Light Management Controls */}
 			<div className="flex items-center justify-between py-2 px-1 mb-0">
 				<span className="text-sm font-medium">Lights ( {lights.length} )</span>

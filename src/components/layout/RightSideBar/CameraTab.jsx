@@ -108,6 +108,7 @@ const CameraTab = () => {
 
 	return (
 		<div className="space-y-4 p-4">
+			<Separator className="bg-primary" />
 			<div className="flex items-center justify-between">
 				<Select value={selectedCameraIndex.toString()} onValueChange={handleCameraChange}>
 					<span className="opacity-50 text-xs truncate">Select Camera</span>

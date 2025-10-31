@@ -15,11 +15,11 @@ const ColorCorrectionsTab = () => {
 	const handleResetImageProcessing = useStore( useCallback( state => state.handleResetImageProcessing || state.resetImageProcessing, [] ) );
 
 	return (
-		<div className="space-y-6 p-4">
-
-			<div className="space-y-2">
-				<div className="flex items-center justify-between">
-					<Button variant="outline" className={cn( "relative flex h-5 w-full rounded-full touch-none select-none items-center" )} onClick={handleResetImageProcessing}>
+		<div className="">
+			<Separator className="bg-primary" />
+			<div className="space-y-2 px-2">
+				<div className="flex items-center justify-between my-2">
+					<Button variant="outline" className={cn( "relative flex h-5 w-full rounded-full touch-none select-none items-center cursor-pointer" )} onClick={handleResetImageProcessing}>
 						<span className="text-xm truncate">{"Reset"}</span>
 						<RotateCcw size={14} className="shrink-0 pl-1" />
 					</Button>

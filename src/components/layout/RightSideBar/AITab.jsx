@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from '@/components/ui/separator';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Save, X, Settings, Image as ImageIcon } from "lucide-react";
 import { geminiImageGenerator } from '@/services/geminiApi';
@@ -166,34 +167,37 @@ const AITab = () => {
 	if ( showApiKeyInput ) {
 
 		return (
-			<div className="p-4 space-y-4">
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<Settings size={20} />
-							Gemini API Setup
-						</CardTitle>
-					</CardHeader>
-					<CardContent className="space-y-4">
-						<div>
-							<Label htmlFor="apiKey">API Key</Label>
-							<Input
-								id="apiKey"
-								type="password"
-								value={apiKey}
-								onChange={( e ) => setApiKey( e.target.value )}
-								placeholder="Enter your Gemini API key"
-							/>
-							<p className="text-xs text-muted-foreground mt-1">
-								Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline">Google AI Studio</a>
-							</p>
-						</div>
-						<Button onClick={handleApiKeySubmit} className="w-full">
-							Initialize API
-						</Button>
-					</CardContent>
-				</Card>
-			</div>
+			<>
+				<Separator className="bg-primary" />
+				<div className="p-4 space-y-4">
+					<Card>
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2">
+								<Settings size={20} />
+								Gemini API Setup
+							</CardTitle>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							<div>
+								<Label htmlFor="apiKey">API Key</Label>
+								<Input
+									id="apiKey"
+									type="password"
+									value={apiKey}
+									onChange={( e ) => setApiKey( e.target.value )}
+									placeholder="Enter your Gemini API key"
+								/>
+								<p className="text-xs text-muted-foreground mt-1">
+									Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline">Google AI Studio</a>
+								</p>
+							</div>
+							<Button onClick={handleApiKeySubmit} className="w-full">
+								Initialize API
+							</Button>
+						</CardContent>
+					</Card>
+				</div>
+			</>
 		);
 
 	}
@@ -201,6 +205,7 @@ const AITab = () => {
 	return (
 		<>
 			{/* Input Section */}
+			<Separator className="bg-primary" />
 			<Card>
 				<CardHeader className="p-3">
 					<CardTitle className="text-sm">AI Image Generation</CardTitle>

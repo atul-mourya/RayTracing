@@ -380,18 +380,19 @@ const MaterialTab = () => {
 	// Early returns for invalid states
 	if ( ! selectedObject ) {
 
-		return <div className="p-4"><p className="text-sm text-center text-muted-foreground">Please select an object to customize its material properties</p></div>;
+		return <div><Separator className="bg-primary" /><p className="pt-4 text-sm text-center text-muted-foreground">Please select an object to customize its material properties</p></div>;
 
 	}
 
 	if ( ! selectedObject.isMesh ) {
 
-		return <div className="p-4"><p className="text-sm text-center text-muted-foreground">Selected object is not a mesh. Please select a mesh object</p></div>;
+		return <div><Separator className="bg-primary" /><p className="pt-4 text-sm text-center text-muted-foreground">Selected object is not a mesh. Please select a mesh object</p></div>;
 
 	}
 
 	return (
 		<div className="flex flex-col h-full">
+			<Separator className="bg-primary" />
 			<div className="py-1 flex-shrink-0">
 				<div className="text-xs text-center px-2 font-medium truncate" title={name}>
 					{name}
