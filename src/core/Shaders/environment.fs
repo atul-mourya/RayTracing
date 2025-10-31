@@ -13,6 +13,7 @@ uniform bool useEnvMipMap;
 uniform float envSamplingBias; // Bias for mip level selection
 uniform int maxEnvSamplingBounce; // Maximum bounces for environment sampling
 uniform float envMapTotalLuminance; // Total luminance for proper PDF normalization
+uniform float fireflyThreshold;
 
 // Structure to store sampling results
 struct EnvMapSample {

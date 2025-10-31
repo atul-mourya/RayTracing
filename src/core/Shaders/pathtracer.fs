@@ -7,32 +7,12 @@ layout( location = 1 ) out vec4 gNormalDepth;  // Normal(RGB) + depth(A)
 
 uniform uint frame;
 uniform vec2 resolution;
-uniform int maxBounceCount;
 uniform int numRaysPerPixel;
-uniform bool showBackground;
-uniform float backgroundIntensity;
-uniform int renderMode; // 0: Regular, 1: Tiled (but handled via scissor now)
 uniform int visMode;
-uniform float debugVisScale;
 uniform sampler2D adaptiveSamplingTexture; // Contains sampling data from AdaptiveSamplingPass
 uniform bool useAdaptiveSampling;
 uniform int adaptiveSamplingMax;
-uniform float fireflyThreshold;
-uniform bool enableDOF;
 
-uniform sampler2D triangleTexture;
-uniform sampler2D materialTexture;
-uniform sampler2D bvhTexture;
-uniform sampler2D emissiveTriangleTexture;
-
-uniform ivec2 triangleTexSize;
-uniform ivec2 materialTexSize;
-uniform ivec2 bvhTexSize;
-uniform ivec2 emissiveTriangleTexSize;
-uniform int totalTriangleCount;
-uniform int emissiveTriangleCount;
-uniform bool enableEmissiveTriangleSampling;
-uniform float emissiveBoost;
 
 #ifdef ENABLE_ACCUMULATION
 uniform sampler2D previousAccumulatedTexture;
@@ -42,22 +22,6 @@ uniform bool cameraIsMoving;
 uniform bool hasPreviousAccumulated;
 #endif
 
-// Ray type enumeration for proper classification
-const int RAY_TYPE_CAMERA = 0;        // Primary rays from camera
-const int RAY_TYPE_REFLECTION = 1;     // Reflection rays
-const int RAY_TYPE_TRANSMISSION = 2;   // Transmission/refraction rays
-const int RAY_TYPE_DIFFUSE = 3;        // Diffuse indirect rays
-const int RAY_TYPE_SHADOW = 4;         // Shadow rays
-
-struct RenderState {
-	int traversals;               // Remaining general bounces
-	int transmissiveTraversals;   // Remaining transmission-specific bounces
-	int rayType;                  // Current ray type (RAY_TYPE_*)
-	bool isPrimaryRay;            // True only for camera rays (bounceIndex == 0)
-	int actualBounceDepth;        // True depth without manipulation
-};
-
-uniform int transmissiveBounces;  // Controls the number of allowed transmission bounces
 
 // Include statements - Core structures and utilities
 #include struct.fs

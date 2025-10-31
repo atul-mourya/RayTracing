@@ -8,6 +8,9 @@ const float MIN_PDF = 0.001;
 const vec3 REC709_LUMINANCE_COEFFICIENTS = vec3( 0.2126, 0.7152, 0.0722 );
 #define MATERIAL_SLOTS 27
 
+uniform sampler2D materialTexture;
+uniform ivec2 materialTexSize;
+
 vec3 sRGBToLinear( vec3 srgbColor ) {
     return pow( srgbColor, vec3( 2.2 ) );
 }

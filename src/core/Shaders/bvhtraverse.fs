@@ -1,5 +1,12 @@
 precision highp float;
 
+uniform sampler2D triangleTexture;
+uniform sampler2D bvhTexture;
+
+uniform ivec2 triangleTexSize;
+uniform ivec2 bvhTexSize;
+uniform bool enableDOF;
+
 // OPTIMIZED: Combined visibility data structure
 struct VisibilityData {
 	bool visible;    // material.visible flag

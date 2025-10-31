@@ -8,6 +8,11 @@
 // Emissive Triangle Sampling Structures
 // -----------------------------------------------------------------------------
 
+uniform sampler2D emissiveTriangleTexture;
+uniform ivec2 emissiveTriangleTexSize;
+uniform int emissiveTriangleCount;
+uniform float emissiveBoost;
+
 struct EmissiveSample {
 	vec3 position;       // Sample point on emissive triangle
 	vec3 normal;         // Normal at sample point

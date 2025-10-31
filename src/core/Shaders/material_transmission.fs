@@ -13,6 +13,15 @@ struct MaterialInteractionResult {
 	float alpha;               // Alpha modification
 };
 
+struct RenderState {
+	int traversals;               // Remaining general bounces
+	int transmissiveTraversals;   // Remaining transmission-specific bounces
+	int rayType;                  // Current ray type (RAY_TYPE_*)
+	bool isPrimaryRay;            // True only for camera rays (bounceIndex == 0)
+	int actualBounceDepth;        // True depth without manipulation
+};
+
+
 // Maximum number of nested media
 #define MAX_MEDIA_STACK 4
 

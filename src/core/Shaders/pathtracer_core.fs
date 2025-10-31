@@ -8,6 +8,22 @@
 // Path Contribution Estimation
 // -----------------------------------------------------------------------------
 
+
+// Ray type enumeration for proper classification
+const int RAY_TYPE_CAMERA = 0;        // Primary rays from camera
+const int RAY_TYPE_REFLECTION = 1;     // Reflection rays
+const int RAY_TYPE_TRANSMISSION = 2;   // Transmission/refraction rays
+const int RAY_TYPE_DIFFUSE = 3;        // Diffuse indirect rays
+const int RAY_TYPE_SHADOW = 4;         // Shadow rays
+
+uniform int totalTriangleCount;
+uniform bool enableEmissiveTriangleSampling;
+
+uniform int maxBounceCount;
+uniform float backgroundIntensity;
+uniform bool showBackground;
+uniform int transmissiveBounces;  // Controls the number of allowed transmission bounces
+
 float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material, int materialIndex, PathState pathState ) {
 	float throughputStrength = maxComponent( throughput );
 

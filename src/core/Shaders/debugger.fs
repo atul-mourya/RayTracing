@@ -1,3 +1,5 @@
+uniform float debugVisScale;
+
 vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 	Ray ray;
 	ray.origin = rayOrigin;
