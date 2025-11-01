@@ -1,12 +1,9 @@
 # Rayzee Path Tracer - TODO List
 *Immediate actionable items and development tasks*
 
-## � Critical Bug Fixes
+## 🚨 Critical Bug Fixes
 
 ### Known Issues
-- [ ] some meshes in outliner shows as group and i'm not able to activate material editor (example bistro)
-- [x] Sometime movement of camera when stopped the the accumulation doesnt resume
-- [ ] Keyboard play/pause shortcut (Space) not working consistently, sometimes requires multiple presses
 - [ ] Soft shadows for directional lights not working when enabled from UI
 
 ### Code Quality & Performance
@@ -58,10 +55,7 @@
 - [ ] Add dynamic object addition and removal
 - [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 - [x] useHook - https://github.com/uidotdev/usehooks
-- [x] **Keyboard shortcuts: Esc (deselect), R (reset camera), Space (play/pause)**
-- [x] Star/heart button on each catalog item
 - [ ] Estimated time remaining display
-- [x] **Model polycount information**
 
 ### BVH Construction Improvements
 - [ ] BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
