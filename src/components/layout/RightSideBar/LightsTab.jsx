@@ -185,7 +185,7 @@ const LightsTab = () => {
 						</div>
 						{light.type === 'DirectionalLight' && (
 							<div className="flex items-center justify-between">
-								<Slider
+								{/* <Slider
 									label={`Soft Shadow Angle`}
 									icon={CircleDot}
 									min={0}
@@ -193,7 +193,7 @@ const LightsTab = () => {
 									step={0.1}
 									value={[ light.angle || 0 ]}
 									onValueChange={value => handleDirectionalLightAngleChange( index, value )}
-								/>
+								/> */}
 							</div>
 						)}
 						{light.type === 'SpotLight' && (
