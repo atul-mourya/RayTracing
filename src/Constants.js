@@ -408,8 +408,8 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
 // Memory management constants
 export const MEMORY_CONSTANTS = {
-	MAX_BUFFER_MEMORY: 256 * 1024 * 1024, // 256MB buffer pool limit
-	MAX_TEXTURE_MEMORY: 512 * 1024 * 1024, // 512MB texture processing limit
+	MAX_BUFFER_MEMORY: 1024 * 1024 * 1024, // 1GB buffer pool limit (increased for large models)
+	MAX_TEXTURE_MEMORY: 2048 * 1024 * 1024, // 2GB texture processing limit (increased for large models)
 	CLEANUP_THRESHOLD: 0.8, // Start cleanup at 80% memory usage
 	CHUNK_SIZE_THRESHOLD: 64 * 1024 * 1024, // 64MB - when to use chunked processing
 	STREAM_BATCH_SIZE: 4 // Default batch size for streaming operations

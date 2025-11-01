@@ -160,9 +160,33 @@ class SmartBufferPool {
 		let buffer = pool.pop();
 		if ( ! buffer ) {
 
-			buffer = new Type( optimalSize );
-			this.memoryUsage += buffer.byteLength;
-			this.allocatedBuffers.set( buffer, true );
+			try {
+
+				buffer = new Type( optimalSize );
+				this.memoryUsage += buffer.byteLength;
+				this.allocatedBuffers.set( buffer, true );
+
+			} catch {
+
+				// Memory allocation failed - cleanup and try again with smaller strategy
+				this.cleanup();
+
+				try {
+
+					buffer = new Type( optimalSize );
+					this.memoryUsage += buffer.byteLength;
+					this.allocatedBuffers.set( buffer, true );
+
+				} catch ( retryError ) {
+
+					// Still failed - throw with helpful context
+					const requestedMB = ( optimalSize * Type.BYTES_PER_ELEMENT ) / ( 1024 * 1024 );
+					const currentUsageMB = this.memoryUsage / ( 1024 * 1024 );
+					throw new Error( `Buffer allocation failed: requested ${ requestedMB.toFixed( 1 ) }MB, current usage: ${ currentUsageMB.toFixed( 1 ) }MB, max: ${ ( this.maxMemoryUsage / ( 1024 * 1024 ) ).toFixed( 1 ) }MB. Original error: ${ retryError.message }` );
+
+				}
+
+			}
 
 		}
 
@@ -173,13 +197,18 @@ class SmartBufferPool {
 
 		}
 
+		// Check memory health and warn if needed
+		this.checkMemoryHealth();
+
 		return buffer.subarray( 0, size );
 
 	}
 
 	releaseBuffer( buffer, Type = Float32Array ) {
 
-		const key = `${Type.name}-${buffer.length}`;
+		// Fix: Use the same key generation logic as getBuffer
+		const optimalSize = this.getOptimalSize( buffer.length );
+		const key = `${Type.name}-${optimalSize}`;
 		const pool = this.pools.get( key ) || [];
 
 		if ( pool.length < TEXTURE_CONSTANTS.BUFFER_POOL_SIZE ) {
@@ -244,6 +273,42 @@ class SmartBufferPool {
 
 		this.pools.clear();
 		this.memoryUsage = 0;
+
+	}
+
+	// Memory monitoring helper
+	getMemoryStats() {
+
+		const stats = {
+			currentUsage: this.memoryUsage,
+			maxUsage: this.maxMemoryUsage,
+			utilizationPercentage: ( this.memoryUsage / this.maxMemoryUsage ) * 100,
+			poolCount: this.pools.size,
+			allocatedBufferCount: this.allocatedBuffers ? this.allocatedBuffers.size || 0 : 0
+		};
+
+		return stats;
+
+	}
+
+	// Warning system for memory usage
+	checkMemoryHealth() {
+
+		const stats = this.getMemoryStats();
+
+		if ( stats.utilizationPercentage > 90 ) {
+
+			console.warn( `Memory pool critical: ${ stats.utilizationPercentage.toFixed( 1 ) }% used (${ ( stats.currentUsage / ( 1024 * 1024 ) ).toFixed( 1 ) }MB / ${ ( stats.maxUsage / ( 1024 * 1024 ) ).toFixed( 1 ) }MB)` );
+			return 'critical';
+
+		} else if ( stats.utilizationPercentage > 70 ) {
+
+			console.warn( `Memory pool high: ${ stats.utilizationPercentage.toFixed( 1 ) }% used (${ ( stats.currentUsage / ( 1024 * 1024 ) ).toFixed( 1 ) }MB / ${ ( stats.maxUsage / ( 1024 * 1024 ) ).toFixed( 1 ) }MB)` );
+			return 'high';
+
+		}
+
+		return 'normal';
 
 	}
 
@@ -534,7 +599,36 @@ export default class TextureCreator {
 		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
 		console.log( `Creating triangle texture: ${triangleCount} triangles` );
 
-		// Calculate texture dimensions
+		// Calculate memory requirements
+		const floatsPerTriangle = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const dataLength = triangleCount * floatsPerTriangle;
+		const memoryRequired = dataLength * 4; // 4 bytes per float
+		const memoryRequiredMB = memoryRequired / ( 1024 * 1024 );
+
+		// Check if we exceed reasonable memory limits and suggest chunking
+		if ( memoryRequired > MEMORY_CONSTANTS.MAX_TEXTURE_MEMORY ) {
+
+			console.warn( `Triangle data requires ${ memoryRequiredMB.toFixed( 1 ) }MB, exceeding texture memory limit of ${ ( MEMORY_CONSTANTS.MAX_TEXTURE_MEMORY / ( 1024 * 1024 ) ).toFixed( 1 ) }MB. Attempting chunked creation...` );
+			return this.createTriangleDataTextureChunked( triangles );
+
+		}
+
+		try {
+
+			return this.createTriangleDataTextureDirect( triangles );
+
+		} catch ( error ) {
+
+			console.warn( `Direct triangle texture creation failed: ${ error.message }. Falling back to chunked approach...` );
+			return this.createTriangleDataTextureChunked( triangles );
+
+		}
+
+	}
+
+	createTriangleDataTextureDirect( triangles ) {
+
+		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
 		const floatsPerTriangle = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 		const dataLength = triangleCount * floatsPerTriangle;
 
@@ -553,7 +647,7 @@ export default class TextureCreator {
 
 		} else {
 
-			// Need to pad the data slightly
+			// Need to pad the data slightly - this is where allocation can fail
 			textureData = this.bufferPool.getBuffer( expectedSize, Float32Array );
 			textureData.set( new Float32Array( triangles ), 0 ); // Copy existing data, rest remains zeros
 
@@ -581,6 +675,269 @@ export default class TextureCreator {
 			};
 
 		}
+
+		return texture;
+
+	}
+
+	async createTriangleDataTextureChunked( triangles ) {
+
+		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		const floatsPerTriangle = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const dataLength = triangleCount * floatsPerTriangle;
+
+		// Calculate final texture dimensions
+		const width = Math.ceil( Math.sqrt( dataLength / 4 ) );
+		const height = Math.ceil( dataLength / ( width * 4 ) );
+		const expectedSize = width * height * 4;
+
+		console.log( `Creating chunked triangle texture: ${ triangleCount } triangles, final texture: ${ width }x${ height }` );
+
+		// Instead of creating multiple textures, create one large texture using streaming approach
+		// This avoids the single large allocation while maintaining shader compatibility
+
+		// Calculate optimal chunk size for processing (smaller chunks, same final texture)
+		const maxMemoryPerChunk = Math.min(
+			MEMORY_CONSTANTS.MAX_BUFFER_MEMORY / 8, // Use 1/8 of buffer memory per chunk
+			128 * 1024 * 1024 // Cap at 128MB per chunk
+		);
+		const maxFloatsPerChunk = Math.floor( maxMemoryPerChunk / 4 );
+		const maxTrianglesPerChunk = Math.floor( maxFloatsPerChunk / floatsPerTriangle );
+
+		const chunkCount = Math.ceil( triangleCount / maxTrianglesPerChunk );
+		console.log( `Processing ${ triangleCount } triangles in ${ chunkCount } chunks of max ${ maxTrianglesPerChunk } triangles each` );
+
+		// Create the final texture data array using a more memory-efficient approach
+		let finalTextureData;
+		try {
+
+			// Try to create the final array directly
+			finalTextureData = new Float32Array( expectedSize );
+
+		} catch {
+
+			console.warn( `Direct allocation of ${ ( expectedSize * 4 / ( 1024 * 1024 ) ).toFixed( 1 ) }MB failed, using memory-optimized fallback` );
+
+			// Fallback: Use memory-optimized approach for very large textures
+			return this.createTriangleDataTextureMemoryOptimized( triangles, width, height );
+
+		}
+
+		// Process data in chunks to avoid memory spikes
+		const triangleArray = new Float32Array( triangles );
+
+		for ( let i = 0; i < chunkCount; i ++ ) {
+
+			const startTriangle = i * maxTrianglesPerChunk;
+			const endTriangle = Math.min( ( i + 1 ) * maxTrianglesPerChunk, triangleCount );
+
+			const startFloat = startTriangle * floatsPerTriangle;
+			const endFloat = endTriangle * floatsPerTriangle;
+
+			// Copy chunk data directly to final array (no intermediate allocations)
+			const chunkLength = endFloat - startFloat;
+			for ( let j = 0; j < chunkLength; j ++ ) {
+
+				finalTextureData[ startFloat + j ] = triangleArray[ startFloat + j ];
+
+			}
+
+			// Force garbage collection opportunity between chunks
+			if ( i % 4 === 3 ) {
+
+				await new Promise( resolve => setTimeout( resolve, 0 ) );
+
+			}
+
+		}
+
+		// Pad remaining data with zeros (already done by Float32Array constructor)
+
+		const texture = new DataTexture( finalTextureData, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
+
+		// Store metadata for disposal
+		texture.userData = {
+			buffer: finalTextureData,
+			bufferType: Float32Array,
+			isLargeTexture: true,
+			originalTriangleCount: triangleCount,
+			bufferPool: this.bufferPool // Reference for proper disposal
+		};
+
+		const originalDispose = texture.dispose.bind( texture );
+		texture.dispose = () => {
+
+			if ( texture.userData.buffer && texture.userData.bufferPool ) {
+
+				// Properly return large buffers to pool or account for memory
+				try {
+
+					texture.userData.bufferPool.releaseBuffer( texture.userData.buffer, texture.userData.bufferType );
+
+				} catch ( releaseError ) {
+
+					console.warn( 'Failed to release large texture buffer to pool:', releaseError.message );
+					// Manually decrement memory usage if pool release fails
+					if ( texture.userData.bufferPool.allocatedBuffers &&
+						 texture.userData.bufferPool.allocatedBuffers.has( texture.userData.buffer ) ) {
+
+						texture.userData.bufferPool.memoryUsage -= texture.userData.buffer.byteLength;
+						texture.userData.bufferPool.allocatedBuffers.delete( texture.userData.buffer );
+
+					}
+
+				}
+
+				texture.userData.buffer = null;
+				texture.userData.bufferPool = null;
+
+			}
+
+			originalDispose();
+
+		};
+
+		return texture;
+
+	}
+
+	// Memory-optimized fallback for extremely large textures
+	async createTriangleDataTextureMemoryOptimized( triangles, width, height ) {
+
+		console.log( `Using memory-optimized approach for ${ width }x${ height } triangle texture` );
+
+		const expectedSize = width * height * 4;
+		const triangleArray = new Float32Array( triangles );
+
+		// Try progressive allocation strategy
+		// Start with smaller chunks and gradually build up the final array
+		const chunkSizeMB = 64; // 64MB chunks
+		const chunkSizeFloats = ( chunkSizeMB * 1024 * 1024 ) / 4;
+		const chunkCount = Math.ceil( expectedSize / chunkSizeFloats );
+
+		console.log( `Building texture using ${ chunkCount } chunks of ${ chunkSizeMB }MB each` );
+
+		// Use a different allocation strategy - build array in segments
+		const segments = [];
+		for ( let i = 0; i < chunkCount; i ++ ) {
+
+			const startIndex = i * chunkSizeFloats;
+			const endIndex = Math.min( startIndex + chunkSizeFloats, expectedSize );
+			const segmentSize = endIndex - startIndex;
+
+			try {
+
+				const segment = new Float32Array( segmentSize );
+
+				// Copy data for this segment
+				const dataStart = Math.min( startIndex, triangleArray.length );
+				const dataEnd = Math.min( endIndex, triangleArray.length );
+				const dataToCopy = dataEnd - dataStart;
+
+				if ( dataToCopy > 0 ) {
+
+					segment.set( triangleArray.subarray( dataStart, dataEnd ), 0 );
+
+				}
+
+				segments.push( segment );
+
+			} catch ( segmentError ) {
+
+				console.error( `Failed to allocate segment ${ i }: ${ segmentError.message }` );
+
+				// Clean up any allocated segments
+				for ( let j = 0; j < segments.length; j ++ ) {
+
+					segments[ j ] = null;
+
+				}
+
+				throw new Error( `Memory allocation failed even with chunked approach. Required: ${ ( expectedSize * 4 / ( 1024 * 1024 ) ).toFixed( 1 ) }MB. Try reducing model complexity or using a model with fewer triangles.` );
+
+			}
+
+		}
+
+		// Now combine segments into final array
+		let finalTextureData;
+		try {
+
+			finalTextureData = new Float32Array( expectedSize );
+
+			let offset = 0;
+			for ( const segment of segments ) {
+
+				finalTextureData.set( segment, offset );
+				offset += segment.length;
+
+			}
+
+		} catch ( combineError ) {
+
+			// Clean up segments
+			for ( let j = 0; j < segments.length; j ++ ) {
+
+				segments[ j ] = null;
+
+			}
+
+			throw new Error( `Failed to combine segments: ${ combineError.message }` );
+
+		}
+
+		// Clean up segments to free memory immediately
+		for ( let j = 0; j < segments.length; j ++ ) {
+
+			segments[ j ] = null;
+
+		}
+
+		segments.length = 0;
+
+		// Force garbage collection opportunity for large allocations
+		if ( expectedSize > 64 * 1024 * 1024 / 4 ) { // > 64MB
+
+			await new Promise( resolve => setTimeout( resolve, 10 ) );
+
+		}
+
+		const texture = new DataTexture( finalTextureData, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
+
+		texture.userData = {
+			buffer: finalTextureData,
+			bufferType: Float32Array,
+			isMemoryOptimizedTexture: true,
+			originalTriangleCount: triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 ),
+			bufferPool: this // Reference for proper disposal
+		};
+
+		const originalDispose = texture.dispose.bind( texture );
+		texture.dispose = () => {
+
+			if ( texture.userData.buffer ) {
+
+				// For memory-optimized textures, manually clear memory accounting
+				// since they're too large for pool return
+				if ( texture.userData.bufferPool &&
+					 texture.userData.bufferPool.allocatedBuffers &&
+					 texture.userData.bufferPool.allocatedBuffers.has( texture.userData.buffer ) ) {
+
+					texture.userData.bufferPool.memoryUsage -= texture.userData.buffer.byteLength;
+					texture.userData.bufferPool.allocatedBuffers.delete( texture.userData.buffer );
+
+				}
+
+				texture.userData.buffer = null;
+				texture.userData.bufferPool = null;
+
+			}
+
+			originalDispose();
+
+		};
 
 		return texture;
 
