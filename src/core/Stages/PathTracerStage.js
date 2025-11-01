@@ -391,9 +391,14 @@ export class PathTracerStage extends PipelineStage {
 		this.lastRenderMode = - 1;
 		this.tileCompletionFrame = 0;
 
-		// Reset interaction mode tracking
-		this.lastInteractionModeState = false;
-		this.interactionModeChangeFrame = 0;
+		// Only reset interaction mode tracking during full reset
+		// Preserve state during soft reset to allow proper transition detection when exiting interaction mode
+		if ( clearBuffers ) {
+
+			this.lastInteractionModeState = false;
+			this.interactionModeChangeFrame = 0;
+
+		}
 
 	}
 

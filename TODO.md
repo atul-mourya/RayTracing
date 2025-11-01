@@ -5,8 +5,9 @@
 
 ### Known Issues
 - [ ] some meshes in outliner shows as group and i'm not able to activate material editor (example bistro)
-- [ ] after each tile rendering cycle, the rendered image is becomes dim/low quality
-- [ ] Sometime movement of camera when stopped the the accumulation doesnt resume
+- [x] Sometime movement of camera when stopped the the accumulation doesnt resume
+- [ ] Keyboard play/pause shortcut (Space) not working consistently, sometimes requires multiple presses
+- [ ] Soft shadows for directional lights not working when enabled from UI
 
 ### Code Quality & Performance
 - [ ] **Performance Profiling**
@@ -36,14 +37,11 @@
 - [ ] Study dot grid / moiré–like effect and its impact on rendering
 
 ### Lighting & Materials
-- [x] Implement support for point light
-- [x] Implement support for spot light
 - [ ] Implement support for IES light
 - [ ] Introduce tessellation free displacement mapping or parallax occlusion mapping
 - [ ] Implement SDF-based model rendering
 - [ ] Implement Shadow Catcher
 - [ ] Implement ground projection environment mapping
-- [ ] Implement Bidirectional Path Tracing mode
 
 ### Performance & Architecture
 - [ ] separate pipeline for path tracing related passes and helper related passes like tilehelper, outline, etc.
@@ -56,13 +54,10 @@
 - [ ] Refactor path tracing to use define instead of if-else
 
 ### UX Enhancements
-- [x] Implement zoom to cursor in orbit controls
-- [x] Add dynamic lights addition and removal
 - [ ] Add dynamic camera addition and removal
 - [ ] Add dynamic object addition and removal
 - [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 - [x] useHook - https://github.com/uidotdev/usehooks
-- [x] **Recent searches dropdown in catalog with clear button**
 - [x] **Keyboard shortcuts: Esc (deselect), R (reset camera), Space (play/pause)**
 - [x] Star/heart button on each catalog item
 - [ ] Estimated time remaining display
