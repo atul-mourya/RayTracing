@@ -131,19 +131,30 @@ const App = () => {
 
 			if ( window.pathTracerApp ) {
 
-				// Toggle rendering pause state
-				const isCurrentlyPaused = window.pathTracerApp.pauseRendering;
+				const isComplete = window.pathTracerApp.pathTracingPass?.isComplete;
 
-				if ( isCurrentlyPaused ) {
+				if ( isComplete ) {
 
-					// Resume rendering
+					// If rendering is complete, always restart
 					window.pathTracerApp.pauseRendering = false;
 					window.pathTracerApp.reset();
 
 				} else {
 
-					// Pause rendering
-					window.pathTracerApp.pauseRendering = true;
+					// If rendering is in progress, toggle pause/resume
+					const isCurrentlyPaused = window.pathTracerApp.pauseRendering;
+
+					if ( isCurrentlyPaused ) {
+
+						// Resume rendering from where it left off
+						window.pathTracerApp.pauseRendering = false;
+
+					} else {
+
+						// Pause rendering
+						window.pathTracerApp.pauseRendering = true;
+
+					}
 
 				}
 
