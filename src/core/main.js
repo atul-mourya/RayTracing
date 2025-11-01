@@ -342,8 +342,6 @@ class PathTracerApp extends EventDispatcher {
 
 	setupPipeline() {
 
-		console.log( '[PathTracerApp] Initializing pipeline architecture' );
-
 		// Create the new pipeline
 		this.pipeline = new PassPipeline( this.renderer );
 

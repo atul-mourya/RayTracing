@@ -1368,7 +1368,6 @@ class AssetLoader extends EventDispatcher {
 
 			geometry.setIndex( new BufferAttribute( newIndexBuffer, 1 ) );
 			this.optimizeAttributes( geometry, remap, unique );
-			console.log( `Optimized geometry: unique vertices ${unique}` );
 
 		} catch ( error ) {
 

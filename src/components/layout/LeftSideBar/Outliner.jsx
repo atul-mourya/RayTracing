@@ -262,7 +262,7 @@ LayerTreeItem.displayName = 'LayerTreeItem';
 const SearchBar = memo( ( { value, onChange } ) => {
 
 	return (
-		<div className="flex items-center px-3 py-2 rounded-md bg-muted/50">
+		<div className="flex items-center px-3 py-2 rounded-full bg-muted/50">
 			<Search size={14} className="text-muted-foreground mr-2" />
 			<input
 				type="text"
@@ -283,13 +283,6 @@ const OutlinerHeader = memo( ( { searchTerm, onSearchChange } ) => {
 
 	return (
 		<div className="p-2 border-b border-border">
-			<div className="flex items-center justify-between mb-3">
-				<span className="text-sm font-medium">Layers</span>
-				<Plus
-					size={16}
-					className="text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-				/>
-			</div>
 			<SearchBar value={searchTerm} onChange={onSearchChange} />
 		</div>
 	);
