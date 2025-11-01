@@ -6,6 +6,7 @@
 ### Known Issues
 - [ ] some meshes in outliner shows as group and i'm not able to activate material editor (example bistro)
 - [ ] after each tile rendering cycle, the rendered image is becomes dim/low quality
+- [ ] Sometime movement of camera when stopped the the accumulation doesnt resume
 
 ### Code Quality & Performance
 - [ ] **Performance Profiling**
@@ -17,6 +18,7 @@
 - [ ] **Code Organization**
   - [ ] Comprehensive test suite
   - [ ] Shader code architecture documentation.
+  - [ ] Asset processing documentation.
 
 ---
 

@@ -530,6 +530,23 @@ export class PathTracerStage extends PipelineStage {
 		const frameValue = uniforms.frame.value;
 		const renderMode = uniforms.renderMode.value;
 
+		// Store original rendering parameters for first frame override in tile mode
+		let originalMaxBounces = null;
+		let originalSamplesPerPixel = null;
+
+		// In tile rendering mode, cap the first frame (full screen pass) at 1spp and 1 bounce
+		if ( renderMode === 1 && frameValue === 0 ) {
+
+			// Save original values
+			originalMaxBounces = uniforms.maxBounceCount.value;
+			originalSamplesPerPixel = uniforms.numRaysPerPixel.value;
+
+			// Override to 1spp and 1 bounce for the first frame
+			uniforms.maxBounceCount.value = 1;
+			uniforms.numRaysPerPixel.value = 1;
+
+		}
+
 		// Get renderer from context or use stored reference
 		const renderer = this.renderer || context.renderer;
 
@@ -656,6 +673,19 @@ export class PathTracerStage extends PipelineStage {
 		if ( tileInfo.shouldSwapTargets ) {
 
 			this.targetManager.swapTargets();
+
+		}
+
+		// Restore original rendering parameters if they were overridden for first frame
+		if ( originalMaxBounces !== null ) {
+
+			uniforms.maxBounceCount.value = originalMaxBounces;
+
+		}
+
+		if ( originalSamplesPerPixel !== null ) {
+
+			uniforms.numRaysPerPixel.value = originalSamplesPerPixel;
 
 		}
 
