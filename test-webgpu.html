@@ -249,9 +249,14 @@
 
     <script type="module">
 
-        import * as THREE from 'three';
+        import * as THREE from 'three/webgpu';
+        import { pass } from 'three/tsl';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { uniform, vec3, vec4, float, Fn, screenUV, sin, cos, length, abs, max, min, normalize, dot, mix, pow, exp, cross, and, or, not } from 'three/tsl';
+        import { uniform, vec3, vec4, float, Fn, screenUV, sin, cos, tan, length, abs, max, min, normalize, dot, mix, pow, exp, cross, and, or, not } from 'three/tsl';
+        
+        // Global variables
+        let camera, scene, renderer, postProcessing;
+        let controls;
         
         // Check for WebGPU support
         if (!navigator.gpu) {
@@ -261,228 +266,252 @@
             throw new Error(errorMsg);
         }
 
-        // Initialize Three.js scene
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(3, 2, 4);
-        
-        // Create WebGPU renderer
-        const renderer = new THREE.WebGPURenderer({
-            antialias: true
-        });
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setAnimationLoop(animate);
-        
-        // Add canvas to container
-        const container = document.querySelector('.canvas-container');
-        container.appendChild(renderer.domElement);
-        
-        // Create fullscreen quad that covers the entire screen
-        const quadGeometry = new THREE.PlaneGeometry(2, 2); // This will be rendered in clip space (-1 to 1)
-        
-        // Create uniforms using TSL
-        const resolutionUniform = uniform(new THREE.Vector2());
-        const timeUniform = uniform(0);
-        const cameraPositionUniform = uniform(new THREE.Vector3());
-        const cameraTargetUniform = uniform(new THREE.Vector3(0, 0, 0));
-        const cameraUpUniform = uniform(new THREE.Vector3(0, 1, 0));
-        
-        // Create custom shader function using TSL - Fullscreen Ray Tracer
-        const pathTracingShader = Fn(() => {
-            // Get screen coordinates from the fullscreen quad
-            // screenUV gives us 0-1 coordinates, convert to -1 to 1
-            const uv = screenUV.sub(0.5).mul(2.0);
+        init();
+
+        function init() {
+            // Initialize Three.js scene
+            scene = new THREE.Scene();
             
-            // Access uniforms
-            const time = timeUniform;
-            const cameraPos = cameraPositionUniform;
+            // Create WebGPU renderer
+            renderer = new THREE.WebGPURenderer({
+                antialias: true
+            });
+            renderer.setPixelRatio(window.devicePixelRatio);
             
-            // Cube SDF
-            const cubeSDF = Fn(([p]) => {
-                // Rotate the cube
-                const angle = time.mul(0.8);
-                const c = cos(angle);
-                const s = sin(angle);
+            // Add canvas to container first
+            const container = document.querySelector('.canvas-container');
+            container.appendChild(renderer.domElement);
+            
+            // Set size based on container dimensions and create camera with correct aspect ratio
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+            camera.position.set(3, 2, 4);
+            
+            renderer.setSize(width, height);
+            renderer.setAnimationLoop(animate);
+            
+            // Add OrbitControls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = true;
+            controls.enablePan = true;
+            controls.minDistance = 2;
+            controls.maxDistance = 10;
+            
+            // Initialize postprocessing
+            setupPostProcessing();
+            
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function setupPostProcessing() {
+            // Create postprocessing instance
+            postProcessing = new THREE.PostProcessing(renderer);
+            
+            // Create uniforms using TSL
+            const timeUniform = uniform(0);
+            const cameraPositionUniform = uniform(new THREE.Vector3());
+            const cameraTargetUniform = uniform(new THREE.Vector3(0, 0, 0));
+            const cameraFovUniform = uniform(camera.fov * Math.PI / 180); // Convert to radians
+            const aspectRatioUniform = uniform(camera.aspect);
+            
+            // Create path tracing pass
+            const pathTracingPass = createPathTracingPass(timeUniform, cameraPositionUniform, cameraTargetUniform, cameraFovUniform, aspectRatioUniform);
+            
+            // Set up the postprocessing pipeline
+            postProcessing.outputNode = pathTracingPass;
+            
+            // Store uniforms for animation
+            postProcessing.timeUniform = timeUniform;
+            postProcessing.cameraPositionUniform = cameraPositionUniform;
+            postProcessing.cameraTargetUniform = cameraTargetUniform;
+            postProcessing.cameraFovUniform = cameraFovUniform;
+            postProcessing.aspectRatioUniform = aspectRatioUniform;
+        }
+        
+        function createPathTracingPass(timeUniform, cameraPositionUniform, cameraTargetUniform, cameraFovUniform, aspectRatioUniform) {
+            // Create custom shader function using TSL - Path Tracing Pass
+            const pathTracingShader = Fn(() => {
+                // Get screen coordinates from the fullscreen quad
+                // screenUV gives us 0-1 coordinates, convert to -1 to 1
+                const uv = screenUV.sub(0.5).mul(2.0);
                 
-                // Y-axis rotation
-                let rotP = vec3(
-                    p.x.mul(c).add(p.z.mul(s)),
-                    p.y,
-                    p.x.mul(s.negate()).add(p.z.mul(c))
+                // Access uniforms
+                const time = timeUniform;
+                const cameraPos = cameraPositionUniform;
+                const fov = cameraFovUniform;
+                const aspectRatio = aspectRatioUniform;
+                
+                // Cube SDF
+                const cubeSDF = Fn(([p]) => {
+                    // Rotate the cube
+                    const angle = time.mul(0.8);
+                    const c = cos(angle);
+                    const s = sin(angle);
+                    
+                    // Y-axis rotation
+                    let rotP = vec3(
+                        p.x.mul(c).add(p.z.mul(s)),
+                        p.y,
+                        p.x.mul(s.negate()).add(p.z.mul(c))
+                    );
+                    
+                    // X-axis rotation for better 3D view
+                    const angleX = time.mul(0.4);
+                    const cX = cos(angleX);
+                    const sX = sin(angleX);
+                    
+                    rotP = vec3(
+                        rotP.x,
+                        rotP.y.mul(cX).add(rotP.z.mul(sX)),
+                        rotP.y.mul(sX.negate()).add(rotP.z.mul(cX))
+                    );
+                    
+                    // Cube with size 1.0
+                    const cubeSize = vec3(1.0, 1.0, 1.0);
+                    const d = abs(rotP).sub(cubeSize);
+                    
+                    // Proper SDF for cube
+                    return length(max(d, vec3(0.0))).add(min(max(d.x, max(d.y, d.z)), 0.0));
+                });
+                
+                // Calculate surface normal
+                const calcNormal = Fn(([p]) => {
+                    const eps = float(0.001);
+                    const h = vec3(eps, 0.0, 0.0);
+                    return normalize(vec3(
+                        cubeSDF(p.add(h.xyy)).sub(cubeSDF(p.sub(h.xyy))),
+                        cubeSDF(p.add(h.yxy)).sub(cubeSDF(p.sub(h.yxy))),
+                        cubeSDF(p.add(h.yyx)).sub(cubeSDF(p.sub(h.yyx)))
+                    ));
+                });
+                
+                // Proper ray marching
+                const rayMarch = Fn(([rayOrigin, rayDirection]) => {
+                    let totalDist = float(0.0).toVar();
+                    const maxDist = float(20.0);
+                    const threshold = float(0.001);
+                    
+                    // Manual loop unrolling for better compatibility
+                    for (let i = 0; i < 32; i++) {
+                        const currentPos = rayOrigin.add(rayDirection.mul(totalDist));
+                        const distToSurface = cubeSDF(currentPos);
+                        
+                        // If we're very close to surface, we've hit it
+                        const hasHit = abs(distToSurface).lessThan(threshold);
+                        
+                        // If we hit or went too far, stop marching
+                        const shouldStop = hasHit.or(totalDist.greaterThan(maxDist));
+                        
+                        // Only advance if we haven't stopped
+                        const advance = abs(distToSurface).mul(shouldStop.not().toFloat());
+                        totalDist.addAssign(advance);
+                    }
+                    
+                    // Return distance and hit status
+                    const hit = totalDist.lessThan(maxDist);
+                    return vec4(totalDist, hit.toFloat(), 0.0, 0.0);
+                });
+                
+                // Set up camera ray direction using proper perspective projection
+                const target = cameraTargetUniform;
+                const up = vec3(0.0, 1.0, 0.0);
+                
+                // Camera matrix calculation
+                const forward = normalize(target.sub(cameraPos));
+                const right = normalize(cross(forward, up));
+                const newUp = normalize(cross(right, forward));
+                
+                // Proper perspective projection with correct FOV and aspect ratio
+                const tanHalfFov = Math.tan(0.5); // tan(fov/2) but we'll compute it in shader
+                const fovScale = float(1.0).div(tan(fov.mul(0.5)));
+                
+                // Apply aspect ratio correction and FOV
+                const rayDir = normalize(
+                    right.mul(uv.x.mul(aspectRatio).div(fovScale))
+                    .add(newUp.mul(uv.y.negate().div(fovScale))) // Flip Y and apply FOV
+                    .add(forward)
                 );
                 
-                // X-axis rotation for better 3D view
-                const angleX = time.mul(0.4);
-                const cX = cos(angleX);
-                const sX = sin(angleX);
+                // March the ray
+                const result = rayMarch(cameraPos, rayDir);
+                const dist = result.x;
+                const hit = result.y;
                 
-                rotP = vec3(
-                    rotP.x,
-                    rotP.y.mul(cX).add(rotP.z.mul(sX)),
-                    rotP.y.mul(sX.negate()).add(rotP.z.mul(cX))
+                // Calculate hit position and normal
+                const hitPos = cameraPos.add(rayDir.mul(dist));
+                const normal = calcNormal(hitPos);
+                
+                // Lighting
+                const lightDir = normalize(vec3(1.0, 1.0, 0.5));
+                const diffuse = max(dot(normal, lightDir), 0.2);
+                
+                // Ambient light
+                const ambient = float(0.3);
+                const lighting = diffuse.add(ambient);
+                
+                // Cube color - different colors for different faces
+                const cubeColor = vec3(
+                    abs(normal.x).mul(0.8).add(0.2),
+                    abs(normal.y).mul(0.6).add(0.3),
+                    abs(normal.z).mul(0.4).add(0.4)
+                ).mul(lighting);
+                
+                // Background gradient
+                const bg = mix(
+                    vec3(0.1, 0.2, 0.4),
+                    vec3(0.2, 0.4, 0.7),
+                    length(uv).mul(0.3).add(0.2)
                 );
                 
-                // Cube with size 1.0
-                const cubeSize = vec3(1.0, 1.0, 1.0);
-                const d = abs(rotP).sub(cubeSize);
+                // Final color
+                const finalColor = mix(bg, cubeColor, hit);
                 
-                // Proper SDF for cube
-                return length(max(d, vec3(0.0))).add(min(max(d.x, max(d.y, d.z)), 0.0));
+                return vec4(finalColor, 1.0);
             });
             
-            // Calculate surface normal
-            const calcNormal = Fn(([p]) => {
-                const eps = float(0.001);
-                const h = vec3(eps, 0.0, 0.0);
-                return normalize(vec3(
-                    cubeSDF(p.add(h.xyy)).sub(cubeSDF(p.sub(h.xyy))),
-                    cubeSDF(p.add(h.yxy)).sub(cubeSDF(p.sub(h.yxy))),
-                    cubeSDF(p.add(h.yyx)).sub(cubeSDF(p.sub(h.yyx)))
-                ));
-            });
-            
-            // Proper ray marching
-            const rayMarch = Fn(([rayOrigin, rayDirection]) => {
-                let totalDist = float(0.0).toVar();
-                const maxDist = float(20.0);
-                const threshold = float(0.001);
-                
-                // Manual loop unrolling for better compatibility
-                for (let i = 0; i < 32; i++) {
-                    const currentPos = rayOrigin.add(rayDirection.mul(totalDist));
-                    const distToSurface = cubeSDF(currentPos);
-                    
-                    // If we're very close to surface, we've hit it
-                    const hasHit = abs(distToSurface).lessThan(threshold);
-                    
-                    // If we hit or went too far, stop marching
-                    const shouldStop = hasHit.or(totalDist.greaterThan(maxDist));
-                    
-                    // Only advance if we haven't stopped
-                    const advance = abs(distToSurface).mul(shouldStop.not().toFloat());
-                    totalDist.addAssign(advance);
-                }
-                
-                // Return distance and hit status
-                const hit = totalDist.lessThan(maxDist);
-                return vec4(totalDist, hit.toFloat(), 0.0, 0.0);
-            });
-            
-            // Set up camera ray direction from the virtual camera position
-            const target = cameraTargetUniform; // Use the actual OrbitControls target
-            const up = vec3(0.0, 1.0, 0.0);
-            
-            // Camera matrix calculation using the OrbitControls camera
-            // This should match exactly how OrbitControls calculates its view
-            const forward = normalize(target.sub(cameraPos));
-            const right = normalize(cross(forward, up));
-            const newUp = normalize(cross(right, forward));
-            
-            // Create ray direction with field of view
-            // Note: We need to flip the Y coordinate to match OrbitControls behavior
-            const fov = float(1.0);
-            const rayDir = normalize(
-                right.mul(uv.x)
-                .add(newUp.mul(uv.y.negate())) // Flip Y to match OrbitControls
-                .add(forward.mul(fov))
-            );
-            
-            // March the ray
-            const result = rayMarch(cameraPos, rayDir);
-            const dist = result.x;
-            const hit = result.y;
-            
-            // Calculate hit position and normal
-            const hitPos = cameraPos.add(rayDir.mul(dist));
-            const normal = calcNormal(hitPos);
-            
-            // Lighting
-            const lightDir = normalize(vec3(1.0, 1.0, 0.5));
-            const diffuse = max(dot(normal, lightDir), 0.2);
-            
-            // Ambient light
-            const ambient = float(0.3);
-            const lighting = diffuse.add(ambient);
-            
-            // Cube color - different colors for different faces
-            const cubeColor = vec3(
-                abs(normal.x).mul(0.8).add(0.2),
-                abs(normal.y).mul(0.6).add(0.3),
-                abs(normal.z).mul(0.4).add(0.4)
-            ).mul(lighting);
-            
-            // Background gradient
-            const bg = mix(
-                vec3(0.1, 0.2, 0.4),
-                vec3(0.2, 0.4, 0.7),
-                length(uv).mul(0.3).add(0.2)
-            );
-            
-            // Final color
-            const finalColor = mix(bg, cubeColor, hit);
-            
-            return vec4(finalColor, 1.0);
-        });
-        
-        // Create material using NodeMaterial with TSL for fullscreen rendering
-        const material = new THREE.NodeMaterial({
-            wireframe: false,
-            side: THREE.DoubleSide
-        });
-        
-        // Set the fragment node to our custom shader
-        material.fragmentNode = pathTracingShader();
-        
-        // Create the fullscreen quad mesh
-        const quad = new THREE.Mesh(quadGeometry, material);
-        
-        // Create a simple scene with orthographic camera for fullscreen rendering
-        const orthoScene = new THREE.Scene();
-        const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        orthoScene.add(quad);
-        
-        // The original scene and camera are used for the ray tracer's camera position
-        scene.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0000, visible: false }))); // Hidden reference object
-        
-        // Add OrbitControls
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.enableZoom = true;
-        controls.enablePan = true;
-        controls.minDistance = 2;
-        controls.maxDistance = 10;
-        // controls.minPolarAngle = Math.PI / 6;
-        // controls.maxPolarAngle = Math.PI - Math.PI / 6;
+            // Return the path tracing pass output
+            return pathTracingShader();
+        }
         
         // Handle window resize
         function onWindowResize() {
+            const container = document.querySelector('.canvas-container');
             const width = container.clientWidth;
             const height = container.clientHeight;
             
             camera.aspect = width / height;
             camera.updateProjectionMatrix();
             renderer.setSize(width, height);
-            resolutionUniform.value.set(width, height);
+            
+            // Update aspect ratio uniform if postprocessing is initialized
+            if (postProcessing && postProcessing.aspectRatioUniform) {
+                postProcessing.aspectRatioUniform.value = camera.aspect;
+            }
         }
-        
-        window.addEventListener('resize', onWindowResize);
-        onWindowResize();
         
         // Animation loop
         function animate(time) {
-            // timeUniform.value = time * 0.001;
+            // Update time uniform
+            postProcessing.timeUniform.value = time * 0.001;
             
             // Use the OrbitControls camera position and target for the ray tracer
-            cameraPositionUniform.value.copy(camera.position);
-            cameraTargetUniform.value.copy(controls.target); // Use the actual OrbitControls target
+            postProcessing.cameraPositionUniform.value.copy(camera.position);
+            postProcessing.cameraTargetUniform.value.copy(controls.target);
+            
+            // Update camera parameters
+            postProcessing.cameraFovUniform.value = camera.fov * Math.PI / 180; // Convert to radians
+            postProcessing.aspectRatioUniform.value = camera.aspect;
             
             // Update controls (this moves the ray tracer's virtual camera)
             controls.update();
             
-            // Render the fullscreen quad with the ray tracer
-            renderer.render(orthoScene, orthoCamera);
+            // Render using the postprocessing pipeline
+            postProcessing.render();
             
             // Hide loading screen after first render
             const loadingEl = document.getElementById('loading');
