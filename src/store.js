@@ -1517,7 +1517,7 @@ const useLightStore = create( set => ( {
 } ) );
 
 // Camera store
-const useCameraStore = create( ( set ) => ( {
+const useCameraStore = create( ( set, get ) => ( {
 	...DEFAULT_STATE,
 	activePreset: "product",
 	cameraNames: [],
@@ -1608,6 +1608,8 @@ const useCameraStore = create( ( set ) => ( {
 			uniforms.focusDistance.value = preset.focusDistance * scale;
 			uniforms.aperture.value = preset.aperture;
 			uniforms.focalLength.value = preset.focalLength;
+			// Preserve the current apertureScale (DOF intensity) value
+			uniforms.apertureScale.value = get().apertureScale || 1.0;
 			window.pathTracerApp.reset();
 
 		}

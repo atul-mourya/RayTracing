@@ -731,7 +731,8 @@ class PathTracerApp extends EventDispatcher {
 	// Set focus distance
 	setFocusDistance( distance ) {
 
-		// Update path tracer uniforms
+		// Distance from raycaster is already in world units, so use directly
+		// (Slider values are in scene units and get scaled separately in the store handler)
 		this.pathTracingPass.material.uniforms.focusDistance.value = distance;
 
 		// Reset rendering to apply changes

@@ -5,6 +5,7 @@ uniform float focusDistance;
 uniform float aperture;
 uniform float focalLength;
 uniform float apertureScale;
+uniform float sceneScale;
 
 // Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
 // Thanks to https://stackoverflow.com/a/42752998

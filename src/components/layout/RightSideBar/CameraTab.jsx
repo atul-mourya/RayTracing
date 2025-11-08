@@ -184,7 +184,7 @@ const CameraTab = () => {
 
 						<div className="flex items-center justify-between">
 							<Slider
-								label={"Focal Distance (m)"}
+								label={"Focus Distance (m)"}
 								icon={Telescope}
 								min={CAMERA_RANGES.focusDistance.min}
 								max={CAMERA_RANGES.focusDistance.max}

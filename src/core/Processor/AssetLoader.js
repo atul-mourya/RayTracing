@@ -1295,7 +1295,8 @@ class AssetLoader extends EventDispatcher {
 			this.camera.near = maxDim / 100;
 			this.camera.far = maxDim * 100;
 			this.pathTracingPass.material.uniforms.focusDistance.value = DEFAULT_STATE.focusDistance * ( sceneScale / 1.0 );
-			this.pathTracingPass.material.uniforms.apertureScale.value = sceneScale;
+			// Set the scene scale uniform for proper DOF aperture scaling
+			this.pathTracingPass.material.uniforms.sceneScale.value = sceneScale;
 			this.pathTracingPass.reset();
 
 		}

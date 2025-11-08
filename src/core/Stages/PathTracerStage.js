@@ -175,6 +175,7 @@ export class PathTracerStage extends PipelineStage {
 				focalLength: { value: DEFAULT_STATE.focalLength },
 				aperture: { value: DEFAULT_STATE.aperture },
 				apertureScale: { value: 1.0 },
+				sceneScale: { value: 1.0 },
 
 				directionalLights: { value: null },
 				pointLights: { value: null },

@@ -261,7 +261,8 @@ Ray generateRayFromCamera( vec2 screenPosition, inout uint rngState ) {
 
     // Physical aperture calculation
 	float effectiveAperture = focalLength / aperture;
-	float apertureRadius = ( effectiveAperture * 0.001 ) * apertureScale;
+	// Apply scene scale to maintain correct physical aperture size across different scene scales
+	float apertureRadius = ( effectiveAperture * 0.001 * sceneScale ) * apertureScale;
 
 	// Generate random point on aperture disk
 	vec2 randomPoint = RandomPointInCircle( rngState );
