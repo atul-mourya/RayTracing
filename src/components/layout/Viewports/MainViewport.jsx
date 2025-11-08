@@ -4,7 +4,7 @@ import DropzoneOverlay from './DropzoneOverlay';
 import LoadingOverlay from './LoadingOverlay';
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from "@/components/ui/toaster";
-import { useStore, useAssetsStore } from '@/store';
+import { useStore, useAssetsStore, usePathTracerStore } from '@/store';
 import { DEFAULT_STATE } from '@/Constants';
 
 const MainViewport = ( { mode = "preview" } ) => {
@@ -13,6 +13,8 @@ const MainViewport = ( { mode = "preview" } ) => {
 	const setEnvironment = useAssetsStore( useCallback( state => state.setEnvironment, [] ) );
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
 	const resetLoading = useStore( useCallback( state => state.resetLoading, [] ) );
+	const environmentMode = usePathTracerStore( useCallback( state => state.environmentMode, [] ) );
+	const handleEnvironmentModeChange = usePathTracerStore( useCallback( state => state.handleEnvironmentModeChange, [] ) );
 	const { toast } = useToast();
 
 	useEffect( () => {
@@ -22,6 +24,19 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 			// Set optimization settings
 			app.assetLoader.setOptimizeMeshes( DEFAULT_STATE.optimizeMeshes );
+
+			const handleBeforeEnvironmentLoad = ( event ) => {
+
+				// Automatically switch to 'hdri' mode when loading an HDRI environment
+				// This follows the event-based pipeline architecture
+				if ( environmentMode !== 'hdri' ) {
+
+					console.log( `[MainViewport] Automatically switching environment mode from '${environmentMode}' to 'hdri'` );
+					handleEnvironmentModeChange( 'hdri' );
+
+				}
+
+			};
 
 			const handleAssetLoad = ( event ) => {
 
@@ -63,6 +78,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 			};
 
+			app.assetLoader.addEventListener( 'beforeEnvironmentLoad', handleBeforeEnvironmentLoad );
 			app.assetLoader.addEventListener( 'load', handleAssetLoad );
 			app.assetLoader.addEventListener( 'error', handleAssetError );
 
@@ -73,6 +89,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 			return () => {
 
 				// Clean up listeners on component unmount
+				app.assetLoader.removeEventListener( 'beforeEnvironmentLoad', handleBeforeEnvironmentLoad );
 				app.assetLoader.removeEventListener( 'load', handleAssetLoad );
 				app.assetLoader.removeEventListener( 'error', handleAssetError );
 
@@ -80,7 +97,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 		}
 
-	}, [ toast, setEnvironment, resetLoading, setLoading ] );
+	}, [ toast, setEnvironment, resetLoading, setLoading, environmentMode, handleEnvironmentModeChange ] );
 
 	// Drag event handlers
 	const handleDragOver = useCallback( ( e ) => {

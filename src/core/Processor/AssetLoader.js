@@ -187,6 +187,10 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
+			// Dispatch event before loading environment to allow UI to prepare
+			// (e.g., switching to HDRI mode if needed)
+			this.dispatchEvent( { type: 'beforeEnvironmentLoad', url: envUrl } );
+
 			let texture;
 			if ( envUrl.startsWith( 'blob:' ) ) {
 
