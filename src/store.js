@@ -1,5 +1,29 @@
 import { create } from 'zustand';
-import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS } from '@/Constants';
+import * as THREE from 'three';
+import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS } from '@/Constants';
+
+/**
+ * Debounce utility - delays function execution until after wait time has elapsed
+ * since the last time it was invoked
+ */
+const debounce = ( func, wait ) => {
+
+	let timeout;
+	return function executedFunction( ...args ) {
+
+		const later = () => {
+
+			clearTimeout( timeout );
+			func( ...args );
+
+		};
+
+		clearTimeout( timeout );
+		timeout = setTimeout( later, wait );
+
+	};
+
+};
 
 const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 
@@ -208,6 +232,19 @@ const PREVIEW_STATE = {
 	interactionModeEnabled: true,
 };
 
+// Debounced procedural sky texture generation (300ms delay)
+// This prevents expensive texture regeneration on every slider movement
+const debouncedGenerateProceduralSkyTexture = debounce( () => {
+
+	const app = window.pathTracerApp;
+	if ( app?.pathTracingPass ) {
+
+		app.pathTracingPass.generateProceduralSkyTexture();
+
+	}
+
+}, 10 );
+
 const usePathTracerStore = create( ( set, get ) => ( {
 	...DEFAULT_STATE,
 	GIIntensity: DEFAULT_STATE.globalIlluminationIntensity,
@@ -262,6 +299,26 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnvironmentRotation: val => set( { environmentRotation: val } ),
 	setGIIntensity: val => set( { GIIntensity: val } ),
 	setToneMapping: val => set( { toneMapping: val } ),
+
+	// Environment Mode (HDRI, Procedural Sky, Gradient, Color)
+	setEnvironmentMode: val => set( { environmentMode: val } ),
+
+	// Gradient Sky
+	setGradientZenithColor: val => set( { gradientZenithColor: val } ),
+	setGradientHorizonColor: val => set( { gradientHorizonColor: val } ),
+	setGradientGroundColor: val => set( { gradientGroundColor: val } ),
+
+	// Solid Color Sky
+	setSolidSkyColor: val => set( { solidSkyColor: val } ),
+
+	// Procedural Sky (Preetham Model)
+	setSkySunAzimuth: val => set( { skySunAzimuth: val } ),
+	setSkySunElevation: val => set( { skySunElevation: val } ),
+	setSkySunIntensity: val => set( { skySunIntensity: val } ),
+	setSkyRayleighDensity: val => set( { skyRayleighDensity: val } ),
+	setSkyTurbidity: val => set( { skyTurbidity: val } ),
+	setSkyMieAnisotropy: val => set( { skyMieAnisotropy: val } ),
+
 	setInteractionModeEnabled: val => set( { interactionModeEnabled: val } ),
 	setEnableASVGF: val => set( { enableASVGF: val } ),
 	setShowAsvgfHeatmap: val => set( { showAsvgfHeatmap: val } ),
@@ -874,6 +931,246 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = val;
 			window.pathTracerApp.reset();
+
+		}
+	),
+
+	// Environment Mode Handlers
+	handleEnvironmentModeChange: handleChange(
+		val => set( { environmentMode: val } ),
+		async val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app ) return;
+
+			const modeMap = { hdri: 0, procedural: 1, gradient: 2, color: 3 };
+
+			// Store previous HDRI if switching away
+			if ( val !== 'hdri' && get().environmentMode === 'hdri' ) {
+
+				app._previousHDRI = app.pathTracingPass.material.uniforms.environment.value;
+				app._previousCDF = app.pathTracingPass.material.uniforms.envCDF.value;
+
+			}
+
+			// Generate texture for procedural modes
+			if ( val === 'gradient' ) {
+
+				await app.pathTracingPass.generateGradientTexture();
+
+			} else if ( val === 'color' ) {
+
+				await app.pathTracingPass.generateSolidColorTexture();
+
+			} else if ( val === 'procedural' ) {
+
+				await app.pathTracingPass.generateProceduralSkyTexture();
+
+			} else if ( val === 'hdri' ) {
+
+				// Restore previous HDRI
+				if ( app._previousHDRI ) {
+
+					await app.pathTracingPass.setEnvironmentMap( app._previousHDRI );
+
+				}
+
+			}
+
+			// Update envParams mode (CPU-side parameter, not passed to shader)
+			app.pathTracingPass.envParams.mode = val;
+
+			// Force texture update
+			if ( app.pathTracingPass.material.uniforms.environment.value ) {
+
+				app.pathTracingPass.material.uniforms.environment.value.needsUpdate = true;
+
+			}
+
+			console.log( '✅ Environment mode changed to:', val, '(uniform value:', modeMap[ val ], ')' );
+
+			app.reset();
+
+		}
+	),
+
+	// Gradient Sky Handlers
+	handleGradientZenithColorChange: handleChange(
+		val => set( { gradientZenithColor: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'gradient' ) return;
+
+			const color = new THREE.Color( val );
+			app.pathTracingPass.envParams.gradientZenithColor.copy( color );
+			app.pathTracingPass.generateGradientTexture();
+
+		}
+	),
+
+	handleGradientHorizonColorChange: handleChange(
+		val => set( { gradientHorizonColor: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'gradient' ) return;
+
+			const color = new THREE.Color( val );
+			app.pathTracingPass.envParams.gradientHorizonColor.copy( color );
+			app.pathTracingPass.generateGradientTexture();
+
+		}
+	),
+
+	handleGradientGroundColorChange: handleChange(
+		val => set( { gradientGroundColor: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'gradient' ) return;
+
+			const color = new THREE.Color( val );
+			app.pathTracingPass.envParams.gradientGroundColor.copy( color );
+			app.pathTracingPass.generateGradientTexture();
+
+		}
+	),
+
+	// Solid Color Sky Handler
+	handleSolidSkyColorChange: handleChange(
+		val => set( { solidSkyColor: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'color' ) return;
+
+			const color = new THREE.Color( val );
+			app.pathTracingPass.envParams.solidSkyColor.copy( color );
+			app.pathTracingPass.generateSolidColorTexture();
+
+		}
+	),
+
+	// Procedural Sky (Preetham Model) Handlers
+	handleSkySunAzimuthChange: handleChange(
+		val => set( { skySunAzimuth: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			// Update sun direction based on azimuth and elevation
+			const azimuth = val * ( Math.PI / 180 );
+			const elevation = get().skySunElevation * ( Math.PI / 180 );
+			const sunDir = new THREE.Vector3(
+				Math.cos( elevation ) * Math.sin( azimuth ),
+				Math.sin( elevation ),
+				Math.cos( elevation ) * Math.cos( azimuth )
+			).normalize();
+
+			app.pathTracingPass.envParams.skySunDirection.copy( sunDir );
+			// Use debounced version to prevent rapid regeneration
+			debouncedGenerateProceduralSkyTexture();
+
+		}
+	),
+
+	handleSkySunElevationChange: handleChange(
+		val => set( { skySunElevation: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			// Update sun direction based on azimuth and elevation
+			const azimuth = get().skySunAzimuth * ( Math.PI / 180 );
+			const elevation = val * ( Math.PI / 180 );
+			const sunDir = new THREE.Vector3(
+				Math.cos( elevation ) * Math.sin( azimuth ),
+				Math.sin( elevation ),
+				Math.cos( elevation ) * Math.cos( azimuth )
+			).normalize();
+
+			app.pathTracingPass.envParams.skySunDirection.copy( sunDir );
+			// Use debounced version to prevent rapid regeneration
+			debouncedGenerateProceduralSkyTexture();
+
+		}
+	),
+
+	handleSkySunIntensityChange: handleChange(
+		val => set( { skySunIntensity: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			app.pathTracingPass.envParams.skySunIntensity = val;
+			// Use debounced version to prevent rapid regeneration
+			debouncedGenerateProceduralSkyTexture();
+
+		}
+	),
+
+	handleSkyRayleighDensityChange: handleChange(
+		val => set( { skyRayleighDensity: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			app.pathTracingPass.envParams.skyRayleighDensity = val;
+			// Use debounced version to prevent rapid regeneration
+			debouncedGenerateProceduralSkyTexture();
+
+		}
+	),
+
+	handleSkyTurbidityChange: handleChange(
+		val => set( { skyTurbidity: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			app.pathTracingPass.envParams.skyTurbidity = val;
+			// Use debounced version to prevent rapid regeneration
+			debouncedGenerateProceduralSkyTexture();
+
+		}
+	),
+
+
+	handleSkyMieAnisotropyChange: handleChange(
+		val => set( { skyMieAnisotropy: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			app.pathTracingPass.envParams.skyMieAnisotropy = val;
+			// Use debounced version to prevent rapid regeneration
+			debouncedGenerateProceduralSkyTexture();
+
+		}
+	),
+
+	handleSkyPresetChange: handleChange(
+		val => set( { skyPreset: val } ),
+		val => {
+
+			const preset = SKY_PRESETS[ val ];
+			if ( ! preset ) return;
+
+			const store = get();
+
+			// Update all parameters using handlers (which update both store AND uniforms)
+			store.handleSkySunAzimuthChange( [ preset.sunAzimuth ] );
+			store.handleSkySunElevationChange( [ preset.sunElevation ] );
+			store.handleSkySunIntensityChange( [ preset.sunIntensity ] );
+			store.handleSkyRayleighDensityChange( [ preset.rayleighDensity ] );
+			store.handleSkyTurbidityChange( [ preset.turbidity ] );
 
 		}
 	),

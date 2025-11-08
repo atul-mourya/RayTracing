@@ -170,6 +170,27 @@ export const DEFAULT_STATE = {
 	environmentRotation: 0.0,
 	globalIlluminationIntensity: 1,
 
+	// Environment Mode System
+	environmentMode: 'hdri', // 'hdri' | 'procedural' | 'gradient' | 'color'
+
+	// Gradient Sky Colors
+	gradientZenithColor: '#0077BE', // Deep blue sky top
+	gradientHorizonColor: '#87CEEB', // Light blue horizon
+	gradientGroundColor: '#654321', // Brown ground
+
+	// Solid Color Sky
+	solidSkyColor: '#87CEEB', // Sky blue
+
+	// Procedural Sky Parameters (Preetham Model - Clear Morning preset)
+	// Note: These values are scaled in PathTracerStage.js before passing to ProceduralSkyRenderer
+	skySunAzimuth: 90, // 0-360 degrees
+	skySunElevation: 20, // -90 to 90 degrees
+	skySunIntensity: 15.0, // 1.0-100.0 (reduced from 30.0)
+	skyRayleighDensity: 0.9, // 0.1-3.0
+	skyTurbidity: 0.8, // 0.0-5.0 (atmospheric haze)
+	skyMieAnisotropy: 0.76, // 0.0-0.99
+	skyPreset: 'clearMorning', // Default preset
+
 	enableDOF: false,
 	zoomToCursor: true,
 	fov: 65,
@@ -302,7 +323,59 @@ export const CAMERA_RANGES = {
 	}
 };
 
-// Define photography presets
+// Sky Presets - Define photography presets
+// Note: These values are scaled in PathTracerStage.js before passing to ProceduralSkyRenderer
+export const SKY_PRESETS = {
+	clearMorning: {
+		name: "Clear Morning",
+		sunAzimuth: 90,
+		sunElevation: 20, // Low morning sun
+		sunIntensity: 15.0, // Moderate brightness (reduced from 30.0)
+		rayleighDensity: 0.9, // Lighter blue
+		turbidity: 0.8, // Some warmth
+	},
+	clearNoon: {
+		name: "Clear Noon",
+		sunAzimuth: 0,
+		sunElevation: 75, // High sun
+		sunIntensity: 20.0, // Bright sun (reduced from 40.0)
+		rayleighDensity: 1.0, // Deep blue sky
+		turbidity: 0.3, // Minimal haze
+	},
+	overcast: {
+		name: "Overcast",
+		sunAzimuth: 0,
+		sunElevation: 45, // Mid-height
+		sunIntensity: 6.0, // Diffused sun (reduced from 10.0)
+		rayleighDensity: 0.6, // Muted blue
+		turbidity: 4.0, // Heavy haze
+	},
+	goldenHour: {
+		name: "Golden Hour",
+		sunAzimuth: 270,
+		sunElevation: 10, // Low sun
+		sunIntensity: 19.0, // Strong warm glow (reduced from 38.0)
+		rayleighDensity: 0.8, // Warm blue
+		turbidity: 1.2, // Golden warmth
+	},
+	sunset: {
+		name: "Sunset",
+		sunAzimuth: 270,
+		sunElevation: 2, // Sun just above horizon
+		sunIntensity: 18.0, // Strong glow (reduced from 35.0)
+		rayleighDensity: 0.7, // Less blue
+		turbidity: 2.0, // Very warm horizon
+	},
+	dusk: {
+		name: "Dusk",
+		sunAzimuth: 270,
+		sunElevation: - 8, // Sun below horizon
+		sunIntensity: 8.0, // Dim light (reduced from 15.0)
+		rayleighDensity: 0.5, // Darker sky
+		turbidity: 1.5, // Warm afterglow
+	}
+};
+
 export const CAMERA_PRESETS = {
 	portrait: {
 		name: "Portrait",

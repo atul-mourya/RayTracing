@@ -1,7 +1,8 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target, Image, Blend, Palette, ArrowUp, ArrowDown, Minus, CloudSun, Wind, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ColorInput } from "@/components/ui/colorinput";
 import { usePathTracerStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -65,6 +66,20 @@ const PathTracerTab = () => {
 		environmentRotation,
 		GIIntensity,
 		toneMapping,
+		// Environment Mode
+		environmentMode,
+		gradientZenithColor,
+		gradientHorizonColor,
+		gradientGroundColor,
+		solidSkyColor,
+		// Procedural Sky (Preetham Model)
+		skySunAzimuth,
+		skySunElevation,
+		skySunIntensity,
+		skyRayleighDensity,
+		skyTurbidity,
+		skyMieAnisotropy,
+		skyPreset,
 		interactionModeEnabled,
 		asvgfQualityPreset,
 		asvgfDebugMode,
@@ -115,6 +130,20 @@ const PathTracerTab = () => {
 		handleEnvironmentRotationChange,
 		handleGIIntensityChange,
 		handleToneMappingChange,
+		// Environment Mode Handlers
+		handleEnvironmentModeChange,
+		handleGradientZenithColorChange,
+		handleGradientHorizonColorChange,
+		handleGradientGroundColorChange,
+		handleSolidSkyColorChange,
+		// Procedural Sky (Preetham Model) Handlers
+		handleSkySunAzimuthChange,
+		handleSkySunElevationChange,
+		handleSkySunIntensityChange,
+		handleSkyRayleighDensityChange,
+		handleSkyTurbidityChange,
+		handleSkyMieAnisotropyChange,
+		handleSkyPresetChange,
 		handleInteractionModeEnabledChange,
 		handleAsvgfQualityPresetChange,
 		handleAsvgfDebugModeChange,
@@ -200,9 +229,128 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Slider icon={Exposure} label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
 				</div>
+
+				<Separator className="my-1 opacity-30" />
+
+				{/* Environment Mode Selector */}
 				<div className="flex items-center justify-between">
-					<Switch label={"Use Importance Sampling"} checked={useImportanceSampledEnvironment} onCheckedChange={handleUseImportanceSampledEnvironmentChange} />
+					<Select value={environmentMode} onValueChange={handleEnvironmentModeChange}>
+						<span className="opacity-50 text-xs truncate">Environment Mode</span>
+						<SelectTrigger className="max-w-32 h-5 rounded-full">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="hdri">
+								<div className="flex items-center">
+									<Image size={14} className="mr-1" />
+									<span>HDRI</span>
+								</div>
+							</SelectItem>
+							<SelectItem value="procedural">
+								<div className="flex items-center">
+									<CloudSun size={14} className="mr-1" />
+									<span>Procedural Sky</span>
+								</div>
+							</SelectItem>
+							<SelectItem value="gradient">
+								<div className="flex items-center">
+									<Blend size={14} className="mr-1" />
+									<span>Gradient</span>
+								</div>
+							</SelectItem>
+							<SelectItem value="color">
+								<div className="flex items-center">
+									<Palette size={14} className="mr-1" />
+									<span>Solid Color</span>
+								</div>
+							</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
+
+				{/* HDRI Mode Controls */}
+				{environmentMode === 'hdri' && (
+					<>
+						<div className="flex items-center justify-between">
+							<Switch label={"Use Importance Sampling"} checked={useImportanceSampledEnvironment} onCheckedChange={handleUseImportanceSampledEnvironmentChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
+						</div>
+					</>
+				)}
+
+				{/* Gradient Mode Controls */}
+				{environmentMode === 'gradient' && (
+					<>
+						<div className="flex items-center justify-between">
+							<ColorInput label="Zenith" value={gradientZenithColor} onChange={handleGradientZenithColorChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<ColorInput label="Horizon" value={gradientHorizonColor} onChange={handleGradientHorizonColorChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<ColorInput label="Ground" value={gradientGroundColor} onChange={handleGradientGroundColorChange} />
+						</div>
+					</>
+				)}
+
+				{/* Solid Color Mode Controls */}
+				{environmentMode === 'color' && (
+					<div className="flex items-center justify-between">
+						<ColorInput label="Sky Color" value={solidSkyColor} onChange={handleSolidSkyColorChange} />
+					</div>
+				)}
+
+				{/* Procedural Sky Mode Controls */}
+				{environmentMode === 'procedural' && (
+					<>
+						{/* Preset Selector */}
+						<div className="flex items-center justify-between">
+							<Select value={skyPreset} onValueChange={handleSkyPresetChange}>
+								<span className="opacity-50 text-xs truncate">Preset</span>
+								<SelectTrigger className="max-w-32 h-5 rounded-full">
+									<SelectValue placeholder="Select Preset" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="clearMorning">Clear Morning</SelectItem>
+									<SelectItem value="clearNoon">Clear Noon</SelectItem>
+									<SelectItem value="overcast">Overcast</SelectItem>
+									<SelectItem value="goldenHour">Golden Hour</SelectItem>
+									<SelectItem value="sunset">Sunset</SelectItem>
+									<SelectItem value="dusk">Dusk</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						{/* Sun Position */}
+						<div className="flex items-center justify-between">
+							<Slider label="Sun Rotation" icon={RefreshCcwDot} min={0} max={360} step={1} value={[ skySunAzimuth ]} snapPoints={[ 0, 90, 180, 270 ]} onValueChange={handleSkySunAzimuthChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider label="Sun Height" icon={ArrowUp} min={- 10} max={90} step={1} value={[ skySunElevation ]} snapPoints={[ 0, 45, 90 ]} onValueChange={handleSkySunElevationChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider label="Sun Brightness" icon={Sun} min={0} max={50} step={0.5} value={[ skySunIntensity ]} snapPoints={[ 20 ]} onValueChange={handleSkySunIntensityChange} />
+						</div>
+
+						{/* Atmospheric Properties */}
+						<div className="flex items-center justify-between">
+							<Slider label="Sky Clarity" icon={CloudSun} min={0} max={2} step={0.1} value={[ skyRayleighDensity ]} snapPoints={[ 1 ]} onValueChange={handleSkyRayleighDensityChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider label="Atmospheric Haze" icon={Wind} min={0} max={5} step={0.1} value={[ skyTurbidity ]} snapPoints={[ 1 ]} onValueChange={handleSkyTurbidityChange} />
+						</div>
+
+						<div className="flex items-center justify-between">
+							<Switch label={"Use Importance Sampling"} checked={useImportanceSampledEnvironment} onCheckedChange={handleUseImportanceSampledEnvironmentChange} />
+						</div>
+					</>
+				)}
+
+				<Separator className="my-1 opacity-30" />
+
+				{/* Common Environment Controls */}
 				<div className="flex items-center justify-between">
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
 				</div>
@@ -211,9 +359,6 @@ const PathTracerTab = () => {
 				</div>
 				<div className="flex items-center justify-between">
 					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
-				</div>
-				<div className="flex items-center justify-between">
-					<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
 				</div>
 			</ControlGroup>
 

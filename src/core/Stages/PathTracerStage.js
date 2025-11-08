@@ -1,5 +1,5 @@
 import {
-	Vector2, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter
+	Vector2, Vector3, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, Color
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
@@ -13,6 +13,8 @@ import FragmentShader from '../Shaders/pathtracer.fs';
 import VertexShader from '../Shaders/pathtracer.vs';
 import TriangleSDF from '../Processor/TriangleSDF';
 import { EnvironmentCDFBuilder } from '../Processor/EnvironmentCDFBuilder';
+import { ProceduralSkyRenderer } from '../Processor/ProceduralSkyRenderer';
+import { SimpleSkyRenderer } from '../Processor/SimpleSkyRenderer';
 import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
 import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../Constants';
 
@@ -235,6 +237,38 @@ export class PathTracerStage extends PipelineStage {
 				maxEnvSamplingBounce: { value: 3 },
 			}
 		} );
+
+		// Environment generation parameters (CPU-side only, not passed to shader)
+		// These are used to generate environment textures that are then passed via the 'environment' uniform
+		this.envParams = {
+			mode: 'hdri', // 'hdri', 'procedural', 'gradient', 'color'
+
+			// Gradient Sky parameters
+			gradientZenithColor: new Color( DEFAULT_STATE.gradientZenithColor ),
+			gradientHorizonColor: new Color( DEFAULT_STATE.gradientHorizonColor ),
+			gradientGroundColor: new Color( DEFAULT_STATE.gradientGroundColor ),
+
+			// Solid Color Sky parameter
+			solidSkyColor: new Color( DEFAULT_STATE.solidSkyColor ),
+
+			// Procedural Sky (Preetham Model) parameters
+			skySunDirection: ( () => {
+
+				// Calculate initial sun direction from default azimuth/elevation
+				const azimuth = DEFAULT_STATE.skySunAzimuth * ( Math.PI / 180 );
+				const elevation = DEFAULT_STATE.skySunElevation * ( Math.PI / 180 );
+				return new Vector3(
+					Math.cos( elevation ) * Math.sin( azimuth ),
+					Math.sin( elevation ),
+					Math.cos( elevation ) * Math.cos( azimuth )
+				).normalize();
+
+			} )(),
+			skySunIntensity: DEFAULT_STATE.skySunIntensity,
+			skyRayleighDensity: DEFAULT_STATE.skyRayleighDensity,
+			skyTurbidity: DEFAULT_STATE.skyTurbidity,
+			skyMieAnisotropy: DEFAULT_STATE.skyMieAnisotropy,
+		};
 
 	}
 
@@ -1078,12 +1112,21 @@ export class PathTracerStage extends PipelineStage {
 
 		this.scene.environment = envMap;
 		this.material.uniforms.environment.value = envMap;
-		if ( envMap ) {
+
+		// Force texture upload to GPU
+		if ( envMap && this.renderer ) {
+
+			this.renderer.initTexture( envMap );
+
+		}
+
+		// Only build CDF if importance sampling is enabled
+		if ( envMap && this.material.uniforms.useEnvMapIS.value ) {
 
 			// Rebuild CDF asynchronously
 			await this.buildEnvironmentCDF();
 
-		} else {
+		} else if ( ! envMap ) {
 
 			this.material.uniforms.envCDF.value = null;
 			this.material.uniforms.useEnvMapIS.value = false;
@@ -1100,6 +1143,179 @@ export class PathTracerStage extends PipelineStage {
 		const rotationRadians = rotationDegrees * ( Math.PI / 180 );
 		this.environmentRotationMatrix.makeRotationY( rotationRadians );
 		this.material.uniforms.environmentMatrix.value.copy( this.environmentRotationMatrix );
+
+	}
+
+	/**
+	 * Generate gradient sky texture (Zenith → Horizon → Ground)
+	 * Creates an equirectangular texture with smooth gradient using GPU rendering
+	 */
+	async generateGradientTexture() {
+
+		// Lazy-initialize Simple sky renderer
+		if ( ! this.simpleSkyRenderer ) {
+
+			try {
+
+				// Pass the main renderer so textures are properly registered
+				this.simpleSkyRenderer = new SimpleSkyRenderer( 512, 256, this.renderer );
+
+			} catch ( error ) {
+
+				console.error( '❌ Failed to initialize SimpleSkyRenderer:', error );
+				return;
+
+			}
+
+		}
+
+		// Get colors from envParams (CPU-side parameters)
+		const params = {
+			zenithColor: this.envParams.gradientZenithColor,
+			horizonColor: this.envParams.gradientHorizonColor,
+			groundColor: this.envParams.gradientGroundColor,
+		};
+
+		try {
+
+			// Render gradient sky texture
+			const texture = this.simpleSkyRenderer.renderGradient( params );
+
+			if ( ! texture ) {
+
+				console.error( '❌ Simple sky renderer returned null texture' );
+				return;
+
+			}
+
+			// Mark as procedurally generated for cleanup
+			texture._isGeneratedProcedural = true;
+
+			// Set as environment map
+			// Note: Texture is already registered with renderer since we use shared renderer
+			await this.setEnvironmentMap( texture );
+
+		} catch ( error ) {
+
+			console.error( '❌ Error generating gradient sky:', error );
+
+		}
+
+	}
+
+	/**
+	 * Generate solid color sky texture
+	 * Creates a simple uniform color environment using GPU rendering
+	 */
+	async generateSolidColorTexture() {
+
+		// Lazy-initialize Simple sky renderer
+		if ( ! this.simpleSkyRenderer ) {
+
+			try {
+
+				// Pass the main renderer so textures are properly registered
+				this.simpleSkyRenderer = new SimpleSkyRenderer( 512, 256, this.renderer );
+
+			} catch ( error ) {
+
+				console.error( '❌ Failed to initialize SimpleSkyRenderer:', error );
+				return;
+
+			}
+
+		}
+
+		// Get color from envParams (CPU-side parameters)
+		const params = {
+			color: this.envParams.solidSkyColor,
+		};
+
+		try {
+
+			// Render solid color sky texture
+			const texture = this.simpleSkyRenderer.renderSolid( params );
+
+			if ( ! texture ) {
+
+				console.error( '❌ Simple sky renderer returned null texture' );
+				return;
+
+			}
+
+			// Mark as procedurally generated for cleanup
+			texture._isGeneratedProcedural = true;
+
+			// Set as environment map
+			// Note: Texture is already registered with renderer since we use shared renderer
+			await this.setEnvironmentMap( texture );
+
+		} catch ( error ) {
+
+			console.error( '❌ Error generating solid color sky:', error );
+
+		}
+
+	}
+
+	/**
+	 * Generate procedural sky texture using atmospheric scattering
+	 * Creates a physically-based sky using off-screen rendering
+	 */
+	async generateProceduralSkyTexture() {
+
+		// Lazy-initialize Procedural sky renderer
+		if ( ! this.proceduralSkyRenderer ) {
+
+			try {
+
+				// Pass the main renderer so textures are properly registered
+				this.proceduralSkyRenderer = new ProceduralSkyRenderer( 512, 256, this.renderer );
+
+			} catch ( error ) {
+
+				console.error( '❌ Failed to initialize ProceduralSkyRenderer:', error );
+				return;
+
+			}
+
+		}
+
+		// Gather parameters from envParams (CPU-side parameters)
+		// Apply scaling factors for Preetham model
+		const params = {
+			sunDirection: this.envParams.skySunDirection.clone(),
+			sunIntensity: this.envParams.skySunIntensity * 0.05, // Scale for Preetham model
+			rayleighDensity: this.envParams.skyRayleighDensity * 2.0, // Scale for Preetham model
+			mieDensity: this.envParams.skyTurbidity * 0.005, // Scale for Preetham model
+			mieAnisotropy: this.envParams.skyMieAnisotropy,
+			turbidity: this.envParams.skyTurbidity * 2.0, // Map mie density to turbidity
+		};
+
+		try {
+
+			// Render sky texture
+			const texture = this.proceduralSkyRenderer.render( params );
+
+			if ( ! texture ) {
+
+				console.error( '❌ Procedural sky renderer returned null texture' );
+				return;
+
+			}
+
+			// Mark as procedurally generated for cleanup
+			texture._isGeneratedProcedural = true;
+
+			// Set as environment map
+			// Note: Texture is already registered with renderer since we use shared renderer
+			await this.setEnvironmentMap( texture );
+
+		} catch ( error ) {
+
+			console.error( '❌ Error generating procedural sky:', error );
+
+		}
 
 	}
 

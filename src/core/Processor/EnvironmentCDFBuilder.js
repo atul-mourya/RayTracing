@@ -76,7 +76,7 @@ export class EnvironmentCDFBuilder {
 		this.analyzeLuminanceData( luminance, width, height );
 
 		// Determine optimal CDF size
-		const cdfSize = this.determineOptimalCDFSize( width, height, luminance );
+		const cdfSize = this.determineOptimalCDFSize( width, height );
 
 		// Build CDF texture with FIXED filtering
 		const { cdfTexture, cdfHeight } = this.buildCDFTextureFixed( luminance, width, height, cdfSize );
@@ -139,8 +139,71 @@ export class EnvironmentCDFBuilder {
 
 		try {
 
-			// Handle different types of environment maps
-			if ( envMap.isDataTexture || envMap.isCanvasTexture ) {
+			// First, check if this is a GPU-only texture (from render target)
+			// These need special handling via framebuffer reading
+			const webglProperties = this.renderer.properties.get( envMap );
+			const hasWebGLTexture = webglProperties && webglProperties.__webglTexture !== undefined;
+			const hasCPUData = envMap.image && envMap.image.data;
+
+			if ( hasWebGLTexture && ! hasCPUData ) {
+
+				// This is a GPU-backed texture without CPU data (e.g., from ProceduralSkyRenderer)
+				// Get dimensions from the texture's image property or default size
+				width = envMap.image?.width || 512;
+				height = envMap.image?.height || 256;
+
+				// Create a temporary framebuffer to read the texture
+				const gl = this.renderer.getContext();
+				const tempFramebuffer = gl.createFramebuffer();
+				const previousFramebuffer = gl.getParameter( gl.FRAMEBUFFER_BINDING );
+
+				// Bind texture to framebuffer
+				gl.bindFramebuffer( gl.FRAMEBUFFER, tempFramebuffer );
+				gl.framebufferTexture2D(
+					gl.FRAMEBUFFER,
+					gl.COLOR_ATTACHMENT0,
+					gl.TEXTURE_2D,
+					this.renderer.properties.get( envMap ).__webglTexture,
+					0
+				);
+
+				// Check framebuffer status
+				const status = gl.checkFramebufferStatus( gl.FRAMEBUFFER );
+				if ( status !== gl.FRAMEBUFFER_COMPLETE ) {
+
+					console.error( `EnvironmentCDFBuilder: Framebuffer incomplete (status: ${status})` );
+					gl.bindFramebuffer( gl.FRAMEBUFFER, previousFramebuffer );
+					gl.deleteFramebuffer( tempFramebuffer );
+					return null;
+
+				}
+
+				// Read pixels - use FLOAT if available, otherwise fallback to UNSIGNED_BYTE
+				if ( envMap.type === FloatType ) {
+
+					pixelData = new Float32Array( width * height * 4 );
+					gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, pixelData );
+
+				} else {
+
+					const pixels = new Uint8Array( width * height * 4 );
+					gl.readPixels( 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels );
+
+					// Convert to float
+					pixelData = new Float32Array( pixels.length );
+					for ( let i = 0; i < pixels.length; i ++ ) {
+
+						pixelData[ i ] = pixels[ i ] / 255.0;
+
+					}
+
+				}
+
+				// Restore previous framebuffer and cleanup
+				gl.bindFramebuffer( gl.FRAMEBUFFER, previousFramebuffer );
+				gl.deleteFramebuffer( tempFramebuffer );
+
+			} else if ( envMap.isDataTexture || envMap.isCanvasTexture ) {
 
 				width = envMap.image.width;
 				height = envMap.image.height;
@@ -412,7 +475,7 @@ export class EnvironmentCDFBuilder {
 
 	}
 
-	determineOptimalCDFSize( width, height, luminance ) {
+	determineOptimalCDFSize( width, height ) {
 
 		if ( ! this.options.adaptiveResolution ) {
 
@@ -420,7 +483,7 @@ export class EnvironmentCDFBuilder {
 
 		}
 
-		// For debugging, use a smaller size to make issues more obvious
+		// Use a reasonable base size for CDF
 		const baseSize = Math.min( 512, Math.max( width, height ) );
 
 		// Round to power of 2 for better GPU performance
@@ -443,9 +506,6 @@ export class EnvironmentCDFBuilder {
 		let maxCellValue = 0;
 		let biasPreventionCount = 0;
 		let poleSingularityCount = 0;
-
-		// Identify pole regions in CDF space
-		const poleCDFRegion = Math.max( 1, Math.floor( cdfSize * 0.02 ) );
 
 		// Build conditional CDFs with enhanced pole handling
 		for ( let cdfY = 0; cdfY < cdfSize; cdfY ++ ) {
