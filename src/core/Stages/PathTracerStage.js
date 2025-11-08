@@ -163,6 +163,11 @@ export class PathTracerStage extends PipelineStage {
 				envMapTotalLuminance: { value: 1.0 },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity },
 
+				// Sun parameters (for procedural sky)
+				sunDirection: { value: new Vector3( 0, 1, 0 ) },
+				sunAngularSize: { value: 0.0087 }, // Sun's angular diameter ~0.5 degrees in radians
+				hasSun: { value: false },
+
 				cameraWorldMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
 				enableDOF: { value: DEFAULT_STATE.enableDOF },
@@ -234,7 +239,7 @@ export class PathTracerStage extends PipelineStage {
 
 				useEnvMipMap: { value: true },
 				envSamplingBias: { value: 1.2 },
-				maxEnvSamplingBounce: { value: 3 },
+				maxEnvSamplingBounce: { value: 10 },
 			}
 		} );
 
@@ -394,7 +399,47 @@ export class PathTracerStage extends PipelineStage {
 
 	updateLights() {
 
+		// Process scene lights first (this clears and collects all scene lights)
 		this.lightDataTransfer.processSceneLights( this.scene, this.material );
+
+		// Add sun as a directional light if procedural sky is active
+		if ( this.material.uniforms.hasSun.value ) {
+
+			// Create a virtual directional light for the sun
+			// This allows the path tracer to use Next Event Estimation (NEE) for the sun
+			//
+			// NOTE: The sun intensity in the procedural sky is: sunIntensity * 0.05 * 19000 * Fex
+			// Which is approximately: sunIntensity * 950 (assuming Fex ≈ 1)
+			// We use a scaled intensity to match the environment map's sun radiance
+			const scaledSunIntensity = this.envParams.skySunIntensity * 950.0;
+
+			const sunLight = {
+				intensity: scaledSunIntensity,
+				color: { r: 1.0, g: 1.0, b: 1.0 }, // White light (color comes from atmosphere)
+				userData: {
+					angle: this.material.uniforms.sunAngularSize.value // Sun's angular diameter
+				},
+				// Mock methods needed by LightDataTransfer
+				updateMatrixWorld: () => {},
+				getWorldPosition: ( target ) => {
+
+					// Sun direction points FROM sun TO viewer, so we negate it to get position
+					const sunDir = this.material.uniforms.sunDirection.value;
+					return target.set( sunDir.x, sunDir.y, sunDir.z ).multiplyScalar( 1e10 ); // Very far away
+
+				}
+			};
+
+			// Add sun to the light cache
+			this.lightDataTransfer.addDirectionalLight( sunLight );
+
+			// Reprocess lights to include sun and update shader uniforms
+			this.lightDataTransfer.preprocessLights();
+			this.lightDataTransfer.updateShaderUniforms( this.material );
+
+			console.log( `☀️ Sun added as directional light (intensity: ${scaledSunIntensity.toFixed( 2 )}, angle: ${sunLight.userData.angle.toFixed( 4 )} rad)` );
+
+		}
 
 	}
 
@@ -1134,6 +1179,14 @@ export class PathTracerStage extends PipelineStage {
 
 		}
 
+		// Disable sun for HDRI environments (unless explicitly set by procedural sky)
+		// The procedural sky generator will set hasSun to true after calling this
+		if ( envMap && ! envMap._isGeneratedProcedural ) {
+
+			this.material.uniforms.hasSun.value = false;
+
+		}
+
 		this.reset();
 
 	}
@@ -1195,6 +1248,9 @@ export class PathTracerStage extends PipelineStage {
 			// Note: Texture is already registered with renderer since we use shared renderer
 			await this.setEnvironmentMap( texture );
 
+			// Disable sun for gradient sky
+			this.material.uniforms.hasSun.value = false;
+
 		} catch ( error ) {
 
 			console.error( '❌ Error generating gradient sky:', error );
@@ -1249,6 +1305,9 @@ export class PathTracerStage extends PipelineStage {
 			// Set as environment map
 			// Note: Texture is already registered with renderer since we use shared renderer
 			await this.setEnvironmentMap( texture );
+
+			// Disable sun for solid color sky
+			this.material.uniforms.hasSun.value = false;
 
 		} catch ( error ) {
 
@@ -1310,6 +1369,13 @@ export class PathTracerStage extends PipelineStage {
 			// Set as environment map
 			// Note: Texture is already registered with renderer since we use shared renderer
 			await this.setEnvironmentMap( texture );
+
+			// Update sun uniforms for path tracer to use
+			this.material.uniforms.sunDirection.value.copy( this.envParams.skySunDirection );
+			this.material.uniforms.sunAngularSize.value = 0.0087; // ~0.5 degrees
+			this.material.uniforms.hasSun.value = true;
+
+			console.log( `☀️ Sun parameters synced: dir=${this.envParams.skySunDirection.toArray().map( v => v.toFixed( 2 ) ).join( ',' )}, intensity=${this.envParams.skySunIntensity}` );
 
 		} catch ( error ) {
 

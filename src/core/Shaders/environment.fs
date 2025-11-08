@@ -15,6 +15,11 @@ uniform int maxEnvSamplingBounce; // Maximum bounces for environment sampling
 uniform float envMapTotalLuminance; // Total luminance for proper PDF normalization
 uniform float fireflyThreshold;
 
+// Sun parameters (for procedural sky with sun)
+uniform vec3 sunDirection;       // Direction to the sun
+uniform float sunAngularSize;    // Sun angular diameter in radians (~0.0087 for realistic sun)
+uniform bool hasSun;             // True when procedural sky with sun is active
+
 // Structure to store sampling results
 struct EnvMapSample {
     vec3 direction;
@@ -320,6 +325,31 @@ float calculateEnvironmentPDFWithMIS( vec3 direction, float roughness ) {
     return clamp( pdf, 1e-5, 1000.0 );
 }
 
+// Check if a direction hits the sun disk
+bool hitsSun( vec3 direction, out float sunCoverage ) {
+    if( ! hasSun ) {
+        sunCoverage = 0.0;
+        return false;
+    }
+
+    // Calculate angle between sample direction and sun direction
+    float cosAngle = dot( normalize( direction ), normalize( sunDirection ) );
+
+    // Sun angular radius (half of diameter)
+    float sunAngularRadius = sunAngularSize * 0.5;
+    float cosSunAngle = cos( sunAngularRadius );
+
+    // Check if within sun disk
+    if( cosAngle >= cosSunAngle ) {
+        // Calculate how centered the sample is on the sun (1.0 = center, 0.0 = edge)
+        sunCoverage = ( cosAngle - cosSunAngle ) / ( 1.0 - cosSunAngle );
+        return true;
+    }
+
+    sunCoverage = 0.0;
+    return false;
+}
+
 // Streamlined environment sampling
 EnvMapSample sampleEnvironmentWithContext(
     vec2 xi,
@@ -363,9 +393,24 @@ EnvMapSample sampleEnvironmentWithContext(
     // Environment value calculation
     vec3 envValue = envColor.rgb;
 
+    // Sun detection and double-counting prevention
+    float sunCoverage = 0.0;
+    bool isSunSample = hitsSun( direction, sunCoverage );
+
     // MUCH more lenient firefly control for IS
     float importance = luminance( envValue ) / max( pdf, 0.0001 );
     float confidence = 1.0;
+
+    // Handle sun samples: reduce environment contribution since DirectionalLight handles it
+    if( isSunSample ) {
+        // The sun is sampled explicitly via DirectionalLight (NEE)
+        // Reduce environment contribution by 80% to avoid double-counting
+        // Keep 20% for atmospheric scattering around sun disk
+        envValue *= 0.2;
+
+        // Still boost confidence since sun region is important for sky scattering
+        confidence *= 1.5;
+    }
 
     // Only clamp on deep bounces and be very conservative
     if( bounceIndex > 4 ) {
