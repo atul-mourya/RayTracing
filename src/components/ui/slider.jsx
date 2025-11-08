@@ -222,6 +222,15 @@ const Slider = React.forwardRef( ( {
 		const newValue = Number.parseFloat( e.target.value ) || 0;
 		setCurrentValue( newValue );
 
+		// Trigger change handlers immediately for stepper arrows
+		const clampedValue = clampValue( newValue );
+		if ( clampedValue !== lastValueRef.current ) {
+
+			lastValueRef.current = clampedValue;
+			handleChange( clampedValue );
+
+		}
+
 	};
 
 	const handleEnterKey = e => {
@@ -240,14 +249,16 @@ const Slider = React.forwardRef( ( {
 		const clampedValue = clampValue( currentValue );
 		setIsEditing( false );
 
-		// Only call handlers if the value actually changed
+		// Ensure final value is set (may have already been set by handleInputChange)
 		if ( clampedValue !== lastValueRef.current ) {
 
 			lastValueRef.current = clampedValue;
 			handleChange( clampedValue );
-			onFinishChange?.( clampedValue );
 
 		}
+
+		// Always call onFinishChange when committing
+		onFinishChange?.( clampedValue );
 
 	};
 
@@ -331,10 +342,19 @@ const Slider = React.forwardRef( ( {
 						onBlur={commitValue}
 						onKeyDown={handleEnterKey}
 						onFocus={( e ) => e.target.select()}
+						onPointerDown={( e ) => e.stopPropagation()}
 						autoFocus
 					/>
 				) : (
-					<span className="text-xs absolute h-full right-2 cursor-text select-none text-foreground inline-flex items-center">
+					<span
+						className="text-xs absolute h-full right-2 cursor-text select-none text-foreground inline-flex items-center"
+						onPointerDown={( e ) => e.stopPropagation()}
+						onClick={( e ) => {
+							e.preventDefault();
+							e.stopPropagation();
+							if ( ! disabled ) setIsEditing( true );
+						}}
+					>
 						{isNaN( currentValue ) ? "-" : + ( currentValue || 0 ).toFixed( precision )}
 					</span>
 				)}
