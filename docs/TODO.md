@@ -5,6 +5,7 @@
 
 ### Known Issues
 - [ ] Soft shadows for directional lights not working when enabled from UI
+- [ ] transmission thickness dont seems to make any difference in render
 
 ### Code Quality & Performance
 - [ ] **Performance Profiling**
@@ -56,6 +57,7 @@
 - [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 - [x] useHook - https://github.com/uidotdev/usehooks
 - [ ] Estimated time remaining display
+- [ ] UX for Envroment control needs revamp
 
 ### BVH Construction Improvements
 - [ ] BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
