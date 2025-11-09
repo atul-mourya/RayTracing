@@ -40,6 +40,17 @@ export function ThemeProvider( {
 
 		root.classList.add( theme );
 
+		// Force update of CSS custom properties
+		if ( theme === "dark" ) {
+
+			root.style.colorScheme = "dark";
+
+		} else {
+
+			root.style.colorScheme = "light";
+
+		}
+
 	}, [ theme ] );
 
 	const value = {
