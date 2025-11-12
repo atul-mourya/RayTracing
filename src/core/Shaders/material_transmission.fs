@@ -1,3 +1,7 @@
+// ===== TRANSMISSION & REFRACTION (Conditional Compilation) =====
+// Note: This file handles both volumetric transmission AND opacity-based transparency
+#if defined(ENABLE_TRANSMISSION) || defined(ENABLE_TRANSPARENCY)
+
 struct TransmissionResult {
 	vec3 direction;    // New ray direction after transmission/reflection
 	vec3 throughput;   // Color throughput including absorption
@@ -12,15 +16,6 @@ struct MaterialInteractionResult {
 	vec3 throughput;           // Color modification for the ray
 	float alpha;               // Alpha modification
 };
-
-struct RenderState {
-	int traversals;               // Remaining general bounces
-	int transmissiveTraversals;   // Remaining transmission-specific bounces
-	int rayType;                  // Current ray type (RAY_TYPE_*)
-	bool isPrimaryRay;            // True only for camera rays (bounceIndex == 0)
-	int actualBounceDepth;        // True depth without manipulation
-};
-
 
 // Maximum number of nested media
 #define MAX_MEDIA_STACK 4
@@ -644,3 +639,5 @@ MaterialInteractionResult handleMaterialTransparency(
     // If we get here, handle like a regular material
 	return result;
 }
+
+#endif // ENABLE_TRANSMISSION || ENABLE_TRANSPARENCY

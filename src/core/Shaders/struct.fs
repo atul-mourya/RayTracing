@@ -233,3 +233,12 @@ struct MultiLobeWeights {
 	float iridescence;
 	float totalWeight;
 };
+
+// General rendering state (used across all rendering paths)
+struct RenderState {
+	int traversals;               // Remaining general bounces
+	int transmissiveTraversals;   // Remaining transmission-specific bounces
+	int rayType;                  // Current ray type (RAY_TYPE_*)
+	bool isPrimaryRay;            // True only for camera rays (bounceIndex == 0)
+	int actualBounceDepth;        // True depth without manipulation
+};

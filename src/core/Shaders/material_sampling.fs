@@ -97,6 +97,9 @@ vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
 // Multi-Lobe MIS Sampling
 // -----------------------------------------------------------------------------
 
+// ===== MULTI-LOBE MIS FUNCTIONS (Conditional Compilation) =====
+#ifdef ENABLE_MULTI_LOBE_MIS
+
 // IMPROVEMENT: Enhanced sampling weights calculation for multi-lobe MIS
 MultiLobeWeights calculateSamplingWeights( vec3 V, vec3 N, RayTracingMaterial material ) {
 	MultiLobeWeights weights;
@@ -329,3 +332,5 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 
 	return result;
 }
+
+#endif // ENABLE_MULTI_LOBE_MIS

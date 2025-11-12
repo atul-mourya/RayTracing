@@ -226,12 +226,14 @@ IndirectLightingResult calculateIndirectLighting(
         samplePdf = cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
 
+#ifdef ENABLE_TRANSMISSION
     } else if( selectedStrategy == 3 ) { // Transmission
         bool entering = dot( V, N ) < 0.0;
         MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState );
         sampleDir = mtResult.direction;
         samplePdf = mtResult.pdf;
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
+#endif // ENABLE_TRANSMISSION
 
     } else { // Clearcoat (strategy 4)
         sampleDir = brdfSample.direction;

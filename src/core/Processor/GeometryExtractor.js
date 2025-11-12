@@ -169,6 +169,28 @@ export default class GeometryExtractor {
 			this.materials.push( newMaterial );
 			materialIndex = this.materials.length - 1;
 
+			// Detect material features for shader optimization (strict > 0 check)
+			if ( newMaterial.clearcoat > 0 ) this.sceneFeatures.hasClearcoat = true;
+			if ( newMaterial.transmission > 0 ) this.sceneFeatures.hasTransmission = true;
+			if ( newMaterial.dispersion > 0 ) this.sceneFeatures.hasDispersion = true;
+			if ( newMaterial.iridescence > 0 ) this.sceneFeatures.hasIridescence = true;
+			if ( newMaterial.sheen > 0 ) this.sceneFeatures.hasSheen = true;
+			if ( newMaterial.transparent || newMaterial.opacity < 1.0 || newMaterial.alphaTest > 0 ) this.sceneFeatures.hasTransparency = true;
+
+			// Detect multi-lobe materials (require multi-lobe MIS for optimal sampling)
+			const featureCount = [
+				newMaterial.clearcoat > 0,
+				newMaterial.transmission > 0,
+				newMaterial.iridescence > 0,
+				newMaterial.sheen > 0
+			].filter( Boolean ).length;
+
+			if ( featureCount >= 2 ) {
+
+				this.sceneFeatures.hasMultiLobeMaterials = true;
+
+			}
+
 		}
 
 		return materialIndex;
@@ -738,6 +760,18 @@ export default class GeometryExtractor {
 		this.directionalLights = [];
 		this.cameras = [];
 
+		// Reset scene-wide feature detection flags
+		this.sceneFeatures = {
+			hasClearcoat: false,
+			hasTransmission: false,
+			hasDispersion: false,
+			hasIridescence: false,
+			hasSheen: false,
+			hasTransparency: false,
+			hasMultiLobeMaterials: false, // Materials with 2+ BRDF lobes
+			hasMRTOutputs: true // Always enabled for ASVGF/adaptive sampling support
+		};
+
 	}
 
 	getExtractedData() {
@@ -755,7 +789,8 @@ export default class GeometryExtractor {
 			roughnessMaps: this.roughnessMaps,
 			displacementMaps: this.displacementMaps,
 			directionalLights: this.directionalLights,
-			cameras: this.cameras
+			cameras: this.cameras,
+			sceneFeatures: this.sceneFeatures // Scene-wide material feature flags
 		};
 
 	}

@@ -241,6 +241,7 @@ export default class TriangleSDF {
 
 			// Store other extracted data
 			this.materials = extractedData.materials;
+			this.materialCount = this.materials.length; // Store material count for feature scanning
 			this.meshes = extractedData.meshes; // Add mesh data
 			this.maps = extractedData.maps;
 			this.normalMaps = extractedData.normalMaps;
@@ -251,6 +252,7 @@ export default class TriangleSDF {
 			this.displacementMaps = extractedData.displacementMaps;
 			this.directionalLights = extractedData.directionalLights;
 			this.cameras = extractedData.cameras;
+			this.sceneFeatures = extractedData.sceneFeatures; // Store material feature flags for shader optimization
 
 			const duration = performance.now() - startTime;
 			this._log( `Geometry extraction complete (${duration.toFixed( 2 )}ms)`, {
@@ -569,6 +571,7 @@ export default class TriangleSDF {
 
 			// Update material arrays (but keep existing triangle data)
 			this.materials = extractedData.materials;
+			this.materialCount = this.materials.length; // Update material count
 			this.meshes = extractedData.meshes; // Update mesh data
 			this.maps = extractedData.maps;
 			this.normalMaps = extractedData.normalMaps;
@@ -577,6 +580,7 @@ export default class TriangleSDF {
 			this.metalnessMaps = extractedData.metalnessMaps;
 			this.emissiveMaps = extractedData.emissiveMaps;
 			this.displacementMaps = extractedData.displacementMaps;
+			this.sceneFeatures = extractedData.sceneFeatures; // Update material feature flags
 
 			// Create new material and texture data only
 			const params = {

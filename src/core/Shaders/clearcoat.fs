@@ -1,3 +1,6 @@
+// ===== CLEARCOAT BRDF (Conditional Compilation) =====
+#ifdef ENABLE_CLEARCOAT
+
 // Note: evaluateLayeredBRDF and calculateLayerAttenuation functions
 // have been moved to material_evaluation.fs
 
@@ -54,3 +57,5 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
     // Evaluate complete BRDF
 	return evaluateLayeredBRDF( dots, material );
 }
+
+#endif // ENABLE_CLEARCOAT

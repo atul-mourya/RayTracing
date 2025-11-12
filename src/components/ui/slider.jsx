@@ -350,9 +350,11 @@ const Slider = React.forwardRef( ( {
 						className="text-xs absolute h-full right-2 cursor-text select-none text-foreground inline-flex items-center"
 						onPointerDown={( e ) => e.stopPropagation()}
 						onClick={( e ) => {
+
 							e.preventDefault();
 							e.stopPropagation();
 							if ( ! disabled ) setIsEditing( true );
+
 						}}
 					>
 						{isNaN( currentValue ) ? "-" : + ( currentValue || 0 ).toFixed( precision )}

@@ -84,6 +84,7 @@ export class PathTracerStage extends PipelineStage {
 		this.accumulationEnabled = true;
 		this.isComplete = false;
 		this.cameras = [];
+		this.compiledFeatures = null; // Track last compiled features for recompilation detection
 
 		// Performance monitoring
 		this.performanceMonitor = PathTracerUtils.createPerformanceMonitor();
@@ -345,9 +346,170 @@ export class PathTracerStage extends PipelineStage {
 
 		this.material.defines.MAX_SPHERE_COUNT = this.sdfs.spheres.length;
 
+		// Inject shader defines based on detected material features
+		this.injectMaterialFeatureDefines();
+
 		// Update uniforms with scene data
 		this.updateSceneUniforms();
 		this.updateLights();
+
+	}
+
+	/**
+	 * Re-scan material data texture to detect which features are currently in use.
+	 * Called when material properties change via UI to update sceneFeatures.
+	 *
+	 * This method scans all materials in the material texture to detect active features
+	 * (clearcoat, transmission, sheen, iridescence, dispersion) and updates the
+	 * sceneFeatures object accordingly. If features have changed, it triggers shader
+	 * recompilation with the updated preprocessor defines.
+	 *
+	 * @returns {boolean} True if features changed and require shader recompilation, false otherwise
+	 */
+	rescanMaterialFeatures() {
+
+		if ( ! this.material.uniforms.materialTexture?.value?.image?.data ) {
+
+			console.warn( '[PathTracerStage] Material texture not available for feature scanning' );
+			return false;
+
+		}
+
+		const data = this.material.uniforms.materialTexture.value.image.data;
+		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
+		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
+		const materialCount = this.sdfs.materialCount || 1;
+
+		// Reset features
+		const newFeatures = {
+			hasClearcoat: false,
+			hasTransmission: false,
+			hasDispersion: false,
+			hasIridescence: false,
+			hasSheen: false,
+			hasTransparency: false,
+			hasMultiLobeMaterials: false,
+			hasMRTOutputs: true
+		};
+
+		// Scan all materials in the texture
+		for ( let i = 0; i < materialCount; i ++ ) {
+
+			const stride = i * dataLengthPerMaterial;
+
+			// Read feature values from texture (using same indices as updateMaterialProperty)
+			const transmission = data[ stride + 9 ];
+			const dispersion = data[ stride + 16 ];
+			const sheen = data[ stride + 18 ];
+			const iridescence = data[ stride + 28 ];
+			const clearcoat = data[ stride + 38 ];
+			const opacity = data[ stride + 40 ];
+			const transparent = data[ stride + 42 ];
+			const alphaTest = data[ stride + 43 ];
+
+			// Detect features (strict > 0 check)
+			if ( clearcoat > 0 ) newFeatures.hasClearcoat = true;
+			if ( transmission > 0 ) newFeatures.hasTransmission = true;
+			if ( dispersion > 0 ) newFeatures.hasDispersion = true;
+			if ( iridescence > 0 ) newFeatures.hasIridescence = true;
+			if ( sheen > 0 ) newFeatures.hasSheen = true;
+			if ( transparent > 0 || opacity < 1.0 || alphaTest > 0 ) newFeatures.hasTransparency = true;
+
+			// Count features for multi-lobe detection
+			const featureCount = [
+				clearcoat > 0,
+				transmission > 0,
+				iridescence > 0,
+				sheen > 0
+			].filter( Boolean ).length;
+
+			if ( featureCount >= 2 ) {
+
+				newFeatures.hasMultiLobeMaterials = true;
+
+			}
+
+		}
+
+		// Check if features changed
+		const oldFeaturesJSON = JSON.stringify( this.sdfs.sceneFeatures );
+		const newFeaturesJSON = JSON.stringify( newFeatures );
+		const changed = oldFeaturesJSON !== newFeaturesJSON;
+
+		if ( changed ) {
+
+			this.sdfs.sceneFeatures = newFeatures;
+
+		}
+
+		return changed;
+
+	}
+
+	/**
+	 * Inject shader preprocessor defines based on detected scene material features.
+	 * This enables conditional compilation to optimize shader performance by only
+	 * including code paths for features actually used in the scene.
+	 *
+	 * This method updates the shader material's defines object with feature flags
+	 * (ENABLE_CLEARCOAT, ENABLE_TRANSMISSION, etc.) and forces shader recompilation
+	 *
+	 * @example
+	 * // Features detected: { hasTransmission: true, hasClearcoat: true }
+	 * // Resulting defines: { ENABLE_TRANSMISSION: '', ENABLE_CLEARCOAT: '' }
+	 */
+	injectMaterialFeatureDefines() {
+
+		const features = this.sdfs.sceneFeatures;
+
+		if ( ! features ) {
+
+			console.warn( '[PathTracerStage] No sceneFeatures detected, skipping define injection' );
+			return;
+
+		}
+
+		// Check if features changed (for recompilation detection)
+		const featuresJSON = JSON.stringify( features );
+		const featuresChanged = ! this.compiledFeatures || this.compiledFeatures !== featuresJSON;
+
+		if ( ! featuresChanged ) {
+
+			return;
+
+		}
+
+		// Preserve non-feature defines
+		const preservedDefines = [ 'MAX_SPHERE_COUNT', 'MAX_DIRECTIONAL_LIGHTS', 'MAX_AREA_LIGHTS', 'MAX_POINT_LIGHTS', 'MAX_SPOT_LIGHTS', 'ENABLE_ACCUMULATION' ];
+		const currentDefines = {};
+		preservedDefines.forEach( key => {
+
+			if ( this.material.defines[ key ] !== undefined ) {
+
+				currentDefines[ key ] = this.material.defines[ key ];
+
+			}
+
+		} );
+
+		// Clear previous feature defines and reapply preserved ones
+		this.material.defines = { ...currentDefines };
+
+		// Inject feature-specific defines (empty string value = enabled)
+		if ( features.hasClearcoat ) this.material.defines.ENABLE_CLEARCOAT = '';
+		if ( features.hasTransmission ) this.material.defines.ENABLE_TRANSMISSION = '';
+		if ( features.hasDispersion ) this.material.defines.ENABLE_DISPERSION = '';
+		if ( features.hasIridescence ) this.material.defines.ENABLE_IRIDESCENCE = '';
+		if ( features.hasSheen ) this.material.defines.ENABLE_SHEEN = '';
+		if ( features.hasTransparency ) this.material.defines.ENABLE_TRANSPARENCY = '';
+		if ( features.hasMultiLobeMaterials ) this.material.defines.ENABLE_MULTI_LOBE_MIS = '';
+		if ( features.hasMRTOutputs ) this.material.defines.ENABLE_MRT_OUTPUTS = '';
+		// Force shader recompilation
+		this.material.needsUpdate = true;
+
+		// Cache compiled features for change detection
+		this.compiledFeatures = featuresJSON;
 
 	}
 
@@ -1596,6 +1758,21 @@ export class PathTracerStage extends PipelineStage {
 
 		// Mark texture for update
 		this.material.uniforms.materialTexture.value.needsUpdate = true;
+
+		// Check if this is a feature property that might affect shader compilation
+		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest' ];
+		if ( featureProperties.includes( property ) ) {
+
+			const featuresChanged = this.rescanMaterialFeatures();
+
+			if ( featuresChanged ) {
+
+				this.injectMaterialFeatureDefines();
+
+			}
+
+		}
+
 		this.reset();
 
 	}

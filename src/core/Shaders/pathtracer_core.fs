@@ -203,9 +203,11 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	objectColor = vec3( 0.0 );
 	objectID = - 1000.0;
 
+#if defined(ENABLE_TRANSMISSION) || defined(ENABLE_TRANSPARENCY)
     // Initialize media stack
 	MediumStack mediumStack;
 	mediumStack.depth = 0;
+#endif // ENABLE_TRANSMISSION || ENABLE_TRANSPARENCY
 
     // Initialize render state
 	RenderState state;
@@ -273,6 +275,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		}
 
         // Handle transparent materials with transmission
+#if defined(ENABLE_TRANSMISSION) || defined(ENABLE_TRANSPARENCY)
 		MaterialInteractionResult interaction = handleMaterialTransparency( ray, hitInfo.hitPoint, N, material, rngState, state, mediumStack );
 
 		if( interaction.continueRay ) {
@@ -304,6 +307,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
         // Apply transparency alpha
 		alpha *= interaction.alpha;
+#endif // ENABLE_TRANSMISSION || ENABLE_TRANSPARENCY
 
 		vec2 randomSample = getRandomSample( gl_FragCoord.xy, rayIndex, bounceIndex, rngState, - 1 );
 
@@ -318,6 +322,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
 		DirectionSample brdfSample;
         // Handle clear coat
+#ifdef ENABLE_CLEARCOAT
 		if( material.clearcoat > 0.0 ) {
 			vec3 L;
 			float pdf;
@@ -327,6 +332,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		} else {
 			brdfSample = generateSampledDirection( V, N, material, hitInfo.materialIndex, randomSample, rngState, pathState );
 		}
+#else
+		brdfSample = generateSampledDirection( V, N, material, hitInfo.materialIndex, randomSample, rngState, pathState );
+#endif // ENABLE_CLEARCOAT
 
         // 1. EMISSIVE CONTRIBUTION
 		if( length( matSamples.emissive ) > 0.0 ) {

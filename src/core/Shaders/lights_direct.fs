@@ -10,6 +10,7 @@
 
 float getMaterialTransparency( HitInfo shadowHit, Ray shadowRay, inout uint rngState ) {
     // Check if the material has transmission (like glass)
+#ifdef ENABLE_TRANSMISSION
     if( shadowHit.material.transmission > 0.0 ) {
         // Check if ray is entering or exiting the material
         bool isEntering = dot( shadowRay.direction, shadowHit.normal ) < 0.0;
@@ -20,8 +21,10 @@ float getMaterialTransparency( HitInfo shadowHit, Ray shadowRay, inout uint rngS
         // Return opacity based on transmittance
         return 1.0 - transmittance;
     }
+    else
+#endif // ENABLE_TRANSMISSION
     // If no transmission, check if it's transparent
-    else if( shadowHit.material.transparent ) {
+    if( shadowHit.material.transparent ) {
         return shadowHit.material.opacity;
     }
     // If neither transmissive nor transparent, it's fully opaque
@@ -35,9 +38,11 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
     shadowRay.origin = origin;
     shadowRay.direction = dir;
 
+#ifdef ENABLE_TRANSMISSION
     // Media tracking for shadow rays
     MediumStack shadowMediaStack;
     shadowMediaStack.depth = 0;
+#endif // ENABLE_TRANSMISSION
 
     // Track accumulated transmittance
     float transmittance = 1.0;
@@ -53,6 +58,7 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
             break;
 
         // Special handling for transmissive materials
+#ifdef ENABLE_TRANSMISSION
         if( shadowHit.material.transmission > 0.0 ) {
             // Determine if entering or exiting medium
             bool entering = dot( shadowRay.direction, shadowHit.normal ) < 0.0;
@@ -78,7 +84,9 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
 
             // Continue ray
             shadowRay.origin = shadowHit.hitPoint + shadowRay.direction * 0.001;
-        } else if( shadowHit.material.transparent ) {
+        } else
+#endif // ENABLE_TRANSMISSION
+        if( shadowHit.material.transparent ) {
             // Handle transparent materials
             transmittance *= ( 1.0 - shadowHit.material.opacity );
 

@@ -17,6 +17,8 @@ const MATERIAL_PROPERTIES = {
 		[ 'color', { type: 'color', default: '#ffffff', label: 'Color' } ],
 		[ 'roughness', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' } ],
 		[ 'metalness', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' } ],
+	],
+	clearcoat: [
 		[ 'clearcoat', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat' } ],
 		[ 'clearcoatRoughness', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Clearcoat Roughness' } ],
 	],
@@ -37,18 +39,22 @@ const MATERIAL_PROPERTIES = {
 		[ 'iridescence', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Iridescence' } ],
 		[ 'iridescenceIOR', { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'Iridescence IOR' } ],
 	],
-	transmission: [
-		[ 'opacity', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Opacity' } ],
+	volumetric: [
 		[ 'ior', { type: 'slider', default: 1.5, min: 1, max: 2.5, step: 0.01, label: 'IOR' } ],
 		[ 'transmission', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Transmission' } ],
 		[ 'attenuationColor', { type: 'color', default: '#ffffff', label: 'Attenuation Color' } ],
 		[ 'attenuationDistance', { type: 'number', default: 0, min: 0, max: 1000, step: 1, label: 'Attenuation Distance' } ],
-		[ 'dispersion', { type: 'slider', default: 0, min: 0, max: 10, step: 0.01, label: 'Dispersion' } ],
 		[ 'thickness', { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Thickness' } ],
+	],
+	transparency: [
+		[ 'transparent', { type: 'switch', default: false, label: 'Transparent' } ],
+		[ 'opacity', { type: 'slider', default: 1, min: 0, max: 1, step: 0.01, label: 'Opacity' } ],
 		[ 'alphaTest', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Alpha Test' } ],
 	],
+	dispersion: [
+		[ 'dispersion', { type: 'slider', default: 0, min: 0, max: 10, step: 0.01, label: 'Dispersion' } ],
+	],
 	other: [
-		[ 'transparent', { type: 'switch', default: false, label: 'Transparent' } ],
 		[ 'side', { type: 'select', default: 0, options: [ { value: 0, label: 'Front' }, { value: 1, label: 'Back' }, { value: 2, label: 'Double' } ], label: 'Side' } ],
 	]
 };
@@ -79,6 +85,24 @@ const COMMON_TEXTURE_NAMES = [
 	'specularMap', 'envMap', 'lightMap', 'clearcoatMap',
 	'clearcoatNormalMap', 'clearcoatRoughnessMap'
 ];
+
+// Helper to determine if a feature is enabled based on material state values
+const isFeatureEnabled = ( materialState, featureName ) => {
+
+	if ( ! materialState ) return false;
+
+	const checks = {
+		clearcoat: () => materialState.clearcoat > 0,
+		volumetric: () => materialState.transmission > 0,
+		transparency: () => materialState.transparent || materialState.opacity < 1 || materialState.alphaTest > 0,
+		iridescence: () => materialState.iridescence > 0,
+		sheen: () => materialState.sheen > 0,
+		dispersion: () => materialState.dispersion > 0
+	};
+
+	return checks[ featureName ]?.() ?? false;
+
+};
 
 const MaterialTab = () => {
 
@@ -411,13 +435,83 @@ const MaterialTab = () => {
 
 				{/* Properties Tab */}
 				<TabsContent value="properties" className="flex-1 min-h-0 overflow-y-auto mx-2 py-2 space-y-3">
+					{/* Basic Properties (always visible) */}
 					{MATERIAL_PROPERTIES.basic.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
 					<Separator />
+
+					{/* Specular (always visible) */}
 					{renderSection( 'specular', MATERIAL_PROPERTIES.specular )}
-					{renderSection( 'sheen', MATERIAL_PROPERTIES.sheen )}
+
+					{/* Emissive (always visible) */}
 					{renderSection( 'emissive', MATERIAL_PROPERTIES.emissive )}
-					{renderSection( 'iridescence', MATERIAL_PROPERTIES.iridescence )}
-					{renderSection( 'transmission', MATERIAL_PROPERTIES.transmission )}
+
+					{/* Clearcoat Feature Group */}
+					<div className="flex items-center justify-between w-full">
+						<Switch label="Enable Clearcoat" checked={isFeatureEnabled( materialState, 'clearcoat' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'clearcoat', enabled )} />
+					</div>
+					{isFeatureEnabled( materialState, 'clearcoat' ) && (
+						<>
+							{MATERIAL_PROPERTIES.clearcoat?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Volumetric Feature Group */}
+					<div className="flex items-center justify-between w-full">
+						<Switch label="Enable Volumetric" checked={isFeatureEnabled( materialState, 'volumetric' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'volumetric', enabled )} />
+					</div>
+					{isFeatureEnabled( materialState, 'volumetric' ) && (
+						<>
+							{MATERIAL_PROPERTIES.volumetric?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Transparency Feature Group */}
+					<div className="flex items-center justify-between w-full">
+						<Switch label="Enable Transparency" checked={isFeatureEnabled( materialState, 'transparency' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'transparency', enabled )} />
+					</div>
+					{isFeatureEnabled( materialState, 'transparency' ) && (
+						<>
+							{MATERIAL_PROPERTIES.transparency?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Iridescence Feature Group */}
+					<div className="flex items-center justify-between w-full">
+						<Switch label="Enable Iridescence" checked={isFeatureEnabled( materialState, 'iridescence' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'iridescence', enabled )} />
+					</div>
+					{isFeatureEnabled( materialState, 'iridescence' ) && (
+						<>
+							{MATERIAL_PROPERTIES.iridescence?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Sheen Feature Group */}
+					<div className="flex items-center justify-between w-full">
+						<Switch label="Enable Sheen" checked={isFeatureEnabled( materialState, 'sheen' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'sheen', enabled )} />
+					</div>
+					{isFeatureEnabled( materialState, 'sheen' ) && (
+						<>
+							{MATERIAL_PROPERTIES.sheen?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Dispersion Feature Group */}
+					<div className="flex items-center justify-between w-full">
+						<Switch label="Enable Dispersion" checked={isFeatureEnabled( materialState, 'dispersion' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'dispersion', enabled )} disabled={! isFeatureEnabled( materialState, 'volumetric' )} />
+					</div>
+					{isFeatureEnabled( materialState, 'dispersion' ) && (
+						<>
+							{MATERIAL_PROPERTIES.dispersion?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+
+					<Separator />
+					{/* Other Properties */}
 					{MATERIAL_PROPERTIES.other?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
 				</TabsContent>
 

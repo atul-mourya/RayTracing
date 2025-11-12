@@ -2084,6 +2084,188 @@ const useMaterialStore = create( ( set, get ) => ( {
 
 	},
 
+	/**
+	 * Toggle material feature groups on/off with smart default values.
+	 *
+	 * This handler enables or disables material feature groups (clearcoat, volumetric/transmission,
+	 * iridescence, sheen, dispersion) by updating the main feature property and applying sensible
+	 * defaults for supporting properties when enabling.
+	 *
+	 * Strategy:
+	 * - When enabling: Set main property to default value, apply smart defaults for supporting properties
+	 * - When disabling: Only set main property to 0, preserve supporting properties for next enable
+	 *
+	 * @param {string} featureName - Feature to toggle: 'clearcoat', 'volumetric', 'iridescence', 'sheen', 'dispersion'
+	 * @param {boolean} enabled - True to enable feature, false to disable
+	 *
+	 * @example
+	 * // Enable transmission with smart defaults
+	 * handleToggleFeature('volumetric', true);
+	 * // Sets: transmission=1.0, ior=1.5 (if currently 0), thickness=0.1 (if currently 0)
+	 *
+	 * // Disable transmission
+	 * handleToggleFeature('volumetric', false);
+	 * // Sets: transmission=0, preserves ior and thickness values
+	 */
+	handleToggleFeature: ( featureName, enabled ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+
+		try {
+
+			// Feature default values and property mappings
+			// Strategy: Only set main property when toggling, preserve supporting properties
+			const FEATURE_CONFIGS = {
+				clearcoat: {
+					properties: {
+						clearcoat: enabled ? 1.0 : 0
+						// Preserve clearcoatRoughness - only set main property
+					},
+					// Set sensible defaults for supporting properties when enabling (only if currently 0)
+					smartDefaults: enabled ? {
+						clearcoatRoughness: { value: 0.1, condition: () => obj.material.clearcoatRoughness === 0 }
+					} : {}
+				},
+				volumetric: {
+					properties: {
+						transmission: enabled ? 1.0 : 0
+						// Preserve ior, thickness, attenuationDistance - only set main property
+					},
+					// Set sensible defaults for supporting properties when enabling (only if currently 0)
+					smartDefaults: enabled ? {
+						ior: { value: 1.5, condition: () => obj.material.ior === 1.0 || obj.material.ior === 0 },
+						thickness: { value: 0.1, condition: () => obj.material.thickness === 0 }
+					} : {},
+					colorDefaults: enabled ? {
+						attenuationColor: { value: '#ffffff', condition: () => true }
+					} : {}
+				},
+				iridescence: {
+					properties: {
+						iridescence: enabled ? 0.5 : 0
+					},
+					smartDefaults: enabled ? {
+						iridescenceIOR: { value: 1.3, condition: () => obj.material.iridescenceIOR === 1.0 },
+						iridescenceThicknessRange: { value: [ 100, 400 ], condition: () => obj.material.iridescenceThicknessRange?.[ 0 ] === 0 }
+					} : {}
+				},
+				sheen: {
+					properties: {
+						sheen: enabled ? 0.5 : 0
+					},
+					smartDefaults: enabled ? {
+						sheenRoughness: { value: 0.5, condition: () => obj.material.sheenRoughness === 0 }
+					} : {},
+					colorDefaults: enabled ? {
+						sheenColor: { value: '#ffffff', condition: () => true }
+					} : {}
+				},
+				dispersion: {
+					properties: {
+						dispersion: enabled ? 0.02 : 0
+					}
+				},
+				transparency: {
+					properties: {
+						transparent: enabled ? 1 : 0, // Store as number for material texture
+						opacity: enabled ? ( obj.material.opacity === 1.0 ? 0.5 : obj.material.opacity ) : 1.0
+					// Preserve alphaTest - only set main properties
+					},
+					smartDefaults: enabled ? {
+						alphaTest: { value: 0, condition: () => true } // Ensure alphaTest is 0 when using opacity
+					} : {}
+				}
+			};
+
+			const config = FEATURE_CONFIGS[ featureName ];
+			if ( ! config ) {
+
+				console.warn( `Unknown feature: ${featureName}` );
+				return;
+
+			}
+
+			// Update main feature properties
+			Object.entries( config.properties ).forEach( ( [ prop, value ] ) => {
+
+				// Always set the property, even if it doesn't exist yet
+				// This allows enabling features that weren't initially configured
+				obj.material[ prop ] = value;
+				get().updateMaterialProperty( prop, value );
+
+			} );
+
+			// Apply smart defaults (only when enabling and condition is met)
+			if ( config.smartDefaults ) {
+
+				Object.entries( config.smartDefaults ).forEach( ( [ prop, { value, condition } ] ) => {
+
+					// Always set if condition is met, even if property doesn't exist yet
+					if ( condition() ) {
+
+						obj.material[ prop ] = value;
+						get().updateMaterialProperty( prop, value );
+
+					}
+
+				} );
+
+			}
+
+			// Apply color defaults
+			if ( config.colorDefaults ) {
+
+				Object.entries( config.colorDefaults ).forEach( ( [ prop, { value: hexValue, condition } ] ) => {
+
+					if ( condition() ) {
+
+						// Initialize Color object if it doesn't exist
+						if ( ! obj.material[ prop ]?.isColor ) {
+
+							obj.material[ prop ] = new THREE.Color( hexValue );
+
+						} else {
+
+							obj.material[ prop ].set( hexValue );
+
+						}
+
+						get().updateMaterialProperty( prop, obj.material[ prop ] );
+
+					}
+
+				} );
+
+			}
+
+			// Force material update
+			obj.material.needsUpdate = true;
+
+			// Force Zustand store update by updating selectedObject reference
+			// This ensures React components re-render with the new material values
+			set( { selectedObject: obj } );
+
+			// Trigger shader recompilation by resetting the path tracer
+			if ( window.pathTracerApp ) {
+
+				window.pathTracerApp.pathTracingPass.material.needsUpdate = true;
+				window.pathTracerApp.reset();
+
+			}
+
+			// Dispatch event for UI update (important for reactive state)
+			window.dispatchEvent( new Event( 'MaterialUpdate' ) );
+
+
+		} catch ( error ) {
+
+			console.error( `Error toggling feature ${featureName}:`, error );
+
+		}
+
+	},
+
 } ) );
 
 // Favorites store

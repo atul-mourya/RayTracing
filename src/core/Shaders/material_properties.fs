@@ -15,12 +15,14 @@ float DistributionGGX( float NoH, float roughness ) {
 	return alpha2 / ( PI * denom * denom );
 }
 
+#ifdef ENABLE_SHEEN
 float SheenDistribution( float NoH, float roughness ) {
 	float alpha = roughness * roughness;
 	float invAlpha = 1.0 / alpha;
 	float d = ( NoH * NoH * ( invAlpha * invAlpha - 1.0 ) + 1.0 );
 	return invAlpha * invAlpha / ( PI * d * d );
 }
+#endif // ENABLE_SHEEN
 
 // -----------------------------------------------------------------------------
 // Geometry Terms
@@ -41,6 +43,8 @@ float GeometrySmith( float NoV, float NoL, float roughness ) {
 // -----------------------------------------------------------------------------
 // Iridescence Evaluation
 // -----------------------------------------------------------------------------
+
+#ifdef ENABLE_IRIDESCENCE
 
 vec3 evalSensitivity( float OPD, vec3 shift ) {
 	float phase = TWO_PI * OPD * 1.0e-9;
@@ -106,6 +110,8 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
 
 	return max( I, vec3( 0.0 ) );
 }
+
+#endif // ENABLE_IRIDESCENCE
 
 // -----------------------------------------------------------------------------
 // BRDF Weight Calculation

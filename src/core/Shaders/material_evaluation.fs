@@ -38,12 +38,14 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 	}
 
     // Add iridescence effect if enabled
+#ifdef ENABLE_IRIDESCENCE
 	if( material.iridescence > 0.0 ) {
         // Calculate thickness based on the range
 		float thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
 		vec3 iridescenceFresnel = evalIridescence( 1.0, material.iridescenceIOR, dots.VoH, thickness, F0 );
 		F0 = mix( F0, iridescenceFresnel, material.iridescence );
 	}
+#endif // ENABLE_IRIDESCENCE
 
     // Precalculate shared terms
 	float D = DistributionGGX( dots.NoH, material.roughness );
@@ -58,6 +60,7 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 	vec3 baseLayer = diffuse + specular;
 
     // Optimize sheen calculation
+#ifdef ENABLE_SHEEN
 	if( material.sheen > 0.0 ) {
 		float sheenDist = SheenDistribution( dots.NoH, material.sheenRoughness );
 		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * dots.NoL;
@@ -69,6 +72,7 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 
 		return baseLayer * sheenAttenuation + sheenTerm;
 	}
+#endif // ENABLE_SHEEN
 
 	return baseLayer;
 }
@@ -94,11 +98,13 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 	}
 
 	vec3 F0 = cache.F0;
+#ifdef ENABLE_IRIDESCENCE
 	if( material.iridescence > 0.0 ) {
 		float thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
 		vec3 iridescenceFresnel = evalIridescence( 1.0, material.iridescenceIOR, VoH, thickness, F0 );
 		F0 = mix( F0, iridescenceFresnel, material.iridescence );
 	}
+#endif // ENABLE_IRIDESCENCE
 
     // Use precomputed values
 	float denom = ( NoH * NoH * ( cache.alpha2 - 1.0 ) + 1.0 );
@@ -123,6 +129,7 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 
 	vec3 baseLayer = diffuse + specular;
 
+#ifdef ENABLE_SHEEN
 	if( material.sheen > 0.0 ) {
 		float sheenDist = SheenDistribution( NoH, material.sheenRoughness );
 		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * NoL;
@@ -132,6 +139,7 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 
 		return baseLayer * sheenAttenuation + sheenTerm;
 	}
+#endif // ENABLE_SHEEN
 
 	return baseLayer;
 }

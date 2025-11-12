@@ -73,10 +73,12 @@ MaterialClassification getOrCreateMaterialClassification( RayTracingMaterial mat
 // BRDF sampling with early exits and optimized math
 DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial material, int materialIndex, vec2 xi, inout uint rngState, inout PathState pathState ) {
 
+#ifdef ENABLE_MULTI_LOBE_MIS
     // IMPROVEMENT: Use multi-lobe MIS for complex materials
 	if( material.clearcoat > 0.1 || material.transmission > 0.1 || material.sheen > 0.1 || material.iridescence > 0.1 ) {
 		return sampleMaterialWithMultiLobeMIS( V, N, material, xi, rngState );
 	}
+#endif
 
     // OPTIMIZED: Use consolidated classification function
 	MaterialClassification mc = getOrCreateMaterialClassification( material, materialIndex, pathState );
@@ -144,6 +146,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		return result;
 	}
 
+#ifdef ENABLE_SHEEN
     // Sheen sampling
 	if( rand < cumulativeSheen ) {
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
@@ -153,7 +156,10 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
 	}
     // Clearcoat sampling
-	else if( rand < cumulativeClearcoat ) {
+	else
+#endif // ENABLE_SHEEN
+#ifdef ENABLE_CLEARCOAT
+	if( rand < cumulativeClearcoat ) {
 		float clearcoatRoughness = clamp( material.clearcoatRoughness, 0.089, 1.0 );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
 		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
@@ -163,8 +169,13 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
 		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
 	}
+#ifdef ENABLE_TRANSMISSION
     // Transmission sampling
-	else {
+	else
+#endif // ENABLE_TRANSMISSION
+#endif // ENABLE_CLEARCOAT
+#ifdef ENABLE_TRANSMISSION
+	{
         // Use the shared microfacet transmission sampling function
 		bool entering = dot( V, N ) < 0.0;
 		MicrofacetTransmissionResult mtResult = sampleMicrofacetTransmission( V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState );
@@ -173,6 +184,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		result.direction = mtResult.direction;
 		result.pdf = mtResult.pdf;
 	}
+#endif // ENABLE_TRANSMISSION
 
     // Ensure minimum PDF value to prevent NaN/Inf
 	result.pdf = max( result.pdf, MIN_PDF );
