@@ -57,6 +57,7 @@ const PathTracerTab = () => {
 		bloomRadius,
 		oidnQuality,
 		oidnHdr,
+		enableOIDN,
 		exposure,
 		enableEnvironment,
 		useImportanceSampledEnvironment,
@@ -114,6 +115,7 @@ const PathTracerTab = () => {
 		handleTileHelperToggle,
 		handleOidnQualityChange,
 		handleOidnHdrChange,
+		handleEnableOIDNChange,
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
@@ -365,7 +367,7 @@ const PathTracerTab = () => {
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
 					<Select value={denoiserStrategy} onValueChange={handleDenoiserStrategyChange}>
-						<span className="opacity-50 text-xs truncate">Denoiser Strategy</span>
+						<span className="opacity-50 text-xs truncate">Real-Time Denoiser</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full" >
 							<SelectValue placeholder="Select strategy" />
 						</SelectTrigger>
@@ -373,7 +375,6 @@ const PathTracerTab = () => {
 							<SelectItem value="none">None</SelectItem>
 							<SelectItem value="edgeaware">EdgeAware</SelectItem>
 							<SelectItem value="asvgf">ASVGF</SelectItem>
-							<SelectItem value="oidn">OIDN</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
@@ -427,7 +428,16 @@ const PathTracerTab = () => {
 					)}
 				</> )}
 
-				{denoiserStrategy === 'oidn' && ( <>
+				{/* Separator before AI Denoising section */}
+				<Separator />
+
+				{/* Independent OIDN Control - Placed after real-time denoiser controls */}
+				<div className="flex items-center justify-between">
+					<Switch label={"AI Denoising (OIDN)"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
+				</div>
+
+				{/* OIDN Quality Controls - Independent of real-time denoiser selection */}
+				{enableOIDN && ( <>
 					<div className="flex items-center justify-between">
 						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
 							<span className="opacity-50 text-xs truncate">OIDN Quality</span>

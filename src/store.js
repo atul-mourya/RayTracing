@@ -689,16 +689,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			const app = window.pathTracerApp;
 			if ( ! app ) return;
 
-			// Disable all denoisers first
+			// Disable all real-time denoisers first (OIDN remains independent)
 			app.asvgfPass.enabled = false;
-			app.denoiser.enabled = false;
 			app.edgeAwareFilterPass.setFilteringEnabled( false );
 
-			// Enable the selected denoiser
+			// Enable the selected real-time denoiser
 			switch ( val ) {
 
 				case 'none':
-					// All denoisers already disabled above
+					// All real-time denoisers already disabled above
 					// Clear any stale denoiser outputs to ensure clean pipeline
 					if ( app.pipeline?.context ) {
 
@@ -730,10 +729,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				}
 
-				case 'oidn':
-					app.denoiser.enabled = true;
-					break;
-
 				case 'edgeaware':
 				default:
 					app.edgeAwareFilterPass.setFilteringEnabled( true );
@@ -751,10 +746,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			}
 
-			// Update store state for individual toggles (for backward compatibility)
+			// Update store state for real-time denoisers only (OIDN remains independent)
 			set( {
-				enableASVGF: val === 'asvgf',
-				enableOIDN: val === 'oidn'
+				enableASVGF: val === 'asvgf'
+				// enableOIDN remains independent
 			} );
 
 			// Reset when switching denoiser strategy
