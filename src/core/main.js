@@ -177,9 +177,10 @@ class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Check for model URL in query parameters
+		// Check for model and environment URLs in query parameters
 		const modelUrl = this.getQueryParameter( 'model' );
-		const envUrl = `${HDR_FILES[ DEFAULT_STATE.environment ].url}`;
+		const envUrlParam = this.getQueryParameter( 'envUrl' );
+		const envUrl = envUrlParam || `${HDR_FILES[ DEFAULT_STATE.environment ].url}`;
 		await this.assetLoader.loadEnvironment( envUrl );
 
 		if ( modelUrl ) {
