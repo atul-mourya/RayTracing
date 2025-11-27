@@ -52,8 +52,8 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 	float G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
 	vec3 F = fresnelSchlick( dots.VoH, F0 );
 
-    // Combined specular calculation
-	vec3 specular = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
+	// Combined specular calculation with NaN protection
+	vec3 specular = ( D * G * F ) / max( 4.0 * dots.NoV * dots.NoL, EPSILON );
 	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
 	vec3 diffuse = kD * materialColor * PI_INV;
 
@@ -167,7 +167,7 @@ vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
 	float D = DistributionGGX( dots.NoH, material.roughness );
 	float G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
 	vec3 F = fresnelSchlick( dots.VoH, F0 );
-	vec3 baseBRDF = ( D * G * F ) / ( 4.0 * dots.NoV * dots.NoL );
+	vec3 baseBRDF = ( D * G * F ) / max( 4.0 * dots.NoV * dots.NoL, EPSILON );
 
     // Fresnel masking for diffuse component
 	vec3 kD = ( vec3( 1.0 ) - F ) * ( 1.0 - material.metalness );
@@ -180,7 +180,7 @@ vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
 	float clearcoatG = GeometrySmith( dots.NoV, dots.NoL, clearcoatRoughness );
 	float clearcoatF = fresnelSchlick( dots.VoH, 0.04 );
 	float clearcoatBRDF = ( clearcoatD * clearcoatG * clearcoatF ) /
-		( 4.0 * dots.NoV * dots.NoL );
+		max( 4.0 * dots.NoV * dots.NoL, EPSILON );
 
     //  Energy conservation for clearcoat
 	float clearcoatAttenuation = 1.0 - material.clearcoat * clearcoatF;

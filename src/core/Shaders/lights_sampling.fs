@@ -10,50 +10,64 @@
 
 // Enhanced area light sampling functions
 LightSample sampleRectAreaLight( AreaLight light, vec3 rayOrigin, vec2 ruv, float lightSelectionPdf ) {
-    // Sample random position on rectangle
-    vec3 randomPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
+	LightSample lightSample;
+	lightSample.valid = false;
+	
+	// Validate light area to prevent NaN
+	if( light.area <= 0.0 ) {
+		return lightSample;
+	}
+	
+	// Sample random position on rectangle
+	vec3 randomPos = light.position + light.u * ( ruv.x - 0.5 ) + light.v * ( ruv.y - 0.5 );
 
-    vec3 toLight = randomPos - rayOrigin;
-    float lightDistSq = dot( toLight, toLight );
-    float dist = sqrt( lightDistSq );
-    vec3 direction = toLight / dist;
-    vec3 lightNormal = normalize( cross( light.u, light.v ) );
+	vec3 toLight = randomPos - rayOrigin;
+	float lightDistSq = dot( toLight, toLight );
+	float dist = sqrt( lightDistSq );
+	vec3 direction = toLight / dist;
+	vec3 lightNormal = normalize( cross( light.u, light.v ) );
 
-    LightSample lightSample;
-    lightSample.lightType = LIGHT_TYPE_AREA;
-    lightSample.emission = light.color * light.intensity;
-    lightSample.distance = dist;
-    lightSample.direction = direction;
-    lightSample.pdf = ( lightDistSq / ( light.area * max( dot( - direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
-    lightSample.valid = dot( - direction, lightNormal ) > 0.0;
+	lightSample.lightType = LIGHT_TYPE_AREA;
+	lightSample.emission = light.color * light.intensity;
+	lightSample.distance = dist;
+	lightSample.direction = direction;
+	lightSample.pdf = ( lightDistSq / ( light.area * max( dot( - direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
+	lightSample.valid = dot( - direction, lightNormal ) > 0.0;
 
-    return lightSample;
+	return lightSample;
 }
 
 LightSample sampleCircAreaLight( AreaLight light, vec3 rayOrigin, vec2 ruv, float lightSelectionPdf ) {
-    // Sample random position on circle
-    float r = 0.5 * sqrt( ruv.x );
-    float theta = ruv.y * 2.0 * PI;
-    float x = r * cos( theta );
-    float y = r * sin( theta );
+	LightSample lightSample;
+	lightSample.valid = false;
+	
+	// Validate light area to prevent NaN
+	if( light.area <= 0.0 ) {
+		return lightSample;
+	}
+	
+	// Sample random position on circle
+	float r = 0.5 * sqrt( ruv.x );
+	float theta = ruv.y * 2.0 * PI;
+	float x = r * cos( theta );
+	float y = r * sin( theta );
 
-    vec3 randomPos = light.position + light.u * x + light.v * y;
+	vec3 randomPos = light.position + light.u * x + light.v * y;
 
-    vec3 toLight = randomPos - rayOrigin;
-    float lightDistSq = dot( toLight, toLight );
-    float dist = sqrt( lightDistSq );
-    vec3 direction = toLight / dist;
-    vec3 lightNormal = normalize( cross( light.u, light.v ) );
+	vec3 toLight = randomPos - rayOrigin;
+	float lightDistSq = dot( toLight, toLight );
+	float dist = sqrt( lightDistSq );
+	vec3 direction = toLight / dist;
+	vec3 lightNormal = normalize( cross( light.u, light.v ) );
 
-    LightSample lightSample;
-    lightSample.lightType = LIGHT_TYPE_AREA;
-    lightSample.emission = light.color * light.intensity;
-    lightSample.distance = dist;
-    lightSample.direction = direction;
-    lightSample.pdf = ( lightDistSq / ( light.area * max( dot( - direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
-    lightSample.valid = dot( - direction, lightNormal ) > 0.0;
+	lightSample.lightType = LIGHT_TYPE_AREA;
+	lightSample.emission = light.color * light.intensity;
+	lightSample.distance = dist;
+	lightSample.direction = direction;
+	lightSample.pdf = ( lightDistSq / ( light.area * max( dot( - direction, lightNormal ), 0.001 ) ) ) * lightSelectionPdf;
+	lightSample.valid = dot( - direction, lightNormal ) > 0.0;
 
-    return lightSample;
+	return lightSample;
 }
 
 // Enhanced spot light sampling with radius support

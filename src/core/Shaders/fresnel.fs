@@ -3,11 +3,13 @@ vec3 fresnel( vec3 f0, float NoV, float roughness ) {
 }
 
 float fresnelSchlick( float cosTheta, float F0 ) {
-	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
+	float clampedCos = clamp( cosTheta, 0.0, 1.0 );
+	return F0 + ( 1.0 - F0 ) * pow( 1.0 - clampedCos, 5.0 );
 }
 
 vec3 fresnelSchlick( float cosTheta, vec3 F0 ) {
-	return F0 + ( 1.0 - F0 ) * pow( 1.0 - cosTheta, 5.0 );
+	float clampedCos = clamp( cosTheta, 0.0, 1.0 );
+	return F0 + ( 1.0 - F0 ) * pow( 1.0 - clampedCos, 5.0 );
 }
 
 vec3 fresnel0ToIor( vec3 fresnel0 ) {

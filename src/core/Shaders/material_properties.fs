@@ -12,7 +12,7 @@ float DistributionGGX( float NoH, float roughness ) {
 	float alpha = roughness * roughness;
 	float alpha2 = alpha * alpha;
 	float denom = ( NoH * NoH * ( alpha2 - 1.0 ) + 1.0 );
-	return alpha2 / ( PI * denom * denom );
+	return alpha2 / max( PI * denom * denom, EPSILON );
 }
 
 #ifdef ENABLE_SHEEN
@@ -31,7 +31,7 @@ float SheenDistribution( float NoH, float roughness ) {
 float GeometrySchlickGGX( float NdotV, float roughness ) {
 	float r = roughness + 1.0;
 	float k = ( r * r ) / 8.0;
-	return NdotV / ( NdotV * ( 1.0 - k ) + k );
+	return NdotV / max( NdotV * ( 1.0 - k ) + k, EPSILON );
 }
 
 float GeometrySmith( float NoV, float NoL, float roughness ) {

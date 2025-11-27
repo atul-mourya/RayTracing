@@ -12,7 +12,7 @@ vec3 ImportanceSampleGGX( vec3 N, float roughness, vec2 Xi ) {
 	float alpha = roughness * roughness;
 	float phi = TWO_PI * Xi.x;
 	float cosTheta = sqrt( ( 1.0 - Xi.y ) / ( 1.0 + ( alpha * alpha - 1.0 ) * Xi.y ) );
-	float sinTheta = sqrt( 1.0 - cosTheta * cosTheta );
+	float sinTheta = sqrt( max( 0.0, 1.0 - cosTheta * cosTheta ) );
 
     // Spherical to cartesian conversion
 	vec3 H = vec3( cos( phi ) * sinTheta, sin( phi ) * sinTheta, cosTheta );
@@ -72,9 +72,9 @@ vec3 sampleGGXVNDF( vec3 V, float roughness, vec2 Xi ) {
     // Transform view direction to local space
 	vec3 Vh = normalize( vec3( alpha * V.x, alpha * V.y, V.z ) );
 
-    // Construct orthonormal basis around view direction
+	// Construct orthonormal basis around view direction
 	float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
-	vec3 T1 = lensq > 0.0 ? vec3( - Vh.y, Vh.x, 0.0 ) / sqrt( lensq ) : vec3( 1.0, 0.0, 0.0 );
+	vec3 T1 = lensq > 1e-8 ? vec3( - Vh.y, Vh.x, 0.0 ) / sqrt( lensq ) : vec3( 1.0, 0.0, 0.0 );
 	vec3 T2 = cross( Vh, T1 );
 
     // Sample point with polar coordinates (r, phi)
