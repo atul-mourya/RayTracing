@@ -60,7 +60,6 @@ const PathTracerTab = () => {
 		enableOIDN,
 		exposure,
 		enableEnvironment,
-		useImportanceSampledEnvironment,
 		showBackground,
 		backgroundIntensity,
 		environmentIntensity,
@@ -125,7 +124,6 @@ const PathTracerTab = () => {
 		handleBloomRadiusChange,
 		handleExposureChange,
 		handleEnableEnvironmentChange,
-		handleUseImportanceSampledEnvironmentChange,
 		handleShowBackgroundChange,
 		handleBackgroundIntensityChange,
 		handleEnvironmentIntensityChange,
@@ -229,9 +227,11 @@ const PathTracerTab = () => {
 					</Select>
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider icon={Exposure} label={"Exposure"} min={0} max={2} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
+					<Slider icon={Exposure} label={"Exposure"} min={0} max={5} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
 				</div>
-
+				<div className="flex items-center justify-between">
+					<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} snapPoints={[ 1 ]} onValueChange={handleGIIntensityChange} />
+				</div>
 				<Separator className="my-1 opacity-30" />
 
 				{/* Environment Mode Selector */}
@@ -269,18 +269,6 @@ const PathTracerTab = () => {
 						</SelectContent>
 					</Select>
 				</div>
-
-				{/* HDRI Mode Controls */}
-				{environmentMode === 'hdri' && (
-					<>
-						<div className="flex items-center justify-between">
-							<Switch label={"Use Importance Sampling"} checked={useImportanceSampledEnvironment} onCheckedChange={handleUseImportanceSampledEnvironmentChange} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
-						</div>
-					</>
-				)}
 
 				{/* Gradient Mode Controls */}
 				{environmentMode === 'gradient' && (
@@ -343,10 +331,6 @@ const PathTracerTab = () => {
 						<div className="flex items-center justify-between">
 							<Slider label="Atmospheric Haze" icon={Wind} min={0} max={5} step={0.1} value={[ skyTurbidity ]} snapPoints={[ 1 ]} onValueChange={handleSkyTurbidityChange} />
 						</div>
-
-						<div className="flex items-center justify-between">
-							<Switch label={"Use Importance Sampling"} checked={useImportanceSampledEnvironment} onCheckedChange={handleUseImportanceSampledEnvironmentChange} />
-						</div>
 					</>
 				)}
 
@@ -357,11 +341,17 @@ const PathTracerTab = () => {
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} snapPoints={[ 1 ]} onValueChange={handleGIIntensityChange} />
-				</div>
-				<div className="flex items-center justify-between">
 					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
 				</div>
+
+				{/* HDRI Mode Controls */}
+				{environmentMode === 'hdri' && (
+					<>
+						<div className="flex items-center justify-between">
+							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
+						</div>
+					</>
+				)}
 			</ControlGroup>
 
 			<ControlGroup name="Denoising">

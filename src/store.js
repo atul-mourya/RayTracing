@@ -292,7 +292,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setOidnHdr: val => set( { oidnHdr: val } ),
 	setExposure: val => set( { exposure: val } ),
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
-	setUseImportanceSampledEnvironment: val => set( { useImportanceSampledEnvironment: val } ),
 	setShowBackground: val => set( { showBackground: val } ),
 	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
 	setEnvironmentIntensity: val => set( { environmentIntensity: val } ),
@@ -859,16 +858,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => {
 
 			window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
-			window.pathTracerApp.reset();
-
-		}
-	),
-
-	handleUseImportanceSampledEnvironmentChange: handleChange(
-		val => set( { useImportanceSampledEnvironment: val } ),
-		val => {
-
-			window.pathTracerApp.pathTracingPass.material.uniforms.useEnvMapIS.value = val;
 			window.pathTracerApp.reset();
 
 		}
