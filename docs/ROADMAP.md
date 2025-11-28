@@ -57,15 +57,11 @@
   - [ ] Import/export material definitions
 
 - [ ] **Scene Management & Asset Pipeline**
-  - [x] Hierarchical scene outliner with search/filter
-  - [x] Asset browser with thumbnails and metadata
-  - [x] Drag-and-drop import from various formats
   - [ ] Scene templates and presets
   - [ ] Version control integration (Git LFS)
 
 - [ ] **Advanced Camera Controls**
   - [ ] Cinema-grade camera with physical parameters
-  - [x] Multiple camera views and switching
   - [ ] Camera animation and keyframing
   - [ ] Virtual camera with gamepad support
 
@@ -89,7 +85,6 @@
 ### Performance Optimization
 - [ ] **Next-Gen BVH & Acceleration**
   - [ ] GPU-accelerated BVH construction
-  - [x] Compressed wide BVH (CWBVH) implementation
   - [ ] Dynamic BVH updates for animated scenes
   - [ ] Ray frustum culling
   - [ ] Primitive specialization (curves, volumes)
@@ -104,8 +99,6 @@
 - [ ] **Intelligent Sampling**
   - [ ] Adaptive sampling 2.0 with ML guidance
   - [x] Variance-guided sample distribution
-  - [x] Importance sampling for complex lighting
-  - [x] Blue noise sampling optimization
 
 - [ ] **Convergence Acceleration**
   - [ ] Reservoir sampling (ReSTIR)
@@ -126,8 +119,6 @@
 
 - [ ] **Built-in Asset Library**
   - [ ] Curated high-quality 3D models
-  - [x] HDR environment collection (8K+)
-  - [x] Material library with physical accuracy
   - [ ] Procedural content generation
 
 ### Community Features
@@ -254,6 +245,8 @@
 - https://github.com/Calinou/free-blue-noise-textures/tree/master/256_256
 
 ### Advanced Techniques
+- Sandbox for graphics paper implementation - https://github.com/shocker-0x15/GfxExp
+- tessellation free displacement mapping - https://github.com/shocker-0x15/GfxExp/tree/master/tfdm
 - Color Science: <https://www.youtube.com/watch?v=II_rnWU7Uq8>
 - TracerBoy - <https://github.com/wallisc/TracerBoy/blob/master/TracerBoy/RaytraceCS.hlsl>
 - Lumen Ray Tracing: https://www.youtube.com/watch?v=XIxKo8k81XY
