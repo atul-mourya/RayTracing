@@ -290,13 +290,10 @@ MicrofacetTransmissionResult sampleMicrofacetTransmission(
 		result.direction = reflect( - V, H );
 		result.didReflect = true;
 
-        // Calculate PDF for reflection
+        // Calculate PDF for reflection (standard GGX sampling)
 		float NoH = clamp( dot( N, H ), 0.001, 1.0 );
 		float VoH = clamp( dot( V, H ), 0.001, 1.0 );
-		float NoV = clamp( dot( N, V ), 0.001, 1.0 );
-		float D = DistributionGGX( NoH, transmissionRoughness );
-		float G1 = GeometrySchlickGGX( NoV, transmissionRoughness );
-		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
+		result.pdf = calculateGGXPDF( NoH, VoH, transmissionRoughness );
 	} else {
         // Successful refraction
 		result.direction = refractDir;

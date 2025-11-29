@@ -339,12 +339,10 @@ float calculateMaterialPDF( vec3 viewDir, vec3 lightDir, vec3 normal, RayTracing
         pdf += diffuseWeight * NoL * PI_INV;
     }
 
-    // Specular PDF (GGX distribution)
+    // Specular PDF (VNDF sampling used in path tracer)
     if( specularWeight > 0.0 && NoL > 0.0 ) {
         float roughness = max( material.roughness, 0.02 );
-        float D = DistributionGGX( NoH, roughness );
-        float G1 = GeometrySchlickGGX( NoV, roughness );
-        pdf += specularWeight * D * G1 * VoH / max( NoV, 0.001 );
+        pdf += specularWeight * calculateVNDFPDF( NoH, NoV, roughness );
     }
 
     return max( pdf, 1e-8 );

@@ -41,6 +41,28 @@ float GeometrySmith( float NoV, float NoL, float roughness ) {
 }
 
 // -----------------------------------------------------------------------------
+// PDF Calculation Helpers
+// -----------------------------------------------------------------------------
+
+// Calculate PDF for standard GGX importance sampling
+// Used when sampling H directly from GGX distribution (ImportanceSampleGGX)
+// Formula: D(H) * NoH / (4 * VoH)
+float calculateGGXPDF( float NoH, float VoH, float roughness ) {
+	float D = DistributionGGX( NoH, roughness );
+	return D * NoH / max( 4.0 * VoH, EPSILON );
+}
+
+// Calculate PDF for VNDF (Visible Normal Distribution Function) sampling
+// Used when sampling H from visible normals (sampleGGXVNDF)
+// Formula: G1(V) * D(H) / (NoV * 4)
+// Note: VoH cancels out in the Jacobian transform from H-space to L-space
+float calculateVNDFPDF( float NoH, float NoV, float roughness ) {
+	float D = DistributionGGX( NoH, roughness );
+	float G1 = GeometrySchlickGGX( NoV, roughness );
+	return D * G1 / max( NoV * 4.0, EPSILON );
+}
+
+// -----------------------------------------------------------------------------
 // Iridescence Evaluation
 // -----------------------------------------------------------------------------
 

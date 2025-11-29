@@ -33,13 +33,9 @@ float calculateTransmissionPDF( vec3 V, vec3 L, vec3 N, float ior, float roughne
 float calculateClearcoatPDF( vec3 V, vec3 L, vec3 N, float clearcoatRoughness ) {
     vec3 H = normalize( V + L );
     float NoH = max( dot( N, H ), 0.0 );
-    float VoH = max( dot( V, H ), 0.0 );
     float NoV = max( dot( N, V ), 0.0 );
 
-    float D = DistributionGGX( NoH, clearcoatRoughness );
-    float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
-
-    return ( D * G1 * VoH ) / ( NoV * 4.0 );
+    return calculateVNDFPDF( NoH, NoV, clearcoatRoughness );
 }
 
 // -----------------------------------------------------------------------------

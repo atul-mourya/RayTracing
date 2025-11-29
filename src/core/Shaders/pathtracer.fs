@@ -135,13 +135,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		H = TBN * localH;
 
 		float NoH = clamp( dot( N, H ), 0.001, 1.0 );
-		float VoH = clamp( dot( V, H ), 0.001, 1.0 );
-
-		float D = DistributionGGX( NoH, material.roughness );
-		float G1 = GeometrySchlickGGX( NoV, material.roughness );
 
 		result.direction = reflect( - V, H );
-		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
+		result.pdf = calculateVNDFPDF( NoH, NoV, material.roughness );
 		result.value = evaluateMaterialResponse( V, result.direction, N, material );
 		return result;
 	}
@@ -163,11 +159,8 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		float clearcoatRoughness = clamp( material.clearcoatRoughness, 0.089, 1.0 );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
 		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
-		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
-		float D = DistributionGGX( NoH, clearcoatRoughness );
-		float G1 = GeometrySchlickGGX( NoV, clearcoatRoughness );
-		result.pdf = D * G1 * VoH / ( NoV * 4.0 );
+		result.pdf = calculateVNDFPDF( NoH, NoV, clearcoatRoughness );
 	}
 #ifdef ENABLE_TRANSMISSION
     // Transmission sampling

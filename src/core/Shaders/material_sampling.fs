@@ -188,15 +188,11 @@ float calculateMultiLobeMISWeight(
 	float NoV = max( dot( N, V ), 0.0 );
 
 	if( NoH > 0.0 && VoH > 0.0 && NoV > 0.0 ) {
-		float D = DistributionGGX( NoH, material.roughness );
-		float G1 = GeometrySchlickGGX( NoV, material.roughness );
-		specularPdf = D * G1 * VoH / ( NoV * 4.0 );
+		specularPdf = calculateGGXPDF( NoH, VoH, material.roughness );
 
         // Clearcoat PDF (using clearcoat roughness)
 		if( material.clearcoat > 0.0 ) {
-			float DClearcoat = DistributionGGX( NoH, material.clearcoatRoughness );
-			float G1Clearcoat = GeometrySchlickGGX( NoV, material.clearcoatRoughness );
-			clearcoatPdf = DClearcoat * G1Clearcoat * VoH / ( NoV * 4.0 );
+			clearcoatPdf = calculateGGXPDF( NoH, VoH, material.clearcoatRoughness );
 		}
 	}
 
@@ -269,11 +265,8 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 		if( dot( N, sampledDirection ) > 0.0 ) {
 			float NoH = max( dot( N, H ), 0.0 );
 			float VoH = max( dot( V, H ), 0.0 );
-			float NoV = max( dot( N, V ), 0.0 );
 
-			float D = DistributionGGX( NoH, material.roughness );
-			float G1 = GeometrySchlickGGX( NoV, material.roughness );
-			lobePdf = D * G1 * VoH / ( NoV * 4.0 );
+			lobePdf = calculateGGXPDF( NoH, VoH, material.roughness );
 		} else {
 			lobePdf = 0.0;
 		}
@@ -287,11 +280,8 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 		if( dot( N, sampledDirection ) > 0.0 ) {
 			float NoH = max( dot( N, H ), 0.0 );
 			float VoH = max( dot( V, H ), 0.0 );
-			float NoV = max( dot( N, V ), 0.0 );
 
-			float D = DistributionGGX( NoH, material.clearcoatRoughness );
-			float G1 = GeometrySchlickGGX( NoV, material.clearcoatRoughness );
-			lobePdf = D * G1 * VoH / ( NoV * 4.0 );
+			lobePdf = calculateGGXPDF( NoH, VoH, material.clearcoatRoughness );
 		} else {
 			lobePdf = 0.0;
 		}
@@ -307,9 +297,7 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 			float NoH = max( dot( N, H ), 0.0 );
 			float VoH = max( dot( V, H ), 0.0 );
 
-			float D = DistributionGGX( NoH, material.roughness );
-			float G1 = GeometrySchlickGGX( max( dot( N, V ), 0.0 ), material.roughness );
-			lobePdf = D * G1 * VoH / ( max( dot( N, V ), 0.0 ) * 4.0 );
+			lobePdf = calculateGGXPDF( NoH, VoH, material.roughness );
 		} else {
             // Total internal reflection - fallback to specular
 			sampledDirection = reflect( - V, H );
