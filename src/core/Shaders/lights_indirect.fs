@@ -283,10 +283,10 @@ IndirectLightingResult calculateIndirectLighting(
     throughput *= globalIlluminationIntensity;
 
     // Apply firefly reduction with proper material context
-    float materialTolerance = getMaterialFireflyTolerance( material );
-    float viewTolerance = getViewDependentTolerance( material, sampleDir, V, N );
-    float finalThreshold = calculateFireflyThreshold( fireflyThreshold, materialTolerance * viewTolerance, bounceIndex );
-    throughput = applySoftSuppressionRGB( throughput, finalThreshold, 0.25 );
+    // float materialTolerance = getMaterialFireflyTolerance( material );
+    // float viewTolerance = getViewDependentTolerance( material, sampleDir, V, N );
+    // float finalThreshold = calculateFireflyThreshold( fireflyThreshold, materialTolerance * viewTolerance, bounceIndex );
+    // throughput = applySoftSuppressionRGB( throughput, finalThreshold, 0.25 );
 
     result.direction = sampleDir;
     result.throughput = throughput;
