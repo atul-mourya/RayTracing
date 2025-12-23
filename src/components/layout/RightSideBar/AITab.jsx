@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Save, X, Settings, Image as ImageIcon } from "lucide-react";
 import { geminiImageGenerator } from '@/services/geminiApi';
-import { aiResultsDB } from '@/services/indexedDB';
+import { updateRenderWithAI } from '@/utils/database';
 import { useStore } from '@/store';
 
 const AITab = () => {
@@ -17,10 +17,9 @@ const AITab = () => {
 	const [ isGenerating, setIsGenerating ] = useState( false );
 	const [ generatedResult, setGeneratedResult ] = useState( null );
 	const [ showApiKeyInput, setShowApiKeyInput ] = useState( false );
-	const [ aiResults, setAiResults ] = useState( [] );
 
 	// Get selected result from store (image selected in Results viewport)
-	const selectedResult = useStore( useCallback( state => state.selectedResult, [] ) );
+	const selectedResult = useStore( state => state.selectedResult );
 
 	useEffect( () => {
 
@@ -37,25 +36,7 @@ const AITab = () => {
 
 		}
 
-		// Load saved AI results
-		loadAIResults();
-
 	}, [] );
-
-	const loadAIResults = async () => {
-
-		try {
-
-			const results = await aiResultsDB.getAllAIResults();
-			setAiResults( results.reverse() ); // Show newest first
-
-		} catch ( error ) {
-
-			console.error( 'Error loading AI results:', error );
-
-		}
-
-	};
 
 	const handleApiKeySubmit = async () => {
 
@@ -130,27 +111,35 @@ const AITab = () => {
 
 	const handleSave = async () => {
 
-		if ( ! generatedResult ) return;
+		if ( ! generatedResult || ! selectedResult ) {
+
+			alert( 'No AI result or selected image to save' );
+			return;
+
+		}
 
 		try {
 
-			await aiResultsDB.saveAIResult(
+			// Update the selected render with AI variant
+			await updateRenderWithAI(
+				selectedResult.id,
 				generatedResult.prompt,
-				generatedResult.result,
-				generatedResult.inputImage
+				generatedResult.result
 			);
-
-			// Refresh the results list
-			await loadAIResults();
 
 			// Clear the current result
 			setGeneratedResult( null );
 			setPrompt( '' );
 
+			// Dispatch event to refresh the results panel
+			window.dispatchEvent( new Event( 'render-saved' ) );
+
+			alert( 'AI variant saved successfully!' );
+
 		} catch ( error ) {
 
-			console.error( 'Error saving result:', error );
-			alert( 'Error saving result' );
+			console.error( 'Error saving AI result:', error );
+			alert( 'Error saving AI result: ' + error.message );
 
 		}
 
@@ -299,41 +288,6 @@ const AITab = () => {
 								<X className="mr-2 h-4 w-4" />
 								Discard
 							</Button>
-						</div>
-					</CardContent>
-				</Card>
-			)}
-
-			{/* Saved Results */}
-			{aiResults.length > 0 && (
-				<Card>
-					<CardHeader>
-						<CardTitle className="text-lg">Saved Results</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<div className="space-y-3">
-							{aiResults.slice( 0, 5 ).map( ( result ) => (
-								<div key={result.id} className="border rounded p-3 space-y-2">
-									{result.result && (
-										<img
-											src={result.result}
-											alt="Saved result"
-											className="w-full h-24 object-cover rounded"
-										/>
-									)}
-									<p className="text-sm text-muted-foreground">
-										"{result.prompt}"
-									</p>
-									<p className="text-xs text-muted-foreground">
-										{new Date( result.createdAt ).toLocaleDateString()}
-									</p>
-								</div>
-							) )}
-							{aiResults.length > 5 && (
-								<p className="text-sm text-muted-foreground text-center">
-									And {aiResults.length - 5} more results...
-								</p>
-							)}
 						</div>
 					</CardContent>
 				</Card>

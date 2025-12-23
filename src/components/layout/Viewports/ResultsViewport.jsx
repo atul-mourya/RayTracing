@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, forwardRef, useMemo, useCallback } from 'react';
 import { debounce } from 'lodash';
-import { RotateCcw, Save, Eye } from "lucide-react";
+import { RotateCcw, Save, Eye, Image as ImageIcon } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';
 import { useToast } from '@/hooks/use-toast';
@@ -27,6 +27,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const containerRef = useRef( null );
 	const originalCanvasRef = useRef( null );
 	const editedCanvasRef = useRef( null );
+	const aiCanvasRef = useRef( null );
 	const imageProcessorRef = useRef( null );
 
 	// Dynamic canvas size based on viewport and image quality
@@ -39,6 +40,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const [ longPressActive, setLongPressActive ] = useState( false );
 	const longPressTimeoutRef = useRef( null );
 	const [ isHovering, setIsHovering ] = useState( false );
+	const [ viewingAIVariant, setViewingAIVariant ] = useState( false );
 
 	// Auto-fit scaling logic
 	const {
@@ -237,11 +239,12 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	// Optimized image loading for 4K images
 	useEffect( () => {
 
-		if ( ! originalCanvasRef.current || ! editedCanvasRef.current || ! imageData || ! imageData.image ) {
+		if ( ! originalCanvasRef.current || ! editedCanvasRef.current || ! aiCanvasRef.current || ! imageData || ! imageData.image ) {
 
 			console.log( 'Missing required data for image loading:', {
 				originalCanvas: !! originalCanvasRef.current,
 				editedCanvas: !! editedCanvasRef.current,
+				aiCanvas: !! aiCanvasRef.current,
 				imageData: !! imageData,
 				imageDataImage: !! imageData?.image
 			} );
@@ -250,13 +253,36 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		}
 
 		const originalCanvas = originalCanvasRef.current;
+		const aiCanvas = aiCanvasRef.current;
 		const originalCtx = originalCanvas.getContext( '2d' );
+		const aiCtx = aiCanvas.getContext( '2d' );
 		const abortController = new AbortController();
 
 		// Clear canvases and reset state
 		originalCtx.clearRect( 0, 0, originalCanvas.width, originalCanvas.height );
+		aiCtx.clearRect( 0, 0, aiCanvas.width, aiCanvas.height );
 		setIsImageDrawn( false );
 		setImageLoadState( { loaded: false, error: false } );
+		setViewingAIVariant( false );
+
+		// Helper function to draw image on canvas
+		const drawImageOnCanvas = ( img, canvas, ctx ) => {
+
+			const hRatio = canvas.width / img.width;
+			const vRatio = canvas.height / img.height;
+			const ratio = Math.min( hRatio, vRatio );
+
+			const centerX = ( canvas.width - img.width * ratio ) / 2;
+			const centerY = ( canvas.height - img.height * ratio ) / 2;
+
+			ctx.imageSmoothingEnabled = false;
+			ctx.drawImage(
+				img, 0, 0, img.width, img.height,
+				centerX, centerY, img.width * ratio, img.height * ratio
+			);
+			ctx.imageSmoothingEnabled = true;
+
+		};
 
 		// Create image with optimized loading
 		const img = new Image();
@@ -273,22 +299,34 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				const maxCanvasSize = Math.min( img.width, img.height, 2048 ); // Limit for 4K
 				setActualCanvasSize( Math.min( maxCanvasSize, 1024 ) ); // Reasonable default
 
-				// Calculate dimensions to maintain aspect ratio
-				const hRatio = originalCanvas.width / img.width;
-				const vRatio = originalCanvas.height / img.height;
-				const ratio = Math.min( hRatio, vRatio );
+				// Draw the rendered image on original canvas
+				drawImageOnCanvas( img, originalCanvas, originalCtx );
 
-				// Center the image
-				const centerX = ( originalCanvas.width - img.width * ratio ) / 2;
-				const centerY = ( originalCanvas.height - img.height * ratio ) / 2;
+				// Load AI variant if it exists
+				if ( imageData.aiGeneratedImage ) {
 
-				// Use drawImage with smoothing disabled for crisp 4K rendering
-				originalCtx.imageSmoothingEnabled = false;
-				originalCtx.drawImage(
-					img, 0, 0, img.width, img.height,
-					centerX, centerY, img.width * ratio, img.height * ratio
-				);
-				originalCtx.imageSmoothingEnabled = true;
+					const aiImg = new Image();
+					aiImg.crossOrigin = 'anonymous';
+
+					aiImg.onload = () => {
+
+						if ( ! abortController.signal.aborted ) {
+
+							drawImageOnCanvas( aiImg, aiCanvas, aiCtx );
+
+						}
+
+					};
+
+					aiImg.onerror = ( error ) => {
+
+						console.error( 'Failed to load AI variant image:', error );
+
+					};
+
+					aiImg.src = imageData.aiGeneratedImage;
+
+				}
 
 				setIsImageDrawn( true );
 				setImageLoadState( { loaded: true, error: false } );
@@ -553,9 +591,22 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				</div>
 			)}
 
-			{/* Save button only appears when changes have been made */}
-			{imageData && hasChanges && ! viewingOriginal && (
+			{/* AI/Render toggle button - appears when AI variant exists */}
+			{imageData && imageData.aiGeneratedImage && ! viewingOriginal && (
 				<div className="absolute top-2 right-2 z-20 flex space-x-2">
+					<button
+						onClick={() => setViewingAIVariant( ! viewingAIVariant )}
+						className="flex items-center justify-center bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded-md text-xs"
+					>
+						<ImageIcon size={12} className="mr-1" />
+						{viewingAIVariant ? 'Show Render' : 'Show AI'}
+					</button>
+				</div>
+			)}
+
+			{/* Save button only appears when changes have been made */}
+			{imageData && hasChanges && ! viewingOriginal && ! viewingAIVariant && (
+				<div className="absolute top-2 right-20 z-20 flex space-x-2">
 					<button
 						onClick={saveEditedImage}
 						className="flex items-center justify-center bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1 rounded-md text-xs"
@@ -642,7 +693,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
 							backgroundColor: 'black',
-							display: ( viewingOriginal || ! imageLoadState.loaded ) ? 'none' : 'block',
+							display: ( viewingOriginal || viewingAIVariant || ! imageLoadState.loaded ) ? 'none' : 'block',
 							imageRendering: 'pixelated' // Better for 4K images
 						}}
 					/>
@@ -656,7 +707,21 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							width: `${actualCanvasSize}px`,
 							height: `${actualCanvasSize}px`,
 							backgroundColor: 'black',
-							display: ( viewingOriginal && imageLoadState.loaded ) ? 'block' : 'none',
+							display: ( viewingOriginal && imageLoadState.loaded && ! viewingAIVariant ) ? 'block' : 'none',
+							imageRendering: 'pixelated' // Better for 4K images
+						}}
+					/>
+
+					{/* Canvas for AI variant - optimized for 4K */}
+					<canvas
+						ref={aiCanvasRef}
+						width="2048"
+						height="2048"
+						style={{
+							width: `${actualCanvasSize}px`,
+							height: `${actualCanvasSize}px`,
+							backgroundColor: 'black',
+							display: ( viewingAIVariant && imageLoadState.loaded && ! viewingOriginal ) ? 'block' : 'none',
 							imageRendering: 'pixelated' // Better for 4K images
 						}}
 					/>

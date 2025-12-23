@@ -2,7 +2,7 @@ import { useStore } from '@/store';
 import { createContext, useContext, useEffect, useState, useCallback, useRef, memo, useMemo } from 'react';
 import { getAllRenders, deleteRender } from '@/utils/database';
 import { debounce } from 'lodash';
-import { Trash2, AlertTriangle } from 'lucide-react';
+import { Trash2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -556,6 +556,8 @@ const RenderItem = memo( ( {
 
 	}, [ onDelete, image, index ] );
 
+	const hasAIVariant = image.aiGeneratedImage && image.aiPrompt;
+
 	return (
 		<div
 			key={`render-${image.id || image.timestamp || index}`}
@@ -581,6 +583,14 @@ const RenderItem = memo( ( {
 						Selected
 					</div>
 				)}
+
+				{/* AI variant badge */}
+				{hasAIVariant && (
+					<div className="absolute top-2 left-2 bg-purple-600 text-white text-xs py-0.5 px-2 rounded-full flex items-center gap-1">
+						<ImageIcon size={10} />
+						AI
+					</div>
+				)}
 			</div>
 
 			<div className="bg-card p-3">
@@ -596,6 +606,14 @@ const RenderItem = memo( ( {
 						<Trash2 size={14} className="text-muted-foreground hover:text-destructive" />
 					</div>
 				</div>
+
+				{/* Show AI prompt if available */}
+				{hasAIVariant && (
+					<div className="mt-2 pt-2 border-t border-border">
+						<p className="text-xs text-purple-400 font-medium mb-1">AI Prompt:</p>
+						<p className="text-xs text-muted-foreground line-clamp-2">"{image.aiPrompt}"</p>
+					</div>
+				)}
 			</div>
 		</div>
 	);

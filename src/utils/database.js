@@ -1,6 +1,6 @@
 // database.js
 const DB_NAME = 'RenderResultsDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented to support AI image variants
 const STORE_NAME = 'renders';
 
 // Single instance of DB connection to avoid multiple open requests
@@ -163,7 +163,11 @@ export const saveRender = async ( data ) => {
 					gamma: data.colorCorrection.gamma,
 			 	},
 				timestamp: new Date(),
-				isEdited: false,
+				isEdited: data.isEdited || false,
+				// AI-related fields (optional)
+				aiPrompt: data.aiPrompt || null,
+				aiGeneratedImage: data.aiGeneratedImage || null,
+				sourceRenderId: data.sourceRenderId || null,
 			} );
 
 			request.onsuccess = () => {
@@ -376,6 +380,88 @@ export const getRenderById = async ( id ) => {
 	} catch ( error ) {
 
 		console.error( 'Error in getRenderById:', error );
+		throw error;
+
+	}
+
+};
+
+/**
+ * Update an existing render with AI-generated image variant
+ */
+export const updateRenderWithAI = async ( id, aiPrompt, aiGeneratedImage ) => {
+
+	try {
+
+		const db = await getDatabase();
+
+		return new Promise( ( resolve, reject ) => {
+
+			const transaction = db.transaction( STORE_NAME, 'readwrite' );
+			const store = transaction.objectStore( STORE_NAME );
+
+			// First get the existing render
+			const getRequest = store.get( id );
+
+			getRequest.onsuccess = () => {
+
+				const render = getRequest.result;
+
+				if ( ! render ) {
+
+					reject( new Error( `Render with ID ${id} not found` ) );
+					return;
+
+				}
+
+				// Update with AI data
+				render.aiPrompt = aiPrompt;
+				render.aiGeneratedImage = aiGeneratedImage;
+
+				// Save the updated render
+				const putRequest = store.put( render );
+
+				putRequest.onsuccess = () => {
+
+					console.log( `Render with ID ${id} updated with AI variant` );
+					resolve( true );
+
+				};
+
+				putRequest.onerror = ( event ) => {
+
+					console.error( `Error updating render with ID ${id}:`, event.target.error );
+					reject( event.target.error );
+
+				};
+
+			};
+
+			getRequest.onerror = ( event ) => {
+
+				console.error( `Error retrieving render with ID ${id}:`, event.target.error );
+				reject( event.target.error );
+
+			};
+
+			transaction.oncomplete = () => {
+
+				console.log( 'Update transaction completed successfully' );
+
+			};
+
+			transaction.onerror = ( event ) => {
+
+				console.error( 'Update transaction error:', event.target.error );
+				reject( event.target.error );
+
+			};
+
+		} );
+
+	} catch ( error ) {
+
+		console.error( 'Error in updateRenderWithAI:', error );
 		throw error;
 
 	}
