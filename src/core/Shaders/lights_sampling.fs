@@ -579,23 +579,24 @@ vec3 calculateDirectLightingUnified(
         // Environment sampling
         if( enableEnvironmentLight && misStrategy.useEnvSampling ) {
             vec2 envRandom = vec2( RandomValue( rngState ), RandomValue( rngState ) );
-            EnvMapSample envSample = sampleEnvironmentWithContext( envRandom, bounceIndex, hitInfo.material, viewDir, hitInfo.normal );
+            vec3 envColor, envDirection;
+            float envPdf = sampleEquirectProbability( envRandom, envColor, envDirection );
 
-            if( envSample.pdf > 0.0 ) {
-                float NoL = max( 0.0, dot( hitInfo.normal, envSample.direction ) );
+            if( envPdf > 0.0 ) {
+                float NoL = max( 0.0, dot( hitInfo.normal, envDirection ) );
 
-                if( NoL > 0.0 && isDirectionValid( envSample.direction, hitInfo.normal ) ) {
-                    float visibility = traceShadowRay( rayOrigin, envSample.direction, 1000.0, rngState, stats );
+                if( NoL > 0.0 && isDirectionValid( envDirection, hitInfo.normal ) ) {
+                    float visibility = traceShadowRay( rayOrigin, envDirection, 1000.0, rngState, stats );
 
                     if( visibility > 0.0 ) {
-                        vec3 brdfValue = evaluateMaterialResponse( viewDir, envSample.direction, hitInfo.normal, hitInfo.material );
-                        float brdfPdf = calculateMaterialPDF( viewDir, envSample.direction, hitInfo.normal, hitInfo.material );
+                        vec3 brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitInfo.normal, hitInfo.material );
+                        float brdfPdf = calculateMaterialPDF( viewDir, envDirection, hitInfo.normal, hitInfo.material );
 
-                        float envPdfWeighted = envSample.pdf * misStrategy.envWeight;
+                        float envPdfWeighted = envPdf * misStrategy.envWeight;
                         float brdfPdfWeighted = brdfPdf * misStrategy.brdfWeight;
                         float misWeight = ( brdfPdf > 0.0 ) ? powerHeuristic( envPdfWeighted, brdfPdfWeighted ) : 1.0;
 
-                        vec3 envContribution = envSample.value * brdfValue * NoL * visibility * misWeight / envSample.pdf;
+                        vec3 envContribution = envColor * brdfValue * NoL * visibility * misWeight / envPdf;
                         totalContribution += envContribution * totalSamplingWeight / misStrategy.envWeight;
                     }
                 }

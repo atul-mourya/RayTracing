@@ -61,7 +61,7 @@ SamplingStrategyWeights computeSamplingInfo(
     // Environment sampling weight
     info.envWeight = 0.0;
     info.useEnv = false;
-    if( enableEnvironmentLight && shouldUseEnvironmentSampling( bounceIndex, material ) ) {
+    if( enableEnvironmentLight && useEnvMapIS ) {
         info.envWeight = samplingInfo.envmapImportance;
         info.useEnv = info.envWeight > 0.001;
     }
@@ -207,9 +207,8 @@ IndirectLightingResult calculateIndirectLighting(
 
     // Execute selected strategy
     if( selectedStrategy == 0 ) { // Environment
-        EnvMapSample envSample = sampleEnvironmentWithContext( sampleRand, bounceIndex, material, V, N );
-        sampleDir = envSample.direction;
-        samplePdf = envSample.pdf;
+        vec3 envColor;
+        samplePdf = sampleEquirectProbability( sampleRand, envColor, sampleDir );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
 
     } else if( selectedStrategy == 1 ) { // Specular
@@ -243,7 +242,8 @@ IndirectLightingResult calculateIndirectLighting(
     float combinedPdf = 0.0;
 
     if( weights.useEnv ) {
-        float envPdf = envMapSamplingPDFWithContext( sampleDir, bounceIndex, material, V, N );
+        vec3 envColor;
+        float envPdf = sampleEquirect( sampleDir, envColor );
         combinedPdf += weights.envWeight * envPdf;
     }
 

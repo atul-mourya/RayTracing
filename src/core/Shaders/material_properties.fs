@@ -278,20 +278,8 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 	envMaterialFactor *= mix( 1.0, 0.4, float( mc.isTransmissive ) );       // Transmissive materials interact less
 	envMaterialFactor *= mix( 1.0, 1.6, float( mc.hasClearcoat ) );         // Clearcoat adds reflection
 
-    // Bounce-based environment importance (optimized for useEnvMapIS = true)
-	float bounceFactor = 1.0;
-	if( bounceIndex > maxEnvSamplingBounce ) {
-		bounceFactor = 0.1;
-	} else if( bounceIndex > 2 ) {
-		bounceFactor = 1.0 / ( 1.0 + float( bounceIndex - 2 ) * 0.5 );
-	}
-
-    // Enhanced factor for importance sampling
-	if( useEnvMapIS && bounceIndex <= 2 ) {
-		bounceFactor *= 1.4; // Boost for early bounces when IS is available
-	}
-
-	info.envmapImportance = baseEnvStrength * envMaterialFactor * bounceFactor;
+    // Pure physically-based: treat all bounces equally (matches three-gpu-pathtracer)
+	info.envmapImportance = baseEnvStrength * envMaterialFactor;
 
     // Material-specific adjustments using classification
 	if( bounceIndex > 2 ) {

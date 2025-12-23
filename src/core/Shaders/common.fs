@@ -82,7 +82,7 @@ vec3 applyDithering( vec3 color, vec2 uv, float ditheringAmount ) {
 }
 
 vec3 reduceFireflies( vec3 color, float maxValue ) {
-    float lum = luminance( color );
+    float lum = dot( color, REC709_LUMINANCE_COEFFICIENTS );
     if( lum > maxValue ) {
         color *= maxValue / lum;
     }
@@ -138,7 +138,7 @@ vec3 applySoftSuppressionRGB(
     float threshold,
     float dampingFactor
 ) {
-    float lum = luminance( color );
+    float lum = dot( color, REC709_LUMINANCE_COEFFICIENTS );
     if( lum <= threshold )
         return color;
     float suppressedLum = applySoftSuppression( lum, threshold, dampingFactor );

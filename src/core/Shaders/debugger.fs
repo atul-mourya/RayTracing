@@ -34,7 +34,7 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 				vec4 envSample = sampleEnvironment( rayDir );
 
                 // Calculate luminance from the RGB values
-				float envLuminance = luminance( envSample.rgb );
+				float envLuminance = dot( envSample.rgb , REC709_LUMINANCE_COEFFICIENTS);
 
                 // Try multiple scaling approaches to diagnose the issue
 				float rawLuminance = envLuminance;
@@ -94,10 +94,11 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 				vec2 uv = gl_FragCoord.xy / resolution;
 
 				// Convert UV to direction
-				vec3 direction = uvToDirection( uv );
+				vec3 direction = equirectUvToDirection( uv );
 
 				// Get PDF for this direction
-				float pdf = calculateEnvironmentPDFWithMIS( direction, 0.0 );
+				vec3 envColor;
+				float pdf = sampleEquirect( direction, envColor );
 
 				// Visualize with better scaling
 				float logPdf = log( pdf + 1e-8 );

@@ -7,7 +7,7 @@ import * as THREE from 'three';
  * Renders to equirectangular texture using GPU shaders for optimal performance.
  *
  * OPTIMIZATION: Returns GPU render target texture directly (no CPU readback).
- * EnvironmentCDFBuilder handles pixel reading on-demand only when needed.
+ * EquirectHdrInfo handles CDF generation for importance sampling when needed.
  * This eliminates GPU → CPU → GPU round-trip for better performance.
  */
 export class SimpleSkyRenderer {

@@ -143,7 +143,7 @@ float calculateDirectionalLightImportance(
     if( NoL <= 0.0 )
         return 0.0;
 
-    float intensity = light.intensity * luminance( light.color );
+    float intensity = light.intensity * dot( light.color, REC709_LUMINANCE_COEFFICIENTS );
 
     // Material-specific weighting
     float materialWeight = 1.0;
@@ -186,7 +186,7 @@ float estimateLightImportance(
     float solidAngle = light.area / max( distSq, 0.1 );
 
     // Radiant power = intensity × luminance × area
-    float power = light.intensity * luminance( light.color ) * light.area;
+    float power = light.intensity * dot( light.color, REC709_LUMINANCE_COEFFICIENTS ) * light.area;
 
     // BRDF-aware material weighting (view-independent approximation)
     float materialFactor = 1.0;
@@ -241,7 +241,7 @@ float calculatePointLightImportance(
     float distanceFactor = 1.0 / max( distSq, 0.1 );
 
     // Power calculation (luminous intensity)
-    float power = light.intensity * luminance( light.color );
+    float power = light.intensity * dot( light.color, REC709_LUMINANCE_COEFFICIENTS );
 
     // Material-aware weighting
     float materialFactor = 1.0;
@@ -299,7 +299,7 @@ float calculateSpotLightImportance(
     float coneAttenuation = smoothstep( coneCosAngle, coneCosAngle + 0.1, spotCosAngle );
 
     // Intensity and color
-    float intensity = light.intensity * luminance( light.color );
+    float intensity = light.intensity * dot( light.color, REC709_LUMINANCE_COEFFICIENTS );
 
     // Material weighting
     float materialWeight = material.metalness > 0.7 ? 1.5 : ( material.roughness > 0.8 ? 0.8 : 1.0 );

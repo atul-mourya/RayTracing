@@ -23,6 +23,7 @@ uniform int maxBounceCount;
 uniform float backgroundIntensity;
 uniform bool showBackground;
 uniform int transmissiveBounces;  // Controls the number of allowed transmission bounces
+uniform float fireflyThreshold;
 
 float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMaterial material, int materialIndex, PathState pathState ) {
 	float throughputStrength = maxComponent( throughput );

@@ -11,7 +11,7 @@ import PrethamSkyShader from '../Shaders/preetham_sky.glsl';
  * providing realistic sky lighting with proper importance sampling via CDF.
  *
  * OPTIMIZATION: Returns GPU render target texture directly (no CPU readback).
- * EnvironmentCDFBuilder handles pixel reading on-demand only when needed.
+ * EquirectHdrInfo handles CDF generation for importance sampling when needed.
  * This eliminates GPU → CPU → GPU round-trip for better performance.
  */
 export class ProceduralSkyRenderer {
@@ -175,7 +175,7 @@ export class ProceduralSkyRenderer {
 		this.renderTarget.texture.needsUpdate = true;
 
 		// Return render target texture directly (stays on GPU - no readPixels!)
-		// EnvironmentCDFBuilder will handle readPixels on-demand if needed
+		// EquirectHdrInfo will handle CDF generation when needed
 		return this.renderTarget.texture;
 
 	}

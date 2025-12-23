@@ -1,5 +1,6 @@
 import {
-	Vector2, Vector3, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, Color
+	Vector2, Vector3, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, Color,
+	RGBAFormat, DataTexture
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
@@ -12,7 +13,7 @@ import { LightDataTransfer } from '../Processor/LightDataTransfer';
 import FragmentShader from '../Shaders/pathtracer.fs';
 import VertexShader from '../Shaders/pathtracer.vs';
 import TriangleSDF from '../Processor/TriangleSDF';
-import { EnvironmentCDFBuilder } from '../Processor/EnvironmentCDFBuilder';
+import { EquirectHdrInfo } from '../Processor/EquirectHdrInfo';
 import { ProceduralSkyRenderer } from '../Processor/ProceduralSkyRenderer';
 import { SimpleSkyRenderer } from '../Processor/SimpleSkyRenderer';
 import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
@@ -71,14 +72,7 @@ export class PathTracerStage extends PipelineStage {
 
 		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
-		this.environmentCDFBuilder = new EnvironmentCDFBuilder( renderer, {
-			maxCDFSize: 1024,
-			minCDFSize: 256,
-			adaptiveResolution: true,
-			enableValidation: false,
-			enableDebug: false,
-			hotspotThreshold: 0.01
-		} );
+		this.equirectHdrInfo = new EquirectHdrInfo();
 
 		// State management
 		this.accumulationEnabled = true;
@@ -159,9 +153,10 @@ export class PathTracerStage extends PipelineStage {
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
 				environmentMatrix: { value: new Matrix4() },
 				useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },
-				envCDF: { value: null },
-				envCDFSize: { value: new Vector2() },
-				envMapTotalLuminance: { value: 1.0 },
+				envMarginalWeights: { value: null },
+				envConditionalWeights: { value: null },
+				envTotalSum: { value: 0.0 },
+				envResolution: { value: new Vector2( 1, 1 ) },
 				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity },
 
 				// Sun parameters (for procedural sky)
@@ -238,10 +233,6 @@ export class PathTracerStage extends PipelineStage {
 				emissiveTriangleTexSize: { value: new Vector2() },
 				totalTriangleCount: { value: 0 },
 				emissiveTriangleCount: { value: 0 },
-
-				useEnvMipMap: { value: true },
-				envSamplingBias: { value: 1.2 },
-				maxEnvSamplingBounce: { value: 10 },
 			}
 		} );
 
@@ -1258,14 +1249,32 @@ export class PathTracerStage extends PipelineStage {
 
 	// ===== ENVIRONMENT MANAGEMENT =====
 
+	/**
+	 * Read pixels from a render target (GPU → CPU transfer)
+	 * Used for procedural skies that need importance sampling
+	 */
+	readRenderTargetPixels( renderTarget ) {
+
+		const width = renderTarget.width;
+		const height = renderTarget.height;
+
+		// Read pixels directly from render target using Three.js built-in method
+		const pixels = new Float32Array( width * height * 4 );
+		this.renderer.readRenderTargetPixels( renderTarget, 0, 0, width, height, pixels );
+
+		return pixels;
+
+	}
+
 	async buildEnvironmentCDF() {
 
 		if ( ! this.scene.environment ) {
 
 			// Clear existing CDF if no environment
-			this.material.uniforms.envCDF.value = null;
+			this.material.uniforms.envMarginalWeights.value = null;
+			this.material.uniforms.envConditionalWeights.value = null;
+			this.material.uniforms.envTotalSum.value = 0.0;
 			this.material.uniforms.useEnvMapIS.value = false;
-			this.material.uniforms.envMapTotalLuminance.value = 1.0;
 			return;
 
 		}
@@ -1273,44 +1282,79 @@ export class PathTracerStage extends PipelineStage {
 		try {
 
 			const startTime = performance.now();
+			let textureForCDF = this.scene.environment;
 
-			// Build CDF with improved algorithm
-			const result = await this.environmentCDFBuilder.buildEnvironmentCDF( this.scene.environment );
+			// Check if environment map has CPU-accessible data
+			// Render target textures (procedural sky, gradient, solid color) don't have image.data
+			if ( ! this.scene.environment.image || ! this.scene.environment.image.data ) {
 
-			this.cdfBuildTime = performance.now() - startTime;
+				// Check if it's a render target (procedural sky with sun - needs IS)
+				// vs simple gradient/solid (doesn't need IS)
+				const isProceduralSky = this.proceduralSkyRenderer && this.proceduralSkyRenderer.renderTarget &&
+					this.proceduralSkyRenderer.renderTarget.texture === this.scene.environment;
 
-			if ( result ) {
+				if ( isProceduralSky ) {
 
-				// Update shader uniforms
-				this.material.uniforms.envCDF.value = result.cdfTexture;
-				this.material.uniforms.envCDFSize.value.set( result.cdfSize.width, result.cdfSize.height );
-				this.material.uniforms.useEnvMapIS.value = true;
-				this.material.uniforms.envMapTotalLuminance.value = result.debugInfo?.luminanceStats?.total || 1.0;
+					// Read pixels from GPU for procedural sky (has bright sun disk - benefits from IS)
+					console.log( 'Reading procedural sky pixels for importance sampling...' );
+					const pixels = this.readRenderTargetPixels( this.proceduralSkyRenderer.renderTarget );
 
-				if ( this.environmentCDFBuilder.options.enableValidation ) {
+					// Create temporary DataTexture with CPU-accessible data
+					textureForCDF = new DataTexture(
+						pixels,
+						this.proceduralSkyRenderer.renderTarget.width,
+						this.proceduralSkyRenderer.renderTarget.height,
+						RGBAFormat,
+						FloatType
+					);
+					textureForCDF.needsUpdate = true;
 
-					// Store validation results for debugging
-					this.lastCDFValidation = result.validationResults;
+				} else {
 
-					// Log build information
-					console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (${result.cdfSize.width}x${result.cdfSize.height})` );
+					// Gradient/solid color - disable IS (uniform sampling is fine)
+					this.material.uniforms.envMarginalWeights.value = null;
+					this.material.uniforms.envConditionalWeights.value = null;
+					this.material.uniforms.envTotalSum.value = 0.0;
+					this.material.uniforms.useEnvMapIS.value = false;
+					return;
 
 				}
 
-			} else {
+			}
 
-				// Fallback to uniform sampling
-				this.material.uniforms.useEnvMapIS.value = false;
-				this.material.uniforms.envMapTotalLuminance.value = 1.0;
-				console.warn( 'Failed to build environment CDF, using uniform sampling' );
+			// Build CDF using three-gpu-pathtracer's EquirectHdrInfo
+			this.equirectHdrInfo.updateFrom( textureForCDF );
+
+			// Clean up temporary texture if we created one
+			if ( textureForCDF !== this.scene.environment ) {
+
+				textureForCDF.dispose();
 
 			}
+
+			this.cdfBuildTime = performance.now() - startTime;
+
+			// Update shader uniforms
+			this.material.uniforms.envMarginalWeights.value = this.equirectHdrInfo.marginalWeights;
+			this.material.uniforms.envConditionalWeights.value = this.equirectHdrInfo.conditionalWeights;
+			this.material.uniforms.envTotalSum.value = this.equirectHdrInfo.totalSum;
+			this.material.uniforms.useEnvMapIS.value = true;
+
+			// Get environment resolution
+			const envMap = this.equirectHdrInfo.map;
+			if ( envMap && envMap.image ) {
+
+				this.material.uniforms.envResolution.value.set( envMap.image.width, envMap.image.height );
+
+			}
+
+			console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms` );
 
 		} catch ( error ) {
 
 			console.error( 'Error building environment CDF:', error );
 			this.material.uniforms.useEnvMapIS.value = false;
-			this.material.uniforms.envMapTotalLuminance.value = 1.0;
+			this.material.uniforms.envTotalSum.value = 0.0;
 
 		}
 
@@ -1336,9 +1380,10 @@ export class PathTracerStage extends PipelineStage {
 
 		} else if ( ! envMap ) {
 
-			this.material.uniforms.envCDF.value = null;
+			this.material.uniforms.envMarginalWeights.value = null;
+			this.material.uniforms.envConditionalWeights.value = null;
+			this.material.uniforms.envTotalSum.value = 0.0;
 			this.material.uniforms.useEnvMapIS.value = false;
-			this.material.uniforms.envMapTotalLuminance.value = 1.0;
 
 		}
 
@@ -1930,7 +1975,9 @@ export class PathTracerStage extends PipelineStage {
 		this.material.uniforms.triangleTexture.value?.dispose();
 		this.material.uniforms.bvhTexture.value?.dispose();
 		this.material.uniforms.materialTexture.value?.dispose();
-		this.material.uniforms.envCDF.value?.dispose();
+		this.material.uniforms.envMarginalWeights.value?.dispose();
+		this.material.uniforms.envConditionalWeights.value?.dispose();
+		this.equirectHdrInfo?.dispose();
 		this.material.dispose();
 		this.fsQuad.dispose();
 
