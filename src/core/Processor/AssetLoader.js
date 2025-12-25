@@ -1248,13 +1248,15 @@ class AssetLoader extends EventDispatcher {
 
 			// Process ceiling lights
 			if ( object.name.startsWith( 'RectAreaLightPlaceholder' ) &&
-				userData.name && userData.name.includes( "ceilingLight" ) ) {
+				userData.name
+				// && userData.name.includes( "ceilingLight" )
+			) {
 
 				if ( userData.type === 'RectAreaLight' ) {
 
 					const light = new RectAreaLight(
 						new Color( ...userData.color ),
-						userData.intensity / 10,
+						userData.intensity,
 						userData.width,
 						userData.height
 					);
