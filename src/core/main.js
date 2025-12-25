@@ -881,8 +881,8 @@ class PathTracerApp extends EventDispatcher {
 		const light = this.scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! light || ! light.isLight ) return false;
 
-		if ( light.target ) this.scene.remove( light.target );
-		this.scene.remove( light );
+		if ( light.target ) light.target.removeFromParent();
+		light.removeFromParent();
 		this.pathTracingPass.updateLights();
 		this.reset();
 		return true;
