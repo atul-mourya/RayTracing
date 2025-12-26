@@ -299,7 +299,7 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 		vec3 H = ImportanceSampleGGX( N, material.roughness, xi );
 		vec3 refractionDir = refract( - V, H, 1.0 / material.ior );
 
-		if( length( refractionDir ) > 0.0 ) {
+		if( dot( refractionDir, refractionDir ) > 0.001 ) {
 			sampledDirection = normalize( refractionDir );
 			float NoH = max( dot( N, H ), 0.0 );
 			float VoH = max( dot( V, H ), 0.0 );

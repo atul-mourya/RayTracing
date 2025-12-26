@@ -121,7 +121,6 @@ struct DotProducts {
 	float NoH; // Normal • Half
 	float VoH; // View • Half
 	float LoH; // Light • Half
-	float VoN; // View • Normal
 };
 
 struct MaterialSamples {
