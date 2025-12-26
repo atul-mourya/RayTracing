@@ -207,20 +207,27 @@ float calculateMultiLobeMISWeight(
 		sheenPdf = NoL / PI;
 	}
 
-    // Weighted combination of all PDFs for MIS
-	float totalPdf = weights.diffuse * diffusePdf +
-		weights.specular * specularPdf +
-		weights.clearcoat * clearcoatPdf +
-		weights.transmission * transmissionPdf +
-		weights.sheen * sheenPdf +
-		weights.iridescence * diffusePdf; // Iridescence uses diffuse-like sampling
+    // Calculate weighted PDFs for each lobe
+	float weightedDiffusePdf = weights.diffuse * diffusePdf;
+	float weightedSpecularPdf = weights.specular * specularPdf;
+	float weightedClearcoatPdf = weights.clearcoat * clearcoatPdf;
+	float weightedTransmissionPdf = weights.transmission * transmissionPdf;
+	float weightedSheenPdf = weights.sheen * sheenPdf;
+	float weightedIridescencePdf = weights.iridescence * diffusePdf; // Iridescence uses diffuse-like sampling
 
-    // Power heuristic for MIS weight
+    // Power heuristic (β=2): sum of squared weighted PDFs
+	float sumSquaredPdfs = weightedDiffusePdf * weightedDiffusePdf +
+		weightedSpecularPdf * weightedSpecularPdf +
+		weightedClearcoatPdf * weightedClearcoatPdf +
+		weightedTransmissionPdf * weightedTransmissionPdf +
+		weightedSheenPdf * weightedSheenPdf +
+		weightedIridescencePdf * weightedIridescencePdf;
+
+    // MIS weight: selectedPdf² / Σ(pdf_i²)
 	float misWeight = 1.0;
-	if( totalPdf > 0.0 && selectedPdf > 0.0 ) {
+	if( sumSquaredPdfs > 0.0 && selectedPdf > 0.0 ) {
 		float selectedPdfSquared = selectedPdf * selectedPdf;
-		float totalPdfSquared = totalPdf * totalPdf;
-		misWeight = selectedPdfSquared / ( selectedPdfSquared + totalPdfSquared );
+		misWeight = selectedPdfSquared / sumSquaredPdfs;
 	}
 
 	return misWeight;
