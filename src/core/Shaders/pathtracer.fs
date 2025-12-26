@@ -150,6 +150,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
+		result.pdf = max( result.pdf, MIN_PDF );
+		result.value = evaluateMaterialResponse( V, result.direction, N, material );
+		return result;
 	}
     // Clearcoat sampling
 	else
@@ -161,6 +164,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
 		result.pdf = calculateVNDFPDF( NoH, NoV, clearcoatRoughness );
+		result.pdf = max( result.pdf, MIN_PDF );
+		result.value = evaluateMaterialResponse( V, result.direction, N, material );
+		return result;
 	}
 #ifdef ENABLE_TRANSMISSION
     // Transmission sampling
@@ -176,10 +182,13 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
         // Set the direction and PDF from the result
 		result.direction = mtResult.direction;
 		result.pdf = mtResult.pdf;
+		result.pdf = max( result.pdf, MIN_PDF );
+		result.value = evaluateMaterialResponse( V, result.direction, N, material );
+		return result;
 	}
 #endif // ENABLE_TRANSMISSION
 
-    // Ensure minimum PDF value to prevent NaN/Inf
+    // Fallback - should never reach here
 	result.pdf = max( result.pdf, MIN_PDF );
 	result.value = evaluateMaterialResponse( V, result.direction, N, material );
 	return result;
