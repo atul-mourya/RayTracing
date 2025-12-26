@@ -74,9 +74,12 @@ float handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mate
     // Get throughput strength
 	float throughputStrength = maxComponent( throughput );
 
-    // Enhanced early rejection
+    // Energy-conserving early termination for very low throughput paths
+	// Use probability-based RR instead of deterministic cutoff to maintain unbiased estimation
 	if( throughputStrength < 0.0008 && depth > 4 ) {
-		return 0.0;
+		float lowThroughputProb = max( throughputStrength * 125.0, 0.01 ); // Scale to reasonable survival probability
+		float rrSample = RandomValue( rngState );
+		return ( rrSample < lowThroughputProb ) ? lowThroughputProb : 0.0;
 	}
 
     // Use consolidated classification function
