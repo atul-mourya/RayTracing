@@ -64,10 +64,11 @@ float estimatePathContribution( vec3 throughput, vec3 direction, RayTracingMater
 // -----------------------------------------------------------------------------
 
 // Russian Roulette with enhanced material importance and optimized sampling
-bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, int materialIndex, vec3 rayDirection, inout uint rngState, PathState pathState ) {
-    // Always continue for first few bounces
+// Returns the continuation probability (0.0 = terminate, >0.0 = continue with throughput compensation)
+float handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial material, int materialIndex, vec3 rayDirection, inout uint rngState, PathState pathState ) {
+    // Always continue for first few bounces (return 1.0 = no compensation needed)
 	if( depth < 3 ) {
-		return true;
+		return 1.0;
 	}
 
     // Get throughput strength
@@ -75,7 +76,7 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 
     // Enhanced early rejection
 	if( throughputStrength < 0.0008 && depth > 4 ) {
-		return false;
+		return 0.0;
 	}
 
     // Use consolidated classification function
@@ -105,7 +106,7 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 		minBounces = 4;
 
 	if( depth < minBounces ) {
-		return true;
+		return 1.0;
 	}
 
     // Enhanced path importance calculation with caching
@@ -146,7 +147,9 @@ bool handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mater
 	rrProb = max( rrProb, minProb );
 
 	float rrSample = RandomValue( rngState );
-	return rrSample < rrProb;
+	// If ray survives, return the survival probability for throughput compensation
+	// If ray terminates, return 0.0
+	return ( rrSample < rrProb ) ? rrProb : 0.0;
 }
 
 // -----------------------------------------------------------------------------
@@ -406,9 +409,12 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		}
 
         // 4. RUSSIAN ROULETTE
-		if( ! handleRussianRoulette( state.actualBounceDepth, throughput, material, hitInfo.materialIndex, ray.direction, rngState, pathState ) ) {
-			break;
+		float rrSurvivalProb = handleRussianRoulette( state.actualBounceDepth, throughput, material, hitInfo.materialIndex, ray.direction, rngState, pathState );
+		if( rrSurvivalProb <= 0.0 ) {
+			break; // Ray terminated
 		}
+		// Apply throughput compensation to maintain unbiased estimator
+		throughput /= rrSurvivalProb;
 
 		// Increment effective bounces
 		effectiveBounces ++;
