@@ -10,8 +10,13 @@
 
 float calculateTransmissionPDF( vec3 V, vec3 L, vec3 N, float ior, float roughness, bool entering ) {
     // Calculate the half vector for transmission
-    float eta = entering ? 1.0 / ior : ior;
-    vec3 H = normalize( V + L * eta );
+    // eta is the relative IOR: eta_transmitted / eta_incident
+    // When entering: air(1.0) -> material(ior), so eta = ior
+    // When exiting: material(ior) -> air(1.0), so eta = 1.0/ior
+    float eta = entering ? ior : 1.0 / ior;
+
+    // Transmission half-vector formula (Walter et al. 2007)
+    vec3 H = normalize( V + eta * L );
 
     if( dot( H, N ) < 0.0 )
         H = - H; // Ensure H points into the correct hemisphere
