@@ -146,9 +146,20 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
     // Sheen sampling
 	if( rand < cumulativeSheen ) {
 		H = ImportanceSampleGGX( N, material.sheenRoughness, xi );
-		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
-		float VoH = clamp( dot( V, H ), 0.0, 1.0 );
+		float NoH = clamp( dot( N, H ), 0.001, 1.0 );
+		float VoH = clamp( dot( V, H ), 0.001, 1.0 );
 		result.direction = reflect( - V, H );
+		float NoL = dot( N, result.direction );
+
+		// Reject directions below the surface - fall back to diffuse
+		if( NoL <= 0.0 ) {
+			result.direction = ImportanceSampleCosine( N, xi );
+			NoL = clamp( dot( N, result.direction ), 0.0, 1.0 );
+			result.pdf = NoL * PI_INV;
+			result.value = evaluateMaterialResponse( V, result.direction, N, material );
+			return result;
+		}
+
 		result.pdf = SheenDistribution( NoH, material.sheenRoughness ) * NoH / ( 4.0 * VoH );
 		result.pdf = max( result.pdf, MIN_PDF );
 		result.value = evaluateMaterialResponse( V, result.direction, N, material );

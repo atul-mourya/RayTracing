@@ -17,10 +17,13 @@ float DistributionGGX( float NoH, float roughness ) {
 
 #ifdef ENABLE_SHEEN
 float SheenDistribution( float NoH, float roughness ) {
-	float alpha = roughness * roughness;
+	// Ensure minimum roughness to prevent extreme values
+	float clampedRoughness = max( roughness, MIN_ROUGHNESS );
+	float alpha = clampedRoughness * clampedRoughness;
 	float invAlpha = 1.0 / alpha;
 	float d = ( NoH * NoH * ( invAlpha * invAlpha - 1.0 ) + 1.0 );
-	return invAlpha * invAlpha / ( PI * d * d );
+	// Protect against division by very small values and clamp output
+	return min( invAlpha * invAlpha / max( PI * d * d, EPSILON ), 100.0 );
 }
 #endif // ENABLE_SHEEN
 

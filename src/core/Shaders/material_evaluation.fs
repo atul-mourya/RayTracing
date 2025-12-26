@@ -65,10 +65,11 @@ vec3 evaluateMaterialResponse( vec3 V, vec3 L, vec3 N, RayTracingMaterial materi
 		float sheenDist = SheenDistribution( dots.NoH, material.sheenRoughness );
 		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * dots.NoL;
 
-        // Physically-based sheen attenuation
+        // Physically-based sheen attenuation with minimum to prevent black pixels
 		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
 		float sheenReflectance = material.sheen * maxSheen * sheenDist;
-		float sheenAttenuation = 1.0 - clamp( sheenReflectance, 0.0, 1.0 );
+		// Clamp attenuation to preserve at least 10% of base layer
+		float sheenAttenuation = max( 1.0 - clamp( sheenReflectance, 0.0, 0.9 ), 0.1 );
 
 		return baseLayer * sheenAttenuation + sheenTerm;
 	}
@@ -135,7 +136,8 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 		vec3 sheenTerm = material.sheenColor * material.sheen * sheenDist * NoL;
 		float maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
 		float sheenReflectance = material.sheen * maxSheen * sheenDist;
-		float sheenAttenuation = 1.0 - clamp( sheenReflectance, 0.0, 1.0 );
+		// Clamp attenuation to preserve at least 10% of base layer
+		float sheenAttenuation = max( 1.0 - clamp( sheenReflectance, 0.0, 0.9 ), 0.1 );
 
 		return baseLayer * sheenAttenuation + sheenTerm;
 	}
