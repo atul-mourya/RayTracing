@@ -503,7 +503,7 @@ TransmissionResult handleTransmission(
 		} else {
             // Simple refraction for completely smooth, non-dispersive surfaces
 			result.direction = refract( rayDir, N, n1 / n2 );
-			result.throughput = mix( material.color.rgb, vec3( 1.0 ), material.transmission * 0.2 );
+			result.throughput = vec3( 1.0 );  // Let common block apply color (line 512)
 		}
 
         // Common transmission calculations
