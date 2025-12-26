@@ -337,21 +337,24 @@ void main( ) {
 	pixel.color.rgb = dithering( pixel.color.rgb, baseSeed );
 
 	// Edge Detection
-	float edge0 = 0.2;
-	float edge1 = 0.6;
+	// Use depth-based edge detection (robust, as linearDepth uses gl_FragCoord.z)
+	float depthDifference = fwidth( linearDepth );
+	float depthEdge = smoothstep( 0.01, 0.05, depthDifference );
 
+	// Normal-based edges (less reliable due to jittered rays, but catches smooth depth transitions)
 	float difference_Nx = fwidth( objectNormal.x );
 	float difference_Ny = fwidth( objectNormal.y );
 	float difference_Nz = fwidth( objectNormal.z );
-	float normalDifference = smoothstep( edge0, edge1, difference_Nx ) +
-		smoothstep( edge0, edge1, difference_Ny ) +
-		smoothstep( edge0, edge1, difference_Nz );
+	float normalDifference = smoothstep( 0.3, 0.8, difference_Nx ) +
+		smoothstep( 0.3, 0.8, difference_Ny ) +
+		smoothstep( 0.3, 0.8, difference_Nz );
 
+	// Object ID discontinuities (mesh boundaries)
 	float objectDifference = min( fwidth( objectID ), 1.0 );
-	float colorDifference = ( fwidth( objectColor.r ) + fwidth( objectColor.g ) + fwidth( objectColor.b ) ) > 0.0 ? 1.0 : 0.0;
 
-	// Mark pixel as edge if any edge condition is met
-	if( colorDifference > 0.0 || normalDifference >= 0.9 || objectDifference >= 1.0 ) {
+	// Mark pixel as edge if depth OR normal discontinuity detected
+	// Depth edges are most reliable, normal edges catch grazing angles, object edges catch mesh boundaries
+	if( depthEdge > 0.5 || normalDifference >= 1.0 || objectDifference >= 1.0 ) {
 		pixelSharpness = 1.0;
 	}
 

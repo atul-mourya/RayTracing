@@ -120,7 +120,7 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	closestHit.meshIndex = - 1; // Initialize mesh index
 
 	// Reduced stack size - most scenes don't need 32 levels
-	int stack[ 24 ];
+	int stack[ 32 ];
 	int stackPtr = 0;
 	stack[ stackPtr ++ ] = 0; // Root node
 
