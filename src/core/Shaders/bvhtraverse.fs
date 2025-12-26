@@ -168,12 +168,28 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 					}
 
 					if( shadowRay ) {
-						// For shadow rays, basic visibility check is sufficient
+						// For shadow rays, record hit and check if we can exit early
 						closestHit = hit;
 						closestHit.materialIndex = tri.materialIndex;
 						closestHit.meshIndex = tri.meshIndex;
-						// Early exit for shadow rays - any hit is sufficient
-						// return closestHit;
+
+					#if defined( ENABLE_TRANSMISSION ) || defined( ENABLE_TRANSPARENCY )
+						// Scene has transmissive/transparent materials - check before early exit
+						VisibilityData vis = getVisibilityData( tri.materialIndex );
+						vec4 slot2 = getDatafromDataTexture( materialTexture, materialTexSize, tri.materialIndex, 2, MATERIAL_SLOTS );
+						float transmission = slot2.g;
+
+						// Early exit only for fully opaque materials
+						// Transmissive/transparent materials need proper ordering for correct light transport
+						bool isFullyOpaque = !vis.transparent && vis.opacity >= 0.99 && transmission < 0.01;
+						if( isFullyOpaque ) {
+							return closestHit;
+						}
+						// Continue traversal for transmissive/transparent to find closest hit
+					#else
+						// No transmissive materials in scene - always safe to early exit
+						return closestHit;
+					#endif
 					} else {
 						// For primary rays, do full material check only if basic visibility passed
 						if( isMaterialVisible( tri.materialIndex, rayDirection, hit.normal ) ) {

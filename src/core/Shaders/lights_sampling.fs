@@ -125,13 +125,15 @@ LightSample samplePointLightWithAttenuation( PointLight light, vec3 rayOrigin, f
 // -----------------------------------------------------------------------------
 
 // Enhanced light sampling with importance weighting for better noise reduction
+// OPTIMIZATION: Modified to accept pre-computed area light importance to avoid recalculation
 LightSample sampleLightWithImportance(
     vec3 rayOrigin,
     vec3 normal,
     RayTracingMaterial material,
     vec2 randomSeed,
     int bounceIndex,
-    inout uint rngState
+    inout uint rngState,
+    float areaLightImportanceCache[ MAX_AREA_LIGHTS > 0 ? MAX_AREA_LIGHTS : 1 ]
 ) {
     LightSample result;
     result.valid = false;
@@ -159,8 +161,8 @@ LightSample sampleLightWithImportance(
 
     #if MAX_AREA_LIGHTS > 0
     for( int i = 0; i < MAX_AREA_LIGHTS && lightIndex < 16; i ++ ) {
-        AreaLight light = getAreaLight( i );
-        float importance = estimateLightImportance( light, rayOrigin, normal, material );
+        // OPTIMIZATION: Use pre-computed importance from cache
+        float importance = areaLightImportanceCache[ i ];
         lightWeights[ lightIndex ] = importance;
         totalWeight += importance;
         lightIndex ++;
@@ -445,7 +447,19 @@ vec3 calculateDirectLightingUnified(
 
     float importanceThreshold = 0.001 * ( 1.0 + float( bounceIndex ) * 0.5 );
 
-    // Check if discrete lights exist   
+    // OPTIMIZATION: Pre-calculate and cache all light importance values
+    // This avoids redundant calculations in both light sampling and BRDF sampling paths
+    float areaLightImportance[ MAX_AREA_LIGHTS > 0 ? MAX_AREA_LIGHTS : 1 ];
+    #if MAX_AREA_LIGHTS > 0
+    for( int i = 0; i < MAX_AREA_LIGHTS; i ++ ) {
+        AreaLight light = getAreaLight( i );
+        areaLightImportance[ i ] = ( light.intensity > 0.0 )
+            ? estimateLightImportance( light, hitInfo.hitPoint, hitInfo.normal, hitInfo.material )
+            : 0.0;
+    }
+    #endif
+
+    // Check if discrete lights exist
     bool hasDiscreteLights = totalLights > 0;                        
                                         
     // Calculate total sampling weight only include light weight if lights exist 
@@ -499,7 +513,8 @@ vec3 calculateDirectLightingUnified(
     if( sampleLights ) {
         // Importance-weighted light sampling
         vec2 lightRandom = vec2( stratifiedRandom.y, RandomValue( rngState ) );
-        LightSample lightSample = sampleLightWithImportance( rayOrigin, hitInfo.normal, hitInfo.material, lightRandom, bounceIndex, rngState );
+        // OPTIMIZATION: Pass cached importance values to avoid recalculation
+        LightSample lightSample = sampleLightWithImportance( rayOrigin, hitInfo.normal, hitInfo.material, lightRandom, bounceIndex, rngState, areaLightImportance );
 
         if( lightSample.valid && lightSample.pdf > 0.0 ) {
             float NoL = max( 0.0, dot( hitInfo.normal, lightSample.direction ) );
@@ -548,7 +563,8 @@ vec3 calculateDirectLightingUnified(
                     if( light.intensity <= 0.0 )
                         continue;
 
-                    float lightImportance = estimateLightImportance( light, hitInfo.hitPoint, hitInfo.normal, hitInfo.material );
+                    // OPTIMIZATION: Use cached importance value instead of recalculating
+                    float lightImportance = areaLightImportance[ i ];
                     if( lightImportance < importanceThreshold )
                         continue;
 
