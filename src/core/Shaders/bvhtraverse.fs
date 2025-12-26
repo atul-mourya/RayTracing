@@ -124,10 +124,12 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	int stackPtr = 0;
 	stack[ stackPtr ++ ] = 0; // Root node
 
-	// FIXED: Compact axis-aligned ray handling
+	// FIXED: Compact axis-aligned ray handling with correct sign preservation
 	const float HUGE_VAL = 1e8;
-	vec3 invDir = mix( 1.0 / ray.direction,                    // Normal case
-	HUGE_VAL * sign( ray.direction + 1e-10 ), // Axis-aligned case (add tiny value to avoid sign(0))
+	// Preserve original direction sign; default to +1 only if exactly zero
+	vec3 dirSign = mix( vec3( 1.0 ), sign( ray.direction ), notEqual( ray.direction, vec3( 0.0 ) ) );
+	vec3 invDir = mix( 1.0 / ray.direction,      // Normal case
+	HUGE_VAL * dirSign,                          // Axis-aligned case with correct sign
 	lessThan( abs( ray.direction ), vec3( 1e-8 ) ) );
 
 	// Cache ray properties to reduce redundant calculations
