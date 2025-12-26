@@ -300,7 +300,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			ray.direction = interaction.direction;
 
 			state.isPrimaryRay = false;
+			// Reset material-dependent caches when continuing through transparency
 			pathState.weightsComputed = false;
+			pathState.materialCacheCached = false;
 
 			if( ! isFreeBounce ) {
 				effectiveBounces ++;

@@ -390,8 +390,8 @@ TransmissionResult handleTransmission(
 		}
 	}
 
-	// Safety clamp to prevent edge cases
-	reflectProb = clamp( reflectProb, 0.02, 0.98 );
+	// Conservative clamp to prevent excessive PDF compensation (limits max amplification to 20x)
+	reflectProb = clamp( reflectProb, 0.05, 0.95 );
 
     // Force reflection if TIR, otherwise probabilistically choose
 	result.didReflect = totalInternalReflection || ( RandomValue( rngState ) < reflectProb );
@@ -516,8 +516,10 @@ TransmissionResult handleTransmission(
 				result.throughput *= calculateBeerLawAbsorption( material.attenuationColor, material.attenuationDistance, material.thickness );
 			}
 
-            // Apply energy correction for sampling (reduced multiplier)
-			result.throughput *= 1.0 / max( 1.0 - reflectProb, 0.01 );
+            // Apply PDF compensation for probabilistic transmission sampling
+            // reflectProb is clamped to [0.05, 0.95] at line 394, so (1-reflectProb) ∈ [0.05, 0.95]
+            // Using 0.05 clamp limits max amplification to 20x, significantly reducing fireflies
+			result.throughput *= 1.0 / max( 1.0 - reflectProb, 0.05 );
 		}
 	}
 
