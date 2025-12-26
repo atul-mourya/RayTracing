@@ -263,7 +263,7 @@ MicrofacetTransmissionResult sampleMicrofacetTransmission(
 	}
 
     // Use minimum roughness to avoid numerical issues for rough surfaces
-	float transmissionRoughness = max( 0.05, roughness );
+	float transmissionRoughness = max( MIN_ROUGHNESS, roughness );
 
     // Sample the microfacet normal with GGX distribution
 	vec3 H = ImportanceSampleGGX( N, transmissionRoughness, xi );

@@ -175,7 +175,7 @@ vec3 evaluateLayeredBRDF( DotProducts dots, RayTracingMaterial material ) {
 	vec3 baseLayer = diffuse + baseBRDF;
 
     // Clearcoat layer
-	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
+	float clearcoatRoughness = max( material.clearcoatRoughness, MIN_CLEARCOAT_ROUGHNESS );
 	float clearcoatD = DistributionGGX( dots.NoH, clearcoatRoughness );
 	float clearcoatG = GeometrySmith( dots.NoV, dots.NoL, clearcoatRoughness );
 	float clearcoatF = fresnelSchlick( dots.VoH, 0.04 );

@@ -10,8 +10,8 @@ vec3 sampleClearcoat( inout Ray ray, HitInfo hitInfo, RayTracingMaterial materia
 	vec3 V = - ray.direction;
 
     // Clamp clearcoat roughness to avoid artifacts
-	float clearcoatRoughness = max( material.clearcoatRoughness, 0.089 );
-	float baseRoughness = max( material.roughness, 0.089 );
+	float clearcoatRoughness = max( material.clearcoatRoughness, MIN_CLEARCOAT_ROUGHNESS );
+	float baseRoughness = max( material.roughness, MIN_CLEARCOAT_ROUGHNESS );
 
     // Calculate sampling weights based on material properties
 	float specularWeight = ( 1.0 - baseRoughness ) * ( 0.5 + 0.5 * material.metalness );

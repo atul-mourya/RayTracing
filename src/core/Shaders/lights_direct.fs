@@ -54,7 +54,7 @@ float traceShadowRay( vec3 origin, vec3 dir, float maxDist, inout uint rngState,
         HitInfo shadowHit = traverseBVH( shadowRay, stats, true );
 
         // No hit or hit beyond light distance
-        if( ! shadowHit.didHit || length( shadowHit.hitPoint - origin ) > maxDist )
+        if( ! shadowHit.didHit || shadowHit.dst > maxDist )
             break;
 
         // Special handling for transmissive materials

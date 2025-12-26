@@ -3,6 +3,7 @@ const float PI_INV = 1.0 / PI;
 const float TWO_PI = 2.0 * PI;
 const float EPSILON = 1e-6;
 const float MIN_ROUGHNESS = 0.05;
+const float MIN_CLEARCOAT_ROUGHNESS = 0.089;
 const float MAX_ROUGHNESS = 1.0;
 const float MIN_PDF = 0.001;
 const vec3 REC709_LUMINANCE_COEFFICIENTS = vec3( 0.2126, 0.7152, 0.0722 );

@@ -159,7 +159,7 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 #endif // ENABLE_SHEEN
 #ifdef ENABLE_CLEARCOAT
 	if( rand < cumulativeClearcoat ) {
-		float clearcoatRoughness = clamp( material.clearcoatRoughness, 0.089, 1.0 );
+		float clearcoatRoughness = clamp( material.clearcoatRoughness, MIN_CLEARCOAT_ROUGHNESS, MAX_ROUGHNESS );
 		H = ImportanceSampleGGX( N, clearcoatRoughness, xi );
 		float NoH = clamp( dot( N, H ), 0.0, 1.0 );
 		result.direction = reflect( - V, H );
