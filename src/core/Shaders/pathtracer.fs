@@ -324,6 +324,9 @@ void main( ) {
 
 	pixel.color /= float( pixel.samples );
 
+	// Apply dithering AFTER averaging to prevent banding in 8-bit output
+	pixel.color.rgb = dithering( pixel.color.rgb, baseSeed );
+
 	// Edge Detection
 	float edge0 = 0.2;
 	float edge1 = 0.6;
@@ -357,9 +360,6 @@ void main( ) {
 
 	}
 	#endif
-
-    // pixel.color.rgb = applyDithering( pixel.color.rgb, gl_FragCoord.xy / resolution, 0.5 ); // 0.5 is the dithering amount
-    // pixel.color.rgb = dithering( pixel.color.rgb, seed );
 
 	// Clean MRT output
 	gColor = vec4( finalColor, 1.0 );
