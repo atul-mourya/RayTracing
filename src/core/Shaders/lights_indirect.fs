@@ -249,7 +249,10 @@ IndirectLightingResult calculateIndirectLighting(
     if( weights.useEnv ) {
         vec3 envColor;
         float envPdf = sampleEquirect( sampleDir, envColor );
-        combinedPdf += weights.envWeight * envPdf;
+        // Only include environment in MIS if it has valid contribution (envPdf > 0)
+        if( envPdf > 0.0 ) {
+            combinedPdf += weights.envWeight * envPdf;
+        }
     }
 
     if( weights.useSpecular ) {

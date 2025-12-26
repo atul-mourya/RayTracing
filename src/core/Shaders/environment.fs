@@ -100,7 +100,7 @@ float sampleEquirect( vec3 direction, inout vec3 color ) {
 	if ( totalSum == 0.0 ) {
 
 		color = vec3( 0.0 );
-		return 1.0;
+		return 0.0; // Exclude black environments from MIS
 
 	}
 
