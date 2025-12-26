@@ -439,15 +439,18 @@ vec3 calculateDirectLightingUnified(
 
     // Adaptive light processing
     int totalLights = getTotalLightCount( );
-    if( totalLights == 0 ) {
+    if( totalLights == 0 && ! enableEnvironmentLight ) {
         return vec3( 0.0 );
     }
 
     float importanceThreshold = 0.001 * ( 1.0 + float( bounceIndex ) * 0.5 );
 
-    // Calculate total sampling weight
+    // Check if discrete lights exist   
+    bool hasDiscreteLights = totalLights > 0;                        
+                                        
+    // Calculate total sampling weight only include light weight if lights exist 
     float totalSamplingWeight = 0.0;
-    if( misStrategy.useLightSampling )
+    if( misStrategy.useLightSampling && hasDiscreteLights )
         totalSamplingWeight += misStrategy.lightWeight;
     if( misStrategy.useBRDFSampling )
         totalSamplingWeight += misStrategy.brdfWeight;
@@ -455,9 +458,15 @@ vec3 calculateDirectLightingUnified(
         totalSamplingWeight += misStrategy.envWeight;
 
     if( totalSamplingWeight <= 0.0 ) {
-        totalSamplingWeight = 1.0;
-        misStrategy.useLightSampling = true;
-        misStrategy.lightWeight = 1.0;
+        totalSamplingWeight = 1.0;  
+        // Fallback: prioritize environment if enabled, otherwise BRDF  
+        if( enableEnvironmentLight ) {  
+            misStrategy.useEnvSampling = true;                                 
+            misStrategy.envWeight = 1.0;                                    
+        } else {                        
+            misStrategy.useBRDFSampling = true;                                
+            misStrategy.brdfWeight = 1.0;                                    
+        }  
     }
 
     vec2 stratifiedRandom = getRandomSample( gl_FragCoord.xy, sampleIndex, bounceIndex, rngState, - 1 );
@@ -467,16 +476,25 @@ vec3 calculateDirectLightingUnified(
     bool sampleLights = false;
     bool sampleBRDF = false;
     bool sampleEnv = false;
-
-    if( rand < misStrategy.lightWeight / totalSamplingWeight && misStrategy.useLightSampling ) {
+                   
+    // Calculate effective weights for probability (only include light weight if lights exist)                        
+    float effectiveLightWeight = hasDiscreteLights ? misStrategy.lightWeight : 0.0;          
+    float cumulativeLight = effectiveLightWeight / totalSamplingWeight;                    
+    float cumulativeBRDF = ( effectiveLightWeight + misStrategy.brdfWeight ) / totalSamplingWeight;              
+    
+    if( rand < cumulativeLight && misStrategy.useLightSampling && hasDiscreteLights ) {   
         sampleLights = true;
-    } else if( rand < ( misStrategy.lightWeight + misStrategy.brdfWeight ) / totalSamplingWeight && misStrategy.useBRDFSampling ) {
+    } else if( rand < cumulativeBRDF && misStrategy.useBRDFSampling ) {
         sampleBRDF = true;
     } else if( misStrategy.useEnvSampling && enableEnvironmentLight ) {
         sampleEnv = true;
-    } else {
-        sampleLights = true;
-    }
+    } else if( hasDiscreteLights ) {    
+        // Fallback to light sampling only if lights exist                    
+        sampleLights = true;            
+    } else if( enableEnvironmentLight ) {                                      
+        // Fallback to environment sampling when no discrete lights        
+        sampleEnv = true;               
+    }                         
 
     if( sampleLights ) {
         // Importance-weighted light sampling
