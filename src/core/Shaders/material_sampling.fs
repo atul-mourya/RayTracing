@@ -314,9 +314,9 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 
     // Calculate MIS weight considering all possible sampling strategies
 	float misWeight = calculateMultiLobeMISWeight( sampledDirection, V, N, material, weights, result.pdf );
-	result.pdf *= misWeight; // Apply MIS weight to the PDF
 	result.direction = sampledDirection;
 	result.value = evaluateMaterialResponse( V, sampledDirection, N, material );
+	result.value *= misWeight; // Apply MIS weight to contribution
 
 	return result;
 }
