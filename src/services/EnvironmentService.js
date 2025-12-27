@@ -123,7 +123,7 @@ export class EnvironmentService {
 	 */
 	static getLocalEnvironmentsByCategories( categories = null ) {
 
-		const baseUrl = '/hdri/';
+		const baseUrl = `${import.meta.env.BASE_URL}hdri/`;
 
 		// All local environments with metadata
 		const localEnvironments = [
