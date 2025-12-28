@@ -1,0 +1,605 @@
+[
+  {
+    "id": "adams_place_bridge",
+    "name": "Adams Place Bridge",
+    "file": "adams_place_bridge_1k.hdr",
+    "preview": "adams_place_bridge.webp",
+    "categories": ["outdoor", "architectural"],
+    "tags": ["bridge", "outdoor", "architectural", "day"],
+    "resolution": "1k"
+  },
+  {
+    "id": "aerodynamics_workshop",
+    "name": "Aerodynamics Workshop",
+    "file": "aerodynamics_workshop_1k.hdr",
+    "preview": "aerodynamics_workshop.webp",
+    "categories": ["urban", "interior"],
+    "tags": ["workshop", "urban", "interior", "industrial"],
+    "resolution": "1k"
+  },
+  {
+    "id": "aristea_wreck_puresky",
+    "name": "Aristea Wreck Pure Sky",
+    "file": "aristea_wreck_puresky_1k.hdr",
+    "preview": "aristea_wreck_puresky.webp",
+    "categories": ["sky", "outdoor"],
+    "tags": ["sky", "pure", "outdoor", "clean"],
+    "resolution": "1k"
+  },
+  {
+    "id": "autoshop_01",
+    "name": "Auto Shop 01",
+    "file": "autoshop_01_1k.hdr",
+    "preview": "autoshop_01.webp",
+    "categories": ["urban", "interior"],
+    "tags": ["autoshop", "urban", "interior", "workshop"],
+    "resolution": "1k"
+  },
+  {
+    "id": "blocky_photo_studio",
+    "name": "Blocky Photo Studio",
+    "file": "blocky_photo_studio_1k.hdr",
+    "preview": "blocky_photo_studio.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "photography", "lighting"],
+    "resolution": "1k"
+  },
+  {
+    "id": "brown_photostudio_01",
+    "name": "Brown Photo Studio 01",
+    "file": "brown_photostudio_01_1k.hdr",
+    "preview": "brown_photostudio_01.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "brown", "photography"],
+    "resolution": "1k"
+  },
+  {
+    "id": "brown_photostudio_02",
+    "name": "Brown Photo Studio 02",
+    "file": "brown_photostudio_02_1k.hdr",
+    "preview": "brown_photostudio_02.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "brown", "photography"],
+    "resolution": "1k"
+  },
+  {
+    "id": "brown_photostudio_06",
+    "name": "Brown Photo Studio 06",
+    "file": "brown_photostudio_06_1k.hdr",
+    "preview": "brown_photostudio_06.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "brown", "photography"],
+    "resolution": "1k"
+  },
+  {
+    "id": "brown_photostudio_07",
+    "name": "Brown Photo Studio 07",
+    "file": "brown_photostudio_07_1k.hdr",
+    "preview": "brown_photostudio_07.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "brown", "photography"],
+    "resolution": "1k"
+  },
+  {
+    "id": "chinese_garden",
+    "name": "Chinese Garden",
+    "file": "chinese_garden_1k.hdr",
+    "preview": "chinese_garden.webp",
+    "categories": ["nature", "outdoor"],
+    "tags": ["garden", "nature", "outdoor", "chinese"],
+    "resolution": "1k"
+  },
+  {
+    "id": "christmas_photo_studio_04",
+    "name": "Christmas Photo Studio 04",
+    "file": "christmas_photo_studio_04_2k.hdr",
+    "preview": "christmas_photo_studio_04.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "christmas", "holiday"],
+    "resolution": "2k"
+  },
+  {
+    "id": "christmas_photo_studio_07",
+    "name": "Christmas Photo Studio 07",
+    "file": "christmas_photo_studio_07_1k.hdr",
+    "preview": "christmas_photo_studio_07.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "christmas", "holiday"],
+    "resolution": "1k"
+  },
+  {
+    "id": "circus_arena",
+    "name": "Circus Arena",
+    "file": "circus_arena_1k.hdr",
+    "preview": "circus_arena.webp",
+    "categories": ["architectural", "interior"],
+    "tags": ["circus", "arena", "architectural", "interior"],
+    "resolution": "1k"
+  },
+  {
+    "id": "cloud_layers",
+    "name": "Cloud Layers",
+    "file": "cloud_layers_2k.hdr",
+    "preview": null,
+    "categories": ["sky"],
+    "tags": ["clouds", "sky", "layers", "weather"],
+    "resolution": "2k"
+  },
+  {
+    "id": "comfy_cafe",
+    "name": "Comfy Cafe",
+    "file": "comfy_cafe_2k.hdr",
+    "preview": "comfy_cafe.webp",
+    "categories": ["interior"],
+    "tags": ["cafe", "interior", "comfy", "cozy"],
+    "resolution": "2k"
+  },
+  {
+    "id": "dancing_hall",
+    "name": "Dancing Hall",
+    "file": "dancing_hall_1k.hdr",
+    "preview": "dancing_hall.webp",
+    "categories": ["architectural", "interior"],
+    "tags": ["dancing", "hall", "architectural", "interior"],
+    "resolution": "1k"
+  },
+  {
+    "id": "drachenfels_cellar",
+    "name": "Drachenfels Cellar",
+    "file": "drachenfels_cellar_1k.hdr",
+    "preview": "drachenfels_cellar.webp",
+    "categories": ["interior"],
+    "tags": ["cellar", "interior", "underground", "medieval"],
+    "resolution": "1k"
+  },
+  {
+    "id": "hall_of_mammals",
+    "name": "Hall of Mammals",
+    "file": "hall_of_mammals_2k.hdr",
+    "preview": "hall_of_mammals.webp",
+    "categories": ["interior", "architectural"],
+    "tags": ["hall", "mammals", "museum", "interior"],
+    "resolution": "2k"
+  },
+  {
+    "id": "herkulessaulen",
+    "name": "Herkulessaulen",
+    "file": "herkulessaulen_2k.hdr",
+    "preview": "herkulessaulen.webp",
+    "categories": ["architectural", "outdoor"],
+    "tags": ["architectural", "columns", "outdoor", "classical"],
+    "resolution": "2k"
+  },
+  {
+    "id": "hilly_terrain_01",
+    "name": "Hilly Terrain 01",
+    "file": "hilly_terrain_01_1k.hdr",
+    "preview": "hilly_terrain_01.webp",
+    "categories": ["nature", "outdoor"],
+    "tags": ["terrain", "hills", "nature", "outdoor"],
+    "resolution": "1k"
+  },
+  {
+    "id": "kloppenheim_05",
+    "name": "Kloppenheim 05",
+    "file": "kloppenheim_05_1k.hdr",
+    "preview": "kloppenheim_05.webp",
+    "categories": ["architectural", "outdoor"],
+    "tags": ["architectural", "outdoor", "european", "building"],
+    "resolution": "1k"
+  },
+  {
+    "id": "leadenhall_market",
+    "name": "Leadenhall Market",
+    "file": "leadenhall_market_1k.hdr",
+    "preview": "leadenhall_market.webp",
+    "categories": ["architectural", "urban"],
+    "tags": ["market", "architectural", "urban", "historic"],
+    "resolution": "1k"
+  },
+  {
+    "id": "modern_buildings_2",
+    "name": "Modern Buildings 2",
+    "file": "modern_buildings_2_1k.hdr",
+    "preview": "modern_buildings_2.webp",
+    "categories": ["urban", "architectural"],
+    "tags": ["modern", "buildings", "urban", "architectural"],
+    "resolution": "1k"
+  },
+  {
+    "id": "narrow_moonlit_road",
+    "name": "Narrow Moonlit Road",
+    "file": "narrow_moonlit_road_1k.hdr",
+    "preview": "narrow_moonlit_road.webp",
+    "categories": ["night", "outdoor"],
+    "tags": ["night", "moonlit", "road", "outdoor"],
+    "resolution": "1k"
+  },
+  {
+    "id": "noon_grass",
+    "name": "Noon Grass",
+    "file": "noon_grass_1k.hdr",
+    "preview": "noon_grass.webp",
+    "categories": ["nature", "outdoor"],
+    "tags": ["grass", "nature", "outdoor", "noon"],
+    "resolution": "1k"
+  },
+  {
+    "id": "peppermint_powerplant",
+    "name": "Peppermint Powerplant",
+    "file": "peppermint_powerplant_1k.hdr",
+    "preview": "peppermint_powerplant.webp",
+    "categories": ["urban"],
+    "tags": ["powerplant", "urban", "industrial", "energy"],
+    "resolution": "1k"
+  },
+  {
+    "id": "phalzer_forest_01",
+    "name": "Phalzer Forest 01",
+    "file": "phalzer_forest_01_1k.hdr",
+    "preview": "phalzer_forest_01.webp",
+    "categories": ["forest", "nature"],
+    "tags": ["forest", "nature", "trees", "outdoor"],
+    "resolution": "1k"
+  },
+  {
+    "id": "photo_studio_01",
+    "name": "Photo Studio 01",
+    "file": "photo_studio_01_2k.hdr",
+    "preview": "photo_studio_01.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "photo", "photography", "lighting"],
+    "resolution": "2k"
+  },
+  {
+    "id": "rainforest_trail",
+    "name": "Rainforest Trail",
+    "file": "rainforest_trail_1k.hdr",
+    "preview": "rainforest_trail.webp",
+    "categories": ["forest", "nature"],
+    "tags": ["rainforest", "trail", "nature", "trees"],
+    "resolution": "1k"
+  },
+  {
+    "id": "sepulchral_chapel_rotunda",
+    "name": "Sepulchral Chapel Rotunda",
+    "file": "sepulchral_chapel_rotunda_1k.hdr",
+    "preview": "sepulchral_chapel_rotunda.webp",
+    "categories": ["architectural", "interior"],
+    "tags": ["chapel", "rotunda", "architectural", "interior"],
+    "resolution": "1k"
+  },
+  {
+    "id": "st_peters_square_night",
+    "name": "St Peter's Square Night",
+    "file": "st_peters_square_night_1k.hdr",
+    "preview": "st_peters_square_night.webp",
+    "categories": ["night", "architectural"],
+    "tags": ["night", "square", "architectural", "historic"],
+    "resolution": "1k"
+  },
+  {
+    "id": "studio_small_05",
+    "name": "Studio Small 05",
+    "file": "studio_small_05_1k.hdr",
+    "preview": "studio_small_05.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "small", "photography", "lighting"],
+    "resolution": "1k"
+  },
+  {
+    "id": "studio_small_09",
+    "name": "Studio Small 09",
+    "file": "studio_small_09_2k.hdr",
+    "preview": "studio_small_09.webp",
+    "categories": ["studio"],
+    "tags": ["studio", "small", "photography", "lighting"],
+    "resolution": "2k"
+  },
+  {
+    "id": "thatch_chapel",
+    "name": "Thatch Chapel",
+    "file": "thatch_chapel_1k.hdr",
+    "preview": "thatch_chapel.webp",
+    "categories": ["architectural", "nature"],
+    "tags": ["chapel", "thatch", "architectural", "rural"],
+    "resolution": "1k"
+  },
+  {
+    "id": "urban_alley_01",
+    "name": "Urban Alley 01",
+    "file": "urban_alley_01_2k.hdr",
+    "preview": "urban_alley_01.webp",
+    "categories": ["urban"],
+    "tags": ["urban", "alley", "city", "street"],
+    "resolution": "2k"
+  },
+  {
+    "id": "vestibule",
+    "name": "Vestibule",
+    "file": "vestibule_1k.hdr",
+    "preview": "vestibule.webp",
+    "categories": ["interior", "architectural"],
+    "tags": ["vestibule", "interior", "architectural", "entrance"],
+    "resolution": "1k"
+  },
+  {
+    "id": "wasteland_clouds_puresky",
+    "name": "Wasteland Clouds Pure Sky",
+    "file": "wasteland_clouds_puresky_2k.hdr",
+    "preview": "wasteland_clouds_puresky.webp",
+    "categories": ["sky"],
+    "tags": ["sky", "clouds", "wasteland", "pure"],
+    "resolution": "2k"
+  },
+  {
+    "id": "whale_skeleton",
+    "name": "Whale Skeleton",
+    "file": "whale_skeleton_2k.hdr",
+    "preview": "whale_skeleton.webp",
+    "categories": ["nature", "interior"],
+    "tags": ["whale", "skeleton", "nature", "museum"],
+    "resolution": "2k"
+  },
+  {
+    "id": "car_scene",
+    "name": "Car Scene",
+    "file": "Car Scene.exr",
+    "preview": null,
+    "categories": ["misc"],
+    "tags": ["car", "scene", "automotive"],
+    "resolution": "hdr"
+  },
+  {
+    "id": "default",
+    "name": "Default",
+    "file": "Default.exr",
+    "preview": null,
+    "categories": ["misc"],
+    "tags": ["default", "basic"],
+    "resolution": "hdr"
+  },
+  {
+    "id": "default_1",
+    "name": "Default (1)",
+    "file": "Default (1).exr",
+    "preview": null,
+    "categories": ["misc"],
+    "tags": ["default", "basic"],
+    "resolution": "hdr"
+  },
+  {
+    "id": "kitchen_pierre",
+    "name": "Kitchen Pierre",
+    "file": "MR_INT-003_Kitchen_Pierre.hdr",
+    "preview": null,
+    "categories": ["interior"],
+    "tags": ["kitchen", "interior", "domestic"],
+    "resolution": "hdr"
+  },
+  {
+    "id": "Light_Studio_01",
+    "name": "Light Studio 01",
+    "file": "Light_Studio/Light_Studio_01.exr",
+    "preview": "Light_Studio/Light_Studio_01.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_02",
+    "name": "Light Studio 02",
+    "file": "Light_Studio/Light_Studio_02.exr",
+    "preview": "Light_Studio/Light_Studio_02.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_03",
+    "name": "Light Studio 03",
+    "file": "Light_Studio/Light_Studio_03.exr",
+    "preview": "Light_Studio/Light_Studio_03.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_04",
+    "name": "Light Studio 04",
+    "file": "Light_Studio/Light_Studio_04.exr",
+    "preview": "Light_Studio/Light_Studio_04.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_05",
+    "name": "Light Studio 05",
+    "file": "Light_Studio/Light_Studio_05.exr",
+    "preview": "Light_Studio/Light_Studio_05.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_06",
+    "name": "Light Studio 06",
+    "file": "Light_Studio/Light_Studio_06.exr",
+    "preview": "Light_Studio/Light_Studio_06.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_07",
+    "name": "Light Studio 07",
+    "file": "Light_Studio/Light_Studio_07.exr",
+    "preview": "Light_Studio/Light_Studio_07.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_08",
+    "name": "Light Studio 08",
+    "file": "Light_Studio/Light_Studio_08.exr",
+    "preview": "Light_Studio/Light_Studio_08.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_09",
+    "name": "Light Studio 09",
+    "file": "Light_Studio/Light_Studio_09.exr",
+    "preview": "Light_Studio/Light_Studio_09.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_10",
+    "name": "Light Studio 10",
+    "file": "Light_Studio/Light_Studio_10.exr",
+    "preview": "Light_Studio/Light_Studio_10.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_11",
+    "name": "Light Studio 11",
+    "file": "Light_Studio/Light_Studio_11.exr",
+    "preview": "Light_Studio/Light_Studio_11.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_12",
+    "name": "Light Studio 12",
+    "file": "Light_Studio/Light_Studio_12.exr",
+    "preview": "Light_Studio/Light_Studio_12.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_13",
+    "name": "Light Studio 13",
+    "file": "Light_Studio/Light_Studio_13.exr",
+    "preview": "Light_Studio/Light_Studio_13.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_14",
+    "name": "Light Studio 14",
+    "file": "Light_Studio/Light_Studio_14.exr",
+    "preview": "Light_Studio/Light_Studio_14.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_15",
+    "name": "Light Studio 15",
+    "file": "Light_Studio/Light_Studio_15.exr",
+    "preview": "Light_Studio/Light_Studio_15.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_16",
+    "name": "Light Studio 16",
+    "file": "Light_Studio/Light_Studio_16.exr",
+    "preview": "Light_Studio/Light_Studio_16.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_17",
+    "name": "Light Studio 17",
+    "file": "Light_Studio/Light_Studio_17.exr",
+    "preview": "Light_Studio/Light_Studio_17.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_18",
+    "name": "Light Studio 18",
+    "file": "Light_Studio/Light_Studio_18.exr",
+    "preview": "Light_Studio/Light_Studio_18.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_19",
+    "name": "Light Studio 19",
+    "file": "Light_Studio/Light_Studio_19.exr",
+    "preview": "Light_Studio/Light_Studio_19.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_20",
+    "name": "Light Studio 20",
+    "file": "Light_Studio/Light_Studio_20.exr",
+    "preview": "Light_Studio/Light_Studio_20.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_21",
+    "name": "Light Studio 21",
+    "file": "Light_Studio/Light_Studio_21.exr",
+    "preview": "Light_Studio/Light_Studio_21.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_22",
+    "name": "Light Studio 22",
+    "file": "Light_Studio/Light_Studio_22.exr",
+    "preview": "Light_Studio/Light_Studio_22.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_23",
+    "name": "Light Studio 23",
+    "file": "Light_Studio/Light_Studio_23.exr",
+    "preview": "Light_Studio/Light_Studio_23.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_24",
+    "name": "Light Studio 24",
+    "file": "Light_Studio/Light_Studio_24.exr",
+    "preview": "Light_Studio/Light_Studio_24.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_25",
+    "name": "Light Studio 25",
+    "file": "Light_Studio/Light_Studio_25.exr",
+    "preview": "Light_Studio/Light_Studio_25.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  }
+]

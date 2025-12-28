@@ -1,575 +1,111 @@
+import localEnvironmentsData from '../data/local_environments.json';
+
 /**
  * Service class for handling environment/HDRI operations
+ * Data-driven approach with centralized configuration
  */
 export class EnvironmentService {
 
 	/**
-	 * Get available local HDRI categories based on file names and common patterns
+	 * Cache for processed environments with full URLs
+	 * @private
+	 */
+	static _processedEnvironments = null;
+
+	/**
+	 * Get base URL for HDRI assets
+	 * @private
+	 * @returns {string} Base URL for HDRI files
+	 */
+	static _getBaseUrl() {
+
+		return `${import.meta.env.BASE_URL}hdri/`;
+
+	}
+
+	/**
+	 * Process raw environment data into full environment objects with URLs
+	 * @private
+	 * @param {Array} rawEnvironments - Raw environment data from JSON
+	 * @returns {Array} Processed environment objects with full URLs
+	 */
+	static _processEnvironments( rawEnvironments ) {
+
+		const baseUrl = this._getBaseUrl();
+
+		return rawEnvironments.map( env => ( {
+			id: env.id,
+			name: env.name,
+			preview: env.preview ? `${baseUrl}${env.preview}` : null,
+			url: `${baseUrl}${env.file}`,
+			categories: env.categories || [],
+			tags: env.tags || [],
+			resolution: env.resolution,
+			source: 'local'
+		} ) );
+
+	}
+
+	/**
+	 * Get all local environments with full URLs (lazy loaded and cached)
+	 * @private
+	 * @returns {Array} All processed local environments
+	 */
+	static _getAllEnvironments() {
+
+		if ( ! this._processedEnvironments ) {
+
+			this._processedEnvironments = this._processEnvironments( localEnvironmentsData );
+
+		}
+
+		return this._processedEnvironments;
+
+	}
+
+	/**
+	 * Get available local HDRI categories dynamically from actual data
 	 * @returns {Object} Categories with counts
 	 */
 	static getLocalEnvironmentCategories() {
 
-		// Define categories based on common HDRI naming patterns and types
-		const categories = {
-			'studio': 0,
-			'outdoor': 0,
-			'architectural': 0,
-			'nature': 0,
-			'urban': 0,
-			'sky': 0,
-			'interior': 0,
-			'night': 0,
-			'forest': 0,
-			'misc': 0
-		};
-
-		// Categorize based on naming patterns
-		const categoryPatterns = {
-			'studio': /studio|photo.*studio|photostudio|blocky.*photo/i,
-			'outdoor': /outdoor|garden|bridge|terrain|grass|trail/i,
-			'architectural': /building|chapel|market|hall|square|vestibule|sepulchral|rotunda/i,
-			'nature': /forest|garden|terrain|grass|trail|whale|rainforest|thatch/i,
-			'urban': /urban|alley|building|market|square|aerodynamics|autoshop|powerplant/i,
-			'sky': /sky|cloud|puresky/i,
-			'interior': /cellar|kitchen|measuring.*lab|comfy.*cafe|hall.*mammals|vestibule/i,
-			'night': /night|moonlit/i,
-			'forest': /forest|phalzer|rainforest/i
-		};
-
-		// Sample of local HDRIs (you can extend this list)
-		const localHDRIs = [
-			'adams_place_bridge_1k.hdr',
-			'aerodynamics_workshop_1k.hdr',
-			'aristea_wreck_puresky_1k.hdr',
-			'autoshop_01_1k.hdr',
-			'blocky_photo_studio_1k.hdr',
-			'brown_photostudio_01_1k.hdr',
-			'brown_photostudio_02_1k.hdr',
-			'brown_photostudio_06_1k.hdr',
-			'brown_photostudio_07_1k.hdr',
-			'chinese_garden_1k.hdr',
-			'christmas_photo_studio_04_2k.hdr',
-			'christmas_photo_studio_07_1k.hdr',
-			'circus_arena_1k.hdr',
-			'cloud_layers_2k.hdr',
-			'comfy_cafe_2k.hdr',
-			'dancing_hall_1k.hdr',
-			'drachenfels_cellar_1k.hdr',
-			'hall_of_mammals_2k.hdr',
-			'herkulessaulen_2k.hdr',
-			'hilly_terrain_01_1k.hdr',
-			'kloppenheim_05_1k.hdr',
-			'leadenhall_market_1k.hdr',
-			'modern_buildings_2_1k.hdr',
-			'narrow_moonlit_road_1k.hdr',
-			'noon_grass_1k.hdr',
-			'peppermint_powerplant_1k.hdr',
-			'phalzer_forest_01_1k.hdr',
-			'photo_studio_01_2k.hdr',
-			'rainforest_trail_1k.hdr',
-			'sepulchral_chapel_rotunda_1k.hdr',
-			'st_peters_square_night_1k.hdr',
-			'studio_small_05_1k.hdr',
-			'studio_small_09_2k.hdr',
-			'thatch_chapel_1k.hdr',
-			'urban_alley_01_2k.hdr',
-			'vestibule_1k.hdr',
-			'wasteland_clouds_puresky_2k.hdr',
-			'whale_skeleton_2k.hdr',
-			'Car Scene.exr',
-			'Default.exr',
-			'Default (1).exr',
-			'MR_INT-003_Kitchen_Pierre.hdr'
-		];
-
-		// Categorize each HDRI
-		localHDRIs.forEach( fileName => {
-
-			let categorized = false;
-
-			// Check each category pattern
-			for ( const [ category, pattern ] of Object.entries( categoryPatterns ) ) {
-
-				if ( pattern.test( fileName ) ) {
-
-					categories[ category ] ++;
-					categorized = true;
-					break;
-
-				}
-
-			}
-
-			// If no category matches, put in misc
-			if ( ! categorized ) {
-
-				categories.misc ++;
-
-			}
-
-		} );
-
-		// Remove categories with 0 count
-		return Object.fromEntries(
-			Object.entries( categories ).filter( ( [ , count ] ) => count > 0 )
-		);
+		const environments = this._getAllEnvironments();
+		return this.extractCategoriesFromEnvironments( environments );
 
 	}
 
 	/**
 	 * Get local environments filtered by categories
-	 * @param {Array<string>} categories - Categories to filter by
-	 * @returns {Array} Filtered environment objects
+	 * @param {Array<string>|null} categories - Categories to filter by (case-insensitive)
+	 * @returns {Array} Filtered environment objects with full URLs
 	 */
 	static getLocalEnvironmentsByCategories( categories = null ) {
 
-		const baseUrl = `${import.meta.env.BASE_URL}hdri/`;
+		const allEnvironments = this._getAllEnvironments();
 
-		// All local environments with metadata
-		const localEnvironments = [
-			{
-				id: 'adams_place_bridge',
-				name: 'Adams Place Bridge',
-				preview: `${baseUrl}adams_place_bridge.webp`,
-				url: `${baseUrl}adams_place_bridge_1k.hdr`,
-				categories: [ 'outdoor', 'architectural' ],
-				tags: [ 'bridge', 'outdoor', 'architectural', 'day' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'aerodynamics_workshop',
-				name: 'Aerodynamics Workshop',
-				preview: `${baseUrl}aerodynamics_workshop.webp`,
-				url: `${baseUrl}aerodynamics_workshop_1k.hdr`,
-				categories: [ 'urban', 'interior' ],
-				tags: [ 'workshop', 'urban', 'interior', 'industrial' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'aristea_wreck_puresky',
-				name: 'Aristea Wreck Pure Sky',
-				preview: `${baseUrl}aristea_wreck_puresky.webp`,
-				url: `${baseUrl}aristea_wreck_puresky_1k.hdr`,
-				categories: [ 'sky', 'outdoor' ],
-				tags: [ 'sky', 'pure', 'outdoor', 'clean' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'autoshop_01',
-				name: 'Auto Shop 01',
-				preview: `${baseUrl}autoshop_01.webp`,
-				url: `${baseUrl}autoshop_01_1k.hdr`,
-				categories: [ 'urban', 'interior' ],
-				tags: [ 'autoshop', 'urban', 'interior', 'workshop' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'blocky_photo_studio',
-				name: 'Blocky Photo Studio',
-				preview: `${baseUrl}blocky_photo_studio.webp`,
-				url: `${baseUrl}blocky_photo_studio_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'photography', 'lighting' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'brown_photostudio_01',
-				name: 'Brown Photo Studio 01',
-				preview: `${baseUrl}brown_photostudio_01.webp`,
-				url: `${baseUrl}brown_photostudio_01_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'brown', 'photography' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'brown_photostudio_02',
-				name: 'Brown Photo Studio 02',
-				preview: `${baseUrl}brown_photostudio_02.webp`,
-				url: `${baseUrl}brown_photostudio_02_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'brown', 'photography' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'brown_photostudio_06',
-				name: 'Brown Photo Studio 06',
-				preview: `${baseUrl}brown_photostudio_06.webp`,
-				url: `${baseUrl}brown_photostudio_06_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'brown', 'photography' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'brown_photostudio_07',
-				name: 'Brown Photo Studio 07',
-				preview: `${baseUrl}brown_photostudio_07.webp`,
-				url: `${baseUrl}brown_photostudio_07_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'brown', 'photography' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'chinese_garden',
-				name: 'Chinese Garden',
-				preview: `${baseUrl}chinese_garden.webp`,
-				url: `${baseUrl}chinese_garden_1k.hdr`,
-				categories: [ 'nature', 'outdoor' ],
-				tags: [ 'garden', 'nature', 'outdoor', 'chinese' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'christmas_photo_studio_04',
-				name: 'Christmas Photo Studio 04',
-				preview: `${baseUrl}christmas_photo_studio_04.webp`,
-				url: `${baseUrl}christmas_photo_studio_04_2k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'christmas', 'holiday' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'christmas_photo_studio_07',
-				name: 'Christmas Photo Studio 07',
-				preview: `${baseUrl}christmas_photo_studio_07.webp`,
-				url: `${baseUrl}christmas_photo_studio_07_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'christmas', 'holiday' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'circus_arena',
-				name: 'Circus Arena',
-				preview: `${baseUrl}circus_arena.webp`,
-				url: `${baseUrl}circus_arena_1k.hdr`,
-				categories: [ 'architectural', 'interior' ],
-				tags: [ 'circus', 'arena', 'architectural', 'interior' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'cloud_layers',
-				name: 'Cloud Layers',
-				preview: null, // No webp preview for this one
-				url: `${baseUrl}cloud_layers_2k.hdr`,
-				categories: [ 'sky' ],
-				tags: [ 'clouds', 'sky', 'layers', 'weather' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'comfy_cafe',
-				name: 'Comfy Cafe',
-				preview: `${baseUrl}comfy_cafe.webp`,
-				url: `${baseUrl}comfy_cafe_2k.hdr`,
-				categories: [ 'interior' ],
-				tags: [ 'cafe', 'interior', 'comfy', 'cozy' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'dancing_hall',
-				name: 'Dancing Hall',
-				preview: `${baseUrl}dancing_hall.webp`,
-				url: `${baseUrl}dancing_hall_1k.hdr`,
-				categories: [ 'architectural', 'interior' ],
-				tags: [ 'dancing', 'hall', 'architectural', 'interior' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'drachenfels_cellar',
-				name: 'Drachenfels Cellar',
-				preview: `${baseUrl}drachenfels_cellar.webp`,
-				url: `${baseUrl}drachenfels_cellar_1k.hdr`,
-				categories: [ 'interior' ],
-				tags: [ 'cellar', 'interior', 'underground', 'medieval' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'hall_of_mammals',
-				name: 'Hall of Mammals',
-				preview: `${baseUrl}hall_of_mammals.webp`,
-				url: `${baseUrl}hall_of_mammals_2k.hdr`,
-				categories: [ 'interior', 'architectural' ],
-				tags: [ 'hall', 'mammals', 'museum', 'interior' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'herkulessaulen',
-				name: 'Herkulessaulen',
-				preview: `${baseUrl}herkulessaulen.webp`,
-				url: `${baseUrl}herkulessaulen_2k.hdr`,
-				categories: [ 'architectural', 'outdoor' ],
-				tags: [ 'architectural', 'columns', 'outdoor', 'classical' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'hilly_terrain_01',
-				name: 'Hilly Terrain 01',
-				preview: `${baseUrl}hilly_terrain_01.webp`,
-				url: `${baseUrl}hilly_terrain_01_1k.hdr`,
-				categories: [ 'nature', 'outdoor' ],
-				tags: [ 'terrain', 'hills', 'nature', 'outdoor' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'kloppenheim_05',
-				name: 'Kloppenheim 05',
-				preview: `${baseUrl}kloppenheim_05.webp`,
-				url: `${baseUrl}kloppenheim_05_1k.hdr`,
-				categories: [ 'architectural', 'outdoor' ],
-				tags: [ 'architectural', 'outdoor', 'european', 'building' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'leadenhall_market',
-				name: 'Leadenhall Market',
-				preview: `${baseUrl}leadenhall_market.webp`,
-				url: `${baseUrl}leadenhall_market_1k.hdr`,
-				categories: [ 'architectural', 'urban' ],
-				tags: [ 'market', 'architectural', 'urban', 'historic' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'modern_buildings_2',
-				name: 'Modern Buildings 2',
-				preview: `${baseUrl}modern_buildings_2.webp`,
-				url: `${baseUrl}modern_buildings_2_1k.hdr`,
-				categories: [ 'urban', 'architectural' ],
-				tags: [ 'modern', 'buildings', 'urban', 'architectural' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'narrow_moonlit_road',
-				name: 'Narrow Moonlit Road',
-				preview: `${baseUrl}narrow_moonlit_road.webp`,
-				url: `${baseUrl}narrow_moonlit_road_1k.hdr`,
-				categories: [ 'night', 'outdoor' ],
-				tags: [ 'night', 'moonlit', 'road', 'outdoor' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'noon_grass',
-				name: 'Noon Grass',
-				preview: `${baseUrl}noon_grass.webp`,
-				url: `${baseUrl}noon_grass_1k.hdr`,
-				categories: [ 'nature', 'outdoor' ],
-				tags: [ 'grass', 'nature', 'outdoor', 'noon' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'peppermint_powerplant',
-				name: 'Peppermint Powerplant',
-				preview: `${baseUrl}peppermint_powerplant.webp`,
-				url: `${baseUrl}peppermint_powerplant_1k.hdr`,
-				categories: [ 'urban' ],
-				tags: [ 'powerplant', 'urban', 'industrial', 'energy' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'phalzer_forest_01',
-				name: 'Phalzer Forest 01',
-				preview: `${baseUrl}phalzer_forest_01.webp`,
-				url: `${baseUrl}phalzer_forest_01_1k.hdr`,
-				categories: [ 'forest', 'nature' ],
-				tags: [ 'forest', 'nature', 'trees', 'outdoor' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'photo_studio_01',
-				name: 'Photo Studio 01',
-				preview: `${baseUrl}photo_studio_01.webp`,
-				url: `${baseUrl}photo_studio_01_2k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'photo', 'photography', 'lighting' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'rainforest_trail',
-				name: 'Rainforest Trail',
-				preview: `${baseUrl}rainforest_trail.webp`,
-				url: `${baseUrl}rainforest_trail_1k.hdr`,
-				categories: [ 'forest', 'nature' ],
-				tags: [ 'rainforest', 'trail', 'nature', 'trees' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'sepulchral_chapel_rotunda',
-				name: 'Sepulchral Chapel Rotunda',
-				preview: `${baseUrl}sepulchral_chapel_rotunda.webp`,
-				url: `${baseUrl}sepulchral_chapel_rotunda_1k.hdr`,
-				categories: [ 'architectural', 'interior' ],
-				tags: [ 'chapel', 'rotunda', 'architectural', 'interior' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'st_peters_square_night',
-				name: "St Peter's Square Night",
-				preview: `${baseUrl}st_peters_square_night.webp`,
-				url: `${baseUrl}st_peters_square_night_1k.hdr`,
-				categories: [ 'night', 'architectural' ],
-				tags: [ 'night', 'square', 'architectural', 'historic' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'studio_small_05',
-				name: 'Studio Small 05',
-				preview: `${baseUrl}studio_small_05.webp`,
-				url: `${baseUrl}studio_small_05_1k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'small', 'photography', 'lighting' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'studio_small_09',
-				name: 'Studio Small 09',
-				preview: `${baseUrl}studio_small_09.webp`,
-				url: `${baseUrl}studio_small_09_2k.hdr`,
-				categories: [ 'studio' ],
-				tags: [ 'studio', 'small', 'photography', 'lighting' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'thatch_chapel',
-				name: 'Thatch Chapel',
-				preview: `${baseUrl}thatch_chapel.webp`,
-				url: `${baseUrl}thatch_chapel_1k.hdr`,
-				categories: [ 'architectural', 'nature' ],
-				tags: [ 'chapel', 'thatch', 'architectural', 'rural' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'urban_alley_01',
-				name: 'Urban Alley 01',
-				preview: `${baseUrl}urban_alley_01.webp`,
-				url: `${baseUrl}urban_alley_01_2k.hdr`,
-				categories: [ 'urban' ],
-				tags: [ 'urban', 'alley', 'city', 'street' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'vestibule',
-				name: 'Vestibule',
-				preview: `${baseUrl}vestibule.webp`,
-				url: `${baseUrl}vestibule_1k.hdr`,
-				categories: [ 'interior', 'architectural' ],
-				tags: [ 'vestibule', 'interior', 'architectural', 'entrance' ],
-				resolution: '1k',
-				source: 'local'
-			},
-			{
-				id: 'wasteland_clouds_puresky',
-				name: 'Wasteland Clouds Pure Sky',
-				preview: `${baseUrl}wasteland_clouds_puresky.webp`,
-				url: `${baseUrl}wasteland_clouds_puresky_2k.hdr`,
-				categories: [ 'sky' ],
-				tags: [ 'sky', 'clouds', 'wasteland', 'pure' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'whale_skeleton',
-				name: 'Whale Skeleton',
-				preview: `${baseUrl}whale_skeleton.webp`,
-				url: `${baseUrl}whale_skeleton_2k.hdr`,
-				categories: [ 'nature', 'interior' ],
-				tags: [ 'whale', 'skeleton', 'nature', 'museum' ],
-				resolution: '2k',
-				source: 'local'
-			},
-			{
-				id: 'car_scene',
-				name: 'Car Scene',
-				preview: null,
-				url: `${baseUrl}Car Scene.exr`,
-				categories: [ 'misc' ],
-				tags: [ 'car', 'scene', 'automotive' ],
-				resolution: 'hdr',
-				source: 'local'
-			},
-			{
-				id: 'default',
-				name: 'Default',
-				preview: null,
-				url: `${baseUrl}Default.exr`,
-				categories: [ 'misc' ],
-				tags: [ 'default', 'basic' ],
-				resolution: 'hdr',
-				source: 'local'
-			},
-			{
-				id: 'default_1',
-				name: 'Default (1)',
-				preview: null,
-				url: `${baseUrl}Default (1).exr`,
-				categories: [ 'misc' ],
-				tags: [ 'default', 'basic' ],
-				resolution: 'hdr',
-				source: 'local'
-			},
-			{
-				id: 'kitchen_pierre',
-				name: 'Kitchen Pierre',
-				preview: null,
-				url: `${baseUrl}MR_INT-003_Kitchen_Pierre.hdr`,
-				categories: [ 'interior' ],
-				tags: [ 'kitchen', 'interior', 'domestic' ],
-				resolution: 'hdr',
-				source: 'local'
-			}
-		];
+		// Return all if no filter specified
+		if ( ! categories || categories.length === 0 ) {
 
-		// Filter by categories if specified
-		if ( categories && categories.length > 0 ) {
-
-			return localEnvironments.filter( env =>
-				env.categories.some( cat =>
-					categories.some( filterCat =>
-						cat.toLowerCase() === filterCat.toLowerCase()
-					)
-				)
-			);
+			return allEnvironments;
 
 		}
 
-		return localEnvironments;
+		// Normalize filter categories to lowercase for case-insensitive matching
+		const normalizedFilters = categories.map( cat => cat.toLowerCase() );
+
+		// Filter environments that have at least one matching category
+		return allEnvironments.filter( env =>
+			env.categories.some( cat =>
+				normalizedFilters.includes( cat.toLowerCase() )
+			)
+		);
 
 	}
 
 	/**
-	 * Extract categories from environments array
+	 * Extract categories from environments array with counts
 	 * @param {Array} environments - Array of environment objects
-	 * @returns {Object} Categories with counts
+	 * @returns {Object} Categories with counts (only non-zero counts)
 	 */
 	static extractCategoriesFromEnvironments( environments ) {
 
@@ -593,32 +129,125 @@ export class EnvironmentService {
 
 		} );
 
-		return categoryCount;
+		// Remove categories with 0 count and return
+		return Object.fromEntries(
+			Object.entries( categoryCount ).filter( ( [ , count ] ) => count > 0 )
+		);
 
 	}
 
 	/**
-	 * Load an environment/HDRI
-	 * @param {Object} envData - Environment data object
-	 * @returns {Promise} Promise that resolves when environment is loaded
+	 * Search environments by name, tags, or categories
+	 * @param {string} query - Search query
+	 * @returns {Array} Matching environments
+	 */
+	static searchEnvironments( query ) {
+
+		if ( ! query || typeof query !== 'string' ) {
+
+			return this._getAllEnvironments();
+
+		}
+
+		const normalizedQuery = query.toLowerCase().trim();
+		const allEnvironments = this._getAllEnvironments();
+
+		return allEnvironments.filter( env => {
+
+			// Search in name
+			if ( env.name.toLowerCase().includes( normalizedQuery ) ) {
+
+				return true;
+
+			}
+
+			// Search in categories
+			if ( env.categories.some( cat => cat.toLowerCase().includes( normalizedQuery ) ) ) {
+
+				return true;
+
+			}
+
+			// Search in tags
+			if ( env.tags.some( tag => tag.toLowerCase().includes( normalizedQuery ) ) ) {
+
+				return true;
+
+			}
+
+			return false;
+
+		} );
+
+	}
+
+	/**
+	 * Get environment by ID
+	 * @param {string} id - Environment ID
+	 * @returns {Object|null} Environment object or null if not found
+	 */
+	static getEnvironmentById( id ) {
+
+		if ( ! id ) {
+
+			return null;
+
+		}
+
+		const allEnvironments = this._getAllEnvironments();
+		return allEnvironments.find( env => env.id === id ) || null;
+
+	}
+
+	/**
+	 * Validate environment data object
+	 * @private
+	 * @param {Object} envData - Environment data to validate
+	 * @throws {Error} If validation fails
+	 */
+	static _validateEnvironmentData( envData ) {
+
+		if ( ! envData ) {
+
+			throw new Error( 'Environment data is required' );
+
+		}
+
+		if ( ! envData.url || typeof envData.url !== 'string' ) {
+
+			throw new Error( 'Invalid environment data: URL is required and must be a string' );
+
+		}
+
+		if ( ! envData.name || typeof envData.name !== 'string' ) {
+
+			throw new Error( 'Invalid environment data: name is required and must be a string' );
+
+		}
+
+	}
+
+	/**
+	 * Load an environment/HDRI into the path tracer
+	 * @param {Object} envData - Environment data object with url and name
+	 * @returns {Promise<Object>} Promise that resolves with success info
+	 * @throws {Error} If app not initialized or loading fails
 	 */
 	static async loadEnvironment( envData ) {
 
+		// Validate app is initialized
 		if ( ! window.pathTracerApp ) {
 
 			throw new Error( 'PathTracer app not initialized' );
 
 		}
 
-		if ( ! envData || ! envData.url ) {
-
-			throw new Error( 'Invalid environment data provided' );
-
-		}
+		// Validate environment data
+		this._validateEnvironmentData( envData );
 
 		try {
 
-			// Handle custom environment uploads
+			// Handle custom environment uploads (preserve file info)
 			if ( envData.id === 'custom-upload' && envData.name ) {
 
 				window.uploadedEnvironmentFileInfo = {
@@ -628,7 +257,9 @@ export class EnvironmentService {
 
 			}
 
+			// Load environment into path tracer
 			await window.pathTracerApp.loadEnvironment( envData.url );
+
 			return {
 				success: true,
 				environmentName: envData.name,
@@ -637,9 +268,57 @@ export class EnvironmentService {
 
 		} catch ( error ) {
 
-			throw new Error( `Failed to load ${envData.name}: ${error.message || "Unknown error"}` );
+			throw new Error( `Failed to load ${envData.name}: ${error.message || 'Unknown error'}` );
 
 		}
+
+	}
+
+	/**
+	 * Get statistics about available environments
+	 * @returns {Object} Statistics object
+	 */
+	static getStatistics() {
+
+		const allEnvironments = this._getAllEnvironments();
+		const categories = this.getLocalEnvironmentCategories();
+
+		return {
+			totalEnvironments: allEnvironments.length,
+			totalCategories: Object.keys( categories ).length,
+			categories: categories,
+			resolutions: this._getResolutionBreakdown( allEnvironments )
+		};
+
+	}
+
+	/**
+	 * Get breakdown of environments by resolution
+	 * @private
+	 * @param {Array} environments - Array of environments
+	 * @returns {Object} Resolution counts
+	 */
+	static _getResolutionBreakdown( environments ) {
+
+		const resolutions = {};
+
+		environments.forEach( env => {
+
+			const res = env.resolution || 'unknown';
+			resolutions[ res ] = ( resolutions[ res ] || 0 ) + 1;
+
+		} );
+
+		return resolutions;
+
+	}
+
+	/**
+	 * Clear cached environment data (useful for testing or dynamic updates)
+	 */
+	static clearCache() {
+
+		this._processedEnvironments = null;
 
 	}
 
