@@ -1,53 +1,6 @@
 import debugModelsData from './DebugModels.json';
 import { WebGLRenderer } from 'three';
 
-//some samples at https://casual-effects.com/data/
-
-// const MODEL_URL = './models/planes.glb';
-//hdri image orignal source: 'https://cdn.polyhaven.com/asset_img/primary/aerodynamics_workshop.png?height=150'
-export const HDR_FILES = [
-	{ name: "Adams Place Bridge", 			url: `${import.meta.env.BASE_URL}hdri/adams_place_bridge_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/adams_place_bridge.webp` },
-	{ name: "Aerodynamics Workshop", 		url: `${import.meta.env.BASE_URL}hdri/aerodynamics_workshop_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/aerodynamics_workshop.webp` },
-	{ name: "Aristea Wreck Pure Sky", 		url: `${import.meta.env.BASE_URL}hdri/aristea_wreck_puresky_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/aristea_wreck_puresky.webp` },
-	{ name: "Auto Shop", 					url: `${import.meta.env.BASE_URL}hdri/autoshop_01_1k.hdr`, 				preview: `${import.meta.env.BASE_URL}hdri/autoshop_01.webp` },
-	{ name: "Blocky Photo Studio",			url: `${import.meta.env.BASE_URL}hdri/blocky_photo_studio_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/blocky_photo_studio.webp` },
-	{ name: "Brown Photo Studio 01", 		url: `${import.meta.env.BASE_URL}hdri/brown_photostudio_01_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/brown_photostudio_01.webp` },
-	{ name: "Brown Photo Studio 02", 		url: `${import.meta.env.BASE_URL}hdri/brown_photostudio_02_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/brown_photostudio_02.webp` },
-	{ name: "Brown Photo Studio 06", 		url: `${import.meta.env.BASE_URL}hdri/brown_photostudio_06_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/brown_photostudio_06.webp` },
-	{ name: "Brown Photo Studio 07", 		url: `${import.meta.env.BASE_URL}hdri/brown_photostudio_07_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/brown_photostudio_07.webp` },
-	{ name: "Chinese Garden", 				url: `${import.meta.env.BASE_URL}hdri/chinese_garden_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/chinese_garden.webp` },
-	{ name: "Christmas Photo Studio 04", 	url: `${import.meta.env.BASE_URL}hdri/christmas_photo_studio_04_2k.hdr`, preview: `${import.meta.env.BASE_URL}hdri/christmas_photo_studio_04.webp` },
-	{ name: "Christmas Photo Studio 05", 	url: `${import.meta.env.BASE_URL}hdri/christmas_photo_studio_05_2k.hdr`, preview: `${import.meta.env.BASE_URL}hdri/christmas_photo_studio_05.webp` },
-	{ name: "Christmas Photo Studio 07", 	url: `${import.meta.env.BASE_URL}hdri/christmas_photo_studio_07_1k.hdr`, preview: `${import.meta.env.BASE_URL}hdri/christmas_photo_studio_07.webp` },
-	{ name: "Circus Arena", 				url: `${import.meta.env.BASE_URL}hdri/circus_arena_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/circus_arena.webp` },
-	{ name: "Comfy Cafe", 					url: `${import.meta.env.BASE_URL}hdri/comfy_cafe_2k.hdr`, 				preview: `${import.meta.env.BASE_URL}hdri/comfy_cafe.webp` },
-	{ name: "Dancing Hall", 				url: `${import.meta.env.BASE_URL}hdri/dancing_hall_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/dancing_hall.webp` },
-	{ name: "Drachenfels Cellar", 			url: `${import.meta.env.BASE_URL}hdri/drachenfels_cellar_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/drachenfels_cellar.webp` },
-	{ name: "Hall of Mammals", 				url: `${import.meta.env.BASE_URL}hdri/hall_of_mammals_2k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/hall_of_mammals.webp` },
-	{ name: "Herkulessaulen", 				url: `${import.meta.env.BASE_URL}hdri/herkulessaulen_2k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/herkulessaulen.webp` },
-	{ name: "Hilly Terrain", 				url: `${import.meta.env.BASE_URL}hdri/hilly_terrain_01_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/hilly_terrain_01.webp` },
-	{ name: "Kloppenheim", 					url: `${import.meta.env.BASE_URL}hdri/kloppenheim_05_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/kloppenheim_05.webp` },
-	{ name: "Leadenhall Market", 			url: `${import.meta.env.BASE_URL}hdri/leadenhall_market_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/leadenhall_market.webp` },
-	{ name: "Modern Buildings", 			url: `${import.meta.env.BASE_URL}hdri/modern_buildings_2_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/modern_buildings_2.webp` },
-	{ name: "Narrow Moonlit Road", 			url: `${import.meta.env.BASE_URL}hdri/narrow_moonlit_road_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/narrow_moonlit_road.webp` },
-	{ name: "Noon Grass", 					url: `${import.meta.env.BASE_URL}hdri/noon_grass_1k.hdr`, 				preview: `${import.meta.env.BASE_URL}hdri/noon_grass.webp` },
-	{ name: "Peppermint Powerplant", 		url: `${import.meta.env.BASE_URL}hdri/peppermint_powerplant_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/peppermint_powerplant.webp` },
-	{ name: "Phalzer Forest", 				url: `${import.meta.env.BASE_URL}hdri/phalzer_forest_01_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/phalzer_forest_01.webp` },
-	{ name: "Photo Studio", 				url: `${import.meta.env.BASE_URL}hdri/photo_studio_01_2k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/photo_studio_01.webp` },
-	{ name: "Photo Studio Loft Hall", 		url: `${import.meta.env.BASE_URL}hdri/photo_studio_loft_hall_2k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/photo_studio_loft_hall.webp` },
-	{ name: "Rainforest Trail", 			url: `${import.meta.env.BASE_URL}hdri/rainforest_trail_1k.hdr`, 		preview: `${import.meta.env.BASE_URL}hdri/rainforest_trail.webp` },
-	{ name: "Sepulchral Chapel Rotunda", 	url: `${import.meta.env.BASE_URL}hdri/sepulchral_chapel_rotunda_1k.hdr`, preview: `${import.meta.env.BASE_URL}hdri/sepulchral_chapel_rotunda.webp` },
-	{ name: "St. Peter's Square Night", 	url: `${import.meta.env.BASE_URL}hdri/st_peters_square_night_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/st_peters_square_night.webp` },
-	{ name: "Studio Small 05", 				url: `${import.meta.env.BASE_URL}hdri/studio_small_05_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/studio_small_05.webp` },
-	{ name: "Studio Small 09", 				url: `${import.meta.env.BASE_URL}hdri/studio_small_09_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/studio_small_09.webp` },
-	{ name: "Thatch Chapel", 				url: `${import.meta.env.BASE_URL}hdri/thatch_chapel_1k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/thatch_chapel.webp` },
-	{ name: "Urban Alley",			 		url: `${import.meta.env.BASE_URL}hdri/urban_alley_01_2k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/urban_alley_01.webp` },
-	{ name: "Vestibule", 					url: `${import.meta.env.BASE_URL}hdri/vestibule_1k.hdr`, 				preview: `${import.meta.env.BASE_URL}hdri/vestibule.webp` },
-	{ name: "Vintage Measuring Lab", 		url: `${import.meta.env.BASE_URL}hdri/vintage_measuring_lab_1k.hdr`, 	preview: `${import.meta.env.BASE_URL}hdri/vintage_measuring_lab.webp` },
-	{ name: "Wasteland Clouds Pure Sky", 	url: `${import.meta.env.BASE_URL}hdri/wasteland_clouds_puresky_2k.hdr`, preview: `${import.meta.env.BASE_URL}hdri/wasteland_clouds_puresky.webp` },
-	{ name: "Whale Skeleton", 				url: `${import.meta.env.BASE_URL}hdri/whale_skeleton_2k.hdr`, 			preview: `${import.meta.env.BASE_URL}hdri/whale_skeleton.webp` },
-];
-
 // export const MODEL_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/';
 export const MODEL_FILES = [
 	{ name: "Cornell Box 1", 		url: `${import.meta.env.BASE_URL}models/CornellBox1.glb`, preview: `${import.meta.env.BASE_URL}models/CornellBox1.png` },
@@ -157,7 +110,7 @@ export const DEBUG_MODELS = debugModelsData
 export const DEFAULT_STATE = {
 	optimizeMeshes: true,
 	model: 9,
-	environment: 2,
+	environment: 'aristea_wreck_puresky', // Environment ID from local_environments.json
 
 	originalPixelRatio: window.devicePixelRatio / 2,
 	toneMapping: 4,
