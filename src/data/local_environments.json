@@ -601,5 +601,32 @@
     "categories": ["lightstudio"],
     "tags": ["lightstudio", "studio", "lights"],
     "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_26",
+    "name": "Light Studio 26",
+    "file": "Light-Studio/optimized/Light_Studio_26_1k.exr",
+    "preview": "Light-Studio/webp/Light_Studio_26.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_27",
+    "name": "Light Studio 27",
+    "file": "Light-Studio/optimized/Light_Studio_27_1k.exr",
+    "preview": "Light-Studio/webp/Light_Studio_27.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
+  },
+  {
+    "id": "Light_Studio_28",
+    "name": "Light Studio 28",
+    "file": "Light-Studio/optimized/Light_Studio_28_1k.exr",
+    "preview": "Light-Studio/webp/Light_Studio_28.webp",
+    "categories": ["lightstudio"],
+    "tags": ["lightstudio", "studio", "lights"],
+    "resolution": "exr"
   }
 ]
