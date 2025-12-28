@@ -48,10 +48,11 @@ import {
 	TileHighlightStage
 } from './Stages';
 import { updateStats } from './Processor/utils';
-import { HDR_FILES, DEFAULT_STATE } from '../Constants';
+import { DEFAULT_STATE } from '../Constants';
 // import radialTexture from '../../public/radial-gradient.png';
 import { useStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader';
+import { EnvironmentService } from '@/services/EnvironmentService';
 
 class PathTracerApp extends EventDispatcher {
 
@@ -180,8 +181,13 @@ class PathTracerApp extends EventDispatcher {
 		// Check for model and environment URLs in query parameters
 		const modelUrl = this.getQueryParameter( 'model' );
 		const envUrlParam = this.getQueryParameter( 'envUrl' );
-		const envUrl = envUrlParam || `${HDR_FILES[ DEFAULT_STATE.environment ].url}`;
-		await this.assetLoader.loadEnvironment( envUrl );
+		const defaultEnv = EnvironmentService.getEnvironmentById( DEFAULT_STATE.environment );
+		const envUrl = envUrlParam || defaultEnv?.url;
+		if ( envUrl ) {
+
+			await this.assetLoader.loadEnvironment( envUrl );
+
+		}
 
 		if ( modelUrl ) {
 
@@ -416,11 +422,11 @@ class PathTracerApp extends EventDispatcher {
 		this.floorPlane = new Mesh(
 			new CircleGeometry(),
 			new MeshPhysicalMaterial( {
-				transparent: true,
-				color: 0xFFFFFF,
-				roughness: 0.35,
-				metalness: 1,
-				opacity: 1,
+				transparent: false,
+				color: 0x303030,
+				roughness: 1,
+				metalness: 0,
+				opacity: 0,
 				transmission: 0,
 				// map: texture,
 				visible: false
