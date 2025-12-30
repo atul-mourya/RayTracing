@@ -60,7 +60,7 @@ const PathTracerTab = () => {
 		enableOIDN,
 		exposure,
 		enableEnvironment,
-		showBackground,
+		transparentBackground,
 		backgroundIntensity,
 		environmentIntensity,
 		environmentRotation,
@@ -124,7 +124,7 @@ const PathTracerTab = () => {
 		handleBloomRadiusChange,
 		handleExposureChange,
 		handleEnableEnvironmentChange,
-		handleShowBackgroundChange,
+		handleTransparentBackgroundChange,
 		handleBackgroundIntensityChange,
 		handleEnvironmentIntensityChange,
 		handleEnvironmentRotationChange,
@@ -341,7 +341,7 @@ const PathTracerTab = () => {
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
 				</div>
 				<div className="flex items-center justify-between">
-					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
+					<SliderToggle label={"Background Intensity"} enabled={ ! transparentBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={( val ) => handleTransparentBackgroundChange( ! val )} />
 				</div>
 
 				{/* HDRI Mode Controls */}

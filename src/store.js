@@ -293,6 +293,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setExposure: val => set( { exposure: val } ),
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
 	setShowBackground: val => set( { showBackground: val } ),
+	setTransparentBackground: val => set( { transparentBackground: val } ),
 	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
 	setEnvironmentIntensity: val => set( { environmentIntensity: val } ),
 	setEnvironmentRotation: val => set( { environmentRotation: val } ),
@@ -870,6 +871,17 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			const app = window.pathTracerApp;
 			app.scene.background = val ? app.scene.environment : null;
 			app.pathTracingPass.material.uniforms.showBackground.value = val;
+			app.reset();
+
+		}
+	),
+
+	handleTransparentBackgroundChange: handleChange(
+		val => set( { transparentBackground: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			app.pathTracingPass.material.uniforms.transparentBackground.value = val;
 			app.reset();
 
 		}

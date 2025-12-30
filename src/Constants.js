@@ -117,6 +117,7 @@ export const DEFAULT_STATE = {
 	exposure: 1,
 	enableEnvironment: true,
 	showBackground: true,
+	transparentBackground: false,
 	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
