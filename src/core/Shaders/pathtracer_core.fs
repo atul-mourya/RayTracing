@@ -22,7 +22,6 @@ uniform bool enableEmissiveTriangleSampling;
 uniform int maxBounceCount;
 uniform float backgroundIntensity;
 uniform bool showBackground;
-uniform bool transparentBackground;
 uniform int transmissiveBounces;  // Controls the number of allowed transmission bounces
 uniform float fireflyThreshold;
 
@@ -171,11 +170,7 @@ vec4 sampleBackgroundLighting( RenderState state, vec3 direction ) {
 	// Use consistent background intensity scaling
 	if( state.isPrimaryRay ) {
 		// Primary camera rays: use user-controlled background intensity
-		vec3 bgColor = envColor.rgb * backgroundIntensity;
-		// When transparentBackground is enabled, use premultiplied alpha (RGB=0, A=0)
-		// This ensures bloom and other post-processing don't pick up background
-		float bgAlpha = transparentBackground ? 0.0 : 1.0;
-		return vec4( bgColor * bgAlpha, bgAlpha );
+		return envColor * backgroundIntensity;
 	} else {
 		// Secondary rays: use environment intensity for realistic lighting
 		return envColor * 2.0;

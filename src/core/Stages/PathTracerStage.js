@@ -150,7 +150,6 @@ export class PathTracerStage extends PipelineStage {
 				environment: { value: this.scene.environment },
 				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity },
 				showBackground: { value: DEFAULT_STATE.showBackground },
-				transparentBackground: { value: DEFAULT_STATE.transparentBackground },
 				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
 				environmentMatrix: { value: new Matrix4() },
 				useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },

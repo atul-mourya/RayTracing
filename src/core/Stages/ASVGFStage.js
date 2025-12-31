@@ -679,8 +679,7 @@ export class ASVGFStage extends PipelineStage {
 		// Debug visualizations are shown in RenderTargetHelper overlay instead
 		this.finalMaterial = new ShaderMaterial( {
 			uniforms: {
-				tColor: { value: null },
-				tOriginalColor: { value: null } // Original path tracer output for alpha
+				tColor: { value: null }
 			},
 			vertexShader: /* glsl */`
 				varying vec2 vUv;
@@ -691,15 +690,12 @@ export class ASVGFStage extends PipelineStage {
 			`,
 			fragmentShader: /* glsl */`
 				uniform sampler2D tColor;
-				uniform sampler2D tOriginalColor;
 				varying vec2 vUv;
 
 				void main() {
 					// Always show final denoised output (beauty pass)
 					vec3 color = texture2D(tColor, vUv).rgb;
-					// Preserve alpha from original path tracer output for transparent background support
-					float alpha = texture2D(tOriginalColor, vUv).a;
-					gl_FragColor = vec4(color, alpha);
+					gl_FragColor = vec4(color, 1.0);
 				}
 			`
 		} );
@@ -1211,7 +1207,6 @@ export class ASVGFStage extends PipelineStage {
 
 		// Step 5: Final composition (beauty pass only - debug views shown in heatmap overlay)
 		this.finalMaterial.uniforms.tColor.value = finalFilteredTexture;
-		this.finalMaterial.uniforms.tOriginalColor.value = colorTexture; // For alpha preservation
 
 		// Render to outputTarget first (for context publication)
 		renderer.setRenderTarget( this.outputTarget );
@@ -1282,7 +1277,8 @@ export class ASVGFStage extends PipelineStage {
 
 		// Final output
 		this.finalMaterial.uniforms.tColor.value = inputTexture;
-		this.finalMaterial.uniforms.tOriginalColor.value = colorTexture; // For alpha preservation
+		this.finalMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
+		this.finalMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
 
 		// Render to outputTarget first (for context publication)
 		renderer.setRenderTarget( this.outputTarget );

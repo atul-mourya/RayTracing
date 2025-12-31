@@ -353,9 +353,6 @@ void main( ) {
 
 	pixel.color /= float( pixel.samples );
 
-	// Preserve transparency alpha before edge detection overwrites it
-	float transparencyAlpha = pixel.color.a;
-
 	// Apply dithering AFTER averaging to prevent banding in 8-bit output
 	pixel.color.rgb = dithering( pixel.color.rgb, baseSeed );
 
@@ -396,7 +393,7 @@ void main( ) {
 	}
 	#endif
 
-	// Clean MRT output - use transparency alpha for proper transparent background support
-	gColor = vec4( finalColor, transparencyAlpha );
+	// Clean MRT output
+	gColor = vec4( finalColor, 1.0 );
 	gNormalDepth = vec4( worldNormal * 0.5 + 0.5, linearDepth );
 }

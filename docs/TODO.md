@@ -1,10 +1,7 @@
 # Rayzee Path Tracer - TODO List
 *Immediate actionable items and development tasks*
 
-## 🚨 Critical Bug Fixess
-- [ ] Sun not getting parsed from glTF files
-- [ ] Object rendering looks dimmer than the environment lighting in the background. Remove the hardcoded multiplier of 2.0 for env lighting on secondary rays to reprodue the issue.
-- [ ] iridescence not producing expected colors
+## 🚨 Critical Bug Fixes
 
 ### Known Issues
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -36,6 +33,7 @@
 - [ ] Implement Motion Vector Pass
 - [ ] Implement Variance-based Firefly Suppression
 - [ ] OIDN HDR denoising Support
+- [ ] Transparent background support
 - [ ] Subsurface scattering implementation
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
@@ -46,7 +44,7 @@
 - [ ] Implement environment cube map support for hdris
 - [ ] Implement dds texture support
 - [ ] Implement support for IES light
-- [ ] Introduce tessellation free displacement mapping or parallax occlusion mapping. https://github.com/shocker-0x15/GfxExp/tree/master/tfdm
+- [ ] Introduce tessellation free displacement mapping or parallax occlusion mapping
 - [ ] Implement SDF-based model rendering
 - [ ] Implement Shadow Catcher
 - [ ] Implement ground projection environment mapping
@@ -59,7 +57,6 @@
 - [ ] Experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ] Experiment with ray frustum culling
 - [ ] Refactor path tracing to use define instead of if-else
-- [ ] GPU-CPU for envriment in procedural sky, gradient sky, solid color sky modes are expensive.
 
 ### UX Enhancements
 - [ ] Add dynamic camera addition and removal
