@@ -868,8 +868,11 @@ export class ASVGFStage extends PipelineStage {
 						if (motion.x > 100.0) {
 							color = vec3(1.0, 0.0, 1.0); // Magenta for invalid
 						} else {
-							value = length(motion.xy) * 50.0;
-							color = heatmap(value);
+							color = vec3(
+								abs(motion.x),
+								abs(motion.y),
+								clamp(motion.z, 0.0, 1.0)  // depth in blue channel
+							);
 						}
 					} else if (heatmapMode == 4) {
 						// Normal visualization
@@ -933,7 +936,7 @@ export class ASVGFStage extends PipelineStage {
 
 	}
 
-	updateHeatmapVisualization( renderer, normalDepthTexture ) {
+	updateHeatmapVisualization( renderer, normalDepthTexture, motionTexture = null ) {
 
 		if ( ! this.showHeatmap || ! this.heatmapMaterial ) return;
 
@@ -942,7 +945,8 @@ export class ASVGFStage extends PipelineStage {
 		this.heatmapMaterial.uniforms.tVariance.value = this.varianceTarget?.texture || null;
 		this.heatmapMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget?.texture || null;
 		this.heatmapMaterial.uniforms.tNormalDepth.value = normalDepthTexture || null;
-		this.heatmapMaterial.uniforms.tMotion.value = this.motionTarget?.texture || null;
+		// Use provided motion texture (from MotionVectorStage or internal)
+		this.heatmapMaterial.uniforms.tMotion.value = motionTexture || this.currentMotionTexture || this.motionTarget?.texture || null;
 		this.heatmapMaterial.uniforms.tTemporalGradient.value = this.temporalGradientTarget?.texture || null;
 
 		// Render heatmap
@@ -1173,6 +1177,9 @@ export class ASVGFStage extends PipelineStage {
 
 		}
 
+		// Get motion vectors from MotionVectorStage
+		const externalMotionTexture = context.getTexture( 'motionVector:screenSpace' );
+
 		// Check interaction mode for adaptive processing
 		const interactionMode = context.getState( 'interactionMode' );
 
@@ -1181,10 +1188,18 @@ export class ASVGFStage extends PipelineStage {
 			// Fast path: copy raw path tracer color for immediate feedback
 			this.renderInteractionFastCopy( renderer, colorTexture );
 
+			// Still update heatmap during interaction so motion vectors can be visualized
+			if ( externalMotionTexture ) {
+
+				this.currentMotionTexture = externalMotionTexture;
+				this.updateHeatmapVisualization( renderer, normalDepthTexture, externalMotionTexture );
+
+			}
+
 		} else {
 
 			// Normal operation with full temporal processing
-			this.renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, this.camera );
+			this.renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, externalMotionTexture );
 
 		}
 
@@ -1208,36 +1223,20 @@ export class ASVGFStage extends PipelineStage {
 
 	}
 
-	renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, camera ) {
+	renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, externalMotionTexture = null ) {
 
 		// Full ASVGF pipeline
 		this.frameCount ++;
 
-		// Update camera matrices for motion vectors
-		this.updateCameraMatrices( camera );
-
-		// Textures are now passed as parameters (colorTexture, normalDepthTexture)
-		// No need to access PathTracerPass directly
-
-		// Step 1: Calculate motion vectors (only if we have normal/depth data)
-		if ( normalDepthTexture ) {
-
-			this.motionMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
-			this.motionMaterial.uniforms.tPrevNormalDepth.value = this.prevNormalDepthTarget.texture;
-			this.motionMaterial.uniforms.currentViewProjectionMatrix.value.copy( this.currentViewProjectionMatrix );
-			this.motionMaterial.uniforms.prevViewProjectionMatrix.value.copy( this.prevViewProjectionMatrix );
-
-			renderer.setRenderTarget( this.motionTarget );
-			this.motionQuad.render( renderer );
-
-		}
+		// Use external motion vectors from MotionVectorStage (required)
+		const motionTexture = externalMotionTexture;
 
 		// Step 1.5: Calculate temporal gradients (if enabled and not first frame)
-		if ( this.params.enableTemporalGradient && ! this.isFirstFrame && normalDepthTexture ) {
+		if ( this.params.enableTemporalGradient && ! this.isFirstFrame && motionTexture ) {
 
 			this.gradientMaterial.uniforms.tCurrentColor.value = colorTexture;
 			this.gradientMaterial.uniforms.tPrevColor.value = this.prevColorTarget.texture;
-			this.gradientMaterial.uniforms.tMotion.value = this.motionTarget.texture;
+			this.gradientMaterial.uniforms.tMotion.value = motionTexture;
 			this.gradientMaterial.uniforms.tCurrentNormalDepth.value = normalDepthTexture;
 			this.gradientMaterial.uniforms.tPrevNormalDepth.value = this.prevNormalDepthTarget.texture;
 
@@ -1249,9 +1248,9 @@ export class ASVGFStage extends PipelineStage {
 		// Step 2: Temporal accumulation
 		this.temporalMaterial.uniforms.tCurrentColor.value = colorTexture;
 		this.temporalMaterial.uniforms.tCurrentNormalDepth.value = normalDepthTexture;
-		this.temporalMaterial.uniforms.tMotion.value = normalDepthTexture ? this.motionTarget.texture : null;
+		this.temporalMaterial.uniforms.tMotion.value = motionTexture;
 		this.temporalMaterial.uniforms.tTemporalGradient.value = this.temporalGradientTarget.texture;
-		this.temporalMaterial.uniforms.hasMotionVectors.value = normalDepthTexture !== null;
+		this.temporalMaterial.uniforms.hasMotionVectors.value = motionTexture !== null;
 		this.temporalMaterial.uniforms.tPrevColor.value = this.prevColorTarget.texture;
 		this.temporalMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
 		this.temporalMaterial.uniforms.tPrevHistoryLength.value = this.prevHistoryLengthTarget.texture;
@@ -1317,7 +1316,9 @@ export class ASVGFStage extends PipelineStage {
 		}
 
 		// Update heatmap visualization if enabled
-		this.updateHeatmapVisualization( renderer, normalDepthTexture );
+		// Store the motion texture used this frame for heatmap
+		this.currentMotionTexture = motionTexture;
+		this.updateHeatmapVisualization( renderer, normalDepthTexture, motionTexture );
 
 		// Step 6: Store history for next frame
 		this.copyTexture( renderer, this.temporalColorTarget, this.prevColorTarget );
@@ -1333,12 +1334,10 @@ export class ASVGFStage extends PipelineStage {
 
 	}
 
-	// eslint-disable-next-line no-unused-vars
-	renderSpatialOnly( renderer, writeBuffer, colorTexture, normalDepthTexture, camera ) {
+	renderSpatialOnly( renderer, writeBuffer, colorTexture, normalDepthTexture ) {
 
 		// Skip temporal accumulation and motion vectors
 		// Only do variance estimation and A-trous filtering
-		// Note: camera parameter is unused in spatial-only mode (no temporal/motion vectors)
 
 		// Textures are now passed as parameters (colorTexture, normalDepthTexture)
 		// No need to access PathTracerPass directly

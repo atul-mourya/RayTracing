@@ -42,6 +42,7 @@ import { PassPipeline } from './Pipeline/PassPipeline';
 import { PipelineWrapperPass } from './Pipeline/PipelineWrapperPass';
 import {
 	PathTracerStage,
+	MotionVectorStage,
 	ASVGFStage,
 	AdaptiveSamplingStage,
 	EdgeAwareFilteringStage,
@@ -359,6 +360,15 @@ class PathTracerApp extends EventDispatcher {
 			enabled: true
 		} );
 
+		// Motion vector stage - runs after PathTracer, before ASVGF
+		const motionVectorStage = new MotionVectorStage( {
+			renderer: this.renderer,
+			camera: this.camera,
+			width: this.width,
+			height: this.height,
+			enabled: true
+		} );
+
 		const asvgfStage = new ASVGFStage( {
 			renderer: this.renderer,
 			camera: this.camera,
@@ -398,6 +408,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Add stages to pipeline in execution order
 		this.pipeline.addStage( pathTracerStage );
+		this.pipeline.addStage( motionVectorStage );
 		this.pipeline.addStage( asvgfStage );
 		this.pipeline.addStage( adaptiveSamplingStage );
 		this.pipeline.addStage( edgeFilteringStage );
@@ -409,6 +420,7 @@ class PathTracerApp extends EventDispatcher {
 
 		// Create proxy references for backward compatibility
 		this.pathTracingPass = pathTracerStage;
+		this.motionVectorPass = motionVectorStage;
 		this.asvgfPass = asvgfStage;
 		this.adaptiveSamplingPass = adaptiveSamplingStage;
 		this.edgeAwareFilterPass = edgeFilteringStage;
