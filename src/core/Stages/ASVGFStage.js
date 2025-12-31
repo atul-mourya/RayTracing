@@ -6,7 +6,6 @@ import {
 	WebGLRenderTarget,
 	Vector2,
 	NearestFilter,
-	Matrix4,
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
@@ -91,12 +90,6 @@ export class ASVGFStage extends PipelineStage {
 			...options
 		};
 
-		// Camera matrices for motion vector calculation
-		this.prevViewMatrix = new Matrix4();
-		this.prevProjectionMatrix = new Matrix4();
-		this.prevViewProjectionMatrix = new Matrix4();
-		this.currentViewProjectionMatrix = new Matrix4();
-
 		// Create render targets
 		this.initRenderTargets();
 
@@ -116,7 +109,6 @@ export class ASVGFStage extends PipelineStage {
 		this.temporalQuad = new FullScreenQuad( this.temporalMaterial );
 		this.varianceQuad = new FullScreenQuad( this.varianceMaterial );
 		this.atrousQuad = new FullScreenQuad( this.atrousMaterial );
-		this.motionQuad = new FullScreenQuad( this.motionMaterial );
 		this.gradientQuad = new FullScreenQuad( this.gradientMaterial );
 		this.finalQuad = new FullScreenQuad( this.finalMaterial );
 
@@ -142,10 +134,6 @@ export class ASVGFStage extends PipelineStage {
 			type: FloatType,
 			depthBuffer: false
 		};
-
-		// Motion vectors and depth
-		this.motionTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
-		this.prevMotionTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
 
 		// Temporal accumulation targets
 		this.temporalColorTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
@@ -176,69 +164,8 @@ export class ASVGFStage extends PipelineStage {
 
 	initMaterials() {
 
-		// Motion vector calculation
-		this.motionMaterial = new ShaderMaterial( {
-			uniforms: {
-				tNormalDepth: { value: null },
-				tPrevNormalDepth: { value: null },
-				currentViewProjectionMatrix: { value: new Matrix4() },
-				prevViewProjectionMatrix: { value: new Matrix4() },
-				resolution: { value: new Vector2( this.width, this.height ) }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				uniform sampler2D tNormalDepth;
-				uniform sampler2D tPrevNormalDepth;
-				uniform mat4 currentViewProjectionMatrix;
-				uniform mat4 prevViewProjectionMatrix;
-				uniform vec2 resolution;
-				
-				varying vec2 vUv;
-
-				vec3 getWorldPosition(vec2 uv, float depth, mat4 invViewProjMatrix) {
-					vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-					vec4 worldPos = invViewProjMatrix * clipPos;
-					return worldPos.xyz / worldPos.w;
-				}
-
-				void main() {
-					vec4 normalDepth = texture2D(tNormalDepth, vUv);
-					float depth = normalDepth.a;
-					
-					if (depth >= 1.0) {
-						// Sky/background - no motion
-						gl_FragColor = vec4(0.0, 0.0, depth, 1.0);
-						return;
-					}
-					
-					// Reconstruct world position
-					mat4 invCurrentVP = inverse(currentViewProjectionMatrix);
-					vec3 worldPos = getWorldPosition(vUv, depth, invCurrentVP);
-					
-					// Project to previous frame
-					vec4 prevClipPos = prevViewProjectionMatrix * vec4(worldPos, 1.0);
-					vec2 prevScreenPos = (prevClipPos.xy / prevClipPos.w) * 0.5 + 0.5;
-					
-					// Calculate motion vector
-					vec2 motion = vUv - prevScreenPos;
-					
-					// Validate motion vector
-					if (prevScreenPos.x < 0.0 || prevScreenPos.x > 1.0 || 
-						prevScreenPos.y < 0.0 || prevScreenPos.y > 1.0) {
-						// Outside screen bounds
-						motion = vec2(1000.0); // Invalid motion marker
-					}
-					
-					gl_FragColor = vec4(motion, depth, 1.0);
-				}
-			`
-		} );
+		// NOTE: Motion vectors are now provided by MotionVectorStage
+		// ASVGF reads them from context via 'motionVector:screenSpace'
 
 		// Temporal gradient estimation (A-SVGF)
 		this.gradientMaterial = new ShaderMaterial( {
@@ -960,20 +887,6 @@ export class ASVGFStage extends PipelineStage {
 
 	}
 
-	updateCameraMatrices( camera ) {
-
-		// Store previous matrices
-		this.prevViewMatrix.copy( this.currentViewMatrix || camera.matrixWorldInverse );
-		this.prevProjectionMatrix.copy( this.currentProjectionMatrix || camera.projectionMatrix );
-		this.prevViewProjectionMatrix.copy( this.currentViewProjectionMatrix || new Matrix4() );
-
-		// Update current matrices
-		this.currentViewMatrix = camera.matrixWorldInverse.clone();
-		this.currentProjectionMatrix = camera.projectionMatrix.clone();
-		this.currentViewProjectionMatrix.multiplyMatrices( this.currentProjectionMatrix, this.currentViewMatrix );
-
-	}
-
 	reset() {
 
 		this.frameCount = 0;
@@ -984,7 +897,6 @@ export class ASVGFStage extends PipelineStage {
 		const currentRenderTarget = renderer.getRenderTarget();
 
 		const targetsToClear = [
-			this.motionTarget,
 			this.temporalColorTarget,
 			this.temporalMomentsTarget,
 			this.temporalHistoryLengthTarget,
@@ -1015,8 +927,6 @@ export class ASVGFStage extends PipelineStage {
 
 		// Resize all render targets
 		const targets = [
-			this.motionTarget,
-			this.prevMotionTarget,
 			this.temporalColorTarget,
 			this.temporalMomentsTarget,
 			this.temporalHistoryLengthTarget,
@@ -1036,7 +946,6 @@ export class ASVGFStage extends PipelineStage {
 
 		// Update resolution uniforms
 		const resolutionVector = new Vector2( width, height );
-		this.motionMaterial.uniforms.resolution.value.copy( resolutionVector );
 		this.gradientMaterial.uniforms.resolution.value.copy( resolutionVector );
 		this.temporalMaterial.uniforms.resolution.value.copy( resolutionVector );
 		this.varianceMaterial.uniforms.resolution.value.copy( resolutionVector );
@@ -1453,8 +1362,6 @@ export class ASVGFStage extends PipelineStage {
 
 		// Dispose render targets
 		const targets = [
-			this.motionTarget,
-			this.prevMotionTarget,
 			this.temporalColorTarget,
 			this.temporalMomentsTarget,
 			this.temporalHistoryLengthTarget,
@@ -1473,7 +1380,6 @@ export class ASVGFStage extends PipelineStage {
 		targets.forEach( target => target.dispose() );
 
 		// Dispose materials
-		this.motionMaterial.dispose();
 		this.gradientMaterial.dispose();
 		this.temporalMaterial.dispose();
 		this.varianceMaterial.dispose();
@@ -1485,7 +1391,6 @@ export class ASVGFStage extends PipelineStage {
 		this.temporalQuad.dispose();
 		this.varianceQuad.dispose();
 		this.atrousQuad.dispose();
-		this.motionQuad.dispose();
 		this.gradientQuad.dispose();
 		this.finalQuad.dispose();
 		this.copyQuad?.dispose();
