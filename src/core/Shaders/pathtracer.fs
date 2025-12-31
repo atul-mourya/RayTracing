@@ -244,13 +244,14 @@ int getRequiredSamples( int pixelIndex ) {
 	return clamp( samples, 1, adaptiveSamplingMax );
 }
 
-// Helper function to linearize depth for MRT
-float linearizeDepth( float depth ) {
-    // Simple linear depth - you can adjust near/far as needed
-	float near = 0.1;
-	float far = 1000.0;
-	float z = depth * 2.0 - 1.0;
-	return ( 2.0 * near * far ) / ( far + near - z * ( far - near ) ) / far;
+// Helper function to compute NDC depth from world position
+// This outputs depth in [0, 1] range suitable for motion vector reprojection
+float computeNDCDepth( vec3 worldPos ) {
+	// Transform world position to clip space
+	vec4 clipPos = cameraProjectionMatrix * cameraViewMatrix * vec4( worldPos, 1.0 );
+	// Convert to NDC depth [0, 1]
+	float ndcDepth = ( clipPos.z / clipPos.w ) * 0.5 + 0.5;
+	return clamp( ndcDepth, 0.0, 1.0 );
 }
 
 #include debugger.fs
@@ -323,7 +324,9 @@ void main( ) {
 		} else {
 			vec3 sampleNormal, sampleColor;
 			float sampleID;
-			_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID );
+			vec3 sampleHitPoint;
+			float sampleHitDistance;
+			_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID, sampleHitPoint, sampleHitDistance );
 
 			// Accumulate edge detection data from primary rays
 			if( rayIndex == 0 ) {
@@ -333,7 +336,13 @@ void main( ) {
 
 				// Set MRT data from first hit
 				worldNormal = normalize( sampleNormal );
-				linearDepth = linearizeDepth( gl_FragCoord.z );
+				// Compute proper NDC depth from actual hit point for motion vector reprojection
+				if( sampleHitDistance < 1e9 ) {
+					linearDepth = computeNDCDepth( sampleHitPoint );
+				} else {
+					// No hit (sky/background) - use far plane depth
+					linearDepth = 1.0;
+				}
 			}
 		}
 
@@ -351,7 +360,7 @@ void main( ) {
 	pixel.color.rgb = dithering( pixel.color.rgb, baseSeed );
 
 	// Edge Detection
-	// Use depth-based edge detection (robust, as linearDepth uses gl_FragCoord.z)
+	// Use depth-based edge detection (uses actual ray hit depth)
 	float depthDifference = fwidth( linearDepth );
 	float depthEdge = smoothstep( 0.01, 0.05, depthDifference );
 

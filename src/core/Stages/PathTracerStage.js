@@ -166,6 +166,8 @@ export class PathTracerStage extends PipelineStage {
 				hasSun: { value: false },
 
 				cameraWorldMatrix: { value: new Matrix4() },
+				cameraViewMatrix: { value: new Matrix4() },
+				cameraProjectionMatrix: { value: new Matrix4() },
 				cameraProjectionMatrixInverse: { value: new Matrix4() },
 				enableDOF: { value: DEFAULT_STATE.enableDOF },
 				focusDistance: { value: DEFAULT_STATE.focusDistance },
@@ -985,6 +987,8 @@ export class PathTracerStage extends PipelineStage {
             ! this.lastProjectionMatrix.equals( this.camera.projectionMatrixInverse ) ) {
 
 			this.material.uniforms.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
+			this.material.uniforms.cameraViewMatrix.value.copy( this.camera.matrixWorldInverse );
+			this.material.uniforms.cameraProjectionMatrix.value.copy( this.camera.projectionMatrix );
 			this.material.uniforms.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
 
 			// Cache current matrices

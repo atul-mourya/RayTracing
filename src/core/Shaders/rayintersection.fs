@@ -1,4 +1,6 @@
 uniform mat4 cameraWorldMatrix;
+uniform mat4 cameraViewMatrix;
+uniform mat4 cameraProjectionMatrix;
 uniform mat4 cameraProjectionMatrixInverse;
 
 uniform float focusDistance;

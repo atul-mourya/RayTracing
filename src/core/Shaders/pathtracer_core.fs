@@ -204,7 +204,7 @@ vec3 regularizePathContribution( vec3 contribution, vec3 throughput, float pathL
 // Main Path Tracing Loop
 // -----------------------------------------------------------------------------
 
-vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3 objectNormal, out vec3 objectColor, out float objectID ) {
+vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3 objectNormal, out vec3 objectColor, out float objectID, out vec3 firstHitPoint, out float firstHitDistance ) {
 
 	vec3 radiance = vec3( 0.0 );
 	vec3 throughput = vec3( 1.0 );
@@ -214,6 +214,10 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 	objectNormal = vec3( 0.0 );
 	objectColor = vec3( 0.0 );
 	objectID = - 1000.0;
+
+	// Initialize hit point data for motion vectors
+	firstHitPoint = ray.origin;
+	firstHitDistance = 1e10;
 
 #if defined(ENABLE_TRANSMISSION) || defined(ENABLE_TRANSPARENCY)
     // Initialize media stack
@@ -416,6 +420,9 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 			objectNormal = N;
 			objectColor = material.color.rgb;
 			objectID = float( hitInfo.materialIndex );
+			// Store first hit point data for motion vector computation
+			firstHitPoint = hitInfo.hitPoint;
+			firstHitDistance = hitInfo.dst;
 		}
 
         // 4. RUSSIAN ROULETTE
