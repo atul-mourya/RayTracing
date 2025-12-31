@@ -107,8 +107,6 @@ export class ASVGFStage extends PipelineStage {
 
 		// Create fullscreen quads
 		this.temporalQuad = new FullScreenQuad( this.temporalMaterial );
-		this.varianceQuad = new FullScreenQuad( this.varianceMaterial );
-		this.atrousQuad = new FullScreenQuad( this.atrousMaterial );
 		this.gradientQuad = new FullScreenQuad( this.gradientMaterial );
 		this.finalQuad = new FullScreenQuad( this.finalMaterial );
 
@@ -135,29 +133,18 @@ export class ASVGFStage extends PipelineStage {
 			depthBuffer: false
 		};
 
-		// Temporal accumulation targets
+		// Temporal accumulation target (RGB: accumulated color, A: history length)
 		this.temporalColorTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.temporalMomentsTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.temporalHistoryLengthTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
 
 		// Previous frame storage
 		this.prevColorTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.prevMomentsTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 		this.prevHistoryLengthTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
 		this.prevNormalDepthTarget = new WebGLRenderTarget( this.width, this.height, nearestTargetOptions );
 
-		// Variance estimation
-		this.varianceTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-
 		// Temporal gradient estimation (A-SVGF)
 		this.temporalGradientTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.prevGradientTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 
-		// A-trous filtering (ping-pong)
-		this.atrousTargetA = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.atrousTargetB = new WebGLRenderTarget( this.width, this.height, targetOptions );
-
-		// Final output
+		// Final output (temporal accumulated color, before spatial filtering)
 		this.outputTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
 
 	}
@@ -292,7 +279,6 @@ export class ASVGFStage extends PipelineStage {
 				tCurrentNormalDepth: { value: null },
 				tMotion: { value: null },
 				tPrevColor: { value: null },
-				tPrevMoments: { value: null },
 				tPrevHistoryLength: { value: null },
 				tPrevNormalDepth: { value: null },
 				tTemporalGradient: { value: null },
@@ -325,7 +311,6 @@ export class ASVGFStage extends PipelineStage {
 				uniform sampler2D tCurrentNormalDepth;
 				uniform sampler2D tMotion;
 				uniform sampler2D tPrevColor;
-				uniform sampler2D tPrevMoments;
 				uniform sampler2D tPrevHistoryLength;
 				uniform sampler2D tPrevNormalDepth;
 				uniform sampler2D tTemporalGradient;
@@ -415,7 +400,6 @@ export class ASVGFStage extends PipelineStage {
 
 					// Sample previous frame data
 					vec4 prevColor = texture2D(tPrevColor, prevUV);
-					vec4 prevMoments = texture2D(tPrevMoments, prevUV);
 					vec4 prevHistoryData = texture2D(tPrevHistoryLength, prevUV);
 					vec4 prevNormalDepth = texture2D(tPrevNormalDepth, prevUV);
 
@@ -463,219 +447,11 @@ export class ASVGFStage extends PipelineStage {
 			`
 		} );
 
-		// Variance estimation
-		this.varianceMaterial = new ShaderMaterial( {
-			uniforms: {
-				tColor: { value: null },
-				tPrevMoments: { value: null },
-				tHistoryLength: { value: null },
-				resolution: { value: new Vector2( this.width, this.height ) },
-				varianceBoost: { value: this.params.varianceBoost }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				uniform sampler2D tColor;
-				uniform sampler2D tPrevMoments;
-				uniform sampler2D tHistoryLength;
-				uniform vec2 resolution;
-				uniform float varianceBoost;
-				
-				varying vec2 vUv;
+		// NOTE: Variance estimation and A-trous bilateral filtering are now handled by
+		// separate pipeline stages (VarianceEstimationStage and BilateralFilteringStage)
+		// for better reusability. ASVGFStage now focuses on temporal accumulation only.
 
-				float getLuma(vec3 color) {
-					return dot(color, vec3(0.2126, 0.7152, 0.0722));
-				}
-
-				void main() {
-					vec3 currentColor = texture2D(tColor, vUv).rgb;
-					float currentLuma = getLuma(currentColor);
-					vec4 historyData = texture2D(tHistoryLength, vUv);
-					float historyLength = historyData.a; // History is in alpha channel
-
-					// Get previous moments
-					vec4 prevMoments = texture2D(tPrevMoments, vUv);
-					float prevMean = prevMoments.x;
-					float prevSecondMoment = prevMoments.y;
-
-					// Temporal accumulation of moments
-					float alpha = 1.0 / max(historyLength, 1.0);
-					float newMean = mix(prevMean, currentLuma, alpha);
-					float newSecondMoment = mix(prevSecondMoment, currentLuma * currentLuma, alpha);
-					
-					// Compute variance
-					float variance = max(0.0, newSecondMoment - newMean * newMean);
-					variance *= varianceBoost;
-					
-					// Compute 3x3 neighborhood variance for spatial filtering guidance
-					vec2 texelSize = 1.0 / resolution;
-					float neighborhoodVariance = 0.0;
-					float count = 0.0;
-					
-					for (int x = -1; x <= 1; x++) {
-						for (int y = -1; y <= 1; y++) {
-							vec2 offset = vec2(float(x), float(y)) * texelSize;
-							vec3 neighborColor = texture2D(tColor, vUv + offset).rgb;
-							float neighborLuma = getLuma(neighborColor);
-							neighborhoodVariance += (neighborLuma - newMean) * (neighborLuma - newMean);
-							count += 1.0;
-						}
-					}
-					neighborhoodVariance /= count;
-					
-					gl_FragColor = vec4(newMean, newSecondMoment, variance, neighborhoodVariance);
-				}
-			`
-		} );
-
-		// A-trous wavelet filtering
-		this.atrousMaterial = new ShaderMaterial( {
-			uniforms: {
-				tColor: { value: null },
-				tVariance: { value: null },
-				tNormalDepth: { value: null },
-				tHistoryLength: { value: null },
-
-				resolution: { value: new Vector2( this.width, this.height ) },
-				stepSize: { value: 1 },
-				iteration: { value: 0 },
-
-				phiColor: { value: this.params.phiColor },
-				phiNormal: { value: this.params.phiNormal },
-				phiDepth: { value: this.params.phiDepth },
-				phiLuminance: { value: this.params.phiLuminance }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				uniform sampler2D tColor;
-				uniform sampler2D tVariance;
-				uniform sampler2D tNormalDepth;
-				uniform sampler2D tHistoryLength;
-				
-				uniform vec2 resolution;
-				uniform int stepSize;
-				uniform int iteration;
-				
-				uniform float phiColor;
-				uniform float phiNormal;
-				uniform float phiDepth;
-				uniform float phiLuminance;
-				
-				varying vec2 vUv;
-
-				float getLuma(vec3 color) {
-					return dot(color, vec3(0.2126, 0.7152, 0.0722));
-				}
-
-				// A-trous wavelet kernel
-				const float kernel[25] = float[](
-					1.0/256.0, 4.0/256.0, 6.0/256.0, 4.0/256.0, 1.0/256.0,
-					4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
-					6.0/256.0, 24.0/256.0, 36.0/256.0, 24.0/256.0, 6.0/256.0,
-					4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
-					1.0/256.0, 4.0/256.0, 6.0/256.0, 4.0/256.0, 1.0/256.0
-				);
-
-				const ivec2 offsets[25] = ivec2[](
-					ivec2(-2,-2), ivec2(-1,-2), ivec2(0,-2), ivec2(1,-2), ivec2(2,-2),
-					ivec2(-2,-1), ivec2(-1,-1), ivec2(0,-1), ivec2(1,-1), ivec2(2,-1),
-					ivec2(-2,0), ivec2(-1,0), ivec2(0,0), ivec2(1,0), ivec2(2,0),
-					ivec2(-2,1), ivec2(-1,1), ivec2(0,1), ivec2(1,1), ivec2(2,1),
-					ivec2(-2,2), ivec2(-1,2), ivec2(0,2), ivec2(1,2), ivec2(2,2)
-				);
-
-				void main() {
-					vec2 texelSize = 1.0 / resolution;
-
-					vec3 centerColor = texture2D(tColor, vUv).rgb;
-					vec4 centerNormalDepth = texture2D(tNormalDepth, vUv);
-					vec4 centerVariance = texture2D(tVariance, vUv);
-					vec4 centerHistory = texture2D(tHistoryLength, vUv);
-
-					float centerLuma = getLuma(centerColor);
-					vec3 centerNormal = centerNormalDepth.xyz;
-					float centerDepth = centerNormalDepth.w;
-					float centerHistoryLength = centerHistory.a; // History in alpha channel
-
-					// Compute history-based filter strength
-					// As history increases, reduce spatial filtering (fade out blocks)
-					// History 1-10: full filtering, History 20-32: minimal filtering
-					float historyFactor = clamp(centerHistoryLength / 20.0, 0.0, 1.0);
-					float filterStrength = 1.0 - historyFactor * 0.7; // 100% -> 30% strength
-
-					// Use variance to guide filter strength
-					// Use spatial variance (.w) for better noise estimation
-					float sigma_l = phiLuminance * sqrt(max(centerVariance.w, 1e-6)) * filterStrength;
-					float sigma_n = phiNormal;
-					float sigma_z = phiDepth;
-
-					vec3 weightedSum = vec3(0.0);
-					float weightSum = 0.0;
-
-					for (int i = 0; i < 25; i++) {
-						vec2 offset = vec2(offsets[i]) * float(stepSize) * texelSize;
-						vec2 sampleUV = vUv + offset;
-
-						if (sampleUV.x < 0.0 || sampleUV.x > 1.0 ||
-							sampleUV.y < 0.0 || sampleUV.y > 1.0) {
-							continue;
-						}
-
-						vec3 sampleColor = texture2D(tColor, sampleUV).rgb;
-						vec4 sampleNormalDepth = texture2D(tNormalDepth, sampleUV);
-						vec4 sampleHistoryData = texture2D(tHistoryLength, sampleUV);
-						float sampleHistoryLength = sampleHistoryData.a; // History in alpha channel
-
-						float sampleLuma = getLuma(sampleColor);
-						vec3 sampleNormal = sampleNormalDepth.xyz;
-						float sampleDepth = sampleNormalDepth.w;
-
-						// Edge-stopping functions
-						float w_l = exp(-abs(centerLuma - sampleLuma) / sigma_l);
-						float w_n = pow(max(0.0, dot(centerNormal, sampleNormal)), sigma_n);
-						float w_z = exp(-abs(centerDepth - sampleDepth) / (sigma_z * max(centerDepth, 1e-3)));
-
-						// Additional color-based edge detection for high-frequency details (text, sharp edges)
-						vec3 colorDiff = abs(centerColor - sampleColor);
-						float maxColorDiff = max(max(colorDiff.r, colorDiff.g), colorDiff.b);
-						float w_c = exp(-maxColorDiff * phiColor * filterStrength);
-
-						// History-based weight (trust pixels with more samples)
-						float historyWeight = min(sampleHistoryLength / max(centerHistoryLength, 1.0), 2.0);
-
-						float weight = kernel[i] * w_l * w_n * w_z * w_c * historyWeight;
-
-						weightedSum += sampleColor * weight;
-						weightSum += weight;
-					}
-
-					// Blend filtered result with original based on history
-					vec3 filteredColor;
-					if (weightSum > 1e-6) {
-						filteredColor = weightedSum / weightSum;
-					} else {
-						filteredColor = centerColor;
-					}
-
-					// Fade out spatial filtering as temporal history increases
-					vec3 finalColor = mix(filteredColor, centerColor, historyFactor * 0.5);
-					gl_FragColor = vec4(finalColor, 1.0);
-				}
-			`
-		} );
-
-		// Final composition - always shows beauty pass
+		// Final composition - passes through temporal accumulated color
 		// Debug visualizations are shown in RenderTargetHelper overlay instead
 		this.finalMaterial = new ShaderMaterial( {
 			uniforms: {
@@ -865,11 +641,13 @@ export class ASVGFStage extends PipelineStage {
 
 		// Update heatmap uniforms
 		this.heatmapMaterial.uniforms.tColor.value = this.outputTarget?.texture || null;
-		this.heatmapMaterial.uniforms.tVariance.value = this.varianceTarget?.texture || null;
+		// Variance is now provided by VarianceEstimationStage via context
+		// Use stored reference from previous frame (may be null on first frame)
+		this.heatmapMaterial.uniforms.tVariance.value = this.currentVarianceTexture || null;
 		this.heatmapMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget?.texture || null;
 		this.heatmapMaterial.uniforms.tNormalDepth.value = normalDepthTexture || null;
-		// Use provided motion texture (from MotionVectorStage or internal)
-		this.heatmapMaterial.uniforms.tMotion.value = motionTexture || this.currentMotionTexture || this.motionTarget?.texture || null;
+		// Use provided motion texture (from MotionVectorStage)
+		this.heatmapMaterial.uniforms.tMotion.value = motionTexture || this.currentMotionTexture || null;
 		this.heatmapMaterial.uniforms.tTemporalGradient.value = this.temporalGradientTarget?.texture || null;
 
 		// Render heatmap
@@ -894,15 +672,10 @@ export class ASVGFStage extends PipelineStage {
 
 		const targetsToClear = [
 			this.temporalColorTarget,
-			this.temporalMomentsTarget,
-			this.temporalHistoryLengthTarget,
 			this.prevColorTarget,
-			this.prevMomentsTarget,
 			this.prevHistoryLengthTarget,
 			this.prevNormalDepthTarget,
-			this.varianceTarget,
-			this.temporalGradientTarget,
-			this.prevGradientTarget
+			this.temporalGradientTarget
 		];
 
 		targetsToClear.forEach( target => {
@@ -924,17 +697,10 @@ export class ASVGFStage extends PipelineStage {
 		// Resize all render targets
 		const targets = [
 			this.temporalColorTarget,
-			this.temporalMomentsTarget,
-			this.temporalHistoryLengthTarget,
 			this.prevColorTarget,
-			this.prevMomentsTarget,
 			this.prevHistoryLengthTarget,
 			this.prevNormalDepthTarget,
-			this.varianceTarget,
 			this.temporalGradientTarget,
-			this.prevGradientTarget,
-			this.atrousTargetA,
-			this.atrousTargetB,
 			this.outputTarget
 		];
 
@@ -944,9 +710,8 @@ export class ASVGFStage extends PipelineStage {
 		const resolutionVector = new Vector2( width, height );
 		this.gradientMaterial.uniforms.resolution.value.copy( resolutionVector );
 		this.temporalMaterial.uniforms.resolution.value.copy( resolutionVector );
-		this.varianceMaterial.uniforms.resolution.value.copy( resolutionVector );
-		this.atrousMaterial.uniforms.resolution.value.copy( resolutionVector );
 		// Note: finalMaterial doesn't use resolution uniform (simple passthrough)
+		// Note: Variance and A-trous are now handled by separate pipeline stages
 
 	}
 
@@ -993,7 +758,7 @@ export class ASVGFStage extends PipelineStage {
 
 		Object.assign( this.params, params );
 
-		// Update shader uniforms
+		// Update temporal shader uniforms
 		this.temporalMaterial.uniforms.temporalAlpha.value = this.params.temporalAlpha;
 		this.temporalMaterial.uniforms.temporalColorWeight.value = this.params.temporalColorWeight;
 		this.temporalMaterial.uniforms.temporalNormalWeight.value = this.params.temporalNormalWeight;
@@ -1004,15 +769,13 @@ export class ASVGFStage extends PipelineStage {
 		this.temporalMaterial.uniforms.gradientMin.value = this.params.gradientMin;
 		this.temporalMaterial.uniforms.gradientMax.value = this.params.gradientMax;
 
+		// Update gradient shader uniforms
 		this.gradientMaterial.uniforms.use3x3.value = this.params.use3x3Gradient;
 		this.gradientMaterial.uniforms.gradientScale.value = this.params.gradientScale;
 
-		this.varianceMaterial.uniforms.varianceBoost.value = this.params.varianceBoost;
-
-		this.atrousMaterial.uniforms.phiColor.value = this.params.phiColor;
-		this.atrousMaterial.uniforms.phiNormal.value = this.params.phiNormal;
-		this.atrousMaterial.uniforms.phiDepth.value = this.params.phiDepth;
-		this.atrousMaterial.uniforms.phiLuminance.value = this.params.phiLuminance;
+		// Note: Variance and A-trous parameters are now managed by
+		// VarianceEstimationStage and BilateralFilteringStage respectively.
+		// Use their own event-based parameter updates.
 
 		// Update heatmap mode (debug visualization shown in overlay, not main canvas)
 		if ( this.heatmapMaterial ) {
@@ -1020,9 +783,6 @@ export class ASVGFStage extends PipelineStage {
 			this.heatmapMaterial.uniforms.heatmapMode.value = this.params.debugMode || 0;
 
 		}
-
-		// Note: Final material no longer uses debug modes - always shows beauty pass
-		// Debug visualizations are shown in the RenderTargetHelper overlay instead
 
 		// Store original values for restoration
 		if ( params.temporalAlpha !== undefined ) {
@@ -1085,6 +845,15 @@ export class ASVGFStage extends PipelineStage {
 		// Get motion vectors from MotionVectorStage
 		const externalMotionTexture = context.getTexture( 'motionVector:screenSpace' );
 
+		// Get variance texture from VarianceEstimationStage (if available from previous frame)
+		// This is used for heatmap visualization only
+		const varianceTexture = context.getTexture( 'variance:output' );
+		if ( varianceTexture ) {
+
+			this.currentVarianceTexture = varianceTexture;
+
+		}
+
 		// Check interaction mode for adaptive processing
 		const interactionMode = context.getState( 'interactionMode' );
 
@@ -1126,17 +895,25 @@ export class ASVGFStage extends PipelineStage {
 		const source = { texture: colorTexture };
 		this.copyTexture( renderer, source, this.outputTarget );
 
+		// Also update temporalColorTarget so downstream stages (like BilateralFilteringStage)
+		// have valid data to read from during interaction mode
+		if ( this.temporalColorTarget ) {
+
+			this.copyTexture( renderer, source, this.temporalColorTarget );
+
+		}
+
 	}
 
 	renderWithTemporal( renderer, writeBuffer, colorTexture, normalDepthTexture, externalMotionTexture = null ) {
 
-		// Full ASVGF pipeline
+		// Temporal accumulation pipeline (variance and spatial filtering now handled by separate stages)
 		this.frameCount ++;
 
 		// Use external motion vectors from MotionVectorStage (required)
 		const motionTexture = externalMotionTexture;
 
-		// Step 1.5: Calculate temporal gradients (if enabled and not first frame)
+		// Step 1: Calculate temporal gradients (if enabled and not first frame)
 		if ( this.params.enableTemporalGradient && ! this.isFirstFrame && motionTexture ) {
 
 			this.gradientMaterial.uniforms.tCurrentColor.value = colorTexture;
@@ -1157,7 +934,6 @@ export class ASVGFStage extends PipelineStage {
 		this.temporalMaterial.uniforms.tTemporalGradient.value = this.temporalGradientTarget.texture;
 		this.temporalMaterial.uniforms.hasMotionVectors.value = motionTexture !== null;
 		this.temporalMaterial.uniforms.tPrevColor.value = this.prevColorTarget.texture;
-		this.temporalMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
 		this.temporalMaterial.uniforms.tPrevHistoryLength.value = this.prevHistoryLengthTarget.texture;
 		this.temporalMaterial.uniforms.tPrevNormalDepth.value = this.prevNormalDepthTarget.texture;
 		this.temporalMaterial.uniforms.isFirstFrame.value = this.isFirstFrame;
@@ -1166,53 +942,19 @@ export class ASVGFStage extends PipelineStage {
 		renderer.setRenderTarget( this.temporalColorTarget );
 		this.temporalQuad.render( renderer );
 
-		// Step 3: Variance estimation
-		this.varianceMaterial.uniforms.tColor.value = this.temporalColorTarget.texture;
-		this.varianceMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
-		this.varianceMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture; // History in alpha
+		// NOTE: Variance estimation (Step 3) and A-trous filtering (Step 4) are now
+		// handled by VarianceEstimationStage and BilateralFilteringStage respectively.
+		// These run as separate stages in the pipeline after ASVGFStage.
 
-		renderer.setRenderTarget( this.varianceTarget );
-		this.varianceQuad.render( renderer );
+		// Step 3: Copy temporal accumulated color to output
+		// The final spatial denoising will be done by BilateralFilteringStage
+		this.finalMaterial.uniforms.tColor.value = this.temporalColorTarget.texture;
 
-		// Step 4: A-trous wavelet filtering
-		// Start with temporal color as input for first iteration
-		let inputTexture = this.temporalColorTarget.texture;
-		let currentOutput = this.atrousTargetA;
-		let nextOutput = this.atrousTargetB;
-
-		// Set static uniforms once
-		this.atrousMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
-		this.atrousMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
-		this.atrousMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
-
-		for ( let i = 0; i < this.params.atrousIterations; i ++ ) {
-
-			// Set input texture for this iteration
-			this.atrousMaterial.uniforms.tColor.value = inputTexture;
-			this.atrousMaterial.uniforms.stepSize.value = Math.pow( 2, i );
-			this.atrousMaterial.uniforms.iteration.value = i;
-
-			// Render to current output
-			renderer.setRenderTarget( currentOutput );
-			this.atrousQuad.render( renderer );
-
-			// For next iteration: input becomes current output, swap ping-pong buffers
-			inputTexture = currentOutput.texture;
-			[ currentOutput, nextOutput ] = [ nextOutput, currentOutput ];
-
-		}
-
-		// The final result is in inputTexture (last output)
-		const finalFilteredTexture = inputTexture;
-
-		// Step 5: Final composition (beauty pass only - debug views shown in heatmap overlay)
-		this.finalMaterial.uniforms.tColor.value = finalFilteredTexture;
-
-		// Render to outputTarget first (for context publication)
+		// Render to outputTarget (for context publication)
 		renderer.setRenderTarget( this.outputTarget );
 		this.finalQuad.render( renderer );
 
-		// Then copy to writeBuffer for pipeline
+		// Copy to writeBuffer for pipeline if needed
 		if ( writeBuffer && ! this.renderToScreen ) {
 
 			this.copyTexture( renderer, this.outputTarget, writeBuffer );
@@ -1220,13 +962,11 @@ export class ASVGFStage extends PipelineStage {
 		}
 
 		// Update heatmap visualization if enabled
-		// Store the motion texture used this frame for heatmap
 		this.currentMotionTexture = motionTexture;
 		this.updateHeatmapVisualization( renderer, normalDepthTexture, motionTexture );
 
-		// Step 6: Store history for next frame
+		// Step 4: Store history for next frame
 		this.copyTexture( renderer, this.temporalColorTarget, this.prevColorTarget );
-		this.copyTexture( renderer, this.varianceTarget, this.prevMomentsTarget );
 		this.copyTexture( renderer, this.temporalColorTarget, this.prevHistoryLengthTarget ); // History in alpha
 		if ( normalDepthTexture ) {
 
@@ -1240,51 +980,17 @@ export class ASVGFStage extends PipelineStage {
 
 	renderSpatialOnly( renderer, writeBuffer, colorTexture, normalDepthTexture ) {
 
-		// Skip temporal accumulation and motion vectors
-		// Only do variance estimation and A-trous filtering
+		// Spatial-only mode: pass through the color texture without temporal accumulation.
+		// Variance estimation and bilateral filtering are handled by separate pipeline stages
+		// (VarianceEstimationStage and BilateralFilteringStage).
 
-		// Textures are now passed as parameters (colorTexture, normalDepthTexture)
-		// No need to access PathTracerPass directly
+		this.finalMaterial.uniforms.tColor.value = colorTexture;
 
-		// Skip to variance estimation
-		this.varianceMaterial.uniforms.tColor.value = colorTexture;
-		this.varianceMaterial.uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
-		this.varianceMaterial.uniforms.tHistoryLength.value = this.temporalColorTarget.texture;
-
-		renderer.setRenderTarget( this.varianceTarget );
-		this.varianceQuad.render( renderer );
-
-		// A-trous filtering with reduced iterations for performance
-		let inputTexture = colorTexture;
-		let currentOutput = this.atrousTargetA;
-		let nextOutput = this.atrousTargetB;
-
-		const spatialIterations = Math.max( 2, Math.floor( this.params.atrousIterations / 2 ) );
-
-		for ( let i = 0; i < spatialIterations; i ++ ) {
-
-			this.atrousMaterial.uniforms.tColor.value = inputTexture;
-			this.atrousMaterial.uniforms.stepSize.value = Math.pow( 2, i );
-			this.atrousMaterial.uniforms.iteration.value = i;
-
-			renderer.setRenderTarget( currentOutput );
-			this.atrousQuad.render( renderer );
-
-			inputTexture = currentOutput.texture;
-			[ currentOutput, nextOutput ] = [ nextOutput, currentOutput ];
-
-		}
-
-		// Final output
-		this.finalMaterial.uniforms.tColor.value = inputTexture;
-		this.finalMaterial.uniforms.tVariance.value = this.varianceTarget.texture;
-		this.finalMaterial.uniforms.tNormalDepth.value = normalDepthTexture;
-
-		// Render to outputTarget first (for context publication)
+		// Render to outputTarget (for context publication)
 		renderer.setRenderTarget( this.outputTarget );
 		this.finalQuad.render( renderer );
 
-		// Then copy to writeBuffer for pipeline
+		// Copy to writeBuffer for pipeline if needed
 		if ( writeBuffer && ! this.renderToScreen ) {
 
 			this.copyTexture( renderer, this.outputTarget, writeBuffer );
@@ -1338,7 +1044,7 @@ export class ASVGFStage extends PipelineStage {
 		return {
 			moments: this.momentsTarget?.texture || null,
 			history: this.historyTarget?.texture || null,
-			variance: this.varianceTarget?.texture || null
+			temporalColor: this.temporalColorTarget?.texture || null
 		};
 
 	}
@@ -1359,17 +1065,10 @@ export class ASVGFStage extends PipelineStage {
 		// Dispose render targets
 		const targets = [
 			this.temporalColorTarget,
-			this.temporalMomentsTarget,
-			this.temporalHistoryLengthTarget,
 			this.prevColorTarget,
-			this.prevMomentsTarget,
 			this.prevHistoryLengthTarget,
 			this.prevNormalDepthTarget,
-			this.varianceTarget,
 			this.temporalGradientTarget,
-			this.prevGradientTarget,
-			this.atrousTargetA,
-			this.atrousTargetB,
 			this.outputTarget
 		];
 
@@ -1378,15 +1077,11 @@ export class ASVGFStage extends PipelineStage {
 		// Dispose materials
 		this.gradientMaterial.dispose();
 		this.temporalMaterial.dispose();
-		this.varianceMaterial.dispose();
-		this.atrousMaterial.dispose();
 		this.finalMaterial.dispose();
 		this.copyMaterial?.dispose();
 
 		// Dispose quads
 		this.temporalQuad.dispose();
-		this.varianceQuad.dispose();
-		this.atrousQuad.dispose();
 		this.gradientQuad.dispose();
 		this.finalQuad.dispose();
 		this.copyQuad?.dispose();
@@ -1399,26 +1094,23 @@ export class ASVGFStage extends PipelineStage {
 	 */
 	publishTexturesToContext( context ) {
 
-		// Publish main output
+		// Publish temporal accumulated color (before spatial filtering)
+		// Note: asvgf:output now contains temporal color only.
+		// The final spatially-filtered output comes from BilateralFilteringStage.
 		if ( this.outputTarget && this.outputTarget.texture ) {
 
 			context.setTexture( 'asvgf:output', this.outputTarget.texture );
 
 		}
 
-		// Publish temporal color for AdaptiveSamplingStage
+		// Publish temporal color for downstream stages (VarianceEstimationStage, etc.)
 		if ( this.temporalColorTarget && this.temporalColorTarget.texture ) {
 
 			context.setTexture( 'asvgf:temporalColor', this.temporalColorTarget.texture );
 
 		}
 
-		// Publish variance for AdaptiveSamplingStage
-		if ( this.varianceTarget && this.varianceTarget.texture ) {
-
-			context.setTexture( 'asvgf:variance', this.varianceTarget.texture );
-
-		}
+		// Note: Variance is now published by VarianceEstimationStage as 'variance:output'
 
 	}
 

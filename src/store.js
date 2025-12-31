@@ -413,6 +413,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			const app = window.pathTracerApp;
 			app.asvgfPass.enabled = config.enabled;
+
+			// Also enable/disable the extracted stages
+			if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = config.enabled;
+			if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = config.enabled;
+
 			if ( config.enabled ) {
 
 				app.asvgfPass.updateParameters( config );
@@ -690,6 +695,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Disable all real-time denoisers first (OIDN remains independent)
 			app.asvgfPass.enabled = false;
+			if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = false;
+			if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = false;
 			app.edgeAwareFilterPass.setFilteringEnabled( false );
 
 			// Enable the selected real-time denoiser
@@ -704,6 +711,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'asvgf:output' );
 						ctx.removeTexture( 'asvgf:temporalColor' );
 						ctx.removeTexture( 'asvgf:variance' );
+						ctx.removeTexture( 'variance:output' );
 						ctx.removeTexture( 'edgeFiltering:output' );
 
 					}
@@ -713,6 +721,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				case 'asvgf': {
 
 					app.asvgfPass.enabled = true;
+					if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = true;
+					if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = true;
 					app.asvgfPass.setTemporalEnabled && app.asvgfPass.setTemporalEnabled( true );
 
 					// Apply current quality preset parameters
@@ -738,6 +748,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'asvgf:output' );
 						ctx.removeTexture( 'asvgf:temporalColor' );
 						ctx.removeTexture( 'asvgf:variance' );
+						ctx.removeTexture( 'variance:output' );
 
 					}
 
@@ -1195,6 +1206,19 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			const app = window.pathTracerApp;
 			app.asvgfPass.enabled = val;
+
+			// Enable/disable the extracted variance and bilateral filtering stages
+			if ( app.varianceEstimationPass ) {
+
+				app.varianceEstimationPass.enabled = val;
+
+			}
+
+			if ( app.bilateralFilteringPass ) {
+
+				app.bilateralFilteringPass.enabled = val;
+
+			}
 
 			if ( val ) {
 

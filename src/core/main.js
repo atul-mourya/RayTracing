@@ -44,6 +44,8 @@ import {
 	PathTracerStage,
 	MotionVectorStage,
 	ASVGFStage,
+	VarianceEstimationStage,
+	BilateralFilteringStage,
 	AdaptiveSamplingStage,
 	EdgeAwareFilteringStage,
 	TileHighlightStage
@@ -376,11 +378,42 @@ class PathTracerApp extends EventDispatcher {
 			height: this.height,
 			enabled: DEFAULT_STATE.enableASVGF || false,
 			temporalAlpha: DEFAULT_STATE.asvgfTemporalAlpha || 0.1,
-			atrousIterations: DEFAULT_STATE.asvgfAtrousIterations || 4,
+			enableDebug: true
+		} );
+
+		// Variance estimation stage - computes variance for adaptive sampling and denoising guidance
+		// Must run PER_CYCLE to match ASVGFStage execution timing
+		const varianceEstimationStage = new VarianceEstimationStage( {
+			renderer: this.renderer,
+			width: this.width,
+			height: this.height,
+			enabled: DEFAULT_STATE.enableASVGF || false,
+			executionMode: 'per_cycle',
+			varianceBoost: DEFAULT_STATE.asvgfVarianceBoost || 1.0,
+			inputTextureName: 'asvgf:temporalColor',
+			outputTextureName: 'variance:output'
+		} );
+
+		// Bilateral filtering stage - spatial denoising with edge preservation
+		// Must run PER_CYCLE to match ASVGFStage execution timing
+		const bilateralFilteringStage = new BilateralFilteringStage( {
+			renderer: this.renderer,
+			width: this.width,
+			height: this.height,
+			enabled: DEFAULT_STATE.enableASVGF || false,
+			executionMode: 'per_cycle',
+			iterations: 4, // Standard A-trous iterations with step sizes 1, 2, 4, 8
 			phiColor: DEFAULT_STATE.asvgfPhiColor || 10.0,
 			phiNormal: DEFAULT_STATE.asvgfPhiNormal || 128.0,
 			phiDepth: DEFAULT_STATE.asvgfPhiDepth || 1.0,
-			enableDebug: true
+			phiLuminance: DEFAULT_STATE.asvgfPhiLuminance || 4.0,
+			useVarianceGuide: true,
+			useHistoryAdaptive: true,
+			inputTextureName: 'asvgf:temporalColor',
+			normalDepthTextureName: 'pathtracer:normalDepth',
+			varianceTextureName: 'variance:output',
+			historyLengthTextureName: 'asvgf:temporalColor',
+			outputTextureName: 'asvgf:output' // Final denoised output
 		} );
 
 		const adaptiveSamplingStage = new AdaptiveSamplingStage( {
@@ -410,6 +443,8 @@ class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( pathTracerStage );
 		this.pipeline.addStage( motionVectorStage );
 		this.pipeline.addStage( asvgfStage );
+		this.pipeline.addStage( varianceEstimationStage );
+		this.pipeline.addStage( bilateralFilteringStage );
 		this.pipeline.addStage( adaptiveSamplingStage );
 		this.pipeline.addStage( edgeFilteringStage );
 		this.pipeline.addStage( tileHighlightStage );
@@ -422,6 +457,8 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass = pathTracerStage;
 		this.motionVectorPass = motionVectorStage;
 		this.asvgfPass = asvgfStage;
+		this.varianceEstimationPass = varianceEstimationStage;
+		this.bilateralFilteringPass = bilateralFilteringStage;
 		this.adaptiveSamplingPass = adaptiveSamplingStage;
 		this.edgeAwareFilterPass = edgeFilteringStage;
 		this.tileHighlightPass = tileHighlightStage;

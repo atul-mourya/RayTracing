@@ -200,6 +200,12 @@ export class BilateralFilteringStage extends PipelineStage {
 					ivec2(-2,2), ivec2(-1,2), ivec2(0,2), ivec2(1,2), ivec2(2,2)
 				);
 
+				// Safe normalization helper - handles zero-length vectors
+				vec3 safeNormalize(vec3 v) {
+					float len = length(v);
+					return len > 0.001 ? v / len : vec3(0.0, 0.0, 1.0);
+				}
+
 				void main() {
 					vec2 texelSize = 1.0 / resolution;
 
@@ -207,7 +213,7 @@ export class BilateralFilteringStage extends PipelineStage {
 					vec4 centerNormalDepth = texture2D(tNormalDepth, vUv);
 
 					float centerLuma = getLuma(centerColor);
-					vec3 centerNormal = centerNormalDepth.xyz;
+					vec3 centerNormal = safeNormalize(centerNormalDepth.xyz);
 					float centerDepth = centerNormalDepth.w;
 
 					// Compute filter strength modifiers
@@ -255,12 +261,14 @@ export class BilateralFilteringStage extends PipelineStage {
 						vec4 sampleNormalDepth = texture2D(tNormalDepth, sampleUV);
 
 						float sampleLuma = getLuma(sampleColor);
-						vec3 sampleNormal = sampleNormalDepth.xyz;
+						vec3 sampleNormal = safeNormalize(sampleNormalDepth.xyz);
 						float sampleDepth = sampleNormalDepth.w;
 
 						// Edge-stopping functions
 						float w_l = exp(-abs(centerLuma - sampleLuma) / max(sigma_l, 1e-6));
-						float w_n = pow(max(0.0, dot(centerNormal, sampleNormal)), sigma_n);
+						// Normalize dot product to [0,1] range and apply power for edge-stopping
+						float normalDot = max(0.0, dot(centerNormal, sampleNormal));
+						float w_n = pow(normalDot, sigma_n);
 						float w_z = exp(-abs(centerDepth - sampleDepth) / (sigma_z * max(centerDepth, 1e-3)));
 
 						// Additional color-based edge detection for high-frequency details
