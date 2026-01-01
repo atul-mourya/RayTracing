@@ -335,6 +335,16 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAsvgfDebugMode: val => set( { asvgfDebugMode: val } ),
 	setAsvgfPreset: val => set( { asvgfQualityPreset: val } ),
 
+	// Auto-exposure setters
+	setAutoExposure: val => set( { autoExposure: val } ),
+	setAutoExposureKeyValue: val => set( { autoExposureKeyValue: val } ),
+	setAutoExposureMinExposure: val => set( { autoExposureMinExposure: val } ),
+	setAutoExposureMaxExposure: val => set( { autoExposureMaxExposure: val } ),
+	setAutoExposureAdaptSpeedBright: val => set( { autoExposureAdaptSpeedBright: val } ),
+	setAutoExposureAdaptSpeedDark: val => set( { autoExposureAdaptSpeedDark: val } ),
+	setCurrentAutoExposure: val => set( { currentAutoExposure: val } ),
+	setCurrentAvgLuminance: val => set( { currentAvgLuminance: val } ),
+
 	// Denoiser strategy and EdgeAware filter setters
 	setDenoiserStrategy: val => set( { denoiserStrategy: val } ),
 	setPixelEdgeSharpness: val => set( { pixelEdgeSharpness: val } ),
@@ -862,6 +872,81 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			app.reset();
 
 		}
+	),
+
+	// Auto-exposure handlers
+	handleAutoExposureChange: handleChange(
+		val => set( { autoExposure: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			if ( app?.autoExposurePass ) {
+
+				app.autoExposurePass.enabled = val;
+
+				if ( ! val ) {
+
+					// When disabling auto-exposure, restore manual exposure
+					const manualExposure = get().exposure;
+					app.renderer.toneMappingExposure = manualExposure;
+					app.pathTracingPass.material.uniforms.exposure.value = manualExposure;
+					app.denoiser.mapGenerator.syncWithRenderer();
+
+				}
+
+				app.reset();
+
+			}
+
+		}
+	),
+
+	handleAutoExposureKeyValueChange: handleChange(
+		val => set( { autoExposureKeyValue: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const value = Array.isArray( val ) ? val[ 0 ] : val;
+			window.pathTracerApp?.autoExposurePass?.updateParameters( { keyValue: value } );
+
+		},
+		false
+	),
+
+	handleAutoExposureMinExposureChange: handleChange(
+		val => set( { autoExposureMinExposure: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const value = Array.isArray( val ) ? val[ 0 ] : val;
+			window.pathTracerApp?.autoExposurePass?.updateParameters( { minExposure: value } );
+
+		},
+		false
+	),
+
+	handleAutoExposureMaxExposureChange: handleChange(
+		val => set( { autoExposureMaxExposure: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const value = Array.isArray( val ) ? val[ 0 ] : val;
+			window.pathTracerApp?.autoExposurePass?.updateParameters( { maxExposure: value } );
+
+		},
+		false
+	),
+
+	handleAutoExposureAdaptSpeedChange: handleChange(
+		val => set( { autoExposureAdaptSpeedBright: Array.isArray( val ) ? val[ 0 ] : val } ),
+		val => {
+
+			const value = Array.isArray( val ) ? val[ 0 ] : val;
+			// Maintain ratio between bright and dark adaptation (6:1)
+			window.pathTracerApp?.autoExposurePass?.updateParameters( {
+				adaptSpeedBright: value,
+				adaptSpeedDark: value / 6.0
+			} );
+
+		},
+		false
 	),
 
 	handleEnableEnvironmentChange: handleChange(

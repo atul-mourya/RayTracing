@@ -88,6 +88,12 @@ const PathTracerTab = () => {
 		pixelEdgeSharpness,
 		edgeSharpenSpeed,
 		edgeThreshold,
+		// Auto-exposure state
+		autoExposure,
+		autoExposureKeyValue,
+		autoExposureMinExposure,
+		autoExposureMaxExposure,
+		autoExposureAdaptSpeedBright,
 
 		// Handlers - now from store
 		handlePathTracerChange,
@@ -152,6 +158,12 @@ const PathTracerTab = () => {
 		handlePixelEdgeSharpnessChange,
 		handleEdgeSharpenSpeedChange,
 		handleEdgeThresholdChange,
+		// Auto-exposure handlers
+		handleAutoExposureChange,
+		handleAutoExposureKeyValueChange,
+		handleAutoExposureMinExposureChange,
+		handleAutoExposureMaxExposureChange,
+		handleAutoExposureAdaptSpeedChange,
 	} = pathTracerStore;
 
 	return (
@@ -227,8 +239,28 @@ const PathTracerTab = () => {
 					</Select>
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider icon={Exposure} label={"Exposure"} min={0} max={5} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
+					<Switch label={"Auto Exposure"} checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
 				</div>
+				{autoExposure ? (
+					<>
+						{/* <div className="flex items-center justify-between">
+							<Slider icon={Target} label={"Key Value"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider icon={ArrowDown} label={"Min Exposure"} min={0.01} max={1.0} step={0.01} value={[ autoExposureMinExposure ]} onValueChange={handleAutoExposureMinExposureChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider icon={ArrowUp} label={"Max Exposure"} min={1.0} max={20.0} step={0.1} value={[ autoExposureMaxExposure ]} onValueChange={handleAutoExposureMaxExposureChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Slider icon={Zap} label={"Adaptation Speed"} min={0.5} max={10.0} step={0.1} value={[ autoExposureAdaptSpeedBright ]} snapPoints={[ 3.0 ]} onValueChange={handleAutoExposureAdaptSpeedChange} />
+						</div> */}
+					</>
+				) : (
+					<div className="flex items-center justify-between">
+						<Slider icon={Exposure} label={"Exposure"} min={0} max={5} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
+					</div>
+				)}
 				<div className="flex items-center justify-between">
 					<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} snapPoints={[ 1 ]} onValueChange={handleGIIntensityChange} />
 				</div>

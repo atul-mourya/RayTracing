@@ -48,7 +48,8 @@ import {
 	BilateralFilteringStage,
 	AdaptiveSamplingStage,
 	EdgeAwareFilteringStage,
-	TileHighlightStage
+	TileHighlightStage,
+	AutoExposureStage
 } from './Stages';
 import { updateStats } from './Processor/utils';
 import { DEFAULT_STATE } from '../Constants';
@@ -439,6 +440,18 @@ class PathTracerApp extends EventDispatcher {
 			enabled: DEFAULT_STATE.tilesHelper
 		} );
 
+		const autoExposureStage = new AutoExposureStage( {
+			renderer: this.renderer,
+			width: this.width,
+			height: this.height,
+			enabled: DEFAULT_STATE.autoExposure,
+			keyValue: DEFAULT_STATE.autoExposureKeyValue,
+			minExposure: DEFAULT_STATE.autoExposureMinExposure,
+			maxExposure: DEFAULT_STATE.autoExposureMaxExposure,
+			adaptSpeedBright: DEFAULT_STATE.autoExposureAdaptSpeedBright,
+			adaptSpeedDark: DEFAULT_STATE.autoExposureAdaptSpeedDark
+		} );
+
 		// Add stages to pipeline in execution order
 		this.pipeline.addStage( pathTracerStage );
 		this.pipeline.addStage( motionVectorStage );
@@ -447,6 +460,7 @@ class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( bilateralFilteringStage );
 		this.pipeline.addStage( adaptiveSamplingStage );
 		this.pipeline.addStage( edgeFilteringStage );
+		this.pipeline.addStage( autoExposureStage );
 		this.pipeline.addStage( tileHighlightStage );
 
 		// Wrap pipeline in a Pass for EffectComposer compatibility
@@ -461,6 +475,7 @@ class PathTracerApp extends EventDispatcher {
 		this.bilateralFilteringPass = bilateralFilteringStage;
 		this.adaptiveSamplingPass = adaptiveSamplingStage;
 		this.edgeAwareFilterPass = edgeFilteringStage;
+		this.autoExposurePass = autoExposureStage;
 		this.tileHighlightPass = tileHighlightStage;
 
 	}

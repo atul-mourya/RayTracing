@@ -22,6 +22,9 @@
  * - VarianceEstimationStage - Temporal/spatial variance for adaptive sampling & firefly detection
  * - AdaptiveSamplingStage - Variance-guided sample distribution
  *
+ * Exposure & Tone Mapping:
+ * - AutoExposureStage - GPU-based automatic exposure with temporal adaptation
+ *
  * Debug & Visualization:
  * - TileHighlightStage - Visual feedback for progressive tile rendering
  */
@@ -34,3 +37,4 @@ export { PathTracerStage } from './PathTracerStage.js';
 export { MotionVectorStage } from './MotionVectorStage.js';
 export { BilateralFilteringStage } from './BilateralFilteringStage.js';
 export { VarianceEstimationStage } from './VarianceEstimationStage.js';
+export { AutoExposureStage } from './AutoExposureStage.js';

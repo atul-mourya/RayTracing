@@ -219,6 +219,14 @@ export const DEFAULT_STATE = {
 	asvgfQualityPreset: 'medium', // 'low', 'medium', 'high'
 	showAsvgfHeatmap: false, // Show ASVGF heatmap visualization
 
+	// Auto-exposure settings
+	autoExposure: false,
+	autoExposureKeyValue: 0.18, // Target middle gray (18% gray)
+	autoExposureMinExposure: 0.1, // Minimum exposure limit
+	autoExposureMaxExposure: 10.0, // Maximum exposure limit
+	autoExposureAdaptSpeedBright: 3.0, // Speed for bright adaptation (~0.3s)
+	autoExposureAdaptSpeedDark: 0.5, // Speed for dark adaptation (~2s)
+
 };
 
 export const ASVGF_QUALITY_PRESETS = {
