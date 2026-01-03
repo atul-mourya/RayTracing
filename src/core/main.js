@@ -54,7 +54,7 @@ import {
 import { updateStats } from './Processor/utils';
 import { DEFAULT_STATE } from '../Constants';
 // import radialTexture from '../../public/radial-gradient.png';
-import { useStore } from '@/store';
+import { useStore, useCameraStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader';
 import { EnvironmentService } from '@/services/EnvironmentService';
 
@@ -261,6 +261,9 @@ class PathTracerApp extends EventDispatcher {
 			this.pauseRendering = false;
 
 		} );
+
+		// Initialize click-to-select functionality
+		this.setupClickToSelect();
 
 	}
 
@@ -728,6 +731,20 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	setupClickToSelect() {
+
+		// Initialize raycaster if not already done
+		if ( ! this.raycaster ) {
+
+			this.raycaster = new Raycaster();
+
+		}
+
+		this.selectMode = false;
+		this.clickTimeout = null; // For debouncing click vs double-click
+
+	}
+
 	// Toggle focus mode
 	toggleFocusMode() {
 
@@ -755,6 +772,77 @@ class PathTracerApp extends EventDispatcher {
 		}
 
 		return this.focusMode;
+
+	}
+
+	// Toggle select mode
+	toggleSelectMode() {
+
+		// Only allow select mode in preview mode
+		const appMode = useStore.getState().appMode;
+		if ( appMode !== 'preview' ) {
+
+			return false;
+
+		}
+
+		this.selectMode = ! this.selectMode;
+
+		// Change cursor to indicate select mode is active
+		this.canvas.style.cursor = this.selectMode ? 'pointer' : 'auto';
+
+		// Keep orbit controls enabled in select mode (unlike focus mode)
+		// This allows camera movement while still being able to click objects
+
+		// Set up click and double-click handlers if entering select mode
+		if ( this.selectMode ) {
+
+			this.canvas.addEventListener( 'click', this.handleSelectClick );
+			this.canvas.addEventListener( 'dblclick', this.handleSelectDoubleClick );
+
+		} else {
+
+			this.canvas.removeEventListener( 'click', this.handleSelectClick );
+			this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
+
+			// Clear any pending click timeout
+			if ( this.clickTimeout ) {
+
+				clearTimeout( this.clickTimeout );
+				this.clickTimeout = null;
+
+			}
+
+		}
+
+		return this.selectMode;
+
+	}
+
+	// Disable select mode (called when leaving preview mode)
+	disableSelectMode() {
+
+		if ( ! this.selectMode ) return;
+
+		this.selectMode = false;
+
+		// Restore cursor
+		this.canvas.style.cursor = 'auto';
+
+		// Remove event listeners
+		this.canvas.removeEventListener( 'click', this.handleSelectClick );
+		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
+
+		// 
+		if ( this.clickTimeout ) {
+
+			clearTimeout( this.clickTimeout );
+			this.clickTimeout = null;
+
+		}
+
+		// Update store
+		useCameraStore.getState().setSelectMode( false );
 
 	}
 
@@ -793,6 +881,166 @@ class PathTracerApp extends EventDispatcher {
 			this.dispatchEvent( {
 				type: 'focusChanged',
 				distance: distance / this.assetLoader.getSceneScale()
+			} );
+
+		}
+
+	};
+
+	// Handle click event when in select mode
+	handleSelectClick = ( event ) => {
+
+		// Clear any existing click timeout to prevent single-click from firing on double-click
+      	if ( this.clickTimeout ) {
+
+			clearTimeout( this.clickTimeout );
+      		this.clickTimeout = null;
+      		return; // This is the second click of a double-click, let dblclick handle it
+
+		}
+
+		// Set a timeout to execute single-click logic
+		// If double-click happens within this time, the timeout will be cleared
+		this.clickTimeout = setTimeout( () => {
+
+			this.clickTimeout = null;
+
+			// Only proceed if in preview mode
+			const appMode = useStore.getState().appMode;
+			if ( appMode !== 'preview' ) return;
+
+			// Calculate mouse position in normalized device coordinates
+			const rect = this.canvas.getBoundingClientRect();
+			const x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+			const y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+
+			// Update the raycaster
+			this.raycaster.setFromCamera( { x, y }, this.camera );
+
+			// Check for intersections with the scene
+			const intersects = this.raycaster.intersectObjects( this.scene.children, true );
+
+			// Filter out helper objects, focus indicators, and floor plane
+			const validIntersects = intersects.filter( intersect => {
+
+				const object = intersect.object;
+				return object !== this.focusPointIndicator &&
+					object !== this.floorPlane &&
+					! object.name.includes( 'Helper' ) &&
+					object.type === 'Mesh';
+
+			} );
+
+			if ( validIntersects.length > 0 ) {
+
+				// Get the first valid intersection
+				const intersection = validIntersects[ 0 ];
+				const object = intersection.object;
+
+				// Check if this object is already selected (toggle behavior)
+				const currentlySelectedObject = useStore.getState().selectedObject;
+				const isAlreadySelected = currentlySelectedObject && currentlySelectedObject.uuid === object.uuid;
+
+				if ( isAlreadySelected ) {
+
+					// Deselect the object
+					this.selectObject( null );
+					this.refreshFrame();
+					useStore.getState().setSelectedObject( null );
+
+					this.dispatchEvent( {
+						type: 'objectDeselected',
+						object: object,
+						uuid: object.uuid
+					} );
+
+				} else {
+
+					// Update selection
+					this.selectObject( object );
+					this.refreshFrame();
+					useStore.getState().setSelectedObject( object );
+
+					this.dispatchEvent( {
+						type: 'objectSelected',
+						object: object,
+						uuid: object.uuid
+					} );
+
+				}
+
+			} else {
+
+				// No valid object clicked, deselect
+				this.selectObject( null );
+				this.refreshFrame();
+				useStore.getState().setSelectedObject( null );
+
+				this.dispatchEvent( {
+					type: 'objectDeselected'
+				} );
+
+			}
+
+		}, 250 ); // 250ms delay to distinguish single from double click
+
+	};
+
+	// Handle double-click event when in select mode - opens material tab
+	handleSelectDoubleClick = ( event ) => {
+
+		// Clear the click timeout to prevent single-click from executing
+		if ( this.clickTimeout ) {
+
+			clearTimeout( this.clickTimeout );
+			this.clickTimeout = null;
+
+		}
+
+		// Only proceed if in preview mode
+		const appMode = useStore.getState().appMode;
+		if ( appMode !== 'preview' ) return;
+
+		// Calculate mouse position in normalized device coordinates
+		const rect = this.canvas.getBoundingClientRect();
+		const x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+		const y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+
+		// Update the raycaster
+		this.raycaster.setFromCamera( { x, y }, this.camera );
+
+		// Check for intersections with the scene
+		const intersects = this.raycaster.intersectObjects( this.scene.children, true );
+
+		// Filter out helper objects, focus indicators, and floor plane
+		const validIntersects = intersects.filter( intersect => {
+
+			const object = intersect.object;
+			return object !== this.focusPointIndicator &&
+				object !== this.floorPlane &&
+				! object.name.includes( 'Helper' ) &&
+				object.type === 'Mesh';
+
+		} );
+
+		if ( validIntersects.length > 0 ) {
+
+			const intersection = validIntersects[ 0 ];
+			const object = intersection.object;
+
+			// Select the object
+			this.selectObject( object );
+			this.refreshFrame();
+			useStore.getState().setSelectedObject( object );
+
+			// Switch to material tab
+			useStore.getState().setActiveTab( 'material' );
+
+			// Dispatch event
+			this.dispatchEvent( {
+				type: 'objectDoubleClicked',
+				object: object,
+				uuid: object.uuid
 			} );
 
 		}
@@ -1011,6 +1259,8 @@ class PathTracerApp extends EventDispatcher {
 		cancelAnimationFrame( this.animationFrameId );
 		// Dispose of js objects, remove event listeners, etc.
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
+		this.canvas.removeEventListener( 'click', this.handleSelectClick );
+		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 
 		// Pipeline architecture cleanup
 		if ( this.pipeline ) this.pipeline.dispose();

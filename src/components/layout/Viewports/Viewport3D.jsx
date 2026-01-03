@@ -204,6 +204,16 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 	}, [ setLoading, toast, appMode ] );
 
+	// Disable select mode when leaving preview mode
+	useEffect( () => {
+
+		if ( window.pathTracerApp && appMode !== 'preview' ) {
+
+			window.pathTracerApp.disableSelectMode?.();
+
+		}
+
+	}, [ appMode ] );
 
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {

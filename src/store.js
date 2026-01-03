@@ -59,6 +59,8 @@ const useStore = create( set => ( {
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
 	appMode: 'preview',
 	setAppMode: mode => set( { appMode: mode } ),
+	activeTab: 'pathtracer',
+	setActiveTab: tab => set( { activeTab: tab } ),
 	layers: [],
 	setLayers: layers => set( { layers } ),
 	selectedResult: null,
@@ -1616,10 +1618,12 @@ const useCameraStore = create( ( set, get ) => ( {
 	cameraNames: [],
 	selectedCameraIndex: 0,
 	focusMode: false,
+	selectMode: false,
 
 	setCameraNames: names => set( { cameraNames: names } ),
 	setSelectedCameraIndex: idx => set( { selectedCameraIndex: idx } ),
 	setFocusMode: mode => set( { focusMode: mode } ),
+	setSelectMode: mode => set( { selectMode: mode } ),
 	setFov: val => set( { fov: val, activePreset: "custom" } ),
 	setFocusDistance: val => set( { focusDistance: val, activePreset: "custom" } ),
 	setAperture: val => set( { aperture: val, activePreset: "custom" } ),
@@ -1640,6 +1644,15 @@ const useCameraStore = create( ( set, get ) => ( {
 		const isActive = window.pathTracerApp.toggleFocusMode();
 		console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
 		set( { focusMode: isActive } );
+
+	},
+
+	handleToggleSelectMode: () => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		const isActive = window.pathTracerApp.toggleSelectMode();
+		set( { selectMode: isActive } );
 
 	},
 

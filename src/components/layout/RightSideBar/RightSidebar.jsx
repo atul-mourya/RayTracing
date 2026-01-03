@@ -23,62 +23,69 @@ const TabLoadingFallback = () => (
 
 // Memoized tab content components to prevent unnecessary re-renders
 
-const InteractiveModeTabs = memo( () => (
-	<Tabs defaultValue="pathtracer" className="flex flex-col h-full w-full">
-		<TabsList className="relative grid w-full grid-cols-5 h-12 p-0">
-			<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
-				<Sliders size={12} />
-				<span className="text-xs mt-1">Tracer</span>
-			</TabsTrigger>
-			<TabsTrigger value="camera" className="flex flex-col items-center py-2">
-				<Camera size={12} />
-				<span className="text-xs mt-1">Camera</span>
-			</TabsTrigger>
-			<TabsTrigger value="light" className="flex flex-col items-center py-2">
-				<Sun size={12} />
-				<span className="text-xs mt-1">Light</span>
-			</TabsTrigger>
-			<TabsTrigger value="material" className="flex flex-col items-center py-2">
-				<SwatchBook size={12} />
-				<span className="text-xs mt-1">Material</span>
-			</TabsTrigger>
-			<TabsTrigger value="assets" className="flex flex-col items-center py-2">
-				<Box size={12} />
-				<span className="text-xs mt-1">Assets</span>
-			</TabsTrigger>
-		</TabsList>
+const InteractiveModeTabs = memo( () => {
 
-		<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
-			<Suspense fallback={<TabLoadingFallback />}>
-				<CameraTab />
-			</Suspense>
-		</TabsContent>
+	const activeTab = useStore( state => state.activeTab );
+	const setActiveTab = useStore( state => state.setActiveTab );
 
-		<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
-			<Suspense fallback={<TabLoadingFallback />}>
-				<PathTracerTab />
-			</Suspense>
-		</TabsContent>
+	return (
+		<Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full w-full">
+			<TabsList className="relative grid w-full grid-cols-5 h-12 p-0">
+				<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
+					<Sliders size={12} />
+					<span className="text-xs mt-1">Tracer</span>
+				</TabsTrigger>
+				<TabsTrigger value="camera" className="flex flex-col items-center py-2">
+					<Camera size={12} />
+					<span className="text-xs mt-1">Camera</span>
+				</TabsTrigger>
+				<TabsTrigger value="light" className="flex flex-col items-center py-2">
+					<Sun size={12} />
+					<span className="text-xs mt-1">Light</span>
+				</TabsTrigger>
+				<TabsTrigger value="material" className="flex flex-col items-center py-2">
+					<SwatchBook size={12} />
+					<span className="text-xs mt-1">Material</span>
+				</TabsTrigger>
+				<TabsTrigger value="assets" className="flex flex-col items-center py-2">
+					<Box size={12} />
+					<span className="text-xs mt-1">Assets</span>
+				</TabsTrigger>
+			</TabsList>
 
-		<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
-			<Suspense fallback={<TabLoadingFallback />}>
-				<LightsTab />
-			</Suspense>
-		</TabsContent>
+			<TabsContent value="camera" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+				<Suspense fallback={<TabLoadingFallback />}>
+					<CameraTab />
+				</Suspense>
+			</TabsContent>
 
-		<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
-			<Suspense fallback={<TabLoadingFallback />}>
-				<MaterialTab />
-			</Suspense>
-		</TabsContent>
+			<TabsContent value="pathtracer" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+				<Suspense fallback={<TabLoadingFallback />}>
+					<PathTracerTab />
+				</Suspense>
+			</TabsContent>
 
-		<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
-			<Suspense fallback={<TabLoadingFallback />}>
-				<AssetsTab />
-			</Suspense>
-		</TabsContent>
-	</Tabs>
-) );
+			<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+				<Suspense fallback={<TabLoadingFallback />}>
+					<LightsTab />
+				</Suspense>
+			</TabsContent>
+
+			<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+				<Suspense fallback={<TabLoadingFallback />}>
+					<MaterialTab />
+				</Suspense>
+			</TabsContent>
+
+			<TabsContent value="assets" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+				<Suspense fallback={<TabLoadingFallback />}>
+					<AssetsTab />
+				</Suspense>
+			</TabsContent>
+		</Tabs>
+	);
+
+} );
 
 InteractiveModeTabs.displayName = 'InteractiveModeTabs';
 

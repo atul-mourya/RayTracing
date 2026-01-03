@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Pause, SkipBack } from 'lucide-react';
+import { Play, Pause, SkipBack, MousePointer2 } from 'lucide-react';
 import {
 	Tooltip,
 	TooltipContent,
@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useStore, useCameraStore } from '@/store';
 
 // Reusable control button component using shadcn Button
 const ControlButton = ( { icon, label, onClick, isActive, disabled } ) => (
@@ -37,6 +38,9 @@ const ControlButton = ( { icon, label, onClick, isActive, disabled } ) => (
 const RenderControls = () => {
 
 	const [ isPlaying, setIsPlaying ] = useState( false );
+	const selectMode = useCameraStore( state => state.selectMode );
+	const handleToggleSelectMode = useCameraStore( state => state.handleToggleSelectMode );
+	const appMode = useStore( state => state.appMode );
 
 	// Handle play button click
 	const handlePlay = () => {
@@ -107,7 +111,7 @@ const RenderControls = () => {
 
 		};
 
-	}, [ window.pathTracerApp ] );
+	}, [] ); // Only run on mount/unmount - window.pathTracerApp is checked inside
 
 	// Control button definitions
 	const controls = [
@@ -131,7 +135,15 @@ const RenderControls = () => {
 			onClick: handleRestart,
 			isActive: false,
 			disabled: false
-		}
+		},
+		// Only show select mode button in preview mode
+		...( appMode === 'preview' ? [ {
+			icon: <MousePointer2 size={14} />,
+			label: 'Click to Select',
+			onClick: handleToggleSelectMode,
+			isActive: selectMode,
+			disabled: false
+		} ] : [] )
 	];
 
 	return (
