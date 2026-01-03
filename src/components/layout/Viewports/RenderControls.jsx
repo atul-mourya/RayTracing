@@ -42,26 +42,28 @@ const RenderControls = () => {
 	const handleToggleSelectMode = useCameraStore( state => state.handleToggleSelectMode );
 	const appMode = useStore( state => state.appMode );
 
-	// Handle play button click
-	const handlePlay = () => {
+	// Handle toggle play/pause
+	const handleTogglePlay = () => {
 
-		if ( ! isPlaying && window.pathTracerApp ) {
+		if ( ! window.pathTracerApp ) return;
 
-			window.pathTracerApp.pauseRendering = false;
-			window.pathTracerApp.reset();
-			setIsPlaying( true );
-
-		}
-
-	};
-
-	// Handle pause button click
-	const handlePause = () => {
-
-		if ( isPlaying && window.pathTracerApp ) {
+		if ( isPlaying ) {
 
 			window.pathTracerApp.pauseRendering = true;
 			setIsPlaying( false );
+
+		} else {
+
+			window.pathTracerApp.pauseRendering = false;
+
+			// Only reset if render is complete
+			if ( window.pathTracerApp.pathTracingPass?.isComplete ) {
+
+				window.pathTracerApp.reset();
+
+			}
+
+			setIsPlaying( true );
 
 		}
 
@@ -116,18 +118,11 @@ const RenderControls = () => {
 	// Control button definitions
 	const controls = [
 		{
-			icon: <Play size={14} />,
-			label: 'Play',
-			onClick: handlePlay,
-			isActive: ! isPlaying,
+			icon: isPlaying ? <Pause size={14} /> : <Play size={14} />,
+			label: isPlaying ? 'Pause' : 'Play',
+			onClick: handleTogglePlay,
+			isActive: false,
 			disabled: false
-		},
-		{
-			icon: <Pause size={14} />,
-			label: 'Pause',
-			onClick: handlePause,
-			isActive: isPlaying,
-			disabled: ! isPlaying
 		},
 		{
 			icon: <SkipBack size={14} />,
