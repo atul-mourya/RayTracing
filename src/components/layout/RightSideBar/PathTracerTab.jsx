@@ -276,10 +276,10 @@ const PathTracerTab = () => {
 				</div>
 				{autoExposure ? (
 					<>
-						{/* <div className="flex items-center justify-between">
-							<Slider icon={Target} label={"Key Value"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
-						</div>
 						<div className="flex items-center justify-between">
+							<Slider icon={Target} label={"Target Brightness"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
+						</div>
+						{/* <div className="flex items-center justify-between">
 							<Slider icon={ArrowDown} label={"Min Exposure"} min={0.01} max={1.0} step={0.01} value={[ autoExposureMinExposure ]} onValueChange={handleAutoExposureMinExposureChange} />
 						</div>
 						<div className="flex items-center justify-between">

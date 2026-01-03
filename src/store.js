@@ -915,7 +915,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			window.pathTracerApp?.autoExposurePass?.updateParameters( { keyValue: value } );
 
 		},
-		false
+		true
 	),
 
 	handleAutoExposureMinExposureChange: handleChange(
@@ -926,7 +926,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			window.pathTracerApp?.autoExposurePass?.updateParameters( { minExposure: value } );
 
 		},
-		false
+		true
 	),
 
 	handleAutoExposureMaxExposureChange: handleChange(
@@ -937,7 +937,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			window.pathTracerApp?.autoExposurePass?.updateParameters( { maxExposure: value } );
 
 		},
-		false
+		true
 	),
 
 	handleAutoExposureAdaptSpeedChange: handleChange(
@@ -952,7 +952,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			} );
 
 		},
-		false
+		true
 	),
 
 	handleEnableEnvironmentChange: handleChange(
