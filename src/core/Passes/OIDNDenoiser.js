@@ -110,6 +110,7 @@ export class OIDNDenoiser extends EventDispatcher {
 			left: '0',
 			width: '100%',
 			height: '100%',
+			borderRadius: '5px',
 			background: "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px"
 		} );
 

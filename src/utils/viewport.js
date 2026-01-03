@@ -56,6 +56,7 @@ export const generateViewportStyles = ( canvasSize, viewportScale ) => {
 		width: `${canvasSize}px`,
 		height: `${canvasSize}px`,
 		overflow: "hidden",
+		borderRadius: "5px",
 		background: "repeating-conic-gradient(rgb(128 128 128 / 20%) 0%, rgb(128 128 128 / 20%) 25%, transparent 0%, transparent 50%) 50% center / 20px 20px"
 	};
 

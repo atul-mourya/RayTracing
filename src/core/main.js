@@ -133,6 +133,7 @@ class PathTracerApp extends EventDispatcher {
 		this.canvas.style.left = '0';
 		this.canvas.style.width = '100%';
 		this.canvas.style.height = '100%';
+		this.canvas.borderRadius = '5px';
 		this.canvas.style.background = "repeating-conic-gradient(#808080 0% 25%, transparent 0% 50%) 50% / 20px 20px;";
 
 		// Setup camera
