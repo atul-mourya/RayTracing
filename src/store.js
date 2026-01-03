@@ -258,6 +258,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	adaptiveSamplingConvergenceSpeed: 2.0,
 	adaptiveSamplingQualityPreset: 'balanced',
 
+	// Auto-exposure computed values (updated in real-time by AutoExposureStage)
+	currentAutoExposure: null,
+	currentAvgLuminance: null,
+
 	// Simple setters
 	setMaxSamples: val => set( { maxSamples: val } ),
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),

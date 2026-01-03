@@ -482,6 +482,36 @@ class PathTracerApp extends EventDispatcher {
 		this.autoExposurePass = autoExposureStage;
 		this.tileHighlightPass = tileHighlightStage;
 
+		// Set up auto-exposure event listener to update store in real-time
+		this.setupAutoExposureListener();
+
+	}
+
+	/**
+	 * Set up event listener for auto-exposure updates
+	 * Updates the store when exposure values change for UI display
+	 */
+	setupAutoExposureListener() {
+
+		if ( ! this.autoExposurePass ) return;
+
+		// Import store dynamically to avoid circular dependency issues
+		import( '@/store' ).then( ( { usePathTracerStore } ) => {
+
+			// Listen for auto-exposure updates from the stage
+			this.autoExposurePass.on( 'autoexposure:updated', ( data ) => {
+
+				const { exposure, luminance } = data;
+
+				// Update store state for UI consumption
+				// These setters are direct and won't trigger reset()
+				usePathTracerStore.getState().setCurrentAutoExposure( exposure );
+				usePathTracerStore.getState().setCurrentAvgLuminance( luminance );
+
+			} );
+
+		} );
+
 	}
 
 	async setupFloorPlane() {
@@ -834,7 +864,7 @@ class PathTracerApp extends EventDispatcher {
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 
-		// 
+		//
 		if ( this.clickTimeout ) {
 
 			clearTimeout( this.clickTimeout );

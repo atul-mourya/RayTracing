@@ -8,6 +8,35 @@ import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
+import { memo } from 'react';
+
+/**
+ * Optimized component for displaying computed auto-exposure value
+ * Uses Zustand selector to subscribe only to currentAutoExposure state
+ * This prevents unnecessary rerenders of the parent PathTracerTab component
+ */
+const AutoExposureValue = memo( () => {
+
+	// Use Zustand selector pattern for optimal performance
+	// Only subscribes to currentAutoExposure, avoiding full component rerenders
+	const currentExposure = usePathTracerStore( ( state ) => state.currentAutoExposure );
+
+	// Don't render if no value available yet
+	if ( currentExposure === undefined || currentExposure === null ) {
+
+		return <span className="text-xs opacity-50">Calculating...</span>;
+
+	}
+
+	return (
+		<span className="text-xs opacity-70">
+			{ currentExposure.toFixed( 3 ) }
+		</span>
+	);
+
+} );
+
+AutoExposureValue.displayName = 'AutoExposureValue';
 
 const toneMappingOptions = [
 	{ label: 'None', value: 0 },
@@ -239,7 +268,11 @@ const PathTracerTab = () => {
 					</Select>
 				</div>
 				<div className="flex items-center justify-between">
-					<Switch label={"Auto Exposure"} checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
+					<span className="opacity-50 text-xs truncate">Auto Exposure</span>
+					<div className="flex items-center gap-2">
+						{autoExposure && <AutoExposureValue />}
+						<Switch checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
+					</div>
 				</div>
 				{autoExposure ? (
 					<>

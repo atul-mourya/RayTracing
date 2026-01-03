@@ -87,11 +87,8 @@ export class AutoExposureStage extends PipelineStage {
 		this.lastTime = performance.now();
 		this.isFirstFrame = true;
 
-		// Async readback state (frame-delayed for zero GPU stall)
-		this.pendingReadback = false;
-		this.readyExposure = this.params.initialExposure;
-		this.readyLuminance = 0.18;
-		this.readyTargetExposure = this.params.initialExposure;
+		// Readback buffer (reused to avoid allocations)
+		this.readbackBuffer = new Float32Array( 4 );
 
 		// Initialize render targets and materials
 		this.initRenderTargets();
@@ -382,12 +379,6 @@ export class AutoExposureStage extends PipelineStage {
 		this.targetExposure = this.params.initialExposure;
 		this.lastTime = performance.now();
 
-		// Reset async readback state
-		this.pendingReadback = false;
-		this.readyExposure = this.params.initialExposure;
-		this.readyLuminance = 0.18;
-		this.readyTargetExposure = this.params.initialExposure;
-
 	}
 
 	/**
@@ -466,16 +457,11 @@ export class AutoExposureStage extends PipelineStage {
 		renderer.setRenderTarget( this.adaptationTarget );
 		this.adaptationQuad.render( renderer );
 
-		// Restore render target before async operations
+		// Restore render target
 		renderer.setRenderTarget( currentRT );
 
-		// Apply previous frame's ready values immediately (zero stall)
-		this.currentExposure = this.readyExposure;
-		this.currentLuminance = this.readyLuminance;
-		this.targetExposure = this.readyTargetExposure;
-
-		// Start async readback for next frame (non-blocking)
-		this.readbackExposureAsync( renderer );
+		// Read back exposure value (sync - negligible for 1x1 texture)
+		this.readbackExposure( renderer );
 
 		// Publish to context
 		context.setState( 'autoexposure:value', this.currentExposure );
@@ -496,61 +482,42 @@ export class AutoExposureStage extends PipelineStage {
 	}
 
 	/**
-	 * Async readback - starts non-blocking GPU read, updates ready values when complete
-	 * This adds 1 frame of latency but eliminates GPU pipeline stalls
+	 * Read back exposure value from GPU
+	 * Uses reusable buffer to avoid allocations
 	 */
-	readbackExposureAsync( renderer ) {
+	readbackExposure( renderer ) {
 
-		// Skip if a readback is already in progress
-		if ( this.pendingReadback ) return;
+		renderer.readRenderTargetPixels(
+			this.adaptationTarget, 0, 0, 1, 1, this.readbackBuffer
+		);
 
-		this.pendingReadback = true;
+		let exposure = this.readbackBuffer[ 0 ];
+		let luminance = this.readbackBuffer[ 1 ];
+		let targetExp = this.readbackBuffer[ 2 ];
 
-		// Use Three.js async readback (returns a Promise)
-		renderer.readRenderTargetPixelsAsync(
-			this.adaptationTarget, 0, 0, 1, 1
-		).then( buffer => {
+		// Validate values (prevent NaN/Infinity/zero)
+		if ( ! isFinite( exposure ) || isNaN( exposure ) || exposure <= 0 ) {
 
-			// Buffer is a Uint8Array or Float32Array depending on render target type
-			// Our target uses FloatType, so we get Float32Array-compatible data
-			const floatView = new Float32Array( buffer.buffer );
+			exposure = this.params.initialExposure;
 
-			let exposure = floatView[ 0 ];
-			let luminance = floatView[ 1 ];
-			let targetExp = floatView[ 2 ];
+		}
 
-			// Validate values (prevent NaN/Infinity)
-			if ( ! isFinite( exposure ) || isNaN( exposure ) ) {
+		if ( ! isFinite( luminance ) || isNaN( luminance ) || luminance <= 0 ) {
 
-				exposure = this.params.initialExposure;
+			luminance = 0.18;
 
-			}
+		}
 
-			if ( ! isFinite( luminance ) || isNaN( luminance ) ) {
+		if ( ! isFinite( targetExp ) || isNaN( targetExp ) || targetExp <= 0 ) {
 
-				luminance = 0.18;
+			targetExp = exposure;
 
-			}
+		}
 
-			if ( ! isFinite( targetExp ) || isNaN( targetExp ) ) {
-
-				targetExp = exposure;
-
-			}
-
-			// Update ready values for next frame
-			this.readyExposure = exposure;
-			this.readyLuminance = luminance;
-			this.readyTargetExposure = targetExp;
-
-			this.pendingReadback = false;
-
-		} ).catch( () => {
-
-			// On error, keep previous values and allow retry
-			this.pendingReadback = false;
-
-		} );
+		// Update current values
+		this.currentExposure = exposure;
+		this.currentLuminance = luminance;
+		this.targetExposure = targetExp;
 
 	}
 
