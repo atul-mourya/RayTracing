@@ -1,5 +1,23 @@
 uniform float debugVisScale;
 
+// ============================================================================
+// Debug Visualization Helpers
+// ============================================================================
+
+// Visualize depth with color gradient (near=white, far=black)
+vec3 visualizeDepth( float depth ) {
+	return vec3( 1.0 - depth );
+}
+
+// Visualize normals in world space (RGB mapped from [-1,1] to [0,1])
+vec3 visualizeNormal( vec3 normal ) {
+	return normal * 0.5 + 0.5;
+}
+
+// ============================================================================
+// Main Debug Mode Function
+// ============================================================================
+
 vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 	Ray ray;
 	ray.origin = rayOrigin;
@@ -7,26 +25,37 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 	HitInfo hitInfo = traverseBVH( ray, stats, false );
 
 	switch( visMode ) {
+		// ------------------------------------------------------------------------
+		// BVH Performance Metrics
+		// ------------------------------------------------------------------------
 		case 1: {
-			// Triangle test count vis
+			// Triangle test count visualization
 			float triVis = float( stats.x ) / debugVisScale;
 			return triVis < 1.0 ? vec4( vec3( triVis ), 1.0 ) : vec4( 1.0, 0.0, 0.0, 1.0 );
 		}
 		case 2: {
-			// Box test count vis
+			// Box test count visualization
 			float boxVis = float( stats.y ) / debugVisScale;
 			return boxVis < 1.0 ? vec4( vec3( boxVis ), 1.0 ) : vec4( 1.0, 0.0, 0.0, 1.0 );
 		}
+
+		// ------------------------------------------------------------------------
+		// Geometry Information
+		// ------------------------------------------------------------------------
 		case 3: {
-			// Distance
+			// Ray distance visualization
 			return vec4( vec3( length( rayOrigin - hitInfo.hitPoint ) / debugVisScale ), 1.0 );
 		}
 		case 4: {
-			// Normal
+			// Ray-traced surface normals (from BVH traversal)
 			if( ! hitInfo.didHit )
 				return vec4( 0.0, 0.0, 0.0, 1.0 );
-			return vec4( vec3( hitInfo.normal * 0.5 + 0.5 ), 1.0 );
+			return vec4( visualizeNormal( hitInfo.normal ), 1.0 );
 		}
+
+		// ------------------------------------------------------------------------
+		// Environment & Lighting
+		// ------------------------------------------------------------------------
 		case 6: {
             // Environment Map Luminance Visualization
 			if( enableEnvironmentLight ) {
@@ -172,8 +201,54 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 
 			return vec4( visualColor, 1.0 );
 		}
+
+		// ------------------------------------------------------------------------
+		// MRT (Multiple Render Targets) Outputs
+		// These visualize what gets written to the MRT buffers
+		// ------------------------------------------------------------------------
+		case 9: {
+			// MRT: World-space normals (gNormalDepth.rgb)
+			// Shows the surface normal that gets written to the MRT for denoisers
+			if( ! hitInfo.didHit )
+				return vec4( 0.5, 0.5, 1.0, 1.0 ); // Sky/background = up vector
+
+			// Get material-mapped normal (same as what's used in main shader)
+			MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
+			vec3 worldNormal = normalize( matSamples.normal );
+
+			// Encode as [0,1] range (same as gNormalDepth output)
+			return vec4( visualizeNormal( worldNormal ), 1.0 );
+		}
+		case 10: {
+			// MRT: Linear depth (gNormalDepth.a)
+			// Shows the NDC depth value [0,1] that gets written to the MRT
+			if( ! hitInfo.didHit )
+				return vec4( vec3( 1.0 ), 1.0 ); // Far plane = white
+
+			// Compute NDC depth (same as main shader)
+			float linearDepth = computeNDCDepth( hitInfo.hitPoint );
+
+			// Visualize: near=white, far=black
+			return vec4( visualizeDepth( linearDepth ), 1.0 );
+		}
+		case 11: {
+			// MRT: Albedo (gAlbedo.rgb)
+			// Shows the base color that gets written to the MRT for denoisers (OIDN)
+			if( ! hitInfo.didHit )
+				return vec4( 0.0, 0.0, 0.0, 1.0 ); // Background = black
+
+			// Get albedo from material textures (same as main shader)
+			MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
+			vec3 objectColor = matSamples.albedo.rgb;
+
+			return vec4( objectColor, 1.0 );
+		}
+
+		// ------------------------------------------------------------------------
+		// Default Case
+		// ------------------------------------------------------------------------
 		default: {
-			// Invalid test mode
+			// Invalid debug mode - show magenta as error indicator
 			return vec4( 1.0, 0.0, 1.0, 1.0 );
 		}
 	}

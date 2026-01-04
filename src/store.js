@@ -841,7 +841,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { debugMode: val } ),
 		val => {
 
-			const mode = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8 }[ val ] || 0;
+			const mode = {
+				'1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+				'6': 6, '7': 7, '8': 8, '9': 9, '10': 10, '11': 11
+			}[ val ] || 0;
 			window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
 
 		}

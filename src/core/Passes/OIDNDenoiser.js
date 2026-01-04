@@ -1,6 +1,6 @@
 import { initUNetFromURL } from 'oidn-web';
-import { AlbedoNormalGenerator } from './AlbedoNormalGenerator';
 import { EventDispatcher } from 'three';
+import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
 
 // Constants for better maintainability
 const MODEL_CONFIG = {
@@ -38,6 +38,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.input = renderer.domElement;
 		this.output = output;
+		this.getMRTTexture = options.getMRTTexture || null;
 
 		// Merge options with defaults
 		this.config = { ...MODEL_CONFIG.DEFAULT_OPTIONS, ...options };
@@ -59,7 +60,6 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		this.currentTZAUrl = null;
 		this.unet = null;
-		this.mapGenerator = null;
 
 		// For debug visualization
 		this.debugHelpers = null;
@@ -79,7 +79,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		try {
 
 			this._setupCanvas();
-			this.mapGenerator = new AlbedoNormalGenerator( this.scene, this.camera, this.renderer );
+			this._initDebugVisualization();
 			await this._setupUNetDenoiser();
 
 		} catch ( error ) {
@@ -87,6 +87,14 @@ export class OIDNDenoiser extends EventDispatcher {
 			throw new Error( `Initialization failed: ${error.message}` );
 
 		}
+
+	}
+
+	_initDebugVisualization() {
+
+		// Note: Debug helpers will be created lazily when MRT textures are available
+		// This avoids creating helpers without proper texture references
+		this.debugHelpers = null;
 
 	}
 
@@ -294,6 +302,62 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
+	/**
+	 * Extract albedo and normal data from MRT normalDepth texture
+	 * @returns {ImageData|null}
+	 */
+	_extractAlbedoNormalFromMRT() {
+
+		if ( ! this.getMRTTexture ) return null;
+
+		const data = this.getMRTTexture();
+		if ( ! data?.renderTarget ) return null;
+
+		const { width, height } = this.output;
+		const pixelCount = width * height;
+		const buffer = new Float32Array( pixelCount * 4 );
+		const gl = this.renderer.getContext();
+
+		// Pre-allocate ImageData objects
+		const albedoData = new ImageData( width, height );
+		const normalData = new ImageData( width, height );
+
+		// Read albedo from MRT attachment 2
+		this.renderer.setRenderTarget( data.renderTarget );
+		gl.readBuffer( gl.COLOR_ATTACHMENT2 );
+		gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer );
+
+		// Process albedo data
+		const albedoArray = albedoData.data;
+		for ( let i = 0, len = buffer.length; i < len; i += 4 ) {
+
+			albedoArray[ i ] = Math.min( buffer[ i ] * 255, 255 ) | 0;
+			albedoArray[ i + 1 ] = Math.min( buffer[ i + 1 ] * 255, 255 ) | 0;
+			albedoArray[ i + 2 ] = Math.min( buffer[ i + 2 ] * 255, 255 ) | 0;
+			albedoArray[ i + 3 ] = 255;
+
+		}
+
+		// Read normals from MRT attachment 1
+		gl.readBuffer( gl.COLOR_ATTACHMENT1 );
+		gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer );
+		this.renderer.setRenderTarget( null );
+
+		// Process normal data (decode from [0,1] to [-1,1] then remap to [0,255])
+		const normalArray = normalData.data;
+		for ( let i = 0, len = buffer.length; i < len; i += 4 ) {
+
+			normalArray[ i ] = ( buffer[ i ] * 255 - 127.5 ) | 0;
+			normalArray[ i + 1 ] = ( buffer[ i + 1 ] * 255 - 127.5 ) | 0;
+			normalArray[ i + 2 ] = ( buffer[ i + 2 ] * 255 - 127.5 ) | 0;
+			normalArray[ i + 3 ] = 255;
+
+		}
+
+		return { albedo: albedoData, normal: normalData };
+
+	}
+
 	async _executeUNet() {
 
 		const { width, height } = this.output;
@@ -313,39 +377,26 @@ export class OIDNDenoiser extends EventDispatcher {
 		};
 
 		// Add G-buffer data if enabled
-		if ( this.useGBuffer && this.mapGenerator ) {
+		if ( this.useGBuffer ) {
 
-			const { albedo, normal } = this.mapGenerator.generateMaps();
+			const mrtData = this.getMRTTexture();
+
+			// Extract ImageData for OIDN denoiser
+			const { albedo, normal } = this._extractAlbedoNormalFromMRT();
 			config.albedo = albedo;
 			config.normal = normal;
 
-			// Debug output if enabled
-			if ( this.debugGbufferMaps ) {
+			// Update debug visualization if enabled (uses MRT textures directly)
+			if ( this.debugGbufferMaps && this.debugHelpers && mrtData?.renderTarget ) {
 
-				// Create debug helpers if they don't exist
-				if ( ! this.debugHelpers ) {
-
-					this.debugHelpers = this.mapGenerator.createDebugHelpers( this.renderer );
-
-					// Add helpers to DOM
-					if ( this.debugHelpers.albedo ) document.body.appendChild( this.debugHelpers.albedo );
-					if ( this.debugHelpers.normal ) document.body.appendChild( this.debugHelpers.normal );
-
-				}
-
-				// Visualize the G-buffer maps
-				this.mapGenerator.visualizeImageDataInTarget( albedo, this.mapGenerator.albedoDebugTarget, this.renderer );
-				this.mapGenerator.visualizeImageDataInTarget( normal, this.mapGenerator.normalDebugTarget, this.renderer );
-
-				// Update the helpers
-				if ( this.debugHelpers.albedo ) this.debugHelpers.albedo.update();
-				if ( this.debugHelpers.normal ) this.debugHelpers.normal.update();
+				this._updateDebugVisualization( mrtData.renderTarget );
+				this.debugHelpers.albedo.show();
+				this.debugHelpers.normal.show();
 
 			} else if ( this.debugHelpers ) {
 
-				// Hide helpers if debug is disabled
-				if ( this.debugHelpers.albedo ) this.debugHelpers.albedo.hide();
-				if ( this.debugHelpers.normal ) this.debugHelpers.normal.hide();
+				this.debugHelpers.albedo.hide();
+				this.debugHelpers.normal.hide();
 
 			}
 
@@ -396,7 +447,7 @@ export class OIDNDenoiser extends EventDispatcher {
 					resolve();
 
 				},
-				progress: ( outputData, tileData, tile ) => {
+				progress: ( _outputData, tileData, tile ) => {
 
 					// Check for abort during progress
 					if ( this.state.abortController?.signal.aborted ) {
@@ -441,7 +492,6 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		}
 
-		this.mapGenerator?.setSize( width, height );
 		this.output.width = width;
 		this.output.height = height;
 
@@ -454,20 +504,72 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
+	/**
+	 * Update debug visualization using MRT textures directly
+	 * @param {WebGLRenderTarget} mrtRenderTarget - The MRT render target containing albedo and normal
+	 */
+	_updateDebugVisualization( mrtRenderTarget ) {
+
+		if ( ! mrtRenderTarget?.textures || mrtRenderTarget.textures.length < 3 ) {
+
+			return;
+
+		}
+
+		// Create helpers lazily on first use with MRT textures
+		if ( ! this.debugHelpers ) {
+
+			this.debugHelpers = {
+				// Albedo texture (MRT attachment 2) - simple passthrough
+				albedo: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 2 ], {
+					width: 250,
+					height: 250,
+					position: 'bottom-right',
+					theme: 'dark',
+					title: 'OIDN Albedo',
+					autoUpdate: false
+				} ),
+				// Normal texture (MRT attachment 1) - with remap for visualization
+				normal: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 1 ], {
+					width: 250,
+					height: 250,
+					position: 'bottom-left',
+					theme: 'dark',
+					title: 'OIDN Normal',
+					autoUpdate: false,
+					transform: 'normal-remap' // Remap normals to visible range
+				} )
+			};
+
+			// Add helpers to DOM
+			document.body.appendChild( this.debugHelpers.albedo );
+			document.body.appendChild( this.debugHelpers.normal );
+
+			// Hide by default
+			this.debugHelpers.albedo.hide();
+			this.debugHelpers.normal.hide();
+
+		}
+
+		// Update the displays
+		this.debugHelpers.albedo.update();
+		this.debugHelpers.normal.update();
+
+	}
+
 	dispose() {
 
 		// Abort any ongoing operations
 		this.abort();
 
 		// Dispose resources
-		this.mapGenerator?.dispose();
 		this.unet?.dispose();
 
 		// Dispose debug helpers
 		if ( this.debugHelpers ) {
 
-			if ( this.debugHelpers.albedo ) this.debugHelpers.albedo.dispose();
-			if ( this.debugHelpers.normal ) this.debugHelpers.normal.dispose();
+			this.debugHelpers.albedo?.dispose();
+			this.debugHelpers.normal?.dispose();
 			this.debugHelpers = null;
 
 		}
@@ -480,7 +582,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		}
 
 		// Clear references
-		this.mapGenerator = null;
 		this.unet = null;
 		this.ctx = null;
 		this.state.abortController = null;

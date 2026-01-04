@@ -1,8 +1,17 @@
+import {
+	WebGLRenderTarget,
+	ShaderMaterial,
+	LinearFilter,
+	RGBAFormat,
+	FloatType
+} from 'three';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
 /**
- * RenderTargetHelper - A component for displaying Three.js render targets in a resizable window
+ * RenderTargetHelper - A component for displaying Three.js render targets or textures in a resizable window
  *
  * @param {THREE.WebGLRenderer} renderer - The renderer instance
- * @param {THREE.WebGLRenderTarget} renderTarget - The render target to display
+ * @param {THREE.WebGLRenderTarget|THREE.Texture} renderTargetOrTexture - The render target or texture to display
  * @param {Object} options - Optional configuration
  * @param {number} options.width - Initial width of the view (default: 200)
  * @param {number} options.height - Initial height of the view (default: 200)
@@ -11,9 +20,85 @@
  * @param {boolean} options.flipY - Flip the image vertically (default: true)
  * @param {boolean} options.autoUpdate - Whether to automatically update on animation frames (default: false)
  * @param {string} options.title - Title to display in the header (default: 'Render Target')
+ * @param {string} options.transform - Optional shader transform: 'normal-remap' remaps [0,1] to visible range
  * @returns {HTMLElement} The container element with attached methods
  */
-function RenderTargetHelper( renderer, renderTarget, options = {} ) {
+function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
+
+	// Detect if input is a Texture or RenderTarget
+	const isTexture = renderTargetOrTexture.isTexture === true;
+
+	let renderTarget;
+	let internalRenderTarget = null;
+	let textureQuad = null;
+	let textureMaterial = null;
+
+	if ( isTexture ) {
+
+		// Create internal render target for texture rendering
+		const texture = renderTargetOrTexture;
+		internalRenderTarget = new WebGLRenderTarget(
+			texture.image?.width || 256,
+			texture.image?.height || 256,
+			{
+				minFilter: LinearFilter,
+				magFilter: LinearFilter,
+				format: RGBAFormat,
+				type: FloatType,
+				depthBuffer: false
+			}
+		);
+
+		// Create shader material based on transform option
+		let fragmentShader;
+		if ( options.transform === 'normal-remap' ) {
+
+			// Remap normals from [0,1] to visible range for display
+			fragmentShader = /* glsl */`
+				uniform sampler2D tTexture;
+				varying vec2 vUv;
+				void main() {
+					vec3 value = texture2D(tTexture, vUv).xyz;
+					gl_FragColor = vec4(value * 0.5 + 0.5, 1.0);
+				}
+			`;
+
+		} else {
+
+			// Simple passthrough
+			fragmentShader = /* glsl */`
+				uniform sampler2D tTexture;
+				varying vec2 vUv;
+				void main() {
+					vec4 value = texture2D(tTexture, vUv);
+					gl_FragColor = vec4(value.rgb, 1.0);
+				}
+			`;
+
+		}
+
+		textureMaterial = new ShaderMaterial( {
+			uniforms: {
+				tTexture: { value: texture }
+			},
+			vertexShader: /* glsl */`
+				varying vec2 vUv;
+				void main() {
+					vUv = uv;
+					gl_Position = vec4(position, 1.0);
+				}
+			`,
+			fragmentShader
+		} );
+
+		textureQuad = new FullScreenQuad( textureMaterial );
+		renderTarget = internalRenderTarget;
+
+	} else {
+
+		renderTarget = renderTargetOrTexture;
+
+	}
 
 	// Default options
 	const config = {
@@ -211,15 +296,38 @@ function RenderTargetHelper( renderer, renderTarget, options = {} ) {
 	// Optimize resize handling
 	function handleResize() {
 
-		// Check if render target dimensions have changed
-		if ( width !== renderTarget.width || height !== renderTarget.height ) {
+		// Get current dimensions from source
+		let currentWidth, currentHeight;
+		if ( isTexture ) {
 
-			width = renderTarget.width;
-			height = renderTarget.height;
+			// For textures, get dimensions from the texture's image
+			const texture = renderTargetOrTexture;
+			currentWidth = texture.image?.width || renderTarget.width;
+			currentHeight = texture.image?.height || renderTarget.height;
 
-			// Resize canvas to match render target dimensions
+		} else {
+
+			currentWidth = renderTarget.width;
+			currentHeight = renderTarget.height;
+
+		}
+
+		// Check if dimensions have changed
+		if ( width !== currentWidth || height !== currentHeight ) {
+
+			width = currentWidth;
+			height = currentHeight;
+
+			// Resize canvas to match dimensions
 			domCanvas.width = width;
 			domCanvas.height = height;
+
+			// Resize internal render target if using texture
+			if ( internalRenderTarget ) {
+
+				internalRenderTarget.setSize( width, height );
+
+			}
 
 			// Recreate pixel buffers
 			pixels = new Float32Array( 4 * width * height );
@@ -238,6 +346,16 @@ function RenderTargetHelper( renderer, renderTarget, options = {} ) {
 		handleResize();
 
 		try {
+
+			// If using a texture, render it to the internal render target first
+			if ( isTexture && textureQuad && internalRenderTarget ) {
+
+				const currentRenderTarget = renderer.getRenderTarget();
+				renderer.setRenderTarget( internalRenderTarget );
+				textureQuad.render( renderer );
+				renderer.setRenderTarget( currentRenderTarget );
+
+			}
 
 			// Read pixels from render target
 			renderer.readRenderTargetPixels( renderTarget, 0, 0, width, height, pixels );
@@ -367,6 +485,28 @@ function RenderTargetHelper( renderer, renderTarget, options = {} ) {
 		if ( config.autoUpdate && animFrameId ) {
 
 			cancelAnimationFrame( animFrameId );
+
+		}
+
+		// Dispose internal texture rendering resources
+		if ( internalRenderTarget ) {
+
+			internalRenderTarget.dispose();
+			internalRenderTarget = null;
+
+		}
+
+		if ( textureMaterial ) {
+
+			textureMaterial.dispose();
+			textureMaterial = null;
+
+		}
+
+		if ( textureQuad ) {
+
+			textureQuad.dispose();
+			textureQuad = null;
 
 		}
 

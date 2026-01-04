@@ -615,6 +615,9 @@ const PathTracerTab = () => {
 								<SelectItem value="6">EnvMap Luminance</SelectItem>
 								<SelectItem value="7">Env MIS PDF Direction</SelectItem>
 								<SelectItem value="8">Emissive Lighting</SelectItem>
+								<SelectItem value="9">MRT: Normals</SelectItem>
+								<SelectItem value="10">MRT: Depth</SelectItem>
+								<SelectItem value="11">MRT: Albedo</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

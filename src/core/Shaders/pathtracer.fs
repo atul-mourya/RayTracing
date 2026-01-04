@@ -4,6 +4,7 @@ precision highp sampler2DArray;
 // MRT outputs (no longer conditional)
 layout( location = 0 ) out vec4 gColor;        // RGB + alpha
 layout( location = 1 ) out vec4 gNormalDepth;  // Normal(RGB) + depth(A)
+layout( location = 2 ) out vec4 gAlbedo;       // Albedo(RGB) for OIDN
 
 uniform uint frame;
 uniform vec2 resolution;
@@ -292,6 +293,7 @@ void main( ) {
 			if( samplesCount == 0 ) {
 				// Always output normal/depth for MRT even for converged pixels
 				gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
+				gAlbedo = vec4( 0.0, 0.0, 0.0, 1.0 );
 				return;
 			}
 		}
@@ -310,6 +312,7 @@ void main( ) {
 		if( visMode == 5 ) {
 			gColor = vec4( stratifiedJitter, 1.0, 1.0 );
 			gNormalDepth = vec4( 0.5, 0.5, 1.0, 1.0 );
+			gAlbedo = vec4( 0.0, 0.0, 0.0, 1.0 );
 			return;
 		}
 
@@ -396,4 +399,5 @@ void main( ) {
 	// Clean MRT output
 	gColor = vec4( finalColor, 1.0 );
 	gNormalDepth = vec4( worldNormal * 0.5 + 0.5, linearDepth );
+	gAlbedo = vec4( objectColor, 1.0 ); // Base color from first ray hit for OIDN
 }

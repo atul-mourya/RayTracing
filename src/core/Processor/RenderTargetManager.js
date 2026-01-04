@@ -30,7 +30,7 @@ export class RenderTargetManager {
 		this.copyQuad = null;
 
 		// Performance cache for MRT textures
-		this.mrtTexturesCache = { color: null, normalDepth: null };
+		this.mrtTexturesCache = { color: null, normalDepth: null, albedo: null };
 
 		// Create ping-pong MRT targets immediately
 		this.createTargets( width, height );
@@ -61,7 +61,7 @@ export class RenderTargetManager {
 				type: FloatType,
 				colorSpace: LinearSRGBColorSpace,
 				depthBuffer: false,
-				count: 2, // Always MRT: Color + NormalDepth
+				count: 3, // MRT: Color + NormalDepth + Albedo (for OIDN)
 				samples: 0 // IMPORTANT: No multisampling to avoid blitFramebuffer issues
 			};
 
@@ -83,13 +83,13 @@ export class RenderTargetManager {
 			this.previousTarget = new WebGLRenderTarget( width, height, targetOptions );
 
 			// Verify targets have textures
-			if ( ! this.currentTarget.textures || this.currentTarget.textures.length !== 2 ) {
+			if ( ! this.currentTarget.textures || this.currentTarget.textures.length !== 3 ) {
 
 				throw new Error( 'Current target missing MRT textures' );
 
 			}
 
-			if ( ! this.previousTarget.textures || this.previousTarget.textures.length !== 2 ) {
+			if ( ! this.previousTarget.textures || this.previousTarget.textures.length !== 3 ) {
 
 				throw new Error( 'Previous target missing MRT textures' );
 
@@ -98,8 +98,10 @@ export class RenderTargetManager {
 			// Set texture names for debugging
 			this.currentTarget.textures[ 0 ].name = 'CurrentColor';
 			this.currentTarget.textures[ 1 ].name = 'CurrentNormalDepth';
+			this.currentTarget.textures[ 2 ].name = 'CurrentAlbedo';
 			this.previousTarget.textures[ 0 ].name = 'PreviousColor';
 			this.previousTarget.textures[ 1 ].name = 'PreviousNormalDepth';
+			this.previousTarget.textures[ 2 ].name = 'PreviousAlbedo';
 
 		} catch ( error ) {
 
@@ -134,14 +136,16 @@ export class RenderTargetManager {
 			this.currentTarget = new WebGLRenderTarget( width, height, fallbackOptions );
 			this.previousTarget = new WebGLRenderTarget( width, height, fallbackOptions );
 
-			// Create dummy second textures for MRT compatibility
-			this.currentTarget.textures = [ this.currentTarget.texture, this.currentTarget.texture ];
-			this.previousTarget.textures = [ this.previousTarget.texture, this.previousTarget.texture ];
+			// Create dummy textures for MRT compatibility
+			this.currentTarget.textures = [ this.currentTarget.texture, this.currentTarget.texture, this.currentTarget.texture ];
+			this.previousTarget.textures = [ this.previousTarget.texture, this.previousTarget.texture, this.previousTarget.texture ];
 
 			this.currentTarget.textures[ 0 ].name = 'CurrentColor';
 			this.currentTarget.textures[ 1 ].name = 'CurrentNormalDepth';
+			this.currentTarget.textures[ 2 ].name = 'CurrentAlbedo';
 			this.previousTarget.textures[ 0 ].name = 'PreviousColor';
 			this.previousTarget.textures[ 1 ].name = 'PreviousNormalDepth';
+			this.previousTarget.textures[ 2 ].name = 'PreviousAlbedo';
 
 			console.log( 'RenderTargetManager: Fallback targets created successfully' );
 
@@ -176,8 +180,8 @@ export class RenderTargetManager {
 	}
 
 	/**
-     * Get MRT textures (color and normal/depth)
-     * @returns {Object} - Object containing color and normalDepth textures
+     * Get MRT textures (color, normal/depth, and albedo)
+     * @returns {Object} - Object containing color, normalDepth, and albedo textures
      */
 	getMRTTextures() {
 
@@ -185,7 +189,8 @@ export class RenderTargetManager {
 
 			return {
 				color: null,
-				normalDepth: null
+				normalDepth: null,
+				albedo: null
 			};
 
 		}
@@ -193,6 +198,7 @@ export class RenderTargetManager {
 		// Reuse cached object to avoid allocation
 		this.mrtTexturesCache.color = this.currentTarget.textures[ 0 ];
 		this.mrtTexturesCache.normalDepth = this.currentTarget.textures[ 1 ];
+		this.mrtTexturesCache.albedo = this.currentTarget.textures[ 2 ];
 		return this.mrtTexturesCache;
 
 	}
@@ -207,14 +213,16 @@ export class RenderTargetManager {
 
 			return {
 				color: null,
-				normalDepth: null
+				normalDepth: null,
+				albedo: null
 			};
 
 		}
 
 		return {
 			color: this.previousTarget.textures[ 0 ],
-			normalDepth: this.previousTarget.textures[ 1 ]
+			normalDepth: this.previousTarget.textures[ 1 ],
+			albedo: this.previousTarget.textures[ 2 ]
 		};
 
 	}
@@ -422,7 +430,7 @@ export class RenderTargetManager {
 
 		const bytesPerPixel = 16; // 4 channels * 4 bytes (Float32) per channel
 		const pixelsPerTarget = this.width * this.height;
-		const texturesPerTarget = 2; // MRT: color + normal/depth
+		const texturesPerTarget = 3; // MRT: color + normal/depth + albedo
 		const targetCount = 2; // current + previous
 
 		const totalBytes = pixelsPerTarget * bytesPerPixel * texturesPerTarget * targetCount;
@@ -498,7 +506,7 @@ export class RenderTargetManager {
 		}
 
 		// Clear caches
-		this.mrtTexturesCache = { color: null, normalDepth: null };
+		this.mrtTexturesCache = { color: null, normalDepth: null, albedo: null };
 
 	}
 

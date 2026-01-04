@@ -346,7 +346,28 @@ class PathTracerApp extends EventDispatcher {
 		outputPass.material.transparent = true;
 		this.composer.addPass( outputPass );
 
-		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, DEFAULT_STATE );
+		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
+			...DEFAULT_STATE,
+			getMRTTexture: () => {
+
+				// Get normalDepth and albedo textures from path tracer's MRT output
+				if ( this.pipeline?.context ) {
+
+					const renderTarget = this.pipeline.context.getRenderTarget( 'pathtracer:current' );
+					const normalDepthTexture = this.pipeline.context.getTexture( 'pathtracer:normalDepth' );
+					const albedoTexture = this.pipeline.context.getTexture( 'pathtracer:albedo' );
+					return {
+						renderTarget,
+						texture: normalDepthTexture,
+						albedoTexture
+					};
+
+				}
+
+				return null;
+
+			}
+		} );
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
 		// Set up denoiser event listeners to update store
