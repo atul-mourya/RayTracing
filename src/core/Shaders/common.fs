@@ -226,43 +226,59 @@ MaterialClassification classifyMaterial( RayTracingMaterial material ) {
 }
 
 // IMPROVEMENT: Dynamic MIS strategy based on material properties
+// FIXED: Keep environment sampling active on ALL bounces for interior scene support
 MISStrategy selectOptimalMISStrategy( RayTracingMaterial material, int bounceIndex, vec3 throughput ) {
     MISStrategy strategy;
 
-    float materialComplexity = classifyMaterial( material ).complexityScore;
     float throughputStrength = maxComponent( throughput );
+
+    // For secondary bounces (interior lighting), environment sampling becomes MORE important
+    // as it's often the only way to find light paths through openings
+    bool isSecondaryBounce = bounceIndex > 0;
+    float envBoostForIndirect = isSecondaryBounce ? 1.5 : 1.0;
 
     // Adaptive strategy based on material and path state
     if( material.roughness < 0.1 && material.metalness > 0.8 ) {
-        // Highly specular materials - favor BRDF sampling
-        strategy.brdfWeight = 0.7;
-        strategy.lightWeight = 0.2;
-        strategy.envWeight = 0.1;
+        // Highly specular materials - favor BRDF sampling but keep env active
+        strategy.brdfWeight = 0.6;
+        strategy.lightWeight = 0.15;
+        strategy.envWeight = 0.25 * envBoostForIndirect;
         strategy.useBRDFSampling = true;
         strategy.useLightSampling = throughputStrength > 0.01;
-        strategy.useEnvSampling = bounceIndex < 3;
+        strategy.useEnvSampling = true; // Always keep environment sampling active
     } else if( material.roughness > 0.7 ) {
-        // Diffuse materials - favor light sampling
-        strategy.brdfWeight = 0.3;
-        strategy.lightWeight = 0.5;
-        strategy.envWeight = 0.2;
+        // Diffuse materials - environment sampling is crucial for interior scenes
+        // Light bouncing off diffuse walls needs to find environment through openings
+        strategy.brdfWeight = 0.25;
+        strategy.lightWeight = 0.35;
+        strategy.envWeight = 0.4 * envBoostForIndirect; // Significantly increased for diffuse
         strategy.useBRDFSampling = true;
         strategy.useLightSampling = true;
-        strategy.useEnvSampling = true; // Will be checked against enableEnvironmentLight where used
+        strategy.useEnvSampling = true;
     } else {
         // Balanced approach for mixed materials
-        strategy.brdfWeight = 0.4;
-        strategy.lightWeight = 0.4;
-        strategy.envWeight = 0.2;
+        strategy.brdfWeight = 0.35;
+        strategy.lightWeight = 0.3;
+        strategy.envWeight = 0.35 * envBoostForIndirect;
         strategy.useBRDFSampling = true;
         strategy.useLightSampling = true;
-        strategy.useEnvSampling = bounceIndex < 4; // Will be checked against enableEnvironmentLight where used
+        strategy.useEnvSampling = true; // Always active for interior support
     }
 
-    // Adjust based on bounce depth
-    if( bounceIndex > 3 ) {
-        strategy.lightWeight *= 0.7; // Reduce light sampling for deep bounces
-        strategy.envWeight *= 0.8;
+    // Normalize weights to ensure they sum to 1.0
+    float totalWeight = strategy.brdfWeight + strategy.lightWeight + strategy.envWeight;
+    if( totalWeight > 0.0 ) {
+        float invTotal = 1.0 / totalWeight;
+        strategy.brdfWeight *= invTotal;
+        strategy.lightWeight *= invTotal;
+        strategy.envWeight *= invTotal;
+    }
+
+    // Gentle adjustment for very deep bounces - but DON'T disable environment sampling
+    // Interior scenes rely on environment sampling even at deep bounces
+    if( bounceIndex > 5 ) {
+        strategy.lightWeight *= 0.85;
+        // Keep environment weight stable - crucial for finding light in interiors
     }
 
     return strategy;

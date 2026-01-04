@@ -271,46 +271,61 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 	info.transmissionImportance = weights.transmission;
 	info.clearcoatImportance = weights.clearcoat;
 
-    // Vectorized environment importance calculation
-	float baseEnvStrength = environmentIntensity * 0.05;
+    // FIXED: Significantly increased base environment strength for interior scene support
+    // Interior scenes with windows/openings rely heavily on environment sampling
+    // Previous value of 0.05 was too conservative
+	float baseEnvStrength = environmentIntensity * 0.2;
+
+    // For secondary bounces, boost environment importance further
+    // This is crucial for interior lighting where indirect rays need to find light through openings
+	bool isSecondaryBounce = bounceIndex > 0;
+	float indirectEnvBoost = isSecondaryBounce ? 1.5 : 1.0;
 
     // Material-based environment factor (vectorized calculations)
 	float envMaterialFactor = 1.0;
 	envMaterialFactor *= mix( 1.0, 2.5, float( mc.isMetallic ) );           // Metals reflect environment strongly
-	envMaterialFactor *= mix( 1.0, 1.8, float( mc.isRough ) );              // Rough materials sample diffusely
-	envMaterialFactor *= mix( 1.0, 0.4, float( mc.isTransmissive ) );       // Transmissive materials interact less
+	envMaterialFactor *= mix( 1.0, 2.2, float( mc.isRough ) );              // Rough materials need env sampling for GI (increased from 1.8)
+	envMaterialFactor *= mix( 1.0, 0.5, float( mc.isTransmissive ) );       // Transmissive materials interact less (slightly increased)
 	envMaterialFactor *= mix( 1.0, 1.6, float( mc.hasClearcoat ) );         // Clearcoat adds reflection
 
-    // Pure physically-based: treat all bounces equally (matches three-gpu-pathtracer)
-	info.envmapImportance = baseEnvStrength * envMaterialFactor;
+    // Apply indirect boost for secondary bounces
+	info.envmapImportance = baseEnvStrength * envMaterialFactor * indirectEnvBoost;
 
     // Material-specific adjustments using classification
+    // FIXED: Removed aggressive depth-based reduction that was hurting interior lighting
 	if( bounceIndex > 2 ) {
 		float depthFactor = 1.0 / float( bounceIndex - 1 );
 
-        // Vectorized depth adjustments
-		info.specularImportance *= ( 0.7 + depthFactor * 0.3 );
-		info.clearcoatImportance *= ( 0.6 + depthFactor * 0.4 );
-		info.diffuseImportance *= ( 1.2 + depthFactor * 0.3 );
+        // Gentle depth adjustments - don't reduce too aggressively
+		info.specularImportance *= ( 0.8 + depthFactor * 0.2 );
+		info.clearcoatImportance *= ( 0.7 + depthFactor * 0.3 );
+		// Don't reduce diffuse - it's important for interior GI
+		info.diffuseImportance *= ( 1.0 + depthFactor * 0.2 );
 	}
 
     // Fast material-specific boosts using pre-computed classification
 	if( mc.isMetallic && bounceIndex < 3 ) {
 		info.specularImportance = max( info.specularImportance, 0.6 );
-		info.envmapImportance = max( info.envmapImportance, 0.3 );
+		info.envmapImportance = max( info.envmapImportance, 0.35 );
 		info.diffuseImportance *= 0.4;
+	}
+
+    // FIXED: For diffuse materials on secondary bounces, boost environment importance
+    // This is critical for interior scenes where walls need to gather light from openings
+	if( mc.isRough && ! mc.isMetallic && isSecondaryBounce ) {
+		info.envmapImportance = max( info.envmapImportance, 0.4 );
 	}
 
 	if( mc.isTransmissive ) {
 		info.transmissionImportance = max( info.transmissionImportance, 0.8 );
 		info.diffuseImportance *= 0.2;
 		info.specularImportance *= 0.6;
-		info.envmapImportance *= 0.7;
+		info.envmapImportance *= 0.8; // Increased from 0.7 - transmissive still needs some env
 	}
 
 	if( mc.hasClearcoat ) {
 		info.clearcoatImportance = max( info.clearcoatImportance, 0.4 );
-		info.envmapImportance = max( info.envmapImportance, 0.2 );
+		info.envmapImportance = max( info.envmapImportance, 0.25 );
 	}
 
     // Normalize to sum to 1.0
@@ -328,8 +343,8 @@ ImportanceSamplingInfo getImportanceSamplingInfo( RayTracingMaterial material, i
 	} else {
         // Fallback - prefer environment sampling when IS is available
 		if( useEnvMapIS && enableEnvironmentLight ) {
-			info.diffuseImportance = 0.4;
-			info.envmapImportance = 0.6;
+			info.diffuseImportance = 0.35;
+			info.envmapImportance = 0.65; // Increased fallback env importance
 		} else {
 			info.diffuseImportance = 0.6;
 			info.envmapImportance = 0.4;
