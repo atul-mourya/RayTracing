@@ -649,7 +649,6 @@ class PathTracerApp extends EventDispatcher {
 		// Update camera-dependent passes
 		if ( this.pathTracingPass ) this.pathTracingPass.camera = this.camera;
 		if ( this.outlinePass ) this.outlinePass.camera = this.camera;
-		if ( this.denoiser ) this.denoiser.mapGenerator.camera = this.camera;
 
 		console.log( `Reset cameras. Total cameras: ${this.cameras.length} (1 default + ${modelCameras?.length || 0} from model). Using default camera.` );
 
@@ -689,7 +688,6 @@ class PathTracerApp extends EventDispatcher {
 		// Update camera-dependent passes
 		if ( this.pathTracingPass ) this.pathTracingPass.camera = this.camera;
 		if ( this.outlinePass ) this.outlinePass.camera = this.camera;
-		if ( this.denoiser ) this.denoiser.mapGenerator.camera = this.camera;
 
 		this.onResize();
 		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index } );
