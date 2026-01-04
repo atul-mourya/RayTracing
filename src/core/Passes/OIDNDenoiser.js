@@ -63,6 +63,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// For debug visualization
 		this.debugHelpers = null;
+		this._lastAlbedoTexture = null;
+		this._lastNormalTexture = null;
 
 		// Initialize asynchronously
 		this._initialize().catch( error => {
@@ -327,14 +329,25 @@ export class OIDNDenoiser extends EventDispatcher {
 		gl.readBuffer( gl.COLOR_ATTACHMENT2 );
 		gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer );
 
-		// Process albedo data
+		// Process albedo data with Y-flip (readPixels reads from bottom-left, ImageData expects top-left)
 		const albedoArray = albedoData.data;
-		for ( let i = 0, len = buffer.length; i < len; i += 4 ) {
+		for ( let y = 0; y < height; y ++ ) {
 
-			albedoArray[ i ] = Math.min( buffer[ i ] * 255, 255 ) | 0;
-			albedoArray[ i + 1 ] = Math.min( buffer[ i + 1 ] * 255, 255 ) | 0;
-			albedoArray[ i + 2 ] = Math.min( buffer[ i + 2 ] * 255, 255 ) | 0;
-			albedoArray[ i + 3 ] = 255;
+			const flippedY = height - 1 - y;
+			const srcRowStart = flippedY * width * 4;
+			const dstRowStart = y * width * 4;
+
+			for ( let x = 0; x < width; x ++ ) {
+
+				const srcIdx = srcRowStart + x * 4;
+				const dstIdx = dstRowStart + x * 4;
+
+				albedoArray[ dstIdx ] = Math.min( buffer[ srcIdx ] * 255, 255 ) | 0;
+				albedoArray[ dstIdx + 1 ] = Math.min( buffer[ srcIdx + 1 ] * 255, 255 ) | 0;
+				albedoArray[ dstIdx + 2 ] = Math.min( buffer[ srcIdx + 2 ] * 255, 255 ) | 0;
+				albedoArray[ dstIdx + 3 ] = 255;
+
+			}
 
 		}
 
@@ -343,14 +356,25 @@ export class OIDNDenoiser extends EventDispatcher {
 		gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer );
 		this.renderer.setRenderTarget( null );
 
-		// Process normal data (decode from [0,1] to [-1,1] then remap to [0,255])
+		// Process normal data with Y-flip (decode from [0,1] to [-1,1] then remap to [0,255])
 		const normalArray = normalData.data;
-		for ( let i = 0, len = buffer.length; i < len; i += 4 ) {
+		for ( let y = 0; y < height; y ++ ) {
 
-			normalArray[ i ] = ( buffer[ i ] * 255 - 127.5 ) | 0;
-			normalArray[ i + 1 ] = ( buffer[ i + 1 ] * 255 - 127.5 ) | 0;
-			normalArray[ i + 2 ] = ( buffer[ i + 2 ] * 255 - 127.5 ) | 0;
-			normalArray[ i + 3 ] = 255;
+			const flippedY = height - 1 - y;
+			const srcRowStart = flippedY * width * 4;
+			const dstRowStart = y * width * 4;
+
+			for ( let x = 0; x < width; x ++ ) {
+
+				const srcIdx = srcRowStart + x * 4;
+				const dstIdx = dstRowStart + x * 4;
+
+				normalArray[ dstIdx ] = ( buffer[ srcIdx ] * 255 - 127.5 ) | 0;
+				normalArray[ dstIdx + 1 ] = ( buffer[ srcIdx + 1 ] * 255 - 127.5 ) | 0;
+				normalArray[ dstIdx + 2 ] = ( buffer[ srcIdx + 2 ] * 255 - 127.5 ) | 0;
+				normalArray[ dstIdx + 3 ] = 255;
+
+			}
 
 		}
 
@@ -387,7 +411,7 @@ export class OIDNDenoiser extends EventDispatcher {
 			config.normal = normal;
 
 			// Update debug visualization if enabled (uses MRT textures directly)
-			if ( this.debugGbufferMaps && this.debugHelpers && mrtData?.renderTarget ) {
+			if ( this.debugGbufferMaps && mrtData?.renderTarget ) {
 
 				this._updateDebugVisualization( mrtData.renderTarget );
 				this.debugHelpers.albedo.show();
@@ -516,8 +540,22 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		}
 
-		// Create helpers lazily on first use with MRT textures
-		if ( ! this.debugHelpers ) {
+		// Check if textures have changed (render target was recreated)
+		const texturesChanged = this.debugHelpers &&
+			( this._lastAlbedoTexture !== mrtRenderTarget.textures[ 2 ] ||
+			  this._lastNormalTexture !== mrtRenderTarget.textures[ 1 ] );
+
+		// Create or recreate helpers when textures change
+		if ( ! this.debugHelpers || texturesChanged ) {
+
+			// Dispose existing helpers if they exist
+			if ( this.debugHelpers ) {
+
+				this.debugHelpers.albedo?.dispose();
+				this.debugHelpers.normal?.dispose();
+				console.log( 'OIDNDenoiser: Recreating debug helpers due to texture change' );
+
+			}
 
 			this.debugHelpers = {
 				// Albedo texture (MRT attachment 2) - simple passthrough
@@ -541,11 +579,15 @@ export class OIDNDenoiser extends EventDispatcher {
 				} )
 			};
 
+			// Store references to track texture changes
+			this._lastAlbedoTexture = mrtRenderTarget.textures[ 2 ];
+			this._lastNormalTexture = mrtRenderTarget.textures[ 1 ];
+
 			// Add helpers to DOM
 			document.body.appendChild( this.debugHelpers.albedo );
 			document.body.appendChild( this.debugHelpers.normal );
 
-			// Hide by default
+			// Hide by default (visibility state will be restored by calling code)
 			this.debugHelpers.albedo.hide();
 			this.debugHelpers.normal.hide();
 
@@ -573,6 +615,10 @@ export class OIDNDenoiser extends EventDispatcher {
 			this.debugHelpers = null;
 
 		}
+
+		// Clear texture references
+		this._lastAlbedoTexture = null;
+		this._lastNormalTexture = null;
 
 		// Clean up DOM
 		if ( this.output?.parentNode ) {
