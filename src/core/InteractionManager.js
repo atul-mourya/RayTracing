@@ -49,6 +49,7 @@ class InteractionManager extends EventDispatcher {
 		this.handleSelectClick = this.handleSelectClick.bind( this );
 		this.handleSelectDoubleClick = this.handleSelectDoubleClick.bind( this );
 		this.handleMouseDown = this.handleMouseDown.bind( this );
+		this.handleContextMenu = this.handleContextMenu.bind( this );
 
 	}
 
@@ -188,12 +189,14 @@ class InteractionManager extends EventDispatcher {
 			this.canvas.addEventListener( 'mousedown', this.handleMouseDown );
 			this.canvas.addEventListener( 'click', this.handleSelectClick );
 			this.canvas.addEventListener( 'dblclick', this.handleSelectDoubleClick );
+			this.canvas.addEventListener( 'contextmenu', this.handleContextMenu );
 
 		} else {
 
 			this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 			this.canvas.removeEventListener( 'click', this.handleSelectClick );
 			this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
+			this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
 
 			// Clear pending click timeout
 			if ( this.clickTimeout ) {
@@ -234,6 +237,7 @@ class InteractionManager extends EventDispatcher {
 		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
+		this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
 
 		// Clear timeout
 		if ( this.clickTimeout ) {
@@ -418,6 +422,45 @@ class InteractionManager extends EventDispatcher {
 
 	}
 
+	// ==================== CONTEXT MENU ====================
+
+	/**
+	 * Handle right-click to show context menu
+	 * Dispatches event for React component to handle UI
+	 * @private
+	 */
+	handleContextMenu( event ) {
+
+		event.preventDefault();
+
+		// Ignore if mouse was dragged
+		if ( this.wasMouseDragged( event ) ) {
+
+			this.mouseDownPosition = null;
+			return;
+
+		}
+
+		this.mouseDownPosition = null;
+
+		// Only show context menu if an object is selected
+		const selectedObject = useStore.getState().selectedObject;
+		if ( ! selectedObject ) return;
+
+		// Verify in preview mode
+		const appMode = useStore.getState().appMode;
+		if ( appMode !== 'preview' ) return;
+
+		// Dispatch event for React component to handle
+		this.dispatchEvent( {
+			type: 'contextMenuRequested',
+			x: event.clientX,
+			y: event.clientY,
+			selectedObject: selectedObject
+		} );
+
+	}
+
 	// ==================== UTILITY METHODS ====================
 
 	/**
@@ -475,6 +518,7 @@ class InteractionManager extends EventDispatcher {
 		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
+		this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
 
 		// Clear timeouts
 		if ( this.clickTimeout ) {

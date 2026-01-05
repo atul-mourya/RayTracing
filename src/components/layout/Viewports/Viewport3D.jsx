@@ -4,6 +4,7 @@ import DimensionDisplay from './DimensionDisplay';
 import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
+import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
 import { useToast } from '@/hooks/use-toast';
 import { useStore } from '@/store';
 import { saveRender } from '@/utils/database';
@@ -269,6 +270,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 					onResetToAutoFit={handleResetToAutoFit}
 				/>
 			)}
+
+			<InteractionContextMenu appRef={appRef} isAppInitialized={isAppInitialized} />
 
 		</div>
 	);
