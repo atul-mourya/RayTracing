@@ -79,27 +79,18 @@ const ChevronToggle = memo( ( { isOpen, onToggle, hasChildren } ) => {
 ChevronToggle.displayName = 'ChevronToggle';
 
 // Extract the visibility toggle into its own component
-const VisibilityToggle = memo( ( { item } ) => {
+const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 
 	const toggleMeshVisibility = useStore( ( state ) => state.toggleMeshVisibility );
-
-	const getMeshVisibility = useCallback( () => {
-
-		if ( ! window.pathTracerApp ) return true;
-		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
-		return object?.visible ?? true;
-
-	}, [ item.uuid ] );
-
-	const [ isVisible, setIsVisible ] = useState( getMeshVisibility );
 
 	const handleToggle = useCallback( ( e ) => {
 
 		e.stopPropagation();
 		toggleMeshVisibility( item.uuid );
-		setIsVisible( prev => ! prev );
+		// Don't maintain local state - parent will update via event
+		onVisibilityChange?.( ! isVisible );
 
-	}, [ toggleMeshVisibility, item.uuid ] );
+	}, [ toggleMeshVisibility, item.uuid, isVisible, onVisibilityChange ] );
 
 	// Only show visibility toggle for meshes, return empty space for alignment
 	if ( item.type !== 'Mesh' ) {
@@ -125,7 +116,7 @@ const VisibilityToggle = memo( ( { item } ) => {
 VisibilityToggle.displayName = 'VisibilityToggle';
 
 // Extract the layer item node header into its own component
-const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeClick, onToggle } ) => {
+const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeClick, onToggle, isVisible, onVisibilityChange } ) => {
 
 	const paddingLeft = `${depth * 16 + 8}px`;
 	const hasChildren = item.children.length > 0;
@@ -141,13 +132,14 @@ const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeCli
 					"hover:bg-accent/50 hover:text-accent-foreground",
 					"focus-visible:outline-hidden",
 					isSelected && "bg-accent/50 text-accent-foreground",
+					! isVisible && "opacity-40"
 				)}
 			>
 				<div
 					className="flex items-center gap-0.5 px-1"
 					style={{ paddingLeft }}
 				>
-					<VisibilityToggle item={item} />
+					<VisibilityToggle item={item} isVisible={isVisible} onVisibilityChange={onVisibilityChange} />
 					<ChevronToggle
 						isOpen={isOpen}
 						onToggle={onToggle}
@@ -201,6 +193,47 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 	const selectedObject = useStore( ( state ) => state.selectedObject );
 	const setSelectedObject = useStore( ( state ) => state.setSelectedObject );
 
+	// Track visibility state
+	const getInitialVisibility = useCallback( () => {
+
+		if ( item.type !== 'Mesh' || ! window.pathTracerApp ) return true;
+		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+		return object?.visible ?? true;
+
+	}, [ item.type, item.uuid ] );
+
+	const [ isVisible, setIsVisible ] = useState( getInitialVisibility );
+
+	const handleVisibilityChange = useCallback( ( newVisibility ) => {
+
+		setIsVisible( newVisibility );
+
+	}, [] );
+
+	// Listen for visibility changes from other components (e.g., context menu)
+	useEffect( () => {
+
+		const handleMeshVisibilityChanged = ( event ) => {
+
+			// Check if this event is for our item
+			if ( event.detail.uuid === item.uuid ) {
+
+				setIsVisible( event.detail.visible );
+
+			}
+
+		};
+
+		window.addEventListener( 'meshVisibilityChanged', handleMeshVisibilityChanged );
+
+		return () => {
+
+			window.removeEventListener( 'meshVisibilityChanged', handleMeshVisibilityChanged );
+
+		};
+
+	}, [ item.uuid ] );
+
 	const handleNodeClick = useCallback( ( e ) => {
 
 		e.stopPropagation();
@@ -245,6 +278,8 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 				isOpen={isOpen}
 				onNodeClick={handleNodeClick}
 				onToggle={handleChevronClick}
+				isVisible={isVisible}
+				onVisibilityChange={handleVisibilityChange}
 			/>
 			<LayerTreeItemContent
 				item={item}

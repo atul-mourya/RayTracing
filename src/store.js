@@ -145,6 +145,39 @@ const useStore = create( set => ( {
 		// Reset path tracer to see changes
 		window.pathTracerApp.reset();
 
+		// Dispatch custom event for synchronization with Outliner
+		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
+			detail: { uuid, visible: object.visible }
+		} ) );
+
+	},
+	setMeshVisibility: ( uuid, visible ) => {
+
+		if ( ! window.pathTracerApp ) return;
+
+		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', uuid );
+		if ( ! object?.isMesh || ! object.material ) return;
+
+		// Set Three.js object visibility
+		object.visible = visible;
+
+		// Update material visible property for path tracing
+		const materialIndex = object.userData?.materialIndex ?? 0;
+		const pt = window.pathTracerApp?.pathTracingPass;
+		if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+
+			pt.updateMaterialProperty( materialIndex, 'visible', visible ? 1 : 0 );
+
+		}
+
+		// Reset path tracer to see changes
+		window.pathTracerApp.reset();
+
+		// Dispatch custom event for synchronization with Outliner
+		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
+			detail: { uuid, visible }
+		} ) );
+
 	},
 } ) );
 

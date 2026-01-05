@@ -2,6 +2,7 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { Box3, Vector3 } from 'three';
 import { Eye, EyeOff, Focus, Layers, Copy, Clipboard, Grid3x3 } from 'lucide-react';
+import { useStore } from '@/store';
 
 /**
  * InteractionContextMenu
@@ -24,6 +25,10 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 	const isolatedObjectRef = React.useRef( null );
 	const visibilityStateBeforeIsolate = React.useRef( null ); // Store visibility state before isolation
 
+	// Get visibility methods from store for synchronized visibility management
+	const toggleMeshVisibility = useStore( ( state ) => state.toggleMeshVisibility );
+	const setMeshVisibility = useStore( ( state ) => state.setMeshVisibility );
+
 	// Close menu helper
 	const closeMenu = React.useCallback( () => {
 
@@ -34,35 +39,23 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 	// Handle hide action
 	const handleHide = React.useCallback( () => {
 
-		const app = appRef?.current;
 		const object = menuState.selectedObject;
 
-		if ( ! app || ! object ) return;
+		if ( ! object ) return;
 
-		// Set Three.js object visibility
-		object.visible = false;
-
-		// Update material visible property for path tracing
-		const materialIndex = object.userData?.materialIndex ?? 0;
-		const pt = app.pathTracingPass;
-
-		if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
-
-			pt.updateMaterialProperty( materialIndex, 'visible', 0 );
-
-		}
-
-		// Reset path tracer to see changes
-		app.reset();
+		// Use store's toggleMeshVisibility for synchronized visibility management
+		// This ensures Outliner and other components stay in sync
+		toggleMeshVisibility( object.uuid );
 
 		// Deselect the object
-		app.interactionManager?.dispatchEvent( {
+		const app = appRef?.current;
+		app?.interactionManager?.dispatchEvent( {
 			type: 'objectDeselected'
 		} );
 
 		closeMenu();
 
-	}, [ appRef, menuState.selectedObject, closeMenu ] );
+	}, [ menuState.selectedObject, toggleMeshVisibility, appRef, closeMenu ] );
 
 	// Handle focus action
 	const handleFocus = React.useCallback( () => {
@@ -105,19 +98,9 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 					if ( child.isMesh && visibilityStateBeforeIsolate.current.has( child.uuid ) ) {
 
-						// Restore the saved visibility state
+						// Restore the saved visibility state using store method for synchronization
 						const wasVisible = visibilityStateBeforeIsolate.current.get( child.uuid );
-						child.visible = wasVisible;
-
-						// Update material visible property for path tracing
-						const materialIndex = child.userData?.materialIndex ?? 0;
-						const pt = app.pathTracingPass;
-
-						if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
-
-							pt.updateMaterialProperty( materialIndex, 'visible', wasVisible ? 1 : 0 );
-
-						}
+						setMeshVisibility( child.uuid, wasVisible );
 
 					}
 
@@ -151,20 +134,10 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 					// Save current visibility state
 					visibilityMap.set( child.uuid, child.visible );
 
-					// Hide all meshes except the selected one
+					// Hide all meshes except the selected one using store method for synchronization
 					if ( child.uuid !== selectedObject.uuid ) {
 
-						child.visible = false;
-
-						// Update material visible property for path tracing
-						const materialIndex = child.userData?.materialIndex ?? 0;
-						const pt = app.pathTracingPass;
-
-						if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
-
-							pt.updateMaterialProperty( materialIndex, 'visible', 0 );
-
-						}
+						setMeshVisibility( child.uuid, false );
 
 					}
 
@@ -180,12 +153,9 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		}
 
-		// Reset path tracer to see changes
-		app.reset();
-
 		closeMenu();
 
-	}, [ appRef, menuState.selectedObject, isIsolated, closeMenu ] );
+	}, [ appRef, menuState.selectedObject, isIsolated, setMeshVisibility, closeMenu ] );
 
 	// Handle copy material action
 	const handleCopyMaterial = React.useCallback( () => {
