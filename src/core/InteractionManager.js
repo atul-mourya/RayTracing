@@ -41,11 +41,14 @@ class InteractionManager extends EventDispatcher {
 		// Select mode state
 		this.selectMode = false;
 		this.clickTimeout = null;
+		this.mouseDownPosition = null; // Track mousedown position to detect drags
+		this.dragThreshold = 5; // Pixels of movement to consider it a drag
 
 		// Bind event handlers to maintain 'this' context
 		this.handleFocusClick = this.handleFocusClick.bind( this );
 		this.handleSelectClick = this.handleSelectClick.bind( this );
 		this.handleSelectDoubleClick = this.handleSelectDoubleClick.bind( this );
+		this.handleMouseDown = this.handleMouseDown.bind( this );
 
 	}
 
@@ -182,11 +185,13 @@ class InteractionManager extends EventDispatcher {
 		// Manage event listeners
 		if ( this.selectMode ) {
 
+			this.canvas.addEventListener( 'mousedown', this.handleMouseDown );
 			this.canvas.addEventListener( 'click', this.handleSelectClick );
 			this.canvas.addEventListener( 'dblclick', this.handleSelectDoubleClick );
 
 		} else {
 
+			this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 			this.canvas.removeEventListener( 'click', this.handleSelectClick );
 			this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 
@@ -197,6 +202,9 @@ class InteractionManager extends EventDispatcher {
 				this.clickTimeout = null;
 
 			}
+
+			// Clear mousedown position
+			this.mouseDownPosition = null;
 
 		}
 
@@ -223,6 +231,7 @@ class InteractionManager extends EventDispatcher {
 		this.canvas.style.cursor = 'auto';
 
 		// Remove event listeners
+		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 
@@ -233,6 +242,9 @@ class InteractionManager extends EventDispatcher {
 			this.clickTimeout = null;
 
 		}
+
+		// Clear mousedown position
+		this.mouseDownPosition = null;
 
 		// Update store
 		useCameraStore.getState().setSelectMode( false );
@@ -246,11 +258,51 @@ class InteractionManager extends EventDispatcher {
 	}
 
 	/**
+	 * Record mouse position on mousedown to detect drag operations
+	 * @private
+	 */
+	handleMouseDown( event ) {
+
+		this.mouseDownPosition = {
+			x: event.clientX,
+			y: event.clientY
+		};
+
+	}
+
+	/**
+	 * Check if mouse moved significantly between mousedown and click
+	 * @private
+	 */
+	wasMouseDragged( event ) {
+
+		if ( ! this.mouseDownPosition ) return false;
+
+		const deltaX = Math.abs( event.clientX - this.mouseDownPosition.x );
+		const deltaY = Math.abs( event.clientY - this.mouseDownPosition.y );
+		const distance = Math.sqrt( deltaX * deltaX + deltaY * deltaY );
+
+		return distance > this.dragThreshold;
+
+	}
+
+	/**
 	 * Handle single click for object selection
 	 * Includes debouncing to prevent firing on double-click
+	 * Only triggers if mouse wasn't dragged (camera movement)
 	 * @private
 	 */
 	handleSelectClick( event ) {
+
+		// Ignore clicks that are actually drags (camera movement)
+		if ( this.wasMouseDragged( event ) ) {
+
+			this.mouseDownPosition = null;
+			return;
+
+		}
+
+		this.mouseDownPosition = null;
 
 		// Clear existing timeout to prevent single-click on double-click
 		if ( this.clickTimeout ) {
@@ -321,6 +373,16 @@ class InteractionManager extends EventDispatcher {
 	 * @private
 	 */
 	handleSelectDoubleClick( event ) {
+
+		// Ignore double-clicks that are actually drags
+		if ( this.wasMouseDragged( event ) ) {
+
+			this.mouseDownPosition = null;
+			return;
+
+		}
+
+		this.mouseDownPosition = null;
 
 		// Clear single-click timeout
 		if ( this.clickTimeout ) {
@@ -410,6 +472,7 @@ class InteractionManager extends EventDispatcher {
 
 		// Remove all event listeners
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
+		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 
@@ -420,6 +483,9 @@ class InteractionManager extends EventDispatcher {
 			this.clickTimeout = null;
 
 		}
+
+		// Clear mousedown position
+		this.mouseDownPosition = null;
 
 		// Remove focus indicator from scene
 		if ( this.focusPointIndicator ) {
