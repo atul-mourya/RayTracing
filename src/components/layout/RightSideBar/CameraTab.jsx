@@ -59,10 +59,7 @@ const CameraTab = () => {
 			// Initial setup
 			updateCameraList();
 
-			// Initialize click-to-focus functionality
-			window.pathTracerApp.setupClickToFocus();
-
-			// Listen for focus change events
+			// Listen for focus change events (focus mode is already set up in InteractionManager)
 			window.pathTracerApp.addEventListener( 'focusChanged', handleFocusChangeEvent );
 
 			// Listen for camera updates from model loading

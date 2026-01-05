@@ -267,9 +267,12 @@ class InteractionManager extends EventDispatcher {
 	 */
 	handleMouseDown( event ) {
 
+		// Record position for all mouse buttons (especially right-click for context menu)
 		this.mouseDownPosition = {
 			x: event.clientX,
-			y: event.clientY
+			y: event.clientY,
+			button: event.button, // 0=left, 1=middle, 2=right
+			timestamp: Date.now()
 		};
 
 	}
