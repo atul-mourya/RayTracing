@@ -353,6 +353,7 @@ class PathTracerApp extends EventDispatcher {
 		outputPass.material.toneMapped = true;
 		outputPass.material.transparent = true;
 		this.composer.addPass( outputPass );
+		this.updateFixedPassResolution();
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
@@ -804,6 +805,24 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/**
+	 * Update certain passes resolution to render at actual devicePixelRatio
+	 */
+	updateFixedPassResolution() {
+
+		if ( this.outlinePass ) {
+
+			const dpr = window.devicePixelRatio;
+			const width = this.width * dpr;
+			const height = this.height * dpr;
+			this.outlinePass.setSize( width, height );
+			this.bloomPass.setSize( width, height );
+
+
+		}
+
+	}
+
 	selectObject( object ) {
 
 		this.outlinePass.selectedObjects = object ? [ object ] : [];
@@ -843,6 +862,9 @@ class PathTracerApp extends EventDispatcher {
 		this.pipeline?.setSize( this.width, this.height );
 
 		this.denoiser.setSize( this.width, this.height );
+
+		// Update OutlinePass to render at actual devicePixelRatio
+		this.updateFixedPassResolution();
 
 		this.reset();
 
