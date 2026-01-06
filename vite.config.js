@@ -44,7 +44,9 @@ export default defineConfig( {
 			"@": path.resolve( __dirname, "./src" ),
 		},
 	},
+	// Only define specific environment variables that are needed
+	// Avoid exposing all of process.env for security reasons
 	define: {
-		'process.env': process.env
+		'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
 	}
 } );
