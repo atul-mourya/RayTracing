@@ -49,6 +49,7 @@ class InteractionManager extends EventDispatcher {
 		this.handleSelectClick = this.handleSelectClick.bind( this );
 		this.handleSelectDoubleClick = this.handleSelectDoubleClick.bind( this );
 		this.handleMouseDown = this.handleMouseDown.bind( this );
+		this.handleMouseUp = this.handleMouseUp.bind( this );
 		this.handleContextMenu = this.handleContextMenu.bind( this );
 
 	}
@@ -187,6 +188,7 @@ class InteractionManager extends EventDispatcher {
 		if ( this.selectMode ) {
 
 			this.canvas.addEventListener( 'mousedown', this.handleMouseDown );
+			this.canvas.addEventListener( 'mouseup', this.handleMouseUp );
 			this.canvas.addEventListener( 'click', this.handleSelectClick );
 			this.canvas.addEventListener( 'dblclick', this.handleSelectDoubleClick );
 			this.canvas.addEventListener( 'contextmenu', this.handleContextMenu );
@@ -194,6 +196,7 @@ class InteractionManager extends EventDispatcher {
 		} else {
 
 			this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
+			this.canvas.removeEventListener( 'mouseup', this.handleMouseUp );
 			this.canvas.removeEventListener( 'click', this.handleSelectClick );
 			this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 			this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
@@ -235,6 +238,7 @@ class InteractionManager extends EventDispatcher {
 
 		// Remove event listeners
 		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
+		this.canvas.removeEventListener( 'mouseup', this.handleMouseUp );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 		this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
@@ -271,14 +275,13 @@ class InteractionManager extends EventDispatcher {
 		this.mouseDownPosition = {
 			x: event.clientX,
 			y: event.clientY,
-			button: event.button, // 0=left, 1=middle, 2=right
-			timestamp: Date.now()
+			button: event.button // 0=left, 1=middle, 2=right
 		};
 
 	}
 
 	/**
-	 * Check if mouse moved significantly between mousedown and click
+	 * Check if mouse moved significantly between mousedown and mouseup
 	 * @private
 	 */
 	wasMouseDragged( event ) {
@@ -289,6 +292,7 @@ class InteractionManager extends EventDispatcher {
 		const deltaY = Math.abs( event.clientY - this.mouseDownPosition.y );
 		const distance = Math.sqrt( deltaX * deltaX + deltaY * deltaY );
 
+		// Check if mouse moved beyond threshold
 		return distance > this.dragThreshold;
 
 	}
@@ -428,16 +432,25 @@ class InteractionManager extends EventDispatcher {
 	// ==================== CONTEXT MENU ====================
 
 	/**
-	 * Handle right-click to show context menu
-	 * Dispatches event for React component to handle UI
+	 * Handle mouseup to show context menu for right-click
+	 * Only shows menu if right button was clicked without dragging
 	 * @private
 	 */
-	handleContextMenu( event ) {
+	handleMouseUp( event ) {
 
-		event.preventDefault();
+		// Only handle right-click (button 2)
+		if ( event.button !== 2 ) return;
 
-		// Ignore if mouse was dragged
+		// Check if this was a drag operation
 		if ( this.wasMouseDragged( event ) ) {
+
+			this.mouseDownPosition = null;
+			return;
+
+		}
+
+		// Safety check
+		if ( ! this.mouseDownPosition || this.mouseDownPosition.button !== 2 ) {
 
 			this.mouseDownPosition = null;
 			return;
@@ -461,6 +474,18 @@ class InteractionManager extends EventDispatcher {
 			y: event.clientY,
 			selectedObject: selectedObject
 		} );
+
+	}
+
+	/**
+	 * Prevent default context menu from showing
+	 * We handle context menu on mouseup instead to detect drag operations
+	 * @private
+	 */
+	handleContextMenu( event ) {
+
+		// Always prevent default context menu
+		event.preventDefault();
 
 	}
 
@@ -519,6 +544,7 @@ class InteractionManager extends EventDispatcher {
 		// Remove all event listeners
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
+		this.canvas.removeEventListener( 'mouseup', this.handleMouseUp );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 		this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
