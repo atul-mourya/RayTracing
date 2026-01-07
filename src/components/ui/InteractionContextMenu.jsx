@@ -5,6 +5,45 @@ import { Eye, EyeOff, Focus, Layers, Copy, Clipboard, Grid3x3 } from 'lucide-rea
 import { useStore } from '@/store';
 
 /**
+ * MenuItem - Standalone menu item matching ContextMenuItem styling exactly
+ * Does not require RadixUI context (no ContextMenuPrimitive.Item)
+ */
+const MenuItem = React.forwardRef( ( { className, inset, disabled, children, onClick, ...props }, ref ) => (
+	<div
+		ref={ref}
+		className={cn(
+			'relative flex cursor-default select-none items-center rounded-sm px-2 py-1 text-xs opacity-75 outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+			inset && 'pl-8',
+			className
+		)}
+		data-disabled={disabled || undefined}
+		onClick={disabled ? undefined : onClick}
+		tabIndex={disabled ? - 1 : 0}
+		role="menuitem"
+		aria-disabled={disabled}
+		{...props}
+	>
+		{children}
+	</div>
+) );
+MenuItem.displayName = 'MenuItem';
+
+/**
+ * MenuSeparator - Standalone separator matching ContextMenuSeparator styling exactly
+ * Does not require RadixUI context
+ */
+const MenuSeparator = React.forwardRef( ( { className, ...props }, ref ) => (
+	<div
+		ref={ref}
+		className={cn( '-mx-1 my-1 h-px bg-border', className )}
+		role="separator"
+		aria-orientation="horizontal"
+		{...props}
+	/>
+) );
+MenuSeparator.displayName = 'MenuSeparator';
+
+/**
  * InteractionContextMenu
  *
  * A context menu that appears when right-clicking on selected objects
@@ -12,6 +51,8 @@ import { useStore } from '@/store';
  * Uses the same styling classes as context-menu.jsx for consistency
  */
 const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
+
+	'use no memo';
 
 	const [ menuState, setMenuState ] = React.useState( {
 		visible: false,
@@ -23,20 +64,57 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 	const [ copiedMaterial, setCopiedMaterial ] = React.useState( null );
 	const [ isIsolated, setIsIsolated ] = React.useState( false );
 	const isolatedObjectRef = React.useRef( null );
-	const visibilityStateBeforeIsolate = React.useRef( null ); // Store visibility state before isolation
+	const visibilityStateBeforeIsolate = React.useRef( null );
+	const menuRef = React.useRef( null );
 
-	// Get visibility methods from store for synchronized visibility management
 	const toggleMeshVisibility = useStore( ( state ) => state.toggleMeshVisibility );
 	const setMeshVisibility = useStore( ( state ) => state.setMeshVisibility );
 
-	// Close menu helper
 	const closeMenu = React.useCallback( () => {
 
 		setMenuState( prev => ( { ...prev, visible: false } ) );
 
 	}, [] );
 
-	// Handle hide action
+	const calculateMenuPosition = React.useCallback( ( x, y, menuElement ) => {
+
+		if ( ! menuElement ) return { x, y };
+
+		const menuRect = menuElement.getBoundingClientRect();
+		const viewportWidth = window.innerWidth;
+		const viewportHeight = window.innerHeight;
+
+		let finalX = x;
+		let finalY = y;
+
+		if ( x + menuRect.width > viewportWidth ) {
+
+			finalX = viewportWidth - menuRect.width - 8;
+
+		}
+
+		if ( y + menuRect.height > viewportHeight ) {
+
+			finalY = viewportHeight - menuRect.height - 8;
+
+		}
+
+		if ( finalX < 8 ) {
+
+			finalX = 8;
+
+		}
+
+		if ( finalY < 8 ) {
+
+			finalY = 8;
+
+		}
+
+		return { x: finalX, y: finalY };
+
+	}, [] );
+
 	const handleHide = React.useCallback( () => {
 
 		const object = menuState.selectedObject;
@@ -49,15 +127,12 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		// Deselect the object
 		const app = appRef?.current;
-		app?.interactionManager?.dispatchEvent( {
-			type: 'objectDeselected'
-		} );
+		app?.interactionManager?.dispatchEvent( { type: 'objectDeselected' } );
 
 		closeMenu();
 
 	}, [ menuState.selectedObject, toggleMeshVisibility, appRef, closeMenu ] );
 
-	// Handle focus action
 	const handleFocus = React.useCallback( () => {
 
 		const app = appRef?.current;
@@ -65,28 +140,22 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		if ( ! app || ! object || ! app.controls ) return;
 
-		// Compute bounding box and get center
 		const box = new Box3().setFromObject( object );
 		const center = new Vector3();
 		box.getCenter( center );
 
-		// Set orbit controls target to object center
 		app.controls.target.copy( center );
 		app.controls.update();
-
-		// Trigger path tracer reset for camera change
 		app.reset();
 
 		closeMenu();
 
 	}, [ appRef, menuState.selectedObject, closeMenu ] );
 
-	// Handle isolate/un-isolate toggle
 	const handleIsolateToggle = React.useCallback( () => {
 
 		const app = appRef?.current;
 		const selectedObject = menuState.selectedObject;
-
 		if ( ! app || ! selectedObject ) return;
 
 		if ( isIsolated ) {
@@ -110,7 +179,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 			setIsIsolated( false );
 			isolatedObjectRef.current = null;
-			visibilityStateBeforeIsolate.current = null; // Clear saved state
+			visibilityStateBeforeIsolate.current = null;
 
 		} else {
 
@@ -121,15 +190,10 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 				if ( child.isMesh ) {
 
-					// Skip floor plane and helper objects - they should not be affected by isolate
 					const isFloorPlane = child === app.floorPlane || child.name === 'Ground';
 					const isHelper = child.name.includes( 'Helper' );
 
-					if ( isFloorPlane || isHelper ) {
-
-						return; // Don't save or modify floor plane/helpers
-
-					}
+					if ( isFloorPlane || isHelper ) return;
 
 					// Save current visibility state
 					visibilityMap.set( child.uuid, child.visible );
@@ -157,7 +221,6 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 	}, [ appRef, menuState.selectedObject, isIsolated, setMeshVisibility, closeMenu ] );
 
-	// Handle copy material action
 	const handleCopyMaterial = React.useCallback( () => {
 
 		const object = menuState.selectedObject;
@@ -198,7 +261,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		// Also copy to clipboard as JSON
 		navigator.clipboard.writeText( JSON.stringify( materialData, null, 2 ) )
-			.catch( err => console.error( 'Failed to copy material to clipboard:', err ) );
+			.catch( err => console.error( 'Failed to copy material:', err ) );
 
 		closeMenu();
 
@@ -356,7 +419,6 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		}
 
-		// Mark material as needing update
 		material.needsUpdate = true;
 
 		// Reset path tracer to see changes
@@ -366,7 +428,6 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 	}, [ appRef, menuState.selectedObject, copiedMaterial, closeMenu ] );
 
-	// Handle deselect action
 	const handleDeselect = React.useCallback( () => {
 
 		closeMenu();
@@ -374,11 +435,9 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 		// Dispatch deselect event through InteractionManager
 		// This triggers the proper event flow in PathTracerApp
 		const app = appRef?.current;
-		if ( app && app.interactionManager ) {
+		if ( app?.interactionManager ) {
 
-			app.interactionManager.dispatchEvent( {
-				type: 'objectDeselected'
-			} );
+			app.interactionManager.dispatchEvent( { type: 'objectDeselected' } );
 
 		}
 
@@ -387,7 +446,6 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 	}, [ appRef, closeMenu ] );
 
-	// Reset isolate state when new model is loaded
 	React.useEffect( () => {
 
 		const app = appRef?.current;
@@ -402,26 +460,16 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		};
 
-		// Listen for model load events
 		app.addEventListener( 'ModelLoaded', handleModelLoaded );
 
-		return () => {
-
-			if ( app ) {
-
-				app.removeEventListener( 'ModelLoaded', handleModelLoaded );
-
-			}
-
-		};
+		return () => app?.removeEventListener( 'ModelLoaded', handleModelLoaded );
 
 	}, [ appRef, isAppInitialized ] );
 
-	// Handle context menu request from InteractionManager
 	React.useEffect( () => {
 
 		const app = appRef?.current;
-		if ( ! app || ! app.interactionManager ) return;
+		if ( ! app?.interactionManager ) return;
 
 		const handleContextMenuRequested = ( event ) => {
 
@@ -434,42 +482,66 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		};
 
-		// Listen for context menu events
 		app.interactionManager.addEventListener( 'contextMenuRequested', handleContextMenuRequested );
 
-		return () => {
-
-			if ( app?.interactionManager ) {
-
-				app.interactionManager.removeEventListener( 'contextMenuRequested', handleContextMenuRequested );
-
-			}
-
-		};
+		return () => app.interactionManager?.removeEventListener( 'contextMenuRequested', handleContextMenuRequested );
 
 	}, [ appRef, isAppInitialized ] );
 
-	// Close menu when clicking outside
 	React.useEffect( () => {
 
 		if ( ! menuState.visible ) return;
 
 		const handleClickOutside = ( event ) => {
 
-			// Check if click is outside the menu
-			const menuElement = document.getElementById( 'interaction-context-menu' );
-			if ( menuElement && ! menuElement.contains( event.target ) ) {
+			if ( menuRef.current && ! menuRef.current.contains( event.target ) ) {
 
-				setMenuState( prev => ( { ...prev, visible: false } ) );
+				closeMenu();
 
 			}
 
 		};
 
-		// Add listener with a small delay to prevent immediate closure
+		const handleKeyDown = ( event ) => {
+
+			if ( event.key === 'Escape' ) {
+
+				event.preventDefault();
+				closeMenu();
+				return;
+
+			}
+
+			if ( ! menuRef.current ) return;
+
+			const menuItems = Array.from( menuRef.current.querySelectorAll( '[role="menuitem"]:not([aria-disabled="true"])' ) );
+			const currentIndex = menuItems.indexOf( document.activeElement );
+
+			if ( event.key === 'ArrowDown' ) {
+
+				event.preventDefault();
+				const nextIndex = ( currentIndex + 1 ) % menuItems.length;
+				menuItems[ nextIndex ]?.focus();
+
+			} else if ( event.key === 'ArrowUp' ) {
+
+				event.preventDefault();
+				const prevIndex = currentIndex <= 0 ? menuItems.length - 1 : currentIndex - 1;
+				menuItems[ prevIndex ]?.focus();
+
+			} else if ( event.key === 'Enter' || event.key === ' ' ) {
+
+				event.preventDefault();
+				document.activeElement?.click();
+
+			}
+
+		};
+
 		const timer = setTimeout( () => {
 
 			document.addEventListener( 'click', handleClickOutside );
+			document.addEventListener( 'keydown', handleKeyDown );
 
 		}, 0 );
 
@@ -477,89 +549,90 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 			clearTimeout( timer );
 			document.removeEventListener( 'click', handleClickOutside );
+			document.removeEventListener( 'keydown', handleKeyDown );
 
 		};
 
-	}, [ menuState.visible ] );
+	}, [ menuState.visible, closeMenu ] );
 
-	// Don't render if not visible
+	React.useEffect( () => {
+
+		if ( menuState.visible && menuRef.current ) {
+
+			const { x, y } = calculateMenuPosition( menuState.x, menuState.y, menuRef.current );
+
+			if ( x !== menuState.x || y !== menuState.y ) {
+
+				setMenuState( prev => ( { ...prev, x, y } ) );
+
+			}
+
+			menuRef.current.focus();
+
+		}
+
+	}, [ menuState.visible, menuState.x, menuState.y, calculateMenuPosition ] );
+
 	if ( ! menuState.visible ) return null;
 
-	const menuItemClass = cn(
-		'relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50'
-	);
-
-	// Using exact same className as ContextMenuContent from context-menu.jsx
 	return (
 		<div
+			ref={menuRef}
 			id="interaction-context-menu"
 			className={cn(
-				'z-50 max-h-[--radix-context-menu-content-available-height] min-w-[8rem] overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-context-menu-content-transform-origin]'
+				'z-50 min-w-[8rem] overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
 			)}
 			data-state="open"
+			role="menu"
+			tabIndex={- 1}
 			style={{
 				position: 'fixed',
 				left: `${menuState.x}px`,
 				top: `${menuState.y}px`,
 			}}
 		>
-			{/* Hide */}
-			<div onClick={handleHide} className={menuItemClass}>
-				<EyeOff className="h-4 w-4" />
-				Hide
-			</div>
+			<MenuItem onClick={handleHide}>
+				<EyeOff className="h-3 w-3" />
+				<span className="ml-2">Hide</span>
+			</MenuItem>
 
-			{/* Focus */}
-			<div onClick={handleFocus} className={menuItemClass}>
-				<Focus className="h-4 w-4" />
-				Focus
-			</div>
+			<MenuItem onClick={handleFocus}>
+				<Focus className="h-3 w-3" />
+				<span className="ml-2">Focus</span>
+			</MenuItem>
 
-			{/* Isolate/Un-isolate toggle */}
-			<div onClick={handleIsolateToggle} className={menuItemClass}>
+			<MenuItem onClick={handleIsolateToggle}>
 				{isIsolated ? (
 					<>
-						<Grid3x3 className="h-4 w-4" />
-						Un-isolate
+						<Grid3x3 className="h-3 w-3" />
+						<span className="ml-2">Un-isolate</span>
 					</>
 				) : (
 					<>
-						<Layers className="h-4 w-4" />
-						Isolate
+						<Layers className="h-3 w-3" />
+						<span className="ml-2">Isolate</span>
 					</>
 				)}
-			</div>
+			</MenuItem>
 
-			{/* Separator */}
-			<div className="-mx-1 my-1 h-px bg-border" />
+			<MenuSeparator />
 
-			{/* Copy Material */}
-			<div onClick={handleCopyMaterial} className={menuItemClass}>
-				<Copy className="h-4 w-4" />
-				Copy Material
-			</div>
+			<MenuItem onClick={handleCopyMaterial}>
+				<Copy className="h-3 w-3" />
+				<span className="ml-2">Copy Material</span>
+			</MenuItem>
 
-			{/* Paste Material */}
-			<div
-				onClick={handlePasteMaterial}
-				className={cn(
-					menuItemClass,
-					! copiedMaterial && 'opacity-50 cursor-not-allowed'
-				)}
-				style={{ pointerEvents: copiedMaterial ? 'auto' : 'none' }}
-			>
-				<Clipboard className="h-4 w-4" />
-				Paste Material
-			</div>
+			<MenuItem onClick={handlePasteMaterial} disabled={! copiedMaterial}>
+				<Clipboard className="h-3 w-3" />
+				<span className="ml-2">Paste Material</span>
+			</MenuItem>
 
-			{/* Separator */}
-			<div className="-mx-1 my-1 h-px bg-border" />
+			<MenuSeparator />
 
-			{/* Deselect */}
-			<div onClick={handleDeselect} className={menuItemClass}>
-				<Eye className="h-4 w-4" />
-				Deselect
-			</div>
+			<MenuItem onClick={handleDeselect}>
+				<Eye className="h-3 w-3" />
+				<span className="ml-2">Deselect</span>
+			</MenuItem>
 		</div>
 	);
 
