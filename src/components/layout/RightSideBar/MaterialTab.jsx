@@ -153,6 +153,11 @@ const MaterialTab = () => {
 
 					newState[ key ] = getHexString( selectedObject.material[ key ] );
 
+				} else if ( key === 'visible' ) {
+
+					// 'visible' is a mesh property, not a material property
+					newState[ key ] = selectedObject.visible ?? config.default;
+
 				} else {
 
 					newState[ key ] = selectedObject.material[ key ] ?? config.default;
@@ -392,7 +397,7 @@ const MaterialTab = () => {
 	}, [ textureStates, handleTexturePropertyChange ] );
 
 	// Render section helper
-	const renderSection = useCallback( ( sectionName, properties ) => (
+	const renderSection = useCallback( ( properties ) => (
 		properties?.length > 0 && (
 			<>
 				{properties.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -440,10 +445,10 @@ const MaterialTab = () => {
 					<Separator />
 
 					{/* Specular (always visible) */}
-					{renderSection( 'specular', MATERIAL_PROPERTIES.specular )}
+					{renderSection( MATERIAL_PROPERTIES.specular )}
 
 					{/* Emissive (always visible) */}
-					{renderSection( 'emissive', MATERIAL_PROPERTIES.emissive )}
+					{renderSection( MATERIAL_PROPERTIES.emissive )}
 
 					{/* Clearcoat Feature Group */}
 					<div className="flex items-center justify-between w-full">

@@ -196,11 +196,15 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 	// Track visibility state
 	const getInitialVisibility = useCallback( () => {
 
+		// First, try to use the captured visibility state from the layer item
+		if ( item.visible !== undefined ) return item.visible;
+
+		// Fall back to querying the scene if not available
 		if ( item.type !== 'Mesh' || ! window.pathTracerApp ) return true;
 		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
 		return object?.visible ?? true;
 
-	}, [ item.type, item.uuid ] );
+	}, [ item.type, item.uuid, item.visible ] );
 
 	const [ isVisible, setIsVisible ] = useState( getInitialVisibility );
 
@@ -340,6 +344,7 @@ const Outliner = () => {
 			type: object.type,
 			uuid: object.uuid,
 			geometry: object.geometry?.constructor?.name,
+			visible: object.visible ?? true, // Capture visibility state
 			children: object.children.map( child => createLayerItem( child ) ),
 		};
 

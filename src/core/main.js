@@ -627,10 +627,10 @@ class PathTracerApp extends EventDispatcher {
 				opacity: 0,
 				transmission: 0,
 				// map: texture,
-				visible: false
 			} )
 		);
 		this.floorPlane.name = "Ground";
+		this.floorPlane.visible = false; // Set mesh visibility, not material visibility
 		this.scene.add( this.floorPlane );
 
 	}

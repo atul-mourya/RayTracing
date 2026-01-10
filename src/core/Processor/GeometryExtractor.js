@@ -137,7 +137,7 @@ export default class GeometryExtractor {
 		}
 
 		// Process material and get its index
-		const materialIndex = this.processMaterial( mesh.material );
+		const materialIndex = this.processMaterial( mesh.material, mesh );
 		mesh.userData.materialIndex = materialIndex;
 
 		// Assign mesh index and store mesh reference
@@ -150,7 +150,7 @@ export default class GeometryExtractor {
 
 	}
 
-	processMaterial( material ) {
+	processMaterial( material, mesh = null ) {
 
 		// Check if material already exists in our array
 		let materialIndex = this.materials.findIndex( x => x.uuid === material.uuid );
@@ -165,7 +165,7 @@ export default class GeometryExtractor {
 			}
 
 			// Create a new material object and add it to the array
-			const newMaterial = this.createMaterialObject( material );
+			const newMaterial = this.createMaterialObject( material, mesh );
 			this.materials.push( newMaterial );
 			materialIndex = this.materials.length - 1;
 
@@ -343,7 +343,7 @@ export default class GeometryExtractor {
 
 	}
 
-	createMaterialObject( material ) {
+	createMaterialObject( material, mesh = null ) {
 
 		const defaults = this.getPhysicalDefaults();
 		const materialType = this.getMaterialType( material );
@@ -423,7 +423,8 @@ export default class GeometryExtractor {
 			// Rendering properties
 			side: this.getMaterialSide( material ),
 			depthWrite: material.depthWrite ?? true ? 1 : 0,
-			visible: material.visible ?? true ? 1 : 0,
+			// Use mesh visibility if available, otherwise fall back to material or default to true
+			visible: mesh ? ( mesh.visible ? 1 : 0 ) : ( material.visible ?? true ? 1 : 0 ),
 
 			// Texture processing
 			map: this.processTexture( material.map, this.maps ),

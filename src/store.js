@@ -2176,6 +2176,11 @@ const useMaterialStore = create( ( set, get ) => ( {
 			obj.visible = val;
 			get().updateMaterialProperty( 'visible', val ? 1 : 0 );
 
+			// Dispatch custom event for synchronization with Outliner
+			window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
+				detail: { uuid: obj.uuid, visible: val }
+			} ) );
+
 		}
 
 	},
