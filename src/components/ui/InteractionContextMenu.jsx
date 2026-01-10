@@ -252,6 +252,14 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 			iridescenceIOR: material.iridescenceIOR,
 			normalScale: material.normalScale?.x,
 			bumpScale: material.bumpScale,
+			// Textures (kept in state for internal copy-paste, ignored in JSON)
+			map: material.map,
+			normalMap: material.normalMap,
+			roughnessMap: material.roughnessMap,
+			metalnessMap: material.metalnessMap,
+			emissiveMap: material.emissiveMap,
+			bumpMap: material.bumpMap,
+			displacementMap: material.displacementMap,
 			// Store reference for paste validation
 			_objectUUID: object.uuid
 		};
@@ -259,8 +267,18 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 		// Store in component state
 		setCopiedMaterial( materialData );
 
+		// Create a JSON-safe version for clipboard (exclude textures)
+		const jsonSafeData = { ...materialData };
+		delete jsonSafeData.map;
+		delete jsonSafeData.normalMap;
+		delete jsonSafeData.roughnessMap;
+		delete jsonSafeData.metalnessMap;
+		delete jsonSafeData.emissiveMap;
+		delete jsonSafeData.bumpMap;
+		delete jsonSafeData.displacementMap;
+
 		// Also copy to clipboard as JSON
-		navigator.clipboard.writeText( JSON.stringify( materialData, null, 2 ) )
+		navigator.clipboard.writeText( JSON.stringify( jsonSafeData, null, 2 ) )
 			.catch( err => console.error( 'Failed to copy material:', err ) );
 
 		closeMenu();
@@ -282,144 +300,145 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 		if ( copiedMaterial.color !== undefined && material.color ) {
 
 			material.color.setHex( copiedMaterial.color );
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'color', material.color );
 
 		}
 
 		if ( copiedMaterial.metalness !== undefined ) {
 
 			material.metalness = copiedMaterial.metalness;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'metalness', copiedMaterial.metalness );
 
 		}
 
 		if ( copiedMaterial.roughness !== undefined ) {
 
 			material.roughness = copiedMaterial.roughness;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'roughness', copiedMaterial.roughness );
 
 		}
 
 		if ( copiedMaterial.opacity !== undefined ) {
 
 			material.opacity = copiedMaterial.opacity;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'opacity', copiedMaterial.opacity );
 
 		}
 
 		if ( copiedMaterial.emissive !== undefined && material.emissive ) {
 
 			material.emissive.setHex( copiedMaterial.emissive );
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'emissive', material.emissive );
 
 		}
 
 		if ( copiedMaterial.emissiveIntensity !== undefined ) {
 
 			material.emissiveIntensity = copiedMaterial.emissiveIntensity;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'emissiveIntensity', copiedMaterial.emissiveIntensity );
 
 		}
 
 		if ( copiedMaterial.clearcoat !== undefined ) {
 
 			material.clearcoat = copiedMaterial.clearcoat;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'clearcoat', copiedMaterial.clearcoat );
 
 		}
 
 		if ( copiedMaterial.clearcoatRoughness !== undefined ) {
 
 			material.clearcoatRoughness = copiedMaterial.clearcoatRoughness;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'clearcoatRoughness', copiedMaterial.clearcoatRoughness );
 
 		}
 
 		if ( copiedMaterial.ior !== undefined ) {
 
 			material.ior = copiedMaterial.ior;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'ior', copiedMaterial.ior );
 
 		}
 
 		if ( copiedMaterial.transmission !== undefined ) {
 
 			material.transmission = copiedMaterial.transmission;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'transmission', copiedMaterial.transmission );
 
 		}
 
 		if ( copiedMaterial.thickness !== undefined ) {
 
 			material.thickness = copiedMaterial.thickness;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'thickness', copiedMaterial.thickness );
 
 		}
 
 		if ( copiedMaterial.specularIntensity !== undefined ) {
 
 			material.specularIntensity = copiedMaterial.specularIntensity;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'specularIntensity', copiedMaterial.specularIntensity );
 
 		}
 
 		if ( copiedMaterial.specularColor !== undefined && material.specularColor ) {
 
 			material.specularColor.setHex( copiedMaterial.specularColor );
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'specularColor', material.specularColor );
 
 		}
 
 		if ( copiedMaterial.sheen !== undefined ) {
 
 			material.sheen = copiedMaterial.sheen;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'sheen', copiedMaterial.sheen );
 
 		}
 
 		if ( copiedMaterial.sheenRoughness !== undefined ) {
 
 			material.sheenRoughness = copiedMaterial.sheenRoughness;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'sheenRoughness', copiedMaterial.sheenRoughness );
 
 		}
 
 		if ( copiedMaterial.sheenColor !== undefined && material.sheenColor ) {
 
 			material.sheenColor.setHex( copiedMaterial.sheenColor );
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'sheenColor', material.sheenColor );
 
 		}
 
 		if ( copiedMaterial.iridescence !== undefined ) {
 
 			material.iridescence = copiedMaterial.iridescence;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'iridescence', copiedMaterial.iridescence );
 
 		}
 
 		if ( copiedMaterial.iridescenceIOR !== undefined ) {
 
 			material.iridescenceIOR = copiedMaterial.iridescenceIOR;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'iridescenceIOR', copiedMaterial.iridescenceIOR );
 
 		}
 
 		if ( copiedMaterial.normalScale !== undefined && material.normalScale ) {
 
 			material.normalScale.set( copiedMaterial.normalScale, copiedMaterial.normalScale );
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'normalScale', copiedMaterial.normalScale );
 
 		}
 
 		if ( copiedMaterial.bumpScale !== undefined ) {
 
 			material.bumpScale = copiedMaterial.bumpScale;
-			pt?.updateMaterialProperty( object.userData?.materialIndex ?? 0, 'bumpScale', copiedMaterial.bumpScale );
 
 		}
 
+		// Apply textures
+		if ( copiedMaterial.map !== undefined ) material.map = copiedMaterial.map;
+		if ( copiedMaterial.normalMap !== undefined ) material.normalMap = copiedMaterial.normalMap;
+		if ( copiedMaterial.roughnessMap !== undefined ) material.roughnessMap = copiedMaterial.roughnessMap;
+		if ( copiedMaterial.metalnessMap !== undefined ) material.metalnessMap = copiedMaterial.metalnessMap;
+		if ( copiedMaterial.emissiveMap !== undefined ) material.emissiveMap = copiedMaterial.emissiveMap;
+		if ( copiedMaterial.bumpMap !== undefined ) material.bumpMap = copiedMaterial.bumpMap;
+		if ( copiedMaterial.displacementMap !== undefined ) material.displacementMap = copiedMaterial.displacementMap;
+
 		material.needsUpdate = true;
+
+		// Perform full material update to sync all properties and texture indices
+		if ( pt?.updateMaterial ) {
+
+			pt.updateMaterial( object.userData?.materialIndex ?? 0, material );
+
+		} else {
+
+			// Fallback (should not happen in current architecture)
+			console.warn( 'PathTracerStage.updateMaterial not available' );
+
+		}
 
 		// Reset path tracer to see changes
 		app.reset();

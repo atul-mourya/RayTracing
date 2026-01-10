@@ -1902,6 +1902,14 @@ export class PathTracerStage extends PipelineStage {
 
 		}
 
+		// Map indices (Pixel 9 & 10)
+		data[ stride + 32 ] = materialData.map ?? - 1;
+		data[ stride + 33 ] = materialData.normalMap ?? - 1;
+		data[ stride + 34 ] = materialData.roughnessMap ?? - 1;
+		data[ stride + 35 ] = materialData.metalnessMap ?? - 1;
+		data[ stride + 36 ] = materialData.emissiveMap ?? - 1;
+		data[ stride + 37 ] = materialData.bumpMap ?? - 1;
+
 		data[ stride + 38 ] = materialData.clearcoat ?? 0;
 		data[ stride + 39 ] = materialData.clearcoatRoughness ?? 0;
 		data[ stride + 40 ] = materialData.opacity ?? 1;
@@ -1912,9 +1920,18 @@ export class PathTracerStage extends PipelineStage {
 		data[ stride + 46 ] = materialData.normalScale ?? 1;
 		data[ stride + 48 ] = materialData.bumpScale ?? 1;
 		data[ stride + 49 ] = materialData.displacementScale ?? 1;
+		data[ stride + 50 ] = materialData.displacementMap ?? - 1;
 
 		// Mark texture for update
 		this.material.uniforms.materialTexture.value.needsUpdate = true;
+
+		const featuresChanged = this.rescanMaterialFeatures();
+		if ( featuresChanged ) {
+
+			this.injectMaterialFeatureDefines();
+
+		}
+
 		this.reset();
 
 	}
