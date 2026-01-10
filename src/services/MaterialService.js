@@ -106,6 +106,25 @@ export class MaterialService {
 
 		}
 
+		// Clear all texture maps to prevent old textures from being used
+		// This is critical when applying a non-textured material to an object that previously had textures
+		const textureMapProperties = [
+			'map', 'normalMap', 'bumpMap', 'roughnessMap', 'metalnessMap',
+			'emissiveMap', 'displacementMap', 'clearcoatMap', 'clearcoatRoughnessMap',
+			'transmissionMap', 'thicknessMap', 'sheenColorMap', 'sheenRoughnessMap',
+			'specularIntensityMap', 'specularColorMap', 'iridescenceMap', 'iridescenceThicknessMap'
+		];
+
+		textureMapProperties.forEach( prop => {
+
+			if ( prop in threeMaterial ) {
+
+				threeMaterial[ prop ] = null;
+
+			}
+
+		} );
+
 		// Helper function to ensure property exists and set it
 		const ensureAndSet = ( obj, prop, value ) => {
 
