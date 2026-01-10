@@ -11,6 +11,32 @@ import { deleteRender, saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
 
+// Utility function to format render time (compact version)
+const formatRenderTime = ( timeInSeconds ) => {
+
+	if ( ! timeInSeconds || timeInSeconds <= 0 ) return null;
+
+	const hours = Math.floor( timeInSeconds / 3600 );
+	const minutes = Math.floor( ( timeInSeconds % 3600 ) / 60 );
+	const seconds = Math.floor( timeInSeconds % 60 );
+
+	// Compact format without spaces
+	if ( hours > 0 ) {
+
+		return `${hours}h${minutes}m${seconds}s`;
+
+	} else if ( minutes > 0 ) {
+
+		return `${minutes}m${seconds}s`;
+
+	} else {
+
+		return `${seconds}s`;
+
+	}
+
+};
+
 const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	// Access store values directly to avoid selector issues
@@ -535,6 +561,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				image: imageData.image,
 				colorCorrection: colorCorrectionSettings,
 				timestamp: new Date(),
+				renderTime: imageData.renderTime || null,
 				isEdited: true
 			};
 
@@ -636,6 +663,15 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 							</TooltipContent>
 						</Tooltip>
 					</TooltipProvider>
+				</div>
+			)}
+
+			{/* Render time display */}
+			{imageData && imageData.renderTime && ! viewingOriginal && (
+				<div className={`absolute ${hasChanges ? 'bottom-2 left-12' : 'bottom-2 left-2'} z-20`}>
+					<div className="px-2 py-1 bg-black/60 rounded-md text-xs text-gray-300 flex items-center gap-1">
+						⏱ {formatRenderTime( imageData.renderTime )}
+					</div>
 				</div>
 			)}
 

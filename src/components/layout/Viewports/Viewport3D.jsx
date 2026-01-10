@@ -35,6 +35,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
 	const isRenderComplete = useStore( useCallback( state => state.isRenderComplete, [] ) );
 	const setIsRenderComplete = useStore( useCallback( state => state.setIsRenderComplete, [] ) );
+	const stats = useStore( useCallback( state => state.stats, [] ) );
 
 	// Store access - memoized to prevent recreation
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
@@ -132,6 +133,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 					exposure: 0,
 				},
 				timestamp: new Date(),
+				renderTime: stats.timeElapsed || 0,
 				isEdited: true
 			};
 
@@ -151,7 +153,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		}
 
-	}, [ setIsRenderComplete, toast ] );
+	}, [ setIsRenderComplete, toast, stats ] );
 
 	const handleDiscard = useCallback( () => {
 

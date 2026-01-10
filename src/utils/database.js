@@ -163,6 +163,7 @@ export const saveRender = async ( data ) => {
 					gamma: data.colorCorrection.gamma,
 			 	},
 				timestamp: new Date(),
+				renderTime: data.renderTime || null,
 				isEdited: data.isEdited || false,
 				// AI-related fields (optional)
 				aiPrompt: data.aiPrompt || null,

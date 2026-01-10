@@ -2,7 +2,7 @@ import { useStore } from '@/store';
 import { createContext, useContext, useEffect, useState, useCallback, useRef, memo, useMemo } from 'react';
 import { getAllRenders, deleteRender } from '@/utils/database';
 import { debounce } from 'lodash';
-import { Trash2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Trash2, AlertTriangle, Check, Sparkles, CalendarDays, Timer, Clock } from 'lucide-react';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -13,6 +13,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Create Context for sharing state across components
 const ResultsContext = createContext( null );
@@ -442,10 +443,23 @@ const useFormatDate = () => {
 	return useCallback( ( dateString ) => {
 
 		const date = new Date( dateString );
+
+		// Get short year (e.g., "26" from "2026")
+		const year = date.getFullYear().toString().slice( -2 );
+		const month = date.getMonth() + 1;
+		const day = date.getDate();
+		const hours = date.getHours().toString().padStart( 2, '0' );
+		const minutes = date.getMinutes().toString().padStart( 2, '0' );
+
 		return {
-			date: date.toLocaleDateString( undefined, {
-				day: 'numeric',
-				month: 'numeric',
+			// Compact format: "10/1/26"
+			date: `${month}/${day}/${year}`,
+			// Time only: "21:56"
+			time: `${hours}:${minutes}`,
+			// Full format for tooltip: "10/01/2026, 21:56"
+			fullDate: date.toLocaleDateString( undefined, {
+				day: '2-digit',
+				month: '2-digit',
 				year: 'numeric',
 				hour: '2-digit',
 				minute: '2-digit',
@@ -454,6 +468,57 @@ const useFormatDate = () => {
 		};
 
 	}, [] );
+
+};
+
+// Utility function to format render time (compact version)
+const formatRenderTime = ( timeInSeconds ) => {
+
+	if ( ! timeInSeconds || timeInSeconds <= 0 ) return null;
+
+	const hours = Math.floor( timeInSeconds / 3600 );
+	const minutes = Math.floor( ( timeInSeconds % 3600 ) / 60 );
+	const seconds = Math.floor( timeInSeconds % 60 );
+
+	// Compact format without spaces
+	if ( hours > 0 ) {
+
+		return `${hours}h${minutes}m${seconds}s`;
+
+	} else if ( minutes > 0 ) {
+
+		return `${minutes}m${seconds}s`;
+
+	} else {
+
+		return `${seconds}s`;
+
+	}
+
+};
+
+// Full render time format for tooltips
+const formatRenderTimeFull = ( timeInSeconds ) => {
+
+	if ( ! timeInSeconds || timeInSeconds <= 0 ) return null;
+
+	const hours = Math.floor( timeInSeconds / 3600 );
+	const minutes = Math.floor( ( timeInSeconds % 3600 ) / 60 );
+	const seconds = Math.floor( timeInSeconds % 60 );
+
+	if ( hours > 0 ) {
+
+		return `${hours} hour${hours > 1 ? 's' : ''} ${minutes} minute${minutes !== 1 ? 's' : ''} ${seconds} second${seconds !== 1 ? 's' : ''}`;
+
+	} else if ( minutes > 0 ) {
+
+		return `${minutes} minute${minutes !== 1 ? 's' : ''} ${seconds} second${seconds !== 1 ? 's' : ''}`;
+
+	} else {
+
+		return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+
+	}
 
 };
 
@@ -577,43 +642,92 @@ const RenderItem = memo( ( {
 					/>
 				</div>
 
-				{/* Add a small badge for the selected item */}
-				{isSelected && (
-					<div className="absolute top-2 right-2 bg-primary text-primary-foreground text-xs py-0.5 px-2 rounded-full">
-						Selected
-					</div>
-				)}
-
-				{/* AI variant badge */}
-				{hasAIVariant && (
-					<div className="absolute top-2 left-2 bg-purple-600 text-white text-xs py-0.5 px-2 rounded-full flex items-center gap-1">
-						<ImageIcon size={10} />
-						AI
-					</div>
-				)}
+				{/* Icon badges for selected and AI */}
+				<div className="absolute top-2 right-2 flex gap-1">
+					{isSelected && (
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<div className="bg-primary/90 p-0.5 rounded-full cursor-default">
+										<Check size={12} className="text-primary-foreground" />
+									</div>
+								</TooltipTrigger>
+								<TooltipContent side="left" className="text-xs">
+									<p>Selected</p>
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					)}
+					{hasAIVariant && (
+						<TooltipProvider>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<div className="bg-purple-600/90 p-0.5 rounded-full cursor-default">
+										<Sparkles size={12} className="text-white" />
+									</div>
+								</TooltipTrigger>
+								<TooltipContent side="left" className="text-xs max-w-xs">
+									{image.aiPrompt && (
+										<div className="space-y-1">
+											<p className="font-medium">AI Prompt</p>
+											<p className="italic">{image.aiPrompt}</p>
+										</div>
+									)}
+								</TooltipContent>
+							</Tooltip>
+						</TooltipProvider>
+					)}
+				</div>
 			</div>
 
-			<div className="bg-card p-3">
-				<div className="flex justify-between items-center">
-					<div className="flex items-center text-xs space-x-1 text-muted-foreground">
-						<span>{formattedDate.date}</span>
-					</div>
-					<div
-						className="flex items-center justify-center p-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer"
-						onClick={handleDeleteClick}
-						aria-label="Delete render"
-					>
-						<Trash2 size={14} className="text-muted-foreground hover:text-destructive" />
-					</div>
-				</div>
+			<div className="bg-card p-2">
+				<TooltipProvider>
+					<Tooltip>
+						<TooltipTrigger asChild>
+							<div className="space-y-1 cursor-default">
+								{/* First line: Date and time justified */}
+								<div className="flex justify-between items-center text-xs text-muted-foreground">
+									<span className="flex items-center gap-1">
+										<CalendarDays size={12} />
+										{formattedDate.date}
+									</span>
+									<span className="flex items-center gap-1">
+										<Clock size={12} />
+										{formattedDate.time}
+									</span>
+								</div>
 
-				{/* Show AI prompt if available */}
-				{hasAIVariant && (
-					<div className="mt-2 pt-2 border-t border-border">
-						<p className="text-xs text-purple-400 font-medium mb-1">AI Prompt:</p>
-						<p className="text-xs text-muted-foreground line-clamp-2">"{image.aiPrompt}"</p>
-					</div>
-				)}
+								{/* Second line: Render time + Delete button */}
+								<div className="flex justify-between items-center">
+									<span className="flex items-center gap-1 text-xs text-muted-foreground">
+										<Timer size={12} />
+										{image.renderTime ? formatRenderTime( image.renderTime ) : 'NA'}
+									</span>
+
+									{/* Delete button */}
+									<div
+										className="flex items-center justify-center p-1 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors cursor-pointer"
+										onClick={handleDeleteClick}
+										aria-label="Delete render"
+									>
+										<Trash2 size={14} className="text-muted-foreground hover:text-destructive" />
+									</div>
+								</div>
+							</div>
+						</TooltipTrigger>
+						<TooltipContent side="bottom" className="text-xs">
+							<div className="space-y-1">
+								<p><span className="font-medium">Date:</span> <span className="italic text-secondary">{formattedDate.date}</span></p>
+								<p><span className="font-medium">Time:</span> <span className="italic text-secondary">{formattedDate.time}</span></p>
+								{image.renderTime ? (
+									<p><span className="font-medium">Duration:</span> <span className="italic text-secondary">{formatRenderTimeFull( image.renderTime )}</span></p>
+								) : (
+									<p><span className="font-medium">Duration:</span> <span className="italic text-secondary">N/A</span></p>
+								)}
+							</div>
+						</TooltipContent>
+					</Tooltip>
+				</TooltipProvider>
 			</div>
 		</div>
 	);
