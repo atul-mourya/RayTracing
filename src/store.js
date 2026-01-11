@@ -365,6 +365,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setResolution: val => set( { resolution: val } ),
 	setEnableOIDN: val => set( { enableOIDN: val } ),
 	setUseGBuffer: val => set( { useGBuffer: val } ),
+	setRenderLimitMode: val => set( { renderLimitMode: val } ),
+	setRenderTimeLimit: val => set( { renderTimeLimit: val } ),
 	setDebugMode: val => set( { debugMode: val } ),
 	setDebugThreshold: val => set( { debugThreshold: val } ),
 	setEnableBloom: val => set( { enableBloom: val } ),
@@ -1345,6 +1347,32 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			const app = window.pathTracerApp;
 			app.renderer.toneMapping = parseInt( val );
+			app.reset();
+
+		}
+	),
+
+	handleRenderLimitModeChange: handleChange(
+		val => set( { renderLimitMode: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			app.renderLimitMode = val;
+			app.pathTracingPass.setRenderLimitMode( val );
+			app.reset();
+
+		}
+	),
+
+	handleRenderTimeLimitChange: handleChange(
+		val => set( { renderTimeLimit: val } ),
+		val => {
+
+			const app = window.pathTracerApp;
+			app.renderTimeLimit = parseFloat( val );
+			// No need to reset for time limit change unless we want to restart timer,
+			// but usually changing constraints implies new render or adjusting current.
+			// Let's reset to be safe and consistent.
 			app.reset();
 
 		}

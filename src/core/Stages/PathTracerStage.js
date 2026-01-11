@@ -83,6 +83,7 @@ export class PathTracerStage extends PipelineStage {
 		// Performance monitoring
 		this.performanceMonitor = PathTracerUtils.createPerformanceMonitor();
 		this.completionThreshold = 0;
+		this.renderLimitMode = 'frames';
 
 		// Create shader material
 		this.setupMaterial();
@@ -1142,11 +1143,26 @@ export class PathTracerStage extends PipelineStage {
 		const renderMode = this.material.uniforms.renderMode.value;
 		const maxFrames = this.material.uniforms.maxFrames.value;
 
-		this.completionThreshold = PathTracerUtils.updateCompletionThreshold(
-			renderMode,
-			maxFrames,
-			this.tileManager.totalTilesCache
-		);
+		if ( this.renderLimitMode === 'time' ) {
+
+			this.completionThreshold = Infinity;
+
+		} else {
+
+			this.completionThreshold = PathTracerUtils.updateCompletionThreshold(
+				renderMode,
+				maxFrames,
+				this.tileManager.totalTilesCache
+			);
+
+		}
+
+	}
+
+	setRenderLimitMode( mode ) {
+
+		this.renderLimitMode = mode;
+		this.updateCompletionThreshold();
 
 	}
 

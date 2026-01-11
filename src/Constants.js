@@ -173,6 +173,8 @@ export const DEFAULT_STATE = {
 	performanceModeAdaptive: 'medium',
 
 	fireflyThreshold: 1.8,
+	renderLimitMode: 'frames', // 'frames' or 'time'
+	renderTimeLimit: 30, // seconds
 	renderMode: 0,
 	tiles: 3,
 	tilesHelper: false,

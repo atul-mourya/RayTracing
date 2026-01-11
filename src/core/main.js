@@ -93,6 +93,8 @@ class PathTracerApp extends EventDispatcher {
 		this.animationFrameId = null;
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
+		this.renderLimitMode = DEFAULT_STATE.renderLimitMode;
+		this.renderTimeLimit = DEFAULT_STATE.renderTimeLimit;
 
 		// Pipeline architecture
 		this.pipeline = null;
@@ -683,16 +685,29 @@ class PathTracerApp extends EventDispatcher {
 					pathtracingUniforms.frame.value
 			} );
 
+			// Check if time limit reached and force completion logic
+			if ( this.renderLimitMode === 'time' && this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit ) {
+
+				this.pathTracingPass.isComplete = true;
+
+			}
+
 		}
 
 		// Early exit: Return immediately if path tracing is not complete
 		if ( ! this.pathTracingPass.isComplete ) return;
 
-		// Early exit: Check frame count before expensive completion operations
-		if (
-			( pathtracingUniforms.renderMode.value === 0 && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value ) ||
-			( pathtracingUniforms.renderMode.value === 1 && pathtracingUniforms.frame.value >= pathtracingUniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) )
-		) {
+		// Check completion conditions
+		const uniforms = pathtracingUniforms;
+		const isFrameLimitReached =
+			( uniforms.renderMode.value === 0 && uniforms.frame.value >= uniforms.maxFrames.value ) ||
+			( uniforms.renderMode.value === 1 && uniforms.frame.value >= uniforms.maxFrames.value * Math.pow( this.pathTracingPass.tileManager.tiles, 2 ) );
+
+
+		const isTimeLimitReached = this.renderLimitMode === 'time' && this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit;
+
+		// Early exit: Check completion conditions before expensive operations
+		if ( ( this.renderLimitMode !== 'time' && isFrameLimitReached ) || ( this.renderLimitMode === 'time' && isTimeLimitReached ) ) {
 
 			this.denoiser.start();
 			this.dispatchEvent( { type: 'RenderComplete' } );
