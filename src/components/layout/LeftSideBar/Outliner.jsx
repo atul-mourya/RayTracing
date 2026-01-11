@@ -6,6 +6,14 @@ import {
 } from 'lucide-react';
 import { useStore } from '@/store';
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuContent,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 
 // Theme-compliant styling constants
 const STYLES = {
@@ -238,7 +246,28 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 LayerTreeItem.displayName = 'LayerTreeItem';
 
-const OutlinerHeader = memo( ( { searchTerm, onSearchChange } ) => {
+const OutlinerHeader = memo( ( { searchTerm, onSearchChange, filters, onFilterChange } ) => {
+
+	const allChecked = Object.values( filters ).every( Boolean );
+
+	const toggleFilter = ( key ) => {
+
+		onFilterChange( { ...filters, [ key ]: ! filters[ key ] } );
+
+	};
+
+	const toggleAll = () => {
+
+		const newState = ! allChecked;
+		const newFilters = Object.keys( filters ).reduce( ( acc, key ) => {
+
+			acc[ key ] = newState;
+			return acc;
+
+		}, {} );
+		onFilterChange( newFilters );
+
+	};
 
 	return (
 		<div className={cn( "flex items-center px-2 py-1 gap-1 shrink-0 border-b h-10", STYLES.bg, STYLES.border )}>
@@ -259,9 +288,51 @@ const OutlinerHeader = memo( ( { searchTerm, onSearchChange } ) => {
 			</div>
 
 			{/* Filter Button */}
-			<div className={cn( "h-7 w-7 flex items-center justify-center rounded hover:bg-accent/50 cursor-pointer text-muted-foreground hover:text-foreground transition-colors" )}>
-				<Filter size={14} strokeWidth={1.5} />
-			</div>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<div className={cn( "h-7 w-7 flex items-center justify-center rounded hover:bg-accent/50 cursor-pointer text-muted-foreground hover:text-foreground transition-colors",
+						! allChecked && "text-accent-foreground bg-accent/30"
+					)}>
+						<Filter size={14} strokeWidth={1.5} />
+					</div>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end" className="w-40">
+					<DropdownMenuItem
+						className="gap-2"
+						onSelect={( e ) => {
+
+							e.preventDefault();
+							toggleAll();
+
+						}}
+					>
+						<Checkbox
+							checked={allChecked}
+							className="pointer-events-none data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+						/>
+						<span className="text-xs opacity-70">All</span>
+					</DropdownMenuItem>
+					<DropdownMenuSeparator />
+					{[ 'Groups', 'Meshes', 'Lights', 'Cameras' ].map( ( key ) => (
+						<DropdownMenuItem
+							key={key}
+							className="gap-2"
+							onSelect={( e ) => {
+
+								e.preventDefault();
+								toggleFilter( key );
+
+							}}
+						>
+							<Checkbox
+								checked={filters[ key ]}
+								className="pointer-events-none data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+							/>
+							<span className="text-xs opacity-70">{key}</span>
+						</DropdownMenuItem>
+					) )}
+				</DropdownMenuContent>
+			</DropdownMenu>
 		</div>
 	);
 
@@ -272,6 +343,12 @@ OutlinerHeader.displayName = 'OutlinerHeader';
 const Outliner = () => {
 
 	const [ searchTerm, setSearchTerm ] = useState( '' );
+	const [ filters, setFilters ] = useState( {
+		Groups: true,
+		Meshes: true,
+		Lights: true,
+		Cameras: true,
+	} );
 	const layers = useStore( ( state ) => state.layers );
 	const setLayers = useStore( ( state ) => state.setLayers );
 
@@ -320,31 +397,47 @@ const Outliner = () => {
 
 	}, [ updateLayers ] );
 
-	const renderFilteredLayers = useCallback( ( layers, term ) => {
+	const renderFilteredLayers = useCallback( ( layers, term, filters ) => {
 
-		if ( ! term ) return layers;
-		return layers
-			.filter( layer => {
+		const isVisibleByType = ( layer ) => {
 
-				const matchesSearch =
+			if ( layer.type === 'Scene' ) return true;
+			if ( layer.type === 'Mesh' ) return filters.Meshes;
+			if ( layer.type.includes( 'Light' ) ) return filters.Lights;
+			if ( layer.type.includes( 'Camera' ) ) return filters.Cameras;
+			if ( layer.type === 'Group' || layer.type === 'Object3D' ) return filters.Groups;
+			return true;
+
+		};
+
+		return layers.reduce( ( acc, layer ) => {
+
+			if ( ! isVisibleByType( layer ) ) return acc;
+
+			const matchesSearch = ! term ||
           layer.name.toLowerCase().includes( term.toLowerCase() ) ||
           layer.type.toLowerCase().includes( term.toLowerCase() );
-				const hasMatchingChildren =
-          layer.children.length > 0 &&
-          renderFilteredLayers( layer.children, term ).length > 0;
-				return matchesSearch || hasMatchingChildren;
 
-			} )
-			.map( layer => ( {
-				...layer,
-				children: renderFilteredLayers( layer.children, term ),
-			} ) );
+			const filteredChildren = renderFilteredLayers( layer.children, term, filters );
+
+			if ( matchesSearch || filteredChildren.length > 0 ) {
+
+				acc.push( {
+					...layer,
+					children: filteredChildren,
+				} );
+
+			}
+
+			return acc;
+
+		}, [] );
 
 	}, [] );
 
 	const filteredLayers = useMemo( () =>
-		renderFilteredLayers( layers, searchTerm )
-	, [ layers, searchTerm, renderFilteredLayers ] );
+		renderFilteredLayers( layers, searchTerm, filters )
+	, [ layers, searchTerm, filters, renderFilteredLayers ] );
 
 	const handleSearchChange = useCallback( ( e ) => {
 
@@ -352,9 +445,20 @@ const Outliner = () => {
 
 	}, [] );
 
+	const handleFilterChange = useCallback( ( newFilters ) => {
+
+		setFilters( newFilters );
+
+	}, [] );
+
 	return (
 		<div className={cn( "w-full h-full flex flex-col overflow-hidden select-none", STYLES.bg )}>
-			<OutlinerHeader searchTerm={searchTerm} onSearchChange={handleSearchChange} />
+			<OutlinerHeader
+				searchTerm={searchTerm}
+				onSearchChange={handleSearchChange}
+				filters={filters}
+				onFilterChange={handleFilterChange}
+			/>
 			<div className="flex-1 overflow-auto py-1">
 				<div className="flex flex-col min-w-full w-fit">
 					{filteredLayers.length > 0 ? (
