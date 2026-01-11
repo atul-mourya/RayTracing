@@ -557,9 +557,10 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		};
 
+		// Use pointerdown with capture=true to handle clicks even if propagation is stopped by other components
 		const timer = setTimeout( () => {
 
-			document.addEventListener( 'click', handleClickOutside );
+			document.addEventListener( 'pointerdown', handleClickOutside, true );
 			document.addEventListener( 'keydown', handleKeyDown );
 
 		}, 0 );
@@ -567,7 +568,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 		return () => {
 
 			clearTimeout( timer );
-			document.removeEventListener( 'click', handleClickOutside );
+			document.removeEventListener( 'pointerdown', handleClickOutside, true );
 			document.removeEventListener( 'keydown', handleKeyDown );
 
 		};
@@ -593,6 +594,8 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 	}, [ menuState.visible, menuState.x, menuState.y, calculateMenuPosition ] );
 
 	if ( ! menuState.visible ) return null;
+
+	const isMesh = menuState.selectedObject?.type === 'Mesh' || menuState.selectedObject?.isMesh;
 
 	return (
 		<div
@@ -634,17 +637,21 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 				)}
 			</MenuItem>
 
-			<MenuSeparator />
+			{isMesh && (
+				<>
+					<MenuSeparator />
 
-			<MenuItem onClick={handleCopyMaterial}>
-				<Copy className="h-3 w-3" />
-				<span className="ml-2">Copy Material</span>
-			</MenuItem>
+					<MenuItem onClick={handleCopyMaterial}>
+						<Copy className="h-3 w-3" />
+						<span className="ml-2">Copy Material</span>
+					</MenuItem>
 
-			<MenuItem onClick={handlePasteMaterial} disabled={! copiedMaterial}>
-				<Clipboard className="h-3 w-3" />
-				<span className="ml-2">Paste Material</span>
-			</MenuItem>
+					<MenuItem onClick={handlePasteMaterial} disabled={! copiedMaterial}>
+						<Clipboard className="h-3 w-3" />
+						<span className="ml-2">Paste Material</span>
+					</MenuItem>
+				</>
+			)}
 
 			<MenuSeparator />
 

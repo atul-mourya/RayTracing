@@ -182,6 +182,38 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 	}, [ selectedObject, setSelectedObject, item.uuid ] );
 
+	const handleContextMenu = useCallback( ( e ) => {
+
+		e.preventDefault();
+		e.stopPropagation();
+
+		if ( ! window.pathTracerApp || ! window.pathTracerApp.interactionManager ) return;
+
+		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+
+		if ( object ) {
+
+			// Select object if not already selected
+			if ( ! selectedObject || selectedObject.uuid !== item.uuid ) {
+
+				window.pathTracerApp.selectObject( object );
+				window.pathTracerApp.refreshFrame();
+				setSelectedObject( object );
+
+			}
+
+			// Dispatch event for InteractionContextMenu
+			window.pathTracerApp.interactionManager.dispatchEvent( {
+				type: 'contextMenuRequested',
+				x: e.clientX,
+				y: e.clientY,
+				selectedObject: object
+			} );
+
+		}
+
+	}, [ item.uuid, selectedObject, setSelectedObject ] );
+
 	const toggleOpen = useCallback( ( e ) => {
 
 		e.stopPropagation();
@@ -202,6 +234,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 				)}
 				style={{ paddingLeft: paddingLeft }}
 				onClick={handleNodeClick}
+				onContextMenu={handleContextMenu}
 			>
 				<ChevronToggle isOpen={isOpen} onToggle={toggleOpen} hasChildren={item.children.length > 0} />
 
