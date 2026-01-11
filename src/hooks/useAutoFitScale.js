@@ -27,6 +27,9 @@ export const useAutoFitScale = ( {
 	const [ isManualScale, setIsManualScale ] = useState( false );
 	const resizeObserverRef = useRef( null );
 
+	// Use ref to track manual scale synchronously to avoid race conditions with ResizeObserver
+	const isManualScaleRef = useRef( false );
+
 	// Calculate best fit scale based on available space
 	const calculateBestFitScale = useCallback( () => {
 
@@ -64,7 +67,8 @@ export const useAutoFitScale = ( {
 				setAutoFitScale( newAutoFitScale );
 
 				// Only update viewport scale if not manually overridden
-				if ( ! isManualScale ) {
+				// Use ref to check synchronously and avoid race conditions
+				if ( ! isManualScaleRef.current ) {
 
 					setViewportScale( newAutoFitScale );
 
@@ -92,19 +96,28 @@ export const useAutoFitScale = ( {
 
 		};
 
-	}, [ calculateBestFitScale, isManualScale, enabled ] );
+	}, [ calculateBestFitScale, enabled ] );
 
 	// Handle viewport resize with manual scale detection
 	const handleViewportResize = useCallback( ( scale ) => {
 
+		// Set ref synchronously BEFORE updating state to prevent race conditions
+		const isManual = Math.abs( scale - autoFitScale ) > manualThreshold;
+		isManualScaleRef.current = isManual;
+
+		// Update state
 		setViewportScale( scale );
-		setIsManualScale( Math.abs( scale - autoFitScale ) > manualThreshold );
+		setIsManualScale( isManual );
 
 	}, [ autoFitScale, manualThreshold ] );
 
 	// Reset to auto-fit function
 	const handleResetToAutoFit = useCallback( () => {
 
+		// Reset ref synchronously
+		isManualScaleRef.current = false;
+
+		// Update state
 		setViewportScale( autoFitScale );
 		setIsManualScale( false );
 
