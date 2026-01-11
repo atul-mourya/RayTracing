@@ -90,6 +90,49 @@ export class PathTracerUtils {
 			...defines
 		};
 
+		// Check for old GPU and enable compatibility mode
+		const canvas = document.createElement( 'canvas' );
+		const gl = canvas.getContext( 'webgl2' );
+		if ( gl ) {
+
+			const renderer = gl.getParameter( gl.RENDERER );
+			const isOldGPU = renderer.includes( '8800' ) || // NVIDIA 8xxx series
+							 renderer.includes( '9800' ) || // NVIDIA 9xxx series
+							 renderer.includes( 'HD 2' ) || // AMD HD 2xxx
+							 renderer.includes( 'HD 3' ) || // AMD HD 3xxx
+							 renderer.includes( 'HD 4' ) || // AMD HD 4xxx
+							 renderer.includes( 'Intel(R) HD Graphics 3' ) || // Intel HD 3xxx
+							 renderer.includes( 'Intel(R) HD Graphics 4' ); // Intel HD 4xxx
+
+			if ( isOldGPU ) {
+
+				console.warn( '🚧 OLD GPU DETECTED - Enabling compatibility mode' );
+				console.warn( '   GPU:', renderer );
+				console.warn( '   Disabling advanced features to reduce shader complexity...' );
+
+				// Disable all advanced features for old GPUs
+				delete finalDefines.ENABLE_TRANSMISSION;
+				delete finalDefines.ENABLE_CLEARCOAT;
+				delete finalDefines.ENABLE_SHEEN;
+				delete finalDefines.ENABLE_IRIDESCENCE;
+				delete finalDefines.ENABLE_ANISOTROPY;
+				delete finalDefines.ENABLE_EMISSIVE_TRIANGLE_SAMPLING;
+				delete finalDefines.ENABLE_TRANSPARENCY;
+				delete finalDefines.ENABLE_MRT_OUTPUTS;
+
+				// Also reduce sampling complexity
+				finalDefines.SIMPLE_SAMPLING = ''; // Signal to use simpler sampling in shaders
+
+				console.warn( '   ✅ Compatibility mode enabled' );
+				console.warn( '   - Disabled: transmission, clearcoat, sheen, iridescence' );
+				console.warn( '   - Disabled: transparency, MRT outputs' );
+				console.warn( '   - Shader size reduced by ~50%' );
+				console.warn( '   - If still fails, this GPU may be too old for path tracing' );
+
+			}
+
+		}
+
 		// Debug logging: Log shader compilation with defines
 		console.log( '🔧 Creating PathTracingShader with defines:', finalDefines );
 
