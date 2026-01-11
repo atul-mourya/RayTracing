@@ -1,84 +1,62 @@
 import { useState, useEffect, useCallback, memo, useMemo } from 'react';
-import { Plus, Search, Box, Circle, Cylinder, Camera, ChevronRight, ChevronDown, Sun, Flashlight, Boxes, Folder, Shapes, Triangle, LampDesk, Eye, EyeOff } from 'lucide-react';
-import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import {
+	Search, Box, Circle, Cylinder, Camera, ChevronRight, ChevronDown,
+	Sun, Flashlight, Boxes, Folder, Shapes, Triangle, LampDesk,
+	Eye, EyeOff, Layers, Filter
+} from 'lucide-react';
 import { useStore } from '@/store';
-
 import { cn } from "@/lib/utils";
 
-// Extract the icon component into its own component
+// Theme-compliant styling constants
+const STYLES = {
+	bg: 'bg-background',
+	itemActive: 'bg-accent text-accent-foreground',
+	text: 'text-foreground',
+	textMuted: 'text-muted-foreground',
+	border: 'border-border',
+	inputBg: 'bg-muted/50',
+	iconOrange: 'text-orange-500',
+	iconGreen: 'text-emerald-500',
+	iconDefault: 'text-foreground',
+};
+
+// Icon component with theme colors
 const ObjectIcon = memo( ( { object } ) => {
 
-	const iconProps = {
-		size: 10,
-		className: "text-muted-foreground/70"
-	};
+	const baseClass = "w-3 h-3 opacity-70";
 
-	if ( object.type === 'Group' || object.type === 'Object3D' ) return <Folder {...iconProps} />;
-	if ( object.type === 'Scene' ) return <Boxes {...iconProps} />;
+	if ( object.type === 'Group' || object.type === 'Object3D' )
+		return <Folder className={cn( baseClass, STYLES.iconDefault, "opacity-70" )} />;
 
+	if ( object.type === 'Scene' )
+		return <Boxes className={cn( baseClass, STYLES.iconDefault )} />;
+
+	// Meshes - Orange (Blender convention, mapped to Tailwind palette)
 	if ( object.type === 'Mesh' ) {
 
 		const geometryType = object.geometry?.constructor?.name || '';
+		const meshClass = cn( baseClass, STYLES.iconOrange );
 
-		if ( geometryType.includes( 'BoxGeometry' ) ) return <Box {...iconProps} />;
-		if ( geometryType.includes( 'SphereGeometry' ) ) return <Circle {...iconProps} />;
-		if ( geometryType.includes( 'CylinderGeometry' ) ) return <Cylinder {...iconProps} />;
-		if ( geometryType.includes( 'ConeGeometry' ) ) return <Triangle {...iconProps} />;
-		return <Shapes {...iconProps} />;
+		if ( geometryType.includes( 'BoxGeometry' ) ) return <Box className={meshClass} />;
+		if ( geometryType.includes( 'SphereGeometry' ) ) return <Circle className={meshClass} />;
+		if ( geometryType.includes( 'CylinderGeometry' ) ) return <Cylinder className={meshClass} />;
+		if ( geometryType.includes( 'ConeGeometry' ) ) return <Triangle className={meshClass} />;
+		return <Shapes className={meshClass} />;
 
 	}
 
-	if ( object.type === 'DirectionalLight' ) return <Sun {...iconProps} />;
-	if ( object.type === 'PointLight' ) return <LampDesk {...iconProps} />;
-	if ( object.type === 'SpotLight' ) return <Flashlight {...iconProps} />;
-	if ( object.type.includes( 'Camera' ) ) return <Camera {...iconProps} />;
+	// Lights & Camera - Orange
+	if ( object.type === 'DirectionalLight' ) return <Sun className={cn( baseClass, STYLES.iconOrange )} />;
+	if ( object.type === 'PointLight' ) return <LampDesk className={cn( baseClass, STYLES.iconOrange )} />;
+	if ( object.type === 'SpotLight' ) return <Flashlight className={cn( baseClass, STYLES.iconOrange )} />;
+	if ( object.type.includes( 'Camera' ) ) return <Camera className={cn( baseClass, STYLES.iconOrange )} />;
 
-	return <Shapes {...iconProps} />;
+	return <Shapes className={cn( baseClass, STYLES.iconOrange )} />;
 
 } );
 
 ObjectIcon.displayName = 'ObjectIcon';
 
-// Extract the indent lines to a separate component
-const IndentLines = memo( ( { depth } ) => {
-
-	return Array.from( { length: depth } ).map( ( _, index ) => (
-		<div
-			key={index}
-			className="absolute top-0 bottom-0 border-l border-border/90"
-			style={{
-				left: `${( index * 16 ) + 20}px`,
-				height: '100%'
-			}}
-		/>
-	) );
-
-} );
-
-IndentLines.displayName = 'IndentLines';
-
-// Extract the chevron toggle into its own component
-const ChevronToggle = memo( ( { isOpen, onToggle, hasChildren } ) => {
-
-	if ( ! hasChildren ) return <div className="w-4" />;
-
-	return (
-		<div
-			onClick={onToggle}
-			className="flex items-center justify-center w-4 h-4 hover:bg-transparent cursor-pointer"
-		>
-			{isOpen ?
-				<ChevronDown className="h-3 w-3 text-muted-foreground/50" /> :
-				<ChevronRight className="h-3 w-3 text-muted-foreground/50" />
-			}
-		</div>
-	);
-
-} );
-
-ChevronToggle.displayName = 'ChevronToggle';
-
-// Extract the visibility toggle into its own component
 const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 
 	const toggleMeshVisibility = useStore( ( state ) => state.toggleMeshVisibility );
@@ -87,26 +65,26 @@ const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 
 		e.stopPropagation();
 		toggleMeshVisibility( item.uuid );
-		// Don't maintain local state - parent will update via event
 		onVisibilityChange?.( ! isVisible );
 
 	}, [ toggleMeshVisibility, item.uuid, isVisible, onVisibilityChange ] );
 
-	// Only show visibility toggle for meshes, return empty space for alignment
-	if ( item.type !== 'Mesh' ) {
+	// Only show visibility toggle for meshes as currently supported by the store
+	const show = item.type === 'Mesh';
 
-		return <div className="w-4 h-4" />;
-
-	}
+	if ( ! true ) return <div className="w-5" />;
 
 	return (
 		<div
 			onClick={handleToggle}
-			className="flex items-center justify-center w-4 h-4 hover:bg-accent/50 cursor-pointer rounded-sm"
+			className={cn(
+				"flex items-center justify-center w-5 h-5 cursor-pointer hover:bg-accent/50 rounded-sm ml-auto",
+				! isVisible && "opacity-50"
+			)}
 		>
 			{isVisible ?
-				<Eye className="h-3 w-3 text-muted-foreground/70 hover:text-foreground" /> :
-				<EyeOff className="h-3 w-3 text-muted-foreground/70 hover:text-foreground" />
+				<Eye size={14} className={STYLES.text} /> :
+				<EyeOff size={14} className={STYLES.text} />
 			}
 		</div>
 	);
@@ -115,96 +93,41 @@ const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 
 VisibilityToggle.displayName = 'VisibilityToggle';
 
-// Extract the layer item node header into its own component
-const LayerTreeItemHeader = memo( ( { item, depth, isSelected, isOpen, onNodeClick, onToggle, isVisible, onVisibilityChange } ) => {
-
-	const paddingLeft = `${depth * 16 + 8}px`;
-	const hasChildren = item.children.length > 0;
+const ChevronToggle = memo( ( { isOpen, onToggle, hasChildren } ) => {
 
 	return (
-		<div className="relative">
-			<IndentLines depth={depth} />
-			<div
-				onClick={onNodeClick}
-				className={cn(
-					"relative flex items-center w-full select-none group",
-					"h-7 text-sm outline-hidden",
-					"hover:bg-accent/50 hover:text-accent-foreground",
-					"focus-visible:outline-hidden",
-					isSelected && "bg-accent/50 text-accent-foreground",
-					! isVisible && "opacity-40"
-				)}
-			>
-				<div
-					className="flex items-center gap-0.5 px-1"
-					style={{ paddingLeft }}
-				>
-					<VisibilityToggle item={item} isVisible={isVisible} onVisibilityChange={onVisibilityChange} />
-					<ChevronToggle
-						isOpen={isOpen}
-						onToggle={onToggle}
-						hasChildren={hasChildren}
-					/>
-					<div className={cn(
-						"flex items-center gap-1 flex-1",
-						"text-muted-foreground/70",
-						"group-hover:text-accent-foreground/90",
-						isSelected && "text-accent-foreground/90"
-					)}>
-						<div className="w-4 h-4 flex items-center justify-center opacity-50">
-							<ObjectIcon object={item} />
-						</div>
-						<span className="text-xs truncate flex-1">
-							{item.name}
-						</span>
-					</div>
-				</div>
-			</div>
+		<div
+			onClick={hasChildren ? onToggle : undefined}
+			className={cn(
+				"flex items-center justify-center w-5 h-full cursor-pointer hover:text-foreground",
+				! hasChildren && "opacity-0 pointer-events-none"
+			)}
+		>
+			{isOpen ?
+				<ChevronDown size={14} className="opacity-50" /> :
+				<ChevronRight size={14} className="opacity-50" />
+			}
 		</div>
 	);
 
 } );
 
-LayerTreeItemHeader.displayName = 'LayerTreeItemHeader';
+ChevronToggle.displayName = 'ChevronToggle';
 
-// Extract the layer tree item content into its own component
-const LayerTreeItemContent = memo( ( { item, isOpen, depth } ) => {
-
-	if ( ! item.children.length ) return null;
-
-	return (
-		<Collapsible open={isOpen}>
-			<CollapsibleContent>
-				{item.children.map( ( child ) => (
-					<LayerTreeItem key={child.uuid} item={child} depth={depth + 1} />
-				) )}
-			</CollapsibleContent>
-		</Collapsible>
-	);
-
-} );
-
-LayerTreeItemContent.displayName = 'LayerTreeItemContent';
-
-// Main LayerTreeItem component that composes the above components
 const LayerTreeItem = memo( ( { item, depth } ) => {
 
 	const [ isOpen, setIsOpen ] = useState( true );
 	const selectedObject = useStore( ( state ) => state.selectedObject );
 	const setSelectedObject = useStore( ( state ) => state.setSelectedObject );
 
-	// Track visibility state
 	const getInitialVisibility = useCallback( () => {
 
-		// First, try to use the captured visibility state from the layer item
 		if ( item.visible !== undefined ) return item.visible;
-
-		// Fall back to querying the scene if not available
 		if ( item.type !== 'Mesh' || ! window.pathTracerApp ) return true;
 		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
 		return object?.visible ?? true;
 
-	}, [ item.type, item.uuid, item.visible ] );
+	}, [ item ] );
 
 	const [ isVisible, setIsVisible ] = useState( getInitialVisibility );
 
@@ -214,12 +137,10 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 	}, [] );
 
-	// Listen for visibility changes from other components (e.g., context menu)
 	useEffect( () => {
 
 		const handleMeshVisibilityChanged = ( event ) => {
 
-			// Check if this event is for our item
 			if ( event.detail.uuid === item.uuid ) {
 
 				setIsVisible( event.detail.visible );
@@ -229,19 +150,13 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		};
 
 		window.addEventListener( 'meshVisibilityChanged', handleMeshVisibilityChanged );
-
-		return () => {
-
-			window.removeEventListener( 'meshVisibilityChanged', handleMeshVisibilityChanged );
-
-		};
+		return () => window.removeEventListener( 'meshVisibilityChanged', handleMeshVisibilityChanged );
 
 	}, [ item.uuid ] );
 
 	const handleNodeClick = useCallback( ( e ) => {
 
 		e.stopPropagation();
-
 		if ( ! window.pathTracerApp ) return;
 
 		if ( selectedObject && selectedObject.uuid === item.uuid ) {
@@ -264,32 +179,63 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 	}, [ selectedObject, setSelectedObject, item.uuid ] );
 
-	const handleChevronClick = useCallback( ( e ) => {
+	const toggleOpen = useCallback( ( e ) => {
 
 		e.stopPropagation();
-		setIsOpen( prev => ! prev );
+		setIsOpen( p => ! p );
 
 	}, [] );
 
 	const isSelected = selectedObject && selectedObject.uuid === item.uuid;
+	const paddingLeft = depth * 12 + 8;
 
 	return (
-		<div>
-			<LayerTreeItemHeader
-				item={item}
-				depth={depth}
-				isSelected={isSelected}
-				isOpen={isOpen}
-				onNodeClick={handleNodeClick}
-				onToggle={handleChevronClick}
-				isVisible={isVisible}
-				onVisibilityChange={handleVisibilityChange}
-			/>
-			<LayerTreeItemContent
-				item={item}
-				isOpen={isOpen}
-				depth={depth}
-			/>
+		<div className="flex flex-col select-none min-w-full w-fit">
+			<div
+				className={cn(
+					"group flex items-center h-7 pr-1 cursor-pointer transition-colors border-none outline-none min-w-full w-fit",
+					isSelected ? STYLES.itemActive : "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
+					! isVisible && "opacity-50"
+				)}
+				style={{ paddingLeft: paddingLeft }}
+				onClick={handleNodeClick}
+			>
+				<ChevronToggle isOpen={isOpen} onToggle={toggleOpen} hasChildren={item.children.length > 0} />
+
+				<div className="flex items-center justify-center w-5 h-full">
+					<ObjectIcon object={item} />
+				</div>
+
+				<span className={cn(
+					"text-xs ml-1 flex-1 whitespace-nowrap pr-2",
+					isSelected ? "text-accent-foreground font-medium" : "opacity-70"
+				)}>
+					{item.name}
+				</span>
+
+				{/* Right side controls */}
+				<div className="sticky right-0 flex items-center h-full pl-2 pr-1 ml-auto">
+					<div className="absolute inset-0 bg-background -z-20" />
+					<div className={cn(
+						"absolute inset-0 -z-10 transition-colors",
+						isSelected ? "bg-accent" : "group-hover:bg-accent/0"
+					)} />
+					{/* Gradient mask for smooth transition - simplified */}
+					<div className={cn(
+						"absolute left-0 top-0 bottom-0 w-4 -translate-x-full bg-gradient-to-l from-background to-transparent pointer-events-none",
+						isSelected && "from-accent"
+					)} />
+					<VisibilityToggle item={item} isVisible={isVisible} onVisibilityChange={handleVisibilityChange} />
+				</div>
+			</div>
+
+			{item.children.length > 0 && isOpen && (
+				<div className="flex flex-col">
+					{item.children.map( child => (
+						<LayerTreeItem key={child.uuid} item={child} depth={depth + 1} />
+					) )}
+				</div>
+			)}
 		</div>
 	);
 
@@ -297,32 +243,30 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 LayerTreeItem.displayName = 'LayerTreeItem';
 
-// Extract search component
-const SearchBar = memo( ( { value, onChange } ) => {
-
-	return (
-		<div className="flex items-center px-3 py-2 rounded-full bg-muted/50">
-			<Search size={14} className="text-muted-foreground mr-2" />
-			<input
-				type="text"
-				placeholder="Search layers..."
-				className="bg-transparent text-xs w-full outline-hidden placeholder:text-muted-foreground/70"
-				value={value}
-				onChange={onChange}
-			/>
-		</div>
-	);
-
-} );
-
-SearchBar.displayName = 'SearchBar';
-
-// Extract header component
 const OutlinerHeader = memo( ( { searchTerm, onSearchChange } ) => {
 
 	return (
-		<div className="p-2 border-b border-border">
-			<SearchBar value={searchTerm} onChange={onSearchChange} />
+		<div className={cn( "flex items-center px-2 py-1 gap-1 shrink-0 border-b h-10", STYLES.bg, STYLES.border )}>
+			{/* View Layer Button */}
+			<div className={cn( "h-7 w-7 flex items-center justify-center rounded hover:bg-accent/50 cursor-pointer text-muted-foreground hover:text-foreground transition-colors" )}>
+				<Layers size={14} strokeWidth={1.5} />
+			</div>
+
+			{/* Search Bar */}
+			<div className={cn( "flex-1 h-7 flex items-center px-2 rounded gap-2", STYLES.inputBg )}>
+				<Search size={12} className="text-muted-foreground/50" />
+				<input
+					value={searchTerm}
+					onChange={onSearchChange}
+					placeholder="Search..."
+					className="bg-transparent border-none outline-none text-xs text-foreground placeholder:text-muted-foreground/50 w-full focus:ring-0 p-0 leading-none"
+				/>
+			</div>
+
+			{/* Filter Button */}
+			<div className={cn( "h-7 w-7 flex items-center justify-center rounded hover:bg-accent/50 cursor-pointer text-muted-foreground hover:text-foreground transition-colors" )}>
+				<Filter size={14} strokeWidth={1.5} />
+			</div>
 		</div>
 	);
 
@@ -330,7 +274,6 @@ const OutlinerHeader = memo( ( { searchTerm, onSearchChange } ) => {
 
 OutlinerHeader.displayName = 'OutlinerHeader';
 
-// Main Outliner component now focuses on data and orchestrating the UI components
 const Outliner = () => {
 
 	const [ searchTerm, setSearchTerm ] = useState( '' );
@@ -344,7 +287,7 @@ const Outliner = () => {
 			type: object.type,
 			uuid: object.uuid,
 			geometry: object.geometry?.constructor?.name,
-			visible: object.visible ?? true, // Capture visibility state
+			visible: object.visible ?? true,
 			children: object.children.map( child => createLayerItem( child ) ),
 		};
 
@@ -355,7 +298,15 @@ const Outliner = () => {
 		const scene = window.pathTracerApp?.scene;
 		if ( ! scene ) return [];
 
-		return [ createLayerItem( scene ) ];
+		const sceneGraph = [ createLayerItem( scene ) ];
+
+		if ( sceneGraph.length > 0 && sceneGraph[ 0 ].type === 'Scene' ) {
+
+			sceneGraph[ 0 ].name = "Scene Collection";
+
+		}
+
+		return sceneGraph;
 
 	}, [ createLayerItem ] );
 
@@ -369,7 +320,6 @@ const Outliner = () => {
 
 		const handleSceneUpdate = () => updateLayers();
 		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
-		// Initial update
 		updateLayers();
 		return () => window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
 
@@ -378,7 +328,6 @@ const Outliner = () => {
 	const renderFilteredLayers = useCallback( ( layers, term ) => {
 
 		if ( ! term ) return layers;
-
 		return layers
 			.filter( layer => {
 
@@ -398,7 +347,6 @@ const Outliner = () => {
 
 	}, [] );
 
-	// Memoize filtered layers to avoid recalculation on every render
 	const filteredLayers = useMemo( () =>
 		renderFilteredLayers( layers, searchTerm )
 	, [ layers, searchTerm, renderFilteredLayers ] );
@@ -410,18 +358,20 @@ const Outliner = () => {
 	}, [] );
 
 	return (
-		<div className="w-full h-full border-r border-border flex flex-col bg-background">
+		<div className={cn( "w-full h-full flex flex-col overflow-hidden select-none", STYLES.bg )}>
 			<OutlinerHeader searchTerm={searchTerm} onSearchChange={handleSearchChange} />
-			<div className="flex-1 overflow-y-auto py-2">
-				{filteredLayers.length > 0 ? (
-					filteredLayers.map( ( layer ) => (
-						<LayerTreeItem key={layer.uuid} item={layer} depth={0} />
-					) )
-				) : (
-					<div className="text-xs text-muted-foreground/70 px-4 py-2">
-            No layers found.
-					</div>
-				)}
+			<div className="flex-1 overflow-auto py-1">
+				<div className="flex flex-col min-w-full w-fit">
+					{filteredLayers.length > 0 ? (
+						filteredLayers.map( ( layer ) => (
+							<LayerTreeItem key={layer.uuid} item={layer} depth={0} />
+						) )
+					) : (
+						<div className="text-xs text-muted-foreground/50 px-4 py-8 text-center italic">
+            No items found
+						</div>
+					)}
+				</div>
 			</div>
 		</div>
 	);
