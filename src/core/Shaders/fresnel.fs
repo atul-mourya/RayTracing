@@ -14,13 +14,13 @@ vec3 fresnelSchlick( float cosTheta, vec3 F0 ) {
 
 vec3 fresnel0ToIor( vec3 fresnel0 ) {
 	vec3 sqrtF0 = sqrt( fresnel0 );
-	return ( vec3( 1.0 ) + sqrtF0 ) / ( vec3( 1.0 ) - sqrtF0 );
+	return ( vec3( 1.0 ) + sqrtF0 ) / max( vec3( 1.0 ) - sqrtF0, vec3( EPSILON ) );
 }
 
 vec3 iorToFresnel0( vec3 transmittedIor, float incidentIor ) {
-	return square( ( transmittedIor - vec3( incidentIor ) ) / ( transmittedIor + vec3( incidentIor ) ) );
+	return square( ( transmittedIor - vec3( incidentIor ) ) / max( transmittedIor + vec3( incidentIor ), vec3( EPSILON ) ) );
 }
 
 float iorToFresnel0( float transmittedIor, float incidentIor ) {
-	return square( ( transmittedIor - incidentIor ) / ( transmittedIor + incidentIor ) );
+	return square( ( transmittedIor - incidentIor ) / max( transmittedIor + incidentIor, EPSILON ) );
 }

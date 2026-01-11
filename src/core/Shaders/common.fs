@@ -100,7 +100,9 @@ mat3 constructTBN( vec3 N ) {
 
 DotProducts computeDotProducts( vec3 N, vec3 V, vec3 L ) {
     DotProducts dots;
-    vec3 H = normalize( V + L );
+    vec3 H = V + L;
+    float lenSq = dot( H, H );
+    H = lenSq > EPSILON ? H / sqrt( lenSq ) : vec3( 0.0, 0.0, 1.0 );
 
     dots.NoL = max( dot( N, L ), 0.001 );
     dots.NoV = max( dot( N, V ), 0.001 );
@@ -143,7 +145,7 @@ vec3 applySoftSuppressionRGB(
     if( lum <= threshold )
         return color;
     float suppressedLum = applySoftSuppression( lum, threshold, dampingFactor );
-    return color * ( suppressedLum / lum );
+    return lum > EPSILON ? color * ( suppressedLum / lum ) : color;
 }
 
 // Get material-specific firefly tolerance multiplier

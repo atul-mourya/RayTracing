@@ -185,7 +185,7 @@ float getSpotAttenuation( float coneCosine, float penumbraCosine, float angleCos
 float misHeuristic( float a, float b ) {
     float aa = a * a;
     float bb = b * b;
-    return aa / ( aa + bb );
+    return aa / max( aa + bb, EPSILON );
 }
 
 // -----------------------------------------------------------------------------

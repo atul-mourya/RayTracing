@@ -484,7 +484,7 @@ vec3 calculateAreaLightContribution(
                 vec3 brdfValue = evaluateMaterialResponseCached( viewDir, lightDir, normal, material, matCache );
 
                 // Calculate PDFs for MIS
-                float lightPdf = lightDistSq / ( light.area * lightFacing );
+                float lightPdf = lightDistSq / max( light.area * lightFacing, EPSILON );
                 float brdfPdf = brdfSample.pdf;
 
                 // Light contribution with inverse-square falloff
@@ -518,7 +518,7 @@ vec3 calculateAreaLightContribution(
 
                     if( lightFacing > 0.0 ) {
                         // PDFs for MIS
-                        float lightPdf = ( hitDistance * hitDistance ) / ( light.area * lightFacing );
+                        float lightPdf = ( hitDistance * hitDistance ) / max( light.area * lightFacing, EPSILON );
                         float misWeight = powerHeuristic( brdfSample.pdf, lightPdf );
 
                         // Direct light emission

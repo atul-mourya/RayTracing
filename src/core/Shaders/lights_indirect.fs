@@ -16,7 +16,9 @@ float calculateTransmissionPDF( vec3 V, vec3 L, vec3 N, float ior, float roughne
     float eta = entering ? ior : 1.0 / ior;
 
     // Transmission half-vector formula (Walter et al. 2007)
-    vec3 H = normalize( V + eta * L );
+    vec3 H = V + eta * L;
+    float lenSq = dot( H, H );
+    H = lenSq > EPSILON ? H / sqrt( lenSq ) : N;
 
     if( dot( H, N ) < 0.0 )
         H = - H; // Ensure H points into the correct hemisphere
@@ -36,7 +38,9 @@ float calculateTransmissionPDF( vec3 V, vec3 L, vec3 N, float ior, float roughne
 }
 
 float calculateClearcoatPDF( vec3 V, vec3 L, vec3 N, float clearcoatRoughness ) {
-    vec3 H = normalize( V + L );
+    vec3 H = V + L;
+    float lenSq = dot( H, H );
+    H = lenSq > EPSILON ? H / sqrt( lenSq ) : N;
     float NoH = max( dot( N, H ), 0.0 );
     float NoV = max( dot( N, V ), 0.0 );
 

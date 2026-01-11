@@ -88,7 +88,9 @@ vec3 evaluateMaterialResponseCached( vec3 V, vec3 L, vec3 N, RayTracingMaterial 
 		return cache.diffuseColor;
 	}
 
-	vec3 H = normalize( V + L );
+	vec3 H = V + L;
+	float lenSq = dot( H, H );
+	H = lenSq > EPSILON ? H / sqrt( lenSq ) : vec3( 0.0, 0.0, 1.0 );
 	float NoL = max( dot( N, L ), EPSILON );
 	float NoH = max( dot( N, H ), EPSILON );
 	float VoH = max( dot( V, H ), EPSILON );

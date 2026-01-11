@@ -398,7 +398,7 @@ vec3 sampleAreaLightContribution(
     vec3 brdfColor = evaluateMaterialResponse( worldWo, lightDir, surf.normal, surf.material );
 
     // Calculate light PDF
-    float lightPdf = lightDistSq / ( light.area * lightFacing );
+    float lightPdf = lightDistSq / max( light.area * lightFacing, EPSILON );
 
     // Calculate BRDF PDF for MIS
     float brdfPdf = calculateMaterialPDF( worldWo, lightDir, surf.normal, surf.material );
@@ -408,7 +408,7 @@ vec3 sampleAreaLightContribution(
 
     // Calculate final contribution
     vec3 lightEmission = light.color * light.intensity;
-    vec3 contribution = lightEmission * brdfColor * surfaceFacing * visibility * misWeight / lightPdf;
+    vec3 contribution = lightEmission * brdfColor * surfaceFacing * visibility * misWeight / max( lightPdf, MIN_PDF );
 
     return contribution;
 }
@@ -590,7 +590,7 @@ vec3 calculateDirectLightingUnified(
                             float lightFacing = max( 0.0, - dot( brdfSample.direction, light.normal ) );
                             if( lightFacing > 0.0 ) {
                                 float lightDistSq = hitDistance * hitDistance;
-                                float lightPdf = lightDistSq / ( light.area * lightFacing );
+                                float lightPdf = lightDistSq / max( light.area * lightFacing, EPSILON );
                                 lightPdf /= float( totalLights );
 
                                 float brdfPdfWeighted = brdfSample.pdf * misStrategy.brdfWeight;
