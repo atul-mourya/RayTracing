@@ -128,19 +128,41 @@ const useStore = create( set => ( {
 		if ( ! window.pathTracerApp ) return;
 
 		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! object?.isMesh || ! object.material ) return;
+		if ( ! object ) return;
 
 		// Toggle Three.js object visibility
 		object.visible = ! object.visible;
 
-		// Update material visible property for path tracing
-		const materialIndex = object.userData?.materialIndex ?? 0;
-		const pt = window.pathTracerApp?.pathTracingPass;
-		if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+		// Helper to update path tracer visibility recursively
+		const updatePTVisibility = ( obj ) => {
 
-			pt.updateMaterialProperty( materialIndex, 'visible', object.visible ? 1 : 0 );
+			if ( obj.isMesh && obj.material ) {
 
-		}
+				const materialIndex = obj.userData?.materialIndex ?? 0;
+				const pt = window.pathTracerApp?.pathTracingPass;
+
+				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+
+					// Calculate effective visibility by checking all ancestors
+					let effectiveVisible = obj.visible;
+					let curr = obj.parent;
+					while ( curr && effectiveVisible ) {
+
+						if ( ! curr.visible ) effectiveVisible = false;
+						curr = curr.parent;
+
+					}
+
+					pt.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
+
+				}
+
+			}
+
+		};
+
+		// Update visibility for the object and all its children
+		object.traverse( updatePTVisibility );
 
 		// Reset path tracer to see changes
 		window.pathTracerApp.reset();
@@ -156,19 +178,41 @@ const useStore = create( set => ( {
 		if ( ! window.pathTracerApp ) return;
 
 		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! object?.isMesh || ! object.material ) return;
+		if ( ! object ) return;
 
 		// Set Three.js object visibility
 		object.visible = visible;
 
-		// Update material visible property for path tracing
-		const materialIndex = object.userData?.materialIndex ?? 0;
-		const pt = window.pathTracerApp?.pathTracingPass;
-		if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+		// Helper to update path tracer visibility recursively
+		const updatePTVisibility = ( obj ) => {
 
-			pt.updateMaterialProperty( materialIndex, 'visible', visible ? 1 : 0 );
+			if ( obj.isMesh && obj.material ) {
 
-		}
+				const materialIndex = obj.userData?.materialIndex ?? 0;
+				const pt = window.pathTracerApp?.pathTracingPass;
+
+				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+
+					// Calculate effective visibility by checking all ancestors
+					let effectiveVisible = obj.visible;
+					let curr = obj.parent;
+					while ( curr && effectiveVisible ) {
+
+						if ( ! curr.visible ) effectiveVisible = false;
+						curr = curr.parent;
+
+					}
+
+					pt.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
+
+				}
+
+			}
+
+		};
+
+		// Update visibility for the object and all its children
+		object.traverse( updatePTVisibility );
 
 		// Reset path tracer to see changes
 		window.pathTracerApp.reset();

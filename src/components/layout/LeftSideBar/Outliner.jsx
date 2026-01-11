@@ -69,11 +69,6 @@ const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 
 	}, [ toggleMeshVisibility, item.uuid, isVisible, onVisibilityChange ] );
 
-	// Only show visibility toggle for meshes as currently supported by the store
-	const show = item.type === 'Mesh';
-
-	if ( ! true ) return <div className="w-5" />;
-
 	return (
 		<div
 			onClick={handleToggle}
