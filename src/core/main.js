@@ -90,14 +90,37 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer.debug.checkShaderErrors = true;
 		this.renderer.debug.onShaderError = ( gl, program, glVertexShader, glFragmentShader ) => {
 
+			const vertexLog = gl.getShaderInfoLog( glVertexShader );
+			const fragmentLog = gl.getShaderInfoLog( glFragmentShader );
+			const programLog = gl.getProgramInfoLog( program );
+
+			// Check if these are just warnings or actual errors
+			const hasActualErrors = programLog && (
+				programLog.includes( 'ERROR' ) ||
+				programLog.includes( 'error:' ) ||
+				programLog.toLowerCase().includes( 'failed' )
+			);
+
+			// Check if program linked successfully despite warnings
+			const linkStatus = gl.getProgramParameter( program, gl.LINK_STATUS );
+
+			if ( ! hasActualErrors && linkStatus ) {
+
+				// Just warnings - shader compiled successfully
+				console.group( '⚠️ Shader Warnings (Non-Fatal)' );
+				console.warn( 'Shader compiled successfully but has warnings:' );
+				if ( programLog ) console.warn( programLog );
+				console.groupEnd();
+				return; // Don't block execution for warnings
+
+			}
+
+			// Actual compilation failure
 			console.error( '❌ ========================================' );
 			console.error( '❌ SHADER COMPILATION FAILED' );
 			console.error( '❌ ========================================' );
 			console.error( 'Program:', program );
-
-			const vertexLog = gl.getShaderInfoLog( glVertexShader );
-			const fragmentLog = gl.getShaderInfoLog( glFragmentShader );
-			const programLog = gl.getProgramInfoLog( program );
+			console.error( 'Link Status:', linkStatus );
 
 			if ( vertexLog ) {
 
@@ -115,7 +138,7 @@ class PathTracerApp extends EventDispatcher {
 				const lines = fragmentLog.split( '\n' );
 				lines.forEach( line => {
 
-					if ( line.includes( 'ERROR' ) || line.includes( 'error' ) ) {
+					if ( line.includes( 'ERROR' ) || line.includes( 'error:' ) ) {
 
 						console.error( '   🔴', line );
 
@@ -127,7 +150,7 @@ class PathTracerApp extends EventDispatcher {
 
 			if ( programLog ) {
 
-				console.error( '📝 Program Link Errors:' );
+				console.error( '📝 Program Link Log:' );
 				console.error( programLog );
 
 			}
@@ -141,7 +164,7 @@ class PathTracerApp extends EventDispatcher {
 			console.log( 'Max Vertex Attribs:', gl.getParameter( gl.MAX_VERTEX_ATTRIBS ) );
 			console.groupEnd();
 
-			// Show alert to user
+			// Show alert to user for actual errors only
 			alert( '⚠️ Shader Compilation Failed!\n\nCheck the browser console for details.\n\nThis usually means:\n- GPU memory limit exceeded\n- Shader too complex for your GPU\n- Missing WebGL2 support\n\nTry:\n1. Reload the page\n2. Use a different browser (Firefox)\n3. Update your GPU drivers' );
 
 		};
