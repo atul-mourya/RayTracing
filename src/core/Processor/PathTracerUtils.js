@@ -111,10 +111,35 @@ export class PathTracerUtils {
 		// Add onBeforeCompile callback to log shader compilation
 		material.onBeforeCompile = ( shader ) => {
 
+			const startTime = performance.now();
 			console.log( '✨ PathTracingShader compilation started' );
 			console.log( '   Defines:', shader.defines );
 			console.log( '   Vertex shader length:', shader.vertexShader.length, 'chars' );
 			console.log( '   Fragment shader length:', shader.fragmentShader.length, 'chars' );
+
+			// Large shaders can take 5-30 seconds to compile
+			if ( shader.fragmentShader.length > 100000 ) {
+
+				console.warn( '⏳ Large shader detected - compilation may take 10-30 seconds. Please wait...' );
+
+			}
+
+			// Use setTimeout to detect if compilation completes
+			const timeoutId = setTimeout( () => {
+
+				const elapsed = ( ( performance.now() - startTime ) / 1000 ).toFixed( 1 );
+				console.log( `⏱️  Shader still compiling after ${elapsed}s...` );
+
+			}, 5000 ); // Log after 5 seconds
+
+			// Clear timeout on next tick (shader will be compiled by then)
+			setTimeout( () => {
+
+				clearTimeout( timeoutId );
+				const elapsed = ( ( performance.now() - startTime ) / 1000 ).toFixed( 1 );
+				console.log( `✅ PathTracingShader compilation completed in ${elapsed}s` );
+
+			}, 0 );
 
 		};
 
