@@ -67,6 +67,9 @@ class PathTracerApp extends EventDispatcher {
 		this.width = this.canvas.clientWidth;
 		this.height = this.canvas.clientHeight;
 
+		// Intercept console.warn to catch shader compilation warnings
+		this.setupShaderWarningLogger();
+
 		this.scene = new Scene();
 		this.scene.environmentIntensity = DEFAULT_STATE.environmentIntensity;
 		this.scene.backgroundIntensity = DEFAULT_STATE.backgroundIntensity;
@@ -79,6 +82,18 @@ class PathTracerApp extends EventDispatcher {
 			canvas: this.canvas,
 			alpha: true
 		} );
+
+		// Enable Three.js debug features for shader compilation
+		this.renderer.debug.checkShaderErrors = true;
+		this.renderer.debug.onShaderError = ( gl, program, glVertexShader, glFragmentShader ) => {
+
+			console.error( '=== Shader Compilation Error ===' );
+			console.error( 'Program:', program );
+			console.error( 'Vertex Shader Log:', gl.getShaderInfoLog( glVertexShader ) );
+			console.error( 'Fragment Shader Log:', gl.getShaderInfoLog( glFragmentShader ) );
+			console.error( 'Program Log:', gl.getProgramInfoLog( program ) );
+
+		};
 
 		// Initialize RectAreaLight uniforms
 		RectAreaLightUniformsLib.init( this.renderer );
@@ -103,6 +118,30 @@ class PathTracerApp extends EventDispatcher {
 		this.cameras = [];
 		this.currentCameraIndex = 0;
 		this.defaultCamera = this.camera;
+
+	}
+
+	setupShaderWarningLogger() {
+
+		const originalWarn = console.warn;
+		console.warn = function ( ...args ) {
+
+			// Check if this is a shader loop warning
+			const message = args.join( ' ' );
+			if ( message.includes( 'X3557' ) || message.includes( 'loop' ) || message.includes( 'unroll' ) ) {
+
+				console.group( '⚠️ Shader Loop Warning Detected' );
+				console.log( 'Message:', message );
+				console.log( 'Stack trace:' );
+				console.trace();
+				console.groupEnd();
+
+			}
+
+			// Call original warn
+			originalWarn.apply( console, args );
+
+		};
 
 	}
 

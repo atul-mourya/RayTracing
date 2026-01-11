@@ -247,6 +247,14 @@ export class LightDataTransfer {
 		const pointCount = this.lightData.point.length;
 		const spotCount = this.lightData.spot.length;
 
+		// Debug logging: Track light count changes
+		console.log( '💡 Updating shader light counts:', {
+			directional: directionalCount,
+			area: areaCount,
+			point: pointCount,
+			spot: spotCount
+		} );
+
 		// Update light counts in shader defines
 		material.defines.MAX_DIRECTIONAL_LIGHTS = directionalCount;
 		material.defines.MAX_AREA_LIGHTS = areaCount;

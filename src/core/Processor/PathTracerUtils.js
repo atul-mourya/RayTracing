@@ -80,17 +80,22 @@ export class PathTracerUtils {
 			defines = {}
 		} = options;
 
-		return new ShaderMaterial( {
+		const finalDefines = {
+			MAX_SPHERE_COUNT: 0,
+			MAX_DIRECTIONAL_LIGHTS: 0,
+			MAX_AREA_LIGHTS: 0,
+			MAX_POINT_LIGHTS: 0,
+			MAX_SPOT_LIGHTS: 0,
+			ENABLE_ACCUMULATION: '',
+			...defines
+		};
+
+		// Debug logging: Log shader compilation with defines
+		console.log( '🔧 Creating PathTracingShader with defines:', finalDefines );
+
+		const material = new ShaderMaterial( {
 			name: 'PathTracingShader',
-			defines: {
-				MAX_SPHERE_COUNT: 0,
-				MAX_DIRECTIONAL_LIGHTS: 0,
-				MAX_AREA_LIGHTS: 0,
-				MAX_POINT_LIGHTS: 0,
-				MAX_SPOT_LIGHTS: 0,
-				ENABLE_ACCUMULATION: '',
-				...defines
-			},
+			defines: finalDefines,
 			uniforms: {
 				resolution: { value: new Vector2() },
 				cameraWorldMatrix: { value: new Matrix4() },
@@ -102,6 +107,18 @@ export class PathTracerUtils {
 			fragmentShader,
 			glslVersion: GLSL3
 		} );
+
+		// Add onBeforeCompile callback to log shader compilation
+		material.onBeforeCompile = ( shader ) => {
+
+			console.log( '✨ PathTracingShader compilation started' );
+			console.log( '   Defines:', shader.defines );
+			console.log( '   Vertex shader length:', shader.vertexShader.length, 'chars' );
+			console.log( '   Fragment shader length:', shader.fragmentShader.length, 'chars' );
+
+		};
+
+		return material;
 
 	}
 
