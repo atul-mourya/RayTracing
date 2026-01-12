@@ -1,11 +1,15 @@
 # Rayzee Path Tracer - TODO List
 *Immediate actionable items and development tasks*
 
-## 🚨 Critical Bug Fixes
+## 🚨 Critical Bug Fixess
+- [ ] scene freezing in some cases
+- [ ] save render doesnt show in results panel in some cases
+- [ ] Sun not getting parsed from glTF files
+- [ ] Object rendering looks dimmer than the environment lighting in the background. Remove the hardcoded multiplier of 2.0 for env lighting on secondary rays to reprodue the issue.
+- [ ] iridescence not producing expected colors
 
 ### Known Issues
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] transmission thickness dont seems to make any difference in render ( i noticed some volumetric effect works with frontsided faces)
 - [ ] oidn denoiser not working properly on safari browser
 - [ ] shader compilation failure observed in RTX devices. 
 - [ ] implement missing use of preprocessor directives in shaders to enable/disable features like:
@@ -30,21 +34,24 @@
 ## ✨ Immediate Features to Implement
 
 ### Advanced Rendering
-- [ ] Implement Motion Vector Pass
+- [ ] implement time limit based rendering. in the ui, similar to editing maxFrame, implement it for 
+  time to be edited. add a indicator to indicate with is the actual limit being considered for   
+  rendering. perhaps some minimalistic way to switch the active limit considered for rendering.
+- [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
 - [ ] Implement Variance-based Firefly Suppression
 - [ ] OIDN HDR denoising Support
 - [ ] Transparent background support
 - [ ] Subsurface scattering implementation
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
-- [ ] Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
 - [ ] Study dot grid / moiré–like effect and its impact on rendering
 
 ### Lighting & Materials
+- [ ] Separate out environment and background sampling with different textures just like in three.js
 - [ ] Implement environment cube map support for hdris
 - [ ] Implement dds texture support
 - [ ] Implement support for IES light
-- [ ] Introduce tessellation free displacement mapping or parallax occlusion mapping
+- [ ] Introduce tessellation free displacement mapping or parallax occlusion mapping. https://github.com/shocker-0x15/GfxExp/tree/master/tfdm
 - [ ] Implement SDF-based model rendering
 - [ ] Implement Shadow Catcher
 - [ ] Implement ground projection environment mapping
@@ -53,10 +60,10 @@
 - [ ] separate pipeline for path tracing related passes and helper related passes like tilehelper, outline, etc.
 - [ ] Implement support for Radiance Caching (Screen-Space)
 - [ ] Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
-- [ ] Refactor lights to use data texture instead of uniform buffer
 - [ ] Experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ] Experiment with ray frustum culling
 - [ ] Refactor path tracing to use define instead of if-else
+- [ ] GPU-CPU for envriment in procedural sky, gradient sky, solid color sky modes are expensive.
 
 ### UX Enhancements
 - [ ] Add dynamic camera addition and removal
