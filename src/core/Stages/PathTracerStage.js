@@ -141,147 +141,135 @@ export class PathTracerStage extends PipelineStage {
 
 	setupMaterial() {
 
-		try {
+		this.material = PathTracerUtils.createPathTracingMaterial( {
+			vertexShader: VertexShader,
+			fragmentShader: FragmentShader,
+			uniforms: {
+				resolution: { value: new Vector2( this.width, this.height ) },
+				exposure: { value: DEFAULT_STATE.exposure },
+				enableEnvironmentLight: { value: DEFAULT_STATE.enableEnvironment },
+				environment: { value: this.scene.environment },
+				backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity },
+				showBackground: { value: DEFAULT_STATE.showBackground },
+				environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
+				environmentMatrix: { value: new Matrix4() },
+				useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },
+				envMarginalWeights: { value: null },
+				envConditionalWeights: { value: null },
+				envTotalSum: { value: 0.0 },
+				envResolution: { value: new Vector2( 1, 1 ) },
+				globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity },
 
-			this.material = PathTracerUtils.createPathTracingMaterial( {
-				vertexShader: VertexShader,
-				fragmentShader: FragmentShader,
-				uniforms: {
-					resolution: { value: new Vector2( this.width, this.height ) },
-					exposure: { value: DEFAULT_STATE.exposure },
-					enableEnvironmentLight: { value: DEFAULT_STATE.enableEnvironment },
-					environment: { value: this.scene.environment },
-					backgroundIntensity: { value: DEFAULT_STATE.backgroundIntensity },
-					showBackground: { value: DEFAULT_STATE.showBackground },
-					environmentIntensity: { value: DEFAULT_STATE.environmentIntensity },
-					environmentMatrix: { value: new Matrix4() },
-					useEnvMapIS: { value: DEFAULT_STATE.useImportanceSampledEnvironment },
-					envMarginalWeights: { value: null },
-					envConditionalWeights: { value: null },
-					envTotalSum: { value: 0.0 },
-					envResolution: { value: new Vector2( 1, 1 ) },
-					globalIlluminationIntensity: { value: DEFAULT_STATE.globalIlluminationIntensity },
+				// Sun parameters (for procedural sky)
+				sunDirection: { value: new Vector3( 0, 1, 0 ) },
+				sunAngularSize: { value: 0.0087 }, // Sun's angular diameter ~0.5 degrees in radians
+				hasSun: { value: false },
 
-					// Sun parameters (for procedural sky)
-					sunDirection: { value: new Vector3( 0, 1, 0 ) },
-					sunAngularSize: { value: 0.0087 }, // Sun's angular diameter ~0.5 degrees in radians
-					hasSun: { value: false },
+				cameraWorldMatrix: { value: new Matrix4() },
+				cameraViewMatrix: { value: new Matrix4() },
+				cameraProjectionMatrix: { value: new Matrix4() },
+				cameraProjectionMatrixInverse: { value: new Matrix4() },
+				enableDOF: { value: DEFAULT_STATE.enableDOF },
+				focusDistance: { value: DEFAULT_STATE.focusDistance },
+				focalLength: { value: DEFAULT_STATE.focalLength },
+				aperture: { value: DEFAULT_STATE.aperture },
+				apertureScale: { value: 1.0 },
+				sceneScale: { value: 1.0 },
 
-					cameraWorldMatrix: { value: new Matrix4() },
-					cameraViewMatrix: { value: new Matrix4() },
-					cameraProjectionMatrix: { value: new Matrix4() },
-					cameraProjectionMatrixInverse: { value: new Matrix4() },
-					enableDOF: { value: DEFAULT_STATE.enableDOF },
-					focusDistance: { value: DEFAULT_STATE.focusDistance },
-					focalLength: { value: DEFAULT_STATE.focalLength },
-					aperture: { value: DEFAULT_STATE.aperture },
-					apertureScale: { value: 1.0 },
-					sceneScale: { value: 1.0 },
+				directionalLights: { value: null },
+				pointLights: { value: null },
+				spotLights: { value: null },
+				areaLights: { value: null },
 
-					directionalLights: { value: null },
-					pointLights: { value: null },
-					spotLights: { value: null },
-					areaLights: { value: null },
+				frame: { value: 0 },
+				maxFrames: { value: DEFAULT_STATE.maxSamples },
+				maxBounceCount: { value: DEFAULT_STATE.bounces },
+				numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
+				transmissiveBounces: { value: DEFAULT_STATE.transmissiveBounces },
 
-					frame: { value: 0 },
-					maxFrames: { value: DEFAULT_STATE.maxSamples },
-					maxBounceCount: { value: DEFAULT_STATE.bounces },
-					numRaysPerPixel: { value: DEFAULT_STATE.samplesPerPixel },
-					transmissiveBounces: { value: DEFAULT_STATE.transmissiveBounces },
+				samplingTechnique: { value: DEFAULT_STATE.samplingTechnique },
+				useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
+				adaptiveSamplingTexture: { value: null },
+				adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
+				fireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold },
 
-					samplingTechnique: { value: DEFAULT_STATE.samplingTechnique },
-					useAdaptiveSampling: { value: DEFAULT_STATE.adaptiveSampling },
-					adaptiveSamplingTexture: { value: null },
-					adaptiveSamplingMax: { value: DEFAULT_STATE.adaptiveSamplingMax },
-					fireflyThreshold: { value: DEFAULT_STATE.fireflyThreshold },
+				enableEmissiveTriangleSampling: { value: DEFAULT_STATE.enableEmissiveTriangleSampling },
+				emissiveBoost: { value: DEFAULT_STATE.emissiveBoost },
 
-					enableEmissiveTriangleSampling: { value: DEFAULT_STATE.enableEmissiveTriangleSampling },
-					emissiveBoost: { value: DEFAULT_STATE.emissiveBoost },
+				renderMode: { value: DEFAULT_STATE.renderMode },
+				previousFrameTexture: { value: null },
+				accumulatedFrameTexture: { value: null },
 
-					renderMode: { value: DEFAULT_STATE.renderMode },
-					previousFrameTexture: { value: null },
-					accumulatedFrameTexture: { value: null },
+				// Accumulation uniforms
+				previousAccumulatedTexture: { value: null },
+				enableAccumulation: { value: true },
+				accumulationAlpha: { value: 0.0 },
+				cameraIsMoving: { value: false },
+				hasPreviousAccumulated: { value: false },
 
-					// Accumulation uniforms
-					previousAccumulatedTexture: { value: null },
-					enableAccumulation: { value: true },
-					accumulationAlpha: { value: 0.0 },
-					cameraIsMoving: { value: false },
-					hasPreviousAccumulated: { value: false },
+				blueNoiseTexture: { value: null },
+				blueNoiseTextureSize: { value: new Vector2() },
 
-					blueNoiseTexture: { value: null },
-					blueNoiseTextureSize: { value: new Vector2() },
+				visMode: { value: DEFAULT_STATE.debugMode },
+				debugVisScale: { value: DEFAULT_STATE.debugVisScale },
 
-					visMode: { value: DEFAULT_STATE.debugMode },
-					debugVisScale: { value: DEFAULT_STATE.debugVisScale },
+				spheres: { value: [] },
 
-					spheres: { value: [] },
+				// Material textures
+				albedoMaps: { value: null },
+				emissiveMaps: { value: null },
+				normalMaps: { value: null },
+				bumpMaps: { value: null },
+				roughnessMaps: { value: null },
+				metalnessMaps: { value: null },
+				displacementMaps: { value: null },
 
-					// Material textures
-					albedoMaps: { value: null },
-					emissiveMaps: { value: null },
-					normalMaps: { value: null },
-					bumpMaps: { value: null },
-					roughnessMaps: { value: null },
-					metalnessMaps: { value: null },
-					displacementMaps: { value: null },
+				// Geometry textures
+				triangleTexture: { value: null },
+				bvhTexture: { value: null },
+				materialTexture: { value: null },
+				emissiveTriangleTexture: { value: null },
 
-					// Geometry textures
-					triangleTexture: { value: null },
-					bvhTexture: { value: null },
-					materialTexture: { value: null },
-					emissiveTriangleTexture: { value: null },
+				triangleTexSize: { value: new Vector2() },
+				bvhTexSize: { value: new Vector2() },
+				materialTexSize: { value: new Vector2() },
+				emissiveTriangleTexSize: { value: new Vector2() },
+				totalTriangleCount: { value: 0 },
+				emissiveTriangleCount: { value: 0 },
+			}
+		} );
 
-					triangleTexSize: { value: new Vector2() },
-					bvhTexSize: { value: new Vector2() },
-					materialTexSize: { value: new Vector2() },
-					emissiveTriangleTexSize: { value: new Vector2() },
-					totalTriangleCount: { value: 0 },
-					emissiveTriangleCount: { value: 0 },
-				}
-			} );
+		// Environment generation parameters (CPU-side only, not passed to shader)
+		// These are used to generate environment textures that are then passed via the 'environment' uniform
+		this.envParams = {
+			mode: 'hdri', // 'hdri', 'procedural', 'gradient', 'color'
 
-			// Environment generation parameters (CPU-side only, not passed to shader)
-			// These are used to generate environment textures that are then passed via the 'environment' uniform
-			this.envParams = {
-				mode: 'hdri', // 'hdri', 'procedural', 'gradient', 'color'
+			// Gradient Sky parameters
+			gradientZenithColor: new Color( DEFAULT_STATE.gradientZenithColor ),
+			gradientHorizonColor: new Color( DEFAULT_STATE.gradientHorizonColor ),
+			gradientGroundColor: new Color( DEFAULT_STATE.gradientGroundColor ),
 
-				// Gradient Sky parameters
-				gradientZenithColor: new Color( DEFAULT_STATE.gradientZenithColor ),
-				gradientHorizonColor: new Color( DEFAULT_STATE.gradientHorizonColor ),
-				gradientGroundColor: new Color( DEFAULT_STATE.gradientGroundColor ),
+			// Solid Color Sky parameter
+			solidSkyColor: new Color( DEFAULT_STATE.solidSkyColor ),
 
-				// Solid Color Sky parameter
-				solidSkyColor: new Color( DEFAULT_STATE.solidSkyColor ),
+			// Procedural Sky (Preetham Model) parameters
+			skySunDirection: ( () => {
 
-				// Procedural Sky (Preetham Model) parameters
-				skySunDirection: ( () => {
+				// Calculate initial sun direction from default azimuth/elevation
+				const azimuth = DEFAULT_STATE.skySunAzimuth * ( Math.PI / 180 );
+				const elevation = DEFAULT_STATE.skySunElevation * ( Math.PI / 180 );
+				return new Vector3(
+					Math.cos( elevation ) * Math.sin( azimuth ),
+					Math.sin( elevation ),
+					Math.cos( elevation ) * Math.cos( azimuth )
+				).normalize();
 
-					// Calculate initial sun direction from default azimuth/elevation
-					const azimuth = DEFAULT_STATE.skySunAzimuth * ( Math.PI / 180 );
-					const elevation = DEFAULT_STATE.skySunElevation * ( Math.PI / 180 );
-					return new Vector3(
-						Math.cos( elevation ) * Math.sin( azimuth ),
-						Math.sin( elevation ),
-						Math.cos( elevation ) * Math.cos( azimuth )
-					).normalize();
-
-				} )(),
-				skySunIntensity: DEFAULT_STATE.skySunIntensity,
-				skyRayleighDensity: DEFAULT_STATE.skyRayleighDensity,
-				skyTurbidity: DEFAULT_STATE.skyTurbidity,
-				skyMieAnisotropy: DEFAULT_STATE.skyMieAnisotropy,
-			};
-
-		} catch ( error ) {
-
-			console.error( '❌ Fatal Error in setupMaterial:' );
-			console.error( error );
-			console.error( 'Stack:', error.stack );
-			alert( '⚠️ Failed to create path tracing shader!\n\nError: ' + error.message + '\n\nCheck console for details.' );
-			throw error;
-
-		}
+			} )(),
+			skySunIntensity: DEFAULT_STATE.skySunIntensity,
+			skyRayleighDensity: DEFAULT_STATE.skyRayleighDensity,
+			skyTurbidity: DEFAULT_STATE.skyTurbidity,
+			skyMieAnisotropy: DEFAULT_STATE.skyMieAnisotropy,
+		};
 
 	}
 
