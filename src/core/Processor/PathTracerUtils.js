@@ -80,65 +80,17 @@ export class PathTracerUtils {
 			defines = {}
 		} = options;
 
-		const finalDefines = {
-			MAX_SPHERE_COUNT: 0,
-			MAX_DIRECTIONAL_LIGHTS: 0,
-			MAX_AREA_LIGHTS: 0,
-			MAX_POINT_LIGHTS: 0,
-			MAX_SPOT_LIGHTS: 0,
-			ENABLE_ACCUMULATION: '',
-			...defines
-		};
-
-		// Check for old GPU and enable compatibility mode
-		const canvas = document.createElement( 'canvas' );
-		const gl = canvas.getContext( 'webgl2' );
-		if ( gl ) {
-
-			const renderer = gl.getParameter( gl.RENDERER );
-			const isOldGPU = renderer.includes( '8800' ) || // NVIDIA 8xxx series
-							 renderer.includes( '9800' ) || // NVIDIA 9xxx series
-							 renderer.includes( 'HD 2' ) || // AMD HD 2xxx
-							 renderer.includes( 'HD 3' ) || // AMD HD 3xxx
-							 renderer.includes( 'HD 4' ) || // AMD HD 4xxx
-							 renderer.includes( 'Intel(R) HD Graphics 3' ) || // Intel HD 3xxx
-							 renderer.includes( 'Intel(R) HD Graphics 4' ); // Intel HD 4xxx
-
-			if ( isOldGPU ) {
-
-				console.warn( '🚧 OLD GPU DETECTED - Enabling compatibility mode' );
-				console.warn( '   GPU:', renderer );
-				console.warn( '   Disabling advanced features to reduce shader complexity...' );
-
-				// Disable all advanced features for old GPUs
-				delete finalDefines.ENABLE_TRANSMISSION;
-				delete finalDefines.ENABLE_CLEARCOAT;
-				delete finalDefines.ENABLE_SHEEN;
-				delete finalDefines.ENABLE_IRIDESCENCE;
-				delete finalDefines.ENABLE_ANISOTROPY;
-				delete finalDefines.ENABLE_EMISSIVE_TRIANGLE_SAMPLING;
-				delete finalDefines.ENABLE_TRANSPARENCY;
-				delete finalDefines.ENABLE_MRT_OUTPUTS;
-
-				// Also reduce sampling complexity
-				finalDefines.SIMPLE_SAMPLING = ''; // Signal to use simpler sampling in shaders
-
-				console.warn( '   ✅ Compatibility mode enabled' );
-				console.warn( '   - Disabled: transmission, clearcoat, sheen, iridescence' );
-				console.warn( '   - Disabled: transparency, MRT outputs' );
-				console.warn( '   - Shader size reduced by ~50%' );
-				console.warn( '   - If still fails, this GPU may be too old for path tracing' );
-
-			}
-
-		}
-
-		// Debug logging: Log shader compilation with defines
-		console.log( '🔧 Creating PathTracingShader with defines:', finalDefines );
-
-		const material = new ShaderMaterial( {
+		return new ShaderMaterial( {
 			name: 'PathTracingShader',
-			defines: finalDefines,
+			defines: {
+				MAX_SPHERE_COUNT: 0,
+				MAX_DIRECTIONAL_LIGHTS: 0,
+				MAX_AREA_LIGHTS: 0,
+				MAX_POINT_LIGHTS: 0,
+				MAX_SPOT_LIGHTS: 0,
+				ENABLE_ACCUMULATION: '',
+				...defines
+			},
 			uniforms: {
 				resolution: { value: new Vector2() },
 				cameraWorldMatrix: { value: new Matrix4() },
@@ -150,43 +102,6 @@ export class PathTracerUtils {
 			fragmentShader,
 			glslVersion: GLSL3
 		} );
-
-		// Add onBeforeCompile callback to log shader compilation
-		material.onBeforeCompile = ( shader ) => {
-
-			const startTime = performance.now();
-			console.log( '✨ PathTracingShader compilation started' );
-			console.log( '   Defines:', shader.defines );
-			console.log( '   Vertex shader length:', shader.vertexShader.length, 'chars' );
-			console.log( '   Fragment shader length:', shader.fragmentShader.length, 'chars' );
-
-			// Large shaders can take 5-30 seconds to compile
-			if ( shader.fragmentShader.length > 100000 ) {
-
-				console.warn( '⏳ Large shader detected - compilation may take 10-30 seconds. Please wait...' );
-
-			}
-
-			// Use setTimeout to detect if compilation completes
-			const timeoutId = setTimeout( () => {
-
-				const elapsed = ( ( performance.now() - startTime ) / 1000 ).toFixed( 1 );
-				console.log( `⏱️  Shader still compiling after ${elapsed}s...` );
-
-			}, 5000 ); // Log after 5 seconds
-
-			// Clear timeout on next tick (shader will be compiled by then)
-			setTimeout( () => {
-
-				clearTimeout( timeoutId );
-				const elapsed = ( ( performance.now() - startTime ) / 1000 ).toFixed( 1 );
-				console.log( `✅ PathTracingShader compilation completed in ${elapsed}s` );
-
-			}, 0 );
-
-		};
-
-		return material;
 
 	}
 

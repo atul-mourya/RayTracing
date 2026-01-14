@@ -67,12 +67,6 @@ class PathTracerApp extends EventDispatcher {
 		this.width = this.canvas.clientWidth;
 		this.height = this.canvas.clientHeight;
 
-		// Intercept console.warn to catch shader compilation warnings
-		this.setupShaderWarningLogger();
-
-		// Monitor WebGL context
-		this.setupWebGLMonitoring();
-
 		this.scene = new Scene();
 		this.scene.environmentIntensity = DEFAULT_STATE.environmentIntensity;
 		this.scene.backgroundIntensity = DEFAULT_STATE.backgroundIntensity;
@@ -85,89 +79,6 @@ class PathTracerApp extends EventDispatcher {
 			canvas: this.canvas,
 			alpha: true
 		} );
-
-		// Enable Three.js debug features for shader compilation
-		this.renderer.debug.checkShaderErrors = true;
-		this.renderer.debug.onShaderError = ( gl, program, glVertexShader, glFragmentShader ) => {
-
-			const vertexLog = gl.getShaderInfoLog( glVertexShader );
-			const fragmentLog = gl.getShaderInfoLog( glFragmentShader );
-			const programLog = gl.getProgramInfoLog( program );
-
-			// Check if these are just warnings or actual errors
-			const hasActualErrors = programLog && (
-				programLog.includes( 'ERROR' ) ||
-				programLog.includes( 'error:' ) ||
-				programLog.toLowerCase().includes( 'failed' )
-			);
-
-			// Check if program linked successfully despite warnings
-			const linkStatus = gl.getProgramParameter( program, gl.LINK_STATUS );
-
-			if ( ! hasActualErrors && linkStatus ) {
-
-				// Just warnings - shader compiled successfully
-				console.group( '⚠️ Shader Warnings (Non-Fatal)' );
-				console.warn( 'Shader compiled successfully but has warnings:' );
-				if ( programLog ) console.warn( programLog );
-				console.groupEnd();
-				return; // Don't block execution for warnings
-
-			}
-
-			// Actual compilation failure
-			console.error( '❌ ========================================' );
-			console.error( '❌ SHADER COMPILATION FAILED' );
-			console.error( '❌ ========================================' );
-			console.error( 'Program:', program );
-			console.error( 'Link Status:', linkStatus );
-
-			if ( vertexLog ) {
-
-				console.error( '📝 Vertex Shader Errors:' );
-				console.error( vertexLog );
-
-			}
-
-			if ( fragmentLog ) {
-
-				console.error( '📝 Fragment Shader Errors:' );
-				console.error( fragmentLog );
-
-				// Parse and highlight specific errors
-				const lines = fragmentLog.split( '\n' );
-				lines.forEach( line => {
-
-					if ( line.includes( 'ERROR' ) || line.includes( 'error:' ) ) {
-
-						console.error( '   🔴', line );
-
-					}
-
-				} );
-
-			}
-
-			if ( programLog ) {
-
-				console.error( '📝 Program Link Log:' );
-				console.error( programLog );
-
-			}
-
-			// Check GPU capabilities
-			console.group( '💻 GPU Capabilities' );
-			console.log( 'Max Fragment Uniform Vectors:', gl.getParameter( gl.MAX_FRAGMENT_UNIFORM_VECTORS ) );
-			console.log( 'Max Vertex Uniform Vectors:', gl.getParameter( gl.MAX_VERTEX_UNIFORM_VECTORS ) );
-			console.log( 'Max Varying Vectors:', gl.getParameter( gl.MAX_VARYING_VECTORS ) );
-			console.log( 'Max Texture Units:', gl.getParameter( gl.MAX_TEXTURE_IMAGE_UNITS ) );
-			console.log( 'Max Vertex Attribs:', gl.getParameter( gl.MAX_VERTEX_ATTRIBS ) );
-			console.groupEnd();
-
-			// Show alert to user for actual errors only
-			alert( '⚠️ Shader Compilation Failed!\n\nCheck the browser console for details.\n\nThis usually means:\n- GPU memory limit exceeded\n- Shader too complex for your GPU\n- Missing WebGL2 support\n\nTry:\n1. Reload the page\n2. Use a different browser (Firefox)\n3. Update your GPU drivers' );
-
-		};
 
 		// Initialize RectAreaLight uniforms
 		RectAreaLightUniformsLib.init( this.renderer );
@@ -192,75 +103,6 @@ class PathTracerApp extends EventDispatcher {
 		this.cameras = [];
 		this.currentCameraIndex = 0;
 		this.defaultCamera = this.camera;
-
-	}
-
-	setupShaderWarningLogger() {
-
-		const originalWarn = console.warn;
-		console.warn = function ( ...args ) {
-
-			// Check if this is a shader loop warning
-			const message = args.join( ' ' );
-			if ( message.includes( 'X3557' ) || message.includes( 'loop' ) || message.includes( 'unroll' ) ) {
-
-				console.group( '⚠️ Shader Loop Warning Detected' );
-				console.log( 'Message:', message );
-				console.log( 'Stack trace:' );
-				console.trace();
-				console.groupEnd();
-
-			}
-
-			// Call original warn
-			originalWarn.apply( console, args );
-
-		};
-
-	}
-
-	setupWebGLMonitoring() {
-
-		// Check WebGL2 support before initializing
-		const testCanvas = document.createElement( 'canvas' );
-		const gl = testCanvas.getContext( 'webgl2' );
-
-		if ( ! gl ) {
-
-			console.error( '❌ WebGL2 not supported!' );
-			alert( '⚠️ WebGL2 Not Supported\n\nYour browser or GPU does not support WebGL2, which is required for this application.\n\nPlease:\n1. Update your browser to the latest version\n2. Enable hardware acceleration\n3. Update your GPU drivers' );
-			return;
-
-		}
-
-		console.log( '✅ WebGL2 is supported' );
-		console.group( '💻 WebGL2 Capabilities' );
-		console.log( 'Vendor:', gl.getParameter( gl.VENDOR ) );
-		console.log( 'Renderer:', gl.getParameter( gl.RENDERER ) );
-		console.log( 'Version:', gl.getParameter( gl.VERSION ) );
-		console.log( 'GLSL Version:', gl.getParameter( gl.SHADING_LANGUAGE_VERSION ) );
-		console.log( 'Max Texture Size:', gl.getParameter( gl.MAX_TEXTURE_SIZE ) );
-		console.log( 'Max Fragment Uniforms:', gl.getParameter( gl.MAX_FRAGMENT_UNIFORM_VECTORS ) );
-		console.log( 'Max Vertex Uniforms:', gl.getParameter( gl.MAX_VERTEX_UNIFORM_VECTORS ) );
-		console.log( 'Max Varying Vectors:', gl.getParameter( gl.MAX_VARYING_VECTORS ) );
-		console.log( 'Max Texture Units:', gl.getParameter( gl.MAX_TEXTURE_IMAGE_UNITS ) );
-		console.groupEnd();
-
-		// Monitor for context loss
-		this.canvas.addEventListener( 'webglcontextlost', ( event ) => {
-
-			event.preventDefault();
-			console.error( '❌ WebGL Context Lost!' );
-			alert( '⚠️ WebGL Context Lost\n\nThe GPU context was lost. This can happen due to:\n- GPU driver crash\n- Too much GPU memory usage\n- Browser tab backgrounded for too long\n\nReload the page to recover.' );
-
-		}, false );
-
-		this.canvas.addEventListener( 'webglcontextrestored', () => {
-
-			console.log( '✅ WebGL Context Restored' );
-			this.reset();
-
-		}, false );
 
 	}
 
