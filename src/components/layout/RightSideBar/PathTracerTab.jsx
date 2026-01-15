@@ -209,7 +209,7 @@ const PathTracerTab = () => {
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
 				</div>
 				<div className="flex items-center justify-between">
-					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
+					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={6} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
 				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />

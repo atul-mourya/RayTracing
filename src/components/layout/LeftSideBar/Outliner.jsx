@@ -82,12 +82,12 @@ const VisibilityToggle = memo( ( { item, isVisible, onVisibilityChange } ) => {
 			onClick={handleToggle}
 			className={cn(
 				"flex items-center justify-center w-5 h-5 cursor-pointer hover:bg-accent/50 rounded-sm ml-auto",
-				! isVisible && "opacity-50"
+				isVisible ? "opacity-70" : "opacity-50"
 			)}
 		>
 			{isVisible ?
-				<Eye size={14} className={STYLES.text} /> :
-				<EyeOff size={14} className={STYLES.text} />
+				<Eye size={12} className={STYLES.text} /> :
+				<EyeOff size={12} className={STYLES.text} />
 			}
 		</div>
 	);
