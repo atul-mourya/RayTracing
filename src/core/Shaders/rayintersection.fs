@@ -9,6 +9,35 @@ uniform float focalLength;
 uniform float apertureScale;
 uniform float sceneScale;
 
+// Optimized Intersection with Geometry only (no attributes)
+// Returns t, u, v through out parameters, true if hit
+bool RayTriangleGeometry( Ray ray, vec3 posA, vec3 posB, vec3 posC, out float t, out float u, out float v ) {
+	vec3 edge1 = posB - posA;
+	vec3 edge2 = posC - posA;
+	vec3 h = cross( ray.direction, edge2 );
+	float a = dot( edge1, h );
+
+	if( abs( a ) < 1e-8 )
+		return false;
+
+	float f = 1.0 / a;
+	vec3 s = ray.origin - posA;
+	u = f * dot( s, h );
+
+	if( u < 0.0 || u > 1.0 )
+		return false;
+
+	vec3 q = cross( s, edge1 );
+	v = f * dot( ray.direction, q );
+
+	if( v < 0.0 || u + v > 1.0 )
+		return false;
+
+	t = f * dot( edge2, q );
+
+	return ( t > 1e-8 );
+}
+
 // Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
 // Thanks to https://stackoverflow.com/a/42752998
 HitInfo RayTriangle( Ray ray, Triangle tri ) {

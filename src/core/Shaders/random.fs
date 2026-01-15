@@ -231,7 +231,7 @@ uint owen_scramble( uint x, uint seed ) {
 // Owen-scrambled Sobol sequence
 float owen_scrambled_sobol( uint index, uint dimension, uint seed ) {
     uint result = 0u;
-    for( int i = 0; i < 32; ++ i ) {
+    for( int i = 0; i < 32; i ++ ) {
         if( ( index & ( 1u << i ) ) != 0u ) {
             result ^= getSobolDirectionVector( i ) << dimension;
         }

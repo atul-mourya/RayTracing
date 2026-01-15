@@ -127,11 +127,15 @@ vec3 evalIridescence( float outsideIOR, float eta2, float cosTheta1, float thinF
 	vec3 I = C0;
 	vec3 Cm = Rs - T121;
 
-	for( int m = 1; m <= 2; ++ m ) {
+	#pragma unroll_loop_start
+	for( int i = 0; i < 2; ++i ) {
+		int m = i + 1;
+
 		Cm *= r123;
 		vec3 Sm = 2.0 * evalSensitivity( float( m ) * OPD, float( m ) * phi );
 		I += Cm * Sm;
 	}
+	#pragma unroll_loop_end
 
 	return max( I, vec3( 0.0 ) );
 }

@@ -9,7 +9,8 @@ import {
 	NearestFilter,
 	LinearSRGBColorSpace,
 	ShaderMaterial,
-	Vector2
+	Vector2,
+	GLSL3
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 
@@ -282,25 +283,34 @@ export class RenderTargetManager {
 		if ( ! this.copyMaterial ) {
 
 			this.copyMaterial = new ShaderMaterial( {
+				glslVersion: GLSL3,
 				uniforms: {
 					tDiffuse: { value: null }
 				},
 
 				vertexShader: `
-                    varying vec2 vUv;
-                    void main() {
-                        vUv = uv;
-                        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-                    }
-                `,
+					// in vec3 position;
+					// in vec2 uv;
+					out vec2 vUv;
+					// uniform mat4 modelViewMatrix;
+					// uniform mat4 projectionMatrix;
+
+					void main() {
+						vUv = uv;
+						gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+					}
+				`,
 
 				fragmentShader: `
-                    uniform sampler2D tDiffuse;
-                    varying vec2 vUv;
-                    void main() {
-                        gl_FragColor = texture2D( tDiffuse, vUv );
-                    }
-                `,
+					precision highp float;
+					uniform sampler2D tDiffuse;
+					in vec2 vUv;
+					out vec4 pc_fragColor;
+
+					void main() {
+						pc_fragColor = textureLod( tDiffuse, vUv, 0.0 );
+					}
+				`,
 
 				depthTest: false,
 				depthWrite: false,

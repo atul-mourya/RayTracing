@@ -188,27 +188,27 @@ TextureBatch batchSampleTextures( RayTracingMaterial material, UVCache uvCache )
 	if( batch.hasMetalnessRoughness ) {
 		if( material.metalnessMapIndex == material.roughnessMapIndex && material.metalnessMapIndex >= 0 ) {
 			// Same texture for both - sample once
-			batch.metalnessRoughnessSample = texture( metalnessMaps, vec3( uvCache.metalnessUV, float( material.metalnessMapIndex ) ) );
+			batch.metalnessRoughnessSample = textureLod( metalnessMaps, vec3( uvCache.metalnessUV, float( material.metalnessMapIndex ) ), 0.0 );
 		} else if( uvCache.metalRoughSameUV && material.metalnessMapIndex >= 0 && material.roughnessMapIndex >= 0 ) {
 			// Same UV but different textures - can potentially batch if they're in the same array
-			batch.metalnessRoughnessSample = texture( metalnessMaps, vec3( uvCache.metalnessUV, float( material.metalnessMapIndex ) ) );
+			batch.metalnessRoughnessSample = textureLod( metalnessMaps, vec3( uvCache.metalnessUV, float( material.metalnessMapIndex ) ), 0.0 );
 			// Note: In a more advanced implementation, you could sample both layers at once
 		} else {
 			// Different UVs or textures - sample separately (handled later)
 			if( material.metalnessMapIndex >= 0 ) {
-				batch.metalnessRoughnessSample = texture( metalnessMaps, vec3( uvCache.metalnessUV, float( material.metalnessMapIndex ) ) );
+				batch.metalnessRoughnessSample = textureLod( metalnessMaps, vec3( uvCache.metalnessUV, float( material.metalnessMapIndex ) ), 0.0 );
 			}
 		}
 	}
 
 	// 2. Handle albedo sampling
 	if( batch.hasAlbedo ) {
-		batch.albedoSample = texture( albedoMaps, vec3( uvCache.albedoUV, float( material.albedoMapIndex ) ) );
+		batch.albedoSample = textureLod( albedoMaps, vec3( uvCache.albedoUV, float( material.albedoMapIndex ) ), 0.0 );
 	}
 
 	// 3. Handle normal/bump batching
 	if( batch.hasNormal ) {
-		batch.normalSample = texture( normalMaps, vec3( uvCache.normalUV, float( material.normalMapIndex ) ) );
+		batch.normalSample = textureLod( normalMaps, vec3( uvCache.normalUV, float( material.normalMapIndex ) ), 0.0 );
 
 		// If bump uses the same texture and UV as normal, reuse the sample
 		if( batch.hasBump && material.bumpMapIndex == material.normalMapIndex && uvCache.normalBumpSameUV ) {
@@ -219,7 +219,7 @@ TextureBatch batchSampleTextures( RayTracingMaterial material, UVCache uvCache )
 
 	// 4. Handle remaining bump sampling
 	if( batch.hasBump ) {
-		batch.bumpSample = texture( bumpMaps, vec3( uvCache.bumpUV, float( material.bumpMapIndex ) ) );
+		batch.bumpSample = textureLod( bumpMaps, vec3( uvCache.bumpUV, float( material.bumpMapIndex ) ), 0.0 );
 	}
 
 	// 5. Handle emissive sampling with potential albedo reuse
@@ -228,7 +228,7 @@ TextureBatch batchSampleTextures( RayTracingMaterial material, UVCache uvCache )
 			// Reuse albedo sample for emissive
 			batch.emissiveSample = batch.albedoSample;
 		} else {
-			batch.emissiveSample = texture( emissiveMaps, vec3( uvCache.emissiveUV, float( material.emissiveMapIndex ) ) );
+			batch.emissiveSample = textureLod( emissiveMaps, vec3( uvCache.emissiveUV, float( material.emissiveMapIndex ) ), 0.0 );
 		}
 	}
 
@@ -307,8 +307,8 @@ vec3 processBumpFromBatch( TextureBatch batch, vec3 currentNormal, float bumpSca
 	vec2 texelSize = 1.0 / vec2( textureSize( bumpMaps, 0 ).xy );
 
 	float h_c = batch.bumpSample.r;
-	float h_u = texture( bumpMaps, vec3( uvCache.bumpUV + vec2( texelSize.x, 0.0 ), float( material.bumpMapIndex ) ) ).r;
-	float h_v = texture( bumpMaps, vec3( uvCache.bumpUV + vec2( 0.0, texelSize.y ), float( material.bumpMapIndex ) ) ).r;
+	float h_u = textureLod( bumpMaps, vec3( uvCache.bumpUV + vec2( texelSize.x, 0.0 ), float( material.bumpMapIndex ) ), 0.0 ).r;
+	float h_v = textureLod( bumpMaps, vec3( uvCache.bumpUV + vec2( 0.0, texelSize.y ), float( material.bumpMapIndex ) ), 0.0 ).r;
 
 	vec2 gradient = vec2( h_u - h_c, h_v - h_c ) * bumpScale;
 	vec3 bumpNormal = normalize( vec3( - gradient.x, - gradient.y, 1.0 ) );
@@ -426,5 +426,5 @@ float sampleDisplacementMap( int displacementMapIndex, vec2 uv, mat3 transform )
 	vec2 transformedUV = getTransformedUV( uv, transform );
 
     // Sample displacement texture (assuming it's in the red channel)
-	return texture( displacementMaps, vec3( transformedUV, float( displacementMapIndex ) ) ).r;
+    return textureLod(displacementMaps, vec3(transformedUV, float(displacementMapIndex)), 0.0).r;
 }

@@ -1,5 +1,5 @@
 import {
-	Vector2, Vector3, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, Color,
+	Vector2, Vector3, Matrix4, TextureLoader, RepeatWrapping, FloatType, NearestFilter, Color, GLSL3,
 	RGBAFormat, DataTexture
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
@@ -142,6 +142,7 @@ export class PathTracerStage extends PipelineStage {
 	setupMaterial() {
 
 		this.material = PathTracerUtils.createPathTracingMaterial( {
+			glslVersion: GLSL3,
 			vertexShader: VertexShader,
 			fragmentShader: FragmentShader,
 			uniforms: {

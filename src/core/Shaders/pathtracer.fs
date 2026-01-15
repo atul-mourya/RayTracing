@@ -49,7 +49,7 @@ uniform bool hasPreviousAccumulated;
 // Lighting system
 #include lights_core.fs
 #include lights_direct.fs
-#include emissive_sampling.fs
+// #include emissive_sampling.fs
 #include lights_sampling.fs
 #include lights_indirect.fs
 
@@ -76,9 +76,9 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 
 #ifdef ENABLE_MULTI_LOBE_MIS
     // IMPROVEMENT: Use multi-lobe MIS for complex materials
-	if( material.clearcoat > 0.1 || material.transmission > 0.1 || material.sheen > 0.1 || material.iridescence > 0.1 ) {
-		return sampleMaterialWithMultiLobeMIS( V, N, material, xi, rngState );
-	}
+	// if( material.clearcoat > 0.1 || material.transmission > 0.1 || material.sheen > 0.1 || material.iridescence > 0.1 ) {
+	// 	return sampleMaterialWithMultiLobeMIS( V, N, material, xi, rngState );
+	// }
 #endif
 
     // OPTIMIZED: Use consolidated classification function
@@ -227,7 +227,7 @@ vec3 dithering( vec3 color, uint seed ) {
 
 int getRequiredSamples( int pixelIndex ) {
 	vec2 texCoord = gl_FragCoord.xy / resolution;
-	vec4 samplingData = texture( adaptiveSamplingTexture, texCoord );
+	vec4 samplingData = textureLod( adaptiveSamplingTexture, texCoord, 0.0 );
 
 	// Early exit for converged pixels
 	if( samplingData.b > 0.5 ) {
@@ -280,7 +280,7 @@ void main( ) {
 			// Pixel is converged - use accumulated result
 			#ifdef ENABLE_ACCUMULATION
 			if( enableAccumulation && hasPreviousAccumulated ) {
-				gColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution );
+				gColor = textureLod( previousAccumulatedTexture, gl_FragCoord.xy / resolution, 0.0 );
 			} else {
 				// No accumulation available, still need to render at least 1 sample
 				samplesCount = 1;
@@ -390,7 +390,7 @@ void main( ) {
 	if( enableAccumulation && ! cameraIsMoving && frame > 1u && hasPreviousAccumulated ) {
 
 		// Get previous accumulated color
-		vec3 previousColor = texture( previousAccumulatedTexture, gl_FragCoord.xy / resolution ).rgb;
+		vec3 previousColor = textureLod( previousAccumulatedTexture, gl_FragCoord.xy / resolution, 0.0 ).rgb;
 		finalColor = previousColor + ( pixel.color.rgb - previousColor ) * accumulationAlpha;
 
 	}

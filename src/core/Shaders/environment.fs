@@ -67,7 +67,7 @@ vec3 equirectUvToDirection( vec2 uv ) {
  */
 vec3 sampleEquirectColor( vec3 direction ) {
 
-	return texture2D( environment, equirectDirectionToUv( direction ) ).rgb;
+	return textureLod( environment, equirectDirectionToUv( direction ), 0.0 ).rgb;
 
 }
 
@@ -105,7 +105,7 @@ float sampleEquirect( vec3 direction, inout vec3 color ) {
 	}
 
 	vec2 uv = equirectDirectionToUv( direction );
-	color = texture2D( environment, uv ).rgb;
+	color = textureLod( environment, uv, 0.0 ).rgb;
 
 	float lum = dot( color, REC709_LUMINANCE_COEFFICIENTS );
 	float pdf = lum / totalSum;
@@ -122,17 +122,17 @@ float sampleEquirect( vec3 direction, inout vec3 color ) {
 float sampleEquirectProbability( vec2 r, inout vec3 color, inout vec3 direction ) {
 
 	// Sample marginal CDF for V coordinate
-	float v = texture2D( envMarginalWeights, vec2( r.x, 0.0 ) ).x;
+	float v = textureLod( envMarginalWeights, vec2( r.x, 0.0 ), 0.0 ).x;
 
 	// Sample conditional CDF for U coordinate
-	float u = texture2D( envConditionalWeights, vec2( r.y, v ) ).x;
+	float u = textureLod( envConditionalWeights, vec2( r.y, v ), 0.0 ).x;
 
 	vec2 uv = vec2( u, v );
 
 	// Convert UV to direction
 	vec3 derivedDirection = equirectUvToDirection( uv );
 	direction = derivedDirection;
-	color = texture2D( environment, uv ).rgb * environmentIntensity;
+	color = textureLod( environment, uv, 0.0 ).rgb * environmentIntensity;
 
 	// Calculate PDF
 	float totalSum = envTotalSum;
@@ -157,7 +157,7 @@ vec4 sampleEnvironment( vec3 direction ) {
 	}
 
 	vec2 uv = equirectDirectionToUv( direction );
-	vec4 texSample = texture2D( environment, uv );
+	vec4 texSample = textureLod( environment, uv, 0.0 );
 
 	return texSample * environmentIntensity;
 

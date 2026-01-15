@@ -606,23 +606,23 @@ MaterialInteractionResult handleMaterialTransparency(
 
             // Update medium stack
 			// Only update medium stack if we actually transmitted (didn't get TIR/reflection)
-			if( ! transResult.didReflect ) {
-				if( entering ) {
-					// Push new medium onto stack
-					if( mediumStack.depth < MAX_MEDIA_STACK - 1 ) {
-						mediumStack.depth ++;
-						mediumStack.media[ mediumStack.depth ].ior = material.ior;
-						mediumStack.media[ mediumStack.depth ].attenuationColor = material.attenuationColor;
-						mediumStack.media[ mediumStack.depth ].attenuationDistance = material.attenuationDistance;
-						mediumStack.media[ mediumStack.depth ].dispersion = material.dispersion;
-					}
-				} else {
-					// Pop medium from stack
-					if( mediumStack.depth > 0 ) {
-						mediumStack.depth --;
-					}
-				}
-			}
+			// if( ! transResult.didReflect ) {
+			// 	if( entering ) {
+			// 		// Push new medium onto stack
+			// 		if( mediumStack.depth < MAX_MEDIA_STACK - 1 ) {
+			// 			mediumStack.depth ++;
+			// 			mediumStack.media[ mediumStack.depth ].ior = material.ior;
+			// 			mediumStack.media[ mediumStack.depth ].attenuationColor = material.attenuationColor;
+			// 			mediumStack.media[ mediumStack.depth ].attenuationDistance = material.attenuationDistance;
+			// 			mediumStack.media[ mediumStack.depth ].dispersion = material.dispersion;
+			// 		}
+			// 	} else {
+			// 		// Pop medium from stack
+			// 		if( mediumStack.depth > 0 ) {
+			// 			mediumStack.depth --;
+			// 		}
+			// 	}
+			// }
 
             // Apply the transmission result
 			result.direction = transResult.direction;

@@ -147,102 +147,102 @@ vec4 TraceDebugMode( vec3 rayOrigin, vec3 rayDir ) {
 			}
 			return vec4( 1.0, 0.0, 1.0, 1.0 );
 		}
-		case 8: {
-			// Emissive Triangle Direct Lighting Visualization
-			if( ! enableEmissiveTriangleSampling || totalTriangleCount <= 0 ) {
-				return vec4( 1.0, 0.0, 1.0, 1.0 ); // Magenta if disabled
-			}
+		// case 8: {
+		// 	// Emissive Triangle Direct Lighting Visualization
+		// 	if( ! enableEmissiveTriangleSampling || totalTriangleCount <= 0 ) {
+		// 		return vec4( 1.0, 0.0, 1.0, 1.0 ); // Magenta if disabled
+		// 	}
 
-			// Trace primary ray
-			if( ! hitInfo.didHit ) {
-				return vec4( 0.0, 0.0, 0.0, 1.0 ); // Black for background
-			}
+		// 	// Trace primary ray
+		// 	if( ! hitInfo.didHit ) {
+		// 		return vec4( 0.0, 0.0, 0.0, 1.0 ); // Black for background
+		// 	}
 
-			// Get material and normal
-			MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
-			RayTracingMaterial material = hitInfo.material;
-			material.color = matSamples.albedo;
-			material.metalness = matSamples.metalness;
-			material.roughness = clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
-			vec3 N = matSamples.normal;
-			vec3 V = - rayDir;
+		// 	// Get material and normal
+		// 	MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
+		// 	RayTracingMaterial material = hitInfo.material;
+		// 	material.color = matSamples.albedo;
+		// 	material.metalness = matSamples.metalness;
+		// 	material.roughness = clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS );
+		// 	vec3 N = matSamples.normal;
+		// 	vec3 V = - rayDir;
 
-			// Sample emissive contribution
-			uint tempRng = pcg_hash( uint( gl_FragCoord.x + gl_FragCoord.y * resolution.x ) + frame * 12345u );
-			ivec2 tempStats = ivec2( 0 );
+		// 	// Sample emissive contribution
+		// 	uint tempRng = pcg_hash( uint( gl_FragCoord.x + gl_FragCoord.y * resolution.x ) + frame * 12345u );
+		// 	ivec2 tempStats = ivec2( 0 );
 
-			EmissiveContributionResult emissiveResult = calculateEmissiveTriangleContributionDebug(
-				hitInfo.hitPoint,
-				N,
-				V,
-				material,
-				totalTriangleCount,
-				0, // primary bounce
-				tempRng,
-				tempStats
-			);
+		// 	EmissiveContributionResult emissiveResult = calculateEmissiveTriangleContributionDebug(
+		// 		hitInfo.hitPoint,
+		// 		N,
+		// 		V,
+		// 		material,
+		// 		totalTriangleCount,
+		// 		0, // primary bounce
+		// 		tempRng,
+		// 		tempStats
+		// 	);
 
-			// Visualize the result
-			if( ! emissiveResult.hasEmissive ) {
-				// No emissive found - dark blue
-				return vec4( 0.0, 0.0, 0.1, 1.0 );
-			}
+		// 	// Visualize the result
+		// 	if( ! emissiveResult.hasEmissive ) {
+		// 		// No emissive found - dark blue
+		// 		return vec4( 0.0, 0.0, 0.1, 1.0 );
+		// 	}
 
-			// Show emissive contribution with intensity mapping
-			vec3 contribution = emissiveResult.contribution;
-			float intensity = length( contribution );
+		// 	// Show emissive contribution with intensity mapping
+		// 	vec3 contribution = emissiveResult.contribution;
+		// 	float intensity = length( contribution );
 
-			// Scale for visualization
-			vec3 visualColor = contribution / max( intensity * 0.1, 0.001 );
+		// 	// Scale for visualization
+		// 	vec3 visualColor = contribution / max( intensity * 0.1, 0.001 );
 
-			// Add distance-based tint (closer = warmer)
-			float distanceFactor = clamp( 1.0 - emissiveResult.distance / 10.0, 0.0, 1.0 );
-			visualColor = mix( visualColor, visualColor * vec3( 1.0, 0.8, 0.6 ), distanceFactor * 0.3 );
+		// 	// Add distance-based tint (closer = warmer)
+		// 	float distanceFactor = clamp( 1.0 - emissiveResult.distance / 10.0, 0.0, 1.0 );
+		// 	visualColor = mix( visualColor, visualColor * vec3( 1.0, 0.8, 0.6 ), distanceFactor * 0.3 );
 
-			return vec4( visualColor, 1.0 );
-		}
+		// 	return vec4( visualColor, 1.0 );
+		// }
 
-		// ------------------------------------------------------------------------
-		// MRT (Multiple Render Targets) Outputs
-		// These visualize what gets written to the MRT buffers
-		// ------------------------------------------------------------------------
-		case 9: {
-			// MRT: World-space normals (gNormalDepth.rgb)
-			// Shows the surface normal that gets written to the MRT for denoisers
-			if( ! hitInfo.didHit )
-				return vec4( 0.5, 0.5, 1.0, 1.0 ); // Sky/background = up vector
+		// // ------------------------------------------------------------------------
+		// // MRT (Multiple Render Targets) Outputs
+		// // These visualize what gets written to the MRT buffers
+		// // ------------------------------------------------------------------------
+		// case 9: {
+		// 	// MRT: World-space normals (gNormalDepth.rgb)
+		// 	// Shows the surface normal that gets written to the MRT for denoisers
+		// 	if( ! hitInfo.didHit )
+		// 		return vec4( 0.5, 0.5, 1.0, 1.0 ); // Sky/background = up vector
 
-			// Get material-mapped normal (same as what's used in main shader)
-			MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
-			vec3 worldNormal = normalize( matSamples.normal );
+		// 	// Get material-mapped normal (same as what's used in main shader)
+		// 	MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
+		// 	vec3 worldNormal = normalize( matSamples.normal );
 
-			// Encode as [0,1] range (same as gNormalDepth output)
-			return vec4( visualizeNormal( worldNormal ), 1.0 );
-		}
-		case 10: {
-			// MRT: Linear depth (gNormalDepth.a)
-			// Shows the NDC depth value [0,1] that gets written to the MRT
-			if( ! hitInfo.didHit )
-				return vec4( vec3( 1.0 ), 1.0 ); // Far plane = white
+		// 	// Encode as [0,1] range (same as gNormalDepth output)
+		// 	return vec4( visualizeNormal( worldNormal ), 1.0 );
+		// }
+		// case 10: {
+		// 	// MRT: Linear depth (gNormalDepth.a)
+		// 	// Shows the NDC depth value [0,1] that gets written to the MRT
+		// 	if( ! hitInfo.didHit )
+		// 		return vec4( vec3( 1.0 ), 1.0 ); // Far plane = white
 
-			// Compute NDC depth (same as main shader)
-			float linearDepth = computeNDCDepth( hitInfo.hitPoint );
+		// 	// Compute NDC depth (same as main shader)
+		// 	float linearDepth = computeNDCDepth( hitInfo.hitPoint );
 
-			// Visualize: near=white, far=black
-			return vec4( visualizeDepth( linearDepth ), 1.0 );
-		}
-		case 11: {
-			// MRT: Albedo (gAlbedo.rgb)
-			// Shows the base color that gets written to the MRT for denoisers (OIDN)
-			if( ! hitInfo.didHit )
-				return vec4( 0.0, 0.0, 0.0, 1.0 ); // Background = black
+		// 	// Visualize: near=white, far=black
+		// 	return vec4( visualizeDepth( linearDepth ), 1.0 );
+		// }
+		// case 11: {
+		// 	// MRT: Albedo (gAlbedo.rgb)
+		// 	// Shows the base color that gets written to the MRT for denoisers (OIDN)
+		// 	if( ! hitInfo.didHit )
+		// 		return vec4( 0.0, 0.0, 0.0, 1.0 ); // Background = black
 
-			// Get albedo from material textures (same as main shader)
-			MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
-			vec3 objectColor = matSamples.albedo.rgb;
+		// 	// Get albedo from material textures (same as main shader)
+		// 	MaterialSamples matSamples = sampleAllMaterialTextures( hitInfo.material, hitInfo.uv, hitInfo.normal );
+		// 	vec3 objectColor = matSamples.albedo.rgb;
 
-			return vec4( objectColor, 1.0 );
-		}
+		// 	return vec4( objectColor, 1.0 );
+		// }
 
 		// ------------------------------------------------------------------------
 		// Default Case

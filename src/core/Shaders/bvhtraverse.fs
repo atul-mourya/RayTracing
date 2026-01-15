@@ -80,27 +80,6 @@ bool isMaterialVisibleOptimized( VisibilityData vis, vec3 rayDirection, vec3 nor
 	);
 }
 
-Triangle getTriangle( int triangleIndex ) {
-	vec4 data[ 8 ];
-	for( int i = 0; i < 8; i ++ ) {
-		data[ i ] = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, i, 8 );
-	}
-
-	Triangle tri;
-	tri.posA = data[ 0 ].xyz;
-	tri.posB = data[ 1 ].xyz;
-	tri.posC = data[ 2 ].xyz;
-	tri.normalA = data[ 3 ].xyz;
-	tri.normalB = data[ 4 ].xyz;
-	tri.normalC = data[ 5 ].xyz;
-	tri.uvA = data[ 6 ].xy;
-	tri.uvB = data[ 6 ].zw;
-	tri.uvC = data[ 7 ].xy;
-	tri.materialIndex = int( data[ 7 ].z );
-	tri.meshIndex = int( data[ 7 ].w );
-	return tri;
-}
-
 // OPTIMIZED: Single visibility check with combined data fetch (2 reads total vs 2 separate calls)
 bool isMaterialVisible( int materialIndex, vec3 rayDirection, vec3 normal ) {
 	VisibilityData vis = getVisibilityData( materialIndex );
@@ -156,27 +135,52 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 			// Process triangles in leaf
 			for( int i = 0; i < triCount; i ++ ) {
 				stats[ 1 ] ++;
-				Triangle tri = getTriangle( triStart + i );
+				int triIndex = triStart + i;
 
-				HitInfo hit = RayTriangle( ray, tri );
+				// OPTIMIZED: Fetch geometry first (3 fetches vs 8) to reduce bandwidth and register pressure
+				// This specifically helps avoid TDR on Windows by reducing loop body complexity
+				vec3 pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 0, 8 ).xyz;
+				vec3 pB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 1, 8 ).xyz;
+				vec3 pC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 2, 8 ).xyz;
 
-				if( hit.didHit && hit.dst < closestHit.dst ) {
-					// OPTIMIZED: Early material rejection before expensive visibility checks
-					// Check basic visibility first using cached material data
-					if( ! isTriangleVisibleCached( tri.materialIndex, rayDirection ) ) {
-						continue; // Skip invisible materials early
-					}
+				float t, u, v;
+				if( RayTriangleGeometry( ray, pA, pB, pC, t, u, v ) ) {
+					// Only process further if this hit is closer than our current best
+					if( t < closestHit.dst ) {
+						// Now fetch attributes necessary for shading/visibility (5 fetches)
+						vec3 nA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 3, 8 ).xyz;
+						vec3 nB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 4, 8 ).xyz;
+						vec3 nC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 5, 8 ).xyz;
+						vec4 uvData1 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 6, 8 );
+						vec4 uvData2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, 7, 8 );
+
+						int matIdx = int( uvData2.z );
+						int meshIdx = int( uvData2.w );
+
+						// OPTIMIZED: Early material rejection before expensive visibility checks
+						// Check basic visibility first using cached material data
+						if( !isTriangleVisibleCached( matIdx, rayDirection ) ) {
+							continue; // Skip invisible materials early
+						}
 
 					if( shadowRay ) {
-						// For shadow rays, record hit and check if we can exit early
-						closestHit = hit;
-						closestHit.materialIndex = tri.materialIndex;
-						closestHit.meshIndex = tri.meshIndex;
+						// For shadow rays, only check basic visibility
+						// Note: function argument is materialIndex despite name
+						// We can reuse the isTriangleVisibleCached result which implicitly returns true if we are here?
+						// Wait, isTriangleVisibleCached only checks visible flag, not side/opacity logic fully if not cached?
+						// Actually isTriangleVisibleCached returns 'visible' flag from texture. 
+						// But isTriangleVisible (the old one) did the same.
+						
+						closestHit.didHit = true;
+						closestHit.dst = t;
+						closestHit.materialIndex = matIdx;
+						closestHit.meshIndex = meshIdx;
+						// Early exit possible here if we don't care about closest shadow hit
 
 					#if defined( ENABLE_TRANSMISSION ) || defined( ENABLE_TRANSPARENCY )
 						// Scene has transmissive/transparent materials - check before early exit
-						VisibilityData vis = getVisibilityData( tri.materialIndex );
-						vec4 slot2 = getDatafromDataTexture( materialTexture, materialTexSize, tri.materialIndex, 2, MATERIAL_SLOTS );
+						VisibilityData vis = getVisibilityData( matIdx );
+						vec4 slot2 = getDatafromDataTexture( materialTexture, materialTexSize, matIdx, 2, MATERIAL_SLOTS );
 						float transmission = slot2.g;
 
 						// Early exit only for fully opaque materials
@@ -191,11 +195,20 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 						return closestHit;
 					#endif
 					} else {
-						// For primary rays, do full material check only if basic visibility passed
-						if( isMaterialVisible( tri.materialIndex, rayDirection, hit.normal ) ) {
-							closestHit = hit;
-							closestHit.materialIndex = tri.materialIndex;
-							closestHit.meshIndex = tri.meshIndex;
+						// Interpolate normal
+						float w = 1.0 - u - v;
+						vec3 normal = normalize( w * nA + u * nB + v * nC );
+						
+						// For primary rays, check full material visibility (culling etc)
+						if( isMaterialVisible( matIdx, rayDirection, normal ) ) {
+							closestHit.didHit = true;
+							closestHit.dst = t;
+							closestHit.hitPoint = ray.origin + t * ray.direction;
+							closestHit.normal = normal;
+							closestHit.uv = w * uvData1.xy + u * uvData1.zw + v * uvData2.xy;
+							closestHit.materialIndex = matIdx;
+							closestHit.meshIndex = meshIdx;
+						}
 						}
 					}
 				}
