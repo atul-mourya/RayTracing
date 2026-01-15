@@ -56,6 +56,10 @@ import { useStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader';
 import { EnvironmentService } from '@/services/EnvironmentService';
 
+// WebGLProgram.prototype.getProgramInfoLog = function () {
+//   return this.programInfoLog;
+// };
+
 class PathTracerApp extends EventDispatcher {
 
 	constructor( primaryCanvas, denoiserCanvas ) {
@@ -100,6 +104,10 @@ class PathTracerApp extends EventDispatcher {
 		this.pipeline = null;
 		this.pipelineWrapperPass = null;
 
+		// Target resolution for consistent rendering across different DPR displays
+		// Maps to absolute pixel values: 0=256, 1=512, 2=1024, 3=2048, 4=4096
+		this.targetResolution = DEFAULT_STATE.resolution;
+
 		this.cameras = [];
 		this.currentCameraIndex = 0;
 		this.defaultCamera = this.camera;
@@ -120,9 +128,17 @@ class PathTracerApp extends EventDispatcher {
 		this.renderer.toneMapping = DEFAULT_STATE.toneMapping;
 		this.renderer.toneMappingExposure = Math.pow( DEFAULT_STATE.exposure, 4.0 );
 		this.renderer.outputColorSpace = SRGBColorSpace;
-		this.renderer.setPixelRatio( DEFAULT_STATE.originalPixelRatio );
+
+		// Calculate pixel ratio for absolute resolution (DEFAULT_STATE.resolution: 1 = 512px)
+		const targetResolutions = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
+		const targetRes = targetResolutions[ DEFAULT_STATE.resolution ] || 512;
+		const shortestDim = Math.min( this.width, this.height ) || 512; // Fallback if canvas not ready
+		this.renderer.setPixelRatio( targetRes / shortestDim );
 		this.renderer.setSize( this.width, this.height );
 		this.container.appendChild( this.canvas );
+
+		// Enable full shader error logging
+		// this.renderer.debug.checkShaderErrors = true;
 
 		// Setup stats
 		this.initStats();
@@ -812,10 +828,39 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
-	updateResolution( value ) {
+	/**
+	 * Update resolution using a calculated pixel ratio value
+	 * @param {number} value - The pixel ratio to set
+	 * @param {number} [targetResolutionIndex] - Optional resolution index (0-4) to store for resize recalculation
+	 */
+	updateResolution( value, targetResolutionIndex ) {
+
+		// Store target resolution index if provided (for maintaining resolution on window resize)
+		if ( targetResolutionIndex !== undefined ) {
+
+			this.targetResolution = targetResolutionIndex;
+
+		}
 
 		this.renderer.setPixelRatio( value );
 		this.composer.setPixelRatio( value );
+		this.onResize();
+
+	}
+
+	/**
+	 * Recalculate and apply pixel ratio based on stored target resolution
+	 * Call this when canvas container dimensions change to maintain consistent resolution
+	 */
+	recalculateResolution() {
+
+		const targetResolutions = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
+		const targetRes = targetResolutions[ this.targetResolution ] || 512;
+		const shortestDim = Math.min( this.canvas.clientWidth, this.canvas.clientHeight ) || 512;
+		const pixelRatio = targetRes / shortestDim;
+
+		this.renderer.setPixelRatio( pixelRatio );
+		this.composer.setPixelRatio( pixelRatio );
 		this.onResize();
 
 	}

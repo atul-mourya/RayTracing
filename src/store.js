@@ -626,8 +626,20 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { resolution: val } ),
 		val => {
 
-			const scale = { '1': 0.5, '2': 1, '3': 2, '4': 4 }[ val ] || 0.25;
-			window.pathTracerApp.updateResolution( window.devicePixelRatio * scale );
+			// Map UI value to absolute pixel resolution
+			const targetResolution = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ val ] || 512;
+
+			// Calculate pixel ratio based on canvas client dimensions
+			// Use the shorter dimension to ensure target resolution fits
+			const app = window.pathTracerApp;
+			const clientWidth = app.canvas.clientWidth;
+			const clientHeight = app.canvas.clientHeight;
+			const shortestDimension = Math.min( clientWidth, clientHeight );
+
+			// Calculate pixel ratio to achieve target resolution on shortest side
+			const pixelRatio = targetResolution / shortestDimension;
+			// Pass resolution index to store for resize recalculation
+			app.updateResolution( pixelRatio, parseInt( val, 10 ) );
 
 		}
 	),
@@ -1505,7 +1517,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
 			app.denoiser.toggleHDR( PREVIEW_STATE.oidnHDR );
 			app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
-			app.updateResolution( window.devicePixelRatio * 0.5 );
+
+			// Use absolute pixel resolution based on mode setting
+			const previewTargetRes = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ PREVIEW_STATE.resolution ] || 512;
+			const previewShortestDim = Math.min( app.canvas.clientWidth, app.canvas.clientHeight );
+			app.updateResolution( previewTargetRes / previewShortestDim, PREVIEW_STATE.resolution );
 
 			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
 			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
@@ -1553,7 +1569,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
 			app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
 			app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
-			app.updateResolution( window.devicePixelRatio * 2.0 );
+
+			// Use absolute pixel resolution based on mode setting
+			const finalTargetRes = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ FINAL_RENDER_STATE.resolution ] || 2048;
+			const finalShortestDim = Math.min( app.canvas.clientWidth, app.canvas.clientHeight );
+			app.updateResolution( finalTargetRes / finalShortestDim, FINAL_RENDER_STATE.resolution );
 
 			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
 			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
