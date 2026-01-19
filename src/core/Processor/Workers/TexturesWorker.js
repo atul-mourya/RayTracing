@@ -108,7 +108,19 @@ async function processTexturesInChunks( textures, maxTextureSize, method ) {
 
 	// Pre-allocate chunk buffer for reuse
 	const chunkBufferSize = maxWidth * maxHeight * chunkSize * 4;
-	const chunkBuffer = new Uint8Array( chunkBufferSize );
+	let chunkBuffer;
+
+	try {
+
+		chunkBuffer = new Uint8Array( chunkBufferSize );
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to allocate chunk buffer, reducing dimensions' );
+		const reducedDimensions = calculateReducedDimensions( textures, maxTextureSize );
+		return await processWithReducedDimensions( textures, reducedDimensions, method );
+
+	}
 
 	// Process each chunk with optimized memory reuse
 	for ( let chunkIndex = 0; chunkIndex < numChunks; chunkIndex ++ ) {
@@ -303,7 +315,26 @@ async function processTextureChunk( textures, maxWidth, maxHeight ) {
 
 	}
 
-	const data = new Uint8Array( maxWidth * maxHeight * textures.length * 4 );
+	let data;
+	try {
+
+		data = new Uint8Array( maxWidth * maxHeight * textures.length * 4 );
+
+	} catch ( error ) {
+
+		console.warn( 'Failed to allocate texture array in processTextureChunk, reducing dimensions' );
+		const nextWidth = Math.max( 1, Math.floor( maxWidth / 2 ) );
+		const nextHeight = Math.max( 1, Math.floor( maxHeight / 2 ) );
+
+		if ( nextWidth === maxWidth && nextHeight === maxHeight ) {
+
+			throw error;
+
+		}
+
+		return await processTextureChunk( textures, nextWidth, nextHeight );
+
+	}
 
 	// Optimize context settings
 	ctx.imageSmoothingEnabled = true;
