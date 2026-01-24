@@ -95,6 +95,9 @@ HitInfo traverseBVH( Ray ray, inout ivec2 stats, bool shadowRay ) {
 	HitInfo closestHit;
 	closestHit.didHit = false;
 	closestHit.dst = 1e20;
+	closestHit.hitPoint = vec3( 0.0 );
+	closestHit.normal = vec3( 0.0 );
+	closestHit.uv = vec2( 0.0 );
 	closestHit.materialIndex = - 1; // Initialize material index
 	closestHit.meshIndex = - 1; // Initialize mesh index
 

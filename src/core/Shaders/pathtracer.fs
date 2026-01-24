@@ -103,10 +103,13 @@ DirectionSample generateSampledDirection( vec3 V, vec3 N, RayTracingMaterial mat
 
 	BRDFWeights weights = pathState.brdfWeights;
 	DirectionSample result;
+	result.direction = vec3( 0.0 );
+	result.value = vec3( 0.0 );
+	result.pdf = 0.0;
 
 	float rand = xi.x;
 	vec2 directionSample = vec2( xi.y, RandomValue( rngState ) ); // Get fresh second dimension
-	vec3 H;
+	vec3 H = vec3( 0.0 );
 
     // Cumulative probability approach for sampling selection
 	float cumulativeDiffuse = weights.diffuse;
@@ -321,14 +324,15 @@ void main( ) {
 
 		Ray ray = generateRayFromCamera( jitteredScreenPosition, seed );
 
-		vec4 _sample;
+		vec4 _sample = vec4( 0.0 );
 		if( visMode > 0 ) {
 			_sample = TraceDebugMode( ray.origin, ray.direction );
 		} else {
-			vec3 sampleNormal, sampleColor;
-			float sampleID;
-			vec3 sampleHitPoint;
-			float sampleHitDistance;
+			vec3 sampleNormal = vec3( 0.0 );
+			vec3 sampleColor = vec3( 0.0 );
+			float sampleID = 0.0;
+			vec3 sampleHitPoint = vec3( 0.0 );
+			float sampleHitDistance = 0.0;
 			_sample = Trace( ray, seed, rayIndex, pixelIndex, sampleNormal, sampleColor, sampleID, sampleHitPoint, sampleHitDistance );
 
 			// Accumulate edge detection data from primary rays

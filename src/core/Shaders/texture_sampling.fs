@@ -344,6 +344,11 @@ vec3 processEmissiveFromBatch( TextureBatch batch, RayTracingMaterial material, 
 
 MaterialSamples sampleAllMaterialTextures( RayTracingMaterial material, vec2 uv, vec3 geometryNormal ) {
 	MaterialSamples samples;
+	samples.albedo = vec4( 0.0 );
+	samples.emissive = vec3( 0.0 );
+	samples.metalness = 0.0;
+	samples.roughness = 0.0;
+	samples.normal = vec3( 0.0 );
 	samples.hasTextures = materialHasTextures( material );
 
     // Fast path for materials with no textures

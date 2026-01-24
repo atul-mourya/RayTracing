@@ -155,7 +155,7 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassific
 	float metalFactor = cache.metalFactor;
 
     // Optimized specular calculation using classification
-	float baseSpecularWeight;
+	float baseSpecularWeight = 0.0;
 	if( mc.isMetallic ) {
         // Metals: ensure strong specular regardless of roughness
 		baseSpecularWeight = max( invRoughness * metalFactor, 0.7 );

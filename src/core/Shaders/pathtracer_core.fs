@@ -113,7 +113,7 @@ float handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mate
 	}
 
     // Enhanced path importance calculation with caching
-	float pathContribution;
+	float pathContribution = 0.0;
 	if( pathState.classificationCached && pathState.weightsComputed ) {
 		pathContribution = pathState.pathImportance;
 	} else {
@@ -122,7 +122,7 @@ float handleRussianRoulette( int depth, vec3 throughput, RayTracingMaterial mate
 	}
 
     // Improved adaptive continuation probability
-	float rrProb;
+	float rrProb = 0.0;
 	float adaptiveFactor = materialImportance * 0.4 + throughputStrength * 0.6;
 
 	if( depth < 6 ) {
@@ -222,6 +222,7 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 
     // Initialize render state
 	RenderState state;
+	state.traversals = 0;
 	state.transmissiveTraversals = transmissiveBounces;
 	state.rayType = RAY_TYPE_CAMERA;
 	state.isPrimaryRay = true;
@@ -334,11 +335,14 @@ vec4 Trace( Ray ray, inout uint rngState, int rayIndex, int pixelIndex, out vec3
 		}
 
 		DirectionSample brdfSample;
+		brdfSample.direction = vec3( 0.0 );
+		brdfSample.value = vec3( 0.0 );
+		brdfSample.pdf = 0.0;
         // Handle clear coat
 #ifdef ENABLE_CLEARCOAT
 		if( material.clearcoat > 0.0 ) {
-			vec3 L;
-			float pdf;
+			vec3 L = vec3( 0.0 );
+			float pdf = 0.0;
 			brdfSample.value = sampleClearcoat( ray, hitInfo, material, randomSample, L, pdf, rngState );
 			brdfSample.direction = L;
 			brdfSample.pdf = pdf;

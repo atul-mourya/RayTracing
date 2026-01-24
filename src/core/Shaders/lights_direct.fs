@@ -369,7 +369,7 @@ vec3 calculateDirectionalLightContribution(
     vec3 rayOrigin = hitPoint + rayOffset;
 
     // Determine shadow sampling strategy based on light angle
-    vec3 shadowDirection;
+    vec3 shadowDirection = vec3( 0.0 );
     float lightPdf = 1e6; // Default for sharp shadows
 
     if( light.angle > 0.001 ) {

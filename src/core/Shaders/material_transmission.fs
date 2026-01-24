@@ -231,6 +231,10 @@ MicrofacetTransmissionResult sampleMicrofacetTransmission(
 	inout uint rngState    // RNG state for additional sampling
 ) {
 	MicrofacetTransmissionResult result;
+	result.direction = vec3( 0.0 );
+	result.halfVector = vec3( 0.0 );
+	result.didReflect = false;
+	result.pdf = 0.0;
 
     // For smooth surfaces with dispersion, use perfect refraction with spectral IOR
 	if( roughness <= 0.05 && dispersion > 0.0 ) {
@@ -324,7 +328,9 @@ TransmissionResult handleTransmission(
 	MediumStack mediumStack
 ) {
 	TransmissionResult result;
+	result.direction = vec3( 0.0 );
 	result.throughput = vec3( 1.0 );
+	result.didReflect = false;
 
     // Setup surface normal based on ray direction
 	vec3 N = entering ? normal : - normal;
@@ -539,6 +545,7 @@ MaterialInteractionResult handleMaterialTransparency(
 	MaterialInteractionResult result;
 	result.continueRay = false;
 	result.isTransmissive = false;  // Initialize to false
+	result.isAlphaSkip = false;     // Initialize to false
 	result.direction = ray.direction;
 	result.throughput = vec3( 1.0 );
 	result.alpha = 1.0;

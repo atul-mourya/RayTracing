@@ -184,6 +184,10 @@ IndirectLightingResult calculateIndirectLighting(
 ) {
     // Initialize result
     IndirectLightingResult result;
+    result.direction = vec3( 0.0 );
+    result.throughput = vec3( 0.0 );
+    result.misWeight = 0.0;
+    result.pdf = 0.0;
 
     // Validate input sampling info
     if( samplingInfo.diffuseImportance < 0.0 ||
@@ -206,17 +210,17 @@ IndirectLightingResult calculateIndirectLighting(
     vec2 sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
     // Strategy selection
-    int selectedStrategy;
-    float strategySelectionPdf;
+    int selectedStrategy = 0;
+    float strategySelectionPdf = 0.0;
     selectSamplingStrategy( weights, selectionRand, selectedStrategy, strategySelectionPdf );
 
-    vec3 sampleDir;
-    float samplePdf;
-    vec3 sampleBrdfValue;
+    vec3 sampleDir = vec3( 0.0 );
+    float samplePdf = 0.0;
+    vec3 sampleBrdfValue = vec3( 0.0 );
 
     // Execute selected strategy
     if( selectedStrategy == 0 ) { // Environment
-        vec3 envColor;
+        vec3 envColor = vec3( 0.0 );
         samplePdf = sampleEquirectProbability( sampleRand, envColor, sampleDir );
         sampleBrdfValue = evaluateMaterialResponse( V, sampleDir, N, material );
 
@@ -251,7 +255,7 @@ IndirectLightingResult calculateIndirectLighting(
     float combinedPdf = 0.0;
 
     if( weights.useEnv ) {
-        vec3 envColor;
+        vec3 envColor = vec3( 0.0 );
         float envPdf = sampleEquirect( sampleDir, envColor );
         // Only include environment in MIS if it has valid contribution (envPdf > 0)
         if( envPdf > 0.0 ) {

@@ -168,6 +168,8 @@ vec2 sampleBlueNoise2D( vec2 pixelCoords, int sampleIndex, int dimensionBase ) {
             return noise.xw;
         case 5:
             return noise.yz;
+        default:
+            return noise.xy;
     }
     return noise.xy; // fallback
 }
@@ -308,7 +310,7 @@ vec4 getRandomSampleND( vec2 pixelCoord, int sampleIndex, int bounceIndex, inout
 
 // Combine quasi-random and pseudo-random sampling with blue noise awareness
 vec2 HybridRandomSample2D( inout uint state, int sampleIndex, int pixelIndex ) {
-    vec2 quasi;
+    vec2 quasi = vec2( 0.0 );
 
     if( samplingTechnique == 2 ) { // Sobol
         uint seed = pcg_hash( uint( pixelIndex ) );
@@ -356,7 +358,7 @@ vec2 getStratifiedSample( vec2 pixelCoord, int rayIndex, int totalRays, inout ui
     vec2 strataPos = vec2( float( sx ), float( sy ) ) / vec2( float( strataX ), float( strataY ) );
 
     // Enhanced jitter based on sampling technique with blue noise fallback for better convergence
-    vec2 jitter;
+    vec2 jitter = vec2( 0.0 );
     if( samplingTechnique == 3 ) { // Blue noise - improved progressive sampling
         jitter = sampleProgressiveBlueNoise( pixelCoord, rayIndex, totalRays );
     } else {

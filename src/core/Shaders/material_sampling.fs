@@ -255,8 +255,8 @@ SamplingResult sampleMaterialWithMultiLobeMIS(
 	float cumulativeSheen = cumulativeTransmission + weights.sheen;
 	float cumulativeIridescence = cumulativeSheen + weights.iridescence;
 
-	vec3 sampledDirection;
-	float lobePdf;
+	vec3 sampledDirection = vec3( 0.0 );
+	float lobePdf = 0.0;
 
 	if( rand < cumulativeDiffuse ) {
         // Diffuse sampling
