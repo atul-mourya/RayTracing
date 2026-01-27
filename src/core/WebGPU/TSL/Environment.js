@@ -1,9 +1,15 @@
-import { Fn, float, vec2, vec3, vec4, texture, uniform, If, select } from 'three/tsl';
+import { Fn, float, vec2, vec3, vec4, texture, uniform, If, select, int, Loop } from 'three/tsl';
 import { randomFloat } from './Random.js';
 
 /**
  * Environment map sampling module for TSL.
  * Supports both uniform and importance-sampled environment lighting.
+ *
+ * Features:
+ * - Uniform sphere sampling
+ * - CDF-based importance sampling for HDR environments
+ * - Binary search CDF lookup for accurate sampling
+ * - MIS (Multiple Importance Sampling) weight computation
  */
 
 const PI = Math.PI;
@@ -18,8 +24,8 @@ const TWO_PI = 2.0 * PI;
 export const directionToEquirectUV = Fn( ( [ direction ] ) => {
 
 	// Spherical coordinates
-	// phi = atan2(z, x), theta = acos(y)
-	const phi = direction.z.atan2( direction.x );
+	// phi = atan(z, x), theta = acos(y)
+	const phi = direction.z.atan( direction.x );
 	const theta = direction.y.acos();
 
 	// Map to [0, 1] UV range
@@ -73,6 +79,59 @@ export const equirectPDF = Fn( ( [ direction ] ) => {
 	// Uniform PDF over sphere: 1 / (4 * PI)
 	// Jacobian for equirectangular: 1 / (2 * PI * PI * sin(theta))
 	return float( 1.0 ).div( float( TWO_PI ).mul( float( PI ) ).mul( sinTheta ) );
+
+} );
+
+/**
+ * Binary search in a 1D CDF texture.
+ * Finds the UV coordinate corresponding to a random value.
+ *
+ * @param {TSLNode} cdfTex - CDF texture (1D, stored as 2D with height=1)
+ * @param {TSLNode} targetValue - Random value in [0, 1]
+ * @param {TSLNode} row - Row coordinate for 2D CDF (0 for marginal)
+ * @returns {TSLNode} UV coordinate in [0, 1]
+ */
+export const binarySearchCDF = Fn( ( [ cdfTex, targetValue, row ] ) => {
+
+	// Binary search using 8 iterations (sufficient for up to 256-wide textures)
+	const low = float( 0.0 ).toVar( 'low' );
+	const high = float( 1.0 ).toVar( 'high' );
+
+	Loop( int( 8 ), () => {
+
+		const mid = low.add( high ).mul( 0.5 );
+		const cdfValue = cdfTex.sample( vec2( mid, row ) ).x;
+
+		If( cdfValue.lessThan( targetValue ), () => {
+
+			low.assign( mid );
+
+		} ).Else( () => {
+
+			high.assign( mid );
+
+		} );
+
+	} );
+
+	return low.add( high ).mul( 0.5 );
+
+} );
+
+/**
+ * Computes the power heuristic weight for MIS (Multiple Importance Sampling).
+ * Uses the balance heuristic with power=2 for good variance reduction.
+ *
+ * @param {TSLNode} pdf1 - PDF of first sampling strategy
+ * @param {TSLNode} pdf2 - PDF of second sampling strategy
+ * @returns {TSLNode} MIS weight for first strategy
+ */
+export const misWeight = Fn( ( [ pdf1, pdf2 ] ) => {
+
+	const p1Sq = pdf1.mul( pdf1 );
+	const p2Sq = pdf2.mul( pdf2 );
+
+	return p1Sq.div( p1Sq.add( p2Sq ).max( 0.0001 ) );
 
 } );
 
@@ -150,8 +209,8 @@ export const createEnvironmentSampler = ( envMap, intensity = 1.0 ) => {
  * More efficient for HDR environments with bright light sources.
  *
  * @param {DataTexture} envMap - Environment map texture
- * @param {DataTexture} marginalCDF - Marginal CDF texture (1D)
- * @param {DataTexture} conditionalCDF - Conditional CDF texture (2D)
+ * @param {DataTexture} marginalCDF - Marginal CDF texture (1D, inverted for direct lookup)
+ * @param {DataTexture} conditionalCDF - Conditional CDF texture (2D, inverted for direct lookup)
  * @param {number} totalLuminance - Sum of all luminance values
  * @param {number} intensity - Environment intensity multiplier
  * @returns {Object} Environment sampler functions
@@ -177,6 +236,7 @@ export const createImportanceSampledEnvironment = ( envMap, marginalCDF, conditi
 
 	/**
 	 * Importance samples the environment using precomputed CDF textures.
+	 * Uses binary search for accurate CDF inversion.
 	 *
 	 * @param {TSLNode} rngState - Mutable RNG state
 	 * @returns {Object} { direction, color, pdf }
@@ -186,23 +246,45 @@ export const createImportanceSampledEnvironment = ( envMap, marginalCDF, conditi
 		const r1 = randomFloat( rngState );
 		const r2 = randomFloat( rngState );
 
-		// Sample V coordinate from marginal CDF
-		const v = marginalTex.sample( vec2( r1, 0.5 ) ).x;
+		// Sample V coordinate from marginal CDF using binary search
+		const v = binarySearchCDF( marginalTex, r1, float( 0.5 ) );
 
-		// Sample U coordinate from conditional CDF at V
-		const u = conditionalTex.sample( vec2( r2, v ) ).x;
+		// Sample U coordinate from conditional CDF at row V using binary search
+		const u = binarySearchCDF( conditionalTex, r2, v );
 
 		const uv = vec2( u, v );
 		const direction = equirectUVToDirection( uv );
 		const color = envTex.sample( uv ).xyz.mul( envIntensity );
 
 		// Compute PDF
-		// PDF = luminance(pixel) * resolution / totalSum * equirect_jacobian
+		// PDF = luminance(pixel) / totalSum * (width * height) / (2 * PI * PI * sin(theta))
 		const luminance = color.x.mul( 0.2126 ).add( color.y.mul( 0.7152 ) ).add( color.z.mul( 0.0722 ) );
 		const sinTheta = float( 1.0 ).sub( direction.y.mul( direction.y ) ).sqrt().max( 0.001 );
-		const pdf = luminance.div( totalSum ).div( float( TWO_PI ).mul( float( PI ) ).mul( sinTheta ) ).max( 0.0001 );
+		const pdf = luminance.div( totalSum.max( 0.001 ) ).div( float( TWO_PI ).mul( float( PI ) ).mul( sinTheta ) ).max( 0.0001 );
 
 		return { direction, color, pdf };
+
+	} );
+
+	/**
+	 * Importance samples with MIS weight computation.
+	 * Returns both the sample and MIS weight for combining with BSDF sampling.
+	 *
+	 * @param {TSLNode} rngState - Mutable RNG state
+	 * @param {TSLNode} bsdfPdf - PDF from BSDF sampling (for MIS)
+	 * @returns {Object} { direction, color, pdf, misWeight }
+	 */
+	const sampleWithMIS = Fn( ( [ rngState, bsdfPdf ] ) => {
+
+		const result = sampleImportance( rngState );
+		const weight = misWeight( result.pdf, bsdfPdf );
+
+		return {
+			direction: result.direction,
+			color: result.color,
+			pdf: result.pdf,
+			misWeight: weight
+		};
 
 	} );
 
@@ -219,15 +301,17 @@ export const createImportanceSampledEnvironment = ( envMap, marginalCDF, conditi
 		const luminance = color.x.mul( 0.2126 ).add( color.y.mul( 0.7152 ) ).add( color.z.mul( 0.0722 ) );
 		const sinTheta = float( 1.0 ).sub( direction.y.mul( direction.y ) ).sqrt().max( 0.001 );
 
-		return luminance.div( totalSum ).div( float( TWO_PI ).mul( float( PI ) ).mul( sinTheta ) ).max( 0.0001 );
+		return luminance.div( totalSum.max( 0.001 ) ).div( float( TWO_PI ).mul( float( PI ) ).mul( sinTheta ) ).max( 0.0001 );
 
 	} );
 
 	return {
 		sample,
 		sampleImportance,
+		sampleWithMIS,
 		pdfForDirection,
-		intensity: envIntensity
+		intensity: envIntensity,
+		totalSum
 	};
 
 };

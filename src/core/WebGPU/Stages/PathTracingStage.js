@@ -65,12 +65,20 @@ export class PathTracingStage {
 		this.renderWidth = 0;
 		this.renderHeight = 0;
 
+		// MRT render targets for denoising
+		this.normalDepthTarget = null;
+		this.albedoTarget = null;
+		this.enableMRT = true; // Enable MRT outputs for denoising stages
+
 		// Uniforms
 		this.frame = uniform( uint( 0 ) );
 		this.maxBounces = uniform( 4 );
 		this.samplesPerPixel = uniform( 1 );
 		this.environmentIntensity = uniform( 1.0 );
 		this.enableAccumulation = uniform( 1 );
+
+		// Resolution uniform for RNG seeding (fixes hardcoded 1920x1080 bug)
+		this.resolution = uniform( new Vector2( 1920, 1080 ) );
 
 		// Camera uniforms
 		this.cameraWorldMatrix = null;
@@ -81,6 +89,10 @@ export class PathTracingStage {
 		this.displayMaterial = null;   // Display pass (copy to screen)
 		this.pathTraceQuad = null;
 		this.displayQuad = null;
+
+		// MRT pass materials (for G-buffer output)
+		this.gBufferMaterial = null;
+		this.gBufferQuad = null;
 
 		this.isReady = false;
 		this.useBVH = false;
@@ -179,6 +191,8 @@ export class PathTracingStage {
 		// Dispose old targets
 		if ( this.renderTargetA ) this.renderTargetA.dispose();
 		if ( this.renderTargetB ) this.renderTargetB.dispose();
+		if ( this.normalDepthTarget ) this.normalDepthTarget.dispose();
+		if ( this.albedoTarget ) this.albedoTarget.dispose();
 
 		this.renderWidth = width;
 		this.renderHeight = height;
@@ -194,6 +208,18 @@ export class PathTracingStage {
 
 		this.renderTargetA = new RenderTarget( width, height, targetOptions );
 		this.renderTargetB = new RenderTarget( width, height, targetOptions );
+
+		// Create MRT targets for denoising (normalDepth: xyz=normal, w=depth; albedo: xyz=albedo, w=unused)
+		if ( this.enableMRT ) {
+
+			this.normalDepthTarget = new RenderTarget( width, height, targetOptions );
+			this.albedoTarget = new RenderTarget( width, height, targetOptions );
+			console.log( `PathTracingStage: Created MRT targets (normalDepth, albedo)` );
+
+		}
+
+		// Update resolution uniform for RNG seeding
+		this.resolution.value.set( width, height );
 
 		console.log( `PathTracingStage: Created ${width}x${height} render targets` );
 
@@ -247,6 +273,7 @@ export class PathTracingStage {
 		const maxBouncesUniform = this.maxBounces;
 		const envIntensityUniform = this.environmentIntensity;
 		const useBVHTraversal = this.useBVH;
+		const resolutionUniform = this.resolution;
 
 		// Texture read helpers
 		const readTriVec4 = ( index ) => {
@@ -349,9 +376,9 @@ export class PathTracingStage {
 				cameraWorldMatrix.element( 3 ).z
 			);
 
-			// Initialize RNG
-			const pixelX = int( screenUV.x.mul( 1920.0 ) );
-			const pixelY = int( screenUV.y.mul( 1080.0 ) );
+			// Initialize RNG with dynamic resolution (fixes hardcoded 1920x1080 bug)
+			const pixelX = int( screenUV.x.mul( resolutionUniform.x ) );
+			const pixelY = int( screenUV.y.mul( resolutionUniform.y ) );
 			const rngState = initRNG( pixelX, pixelY, frameUniform ).toVar( 'rngState' );
 
 			// Path tracing state
@@ -812,7 +839,7 @@ export class PathTracingStage {
 			const currentColor = pathTracingShader();
 
 			// Sample previous accumulated result
-			const prevColor = prevFrameTex.uv( screenUV );
+			const prevColor = prevFrameTex.sample( screenUV );
 
 			// Blend based on frame count
 			// accumulated = (previous * frameCount + current) / (frameCount + 1)
@@ -840,7 +867,7 @@ export class PathTracingStage {
 		const displayShader = Fn( () => {
 
 			const screenUV = uv();
-			const color = displayTex.uv( screenUV );
+			const color = displayTex.sample( screenUV );
 			return vec4( color.xyz, 1.0 );
 
 		} );
@@ -849,6 +876,460 @@ export class PathTracingStage {
 		this.displayMaterial = new MeshBasicNodeMaterial();
 		this.displayMaterial.colorNode = displayShader();
 		this.displayQuad = new QuadMesh( this.displayMaterial );
+
+		// ===== G-BUFFER SHADER FOR MRT OUTPUTS =====
+		// Outputs first-hit normal/depth and albedo for denoising stages
+		if ( this.enableMRT ) {
+
+			// G-buffer shader - traces only primary ray and outputs geometry data
+			const gBufferShader = Fn( () => {
+
+				// Get pixel coordinates (same as main shader)
+				const screenUV = uv();
+				const ndc = screenUV.mul( 2.0 ).sub( 1.0 );
+
+				// Negate Y for WebGPU coordinate system
+				const clipPos = vec4( ndc.x, ndc.y.negate(), float( - 1.0 ), float( 1.0 ) );
+				const viewPos = cameraProjectionMatrixInverse.mul( clipPos );
+				const viewDir = viewPos.xyz.div( viewPos.w );
+
+				const worldDirRaw = cameraWorldMatrix.mul( vec4( viewDir, 0.0 ) ).xyz;
+				const rayDir = worldDirRaw.normalize();
+
+				const rayOrigin = vec3(
+					cameraWorldMatrix.element( 3 ).x,
+					cameraWorldMatrix.element( 3 ).y,
+					cameraWorldMatrix.element( 3 ).z
+				);
+
+				// Initialize output values
+				const outNormal = vec3( 0.0 ).toVar( 'outNormal' );
+				const outDepth = float( 1e20 ).toVar( 'outDepth' );
+				const outAlbedo = vec3( 0.0 ).toVar( 'outAlbedo' );
+
+				// Hit test variables
+				const closestT = float( 1e20 ).toVar( 'closestT' );
+				const hitNormal = vec3( 0, 1, 0 ).toVar( 'hitNormal' );
+				const didHit = int( 0 ).toVar( 'didHit' );
+				const hitMaterialIndex = int( 0 ).toVar( 'hitMaterialIndex' );
+
+				// Compute inverse direction
+				const EPSILON = float( 1e-8 );
+				const invDir = vec3(
+					float( 1.0 ).div( rayDir.x.abs().greaterThan( EPSILON ).select( rayDir.x, EPSILON ) ),
+					float( 1.0 ).div( rayDir.y.abs().greaterThan( EPSILON ).select( rayDir.y, EPSILON ) ),
+					float( 1.0 ).div( rayDir.z.abs().greaterThan( EPSILON ).select( rayDir.z, EPSILON ) )
+				);
+
+				if ( useBVHTraversal ) {
+
+					// BVH traversal (simplified stack - same as main shader)
+					const stackPtr = int( 0 ).toVar( 'stackPtr' );
+					const s0 = int( 0 ).toVar( 's0' );
+					const s1 = int( 0 ).toVar( 's1' );
+					const s2 = int( 0 ).toVar( 's2' );
+					const s3 = int( 0 ).toVar( 's3' );
+					const s4 = int( 0 ).toVar( 's4' );
+					const s5 = int( 0 ).toVar( 's5' );
+					const s6 = int( 0 ).toVar( 's6' );
+					const s7 = int( 0 ).toVar( 's7' );
+
+					const readStackGB = ( ptr ) => {
+
+						return ptr.equal( 0 ).select( s0,
+							ptr.equal( 1 ).select( s1,
+								ptr.equal( 2 ).select( s2,
+									ptr.equal( 3 ).select( s3,
+										ptr.equal( 4 ).select( s4,
+											ptr.equal( 5 ).select( s5,
+												ptr.equal( 6 ).select( s6, s7 )
+											)
+										)
+									)
+								)
+							)
+						);
+
+					};
+
+					const writeStackGB = ( ptr, value ) => {
+
+						If( ptr.equal( 0 ), () => s0.assign( value ) );
+						If( ptr.equal( 1 ), () => s1.assign( value ) );
+						If( ptr.equal( 2 ), () => s2.assign( value ) );
+						If( ptr.equal( 3 ), () => s3.assign( value ) );
+						If( ptr.equal( 4 ), () => s4.assign( value ) );
+						If( ptr.equal( 5 ), () => s5.assign( value ) );
+						If( ptr.equal( 6 ), () => s6.assign( value ) );
+						If( ptr.equal( 7 ), () => s7.assign( value ) );
+
+					};
+
+					stackPtr.assign( 1 );
+					s0.assign( 0 );
+
+					Loop( int( 256 ), () => {
+
+						If( stackPtr.lessThanEqual( 0 ), () => Break() );
+
+						stackPtr.subAssign( 1 );
+						const nodeIndex = readStackGB( stackPtr ).toVar( 'nodeIndex' );
+
+						const baseIdx = nodeIndex.mul( BVH_VEC4_PER_NODE );
+						const node0 = readBVHVec4( baseIdx );
+						const node1 = readBVHVec4( baseIdx.add( 1 ) );
+						const node2 = readBVHVec4( baseIdx.add( 2 ) );
+
+						const boundsMin = node0.xyz;
+						const leftChild = int( node0.w );
+						const boundsMax = node1.xyz;
+						const rightChild = int( node1.w );
+						const triangleOffset = int( node2.x );
+						const triangleCountNode = int( node2.y );
+
+						const aabbDist = intersectAABB( rayOrigin, invDir, boundsMin, boundsMax );
+
+						If( aabbDist.lessThan( closestT ), () => {
+
+							If( leftChild.lessThan( 0 ), () => {
+
+								Loop( triangleCountNode, ( { i: triIdx } ) => {
+
+									const globalTriIdx = triangleOffset.add( triIdx );
+									const triBaseIdx = globalTriIdx.mul( TRI_VEC4_PER_TRIANGLE );
+
+									const posA = readTriVec4( triBaseIdx ).xyz;
+									const posB = readTriVec4( triBaseIdx.add( 1 ) ).xyz;
+									const posC = readTriVec4( triBaseIdx.add( 2 ) ).xyz;
+
+									const result = intersectTriangle( rayOrigin, rayDir, posA, posB, posC, closestT );
+
+									If( result.hit, () => {
+
+										closestT.assign( result.t );
+										didHit.assign( 1 );
+
+										const normA = readTriVec4( triBaseIdx.add( 3 ) ).xyz;
+										const normB = readTriVec4( triBaseIdx.add( 4 ) ).xyz;
+										const normC = readTriVec4( triBaseIdx.add( 5 ) ).xyz;
+
+										const interpNormal = normA.mul( result.w )
+											.add( normB.mul( result.u ) )
+											.add( normC.mul( result.v ) );
+										hitNormal.assign( interpNormal.normalize() );
+
+										const uvCMat = readTriVec4( triBaseIdx.add( 7 ) );
+										hitMaterialIndex.assign( int( uvCMat.z ) );
+
+									} );
+
+								} );
+
+							} ).Else( () => {
+
+								If( stackPtr.lessThan( 8 ), () => {
+
+									writeStackGB( stackPtr, rightChild );
+									stackPtr.addAssign( 1 );
+
+								} );
+
+								If( stackPtr.lessThan( 8 ), () => {
+
+									writeStackGB( stackPtr, leftChild );
+									stackPtr.addAssign( 1 );
+
+								} );
+
+							} );
+
+						} );
+
+					} );
+
+				} else {
+
+					// Linear traversal fallback (same as main shader)
+					const maxTris = int( Math.min( this.triangleCount, 1000 ) );
+
+					Loop( maxTris, ( { i } ) => {
+
+						const baseIdx = i.mul( TRI_VEC4_PER_TRIANGLE );
+
+						const posA = readTriVec4( baseIdx ).xyz;
+						const posB = readTriVec4( baseIdx.add( 1 ) ).xyz;
+						const posC = readTriVec4( baseIdx.add( 2 ) ).xyz;
+
+						const result = intersectTriangle( rayOrigin, rayDir, posA, posB, posC, closestT );
+
+						If( result.hit, () => {
+
+							closestT.assign( result.t );
+							didHit.assign( 1 );
+
+							const normA = readTriVec4( baseIdx.add( 3 ) ).xyz;
+							const normB = readTriVec4( baseIdx.add( 4 ) ).xyz;
+							const normC = readTriVec4( baseIdx.add( 5 ) ).xyz;
+
+							const interpNormal = normA.mul( result.w )
+								.add( normB.mul( result.u ) )
+								.add( normC.mul( result.v ) );
+							hitNormal.assign( interpNormal.normalize() );
+
+							const uvCMat = readTriVec4( baseIdx.add( 7 ) );
+							hitMaterialIndex.assign( int( uvCMat.z ) );
+
+						} );
+
+					} );
+
+				}
+
+				// Process hit
+				If( didHit.equal( 1 ), () => {
+
+					// Ensure normal faces camera
+					const faceNormal = hitNormal.dot( rayDir ).lessThan( 0.0 ).select( hitNormal, hitNormal.negate() );
+
+					// Output normal and depth
+					outNormal.assign( faceNormal.mul( 0.5 ).add( 0.5 ) ); // Encode to [0,1]
+					outDepth.assign( closestT );
+
+					// Get material albedo
+					if ( hasMaterials ) {
+
+						const matBasePixel = hitMaterialIndex.mul( PIXELS_PER_MATERIAL );
+						const pixel1 = readMatPixel( matBasePixel );
+						outAlbedo.assign( pixel1.xyz );
+
+					} else {
+
+						outAlbedo.assign( vec3( 0.8 ) );
+
+					}
+
+				} );
+
+				// Pack output: normal.xyz, depth in w (for normalDepth pass)
+				// Note: We'll render albedo in a separate pass
+				return vec4( outNormal, outDepth.div( 100.0 ).clamp( 0.0, 1.0 ) );
+
+			} );
+
+			// Create G-buffer normal/depth material
+			this.normalDepthMaterial = new MeshBasicNodeMaterial();
+			this.normalDepthMaterial.colorNode = gBufferShader();
+			this.normalDepthQuad = new QuadMesh( this.normalDepthMaterial );
+
+			// Albedo shader - similar but outputs albedo
+			const albedoShader = Fn( () => {
+
+				// Get pixel coordinates
+				const screenUV = uv();
+				const ndc = screenUV.mul( 2.0 ).sub( 1.0 );
+
+				const clipPos = vec4( ndc.x, ndc.y.negate(), float( - 1.0 ), float( 1.0 ) );
+				const viewPos = cameraProjectionMatrixInverse.mul( clipPos );
+				const viewDir = viewPos.xyz.div( viewPos.w );
+
+				const worldDirRaw = cameraWorldMatrix.mul( vec4( viewDir, 0.0 ) ).xyz;
+				const rayDir = worldDirRaw.normalize();
+
+				const rayOrigin = vec3(
+					cameraWorldMatrix.element( 3 ).x,
+					cameraWorldMatrix.element( 3 ).y,
+					cameraWorldMatrix.element( 3 ).z
+				);
+
+				const outAlbedo = vec3( 0.0 ).toVar( 'outAlbedo' );
+
+				// Hit test (simplified - just need to find closest hit)
+				const closestT = float( 1e20 ).toVar( 'closestT' );
+				const didHit = int( 0 ).toVar( 'didHit' );
+				const hitMaterialIndex = int( 0 ).toVar( 'hitMaterialIndex' );
+
+				const EPSILON = float( 1e-8 );
+				const invDir = vec3(
+					float( 1.0 ).div( rayDir.x.abs().greaterThan( EPSILON ).select( rayDir.x, EPSILON ) ),
+					float( 1.0 ).div( rayDir.y.abs().greaterThan( EPSILON ).select( rayDir.y, EPSILON ) ),
+					float( 1.0 ).div( rayDir.z.abs().greaterThan( EPSILON ).select( rayDir.z, EPSILON ) )
+				);
+
+				if ( useBVHTraversal ) {
+
+					// BVH traversal
+					const stackPtr = int( 0 ).toVar( 'stackPtr' );
+					const s0 = int( 0 ).toVar( 's0' );
+					const s1 = int( 0 ).toVar( 's1' );
+					const s2 = int( 0 ).toVar( 's2' );
+					const s3 = int( 0 ).toVar( 's3' );
+					const s4 = int( 0 ).toVar( 's4' );
+					const s5 = int( 0 ).toVar( 's5' );
+					const s6 = int( 0 ).toVar( 's6' );
+					const s7 = int( 0 ).toVar( 's7' );
+
+					const readStackAlb = ( ptr ) => {
+
+						return ptr.equal( 0 ).select( s0,
+							ptr.equal( 1 ).select( s1,
+								ptr.equal( 2 ).select( s2,
+									ptr.equal( 3 ).select( s3,
+										ptr.equal( 4 ).select( s4,
+											ptr.equal( 5 ).select( s5,
+												ptr.equal( 6 ).select( s6, s7 )
+											)
+										)
+									)
+								)
+							)
+						);
+
+					};
+
+					const writeStackAlb = ( ptr, value ) => {
+
+						If( ptr.equal( 0 ), () => s0.assign( value ) );
+						If( ptr.equal( 1 ), () => s1.assign( value ) );
+						If( ptr.equal( 2 ), () => s2.assign( value ) );
+						If( ptr.equal( 3 ), () => s3.assign( value ) );
+						If( ptr.equal( 4 ), () => s4.assign( value ) );
+						If( ptr.equal( 5 ), () => s5.assign( value ) );
+						If( ptr.equal( 6 ), () => s6.assign( value ) );
+						If( ptr.equal( 7 ), () => s7.assign( value ) );
+
+					};
+
+					stackPtr.assign( 1 );
+					s0.assign( 0 );
+
+					Loop( int( 256 ), () => {
+
+						If( stackPtr.lessThanEqual( 0 ), () => Break() );
+
+						stackPtr.subAssign( 1 );
+						const nodeIndex = readStackAlb( stackPtr ).toVar( 'nodeIndex' );
+
+						const baseIdx = nodeIndex.mul( BVH_VEC4_PER_NODE );
+						const node0 = readBVHVec4( baseIdx );
+						const node1 = readBVHVec4( baseIdx.add( 1 ) );
+						const node2 = readBVHVec4( baseIdx.add( 2 ) );
+
+						const boundsMin = node0.xyz;
+						const leftChild = int( node0.w );
+						const boundsMax = node1.xyz;
+						const rightChild = int( node1.w );
+						const triangleOffset = int( node2.x );
+						const triangleCountNode = int( node2.y );
+
+						const aabbDist = intersectAABB( rayOrigin, invDir, boundsMin, boundsMax );
+
+						If( aabbDist.lessThan( closestT ), () => {
+
+							If( leftChild.lessThan( 0 ), () => {
+
+								Loop( triangleCountNode, ( { i: triIdx } ) => {
+
+									const globalTriIdx = triangleOffset.add( triIdx );
+									const triBaseIdx = globalTriIdx.mul( TRI_VEC4_PER_TRIANGLE );
+
+									const posA = readTriVec4( triBaseIdx ).xyz;
+									const posB = readTriVec4( triBaseIdx.add( 1 ) ).xyz;
+									const posC = readTriVec4( triBaseIdx.add( 2 ) ).xyz;
+
+									const result = intersectTriangle( rayOrigin, rayDir, posA, posB, posC, closestT );
+
+									If( result.hit, () => {
+
+										closestT.assign( result.t );
+										didHit.assign( 1 );
+
+										const uvCMat = readTriVec4( triBaseIdx.add( 7 ) );
+										hitMaterialIndex.assign( int( uvCMat.z ) );
+
+									} );
+
+								} );
+
+							} ).Else( () => {
+
+								If( stackPtr.lessThan( 8 ), () => {
+
+									writeStackAlb( stackPtr, rightChild );
+									stackPtr.addAssign( 1 );
+
+								} );
+
+								If( stackPtr.lessThan( 8 ), () => {
+
+									writeStackAlb( stackPtr, leftChild );
+									stackPtr.addAssign( 1 );
+
+								} );
+
+							} );
+
+						} );
+
+					} );
+
+				} else {
+
+					// Linear traversal
+					const maxTris = int( Math.min( this.triangleCount, 1000 ) );
+
+					Loop( maxTris, ( { i } ) => {
+
+						const baseIdx = i.mul( TRI_VEC4_PER_TRIANGLE );
+
+						const posA = readTriVec4( baseIdx ).xyz;
+						const posB = readTriVec4( baseIdx.add( 1 ) ).xyz;
+						const posC = readTriVec4( baseIdx.add( 2 ) ).xyz;
+
+						const result = intersectTriangle( rayOrigin, rayDir, posA, posB, posC, closestT );
+
+						If( result.hit, () => {
+
+							closestT.assign( result.t );
+							didHit.assign( 1 );
+
+							const uvCMat = readTriVec4( baseIdx.add( 7 ) );
+							hitMaterialIndex.assign( int( uvCMat.z ) );
+
+						} );
+
+					} );
+
+				}
+
+				// Get albedo from material
+				If( didHit.equal( 1 ), () => {
+
+					if ( hasMaterials ) {
+
+						const matBasePixel = hitMaterialIndex.mul( PIXELS_PER_MATERIAL );
+						const pixel1 = readMatPixel( matBasePixel );
+						outAlbedo.assign( pixel1.xyz );
+
+					} else {
+
+						outAlbedo.assign( vec3( 0.8 ) );
+
+					}
+
+				} );
+
+				return vec4( outAlbedo, 1.0 );
+
+			} );
+
+			// Create albedo material
+			this.albedoMaterial = new MeshBasicNodeMaterial();
+			this.albedoMaterial.colorNode = albedoShader();
+			this.albedoQuad = new QuadMesh( this.albedoMaterial );
+
+			console.log( 'PathTracingStage: MRT shaders (normalDepth, albedo) created' );
+
+		}
 
 		this.isReady = true;
 
@@ -875,6 +1356,9 @@ export class PathTracingStage {
 
 		}
 
+		// Ensure resolution uniform is always in sync (for RNG seeding)
+		this.resolution.value.set( width, height );
+
 		// Update camera
 		this.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
 		this.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
@@ -897,6 +1381,25 @@ export class PathTracingStage {
 		this.renderer.setRenderTarget( writeTarget );
 		this.accumQuad.render( this.renderer );
 
+		// Render MRT passes on first frame or when camera changes (for denoising)
+		if ( this.enableMRT && this.normalDepthTarget && this.albedoTarget ) {
+
+			// Only render G-buffer on first frame to avoid redundant work
+			// (G-buffer only changes when camera or geometry changes)
+			if ( this.frameCount === 0 ) {
+
+				// Render normalDepth pass
+				this.renderer.setRenderTarget( this.normalDepthTarget );
+				this.normalDepthQuad.render( this.renderer );
+
+				// Render albedo pass
+				this.renderer.setRenderTarget( this.albedoTarget );
+				this.albedoQuad.render( this.renderer );
+
+			}
+
+		}
+
 		// Update display texture node to show the write target
 		if ( this.displayTexNode ) {
 
@@ -912,6 +1415,22 @@ export class PathTracingStage {
 		this.currentTarget = 1 - this.currentTarget;
 
 		this.frameCount ++;
+
+	}
+
+	/**
+	 * Gets the MRT textures for denoising stages.
+	 * @returns {Object} Object containing color, normalDepth, and albedo textures
+	 */
+	getMRTTextures() {
+
+		const currentTarget = this.currentTarget === 0 ? this.renderTargetA : this.renderTargetB;
+
+		return {
+			color: currentTarget?.texture || null,
+			normalDepth: this.normalDepthTarget?.texture || null,
+			albedo: this.albedoTarget?.texture || null
+		};
 
 	}
 
@@ -970,6 +1489,12 @@ export class PathTracingStage {
 		if ( this.displayMaterial ) this.displayMaterial.dispose();
 		if ( this.renderTargetA ) this.renderTargetA.dispose();
 		if ( this.renderTargetB ) this.renderTargetB.dispose();
+
+		// Dispose MRT resources
+		if ( this.normalDepthMaterial ) this.normalDepthMaterial.dispose();
+		if ( this.albedoMaterial ) this.albedoMaterial.dispose();
+		if ( this.normalDepthTarget ) this.normalDepthTarget.dispose();
+		if ( this.albedoTarget ) this.albedoTarget.dispose();
 
 		this.triangleTexture = null;
 		this.bvhTexture = null;

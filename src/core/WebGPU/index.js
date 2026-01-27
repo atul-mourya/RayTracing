@@ -44,18 +44,43 @@ export { HitTestStage } from './Stages/HitTestStage.js';
 // Phase 3: Path Tracing Stage
 export { PathTracingStage } from './Stages/PathTracingStage.js';
 
+// Phase 4: Pipeline-Integrated Path Tracing Stage (drop-in replacement for WebGL)
+export { WebGPUPathTracerStage } from './Stages/WebGPUPathTracerStage.js';
+
+// Phase 6: Tile Manager for progressive rendering
+export { WebGPUTileManager } from './WebGPUTileManager.js';
+
+// Phase 7: ASVGF Denoising Stage
+export { WebGPUASVGFStage } from './Stages/WebGPUASVGFStage.js';
+
+// Phase 8: Backend Manager (exported from parent directory)
+export { BackendManager, BackendType, BackendStatus, getBackendManager } from '../BackendManager.js';
+
 // TSL Modules - Ray Tracing Core (Phase 2)
 export { createRay, createHitInfo, createMutableHitInfo, TRIANGLE_OFFSETS } from './TSL/Structs.js';
 export { rayAABBIntersect, rayAABBIntersectFull } from './TSL/RayAABB.js';
 export { rayTriangleIntersect, triangleGeometricNormal, barycentricInterpolate } from './TSL/RayTriangle.js';
 export { createBVHTraverser, createOcclusionTest } from './TSL/BVHTraversal.js';
-export { createRayGenerator, createRayGeneratorManual } from './TSL/CameraRay.js';
+export { createRayGenerator, createRayGeneratorManual, createDOFRayGenerator, createDOFRayGeneratorManual } from './TSL/CameraRay.js';
 
 // TSL Modules - Path Tracing (Phase 3)
 export { initRNG, randomFloat, randomVec2, randomVec3, pcgHash, randomCosineHemisphere, randomSphere, randomDisk } from './TSL/Random.js';
 export { createMaterialReader, computeF0, classifyMaterial } from './TSL/Material.js';
 export { fresnelSchlick, distributionGGX, geometrySmith, sampleCosineHemisphere, sampleGGX, evaluateSpecularBRDF, evaluateDiffuseBRDF, sampleBSDF, reflect, refract, buildTBN, tangentToWorld } from './TSL/BSDF.js';
-export { directionToEquirectUV, equirectUVToDirection, equirectPDF, createEnvironmentSampler, createImportanceSampledEnvironment, createSolidColorEnvironment } from './TSL/Environment.js';
+export { directionToEquirectUV, equirectUVToDirection, equirectPDF, binarySearchCDF, misWeight, createEnvironmentSampler, createImportanceSampledEnvironment, createSolidColorEnvironment } from './TSL/Environment.js';
+
+// TSL Modules - Disney BSDF (Full material system)
+export {
+	fresnelDielectric,
+	distributionGTR1,
+	distributionSheen,
+	fresnelIridescence,
+	beerLambertAttenuation,
+	sampleClearcoat,
+	sampleTransmission,
+	sampleDisneyBSDF,
+	evaluateDisneyBSDF
+} from './TSL/DisneyBSDF.js';
 
 // ----------------------------------------------------------------
 // Convenience function for Phase 1 testing

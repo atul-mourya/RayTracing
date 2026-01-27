@@ -164,7 +164,7 @@ export class TileRenderingManager {
 			const euclideanDistance = Math.sqrt( dx * dx + dy * dy );
 
 			// Calculate angle with better precision for spiral ordering
-			let angle = Math.atan2( dy, dx );
+			let angle = Math.atan( dy, dx );
 			// Normalize angle to 0-2π range
 			if ( angle < 0 ) angle += 2 * Math.PI;
 

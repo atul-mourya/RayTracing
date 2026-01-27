@@ -6,10 +6,12 @@ import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
 import { useToast } from '@/hooks/use-toast';
-import { useStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
+import { getBackendManager, BackendType } from '@/core/BackendManager.js';
+import { WebGPUPathTracerApp } from '@/core/WebGPU/WebGPUPathTracerApp.js';
 
 
 const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
@@ -20,7 +22,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const viewportRef = useRef( null );
 	const viewportWrapperRef = useRef( null );
 	const containerRef = useRef( null );
-	const primaryCanvasRef = useRef( null );
+	const webglCanvasRef = useRef( null ); // WebGL primary canvas
+	const webgpuCanvasRef = useRef( null ); // WebGPU canvas
 	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const isInitialized = useRef( false );
@@ -61,7 +64,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Effect to mark canvases as ready
 	useEffect( () => {
 
-		if ( primaryCanvasRef.current && denoiserCanvasRef.current ) {
+		if ( webglCanvasRef.current && webgpuCanvasRef.current && denoiserCanvasRef.current ) {
 
 			// Small delay to ensure DOM is fully rendered
 			const timer = setTimeout( () => {
@@ -168,12 +171,64 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 		// Only initialize if the component is visible (not in results mode)
 		if ( ! appRef.current && containerRef.current && appMode !== 'results' ) {
 
-			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
+			// Initialize WebGL app with its dedicated canvas
+			appRef.current = new PathTracerApp( webglCanvasRef.current, denoiserCanvasRef.current );
 			window.pathTracerApp = appRef.current;
 
 			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
 
 			appRef.current.init()
+				.then( async () => {
+
+					// Initialize BackendManager and register WebGL app
+					const backendManager = getBackendManager();
+					backendManager.setWebGLApp( appRef.current );
+					backendManager.setCanvasRefs( webglCanvasRef, webgpuCanvasRef, denoiserCanvasRef );
+
+					// Check WebGPU support and update store
+					const { setIsWebGPUSupported, backend, setBackend } = usePathTracerStore.getState();
+					const isWebGPUSupported = backendManager.canUseWebGPU();
+					setIsWebGPUSupported( isWebGPUSupported );
+
+					// If WebGPU is supported and preferred, initialize WebGPU app
+					if ( isWebGPUSupported ) {
+
+						try {
+
+							setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 80 } );
+
+							// Initialize WebGPU app with its dedicated canvas
+							const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, appRef.current );
+							await webgpuApp.init();
+							webgpuApp.loadSceneData();
+
+							backendManager.setWebGPUApp( webgpuApp );
+							window.webgpuPathTracerApp = webgpuApp;
+
+							console.log( 'WebGPU backend initialized and ready' );
+
+							// If user wants WebGPU as default, switch to it
+							if ( backend === 'webgpu' ) {
+
+								await backendManager.setBackend( BackendType.WEBGPU );
+
+							}
+
+						} catch ( err ) {
+
+							console.warn( 'WebGPU initialization failed, using WebGL:', err.message );
+							setBackend( 'webgl' );
+
+						}
+
+					} else {
+
+						console.log( 'WebGPU not supported, using WebGL backend' );
+						setBackend( 'webgl' );
+
+					}
+
+				} )
 				.catch( ( err ) => {
 
 					console.error( "Error initializing PathTracerApp:", err );
@@ -246,11 +301,21 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						height={actualCanvasSize}
 						style={canvasStyle}
 					/>
+					{/* WebGL Canvas */}
 					<canvas
-						ref={primaryCanvasRef}
+						ref={webglCanvasRef}
 						width={actualCanvasSize}
 						height={actualCanvasSize}
 						style={canvasStyle}
+						data-backend="webgl"
+					/>
+					{/* WebGPU Canvas */}
+					<canvas
+						ref={webgpuCanvasRef}
+						width={actualCanvasSize}
+						height={actualCanvasSize}
+						style={{ ...canvasStyle, display: 'none' }}
+						data-backend="webgpu"
 					/>
 					<DimensionDisplay dimension={renderResolution} />
 				</div>

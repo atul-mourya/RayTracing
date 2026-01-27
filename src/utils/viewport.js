@@ -61,6 +61,9 @@ export const generateViewportStyles = ( canvasSize, viewportScale ) => {
 	};
 
 	const canvasStyle = {
+		position: 'absolute',
+		top: 0,
+		left: 0,
 		width: `${canvasSize}px`,
 		height: `${canvasSize}px`
 	};

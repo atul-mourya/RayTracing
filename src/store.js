@@ -339,6 +339,49 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	currentAutoExposure: null,
 	currentAvgLuminance: null,
 
+	// Backend selection (webgl or webgpu)
+	// Default to 'webgpu' - will fallback to 'webgl' if not supported
+	backend: 'webgpu',
+	isWebGPUSupported: false,
+	isBackendSwitching: false,
+
+	setBackend: val => set( { backend: val } ),
+	setIsWebGPUSupported: val => set( { isWebGPUSupported: val } ),
+	setIsBackendSwitching: val => set( { isBackendSwitching: val } ),
+
+	// Handler for backend switching with app integration
+	handleBackendChange: async ( newBackend ) => {
+
+		const { backend, setBackend, setIsBackendSwitching } = get();
+		if ( newBackend === backend ) return;
+
+		setIsBackendSwitching( true );
+
+		try {
+
+			const { getBackendManager } = await import( '@/core/BackendManager.js' );
+			const manager = getBackendManager();
+			const success = await manager.setBackend( newBackend );
+
+			if ( success ) {
+
+				setBackend( newBackend );
+				console.log( `Switched to ${newBackend} backend` );
+
+			}
+
+		} catch ( error ) {
+
+			console.error( 'Failed to switch backend:', error );
+
+		} finally {
+
+			setIsBackendSwitching( false );
+
+		}
+
+	},
+
 	// Simple setters
 	setMaxSamples: val => set( { maxSamples: val } ),
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),

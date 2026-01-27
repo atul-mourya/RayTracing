@@ -1,4 +1,4 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target, Image, Blend, Palette, ArrowUp, ArrowDown, Minus, CloudSun, Wind, Droplets } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target, Image, Blend, Palette, ArrowUp, ArrowDown, Minus, CloudSun, Wind, Droplets, Cpu, MonitorCog } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,7 +8,8 @@ import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
+import { Badge } from "@/components/ui/badge";
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -54,6 +55,11 @@ const PathTracerTab = () => {
 
 	// Destructure all state and handlers from the store
 	const {
+		// Backend state
+		backend,
+		isWebGPUSupported,
+		isBackendSwitching,
+		handleBackendChange,
 		// State
 		enablePathTracer,
 		enableAccumulation,
@@ -195,9 +201,57 @@ const PathTracerTab = () => {
 		handleAutoExposureAdaptSpeedChange,
 	} = pathTracerStore;
 
+	// Handle backend selection change
+	const onBackendChange = useCallback( ( value ) => {
+
+		handleBackendChange( value );
+
+	}, [ handleBackendChange ] );
+
 	return (
 		<div className="">
 			<Separator className="bg-primary" />
+
+			{/* Backend Selection */}
+			<ControlGroup name="Render Backend" icon={Cpu} defaultOpen={true}>
+				<div className="flex items-center justify-between">
+					<Select
+						value={backend}
+						onValueChange={onBackendChange}
+						disabled={isBackendSwitching || ! isWebGPUSupported}
+					>
+						<span className="opacity-50 text-xs truncate flex items-center gap-1">
+							<MonitorCog className="w-3 h-3" />
+							Backend
+						</span>
+						<SelectTrigger className="max-w-28 h-5 rounded-full">
+							<SelectValue placeholder="Select backend" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="webgl">WebGL</SelectItem>
+							<SelectItem value="webgpu" disabled={! isWebGPUSupported}>
+								WebGPU {! isWebGPUSupported && '(N/A)'}
+							</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+				{isBackendSwitching && (
+					<div className="text-xs text-muted-foreground animate-pulse">
+						Switching backend...
+					</div>
+				)}
+				{isWebGPUSupported && backend === 'webgpu' && (
+					<Badge variant="outline" className="text-xs w-fit">
+						Experimental
+					</Badge>
+				)}
+				{! isWebGPUSupported && (
+					<div className="text-xs text-muted-foreground">
+						WebGPU not supported in this browser
+					</div>
+				)}
+			</ControlGroup>
+
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
