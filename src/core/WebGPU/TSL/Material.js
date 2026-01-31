@@ -1,4 +1,4 @@
-import { Fn, float, int, vec3, vec4, texture, uniform } from 'three/tsl';
+import { Fn, float, int, vec2, vec3, texture, uniform } from 'three/tsl';
 import { Vector2 } from 'three';
 
 /**
@@ -45,7 +45,7 @@ export const createMaterialReader = ( materialTex, texSize ) => {
 		const floatIndex = float( pixelIndex );
 		const x = floatIndex.mod( texWidth ).add( 0.5 ).div( texWidth );
 		const y = floatIndex.div( texWidth ).floor().add( 0.5 ).div( matTexSize.y );
-		return matTex.sample( vec4( x, y, 0, 0 ).xy );
+		return matTex.sample( vec2( x, y ) );
 
 	};
 

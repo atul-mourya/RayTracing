@@ -1,5 +1,6 @@
 import { WebGPURenderer } from 'three/webgpu';
 import { PerspectiveCamera, Scene } from 'three';
+import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
 import { DataTransfer } from './DataTransfer.js';
@@ -43,9 +44,38 @@ export class WebGPUPathTracerApp {
 		// Resolution settings
 		this.targetResolution = existingApp?.targetResolution ?? DEFAULT_STATE.resolution ?? 3;
 
-		// Settings
+		// Settings - matching WebGL PathTracerStage uniforms
 		this.maxBounces = DEFAULT_STATE.bounces ?? 4;
+		this.samplesPerPixel = DEFAULT_STATE.samplesPerPixel ?? 1;
+		this.maxSamples = DEFAULT_STATE.maxSamples ?? 2048;
+		this.transmissiveBounces = DEFAULT_STATE.transmissiveBounces ?? 10;
 		this.environmentIntensity = DEFAULT_STATE.environmentIntensity ?? 1.0;
+		this.backgroundIntensity = DEFAULT_STATE.backgroundIntensity ?? 1.0;
+		this.showBackground = DEFAULT_STATE.showBackground ?? true;
+		this.enableEnvironment = DEFAULT_STATE.enableEnvironment ?? true;
+		this.globalIlluminationIntensity = DEFAULT_STATE.globalIlluminationIntensity ?? 1.0;
+		this.exposure = DEFAULT_STATE.exposure ?? 1.0;
+
+		// Camera & DOF settings
+		this.enableDOF = DEFAULT_STATE.enableDOF ?? false;
+		this.focusDistance = DEFAULT_STATE.focusDistance ?? 5.0;
+		this.focalLength = DEFAULT_STATE.focalLength ?? 50.0;
+		this.aperture = DEFAULT_STATE.aperture ?? 0.0;
+		this.apertureScale = 1.0;
+
+		// Sampling settings
+		this.samplingTechnique = DEFAULT_STATE.samplingTechnique ?? 0;
+		this.useAdaptiveSampling = DEFAULT_STATE.adaptiveSampling ?? false;
+		this.adaptiveSamplingMax = DEFAULT_STATE.adaptiveSamplingMax ?? 32;
+		this.fireflyThreshold = DEFAULT_STATE.fireflyThreshold ?? 10.0;
+
+		// Emissive settings
+		this.enableEmissiveTriangleSampling = DEFAULT_STATE.enableEmissiveTriangleSampling ?? true;
+		this.emissiveBoost = DEFAULT_STATE.emissiveBoost ?? 1.0;
+
+		// Debug settings
+		this.visMode = DEFAULT_STATE.debugMode ?? 0;
+		this.debugVisScale = DEFAULT_STATE.debugVisScale ?? 1.0;
 
 	}
 
@@ -66,6 +96,9 @@ export class WebGPUPathTracerApp {
 			canvas: this.canvas,
 			powerPreference: 'high-performance'
 		} );
+
+		window.renderer = this.renderer; // For debugging
+		this.renderer.inspector = new Inspector();
 
 		await this.renderer.init();
 
@@ -151,15 +184,14 @@ export class WebGPUPathTracerApp {
 		// Set data
 		this.pathTracingStage.setTriangleTexture( triangleTexture );
 
-		if ( bvhTexture ) {
+		if ( ! bvhTexture ) {
 
-			this.pathTracingStage.setBVHTexture( bvhTexture );
-
-		} else {
-
-			console.warn( 'WebGPUPathTracerApp: No BVH texture, using linear traversal' );
+			console.error( 'WebGPUPathTracerApp: Failed to get BVH texture' );
+			return false;
 
 		}
+
+		this.pathTracingStage.setBVHTexture( bvhTexture );
 
 		if ( materialTexture ) {
 
@@ -180,9 +212,37 @@ export class WebGPUPathTracerApp {
 		// Setup material with all data
 		this.pathTracingStage.setupMaterial();
 
-		// Apply settings
+		// Apply all settings to stage
 		this.pathTracingStage.setMaxBounces( this.maxBounces );
+		this.pathTracingStage.setSamplesPerPixel( this.samplesPerPixel );
+		this.pathTracingStage.setMaxSamples( this.maxSamples );
+		this.pathTracingStage.setTransmissiveBounces( this.transmissiveBounces );
 		this.pathTracingStage.setEnvironmentIntensity( this.environmentIntensity );
+		this.pathTracingStage.setBackgroundIntensity( this.backgroundIntensity );
+		this.pathTracingStage.setShowBackground( this.showBackground );
+		this.pathTracingStage.setEnableEnvironment( this.enableEnvironment );
+		this.pathTracingStage.setGlobalIlluminationIntensity( this.globalIlluminationIntensity );
+		this.pathTracingStage.setExposure( this.exposure );
+
+		// Camera & DOF
+		this.pathTracingStage.setEnableDOF( this.enableDOF );
+		this.pathTracingStage.setFocusDistance( this.focusDistance );
+		this.pathTracingStage.setFocalLength( this.focalLength );
+		this.pathTracingStage.setAperture( this.aperture );
+
+		// Sampling
+		this.pathTracingStage.setSamplingTechnique( this.samplingTechnique );
+		this.pathTracingStage.setUseAdaptiveSampling( this.useAdaptiveSampling );
+		this.pathTracingStage.setAdaptiveSamplingMax( this.adaptiveSamplingMax );
+		this.pathTracingStage.setFireflyThreshold( this.fireflyThreshold );
+
+		// Emissive
+		this.pathTracingStage.setEnableEmissiveTriangleSampling( this.enableEmissiveTriangleSampling );
+		this.pathTracingStage.setEmissiveBoost( this.emissiveBoost );
+
+		// Debug
+		this.pathTracingStage.setVisMode( this.visMode );
+		this.pathTracingStage.setDebugVisScale( this.debugVisScale );
 
 		return true;
 
@@ -293,6 +353,7 @@ export class WebGPUPathTracerApp {
 			this.pathTracingStage.setMaxBounces( bounces );
 
 		}
+
 		this.reset();
 
 	}
@@ -308,6 +369,325 @@ export class WebGPUPathTracerApp {
 			this.pathTracingStage.setEnvironmentIntensity( intensity );
 
 		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets samples per pixel.
+	 */
+	setSamplesPerPixel( samples ) {
+
+		this.samplesPerPixel = samples;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setSamplesPerPixel( samples );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets maximum samples.
+	 */
+	setMaxSamples( samples ) {
+
+		this.maxSamples = samples;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setMaxSamples( samples );
+
+		}
+
+	}
+
+	/**
+	 * Sets transmissive bounces.
+	 */
+	setTransmissiveBounces( bounces ) {
+
+		this.transmissiveBounces = bounces;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setTransmissiveBounces( bounces );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets background intensity.
+	 */
+	setBackgroundIntensity( intensity ) {
+
+		this.backgroundIntensity = intensity;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setBackgroundIntensity( intensity );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets whether to show background.
+	 */
+	setShowBackground( show ) {
+
+		this.showBackground = show;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setShowBackground( show );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets whether environment lighting is enabled.
+	 */
+	setEnableEnvironment( enable ) {
+
+		this.enableEnvironment = enable;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setEnableEnvironment( enable );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets global illumination intensity.
+	 */
+	setGlobalIlluminationIntensity( intensity ) {
+
+		this.globalIlluminationIntensity = intensity;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setGlobalIlluminationIntensity( intensity );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets exposure.
+	 */
+	setExposure( exposure ) {
+
+		this.exposure = exposure;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setExposure( exposure );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Enables/disables depth of field.
+	 */
+	setEnableDOF( enable ) {
+
+		this.enableDOF = enable;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setEnableDOF( enable );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets focus distance.
+	 */
+	setFocusDistance( distance ) {
+
+		this.focusDistance = distance;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setFocusDistance( distance );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets focal length.
+	 */
+	setFocalLength( length ) {
+
+		this.focalLength = length;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setFocalLength( length );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets aperture size.
+	 */
+	setAperture( aperture ) {
+
+		this.aperture = aperture;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setAperture( aperture );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets sampling technique.
+	 */
+	setSamplingTechnique( technique ) {
+
+		this.samplingTechnique = technique;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setSamplingTechnique( technique );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Enables/disables adaptive sampling.
+	 */
+	setUseAdaptiveSampling( use ) {
+
+		this.useAdaptiveSampling = use;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setUseAdaptiveSampling( use );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets adaptive sampling maximum.
+	 */
+	setAdaptiveSamplingMax( max ) {
+
+		this.adaptiveSamplingMax = max;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setAdaptiveSamplingMax( max );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets firefly threshold.
+	 */
+	setFireflyThreshold( threshold ) {
+
+		this.fireflyThreshold = threshold;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setFireflyThreshold( threshold );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Enables/disables emissive triangle sampling.
+	 */
+	setEnableEmissiveTriangleSampling( enable ) {
+
+		this.enableEmissiveTriangleSampling = enable;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setEnableEmissiveTriangleSampling( enable );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets emissive boost factor.
+	 */
+	setEmissiveBoost( boost ) {
+
+		this.emissiveBoost = boost;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setEmissiveBoost( boost );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets visualization/debug mode.
+	 */
+	setVisMode( mode ) {
+
+		this.visMode = mode;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setVisMode( mode );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets debug visualization scale.
+	 */
+	setDebugVisScale( scale ) {
+
+		this.debugVisScale = scale;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setDebugVisScale( scale );
+
+		}
+
 		this.reset();
 
 	}

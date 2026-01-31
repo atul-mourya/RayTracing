@@ -29,11 +29,11 @@
 // Phase 1: Base WebGPU Application
 export { WebGPUPathTracerApp } from './WebGPUPathTracerApp.js';
 
-// Phase 1: TSL Test Scene
-export { createTestMaterial, createTestQuad } from './TSLTestScene.js';
+// Phase 1: TSL Test Scene (Development Tool)
+export { createTestMaterial, createTestQuad } from './dev/TSLTestScene.js';
 
-// Phase 2: Hit Test Application
-export { WebGPUHitTestApp, VIS_MODE } from './WebGPUHitTestApp.js';
+// Phase 2: Hit Test Application (Development Tool)
+export { WebGPUHitTestApp, VIS_MODE } from './dev/WebGPUHitTestApp.js';
 
 // Phase 2: Data Transfer Utilities
 export { DataTransfer } from './DataTransfer.js';
@@ -63,11 +63,17 @@ export { rayTriangleIntersect, triangleGeometricNormal, barycentricInterpolate }
 export { createBVHTraverser, createOcclusionTest } from './TSL/BVHTraversal.js';
 export { createRayGenerator, createRayGeneratorManual, createDOFRayGenerator, createDOFRayGeneratorManual } from './TSL/CameraRay.js';
 
+// TSL Modules - Struct Definitions
+export * from './TSL/Struct.js';
+
+// TSL Modules - Common Utilities
+export * from './TSL/Common.js';
+
 // TSL Modules - Path Tracing (Phase 3)
 export { initRNG, randomFloat, randomVec2, randomVec3, pcgHash, randomCosineHemisphere, randomSphere, randomDisk } from './TSL/Random.js';
 export { createMaterialReader, computeF0, classifyMaterial } from './TSL/Material.js';
 export { fresnelSchlick, distributionGGX, geometrySmith, sampleCosineHemisphere, sampleGGX, evaluateSpecularBRDF, evaluateDiffuseBRDF, sampleBSDF, reflect, refract, buildTBN, tangentToWorld } from './TSL/BSDF.js';
-export { directionToEquirectUV, equirectUVToDirection, equirectPDF, binarySearchCDF, misWeight, createEnvironmentSampler, createImportanceSampledEnvironment, createSolidColorEnvironment } from './TSL/Environment.js';
+export { equirectDirectionToUv, equirectUvToDirection, equirectDirectionPdf, sampleEquirectColor, sampleEquirect, sampleEquirectProbability, sampleEnvironment, createEnvironmentSampler } from './TSL/Environment.js';
 
 // TSL Modules - Disney BSDF (Full material system)
 export {
@@ -82,12 +88,73 @@ export {
 	evaluateDisneyBSDF
 } from './TSL/DisneyBSDF.js';
 
+// TSL Modules - Displacement Mapping
+export {
+	getDisplacedHeight,
+	getDisplacedPosition,
+	applyDisplacement,
+	calculateDisplacedNormal,
+	createRayTriangleDisplaced
+} from './TSL/Displacement.js';
+
+// TSL Modules - Fresnel Functions
+export {
+	fresnel,
+	fresnelSchlickFloat,
+	fresnelSchlickVec3,
+	fresnel0ToIor,
+	iorToFresnel0Vec3,
+	iorToFresnel0Float,
+	iorToFresnel0,
+	fresnelSchlick as fresnelSchlickFromFresnel
+} from './TSL/Fresnel.js';
+
+// TSL Modules - Material Properties
+export {
+	sheenDistribution,
+	calculateGGXPDF,
+	calculateVNDFPDF,
+	evalSensitivity,
+	evalIridescence,
+	calculateBRDFWeights,
+	getMaterialImportance,
+	getImportanceSamplingInfo,
+	createMaterialCache,
+	createMaterialCacheLegacy
+} from './TSL/MaterialProperties.js';
+
+// TSL Modules - Material Evaluation
+export {
+	evaluateMaterialResponse,
+	evaluateMaterialResponseCached,
+	calculateLayerAttenuation,
+	evaluateLayeredBRDF
+} from './TSL/MaterialEvaluation.js';
+
+// TSL Modules - Material Sampling
+export {
+	importanceSampleGGX,
+	importanceSampleCosine,
+	cosineWeightedSample,
+	cosineWeightedPDF,
+	sampleGGXVNDF,
+	calculateSamplingWeights,
+	calculateMultiLobeMISWeight,
+	sampleMaterialWithMultiLobeMIS,
+	constructTBN
+} from './TSL/MaterialSampling.js';
+
+// TSL Modules - Clearcoat (Conditional BRDF Layer)
+export {
+	sampleClearcoat as sampleClearcoatLayered
+} from './TSL/Clearcoat.js';
+
 // ----------------------------------------------------------------
 // Convenience function for Phase 1 testing
 // ----------------------------------------------------------------
 
 import { WebGPUPathTracerApp } from './WebGPUPathTracerApp.js';
-import { createTestQuad } from './TSLTestScene.js';
+import { createTestQuad } from './dev/TSLTestScene.js';
 
 /**
  * Initializes a WebGPU test application with an animated quad.
@@ -123,7 +190,7 @@ export async function initWebGPUTest( canvas ) {
 // Convenience function for Phase 2 hit test visualization
 // ----------------------------------------------------------------
 
-import { WebGPUHitTestApp } from './WebGPUHitTestApp.js';
+import { WebGPUHitTestApp } from './dev/WebGPUHitTestApp.js';
 import { DataTransfer } from './DataTransfer.js';
 
 /**
@@ -285,61 +352,61 @@ export async function getWebGPUInfo() {
  *   // Or start hit test visualization
  *   const ht = await WebGPU.startHitTest(canvas, window.pathTracerApp);
  */
-if ( typeof window !== 'undefined' ) {
+// if ( typeof window !== 'undefined' ) {
 
-	window.WebGPU = {
+// 	window.WebGPU = {
 
-		// Check support
-		isSupported: isWebGPUSupported,
-		getInfo: getWebGPUInfo,
+// 		// Check support
+// 		isSupported: isWebGPUSupported,
+// 		getInfo: getWebGPUInfo,
 
-		// Start path tracer
-		startPathTracer: async ( canvas, existingApp ) => {
+// 		// Start path tracer
+// 		startPathTracer: async ( canvas, existingApp ) => {
 
-			const { WebGPUPathTracerApp } = await import( './WebGPUPathTracerApp.js' );
-			const app = new WebGPUPathTracerApp( canvas, existingApp );
-			await app.init();
-			app.loadSceneData();
-			app.animate();
-			console.log( 'WebGPU Path Tracer started' );
-			console.log( '  app.setMaxBounces(n) - Set bounce count' );
-			console.log( '  app.setEnvironmentIntensity(n) - Set env brightness' );
-			console.log( '  app.reset() - Reset accumulation' );
-			console.log( '  app.getFrameCount() - Get current frame' );
-			return app;
+// 			const { WebGPUPathTracerApp } = await import( './WebGPUPathTracerApp.js' );
+// 			const app = new WebGPUPathTracerApp( canvas, existingApp );
+// 			await app.init();
+// 			app.loadSceneData();
+// 			app.animate();
+// 			console.log( 'WebGPU Path Tracer started' );
+// 			console.log( '  app.setMaxBounces(n) - Set bounce count' );
+// 			console.log( '  app.setEnvironmentIntensity(n) - Set env brightness' );
+// 			console.log( '  app.reset() - Reset accumulation' );
+// 			console.log( '  app.getFrameCount() - Get current frame' );
+// 			return app;
 
-		},
+// 		},
 
-		// Start hit test visualization
-		startHitTest: async ( canvas, existingApp ) => {
+// 		// Start hit test visualization
+// 		startHitTest: async ( canvas, existingApp ) => {
 
-			const { WebGPUHitTestApp, VIS_MODE } = await import( './WebGPUHitTestApp.js' );
-			const app = new WebGPUHitTestApp( canvas, existingApp );
-			await app.init();
-			app.loadSceneData();
-			app.animate();
-			console.log( 'WebGPU Hit Test started' );
-			console.log( '  app.setVisMode(0) - Normals' );
-			console.log( '  app.setVisMode(1) - Distance' );
-			console.log( '  app.setVisMode(2) - Material ID' );
-			console.log( '  app.setVisMode(3) - BVH Heatmap' );
-			return app;
+// 			const { WebGPUHitTestApp, VIS_MODE } = await import( './dev/WebGPUHitTestApp.js' );
+// 			const app = new WebGPUHitTestApp( canvas, existingApp );
+// 			await app.init();
+// 			app.loadSceneData();
+// 			app.animate();
+// 			console.log( 'WebGPU Hit Test started' );
+// 			console.log( '  app.setVisMode(0) - Normals' );
+// 			console.log( '  app.setVisMode(1) - Distance' );
+// 			console.log( '  app.setVisMode(2) - Material ID' );
+// 			console.log( '  app.setVisMode(3) - BVH Heatmap' );
+// 			return app;
 
-		},
+// 		},
 
-		// Visualization modes for hit test
-		VIS_MODE: {
-			NORMALS: 0,
-			DISTANCE: 1,
-			MATERIAL_ID: 2,
-			BVH_HEATMAP: 3
-		}
+// 		// Visualization modes for hit test
+// 		VIS_MODE: {
+// 			NORMALS: 0,
+// 			DISTANCE: 1,
+// 			MATERIAL_ID: 2,
+// 			BVH_HEATMAP: 3
+// 		}
 
-	};
+// 	};
 
-	console.log( 'WebGPU utilities available: window.WebGPU' );
-	console.log( '  WebGPU.isSupported() - Check if WebGPU is available' );
-	console.log( '  WebGPU.startPathTracer(canvas, app) - Start path tracing' );
-	console.log( '  WebGPU.startHitTest(canvas, app) - Start hit test viz' );
+// 	console.log( 'WebGPU utilities available: window.WebGPU' );
+// 	console.log( '  WebGPU.isSupported() - Check if WebGPU is available' );
+// 	console.log( '  WebGPU.startPathTracer(canvas, app) - Start path tracing' );
+// 	console.log( '  WebGPU.startHitTest(canvas, app) - Start hit test viz' );
 
-}
+// }

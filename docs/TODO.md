@@ -10,7 +10,7 @@
 
 ### Known Issues
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] oidn denoiser not working properly on safari browser
+- [ ] oidn denoiser not working properly on safari browser and windows devices
 - [ ] shader compilation failure observed in RTX devices. 
 - [ ] implement missing use of preprocessor directives in shaders to enable/disable features like:
   - [ ] mrt outputs
@@ -34,9 +34,6 @@
 ## ✨ Immediate Features to Implement
 
 ### Advanced Rendering
-- [ ] implement time limit based rendering. in the ui, similar to editing maxFrame, implement it for 
-  time to be edited. add a indicator to indicate with is the actual limit being considered for   
-  rendering. perhaps some minimalistic way to switch the active limit considered for rendering.
 - [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
 - [ ] Implement Variance-based Firefly Suppression
 - [ ] OIDN HDR denoising Support
@@ -84,7 +81,7 @@
 
 ---
 
-*Last Updated: October 2025*
+*Last Updated: January 2025*
 *See [ROADMAP.md] for long-term vision and strategic planning*
 
 **Priority Legend:**

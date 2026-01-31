@@ -1,9 +1,16 @@
-import { Fn, float, vec3, If, select } from 'three/tsl';
+import { Fn, float, vec3 } from 'three/tsl';
 import { randomFloat } from './Random.js';
+import { distributionGGX, geometrySchlickGGX, geometrySmith } from './MaterialProperties.js';
+
+// Re-export material properties functions for backward compatibility
+export { distributionGGX, geometrySchlickGGX, geometrySmith };
 
 /**
  * BSDF (Bidirectional Scattering Distribution Function) module for TSL.
  * Implements GGX microfacet model and Lambertian diffuse.
+ *
+ * Note: distributionGGX, geometrySchlickGGX, and geometrySmith are now
+ * imported from MaterialProperties.js to avoid duplication.
  */
 
 const PI = Math.PI;
@@ -21,58 +28,6 @@ export const fresnelSchlick = Fn( ( [ cosTheta, F0 ] ) => {
 	const t = float( 1.0 ).sub( cosTheta ).clamp( 0.0, 1.0 );
 	const t5 = t.mul( t ).mul( t ).mul( t ).mul( t ); // (1-cos)^5
 	return F0.add( vec3( 1.0 ).sub( F0 ).mul( t5 ) );
-
-} );
-
-/**
- * GGX/Trowbridge-Reitz normal distribution function.
- *
- * @param {TSLNode} NoH - Cosine of angle between normal and half vector
- * @param {TSLNode} roughness - Surface roughness [0, 1]
- * @returns {TSLNode} Distribution value (float)
- */
-export const distributionGGX = Fn( ( [ NoH, roughness ] ) => {
-
-	const alpha = roughness.mul( roughness );
-	const alpha2 = alpha.mul( alpha );
-
-	const NoH2 = NoH.mul( NoH );
-	const denom = NoH2.mul( alpha2.sub( 1.0 ) ).add( 1.0 );
-
-	return alpha2.div( float( PI ).mul( denom ).mul( denom ) );
-
-} );
-
-/**
- * Smith's geometry function for GGX (single direction).
- *
- * @param {TSLNode} NdotV - Cosine of angle between normal and view/light
- * @param {TSLNode} roughness - Surface roughness
- * @returns {TSLNode} Geometry value (float)
- */
-export const geometrySchlickGGX = Fn( ( [ NdotV, roughness ] ) => {
-
-	const r = roughness.add( 1.0 );
-	const k = r.mul( r ).div( 8.0 );
-
-	const denom = NdotV.mul( float( 1.0 ).sub( k ) ).add( k );
-	return NdotV.div( denom );
-
-} );
-
-/**
- * Smith's geometry function (combined view and light).
- *
- * @param {TSLNode} NoV - Cosine of angle between normal and view
- * @param {TSLNode} NoL - Cosine of angle between normal and light
- * @param {TSLNode} roughness - Surface roughness
- * @returns {TSLNode} Combined geometry value (float)
- */
-export const geometrySmith = Fn( ( [ NoV, NoL, roughness ] ) => {
-
-	const ggxV = geometrySchlickGGX( NoV, roughness );
-	const ggxL = geometrySchlickGGX( NoL, roughness );
-	return ggxV.mul( ggxL );
 
 } );
 

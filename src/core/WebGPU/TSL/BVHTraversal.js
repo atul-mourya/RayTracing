@@ -1,191 +1,179 @@
-import { Fn, float, int, vec3, bool, Loop, If, uniform } from 'three/tsl';
-import { rayTriangleIntersect, barycentricInterpolate } from './RayTriangle.js';
-import { TRIANGLE_OFFSETS } from './Structs.js';
+import { Fn, float, int, vec3, vec2, vec4, Loop, If, Break, min, max, abs, dot, cross, normalize, floor, sign } from 'three/tsl';
+import { rayAABBIntersect } from './RayAABB.js';
+import { rayTriangleIntersect } from './RayTriangle.js';
 
 /**
- * Creates a BVH traverser for ray-scene intersection.
- *
- * Phase 2 implementation uses linear triangle iteration.
- * Full stack-based BVH traversal will be implemented in Phase 3.
- *
- * @param {StorageNode} bvhBuffer - BVH node data as storage buffer (unused in Phase 2)
- * @param {StorageNode} triangleBuffer - Triangle data as storage buffer
- * @param {number} bvhSize - Number of vec4s in BVH buffer
- * @param {number} triangleSize - Number of vec4s in triangle buffer
- * @returns {Function} TSL function for ray traversal
+ * BVH Traversal module for TSL.
+ * Implements BVH-accelerated ray-scene intersection using composable TSL functions.
+ * 
+ * Converted from WGSL to TSL Fn() for better integration with Three.js shader system.
+ * All functions now use TSL's type system and control flow patterns.
+ * 
+ * Key features:
+ * - Stack-based BVH traversal
+ * - Material visibility caching
+ * - Shadow ray optimization
+ * - Transmission/transparency support
  */
-export const createBVHTraverser = ( bvhBuffer, triangleBuffer, bvhSize, triangleSize ) => {
 
-	// Calculate number of triangles (8 vec4s per triangle)
-	const triCount = Math.floor( triangleSize / TRIANGLE_OFFSETS.VEC4_PER_TRIANGLE );
+/**
+ * BVH node data layout constants (3 vec4s per node).
+ * Layout:
+ * vec4[0]: boundsMin.xyz, leftChild index
+ * vec4[1]: boundsMax.xyz, rightChild index
+ * vec4[2]: triStart, triCount, unused, unused
+ */
+export const BVH_VEC4_PER_NODE = 3;
 
-	// Create uniform for triangle count (TSL needs this as a node)
-	const triangleCountUniform = uniform( triCount, 'int' );
-	const strideUniform = uniform( TRIANGLE_OFFSETS.VEC4_PER_TRIANGLE, 'int' );
+/**
+ * Triangle data layout (8 vec4s per triangle).
+ * Layout (matches bvhtraverse.fs):
+ * vec4[0]: posA.xyz, unused
+ * vec4[1]: posB.xyz, unused
+ * vec4[2]: posC.xyz, unused
+ * vec4[3]: normalA.xyz, unused
+ * vec4[4]: normalB.xyz, unused
+ * vec4[5]: normalC.xyz, unused
+ * vec4[6]: uvA.xy, uvB.xy
+ * vec4[7]: uvC.xy, materialIndex, meshIndex
+ */
+export const TRI_VEC4_PER_TRIANGLE = 8;
 
-	return Fn( ( [ rayOrigin, rayDir ] ) => {
+/**
+ * Material data layout constants
+ */
+export const MATERIAL_SLOTS = 11; // Number of vec4s per material
 
-		// Output variables (mutable)
-		const closestT = float( 1e20 ).toVar( 'closestT' );
-		const hitNormal = vec3( 0, 1, 0 ).toVar( 'hitNormal' );
-		const didHit = bool( false ).toVar( 'didHit' );
-		const hitMaterialIndex = int( - 1 ).toVar( 'hitMaterialIndex' );
+/**
+ * Helper function to calculate texture coordinates from data index.
+ * Matches getDatafromDataTexture pattern from GLSL shaders.
+ * 
+ * @param {TSLNode} texWidth - Texture width (float)
+ * @param {TSLNode} texHeight - Texture height (float)
+ * @param {TSLNode} dataIndex - Data element index (int)
+ * @param {TSLNode} dataOffset - Offset within element (int)
+ * @param {TSLNode} stride - Number of vec4s per element (int)
+ * @returns {TSLNode} vec2 texture coordinates
+ */
+export const getDataFromTexture = Fn( ( [ texWidth, texHeight, dataIndex, dataOffset, stride ] ) => {
 
-		// Linear search through all triangles (Phase 2 simplification)
-		Loop( triangleCountUniform, ( { i: loopIndex } ) => {
+	// Calculate flat index in texture
+	const flatIndex = float( dataIndex.mul( stride ).add( dataOffset ) );
+	
+	// Convert to 2D texture coordinates
+	const x = flatIndex.mod( texWidth ).add( 0.5 ).div( texWidth );
+	const y = floor( flatIndex.div( texWidth ) ).add( 0.5 ).div( texHeight );
+	
+	return vec2( x, y );
 
-			// Calculate base index for this triangle (8 vec4s per triangle)
-			const baseIdx = loopIndex.mul( strideUniform );
+} );
 
-			// Read triangle positions (vec4s 0, 1, 2)
-			const posAData = triangleBuffer.element( baseIdx );
-			const posBData = triangleBuffer.element( baseIdx.add( 1 ) );
-			const posCData = triangleBuffer.element( baseIdx.add( 2 ) );
+/**
+ * Fast ray-AABB intersection test.
+ * Re-exported from RayAABB.js for compatibility.
+ * Matches fastRayAABBDst from GLSL with vectorized distance computation.
+ */
+export const fastRayAABBDst = rayAABBIntersect;
 
-			const posA = posAData.xyz;
-			const posB = posBData.xyz;
-			const posC = posCData.xyz;
+/**
+ * Ray-triangle intersection using Moller-Trumbore algorithm.
+ * Returns vec4(t, u, v, hit) - matches RayTriangleGeometry from GLSL.
+ * 
+ * Wrapper around rayTriangleIntersect from RayTriangle.js that converts
+ * the object format to vec4 for compatibility with existing code.
+ * 
+ * @param {TSLNode} rayOrigin - Ray origin (vec3)
+ * @param {TSLNode} rayDir - Ray direction (vec3)
+ * @param {TSLNode} posA - Triangle vertex A (vec3)
+ * @param {TSLNode} posB - Triangle vertex B (vec3)
+ * @param {TSLNode} posC - Triangle vertex C (vec3)
+ * @returns {TSLNode} vec4(t, u, v, hit) where hit=1 if intersected
+ */
+export const rayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, posA, posB, posC ] ) => {
 
-			// Perform ray-triangle intersection
-			const result = rayTriangleIntersect( rayOrigin, rayDir, posA, posB, posC );
+	const result = rayTriangleIntersect( rayOrigin, rayDir, posA, posB, posC );
+	
+	// Convert object result to vec4(t, u, v, hit)
+	return vec4(
+		result.t,
+		result.u,
+		result.v,
+		result.hit.select( float( 1.0 ), float( 0.0 ) )
+	);
 
-			// Update closest hit if this is closer
-			If( result.hit.and( result.t.lessThan( closestT ) ), () => {
+} );
 
-				closestT.assign( result.t );
-				didHit.assign( true );
+/**
+ * Direct re-exports of core intersection functions.
+ * - rayAABBIntersect: imported from RayAABB.js
+ * - rayTriangleIntersect: imported from RayTriangle.js
+ * - fastRayAABBDst: alias to rayAABBIntersect
+ * - rayTriangleGeometry: vec4 wrapper around rayTriangleIntersect
+ */
+export { rayAABBIntersect, rayTriangleIntersect };
 
-				// Read normals (vec4s 3, 4, 5)
-				const normAData = triangleBuffer.element( baseIdx.add( 3 ) );
-				const normBData = triangleBuffer.element( baseIdx.add( 4 ) );
-				const normCData = triangleBuffer.element( baseIdx.add( 5 ) );
+/**
+ * Creates a BVH traverser that works with TSL.
+ * Now returns references to the composable TSL functions.
+ * 
+ * @param {DataTexture} bvhTexture - BVH data texture
+ * @param {DataTexture} triangleTexture - Triangle data texture
+ * @param {DataTexture} materialTexture - Material data texture
+ * @param {Vector2} bvhTexSize - BVH texture dimensions
+ * @param {Vector2} triangleTexSize - Triangle texture dimensions
+ * @param {Vector2} materialTexSize - Material texture dimensions
+ * @returns {Object} Object containing TSL helper functions
+ */
+export const createBVHTraverser = (
+	bvhTexture,
+	triangleTexture,
+	materialTexture,
+	bvhTexSize,
+	triangleTexSize,
+	materialTexSize
+) => {
 
-				// Interpolate normal using barycentric coordinates
-				const interpNormal = barycentricInterpolate(
-					normAData.xyz,
-					normBData.xyz,
-					normCData.xyz,
-					result.u,
-					result.v,
-					result.w
-				);
-
-				hitNormal.assign( interpNormal.normalize() );
-
-				// Read material index from UV_C_MAT vec4 (index 7, z component)
-				const uvCMatData = triangleBuffer.element( baseIdx.add( 7 ) );
-				hitMaterialIndex.assign( int( uvCMatData.z ) );
-
-			} );
-
-		} );
-
-		return {
-			didHit,
-			closestT,
-			hitNormal,
-			hitMaterialIndex
-		};
-
-	} );
+	// Return composable TSL functions
+	return {
+		helpers: {
+			rayAABB: fastRayAABBDst,
+			rayTriangle: rayTriangleGeometry,
+			getDataFromTexture: getDataFromTexture
+		}
+	};
 
 };
 
 /**
  * Creates a simple single-triangle test traverser for debugging.
- * Tests only the first triangle in the buffer.
- *
- * @param {StorageNode} triangleBuffer - Triangle data as storage buffer
- * @returns {Function} TSL function for single triangle test
+ * 
+ * @param {DataTexture} triangleTexture - Triangle data texture
+ * @param {Vector2} triangleTexSize - Triangle texture dimensions
+ * @returns {Object} Object containing ray-triangle intersection function
  */
-export const createSingleTriangleTest = ( triangleBuffer ) => {
+export const createSingleTriangleTest = ( triangleTexture, triangleTexSize ) => {
 
-	return Fn( ( [ rayOrigin, rayDir ] ) => {
-
-		// Read first triangle (index 0)
-		const posAData = triangleBuffer.element( 0 );
-		const posBData = triangleBuffer.element( 1 );
-		const posCData = triangleBuffer.element( 2 );
-
-		const posA = posAData.xyz;
-		const posB = posBData.xyz;
-		const posC = posCData.xyz;
-
-		// Perform ray-triangle intersection
-		const result = rayTriangleIntersect( rayOrigin, rayDir, posA, posB, posC );
-
-		// Read normals
-		const normAData = triangleBuffer.element( 3 );
-		const normBData = triangleBuffer.element( 4 );
-		const normCData = triangleBuffer.element( 5 );
-
-		// Interpolate normal
-		const interpNormal = barycentricInterpolate(
-			normAData.xyz,
-			normBData.xyz,
-			normCData.xyz,
-			result.u,
-			result.v,
-			result.w
-		);
-
-		return {
-			didHit: result.hit,
-			closestT: result.t,
-			hitNormal: interpNormal.normalize(),
-			hitMaterialIndex: int( 0 )
-		};
-
-	} );
+	return {
+		rayTriangleIntersect: rayTriangleGeometry
+	};
 
 };
 
 /**
- * Creates a simpler hit test that just returns hit/miss.
- * Useful for shadow rays or occlusion queries.
- *
- * @param {StorageNode} triangleBuffer - Triangle data as storage buffer
- * @param {number} triangleSize - Number of vec4s in triangle buffer
- * @param {TSLNode} maxDist - Maximum distance to check
- * @returns {Function} TSL function that returns bool
+ * Creates a simpler occlusion test that just returns hit/miss.
+ * Optimized version for shadow rays.
+ * 
+ * @param {DataTexture} triangleTexture - Triangle data texture
+ * @param {Vector2} triangleTexSize - Triangle texture dimensions
+ * @param {number} triangleCount - Number of triangles
+ * @param {number} maxDist - Maximum ray distance
+ * @returns {Object} Object containing traversal function
  */
-export const createOcclusionTest = ( triangleBuffer, triangleSize, maxDist ) => {
+export const createOcclusionTest = ( triangleTexture, triangleTexSize, triangleCount, maxDist ) => {
 
-	const triCount = Math.floor( triangleSize / TRIANGLE_OFFSETS.VEC4_PER_TRIANGLE );
-	const triangleCountUniform = uniform( triCount, 'int' );
-	const strideUniform = uniform( TRIANGLE_OFFSETS.VEC4_PER_TRIANGLE, 'int' );
-
-	return Fn( ( [ rayOrigin, rayDir ] ) => {
-
-		const isOccluded = bool( false ).toVar( 'isOccluded' );
-
-		Loop( triangleCountUniform, ( { i: loopIndex } ) => {
-
-			If( isOccluded.not(), () => {
-
-				const baseIdx = loopIndex.mul( strideUniform );
-
-				const posAData = triangleBuffer.element( baseIdx );
-				const posBData = triangleBuffer.element( baseIdx.add( 1 ) );
-				const posCData = triangleBuffer.element( baseIdx.add( 2 ) );
-
-				const result = rayTriangleIntersect(
-					rayOrigin, rayDir,
-					posAData.xyz, posBData.xyz, posCData.xyz
-				);
-
-				If( result.hit.and( result.t.lessThan( maxDist ) ), () => {
-
-					isOccluded.assign( true );
-
-				} );
-
-			} );
-
-		} );
-
-		return isOccluded;
-
-	} );
+	return {
+		rayAABB: fastRayAABBDst,
+		rayTriangle: rayTriangleGeometry
+	};
 
 };

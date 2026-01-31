@@ -1,9 +1,9 @@
 import { WebGPURenderer } from 'three/webgpu';
 import { PerspectiveCamera, Scene } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HitTestStage, VIS_MODE } from './Stages/HitTestStage.js';
-import { DataTransfer } from './DataTransfer.js';
-import { DEFAULT_STATE } from '../../Constants.js';
+import { HitTestStage, VIS_MODE } from '../Stages/HitTestStage.js';
+import { DataTransfer } from '../DataTransfer.js';
+import { DEFAULT_STATE } from '../../../Constants.js';
 
 // Resolution index to pixel values mapping (same as main app)
 const TARGET_RESOLUTIONS = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
