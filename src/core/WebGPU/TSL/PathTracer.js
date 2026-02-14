@@ -384,30 +384,6 @@ export const pathTracerMain = ( params ) => {
 		params.adaptiveSamplingMax
 	);
 
-	// uncomment simplified version for quick testing
-	// return pathTracerSimple(
-	// 	params.resolution,
-	// 	params.frame,
-	// 	params.samplesPerPixel,
-
-	// 	params.cameraWorldMatrix,
-	// 	params.cameraProjectionMatrixInverse,
-
-	// 	params.bvhTex,
-	// 	params.bvhTexSize,
-	// 	params.triTex,
-	// 	params.triTexSize,
-	// 	params.matTex,
-	// 	params.matTexSize,
-	// 	params.envTex,
-	// 	params.envIntensity,
-	// 	params.environmentMatrix,
-	// 	params.hasEnv,
-
-	// 	params.maxBounces,
-	// 	params.fireflyThreshold
-	// );
-
 };
 
 const pathTracerImpl = Fn( ( [
@@ -658,59 +634,6 @@ const pathTracerImpl = Fn( ( [
 	} );
 
 } );
-
-// ================================================================================
-// SIMPLIFIED PATH TRACER (for quick testing)
-// ================================================================================
-
-/**
- * Simplified path tracer without adaptive sampling or accumulation
- * Useful for testing and debugging
- */
-// export const pathTracerSimple = Fn( ( [
-// 	resolution, frame, numRaysPerPixel,
-// 	cameraWorldMatrix, cameraProjectionMatrixInverse,
-// 	bvhTex, bvhTexSize,
-// 	triTex, triTexSize,
-// 	matTex, matTexSize,
-// 	envTex, envIntensity, environmentMatrix, hasEnv,
-// 	maxBounces, fireflyThreshold
-// ] ) => {
-
-// 	const pixelCoord = screenCoordinate.xy.toVar( 'pixelCoord' );
-
-// 	const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar( 'screenPosition' );
-// 	const baseSeed = getDecorrelatedSeed( pixelCoord, int( 0 ), frame ).toVar( 'baseSeed' );
-
-// 	// Generate ray
-// 	const ray = generateRayFromCamera(
-// 		screenPosition, cameraWorldMatrix, cameraProjectionMatrixInverse, baseSeed
-// 	).toVar( 'ray' );
-
-// 	// Single bounce trace for simplicity
-// 	const traceOutput = traceSingleBounce(
-// 		ray.get( 'origin' ), ray.get( 'direction' ),
-// 		bvhTex, bvhTexSize,
-// 		triTex, triTexSize,
-// 		matTex, matTexSize,
-// 		envTex, envIntensity, environmentMatrix, hasEnv
-// 	).toVar( 'traceOutput' );
-
-// 	const outColor = vec4( traceOutput.xyz, 1.0 );
-// 	const outNormalDepth = vec4( 0.5, 0.5, 1.0, traceOutput.w.div( 100.0 ) );
-// 	const outAlbedo = vec4( traceOutput.xyz, 1.0 );
-
-// 	return pathTracerOutputStruct( {
-// 		gColor: outColor,
-// 		gNormalDepth: outNormalDepth,
-// 		gAlbedo: outAlbedo
-// 	} );
-
-// } );
-
-// ================================================================================
-// EXPORTS
-// ================================================================================
 
 export {
 	Pixel,
