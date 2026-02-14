@@ -49,23 +49,23 @@ import {
 	getDecorrelatedSeed,
 	getStratifiedSample,
 	pcgHash
-} from './Random_v2.js';
+} from './Random.js';
 
 import {
 	luminance,
 	PI,
 	TWO_PI,
-} from './Common_v2.js';
+} from './Common.js';
 
 import {
 	traverseBVH,
 	generateRayFromCamera
-} from './BVHTraversal_v2.js';
+} from './BVHTraversal.js';
 
 import {
 	Trace,
 	traceSingleBounce
-} from './PathTracerCore_v2.js';
+} from './PathTracerCore.js';
 
 import {
 	Pixel,

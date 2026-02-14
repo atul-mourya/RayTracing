@@ -32,10 +32,10 @@ import {
 	bool as tslBool,
 } from 'three/tsl';
 
-import { traverseBVHShadow } from './BVHTraversal_v2.js';
-import { RandomValue } from './Random_v2.js';
-import { fresnelSchlick, distributionGGX, geometrySmith } from './Common_v2.js';
-import { sampleEnvironmentDirection } from './Environment_v2.js';
+import { traverseBVHShadow } from './BVHTraversal.js';
+import { RandomValue } from './Random.js';
+import { fresnelSchlick, distributionGGX, geometrySmith } from './Common.js';
+import { sampleEnvironmentDirection } from './Environment.js';
 
 const PI = Math.PI;
 const TWO_PI = 2.0 * PI;

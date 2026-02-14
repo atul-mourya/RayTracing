@@ -44,8 +44,8 @@ import {
 	smoothstep
 } from 'three/tsl';
 
-import { traverseBVH, traverseBVHShadow } from './BVHTraversal_v2.js';
-import { RandomValue } from './Random_v2.js';
+import { traverseBVH, traverseBVHShadow } from './BVHTraversal.js';
+import { RandomValue } from './Random.js';
 import {
 	maxComponent,
 	minComponent,
@@ -57,8 +57,8 @@ import {
 	geometrySmith,
 	importanceSampleCosine,
 	importanceSampleGGX
-} from './Common_v2.js';
-import { sampleEnvironmentDirection } from './Environment_v2.js';
+} from './Common.js';
+import { sampleEnvironmentDirection } from './Environment.js';
 import { calculateDirectLightingUnified } from './LightsSampling.js';
 import {
 	DirectionSample,
