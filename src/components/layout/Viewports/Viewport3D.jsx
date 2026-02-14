@@ -182,7 +182,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 					// Initialize BackendManager and register WebGL app
 					const backendManager = getBackendManager();
-					backendManager.setWebGLApp( appRef.current );
 					backendManager.setCanvasRefs( webglCanvasRef, webgpuCanvasRef, denoiserCanvasRef );
 
 					// Check WebGPU support and update store
@@ -190,7 +189,16 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 					const isWebGPUSupported = backendManager.canUseWebGPU();
 					setIsWebGPUSupported( isWebGPUSupported );
 
-					// If WebGPU is supported and preferred, initialize WebGPU app
+					// Determine which backend to use initially
+					const initialBackend = isWebGPUSupported && backend === 'webgpu' ? 'webgpu' : 'webgl';
+					
+					// Set backend state before registering apps so BackendManager knows which to pause
+					backendManager.currentBackend = initialBackend === 'webgpu' ? BackendType.WEBGPU : BackendType.WEBGL;
+
+					// Register WebGL app (will auto-pause if not active backend)
+					backendManager.setWebGLApp( appRef.current );
+
+					// If WebGPU is supported, initialize WebGPU app
 					if ( isWebGPUSupported ) {
 
 						try {
@@ -202,15 +210,18 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 							await webgpuApp.init();
 							webgpuApp.loadSceneData();
 
+							// Register WebGPU app (will auto-pause if not active backend)
 							backendManager.setWebGPUApp( webgpuApp );
 							window.webgpuPathTracerApp = webgpuApp;
 
 							console.log( 'WebGPU backend initialized and ready' );
 
-							// If user wants WebGPU as default, switch to it
+							// Switch to WebGPU if it's the desired backend
 							if ( backend === 'webgpu' ) {
 
 								await backendManager.setBackend( BackendType.WEBGPU );
+								// Start animation loop for WebGPU
+								webgpuApp.animate();
 
 							}
 
@@ -218,6 +229,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 							console.warn( 'WebGPU initialization failed, using WebGL:', err.message );
 							setBackend( 'webgl' );
+							backendManager.currentBackend = BackendType.WEBGL;
 
 						}
 
@@ -227,6 +239,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						setBackend( 'webgl' );
 
 					}
+
+					// Ensure canvas visibility matches active backend
+					backendManager.toggleCanvasVisibility( backendManager.currentBackend );
 
 				} )
 				.catch( ( err ) => {

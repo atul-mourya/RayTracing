@@ -127,7 +127,13 @@ export class BackendManager {
 
 		this.webglApp = app;
 		console.log( 'BackendManager: WebGL app registered' );
+		// Pause WebGL if it's not the current backend
+		if ( this.currentBackend !== BackendType.WEBGL && app.pause ) {
 
+			app.pause();
+			console.log( 'BackendManager: Paused WebGL app (not active backend)' );
+
+		}
 	}
 
 	/**
@@ -138,7 +144,13 @@ export class BackendManager {
 
 		this.webgpuApp = app;
 		console.log( 'BackendManager: WebGPU app registered' );
+		// Pause WebGPU if it's not the current backend
+		if ( this.currentBackend !== BackendType.WEBGPU && app.pause ) {
 
+			app.pause();
+			console.log( 'BackendManager: Paused WebGPU app (not active backend)' );
+
+		}
 	}
 
 	/**

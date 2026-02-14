@@ -98,7 +98,7 @@ export class WebGPUPathTracerApp {
 		} );
 
 		window.renderer = this.renderer; // For debugging
-		this.renderer.inspector = new Inspector();
+		// this.renderer.inspector = new Inspector();
 
 		await this.renderer.init();
 
@@ -139,7 +139,7 @@ export class WebGPUPathTracerApp {
 		} );
 
 		// Create path tracing stage
-		this.pathTracingStage = new PathTracingStage( this.renderer, this.camera );
+		this.pathTracingStage = new PathTracingStage( this.renderer, this.scene, this.camera );
 
 		// Handle resize
 		this.onResize();
@@ -324,6 +324,35 @@ export class WebGPUPathTracerApp {
 
 			cancelAnimationFrame( this.animationId );
 			this.animationId = null;
+
+		}
+
+	}
+
+	/**
+	 * Pauses the animation loop.
+	 */
+	pause() {
+
+		if ( this.animationId ) {
+
+			cancelAnimationFrame( this.animationId );
+			this.animationId = null;
+			console.log( 'WebGPUPathTracerApp: Paused' );
+
+		}
+
+	}
+
+	/**
+	 * Resumes the animation loop.
+	 */
+	resume() {
+
+		if ( ! this.animationId ) {
+
+			this.animate();
+			console.log( 'WebGPUPathTracerApp: Resumed' );
 
 		}
 

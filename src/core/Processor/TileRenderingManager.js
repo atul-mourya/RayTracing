@@ -75,7 +75,7 @@ export class TileRenderingManager {
 
 	/**
      * Set up scissor testing for tile rendering
-     * @param {WebGLRenderer} renderer - The Three.js renderer
+     * @param {WebGLRenderer|WebGPURenderer} renderer - The Three.js renderer
      * @param {Object} bounds - Scissor bounds {x, y, width, height}
      */
 	enableScissorForTile( renderer, bounds ) {
@@ -92,17 +92,12 @@ export class TileRenderingManager {
 
 		}
 
-		const gl = renderer.getContext();
-
-		// Enable scissor testing
-		gl.enable( gl.SCISSOR_TEST );
-
-		// Set scissor rectangle with bounds validation
+		// Calculate scissor rectangle with bounds validation
 		// Note: WebGL scissor coordinates are from bottom-left, Three.js render targets are top-left
 		// We need to flip the Y coordinate
 		const flippedY = this.height - bounds.y - bounds.height;
 
-		// Validate scissor bounds to prevent WebGL errors
+		// Validate scissor bounds to prevent errors
 		const scissorX = Math.max( 0, Math.min( bounds.x, this.width ) );
 		const scissorY = Math.max( 0, Math.min( flippedY, this.height ) );
 		const scissorWidth = Math.max( 0, Math.min( bounds.width, this.width - scissorX ) );
@@ -116,7 +111,9 @@ export class TileRenderingManager {
 
 		}
 
-		gl.scissor( scissorX, scissorY, scissorWidth, scissorHeight );
+		// Use Three.js renderer methods (works with both WebGL and WebGPU)
+		renderer.setScissor( scissorX, scissorY, scissorWidth, scissorHeight );
+		renderer.setScissorTest( true );
 
 		this.scissorEnabled = true;
 		this.currentTileBounds = { ...bounds };
@@ -125,12 +122,11 @@ export class TileRenderingManager {
 
 	/**
      * Disable scissor testing
-     * @param {WebGLRenderer} renderer - The Three.js renderer
+     * @param {WebGLRenderer|WebGPURenderer} renderer - The Three.js renderer
      */
 	disableScissor( renderer ) {
 
-		const gl = renderer.getContext();
-		gl.disable( gl.SCISSOR_TEST );
+		renderer.setScissorTest( false );
 		this.scissorEnabled = false;
 		this.currentTileBounds = null;
 

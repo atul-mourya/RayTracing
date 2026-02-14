@@ -155,7 +155,7 @@ export const DEFAULT_STATE = {
 	enableAccumulation: true,
 	pauseRendering: false,
 	maxSamples: 60,
-	bounces: 3,
+	bounces: 1,
 	samplesPerPixel: 1,
 	transmissiveBounces: 5,
 	samplingTechnique: 3,

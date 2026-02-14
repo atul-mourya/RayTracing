@@ -1,333 +1,412 @@
 /**
- * Environment_v2.js - Pure TSL HDR Environment Importance Sampling
+ * Environment_v2.js - Pure TSL HDR Environment Sampling
  *
- * Provides efficient importance sampling for HDR environment maps (equirectangular).
- * Uses precomputed CDF (Cumulative Distribution Function) textures for:
- * - Row sampling based on vertical luminance distribution
- * - Column sampling based on horizontal luminance distribution per row
+ * Exact port of environment.fs GLSL shader to TSL.
+ * Provides environment map sampling with importance sampling support
+ * for efficient Monte Carlo path tracing.
  *
- * This dramatically reduces noise in environment lighting compared to uniform sampling.
- *
- * NO wgslFn() - Pure TSL using Fn(), If(), Loop(), .toVar(), .assign()
+ * NO wgslFn() - Pure TSL using Fn(), If(), Return(), .toVar(), .assign()
  */
 
-import { Fn, vec3, vec4, vec2, float, int, If, Loop, Return, texture, clamp, abs, atan2, asin } from 'three/tsl';
-import { equirectDirectionToUv, luminance } from './Common_v2.js';
+import { Fn, vec2, vec3, vec4, float, mat4, If, texture, normalize, dot, sin, cos, atan2, acos, select } from 'three/tsl';
 
 const PI = Math.PI;
 const TWO_PI = 2.0 * PI;
-const PI_INV = 1.0 / PI;
-const TWO_PI_INV = 1.0 / TWO_PI;
+
+// Rec. 709 luminance coefficients (same as GLSL)
+const REC709_LUMINANCE_COEFFICIENTS = vec3( 0.2126, 0.7152, 0.0722 );
 
 /**
- * Sample environment map using uniform (non-importance) sampling
+ * Convert direction to UV coordinates for equirectangular map
+ * Exact implementation from three-gpu-pathtracer / environment.fs
  *
- * Simple uniform hemisphere sampling - used as fallback when
- * importance sampling data is not available.
- *
- * @param {vec2} randomSample - Random values [0,1]
- * @returns {Object} { direction: vec3, pdf: float }
+ * @param {vec3} direction - World space direction (normalized)
+ * @param {mat4} environmentMatrix - Environment rotation matrix
+ * @returns {vec2} UV coordinates [0, 1]
  */
-export const sampleEnvironmentUniform = Fn( ( [ randomSample ] ) => {
+export const equirectDirectionToUv = Fn( ( [ direction, environmentMatrix ] ) => {
 
-	// Uniform sphere sampling
-	const phi = randomSample.x.mul( TWO_PI ).toVar( 'phi' );
-	const cosTheta = randomSample.y.mul( 2.0 ).sub( 1.0 ).toVar( 'cosTheta' ); // [-1, 1]
-	const sinTheta = float( 1.0 ).sub( cosTheta.mul( cosTheta ) ).sqrt().toVar( 'sinTheta' );
+	// Apply environment matrix rotation
+	const d = normalize( environmentMatrix.mul( vec4( direction, 0.0 ) ).xyz ).toVar( 'd' );
 
-	const direction = vec3(
-		sinTheta.mul( phi.cos() ),
-		cosTheta,
-		sinTheta.mul( phi.sin() )
-	).toVar( 'direction' );
+	// Convert to spherical coordinates
+	// atan2(z, x) for longitude, acos(y) for latitude
+	const uv = vec2( atan2( d.z, d.x ), acos( d.y ) ).toVar( 'uv' );
+	uv.assign( uv.div( vec2( TWO_PI, PI ) ) );
 
-	// Uniform sphere PDF = 1 / (4π)
-	const pdf = float( 1.0 / ( 4.0 * PI ) ).toVar( 'pdf' );
+	// Adjust to [0, 1] range and flip Y
+	uv.x.addAssign( 0.5 );
+	uv.y.assign( float( 1.0 ).sub( uv.y ) );
 
-	return vec4( direction, pdf );
+	return uv;
 
 } ).setLayout( {
-	name: 'sampleEnvironmentUniform',
-	type: 'vec4',
+	name: 'equirectDirectionToUv',
+	type: 'vec2',
 	inputs: [
-		{ name: 'randomSample', type: 'vec2' }
+		{ name: 'direction', type: 'vec3' },
+		{ name: 'environmentMatrix', type: 'mat4' }
 	]
 } );
 
 /**
- * Binary search CDF texture to find value with target cumulative probability
+ * Convert UV coordinates to direction
+ * Exact implementation from three-gpu-pathtracer / environment.fs
  *
- * Uses iterative binary search to locate the CDF entry closest to the
- * target probability value.
- *
- * @param {sampler2D} cdfTexture - CDF texture (1D or row of 2D texture)
- * @param {int} size - Number of entries in CDF
- * @param {float} targetProb - Target cumulative probability [0,1]
- * @param {int} row - Row index (for 2D marginal CDF, 0 for conditional)
- * @returns {int} Index of CDF entry
+ * @param {vec2} uv - UV coordinates [0, 1]
+ * @param {mat4} environmentMatrix - Environment rotation matrix
+ * @returns {vec3} World space direction (normalized)
  */
-const binarySearchCDF = Fn( ( [ cdfTexture, size, targetProb, row ] ) => {
+export const equirectUvToDirection = Fn( ( [ uv, environmentMatrix ] ) => {
 
-	const left = int( 0 ).toVar( 'left' );
-	const right = size.sub( 1 ).toVar( 'right' );
-	const result = int( 0 ).toVar( 'result' );
-	// Binary search (max 16 iterations sufficient for 65536 entries)
-	Loop( { start: int( 0 ), end: int( 16 ) }, () => {
+	// Undo UV adjustments
+	const adjustedUv = vec2( uv.x.sub( 0.5 ), float( 1.0 ).sub( uv.y ) ).toVar( 'adjustedUv' );
 
-		If( left.greaterThanEqual( right ), () => {
+	// Convert from spherical coordinates
+	const theta = adjustedUv.x.mul( TWO_PI ).toVar( 'theta' );
+	const phi = adjustedUv.y.mul( PI ).toVar( 'phi' );
 
-			result.assign( left );
-			Return();
+	const sinPhi = sin( phi ).toVar( 'sinPhi' );
 
-		} );
+	const localDir = vec3(
+		sinPhi.mul( cos( theta ) ),
+		cos( phi ),
+		sinPhi.mul( sin( theta ) )
+	).toVar( 'localDir' );
 
-		const mid = left.add( right ).div( 2 ).toVar( 'mid' );
+	// Apply inverse environment matrix rotation
+	// Using transpose for orthogonal rotation matrix (faster than inverse)
+	const transposed = mat4(
+		environmentMatrix.element( 0 ).element( 0 ), environmentMatrix.element( 1 ).element( 0 ), environmentMatrix.element( 2 ).element( 0 ), environmentMatrix.element( 3 ).element( 0 ),
+		environmentMatrix.element( 0 ).element( 1 ), environmentMatrix.element( 1 ).element( 1 ), environmentMatrix.element( 2 ).element( 1 ), environmentMatrix.element( 3 ).element( 1 ),
+		environmentMatrix.element( 0 ).element( 2 ), environmentMatrix.element( 1 ).element( 2 ), environmentMatrix.element( 2 ).element( 2 ), environmentMatrix.element( 3 ).element( 2 ),
+		environmentMatrix.element( 0 ).element( 3 ), environmentMatrix.element( 1 ).element( 3 ), environmentMatrix.element( 2 ).element( 3 ), environmentMatrix.element( 3 ).element( 3 )
+	).toVar( 'transposed' );
 
-		// Read CDF value at mid
-		const u = float( mid ).add( 0.5 ).div( float( size ) ).toVar( 'u' );
-		const v = float( row ).add( 0.5 ).div( float( size ) ).toVar( 'v' ); // For 2D CDF
-		const cdfValue = texture( cdfTexture, vec2( u, v ) ).x.toVar( 'cdfValue' );
-
-		If( cdfValue.lessThan( targetProb ), () => {
-
-			left.assign( mid.add( 1 ) );
-
-		} ).Else( () => {
-
-			right.assign( mid );
-
-		} );
-
-	} );
-
-	result.assign( left );
-	return result;
+	return normalize( transposed.mul( vec4( localDir, 0.0 ) ).xyz );
 
 } ).setLayout( {
-	name: 'binarySearchCDF',
-	type: 'int'
-} );
-
-/**
- * Sample environment map using importance sampling
- *
- * Uses precomputed CDF textures for efficient importance sampling
- * based on environment luminance distribution.
- *
- * Requires two CDF textures:
- * - Marginal CDF: Vertical distribution (1D, stored in texture row)
- * - Conditional CDF: Horizontal distribution per row (2D texture)
- *
- * @param {sampler2D} envMap - Environment map texture (equirectangular)
- * @param {sampler2D} marginalCDF - Marginal CDF texture (vertical distribution)
- * @param {sampler2D} conditionalCDF - Conditional CDF texture (horizontal per row)
- * @param {ivec2} envSize - Environment map dimensions (width, height)
- * @param {vec2} randomSample - Random values [0,1]
- * @returns {Object} { direction: vec3, pdf: float, color: vec3 }
- */
-export const sampleEnvironmentImportance = Fn( ( [ envMap, marginalCDF, conditionalCDF, envSize, randomSample ] ) => {
-
-	const width = envSize.x.toVar( 'width' );
-	const height = envSize.y.toVar( 'height' );
-
-	// Sample row (vertical) from marginal CDF
-	const rowIndex = binarySearchCDF( marginalCDF, height, randomSample.y, int( 0 ) ).toVar( 'rowIndex' );
-	const v = float( rowIndex ).add( 0.5 ).div( float( height ) ).toVar( 'v' );
-
-	// Sample column (horizontal) from conditional CDF for this row
-	const colIndex = binarySearchCDF( conditionalCDF, width, randomSample.x, rowIndex ).toVar( 'colIndex' );
-	const u = float( colIndex ).add( 0.5 ).div( float( width ) ).toVar( 'u' );
-	// Convert UV to equirectangular direction
-	const phi = u.mul( TWO_PI ).toVar( 'phi' );
-	const theta = v.mul( PI ).toVar( 'theta' );
-
-	const sinTheta = theta.sin().toVar( 'sinTheta' );
-	const cosTheta = theta.cos().toVar( 'cosTheta' );
-	const sinPhi = phi.sin().toVar( 'sinPhi' );
-	const cosPhi = phi.cos().toVar( 'cosPhi' );
-
-	const direction = vec3(
-		sinTheta.mul( sinPhi ),
-		cosTheta,
-		sinTheta.mul( cosPhi )
-	).toVar( 'direction' );
-
-	// Sample environment color at this direction
-	const envColor = texture( envMap, vec2( u, v ) ).rgb.toVar( 'envColor' );
-
-	// Calculate PDF from CDF
-	// Read marginal PDF value for this row
-	const marginalPDF = texture( marginalCDF, vec2( v, 0.5 ) ).y.toVar( 'marginalPDF' ); // PDF stored in y channel
-	// Read conditional PDF value for this column
-	const conditionalPDF = texture( conditionalCDF, vec2( u, v ) ).y.toVar( 'conditionalPDF' );
-
-	// Combined PDF = marginal * conditional / sin(theta)
-	// Division by sin(theta) accounts for sphere area element
-	const sinThetaClamped = sinTheta.max( 0.001 ).toVar( 'sinThetaClamped' ); // Avoid division by zero at poles
-	const pdf = marginalPDF.mul( conditionalPDF ).div( sinThetaClamped ).toVar( 'pdf' );
-
-	return vec4( direction, pdf );
-
-} ).setLayout( {
-	name: 'sampleEnvironmentImportance',
-	type: 'vec4',
+	name: 'equirectUvToDirection',
+	type: 'vec3',
 	inputs: [
-		{ name: 'envMap', type: 'sampler2D' },
-		{ name: 'marginalCDF', type: 'sampler2D' },
-		{ name: 'conditionalCDF', type: 'sampler2D' },
-		{ name: 'envSize', type: 'ivec2' },
-		{ name: 'randomSample', type: 'vec2' }
+		{ name: 'uv', type: 'vec2' },
+		{ name: 'environmentMatrix', type: 'mat4' }
 	]
 } );
 
 /**
- * Evaluate environment PDF for a given direction
+ * Sample environment map color in a given direction
  *
- * Computes the probability density for a specific direction based on
- * the importance sampling distribution. Used for MIS weight calculation.
+ * @param {TextureNode} environment - Environment map texture node
+ * @param {vec3} direction - World space direction (normalized)
+ * @param {mat4} environmentMatrix - Environment rotation matrix
+ * @returns {vec3} Environment color (RGB)
+ */
+export const sampleEquirectColor = Fn( ( [ environment, direction, environmentMatrix ] ) => {
+
+	const uv = equirectDirectionToUv( direction, environmentMatrix ).toVar( 'uv' );
+	return texture( environment, uv, 0 ).rgb;
+
+} );
+
+/**
+ * Calculate PDF for uniform sphere sampling with Jacobian
  *
- * @param {vec3} direction - Direction to evaluate (world space, normalized)
- * @param {sampler2D} marginalCDF - Marginal CDF texture
- * @param {sampler2D} conditionalCDF - Conditional CDF texture
- * @param {ivec2} envSize - Environment map dimensions
+ * @param {vec3} direction - World space direction (normalized)
+ * @param {mat4} environmentMatrix - Environment rotation matrix
  * @returns {float} PDF value
  */
-export const evaluateEnvironmentPDF = Fn( ( [ direction, marginalCDF, conditionalCDF, envSize ] ) => {
+export const equirectDirectionPdf = Fn( ( [ direction, environmentMatrix ] ) => {
 
-	// Convert direction to UV coordinates
-	const uv = equirectDirectionToUv( direction ).toVar( 'uv' );
-
-	// Get marginal and conditional PDFs from CDF textures
-	const marginalPDF = texture( marginalCDF, vec2( uv.y, 0.5 ) ).y.toVar( 'marginalPDF' );
-	const conditionalPDF = texture( conditionalCDF, uv ).y.toVar( 'conditionalPDF' );
-	// Calculate sin(theta) for area element correction
+	const uv = equirectDirectionToUv( direction, environmentMatrix ).toVar( 'uv' );
 	const theta = uv.y.mul( PI ).toVar( 'theta' );
-	const sinTheta = theta.sin().max( 0.001 ).toVar( 'sinTheta' );
+	const sinTheta = sin( theta ).toVar( 'sinTheta' );
 
-	const pdf = marginalPDF.mul( conditionalPDF ).div( sinTheta ).toVar( 'pdf' );
+	const pdf = float( 0.0 ).toVar( 'pdf' );
+
+	If( sinTheta.equal( 0.0 ), () => {
+
+		pdf.assign( 0.0 );
+
+	} ).Else( () => {
+
+		pdf.assign( float( 1.0 ).div( float( TWO_PI * PI ).mul( sinTheta ) ) );
+
+	} );
 
 	return pdf;
 
 } ).setLayout( {
-	name: 'evaluateEnvironmentPDF',
+	name: 'equirectDirectionPdf',
 	type: 'float',
 	inputs: [
 		{ name: 'direction', type: 'vec3' },
-		{ name: 'marginalCDF', type: 'sampler2D' },
-		{ name: 'conditionalCDF', type: 'sampler2D' },
-		{ name: 'envSize', type: 'ivec2' }
+		{ name: 'environmentMatrix', type: 'mat4' }
 	]
 } );
 
 /**
- * Sample environment with automatic fallback
+ * Evaluate PDF for a given direction (for MIS)
+ * Exact implementation from three-gpu-pathtracer / environment.fs
  *
- * Attempts importance sampling if CDF textures available,
- * otherwise falls back to uniform sampling.
+ * Returns the PDF and outputs the sampled color.
  *
- * @param {sampler2D} envMap - Environment map
- * @param {sampler2D} marginalCDF - Marginal CDF (null for uniform sampling)
- * @param {sampler2D} conditionalCDF - Conditional CDF (null for uniform sampling)
- * @param {ivec2} envSize - Environment dimensions
- * @param {float} hasImportanceSampling - 1.0 if CDF available, 0.0 otherwise
- * @param {vec2} randomSample - Random values
- * @returns {Object} { direction: vec3, pdf: float }
+ * @param {TextureNode} environment - Environment map texture node
+ * @param {vec3} direction - World space direction (normalized)
+ * @param {mat4} environmentMatrix - Environment rotation matrix
+ * @param {float} envTotalSum - Total luminance sum of environment
+ * @param {ivec2} envResolution - Environment map resolution
+ * @returns {vec4} xyz = color, w = pdf
  */
-export const sampleEnvironment = Fn( ( [ envMap, marginalCDF, conditionalCDF, envSize, hasImportanceSampling, randomSample ] ) => {
+export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix, envTotalSum, envResolution ] ) => {
 
-	const result = vec4().toVar( 'sampleResult' );
+	const result = vec4( 0.0, 0.0, 0.0, 0.0 ).toVar( 'result' );
 
-	If( hasImportanceSampling.greaterThan( 0.5 ), () => {
+	If( envTotalSum.equal( 0.0 ), () => {
 
-		// Use importance sampling
-		result.assign( sampleEnvironmentImportance( envMap, marginalCDF, conditionalCDF, envSize, randomSample ) );
+		// Exclude black environments from MIS
+		result.assign( vec4( 0.0, 0.0, 0.0, 0.0 ) );
 
 	} ).Else( () => {
 
-		// Fallback to uniform sampling
-		const uniformResult = sampleEnvironmentUniform( randomSample ).toVar( 'uniformResult' );
-		const direction = uniformResult.xyz.toVar( 'direction' );
-		const pdf = uniformResult.w.toVar( 'pdf' );
+		const uv = equirectDirectionToUv( direction, environmentMatrix ).toVar( 'uv' );
+		const color = texture( environment, uv, 0 ).rgb.toVar( 'color' );
 
-		result.assign( vec4( direction, pdf ) );
+		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar( 'lum' );
+		const pdf = lum.div( envTotalSum ).toVar( 'pdf' );
+
+		const dirPdf = equirectDirectionPdf( direction, environmentMatrix ).toVar( 'dirPdf' );
+		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar( 'finalPdf' );
+
+		result.assign( vec4( color, finalPdf ) );
 
 	} );
 
 	return result;
 
-} ).setLayout( {
-	name: 'sampleEnvironment',
-	type: 'vec4',
-	inputs: [
-		{ name: 'envMap', type: 'sampler2D' },
-		{ name: 'marginalCDF', type: 'sampler2D' },
-		{ name: 'conditionalCDF', type: 'sampler2D' },
-		{ name: 'envSize', type: 'ivec2' },
-		{ name: 'hasImportanceSampling', type: 'float' },
-		{ name: 'randomSample', type: 'vec2' }
-	]
 } );
 
 /**
- * Evaluate environment radiance in a given direction
+ * Sample environment map using importance sampling
+ * Returns PDF, outputs color and direction
+ * Exact implementation from three-gpu-pathtracer / environment.fs
  *
- * Samples the environment map and returns the radiance value.
- * Handles equirectangular projection properly.
+ * Uses precomputed CDF textures (marginal and conditional weights)
+ * for efficient importance sampling based on luminance distribution.
  *
- * @param {sampler2D} envMap - Environment map texture
- * @param {vec3} direction - Direction to sample (world space, normalized)
- * @param {float} envIntensity - Environment intensity multiplier
- * @returns {vec3} Environment radiance (RGB)
+ * @param {TextureNode} environment - Environment map texture node
+ * @param {TextureNode} envMarginalWeights - Marginal CDF texture node (vertical distribution)
+ * @param {TextureNode} envConditionalWeights - Conditional CDF texture node (horizontal per row)
+ * @param {mat4} environmentMatrix - Environment rotation matrix
+ * @param {float} environmentIntensity - Environment intensity multiplier
+ * @param {float} envTotalSum - Total luminance sum
+ * @param {ivec2} envResolution - Environment map resolution
+ * @param {vec2} r - Random values [0,1]
+ * @returns {vec4} xyz = direction, w = pdf (color returned separately via sampleEquirectProbabilityColor)
  */
-export const evaluateEnvironment = Fn( ( [ envMap, direction, envIntensity ] ) => {
+export const sampleEquirectProbability = Fn( ( [
+	environment,
+	envMarginalWeights,
+	envConditionalWeights,
+	environmentMatrix,
+	environmentIntensity,
+	envTotalSum,
+	envResolution,
+	r
+] ) => {
 
-	const uv = equirectDirectionToUv( direction ).toVar( 'uv' );
-	const envColor = texture( envMap, uv ).rgb.toVar( 'envColor' );
-	const radiance = envColor.mul( envIntensity ).toVar( 'radiance' );
+	// Sample marginal CDF for V coordinate
+	// The CDF textures store the inverse CDF, so a single lookup gives the sampled coordinate
+	const v = texture( envMarginalWeights, vec2( r.x, 0.0 ), 0 ).x.toVar( 'v' );
 
-	return radiance;
+	// Sample conditional CDF for U coordinate
+	const u = texture( envConditionalWeights, vec2( r.y, v ), 0 ).x.toVar( 'u' );
 
-} ).setLayout( {
-	name: 'evaluateEnvironment',
-	type: 'vec3',
-	inputs: [
-		{ name: 'envMap', type: 'sampler2D' },
-		{ name: 'direction', type: 'vec3' },
-		{ name: 'envIntensity', type: 'float' }
-	]
+	const uv = vec2( u, v ).toVar( 'uv' );
+
+	// Convert UV to direction
+	const direction = equirectUvToDirection( uv, environmentMatrix ).toVar( 'direction' );
+
+	// Sample color
+	const color = texture( environment, uv, 0 ).rgb.mul( environmentIntensity ).toVar( 'color' );
+
+	// Calculate PDF
+	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS ).toVar( 'lum' );
+	const pdf = lum.div( envTotalSum ).toVar( 'pdf' );
+
+	const dirPdf = equirectDirectionPdf( direction, environmentMatrix ).toVar( 'dirPdf' );
+	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar( 'finalPdf' );
+
+	// Return direction and pdf (color needs separate accessor)
+	return vec4( direction, finalPdf );
+
 } );
 
 /**
- * Calculate MIS weight between BRDF and environment sampling
+ * Get color from importance sampled direction
+ * Helper to retrieve color after calling sampleEquirectProbability
  *
- * Uses power heuristic (beta=2) to combine BRDF importance sampling
- * with environment importance sampling for optimal variance reduction.
- *
- * @param {float} pdfBRDF - PDF from BRDF sampling
- * @param {float} pdfEnv - PDF from environment sampling
- * @param {float} numBRDFSamples - Number of BRDF samples (typically 1)
- * @param {float} numEnvSamples - Number of environment samples (typically 1)
- * @returns {float} MIS weight for BRDF sample
+ * @param {TextureNode} environment - Environment map texture node
+ * @param {TextureNode} envMarginalWeights - Marginal CDF texture node
+ * @param {TextureNode} envConditionalWeights - Conditional CDF texture node
+ * @param {float} environmentIntensity - Environment intensity multiplier
+ * @param {vec2} r - Same random values used in sampleEquirectProbability
+ * @returns {vec3} Sampled color with intensity applied
  */
-export const environmentMISWeight = Fn( ( [ pdfBRDF, pdfEnv, numBRDFSamples, numEnvSamples ] ) => {
+export const sampleEquirectProbabilityColor = Fn( ( [
+	environment,
+	envMarginalWeights,
+	envConditionalWeights,
+	environmentIntensity,
+	r
+] ) => {
 
-	// Power heuristic with beta=2
-	const nf_pdf_f = numBRDFSamples.mul( pdfBRDF ).toVar( 'nf_pdf_f' );
-	const ng_pdf_g = numEnvSamples.mul( pdfEnv ).toVar( 'ng_pdf_g' );
+	// Reconstruct UV from same random values
+	const v = texture( envMarginalWeights, vec2( r.x, 0.0 ), 0 ).x.toVar( 'v' );
+	const u = texture( envConditionalWeights, vec2( r.y, v ), 0 ).x.toVar( 'u' );
+	const uv = vec2( u, v ).toVar( 'uv' );
 
-	const nf_pdf_f_sq = nf_pdf_f.mul( nf_pdf_f ).toVar( 'nf_pdf_f_sq' );
-	const ng_pdf_g_sq = ng_pdf_g.mul( ng_pdf_g ).toVar( 'ng_pdf_g_sq' );
-	const weight = nf_pdf_f_sq.div( nf_pdf_f_sq.add( ng_pdf_g_sq ) ).toVar( 'weight' );
+	return texture( environment, uv, 0 ).rgb.mul( environmentIntensity );
 
-	return weight;
+} );
+
+/**
+ * Sample environment direction using importance sampling or uniform sampling
+ * This is the main entry point for direct lighting calculations.
+ *
+ * @param {TextureNode} environment - Environment map texture node
+ * @param {TextureNode} marginalCDF - Marginal CDF texture for importance sampling
+ * @param {TextureNode} conditionalCDF - Conditional CDF texture for importance sampling
+ * @param {vec2} envSize - Environment map resolution
+ * @param {bool} hasImportanceSampling - Whether importance sampling is available
+ * @param {vec2} randomSample - Random values [0,1]
+ * @returns {vec4} xyz = sampled direction, w = pdf
+ */
+export const sampleEnvironmentDirection = Fn( ( [
+	environment,
+	marginalCDF,
+	conditionalCDF,
+	envSize,
+	hasImportanceSampling,
+	randomSample
+] ) => {
+
+	const result = vec4( 0.0, 1.0, 0.0, 1.0 ).toVar( 'envSampleResult' );
+
+	If( hasImportanceSampling, () => {
+
+		// Use importance sampling via CDF textures
+		const v = texture( marginalCDF, vec2( randomSample.x, 0.0 ), 0 ).x.toVar( 'isV' );
+		const u = texture( conditionalCDF, vec2( randomSample.y, v ), 0 ).x.toVar( 'isU' );
+		const uv = vec2( u, v ).toVar( 'isUV' );
+
+		// Convert UV to direction (assuming identity matrix - direction will be rotated at call site if needed)
+		const theta = uv.x.sub( 0.5 ).mul( TWO_PI ).toVar( 'isTheta' );
+		const phi = float( 1.0 ).sub( uv.y ).mul( PI ).toVar( 'isPhi' );
+
+		const sinPhi = sin( phi ).toVar( 'isSinPhi' );
+		const direction = vec3(
+			sinPhi.mul( cos( theta ) ),
+			cos( phi ),
+			sinPhi.mul( sin( theta ) )
+		).toVar( 'isDirection' );
+
+		// Calculate PDF
+		const color = texture( environment, uv, 0 ).rgb.toVar( 'isColor' );
+		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar( 'isLum' );
+
+		// PDF = (lum / totalSum) * (width * height) * (1 / (2 * PI * PI * sinTheta))
+		// Simplified: we approximate the jacobian
+		const sinTheta = sin( uv.y.mul( PI ) ).toVar( 'isSinTheta' );
+		const pdf = select(
+			sinTheta.lessThan( 0.0001 ),
+			float( 0.0001 ),
+			lum.mul( envSize.x ).mul( envSize.y ).div( float( TWO_PI * PI ).mul( sinTheta ) ).add( 0.0001 )
+		).toVar( 'isPdf' );
+
+		result.assign( vec4( normalize( direction ), pdf ) );
+
+	} ).Else( () => {
+
+		// Uniform sphere sampling
+		const theta = randomSample.x.mul( TWO_PI ).toVar( 'uTheta' );
+		const phi = acos( float( 1.0 ).sub( randomSample.y.mul( 2.0 ) ) ).toVar( 'uPhi' );
+
+		const sinPhi = sin( phi ).toVar( 'uSinPhi' );
+		const direction = vec3(
+			sinPhi.mul( cos( theta ) ),
+			cos( phi ),
+			sinPhi.mul( sin( theta ) )
+		).toVar( 'uDirection' );
+
+		// Uniform sphere PDF = 1 / (4 * PI)
+		const pdf = float( 1.0 / ( 4.0 * PI ) ).toVar( 'uPdf' );
+
+		result.assign( vec4( normalize( direction ), pdf ) );
+
+	} );
+
+	return result;
+
+} );
+
+/**
+ * Simple environment lookup (no importance sampling)
+ *
+ * @param {TextureNode} environment - Environment map texture node
+ * @param {vec3} direction - World space direction (normalized)
+ * @param {mat4} environmentMatrix - Environment rotation matrix
+ * @param {float} environmentIntensity - Environment intensity multiplier
+ * @param {bool} enableEnvironmentLight - Whether environment lighting is enabled
+ * @returns {vec4} Environment color with intensity (RGBA)
+ */
+export const sampleEnvironmentLookup = Fn( ( [
+	environment,
+	direction,
+	environmentMatrix,
+	environmentIntensity,
+	enableEnvironmentLight
+] ) => {
+
+	const result = vec4( 0.0 ).toVar( 'result' );
+
+	If( enableEnvironmentLight.not(), () => {
+
+		result.assign( vec4( 0.0 ) );
+
+	} ).Else( () => {
+
+		const uv = equirectDirectionToUv( direction, environmentMatrix ).toVar( 'uv' );
+		const texSample = texture( environment, uv, 0 ).toVar( 'texSample' );
+
+		result.assign( texSample.mul( environmentIntensity ) );
+
+	} );
+
+	return result;
+
+} );
+
+/**
+ * MIS heuristic (power heuristic with beta=2)
+ * Matches the implementation in lights_core.fs
+ *
+ * @param {float} a - First PDF value
+ * @param {float} b - Second PDF value
+ * @returns {float} MIS weight
+ */
+export const misHeuristic = Fn( ( [ a, b ] ) => {
+
+	const a2 = a.mul( a ).toVar( 'a2' );
+	const b2 = b.mul( b ).toVar( 'b2' );
+
+	return a2.div( a2.add( b2 ) );
 
 } ).setLayout( {
-	name: 'environmentMISWeight',
+	name: 'misHeuristic',
 	type: 'float',
 	inputs: [
-		{ name: 'pdfBRDF', type: 'float' },
-		{ name: 'pdfEnv', type: 'float' },
-		{ name: 'numBRDFSamples', type: 'float' },
-		{ name: 'numEnvSamples', type: 'float' }
+		{ name: 'a', type: 'float' },
+		{ name: 'b', type: 'float' }
 	]
 } );

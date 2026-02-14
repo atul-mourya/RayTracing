@@ -1127,6 +1127,35 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/**
+	 * Pauses the animation loop.
+	 */
+	pause() {
+
+		if ( this.animationFrameId ) {
+
+			cancelAnimationFrame( this.animationFrameId );
+			this.animationFrameId = null;
+			console.log( 'PathTracerApp (WebGL): Paused' );
+
+		}
+
+	}
+
+	/**
+	 * Resumes the animation loop.
+	 */
+	resume() {
+
+		if ( ! this.animationFrameId ) {
+
+			this.animate();
+			console.log( 'PathTracerApp (WebGL): Resumed' );
+
+		}
+
+	}
+
 	dispose() {
 
 		cancelAnimationFrame( this.animationFrameId );

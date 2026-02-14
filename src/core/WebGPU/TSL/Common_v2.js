@@ -1,4 +1,4 @@
-import { Fn, vec2, vec3, vec4, float, int, dot, normalize, cross, abs, mix, atan2, asin, sqrt, mul, add, sub, div, pow, max, min } from 'three/tsl';
+import { Fn, vec3, float, dot, normalize, cross, abs, sqrt, max, min, struct } from 'three/tsl';
 
 /**
  * Common Utility Functions - Pure TSL
@@ -7,9 +7,8 @@ import { Fn, vec2, vec3, vec4, float, int, dot, normalize, cross, abs, mix, atan
  * NO wgslFn() - pure Three.js TSL
  */
 
-const PI = Math.PI;
-const TWO_PI = 2.0 * Math.PI;
-const PI_INV = 1.0 / Math.PI;
+export const PI = Math.PI;
+export const TWO_PI = 2.0 * Math.PI;
 
 // ================================================================================
 // VECTOR UTILITIES
@@ -43,32 +42,14 @@ export const luminance = Fn( ( [ color ] ) => {
 } );
 
 // ================================================================================
-// COORDINATE TRANSFORMATIONS
-// ================================================================================
-
-/**
- * Convert 3D direction to equirectangular UV
- * @param {vec3} direction - Normalized direction
- * @param {mat4} rotationMatrix - Optional rotation transform
- * @returns {vec2} UV coordinates [0, 1]
- */
-export const equirectDirectionToUv = Fn( ( [ direction, rotationMatrix ] ) => {
-
-	// Apply rotation if provided
-	const rotatedDir = rotationMatrix.mul( vec4( direction, 0.0 ) ).xyz.toVar( 'rotatedDir' );
-
-	// Convert to spherical coordinates
-	const u = float( 0.5 ).add( atan2( rotatedDir.x, rotatedDir.z ).div( TWO_PI ) );
-	const v = float( 0.5 ).sub( asin( rotatedDir.y ).div( PI ) );
-
-	return vec2( u, v );
-
-} );
-
-// ================================================================================
 // ORTHONORMAL BASIS CONSTRUCTION
 // ================================================================================
 
+const orthoNormalBasisStruct = struct( {
+	tangent: 'vec3',
+	bitangent: 'vec3',
+	normal: 'vec3',
+} );
 /**
  * Build tangent space from normal (TBN matrix)
  * @param {vec3} normal - Surface normal
@@ -87,7 +68,7 @@ export const buildOrthonormalBasis = Fn( ( [ normal ] ) => {
 	const tangent = normalize( cross( helper, normal ) );
 	const bitangent = cross( normal, tangent );
 
-	return { tangent, bitangent, normal };
+	return orthoNormalBasisStruct( { tangent, bitangent, normal } );
 
 } );
 

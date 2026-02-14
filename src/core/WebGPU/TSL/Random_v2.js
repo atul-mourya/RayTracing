@@ -225,7 +225,7 @@ const PRIME4 = uint( 374761393 );
 // -----------------------------------------------------------------------------
 // PCG (Permuted Congruential Generator) hash function
 
-export const pcg_hash = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
+export const pcgHash = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
 	const s = state_immutable.toVar( 's' );
 	s.assign( s.mul( 747796405 ).add( 2891336453 ) );
@@ -271,7 +271,7 @@ export const RandomValueFast = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 export const RandomValue = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
 	const state = state_immutable.toVar( 'state' );
-	state.assign( pcg_hash( state ) );
+	state.assign( pcgHash( state ) );
 
 	return float( state.shiftRight( 8 ) ).mul( 1.0 / 16777216.0 );
 
@@ -282,9 +282,9 @@ export const RandomValue = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 export const RandomValueHighPrecision = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
 	const state = state_immutable.toVar( 'state' );
-	const s1 = pcg_hash( state );
+	const s1 = pcgHash( state );
 	state.assign( s1 );
-	const s2 = pcg_hash( state );
+	const s2 = pcgHash( state );
 
 	// Combine two 24-bit values for 48-bit precision
 
@@ -330,7 +330,7 @@ export const sampleBlueNoiseRaw = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex
 
 	// Frame-based decorrelation with better hash
 
-	const frameHash = wang_hash( pcg_hash( uint( frame ) ) );
+	const frameHash = wang_hash( pcgHash( uint( frame ) ) );
 	const frameOffset = vec2( float( frameHash.bitAnd( 0xFFFF ) ).div( 65536.0 ), float( frameHash.shiftRight( 16 ).bitAnd( 0xFFFF ) ).div( 65536.0 ) );
 
 	// Scale offsets to texture size
@@ -432,7 +432,7 @@ export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, cur
 
 	// Apply additional Cranley-Patterson rotation for better distribution
 
-	const seed = pcg_hash( uint( currentSample ).bitXor( wang_hash( uint( maxSamples ) ) ) );
+	const seed = pcgHash( uint( currentSample ).bitXor( wang_hash( uint( maxSamples ) ) ) );
 	const rotation = vec2( float( seed.bitAnd( 0xFFFF ) ).div( 65536.0 ), float( seed.shiftRight( 16 ).bitAnd( 0xFFFF ) ).div( 65536.0 ) );
 
 	return cranleyPatterson2D( noise.xy, rotation );
@@ -552,7 +552,7 @@ export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, 
 	} ).Else( () => {
 
 		// Halton (technique 1+)
-		const scramble = pcg_hash( uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) );
+		const scramble = pcgHash( uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) );
 
 		// Halton sequence with different prime bases for each dimension
 		result.x.assign( haltonScrambled( sampleIndex, int( 2 ), scramble ) );
@@ -603,7 +603,7 @@ export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pi
 
 		// Sobol (technique 2)
 
-		const seed = pcg_hash( uint( pixelIndex ) );
+		const seed = pcgHash( uint( pixelIndex ) );
 		quasi.assign( owen_scrambled_sobol2D( uint( sampleIndex ), seed ) );
 
 	} ).ElseIf( samplingTechnique.greaterThanEqual( 1 ), () => {
@@ -714,7 +714,7 @@ export const getDecorrelatedSeed = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, f
 	// Multiple rounds of hashing for better quality
 
 	const seed = wang_hash( pixelSeed );
-	seed.assign( pcg_hash( seed.bitXor( raySeed ) ) );
+	seed.assign( pcgHash( seed.bitXor( raySeed ) ) );
 	seed.assign( wang_hash( seed.add( frameSeed ) ) );
 
 	return seed;
