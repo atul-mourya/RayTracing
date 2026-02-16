@@ -1,4 +1,4 @@
-import { struct } from 'three/tsl';
+import { struct } from './structProxy.js';
 
 export const Ray = struct( {
 	origin: 'vec3',
@@ -73,10 +73,11 @@ export const HitInfo = struct( {
 	dst: 'float',
 	hitPoint: 'vec3',
 	normal: 'vec3',
-	material: RayTracingMaterial,
 	uv: 'vec2',
 	materialIndex: 'int',
 	meshIndex: 'int',
+	boxTests: 'int',
+	triTests: 'int',
 } );
 
 export const Triangle = struct( {
@@ -176,7 +177,13 @@ export const MaterialCache = struct( {
 	alpha: 'float', // roughness squared
 	k: 'float', // Geometry term constant
 	alpha2: 'float', // roughness to the fourth power
-	texSamples: MaterialSamples, // Texture samples
+	// Flattened texture samples (TSL doesn't support nested struct types)
+	tsAlbedo: 'vec4',
+	tsEmissive: 'vec3',
+	tsMetalness: 'float',
+	tsRoughness: 'float',
+	tsNormal: 'vec3',
+	tsHasTextures: 'bool',
 
 	// BRDF optimization: precomputed shared values
 	invRoughness: 'float', // 1.0 - roughness

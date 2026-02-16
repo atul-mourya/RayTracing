@@ -1,28 +1,28 @@
 /**
- * PathTracer.js - Pure TSL Path Tracer Main Entry Point
+ * PathTracer.js - Main Path Tracer Entry Point
  *
- * Complete port of pathtracer.fs from GLSL to pure TSL/WGSL
- * NO wgslFn() - uses only Fn(), If(), Loop(), .toVar(), .assign()
+ * Exact port of pathtracer.fs main() function
+ * Pure TSL: Fn(), If(), Loop(), .toVar(), .assign() — NO wgslFn()
  *
- * This file contains:
- * - Main path tracing entry point
- * - Adaptive sampling support
- * - Edge detection for denoising
- * - Temporal accumulation
- * - Debug visualization modes
+ * Contains:
+ *  - dithering              — anti-banding dither pattern
+ *  - computeNDCDepth        — world position to NDC depth [0,1]
+ *  - getRequiredSamples     — adaptive sampling sample count
+ *  - pathTracerMain         — wrapper that forwards params object
+ *  - pathTracerImpl         — main entry TSL Fn (sample loop, MRT, accumulation)
  *
  * MRT Outputs:
- * - gColor: RGB + edge sharpness (alpha)
- * - gNormalDepth: Normal(RGB) + depth(A)
- * - gAlbedo: Albedo(RGB) for OIDN denoiser
+ *  - gColor:      RGB + edge sharpness (alpha)
+ *  - gNormalDepth: Normal(RGB) + depth(A)
+ *  - gAlbedo:     Albedo(RGB) for OIDN denoiser
  */
 
 import {
 	Fn,
 	float,
+	vec2,
 	vec3,
 	vec4,
-	vec2,
 	int,
 	uint,
 	bool as tslBool,
@@ -41,114 +41,73 @@ import {
 	Break,
 	texture,
 	select,
-	screenCoordinate
+	screenCoordinate,
 } from 'three/tsl';
 
 import {
 	RandomValue,
 	getDecorrelatedSeed,
 	getStratifiedSample,
-	pcgHash
+	pcgHash,
 } from './Random.js';
 
-import {
-	luminance,
-	PI,
-	TWO_PI,
-} from './Common.js';
-
-import {
-	traverseBVH,
-	generateRayFromCamera
-} from './BVHTraversal.js';
-
-import {
-	Trace,
-	traceSingleBounce
-} from './PathTracerCore.js';
-
+import { generateRayFromCamera } from './BVHTraversal.js';
+import { Trace, TraceResult } from './PathTracerCore.js';
+import { TraceDebugMode } from './Debugger.js';
 import {
 	Pixel,
 	Ray,
-	DirectionSample,
-	MaterialClassification,
-	BRDFWeights,
-	MaterialCache,
-	PathState,
-	pathTracerOutputStruct
+	pathTracerOutputStruct,
 } from './Struct.js';
 
-// ================================================================================
-// HELPER FUNCTIONS
-// ================================================================================
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
-/**
- * Dithering to prevent banding in 8-bit output
- * Matches GLSL dithering function
- */
+// Dithering to prevent banding in 8-bit output
 export const dithering = Fn( ( [ color, seed ] ) => {
 
 	const gridPosition = RandomValue( seed );
 	const ditherShiftRGB = vec3( 0.25 / 255.0, - 0.25 / 255.0, 0.25 / 255.0 ).toVar( 'ditherShiftRGB' );
 
-	// Modify shift according to grid position
 	ditherShiftRGB.assign(
-		mix( ditherShiftRGB.mul( 2.0 ), ditherShiftRGB.mul( - 2.0 ), gridPosition )
+		mix( ditherShiftRGB.mul( 2.0 ), ditherShiftRGB.mul( - 2.0 ), gridPosition ),
 	);
 
 	return color.add( ditherShiftRGB );
 
 } );
 
-/**
- * Compute NDC depth from world position
- * Outputs depth in [0, 1] range suitable for motion vector reprojection
- * Matches GLSL computeNDCDepth function
- */
+// Compute NDC depth from world position for motion vector reprojection
 export const computeNDCDepth = Fn( ( [ worldPos, cameraProjectionMatrix, cameraViewMatrix ] ) => {
 
-	// Transform world position to clip space
 	const clipPos = cameraProjectionMatrix.mul( cameraViewMatrix ).mul( vec4( worldPos, 1.0 ) );
-
-	// Convert to NDC depth [0, 1]
 	const ndcDepth = clipPos.z.div( clipPos.w ).mul( 0.5 ).add( 0.5 );
-
 	return clamp( ndcDepth, 0.0, 1.0 );
 
 } );
 
-/**
- * Get required samples count from adaptive sampling texture
- * Matches GLSL getRequiredSamples function
- */
+// Get required samples from adaptive sampling texture
 export const getRequiredSamples = Fn( ( [
-	pixelCoord,
-	resolution,
-	adaptiveSamplingTexture,
-	adaptiveSamplingMax,
-	numRaysPerPixel
+	pixelCoord, resolution,
+	adaptiveSamplingTexture, adaptiveSamplingMax,
 ] ) => {
 
 	const texCoord = pixelCoord.div( resolution );
-	const samplingData = texture( adaptiveSamplingTexture, texCoord );
+	const samplingData = texture( adaptiveSamplingTexture, texCoord, 0 );
 
-	const result = int( numRaysPerPixel ).toVar( 'requiredSamples' );
+	const result = int( 0 ).toVar( 'grs_result' );
 
-	// Early exit for converged pixels (blue channel > 0.5)
+	// Early exit for converged pixels
 	If( samplingData.b.greaterThan( 0.5 ), () => {
 
 		result.assign( 0 );
 
 	} ).Else( () => {
 
-		// Get normalized sample count
 		const normalizedSamples = samplingData.r;
-
-		// Stable conversion with minimum guarantee
 		const targetSamples = normalizedSamples.mul( float( adaptiveSamplingMax ) );
-		const samples = int( floor( targetSamples.add( 0.5 ) ) ); // Stable rounding
-
-		// Ensure minimum samples and valid range
+		const samples = int( floor( targetSamples.add( 0.5 ) ) );
 		result.assign( clamp( samples, 1, adaptiveSamplingMax ) );
 
 	} );
@@ -157,312 +116,188 @@ export const getRequiredSamples = Fn( ( [
 
 } );
 
-// ================================================================================
-// DEBUG VISUALIZATION MODES
-// ================================================================================
+// =============================================================================
+// Main Entry Point (Wrapper)
+// =============================================================================
 
-/**
- * Debug trace for visualization modes
- * Matches GLSL TraceDebugMode function
- */
-export const traceDebugMode = Fn( ( [
-	rayOrigin,
-	rayDir,
-	visMode,
-	bvhTex, bvhTexSize,
-	triTex, triTexSize,
-	matTex, matTexSize,
-	envTex, envIntensity, envMatrix, hasEnv
-] ) => {
-
-	const result = vec4( 0.0 ).toVar( 'debugResult' );
-
-	// BVH traversal for debug info
-	const hitResult = traverseBVH(
-		rayOrigin, rayDir, float( 0.0001 ), float( 1e10 ),
-		bvhTex, bvhTexSize, triTex, triTexSize
-	).toVar( 'debugHitResult' );
-
-	const didHit = hitResult.get( 'hit' );
-	const hitT = hitResult.get( 't' );
-	const hitTriIndex = hitResult.get( 'triangleIndex' );
-
-	// Mode 1: Triangle intersection count (heat map)
-	If( visMode.equal( 1 ), () => {
-
-		If( didHit, () => {
-
-			// Visualize triangle index as color
-			const idx = float( hitTriIndex );
-			const r = idx.mul( 0.123 ).fract();
-			const g = idx.mul( 0.456 ).fract();
-			const b = idx.mul( 0.789 ).fract();
-			result.assign( vec4( r, g, b, 1.0 ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 0.0, 0.0, 0.0, 1.0 ) );
-
-		} );
-
-	} );
-
-	// Mode 2: BVH box test count
-	If( visMode.equal( 2 ), () => {
-
-		If( didHit, () => {
-
-			// Visualize depth as heat
-			const normalizedDepth = clamp( hitT.div( 50.0 ), 0.0, 1.0 );
-			result.assign( vec4( normalizedDepth, float( 1.0 ).sub( normalizedDepth ), 0.0, 1.0 ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 0.0, 0.0, 0.2, 1.0 ) );
-
-		} );
-
-	} );
-
-	// Mode 3: Ray distance visualization
-	If( visMode.equal( 3 ), () => {
-
-		If( didHit, () => {
-
-			const normalizedDist = clamp( hitT.div( 100.0 ), 0.0, 1.0 );
-			result.assign( vec4( vec3( normalizedDist ), 1.0 ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 1.0, 0.0, 1.0, 1.0 ) ); // Magenta for miss
-
-		} );
-
-	} );
-
-	// Mode 4: Surface normals (from single bounce)
-	If( visMode.equal( 4 ), () => {
-
-		const traceOutput = traceSingleBounce(
-			rayOrigin, rayDir,
-			bvhTex, bvhTexSize,
-			triTex, triTexSize,
-			matTex, matTexSize,
-			envTex, envIntensity, envMatrix, hasEnv
-		);
-		result.assign( vec4( traceOutput.xyz.mul( 0.5 ).add( 0.5 ), 1.0 ) );
-
-	} );
-
-	// Mode 6: Environment luminance heat map
-	If( visMode.equal( 6 ), () => {
-
-		If( hasEnv, () => {
-
-			// Sample environment
-			const rotatedDir = envMatrix.mul( vec4( rayDir, 0.0 ) ).xyz;
-			const u = float( 0.5 ).add( rotatedDir.x.atan( rotatedDir.z ).div( TWO_PI ) );
-			const v = float( 0.5 ).sub( rotatedDir.y.asin().div( PI ) );
-			const envColor = texture( envTex, vec2( u, v ) ).rgb;
-			const lum = luminance( envColor );
-			// Heat map coloring
-			const r = clamp( lum.mul( 2.0 ), 0.0, 1.0 );
-			const g = clamp( lum.mul( 2.0 ).sub( 0.5 ), 0.0, 1.0 );
-			const b = clamp( lum.sub( 1.0 ), 0.0, 1.0 );
-			result.assign( vec4( r, g, b, 1.0 ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 0.1, 0.1, 0.1, 1.0 ) );
-
-		} );
-
-	} );
-
-	return result;
-
-} );
-
-// ================================================================================
-// MAIN PATH TRACER
-// ================================================================================
-
-/**
- * Main path tracer entry point
- * Complete port of GLSL main() function
- *
- * @param {vec2} resolution - Screen resolution
- * @param {uint} frame - Current frame number
- * @param {int} numRaysPerPixel - Base samples per pixel
- * @param {int} visMode - Visualization mode (0 = normal, >0 = debug)
- *
- * Camera parameters:
- * @param {mat4} cameraWorldMatrix - Camera world transformation
- * @param {mat4} cameraProjectionMatrixInverse - Inverse projection matrix
- * @param {mat4} cameraViewMatrix - Camera view matrix
- * @param {mat4} cameraProjectionMatrix - Camera projection matrix
- *
- * Scene textures:
- * @param {sampler2D} bvhTex, bvhTexSize - BVH acceleration structure
- * @param {sampler2D} triTex, triTexSize - Triangle geometry data
- * @param {sampler2D} matTex, matTexSize - Material data
- * @param {sampler2D} envTex - Environment map
- *
- * Settings:
- * @param {bool} hasEnv - Has environment map
- * @param {float} envIntensity - Environment intensity
- * @param {mat4} environmentMatrix - Environment rotation
- * @param {int} maxBounces - Maximum path bounces
- * @param {int} transmissiveBounces - Additional transmission bounces
- * @param {bool} showBackground - Show background for primary rays
- * @param {float} backgroundIntensity - Background intensity
- * @param {float} fireflyThreshold - Firefly suppression threshold
- *
- * Environment importance sampling:
- * @param {vec2} envSize - Environment map dimensions
- * @param {sampler2D} marginalCDF - Marginal CDF texture
- * @param {sampler2D} conditionalCDF - Conditional CDF texture
- * @param {float} hasImportanceSampling - Has env importance sampling data
- *
- * Accumulation:
- * @param {bool} enableAccumulation - Enable temporal accumulation
- * @param {bool} hasPreviousAccumulated - Has previous frame data
- * @param {sampler2D} prevAccumTexture - Previous accumulated frame
- * @param {float} accumulationAlpha - Accumulation blend factor
- * @param {bool} cameraIsMoving - Camera movement flag
- *
- * Adaptive sampling:
- * @param {bool} useAdaptiveSampling - Enable adaptive sampling
- * @param {sampler2D} adaptiveSamplingTexture - Adaptive sampling data
- * @param {int} adaptiveSamplingMax - Maximum adaptive samples
- *
- * @returns {pathTracerOutputStruct} MRT outputs (gColor, gNormalDepth, gAlbedo)
- */
 export const pathTracerMain = ( params ) => {
 
 	return pathTracerImpl(
+		// Frame / resolution
 		params.resolution,
 		params.frame,
 		params.samplesPerPixel,
 		params.visMode,
-
+		// Camera
 		params.cameraWorldMatrix,
 		params.cameraProjectionMatrixInverse,
 		params.cameraViewMatrix,
 		params.cameraProjectionMatrix,
-
-		params.bvhTex,
+		// BVH / Scene
+		params.bvhTexture,
 		params.bvhTexSize,
-		params.triTex,
-		params.triTexSize,
-		params.matTex,
-		params.matTexSize,
-		params.envTex,
-
-		params.hasEnv,
-		params.envIntensity,
-		params.environmentMatrix,
-		params.maxBounces,
+		params.triangleTexture,
+		params.triangleTexSize,
+		params.materialTexture,
+		params.materialTexSize,
+		// Texture arrays
+		params.albedoMaps,
+		params.normalMaps,
+		params.bumpMaps,
+		params.metalnessMaps,
+		params.roughnessMaps,
+		params.emissiveMaps,
+		params.displacementMaps,
+		// Lights
+		params.directionalLightsBuffer,
+		params.numDirectionalLights,
+		params.areaLightsBuffer,
+		params.numAreaLights,
+		params.pointLightsBuffer,
+		params.numPointLights,
+		params.spotLightsBuffer,
+		params.numSpotLights,
+		// Environment
+		params.envTexture,
+		params.environmentIntensity,
+		params.envMatrix,
+		params.envMarginalWeights,
+		params.envConditionalWeights,
+		params.envTotalSum,
+		params.envResolution,
+		params.enableEnvironmentLight,
+		params.useEnvMapIS,
+		// Rendering parameters
+		params.maxBounceCount,
 		params.transmissiveBounces,
 		params.showBackground,
 		params.backgroundIntensity,
 		params.fireflyThreshold,
-
-		params.envSize,
-		params.marginalCDF,
-		params.conditionalCDF,
-		params.hasImportanceSampling,
-
+		params.globalIlluminationIntensity,
+		params.totalTriangleCount,
+		params.enableEmissiveTriangleSampling,
+		// Debug
+		params.debugVisScale,
+		// Accumulation
 		params.enableAccumulation,
 		params.hasPreviousAccumulated,
 		params.prevAccumTexture,
 		params.accumulationAlpha,
 		params.cameraIsMoving,
-
+		// Adaptive sampling
 		params.useAdaptiveSampling,
 		params.adaptiveSamplingTexture,
-		params.adaptiveSamplingMax
+		params.adaptiveSamplingMax,
+		// DOF / Camera lens
+		params.enableDOF,
+		params.focalLength,
+		params.aperture,
+		params.focusDistance,
+		params.sceneScale,
+		params.apertureScale,
 	);
 
 };
 
+// =============================================================================
+// Main Path Tracer Implementation (TSL Fn)
+// =============================================================================
+
 const pathTracerImpl = Fn( ( [
-	// Frame/Resolution
+	// Frame / resolution
 	resolution, frame, numRaysPerPixel, visMode,
 	// Camera
 	cameraWorldMatrix, cameraProjectionMatrixInverse, cameraViewMatrix, cameraProjectionMatrix,
-	// Textures
-	bvhTex, bvhTexSize,
-	triTex, triTexSize,
-	matTex, matTexSize,
-	envTex,
-	// Settings
-	hasEnv, envIntensity, environmentMatrix,
-	maxBounces, transmissiveBounces,
-	showBackground, backgroundIntensity, fireflyThreshold,
-	// Environment importance sampling
-	envSize, marginalCDF, conditionalCDF, hasImportanceSampling,
+	// BVH / Scene
+	bvhTexture, bvhTexSize,
+	triangleTexture, triangleTexSize,
+	materialTexture, materialTexSize,
+	// Texture arrays
+	albedoMaps, normalMaps, bumpMaps,
+	metalnessMaps, roughnessMaps, emissiveMaps,
+	displacementMaps,
+	// Lights
+	directionalLightsBuffer, numDirectionalLights,
+	areaLightsBuffer, numAreaLights,
+	pointLightsBuffer, numPointLights,
+	spotLightsBuffer, numSpotLights,
+	// Environment
+	envTexture, environmentIntensity, envMatrix,
+	envMarginalWeights, envConditionalWeights,
+	envTotalSum, envResolution,
+	enableEnvironmentLight, useEnvMapIS,
+	// Rendering parameters
+	maxBounceCount, transmissiveBounces,
+	showBackground, backgroundIntensity,
+	fireflyThreshold, globalIlluminationIntensity,
+	totalTriangleCount, enableEmissiveTriangleSampling,
+	// Debug
+	debugVisScale,
 	// Accumulation
-	enableAccumulation, hasPreviousAccumulated, prevAccumTexture, accumulationAlpha, cameraIsMoving,
-	// Adaptive Sampling
-	useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMax
+	enableAccumulation, hasPreviousAccumulated,
+	prevAccumTexture, accumulationAlpha, cameraIsMoving,
+	// Adaptive sampling
+	useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMax,
+	// DOF / Camera lens
+	enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
 ] ) => {
 
 	const pixelCoord = screenCoordinate.xy.toVar( 'pixelCoord' );
 
 	// Screen position in NDC [-1, 1]
-	// WebGPU screenCoordinate.y is 0 at top (increases downward), opposite of WebGL.
-	// Flip Y so that NDC y=+1 is top and y=-1 is bottom, matching the camera projection.
-	const uv = pixelCoord.div( resolution ).toVar( 'uv' );
-	const screenPosition = vec2( uv.x.mul( 2.0 ).sub( 1.0 ), uv.y.mul( - 2.0 ).add( 1.0 ) ).toVar( 'screenPosition' );
+	// Negate Y to match WebGL's bottom-up gl_FragCoord convention
+	// (WebGPU screenCoordinate.y is top-down)
+	const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar( 'screenPosition' );
+	screenPosition.y.assign( screenPosition.y.negate() );
 
 	// Initialize pixel accumulator
 	const pixelColor = vec4( 0.0 ).toVar( 'pixelColor' );
 	const pixelSamples = int( 0 ).toVar( 'pixelSamples' );
 
-	// Base seed for random number generation
 	const baseSeed = getDecorrelatedSeed( pixelCoord, int( 0 ), frame ).toVar( 'baseSeed' );
 	const pixelIndex = int( pixelCoord.y ).mul( int( resolution.x ) ).add( int( pixelCoord.x ) ).toVar( 'pixelIndex' );
 
-	// MRT data initialized with defaults
+	// MRT data
 	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar( 'worldNormal' );
 	const linearDepth = float( 1.0 ).toVar( 'linearDepth' );
 
-	// Determine sample count
 	const samplesCount = int( numRaysPerPixel ).toVar( 'samplesCount' );
 
-	// Adaptive sampling support
-	If( frame.greaterThan( uint( 2 ) ).and( useAdaptiveSampling ), () => {
+	// Adaptive sampling
+	// If( frame.greaterThan( uint( 2 ) ).and( useAdaptiveSampling ), () => {
 
-		const adaptiveSamples = getRequiredSamples(
-			pixelCoord, resolution,
-			adaptiveSamplingTexture, adaptiveSamplingMax, numRaysPerPixel
-		);
-		samplesCount.assign( adaptiveSamples );
+	// 	const adaptiveSamples = getRequiredSamples(
+	// 		pixelCoord, resolution,
+	// 		adaptiveSamplingTexture, adaptiveSamplingMax,
+	// 	);
+	// 	samplesCount.assign( adaptiveSamples );
 
-		// Handle converged pixels
-		If( samplesCount.equal( 0 ), () => {
+	// 	// Handle converged pixels
+	// 	If( samplesCount.equal( int( 0 ) ), () => {
 
-			If( enableAccumulation.and( hasPreviousAccumulated ), () => {
+	// 		If( enableAccumulation.and( hasPreviousAccumulated ), () => {
 
-				// Use accumulated result for converged pixels
-				const prevUV = pixelCoord.div( resolution );
-				const prevColor = texture( prevAccumTexture, prevUV );
-				pixelColor.assign( prevColor );
-				pixelSamples.assign( 1 );
+	// 			const prevUV = pixelCoord.div( resolution );
+	// 			pixelColor.assign( texture( prevAccumTexture, prevUV, 0 ) );
 
-			} ).Else( () => {
+	// 		} ).Else( () => {
 
-				// No accumulation available, render at least 1 sample
-				samplesCount.assign( 1 );
+	// 			samplesCount.assign( 1 );
 
-			} );
+	// 		} );
 
-		} );
+	// 		// If still 0 after accumulation check, output MRT defaults and return
+	// 		If( samplesCount.equal( int( 0 ) ), () => {
 
-	} );
+	// 			// Handled below after the loop
 
-	// Edge detection variables (from first ray only)
+	// 		} );
+
+	// 	} );
+
+	// } );
+
+	// Edge detection variables
 	const objectNormal = vec3( 0.0 ).toVar( 'objectNormal' );
 	const objectColor = vec3( 0.0 ).toVar( 'objectColor' );
 	const objectID = float( - 1000.0 ).toVar( 'objectID' );
@@ -471,91 +306,96 @@ const pathTracerImpl = Fn( ( [
 	// Main sample loop
 	Loop( { start: int( 0 ), end: samplesCount, type: 'int', condition: '<' }, ( { i: rayIndex } ) => {
 
-		// Generate unique seed for this sample
 		const seed = pcgHash( baseSeed.add( uint( rayIndex ) ) ).toVar( 'seed' );
 
-		// Stratified jitter for anti-aliasing
-		const stratifiedJitter = getStratifiedSample(
-			pixelCoord, rayIndex, samplesCount, seed, resolution, frame
-		).toVar( 'stratifiedJitter' );
+		// const stratifiedJitter = getStratifiedSample(
+		// 	pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
+		// ).toVar( 'stratifiedJitter' );
 
-		// Debug mode 5: Visualize stratified samples
-		If( visMode.equal( 5 ), () => {
+		// // Debug mode 5: Visualize stratified samples
+		// If( visMode.equal( int( 5 ) ), () => {
 
-			pixelColor.assign( vec4( stratifiedJitter, 1.0, 1.0 ) );
-			pixelSamples.assign( 1 );
-			Break();
+		// 	pixelColor.assign( vec4( stratifiedJitter, 1.0, 1.0 ) );
+		// 	pixelSamples.assign( 1 );
+		// 	Break();
 
-		} );
+		// } );
 
-		// Apply jitter to screen position
-		const jitter = stratifiedJitter.sub( 0.5 ).mul( vec2( 2.0 ).div( resolution ) ).toVar( 'jitter' );
-		const jitteredScreenPosition = screenPosition.add( jitter ).toVar( 'jitteredScreenPosition' );
+		// const jitter = stratifiedJitter.sub( 0.5 ).mul( vec2( 2.0 ).div( resolution ) );
+		const jitteredScreenPosition = screenPosition;//.add( jitter );
 
-		// Generate ray from camera
-		const ray = generateRayFromCamera(
-			jitteredScreenPosition, cameraWorldMatrix, cameraProjectionMatrixInverse, seed
-		).toVar( 'ray' );
-		const rayOrigin = ray.get( 'origin' ).toVar( 'rayOrigin' );
-		const rayDir = ray.get( 'direction' ).toVar( 'rayDir' );
+		const ray = Ray.wrap( generateRayFromCamera(
+			jitteredScreenPosition, seed,
+			cameraWorldMatrix, cameraProjectionMatrixInverse,
+			enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
+		) );
 
-		// Sample result
 		const sampleColor = vec4( 0.0 ).toVar( 'sampleColor' );
 
-		// Debug visualization modes
-		If( visMode.greaterThan( 0 ), () => {
+		// pixelColor.assign( svec4( 1.0, 0.0, 1.0, 1.0 ) ); // Magenta debug color for uninitialized rays
+		// Debug or normal trace
+		If( visMode.greaterThan( int( 0 ) ), () => {
 
-			sampleColor.assign( traceDebugMode(
-				rayOrigin, rayDir, visMode,
-				bvhTex, bvhTexSize,
-				triTex, triTexSize,
-				matTex, matTexSize,
-				envTex, envIntensity, environmentMatrix, hasEnv
+			sampleColor.assign( TraceDebugMode(
+				ray.origin, ray.direction,
+				bvhTexture, bvhTexSize,
+				triangleTexture, triangleTexSize,
+				materialTexture, materialTexSize,
+				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
+				envMarginalWeights, envConditionalWeights,
+				envTotalSum, envResolution,
+				useEnvMapIS,
+				visMode, debugVisScale,
+				pixelCoord, resolution,
 			) );
 
 		} ).Else( () => {
 
 			// Normal path tracing
-			const traceResult = Trace(
-				rayOrigin, rayDir,
-				seed,
-				maxBounces, transmissiveBounces,
-				bvhTex, bvhTexSize,
-				triTex, triTexSize,
-				matTex, matTexSize,
-				envTex, envIntensity, environmentMatrix, hasEnv,
-				showBackground, backgroundIntensity, fireflyThreshold,
-				envSize, marginalCDF, conditionalCDF, hasImportanceSampling
-			).toVar( 'traceResult' );
+			const traceResult = TraceResult.wrap( Trace(
+				ray, seed, rayIndex, pixelIndex,
+				bvhTexture, bvhTexSize,
+				triangleTexture, triangleTexSize,
+				materialTexture, materialTexSize,
+				albedoMaps, normalMaps, bumpMaps,
+				metalnessMaps, roughnessMaps, emissiveMaps,
+				displacementMaps,
+				directionalLightsBuffer, numDirectionalLights,
+				areaLightsBuffer, numAreaLights,
+				pointLightsBuffer, numPointLights,
+				spotLightsBuffer, numSpotLights,
+				envTexture, environmentIntensity, envMatrix,
+				envMarginalWeights, envConditionalWeights,
+				envTotalSum, envResolution,
+				enableEnvironmentLight, useEnvMapIS,
+				maxBounceCount, transmissiveBounces,
+				backgroundIntensity, showBackground,
+				fireflyThreshold, globalIlluminationIntensity,
+				totalTriangleCount, enableEmissiveTriangleSampling,
+				pixelCoord, resolution, frame,
+			) );
 
-			const radiance = traceResult.get( 'gColor' ).xyz;
-			const alpha = traceResult.get( 'gColor' ).w;
-			const normal = traceResult.get( 'gNormalDepth' ).xyz;
-			const depth = traceResult.get( 'gNormalDepth' ).w;
-			const albedo = traceResult.get( 'gAlbedo' ).xyz;
-			const matIndex = traceResult.get( 'gAlbedo' ).w;
+			sampleColor.assign( traceResult.radiance );
 
-			sampleColor.assign( vec4( radiance, alpha ) );
+			// Accumulate edge detection data from primary rays
+			If( rayIndex.equal( int( 0 ) ), () => {
 
-			// Store first hit data for edge detection and MRT
-			If( rayIndex.equal( 0 ), () => {
-
-				objectNormal.assign( normal );
-				objectColor.assign( albedo );
-				objectID.assign( matIndex );
+				objectNormal.assign( traceResult.objectNormal );
+				objectColor.assign( traceResult.objectColor );
+				objectID.assign( traceResult.objectID );
 
 				// Set MRT data from first hit
-				worldNormal.assign( normalize( normal ) );
+				worldNormal.assign( normalize( traceResult.objectNormal ) );
 
-				// Compute proper NDC depth from depth value
-				If( depth.lessThan( 1e9 ), () => {
+				// Compute proper NDC depth from actual hit point
+				If( traceResult.firstHitDistance.lessThan( 1e9 ), () => {
 
-					// Normalize depth for output (adjust scale as needed)
-					linearDepth.assign( clamp( depth.div( 100.0 ), 0.0, 1.0 ) );
+					linearDepth.assign( computeNDCDepth(
+						traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
+					) );
 
 				} ).Else( () => {
 
-					// No hit (sky/background) - use far plane depth
 					linearDepth.assign( 1.0 );
 
 				} );
@@ -564,28 +404,25 @@ const pathTracerImpl = Fn( ( [
 
 		} );
 
-		// Accumulate sample
 		pixelColor.addAssign( sampleColor );
 		pixelSamples.addAssign( 1 );
 
 	} );
 
 	// Average samples
-	If( pixelSamples.greaterThan( 0 ), () => {
+	If( pixelSamples.greaterThan( int( 0 ) ), () => {
 
 		pixelColor.divAssign( float( pixelSamples ) );
 
 	} );
 
-	// Apply dithering AFTER averaging to prevent banding in 8-bit output
-	pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
+	// Apply dithering AFTER averaging
+	// pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
 
-	// Edge Detection for denoiser guidance
-	// Depth-based edges (uses actual ray hit depth)
+	// Edge Detection
 	const depthDifference = fwidth( linearDepth );
 	const depthEdge = smoothstep( float( 0.01 ), float( 0.05 ), depthDifference );
 
-	// Normal-based edges
 	const differenceNx = fwidth( objectNormal.x );
 	const differenceNy = fwidth( objectNormal.y );
 	const differenceNz = fwidth( objectNormal.z );
@@ -593,10 +430,9 @@ const pathTracerImpl = Fn( ( [
 		.add( smoothstep( float( 0.3 ), float( 0.8 ), differenceNy ) )
 		.add( smoothstep( float( 0.3 ), float( 0.8 ), differenceNz ) );
 
-	// Object ID discontinuities (mesh boundaries)
 	const objectDifference = min( fwidth( objectID ), 1.0 );
 
-	// Mark pixel as edge if depth OR normal discontinuity detected
+	// Mark pixel as edge
 	If( depthEdge.greaterThan( 0.5 )
 		.or( normalDifference.greaterThanEqual( 1.0 ) )
 		.or( objectDifference.greaterThanEqual( 1.0 ) ), () => {
@@ -605,7 +441,6 @@ const pathTracerImpl = Fn( ( [
 
 	} );
 
-	// Store edge sharpness in alpha for denoiser
 	pixelColor.w.assign( pixelSharpness );
 
 	// Temporal accumulation
@@ -613,35 +448,18 @@ const pathTracerImpl = Fn( ( [
 
 	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 1 ) ) ).and( hasPreviousAccumulated ), () => {
 
-		// Get previous accumulated color
 		const prevUV = pixelCoord.div( resolution );
-		const previousColor = texture( prevAccumTexture, prevUV ).xyz;
-
-		// Blend with previous frame using exponential moving average
+		const previousColor = texture( prevAccumTexture, prevUV, 0 ).xyz;
 		finalColor.assign( previousColor.add( pixelColor.xyz.sub( previousColor ).mul( accumulationAlpha ) ) );
 
 	} );
 
-	// Output MRT
-	const finalOutputColor = vec4( finalColor, 1.0 ).toVar( 'finalOutputColor' );
-	const finalOutputNormalDepth = vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ).toVar( 'finalOutputNormalDepth' );
-	const finalOutputAlbedo = vec4( objectColor, 1.0 ).toVar( 'finalOutputAlbedo' );
-
+	// Clean MRT output
 	return pathTracerOutputStruct( {
-		gColor: finalOutputColor,
-		gNormalDepth: finalOutputNormalDepth,
-		gAlbedo: finalOutputAlbedo
+		// gColor: vec4( finalColor, 1.0 ),
+		gColor: vec4( finalColor.xyz, 1.0 ),
+		gNormalDepth: vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ),
+		gAlbedo: vec4( objectColor, 1.0 ),
 	} );
 
 } );
-
-export {
-	Pixel,
-	Ray,
-	DirectionSample,
-	MaterialClassification,
-	BRDFWeights,
-	MaterialCache,
-	PathState,
-	pathTracerOutputStruct
-};

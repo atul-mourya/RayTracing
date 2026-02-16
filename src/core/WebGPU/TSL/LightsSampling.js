@@ -1,98 +1,792 @@
 /**
- * LightsSampling.js - Pure TSL Direct Lighting
+ * LightsSampling.js - Light Sampling and Unified Direct Lighting
  *
- * Exact port of lights_sampling.fs → calculateDirectLightingUnified
- * Pure TSL: Fn(), If(), .toVar(), .assign() — NO wgslFn()
+ * Exact port of lights_sampling.fs
+ * Pure TSL: Fn(), If(), Loop(), .toVar(), .assign() — NO wgslFn()
  *
- * v2 mapping vs GLSL:
- *  traceShadowRay              → traverseBVHShadow
- *  sampleEquirectProbability   → sampleEnvironmentDirection (returns vec4(dir, pdf))
- *  evaluateMaterialResponse    → evaluateDiffuseBRDF + evaluateSpecularBRDF
- *  calculateVNDFPDF            → D(H) * NoH / (4 * VoH) inline
- *  powerHeuristic              → pure TSL math
- *
- * v2 context (no discrete lights):
- *  totalLights = 0 → sampleLights = false, sampleBRDF = false
- *  sampleEnv = true when enableEnvironmentLight
- *  MIS strategy simplified: envWeight = 1.0, totalSamplingWeight = 1.0
+ * Contains:
+ *  - initLightSample                  — fully initialize LightSample
+ *  - sampleRectAreaLight              — rectangle area light sampling
+ *  - sampleCircAreaLight              — circle area light sampling
+ *  - sampleSpotLightWithRadius        — spot light sampling with radius
+ *  - samplePointLightWithAttenuation  — point light sampling with attenuation
+ *  - sampleLightWithImportance        — importance-weighted light selection (3-pass)
+ *  - calculateMaterialPDF             — material PDF for MIS
+ *  - sampleAreaLightContribution      — area light with MIS
+ *  - calculateDirectLightingUnified   — unified direct lighting (main entry)
  */
 
 import {
 	Fn,
 	float,
+	vec2,
 	vec3,
 	vec4,
-	vec2,
-	max,
-	dot,
-	normalize,
-	mix,
-	If,
-	texture,
+	int,
+	uint,
 	bool as tslBool,
+	max,
+	min,
+	abs,
+	sqrt,
+	cos,
+	sin,
+	dot,
+	cross,
+	normalize,
+	length,
+	clamp,
+	mix,
+	select,
+	If,
+	Loop,
+	Break,
+	texture,
 } from 'three/tsl';
 
+import {
+	DirectionalLight, AreaLight, PointLight, SpotLight,
+	LightSample,
+	LIGHT_TYPE_DIRECTIONAL,
+	LIGHT_TYPE_AREA,
+	LIGHT_TYPE_POINT,
+	LIGHT_TYPE_SPOT,
+	getDirectionalLight,
+	getAreaLight,
+	getPointLight,
+	getSpotLight,
+	isDirectionValid,
+	getDistanceAttenuation,
+	getSpotAttenuation,
+	misHeuristic,
+	intersectAreaLight,
+} from './LightsCore.js';
+
+import { MISStrategy } from './Struct.js';
+import {
+	calculateDirectionalLightImportance,
+	estimateLightImportance,
+	calculatePointLightImportance,
+	calculateSpotLightImportance,
+	traceShadowRay,
+} from './LightsDirect.js';
+
 import { traverseBVHShadow } from './BVHTraversal.js';
+import { evaluateMaterialResponse } from './MaterialEvaluation.js';
+import { calculateVNDFPDF } from './MaterialProperties.js';
 import { RandomValue } from './Random.js';
-import { fresnelSchlick, distributionGGX, geometrySmith } from './Common.js';
-import { sampleEnvironmentDirection } from './Environment.js';
+import {
+	selectOptimalMISStrategy,
+	PI,
+	PI_INV,
+	EPSILON,
+	MIN_PDF,
+	powerHeuristic,
+} from './Common.js';
+import {
+	sampleEquirectProbability,
+	sampleEquirectProbabilityColor,
+	sampleEquirect,
+} from './Environment.js';
 
-const PI = Math.PI;
 const TWO_PI = 2.0 * PI;
-const PI_INV = 1.0 / PI;
 
-// ================================================================================
-// POWER HEURISTIC
-// Matches GLSL: powerHeuristic(a, b) = a² / (a² + b²)
-// ================================================================================
+// =============================================================================
+// Helper: Fully Initialize LightSample
+// =============================================================================
 
-export const powerHeuristic = Fn( ( [ a, b ] ) => {
+export const initLightSample = Fn( () => {
 
-	const a2 = a.mul( a ).toVar( 'ph_a2' );
-	const b2 = b.mul( b ).toVar( 'ph_b2' );
-	return a2.div( max( a2.add( b2 ), 1e-10 ) );
-
-} );
-
-// ================================================================================
-// DIRECTION VALIDITY CHECK
-// Matches GLSL: isDirectionValid — direction must be in the same hemisphere as normal
-// ================================================================================
-
-export const isDirectionValid = Fn( ( [ dir, normal ] ) => {
-
-	return dot( dir, normal ).greaterThan( 0.0 );
+	return LightSample( {
+		valid: tslBool( false ),
+		direction: vec3( 0.0, 1.0, 0.0 ),
+		emission: vec3( 0.0 ),
+		distance: float( 0.0 ),
+		pdf: float( 0.0 ),
+		lightType: int( LIGHT_TYPE_POINT ),
+	} );
 
 } );
 
-// ================================================================================
-// MATERIAL PDF CALCULATION FOR MIS
-// Exact port of GLSL calculateMaterialPDF(viewDir, lightDir, normal, material)
-// Accepts explicit metalness/roughness/transmission instead of material struct
-// ================================================================================
+// =============================================================================
+// Light Sampling Functions
+// =============================================================================
 
-export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, metalness, roughness, transmission ] ) => {
+// Enhanced area light sampling - rectangle
+export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelectionPdf ] ) => {
 
-	// result variable at top — TSL pattern (no return inside If callbacks)
-	const pdf = float( 0.0 ).toVar( 'mpdf_pdf' );
+	// Result variables (no early return in TSL)
+	const ls_valid = tslBool( false ).toVar( 'sral_valid' );
+	const ls_direction = vec3( 0.0, 1.0, 0.0 ).toVar( 'sral_dir' );
+	const ls_emission = vec3( 0.0 ).toVar( 'sral_emission' );
+	const ls_distance = float( 0.0 ).toVar( 'sral_dist' );
+	const ls_pdf = float( 0.0 ).toVar( 'sral_pdf' );
+	const ls_lightType = int( LIGHT_TYPE_POINT ).toVar( 'sral_type' );
 
-	const NoL = max( 0.0, dot( normal, lightDir ) ).toVar( 'mpdf_NoL' );
+	// Validate light area to prevent NaN
+	If( light.area.greaterThan( 0.0 ), () => {
+
+		// Sample random position on rectangle
+		const randomPos = light.position
+			.add( light.u.mul( ruv.x.sub( 0.5 ) ) )
+			.add( light.v.mul( ruv.y.sub( 0.5 ) ) )
+			.toVar( 'sral_rpos' );
+
+		const toLight = randomPos.sub( rayOrigin ).toVar( 'sral_toLight' );
+		const lightDistSq = dot( toLight, toLight ).toVar( 'sral_distSq' );
+
+		// Guard against zero distance
+		If( lightDistSq.greaterThanEqual( 1e-10 ), () => {
+
+			const dist = sqrt( lightDistSq ).toVar( 'sral_d' );
+			const direction = toLight.div( dist ).toVar( 'sral_ldir' );
+			const lightNormal = normalize( cross( light.u, light.v ) ).toVar( 'sral_ln' );
+			const cosAngle = dot( direction.negate(), lightNormal ).toVar( 'sral_cos' );
+
+			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
+			ls_emission.assign( light.color.mul( light.intensity ) );
+			ls_distance.assign( dist );
+			ls_direction.assign( direction );
+			// Guard division: ensure denominator is never zero
+			ls_pdf.assign(
+				lightDistSq.div( max( light.area.mul( max( cosAngle, 0.001 ) ), 1e-10 ) ).mul( lightSelectionPdf )
+			);
+			ls_valid.assign( cosAngle.greaterThan( 0.0 ) );
+
+		} );
+
+	} );
+
+	return LightSample( {
+		valid: ls_valid,
+		direction: ls_direction,
+		emission: ls_emission,
+		distance: ls_distance,
+		pdf: ls_pdf,
+		lightType: ls_lightType,
+	} );
+
+} );
+
+// Enhanced area light sampling - circle
+export const sampleCircAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelectionPdf ] ) => {
+
+	const ls_valid = tslBool( false ).toVar( 'scal_valid' );
+	const ls_direction = vec3( 0.0, 1.0, 0.0 ).toVar( 'scal_dir' );
+	const ls_emission = vec3( 0.0 ).toVar( 'scal_emission' );
+	const ls_distance = float( 0.0 ).toVar( 'scal_dist' );
+	const ls_pdf = float( 0.0 ).toVar( 'scal_pdf' );
+	const ls_lightType = int( LIGHT_TYPE_POINT ).toVar( 'scal_type' );
+
+	// Validate light area to prevent NaN
+	If( light.area.greaterThan( 0.0 ), () => {
+
+		// Sample random position on circle
+		const r = float( 0.5 ).mul( sqrt( ruv.x ) ).toVar( 'scal_r' );
+		const theta = ruv.y.mul( TWO_PI ).toVar( 'scal_theta' );
+		const x = r.mul( cos( theta ) ).toVar( 'scal_x' );
+		const y = r.mul( sin( theta ) ).toVar( 'scal_y' );
+
+		const randomPos = light.position
+			.add( light.u.mul( x ) )
+			.add( light.v.mul( y ) )
+			.toVar( 'scal_rpos' );
+
+		const toLight = randomPos.sub( rayOrigin ).toVar( 'scal_toLight' );
+		const lightDistSq = dot( toLight, toLight ).toVar( 'scal_distSq' );
+
+		// Guard against zero distance
+		If( lightDistSq.greaterThanEqual( 1e-10 ), () => {
+
+			const dist = sqrt( lightDistSq ).toVar( 'scal_d' );
+			const direction = toLight.div( dist ).toVar( 'scal_ldir' );
+			const lightNormal = normalize( cross( light.u, light.v ) ).toVar( 'scal_ln' );
+			const cosAngle = dot( direction.negate(), lightNormal ).toVar( 'scal_cos' );
+
+			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
+			ls_emission.assign( light.color.mul( light.intensity ) );
+			ls_distance.assign( dist );
+			ls_direction.assign( direction );
+			// Guard division
+			ls_pdf.assign(
+				lightDistSq.div( max( light.area.mul( max( cosAngle, 0.001 ) ), 1e-10 ) ).mul( lightSelectionPdf )
+			);
+			ls_valid.assign( cosAngle.greaterThan( 0.0 ) );
+
+		} );
+
+	} );
+
+	return LightSample( {
+		valid: ls_valid,
+		direction: ls_direction,
+		emission: ls_emission,
+		distance: ls_distance,
+		pdf: ls_pdf,
+		lightType: ls_lightType,
+	} );
+
+} );
+
+// Enhanced spot light sampling with radius support
+export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, ruv, lightSelectionPdf ] ) => {
+
+	const ls_valid = tslBool( false ).toVar( 'sslr_valid' );
+	const ls_direction = vec3( 0.0, 1.0, 0.0 ).toVar( 'sslr_dir' );
+	const ls_emission = vec3( 0.0 ).toVar( 'sslr_emission' );
+	const ls_distance = float( 0.0 ).toVar( 'sslr_dist' );
+	const ls_pdf = float( 0.0 ).toVar( 'sslr_pdf' );
+	const ls_lightType = int( LIGHT_TYPE_SPOT ).toVar( 'sslr_type' );
+
+	const toLight = light.position.sub( rayOrigin ).toVar( 'sslr_toLight' );
+	const lightDist = length( toLight ).toVar( 'sslr_lightDist' );
+
+	// Guard against zero distance
+	If( lightDist.greaterThanEqual( 1e-10 ), () => {
+
+		const lightDir = toLight.div( lightDist ).toVar( 'sslr_lightDir' );
+
+		// Check cone attenuation
+		const spotCosAngle = dot( lightDir.negate(), light.direction ).toVar( 'sslr_spotCos' );
+		const coneCosAngle = cos( light.angle ).toVar( 'sslr_coneCos' );
+
+		ls_direction.assign( lightDir );
+		ls_distance.assign( lightDist );
+		ls_pdf.assign( lightSelectionPdf );
+		ls_valid.assign( spotCosAngle.greaterThanEqual( coneCosAngle ) );
+
+		If( ls_valid, () => {
+
+			const penumbraCosAngle = cos( light.angle.mul( 0.9 ) ).toVar( 'sslr_penCos' ); // 10% penumbra
+			const coneAttenuation = getSpotAttenuation( coneCosAngle, penumbraCosAngle, spotCosAngle );
+			const distanceAttenuation = getDistanceAttenuation( lightDist, float( 0.0 ), float( 2.0 ) );
+
+			ls_emission.assign( light.color.mul( light.intensity ).mul( distanceAttenuation ).mul( coneAttenuation ) );
+
+		} );
+
+	} );
+
+	return LightSample( {
+		valid: ls_valid,
+		direction: ls_direction,
+		emission: ls_emission,
+		distance: ls_distance,
+		pdf: ls_pdf,
+		lightType: ls_lightType,
+	} );
+
+} );
+
+// Enhanced point light sampling with distance attenuation
+export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSelectionPdf ] ) => {
+
+	const ls_valid = tslBool( false ).toVar( 'spla_valid' );
+	const ls_direction = vec3( 0.0, 1.0, 0.0 ).toVar( 'spla_dir' );
+	const ls_emission = vec3( 0.0 ).toVar( 'spla_emission' );
+	const ls_distance = float( 0.0 ).toVar( 'spla_dist' );
+	const ls_pdf = float( 0.0 ).toVar( 'spla_pdf' );
+	const ls_lightType = int( LIGHT_TYPE_POINT ).toVar( 'spla_type' );
+
+	const toLight = light.position.sub( rayOrigin ).toVar( 'spla_toLight' );
+	const lightDist = length( toLight ).toVar( 'spla_lightDist' );
+
+	// Guard against zero distance
+	If( lightDist.greaterThanEqual( 1e-10 ), () => {
+
+		const lightDir = toLight.div( lightDist ).toVar( 'spla_lightDir' );
+
+		// Calculate distance attenuation
+		const distanceAttenuation = getDistanceAttenuation( lightDist, float( 0.0 ), float( 2.0 ) );
+
+		ls_lightType.assign( int( LIGHT_TYPE_POINT ) );
+		ls_direction.assign( lightDir );
+		ls_distance.assign( lightDist );
+		ls_emission.assign( light.color.mul( light.intensity ).mul( distanceAttenuation ) );
+		ls_pdf.assign( lightSelectionPdf );
+		ls_valid.assign( tslBool( true ) );
+
+	} );
+
+	return LightSample( {
+		valid: ls_valid,
+		direction: ls_direction,
+		emission: ls_emission,
+		distance: ls_distance,
+		pdf: ls_pdf,
+		lightType: ls_lightType,
+	} );
+
+} );
+
+// =============================================================================
+// Importance-Weighted Light Sampling
+// =============================================================================
+
+// ANGLE-optimized: No early returns in loops, full initialization
+// 3-pass approach: 1) calculate total weight, 2) select light via CDF, 3) sample selected light
+export const sampleLightWithImportance = Fn( ( [
+	rayOrigin, normal, material, randomSeed, bounceIndex, rngState,
+	// Light buffers + counts
+	directionalLightsBuffer, numDirectionalLights,
+	areaLightsBuffer, numAreaLights,
+	pointLightsBuffer, numPointLights,
+	spotLightsBuffer, numSpotLights,
+] ) => {
+
+	// Result variables
+	const r_valid = tslBool( false ).toVar( 'sli_valid' );
+	const r_direction = vec3( 0.0, 1.0, 0.0 ).toVar( 'sli_dir' );
+	const r_emission = vec3( 0.0 ).toVar( 'sli_emission' );
+	const r_distance = float( 0.0 ).toVar( 'sli_dist' );
+	const r_pdf = float( 0.0 ).toVar( 'sli_pdf' );
+	const r_lightType = int( LIGHT_TYPE_POINT ).toVar( 'sli_type' );
+
+	const totalLights = numDirectionalLights.add( numAreaLights ).add( numPointLights ).add( numSpotLights ).toVar( 'sli_total' );
+
+	If( totalLights.greaterThan( int( 0 ) ), () => {
+
+		const totalWeight = float( 0.0 ).toVar( 'sli_totalW' );
+		const lightIndex = int( 0 ).toVar( 'sli_idx' );
+
+		// =====================================================================
+		// PASS 1: Calculate Total Weight (no early exits)
+		// =====================================================================
+
+		If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
+
+			Loop( { start: int( 0 ), end: numDirectionalLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+				If( lightIndex.lessThan( int( 16 ) ), () => {
+
+					const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
+					totalWeight.addAssign( calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex ) );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+		} );
+
+		If( numAreaLights.greaterThan( int( 0 ) ), () => {
+
+			Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+				If( lightIndex.lessThan( int( 16 ) ), () => {
+
+					const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
+					const importance = select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) );
+					totalWeight.addAssign( importance );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+		} );
+
+		If( numPointLights.greaterThan( int( 0 ) ), () => {
+
+			Loop( { start: int( 0 ), end: numPointLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+				If( lightIndex.lessThan( int( 16 ) ), () => {
+
+					const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
+					totalWeight.addAssign( calculatePointLightImportance( light, rayOrigin, normal, material ) );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+		} );
+
+		If( numSpotLights.greaterThan( int( 0 ) ), () => {
+
+			Loop( { start: int( 0 ), end: numSpotLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+				If( lightIndex.lessThan( int( 16 ) ), () => {
+
+					const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
+					totalWeight.addAssign( calculateSpotLightImportance( light, rayOrigin, normal, material ) );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+		} );
+
+		// =====================================================================
+		// Fallback: Uniform Sampling if no importance
+		// =====================================================================
+
+		If( totalWeight.lessThanEqual( 0.0 ), () => {
+
+			const lightSelection = randomSeed.x.mul( float( totalLights ) ).toVar( 'sli_sel' );
+			const selectedLight = int( lightSelection ).toVar( 'sli_selLight' );
+			// Guard division by zero
+			const lightSelectionPdf = float( 1.0 ).div( max( float( totalLights ), 1.0 ) ).toVar( 'sli_selPdf' );
+
+			r_pdf.assign( lightSelectionPdf );
+			const sampled = tslBool( false ).toVar( 'sli_sampled' );
+			const currentIdx = int( 0 ).toVar( 'sli_curIdx' );
+
+			// Directional lights fallback
+			If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
+
+				If( sampled.not().and( selectedLight.greaterThanEqual( currentIdx ) ).and( selectedLight.lessThan( currentIdx.add( numDirectionalLights ) ) ), () => {
+
+					const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, selectedLight.sub( currentIdx ) ) );
+
+					If( light.intensity.greaterThan( 0.0 ), () => {
+
+						r_direction.assign( normalize( light.direction ) );
+						r_emission.assign( light.color.mul( light.intensity ) );
+						r_distance.assign( 1e6 );
+						r_lightType.assign( int( LIGHT_TYPE_DIRECTIONAL ) );
+						r_valid.assign( tslBool( true ) );
+						sampled.assign( tslBool( true ) );
+
+					} );
+
+				} );
+				currentIdx.addAssign( numDirectionalLights );
+
+			} );
+
+			// Area lights fallback
+			If( numAreaLights.greaterThan( int( 0 ) ), () => {
+
+				If( sampled.not().and( selectedLight.greaterThanEqual( currentIdx ) ).and( selectedLight.lessThan( currentIdx.add( numAreaLights ) ) ), () => {
+
+					const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, selectedLight.sub( currentIdx ) ) );
+
+					If( light.intensity.greaterThan( 0.0 ), () => {
+
+						const uv = vec2( randomSeed.y, RandomValue( rngState ) ).toVar( 'sli_fbUV' );
+						const areaSample = LightSample.wrap( sampleRectAreaLight( light, rayOrigin, uv, lightSelectionPdf ) );
+						r_valid.assign( areaSample.valid );
+						r_direction.assign( areaSample.direction );
+						r_emission.assign( areaSample.emission );
+						r_distance.assign( areaSample.distance );
+						r_pdf.assign( areaSample.pdf );
+						r_lightType.assign( areaSample.lightType );
+						sampled.assign( tslBool( true ) );
+
+					} );
+
+				} );
+				currentIdx.addAssign( numAreaLights );
+
+			} );
+
+			// Point lights fallback
+			If( numPointLights.greaterThan( int( 0 ) ), () => {
+
+				If( sampled.not().and( selectedLight.greaterThanEqual( currentIdx ) ).and( selectedLight.lessThan( currentIdx.add( numPointLights ) ) ), () => {
+
+					const light = PointLight.wrap( getPointLight( pointLightsBuffer, selectedLight.sub( currentIdx ) ) );
+
+					If( light.intensity.greaterThan( 0.0 ), () => {
+
+						const ptSample = LightSample.wrap( samplePointLightWithAttenuation( light, rayOrigin, lightSelectionPdf ) );
+						r_valid.assign( ptSample.valid );
+						r_direction.assign( ptSample.direction );
+						r_emission.assign( ptSample.emission );
+						r_distance.assign( ptSample.distance );
+						r_pdf.assign( ptSample.pdf );
+						r_lightType.assign( ptSample.lightType );
+						sampled.assign( tslBool( true ) );
+
+					} );
+
+				} );
+				currentIdx.addAssign( numPointLights );
+
+			} );
+
+			// Spot lights fallback
+			If( numSpotLights.greaterThan( int( 0 ) ), () => {
+
+				If( sampled.not().and( selectedLight.greaterThanEqual( currentIdx ) ).and( selectedLight.lessThan( currentIdx.add( numSpotLights ) ) ), () => {
+
+					const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, selectedLight.sub( currentIdx ) ) );
+
+					If( light.intensity.greaterThan( 0.0 ), () => {
+
+						const uv = vec2( randomSeed.y, RandomValue( rngState ) ).toVar( 'sli_fbSpotUV' );
+						const spotSample = LightSample.wrap( sampleSpotLightWithRadius( light, rayOrigin, uv, lightSelectionPdf ) );
+						r_valid.assign( spotSample.valid );
+						r_direction.assign( spotSample.direction );
+						r_emission.assign( spotSample.emission );
+						r_distance.assign( spotSample.distance );
+						r_pdf.assign( spotSample.pdf );
+						r_lightType.assign( spotSample.lightType );
+						sampled.assign( tslBool( true ) );
+
+					} );
+
+				} );
+
+			} );
+
+		} ).Else( () => {
+
+			// =================================================================
+			// PASS 2: Select and Sample Light (no early returns in loops)
+			// =================================================================
+
+			const selectionValue = randomSeed.x.mul( totalWeight ).toVar( 'sli_selVal' );
+			const cumulative = float( 0.0 ).toVar( 'sli_cum' );
+			lightIndex.assign( 0 );
+
+			// Track which light was selected
+			const selectedType = int( - 1 ).toVar( 'sli_selType' ); // 0=dir, 1=area, 2=point, 3=spot
+			const selectedIdx = int( - 1 ).toVar( 'sli_selIdx' );
+			const selectedImportance = float( 0.0 ).toVar( 'sli_selImp' );
+
+			// Directional lights
+			If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
+
+				Loop( { start: int( 0 ), end: numDirectionalLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
+
+						const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
+						const importance = calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex ).toVar( 'sli_dImp' );
+						const prevCumulative = cumulative.toVar( 'sli_prevCum' );
+						cumulative.addAssign( importance );
+
+						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
+
+							selectedType.assign( 0 );
+							selectedIdx.assign( i );
+							selectedImportance.assign( importance );
+
+						} );
+
+					} );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+			// Area lights
+			If( numAreaLights.greaterThan( int( 0 ) ), () => {
+
+				Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
+
+						const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
+						const importance = select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) ).toVar( 'sli_aImp' );
+						const prevCumulative = cumulative.toVar( 'sli_prevCumA' );
+						cumulative.addAssign( importance );
+
+						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
+
+							selectedType.assign( 1 );
+							selectedIdx.assign( i );
+							selectedImportance.assign( importance );
+
+						} );
+
+					} );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+			// Point lights
+			If( numPointLights.greaterThan( int( 0 ) ), () => {
+
+				Loop( { start: int( 0 ), end: numPointLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
+
+						const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
+						const importance = calculatePointLightImportance( light, rayOrigin, normal, material ).toVar( 'sli_pImp' );
+						const prevCumulative = cumulative.toVar( 'sli_prevCumP' );
+						cumulative.addAssign( importance );
+
+						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
+
+							selectedType.assign( 2 );
+							selectedIdx.assign( i );
+							selectedImportance.assign( importance );
+
+						} );
+
+					} );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+			// Spot lights
+			If( numSpotLights.greaterThan( int( 0 ) ), () => {
+
+				Loop( { start: int( 0 ), end: numSpotLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
+
+						const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
+						const importance = calculateSpotLightImportance( light, rayOrigin, normal, material ).toVar( 'sli_sImp' );
+						const prevCumulative = cumulative.toVar( 'sli_prevCumS' );
+						cumulative.addAssign( importance );
+
+						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
+
+							selectedType.assign( 3 );
+							selectedIdx.assign( i );
+							selectedImportance.assign( importance );
+
+						} );
+
+					} );
+					lightIndex.addAssign( 1 );
+
+				} );
+
+			} );
+
+			// =================================================================
+			// PASS 3: Sample the selected light (outside loops)
+			// =================================================================
+
+			// Guard division by zero
+			const pdf = selectedImportance.div( max( totalWeight, 1e-10 ) ).toVar( 'sli_p3pdf' );
+
+			// Directional light sampling
+			If( selectedType.equal( int( 0 ) ).and( selectedIdx.greaterThanEqual( int( 0 ) ) ), () => {
+
+				const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, selectedIdx ) );
+
+				const direction = normalize( light.direction ).toVar( 'sli_p3dir' );
+				const dirPdf = float( 1.0 ).toVar( 'sli_dirPdf' );
+
+				If( light.angle.greaterThan( 0.0 ), () => {
+
+					const cosHalfAngle = cos( light.angle.mul( 0.5 ) ).toVar( 'sli_cosHalf' );
+					const cosTheta = mix( cosHalfAngle, float( 1.0 ), randomSeed.y ).toVar( 'sli_cosTheta' );
+					const sinTheta = sqrt( max( float( 0.0 ), float( 1.0 ).sub( cosTheta.mul( cosTheta ) ) ) ).toVar( 'sli_sinTheta' );
+					const phi = float( TWO_PI ).mul( RandomValue( rngState ) ).toVar( 'sli_phi' );
+
+					const w = normalize( light.direction ).toVar( 'sli_w' );
+					const u = normalize( cross(
+						select( abs( w.x ).greaterThan( 0.9 ), vec3( 0.0, 1.0, 0.0 ), vec3( 1.0, 0.0, 0.0 ) ),
+						w
+					) ).toVar( 'sli_u' );
+					const v = cross( w, u ).toVar( 'sli_v' );
+
+					direction.assign( normalize(
+						w.mul( cosTheta ).add( u.mul( cos( phi ) ).add( v.mul( sin( phi ) ) ).mul( sinTheta ) )
+					) );
+					// Guard division: (1.0 - cosHalfAngle) could be zero if angle is 0
+					const solidAngle = float( TWO_PI ).mul( max( float( 1.0 ).sub( cosHalfAngle ), 1e-10 ) ).toVar( 'sli_sa' );
+					dirPdf.assign( float( 1.0 ).div( solidAngle ) );
+
+				} );
+
+				r_direction.assign( direction );
+				r_emission.assign( light.color.mul( light.intensity ) );
+				r_distance.assign( 1e6 );
+				r_pdf.assign( dirPdf.mul( pdf ) );
+				r_lightType.assign( int( LIGHT_TYPE_DIRECTIONAL ) );
+				r_valid.assign( tslBool( true ) );
+
+			} );
+
+			// Area light sampling
+			If( selectedType.equal( int( 1 ) ).and( selectedIdx.greaterThanEqual( int( 0 ) ) ), () => {
+
+				const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, selectedIdx ) );
+				const uv = vec2( randomSeed.y, RandomValue( rngState ) ).toVar( 'sli_p3aUV' );
+				const areaSample = LightSample.wrap( sampleRectAreaLight( light, rayOrigin, uv, pdf ) );
+				r_valid.assign( areaSample.valid );
+				r_direction.assign( areaSample.direction );
+				r_emission.assign( areaSample.emission );
+				r_distance.assign( areaSample.distance );
+				r_pdf.assign( areaSample.pdf );
+				r_lightType.assign( areaSample.lightType );
+
+			} );
+
+			// Point light sampling
+			If( selectedType.equal( int( 2 ) ).and( selectedIdx.greaterThanEqual( int( 0 ) ) ), () => {
+
+				const light = PointLight.wrap( getPointLight( pointLightsBuffer, selectedIdx ) );
+				const ptSample = LightSample.wrap( samplePointLightWithAttenuation( light, rayOrigin, pdf ) );
+				r_valid.assign( ptSample.valid );
+				r_direction.assign( ptSample.direction );
+				r_emission.assign( ptSample.emission );
+				r_distance.assign( ptSample.distance );
+				r_pdf.assign( ptSample.pdf );
+				r_lightType.assign( ptSample.lightType );
+
+			} );
+
+			// Spot light sampling
+			If( selectedType.equal( int( 3 ) ).and( selectedIdx.greaterThanEqual( int( 0 ) ) ), () => {
+
+				const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, selectedIdx ) );
+				const uv = vec2( randomSeed.y, RandomValue( rngState ) ).toVar( 'sli_p3sUV' );
+				const spotSample = LightSample.wrap( sampleSpotLightWithRadius( light, rayOrigin, uv, pdf ) );
+				r_valid.assign( spotSample.valid );
+				r_direction.assign( spotSample.direction );
+				r_emission.assign( spotSample.emission );
+				r_distance.assign( spotSample.distance );
+				r_pdf.assign( spotSample.pdf );
+				r_lightType.assign( spotSample.lightType );
+
+			} );
+
+		} ); // End of Else (totalWeight > 0)
+
+	} ); // End of totalLights > 0
+
+	return LightSample( {
+		valid: r_valid,
+		direction: r_direction,
+		emission: r_emission,
+		distance: r_distance,
+		pdf: r_pdf,
+		lightType: r_lightType,
+	} );
+
+} );
+
+// =============================================================================
+// Material PDF Calculation for MIS
+// =============================================================================
+
+// Helper function to calculate material PDF for a given direction
+export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material ] ) => {
+
+	const NoV = max( float( 0.0 ), dot( normal, viewDir ) ).toVar( 'mpdf_NoV' );
+	const NoL = max( float( 0.0 ), dot( normal, lightDir ) ).toVar( 'mpdf_NoL' );
 	const H = normalize( viewDir.add( lightDir ) ).toVar( 'mpdf_H' );
-	const NoH = max( 0.0, dot( normal, H ) ).toVar( 'mpdf_NoH' );
-	const VoH = max( 0.0, dot( viewDir, H ) ).toVar( 'mpdf_VoH' );
+	const NoH = max( float( 0.0 ), dot( normal, H ) ).toVar( 'mpdf_NoH' );
+	const VoH = max( float( 0.0 ), dot( viewDir, H ) ).toVar( 'mpdf_VoH' );
 
-	// Lobe weights — matches GLSL exactly
-	const diffuseWeight = float( 1.0 ).sub( metalness ).mul(
-		float( 1.0 ).sub( transmission )
+	// Calculate lobe weights
+	const diffuseWeight = float( 1.0 ).sub( material.metalness ).mul(
+		float( 1.0 ).sub( material.transmission )
 	).toVar( 'mpdf_diffW' );
 
 	const specularWeight = float( 1.0 ).sub(
-		diffuseWeight.mul( float( 1.0 ).sub( metalness ) )
+		diffuseWeight.mul( float( 1.0 ).sub( material.metalness ) )
 	).toVar( 'mpdf_specW' );
 
 	const totalWeight = diffuseWeight.add( specularWeight ).toVar( 'mpdf_totalW' );
 
-	// Only compute if totalWeight > 0 — replaces GLSL early return, no return inside If
+	const pdf = float( 0.0 ).toVar( 'mpdf_pdf' );
+
 	If( totalWeight.greaterThan( 0.0 ), () => {
 
 		// Guard division
@@ -100,21 +794,18 @@ export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, metalness
 		diffuseWeight.mulAssign( invTotalWeight );
 		specularWeight.mulAssign( invTotalWeight );
 
-		// Diffuse PDF: cosine-weighted hemisphere = NoL / PI
+		// Diffuse PDF (cosine-weighted hemisphere)
 		If( diffuseWeight.greaterThan( 0.0 ).and( NoL.greaterThan( 0.0 ) ), () => {
 
 			pdf.addAssign( diffuseWeight.mul( NoL ).mul( PI_INV ) );
 
 		} );
 
-		// Specular PDF: GGX VNDF approx = D(H) * NoH / (4 * VoH)
-		// Matches GLSL calculateVNDFPDF(NoH, NoV, roughness)
+		// Specular PDF (VNDF sampling used in path tracer)
 		If( specularWeight.greaterThan( 0.0 ).and( NoL.greaterThan( 0.0 ) ), () => {
 
-			const r = max( roughness, 0.02 ).toVar( 'mpdf_r' );
-			const D = distributionGGX( NoH, r );
-			const vndfPdf = D.mul( NoH ).div( max( VoH.mul( 4.0 ), 0.001 ) );
-			pdf.addAssign( specularWeight.mul( vndfPdf ) );
+			const roughness = max( material.roughness, 0.02 ).toVar( 'mpdf_r' );
+			pdf.addAssign( specularWeight.mul( calculateVNDFPDF( NoH, NoV, roughness ) ) );
 
 		} );
 
@@ -124,139 +815,82 @@ export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, metalness
 
 } );
 
-// ================================================================================
-// LOCAL BRDF EVALUATION
-// Matches GLSL evaluateDiffuse / evaluateSpecular / evaluateMaterialResponse
-// ================================================================================
+// =============================================================================
+// Enhanced Area Light Sampling with MIS
+// =============================================================================
 
-const evaluateDiffuseBRDF = Fn( ( [ color, metalness ] ) => {
-
-	return color.mul( float( 1.0 ).sub( metalness ) ).mul( PI_INV );
-
-} );
-
-const evaluateSpecularBRDF = Fn( ( [ color, metalness, roughness, NoV, NoL, NoH, VoH ] ) => {
-
-	const F0 = mix( vec3( 0.04 ), color, metalness ).toVar( 'ls_F0' );
-	const F = fresnelSchlick( VoH, F0 );
-	const D = distributionGGX( NoH, roughness );
-	const G = geometrySmith( NoV, NoL, roughness );
-	const denom = max( NoV.mul( NoL ).mul( 4.0 ), 0.001 );
-	return D.mul( G ).mul( F ).div( denom );
-
-} );
-
-// ================================================================================
-// UNIFIED DIRECT LIGHTING
-// Exact port of GLSL calculateDirectLightingUnified (lights_sampling.fs)
-//
-// Parameters:
-//   hitPoint, N, V              — surface hit point, shading normal, view direction
-//   color, metalness, roughness, transmission  — material properties
-//   brdfSampleDir, brdfSamplePdf, brdfSampleValue  — BRDF sample (DirectionSample)
-//   bounceIndex                 — current bounce index
-//   rngState                    — RNG state (mutable uint)
-//   envTex, envIntensity, envMatrix, envSize   — environment map
-//   marginalCDF, conditionalCDF, hasImportanceSampling  — env importance sampling
-//   enableEnvironmentLight      — bool, whether env light is active
-//   bvhTex, bvhTexSize, triTex, triTexSize     — BVH / triangle data for shadow rays
-//
-// v2 context (no discrete lights):
-//   totalLights = 0 → sampleLights = false, sampleBRDF = false
-//   GLSL fallback path: when no lights and enableEnvironmentLight → sampleEnv = true
-//   MIS: envWeight = 1.0, brdfWeight = 1.0 (power heuristic between env pdf and BRDF pdf)
-// ================================================================================
-
-export const calculateDirectLightingUnified = Fn( ( [
-	hitPoint, N, V,
-	color, metalness, roughness, transmission,
+export const sampleAreaLightContribution = Fn( ( [
+	light,
+	worldWo,
+	hitPoint, hitNormal, material,
+	rayOrigin,
+	bounceIndex,
 	rngState,
-	envTex, envIntensity, envMatrix, envSize,
-	marginalCDF, conditionalCDF, hasImportanceSampling, enableEnvironmentLight,
-	bvhTex, bvhTexSize, triTex, triTexSize
+	// Shadow ray resources
+	bvhTexture, bvhTexSize,
+	triangleTexture, triangleTexSize,
+	materialTexture, materialTexSize,
 ] ) => {
 
-	const totalContribution = vec3( 0.0 ).toVar( 'dlTotalContrib' );
+	const result = vec3( 0.0 ).toVar( 'salc_result' );
 
-	// Early exit: no lights at all
-	// Matches GLSL: if (totalLights == 0 && !enableEnvironmentLight) return vec3(0)
-	If( enableEnvironmentLight, () => {
+	// Sample random position on light surface
+	const ruv = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar( 'salc_ruv' );
+	const lightPos = light.position.add( light.u.mul( ruv.x.sub( 0.5 ) ) ).add( light.v.mul( ruv.y.sub( 0.5 ) ) ).toVar( 'salc_lpos' );
 
+	const toLight = lightPos.sub( rayOrigin ).toVar( 'salc_toLight' );
+	const lightDistSq = dot( toLight, toLight ).toVar( 'salc_distSq' );
 
+	// Guard against zero distance
+	If( lightDistSq.greaterThanEqual( 1e-10 ), () => {
 
+		const lightDist = sqrt( lightDistSq ).toVar( 'salc_dist' );
+		const lightDir = toLight.div( lightDist ).toVar( 'salc_dir' );
 
-		// Ray origin offset — matches GLSL: rayOrigin = hitInfo.hitPoint + hitInfo.normal * 0.001
-		const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar( 'dlRayOrigin' );
+		// Check if light is facing the surface
+		const lightNormal = normalize( cross( light.u, light.v ) ).toVar( 'salc_ln' );
+		const lightFacing = dot( lightDir.negate(), lightNormal ).toVar( 'salc_facing' );
 
-		// ── ENVIRONMENT SAMPLING ─────────────────────────────────────────────────────
-		// Matches GLSL sampleEnv path in calculateDirectLightingUnified.
-		// In v2: totalLights = 0, hasDiscreteLights = false.
-		// GLSL fallback: when no discrete lights → sampleEnv = true (if env enabled).
-		// totalSamplingWeight = envWeight = 1.0 → envContrib * 1.0 / 1.0 = envContrib
+		If( lightFacing.greaterThan( 0.0 ), () => {
 
-		const dlXi1 = RandomValue( rngState ).toVar( 'dlXi1' );
-		const dlXi2 = RandomValue( rngState ).toVar( 'dlXi2' );
-		const envRandom = vec2( dlXi1, dlXi2 ).toVar( 'dlEnvRandom' );
+			// Check if surface is facing the light
+			const surfaceFacing = dot( hitNormal, lightDir ).toVar( 'salc_sFacing' );
 
-		// sampleEquirectProbability(envRandom, envColor, envDirection)
-		// → sampleEnvironmentDirection returns vec4(direction, pdf)
-		const envSampleResult = sampleEnvironmentDirection(
-			envTex, marginalCDF, conditionalCDF, envSize, hasImportanceSampling, envRandom
-		).toVar( 'dlEnvSample' );
+			If( surfaceFacing.greaterThan( 0.0 ), () => {
 
-		const envDir = envSampleResult.xyz.toVar( 'dlEnvDir' );
-		const envPdf = envSampleResult.w.toVar( 'dlEnvPdf' );
+				// Validate direction
+				If( isDirectionValid( lightDir, hitNormal ), () => {
 
-		If( envPdf.greaterThan( 0.0 ), () => {
-
-			const NoL = max( 0.0, dot( N, envDir ) ).toVar( 'dlNoL' );
-
-			If( NoL.greaterThan( 0.0 ).and( isDirectionValid( envDir, N ) ), () => {
-
-				// traceShadowRay → traverseBVHShadow
-				const inShadow = traverseBVHShadow(
-					rayOrigin, envDir, float( 0.001 ), float( 1e10 ),
-					bvhTex, bvhTexSize, triTex, triTexSize
-				);
-
-				// const inShadow = tslBool( true ).toVar( 'dlInShadow' ); // --- NO SHADOWS IN TSL PATH TRACER ---
-
-				If( inShadow.not(), () => {
-
-					// Sample env color — matches GLSL envColor from sampleEquirectProbability
-					const rotatedDir = envMatrix.mul( vec4( envDir, 0.0 ) ).xyz.toVar( 'dlRotDir' );
-					const dlU = float( 0.5 ).add( rotatedDir.x.atan( rotatedDir.z ).div( TWO_PI ) ).toVar( 'dlU' );
-					const dlV = float( 0.5 ).sub( rotatedDir.y.asin().div( PI ) ).toVar( 'dlV' );
-					const envColor = texture( envTex, vec2( dlU, dlV ) ).rgb.mul( envIntensity ).toVar( 'dlEnvColor' );
-
-					// evaluateMaterialResponse(viewDir, envDir, N, material)
-					// → evaluateDiffuse + evaluateSpecular
-					const dlH = normalize( V.add( envDir ) ).toVar( 'dlH' );
-					const dlNoV = max( dot( N, V ), 0.0 ).toVar( 'dlNoV' );
-					const dlNoH = max( dot( N, dlH ), 0.0 ).toVar( 'dlNoH' );
-					const dlVoH = max( dot( V, dlH ), 0.0 ).toVar( 'dlVoH' );
-					const brdfValue = evaluateDiffuseBRDF( color, metalness )
-						.add( evaluateSpecularBRDF( color, metalness, roughness, dlNoV, NoL, dlNoH, dlVoH ) )
-						.toVar( 'dlBrdfValue' );
-
-					// calculateMaterialPDF for MIS — matches GLSL brdfPdf = calculateMaterialPDF(...)
-					const dlBrdfPdf = calculateMaterialPDF(
-						V, envDir, N, metalness, roughness, transmission
-					).toVar( 'dlBrdfPdf' );
-
-					// Power heuristic MIS weight (envPdf vs brdfPdf) — matches GLSL
-					// envPdfWeighted = envPdf * envWeight (1.0), brdfPdfWeighted = brdfPdf * brdfWeight (1.0)
-					const misWeight = dlBrdfPdf.greaterThan( 0.0 ).select(
-						powerHeuristic( envPdf, dlBrdfPdf ),
-						1.0
-					).toVar( 'dlMisWeight' );
-
-					// Guard division — matches GLSL
-					// totalSamplingWeight / envWeight = 1.0 (no discrete lights)
-					const envContrib = envColor.mul( brdfValue ).mul( NoL ).mul( misWeight ).div(
-						max( envPdf, 1e-10 )
+					// Test for occlusion
+					const visibility = traceShadowRay(
+						rayOrigin, lightDir, lightDist.sub( 0.001 ), rngState,
+						traverseBVHShadow,
+						bvhTexture, bvhTexSize,
+						triangleTexture, triangleTexSize,
+						materialTexture, materialTexSize,
 					);
-					totalContribution.addAssign( envContrib );
+
+					If( visibility.greaterThan( 0.0 ), () => {
+
+						// Calculate BRDF
+						const brdfColor = evaluateMaterialResponse( worldWo, lightDir, hitNormal, material );
+
+						// Calculate light PDF - guard division
+						const lightPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) ).toVar( 'salc_lPdf' );
+
+						// Calculate BRDF PDF for MIS
+						const brdfPdf = calculateMaterialPDF( worldWo, lightDir, hitNormal, material ).toVar( 'salc_bPdf' );
+
+						// Apply MIS weighting
+						const misWeight = select( brdfPdf.greaterThan( 0.0 ), misHeuristic( lightPdf, brdfPdf ), float( 1.0 ) ).toVar( 'salc_mis' );
+
+						// Calculate final contribution - guard division
+						const lightEmission = light.color.mul( light.intensity ).toVar( 'salc_le' );
+						result.assign(
+							lightEmission.mul( brdfColor ).mul( surfaceFacing ).mul( visibility ).mul( misWeight ).div( max( lightPdf, MIN_PDF ) )
+						);
+
+					} );
 
 				} );
 
@@ -266,9 +900,388 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 	} );
 
+	return result;
 
-	// NOTE: Emissive triangle direct lighting is handled separately in PathTracerCore_v2
-	// to bypass firefly suppression — matches GLSL pathtracer_core.fs comment
+} );
+
+// =============================================================================
+// Unified Direct Lighting System
+// =============================================================================
+
+// Optimized direct lighting function with importance-based sampling and better MIS
+export const calculateDirectLightingUnified = Fn( ( [
+	// Surface hit data
+	hitPoint, hitNormal, material,
+	// View direction
+	viewDir,
+	// BRDF sample (DirectionSample fields)
+	brdfSampleDirection, brdfSamplePdf, brdfSampleValue,
+	// Tracing context
+	sampleIndex, bounceIndex, rngState,
+	// Light data
+	directionalLightsBuffer, numDirectionalLights,
+	areaLightsBuffer, numAreaLights,
+	pointLightsBuffer, numPointLights,
+	spotLightsBuffer, numSpotLights,
+	// Shadow ray resources
+	bvhTexture, bvhTexSize,
+	triangleTexture, triangleTexSize,
+	materialTexture, materialTexSize,
+	// Environment resources
+	envTexture, environmentIntensity, envMatrix,
+	envMarginalWeights, envConditionalWeights,
+	envTotalSum, envResolution,
+	enableEnvironmentLight,
+] ) => {
+
+	const totalContribution = vec3( 0.0 ).toVar( 'dlu_total' );
+	const rayOrigin = hitPoint.add( hitNormal.mul( 0.001 ) ).toVar( 'dlu_rayOri' );
+
+	// Early exit for highly emissive surfaces
+	If( material.emissiveIntensity.lessThanEqual( 10.0 ), () => {
+
+		// Adaptive MIS Strategy Selection
+		const currentThroughput = vec3( 1.0 ).toVar( 'dlu_throughput' );
+		const misResult = MISStrategy.wrap( selectOptimalMISStrategy(
+			material.roughness, material.metalness, material.transmission, bounceIndex, currentThroughput
+		) );
+
+		// Extract MIS fields to mutable variables
+		const useBRDFSampling = misResult.useBRDFSampling.toVar( 'dlu_useBRDF' );
+		const useLightSampling = misResult.useLightSampling.toVar( 'dlu_useLS' );
+		const useEnvSampling = misResult.useEnvSampling.toVar( 'dlu_useES' );
+		const brdfWeight = misResult.brdfWeight.toVar( 'dlu_brdfW' );
+		const lightWeight = misResult.lightWeight.toVar( 'dlu_lightW' );
+		const envWeight = misResult.envWeight.toVar( 'dlu_envW' );
+
+		// Adaptive light processing
+		const totalLights = numDirectionalLights.add( numAreaLights ).add( numPointLights ).add( numSpotLights ).toVar( 'dlu_totalL' );
+
+		const importanceThreshold = float( 0.001 ).mul( float( 1.0 ).add( float( bounceIndex ).mul( 0.5 ) ) ).toVar( 'dlu_impThresh' );
+
+		// Check if discrete lights exist
+		const hasDiscreteLights = totalLights.greaterThan( int( 0 ) ).toVar( 'dlu_hasLights' );
+
+		// Calculate total sampling weight only include light weight if lights exist
+		const totalSamplingWeight = float( 0.0 ).toVar( 'dlu_totalSW' );
+
+		If( useLightSampling.and( hasDiscreteLights ), () => {
+
+			totalSamplingWeight.addAssign( lightWeight );
+
+		} );
+
+		If( useBRDFSampling, () => {
+
+			totalSamplingWeight.addAssign( brdfWeight );
+
+		} );
+
+		If( useEnvSampling.and( enableEnvironmentLight ), () => {
+
+			totalSamplingWeight.addAssign( envWeight );
+
+		} );
+
+		If( totalSamplingWeight.lessThanEqual( 0.0 ), () => {
+
+			totalSamplingWeight.assign( 1.0 );
+			// Fallback: prioritize environment if enabled, otherwise BRDF
+			If( enableEnvironmentLight, () => {
+
+				useEnvSampling.assign( tslBool( true ) );
+				envWeight.assign( 1.0 );
+
+			} ).Else( () => {
+
+				useBRDFSampling.assign( tslBool( true ) );
+				brdfWeight.assign( 1.0 );
+
+			} );
+
+		} );
+
+		const stratRand1 = RandomValue( rngState ).toVar( 'dlu_sRand1' );
+		const stratRand2 = RandomValue( rngState ).toVar( 'dlu_sRand2' );
+
+		// Determine sampling technique
+		const rand = stratRand1;
+		const sampleLights = tslBool( false ).toVar( 'dlu_smpL' );
+		const sampleBRDF = tslBool( false ).toVar( 'dlu_smpB' );
+		const sampleEnv = tslBool( false ).toVar( 'dlu_smpE' );
+
+		// Calculate effective weights for probability (only include light weight if lights exist)
+		const effectiveLightWeight = select( hasDiscreteLights, lightWeight, float( 0.0 ) ).toVar( 'dlu_effLW' );
+		// Guard division
+		const invTotalSamplingWeight = float( 1.0 ).div( max( totalSamplingWeight, 1e-10 ) ).toVar( 'dlu_invTSW' );
+		const cumulativeLight = effectiveLightWeight.mul( invTotalSamplingWeight ).toVar( 'dlu_cumL' );
+		const cumulativeBRDF = effectiveLightWeight.add( brdfWeight ).mul( invTotalSamplingWeight ).toVar( 'dlu_cumB' );
+
+		If( rand.lessThan( cumulativeLight ).and( useLightSampling ).and( hasDiscreteLights ), () => {
+
+			sampleLights.assign( tslBool( true ) );
+
+		} ).ElseIf( rand.lessThan( cumulativeBRDF ).and( useBRDFSampling ), () => {
+
+			sampleBRDF.assign( tslBool( true ) );
+
+		} ).ElseIf( useEnvSampling.and( enableEnvironmentLight ), () => {
+
+			sampleEnv.assign( tslBool( true ) );
+
+		} ).ElseIf( hasDiscreteLights, () => {
+
+			// Fallback to light sampling only if lights exist
+			sampleLights.assign( tslBool( true ) );
+
+		} ).ElseIf( enableEnvironmentLight, () => {
+
+			// Fallback to environment sampling when no discrete lights
+			sampleEnv.assign( tslBool( true ) );
+
+		} );
+
+		// =====================================================================
+		// LIGHT SAMPLING PATH
+		// =====================================================================
+
+		If( sampleLights, () => {
+
+			// Importance-weighted light sampling
+			const lightRandom = vec2( stratRand2, RandomValue( rngState ) ).toVar( 'dlu_lRand' );
+			const lightSample = LightSample.wrap( sampleLightWithImportance(
+				rayOrigin, hitNormal, material, lightRandom, bounceIndex, rngState,
+				directionalLightsBuffer, numDirectionalLights,
+				areaLightsBuffer, numAreaLights,
+				pointLightsBuffer, numPointLights,
+				spotLightsBuffer, numSpotLights,
+			) );
+
+			If( lightSample.valid.and( lightSample.pdf.greaterThan( 0.0 ) ), () => {
+
+				const NoL = max( float( 0.0 ), dot( hitNormal, lightSample.direction ) ).toVar( 'dlu_lNoL' );
+				const lightImportance = lightSample.emission.x.add( lightSample.emission.y ).add( lightSample.emission.z ).toVar( 'dlu_lImp' );
+
+				If( NoL.greaterThan( 0.0 ).and( lightImportance.mul( NoL ).greaterThan( importanceThreshold ) ).and( isDirectionValid( lightSample.direction, hitNormal ) ), () => {
+
+					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) ).toVar( 'dlu_sDist' );
+					const visibility = traceShadowRay(
+						rayOrigin, lightSample.direction, shadowDistance, rngState,
+						traverseBVHShadow,
+						bvhTexture, bvhTexSize,
+						triangleTexture, triangleTexSize,
+						materialTexture, materialTexSize,
+					);
+
+					If( visibility.greaterThan( 0.0 ), () => {
+
+						const brdfValue = evaluateMaterialResponse( viewDir, lightSample.direction, hitNormal, material );
+						const bPdf = calculateMaterialPDF( viewDir, lightSample.direction, hitNormal, material ).toVar( 'dlu_bPdf' );
+
+						const misW = float( 1.0 ).toVar( 'dlu_lMIS' );
+
+						If( bPdf.greaterThan( 0.0 ).and( useBRDFSampling ), () => {
+
+							const lightPdfWeighted = lightSample.pdf.mul( lightWeight ).toVar( 'dlu_lPdfW' );
+							const brdfPdfWeighted = bPdf.mul( brdfWeight ).toVar( 'dlu_bPdfW' );
+
+							// Apply power heuristic for area lights and primary directional lights
+							If( lightSample.lightType.equal( int( LIGHT_TYPE_AREA ) ), () => {
+
+								misW.assign( powerHeuristic( lightPdfWeighted, brdfPdfWeighted ) );
+
+							} ).ElseIf( bounceIndex.equal( int( 0 ) ).and( lightSample.lightType.equal( int( LIGHT_TYPE_DIRECTIONAL ) ) ), () => {
+
+								misW.assign( powerHeuristic( lightPdfWeighted, brdfPdfWeighted ) );
+
+							} );
+
+						} );
+
+						// Guard division
+						const lightContribution = lightSample.emission.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( lightSample.pdf, 1e-10 ) );
+						totalContribution.addAssign( lightContribution.mul( totalSamplingWeight ).div( max( lightWeight, 1e-10 ) ) );
+
+					} );
+
+				} );
+
+			} );
+
+		} );
+
+		// =====================================================================
+		// BRDF SAMPLING PATH
+		// =====================================================================
+
+		If( sampleBRDF, () => {
+
+			If( brdfSamplePdf.greaterThan( 0.0 ).and( useBRDFSampling ), () => {
+
+				const NoL = max( float( 0.0 ), dot( hitNormal, brdfSampleDirection ) ).toVar( 'dlu_bNoL' );
+
+				If( NoL.greaterThan( 0.0 ).and( isDirectionValid( brdfSampleDirection, hitNormal ) ), () => {
+
+					// Check intersection with area lights
+					If( numAreaLights.greaterThan( int( 0 ) ), () => {
+
+						const foundIntersection = tslBool( false ).toVar( 'dlu_foundInt' );
+						const maxImportance = float( 0.0 ).toVar( 'dlu_maxImp' );
+						const maxImportanceLight = int( - 1 ).toVar( 'dlu_maxImpL' );
+
+						// Track best match (no early break)
+						Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
+
+							const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
+
+							If( light.intensity.greaterThan( 0.0 ), () => {
+
+								const lightImp = estimateLightImportance( light, hitPoint, hitNormal, material ).toVar( 'dlu_estImp' );
+
+								If( lightImp.greaterThanEqual( importanceThreshold ), () => {
+
+									const hitDistance = intersectAreaLight( light, rayOrigin, brdfSampleDirection ).toVar( 'dlu_hitD' );
+
+									If( hitDistance.greaterThan( 0.0 ), () => {
+
+										If( lightImp.greaterThan( maxImportance ), () => {
+
+											maxImportance.assign( lightImp );
+											maxImportanceLight.assign( i );
+
+										} );
+										foundIntersection.assign( tslBool( true ) );
+
+									} );
+
+								} );
+
+							} );
+
+						} );
+
+						If( foundIntersection.and( maxImportanceLight.greaterThanEqual( int( 0 ) ) ), () => {
+
+							const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, maxImportanceLight ) );
+							const hitDistance = intersectAreaLight( light, rayOrigin, brdfSampleDirection ).toVar( 'dlu_hitD2' );
+
+							If( hitDistance.greaterThan( 0.0 ), () => {
+
+								const shadowDistance = min( hitDistance.sub( 0.001 ), float( 1000.0 ) ).toVar( 'dlu_bSDist' );
+								const visibility = traceShadowRay(
+									rayOrigin, brdfSampleDirection, shadowDistance, rngState,
+									traverseBVHShadow,
+									bvhTexture, bvhTexSize,
+									triangleTexture, triangleTexSize,
+									materialTexture, materialTexSize,
+								);
+
+								If( visibility.greaterThan( 0.0 ), () => {
+
+									const lightFacing = max( float( 0.0 ), dot( brdfSampleDirection, light.normal ).negate() ).toVar( 'dlu_bFacing' );
+
+									If( lightFacing.greaterThan( 0.0 ), () => {
+
+										const lightDistSq = hitDistance.mul( hitDistance ).toVar( 'dlu_bDistSq' );
+										// Guard division
+										const lightPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) ).toVar( 'dlu_bLPdf' );
+										lightPdf.divAssign( max( float( totalLights ), 1.0 ) );
+
+										const brdfPdfWeighted = brdfSamplePdf.mul( brdfWeight ).toVar( 'dlu_bBPdfW' );
+										const lightPdfWeighted = lightPdf.mul( lightWeight ).toVar( 'dlu_bLPdfW' );
+										const misW = powerHeuristic( brdfPdfWeighted, lightPdfWeighted ).toVar( 'dlu_bMIS' );
+
+										const lightEmission = light.color.mul( light.intensity ).toVar( 'dlu_bLE' );
+										// Guard division
+										const brdfContribution = lightEmission.mul( brdfSampleValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( brdfSamplePdf, 1e-10 ) );
+										totalContribution.addAssign( brdfContribution.mul( totalSamplingWeight ).div( max( brdfWeight, 1e-10 ) ) );
+
+									} );
+
+								} );
+
+							} );
+
+						} );
+
+					} ); // End numAreaLights > 0
+
+				} );
+
+			} );
+
+		} );
+
+		// =====================================================================
+		// ENVIRONMENT SAMPLING PATH
+		// =====================================================================
+
+		If( sampleEnv, () => {
+
+			If( enableEnvironmentLight.and( useEnvSampling ), () => {
+
+				const envRandom = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar( 'dlu_envRand' );
+
+				// Sample direction + PDF from importance-sampled environment
+				const envSampleResult = sampleEquirectProbability(
+					envTexture, envMarginalWeights, envConditionalWeights,
+					envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom
+				).toVar( 'dlu_envSample' );
+
+				const envDirection = envSampleResult.xyz.toVar( 'dlu_envDir' );
+				const envPdf = envSampleResult.w.toVar( 'dlu_envPdf' );
+
+				// Get the sampled color
+				const envColor = sampleEquirectProbabilityColor(
+					envTexture, envMarginalWeights, envConditionalWeights, environmentIntensity, envRandom
+				).toVar( 'dlu_envColor' );
+
+				If( envPdf.greaterThan( 0.0 ), () => {
+
+					const NoL = max( float( 0.0 ), dot( hitNormal, envDirection ) ).toVar( 'dlu_eNoL' );
+
+					If( NoL.greaterThan( 0.0 ).and( isDirectionValid( envDirection, hitNormal ) ), () => {
+
+						const visibility = traceShadowRay(
+							rayOrigin, envDirection, float( 1000.0 ), rngState,
+							traverseBVHShadow,
+							bvhTexture, bvhTexSize,
+							triangleTexture, triangleTexSize,
+							materialTexture, materialTexSize,
+						);
+
+						If( visibility.greaterThan( 0.0 ), () => {
+
+							const brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitNormal, material );
+							const bPdf = calculateMaterialPDF( viewDir, envDirection, hitNormal, material ).toVar( 'dlu_eBPdf' );
+
+							const envPdfWeighted = envPdf.mul( envWeight ).toVar( 'dlu_ePdfW' );
+							const brdfPdfWeighted = bPdf.mul( brdfWeight ).toVar( 'dlu_eBPdfW' );
+							const misW = select(
+								bPdf.greaterThan( 0.0 ),
+								powerHeuristic( envPdfWeighted, brdfPdfWeighted ),
+								float( 1.0 )
+							).toVar( 'dlu_eMIS' );
+
+							// Guard division
+							const envContribution = envColor.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( envPdf, 1e-10 ) );
+							totalContribution.addAssign( envContribution.mul( totalSamplingWeight ).div( max( envWeight, 1e-10 ) ) );
+
+						} );
+
+					} );
+
+				} );
+
+			} );
+
+		} );
+
+	} ); // End emissiveIntensity check
+
+	// EMISSIVE TRIANGLE DIRECT LIGHTING
+	// NOTE: Emissive triangle sampling is handled separately in pathtracer_core.fs
+	// to bypass firefly suppression. Do not add it here to avoid double-counting.
 
 	return totalContribution;
 

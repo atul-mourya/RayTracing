@@ -209,6 +209,22 @@ export class WebGPUPathTracerApp {
 
 		}
 
+		// Transfer material texture arrays (albedo, normal, bump, roughness, metalness, emissive, displacement)
+		const materialTextureArrays = DataTransfer.getMaterialTextureArrays( this.existingApp );
+		this.pathTracingStage.setMaterialTextures( materialTextureArrays );
+		console.log( '[WebGPUPathTracerApp] Material texture arrays:', Object.fromEntries(
+			Object.entries( materialTextureArrays ).map( ( [ k, v ] ) => [ k, !! v ] )
+		) );
+
+		// Transfer emissive triangle data
+		const emissiveData = DataTransfer.getEmissiveTriangleData( this.existingApp );
+		if ( emissiveData.emissiveTriangleTexture ) {
+
+			this.pathTracingStage.setEmissiveTriangleTexture( emissiveData.emissiveTriangleTexture );
+			this.pathTracingStage.setEmissiveTriangleCount( emissiveData.emissiveTriangleCount );
+
+		}
+
 		// Setup material with all data
 		this.pathTracingStage.setupMaterial();
 

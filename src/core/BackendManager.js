@@ -222,7 +222,7 @@ export class BackendManager {
 			// Render settings
 			settings: {
 				maxBounces: app.pathTracingPass?.material?.uniforms?.maxBounces?.value || 4,
-				environmentIntensity: app.pathTracingPass?.material?.uniforms?.envIntensity?.value || 1.0,
+				environmentIntensity: app.pathTracingPass?.material?.uniforms?.environmentIntensity?.value || 1.0,
 				samplesPerPixel: app.pathTracingPass?.material?.uniforms?.samplesPerPixel?.value || 1
 			},
 

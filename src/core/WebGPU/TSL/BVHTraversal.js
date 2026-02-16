@@ -1,23 +1,5 @@
-/**
- * BVHTraversal_v2.js - Pure TSL BVH (Bounding Volume Hierarchy) Traversal
- *
- * Ported from bvhtraverse.fs GLSL shader.
- * Implements efficient stack-based BVH traversal for ray-triangle intersection.
- *
- * BVH Node Layout (3 vec4s = 12 floats):
- * - vec4[0]: min bound (x, y, z), leftChild (w)
- * - vec4[1]: max bound (x, y, z), rightChild (w)
- * - vec4[2]: triStart (x), triCount (y), unused (z, w)
- * - Leaf detection: leftChild < 0
- *
- * Triangle Data Layout (8 vec4s = 32 floats):
- * - vec4[0-2]: positions (pA, pB, pC)
- * - vec4[3-5]: normals (nA, nB, nC)
- * - vec4[6]: uv0 (xy), uv1 (zw)
- * - vec4[7]: uv2 (xy), materialIndex (z), meshIndex (w)
- *
- * NO wgslFn() - Pure TSL using Fn(), Loop(), If(), .toVar(), .assign()
- */
+// BVH Traversal - Ported from bvhtraverse.fs
+// Stack-based BVH traversal for ray-triangle intersection
 
 import {
 	Fn,
@@ -29,7 +11,6 @@ import {
 	If,
 	Loop,
 	Break,
-	texture,
 	select,
 	abs,
 	sign,
@@ -38,44 +19,22 @@ import {
 	dot,
 	normalize,
 	mix,
-	struct,
 	vec4,
-	// eslint-disable-next-line no-unused-vars
-	ivec2 // Used in JSDoc type annotations
+	notEqual,
+	lessThan,
+	mat3,
 } from 'three/tsl';
 
-import {
-	Ray,
-} from './Struct.js';
+import { struct } from './structProxy.js';
+import { Ray, HitInfo } from './Struct.js';
+import { getDatafromDataTexture, MATERIAL_SLOTS } from './Common.js';
+import { RandomPointInCircle } from './Random.js';
 
 // ================================================================================
 // STRUCTS
 // ================================================================================
 
-export const BVHIntersectionResult = struct( {
-	hit: 'bool',
-	t: 'float',
-	triangleIndex: 'int',
-	u: 'float',
-	v: 'float',
-	w: 'float'
-} );
-
-/**
- * Triangle intersection result struct
- * Matches the return type of rayTriangleGeometry
- */
-export const TriangleHitResult = struct( {
-	hit: 'bool',
-	t: 'float',
-	u: 'float',
-	v: 'float'
-} );
-
-/**
- * Visibility data struct - mirrors GLSL VisibilityData
- * Combined visibility information for material culling
- */
+// Combined visibility data structure
 export const VisibilityData = struct( {
 	visible: 'bool',
 	side: 'int',
@@ -87,21 +46,15 @@ export const VisibilityData = struct( {
 // CONSTANTS
 // ================================================================================
 
-// Reduced stack depth for pure TSL (individual variables)
-const MAX_STACK_DEPTH = 24;
-const BVH_STRIDE = 3; // 3 vec4s per BVH node
-const TRI_STRIDE = 8; // 8 vec4s per triangle
-const MATERIAL_SLOTS = 11; // Material texture stride
+const MAX_STACK_DEPTH = 32;
+const BVH_STRIDE = 3;
+const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
 
 // ================================================================================
 // STACK HELPERS (Pure TSL - no arrays)
 // ================================================================================
 
-/**
- * Stack structure using individual variables
- * TSL doesn't support local arrays, so we use individual vars with Switch access
- */
 const createStack = () => {
 
 	return {
@@ -128,46 +81,70 @@ const createStack = () => {
 		s20: int( 0 ).toVar( 's20' ),
 		s21: int( 0 ).toVar( 's21' ),
 		s22: int( 0 ).toVar( 's22' ),
-		s23: int( 0 ).toVar( 's23' )
+		s23: int( 0 ).toVar( 's23' ),
+		s24: int( 0 ).toVar( 's24' ),
+		s25: int( 0 ).toVar( 's25' ),
+		s26: int( 0 ).toVar( 's26' ),
+		s27: int( 0 ).toVar( 's27' ),
+		s28: int( 0 ).toVar( 's28' ),
+		s29: int( 0 ).toVar( 's29' ),
+		s30: int( 0 ).toVar( 's30' ),
+		s31: int( 0 ).toVar( 's31' )
 	};
 
 };
 
-/**
- * Read from stack at given index using nested select (TSL ternary)
- * More efficient than Switch for this use case
- */
 const stackRead = ( stack, index ) => {
 
-	// Use nested select for stack read - more TSL-friendly than Switch
-	return select( index.lessThan( int( 12 ) ),
-		select( index.lessThan( int( 6 ) ),
-			select( index.lessThan( int( 3 ) ),
-				select( index.equal( int( 0 ) ), stack.s0, select( index.equal( int( 1 ) ), stack.s1, stack.s2 ) ),
-				select( index.equal( int( 3 ) ), stack.s3, select( index.equal( int( 4 ) ), stack.s4, stack.s5 ) )
+	return select( index.lessThan( int( 16 ) ),
+		select( index.lessThan( int( 8 ) ),
+			select( index.lessThan( int( 4 ) ),
+				select( index.lessThan( int( 2 ) ),
+					select( index.equal( int( 0 ) ), stack.s0, stack.s1 ),
+					select( index.equal( int( 2 ) ), stack.s2, stack.s3 )
+				),
+				select( index.lessThan( int( 6 ) ),
+					select( index.equal( int( 4 ) ), stack.s4, stack.s5 ),
+					select( index.equal( int( 6 ) ), stack.s6, stack.s7 )
+				)
 			),
-			select( index.lessThan( int( 9 ) ),
-				select( index.equal( int( 6 ) ), stack.s6, select( index.equal( int( 7 ) ), stack.s7, stack.s8 ) ),
-				select( index.equal( int( 9 ) ), stack.s9, select( index.equal( int( 10 ) ), stack.s10, stack.s11 ) )
+			select( index.lessThan( int( 12 ) ),
+				select( index.lessThan( int( 10 ) ),
+					select( index.equal( int( 8 ) ), stack.s8, stack.s9 ),
+					select( index.equal( int( 10 ) ), stack.s10, stack.s11 )
+				),
+				select( index.lessThan( int( 14 ) ),
+					select( index.equal( int( 12 ) ), stack.s12, stack.s13 ),
+					select( index.equal( int( 14 ) ), stack.s14, stack.s15 )
+				)
 			)
 		),
-		select( index.lessThan( int( 18 ) ),
-			select( index.lessThan( int( 15 ) ),
-				select( index.equal( int( 12 ) ), stack.s12, select( index.equal( int( 13 ) ), stack.s13, stack.s14 ) ),
-				select( index.equal( int( 15 ) ), stack.s15, select( index.equal( int( 16 ) ), stack.s16, stack.s17 ) )
+		select( index.lessThan( int( 24 ) ),
+			select( index.lessThan( int( 20 ) ),
+				select( index.lessThan( int( 18 ) ),
+					select( index.equal( int( 16 ) ), stack.s16, stack.s17 ),
+					select( index.equal( int( 18 ) ), stack.s18, stack.s19 )
+				),
+				select( index.lessThan( int( 22 ) ),
+					select( index.equal( int( 20 ) ), stack.s20, stack.s21 ),
+					select( index.equal( int( 22 ) ), stack.s22, stack.s23 )
+				)
 			),
-			select( index.lessThan( int( 21 ) ),
-				select( index.equal( int( 18 ) ), stack.s18, select( index.equal( int( 19 ) ), stack.s19, stack.s20 ) ),
-				select( index.equal( int( 21 ) ), stack.s21, select( index.equal( int( 22 ) ), stack.s22, stack.s23 ) )
+			select( index.lessThan( int( 28 ) ),
+				select( index.lessThan( int( 26 ) ),
+					select( index.equal( int( 24 ) ), stack.s24, stack.s25 ),
+					select( index.equal( int( 26 ) ), stack.s26, stack.s27 )
+				),
+				select( index.lessThan( int( 30 ) ),
+					select( index.equal( int( 28 ) ), stack.s28, stack.s29 ),
+					select( index.equal( int( 30 ) ), stack.s30, stack.s31 )
+				)
 			)
 		)
 	);
 
 };
 
-/**
- * Write to stack at given index using If statements
- */
 const stackWrite = ( stack, index, value ) => {
 
 	If( index.equal( int( 0 ) ), () => {
@@ -290,107 +267,81 @@ const stackWrite = ( stack, index, value ) => {
 		stack.s23.assign( value );
 
 	} );
+	If( index.equal( int( 24 ) ), () => {
+
+		stack.s24.assign( value );
+
+	} );
+	If( index.equal( int( 25 ) ), () => {
+
+		stack.s25.assign( value );
+
+	} );
+	If( index.equal( int( 26 ) ), () => {
+
+		stack.s26.assign( value );
+
+	} );
+	If( index.equal( int( 27 ) ), () => {
+
+		stack.s27.assign( value );
+
+	} );
+	If( index.equal( int( 28 ) ), () => {
+
+		stack.s28.assign( value );
+
+	} );
+	If( index.equal( int( 29 ) ), () => {
+
+		stack.s29.assign( value );
+
+	} );
+	If( index.equal( int( 30 ) ), () => {
+
+		stack.s30.assign( value );
+
+	} );
+	If( index.equal( int( 31 ) ), () => {
+
+		stack.s31.assign( value );
+
+	} );
 
 };
 
 // ================================================================================
-// TEXTURE DATA ACCESS
+// RAY INTERSECTION HELPERS (inlined for BVH traversal performance)
 // ================================================================================
 
-/**
- * Read vec4 from data texture at given index
- * Matches GLSL getDatafromDataTexture pattern
- */
-const getDataFromTexture = Fn( ( [ tex, texSize, itemIndex, slotIndex, stride ] ) => {
+const RayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, pA, pB, pC, closestHitDst ] ) => {
 
-	const baseIndex = itemIndex.mul( stride ).add( slotIndex );
-	const x = baseIndex.mod( texSize.x );
-	const y = baseIndex.div( texSize.x );
-	const uv = vec2( x, y ).add( 0.5 ).div( vec2( texSize ) );
-
-	return texture( tex, uv );
-
-} );
-
-// ================================================================================
-// RAY-AABB INTERSECTION
-// ================================================================================
-
-/**
- * Fast ray-AABB intersection returning distance
- * Matches GLSL fastRayAABBDst function
- *
- * @returns {float} Distance to intersection, or HUGE_VAL if miss
- */
-const fastRayAABBDst = Fn( ( [ rayOrigin, invDir, boxMin, boxMax ] ) => {
-
-	const t1 = boxMin.sub( rayOrigin ).mul( invDir );
-	const t2 = boxMax.sub( rayOrigin ).mul( invDir );
-
-	const tmin = min( t1, t2 );
-	const tmax = max( t1, t2 );
-
-	const tNear = max( max( tmin.x, tmin.y ), tmin.z );
-	const tFar = min( min( tmax.x, tmax.y ), tmax.z );
-
-	// Return tNear if hit (and in front), HUGE_VAL if miss
-	const isHit = tNear.lessThanEqual( tFar ).and( tFar.greaterThan( 0.0 ) );
-	return select( isHit, max( tNear, float( 0.0 ) ), float( HUGE_VAL ) );
-
-} );
-
-// ================================================================================
-// TRIANGLE INTERSECTION
-// ================================================================================
-
-/**
- * Ray-Triangle intersection using geometry data (Möller-Trumbore)
- * Matches GLSL RayTriangleGeometry function
- *
- * @returns {TriangleHitResult} Struct with { hit, t, u, v }
- */
-const rayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, pA, pB, pC, tMin, tMax ] ) => {
-
-	// Create proper TSL struct instance
-	const result = TriangleHitResult( {
-		hit: tslBool( false ),
-		t: float( HUGE_VAL ),
-		u: float( 0.0 ),
-		v: float( 0.0 )
-	} ).toVar( 'triHitResult' );
+	// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection
+	const result = vec4( 1e20, 0.0, 0.0, 0.0 ).toVar( 'triGeoResult' );
 
 	const edge1 = pB.sub( pA );
 	const edge2 = pC.sub( pA );
-
 	const h = rayDir.cross( edge2 );
 	const a = dot( edge1, h );
 
-	// Use conditional logic instead of early Return() to avoid WGSL void return issues
-	// Check if ray is NOT parallel to triangle
 	If( abs( a ).greaterThanEqual( 1e-8 ), () => {
 
 		const f = float( 1.0 ).div( a );
 		const s = rayOrigin.sub( pA );
-		const u = f.mul( dot( s, h ) ).toVar( 'u' );
+		const u = f.mul( dot( s, h ) ).toVar( 'rtu' );
 
-		// Check u bounds
 		If( u.greaterThanEqual( 0.0 ).and( u.lessThanEqual( 1.0 ) ), () => {
 
 			const q = s.cross( edge1 );
-			const v = f.mul( dot( rayDir, q ) ).toVar( 'v' );
+			const v = f.mul( dot( rayDir, q ) ).toVar( 'rtv' );
 
-			// Check v bounds and u+v <= 1
 			If( v.greaterThanEqual( 0.0 ).and( u.add( v ).lessThanEqual( 1.0 ) ), () => {
 
-				const t = f.mul( dot( edge2, q ) ).toVar( 't' );
+				const t = f.mul( dot( edge2, q ) ).toVar( 'rtt' );
 
-				// Check if intersection is valid (within tMin..tMax range)
-				If( t.greaterThan( tMin ).and( t.lessThan( tMax ) ), () => {
+				If( t.greaterThan( 0.0 ).and( t.lessThan( closestHitDst ) ), () => {
 
-					result.get( 'hit' ).assign( true );
-					result.get( 't' ).assign( t );
-					result.get( 'u' ).assign( u );
-					result.get( 'v' ).assign( v );
+					result.assign( vec4( t, u, v, 1.0 ) );
 
 				} );
 
@@ -404,119 +355,204 @@ const rayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, pA, pB, pC, tMin, tMax ] 
 
 } );
 
+const fastRayAABBDst = Fn( ( [ rayOrigin, invDir, boxMin, boxMax ] ) => {
+
+	const t1 = boxMin.sub( rayOrigin ).mul( invDir );
+	const t2 = boxMax.sub( rayOrigin ).mul( invDir );
+
+	const tmin = min( t1, t2 );
+	const tmax = max( t1, t2 );
+
+	const tNear = max( max( tmin.x, tmin.y ), tmin.z );
+	const tFar = min( min( tmax.x, tmax.y ), tmax.z );
+
+	const isHit = tNear.lessThanEqual( tFar ).and( tFar.greaterThan( 0.0 ) );
+	return select( isHit, max( tNear, float( 0.0 ) ), float( 1e20 ) );
+
+} );
+
 // ================================================================================
-// MAIN BVH TRAVERSAL (PathTracer.js compatible)
+// VISIBILITY FUNCTIONS
 // ================================================================================
 
-/**
- * Traverse BVH and find closest ray-triangle intersection
- *
- * This is the main traversal function used by PathTracer.js.
- * Returns basic intersection data (triangle index + barycentric coords).
- *
- * @param {vec3} rayOrigin - Ray origin (world space)
- * @param {vec3} rayDir - Ray direction (normalized)
- * @param {float} tMin - Minimum ray distance
- * @param {float} tMax - Maximum ray distance
- * @param {sampler2D} bvhTexture - BVH node texture
- * @param {ivec2} bvhTexSize - BVH texture dimensions
- * @param {sampler2D} triangleTexture - Triangle data texture
- * @param {ivec2} triTexSize - Triangle texture dimensions
- * @returns {BVHIntersectionStruct} { hit, t, triangleIndex, u, v, w }
- */
+// Fetch all visibility data in 2 reads
+export const getVisibilityData = Fn( ( [ materialIndex, materialTexture, materialTexSize ] ) => {
+
+	// Read visibility flag from slot 4
+	const visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
+	// Read side and transparency data from slot 10
+	const sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) );
+
+	return VisibilityData( {
+		visible: visData.g.greaterThan( 0.5 ),
+		opacity: sideData.r,
+		side: int( sideData.g ),
+		transparent: sideData.b.greaterThan( 0.5 ),
+	} );
+
+} );
+
+// Fast visibility check using material texture
+export const isTriangleVisibleCached = Fn( ( [ materialIndex, materialTexture, materialTexSize ] ) => {
+
+	const visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
+	return visData.g.greaterThan( 0.5 );
+
+} );
+
+// Complete visibility check with side culling
+export const isMaterialVisibleOptimized = Fn( ( [ vis, rayDirection, normal ] ) => {
+
+	const result = tslBool( false ).toVar( 'visResult' );
+
+	If( vis.visible, () => {
+
+		const rayDotNormal = dot( rayDirection, normal );
+		// DoubleSide (2) or FrontSide (0) facing or BackSide (1) facing
+		const doubleSide = vis.side.equal( int( 2 ) );
+		const frontSide = vis.side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) );
+		const backSide = vis.side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) );
+		result.assign( doubleSide.or( frontSide ).or( backSide ) );
+
+	} );
+
+	return result;
+
+} );
+
+// Single visibility check with combined data fetch
+export const isMaterialVisible = Fn( ( [ materialIndex, rayDirection, normal, materialTexture, materialTexSize ] ) => {
+
+	const vis = VisibilityData.wrap( getVisibilityData( materialIndex, materialTexture, materialTexSize ) );
+	return isMaterialVisibleOptimized( vis, rayDirection, normal );
+
+} );
+
+// ================================================================================
+// MAIN BVH TRAVERSAL
+// ================================================================================
+
 export const traverseBVH = Fn( ( [
-	rayOrigin,
-	rayDir,
-	tMin,
-	tMax,
-	bvhTexture,
-	bvhTexSize,
-	triangleTexture,
-	triTexSize
+	ray,
+	bvhTexture, bvhTexSize,
+	triangleTexture, triangleTexSize,
+	materialTexture, materialTexSize,
 ] ) => {
 
-	// Result state
-	const closestT = tMax.toVar( 'closestT' );
-	const closestTriIndex = int( - 1 ).toVar( 'closestTriIndex' );
-	const closestU = float( 0.0 ).toVar( 'closestU' );
-	const closestV = float( 0.0 ).toVar( 'closestV' );
-	const closestW = float( 0.0 ).toVar( 'closestW' );
-	// Compute inverse ray direction with proper sign handling for axis-aligned rays
-	const invDir = vec3(
-		abs( rayDir.x ).lessThan( 1e-8 ).select(
-			float( HUGE_VAL ).mul( rayDir.x.greaterThanEqual( 0.0 ).select( 1.0, - 1.0 ) ),
-			float( 1.0 ).div( rayDir.x )
-		),
-		abs( rayDir.y ).lessThan( 1e-8 ).select(
-			float( HUGE_VAL ).mul( rayDir.y.greaterThanEqual( 0.0 ).select( 1.0, - 1.0 ) ),
-			float( 1.0 ).div( rayDir.y )
-		),
-		abs( rayDir.z ).lessThan( 1e-8 ).select(
-			float( HUGE_VAL ).mul( rayDir.z.greaterThanEqual( 0.0 ).select( 1.0, - 1.0 ) ),
-			float( 1.0 ).div( rayDir.z )
-		)
+	const closestHit = HitInfo( {
+		didHit: false,
+		dst: float( 1e20 ),
+		hitPoint: vec3( 0.0 ),
+		normal: vec3( 0.0 ),
+		uv: vec2( 0.0 ),
+		materialIndex: int( - 1 ),
+		meshIndex: int( - 1 ),
+		boxTests: int( 0 ),
+		triTests: int( 0 ),
+	} ).toVar( 'closestHit' );
+
+	// Stack
+	const stack = createStack();
+	const stackPtr = int( 1 ).toVar( 'stackPtr' );
+	stack.s0.assign( int( 0 ) ); // Root node
+
+	// Compact axis-aligned ray handling with correct sign preservation
+	const dirSign = mix( vec3( 1.0 ), sign( ray.direction ), notEqual( ray.direction, vec3( 0.0 ) ) );
+	const invDir = mix(
+		vec3( 1.0 ).div( ray.direction ),
+		vec3( HUGE_VAL ).mul( dirSign ),
+		lessThan( abs( ray.direction ), vec3( 1e-8 ) )
 	).toVar( 'invDir' );
 
-	// Stack for iterative traversal (using individual variables - TSL has no local arrays)
-	const stack = createStack();
-	const stackPtr = int( 0 ).toVar( 'stackPtr' );
-	const loopCounter = int( 0 ).toVar( 'loopCounter' );
+	const rayOrigin = ray.origin;
+	const rayDirection = ray.direction;
 
-	// Push root node (index 0)
-	stack.s0.assign( int( 0 ) );
-	stackPtr.assign( int( 1 ) );
+	const iterCount = int( 0 ).toVar( 'iterCount' );
 
-	// Main traversal loop (while-style: continue while stack is not empty)
-	Loop( stackPtr.greaterThan( int( 0 ) ).and( loopCounter.lessThan( int( 256 ) ) ), () => {
+	Loop( stackPtr.greaterThan( int( 0 ) ).and( iterCount.lessThan( int( 256 ) ) ), () => {
 
-		loopCounter.addAssign( int( 1 ) );
-
-		// Pop node from stack
-		stackPtr.subAssign( int( 1 ) );
+		iterCount.addAssign( 1 );
+		stackPtr.subAssign( 1 );
 		const nodeIndex = stackRead( stack, stackPtr ).toVar( 'nodeIndex' );
 
-		// Read BVH node data (first 2 vec4s)
-		const nodeData0 = getDataFromTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		const nodeData1 = getDataFromTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
+		const nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
+		const nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
 		const leftChild = int( nodeData0.w ).toVar( 'leftChild' );
 		const rightChild = int( nodeData1.w ).toVar( 'rightChild' );
+		closestHit.boxTests.addAssign( 1 );
 
-		// Leaf node detection: leftChild < 0
 		If( leftChild.lessThan( int( 0 ) ), () => {
 
-			// Read third vec4 for triangle data (only for leaf nodes)
-			const nodeData2 = getDataFromTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
+			// Leaf node
+			const nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
 			const triStart = int( nodeData2.x ).toVar( 'triStart' );
 			const triCount = int( nodeData2.y ).toVar( 'triCount' );
 
 			// Process triangles in leaf
 			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
+				closestHit.triTests.addAssign( 1 );
 				const triIndex = triStart.add( i ).toVar( 'triIndex' );
 
-				// Fetch triangle positions
-				const pA = getDataFromTexture( triangleTexture, triTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
-				const pB = getDataFromTexture( triangleTexture, triTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
-				const pC = getDataFromTexture( triangleTexture, triTexSize, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
+				// Fetch geometry first (3 fetches)
+				const pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
+				const pB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
+				const pC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-				// Test ray-triangle intersection
-				const triHit = rayTriangleGeometry( rayOrigin, rayDir, pA, pB, pC, tMin, closestT );
+				const triResult = RayTriangleGeometry( rayOrigin, rayDirection, pA, pB, pC, closestHit.dst );
 
-				If( triHit.get( 'hit' ), () => {
+				If( triResult.w.greaterThan( 0.5 ), () => {
 
-					closestT.assign( triHit.get( 't' ) );
-					closestTriIndex.assign( triIndex );
-					closestU.assign( triHit.get( 'u' ) );
-					closestV.assign( triHit.get( 'v' ) );
-					closestW.assign( float( 1.0 ).sub( triHit.get( 'u' ) ).sub( triHit.get( 'v' ) ) );
+					const t = triResult.x;
+					const u = triResult.y;
+					const v = triResult.z;
+
+					// Only process further if this hit is closer
+					If( t.lessThan( closestHit.dst ), () => {
+
+						// Now fetch attributes necessary for shading/visibility (5 fetches)
+						const nA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
+						const nB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
+						const nC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
+						const uvData1 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 6 ), int( TRI_STRIDE ) );
+						const uvData2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 7 ), int( TRI_STRIDE ) );
+
+						const matIdx = int( uvData2.z );
+						const meshIdx = int( uvData2.w );
+
+						// Early material rejection
+						If( isTriangleVisibleCached( matIdx, materialTexture, materialTexSize ), () => {
+
+							// Interpolate normal
+							const w = float( 1.0 ).sub( u ).sub( v );
+							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar( 'hitNorm' );
+
+							// Full material visibility check (culling etc)
+							If( isMaterialVisible( matIdx, rayDirection, normal, materialTexture, materialTexSize ), () => {
+
+								closestHit.didHit.assign( true );
+								closestHit.dst.assign( t );
+								closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( t ) ) );
+								closestHit.normal.assign( normal );
+								closestHit.uv.assign(
+									uvData1.xy.mul( w ).add( uvData1.zw.mul( u ) ).add( uvData2.xy.mul( v ) )
+								);
+								closestHit.materialIndex.assign( matIdx );
+								closestHit.meshIndex.assign( meshIdx );
+
+							} );
+
+						} );
+
+					} );
 
 				} );
 
 			} );
 
-			// Early termination for very close hits
-			If( closestTriIndex.greaterThanEqual( 0 ).and( closestT.lessThan( 0.001 ) ), () => {
+			// If we found a very close hit, we can terminate early
+			If( closestHit.didHit.and( closestHit.dst.lessThan( 0.001 ) ), () => {
 
 				Break();
 
@@ -524,48 +560,38 @@ export const traverseBVH = Fn( ( [
 
 		} ).Else( () => {
 
-			// Interior node - test child AABBs
+			// Read child bounds efficiently
+			const leftData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 0 ), int( BVH_STRIDE ) );
+			const leftData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 1 ), int( BVH_STRIDE ) );
+			const rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
+			const rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
-			// Read child bounds
-			const leftData0 = getDataFromTexture( bvhTexture, bvhTexSize, leftChild, int( 0 ), int( BVH_STRIDE ) );
-			const leftData1 = getDataFromTexture( bvhTexture, bvhTexSize, leftChild, int( 1 ), int( BVH_STRIDE ) );
-			const rightData0 = getDataFromTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
-			const rightData1 = getDataFromTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
+			const dstA = fastRayAABBDst( rayOrigin, invDir, leftData0.xyz, leftData1.xyz ).toVar( 'dstA' );
+			const dstB = fastRayAABBDst( rayOrigin, invDir, rightData0.xyz, rightData1.xyz ).toVar( 'dstB' );
 
-			const childA_boundsMin = leftData0.xyz;
-			const childA_boundsMax = leftData1.xyz;
-			const childB_boundsMin = rightData0.xyz;
-			const childB_boundsMax = rightData1.xyz;
-
-			// Test ray-AABB intersections
-			const dstA = fastRayAABBDst( rayOrigin, invDir, childA_boundsMin, childA_boundsMax ).toVar( 'dstA' );
-			const dstB = fastRayAABBDst( rayOrigin, invDir, childB_boundsMin, childB_boundsMax ).toVar( 'dstB' );
-
-			// Early rejection if both children are farther than current closest hit
+			// Optimized early rejection
 			const minDst = min( dstA, dstB );
+			If( minDst.lessThan( closestHit.dst ), () => {
 
-			If( minDst.lessThan( closestT ), () => {
-
-				// Distance-based child ordering: process closer child first
+				// Improved node ordering with fewer conditionals
 				const aCloser = dstA.lessThan( dstB );
 				const nearChild = select( aCloser, leftChild, rightChild ).toVar( 'nearChild' );
 				const farChild = select( aCloser, rightChild, leftChild ).toVar( 'farChild' );
-				const nearDst = select( aCloser, dstA, dstB ).toVar( 'nearDst' );
 				const farDst = select( aCloser, dstB, dstA ).toVar( 'farDst' );
 
 				// Push far child first (processed last)
-				If( farDst.lessThan( closestT ).and( stackPtr.lessThan( MAX_STACK_DEPTH - 1 ) ), () => {
+				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
 					stackWrite( stack, stackPtr, farChild );
-					stackPtr.addAssign( int( 1 ) );
+					stackPtr.addAssign( 1 );
 
 				} );
 
 				// Push near child second (processed first)
-				If( nearDst.lessThan( closestT ).and( stackPtr.lessThan( MAX_STACK_DEPTH ) ), () => {
+				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
 					stackWrite( stack, stackPtr, nearChild );
-					stackPtr.addAssign( int( 1 ) );
+					stackPtr.addAssign( 1 );
 
 				} );
 
@@ -575,105 +601,87 @@ export const traverseBVH = Fn( ( [
 
 	} );
 
-	const hit = closestTriIndex.greaterThanEqual( 0 );
-
-	return BVHIntersectionResult( {
-		hit,
-		t: closestT,
-		triangleIndex: closestTriIndex,
-		u: closestU,
-		v: closestV,
-		w: closestW
-	} );
+	return closestHit;
 
 } );
 
 // ================================================================================
-// SHADOW RAY TRAVERSAL (OPTIMIZED)
+// SHADOW RAY TRAVERSAL (OPTIMIZED - early exit on any hit)
 // ================================================================================
 
-/**
- * Test BVH for any intersection (shadow ray optimization)
- *
- * Early exits as soon as any intersection is found.
- * More efficient for shadow rays where we only need boolean visibility.
- *
- * @param {vec3} rayOrigin - Ray origin
- * @param {vec3} rayDir - Ray direction (normalized)
- * @param {float} tMin - Minimum ray distance
- * @param {float} maxDist - Maximum ray distance (typically distance to light)
- * @param {sampler2D} bvhTexture - BVH texture
- * @param {ivec2} bvhTexSize - BVH texture size
- * @param {sampler2D} triangleTexture - Triangle texture
- * @param {ivec2} triTexSize - Triangle texture size
- * @returns {bool} True if any intersection found (ray is occluded)
- */
 export const traverseBVHShadow = Fn( ( [
-	rayOrigin,
-	rayDir,
-	tMin,
-	maxDist,
-	bvhTexture,
-	bvhTexSize,
-	triangleTexture,
-	triTexSize
+	ray,
+	bvhTexture, bvhTexSize,
+	triangleTexture, triangleTexSize,
+	materialTexture, materialTexSize,
 ] ) => {
 
-	const occluded = tslBool( false ).toVar( 'occluded' );
+	const closestHit = HitInfo( {
+		didHit: false,
+		dst: float( 1e20 ),
+		hitPoint: vec3( 0.0 ),
+		normal: vec3( 0.0 ),
+		uv: vec2( 0.0 ),
+		materialIndex: int( - 1 ),
+		meshIndex: int( - 1 ),
+		boxTests: int( 0 ),
+		triTests: int( 0 ),
+	} ).toVar( 'shadowHit' );
 
-	// Compute inverse ray direction
-	const invDir = vec3(
-		abs( rayDir.x ).lessThan( 1e-8 ).select( float( HUGE_VAL ), float( 1.0 ).div( rayDir.x ) ),
-		abs( rayDir.y ).lessThan( 1e-8 ).select( float( HUGE_VAL ), float( 1.0 ).div( rayDir.y ) ),
-		abs( rayDir.z ).lessThan( 1e-8 ).select( float( HUGE_VAL ), float( 1.0 ).div( rayDir.z ) )
-	).toVar( 'invDir' );
-
-	// Stack for traversal (using individual variables - TSL has no local arrays)
 	const stack = createStack();
-	const stackPtr = int( 0 ).toVar( 'stackPtr' );
-	const loopCounter = int( 0 ).toVar( 'loopCounter' );
-
+	const stackPtr = int( 1 ).toVar( 'stackPtr' );
 	stack.s0.assign( int( 0 ) );
-	stackPtr.assign( int( 1 ) );
 
-	const closestDst = maxDist.toVar( 'closestDst' );
+	const dirSign = mix( vec3( 1.0 ), sign( ray.direction ), notEqual( ray.direction, vec3( 0.0 ) ) );
+	const invDir = mix(
+		vec3( 1.0 ).div( ray.direction ),
+		vec3( HUGE_VAL ).mul( dirSign ),
+		lessThan( abs( ray.direction ), vec3( 1e-8 ) )
+	).toVar( 'sInvDir' );
 
-	// Traversal loop with early exit condition (while-style)
-	Loop( stackPtr.greaterThan( int( 0 ) ).and( occluded.not() ).and( loopCounter.lessThan( int( 256 ) ) ), () => {
+	const sIterCount = int( 0 ).toVar( 'sIterCount' );
 
-		loopCounter.addAssign( int( 1 ) );
+	Loop( stackPtr.greaterThan( int( 0 ) ).and( closestHit.didHit.not() ).and( sIterCount.lessThan( int( 256 ) ) ), () => {
 
-		stackPtr.subAssign( int( 1 ) );
-		const nodeIndex = stackRead( stack, stackPtr ).toVar( 'nodeIndex' );
+		sIterCount.addAssign( 1 );
+		stackPtr.subAssign( 1 );
+		const nodeIndex = stackRead( stack, stackPtr ).toVar( 'sNodeIdx' );
 
-		const nodeData0 = getDataFromTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		const nodeData1 = getDataFromTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
+		const nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
+		const nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
-		const leftChild = int( nodeData0.w ).toVar( 'leftChild' );
-		const rightChild = int( nodeData1.w ).toVar( 'rightChild' );
+		const leftChild = int( nodeData0.w ).toVar( 'sLeftChild' );
+		const rightChild = int( nodeData1.w ).toVar( 'sRightChild' );
 
 		If( leftChild.lessThan( int( 0 ) ), () => {
 
-			// Leaf node
-			const nodeData2 = getDataFromTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
-			const triStart = int( nodeData2.x ).toVar( 'triStart' );
-			const triCount = int( nodeData2.y ).toVar( 'triCount' );
+			const nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
+			const triStart = int( nodeData2.x ).toVar( 'sTriStart' );
+			const triCount = int( nodeData2.y ).toVar( 'sTriCount' );
 
-			// Triangle loop with early exit on hit
 			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-				const triIndex = triStart.add( i ).toVar( 'triIndex' );
+				const triIndex = triStart.add( i ).toVar( 'sTriIdx' );
 
-				const pA = getDataFromTexture( triangleTexture, triTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
-				const pB = getDataFromTexture( triangleTexture, triTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
-				const pC = getDataFromTexture( triangleTexture, triTexSize, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
+				const pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
+				const pB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
+				const pC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-				const triHit = rayTriangleGeometry( rayOrigin, rayDir, pA, pB, pC, tMin, closestDst );
+				const triResult = RayTriangleGeometry( ray.origin, ray.direction, pA, pB, pC, closestHit.dst );
 
-				If( triHit.get( 'hit' ), () => {
+				If( triResult.w.greaterThan( 0.5 ), () => {
 
-					occluded.assign( true );
-					Break();
+					const uvData2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 7 ), int( TRI_STRIDE ) );
+					const matIdx = int( uvData2.z );
+
+					If( isTriangleVisibleCached( matIdx, materialTexture, materialTexSize ), () => {
+
+						closestHit.didHit.assign( true );
+						closestHit.dst.assign( triResult.x );
+						closestHit.materialIndex.assign( matIdx );
+						closestHit.meshIndex.assign( int( uvData2.w ) );
+
+					} );
 
 				} );
 
@@ -681,31 +689,33 @@ export const traverseBVHShadow = Fn( ( [
 
 		} ).Else( () => {
 
-			// Interior node
-			const leftData0 = getDataFromTexture( bvhTexture, bvhTexSize, leftChild, int( 0 ), int( BVH_STRIDE ) );
-			const leftData1 = getDataFromTexture( bvhTexture, bvhTexSize, leftChild, int( 1 ), int( BVH_STRIDE ) );
-			const rightData0 = getDataFromTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
-			const rightData1 = getDataFromTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
+			const leftData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 0 ), int( BVH_STRIDE ) );
+			const leftData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 1 ), int( BVH_STRIDE ) );
+			const rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
+			const rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( rayOrigin, invDir, leftData0.xyz, leftData1.xyz ).toVar( 'dstA' );
-			const dstB = fastRayAABBDst( rayOrigin, invDir, rightData0.xyz, rightData1.xyz ).toVar( 'dstB' );
+			const dstA = fastRayAABBDst( ray.origin, invDir, leftData0.xyz, leftData1.xyz ).toVar( 'sDstA' );
+			const dstB = fastRayAABBDst( ray.origin, invDir, rightData0.xyz, rightData1.xyz ).toVar( 'sDstB' );
 
 			const minDst = min( dstA, dstB );
+			If( minDst.lessThan( closestHit.dst ), () => {
 
-			If( minDst.lessThan( closestDst ), () => {
+				const aCloser = dstA.lessThan( dstB );
+				const nearChild = select( aCloser, leftChild, rightChild ).toVar( 'sNear' );
+				const farChild = select( aCloser, rightChild, leftChild ).toVar( 'sFar' );
+				const farDst = select( aCloser, dstB, dstA ).toVar( 'sFarDst' );
 
-				// Push children (no ordering needed for shadow rays, any hit suffices)
-				If( dstB.lessThan( closestDst ).and( stackPtr.lessThan( MAX_STACK_DEPTH - 1 ) ), () => {
+				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stackWrite( stack, stackPtr, rightChild );
-					stackPtr.addAssign( int( 1 ) );
+					stackWrite( stack, stackPtr, farChild );
+					stackPtr.addAssign( 1 );
 
 				} );
 
-				If( dstA.lessThan( closestDst ).and( stackPtr.lessThan( MAX_STACK_DEPTH ) ), () => {
+				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stackWrite( stack, stackPtr, leftChild );
-					stackPtr.addAssign( int( 1 ) );
+					stackWrite( stack, stackPtr, nearChild );
+					stackPtr.addAssign( 1 );
 
 				} );
 
@@ -715,36 +725,68 @@ export const traverseBVHShadow = Fn( ( [
 
 	} );
 
-	return occluded;
+	return closestHit;
 
 } );
 
-/**
- * Generate ray from camera for a given screen position
- */
-export const generateRayFromCamera = Fn( ( [ screenPosition, cameraWorldMatrix, cameraProjectionMatrixInverse, seed ] ) => {
+// ================================================================================
+// CAMERA RAY GENERATION
+// ================================================================================
 
-	const ndc = screenPosition;
-	const clipPos = vec4( ndc.x, ndc.y, float( - 1.0 ), float( 1.0 ) );
+export const generateRayFromCamera = Fn( ( [
+	screenPosition, rngState,
+	cameraWorldMatrix, cameraProjectionMatrixInverse,
+	enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale
+] ) => {
 
-	// Transform from clip space to view space
-	const viewPos = cameraProjectionMatrixInverse.mul( clipPos );
-	const viewDir = viewPos.xyz.div( viewPos.w );
+	// Convert screen position to NDC
+	const ndcPos = vec3( screenPosition.xy, 1.0 );
 
-	// Transform from view space to world space
-	const worldDirRaw = cameraWorldMatrix.mul( vec4( viewDir, 0.0 ) ).xyz;
-	const worldDir = worldDirRaw.normalize();
+	// Convert NDC to camera space
+	const rayDirCS = cameraProjectionMatrixInverse.mul( vec4( ndcPos, 1.0 ) );
 
-	// Get camera position from world matrix
-	const worldOrigin = vec3(
-		cameraWorldMatrix.element( 3 ).x,
-		cameraWorldMatrix.element( 3 ).y,
-		cameraWorldMatrix.element( 3 ).z
-	);
+	// Convert to world space
+	const rayDirectionWorld = normalize( mat3(
+		cameraWorldMatrix[ 0 ].xyz,
+		cameraWorldMatrix[ 1 ].xyz,
+		cameraWorldMatrix[ 2 ].xyz
+	).mul( rayDirCS.xyz.div( rayDirCS.w ) ) ).toVar( 'rayDirWorld' );
+
+	const rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] ).toVar( 'rayOriginWorld' );
+
+	const resultOrigin = rayOriginWorld.toVar( 'camOrigin' );
+	const resultDirection = rayDirectionWorld.toVar( 'camDir' );
+
+	// Check if DOF is disabled or conditions make it ineffective
+	If( enableDOF.and( focalLength.greaterThan( 0.0 ) ).and( aperture.lessThan( 64.0 ) ).and( focusDistance.greaterThan( 0.001 ) ), () => {
+
+		// Calculate focal point - where rays converge
+		const focalPoint = rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).toVar( 'focalPt' );
+
+		// Physical aperture calculation
+		const effectiveAperture = focalLength.div( aperture );
+		// Apply scene scale to maintain correct physical aperture size
+		const apertureRadius = effectiveAperture.mul( 0.001 ).mul( sceneScale ).mul( apertureScale );
+
+		// Generate random point on aperture disk
+		const randomPoint = RandomPointInCircle( rngState );
+
+		// Extract camera coordinate system directly from camera matrix
+		const cameraRight = normalize( vec3( cameraWorldMatrix[ 0 ] ) );
+		const cameraUp = normalize( vec3( cameraWorldMatrix[ 1 ] ) );
+
+		// Apply aperture offset using camera's actual coordinate system
+		const offset = cameraRight.mul( randomPoint.x ).add( cameraUp.mul( randomPoint.y ) ).mul( apertureRadius );
+
+		// Calculate new ray from offset origin to focal point
+		resultOrigin.assign( rayOriginWorld.add( offset ) );
+		resultDirection.assign( normalize( focalPoint.sub( resultOrigin ) ) );
+
+	} );
 
 	return Ray( {
-		origin: worldOrigin,
-		direction: worldDir
+		origin: resultOrigin,
+		direction: resultDirection,
 	} );
 
 } );

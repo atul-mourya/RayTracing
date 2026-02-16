@@ -1,31 +1,32 @@
 /**
- * PathTracerCore_v2.js - Pure TSL Path Tracing Core
+ * PathTracerCore.js - Path Tracing Core
  *
- * True port of pathtracer_core.fs from GLSL to pure TSL/WGSL.
- * NO wgslFn() - uses only Fn(), If(), Loop(), .toVar(), .assign()
+ * Exact port of pathtracer_core.fs + helper functions from pathtracer.fs
+ * Pure TSL: Fn(), If(), Loop(), .toVar(), .assign() — NO wgslFn()
  *
- * Matches pathtracer_core.fs logic exactly:
- *  - estimatePathContribution
- *  - handleRussianRoulette
- *  - sampleBackgroundLighting
- *  - regularizePathContribution
- *  - Trace (main loop): traversal → textures → displacement → transparency →
- *    BRDF sample → emissive → direct light → indirect light → G-buffer → RR
+ * Contains:
+ *  - getOrCreateMaterialClassification — cached material classification
+ *  - generateSampledDirection          — BRDF direction sampling with multi-lobe CDF
+ *  - estimatePathContribution          — path importance estimation
+ *  - handleRussianRoulette             — adaptive path termination
+ *  - sampleBackgroundLighting          — environment background sampling
+ *  - regularizePathContribution        — firefly suppression
+ *  - Trace                             — main path tracing loop
  */
 
 import {
 	Fn,
 	float,
+	vec2,
 	vec3,
 	vec4,
-	vec2,
 	int,
 	uint,
 	bool as tslBool,
 	max,
 	min,
-	sqrt,
 	abs,
+	sqrt,
 	exp,
 	log,
 	clamp,
@@ -34,257 +35,454 @@ import {
 	normalize,
 	length,
 	reflect,
-	refract,
 	If,
 	Loop,
 	Break,
 	Continue,
-	texture,
 	select,
-	smoothstep
+	smoothstep,
 } from 'three/tsl';
 
-import { traverseBVH, traverseBVHShadow } from './BVHTraversal.js';
-import { RandomValue } from './Random.js';
+import { struct } from './structProxy.js';
+
 import {
+	PI,
+	PI_INV,
+	EPSILON,
+	MIN_ROUGHNESS,
+	MAX_ROUGHNESS,
+	MIN_CLEARCOAT_ROUGHNESS,
+	MIN_PDF,
 	maxComponent,
 	minComponent,
-	luminance,
-	buildOrthonormalBasis,
-	localToWorld,
-	fresnelSchlick,
-	distributionGGX,
-	geometrySmith,
-	importanceSampleCosine,
-	importanceSampleGGX
+	classifyMaterial,
+	constructTBN,
+	calculateFireflyThreshold,
+	applySoftSuppressionRGB,
+	getMaterial,
 } from './Common.js';
-import { sampleEnvironmentDirection } from './Environment.js';
-import { calculateDirectLightingUnified } from './LightsSampling.js';
 import {
 	DirectionSample,
 	MaterialClassification,
-	pathTracerOutputStruct
+	PathState,
+	RenderState,
+	MaterialCache,
+	BRDFWeights,
+	Ray,
+	HitInfo,
+	MaterialSamples,
+	RayTracingMaterial,
+	ImportanceSamplingInfo,
 } from './Struct.js';
+import { RandomValue, getRandomSample } from './Random.js';
+import { traverseBVH } from './BVHTraversal.js';
+import { sampleEnvironment } from './Environment.js';
+import { sampleAllMaterialTextures, sampleDisplacementMap } from './TextureSampling.js';
+import { calculateDisplacedNormal } from './Displacement.js';
+import { handleMaterialTransparency, MaterialInteractionResult } from './MaterialTransmission.js';
+import {
+	DistributionGGX,
+	SheenDistribution,
+	calculateVNDFPDF,
+	calculateBRDFWeights,
+	createMaterialCache,
+	getImportanceSamplingInfo,
+} from './MaterialProperties.js';
+import { evaluateMaterialResponse } from './MaterialEvaluation.js';
+import {
+	ImportanceSampleCosine,
+	ImportanceSampleGGX,
+	sampleGGXVNDF,
+} from './MaterialSampling.js';
+import { sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
+import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
+import { calculateDirectLightingUnified } from './LightsSampling.js';
+import { calculateIndirectLighting } from './LightsIndirect.js';
+import { IndirectLightingResult } from './LightsCore.js';
 
-// ================================================================================
-// CONSTANTS  (match pathtracer_core.fs / struct.fs)
-// ================================================================================
+// =============================================================================
+// Constants
+// =============================================================================
 
-const PI = Math.PI;
-const PI_INV = 1.0 / PI;
-const TWO_PI = 2.0 * PI;
-const MIN_ROUGHNESS = 0.045;
-const MAX_ROUGHNESS = 1.0;
-
-// Ray type enumeration (match GLSL)
+// Ray type enumeration
 const RAY_TYPE_CAMERA = 0;
 const RAY_TYPE_REFLECTION = 1;
 const RAY_TYPE_TRANSMISSION = 2;
 const RAY_TYPE_DIFFUSE = 3;
 const RAY_TYPE_SHADOW = 4;
 
-// Data layout constants (match GLSL / CLAUDE.md)
-const TRI_STRIDE = 8; // 8 vec4s per triangle
-const MATERIAL_STRIDE = 11; // 11 vec4s per material
-
-// ================================================================================
-// TEXTURE DATA ACCESS
-// ================================================================================
-
-const getDataFromTexture = Fn( ( [ tex, texSize, itemIndex, slotIndex, stride ] ) => {
-
-	const baseIndex = itemIndex.mul( stride ).add( slotIndex );
-	const x = baseIndex.mod( texSize.x );
-	const y = baseIndex.div( texSize.x );
-	const uv = vec2( x, y ).add( 0.5 ).div( vec2( texSize ) );
-	return texture( tex, uv );
-
+// Trace result struct
+export const TraceResult = struct( {
+	radiance: 'vec4',
+	objectNormal: 'vec3',
+	objectColor: 'vec3',
+	objectID: 'float',
+	firstHitPoint: 'vec3',
+	firstHitDistance: 'float',
 } );
 
-// ================================================================================
-// MATERIAL CLASSIFICATION
-// ================================================================================
+// =============================================================================
+// Material Classification Caching
+// =============================================================================
 
-/**
- * Classify material properties — matches GLSL classifyMaterial / getOrCreateMaterialClassification.
- */
-export const classifyMaterial = Fn( ( [ color, metalness, roughness, transmission, clearcoat, emissive ] ) => {
-
-	const isMetallic = metalness.greaterThan( 0.7 ).toVar( 'isMetallic' );
-	const isRough = roughness.greaterThan( 0.8 ).toVar( 'isRough' );
-	const isSmooth = roughness.lessThan( 0.3 ).toVar( 'isSmooth' );
-	const isTransmissive = transmission.greaterThan( 0.5 ).toVar( 'isTransmissive' );
-	const hasClearcoat = clearcoat.greaterThan( 0.5 ).toVar( 'hasClearcoat' );
-	const isEmissive = luminance( emissive ).greaterThan( 0.0 ).toVar( 'isEmissive' );
-
-	const complexityScore = float( 0.0 ).toVar( 'complexityScore' );
-	complexityScore.addAssign( metalness.mul( 0.2 ) );
-	complexityScore.addAssign( float( 1.0 ).sub( roughness ).mul( 0.15 ) );
-	complexityScore.addAssign( transmission.mul( 0.25 ) );
-	complexityScore.addAssign( clearcoat.mul( 0.15 ) );
-
-	If( isMetallic.and( isSmooth ), () => {
-
-		complexityScore.addAssign( 0.1 );
-
-	} );
-	If( isTransmissive.and( hasClearcoat ), () => {
-
-		complexityScore.addAssign( 0.08 );
-
-	} );
-	If( isEmissive, () => {
-
-		complexityScore.addAssign( 0.07 );
-
-	} );
-
-	complexityScore.assign( clamp( complexityScore, 0.0, 1.0 ) );
-
-	return MaterialClassification( { isMetallic, isRough, isSmooth, isTransmissive, hasClearcoat, isEmissive, complexityScore } );
-
-} );
-
-// ================================================================================
-// PATH CONTRIBUTION ESTIMATION
-// ================================================================================
-
-/**
- * Matches GLSL estimatePathContribution().
- * enableEnvironmentLight / useEnvMapIS passed explicitly (replace uniforms).
- */
-export const estimatePathContribution = Fn( ( [
-	throughput,
-	direction,
-	materialClass,
-	enableEnvironmentLight,
-	useEnvMapIS
+// OPTIMIZED: Consolidated material classification with material change detection
+// Note: In TSL, we cannot use inout on PathState, so we pass individual cache fields
+// and return classification. PathState cache management happens in the caller.
+export const getOrCreateMaterialClassification = Fn( ( [
+	material, materialIndex,
+	classificationCached, lastMaterialIndex,
+	cachedClassification,
 ] ) => {
 
-	const throughputStrength = maxComponent( throughput ).toVar( 'throughputStrength' );
+	const result = cachedClassification.toVar( 'gocc_result' );
 
-	const materialImportance = materialClass.get( 'complexityScore' ).toVar( 'materialImportance' );
+	If( classificationCached.not().or( lastMaterialIndex.notEqual( materialIndex ) ), () => {
 
-	If( materialClass.get( 'isMetallic' ).and( materialClass.get( 'isSmooth' ) ), () => {
+		result.assign( classifyMaterial(
+			material.metalness, material.roughness,
+			material.transmission, material.clearcoat,
+			material.emissive,
+		) );
+
+	} );
+
+	return result;
+
+} );
+
+// =============================================================================
+// BRDF Direction Sampling
+// =============================================================================
+
+export const generateSampledDirection = Fn( ( [
+	V, N, material, materialIndex, xi, rngState,
+	// PathState cache fields
+	classificationCached, lastMaterialIndex, cachedClassification,
+	weightsComputed, cachedBrdfWeights,
+	materialCacheCached, cachedMaterialCache,
+] ) => {
+
+	const resultDirection = vec3( 0.0 ).toVar( 'gsd_dir' );
+	const resultValue = vec3( 0.0 ).toVar( 'gsd_val' );
+	const resultPdf = float( 0.0 ).toVar( 'gsd_pdf' );
+
+	// Get material classification (cached or computed)
+	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
+		material, materialIndex,
+		classificationCached, lastMaterialIndex, cachedClassification,
+	) ).toVar( 'gsd_mc' );
+
+	// Compute BRDF weights
+	const weights = cachedBrdfWeights.toVar( 'gsd_weights' );
+
+	If( weightsComputed.not(), () => {
+
+		If( materialCacheCached, () => {
+
+			weights.assign( calculateBRDFWeights( material, mc, cachedMaterialCache ) );
+
+		} ).Else( () => {
+
+			// Create minimal temporary cache
+			const tempCache = MaterialCache( {
+				F0: vec3( 0.04 ),
+				NoV: float( 1.0 ),
+				diffuseColor: vec3( 0.0 ),
+				specularColor: vec3( 0.0 ),
+				isMetallic: false,
+				isPurelyDiffuse: false,
+				hasSpecialFeatures: false,
+				alpha: float( 0.0 ),
+				k: float( 0.0 ),
+				alpha2: float( 0.0 ),
+				tsAlbedo: vec4( 0.0 ),
+				tsEmissive: vec3( 0.0 ),
+				tsMetalness: float( 0.0 ),
+				tsRoughness: float( 0.0 ),
+				tsNormal: vec3( 0.0 ),
+				tsHasTextures: false,
+				invRoughness: float( 1.0 ).sub( material.roughness ),
+				metalFactor: float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ),
+				iorFactor: min( float( 2.0 ).div( material.ior ), 1.0 ),
+				maxSheenColor: max( material.sheenColor.x, max( material.sheenColor.y, material.sheenColor.z ) ),
+			} ).toVar( 'gsd_tempCache' );
+			weights.assign( calculateBRDFWeights( material, mc, tempCache ) );
+
+		} );
+
+	} );
+
+	const rand = xi.x.toVar( 'gsd_rand' );
+	const directionSample = vec2( xi.y, RandomValue( rngState ) ).toVar( 'gsd_dirSmp' );
+	const H = vec3( 0.0 ).toVar( 'gsd_H' );
+
+	// Cumulative probability approach for sampling selection
+	const cumulativeDiffuse = weights.diffuse.toVar( 'gsd_cumDiff' );
+	const cumulativeSpecular = cumulativeDiffuse.add( weights.specular ).toVar( 'gsd_cumSpec' );
+	const cumulativeSheen = cumulativeSpecular.add( weights.sheen ).toVar( 'gsd_cumSheen' );
+	const cumulativeClearcoat = cumulativeSheen.add( weights.clearcoat ).toVar( 'gsd_cumCC' );
+
+	const sampled = tslBool( false ).toVar( 'gsd_sampled' );
+
+	// Diffuse sampling
+	If( rand.lessThan( cumulativeDiffuse ).and( sampled.not() ), () => {
+
+		resultDirection.assign( ImportanceSampleCosine( N, directionSample ) );
+		const NoL = clamp( dot( N, resultDirection ), 0.0, 1.0 );
+		resultPdf.assign( NoL.mul( PI_INV ) );
+		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+		sampled.assign( tslBool( true ) );
+
+	} );
+
+	const NoV = clamp( dot( N, V ), 0.001, 1.0 ).toVar( 'gsd_NoV' );
+
+	// Specular sampling
+	If( rand.lessThan( cumulativeSpecular ).and( sampled.not() ), () => {
+
+		const TBN = constructTBN( N );
+		const localV = TBN.transpose().mul( V ).toVar( 'gsd_localV' );
+
+		// VNDF sampling
+		const localH = sampleGGXVNDF( localV, material.roughness, xi );
+		H.assign( TBN.mul( localH ) );
+
+		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
+
+		resultDirection.assign( reflect( V.negate(), H ) );
+		resultPdf.assign( calculateVNDFPDF( NoH, NoV, material.roughness ) );
+		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+		sampled.assign( tslBool( true ) );
+
+	} );
+
+	// Sheen sampling
+	If( rand.lessThan( cumulativeSheen ).and( sampled.not() ), () => {
+
+		H.assign( ImportanceSampleGGX( N, material.sheenRoughness, xi ) );
+		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
+		const VoH = clamp( dot( V, H ), 0.001, 1.0 );
+		resultDirection.assign( reflect( V.negate(), H ) );
+		const NoL = dot( N, resultDirection ).toVar( 'gsd_sheenNoL' );
+
+		// Reject directions below the surface - fall back to diffuse
+		If( NoL.lessThanEqual( 0.0 ), () => {
+
+			resultDirection.assign( ImportanceSampleCosine( N, xi ) );
+			NoL.assign( clamp( dot( N, resultDirection ), 0.0, 1.0 ) );
+			resultPdf.assign( NoL.mul( PI_INV ) );
+			resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+
+		} ).Else( () => {
+
+			resultPdf.assign( SheenDistribution( NoH, material.sheenRoughness ).mul( NoH ).div( float( 4.0 ).mul( VoH ) ) );
+			resultPdf.assign( max( resultPdf, MIN_PDF ) );
+			resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+
+		} );
+
+		sampled.assign( tslBool( true ) );
+
+	} );
+
+	// Clearcoat sampling
+	If( rand.lessThan( cumulativeClearcoat ).and( sampled.not() ), () => {
+
+		const clearcoatRoughness = clamp( material.clearcoatRoughness, MIN_CLEARCOAT_ROUGHNESS, MAX_ROUGHNESS );
+		H.assign( ImportanceSampleGGX( N, clearcoatRoughness, xi ) );
+		const NoH = clamp( dot( N, H ), 0.0, 1.0 );
+		resultDirection.assign( reflect( V.negate(), H ) );
+		resultPdf.assign( calculateVNDFPDF( NoH, NoV, clearcoatRoughness ) );
+		resultPdf.assign( max( resultPdf, MIN_PDF ) );
+		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+		sampled.assign( tslBool( true ) );
+
+	} );
+
+	// Transmission sampling (fallback)
+	If( sampled.not(), () => {
+
+		const entering = dot( V, N ).lessThan( 0.0 ).toVar( 'gsd_entering' );
+		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
+			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState,
+		) );
+		resultDirection.assign( mtResult.direction );
+		resultPdf.assign( max( mtResult.pdf, MIN_PDF ) );
+		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
+
+	} );
+
+	// Ensure PDF is valid
+	resultPdf.assign( max( resultPdf, MIN_PDF ) );
+
+	return DirectionSample( {
+		direction: resultDirection,
+		value: resultValue,
+		pdf: resultPdf,
+	} );
+
+} );
+
+// =============================================================================
+// Path Contribution Estimation
+// =============================================================================
+
+export const estimatePathContribution = Fn( ( [
+	throughput, direction, material, materialIndex,
+	classificationCached, lastMaterialIndex, cachedClassification,
+	enableEnvironmentLight, useEnvMapIS,
+] ) => {
+
+	const throughputStrength = maxComponent( throughput ).toVar( 'epc_ts' );
+
+	// Use cached material classification
+	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
+		material, materialIndex,
+		classificationCached, lastMaterialIndex, cachedClassification,
+	) ).toVar( 'epc_mc' );
+
+	// Enhanced material importance with interaction bonuses
+	const materialImportance = mc.complexityScore.toVar( 'epc_matImp' );
+
+	// Interaction complexity bonuses
+	If( mc.isMetallic.and( mc.isSmooth ), () => {
 
 		materialImportance.addAssign( 0.15 );
 
 	} );
-	If( materialClass.get( 'isTransmissive' ).and( materialClass.get( 'hasClearcoat' ) ), () => {
+	If( mc.isTransmissive.and( mc.hasClearcoat ), () => {
 
 		materialImportance.addAssign( 0.12 );
 
 	} );
-	If( materialClass.get( 'isEmissive' ), () => {
+	If( mc.isEmissive, () => {
 
 		materialImportance.addAssign( 0.1 );
 
 	} );
-
 	materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
 
-	const directionImportance = float( 0.5 ).toVar( 'directionImportance' );
+	// Direction importance calculation
+	const directionImportance = float( 0.5 ).toVar( 'epc_dirImp' );
 
 	If( enableEnvironmentLight.and( useEnvMapIS ).and( throughputStrength.greaterThan( 0.01 ) ), () => {
 
-		const cosTheta = clamp( direction.y, 0.0, 1.0 ).toVar( 'cosTheta' );
+		const cosTheta = clamp( direction.y, 0.0, 1.0 );
 		directionImportance.assign( mix( float( 0.3 ), float( 0.8 ), cosTheta.mul( cosTheta ) ) );
 
 	} );
 
+	// Enhanced weighting
 	const throughputWeight = smoothstep( float( 0.001 ), float( 0.1 ), throughputStrength );
-
 	return throughputStrength.mul(
-		mix( materialImportance.mul( 0.7 ), directionImportance, 0.3 )
+		mix( materialImportance.mul( 0.7 ), directionImportance, 0.3 ),
 	).mul( throughputWeight );
 
 } );
 
-// ================================================================================
-// RUSSIAN ROULETTE PATH TERMINATION
-// ================================================================================
+// =============================================================================
+// Russian Roulette Path Termination
+// =============================================================================
 
-/**
- * Matches GLSL handleRussianRoulette().
- * Returns continuation probability (0 = terminate).
- */
 export const handleRussianRoulette = Fn( ( [
-	depth,
-	throughput,
-	materialClass,
-	rayDirection,
-	rngState,
-	pathImportance,
-	enableEnvironmentLight,
-	useEnvMapIS
+	depth, throughput, material, materialIndex, rayDirection, rngState,
+	classificationCached, lastMaterialIndex, cachedClassification,
+	weightsComputed, pathImportance,
+	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	const result = float( 1.0 ).toVar( 'rrResult' );
+	const result = float( 1.0 ).toVar( 'rr_result' );
 
-	// Always continue for depth < 3
-	If( depth.greaterThanEqual( 3 ), () => {
+	// Always continue for first few bounces
+	If( depth.greaterThanEqual( int( 3 ) ), () => {
 
-		const throughputStrength = maxComponent( throughput ).toVar( 'throughputStrength' );
+		const throughputStrength = maxComponent( throughput ).toVar( 'rr_ts' );
 
-		// Energy-conserving early termination for very low throughput
-		If( throughputStrength.lessThan( 0.0008 ).and( depth.greaterThan( 4 ) ), () => {
+		// Energy-conserving early termination for very low throughput paths
+		const earlyTerminated = tslBool( false ).toVar( 'rr_early' );
+		If( throughputStrength.lessThan( 0.0008 ).and( depth.greaterThan( int( 4 ) ) ), () => {
 
-			const lowThroughputProb = max( throughputStrength.mul( 125.0 ), 0.01 ).toVar( 'lowThroughputProb' );
-			const rrSample = RandomValue( rngState ).toVar( 'rrSample' );
+			const lowThroughputProb = max( throughputStrength.mul( 125.0 ), 0.01 );
+			const rrSample = RandomValue( rngState );
 			result.assign( select( rrSample.lessThan( lowThroughputProb ), lowThroughputProb, float( 0.0 ) ) );
+			earlyTerminated.assign( tslBool( true ) );
 
-		} ).Else( () => {
+		} );
 
-			const materialImportance = materialClass.get( 'complexityScore' ).toVar( 'materialImportance' );
+		If( earlyTerminated.not(), () => {
 
-			If( materialClass.get( 'isEmissive' ).and( depth.lessThan( 6 ) ), () => {
+			// Get classification
+			const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
+				material, materialIndex,
+				classificationCached, lastMaterialIndex, cachedClassification,
+			) ).toVar( 'rr_mc' );
+
+			const materialImportance = mc.complexityScore.toVar( 'rr_matImp' );
+
+			// Boost importance for special materials
+			If( mc.isEmissive.and( depth.lessThan( int( 6 ) ) ), () => {
 
 				materialImportance.addAssign( 0.3 );
 
 			} );
-			If( materialClass.get( 'isTransmissive' ).and( depth.lessThan( 5 ) ), () => {
+			If( mc.isTransmissive.and( depth.lessThan( int( 5 ) ) ), () => {
 
 				materialImportance.addAssign( 0.25 );
 
 			} );
-			If( materialClass.get( 'isMetallic' ).and( materialClass.get( 'isSmooth' ) ).and( depth.lessThan( 4 ) ), () => {
+			If( mc.isMetallic.and( mc.isSmooth ).and( depth.lessThan( int( 4 ) ) ), () => {
 
 				materialImportance.addAssign( 0.2 );
 
 			} );
-
 			materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
 
 			// Dynamic minimum bounces
-			const minBounces = int( 3 ).toVar( 'minBounces' );
+			const minBounces = int( 3 ).toVar( 'rr_minB' );
 			If( materialImportance.greaterThan( 0.6 ), () => {
 
 				minBounces.assign( 5 );
 
-			} )
-				.ElseIf( materialImportance.greaterThan( 0.4 ), () => {
+			} ).ElseIf( materialImportance.greaterThan( 0.4 ), () => {
 
-					minBounces.assign( 4 );
+				minBounces.assign( 4 );
+
+			} );
+
+			If( depth.lessThan( minBounces ), () => {
+
+				result.assign( 1.0 );
+
+			} ).Else( () => {
+
+				// Path importance
+				const pathContribution = float( 0.0 ).toVar( 'rr_pathC' );
+
+				If( classificationCached.and( weightsComputed ), () => {
+
+					pathContribution.assign( pathImportance );
+
+				} ).Else( () => {
+
+					pathContribution.assign( estimatePathContribution(
+						throughput, rayDirection, material, materialIndex,
+						classificationCached, lastMaterialIndex, cachedClassification,
+						enableEnvironmentLight, useEnvMapIS,
+					) );
 
 				} );
 
-			If( depth.greaterThanEqual( minBounces ), () => {
+				// Adaptive continuation probability
+				const rrProb = float( 0.0 ).toVar( 'rr_prob' );
+				const adaptiveFactor = materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).toVar( 'rr_adapt' );
 
-				// Path contribution (use cached pathImportance if available)
-				const pathContribution = estimatePathContribution(
-					throughput, rayDirection, materialClass, enableEnvironmentLight, useEnvMapIS
-				).toVar( 'pathContribution' );
-
-				const rrProb = float( 0.0 ).toVar( 'rrProb' );
-				const adaptiveFactor = materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).toVar( 'adaptiveFactor' );
-
-				If( depth.lessThan( 6 ), () => {
+				If( depth.lessThan( int( 6 ) ), () => {
 
 					rrProb.assign( clamp( adaptiveFactor.mul( 1.2 ), 0.15, 0.95 ) );
 
-				} ).ElseIf( depth.lessThan( 10 ), () => {
+				} ).ElseIf( depth.lessThan( int( 10 ) ), () => {
 
-					const baseProb = clamp( throughputStrength.mul( 0.8 ), 0.08, 0.85 ).toVar( 'baseProb' );
+					const baseProb = clamp( throughputStrength.mul( 0.8 ), 0.08, 0.85 );
 					rrProb.assign( mix( baseProb, pathContribution, 0.6 ) );
 
 				} ).Else( () => {
@@ -293,546 +491,309 @@ export const handleRussianRoulette = Fn( ( [
 
 				} );
 
-				// Material-specific boost
+				// Material-specific boosts
 				If( materialImportance.greaterThan( 0.5 ), () => {
 
-					const boostFactor = materialImportance.sub( 0.5 ).mul( 0.6 ).toVar( 'boostFactor' );
+					const boostFactor = materialImportance.sub( 0.5 ).mul( 0.6 );
 					rrProb.assign( mix( rrProb, float( 1.0 ), boostFactor ) );
 
 				} );
 
-				// Depth-based decay
-				const depthDecay = float( 0.12 ).add( materialImportance.mul( 0.08 ) ).toVar( 'depthDecay' );
-				const depthFactor = exp( float( depth ).sub( float( minBounces ) ).mul( depthDecay ).negate() );
+				// Smoother depth-based decay
+				const depthDecay = float( 0.12 ).add( materialImportance.mul( 0.08 ) );
+				const depthFactor = exp( float( depth.sub( minBounces ) ).negate().mul( depthDecay ) );
 				rrProb.mulAssign( depthFactor );
 
 				// Minimum probability
-				const minProb = select( materialClass.get( 'isEmissive' ), float( 0.04 ), float( 0.02 ) );
+				const minProb = select( mc.isEmissive, float( 0.04 ), float( 0.02 ) );
 				rrProb.assign( max( rrProb, minProb ) );
 
 				const rrSample = RandomValue( rngState );
 				result.assign( select( rrSample.lessThan( rrProb ), rrProb, float( 0.0 ) ) );
 
 			} );
-			// If depth < minBounces result stays 1.0
 
 		} );
 
 	} );
-	// If depth < 3, result stays 1.0
 
 	return result;
 
 } );
 
-// ================================================================================
-// BACKGROUND / ENVIRONMENT SAMPLING
-// ================================================================================
+// =============================================================================
+// Background & Environment Sampling
+// =============================================================================
 
-/**
- * Matches GLSL sampleBackgroundLighting().
- * isPrimaryRay && !showBackground → return vec4(0).
- * Primary rays  → envColor * backgroundIntensity.
- * Secondary rays → envColor * 2.0.
- */
 export const sampleBackgroundLighting = Fn( ( [
-	direction,
-	isPrimaryRay,
-	showBackground,
-	envTex,
-	envIntensity,
-	envMatrix,
-	backgroundIntensity
+	isPrimaryRay, direction,
+	envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
+	showBackground, backgroundIntensity,
 ] ) => {
 
-	const result = vec4( 0.0 ).toVar( 'bgResult' );
+	// Only hide background for primary camera rays when showBackground is false
+	const envColor = vec4( 0.0 ).toVar( 'sbl_envColor' );
 
-	// Skip if primary ray with no background
-	If( isPrimaryRay.and( showBackground.not() ).not(), () => {
+	If( isPrimaryRay.and( showBackground.not() ), () => {
 
-		// Apply rotation and convert to equirectangular UV
-		const rotatedDir = envMatrix.mul( vec4( direction, 0.0 ) ).xyz.toVar( 'rotatedDir' );
-		const u = float( 0.5 ).add( rotatedDir.x.atan( rotatedDir.z ).div( TWO_PI ) );
-		const v = float( 0.5 ).sub( rotatedDir.y.asin().div( PI ) );
+		// Return zero
+		envColor.assign( vec4( 0.0 ) );
 
-		const envColor = texture( envTex, vec2( u, v ) ).toVar( 'envColor' );
-		const scaledColor = envColor.rgb.mul( envIntensity );
+	} ).Else( () => {
+
+		const sampled = sampleEnvironment(
+			envTexture, direction, envMatrix, environmentIntensity, enableEnvironmentLight,
+		);
 
 		If( isPrimaryRay, () => {
 
-			result.assign( vec4( scaledColor.mul( backgroundIntensity ), envColor.a ) );
+			envColor.assign( sampled.mul( backgroundIntensity ) );
 
 		} ).Else( () => {
 
-			result.assign( vec4( scaledColor.mul( 2.0 ), envColor.a ) );
+			envColor.assign( sampled.mul( 2.0 ) );
 
 		} );
 
 	} );
 
-	return result;
+	return envColor;
 
 } );
 
-// ================================================================================
-// FIREFLY SUPPRESSION  (matches GLSL calculateFireflyThreshold / applySoftSuppressionRGB)
-// ================================================================================
+// =============================================================================
+// Firefly Suppression
+// =============================================================================
 
-export const calculateFireflyThreshold = Fn( ( [ baseThreshold, variationMultiplier, pathLength ] ) => {
-
-	const depthFactor = float( 1.0 ).add( float( pathLength ).mul( 0.1 ) );
-	const threshold = baseThreshold.mul( variationMultiplier ).div( depthFactor );
-	return max( threshold, 0.1 );
-
-} );
-
-export const applySoftSuppressionRGB = Fn( ( [ contribution, threshold, softness ] ) => {
-
-	const maxVal = maxComponent( contribution ).toVar( 'maxVal' );
-	const result = contribution.toVar( 'suppressResult' );
-
-	If( maxVal.greaterThan( threshold ), () => {
-
-		const factor = threshold.div( maxVal );
-		const smoothFactor = mix( factor, float( 1.0 ), exp( maxVal.sub( threshold ).negate().div( threshold ) ).mul( softness ) );
-		result.assign( contribution.mul( smoothFactor ) );
-
-	} );
-
-	return result;
-
-} );
-
-/**
- * Matches GLSL regularizePathContribution().
- */
-export const regularizePathContribution = Fn( ( [ contribution, throughput, pathLength, fireflyThresholdVal ] ) => {
+export const regularizePathContribution = Fn( ( [
+	contribution, throughput, pathLength, fireflyThreshold,
+] ) => {
 
 	const throughputMax = maxComponent( throughput );
 	const throughputMin = minComponent( throughput );
+
 	const throughputVariation = throughputMax.add( 0.001 ).div( throughputMin.add( 0.001 ) );
+
 	const variationMultiplier = float( 1.0 ).div(
-		float( 1.0 ).add( log( float( 1.0 ).add( throughputVariation ) ).mul( pathLength ).mul( 0.1 ) )
+		float( 1.0 ).add( log( float( 1.0 ).add( throughputVariation ) ).mul( pathLength ).mul( 0.1 ) ),
 	);
-	const threshold = calculateFireflyThreshold( fireflyThresholdVal, variationMultiplier, int( pathLength ) );
+
+	const threshold = calculateFireflyThreshold( fireflyThreshold, variationMultiplier, int( pathLength ) );
 
 	return applySoftSuppressionRGB( contribution, threshold, 0.5 );
 
 } );
 
-// ================================================================================
-// BRDF EVALUATION  (Cook-Torrance)
-// ================================================================================
+// =============================================================================
+// Main Path Tracing Loop
+// =============================================================================
 
-export const evaluateDiffuse = Fn( ( [ color, metalness ] ) => {
-
-	const diffuseColor = color.mul( float( 1.0 ).sub( metalness ) );
-	return diffuseColor.mul( PI_INV );
-
-} );
-
-export const evaluateSpecular = Fn( ( [ color, metalness, roughness, NoV, NoL, NoH, VoH ] ) => {
-
-	const F0 = mix( vec3( 0.04 ), color, metalness ).toVar( 'F0' );
-	const F = fresnelSchlick( VoH, F0 );
-	const D = distributionGGX( NoH, roughness );
-	const G = geometrySmith( NoV, NoL, roughness );
-	const denom = max( NoV.mul( NoL ).mul( 4.0 ), 0.001 );
-	return D.mul( G ).mul( F ).div( denom );
-
-} );
-
-/**
- * Sample combined BRDF — matches GLSL generateSampledDirection (simplified).
- * Chooses diffuse or specular based on metalness.
- */
-export const sampleBRDF = Fn( ( [ V, N, color, metalness, roughness, randomSample, rngState ] ) => {
-
-	const specularWeight = mix( float( 0.5 ), float( 1.0 ), metalness ).toVar( 'specWeight' );
-	const diffuseWeight = float( 1.0 ).sub( specularWeight ).toVar( 'diffWeight' );
-
-	const xi = RandomValue( rngState ).toVar( 'xi' );
-
-	const T = vec3( 0.0 ).toVar( 'basisT' );
-	const B = vec3( 0.0 ).toVar( 'basisB' );
-	buildOrthonormalBasis( N, T, B );
-
-	const L = vec3( 0.0 ).toVar( 'L' );
-	const pdf = float( 0.0 ).toVar( 'pdf' );
-	const brdfValue = vec3( 0.0 ).toVar( 'brdfValue' );
-
-	If( xi.lessThan( diffuseWeight ), () => {
-
-		const localDir = importanceSampleCosine( randomSample );
-		L.assign( localToWorld( localDir, T, B, N ) );
-		const NoL = max( dot( N, L ), 0.0 ).toVar( 'NoL' );
-		pdf.assign( NoL.mul( PI_INV ) );
-		brdfValue.assign( evaluateDiffuse( color, metalness ).mul( NoL ) );
-
-	} ).Else( () => {
-
-		const H = importanceSampleGGX( randomSample, roughness );
-		const worldH = localToWorld( H, T, B, N ).toVar( 'worldH' );
-		L.assign( reflect( V.negate(), worldH ) );
-
-		const NoL = max( dot( N, L ), 0.0 ).toVar( 'NoL' );
-		const NoV = max( dot( N, V ), 0.0 ).toVar( 'NoV' );
-		const NoH = max( dot( N, worldH ), 0.0 ).toVar( 'NoH' );
-		const VoH = max( dot( V, worldH ), 0.0 ).toVar( 'VoH' );
-
-		const D = distributionGGX( NoH, roughness );
-		pdf.assign( D.mul( NoH ).div( max( VoH.mul( 4.0 ), 0.001 ) ) );
-		brdfValue.assign( evaluateSpecular( color, metalness, roughness, NoV, NoL, NoH, VoH ).mul( NoL ) );
-
-	} );
-
-	return DirectionSample( { direction: L, pdf, value: brdfValue } );
-
-} );
-
-// ================================================================================
-// DIRECT LIGHTING (environment importance sampling)
-// Matches GLSL calculateDirectLightingUnified (environment portion)
-// ================================================================================
-
-export const calculateDirectLighting = Fn( ( [
-	hitPoint,
-	N,
-	V,
-	color,
-	metalness,
-	roughness,
-	envTex,
-	envIntensity,
-	envMatrix,
-	envSize,
-	marginalCDF,
-	conditionalCDF,
-	hasImportanceSampling,
-	rngState,
-	bvhTex, bvhTexSize,
-	triTex, triTexSize
-] ) => {
-
-	const directLight = vec3( 0.0 ).toVar( 'directLight' );
-
-	const xi1 = RandomValue( rngState );
-	const xi2 = RandomValue( rngState );
-	const randomSample = vec2( xi1, xi2 ).toVar( 'envRandom' );
-
-	const envSample = sampleEnvironmentDirection(
-		envTex, marginalCDF, conditionalCDF, envSize, hasImportanceSampling, randomSample
-	);
-	const lightDir = envSample.xyz.toVar( 'lightDir' );
-	const envPdf = envSample.w.toVar( 'envPdf' );
-
-	const NoL = max( dot( N, lightDir ), 0.0 ).toVar( 'NoL' );
-
-	If( NoL.greaterThan( 0.001 ).and( envPdf.greaterThan( 0.0001 ) ), () => {
-
-		const shadowOrigin = hitPoint.add( N.mul( 0.001 ) );
-		const inShadow = traverseBVHShadow(
-			shadowOrigin, lightDir, float( 0.001 ), float( 1e10 ),
-			bvhTex, bvhTexSize, triTex, triTexSize
-		);
-
-		If( inShadow.not(), () => {
-
-			const rotatedLightDir = envMatrix.mul( vec4( lightDir, 0.0 ) ).xyz;
-			const u = float( 0.5 ).add( rotatedLightDir.x.atan( rotatedLightDir.z ).div( TWO_PI ) );
-			const v = float( 0.5 ).sub( rotatedLightDir.y.asin().div( PI ) );
-			const envRadiance = texture( envTex, vec2( u, v ) ).rgb.mul( envIntensity );
-
-			const H = normalize( V.add( lightDir ) );
-			const NoV = max( dot( N, V ), 0.0 ).toVar( 'dNoV' );
-			const NoH = max( dot( N, H ), 0.0 ).toVar( 'dNoH' );
-			const VoH = max( dot( V, H ), 0.0 ).toVar( 'dVoH' );
-
-			const diffuseBRDF = evaluateDiffuse( color, metalness );
-			const specularBRDF = evaluateSpecular( color, metalness, roughness, NoV, NoL, NoH, VoH );
-			const brdf = diffuseBRDF.add( specularBRDF );
-
-			// Power heuristic MIS
-			const brdfPdf = NoL.mul( PI_INV );
-			const weight = envPdf.mul( envPdf ).div(
-				envPdf.mul( envPdf ).add( brdfPdf.mul( brdfPdf ) ).add( 0.0001 )
-			);
-
-			directLight.assign(
-				envRadiance.mul( brdf ).mul( NoL ).div( max( envPdf, 0.0001 ) ).mul( weight )
-			);
-
-		} );
-
-	} );
-
-	return directLight;
-
-} );
-
-// ================================================================================
-// MAIN TRACE FUNCTION
-// Exact port of GLSL Trace() from pathtracer_core.fs
-// ================================================================================
-
-/**
- * Main path tracing loop.
- *
- * Parameter mapping vs GLSL Trace():
- *  ray           → rayOrigin + rayDirection
- *  rngState      → seed (toVar'd internally)
- *  rayIndex      → removed (folded into seed)
- *  pixelIndex    → removed
- *  objectNormal  → returned in gNormalDepth.xyz
- *  objectColor   → returned in gAlbedo.xyz
- *  objectID      → returned in gAlbedo.w
- *  firstHitPoint → unused (not in output struct)
- *  firstHitDist  → returned in gNormalDepth.w
- */
 export const Trace = Fn( ( [
-	rayOrigin,
-	rayDirection,
-	seed,
-	maxBounceCount,
-	transmissiveBounces,
-	bvhTex, bvhTexSize,
-	triTex, triTexSize,
-	matTex, matTexSize,
-	envTex, envIntensity, envMatrix, hasEnv,
-	showBackground,
-	backgroundIntensity,
-	fireflyThreshold,
-	envSize, marginalCDF, conditionalCDF, hasImportanceSampling
+	ray, rngState, rayIndex, pixelIndex,
+	// BVH / Scene
+	bvhTexture, bvhTexSize,
+	triangleTexture, triangleTexSize,
+	materialTexture, materialTexSize,
+	// Texture arrays for material sampling
+	albedoMaps, normalMaps, bumpMaps,
+	metalnessMaps, roughnessMaps, emissiveMaps,
+	displacementMaps,
+	// Lights
+	directionalLightsBuffer, numDirectionalLights,
+	areaLightsBuffer, numAreaLights,
+	pointLightsBuffer, numPointLights,
+	spotLightsBuffer, numSpotLights,
+	// Environment
+	envTexture, environmentIntensity, envMatrix,
+	envMarginalWeights, envConditionalWeights,
+	envTotalSum, envResolution,
+	enableEnvironmentLight, useEnvMapIS,
+	// Rendering parameters
+	maxBounceCount, transmissiveBounces,
+	backgroundIntensity, showBackground,
+	fireflyThreshold, globalIlluminationIntensity,
+	totalTriangleCount, enableEmissiveTriangleSampling,
+	// Per-pixel info
+	pixelCoord, resolution, frame,
 ] ) => {
 
-	// ── Path accumulators ─────────────────────────────────────────────────────
-	const radiance = vec3( 0.0 ).toVar( 'radiance' );
-	const throughput = vec3( 1.0 ).toVar( 'throughput' );
-	const alpha = float( 1.0 ).toVar( 'alpha' );
-	const rngState = seed.toVar( 'rngState' );
+	const radiance = vec3( 0.0 ).toVar( 'tr_radiance' );
+	const throughput = vec3( 1.0 ).toVar( 'tr_throughput' );
+	const alpha = float( 1.0 ).toVar( 'tr_alpha' );
 
-	// ── G-buffer / edge-detection outputs ────────────────────────────────────
-	const objectNormal = vec3( 0.0 ).toVar( 'objectNormal' );
-	const objectColor = vec3( 0.0 ).toVar( 'objectColor' );
-	const objectID = float( - 1000.0 ).toVar( 'objectID' );
+	// Output data
+	const objectNormal = vec3( 0.0 ).toVar( 'tr_objNormal' );
+	const objectColor = vec3( 0.0 ).toVar( 'tr_objColor' );
+	const objectID = float( - 1000.0 ).toVar( 'tr_objID' );
+	const firstHitPoint = ray.origin.toVar( 'tr_firstHitPt' );
+	const firstHitDistance = float( 1e10 ).toVar( 'tr_firstHitDst' );
 
-	// ── Motion-vector data ───────────────────────────────────────────────────
-	const firstHitPoint = rayOrigin.toVar( 'firstHitPoint' );
-	const firstHitDistance = float( 1e10 ).toVar( 'firstHitDistance' );
+	// Medium stack for transmission
+	const mediumStackDepth = int( 0 ).toVar( 'tr_msDepth' );
+	const mediumStackPrevIOR = float( 1.0 ).toVar( 'tr_msPrevIOR' );
 
-	// ── Current ray state ─────────────────────────────────────────────────────
-	const currentOrigin = rayOrigin.toVar( 'currentOrigin' );
-	const currentDirection = rayDirection.toVar( 'currentDirection' );
+	// Render state
+	const stateTraversals = maxBounceCount.toVar( 'tr_stTrav' );
+	const stateTransmissiveTraversals = transmissiveBounces.toVar( 'tr_stTransTrav' );
+	const stateRayType = int( RAY_TYPE_CAMERA ).toVar( 'tr_stRayType' );
+	const stateIsPrimaryRay = tslBool( true ).toVar( 'tr_stPrimary' );
+	const stateActualBounceDepth = int( 0 ).toVar( 'tr_stActDep' );
 
-	// ── Render state (mirrors GLSL RenderState) ───────────────────────────────
-	const isPrimaryRay = tslBool( true ).toVar( 'isPrimaryRay' );
-	const rayType = int( RAY_TYPE_CAMERA ).toVar( 'rayType' );
-	const transmissiveTraversals = transmissiveBounces.toVar( 'transmissiveTraversals' );
-	const actualBounceDepth = int( 0 ).toVar( 'actualBounceDepth' );
+	// Path state cache fields (managed individually since TSL can't do inout struct)
+	const psWeightsComputed = tslBool( false ).toVar( 'tr_psWC' );
+	const psClassificationCached = tslBool( false ).toVar( 'tr_psCC' );
+	const psMaterialCacheCached = tslBool( false ).toVar( 'tr_psMCC' );
+	const psTexturesLoaded = tslBool( false ).toVar( 'tr_psTL' );
+	const psPathImportance = float( 0.0 ).toVar( 'tr_psPI' );
+	const psLastMaterialIndex = int( - 1 ).toVar( 'tr_psLMI' );
 
-	// ── PathState flags ───────────────────────────────────────────────────────
-	// (no caching in v2 — recomputed each bounce as needed)
-	const pathImportance = float( 0.0 ).toVar( 'pathImportance' );
+	// Cached classification
+	const psCachedClassification = MaterialClassification( {
+		isMetallic: false, isRough: false, isSmooth: false,
+		isTransmissive: false, hasClearcoat: false, isEmissive: false,
+		complexityScore: float( 0.0 ),
+	} ).toVar( 'tr_psCachedMC' );
 
-	// ── Effective bounces (separate from transmissive free bounces) ────────────
-	const effectiveBounces = int( 0 ).toVar( 'effectiveBounces' );
+	// Cached BRDF weights
+	const psCachedBrdfWeights = BRDFWeights( {
+		specular: float( 0.5 ), diffuse: float( 0.5 ),
+		sheen: float( 0.0 ), clearcoat: float( 0.0 ),
+		transmission: float( 0.0 ), iridescence: float( 0.0 ),
+	} ).toVar( 'tr_psCachedBW' );
 
-	// ── Env uniforms (replace GLSL globals) ──────────────────────────────────
-	const enableEnvironmentLight = hasEnv;
-	const useEnvMapIS = hasImportanceSampling.greaterThan( 0.5 );
+	// Cached material cache
+	const psCachedMaterialCache = MaterialCache( {
+		F0: vec3( 0.04 ), NoV: float( 1.0 ),
+		diffuseColor: vec3( 0.0 ), specularColor: vec3( 0.0 ),
+		isMetallic: false, isPurelyDiffuse: false, hasSpecialFeatures: false,
+		alpha: float( 0.0 ), k: float( 0.0 ), alpha2: float( 0.0 ),
+		tsAlbedo: vec4( 0.0 ), tsEmissive: vec3( 0.0 ),
+		tsMetalness: float( 0.0 ), tsRoughness: float( 0.0 ),
+		tsNormal: vec3( 0.0 ), tsHasTextures: false,
+		invRoughness: float( 1.0 ), metalFactor: float( 0.5 ),
+		iorFactor: float( 1.0 ), maxSheenColor: float( 0.0 ),
+	} ).toVar( 'tr_psCachedMC2' );
 
-	// ── Main bounce loop ──────────────────────────────────────────────────────
-	const maxLoopCount = maxBounceCount.add( transmissiveBounces );
+	// Cached sampling info
+	const psCachedSamplingInfo = vec4( 0.0 ).toVar( 'tr_psCSI_placeholder' );
 
-	Loop( { start: int( 0 ), end: maxLoopCount, type: 'int', condition: '<=' }, ( { i: bounceIndex } ) => {
+	// Track effective bounces
+	const effectiveBounces = int( 0 ).toVar( 'tr_effBounces' );
 
-		// Update state for this bounce (mirrors GLSL)
-		isPrimaryRay.assign( bounceIndex.equal( 0 ) );
-		actualBounceDepth.assign( bounceIndex );
+	// Mutable ray
+	const rayOrigin = ray.origin.toVar( 'tr_rayOri' );
+	const rayDirection = ray.direction.toVar( 'tr_rayDir' );
 
-		// Check if we've exceeded our effective bounce budget
+	// Main bounce loop
+	Loop( { start: int( 0 ), end: maxBounceCount.add( transmissiveBounces ).add( 1 ), type: 'int', condition: '<' }, ( { i: bounceIndex } ) => {
+
+		// Update state
+		stateTraversals.assign( maxBounceCount.sub( effectiveBounces ) );
+		stateIsPrimaryRay.assign( bounceIndex.equal( int( 0 ) ) );
+		stateActualBounceDepth.assign( bounceIndex );
+
+		// Check bounce budget
 		If( effectiveBounces.greaterThan( maxBounceCount ), () => {
 
 			Break();
 
 		} );
 
-		// ── 1. BVH TRAVERSAL ─────────────────────────────────────────────────
-		const hitResult = traverseBVH(
-			currentOrigin, currentDirection,
-			float( 0.0001 ), float( 1e10 ),
-			bvhTex, bvhTexSize,
-			triTex, triTexSize
-		).toVar( 'hitResult' );
+		// Traverse BVH
+		const currentRay = Ray( { origin: rayOrigin, direction: rayDirection } );
+		const hitInfo = HitInfo.wrap( traverseBVH(
+			currentRay,
+			bvhTexture, bvhTexSize,
+			triangleTexture, triangleTexSize,
+			materialTexture, materialTexSize,
+		) ).toVar( 'tr_hitInfo' );
 
-		const didHit = hitResult.get( 'hit' );
-		const hitT = hitResult.get( 't' );
-		const hitTriIndex = hitResult.get( 'triangleIndex' );
-		const hitU = hitResult.get( 'u' );
-		const hitV = hitResult.get( 'v' );
-		const hitW = hitResult.get( 'w' );
+		If( hitInfo.didHit.not(), () => {
 
-		// ── MISS — ENVIRONMENT LIGHTING ───────────────────────────────────────
-		If( didHit.not(), () => {
-
-			If( hasEnv, () => {
-
-				const envColor = sampleBackgroundLighting(
-					currentDirection, isPrimaryRay, showBackground,
-					envTex, envIntensity, envMatrix, backgroundIntensity
-				);
-				const contribution = regularizePathContribution(
-					envColor.rgb.mul( throughput ),
-					throughput,
-					float( bounceIndex ),
-					fireflyThreshold
-				);
-				radiance.addAssign( contribution );
-				alpha.mulAssign( envColor.a );
-
-			} );
-
+			// ENVIRONMENT LIGHTING
+			const envColor = sampleBackgroundLighting(
+				stateIsPrimaryRay, rayDirection,
+				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
+				showBackground, backgroundIntensity,
+			);
+			radiance.addAssign( regularizePathContribution(
+				envColor.xyz.mul( throughput ), throughput, float( bounceIndex ), fireflyThreshold,
+			) );
+			alpha.mulAssign( envColor.a );
 			Break();
 
 		} );
 
-		// ── 2. RECONSTRUCT HIT DATA FROM TRIANGLE TEXTURE ────────────────────
-		const hitPoint = currentOrigin.add( currentDirection.mul( hitT ) ).toVar( 'hitPoint' );
+		// Get material from texture
+		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar( 'tr_material' );
 
-		const nA = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
-		const nB = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-		const nC = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
+		// Sample all textures in one batch
+		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
+			albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
+			material, hitInfo.uv, hitInfo.normal,
+		) ).toVar( 'tr_matSamples' );
 
-		// Interpolate normal (w = 1 - u - v, matching GLSL barycentric convention)
-		const interpNormal = normalize(
-			nA.mul( hitW ).add( nB.mul( hitU ) ).add( nC.mul( hitV ) )
-		).toVar( 'interpNormal' );
+		// Update material with texture samples
+		material.color.assign( matSamples.albedo );
+		material.metalness.assign( matSamples.metalness );
+		material.roughness.assign( clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
+		const N = matSamples.normal.toVar( 'tr_N' );
 
-		const uvData1 = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 6 ), int( TRI_STRIDE ) );
-		const uvData2 = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 7 ), int( TRI_STRIDE ) );
-		const materialIndex = int( uvData2.z ).toVar( 'materialIndex' );
+		// Displacement mapping
+		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
 
-		const uv0 = uvData1.xy;
-		const uv1 = uvData1.zw;
-		const uv2 = uvData2.xy;
-		const interpUV = uv0.mul( hitW ).add( uv1.mul( hitU ) ).add( uv2.mul( hitV ) ).toVar( 'interpUV' );
+			const heightSample = sampleDisplacementMap(
+				displacementMaps, material.displacementMapIndex, hitInfo.uv, material.displacementTransform,
+			);
+			const displacementHeight = heightSample.sub( 0.5 ).mul( material.displacementScale );
+			const displacement = N.mul( displacementHeight );
+			hitInfo.hitPoint.addAssign( displacement );
 
-		// ── 3. SAMPLE ALL MATERIAL TEXTURES ──────────────────────────────────
-		// Mirrors GLSL sampleAllMaterialTextures(hitInfo.material, hitInfo.uv, hitInfo.normal)
-		// Material layout: 11 vec4s per material (MATERIAL_STRIDE)
-		const matData0 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 0 ), int( MATERIAL_STRIDE ) );
-		const matData1 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 1 ), int( MATERIAL_STRIDE ) );
-		const matData2 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 2 ), int( MATERIAL_STRIDE ) );
-		const matData3 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 3 ), int( MATERIAL_STRIDE ) );
-		const matData4 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 4 ), int( MATERIAL_STRIDE ) );
+			If( material.displacementScale.greaterThan( 0.01 ), () => {
 
-		// Apply texture samples to material properties (matches GLSL matSamples)
-		const color = matData0.rgb.toVar( 'matColor' ); // albedo (base, no atlas in v2)
-		const metalness = matData0.w.toVar( 'metalness' );
-		const emissive = matData1.rgb.toVar( 'emissive' );
-		const roughness = clamp( matData1.w, MIN_ROUGHNESS, MAX_ROUGHNESS ).toVar( 'roughness' );
-		const ior = matData2.x.toVar( 'ior' );
-		const transmission = matData2.y.toVar( 'transmission' );
-		const thickness = matData2.z.toVar( 'thickness' );
-		const clearcoat = matData2.w.toVar( 'clearcoat' );
-		const clearcoatRoughness = matData3.x.toVar( 'clearcoatRoughness' );
-		const opacity = matData3.y.toVar( 'opacity' );
-		const alphaMode = int( matData3.z ).toVar( 'alphaMode' ); // 0=OPAQUE,1=MASK,2=BLEND
-		const displacementScale = matData4.x.toVar( 'displacementScale' );
-
-		// Working normal N — starts as interpolated geometry normal
-		// (matches GLSL N = matSamples.normal after normal-map sampling)
-		const N = interpNormal.toVar( 'N' );
-
-		// Clamp sheenRoughness (matches GLSL)
-		const sheenRoughness = clamp( matData3.w, MIN_ROUGHNESS, MAX_ROUGHNESS ).toVar( 'sheenRoughness' );
-
-		// ── 4. DISPLACEMENT MAPPING ───────────────────────────────────────────
-		// Matches GLSL: if(material.displacementMapIndex >= 0 && material.displacementScale > 0)
-		// In v2 we check displacementScale only (map index not yet tracked in these slots)
-		If( displacementScale.greaterThan( 0.01 ), () => {
-
-			// sampleDisplacementMap would go here — requires texture arrays
-			// calculateDisplacedNormal would blend the result
-			// Kept as stub; full implementation needs displacement texture array param
-			// N.assign( normalize( mix( N, displacedNormal, blendFactor ) ) );
-
-		} );
-
-		// ── 5. TRANSPARENCY / TRANSMISSION ───────────────────────────────────
-		// Matches GLSL: handleMaterialTransparency(ray, hitPoint, N, material, rngState, state, mediumStack)
-		const continueRay = tslBool( false ).toVar( 'continueRay' );
-		const isFreeBounce = tslBool( false ).toVar( 'isFreeBounce' );
-
-		// BLEND alpha mode — stochastic transparency
-		If( alphaMode.equal( 2 ), () => {
-
-			const finalAlpha = color.a.mul( opacity ).toVar( 'finalAlpha' );
-			const alphaRand = RandomValue( rngState );
-			If( alphaRand.greaterThan( finalAlpha ), () => {
-
-				// Skip surface (alpha cutout)
-				currentOrigin.assign( hitPoint.add( currentDirection.mul( 0.001 ) ) );
-				isPrimaryRay.assign( false );
-				continueRay.assign( true );
-				isFreeBounce.assign( true );
-
-			} );
-			alpha.mulAssign( finalAlpha );
-
-		} );
-
-		// MASK alpha mode
-		If( alphaMode.equal( 1 ).and( continueRay.not() ), () => {
-
-			If( color.a.lessThan( 0.5 ), () => {
-
-				currentOrigin.assign( hitPoint.add( currentDirection.mul( 0.001 ) ) );
-				isPrimaryRay.assign( false );
-				continueRay.assign( true );
-				isFreeBounce.assign( true );
+				const displacedNormal = calculateDisplacedNormal( displacementMaps, hitInfo.hitPoint, N, hitInfo.uv, material );
+				const blendFactor = clamp( material.displacementScale.mul( 0.5 ), 0.1, 0.8 )
+					.mul( float( 1.0 ).sub( material.roughness.mul( 0.5 ) ) ).toVar( 'tr_blendF' );
+				N.assign( normalize( mix( N, displacedNormal, blendFactor ) ) );
 
 			} );
 
 		} );
 
-		// Transmission (refractive continuation)
-		If( transmission.greaterThan( 0.01 ).and( continueRay.not() ), () => {
+		// Handle transparent materials
+		const interaction = MaterialInteractionResult.wrap( handleMaterialTransparency(
+			currentRay, hitInfo.hitPoint, N, material, rngState,
+			stateTransmissiveTraversals,
+			mediumStackDepth, mediumStackPrevIOR,
+		) ).toVar( 'tr_interaction' );
 
-			If( transmissiveTraversals.greaterThan( 0 ), () => {
+		If( interaction.continueRay, () => {
 
-				// Determine entering or exiting
-				const cosRN = dot( currentDirection, N ).toVar( 'cosRN' );
-				const entering = cosRN.lessThan( 0.0 ).toVar( 'entering' );
-				const adjN = select( entering, N, N.negate() ).toVar( 'adjN' );
-				const eta = select( entering, float( 1.0 ).div( ior ), ior ).toVar( 'eta' );
+			const isFreeBounce = tslBool( false ).toVar( 'tr_freeBounce' );
 
-				const refractDir = refract( currentDirection, adjN, eta ).toVar( 'refractDir' );
-				const isTIR = dot( refractDir, refractDir ).lessThan( 0.001 ).toVar( 'isTIR' );
+			If( interaction.isTransmissive.and( stateTransmissiveTraversals.greaterThan( int( 0 ) ) ), () => {
 
-				If( isTIR.not(), () => {
+				stateTransmissiveTraversals.subAssign( 1 );
+				stateRayType.assign( int( RAY_TYPE_TRANSMISSION ) );
+				isFreeBounce.assign( tslBool( true ) );
 
-					// Successful refraction — transmissive free bounce
-					currentOrigin.assign( hitPoint.add( currentDirection.mul( 0.001 ) ) );
-					currentDirection.assign( normalize( refractDir ) );
-					transmissiveTraversals.subAssign( 1 );
-					rayType.assign( int( RAY_TYPE_TRANSMISSION ) );
-					isPrimaryRay.assign( false );
-					// Reset material caches (matches GLSL pathState reset)
-					continueRay.assign( true );
-					isFreeBounce.assign( true );
+			} ).ElseIf( interaction.isAlphaSkip, () => {
 
-				} );
+				isFreeBounce.assign( tslBool( true ) );
 
 			} );
 
-			// Apply transmission alpha attenuation
-			alpha.mulAssign( float( 1.0 ).sub( transmission ) );
+			// Update ray and continue
+			throughput.mulAssign( interaction.throughput );
+			alpha.mulAssign( interaction.alpha );
+			rayOrigin.assign( hitInfo.hitPoint.add( rayDirection.mul( 0.001 ) ) );
+			rayDirection.assign( interaction.direction );
 
-		} );
+			stateIsPrimaryRay.assign( tslBool( false ) );
 
-		// If transparency/transmission continues this ray, skip shading for this bounce
-		If( continueRay, () => {
+			// Reset material-dependent caches
+			psWeightsComputed.assign( tslBool( false ) );
+			psMaterialCacheCached.assign( tslBool( false ) );
 
 			If( isFreeBounce.not(), () => {
 
@@ -844,288 +805,187 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// ── 6. RANDOM SAMPLE + VIEW DIRECTION ────────────────────────────────
-		const xi1 = RandomValue( rngState ).toVar( 'xi1' );
-		const xi2 = RandomValue( rngState ).toVar( 'xi2' );
-		const randomSample = vec2( xi1, xi2 ).toVar( 'randomSample' );
-		const V = currentDirection.negate().toVar( 'V' );
+		// Apply transparency alpha
+		alpha.mulAssign( interaction.alpha );
 
-		// ── 7. CLASSIFY MATERIAL ─────────────────────────────────────────────
-		// Matches GLSL getOrCreateMaterialClassification
-		const matClass = classifyMaterial( color, metalness, roughness, transmission, clearcoat, emissive );
+		const randomSample = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar( 'tr_randSample' );
 
-		// ── 8. BRDF SAMPLING ─────────────────────────────────────────────────
-		// Matches GLSL: if(clearcoat > 0) sampleClearcoat else generateSampledDirection
-		const brdfDir = vec3( 0.0 ).toVar( 'brdfDir' );
-		const brdfVal = vec3( 0.0 ).toVar( 'brdfVal' );
-		const brdfPdf = float( 0.0 ).toVar( 'brdfPdf' );
+		const V = rayDirection.negate().toVar( 'tr_V' );
+		material.sheenRoughness.assign( clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
 
-		If( clearcoat.greaterThan( 0.0 ), () => {
+		// Create material cache if needed
+		If( psMaterialCacheCached.not(), () => {
 
-			// Clearcoat path: blend clearcoat GGX with base material
-			// Mirrors sampleClearcoat — uses clearcoat GGX for clearcoat layer
-			const T = vec3( 0.0 ).toVar( 'ccT' );
-			const B = vec3( 0.0 ).toVar( 'ccB' );
-			buildOrthonormalBasis( N, T, B );
+			psCachedMaterialCache.assign( createMaterialCache( N, V, material, matSamples, psCachedClassification ) );
+			psMaterialCacheCached.assign( tslBool( true ) );
 
-			const ccRough = max( clearcoatRoughness, float( MIN_ROUGHNESS ) ).toVar( 'ccRough' );
-			const baseRough = roughness;
+		} );
 
-			// Weights
-			const specW = float( 1.0 ).sub( baseRough ).mul( float( 0.5 ).add( metalness.mul( 0.5 ) ) ).toVar( 'specW' );
-			const ccW = clearcoat.mul( float( 1.0 ).sub( ccRough ) ).toVar( 'ccW' );
-			const diffW = float( 1.0 ).sub( specW ).mul( float( 1.0 ).sub( metalness ) ).toVar( 'diffW' );
-			const totalW = specW.add( ccW ).add( diffW );
-			specW.divAssign( totalW );
-			ccW.divAssign( totalW );
-			diffW.divAssign( totalW );
+		// BRDF sampling
+		const brdfDir = vec3( 0.0 ).toVar( 'tr_brdfDir' );
+		const brdfValue = vec3( 0.0 ).toVar( 'tr_brdfVal' );
+		const brdfPdf = float( 0.0 ).toVar( 'tr_brdfPdf' );
 
-			const lobeRand = RandomValue( rngState ).toVar( 'lobeRand' );
+		// Handle clearcoat
+		If( material.clearcoat.greaterThan( 0.0 ), () => {
 
-			If( lobeRand.lessThan( ccW ), () => {
-
-				// Clearcoat GGX
-				const H = localToWorld( importanceSampleGGX( randomSample, ccRough ), T, B, N );
-				brdfDir.assign( reflect( V.negate(), H ) );
-
-			} ).ElseIf( lobeRand.lessThan( ccW.add( specW ) ), () => {
-
-				// Base specular GGX
-				const H = localToWorld( importanceSampleGGX( randomSample, baseRough ), T, B, N );
-				brdfDir.assign( reflect( V.negate(), H ) );
-
-			} ).Else( () => {
-
-				// Diffuse cosine
-				brdfDir.assign( localToWorld( importanceSampleCosine( randomSample ), T, B, N ) );
-
-			} );
-
-			const H = normalize( V.add( brdfDir ) ).toVar( 'ccH' );
-			const NoLcc = max( dot( N, brdfDir ), 0.0 ).toVar( 'NoLcc' );
-			const NoVcc = max( dot( N, V ), 0.001 ).toVar( 'NoVcc' );
-			const NoHcc = max( dot( N, H ), 0.001 ).toVar( 'NoHcc' );
-			const VoHcc = max( dot( V, H ), 0.001 ).toVar( 'VoHcc' );
-
-			// Combined PDF (MIS)
-			const ccPDF = distributionGGX( NoHcc, ccRough ).mul( NoHcc ).div( VoHcc.mul( 4.0 ) ).mul( ccW );
-			const specPDF = distributionGGX( NoHcc, baseRough ).mul( NoHcc ).div( VoHcc.mul( 4.0 ) ).mul( specW );
-			const diffPDF = NoLcc.mul( PI_INV ).mul( diffW );
-			brdfPdf.assign( max( ccPDF.add( specPDF ).add( diffPDF ), 0.001 ) );
-
-			// BRDF value
-			const diff = evaluateDiffuse( color, metalness ).mul( NoLcc );
-			const spec = evaluateSpecular( color, metalness, baseRough, NoVcc, NoLcc, NoHcc, VoHcc ).mul( NoLcc );
-			brdfVal.assign( diff.add( spec ) );
+			const ccResult = ClearcoatResult.wrap( sampleClearcoat(
+				currentRay, hitInfo, material, randomSample, rngState,
+			) );
+			brdfDir.assign( ccResult.L );
+			brdfValue.assign( ccResult.brdf );
+			brdfPdf.assign( ccResult.pdf );
 
 		} ).Else( () => {
 
-			// Standard path: generateSampledDirection equivalent
-			const brdfResult = sampleBRDF( V, N, color, metalness, roughness, randomSample, rngState );
-			brdfDir.assign( brdfResult.get( 'direction' ) );
-			brdfVal.assign( brdfResult.get( 'value' ) );
-			brdfPdf.assign( brdfResult.get( 'pdf' ) );
+			const brdfSample = DirectionSample.wrap( generateSampledDirection(
+				V, N, material, hitInfo.materialIndex, randomSample, rngState,
+				psClassificationCached, psLastMaterialIndex, psCachedClassification,
+				psWeightsComputed, psCachedBrdfWeights,
+				psMaterialCacheCached, psCachedMaterialCache,
+			) );
+			brdfDir.assign( brdfSample.direction );
+			brdfValue.assign( brdfSample.value );
+			brdfPdf.assign( brdfSample.pdf );
+
+			// Update cache state after generateSampledDirection
+			psClassificationCached.assign( tslBool( true ) );
+			psLastMaterialIndex.assign( hitInfo.materialIndex );
+			psWeightsComputed.assign( tslBool( true ) );
 
 		} );
 
-		// ── 9. EMISSIVE CONTRIBUTION ─────────────────────────────────────────
-		// Matches GLSL: if(length(matSamples.emissive) > 0) radiance += emissive * throughput
-		If( length( emissive ).greaterThan( 0.0 ), () => {
+		// 1. EMISSIVE CONTRIBUTION
+		If( length( matSamples.emissive ).greaterThan( 0.0 ), () => {
 
-			radiance.addAssign( emissive.mul( throughput ) );
+			radiance.addAssign( matSamples.emissive.mul( throughput ) );
 
 		} );
 
-		// ── 10. DIRECT LIGHTING ───────────────────────────────────────────────
-		// Matches GLSL:
-		//   vec3 directLight = calculateDirectLightingUnified(hitInfo, V, brdfSample, rayIndex, bounceIndex, rngState, stats);
-		//   radiance += regularizePathContribution(directLight * throughput, throughput, float(bounceIndex));
+		// 2. DIRECT LIGHTING
 		const directLight = calculateDirectLightingUnified(
-			hitPoint, N, V, color, metalness, roughness, transmission,
+			hitInfo.hitPoint, N, material,
+			V,
+			brdfDir, brdfPdf, brdfValue,
+			rayIndex, bounceIndex, rngState,
+			directionalLightsBuffer, numDirectionalLights,
+			areaLightsBuffer, numAreaLights,
+			pointLightsBuffer, numPointLights,
+			spotLightsBuffer, numSpotLights,
+			bvhTexture, bvhTexSize,
+			triangleTexture, triangleTexSize,
+			materialTexture, materialTexSize,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight,
+		);
+
+		radiance.addAssign( regularizePathContribution(
+			directLight.mul( throughput ), throughput, float( bounceIndex ), fireflyThreshold,
+		) );
+
+		// Get importance sampling info with caching
+		If( psWeightsComputed.not().or( bounceIndex.equal( int( 0 ) ) ), () => {
+
+			// Update classification first
+			psCachedClassification.assign( MaterialClassification.wrap( getOrCreateMaterialClassification(
+				material, hitInfo.materialIndex,
+				psClassificationCached, psLastMaterialIndex, psCachedClassification,
+			) ) );
+			psClassificationCached.assign( tslBool( true ) );
+			psLastMaterialIndex.assign( hitInfo.materialIndex );
+
+		} );
+
+		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
+			material, bounceIndex, psCachedClassification,
+			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
+		) );
+
+		// 3. INDIRECT LIGHTING
+		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
+			V, N, material,
+			brdfDir, brdfPdf, brdfValue,
+			rayIndex, bounceIndex,
 			rngState,
-			envTex, envIntensity, envMatrix, envSize,
-			marginalCDF, conditionalCDF, hasImportanceSampling, enableEnvironmentLight,
-			bvhTex, bvhTexSize, triTex, triTexSize
-		);
-		const regulatedDirect = regularizePathContribution(
-			directLight.mul( throughput ),
-			throughput,
-			float( bounceIndex ),
-			fireflyThreshold
-		);
-		radiance.addAssign( regulatedDirect );
+			samplingInfo,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight, useEnvMapIS,
+			globalIlluminationIntensity,
+		) );
+		throughput.mulAssign( indirectResult.throughput.mul( indirectResult.misWeight ) );
 
-		// ── 11. IMPORTANCE SAMPLING INFO ─────────────────────────────────────
-		// Matches GLSL: if(!pathState.weightsComputed || bounceIndex==0)
-		//                  pathState.samplingInfo = getImportanceSamplingInfo(...)
-		// v2: samplingInfo is implicit in the sampleBRDF/clearcoat weights above
-
-		// ── 12. INDIRECT LIGHTING ─────────────────────────────────────────────
-		// Matches GLSL: calculateIndirectLighting → throughput *= indirectResult.throughput * misWeight
-		const NoL = max( dot( N, brdfDir ), 0.0 ).toVar( 'NoL' );
-
-		If( NoL.lessThanEqual( 0.0 ).or( brdfPdf.lessThanEqual( 0.0 ) ), () => {
+		// Early ray termination
+		const maxThroughput = max( max( throughput.x, throughput.y ), throughput.z );
+		If( maxThroughput.lessThan( 0.001 ).and( bounceIndex.greaterThan( int( 2 ) ) ), () => {
 
 			Break();
 
 		} );
 
-		// Throughput update: BRDF * NoL / pdf * MIS weight
-		// In GLSL calculateIndirectLighting also folds globalIlluminationIntensity — we keep it at 1
-		const indirectThroughput = brdfVal.div( max( brdfPdf, 0.0001 ) ).toVar( 'indirectThroughput' );
-		// Simplified MIS weight = 1.0 (full multi-strategy MIS needs computeSamplingInfo from LightsIndirect)
-		throughput.mulAssign( indirectThroughput );
+		// Prepare for next bounce
+		rayOrigin.assign( hitInfo.hitPoint.add( N.mul( 0.001 ) ) );
+		rayDirection.assign( indirectResult.direction );
 
-		// ── 13. EARLY RAY TERMINATION ─────────────────────────────────────────
-		const maxThroughput = max( max( throughput.r, throughput.g ), throughput.b );
-		If( maxThroughput.lessThan( 0.001 ).and( bounceIndex.greaterThan( 2 ) ), () => {
+		stateIsPrimaryRay.assign( tslBool( false ) );
 
-			Break();
+		// Determine ray type
+		If( material.metalness.greaterThan( 0.7 ).and( material.roughness.lessThan( 0.3 ) ), () => {
 
-		} );
+			stateRayType.assign( int( RAY_TYPE_REFLECTION ) );
 
-		// ── 14. PREPARE NEXT BOUNCE ───────────────────────────────────────────
-		// Matches GLSL: ray.origin = hitPoint + N * 0.001; ray.direction = indirectResult.direction
-		currentOrigin.assign( hitPoint.add( N.mul( 0.001 ) ) );
-		currentDirection.assign( brdfDir );
-		isPrimaryRay.assign( false );
+		} ).ElseIf( material.transmission.greaterThan( 0.5 ), () => {
 
-		// Ray type (mirrors GLSL)
-		If( metalness.greaterThan( 0.7 ).and( roughness.lessThan( 0.3 ) ), () => {
-
-			rayType.assign( int( RAY_TYPE_REFLECTION ) );
-
-		} ).ElseIf( transmission.greaterThan( 0.5 ), () => {
-
-			rayType.assign( int( RAY_TYPE_TRANSMISSION ) );
+			stateRayType.assign( int( RAY_TYPE_TRANSMISSION ) );
 
 		} ).Else( () => {
 
-			rayType.assign( int( RAY_TYPE_DIFFUSE ) );
+			stateRayType.assign( int( RAY_TYPE_DIFFUSE ) );
 
 		} );
 
-		// ── 15. G-BUFFER CAPTURE (first bounce, AFTER lighting — matches GLSL order) ──
-		If( bounceIndex.equal( 0 ).and( didHit ), () => {
+		// Store first hit data for G-buffer
+		If( bounceIndex.equal( int( 0 ) ).and( hitInfo.didHit ), () => {
 
 			objectNormal.assign( N );
-			objectColor.assign( color );
-			objectID.assign( float( materialIndex ) );
-			firstHitPoint.assign( hitPoint );
-			firstHitDistance.assign( hitT );
+			objectColor.assign( material.color.xyz );
+			objectID.assign( float( hitInfo.materialIndex ) );
+			firstHitPoint.assign( hitInfo.hitPoint );
+			firstHitDistance.assign( hitInfo.dst );
 
 		} );
 
-		// ── 16. RUSSIAN ROULETTE ──────────────────────────────────────────────
-		// Matches GLSL: handleRussianRoulette(state.actualBounceDepth, throughput, ...)
+		// 4. RUSSIAN ROULETTE
 		const rrSurvivalProb = handleRussianRoulette(
-			actualBounceDepth, throughput, matClass, currentDirection,
-			rngState, pathImportance,
-			enableEnvironmentLight, useEnvMapIS
-		).toVar( 'rrSurvivalProb' );
-
+			stateActualBounceDepth, throughput, material, hitInfo.materialIndex,
+			rayDirection, rngState,
+			psClassificationCached, psLastMaterialIndex, psCachedClassification,
+			psWeightsComputed, psPathImportance,
+			enableEnvironmentLight, useEnvMapIS,
+		);
 		If( rrSurvivalProb.lessThanEqual( 0.0 ), () => {
 
 			Break();
 
 		} );
-
-		// Apply throughput compensation (unbiased estimator)
+		// Apply throughput compensation
 		throughput.divAssign( rrSurvivalProb );
 
-		// ── 17. INCREMENT EFFECTIVE BOUNCES ───────────────────────────────────
+		// Increment effective bounces
 		effectiveBounces.addAssign( 1 );
 
 	} );
 
-	// ── Return G-buffer outputs ───────────────────────────────────────────────
-	return pathTracerOutputStruct( {
-		gColor: vec4( radiance, alpha ),
-		gNormalDepth: vec4( objectNormal, firstHitDistance ),
-		gAlbedo: vec4( objectColor, objectID )
+	return TraceResult( {
+		radiance: vec4( radiance, alpha ),
+		objectNormal,
+		objectColor,
+		objectID,
+		firstHitPoint,
+		firstHitDistance,
 	} );
 
 } );
-
-// ================================================================================
-// SIMPLIFIED SINGLE-BOUNCE TRACE (for debugging / testing)
-// ================================================================================
-
-export const traceSingleBounce = Fn( ( [
-	rayOrigin,
-	rayDirection,
-	bvhTex, bvhTexSize,
-	triTex, triTexSize,
-	matTex, matTexSize,
-	envTex, envIntensity, envMatrix, hasEnv
-] ) => {
-
-	const hitResult = traverseBVH(
-		rayOrigin, rayDirection,
-		float( 0.0001 ), float( 1e10 ),
-		bvhTex, bvhTexSize, triTex, triTexSize
-	).toVar( 'hitResult' );
-
-	const didHit = hitResult.get( 'hit' );
-	const hitT = hitResult.get( 't' );
-	const hitTriIndex = hitResult.get( 'triangleIndex' );
-	const hitU = hitResult.get( 'u' );
-	const hitV = hitResult.get( 'v' );
-	const hitW = hitResult.get( 'w' );
-
-	const outColor = vec3( 0.0 ).toVar( 'outColor' );
-	const outDepth = float( 1e10 ).toVar( 'outDepth' );
-
-	If( didHit, () => {
-
-		const nA = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
-		const nB = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-		const nC = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
-		const interpNormal = normalize( nA.mul( hitW ).add( nB.mul( hitU ) ).add( nC.mul( hitV ) ) );
-
-		const uvData2 = getDataFromTexture( triTex, triTexSize, hitTriIndex, int( 7 ), int( TRI_STRIDE ) );
-		const materialIndex = int( uvData2.z );
-
-		const matData0 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 0 ), int( MATERIAL_STRIDE ) );
-		const matData1 = getDataFromTexture( matTex, matTexSize, materialIndex, int( 1 ), int( MATERIAL_STRIDE ) );
-		const color = matData0.rgb;
-		const emissive = matData1.rgb;
-
-		const lightDir = normalize( vec3( 1.0, 1.0, 1.0 ) );
-		const diffuse = max( dot( interpNormal, lightDir ), 0.0 ).mul( 0.6 );
-		outColor.assign( color.mul( vec3( 0.1 ).add( diffuse ) ).add( emissive ) );
-		outDepth.assign( hitT );
-
-	} ).Else( () => {
-
-		If( hasEnv, () => {
-
-			const rotatedDir = envMatrix.mul( vec4( rayDirection, 0.0 ) ).xyz.toVar( 'rotDir' );
-			const u = float( 0.5 ).add( rotatedDir.x.atan( rotatedDir.z ).div( TWO_PI ) );
-			const v = float( 0.5 ).sub( rotatedDir.y.asin().div( PI ) );
-			outColor.assign( texture( envTex, vec2( u, v ) ).rgb.mul( envIntensity ) );
-
-		} ).Else( () => {
-
-			const t = rayDirection.y.mul( 0.5 ).add( 0.5 );
-			outColor.assign( mix( vec3( 1.0 ), vec3( 0.5, 0.7, 1.0 ), t ) );
-
-		} );
-
-	} );
-
-	return vec4( outColor, outDepth );
-
-} );
-
-// ================================================================================
-// EXPORTS
-// ================================================================================
-
-export {
-	RAY_TYPE_CAMERA,
-	RAY_TYPE_REFLECTION,
-	RAY_TYPE_TRANSMISSION,
-	RAY_TYPE_DIFFUSE,
-	RAY_TYPE_SHADOW
-};

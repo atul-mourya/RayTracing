@@ -1751,7 +1751,7 @@ export default class TextureCreator {
 
 	createFallbackTexture() {
 
-		const data = new Uint8Array( 4 );
+		const data = new Uint8Array( [ 255, 255, 255, 255 ] );
 		const texture = new DataArrayTexture( data, 1, 1, 1 );
 
 		texture.minFilter = LinearFilter;

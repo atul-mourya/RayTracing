@@ -1,11 +1,12 @@
-import { Fn, vec4, texture, uv, uniform } from 'three/tsl';
+import { Fn, vec4, texture, uv, uniform, uniformArray } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
 import {
-	HalfFloatType, RGBAFormat, NearestFilter, Vector2, Matrix4, Vector3, Color,
-	TextureLoader, RepeatWrapping, FloatType, DataTexture
+	HalfFloatType, RGBAFormat, NearestFilter, LinearFilter, Vector2, Matrix4, Vector3, Color,
+	TextureLoader, RepeatWrapping, FloatType, DataTexture, DataArrayTexture
 } from 'three';
 
 import { pathTracerMain } from '../TSL/PathTracer.js';
+import { samplingTechniqueUniform, blueNoiseTextureNode, blueNoiseTextureSizeUniform } from '../TSL/Random.js';
 
 // Pipeline system
 import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
@@ -286,6 +287,18 @@ export class PathTracingStage extends PipelineStage {
 		this.globalIlluminationIntensity = uniform( DEFAULT_STATE.globalIlluminationIntensity, 'float' );
 		this.exposure = uniform( DEFAULT_STATE.exposure, 'float' );
 
+		// Light counts (uniforms updated when lights change)
+		this.numDirectionalLights = uniform( 0, 'int' );
+		this.numAreaLights = uniform( 0, 'int' );
+		this.numPointLights = uniform( 0, 'int' );
+		this.numSpotLights = uniform( 0, 'int' );
+
+		// Light buffer nodes (created lazily from Float32Array data)
+		this.directionalLightsBufferNode = uniformArray( new Float32Array( 8 ), 'float' );
+		this.areaLightsBufferNode = uniformArray( new Float32Array( 13 ), 'float' );
+		this.pointLightsBufferNode = uniformArray( new Float32Array( 7 ), 'float' );
+		this.spotLightsBufferNode = uniformArray( new Float32Array( 11 ), 'float' );
+
 		// Camera matrices
 		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
 		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
@@ -300,8 +313,9 @@ export class PathTracingStage extends PipelineStage {
 		this.apertureScale = uniform( 1.0, 'float' );
 		this.sceneScale = uniform( 1.0, 'float' );
 
-		// Sampling
-		this.samplingTechnique = uniform( DEFAULT_STATE.samplingTechnique, 'int' );
+		// Sampling — use the module-level uniforms from Random.js so TSL sees the same nodes
+		this.samplingTechnique = samplingTechniqueUniform;
+		this.samplingTechnique.value = DEFAULT_STATE.samplingTechnique;
 		this.useAdaptiveSampling = uniform( DEFAULT_STATE.adaptiveSampling ? 1 : 0, 'int' );
 		this.adaptiveSamplingMax = uniform( DEFAULT_STATE.adaptiveSamplingMax, 'int' );
 		this.fireflyThreshold = uniform( DEFAULT_STATE.fireflyThreshold, 'float' );
@@ -326,8 +340,8 @@ export class PathTracingStage extends PipelineStage {
 		// Scene data
 		this.totalTriangleCount = uniform( 0, 'int' );
 
-		// Blue noise
-		this.blueNoiseTextureSize = uniform( new Vector2(), 'vec2' );
+		// Blue noise — use the module-level uniforms from Random.js
+		this.blueNoiseTextureSize = blueNoiseTextureSizeUniform;
 
 		this._nameTheUniforms();
 
@@ -384,6 +398,10 @@ export class PathTracingStage extends PipelineStage {
 		this.materialTexSizeUniform.name = 'materialTexSizeUniform';
 		this.totalTriangleCount.name = 'totalTriangleCount';
 		this.blueNoiseTextureSize.name = 'blueNoiseTextureSize';
+		this.numDirectionalLights.name = 'numDirectionalLights';
+		this.numAreaLights.name = 'numAreaLights';
+		this.numPointLights.name = 'numPointLights';
+		this.numSpotLights.name = 'numSpotLights';
 
 	}
 
@@ -579,6 +597,7 @@ export class PathTracingStage extends PipelineStage {
 			texture.generateMipmaps = false;
 
 			this.blueNoiseTexture = texture;
+			blueNoiseTextureNode.value = texture;
 			this.blueNoiseTextureSize.value.set( texture.image.width, texture.image.height );
 
 			console.log( `PathTracingStage: Blue noise loaded ${texture.image.width}x${texture.image.height}` );
@@ -741,6 +760,64 @@ export class PathTracingStage extends PipelineStage {
 			this.directionalLightsData = mockMaterial.uniforms.directionalLights.value;
 
 			console.log( `Sun added as directional light (intensity: ${scaledSunIntensity.toFixed( 2 )})` );
+
+		}
+
+		// Update TSL uniform buffer nodes from raw Float32Array data
+		this._updateLightBufferNodes();
+
+	}
+
+	/**
+	 * Update TSL uniformArray nodes with current light Float32Array data
+	 */
+	_updateLightBufferNodes() {
+
+		// Directional lights (8 floats per light)
+		if ( this.directionalLightsData && this.directionalLightsData.length > 0 ) {
+
+			this.directionalLightsBufferNode.array = Array.from( this.directionalLightsData );
+			this.numDirectionalLights.value = Math.floor( this.directionalLightsData.length / 8 );
+
+		} else {
+
+			this.numDirectionalLights.value = 0;
+
+		}
+
+		// Area lights (13 floats per light)
+		if ( this.areaLightsData && this.areaLightsData.length > 0 ) {
+
+			this.areaLightsBufferNode.array = Array.from( this.areaLightsData );
+			this.numAreaLights.value = Math.floor( this.areaLightsData.length / 13 );
+
+		} else {
+
+			this.numAreaLights.value = 0;
+
+		}
+
+		// Point lights (7 floats per light)
+		if ( this.pointLightsData && this.pointLightsData.length > 0 ) {
+
+			this.pointLightsBufferNode.array = Array.from( this.pointLightsData );
+			this.numPointLights.value = Math.floor( this.pointLightsData.length / 7 );
+
+		} else {
+
+			this.numPointLights.value = 0;
+
+		}
+
+		// Spot lights (11 floats per light)
+		if ( this.spotLightsData && this.spotLightsData.length > 0 ) {
+
+			this.spotLightsBufferNode.array = Array.from( this.spotLightsData );
+			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 11 );
+
+		} else {
+
+			this.numSpotLights.value = 0;
 
 		}
 
@@ -1223,6 +1300,23 @@ export class PathTracingStage extends PipelineStage {
 		const marginalCDFTex = hasCDF ? texture( this.envMarginalWeights ) : placeholderTex;
 		const conditionalCDFTex = hasCDF ? texture( this.envConditionalWeights ) : placeholderTex;
 
+		// Material texture arrays (DataArrayTexture → texture node)
+		// Must use DataArrayTexture placeholder (not regular Texture) so WGSL emits texture_2d_array<f32>
+		// CRITICAL: Set LinearFilter so isUnfilterable()=false → textureSample instead of textureLoad
+		const dummyArrayTex = new DataArrayTexture( new Uint8Array( [ 255, 255, 255, 255 ] ), 1, 1, 1 );
+		dummyArrayTex.minFilter = LinearFilter;
+		dummyArrayTex.magFilter = LinearFilter;
+		dummyArrayTex.generateMipmaps = false;
+		dummyArrayTex.needsUpdate = true;
+		const arrayPlaceholder = texture( dummyArrayTex );
+		const albedoMapsTex = this.albedoMaps ? texture( this.albedoMaps ) : arrayPlaceholder;
+		const normalMapsTex = this.normalMaps ? texture( this.normalMaps ) : arrayPlaceholder;
+		const bumpMapsTex = this.bumpMaps ? texture( this.bumpMaps ) : arrayPlaceholder;
+		const metalnessMapsTex = this.metalnessMaps ? texture( this.metalnessMaps ) : arrayPlaceholder;
+		const roughnessMapsTex = this.roughnessMaps ? texture( this.roughnessMaps ) : arrayPlaceholder;
+		const emissiveMapsTex = this.emissiveMaps ? texture( this.emissiveMaps ) : arrayPlaceholder;
+		const displacementMapsTex = this.displacementMaps ? texture( this.displacementMaps ) : arrayPlaceholder;
+
 		return {
 			triTex,
 			bvhTex,
@@ -1237,7 +1331,15 @@ export class PathTracingStage extends PipelineStage {
 			hasMaterials,
 			hasEnv,
 			hasAdaptiveSampling,
-			hasCDF
+			hasCDF,
+			// Texture arrays
+			albedoMapsTex,
+			normalMapsTex,
+			bumpMapsTex,
+			metalnessMapsTex,
+			roughnessMapsTex,
+			emissiveMapsTex,
+			displacementMapsTex,
 		};
 
 	}
@@ -1252,12 +1354,15 @@ export class PathTracingStage extends PipelineStage {
 		const {
 			triTex, bvhTex, matTex, matTexSize, envTex, prevFrameTex,
 			adaptiveSamplingTex, marginalCDFTex, conditionalCDFTex,
-			hasEnv, hasCDF
+			hasEnv, hasCDF,
+			albedoMapsTex, normalMapsTex, bumpMapsTex,
+			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex,
+			displacementMapsTex,
 		} = textureNodes;
 
 		return pathTracerMain( {
 
-			// Uniforms
+			// Frame / resolution
 			resolution: this.resolution,
 			frame: this.frame,
 			samplesPerPixel: this.samplesPerPixel,
@@ -1269,34 +1374,56 @@ export class PathTracingStage extends PipelineStage {
 			cameraViewMatrix: this.cameraViewMatrix,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,
 
-			// BVH data
-			bvhTex: bvhTex,
+			// BVH / Scene
+			bvhTexture: bvhTex,
 			bvhTexSize: this.bvhTexSizeUniform,
+			triangleTexture: triTex,
+			triangleTexSize: this.triangleTexSizeUniform,
+			materialTexture: matTex,
+			materialTexSize: matTexSize,
 
-			// Triangle data
-			triTex: triTex,
-			triTexSize: this.triangleTexSizeUniform,
+			// Texture arrays
+			albedoMaps: albedoMapsTex,
+			normalMaps: normalMapsTex,
+			bumpMaps: bumpMapsTex,
+			metalnessMaps: metalnessMapsTex,
+			roughnessMaps: roughnessMapsTex,
+			emissiveMaps: emissiveMapsTex,
+			displacementMaps: displacementMapsTex,
 
-			// Material data
-			matTex: matTex,
-			matTexSize: matTexSize,
+			// Lights
+			directionalLightsBuffer: this.directionalLightsBufferNode,
+			numDirectionalLights: this.numDirectionalLights,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			numAreaLights: this.numAreaLights,
+			pointLightsBuffer: this.pointLightsBufferNode,
+			numPointLights: this.numPointLights,
+			spotLightsBuffer: this.spotLightsBufferNode,
+			numSpotLights: this.numSpotLights,
 
 			// Environment
-			envTex: envTex,
-			hasEnv: hasEnv,
-			envIntensity: this.environmentIntensity,
-			environmentMatrix: this.environmentMatrix,
-			maxBounces: this.maxBounces,
+			envTexture: envTex,
+			environmentIntensity: this.environmentIntensity,
+			envMatrix: this.environmentMatrix,
+			envMarginalWeights: marginalCDFTex,
+			envConditionalWeights: conditionalCDFTex,
+			envTotalSum: this.envTotalSum,
+			envResolution: this.envResolution,
+			enableEnvironmentLight: hasEnv,
+			useEnvMapIS: hasCDF,
+
+			// Rendering parameters
+			maxBounceCount: this.maxBounces,
 			transmissiveBounces: this.transmissiveBounces,
 			showBackground: this.showBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			fireflyThreshold: this.fireflyThreshold,
+			globalIlluminationIntensity: this.globalIlluminationIntensity,
+			totalTriangleCount: this.totalTriangleCount,
+			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
 
-			// Environment importance sampling
-			envSize: this.envResolution,
-			marginalCDF: marginalCDFTex,
-			conditionalCDF: conditionalCDFTex,
-			hasImportanceSampling: hasCDF,
+			// Debug
+			debugVisScale: this.debugVisScale,
 
 			// Accumulation
 			enableAccumulation: this.enableAccumulation,
@@ -1308,7 +1435,15 @@ export class PathTracingStage extends PipelineStage {
 			// Adaptive Sampling
 			useAdaptiveSampling: this.useAdaptiveSampling,
 			adaptiveSamplingTexture: adaptiveSamplingTex,
-			adaptiveSamplingMax: this.adaptiveSamplingMax
+			adaptiveSamplingMax: this.adaptiveSamplingMax,
+
+			// DOF / Camera lens
+			enableDOF: this.enableDOF,
+			focalLength: this.focalLength,
+			aperture: this.aperture,
+			focusDistance: this.focusDistance,
+			sceneScale: this.sceneScale,
+			apertureScale: this.apertureScale,
 		} );
 
 	}
@@ -2694,6 +2829,8 @@ export class PathTracingStage extends PipelineStage {
 	setBlueNoiseTexture( tex ) {
 
 		this.blueNoiseTexture = tex;
+		// Update the shared Random.js texture node so TSL shader graph uses the real texture
+		if ( tex ) blueNoiseTextureNode.value = tex;
 		if ( tex?.image ) {
 
 			this.blueNoiseTextureSize.value.set( tex.image.width, tex.image.height );

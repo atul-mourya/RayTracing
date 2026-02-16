@@ -174,6 +174,46 @@ export class DataTransfer {
 	}
 
 	/**
+	 * Gets material texture arrays (albedo, normal, bump, etc.) from PathTracerApp.
+	 * These are DataArrayTexture instances used for texture sampling in shaders.
+	 *
+	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
+	 * @returns {Object} Object containing texture arrays
+	 */
+	static getMaterialTextureArrays( pathTracerApp ) {
+
+		const sdfs = this.getSDFs( pathTracerApp );
+		if ( ! sdfs ) return {};
+
+		return {
+			albedoMaps: sdfs.albedoTextures || null,
+			normalMaps: sdfs.normalTextures || null,
+			bumpMaps: sdfs.bumpTextures || null,
+			roughnessMaps: sdfs.roughnessTextures || null,
+			metalnessMaps: sdfs.metalnessTextures || null,
+			emissiveMaps: sdfs.emissiveTextures || null,
+			displacementMaps: sdfs.displacementTextures || null,
+		};
+
+	}
+
+	/**
+	 * Gets emissive triangle data from PathTracerApp.
+	 *
+	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
+	 * @returns {Object} Object with emissiveTriangleTexture and emissiveTriangleCount
+	 */
+	static getEmissiveTriangleData( pathTracerApp ) {
+
+		const sdfs = this.getSDFs( pathTracerApp );
+		return {
+			emissiveTriangleTexture: sdfs?.emissiveTriangleTexture || null,
+			emissiveTriangleCount: sdfs?.emissiveTriangleCount || 0,
+		};
+
+	}
+
+	/**
 	 * Gets all scene data from an existing PathTracerApp instance.
 	 *
 	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app

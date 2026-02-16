@@ -6,12 +6,16 @@ import { uniform, texture, float, If, Fn, uint, TWO_PI, cos, sin, vec2, sqrt, fr
 // Uniform declarations and constants
 // -----------------------------------------------------------------------------
 
-const samplingTechnique = uniform( 'int' );
+export const samplingTechniqueUniform = uniform( 0, 'int' );
+const samplingTechnique = samplingTechniqueUniform;
 
 // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
 
-const blueNoiseTexture = texture( /* <THREE.Texture> */ );
-const blueNoiseTextureSize = uniform( 'ivec2' );
+export const blueNoiseTextureNode = texture( /* <THREE.Texture> */ );
+blueNoiseTextureNode.setUpdateMatrix( false ); // No UV transform — we provide our own integer coords
+const blueNoiseTexture = blueNoiseTextureNode;
+export const blueNoiseTextureSizeUniform = uniform( 'ivec2' );
+const blueNoiseTextureSize = blueNoiseTextureSizeUniform;
 
 // Golden ratio constants for dimension decorrelation
 
@@ -449,8 +453,11 @@ export const haltonScrambled = /*@__PURE__*/ Fn( ( [ index, base, scramble ] ) =
 	const result = float( 0.0 ).toVar( 'result' );
 	const f = float( 1.0 ).toVar( 'f' );
 	const i1 = index.toVar( 'i1' );
+	const haltonIter = int( 0 ).toVar( 'haltonIter' );
 
-	Loop( i1.greaterThan( int( 0 ) ), () => {
+	Loop( i1.greaterThan( int( 0 ) ).and( haltonIter.lessThan( int( 32 ) ) ), () => {
+
+		haltonIter.addAssign( 1 );
 
 		f.divAssign( float( base ) );
 
@@ -518,60 +525,102 @@ export const owen_scrambled_sobol2D = /*@__PURE__*/ Fn( ( [ index, seed ] ) => {
 // -----------------------------------------------------------------------------
 // Get N-dimensional sample (up to 4D)
 
-export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, dimensions, preferredTechnique, resolution ] ) => {
+export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, dimensions, preferredTechnique, resolution, frame ] ) => {
 
 	const technique = select( preferredTechnique.notEqual( int( - 1 ) ), preferredTechnique, samplingTechnique );
 	const result = vec4( 0.0 ).toVar( 'sampleResult' );
 
-	// PCG (technique 0) - use fast variant for multiple samples (>2 dimensions)
-	If( technique.lessThanEqual( 0 ), () => {
+	// PCG (technique 0)
+	If( technique.equal( int( 0 ) ), () => {
 
-		const useFast = dimensions.greaterThan( 2 );
+		const useFast = dimensions.greaterThan( int( 2 ) );
 
-		// Generate components explicitly (WGSL doesn't support dynamic vec indexing with assignment)
 		result.x.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
 
-		If( dimensions.greaterThan( 1 ), () => {
+		If( dimensions.greaterThan( int( 1 ) ), () => {
 
 			result.y.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
 
 		} );
 
-		If( dimensions.greaterThan( 2 ), () => {
+		If( dimensions.greaterThan( int( 2 ) ), () => {
 
 			result.z.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
 
 		} );
 
-		If( dimensions.greaterThan( 3 ), () => {
+		If( dimensions.greaterThan( int( 3 ) ), () => {
 
 			result.w.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
 
 		} );
 
-	} ).Else( () => {
+	} ).ElseIf( technique.equal( int( 1 ) ), () => {
 
-		// Halton (technique 1+)
+		// Halton
 		const scramble = pcgHash( uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) );
 
-		// Halton sequence with different prime bases for each dimension
 		result.x.assign( haltonScrambled( sampleIndex, int( 2 ), scramble ) );
 
-		If( dimensions.greaterThan( 1 ), () => {
+		If( dimensions.greaterThan( int( 1 ) ), () => {
 
 			result.y.assign( haltonScrambled( sampleIndex, int( 3 ), scramble ) );
 
 		} );
 
-		If( dimensions.greaterThan( 2 ), () => {
+		If( dimensions.greaterThan( int( 2 ) ), () => {
 
 			result.z.assign( haltonScrambled( sampleIndex, int( 5 ), scramble ) );
 
 		} );
 
-		If( dimensions.greaterThan( 3 ), () => {
+		If( dimensions.greaterThan( int( 3 ) ), () => {
 
 			result.w.assign( haltonScrambled( sampleIndex, int( 7 ), scramble ) );
+
+		} );
+
+	} ).ElseIf( technique.equal( int( 2 ) ), () => {
+
+		// Sobol
+		const seed = pcgHash( uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) );
+
+		result.x.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 0 ), seed ) );
+
+		If( dimensions.greaterThan( int( 1 ) ), () => {
+
+			result.y.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 1 ), seed ) );
+
+		} );
+
+		If( dimensions.greaterThan( int( 2 ) ), () => {
+
+			result.z.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 2 ), seed ) );
+
+		} );
+
+		If( dimensions.greaterThan( int( 3 ) ), () => {
+
+			result.w.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 3 ), seed ) );
+
+		} );
+
+	} ).Else( () => {
+
+		// Blue Noise (technique 3)
+		const dimensionOffset = bounceIndex.mul( 4 );
+
+		If( dimensions.lessThanEqual( int( 2 ) ), () => {
+
+			const _sample = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame );
+			result.x.assign( _sample.x );
+			result.y.assign( _sample.y );
+
+		} ).Else( () => {
+
+			const _sample1 = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame );
+			const _sample2 = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset.add( 2 ), frame );
+			result.assign( vec4( _sample1, _sample2 ) );
 
 		} );
 
@@ -579,7 +628,7 @@ export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, 
 
 	return result;
 
-}, { pixelCoord: 'vec2', sampleIndex: 'int', bounceIndex: 'int', rngState: 'uint', dimensions: 'int', preferredTechnique: 'int', resolution: 'vec2', return: 'vec4' } );
+}, { pixelCoord: 'vec2', sampleIndex: 'int', bounceIndex: 'int', rngState: 'uint', dimensions: 'int', preferredTechnique: 'int', resolution: 'vec2', frame: 'int', return: 'vec4' } );
 
 // -----------------------------------------------------------------------------
 // Hybrid sampling methods
@@ -591,7 +640,7 @@ export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pi
 	const quasi = vec2( 0.0 ).toVar( 'quasi' );
 	const useQuasi = int( 1 ).toVar( 'useQuasi' );
 
-	If( samplingTechnique.greaterThanEqual( 3 ), () => {
+	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
 		// Blue noise (technique 3)
 
@@ -599,14 +648,14 @@ export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pi
 		quasi.assign( sampleBlueNoise2D( pixelCoord, sampleIndex, int( 0 ), frame ) );
 		useQuasi.assign( 0 );
 
-	} ).ElseIf( samplingTechnique.greaterThanEqual( 2 ), () => {
+	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 2 ) ), () => {
 
 		// Sobol (technique 2)
 
 		const seed = pcgHash( uint( pixelIndex ) );
 		quasi.assign( owen_scrambled_sobol2D( uint( sampleIndex ), seed ) );
 
-	} ).ElseIf( samplingTechnique.greaterThanEqual( 1 ), () => {
+	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 1 ) ), () => {
 
 		// Halton (technique 1)
 
@@ -627,7 +676,7 @@ export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pi
 
 	const pseudo = vec2( RandomValueFast( state ), RandomValueFast( state ) );
 
-	return select( useQuasi.greaterThan( 0 ), fract( quasi.add( pseudo.mul( 0.01 ) ) ), quasi );
+	return select( useQuasi.greaterThan( int( 0 ) ), fract( quasi.add( pseudo.mul( 0.01 ) ) ), quasi );
 
 } );
 
@@ -636,21 +685,21 @@ export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pi
 // -----------------------------------------------------------------------------
 // Get random sample based on preferred technique (2D)
 
-export const getRandomSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, preferredTechnique, resolution ] ) => {
+export const getRandomSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, preferredTechnique, resolution, frame ] ) => {
 
-	const sample4D = getRandomSampleND( pixelCoord, sampleIndex, bounceIndex, rngState, int( 2 ), preferredTechnique, resolution );
+	const sample4D = getRandomSampleND( pixelCoord, sampleIndex, bounceIndex, rngState, int( 2 ), preferredTechnique, resolution, frame );
 
 	return sample4D.xy;
 
-}, { pixelCoord: 'vec2', sampleIndex: 'int', bounceIndex: 'int', rngState: 'uint', preferredTechnique: 'int', resolution: 'vec2', return: 'vec2' } );
+}, { pixelCoord: 'vec2', sampleIndex: 'int', bounceIndex: 'int', rngState: 'uint', preferredTechnique: 'int', resolution: 'vec2', frame: 'int', return: 'vec2' } );
 
 // Get stratified sample with proper blue noise support
 
 export const getStratifiedSample = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, totalRays, rngState, resolution, frame ] ) => {
 
-	If( totalRays.lessThanEqual( 1 ), () => {
+	If( totalRays.lessThanEqual( int( 1 ) ), () => {
 
-		return getRandomSample( pixelCoord, rayIndex, int( 0 ), rngState, int( - 1 ), resolution );
+		return getRandomSample( pixelCoord, rayIndex, int( 0 ), rngState, int( - 1 ), resolution, frame );
 
 	} );
 
@@ -670,7 +719,7 @@ export const getStratifiedSample = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, t
 
 	const jitter = vec2( 0.0 ).toVar( 'jitter' );
 
-	If( samplingTechnique.greaterThanEqual( 3 ), () => {
+	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
 		// Blue noise - improved progressive sampling
 
@@ -684,7 +733,7 @@ export const getStratifiedSample = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, t
 
 		// Add subtle blue noise influence even for non-blue-noise techniques
 
-		If( totalRays.greaterThan( 4 ), () => {
+		If( totalRays.greaterThan( int( 4 ) ), () => {
 
 			// Only for multi-sample scenarios
 
@@ -728,7 +777,7 @@ export const getDecorrelatedSeed = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, f
 
 export const getPrimaryRaySample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ] ) => {
 
-	If( samplingTechnique.greaterThanEqual( 3 ), () => {
+	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
 		// Blue noise - optimal for primary rays
 
@@ -743,7 +792,7 @@ export const getPrimaryRaySample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex
 
 		// Add blue noise influence for improved anti-aliasing convergence
 
-		If( totalSamples.greaterThan( 1 ), () => {
+		If( totalSamples.greaterThan( int( 1 ) ), () => {
 
 			const blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, int( 1 ), frame ).mul( 0.15 );
 			stratifiedSample.assign( mix( stratifiedSample, blueNoiseHint, 0.25 ) );
@@ -766,7 +815,7 @@ export const getBRDFSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, boun
 
 	// Start at dimension 2
 
-	If( samplingTechnique.greaterThanEqual( 3 ), () => {
+	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
 		// Blue noise - optimal for BRDF sampling
 
@@ -782,7 +831,7 @@ export const getBRDFSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, boun
 
 		// Add blue noise influence for deeper bounces where quality matters
 
-		If( bounceIndex.greaterThan( 0 ), () => {
+		If( bounceIndex.greaterThan( int( 0 ) ), () => {
 
 			const blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame ).mul( 0.12 );
 			randomSample.assign( mix( randomSample, blueNoiseHint, 0.15 ) );
