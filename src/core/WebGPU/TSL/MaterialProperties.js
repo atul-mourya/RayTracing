@@ -97,7 +97,7 @@ export const evalSensitivity = Fn( ( [ OPD, shift ] ) => {
 	const xyz = val.mul( sqrt( float( TWO_PI ).mul( vr ) ) )
 		.mul( cos( pos.mul( phase ).add( shift ) ) )
 		.mul( exp( square( phase ).negate().mul( vr ) ) )
-		.toVar( 'xyz' );
+		.toVar();
 
 	xyz.x.addAssign(
 		float( 9.7470e-14 ).mul( sqrt( float( TWO_PI ).mul( 4.5282e+09 ) ) )
@@ -112,14 +112,14 @@ export const evalSensitivity = Fn( ( [ OPD, shift ] ) => {
 export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThickness, baseF0 ] ) => {
 
 	// Force iridescenceIor -> outsideIOR when thinFilmThickness -> 0.0
-	const iridescenceIor = mix( outsideIOR, eta2, smoothstep( 0.0, 0.03, thinFilmThickness ) ).toVar( 'iridIor' );
+	const iridescenceIor = mix( outsideIOR, eta2, smoothstep( 0.0, 0.03, thinFilmThickness ) ).toVar();
 
 	// Evaluate the cosTheta on the base layer (Snell law)
-	const sinTheta2Sq = square( outsideIOR.div( iridescenceIor ) ).mul( float( 1.0 ).sub( square( cosTheta1 ) ) ).toVar( 'sinTheta2Sq' );
+	const sinTheta2Sq = square( outsideIOR.div( iridescenceIor ) ).mul( float( 1.0 ).sub( square( cosTheta1 ) ) ).toVar();
 
 	// Handle TIR
-	const cosTheta2Sq = float( 1.0 ).sub( sinTheta2Sq ).toVar( 'cosTheta2Sq' );
-	const result = vec3( 0.0 ).toVar( 'iridResult' );
+	const cosTheta2Sq = float( 1.0 ).sub( sinTheta2Sq ).toVar();
+	const result = vec3( 0.0 ).toVar();
 
 	If( cosTheta2Sq.lessThan( 0.0 ), () => {
 
@@ -127,37 +127,37 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 
 	} ).Else( () => {
 
-		const cosTheta2 = sqrt( cosTheta2Sq ).toVar( 'cosTheta2' );
+		const cosTheta2 = sqrt( cosTheta2Sq ).toVar();
 
 		// First interface
-		const R0 = iorToFresnel0( iridescenceIor, outsideIOR ).toVar( 'R0' );
-		const R12 = fresnelSchlickFloat( cosTheta1, R0 ).toVar( 'R12' );
-		const T121 = float( 1.0 ).sub( R12 ).toVar( 'T121' );
-		const phi12 = iridescenceIor.lessThan( outsideIOR ).select( float( PI ), float( 0.0 ) ).toVar( 'phi12' );
-		const phi21 = float( PI ).sub( phi12 ).toVar( 'phi21' );
+		const R0 = iorToFresnel0( iridescenceIor, outsideIOR ).toVar();
+		const R12 = fresnelSchlickFloat( cosTheta1, R0 ).toVar();
+		const T121 = float( 1.0 ).sub( R12 ).toVar();
+		const phi12 = iridescenceIor.lessThan( outsideIOR ).select( float( PI ), float( 0.0 ) ).toVar();
+		const phi21 = float( PI ).sub( phi12 ).toVar();
 
 		// Second interface
-		const baseIOR = fresnel0ToIor( clamp( baseF0, 0.0, 0.9999 ) ).toVar( 'baseIOR' );
-		const R1 = iorToFresnel0Vec3( baseIOR, iridescenceIor ).toVar( 'R1' );
+		const baseIOR = fresnel0ToIor( clamp( baseF0, 0.0, 0.9999 ) ).toVar();
+		const R1 = iorToFresnel0Vec3( baseIOR, iridescenceIor ).toVar();
 		const R23 = vec3(
 			fresnelSchlickFloat( cosTheta2, R1.x ),
 			fresnelSchlickFloat( cosTheta2, R1.y ),
 			fresnelSchlickFloat( cosTheta2, R1.z )
-		).toVar( 'R23' );
-		const phi23 = mix( vec3( 0.0 ), vec3( PI ), lessThan( baseIOR, vec3( iridescenceIor ) ) ).toVar( 'phi23' );
+		).toVar();
+		const phi23 = mix( vec3( 0.0 ), vec3( PI ), lessThan( baseIOR, vec3( iridescenceIor ) ) ).toVar();
 
-		const OPD = float( 2.0 ).mul( iridescenceIor ).mul( thinFilmThickness ).mul( cosTheta2 ).toVar( 'OPD' );
-		const phi = vec3( phi21 ).add( phi23 ).toVar( 'phi' );
+		const OPD = float( 2.0 ).mul( iridescenceIor ).mul( thinFilmThickness ).mul( cosTheta2 ).toVar();
+		const phi = vec3( phi21 ).add( phi23 ).toVar();
 
 		// Compound terms
-		const R123 = clamp( vec3( R12 ).mul( R23 ), 1e-5, 0.9999 ).toVar( 'R123' );
-		const r123 = sqrt( R123 ).toVar( 'r123' );
-		const Rs = vec3( T121.mul( T121 ) ).mul( R23 ).div( vec3( 1.0 ).sub( R123 ) ).toVar( 'Rs' );
+		const R123 = clamp( vec3( R12 ).mul( R23 ), 1e-5, 0.9999 ).toVar();
+		const r123 = sqrt( R123 ).toVar();
+		const Rs = vec3( T121.mul( T121 ) ).mul( R23 ).div( vec3( 1.0 ).sub( R123 ) ).toVar();
 
 		// Reflectance term for m = 0 (DC term amplitude)
-		const C0 = vec3( R12 ).add( Rs ).toVar( 'C0' );
-		const I = C0.toVar( 'I' );
-		const Cm = Rs.sub( vec3( T121 ) ).toVar( 'Cm' );
+		const C0 = vec3( R12 ).add( Rs ).toVar();
+		const I = C0.toVar();
+		const Cm = Rs.sub( vec3( T121 ) ).toVar();
 
 		// Unrolled loop for m = 1, 2
 		Cm.mulAssign( r123 );
@@ -185,7 +185,7 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 	const metalFactor = cache.metalFactor;
 
 	// Optimized specular calculation using classification
-	const baseSpecularWeight = float( 0.0 ).toVar( 'baseSpecW' );
+	const baseSpecularWeight = float( 0.0 ).toVar();
 
 	If( mc.isMetallic, () => {
 
@@ -201,11 +201,11 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 
 	} );
 
-	const specular = baseSpecularWeight.mul( material.specularIntensity ).toVar( 'wSpec' );
-	const diffuse = float( 1.0 ).sub( baseSpecularWeight ).mul( float( 1.0 ).sub( material.metalness ) ).toVar( 'wDiff' );
-	const sheen = material.sheen.mul( cache.maxSheenColor ).toVar( 'wSheen' );
+	const specular = baseSpecularWeight.mul( material.specularIntensity ).toVar();
+	const diffuse = float( 1.0 ).sub( baseSpecularWeight ).mul( float( 1.0 ).sub( material.metalness ) ).toVar();
+	const sheen = material.sheen.mul( cache.maxSheenColor ).toVar();
 
-	const clearcoat = float( 0.0 ).toVar( 'wClearcoat' );
+	const clearcoat = float( 0.0 ).toVar();
 	If( mc.hasClearcoat, () => {
 
 		clearcoat.assign( material.clearcoat.mul( invRoughness ).mul( 0.4 ) );
@@ -216,7 +216,7 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 
 	} );
 
-	const transmission = float( 0.0 ).toVar( 'wTrans' );
+	const transmission = float( 0.0 ).toVar();
 	If( mc.isTransmissive, () => {
 
 		const transmissionBase = cache.iorFactor.mul( invRoughness ).mul( 0.8 );
@@ -240,7 +240,7 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 			material.iridescenceThicknessRange.y.sub( material.iridescenceThicknessRange.x ).div( 1000.0 )
 		) ) )
 		.mul( float( 0.5 ).add( float( 0.5 ).mul( material.iridescenceIOR.div( 2.0 ) ) ) )
-		.toVar( 'wIrid' );
+		.toVar();
 
 	// Single normalization pass
 	const total = specular.add( diffuse ).add( sheen ).add( clearcoat ).add( transmission ).add( iridescence );
@@ -263,7 +263,7 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 
 export const getMaterialImportance = Fn( ( [ material, mc ] ) => {
 
-	const result = float( 0.0 ).toVar( 'matImp' );
+	const result = float( 0.0 ).toVar();
 
 	// Early out for specialized materials
 	If( material.transmission.greaterThan( 0.0 ).or( material.clearcoat.greaterThan( 0.0 ) ), () => {
@@ -273,10 +273,10 @@ export const getMaterialImportance = Fn( ( [ material, mc ] ) => {
 	} ).Else( () => {
 
 		// Base importance from complexity score
-		const baseImportance = mc.complexityScore.toVar( 'baseImp' );
+		const baseImportance = mc.complexityScore.toVar();
 
 		// Enhanced emissive importance
-		const emissiveImportance = float( 0.0 ).toVar( 'emImp' );
+		const emissiveImportance = float( 0.0 ).toVar();
 		If( mc.isEmissive, () => {
 
 			const emissiveLuminance = dot( material.emissive, REC709_LUMINANCE_COEFFICIENTS );
@@ -285,7 +285,7 @@ export const getMaterialImportance = Fn( ( [ material, mc ] ) => {
 		} );
 
 		// Material-specific boosts
-		const materialBoost = float( 0.0 ).toVar( 'matBoost' );
+		const materialBoost = float( 0.0 ).toVar();
 		If( mc.isMetallic.and( mc.isSmooth ), () => {
 
 			materialBoost.addAssign( 0.25 );
@@ -352,23 +352,23 @@ export const getImportanceSamplingInfo = Fn( ( [
 
 	const weights = BRDFWeights.wrap( calculateBRDFWeights( material, mc, tempCache ) );
 
-	const diffuseImportance = weights.diffuse.toVar( 'isDiff' );
-	const specularImportance = weights.specular.toVar( 'isSpec' );
-	const transmissionImportance = weights.transmission.toVar( 'isTrans' );
-	const clearcoatImportance = weights.clearcoat.toVar( 'isCc' );
+	const diffuseImportance = weights.diffuse.toVar();
+	const specularImportance = weights.specular.toVar();
+	const transmissionImportance = weights.transmission.toVar();
+	const clearcoatImportance = weights.clearcoat.toVar();
 
 	// Environment importance
-	const baseEnvStrength = environmentIntensity.mul( 0.2 ).toVar( 'baseEnvStr' );
+	const baseEnvStrength = environmentIntensity.mul( 0.2 ).toVar();
 	const isSecondaryBounce = bounceIndex.greaterThan( int( 0 ) );
-	const indirectEnvBoost = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar( 'indEnvBoost' );
+	const indirectEnvBoost = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar();
 
-	const envMaterialFactor = float( 1.0 ).toVar( 'envMatFac' );
+	const envMaterialFactor = float( 1.0 ).toVar();
 	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 2.5 ), float( mc.isMetallic ) ) );
 	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 2.2 ), float( mc.isRough ) ) );
 	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 0.5 ), float( mc.isTransmissive ) ) );
 	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 1.6 ), float( mc.hasClearcoat ) ) );
 
-	const envmapImportance = baseEnvStrength.mul( envMaterialFactor ).mul( indirectEnvBoost ).toVar( 'isEnv' );
+	const envmapImportance = baseEnvStrength.mul( envMaterialFactor ).mul( indirectEnvBoost ).toVar();
 
 	// Depth adjustments
 	If( bounceIndex.greaterThan( int( 2 ) ), () => {
@@ -413,7 +413,7 @@ export const getImportanceSamplingInfo = Fn( ( [
 
 	// Normalize to sum to 1.0
 	const sum = diffuseImportance.add( specularImportance ).add( transmissionImportance )
-		.add( clearcoatImportance ).add( envmapImportance ).toVar( 'isSum' );
+		.add( clearcoatImportance ).add( envmapImportance ).toVar();
 
 	If( sum.greaterThan( 0.001 ), () => {
 
@@ -460,34 +460,34 @@ export const getImportanceSamplingInfo = Fn( ( [
 
 export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 
-	const NoV = max( dot( N, V ), 0.001 ).toVar( 'cacheNoV' );
+	const NoV = max( dot( N, V ), 0.001 ).toVar();
 
 	const isPurelyDiffuse = mc.isRough.and( mc.isMetallic.not() )
 		.and( material.transmission.equal( 0.0 ) )
 		.and( material.clearcoat.equal( 0.0 ) )
-		.toVar( 'cachePD' );
+		.toVar();
 
-	const isMetallic = mc.isMetallic.toVar( 'cacheMet' );
+	const isMetallic = mc.isMetallic.toVar();
 
 	const hasSpecialFeatures = mc.isTransmissive.or( mc.hasClearcoat )
 		.or( material.sheen.greaterThan( 0.0 ) )
 		.or( material.iridescence.greaterThan( 0.0 ) )
-		.toVar( 'cacheSF' );
+		.toVar();
 
-	const alpha = samples.roughness.mul( samples.roughness ).toVar( 'cacheAlpha' );
-	const alpha2 = alpha.mul( alpha ).toVar( 'cacheAlpha2' );
+	const alpha = samples.roughness.mul( samples.roughness ).toVar();
+	const alpha2 = alpha.mul( alpha ).toVar();
 	const r = samples.roughness.add( 1.0 );
-	const k = r.mul( r ).div( 8.0 ).toVar( 'cacheK' );
+	const k = r.mul( r ).div( 8.0 ).toVar();
 
 	const dielectricF0 = vec3( 0.04 ).mul( material.specularColor );
-	const F0 = mix( dielectricF0, samples.albedo.rgb, samples.metalness ).mul( material.specularIntensity ).toVar( 'cacheF0' );
-	const diffuseColor = samples.albedo.rgb.mul( float( 1.0 ).sub( samples.metalness ) ).toVar( 'cacheDiffCol' );
-	const specularColor = samples.albedo.rgb.toVar( 'cacheSpecCol' );
+	const F0 = mix( dielectricF0, samples.albedo.rgb, samples.metalness ).mul( material.specularIntensity ).toVar();
+	const diffuseColor = samples.albedo.rgb.mul( float( 1.0 ).sub( samples.metalness ) ).toVar();
+	const specularColor = samples.albedo.rgb.toVar();
 
-	const invRoughness = float( 1.0 ).sub( samples.roughness ).toVar( 'cacheInvR' );
-	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( samples.metalness ) ).toVar( 'cacheMetF' );
-	const iorFactor = min( float( 2.0 ).div( material.ior ), 1.0 ).toVar( 'cacheIorF' );
-	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar( 'cacheMaxSheen' );
+	const invRoughness = float( 1.0 ).sub( samples.roughness ).toVar();
+	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( samples.metalness ) ).toVar();
+	const iorFactor = min( float( 2.0 ).div( material.ior ), 1.0 ).toVar();
+	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar();
 
 	return MaterialCache( {
 		NoV,
@@ -516,31 +516,31 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 
 export const createMaterialCacheLegacy = Fn( ( [ N, V, material ] ) => {
 
-	const NoV = max( dot( N, V ), 0.001 ).toVar( 'legNoV' );
+	const NoV = max( dot( N, V ), 0.001 ).toVar();
 
 	const isPurelyDiffuse = material.roughness.greaterThan( 0.98 )
 		.and( material.metalness.lessThan( 0.02 ) )
 		.and( material.transmission.equal( 0.0 ) )
 		.and( material.clearcoat.equal( 0.0 ) )
-		.toVar( 'legPD' );
+		.toVar();
 
-	const isMetallic = material.metalness.greaterThan( 0.7 ).toVar( 'legMet' );
+	const isMetallic = material.metalness.greaterThan( 0.7 ).toVar();
 
 	const hasSpecialFeatures = material.transmission.greaterThan( 0.0 )
 		.or( material.clearcoat.greaterThan( 0.0 ) )
 		.or( material.sheen.greaterThan( 0.0 ) )
 		.or( material.iridescence.greaterThan( 0.0 ) )
-		.toVar( 'legSF' );
+		.toVar();
 
-	const alpha = material.roughness.mul( material.roughness ).toVar( 'legAlpha' );
-	const alpha2 = alpha.mul( alpha ).toVar( 'legAlpha2' );
+	const alpha = material.roughness.mul( material.roughness ).toVar();
+	const alpha2 = alpha.mul( alpha ).toVar();
 	const r = material.roughness.add( 1.0 );
-	const k = r.mul( r ).div( 8.0 ).toVar( 'legK' );
+	const k = r.mul( r ).div( 8.0 ).toVar();
 
 	const dielectricF0 = vec3( 0.04 ).mul( material.specularColor );
-	const F0 = mix( dielectricF0, material.color.rgb, material.metalness ).mul( material.specularIntensity ).toVar( 'legF0' );
-	const diffuseColor = material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).toVar( 'legDiffCol' );
-	const specularColor = material.color.rgb.toVar( 'legSpecCol' );
+	const F0 = mix( dielectricF0, material.color.rgb, material.metalness ).mul( material.specularIntensity ).toVar();
+	const diffuseColor = material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).toVar();
+	const specularColor = material.color.rgb.toVar();
 
 	const dummySamples = MaterialSamples( {
 		albedo: material.color,
@@ -551,10 +551,10 @@ export const createMaterialCacheLegacy = Fn( ( [ N, V, material ] ) => {
 		hasTextures: false,
 	} );
 
-	const invRoughness = float( 1.0 ).sub( material.roughness ).toVar( 'legInvR' );
-	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ).toVar( 'legMetF' );
-	const iorFactor = min( float( 2.0 ).div( material.ior ), 1.0 ).toVar( 'legIorF' );
-	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar( 'legMaxSheen' );
+	const invRoughness = float( 1.0 ).sub( material.roughness ).toVar();
+	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ).toVar();
+	const iorFactor = min( float( 2.0 ).div( material.ior ), 1.0 ).toVar();
+	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar();
 
 	return MaterialCache( {
 		NoV,

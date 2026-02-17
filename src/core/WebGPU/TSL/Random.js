@@ -231,7 +231,7 @@ const PRIME4 = uint( 374761393 );
 
 export const pcgHash = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
-	const s = state_immutable.toVar( 's' );
+	const s = state_immutable.toVar();
 	s.assign( s.mul( 747796405 ).add( 2891336453 ) );
 	s.assign( s.shiftRight( s.shiftRight( 28 ).add( 4 ) ).bitXor( s ).mul( 277803737 ) );
 	s.assign( s.shiftRight( 22 ).bitXor( s ) );
@@ -244,7 +244,7 @@ export const pcgHash = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
 export const wang_hash = /*@__PURE__*/ Fn( ( [ seed_immutable ] ) => {
 
-	const sd = seed_immutable.toVar( 'sd' );
+	const sd = seed_immutable.toVar();
 	sd.assign( sd.bitXor( 61 ).bitXor( sd.shiftRight( 16 ) ) );
 	sd.mulAssign( 9 );
 	sd.assign( sd.bitXor( sd.shiftRight( 4 ) ) );
@@ -260,7 +260,7 @@ export const wang_hash = /*@__PURE__*/ Fn( ( [ seed_immutable ] ) => {
 
 export const RandomValueFast = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
-	const state = state_immutable.toVar( 'state' );
+	const state = state_immutable.toVar();
 
 	// Simple multiply-with-carry generator - much faster than PCG
 
@@ -274,7 +274,7 @@ export const RandomValueFast = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
 export const RandomValue = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
-	const state = state_immutable.toVar( 'state' );
+	const state = state_immutable.toVar();
 	state.assign( pcgHash( state ) );
 
 	return float( state.shiftRight( 8 ) ).mul( 1.0 / 16777216.0 );
@@ -285,7 +285,7 @@ export const RandomValue = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
 export const RandomValueHighPrecision = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
 
-	const state = state_immutable.toVar( 'state' );
+	const state = state_immutable.toVar();
 	const s1 = pcgHash( state );
 	state.assign( s1 );
 	const s2 = pcgHash( state );
@@ -379,7 +379,7 @@ export const sampleBlueNoise2D = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex,
 
 	const pairIndex = mod( dimensionBase.div( int( 2 ) ), int( 6 ) );
 
-	const result = vec2( 0.0 ).toVar( 'blueNoise2DResult' );
+	const result = vec2( 0.0 ).toVar();
 
 	Switch( pairIndex )
 		.Case( 0, () => {
@@ -452,10 +452,10 @@ export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, cur
 
 export const haltonScrambled = /*@__PURE__*/ Fn( ( [ index, base, scramble ] ) => {
 
-	const result = float( 0.0 ).toVar( 'result' );
-	const f = float( 1.0 ).toVar( 'f' );
-	const i1 = index.toVar( 'i1' );
-	const haltonIter = int( 0 ).toVar( 'haltonIter' );
+	const result = float( 0.0 ).toVar();
+	const f = float( 1.0 ).toVar();
+	const i1 = index.toVar();
+	const haltonIter = int( 0 ).toVar();
 
 	Loop( i1.greaterThan( int( 0 ) ).and( haltonIter.lessThan( int( 32 ) ) ), () => {
 
@@ -465,7 +465,7 @@ export const haltonScrambled = /*@__PURE__*/ Fn( ( [ index, base, scramble ] ) =
 
 		// Apply digit scrambling
 
-		const digit = mod( i1, base ).toVar( 'digit' );
+		const digit = mod( i1, base ).toVar();
 		digit.assign( int( mod( wang_hash( uint( digit ).bitXor( scramble ) ), uint( base ) ) ) );
 		result.addAssign( f.mul( float( digit ) ) );
 		i1.assign( int( floor( float( i1 ).div( float( base ) ) ) ) );
@@ -480,7 +480,7 @@ export const haltonScrambled = /*@__PURE__*/ Fn( ( [ index, base, scramble ] ) =
 
 export const owen_scramble = /*@__PURE__*/ Fn( ( [ x_immutable, seed ] ) => {
 
-	const v = x_immutable.toVar( 'v' );
+	const v = x_immutable.toVar();
 	v.assign( v.bitXor( v.mul( 0x3d20adea ) ) );
 	v.addAssign( seed );
 	v.mulAssign( seed.shiftRight( 16 ).bitOr( 1 ) );
@@ -498,7 +498,7 @@ export const owen_scramble = /*@__PURE__*/ Fn( ( [ x_immutable, seed ] ) => {
 
 export const owen_scrambled_sobol = /*@__PURE__*/ Fn( ( [ index, dimension, seed ] ) => {
 
-	const result = uint( 0 ).toVar( 'result' );
+	const result = uint( 0 ).toVar();
 
 	Loop( { start: int( 0 ), end: int( 32 ) }, ( { i } ) => {
 
@@ -530,7 +530,7 @@ export const owen_scrambled_sobol2D = /*@__PURE__*/ Fn( ( [ index, seed ] ) => {
 export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, dimensions, preferredTechnique, resolution, frame ] ) => {
 
 	const technique = select( preferredTechnique.notEqual( int( - 1 ) ), preferredTechnique, samplingTechnique );
-	const result = vec4( 0.0 ).toVar( 'sampleResult' );
+	const result = vec4( 0.0 ).toVar();
 
 	// PCG (technique 0)
 	If( technique.equal( int( 0 ) ), () => {
@@ -639,8 +639,8 @@ export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, 
 
 export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pixelIndex, resolution, frame ] ) => {
 
-	const quasi = vec2( 0.0 ).toVar( 'quasi' );
-	const useQuasi = int( 1 ).toVar( 'useQuasi' );
+	const quasi = vec2( 0.0 ).toVar();
+	const useQuasi = int( 1 ).toVar();
 
 	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
@@ -719,7 +719,7 @@ export const getStratifiedSample = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, t
 
 	// Enhanced jitter based on sampling technique with blue noise fallback for better convergence
 
-	const jitter = vec2( 0.0 ).toVar( 'jitter' );
+	const jitter = vec2( 0.0 ).toVar();
 
 	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
@@ -790,7 +790,7 @@ export const getPrimaryRaySample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex
 
 		// Enhanced stratified sampling with blue noise influence for better convergence
 
-		const stratifiedSample = getStratifiedSample( pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ).toVar( 'stratifiedSample' );
+		const stratifiedSample = getStratifiedSample( pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ).toVar();
 
 		// Add blue noise influence for improved anti-aliasing convergence
 
@@ -829,7 +829,7 @@ export const getBRDFSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, boun
 		// Enhanced random sampling with subtle blue noise influence for better BRDF convergence
 		// Use fast RNG for BRDF sampling where speed is more important than perfect distribution
 
-		const randomSample = vec2( RandomValueFast( rngState ), RandomValueFast( rngState ) ).toVar( 'randomSample' );
+		const randomSample = vec2( RandomValueFast( rngState ), RandomValueFast( rngState ) ).toVar();
 
 		// Add blue noise influence for deeper bounces where quality matters
 

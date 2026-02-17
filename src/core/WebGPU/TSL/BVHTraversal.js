@@ -58,38 +58,38 @@ const HUGE_VAL = 1e8;
 const createStack = () => {
 
 	return {
-		s0: int( 0 ).toVar( 's0' ),
-		s1: int( 0 ).toVar( 's1' ),
-		s2: int( 0 ).toVar( 's2' ),
-		s3: int( 0 ).toVar( 's3' ),
-		s4: int( 0 ).toVar( 's4' ),
-		s5: int( 0 ).toVar( 's5' ),
-		s6: int( 0 ).toVar( 's6' ),
-		s7: int( 0 ).toVar( 's7' ),
-		s8: int( 0 ).toVar( 's8' ),
-		s9: int( 0 ).toVar( 's9' ),
-		s10: int( 0 ).toVar( 's10' ),
-		s11: int( 0 ).toVar( 's11' ),
-		s12: int( 0 ).toVar( 's12' ),
-		s13: int( 0 ).toVar( 's13' ),
-		s14: int( 0 ).toVar( 's14' ),
-		s15: int( 0 ).toVar( 's15' ),
-		s16: int( 0 ).toVar( 's16' ),
-		s17: int( 0 ).toVar( 's17' ),
-		s18: int( 0 ).toVar( 's18' ),
-		s19: int( 0 ).toVar( 's19' ),
-		s20: int( 0 ).toVar( 's20' ),
-		s21: int( 0 ).toVar( 's21' ),
-		s22: int( 0 ).toVar( 's22' ),
-		s23: int( 0 ).toVar( 's23' ),
-		s24: int( 0 ).toVar( 's24' ),
-		s25: int( 0 ).toVar( 's25' ),
-		s26: int( 0 ).toVar( 's26' ),
-		s27: int( 0 ).toVar( 's27' ),
-		s28: int( 0 ).toVar( 's28' ),
-		s29: int( 0 ).toVar( 's29' ),
-		s30: int( 0 ).toVar( 's30' ),
-		s31: int( 0 ).toVar( 's31' )
+		s0: int( 0 ).toVar(),
+		s1: int( 0 ).toVar(),
+		s2: int( 0 ).toVar(),
+		s3: int( 0 ).toVar(),
+		s4: int( 0 ).toVar(),
+		s5: int( 0 ).toVar(),
+		s6: int( 0 ).toVar(),
+		s7: int( 0 ).toVar(),
+		s8: int( 0 ).toVar(),
+		s9: int( 0 ).toVar(),
+		s10: int( 0 ).toVar(),
+		s11: int( 0 ).toVar(),
+		s12: int( 0 ).toVar(),
+		s13: int( 0 ).toVar(),
+		s14: int( 0 ).toVar(),
+		s15: int( 0 ).toVar(),
+		s16: int( 0 ).toVar(),
+		s17: int( 0 ).toVar(),
+		s18: int( 0 ).toVar(),
+		s19: int( 0 ).toVar(),
+		s20: int( 0 ).toVar(),
+		s21: int( 0 ).toVar(),
+		s22: int( 0 ).toVar(),
+		s23: int( 0 ).toVar(),
+		s24: int( 0 ).toVar(),
+		s25: int( 0 ).toVar(),
+		s26: int( 0 ).toVar(),
+		s27: int( 0 ).toVar(),
+		s28: int( 0 ).toVar(),
+		s29: int( 0 ).toVar(),
+		s30: int( 0 ).toVar(),
+		s31: int( 0 ).toVar()
 	};
 
 };
@@ -317,7 +317,7 @@ const stackWrite = ( stack, index, value ) => {
 const RayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, pA, pB, pC, closestHitDst ] ) => {
 
 	// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection
-	const result = vec4( 1e20, 0.0, 0.0, 0.0 ).toVar( 'triGeoResult' );
+	const result = vec4( 1e20, 0.0, 0.0, 0.0 ).toVar();
 
 	const edge1 = pB.sub( pA );
 	const edge2 = pC.sub( pA );
@@ -328,16 +328,16 @@ const RayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, pA, pB, pC, closestHitDst
 
 		const f = float( 1.0 ).div( a );
 		const s = rayOrigin.sub( pA );
-		const u = f.mul( dot( s, h ) ).toVar( 'rtu' );
+		const u = f.mul( dot( s, h ) ).toVar();
 
 		If( u.greaterThanEqual( 0.0 ).and( u.lessThanEqual( 1.0 ) ), () => {
 
 			const q = s.cross( edge1 );
-			const v = f.mul( dot( rayDir, q ) ).toVar( 'rtv' );
+			const v = f.mul( dot( rayDir, q ) ).toVar();
 
 			If( v.greaterThanEqual( 0.0 ).and( u.add( v ).lessThanEqual( 1.0 ) ), () => {
 
-				const t = f.mul( dot( edge2, q ) ).toVar( 'rtt' );
+				const t = f.mul( dot( edge2, q ) ).toVar();
 
 				If( t.greaterThan( 0.0 ).and( t.lessThan( closestHitDst ) ), () => {
 
@@ -403,7 +403,7 @@ export const isTriangleVisibleCached = Fn( ( [ materialIndex, materialTexture, m
 // Complete visibility check with side culling
 export const isMaterialVisibleOptimized = Fn( ( [ vis, rayDirection, normal ] ) => {
 
-	const result = tslBool( false ).toVar( 'visResult' );
+	const result = tslBool( false ).toVar();
 
 	If( vis.visible, () => {
 
@@ -449,11 +449,11 @@ export const traverseBVH = Fn( ( [
 		meshIndex: int( - 1 ),
 		boxTests: int( 0 ),
 		triTests: int( 0 ),
-	} ).toVar( 'closestHit' );
+	} ).toVar();
 
 	// Stack
 	const stack = createStack();
-	const stackPtr = int( 1 ).toVar( 'stackPtr' );
+	const stackPtr = int( 1 ).toVar();
 	stack.s0.assign( int( 0 ) ); // Root node
 
 	// Compact axis-aligned ray handling with correct sign preservation
@@ -462,38 +462,38 @@ export const traverseBVH = Fn( ( [
 		vec3( 1.0 ).div( ray.direction ),
 		vec3( HUGE_VAL ).mul( dirSign ),
 		lessThan( abs( ray.direction ), vec3( 1e-8 ) )
-	).toVar( 'invDir' );
+	).toVar();
 
 	const rayOrigin = ray.origin;
 	const rayDirection = ray.direction;
 
-	const iterCount = int( 0 ).toVar( 'iterCount' );
+	const iterCount = int( 0 ).toVar();
 
 	Loop( stackPtr.greaterThan( int( 0 ) ).and( iterCount.lessThan( int( 256 ) ) ), () => {
 
 		iterCount.addAssign( 1 );
 		stackPtr.subAssign( 1 );
-		const nodeIndex = stackRead( stack, stackPtr ).toVar( 'nodeIndex' );
+		const nodeIndex = stackRead( stack, stackPtr ).toVar();
 
 		const nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
 		const nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
-		const leftChild = int( nodeData0.w ).toVar( 'leftChild' );
-		const rightChild = int( nodeData1.w ).toVar( 'rightChild' );
+		const leftChild = int( nodeData0.w ).toVar();
+		const rightChild = int( nodeData1.w ).toVar();
 		closestHit.boxTests.addAssign( 1 );
 
 		If( leftChild.lessThan( int( 0 ) ), () => {
 
 			// Leaf node
 			const nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
-			const triStart = int( nodeData2.x ).toVar( 'triStart' );
-			const triCount = int( nodeData2.y ).toVar( 'triCount' );
+			const triStart = int( nodeData2.x ).toVar();
+			const triCount = int( nodeData2.y ).toVar();
 
 			// Process triangles in leaf
 			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
 				closestHit.triTests.addAssign( 1 );
-				const triIndex = triStart.add( i ).toVar( 'triIndex' );
+				const triIndex = triStart.add( i ).toVar();
 
 				// Fetch geometry first (3 fetches)
 				const pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
@@ -526,7 +526,7 @@ export const traverseBVH = Fn( ( [
 
 							// Interpolate normal
 							const w = float( 1.0 ).sub( u ).sub( v );
-							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar( 'hitNorm' );
+							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
 
 							// Full material visibility check (culling etc)
 							If( isMaterialVisible( matIdx, rayDirection, normal, materialTexture, materialTexSize ), () => {
@@ -566,8 +566,8 @@ export const traverseBVH = Fn( ( [
 			const rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
 			const rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( rayOrigin, invDir, leftData0.xyz, leftData1.xyz ).toVar( 'dstA' );
-			const dstB = fastRayAABBDst( rayOrigin, invDir, rightData0.xyz, rightData1.xyz ).toVar( 'dstB' );
+			const dstA = fastRayAABBDst( rayOrigin, invDir, leftData0.xyz, leftData1.xyz ).toVar();
+			const dstB = fastRayAABBDst( rayOrigin, invDir, rightData0.xyz, rightData1.xyz ).toVar();
 
 			// Optimized early rejection
 			const minDst = min( dstA, dstB );
@@ -575,9 +575,9 @@ export const traverseBVH = Fn( ( [
 
 				// Improved node ordering with fewer conditionals
 				const aCloser = dstA.lessThan( dstB );
-				const nearChild = select( aCloser, leftChild, rightChild ).toVar( 'nearChild' );
-				const farChild = select( aCloser, rightChild, leftChild ).toVar( 'farChild' );
-				const farDst = select( aCloser, dstB, dstA ).toVar( 'farDst' );
+				const nearChild = select( aCloser, leftChild, rightChild ).toVar();
+				const farChild = select( aCloser, rightChild, leftChild ).toVar();
+				const farDst = select( aCloser, dstB, dstA ).toVar();
 
 				// Push far child first (processed last)
 				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
@@ -626,10 +626,10 @@ export const traverseBVHShadow = Fn( ( [
 		meshIndex: int( - 1 ),
 		boxTests: int( 0 ),
 		triTests: int( 0 ),
-	} ).toVar( 'shadowHit' );
+	} ).toVar();
 
 	const stack = createStack();
-	const stackPtr = int( 1 ).toVar( 'stackPtr' );
+	const stackPtr = int( 1 ).toVar();
 	stack.s0.assign( int( 0 ) );
 
 	const dirSign = mix( vec3( 1.0 ), sign( ray.direction ), notEqual( ray.direction, vec3( 0.0 ) ) );
@@ -637,31 +637,31 @@ export const traverseBVHShadow = Fn( ( [
 		vec3( 1.0 ).div( ray.direction ),
 		vec3( HUGE_VAL ).mul( dirSign ),
 		lessThan( abs( ray.direction ), vec3( 1e-8 ) )
-	).toVar( 'sInvDir' );
+	).toVar();
 
-	const sIterCount = int( 0 ).toVar( 'sIterCount' );
+	const sIterCount = int( 0 ).toVar();
 
 	Loop( stackPtr.greaterThan( int( 0 ) ).and( closestHit.didHit.not() ).and( sIterCount.lessThan( int( 256 ) ) ), () => {
 
 		sIterCount.addAssign( 1 );
 		stackPtr.subAssign( 1 );
-		const nodeIndex = stackRead( stack, stackPtr ).toVar( 'sNodeIdx' );
+		const nodeIndex = stackRead( stack, stackPtr ).toVar();
 
 		const nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
 		const nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
-		const leftChild = int( nodeData0.w ).toVar( 'sLeftChild' );
-		const rightChild = int( nodeData1.w ).toVar( 'sRightChild' );
+		const leftChild = int( nodeData0.w ).toVar();
+		const rightChild = int( nodeData1.w ).toVar();
 
 		If( leftChild.lessThan( int( 0 ) ), () => {
 
 			const nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
-			const triStart = int( nodeData2.x ).toVar( 'sTriStart' );
-			const triCount = int( nodeData2.y ).toVar( 'sTriCount' );
+			const triStart = int( nodeData2.x ).toVar();
+			const triCount = int( nodeData2.y ).toVar();
 
 			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-				const triIndex = triStart.add( i ).toVar( 'sTriIdx' );
+				const triIndex = triStart.add( i ).toVar();
 
 				const pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
 				const pB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
@@ -694,16 +694,16 @@ export const traverseBVHShadow = Fn( ( [
 			const rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
 			const rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( ray.origin, invDir, leftData0.xyz, leftData1.xyz ).toVar( 'sDstA' );
-			const dstB = fastRayAABBDst( ray.origin, invDir, rightData0.xyz, rightData1.xyz ).toVar( 'sDstB' );
+			const dstA = fastRayAABBDst( ray.origin, invDir, leftData0.xyz, leftData1.xyz ).toVar();
+			const dstB = fastRayAABBDst( ray.origin, invDir, rightData0.xyz, rightData1.xyz ).toVar();
 
 			const minDst = min( dstA, dstB );
 			If( minDst.lessThan( closestHit.dst ), () => {
 
 				const aCloser = dstA.lessThan( dstB );
-				const nearChild = select( aCloser, leftChild, rightChild ).toVar( 'sNear' );
-				const farChild = select( aCloser, rightChild, leftChild ).toVar( 'sFar' );
-				const farDst = select( aCloser, dstB, dstA ).toVar( 'sFarDst' );
+				const nearChild = select( aCloser, leftChild, rightChild ).toVar();
+				const farChild = select( aCloser, rightChild, leftChild ).toVar();
+				const farDst = select( aCloser, dstB, dstA ).toVar();
 
 				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
@@ -750,18 +750,18 @@ export const generateRayFromCamera = Fn( ( [
 		cameraWorldMatrix[ 0 ].xyz,
 		cameraWorldMatrix[ 1 ].xyz,
 		cameraWorldMatrix[ 2 ].xyz
-	).mul( rayDirCS.xyz.div( rayDirCS.w ) ) ).toVar( 'rayDirWorld' );
+	).mul( rayDirCS.xyz.div( rayDirCS.w ) ) ).toVar();
 
-	const rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] ).toVar( 'rayOriginWorld' );
+	const rayOriginWorld = vec3( cameraWorldMatrix[ 3 ] ).toVar();
 
-	const resultOrigin = rayOriginWorld.toVar( 'camOrigin' );
-	const resultDirection = rayDirectionWorld.toVar( 'camDir' );
+	const resultOrigin = rayOriginWorld.toVar();
+	const resultDirection = rayDirectionWorld.toVar();
 
 	// Check if DOF is disabled or conditions make it ineffective
 	If( enableDOF.and( focalLength.greaterThan( 0.0 ) ).and( aperture.lessThan( 64.0 ) ).and( focusDistance.greaterThan( 0.001 ) ), () => {
 
 		// Calculate focal point - where rays converge
-		const focalPoint = rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).toVar( 'focalPt' );
+		const focalPoint = rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).toVar();
 
 		// Physical aperture calculation
 		const effectiveAperture = focalLength.div( aperture );

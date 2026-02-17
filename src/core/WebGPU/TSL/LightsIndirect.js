@@ -63,12 +63,12 @@ export const calculateTransmissionPDF = Fn( ( [ V, L, N, ior, roughness, enterin
 	// eta is the relative IOR: eta_transmitted / eta_incident
 	// When entering: air(1.0) -> material(ior), so eta = ior
 	// When exiting: material(ior) -> air(1.0), so eta = 1.0/ior
-	const eta = select( entering, ior, float( 1.0 ).div( ior ) ).toVar( 'tpdf_eta' );
+	const eta = select( entering, ior, float( 1.0 ).div( ior ) ).toVar();
 
 	// Transmission half-vector formula
-	const H_raw = V.add( L.mul( eta ) ).toVar( 'tpdf_Hraw' );
-	const lenSq = dot( H_raw, H_raw ).toVar( 'tpdf_lenSq' );
-	const H = select( lenSq.greaterThan( EPSILON ), H_raw.div( sqrt( lenSq ) ), N ).toVar( 'tpdf_H' );
+	const H_raw = V.add( L.mul( eta ) ).toVar();
+	const lenSq = dot( H_raw, H_raw ).toVar();
+	const H = select( lenSq.greaterThan( EPSILON ), H_raw.div( sqrt( lenSq ) ), N ).toVar();
 
 	// Ensure H points into the correct hemisphere
 	If( dot( H, N ).lessThan( 0.0 ), () => {
@@ -77,17 +77,17 @@ export const calculateTransmissionPDF = Fn( ( [ V, L, N, ior, roughness, enterin
 
 	} );
 
-	const VoH = abs( dot( V, H ) ).toVar( 'tpdf_VoH' );
-	const LoH = abs( dot( L, H ) ).toVar( 'tpdf_LoH' );
-	const NoH = abs( dot( N, H ) ).toVar( 'tpdf_NoH' );
+	const VoH = abs( dot( V, H ) ).toVar();
+	const LoH = abs( dot( L, H ) ).toVar();
+	const NoH = abs( dot( N, H ) ).toVar();
 
 	// GGX distribution
-	const D = DistributionGGX( NoH, roughness ).toVar( 'tpdf_D' );
+	const D = DistributionGGX( NoH, roughness ).toVar();
 
 	// Jacobian for transmission
-	const denom_inner = VoH.add( LoH.mul( eta ) ).toVar( 'tpdf_denomInner' );
-	const denom = denom_inner.mul( denom_inner ).toVar( 'tpdf_denom' );
-	const jacobian = LoH.mul( eta ).mul( eta ).div( max( denom, EPSILON ) ).toVar( 'tpdf_J' );
+	const denom_inner = VoH.add( LoH.mul( eta ) ).toVar();
+	const denom = denom_inner.mul( denom_inner ).toVar();
+	const jacobian = LoH.mul( eta ).mul( eta ).div( max( denom, EPSILON ) ).toVar();
 
 	return D.mul( NoH ).mul( jacobian );
 
@@ -96,12 +96,12 @@ export const calculateTransmissionPDF = Fn( ( [ V, L, N, ior, roughness, enterin
 // Clearcoat PDF
 export const calculateClearcoatPDF = Fn( ( [ V, L, N, clearcoatRoughness ] ) => {
 
-	const H_raw = V.add( L ).toVar( 'ccpdf_Hraw' );
-	const lenSq = dot( H_raw, H_raw ).toVar( 'ccpdf_lenSq' );
-	const H = select( lenSq.greaterThan( EPSILON ), H_raw.div( sqrt( lenSq ) ), N ).toVar( 'ccpdf_H' );
+	const H_raw = V.add( L ).toVar();
+	const lenSq = dot( H_raw, H_raw ).toVar();
+	const H = select( lenSq.greaterThan( EPSILON ), H_raw.div( sqrt( lenSq ) ), N ).toVar();
 
-	const NoH = max( dot( N, H ), 0.0 ).toVar( 'ccpdf_NoH' );
-	const NoV = max( dot( N, V ), 0.0 ).toVar( 'ccpdf_NoV' );
+	const NoH = max( dot( N, H ), 0.0 ).toVar();
+	const NoV = max( dot( N, V ), 0.0 ).toVar();
 
 	return calculateVNDFPDF( NoH, NoV, clearcoatRoughness );
 
@@ -118,8 +118,8 @@ export const computeSamplingInfo = Fn( ( [
 ] ) => {
 
 	// Environment sampling weight
-	const envW = float( 0.0 ).toVar( 'csi_envW' );
-	const useEnv = tslBool( false ).toVar( 'csi_useEnv' );
+	const envW = float( 0.0 ).toVar();
+	const useEnv = tslBool( false ).toVar();
 
 	If( enableEnvironmentLight.and( useEnvMapIS ), () => {
 
@@ -129,20 +129,20 @@ export const computeSamplingInfo = Fn( ( [
 	} );
 
 	// Separate each sampling strategy
-	const specularW = samplingInfo.specularImportance.toVar( 'csi_specW' );
-	const useSpecular = specularW.greaterThan( 0.001 ).toVar( 'csi_useSpec' );
+	const specularW = samplingInfo.specularImportance.toVar();
+	const useSpecular = specularW.greaterThan( 0.001 ).toVar();
 
-	const diffuseW = samplingInfo.diffuseImportance.toVar( 'csi_diffW' );
-	const useDiffuse = diffuseW.greaterThan( 0.001 ).toVar( 'csi_useDiff' );
+	const diffuseW = samplingInfo.diffuseImportance.toVar();
+	const useDiffuse = diffuseW.greaterThan( 0.001 ).toVar();
 
-	const transmissionW = samplingInfo.transmissionImportance.toVar( 'csi_transW' );
-	const useTransmission = transmissionW.greaterThan( 0.001 ).toVar( 'csi_useTrans' );
+	const transmissionW = samplingInfo.transmissionImportance.toVar();
+	const useTransmission = transmissionW.greaterThan( 0.001 ).toVar();
 
-	const clearcoatW = samplingInfo.clearcoatImportance.toVar( 'csi_ccW' );
-	const useClearcoat = clearcoatW.greaterThan( 0.001 ).toVar( 'csi_useCC' );
+	const clearcoatW = samplingInfo.clearcoatImportance.toVar();
+	const useClearcoat = clearcoatW.greaterThan( 0.001 ).toVar();
 
 	// Calculate total weight
-	const totalW = envW.add( specularW ).add( diffuseW ).add( transmissionW ).add( clearcoatW ).toVar( 'csi_totalW' );
+	const totalW = envW.add( specularW ).add( diffuseW ).add( transmissionW ).add( clearcoatW ).toVar();
 
 	// Proper normalization and fallback
 	If( totalW.lessThan( 0.001 ), () => {
@@ -163,7 +163,7 @@ export const computeSamplingInfo = Fn( ( [
 	} ).Else( () => {
 
 		// Normalize weights to sum to 1.0
-		const invTotal = float( 1.0 ).div( totalW ).toVar( 'csi_inv' );
+		const invTotal = float( 1.0 ).div( totalW ).toVar();
 		envW.mulAssign( invTotal );
 		specularW.mulAssign( invTotal );
 		diffuseW.mulAssign( invTotal );
@@ -197,11 +197,11 @@ export const computeSamplingInfo = Fn( ( [
 // Strategy IDs: 0=env, 1=specular, 2=diffuse, 3=transmission, 4=clearcoat
 export const selectSamplingStrategy = Fn( ( [ weights, randomValue ] ) => {
 
-	const selectedStrategy = int( 2 ).toVar( 'ss_sel' ); // Default: diffuse
-	const strategyPdf = float( 1.0 ).toVar( 'ss_pdf' );
+	const selectedStrategy = int( 2 ).toVar(); // Default: diffuse
+	const strategyPdf = float( 1.0 ).toVar();
 
-	const cumulative = float( 0.0 ).toVar( 'ss_cum' );
-	const found = tslBool( false ).toVar( 'ss_found' );
+	const cumulative = float( 0.0 ).toVar();
+	const found = tslBool( false ).toVar();
 
 	If( weights.useEnv.and( found.not() ), () => {
 
@@ -310,10 +310,10 @@ export const calculateIndirectLighting = Fn( ( [
 ] ) => {
 
 	// Initialize result
-	const r_direction = vec3( 0.0 ).toVar( 'cil_dir' );
-	const r_throughput = vec3( 0.0 ).toVar( 'cil_tp' );
-	const r_misWeight = float( 0.0 ).toVar( 'cil_mis' );
-	const r_pdf = float( 0.0 ).toVar( 'cil_pdf' );
+	const r_direction = vec3( 0.0 ).toVar();
+	const r_throughput = vec3( 0.0 ).toVar();
+	const r_misWeight = float( 0.0 ).toVar();
+	const r_pdf = float( 0.0 ).toVar();
 
 	// Validate input sampling info
 	const validInput = samplingInfo.diffuseImportance.greaterThanEqual( 0.0 )
@@ -321,12 +321,12 @@ export const calculateIndirectLighting = Fn( ( [
 		.and( samplingInfo.transmissionImportance.greaterThanEqual( 0.0 ) )
 		.and( samplingInfo.clearcoatImportance.greaterThanEqual( 0.0 ) )
 		.and( samplingInfo.envmapImportance.greaterThanEqual( 0.0 ) )
-		.toVar( 'cil_validIn' );
+		.toVar();
 
 	If( validInput.not(), () => {
 
 		// Fallback to diffuse sampling
-		const sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar( 'cil_fbRand' );
+		const sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
 		r_direction.assign( cosineWeightedSample( N, sampleRand ) );
 		r_throughput.assign( material.color.xyz );
 		r_misWeight.assign( 1.0 );
@@ -338,19 +338,19 @@ export const calculateIndirectLighting = Fn( ( [
 		const weights = SamplingStrategyWeights.wrap( computeSamplingInfo(
 			samplingInfo, bounceIndex, material,
 			enableEnvironmentLight, useEnvMapIS,
-		).toVar( 'cil_weights' ) );
+		).toVar() );
 
-		const selectionRand = RandomValue( rngState ).toVar( 'cil_selRand' );
-		const sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar( 'cil_smpRand' );
+		const selectionRand = RandomValue( rngState ).toVar();
+		const sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
 
 		// Strategy selection
-		const strategyResult = selectSamplingStrategy( weights, selectionRand ).toVar( 'cil_strat' );
-		const selectedStrategy = int( strategyResult.x ).toVar( 'cil_sSel' );
-		const strategySelectionPdf = strategyResult.y.toVar( 'cil_sSelPdf' );
+		const strategyResult = selectSamplingStrategy( weights, selectionRand ).toVar();
+		const selectedStrategy = int( strategyResult.x ).toVar();
+		const strategySelectionPdf = strategyResult.y.toVar();
 
-		const sampleDir = vec3( 0.0 ).toVar( 'cil_sDir' );
-		const samplePdf = float( 0.0 ).toVar( 'cil_sPdf' );
-		const sampleBrdfValue = vec3( 0.0 ).toVar( 'cil_sBrdf' );
+		const sampleDir = vec3( 0.0 ).toVar();
+		const samplePdf = float( 0.0 ).toVar();
+		const sampleBrdfValue = vec3( 0.0 ).toVar();
 
 		// Execute selected strategy
 
@@ -360,7 +360,7 @@ export const calculateIndirectLighting = Fn( ( [
 			const envSampleResult = sampleEquirectProbability(
 				envTexture, envMarginalWeights, envConditionalWeights,
 				envMatrix, environmentIntensity, envTotalSum, envResolution, sampleRand
-			).toVar( 'cil_envSmp' );
+			).toVar();
 
 			sampleDir.assign( envSampleResult.xyz );
 			samplePdf.assign( envSampleResult.w );
@@ -389,10 +389,10 @@ export const calculateIndirectLighting = Fn( ( [
 		// Strategy 3: Transmission
 		If( selectedStrategy.equal( int( 3 ) ), () => {
 
-			const entering = dot( V, N ).lessThan( 0.0 ).toVar( 'cil_entering' );
+			const entering = dot( V, N ).lessThan( 0.0 ).toVar();
 			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState
-			).toVar( 'cil_mtResult' ) );
+			).toVar() );
 			sampleDir.assign( mtResult.direction );
 			samplePdf.assign( mtResult.pdf );
 			sampleBrdfValue.assign( evaluateMaterialResponse( V, sampleDir, N, material ) );
@@ -408,17 +408,17 @@ export const calculateIndirectLighting = Fn( ( [
 
 		} );
 
-		const NoL = max( dot( N, sampleDir ), 0.0 ).toVar( 'cil_NoL' );
+		const NoL = max( dot( N, sampleDir ), 0.0 ).toVar();
 
 		// Calculate combined PDF for MIS (all active strategies)
-		const combinedPdf = float( 0.0 ).toVar( 'cil_cPdf' );
+		const combinedPdf = float( 0.0 ).toVar();
 
 		If( weights.useEnv, () => {
 
 			const envEvalResult = sampleEquirect(
 				envTexture, sampleDir, envMatrix, envTotalSum, envResolution
-			).toVar( 'cil_envEval' );
-			const envPdf = envEvalResult.w.toVar( 'cil_envEvalPdf' );
+			).toVar();
+			const envPdf = envEvalResult.w.toVar();
 
 			// Only include environment in MIS if it has valid contribution
 			If( envPdf.greaterThan( 0.0 ), () => {
@@ -437,7 +437,7 @@ export const calculateIndirectLighting = Fn( ( [
 
 		If( weights.useDiffuse, () => {
 
-			const diffusePdf = cosineWeightedPDF( NoL ).toVar( 'cil_diffPdf' );
+			const diffusePdf = cosineWeightedPDF( NoL ).toVar();
 			combinedPdf.addAssign( weights.diffuseWeight.mul( diffusePdf ) );
 
 		} );
@@ -445,8 +445,8 @@ export const calculateIndirectLighting = Fn( ( [
 		If( weights.useTransmission.and( material.transmission.greaterThan( 0.0 ) ), () => {
 
 			// Calculate transmission PDF for this direction
-			const entering = dot( V, N ).lessThan( 0.0 ).toVar( 'cil_tEntering' );
-			const transmissionPdf = calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering ).toVar( 'cil_tPdf' );
+			const entering = dot( V, N ).lessThan( 0.0 ).toVar();
+			const transmissionPdf = calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering ).toVar();
 			combinedPdf.addAssign( weights.transmissionWeight.mul( transmissionPdf ) );
 
 		} );
@@ -454,7 +454,7 @@ export const calculateIndirectLighting = Fn( ( [
 		If( weights.useClearcoat.and( material.clearcoat.greaterThan( 0.0 ) ), () => {
 
 			// Calculate clearcoat PDF for this direction
-			const clearcoatPdf = calculateClearcoatPDF( V, sampleDir, N, material.clearcoatRoughness ).toVar( 'cil_ccPdf' );
+			const clearcoatPdf = calculateClearcoatPDF( V, sampleDir, N, material.clearcoatRoughness ).toVar();
 			combinedPdf.addAssign( weights.clearcoatWeight.mul( clearcoatPdf ) );
 
 		} );
@@ -464,10 +464,10 @@ export const calculateIndirectLighting = Fn( ( [
 		combinedPdf.assign( max( combinedPdf, MIN_PDF ) );
 
 		// MIS weight calculation
-		const misWeight = samplePdf.div( combinedPdf ).toVar( 'cil_misW' );
+		const misWeight = samplePdf.div( combinedPdf ).toVar();
 
 		// Throughput calculation
-		const throughput = sampleBrdfValue.mul( NoL ).mul( misWeight ).div( samplePdf ).toVar( 'cil_throughput' );
+		const throughput = sampleBrdfValue.mul( NoL ).mul( misWeight ).div( samplePdf ).toVar();
 
 		// Apply global illumination scaling
 		throughput.mulAssign( globalIlluminationIntensity );

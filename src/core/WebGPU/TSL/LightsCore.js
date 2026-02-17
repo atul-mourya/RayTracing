@@ -116,12 +116,12 @@ export const getAreaLight = Fn( ( [ areaLightsBuffer, index ] ) => {
 		areaLightsBuffer.element( baseIndex.add( 3 ) ),
 		areaLightsBuffer.element( baseIndex.add( 4 ) ),
 		areaLightsBuffer.element( baseIndex.add( 5 ) ),
-	).toVar( 'alU' );
+	).toVar();
 	const v = vec3(
 		areaLightsBuffer.element( baseIndex.add( 6 ) ),
 		areaLightsBuffer.element( baseIndex.add( 7 ) ),
 		areaLightsBuffer.element( baseIndex.add( 8 ) ),
-	).toVar( 'alV' );
+	).toVar();
 
 	const crossUV = cross( u, v );
 
@@ -203,7 +203,7 @@ export const isDirectionValid = Fn( ( [ direction, surfaceNormal ] ) => {
 // Distance attenuation based on Frostbite PBR
 export const getDistanceAttenuation = Fn( ( [ lightDistance, cutoffDistance, decayExponent ] ) => {
 
-	const distanceFalloff = float( 1.0 ).div( max( pow( lightDistance, decayExponent ), 0.01 ) ).toVar( 'distFalloff' );
+	const distanceFalloff = float( 1.0 ).div( max( pow( lightDistance, decayExponent ), 0.01 ) ).toVar();
 
 	If( cutoffDistance.greaterThan( 0.0 ), () => {
 
@@ -267,13 +267,13 @@ export const intersectAreaLight = Fn( ( [ light, rayOrigin, rayDirection ] ) => 
 	const normal = light.normal;
 	const denom = dot( normal, rayDirection );
 
-	const result = float( - 1.0 ).toVar( 'areaHitT' );
+	const result = float( - 1.0 ).toVar();
 
 	// Quick rejection (backface culling and near-parallel rays)
 	If( denom.lessThan( - 0.0001 ), () => {
 
 		const invDenom = float( 1.0 ).div( denom );
-		const t = dot( light.position.sub( rayOrigin ), normal ).mul( invDenom ).toVar( 'aLitT' );
+		const t = dot( light.position.sub( rayOrigin ), normal ).mul( invDenom ).toVar();
 
 		// Skip intersections behind the ray
 		If( t.greaterThan( 0.001 ), () => {
@@ -319,8 +319,8 @@ export const evaluateAreaLightHelper = Fn( ( [ light, ray ] ) => {
 	// Calculate intersection with the light plane
 	const denom = dot( lightNormal, ray.direction );
 
-	const result = vec3( 0.0 ).toVar( 'areaLightDebug' );
-	const didHit = tslBool( false ).toVar( 'areaHit' );
+	const result = vec3( 0.0 ).toVar();
+	const didHit = tslBool( false ).toVar();
 
 	// Skip if ray is parallel to plane
 	If( abs( denom ).greaterThanEqual( 1e-6 ), () => {

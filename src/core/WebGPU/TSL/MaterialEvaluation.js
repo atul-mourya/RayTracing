@@ -24,7 +24,7 @@ import { evalIridescence } from './MaterialProperties.js';
 
 export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
-	const result = vec3( 0.0 ).toVar( 'evalResult' );
+	const result = vec3( 0.0 ).toVar();
 
 	// Early exit for purely diffuse materials
 	If( material.roughness.greaterThan( 0.98 )
@@ -41,10 +41,10 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
 		// Calculate base F0 with specular parameters
 		const F0 = mix( vec3( 0.04 ).mul( material.specularColor ), material.color.rgb, material.metalness )
-			.mul( material.specularIntensity ).toVar( 'evalF0' );
+			.mul( material.specularIntensity ).toVar();
 
 		// Modify material color for dispersive materials to enhance color separation
-		const materialColor = material.color.rgb.toVar( 'evalMatCol' );
+		const materialColor = material.color.rgb.toVar();
 		If( material.dispersion.greaterThan( 0.0 ).and( material.transmission.greaterThan( 0.5 ) ), () => {
 
 			// For highly dispersive transmissive materials, boost color saturation
@@ -73,14 +73,14 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 		// Precalculate shared terms
 		const D = DistributionGGX( dots.NoH, material.roughness );
 		const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
-		const F = fresnelSchlick( dots.VoH, F0 ).toVar( 'evalF' );
+		const F = fresnelSchlick( dots.VoH, F0 ).toVar();
 
 		// Combined specular calculation with NaN protection
 		const specular = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
 		const kD = vec3( 1.0 ).sub( F ).mul( float( 1.0 ).sub( material.metalness ) );
 		const diffuse = kD.mul( materialColor ).mul( PI_INV );
 
-		const baseLayer = diffuse.add( specular ).toVar( 'evalBase' );
+		const baseLayer = diffuse.add( specular ).toVar();
 
 		// Optimize sheen calculation
 		If( material.sheen.greaterThan( 0.0 ), () => {
@@ -114,7 +114,7 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
 export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ] ) => {
 
-	const result = vec3( 0.0 ).toVar( 'evalCResult' );
+	const result = vec3( 0.0 ).toVar();
 
 	If( cache.isPurelyDiffuse, () => {
 
@@ -122,7 +122,7 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 
 	} ).Else( () => {
 
-		const H = V.add( L ).toVar( 'evalCH' );
+		const H = V.add( L ).toVar();
 		const lenSq = dot( H, H );
 		H.assign( lenSq.greaterThan( EPSILON ).select( H.div( sqrt( lenSq ) ), vec3( 0.0, 0.0, 1.0 ) ) );
 		const NoL = max( dot( N, L ), EPSILON );
@@ -136,7 +136,7 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 
 		} ).Else( () => {
 
-			const F0 = cache.F0.toVar( 'evalCF0' );
+			const F0 = cache.F0.toVar();
 
 			// Iridescence
 			If( material.iridescence.greaterThan( 0.0 ), () => {
@@ -155,7 +155,7 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 			const ggx2 = cache.NoV.div( cache.NoV.mul( float( 1.0 ).sub( cache.k ) ).add( cache.k ) );
 			const G = ggx1.mul( ggx2 );
 
-			const F = fresnelSchlick( VoH, F0 ).toVar( 'evalCF' );
+			const F = fresnelSchlick( VoH, F0 ).toVar();
 
 			// Safer division for specular term
 			const specularDenom = max( float( 4.0 ).mul( cache.NoV ).mul( NoL ), EPSILON );
@@ -165,7 +165,7 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 			const kD = vec3( 1.0 ).sub( F ).mul( float( 1.0 ).sub( material.metalness ) );
 			const diffuse = kD.mul( material.color.rgb ).mul( PI_INV );
 
-			const baseLayer = diffuse.add( specular ).toVar( 'evalCBase' );
+			const baseLayer = diffuse.add( specular ).toVar();
 
 			// Sheen
 			If( material.sheen.greaterThan( 0.0 ), () => {
@@ -212,11 +212,11 @@ export const evaluateLayeredBRDF = Fn( ( [ dots, material ] ) => {
 	// Base F0 calculation with specular parameters
 	const baseF0 = vec3( 0.04 );
 	const F0 = mix( baseF0.mul( material.specularColor ), material.color.rgb, material.metalness )
-		.mul( material.specularIntensity ).toVar( 'layF0' );
+		.mul( material.specularIntensity ).toVar();
 
 	const D = DistributionGGX( dots.NoH, material.roughness );
 	const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
-	const F = fresnelSchlick( dots.VoH, F0 ).toVar( 'layF' );
+	const F = fresnelSchlick( dots.VoH, F0 ).toVar();
 	const baseBRDF = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
 
 	// Fresnel masking for diffuse component

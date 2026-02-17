@@ -44,7 +44,7 @@ import { RandomValue } from './Random.js';
 
 export const getMaterialTransparency = Fn( ( [ shadowHit, shadowRayDir, rngState ] ) => {
 
-	const result = float( 1.0 ).toVar( 'matTransp' );
+	const result = float( 1.0 ).toVar();
 
 	// Check if the material has transmission (like glass)
 	If( shadowHit.material.transmission.greaterThan( 0.0 ), () => {
@@ -77,8 +77,8 @@ export const traceShadowRay = Fn( ( [
 	materialTexture, materialTexSize,
 ] ) => {
 
-	const transmittance = float( 1.0 ).toVar( 'shadowTransmit' );
-	const rayOrigin = origin.toVar( 'sRayOri' );
+	const transmittance = float( 1.0 ).toVar();
+	const rayOrigin = origin.toVar();
 
 	const MAX_SHADOW_TRANSMISSIONS = 8;
 
@@ -178,10 +178,10 @@ export const traceShadowRay = Fn( ( [
 export const calculateRayOffset = Fn( ( [ hitPoint, normal, material ] ) => {
 
 	// Base epsilon scaled by scene size
-	const scaleEpsilon = max( float( 1e-4 ), length( hitPoint ).mul( 1e-6 ) ).toVar( 'scaleEps' );
+	const scaleEpsilon = max( float( 1e-4 ), length( hitPoint ).mul( 1e-6 ) ).toVar();
 
 	// Adjust for material properties
-	const materialEpsilon = scaleEpsilon.toVar( 'matEps' );
+	const materialEpsilon = scaleEpsilon.toVar();
 
 	If( material.transmission.greaterThan( 0.0 ), () => {
 
@@ -208,14 +208,14 @@ export const calculateRayOffset = Fn( ( [ hitPoint, normal, material ] ) => {
 export const calculateDirectionalLightImportance = Fn( ( [ light, hitPoint, normal, material, bounceIndex ] ) => {
 
 	const NoL = max( float( 0.0 ), dot( normal, light.direction ) );
-	const result = float( 0.0 ).toVar( 'dirLightImp' );
+	const result = float( 0.0 ).toVar();
 
 	If( NoL.greaterThan( 0.0 ), () => {
 
 		const intensity = light.intensity.mul( dot( light.color, REC709_LUMINANCE_COEFFICIENTS ) );
 
 		// Material-specific weighting
-		const materialWeight = float( 1.0 ).toVar( 'matW' );
+		const materialWeight = float( 1.0 ).toVar();
 		If( material.metalness.greaterThan( 0.7 ), () => {
 
 			materialWeight.assign( 1.5 );
@@ -245,7 +245,7 @@ export const estimateLightImportance = Fn( ( [ light, hitPoint, normal, material
 
 	const lightDir = toLight.div( dist );
 	const NoL = max( dot( normal, lightDir ), 0.0 );
-	const result = float( 0.0 ).toVar( 'areaLightImp' );
+	const result = float( 0.0 ).toVar();
 
 	If( NoL.greaterThan( 0.0 ), () => {
 
@@ -257,7 +257,7 @@ export const estimateLightImportance = Fn( ( [ light, hitPoint, normal, material
 			const power = light.intensity.mul( dot( light.color, REC709_LUMINANCE_COEFFICIENTS ) ).mul( light.area );
 
 			// Material-aware weighting
-			const materialFactor = float( 1.0 ).toVar( 'matFactor' );
+			const materialFactor = float( 1.0 ).toVar();
 
 			If( material.metalness.greaterThan( 0.7 ), () => {
 
@@ -297,7 +297,7 @@ export const calculatePointLightImportance = Fn( ( [ light, hitPoint, normal, ma
 
 	const toLight = light.position.sub( hitPoint );
 	const distSq = dot( toLight, toLight );
-	const result = float( 0.0 ).toVar( 'ptLightImp' );
+	const result = float( 0.0 ).toVar();
 
 	If( distSq.greaterThanEqual( 0.001 ), () => {
 
@@ -310,7 +310,7 @@ export const calculatePointLightImportance = Fn( ( [ light, hitPoint, normal, ma
 			const distanceFactor = float( 1.0 ).div( max( distSq, 0.1 ) );
 			const power = light.intensity.mul( dot( light.color, REC709_LUMINANCE_COEFFICIENTS ) );
 
-			const materialFactor = float( 1.0 ).toVar( 'ptMatFac' );
+			const materialFactor = float( 1.0 ).toVar();
 
 			If( material.metalness.greaterThan( 0.7 ), () => {
 
@@ -349,7 +349,7 @@ export const calculateSpotLightImportance = Fn( ( [ light, hitPoint, normal, mat
 
 	const toLight = light.position.sub( hitPoint );
 	const distSq = dot( toLight, toLight );
-	const result = float( 0.0 ).toVar( 'spotLightImp' );
+	const result = float( 0.0 ).toVar();
 
 	If( distSq.greaterThanEqual( 0.001 ), () => {
 
@@ -391,7 +391,7 @@ export const calculateSpotLightImportance = Fn( ( [ light, hitPoint, normal, mat
 export const shouldSkipDirectionalLight = Fn( ( [ light, normal, material, bounceIndex ] ) => {
 
 	const NoL = max( float( 0.0 ), dot( normal, light.direction ) );
-	const shouldSkip = tslBool( false ).toVar( 'skipDir' );
+	const shouldSkip = tslBool( false ).toVar();
 
 	If( light.intensity.lessThanEqual( 0.001 ).or( NoL.lessThanEqual( 0.001 ) ), () => {
 
@@ -433,7 +433,7 @@ export const calculateDirectionalLightContribution = Fn( ( [
 	evaluateMaterialResponseCachedFn,
 ] ) => {
 
-	const result = vec3( 0.0 ).toVar( 'dirLightContrib' );
+	const result = vec3( 0.0 ).toVar();
 
 	If( shouldSkipDirectionalLight( light, normal, material, bounceIndex ).not(), () => {
 
@@ -441,8 +441,8 @@ export const calculateDirectionalLightContribution = Fn( ( [
 		const rayOrigin = hitPoint.add( rayOffset );
 
 		// Determine shadow sampling strategy based on light angle
-		const shadowDirection = vec3( 0.0 ).toVar( 'shadowDir' );
-		const lightPdf = float( 1e6 ).toVar( 'lPdf' );
+		const shadowDirection = vec3( 0.0 ).toVar();
+		const lightPdf = float( 1e6 ).toVar();
 
 		If( light.angle.greaterThan( 0.001 ), () => {
 
@@ -518,7 +518,7 @@ export const calculateAreaLightContribution = Fn( ( [
 	getRandomSampleFn,
 ] ) => {
 
-	const contribution = vec3( 0.0 ).toVar( 'areaContrib' );
+	const contribution = vec3( 0.0 ).toVar();
 
 	const lightImportance = estimateLightImportance( light, hitPoint, normal, material );
 
@@ -635,7 +635,7 @@ export const calculatePointLightContribution = Fn( ( [
 	evaluateMaterialResponseFn,
 ] ) => {
 
-	const result = vec3( 0.0 ).toVar( 'ptLightContrib' );
+	const result = vec3( 0.0 ).toVar();
 
 	const toLight = light.position.sub( hitPoint );
 	const distance = length( toLight );
@@ -681,7 +681,7 @@ export const calculateSpotLightContribution = Fn( ( [
 	evaluateMaterialResponseFn,
 ] ) => {
 
-	const result = vec3( 0.0 ).toVar( 'spotLightContrib' );
+	const result = vec3( 0.0 ).toVar();
 
 	const toLight = light.position.sub( hitPoint );
 	const distance = length( toLight );

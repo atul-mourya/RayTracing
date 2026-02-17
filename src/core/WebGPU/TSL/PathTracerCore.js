@@ -134,7 +134,7 @@ export const getOrCreateMaterialClassification = Fn( ( [
 	cachedClassification,
 ] ) => {
 
-	const result = cachedClassification.toVar( 'gocc_result' );
+	const result = cachedClassification.toVar();
 
 	If( classificationCached.not().or( lastMaterialIndex.notEqual( materialIndex ) ), () => {
 
@@ -162,18 +162,18 @@ export const generateSampledDirection = Fn( ( [
 	materialCacheCached, cachedMaterialCache,
 ] ) => {
 
-	const resultDirection = vec3( 0.0 ).toVar( 'gsd_dir' );
-	const resultValue = vec3( 0.0 ).toVar( 'gsd_val' );
-	const resultPdf = float( 0.0 ).toVar( 'gsd_pdf' );
+	const resultDirection = vec3( 0.0 ).toVar();
+	const resultValue = vec3( 0.0 ).toVar();
+	const resultPdf = float( 0.0 ).toVar();
 
 	// Get material classification (cached or computed)
 	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
 		material, materialIndex,
 		classificationCached, lastMaterialIndex, cachedClassification,
-	) ).toVar( 'gsd_mc' );
+	) ).toVar();
 
 	// Compute BRDF weights
-	const weights = cachedBrdfWeights.toVar( 'gsd_weights' );
+	const weights = cachedBrdfWeights.toVar();
 
 	If( weightsComputed.not(), () => {
 
@@ -205,24 +205,24 @@ export const generateSampledDirection = Fn( ( [
 				metalFactor: float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ),
 				iorFactor: min( float( 2.0 ).div( material.ior ), 1.0 ),
 				maxSheenColor: max( material.sheenColor.x, max( material.sheenColor.y, material.sheenColor.z ) ),
-			} ).toVar( 'gsd_tempCache' );
+			} ).toVar();
 			weights.assign( calculateBRDFWeights( material, mc, tempCache ) );
 
 		} );
 
 	} );
 
-	const rand = xi.x.toVar( 'gsd_rand' );
-	const directionSample = vec2( xi.y, RandomValue( rngState ) ).toVar( 'gsd_dirSmp' );
-	const H = vec3( 0.0 ).toVar( 'gsd_H' );
+	const rand = xi.x.toVar();
+	const directionSample = vec2( xi.y, RandomValue( rngState ) ).toVar();
+	const H = vec3( 0.0 ).toVar();
 
 	// Cumulative probability approach for sampling selection
-	const cumulativeDiffuse = weights.diffuse.toVar( 'gsd_cumDiff' );
-	const cumulativeSpecular = cumulativeDiffuse.add( weights.specular ).toVar( 'gsd_cumSpec' );
-	const cumulativeSheen = cumulativeSpecular.add( weights.sheen ).toVar( 'gsd_cumSheen' );
-	const cumulativeClearcoat = cumulativeSheen.add( weights.clearcoat ).toVar( 'gsd_cumCC' );
+	const cumulativeDiffuse = weights.diffuse.toVar();
+	const cumulativeSpecular = cumulativeDiffuse.add( weights.specular ).toVar();
+	const cumulativeSheen = cumulativeSpecular.add( weights.sheen ).toVar();
+	const cumulativeClearcoat = cumulativeSheen.add( weights.clearcoat ).toVar();
 
-	const sampled = tslBool( false ).toVar( 'gsd_sampled' );
+	const sampled = tslBool( false ).toVar();
 
 	// Diffuse sampling
 	If( rand.lessThan( cumulativeDiffuse ).and( sampled.not() ), () => {
@@ -235,13 +235,13 @@ export const generateSampledDirection = Fn( ( [
 
 	} );
 
-	const NoV = clamp( dot( N, V ), 0.001, 1.0 ).toVar( 'gsd_NoV' );
+	const NoV = clamp( dot( N, V ), 0.001, 1.0 ).toVar();
 
 	// Specular sampling
 	If( rand.lessThan( cumulativeSpecular ).and( sampled.not() ), () => {
 
 		const TBN = constructTBN( N );
-		const localV = TBN.transpose().mul( V ).toVar( 'gsd_localV' );
+		const localV = TBN.transpose().mul( V ).toVar();
 
 		// VNDF sampling
 		const localH = sampleGGXVNDF( localV, material.roughness, xi );
@@ -263,7 +263,7 @@ export const generateSampledDirection = Fn( ( [
 		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
 		const VoH = clamp( dot( V, H ), 0.001, 1.0 );
 		resultDirection.assign( reflect( V.negate(), H ) );
-		const NoL = dot( N, resultDirection ).toVar( 'gsd_sheenNoL' );
+		const NoL = dot( N, resultDirection ).toVar();
 
 		// Reject directions below the surface - fall back to diffuse
 		If( NoL.lessThanEqual( 0.0 ), () => {
@@ -302,7 +302,7 @@ export const generateSampledDirection = Fn( ( [
 	// Transmission sampling (fallback)
 	If( sampled.not(), () => {
 
-		const entering = dot( V, N ).lessThan( 0.0 ).toVar( 'gsd_entering' );
+		const entering = dot( V, N ).lessThan( 0.0 ).toVar();
 		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState,
 		) );
@@ -333,16 +333,16 @@ export const estimatePathContribution = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	const throughputStrength = maxComponent( throughput ).toVar( 'epc_ts' );
+	const throughputStrength = maxComponent( throughput ).toVar();
 
 	// Use cached material classification
 	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
 		material, materialIndex,
 		classificationCached, lastMaterialIndex, cachedClassification,
-	) ).toVar( 'epc_mc' );
+	) ).toVar();
 
 	// Enhanced material importance with interaction bonuses
-	const materialImportance = mc.complexityScore.toVar( 'epc_matImp' );
+	const materialImportance = mc.complexityScore.toVar();
 
 	// Interaction complexity bonuses
 	If( mc.isMetallic.and( mc.isSmooth ), () => {
@@ -363,7 +363,7 @@ export const estimatePathContribution = Fn( ( [
 	materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
 
 	// Direction importance calculation
-	const directionImportance = float( 0.5 ).toVar( 'epc_dirImp' );
+	const directionImportance = float( 0.5 ).toVar();
 
 	If( enableEnvironmentLight.and( useEnvMapIS ).and( throughputStrength.greaterThan( 0.01 ) ), () => {
 
@@ -391,15 +391,15 @@ export const handleRussianRoulette = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	const result = float( 1.0 ).toVar( 'rr_result' );
+	const result = float( 1.0 ).toVar();
 
 	// Always continue for first few bounces
 	If( depth.greaterThanEqual( int( 3 ) ), () => {
 
-		const throughputStrength = maxComponent( throughput ).toVar( 'rr_ts' );
+		const throughputStrength = maxComponent( throughput ).toVar();
 
 		// Energy-conserving early termination for very low throughput paths
-		const earlyTerminated = tslBool( false ).toVar( 'rr_early' );
+		const earlyTerminated = tslBool( false ).toVar();
 		If( throughputStrength.lessThan( 0.0008 ).and( depth.greaterThan( int( 4 ) ) ), () => {
 
 			const lowThroughputProb = max( throughputStrength.mul( 125.0 ), 0.01 );
@@ -415,9 +415,9 @@ export const handleRussianRoulette = Fn( ( [
 			const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
 				material, materialIndex,
 				classificationCached, lastMaterialIndex, cachedClassification,
-			) ).toVar( 'rr_mc' );
+			) ).toVar();
 
-			const materialImportance = mc.complexityScore.toVar( 'rr_matImp' );
+			const materialImportance = mc.complexityScore.toVar();
 
 			// Boost importance for special materials
 			If( mc.isEmissive.and( depth.lessThan( int( 6 ) ) ), () => {
@@ -438,7 +438,7 @@ export const handleRussianRoulette = Fn( ( [
 			materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
 
 			// Dynamic minimum bounces
-			const minBounces = int( 3 ).toVar( 'rr_minB' );
+			const minBounces = int( 3 ).toVar();
 			If( materialImportance.greaterThan( 0.6 ), () => {
 
 				minBounces.assign( 5 );
@@ -456,7 +456,7 @@ export const handleRussianRoulette = Fn( ( [
 			} ).Else( () => {
 
 				// Path importance
-				const pathContribution = float( 0.0 ).toVar( 'rr_pathC' );
+				const pathContribution = float( 0.0 ).toVar();
 
 				If( classificationCached.and( weightsComputed ), () => {
 
@@ -473,8 +473,8 @@ export const handleRussianRoulette = Fn( ( [
 				} );
 
 				// Adaptive continuation probability
-				const rrProb = float( 0.0 ).toVar( 'rr_prob' );
-				const adaptiveFactor = materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).toVar( 'rr_adapt' );
+				const rrProb = float( 0.0 ).toVar();
+				const adaptiveFactor = materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).toVar();
 
 				If( depth.lessThan( int( 6 ) ), () => {
 
@@ -532,7 +532,7 @@ export const sampleBackgroundLighting = Fn( ( [
 ] ) => {
 
 	// Only hide background for primary camera rays when showBackground is false
-	const envColor = vec4( 0.0 ).toVar( 'sbl_envColor' );
+	const envColor = vec4( 0.0 ).toVar();
 
 	If( isPrimaryRay.and( showBackground.not() ), () => {
 
@@ -617,49 +617,49 @@ export const Trace = Fn( ( [
 	pixelCoord, resolution, frame,
 ] ) => {
 
-	const radiance = vec3( 0.0 ).toVar( 'tr_radiance' );
-	const throughput = vec3( 1.0 ).toVar( 'tr_throughput' );
-	const alpha = float( 1.0 ).toVar( 'tr_alpha' );
+	const radiance = vec3( 0.0 ).toVar();
+	const throughput = vec3( 1.0 ).toVar();
+	const alpha = float( 1.0 ).toVar();
 
 	// Output data
-	const objectNormal = vec3( 0.0 ).toVar( 'tr_objNormal' );
-	const objectColor = vec3( 0.0 ).toVar( 'tr_objColor' );
-	const objectID = float( - 1000.0 ).toVar( 'tr_objID' );
-	const firstHitPoint = ray.origin.toVar( 'tr_firstHitPt' );
-	const firstHitDistance = float( 1e10 ).toVar( 'tr_firstHitDst' );
+	const objectNormal = vec3( 0.0 ).toVar();
+	const objectColor = vec3( 0.0 ).toVar();
+	const objectID = float( - 1000.0 ).toVar();
+	const firstHitPoint = ray.origin.toVar();
+	const firstHitDistance = float( 1e10 ).toVar();
 
 	// Medium stack for transmission
-	const mediumStackDepth = int( 0 ).toVar( 'tr_msDepth' );
-	const mediumStackPrevIOR = float( 1.0 ).toVar( 'tr_msPrevIOR' );
+	const mediumStackDepth = int( 0 ).toVar();
+	const mediumStackPrevIOR = float( 1.0 ).toVar();
 
 	// Render state
-	const stateTraversals = maxBounceCount.toVar( 'tr_stTrav' );
-	const stateTransmissiveTraversals = transmissiveBounces.toVar( 'tr_stTransTrav' );
-	const stateRayType = int( RAY_TYPE_CAMERA ).toVar( 'tr_stRayType' );
-	const stateIsPrimaryRay = tslBool( true ).toVar( 'tr_stPrimary' );
-	const stateActualBounceDepth = int( 0 ).toVar( 'tr_stActDep' );
+	const stateTraversals = maxBounceCount.toVar();
+	const stateTransmissiveTraversals = transmissiveBounces.toVar();
+	const stateRayType = int( RAY_TYPE_CAMERA ).toVar();
+	const stateIsPrimaryRay = tslBool( true ).toVar();
+	const stateActualBounceDepth = int( 0 ).toVar();
 
 	// Path state cache fields (managed individually since TSL can't do inout struct)
-	const psWeightsComputed = tslBool( false ).toVar( 'tr_psWC' );
-	const psClassificationCached = tslBool( false ).toVar( 'tr_psCC' );
-	const psMaterialCacheCached = tslBool( false ).toVar( 'tr_psMCC' );
-	const psTexturesLoaded = tslBool( false ).toVar( 'tr_psTL' );
-	const psPathImportance = float( 0.0 ).toVar( 'tr_psPI' );
-	const psLastMaterialIndex = int( - 1 ).toVar( 'tr_psLMI' );
+	const psWeightsComputed = tslBool( false ).toVar();
+	const psClassificationCached = tslBool( false ).toVar();
+	const psMaterialCacheCached = tslBool( false ).toVar();
+	const psTexturesLoaded = tslBool( false ).toVar();
+	const psPathImportance = float( 0.0 ).toVar();
+	const psLastMaterialIndex = int( - 1 ).toVar();
 
 	// Cached classification
 	const psCachedClassification = MaterialClassification( {
 		isMetallic: false, isRough: false, isSmooth: false,
 		isTransmissive: false, hasClearcoat: false, isEmissive: false,
 		complexityScore: float( 0.0 ),
-	} ).toVar( 'tr_psCachedMC' );
+	} ).toVar();
 
 	// Cached BRDF weights
 	const psCachedBrdfWeights = BRDFWeights( {
 		specular: float( 0.5 ), diffuse: float( 0.5 ),
 		sheen: float( 0.0 ), clearcoat: float( 0.0 ),
 		transmission: float( 0.0 ), iridescence: float( 0.0 ),
-	} ).toVar( 'tr_psCachedBW' );
+	} ).toVar();
 
 	// Cached material cache
 	const psCachedMaterialCache = MaterialCache( {
@@ -672,17 +672,17 @@ export const Trace = Fn( ( [
 		tsNormal: vec3( 0.0 ), tsHasTextures: false,
 		invRoughness: float( 1.0 ), metalFactor: float( 0.5 ),
 		iorFactor: float( 1.0 ), maxSheenColor: float( 0.0 ),
-	} ).toVar( 'tr_psCachedMC2' );
+	} ).toVar();
 
 	// Cached sampling info
-	const psCachedSamplingInfo = vec4( 0.0 ).toVar( 'tr_psCSI_placeholder' );
+	const psCachedSamplingInfo = vec4( 0.0 ).toVar();
 
 	// Track effective bounces
-	const effectiveBounces = int( 0 ).toVar( 'tr_effBounces' );
+	const effectiveBounces = int( 0 ).toVar();
 
 	// Mutable ray
-	const rayOrigin = ray.origin.toVar( 'tr_rayOri' );
-	const rayDirection = ray.direction.toVar( 'tr_rayDir' );
+	const rayOrigin = ray.origin.toVar();
+	const rayDirection = ray.direction.toVar();
 
 	// Main bounce loop
 	Loop( { start: int( 0 ), end: maxBounceCount.add( transmissiveBounces ).add( 1 ), type: 'int', condition: '<' }, ( { i: bounceIndex } ) => {
@@ -706,7 +706,7 @@ export const Trace = Fn( ( [
 			bvhTexture, bvhTexSize,
 			triangleTexture, triangleTexSize,
 			materialTexture, materialTexSize,
-		) ).toVar( 'tr_hitInfo' );
+		) ).toVar();
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -725,19 +725,19 @@ export const Trace = Fn( ( [
 		} );
 
 		// Get material from texture
-		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar( 'tr_material' );
+		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
 
 		// Sample all textures in one batch
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 			albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 			material, hitInfo.uv, hitInfo.normal,
-		) ).toVar( 'tr_matSamples' );
+		) ).toVar();
 
 		// Update material with texture samples
 		material.color.assign( matSamples.albedo );
 		material.metalness.assign( matSamples.metalness );
 		material.roughness.assign( clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
-		const N = matSamples.normal.toVar( 'tr_N' );
+		const N = matSamples.normal.toVar();
 
 		// Displacement mapping
 		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
@@ -753,7 +753,7 @@ export const Trace = Fn( ( [
 
 				const displacedNormal = calculateDisplacedNormal( displacementMaps, hitInfo.hitPoint, N, hitInfo.uv, material );
 				const blendFactor = clamp( material.displacementScale.mul( 0.5 ), 0.1, 0.8 )
-					.mul( float( 1.0 ).sub( material.roughness.mul( 0.5 ) ) ).toVar( 'tr_blendF' );
+					.mul( float( 1.0 ).sub( material.roughness.mul( 0.5 ) ) ).toVar();
 				N.assign( normalize( mix( N, displacedNormal, blendFactor ) ) );
 
 			} );
@@ -765,11 +765,11 @@ export const Trace = Fn( ( [
 			currentRay, hitInfo.hitPoint, N, material, rngState,
 			stateTransmissiveTraversals,
 			mediumStackDepth, mediumStackPrevIOR,
-		) ).toVar( 'tr_interaction' );
+		) ).toVar();
 
 		If( interaction.continueRay, () => {
 
-			const isFreeBounce = tslBool( false ).toVar( 'tr_freeBounce' );
+			const isFreeBounce = tslBool( false ).toVar();
 
 			If( interaction.isTransmissive.and( stateTransmissiveTraversals.greaterThan( int( 0 ) ) ), () => {
 
@@ -808,9 +808,9 @@ export const Trace = Fn( ( [
 		// Apply transparency alpha
 		alpha.mulAssign( interaction.alpha );
 
-		const randomSample = getRandomSample( pixelCoord, rayIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar( 'tr_randSample' );
+		const randomSample = getRandomSample( pixelCoord, rayIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
 
-		const V = rayDirection.negate().toVar( 'tr_V' );
+		const V = rayDirection.negate().toVar();
 		material.sheenRoughness.assign( clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
 
 		// Create material cache if needed
@@ -822,9 +822,9 @@ export const Trace = Fn( ( [
 		} );
 
 		// BRDF sampling
-		const brdfDir = vec3( 0.0 ).toVar( 'tr_brdfDir' );
-		const brdfValue = vec3( 0.0 ).toVar( 'tr_brdfVal' );
-		const brdfPdf = float( 0.0 ).toVar( 'tr_brdfPdf' );
+		const brdfDir = vec3( 0.0 ).toVar();
+		const brdfValue = vec3( 0.0 ).toVar();
+		const brdfPdf = float( 0.0 ).toVar();
 
 		// Handle clearcoat
 		If( material.clearcoat.greaterThan( 0.0 ), () => {

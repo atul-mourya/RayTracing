@@ -43,9 +43,9 @@ export const sampleClearcoat = Fn( ( [
 	const baseRoughness = max( material.roughness, MIN_CLEARCOAT_ROUGHNESS );
 
 	// Calculate sampling weights based on material properties
-	const specularWeight = float( 1.0 ).sub( baseRoughness ).mul( float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ) ).toVar( 'specW' );
-	const clearcoatWeight = material.clearcoat.mul( float( 1.0 ).sub( clearcoatRoughness ) ).toVar( 'ccW' );
-	const diffuseWeight = float( 1.0 ).sub( specularWeight ).mul( float( 1.0 ).sub( material.metalness ) ).toVar( 'diffW' );
+	const specularWeight = float( 1.0 ).sub( baseRoughness ).mul( float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ) ).toVar();
+	const clearcoatWeight = material.clearcoat.mul( float( 1.0 ).sub( clearcoatRoughness ) ).toVar();
+	const diffuseWeight = float( 1.0 ).sub( specularWeight ).mul( float( 1.0 ).sub( material.metalness ) ).toVar();
 
 	// Normalize weights
 	const total = specularWeight.add( clearcoatWeight ).add( diffuseWeight );
@@ -56,8 +56,8 @@ export const sampleClearcoat = Fn( ( [
 	// Choose which layer to sample
 	const rand = RandomValue( rngState );
 
-	const L = vec3( 0.0 ).toVar( 'ccL' );
-	const H = vec3( 0.0 ).toVar( 'ccH' );
+	const L = vec3( 0.0 ).toVar();
+	const H = vec3( 0.0 ).toVar();
 
 	If( rand.lessThan( clearcoatWeight ), () => {
 

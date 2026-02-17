@@ -22,7 +22,7 @@ export const isIdentityTransform = Fn( ( [ transform ] ) => {
 
 export const getTransformedUV = Fn( ( [ uv, transform ] ) => {
 
-	const result = uv.toVar( 'trUV' );
+	const result = uv.toVar();
 
 	If( isIdentityTransform( transform ).not(), () => {
 
@@ -64,7 +64,7 @@ export const transformsEqual = Fn( ( [ a, b ] ) => {
 
 	const hashA = hashTransform( a );
 	const hashB = hashTransform( b );
-	const result = int( 0 ).toVar( 'teResult' );
+	const result = int( 0 ).toVar();
 
 	If( abs( hashA.sub( hashB ) ).lessThan( 0.001 ), () => {
 
@@ -90,34 +90,34 @@ export const transformsEqual = Fn( ( [ a, b ] ) => {
 export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 	// Pre-compute transform hashes for batch comparison
-	const albedoHash = hashTransform( material.albedoTransform ).toVar( 'albHash' );
-	const normalHash = hashTransform( material.normalTransform ).toVar( 'norHash' );
-	const metalnessHash = hashTransform( material.metalnessTransform ).toVar( 'metHash' );
-	const roughnessHash = hashTransform( material.roughnessTransform ).toVar( 'rghHash' );
-	const emissiveHash = hashTransform( material.emissiveTransform ).toVar( 'emHash' );
-	const bumpHash = hashTransform( material.bumpTransform ).toVar( 'bmpHash' );
+	const albedoHash = hashTransform( material.albedoTransform ).toVar();
+	const normalHash = hashTransform( material.normalTransform ).toVar();
+	const metalnessHash = hashTransform( material.metalnessTransform ).toVar();
+	const roughnessHash = hashTransform( material.roughnessTransform ).toVar();
+	const emissiveHash = hashTransform( material.emissiveTransform ).toVar();
+	const bumpHash = hashTransform( material.bumpTransform ).toVar();
 
 	const HASH_TOLERANCE = 0.001;
-	const albedoNormalSame = abs( albedoHash.sub( normalHash ) ).lessThan( HASH_TOLERANCE ).toVar( 'anSame' );
-	const normalBumpSame = abs( normalHash.sub( bumpHash ) ).lessThan( HASH_TOLERANCE ).toVar( 'nbSame' );
-	const metalRoughSame = abs( metalnessHash.sub( roughnessHash ) ).lessThan( HASH_TOLERANCE ).toVar( 'mrSame' );
-	const albedoEmissiveSame = abs( albedoHash.sub( emissiveHash ) ).lessThan( HASH_TOLERANCE ).toVar( 'aeSame' );
+	const albedoNormalSame = abs( albedoHash.sub( normalHash ) ).lessThan( HASH_TOLERANCE ).toVar();
+	const normalBumpSame = abs( normalHash.sub( bumpHash ) ).lessThan( HASH_TOLERANCE ).toVar();
+	const metalRoughSame = abs( metalnessHash.sub( roughnessHash ) ).lessThan( HASH_TOLERANCE ).toVar();
+	const albedoEmissiveSame = abs( albedoHash.sub( emissiveHash ) ).lessThan( HASH_TOLERANCE ).toVar();
 
 	const allSameUV = albedoNormalSame
 		.and( abs( albedoHash.sub( metalnessHash ) ).lessThan( HASH_TOLERANCE ) )
 		.and( abs( albedoHash.sub( emissiveHash ) ).lessThan( HASH_TOLERANCE ) )
 		.and( abs( albedoHash.sub( bumpHash ) ).lessThan( HASH_TOLERANCE ) )
-		.toVar( 'allSameUV' );
+		.toVar();
 
-	const albedoUV = vec2( 0.0 ).toVar( 'cAlbUV' );
-	const normalUV = vec2( 0.0 ).toVar( 'cNorUV' );
-	const metalnessUV = vec2( 0.0 ).toVar( 'cMetUV' );
-	const roughnessUV = vec2( 0.0 ).toVar( 'cRghUV' );
-	const emissiveUV = vec2( 0.0 ).toVar( 'cEmUV' );
-	const bumpUV = vec2( 0.0 ).toVar( 'cBmpUV' );
-	const normalBumpSameUV = normalBumpSame.or( allSameUV ).toVar( 'nbSameUV' );
-	const metalRoughSameUV = metalRoughSame.or( allSameUV ).toVar( 'mrSameUV' );
-	const albedoEmissiveSameUV = albedoEmissiveSame.or( allSameUV ).toVar( 'aeSameUV' );
+	const albedoUV = vec2( 0.0 ).toVar();
+	const normalUV = vec2( 0.0 ).toVar();
+	const metalnessUV = vec2( 0.0 ).toVar();
+	const roughnessUV = vec2( 0.0 ).toVar();
+	const emissiveUV = vec2( 0.0 ).toVar();
+	const bumpUV = vec2( 0.0 ).toVar();
+	const normalBumpSameUV = normalBumpSame.or( allSameUV ).toVar();
+	const metalRoughSameUV = metalRoughSame.or( allSameUV ).toVar();
+	const albedoEmissiveSameUV = albedoEmissiveSame.or( allSameUV ).toVar();
 
 	If( allSameUV, () => {
 
@@ -218,11 +218,11 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 export const processAlbedo = Fn( ( [ albedoMaps, material, uvCache ] ) => {
 
-	const result = material.color.toVar( 'albResult' );
+	const result = material.color.toVar();
 
 	If( material.albedoMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-		const albedoSample = texture( albedoMaps, uvCache.albedoUV ).depth( int( material.albedoMapIndex ) ).toVar( 'albSample' );
+		const albedoSample = texture( albedoMaps, uvCache.albedoUV ).depth( int( material.albedoMapIndex ) ).toVar();
 		// Fast sRGB approximation
 		const linear = albedoSample.rgb.mul( albedoSample.rgb ).mul( sqrt( albedoSample.rgb ) );
 		result.assign( vec4( material.color.rgb.mul( linear ), material.color.a.mul( albedoSample.a ) ) );
@@ -235,8 +235,8 @@ export const processAlbedo = Fn( ( [ albedoMaps, material, uvCache ] ) => {
 
 export const processMetalnessRoughness = Fn( ( [ metalnessMaps, roughnessMaps, material, uvCache ] ) => {
 
-	const metalness = material.metalness.toVar( 'prMet' );
-	const roughness = material.roughness.toVar( 'prRgh' );
+	const metalness = material.metalness.toVar();
+	const roughness = material.roughness.toVar();
 
 	If( material.metalnessMapIndex.greaterThanEqual( int( 0 ) ).and( material.metalnessMapIndex.equal( material.roughnessMapIndex ) ), () => {
 
@@ -269,12 +269,12 @@ export const processMetalnessRoughness = Fn( ( [ metalnessMaps, roughnessMaps, m
 
 export const processNormal = Fn( ( [ normalMaps, geometryNormal, material, uvCache ] ) => {
 
-	const result = geometryNormal.toVar( 'pnResult' );
+	const result = geometryNormal.toVar();
 
 	If( material.normalMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
 		const normalSample = texture( normalMaps, uvCache.normalUV ).depth( int( material.normalMapIndex ) );
-		const normalMap = normalSample.xyz.mul( 2.0 ).sub( 1.0 ).toVar( 'normalMap' );
+		const normalMap = normalSample.xyz.mul( 2.0 ).sub( 1.0 ).toVar();
 		normalMap.x.mulAssign( material.normalScale.x );
 		normalMap.y.assign( normalMap.y.negate().mul( material.normalScale.x ) );
 
@@ -295,12 +295,12 @@ export const processNormal = Fn( ( [ normalMaps, geometryNormal, material, uvCac
 
 export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] ) => {
 
-	const result = currentNormal.toVar( 'pbResult' );
+	const result = currentNormal.toVar();
 
 	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
 		// Approximate texel size
-		const texelSize = vec2( 1.0 / 1024.0 ).toVar( 'texelSize' );
+		const texelSize = vec2( 1.0 / 1024.0 ).toVar();
 
 		const h_c = texture( bumpMaps, uvCache.bumpUV ).depth( int( material.bumpMapIndex ) ).r;
 		const h_u = texture( bumpMaps, vec2( uvCache.bumpUV.x.add( texelSize.x ), uvCache.bumpUV.y ) ).depth( int( material.bumpMapIndex ) ).r;
@@ -325,11 +325,11 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 export const processEmissive = Fn( ( [ emissiveMaps, material, albedoColor, uvCache ] ) => {
 
-	const emissionBase = material.emissive.mul( material.emissiveIntensity ).toVar( 'emBase' );
+	const emissionBase = material.emissive.mul( material.emissiveIntensity ).toVar();
 
 	If( material.emissiveMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-		const emissiveSample = texture( emissiveMaps, uvCache.emissiveUV ).depth( int( material.emissiveMapIndex ) ).toVar( 'emSample' );
+		const emissiveSample = texture( emissiveMaps, uvCache.emissiveUV ).depth( int( material.emissiveMapIndex ) ).toVar();
 		// Fast sRGB approximation for emissive
 		const emissiveLinear = emissiveSample.rgb.mul( emissiveSample.rgb ).mul( sqrt( emissiveSample.rgb ) );
 		emissionBase.assign( emissionBase.mul( emissiveLinear ) );
@@ -349,12 +349,12 @@ export const sampleAllMaterialTextures = Fn( ( [
 	material, uv, geometryNormal
 ] ) => {
 
-	const albedo = vec4( 0.0 ).toVar( 'sAlbedo' );
-	const emissive = vec3( 0.0 ).toVar( 'sEmissive' );
-	const metalness = float( 0.0 ).toVar( 'sMetalness' );
-	const roughness = float( 0.0 ).toVar( 'sRoughness' );
-	const normal = vec3( 0.0 ).toVar( 'sNormal' );
-	const hasTextures = materialHasTextures( material ).toVar( 'sHasTex' );
+	const albedo = vec4( 0.0 ).toVar();
+	const emissive = vec3( 0.0 ).toVar();
+	const metalness = float( 0.0 ).toVar();
+	const roughness = float( 0.0 ).toVar();
+	const normal = vec3( 0.0 ).toVar();
+	const hasTextures = materialHasTextures( material ).toVar();
 
 	// Always use base material values first
 	albedo.assign( material.color );
@@ -366,7 +366,7 @@ export const sampleAllMaterialTextures = Fn( ( [
 	If( hasTextures, () => {
 
 		// Compute optimized UV cache with redundancy detection
-		const uvCache = UVCache.wrap( computeUVCache( uv, material ) ).toVar( 'uvCache' );
+		const uvCache = UVCache.wrap( computeUVCache( uv, material ) ).toVar();
 
 		// Process samples
 		albedo.assign( processAlbedo( albedoMaps, material, uvCache ) );
@@ -375,7 +375,7 @@ export const sampleAllMaterialTextures = Fn( ( [
 		metalness.assign( metalRough.x );
 		roughness.assign( metalRough.y );
 
-		const currentNormal = processNormal( normalMaps, geometryNormal, material, uvCache ).toVar( 'curNormal' );
+		const currentNormal = processNormal( normalMaps, geometryNormal, material, uvCache ).toVar();
 		normal.assign( processBump( bumpMaps, currentNormal, material, uvCache ) );
 
 		emissive.assign( processEmissive( emissiveMaps, material, albedo, uvCache ) );
@@ -458,7 +458,7 @@ export const sampleNormalMap = Fn( ( [
 // Sample displacement map at given UV coordinates
 export const sampleDisplacementMap = Fn( ( [ displacementMaps, displacementMapIndex, uv, transform ] ) => {
 
-	const result = float( 0.0 ).toVar( 'dispResult' );
+	const result = float( 0.0 ).toVar();
 
 	If( displacementMapIndex.greaterThanEqual( int( 0 ) ), () => {
 

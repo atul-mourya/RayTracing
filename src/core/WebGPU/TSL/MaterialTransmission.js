@@ -108,7 +108,7 @@ export const MediumStack = struct( {
 
 export const getCurrentMediumIOR = Fn( ( [ mediumStack ] ) => {
 
-	const result = float( 1.0 ).toVar( 'curIOR' );
+	const result = float( 1.0 ).toVar();
 
 	If( mediumStack.depth.greaterThan( int( 0 ) ), () => {
 
@@ -158,7 +158,7 @@ export const calculateDispersiveIOR = Fn( ( [ baseIOR, dispersionStrength ] ) =>
 // Convert wavelength to RGB using spectral sensitivity curves
 export const wavelengthToRGB = Fn( ( [ wavelength ] ) => {
 
-	const color = vec3( 0.0 ).toVar( 'wl2rgb' );
+	const color = vec3( 0.0 ).toVar();
 
 	// Violet: 380-440
 	If( wavelength.greaterThanEqual( 380.0 ).and( wavelength.lessThan( 440.0 ) ), () => {
@@ -242,7 +242,7 @@ export const wavelengthToRGB = Fn( ( [ wavelength ] ) => {
 export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength, random ] ) => {
 
 	// Map random value to visible spectrum (380-700nm)
-	const wl = mix( float( 380.0 ), float( 700.0 ), random ).toVar( 'sampWL' );
+	const wl = mix( float( 380.0 ), float( 700.0 ), random ).toVar();
 
 	// Convert to micrometers for Cauchy equation
 	const wlMicron = wl.div( 1000.0 );
@@ -250,10 +250,10 @@ export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength
 	// Strong IOR calculation for dramatic dispersion
 	const A = baseIOR;
 	const B = dispersionStrength.mul( 0.03 );
-	const sampledIOR = A.add( B.div( wlMicron.mul( wlMicron ) ) ).toVar( 'sIOR' );
+	const sampledIOR = A.add( B.div( wlMicron.mul( wlMicron ) ) ).toVar();
 
 	// PURE SATURATED spectral colors
-	const colorWeight = vec3( 0.0 ).toVar( 'cwSamp' );
+	const colorWeight = vec3( 0.0 ).toVar();
 
 	// Deep Violet: 380-420
 	If( wl.greaterThanEqual( 380.0 ).and( wl.lessThan( 420.0 ) ), () => {
@@ -323,7 +323,7 @@ export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength
 // Apply Beer's law absorption
 export const calculateBeerLawAbsorption = Fn( ( [ attenuationColor, attenuationDistance, thickness ] ) => {
 
-	const result = vec3( 1.0 ).toVar( 'beerResult' );
+	const result = vec3( 1.0 ).toVar();
 
 	If( attenuationDistance.greaterThan( 0.0 ), () => {
 
@@ -345,14 +345,14 @@ export const calculateBeerLawAbsorption = Fn( ( [ attenuationColor, attenuationD
 
 export const calculateShadowTransmittance = Fn( ( [ rayDir, normal, material, entering ] ) => {
 
-	const n1 = select( entering, float( 1.0 ), material.ior ).toVar( 'stN1' );
-	const n2 = select( entering, material.ior, float( 1.0 ) ).toVar( 'stN2' );
+	const n1 = select( entering, float( 1.0 ), material.ior ).toVar();
+	const n2 = select( entering, material.ior, float( 1.0 ) ).toVar();
 
 	const cosThetaI = abs( dot( normal, rayDir ) );
 	const sinThetaT2 = n1.mul( n1 ).div( n2.mul( n2 ) ).mul( float( 1.0 ).sub( cosThetaI.mul( cosThetaI ) ) );
 
 	// Handle total internal reflection
-	const result = float( 0.0 ).toVar( 'stResult' );
+	const result = float( 0.0 ).toVar();
 
 	If( sinThetaT2.lessThanEqual( 1.0 ), () => {
 
@@ -361,7 +361,7 @@ export const calculateShadowTransmittance = Fn( ( [ rayDir, normal, material, en
 		const Fr = fresnelSchlickFloat( cosThetaI, F0 );
 
 		// Base transmission: what gets through after Fresnel reflection
-		const baseTransmission = float( 1.0 ).sub( Fr ).mul( material.transmission ).toVar( 'baseTrans' );
+		const baseTransmission = float( 1.0 ).sub( Fr ).mul( material.transmission ).toVar();
 
 		// Apply Beer's law absorption for exiting rays
 		If( entering.not().and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {
@@ -392,7 +392,7 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		halfVector: vec3( 0.0 ),
 		didReflect: false,
 		pdf: float( 0.0 ),
-	} ).toVar( 'mtResult' );
+	} ).toVar();
 
 	// For smooth surfaces with dispersion, use perfect refraction with spectral IOR
 	If( roughness.lessThanEqual( 0.05 ).and( dispersion.greaterThan( 0.0 ) ), () => {
@@ -401,14 +401,14 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		result.didReflect.assign( false );
 
 		const eta = ior;
-		const etaRatio = select( entering, float( 1.0 ).div( eta ), eta ).toVar( 'etaR' );
+		const etaRatio = select( entering, float( 1.0 ).div( eta ), eta ).toVar();
 
 		// Handle dispersion with spectral sampling
 		const spectralSample = SpectralSample.wrap( sampleWavelengthForDispersion( ior, dispersion, RandomValue( rngState ) ) );
 		etaRatio.assign( select( entering, float( 1.0 ).div( spectralSample.ior ), spectralSample.ior ) );
 
 		// Perfect refraction using surface normal
-		const refractDir = refract( V.negate(), N, etaRatio ).toVar( 'refDir' );
+		const refractDir = refract( V.negate(), N, etaRatio ).toVar();
 
 		// Check for total internal reflection
 		If( dot( refractDir, refractDir ).lessThan( 0.001 ), () => {
@@ -430,11 +430,11 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		const transmissionRoughness = max( MIN_ROUGHNESS, roughness );
 
 		// Sample the microfacet normal with GGX distribution
-		const H = ImportanceSampleGGX( N, transmissionRoughness, xi ).toVar( 'mfH' );
+		const H = ImportanceSampleGGX( N, transmissionRoughness, xi ).toVar();
 		result.halfVector.assign( H );
 
 		// Compute IOR ratio
-		const etaRatio = select( entering, float( 1.0 ).div( ior ), ior ).toVar( 'etaR2' );
+		const etaRatio = select( entering, float( 1.0 ).div( ior ), ior ).toVar();
 
 		// Handle dispersion with improved spectral sampling
 		If( dispersion.greaterThan( 0.0 ), () => {
@@ -446,7 +446,7 @@ export const sampleMicrofacetTransmission = Fn( ( [
 
 		// Compute refracted direction using the sampled half-vector
 		const HoV = clamp( dot( H, V ), 0.001, 1.0 );
-		const refractDir = refract( V.negate(), H, etaRatio ).toVar( 'refDir2' );
+		const refractDir = refract( V.negate(), H, etaRatio ).toVar();
 
 		// Check for total internal reflection
 		If( dot( refractDir, refractDir ).lessThan( 0.001 ), () => {
@@ -499,28 +499,28 @@ export const handleTransmission = Fn( ( [
 		direction: vec3( 0.0 ),
 		throughput: vec3( 1.0 ),
 		didReflect: false,
-	} ).toVar( 'transResult' );
+	} ).toVar();
 
 	// Setup surface normal based on ray direction
-	const N = select( entering, normal, normal.negate() ).toVar( 'transN' );
-	const V = rayDir.negate().toVar( 'transV' );
+	const N = select( entering, normal, normal.negate() ).toVar();
+	const V = rayDir.negate().toVar();
 
 	// Get current medium IOR
 	const currentMediumIOR = select( mediumStackDepth.greaterThan( int( 0 ) ), mediumStackPrevIOR, float( 1.0 ) );
 
 	// Calculate IOR transition properly
-	const n1 = select( entering, currentMediumIOR, material.ior ).toVar( 'tn1' );
-	const n2 = select( entering, material.ior, select( mediumStackDepth.greaterThan( int( 1 ) ), mediumStackPrevIOR, float( 1.0 ) ) ).toVar( 'tn2' );
+	const n1 = select( entering, currentMediumIOR, material.ior ).toVar();
+	const n2 = select( entering, material.ior, select( mediumStackDepth.greaterThan( int( 1 ) ), mediumStackPrevIOR, float( 1.0 ) ) ).toVar();
 
 	// Calculate basic reflection/refraction parameters
 	const cosThetaI = abs( dot( N, rayDir ) );
 	const sinThetaT2 = n1.mul( n1 ).div( n2.mul( n2 ) ).mul( float( 1.0 ).sub( cosThetaI.mul( cosThetaI ) ) );
-	const totalInternalReflection = sinThetaT2.greaterThan( 1.0 ).toVar( 'tir' );
+	const totalInternalReflection = sinThetaT2.greaterThan( 1.0 ).toVar();
 
 	const F0 = iorToFresnel0( n2, n1 );
-	const Fr = select( totalInternalReflection, float( 1.0 ), fresnelSchlickFloat( cosThetaI, F0 ) ).toVar( 'transFr' );
+	const Fr = select( totalInternalReflection, float( 1.0 ), fresnelSchlickFloat( cosThetaI, F0 ) ).toVar();
 
-	const reflectProb = float( 0.0 ).toVar( 'reflProb' );
+	const reflectProb = float( 0.0 ).toVar();
 
 	If( totalInternalReflection, () => {
 
@@ -534,7 +534,7 @@ export const handleTransmission = Fn( ( [
 		const metallicReflect = float( 0.95 );
 
 		// Blend based on metalness
-		const baseReflectProb = mix( dielectricReflect, metallicReflect, material.metalness ).toVar( 'baseRP' );
+		const baseReflectProb = mix( dielectricReflect, metallicReflect, material.metalness ).toVar();
 
 		// FORCE more transmission for dispersive materials
 		If( material.dispersion.greaterThan( 0.0 ), () => {
@@ -554,7 +554,7 @@ export const handleTransmission = Fn( ( [
 	reflectProb.assign( clamp( reflectProb, 0.05, 0.95 ) );
 
 	// Force reflection if TIR, otherwise probabilistically choose
-	const doReflect = totalInternalReflection.or( RandomValue( rngState ).lessThan( reflectProb ) ).toVar( 'doRefl' );
+	const doReflect = totalInternalReflection.or( RandomValue( rngState ).lessThan( reflectProb ) ).toVar();
 	result.didReflect.assign( doReflect );
 
 	// Choose random sample for microfacet sampling
@@ -619,10 +619,10 @@ export const handleTransmission = Fn( ( [
 					const edgeBoost = edgeFactor.mul( 0.4 );
 
 					// Create continuous color mapping across the prism
-					const colorIndex = fract( baseColorIndex.add( spatialBoost ).add( refractBoost ).add( edgeBoost ) ).toVar( 'cIdx' );
+					const colorIndex = fract( baseColorIndex.add( spatialBoost ).add( refractBoost ).add( edgeBoost ) ).toVar();
 
 					// ROYGBIV spectrum mapping with smooth transitions
-					const rainbowColor = vec3( 0.0 ).toVar( 'rainbow' );
+					const rainbowColor = vec3( 0.0 ).toVar();
 
 					// Red zone
 					If( colorIndex.lessThan( 0.143 ), () => {
@@ -753,7 +753,7 @@ export const handleMaterialTransparency = Fn( ( [
 		direction: ray.direction,
 		throughput: vec3( 1.0 ),
 		alpha: float( 1.0 ),
-	} ).toVar( 'matInteraction' );
+	} ).toVar();
 
 	// -----------------------------------------------------------------
 	// Step 1: Fast path for completely opaque materials
@@ -772,7 +772,7 @@ export const handleMaterialTransparency = Fn( ( [
 		const transmissionRand = RandomValue( rngState );
 		const transmissionSeed = pcgHash( rngState );
 
-		const handled = tslBool( false ).toVar( 'handled' );
+		const handled = tslBool( false ).toVar();
 
 		// BLEND mode
 		If( material.alphaMode.equal( int( 2 ) ), () => {

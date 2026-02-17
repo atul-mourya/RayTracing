@@ -14,12 +14,12 @@ export const RayTriangleGeometry = Fn( ( [ ray, posA, posB, posC ] ) => {
 	const edge1 = posB.sub( posA );
 	const edge2 = posC.sub( posA );
 	const h = cross( ray.direction, edge2 );
-	const a = dot( edge1, h ).toVar( 'rtgA' );
+	const a = dot( edge1, h ).toVar();
 
-	const t = float( 0.0 ).toVar( 'rtgT' );
-	const u = float( 0.0 ).toVar( 'rtgU' );
-	const v = float( 0.0 ).toVar( 'rtgV' );
-	const hit = int( 0 ).toVar( 'rtgHit' );
+	const t = float( 0.0 ).toVar();
+	const u = float( 0.0 ).toVar();
+	const v = float( 0.0 ).toVar();
+	const hit = int( 0 ).toVar();
 
 	If( abs( a ).greaterThan( 1e-8 ), () => {
 
@@ -55,32 +55,32 @@ export const RayTriangleGeometry = Fn( ( [ ray, posA, posB, posC ] ) => {
 // Calculate the intersection of a ray with a triangle using Möller-Trumbore algorithm
 export const RayTriangle = Fn( ( [ ray, tri ] ) => {
 
-	const didHit = int( 0 ).toVar( 'rtDidHit' );
-	const dst = float( 1.0e20 ).toVar( 'rtDst' );
-	const hitPoint = vec3( 0.0 ).toVar( 'rtHitPoint' );
-	const normal = vec3( 0.0, 0.0, 1.0 ).toVar( 'rtNormal' );
-	const uv = vec2( 0.0 ).toVar( 'rtUV' );
-	const material = int( - 1 ).toVar( 'rtMaterial' );
+	const didHit = int( 0 ).toVar();
+	const dst = float( 1.0e20 ).toVar();
+	const hitPoint = vec3( 0.0 ).toVar();
+	const normal = vec3( 0.0, 0.0, 1.0 ).toVar();
+	const uv = vec2( 0.0 ).toVar();
+	const material = int( - 1 ).toVar();
 
 	const edge1 = tri.posB.sub( tri.posA );
 	const edge2 = tri.posC.sub( tri.posA );
 	const h = cross( ray.direction, edge2 );
-	const a = dot( edge1, h ).toVar( 'rtA' );
+	const a = dot( edge1, h ).toVar();
 
 	If( abs( a ).greaterThan( 1e-8 ), () => {
 
 		const f = float( 1.0 ).div( a );
 		const s = ray.origin.sub( tri.posA );
-		const u = f.mul( dot( s, h ) ).toVar( 'rtU' );
+		const u = f.mul( dot( s, h ) ).toVar();
 
 		If( u.greaterThanEqual( 0.0 ).and( u.lessThanEqual( 1.0 ) ), () => {
 
 			const q = cross( s, edge1 );
-			const v = f.mul( dot( ray.direction, q ) ).toVar( 'rtV' );
+			const v = f.mul( dot( ray.direction, q ) ).toVar();
 
 			If( v.greaterThanEqual( 0.0 ).and( u.add( v ).lessThanEqual( 1.0 ) ), () => {
 
-				const t = f.mul( dot( edge2, q ) ).toVar( 'rtT' );
+				const t = f.mul( dot( edge2, q ) ).toVar();
 
 				If( t.greaterThan( 1e-8 ).and( t.lessThan( dst ) ), () => {
 
@@ -115,21 +115,21 @@ export const RayTriangle = Fn( ( [ ray, tri ] ) => {
 // Ray-sphere intersection
 export const RaySphere = Fn( ( [ ray, sphere ] ) => {
 
-	const didHit = int( 0 ).toVar( 'rsDidHit' );
-	const dst = float( 1.0e20 ).toVar( 'rsDst' );
-	const hitPoint = vec3( 0.0 ).toVar( 'rsHitPoint' );
-	const normal = vec3( 0.0, 0.0, 1.0 ).toVar( 'rsNormal' );
-	const material = int( - 1 ).toVar( 'rsMaterial' );
+	const didHit = int( 0 ).toVar();
+	const dst = float( 1.0e20 ).toVar();
+	const hitPoint = vec3( 0.0 ).toVar();
+	const normal = vec3( 0.0, 0.0, 1.0 ).toVar();
+	const material = int( - 1 ).toVar();
 
 	const oc = ray.origin.sub( sphere.position );
 	const a = dot( ray.direction, ray.direction );
 	const b = float( 2.0 ).mul( dot( oc, ray.direction ) );
 	const c = dot( oc, oc ).sub( sphere.radius.mul( sphere.radius ) );
-	const discriminant = b.mul( b ).sub( float( 4.0 ).mul( a ).mul( c ) ).toVar( 'rsDisc' );
+	const discriminant = b.mul( b ).sub( float( 4.0 ).mul( a ).mul( c ) ).toVar();
 
 	If( discriminant.greaterThan( 0.0 ), () => {
 
-		const t = b.negate().sub( sqrt( discriminant ) ).div( float( 2.0 ).mul( a ) ).toVar( 'rsT' );
+		const t = b.negate().sub( sqrt( discriminant ) ).div( float( 2.0 ).mul( a ) ).toVar();
 
 		If( t.greaterThan( 0.0 ), () => {
 

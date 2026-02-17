@@ -92,7 +92,7 @@ export const isEmissive = Fn( ( [ material ] ) => {
 // Calculate emissive power of a triangle
 export const calculateEmissivePower = Fn( ( [ material, area ] ) => {
 
-	const result = float( 0.0 ).toVar( 'emPower' );
+	const result = float( 0.0 ).toVar();
 
 	If( isEmissive( material ), () => {
 
@@ -166,7 +166,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 		area: float( 0.0 ),
 		cosThetaLight: float( 0.0 ),
 		valid: false,
-	} ).toVar( 'emissiveSample' );
+	} ).toVar();
 
 	// Check if we have emissive triangles
 	If( emissiveTriangleCount.greaterThan( int( 0 ) ), () => {
@@ -177,7 +177,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 			int( randEmissive.mul( float( emissiveTriangleCount ) ) ),
 			int( 0 ),
 			emissiveTriangleCount.sub( 1 )
-		).toVar( 'emIdx' );
+		).toVar();
 
 		// Fetch emissive triangle data from texture
 		// Texture layout: R=triangleIndex, G=power, B=cdf, A=unused
@@ -263,7 +263,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 		hasEmissive: false,
 		emissionOnly: vec3( 0.0 ),
 		distance: float( 0.0 ),
-	} ).toVar( 'emContrib' );
+	} ).toVar();
 
 	// Skip for very rough diffuse surfaces on secondary bounces
 	const skip = bounceIndex.greaterThan( int( 1 ) ).and( material.roughness.greaterThan( 0.9 ) ).and( material.metalness.lessThan( 0.1 ) );

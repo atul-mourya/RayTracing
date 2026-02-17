@@ -76,7 +76,7 @@ export const TraceDebugMode = Fn( ( [
 	pixelCoord, resolution,
 ] ) => {
 
-	const result = vec4( 1.0, 0.0, 1.0, 1.0 ).toVar( 'dbg_result' ); // Default: magenta
+	const result = vec4( 1.0, 0.0, 1.0, 1.0 ).toVar(); // Default: magenta
 
 	// Trace primary ray
 	const ray = Ray( { origin: rayOrigin, direction: rayDir } );
@@ -85,7 +85,7 @@ export const TraceDebugMode = Fn( ( [
 		bvhTexture, bvhTexSize,
 		triangleTexture, triangleTexSize,
 		materialTexture, materialTexSize,
-	).toVar( 'dbg_hitInfo' ) );
+	).toVar() );
 
 	// Case 1: Box/node test count visualization (GLSL stats[0] = per-node visits)
 	If( visMode.equal( int( 1 ) ), () => {
@@ -141,24 +141,24 @@ export const TraceDebugMode = Fn( ( [
 
 			const envSample = sampleEnvironment(
 				envTexture, rayDir, envMatrix, environmentIntensity, enableEnvironmentLight,
-			).toVar( 'dbg_envSample' );
+			).toVar();
 
-			const envLuminance = dot( envSample.xyz, REC709_LUMINANCE_COEFFICIENTS ).toVar( 'dbg_envLum' );
-			const rawLuminance = envLuminance.toVar( 'dbg_rawLum' );
+			const envLuminance = dot( envSample.xyz, REC709_LUMINANCE_COEFFICIENTS ).toVar();
+			const rawLuminance = envLuminance.toVar();
 
 			// Adaptive scaling
 			const adaptiveScale = max( debugVisScale.mul( 0.1 ), 0.001 );
-			const scaledLuminance = envLuminance.div( adaptiveScale ).toVar( 'dbg_scaledLum' );
+			const scaledLuminance = envLuminance.div( adaptiveScale ).toVar();
 
 			// Logarithmic scaling for better dynamic range
 			const logLuminance = log( envLuminance.add( 1e-6 ) );
-			const logScaled = logLuminance.add( 10.0 ).div( 10.0 ).toVar( 'dbg_logScaled' );
+			const logScaled = logLuminance.add( 10.0 ).div( 10.0 ).toVar();
 
 			// Choose scaling based on debugVisScale
-			const finalValue = select( debugVisScale.greaterThan( 1.0 ), scaledLuminance, logScaled ).toVar( 'dbg_finalVal' );
+			const finalValue = select( debugVisScale.greaterThan( 1.0 ), scaledLuminance, logScaled ).toVar();
 
 			// Heat map visualization
-			const color = vec3( 0.0 ).toVar( 'dbg_heatColor' );
+			const color = vec3( 0.0 ).toVar();
 
 			If( finalValue.lessThan( 0.2 ), () => {
 
@@ -227,15 +227,15 @@ export const TraceDebugMode = Fn( ( [
 			// Get PDF for this direction
 			const envEvalResult = sampleEquirect(
 				envTexture, direction, envMatrix, envTotalSum, envResolution,
-			).toVar( 'dbg_envEval' );
-			const pdf = envEvalResult.w.toVar( 'dbg_pdf' );
+			).toVar();
+			const pdf = envEvalResult.w.toVar();
 
 			// Visualize with better scaling
 			const logPdf = log( pdf.add( 1e-8 ) );
-			const normalizedPdf = logPdf.add( 15.0 ).div( 15.0 ).toVar( 'dbg_normPdf' );
+			const normalizedPdf = logPdf.add( 15.0 ).div( 15.0 ).toVar();
 
 			// Heat map colors
-			const color = vec3( 0.0 ).toVar( 'dbg_pdfColor' );
+			const color = vec3( 0.0 ).toVar();
 
 			If( normalizedPdf.lessThan( 0.33 ), () => {
 

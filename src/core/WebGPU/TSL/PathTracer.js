@@ -68,7 +68,7 @@ import {
 export const dithering = Fn( ( [ color, seed ] ) => {
 
 	const gridPosition = RandomValue( seed );
-	const ditherShiftRGB = vec3( 0.25 / 255.0, - 0.25 / 255.0, 0.25 / 255.0 ).toVar( 'ditherShiftRGB' );
+	const ditherShiftRGB = vec3( 0.25 / 255.0, - 0.25 / 255.0, 0.25 / 255.0 ).toVar();
 
 	ditherShiftRGB.assign(
 		mix( ditherShiftRGB.mul( 2.0 ), ditherShiftRGB.mul( - 2.0 ), gridPosition ),
@@ -96,7 +96,7 @@ export const getRequiredSamples = Fn( ( [
 	const texCoord = pixelCoord.div( resolution );
 	const samplingData = texture( adaptiveSamplingTexture, texCoord, 0 );
 
-	const result = int( 0 ).toVar( 'grs_result' );
+	const result = int( 0 ).toVar();
 
 	// Early exit for converged pixels
 	If( samplingData.b.greaterThan( 0.5 ), () => {
@@ -242,26 +242,26 @@ const pathTracerImpl = Fn( ( [
 	enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
 ] ) => {
 
-	const pixelCoord = screenCoordinate.xy.toVar( 'pixelCoord' );
+	const pixelCoord = screenCoordinate.xy.toVar();
 
 	// Screen position in NDC [-1, 1]
 	// Negate Y to match WebGL's bottom-up gl_FragCoord convention
 	// (WebGPU screenCoordinate.y is top-down)
-	const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar( 'screenPosition' );
+	const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();
 	screenPosition.y.assign( screenPosition.y.negate() );
 
 	// Initialize pixel accumulator
-	const pixelColor = vec4( 0.0 ).toVar( 'pixelColor' );
-	const pixelSamples = int( 0 ).toVar( 'pixelSamples' );
+	const pixelColor = vec4( 0.0 ).toVar();
+	const pixelSamples = int( 0 ).toVar();
 
-	const baseSeed = getDecorrelatedSeed( pixelCoord, int( 0 ), frame ).toVar( 'baseSeed' );
-	const pixelIndex = int( pixelCoord.y ).mul( int( resolution.x ) ).add( int( pixelCoord.x ) ).toVar( 'pixelIndex' );
+	const baseSeed = getDecorrelatedSeed( pixelCoord, int( 0 ), frame ).toVar();
+	const pixelIndex = int( pixelCoord.y ).mul( int( resolution.x ) ).add( int( pixelCoord.x ) ).toVar();
 
 	// MRT data
-	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar( 'worldNormal' );
-	const linearDepth = float( 1.0 ).toVar( 'linearDepth' );
+	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
+	const linearDepth = float( 1.0 ).toVar();
 
-	const samplesCount = int( numRaysPerPixel ).toVar( 'samplesCount' );
+	const samplesCount = int( numRaysPerPixel ).toVar();
 
 	// Adaptive sampling
 	// If( frame.greaterThan( uint( 2 ) ).and( useAdaptiveSampling ), () => {
@@ -298,19 +298,19 @@ const pathTracerImpl = Fn( ( [
 	// } );
 
 	// Edge detection variables
-	const objectNormal = vec3( 0.0 ).toVar( 'objectNormal' );
-	const objectColor = vec3( 0.0 ).toVar( 'objectColor' );
-	const objectID = float( - 1000.0 ).toVar( 'objectID' );
-	const pixelSharpness = float( 0.0 ).toVar( 'pixelSharpness' );
+	const objectNormal = vec3( 0.0 ).toVar();
+	const objectColor = vec3( 0.0 ).toVar();
+	const objectID = float( - 1000.0 ).toVar();
+	const pixelSharpness = float( 0.0 ).toVar();
 
 	// Main sample loop
 	Loop( { start: int( 0 ), end: samplesCount, type: 'int', condition: '<' }, ( { i: rayIndex } ) => {
 
-		const seed = pcgHash( baseSeed.add( uint( rayIndex ) ) ).toVar( 'seed' );
+		const seed = pcgHash( baseSeed.add( uint( rayIndex ) ) ).toVar();
 
 		const stratifiedJitter = getStratifiedSample(
 			pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
-		).toVar( 'stratifiedJitter' );
+		).toVar();
 
 		// Debug mode 5: Visualize stratified samples
 		If( visMode.equal( int( 5 ) ), () => {
@@ -330,7 +330,7 @@ const pathTracerImpl = Fn( ( [
 			enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
 		) );
 
-		const sampleColor = vec4( 0.0 ).toVar( 'sampleColor' );
+		const sampleColor = vec4( 0.0 ).toVar();
 
 		// pixelColor.assign( svec4( 1.0, 0.0, 1.0, 1.0 ) ); // Magenta debug color for uninitialized rays
 		// Debug or normal trace
@@ -444,7 +444,7 @@ const pathTracerImpl = Fn( ( [
 	pixelColor.w.assign( pixelSharpness );
 
 	// Temporal accumulation
-	const finalColor = pixelColor.xyz.toVar( 'finalColor' );
+	const finalColor = pixelColor.xyz.toVar();
 
 	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 1 ) ) ).and( hasPreviousAccumulated ), () => {
 

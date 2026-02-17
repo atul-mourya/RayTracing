@@ -37,8 +37,8 @@ export const ImportanceSampleGGX = Fn( ( [ N, roughness, Xi ] ) => {
 
 	// TBN construction
 	const up = abs( N.z ).lessThan( 0.999 ).select( vec3( 0.0, 0.0, 1.0 ), vec3( 1.0, 0.0, 0.0 ) );
-	const tangent = normalize( cross( up, N ) ).toVar( 'ggxTang' );
-	const bitangent = cross( N, tangent ).toVar( 'ggxBitang' );
+	const tangent = normalize( cross( up, N ) ).toVar();
+	const bitangent = cross( N, tangent ).toVar();
 
 	return normalize( tangent.mul( H.x ).add( bitangent.mul( H.y ) ).add( N.mul( H.z ) ) );
 
@@ -46,8 +46,8 @@ export const ImportanceSampleGGX = Fn( ( [ N, roughness, Xi ] ) => {
 
 export const ImportanceSampleCosine = Fn( ( [ N, xi ] ) => {
 
-	const T = normalize( cross( N, N.yzx.add( vec3( 0.1, 0.2, 0.3 ) ) ) ).toVar( 'cosT' );
-	const B = cross( N, T ).toVar( 'cosB' );
+	const T = normalize( cross( N, N.yzx.add( vec3( 0.1, 0.2, 0.3 ) ) ) ).toVar();
+	const B = cross( N, T ).toVar();
 
 	// Cosine-weighted sampling
 	const phi = float( TWO_PI ).mul( xi.x );
@@ -65,8 +65,8 @@ export const ImportanceSampleCosine = Fn( ( [ N, xi ] ) => {
 export const cosineWeightedSample = Fn( ( [ N, xi ] ) => {
 
 	// Construct a local coordinate system (TBN)
-	const T = normalize( cross( N, N.yzx.add( vec3( 0.1, 0.2, 0.3 ) ) ) ).toVar( 'cwsT' );
-	const B = cross( N, T ).toVar( 'cwsB' );
+	const T = normalize( cross( N, N.yzx.add( vec3( 0.1, 0.2, 0.3 ) ) ) ).toVar();
+	const B = cross( N, T ).toVar();
 
 	// Cosine-weighted sampling using concentric disk mapping
 	// Convert to polar coordinates
@@ -96,28 +96,28 @@ export const sampleGGXVNDF = Fn( ( [ V, roughness, Xi ] ) => {
 
 	const alpha = roughness.mul( roughness );
 	// Transform view direction to local space
-	const Vh = normalize( vec3( alpha.mul( V.x ), alpha.mul( V.y ), V.z ) ).toVar( 'vndfVh' );
+	const Vh = normalize( vec3( alpha.mul( V.x ), alpha.mul( V.y ), V.z ) ).toVar();
 
 	// Construct orthonormal basis around view direction
-	const lensq = Vh.x.mul( Vh.x ).add( Vh.y.mul( Vh.y ) ).toVar( 'vndfLensq' );
+	const lensq = Vh.x.mul( Vh.x ).add( Vh.y.mul( Vh.y ) ).toVar();
 	const T1 = lensq.greaterThan( 1e-8 ).select(
 		vec3( Vh.y.negate(), Vh.x, 0.0 ).div( sqrt( lensq ) ),
 		vec3( 1.0, 0.0, 0.0 )
-	).toVar( 'vndfT1' );
-	const T2 = cross( Vh, T1 ).toVar( 'vndfT2' );
+	).toVar();
+	const T2 = cross( Vh, T1 ).toVar();
 
 	// Sample point with polar coordinates (r, phi)
 	const r = sqrt( Xi.x );
 	const phi = float( TWO_PI ).mul( Xi.y );
-	const t1 = r.mul( cos( phi ) ).toVar( 'vndfT1v' );
-	const t2Tmp = r.mul( sin( phi ) ).toVar( 'vndfT2v' );
+	const t1 = r.mul( cos( phi ) ).toVar();
+	const t2Tmp = r.mul( sin( phi ) ).toVar();
 	const s = float( 0.5 ).mul( float( 1.0 ).add( Vh.z ) );
-	const t2 = float( 1.0 ).sub( s ).mul( sqrt( float( 1.0 ).sub( t1.mul( t1 ) ) ) ).add( s.mul( t2Tmp ) ).toVar( 'vndfT2f' );
+	const t2 = float( 1.0 ).sub( s ).mul( sqrt( float( 1.0 ).sub( t1.mul( t1 ) ) ) ).add( s.mul( t2Tmp ) ).toVar();
 
 	// Compute normal
 	const Nh = T1.mul( t1 ).add( T2.mul( t2 ) ).add(
 		Vh.mul( sqrt( max( float( 0.0 ), float( 1.0 ).sub( t1.mul( t1 ) ).sub( t2.mul( t2 ) ) ) ) )
-	).toVar( 'vndfNh' );
+	).toVar();
 
 	// Transform the normal back to the ellipsoid configuration
 	const Ne = normalize( vec3( alpha.mul( Nh.x ), alpha.mul( Nh.y ), max( float( 0.0 ), Nh.z ) ) );
@@ -173,28 +173,28 @@ export const calculateSamplingWeights = Fn( ( [ V, N, material ] ) => {
 	const fresnelFactor = pow( float( 1.0 ).sub( NoV ), 5.0 );
 
 	// Enhanced diffuse weight (reduced at grazing angles)
-	const diffuse = brdfWeights.diffuse.mul( float( 1.0 ).sub( fresnelFactor.mul( 0.3 ) ) ).toVar( 'mlwDiff' );
+	const diffuse = brdfWeights.diffuse.mul( float( 1.0 ).sub( fresnelFactor.mul( 0.3 ) ) ).toVar();
 
 	// Enhanced specular weight (increased at grazing angles)
-	const specular = brdfWeights.specular.mul( float( 1.0 ).add( fresnelFactor.mul( 0.5 ) ) ).toVar( 'mlwSpec' );
+	const specular = brdfWeights.specular.mul( float( 1.0 ).add( fresnelFactor.mul( 0.5 ) ) ).toVar();
 
 	// Clearcoat weight with fresnel enhancement
-	const clearcoat = brdfWeights.clearcoat.mul( float( 1.0 ).add( fresnelFactor.mul( 0.8 ) ) ).toVar( 'mlwCc' );
+	const clearcoat = brdfWeights.clearcoat.mul( float( 1.0 ).add( fresnelFactor.mul( 0.8 ) ) ).toVar();
 
 	// Transmission weight (view-dependent)
-	const transmission = brdfWeights.transmission.mul( tempIorFactor ).toVar( 'mlwTrans' );
+	const transmission = brdfWeights.transmission.mul( tempIorFactor ).toVar();
 
 	// Sheen weight (enhanced at grazing angles)
-	const sheen = brdfWeights.sheen.mul( float( 1.0 ).add( fresnelFactor ) ).toVar( 'mlwSheen' );
+	const sheen = brdfWeights.sheen.mul( float( 1.0 ).add( fresnelFactor ) ).toVar();
 
 	// Iridescence weight
-	const iridescence = brdfWeights.iridescence.mul( float( 1.0 ).add( fresnelFactor.mul( 0.6 ) ) ).toVar( 'mlwIrid' );
+	const iridescence = brdfWeights.iridescence.mul( float( 1.0 ).add( fresnelFactor.mul( 0.6 ) ) ).toVar();
 
 	// Calculate total weight for normalization
 	const totalWeight = max(
 		diffuse.add( specular ).add( clearcoat ).add( transmission ).add( sheen ).add( iridescence ),
 		1e-6
-	).toVar( 'mlwTotal' );
+	).toVar();
 
 	// Normalize weights
 	const invTotal = float( 1.0 ).div( totalWeight );
@@ -217,11 +217,11 @@ export const calculateMultiLobeMISWeight = Fn( ( [
 ] ) => {
 
 	// Calculate PDFs for all possible sampling strategies
-	const diffusePdf = float( 0.0 ).toVar( 'misDiffPdf' );
-	const specularPdf = float( 0.0 ).toVar( 'misSpecPdf' );
-	const clearcoatPdf = float( 0.0 ).toVar( 'misCcPdf' );
-	const transmissionPdf = float( 0.0 ).toVar( 'misTransPdf' );
-	const sheenPdf = float( 0.0 ).toVar( 'misSheenPdf' );
+	const diffusePdf = float( 0.0 ).toVar();
+	const specularPdf = float( 0.0 ).toVar();
+	const clearcoatPdf = float( 0.0 ).toVar();
+	const transmissionPdf = float( 0.0 ).toVar();
+	const sheenPdf = float( 0.0 ).toVar();
 
 	const NoL = dot( N, sampledDirection );
 
@@ -233,7 +233,7 @@ export const calculateMultiLobeMISWeight = Fn( ( [
 	} );
 
 	// Specular PDF
-	const H = normalize( V.add( sampledDirection ) ).toVar( 'misH' );
+	const H = normalize( V.add( sampledDirection ) ).toVar();
 	const NoH = max( dot( N, H ), 0.0 );
 	const VoH = max( dot( V, H ), 0.0 );
 	const NoV = max( dot( N, V ), 0.0 );
@@ -283,7 +283,7 @@ export const calculateMultiLobeMISWeight = Fn( ( [
 		.add( weightedIridescencePdf.mul( weightedIridescencePdf ) );
 
 	// MIS weight: selectedPdf² / Σ(pdf_i²)
-	const misWeight = float( 1.0 ).toVar( 'misW' );
+	const misWeight = float( 1.0 ).toVar();
 
 	If( sumSquaredPdfs.greaterThan( 0.0 ).and( selectedPdf.greaterThan( 0.0 ) ), () => {
 
@@ -312,9 +312,9 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	const cumulativeClearcoat = cumulativeSpecular.add( weights.clearcoat );
 	const cumulativeTransmission = cumulativeClearcoat.add( weights.transmission );
 
-	const sampledDirection = vec3( 0.0 ).toVar( 'mlSampDir' );
-	const lobePdf = float( 0.0 ).toVar( 'mlLobePdf' );
-	const resultPdf = float( 0.0 ).toVar( 'mlResultPdf' );
+	const sampledDirection = vec3( 0.0 ).toVar();
+	const lobePdf = float( 0.0 ).toVar();
+	const resultPdf = float( 0.0 ).toVar();
 
 	If( rand.lessThan( cumulativeDiffuse ), () => {
 
@@ -326,7 +326,7 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	} ).ElseIf( rand.lessThan( cumulativeSpecular ), () => {
 
 		// Specular sampling
-		const H = ImportanceSampleGGX( N, material.roughness, xi ).toVar( 'mlSpecH' );
+		const H = ImportanceSampleGGX( N, material.roughness, xi ).toVar();
 		sampledDirection.assign( reflect( V.negate(), H ) );
 
 		If( dot( N, sampledDirection ).greaterThan( 0.0 ), () => {
@@ -342,7 +342,7 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	} ).ElseIf( rand.lessThan( cumulativeClearcoat ).and( material.clearcoat.greaterThan( 0.0 ) ), () => {
 
 		// Clearcoat sampling
-		const H = ImportanceSampleGGX( N, material.clearcoatRoughness, xi ).toVar( 'mlCcH' );
+		const H = ImportanceSampleGGX( N, material.clearcoatRoughness, xi ).toVar();
 		sampledDirection.assign( reflect( V.negate(), H ) );
 
 		If( dot( N, sampledDirection ).greaterThan( 0.0 ), () => {
@@ -358,8 +358,8 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	} ).ElseIf( rand.lessThan( cumulativeTransmission ).and( material.transmission.greaterThan( 0.0 ) ), () => {
 
 		// Transmission sampling - simplified approach
-		const H = ImportanceSampleGGX( N, material.roughness, xi ).toVar( 'mlTransH' );
-		const refractionDir = refract( V.negate(), H, float( 1.0 ).div( material.ior ) ).toVar( 'mlRefDir' );
+		const H = ImportanceSampleGGX( N, material.roughness, xi ).toVar();
+		const refractionDir = refract( V.negate(), H, float( 1.0 ).div( material.ior ) ).toVar();
 
 		If( dot( refractionDir, refractionDir ).greaterThan( 0.001 ), () => {
 
@@ -390,7 +390,7 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	// Calculate MIS weight considering all possible sampling strategies
 	const misWeight = calculateMultiLobeMISWeight( sampledDirection, V, N, material, weights, resultPdf );
 
-	const resultValue = evaluateMaterialResponse( V, sampledDirection, N, material ).toVar( 'mlValue' );
+	const resultValue = evaluateMaterialResponse( V, sampledDirection, N, material ).toVar();
 	resultValue.mulAssign( misWeight );
 
 	return DirectionSample( {

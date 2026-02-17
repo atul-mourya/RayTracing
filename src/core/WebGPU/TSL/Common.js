@@ -72,9 +72,9 @@ export const luminance = Fn( ( [ color ] ) => {
 // Optimized power heuristic for multiple importance sampling
 export const powerHeuristic = Fn( ( [ pdf1, pdf2 ] ) => {
 
-	const ratio = pdf1.div( max( pdf2, MIN_PDF ) ).toVar( 'ratio' );
+	const ratio = pdf1.div( max( pdf2, MIN_PDF ) ).toVar();
 
-	const result = float( 0.0 ).toVar( 'phResult' );
+	const result = float( 0.0 ).toVar();
 
 	If( ratio.greaterThan( 10.0 ), () => {
 
@@ -115,8 +115,8 @@ export const applyDithering = Fn( ( [ color, uv, ditheringAmount, resolution ] )
 
 export const reduceFireflies = Fn( ( [ color, maxValue ] ) => {
 
-	const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar( 'ffLum' );
-	const result = color.toVar( 'ffResult' );
+	const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
+	const result = color.toVar();
 
 	If( lum.greaterThan( maxValue ), () => {
 
@@ -140,8 +140,8 @@ export const constructTBN = Fn( ( [ N ] ) => {
 
 export const computeDotProducts = Fn( ( [ N, V, L ] ) => {
 
-	const H = V.add( L ).toVar( 'dpH' );
-	const lenSq = dot( H, H ).toVar( 'dpLenSq' );
+	const H = V.add( L ).toVar();
+	const lenSq = dot( H, H ).toVar();
 	H.assign( lenSq.greaterThan( EPSILON ).select( H.div( lenSq.sqrt() ), vec3( 0.0, 0.0, 1.0 ) ) );
 
 	return DotProducts( {
@@ -164,7 +164,7 @@ export const calculateFireflyThreshold = Fn( ( [ baseThreshold, contextMultiplie
 // Apply soft suppression to prevent harsh clipping
 export const applySoftSuppression = Fn( ( [ value, threshold, dampingFactor ] ) => {
 
-	const result = value.toVar( 'ssResult' );
+	const result = value.toVar();
 
 	If( value.greaterThan( threshold ), () => {
 
@@ -181,8 +181,8 @@ export const applySoftSuppression = Fn( ( [ value, threshold, dampingFactor ] ) 
 // Apply soft suppression to RGB color while preserving hue
 export const applySoftSuppressionRGB = Fn( ( [ color, threshold, dampingFactor ] ) => {
 
-	const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar( 'ssrgbLum' );
-	const result = color.toVar( 'ssrgbResult' );
+	const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
+	const result = color.toVar();
 
 	If( lum.greaterThan( threshold ), () => {
 
@@ -198,7 +198,7 @@ export const applySoftSuppressionRGB = Fn( ( [ color, threshold, dampingFactor ]
 // Get material-specific firefly tolerance multiplier
 export const getMaterialFireflyTolerance = Fn( ( [ metalness, roughness, transmission, dispersion ] ) => {
 
-	const tolerance = float( 1.0 ).toVar( 'ffTol' );
+	const tolerance = float( 1.0 ).toVar();
 
 	// Metals can handle brighter values legitimately
 	tolerance.mulAssign( mix( float( 1.0 ), float( 1.5 ), step( 0.7, metalness ) ) );
@@ -219,7 +219,7 @@ export const getMaterialFireflyTolerance = Fn( ( [ metalness, roughness, transmi
 // Calculate view-dependent firefly tolerance for specular materials
 export const getViewDependentTolerance = Fn( ( [ roughness, sampleDir, viewDir, normal ] ) => {
 
-	const tolerance = float( 1.0 ).toVar( 'vdTol' );
+	const tolerance = float( 1.0 ).toVar();
 
 	// For very smooth materials, allow brighter values in specular direction
 	If( roughness.lessThan( 0.2 ), () => {
@@ -238,15 +238,15 @@ export const getViewDependentTolerance = Fn( ( [ roughness, sampleDir, viewDir, 
 // Pre-computed material classification for faster branching
 export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clearcoat, emissive ] ) => {
 
-	const isMetallic = metalness.greaterThan( 0.7 ).toVar( 'isMetallic' );
-	const isRough = roughness.greaterThan( 0.8 ).toVar( 'isRough' );
-	const isSmooth = roughness.lessThan( 0.3 ).toVar( 'isSmooth' );
-	const isTransmissive = transmission.greaterThan( 0.5 ).toVar( 'isTransmissive' );
-	const hasClearcoat = clearcoat.greaterThan( 0.5 ).toVar( 'hasClearcoat' );
+	const isMetallic = metalness.greaterThan( 0.7 ).toVar();
+	const isRough = roughness.greaterThan( 0.8 ).toVar();
+	const isSmooth = roughness.lessThan( 0.3 ).toVar();
+	const isTransmissive = transmission.greaterThan( 0.5 ).toVar();
+	const hasClearcoat = clearcoat.greaterThan( 0.5 ).toVar();
 
 	// Fast emissive check using sum
 	const emissiveMag = emissive.x.add( emissive.y ).add( emissive.z );
-	const isEmissive = emissiveMag.greaterThan( 0.0 ).toVar( 'isEmissive' );
+	const isEmissive = emissiveMag.greaterThan( 0.0 ).toVar();
 
 	// Enhanced complexity score with better material importance weighting
 	const baseComplexity = float( 0.15 ).mul( float( isMetallic ) )
@@ -254,10 +254,10 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 		.add( float( 0.45 ).mul( float( isTransmissive ) ) )
 		.add( float( 0.35 ).mul( float( hasClearcoat ) ) )
 		.add( float( 0.3 ).mul( float( isEmissive ) ) )
-		.toVar( 'baseComplexity' );
+		.toVar();
 
 	// Add material interaction complexity
-	const interactionComplexity = float( 0.0 ).toVar( 'interactionComplexity' );
+	const interactionComplexity = float( 0.0 ).toVar();
 	If( isMetallic.and( isSmooth ), () => {
 
 		interactionComplexity.addAssign( 0.15 );
@@ -283,16 +283,16 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 // Dynamic MIS strategy based on material properties
 export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmission, bounceIndex, throughput ] ) => {
 
-	const throughputStrength = maxComponent( throughput ).toVar( 'misTS' );
+	const throughputStrength = maxComponent( throughput ).toVar();
 
 	const isSecondaryBounce = bounceIndex.greaterThan( int( 0 ) );
-	const envBoostForIndirect = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar( 'envBoost' );
+	const envBoostForIndirect = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar();
 
-	const brdfWeight = float( 0.35 ).toVar( 'misBrdf' );
-	const lightWeight = float( 0.3 ).toVar( 'misLight' );
-	const envWeight = float( 0.35 ).toVar( 'misEnv' );
+	const brdfWeight = float( 0.35 ).toVar();
+	const lightWeight = float( 0.3 ).toVar();
+	const envWeight = float( 0.35 ).toVar();
 	const useBRDFSampling = true;
-	const useLightSampling = throughputStrength.greaterThan( 0.01 ).toVar( 'misUseLs' );
+	const useLightSampling = throughputStrength.greaterThan( 0.01 ).toVar();
 	const useEnvSampling = true;
 
 	If( roughness.lessThan( 0.1 ).and( metalness.greaterThan( 0.8 ) ), () => {
@@ -319,7 +319,7 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmissi
 	} );
 
 	// Normalize weights
-	const totalWeight = brdfWeight.add( lightWeight ).add( envWeight ).toVar( 'misTotalW' );
+	const totalWeight = brdfWeight.add( lightWeight ).add( envWeight ).toVar();
 	If( totalWeight.greaterThan( 0.0 ), () => {
 
 		const invTotal = float( 1.0 ).div( totalWeight );
@@ -373,33 +373,33 @@ export const arrayToMat3 = Fn( ( [ data1, data2 ] ) => {
 
 export const getMaterial = Fn( ( [ materialIndex, materialTexture, materialTexSize ] ) => {
 
-	const data0 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 0 ), int( MATERIAL_SLOTS ) ).toVar( 'md0' );
-	const data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 1 ), int( MATERIAL_SLOTS ) ).toVar( 'md1' );
-	const data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 2 ), int( MATERIAL_SLOTS ) ).toVar( 'md2' );
-	const data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 3 ), int( MATERIAL_SLOTS ) ).toVar( 'md3' );
-	const data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) ).toVar( 'md4' );
-	const data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 5 ), int( MATERIAL_SLOTS ) ).toVar( 'md5' );
-	const data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 6 ), int( MATERIAL_SLOTS ) ).toVar( 'md6' );
-	const data7 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 7 ), int( MATERIAL_SLOTS ) ).toVar( 'md7' );
-	const data8 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 8 ), int( MATERIAL_SLOTS ) ).toVar( 'md8' );
-	const data9 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 9 ), int( MATERIAL_SLOTS ) ).toVar( 'md9' );
-	const data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) ).toVar( 'md10' );
-	const data11 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 11 ), int( MATERIAL_SLOTS ) ).toVar( 'md11' );
-	const data12 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 12 ), int( MATERIAL_SLOTS ) ).toVar( 'md12' );
-	const data13 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 13 ), int( MATERIAL_SLOTS ) ).toVar( 'md13' );
-	const data14 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 14 ), int( MATERIAL_SLOTS ) ).toVar( 'md14' );
-	const data15 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 15 ), int( MATERIAL_SLOTS ) ).toVar( 'md15' );
-	const data16 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 16 ), int( MATERIAL_SLOTS ) ).toVar( 'md16' );
-	const data17 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 17 ), int( MATERIAL_SLOTS ) ).toVar( 'md17' );
-	const data18 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 18 ), int( MATERIAL_SLOTS ) ).toVar( 'md18' );
-	const data19 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 19 ), int( MATERIAL_SLOTS ) ).toVar( 'md19' );
-	const data20 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 20 ), int( MATERIAL_SLOTS ) ).toVar( 'md20' );
-	const data21 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 21 ), int( MATERIAL_SLOTS ) ).toVar( 'md21' );
-	const data22 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 22 ), int( MATERIAL_SLOTS ) ).toVar( 'md22' );
-	const data23 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 23 ), int( MATERIAL_SLOTS ) ).toVar( 'md23' );
-	const data24 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 24 ), int( MATERIAL_SLOTS ) ).toVar( 'md24' );
-	const data25 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 25 ), int( MATERIAL_SLOTS ) ).toVar( 'md25' );
-	const data26 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 26 ), int( MATERIAL_SLOTS ) ).toVar( 'md26' );
+	const data0 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 0 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 1 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 2 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 3 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 5 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 6 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data7 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 7 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data8 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 8 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data9 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 9 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data11 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 11 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data12 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 12 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data13 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 13 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data14 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 14 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data15 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 15 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data16 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 16 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data17 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 17 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data18 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 18 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data19 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 19 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data20 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 20 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data21 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 21 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data22 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 22 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data23 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 23 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data24 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 24 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data25 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 25 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data26 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 26 ), int( MATERIAL_SLOTS ) ).toVar();
 
 	return RayTracingMaterial( {
 		color: vec4( data0.rgb, 1.0 ),
