@@ -350,7 +350,9 @@ export const sampleBlueNoiseRaw = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex
 
 	const texCoord = ivec2( floor( coords ) );
 
-	return blueNoiseTexture.sample( texCoord ).setSampler( false );
+	const result = blueNoiseTexture.sample( texCoord ).setSampler( false );
+	result.updateMatrix = false;
+	return result;
 
 }, { pixelCoords: 'vec2', sampleIndex: 'int', bounceIndex: 'int', frame: 'int', return: 'vec4' } );
 
