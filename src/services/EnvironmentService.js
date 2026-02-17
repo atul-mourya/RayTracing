@@ -1,4 +1,5 @@
 import localEnvironmentsData from '../data/local_environments.json';
+import { getApp } from '@/core/appProxy';
 
 /**
  * Service class for handling environment/HDRI operations
@@ -236,7 +237,8 @@ export class EnvironmentService {
 	static async loadEnvironment( envData ) {
 
 		// Validate app is initialized
-		if ( ! window.pathTracerApp ) {
+		const app = getApp();
+		if ( ! app ) {
 
 			throw new Error( 'PathTracer app not initialized' );
 
@@ -258,7 +260,7 @@ export class EnvironmentService {
 			}
 
 			// Load environment into path tracer
-			await window.pathTracerApp.loadEnvironment( envData.url );
+			await app.loadEnvironment( envData.url );
 
 			return {
 				success: true,

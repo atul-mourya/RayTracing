@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useStore, usePathTracerStore } from '@/store';
+import { getApp } from '@/core/appProxy';
 import { cn } from "@/lib/utils";
 
 const EditableValue = ( { value, onCommit } ) => {
@@ -57,7 +58,7 @@ const EditableValue = ( { value, onCommit } ) => {
 
 };
 
-const StatsMeter = ( { viewportMode, appRef } ) => {
+const StatsMeter = ( { viewportMode } ) => {
 
 	// Optimized store subscriptions
 	const storeMaxSamples = usePathTracerStore( useCallback( state => state.maxSamples, [] ) );
@@ -75,16 +76,16 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 	const [ maxSamples, setMaxSamples ] = useState( storeMaxSamples );
 	const [ sceneStats, setSceneStats ] = useState( null );
 
-	// Get scene statistics from the path tracer
+	// Get scene statistics from the active app via app-level API
 	const updateSceneStats = useCallback( () => {
 
-		const app = appRef.current;
-		if ( app?.pathTracingPass?.sdfs ) {
+		const app = getApp();
+		if ( app ) {
 
 			try {
 
-				const statistics = app.pathTracingPass.sdfs.getStatistics();
-				setSceneStats( statistics );
+				const statistics = app.getSceneStatistics?.();
+				setSceneStats( statistics ?? null );
 
 			} catch ( error ) {
 
@@ -95,15 +96,16 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 
 		}
 
-	}, [ appRef ] );
+	}, [] );
 
 	// Update scene stats when the scene changes
 	useEffect( () => {
 
 		const handleSceneUpdate = () => updateSceneStats();
 
-		// Listen for scene rebuild events
+		// Listen for scene rebuild and backend switch events
 		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
+		window.addEventListener( 'BackendSwitched', handleSceneUpdate );
 
 		// Initial update
 		updateSceneStats();
@@ -111,6 +113,7 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 		return () => {
 
 			window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
+			window.removeEventListener( 'BackendSwitched', handleSceneUpdate );
 
 		};
 
@@ -127,34 +130,30 @@ const StatsMeter = ( { viewportMode, appRef } ) => {
 		// Update local state
 		setMaxSamples( value );
 
-		// Update app
-		const app = appRef.current;
+		// Update app via setter API
+		const app = getApp();
 		if ( app ) {
 
-			app.pathTracingPass.material.uniforms.maxFrames.value = value;
+			app.setMaxSamples( value );
 			app.reset();
 
 		}
 
-	}, [ storeMaxSamples, setStoreMaxSamples, appRef ] );
+	}, [ storeMaxSamples, setStoreMaxSamples ] );
 
 	// Update based on viewport mode
 	useEffect( () => {
 
-		if ( ! appRef || ! appRef.current ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
 		const newMaxSamples = viewportMode === "preview" ? 60 : 30;
-		const app = appRef.current;
 
-		if ( app ) {
+		app.setMaxSamples( newMaxSamples );
+		setStoreMaxSamples( newMaxSamples );
+		setMaxSamples( newMaxSamples );
 
-			app.pathTracingPass.material.uniforms.maxFrames.value = newMaxSamples;
-			setStoreMaxSamples( newMaxSamples );
-			setMaxSamples( newMaxSamples );
-
-		}
-
-	}, [ viewportMode, appRef, setStoreMaxSamples ] );
+	}, [ viewportMode, setStoreMaxSamples ] );
 
 	// Update local maxSamples when store value changes
 	useEffect( () => {

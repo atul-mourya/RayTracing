@@ -2,7 +2,7 @@ import { useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife, Bot } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from '@/components/ui/separator';
-import { useStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 import FinalRenderPanel from './FinalRenderPanel';
 
 // Lazy load tab components for better initial performance
@@ -27,6 +27,8 @@ const InteractiveModeTabs = memo( () => {
 
 	const activeTab = useStore( state => state.activeTab );
 	const setActiveTab = useStore( state => state.setActiveTab );
+	const backend = usePathTracerStore( state => state.backend );
+	const isWebGL = backend === 'webgl';
 
 	return (
 		<Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full w-full">
@@ -39,10 +41,10 @@ const InteractiveModeTabs = memo( () => {
 					<Camera size={12} />
 					<span className="text-xs mt-1">Camera</span>
 				</TabsTrigger>
-				<TabsTrigger value="light" className="flex flex-col items-center py-2">
+				{isWebGL && <TabsTrigger value="light" className="flex flex-col items-center py-2">
 					<Sun size={12} />
 					<span className="text-xs mt-1">Light</span>
-				</TabsTrigger>
+				</TabsTrigger>}
 				<TabsTrigger value="material" className="flex flex-col items-center py-2">
 					<SwatchBook size={12} />
 					<span className="text-xs mt-1">Material</span>
@@ -65,11 +67,11 @@ const InteractiveModeTabs = memo( () => {
 				</Suspense>
 			</TabsContent>
 
-			<TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+			{isWebGL && <TabsContent value="light" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 				<Suspense fallback={<TabLoadingFallback />}>
 					<LightsTab />
 				</Suspense>
-			</TabsContent>
+			</TabsContent>}
 
 			<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 				<Suspense fallback={<TabLoadingFallback />}>

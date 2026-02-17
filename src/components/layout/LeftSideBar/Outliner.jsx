@@ -5,6 +5,7 @@ import {
 	Eye, EyeOff, Layers, Filter
 } from 'lucide-react';
 import { useStore } from '@/store';
+import { getApp } from '@/core/appProxy';
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -126,8 +127,8 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 	const getInitialVisibility = useCallback( () => {
 
 		if ( item.visible !== undefined ) return item.visible;
-		if ( item.type !== 'Mesh' || ! window.pathTracerApp ) return true;
-		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+		if ( item.type !== 'Mesh' || ! getApp() ) return true;
+		const object = getApp().scene.getObjectByProperty( 'uuid', item.uuid );
 		return object?.visible ?? true;
 
 	}, [ item ] );
@@ -160,22 +161,23 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 	const handleNodeClick = useCallback( ( e ) => {
 
 		e.stopPropagation();
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
 		if ( selectedObject && selectedObject.uuid === item.uuid ) {
 
-			window.pathTracerApp.selectObject( null );
-			window.pathTracerApp.refreshFrame();
+			app.selectObject( null );
+			app.refreshFrame();
 			setSelectedObject( null );
 			return;
 
 		}
 
-		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+		const object = app.scene.getObjectByProperty( 'uuid', item.uuid );
 		if ( object ) {
 
-			window.pathTracerApp.selectObject( object );
-			window.pathTracerApp.refreshFrame();
+			app.selectObject( object );
+			app.refreshFrame();
 			setSelectedObject( object );
 
 		}
@@ -187,23 +189,24 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		e.preventDefault();
 		e.stopPropagation();
 
-		if ( ! window.pathTracerApp || ! window.pathTracerApp.interactionManager ) return;
+		const app = getApp();
+		if ( ! app || ! app.interactionManager ) return;
 
-		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', item.uuid );
+		const object = app.scene.getObjectByProperty( 'uuid', item.uuid );
 
 		if ( object ) {
 
 			// Select object if not already selected
 			if ( ! selectedObject || selectedObject.uuid !== item.uuid ) {
 
-				window.pathTracerApp.selectObject( object );
-				window.pathTracerApp.refreshFrame();
+				app.selectObject( object );
+				app.refreshFrame();
 				setSelectedObject( object );
 
 			}
 
 			// Dispatch event for InteractionContextMenu
-			window.pathTracerApp.interactionManager.dispatchEvent( {
+			app.interactionManager.dispatchEvent( {
 				type: 'contextMenuRequested',
 				x: e.clientX,
 				y: e.clientY,
@@ -400,7 +403,24 @@ const Outliner = () => {
 
 	const getSceneElements = useCallback( () => {
 
-		const scene = window.pathTracerApp?.scene;
+		const app = getApp();
+		let scene = app?.scene;
+
+		// For WebGPU backend, the scene doesn't contain mesh objects (data is in textures).
+		// Fall back to the WebGL app's scene for the outliner hierarchy.
+		if ( ( ! scene || scene.children.length === 0 ) && app?.existingApp?.scene ) {
+
+			scene = app.existingApp.scene;
+
+		}
+
+		// Additional fallback: try window.pathTracerApp.scene (original WebGL app)
+		if ( ( ! scene || scene.children.length === 0 ) && window.pathTracerApp?.scene ) {
+
+			scene = window.pathTracerApp.scene;
+
+		}
+
 		if ( ! scene ) return [];
 
 		const sceneGraph = [ createLayerItem( scene ) ];
@@ -425,8 +445,14 @@ const Outliner = () => {
 
 		const handleSceneUpdate = () => updateLayers();
 		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
+		window.addEventListener( 'BackendSwitched', handleSceneUpdate );
 		updateLayers();
-		return () => window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
+		return () => {
+
+			window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
+			window.removeEventListener( 'BackendSwitched', handleSceneUpdate );
+
+		};
 
 	}, [ updateLayers ] );
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS } from '@/Constants';
+import { getApp } from '@/core/appProxy';
 
 /**
  * Debounce utility - delays function execution until after wait time has elapsed
@@ -35,10 +36,11 @@ const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 	}
 
 	setter( val );
-	if ( window.pathTracerApp ) {
+	const app = getApp();
+	if ( app ) {
 
-		appUpdater( val );
-		needsReset && window.pathTracerApp.reset();
+		appUpdater( val, app );
+		needsReset && app.reset();
 
 	}
 
@@ -125,9 +127,10 @@ const useStore = create( set => ( {
 	},
 	toggleMeshVisibility: uuid => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
-		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', uuid );
+		const object = app.scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
 		// Toggle Three.js object visibility
@@ -139,7 +142,7 @@ const useStore = create( set => ( {
 			if ( obj.isMesh && obj.material ) {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
-				const pt = window.pathTracerApp?.pathTracingPass;
+				const pt = app?.pathTracingPass;
 
 				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
 
@@ -165,7 +168,7 @@ const useStore = create( set => ( {
 		object.traverse( updatePTVisibility );
 
 		// Reset path tracer to see changes
-		window.pathTracerApp.reset();
+		app.reset();
 
 		// Dispatch custom event for synchronization with Outliner
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
@@ -175,9 +178,10 @@ const useStore = create( set => ( {
 	},
 	setMeshVisibility: ( uuid, visible ) => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
-		const object = window.pathTracerApp.scene.getObjectByProperty( 'uuid', uuid );
+		const object = app.scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
 		// Set Three.js object visibility
@@ -189,7 +193,7 @@ const useStore = create( set => ( {
 			if ( obj.isMesh && obj.material ) {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
-				const pt = window.pathTracerApp?.pathTracingPass;
+				const pt = app?.pathTracingPass;
 
 				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
 
@@ -215,7 +219,7 @@ const useStore = create( set => ( {
 		object.traverse( updatePTVisibility );
 
 		// Reset path tracer to see changes
-		window.pathTracerApp.reset();
+		app.reset();
 
 		// Dispatch custom event for synchronization with Outliner
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
@@ -315,10 +319,10 @@ const PREVIEW_STATE = {
 // This prevents expensive texture regeneration on every slider movement
 const debouncedGenerateProceduralSkyTexture = debounce( () => {
 
-	const app = window.pathTracerApp;
-	if ( app?.pathTracingPass ) {
+	const app = getApp();
+	if ( app ) {
 
-		app.pathTracingPass.generateProceduralSkyTexture();
+		app.generateProceduralSkyTexture();
 
 	}
 
@@ -366,13 +370,80 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			if ( success ) {
 
 				setBackend( newBackend );
+
+				// Re-apply all current store values to the new backend
+				// This ensures the new backend matches the UI state exactly
+				const state = get();
+				const app = manager.getActiveApp();
+				if ( app ) {
+
+					const storeToSetterMap = {
+						bounces: 'setMaxBounces',
+						samplesPerPixel: 'setSamplesPerPixel',
+						maxSamples: 'setMaxSamples',
+						transmissiveBounces: 'setTransmissiveBounces',
+						environmentIntensity: 'setEnvironmentIntensity',
+						backgroundIntensity: 'setBackgroundIntensity',
+						showBackground: 'setShowBackground',
+						enableEnvironment: 'setEnableEnvironment',
+						GIIntensity: 'setGlobalIlluminationIntensity',
+						exposure: 'setExposure',
+						enableDOF: 'setEnableDOF',
+						focusDistance: 'setFocusDistance',
+						focalLength: 'setFocalLength',
+						aperture: 'setAperture',
+						samplingTechnique: 'setSamplingTechnique',
+						adaptiveSampling: 'setUseAdaptiveSampling',
+						adaptiveSamplingMax: 'setAdaptiveSamplingMax',
+						fireflyThreshold: 'setFireflyThreshold',
+						enableEmissiveTriangleSampling: 'setEnableEmissiveTriangleSampling',
+						emissiveBoost: 'setEmissiveBoost',
+						debugMode: 'setVisMode',
+						debugThreshold: 'setDebugVisScale',
+					};
+
+					for ( const [ storeKey, setter ] of Object.entries( storeToSetterMap ) ) {
+
+						if ( state[ storeKey ] !== undefined && typeof app[ setter ] === 'function' ) {
+
+							app[ setter ]( state[ storeKey ] );
+
+						}
+
+					}
+
+					app.reset();
+
+				}
+
 				console.log( `Switched to ${newBackend} backend` );
+
+			} else {
+
+				console.warn( `Backend switch to ${newBackend} failed, staying on ${backend}` );
 
 			}
 
 		} catch ( error ) {
 
 			console.error( 'Failed to switch backend:', error );
+			// Fallback: ensure we're still on a working backend
+			const { getBackendManager } = await import( '@/core/BackendManager.js' );
+			const manager = getBackendManager();
+			if ( manager.getBackend() !== backend ) {
+
+				// Manager switched but store didn't update — try reverting
+				try {
+
+					await manager.setBackend( backend );
+
+				} catch ( revertError ) {
+
+					console.error( 'Failed to revert backend:', revertError );
+
+				}
+
+			}
 
 		} finally {
 
@@ -481,10 +552,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAsvgfQualityPresetChange: handleChange(
 		val => set( { asvgfQualityPreset: val } ),
-		val => {
+		( val, app ) => {
 
 			const preset = ASVGF_QUALITY_PRESETS[ val ];
-			if ( preset && window.pathTracerApp ) {
+			if ( preset && app ) {
 
 				const store = get();
 
@@ -501,10 +572,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				} );
 
 				// Update ASVGF pass
-				window.pathTracerApp.asvgfPass.updateParameters( preset );
+				app.asvgfPass?.updateParameters( preset );
 
 				// Force reset to see the change immediately
-				window.pathTracerApp.reset();
+				app.reset();
 
 			}
 
@@ -513,9 +584,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAsvgfDebugModeChange: handleChange(
 		val => set( { asvgfDebugMode: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.asvgfPass.updateParameters( {
+			app.asvgfPass?.updateParameters( {
 				debugMode: parseInt( val ),
 				enableDebug: parseInt( val ) > 0
 			} );
@@ -527,7 +598,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Smart ASVGF configuration based on render mode
 	handleConfigureASVGFForMode: ( mode ) => {
 
-		if ( ! window.pathTracerApp?.asvgfPass ) return;
+		const app = getApp();
+		if ( ! app?.asvgfPass ) return;
 
 		const configs = {
 			preview: {
@@ -549,7 +621,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const config = configs[ mode ];
 		if ( config ) {
 
-			const app = window.pathTracerApp;
 			app.asvgfPass.enabled = config.enabled;
 
 			// Also enable/disable the extracted stages
@@ -611,7 +682,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			} );
 
 			// Update adaptive sampling pass parameters
-			app.pathTracingPass.setAdaptiveSamplingParameters( settings );
+			app.pathTracingPass?.setAdaptiveSamplingParameters?.( settings );
 
 		}
 
@@ -620,61 +691,57 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Handlers
 	handlePathTracerChange: handleChange(
 		val => set( { enablePathTracer: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.pathTracingPass.setAccumulationEnabled( val );
-			app.pathTracingPass.enabled = val;
-			app.renderPass.enabled = ! val;
+			app.setPathTracerEnabled( val );
 
 		}
 	),
 
 	handleAccumulationChange: handleChange(
 		val => set( { enableAccumulation: val } ),
-		val => window.pathTracerApp.pathTracingPass.setAccumulationEnabled( val )
+		( val, app ) => app.setAccumulationEnabled( val )
 	),
 
 	handleBouncesChange: handleChange(
 		val => set( { bounces: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.maxBounceCount.value = val
+		( val, app ) => app.setMaxBounces( val )
 	),
 
 	handleSamplesPerPixelChange: handleChange(
 		val => set( { samplesPerPixel: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.numRaysPerPixel.value = val
+		( val, app ) => app.setSamplesPerPixel( val )
 	),
 
 	handleTransmissiveBouncesChange: handleChange(
 		val => set( { transmissiveBounces: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.transmissiveBounces.value = val
+		( val, app ) => app.setTransmissiveBounces( val )
 	),
 
 	handleSamplingTechniqueChange: handleChange(
-		val => set( { samplingTechnique: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.samplingTechnique.value = val
+		val => set( { samplingTechnique: parseInt( val ) } ),
+		( val, app ) => app.setSamplingTechnique( parseInt( val ) )
 	),
 
 	handleEnableEmissiveTriangleSamplingChange: handleChange(
 		val => set( { enableEmissiveTriangleSampling: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.enableEmissiveTriangleSampling.value = val
+		( val, app ) => app.setEnableEmissiveTriangleSampling( val )
 	),
 
 	handleEmissiveBoostChange: handleChange(
 		val => set( { emissiveBoost: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.emissiveBoost.value = val
+		( val, app ) => app.setEmissiveBoost( val )
 	),
 
 	handleResolutionChange: handleChange(
 		val => set( { resolution: val } ),
-		val => {
+		( val, app ) => {
 
 			// Map UI value to absolute pixel resolution
 			const targetResolution = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ val ] || 512;
 
 			// Calculate pixel ratio based on canvas client dimensions
 			// Use the shorter dimension to ensure target resolution fits
-			const app = window.pathTracerApp;
 			const clientWidth = app.canvas.clientWidth;
 			const clientHeight = app.canvas.clientHeight;
 			const shortestDimension = Math.min( clientWidth, clientHeight );
@@ -689,92 +756,95 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingChange: handleChange(
 		val => set( { adaptiveSampling: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.pathTracingPass.material.uniforms.useAdaptiveSampling.value = val;
-			app.adaptiveSamplingPass.enabled = val;
-			app.adaptiveSamplingPass.toggleHelper( false );
+			app.setUseAdaptiveSampling( val );
+			if ( app.adaptiveSamplingPass ) {
+
+				app.adaptiveSamplingPass.enabled = val;
+				app.adaptiveSamplingPass.toggleHelper( false );
+
+			}
 
 		}
 	),
 
 	handleAdaptiveSamplingMinChange: handleChange(
 		val => set( { adaptiveSamplingMin: val } ),
-		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
+		( val, app ) => app.pathTracingPass?.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
 	),
 
 	handleAdaptiveSamplingMaxChange: handleChange(
 		val => set( { adaptiveSamplingMax: val } ),
-		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { max: Array.isArray( val ) ? val[ 0 ] : val } )
+		( val, app ) => app.setAdaptiveSamplingMax( Array.isArray( val ) ? val[ 0 ] : val )
 	),
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
 		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		val => window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
+		( val, app ) => app.pathTracingPass?.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
 		val => set( { showAdaptiveSamplingHelper: val } ),
-		val => window.pathTracerApp?.adaptiveSamplingPass?.toggleHelper( val )
+		( val, app ) => app.adaptiveSamplingPass?.toggleHelper( val )
 	),
 
 	handleAdaptiveSamplingMaterialBiasChange: handleChange(
 		val => set( { adaptiveSamplingMaterialBias: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
+			app.pathTracingPass?.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
 
 		}
 	),
 
 	handleAdaptiveSamplingEdgeBiasChange: handleChange(
 		val => set( { adaptiveSamplingEdgeBias: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
+			app.pathTracingPass?.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
 
 		}
 	),
 
 	handleAdaptiveSamplingConvergenceSpeedChange: handleChange(
 		val => set( { adaptiveSamplingConvergenceSpeed: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
+			app.pathTracingPass?.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
 
 		}
 	),
 
 	handleAdaptiveSamplingQualityPresetChange: handleChange(
 		val => set( { adaptiveSamplingQualityPreset: val } ),
-		val => {
+		( val, app ) => {
 
-			get().applyAdaptiveSamplingQualityPreset( window.pathTracerApp, val );
+			get().applyAdaptiveSamplingQualityPreset( app, val );
 
 		}
 	),
 
 	handleFireflyThresholdChange: handleChange(
 		val => set( { fireflyThreshold: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.fireflyThreshold.value = val[ 0 ]
+		( val, app ) => app.setFireflyThreshold( Array.isArray( val ) ? val[ 0 ] : val )
 	),
 
 	handleRenderModeChange: handleChange(
 		val => set( { renderMode: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.renderMode.value = parseInt( val );
+			app.setRenderMode( parseInt( val ) );
 
 			// Enable/disable tile highlight based on render mode and tilesHelper state
 			const { tilesHelper } = get();
 			if ( parseInt( val ) === 1 && tilesHelper ) {
 
-				window.pathTracerApp.tileHighlightPass.enabled = true;
+				if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = true;
 
 			} else if ( parseInt( val ) !== 1 ) {
 
-				window.pathTracerApp.tileHighlightPass.enabled = false;
+				if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = false;
 
 			}
 
@@ -783,7 +853,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTileUpdate: handleChange(
 		val => set( { tiles: val } ),
-		val => {
+		( val, app ) => {
 
 			const tileCount = val[ 0 ];
 
@@ -794,7 +864,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			}
 
-			window.pathTracerApp.pathTracingPass.setTileCount( tileCount );
+			app.setTileCount( tileCount );
 
 		},
 		false
@@ -802,10 +872,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTileHelperToggle: handleChange(
 		val => set( { tilesHelper: val } ),
-		val => {
+		( val, app ) => {
 
 			const { renderMode } = get();
-			parseInt( renderMode ) === 1 && ( window.pathTracerApp.tileHighlightPass.enabled = val );
+			if ( parseInt( renderMode ) === 1 && app.tileHighlightPass ) app.tileHighlightPass.enabled = val;
 
 		},
 		false
@@ -813,41 +883,44 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEnableOIDNChange: handleChange(
 		val => set( { enableOIDN: val } ),
-		val => window.pathTracerApp.denoiser.enabled = val,
+		( val, app ) => {
+
+			if ( app.denoiser ) app.denoiser.enabled = val;
+
+		},
 		false
 	),
 
 	handleOidnQualityChange: handleChange(
 		val => set( { oidnQuality: val } ),
-		val => window.pathTracerApp.denoiser.updateQuality( val ),
+		( val, app ) => app.denoiser?.updateQuality( val ),
 		false
 	),
 
 	handleOidnHdrChange: handleChange(
 		val => set( { oidnHdr: val } ),
-		val => window.pathTracerApp.denoiser.toggleHDR( val ),
+		( val, app ) => app.denoiser?.toggleHDR( val ),
 		false
 	),
 
 	handleUseGBufferChange: handleChange(
 		val => set( { useGBuffer: val } ),
-		val => window.pathTracerApp.denoiser.toggleUseGBuffer( val ),
+		( val, app ) => app.denoiser?.toggleUseGBuffer( val ),
 		false
 	),
 
 	// Denoiser strategy and EdgeAware filter handlers
 	handleDenoiserStrategyChange: handleChange(
 		val => set( { denoiserStrategy: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app ) return;
 
 			// Disable all real-time denoisers first (OIDN remains independent)
-			app.asvgfPass.enabled = false;
+			if ( app.asvgfPass ) app.asvgfPass.enabled = false;
 			if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = false;
 			if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = false;
-			app.edgeAwareFilterPass.setFilteringEnabled( false );
+			if ( app.edgeAwareFilterPass ) app.edgeAwareFilterPass.setFilteringEnabled( false );
 
 			// Enable the selected real-time denoiser
 			switch ( val ) {
@@ -920,9 +993,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handlePixelEdgeSharpnessChange: handleChange(
 		val => set( { pixelEdgeSharpness: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( app?.edgeAwareFilterPass ) {
 
 				const value = Array.isArray( val ) ? val[ 0 ] : val;
@@ -936,9 +1008,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEdgeSharpenSpeedChange: handleChange(
 		val => set( { edgeSharpenSpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( app?.edgeAwareFilterPass ) {
 
 				const value = Array.isArray( val ) ? val[ 0 ] : val;
@@ -952,9 +1023,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEdgeThresholdChange: handleChange(
 		val => set( { edgeThreshold: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( app?.edgeAwareFilterPass ) {
 
 				const value = Array.isArray( val ) ? val[ 0 ] : val;
@@ -968,49 +1038,63 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleDebugThresholdChange: handleChange(
 		val => set( { debugThreshold: val } ),
-		val => window.pathTracerApp.pathTracingPass.material.uniforms.debugVisScale.value = val[ 0 ]
+		( val, app ) => app.setDebugVisScale( val[ 0 ] )
 	),
 
 	handleDebugModeChange: handleChange(
 		val => set( { debugMode: val } ),
-		val => {
+		( val, app ) => {
 
 			const mode = {
 				'1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
 				'6': 6, '7': 7, '8': 8, '9': 9, '10': 10, '11': 11
 			}[ val ] || 0;
-			window.pathTracerApp.pathTracingPass.material.uniforms.visMode.value = mode;
+			app.setVisMode( mode );
 
 		}
 	),
 
 	handleEnableBloomChange: handleChange(
 		val => set( { enableBloom: val } ),
-		val => window.pathTracerApp.bloomPass.enabled = val
+		( val, app ) => {
+
+			if ( app.bloomPass ) app.bloomPass.enabled = val;
+
+		}
 	),
 
 	handleBloomThresholdChange: handleChange(
 		val => set( { bloomThreshold: val } ),
-		val => window.pathTracerApp.bloomPass.threshold = val[ 0 ]
+		( val, app ) => {
+
+			if ( app.bloomPass ) app.bloomPass.threshold = val[ 0 ];
+
+		}
 	),
 
 	handleBloomStrengthChange: handleChange(
 		val => set( { bloomStrength: val } ),
-		val => window.pathTracerApp.bloomPass.strength = val[ 0 ]
+		( val, app ) => {
+
+			if ( app.bloomPass ) app.bloomPass.strength = val[ 0 ];
+
+		}
 	),
 
 	handleBloomRadiusChange: handleChange(
 		val => set( { bloomRadius: val } ),
-		val => window.pathTracerApp.bloomPass.radius = val[ 0 ]
+		( val, app ) => {
+
+			if ( app.bloomPass ) app.bloomPass.radius = val[ 0 ];
+
+		}
 	),
 
 	handleExposureChange: handleChange(
 		val => set( { exposure: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.renderer.toneMappingExposure = val;
-			app.pathTracingPass.material.uniforms.exposure.value = val;
+			app.setExposure( val );
 			app.reset();
 
 		}
@@ -1019,9 +1103,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Auto-exposure handlers
 	handleAutoExposureChange: handleChange(
 		val => set( { autoExposure: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( app?.autoExposurePass ) {
 
 				app.autoExposurePass.enabled = val;
@@ -1030,8 +1113,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 					// When disabling auto-exposure, restore manual exposure
 					const manualExposure = get().exposure;
-					app.renderer.toneMappingExposure = manualExposure;
-					app.pathTracingPass.material.uniforms.exposure.value = manualExposure;
+					app.setExposure( manualExposure );
 
 				}
 
@@ -1044,10 +1126,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAutoExposureKeyValueChange: handleChange(
 		val => set( { autoExposureKeyValue: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			window.pathTracerApp?.autoExposurePass?.updateParameters( { keyValue: value } );
+			app.autoExposurePass?.updateParameters( { keyValue: value } );
 
 		},
 		true
@@ -1055,10 +1137,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAutoExposureMinExposureChange: handleChange(
 		val => set( { autoExposureMinExposure: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			window.pathTracerApp?.autoExposurePass?.updateParameters( { minExposure: value } );
+			app.autoExposurePass?.updateParameters( { minExposure: value } );
 
 		},
 		true
@@ -1066,10 +1148,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAutoExposureMaxExposureChange: handleChange(
 		val => set( { autoExposureMaxExposure: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			window.pathTracerApp?.autoExposurePass?.updateParameters( { maxExposure: value } );
+			app.autoExposurePass?.updateParameters( { maxExposure: value } );
 
 		},
 		true
@@ -1077,11 +1159,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAutoExposureAdaptSpeedChange: handleChange(
 		val => set( { autoExposureAdaptSpeedBright: Array.isArray( val ) ? val[ 0 ] : val } ),
-		val => {
+		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
 			// Maintain ratio between bright and dark adaptation (6:1)
-			window.pathTracerApp?.autoExposurePass?.updateParameters( {
+			app.autoExposurePass?.updateParameters( {
 				adaptSpeedBright: value,
 				adaptSpeedDark: value / 6.0
 			} );
@@ -1092,21 +1174,20 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEnableEnvironmentChange: handleChange(
 		val => set( { enableEnvironment: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
-			window.pathTracerApp.reset();
+			app.setEnableEnvironment( val );
+			app.reset();
 
 		}
 	),
 
 	handleShowBackgroundChange: handleChange(
 		val => set( { showBackground: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.scene.background = val ? app.scene.environment : null;
-			app.pathTracingPass.material.uniforms.showBackground.value = val;
+			if ( app.scene ) app.scene.background = val ? app.scene.environment : null;
+			app.setShowBackground( val );
 			app.reset();
 
 		}
@@ -1114,11 +1195,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleBackgroundIntensityChange: handleChange(
 		val => set( { backgroundIntensity: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.scene.backgroundIntensity = val;
-			app.pathTracingPass.material.uniforms.backgroundIntensity.value = val;
+			app.setBackgroundIntensity( val );
 			app.reset();
 
 		}
@@ -1126,11 +1205,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEnvironmentIntensityChange: handleChange(
 		val => set( { environmentIntensity: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.scene.environmentIntensity = val;
-			app.pathTracingPass.material.uniforms.environmentIntensity.value = val;
+			app.setEnvironmentIntensity( val );
 			app.reset();
 
 		}
@@ -1138,20 +1215,20 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEnvironmentRotationChange: handleChange(
 		val => set( { environmentRotation: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.setEnvironmentRotation( val[ 0 ] );
-			window.pathTracerApp.reset();
+			app.setEnvironmentRotation( val[ 0 ] );
+			app.reset();
 
 		}
 	),
 
 	handleGIIntensityChange: handleChange(
 		val => set( { GIIntensity: val } ),
-		val => {
+		( val, app ) => {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = val;
-			window.pathTracerApp.reset();
+			app.setGlobalIlluminationIntensity( val );
+			app.reset();
 
 		}
 	),
@@ -1159,9 +1236,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Environment Mode Handlers
 	handleEnvironmentModeChange: handleChange(
 		val => set( { environmentMode: val } ),
-		async val => {
+		async ( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app ) return;
 
 			const modeMap = { hdri: 0, procedural: 1, gradient: 2, color: 3 };
@@ -1169,44 +1245,41 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			// Store previous HDRI if switching away
 			if ( val !== 'hdri' && get().environmentMode === 'hdri' ) {
 
-				app._previousHDRI = app.pathTracingPass.material.uniforms.environment.value;
-				app._previousCDF = app.pathTracingPass.material.uniforms.envCDF.value;
+				app._previousHDRI = app.getEnvironmentTexture();
+				app._previousCDF = app.getEnvironmentCDF();
 
 			}
 
 			// Generate texture for procedural modes
 			if ( val === 'gradient' ) {
 
-				await app.pathTracingPass.generateGradientTexture();
+				await app.generateGradientTexture();
 
 			} else if ( val === 'color' ) {
 
-				await app.pathTracingPass.generateSolidColorTexture();
+				await app.generateSolidColorTexture();
 
 			} else if ( val === 'procedural' ) {
 
-				await app.pathTracingPass.generateProceduralSkyTexture();
+				await app.generateProceduralSkyTexture();
 
 			} else if ( val === 'hdri' ) {
 
 				// Restore previous HDRI
 				if ( app._previousHDRI ) {
 
-					await app.pathTracingPass.setEnvironmentMap( app._previousHDRI );
+					await app.setEnvironmentMap( app._previousHDRI );
 
 				}
 
 			}
 
 			// Update envParams mode (CPU-side parameter, not passed to shader)
-			app.pathTracingPass.envParams.mode = val;
+			const envParams = app.getEnvParams();
+			if ( envParams ) envParams.mode = val;
 
 			// Force texture update
-			if ( app.pathTracingPass.material.uniforms.environment.value ) {
-
-				app.pathTracingPass.material.uniforms.environment.value.needsUpdate = true;
-
-			}
+			app.markEnvironmentNeedsUpdate();
 
 			console.log( '✅ Environment mode changed to:', val, '(uniform value:', modeMap[ val ], ')' );
 
@@ -1218,42 +1291,45 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Gradient Sky Handlers
 	handleGradientZenithColorChange: handleChange(
 		val => set( { gradientZenithColor: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'gradient' ) return;
 
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
-			app.pathTracingPass.envParams.gradientZenithColor.copy( color );
-			app.pathTracingPass.generateGradientTexture();
+			envParams.gradientZenithColor.copy( color );
+			app.generateGradientTexture();
 
 		}
 	),
 
 	handleGradientHorizonColorChange: handleChange(
 		val => set( { gradientHorizonColor: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'gradient' ) return;
 
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
-			app.pathTracingPass.envParams.gradientHorizonColor.copy( color );
-			app.pathTracingPass.generateGradientTexture();
+			envParams.gradientHorizonColor.copy( color );
+			app.generateGradientTexture();
 
 		}
 	),
 
 	handleGradientGroundColorChange: handleChange(
 		val => set( { gradientGroundColor: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'gradient' ) return;
 
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
-			app.pathTracingPass.envParams.gradientGroundColor.copy( color );
-			app.pathTracingPass.generateGradientTexture();
+			envParams.gradientGroundColor.copy( color );
+			app.generateGradientTexture();
 
 		}
 	),
@@ -1261,14 +1337,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Solid Color Sky Handler
 	handleSolidSkyColorChange: handleChange(
 		val => set( { solidSkyColor: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'color' ) return;
 
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
-			app.pathTracingPass.envParams.solidSkyColor.copy( color );
-			app.pathTracingPass.generateSolidColorTexture();
+			envParams.solidSkyColor.copy( color );
+			app.generateSolidColorTexture();
 
 		}
 	),
@@ -1276,10 +1353,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Procedural Sky (Preetham Model) Handlers
 	handleSkySunAzimuthChange: handleChange(
 		val => set( { skySunAzimuth: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
 
 			// Update sun direction based on azimuth and elevation
 			const azimuth = val * ( Math.PI / 180 );
@@ -1290,7 +1369,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				Math.cos( elevation ) * Math.cos( azimuth )
 			).normalize();
 
-			app.pathTracingPass.envParams.skySunDirection.copy( sunDir );
+			envParams.skySunDirection.copy( sunDir );
 			// Use debounced version to prevent rapid regeneration
 			debouncedGenerateProceduralSkyTexture();
 
@@ -1299,10 +1378,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleSkySunElevationChange: handleChange(
 		val => set( { skySunElevation: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
+
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
 
 			// Update sun direction based on azimuth and elevation
 			const azimuth = get().skySunAzimuth * ( Math.PI / 180 );
@@ -1313,7 +1394,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				Math.cos( elevation ) * Math.cos( azimuth )
 			).normalize();
 
-			app.pathTracingPass.envParams.skySunDirection.copy( sunDir );
+			envParams.skySunDirection.copy( sunDir );
 			// Use debounced version to prevent rapid regeneration
 			debouncedGenerateProceduralSkyTexture();
 
@@ -1322,12 +1403,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleSkySunIntensityChange: handleChange(
 		val => set( { skySunIntensity: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			app.pathTracingPass.envParams.skySunIntensity = val;
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
+			envParams.skySunIntensity = val;
 			// Use debounced version to prevent rapid regeneration
 			debouncedGenerateProceduralSkyTexture();
 
@@ -1336,12 +1418,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleSkyRayleighDensityChange: handleChange(
 		val => set( { skyRayleighDensity: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			app.pathTracingPass.envParams.skyRayleighDensity = val;
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
+			envParams.skyRayleighDensity = val;
 			// Use debounced version to prevent rapid regeneration
 			debouncedGenerateProceduralSkyTexture();
 
@@ -1350,12 +1433,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleSkyTurbidityChange: handleChange(
 		val => set( { skyTurbidity: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			app.pathTracingPass.envParams.skyTurbidity = val;
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
+			envParams.skyTurbidity = val;
 			// Use debounced version to prevent rapid regeneration
 			debouncedGenerateProceduralSkyTexture();
 
@@ -1365,12 +1449,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleSkyMieAnisotropyChange: handleChange(
 		val => set( { skyMieAnisotropy: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			app.pathTracingPass.envParams.skyMieAnisotropy = val;
+			const envParams = app.getEnvParams();
+			if ( ! envParams ) return;
+			envParams.skyMieAnisotropy = val;
 			// Use debounced version to prevent rapid regeneration
 			debouncedGenerateProceduralSkyTexture();
 
@@ -1398,9 +1483,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleToneMappingChange: handleChange(
 		val => set( { toneMapping: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			app.renderer.toneMapping = parseInt( val );
 			app.reset();
 
@@ -1409,11 +1493,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleRenderLimitModeChange: handleChange(
 		val => set( { renderLimitMode: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.renderLimitMode = val;
-			app.pathTracingPass.setRenderLimitMode( val );
+			app.setRenderLimitMode( val );
 			app.reset();
 
 		}
@@ -1421,13 +1503,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleRenderTimeLimitChange: handleChange(
 		val => set( { renderTimeLimit: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
 			app.renderTimeLimit = parseFloat( val );
-			// No need to reset for time limit change unless we want to restart timer,
-			// but usually changing constraints implies new render or adjusting current.
-			// Let's reset to be safe and consistent.
 			app.reset();
 
 		}
@@ -1435,28 +1513,27 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleInteractionModeEnabledChange: handleChange(
 		val => set( { interactionModeEnabled: val } ),
-		val => window.pathTracerApp.pathTracingPass.setInteractionModeEnabled( val ),
+		( val, app ) => app.setInteractionModeEnabled( val ),
 		false // Don't reset - exitInteractionMode handles the soft reset internally
 	),
 
 	handleAsvgfTemporalAlphaChange: handleChange(
 		val => set( { asvgfTemporalAlpha: val[ 0 ] } ),
-		val => window.pathTracerApp.asvgfPass.updateParameters( { temporalAlpha: val[ 0 ] } ),
+		( val, app ) => app.asvgfPass?.updateParameters( { temporalAlpha: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfPhiColorChange: handleChange(
 		val => set( { asvgfPhiColor: val[ 0 ] } ),
-		val => window.pathTracerApp.asvgfPass.updateParameters( { phiColor: val[ 0 ] } ),
+		( val, app ) => app.asvgfPass?.updateParameters( { phiColor: val[ 0 ] } ),
 		false
 	),
 
 	handleEnableASVGFChange: handleChange(
 		val => set( { enableASVGF: val } ),
-		val => {
+		( val, app ) => {
 
-			const app = window.pathTracerApp;
-			app.asvgfPass.enabled = val;
+			if ( app.asvgfPass ) app.asvgfPass.enabled = val;
 
 			// Enable/disable the extracted variance and bilateral filtering stages
 			if ( app.varianceEstimationPass ) {
@@ -1489,7 +1566,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			}
 
 			// Coordinate with EdgeAware filtering
-			app.edgeAwareFilterPass.setFilteringEnabled( ! val );
+			if ( app.edgeAwareFilterPass ) app.edgeAwareFilterPass.setFilteringEnabled( ! val );
 
 			// Reset when toggling
 			app.reset();
@@ -1499,11 +1576,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleShowAsvgfHeatmapChange: handleChange(
 		val => set( { showAsvgfHeatmap: val } ),
-		val => {
+		( val, app ) => {
 
-			if ( window.pathTracerApp?.asvgfPass ) {
+			if ( app?.asvgfPass ) {
 
-				window.pathTracerApp.asvgfPass.toggleHeatmap && window.pathTracerApp.asvgfPass.toggleHeatmap( val );
+				app.asvgfPass.toggleHeatmap && app.asvgfPass.toggleHeatmap( val );
 
 			}
 
@@ -1513,13 +1590,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAsvgfPhiLuminanceChange: handleChange(
 		val => set( { asvgfPhiLuminance: val } ),
-		val => window.pathTracerApp.updateASVGFParameters( { phiLuminance: val[ 0 ] } ),
+		( val, app ) => app.asvgfPass?.updateParameters( { phiLuminance: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfAtrousIterationsChange: handleChange(
 		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
-		val => window.pathTracerApp.asvgfPass.updateParameters( { atrousIterations: val[ 0 ] } ),
+		( val, app ) => app.asvgfPass?.updateParameters( { atrousIterations: val[ 0 ] } ),
 		false
 	),
 
@@ -1535,31 +1612,34 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		} );
 
-		if ( ! window.pathTracerApp ) return;
-		const app = window.pathTracerApp;
+		const app = getApp();
+		if ( ! app ) return;
 		app.controls.enabled = true;
 
 		requestAnimationFrame( () => {
 
-			const uniforms = app.pathTracingPass.material.uniforms;
-			uniforms.maxBounceCount.value = PREVIEW_STATE.bounces;
-			uniforms.numRaysPerPixel.value = PREVIEW_STATE.samplesPerPixel;
-			uniforms.renderMode.value = PREVIEW_STATE.renderMode;
-			uniforms.transmissiveBounces.value = PREVIEW_STATE.transmissiveBounces;
+			app.setMaxBounces( PREVIEW_STATE.bounces );
+			app.setSamplesPerPixel( PREVIEW_STATE.samplesPerPixel );
+			app.setRenderMode( PREVIEW_STATE.renderMode );
+			app.setTransmissiveBounces( PREVIEW_STATE.transmissiveBounces );
 
 			// Use setTileCount to properly update completion threshold
-			app.pathTracingPass.setTileCount( PREVIEW_STATE.tiles );
-			app.tileHighlightPass.enabled = PREVIEW_STATE.tilesHelper;
+			app.setTileCount( PREVIEW_STATE.tiles );
+			if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = PREVIEW_STATE.tilesHelper;
 
 			// Ensure completion threshold is updated after render mode change
-			app.pathTracingPass.updateCompletionThreshold();
+			app.pathTracingPass?.updateCompletionThreshold?.();
 
 			// Abort any ongoing denoising before switching modes
-			app.denoiser.abort();
-			app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
-			app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
-			app.denoiser.toggleHDR( PREVIEW_STATE.oidnHDR );
-			app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
+			if ( app.denoiser ) {
+
+				app.denoiser.abort();
+				app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
+				app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
+				app.denoiser.toggleHDR( PREVIEW_STATE.oidnHDR );
+				app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
+
+			}
 
 			// Use absolute pixel resolution based on mode setting
 			const previewTargetRes = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ PREVIEW_STATE.resolution ] || 512;
@@ -1586,32 +1666,35 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		} );
 
-		if ( ! window.pathTracerApp ) return;
-		const app = window.pathTracerApp;
+		const app = getApp();
+		if ( ! app ) return;
 		app.controls.enabled = false;
 
 		requestAnimationFrame( () => {
 
-			const uniforms = app.pathTracingPass.material.uniforms;
-			uniforms.maxFrames.value = FINAL_RENDER_STATE.maxSamples;
-			uniforms.maxBounceCount.value = FINAL_RENDER_STATE.bounces;
-			uniforms.numRaysPerPixel.value = FINAL_RENDER_STATE.samplesPerPixel;
-			uniforms.renderMode.value = FINAL_RENDER_STATE.renderMode;
-			uniforms.transmissiveBounces.value = FINAL_RENDER_STATE.transmissiveBounces;
+			app.setMaxSamples( FINAL_RENDER_STATE.maxSamples );
+			app.setMaxBounces( FINAL_RENDER_STATE.bounces );
+			app.setSamplesPerPixel( FINAL_RENDER_STATE.samplesPerPixel );
+			app.setRenderMode( FINAL_RENDER_STATE.renderMode );
+			app.setTransmissiveBounces( FINAL_RENDER_STATE.transmissiveBounces );
 
 			// Use setTileCount to properly update completion threshold
-			app.pathTracingPass.setTileCount( FINAL_RENDER_STATE.tiles );
-			app.tileHighlightPass.enabled = FINAL_RENDER_STATE.tilesHelper;
+			app.setTileCount( FINAL_RENDER_STATE.tiles );
+			if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = FINAL_RENDER_STATE.tilesHelper;
 
 			// Ensure completion threshold is updated after render mode change
-			app.pathTracingPass.updateCompletionThreshold();
+			app.pathTracingPass?.updateCompletionThreshold?.();
 
 			// Abort any ongoing denoising before switching modes
-			app.denoiser.abort();
-			app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
-			app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
-			app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
-			app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
+			if ( app.denoiser ) {
+
+				app.denoiser.abort();
+				app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
+				app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
+				app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
+				app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
+
+			}
 
 			// Use absolute pixel resolution based on mode setting
 			const finalTargetRes = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ FINAL_RENDER_STATE.resolution ] || 2048;
@@ -1630,8 +1713,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleConfigureForResults: () => {
 
-		if ( ! window.pathTracerApp ) return;
-		const app = window.pathTracerApp;
+		const app = getApp();
+		if ( ! app ) return;
 		app.pauseRendering = true;
 		app.controls.enabled = false;
 		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'none' );
@@ -1667,9 +1750,11 @@ const useLightStore = create( set => ( {
 		lights[ idx ][ prop ] = value;
 
 		// Update the actual Three.js light object
-		if ( window.pathTracerApp ) {
+		const app = getApp();
 
-			const light = window.pathTracerApp.scene.getObjectByProperty( 'uuid', lights[ idx ].uuid );
+		if ( app ) {
+
+			const light = app.scene.getObjectByProperty( 'uuid', lights[ idx ].uuid );
 			if ( light ) {
 
 				if ( prop === 'intensity' ) {
@@ -1706,8 +1791,8 @@ const useLightStore = create( set => ( {
 
 				}
 
-				window.pathTracerApp.pathTracingPass.updateLights();
-				window.pathTracerApp.reset();
+				app.pathTracingPass?.updateLights();
+				app.reset();
 
 			}
 
@@ -1734,9 +1819,10 @@ const useLightStore = create( set => ( {
 	// Add light to scene
 	addLight: ( lightType ) => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
-		const newLight = window.pathTracerApp.addLight( lightType );
+		const newLight = app.addLight( lightType );
 		if ( newLight ) {
 
 			set( s => ( { lights: [ ...s.lights, newLight ] } ) );
@@ -1749,14 +1835,15 @@ const useLightStore = create( set => ( {
 	// Remove light from scene
 	removeLight: ( lightIndex ) => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
 		set( s => {
 
 			if ( lightIndex < 0 || lightIndex >= s.lights.length ) return s;
 
 			const lightToRemove = s.lights[ lightIndex ];
-			const success = window.pathTracerApp.removeLight( lightToRemove.uuid );
+			const success = app.removeLight( lightToRemove.uuid );
 
 			if ( success ) {
 
@@ -1774,9 +1861,10 @@ const useLightStore = create( set => ( {
 	// Clear all lights
 	clearAllLights: () => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
-		window.pathTracerApp.clearLights();
+		app.clearLights();
 		set( { lights: [] } );
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
@@ -1812,8 +1900,9 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleToggleFocusMode: () => {
 
-		if ( ! window.pathTracerApp ) return;
-		const isActive = window.pathTracerApp.toggleFocusMode();
+		const app = getApp();
+		if ( ! app ) return;
+		const isActive = app.toggleFocusMode();
 		console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
 		set( { focusMode: isActive } );
 
@@ -1821,9 +1910,10 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleToggleSelectMode: () => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
-		const isActive = window.pathTracerApp.toggleSelectMode();
+		const isActive = app.toggleSelectMode();
 		set( { selectMode: isActive } );
 
 	},
@@ -1831,10 +1921,11 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleEnableDOFChange: val => {
 
 		set( { enableDOF: val, activePreset: "custom" } );
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.enableDOF.value = val;
-			window.pathTracerApp.reset();
+			app.setEnableDOF( val );
+			app.reset();
 
 		}
 
@@ -1843,9 +1934,10 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleZoomToCursorChange: val => {
 
 		set( { zoomToCursor: val } );
-		if ( window.pathTracerApp?.controls ) {
+		const app = getApp();
+		if ( app?.controls ) {
 
-			window.pathTracerApp.controls.zoomToCursor = val;
+			app.controls.zoomToCursor = val;
 
 		}
 
@@ -1854,11 +1946,12 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleFocusDistanceChange: val => {
 
 		set( { focusDistance: val, activePreset: "custom" } );
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			const scale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
-			window.pathTracerApp.pathTracingPass.material.uniforms.focusDistance.value = val * scale;
-			window.pathTracerApp.reset();
+			const scale = app.assetLoader?.getSceneScale() || 1.0;
+			app.setFocusDistance( val * scale );
+			app.reset();
 
 		}
 
@@ -1876,19 +1969,17 @@ const useCameraStore = create( ( set, get ) => ( {
 		const preset = CAMERA_PRESETS[ key ];
 		set( { ...preset, activePreset: key } );
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			const scale = window.pathTracerApp.assetLoader?.getSceneScale() || 1.0;
-			const { camera, pathTracingPass } = window.pathTracerApp;
-			camera.fov = preset.fov;
-			camera.updateProjectionMatrix();
-			const uniforms = pathTracingPass.material.uniforms;
-			uniforms.focusDistance.value = preset.focusDistance * scale;
-			uniforms.aperture.value = preset.aperture;
-			uniforms.focalLength.value = preset.focalLength;
-			// Preserve the current apertureScale (DOF intensity) value
-			uniforms.apertureScale.value = get().apertureScale || 1.0;
-			window.pathTracerApp.reset();
+			const scale = app.assetLoader?.getSceneScale() || 1.0;
+			app.camera.fov = preset.fov;
+			app.camera.updateProjectionMatrix();
+			app.setFocusDistance( preset.focusDistance * scale );
+			app.setAperture( preset.aperture );
+			app.setFocalLength( preset.focalLength );
+			app.setApertureScale( get().apertureScale || 1.0 );
+			app.reset();
 
 		}
 
@@ -1897,11 +1988,12 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleFovChange: val => {
 
 		set( { fov: val, activePreset: "custom" } );
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.camera.fov = val;
-			window.pathTracerApp.camera.updateProjectionMatrix();
-			window.pathTracerApp.reset();
+			app.camera.fov = val;
+			app.camera.updateProjectionMatrix();
+			app.reset();
 
 		}
 
@@ -1910,10 +2002,11 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleApertureChange: val => {
 
 		set( { aperture: val, activePreset: "custom" } );
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.aperture.value = val;
-			window.pathTracerApp.reset();
+			app.setAperture( val );
+			app.reset();
 
 		}
 
@@ -1922,12 +2015,12 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleFocalLengthChange: val => {
 
 		set( { focalLength: val, activePreset: "custom" } );
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			const uniforms = window.pathTracerApp.pathTracingPass.material.uniforms;
-			uniforms.focalLength.value = val;
-			val <= 0 && ( uniforms.aperture.value = 16.0 );
-			window.pathTracerApp.reset();
+			app.setFocalLength( val );
+			if ( val <= 0 ) app.setAperture( 16.0 );
+			app.reset();
 
 		}
 
@@ -1935,8 +2028,9 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleCameraMove: point => {
 
-		if ( ! window.pathTracerApp?.controls ) return;
-		const { controls, camera } = window.pathTracerApp;
+		const app = getApp();
+		if ( ! app?.controls ) return;
+		const { controls, camera } = app;
 		const target = controls.target.clone();
 		const distance = camera.position.distanceTo( target );
 		const remap = ( val, inMin, inMax, outMin, outMax ) => ( val - inMin ) * ( outMax - outMin ) / ( inMax - inMin ) + outMin;
@@ -1953,9 +2047,10 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleCameraChange: idx => {
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.switchCamera( idx );
+			app.switchCamera( idx );
 			set( { selectedCameraIndex: idx } );
 
 		}
@@ -1964,10 +2059,11 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleApertureScaleChange: val => {
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.pathTracingPass.material.uniforms.apertureScale.value = val;
-			window.pathTracerApp.reset();
+			app.setApertureScale( val );
+			app.reset();
 
 		}
 
@@ -1990,28 +2086,15 @@ const useMaterialStore = create( ( set, get ) => ( {
 			obj.material.needsUpdate = true;
 
 			const idx = obj.userData?.materialIndex ?? 0;
-			const pt = window.pathTracerApp?.pathTracingPass;
-			if ( ! pt ) {
+			const app = getApp();
+			if ( ! app ) {
 
 				console.warn( "Path tracer not available" );
 				return;
 
 			}
 
-			if ( typeof pt.updateMaterialProperty === 'function' ) {
-
-				pt.updateMaterialProperty( idx, prop, val );
-
-			} else if ( typeof pt.updateMaterialDataTexture === 'function' ) {
-
-				// Fallback to legacy method
-				pt.updateMaterialDataTexture( idx, prop, val );
-
-			} else {
-
-				console.warn( "No material update method available" );
-
-			}
+			app.updateMaterialProperty( idx, prop, val );
 
 
 		} catch ( error ) {
@@ -2117,9 +2200,9 @@ const useMaterialStore = create( ( set, get ) => ( {
 		if ( ! obj?.material ) return;
 
 		const materialIndex = obj.userData?.materialIndex ?? 0;
-		const pt = window.pathTracerApp?.pathTracingPass;
+		const app = getApp();
 
-		if ( ! pt ) {
+		if ( ! app ) {
 
 			console.warn( "Path tracer not available" );
 			return;
@@ -2154,15 +2237,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 		transform[ 8 ] = 1; // m22
 
 		// Update the appropriate transform in material data texture
-		if ( typeof pt.updateTextureTransform === 'function' ) {
-
-			pt.updateTextureTransform( materialIndex, textureName, transform );
-
-		} else {
-
-			console.warn( `No texture transform update method available for ${textureName}` );
-
-		}
+		app.updateTextureTransform( materialIndex, textureName, transform );
 
 	},
 
@@ -2530,10 +2605,11 @@ const useMaterialStore = create( ( set, get ) => ( {
 			set( { selectedObject: obj } );
 
 			// Trigger shader recompilation by resetting the path tracer
-			if ( window.pathTracerApp ) {
+			const app = getApp();
+			if ( app ) {
 
-				window.pathTracerApp.pathTracingPass.material.needsUpdate = true;
-				window.pathTracerApp.reset();
+				app.refreshMaterial();
+				app.reset();
 
 			}
 

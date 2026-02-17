@@ -5,8 +5,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Trackpad } from "@/components/ui/trackpad";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
-import { useCameraStore } from '@/store';
-import { useEffect } from 'react';
+import { useCameraStore, usePathTracerStore } from '@/store';
+import { useEffect, useCallback } from 'react';
+import { getApp } from '@/core/appProxy';
+import { useBackendEvent } from '@/hooks/useBackendEvent';
 import { FieldOfView } from "@/assets/icons";
 import { Separator } from "@/components/ui/separator";
 
@@ -44,48 +46,34 @@ const CameraTab = () => {
 		handleFocusChangeEvent,
 	} = useCameraStore();
 
+	const backend = usePathTracerStore( state => state.backend );
+	const isWebGL = backend === 'webgl';
+
+	useBackendEvent( 'focusChanged', handleFocusChangeEvent );
+
+	useBackendEvent( 'CamerasUpdated', useCallback( () => {
+
+		const app = getApp();
+		if ( app ) {
+
+			setCameraNames( app.getCameraNames() );
+			if ( ( app.currentCameraIndex ?? 0 ) === 0 ) {
+
+				setSelectedCameraIndex( 0 );
+
+			}
+
+		}
+
+	}, [ setCameraNames, setSelectedCameraIndex ] ) );
+
 	useEffect( () => {
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			// Set up camera names and initial selection
-			const updateCameraList = () => {
-
-				setCameraNames( window.pathTracerApp.getCameraNames() );
-				setSelectedCameraIndex( window.pathTracerApp.currentCameraIndex );
-
-			};
-
-			// Initial setup
-			updateCameraList();
-
-			// Listen for focus change events (focus mode is already set up in InteractionManager)
-			window.pathTracerApp.addEventListener( 'focusChanged', handleFocusChangeEvent );
-
-			// Listen for camera updates from model loading
-			const handleCameraUpdate = ( event ) => {
-
-				updateCameraList();
-
-				// Always reset to default camera (index 0) in UI as well
-				if ( window.pathTracerApp.currentCameraIndex === 0 ) {
-
-					// Force UI update to show default camera is selected
-					setSelectedCameraIndex( 0 );
-
-				}
-
-			};
-
-			window.pathTracerApp.addEventListener( 'CamerasUpdated', handleCameraUpdate );
-
-			// Clean up event listeners on component unmount
-			return () => {
-
-				window.pathTracerApp.removeEventListener( 'focusChanged', handleFocusChangeEvent );
-				window.pathTracerApp.removeEventListener( 'CamerasUpdated', handleCameraUpdate );
-
-			};
+			setCameraNames( app.getCameraNames() );
+			setSelectedCameraIndex( app.currentCameraIndex ?? 0 );
 
 		}
 
@@ -156,7 +144,7 @@ const CameraTab = () => {
 
 				{enableDOF && (
 					<>
-						<div className="flex items-center justify-between">
+						{isWebGL && <div className="flex items-center justify-between">
 							<Select value={activePreset} onValueChange={handlePresetChange}>
 								<span className="opacity-50 text-xs truncate">DOF Preset</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -177,7 +165,7 @@ const CameraTab = () => {
 									) )}
 								</SelectContent>
 							</Select>
-						</div>
+						</div>}
 
 						<div className="flex items-center justify-between">
 							<Slider
@@ -189,7 +177,7 @@ const CameraTab = () => {
 								value={[ focusDistance.toFixed( 1 ) ]}
 								onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
 							/>
-							<Button
+							{isWebGL && <Button
 								variant={focusMode ? "default" : "outline"}
 								size="icon"
 								onClick={handleToggleFocusMode}
@@ -197,7 +185,7 @@ const CameraTab = () => {
 								title="Click in scene to set focus point"
 							>
 								<Target size={12} />
-							</Button>
+							</Button>}
 						</div>
 
 						<div className="flex items-center justify-between">

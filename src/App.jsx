@@ -11,6 +11,7 @@ import {
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useStore } from '@/store';
+import { getApp } from '@/core/appProxy';
 
 const App = () => {
 
@@ -102,11 +103,12 @@ const App = () => {
 		// Keyboard shortcut handlers
 		const handleDeselect = () => {
 
-			if ( window.pathTracerApp ) {
+			const app = getApp();
+			if ( app ) {
 
 				// Deselect any selected object
-				window.pathTracerApp.selectObject( null );
-				window.pathTracerApp.refreshFrame?.();
+				app.selectObject( null );
+				app.refreshFrame?.();
 
 				// Update the store to reflect deselection
 				const { setSelectedObject } = useStore.getState();
@@ -118,10 +120,11 @@ const App = () => {
 
 		const handleResetCamera = () => {
 
-			if ( window.pathTracerApp?.controls ) {
+			const app = getApp();
+			if ( app?.controls ) {
 
 				// Reset the orbit controls to their default state
-				window.pathTracerApp.controls.reset();
+				app.controls.reset();
 
 			}
 
@@ -129,30 +132,31 @@ const App = () => {
 
 		const handleTogglePlayPause = () => {
 
-			if ( window.pathTracerApp ) {
+			const app = getApp();
+			if ( app ) {
 
-				const isComplete = window.pathTracerApp.pathTracingPass?.isComplete;
+				const renderComplete = app.isComplete();
 
-				if ( isComplete ) {
+				if ( renderComplete ) {
 
 					// If rendering is complete, always restart
-					window.pathTracerApp.pauseRendering = false;
-					window.pathTracerApp.reset();
+					app.pauseRendering = false;
+					app.reset();
 
 				} else {
 
 					// If rendering is in progress, toggle pause/resume
-					const isCurrentlyPaused = window.pathTracerApp.pauseRendering;
+					const isCurrentlyPaused = app.pauseRendering;
 
 					if ( isCurrentlyPaused ) {
 
 						// Resume rendering from where it left off
-						window.pathTracerApp.pauseRendering = false;
+						app.pauseRendering = false;
 
 					} else {
 
 						// Pause rendering
-						window.pathTracerApp.pauseRendering = true;
+						app.pauseRendering = true;
 
 					}
 

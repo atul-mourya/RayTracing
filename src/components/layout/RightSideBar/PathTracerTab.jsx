@@ -201,6 +201,8 @@ const PathTracerTab = () => {
 		handleAutoExposureAdaptSpeedChange,
 	} = pathTracerStore;
 
+	const isWebGL = backend === 'webgl';
+
 	// Handle backend selection change
 	const onBackendChange = useCallback( ( value ) => {
 
@@ -240,11 +242,6 @@ const PathTracerTab = () => {
 						Switching backend...
 					</div>
 				)}
-				{isWebGPUSupported && backend === 'webgpu' && (
-					<Badge variant="outline" className="text-xs w-fit">
-						Experimental
-					</Badge>
-				)}
 				{! isWebGPUSupported && (
 					<div className="text-xs text-muted-foreground">
 						WebGPU not supported in this browser
@@ -256,9 +253,9 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
 				</div>
-				<div className="flex items-center justify-between">
+				{isWebGL && <div className="flex items-center justify-between">
 					<Switch label={"Interaction Mode"} checked={interactionModeEnabled} onCheckedChange={handleInteractionModeEnabledChange} />
-				</div>
+				</div>}
 				<div className="flex items-center justify-between">
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
 				</div>
@@ -276,7 +273,7 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="0">Regular</SelectItem>
-							<SelectItem value="1">Tiled</SelectItem>
+							{isWebGL && <SelectItem value="1">Tiled</SelectItem>}
 						</SelectContent>
 					</Select>
 				</div>
@@ -321,14 +318,14 @@ const PathTracerTab = () => {
 						</SelectContent>
 					</Select>
 				</div>
-				<div className="flex items-center justify-between">
+				{isWebGL && <div className="flex items-center justify-between">
 					<span className="opacity-50 text-xs truncate">Auto Exposure</span>
 					<div className="flex items-center gap-2">
 						{autoExposure && <AutoExposureValue />}
 						<Switch checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
 					</div>
-				</div>
-				{autoExposure ? (
+				</div>}
+				{isWebGL && autoExposure ? (
 					<>
 						<div className="flex items-center justify-between">
 							<Slider icon={Target} label={"Target Brightness"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
@@ -464,7 +461,7 @@ const PathTracerTab = () => {
 				</div>
 
 				{/* HDRI Mode Controls */}
-				{environmentMode === 'hdri' && (
+				{isWebGL && environmentMode === 'hdri' && (
 					<>
 						<div className="flex items-center justify-between">
 							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
@@ -482,8 +479,8 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="none">None</SelectItem>
-							<SelectItem value="edgeaware">EdgeAware</SelectItem>
-							<SelectItem value="asvgf">ASVGF</SelectItem>
+							{isWebGL && <SelectItem value="edgeaware">EdgeAware</SelectItem>}
+							{isWebGL && <SelectItem value="asvgf">ASVGF</SelectItem>}
 						</SelectContent>
 					</Select>
 				</div>
@@ -538,35 +535,37 @@ const PathTracerTab = () => {
 				</> )}
 
 				{/* Separator before AI Denoising section */}
-				<Separator />
+				{isWebGL && <>
+					<Separator />
 
-				{/* Independent OIDN Control - Placed after real-time denoiser controls */}
-				<div className="flex items-center justify-between">
-					<Switch label={"AI Denoising (OIDN)"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
-				</div>
+					{/* Independent OIDN Control - Placed after real-time denoiser controls */}
+					<div className="flex items-center justify-between">
+						<Switch label={"AI Denoising (OIDN)"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
+					</div>
 
-				{/* OIDN Quality Controls - Independent of real-time denoiser selection */}
-				{enableOIDN && ( <>
-					<div className="flex items-center justify-between">
-						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
-							<span className="opacity-50 text-xs truncate">OIDN Quality</span>
-							<SelectTrigger className="max-w-32 h-5 rounded-full" >
-								<SelectValue placeholder="Select quality" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="fast">Fast</SelectItem>
-								<SelectItem value="balance">Balance</SelectItem>
-								<SelectItem disabled value="high">High</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
-					</div>
-				</> )}
+					{/* OIDN Quality Controls - Independent of real-time denoiser selection */}
+					{enableOIDN && ( <>
+						<div className="flex items-center justify-between">
+							<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
+								<span className="opacity-50 text-xs truncate">OIDN Quality</span>
+								<SelectTrigger className="max-w-32 h-5 rounded-full" >
+									<SelectValue placeholder="Select quality" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="fast">Fast</SelectItem>
+									<SelectItem value="balance">Balance</SelectItem>
+									<SelectItem disabled value="high">High</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="flex items-center justify-between">
+							<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
+						</div>
+						<div className="flex items-center justify-between">
+							<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
+						</div>
+					</> )}
+				</>}
 			</ControlGroup>
 
 			<ControlGroup name="Sampling">
@@ -634,7 +633,7 @@ const PathTracerTab = () => {
 				</> )}
 			</ControlGroup>
 
-			<ControlGroup name="Post Processing">
+			{isWebGL && <ControlGroup name="Post Processing">
 				<div className="flex items-center justify-between">
 					<SliderToggle label={"Bloom Strength"} enabled={ enableBloom } min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={ handleBloomStrengthChange } onToggleChange={ handleEnableBloomChange } />
 				</div>
@@ -646,7 +645,7 @@ const PathTracerTab = () => {
 						<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
 					</div></>
 				)}
-			</ControlGroup>
+			</ControlGroup>}
 
 			{enablePathTracer && (
 				<ControlGroup name="Debugging">

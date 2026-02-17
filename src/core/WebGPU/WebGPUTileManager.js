@@ -92,7 +92,7 @@ export class WebGPUTileManager {
 			const centerY = Math.floor( this.tilesY / 2 );
 
 			const visited = new Set();
-			const directions = [ [ 1, 0 ], [ 0, 1 ], [ - 1, 0 ], [ 0, - 1 ] ]; // Right, Down, Left, Up
+			const directions = [[ 1, 0 ], [ 0, 1 ], [ - 1, 0 ], [ 0, - 1 ]]; // Right, Down, Left, Up
 
 			let x = centerX;
 			let y = centerY;

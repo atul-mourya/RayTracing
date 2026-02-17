@@ -112,6 +112,32 @@ class PathTracerApp extends EventDispatcher {
 		this.currentCameraIndex = 0;
 		this.defaultCamera = this.camera;
 
+		// Interface compliance
+		this.isInitialized = false;
+		this.pauseRendering = false;
+
+		// Feature support map for IPathTracerApp interface
+		this._supportedFeatures = {
+			pathTracing: true,
+			progressiveAccumulation: true,
+			dof: true,
+			environmentLighting: true,
+			materialsBasic: true,
+			asvgf: true,
+			tileRendering: true,
+			objectSelection: true,
+			focusPicking: true,
+			oidnDenoiser: true,
+			bloom: true,
+			autoExposure: true,
+			adaptiveSampling: true,
+			lightManagement: true,
+			toneMapping: true,
+			edgeAwareFiltering: true,
+			cameraManagement: true,
+			interactionMode: true,
+		};
+
 	}
 
 	getQueryParameter( name ) {
@@ -244,6 +270,9 @@ class PathTracerApp extends EventDispatcher {
 		}
 
 		this.pauseRendering = false;
+
+		// Mark initialization complete
+		this.isInitialized = true;
 
 		// Start animation loop
 		this.animate();
@@ -1127,6 +1156,440 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	// ─── IPathTracerApp Interface — Setter Methods ────────────────────────
+	// These wrap internal uniform/pass access to provide a backend-agnostic API
+	// that the store and UI can call without knowing the backend implementation.
+
+	/**
+	 * Checks if this backend supports a given feature.
+	 * @param {string} featureName - Feature key from WebGPUFeatures
+	 * @returns {boolean}
+	 */
+	supportsFeature( featureName ) {
+
+		return this._supportedFeatures[ featureName ] ?? false;
+
+	}
+
+	setMaxBounces( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.maxBounceCount ) {
+
+			this.pathTracingPass.material.uniforms.maxBounceCount.value = val;
+
+		}
+
+	}
+
+	setSamplesPerPixel( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.numRaysPerPixel ) {
+
+			this.pathTracingPass.material.uniforms.numRaysPerPixel.value = val;
+
+		}
+
+	}
+
+	setMaxSamples( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.maxFrames ) {
+
+			this.pathTracingPass.material.uniforms.maxFrames.value = val;
+
+		}
+
+	}
+
+	setTransmissiveBounces( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.transmissiveBounces ) {
+
+			this.pathTracingPass.material.uniforms.transmissiveBounces.value = val;
+
+		}
+
+	}
+
+	setSamplingTechnique( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.samplingTechnique ) {
+
+			this.pathTracingPass.material.uniforms.samplingTechnique.value = val;
+
+		}
+
+	}
+
+	setEnableEmissiveTriangleSampling( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.enableEmissiveTriangleSampling ) {
+
+			this.pathTracingPass.material.uniforms.enableEmissiveTriangleSampling.value = val;
+
+		}
+
+	}
+
+	setEmissiveBoost( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.emissiveBoost ) {
+
+			this.pathTracingPass.material.uniforms.emissiveBoost.value = val;
+
+		}
+
+	}
+
+	setFireflyThreshold( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.fireflyThreshold ) {
+
+			this.pathTracingPass.material.uniforms.fireflyThreshold.value = val;
+
+		}
+
+	}
+
+	setVisMode( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.visMode ) {
+
+			this.pathTracingPass.material.uniforms.visMode.value = val;
+
+		}
+
+	}
+
+	setDebugVisScale( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.debugVisScale ) {
+
+			this.pathTracingPass.material.uniforms.debugVisScale.value = val;
+
+		}
+
+	}
+
+	setEnvironmentIntensity( val ) {
+
+		if ( this.scene ) this.scene.environmentIntensity = val;
+		if ( this.pathTracingPass?.material?.uniforms?.environmentIntensity ) {
+
+			this.pathTracingPass.material.uniforms.environmentIntensity.value = val;
+
+		}
+
+	}
+
+	setBackgroundIntensity( val ) {
+
+		if ( this.scene ) this.scene.backgroundIntensity = val;
+		if ( this.pathTracingPass?.material?.uniforms?.backgroundIntensity ) {
+
+			this.pathTracingPass.material.uniforms.backgroundIntensity.value = val;
+
+		}
+
+	}
+
+	setShowBackground( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.showBackground ) {
+
+			this.pathTracingPass.material.uniforms.showBackground.value = val;
+
+		}
+
+	}
+
+	setEnableEnvironment( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.enableEnvironmentLight ) {
+
+			this.pathTracingPass.material.uniforms.enableEnvironmentLight.value = val;
+
+		}
+
+	}
+
+	setGlobalIlluminationIntensity( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.globalIlluminationIntensity ) {
+
+			this.pathTracingPass.material.uniforms.globalIlluminationIntensity.value = val;
+
+		}
+
+	}
+
+	setExposure( val ) {
+
+		if ( this.renderer ) this.renderer.toneMappingExposure = Math.pow( val, 4.0 );
+		if ( this.pathTracingPass?.material?.uniforms?.exposure ) {
+
+			this.pathTracingPass.material.uniforms.exposure.value = val;
+
+		}
+
+	}
+
+	setEnableDOF( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.enableDOF ) {
+
+			this.pathTracingPass.material.uniforms.enableDOF.value = val;
+
+		}
+
+	}
+
+	setFocusDistance( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.focusDistance ) {
+
+			this.pathTracingPass.material.uniforms.focusDistance.value = val;
+
+		}
+
+	}
+
+	setFocalLength( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.focalLength ) {
+
+			this.pathTracingPass.material.uniforms.focalLength.value = val;
+
+		}
+
+	}
+
+	setAperture( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.aperture ) {
+
+			this.pathTracingPass.material.uniforms.aperture.value = val;
+
+		}
+
+	}
+
+	setApertureScale( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.apertureScale ) {
+
+			this.pathTracingPass.material.uniforms.apertureScale.value = val;
+
+		}
+
+	}
+
+	setUseAdaptiveSampling( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.useAdaptiveSampling ) {
+
+			this.pathTracingPass.material.uniforms.useAdaptiveSampling.value = val;
+
+		}
+
+	}
+
+	setAdaptiveSamplingMax( val ) {
+
+		if ( this.pathTracingPass?.setAdaptiveSamplingParameters ) {
+
+			this.pathTracingPass.setAdaptiveSamplingParameters( { max: val } );
+
+		}
+
+	}
+
+	setRenderMode( val ) {
+
+		if ( this.pathTracingPass?.material?.uniforms?.renderMode ) {
+
+			this.pathTracingPass.material.uniforms.renderMode.value = val;
+
+		}
+
+	}
+
+	/**
+	 * Enables/disables the path tracer (toggles between path tracing and raster preview).
+	 * @param {boolean} val
+	 */
+	setPathTracerEnabled( val ) {
+
+		if ( this.pathTracingPass ) {
+
+			this.pathTracingPass.setAccumulationEnabled( val );
+			this.pathTracingPass.enabled = val;
+
+		}
+
+		if ( this.renderPass ) {
+
+			this.renderPass.enabled = ! val;
+
+		}
+
+	}
+
+	setAccumulationEnabled( val ) {
+
+		if ( this.pathTracingPass?.setAccumulationEnabled ) {
+
+			this.pathTracingPass.setAccumulationEnabled( val );
+
+		}
+
+	}
+
+	setTileCount( val ) {
+
+		if ( this.pathTracingPass?.setTileCount ) {
+
+			this.pathTracingPass.setTileCount( val );
+
+		}
+
+	}
+
+	setRenderLimitMode( val ) {
+
+		this.renderLimitMode = val;
+		if ( this.pathTracingPass?.setRenderLimitMode ) {
+
+			this.pathTracingPass.setRenderLimitMode( val );
+
+		}
+
+	}
+
+	setEnvironmentRotation( val ) {
+
+		if ( this.pathTracingPass?.setEnvironmentRotation ) {
+
+			this.pathTracingPass.setEnvironmentRotation( val );
+
+		}
+
+	}
+
+	setInteractionModeEnabled( val ) {
+
+		if ( this.pathTracingPass?.setInteractionModeEnabled ) {
+
+			this.pathTracingPass.setInteractionModeEnabled( val );
+
+		}
+
+	}
+
+	/**
+	 * Updates a material property in the path tracer's material data texture.
+	 * @param {number} materialIndex
+	 * @param {string} property
+	 * @param {*} value
+	 */
+	updateMaterialProperty( materialIndex, property, value ) {
+
+		const pt = this.pathTracingPass;
+		if ( typeof pt?.updateMaterialProperty === 'function' ) {
+
+			pt.updateMaterialProperty( materialIndex, property, value );
+
+		} else if ( typeof pt?.updateMaterialDataTexture === 'function' ) {
+
+			pt.updateMaterialDataTexture( materialIndex, property, value );
+
+		}
+
+	}
+
+	/**
+	 * Updates texture transform data in the path tracer.
+	 * @param {number} materialIndex
+	 * @param {string} textureName
+	 * @param {Float32Array} transform
+	 */
+	updateTextureTransform( materialIndex, textureName, transform ) {
+
+		if ( typeof this.pathTracingPass?.updateTextureTransform === 'function' ) {
+
+			this.pathTracingPass.updateTextureTransform( materialIndex, textureName, transform );
+
+		}
+
+	}
+
+	/**
+	 * Marks the path tracer material as needing recompilation.
+	 */
+	refreshMaterial() {
+
+		if ( this.pathTracingPass?.material ) {
+
+			this.pathTracingPass.material.needsUpdate = true;
+
+		}
+
+	}
+
+	/**
+	 * Updates a complete material on the path tracer.
+	 * @param {number} materialIndex
+	 * @param {Object} material - Three.js material
+	 */
+	updateMaterial( materialIndex, material ) {
+
+		const pt = this.pathTracingPass;
+		if ( typeof pt?.updateMaterial === 'function' ) {
+
+			pt.updateMaterial( materialIndex, material );
+
+		} else if ( typeof pt?.rebuildMaterialDataTexture === 'function' ) {
+
+			pt.rebuildMaterialDataTexture( materialIndex, material );
+
+		}
+
+	}
+
+	/**
+	 * Rebuilds all materials from the scene.
+	 * @param {Object} scene - Three.js scene
+	 */
+	async rebuildMaterials( scene ) {
+
+		if ( typeof this.pathTracingPass?.rebuildMaterials === 'function' ) {
+
+			await this.pathTracingPass.rebuildMaterials( scene );
+
+		}
+
+	}
+
+	/**
+	 * Returns whether the render is complete.
+	 * @returns {boolean}
+	 */
+	isComplete() {
+
+		return this.pathTracingPass?.isComplete ?? false;
+
+	}
+
+	/**
+	 * Gets the current frame count from the path tracer stage.
+	 * @returns {number}
+	 */
+	getFrameCount() {
+
+		return this.pathTracingPass?.material?.uniforms?.frame?.value || 0;
+
+	}
+
 	/**
 	 * Pauses the animation loop.
 	 */
@@ -1165,6 +1628,83 @@ class PathTracerApp extends EventDispatcher {
 
 		// Pipeline architecture cleanup
 		if ( this.pipeline ) this.pipeline.dispose();
+
+	}
+
+	// ── Environment mode helpers (app-level wrappers for pathTracingPass) ──
+
+	/** Returns the envParams object from the path tracing pass. */
+	getEnvParams() {
+
+		return this.pathTracingPass?.envParams ?? null;
+
+	}
+
+	/** Returns the current environment texture. */
+	getEnvironmentTexture() {
+
+		return this.pathTracingPass?.material?.uniforms?.environment?.value ?? null;
+
+	}
+
+	/** Returns the current environment CDF texture. */
+	getEnvironmentCDF() {
+
+		return this.pathTracingPass?.material?.uniforms?.envCDF?.value ?? null;
+
+	}
+
+	/** Generates a procedural sky texture. */
+	async generateProceduralSkyTexture() {
+
+		return this.pathTracingPass?.generateProceduralSkyTexture?.();
+
+	}
+
+	/** Generates a gradient sky texture. */
+	async generateGradientTexture() {
+
+		return this.pathTracingPass?.generateGradientTexture?.();
+
+	}
+
+	/** Generates a solid-colour sky texture. */
+	async generateSolidColorTexture() {
+
+		return this.pathTracingPass?.generateSolidColorTexture?.();
+
+	}
+
+	/** Sets the environment map texture. */
+	async setEnvironmentMap( texture ) {
+
+		return this.pathTracingPass?.setEnvironmentMap?.( texture );
+
+	}
+
+	/** Marks the current environment texture as needing a GPU update. */
+	markEnvironmentNeedsUpdate() {
+
+		const tex = this.pathTracingPass?.material?.uniforms?.environment?.value;
+		if ( tex ) tex.needsUpdate = true;
+
+	}
+
+	/**
+	 * Returns scene statistics from the TriangleSDF, or null.
+	 * @returns {object|null}
+	 */
+	getSceneStatistics() {
+
+		try {
+
+			return this.pathTracingPass?.sdfs?.getStatistics?.() ?? null;
+
+		} catch {
+
+			return null;
+
+		}
 
 	}
 

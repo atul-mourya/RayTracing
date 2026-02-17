@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Play, Pause, SkipBack, MousePointer2 } from 'lucide-react';
 import {
 	Tooltip,
@@ -9,6 +9,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useStore, useCameraStore } from '@/store';
+import { getApp } from '@/core/appProxy';
+import { useBackendEvent } from '@/hooks/useBackendEvent';
 
 // Reusable control button component using shadcn Button
 const ControlButton = ( { icon, label, onClick, isActive, disabled } ) => (
@@ -45,21 +47,22 @@ const RenderControls = () => {
 	// Handle toggle play/pause
 	const handleTogglePlay = () => {
 
-		if ( ! window.pathTracerApp ) return;
+		const app = getApp();
+		if ( ! app ) return;
 
 		if ( isPlaying ) {
 
-			window.pathTracerApp.pauseRendering = true;
+			app.pauseRendering = true;
 			setIsPlaying( false );
 
 		} else {
 
-			window.pathTracerApp.pauseRendering = false;
+			app.pauseRendering = false;
 
 			// Only reset if render is complete
-			if ( window.pathTracerApp.pathTracingPass?.isComplete ) {
+			if ( app.isComplete() ) {
 
-				window.pathTracerApp.reset();
+				app.reset();
 
 			}
 
@@ -72,16 +75,17 @@ const RenderControls = () => {
 	// Handle restart button click
 	const handleRestart = () => {
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
 			// First pause if playing
-			window.pathTracerApp.pauseRendering = true;
+			app.pauseRendering = true;
 
 			// Then reset and resume
 			setTimeout( () => {
 
-				window.pathTracerApp.reset();
-				window.pathTracerApp.pauseRendering = false;
+				app.reset();
+				app.pauseRendering = false;
 				setIsPlaying( true );
 
 			}, 100 );
@@ -90,30 +94,8 @@ const RenderControls = () => {
 
 	};
 
-	useEffect( () => {
-
-		const handleRenderComplete = () => setIsPlaying( false );
-		const handleRenderReset = () => setIsPlaying( true );
-
-		if ( window.pathTracerApp ) {
-
-			window.pathTracerApp.addEventListener( 'RenderComplete', handleRenderComplete );
-			window.pathTracerApp.addEventListener( 'RenderReset', handleRenderReset );
-
-		}
-
-		return () => {
-
-			if ( window.pathTracerApp ) {
-
-				window.pathTracerApp.removeEventListener( 'RenderComplete', handleRenderComplete );
-				window.pathTracerApp.removeEventListener( 'RenderReset', handleRenderReset );
-
-			}
-
-		};
-
-	}, [] ); // Only run on mount/unmount - window.pathTracerApp is checked inside
+	useBackendEvent( 'RenderComplete', useCallback( () => setIsPlaying( false ), [] ) );
+	useBackendEvent( 'RenderReset', useCallback( () => setIsPlaying( true ), [] ) );
 
 	// Control button definitions
 	const controls = [

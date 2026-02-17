@@ -1,12 +1,108 @@
 # Pipeline Architecture
 
-**Rayzee Path Tracing Engine - Event-Driven Rendering Pipeline**
+**Rayzee Path Tracing Engine - Dual-Backend Event-Driven Rendering Pipeline**
 
 ---
 
 ## Overview
 
-Rayzee uses an event-driven pipeline architecture for its rendering system. The pipeline consists of modular stages that communicate through events and a shared context, providing loose coupling and clear execution order.
+Rayzee uses a **dual-backend architecture** supporting both WebGL and WebGPU rendering. The WebGL backend uses an event-driven pipeline of modular stages communicating through events and shared context. The WebGPU backend uses TSL (Three Shading Language) shaders compiled to WGSL at runtime. Both backends implement the same `IPathTracerApp` interface, allowing the UI/store layer to be completely backend-agnostic.
+
+### System Architecture
+
+```
+                    ┌─────────────────────────────────────────┐
+                    │              UI / React                  │
+                    │  (Zustand Store + appProxy.getApp())    │
+                    └─────────────────┬───────────────────────┘
+                                      │
+                              ┌───────┴───────┐
+                              │ BackendManager │
+                              │  (singleton)   │
+                              └───┬───────┬───┘
+                     ┌────────────┘       └────────────┐
+                     ▼                                 ▼
+          ┌──────────────────┐              ┌──────────────────┐
+          │  WebGL Backend   │              │  WebGPU Backend  │
+          │  PathTracerApp   │              │WebGPUPathTracerApp│
+          │  (main.js)       │              │                  │
+          ├──────────────────┤              ├──────────────────┤
+          │ EffectComposer   │              │ WebGPURenderer   │
+          │ PassPipeline     │              │ PathTracingStage │
+          │ ├─PathTracerStage│              │ (TSL shaders)    │
+          │ ├─ASVGFStage     │              │                  │
+          │ ├─AdaptiveSampling│             │ InteractionMgr   │
+          │ ├─EdgeFiltering  │              └────────┬─────────┘
+          │ ├─AutoExposure   │                       │
+          │ └─TileHighlight  │              ┌────────┴─────────┐
+          │ OutlinePass      │              │   DataTransfer   │
+          │ BloomPass        │              │ (shares textures │
+          │ OutputPass       │              │  from WebGL app) │
+          └──────────────────┘              └──────────────────┘
+```
+
+### Dual-Canvas Model
+
+WebGL and WebGPU each have their own `<canvas>` element. Only one is visible at a time, controlled by `BackendManager.toggleCanvasVisibility()`. The inactive backend is paused to conserve GPU resources.
+
+---
+
+## BackendManager
+
+**File:** `src/core/BackendManager.js` (~700 lines, singleton via `getBackendManager()`)
+
+Orchestrates the dual-backend lifecycle:
+
+### Responsibilities
+- WebGPU capability detection (`navigator.gpu`, adapter probing)
+- App registration (`setWebGLApp()`, `setWebGPUApp()`)
+- Backend switching with full state preservation
+- Canvas visibility management
+- Event emission (`switching`, `switched`, `error`)
+
+### Backend Switch Flow
+
+```
+setBackend(newBackend)
+    │
+    ├─ preserveState()  → snapshot camera + all render settings
+    ├─ pause current app
+    ├─ swap currentBackend
+    ├─ toggleCanvasVisibility()
+    ├─ restoreState()   → apply camera + settings to new app
+    ├─ resume new app (app.resume() or app.animate())
+    └─ emit 'BackendSwitched' window event
+```
+
+### State Preservation
+
+Preserved across backend switches:
+- Camera: position, quaternion, FOV, target, near, far
+- Render: bounces, SPP, max samples, transmissive bounces
+- DOF: focus distance, focal length, aperture, enable state
+- Environment: intensity, background intensity, show background
+- Sampling: technique, adaptive sampling, firefly threshold
+- Resolution: target resolution index
+- Tone mapping: exposure
+
+### App Proxy (`src/core/appProxy.js`)
+
+All UI/store code accesses the active backend via `getApp()`:
+
+```javascript
+import { getApp, getBackend, supportsFeature, isWebGL, isWebGPU } from '@/core/appProxy';
+
+const app = getApp();  // Returns active app or null
+if (app) app.setMaxBounces(8);
+
+if (supportsFeature('bloom')) { /* WebGL only */ }
+```
+
+`getApp()` resolves via `BackendManager.getCurrentApp()` with `window.pathTracerApp` as an early-init fallback.
+
+---
+
+## WebGL Pipeline (Event-Driven Stages)
 
 ### Key Components
 
@@ -20,9 +116,13 @@ PassPipeline (orchestration)
 PipelineStage (base class)
         ↓
 ├─ PathTracerStage (ray tracing)
+├─ MotionVectorStage (motion vectors)
 ├─ ASVGFStage (denoising)
+├─ VarianceEstimationStage (variance)
+├─ BilateralFilteringStage (spatial denoising)
 ├─ AdaptiveSamplingStage (variance-based sampling)
 ├─ EdgeAwareFilteringStage (temporal filtering)
+├─ AutoExposureStage (auto exposure)
 └─ TileHighlightStage (tile borders visualization)
 ```
 
@@ -502,7 +602,7 @@ All stages execute when cycle completes:
 - Tile mode intermediate: Only PathTracer + TileHighlight (reduced overhead)
 - Tile mode complete: All stages (standard overhead, but less frequent)
 
-### Pipeline Integration
+### Pipeline Integration (WebGL)
 
 ```
 EffectComposer
@@ -513,10 +613,86 @@ PipelineWrapperPass (wraps entire pipeline)
     ↓ delegates to
 PassPipeline.render(writeBuffer)
     ↓ executes stages sequentially
-[PathTracer → ASVGF → AdaptiveSampling → EdgeFiltering → TileHighlight]
+[PathTracer → MotionVector → ASVGF → Variance → Bilateral → AdaptiveSampling → EdgeFiltering → AutoExposure → TileHighlight]
     ↓
 writeBuffer → OutlinePass → BloomPass → OutputPass → Screen
 ```
+
+---
+
+## WebGPU Pipeline
+
+The WebGPU backend uses a simpler pipeline — a single `PathTracingStage` that handles path tracing, accumulation, and output in one pass using TSL shaders.
+
+### Architecture
+
+```
+WebGPUPathTracerApp
+    ├─ WebGPURenderer (Three.js WebGPU)
+    │   ├─ toneMapping: ACESFilmicToneMapping
+    │   └─ toneMappingExposure: exposure^4.0
+    ├─ PathTracingStage (TSL)
+    │   ├─ pathTracerMain() → TSL entry point
+    │   ├─ Ping-pong accumulation targets
+    │   ├─ MRT outputs (gColor, gNormalDepth, gAlbedo)
+    │   └─ All uniforms managed as TSL uniform() nodes
+    ├─ InteractionManager (click-to-select, focus picking)
+    └─ DataTransfer (shares textures from WebGL app)
+```
+
+### Data Flow
+
+WebGPU doesn't load assets directly — it delegates to the WebGL app's processing pipeline:
+
+```
+WebGL AssetLoader
+  ├─ GeometryExtractor → triangle Float32Array (32 floats/tri)
+  ├─ BVHBuilder (Web Worker) → BVH texture
+  ├─ TextureCreator → material textures, texture arrays
+  └─ Environment processing → HDR + CDF textures
+       │
+       ▼
+DataTransfer (static utility)
+  ├─ getTriangleTexture()      → shared reference
+  ├─ getBVHTexture()           → shared reference
+  ├─ getMaterialTexture()      → shared reference
+  ├─ getEnvironmentTexture()   → from scene.environment
+  ├─ getMaterialTextureArrays()→ { albedo, normal, bump, ... }
+  └─ getEmissiveTriangleData() → { texture, count }
+       │
+       ▼
+WebGPUPathTracerApp.loadSceneData()
+  └─ pathTracingStage.set[Triangle|BVH|Material|Environment]Texture()
+     + pathTracingStage.setupMaterial() → builds TSL node graph
+```
+
+**Critical**: Textures are shared by reference (not copied) to avoid GPU memory duplication.
+
+### Feature Support Comparison
+
+| Feature | WebGL | WebGPU |
+|---------|-------|--------|
+| Path tracing | ✅ | ✅ |
+| Progressive accumulation | ✅ | ✅ |
+| DOF | ✅ | ✅ |
+| Environment lighting | ✅ | ✅ |
+| Materials (Disney BSDF) | ✅ | ✅ |
+| Resolution control | ✅ | ✅ |
+| Sampling techniques | ✅ | ✅ |
+| Emissive triangle sampling | ✅ | ✅ |
+| Click-to-select | ✅ | ✅ |
+| Focus picking | ✅ | ✅ |
+| Screenshot | ✅ | ✅ |
+| ASVGF denoiser | ✅ | ❌ |
+| OIDN denoiser | ✅ | ❌ |
+| Bloom | ✅ | ❌ |
+| Auto exposure | ✅ | ❌ |
+| Tile rendering | ✅ | ❌ |
+| Edge-aware filtering | ✅ | ❌ |
+| Dynamic lights | ✅ | ❌ |
+| Object outline | ✅ | ❌ |
+| Direct asset loading | ✅ | ❌ (delegates) |
+| Material editing | ✅ | ❌ |
 
 ---
 
@@ -643,12 +819,34 @@ this.pipeline.addStage(tileHighlightStage);
 ### Step 3: Add Store Handler (Optional)
 
 ```javascript
-// In store.js
+// In store.js - uses getApp() from appProxy (backend-agnostic)
 handleMyCustomIntensity: handleChange(
     val => set({ myCustomIntensity: val }),
-    val => window.pathTracerApp.myStage.material.uniforms.intensity.value = val
+    val => getApp().myStage.material.uniforms.intensity.value = val
 ),
 ```
+
+### Step 4: WebGPU Considerations
+
+If the new stage's capability should also work on WebGPU:
+
+1. **Register the feature** in `WebGPUFeatures.js`:
+   ```javascript
+   myCustomEffect: false  // or true if implementing
+   ```
+
+2. **Guard UI with feature flags**:
+   ```javascript
+   import { supportsFeature } from '@/core/appProxy';
+   // Only show controls if the active backend supports the feature
+   if (supportsFeature('myCustomEffect')) { /* render controls */ }
+   ```
+
+3. **Implement in TSL** (if supporting WebGPU):
+   - Create `src/core/WebGPU/TSL/myCustomEffect.js` using TSL `Fn()` patterns
+   - Integrate into `PathTracingStage.js`
+
+4. **Use `getApp()` not `window.pathTracerApp`** in store handlers to stay backend-agnostic.
 
 ---
 
@@ -665,6 +863,9 @@ handleMyCustomIntensity: handleChange(
 - **Document events** - What data is emitted
 - **Handle missing inputs gracefully** - Check if textures exist
 - **Test in tile mode** - Ensure your stage works correctly with tiled rendering
+- **Use `getApp()` from appProxy** - Never reference `window.pathTracerApp` directly in new code
+- **Register feature flags** - Add `WebGPUFeatures.js` entries for features not yet ported to WebGPU
+- **Test both backends** - Verify behavior on both WebGL and WebGPU when adding features
 
 ### Don'ts ❌
 
@@ -672,6 +873,7 @@ handleMyCustomIntensity: handleChange(
 - **Don't assume execution order** - Stages should work independently
 - **Don't leak render targets** - Always dispose
 - **Don't allocate in render loop** - Pre-allocate in constructor
+- **Don't reference `window.pathTracerApp`** - Use `getApp()` from appProxy instead
 - **Don't modify shared state without events** - Others won't know
 - **Don't forget to check this.enabled** - Wasted GPU cycles
 
@@ -834,7 +1036,12 @@ The Pipeline architecture provides:
 - ✅ **Performance** - Enable/disable stages dynamically, smart execution modes
 - ✅ **Flexibility** - Events enable reactive workflows
 - ✅ **Tile-Aware** - Automatic optimization for tiled rendering via execution modes
+- ✅ **Dual-Backend** - WebGL and WebGPU share the same UI/store layer via `BackendManager` and `appProxy`
 
-**Key Innovation:** The execution mode system allows stages to declaratively control when they run during tile rendering, ensuring post-processing only operates on complete frames for optimal quality and performance.
+**Key Innovation (WebGL):** The execution mode system allows stages to declaratively control when they run during tile rendering, ensuring post-processing only operates on complete frames for optimal quality and performance.
 
-**Result:** Clean, maintainable, and scalable rendering pipeline.
+**Key Innovation (WebGPU):** TSL shaders compile JavaScript shader definitions to WGSL at runtime, enabling the same path tracing algorithms to run on WebGPU without hand-written WGSL. Data textures are shared by reference from the WebGL backend, avoiding GPU memory duplication.
+
+**Key Innovation (Architecture):** The `BackendManager` singleton enables seamless backend switching with full state preservation (camera, render settings, resolution) — users can switch between WebGL and WebGPU without losing their current scene configuration.
+
+**Result:** Clean, maintainable, and scalable rendering pipeline supporting dual GPU backends.

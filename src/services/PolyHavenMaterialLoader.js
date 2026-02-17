@@ -7,6 +7,7 @@ import {
 	BackSide
 } from 'three';
 import { PolyHavenService } from './PolyHavenService';
+import { getApp } from '@/core/appProxy';
 
 
 /**
@@ -294,13 +295,14 @@ export class PolyHavenMaterialLoader {
 			console.log( 'Updating path tracer with PolyHaven material:', materialConfig.name );
 
 			// Update path tracer materials if available
-			if ( window.pathTracerApp && window.pathTracerApp.pathTracingPass ) {
+			const app = getApp();
+			if ( app ) {
 
 				// Add a small delay to ensure Three.js material updates are complete
 				await new Promise( resolve => setTimeout( resolve, 100 ) );
 
 				// Use the new material rebuild method
-				await window.pathTracerApp.pathTracingPass.rebuildMaterials( window.pathTracerApp.scene );
+				await app.rebuildMaterials( app.scene );
 
 				console.log( 'Path tracer successfully updated with new material' );
 

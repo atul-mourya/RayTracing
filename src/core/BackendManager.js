@@ -134,6 +134,7 @@ export class BackendManager {
 			console.log( 'BackendManager: Paused WebGL app (not active backend)' );
 
 		}
+
 	}
 
 	/**
@@ -151,6 +152,7 @@ export class BackendManager {
 			console.log( 'BackendManager: Paused WebGPU app (not active backend)' );
 
 		}
+
 	}
 
 	/**
@@ -182,6 +184,35 @@ export class BackendManager {
 	}
 
 	/**
+	 * Alias for getCurrentApp() — preferred name in new code.
+	 * @returns {Object} Current application instance
+	 */
+	getActiveApp() {
+
+		return this.getCurrentApp();
+
+	}
+
+	/**
+	 * Checks whether the active backend supports a given feature.
+	 * Delegates to the app's supportsFeature() method.
+	 * @param {string} featureName
+	 * @returns {boolean}
+	 */
+	supportsFeature( featureName ) {
+
+		const app = this.getCurrentApp();
+		if ( app && typeof app.supportsFeature === 'function' ) {
+
+			return app.supportsFeature( featureName );
+
+		}
+
+		return false;
+
+	}
+
+	/**
 	 * Gets the current backend type.
 	 * @returns {string} Current backend type
 	 */
@@ -203,6 +234,7 @@ export class BackendManager {
 
 	/**
 	 * Preserves the current rendering state before switching backends.
+	 * Uses getter / public properties rather than reaching into internals.
 	 */
 	preserveState() {
 
@@ -214,33 +246,60 @@ export class BackendManager {
 			camera: {
 				position: app.camera?.position.clone(),
 				rotation: app.camera?.rotation.clone(),
+				quaternion: app.camera?.quaternion.clone(),
 				fov: app.camera?.fov,
 				near: app.camera?.near,
-				far: app.camera?.far
+				far: app.camera?.far,
+				target: app.controls?.target?.clone()
 			},
 
-			// Render settings
+			// Render settings (use app's own property values)
 			settings: {
-				maxBounces: app.pathTracingPass?.material?.uniforms?.maxBounces?.value || 4,
-				environmentIntensity: app.pathTracingPass?.material?.uniforms?.environmentIntensity?.value || 1.0,
-				samplesPerPixel: app.pathTracingPass?.material?.uniforms?.samplesPerPixel?.value || 1
+				maxBounces: app.maxBounces,
+				samplesPerPixel: app.samplesPerPixel,
+				maxSamples: app.maxSamples,
+				transmissiveBounces: app.transmissiveBounces,
+				environmentIntensity: app.environmentIntensity,
+				backgroundIntensity: app.backgroundIntensity,
+				showBackground: app.showBackground,
+				enableEnvironment: app.enableEnvironment,
+				globalIlluminationIntensity: app.globalIlluminationIntensity,
+				exposure: app.exposure,
+				enableDOF: app.enableDOF,
+				focusDistance: app.focusDistance,
+				focalLength: app.focalLength,
+				aperture: app.aperture,
+				apertureScale: app.apertureScale,
+				samplingTechnique: app.samplingTechnique,
+				useAdaptiveSampling: app.useAdaptiveSampling,
+				adaptiveSamplingMax: app.adaptiveSamplingMax,
+				fireflyThreshold: app.fireflyThreshold,
+				enableEmissiveTriangleSampling: app.enableEmissiveTriangleSampling,
+				emissiveBoost: app.emissiveBoost,
+				visMode: app.visMode,
+				debugVisScale: app.debugVisScale,
 			},
 
-			// Scene data references (textures)
-			scene: {
-				hasTriangles: !! app.triangleTexture,
-				hasBVH: !! app.bvhTexture,
-				hasMaterials: !! app.materialTexture,
-				hasEnvironment: !! app.environmentTexture
-			}
+			// Target resolution
+			targetResolution: app.targetResolution,
+
+			// Environment state
+			environment: {
+				environmentUrl: app.environmentUrl,
+				environmentRotation: app.environmentRotation,
+			},
+
+			// Tone mapping
+			toneMapping: app.renderer?.toneMapping,
+			toneMappingExposure: app.renderer?.toneMappingExposure,
 		};
 
-		console.log( 'BackendManager: State preserved', this.preservedState );
+		console.log( 'BackendManager: State preserved' );
 
 	}
 
 	/**
-	 * Restores the preserved state to the new backend.
+	 * Restores the preserved state to the new backend via setter API.
 	 */
 	restoreState() {
 
@@ -248,43 +307,85 @@ export class BackendManager {
 		if ( ! app || ! this.preservedState ) return;
 
 		// Restore camera
-		if ( this.preservedState.camera && app.camera ) {
+		const cam = this.preservedState.camera;
+		if ( cam && app.camera ) {
 
-			if ( this.preservedState.camera.position ) {
+			if ( cam.position ) app.camera.position.copy( cam.position );
+			if ( cam.quaternion ) app.camera.quaternion.copy( cam.quaternion );
+			if ( cam.fov ) {
 
-				app.camera.position.copy( this.preservedState.camera.position );
-
-			}
-
-			if ( this.preservedState.camera.rotation ) {
-
-				app.camera.rotation.copy( this.preservedState.camera.rotation );
-
-			}
-
-			if ( this.preservedState.camera.fov ) {
-
-				app.camera.fov = this.preservedState.camera.fov;
+				app.camera.fov = cam.fov;
 				app.camera.updateProjectionMatrix();
+
+			}
+
+			// Update controls target if available
+			if ( cam.target && app.controls?.target ) {
+
+				app.controls.target.copy( cam.target );
+				app.controls.update();
+
+			} else if ( app.controls?.target ) {
+
+				app.controls.update();
+
+			}
+
+			// Save state so controls.reset() reflects the restored position
+			if ( app.controls?.saveState ) {
+
+				app.controls.saveState();
 
 			}
 
 		}
 
-		// Restore settings
-		if ( this.preservedState.settings ) {
+		// Restore render settings via the common setter API
+		const s = this.preservedState.settings;
+		if ( s ) {
 
-			if ( app.setMaxBounces ) {
+			const setters = {
+				setMaxBounces: s.maxBounces,
+				setSamplesPerPixel: s.samplesPerPixel,
+				setMaxSamples: s.maxSamples,
+				setTransmissiveBounces: s.transmissiveBounces,
+				setEnvironmentIntensity: s.environmentIntensity,
+				setBackgroundIntensity: s.backgroundIntensity,
+				setShowBackground: s.showBackground,
+				setEnableEnvironment: s.enableEnvironment,
+				setGlobalIlluminationIntensity: s.globalIlluminationIntensity,
+				setExposure: s.exposure,
+				setEnableDOF: s.enableDOF,
+				setFocusDistance: s.focusDistance,
+				setFocalLength: s.focalLength,
+				setAperture: s.aperture,
+				setApertureScale: s.apertureScale,
+				setSamplingTechnique: s.samplingTechnique,
+				setUseAdaptiveSampling: s.useAdaptiveSampling,
+				setAdaptiveSamplingMax: s.adaptiveSamplingMax,
+				setFireflyThreshold: s.fireflyThreshold,
+				setEnableEmissiveTriangleSampling: s.enableEmissiveTriangleSampling,
+				setEmissiveBoost: s.emissiveBoost,
+				setVisMode: s.visMode,
+				setDebugVisScale: s.debugVisScale,
+			};
 
-				app.setMaxBounces( this.preservedState.settings.maxBounces );
+			for ( const [ method, value ] of Object.entries( setters ) ) {
+
+				if ( value !== undefined && typeof app[ method ] === 'function' ) {
+
+					app[ method ]( value );
+
+				}
 
 			}
 
-			if ( app.setEnvironmentIntensity ) {
+		}
 
-				app.setEnvironmentIntensity( this.preservedState.settings.environmentIntensity );
+		// Restore resolution
+		if ( this.preservedState.targetResolution !== undefined && app.updateResolution ) {
 
-			}
+			app.updateResolution( this.preservedState.targetResolution );
 
 		}
 
@@ -388,17 +489,52 @@ export class BackendManager {
 			this.error = null;
 			this.emit( 'switched', { from: previousBackend, to: backend } );
 
+			// Also dispatch a window event so UI components can react
+			window.dispatchEvent( new CustomEvent( 'BackendSwitched', {
+				detail: { from: previousBackend, to: backend }
+			} ) );
+
 			console.log( `BackendManager: Successfully switched to ${backend}` );
 			return true;
 
 		} catch ( error ) {
 
 			// Restore previous backend on error
+			console.error( 'BackendManager: Switch failed:', error );
+
+			// Try to revert to the previous backend
+			const previousBackend = this.currentBackend === backend
+				? ( backend === BackendType.WEBGL ? BackendType.WEBGPU : BackendType.WEBGL )
+				: this.currentBackend;
+
+			try {
+
+				// Revert canvas visibility
+				this.toggleCanvasVisibility( previousBackend );
+
+				// Resume previous app
+				const previousApp = previousBackend === BackendType.WEBGL ? this.webglApp : this.webgpuApp;
+				if ( previousApp ) {
+
+					this.currentBackend = previousBackend;
+					if ( previousApp.resume ) {
+
+						previousApp.resume();
+
+					}
+
+				}
+
+			} catch ( revertError ) {
+
+				console.error( 'BackendManager: Revert also failed:', revertError );
+
+			}
+
 			this.status = BackendStatus.ERROR;
 			this.error = error.message;
-			this.emit( 'error', { error: this.error } );
+			this.emit( 'error', { error: this.error, fallbackBackend: previousBackend } );
 
-			console.error( 'BackendManager: Switch failed:', error );
 			return false;
 
 		}

@@ -12,6 +12,7 @@ import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
 import { getBackendManager, BackendType } from '@/core/BackendManager.js';
 import { WebGPUPathTracerApp } from '@/core/WebGPU/WebGPUPathTracerApp.js';
+import { getApp } from '@/core/appProxy';
 
 
 const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
@@ -191,7 +192,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 					// Determine which backend to use initially
 					const initialBackend = isWebGPUSupported && backend === 'webgpu' ? 'webgpu' : 'webgl';
-					
+
 					// Set backend state before registering apps so BackendManager knows which to pause
 					backendManager.currentBackend = initialBackend === 'webgpu' ? BackendType.WEBGPU : BackendType.WEBGL;
 
@@ -262,14 +263,19 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 					const resetLoadingFn = useStore.getState().resetLoading;
 					resetLoadingFn();
 
-					if ( window.pathTracerApp ) {
+					if ( getApp() ) {
 
-						window.pathTracerApp.reset();
+						getApp().reset();
 
 					}
 
 					isInitialized.current = true;
 					setIsAppInitialized( true );
+
+					// Re-dispatch SceneRebuild now that getApp() is available
+					// (the initial SceneRebuild fires during init before isInitialized is set,
+					// so UI components like Outliner miss the scene data)
+					window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 				} );
 
@@ -280,9 +286,10 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Disable select mode when leaving preview mode
 	useEffect( () => {
 
-		if ( window.pathTracerApp && appMode !== 'preview' ) {
+		const app = getApp();
+		if ( app && appMode !== 'preview' ) {
 
-			window.pathTracerApp.disableSelectMode?.();
+			app.disableSelectMode?.();
 
 		}
 
@@ -291,11 +298,11 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
 
-		if ( ! window.pathTracerApp ) return false;
+		if ( ! getApp() ) return false;
 		if ( viewportMode !== "final-render" ) return false;
 		if ( ! isRenderComplete ) return false;
 		if ( isDenoising ) return false;
-		return window.pathTracerApp.pathTracingPass.isComplete;
+		return getApp().isComplete();
 
 	}, [ isRenderComplete, isDenoising, viewportMode ] );
 
@@ -336,7 +343,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				</div>
 			</div>
 
-			<StatsMeter viewportMode={viewportMode} appRef={appRef} />
+			<StatsMeter viewportMode={viewportMode} />
 
 			{shouldShowSaveControls && (
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />
@@ -346,7 +353,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				<ViewportToolbar
 					onResize={handleViewportResize}
 					viewportWrapperRef={viewportRef}
-					appRef={appRef}
 					autoFitScale={autoFitScale}
 					isManualScale={isManualScale}
 					onResetToAutoFit={handleResetToAutoFit}

@@ -1471,15 +1471,22 @@ export class PathTracingStage extends PipelineStage {
 			: new TextureNode();
 		this.displayTexNode = displayTex;
 
+		// Apply exposure in the display shader so it's reactive to uniform changes.
+		// The renderer's toneMappingExposure is kept at 1.0 to avoid double-application;
+		// ACES tone mapping still applies via material.toneMapped = true.
+		const exposureUniform = this.exposure;
+
 		const displayShader = Fn( () => {
 
 			const color = displayTex.sample( uv() );
-			return vec4( color.xyz, 1.0 );
+			const exposedColor = color.xyz.mul( exposureUniform.pow( 4.0 ) );
+			return vec4( exposedColor, 1.0 );
 
 		} );
 
 		this.displayMaterial = new MeshBasicNodeMaterial();
 		this.displayMaterial.colorNode = displayShader();
+		this.displayMaterial.toneMapped = true;
 		this.displayQuad = new QuadMesh( this.displayMaterial );
 
 	}

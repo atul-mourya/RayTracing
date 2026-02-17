@@ -308,9 +308,9 @@ const pathTracerImpl = Fn( ( [
 
 		const seed = pcgHash( baseSeed.add( uint( rayIndex ) ) ).toVar( 'seed' );
 
-		// const stratifiedJitter = getStratifiedSample(
-		// 	pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
-		// ).toVar( 'stratifiedJitter' );
+		const stratifiedJitter = getStratifiedSample(
+			pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
+		).toVar( 'stratifiedJitter' );
 
 		// // Debug mode 5: Visualize stratified samples
 		// If( visMode.equal( int( 5 ) ), () => {
@@ -321,8 +321,8 @@ const pathTracerImpl = Fn( ( [
 
 		// } );
 
-		// const jitter = stratifiedJitter.sub( 0.5 ).mul( vec2( 2.0 ).div( resolution ) );
-		const jitteredScreenPosition = screenPosition;//.add( jitter );
+		const jitter = stratifiedJitter.sub( 0.5 ).mul( vec2( 2.0 ).div( resolution ) );
+		const jitteredScreenPosition = screenPosition.add( jitter );
 
 		const ray = Ray.wrap( generateRayFromCamera(
 			jitteredScreenPosition, seed,
@@ -417,7 +417,7 @@ const pathTracerImpl = Fn( ( [
 	} );
 
 	// Apply dithering AFTER averaging
-	// pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
+	pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
 
 	// Edge Detection
 	const depthDifference = fwidth( linearDepth );

@@ -8,6 +8,7 @@ import {
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { getApp } from '@/core/appProxy';
 import { DEFAULT_STATE } from '../../Constants.js';
 
 /**
@@ -526,9 +527,10 @@ export class AutoExposureStage extends PipelineStage {
 	 */
 	applyExposure() {
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.renderer.toneMappingExposure = this.currentExposure;
+			app.renderer.toneMappingExposure = this.currentExposure;
 
 		}
 

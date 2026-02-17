@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Toaster } from "@/components/ui/toaster";
 import { useStore, useAssetsStore, usePathTracerStore } from '@/store';
 import { DEFAULT_STATE } from '@/Constants';
+import { getApp } from '@/core/appProxy';
 
 const MainViewport = ( { mode = "preview" } ) => {
 
@@ -19,7 +20,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 	useEffect( () => {
 
-		const app = window.pathTracerApp;
+		const app = getApp();
 		if ( app && app.assetLoader ) {
 
 			// Set optimization settings
@@ -123,7 +124,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 		const file = e.dataTransfer.files[ 0 ];
 		if ( ! file ) return;
 
-		const app = window.pathTracerApp;
+		const app = getApp();
 		if ( ! app || ! app.assetLoader ) {
 
 			toast( {

@@ -1,10 +1,14 @@
 import { WebGPURenderer } from 'three/webgpu';
-import { PerspectiveCamera, Scene } from 'three';
+import { ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
 import { DataTransfer } from './DataTransfer.js';
 import { DEFAULT_STATE } from '../../Constants.js';
+import { WebGPUFeatures } from './WebGPUFeatures.js';
+import { updateStats } from '../Processor/utils.js';
+import InteractionManager from '../InteractionManager.js';
+import { useStore } from '@/store';
 
 // Resolution index to pixel values mapping (same as main app)
 const TARGET_RESOLUTIONS = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
@@ -13,10 +17,13 @@ const TARGET_RESOLUTIONS = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
  * WebGPU Path Tracer Application.
  * Full path tracing implementation using WebGPU and TSL.
  *
+ * Extends EventDispatcher for event-driven communication with stores/UI,
+ * matching the same interface contract as the WebGL PathTracerApp.
+ *
  * Can be initialized standalone or with a reference to an existing
  * PathTracerApp to share scene data.
  */
-export class WebGPUPathTracerApp {
+export class WebGPUPathTracerApp extends EventDispatcher {
 
 	/**
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
@@ -24,8 +31,14 @@ export class WebGPUPathTracerApp {
 	 */
 	constructor( canvas, existingApp = null ) {
 
+		super();
+
 		this.canvas = canvas;
 		this.existingApp = existingApp;
+
+		// Expose the WebGL app's assetLoader so UI code (drag-drop, menu bar)
+		// can load assets regardless of which backend is active
+		this.assetLoader = existingApp?.assetLoader || null;
 
 		// Core objects
 		this.renderer = null;
@@ -38,8 +51,17 @@ export class WebGPUPathTracerApp {
 
 		// State
 		this.isInitialized = false;
+		this.pauseRendering = false;
 		this.animationId = null;
 		this.needsReset = false;
+		this._renderCompleteDispatched = false;
+
+		// Stats tracking
+		this.lastResetTime = performance.now();
+		this.timeElapsed = 0;
+
+		// Feature support map — sourced from centralized WebGPU feature registry
+		this._supportedFeatures = { ...WebGPUFeatures };
 
 		// Resolution settings
 		this.targetResolution = existingApp?.targetResolution ?? DEFAULT_STATE.resolution ?? 3;
@@ -62,6 +84,7 @@ export class WebGPUPathTracerApp {
 		this.focalLength = DEFAULT_STATE.focalLength ?? 50.0;
 		this.aperture = DEFAULT_STATE.aperture ?? 0.0;
 		this.apertureScale = 1.0;
+		this.currentCameraIndex = 0;
 
 		// Sampling settings
 		this.samplingTechnique = DEFAULT_STATE.samplingTechnique ?? 0;
@@ -102,6 +125,12 @@ export class WebGPUPathTracerApp {
 
 		await this.renderer.init();
 
+		// Set tone mapping to match WebGL renderer
+		// Exposure is applied in the display shader via TSL uniform, so
+		// keep toneMappingExposure at 1.0 to avoid double-application.
+		this.renderer.toneMapping = ACESFilmicToneMapping;
+		this.renderer.toneMappingExposure = 1.0;
+
 		// Calculate pixel ratio
 		const width = this.canvas.clientWidth;
 		const height = this.canvas.clientHeight;
@@ -131,6 +160,19 @@ export class WebGPUPathTracerApp {
 		// this.controls.dampingFactor = 0.05;
 		this.controls.screenSpacePanning = true;
 
+		// Sync controls target from existing WebGL app (the default model
+		// was already loaded and centered during WebGL init, but the new
+		// OrbitControls defaults its target to the origin)
+		if ( this.existingApp?.controls?.target ) {
+
+			this.controls.target.copy( this.existingApp.controls.target );
+			this.controls.maxDistance = this.existingApp.controls.maxDistance;
+
+		}
+
+		// Save initial state so controls.reset() works
+		this.controls.saveState();
+
 		// Track camera movement for reset
 		this.controls.addEventListener( 'change', () => {
 
@@ -141,16 +183,128 @@ export class WebGPUPathTracerApp {
 		// Create path tracing stage
 		this.pathTracingStage = new PathTracingStage( this.renderer, this.scene, this.camera );
 
+		// Initialize interaction manager for click-to-select
+		// Use the WebGL app's scene for raycasting (WebGPU scene doesn't contain mesh objects)
+		const raycastScene = this.existingApp?.scene || this.scene;
+		this.interactionManager = new InteractionManager( {
+			scene: raycastScene,
+			camera: this.camera,
+			canvas: this.canvas,
+			assetLoader: this.existingApp?.assetLoader || null,
+			pathTracingPass: null,
+			floorPlane: this.existingApp?.floorPlane || null
+		} );
+		this.setupInteractionListeners();
+
 		// Handle resize
 		this.onResize();
 		this.resizeHandler = () => this.onResize();
 		window.addEventListener( 'resize', this.resizeHandler );
+
+		// Listen for asset loads on the shared assetLoader so that when a model
+		// or environment is loaded (via drag-drop, menu, URL import, etc.) while
+		// WebGPU is active, we automatically sync the new data from WebGL.
+		if ( this.assetLoader ) {
+
+			this._onAssetLoaded = ( event ) => {
+
+				// Model load — sync camera framing and full scene data
+				if ( event.model ) {
+
+					console.log( '[WebGPU] Model loaded in WebGL, syncing scene data...' );
+					this.syncCameraFromWebGL();
+					this.loadSceneData();
+
+				} else if ( event.texture ) {
+
+					// Environment load — just re-transfer the environment texture
+					console.log( '[WebGPU] Environment loaded in WebGL, syncing...' );
+					const environmentTexture = DataTransfer.getEnvironmentTexture( this.existingApp );
+					if ( environmentTexture && this.pathTracingStage ) {
+
+						this.pathTracingStage.setEnvironmentTexture( environmentTexture );
+
+					}
+
+				}
+
+				this.pauseRendering = false;
+				this.reset();
+
+			};
+
+			this.assetLoader.addEventListener( 'load', this._onAssetLoaded );
+
+		}
 
 		this.isInitialized = true;
 
 		console.log( 'WebGPU Path Tracer App initialized' );
 
 		return this;
+
+	}
+
+	/**
+	 * Sets up event listeners for interaction manager events.
+	 */
+	setupInteractionListeners() {
+
+		if ( ! this.interactionManager ) return;
+
+		// Object selection events
+		this.interactionManager.addEventListener( 'objectSelected', ( event ) => {
+
+			this.selectObject( event.object );
+			this.reset();
+
+			this.dispatchEvent( {
+				type: 'objectSelected',
+				object: event.object,
+				uuid: event.uuid
+			} );
+
+		} );
+
+		this.interactionManager.addEventListener( 'objectDeselected', ( event ) => {
+
+			this.selectObject( null );
+			this.reset();
+
+			this.dispatchEvent( {
+				type: 'objectDeselected',
+				object: event.object,
+				uuid: event.uuid
+			} );
+
+		} );
+
+		this.interactionManager.addEventListener( 'objectDoubleClicked', ( event ) => {
+
+			this.selectObject( event.object );
+			this.reset();
+
+			useStore.getState().setActiveTab( 'material' );
+
+			this.dispatchEvent( {
+				type: 'objectDoubleClicked',
+				object: event.object,
+				uuid: event.uuid
+			} );
+
+		} );
+
+		// Focus mode events
+		this.interactionManager.addEventListener( 'focusChanged', ( event ) => {
+
+			this.setFocusDistance( event.worldDistance );
+
+			this.dispatchEvent( {
+				type: 'focusChanged',
+				distance: event.distance
+			} );
+
+		} );
 
 	}
 
@@ -260,6 +414,9 @@ export class WebGPUPathTracerApp {
 		this.pathTracingStage.setVisMode( this.visMode );
 		this.pathTracingStage.setDebugVisScale( this.debugVisScale );
 
+		// Dispatch SceneRebuild so UI components (StatsMeter, Outliner, etc.) update
+		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+
 		return true;
 
 	}
@@ -285,14 +442,27 @@ export class WebGPUPathTracerApp {
 
 		this.needsReset = true;
 
+		// Notify UI of resolution change (matches WebGL behavior)
+		const renderWidth = Math.round( width * ( targetRes / shortestDim ) );
+		const renderHeight = Math.round( height * ( targetRes / shortestDim ) );
+		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: renderWidth, height: renderHeight } } ) );
+
 	}
 
 	/**
-	 * Update resolution using a resolution index.
+	 * Update resolution using a calculated pixel ratio value.
+	 * Matches WebGL interface: updateResolution(pixelRatio, resolutionIndex)
+	 * @param {number} value - The pixel ratio to set (used directly)
+	 * @param {number} [targetResolutionIndex] - Optional resolution index (0-4) to store for resize recalculation
 	 */
-	updateResolution( resolutionIndex ) {
+	updateResolution( value, targetResolutionIndex ) {
 
-		this.targetResolution = resolutionIndex;
+		if ( targetResolutionIndex !== undefined ) {
+
+			this.targetResolution = targetResolutionIndex;
+
+		}
+
 		this.onResize();
 
 	}
@@ -322,10 +492,50 @@ export class WebGPUPathTracerApp {
 		// Update camera matrix
 		this.camera.updateMatrixWorld();
 
-		// Render path tracing
-		if ( this.pathTracingStage?.isReady ) {
+		// Check if path tracing is enabled (pauseRendering = !enablePathTracer)
+		const enablePathTracer = ! this.pauseRendering;
 
-			this.pathTracingStage.render();
+		if ( enablePathTracer ) {
+
+			// Render path tracing
+			if ( this.pathTracingStage?.isReady ) {
+
+				// Skip rendering and stats updates when render is already complete
+				if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) return;
+
+				this.pathTracingStage.render();
+
+				const frameCount = this.pathTracingStage.frameCount || 0;
+
+				// Only update time while rendering is in progress
+				if ( ! this.pathTracingStage.isComplete ) {
+
+					const currentTime = performance.now();
+					this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
+
+				}
+
+				updateStats( {
+					timeElapsed: this.timeElapsed,
+					samples: frameCount
+				} );
+
+				// Check for render completion (use stage's own isComplete flag)
+				if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
+
+					this._renderCompleteDispatched = true;
+					this.dispatchEvent( { type: 'RenderComplete' } );
+					useStore.getState().setIsRenderComplete( true );
+
+				}
+
+			}
+
+		} else {
+
+			// Traditional rasterization when path tracer is disabled
+			// Similar to WebGL's RenderPass behavior
+			this.renderer.render( this.scene, this.camera );
 
 		}
 
@@ -384,6 +594,12 @@ export class WebGPUPathTracerApp {
 			this.pathTracingStage.reset();
 
 		}
+
+		this.timeElapsed = 0;
+		this.lastResetTime = performance.now();
+		this._renderCompleteDispatched = false;
+		this.dispatchEvent( { type: 'RenderReset' } );
+		useStore.getState().setIsRenderComplete( false );
 
 	}
 
@@ -535,6 +751,10 @@ export class WebGPUPathTracerApp {
 	setExposure( exposure ) {
 
 		this.exposure = exposure;
+
+		// Exposure is applied in the display shader via the TSL uniform
+		// (pow(exposure, 4.0) curve matching WebGL). No need to set
+		// renderer.toneMappingExposure — kept at 1.0 to avoid doubling.
 		if ( this.pathTracingStage ) {
 
 			this.pathTracingStage.setExposure( exposure );
@@ -738,6 +958,77 @@ export class WebGPUPathTracerApp {
 	}
 
 	/**
+	 * Updates a material property in the path tracer.
+	 */
+	updateMaterialProperty( materialIndex, property, value ) {
+
+		if ( typeof this.pathTracingStage?.updateMaterialProperty === 'function' ) {
+
+			this.pathTracingStage.updateMaterialProperty( materialIndex, property, value );
+
+		}
+
+	}
+
+	/**
+	 * Updates texture transform data in the path tracer.
+	 */
+	updateTextureTransform( materialIndex, textureName, transform ) {
+
+		if ( typeof this.pathTracingStage?.updateTextureTransform === 'function' ) {
+
+			this.pathTracingStage.updateTextureTransform( materialIndex, textureName, transform );
+
+		}
+
+	}
+
+	/**
+	 * Marks the path tracer material as needing recompilation.
+	 */
+	refreshMaterial() {
+
+		// WebGPU uses TSL nodes, no manual material refresh needed
+		this.reset();
+
+	}
+
+	/**
+	 * Updates a complete material on the path tracer.
+	 */
+	updateMaterial( materialIndex, material ) {
+
+		if ( typeof this.pathTracingStage?.updateMaterialProperty === 'function' ) {
+
+			// Delegate to stage - it handles per-property updates
+			this.pathTracingStage.updateMaterialProperty( materialIndex, 'color', material.color );
+			this.pathTracingStage.updateMaterialProperty( materialIndex, 'roughness', material.roughness );
+			this.pathTracingStage.updateMaterialProperty( materialIndex, 'metalness', material.metalness );
+
+		}
+
+	}
+
+	/**
+	 * Rebuilds all materials from the scene.
+	 */
+	async rebuildMaterials( scene ) {
+
+		// WebGPU material rebuild - no-op for now
+		console.warn( 'WebGPU rebuildMaterials not yet implemented' );
+
+	}
+
+	/**
+	 * Returns whether the render is complete.
+	 */
+	isComplete() {
+
+		return this.pathTracingStage?.isComplete ?? false;
+
+	}
+
+	/**
 	 * Gets the current frame count.
 	 */
 	getFrameCount() {
@@ -765,15 +1056,392 @@ export class WebGPUPathTracerApp {
 	}
 
 	/**
+	 * Syncs camera position, projection, and orbit controls target
+	 * from the WebGL app after model loading.
+	 */
+	syncCameraFromWebGL() {
+
+		const sourceApp = this.existingApp;
+		if ( ! sourceApp?.camera || ! this.camera ) return;
+
+		DataTransfer.copyCameraSettings( sourceApp, this.camera );
+
+		if ( sourceApp.controls?.target && this.controls?.target ) {
+
+			this.controls.target.copy( sourceApp.controls.target );
+			this.controls.maxDistance = sourceApp.controls.maxDistance;
+			this.controls.saveState();
+			this.controls.update();
+
+		}
+
+	}
+
+	/**
+	 * Checks if this backend supports a given feature.
+	 * @param {string} featureName
+	 * @returns {boolean}
+	 */
+	supportsFeature( featureName ) {
+
+		return this._supportedFeatures[ featureName ] ?? false;
+
+	}
+
+	// ─── Missing Interface Methods (no-ops until WebGPU supports them) ──
+
+	/**
+	 * Sets aperture scale.
+	 */
+	setApertureScale( scale ) {
+
+		this.apertureScale = scale;
+		// WebGPU stage does not yet support aperture scale
+		this.reset();
+
+	}
+
+	/**
+	 * Sets render mode.
+	 */
+	setRenderMode( /* mode */ ) {
+
+		// Not implemented in WebGPU yet
+
+	}
+
+	/**
+	 * Loads a model by delegating to the WebGL app's asset pipeline,
+	 * then transferring the processed data via DataTransfer.
+	 * @param {string} url - Model URL
+	 */
+	async loadModel( url ) {
+
+		if ( ! this.existingApp?.assetLoader ) {
+
+			console.warn( 'WebGPUPathTracerApp: No WebGL app available for asset loading' );
+			return;
+
+		}
+
+		await this.existingApp.assetLoader.loadModel( url );
+		this.syncCameraFromWebGL();
+		this.loadSceneData();
+		this.reset();
+		this.dispatchEvent( { type: 'ModelLoaded', url } );
+
+	}
+
+	/**
+	 * Loads an environment map by delegating to the WebGL app's asset pipeline.
+	 * @param {string} url - Environment URL
+	 */
+	async loadEnvironment( url ) {
+
+		if ( ! this.existingApp?.assetLoader ) {
+
+			console.warn( 'WebGPUPathTracerApp: No WebGL app available for environment loading' );
+			return;
+
+		}
+
+		await this.existingApp.loadEnvironment( url );
+		// Re-transfer environment texture
+		const environmentTexture = DataTransfer.getEnvironmentTexture( this.existingApp );
+		if ( environmentTexture && this.pathTracingStage ) {
+
+			this.pathTracingStage.setEnvironmentTexture( environmentTexture );
+
+		}
+
+		this.reset();
+		this.dispatchEvent( { type: 'EnvironmentLoaded', url } );
+
+	}
+
+	/**
+	 * Loads example models by delegating to the WebGL app.
+	 * @param {number} index - Example model index
+	 */
+	async loadExampleModels( index ) {
+
+		if ( ! this.existingApp ) {
+
+			console.warn( 'WebGPUPathTracerApp: No WebGL app available for example model loading' );
+			return;
+
+		}
+
+		await this.existingApp.loadExampleModels( index );
+		this.syncCameraFromWebGL();
+		this.loadSceneData();
+		this.reset();
+		this.dispatchEvent( { type: 'ModelLoaded', index } );
+
+	}
+
+	/**
+	 * Selects an object for highlighting in the UI.
+	 * No outline pass in WebGPU, so just updates the store.
+	 */
+	selectObject( object ) {
+
+		useStore.getState().setSelectedObject( object || null );
+
+	}
+
+	/**
+	 * Toggles focus mode for click-to-focus DOF.
+	 */
+	toggleFocusMode() {
+
+		if ( ! this.interactionManager ) return false;
+		const enabled = this.interactionManager.toggleFocusMode();
+		if ( this.controls ) {
+
+			this.controls.enabled = ! enabled;
+
+		}
+
+		return enabled;
+
+	}
+
+	/**
+	 * Toggles select mode for click-to-select objects.
+	 */
+	toggleSelectMode() {
+
+		if ( ! this.interactionManager ) return false;
+		return this.interactionManager.toggleSelectMode();
+
+	}
+
+	/**
+	 * Disables select mode.
+	 */
+	disableSelectMode() {
+
+		this.interactionManager?.disableSelectMode();
+
+	}
+
+	/**
+	 * @stub
+	 */
+	switchCamera() {}
+
+	/**
+	 * @stub
+	 */
+	getCameraNames() {
+
+		return [];
+
+	}
+
+	/**
+	 * @stub
+	 */
+	addLight() {}
+
+	/**
+	 * @stub
+	 */
+	removeLight() {}
+
+	/**
+	 * @stub
+	 */
+	clearLights() {}
+
+	/**
+	 * @stub
+	 */
+	getLights() {
+
+		return [];
+
+	}
+
+	/**
+	 * Takes a screenshot of the current render and downloads it.
+	 */
+	takeScreenshot() {
+
+		if ( ! this.renderer?.domElement ) return;
+
+		try {
+
+			const screenshot = this.renderer.domElement.toDataURL( 'image/png' );
+			const link = document.createElement( 'a' );
+			link.href = screenshot;
+			link.download = 'screenshot.png';
+			link.click();
+
+		} catch ( error ) {
+
+			console.error( 'WebGPUPathTracerApp: Screenshot failed:', error );
+
+		}
+
+	}
+
+	/**
+	 * @stub
+	 */
+	refreshFrame() {}
+
+	/**
+	 * Enables/disables the path tracer.
+	 * @param {boolean} val
+	 */
+	setPathTracerEnabled( val ) {
+
+		this.pauseRendering = ! val;
+
+	}
+
+	/**
+	 * Enables/disables accumulation.
+	 * @param {boolean} val
+	 */
+	setAccumulationEnabled( val ) {
+
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setAccumulationEnabled( val );
+
+		}
+
+	}
+
+	/**
+	 * @stub
+	 */
+	setTileCount( /* val */ ) {}
+
+	/**
+	 * @stub
+	 */
+	setRenderLimitMode( /* val */ ) {}
+
+	/**
+	 * @stub
+	 */
+	setEnvironmentRotation( /* val */ ) {}
+
+	/**
+	 * @stub
+	 */
+	setInteractionModeEnabled( /* val */ ) {}
+
+	/**
+	 * @stub
+	 */
+	setAdaptiveSamplingParameters( /* params */ ) {}
+
+	// ── Environment mode helpers (stubs — WebGPU does not yet support procedural sky) ──
+
+	/** Returns envParams — not supported in WebGPU yet. */
+	getEnvParams() {
+
+		return null;
+
+	}
+
+	/** Returns the current environment texture — not supported. */
+	getEnvironmentTexture() {
+
+		return null;
+
+	}
+
+	/** Returns the current environment CDF texture — not supported. */
+	getEnvironmentCDF() {
+
+		return null;
+
+	}
+
+	/** @stub */
+	async generateProceduralSkyTexture() {
+
+		console.warn( 'WebGPUPathTracerApp: Procedural sky not supported' );
+
+	}
+
+	/** @stub */
+	async generateGradientTexture() {
+
+		console.warn( 'WebGPUPathTracerApp: Gradient sky not supported' );
+
+	}
+
+	/** @stub */
+	async generateSolidColorTexture() {
+
+		console.warn( 'WebGPUPathTracerApp: Solid color sky not supported' );
+
+	}
+
+	/** @stub */
+	async setEnvironmentMap( /* texture */ ) {
+
+		console.warn( 'WebGPUPathTracerApp: setEnvironmentMap not supported' );
+
+	}
+
+	/** @stub */
+	markEnvironmentNeedsUpdate() {}
+
+	/**
+	 * Returns scene statistics from the path tracing stage, or null.
+	 * In shared-data mode, the WebGPU stage's sdfs is empty (data is
+	 * transferred via textures, not built locally), so fall back to the
+	 * existing WebGL app's statistics.
+	 * @returns {object|null}
+	 */
+	getSceneStatistics() {
+
+		try {
+
+			const localStats = this.pathTracingStage?.sdfs?.getStatistics?.();
+			if ( localStats?.triangleCount > 0 ) return localStats;
+
+			// Fall back to the WebGL app that owns the scene data
+			return this.existingApp?.getSceneStatistics?.() ?? null;
+
+		} catch {
+
+			return null;
+
+		}
+
+	}
+
+	/**
 	 * Disposes of all resources.
 	 */
 	dispose() {
 
 		this.stopAnimation();
 
+		if ( this.assetLoader && this._onAssetLoaded ) {
+
+			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
+
+		}
+
 		if ( this.pathTracingStage ) {
 
 			this.pathTracingStage.dispose();
+
+		}
+
+		if ( this.interactionManager ) {
+
+			this.interactionManager.dispose();
 
 		}
 

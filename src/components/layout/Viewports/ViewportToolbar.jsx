@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { getApp } from '@/core/appProxy';
 
 /**
  * ViewportToolbar - A customizable toolbar component for viewport controls
@@ -17,7 +18,6 @@ import { cn } from "@/lib/utils";
  * @param {Object} props - Component props
  * @param {Function} props.onResize - Callback fired when viewport size changes
  * @param {React.RefObject} props.viewportWrapperRef - Ref to the viewport wrapper element
- * @param {React.RefObject} props.appRef - Ref to the app component with controls
  * @param {string} props.className - Additional CSS classes
  * @param {string} props.position - Position of the toolbar (top-left, top-right, bottom-left, bottom-right)
  * @param {string} props.buttonVariant - Button variant from UI library
@@ -40,7 +40,6 @@ const ViewportToolbar = ( {
 	// Core functionality
 	onResize,
 	viewportWrapperRef,
-	appRef,
 
 	// Auto-fit functionality
 	autoFitScale = 100,
@@ -151,15 +150,15 @@ const ViewportToolbar = ( {
 
 	const handleResetCamera = useCallback( () => {
 
-		appRef?.current?.controls?.reset();
+		getApp()?.controls?.reset();
 
-	}, [ appRef ] );
+	}, [] );
 
 	const handleScreenshot = useCallback( () => {
 
-		appRef?.current?.takeScreenshot();
+		getApp()?.takeScreenshot();
 
-	}, [ appRef ] );
+	}, [] );
 
 	// Enhanced Control button with auto-fit indicator
 	const ControlButton = ( { onClick, tooltip, icon, disabled = false, isAutoFit = false } ) => (

@@ -47,6 +47,6 @@ export default defineConfig( {
 	// Only define specific environment variables that are needed
 	// Avoid exposing all of process.env for security reasons
 	define: {
-		'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV)
+		'process.env.NODE_ENV': JSON.stringify( process.env.NODE_ENV )
 	}
 } );

@@ -43,7 +43,7 @@ const ViewportTabs = () => {
 
 			{/* Unity-style controls overlay - only shown in preview and final render modes */}
 			{showControls && (
-				<RenderControls pathTracerApp={window.pathTracerApp} />
+				<RenderControls />
 			)}
 		</div>
 	);

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useToggle } from '@uidotdev/usehooks';
 import { useToast } from '@/hooks/use-toast';
+import { getApp } from '@/core/appProxy';
 
 export function useImportUrl() {
 
@@ -62,9 +63,10 @@ export function useImportUrl() {
 
 		setIsImporting( true );
 
-		if ( window.pathTracerApp ) {
+		const app = getApp();
+		if ( app ) {
 
-			window.pathTracerApp.loadModel( importUrl )
+			app.loadModel( importUrl )
 				.then( () => {
 
 					setIsImporting( false );
