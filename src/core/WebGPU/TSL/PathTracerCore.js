@@ -808,7 +808,7 @@ export const Trace = Fn( ( [
 		// Apply transparency alpha
 		alpha.mulAssign( interaction.alpha );
 
-		const randomSample = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar( 'tr_randSample' );
+		const randomSample = getRandomSample( pixelCoord, rayIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar( 'tr_randSample' );
 
 		const V = rayDirection.negate().toVar( 'tr_V' );
 		material.sheenRoughness.assign( clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );

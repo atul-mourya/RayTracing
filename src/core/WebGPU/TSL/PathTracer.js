@@ -312,14 +312,14 @@ const pathTracerImpl = Fn( ( [
 			pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
 		).toVar( 'stratifiedJitter' );
 
-		// // Debug mode 5: Visualize stratified samples
-		// If( visMode.equal( int( 5 ) ), () => {
+		// Debug mode 5: Visualize stratified samples
+		If( visMode.equal( int( 5 ) ), () => {
 
-		// 	pixelColor.assign( vec4( stratifiedJitter, 1.0, 1.0 ) );
-		// 	pixelSamples.assign( 1 );
-		// 	Break();
+			pixelColor.assign( vec4( stratifiedJitter, 1.0, 1.0 ) );
+			pixelSamples.assign( 1 );
+			Break();
 
-		// } );
+		} );
 
 		const jitter = stratifiedJitter.sub( 0.5 ).mul( vec2( 2.0 ).div( resolution ) );
 		const jitteredScreenPosition = screenPosition.add( jitter );
