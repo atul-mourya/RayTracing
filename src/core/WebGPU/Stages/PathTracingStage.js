@@ -6,7 +6,7 @@ import {
 } from 'three';
 
 import { pathTracerMain } from '../TSL/PathTracer.js';
-import { samplingTechniqueUniform, blueNoiseTextureNode, blueNoiseTextureSizeUniform } from '../TSL/Random.js';
+import { samplingTechniqueUniform, blueNoiseTextureNode } from '../TSL/Random.js';
 
 // Pipeline system
 import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
@@ -244,7 +244,12 @@ export class PathTracingStage extends PipelineStage {
 		// MRT targets for denoising
 		this.normalDepthTarget = null;
 		this.albedoTarget = null;
-		this.enableMRT = true;
+		// MRT disabled: Three.js TSL doesn't properly bind module-scope texture nodes
+		// (e.g. blueNoiseTextureNode) when multiple materials share the same node graph.
+		// The MRT materials (normalDepth, albedo) compile separate shaders from the same
+		// pathTracerImpl output, causing WGSL "unresolved value" errors for the blue noise
+		// texture. Re-enable once proper MRT rendering (single pass, mrt() outputNode) is implemented.
+		this.enableMRT = false;
 
 	}
 
@@ -340,9 +345,6 @@ export class PathTracingStage extends PipelineStage {
 		// Scene data
 		this.totalTriangleCount = uniform( 0, 'int' );
 
-		// Blue noise — use the module-level uniforms from Random.js
-		this.blueNoiseTextureSize = blueNoiseTextureSizeUniform;
-
 		this._nameTheUniforms();
 
 	}
@@ -397,7 +399,6 @@ export class PathTracingStage extends PipelineStage {
 		this.bvhTexSizeUniform.name = 'bvhTexSizeUniform';
 		this.materialTexSizeUniform.name = 'materialTexSizeUniform';
 		this.totalTriangleCount.name = 'totalTriangleCount';
-		this.blueNoiseTextureSize.name = 'blueNoiseTextureSize';
 		this.numDirectionalLights.name = 'numDirectionalLights';
 		this.numAreaLights.name = 'numAreaLights';
 		this.numPointLights.name = 'numPointLights';
@@ -598,7 +599,6 @@ export class PathTracingStage extends PipelineStage {
 
 			this.blueNoiseTexture = texture;
 			blueNoiseTextureNode.value = texture;
-			this.blueNoiseTextureSize.value.set( texture.image.width, texture.image.height );
 
 			console.log( `PathTracingStage: Blue noise loaded ${texture.image.width}x${texture.image.height}` );
 
@@ -1354,10 +1354,12 @@ export class PathTracingStage extends PipelineStage {
 			? texture( this.adaptiveSamplingTexture )
 			: placeholderTex;
 
-		// Environment importance sampling CDF textures (use placeholder if not available)
+		// Environment importance sampling CDF textures
+		// IMPORTANT: Each CDF texture needs its own TextureNode instance (not sharing placeholderTex)
+		// so they can be independently updated in-place when CDF is built after shader compilation
 		const hasCDF = this.envMarginalWeights !== null && this.envConditionalWeights !== null;
-		const marginalCDFTex = hasCDF ? texture( this.envMarginalWeights ) : placeholderTex;
-		const conditionalCDFTex = hasCDF ? texture( this.envConditionalWeights ) : placeholderTex;
+		const marginalCDFTex = hasCDF ? texture( this.envMarginalWeights ) : new TextureNode();
+		const conditionalCDFTex = hasCDF ? texture( this.envConditionalWeights ) : new TextureNode();
 
 		// Material texture arrays (DataArrayTexture → texture node)
 		// Must use DataArrayTexture placeholder (not regular Texture) so WGSL emits texture_2d_array<f32>
@@ -1388,9 +1390,7 @@ export class PathTracingStage extends PipelineStage {
 			marginalCDFTex,
 			conditionalCDFTex,
 			hasMaterials,
-			hasEnv,
 			hasAdaptiveSampling,
-			hasCDF,
 			// Texture arrays
 			albedoMapsTex,
 			normalMapsTex,
@@ -1418,7 +1418,6 @@ export class PathTracingStage extends PipelineStage {
 		const {
 			triTex, bvhTex, matTex, matTexSize, envTex, prevFrameTex,
 			adaptiveSamplingTex, marginalCDFTex, conditionalCDFTex,
-			hasEnv, hasCDF,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex,
 			displacementMapsTex,
@@ -1473,8 +1472,8 @@ export class PathTracingStage extends PipelineStage {
 			envConditionalWeights: conditionalCDFTex,
 			envTotalSum: this.envTotalSum,
 			envResolution: this.envResolution,
-			enableEnvironmentLight: hasEnv,
-			useEnvMapIS: hasCDF,
+			enableEnvironmentLight: this.enableEnvironment,
+			useEnvMapIS: this.useEnvMapIS,
 
 			// Rendering parameters
 			maxBounceCount: this.maxBounces,
@@ -2136,6 +2135,30 @@ export class PathTracingStage extends PipelineStage {
 			this.envConditionalWeights = null;
 			this.envTotalSum.value = 0.0;
 			this.useEnvMapIS.value = 0;
+
+		}
+
+		// Update TSL texture nodes so the shader sees the new environment
+		const nodes = this._sceneTextureNodes;
+		if ( nodes ) {
+
+			if ( envMap && nodes.envTex ) {
+
+				nodes.envTex.value = envMap;
+
+			}
+
+			if ( this.envMarginalWeights && nodes.marginalCDFTex ) {
+
+				nodes.marginalCDFTex.value = this.envMarginalWeights;
+
+			}
+
+			if ( this.envConditionalWeights && nodes.conditionalCDFTex ) {
+
+				nodes.conditionalCDFTex.value = this.envConditionalWeights;
+
+			}
 
 		}
 
@@ -2902,11 +2925,6 @@ export class PathTracingStage extends PipelineStage {
 		this.blueNoiseTexture = tex;
 		// Update the shared Random.js texture node so TSL shader graph uses the real texture
 		if ( tex ) blueNoiseTextureNode.value = tex;
-		if ( tex?.image ) {
-
-			this.blueNoiseTextureSize.value.set( tex.image.width, tex.image.height );
-
-		}
 
 	}
 

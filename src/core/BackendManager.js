@@ -419,6 +419,16 @@ export class BackendManager {
 		if ( backend === this.currentBackend ) {
 
 			console.log( 'BackendManager: Already using', backend );
+
+			// Ensure the app's animation loop is running (may not be started yet during init)
+			const targetApp = backend === BackendType.WEBGL ? this.webglApp : this.webgpuApp;
+			if ( targetApp && targetApp.resume ) {
+
+				targetApp.resume();
+
+			}
+
+			this.toggleCanvasVisibility( backend );
 			return true;
 
 		}

@@ -1,6 +1,7 @@
 // Three.js Transpiler r182
 
-import { uniform, texture, float, If, Fn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, Loop, shiftLeft, vec4, add, mix } from 'three/tsl';
+import { uniform, texture, textureSize, float, If, Fn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, Loop, shiftLeft, vec4, add, mix } from 'three/tsl';
+import { DataTexture, FloatType } from 'three';
 
 // -----------------------------------------------------------------------------
 // Uniform declarations and constants
@@ -11,11 +12,16 @@ const samplingTechnique = samplingTechniqueUniform;
 
 // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
 
-export const blueNoiseTextureNode = texture( /* <THREE.Texture> */ );
+// 1x1 placeholder — real texture assigned later via blueNoiseTextureNode.value = ...
+const _placeholderData = new Float32Array( [ 0.5, 0.5, 0.5, 1.0 ] );
+const _placeholderTex = new DataTexture( _placeholderData, 1, 1 );
+_placeholderTex.type = FloatType;
+_placeholderTex.needsUpdate = true;
+
+export const blueNoiseTextureNode = texture( _placeholderTex );
 blueNoiseTextureNode.setUpdateMatrix( false ); // No UV transform — we provide our own integer coords
 const blueNoiseTexture = blueNoiseTextureNode;
-export const blueNoiseTextureSizeUniform = uniform( 'ivec2' );
-const blueNoiseTextureSize = blueNoiseTextureSizeUniform;
+const blueNoiseTextureSize = vec2( textureSize( blueNoiseTextureNode ) );
 
 // Golden ratio constants for dimension decorrelation
 

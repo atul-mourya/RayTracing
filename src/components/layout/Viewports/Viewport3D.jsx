@@ -221,8 +221,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 							if ( backend === 'webgpu' ) {
 
 								await backendManager.setBackend( BackendType.WEBGPU );
-								// Start animation loop for WebGPU
-								webgpuApp.animate();
 
 							}
 

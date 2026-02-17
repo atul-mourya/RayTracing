@@ -206,7 +206,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		// WebGPU is active, we automatically sync the new data from WebGL.
 		if ( this.assetLoader ) {
 
-			this._onAssetLoaded = ( event ) => {
+			this._onAssetLoaded = async ( event ) => {
 
 				// Skip if loadModel/loadExampleModels is already handling
 				// this load (they await the WebGL load and sync afterwards)
@@ -217,16 +217,16 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 					console.log( '[WebGPU] Model loaded in WebGL, syncing scene data...' );
 					this.syncCameraFromWebGL();
-					this.loadSceneData();
+					await this.loadSceneData();
 
 				} else if ( event.texture ) {
 
-					// Environment load — just re-transfer the environment texture
+					// Environment load — re-transfer texture and rebuild CDF
 					console.log( '[WebGPU] Environment loaded in WebGL, syncing...' );
 					const environmentTexture = DataTransfer.getEnvironmentTexture( this.existingApp );
 					if ( environmentTexture && this.pathTracingStage ) {
 
-						this.pathTracingStage.setEnvironmentTexture( environmentTexture );
+						await this.pathTracingStage.setEnvironmentMap( environmentTexture );
 
 					}
 
@@ -317,7 +317,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 *
 	 * @returns {boolean} True if data was loaded successfully
 	 */
-	loadSceneData() {
+	async loadSceneData() {
 
 		if ( ! this.existingApp ) {
 
@@ -385,6 +385,15 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		// Setup material with all data
 		this.pathTracingStage.setupMaterial();
+
+		// Build environment CDF for importance sampling AFTER material setup
+		// so the shader is compiled with uniform-based useEnvMapIS that can be
+		// dynamically enabled once CDF data is ready
+		if ( environmentTexture ) {
+
+			await this.pathTracingStage.setEnvironmentMap( environmentTexture );
+
+		}
 
 		// Apply all settings to stage
 		this.pathTracingStage.setMaxBounces( this.maxBounces );
@@ -1134,7 +1143,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 			await this.existingApp.assetLoader.loadModel( url );
 			this.syncCameraFromWebGL();
-			this.loadSceneData();
+			await this.loadSceneData();
 			this.reset();
 			this.dispatchEvent( { type: 'ModelLoaded', url } );
 
@@ -1160,11 +1169,11 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		}
 
 		await this.existingApp.loadEnvironment( url );
-		// Re-transfer environment texture
+		// Re-transfer environment texture and rebuild CDF
 		const environmentTexture = DataTransfer.getEnvironmentTexture( this.existingApp );
 		if ( environmentTexture && this.pathTracingStage ) {
 
-			this.pathTracingStage.setEnvironmentTexture( environmentTexture );
+			await this.pathTracingStage.setEnvironmentMap( environmentTexture );
 
 		}
 
@@ -1192,7 +1201,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 			await this.existingApp.loadExampleModels( index );
 			this.syncCameraFromWebGL();
-			this.loadSceneData();
+			await this.loadSceneData();
 			this.reset();
 			this.dispatchEvent( { type: 'ModelLoaded', index } );
 
@@ -1409,10 +1418,17 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 	}
 
-	/** @stub */
-	async setEnvironmentMap( /* texture */ ) {
+	async setEnvironmentMap( texture ) {
 
-		console.warn( 'WebGPUPathTracerApp: setEnvironmentMap not supported' );
+		if ( ! this.pathTracingStage ) {
+
+			console.warn( 'WebGPUPathTracerApp: PathTracingStage not initialized' );
+			return;
+
+		}
+
+		await this.pathTracingStage.setEnvironmentMap( texture );
+		this.reset();
 
 	}
 
