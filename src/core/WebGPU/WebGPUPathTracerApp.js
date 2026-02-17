@@ -208,6 +208,10 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 			this._onAssetLoaded = ( event ) => {
 
+				// Skip if loadModel/loadExampleModels is already handling
+				// this load (they await the WebGL load and sync afterwards)
+				if ( this._loadingInProgress ) return;
+
 				// Model load — sync camera framing and full scene data
 				if ( event.model ) {
 
@@ -1124,11 +1128,21 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
-		await this.existingApp.assetLoader.loadModel( url );
-		this.syncCameraFromWebGL();
-		this.loadSceneData();
-		this.reset();
-		this.dispatchEvent( { type: 'ModelLoaded', url } );
+		this._loadingInProgress = true;
+
+		try {
+
+			await this.existingApp.assetLoader.loadModel( url );
+			this.syncCameraFromWebGL();
+			this.loadSceneData();
+			this.reset();
+			this.dispatchEvent( { type: 'ModelLoaded', url } );
+
+		} finally {
+
+			this._loadingInProgress = false;
+
+		}
 
 	}
 
@@ -1172,11 +1186,21 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
-		await this.existingApp.loadExampleModels( index );
-		this.syncCameraFromWebGL();
-		this.loadSceneData();
-		this.reset();
-		this.dispatchEvent( { type: 'ModelLoaded', index } );
+		this._loadingInProgress = true;
+
+		try {
+
+			await this.existingApp.loadExampleModels( index );
+			this.syncCameraFromWebGL();
+			this.loadSceneData();
+			this.reset();
+			this.dispatchEvent( { type: 'ModelLoaded', index } );
+
+		} finally {
+
+			this._loadingInProgress = false;
+
+		}
 
 	}
 

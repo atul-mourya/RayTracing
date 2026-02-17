@@ -1210,6 +1210,9 @@ export class PathTracingStage extends PipelineStage {
 
 	/**
 	 * Creates the path tracing material and quad.
+	 * On subsequent calls (after the first), updates texture node values
+	 * in-place instead of rebuilding the entire shader to avoid TSL/WGSL
+	 * compilation failures from duplicate variable names.
 	 */
 	setupMaterial() {
 
@@ -1223,6 +1226,15 @@ export class PathTracingStage extends PipelineStage {
 		if ( ! this.bvhTexture ) {
 
 			console.error( 'PathTracingStage: BVH data required' );
+			return;
+
+		}
+
+		// If material already exists, update texture nodes in-place
+		// instead of rebuilding the shader (avoids TSL recompilation issues)
+		if ( this.isReady && this._sceneTextureNodes ) {
+
+			this._updateSceneTextures();
 			return;
 
 		}
@@ -1243,6 +1255,53 @@ export class PathTracingStage extends PipelineStage {
 
 		this.isReady = true;
 		console.log( 'PathTracingStage: Material setup complete' );
+
+	}
+
+	/**
+	 * Updates texture node values in-place after a model change.
+	 * This avoids rebuilding the entire TSL shader graph which causes
+	 * WGSL compilation failures due to variable naming conflicts.
+	 */
+	_updateSceneTextures() {
+
+		const nodes = this._sceneTextureNodes;
+
+		// Update core scene textures
+		if ( this.triangleTexture && nodes.triTex ) {
+
+			nodes.triTex.value = this.triangleTexture;
+
+		}
+
+		if ( this.bvhTexture && nodes.bvhTex ) {
+
+			nodes.bvhTex.value = this.bvhTexture;
+
+		}
+
+		if ( this.materialTexture && nodes.matTex ) {
+
+			nodes.matTex.value = this.materialTexture;
+
+		}
+
+		if ( this.environmentTexture && nodes.envTex ) {
+
+			nodes.envTex.value = this.environmentTexture;
+
+		}
+
+		// Update material texture arrays
+		if ( this.albedoMaps && nodes.albedoMapsTex ) nodes.albedoMapsTex.value = this.albedoMaps;
+		if ( this.normalMaps && nodes.normalMapsTex ) nodes.normalMapsTex.value = this.normalMaps;
+		if ( this.bumpMaps && nodes.bumpMapsTex ) nodes.bumpMapsTex.value = this.bumpMaps;
+		if ( this.metalnessMaps && nodes.metalnessMapsTex ) nodes.metalnessMapsTex.value = this.metalnessMaps;
+		if ( this.roughnessMaps && nodes.roughnessMapsTex ) nodes.roughnessMapsTex.value = this.roughnessMaps;
+		if ( this.emissiveMaps && nodes.emissiveMapsTex ) nodes.emissiveMapsTex.value = this.emissiveMaps;
+		if ( this.displacementMaps && nodes.displacementMapsTex ) nodes.displacementMapsTex.value = this.displacementMaps;
+
+		console.log( 'PathTracingStage: Scene textures updated in-place' );
 
 	}
 
@@ -1317,7 +1376,7 @@ export class PathTracingStage extends PipelineStage {
 		const emissiveMapsTex = this.emissiveMaps ? texture( this.emissiveMaps ) : arrayPlaceholder;
 		const displacementMapsTex = this.displacementMaps ? texture( this.displacementMaps ) : arrayPlaceholder;
 
-		return {
+		const result = {
 			triTex,
 			bvhTex,
 			matTex,
@@ -1341,6 +1400,11 @@ export class PathTracingStage extends PipelineStage {
 			emissiveMapsTex,
 			displacementMapsTex,
 		};
+
+		// Store references for in-place updates on model change
+		this._sceneTextureNodes = result;
+
+		return result;
 
 	}
 
