@@ -264,38 +264,38 @@ const pathTracerImpl = Fn( ( [
 	const samplesCount = int( numRaysPerPixel ).toVar();
 
 	// Adaptive sampling
-	// If( frame.greaterThan( uint( 2 ) ).and( useAdaptiveSampling ), () => {
+	If( frame.greaterThan( uint( 2 ) ).and( useAdaptiveSampling ), () => {
 
-	// 	const adaptiveSamples = getRequiredSamples(
-	// 		pixelCoord, resolution,
-	// 		adaptiveSamplingTexture, adaptiveSamplingMax,
-	// 	);
-	// 	samplesCount.assign( adaptiveSamples );
+		const adaptiveSamples = getRequiredSamples(
+			pixelCoord, resolution,
+			adaptiveSamplingTexture, adaptiveSamplingMax,
+		);
+		samplesCount.assign( adaptiveSamples );
 
-	// 	// Handle converged pixels
-	// 	If( samplesCount.equal( int( 0 ) ), () => {
+		// Handle converged pixels
+		If( samplesCount.equal( int( 0 ) ), () => {
 
-	// 		If( enableAccumulation.and( hasPreviousAccumulated ), () => {
+			If( enableAccumulation.and( hasPreviousAccumulated ), () => {
 
-	// 			const prevUV = pixelCoord.div( resolution );
-	// 			pixelColor.assign( texture( prevAccumTexture, prevUV, 0 ) );
+				const prevUV = pixelCoord.div( resolution );
+				pixelColor.assign( texture( prevAccumTexture, prevUV, 0 ) );
 
-	// 		} ).Else( () => {
+			} ).Else( () => {
 
-	// 			samplesCount.assign( 1 );
+				samplesCount.assign( 1 );
 
-	// 		} );
+			} );
 
-	// 		// If still 0 after accumulation check, output MRT defaults and return
-	// 		If( samplesCount.equal( int( 0 ) ), () => {
+			// If still 0 after accumulation check, output MRT defaults and return
+			If( samplesCount.equal( int( 0 ) ), () => {
 
-	// 			// Handled below after the loop
+				// Handled below after the loop
 
-	// 		} );
+			} );
 
-	// 	} );
+		} );
 
-	// } );
+	} );
 
 	// Edge detection variables
 	const objectNormal = vec3( 0.0 ).toVar();

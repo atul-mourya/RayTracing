@@ -26,16 +26,14 @@ import {
 	log,
 	clamp,
 	mix,
-	sin,
-	cos,
 	If,
 	select,
 } from 'three/tsl';
 
 import { Ray, HitInfo } from './Struct.js';
 import { traverseBVH } from './BVHTraversal.js';
-import { sampleEnvironment, sampleEquirect } from './Environment.js';
-import { PI, TWO_PI, REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
+import { sampleEnvironment, sampleEquirect, equirectUvToDirection } from './Environment.js';
+import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
 // =============================================================================
 // Debug Visualization Helpers
@@ -216,13 +214,11 @@ export const TraceDebugMode = Fn( ( [
 		If( enableEnvironmentLight.and( useEnvMapIS ), () => {
 
 			// Use screen space to map UV coordinates
-			const uv = pixelCoord.div( resolution );
+			// Flip Y: WebGPU pixelCoord is top-down, but equirectUvToDirection expects bottom-up (like WebGL gl_FragCoord)
+			const uv = vec2( pixelCoord.x.div( resolution.x ), float( 1.0 ).sub( pixelCoord.y.div( resolution.y ) ) );
 
-			// Convert UV to direction (simple equirectangular, no matrix)
-			const theta = float( 1.0 ).sub( uv.y ).mul( PI );
-			const phi = uv.x.mul( TWO_PI );
-			const sinTheta = sin( theta );
-			const direction = vec3( sinTheta.mul( cos( phi ) ), cos( theta ), sinTheta.mul( sin( phi ) ) );
+			// Convert UV to direction
+			const direction = equirectUvToDirection( uv, envMatrix );
 
 			// Get PDF for this direction
 			const envEvalResult = sampleEquirect(

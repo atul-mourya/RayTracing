@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Trackpad } from "@/components/ui/trackpad";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
-import { useCameraStore, usePathTracerStore } from '@/store';
+import { useCameraStore } from '@/store';
 import { useEffect, useCallback } from 'react';
 import { getApp } from '@/core/appProxy';
 import { useBackendEvent } from '@/hooks/useBackendEvent';
@@ -45,9 +45,6 @@ const CameraTab = () => {
 		handleApertureScaleChange,
 		handleFocusChangeEvent,
 	} = useCameraStore();
-
-	const backend = usePathTracerStore( state => state.backend );
-	const isWebGL = backend === 'webgl';
 
 	useBackendEvent( 'focusChanged', handleFocusChangeEvent );
 
@@ -144,7 +141,7 @@ const CameraTab = () => {
 
 				{enableDOF && (
 					<>
-						{isWebGL && <div className="flex items-center justify-between">
+						<div className="flex items-center justify-between">
 							<Select value={activePreset} onValueChange={handlePresetChange}>
 								<span className="opacity-50 text-xs truncate">DOF Preset</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -165,7 +162,7 @@ const CameraTab = () => {
 									) )}
 								</SelectContent>
 							</Select>
-						</div>}
+						</div>
 
 						<div className="flex items-center justify-between">
 							<Slider
@@ -177,7 +174,7 @@ const CameraTab = () => {
 								value={[ focusDistance.toFixed( 1 ) ]}
 								onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
 							/>
-							{isWebGL && <Button
+							<Button
 								variant={focusMode ? "default" : "outline"}
 								size="icon"
 								onClick={handleToggleFocusMode}
@@ -185,7 +182,7 @@ const CameraTab = () => {
 								title="Click in scene to set focus point"
 							>
 								<Target size={12} />
-							</Button>}
+							</Button>
 						</div>
 
 						<div className="flex items-center justify-between">

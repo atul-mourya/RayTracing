@@ -1603,6 +1603,8 @@ class PathTracerApp extends EventDispatcher {
 
 		}
 
+		if ( this.stats ) this.stats.dom.style.display = 'none';
+
 	}
 
 	/**
@@ -1616,6 +1618,8 @@ class PathTracerApp extends EventDispatcher {
 			console.log( 'PathTracerApp (WebGL): Resumed' );
 
 		}
+
+		if ( this.stats ) this.stats.dom.style.display = '';
 
 	}
 

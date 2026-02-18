@@ -577,7 +577,7 @@ export class PathTracingStage extends PipelineStage {
 				enableAccumulation: false,
 				enableEmissiveTriangleSampling: false,
 			},
-			onReset: () => this.reset()
+			onReset: () => this.reset( false )
 		} );
 
 	}
@@ -1216,6 +1216,13 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	setupMaterial() {
 
+		// Ensure camera optimizer exists (build() creates it, but loadSceneData() skips build())
+		if ( ! this.cameraOptimizer ) {
+
+			this._initCameraOptimizer();
+
+		}
+
 		if ( ! this.triangleTexture ) {
 
 			console.error( 'PathTracingStage: Triangle data required' );
@@ -1348,11 +1355,12 @@ export class PathTracingStage extends PipelineStage {
 		// Placeholder texture node for optional textures (TSL requires valid texture instances)
 		const placeholderTex = new TextureNode();
 
-		// Adaptive sampling texture (use placeholder if not available)
+		// Adaptive sampling texture — own TextureNode so it can be updated from context
 		const hasAdaptiveSampling = this.adaptiveSamplingTexture !== null;
 		const adaptiveSamplingTex = hasAdaptiveSampling
 			? texture( this.adaptiveSamplingTexture )
-			: placeholderTex;
+			: new TextureNode();
+		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
 
 		// Environment importance sampling CDF textures
 		// IMPORTANT: Each CDF texture needs its own TextureNode instance (not sharing placeholderTex)
@@ -1593,6 +1601,18 @@ export class PathTracingStage extends PipelineStage {
 
 		this.performanceMonitor?.start();
 
+		// Read adaptive sampling guidance from pipeline context (produced by AdaptiveSamplingStage)
+		if ( context && this.adaptiveSamplingTexNode ) {
+
+			const asTex = context.getTexture( 'adaptiveSampling:output' );
+			if ( asTex ) {
+
+				this.adaptiveSamplingTexNode.value = asTex;
+
+			}
+
+		}
+
 		const frameValue = this.frameCount;
 		const renderMode = this.renderMode.value;
 
@@ -1682,20 +1702,22 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		// Update display texture and render to screen
-		if ( this.displayTexNode ) {
-
-			this.displayTexNode.value = writeTarget.texture;
-
-		}
-
-		this.renderer.setRenderTarget( null );
-		this.displayQuad.render( this.renderer );
-
-		// Publish textures to context
+		// Publish textures to context for downstream stages (DisplayStage)
 		if ( context ) {
 
-			this._publishTexturesToContext( context );
+			this._publishTexturesToContext( context, writeTarget.texture );
+
+		} else {
+
+			// Standalone mode (no pipeline) — render directly to screen
+			if ( this.displayTexNode ) {
+
+				this.displayTexNode.value = writeTarget.texture;
+
+			}
+
+			this.renderer.setRenderTarget( null );
+			this.displayQuad.render( this.renderer );
 
 		}
 
@@ -1856,13 +1878,12 @@ export class PathTracingStage extends PipelineStage {
 	/**
 	 * Publish textures to pipeline context
 	 * @param {PipelineContext} context
+	 * @param {THREE.Texture} colorTexture - The just-rendered colour output
 	 */
-	_publishTexturesToContext( context ) {
+	_publishTexturesToContext( context, colorTexture ) {
 
-		const textures = this.getMRTTextures();
-
-		context.setTexture( 'pathtracer:color', textures.color );
-		context.setTexture( 'pathtracer:normalDepth', textures.normalDepth );
+		context.setTexture( 'pathtracer:color', colorTexture );
+		context.setTexture( 'pathtracer:normalDepth', this.normalDepthTarget?.texture ?? null );
 
 		context.setState( 'interactionMode', this.cameraOptimizer?.isInInteractionMode() ?? false );
 		context.setState( 'renderMode', this.renderMode.value );

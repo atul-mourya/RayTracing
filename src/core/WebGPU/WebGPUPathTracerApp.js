@@ -2,7 +2,11 @@ import { WebGPURenderer } from 'three/webgpu';
 import { ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import Stats from 'stats-gl';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
+import { DisplayStage } from './Stages/DisplayStage.js';
+import { AdaptiveSamplingStage } from './Stages/AdaptiveSamplingStage.js';
+import { PassPipeline } from '../Pipeline/PassPipeline.js';
 import { DataTransfer } from './DataTransfer.js';
 import { DEFAULT_STATE } from '../../Constants.js';
 import { WebGPUFeatures } from './WebGPUFeatures.js';
@@ -100,6 +104,10 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		this.visMode = DEFAULT_STATE.debugMode ?? 0;
 		this.debugVisScale = DEFAULT_STATE.debugVisScale ?? 1.0;
 
+		// Render limit settings
+		this.renderLimitMode = DEFAULT_STATE.renderLimitMode;
+		this.renderTimeLimit = DEFAULT_STATE.renderTimeLimit;
+
 	}
 
 	/**
@@ -182,6 +190,24 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		// Create path tracing stage
 		this.pathTracingStage = new PathTracingStage( this.renderer, this.scene, this.camera );
+		this.adaptiveSamplingStage = new AdaptiveSamplingStage( this.renderer, {
+			adaptiveSamplingMax: this.adaptiveSamplingMax,
+			enabled: this.useAdaptiveSampling,
+		} );
+		this.displayStage = new DisplayStage( this.renderer, { exposure: this.exposure } );
+
+		// Pipeline orchestration (reuses WebGL's PassPipeline — it's renderer-agnostic)
+		const { clientWidth: w, clientHeight: h } = this.canvas;
+		this.pipeline = new PassPipeline( this.renderer, w || 1, h || 1 );
+		this.pipeline.addStage( this.pathTracingStage );
+		this.pipeline.addStage( this.adaptiveSamplingStage );
+		this.pipeline.addStage( this.displayStage );
+
+		// Set initial render dimensions so stage render targets aren't stuck at 1x1
+		// (canvas may be hidden initially in dual-canvas model, so guard against 0)
+		const initRenderW = Math.round( width * ( targetRes / shortestDim ) ) || 1;
+		const initRenderH = Math.round( height * ( targetRes / shortestDim ) ) || 1;
+		this.pipeline.setSize( initRenderW, initRenderH );
 
 		// Initialize interaction manager for click-to-select
 		// Use the WebGL app's scene for raycasting (WebGPU scene doesn't contain mesh objects)
@@ -241,11 +267,47 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
+		// Setup stats panel
+		this.initStats();
+
 		this.isInitialized = true;
 
 		console.log( 'WebGPU Path Tracer App initialized' );
 
 		return this;
+
+	}
+
+	initStats() {
+
+		this.stats = new Stats( { horizontal: true, trackGPU: true } );
+		this.stats.dom.style.position = 'absolute';
+		this.stats.dom.style.top = 'unset';
+		this.stats.dom.style.bottom = '48px';
+
+		this.stats.init( this.renderer );
+		this.canvas.parentElement.parentElement.parentElement.appendChild( this.stats.dom );
+
+		const foregroundColor = '#ffffff';
+		const backgroundColor = '#1e293b';
+
+		const gradient = this.stats.fpsPanel.context.createLinearGradient( 0, this.stats.fpsPanel.GRAPH_Y, 0, this.stats.fpsPanel.GRAPH_Y + this.stats.fpsPanel.GRAPH_HEIGHT );
+		gradient.addColorStop( 0, foregroundColor );
+
+		this.stats.fpsPanel.fg = this.stats.msPanel.fg = foregroundColor;
+		this.stats.fpsPanel.bg = this.stats.msPanel.bg = backgroundColor;
+		this.stats.fpsPanel.gradient = this.stats.msPanel.gradient = gradient;
+
+		if ( this.stats.gpuPanel ) {
+
+			this.stats.gpuPanel.fg = foregroundColor;
+			this.stats.gpuPanel.bg = backgroundColor;
+			this.stats.gpuPanel.gradient = gradient;
+
+		}
+
+		// WebGPU starts hidden since WebGL is the default backend
+		this.stats.dom.style.display = 'none';
 
 	}
 
@@ -458,6 +520,14 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		// Notify UI of resolution change (matches WebGL behavior)
 		const renderWidth = Math.round( width * ( targetRes / shortestDim ) );
 		const renderHeight = Math.round( height * ( targetRes / shortestDim ) );
+
+		// Propagate render dimensions to pipeline stages (adaptive sampling, etc.)
+		if ( this.pipeline ) {
+
+			this.pipeline.setSize( renderWidth, renderHeight );
+
+		}
+
 		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: renderWidth, height: renderHeight } } ) );
 
 	}
@@ -497,7 +567,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		// Reset accumulation on camera change
 		if ( this.needsReset ) {
 
-			this.pathTracingStage.reset();
+			this.reset();
 			this.needsReset = false;
 
 		}
@@ -516,7 +586,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 				// Skip rendering and stats updates when render is already complete
 				if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) return;
 
-				this.pathTracingStage.render();
+				this.pipeline.render();
 
 				const frameCount = this.pathTracingStage.frameCount || 0;
 
@@ -532,6 +602,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 					timeElapsed: this.timeElapsed,
 					samples: frameCount
 				} );
+
+				// Check if time limit reached and force completion
+				if ( this.renderLimitMode === 'time' && this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit ) {
+
+					this.pathTracingStage.isComplete = true;
+
+				}
 
 				// Check for render completion (use stage's own isComplete flag)
 				if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
@@ -551,6 +628,11 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			this.renderer.render( this.scene, this.camera );
 
 		}
+
+		this.stats?.update();
+
+		// Resolve GPU timestamp queries to prevent query pool overflow
+		this.renderer.resolveTimestampsAsync?.();
 
 	}
 
@@ -581,6 +663,8 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
+		if ( this.stats ) this.stats.dom.style.display = 'none';
+
 	}
 
 	/**
@@ -595,6 +679,8 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
+		if ( this.stats ) this.stats.dom.style.display = '';
+
 	}
 
 	/**
@@ -602,9 +688,9 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 */
 	reset() {
 
-		if ( this.pathTracingStage ) {
+		if ( this.pipeline ) {
 
-			this.pathTracingStage.reset();
+			this.pipeline.reset();
 
 		}
 
@@ -765,12 +851,12 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		this.exposure = exposure;
 
-		// Exposure is applied in the display shader via the TSL uniform
-		// (pow(exposure, 4.0) curve matching WebGL). No need to set
-		// renderer.toneMappingExposure — kept at 1.0 to avoid doubling.
-		if ( this.pathTracingStage ) {
+		// Exposure is applied by DisplayStage via TSL uniform
+		// (pow(exposure, 4.0) curve matching WebGL). renderer.toneMappingExposure
+		// is kept at 1.0 to avoid doubling.
+		if ( this.displayStage ) {
 
-			this.pathTracingStage.setExposure( exposure );
+			this.displayStage.setExposure( exposure );
 
 		}
 
@@ -859,6 +945,16 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * Compatibility alias for store access.
+	 * The store calls `app.adaptiveSamplingPass?.toggleHelper(val)`.
+	 */
+	get adaptiveSamplingPass() {
+
+		return this.adaptiveSamplingStage;
+
+	}
+
+	/**
 	 * Enables/disables adaptive sampling.
 	 */
 	setUseAdaptiveSampling( use ) {
@@ -867,6 +963,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		if ( this.pathTracingStage ) {
 
 			this.pathTracingStage.setUseAdaptiveSampling( use );
+
+		}
+
+		// Enable/disable the variance computation stage
+		if ( this.adaptiveSamplingStage ) {
+
+			use ? this.adaptiveSamplingStage.enable() : this.adaptiveSamplingStage.disable();
 
 		}
 
@@ -883,6 +986,12 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		if ( this.pathTracingStage ) {
 
 			this.pathTracingStage.setAdaptiveSamplingMax( max );
+
+		}
+
+		if ( this.adaptiveSamplingStage ) {
+
+			this.adaptiveSamplingStage.setAdaptiveSamplingMax( max );
 
 		}
 
@@ -1354,20 +1463,37 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 */
 	setTileCount( /* val */ ) {}
 
-	/**
-	 * @stub
-	 */
-	setRenderLimitMode( /* val */ ) {}
+	setRenderLimitMode( val ) {
+
+		this.renderLimitMode = val;
+		if ( this.pathTracingStage?.setRenderLimitMode ) {
+
+			this.pathTracingStage.setRenderLimitMode( val );
+
+		}
+
+	}
+
+	setEnvironmentRotation( val ) {
+
+		this.environmentRotation = val;
+		this.pathTracingStage.setEnvironmentRotation( val );
+
+	}
 
 	/**
-	 * @stub
+	 * Enables/disables interaction mode (quality reduction during camera movement).
+	 * @param {boolean} val
 	 */
-	setEnvironmentRotation( /* val */ ) {}
+	setInteractionModeEnabled( val ) {
 
-	/**
-	 * @stub
-	 */
-	setInteractionModeEnabled( /* val */ ) {}
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setInteractionModeEnabled( val );
+
+		}
+
+	}
 
 	/**
 	 * @stub
@@ -1473,9 +1599,9 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
-		if ( this.pathTracingStage ) {
+		if ( this.pipeline ) {
 
-			this.pathTracingStage.dispose();
+			this.pipeline.dispose();
 
 		}
 
@@ -1494,6 +1620,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		if ( this.renderer ) {
 
 			this.renderer.dispose();
+
+		}
+
+		if ( this.stats ) {
+
+			this.stats.dom.remove();
+			this.stats = null;
 
 		}
 

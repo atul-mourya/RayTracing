@@ -253,9 +253,9 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
 				</div>
-				{isWebGL && <div className="flex items-center justify-between">
+				<div className="flex items-center justify-between">
 					<Switch label={"Interaction Mode"} checked={interactionModeEnabled} onCheckedChange={handleInteractionModeEnabledChange} />
-				</div>}
+				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
 				</div>
@@ -461,7 +461,7 @@ const PathTracerTab = () => {
 				</div>
 
 				{/* HDRI Mode Controls */}
-				{isWebGL && environmentMode === 'hdri' && (
+				{environmentMode === 'hdri' && (
 					<>
 						<div className="flex items-center justify-between">
 							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />

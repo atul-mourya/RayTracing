@@ -31,8 +31,17 @@ export const WebGPUFeatures = {
 	emissiveTriangleSampling: true,
 	transmissiveBounces: true,
 
-	// ─── Partially Implemented ───
-	adaptiveSampling: false,
+	// ─── Utility & Integration (IMPLEMENTED) ───
+	interactionMode: true,
+	focusPicking: true,
+	cameraPresets: true,
+	screenshot: true,
+	renderLimitMode: true,
+	environmentRotation: true,
+	assetLoading: true, // delegated to WebGL pipeline via DataTransfer
+
+	// ─── Pipeline Stages (IMPLEMENTED) ───
+	adaptiveSampling: true,
 
 	// ─── Not Yet Implemented ───
 	asvgf: false,
@@ -41,16 +50,9 @@ export const WebGPUFeatures = {
 	bloom: false,
 	autoExposure: false,
 	tileRendering: false,
-	interactionMode: false,
 	objectSelection: false,
-	focusPicking: false,
 	lights: false,
-	assetLoading: false, // delegated to WebGL pipeline currently
 	materialEditing: false,
-	cameraPresets: false,
-	screenshot: false,
-	renderLimitMode: false,
-	environmentRotation: false,
 
 };
 
@@ -65,16 +67,11 @@ export const WebGPUFeatureDescriptions = {
 	bloom: 'Bloom post-processing — planned for WebGPU',
 	autoExposure: 'Auto exposure — planned for WebGPU',
 	tileRendering: 'Tiled progressive rendering — planned for WebGPU',
-	interactionMode: 'Interactive quality mode — planned for WebGPU',
+	interactionMode: 'Interactive quality mode — reduces quality during camera movement',
 	objectSelection: 'Object selection/outlining — planned for WebGPU',
-	focusPicking: 'Click-to-focus in scene — planned for WebGPU',
+	focusPicking: 'Click-to-focus in scene for depth of field',
 	lights: 'Dynamic light management — planned for WebGPU',
-	assetLoading: 'Direct asset loading — currently uses WebGL pipeline',
 	materialEditing: 'Real-time material editing — planned for WebGPU',
-	cameraPresets: 'DOF camera presets — planned for WebGPU',
-	screenshot: 'Screenshot export — planned for WebGPU',
-	renderLimitMode: 'Render limit modes — planned for WebGPU',
-	environmentRotation: 'HDRI environment rotation — planned for WebGPU',
 
 };
 
