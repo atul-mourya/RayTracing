@@ -103,10 +103,8 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 } );
 
 // Sample environment map using importance sampling
-// Returns PDF, outputs color and direction
+// Returns vec4(direction.xyz, pdf). Optionally writes sampled color to colorOutput.
 // Exact implementation from three-gpu-pathtracer
-// Returns vec4(direction.xyz, pdf) since TSL cannot use inout params
-// Use sampleEquirectProbabilityColor to get the sampled color
 export const sampleEquirectProbability = Fn( ( [
 	environment,
 	envMarginalWeights,
@@ -115,7 +113,8 @@ export const sampleEquirectProbability = Fn( ( [
 	environmentIntensity,
 	envTotalSum,
 	envResolution,
-	r
+	r,
+	colorOutput
 ] ) => {
 
 	// Sample marginal CDF for V coordinate
@@ -132,6 +131,9 @@ export const sampleEquirectProbability = Fn( ( [
 	// Sample color
 	const color = texture( environment, uv, 0 ).rgb.mul( environmentIntensity ).toVar();
 
+	// Write color to output parameter (avoids redundant CDF texture lookups)
+	colorOutput.assign( color );
+
 	// Calculate PDF
 	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS ).toVar();
 	const pdf = lum.div( envTotalSum ).toVar();
@@ -140,25 +142,6 @@ export const sampleEquirectProbability = Fn( ( [
 	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
 
 	return vec4( direction, finalPdf );
-
-} );
-
-// Helper to get color from importance sampled direction
-// TSL adaptation: GLSL uses inout vec3 color, TSL returns it separately
-export const sampleEquirectProbabilityColor = Fn( ( [
-	environment,
-	envMarginalWeights,
-	envConditionalWeights,
-	environmentIntensity,
-	r
-] ) => {
-
-	// Reconstruct UV from same random values
-	const v = texture( envMarginalWeights, vec2( r.x, 0.0 ), 0 ).x.toVar();
-	const u = texture( envConditionalWeights, vec2( r.y, v ), 0 ).x.toVar();
-	const uv = vec2( u, v ).toVar();
-
-	return texture( environment, uv, 0 ).rgb.mul( environmentIntensity );
 
 } );
 

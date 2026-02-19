@@ -85,7 +85,6 @@ import {
 } from './Common.js';
 import {
 	sampleEquirectProbability,
-	sampleEquirectProbabilityColor,
 	sampleEquirect,
 } from './Environment.js';
 
@@ -1221,20 +1220,16 @@ export const calculateDirectLightingUnified = Fn( ( [
 			If( enableEnvironmentLight.and( useEnvSampling ), () => {
 
 				const envRandom = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+				const envColor = vec3( 0.0 ).toVar();
 
-				// Sample direction + PDF from importance-sampled environment
+				// Sample direction + PDF + color from importance-sampled environment
 				const envSampleResult = sampleEquirectProbability(
 					envTexture, envMarginalWeights, envConditionalWeights,
-					envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom
+					envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom, envColor
 				).toVar();
 
 				const envDirection = envSampleResult.xyz.toVar();
 				const envPdf = envSampleResult.w.toVar();
-
-				// Get the sampled color
-				const envColor = sampleEquirectProbabilityColor(
-					envTexture, envMarginalWeights, envConditionalWeights, environmentIntensity, envRandom
-				).toVar();
 
 				If( envPdf.greaterThan( 0.0 ), () => {
 

@@ -49,7 +49,7 @@ import {
 import { DistributionGGX, calculateVNDFPDF } from './MaterialProperties.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
 import { RandomValue } from './Random.js';
-import { sampleEquirectProbability, sampleEquirectProbabilityColor, sampleEquirect } from './Environment.js';
+import { sampleEquirectProbability, sampleEquirect } from './Environment.js';
 import { sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import { cosineWeightedSample } from './MaterialSampling.js';
 
@@ -357,9 +357,10 @@ export const calculateIndirectLighting = Fn( ( [
 		// Strategy 0: Environment
 		If( selectedStrategy.equal( int( 0 ) ), () => {
 
+			const envColorUnused = vec3( 0.0 ).toVar();
 			const envSampleResult = sampleEquirectProbability(
 				envTexture, envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity, envTotalSum, envResolution, sampleRand
+				envMatrix, environmentIntensity, envTotalSum, envResolution, sampleRand, envColorUnused
 			).toVar();
 
 			sampleDir.assign( envSampleResult.xyz );

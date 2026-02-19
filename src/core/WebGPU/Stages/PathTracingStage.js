@@ -2146,11 +2146,11 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		if ( envMap && this.useEnvMapIS.value ) {
+		if ( envMap ) {
 
 			await this.buildEnvironmentCDF();
 
-		} else if ( ! envMap ) {
+		} else {
 
 			this.envMarginalWeights = null;
 			this.envConditionalWeights = null;
