@@ -61,8 +61,8 @@ export class BackendManager {
 		// Event listeners
 		this.listeners = new Map();
 
-		// Initialize
-		this.detectCapabilities();
+		// Initialize — store the promise so consumers can await detection
+		this.capabilitiesReady = this.detectCapabilities();
 
 	}
 

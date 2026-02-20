@@ -379,8 +379,8 @@ export class PathTracingStage extends PipelineStage {
 		this.exposure.name = 'exposure';
 		this.cameraWorldMatrix.name = 'cameraWorldMatrix';
 		this.cameraProjectionMatrixInverse.name = 'cameraProjectionMatrixInverse';
-		this.cameraViewMatrix.name = 'cameraViewMatrix';
-		this.cameraProjectionMatrix.name = 'cameraProjectionMatrix';
+		this.cameraViewMatrix.name = 'ptCameraViewMatrix';
+		this.cameraProjectionMatrix.name = 'ptCameraProjectionMatrix';
 		this.enableDOF.name = 'enableDOF';
 		this.focusDistance.name = 'focusDistance';
 		this.focalLength.name = 'focalLength';

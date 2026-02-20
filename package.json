@@ -70,6 +70,7 @@
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^5.0.0",
     "babel-plugin-react-compiler": "^19.0.0-beta-714736e-20250131",
     "cross-env": "^7.0.3",

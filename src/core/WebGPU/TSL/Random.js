@@ -428,7 +428,7 @@ export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, cur
 
 	// Determine which "slice" of the blue noise we're in
 
-	const progress = float( currentSample ).div( float( max( int( 1 ), maxSamples ) ) );
+	const progress = float( currentSample ).div( max( 1.0, float( maxSamples ) ) );
 	const temporalSlice = int( progress.mul( 16.0 ) );
 
 	// 16 temporal slices

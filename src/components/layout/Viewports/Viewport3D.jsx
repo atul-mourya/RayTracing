@@ -185,6 +185,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 					const backendManager = getBackendManager();
 					backendManager.setCanvasRefs( webglCanvasRef, webgpuCanvasRef, denoiserCanvasRef );
 
+					// Wait for async WebGPU capability detection to complete
+					await backendManager.capabilitiesReady;
+
 					// Check WebGPU support and update store
 					const { setIsWebGPUSupported, backend, setBackend } = usePathTracerStore.getState();
 					const isWebGPUSupported = backendManager.canUseWebGPU();
