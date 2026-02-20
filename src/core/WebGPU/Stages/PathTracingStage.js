@@ -197,8 +197,10 @@ export class PathTracingStage extends PipelineStage {
 		this.envTexSize = new Vector2();
 
 		// Environment importance sampling
-		this.envMarginalWeights = null;
-		this.envConditionalWeights = null;
+		// Initialize with EquirectHdrInfo's default placeholders (RedFormat + HalfFloatType)
+		// so the TextureNode bind group layout matches the real CDF textures when they arrive
+		this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
+		this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
 
 		// Lights
 		this.directionalLightsData = null;
@@ -2056,8 +2058,8 @@ export class PathTracingStage extends PipelineStage {
 
 		if ( ! this.scene.environment ) {
 
-			this.envMarginalWeights = null;
-			this.envConditionalWeights = null;
+			this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
+			this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
 			this.envTotalSum.value = 0.0;
 			this.useEnvMapIS.value = 0;
 			return;
@@ -2091,8 +2093,8 @@ export class PathTracingStage extends PipelineStage {
 
 				} else {
 
-					this.envMarginalWeights = null;
-					this.envConditionalWeights = null;
+					this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
+					this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
 					this.envTotalSum.value = 0.0;
 					this.useEnvMapIS.value = 0;
 					return;
@@ -2152,8 +2154,8 @@ export class PathTracingStage extends PipelineStage {
 
 		} else {
 
-			this.envMarginalWeights = null;
-			this.envConditionalWeights = null;
+			this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
+			this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
 			this.envTotalSum.value = 0.0;
 			this.useEnvMapIS.value = 0;
 
