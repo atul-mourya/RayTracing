@@ -480,6 +480,14 @@ export class BackendManager {
 			// Toggle canvas visibility
 			this.toggleCanvasVisibility( backend );
 
+			// Ensure rendering infrastructure is ready before restoring state
+			// (WebGL app may be in asset-only mode if WebGPU was the initial backend)
+			if ( targetApp.initRendering ) {
+
+				targetApp.initRendering();
+
+			}
+
 			// Restore state to new backend
 			this.restoreState();
 

@@ -166,11 +166,15 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	}, [ setIsRenderComplete ] );
 
 
-	// Effect for app initialization - dependencies optimized
+	// Effect for app initialization
 	useEffect( () => {
 
-		// Only initialize if the component is visible (not in results mode)
-		if ( ! appRef.current && containerRef.current && appMode !== 'results' ) {
+		if ( ! appRef.current && containerRef.current ) {
+
+			// Start capability detection early (runs in parallel with WebGL init)
+			const backendManager = getBackendManager();
+			const { backend } = usePathTracerStore.getState();
+			const wantWebGPU = backend === 'webgpu';
 
 			// Initialize WebGL app with its dedicated canvas
 			appRef.current = new PathTracerApp( webglCanvasRef.current, denoiserCanvasRef.current );
@@ -178,67 +182,92 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
 
-			appRef.current.init()
+			// Run asset loading and capability detection in parallel
+			// When WebGPU is preferred, skip WebGL rendering setup (composer, stages, OIDN, animation)
+			Promise.all( [
+				appRef.current.init( { assetOnly: wantWebGPU } ),
+				backendManager.capabilitiesReady
+			] )
 				.then( async () => {
 
-					// Initialize BackendManager and register WebGL app
-					const backendManager = getBackendManager();
 					backendManager.setCanvasRefs( webglCanvasRef, webgpuCanvasRef, denoiserCanvasRef );
 
-					// Wait for async WebGPU capability detection to complete
-					await backendManager.capabilitiesReady;
-
 					// Check WebGPU support and update store
-					const { setIsWebGPUSupported, backend, setBackend } = usePathTracerStore.getState();
+					const { setIsWebGPUSupported, setBackend } = usePathTracerStore.getState();
 					const isWebGPUSupported = backendManager.canUseWebGPU();
 					setIsWebGPUSupported( isWebGPUSupported );
 
-					// Determine which backend to use initially
-					const initialBackend = isWebGPUSupported && backend === 'webgpu' ? 'webgpu' : 'webgl';
+					if ( isWebGPUSupported && wantWebGPU ) {
 
-					// Set backend state before registering apps so BackendManager knows which to pause
-					backendManager.currentBackend = initialBackend === 'webgpu' ? BackendType.WEBGPU : BackendType.WEBGL;
-
-					// Register WebGL app (will auto-pause if not active backend)
-					backendManager.setWebGLApp( appRef.current );
-
-					// If WebGPU is supported, initialize WebGPU app
-					if ( isWebGPUSupported ) {
+						// WebGPU path — WebGL only did asset processing, no rendering setup
+						backendManager.currentBackend = BackendType.WEBGPU;
+						backendManager.setWebGLApp( appRef.current );
 
 						try {
 
 							setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 80 } );
 
-							// Initialize WebGPU app with its dedicated canvas
 							const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, appRef.current );
 							await webgpuApp.init();
 							webgpuApp.loadSceneData();
 
-							// Register WebGPU app (will auto-pause if not active backend)
 							backendManager.setWebGPUApp( webgpuApp );
 							window.webgpuPathTracerApp = webgpuApp;
 
 							console.log( 'WebGPU backend initialized and ready' );
 
-							// Switch to WebGPU if it's the desired backend
-							if ( backend === 'webgpu' ) {
-
-								await backendManager.setBackend( BackendType.WEBGPU );
-
-							}
+							await backendManager.setBackend( BackendType.WEBGPU );
 
 						} catch ( err ) {
 
-							console.warn( 'WebGPU initialization failed, using WebGL:', err.message );
+							console.warn( 'WebGPU initialization failed, falling back to WebGL:', err.message );
 							setBackend( 'webgl' );
 							backendManager.currentBackend = BackendType.WEBGL;
+							// Complete WebGL rendering setup as fallback
+							appRef.current.initRendering();
+							appRef.current.animate();
 
 						}
 
 					} else {
 
-						console.log( 'WebGPU not supported, using WebGL backend' );
-						setBackend( 'webgl' );
+						// WebGL path — complete rendering setup now
+						if ( wantWebGPU ) {
+
+							// User wanted WebGPU but it's not supported
+							console.log( 'WebGPU not supported, using WebGL backend' );
+							setBackend( 'webgl' );
+
+						}
+
+						appRef.current.initRendering();
+						appRef.current.animate();
+						backendManager.currentBackend = BackendType.WEBGL;
+						backendManager.setWebGLApp( appRef.current );
+
+						// Still init WebGPU if supported (for future switching)
+						if ( isWebGPUSupported ) {
+
+							try {
+
+								setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 80 } );
+
+								const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, appRef.current );
+								await webgpuApp.init();
+								webgpuApp.loadSceneData();
+
+								backendManager.setWebGPUApp( webgpuApp );
+								window.webgpuPathTracerApp = webgpuApp;
+
+								console.log( 'WebGPU backend initialized and ready (standby)' );
+
+							} catch ( err ) {
+
+								console.warn( 'WebGPU initialization failed:', err.message );
+
+							}
+
+						}
 
 					}
 
@@ -282,7 +311,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		}
 
-	}, [ setLoading, toast, appMode ] );
+	}, [ setLoading, toast ] );
 
 	// Disable select mode when leaving preview mode
 	useEffect( () => {

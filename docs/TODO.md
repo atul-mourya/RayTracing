@@ -80,6 +80,8 @@
 - [ ] https://enhance.addy.ie/
 
 ---
+WebGPU Graphics Pipeline:
+https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html
 
 *Last Updated: January 2025*
 *See [ROADMAP.md] for long-term vision and strategic planning*

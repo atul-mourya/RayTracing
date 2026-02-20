@@ -115,6 +115,7 @@ class PathTracerApp extends EventDispatcher {
 		// Interface compliance
 		this.isInitialized = false;
 		this.pauseRendering = false;
+		this._assetOnly = false;
 
 		// Feature support map for IPathTracerApp interface
 		this._supportedFeatures = {
@@ -147,7 +148,18 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
-	async init() {
+	/**
+	 * @param {Object} options
+	 * @param {boolean} options.assetOnly - When true, only initializes asset processing
+	 *   (renderer, camera, controls, PathTracerStage, AssetLoader) and skips the full
+	 *   rendering pipeline (EffectComposer, denoiser, stats, animation loop).
+	 *   Used when WebGPU is the target backend — WebGPU only needs processed
+	 *   asset data via DataTransfer, not WebGL's rendering infrastructure.
+	 *   Call initRendering() later if WebGL rendering is needed.
+	 */
+	async init( { assetOnly = false } = {} ) {
+
+		this._assetOnly = assetOnly;
 
 		// Setup renderer
 		this.renderer.setClearColor( 0x000000, 0 ); // Set clear alpha to 0 for transparency
@@ -165,9 +177,6 @@ class PathTracerApp extends EventDispatcher {
 
 		// Enable full shader error logging
 		// this.renderer.debug.checkShaderErrors = true;
-
-		// Setup stats
-		this.initStats();
 
 		// Setup canvas
 		this.canvas.style.position = 'absolute';
@@ -205,8 +214,17 @@ class PathTracerApp extends EventDispatcher {
 
 		this.cameras = [ this.defaultCamera ];
 
-		// Setup composer and passes
-		this.setupComposer();
+		// Create PathTracerStage for asset data storage (needed by AssetLoader and DataTransfer)
+		this.setupPathTracerStage();
+
+		// Full rendering pipeline setup (skipped in asset-only mode for faster WebGPU startup)
+		if ( ! assetOnly ) {
+
+			this.setupComposer();
+			this.initStats();
+
+		}
+
 		await this.setupFloorPlane();
 
 		// Initialize asset loader
@@ -274,8 +292,12 @@ class PathTracerApp extends EventDispatcher {
 		// Mark initialization complete
 		this.isInitialized = true;
 
-		// Start animation loop
-		this.animate();
+		// Start animation loop (skipped in asset-only mode)
+		if ( ! assetOnly ) {
+
+			this.animate();
+
+		}
 
 		// window.addEventListener( 'resize', () => this.onResize() ); // weird bug with this
 		this.assetLoader.addEventListener( 'load', ( event ) => {
@@ -320,6 +342,22 @@ class PathTracerApp extends EventDispatcher {
 			this.pauseRendering = false;
 
 		} );
+
+	}
+
+	/**
+	 * Completes the WebGL rendering setup when initially started in asset-only mode.
+	 * Called before restoreState/resume during backend switch, or when WebGPU is unavailable.
+	 * Does NOT start the animation loop — callers (resume or Viewport3D) handle that.
+	 */
+	initRendering() {
+
+		if ( ! this._assetOnly ) return;
+
+		this.setupComposer();
+		this.initStats();
+		this.pauseRendering = false;
+		this._assetOnly = false;
 
 	}
 
@@ -432,17 +470,27 @@ class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/**
+	 * Creates the PathTracerStage independently of the full pipeline.
+	 * Needed for asset data storage (sdfs) used by AssetLoader and DataTransfer.
+	 */
+	setupPathTracerStage() {
+
+		this.pathTracingPass = new PathTracerStage( this.renderer, this.scene, this.camera, {
+			width: this.width,
+			height: this.height,
+			enabled: true
+		} );
+
+	}
+
 	setupPipeline() {
 
 		// Create the new pipeline
 		this.pipeline = new PassPipeline( this.renderer );
 
-		// Create stages in execution order
-		const pathTracerStage = new PathTracerStage( this.renderer, this.scene, this.camera, {
-			width: this.width,
-			height: this.height,
-			enabled: true
-		} );
+		// Reuse the PathTracerStage already created by setupPathTracerStage()
+		const pathTracerStage = this.pathTracingPass;
 
 		// Motion vector stage - runs after PathTracer, before ASVGF
 		const motionVectorStage = new MotionVectorStage( {
@@ -549,7 +597,7 @@ class PathTracerApp extends EventDispatcher {
 		this.composer.addPass( this.pipelineWrapperPass );
 
 		// Create proxy references for backward compatibility
-		this.pathTracingPass = pathTracerStage;
+		// (pathTracingPass already set by setupPathTracerStage)
 		this.motionVectorPass = motionVectorStage;
 		this.asvgfPass = asvgfStage;
 		this.varianceEstimationPass = varianceEstimationStage;
@@ -684,8 +732,8 @@ class PathTracerApp extends EventDispatcher {
 
 	refreshFrame = () => {
 
-		this.edgeAwareFilterPass.iteration -= 1;
-		this.pathTracingPass.isComplete = false;
+		if ( this.edgeAwareFilterPass ) this.edgeAwareFilterPass.iteration -= 1;
+		if ( this.pathTracingPass ) this.pathTracingPass.isComplete = false;
 
 	};
 
@@ -872,7 +920,7 @@ class PathTracerApp extends EventDispatcher {
 		}
 
 		this.renderer.setPixelRatio( value );
-		this.composer.setPixelRatio( value );
+		this.composer?.setPixelRatio( value );
 		this.onResize();
 
 	}
@@ -889,7 +937,7 @@ class PathTracerApp extends EventDispatcher {
 		const pixelRatio = targetRes / shortestDim;
 
 		this.renderer.setPixelRatio( pixelRatio );
-		this.composer.setPixelRatio( pixelRatio );
+		this.composer?.setPixelRatio( pixelRatio );
 		this.onResize();
 
 	}
@@ -914,7 +962,7 @@ class PathTracerApp extends EventDispatcher {
 
 	selectObject( object ) {
 
-		this.outlinePass.selectedObjects = object ? [ object ] : [];
+		if ( this.outlinePass ) this.outlinePass.selectedObjects = object ? [ object ] : [];
 
 	}
 
@@ -950,7 +998,7 @@ class PathTracerApp extends EventDispatcher {
 		// Pipeline architecture - resize all stages
 		this.pipeline?.setSize( this.width, this.height );
 
-		this.denoiser.setSize( this.width, this.height );
+		this.denoiser?.setSize( this.width, this.height );
 
 		// Update OutlinePass to render at actual devicePixelRatio
 		this.updateFixedPassResolution();
@@ -1609,8 +1657,17 @@ class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Resumes the animation loop.
+	 * If in asset-only mode (WebGPU was the initial target), completes
+	 * the full rendering setup first before starting the animation loop.
 	 */
 	resume() {
+
+		// Complete rendering setup if still in asset-only mode
+		if ( this._assetOnly ) {
+
+			this.initRendering();
+
+		}
 
 		if ( ! this.animationFrameId ) {
 
