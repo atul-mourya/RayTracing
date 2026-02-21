@@ -347,6 +347,9 @@ const pathTracerImpl = Fn( ( [
 				useEnvMapIS,
 				visMode, debugVisScale,
 				pixelCoord, resolution,
+				albedoMaps, normalMaps, bumpMaps,
+				metalnessMaps, roughnessMaps, emissiveMaps,
+				cameraProjectionMatrix, cameraViewMatrix,
 			) );
 
 		} ).Else( () => {

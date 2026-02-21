@@ -30,10 +30,11 @@ import {
 	select,
 } from 'three/tsl';
 
-import { Ray, HitInfo } from './Struct.js';
+import { Ray, HitInfo, RayTracingMaterial, MaterialSamples } from './Struct.js';
 import { traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment, sampleEquirect, equirectUvToDirection } from './Environment.js';
-import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
+import { REC709_LUMINANCE_COEFFICIENTS, getMaterial } from './Common.js';
+import { sampleAllMaterialTextures } from './TextureSampling.js';
 
 // =============================================================================
 // Debug Visualization Helpers
@@ -50,6 +51,15 @@ const visualizeDepth = Fn( ( [ depth ] ) => {
 const visualizeNormal = Fn( ( [ normal ] ) => {
 
 	return normal.mul( 0.5 ).add( 0.5 );
+
+} );
+
+// Compute NDC depth from world position (inlined to avoid circular dep with PathTracer.js)
+const computeNDCDepthLocal = Fn( ( [ worldPos, cameraProjectionMatrix, cameraViewMatrix ] ) => {
+
+	const clipPos = cameraProjectionMatrix.mul( cameraViewMatrix ).mul( vec4( worldPos, 1.0 ) );
+	const ndcDepth = clipPos.z.div( clipPos.w ).mul( 0.5 ).add( 0.5 );
+	return clamp( ndcDepth, 0.0, 1.0 );
 
 } );
 
@@ -72,6 +82,11 @@ export const TraceDebugMode = Fn( ( [
 	visMode, debugVisScale,
 	// Screen info
 	pixelCoord, resolution,
+	// Texture arrays (for MRT debug modes 8-11)
+	albedoMaps, normalMaps, bumpMaps,
+	metalnessMaps, roughnessMaps, emissiveMaps,
+	// Camera matrices (for depth debug mode 10)
+	cameraProjectionMatrix, cameraViewMatrix,
 ] ) => {
 
 	const result = vec4( 1.0, 0.0, 1.0, 1.0 ).toVar(); // Default: magenta
@@ -252,6 +267,124 @@ export const TraceDebugMode = Fn( ( [
 		} ).Else( () => {
 
 			result.assign( vec4( 1.0, 0.0, 1.0, 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 8: Emissive Lighting Visualization
+	If( visMode.equal( int( 8 ) ), () => {
+
+		If( hitInfo.didHit.not(), () => {
+
+			result.assign( vec4( 0.0, 0.0, 0.0, 1.0 ) );
+
+		} ).Else( () => {
+
+			// Get material from texture
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+
+			// Sample all textures to get emissive
+			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
+				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
+				material, hitInfo.uv, hitInfo.normal,
+			) ).toVar();
+
+			const emissiveColor = matSamples.emissive.toVar();
+			const emissiveIntensity = length( emissiveColor ).toVar();
+
+			If( emissiveIntensity.greaterThan( 0.0 ), () => {
+
+				// Show emissive contribution with intensity mapping
+				const scaledEmissive = emissiveColor.div( max( emissiveIntensity.mul( 0.1 ), 0.001 ) ).toVar();
+
+				// Add distance-based tint (closer = warmer)
+				const dist = length( rayOrigin.sub( hitInfo.hitPoint ) );
+				const distanceFactor = clamp( float( 1.0 ).sub( dist.div( 10.0 ) ), 0.0, 1.0 );
+				const visualColor = mix( scaledEmissive, scaledEmissive.mul( vec3( 1.0, 0.8, 0.6 ) ), distanceFactor.mul( 0.3 ) );
+
+				result.assign( vec4( visualColor, 1.0 ) );
+
+			} ).Else( () => {
+
+				// No emissive - dark blue
+				result.assign( vec4( 0.0, 0.0, 0.1, 1.0 ) );
+
+			} );
+
+		} );
+
+	} );
+
+	// Case 9: MRT: World-space normals (gNormalDepth.rgb)
+	If( visMode.equal( int( 9 ) ), () => {
+
+		If( hitInfo.didHit.not(), () => {
+
+			// Sky/background = up vector
+			result.assign( vec4( 0.5, 0.5, 1.0, 1.0 ) );
+
+		} ).Else( () => {
+
+			// Get material from texture
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+
+			// Get material-mapped normal (same as what's used in main shader)
+			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
+				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
+				material, hitInfo.uv, hitInfo.normal,
+			) ).toVar();
+
+			const worldNormal = normalize( matSamples.normal );
+
+			// Encode as [0,1] range (same as gNormalDepth output)
+			result.assign( vec4( visualizeNormal( worldNormal ), 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 10: MRT: Linear depth (gNormalDepth.a)
+	If( visMode.equal( int( 10 ) ), () => {
+
+		If( hitInfo.didHit.not(), () => {
+
+			// Far plane = white
+			result.assign( vec4( vec3( 1.0 ), 1.0 ) );
+
+		} ).Else( () => {
+
+			// Compute NDC depth (same as main shader)
+			const linearDepth = computeNDCDepthLocal( hitInfo.hitPoint, cameraProjectionMatrix, cameraViewMatrix );
+
+			// Visualize: near=white, far=black
+			result.assign( vec4( visualizeDepth( linearDepth ), 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 11: MRT: Albedo (gAlbedo.rgb)
+	If( visMode.equal( int( 11 ) ), () => {
+
+		If( hitInfo.didHit.not(), () => {
+
+			// Background = black
+			result.assign( vec4( 0.0, 0.0, 0.0, 1.0 ) );
+
+		} ).Else( () => {
+
+			// Get albedo from material textures (same as main shader)
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+
+			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
+				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
+				material, hitInfo.uv, hitInfo.normal,
+			) ).toVar();
+
+			const objectColor = matSamples.albedo.rgb;
+
+			result.assign( vec4( objectColor, 1.0 ) );
 
 		} );
 
