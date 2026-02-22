@@ -350,6 +350,7 @@ const pathTracerImpl = Fn( ( [
 				albedoMaps, normalMaps, bumpMaps,
 				metalnessMaps, roughnessMaps, emissiveMaps,
 				cameraProjectionMatrix, cameraViewMatrix,
+				frame,
 			) );
 
 		} ).Else( () => {

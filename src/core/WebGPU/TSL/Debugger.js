@@ -17,6 +17,7 @@ import {
 	vec3,
 	vec4,
 	int,
+	uint,
 	bool as tslBool,
 	max,
 	min,
@@ -35,6 +36,8 @@ import { traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment, sampleEquirect, equirectUvToDirection } from './Environment.js';
 import { REC709_LUMINANCE_COEFFICIENTS, getMaterial } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
+import { pcgHash, wang_hash, RandomValue } from './Random.js';
+import { cosineWeightedSample } from './MaterialSampling.js';
 
 // =============================================================================
 // Debug Visualization Helpers
@@ -87,6 +90,8 @@ export const TraceDebugMode = Fn( ( [
 	metalnessMaps, roughnessMaps, emissiveMaps,
 	// Camera matrices (for depth debug mode 10)
 	cameraProjectionMatrix, cameraViewMatrix,
+	// Frame counter (for stochastic debug modes)
+	frame,
 ] ) => {
 
 	const result = vec4( 1.0, 0.0, 1.0, 1.0 ).toVar(); // Default: magenta
@@ -385,6 +390,100 @@ export const TraceDebugMode = Fn( ( [
 			const objectColor = matSamples.albedo.rgb;
 
 			result.assign( vec4( objectColor, 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 12: Indirect Illumination (single-bounce GI)
+	// Shows only light that has bounced at least once — no direct lighting.
+	// Converges progressively via the accumulation pipeline.
+	If( visMode.equal( int( 12 ) ), () => {
+
+		If( hitInfo.didHit.not(), () => {
+
+			// Primary ray missed — no indirect contribution
+			result.assign( vec4( 0.0, 0.0, 0.0, 1.0 ) );
+
+		} ).Else( () => {
+
+			// Get primary surface material
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
+				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
+				material, hitInfo.uv, hitInfo.normal,
+			) ).toVar();
+
+			const albedoA = matSamples.albedo.rgb.toVar();
+			const normalA = normalize( matSamples.normal ).toVar();
+
+			// Generate per-pixel per-frame random seed for stochastic bounce direction
+			const pixelSeed = uint( pixelCoord.x ).mul( uint( 1973 ) )
+				.add( uint( pixelCoord.y ).mul( uint( 9277 ) ) )
+				.add( frame.mul( uint( 26699 ) ) );
+			const rngState = pcgHash( wang_hash( pixelSeed ) ).toVar();
+
+			// Cosine-weighted hemisphere sample around the surface normal
+			const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+			const bounceDir = cosineWeightedSample( normalA, xi ).toVar();
+
+			// Trace secondary ray from the hit point (offset along normal to avoid self-intersection)
+			const bounceOrigin = hitInfo.hitPoint.add( normalA.mul( 0.001 ) ).toVar();
+			const bounceRay = Ray( { origin: bounceOrigin, direction: bounceDir } );
+
+			const bounceHit = HitInfo.wrap( traverseBVH(
+				bounceRay,
+				bvhTexture, bvhTexSize,
+				triangleTexture, triangleTexSize,
+				materialTexture, materialTexSize,
+			).toVar() );
+
+			const incoming = vec3( 0.0 ).toVar();
+
+			If( bounceHit.didHit.not(), () => {
+
+				// Bounce ray escaped — incoming radiance from environment
+				If( enableEnvironmentLight, () => {
+
+					incoming.assign( sampleEnvironment(
+						envTexture, bounceDir, envMatrix, environmentIntensity, enableEnvironmentLight,
+					).xyz );
+
+				} );
+
+			} ).Else( () => {
+
+				// Bounce hit surface B — evaluate its contribution
+				const materialB = RayTracingMaterial.wrap( getMaterial( bounceHit.materialIndex, materialTexture, materialTexSize ) ).toVar();
+				const matSamplesB = MaterialSamples.wrap( sampleAllMaterialTextures(
+					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
+					materialB, bounceHit.uv, bounceHit.normal,
+				) ).toVar();
+
+				// Emissive contribution from surface B
+				incoming.assign( matSamplesB.emissive );
+
+				// Approximate direct environment illumination at surface B
+				// (hemisphere-averaged environment via the surface normal)
+				If( enableEnvironmentLight, () => {
+
+					const normalB = normalize( matSamplesB.normal ).toVar();
+					const envAtB = sampleEnvironment(
+						envTexture, normalB, envMatrix, environmentIntensity, enableEnvironmentLight,
+					).xyz;
+
+					// Diffuse response: albedoB * environment
+					incoming.addAssign( matSamplesB.albedo.rgb.mul( envAtB ) );
+
+				} );
+
+			} );
+
+			// Indirect illumination = albedoA * incoming
+			// (cosine term and 1/PI cancel out with cosine-weighted PDF)
+			const indirect = albedoA.mul( incoming );
+
+			result.assign( vec4( indirect, 1.0 ) );
 
 		} );
 
