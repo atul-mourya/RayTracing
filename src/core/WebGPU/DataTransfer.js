@@ -137,6 +137,45 @@ export class DataTransfer {
 	}
 
 	/**
+	 * Gets processed light data arrays from the WebGL PathTracerStage.
+	 * Returns the Float32Array data for all 4 light types.
+	 *
+	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
+	 * @returns {Object} Light data with arrays and counts for each type
+	 */
+	static getLightData( pathTracerApp ) {
+
+		const stage = pathTracerApp?.pathTracingPass;
+		if ( ! stage ) return null;
+
+		// Extract from material uniforms (already processed by LightDataTransfer)
+		const uniforms = stage.material?.uniforms;
+		if ( ! uniforms ) return null;
+
+		return {
+			directionalLights: uniforms.directionalLights?.value || null,
+			areaLights: uniforms.areaLights?.value || null,
+			pointLights: uniforms.pointLights?.value || null,
+			spotLights: uniforms.spotLights?.value || null,
+		};
+
+	}
+
+	/**
+	 * Gets Three.js light objects from the WebGL scene for cloning.
+	 *
+	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
+	 * @returns {Array} Array of light objects from the scene
+	 */
+	static getSceneLights( pathTracerApp ) {
+
+		if ( ! pathTracerApp?.scene ) return [];
+
+		return pathTracerApp.scene.getObjectsByProperty( 'isLight', true ) || [];
+
+	}
+
+	/**
 	 * Validates triangle data structure.
 	 *
 	 * @param {Float32Array} data - Triangle data to validate

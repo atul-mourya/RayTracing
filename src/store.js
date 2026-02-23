@@ -1792,7 +1792,17 @@ const useLightStore = create( set => ( {
 
 				}
 
-				app.pathTracingPass?.updateLights();
+				// Backend-agnostic: WebGL has pathTracingPass, WebGPU has updateLights()
+				if ( app.updateLights ) {
+
+					app.updateLights();
+
+				} else if ( app.pathTracingPass?.updateLights ) {
+
+					app.pathTracingPass.updateLights();
+
+				}
+
 				app.reset();
 
 			}

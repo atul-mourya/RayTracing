@@ -1,5 +1,8 @@
 import { WebGPURenderer } from 'three/webgpu';
-import { ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher } from 'three';
+import {
+	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher,
+	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils
+} from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Stats from 'stats-gl';
@@ -379,6 +382,61 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * Clones Three.js light objects from the WebGL scene into the WebGPU scene,
+	 * then updates the PathTracingStage light uniform buffers.
+	 */
+	_transferSceneLights() {
+
+		if ( ! this.existingApp ) return;
+
+		const sourceLights = DataTransfer.getSceneLights( this.existingApp );
+
+		if ( sourceLights.length === 0 ) {
+
+			// No scene lights — still call updateLights to process procedural sky sun
+			this.updateLights();
+			return;
+
+		}
+
+		// Clone each light into the WebGPU scene with world transforms
+		// Lights may be nested in the model hierarchy (e.g. children of placeholder meshes),
+		// so we must bake their world transform before adding to scene root.
+		for ( const light of sourceLights ) {
+
+			const cloned = light.clone();
+
+			// Ensure source matrixWorld is up to date
+			light.updateWorldMatrix( true, false );
+
+			// Bake world transform into the clone (since it goes to scene root)
+			light.getWorldPosition( cloned.position );
+			light.getWorldQuaternion( cloned.quaternion );
+			light.getWorldScale( cloned.scale );
+
+			// SpotLights need their target transferred with world position
+			if ( light.isSpotLight && light.target ) {
+
+				const clonedTarget = new Object3D();
+				light.target.updateWorldMatrix( true, false );
+				light.target.getWorldPosition( clonedTarget.position );
+				this.scene.add( clonedTarget );
+				cloned.target = clonedTarget;
+
+			}
+
+			this.scene.add( cloned );
+
+		}
+
+		// Process the cloned lights into uniform buffer arrays
+		this.updateLights();
+
+		console.log( `[WebGPUPathTracerApp] Transferred ${sourceLights.length} lights from WebGL scene` );
+
+	}
+
+	/**
 	 * Loads scene data from the existing PathTracerApp.
 	 *
 	 * @returns {boolean} True if data was loaded successfully
@@ -450,6 +508,9 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			);
 
 		}
+
+		// Transfer lights from WebGL scene into the WebGPU scene
+		this._transferSceneLights();
 
 		// Setup material with all data
 		this.pathTracingStage.setupMaterial();
@@ -1389,26 +1450,155 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @stub
+	 * Adds a light to the WebGPU scene and updates the path tracer.
+	 * Mirrors the WebGL PathTracerApp.addLight() API.
+	 *
+	 * @param {string} type - Light type: 'DirectionalLight', 'PointLight', 'SpotLight', 'RectAreaLight'
+	 * @returns {Object|null} Light descriptor or null if type is invalid
 	 */
-	addLight() {}
+	addLight( type ) {
+
+		const defaults = {
+			DirectionalLight: { position: [ 1, 1, 1 ], intensity: 1.0, color: '#ffffff' },
+			PointLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff' },
+			SpotLight: { position: [ 0, 1, 0 ], intensity: 300, color: '#ffffff', angle: 15 },
+			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 500, color: '#ffffff', width: 2, height: 2 }
+		};
+
+		const props = defaults[ type ];
+		if ( ! props ) return null;
+
+		let light;
+
+		if ( type === 'DirectionalLight' ) {
+
+			light = new DirectionalLight( props.color, props.intensity );
+			light.position.fromArray( props.position );
+
+		} else if ( type === 'PointLight' ) {
+
+			light = new PointLight( props.color, props.intensity );
+			light.position.fromArray( props.position );
+
+		} else if ( type === 'SpotLight' ) {
+
+			light = new SpotLight( props.color, props.intensity );
+			light.position.fromArray( props.position );
+			light.angle = MathUtils.degToRad( props.angle );
+			const target = new Object3D();
+			this.scene.add( target );
+			light.target = target;
+
+		} else if ( type === 'RectAreaLight' ) {
+
+			light = new RectAreaLight( props.color, props.intensity, props.width, props.height );
+			light.position.fromArray( props.position );
+			light.lookAt( 0, 0, 0 );
+
+		}
+
+		const count = this.scene.getObjectsByProperty( 'isLight', true ).length;
+		light.name = `${type.replace( 'Light', '' )} ${count + 1}`;
+		this.scene.add( light );
+		this.updateLights();
+		this.reset();
+
+		return {
+			uuid: light.uuid,
+			name: light.name,
+			type: light.type,
+			intensity: light.intensity,
+			color: `#${light.color.getHexString()}`,
+			position: [ light.position.x, light.position.y, light.position.z ],
+			angle: light.angle
+		};
+
+	}
 
 	/**
-	 * @stub
+	 * Removes a light from the WebGPU scene by UUID.
+	 *
+	 * @param {string} uuid - UUID of the light to remove
+	 * @returns {boolean} True if light was found and removed
 	 */
-	removeLight() {}
+	removeLight( uuid ) {
+
+		const light = this.scene.getObjectByProperty( 'uuid', uuid );
+		if ( ! light || ! light.isLight ) return false;
+
+		if ( light.target ) light.target.removeFromParent();
+		light.removeFromParent();
+		this.updateLights();
+		this.reset();
+		return true;
+
+	}
 
 	/**
-	 * @stub
+	 * Removes all lights from the WebGPU scene.
 	 */
-	clearLights() {}
+	clearLights() {
+
+		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
+
+			if ( light.target ) this.scene.remove( light.target );
+			this.scene.remove( light );
+
+		} );
+		this.updateLights();
+		this.reset();
+
+	}
 
 	/**
-	 * @stub
+	 * Returns descriptors for all lights in the WebGPU scene.
+	 *
+	 * @returns {Array<Object>} Array of light descriptor objects
 	 */
 	getLights() {
 
-		return [];
+		return this.scene.getObjectsByProperty( 'isLight', true ).map( light => {
+
+			let angle = 0;
+			if ( light.type === 'DirectionalLight' && light.angle !== undefined ) {
+
+				angle = MathUtils.radToDeg( light.angle );
+
+			} else if ( light.type === 'SpotLight' ) {
+
+				if ( light.angle !== undefined ) {
+
+					angle = MathUtils.radToDeg( light.angle );
+
+				}
+
+			}
+
+			return {
+				uuid: light.uuid,
+				name: light.name,
+				type: light.type,
+				intensity: light.intensity,
+				color: `#${light.color.getHexString()}`,
+				position: [ light.position.x, light.position.y, light.position.z ],
+				angle: angle
+			};
+
+		} );
+
+	}
+
+	/**
+	 * Reprocesses all scene lights and updates the path tracer uniform buffers.
+	 * Called after any light addition, removal, or property change.
+	 */
+	updateLights() {
+
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.updateLights();
+
+		}
 
 	}
 
