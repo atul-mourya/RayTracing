@@ -134,12 +134,9 @@ export const pathTracerMain = ( params ) => {
 		params.cameraViewMatrix,
 		params.cameraProjectionMatrix,
 		// BVH / Scene
-		params.bvhTexture,
-		params.bvhTexSize,
-		params.triangleTexture,
-		params.triangleTexSize,
-		params.materialTexture,
-		params.materialTexSize,
+		params.bvhBuffer,
+		params.triangleBuffer,
+		params.materialBuffer,
 		// Texture arrays
 		params.albedoMaps,
 		params.normalMaps,
@@ -176,6 +173,9 @@ export const pathTracerMain = ( params ) => {
 		params.globalIlluminationIntensity,
 		params.totalTriangleCount,
 		params.enableEmissiveTriangleSampling,
+		params.emissiveTriangleBuffer,
+		params.emissiveTriangleCount,
+		params.emissiveBoost,
 		// Debug
 		params.debugVisScale,
 		// Accumulation
@@ -209,9 +209,9 @@ const pathTracerImpl = Fn( ( [
 	// Camera
 	cameraWorldMatrix, cameraProjectionMatrixInverse, cameraViewMatrix, cameraProjectionMatrix,
 	// BVH / Scene
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 	// Texture arrays
 	albedoMaps, normalMaps, bumpMaps,
 	metalnessMaps, roughnessMaps, emissiveMaps,
@@ -231,6 +231,7 @@ const pathTracerImpl = Fn( ( [
 	showBackground, backgroundIntensity,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
+	emissiveTriangleBuffer, emissiveTriangleCount, emissiveBoost,
 	// Debug
 	debugVisScale,
 	// Accumulation
@@ -338,9 +339,9 @@ const pathTracerImpl = Fn( ( [
 
 			sampleColor.assign( TraceDebugMode(
 				ray.origin, ray.direction,
-				bvhTexture, bvhTexSize,
-				triangleTexture, triangleTexSize,
-				materialTexture, materialTexSize,
+				bvhBuffer,
+				triangleBuffer,
+				materialBuffer,
 				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
 				envMarginalWeights, envConditionalWeights,
 				envTotalSum, envResolution,
@@ -358,9 +359,9 @@ const pathTracerImpl = Fn( ( [
 			// Normal path tracing
 			const traceResult = TraceResult.wrap( Trace(
 				ray, seed, rayIndex, pixelIndex,
-				bvhTexture, bvhTexSize,
-				triangleTexture, triangleTexSize,
-				materialTexture, materialTexSize,
+				bvhBuffer,
+				triangleBuffer,
+				materialBuffer,
 				albedoMaps, normalMaps, bumpMaps,
 				metalnessMaps, roughnessMaps, emissiveMaps,
 				displacementMaps,
@@ -376,6 +377,7 @@ const pathTracerImpl = Fn( ( [
 				backgroundIntensity, showBackground,
 				fireflyThreshold, globalIlluminationIntensity,
 				totalTriangleCount, enableEmissiveTriangleSampling,
+				emissiveTriangleBuffer, emissiveTriangleCount, emissiveBoost,
 				pixelCoord, resolution, frame,
 			) );
 

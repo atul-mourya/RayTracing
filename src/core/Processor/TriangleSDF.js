@@ -58,6 +58,10 @@ export default class TriangleSDF {
 		this.spheres = [];
 		this.bvhRoot = null;
 
+		// Raw data for storage buffer backends (WebGPU)
+		this.bvhData = null;
+		this.materialData = null;
+
 		// Initialize texture references
 		this.materialTexture = null;
 		this.triangleTexture = null;
@@ -70,6 +74,7 @@ export default class TriangleSDF {
 		this.displacementTextures = null;
 		this.bvhTexture = null;
 		this.emissiveTriangleTexture = null;
+		this.emissiveTriangleData = null;
 		this.emissiveTriangleCount = 0;
 
 		// Initialize processing components
@@ -381,41 +386,88 @@ export default class TriangleSDF {
 
 		try {
 
-			// Prepare parameters for texture creation
-			const params = {
-				materials: this.materials,
-				triangles: this.triangleData,
-				maps: this.maps,
-				normalMaps: this.normalMaps,
-				bumpMaps: this.bumpMaps,
-				roughnessMaps: this.roughnessMaps,
-				metalnessMaps: this.metalnessMaps,
-				emissiveMaps: this.emissiveMaps,
-				displacementMaps: this.displacementMaps,
-				bvhRoot: this.bvhRoot
-			};
+			if ( this.config.skipGPUTextures ) {
 
-			// Create all textures
-			const textures = await this.textureCreator.createAllTextures( params );
+				// WebGPU path: raw Float32Arrays for storage buffers, skip DataTexture wrapping
+				// triangleData already exists as this.triangleData — no texture needed
+				if ( this.materials?.length ) {
 
-			// Store texture references
-			this.materialTexture = textures.materialTexture;
-			this.triangleTexture = textures.triangleTexture;
-			this.albedoTextures = textures.albedoTexture;
-			this.normalTextures = textures.normalTexture;
-			this.bumpTextures = textures.bumpTexture;
-			this.roughnessTextures = textures.roughnessTexture;
-			this.metalnessTextures = textures.metalnessTexture;
-			this.emissiveTextures = textures.emissiveTexture;
-			this.displacementTextures = textures.displacementTexture;
-			this.bvhTexture = textures.bvhTexture;
+					this.materialData = this.textureCreator.createMaterialRawData( this.materials );
+
+				}
+
+				if ( this.bvhRoot ) {
+
+					this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
+
+				}
+
+				// Material texture arrays are still needed as actual GPU textures
+				const mapTypesList = [
+					{ data: this.maps, prop: 'albedoTextures' },
+					{ data: this.normalMaps, prop: 'normalTextures' },
+					{ data: this.bumpMaps, prop: 'bumpTextures' },
+					{ data: this.roughnessMaps, prop: 'roughnessTextures' },
+					{ data: this.metalnessMaps, prop: 'metalnessTextures' },
+					{ data: this.emissiveMaps, prop: 'emissiveTextures' },
+					{ data: this.displacementMaps, prop: 'displacementTextures' },
+				];
+
+				const mapPromises = [];
+				for ( const { data, prop } of mapTypesList ) {
+
+					if ( data?.length > 0 ) {
+
+						mapPromises.push(
+							this.textureCreator.createTexturesToDataTexture( data )
+								.then( texture => { this[ prop ] = texture; } )
+						);
+
+					}
+
+				}
+
+				await Promise.all( mapPromises );
+
+			} else {
+
+				// WebGL path: full DataTexture creation for all data
+				const params = {
+					materials: this.materials,
+					triangles: this.triangleData,
+					maps: this.maps,
+					normalMaps: this.normalMaps,
+					bumpMaps: this.bumpMaps,
+					roughnessMaps: this.roughnessMaps,
+					metalnessMaps: this.metalnessMaps,
+					emissiveMaps: this.emissiveMaps,
+					displacementMaps: this.displacementMaps,
+					bvhRoot: this.bvhRoot
+				};
+
+				const textures = await this.textureCreator.createAllTextures( params );
+
+				this.materialTexture = textures.materialTexture;
+				this.triangleTexture = textures.triangleTexture;
+				this.albedoTextures = textures.albedoTexture;
+				this.normalTextures = textures.normalTexture;
+				this.bumpTextures = textures.bumpTexture;
+				this.roughnessTextures = textures.roughnessTexture;
+				this.metalnessTextures = textures.metalnessTexture;
+				this.emissiveTextures = textures.emissiveTexture;
+				this.displacementTextures = textures.displacementTexture;
+				this.bvhTexture = textures.bvhTexture;
+
+			}
 
 			const duration = performance.now() - startTime;
 			this._log( `Texture creation complete (${duration.toFixed( 2 )}ms)`, {
+				skipGPUTextures: this.config.skipGPUTextures,
+				materialData: !! this.materialData,
+				bvhData: !! this.bvhData,
 				materialTexture: !! this.materialTexture,
 				triangleTexture: !! this.triangleTexture,
 				bvhTexture: !! this.bvhTexture,
-				textureCreatorCapabilities: this.textureCreator.capabilities
 			} );
 
 			// Extract emissive triangles for direct lighting
@@ -430,8 +482,16 @@ export default class TriangleSDF {
 				this.triangleCount
 			);
 
-			// Create emissive triangle texture for GPU
-			this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
+			// Create emissive triangle data for GPU
+			if ( this.config.skipGPUTextures ) {
+
+				this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
+
+			} else {
+
+				this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
+
+			}
 
 			const emissiveStats = this.emissiveTriangleBuilder.getStats();
 			this._log( `Emissive triangle extraction complete`, emissiveStats );

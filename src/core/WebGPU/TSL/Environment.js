@@ -1,4 +1,4 @@
-import { Fn, vec2, vec3, vec4, float, mat4, If, texture, normalize, dot, sin, cos, atan, acos, select } from 'three/tsl';
+import { Fn, vec2, vec3, vec4, float, int, mat4, If, texture, normalize, dot, sin, cos, atan, acos, floor, fract, min, mix, clamp, select } from 'three/tsl';
 
 import { PI, TWO_PI, REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -117,11 +117,31 @@ export const sampleEquirectProbability = Fn( ( [
 	colorOutput
 ] ) => {
 
-	// Sample marginal CDF for V coordinate
-	const v = texture( envMarginalWeights, vec2( r.x, 0.0 ), 0 ).x.toVar();
+	// Sample marginal CDF for V coordinate (1D storage buffer, linear interpolation)
+	const marginalSize = envResolution.y;
+	const mIdx = clamp( r.x.mul( marginalSize.sub( 1.0 ) ), 0.0, marginalSize.sub( 1.0 ) );
+	const mI0 = int( floor( mIdx ) );
+	const mI1 = min( mI0.add( 1 ), int( marginalSize ).sub( 1 ) );
+	const mFrac = fract( mIdx );
+	const v = mix( envMarginalWeights.element( mI0 ), envMarginalWeights.element( mI1 ), mFrac ).toVar();
 
-	// Sample conditional CDF for U coordinate
-	const u = texture( envConditionalWeights, vec2( r.y, v ), 0 ).x.toVar();
+	// Sample conditional CDF for U coordinate (2D storage buffer, bilinear interpolation)
+	const condW = envResolution.x;
+	const condH = envResolution.y;
+	const cxf = clamp( r.y.mul( condW.sub( 1.0 ) ), 0.0, condW.sub( 1.0 ) );
+	const cyf = clamp( v.mul( condH.sub( 1.0 ) ), 0.0, condH.sub( 1.0 ) );
+	const cx0 = int( floor( cxf ) );
+	const cy0 = int( floor( cyf ) );
+	const cx1 = min( cx0.add( 1 ), int( condW ).sub( 1 ) );
+	const cy1 = min( cy0.add( 1 ), int( condH ).sub( 1 ) );
+	const fx = fract( cxf );
+	const fy = fract( cyf );
+	const condWi = int( condW );
+	const v00 = envConditionalWeights.element( cy0.mul( condWi ).add( cx0 ) );
+	const v10 = envConditionalWeights.element( cy0.mul( condWi ).add( cx1 ) );
+	const v01 = envConditionalWeights.element( cy1.mul( condWi ).add( cx0 ) );
+	const v11 = envConditionalWeights.element( cy1.mul( condWi ).add( cx1 ) );
+	const u = mix( mix( v00, v10, fx ), mix( v01, v11, fx ), fy ).toVar();
 
 	const uv = vec2( u, v ).toVar();
 

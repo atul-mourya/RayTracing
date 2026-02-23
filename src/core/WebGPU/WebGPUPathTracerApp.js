@@ -125,7 +125,11 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		// Create and initialize WebGPU renderer
 		this.renderer = new WebGPURenderer( {
 			canvas: this.canvas,
-			powerPreference: 'high-performance'
+			powerPreference: 'high-performance',
+			requiredLimits: {
+				maxBufferSize: 512 * 1024 * 1024,
+				maxStorageBufferBindingSize: 512 * 1024 * 1024,
+			}
 		} );
 
 		window.renderer = this.renderer; // For debugging
@@ -388,38 +392,38 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
-		// Get textures
-		const triangleTexture = DataTransfer.getTriangleTexture( this.existingApp );
-		const bvhTexture = DataTransfer.getBVHTexture( this.existingApp );
-		const materialTexture = DataTransfer.getMaterialTexture( this.existingApp );
+		// Get raw data for storage buffers
+		const triangleRawData = DataTransfer.getTriangleRawData( this.existingApp );
+		const bvhRawData = DataTransfer.getBVHRawData( this.existingApp );
+		const materialRawData = DataTransfer.getMaterialRawData( this.existingApp );
 		const environmentTexture = DataTransfer.getEnvironmentTexture( this.existingApp );
 
-		if ( ! triangleTexture ) {
+		if ( ! triangleRawData ) {
 
-			console.error( 'WebGPUPathTracerApp: Failed to get triangle texture' );
+			console.error( 'WebGPUPathTracerApp: Failed to get triangle data' );
 			return false;
 
 		}
 
-		// Set data
-		this.pathTracingStage.setTriangleTexture( triangleTexture );
+		// Set data (all storage buffers)
+		this.pathTracingStage.setTriangleData( triangleRawData.triangleData, triangleRawData.triangleCount );
 
-		if ( ! bvhTexture ) {
+		if ( ! bvhRawData ) {
 
-			console.error( 'WebGPUPathTracerApp: Failed to get BVH texture' );
+			console.error( 'WebGPUPathTracerApp: Failed to get BVH data' );
 			return false;
 
 		}
 
-		this.pathTracingStage.setBVHTexture( bvhTexture );
+		this.pathTracingStage.setBVHData( bvhRawData );
 
-		if ( materialTexture ) {
+		if ( materialRawData ) {
 
-			this.pathTracingStage.setMaterialTexture( materialTexture );
+			this.pathTracingStage.setMaterialData( materialRawData );
 
 		} else {
 
-			console.warn( 'WebGPUPathTracerApp: No material texture, using defaults' );
+			console.warn( 'WebGPUPathTracerApp: No material data, using defaults' );
 
 		}
 
@@ -436,12 +440,14 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			Object.entries( materialTextureArrays ).map( ( [ k, v ] ) => [ k, !! v ] )
 		) );
 
-		// Transfer emissive triangle data
+		// Transfer emissive triangle data (storage buffer)
 		const emissiveData = DataTransfer.getEmissiveTriangleData( this.existingApp );
-		if ( emissiveData.emissiveTriangleTexture ) {
+		if ( emissiveData.emissiveTriangleData ) {
 
-			this.pathTracingStage.setEmissiveTriangleTexture( emissiveData.emissiveTriangleTexture );
-			this.pathTracingStage.setEmissiveTriangleCount( emissiveData.emissiveTriangleCount );
+			this.pathTracingStage.setEmissiveTriangleData(
+				emissiveData.emissiveTriangleData,
+				emissiveData.emissiveTriangleCount,
+			);
 
 		}
 

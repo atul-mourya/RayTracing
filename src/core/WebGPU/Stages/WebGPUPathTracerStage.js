@@ -85,29 +85,29 @@ export class WebGPUPathTracerStage extends PipelineStage {
 	}
 
 	/**
-	 * Sets the triangle data texture
+	 * Sets the triangle data from raw Float32Array
 	 */
-	setTriangleTexture( triangleTex ) {
+	setTriangleData( triangleData, triangleCount ) {
 
-		this.pathTracingStage.setTriangleTexture( triangleTex );
+		this.pathTracingStage.setTriangleData( triangleData, triangleCount );
 
 	}
 
 	/**
-	 * Sets the BVH data texture
+	 * Sets the BVH data from raw Float32Array
 	 */
-	setBVHTexture( bvhTex ) {
+	setBVHData( bvhImageData ) {
 
-		this.pathTracingStage.setBVHTexture( bvhTex );
+		this.pathTracingStage.setBVHData( bvhImageData );
 
 	}
 
 	/**
-	 * Sets the material data texture
+	 * Sets the material data from raw Float32Array
 	 */
-	setMaterialTexture( materialTex ) {
+	setMaterialData( matImageData ) {
 
-		this.pathTracingStage.setMaterialTexture( materialTex );
+		this.pathTracingStage.setMaterialData( matImageData );
 
 	}
 

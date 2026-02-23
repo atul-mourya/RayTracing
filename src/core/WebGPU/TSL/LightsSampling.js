@@ -826,9 +826,9 @@ export const sampleAreaLightContribution = Fn( ( [
 	bounceIndex,
 	rngState,
 	// Shadow ray resources
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 ] ) => {
 
 	const result = vec3( 0.0 ).toVar();
@@ -864,9 +864,9 @@ export const sampleAreaLightContribution = Fn( ( [
 					const visibility = traceShadowRay(
 						rayOrigin, lightDir, lightDist.sub( 0.001 ), rngState,
 						traverseBVHShadow,
-						bvhTexture, bvhTexSize,
-						triangleTexture, triangleTexSize,
-						materialTexture, materialTexSize,
+						bvhBuffer,
+						triangleBuffer,
+						materialBuffer,
 					);
 
 					If( visibility.greaterThan( 0.0 ), () => {
@@ -923,9 +923,9 @@ export const calculateDirectLightingUnified = Fn( ( [
 	pointLightsBuffer, numPointLights,
 	spotLightsBuffer, numSpotLights,
 	// Shadow ray resources
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 	// Environment resources
 	envTexture, environmentIntensity, envMatrix,
 	envMarginalWeights, envConditionalWeights,
@@ -1067,9 +1067,9 @@ export const calculateDirectLightingUnified = Fn( ( [
 					const visibility = traceShadowRay(
 						rayOrigin, lightSample.direction, shadowDistance, rngState,
 						traverseBVHShadow,
-						bvhTexture, bvhTexSize,
-						triangleTexture, triangleTexSize,
-						materialTexture, materialTexSize,
+						bvhBuffer,
+						triangleBuffer,
+						materialBuffer,
 					);
 
 					If( visibility.greaterThan( 0.0 ), () => {
@@ -1170,9 +1170,9 @@ export const calculateDirectLightingUnified = Fn( ( [
 								const visibility = traceShadowRay(
 									rayOrigin, brdfSampleDirection, shadowDistance, rngState,
 									traverseBVHShadow,
-									bvhTexture, bvhTexSize,
-									triangleTexture, triangleTexSize,
-									materialTexture, materialTexSize,
+									bvhBuffer,
+									triangleBuffer,
+									materialBuffer,
 								);
 
 								If( visibility.greaterThan( 0.0 ), () => {
@@ -1240,9 +1240,9 @@ export const calculateDirectLightingUnified = Fn( ( [
 						const visibility = traceShadowRay(
 							rayOrigin, envDirection, float( 1000.0 ), rngState,
 							traverseBVHShadow,
-							bvhTexture, bvhTexSize,
-							triangleTexture, triangleTexSize,
-							materialTexture, materialTexSize,
+							bvhBuffer,
+							triangleBuffer,
+							materialBuffer,
 						);
 
 						If( visibility.greaterThan( 0.0 ), () => {

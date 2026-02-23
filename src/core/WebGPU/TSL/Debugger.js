@@ -74,9 +74,9 @@ const computeNDCDepthLocal = Fn( ( [ worldPos, cameraProjectionMatrix, cameraVie
 export const TraceDebugMode = Fn( ( [
 	rayOrigin, rayDir,
 	// BVH resources
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 	// Environment resources
 	envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
 	envMarginalWeights, envConditionalWeights,
@@ -101,9 +101,9 @@ export const TraceDebugMode = Fn( ( [
 	const ray = Ray( { origin: rayOrigin, direction: rayDir } );
 	const hitInfo = HitInfo.wrap( traverseBVH(
 		ray,
-		bvhTexture, bvhTexSize,
-		triangleTexture, triangleTexSize,
-		materialTexture, materialTexSize,
+		bvhBuffer,
+		triangleBuffer,
+		materialBuffer,
 	).toVar() );
 
 	// Case 1: Box/node test count visualization (GLSL stats[0] = per-node visits)
@@ -288,7 +288,7 @@ export const TraceDebugMode = Fn( ( [
 		} ).Else( () => {
 
 			// Get material from texture
-			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
 			// Sample all textures to get emissive
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
@@ -333,7 +333,7 @@ export const TraceDebugMode = Fn( ( [
 		} ).Else( () => {
 
 			// Get material from texture
-			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
 			// Get material-mapped normal (same as what's used in main shader)
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
@@ -381,7 +381,7 @@ export const TraceDebugMode = Fn( ( [
 		} ).Else( () => {
 
 			// Get albedo from material textures (same as main shader)
-			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
@@ -409,7 +409,7 @@ export const TraceDebugMode = Fn( ( [
 		} ).Else( () => {
 
 			// Get primary surface material
-			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+			const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 			const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 				albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 				material, hitInfo.uv, hitInfo.normal,
@@ -434,9 +434,9 @@ export const TraceDebugMode = Fn( ( [
 
 			const bounceHit = HitInfo.wrap( traverseBVH(
 				bounceRay,
-				bvhTexture, bvhTexSize,
-				triangleTexture, triangleTexSize,
-				materialTexture, materialTexSize,
+				bvhBuffer,
+				triangleBuffer,
+				materialBuffer,
 			).toVar() );
 
 			const incoming = vec3( 0.0 ).toVar();
@@ -455,7 +455,7 @@ export const TraceDebugMode = Fn( ( [
 			} ).Else( () => {
 
 				// Bounce hit surface B — evaluate its contribution
-				const materialB = RayTracingMaterial.wrap( getMaterial( bounceHit.materialIndex, materialTexture, materialTexSize ) ).toVar();
+				const materialB = RayTracingMaterial.wrap( getMaterial( bounceHit.materialIndex, materialBuffer ) ).toVar();
 				const matSamplesB = MaterialSamples.wrap( sampleAllMaterialTextures(
 					albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
 					materialB, bounceHit.uv, bounceHit.normal,

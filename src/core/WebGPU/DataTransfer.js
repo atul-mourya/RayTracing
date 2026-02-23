@@ -20,108 +20,51 @@ export class DataTransfer {
 	}
 
 	/**
-	 * Gets the triangle texture directly from PathTracerApp.
-	 * This is the preferred method as it avoids data copying.
+	 * Gets raw BVH Float32Array from the BVH DataTexture.
 	 *
 	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {DataTexture|null} Triangle texture or null if not available
+	 * @returns {Float32Array|null} Raw BVH data or null
 	 */
-	static getTriangleTexture( pathTracerApp ) {
+	static getBVHRawData( pathTracerApp ) {
 
 		const sdfs = this.getSDFs( pathTracerApp );
-		return sdfs?.triangleTexture || null;
+		return sdfs?.bvhTexture?.image?.data || null;
 
 	}
 
 	/**
-	 * Gets the BVH texture directly from PathTracerApp.
+	 * Gets raw material Float32Array from the material DataTexture.
 	 *
 	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {DataTexture|null} BVH texture or null if not available
+	 * @returns {Float32Array|null} Raw material data or null
 	 */
-	static getBVHTexture( pathTracerApp ) {
+	static getMaterialRawData( pathTracerApp ) {
 
 		const sdfs = this.getSDFs( pathTracerApp );
-		return sdfs?.bvhTexture || null;
+		return sdfs?.materialTexture?.image?.data || null;
 
 	}
 
 	/**
-	 * Gets triangle data from an existing PathTracerApp instance.
-	 * Reuses the same Float32Array format used by the WebGL path tracer.
+	 * Gets raw triangle data and count from an existing PathTracerApp instance.
+	 * Returns the original Float32Array from TriangleSDF (source data, not texture).
 	 *
 	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {Float32Array|null} Triangle data or null if not available
+	 * @returns {{ triangleData: Float32Array, triangleCount: number }|null} Raw data or null
 	 */
-	static getTriangleData( pathTracerApp ) {
+	static getTriangleRawData( pathTracerApp ) {
 
-		// Primary location: pathTracerApp.pathTracingPass.sdfs.triangleTexture
 		const sdfs = this.getSDFs( pathTracerApp );
-		const triangleTexture = sdfs?.triangleTexture;
 
-		if ( triangleTexture?.image?.data ) {
+		if ( sdfs?.triangleData && sdfs.triangleCount > 0 ) {
 
-			return triangleTexture.image.data;
-
-		}
-
-		// Fallback: Try from uniform value
-		const uniformTexture = pathTracerApp?.pathTracingPass?.material?.uniforms?.triangleTexture?.value;
-
-		if ( uniformTexture?.image?.data ) {
-
-			return uniformTexture.image.data;
+			return { triangleData: sdfs.triangleData, triangleCount: sdfs.triangleCount };
 
 		}
 
-		console.warn( 'DataTransfer: Could not find triangle data in PathTracerApp' );
+		console.warn( 'DataTransfer: Could not find raw triangle data in PathTracerApp' );
 		console.warn( '  - Check that a model is loaded and pathTracerApp.pathTracingPass.sdfs exists' );
 		return null;
-
-	}
-
-	/**
-	 * Gets BVH data from an existing PathTracerApp instance.
-	 *
-	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {Float32Array|null} BVH data or null if not available
-	 */
-	static getBVHData( pathTracerApp ) {
-
-		// Primary location: pathTracerApp.pathTracingPass.sdfs.bvhTexture
-		const sdfs = this.getSDFs( pathTracerApp );
-		const bvhTexture = sdfs?.bvhTexture;
-
-		if ( bvhTexture?.image?.data ) {
-
-			return bvhTexture.image.data;
-
-		}
-
-		// Fallback: Try from uniform value
-		const uniformTexture = pathTracerApp?.pathTracingPass?.material?.uniforms?.bvhTexture?.value;
-
-		if ( uniformTexture?.image?.data ) {
-
-			return uniformTexture.image.data;
-
-		}
-
-		console.warn( 'DataTransfer: Could not find BVH data in PathTracerApp' );
-		return null;
-
-	}
-
-	/**
-	 * Gets the material texture directly from PathTracerApp.
-	 *
-	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {DataTexture|null} Material texture or null if not available
-	 */
-	static getMaterialTexture( pathTracerApp ) {
-
-		const sdfs = this.getSDFs( pathTracerApp );
-		return sdfs?.materialTexture || null;
 
 	}
 
@@ -145,27 +88,6 @@ export class DataTransfer {
 		if ( pathTracerApp?.scene?.environment ) {
 
 			return pathTracerApp.scene.environment;
-
-		}
-
-		return null;
-
-	}
-
-	/**
-	 * Gets material data from an existing PathTracerApp instance.
-	 *
-	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {Float32Array|null} Material data or null if not available
-	 */
-	static getMaterialData( pathTracerApp ) {
-
-		const sdfs = this.getSDFs( pathTracerApp );
-		const materialTexture = sdfs?.materialTexture;
-
-		if ( materialTexture?.image?.data ) {
-
-			return materialTexture.image.data;
 
 		}
 
@@ -198,33 +120,18 @@ export class DataTransfer {
 	}
 
 	/**
-	 * Gets emissive triangle data from PathTracerApp.
+	 * Gets emissive triangle raw data for storage buffer upload.
 	 *
 	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {Object} Object with emissiveTriangleTexture and emissiveTriangleCount
+	 * @returns {Object} Object with emissiveTriangleData (Float32Array) and emissiveTriangleCount
 	 */
 	static getEmissiveTriangleData( pathTracerApp ) {
 
 		const sdfs = this.getSDFs( pathTracerApp );
+		const rawData = sdfs?.emissiveTriangleData || sdfs?.emissiveTriangleTexture?.image?.data || null;
 		return {
-			emissiveTriangleTexture: sdfs?.emissiveTriangleTexture || null,
+			emissiveTriangleData: rawData,
 			emissiveTriangleCount: sdfs?.emissiveTriangleCount || 0,
-		};
-
-	}
-
-	/**
-	 * Gets all scene data from an existing PathTracerApp instance.
-	 *
-	 * @param {PathTracerApp} pathTracerApp - The existing path tracer app
-	 * @returns {Object} Object containing all available data
-	 */
-	static getAllSceneData( pathTracerApp ) {
-
-		return {
-			triangles: this.getTriangleData( pathTracerApp ),
-			bvh: this.getBVHData( pathTracerApp ),
-			materials: this.getMaterialData( pathTracerApp )
 		};
 
 	}

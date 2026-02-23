@@ -85,16 +85,16 @@ export const calculateDisplacedNormal = Fn( ( [ displacementMaps, point, baseNor
 } );
 
 // Ray marching function to find displaced surface intersection
-export const RayTriangleDisplaced = Fn( ( [ ray, tri, triangleTexture, triangleTexSize, materialDataTexture, materialTexSize, displacementMaps ] ) => {
+export const RayTriangleDisplaced = Fn( ( [ ray, tri, triangleBuffer, materialBuffer, displacementMaps ] ) => {
 
 	// First, get the base triangle intersection
-	const baseHit = RayTriangle( ray, tri, triangleTexture, triangleTexSize ).toVar();
+	const baseHit = RayTriangle( ray, tri ).toVar();
 	const result = baseHit.toVar();
 
 	If( baseHit.didHit, () => {
 
 		// Get material from material index
-		const material = RayTracingMaterial.wrap( getMaterial( tri.materialIndex, materialDataTexture, materialTexSize ) );
+		const material = RayTracingMaterial.wrap( getMaterial( tri.materialIndex, materialBuffer ) );
 
 		// If displacement is not enabled, return base hit
 		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {

@@ -591,9 +591,9 @@ export const regularizePathContribution = Fn( ( [
 export const Trace = Fn( ( [
 	ray, rngState, rayIndex, pixelIndex,
 	// BVH / Scene
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 	// Texture arrays for material sampling
 	albedoMaps, normalMaps, bumpMaps,
 	metalnessMaps, roughnessMaps, emissiveMaps,
@@ -613,6 +613,7 @@ export const Trace = Fn( ( [
 	backgroundIntensity, showBackground,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
+	emissiveTriangleBuffer, emissiveTriangleCount, emissiveBoost,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
 ] ) => {
@@ -703,9 +704,9 @@ export const Trace = Fn( ( [
 		const currentRay = Ray( { origin: rayOrigin, direction: rayDirection } );
 		const hitInfo = HitInfo.wrap( traverseBVH(
 			currentRay,
-			bvhTexture, bvhTexSize,
-			triangleTexture, triangleTexSize,
-			materialTexture, materialTexSize,
+			bvhBuffer,
+			triangleBuffer,
+			materialBuffer,
 		) ).toVar();
 
 		If( hitInfo.didHit.not(), () => {
@@ -725,7 +726,7 @@ export const Trace = Fn( ( [
 		} );
 
 		// Get material from texture
-		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialTexture, materialTexSize ) ).toVar();
+		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
 		// Sample all textures in one batch
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
@@ -872,9 +873,9 @@ export const Trace = Fn( ( [
 			areaLightsBuffer, numAreaLights,
 			pointLightsBuffer, numPointLights,
 			spotLightsBuffer, numSpotLights,
-			bvhTexture, bvhTexSize,
-			triangleTexture, triangleTexSize,
-			materialTexture, materialTexSize,
+			bvhBuffer,
+			triangleBuffer,
+			materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
 			envMarginalWeights, envConditionalWeights,
 			envTotalSum, envResolution,

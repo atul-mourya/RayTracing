@@ -1,4 +1,4 @@
-import { Fn, float, vec2, vec3, vec4, int, ivec2, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix, texture } from 'three/tsl';
+import { Fn, float, vec2, vec3, vec4, int, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix } from 'three/tsl';
 
 import {
 	DotProducts,
@@ -320,15 +320,12 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmissi
 
 } );
 
-// Material data texture access functions
-// Uses unfiltered integer-coordinate access (equivalent to GLSL texelFetch)
-// to prevent interpolation artifacts in data textures
-export const getDatafromDataTexture = Fn( ( [ tex, texSize, stride, sampleIndex, dataOffset ] ) => {
+// Storage buffer access — flat 1D indexing (WebGPU native)
+// No 2D coordinate math needed: directly indexes into the buffer
+export const getDatafromStorageBuffer = Fn( ( [ buffer, stride, sampleIndex, dataOffset ] ) => {
 
-	const pixelIndex = stride.mul( dataOffset ).add( sampleIndex );
-	const x = pixelIndex.mod( int( texSize.x ) );
-	const y = pixelIndex.div( int( texSize.x ) );
-	return texture( tex, ivec2( x, y ) ).setSampler( false );
+	const elementIndex = stride.mul( dataOffset ).add( sampleIndex );
+	return buffer.element( elementIndex );
 
 } );
 
@@ -342,35 +339,35 @@ export const arrayToMat3 = Fn( ( [ data1, data2 ] ) => {
 
 } );
 
-export const getMaterial = Fn( ( [ materialIndex, materialTexture, materialTexSize ] ) => {
+export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
-	const data0 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 0 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data1 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 1 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data2 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 2 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data3 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 3 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data4 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data5 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 5 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data6 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 6 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data7 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 7 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data8 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 8 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data9 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 9 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data10 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data11 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 11 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data12 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 12 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data13 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 13 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data14 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 14 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data15 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 15 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data16 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 16 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data17 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 17 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data18 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 18 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data19 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 19 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data20 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 20 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data21 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 21 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data22 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 22 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data23 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 23 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data24 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 24 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data25 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 25 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data26 = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 26 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data0 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 0 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data1 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 1 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data2 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 2 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data3 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 3 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data4 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data5 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 5 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data6 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 6 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data7 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 7 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data8 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 8 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data9 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 9 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data10 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data11 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 11 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data12 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 12 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data13 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 13 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data14 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 14 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data15 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 15 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data16 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 16 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data17 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 17 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data18 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 18 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data19 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 19 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data20 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 20 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data21 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 21 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data22 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 22 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data23 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 23 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data24 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 24 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data25 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 25 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data26 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 26 ), int( MATERIAL_SLOTS ) ).toVar();
 
 	return RayTracingMaterial( {
 		color: vec4( data0.rgb, 1.0 ),

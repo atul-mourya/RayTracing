@@ -27,7 +27,7 @@ import {
 
 import { struct } from './structProxy.js';
 import { Ray, HitInfo } from './Struct.js';
-import { getDatafromDataTexture, MATERIAL_SLOTS } from './Common.js';
+import { getDatafromStorageBuffer, MATERIAL_SLOTS } from './Common.js';
 import { RandomPointInCircle } from './Random.js';
 
 // ================================================================================
@@ -376,12 +376,12 @@ const fastRayAABBDst = Fn( ( [ rayOrigin, invDir, boxMin, boxMax ] ) => {
 // ================================================================================
 
 // Fetch all visibility data in 2 reads
-export const getVisibilityData = Fn( ( [ materialIndex, materialTexture, materialTexSize ] ) => {
+export const getVisibilityData = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
 	// Read visibility flag from slot 4
-	const visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
+	const visData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
 	// Read side and transparency data from slot 10
-	const sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) );
+	const sideData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) );
 
 	return VisibilityData( {
 		visible: visData.g.greaterThan( 0.5 ),
@@ -393,9 +393,9 @@ export const getVisibilityData = Fn( ( [ materialIndex, materialTexture, materia
 } );
 
 // Fast visibility check using material texture
-export const isTriangleVisibleCached = Fn( ( [ materialIndex, materialTexture, materialTexSize ] ) => {
+export const isTriangleVisibleCached = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
-	const visData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
+	const visData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
 	return visData.g.greaterThan( 0.5 );
 
 } );
@@ -421,9 +421,9 @@ export const isMaterialVisibleOptimized = Fn( ( [ vis, rayDirection, normal ] ) 
 } );
 
 // Single visibility check with combined data fetch
-export const isMaterialVisible = Fn( ( [ materialIndex, rayDirection, normal, materialTexture, materialTexSize ] ) => {
+export const isMaterialVisible = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
 
-	const vis = VisibilityData.wrap( getVisibilityData( materialIndex, materialTexture, materialTexSize ) );
+	const vis = VisibilityData.wrap( getVisibilityData( materialIndex, materialBuffer ) );
 	return isMaterialVisibleOptimized( vis, rayDirection, normal );
 
 } );
@@ -434,9 +434,9 @@ export const isMaterialVisible = Fn( ( [ materialIndex, rayDirection, normal, ma
 
 export const traverseBVH = Fn( ( [
 	ray,
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 ] ) => {
 
 	const closestHit = HitInfo( {
@@ -475,8 +475,8 @@ export const traverseBVH = Fn( ( [
 		stackPtr.subAssign( 1 );
 		const nodeIndex = stackRead( stack, stackPtr ).toVar();
 
-		const nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		const nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
+		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
+		const nodeData1 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
 		const leftChild = int( nodeData0.w ).toVar();
 		const rightChild = int( nodeData1.w ).toVar();
@@ -485,7 +485,7 @@ export const traverseBVH = Fn( ( [
 		If( leftChild.lessThan( int( 0 ) ), () => {
 
 			// Leaf node
-			const nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
+			const nodeData2 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
 			const triStart = int( nodeData2.x ).toVar();
 			const triCount = int( nodeData2.y ).toVar();
 
@@ -495,10 +495,10 @@ export const traverseBVH = Fn( ( [
 				closestHit.triTests.addAssign( 1 );
 				const triIndex = triStart.add( i ).toVar();
 
-				// Fetch geometry first (3 fetches)
-				const pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
-				const pB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
-				const pC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
+				// Fetch geometry first (3 fetches from storage buffer)
+				const pA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
+				const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
+				const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
 				const triResult = RayTriangleGeometry( rayOrigin, rayDirection, pA, pB, pC, closestHit.dst );
 
@@ -511,25 +511,25 @@ export const traverseBVH = Fn( ( [
 					// Only process further if this hit is closer
 					If( t.lessThan( closestHit.dst ), () => {
 
-						// Now fetch attributes necessary for shading/visibility (5 fetches)
-						const nA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
-						const nB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-						const nC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
-						const uvData1 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 6 ), int( TRI_STRIDE ) );
-						const uvData2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 7 ), int( TRI_STRIDE ) );
+						// Now fetch attributes necessary for shading/visibility (5 fetches from storage buffer)
+						const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
+						const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
+						const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
+						const uvData1 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 6 ), int( TRI_STRIDE ) );
+						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
 
 						const matIdx = int( uvData2.z );
 						const meshIdx = int( uvData2.w );
 
 						// Early material rejection
-						If( isTriangleVisibleCached( matIdx, materialTexture, materialTexSize ), () => {
+						If( isTriangleVisibleCached( matIdx, materialBuffer ), () => {
 
 							// Interpolate normal
 							const w = float( 1.0 ).sub( u ).sub( v );
 							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
 
 							// Full material visibility check (culling etc)
-							If( isMaterialVisible( matIdx, rayDirection, normal, materialTexture, materialTexSize ), () => {
+							If( isMaterialVisible( matIdx, rayDirection, normal, materialBuffer ), () => {
 
 								closestHit.didHit.assign( true );
 								closestHit.dst.assign( t );
@@ -561,10 +561,10 @@ export const traverseBVH = Fn( ( [
 		} ).Else( () => {
 
 			// Read child bounds efficiently
-			const leftData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 0 ), int( BVH_STRIDE ) );
-			const leftData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 1 ), int( BVH_STRIDE ) );
-			const rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
-			const rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
+			const leftData0 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 0 ), int( BVH_STRIDE ) );
+			const leftData1 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 1 ), int( BVH_STRIDE ) );
+			const rightData0 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 0 ), int( BVH_STRIDE ) );
+			const rightData1 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
 			const dstA = fastRayAABBDst( rayOrigin, invDir, leftData0.xyz, leftData1.xyz ).toVar();
 			const dstB = fastRayAABBDst( rayOrigin, invDir, rightData0.xyz, rightData1.xyz ).toVar();
@@ -611,9 +611,9 @@ export const traverseBVH = Fn( ( [
 
 export const traverseBVHShadow = Fn( ( [
 	ray,
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 ] ) => {
 
 	const closestHit = HitInfo( {
@@ -647,15 +647,15 @@ export const traverseBVHShadow = Fn( ( [
 		stackPtr.subAssign( 1 );
 		const nodeIndex = stackRead( stack, stackPtr ).toVar();
 
-		const nodeData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		const nodeData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
+		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
+		const nodeData1 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
 		const leftChild = int( nodeData0.w ).toVar();
 		const rightChild = int( nodeData1.w ).toVar();
 
 		If( leftChild.lessThan( int( 0 ) ), () => {
 
-			const nodeData2 = getDatafromDataTexture( bvhTexture, bvhTexSize, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
+			const nodeData2 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
 			const triStart = int( nodeData2.x ).toVar();
 			const triCount = int( nodeData2.y ).toVar();
 
@@ -663,18 +663,18 @@ export const traverseBVHShadow = Fn( ( [
 
 				const triIndex = triStart.add( i ).toVar();
 
-				const pA = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
-				const pB = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
-				const pC = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
+				const pA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
+				const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
+				const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
 				const triResult = RayTriangleGeometry( ray.origin, ray.direction, pA, pB, pC, closestHit.dst );
 
 				If( triResult.w.greaterThan( 0.5 ), () => {
 
-					const uvData2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triIndex, int( 7 ), int( TRI_STRIDE ) );
+					const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
 					const matIdx = int( uvData2.z );
 
-					If( isTriangleVisibleCached( matIdx, materialTexture, materialTexSize ), () => {
+					If( isTriangleVisibleCached( matIdx, materialBuffer ), () => {
 
 						closestHit.didHit.assign( true );
 						closestHit.dst.assign( triResult.x );
@@ -689,10 +689,10 @@ export const traverseBVHShadow = Fn( ( [
 
 		} ).Else( () => {
 
-			const leftData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 0 ), int( BVH_STRIDE ) );
-			const leftData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, leftChild, int( 1 ), int( BVH_STRIDE ) );
-			const rightData0 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 0 ), int( BVH_STRIDE ) );
-			const rightData1 = getDatafromDataTexture( bvhTexture, bvhTexSize, rightChild, int( 1 ), int( BVH_STRIDE ) );
+			const leftData0 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 0 ), int( BVH_STRIDE ) );
+			const leftData1 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 1 ), int( BVH_STRIDE ) );
+			const rightData0 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 0 ), int( BVH_STRIDE ) );
+			const rightData1 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
 			const dstA = fastRayAABBDst( ray.origin, invDir, leftData0.xyz, leftData1.xyz ).toVar();
 			const dstB = fastRayAABBDst( ray.origin, invDir, rightData0.xyz, rightData1.xyz ).toVar();

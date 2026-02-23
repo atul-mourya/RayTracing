@@ -72,9 +72,9 @@ export const traceShadowRay = Fn( ( [
 	origin, dir, maxDist, rngState,
 	// BVH traversal function and textures passed as parameters
 	traverseBVHShadowFn,
-	bvhTexture, bvhTexSize,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	bvhBuffer,
+	triangleBuffer,
+	materialBuffer,
 ] ) => {
 
 	const transmittance = float( 1.0 ).toVar();
@@ -88,9 +88,9 @@ export const traceShadowRay = Fn( ( [
 
 		const shadowHit = HitInfo.wrap( traverseBVHShadowFn(
 			shadowRay,
-			bvhTexture, bvhTexSize,
-			triangleTexture, triangleTexSize,
-			materialTexture, materialTexSize,
+			bvhBuffer,
+			triangleBuffer,
+			materialBuffer,
 		) );
 
 		// No hit or hit beyond light distance
@@ -101,7 +101,7 @@ export const traceShadowRay = Fn( ( [
 		} );
 
 		// Fetch material for the hit surface
-		const shadowMaterial = RayTracingMaterial.wrap( getMaterial( shadowHit.materialIndex, materialTexture, materialTexSize ) );
+		const shadowMaterial = RayTracingMaterial.wrap( getMaterial( shadowHit.materialIndex, materialBuffer ) );
 
 		// Handle transmissive materials
 		If( shadowMaterial.transmission.greaterThan( 0.0 ), () => {

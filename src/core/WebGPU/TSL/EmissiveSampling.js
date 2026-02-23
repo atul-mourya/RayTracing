@@ -21,7 +21,7 @@ import {
 
 import { struct } from './structProxy.js';
 import { RayTracingMaterial, HitInfo } from './Struct.js';
-import { MIN_PDF, getDatafromDataTexture, getMaterial } from './Common.js';
+import { MIN_PDF, getDatafromStorageBuffer, getMaterial } from './Common.js';
 import { RandomValue } from './Random.js';
 
 // ================================================================================
@@ -117,22 +117,22 @@ const TriangleData = struct( {
 	materialIndex: 'int',
 } );
 
-// Fetch triangle vertices from texture
+// Fetch triangle vertices from storage buffer
 // Returns data packed in a struct-like way
-export const fetchTriangleData = Fn( ( [ triangleIndex, triangleTexture, triangleTexSize ] ) => {
+export const fetchTriangleData = Fn( ( [ triangleIndex, triangleBuffer ] ) => {
 
 	// Positions
-	const pos0 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 0 ), int( TRI_STRIDE ) );
-	const pos1 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 1 ), int( TRI_STRIDE ) );
-	const pos2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 2 ), int( TRI_STRIDE ) );
+	const pos0 = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 0 ), int( TRI_STRIDE ) );
+	const pos1 = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 1 ), int( TRI_STRIDE ) );
+	const pos2 = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 2 ), int( TRI_STRIDE ) );
 
 	// Normals
-	const norm0 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 3 ), int( TRI_STRIDE ) );
-	const norm1 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 4 ), int( TRI_STRIDE ) );
-	const norm2 = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 5 ), int( TRI_STRIDE ) );
+	const norm0 = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 3 ), int( TRI_STRIDE ) );
+	const norm1 = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 4 ), int( TRI_STRIDE ) );
+	const norm2 = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 5 ), int( TRI_STRIDE ) );
 
 	// Material index (stored in last vec4)
-	const uvMat = getDatafromDataTexture( triangleTexture, triangleTexSize, triangleIndex, int( 7 ), int( TRI_STRIDE ) );
+	const uvMat = getDatafromStorageBuffer( triangleBuffer, triangleIndex, int( 7 ), int( TRI_STRIDE ) );
 
 	// Return all data as a struct
 	return TriangleData( {
@@ -151,9 +151,9 @@ export const fetchTriangleData = Fn( ( [ triangleIndex, triangleTexture, triangl
 export const sampleEmissiveTriangle = Fn( ( [
 	hitPoint, surfaceNormal, totalTriangleCount,
 	rngState,
-	emissiveTriangleTexture, emissiveTriangleTexSize, emissiveTriangleCount,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	emissiveTriangleBuffer, emissiveTriangleCount,
+	triangleBuffer,
+	materialBuffer,
 ] ) => {
 
 	const result = EmissiveSample( {
@@ -179,20 +179,16 @@ export const sampleEmissiveTriangle = Fn( ( [
 			emissiveTriangleCount.sub( 1 )
 		).toVar();
 
-		// Fetch emissive triangle data from texture
-		// Texture layout: R=triangleIndex, G=power, B=cdf, A=unused
-		const emissiveTexCoord = vec2(
-			float( emissiveIndex.modInt( emissiveTriangleTexSize.x ) ).add( 0.5 ).div( float( emissiveTriangleTexSize.x ) ),
-			float( emissiveIndex.div( emissiveTriangleTexSize.x ) ).add( 0.5 ).div( float( emissiveTriangleTexSize.y ) )
-		);
-		const emissiveData = emissiveTriangleTexture.sample( emissiveTexCoord );
+		// Fetch emissive triangle data from storage buffer
+		// Layout: each vec4 = (triangleIndex, power, cdf, unused)
+		const emissiveData = emissiveTriangleBuffer.element( emissiveIndex );
 		const triangleIndex = int( emissiveData.r );
 
 		// Fetch triangle geometry
-		const triData = TriangleData.wrap( fetchTriangleData( triangleIndex, triangleTexture, triangleTexSize ) );
+		const triData = TriangleData.wrap( fetchTriangleData( triangleIndex, triangleBuffer ) );
 
 		// Get material
-		const material = RayTracingMaterial.wrap( getMaterial( triData.materialIndex, materialTexture, materialTexSize ) );
+		const material = RayTracingMaterial.wrap( getMaterial( triData.materialIndex, materialBuffer ) );
 
 		// Sample point on triangle
 		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
@@ -249,9 +245,9 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	hitPoint, normal, viewDir, material,
 	totalTriangleCount, bounceIndex, rngState,
 	emissiveBoost,
-	emissiveTriangleTexture, emissiveTriangleTexSize, emissiveTriangleCount,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	emissiveTriangleBuffer, emissiveTriangleCount,
+	triangleBuffer,
+	materialBuffer,
 	// Callback functions to avoid circular deps
 	traceShadowRayFn,
 	evaluateMaterialResponseFn,
@@ -273,9 +269,9 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 		// Sample emissive triangle
 		const emissiveSample = EmissiveSample.wrap( sampleEmissiveTriangle(
 			hitPoint, normal, totalTriangleCount, rngState,
-			emissiveTriangleTexture, emissiveTriangleTexSize, emissiveTriangleCount,
-			triangleTexture, triangleTexSize,
-			materialTexture, materialTexSize,
+			emissiveTriangleBuffer, emissiveTriangleCount,
+			triangleBuffer,
+			materialBuffer,
 		) );
 
 		If( emissiveSample.valid.and( emissiveSample.pdf.greaterThan( 0.0 ) ), () => {
@@ -328,9 +324,9 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 	hitPoint, normal, viewDir, material,
 	totalTriangleCount, bounceIndex, rngState,
 	emissiveBoost,
-	emissiveTriangleTexture, emissiveTriangleTexSize, emissiveTriangleCount,
-	triangleTexture, triangleTexSize,
-	materialTexture, materialTexSize,
+	emissiveTriangleBuffer, emissiveTriangleCount,
+	triangleBuffer,
+	materialBuffer,
 	traceShadowRayFn,
 	evaluateMaterialResponseFn,
 	calculateRayOffsetFn,
@@ -340,9 +336,9 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 		hitPoint, normal, viewDir, material,
 		totalTriangleCount, bounceIndex, rngState,
 		emissiveBoost,
-		emissiveTriangleTexture, emissiveTriangleTexSize, emissiveTriangleCount,
-		triangleTexture, triangleTexSize,
-		materialTexture, materialTexSize,
+		emissiveTriangleBuffer, emissiveTriangleCount,
+		triangleBuffer,
+		materialBuffer,
 		traceShadowRayFn,
 		evaluateMaterialResponseFn,
 		calculateRayOffsetFn,

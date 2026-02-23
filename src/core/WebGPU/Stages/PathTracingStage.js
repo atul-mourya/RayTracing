@@ -1,5 +1,5 @@
-import { Fn, vec4, texture, uv, uniform, uniformArray } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
+import { Fn, vec4, texture, uv, uniform, uniformArray, storage } from 'three/tsl';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageInstancedBufferAttribute } from 'three/webgpu';
 import {
 	HalfFloatType, RGBAFormat, NearestFilter, LinearFilter, Vector2, Matrix4, Vector3, Color,
 	TextureLoader, RepeatWrapping, FloatType, DataTexture, DataArrayTexture
@@ -35,7 +35,6 @@ import blueNoiseImage from '../../../../public/noise/simple_bluenoise.png';
  * Data layout constants
  */
 const BVH_VEC4_PER_NODE = 3;
-const TRI_VEC4_PER_TRIANGLE = 8;
 const PIXELS_PER_MATERIAL = 27;
 
 /**
@@ -102,7 +101,7 @@ export class PathTracingStage extends PipelineStage {
 		this.tileManager = new TileRenderingManager( width, height, DEFAULT_STATE.tiles );
 
 		// Scene building
-		this.sdfs = new TriangleSDF();
+		this.sdfs = new TriangleSDF( { skipGPUTextures: true } );
 		this.lightDataTransfer = new LightDataTransfer();
 		this.equirectHdrInfo = new EquirectHdrInfo();
 
@@ -177,19 +176,19 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	_initDataTextures() {
 
-		// Triangle data
-		this.triangleTexture = null;
-		this.triangleTexSize = new Vector2();
+		// Triangle data (storage buffer for WebGPU)
+		this.triangleStorageAttr = null;
+		this.triangleStorageNode = null;
 		this.triangleCount = 0;
 
-		// BVH data
-		this.bvhTexture = null;
-		this.bvhTexSize = new Vector2();
+		// BVH data (storage buffer for WebGPU)
+		this.bvhStorageAttr = null;
+		this.bvhStorageNode = null;
 		this.bvhNodeCount = 0;
 
-		// Material data
-		this.materialTexture = null;
-		this.materialTexSize = new Vector2();
+		// Material data (storage buffer for WebGPU)
+		this.materialStorageAttr = null;
+		this.materialStorageNode = null;
 		this.materialCount = 0;
 
 		// Environment map
@@ -197,10 +196,13 @@ export class PathTracingStage extends PipelineStage {
 		this.envTexSize = new Vector2();
 
 		// Environment importance sampling
-		// Initialize with EquirectHdrInfo's default placeholders (RedFormat + HalfFloatType)
-		// so the TextureNode bind group layout matches the real CDF textures when they arrive
-		this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
-		this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
+		// CDF storage buffers for environment importance sampling
+		// Initialize with placeholder data so shader graph compiles with correct types
+		this.envMarginalStorageAttr = null;
+		this.envMarginalStorageNode = null;
+		this.envConditionalStorageAttr = null;
+		this.envConditionalStorageNode = null;
+		this._initCDFStorageBuffers();
 
 		// Lights
 		this.directionalLightsData = null;
@@ -211,8 +213,9 @@ export class PathTracingStage extends PipelineStage {
 		// Blue noise
 		this.blueNoiseTexture = null;
 
-		// Emissive triangles
-		this.emissiveTriangleTexture = null;
+		// Emissive triangles (storage buffer)
+		this.emissiveTriangleStorageAttr = null;
+		this.emissiveTriangleStorageNode = null;
 
 		// Adaptive sampling
 		this.adaptiveSamplingTexture = null;
@@ -330,7 +333,6 @@ export class PathTracingStage extends PipelineStage {
 		// Emissive
 		this.enableEmissiveTriangleSampling = uniform( DEFAULT_STATE.enableEmissiveTriangleSampling ? 1 : 0, 'int' );
 		this.emissiveBoost = uniform( DEFAULT_STATE.emissiveBoost, 'float' );
-		this.emissiveTriangleTexSize = uniform( new Vector2(), 'vec2' );
 		this.emissiveTriangleCount = uniform( 0, 'int' );
 
 		// Render mode
@@ -339,10 +341,7 @@ export class PathTracingStage extends PipelineStage {
 		// Resolution (for RNG seeding)
 		this.resolution = uniform( new Vector2( this.width, this.height ), 'vec2' );
 
-		// Texture size uniforms
-		this.triangleTexSizeUniform = uniform( new Vector2( 1, 1 ), 'vec2' );
-		this.bvhTexSizeUniform = uniform( new Vector2( 1, 1 ), 'vec2' );
-		this.materialTexSizeUniform = uniform( new Vector2( 1, 1 ), 'vec2' );
+		// (BVH and material texture size uniforms removed — now using storage buffers)
 
 		// Scene data
 		this.totalTriangleCount = uniform( 0, 'int' );
@@ -393,13 +392,9 @@ export class PathTracingStage extends PipelineStage {
 		this.fireflyThreshold.name = 'fireflyThreshold';
 		this.enableEmissiveTriangleSampling.name = 'enableEmissiveTriangleSampling';
 		this.emissiveBoost.name = 'emissiveBoost';
-		this.emissiveTriangleTexSize.name = 'emissiveTriangleTexSize';
 		this.emissiveTriangleCount.name = 'emissiveTriangleCount';
 		this.renderMode.name = 'renderMode';
 		this.resolution.name = 'resolution';
-		this.triangleTexSizeUniform.name = 'triangleTexSizeUniform';
-		this.bvhTexSizeUniform.name = 'bvhTexSizeUniform';
-		this.materialTexSizeUniform.name = 'materialTexSizeUniform';
 		this.totalTriangleCount.name = 'totalTriangleCount';
 		this.numDirectionalLights.name = 'numDirectionalLights';
 		this.numAreaLights.name = 'numAreaLights';
@@ -675,10 +670,10 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	updateSceneUniforms() {
 
-		// Set texture references
-		this.setTriangleTexture( this.sdfs.triangleTexture );
-		this.setBVHTexture( this.sdfs.bvhTexture );
-		this.setMaterialTexture( this.sdfs.materialTexture );
+		// Set data references
+		this.setTriangleData( this.sdfs.triangleData, this.sdfs.triangleCount );
+		this.setBVHData( this.sdfs.bvhData );
+		this.setMaterialData( this.sdfs.materialData );
 
 		// Update triangle count
 		this.totalTriangleCount.value = this.sdfs.triangleCount || 0;
@@ -692,13 +687,10 @@ export class PathTracingStage extends PipelineStage {
 		this.metalnessMaps = this.sdfs.metalnessTextures;
 		this.displacementMaps = this.sdfs.displacementTextures;
 
-		// Emissive triangles
-		if ( this.sdfs.emissiveTriangleTexture ) {
+		// Emissive triangles (storage buffer)
+		if ( this.sdfs.emissiveTriangleData ) {
 
-			this.setEmissiveTriangleTexture( this.sdfs.emissiveTriangleTexture );
-			this.setEmissiveTriangleCount( this.sdfs.emissiveTriangleCount || 0 );
-
-			console.log( `[PathTracingStage] Emissive triangle data updated: ${this.sdfs.emissiveTriangleCount} emissives` );
+			this.setEmissiveTriangleData( this.sdfs.emissiveTriangleData, this.sdfs.emissiveTriangleCount || 0 );
 
 		} else {
 
@@ -1080,65 +1072,149 @@ export class PathTracingStage extends PipelineStage {
 	// ===== TEXTURE SETTERS =====
 
 	/**
-	 * Sets the triangle data texture.
-	 * @param {DataTexture} triangleTex
+	 * Sets the triangle data from raw Float32Array via storage buffer.
+	 * On first call, creates the storage buffer and node.
+	 * On subsequent calls, creates a new attribute with the correct size
+	 * and updates the storage node's value to preserve shader graph references.
+	 * @param {Float32Array} triangleData - Raw triangle data
+	 * @param {number} triangleCount - Number of triangles
 	 */
-	setTriangleTexture( triangleTex ) {
+	setTriangleData( triangleData, triangleCount ) {
 
-		if ( ! triangleTex ) return;
+		if ( ! triangleData ) return;
 
-		this.triangleTexture = triangleTex;
+		const vec4Count = triangleData.length / 4;
 
-		const { width, height } = triangleTex.image;
-		this.triangleTexSize.set( width, height );
-		this.triangleTexSizeUniform.value.set( width, height );
+		if ( this.triangleStorageNode ) {
 
-		const totalVec4s = width * height;
-		this.triangleCount = Math.floor( totalVec4s / TRI_VEC4_PER_TRIANGLE );
+			// Create new attribute with correct size (old one is GC'd, backend WeakMap cleans up GPU buffer)
+			this.triangleStorageAttr = new StorageInstancedBufferAttribute( triangleData, 4 );
 
-		console.log( `PathTracingStage: ${this.triangleCount} triangles` );
+			// Update storage node references (preserves compiled shader graph)
+			this.triangleStorageNode.value = this.triangleStorageAttr;
+			this.triangleStorageNode.bufferCount = vec4Count;
+
+		} else {
+
+			// First time: create storage buffer and node
+			this.triangleStorageAttr = new StorageInstancedBufferAttribute( triangleData, 4 );
+			this.triangleStorageNode = storage( this.triangleStorageAttr, 'vec4', vec4Count ).toReadOnly();
+
+		}
+
+		this.triangleCount = triangleCount;
+
+		console.log( `PathTracingStage: ${this.triangleCount} triangles (storage buffer)` );
 
 	}
 
 	/**
-	 * Sets the BVH data texture.
-	 * @param {DataTexture} bvhTex
+	 * Sets the BVH data from raw Float32Array via storage buffer.
+	 * @param {Float32Array} bvhImageData - Raw BVH data from DataTexture.image.data
 	 */
-	setBVHTexture( bvhTex ) {
+	setBVHData( bvhImageData ) {
 
-		if ( ! bvhTex ) return;
+		if ( ! bvhImageData ) return;
 
-		this.bvhTexture = bvhTex;
+		const vec4Count = bvhImageData.length / 4;
 
-		const { width, height } = bvhTex.image;
-		this.bvhTexSize.set( width, height );
-		this.bvhTexSizeUniform.value.set( width, height );
+		if ( this.bvhStorageNode ) {
 
-		const totalVec4s = width * height;
-		this.bvhNodeCount = Math.floor( totalVec4s / BVH_VEC4_PER_NODE );
+			this.bvhStorageAttr = new StorageInstancedBufferAttribute( bvhImageData, 4 );
+			this.bvhStorageNode.value = this.bvhStorageAttr;
+			this.bvhStorageNode.bufferCount = vec4Count;
 
-		console.log( `PathTracingStage: ${this.bvhNodeCount} BVH nodes` );
+		} else {
+
+			this.bvhStorageAttr = new StorageInstancedBufferAttribute( bvhImageData, 4 );
+			this.bvhStorageNode = storage( this.bvhStorageAttr, 'vec4', vec4Count ).toReadOnly();
+
+		}
+
+		this.bvhNodeCount = Math.floor( vec4Count / BVH_VEC4_PER_NODE );
+		console.log( `PathTracingStage: ${this.bvhNodeCount} BVH nodes (storage buffer)` );
 
 	}
 
 	/**
-	 * Sets the material data texture.
-	 * @param {DataTexture} materialTex
+	 * Sets the material data from raw Float32Array via storage buffer.
+	 * @param {Float32Array} matImageData - Raw material data from DataTexture.image.data
 	 */
-	setMaterialTexture( materialTex ) {
+	setMaterialData( matImageData ) {
 
-		if ( ! materialTex ) return;
+		if ( ! matImageData ) return;
 
-		this.materialTexture = materialTex;
+		const vec4Count = matImageData.length / 4;
 
-		const { width, height } = materialTex.image;
-		this.materialTexSize.set( width, height );
-		this.materialTexSizeUniform.value.set( width, height );
+		if ( this.materialStorageNode ) {
 
-		const totalPixels = width * height;
-		this.materialCount = Math.floor( totalPixels / PIXELS_PER_MATERIAL );
+			this.materialStorageAttr = new StorageInstancedBufferAttribute( matImageData, 4 );
+			this.materialStorageNode.value = this.materialStorageAttr;
+			this.materialStorageNode.bufferCount = vec4Count;
 
-		console.log( `PathTracingStage: ${this.materialCount} materials (${width}x${height})` );
+		} else {
+
+			this.materialStorageAttr = new StorageInstancedBufferAttribute( matImageData, 4 );
+			this.materialStorageNode = storage( this.materialStorageAttr, 'vec4', vec4Count ).toReadOnly();
+
+		}
+
+		this.materialCount = Math.floor( vec4Count / PIXELS_PER_MATERIAL );
+		console.log( `PathTracingStage: ${this.materialCount} materials (storage buffer)` );
+
+	}
+
+	/**
+	 * Initialize CDF storage buffers with placeholder data.
+	 * Must be called before shader compilation so the nodes exist in the graph.
+	 */
+	_initCDFStorageBuffers() {
+
+		// Marginal: 1 float per entry, default placeholder
+		const marginalPlaceholder = new Float32Array( [ 0, 1 ] );
+		this.envMarginalStorageAttr = new StorageInstancedBufferAttribute( marginalPlaceholder, 1 );
+		this.envMarginalStorageNode = storage( this.envMarginalStorageAttr, 'float', 2 ).toReadOnly();
+
+		// Conditional: 1 float per entry, default placeholder
+		const conditionalPlaceholder = new Float32Array( [ 0, 0, 1, 1 ] );
+		this.envConditionalStorageAttr = new StorageInstancedBufferAttribute( conditionalPlaceholder, 1 );
+		this.envConditionalStorageNode = storage( this.envConditionalStorageAttr, 'float', 4 ).toReadOnly();
+
+	}
+
+	/**
+	 * Update marginal CDF storage buffer from Float32Array.
+	 */
+	setEnvMarginalData( floatData ) {
+
+		if ( ! floatData ) return;
+
+		this.envMarginalStorageAttr = new StorageInstancedBufferAttribute( floatData, 1 );
+		this.envMarginalStorageNode.value = this.envMarginalStorageAttr;
+		this.envMarginalStorageNode.bufferCount = floatData.length;
+
+	}
+
+	/**
+	 * Update conditional CDF storage buffer from Float32Array.
+	 */
+	setEnvConditionalData( floatData ) {
+
+		if ( ! floatData ) return;
+
+		this.envConditionalStorageAttr = new StorageInstancedBufferAttribute( floatData, 1 );
+		this.envConditionalStorageNode.value = this.envConditionalStorageAttr;
+		this.envConditionalStorageNode.bufferCount = floatData.length;
+
+	}
+
+	/**
+	 * Update both CDF storage buffers from equirectHdrInfo.
+	 */
+	_updateCDFStorageBuffers() {
+
+		this.setEnvMarginalData( this.equirectHdrInfo.getMarginalRawData() );
+		this.setEnvConditionalData( this.equirectHdrInfo.getConditionalRawData() );
 
 	}
 
@@ -1225,14 +1301,14 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		if ( ! this.triangleTexture ) {
+		if ( ! this.triangleStorageNode ) {
 
 			console.error( 'PathTracingStage: Triangle data required' );
 			return;
 
 		}
 
-		if ( ! this.bvhTexture ) {
+		if ( ! this.bvhStorageNode ) {
 
 			console.error( 'PathTracingStage: BVH data required' );
 			return;
@@ -1276,24 +1352,8 @@ export class PathTracingStage extends PipelineStage {
 
 		const nodes = this._sceneTextureNodes;
 
-		// Update core scene textures
-		if ( this.triangleTexture && nodes.triTex ) {
-
-			nodes.triTex.value = this.triangleTexture;
-
-		}
-
-		if ( this.bvhTexture && nodes.bvhTex ) {
-
-			nodes.bvhTex.value = this.bvhTexture;
-
-		}
-
-		if ( this.materialTexture && nodes.matTex ) {
-
-			nodes.matTex.value = this.materialTexture;
-
-		}
+		// Triangle, BVH, and material storage buffers are already updated
+		// in-place by setTriangleData() / setBVHData() / setMaterialData()
 
 		if ( this.environmentTexture && nodes.envTex ) {
 
@@ -1337,16 +1397,14 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	_createTextureNodes() {
 
-		// TSL requires valid texture instances - use new TextureNode() (default is EmptyTexture)
-		const triTex = this.triangleTexture ? texture( this.triangleTexture ) : new TextureNode();
-		const bvhTex = this.bvhTexture ? texture( this.bvhTexture ) : new TextureNode();
-
-		const hasMaterials = this.materialTexture !== null;
-		const matTex = hasMaterials ? texture( this.materialTexture ) : triTex;
-		const matTexSize = hasMaterials ? this.materialTexSizeUniform : this.triangleTexSizeUniform;
+		// Scene data: all storage buffers (WebGPU native)
+		const triStorage = this.triangleStorageNode;
+		const bvhStorage = this.bvhStorageNode;
+		const matStorage = this.materialStorageNode;
+		const emissiveTriStorage = this.emissiveTriangleStorageNode;
 
 		const hasEnv = this.environmentTexture !== null;
-		const envTex = hasEnv ? texture( this.environmentTexture ) : triTex;
+		const envTex = hasEnv ? texture( this.environmentTexture ) : new TextureNode();
 
 		// Previous frame texture for accumulation (use new TextureNode() if render target not ready)
 		const prevFrameTex = this.renderTargetA?.texture
@@ -1364,12 +1422,9 @@ export class PathTracingStage extends PipelineStage {
 			: new TextureNode();
 		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
 
-		// Environment importance sampling CDF textures
-		// IMPORTANT: Each CDF texture needs its own TextureNode instance (not sharing placeholderTex)
-		// so they can be independently updated in-place when CDF is built after shader compilation
-		const hasCDF = this.envMarginalWeights !== null && this.envConditionalWeights !== null;
-		const marginalCDFTex = hasCDF ? texture( this.envMarginalWeights ) : new TextureNode();
-		const conditionalCDFTex = hasCDF ? texture( this.envConditionalWeights ) : new TextureNode();
+		// Environment importance sampling CDF (storage buffers)
+		const marginalCDFStorage = this.envMarginalStorageNode;
+		const conditionalCDFStorage = this.envConditionalStorageNode;
 
 		// Material texture arrays (DataArrayTexture → texture node)
 		// Must use DataArrayTexture placeholder (not regular Texture) so WGSL emits texture_2d_array<f32>
@@ -1389,17 +1444,16 @@ export class PathTracingStage extends PipelineStage {
 		const displacementMapsTex = this.displacementMaps ? texture( this.displacementMaps ) : arrayPlaceholder;
 
 		const result = {
-			triTex,
-			bvhTex,
-			matTex,
-			matTexSize,
+			triStorage,
+			bvhStorage,
+			matStorage,
+			emissiveTriStorage,
 			envTex,
 			prevFrameTex,
 			placeholderTex,
 			adaptiveSamplingTex,
-			marginalCDFTex,
-			conditionalCDFTex,
-			hasMaterials,
+			marginalCDFStorage,
+			conditionalCDFStorage,
 			hasAdaptiveSampling,
 			// Texture arrays
 			albedoMapsTex,
@@ -1426,8 +1480,9 @@ export class PathTracingStage extends PipelineStage {
 	_createPathTracerOutput( textureNodes ) {
 
 		const {
-			triTex, bvhTex, matTex, matTexSize, envTex, prevFrameTex,
-			adaptiveSamplingTex, marginalCDFTex, conditionalCDFTex,
+			triStorage, bvhStorage, matStorage, emissiveTriStorage,
+			envTex, prevFrameTex,
+			adaptiveSamplingTex, marginalCDFStorage, conditionalCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex,
 			displacementMapsTex,
@@ -1447,13 +1502,10 @@ export class PathTracingStage extends PipelineStage {
 			cameraViewMatrix: this.cameraViewMatrix,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,
 
-			// BVH / Scene
-			bvhTexture: bvhTex,
-			bvhTexSize: this.bvhTexSizeUniform,
-			triangleTexture: triTex,
-			triangleTexSize: this.triangleTexSizeUniform,
-			materialTexture: matTex,
-			materialTexSize: matTexSize,
+			// BVH / Scene (all storage buffers)
+			bvhBuffer: bvhStorage,
+			triangleBuffer: triStorage,
+			materialBuffer: matStorage,
 
 			// Texture arrays
 			albedoMaps: albedoMapsTex,
@@ -1478,8 +1530,8 @@ export class PathTracingStage extends PipelineStage {
 			envTexture: envTex,
 			environmentIntensity: this.environmentIntensity,
 			envMatrix: this.environmentMatrix,
-			envMarginalWeights: marginalCDFTex,
-			envConditionalWeights: conditionalCDFTex,
+			envMarginalWeights: marginalCDFStorage,
+			envConditionalWeights: conditionalCDFStorage,
 			envTotalSum: this.envTotalSum,
 			envResolution: this.envResolution,
 			enableEnvironmentLight: this.enableEnvironment,
@@ -1494,6 +1546,9 @@ export class PathTracingStage extends PipelineStage {
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			totalTriangleCount: this.totalTriangleCount,
 			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
+			emissiveTriangleBuffer: emissiveTriStorage,
+			emissiveTriangleCount: this.emissiveTriangleCount,
+			emissiveBoost: this.emissiveBoost,
 
 			// Debug
 			debugVisScale: this.debugVisScale,
@@ -2058,8 +2113,7 @@ export class PathTracingStage extends PipelineStage {
 
 		if ( ! this.scene.environment ) {
 
-			this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
-			this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
+			this._updateCDFStorageBuffers();
 			this.envTotalSum.value = 0.0;
 			this.useEnvMapIS.value = 0;
 			return;
@@ -2093,8 +2147,7 @@ export class PathTracingStage extends PipelineStage {
 
 				} else {
 
-					this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
-					this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
+					this._updateCDFStorageBuffers();
 					this.envTotalSum.value = 0.0;
 					this.useEnvMapIS.value = 0;
 					return;
@@ -2113,8 +2166,7 @@ export class PathTracingStage extends PipelineStage {
 
 			this.cdfBuildTime = performance.now() - startTime;
 
-			this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
-			this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
+			this._updateCDFStorageBuffers();
 			this.envTotalSum.value = this.equirectHdrInfo.totalSum;
 			this.useEnvMapIS.value = 1;
 
@@ -2154,8 +2206,7 @@ export class PathTracingStage extends PipelineStage {
 
 		} else {
 
-			this.envMarginalWeights = this.equirectHdrInfo.marginalWeights;
-			this.envConditionalWeights = this.equirectHdrInfo.conditionalWeights;
+			this._updateCDFStorageBuffers();
 			this.envTotalSum.value = 0.0;
 			this.useEnvMapIS.value = 0;
 
@@ -2171,17 +2222,7 @@ export class PathTracingStage extends PipelineStage {
 
 			}
 
-			if ( this.envMarginalWeights && nodes.marginalCDFTex ) {
-
-				nodes.marginalCDFTex.value = this.envMarginalWeights;
-
-			}
-
-			if ( this.envConditionalWeights && nodes.conditionalCDFTex ) {
-
-				nodes.conditionalCDFTex.value = this.envConditionalWeights;
-
-			}
+			// CDF storage buffers are already updated in-place by _updateCDFStorageBuffers()
 
 		}
 
@@ -2865,27 +2906,9 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
-	setEmissiveTriangleCount( count ) {
-
-		this.emissiveTriangleCount.value = count;
-
-	}
-
 	setUseEnvMapIS( use ) {
 
 		this.useEnvMapIS.value = use ? 1 : 0;
-
-	}
-
-	setEnvMarginalWeights( tex ) {
-
-		this.envMarginalWeights = tex;
-
-	}
-
-	setEnvConditionalWeights( tex ) {
-
-		this.envConditionalWeights = tex;
 
 	}
 
@@ -2951,14 +2974,27 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
-	setEmissiveTriangleTexture( tex ) {
+	setEmissiveTriangleData( emissiveData, count ) {
 
-		this.emissiveTriangleTexture = tex;
-		if ( tex?.image ) {
+		if ( ! emissiveData ) return;
 
-			this.emissiveTriangleTexSize.value.set( tex.image.width, tex.image.height );
+		const vec4Count = emissiveData.length / 4;
+
+		if ( this.emissiveTriangleStorageNode ) {
+
+			this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( emissiveData, 4 );
+			this.emissiveTriangleStorageNode.value = this.emissiveTriangleStorageAttr;
+			this.emissiveTriangleStorageNode.bufferCount = vec4Count;
+
+		} else {
+
+			this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( emissiveData, 4 );
+			this.emissiveTriangleStorageNode = storage( this.emissiveTriangleStorageAttr, 'vec4', vec4Count ).toReadOnly();
 
 		}
+
+		this.emissiveTriangleCount.value = count;
+		console.log( `PathTracingStage: ${count} emissive triangles (storage buffer)` );
 
 	}
 
@@ -3100,10 +3136,13 @@ export class PathTracingStage extends PipelineStage {
 		this.blueNoiseTexture?.dispose();
 		this.placeholderTexture?.dispose();
 
-		// Clear texture references
-		this.triangleTexture = null;
-		this.bvhTexture = null;
-		this.materialTexture = null;
+		// Clear data references
+		this.triangleStorageAttr = null;
+		this.triangleStorageNode = null;
+		this.bvhStorageAttr = null;
+		this.bvhStorageNode = null;
+		this.materialStorageAttr = null;
+		this.materialStorageNode = null;
 		this.environmentTexture = null;
 		this.placeholderTexture = null;
 
