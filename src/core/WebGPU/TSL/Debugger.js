@@ -19,6 +19,7 @@ import {
 	int,
 	uint,
 	bool as tslBool,
+	abs,
 	max,
 	min,
 	dot,
@@ -33,7 +34,7 @@ import {
 
 import { Ray, HitInfo, RayTracingMaterial, MaterialSamples } from './Struct.js';
 import { traverseBVH } from './BVHTraversal.js';
-import { sampleEnvironment, sampleEquirect, equirectUvToDirection } from './Environment.js';
+import { sampleEnvironment, sampleEquirect, sampleEquirectProbability, equirectUvToDirection, equirectDirectionToUv } from './Environment.js';
 import { REC709_LUMINANCE_COEFFICIENTS, getMaterial } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { pcgHash, wang_hash, RandomValue } from './Random.js';
@@ -484,6 +485,134 @@ export const TraceDebugMode = Fn( ( [
 			const indirect = albedoA.mul( incoming );
 
 			result.assign( vec4( indirect, 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 13: CDF Sampling Validation
+	// Uses screen UV as random input to sampleEquirectProbability,
+	// renders the environment color returned by CDF sampling.
+	// If CDF is correct, this should look like a contrast-enhanced version of the env map.
+	// If CDF is broken, colors/directions will be wrong.
+	If( visMode.equal( int( 13 ) ), () => {
+
+		If( enableEnvironmentLight.and( useEnvMapIS ), () => {
+
+			// Use screen UV as deterministic "random" input to CDF sampling
+			const r = vec2(
+				pixelCoord.x.div( resolution.x ),
+				pixelCoord.y.div( resolution.y ),
+			);
+
+			const sampledColor = vec3( 0.0 ).toVar();
+			const sampleResult = sampleEquirectProbability(
+				envTexture, envMarginalWeights, envConditionalWeights,
+				envMatrix, environmentIntensity, envTotalSum, envResolution,
+				r, sampledColor,
+			).toVar();
+
+			const pdf = sampleResult.w.toVar();
+
+			// Render the sampled color (what the CDF returns for this UV pair)
+			// Tone-map to prevent oversaturation
+			const displayColor = sampledColor.div( sampledColor.add( 1.0 ) );
+			result.assign( select( pdf.greaterThan( 0.0 ), vec4( displayColor, 1.0 ), vec4( 1.0, 0.0, 1.0, 1.0 ) ) );
+
+		} ).Else( () => {
+
+			result.assign( vec4( 0.2, 0.2, 0.2, 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 14: CDF Direction Round-Trip Validation
+	// Tests whether the direction returned by CDF importance sampling actually
+	// maps back to the correct location on the environment map.
+	// Left half: error visualization (green = match, red = mismatch)
+	// Right half: environment color looked up via the CDF direction
+	// Compare right half with mode 13 — if they differ, the direction conversion has a bug.
+	If( visMode.equal( int( 14 ) ), () => {
+
+		If( enableEnvironmentLight.and( useEnvMapIS ), () => {
+
+			// Same CDF sampling as mode 13
+			const r = vec2(
+				pixelCoord.x.div( resolution.x ),
+				pixelCoord.y.div( resolution.y ),
+			);
+
+			const sampledColor = vec3( 0.0 ).toVar();
+			const sampleResult = sampleEquirectProbability(
+				envTexture, envMarginalWeights, envConditionalWeights,
+				envMatrix, environmentIntensity, envTotalSum, envResolution,
+				r, sampledColor,
+			).toVar();
+
+			// Get the CDF-sampled direction
+			const cdfDirection = sampleResult.xyz.toVar();
+
+			// Round-trip: direction → equirectDirectionToUv → texture lookup
+			// sampleEnvironment does exactly this internally
+			const roundTripColor = sampleEnvironment(
+				envTexture, cdfDirection, envMatrix, environmentIntensity, enableEnvironmentLight,
+			).xyz.toVar();
+
+			// Compare: if direction is correct, roundTripColor should match sampledColor
+			const diff = abs( roundTripColor.sub( sampledColor ) ).mul( 10.0 );
+			const maxDiff = clamp( max( max( diff.x, diff.y ), diff.z ), 0.0, 1.0 );
+
+			const screenX = pixelCoord.x.div( resolution.x );
+
+			If( screenX.lessThan( 0.5 ), () => {
+
+				// Left half: error map (green = match, red = direction error)
+				result.assign( vec4( maxDiff, float( 1.0 ).sub( maxDiff ), 0.0, 1.0 ) );
+
+			} ).Else( () => {
+
+				// Right half: round-trip color (tone-mapped) — compare with mode 13
+				const displayColor = roundTripColor.div( roundTripColor.add( 1.0 ) );
+				result.assign( vec4( displayColor, 1.0 ) );
+
+			} );
+
+		} ).Else( () => {
+
+			result.assign( vec4( 0.2, 0.2, 0.2, 1.0 ) );
+
+		} );
+
+	} );
+
+	// Case 15: Environment at Reflected Direction
+	// Shows the environment color evaluated at the reflection direction for the first hit.
+	// For misses, shows environment at ray direction.
+	// This tests whether sampleEnvironment produces correct colors for arbitrary directions.
+	If( visMode.equal( int( 15 ) ), () => {
+
+		If( hitInfo.didHit, () => {
+
+			const N = hitInfo.normal.toVar();
+			// Reflect: R = D - 2*dot(D,N)*N
+			const reflDir = normalize( rayDir.sub( N.mul( dot( rayDir, N ).mul( 2.0 ) ) ) ).toVar();
+
+			const envColor = sampleEnvironment(
+				envTexture, reflDir, envMatrix, environmentIntensity, enableEnvironmentLight,
+			).xyz;
+
+			const displayColor = envColor.div( envColor.add( 1.0 ) );
+			result.assign( vec4( displayColor, 1.0 ) );
+
+		} ).Else( () => {
+
+			const envColor = sampleEnvironment(
+				envTexture, rayDir, envMatrix, environmentIntensity, enableEnvironmentLight,
+			).xyz;
+
+			const displayColor = envColor.div( envColor.add( 1.0 ) );
+			result.assign( vec4( displayColor, 1.0 ) );
 
 		} );
 

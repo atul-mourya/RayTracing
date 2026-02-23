@@ -432,7 +432,12 @@ export const calculateIndirectLighting = Fn( ( [
 
 		If( weights.useSpecular, () => {
 
-			combinedPdf.addAssign( weights.specularWeight.mul( brdfSamplePdf ) );
+			// Evaluate specular PDF at sampleDir (not brdfSampleDirection which may differ)
+			const H_spec = normalize( V.add( sampleDir ) );
+			const NoH_spec = max( dot( N, H_spec ), 0.001 );
+			const NoV_spec = max( dot( N, V ), 0.001 );
+			const specPdfAtSampleDir = calculateVNDFPDF( NoH_spec, NoV_spec, material.roughness );
+			combinedPdf.addAssign( weights.specularWeight.mul( specPdfAtSampleDir ) );
 
 		} );
 

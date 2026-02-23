@@ -672,6 +672,9 @@ const PathTracerTab = () => {
 								<SelectItem value="10">MRT: Depth</SelectItem>
 								<SelectItem value="11">MRT: Albedo</SelectItem>
 								<SelectItem value="12">Indirect Illumination</SelectItem>
+								<SelectItem value="13">CDF Sampling Test</SelectItem>
+								<SelectItem value="14">CDF Direction Round-Trip</SelectItem>
+								<SelectItem value="15">Env Reflection Test</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

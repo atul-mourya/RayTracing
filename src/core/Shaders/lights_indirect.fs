@@ -264,7 +264,12 @@ IndirectLightingResult calculateIndirectLighting(
     }
 
     if( weights.useSpecular ) {
-        combinedPdf += weights.specularWeight * brdfSample.pdf;
+        // Evaluate specular PDF at sampleDir (not brdfSample.pdf which is for brdfSample.direction)
+        vec3 H_spec = normalize( V + sampleDir );
+        float NoH_spec = max( dot( N, H_spec ), 0.001 );
+        float NoV_spec = max( dot( N, V ), 0.001 );
+        float specPdfAtSampleDir = calculateVNDFPDF( NoH_spec, NoV_spec, material.roughness );
+        combinedPdf += weights.specularWeight * specPdfAtSampleDir;
     }
 
     if( weights.useDiffuse ) {

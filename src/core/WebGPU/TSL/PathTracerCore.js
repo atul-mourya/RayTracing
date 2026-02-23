@@ -916,11 +916,11 @@ export const Trace = Fn( ( [
 			enableEnvironmentLight, useEnvMapIS,
 			globalIlluminationIntensity,
 		) );
-		throughput.mulAssign( indirectResult.throughput.mul( indirectResult.misWeight ) );
+		throughput.mulAssign( indirectResult.throughput );
 
 		// Early ray termination
 		const maxThroughput = max( max( throughput.x, throughput.y ), throughput.z );
-		If( maxThroughput.lessThan( 0.001 ).and( bounceIndex.greaterThan( int( 2 ) ) ), () => {
+		If( maxThroughput.lessThan( 0.001 ).and( bounceIndex.greaterThan( int( 3 ) ) ), () => {
 
 			Break();
 

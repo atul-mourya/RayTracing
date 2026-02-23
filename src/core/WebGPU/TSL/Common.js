@@ -1,4 +1,4 @@
-import { Fn, float, vec2, vec3, vec4, int, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix, texture } from 'three/tsl';
+import { Fn, float, vec2, vec3, vec4, int, ivec2, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix, texture } from 'three/tsl';
 
 import {
 	DotProducts,
@@ -69,39 +69,12 @@ export const luminance = Fn( ( [ color ] ) => {
 
 } );
 
-// Optimized power heuristic for multiple importance sampling
+// Power heuristic (β=2) for multiple importance sampling
 export const powerHeuristic = Fn( ( [ pdf1, pdf2 ] ) => {
 
-	const ratio = pdf1.div( max( pdf2, MIN_PDF ) ).toVar();
-
-	const result = float( 0.0 ).toVar();
-
-	If( ratio.greaterThan( 10.0 ), () => {
-
-		result.assign( 1.0 );
-
-	} ).ElseIf( ratio.lessThan( 0.1 ), () => {
-
-		result.assign( 0.0 );
-
-	} ).ElseIf( ratio.greaterThan( 5.0 ), () => {
-
-		result.assign( 0.95 );
-
-	} ).ElseIf( ratio.lessThan( 0.2 ), () => {
-
-		result.assign( 0.05 );
-
-	} ).Else( () => {
-
-		// Standard power heuristic calculation for intermediate cases
-		const p1 = pdf1.mul( pdf1 );
-		const p2 = pdf2.mul( pdf2 );
-		result.assign( p1.div( max( p1.add( p2 ), MIN_PDF ) ) );
-
-	} );
-
-	return result;
+	const p1 = pdf1.mul( pdf1 );
+	const p2 = pdf2.mul( pdf2 );
+	return p1.div( max( p1.add( p2 ), MIN_PDF ) );
 
 } );
 
@@ -348,16 +321,14 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmissi
 } );
 
 // Material data texture access functions
+// Uses unfiltered integer-coordinate access (equivalent to GLSL texelFetch)
+// to prevent interpolation artifacts in data textures
 export const getDatafromDataTexture = Fn( ( [ tex, texSize, stride, sampleIndex, dataOffset ] ) => {
 
 	const pixelIndex = stride.mul( dataOffset ).add( sampleIndex );
 	const x = pixelIndex.mod( int( texSize.x ) );
 	const y = pixelIndex.div( int( texSize.x ) );
-	const uv = vec2(
-		float( x ).add( 0.5 ).div( float( texSize.x ) ),
-		float( y ).add( 0.5 ).div( float( texSize.y ) )
-	);
-	return texture( tex, uv );
+	return texture( tex, ivec2( x, y ) ).setSampler( false );
 
 } );
 
