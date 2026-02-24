@@ -1,5 +1,6 @@
 import { useState, useEffect, useSyncExternalStore } from 'react';
-import { getApp, getBackend, supportsFeature } from '@/core/appProxy';
+import { getApp, supportsFeature } from '@/core/appProxy';
+import { getBackendManager } from '@/core/BackendManager';
 
 /**
  * React hook that returns the currently active backend app.
@@ -16,19 +17,28 @@ export function useActiveApp() {
 		// Update on mount in case app initialized after first render
 		setApp( getApp() );
 
-		const backendManager = getBackend();
+		const handleSwitch = () => {
+
+			queueMicrotask( () => setApp( getApp() ) );
+
+		};
+
+		const backendManager = getBackendManager();
 		if ( backendManager ) {
 
-			const handleSwitch = () => {
-
-				queueMicrotask( () => setApp( getApp() ) );
-
-			};
-
 			backendManager.on( 'switched', handleSwitch );
-			return () => backendManager.off( 'switched', handleSwitch );
 
 		}
+
+		// Also listen for the window event (fires reliably regardless of timing)
+		window.addEventListener( 'BackendSwitched', handleSwitch );
+
+		return () => {
+
+			if ( backendManager ) backendManager.off( 'switched', handleSwitch );
+			window.removeEventListener( 'BackendSwitched', handleSwitch );
+
+		};
 
 	}, [] );
 
@@ -51,19 +61,28 @@ export function useBackendFeature( featureName ) {
 
 		setSupported( supportsFeature( featureName ) );
 
-		const backendManager = getBackend();
+		const handleSwitch = () => {
+
+			queueMicrotask( () => setSupported( supportsFeature( featureName ) ) );
+
+		};
+
+		const backendManager = getBackendManager();
 		if ( backendManager ) {
 
-			const handleSwitch = () => {
-
-				queueMicrotask( () => setSupported( supportsFeature( featureName ) ) );
-
-			};
-
 			backendManager.on( 'switched', handleSwitch );
-			return () => backendManager.off( 'switched', handleSwitch );
 
 		}
+
+		// Also listen for the window event (fires reliably regardless of timing)
+		window.addEventListener( 'BackendSwitched', handleSwitch );
+
+		return () => {
+
+			if ( backendManager ) backendManager.off( 'switched', handleSwitch );
+			window.removeEventListener( 'BackendSwitched', handleSwitch );
+
+		};
 
 	}, [ featureName ] );
 

@@ -429,6 +429,14 @@ export class BackendManager {
 			}
 
 			this.toggleCanvasVisibility( backend );
+
+			// Notify UI that the backend is ready (covers initial setup where
+			// currentBackend was pre-set before setBackend was called)
+			this.emit( 'switched', { from: backend, to: backend } );
+			window.dispatchEvent( new CustomEvent( 'BackendSwitched', {
+				detail: { from: backend, to: backend }
+			} ) );
+
 			return true;
 
 		}

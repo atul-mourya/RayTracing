@@ -943,6 +943,14 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				case 'asvgf': {
 
+					// Clear stale EdgeAware output so DisplayStage picks ASVGF output
+					if ( app.pipeline?.context ) {
+
+						const ctx = app.pipeline.context;
+						ctx.removeTexture( 'edgeFiltering:output' );
+
+					}
+
 					app.asvgfPass.enabled = true;
 					if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = true;
 					if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = true;
@@ -964,7 +972,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				case 'edgeaware':
 				default:
 					app.edgeAwareFilterPass.setFilteringEnabled( true );
-					// Clear any stale ASVGF outputs so EdgeAware reads live path tracer texture
+					// Clear stale denoiser outputs so DisplayStage uses fresh textures
 					if ( app.pipeline?.context ) {
 
 						const ctx = app.pipeline.context;
@@ -972,6 +980,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'asvgf:temporalColor' );
 						ctx.removeTexture( 'asvgf:variance' );
 						ctx.removeTexture( 'variance:output' );
+						ctx.removeTexture( 'edgeFiltering:output' );
 
 					}
 
@@ -1110,11 +1119,30 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				app.autoExposurePass.enabled = val;
 
-				if ( ! val ) {
+				if ( val ) {
+
+					// When enabling: WebGPU DisplayStage applies its own pow(exposure, 4.0)
+					// curve on top of renderer.toneMappingExposure. Auto-exposure writes
+					// directly to toneMappingExposure, so neutralize the DisplayStage
+					// curve by setting its exposure to 1.0 (pow(1,4)=1).
+					app.displayStage?.setExposure( 1.0 );
+
+				} else {
 
 					// When disabling auto-exposure, restore manual exposure
 					const manualExposure = get().exposure;
 					app.setExposure( manualExposure );
+
+					// WebGPU: auto-exposure wrote to renderer.toneMappingExposure,
+					// but WebGPU uses DisplayStage's TSL uniform for manual exposure.
+					// Reset renderer exposure so it doesn't stack with the manual curve.
+					// (WebGL's setExposure already handles toneMappingExposure, so only
+					// reset when DisplayStage exists — i.e. WebGPU backend.)
+					if ( app.displayStage && app.renderer ) {
+
+						app.renderer.toneMappingExposure = 1.0;
+
+					}
 
 				}
 

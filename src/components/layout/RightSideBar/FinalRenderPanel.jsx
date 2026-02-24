@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { usePathTracerStore as useStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { Separator } from '@/components/ui/separator';
+import { useBackendFeature } from '@/hooks/useActiveApp';
 
 
 const FinalRenderPanel = () => {
@@ -35,6 +36,7 @@ const FinalRenderPanel = () => {
 	} = useStore();
 
 	const isWebGL = backend === 'webgl';
+	const hasTileRendering = useBackendFeature( 'tileRendering' );
 
 	return (
 		<div className="">
@@ -53,7 +55,7 @@ const FinalRenderPanel = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="0">Regular</SelectItem>
-							{isWebGL && <SelectItem value="1">Tiled</SelectItem>}
+							{hasTileRendering && <SelectItem value="1">Tiled</SelectItem>}
 						</SelectContent>
 					</Select>
 				</div>

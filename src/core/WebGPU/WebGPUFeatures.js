@@ -43,13 +43,15 @@ export const WebGPUFeatures = {
 	// ─── Pipeline Stages (IMPLEMENTED) ───
 	adaptiveSampling: true,
 
+	// ─── Pipeline Stages (IMPLEMENTED — Denoising & Post-Processing) ───
+	asvgf: true,
+	edgeAwareFiltering: true,
+	autoExposure: true,
+	tileRendering: true,
+
 	// ─── Not Yet Implemented ───
-	asvgf: false,
-	edgeAwareFiltering: false,
 	oidnDenoiser: false,
 	bloom: false,
-	autoExposure: false,
-	tileRendering: false,
 	objectSelection: false,
 	lights: false,
 	materialEditing: false,
@@ -61,12 +63,12 @@ export const WebGPUFeatures = {
  */
 export const WebGPUFeatureDescriptions = {
 
-	asvgf: 'ASVGF denoiser — planned for WebGPU',
-	edgeAwareFiltering: 'Edge-aware temporal filtering — planned for WebGPU',
+	asvgf: 'ASVGF spatiotemporal denoiser with motion-compensated accumulation',
+	edgeAwareFiltering: 'Edge-aware temporal filtering with progressive sharpening',
 	oidnDenoiser: 'Intel Open Image Denoise — requires WebGL backend',
 	bloom: 'Bloom post-processing — planned for WebGPU',
-	autoExposure: 'Auto exposure — planned for WebGPU',
-	tileRendering: 'Tiled progressive rendering — planned for WebGPU',
+	autoExposure: 'GPU auto-exposure with hierarchical luminance reduction',
+	tileRendering: 'Tiled progressive rendering with tile highlight overlay',
 	interactionMode: 'Interactive quality mode — reduces quality during camera movement',
 	objectSelection: 'Object selection/outlining — planned for WebGPU',
 	focusPicking: 'Click-to-focus in scene for depth of field',

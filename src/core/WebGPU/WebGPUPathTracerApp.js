@@ -7,8 +7,16 @@ import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Stats from 'stats-gl';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
-import { DisplayStage } from './Stages/DisplayStage.js';
+import { NormalDepthStage } from './Stages/NormalDepthStage.js';
+import { WebGPUMotionVectorStage } from './Stages/WebGPUMotionVectorStage.js';
+import { WebGPUASVGFStage } from './Stages/WebGPUASVGFStage.js';
+import { WebGPUVarianceEstimationStage } from './Stages/WebGPUVarianceEstimationStage.js';
+import { WebGPUBilateralFilteringStage } from './Stages/WebGPUBilateralFilteringStage.js';
 import { AdaptiveSamplingStage } from './Stages/AdaptiveSamplingStage.js';
+import { WebGPUEdgeAwareFilteringStage } from './Stages/WebGPUEdgeAwareFilteringStage.js';
+import { WebGPUAutoExposureStage } from './Stages/WebGPUAutoExposureStage.js';
+import { WebGPUTileHighlightStage } from './Stages/WebGPUTileHighlightStage.js';
+import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from '../Pipeline/PassPipeline.js';
 import { DataTransfer } from './DataTransfer.js';
 import { DEFAULT_STATE } from '../../Constants.js';
@@ -195,19 +203,48 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		} );
 
-		// Create path tracing stage
+		// Create pipeline stages
 		this.pathTracingStage = new PathTracingStage( this.renderer, this.scene, this.camera );
+		this.normalDepthStage = new NormalDepthStage( this.renderer, {
+			pathTracingStage: this.pathTracingStage
+		} );
+		this.motionVectorStage = new WebGPUMotionVectorStage( this.renderer, this.camera, {
+			pathTracingStage: this.pathTracingStage
+		} );
+		this.asvgfStage = new WebGPUASVGFStage( this.renderer, { enabled: false } );
+		this.varianceEstimationStage = new WebGPUVarianceEstimationStage( this.renderer, { enabled: false } );
+		this.bilateralFilteringStage = new WebGPUBilateralFilteringStage( this.renderer, { enabled: false } );
 		this.adaptiveSamplingStage = new AdaptiveSamplingStage( this.renderer, {
 			adaptiveSamplingMax: this.adaptiveSamplingMax,
 			enabled: this.useAdaptiveSampling,
 		} );
+		this.edgeFilteringStage = new WebGPUEdgeAwareFilteringStage( this.renderer, { enabled: false } );
+		this.autoExposureStage = new WebGPUAutoExposureStage( this.renderer, { enabled: false } );
+		this.tileHighlightStage = new WebGPUTileHighlightStage( this.renderer, { enabled: false } );
 		this.displayStage = new DisplayStage( this.renderer, { exposure: this.exposure } );
 
+		// Expose stages with WebGL-compatible property names so store handlers work
+		this.asvgfPass = this.asvgfStage;
+		this.varianceEstimationPass = this.varianceEstimationStage;
+		this.bilateralFilteringPass = this.bilateralFilteringStage;
+		this.edgeAwareFilterPass = this.edgeFilteringStage;
+		this.autoExposurePass = this.autoExposureStage;
+		this.tileHighlightPass = this.tileHighlightStage;
+
 		// Pipeline orchestration (reuses WebGL's PassPipeline — it's renderer-agnostic)
+		// Stage order matters: each stage reads textures published by prior stages.
 		const { clientWidth: w, clientHeight: h } = this.canvas;
 		this.pipeline = new PassPipeline( this.renderer, w || 1, h || 1 );
 		this.pipeline.addStage( this.pathTracingStage );
+		this.pipeline.addStage( this.normalDepthStage );
+		this.pipeline.addStage( this.motionVectorStage );
+		this.pipeline.addStage( this.asvgfStage );
+		this.pipeline.addStage( this.varianceEstimationStage );
+		this.pipeline.addStage( this.bilateralFilteringStage );
 		this.pipeline.addStage( this.adaptiveSamplingStage );
+		this.pipeline.addStage( this.edgeFilteringStage );
+		this.pipeline.addStage( this.autoExposureStage );
+		this.pipeline.addStage( this.tileHighlightStage );
 		this.pipeline.addStage( this.displayStage );
 
 		// Set initial render dimensions so stage render targets aren't stuck at 1x1
@@ -228,6 +265,9 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			floorPlane: this.existingApp?.floorPlane || null
 		} );
 		this.setupInteractionListeners();
+
+		// Set up auto-exposure event listener to update store in real-time
+		this.setupAutoExposureListener();
 
 		// Handle resize
 		this.onResize();
@@ -375,6 +415,30 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			this.dispatchEvent( {
 				type: 'focusChanged',
 				distance: event.distance
+			} );
+
+		} );
+
+	}
+
+	/**
+	 * Set up event listener for auto-exposure updates.
+	 * Updates the store when exposure values change for UI display,
+	 * and applies the computed exposure to renderer.toneMappingExposure.
+	 */
+	setupAutoExposureListener() {
+
+		if ( ! this.autoExposureStage ) return;
+
+		import( '@/store' ).then( ( { usePathTracerStore } ) => {
+
+			this.autoExposureStage.on( 'autoexposure:updated', ( data ) => {
+
+				const { exposure, luminance } = data;
+
+				usePathTracerStore.getState().setCurrentAutoExposure( exposure );
+				usePathTracerStore.getState().setCurrentAvgLuminance( luminance );
+
 			} );
 
 		} );

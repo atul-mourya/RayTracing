@@ -10,6 +10,7 @@ import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo, useCallback } from 'react';
 import { Badge } from "@/components/ui/badge";
+import { useBackendFeature } from '@/hooks/useActiveApp';
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -202,6 +203,10 @@ const PathTracerTab = () => {
 	} = pathTracerStore;
 
 	const isWebGL = backend === 'webgl';
+	const hasTileRendering = useBackendFeature( 'tileRendering' );
+	const hasAutoExposure = useBackendFeature( 'autoExposure' );
+	const hasEdgeAwareFiltering = useBackendFeature( 'edgeAwareFiltering' );
+	const hasASVGF = useBackendFeature( 'asvgf' );
 
 	// Handle backend selection change
 	const onBackendChange = useCallback( ( value ) => {
@@ -273,7 +278,7 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="0">Regular</SelectItem>
-							{isWebGL && <SelectItem value="1">Tiled</SelectItem>}
+							{hasTileRendering && <SelectItem value="1">Tiled</SelectItem>}
 						</SelectContent>
 					</Select>
 				</div>
@@ -318,14 +323,14 @@ const PathTracerTab = () => {
 						</SelectContent>
 					</Select>
 				</div>
-				{isWebGL && <div className="flex items-center justify-between">
+				{hasAutoExposure && <div className="flex items-center justify-between">
 					<span className="opacity-50 text-xs truncate">Auto Exposure</span>
 					<div className="flex items-center gap-2">
 						{autoExposure && <AutoExposureValue />}
 						<Switch checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
 					</div>
 				</div>}
-				{isWebGL && autoExposure ? (
+				{hasAutoExposure && autoExposure ? (
 					<>
 						<div className="flex items-center justify-between">
 							<Slider icon={Target} label={"Target Brightness"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
@@ -479,8 +484,8 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="none">None</SelectItem>
-							{isWebGL && <SelectItem value="edgeaware">EdgeAware</SelectItem>}
-							{isWebGL && <SelectItem value="asvgf">ASVGF</SelectItem>}
+							{hasEdgeAwareFiltering && <SelectItem value="edgeaware">EdgeAware</SelectItem>}
+							{hasASVGF && <SelectItem value="asvgf">ASVGF</SelectItem>}
 						</SelectContent>
 					</Select>
 				</div>

@@ -1,0 +1,455 @@
+import { Fn, vec2, vec3, vec4, float, uv, uniform, If, normalize, mat3 } from 'three/tsl';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
+import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
+
+/**
+ * WebGPU Motion Vector Stage
+ *
+ * Computes per-pixel screen-space and world-space motion vectors by
+ * reconstructing world positions from linear ray depth and reprojecting
+ * to the previous frame.
+ *
+ * Algorithm:
+ *   1. Read normalDepth from NormalDepthStage (linear depth in alpha)
+ *   2. Reconstruct camera ray from UV via inverse projection (same as NormalDepthStage)
+ *   3. World position = cameraPos + normalize(rayDir) * linearDepth
+ *   4. Project to previous frame:  prevVP * worldPos
+ *   5. Motion = currentUV - prevUV
+ *
+ * Output formats (RGBA HalfFloat):
+ *   screenSpace — xy=motion (UV-space), z=depth, w=validity
+ *   worldSpace  — xyz=world velocity, w=validity
+ *
+ * Critical design decisions:
+ *   - matricesInitialized is NOT reset on pipeline:reset.
+ *     This preserves motion detection across camera-triggered resets.
+ *   - Camera uniforms are synced from PathTracingStage (same source as
+ *     NormalDepthStage) to guarantee exact matrix consistency for world
+ *     position reconstruction. Using the camera object directly can produce
+ *     subtly different matrices due to update timing differences.
+ *
+ * Execution: ALWAYS — motion vectors are needed every frame.
+ *
+ * Events listened:
+ *   pipeline:reset  — reset frame counter (but NOT matrices)
+ *
+ * Textures published:
+ *   motionVector:screenSpace
+ *   motionVector:worldSpace
+ *   motionVector:motion  (alias for screenSpace)
+ *
+ * Textures read:
+ *   pathtracer:normalDepth — linear depth for world position reconstruction
+ */
+export class WebGPUMotionVectorStage extends PipelineStage {
+
+	constructor( renderer, camera, options = {} ) {
+
+		super( 'MotionVector', {
+			...options,
+			executionMode: StageExecutionMode.ALWAYS
+		} );
+
+		this.renderer = renderer;
+		this.camera = camera;
+		this.pathTracingStage = options.pathTracingStage || null;
+
+		const width = options.width || 1;
+		const height = options.height || 1;
+
+		// Camera matrix history (for prevVP tracking)
+		this.prevViewProjectionMatrix = new Matrix4();
+		this.currentViewProjectionMatrix = new Matrix4();
+
+		this.matricesInitialized = false;
+		this.isFirstFrame = true;
+		this.frameCount = 0;
+
+		// Camera uniforms for world position reconstruction
+		// Synced from PathTracingStage each frame (same source as NormalDepthStage)
+		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
+		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
+		this.prevVP = uniform( new Matrix4(), 'mat4' );
+		this.isFirstFrameU = uniform( 1.0 ); // 1.0 = true, 0.0 = false
+		this.deltaTime = uniform( 1.0 / 60.0 );
+		this.velocityScale = uniform( 1.0 );
+
+		// Input texture nodes (swappable — no shader recompile)
+		this._normalDepthTexNode = new TextureNode();
+
+		// Render targets
+		const rtOpts = {
+			type: HalfFloatType,
+			format: RGBAFormat,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		};
+
+		this.screenSpaceTarget = new RenderTarget( width, height, rtOpts );
+		this.worldSpaceTarget = new RenderTarget( width, height, rtOpts );
+
+		// Build materials
+		this._buildScreenSpaceMaterial();
+		this._buildWorldSpaceMaterial();
+
+	}
+
+	// ──────────────────────────────────────────────────
+	// TSL shader builders
+	// ──────────────────────────────────────────────────
+
+	/**
+	 * Screen-space motion vector shader.
+	 *
+	 * Reconstructs world position from camera ray + linear depth
+	 * (matching NormalDepthStage's ray generation), then reprojects
+	 * through the previous frame's VP matrix.
+	 */
+	_buildScreenSpaceMaterial() {
+
+		const normalDepthTex = this._normalDepthTexNode;
+		const camWorldMat = this.cameraWorldMatrix;
+		const camProjInvMat = this.cameraProjectionMatrixInverse;
+		const prevVP = this.prevVP;
+
+		const shader = Fn( ( [ cwm, cpi ] ) => {
+
+			const coord = uv();
+			const nd = normalDepthTex.sample( coord );
+			const linearDepth = nd.w;
+
+			const result = vec4( 0.0, 0.0, linearDepth, 1.0 ).toVar();
+
+			// Sky / background (depth >= 1e5) — no motion
+			If( linearDepth.lessThan( float( 1e5 ) ), () => {
+
+				// Reconstruct camera ray direction from UV
+				// Negate Y to match PathTracingStage convention
+				// (WebGPU QuadMesh uv().y=0 at top of screen)
+				const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
+				const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
+				const ndcPos = vec3( ndcX, ndcY, 1.0 );
+
+				// Camera-space ray direction via inverse projection
+				const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
+
+				// Transform to world space (rotation only, via mat3 of world matrix)
+				const rayDirWorld = normalize(
+					mat3(
+						cwm[ 0 ].xyz,
+						cwm[ 1 ].xyz,
+						cwm[ 2 ].xyz
+					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+				);
+
+				// Camera position (translation column of world matrix)
+				const camPos = vec3( cwm[ 3 ] );
+
+				// World position = camera origin + ray direction * linear depth
+				const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+
+				// Project to previous frame
+				const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
+				// Flip prevUV.y to match WebGPU uv() convention
+				// (NDC Y=+1 → UV Y=0 at top of screen)
+				const prevNDC = prevClip.xy.div( prevClip.w );
+				const prevUV = vec2(
+					prevNDC.x.mul( 0.5 ).add( 0.5 ),
+					prevNDC.y.mul( - 0.5 ).add( 0.5 )
+				);
+
+				// Motion vector = current - prev (in UV space)
+				const motion = coord.sub( prevUV );
+
+				// Validity check: prev UV must be on screen
+				const valid = prevUV.x.greaterThanEqual( 0.0 )
+					.and( prevUV.x.lessThanEqual( 1.0 ) )
+					.and( prevUV.y.greaterThanEqual( 0.0 ) )
+					.and( prevUV.y.lessThanEqual( 1.0 ) );
+
+				result.assign( valid.select(
+					vec4( motion, linearDepth, 1.0 ),
+					vec4( float( 1000.0 ), float( 1000.0 ), linearDepth, 0.0 )
+				) );
+
+			} );
+
+			return result;
+
+		} );
+
+		this.screenSpaceMaterial = new MeshBasicNodeMaterial();
+		// Use outputNode to preserve .w (validity flag) — colorNode forces alpha=1.0
+		this.screenSpaceMaterial.outputNode = shader( camWorldMat, camProjInvMat );
+		this.screenSpaceMaterial.toneMapped = false;
+		this.screenSpaceQuad = new QuadMesh( this.screenSpaceMaterial );
+
+	}
+
+	_buildWorldSpaceMaterial() {
+
+		const normalDepthTex = this._normalDepthTexNode;
+		const camWorldMat = this.cameraWorldMatrix;
+		const camProjInvMat = this.cameraProjectionMatrixInverse;
+		const prevVP = this.prevVP;
+		const isFirstFrameU = this.isFirstFrameU;
+		const deltaTime = this.deltaTime;
+		const velocityScale = this.velocityScale;
+
+		const shader = Fn( ( [ cwm, cpi ] ) => {
+
+			const coord = uv();
+			const nd = normalDepthTex.sample( coord );
+			const linearDepth = nd.w;
+
+			const result = vec4( 0.0, 0.0, 0.0, 0.0 ).toVar();
+
+			// Skip first frame and sky
+			If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 1e5 ) ) ), () => {
+
+				// Reconstruct world position (same as screen-space shader)
+				// Negate Y to match PathTracingStage convention
+				const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
+				const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
+				const ndcPos = vec3( ndcX, ndcY, 1.0 );
+				const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
+				const rayDirWorld = normalize(
+					mat3(
+						cwm[ 0 ].xyz,
+						cwm[ 1 ].xyz,
+						cwm[ 2 ].xyz
+					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+				);
+				const camPos = vec3( cwm[ 3 ] );
+				const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+
+				// Project to previous frame
+				const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
+				// Flip prevUV.y to match WebGPU uv() convention
+				const prevNDC = prevClip.xy.div( prevClip.w );
+				const prevUV = vec2(
+					prevNDC.x.mul( 0.5 ).add( 0.5 ),
+					prevNDC.y.mul( - 0.5 ).add( 0.5 )
+				);
+
+				const valid = prevUV.x.greaterThanEqual( 0.0 )
+					.and( prevUV.x.lessThanEqual( 1.0 ) )
+					.and( prevUV.y.greaterThanEqual( 0.0 ) )
+					.and( prevUV.y.lessThanEqual( 1.0 ) );
+
+				// World-space velocity approximation from UV displacement
+				const motionUV = coord.sub( prevUV );
+				const worldVelocity = vec3(
+					motionUV.x.div( deltaTime ).mul( velocityScale ),
+					motionUV.y.div( deltaTime ).mul( velocityScale ),
+					0.0
+				);
+
+				result.assign( valid.select(
+					vec4( worldVelocity, 1.0 ),
+					vec4( 0.0, 0.0, 0.0, 0.5 )
+				) );
+
+			} );
+
+			return result;
+
+		} );
+
+		this.worldSpaceMaterial = new MeshBasicNodeMaterial();
+		// Use outputNode to preserve .w (validity flag) — colorNode forces alpha=1.0
+		this.worldSpaceMaterial.outputNode = shader( camWorldMat, camProjInvMat );
+		this.worldSpaceMaterial.toneMapped = false;
+
+		this.worldSpaceQuad = new QuadMesh( this.worldSpaceMaterial );
+
+	}
+
+	// ──────────────────────────────────────────────────
+	// Camera matrix management
+	// ──────────────────────────────────────────────────
+
+	/**
+	 * Sync camera matrices from PathTracingStage and update prevVP.
+	 *
+	 * Camera uniforms (cameraWorldMatrix, cameraProjectionMatrixInverse) are
+	 * sourced from PathTracingStage — the SAME source NormalDepthStage uses.
+	 * This guarantees the ray reconstruction matches the depth values exactly.
+	 *
+	 * The view-projection matrix for prevVP tracking is also derived from
+	 * PathTracingStage's projection and view matrices for consistency.
+	 */
+	_updateCameraMatrices() {
+
+		const pt = this.pathTracingStage;
+
+		// Source camera matrices — prefer PathTracingStage, fall back to camera
+		let worldMatrix, viewMatrix, projMatrix, projMatrixInverse;
+
+		if ( pt && pt.cameraProjectionMatrix ) {
+
+			// Sync from PathTracingStage (same source as NormalDepthStage)
+			worldMatrix = pt.cameraWorldMatrix.value;
+			viewMatrix = pt.cameraViewMatrix.value;
+			projMatrix = pt.cameraProjectionMatrix.value;
+			projMatrixInverse = pt.cameraProjectionMatrixInverse.value;
+
+		} else {
+
+			// Fallback: read directly from camera object
+			const camera = this.camera;
+			if ( ! camera ) return;
+			worldMatrix = camera.matrixWorld;
+			viewMatrix = camera.matrixWorldInverse;
+			projMatrix = camera.projectionMatrix;
+			projMatrixInverse = camera.projectionMatrixInverse;
+
+		}
+
+		// Store previous VP
+		if ( this.matricesInitialized ) {
+
+			this.prevViewProjectionMatrix.copy( this.currentViewProjectionMatrix );
+
+		} else {
+
+			// First init: prev = current
+			this.currentViewProjectionMatrix.multiplyMatrices(
+				projMatrix,
+				viewMatrix
+			);
+			this.prevViewProjectionMatrix.copy( this.currentViewProjectionMatrix );
+			this.matricesInitialized = true;
+
+		}
+
+		// Update current VP from PathTracingStage's matrices
+		this.currentViewProjectionMatrix.multiplyMatrices(
+			projMatrix,
+			viewMatrix
+		);
+
+		// Update shader uniforms
+		this.cameraWorldMatrix.value.copy( worldMatrix );
+		this.cameraProjectionMatrixInverse.value.copy( projMatrixInverse );
+		this.prevVP.value.copy( this.prevViewProjectionMatrix );
+
+	}
+
+	// ──────────────────────────────────────────────────
+	// Pipeline lifecycle
+	// ──────────────────────────────────────────────────
+
+	setupEventListeners() {
+
+		this.on( 'pipeline:reset', () => {
+
+			this.reset();
+
+		} );
+
+	}
+
+	render( context ) {
+
+		if ( ! this.enabled ) return;
+
+		// Get normalDepth from context
+		const normalDepthTex = context.getTexture( 'pathtracer:normalDepth' );
+		if ( ! normalDepthTex ) return;
+
+		// Update camera matrices (CPU-side) — synced from PathTracingStage
+		this._updateCameraMatrices();
+
+		// Update isFirstFrame uniform
+		this.isFirstFrameU.value = this.isFirstFrame ? 1.0 : 0.0;
+
+		this.frameCount ++;
+
+		// Auto-size render targets
+		const img = normalDepthTex.image;
+		if ( img && img.width > 0 && img.height > 0 ) {
+
+			if ( img.width !== this.screenSpaceTarget.width ||
+				img.height !== this.screenSpaceTarget.height ) {
+
+				this.setSize( img.width, img.height );
+
+			}
+
+		}
+
+		// Swap input texture (no shader recompile)
+		this._normalDepthTexNode.value = normalDepthTex;
+
+		// Render screen-space motion vectors
+		this.renderer.setRenderTarget( this.screenSpaceTarget );
+		this.screenSpaceQuad.render( this.renderer );
+
+		// Render world-space velocity
+		this.renderer.setRenderTarget( this.worldSpaceTarget );
+		this.worldSpaceQuad.render( this.renderer );
+
+		// Publish
+		context.setTexture( 'motionVector:screenSpace', this.screenSpaceTarget.texture );
+		context.setTexture( 'motionVector:worldSpace', this.worldSpaceTarget.texture );
+		context.setTexture( 'motionVector:motion', this.screenSpaceTarget.texture );
+
+		// Emit
+		this.emit( 'motionvector:computed', {
+			frame: this.frameCount,
+			isFirstFrame: this.isFirstFrame
+		} );
+
+		this.isFirstFrame = false;
+
+	}
+
+	/**
+	 * Reset — intentionally does NOT reset matricesInitialized.
+	 * Motion vectors must track camera motion across pipeline resets.
+	 */
+	reset() {
+
+		if ( ! this.matricesInitialized ) {
+
+			this.isFirstFrame = true;
+
+		}
+
+		this.frameCount = 0;
+
+	}
+
+	setSize( width, height ) {
+
+		this.screenSpaceTarget.setSize( width, height );
+		this.worldSpaceTarget.setSize( width, height );
+
+	}
+
+	setVelocityScale( scale ) {
+
+		this.velocityScale.value = scale;
+
+	}
+
+	setDeltaTime( dt ) {
+
+		this.deltaTime.value = dt;
+
+	}
+
+	dispose() {
+
+		this.screenSpaceMaterial?.dispose();
+		this.worldSpaceMaterial?.dispose();
+		this.screenSpaceTarget?.dispose();
+		this.worldSpaceTarget?.dispose();
+
+	}
+
+}
