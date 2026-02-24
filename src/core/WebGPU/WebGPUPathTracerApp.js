@@ -1,10 +1,12 @@
 import { WebGPURenderer } from 'three/webgpu';
+import { uniform } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher,
-	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils
+	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils, Color
 } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { outline } from 'three/addons/tsl/display/OutlineNode.js';
 import Stats from 'stats-gl';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
 import { NormalDepthStage } from './Stages/NormalDepthStage.js';
@@ -224,7 +226,44 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		this.edgeFilteringStage = new WebGPUEdgeAwareFilteringStage( this.renderer, { enabled: false } );
 		this.autoExposureStage = new WebGPUAutoExposureStage( this.renderer, { enabled: false } );
 		this.tileHighlightStage = new WebGPUTileHighlightStage( this.renderer, { enabled: false } );
-		this.displayStage = new DisplayStage( this.renderer, { exposure: this.exposure } );
+
+		// Outline effect — uses the WebGL scene (which holds actual meshes) for
+		// depth/mask rasterisation, matching WebGL OutlinePass defaults exactly.
+		const outlineScene = this.existingApp?.scene || this.scene;
+		this.outlineNode = outline( outlineScene, this.camera, {
+			selectedObjects: [],
+			edgeThickness: uniform( 1.0 ),
+			edgeGlow: uniform( 0.0 ),
+		} );
+
+		// Fixed-resolution outline: OutlineNode auto-sizes from renderer's
+		// drawing buffer each frame, but the renderer runs at path-tracer
+		// resolution. Override setSize so the outline always renders at the
+		// display's native DPR — matching WebGL's updateFixedPassResolution().
+		const outlineCanvas = this.canvas;
+		const outlineSetSize = this.outlineNode.setSize.bind( this.outlineNode );
+		this.outlineNode.setSize = () => {
+
+			const dpr = window.devicePixelRatio;
+			outlineSetSize(
+				Math.round( outlineCanvas.clientWidth * dpr ),
+				Math.round( outlineCanvas.clientHeight * dpr )
+			);
+
+		};
+
+		const edgeStrength = uniform( 3.0 );
+		const visibleEdgeColor = uniform( new Color( 0xffffff ) );
+		const hiddenEdgeColor = uniform( new Color( 0x190a05 ) );
+		const { visibleEdge, hiddenEdge } = this.outlineNode;
+		const outlineColorNode = visibleEdge.mul( visibleEdgeColor )
+			.add( hiddenEdge.mul( hiddenEdgeColor ) )
+			.mul( edgeStrength );
+
+		this.displayStage = new DisplayStage( this.renderer, {
+			exposure: this.exposure,
+			outlineColorNode
+		} );
 
 		// Expose stages with WebGL-compatible property names so store handlers work
 		this.asvgfPass = this.asvgfStage;
@@ -781,7 +820,20 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			if ( this.pathTracingStage?.isReady ) {
 
 				// Skip rendering and stats updates when render is already complete
-				if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) return;
+				if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) {
+
+					// Still allow display-only refresh (e.g. outline on selection change)
+					// without re-running path tracer or re-dispatching completion.
+					if ( this._needsDisplayRefresh ) {
+
+						this._needsDisplayRefresh = false;
+						this.displayStage.render( this.pipeline.context );
+
+					}
+
+					return;
+
+				}
 
 				this.pipeline.render();
 
@@ -1531,10 +1583,15 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Selects an object for highlighting in the UI.
-	 * No outline pass in WebGPU, so just updates the store.
+	 * Selects an object for highlighting (outline effect + UI).
 	 */
 	selectObject( object ) {
+
+		if ( this.outlineNode ) {
+
+			this.outlineNode.selectedObjects = object ? [ object ] : [];
+
+		}
 
 		useStore.getState().setSelectedObject( object || null );
 
@@ -1772,9 +1829,15 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @stub
+	 * Requests a display-only refresh (e.g. after outline selection change).
+	 * In the completed state the path tracer is NOT re-run; only the
+	 * DisplayStage re-renders so the outline updates on screen.
 	 */
-	refreshFrame() {}
+	refreshFrame() {
+
+		this._needsDisplayRefresh = true;
+
+	}
 
 	/**
 	 * Enables/disables the path tracer.
@@ -1938,6 +2001,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		if ( this.assetLoader && this._onAssetLoaded ) {
 
 			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
+
+		}
+
+		if ( this.outlineNode ) {
+
+			this.outlineNode.dispose();
+			this.outlineNode = null;
 
 		}
 

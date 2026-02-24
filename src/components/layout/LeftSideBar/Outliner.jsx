@@ -128,7 +128,9 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 		if ( item.visible !== undefined ) return item.visible;
 		if ( item.type !== 'Mesh' || ! getApp() ) return true;
-		const object = getApp().scene.getObjectByProperty( 'uuid', item.uuid );
+		const app = getApp();
+		const scene = app.existingApp?.scene || app.scene;
+		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		return object?.visible ?? true;
 
 	}, [ item ] );
@@ -173,7 +175,8 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 		}
 
-		const object = app.scene.getObjectByProperty( 'uuid', item.uuid );
+		const scene = app.existingApp?.scene || app.scene;
+		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		if ( object ) {
 
 			app.selectObject( object );
@@ -192,7 +195,8 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		const app = getApp();
 		if ( ! app || ! app.interactionManager ) return;
 
-		const object = app.scene.getObjectByProperty( 'uuid', item.uuid );
+		const scene = app.existingApp?.scene || app.scene;
+		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 
 		if ( object ) {
 

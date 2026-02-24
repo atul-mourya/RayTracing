@@ -30,8 +30,17 @@ export class DisplayStage extends PipelineStage {
 		this._displayTexNode = new TextureNode();
 
 		// Build material once (TSL compiles on first render)
-		const displayShader = this._displayTexNode.sample( uv() ).xyz
+		let displayShader = this._displayTexNode.sample( uv() ).xyz
 			.mul( this.exposure.pow( 4.0 ) );
+
+		// Additively blend outline colour when provided (OutlineNode drives
+		// its own multi-pass rendering via updateBefore, so including it in
+		// the node graph is all that's needed).
+		if ( options.outlineColorNode ) {
+
+			displayShader = displayShader.add( options.outlineColorNode );
+
+		}
 
 		this.displayMaterial = new MeshBasicNodeMaterial();
 		this.displayMaterial.colorNode = vec4( displayShader, 1.0 );
