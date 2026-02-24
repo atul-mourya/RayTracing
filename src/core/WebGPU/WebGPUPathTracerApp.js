@@ -23,6 +23,7 @@ import { DEFAULT_STATE } from '../../Constants.js';
 import { WebGPUFeatures } from './WebGPUFeatures.js';
 import { updateStats } from '../Processor/utils.js';
 import InteractionManager from '../InteractionManager.js';
+import { OIDNDenoiser } from '../Passes/OIDNDenoiser.js';
 import { useStore } from '@/store';
 
 // Resolution index to pixel values mapping (same as main app)
@@ -44,11 +45,12 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
 	 * @param {PathTracerApp} existingApp - Optional existing app for data sharing
 	 */
-	constructor( canvas, existingApp = null ) {
+	constructor( canvas, denoiserCanvas = null, existingApp = null ) {
 
 		super();
 
 		this.canvas = canvas;
+		this.denoiserCanvas = denoiserCanvas;
 		this.existingApp = existingApp;
 
 		// Expose the WebGL app's assetLoader so UI code (drag-drop, menu bar)
@@ -70,6 +72,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		this.animationId = null;
 		this.needsReset = false;
 		this._renderCompleteDispatched = false;
+		this.denoiser = null;
 
 		// Stats tracking
 		this.lastResetTime = performance.now();
@@ -269,6 +272,9 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		// Set up auto-exposure event listener to update store in real-time
 		this.setupAutoExposureListener();
 
+		// Initialize OIDN denoiser
+		this._setupDenoiser();
+
 		// Handle resize
 		this.onResize();
 		this.resizeHandler = () => this.onResize();
@@ -442,6 +448,63 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			} );
 
 		} );
+
+	}
+
+	/**
+	 * Initializes the OIDN denoiser for the WebGPU backend.
+	 */
+	_setupDenoiser() {
+
+		if ( ! this.denoiserCanvas ) return;
+
+		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
+			...DEFAULT_STATE,
+			// MRT albedo rendering is not yet enabled in WebGPU PathTracingStage
+			// (enableMRT = false due to WGSL compilation issues), so disable G-buffer
+			// for OIDN. When MRT is re-enabled, flip this to true.
+			useGBuffer: false,
+			extractGBufferData: async ( width, height ) => {
+
+				const albedoRT = this.pathTracingStage?.albedoTarget;
+				const normalRT = this.normalDepthStage?.renderTarget;
+				if ( ! albedoRT || ! normalRT ) return null;
+
+				const [ albedoPixels, normalPixels ] = await Promise.all( [
+					this.renderer.readRenderTargetPixelsAsync( albedoRT, 0, 0, width, height ),
+					this.renderer.readRenderTargetPixelsAsync( normalRT, 0, 0, width, height )
+				] );
+
+				const pixelCount = width * height * 4;
+				const albedoData = new ImageData( width, height );
+				const normalData = new ImageData( width, height );
+
+				for ( let i = 0; i < pixelCount; i += 4 ) {
+
+					// Albedo: Float32 [0,1] → Uint8 [0,255]
+					albedoData.data[ i ] = Math.min( albedoPixels[ i ] * 255, 255 ) | 0;
+					albedoData.data[ i + 1 ] = Math.min( albedoPixels[ i + 1 ] * 255, 255 ) | 0;
+					albedoData.data[ i + 2 ] = Math.min( albedoPixels[ i + 2 ] * 255, 255 ) | 0;
+					albedoData.data[ i + 3 ] = 255;
+
+					// Normals: stored as (N * 0.5 + 0.5), decode to match WebGL encoding
+					normalData.data[ i ] = ( normalPixels[ i ] * 255 - 127.5 ) | 0;
+					normalData.data[ i + 1 ] = ( normalPixels[ i + 1 ] * 255 - 127.5 ) | 0;
+					normalData.data[ i + 2 ] = ( normalPixels[ i + 2 ] * 255 - 127.5 ) | 0;
+					normalData.data[ i + 3 ] = 255;
+
+				}
+
+				return { albedo: albedoData, normal: normalData };
+
+			}
+		} );
+
+		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
+
+		// Sync denoiser state with store
+		this.denoiser.addEventListener( 'start', () => useStore.getState().setIsDenoising( true ) );
+		this.denoiser.addEventListener( 'end', () => useStore.getState().setIsDenoising( false ) );
 
 	}
 
@@ -659,6 +722,9 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
+		// Resize denoiser canvas to match render dimensions
+		this.denoiser?.setSize( renderWidth, renderHeight );
+
 		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: renderWidth, height: renderHeight } } ) );
 
 	}
@@ -745,6 +811,8 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 				if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
 
 					this._renderCompleteDispatched = true;
+					if ( this.denoiser?.output ) this.denoiser.output.style.display = 'block';
+					this.denoiser?.start();
 					this.dispatchEvent( { type: 'RenderComplete' } );
 					useStore.getState().setIsRenderComplete( true );
 
@@ -822,6 +890,15 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		if ( this.pipeline ) {
 
 			this.pipeline.reset();
+
+		}
+
+		// Restore main canvas visibility and hide denoiser overlay
+		this.canvas.style.opacity = '1';
+		if ( this.denoiser ) {
+
+			if ( this.denoiser.enabled ) this.denoiser.abort();
+			if ( this.denoiser.output ) this.denoiser.output.style.display = 'none';
 
 		}
 
@@ -1675,7 +1752,12 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		try {
 
-			const screenshot = this.renderer.domElement.toDataURL( 'image/png' );
+			// Use denoised output if OIDN is enabled and render is complete
+			const canvas = this.denoiser?.enabled && this.denoiser.output && this.pathTracingStage?.isComplete
+				? this.denoiser.output
+				: this.renderer.domElement;
+
+			const screenshot = canvas.toDataURL( 'image/png' );
 			const link = document.createElement( 'a' );
 			link.href = screenshot;
 			link.download = 'screenshot.png';
@@ -1856,6 +1938,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		if ( this.assetLoader && this._onAssetLoaded ) {
 
 			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
+
+		}
+
+		if ( this.denoiser ) {
+
+			this.denoiser.dispose();
+			this.denoiser = null;
 
 		}
 

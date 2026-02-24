@@ -11,7 +11,6 @@ import { useBackendFeature } from '@/hooks/useActiveApp';
 const FinalRenderPanel = () => {
 
 	const {
-		backend,
 		bounces,
 		samplesPerPixel,
 		renderMode,
@@ -35,7 +34,7 @@ const FinalRenderPanel = () => {
 		handleUseGBufferChange,
 	} = useStore();
 
-	const isWebGL = backend === 'webgl';
+
 	const hasTileRendering = useBackendFeature( 'tileRendering' );
 
 	return (
@@ -86,32 +85,30 @@ const FinalRenderPanel = () => {
 				</div>
 			</ControlGroup>
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
-			{isWebGL && <>
+			<div className="flex items-center justify-between py-2 px-2">
+				<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
+			</div>
+			{enableOIDN && ( <>
 				<div className="flex items-center justify-between py-2 px-2">
-					<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
+					<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
+						<span className="opacity-50 text-xs truncate">OIDN Quality</span>
+						<SelectTrigger className="max-w-32 h-5 rounded-full" >
+							<SelectValue placeholder="Select quality" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="fast">Fast</SelectItem>
+							<SelectItem value="balance">Balance</SelectItem>
+							<SelectItem disabled value="high">High</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
-				{enableOIDN && ( <>
-					<div className="flex items-center justify-between py-2 px-2">
-						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
-							<span className="opacity-50 text-xs truncate">OIDN Quality</span>
-							<SelectTrigger className="max-w-32 h-5 rounded-full" >
-								<SelectValue placeholder="Select quality" />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="fast">Fast</SelectItem>
-								<SelectItem value="balance">Balance</SelectItem>
-								<SelectItem disabled value="high">High</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
-					<div className="flex items-center justify-between py-2 px-2">
-						<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
-					</div>
-					<div className="flex items-center justify-between py-2 px-2">
-						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
-					</div>
-				</> )}
-			</>}
+				<div className="flex items-center justify-between py-2 px-2">
+					<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
+				</div>
+				<div className="flex items-center justify-between py-2 px-2">
+					<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
+				</div>
+			</> )}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
 		</div>
 	);

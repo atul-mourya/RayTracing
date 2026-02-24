@@ -117,12 +117,12 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
 
-		const app = appRef.current;
+		const app = getApp();
 		if ( ! app ) return;
 
 		try {
 
-			const canvas = app.denoiser.enabled && app.denoiser.output
+			const canvas = app.denoiser?.enabled && app.denoiser.output
 				? app.denoiser.output
 				: app.renderer.domElement;
 
@@ -207,7 +207,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 							setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 80 } );
 
-							const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, appRef.current );
+							const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, denoiserCanvasRef.current, appRef.current );
 							await webgpuApp.init();
 							webgpuApp.loadSceneData();
 
@@ -252,7 +252,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 								setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 80 } );
 
-								const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, appRef.current );
+								const webgpuApp = new WebGPUPathTracerApp( webgpuCanvasRef.current, denoiserCanvasRef.current, appRef.current );
 								await webgpuApp.init();
 								webgpuApp.loadSceneData();
 

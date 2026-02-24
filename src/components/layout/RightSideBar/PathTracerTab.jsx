@@ -540,37 +540,35 @@ const PathTracerTab = () => {
 				</> )}
 
 				{/* Separator before AI Denoising section */}
-				{isWebGL && <>
-					<Separator />
+				<Separator />
 
-					{/* Independent OIDN Control - Placed after real-time denoiser controls */}
+				{/* Independent OIDN Control - Placed after real-time denoiser controls */}
+				<div className="flex items-center justify-between">
+					<Switch label={"AI Denoising (OIDN)"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
+				</div>
+
+				{/* OIDN Quality Controls - Independent of real-time denoiser selection */}
+				{enableOIDN && ( <>
 					<div className="flex items-center justify-between">
-						<Switch label={"AI Denoising (OIDN)"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
+						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
+							<span className="opacity-50 text-xs truncate">OIDN Quality</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full" >
+								<SelectValue placeholder="Select quality" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="fast">Fast</SelectItem>
+								<SelectItem value="balance">Balance</SelectItem>
+								<SelectItem disabled value="high">High</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
-
-					{/* OIDN Quality Controls - Independent of real-time denoiser selection */}
-					{enableOIDN && ( <>
-						<div className="flex items-center justify-between">
-							<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
-								<span className="opacity-50 text-xs truncate">OIDN Quality</span>
-								<SelectTrigger className="max-w-32 h-5 rounded-full" >
-									<SelectValue placeholder="Select quality" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="fast">Fast</SelectItem>
-									<SelectItem value="balance">Balance</SelectItem>
-									<SelectItem disabled value="high">High</SelectItem>
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="flex items-center justify-between">
-							<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
-						</div>
-					</> )}
-				</>}
+					<div className="flex items-center justify-between">
+						<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
+					</div>
+				</> )}
 			</ControlGroup>
 
 			<ControlGroup name="Sampling">

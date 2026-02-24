@@ -39,6 +39,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.input = renderer.domElement;
 		this.output = output;
 		this.getMRTTexture = options.getMRTTexture || null;
+		this.extractGBufferData = options.extractGBufferData || null;
 
 		// Merge options with defaults
 		this.config = { ...MODEL_CONFIG.DEFAULT_OPTIONS, ...options };
@@ -272,6 +273,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.state.abortController = new AbortController();
 		this.state.isDenoising = true;
 		this.input.style.opacity = '0';
+		this.output.style.display = 'block';
 
 		try {
 
@@ -403,24 +405,44 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Add G-buffer data if enabled
 		if ( this.useGBuffer ) {
 
-			const mrtData = this.getMRTTexture();
+			// Use pluggable extraction callback if provided (e.g. WebGPU),
+			// otherwise fall back to the built-in WebGL MRT readback.
+			if ( this.extractGBufferData ) {
 
-			// Extract ImageData for OIDN denoiser
-			const { albedo, normal } = this._extractAlbedoNormalFromMRT();
-			config.albedo = albedo;
-			config.normal = normal;
+				const gbufferResult = await this.extractGBufferData( width, height );
+				if ( gbufferResult?.albedo && gbufferResult?.normal ) {
 
-			// Update debug visualization if enabled (uses MRT textures directly)
-			if ( this.debugGbufferMaps && mrtData?.renderTarget ) {
+					config.albedo = gbufferResult.albedo;
+					config.normal = gbufferResult.normal;
 
-				this._updateDebugVisualization( mrtData.renderTarget );
-				this.debugHelpers.albedo.show();
-				this.debugHelpers.normal.show();
+				} else {
 
-			} else if ( this.debugHelpers ) {
+					console.warn( 'OIDNDenoiser: G-buffer extraction returned incomplete data, denoising without G-buffer' );
 
-				this.debugHelpers.albedo.hide();
-				this.debugHelpers.normal.hide();
+				}
+
+			} else {
+
+				const mrtData = this.getMRTTexture();
+
+				// Extract ImageData for OIDN denoiser
+				const { albedo, normal } = this._extractAlbedoNormalFromMRT();
+				config.albedo = albedo;
+				config.normal = normal;
+
+				// Update debug visualization if enabled (uses MRT textures directly)
+				if ( this.debugGbufferMaps && mrtData?.renderTarget ) {
+
+					this._updateDebugVisualization( mrtData.renderTarget );
+					this.debugHelpers.albedo.show();
+					this.debugHelpers.normal.show();
+
+				} else if ( this.debugHelpers ) {
+
+					this.debugHelpers.albedo.hide();
+					this.debugHelpers.normal.hide();
+
+				}
 
 			}
 

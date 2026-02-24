@@ -50,7 +50,7 @@ export const WebGPUFeatures = {
 	tileRendering: true,
 
 	// ─── Not Yet Implemented ───
-	oidnDenoiser: false,
+	oidnDenoiser: true,
 	bloom: false,
 	objectSelection: false,
 	lights: false,
@@ -65,7 +65,7 @@ export const WebGPUFeatureDescriptions = {
 
 	asvgf: 'ASVGF spatiotemporal denoiser with motion-compensated accumulation',
 	edgeAwareFiltering: 'Edge-aware temporal filtering with progressive sharpening',
-	oidnDenoiser: 'Intel Open Image Denoise — requires WebGL backend',
+	oidnDenoiser: 'Intel Open Image Denoise — AI denoiser for final renders',
 	bloom: 'Bloom post-processing — planned for WebGPU',
 	autoExposure: 'GPU auto-exposure with hierarchical luminance reduction',
 	tileRendering: 'Tiled progressive rendering with tile highlight overlay',
