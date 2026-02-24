@@ -823,14 +823,14 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	rescanMaterialFeatures() {
 
-		if ( ! this.materialTexture?.image?.data ) {
+		if ( ! this.materialStorageAttr?.array ) {
 
-			console.warn( '[PathTracingStage] Material texture not available for feature scanning' );
+			console.warn( '[PathTracingStage] Material storage buffer not available for feature scanning' );
 			return false;
 
 		}
 
-		const data = this.materialTexture.image.data;
+		const data = this.materialStorageAttr.array;
 		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
 		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
@@ -2392,9 +2392,9 @@ export class PathTracingStage extends PipelineStage {
 
 	updateTextureTransform( materialIndex, textureName, transformMatrix ) {
 
-		if ( ! this.materialTexture ) {
+		if ( ! this.materialStorageAttr ) {
 
-			console.warn( "Material texture not available" );
+			console.warn( "Material storage buffer not available" );
 			return;
 
 		}
@@ -2402,7 +2402,7 @@ export class PathTracingStage extends PipelineStage {
 		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
 		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const data = this.materialTexture.image.data;
+		const data = this.materialStorageAttr.array;
 		const stride = materialIndex * dataLengthPerMaterial;
 
 		const transformOffsets = {
@@ -2433,7 +2433,7 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		this.materialTexture.needsUpdate = true;
+		this.materialStorageAttr.needsUpdate = true;
 		this.reset();
 
 	}
@@ -2447,7 +2447,14 @@ export class PathTracingStage extends PipelineStage {
 
 	updateMaterialProperty( materialIndex, property, value ) {
 
-		const data = this.materialTexture.image.data;
+		if ( ! this.materialStorageAttr ) {
+
+			console.warn( "Material storage buffer not available" );
+			return;
+
+		}
+
+		const data = this.materialStorageAttr.array;
 		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
 		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
@@ -2588,7 +2595,7 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		this.materialTexture.needsUpdate = true;
+		this.materialStorageAttr.needsUpdate = true;
 
 		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest' ];
 		if ( featureProperties.includes( property ) ) {
@@ -2608,7 +2615,14 @@ export class PathTracingStage extends PipelineStage {
 
 	updateMaterialDataFromObject( materialIndex, materialData ) {
 
-		const data = this.materialTexture.image.data;
+		if ( ! this.materialStorageAttr ) {
+
+			console.warn( "Material storage buffer not available" );
+			return;
+
+		}
+
+		const data = this.materialStorageAttr.array;
 		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
 		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
 		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
@@ -2699,7 +2713,7 @@ export class PathTracingStage extends PipelineStage {
 		data[ stride + 49 ] = materialData.displacementScale ?? 1;
 		data[ stride + 50 ] = materialData.displacementMap ?? - 1;
 
-		this.materialTexture.needsUpdate = true;
+		this.materialStorageAttr.needsUpdate = true;
 
 		const featuresChanged = this.rescanMaterialFeatures();
 		if ( featuresChanged ) {
