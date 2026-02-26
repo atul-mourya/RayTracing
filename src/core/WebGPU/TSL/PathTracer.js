@@ -394,11 +394,11 @@ const pathTracerImpl = Fn( ( [
 				objectColor.assign( traceResult.objectColor );
 				objectID.assign( traceResult.objectID );
 
-				// Set MRT data from first hit
-				worldNormal.assign( normalize( traceResult.objectNormal ) );
-
-				// Compute proper NDC depth from actual hit point
+				// Set MRT data from first hit (only for geometry hits — miss rays have zero normal,
+				// and normalize(vec3(0)) = NaN which would corrupt the OIDN denoiser input)
 				If( traceResult.firstHitDistance.lessThan( 1e9 ), () => {
+
+					worldNormal.assign( normalize( traceResult.objectNormal ) );
 
 					linearDepth.assign( computeNDCDepth( {
 						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
@@ -406,7 +406,7 @@ const pathTracerImpl = Fn( ( [
 
 				} ).Else( () => {
 
-					linearDepth.assign( 1.0 );
+					// Background: keep initialized values — worldNormal stays (0,0,1), linearDepth stays 1.0
 
 				} );
 

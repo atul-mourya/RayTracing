@@ -2,6 +2,17 @@ import { initUNetFromURL } from 'oidn-web';
 import { EventDispatcher } from 'three';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
 
+/**
+ * ACES Filmic tonemap matching Three.js ACESFilmicToneMapping.
+ * Operates on linear light values and outputs display-encoded [0,1].
+ */
+function acesFilmic( x ) {
+
+	const a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+	return Math.max( 0, Math.min( 1, ( x * ( a * x + b ) ) / ( x * ( c * x + d ) + e ) ) );
+
+}
+
 // Constants for better maintainability
 const MODEL_CONFIG = {
 	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
@@ -41,6 +52,20 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.getMRTTexture = options.getMRTTexture || null;
 		this.extractGBufferData = options.extractGBufferData || null;
 		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
+
+		// WebGPU GPU-native path (no CPU readback for inputs)
+		// backendParams: () => { device: GPUDevice, adapterInfo: GPUAdapterInfo|null }
+		// getGPUTextures: () => { color: GPUTexture, albedo: GPUTexture, normal: GPUTexture }
+		// getExposure: () => number  (linear exposure value, same as app.exposure)
+		this.backendParamsGetter = options.backendParams || null;
+		this.getGPUTextures = options.getGPUTextures || null;
+		this.getExposure = options.getExposure || ( () => 1.0 );
+		this.isGPUMode = !! this.backendParamsGetter;
+		this.gpuDevice = null;
+
+		// Cached GPU storage buffers for texture→buffer copies (reused across denoise calls)
+		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
+		this._gpuInputBufferSize = { width: 0, height: 0 };
 
 		// Merge options with defaults
 		this.config = { ...MODEL_CONFIG.DEFAULT_OPTIONS, ...options };
@@ -160,9 +185,21 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			}
 
-			this.unet = await initUNetFromURL( tzaUrl, undefined, {
+			// GPU-native path: share the existing GPUDevice so oidn-web uses the
+			// same device as the renderer — no second device, no CPU roundtrip for inputs.
+			let backendParams;
+			if ( this.isGPUMode && this.backendParamsGetter ) {
+
+				const params = this.backendParamsGetter();
+				this.gpuDevice = params?.device ?? null;
+				backendParams = params?.device ? params : undefined;
+
+			}
+
+			this.unet = await initUNetFromURL( tzaUrl, backendParams, {
 				aux: this.useGBuffer,
-				hdr: this.hdr,
+				// GPU path requires hdr: true (only HDR+aux weight files have a GPU pipeline)
+				hdr: this.isGPUMode ? true : this.hdr,
 				maxTileSize: this.tileSize
 			} );
 
@@ -188,7 +225,8 @@ export class OIDNDenoiser extends EventDispatcher {
 		const { BASE_URL, QUALITY_SUFFIXES } = MODEL_CONFIG;
 
 		const modelSize = QUALITY_SUFFIXES[ this.quality ] || '';
-		const dynamicRange = this.hdr ? '_hdr' : '_ldr';
+		// GPU path requires the HDR model variant (GPU pipeline only exists for hdr+aux weights)
+		const dynamicRange = ( this.isGPUMode || this.hdr ) ? '_hdr' : '_ldr';
 		const aux = this.useGBuffer ? '_alb_nrm' : '';
 
 		return `${BASE_URL}rt${dynamicRange}${aux}${modelSize}.tza`;
@@ -387,6 +425,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async _executeUNet() {
 
+		if ( this.isGPUMode ) return this._executeUNetGPU();
+
 		const { width, height } = this.output;
 
 		// Clear and draw current renderer output
@@ -470,6 +510,282 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Execute denoising with abort support
 		return this._executeWithAbort( config );
+
+	}
+
+	/**
+	 * GPU-native execution path. Copies render target textures into GPU storage buffers
+	 * via copyTextureToBuffer (GPU-only, no CPU roundtrip), then passes those buffers to
+	 * oidn-web's well-tested GPUBuffer path.
+	 *
+	 * Note: oidn-web's GPUTexture input path produces NaN outputs — using GPUBuffer instead.
+	 */
+	async _executeUNetGPU() {
+
+		const { width, height } = this.output;
+
+		if ( ! this.getGPUTextures ) {
+
+			console.warn( 'OIDNDenoiser: GPU mode enabled but getGPUTextures not provided' );
+			return false;
+
+		}
+
+		const textures = this.getGPUTextures();
+		if ( ! textures?.color ) {
+
+			console.warn( 'OIDNDenoiser: GPU textures not ready yet' );
+			return false;
+
+		}
+
+		const device = this.gpuDevice;
+		if ( ! device ) {
+
+			console.warn( 'OIDNDenoiser: gpuDevice not available' );
+			return false;
+
+		}
+
+		// Ensure storage buffers are sized correctly (recreate on resolution change)
+		this._ensureGPUInputBuffers( width, height );
+
+		// Copy render target textures → GPU storage buffers in a single command submission.
+		// copyTextureToBuffer requires COPY_SRC on the texture (Three.js render targets have it)
+		// and COPY_DST on the buffer. bytesPerRow for rgba32float = width * 16.
+		const encoder = device.createCommandEncoder( { label: 'oidn-tex-to-buf' } );
+		const bytesPerRow = width * 16; // rgba32float = 4 channels × 4 bytes
+
+		const copyTex = ( tex, buf ) => encoder.copyTextureToBuffer(
+			{ texture: tex, mipLevel: 0 },
+			{ buffer: buf, offset: 0, bytesPerRow, rowsPerImage: height },
+			{ width, height, depthOrArrayLayers: 1 }
+		);
+
+		copyTex( textures.color, this._gpuInputBuffers.color );
+
+		if ( this.useGBuffer ) {
+
+			copyTex( textures.albedo, this._gpuInputBuffers.albedo );
+			copyTex( textures.normal, this._gpuInputBuffers.normal );
+
+		}
+
+		device.queue.submit( [ encoder.finish() ] );
+
+		// Draw the current noisy frame as the base — denoised tiles paint on top progressively
+		this.ctx.drawImage( this.input, 0, 0, width, height );
+
+		// Pass GPU storage buffers to oidn-web (GPUBuffer path, well-tested)
+		const config = {
+			color: { data: this._gpuInputBuffers.color, width, height }
+		};
+
+		if ( this.useGBuffer ) {
+
+			config.albedo = { data: this._gpuInputBuffers.albedo, width, height };
+			config.normal = { data: this._gpuInputBuffers.normal, width, height };
+
+		}
+
+		return this._executeWithAbortGPU( config );
+
+	}
+
+	/**
+	 * Creates or recreates the GPU storage buffers used as oidn-web inputs.
+	 * Reuses existing buffers if the resolution hasn't changed.
+	 * Usage: COPY_DST (for copyTextureToBuffer) | STORAGE (for oidn-web WGSL read) | COPY_SRC
+	 */
+	_ensureGPUInputBuffers( width, height ) {
+
+		const { width: cw, height: ch } = this._gpuInputBufferSize;
+		if ( cw === width && ch === height && this._gpuInputBuffers.color ) return;
+
+		// Destroy stale buffers
+		this._destroyGPUInputBuffers();
+
+		const device = this.gpuDevice;
+		const byteSize = width * height * 4 * 4; // rgba32float = 16 bytes/pixel
+		const usage = GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
+
+		this._gpuInputBuffers.color = device.createBuffer( { label: 'oidn-in-color', size: byteSize, usage } );
+		this._gpuInputBuffers.albedo = device.createBuffer( { label: 'oidn-in-albedo', size: byteSize, usage } );
+		this._gpuInputBuffers.normal = device.createBuffer( { label: 'oidn-in-normal', size: byteSize, usage } );
+		this._gpuInputBufferSize = { width, height };
+
+	}
+
+	_destroyGPUInputBuffers() {
+
+		this._gpuInputBuffers.color?.destroy();
+		this._gpuInputBuffers.albedo?.destroy();
+		this._gpuInputBuffers.normal?.destroy();
+		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
+		this._gpuInputBufferSize = { width: 0, height: 0 };
+
+	}
+
+	/**
+	 * Promise wrapper around tileExecute for the GPU path.
+	 * Outputs a GPUBuffer — copied to a staging buffer then converted to ImageData for the 2D canvas.
+	 */
+	_executeWithAbortGPU( config ) {
+
+		return new Promise( ( resolve, reject ) => {
+
+			if ( this.state.abortController?.signal.aborted ) {
+
+				reject( new DOMException( 'Aborted', 'AbortError' ) );
+				return;
+
+			}
+
+			let abortDenoise = null;
+
+			const abortHandler = () => {
+
+				if ( abortDenoise ) {
+
+					abortDenoise();
+					abortDenoise = null;
+
+				}
+
+				reject( new DOMException( 'Aborted', 'AbortError' ) );
+
+			};
+
+			this.state.abortController.signal.addEventListener( 'abort', abortHandler, { once: true } );
+
+			abortDenoise = this.unet.tileExecute( {
+				...config,
+				done: async ( output ) => {
+
+					this.state.abortController.signal.removeEventListener( 'abort', abortHandler );
+					abortDenoise = null;
+
+					try {
+
+						await this._displayGPUOutput( output );
+						resolve();
+
+					} catch ( err ) {
+
+						reject( err );
+
+					}
+
+				},
+				progress: ( outputData, _tileData, tile ) => {
+
+					// oidn-web GPU path: tileData is null, but outputData holds the assembled
+					// full-image buffer updated after each tile. Extract the tile region via
+					// row-by-row copyBufferToBuffer (no stride support in WebGPU buffer copies).
+					if ( ! outputData?.data || ! tile ) return;
+
+					const device = this.gpuDevice;
+					const fullWidth = outputData.width;
+					const bytesPerPixel = 16; // rgba32float = 4 × float32
+					const tileRowBytes = tile.width * bytesPerPixel;
+					const tileByteSize = tile.width * tile.height * bytesPerPixel;
+
+					const staging = device.createBuffer( {
+						size: tileByteSize,
+						usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+					} );
+
+					// Copy each tile row from its position in the full output buffer
+					const enc = device.createCommandEncoder();
+
+					for ( let row = 0; row < tile.height; row ++ ) {
+
+						const srcOffset = ( ( tile.y + row ) * fullWidth + tile.x ) * bytesPerPixel;
+						const dstOffset = row * tileRowBytes;
+						enc.copyBufferToBuffer( outputData.data, srcOffset, staging, dstOffset, tileRowBytes );
+
+					}
+
+					device.queue.submit( [ enc.finish() ] );
+
+					// Map and blit asynchronously — GPU copy is already queued
+					staging.mapAsync( GPUMapMode.READ ).then( () => {
+
+						const f32 = new Float32Array( staging.getMappedRange() );
+						const tileImageData = new ImageData( tile.width, tile.height );
+						const exposure4 = Math.pow( this.getExposure(), 4.0 );
+
+						for ( let i = 0, len = f32.length; i < len; i += 4 ) {
+
+							tileImageData.data[ i ] = acesFilmic( f32[ i ] * exposure4 ) ** ( 1 / 2.2 ) * 255 | 0;
+							tileImageData.data[ i + 1 ] = acesFilmic( f32[ i + 1 ] * exposure4 ) ** ( 1 / 2.2 ) * 255 | 0;
+							tileImageData.data[ i + 2 ] = acesFilmic( f32[ i + 2 ] * exposure4 ) ** ( 1 / 2.2 ) * 255 | 0;
+							tileImageData.data[ i + 3 ] = 255;
+
+						}
+
+						staging.unmap();
+						staging.destroy();
+						this.ctx.putImageData( tileImageData, tile.x, tile.y );
+
+					} );
+
+				}
+			} );
+
+		} );
+
+	}
+
+	/**
+	 * Reads a GPUBuffer (oidn-web output, rgba32float linear) back to CPU via a staging buffer,
+	 * applies exposure * pow(4) + ACES filmic tonemap + sRGB gamma 2.2, then draws to the 2D canvas.
+	 * @param {{ data: GPUBuffer, width: number, height: number }} output
+	 */
+	async _displayGPUOutput( { data: gpuBuffer, width, height } ) {
+
+		const device = this.gpuDevice;
+		if ( ! device ) {
+
+			console.error( 'OIDNDenoiser: gpuDevice not available for output readback' );
+			return;
+
+		}
+
+		const byteSize = width * height * 4 * 4; // rgba32float = 16 bytes/pixel
+
+		// Staging buffer with MAP_READ so we can copy the output into it and read from CPU
+		const stagingBuffer = device.createBuffer( {
+			label: 'oidn-output-staging',
+			size: byteSize,
+			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+		} );
+
+		// Queue a copy from the oidn output buffer (STORAGE|COPY_SRC) to staging
+		const encoder = device.createCommandEncoder( { label: 'oidn-readback' } );
+		encoder.copyBufferToBuffer( gpuBuffer, 0, stagingBuffer, 0, byteSize );
+		device.queue.submit( [ encoder.finish() ] );
+
+		await stagingBuffer.mapAsync( GPUMapMode.READ );
+		const float32 = new Float32Array( stagingBuffer.getMappedRange() );
+
+		const imageData = new ImageData( width, height );
+		// DisplayStage applies exposure^4 before ACES tonemap — replicate the same curve
+		const exposure4 = Math.pow( this.getExposure(), 4.0 );
+
+		for ( let i = 0, len = float32.length; i < len; i += 4 ) {
+
+			imageData.data[ i ] = acesFilmic( float32[ i ] * exposure4 ) ** ( 1 / 2.2 ) * 255 | 0;
+			imageData.data[ i + 1 ] = acesFilmic( float32[ i + 1 ] * exposure4 ) ** ( 1 / 2.2 ) * 255 | 0;
+			imageData.data[ i + 2 ] = acesFilmic( float32[ i + 2 ] * exposure4 ) ** ( 1 / 2.2 ) * 255 | 0;
+			imageData.data[ i + 3 ] = 255;
+
+		}
+
+		stagingBuffer.unmap();
+		stagingBuffer.destroy();
+
+		this.ctx.putImageData( imageData, 0, 0 );
 
 	}
 
@@ -677,6 +993,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Dispose resources
 		this.unet?.dispose();
+		this._destroyGPUInputBuffers();
 
 		// Dispose debug helpers
 		if ( this.debugHelpers ) {

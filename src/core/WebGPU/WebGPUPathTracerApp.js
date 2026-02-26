@@ -502,52 +502,43 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			...DEFAULT_STATE,
 			useGBuffer: true,
 			debugGbufferMaps: true,
-			getMRTRenderTarget: () => {
 
-				const pt = this.pathTracingStage;
-				if ( ! pt?.renderTargetA ) return null;
-				return pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
+			// Share the existing GPUDevice so oidn-web registers its TF.js backend on the
+			// same device — enabling zero-copy GPU texture inputs.
+			backendParams: () => ( {
+				device: this.renderer.backend.device,
+				adapterInfo: null // Three.js doesn't cache adapterInfo; null is safe
+			} ),
 
-			},
-			extractGBufferData: async ( width, height ) => {
+			// Return raw GPUTexture handles from the current MRT render target.
+			// textures[0] = gColor (HDR rgba32float), [1] = gNormalDepth, [2] = gAlbedo.
+			// oidn-web reads these via textureLoad in WGSL — no readRenderTargetPixelsAsync needed.
+			getGPUTextures: () => {
 
-				// Read G-buffer from PathTracingStage's MRT render target.
-				// After render+swap, currentTarget points to the last written target.
 				const pt = this.pathTracingStage;
 				if ( ! pt?.renderTargetA ) return null;
 
 				const currentRT = pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
 				if ( ! currentRT?.textures || currentRT.textures.length < 3 ) return null;
 
-				// Read MRT attachments by textureIndex:
-				//   1 = gNormalDepth, 2 = gAlbedo
-				// Render targets use FloatType, so readback returns Float32Array directly.
-				const [ albedoPixels, normalPixels ] = await Promise.all( [
-					this.renderer.readRenderTargetPixelsAsync( currentRT, 0, 0, width, height, 2 ),
-					this.renderer.readRenderTargetPixelsAsync( currentRT, 0, 0, width, height, 1 )
-				] );
+				const { backend } = this.renderer;
+				return {
+					color: backend.get( currentRT.textures[ 0 ] ).texture,
+					normal: backend.get( currentRT.textures[ 1 ] ).texture,
+					albedo: backend.get( currentRT.textures[ 2 ] ).texture
+				};
 
-				const pixelCount = width * height * 4;
-				const albedoData = new ImageData( width, height );
-				const normalData = new ImageData( width, height );
+			},
 
-				for ( let i = 0; i < pixelCount; i += 4 ) {
+			// Expose current exposure so the output readback can apply the same curve
+			// as DisplayStage (exposure^4 + ACES tonemap).
+			getExposure: () => this.exposure,
 
-					// Albedo: float [0,1] → Uint8 [0,255]
-					albedoData.data[ i ] = Math.min( albedoPixels[ i ] * 255, 255 ) | 0;
-					albedoData.data[ i + 1 ] = Math.min( albedoPixels[ i + 1 ] * 255, 255 ) | 0;
-					albedoData.data[ i + 2 ] = Math.min( albedoPixels[ i + 2 ] * 255, 255 ) | 0;
-					albedoData.data[ i + 3 ] = 255;
+			getMRTRenderTarget: () => {
 
-					// Normals: stored as (N * 0.5 + 0.5), decode to match WebGL encoding
-					normalData.data[ i ] = ( normalPixels[ i ] * 255 - 127.5 ) | 0;
-					normalData.data[ i + 1 ] = ( normalPixels[ i + 1 ] * 255 - 127.5 ) | 0;
-					normalData.data[ i + 2 ] = ( normalPixels[ i + 2 ] * 255 - 127.5 ) | 0;
-					normalData.data[ i + 3 ] = 255;
-
-				}
-
-				return { albedo: albedoData, normal: normalData };
+				const pt = this.pathTracingStage;
+				if ( ! pt?.renderTargetA ) return null;
+				return pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
 
 			}
 		} );
