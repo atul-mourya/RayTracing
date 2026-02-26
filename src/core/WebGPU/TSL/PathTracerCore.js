@@ -16,6 +16,7 @@
 
 import {
 	Fn,
+	wgslFn,
 	float,
 	vec2,
 	vec3,
@@ -28,7 +29,6 @@ import {
 	abs,
 	sqrt,
 	exp,
-	log,
 	clamp,
 	mix,
 	dot,
@@ -79,7 +79,7 @@ import { traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment } from './Environment.js';
 import { sampleAllMaterialTextures, sampleDisplacementMap } from './TextureSampling.js';
 import { calculateDisplacedNormal } from './Displacement.js';
-import { handleMaterialTransparency, MaterialInteractionResult } from './MaterialTransmission.js';
+import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import {
 	DistributionGGX,
 	SheenDistribution,
@@ -94,7 +94,6 @@ import {
 	ImportanceSampleGGX,
 	sampleGGXVNDF,
 } from './MaterialSampling.js';
-import { sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
 import { calculateDirectLightingUnified } from './LightsSampling.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
@@ -227,7 +226,7 @@ export const generateSampledDirection = Fn( ( [
 	// Diffuse sampling
 	If( rand.lessThan( cumulativeDiffuse ).and( sampled.not() ), () => {
 
-		resultDirection.assign( ImportanceSampleCosine( N, directionSample ) );
+		resultDirection.assign( ImportanceSampleCosine( { N, xi: directionSample } ) );
 		const NoL = clamp( dot( N, resultDirection ), 0.0, 1.0 );
 		resultPdf.assign( NoL.mul( PI_INV ) );
 		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
@@ -240,11 +239,11 @@ export const generateSampledDirection = Fn( ( [
 	// Specular sampling
 	If( rand.lessThan( cumulativeSpecular ).and( sampled.not() ), () => {
 
-		const TBN = constructTBN( N );
+		const TBN = constructTBN( { N } );
 		const localV = TBN.transpose().mul( V ).toVar();
 
 		// VNDF sampling
-		const localH = sampleGGXVNDF( localV, material.roughness, xi );
+		const localH = sampleGGXVNDF( { V: localV, roughness: material.roughness, Xi: xi } );
 		H.assign( TBN.mul( localH ) );
 
 		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
@@ -259,7 +258,7 @@ export const generateSampledDirection = Fn( ( [
 	// Sheen sampling
 	If( rand.lessThan( cumulativeSheen ).and( sampled.not() ), () => {
 
-		H.assign( ImportanceSampleGGX( N, material.sheenRoughness, xi ) );
+		H.assign( ImportanceSampleGGX( { N, roughness: material.sheenRoughness, Xi: xi } ) );
 		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
 		const VoH = clamp( dot( V, H ), 0.001, 1.0 );
 		resultDirection.assign( reflect( V.negate(), H ) );
@@ -268,7 +267,7 @@ export const generateSampledDirection = Fn( ( [
 		// Reject directions below the surface - fall back to diffuse
 		If( NoL.lessThanEqual( 0.0 ), () => {
 
-			resultDirection.assign( ImportanceSampleCosine( N, xi ) );
+			resultDirection.assign( ImportanceSampleCosine( { N, xi } ) );
 			NoL.assign( clamp( dot( N, resultDirection ), 0.0, 1.0 ) );
 			resultPdf.assign( NoL.mul( PI_INV ) );
 			resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
@@ -289,7 +288,7 @@ export const generateSampledDirection = Fn( ( [
 	If( rand.lessThan( cumulativeClearcoat ).and( sampled.not() ), () => {
 
 		const clearcoatRoughness = clamp( material.clearcoatRoughness, MIN_CLEARCOAT_ROUGHNESS, MAX_ROUGHNESS );
-		H.assign( ImportanceSampleGGX( N, clearcoatRoughness, xi ) );
+		H.assign( ImportanceSampleGGX( { N, roughness: clearcoatRoughness, Xi: xi } ) );
 		const NoH = clamp( dot( N, H ), 0.0, 1.0 );
 		resultDirection.assign( reflect( V.negate(), H ) );
 		resultPdf.assign( calculateVNDFPDF( NoH, NoV, clearcoatRoughness ) );
@@ -333,7 +332,7 @@ export const estimatePathContribution = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	const throughputStrength = maxComponent( throughput ).toVar();
+	const throughputStrength = maxComponent( { v: throughput } ).toVar();
 
 	// Use cached material classification
 	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
@@ -396,7 +395,7 @@ export const handleRussianRoulette = Fn( ( [
 	// Always continue for first few bounces
 	If( depth.greaterThanEqual( int( 3 ) ), () => {
 
-		const throughputStrength = maxComponent( throughput ).toVar();
+		const throughputStrength = maxComponent( { v: throughput } ).toVar();
 
 		// Energy-conserving early termination for very low throughput paths
 		const earlyTerminated = tslBool( false ).toVar();
@@ -565,24 +564,16 @@ export const sampleBackgroundLighting = Fn( ( [
 // Firefly Suppression
 // =============================================================================
 
-export const regularizePathContribution = Fn( ( [
-	contribution, throughput, pathLength, fireflyThreshold,
-] ) => {
-
-	const throughputMax = maxComponent( throughput );
-	const throughputMin = minComponent( throughput );
-
-	const throughputVariation = throughputMax.add( 0.001 ).div( throughputMin.add( 0.001 ) );
-
-	const variationMultiplier = float( 1.0 ).div(
-		float( 1.0 ).add( log( float( 1.0 ).add( throughputVariation ) ).mul( pathLength ).mul( 0.1 ) ),
-	);
-
-	const threshold = calculateFireflyThreshold( fireflyThreshold, variationMultiplier, int( pathLength ) );
-
-	return applySoftSuppressionRGB( contribution, threshold, 0.5 );
-
-} );
+export const regularizePathContribution = /*@__PURE__*/ wgslFn( `
+	fn regularizePathContribution( contribution: vec3f, throughput: vec3f, pathLength: f32, fireflyThreshold: f32 ) -> vec3f {
+		let throughputMax = maxComponent( throughput );
+		let throughputMin = minComponent( throughput );
+		let throughputVariation = ( throughputMax + 0.001f ) / ( throughputMin + 0.001f );
+		let variationMultiplier = 1.0f / ( 1.0f + log( 1.0f + throughputVariation ) * pathLength * 0.1f );
+		let threshold = calculateFireflyThreshold( fireflyThreshold, variationMultiplier, i32( pathLength ) );
+		return applySoftSuppressionRGB( contribution, threshold, 0.5f );
+	}
+`, [ maxComponent, minComponent, calculateFireflyThreshold, applySoftSuppressionRGB ] );
 
 // =============================================================================
 // Main Path Tracing Loop
@@ -717,9 +708,9 @@ export const Trace = Fn( ( [
 				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
 				showBackground, backgroundIntensity,
 			);
-			radiance.addAssign( regularizePathContribution(
-				envColor.xyz.mul( throughput ), throughput, float( bounceIndex ), fireflyThreshold,
-			) );
+			radiance.addAssign( regularizePathContribution( {
+				contribution: envColor.xyz.mul( throughput ), throughput, pathLength: float( bounceIndex ), fireflyThreshold,
+			} ) );
 			alpha.mulAssign( envColor.a );
 			Break();
 
@@ -882,9 +873,9 @@ export const Trace = Fn( ( [
 			enableEnvironmentLight,
 		);
 
-		radiance.addAssign( regularizePathContribution(
-			directLight.mul( throughput ), throughput, float( bounceIndex ), fireflyThreshold,
-		) );
+		radiance.addAssign( regularizePathContribution( {
+			contribution: directLight.mul( throughput ), throughput, pathLength: float( bounceIndex ), fireflyThreshold,
+		} ) );
 
 		// Get importance sampling info with caching
 		If( psWeightsComputed.not().or( bounceIndex.equal( int( 0 ) ) ), () => {

@@ -62,19 +62,19 @@ export const sampleClearcoat = Fn( ( [
 	If( rand.lessThan( clearcoatWeight ), () => {
 
 		// Sample clearcoat layer
-		H.assign( ImportanceSampleGGX( N, clearcoatRoughness, randomSample ) );
+		H.assign( ImportanceSampleGGX( { N, roughness: clearcoatRoughness, Xi: randomSample } ) );
 		L.assign( reflect( V.negate(), H ) );
 
 	} ).ElseIf( rand.lessThan( clearcoatWeight.add( specularWeight ) ), () => {
 
 		// Sample base specular
-		H.assign( ImportanceSampleGGX( N, baseRoughness, randomSample ) );
+		H.assign( ImportanceSampleGGX( { N, roughness: baseRoughness, Xi: randomSample } ) );
 		L.assign( reflect( V.negate(), H ) );
 
 	} ).Else( () => {
 
 		// Sample diffuse
-		L.assign( ImportanceSampleCosine( N, randomSample ) );
+		L.assign( ImportanceSampleCosine( { N, xi: randomSample } ) );
 		H.assign( normalize( V.add( L ) ) );
 
 	} );

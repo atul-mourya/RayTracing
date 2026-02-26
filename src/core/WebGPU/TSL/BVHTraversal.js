@@ -3,11 +3,11 @@
 
 import {
 	Fn,
+	wgslFn,
 	vec3,
 	vec2,
 	float,
 	int,
-	bool as tslBool,
 	If,
 	Loop,
 	Break,
@@ -15,8 +15,6 @@ import {
 	abs,
 	sign,
 	min,
-	max,
-	dot,
 	normalize,
 	mix,
 	vec4,
@@ -314,62 +312,66 @@ const stackWrite = ( stack, index, value ) => {
 // RAY INTERSECTION HELPERS (inlined for BVH traversal performance)
 // ================================================================================
 
-const RayTriangleGeometry = Fn( ( [ rayOrigin, rayDir, pA, pB, pC, closestHitDst ] ) => {
+const RayTriangleGeometry = wgslFn( `
+	fn RayTriangleGeometry( rayOrigin: vec3f, rayDir: vec3f, pA: vec3f, pB: vec3f, pC: vec3f, closestHitDst: f32 ) -> vec4f {
 
-	// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection
-	const result = vec4( 1e20, 0.0, 0.0, 0.0 ).toVar();
+		// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection
+		var result = vec4f( 1e20f, 0.0f, 0.0f, 0.0f );
 
-	const edge1 = pB.sub( pA );
-	const edge2 = pC.sub( pA );
-	const h = rayDir.cross( edge2 );
-	const a = dot( edge1, h );
+		let edge1 = pB - pA;
+		let edge2 = pC - pA;
+		let h = cross( rayDir, edge2 );
+		let a = dot( edge1, h );
 
-	If( abs( a ).greaterThanEqual( 1e-8 ), () => {
+		if ( abs( a ) >= 1e-8f ) {
 
-		const f = float( 1.0 ).div( a );
-		const s = rayOrigin.sub( pA );
-		const u = f.mul( dot( s, h ) ).toVar();
+			let f = 1.0f / a;
+			let s = rayOrigin - pA;
+			let u = f * dot( s, h );
 
-		If( u.greaterThanEqual( 0.0 ).and( u.lessThanEqual( 1.0 ) ), () => {
+			if ( u >= 0.0f && u <= 1.0f ) {
 
-			const q = s.cross( edge1 );
-			const v = f.mul( dot( rayDir, q ) ).toVar();
+				let q = cross( s, edge1 );
+				let v = f * dot( rayDir, q );
 
-			If( v.greaterThanEqual( 0.0 ).and( u.add( v ).lessThanEqual( 1.0 ) ), () => {
+				if ( v >= 0.0f && ( u + v ) <= 1.0f ) {
 
-				const t = f.mul( dot( edge2, q ) ).toVar();
+					let t = f * dot( edge2, q );
 
-				If( t.greaterThan( 0.0 ).and( t.lessThan( closestHitDst ) ), () => {
+					if ( t > 0.0f && t < closestHitDst ) {
 
-					result.assign( vec4( t, u, v, 1.0 ) );
+						result = vec4f( t, u, v, 1.0f );
 
-				} );
+					}
 
-			} );
+				}
 
-		} );
+			}
 
-	} );
+		}
 
-	return result;
+		return result;
 
-} );
+	}
+` );
 
-const fastRayAABBDst = Fn( ( [ rayOrigin, invDir, boxMin, boxMax ] ) => {
+const fastRayAABBDst = wgslFn( `
+	fn fastRayAABBDst( rayOrigin: vec3f, invDir: vec3f, boxMin: vec3f, boxMax: vec3f ) -> f32 {
 
-	const t1 = boxMin.sub( rayOrigin ).mul( invDir );
-	const t2 = boxMax.sub( rayOrigin ).mul( invDir );
+		let t1 = ( boxMin - rayOrigin ) * invDir;
+		let t2 = ( boxMax - rayOrigin ) * invDir;
 
-	const tmin = min( t1, t2 );
-	const tmax = max( t1, t2 );
+		let tmin = min( t1, t2 );
+		let tmax = max( t1, t2 );
 
-	const tNear = max( max( tmin.x, tmin.y ), tmin.z );
-	const tFar = min( min( tmax.x, tmax.y ), tmax.z );
+		let tNear = max( max( tmin.x, tmin.y ), tmin.z );
+		let tFar = min( min( tmax.x, tmax.y ), tmax.z );
 
-	const isHit = tNear.lessThanEqual( tFar ).and( tFar.greaterThan( 0.0 ) );
-	return select( isHit, max( tNear, float( 0.0 ) ), float( 1e20 ) );
+		let isHit = tNear <= tFar && tFar > 0.0f;
+		return select( 1e20f, max( tNear, 0.0f ), isHit );
 
-} );
+	}
+` );
 
 // ================================================================================
 // VISIBILITY FUNCTIONS
@@ -401,30 +403,22 @@ export const isTriangleVisibleCached = Fn( ( [ materialIndex, materialBuffer ] )
 } );
 
 // Complete visibility check with side culling
-export const isMaterialVisibleOptimized = Fn( ( [ vis, rayDirection, normal ] ) => {
-
-	const result = tslBool( false ).toVar();
-
-	If( vis.visible, () => {
-
-		const rayDotNormal = dot( rayDirection, normal );
-		// DoubleSide (2) or FrontSide (0) facing or BackSide (1) facing
-		const doubleSide = vis.side.equal( int( 2 ) );
-		const frontSide = vis.side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) );
-		const backSide = vis.side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) );
-		result.assign( doubleSide.or( frontSide ).or( backSide ) );
-
-	} );
-
-	return result;
-
-} );
+export const isMaterialVisibleOptimized = wgslFn( `
+	fn isMaterialVisibleOptimized( visible: bool, side: i32, rayDirection: vec3f, normal: vec3f ) -> bool {
+		if ( !visible ) { return false; }
+		let rayDotNormal = dot( rayDirection, normal );
+		let doubleSide = side == 2;
+		let frontSide  = side == 0 && rayDotNormal < -0.0001f;
+		let backSide   = side == 1 && rayDotNormal > 0.0001f;
+		return doubleSide || frontSide || backSide;
+	}
+` );
 
 // Single visibility check with combined data fetch
 export const isMaterialVisible = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
 
 	const vis = VisibilityData.wrap( getVisibilityData( materialIndex, materialBuffer ) );
-	return isMaterialVisibleOptimized( vis, rayDirection, normal );
+	return isMaterialVisibleOptimized( { visible: vis.visible, side: vis.side, rayDirection, normal } );
 
 } );
 
@@ -500,7 +494,7 @@ export const traverseBVH = Fn( ( [
 				const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
 				const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-				const triResult = RayTriangleGeometry( rayOrigin, rayDirection, pA, pB, pC, closestHit.dst );
+				const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst } );
 
 				If( triResult.w.greaterThan( 0.5 ), () => {
 
@@ -566,8 +560,8 @@ export const traverseBVH = Fn( ( [
 			const rightData0 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 0 ), int( BVH_STRIDE ) );
 			const rightData1 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( rayOrigin, invDir, leftData0.xyz, leftData1.xyz ).toVar();
-			const dstB = fastRayAABBDst( rayOrigin, invDir, rightData0.xyz, rightData1.xyz ).toVar();
+			const dstA = fastRayAABBDst( { rayOrigin, invDir, boxMin: leftData0.xyz, boxMax: leftData1.xyz } ).toVar();
+			const dstB = fastRayAABBDst( { rayOrigin, invDir, boxMin: rightData0.xyz, boxMax: rightData1.xyz } ).toVar();
 
 			// Optimized early rejection
 			const minDst = min( dstA, dstB );
@@ -667,7 +661,7 @@ export const traverseBVHShadow = Fn( ( [
 				const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
 				const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-				const triResult = RayTriangleGeometry( ray.origin, ray.direction, pA, pB, pC, closestHit.dst );
+				const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst } );
 
 				If( triResult.w.greaterThan( 0.5 ), () => {
 
@@ -694,8 +688,8 @@ export const traverseBVHShadow = Fn( ( [
 			const rightData0 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 0 ), int( BVH_STRIDE ) );
 			const rightData1 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 1 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( ray.origin, invDir, leftData0.xyz, leftData1.xyz ).toVar();
-			const dstB = fastRayAABBDst( ray.origin, invDir, rightData0.xyz, rightData1.xyz ).toVar();
+			const dstA = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: leftData0.xyz, boxMax: leftData1.xyz } ).toVar();
+			const dstB = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: rightData0.xyz, boxMax: rightData1.xyz } ).toVar();
 
 			const minDst = min( dstA, dstB );
 			If( minDst.lessThan( closestHit.dst ), () => {

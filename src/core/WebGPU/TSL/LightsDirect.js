@@ -449,7 +449,7 @@ export const calculateDirectionalLightContribution = Fn( ( [
 			// Soft shadows: sample direction within cone
 			const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 			const halfAngle = light.angle.mul( 0.5 );
-			shadowDirection.assign( sampleCone( light.direction, halfAngle, xi ) );
+			shadowDirection.assign( sampleCone( { direction: light.direction, halfAngle, xi } ) );
 
 			// Calculate PDF for cone sampling
 			const cosHalfAngle = cos( halfAngle );
@@ -481,7 +481,7 @@ export const calculateDirectionalLightContribution = Fn( ( [
 
 					If( alignment.greaterThan( 0.996 ), () => {
 
-						const misWeight = powerHeuristic( lightPdf, brdfSample.pdf );
+						const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfSample.pdf } );
 						result.assign( contribution.mul( misWeight ) );
 
 					} ).Else( () => {
@@ -568,7 +568,7 @@ export const calculateAreaLightContribution = Fn( ( [
 					// MIS weight
 					const misWeight = select(
 						brdfPdf.greaterThan( 0.0 ).and( isFirstBounce ),
-						powerHeuristic( lightPdf, brdfPdf ),
+						powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } ),
 						float( 1.0 ),
 					);
 
@@ -601,7 +601,7 @@ export const calculateAreaLightContribution = Fn( ( [
 						If( lightFacing.greaterThan( 0.0 ), () => {
 
 							const lightPdf = hitDistance.mul( hitDistance ).div( max( light.area.mul( lightFacing ), EPSILON ) );
-							const misWeight = powerHeuristic( brdfSample.pdf, lightPdf );
+							const misWeight = powerHeuristic( { pdf1: brdfSample.pdf, pdf2: lightPdf } );
 
 							const lightEmission = light.color.mul( light.intensity );
 							const NoL = max( float( 0.0 ), dot( normal, brdfSample.direction ) );

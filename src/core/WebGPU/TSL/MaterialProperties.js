@@ -96,13 +96,13 @@ export const evalSensitivity = Fn( ( [ OPD, shift ] ) => {
 
 	const xyz = val.mul( sqrt( float( TWO_PI ).mul( vr ) ) )
 		.mul( cos( pos.mul( phase ).add( shift ) ) )
-		.mul( exp( square( phase ).negate().mul( vr ) ) )
+		.mul( exp( square( { x: phase } ).negate().mul( vr ) ) )
 		.toVar();
 
 	xyz.x.addAssign(
 		float( 9.7470e-14 ).mul( sqrt( float( TWO_PI ).mul( 4.5282e+09 ) ) )
 			.mul( cos( float( 2.2399e+06 ).mul( phase ).add( shift.x ) ) )
-			.mul( exp( float( - 4.5282e+09 ).mul( square( phase ) ) ) )
+			.mul( exp( float( - 4.5282e+09 ).mul( square( { x: phase } ) ) ) )
 	);
 
 	return XYZ_TO_REC709.mul( xyz.div( 1.0685e-7 ) );
@@ -115,7 +115,7 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 	const iridescenceIor = mix( outsideIOR, eta2, smoothstep( 0.0, 0.03, thinFilmThickness ) ).toVar();
 
 	// Evaluate the cosTheta on the base layer (Snell law)
-	const sinTheta2Sq = square( outsideIOR.div( iridescenceIor ) ).mul( float( 1.0 ).sub( square( cosTheta1 ) ) ).toVar();
+	const sinTheta2Sq = square( { x: outsideIOR.div( iridescenceIor ) } ).mul( float( 1.0 ).sub( square( { x: cosTheta1 } ) ) ).toVar();
 
 	// Handle TIR
 	const cosTheta2Sq = float( 1.0 ).sub( sinTheta2Sq ).toVar();

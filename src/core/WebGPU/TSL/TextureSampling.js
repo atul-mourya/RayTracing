@@ -1,4 +1,4 @@
-import { Fn, float, vec2, vec3, vec4, int, mat3, If, dot, normalize, cross, abs, sqrt, mix, clamp, fract, texture } from 'three/tsl';
+import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, sqrt, mix, clamp, texture } from 'three/tsl';
 
 import {
 	UVCache,
@@ -9,33 +9,28 @@ import {
 // FAST UTILITY FUNCTIONS
 // ================================================================================
 
-export const isIdentityTransform = Fn( ( [ transform ] ) => {
+export const isIdentityTransform = /*@__PURE__*/ wgslFn( `
+	fn isIdentityTransform( transform: mat3x3f ) -> bool {
+		return transform[0][0] == 1.0f
+			&& transform[1][1] == 1.0f
+			&& transform[0][1] == 0.0f
+			&& transform[1][0] == 0.0f
+			&& transform[2][0] == 0.0f
+			&& transform[2][1] == 0.0f;
+	}
+` );
 
-	return transform.element( 0 ).element( 0 ).equal( 1.0 )
-		.and( transform.element( 1 ).element( 1 ).equal( 1.0 ) )
-		.and( transform.element( 0 ).element( 1 ).equal( 0.0 ) )
-		.and( transform.element( 1 ).element( 0 ).equal( 0.0 ) )
-		.and( transform.element( 2 ).element( 0 ).equal( 0.0 ) )
-		.and( transform.element( 2 ).element( 1 ).equal( 0.0 ) );
-
-} );
-
-export const getTransformedUV = Fn( ( [ uv, transform ] ) => {
-
-	const result = uv.toVar();
-
-	If( isIdentityTransform( transform ).not(), () => {
-
-		result.assign( fract( vec2(
-			transform.element( 0 ).element( 0 ).mul( uv.x ).add( transform.element( 1 ).element( 0 ).mul( uv.y ) ).add( transform.element( 2 ).element( 0 ) ),
-			transform.element( 0 ).element( 1 ).mul( uv.x ).add( transform.element( 1 ).element( 1 ).mul( uv.y ) ).add( transform.element( 2 ).element( 1 ) )
-		) ) );
-
-	} );
-
-	return result;
-
-} );
+export const getTransformedUV = /*@__PURE__*/ wgslFn( `
+	fn getTransformedUV( uv: vec2f, transform: mat3x3f ) -> vec2f {
+		if ( !isIdentityTransform( transform ) ) {
+			return fract( vec2f(
+				transform[0][0] * uv.x + transform[1][0] * uv.y + transform[2][0],
+				transform[0][1] * uv.x + transform[1][1] * uv.y + transform[2][1]
+			) );
+		}
+		return uv;
+	}
+`, [ isIdentityTransform ] );
 
 export const materialHasTextures = Fn( ( [ material ] ) => {
 
@@ -50,38 +45,28 @@ export const materialHasTextures = Fn( ( [ material ] ) => {
 } );
 
 // Fast transform hash for equality checking
-export const hashTransform = Fn( ( [ t ] ) => {
-
-	return t.element( 0 ).element( 0 )
-		.add( t.element( 1 ).element( 1 ).mul( 7.0 ) )
-		.add( t.element( 2 ).element( 0 ).mul( 13.0 ) )
-		.add( t.element( 2 ).element( 1 ).mul( 17.0 ) );
-
-} );
+export const hashTransform = /*@__PURE__*/ wgslFn( `
+	fn hashTransform( t: mat3x3f ) -> f32 {
+		return t[0][0] + t[1][1] * 7.0f + t[2][0] * 13.0f + t[2][1] * 17.0f;
+	}
+` );
 
 // Fast transform equality using hash comparison
-export const transformsEqual = Fn( ( [ a, b ] ) => {
-
-	const hashA = hashTransform( a );
-	const hashB = hashTransform( b );
-	const result = int( 0 ).toVar();
-
-	If( abs( hashA.sub( hashB ) ).lessThan( 0.001 ), () => {
-
-		If( abs( a.element( 0 ).element( 0 ).sub( b.element( 0 ).element( 0 ) ) ).lessThan( 0.001 )
-			.and( abs( a.element( 1 ).element( 1 ).sub( b.element( 1 ).element( 1 ) ) ).lessThan( 0.001 ) )
-			.and( abs( a.element( 2 ).element( 0 ).sub( b.element( 2 ).element( 0 ) ) ).lessThan( 0.001 ) )
-			.and( abs( a.element( 2 ).element( 1 ).sub( b.element( 2 ).element( 1 ) ) ).lessThan( 0.001 ) ), () => {
-
-			result.assign( 1 );
-
-		} );
-
-	} );
-
-	return result;
-
-} );
+export const transformsEqual = /*@__PURE__*/ wgslFn( `
+	fn transformsEqual( a: mat3x3f, b: mat3x3f ) -> i32 {
+		let hashA = hashTransform( a );
+		let hashB = hashTransform( b );
+		if ( abs( hashA - hashB ) < 0.001f ) {
+			if ( abs( a[0][0] - b[0][0] ) < 0.001f
+				&& abs( a[1][1] - b[1][1] ) < 0.001f
+				&& abs( a[2][0] - b[2][0] ) < 0.001f
+				&& abs( a[2][1] - b[2][1] ) < 0.001f ) {
+				return 1;
+			}
+		}
+		return 0;
+	}
+`, [ hashTransform ] );
 
 // ================================================================================
 // OPTIMIZED UV CACHE WITH REDUNDANCY DETECTION
@@ -90,12 +75,12 @@ export const transformsEqual = Fn( ( [ a, b ] ) => {
 export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 	// Pre-compute transform hashes for batch comparison
-	const albedoHash = hashTransform( material.albedoTransform ).toVar();
-	const normalHash = hashTransform( material.normalTransform ).toVar();
-	const metalnessHash = hashTransform( material.metalnessTransform ).toVar();
-	const roughnessHash = hashTransform( material.roughnessTransform ).toVar();
-	const emissiveHash = hashTransform( material.emissiveTransform ).toVar();
-	const bumpHash = hashTransform( material.bumpTransform ).toVar();
+	const albedoHash = hashTransform( { t: material.albedoTransform } ).toVar();
+	const normalHash = hashTransform( { t: material.normalTransform } ).toVar();
+	const metalnessHash = hashTransform( { t: material.metalnessTransform } ).toVar();
+	const roughnessHash = hashTransform( { t: material.roughnessTransform } ).toVar();
+	const emissiveHash = hashTransform( { t: material.emissiveTransform } ).toVar();
+	const bumpHash = hashTransform( { t: material.bumpTransform } ).toVar();
 
 	const HASH_TOLERANCE = 0.001;
 	const albedoNormalSame = abs( albedoHash.sub( normalHash ) ).lessThan( HASH_TOLERANCE ).toVar();
@@ -121,7 +106,7 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 	If( allSameUV, () => {
 
-		const sharedUV = getTransformedUV( baseUV, material.albedoTransform );
+		const sharedUV = getTransformedUV( { uv: baseUV, transform: material.albedoTransform } );
 		albedoUV.assign( sharedUV );
 		normalUV.assign( sharedUV );
 		metalnessUV.assign( sharedUV );
@@ -132,11 +117,11 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 	} ).Else( () => {
 
 		// Always compute albedo as reference
-		albedoUV.assign( getTransformedUV( baseUV, material.albedoTransform ) );
+		albedoUV.assign( getTransformedUV( { uv: baseUV, transform: material.albedoTransform } ) );
 
 		// Reuse albedo UV for matching hashes
-		normalUV.assign( albedoNormalSame.select( albedoUV, getTransformedUV( baseUV, material.normalTransform ) ) );
-		emissiveUV.assign( albedoEmissiveSame.select( albedoUV, getTransformedUV( baseUV, material.emissiveTransform ) ) );
+		normalUV.assign( albedoNormalSame.select( albedoUV, getTransformedUV( { uv: baseUV, transform: material.normalTransform } ) ) );
+		emissiveUV.assign( albedoEmissiveSame.select( albedoUV, getTransformedUV( { uv: baseUV, transform: material.emissiveTransform } ) ) );
 
 		// Handle bump UV with dependency chain optimization
 		If( normalBumpSame, () => {
@@ -149,14 +134,14 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 		} ).Else( () => {
 
-			bumpUV.assign( getTransformedUV( baseUV, material.bumpTransform ) );
+			bumpUV.assign( getTransformedUV( { uv: baseUV, transform: material.bumpTransform } ) );
 
 		} );
 
 		// Handle metalness/roughness pair
 		If( metalRoughSame, () => {
 
-			metalnessUV.assign( getTransformedUV( baseUV, material.metalnessTransform ) );
+			metalnessUV.assign( getTransformedUV( { uv: baseUV, transform: material.metalnessTransform } ) );
 			roughnessUV.assign( metalnessUV );
 
 		} ).Else( () => {
@@ -171,7 +156,7 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 			} ).Else( () => {
 
-				metalnessUV.assign( getTransformedUV( baseUV, material.metalnessTransform ) );
+				metalnessUV.assign( getTransformedUV( { uv: baseUV, transform: material.metalnessTransform } ) );
 
 			} );
 
@@ -189,7 +174,7 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 
 			} ).Else( () => {
 
-				roughnessUV.assign( getTransformedUV( baseUV, material.roughnessTransform ) );
+				roughnessUV.assign( getTransformedUV( { uv: baseUV, transform: material.roughnessTransform } ) );
 
 			} );
 
@@ -462,7 +447,7 @@ export const sampleDisplacementMap = Fn( ( [ displacementMaps, displacementMapIn
 
 	If( displacementMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
-		const transformedUV = getTransformedUV( uv, transform );
+		const transformedUV = getTransformedUV( { uv, transform } );
 		result.assign( texture( displacementMaps, transformedUV ).depth( int( displacementMapIndex ) ).r );
 
 	} );

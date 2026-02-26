@@ -3,6 +3,7 @@
 
 import {
 	Fn,
+	wgslFn,
 	vec2,
 	vec3,
 	vec4,
@@ -25,8 +26,6 @@ import {
 	min,
 	mix,
 	clamp,
-	log,
-	exp,
 	pow,
 	fract,
 } from 'three/tsl';
@@ -140,103 +139,64 @@ export const getCurrentMediumIOR = Fn( ( [ mediumStack ] ) => {
 // ================================================================================
 
 // Calculate wavelength-dependent IOR for dispersion using Cauchy dispersion equation
-export const calculateDispersiveIOR = Fn( ( [ baseIOR, dispersionStrength ] ) => {
-
-	const A = baseIOR;
-	const B = dispersionStrength.mul( 0.03 );
-
-	// Standard CIE wavelengths for RGB (in micrometers)
-	const wavelengths = vec3( 0.7000, 0.5461, 0.4358 );
-
-	// Apply Cauchy's equation: n(λ) = A + B/λ²
-	const dispersiveIOR = A.add( B.div( wavelengths.mul( wavelengths ) ) );
-
-	return max( dispersiveIOR, vec3( 1.001 ) );
-
-} );
+export const calculateDispersiveIOR = /*@__PURE__*/ wgslFn( `
+	fn calculateDispersiveIOR( baseIOR: f32, dispersionStrength: f32 ) -> vec3f {
+		let B = dispersionStrength * 0.03f;
+		// Standard CIE wavelengths for RGB (in micrometers)
+		let wavelengths = vec3f( 0.7000f, 0.5461f, 0.4358f );
+		// Apply Cauchy's equation: n(λ) = A + B/λ²
+		let dispersiveIOR = baseIOR + B / ( wavelengths * wavelengths );
+		return max( dispersiveIOR, vec3f( 1.001f ) );
+	}
+` );
 
 // Convert wavelength to RGB using spectral sensitivity curves
-export const wavelengthToRGB = Fn( ( [ wavelength ] ) => {
-
-	const color = vec3( 0.0 ).toVar();
-
-	// Violet: 380-440
-	If( wavelength.greaterThanEqual( 380.0 ).and( wavelength.lessThan( 440.0 ) ), () => {
-
-		const t = wavelength.sub( 380.0 ).div( 60.0 );
-		color.assign( vec3( float( 0.6 ).add( float( 0.4 ).mul( float( 1.0 ).sub( t ) ) ), 0.0, 1.0 ) );
-
-	} );
-
-	// Blue: 440-490
-	If( wavelength.greaterThanEqual( 440.0 ).and( wavelength.lessThan( 490.0 ) ), () => {
-
-		const t = wavelength.sub( 440.0 ).div( 50.0 );
-		color.assign( vec3( float( 0.6 ).mul( float( 1.0 ).sub( t ) ), 0.0, 1.0 ) );
-
-	} );
-
-	// Blue-Cyan: 490-510
-	If( wavelength.greaterThanEqual( 490.0 ).and( wavelength.lessThan( 510.0 ) ), () => {
-
-		const t = wavelength.sub( 490.0 ).div( 20.0 );
-		color.assign( vec3( 0.0, t, 1.0 ) );
-
-	} );
-
-	// Cyan-Green-Yellow: 510-580
-	If( wavelength.greaterThanEqual( 510.0 ).and( wavelength.lessThan( 580.0 ) ), () => {
-
-		const t = wavelength.sub( 510.0 ).div( 70.0 );
-		// Cyan to Green
-		If( t.lessThan( 0.5 ), () => {
-
-			const t2 = t.mul( 2.0 );
-			color.assign( vec3( 0.0, 1.0, float( 1.0 ).sub( t2 ) ) );
-
-		} ).Else( () => {
-
-			// Green to Yellow
-			const t2 = t.sub( 0.5 ).mul( 2.0 );
-			color.assign( vec3( t2, 1.0, 0.0 ) );
-
-		} );
-
-	} );
-
-	// Yellow-Orange-Red: 580-645
-	If( wavelength.greaterThanEqual( 580.0 ).and( wavelength.lessThan( 645.0 ) ), () => {
-
-		const t = wavelength.sub( 580.0 ).div( 65.0 );
-		color.assign( vec3( 1.0, float( 1.0 ).sub( t ), 0.0 ) );
-
-	} );
-
-	// Red: 645-700
-	If( wavelength.greaterThanEqual( 645.0 ).and( wavelength.lessThanEqual( 700.0 ) ), () => {
-
-		color.assign( vec3( 1.0, 0.0, 0.0 ) );
-
-	} );
-
-	// Apply intensity falloff at spectrum edges
-	If( wavelength.lessThan( 420.0 ), () => {
-
-		const falloff = wavelength.sub( 380.0 ).div( 40.0 );
-		color.mulAssign( falloff );
-
-	} );
-
-	If( wavelength.greaterThan( 680.0 ), () => {
-
-		const falloff = float( 700.0 ).sub( wavelength ).div( 20.0 );
-		color.mulAssign( falloff );
-
-	} );
-
-	return color;
-
-} );
+export const wavelengthToRGB = /*@__PURE__*/ wgslFn( `
+	fn wavelengthToRGB( wavelength: f32 ) -> vec3f {
+		var color = vec3f( 0.0f );
+		// Violet: 380-440
+		if ( wavelength >= 380.0f && wavelength < 440.0f ) {
+			let t = ( wavelength - 380.0f ) / 60.0f;
+			color = vec3f( 0.6f + 0.4f * ( 1.0f - t ), 0.0f, 1.0f );
+		}
+		// Blue: 440-490
+		if ( wavelength >= 440.0f && wavelength < 490.0f ) {
+			let t = ( wavelength - 440.0f ) / 50.0f;
+			color = vec3f( 0.6f * ( 1.0f - t ), 0.0f, 1.0f );
+		}
+		// Blue-Cyan: 490-510
+		if ( wavelength >= 490.0f && wavelength < 510.0f ) {
+			let t = ( wavelength - 490.0f ) / 20.0f;
+			color = vec3f( 0.0f, t, 1.0f );
+		}
+		// Cyan-Green-Yellow: 510-580
+		if ( wavelength >= 510.0f && wavelength < 580.0f ) {
+			let t = ( wavelength - 510.0f ) / 70.0f;
+			if ( t < 0.5f ) {
+				color = vec3f( 0.0f, 1.0f, 1.0f - t * 2.0f );
+			} else {
+				color = vec3f( ( t - 0.5f ) * 2.0f, 1.0f, 0.0f );
+			}
+		}
+		// Yellow-Orange-Red: 580-645
+		if ( wavelength >= 580.0f && wavelength < 645.0f ) {
+			let t = ( wavelength - 580.0f ) / 65.0f;
+			color = vec3f( 1.0f, 1.0f - t, 0.0f );
+		}
+		// Red: 645-700
+		if ( wavelength >= 645.0f && wavelength <= 700.0f ) {
+			color = vec3f( 1.0f, 0.0f, 0.0f );
+		}
+		// Apply intensity falloff at spectrum edges
+		if ( wavelength < 420.0f ) {
+			color = color * ( ( wavelength - 380.0f ) / 40.0f );
+		}
+		if ( wavelength > 680.0f ) {
+			color = color * ( ( 700.0f - wavelength ) / 20.0f );
+		}
+		return color;
+	}
+` );
 
 // Enhanced spectral sampling for realistic dispersion
 export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength, random ] ) => {
@@ -321,23 +281,15 @@ export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength
 // ================================================================================
 
 // Apply Beer's law absorption
-export const calculateBeerLawAbsorption = Fn( ( [ attenuationColor, attenuationDistance, thickness ] ) => {
-
-	const result = vec3( 1.0 ).toVar();
-
-	If( attenuationDistance.greaterThan( 0.0 ), () => {
-
+export const calculateBeerLawAbsorption = /*@__PURE__*/ wgslFn( `
+	fn calculateBeerLawAbsorption( attenuationColor: vec3f, attenuationDistance: f32, thickness: f32 ) -> vec3f {
+		if ( attenuationDistance <= 0.0f ) { return vec3f( 1.0f ); }
 		// Convert RGB attenuation color to absorption coefficients
-		const absorption = log( max( attenuationColor, vec3( 0.001 ) ) ).negate().div( attenuationDistance );
-
+		let absorption = -log( max( attenuationColor, vec3f( 0.001f ) ) ) / attenuationDistance;
 		// Apply Beer's law
-		result.assign( exp( absorption.negate().mul( thickness ) ) );
-
-	} );
-
-	return result;
-
-} );
+		return exp( -absorption * thickness );
+	}
+` );
 
 // ================================================================================
 // SHADOW TRANSMITTANCE
@@ -366,7 +318,7 @@ export const calculateShadowTransmittance = Fn( ( [ rayDir, normal, material, en
 		// Apply Beer's law absorption for exiting rays
 		If( entering.not().and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {
 
-			const absorption = calculateBeerLawAbsorption( material.attenuationColor, material.attenuationDistance, material.thickness );
+			const absorption = calculateBeerLawAbsorption( { attenuationColor: material.attenuationColor, attenuationDistance: material.attenuationDistance, thickness: material.thickness } );
 			baseTransmission.assign( baseTransmission.mul( absorption.x.add( absorption.y ).add( absorption.z ).div( 3.0 ) ) );
 
 		} );
@@ -430,7 +382,7 @@ export const sampleMicrofacetTransmission = Fn( ( [
 		const transmissionRoughness = max( MIN_ROUGHNESS, roughness );
 
 		// Sample the microfacet normal with GGX distribution
-		const H = ImportanceSampleGGX( N, transmissionRoughness, xi ).toVar();
+		const H = ImportanceSampleGGX( { N, roughness: transmissionRoughness, Xi: xi } ).toVar();
 		result.halfVector.assign( H );
 
 		// Compute IOR ratio
@@ -719,7 +671,7 @@ export const handleTransmission = Fn( ( [
 			// Apply Beer's law absorption when entering medium
 			If( entering.and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {
 
-				result.throughput.mulAssign( calculateBeerLawAbsorption( material.attenuationColor, material.attenuationDistance, material.thickness ) );
+				result.throughput.mulAssign( calculateBeerLawAbsorption( { attenuationColor: material.attenuationColor, attenuationDistance: material.attenuationDistance, thickness: material.thickness } ) );
 
 			} );
 
@@ -770,7 +722,7 @@ export const handleMaterialTransparency = Fn( ( [
 		// -----------------------------------------------------------------
 		const alphaRand = RandomValue( rngState );
 		const transmissionRand = RandomValue( rngState );
-		const transmissionSeed = pcgHash( rngState );
+		const transmissionSeed = pcgHash( { state: rngState } );
 
 		const handled = tslBool( false ).toVar();
 

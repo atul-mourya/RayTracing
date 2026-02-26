@@ -1,6 +1,6 @@
 import {
-	Fn, float, vec3, vec2, int, uint,
-	If, max, min, abs, sqrt, cos, sin, normalize, cross, reflect, refract, dot, pow
+	Fn, wgslFn, float, vec3, vec2, int, uint,
+	If, max, min, abs, normalize, reflect, refract, dot, pow
 } from 'three/tsl';
 
 import {
@@ -8,7 +8,7 @@ import {
 } from './Struct.js';
 
 import {
-	PI, TWO_PI, PI_INV, MIN_PDF, EPSILON,
+	PI, PI_INV, MIN_PDF, EPSILON,
 	classifyMaterial, square,
 } from './Common.js';
 
@@ -25,62 +25,44 @@ import { RandomValue } from './Random.js';
 // Basic Sampling Functions
 // -----------------------------------------------------------------------------
 
-export const ImportanceSampleGGX = Fn( ( [ N, roughness, Xi ] ) => {
+export const ImportanceSampleGGX = /*@__PURE__*/ wgslFn( `
+	fn ImportanceSampleGGX( N: vec3f, roughness: f32, Xi: vec2f ) -> vec3f {
+		let alpha = roughness * roughness;
+		let phi = 6.28318530717958647692f * Xi.x;
+		let cosTheta = sqrt( ( 1.0f - Xi.y ) / ( 1.0f + ( alpha * alpha - 1.0f ) * Xi.y ) );
+		let sinTheta = sqrt( max( 0.0f, 1.0f - cosTheta * cosTheta ) );
+		let H = vec3f( cos( phi ) * sinTheta, sin( phi ) * sinTheta, cosTheta );
+		// TBN construction
+		let up = select( vec3f( 1.0f, 0.0f, 0.0f ), vec3f( 0.0f, 0.0f, 1.0f ), abs( N.z ) < 0.999f );
+		let tangent = normalize( cross( up, N ) );
+		let bitangent = cross( N, tangent );
+		return normalize( tangent * H.x + bitangent * H.y + N * H.z );
+	}
+` );
 
-	const alpha = roughness.mul( roughness );
-	const phi = float( TWO_PI ).mul( Xi.x );
-	const cosTheta = sqrt( float( 1.0 ).sub( Xi.y ).div( float( 1.0 ).add( alpha.mul( alpha ).sub( 1.0 ).mul( Xi.y ) ) ) );
-	const sinTheta = sqrt( max( float( 0.0 ), float( 1.0 ).sub( cosTheta.mul( cosTheta ) ) ) );
+export const ImportanceSampleCosine = /*@__PURE__*/ wgslFn( `
+	fn ImportanceSampleCosine( N: vec3f, xi: vec2f ) -> vec3f {
+		let T = normalize( cross( N, N.yzx + vec3f( 0.1f, 0.2f, 0.3f ) ) );
+		let B = cross( N, T );
+		let phi = 6.28318530717958647692f * xi.x;
+		let cosTheta = sqrt( 1.0f - xi.y );
+		let sinTheta = sqrt( xi.y );
+		let localDir = vec3f( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
+		return normalize( T * localDir.x + B * localDir.y + N * localDir.z );
+	}
+` );
 
-	// Spherical to cartesian conversion
-	const H = vec3( cos( phi ).mul( sinTheta ), sin( phi ).mul( sinTheta ), cosTheta );
-
-	// TBN construction
-	const up = abs( N.z ).lessThan( 0.999 ).select( vec3( 0.0, 0.0, 1.0 ), vec3( 1.0, 0.0, 0.0 ) );
-	const tangent = normalize( cross( up, N ) ).toVar();
-	const bitangent = cross( N, tangent ).toVar();
-
-	return normalize( tangent.mul( H.x ).add( bitangent.mul( H.y ) ).add( N.mul( H.z ) ) );
-
-} );
-
-export const ImportanceSampleCosine = Fn( ( [ N, xi ] ) => {
-
-	const T = normalize( cross( N, N.yzx.add( vec3( 0.1, 0.2, 0.3 ) ) ) ).toVar();
-	const B = cross( N, T ).toVar();
-
-	// Cosine-weighted sampling
-	const phi = float( TWO_PI ).mul( xi.x );
-	const cosTheta = sqrt( float( 1.0 ).sub( xi.y ) );
-	const sinTheta = sqrt( xi.y );
-
-	// Convert from polar to Cartesian coordinates
-	const localDir = vec3( sinTheta.mul( cos( phi ) ), sinTheta.mul( sin( phi ) ), cosTheta );
-
-	// Transform the sampled direction to world space
-	return normalize( T.mul( localDir.x ).add( B.mul( localDir.y ) ).add( N.mul( localDir.z ) ) );
-
-} );
-
-export const cosineWeightedSample = Fn( ( [ N, xi ] ) => {
-
-	// Construct a local coordinate system (TBN)
-	const T = normalize( cross( N, N.yzx.add( vec3( 0.1, 0.2, 0.3 ) ) ) ).toVar();
-	const B = cross( N, T ).toVar();
-
-	// Cosine-weighted sampling using concentric disk mapping
-	// Convert to polar coordinates
-	const phi = float( TWO_PI ).mul( xi.y );
-	const cosTheta = sqrt( float( 1.0 ).sub( xi.x ) );
-	const sinTheta = sqrt( xi.x );
-
-	// Convert from polar to Cartesian coordinates in tangent space
-	const localDir = vec3( sinTheta.mul( cos( phi ) ), sinTheta.mul( sin( phi ) ), cosTheta );
-
-	// Transform the sampled direction to world space
-	return normalize( T.mul( localDir.x ).add( B.mul( localDir.y ) ).add( N.mul( localDir.z ) ) );
-
-} );
+export const cosineWeightedSample = /*@__PURE__*/ wgslFn( `
+	fn cosineWeightedSample( N: vec3f, xi: vec2f ) -> vec3f {
+		let T = normalize( cross( N, N.yzx + vec3f( 0.1f, 0.2f, 0.3f ) ) );
+		let B = cross( N, T );
+		let phi = 6.28318530717958647692f * xi.y;
+		let cosTheta = sqrt( 1.0f - xi.x );
+		let sinTheta = sqrt( xi.x );
+		let localDir = vec3f( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
+		return normalize( T * localDir.x + B * localDir.y + N * localDir.z );
+	}
+` );
 
 export const cosineWeightedPDF = Fn( ( [ NoL ] ) => {
 
@@ -92,38 +74,28 @@ export const cosineWeightedPDF = Fn( ( [ NoL ] ) => {
 // VNDF Sampling (Visible Normal Distribution Function)
 // -----------------------------------------------------------------------------
 
-export const sampleGGXVNDF = Fn( ( [ V, roughness, Xi ] ) => {
-
-	const alpha = roughness.mul( roughness );
-	// Transform view direction to local space
-	const Vh = normalize( vec3( alpha.mul( V.x ), alpha.mul( V.y ), V.z ) ).toVar();
-
-	// Construct orthonormal basis around view direction
-	const lensq = Vh.x.mul( Vh.x ).add( Vh.y.mul( Vh.y ) ).toVar();
-	const T1 = lensq.greaterThan( 1e-8 ).select(
-		vec3( Vh.y.negate(), Vh.x, 0.0 ).div( sqrt( lensq ) ),
-		vec3( 1.0, 0.0, 0.0 )
-	).toVar();
-	const T2 = cross( Vh, T1 ).toVar();
-
-	// Sample point with polar coordinates (r, phi)
-	const r = sqrt( Xi.x );
-	const phi = float( TWO_PI ).mul( Xi.y );
-	const t1 = r.mul( cos( phi ) ).toVar();
-	const t2Tmp = r.mul( sin( phi ) ).toVar();
-	const s = float( 0.5 ).mul( float( 1.0 ).add( Vh.z ) );
-	const t2 = float( 1.0 ).sub( s ).mul( sqrt( float( 1.0 ).sub( t1.mul( t1 ) ) ) ).add( s.mul( t2Tmp ) ).toVar();
-
-	// Compute normal
-	const Nh = T1.mul( t1 ).add( T2.mul( t2 ) ).add(
-		Vh.mul( sqrt( max( float( 0.0 ), float( 1.0 ).sub( t1.mul( t1 ) ).sub( t2.mul( t2 ) ) ) ) )
-	).toVar();
-
-	// Transform the normal back to the ellipsoid configuration
-	const Ne = normalize( vec3( alpha.mul( Nh.x ), alpha.mul( Nh.y ), max( float( 0.0 ), Nh.z ) ) );
-	return Ne;
-
-} );
+export const sampleGGXVNDF = /*@__PURE__*/ wgslFn( `
+	fn sampleGGXVNDF( V: vec3f, roughness: f32, Xi: vec2f ) -> vec3f {
+		let alpha = roughness * roughness;
+		// Transform view direction to local space
+		let Vh = normalize( vec3f( alpha * V.x, alpha * V.y, V.z ) );
+		// Construct orthonormal basis around view direction
+		let lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+		let T1 = select( vec3f( 1.0f, 0.0f, 0.0f ), vec3f( -Vh.y, Vh.x, 0.0f ) / sqrt( lensq ), lensq > 1e-8f );
+		let T2 = cross( Vh, T1 );
+		// Sample point with polar coordinates (r, phi)
+		let r = sqrt( Xi.x );
+		let phi = 6.28318530717958647692f * Xi.y;
+		let t1 = r * cos( phi );
+		let t2tmp = r * sin( phi );
+		let s = 0.5f * ( 1.0f + Vh.z );
+		let t2 = ( 1.0f - s ) * sqrt( 1.0f - t1 * t1 ) + s * t2tmp;
+		// Compute normal
+		let Nh = T1 * t1 + T2 * t2 + Vh * sqrt( max( 0.0f, 1.0f - t1 * t1 - t2 * t2 ) );
+		// Transform the normal back to the ellipsoid configuration
+		return normalize( vec3f( alpha * Nh.x, alpha * Nh.y, max( 0.0f, Nh.z ) ) );
+	}
+` );
 
 // -----------------------------------------------------------------------------
 // Multi-Lobe MIS Sampling
@@ -319,14 +291,14 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	If( rand.lessThan( cumulativeDiffuse ), () => {
 
 		// Diffuse sampling
-		sampledDirection.assign( ImportanceSampleCosine( N, xi ) );
+		sampledDirection.assign( ImportanceSampleCosine( { N, xi } ) );
 		lobePdf.assign( max( dot( N, sampledDirection ), 0.0 ).div( PI ) );
 		resultPdf.assign( lobePdf.mul( weights.diffuse ) );
 
 	} ).ElseIf( rand.lessThan( cumulativeSpecular ), () => {
 
 		// Specular sampling
-		const H = ImportanceSampleGGX( N, material.roughness, xi ).toVar();
+		const H = ImportanceSampleGGX( { N, roughness: material.roughness, Xi: xi } ).toVar();
 		sampledDirection.assign( reflect( V.negate(), H ) );
 
 		If( dot( N, sampledDirection ).greaterThan( 0.0 ), () => {
@@ -342,7 +314,7 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	} ).ElseIf( rand.lessThan( cumulativeClearcoat ).and( material.clearcoat.greaterThan( 0.0 ) ), () => {
 
 		// Clearcoat sampling
-		const H = ImportanceSampleGGX( N, material.clearcoatRoughness, xi ).toVar();
+		const H = ImportanceSampleGGX( { N, roughness: material.clearcoatRoughness, Xi: xi } ).toVar();
 		sampledDirection.assign( reflect( V.negate(), H ) );
 
 		If( dot( N, sampledDirection ).greaterThan( 0.0 ), () => {
@@ -358,7 +330,7 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	} ).ElseIf( rand.lessThan( cumulativeTransmission ).and( material.transmission.greaterThan( 0.0 ) ), () => {
 
 		// Transmission sampling - simplified approach
-		const H = ImportanceSampleGGX( N, material.roughness, xi ).toVar();
+		const H = ImportanceSampleGGX( { N, roughness: material.roughness, Xi: xi } ).toVar();
 		const refractionDir = refract( V.negate(), H, float( 1.0 ).div( material.ior ) ).toVar();
 
 		If( dot( refractionDir, refractionDir ).greaterThan( 0.001 ), () => {
@@ -381,7 +353,7 @@ export const sampleMaterialWithMultiLobeMIS = Fn( ( [
 	} ).Else( () => {
 
 		// Fallback to diffuse sampling for sheen/iridescence
-		sampledDirection.assign( ImportanceSampleCosine( N, xi ) );
+		sampledDirection.assign( ImportanceSampleCosine( { N, xi } ) );
 		lobePdf.assign( max( dot( N, sampledDirection ), 0.0 ).div( PI ) );
 		resultPdf.assign( lobePdf.mul( weights.sheen.add( weights.iridescence ) ) );
 

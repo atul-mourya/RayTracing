@@ -1,4 +1,4 @@
-import { Fn, float, vec2, vec3, vec4, int, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix } from 'three/tsl';
+import { Fn, wgslFn, float, vec2, vec3, vec4, int, mat3, If, max, min, dot, normalize, cross, abs, pow, clamp, step, mix, bool as tslBool } from 'three/tsl';
 
 import {
 	DotProducts,
@@ -25,91 +25,129 @@ export const XYZ_TO_REC709 = mat3(
 	- 0.4985314, 0.0415560, 1.0572252
 );
 
-export const sRGBToLinear = Fn( ( [ srgbColor ] ) => {
+export const sRGBToLinear = wgslFn( `
+	fn sRGBToLinear( srgbColor: vec3f ) -> vec3f {
 
-	return pow( srgbColor, vec3( 2.2 ) );
+		return pow( srgbColor, vec3f( 2.2 ) );
 
-} );
+	}
+` );
 
-export const gammaCorrection = Fn( ( [ color ] ) => {
+export const gammaCorrection = wgslFn( `
+	fn gammaCorrection( color: vec3f ) -> vec3f {
 
-	return pow( color, vec3( 1.0 / 2.2 ) );
+		return pow( color, vec3f( 1.0 / 2.2 ) );
 
-} );
+	}
+` );
 
-export const square = Fn( ( [ x ] ) => {
+export const square = wgslFn( `
+	fn square( x: f32 ) -> f32 {
 
-	return x.mul( x );
+		return x * x;
 
-} );
+	}
+` );
 
-export const squareVec3 = Fn( ( [ x ] ) => {
+export const squareVec3 = wgslFn( `
+	fn squareVec3( x: vec3f ) -> vec3f {
 
-	return x.mul( x );
+		return x * x;
 
-} );
+	}
+` );
 
 // Get maximum component of a vector
-export const maxComponent = Fn( ( [ v ] ) => {
+export const maxComponent = wgslFn( `
+	fn maxComponent( v: vec3f ) -> f32 {
 
-	return max( max( v.r, v.g ), v.b );
+		return max( max( v.r, v.g ), v.b );
 
-} );
+	}
+` );
 
 // Get minimum component of a vector
-export const minComponent = Fn( ( [ v ] ) => {
+export const minComponent = wgslFn( `
+	fn minComponent( v: vec3f ) -> f32 {
 
-	return min( min( v.r, v.g ), v.b );
+		return min( min( v.r, v.g ), v.b );
 
-} );
+	}
+` );
 
-export const luminance = Fn( ( [ color ] ) => {
+export const luminance = wgslFn( `
+	fn luminance( color: vec3f ) -> f32 {
 
-	return dot( color, REC709_LUMINANCE_COEFFICIENTS );
+		return dot( color, vec3f( 0.2126, 0.7152, 0.0722 ) );
 
-} );
+	}
+` );
 
-// Power heuristic (β=2) for multiple importance sampling
-export const powerHeuristic = Fn( ( [ pdf1, pdf2 ] ) => {
+// Optimized power heuristic (β=2) for multiple importance sampling
+export const powerHeuristic = wgslFn( `
+	fn powerHeuristic( pdf1: f32, pdf2: f32 ) -> f32 {
 
-	const p1 = pdf1.mul( pdf1 );
-	const p2 = pdf2.mul( pdf2 );
-	return p1.div( max( p1.add( p2 ), MIN_PDF ) );
+		let ratio = pdf1 / max( pdf2, ${MIN_PDF} );
 
-} );
+		if ( ratio > 10.0 ) { return 1.0; }
+		if ( ratio < 0.1 ) { return 0.0; }
+		if ( ratio > 5.0 ) { return 0.95; }
+		if ( ratio < 0.2 ) { return 0.05; }
 
-export const applyDithering = Fn( ( [ color, uv, ditheringAmount, resolution ] ) => {
+		let p1 = pdf1 * pdf1;
+		let p2 = pdf2 * pdf2;
+		return p1 / max( p1 + p2, ${MIN_PDF} );
 
-	const pixelCoord = uv.mul( resolution ).floor();
-	const dither = pixelCoord.x.mod( 4.0 ).mul( 4.0 ).add( pixelCoord.y.mod( 4.0 ) ).div( 16.0 );
-	return color.add( dither.sub( 0.5 ).mul( ditheringAmount ).div( 255.0 ) );
+	}
+` );
 
-} );
+// Bayer matrix 4x4 dithering — exact port of GLSL
+export const applyDithering = wgslFn( `
+	fn applyDithering( color: vec3f, uv: vec2f, ditheringAmount: f32, resolution: vec2f ) -> vec3f {
 
-export const reduceFireflies = Fn( ( [ color, maxValue ] ) => {
+		let bayerRow0 = vec4f( 0.0 / 16.0, 8.0 / 16.0, 2.0 / 16.0, 10.0 / 16.0 );
+		let bayerRow1 = vec4f( 12.0 / 16.0, 4.0 / 16.0, 14.0 / 16.0, 6.0 / 16.0 );
+		let bayerRow2 = vec4f( 3.0 / 16.0, 11.0 / 16.0, 1.0 / 16.0, 9.0 / 16.0 );
+		let bayerRow3 = vec4f( 15.0 / 16.0, 7.0 / 16.0, 13.0 / 16.0, 5.0 / 16.0 );
+		let bayer = mat4x4f( bayerRow0, bayerRow1, bayerRow2, bayerRow3 );
 
-	const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
-	const result = color.toVar();
+		let pixelCoord = vec2i( uv * resolution );
+		let dither = bayer[ pixelCoord.x % 4 ][ pixelCoord.y % 4 ];
 
-	If( lum.greaterThan( maxValue ), () => {
+		return color + ( dither - 0.5 ) * ditheringAmount / 255.0;
 
-		result.assign( color.mul( maxValue.div( lum ) ) );
+	}
+` );
 
-	} );
+// Firefly clamping — exact port of GLSL
+export const reduceFireflies = wgslFn( `
+	fn reduceFireflies( color: vec3f, maxValue: f32 ) -> vec3f {
 
-	return result;
+		let lum = dot( color, vec3f( 0.2126, 0.7152, 0.0722 ) );
+		if ( lum > maxValue ) {
+			return color * ( maxValue / lum );
+		}
+		return color;
 
-} );
+	}
+` );
 
-export const constructTBN = Fn( ( [ N ] ) => {
+// Construct tangent-bitangent-normal matrix — exact port of GLSL
+export const constructTBN = wgslFn( `
+	fn constructTBN( N: vec3f ) -> mat3x3f {
 
-	// Create tangent and bitangent vectors
-	const majorAxis = abs( N.x ).lessThan( 0.999 ).select( vec3( 1, 0, 0 ), vec3( 0, 1, 0 ) );
-	const T = normalize( cross( N, majorAxis ) );
-	const B = normalize( cross( N, T ) );
-	return mat3( T.x, T.y, T.z, B.x, B.y, B.z, N.x, N.y, N.z );
+		var majorAxis: vec3f;
+		if ( abs( N.x ) < 0.999 ) {
+			majorAxis = vec3f( 1.0, 0.0, 0.0 );
+		} else {
+			majorAxis = vec3f( 0.0, 1.0, 0.0 );
+		}
+		let T = normalize( cross( N, majorAxis ) );
+		let B = normalize( cross( N, T ) );
+		return mat3x3f( T, B, N );
 
-} );
+	}
+` );
 
 export const computeDotProducts = Fn( ( [ N, V, L ] ) => {
 
@@ -127,86 +165,75 @@ export const computeDotProducts = Fn( ( [ N, V, L ] ) => {
 
 } );
 
-export const calculateFireflyThreshold = Fn( ( [ baseThreshold, contextMultiplier, bounceIndex ] ) => {
+export const calculateFireflyThreshold = wgslFn( `
+	fn calculateFireflyThreshold( baseThreshold: f32, contextMultiplier: f32, bounceIndex: i32 ) -> f32 {
 
-	const depthFactor = float( 1.0 ).div( pow( float( bounceIndex ).add( 1.0 ), 0.5 ) );
-	return baseThreshold.mul( contextMultiplier ).mul( depthFactor );
+		let depthFactor = 1.0 / pow( f32( bounceIndex + 1 ), 0.5 );
+		return baseThreshold * contextMultiplier * depthFactor;
 
-} );
+	}
+` );
 
-// Apply soft suppression to prevent harsh clipping
-export const applySoftSuppression = Fn( ( [ value, threshold, dampingFactor ] ) => {
+// Apply soft suppression to prevent harsh clipping — exact port of GLSL
+export const applySoftSuppression = wgslFn( `
+	fn applySoftSuppression( value: f32, threshold: f32, dampingFactor: f32 ) -> f32 {
 
-	const result = value.toVar();
+		if ( value <= threshold ) {
+			return value;
+		}
+		let excess = value - threshold;
+		let suppressionFactor = threshold / ( threshold + excess * dampingFactor );
+		return value * suppressionFactor;
 
-	If( value.greaterThan( threshold ), () => {
+	}
+` );
 
-		const excess = value.sub( threshold );
-		const suppressionFactor = threshold.div( threshold.add( excess.mul( dampingFactor ) ) );
-		result.assign( value.mul( suppressionFactor ) );
+// Apply soft suppression to RGB color while preserving hue — exact port of GLSL
+export const applySoftSuppressionRGB = wgslFn( `
+	fn applySoftSuppressionRGB( color: vec3f, threshold: f32, dampingFactor: f32 ) -> vec3f {
 
-	} );
+		let lum = dot( color, vec3f( 0.2126, 0.7152, 0.0722 ) );
+		if ( lum <= threshold ) {
+			return color;
+		}
+		let suppressedLum = applySoftSuppression( lum, threshold, dampingFactor );
+		if ( lum > ${EPSILON} ) {
+			return color * ( suppressedLum / lum );
+		}
+		return color;
 
-	return result;
+	}
+`, [ applySoftSuppression ] );
 
-} );
+// Get material-specific firefly tolerance multiplier — exact port of GLSL
+export const getMaterialFireflyTolerance = wgslFn( `
+	fn getMaterialFireflyTolerance( metalness: f32, roughness: f32, transmission: f32, dispersion: f32 ) -> f32 {
 
-// Apply soft suppression to RGB color while preserving hue
-export const applySoftSuppressionRGB = Fn( ( [ color, threshold, dampingFactor ] ) => {
+		var tolerance = 1.0;
+		tolerance *= mix( 1.0, 1.5, step( 0.7, metalness ) );
+		tolerance *= mix( 0.8, 1.2, roughness );
+		tolerance *= mix( 1.0, 0.9, transmission );
+		tolerance *= mix( 1.0, 0.7, clamp( dispersion * 0.1, 0.0, 1.0 ) );
+		return tolerance;
 
-	const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
-	const result = color.toVar();
+	}
+` );
 
-	If( lum.greaterThan( threshold ), () => {
+// Calculate view-dependent firefly tolerance for specular materials — exact port of GLSL
+export const getViewDependentTolerance = wgslFn( `
+	fn getViewDependentTolerance( roughness: f32, sampleDir: vec3f, viewDir: vec3f, normal: vec3f ) -> f32 {
 
-		const suppressedLum = applySoftSuppression( lum, threshold, dampingFactor );
-		result.assign( lum.greaterThan( EPSILON ).select( color.mul( suppressedLum.div( lum ) ), color ) );
+		var tolerance = 1.0;
+		if ( roughness < 0.2 ) {
+			let reflectDir = reflect( -viewDir, normal );
+			let specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
+			let viewDependentScale = mix( 1.0, 2.5, pow( specularAlignment, 4.0 ) );
+			tolerance *= viewDependentScale;
+		}
+		return tolerance;
 
-	} );
-
-	return result;
-
-} );
-
-// Get material-specific firefly tolerance multiplier
-export const getMaterialFireflyTolerance = Fn( ( [ metalness, roughness, transmission, dispersion ] ) => {
-
-	const tolerance = float( 1.0 ).toVar();
-
-	// Metals can handle brighter values legitimately
-	tolerance.mulAssign( mix( float( 1.0 ), float( 1.5 ), step( 0.7, metalness ) ) );
-
-	// Rough surfaces need less aggressive clamping
-	tolerance.mulAssign( mix( float( 0.8 ), float( 1.2 ), roughness ) );
-
-	// Transmissive materials have different brightness characteristics
-	tolerance.mulAssign( mix( float( 1.0 ), float( 0.9 ), transmission ) );
-
-	// Dispersive materials need more aggressive clamping to reduce color noise
-	tolerance.mulAssign( mix( float( 1.0 ), float( 0.7 ), clamp( dispersion.mul( 0.1 ), 0.0, 1.0 ) ) );
-
-	return tolerance;
-
-} );
-
-// Calculate view-dependent firefly tolerance for specular materials
-export const getViewDependentTolerance = Fn( ( [ roughness, sampleDir, viewDir, normal ] ) => {
-
-	const tolerance = float( 1.0 ).toVar();
-
-	// For very smooth materials, allow brighter values in specular direction
-	If( roughness.lessThan( 0.2 ), () => {
-
-		const reflectDir = sampleDir.reflect( normal.negate() );
-		const specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
-		const viewDependentScale = mix( float( 1.0 ), float( 2.5 ), pow( specularAlignment, 4.0 ) );
-		tolerance.mulAssign( viewDependentScale );
-
-	} );
-
-	return tolerance;
-
-} );
+	}
+` );
 
 // Pre-computed material classification for faster branching
 export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clearcoat, emissive ] ) => {
@@ -256,7 +283,7 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 // Dynamic MIS strategy based on material properties
 export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmission, bounceIndex, throughput ] ) => {
 
-	const throughputStrength = maxComponent( throughput ).toVar();
+	const throughputStrength = maxComponent( { v: throughput } ).toVar();
 
 	const isSecondaryBounce = bounceIndex.greaterThan( int( 0 ) );
 	const envBoostForIndirect = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar();
@@ -264,9 +291,9 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmissi
 	const brdfWeight = float( 0.35 ).toVar();
 	const lightWeight = float( 0.3 ).toVar();
 	const envWeight = float( 0.35 ).toVar();
-	const useBRDFSampling = true;
+	const useBRDFSampling = tslBool( true );
 	const useLightSampling = throughputStrength.greaterThan( 0.01 ).toVar();
-	const useEnvSampling = true;
+	const useEnvSampling = tslBool( true );
 
 	If( roughness.lessThan( 0.1 ).and( metalness.greaterThan( 0.8 ) ), () => {
 
@@ -329,15 +356,18 @@ export const getDatafromStorageBuffer = Fn( ( [ buffer, stride, sampleIndex, dat
 
 } );
 
-export const arrayToMat3 = Fn( ( [ data1, data2 ] ) => {
+// Reconstruct mat3 from two vec4s — exact port of GLSL
+export const arrayToMat3 = wgslFn( `
+	fn arrayToMat3( data1: vec4f, data2: vec4f ) -> mat3x3f {
 
-	return mat3(
-		data1.x, data1.y, data1.z,
-		data1.w, data2.x, data2.y,
-		data2.z, data2.w, 1.0
-	);
+		return mat3x3f(
+			data1.xyz,
+			vec3f( data1.w, data2.xy ),
+			vec3f( data2.zw, 1.0 )
+		);
 
-} );
+	}
+` );
 
 export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
@@ -408,13 +438,13 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 		bumpScale: data12.r,
 		displacementScale: data12.g,
 		displacementMapIndex: int( data12.b ),
-		albedoTransform: arrayToMat3( data13, data14 ),
-		normalTransform: arrayToMat3( data15, data16 ),
-		roughnessTransform: arrayToMat3( data17, data18 ),
-		metalnessTransform: arrayToMat3( data19, data20 ),
-		emissiveTransform: arrayToMat3( data21, data22 ),
-		bumpTransform: arrayToMat3( data23, data24 ),
-		displacementTransform: arrayToMat3( data25, data26 ),
+		albedoTransform: arrayToMat3( { data1: data13, data2: data14 } ),
+		normalTransform: arrayToMat3( { data1: data15, data2: data16 } ),
+		roughnessTransform: arrayToMat3( { data1: data17, data2: data18 } ),
+		metalnessTransform: arrayToMat3( { data1: data19, data2: data20 } ),
+		emissiveTransform: arrayToMat3( { data1: data21, data2: data22 } ),
+		bumpTransform: arrayToMat3( { data1: data23, data2: data24 } ),
+		displacementTransform: arrayToMat3( { data1: data25, data2: data26 } ),
 	} );
 
 } );

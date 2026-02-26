@@ -2,10 +2,9 @@
 // Light data structures, access functions, and utility functions
 
 import {
-	Fn,
+	Fn, wgslFn,
 	vec3,
 	float,
-	int,
 	bool as tslBool,
 	If,
 	dot,
@@ -13,19 +12,10 @@ import {
 	cross,
 	length,
 	abs,
-	max,
-	min,
-	pow,
-	clamp,
-	cos,
-	sin,
-	sqrt,
-	smoothstep,
-	select,
 } from 'three/tsl';
 
 import { struct } from './structProxy.js';
-import { TWO_PI, EPSILON, REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
+import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 import { Ray } from './Struct.js';
 
 // ================================================================================
@@ -194,68 +184,59 @@ export const getSpotLight = Fn( ( [ spotLightsBuffer, index ] ) => {
 // ================================================================================
 
 // Utility function to validate ray direction
-export const isDirectionValid = Fn( ( [ direction, surfaceNormal ] ) => {
-
-	return dot( direction, surfaceNormal ).greaterThan( 0.0 );
-
-} );
+export const isDirectionValid = /*@__PURE__*/ wgslFn( `
+	fn isDirectionValid( direction: vec3f, surfaceNormal: vec3f ) -> bool {
+		return dot( direction, surfaceNormal ) > 0.0f;
+	}
+` );
 
 // Distance attenuation based on Frostbite PBR
-export const getDistanceAttenuation = Fn( ( [ lightDistance, cutoffDistance, decayExponent ] ) => {
-
-	const distanceFalloff = float( 1.0 ).div( max( pow( lightDistance, decayExponent ), 0.01 ) ).toVar();
-
-	If( cutoffDistance.greaterThan( 0.0 ), () => {
-
-		const ratio = pow( lightDistance.div( cutoffDistance ), float( 4.0 ) );
-		distanceFalloff.mulAssign( pow( clamp( float( 1.0 ).sub( ratio ), 0.0, 1.0 ), float( 2.0 ) ) );
-
-	} );
-
-	return distanceFalloff;
-
-} );
+export const getDistanceAttenuation = /*@__PURE__*/ wgslFn( `
+	fn getDistanceAttenuation( lightDistance: f32, cutoffDistance: f32, decayExponent: f32 ) -> f32 {
+		var distanceFalloff = 1.0f / max( pow( lightDistance, decayExponent ), 0.01f );
+		if ( cutoffDistance > 0.0f ) {
+			let ratio = pow( lightDistance / cutoffDistance, 4.0f );
+			distanceFalloff *= pow( clamp( 1.0f - ratio, 0.0f, 1.0f ), 2.0f );
+		}
+		return distanceFalloff;
+	}
+` );
 
 // Spot light attenuation
-export const getSpotAttenuation = Fn( ( [ coneCosine, penumbraCosine, angleCosine ] ) => {
-
-	return smoothstep( coneCosine, penumbraCosine, angleCosine );
-
-} );
+export const getSpotAttenuation = /*@__PURE__*/ wgslFn( `
+	fn getSpotAttenuation( coneCosine: f32, penumbraCosine: f32, angleCosine: f32 ) -> f32 {
+		return smoothstep( coneCosine, penumbraCosine, angleCosine );
+	}
+` );
 
 // Power heuristic for MIS
-export const misHeuristic = Fn( ( [ a, b ] ) => {
-
-	const aa = a.mul( a );
-	const bb = b.mul( b );
-	return aa.div( max( aa.add( bb ), EPSILON ) );
-
-} );
+export const misHeuristic = /*@__PURE__*/ wgslFn( `
+	fn misHeuristic( a: f32, b: f32 ) -> f32 {
+		let aa = a * a;
+		let bb = b * b;
+		return aa / max( aa + bb, 1e-6f );
+	}
+` );
 
 // ================================================================================
 // CONE SAMPLING FOR SOFT DIRECTIONAL SHADOWS
 // ================================================================================
 
-export const sampleCone = Fn( ( [ direction, halfAngle, xi ] ) => {
-
-	// Sample within cone using spherical coordinates
-	const cosHalfAngle = cos( halfAngle );
-	const cosTheta = cosHalfAngle.add( xi.x.mul( float( 1.0 ).sub( cosHalfAngle ) ) );
-	const sinTheta = sqrt( float( 1.0 ).sub( cosTheta.mul( cosTheta ) ) );
-	const phi = TWO_PI.mul( xi.y );
-
-	// Create local coordinate system
-	const up = select( abs( direction.z ).lessThan( 0.999 ), vec3( 0.0, 0.0, 1.0 ), vec3( 1.0, 0.0, 0.0 ) );
-	const tangent = normalize( cross( up, direction ) );
-	const bitangent = cross( direction, tangent );
-
-	// Convert to world space
-	const localDir = vec3( sinTheta.mul( cos( phi ) ), sinTheta.mul( sin( phi ) ), cosTheta );
-	return normalize(
-		tangent.mul( localDir.x ).add( bitangent.mul( localDir.y ) ).add( direction.mul( localDir.z ) )
-	);
-
-} );
+export const sampleCone = /*@__PURE__*/ wgslFn( `
+	fn sampleCone( direction: vec3f, halfAngle: f32, xi: vec2f ) -> vec3f {
+		let cosHalfAngle = cos( halfAngle );
+		let cosTheta = cosHalfAngle + xi.x * ( 1.0f - cosHalfAngle );
+		let sinTheta = sqrt( 1.0f - cosTheta * cosTheta );
+		let phi = 6.28318530717958647692f * xi.y;
+		// Create local coordinate system
+		let up = select( vec3f( 1.0f, 0.0f, 0.0f ), vec3f( 0.0f, 0.0f, 1.0f ), abs( direction.z ) < 0.999f );
+		let tangent = normalize( cross( up, direction ) );
+		let bitangent = cross( direction, tangent );
+		// Convert to world space
+		let localDir = vec3f( sinTheta * cos( phi ), sinTheta * sin( phi ), cosTheta );
+		return normalize( tangent * localDir.x + bitangent * localDir.y + direction * localDir.z );
+	}
+` );
 
 // ================================================================================
 // AREA LIGHT INTERSECTION TEST

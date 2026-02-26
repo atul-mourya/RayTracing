@@ -12,6 +12,7 @@
 
 import {
 	Fn,
+	wgslFn,
 	float,
 	vec2,
 	vec3,
@@ -45,27 +46,27 @@ import { cosineWeightedSample } from './MaterialSampling.js';
 // =============================================================================
 
 // Visualize depth with color gradient (near=white, far=black)
-const visualizeDepth = Fn( ( [ depth ] ) => {
-
-	return vec3( float( 1.0 ).sub( depth ) );
-
-} );
+const visualizeDepth = /*@__PURE__*/ wgslFn( `
+	fn visualizeDepth( depth: f32 ) -> vec3f {
+		return vec3f( 1.0f - depth );
+	}
+` );
 
 // Visualize normals in world space (RGB mapped from [-1,1] to [0,1])
-const visualizeNormal = Fn( ( [ normal ] ) => {
-
-	return normal.mul( 0.5 ).add( 0.5 );
-
-} );
+const visualizeNormal = /*@__PURE__*/ wgslFn( `
+	fn visualizeNormal( normal: vec3f ) -> vec3f {
+		return normal * 0.5f + 0.5f;
+	}
+` );
 
 // Compute NDC depth from world position (inlined to avoid circular dep with PathTracer.js)
-const computeNDCDepthLocal = Fn( ( [ worldPos, cameraProjectionMatrix, cameraViewMatrix ] ) => {
-
-	const clipPos = cameraProjectionMatrix.mul( cameraViewMatrix ).mul( vec4( worldPos, 1.0 ) );
-	const ndcDepth = clipPos.z.div( clipPos.w ).mul( 0.5 ).add( 0.5 );
-	return clamp( ndcDepth, 0.0, 1.0 );
-
-} );
+const computeNDCDepthLocal = /*@__PURE__*/ wgslFn( `
+	fn computeNDCDepthLocal( worldPos: vec3f, cameraProjectionMatrix: mat4x4f, cameraViewMatrix: mat4x4f ) -> f32 {
+		let clipPos = cameraProjectionMatrix * cameraViewMatrix * vec4f( worldPos, 1.0f );
+		let ndcDepth = clipPos.z / clipPos.w * 0.5f + 0.5f;
+		return clamp( ndcDepth, 0.0f, 1.0f );
+	}
+` );
 
 // =============================================================================
 // Main Debug Mode Function
@@ -106,10 +107,10 @@ export const TraceDebugMode = Fn( ( [
 		materialBuffer,
 	).toVar() );
 
-	// Case 1: Box/node test count visualization (GLSL stats[0] = per-node visits)
+	// Case 1: Triangle test count visualization (GLSL case 1 → stats.x = triTests)
 	If( visMode.equal( int( 1 ) ), () => {
 
-		const vis = float( hitInfo.boxTests ).div( debugVisScale );
+		const vis = float( hitInfo.triTests ).div( debugVisScale );
 		result.assign( select(
 			vis.lessThan( 1.0 ),
 			vec4( vec3( vis ), 1.0 ),
@@ -118,10 +119,10 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 2: Triangle test count visualization (GLSL stats[1] = per-triangle tests)
+	// Case 2: Box/node test count visualization (GLSL case 2 → stats.y = boxTests)
 	If( visMode.equal( int( 2 ) ), () => {
 
-		const vis = float( hitInfo.triTests ).div( debugVisScale );
+		const vis = float( hitInfo.boxTests ).div( debugVisScale );
 		result.assign( select(
 			vis.lessThan( 1.0 ),
 			vec4( vec3( vis ), 1.0 ),
@@ -147,7 +148,7 @@ export const TraceDebugMode = Fn( ( [
 
 		} ).Else( () => {
 
-			result.assign( vec4( visualizeNormal( hitInfo.normal ), 1.0 ) );
+			result.assign( vec4( visualizeNormal( { normal: hitInfo.normal } ), 1.0 ) );
 
 		} );
 
@@ -344,7 +345,7 @@ export const TraceDebugMode = Fn( ( [
 			const worldNormal = normalize( matSamples.normal );
 
 			// Encode as [0,1] range (same as gNormalDepth output)
-			result.assign( vec4( visualizeNormal( worldNormal ), 1.0 ) );
+			result.assign( vec4( visualizeNormal( { normal: worldNormal } ), 1.0 ) );
 
 		} );
 
@@ -361,10 +362,10 @@ export const TraceDebugMode = Fn( ( [
 		} ).Else( () => {
 
 			// Compute NDC depth (same as main shader)
-			const linearDepth = computeNDCDepthLocal( hitInfo.hitPoint, cameraProjectionMatrix, cameraViewMatrix );
+			const linearDepth = computeNDCDepthLocal( { worldPos: hitInfo.hitPoint, cameraProjectionMatrix, cameraViewMatrix } );
 
 			// Visualize: near=white, far=black
-			result.assign( vec4( visualizeDepth( linearDepth ), 1.0 ) );
+			result.assign( vec4( visualizeDepth( { depth: linearDepth } ), 1.0 ) );
 
 		} );
 
@@ -422,11 +423,11 @@ export const TraceDebugMode = Fn( ( [
 			const pixelSeed = uint( pixelCoord.x ).mul( uint( 1973 ) )
 				.add( uint( pixelCoord.y ).mul( uint( 9277 ) ) )
 				.add( frame.mul( uint( 26699 ) ) );
-			const rngState = pcgHash( wang_hash( pixelSeed ) ).toVar();
+			const rngState = pcgHash( { state: wang_hash( { seed: pixelSeed } ) } ).toVar();
 
 			// Cosine-weighted hemisphere sample around the surface normal
 			const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
-			const bounceDir = cosineWeightedSample( normalA, xi ).toVar();
+			const bounceDir = cosineWeightedSample( { N: normalA, xi } ).toVar();
 
 			// Trace secondary ray from the hit point (offset along normal to avoid self-intersection)
 			const bounceOrigin = hitInfo.hitPoint.add( normalA.mul( 0.001 ) ).toVar();

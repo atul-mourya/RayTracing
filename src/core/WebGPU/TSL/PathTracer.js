@@ -19,6 +19,7 @@
 
 import {
 	Fn,
+	wgslFn,
 	float,
 	vec2,
 	vec3,
@@ -79,13 +80,13 @@ export const dithering = Fn( ( [ color, seed ] ) => {
 } );
 
 // Compute NDC depth from world position for motion vector reprojection
-export const computeNDCDepth = Fn( ( [ worldPos, cameraProjectionMatrix, cameraViewMatrix ] ) => {
-
-	const clipPos = cameraProjectionMatrix.mul( cameraViewMatrix ).mul( vec4( worldPos, 1.0 ) );
-	const ndcDepth = clipPos.z.div( clipPos.w ).mul( 0.5 ).add( 0.5 );
-	return clamp( ndcDepth, 0.0, 1.0 );
-
-} );
+export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
+	fn computeNDCDepth( worldPos: vec3f, cameraProjectionMatrix: mat4x4f, cameraViewMatrix: mat4x4f ) -> f32 {
+		let clipPos = cameraProjectionMatrix * cameraViewMatrix * vec4f( worldPos, 1.0f );
+		let ndcDepth = clipPos.z / clipPos.w * 0.5f + 0.5f;
+		return clamp( ndcDepth, 0.0f, 1.0f );
+	}
+` );
 
 // Get required samples from adaptive sampling texture
 export const getRequiredSamples = Fn( ( [
@@ -255,7 +256,7 @@ const pathTracerImpl = Fn( ( [
 	const pixelColor = vec4( 0.0 ).toVar();
 	const pixelSamples = int( 0 ).toVar();
 
-	const baseSeed = getDecorrelatedSeed( pixelCoord, int( 0 ), frame ).toVar();
+	const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
 	const pixelIndex = int( pixelCoord.y ).mul( int( resolution.x ) ).add( int( pixelCoord.x ) ).toVar();
 
 	// MRT data
@@ -307,7 +308,7 @@ const pathTracerImpl = Fn( ( [
 	// Main sample loop
 	Loop( { start: int( 0 ), end: samplesCount, type: 'int', condition: '<' }, ( { i: rayIndex } ) => {
 
-		const seed = pcgHash( baseSeed.add( uint( rayIndex ) ) ).toVar();
+		const seed = pcgHash( { state: baseSeed.add( uint( rayIndex ) ) } ).toVar();
 
 		const stratifiedJitter = getStratifiedSample(
 			pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
@@ -396,9 +397,9 @@ const pathTracerImpl = Fn( ( [
 				// Compute proper NDC depth from actual hit point
 				If( traceResult.firstHitDistance.lessThan( 1e9 ), () => {
 
-					linearDepth.assign( computeNDCDepth(
-						traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
-					) );
+					linearDepth.assign( computeNDCDepth( {
+						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
+					} ) );
 
 				} ).Else( () => {
 

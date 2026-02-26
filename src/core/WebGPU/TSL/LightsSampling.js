@@ -257,8 +257,8 @@ export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, ruv, lightSel
 		If( ls_valid, () => {
 
 			const penumbraCosAngle = cos( light.angle.mul( 0.9 ) ).toVar(); // 10% penumbra
-			const coneAttenuation = getSpotAttenuation( coneCosAngle, penumbraCosAngle, spotCosAngle );
-			const distanceAttenuation = getDistanceAttenuation( lightDist, float( 0.0 ), float( 2.0 ) );
+			const coneAttenuation = getSpotAttenuation( { coneCosine: coneCosAngle, penumbraCosine: penumbraCosAngle, angleCosine: spotCosAngle } );
+			const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: float( 0.0 ), decayExponent: float( 2.0 ) } );
 
 			ls_emission.assign( light.color.mul( light.intensity ).mul( distanceAttenuation ).mul( coneAttenuation ) );
 
@@ -296,7 +296,7 @@ export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSe
 		const lightDir = toLight.div( lightDist ).toVar();
 
 		// Calculate distance attenuation
-		const distanceAttenuation = getDistanceAttenuation( lightDist, float( 0.0 ), float( 2.0 ) );
+		const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: float( 0.0 ), decayExponent: float( 2.0 ) } );
 
 		ls_lightType.assign( int( LIGHT_TYPE_POINT ) );
 		ls_direction.assign( lightDir );
@@ -858,7 +858,7 @@ export const sampleAreaLightContribution = Fn( ( [
 			If( surfaceFacing.greaterThan( 0.0 ), () => {
 
 				// Validate direction
-				If( isDirectionValid( lightDir, hitNormal ), () => {
+				If( isDirectionValid( { direction: lightDir, surfaceNormal: hitNormal } ), () => {
 
 					// Test for occlusion
 					const visibility = traceShadowRay(
@@ -881,7 +881,7 @@ export const sampleAreaLightContribution = Fn( ( [
 						const brdfPdf = calculateMaterialPDF( worldWo, lightDir, hitNormal, material ).toVar();
 
 						// Apply MIS weighting
-						const misWeight = select( brdfPdf.greaterThan( 0.0 ), misHeuristic( lightPdf, brdfPdf ), float( 1.0 ) ).toVar();
+						const misWeight = select( brdfPdf.greaterThan( 0.0 ), misHeuristic( { a: lightPdf, b: brdfPdf } ), float( 1.0 ) ).toVar();
 
 						// Calculate final contribution - guard division
 						const lightEmission = light.color.mul( light.intensity ).toVar();
@@ -1061,7 +1061,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 				const NoL = max( float( 0.0 ), dot( hitNormal, lightSample.direction ) ).toVar();
 				const lightImportance = lightSample.emission.x.add( lightSample.emission.y ).add( lightSample.emission.z ).toVar();
 
-				If( NoL.greaterThan( 0.0 ).and( lightImportance.mul( NoL ).greaterThan( importanceThreshold ) ).and( isDirectionValid( lightSample.direction, hitNormal ) ), () => {
+				If( NoL.greaterThan( 0.0 ).and( lightImportance.mul( NoL ).greaterThan( importanceThreshold ) ).and( isDirectionValid( { direction: lightSample.direction, surfaceNormal: hitNormal } ) ), () => {
 
 					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) ).toVar();
 					const visibility = traceShadowRay(
@@ -1087,11 +1087,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 							// Apply power heuristic for area lights and primary directional lights
 							If( lightSample.lightType.equal( int( LIGHT_TYPE_AREA ) ), () => {
 
-								misW.assign( powerHeuristic( lightPdfWeighted, brdfPdfWeighted ) );
+								misW.assign( powerHeuristic( { pdf1: lightPdfWeighted, pdf2: brdfPdfWeighted } ) );
 
 							} ).ElseIf( bounceIndex.equal( int( 0 ) ).and( lightSample.lightType.equal( int( LIGHT_TYPE_DIRECTIONAL ) ) ), () => {
 
-								misW.assign( powerHeuristic( lightPdfWeighted, brdfPdfWeighted ) );
+								misW.assign( powerHeuristic( { pdf1: lightPdfWeighted, pdf2: brdfPdfWeighted } ) );
 
 							} );
 
@@ -1119,7 +1119,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 				const NoL = max( float( 0.0 ), dot( hitNormal, brdfSampleDirection ) ).toVar();
 
-				If( NoL.greaterThan( 0.0 ).and( isDirectionValid( brdfSampleDirection, hitNormal ) ), () => {
+				If( NoL.greaterThan( 0.0 ).and( isDirectionValid( { direction: brdfSampleDirection, surfaceNormal: hitNormal } ) ), () => {
 
 					// Check intersection with area lights
 					If( numAreaLights.greaterThan( int( 0 ) ), () => {
@@ -1188,7 +1188,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 										const brdfPdfWeighted = brdfSamplePdf.mul( brdfWeight ).toVar();
 										const lightPdfWeighted = lightPdf.mul( lightWeight ).toVar();
-										const misW = powerHeuristic( brdfPdfWeighted, lightPdfWeighted ).toVar();
+										const misW = powerHeuristic( { pdf1: brdfPdfWeighted, pdf2: lightPdfWeighted } ).toVar();
 
 										const lightEmission = light.color.mul( light.intensity ).toVar();
 										// Guard division
@@ -1235,7 +1235,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 					const NoL = max( float( 0.0 ), dot( hitNormal, envDirection ) ).toVar();
 
-					If( NoL.greaterThan( 0.0 ).and( isDirectionValid( envDirection, hitNormal ) ), () => {
+					If( NoL.greaterThan( 0.0 ).and( isDirectionValid( { direction: envDirection, surfaceNormal: hitNormal } ) ), () => {
 
 						const visibility = traceShadowRay(
 							rayOrigin, envDirection, float( 1000.0 ), rngState,
@@ -1254,7 +1254,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 							const brdfPdfWeighted = bPdf.mul( brdfWeight ).toVar();
 							const misW = select(
 								bPdf.greaterThan( 0.0 ),
-								powerHeuristic( envPdfWeighted, brdfPdfWeighted ),
+								powerHeuristic( { pdf1: envPdfWeighted, pdf2: brdfPdfWeighted } ),
 								float( 1.0 )
 							).toVar();
 

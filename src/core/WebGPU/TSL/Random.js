@@ -1,6 +1,6 @@
 // Three.js Transpiler r182
 
-import { uniform, texture, textureSize, float, If, Fn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, Loop, shiftLeft, vec4, add, mix } from 'three/tsl';
+import { uniform, texture, textureSize, float, If, Fn, wgslFn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, vec4, add, mix } from 'three/tsl';
 import { DataTexture, FloatType } from 'three';
 
 // -----------------------------------------------------------------------------
@@ -20,7 +20,6 @@ _placeholderTex.needsUpdate = true;
 
 export const blueNoiseTextureNode = texture( _placeholderTex );
 blueNoiseTextureNode.setUpdateMatrix( false ); // No UV transform — we provide our own integer coords
-const blueNoiseTexture = blueNoiseTextureNode;
 const blueNoiseTextureSize = vec2( textureSize( blueNoiseTextureNode ) );
 
 // Golden ratio constants for dimension decorrelation
@@ -31,304 +30,148 @@ const INV_PHI2 = float( 0.38196601125 );
 
 // Sobol sequence direction vectors using function lookup for compatibility
 
-export const getSobolDirectionVector = /*@__PURE__*/ Fn( ( [ index ] ) => {
-
-	If( index.equal( int( 0 ) ), () => {
-
-		return uint( 2147483648 );
-
-	} );
-
-	If( index.equal( int( 1 ) ), () => {
-
-		return uint( 1073741824 );
-
-	} );
-
-	If( index.equal( int( 2 ) ), () => {
-
-		return uint( 536870912 );
-
-	} );
-
-	If( index.equal( int( 3 ) ), () => {
-
-		return uint( 268435456 );
-
-	} );
-
-	If( index.equal( int( 4 ) ), () => {
-
-		return uint( 134217728 );
-
-	} );
-
-	If( index.equal( int( 5 ) ), () => {
-
-		return uint( 67108864 );
-
-	} );
-
-	If( index.equal( int( 6 ) ), () => {
-
-		return uint( 33554432 );
-
-	} );
-
-	If( index.equal( int( 7 ) ), () => {
-
-		return uint( 16777216 );
-
-	} );
-
-	If( index.equal( int( 8 ) ), () => {
-
-		return uint( 8388608 );
-
-	} );
-
-	If( index.equal( int( 9 ) ), () => {
-
-		return uint( 4194304 );
-
-	} );
-
-	If( index.equal( int( 10 ) ), () => {
-
-		return uint( 2097152 );
-
-	} );
-
-	If( index.equal( int( 11 ) ), () => {
-
-		return uint( 1048576 );
-
-	} );
-
-	If( index.equal( int( 12 ) ), () => {
-
-		return uint( 524288 );
-
-	} );
-
-	If( index.equal( int( 13 ) ), () => {
-
-		return uint( 262144 );
-
-	} );
-
-	If( index.equal( int( 14 ) ), () => {
-
-		return uint( 131072 );
-
-	} );
-
-	If( index.equal( int( 15 ) ), () => {
-
-		return uint( 65536 );
-
-	} );
-
-	If( index.equal( int( 16 ) ), () => {
-
-		return uint( 32768 );
-
-	} );
-
-	If( index.equal( int( 17 ) ), () => {
-
-		return uint( 16384 );
-
-	} );
-
-	If( index.equal( int( 18 ) ), () => {
-
-		return uint( 8192 );
-
-	} );
-
-	If( index.equal( int( 19 ) ), () => {
-
-		return uint( 4096 );
-
-	} );
-
-	If( index.equal( int( 20 ) ), () => {
-
-		return uint( 2048 );
-
-	} );
-
-	If( index.equal( int( 21 ) ), () => {
-
-		return uint( 1024 );
-
-	} );
-
-	If( index.equal( int( 22 ) ), () => {
-
-		return uint( 512 );
-
-	} );
-
-	If( index.equal( int( 23 ) ), () => {
-
-		return uint( 256 );
-
-	} );
-
-	If( index.equal( int( 24 ) ), () => {
-
-		return uint( 128 );
-
-	} );
-
-	If( index.equal( int( 25 ) ), () => {
-
-		return uint( 64 );
-
-	} );
-
-	If( index.equal( int( 26 ) ), () => {
-
-		return uint( 32 );
-
-	} );
-
-	If( index.equal( int( 27 ) ), () => {
-
-		return uint( 16 );
-
-	} );
-
-	If( index.equal( int( 28 ) ), () => {
-
-		return uint( 8 );
-
-	} );
-
-	If( index.equal( int( 29 ) ), () => {
-
-		return uint( 4 );
-
-	} );
-
-	If( index.equal( int( 30 ) ), () => {
-
-		return uint( 2 );
-
-	} );
-
-	return uint( 1 );
-
-}, { index: 'int', return: 'uint' } );
-
-// Primes for hashing (carefully chosen to avoid correlations)
-
-const PRIME1 = uint( 2654435761 );
-const PRIME2 = uint( 3266489917 );
-const PRIME3 = uint( 668265263 );
-const PRIME4 = uint( 374761393 );
+// Sobol direction vectors for first dimension — exact port of GLSL
+export const getSobolDirectionVector = /*@__PURE__*/ wgslFn( `
+	fn getSobolDirectionVector( index: i32 ) -> u32 {
+
+		switch ( index ) {
+			case 0:  { return 2147483648u; }
+			case 1:  { return 1073741824u; }
+			case 2:  { return  536870912u; }
+			case 3:  { return  268435456u; }
+			case 4:  { return  134217728u; }
+			case 5:  { return   67108864u; }
+			case 6:  { return   33554432u; }
+			case 7:  { return   16777216u; }
+			case 8:  { return    8388608u; }
+			case 9:  { return    4194304u; }
+			case 10: { return    2097152u; }
+			case 11: { return    1048576u; }
+			case 12: { return     524288u; }
+			case 13: { return     262144u; }
+			case 14: { return     131072u; }
+			case 15: { return      65536u; }
+			case 16: { return      32768u; }
+			case 17: { return      16384u; }
+			case 18: { return       8192u; }
+			case 19: { return       4096u; }
+			case 20: { return       2048u; }
+			case 21: { return       1024u; }
+			case 22: { return        512u; }
+			case 23: { return        256u; }
+			case 24: { return        128u; }
+			case 25: { return         64u; }
+			case 26: { return         32u; }
+			case 27: { return         16u; }
+			case 28: { return          8u; }
+			case 29: { return          4u; }
+			case 30: { return          2u; }
+			default: { return          1u; }
+		}
+
+	}
+` );
 
 // -----------------------------------------------------------------------------
 // Basic random number generation
 // -----------------------------------------------------------------------------
 // PCG (Permuted Congruential Generator) hash function
 
-export const pcgHash = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
+export const pcgHash = /*@__PURE__*/ wgslFn( `
+	fn pcgHash( state: u32 ) -> u32 {
 
-	const s = state_immutable.toVar();
-	s.assign( s.mul( 747796405 ).add( 2891336453 ) );
-	s.assign( s.shiftRight( s.shiftRight( 28 ).add( 4 ) ).bitXor( s ).mul( 277803737 ) );
-	s.assign( s.shiftRight( 22 ).bitXor( s ) );
+		var s = state;
+		s = s * 747796405u + 2891336453u;
+		s = ( ( s >> ( ( s >> 28u ) + 4u ) ) ^ s ) * 277803737u;
+		s = ( s >> 22u ) ^ s;
+		return s;
 
-	return s;
-
-}, { state: 'uint', return: 'uint' } );
+	}
+` );
 
 // Wang hash for additional mixing
 
-export const wang_hash = /*@__PURE__*/ Fn( ( [ seed_immutable ] ) => {
+export const wang_hash = /*@__PURE__*/ wgslFn( `
+	fn wang_hash( seed: u32 ) -> u32 {
 
-	const sd = seed_immutable.toVar();
-	sd.assign( sd.bitXor( 61 ).bitXor( sd.shiftRight( 16 ) ) );
-	sd.mulAssign( 9 );
-	sd.assign( sd.bitXor( sd.shiftRight( 4 ) ) );
-	sd.mulAssign( 0x27d4eb2d );
-	sd.assign( sd.bitXor( sd.shiftRight( 15 ) ) );
+		var s = seed;
+		s = ( s ^ 61u ) ^ ( s >> 16u );
+		s = s * 9u;
+		s = s ^ ( s >> 4u );
+		s = s * 0x27d4eb2du;
+		s = s ^ ( s >> 15u );
+		return s;
 
-	return sd;
-
-}, { seed: 'uint', return: 'uint' } );
+	}
+` );
 
 // OPTIMIZED: Fast random value for hot paths - uses simpler hash for performance
 // Performance gain: ~40% faster than full PCG for non-critical samples
 
-export const RandomValueFast = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
+// Plain JS functions (not Fn()) — they inline at the call site where `state` is a
+// mutable .toVar() variable. This replicates GLSL `inout uint state` semantics:
+// the caller's rngState advances on every call.
 
-	const state = state_immutable.toVar();
+export const RandomValueFast = ( state ) => {
 
 	// Simple multiply-with-carry generator - much faster than PCG
-
 	state.assign( state.mul( 1664525 ).add( 1013904223 ) );
-
 	return float( state.shiftRight( 8 ) ).mul( 1.0 / 16777216.0 );
 
-} );
+};
 
 // Generate random float between 0 and 1 with full PCG quality
 
-export const RandomValue = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
+export const RandomValue = ( state ) => {
 
-	const state = state_immutable.toVar();
-	state.assign( pcgHash( state ) );
-
+	state.assign( pcgHash( { state } ) );
 	return float( state.shiftRight( 8 ) ).mul( 1.0 / 16777216.0 );
 
-} );
+};
 
 // Generate random float with better precision
 
-export const RandomValueHighPrecision = /*@__PURE__*/ Fn( ( [ state_immutable ] ) => {
+export const RandomValueHighPrecision = ( state ) => {
 
-	const state = state_immutable.toVar();
-	const s1 = pcgHash( state );
+	// Capture s1 immediately (.toVar()) before advancing state, so it isn't
+	// re-evaluated lazily after the second pcgHash advances state further.
+	const s1 = pcgHash( { state } ).toVar();
 	state.assign( s1 );
-	const s2 = pcgHash( state );
+	const s2 = pcgHash( { state } ).toVar();
 
 	// Combine two 24-bit values for 48-bit precision
-
-
 	return float( s1.shiftRight( 8 ) ).add( float( s2.shiftRight( 8 ) ).mul( 1.0 / 16777216.0 ) ).mul( 1.0 / 16777216.0 );
 
-} );
+};
 
 // -----------------------------------------------------------------------------
 // Directional sampling functions
 // -----------------------------------------------------------------------------
 // OPTIMIZED: Fast random point in unit circle using simpler RNG for hot paths
 
-export const RandomPointInCircle = /*@__PURE__*/ Fn( ( [ rngState ] ) => {
+export const RandomPointInCircle = ( rngState ) => {
 
 	// Use fast RNG for circle sampling - adequate quality for DOF/sampling
-
-	const angle = RandomValueFast( rngState ).mul( TWO_PI );
+	// .toVar() captures angle immediately so cos/sin don't read state after the 2nd advance
+	const angle = RandomValueFast( rngState ).mul( TWO_PI ).toVar();
 	const pointOnCircle = vec2( cos( angle ), sin( angle ) );
 
 	return pointOnCircle.mul( sqrt( RandomValueFast( rngState ) ) );
 
-} );
+};
 
 // -----------------------------------------------------------------------------
 // Blue noise sampling with proper multi-dimensional support
 // -----------------------------------------------------------------------------
 // Cranley-Patterson rotation for decorrelation
 
-export const cranleyPatterson2D = /*@__PURE__*/ Fn( ( [ p, offset ] ) => {
+export const cranleyPatterson2D = /*@__PURE__*/ wgslFn( `
+	fn cranleyPatterson2D( p: vec2f, offset: vec2f ) -> vec2f {
 
-	return fract( p.add( offset ) );
+		return fract( p + offset );
 
-}, { p: 'vec2', offset: 'vec2', return: 'vec2' } );
+	}
+` );
 
 // Improved blue noise sampling that properly uses all parameters
 
@@ -340,7 +183,7 @@ export const sampleBlueNoiseRaw = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex
 
 	// Frame-based decorrelation with better hash
 
-	const frameHash = wang_hash( pcgHash( uint( frame ) ) );
+	const frameHash = wang_hash( { seed: pcgHash( { state: uint( frame ) } ) } );
 	const frameOffset = vec2( float( frameHash.bitAnd( 0xFFFF ) ).div( 65536.0 ), float( frameHash.shiftRight( 16 ).bitAnd( 0xFFFF ) ).div( 65536.0 ) );
 
 	// Scale offsets to texture size
@@ -353,12 +196,11 @@ export const sampleBlueNoiseRaw = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex
 	const coords = mod( pixelCoords.add( scaledDimOffset ).add( scaledFrameOffset ), vec2( blueNoiseTextureSize ) );
 
 	// Ensure positive coordinates and fetch
+	// .load() → textureLoad() in WGSL: exact integer texel fetch, no filtering (≡ GLSL texelFetch)
 
 	const texCoord = ivec2( floor( coords ) );
 
-	const result = blueNoiseTexture.sample( texCoord ).setSampler( false );
-	result.updateMatrix = false;
-	return result;
+	return blueNoiseTextureNode.load( texCoord );
 
 }, { pixelCoords: 'vec2', sampleIndex: 'int', bounceIndex: 'int', frame: 'int', return: 'vec4' } );
 
@@ -444,10 +286,10 @@ export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, cur
 
 	// Apply additional Cranley-Patterson rotation for better distribution
 
-	const seed = pcgHash( uint( currentSample ).bitXor( wang_hash( uint( maxSamples ) ) ) );
+	const seed = pcgHash( { state: uint( currentSample ).bitXor( wang_hash( { seed: uint( maxSamples ) } ) ) } );
 	const rotation = vec2( float( seed.bitAnd( 0xFFFF ) ).div( 65536.0 ), float( seed.shiftRight( 16 ).bitAnd( 0xFFFF ) ).div( 65536.0 ) );
 
-	return cranleyPatterson2D( noise.xy, rotation );
+	return cranleyPatterson2D( { p: noise.xy, offset: rotation } );
 
 }, { pixelCoords: 'vec2', currentSample: 'int', maxSamples: 'int', return: 'vec2', frame: 'int' } );
 
@@ -456,84 +298,90 @@ export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, cur
 // -----------------------------------------------------------------------------
 // Halton sequence generator with Owen scrambling
 
-export const haltonScrambled = /*@__PURE__*/ Fn( ( [ index, base, scramble ] ) => {
+export const haltonScrambled = /*@__PURE__*/ wgslFn( `
+	fn haltonScrambled( index: i32, base: i32, scramble: u32 ) -> f32 {
 
-	const result = float( 0.0 ).toVar();
-	const f = float( 1.0 ).toVar();
-	const i1 = index.toVar();
-	const haltonIter = int( 0 ).toVar();
+		var result = 0.0f;
+		var f = 1.0f;
+		var i = index;
+		var iter = 0;
 
-	Loop( i1.greaterThan( int( 0 ) ).and( haltonIter.lessThan( int( 32 ) ) ), () => {
+		while ( i > 0 && iter < 32 ) {
 
-		haltonIter.addAssign( 1 );
+			iter += 1;
+			f /= f32( base );
 
-		f.divAssign( float( base ) );
+			// Apply digit scrambling
+			var digit = i % base;
+			digit = i32( wang_hash( u32( digit ) ^ scramble ) % u32( base ) );
+			result += f * f32( digit );
+			i = i32( floor( f32( i ) / f32( base ) ) );
 
-		// Apply digit scrambling
+		}
 
-		const digit = mod( i1, base ).toVar();
-		digit.assign( int( mod( wang_hash( uint( digit ).bitXor( scramble ) ), uint( base ) ) ) );
-		result.addAssign( f.mul( float( digit ) ) );
-		i1.assign( int( floor( float( i1 ).div( float( base ) ) ) ) );
+		return result;
 
-	} );
-
-	return result;
-
-}, { index: 'int', base: 'int', scramble: 'uint', return: 'float' } );
+	}
+`, [ wang_hash ] );
 
 // Owen scrambling for Sobol sequence
 
-export const owen_scramble = /*@__PURE__*/ Fn( ( [ x_immutable, seed ] ) => {
+export const owen_scramble = /*@__PURE__*/ wgslFn( `
+	fn owen_scramble( x: u32, seed: u32 ) -> u32 {
 
-	const v = x_immutable.toVar();
-	v.assign( v.bitXor( v.mul( 0x3d20adea ) ) );
-	v.addAssign( seed );
-	v.mulAssign( seed.shiftRight( 16 ).bitOr( 1 ) );
-	v.bitXorAssign( v.shiftRight( 15 ) );
-	v.mulAssign( 0x5851f42d );
-	v.bitXorAssign( v.shiftRight( 12 ) );
-	v.mulAssign( 0x4c957f2d );
-	v.bitXorAssign( v.shiftRight( 18 ) );
+		var v = x;
+		v ^= v * 0x3d20adeau;
+		v += seed;
+		v *= ( seed >> 16u ) | 1u;
+		v ^= v >> 15u;
+		v *= 0x5851f42du;
+		v ^= v >> 12u;
+		v *= 0x4c957f2du;
+		v ^= v >> 18u;
+		return v;
 
-	return v;
-
-}, { x: 'uint', seed: 'uint', return: 'uint' } );
+	}
+` );
 
 // Owen-scrambled Sobol sequence
 
-export const owen_scrambled_sobol = /*@__PURE__*/ Fn( ( [ index, dimension, seed ] ) => {
+export const owen_scrambled_sobol = /*@__PURE__*/ wgslFn( `
+	fn owen_scrambled_sobol( index: u32, dimension: u32, seed: u32 ) -> f32 {
 
-	const result = uint( 0 ).toVar();
+		var result = 0u;
+		for ( var i = 0; i < 32; i++ ) {
 
-	Loop( { start: int( 0 ), end: int( 32 ) }, ( { i } ) => {
+			if ( ( index & ( 1u << u32( i ) ) ) != 0u ) {
 
-		If( index.bitAnd( shiftLeft( uint( 1 ), i ) ).notEqual( uint( 0 ) ), () => {
+				result ^= getSobolDirectionVector( i ) << dimension;
 
-			result.bitXorAssign( getSobolDirectionVector( i ).shiftLeft( dimension ) );
+			}
 
-		} );
+		}
 
-	} );
+		result = owen_scramble( result, seed );
+		return f32( result ) / 4294967296.0f;
 
-	result.assign( owen_scramble( result, seed ) );
+	}
+`, [ getSobolDirectionVector, owen_scramble ] );
 
-	return float( result ).div( 4294967296.0 );
+export const owen_scrambled_sobol2D = /*@__PURE__*/ wgslFn( `
+	fn owen_scrambled_sobol2D( index: u32, seed: u32 ) -> vec2f {
 
-}, { index: 'uint', dimension: 'uint', seed: 'uint', return: 'float' } );
+		return vec2f(
+			owen_scrambled_sobol( index, 0u, seed ),
+			owen_scrambled_sobol( index, 1u, seed )
+		);
 
-export const owen_scrambled_sobol2D = /*@__PURE__*/ Fn( ( [ index, seed ] ) => {
-
-	return vec2( owen_scrambled_sobol( index, uint( 0 ), seed ), owen_scrambled_sobol( index, uint( 1 ), seed ) );
-
-}, { index: 'uint', seed: 'uint', return: 'vec2' } );
+	}
+`, [ owen_scrambled_sobol ] );
 
 // -----------------------------------------------------------------------------
 // Multi-dimensional sampling interface
 // -----------------------------------------------------------------------------
 // Get N-dimensional sample (up to 4D)
 
-export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, dimensions, preferredTechnique, resolution, frame ] ) => {
+export const getRandomSampleND = ( pixelCoord, sampleIndex, bounceIndex, rngState, dimensions, preferredTechnique, resolution, frame ) => {
 
 	const technique = select( preferredTechnique.notEqual( int( - 1 ) ), preferredTechnique, samplingTechnique );
 	const result = vec4( 0.0 ).toVar();
@@ -541,75 +389,103 @@ export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, 
 	// PCG (technique 0)
 	If( technique.equal( int( 0 ) ), () => {
 
+		// Check useFast once and branch — select() would evaluate both RandomValueFast and
+		// RandomValue unconditionally, advancing state twice for each dimension.
 		const useFast = dimensions.greaterThan( int( 2 ) );
 
-		result.x.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
+		If( useFast, () => {
 
-		If( dimensions.greaterThan( int( 1 ) ), () => {
+			result.x.assign( RandomValueFast( rngState ) );
 
-			result.y.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
+			If( dimensions.greaterThan( int( 1 ) ), () => {
 
-		} );
+				result.y.assign( RandomValueFast( rngState ) );
 
-		If( dimensions.greaterThan( int( 2 ) ), () => {
+			} );
 
-			result.z.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
+			If( dimensions.greaterThan( int( 2 ) ), () => {
 
-		} );
+				result.z.assign( RandomValueFast( rngState ) );
 
-		If( dimensions.greaterThan( int( 3 ) ), () => {
+			} );
 
-			result.w.assign( select( useFast, RandomValueFast( rngState ), RandomValue( rngState ) ) );
+			If( dimensions.greaterThan( int( 3 ) ), () => {
+
+				result.w.assign( RandomValueFast( rngState ) );
+
+			} );
+
+		} ).Else( () => {
+
+			result.x.assign( RandomValue( rngState ) );
+
+			If( dimensions.greaterThan( int( 1 ) ), () => {
+
+				result.y.assign( RandomValue( rngState ) );
+
+			} );
+
+			If( dimensions.greaterThan( int( 2 ) ), () => {
+
+				result.z.assign( RandomValue( rngState ) );
+
+			} );
+
+			If( dimensions.greaterThan( int( 3 ) ), () => {
+
+				result.w.assign( RandomValue( rngState ) );
+
+			} );
 
 		} );
 
 	} ).ElseIf( technique.equal( int( 1 ) ), () => {
 
 		// Halton
-		const scramble = pcgHash( uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) );
+		const scramble = pcgHash( { state: uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) } );
 
-		result.x.assign( haltonScrambled( sampleIndex, int( 2 ), scramble ) );
+		result.x.assign( haltonScrambled( { index: sampleIndex, base: int( 2 ), scramble } ) );
 
 		If( dimensions.greaterThan( int( 1 ) ), () => {
 
-			result.y.assign( haltonScrambled( sampleIndex, int( 3 ), scramble ) );
+			result.y.assign( haltonScrambled( { index: sampleIndex, base: int( 3 ), scramble } ) );
 
 		} );
 
 		If( dimensions.greaterThan( int( 2 ) ), () => {
 
-			result.z.assign( haltonScrambled( sampleIndex, int( 5 ), scramble ) );
+			result.z.assign( haltonScrambled( { index: sampleIndex, base: int( 5 ), scramble } ) );
 
 		} );
 
 		If( dimensions.greaterThan( int( 3 ) ), () => {
 
-			result.w.assign( haltonScrambled( sampleIndex, int( 7 ), scramble ) );
+			result.w.assign( haltonScrambled( { index: sampleIndex, base: int( 7 ), scramble } ) );
 
 		} );
 
 	} ).ElseIf( technique.equal( int( 2 ) ), () => {
 
 		// Sobol
-		const seed = pcgHash( uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) );
+		const seed = pcgHash( { state: uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) } );
 
-		result.x.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 0 ), seed ) );
+		result.x.assign( owen_scrambled_sobol( { index: uint( sampleIndex ), dimension: uint( 0 ), seed } ) );
 
 		If( dimensions.greaterThan( int( 1 ) ), () => {
 
-			result.y.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 1 ), seed ) );
+			result.y.assign( owen_scrambled_sobol( { index: uint( sampleIndex ), dimension: uint( 1 ), seed } ) );
 
 		} );
 
 		If( dimensions.greaterThan( int( 2 ) ), () => {
 
-			result.z.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 2 ), seed ) );
+			result.z.assign( owen_scrambled_sobol( { index: uint( sampleIndex ), dimension: uint( 2 ), seed } ) );
 
 		} );
 
 		If( dimensions.greaterThan( int( 3 ) ), () => {
 
-			result.w.assign( owen_scrambled_sobol( uint( sampleIndex ), uint( 3 ), seed ) );
+			result.w.assign( owen_scrambled_sobol( { index: uint( sampleIndex ), dimension: uint( 3 ), seed } ) );
 
 		} );
 
@@ -636,14 +512,14 @@ export const getRandomSampleND = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, 
 
 	return result;
 
-}, { pixelCoord: 'vec2', sampleIndex: 'int', bounceIndex: 'int', rngState: 'uint', dimensions: 'int', preferredTechnique: 'int', resolution: 'vec2', frame: 'int', return: 'vec4' } );
+};
 
 // -----------------------------------------------------------------------------
 // Hybrid sampling methods
 // -----------------------------------------------------------------------------
 // Combine quasi-random and pseudo-random sampling with blue noise awareness
 
-export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pixelIndex, resolution, frame ] ) => {
+export const HybridRandomSample2D = ( state, sampleIndex, pixelIndex, resolution, frame ) => {
 
 	const quasi = vec2( 0.0 ).toVar();
 	const useQuasi = int( 1 ).toVar();
@@ -660,137 +536,152 @@ export const HybridRandomSample2D = /*@__PURE__*/ Fn( ( [ state, sampleIndex, pi
 
 		// Sobol (technique 2)
 
-		const seed = pcgHash( uint( pixelIndex ) );
-		quasi.assign( owen_scrambled_sobol2D( uint( sampleIndex ), seed ) );
+		const seed = pcgHash( { state: uint( pixelIndex ) } );
+		quasi.assign( owen_scrambled_sobol2D( { index: uint( sampleIndex ), seed } ) );
 
 	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 1 ) ), () => {
 
 		// Halton (technique 1)
 
-		const scramble = wang_hash( uint( pixelIndex ) );
-		quasi.assign( vec2( haltonScrambled( sampleIndex, int( 2 ), scramble ), haltonScrambled( sampleIndex, int( 3 ), scramble ) ) );
+		const scramble = wang_hash( { seed: uint( pixelIndex ) } );
+		quasi.assign( vec2( haltonScrambled( { index: sampleIndex, base: int( 2 ), scramble } ), haltonScrambled( { index: sampleIndex, base: int( 3 ), scramble } ) ) );
 
 	} ).Else( () => {
 
 		// PCG fallback (technique 0) - use fast variant for fallback path
-
-		quasi.assign( vec2( RandomValueFast( state ), RandomValueFast( state ) ) );
+		// .toVar() on each call to capture value before next state advance
+		const q1 = RandomValueFast( state ).toVar();
+		const q2 = RandomValueFast( state ).toVar();
+		quasi.assign( vec2( q1, q2 ) );
 		useQuasi.assign( 0 );
 
 	} );
 
 	// Add small random offset for better convergence - use fast RNG for perturbation
 	// Only apply for quasi-random sequences (Sobol, Halton)
-
-	const pseudo = vec2( RandomValueFast( state ), RandomValueFast( state ) );
+	// .toVar() on each call to capture value before next state advance
+	const p1 = RandomValueFast( state ).toVar();
+	const p2 = RandomValueFast( state ).toVar();
+	const pseudo = vec2( p1, p2 );
 
 	return select( useQuasi.greaterThan( int( 0 ) ), fract( quasi.add( pseudo.mul( 0.01 ) ) ), quasi );
 
-} );
+};
 
 // -----------------------------------------------------------------------------
 // Main sampling interface functions
 // -----------------------------------------------------------------------------
 // Get random sample based on preferred technique (2D)
 
-export const getRandomSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, preferredTechnique, resolution, frame ] ) => {
+export const getRandomSample = ( pixelCoord, sampleIndex, bounceIndex, rngState, preferredTechnique, resolution, frame ) => {
 
 	const sample4D = getRandomSampleND( pixelCoord, sampleIndex, bounceIndex, rngState, int( 2 ), preferredTechnique, resolution, frame );
 
 	return sample4D.xy;
 
-}, { pixelCoord: 'vec2', sampleIndex: 'int', bounceIndex: 'int', rngState: 'uint', preferredTechnique: 'int', resolution: 'vec2', frame: 'int', return: 'vec2' } );
+};
 
 // Get stratified sample with proper blue noise support
 
-export const getStratifiedSample = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, totalRays, rngState, resolution, frame ] ) => {
+export const getStratifiedSample = ( pixelCoord, rayIndex, totalRays, rngState, resolution, frame ) => {
+
+	// result variable avoids early-return ReturnNode escaping into outer Fn scope
+	const result = vec2( 0.0 ).toVar();
 
 	If( totalRays.lessThanEqual( int( 1 ) ), () => {
 
-		return getRandomSample( pixelCoord, rayIndex, int( 0 ), rngState, int( - 1 ), resolution, frame );
-
-	} );
-
-	// Calculate strata dimensions
-
-	const strataX = int( sqrt( float( totalRays ) ) );
-	const strataY = totalRays.add( strataX ).sub( 1 ).div( strataX );
-	const strataIdx = mod( rayIndex, strataX.mul( strataY ) );
-	const sx = mod( strataIdx, strataX );
-	const sy = strataIdx.div( strataX );
-
-	// Base stratified position
-
-	const strataPos = vec2( float( sx ), float( sy ) ).div( vec2( float( strataX ), float( strataY ) ) );
-
-	// Enhanced jitter based on sampling technique with blue noise fallback for better convergence
-
-	const jitter = vec2( 0.0 ).toVar();
-
-	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
-
-		// Blue noise - improved progressive sampling
-
-		jitter.assign( sampleProgressiveBlueNoise( pixelCoord, rayIndex, totalRays, frame ) );
+		result.assign( getRandomSample( pixelCoord, rayIndex, int( 0 ), rngState, int( - 1 ), resolution, frame ) );
 
 	} ).Else( () => {
 
-		// Enhanced fallback: use fast sampling with slight blue noise influence for better convergence
+		// Calculate strata dimensions
 
-		jitter.assign( vec2( RandomValueFast( rngState ), RandomValueFast( rngState ) ) );
+		const strataX = int( sqrt( float( totalRays ) ) );
+		const strataY = totalRays.add( strataX ).sub( 1 ).div( strataX );
+		const strataIdx = mod( rayIndex, strataX.mul( strataY ) );
+		const sx = mod( strataIdx, strataX );
+		const sy = strataIdx.div( strataX );
 
-		// Add subtle blue noise influence even for non-blue-noise techniques
+		// Base stratified position
 
-		If( totalRays.greaterThan( int( 4 ) ), () => {
+		const strataPos = vec2( float( sx ), float( sy ) ).div( vec2( float( strataX ), float( strataY ) ) );
 
-			// Only for multi-sample scenarios
+		// Enhanced jitter based on sampling technique with blue noise fallback for better convergence
 
-			const blueNoiseInfluence = sampleBlueNoise2D( pixelCoord, rayIndex, int( 0 ), frame ).mul( 0.1 );
-			jitter.assign( mix( jitter, blueNoiseInfluence, 0.2 ) );
+		const jitter = vec2( 0.0 ).toVar();
+
+		If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
+
+			// Blue noise - improved progressive sampling
+
+			jitter.assign( sampleProgressiveBlueNoise( pixelCoord, rayIndex, totalRays, frame ) );
+
+		} ).Else( () => {
+
+			// Enhanced fallback: use fast sampling with slight blue noise influence for better convergence
+			// .toVar() on each call to capture value before next state advance
+
+			const j1 = RandomValueFast( rngState ).toVar();
+			const j2 = RandomValueFast( rngState ).toVar();
+			jitter.assign( vec2( j1, j2 ) );
+
+			// Add subtle blue noise influence even for non-blue-noise techniques
+
+			If( totalRays.greaterThan( int( 4 ) ), () => {
+
+				// Only for multi-sample scenarios
+
+				const blueNoiseInfluence = sampleBlueNoise2D( pixelCoord, rayIndex, int( 0 ), frame ).mul( 0.1 );
+				jitter.assign( mix( jitter, blueNoiseInfluence, 0.2 ) );
+
+			} );
 
 		} );
 
+		jitter.divAssign( vec2( float( strataX ), float( strataY ) ) );
+
+		result.assign( strataPos.add( jitter ) );
+
 	} );
 
-	jitter.divAssign( vec2( float( strataX ), float( strataY ) ) );
+	return result;
 
-	return strataPos.add( jitter );
-
-}, { pixelCoord: 'vec2', rayIndex: 'int', totalRays: 'int', rngState: 'uint', resolution: 'vec2', frame: 'int', return: 'vec2' } );
+};
 
 // Get decorrelated seed with better mixing
 
-export const getDecorrelatedSeed = /*@__PURE__*/ Fn( ( [ pixelCoord, rayIndex, frame ] ) => {
+export const getDecorrelatedSeed = /*@__PURE__*/ wgslFn( `
+	fn getDecorrelatedSeed( pixelCoord: vec2f, rayIndex: i32, frame: u32 ) -> u32 {
 
-	// Use multiple primes for better decorrelation
+		// Use multiple primes for better decorrelation
+		let pixelSeed = u32( pixelCoord.x ) * 2654435761u + u32( pixelCoord.y ) * 3266489917u;
+		let raySeed = u32( rayIndex ) * 668265263u;
+		let frameSeed = frame * 374761393u;
 
-	const pixelSeed = uint( pixelCoord.x ).mul( PRIME1 ).add( uint( pixelCoord.y ).mul( PRIME2 ) );
-	const raySeed = uint( rayIndex ).mul( PRIME3 );
-	const frameSeed = frame.mul( PRIME4 );
+		// Multiple rounds of hashing for better quality
+		var seed = wang_hash( pixelSeed );
+		seed = pcgHash( seed ^ raySeed );
+		seed = wang_hash( seed + frameSeed );
+		return seed;
 
-	// Multiple rounds of hashing for better quality
-
-	const seed = wang_hash( pixelSeed );
-	seed.assign( pcgHash( seed.bitXor( raySeed ) ) );
-	seed.assign( wang_hash( seed.add( frameSeed ) ) );
-
-	return seed;
-
-}, { pixelCoord: 'vec2', rayIndex: 'int', frame: 'uint', return: 'uint' } );
+	}
+`, [ wang_hash, pcgHash ] );
 
 // -----------------------------------------------------------------------------
 // Specialized sampling functions
 // -----------------------------------------------------------------------------
 // Get sample optimized for primary rays (pixel anti-aliasing) with enhanced blue noise fallback
 
-export const getPrimaryRaySample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ] ) => {
+export const getPrimaryRaySample = ( pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ) => {
+
+	// result variable avoids early-return ReturnNode escaping into outer Fn scope
+	const result = vec2( 0.0 ).toVar();
 
 	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
 		// Blue noise - optimal for primary rays
 
-
-		return sampleProgressiveBlueNoise( pixelCoord, sampleIndex, totalSamples, frame );
+		result.assign( sampleProgressiveBlueNoise( pixelCoord, sampleIndex, totalSamples, frame ) );
 
 	} ).Else( () => {
 
@@ -807,35 +698,41 @@ export const getPrimaryRaySample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex
 
 		} );
 
-		return stratifiedSample;
+		result.assign( stratifiedSample );
 
 	} );
 
-} );
+	return result;
+
+};
 
 // Get sample optimized for BRDF sampling with enhanced convergence
 
-export const getBRDFSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, bounceIndex, rngState, frame ] ) => {
+export const getBRDFSample = ( pixelCoord, sampleIndex, bounceIndex, rngState, frame ) => {
 
 	// BRDF sampling benefits from different dimensions than pixel sampling
 
 	const dimensionOffset = add( int( 2 ), bounceIndex.mul( int( 2 ) ) );
 
 	// Start at dimension 2
+	// result variable avoids early-return ReturnNode escaping into outer Fn scope
+	const result = vec2( 0.0 ).toVar();
 
 	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
 		// Blue noise - optimal for BRDF sampling
 
-
-		return sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame );
+		result.assign( sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame ) );
 
 	} ).Else( () => {
 
 		// Enhanced random sampling with subtle blue noise influence for better BRDF convergence
 		// Use fast RNG for BRDF sampling where speed is more important than perfect distribution
+		// .toVar() on each call to capture value before next state advance
 
-		const randomSample = vec2( RandomValueFast( rngState ), RandomValueFast( rngState ) ).toVar();
+		const r1 = RandomValueFast( rngState ).toVar();
+		const r2 = RandomValueFast( rngState ).toVar();
+		const randomSample = vec2( r1, r2 ).toVar();
 
 		// Add blue noise influence for deeper bounces where quality matters
 
@@ -846,8 +743,10 @@ export const getBRDFSample = /*@__PURE__*/ Fn( ( [ pixelCoord, sampleIndex, boun
 
 		} );
 
-		return randomSample;
+		result.assign( randomSample );
 
 	} );
 
-} );
+	return result;
+
+};
