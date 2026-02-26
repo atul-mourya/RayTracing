@@ -22,6 +22,7 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
  * @param {boolean} options.flipY - Flip the image vertically (default: true)
  * @param {boolean} options.autoUpdate - Whether to automatically update on animation frames (default: false)
  * @param {string} options.title - Title to display in the header (default: 'Render Target')
+ * @param {number} options.textureIndex - For MRT render targets, which texture attachment to read (default: 0)
  * @param {string} options.transform - Optional shader transform: 'normal-remap' remaps [0,1] to visible range
  * @returns {HTMLElement} The container element with attached methods
  */
@@ -29,6 +30,9 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
 	// Renderer type detection
 	const isWebGPU = ! renderer.isWebGLRenderer;
+
+	// MRT texture index for readback (WebGPU async path)
+	const textureIndex = options.textureIndex || 0;
 
 	// Detect if input is a Texture or RenderTarget
 	const isTexture = renderTargetOrTexture.isTexture === true;
@@ -361,8 +365,23 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 	}
 
 	/**
+	 * Decode a 16-bit half-float to a 32-bit float.
+	 */
+	function halfToFloat( h ) {
+
+		const s = ( h & 0x8000 ) >> 15;
+		const e = ( h & 0x7C00 ) >> 10;
+		const f = h & 0x03FF;
+
+		if ( e === 0 ) return ( s ? - 1 : 1 ) * Math.pow( 2, - 14 ) * ( f / 1024 );
+		if ( e === 31 ) return f ? NaN : ( s ? - Infinity : Infinity );
+		return ( s ? - 1 : 1 ) * Math.pow( 2, e - 15 ) * ( 1 + f / 1024 );
+
+	}
+
+	/**
 	 * Draw a pixel buffer to the 2D canvas.
-	 * Handles Float32Array (float 0-1) and Uint8Array (0-255).
+	 * Handles Float32Array (float 0-1), Uint16Array (half-float), and Uint8Array (0-255).
 	 */
 	function drawPixelBuffer( buffer ) {
 
@@ -373,9 +392,19 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 			// Values already in 0-255 range
 			clampedPixels.set( buffer.subarray( 0, len ) );
 
+		} else if ( buffer instanceof Uint16Array ) {
+
+			// Half-float values — decode then scale to 0-255
+			for ( let i = 0; i < len; i ++ ) {
+
+				const val = halfToFloat( buffer[ i ] );
+				clampedPixels[ i ] = Math.min( 255, Math.max( 0, ( val || 0 ) * 255 ) );
+
+			}
+
 		} else {
 
-			// Float values — scale to 0-255
+			// Float32 values — scale to 0-255
 			for ( let i = 0; i < len; i ++ ) {
 
 				clampedPixels[ i ] = Math.min( 255, Math.max( 0, buffer[ i ] * 255 ) );
@@ -406,7 +435,7 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 				if ( pendingRead ) return; // skip if previous read is still in flight
 				pendingRead = true;
 
-				renderer.readRenderTargetPixelsAsync( renderTarget, 0, 0, width, height )
+				renderer.readRenderTargetPixelsAsync( renderTarget, 0, 0, width, height, textureIndex )
 					.then( ( buffer ) => {
 
 						pendingRead = false;

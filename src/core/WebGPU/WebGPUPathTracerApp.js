@@ -145,6 +145,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			requiredLimits: {
 				maxBufferSize: 512 * 1024 * 1024,
 				maxStorageBufferBindingSize: 512 * 1024 * 1024,
+				maxColorAttachmentBytesPerSample: 128,
 			}
 		} );
 
@@ -499,19 +500,31 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
-			// MRT albedo rendering is not yet enabled in WebGPU PathTracingStage
-			// (enableMRT = false due to WGSL compilation issues), so disable G-buffer
-			// for OIDN. When MRT is re-enabled, flip this to true.
-			useGBuffer: false,
+			useGBuffer: true,
+			debugGbufferMaps: true,
+			getMRTRenderTarget: () => {
+
+				const pt = this.pathTracingStage;
+				if ( ! pt?.renderTargetA ) return null;
+				return pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
+
+			},
 			extractGBufferData: async ( width, height ) => {
 
-				const albedoRT = this.pathTracingStage?.albedoTarget;
-				const normalRT = this.normalDepthStage?.renderTarget;
-				if ( ! albedoRT || ! normalRT ) return null;
+				// Read G-buffer from PathTracingStage's MRT render target.
+				// After render+swap, currentTarget points to the last written target.
+				const pt = this.pathTracingStage;
+				if ( ! pt?.renderTargetA ) return null;
 
+				const currentRT = pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
+				if ( ! currentRT?.textures || currentRT.textures.length < 3 ) return null;
+
+				// Read MRT attachments by textureIndex:
+				//   1 = gNormalDepth, 2 = gAlbedo
+				// Render targets use FloatType, so readback returns Float32Array directly.
 				const [ albedoPixels, normalPixels ] = await Promise.all( [
-					this.renderer.readRenderTargetPixelsAsync( albedoRT, 0, 0, width, height ),
-					this.renderer.readRenderTargetPixelsAsync( normalRT, 0, 0, width, height )
+					this.renderer.readRenderTargetPixelsAsync( currentRT, 0, 0, width, height, 2 ),
+					this.renderer.readRenderTargetPixelsAsync( currentRT, 0, 0, width, height, 1 )
 				] );
 
 				const pixelCount = width * height * 4;
@@ -520,7 +533,7 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 				for ( let i = 0; i < pixelCount; i += 4 ) {
 
-					// Albedo: Float32 [0,1] → Uint8 [0,255]
+					// Albedo: float [0,1] → Uint8 [0,255]
 					albedoData.data[ i ] = Math.min( albedoPixels[ i ] * 255, 255 ) | 0;
 					albedoData.data[ i + 1 ] = Math.min( albedoPixels[ i + 1 ] * 255, 255 ) | 0;
 					albedoData.data[ i + 2 ] = Math.min( albedoPixels[ i + 2 ] * 255, 255 ) | 0;

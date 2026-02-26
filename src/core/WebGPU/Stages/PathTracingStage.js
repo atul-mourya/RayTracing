@@ -1,7 +1,7 @@
-import { Fn, vec4, texture, uv, uniform, uniformArray, storage } from 'three/tsl';
+import { Fn, vec4, texture, uv, uniform, uniformArray, storage, mrt } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageInstancedBufferAttribute } from 'three/webgpu';
 import {
-	HalfFloatType, RGBAFormat, NearestFilter, LinearFilter, Vector2, Matrix4, Vector3, Color,
+	RGBAFormat, NearestFilter, LinearFilter, Vector2, Matrix4, Vector3, Color,
 	TextureLoader, RepeatWrapping, FloatType, DataTexture, DataArrayTexture
 } from 'three';
 
@@ -41,7 +41,7 @@ const PIXELS_PER_MATERIAL = 27;
  * Default render target options
  */
 const DEFAULT_RT_OPTIONS = {
-	type: HalfFloatType,
+	type: FloatType,
 	format: RGBAFormat,
 	minFilter: NearestFilter,
 	magFilter: NearestFilter,
@@ -239,22 +239,13 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	_initRenderTargets() {
 
-		// Ping-pong accumulation targets
+		// Ping-pong accumulation targets with MRT (count: 3)
+		// textures[0] = gColor, textures[1] = gNormalDepth, textures[2] = gAlbedo
 		this.renderTargetA = null;
 		this.renderTargetB = null;
 		this.currentTarget = 0;
 		this.renderWidth = 0;
 		this.renderHeight = 0;
-
-		// MRT targets for denoising
-		this.normalDepthTarget = null;
-		this.albedoTarget = null;
-		// MRT disabled: Three.js TSL doesn't properly bind module-scope texture nodes
-		// (e.g. blueNoiseTextureNode) when multiple materials share the same node graph.
-		// The MRT materials (normalDepth, albedo) compile separate shaders from the same
-		// pathTracerImpl output, causing WGSL "unresolved value" errors for the blue noise
-		// texture. Re-enable once proper MRT rendering (single pass, mrt() outputNode) is implemented.
-		this.enableMRT = false;
 
 	}
 
@@ -411,17 +402,15 @@ export class PathTracingStage extends PipelineStage {
 		// Materials and quads
 		this.accumMaterial = null;
 		this.displayMaterial = null;
-		this.normalDepthMaterial = null;
-		this.albedoMaterial = null;
 
 		this.pathTraceQuad = null;
 		this.accumQuad = null;
 		this.displayQuad = null;
-		this.normalDepthQuad = null;
-		this.albedoQuad = null;
 
 		// Texture nodes (for dynamic updates)
 		this.prevFrameTexNode = null;
+		this.prevNormalDepthTexNode = null;
+		this.prevAlbedoTexNode = null;
 		this.displayTexNode = null;
 
 		// State flags
@@ -1036,9 +1025,9 @@ export class PathTracingStage extends PipelineStage {
 		const currentTarget = this.currentTarget === 0 ? this.renderTargetA : this.renderTargetB;
 
 		return {
-			color: currentTarget?.texture ?? null,
-			normalDepth: this.normalDepthTarget?.texture ?? null,
-			albedo: this.albedoTarget?.texture ?? null
+			color: currentTarget?.textures?.[ 0 ] ?? null,
+			normalDepth: currentTarget?.textures?.[ 1 ] ?? null,
+			albedo: currentTarget?.textures?.[ 2 ] ?? null
 		};
 
 	}
@@ -1247,23 +1236,28 @@ export class PathTracingStage extends PipelineStage {
 		this.renderWidth = width;
 		this.renderHeight = height;
 
-		// Accumulation targets
-		this.renderTargetA = new RenderTarget( width, height, DEFAULT_RT_OPTIONS );
-		this.renderTargetB = new RenderTarget( width, height, DEFAULT_RT_OPTIONS );
+		// MRT accumulation targets: 3 color attachments per target
+		//   textures[0] = gColor       (accumulated RGB + alpha)
+		//   textures[1] = gNormalDepth  (normal.RGB + linearDepth.A)
+		//   textures[2] = gAlbedo       (albedo.RGB + alpha)
+		const mrtOptions = { ...DEFAULT_RT_OPTIONS, count: 3 };
 
-		// MRT targets for denoising
-		if ( this.enableMRT ) {
+		this.renderTargetA = new RenderTarget( width, height, mrtOptions );
+		this.renderTargetB = new RenderTarget( width, height, mrtOptions );
 
-			this.normalDepthTarget = new RenderTarget( width, height, DEFAULT_RT_OPTIONS );
-			this.albedoTarget = new RenderTarget( width, height, DEFAULT_RT_OPTIONS );
-			console.log( `PathTracingStage: Created MRT targets (normalDepth, albedo)` );
+		// Name textures — MRTNode.setup() maps mrt() keys to texture indices via these names
+		for ( const rt of [ this.renderTargetA, this.renderTargetB ] ) {
+
+			rt.textures[ 0 ].name = 'gColor';
+			rt.textures[ 1 ].name = 'gNormalDepth';
+			rt.textures[ 2 ].name = 'gAlbedo';
 
 		}
 
 		// Update resolution uniform
 		this.resolution.value.set( width, height );
 
-		console.log( `PathTracingStage: Created ${width}x${height} render targets` );
+		console.log( `PathTracingStage: Created ${width}x${height} MRT render targets (count: 3)` );
 
 	}
 
@@ -1274,13 +1268,9 @@ export class PathTracingStage extends PipelineStage {
 
 		this.renderTargetA?.dispose();
 		this.renderTargetB?.dispose();
-		this.normalDepthTarget?.dispose();
-		this.albedoTarget?.dispose();
 
 		this.renderTargetA = null;
 		this.renderTargetB = null;
-		this.normalDepthTarget = null;
-		this.albedoTarget = null;
 
 	}
 
@@ -1331,12 +1321,6 @@ export class PathTracingStage extends PipelineStage {
 
 		this._createPathTraceMaterials( ptOutput );
 		this._createDisplayMaterial();
-
-		if ( this.enableMRT ) {
-
-			this._createMRTMaterials( ptOutput );
-
-		}
 
 		this.isReady = true;
 		console.log( 'PathTracingStage: Material setup complete' );
@@ -1406,11 +1390,21 @@ export class PathTracingStage extends PipelineStage {
 		const hasEnv = this.environmentTexture !== null;
 		const envTex = hasEnv ? texture( this.environmentTexture ) : new TextureNode();
 
-		// Previous frame texture for accumulation (use new TextureNode() if render target not ready)
+		// Previous frame textures for accumulation (use new TextureNode() if render target not ready)
 		const prevFrameTex = this.renderTargetA?.texture
 			? texture( this.renderTargetA.texture )
 			: new TextureNode();
 		this.prevFrameTexNode = prevFrameTex;
+
+		const prevNormalDepthTex = this.renderTargetA?.textures?.[ 1 ]
+			? texture( this.renderTargetA.textures[ 1 ] )
+			: new TextureNode();
+		this.prevNormalDepthTexNode = prevNormalDepthTex;
+
+		const prevAlbedoTex = this.renderTargetA?.textures?.[ 2 ]
+			? texture( this.renderTargetA.textures[ 2 ] )
+			: new TextureNode();
+		this.prevAlbedoTexNode = prevAlbedoTex;
 
 		// Placeholder texture node for optional textures (TSL requires valid texture instances)
 		const placeholderTex = new TextureNode();
@@ -1450,6 +1444,8 @@ export class PathTracingStage extends PipelineStage {
 			emissiveTriStorage,
 			envTex,
 			prevFrameTex,
+			prevNormalDepthTex,
+			prevAlbedoTex,
 			placeholderTex,
 			adaptiveSamplingTex,
 			marginalCDFStorage,
@@ -1481,7 +1477,7 @@ export class PathTracingStage extends PipelineStage {
 
 		const {
 			triStorage, bvhStorage, matStorage, emissiveTriStorage,
-			envTex, prevFrameTex,
+			envTex, prevFrameTex, prevNormalDepthTex, prevAlbedoTex,
 			adaptiveSamplingTex, marginalCDFStorage, conditionalCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex,
@@ -1557,6 +1553,8 @@ export class PathTracingStage extends PipelineStage {
 			enableAccumulation: this.enableAccumulation,
 			hasPreviousAccumulated: this.hasPreviousAccumulated,
 			prevAccumTexture: prevFrameTex,
+			prevNormalDepthTexture: prevNormalDepthTex,
+			prevAlbedoTexture: prevAlbedoTex,
 			accumulationAlpha: this.accumulationAlpha,
 			cameraIsMoving: this.cameraIsMoving,
 
@@ -1584,6 +1582,17 @@ export class PathTracingStage extends PipelineStage {
 
 		this.accumMaterial = new MeshBasicNodeMaterial();
 		this.accumMaterial.colorNode = ptOutput.get( 'gColor' );
+
+		// Single-pass MRT: write color, normalDepth, and albedo in one render call.
+		// MRTNode maps output names to render target texture indices via texture.name.
+		// This avoids creating separate materials (which caused WGSL "unresolved value"
+		// errors from shared module-scope texture nodes like blueNoiseTextureNode).
+		this.accumMaterial.mrtNode = mrt( {
+			gColor: ptOutput.get( 'gColor' ),
+			gNormalDepth: ptOutput.get( 'gNormalDepth' ),
+			gAlbedo: ptOutput.get( 'gAlbedo' ),
+		} );
+
 		this.accumQuad = new QuadMesh( this.accumMaterial );
 
 	}
@@ -1616,24 +1625,6 @@ export class PathTracingStage extends PipelineStage {
 		this.displayMaterial.colorNode = displayShader();
 		this.displayMaterial.toneMapped = true;
 		this.displayQuad = new QuadMesh( this.displayMaterial );
-
-	}
-
-	/**
-	 * Create MRT materials for denoising G-buffer
-	 * @param {Object} ptOutput
-	 */
-	_createMRTMaterials( ptOutput ) {
-
-		this.normalDepthMaterial = new MeshBasicNodeMaterial();
-		this.normalDepthMaterial.colorNode = ptOutput.get( 'gNormalDepth' );
-		this.normalDepthQuad = new QuadMesh( this.normalDepthMaterial );
-
-		this.albedoMaterial = new MeshBasicNodeMaterial();
-		this.albedoMaterial.colorNode = ptOutput.get( 'gAlbedo' );
-		this.albedoQuad = new QuadMesh( this.albedoMaterial );
-
-		console.log( 'PathTracingStage: MRT shaders created' );
 
 	}
 
@@ -1741,10 +1732,22 @@ export class PathTracingStage extends PipelineStage {
 		// Get targets
 		const { readTarget, writeTarget } = this._getTargets();
 
-		// Update previous frame texture
+		// Update previous frame textures (color + MRT normal/albedo)
 		if ( this.prevFrameTexNode ) {
 
 			this.prevFrameTexNode.value = readTarget.texture;
+
+		}
+
+		if ( this.prevNormalDepthTexNode && readTarget.textures?.[ 1 ] ) {
+
+			this.prevNormalDepthTexNode.value = readTarget.textures[ 1 ];
+
+		}
+
+		if ( this.prevAlbedoTexNode && readTarget.textures?.[ 2 ] ) {
+
+			this.prevAlbedoTexNode.value = readTarget.textures[ 2 ];
 
 		}
 
@@ -1752,17 +1755,10 @@ export class PathTracingStage extends PipelineStage {
 		this.renderer.setRenderTarget( writeTarget );
 		this.accumQuad.render( this.renderer );
 
-		// Render MRT passes on first frame
-		if ( this.enableMRT && frameValue === 0 ) {
-
-			this._renderMRTPasses();
-
-		}
-
 		// Publish textures to context for downstream stages (DisplayStage)
 		if ( context ) {
 
-			this._publishTexturesToContext( context, writeTarget.texture );
+			this._publishTexturesToContext( context, writeTarget );
 
 		} else {
 
@@ -1918,29 +1914,15 @@ export class PathTracingStage extends PipelineStage {
 	}
 
 	/**
-	 * Render MRT passes for G-buffer
-	 */
-	_renderMRTPasses() {
-
-		if ( ! this.normalDepthTarget || ! this.albedoTarget ) return;
-
-		this.renderer.setRenderTarget( this.normalDepthTarget );
-		this.normalDepthQuad.render( this.renderer );
-
-		this.renderer.setRenderTarget( this.albedoTarget );
-		this.albedoQuad.render( this.renderer );
-
-	}
-
-	/**
 	 * Publish textures to pipeline context
 	 * @param {PipelineContext} context
-	 * @param {THREE.Texture} colorTexture - The just-rendered colour output
+	 * @param {RenderTarget} writeTarget - The just-rendered MRT render target
 	 */
-	_publishTexturesToContext( context, colorTexture ) {
+	_publishTexturesToContext( context, writeTarget ) {
 
-		context.setTexture( 'pathtracer:color', colorTexture );
-		context.setTexture( 'pathtracer:normalDepth', this.normalDepthTarget?.texture ?? null );
+		context.setTexture( 'pathtracer:color', writeTarget.textures[ 0 ] );
+		context.setTexture( 'pathtracer:normalDepth', writeTarget.textures[ 1 ] );
+		context.setTexture( 'pathtracer:albedo', writeTarget.textures[ 2 ] );
 
 		context.setState( 'interactionMode', this.cameraOptimizer?.isInInteractionMode() ?? false );
 		context.setState( 'renderMode', this.renderMode.value );
@@ -3140,8 +3122,6 @@ export class PathTracingStage extends PipelineStage {
 		// Dispose materials
 		this.accumMaterial?.dispose();
 		this.displayMaterial?.dispose();
-		this.normalDepthMaterial?.dispose();
-		this.albedoMaterial?.dispose();
 
 		// Dispose render targets
 		this._disposeRenderTargets();
@@ -3167,6 +3147,8 @@ export class PathTracingStage extends PipelineStage {
 
 		// Clear texture nodes
 		this.prevFrameTexNode = null;
+		this.prevNormalDepthTexNode = null;
+		this.prevAlbedoTexNode = null;
 		this.displayTexNode = null;
 
 		this.isReady = false;

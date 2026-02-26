@@ -183,6 +183,8 @@ export const pathTracerMain = ( params ) => {
 		params.enableAccumulation,
 		params.hasPreviousAccumulated,
 		params.prevAccumTexture,
+		params.prevNormalDepthTexture,
+		params.prevAlbedoTexture,
 		params.accumulationAlpha,
 		params.cameraIsMoving,
 		// Adaptive sampling
@@ -237,7 +239,8 @@ const pathTracerImpl = Fn( ( [
 	debugVisScale,
 	// Accumulation
 	enableAccumulation, hasPreviousAccumulated,
-	prevAccumTexture, accumulationAlpha, cameraIsMoving,
+	prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
+	accumulationAlpha, cameraIsMoving,
 	// Adaptive sampling
 	useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMax,
 	// DOF / Camera lens
@@ -424,7 +427,7 @@ const pathTracerImpl = Fn( ( [
 	} );
 
 	// Apply dithering AFTER averaging
-	pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
+	// pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
 
 	// Edge Detection
 	const depthDifference = fwidth( linearDepth );
@@ -452,6 +455,8 @@ const pathTracerImpl = Fn( ( [
 
 	// Temporal accumulation
 	const finalColor = pixelColor.xyz.toVar();
+	const finalNormalDepth = vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ).toVar();
+	const finalAlbedo = vec3( objectColor ).toVar();
 
 	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 1 ) ) ).and( hasPreviousAccumulated ), () => {
 
@@ -459,14 +464,19 @@ const pathTracerImpl = Fn( ( [
 		const previousColor = texture( prevAccumTexture, prevUV, 0 ).xyz;
 		finalColor.assign( previousColor.add( pixelColor.xyz.sub( previousColor ).mul( accumulationAlpha ) ) );
 
+		const prevND = texture( prevNormalDepthTexture, prevUV, 0 );
+		finalNormalDepth.assign( prevND.add( finalNormalDepth.sub( prevND ).mul( accumulationAlpha ) ) );
+
+		const prevAlbedo = texture( prevAlbedoTexture, prevUV, 0 ).xyz;
+		finalAlbedo.assign( prevAlbedo.add( finalAlbedo.sub( prevAlbedo ).mul( accumulationAlpha ) ) );
+
 	} );
 
 	// Clean MRT output
 	return pathTracerOutputStruct( {
-		// gColor: vec4( finalColor, 1.0 ),
 		gColor: vec4( finalColor.xyz, 1.0 ),
-		gNormalDepth: vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ),
-		gAlbedo: vec4( objectColor, 1.0 ),
+		gNormalDepth: finalNormalDepth,
+		gAlbedo: vec4( finalAlbedo, 1.0 ),
 	} );
 
 } );

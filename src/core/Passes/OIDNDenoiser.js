@@ -40,6 +40,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.output = output;
 		this.getMRTTexture = options.getMRTTexture || null;
 		this.extractGBufferData = options.extractGBufferData || null;
+		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
 
 		// Merge options with defaults
 		this.config = { ...MODEL_CONFIG.DEFAULT_OPTIONS, ...options };
@@ -421,6 +422,25 @@ export class OIDNDenoiser extends EventDispatcher {
 
 				}
 
+				// Debug visualization for WebGPU path (uses MRT render target directly)
+				if ( this.debugGbufferMaps && this.getMRTRenderTarget ) {
+
+					const mrtRT = this.getMRTRenderTarget();
+					if ( mrtRT ) {
+
+						this._updateDebugVisualization( mrtRT );
+						this.debugHelpers?.albedo?.show();
+						this.debugHelpers?.normal?.show();
+
+					}
+
+				} else if ( this.debugHelpers ) {
+
+					this.debugHelpers.albedo?.hide();
+					this.debugHelpers.normal?.hide();
+
+				}
+
 			} else {
 
 				const mrtData = this.getMRTTexture();
@@ -562,6 +582,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		}
 
+		const isWebGPU = ! this.renderer.isWebGLRenderer;
+
 		// Check if textures have changed (render target was recreated)
 		const texturesChanged = this.debugHelpers &&
 			( this._lastAlbedoTexture !== mrtRenderTarget.textures[ 2 ] ||
@@ -579,27 +601,54 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			}
 
-			this.debugHelpers = {
-				// Albedo texture (MRT attachment 2) - simple passthrough
-				albedo: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 2 ], {
-					width: 250,
-					height: 250,
-					position: 'bottom-right',
-					theme: 'dark',
-					title: 'OIDN Albedo',
-					autoUpdate: false
-				} ),
-				// Normal texture (MRT attachment 1) - with remap for visualization
-				normal: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 1 ], {
-					width: 250,
-					height: 250,
-					position: 'bottom-left',
-					theme: 'dark',
-					title: 'OIDN Normal',
-					autoUpdate: false,
-					transform: 'normal-remap' // Remap normals to visible range
-				} )
-			};
+			if ( isWebGPU ) {
+
+				// WebGPU: pass full MRT render target with textureIndex for async readback
+				this.debugHelpers = {
+					albedo: RenderTargetHelper( this.renderer, mrtRenderTarget, {
+						width: 250,
+						height: 250,
+						position: 'bottom-right',
+						theme: 'dark',
+						title: 'OIDN Albedo',
+						autoUpdate: false,
+						textureIndex: 2
+					} ),
+					normal: RenderTargetHelper( this.renderer, mrtRenderTarget, {
+						width: 250,
+						height: 250,
+						position: 'bottom-left',
+						theme: 'dark',
+						title: 'OIDN Normal',
+						autoUpdate: false,
+						textureIndex: 1
+					} )
+				};
+
+			} else {
+
+				// WebGL: pass individual textures (rendered via internal ShaderMaterial)
+				this.debugHelpers = {
+					albedo: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 2 ], {
+						width: 250,
+						height: 250,
+						position: 'bottom-right',
+						theme: 'dark',
+						title: 'OIDN Albedo',
+						autoUpdate: false
+					} ),
+					normal: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 1 ], {
+						width: 250,
+						height: 250,
+						position: 'bottom-left',
+						theme: 'dark',
+						title: 'OIDN Normal',
+						autoUpdate: false,
+						transform: 'normal-remap'
+					} )
+				};
+
+			}
 
 			// Store references to track texture changes
 			this._lastAlbedoTexture = mrtRenderTarget.textures[ 2 ];
