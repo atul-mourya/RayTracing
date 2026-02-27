@@ -1,18 +1,59 @@
-import { Fn, vec2, vec3, vec4, float, uv, uniform, If, dot, max, mix } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
-import { FloatType, RGBAFormat, NearestFilter } from 'three';
+import { Fn, wgslFn, vec2, vec4, float, int, uint, ivec2, uvec2, uv, uniform, If, max,
+	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId } from 'three/tsl';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { FloatType, HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
+import { luminance } from '../TSL/Common.js';
+
+// ── wgslFn helpers ──────────────────────────────────────────
 
 /**
- * WebGPU Auto-Exposure Stage
+ * Temporal adaptation: map luminance → target exposure, smooth asymmetrically.
+ *
+ * Returns vec4f(exposure, luminance, targetExposure, 1.0).
+ */
+const adaptExposure = /*@__PURE__*/ wgslFn( `
+	fn adaptExposure(
+		geoMean: f32,
+		prevExposure: f32,
+		keyValue: f32,
+		minExp: f32,
+		maxExp: f32,
+		speedBright: f32,
+		speedDark: f32,
+		dt: f32,
+		isFirstFrame: f32
+	) -> vec4f {
+
+		let targetExp = clamp( keyValue / max( geoMean, 0.001 ), minExp, maxExp );
+		var newExposure = targetExp;
+
+		// Temporal smoothing (skip on first frame)
+		if ( isFirstFrame < 0.5 ) {
+
+			// Asymmetric speed: brighter scenes adapt faster
+			let speed = select( speedDark, speedBright, targetExp < prevExposure );
+			let alpha = 1.0 - exp( -dt * speed );
+			newExposure = mix( prevExposure, targetExp, alpha );
+
+		}
+
+		return vec4f( newExposure, geoMean, targetExp, 1.0 );
+
+	}
+` );
+
+/**
+ * WebGPU Auto-Exposure Stage (Fragment + Compute Shader)
  *
  * GPU-based automatic exposure control with human eye-like adaptation.
  * Uses hierarchical luminance reduction and asymmetric temporal smoothing.
  *
  * Algorithm:
  *   1. Downsample (fragment): full res → 64×64 log-luminance
- *   2. Reduction (fragment × 6): hierarchical 2×2 sum → 1×1
- *      Final pass computes geometric mean: exp(Σlog(L) / N)
+ *   2. Reduction (compute): parallel reduction 64×64 → 1×1 via shared memory
+ *      Single workgroup of 256 threads, each loads 16 texels.
+ *      Computes geometric mean: exp(Σlog(L) / N)
  *   3. Adaptation (fragment): temporal smoothing with prev exposure
  *   4. Async readback (1×1): apply to renderer.toneMappingExposure
  *
@@ -26,8 +67,9 @@ import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.
  *   autoexposure:toggle         — enable/disable
  *   autoexposure:updateParameters — update key value, speeds, bounds
  *
- * State published:  autoexposure:value, autoexposure:avgLuminance
- * Textures read:    edgeFiltering:output > asvgf:output > pathtracer:color
+ * Textures published:  (none — publishes state, not textures)
+ * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
+ * State published:     autoexposure:value, autoexposure:avgLuminance
  */
 export class WebGPUAutoExposureStage extends PipelineStage {
 
@@ -40,9 +82,8 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 
 		this.renderer = renderer;
 
-		// Reduction constants
+		// Reduction constant
 		this.REDUCTION_SIZE = 64;
-		this.REDUCTION_LEVELS = 6; // log2(64)
 
 		// ── Adaptation uniforms ──────────────────────────
 
@@ -56,16 +97,9 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 		this.isFirstFrameU = uniform( 1.0 ); // 1.0 = true
 		this.previousExposureU = uniform( options.initialExposure ?? 1.0 );
 
-		// ── Reduction uniforms ───────────────────────────
-
-		this.reductionTexelW = uniform( 1.0 / 64.0 );
-		this.reductionTexelH = uniform( 1.0 / 64.0 );
-		this.isFinalPassU = uniform( 0.0 ); // 1.0 on last reduction pass
-
 		// ── Input texture nodes (swap .value, no recompile) ──
 
 		this._inputTexNode = new TextureNode();
-		this._reductionTexNode = new TextureNode();
 		this._luminanceTexNode = new TextureNode();
 
 		// ── CPU-side state ───────────────────────────────
@@ -77,7 +111,7 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 		this.isFirstFrame = true;
 		this._pendingReadback = false;
 
-		// ── Render targets ───────────────────────────────
+		// ── Render targets & storage textures ────────────
 
 		this._initRenderTargets();
 		this._buildMaterials();
@@ -95,18 +129,19 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 			stencilBuffer: false
 		};
 
-		// Reduction chain: [64, 32, 16, 8, 4, 2, 1]
-		this._reductionTargets = [];
-		let size = this.REDUCTION_SIZE;
+		// Downsample target (64×64) — fragment pass writes here
+		this._downsampleTarget = new RenderTarget( this.REDUCTION_SIZE, this.REDUCTION_SIZE, rtOpts );
 
-		for ( let i = 0; i <= this.REDUCTION_LEVELS; i ++ ) {
+		// 1×1 StorageTexture for compute reduction output
+		// LinearFilter so fragment shaders can sample it (NearestFilter + isStorageTexture
+		// triggers a Three.js WGSL codegen bug: textureLoad without level parameter)
+		this._reductionStorageTex = new StorageTexture( 1, 1 );
+		this._reductionStorageTex.type = HalfFloatType;
+		this._reductionStorageTex.format = RGBAFormat;
+		this._reductionStorageTex.minFilter = LinearFilter;
+		this._reductionStorageTex.magFilter = LinearFilter;
 
-			this._reductionTargets.push( new RenderTarget( size, size, rtOpts ) );
-			size = Math.max( 1, size / 2 );
-
-		}
-
-		// Adaptation target (1×1)
+		// Adaptation target (1×1) — fragment pass for async readback
 		this._adaptationTarget = new RenderTarget( 1, 1, rtOpts );
 
 	}
@@ -118,7 +153,7 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 	_buildMaterials() {
 
 		this._buildDownsampleMaterial();
-		this._buildReductionMaterial();
+		this._buildReductionCompute();
 		this._buildAdaptationMaterial();
 
 	}
@@ -157,8 +192,7 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 					const oy = float( ( sy + 0.5 ) / SAMPLES - 0.5 ).mul( BLOCK_UV );
 
 					const sampleUV = coord.add( vec2( ox, oy ) ).clamp( 0.0, 1.0 );
-					const sColor = inputTex.sample( sampleUV ).xyz;
-					const lum = dot( sColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+					const lum = luminance( inputTex.sample( sampleUV ).xyz );
 
 					If( lum.greaterThan( epsilon ), () => {
 
@@ -183,66 +217,101 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 	}
 
 	/**
-	 * Reduction: hierarchical 2×2 → 1
+	 * Reduction: parallel compute 64×64 → 1×1
 	 *
-	 * Each pass halves the resolution by summing 2×2 neighbourhoods.
-	 * On the final pass (isFinalPass == 1), computes geometric mean
-	 * instead of raw sum.
+	 * Single workgroup of 256 threads. Each thread loads 16 texels
+	 * from the 64×64 downsample texture, then participates in a
+	 * shared-memory parallel reduction.
 	 *
-	 * Output: R = sum/geometricMean, G = valid count, B = avgLogLum (final only)
+	 * Output: StorageTexture(1×1) = vec4(geometricMean, count, avgLogLum, 1)
 	 */
-	_buildReductionMaterial() {
+	_buildReductionCompute() {
 
-		const tex = this._reductionTexNode;
-		const texelW = this.reductionTexelW;
-		const texelH = this.reductionTexelH;
-		const isFinal = this.isFinalPassU;
+		const downsampleTex = this._downsampleTarget.texture;
+		const outputTex = this._reductionStorageTex;
 
-		const shader = Fn( () => {
+		const WGSIZE = 256;
+		const TEXELS_PER_THREAD = 16; // 4096 / 256
+		const TEX_SIZE = 64;
 
-			const coord = uv();
+		const sharedLogSum = workgroupArray( 'float', WGSIZE );
+		const sharedCount = workgroupArray( 'float', WGSIZE );
 
-			// Sample 2×2 block from input texture
-			// ±0.25 texel offset selects the four unique input texels
-			const halfW = texelW.mul( 0.25 );
-			const halfH = texelH.mul( 0.25 );
+		const reductionFn = Fn( () => {
 
-			const s00 = tex.sample( coord.add( vec2( halfW.negate(), halfH.negate() ) ) );
-			const s10 = tex.sample( coord.add( vec2( halfW, halfH.negate() ) ) );
-			const s01 = tex.sample( coord.add( vec2( halfW.negate(), halfH ) ) );
-			const s11 = tex.sample( coord.add( vec2( halfW, halfH ) ) );
+			const tid = localId.x;
 
-			// Aggregate log-luminance sums and valid counts
-			const totalLogSum = s00.x.add( s10.x ).add( s01.x ).add( s11.x );
-			const totalCount = s00.y.add( s10.y ).add( s01.y ).add( s11.y );
+			// ── Phase 1: Each thread loads and sums 16 texels ──
 
-			const result = vec4( totalLogSum, totalCount, 0.0, 1.0 ).toVar();
+			const threadLogSum = float( 0.0 ).toVar();
+			const threadCount = float( 0.0 ).toVar();
 
-			// Final pass: convert sum to geometric mean
-			If( isFinal.greaterThan( 0.5 ).and( totalCount.greaterThan( 0.0 ) ), () => {
+			for ( let i = 0; i < TEXELS_PER_THREAD; i ++ ) {
 
-				const avgLogLum = totalLogSum.div( totalCount );
+				const linearIdx = tid.mul( TEXELS_PER_THREAD ).add( i );
+				const px = linearIdx.mod( TEX_SIZE );
+				const py = linearIdx.div( TEX_SIZE );
+				const data = textureLoad( downsampleTex, ivec2( int( px ), int( py ) ) );
+
+				// data.x = logLumSum, data.y = validCount from downsample
+				threadLogSum.addAssign( data.x );
+				threadCount.addAssign( data.y );
+
+			}
+
+			sharedLogSum.element( tid ).assign( threadLogSum );
+			sharedCount.element( tid ).assign( threadCount );
+
+			// ── Phase 2: Parallel reduction (8 steps) ──────────
+			// JS for-loop unrolls at shader build time
+
+			for ( let stride = WGSIZE / 2; stride >= 1; stride = Math.floor( stride / 2 ) ) {
+
+				workgroupBarrier();
+
+				If( tid.lessThan( uint( stride ) ), () => {
+
+					sharedLogSum.element( tid ).addAssign(
+						sharedLogSum.element( tid.add( uint( stride ) ) )
+					);
+					sharedCount.element( tid ).addAssign(
+						sharedCount.element( tid.add( uint( stride ) ) )
+					);
+
+				} );
+
+			}
+
+			// ── Phase 3: Thread 0 writes final result ──────────
+
+			workgroupBarrier();
+
+			If( tid.equal( uint( 0 ) ), () => {
+
+				const totalLogSum = sharedLogSum.element( uint( 0 ) );
+				const totalCount = sharedCount.element( uint( 0 ) );
+				const safeCount = max( totalCount, float( 1.0 ) );
+				const avgLogLum = totalLogSum.div( safeCount );
 				const geometricMean = avgLogLum.exp();
 
-				result.assign( vec4( geometricMean, totalCount, avgLogLum, 1.0 ) );
+				textureStore(
+					outputTex,
+					uvec2( uint( 0 ), uint( 0 ) ),
+					vec4( geometricMean, totalCount, avgLogLum, 1.0 )
+				).toWriteOnly();
 
 			} );
 
-			return result;
-
 		} );
 
-		this._reductionMaterial = new MeshBasicNodeMaterial();
-		this._reductionMaterial.outputNode = shader();
-		this._reductionMaterial.toneMapped = false;
-		this._reductionQuad = new QuadMesh( this._reductionMaterial );
+		this._reductionComputeNode = reductionFn().compute( 1, [ WGSIZE, 1, 1 ] );
 
 	}
 
 	/**
 	 * Adaptation: temporal smoothing
 	 *
-	 * Reads geometric mean luminance from 1×1 reduction target,
+	 * Reads geometric mean luminance from 1×1 compute output,
 	 * computes target exposure (keyValue / luminance), and applies
 	 * asymmetric exponential smoothing (fast bright, slow dark).
 	 *
@@ -262,34 +331,13 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 
 		const shader = Fn( () => {
 
-			const coord = uv();
+			const geoMean = lumTex.sample( uv() ).x;
 
-			// Current geometric mean luminance
-			const lumData = lumTex.sample( coord );
-			const geoMean = lumData.x;
-
-			// Target exposure: map average luminance to middle gray
-			const targetExp = keyValue.div( max( geoMean, float( 0.001 ) ) )
-				.clamp( minExp, maxExp );
-
-			// Default: target directly (first frame, no history)
-			const newExposure = targetExp.toVar();
-
-			// Temporal smoothing (skip on first frame)
-			If( isFirst.lessThan( 0.5 ), () => {
-
-				// Asymmetric speed: brighter scenes adapt faster
-				const speed = targetExp.lessThan( prevExposure ).select(
-					speedBright, // Brighter → faster
-					speedDark    // Darker   → slower
-				);
-
-				const alpha = float( 1.0 ).sub( dt.negate().mul( speed ).exp() );
-				newExposure.assign( mix( prevExposure, targetExp, alpha ) );
-
-			} );
-
-			return vec4( newExposure, geoMean, targetExp, 1.0 );
+			return adaptExposure(
+				geoMean, prevExposure, keyValue,
+				minExp, maxExp, speedBright, speedDark,
+				dt, isFirst
+			);
 
 		} );
 
@@ -350,35 +398,20 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 		this.isFirstFrameU.value = this.isFirstFrame ? 1.0 : 0.0;
 		this.previousExposureU.value = this.currentExposure;
 
-		// ── Pass 1: Downsample full res → 64×64 ─────────
+		// ── Pass 1: Downsample full res → 64×64 (fragment) ──
 
 		this._inputTexNode.value = inputTex;
-		this.renderer.setRenderTarget( this._reductionTargets[ 0 ] );
+		this.renderer.setRenderTarget( this._downsampleTarget );
 		this._downsampleQuad.render( this.renderer );
 
-		// ── Pass 2–7: Hierarchical reduction ─────────────
+		// ── Pass 2: Reduction 64×64 → 1×1 (compute) ────────
 
-		for ( let i = 0; i < this.REDUCTION_LEVELS; i ++ ) {
+		this.renderer.setRenderTarget( null );
+		this.renderer.compute( this._reductionComputeNode );
 
-			const sourceTarget = this._reductionTargets[ i ];
-			const destTarget = this._reductionTargets[ i + 1 ];
-			const isFinal = ( i === this.REDUCTION_LEVELS - 1 );
+		// ── Pass 3: Temporal adaptation (fragment) ──────────
 
-			this.reductionTexelW.value = 1.0 / sourceTarget.width;
-			this.reductionTexelH.value = 1.0 / sourceTarget.height;
-			this.isFinalPassU.value = isFinal ? 1.0 : 0.0;
-
-			this._reductionTexNode.value = sourceTarget.texture;
-			this.renderer.setRenderTarget( destTarget );
-			this._reductionQuad.render( this.renderer );
-
-		}
-
-		// ── Pass 8: Temporal adaptation ──────────────────
-
-		const finalTarget = this._reductionTargets[ this.REDUCTION_LEVELS ];
-		this._luminanceTexNode.value = finalTarget.texture;
-
+		this._luminanceTexNode.value = this._reductionStorageTex;
 		this.renderer.setRenderTarget( this._adaptationTarget );
 		this._adaptationQuad.render( this.renderer );
 
@@ -499,9 +532,10 @@ export class WebGPUAutoExposureStage extends PipelineStage {
 	dispose() {
 
 		this._downsampleMaterial?.dispose();
-		this._reductionMaterial?.dispose();
 		this._adaptationMaterial?.dispose();
-		this._reductionTargets?.forEach( t => t.dispose() );
+		this._reductionComputeNode?.dispose();
+		this._downsampleTarget?.dispose();
+		this._reductionStorageTex?.dispose();
 		this._adaptationTarget?.dispose();
 
 	}
