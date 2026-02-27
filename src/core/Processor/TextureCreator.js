@@ -1515,6 +1515,74 @@ export default class TextureCreator {
 
 	}
 
+	/**
+	 * Create a BVH DataTexture directly from a pre-flattened Float32Array.
+	 * Used when restoring WebGL textures from raw data (avoids re-traversing
+	 * the BVH tree which is destructively modified by createBVHRawData).
+	 *
+	 * @param {Float32Array} bvhRawData - Pre-flattened BVH data (12 floats per node)
+	 * @returns {DataTexture} BVH DataTexture
+	 */
+	createBVHTextureFromRawData( bvhRawData ) {
+
+		const dataLength = bvhRawData.length;
+		const width = Math.ceil( Math.sqrt( dataLength / TEXTURE_CONSTANTS.RGBA_COMPONENTS ) );
+		const height = Math.ceil( dataLength / ( TEXTURE_CONSTANTS.RGBA_COMPONENTS * width ) );
+		const size = width * height * TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+
+		let data;
+		if ( size === dataLength ) {
+
+			data = bvhRawData;
+
+		} else {
+
+			data = new Float32Array( size );
+			data.set( bvhRawData );
+
+		}
+
+		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
+
+		return texture;
+
+	}
+
+	/**
+	 * Create a Material DataTexture directly from a pre-built Float32Array.
+	 * Used when restoring WebGL textures from raw data.
+	 *
+	 * @param {Float32Array} materialRawData - Pre-built material data
+	 * @param {number} materialCount - Number of materials
+	 * @returns {DataTexture} Material DataTexture
+	 */
+	createMaterialTextureFromRawData( materialRawData, materialCount ) {
+
+		const totalPixels = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL * materialCount;
+		const width = Math.pow( 2, Math.ceil( Math.log2( Math.sqrt( totalPixels ) ) ) );
+		const height = Math.ceil( totalPixels / width );
+		const size = width * height * TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+
+		let data;
+		if ( size === materialRawData.length ) {
+
+			data = materialRawData;
+
+		} else {
+
+			data = new Float32Array( size );
+			data.set( materialRawData );
+
+		}
+
+		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
+
+		return texture;
+
+	}
+
 	createBVHDataTextureSync( bvhRoot ) {
 
 		const nodes = [];

@@ -347,17 +347,37 @@ class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Completes the WebGL rendering setup when initially started in asset-only mode.
+	 * Restores PathTracerStage to full rendering capability (blue noise, camera optimizer,
+	 * DataTextures, shader defines) that were deferred during assetOnly initialization.
 	 * Called before restoreState/resume during backend switch, or when WebGPU is unavailable.
 	 * Does NOT start the animation loop — callers (resume or Viewport3D) handle that.
 	 */
-	initRendering() {
+	async initRendering() {
 
 		if ( ! this._assetOnly ) return;
 
-		this.setupComposer();
-		this.initStats();
+		// Restore full PathTracerStage capability
+		await this.pathTracingPass.restoreFullCapability();
+
+		if ( ! this.composer ) this.setupComposer();
+		if ( ! this.stats ) this.initStats();
 		this.pauseRendering = false;
 		this._assetOnly = false;
+
+	}
+
+	/**
+	 * Returns the WebGL app to asset-only mode, freeing rendering resources
+	 * (DataTextures, CameraOptimizer, FSQuad, blue noise) while preserving
+	 * raw data and map textures shared with WebGPU. Called by BackendManager
+	 * when switching away from WebGL.
+	 */
+	demoteToAssetOnly() {
+
+		if ( this._assetOnly ) return;
+
+		this.pathTracingPass.demoteToAssetOnly();
+		this._assetOnly = true;
 
 	}
 
@@ -479,7 +499,8 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass = new PathTracerStage( this.renderer, this.scene, this.camera, {
 			width: this.width,
 			height: this.height,
-			enabled: true
+			enabled: true,
+			assetOnly: this._assetOnly
 		} );
 
 	}
@@ -1660,12 +1681,12 @@ class PathTracerApp extends EventDispatcher {
 	 * If in asset-only mode (WebGPU was the initial target), completes
 	 * the full rendering setup first before starting the animation loop.
 	 */
-	resume() {
+	async resume() {
 
 		// Complete rendering setup if still in asset-only mode
 		if ( this._assetOnly ) {
 
-			this.initRendering();
+			await this.initRendering();
 
 		}
 

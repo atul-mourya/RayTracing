@@ -481,6 +481,14 @@ export class BackendManager {
 
 			}
 
+			// Demote WebGL app to asset-only mode to free rendering resources
+			// (DataTextures, CameraOptimizer, FSQuad) while WebGPU is active
+			if ( this.currentBackend === BackendType.WEBGL && currentApp?.demoteToAssetOnly ) {
+
+				currentApp.demoteToAssetOnly();
+
+			}
+
 			// Switch backend
 			const previousBackend = this.currentBackend;
 			this.currentBackend = backend;
@@ -492,7 +500,7 @@ export class BackendManager {
 			// (WebGL app may be in asset-only mode if WebGPU was the initial backend)
 			if ( targetApp.initRendering ) {
 
-				targetApp.initRendering();
+				await targetApp.initRendering();
 
 			}
 

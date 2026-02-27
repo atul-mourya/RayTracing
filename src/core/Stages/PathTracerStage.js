@@ -70,7 +70,11 @@ export class PathTracerStage extends PipelineStage {
 		this.tileManager = new TileRenderingManager( width, height, DEFAULT_STATE.tiles );
 		this.targetManager = new RenderTargetManager( width, height, renderer );
 
-		this.sdfs = new TriangleSDF();
+		this._assetOnly = options.assetOnly || false;
+
+		this.sdfs = new TriangleSDF( {
+			skipGPUTextures: this._assetOnly
+		} );
 		this.lightDataTransfer = new LightDataTransfer();
 		this.equirectHdrInfo = new EquirectHdrInfo();
 
@@ -85,35 +89,47 @@ export class PathTracerStage extends PipelineStage {
 		this.completionThreshold = 0;
 		this.renderLimitMode = 'frames';
 
-		// Create shader material
+		// Create shader material (needed even in assetOnly mode for uniform storage
+		// accessed by AssetLoader and environment loading)
 		this.setupMaterial();
-		this.setupBlueNoise();
 
-		// Now that material is created, we can update completion threshold
-		this.updateCompletionThreshold();
+		// Rendering-only initialization — skip in assetOnly mode (WebGPU-default path)
+		if ( ! this._assetOnly ) {
 
-		// Initialize camera movement optimizer after material is created
-		this.cameraOptimizer = new CameraMovementOptimizer( renderer, this.material, {
-			enabled: DEFAULT_STATE.interactionModeEnabled,
-			qualitySettings: {
-				maxBounceCount: 1,
-				numRaysPerPixel: 1,
-				useAdaptiveSampling: false,
-				useEnvMapIS: false,
-				// pixelRatio: 0.25,
-				enableAccumulation: false,
-				enableEmissiveTriangleSampling: false, // Disable during interaction for performance
-			},
-			onReset: () => this.reset()
-		} );
+			this.setupBlueNoise();
+
+			// Now that material is created, we can update completion threshold
+			this.updateCompletionThreshold();
+
+			// Initialize camera movement optimizer after material is created
+			this.cameraOptimizer = new CameraMovementOptimizer( renderer, this.material, {
+				enabled: DEFAULT_STATE.interactionModeEnabled,
+				qualitySettings: {
+					maxBounceCount: 1,
+					numRaysPerPixel: 1,
+					useAdaptiveSampling: false,
+					useEnvMapIS: false,
+					// pixelRatio: 0.25,
+					enableAccumulation: false,
+					enableEmissiveTriangleSampling: false, // Disable during interaction for performance
+				},
+				onReset: () => this.reset()
+			} );
+
+			this.fsQuad = new FullScreenQuad( this.material );
+
+		} else {
+
+			this.cameraOptimizer = null;
+			this.fsQuad = null;
+
+		}
 
 		// Cache frequently used objects
 		this.tempVector2 = new Vector2();
 		this.lastCameraMatrix = new Matrix4();
 		this.lastProjectionMatrix = new Matrix4();
 		this.environmentRotationMatrix = new Matrix4();
-
-		this.fsQuad = new FullScreenQuad( this.material );
 
 		// Denoising management state
 		this.lastRenderMode = - 1;
@@ -339,14 +355,118 @@ export class PathTracerStage extends PipelineStage {
 		await this.sdfs.buildBVH( scene );
 		this.cameras = this.sdfs.cameras;
 
-		this.material.defines.MAX_SPHERE_COUNT = this.sdfs.spheres.length;
+		// In assetOnly mode, skip shader define injection and uniform updates
+		// (no WebGL rendering will occur; data is consumed via DataTransfer).
+		// Also required for correctness: updateSceneUniforms() accesses
+		// DataTexture .image.width which doesn't exist in skipGPUTextures mode.
+		if ( ! this._assetOnly ) {
 
-		// Inject shader defines based on detected material features
-		this.injectMaterialFeatureDefines();
+			this.material.defines.MAX_SPHERE_COUNT = this.sdfs.spheres.length;
 
-		// Update uniforms with scene data
-		this.updateSceneUniforms();
-		this.updateLights();
+			// Inject shader defines based on detected material features
+			this.injectMaterialFeatureDefines();
+
+			// Update uniforms with scene data
+			this.updateSceneUniforms();
+			this.updateLights();
+
+		}
+
+	}
+
+	/**
+	 * Restores full rendering capability after running in assetOnly mode.
+	 * Recreates DataTextures from raw data, loads blue noise, creates
+	 * CameraMovementOptimizer and FullScreenQuad, and runs deferred build steps.
+	 * Called by main.js initRendering() when switching back to WebGL.
+	 */
+	async restoreFullCapability() {
+
+		if ( ! this._assetOnly ) return;
+
+		// Load blue noise texture (was deferred)
+		this.setupBlueNoise();
+
+		// Create CameraMovementOptimizer and FullScreenQuad (were deferred)
+		if ( ! this.cameraOptimizer ) {
+
+			this.cameraOptimizer = new CameraMovementOptimizer( this.renderer, this.material, {
+				enabled: DEFAULT_STATE.interactionModeEnabled,
+				qualitySettings: {
+					maxBounceCount: 1,
+					numRaysPerPixel: 1,
+					useAdaptiveSampling: false,
+					useEnvMapIS: false,
+					enableAccumulation: false,
+					enableEmissiveTriangleSampling: false,
+				},
+				onReset: () => this.reset()
+			} );
+
+		}
+
+		if ( ! this.fsQuad ) {
+
+			this.fsQuad = new FullScreenQuad( this.material );
+
+		}
+
+		this.updateCompletionThreshold();
+
+		// Promote raw Float32Arrays to DataTextures if TriangleSDF was in skipGPUTextures mode
+		if ( this.sdfs?.config?.skipGPUTextures ) {
+
+			await this.sdfs.promoteRawDataToTextures();
+
+			// Run the rendering-specific build steps that were deferred
+			this.material.defines.MAX_SPHERE_COUNT = this.sdfs.spheres.length;
+			this.injectMaterialFeatureDefines();
+			this.updateSceneUniforms();
+			this.updateLights();
+
+		}
+
+		this._assetOnly = false;
+
+	}
+
+	/**
+	 * Reverse of restoreFullCapability(). Disposes WebGL-only DataTextures,
+	 * CameraMovementOptimizer, and FullScreenQuad to free memory while WebGPU
+	 * is the active backend. Raw Float32Arrays and material texture arrays
+	 * (shared with WebGPU) are preserved.
+	 */
+	demoteToAssetOnly() {
+
+		if ( this._assetOnly ) return;
+
+		// Dispose WebGL-only DataTextures, keep raw data + map textures
+		this.sdfs?.demoteToRawData();
+
+		// Dispose rendering-only resources
+		if ( this.cameraOptimizer ) {
+
+			this.cameraOptimizer.dispose();
+			this.cameraOptimizer = null;
+
+		}
+
+		if ( this.fsQuad ) {
+
+			this.fsQuad.dispose();
+			this.fsQuad = null;
+
+		}
+
+		// Clear blue noise texture (will be reloaded on restore)
+		if ( this.material?.uniforms?.blueNoiseTexture?.value ) {
+
+			this.material.uniforms.blueNoiseTexture.value.dispose();
+			this.material.uniforms.blueNoiseTexture.value = null;
+
+		}
+
+		this._assetOnly = true;
 
 	}
 
@@ -700,13 +820,13 @@ export class PathTracerStage extends PipelineStage {
 
 	enterInteractionMode() {
 
-		this.cameraOptimizer.enterInteractionMode();
+		this.cameraOptimizer?.enterInteractionMode();
 
 	}
 
 	setInteractionModeEnabled( enabled ) {
 
-		this.cameraOptimizer.setInteractionModeEnabled( enabled );
+		this.cameraOptimizer?.setInteractionModeEnabled( enabled );
 
 	}
 
@@ -747,7 +867,7 @@ export class PathTracerStage extends PipelineStage {
 
 	get interactionMode() {
 
-		return this.cameraOptimizer.isInInteractionMode();
+		return this.cameraOptimizer?.isInInteractionMode() ?? false;
 
 	}
 
@@ -2001,7 +2121,7 @@ export class PathTracerStage extends PipelineStage {
 		// Dispose managers
 		this.tileManager.dispose();
 		this.targetManager.dispose();
-		this.cameraOptimizer.dispose();
+		this.cameraOptimizer?.dispose();
 
 		// Dispose remaining resources
 		this.material.uniforms.albedoMaps.value?.dispose();
@@ -2017,7 +2137,7 @@ export class PathTracerStage extends PipelineStage {
 		this.material.uniforms.envConditionalWeights.value?.dispose();
 		this.equirectHdrInfo?.dispose();
 		this.material.dispose();
-		this.fsQuad.dispose();
+		this.fsQuad?.dispose();
 
 	}
 

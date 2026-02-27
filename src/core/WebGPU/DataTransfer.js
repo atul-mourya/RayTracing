@@ -28,7 +28,8 @@ export class DataTransfer {
 	static getBVHRawData( pathTracerApp ) {
 
 		const sdfs = this.getSDFs( pathTracerApp );
-		return sdfs?.bvhTexture?.image?.data || null;
+		// Prefer raw data (skipGPUTextures / assetOnly mode), fall back to DataTexture
+		return sdfs?.bvhData || sdfs?.bvhTexture?.image?.data || null;
 
 	}
 
@@ -41,7 +42,8 @@ export class DataTransfer {
 	static getMaterialRawData( pathTracerApp ) {
 
 		const sdfs = this.getSDFs( pathTracerApp );
-		return sdfs?.materialTexture?.image?.data || null;
+		// Prefer raw data (skipGPUTextures / assetOnly mode), fall back to DataTexture
+		return sdfs?.materialData || sdfs?.materialTexture?.image?.data || null;
 
 	}
 
@@ -244,14 +246,15 @@ export class DataTransfer {
 	 */
 	static checkDataAvailability( pathTracerApp ) {
 
+		const sdfs = pathTracerApp?.pathTracingPass?.sdfs;
 		const status = {
 			appExists: !! pathTracerApp,
 			pathTracingPassExists: !! pathTracerApp?.pathTracingPass,
-			sdfsExists: !! pathTracerApp?.pathTracingPass?.sdfs,
-			triangleTextureExists: !! pathTracerApp?.pathTracingPass?.sdfs?.triangleTexture,
-			bvhTextureExists: !! pathTracerApp?.pathTracingPass?.sdfs?.bvhTexture,
-			triangleDataExists: !! pathTracerApp?.pathTracingPass?.sdfs?.triangleTexture?.image?.data,
-			bvhDataExists: !! pathTracerApp?.pathTracingPass?.sdfs?.bvhTexture?.image?.data
+			sdfsExists: !! sdfs,
+			triangleTextureExists: !! sdfs?.triangleTexture,
+			bvhTextureExists: !! sdfs?.bvhTexture,
+			triangleDataExists: !! sdfs?.triangleData,
+			bvhDataExists: !! ( sdfs?.bvhData || sdfs?.bvhTexture?.image?.data )
 		};
 
 		status.ready = status.triangleDataExists && status.bvhDataExists;

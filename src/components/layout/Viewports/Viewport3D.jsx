@@ -224,7 +224,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 							setBackend( 'webgl' );
 							backendManager.currentBackend = BackendType.WEBGL;
 							// Complete WebGL rendering setup as fallback
-							appRef.current.initRendering();
+							await appRef.current.initRendering();
 							appRef.current.animate();
 
 						}
@@ -240,7 +240,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 						}
 
-						appRef.current.initRendering();
+						await appRef.current.initRendering();
 						appRef.current.animate();
 						backendManager.currentBackend = BackendType.WEBGL;
 						backendManager.setWebGLApp( appRef.current );

@@ -515,6 +515,88 @@ export default class TriangleSDF {
 	}
 
 	/**
+	 * Promote existing raw Float32Arrays to DataTextures for WebGL rendering.
+	 * Called when switching from skipGPUTextures mode (WebGPU-default) to full
+	 * WebGL rendering. Creates DataTextures directly from raw data, avoiding
+	 * re-traversal of the BVH tree (which was destructively flattened by
+	 * createBVHRawData during the initial build).
+	 */
+	async promoteRawDataToTextures() {
+
+		this._log( 'Promoting raw data to DataTextures for WebGL' );
+
+		if ( this.triangleData ) {
+
+			this.triangleTexture = this.textureCreator.createTriangleDataTextureDirect( this.triangleData );
+
+		}
+
+		if ( this.bvhData ) {
+
+			this.bvhTexture = this.textureCreator.createBVHTextureFromRawData( this.bvhData );
+
+		}
+
+		if ( this.materialData && this.materials?.length ) {
+
+			this.materialTexture = this.textureCreator.createMaterialTextureFromRawData(
+				this.materialData, this.materials.length
+			);
+
+		}
+
+		if ( this.emissiveTriangleBuilder && this.emissiveTriangleCount > 0 ) {
+
+			this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
+
+		}
+
+		this.config.skipGPUTextures = false;
+
+		this._log( 'Raw data promotion complete', {
+			triangleTexture: !! this.triangleTexture,
+			bvhTexture: !! this.bvhTexture,
+			materialTexture: !! this.materialTexture,
+			emissiveTriangleTexture: !! this.emissiveTriangleTexture,
+		} );
+
+	}
+
+	/**
+	 * Dispose WebGL-only DataTextures and return to raw-data mode.
+	 * Reverse of promoteRawDataToTextures(). Keeps raw Float32Arrays and
+	 * material texture arrays (DataArrayTexture) intact since they are
+	 * shared with WebGPU via DataTransfer.
+	 */
+	demoteToRawData() {
+
+		const webglOnlyTextures = [
+			'materialTexture', 'triangleTexture', 'bvhTexture', 'emissiveTriangleTexture'
+		];
+
+		for ( const prop of webglOnlyTextures ) {
+
+			if ( this[ prop ] ) {
+
+				if ( typeof this[ prop ].dispose === 'function' ) {
+
+					this[ prop ].dispose();
+
+				}
+
+				this[ prop ] = null;
+
+			}
+
+		}
+
+		this.config.skipGPUTextures = true;
+
+		this._log( 'Demoted to raw data mode (DataTextures disposed)' );
+
+	}
+
+	/**
      * Create additional sphere objects if needed
      * @private
      */

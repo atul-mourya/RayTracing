@@ -138,13 +138,23 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		}
 
+		// Query adapter limits so we can request the maximum supported buffer size
+		const adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } );
+		if ( ! adapter ) {
+
+			throw new Error( 'Failed to get WebGPU adapter' );
+
+		}
+
+		const adapterLimits = adapter.limits;
+
 		// Create and initialize WebGPU renderer
 		this.renderer = new WebGPURenderer( {
 			canvas: this.canvas,
 			powerPreference: 'high-performance',
 			requiredLimits: {
-				maxBufferSize: 512 * 1024 * 1024,
-				maxStorageBufferBindingSize: 512 * 1024 * 1024,
+				maxBufferSize: adapterLimits.maxBufferSize,
+				maxStorageBufferBindingSize: adapterLimits.maxStorageBufferBindingSize,
 				maxColorAttachmentBytesPerSample: 128,
 			}
 		} );
@@ -501,7 +511,6 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
 			useGBuffer: true,
-			debugGbufferMaps: true,
 
 			// Share the existing GPUDevice so oidn-web registers its TF.js backend on the
 			// same device — enabling zero-copy GPU texture inputs.
