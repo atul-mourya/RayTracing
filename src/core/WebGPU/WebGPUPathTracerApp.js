@@ -1918,47 +1918,47 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 */
 	setAdaptiveSamplingParameters( /* params */ ) {}
 
-	// ── Environment mode helpers (stubs — WebGPU does not yet support procedural sky) ──
+	// ── Environment mode helpers ──
 
-	/** Returns envParams — not supported in WebGPU yet. */
+	/** Returns envParams from the path tracing stage. */
 	getEnvParams() {
 
-		return null;
+		return this.pathTracingStage?.envParams ?? null;
 
 	}
 
-	/** Returns the current environment texture — not supported. */
+	/** Returns the current environment texture. */
 	getEnvironmentTexture() {
 
-		return null;
+		return this.pathTracingStage?.environmentTexture ?? null;
 
 	}
 
-	/** Returns the current environment CDF texture — not supported. */
+	/** Returns the current environment CDF texture — not yet supported. */
 	getEnvironmentCDF() {
 
 		return null;
 
 	}
 
-	/** @stub */
+	/** Generates a procedural sky texture. */
 	async generateProceduralSkyTexture() {
 
-		console.warn( 'WebGPUPathTracerApp: Procedural sky not supported' );
+		return this.pathTracingStage?.generateProceduralSkyTexture?.();
 
 	}
 
-	/** @stub */
+	/** Generates a gradient sky texture. */
 	async generateGradientTexture() {
 
-		console.warn( 'WebGPUPathTracerApp: Gradient sky not supported' );
+		return this.pathTracingStage?.generateGradientTexture?.();
 
 	}
 
-	/** @stub */
+	/** Generates a solid-colour sky texture. */
 	async generateSolidColorTexture() {
 
-		console.warn( 'WebGPUPathTracerApp: Solid color sky not supported' );
+		return this.pathTracingStage?.generateSolidColorTexture?.();
 
 	}
 
@@ -1976,8 +1976,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 	}
 
-	/** @stub */
-	markEnvironmentNeedsUpdate() {}
+	/** Marks the environment texture as needing a GPU re-upload. */
+	markEnvironmentNeedsUpdate() {
+
+		const tex = this.pathTracingStage?.environmentTexture;
+		if ( tex ) tex.needsUpdate = true;
+
+	}
 
 	/**
 	 * Returns scene statistics from the path tracing stage, or null.

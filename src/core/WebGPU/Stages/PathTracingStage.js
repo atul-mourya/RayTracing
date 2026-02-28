@@ -22,8 +22,8 @@ import { LightDataTransfer } from '../../Processor/LightDataTransfer';
 
 // Environment
 import { EquirectHdrInfo } from '../../Processor/EquirectHdrInfo';
-import { ProceduralSkyRenderer } from '../../Processor/ProceduralSkyRenderer';
-import { SimpleSkyRenderer } from '../../Processor/SimpleSkyRenderer';
+import { ProceduralSkyRendererTSL } from '../Processor/ProceduralSkyRendererTSL';
+import { SimpleSkyRendererTSL } from '../Processor/SimpleSkyRendererTSL';
 
 // Constants
 import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../../Constants';
@@ -191,8 +191,14 @@ export class PathTracingStage extends PipelineStage {
 		this.materialStorageNode = null;
 		this.materialCount = 0;
 
-		// Environment map
-		this.environmentTexture = null;
+		// Environment map — initialize with a 1×1 black placeholder so the TSL
+		// shader always compiles with a valid texture binding.  The real
+		// environment texture is swapped in later via setEnvironmentMap().
+		this._envPlaceholder = new DataTexture(
+			new Float32Array( [ 0, 0, 0, 1 ] ), 1, 1, RGBAFormat, FloatType
+		);
+		this._envPlaceholder.needsUpdate = true;
+		this.environmentTexture = this._envPlaceholder;
 		this.envTexSize = new Vector2();
 
 		// Environment importance sampling
@@ -1387,8 +1393,7 @@ export class PathTracingStage extends PipelineStage {
 		const matStorage = this.materialStorageNode;
 		const emissiveTriStorage = this.emissiveTriangleStorageNode;
 
-		const hasEnv = this.environmentTexture !== null;
-		const envTex = hasEnv ? texture( this.environmentTexture ) : new TextureNode();
+		const envTex = texture( this.environmentTexture );
 
 		// Previous frame textures for accumulation (use new TextureNode() if render target not ready)
 		const prevFrameTex = this.renderTargetA?.texture
@@ -2074,23 +2079,6 @@ export class PathTracingStage extends PipelineStage {
 
 	// ===== ENVIRONMENT MANAGEMENT =====
 
-	/**
-	 * Read pixels from a render target
-	 * @param {RenderTarget} renderTarget
-	 * @returns {Float32Array}
-	 */
-	readRenderTargetPixels( renderTarget ) {
-
-		const width = renderTarget.width;
-		const height = renderTarget.height;
-
-		const pixels = new Float32Array( width * height * 4 );
-		this.renderer.readRenderTargetPixels( renderTarget, 0, 0, width, height, pixels );
-
-		return pixels;
-
-	}
-
 	async buildEnvironmentCDF() {
 
 		if ( ! this.scene.environment ) {
@@ -2105,46 +2093,21 @@ export class PathTracingStage extends PipelineStage {
 		try {
 
 			const startTime = performance.now();
-			let textureForCDF = this.scene.environment;
+			const textureForCDF = this.scene.environment;
 
-			if ( ! this.scene.environment.image || ! this.scene.environment.image.data ) {
+			// Environment textures are always DataTextures (HDRI loaded from file,
+			// or procedural/gradient/solid converted via renderTargetToDataTexture).
+			// If for any reason the texture has no CPU data, skip CDF.
+			if ( ! textureForCDF.image || ! textureForCDF.image.data ) {
 
-				const isProceduralSky = this.proceduralSkyRenderer &&
-					this.proceduralSkyRenderer.renderTarget &&
-					this.proceduralSkyRenderer.renderTarget.texture === this.scene.environment;
-
-				if ( isProceduralSky ) {
-
-					console.log( 'Reading procedural sky pixels for importance sampling...' );
-					const pixels = this.readRenderTargetPixels( this.proceduralSkyRenderer.renderTarget );
-
-					textureForCDF = new DataTexture(
-						pixels,
-						this.proceduralSkyRenderer.renderTarget.width,
-						this.proceduralSkyRenderer.renderTarget.height,
-						RGBAFormat,
-						FloatType
-					);
-					textureForCDF.needsUpdate = true;
-
-				} else {
-
-					this._updateCDFStorageBuffers();
-					this.envTotalSum.value = 0.0;
-					this.useEnvMapIS.value = 0;
-					return;
-
-				}
+				this._updateCDFStorageBuffers();
+				this.envTotalSum.value = 0.0;
+				this.useEnvMapIS.value = 0;
+				return;
 
 			}
 
 			this.equirectHdrInfo.updateFrom( textureForCDF );
-
-			if ( textureForCDF !== this.scene.environment ) {
-
-				textureForCDF.dispose();
-
-			}
 
 			this.cdfBuildTime = performance.now() - startTime;
 
@@ -2175,12 +2138,6 @@ export class PathTracingStage extends PipelineStage {
 
 		this.scene.environment = envMap;
 		this.setEnvironmentTexture( envMap );
-
-		if ( envMap && this.renderer ) {
-
-			this.renderer.initTexture( envMap );
-
-		}
 
 		if ( envMap ) {
 
@@ -2230,16 +2187,7 @@ export class PathTracingStage extends PipelineStage {
 
 		if ( ! this.simpleSkyRenderer ) {
 
-			try {
-
-				this.simpleSkyRenderer = new SimpleSkyRenderer( 512, 256, this.renderer );
-
-			} catch ( error ) {
-
-				console.error( 'Failed to initialize SimpleSkyRenderer:', error );
-				return;
-
-			}
+			this.simpleSkyRenderer = new SimpleSkyRendererTSL( 512, 256 );
 
 		}
 
@@ -2252,14 +2200,6 @@ export class PathTracingStage extends PipelineStage {
 		try {
 
 			const texture = this.simpleSkyRenderer.renderGradient( params );
-
-			if ( ! texture ) {
-
-				console.error( 'Simple sky renderer returned null texture' );
-				return;
-
-			}
-
 			texture._isGeneratedProcedural = true;
 			await this.setEnvironmentMap( texture );
 			this.hasSun.value = 0;
@@ -2276,16 +2216,7 @@ export class PathTracingStage extends PipelineStage {
 
 		if ( ! this.simpleSkyRenderer ) {
 
-			try {
-
-				this.simpleSkyRenderer = new SimpleSkyRenderer( 512, 256, this.renderer );
-
-			} catch ( error ) {
-
-				console.error( 'Failed to initialize SimpleSkyRenderer:', error );
-				return;
-
-			}
+			this.simpleSkyRenderer = new SimpleSkyRendererTSL( 512, 256 );
 
 		}
 
@@ -2296,14 +2227,6 @@ export class PathTracingStage extends PipelineStage {
 		try {
 
 			const texture = this.simpleSkyRenderer.renderSolid( params );
-
-			if ( ! texture ) {
-
-				console.error( 'Simple sky renderer returned null texture' );
-				return;
-
-			}
-
 			texture._isGeneratedProcedural = true;
 			await this.setEnvironmentMap( texture );
 			this.hasSun.value = 0;
@@ -2320,16 +2243,7 @@ export class PathTracingStage extends PipelineStage {
 
 		if ( ! this.proceduralSkyRenderer ) {
 
-			try {
-
-				this.proceduralSkyRenderer = new ProceduralSkyRenderer( 512, 256, this.renderer );
-
-			} catch ( error ) {
-
-				console.error( 'Failed to initialize ProceduralSkyRenderer:', error );
-				return;
-
-			}
+			this.proceduralSkyRenderer = new ProceduralSkyRendererTSL( 512, 256 );
 
 		}
 
@@ -2345,14 +2259,6 @@ export class PathTracingStage extends PipelineStage {
 		try {
 
 			const texture = this.proceduralSkyRenderer.render( params );
-
-			if ( ! texture ) {
-
-				console.error( 'Procedural sky renderer returned null texture' );
-				return;
-
-			}
-
 			texture._isGeneratedProcedural = true;
 			await this.setEnvironmentMap( texture );
 
@@ -3129,6 +3035,7 @@ export class PathTracingStage extends PipelineStage {
 		// Dispose textures
 		this.blueNoiseTexture?.dispose();
 		this.placeholderTexture?.dispose();
+		this._envPlaceholder?.dispose();
 
 		// Clear data references
 		this.triangleStorageAttr = null;
