@@ -1,7 +1,7 @@
 import { WebGPURenderer } from 'three/webgpu';
 import { uniform } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher,
+	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher, Vector3,
 	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils, Color
 } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
@@ -475,6 +475,17 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 
 		} );
 
+		// Re-enable orbit controls when focus mode auto-exits after a click
+		this.interactionManager.addEventListener( 'focusModeChanged', ( event ) => {
+
+			if ( ! event.enabled && this.controls ) {
+
+				this.controls.enabled = true;
+
+			}
+
+		} );
+
 	}
 
 	/**
@@ -567,6 +578,15 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	_transferSceneLights() {
 
 		if ( ! this.existingApp ) return;
+
+		// Clear existing lights from WebGPU scene before re-transferring
+		// to avoid stale lights accumulating across model loads
+		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
+
+			if ( light.target ) this.scene.remove( light.target );
+			this.scene.remove( light );
+
+		} );
 
 		const sourceLights = DataTransfer.getSceneLights( this.existingApp );
 
@@ -1527,7 +1547,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			this.syncCameraFromWebGL();
 			await this.loadSceneData();
 			this.reset();
+			this.currentCameraIndex = 0;
 			this.dispatchEvent( { type: 'ModelLoaded', url } );
+			this.dispatchEvent( {
+				type: 'CamerasUpdated',
+				cameras: this.existingApp.cameras,
+				cameraNames: this.getCameraNames()
+			} );
 
 		} finally {
 
@@ -1585,7 +1611,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 			this.syncCameraFromWebGL();
 			await this.loadSceneData();
 			this.reset();
+			this.currentCameraIndex = 0;
 			this.dispatchEvent( { type: 'ModelLoaded', index } );
+			this.dispatchEvent( {
+				type: 'CamerasUpdated',
+				cameras: this.existingApp.cameras,
+				cameraNames: this.getCameraNames()
+			} );
 
 		} finally {
 
@@ -1647,16 +1679,81 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @stub
+	 * Switch to a camera by index, delegating to the WebGL app's camera list.
+	 * @param {number} index - Camera index
 	 */
-	switchCamera() {}
+	switchCamera( index ) {
+
+		const cameras = this.existingApp?.cameras;
+		if ( ! cameras || cameras.length === 0 ) return;
+
+		if ( index < 0 || index >= cameras.length ) {
+
+			console.warn( `WebGPU: Invalid camera index ${index}. Using default camera.` );
+			index = 0;
+
+		}
+
+		this.currentCameraIndex = index;
+
+		// Also switch on the WebGL side so both backends stay in sync
+		if ( this.existingApp?.switchCamera ) {
+
+			this.existingApp.switchCamera( index );
+
+		}
+
+		const sourceCamera = cameras[ index ];
+
+		// Copy camera properties
+		this.camera.position.copy( sourceCamera.position );
+		this.camera.quaternion.copy( sourceCamera.quaternion );
+		this.camera.fov = sourceCamera.fov;
+		this.camera.near = sourceCamera.near;
+		this.camera.far = sourceCamera.far;
+		this.camera.updateProjectionMatrix();
+
+		// Update orbit controls target to look along the camera's forward direction.
+		// Place the target a fixed distance in front of the camera so OrbitControls
+		// doesn't overwrite the position on its next update().
+		if ( this.controls ) {
+
+			const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
+			const focusDist = this.focusDistance || 5.0;
+			this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
+			this.controls.saveState();
+			this.controls.update();
+
+		}
+
+		this.onResize();
+		this.reset();
+		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index } );
+
+	}
 
 	/**
-	 * @stub
+	 * Returns camera names from the WebGL app's camera list.
+	 * @returns {string[]}
 	 */
 	getCameraNames() {
 
-		return [];
+		const cameras = this.existingApp?.cameras;
+		if ( ! cameras || cameras.length === 0 ) return [ 'Default Camera' ];
+
+		return cameras.map( ( camera, index ) => {
+
+			if ( index === 0 ) {
+
+				return 'Default Camera';
+
+			} else {
+
+				return camera.name || `Camera ${index}`;
+
+			}
+
+		} );
 
 	}
 

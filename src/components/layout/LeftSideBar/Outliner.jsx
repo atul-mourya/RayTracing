@@ -411,8 +411,10 @@ const Outliner = () => {
 		let scene = app?.scene;
 
 		// For WebGPU backend, the scene doesn't contain mesh objects (data is in textures).
-		// Fall back to the WebGL app's scene for the outliner hierarchy.
-		if ( ( ! scene || scene.children.length === 0 ) && app?.existingApp?.scene ) {
+		// Always fall back to the WebGL app's scene for the outliner hierarchy.
+		// Note: checking children.length is insufficient because lights cloned into the
+		// WebGPU scene make it non-empty, hiding the real mesh hierarchy.
+		if ( app?.existingApp?.scene ) {
 
 			scene = app.existingApp.scene;
 

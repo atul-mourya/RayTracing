@@ -9,6 +9,7 @@ import { useCameraStore } from '@/store';
 import { useEffect, useCallback } from 'react';
 import { getApp } from '@/core/appProxy';
 import { useBackendEvent } from '@/hooks/useBackendEvent';
+import { useActiveApp } from '@/hooks/useActiveApp';
 import { FieldOfView } from "@/assets/icons";
 import { Separator } from "@/components/ui/separator";
 
@@ -46,6 +47,8 @@ const CameraTab = () => {
 		handleFocusChangeEvent,
 	} = useCameraStore();
 
+	const activeApp = useActiveApp();
+
 	useBackendEvent( 'focusChanged', handleFocusChangeEvent );
 
 	useBackendEvent( 'CamerasUpdated', useCallback( () => {
@@ -74,7 +77,7 @@ const CameraTab = () => {
 
 		}
 
-	}, [] );
+	}, [ activeApp, setCameraNames, setSelectedCameraIndex ] );
 
 	const cameraPoints = [
 		{ x: 0, y: 50 }, // left view

@@ -678,6 +678,17 @@ class PathTracerApp extends EventDispatcher {
 
 		} );
 
+		// Re-enable orbit controls when focus mode auto-exits after a click
+		this.interactionManager.addEventListener( 'focusModeChanged', ( event ) => {
+
+			if ( ! event.enabled && this.controls ) {
+
+				this.controls.enabled = true;
+
+			}
+
+		} );
+
 		// Object selection events
 		this.interactionManager.addEventListener( 'objectSelected', ( event ) => {
 
