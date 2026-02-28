@@ -1,17 +1,56 @@
-import { Fn, vec2, vec3, vec4, float, uv, uniform, int, dot, max, abs, normalize, Loop, If } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, NearestFilter } from 'three';
+import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
+	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
+import { TextureNode, StorageTexture } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
+import { luminance } from '../TSL/Common.js';
+
+// ── wgslFn helpers ──────────────────────────────────────────
 
 /**
- * WebGPU Bilateral Filtering Stage
+ * Bilateral edge-stopping weight.
+ *
+ * Combines luminance, normal, depth, and color similarity into
+ * a single weight multiplied by the kernel weight.
+ */
+const bilateralWeight = /*@__PURE__*/ wgslFn( `
+	fn bilateralWeight(
+		centerLum: f32, sLum: f32,
+		centerNormal: vec3f, sNormal: vec3f,
+		centerDepth: f32, sDepth: f32,
+		centerColor: vec3f, sColor: vec3f,
+		kernelW: f32,
+		phiLum: f32, phiNorm: f32, phiDep: f32, phiCol: f32
+	) -> f32 {
+
+		let lumW = exp( -abs( centerLum - sLum ) * phiLum );
+		let normW = pow( max( dot( centerNormal, sNormal ), 0.0 ), phiNorm );
+		let depW = exp( -abs( centerDepth - sDepth ) / max( phiDep, 0.001 ) );
+		let maxDiff = max( max( abs( centerColor.x - sColor.x ),
+			abs( centerColor.y - sColor.y ) ),
+			abs( centerColor.z - sColor.z ) );
+		let colW = exp( -maxDiff * phiCol );
+		return kernelW * lumW * normW * depW * colW;
+
+	}
+` );
+
+/**
+ * WebGPU Bilateral Filtering Stage (Compute Shader)
  *
  * Edge-aware A-trous wavelet filter for spatial denoising.
  * Runs multiple iterations with increasing step size (2^i),
- * ping-ponging between two render targets.
+ * ping-ponging between two StorageTextures.
+ *
+ * Algorithm:
+ *   1. textureLoad center pixel (color + normalDepth)
+ *   2. Unrolled 5×5 a-trous kernel with edge-stopping weights
+ *   3. Normalize accumulated color
+ *   4. textureStore filtered result
+ *   5. Repeat for 4 iterations (step sizes 1, 2, 4, 8)
  *
  * Edge-stopping functions:
- *   - Luminance: exp(-|ΔL| / σ_l)
+ *   - Luminance: exp(-|ΔL| * σ_l)
  *   - Normal:    dot(n1,n2)^σ_n
  *   - Depth:     exp(-|Δz| / σ_z)
  *   - Color:     exp(-maxDiff * σ_c)
@@ -40,38 +79,62 @@ export class WebGPUBilateralFilteringStage extends PipelineStage {
 		this.phiNormal = uniform( options.phiNormal ?? 128.0 );
 		this.phiDepth = uniform( options.phiDepth ?? 1.0 );
 		this.phiLuminance = uniform( options.phiLuminance ?? 4.0 );
-		this.stepSizeU = uniform( 1.0 );
+		this.stepSizeU = uniform( 1, 'int' );
 		this.resW = uniform( options.width || 1 );
 		this.resH = uniform( options.height || 1 );
 
 		// Input texture nodes
-		this._colorTexNode = new TextureNode();
+		this._readTexNode = new TextureNode();
 		this._normalDepthTexNode = new TextureNode();
 
-		// Render targets (ping-pong)
+		// Ping-pong StorageTextures
 		const w = options.width || 1;
 		const h = options.height || 1;
-		const rtOpts = {
-			type: HalfFloatType,
-			format: RGBAFormat,
-			minFilter: NearestFilter,
-			magFilter: NearestFilter,
-			depthBuffer: false,
-			stencilBuffer: false
-		};
 
-		this.filterTargetA = new RenderTarget( w, h, rtOpts );
-		this.filterTargetB = new RenderTarget( w, h, rtOpts );
-		this.outputTarget = new RenderTarget( w, h, rtOpts );
+		// LinearFilter so textureLoad codegen includes required level parameter
+		// when _readTexNode.value is later set to a StorageTexture
+		this._storageTexA = new StorageTexture( w, h );
+		this._storageTexA.type = HalfFloatType;
+		this._storageTexA.format = RGBAFormat;
+		this._storageTexA.minFilter = LinearFilter;
+		this._storageTexA.magFilter = LinearFilter;
 
-		this._buildMaterial();
+		this._storageTexB = new StorageTexture( w, h );
+		this._storageTexB.type = HalfFloatType;
+		this._storageTexB.format = RGBAFormat;
+		this._storageTexB.minFilter = LinearFilter;
+		this._storageTexB.magFilter = LinearFilter;
+
+		this._compiled = false;
+
+		// Dispatch dimensions
+		this._dispatchX = Math.ceil( w / 8 );
+		this._dispatchY = Math.ceil( h / 8 );
+
+		this._buildCompute();
 
 	}
 
-	_buildMaterial() {
+	/**
+	 * Build two compute nodes — one for each ping-pong write direction.
+	 *
+	 * _computeNodeA: writes to StorageTexA, reads from _readTexNode
+	 * _computeNodeB: writes to StorageTexB, reads from _readTexNode
+	 *
+	 * Read-side texture wrapped in TextureNode so compile-time type is
+	 * regular Texture (avoids Three.js WGSL textureLoad codegen bug).
+	 */
+	_buildCompute() {
 
-		const colorTex = this._colorTexNode;
-		const ndTex = this._normalDepthTexNode;
+		this._computeNodeA = this._buildComputeForDirection( this._storageTexA );
+		this._computeNodeB = this._buildComputeForDirection( this._storageTexB );
+
+	}
+
+	_buildComputeForDirection( writeStorageTex ) {
+
+		const readTexNode = this._readTexNode;
+		const ndTexNode = this._normalDepthTexNode;
 		const phiColor = this.phiColor;
 		const phiNormal = this.phiNormal;
 		const phiDepth = this.phiDepth;
@@ -80,7 +143,7 @@ export class WebGPUBilateralFilteringStage extends PipelineStage {
 		const resW = this.resW;
 		const resH = this.resH;
 
-		// 5x5 A-trous kernel weights (Gaussian approx)
+		// 5×5 A-trous kernel weights (Gaussian approx, sum = 1.0)
 		const kernel = [
 			1.0 / 256.0, 4.0 / 256.0, 6.0 / 256.0, 4.0 / 256.0, 1.0 / 256.0,
 			4.0 / 256.0, 16.0 / 256.0, 24.0 / 256.0, 16.0 / 256.0, 4.0 / 256.0,
@@ -89,81 +152,79 @@ export class WebGPUBilateralFilteringStage extends PipelineStage {
 			1.0 / 256.0, 4.0 / 256.0, 6.0 / 256.0, 4.0 / 256.0, 1.0 / 256.0,
 		];
 
-		const shader = Fn( () => {
+		const WG_SIZE = 8;
 
-			const coord = uv();
-			const txW = float( 1.0 ).div( resW );
-			const txH = float( 1.0 ).div( resH );
+		const computeFn = Fn( () => {
 
-			// Centre sample
-			const centerColor = colorTex.sample( coord ).xyz;
-			const centerND = ndTex.sample( coord );
-			const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
-			const centerDepth = centerND.w;
-			const centerLum = dot( centerColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-			const colorSum = vec3( 0.0 ).toVar();
-			const weightSum = float( 0.0 ).toVar();
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-			// Unrolled 5x5 kernel
-			for ( let iy = 0; iy < 5; iy ++ ) {
+				const coord = ivec2( gx, gy );
 
-				for ( let ix = 0; ix < 5; ix ++ ) {
+				// Centre sample
+				const centerColor = textureLoad( readTexNode, coord ).xyz;
+				const centerND = textureLoad( ndTexNode, coord );
+				const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
+				const centerDepth = centerND.w;
+				const centerLum = luminance( centerColor );
 
-					const dx = ix - 2;
-					const dy = iy - 2;
-					const kw = kernel[ iy * 5 + ix ];
+				const colorSum = vec3( 0.0 ).toVar();
+				const weightSum = float( 0.0 ).toVar();
 
-					const offsetUV = coord.add( vec2(
-						txW.mul( float( dx ) ).mul( stepSize ),
-						txH.mul( float( dy ) ).mul( stepSize )
-					) );
+				// Unrolled 5×5 a-trous kernel
+				for ( let iy = 0; iy < 5; iy ++ ) {
 
-					const sColor = colorTex.sample( offsetUV ).xyz;
-					const sND = ndTex.sample( offsetUV );
-					const sNormal = sND.xyz.mul( 2.0 ).sub( 1.0 );
-					const sDepth = sND.w;
-					const sLum = dot( sColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+					for ( let ix = 0; ix < 5; ix ++ ) {
 
-					// Edge-stopping weights
-					const lumDiff = abs( centerLum.sub( sLum ) );
-					const lumWeight = lumDiff.negate().mul( phiLuminance ).exp();
+						const dx = ix - 2;
+						const dy = iy - 2;
+						const kw = kernel[ iy * 5 + ix ];
 
-					const nDot = max( dot( centerNormal, sNormal ), float( 0.0 ) );
-					const normalWeight = nDot.pow( phiNormal );
+						const sx = gx.add( stepSize.mul( dx ) )
+							.clamp( int( 0 ), int( resW ).sub( 1 ) );
+						const sy = gy.add( stepSize.mul( dy ) )
+							.clamp( int( 0 ), int( resH ).sub( 1 ) );
 
-					const dDiff = abs( centerDepth.sub( sDepth ) );
-					const depthWeight = dDiff.negate().div( max( phiDepth, float( 0.001 ) ) ).exp();
+						const sColor = textureLoad( readTexNode, ivec2( sx, sy ) ).xyz;
+						const sND = textureLoad( ndTexNode, ivec2( sx, sy ) );
+						const sNormal = sND.xyz.mul( 2.0 ).sub( 1.0 );
+						const sDepth = sND.w;
+						const sLum = luminance( sColor );
 
-					const colorDiff = max(
-						max( abs( centerColor.x.sub( sColor.x ) ),
-							abs( centerColor.y.sub( sColor.y ) ) ),
-						abs( centerColor.z.sub( sColor.z ) )
-					);
-					const colorWeight = colorDiff.negate().mul( phiColor ).exp();
+						const w = bilateralWeight(
+							centerLum, sLum,
+							centerNormal, sNormal,
+							centerDepth, sDepth,
+							centerColor, sColor,
+							float( kw ),
+							phiLuminance, phiNormal, phiDepth, phiColor
+						);
 
-					const w = float( kw )
-						.mul( lumWeight )
-						.mul( normalWeight )
-						.mul( depthWeight )
-						.mul( colorWeight );
+						colorSum.addAssign( sColor.mul( w ) );
+						weightSum.addAssign( w );
 
-					colorSum.addAssign( sColor.mul( w ) );
-					weightSum.addAssign( w );
+					}
 
 				}
 
-			}
+				const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
 
-			const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
-			return vec4( filtered, 1.0 );
+				textureStore(
+					writeStorageTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					vec4( filtered, 1.0 )
+				).toWriteOnly();
+
+			} );
 
 		} );
 
-		this.material = new MeshBasicNodeMaterial();
-		this.material.colorNode = shader();
-		this.material.toneMapped = false;
-		this.quad = new QuadMesh( this.material );
+		return computeFn().compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
@@ -181,8 +242,8 @@ export class WebGPUBilateralFilteringStage extends PipelineStage {
 		const img = inputTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
-			if ( img.width !== this.filterTargetA.width ||
-				img.height !== this.filterTargetA.height ) {
+			if ( img.width !== this._storageTexA.image.width ||
+				img.height !== this._storageTexA.image.height ) {
 
 				this.setSize( img.width, img.height );
 
@@ -193,40 +254,58 @@ export class WebGPUBilateralFilteringStage extends PipelineStage {
 		// Set normalDepth (may be null — shader handles gracefully)
 		if ( ndTex ) this._normalDepthTexNode.value = ndTex;
 
-		let readTex = inputTex;
-		let writeTarget = this.filterTargetA;
-		let readTarget = this.filterTargetB;
+		// Force-compile both compute nodes on first frame while _readTexNode
+		// still holds EmptyTexture. This ensures WGSLNodeBuilder.generateTextureLoad()
+		// sees isStorageTexture=false and emits the required level parameter.
+		if ( ! this._compiled ) {
 
-		for ( let i = 0; i < this.iterations; i ++ ) {
-
-			this.stepSizeU.value = Math.pow( 2, i );
-			this._colorTexNode.value = readTex;
-
-			this.renderer.setRenderTarget( writeTarget );
-			this.quad.render( this.renderer );
-
-			readTex = writeTarget.texture;
-
-			// Swap ping-pong
-			const tmp = writeTarget;
-			writeTarget = readTarget;
-			readTarget = tmp;
+			this.renderer.compute( this._computeNodeA );
+			this.renderer.compute( this._computeNodeB );
+			this._compiled = true;
 
 		}
 
-		// Final result is in readTarget (last written)
-		// Copy to output for consistent naming
+		// Iteration dispatch: ping-pong between StorageTexA and StorageTexB
+		let readTex = inputTex;
+		let writeNode = this._computeNodeA;
+		let nextWriteNode = this._computeNodeB;
+
+		for ( let i = 0; i < this.iterations; i ++ ) {
+
+			this.stepSizeU.value = 1 << i;
+			this._readTexNode.value = readTex;
+
+			this.renderer.compute( writeNode );
+
+			// Next iteration reads from what we just wrote
+			readTex = ( writeNode === this._computeNodeA )
+				? this._storageTexA
+				: this._storageTexB;
+
+			// Swap write direction
+			const tmp = writeNode;
+			writeNode = nextWriteNode;
+			nextWriteNode = tmp;
+
+		}
+
+		// Publish final output (last written StorageTexture)
 		context.setTexture( 'bilateralFiltering:output', readTex );
 
 	}
 
 	setSize( width, height ) {
 
-		this.filterTargetA.setSize( width, height );
-		this.filterTargetB.setSize( width, height );
-		this.outputTarget.setSize( width, height );
+		this._storageTexA.setSize( width, height );
+		this._storageTexB.setSize( width, height );
 		this.resW.value = width;
 		this.resH.value = height;
+
+		// Update dispatch dimensions
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+		this._computeNodeA.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._computeNodeB.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
@@ -238,10 +317,10 @@ export class WebGPUBilateralFilteringStage extends PipelineStage {
 
 	dispose() {
 
-		this.material?.dispose();
-		this.filterTargetA?.dispose();
-		this.filterTargetB?.dispose();
-		this.outputTarget?.dispose();
+		this._computeNodeA?.dispose();
+		this._computeNodeB?.dispose();
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
 
 	}
 

@@ -935,6 +935,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'asvgf:temporalColor' );
 						ctx.removeTexture( 'asvgf:variance' );
 						ctx.removeTexture( 'variance:output' );
+						ctx.removeTexture( 'bilateralFiltering:output' );
 						ctx.removeTexture( 'edgeFiltering:output' );
 
 					}
@@ -980,6 +981,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'asvgf:temporalColor' );
 						ctx.removeTexture( 'asvgf:variance' );
 						ctx.removeTexture( 'variance:output' );
+						ctx.removeTexture( 'bilateralFiltering:output' );
 						ctx.removeTexture( 'edgeFiltering:output' );
 
 					}
