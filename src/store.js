@@ -130,7 +130,9 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const object = app.scene.getObjectByProperty( 'uuid', uuid );
+		// WebGPU scene only contains lights — mesh objects live in the WebGL app's scene
+		const scene = app.existingApp?.scene || app.scene;
+		const object = scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
 		// Toggle Three.js object visibility
@@ -181,7 +183,9 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const object = app.scene.getObjectByProperty( 'uuid', uuid );
+		// WebGPU scene only contains lights — mesh objects live in the WebGL app's scene
+		const scene = app.existingApp?.scene || app.scene;
+		const object = scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
 		// Set Three.js object visibility

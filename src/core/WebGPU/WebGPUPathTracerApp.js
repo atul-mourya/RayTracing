@@ -68,6 +68,13 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		// Stages
 		this.pathTracingStage = null;
 
+		// Alias so store code using `app.pathTracingPass` works on both backends
+		Object.defineProperty( this, 'pathTracingPass', {
+			get: () => this.pathTracingStage,
+			enumerable: true,
+			configurable: true
+		} );
+
 		// State
 		this.isInitialized = false;
 		this.pauseRendering = false;

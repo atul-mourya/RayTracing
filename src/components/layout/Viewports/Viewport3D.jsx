@@ -389,7 +389,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				/>
 			)}
 
-			<InteractionContextMenu appRef={appRef} isAppInitialized={isAppInitialized} />
+			<InteractionContextMenu />
 
 		</div>
 	);

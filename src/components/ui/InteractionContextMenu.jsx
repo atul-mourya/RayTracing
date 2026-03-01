@@ -3,6 +3,8 @@ import { cn } from '@/lib/utils';
 import { Box3, Vector3 } from 'three';
 import { Eye, EyeOff, Focus, Layers, Copy, Clipboard, Grid3x3 } from 'lucide-react';
 import { useStore } from '@/store';
+import { getApp } from '@/core/appProxy';
+import { useActiveApp } from '@/hooks/useActiveApp';
 
 /**
  * MenuItem - Standalone menu item matching ContextMenuItem styling exactly
@@ -50,9 +52,11 @@ MenuSeparator.displayName = 'MenuSeparator';
  * Listens to events from InteractionManager and renders a styled menu
  * Uses the same styling classes as context-menu.jsx for consistency
  */
-const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
+const InteractionContextMenu = () => {
 
 	'use no memo';
+
+	const activeApp = useActiveApp();
 
 	const [ menuState, setMenuState ] = React.useState( {
 		visible: false,
@@ -126,16 +130,16 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 		toggleMeshVisibility( object.uuid );
 
 		// Deselect the object
-		const app = appRef?.current;
+		const app = getApp();
 		app?.interactionManager?.dispatchEvent( { type: 'objectDeselected' } );
 
 		closeMenu();
 
-	}, [ menuState.selectedObject, toggleMeshVisibility, appRef, closeMenu ] );
+	}, [ menuState.selectedObject, toggleMeshVisibility, closeMenu ] );
 
 	const handleFocus = React.useCallback( () => {
 
-		const app = appRef?.current;
+		const app = getApp();
 		const object = menuState.selectedObject;
 
 		if ( ! app || ! object || ! app.controls ) return;
@@ -150,20 +154,23 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		closeMenu();
 
-	}, [ appRef, menuState.selectedObject, closeMenu ] );
+	}, [ menuState.selectedObject, closeMenu ] );
 
 	const handleIsolateToggle = React.useCallback( () => {
 
-		const app = appRef?.current;
+		const app = getApp();
 		const selectedObject = menuState.selectedObject;
 		if ( ! app || ! selectedObject ) return;
+
+		// WebGPU scene only contains lights — mesh objects live in the WebGL app's scene
+		const scene = app.existingApp?.scene || app.scene;
 
 		if ( isIsolated ) {
 
 			// Un-isolate: restore previous visibility state
 			if ( visibilityStateBeforeIsolate.current ) {
 
-				app.scene.traverse( ( child ) => {
+				scene.traverse( ( child ) => {
 
 					if ( child.isMesh && visibilityStateBeforeIsolate.current.has( child.uuid ) ) {
 
@@ -186,7 +193,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 			// Isolate: save current visibility state then hide all except selected
 			const visibilityMap = new Map();
 
-			app.scene.traverse( ( child ) => {
+			scene.traverse( ( child ) => {
 
 				if ( child.isMesh ) {
 
@@ -219,7 +226,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		closeMenu();
 
-	}, [ appRef, menuState.selectedObject, isIsolated, setMeshVisibility, closeMenu ] );
+	}, [ menuState.selectedObject, isIsolated, setMeshVisibility, closeMenu ] );
 
 	const handleCopyMaterial = React.useCallback( () => {
 
@@ -288,7 +295,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 	// Handle paste material action
 	const handlePasteMaterial = React.useCallback( () => {
 
-		const app = appRef?.current;
+		const app = getApp();
 		const object = menuState.selectedObject;
 
 		if ( ! app || ! object || ! object.material || ! copiedMaterial ) return;
@@ -445,7 +452,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		closeMenu();
 
-	}, [ appRef, menuState.selectedObject, copiedMaterial, closeMenu ] );
+	}, [ menuState.selectedObject, copiedMaterial, closeMenu ] );
 
 	const handleDeselect = React.useCallback( () => {
 
@@ -453,7 +460,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		// Dispatch deselect event through InteractionManager
 		// This triggers the proper event flow in PathTracerApp
-		const app = appRef?.current;
+		const app = getApp();
 		if ( app?.interactionManager ) {
 
 			app.interactionManager.dispatchEvent( { type: 'objectDeselected' } );
@@ -463,11 +470,11 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 		// Note: We keep the isolated state even when deselecting
 		// This allows the user to keep objects isolated while exploring
 
-	}, [ appRef, closeMenu ] );
+	}, [ closeMenu ] );
 
 	React.useEffect( () => {
 
-		const app = appRef?.current;
+		const app = activeApp;
 		if ( ! app ) return;
 
 		const handleModelLoaded = () => {
@@ -483,11 +490,11 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		return () => app?.removeEventListener( 'ModelLoaded', handleModelLoaded );
 
-	}, [ appRef, isAppInitialized ] );
+	}, [ activeApp ] );
 
 	React.useEffect( () => {
 
-		const app = appRef?.current;
+		const app = activeApp;
 		if ( ! app?.interactionManager ) return;
 
 		const handleContextMenuRequested = ( event ) => {
@@ -505,7 +512,7 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 
 		return () => app.interactionManager?.removeEventListener( 'contextMenuRequested', handleContextMenuRequested );
 
-	}, [ appRef, isAppInitialized ] );
+	}, [ activeApp ] );
 
 	React.useEffect( () => {
 
@@ -614,8 +621,17 @@ const InteractionContextMenu = ( { appRef, isAppInitialized } ) => {
 			}}
 		>
 			<MenuItem onClick={handleHide}>
-				<EyeOff className="h-3 w-3" />
-				<span className="ml-2">Hide</span>
+				{menuState.selectedObject?.visible ? (
+					<>
+						<EyeOff className="h-3 w-3" />
+						<span className="ml-2">Hide</span>
+					</>
+				) : (
+					<>
+						<Eye className="h-3 w-3" />
+						<span className="ml-2">Show</span>
+					</>
+				)}
 			</MenuItem>
 
 			<MenuItem onClick={handleFocus}>
