@@ -2053,8 +2053,10 @@ export class PathTracerStage extends PipelineStage {
 		data[ stride + 41 ] = materialData.side ?? 0;
 		data[ stride + 42 ] = materialData.transparent ?? 0;
 		data[ stride + 43 ] = materialData.alphaTest ?? 0;
-
-		data[ stride + 46 ] = materialData.normalScale ?? 1;
+		data[ stride + 44 ] = materialData.alphaMode ?? 0;
+		data[ stride + 45 ] = materialData.depthWrite ?? 1;
+		data[ stride + 46 ] = materialData.normalScale?.x ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
+		data[ stride + 47 ] = materialData.normalScale?.y ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
 		data[ stride + 48 ] = materialData.bumpScale ?? 1;
 		data[ stride + 49 ] = materialData.displacementScale ?? 1;
 		data[ stride + 50 ] = materialData.displacementMap ?? - 1;

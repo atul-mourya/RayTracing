@@ -741,6 +741,13 @@ export default class TriangleSDF {
 			// Create only material and texture-related textures
 			const textures = await this.textureCreator.createMaterialTextures( params );
 
+			// Regenerate raw material data for storage buffer backends (WebGPU)
+			if ( this.config.skipGPUTextures ) {
+
+				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
+
+			}
+
 			// Update texture references (keep triangle and BVH textures unchanged)
 			this.materialTexture = textures.materialTexture;
 			this.albedoTextures = textures.albedoTexture;

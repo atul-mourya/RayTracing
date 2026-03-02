@@ -1420,12 +1420,10 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 */
 	updateMaterial( materialIndex, material ) {
 
-		if ( typeof this.pathTracingStage?.updateMaterialProperty === 'function' ) {
+		if ( typeof this.pathTracingStage?.updateMaterial === 'function' ) {
 
-			// Delegate to stage - it handles per-property updates
-			this.pathTracingStage.updateMaterialProperty( materialIndex, 'color', material.color );
-			this.pathTracingStage.updateMaterialProperty( materialIndex, 'roughness', material.roughness );
-			this.pathTracingStage.updateMaterialProperty( materialIndex, 'metalness', material.metalness );
+			// Delegate to stage for full material update (all properties + texture indices)
+			this.pathTracingStage.updateMaterial( materialIndex, material );
 
 		}
 
@@ -1436,8 +1434,12 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 	 */
 	async rebuildMaterials( scene ) {
 
-		// WebGPU material rebuild - no-op for now
-		console.warn( 'WebGPU rebuildMaterials not yet implemented' );
+		if ( typeof this.pathTracingStage?.rebuildMaterials === 'function' ) {
+
+			const sourceScene = this.existingApp?.scene || scene;
+			await this.pathTracingStage.rebuildMaterials( sourceScene );
+
+		}
 
 	}
 
