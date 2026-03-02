@@ -620,9 +620,11 @@ export const Trace = Fn( ( [
 	const firstHitPoint = ray.origin.toVar();
 	const firstHitDistance = float( 1e10 ).toVar();
 
-	// Medium stack for transmission
+	// Medium stack for transmission (per-slot IOR, slots 1-3 for nested media, depth 0 = air)
 	const mediumStackDepth = int( 0 ).toVar();
-	const mediumStackPrevIOR = float( 1.0 ).toVar();
+	const mediumStack_ior_1 = float( 1.0 ).toVar();
+	const mediumStack_ior_2 = float( 1.0 ).toVar();
+	const mediumStack_ior_3 = float( 1.0 ).toVar();
 
 	// Render state
 	const stateTraversals = maxBounceCount.toVar();
@@ -752,11 +754,38 @@ export const Trace = Fn( ( [
 
 		} );
 
+		// Compute current and previous medium IOR from stack for transmission
+		const currentMediumIOR = float( 1.0 ).toVar();
+		If( mediumStackDepth.equal( int( 1 ) ), () => {
+
+			currentMediumIOR.assign( mediumStack_ior_1 );
+
+		} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
+
+			currentMediumIOR.assign( mediumStack_ior_2 );
+
+		} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
+
+			currentMediumIOR.assign( mediumStack_ior_3 );
+
+		} );
+
+		const previousMediumIOR = float( 1.0 ).toVar();
+		If( mediumStackDepth.equal( int( 2 ) ), () => {
+
+			previousMediumIOR.assign( mediumStack_ior_1 );
+
+		} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
+
+			previousMediumIOR.assign( mediumStack_ior_2 );
+
+		} );
+
 		// Handle transparent materials
 		const interaction = MaterialInteractionResult.wrap( handleMaterialTransparency(
 			currentRay, hitInfo.hitPoint, N, material, rngState,
 			stateTransmissiveTraversals,
-			mediumStackDepth, mediumStackPrevIOR,
+			currentMediumIOR, previousMediumIOR,
 		) ).toVar();
 
 		If( interaction.continueRay, () => {
@@ -768,6 +797,45 @@ export const Trace = Fn( ( [
 				stateTransmissiveTraversals.subAssign( 1 );
 				stateRayType.assign( int( RAY_TYPE_TRANSMISSION ) );
 				isFreeBounce.assign( tslBool( true ) );
+
+				// Update medium stack only if we actually transmitted (not TIR/reflection)
+				If( interaction.didReflect.not(), () => {
+
+					If( interaction.entering, () => {
+
+						// Push new medium onto stack
+						If( mediumStackDepth.lessThan( int( 3 ) ), () => {
+
+							mediumStackDepth.addAssign( 1 );
+
+							If( mediumStackDepth.equal( int( 1 ) ), () => {
+
+								mediumStack_ior_1.assign( material.ior );
+
+							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
+
+								mediumStack_ior_2.assign( material.ior );
+
+							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
+
+								mediumStack_ior_3.assign( material.ior );
+
+							} );
+
+						} );
+
+					} ).Else( () => {
+
+						// Pop medium from stack
+						If( mediumStackDepth.greaterThan( int( 0 ) ), () => {
+
+							mediumStackDepth.subAssign( 1 );
+
+						} );
+
+					} );
+
+				} );
 
 			} ).ElseIf( interaction.isAlphaSkip, () => {
 

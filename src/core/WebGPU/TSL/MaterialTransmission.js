@@ -52,6 +52,8 @@ export const MaterialInteractionResult = struct( {
 	continueRay: 'bool', // Whether the ray should continue without further BRDF evaluation
 	isTransmissive: 'bool', // Flag to indicate this was a transmissive interaction
 	isAlphaSkip: 'bool', // Flag to indicate this was an alpha skip
+	didReflect: 'bool', // Whether TIR/reflection occurred (for medium stack update)
+	entering: 'bool', // Whether ray is entering or exiting medium
 	direction: 'vec3', // New ray direction if continuing
 	throughput: 'vec3', // Color modification for the ray
 	alpha: 'float', // Alpha modification
@@ -444,7 +446,7 @@ export const sampleMicrofacetTransmission = Fn( ( [
 
 export const handleTransmission = Fn( ( [
 	rayDir, normal, material, entering, rngState,
-	mediumStackDepth, mediumStackPrevIOR,
+	currentMediumIOR, previousMediumIOR,
 ] ) => {
 
 	const result = TransmissionResult( {
@@ -457,12 +459,11 @@ export const handleTransmission = Fn( ( [
 	const N = select( entering, normal, normal.negate() ).toVar();
 	const V = rayDir.negate().toVar();
 
-	// Get current medium IOR
-	const currentMediumIOR = select( mediumStackDepth.greaterThan( int( 0 ) ), mediumStackPrevIOR, float( 1.0 ) );
-
-	// Calculate IOR transition properly
+	// Calculate IOR transition using precomputed medium stack values
+	// Entering: n1 = current medium IOR (where ray is), n2 = material IOR (where ray goes)
+	// Exiting: n1 = material IOR (where ray is), n2 = previous medium IOR (where ray returns to)
 	const n1 = select( entering, currentMediumIOR, material.ior ).toVar();
-	const n2 = select( entering, material.ior, select( mediumStackDepth.greaterThan( int( 1 ) ), mediumStackPrevIOR, float( 1.0 ) ) ).toVar();
+	const n2 = select( entering, material.ior, previousMediumIOR ).toVar();
 
 	// Calculate basic reflection/refraction parameters
 	const cosThetaI = abs( dot( N, rayDir ) );
@@ -694,14 +695,16 @@ export const handleMaterialTransparency = Fn( ( [
 	ray, hitPoint, normal, material, rngState,
 	// RenderState fields passed individually (since inout not supported)
 	transmissiveTraversals,
-	// MediumStack info
-	mediumStackDepth, mediumStackPrevIOR,
+	// Precomputed medium IOR values from stack
+	currentMediumIOR, previousMediumIOR,
 ] ) => {
 
 	const result = MaterialInteractionResult( {
 		continueRay: false,
 		isTransmissive: false,
 		isAlphaSkip: false,
+		didReflect: false,
+		entering: false,
 		direction: ray.direction,
 		throughput: vec3( 1.0 ),
 		alpha: float( 1.0 ),
@@ -783,13 +786,15 @@ export const handleMaterialTransparency = Fn( ( [
 
 				const transResult = TransmissionResult.wrap( handleTransmission(
 					ray.direction, normal, material, entering, transmissionSeed,
-					mediumStackDepth, mediumStackPrevIOR,
+					currentMediumIOR, previousMediumIOR,
 				) );
 
 				result.direction.assign( transResult.direction );
 				result.throughput.assign( transResult.throughput );
 				result.continueRay.assign( true );
 				result.isTransmissive.assign( true );
+				result.didReflect.assign( transResult.didReflect );
+				result.entering.assign( entering );
 				result.alpha.assign( float( 1.0 ).sub( material.transmission ) );
 
 			} );
