@@ -195,15 +195,18 @@ BRDFWeights calculateBRDFWeights( RayTracingMaterial material, MaterialClassific
 			( 1.0 + material.dispersion * 0.5 );
 	}
 
-    // Optimized iridescence calculation
+    // Iridescence: fold into specular weight since iridescence modifies specular F0
+    // and should be sampled with GGX importance sampling, not as a separate diffuse-like lobe
 	float iridescenceBase = invRoughness * ( mc.isSmooth ? 0.6 : 0.5 );
-	weights.iridescence = material.iridescence * iridescenceBase *
+	float iridescenceWeight = material.iridescence * iridescenceBase *
 		( 0.5 + 0.5 * ( material.iridescenceThicknessRange.y - material.iridescenceThicknessRange.x ) / 1000.0 ) *
 		( 0.5 + 0.5 * material.iridescenceIOR / 2.0 );
+	weights.specular += iridescenceWeight;
+	weights.iridescence = 0.0;
 
     // Single normalization pass with enhanced precision
 	float total = weights.specular + weights.diffuse + weights.sheen +
-		weights.clearcoat + weights.transmission + weights.iridescence;
+		weights.clearcoat + weights.transmission;
 	float invTotal = 1.0 / max( total, 0.001 );
 
     // Vectorized multiplication
