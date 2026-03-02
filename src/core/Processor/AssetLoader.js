@@ -1260,7 +1260,6 @@ class AssetLoader extends EventDispatcher {
 						userData.width,
 						userData.height
 					);
-					light.rotation.x = Math.PI;
 					light.position.z = - 2;
 					light.name = userData.name;
 					object.add( light );
