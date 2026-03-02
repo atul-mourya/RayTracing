@@ -233,17 +233,18 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 
 	} );
 
-	// Iridescence calculation
+	// Iridescence: fold into specular weight since iridescence modifies specular F0
+	// and should be sampled with GGX importance sampling, not as a separate diffuse-like lobe
 	const iridescenceBase = invRoughness.mul( mc.isSmooth.select( float( 0.6 ), float( 0.5 ) ) );
-	const iridescence = material.iridescence.mul( iridescenceBase )
+	const iridescenceWeight = material.iridescence.mul( iridescenceBase )
 		.mul( float( 0.5 ).add( float( 0.5 ).mul(
 			material.iridescenceThicknessRange.y.sub( material.iridescenceThicknessRange.x ).div( 1000.0 )
 		) ) )
-		.mul( float( 0.5 ).add( float( 0.5 ).mul( material.iridescenceIOR.div( 2.0 ) ) ) )
-		.toVar();
+		.mul( float( 0.5 ).add( float( 0.5 ).mul( material.iridescenceIOR.div( 2.0 ) ) ) );
+	specular.addAssign( iridescenceWeight );
 
 	// Single normalization pass
-	const total = specular.add( diffuse ).add( sheen ).add( clearcoat ).add( transmission ).add( iridescence );
+	const total = specular.add( diffuse ).add( sheen ).add( clearcoat ).add( transmission );
 	const invTotal = float( 1.0 ).div( max( total, 0.001 ) );
 
 	return BRDFWeights( {
@@ -252,7 +253,7 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 		sheen: sheen.mul( invTotal ),
 		clearcoat: clearcoat.mul( invTotal ),
 		transmission: transmission.mul( invTotal ),
-		iridescence: iridescence.mul( invTotal ),
+		iridescence: float( 0.0 ),
 	} );
 
 } );
