@@ -426,7 +426,9 @@ export const TraceDebugMode = Fn( ( [
 			const rngState = pcgHash( { state: wang_hash( { seed: pixelSeed } ) } ).toVar();
 
 			// Cosine-weighted hemisphere sample around the surface normal
-			const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+			const xi_r1 = RandomValue( rngState ).toVar();
+			const xi_r2 = RandomValue( rngState ).toVar();
+			const xi = vec2( xi_r1, xi_r2 ).toVar();
 			const bounceDir = cosineWeightedSample( { N: normalA, xi } ).toVar();
 
 			// Trace secondary ray from the hit point (offset along normal to avoid self-intersection)

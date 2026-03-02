@@ -834,7 +834,9 @@ export const sampleAreaLightContribution = Fn( ( [
 	const result = vec3( 0.0 ).toVar();
 
 	// Sample random position on light surface
-	const ruv = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+	const ruv_r1 = RandomValue( rngState ).toVar();
+	const ruv_r2 = RandomValue( rngState ).toVar();
+	const ruv = vec2( ruv_r1, ruv_r2 ).toVar();
 	const lightPos = light.position.add( light.u.mul( ruv.x.sub( 0.5 ) ) ).add( light.v.mul( ruv.y.sub( 0.5 ) ) ).toVar();
 
 	const toLight = lightPos.sub( rayOrigin ).toVar();
@@ -1219,7 +1221,9 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 			If( enableEnvironmentLight.and( useEnvSampling ), () => {
 
-				const envRandom = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+				const env_r1 = RandomValue( rngState ).toVar();
+				const env_r2 = RandomValue( rngState ).toVar();
+				const envRandom = vec2( env_r1, env_r2 ).toVar();
 				const envColor = vec3( 0.0 ).toVar();
 
 				// Sample direction + PDF + color from importance-sampled environment

@@ -511,7 +511,9 @@ export const handleTransmission = Fn( ( [
 	result.didReflect.assign( doReflect );
 
 	// Choose random sample for microfacet sampling
-	const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+	const xi_r1 = RandomValue( rngState ).toVar();
+	const xi_r2 = RandomValue( rngState ).toVar();
+	const xi = vec2( xi_r1, xi_r2 );
 
 	If( doReflect, () => {
 

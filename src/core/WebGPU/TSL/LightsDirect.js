@@ -447,7 +447,9 @@ export const calculateDirectionalLightContribution = Fn( ( [
 		If( light.angle.greaterThan( 0.001 ), () => {
 
 			// Soft shadows: sample direction within cone
-			const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+			const xi_r1 = RandomValue( rngState ).toVar();
+			const xi_r2 = RandomValue( rngState ).toVar();
+			const xi = vec2( xi_r1, xi_r2 );
 			const halfAngle = light.angle.mul( 0.5 );
 			shadowDirection.assign( sampleCone( { direction: light.direction, halfAngle, xi } ) );
 

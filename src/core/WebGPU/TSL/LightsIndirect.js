@@ -326,7 +326,9 @@ export const calculateIndirectLighting = Fn( ( [
 	If( validInput.not(), () => {
 
 		// Fallback to diffuse sampling
-		const sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+		const r1_fb = RandomValue( rngState ).toVar();
+		const r2_fb = RandomValue( rngState ).toVar();
+		const sampleRand = vec2( r1_fb, r2_fb ).toVar();
 		r_direction.assign( cosineWeightedSample( N, sampleRand ) );
 		r_throughput.assign( material.color.xyz );
 		r_misWeight.assign( 1.0 );
@@ -341,7 +343,9 @@ export const calculateIndirectLighting = Fn( ( [
 		).toVar() );
 
 		const selectionRand = RandomValue( rngState ).toVar();
-		const sampleRand = vec2( RandomValue( rngState ), RandomValue( rngState ) ).toVar();
+		const r1 = RandomValue( rngState ).toVar();
+		const r2 = RandomValue( rngState ).toVar();
+		const sampleRand = vec2( r1, r2 ).toVar();
 
 		// Strategy selection
 		const strategyResult = selectSamplingStrategy( weights, selectionRand ).toVar();
@@ -352,7 +356,7 @@ export const calculateIndirectLighting = Fn( ( [
 		const samplePdf = float( 0.0 ).toVar();
 		const sampleBrdfValue = vec3( 0.0 ).toVar();
 
-		// Execute selected strategy
+		// Execute selected strategy (chained If/ElseIf/Else for exclusive branches)
 
 		// Strategy 0: Environment
 		If( selectedStrategy.equal( int( 0 ) ), () => {
@@ -367,29 +371,23 @@ export const calculateIndirectLighting = Fn( ( [
 			samplePdf.assign( envSampleResult.w );
 			sampleBrdfValue.assign( evaluateMaterialResponse( V, sampleDir, N, material ) );
 
-		} );
+		} ).ElseIf( selectedStrategy.equal( int( 1 ) ), () => {
 
-		// Strategy 1: Specular
-		If( selectedStrategy.equal( int( 1 ) ), () => {
-
+			// Strategy 1: Specular
 			sampleDir.assign( brdfSampleDirection );
 			samplePdf.assign( brdfSamplePdf );
 			sampleBrdfValue.assign( brdfSampleValue );
 
-		} );
+		} ).ElseIf( selectedStrategy.equal( int( 2 ) ), () => {
 
-		// Strategy 2: Diffuse
-		If( selectedStrategy.equal( int( 2 ) ), () => {
-
+			// Strategy 2: Diffuse
 			sampleDir.assign( cosineWeightedSample( N, sampleRand ) );
 			samplePdf.assign( cosineWeightedPDF( max( dot( N, sampleDir ), 0.0 ) ) );
 			sampleBrdfValue.assign( evaluateMaterialResponse( V, sampleDir, N, material ) );
 
-		} );
+		} ).ElseIf( selectedStrategy.equal( int( 3 ) ), () => {
 
-		// Strategy 3: Transmission
-		If( selectedStrategy.equal( int( 3 ) ), () => {
-
+			// Strategy 3: Transmission
 			const entering = dot( V, N ).lessThan( 0.0 ).toVar();
 			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState
@@ -398,11 +396,9 @@ export const calculateIndirectLighting = Fn( ( [
 			samplePdf.assign( mtResult.pdf );
 			sampleBrdfValue.assign( evaluateMaterialResponse( V, sampleDir, N, material ) );
 
-		} );
+		} ).Else( () => {
 
-		// Strategy 4: Clearcoat
-		If( selectedStrategy.equal( int( 4 ) ), () => {
-
+			// Strategy 4: Clearcoat (fallback)
 			sampleDir.assign( brdfSampleDirection );
 			samplePdf.assign( brdfSamplePdf );
 			sampleBrdfValue.assign( brdfSampleValue );

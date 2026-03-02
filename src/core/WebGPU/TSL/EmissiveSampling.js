@@ -191,7 +191,9 @@ export const sampleEmissiveTriangle = Fn( ( [
 		const material = RayTracingMaterial.wrap( getMaterial( triData.materialIndex, materialBuffer ) );
 
 		// Sample point on triangle
-		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+		const xi_r1 = RandomValue( rngState ).toVar();
+		const xi_r2 = RandomValue( rngState ).toVar();
+		const xi = vec2( xi_r1, xi_r2 );
 		const samplePos = sampleTriangle( triData.v0, triData.v1, triData.v2, xi );
 		const sampleNormal = interpolateNormal( triData.n0, triData.n1, triData.n2, xi );
 
