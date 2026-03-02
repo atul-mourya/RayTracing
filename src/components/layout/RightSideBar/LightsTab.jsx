@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight } from 'lucide-react';
+import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
@@ -216,6 +216,39 @@ const LightsTab = () => {
 										step={1}
 										value={[ light.angle ]}
 										onValueChange={value => handleLightChange( index, 'angle', value )}
+									/>
+								</div>
+							</>
+						)}
+						{light.type === 'RectAreaLight' && (
+							<>
+								<div className="flex items-center justify-between">
+									<Slider
+										label={`Width`}
+										icon={RectangleHorizontal}
+										min={0.1}
+										max={20}
+										step={0.1}
+										value={[ light.width || 2 ]}
+										onValueChange={value => handleLightChange( index, 'width', value )}
+									/>
+								</div>
+								<div className="flex items-center justify-between">
+									<Slider
+										label={`Height`}
+										icon={RectangleVertical}
+										min={0.1}
+										max={20}
+										step={0.1}
+										value={[ light.height || 2 ]}
+										onValueChange={value => handleLightChange( index, 'height', value )}
+									/>
+								</div>
+								<div className="flex items-center justify-between">
+									<Vector3Component
+										label={`Target`}
+										value={light.target || [ 0, 0, 0 ]}
+										onValueChange={value => handleLightChange( index, 'target', value )}
 									/>
 								</div>
 							</>

@@ -1822,6 +1822,20 @@ const useLightStore = create( set => ( {
 						light.target.position.set( ...targetPos );
 						light.target.updateMatrixWorld();
 
+					} else if ( light.type === 'RectAreaLight' ) {
+
+						const targetPos = Array.isArray( val ) ? val : [ value.x || value[ 0 ], value.y || value[ 1 ], value.z || value[ 2 ] ];
+						light.lookAt( ...targetPos );
+						light.updateMatrixWorld();
+
+					}
+
+				} else if ( prop === 'width' || prop === 'height' ) {
+
+					if ( light.type === 'RectAreaLight' ) {
+
+						light[ prop ] = value;
+
 					}
 
 				}

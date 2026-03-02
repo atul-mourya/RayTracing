@@ -1164,7 +1164,7 @@ class PathTracerApp extends EventDispatcher {
 		this.pathTracingPass.updateLights();
 		this.reset();
 
-		return {
+		const descriptor = {
 			uuid: light.uuid,
 			name: light.name,
 			type: light.type,
@@ -1173,6 +1173,17 @@ class PathTracerApp extends EventDispatcher {
 			position: [ light.position.x, light.position.y, light.position.z ],
 			angle: light.angle
 		};
+
+		if ( type === 'RectAreaLight' ) {
+
+			descriptor.width = light.width;
+			descriptor.height = light.height;
+			const dir = light.getWorldDirection( light.position.clone() );
+			descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
+
+		}
+
+		return descriptor;
 
 	}
 
@@ -1222,7 +1233,7 @@ class PathTracerApp extends EventDispatcher {
 
 			}
 
-			return {
+			const descriptor = {
 				uuid: light.uuid,
 				name: light.name,
 				type: light.type,
@@ -1231,6 +1242,21 @@ class PathTracerApp extends EventDispatcher {
 				position: [ light.position.x, light.position.y, light.position.z ],
 				angle: angle
 			};
+
+			if ( light.type === 'RectAreaLight' ) {
+
+				descriptor.width = light.width;
+				descriptor.height = light.height;
+				const dir = light.getWorldDirection( light.position.clone() );
+				descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
+
+			} else if ( light.type === 'SpotLight' && light.target ) {
+
+				descriptor.target = [ light.target.position.x, light.target.position.y, light.target.position.z ];
+
+			}
+
+			return descriptor;
 
 		} );
 

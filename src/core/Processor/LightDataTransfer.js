@@ -103,7 +103,7 @@ export class LightDataTransfer {
 		const height = light.height * worldScale.y * 0.5;
 
 		let u = new Vector3( width, 0, 0 ).applyQuaternion( worldQuaternion );
-		let v = new Vector3( 0, height, 0 ).applyQuaternion( worldQuaternion );
+		let v = new Vector3( 0, - height, 0 ).applyQuaternion( worldQuaternion );
 
 		// Calculate importance for sorting
 		const importance = this.calculateLightImportance( light, 'area' );

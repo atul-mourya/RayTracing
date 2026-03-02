@@ -34,6 +34,7 @@
 ## ✨ Immediate Features to Implement
 
 ### Advanced Rendering
+- add new catergoy of enviroment maps - abstract. Identify the files and organize it
 - [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
 - [ ] Implement Variance-based Firefly Suppression
 - [ ] OIDN HDR denoising Support
@@ -44,6 +45,7 @@
 - [ ] Study dot grid / moiré–like effect and its impact on rendering
 
 ### Lighting & Materials
+- [ ] area light controls like width, depth, target, helper toggle,etc.
 - [ ] Separate out environment and background sampling with different textures just like in three.js
 - [ ] Implement environment cube map support for hdris
 - [ ] Implement dds texture support
