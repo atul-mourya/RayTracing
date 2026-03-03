@@ -307,14 +307,6 @@ async function processSingleTextureOptimized( textureData, outputData, offset, m
 
 async function processTextureChunk( textures, maxWidth, maxHeight ) {
 
-	// Resize canvas for this chunk if needed
-	if ( canvas.width !== maxWidth || canvas.height !== maxHeight ) {
-
-		canvas.width = maxWidth;
-		canvas.height = maxHeight;
-
-	}
-
 	let data;
 	try {
 
@@ -336,94 +328,14 @@ async function processTextureChunk( textures, maxWidth, maxHeight ) {
 
 	}
 
-	// Optimize context settings
-	ctx.imageSmoothingEnabled = true;
-	ctx.imageSmoothingQuality = 'high';
-
-	for ( let i = 0; i < textures.length; i ++ ) {
-
-		const textureData = textures[ i ];
-
-		try {
-
-			await processSingleTexture( textureData, i, data, maxWidth, maxHeight );
-
-		} catch ( error ) {
-
-			console.warn( `Failed to process texture ${i}:`, error );
-			const offset = maxWidth * maxHeight * 4 * i;
-			data.fill( 0, offset, offset + maxWidth * maxHeight * 4 );
-
-		}
-
-	}
-
-	return {
-		data: data.buffer,
-		width: maxWidth,
-		height: maxHeight,
-		depth: textures.length
-	};
+	return await processTextureChunkOptimized( textures, maxWidth, maxHeight, data );
 
 }
 
 async function processSingleTexture( textureData, index, outputData, maxWidth, maxHeight ) {
 
-	let imageBitmap;
-
-	if ( textureData.isDirect && textureData.bitmap ) {
-
-		// Direct ImageBitmap transfer - no conversion needed!
-		imageBitmap = textureData.bitmap;
-
-	} else if ( textureData.isImageData && textureData.data ) {
-
-		// Direct ImageData transfer - minimal conversion
-		const imageData = new ImageData(
-			new Uint8ClampedArray( textureData.data ),
-			textureData.width,
-			textureData.height
-		);
-
-		imageBitmap = await createImageBitmap( imageData, {
-			resizeWidth: maxWidth,
-			resizeHeight: maxHeight,
-			resizeQuality: 'high'
-		} );
-
-	} else if ( textureData.isBlob ) {
-
-		// Legacy blob processing (fallback)
-		const blob = new Blob( [ textureData.data ] );
-		imageBitmap = await createImageBitmap( blob, {
-			resizeWidth: maxWidth,
-			resizeHeight: maxHeight,
-			resizeQuality: 'high'
-		} );
-
-	} else {
-
-		throw new Error( 'Unknown texture data format' );
-
-	}
-
-	// Clear and draw to canvas
-	ctx.clearRect( 0, 0, maxWidth, maxHeight );
-	ctx.drawImage( imageBitmap, 0, 0, maxWidth, maxHeight );
-
-	// Get image data efficiently
-	const imageData = ctx.getImageData( 0, 0, maxWidth, maxHeight );
-
-	// Copy to output array
 	const offset = maxWidth * maxHeight * 4 * index;
-	outputData.set( imageData.data, offset );
-
-	// Clean up ImageBitmap if we created it
-	if ( textureData.isImageData || textureData.isBlob ) {
-
-		imageBitmap.close();
-
-	}
+	await processSingleTextureOptimized( textureData, outputData, offset, maxWidth, maxHeight );
 
 }
 

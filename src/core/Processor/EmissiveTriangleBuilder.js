@@ -7,6 +7,7 @@
  */
 
 import { DataTexture, RGBAFormat, FloatType, NearestFilter } from 'three';
+import { TRIANGLE_DATA_LAYOUT } from '../../Constants.js';
 
 export class EmissiveTriangleBuilder {
 
@@ -34,10 +35,8 @@ export class EmissiveTriangleBuilder {
 		this.emissiveTriangles = [];
 		this.totalEmissivePower = 0;
 
-		// Triangle data layout: 32 floats per triangle (8 vec4s)
-		// Index 7: vec4(uv2.x, uv2.y, materialIndex, meshIndex)
-		const FLOATS_PER_TRIANGLE = 32;
-		const MATERIAL_INDEX_OFFSET = 30; // Position in flat array
+		const FLOATS_PER_TRIANGLE = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const MATERIAL_INDEX_OFFSET = TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2; // materialIndex within vec4
 
 		for ( let i = 0; i < triangleCount; i ++ ) {
 

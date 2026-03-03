@@ -741,6 +741,53 @@ export default class GeometryExtractor {
 
 	}
 
+	/**
+	 * Extract only materials and texture references without processing geometry.
+	 * Skips triangle counting, Float32Array allocation, and vertex extraction.
+	 */
+	extractMaterialsOnly( object ) {
+
+		this.resetArrays();
+
+		this._traverseMaterialsOnly( object );
+
+		return this.getExtractedData();
+
+	}
+
+	_traverseMaterialsOnly( object ) {
+
+		if ( object.isMesh && object.geometry && object.material ) {
+
+			const materialIndex = this.processMaterial( object.material, object );
+			object.userData.materialIndex = materialIndex;
+
+			const meshIndex = this.meshes.length;
+			this.meshes.push( object );
+			object.userData.meshIndex = meshIndex;
+
+		} else if ( object.isDirectionalLight ) {
+
+			this.directionalLights.push( object );
+
+		} else if ( object.isCamera ) {
+
+			this.cameras.push( object );
+
+		}
+
+		if ( object.children ) {
+
+			for ( const child of object.children ) {
+
+				this._traverseMaterialsOnly( child );
+
+			}
+
+		}
+
+	}
+
 	resetArrays() {
 
 		// Reset triangle data

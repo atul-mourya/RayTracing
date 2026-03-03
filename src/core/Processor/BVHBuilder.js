@@ -1,23 +1,19 @@
 import { Vector3 } from "three";
 import TreeletOptimizer from "./TreeletOptimizer";
 
-// Import the unified data layout constants
+// Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
+// Cannot import Constants.js because BVHBuilder runs inside BVHWorker
+// where `window` (used elsewhere in Constants.js) is not defined.
 const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
-
-	// Positions (3 vec4s = 12 floats)
-	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
-	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
-	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
-
-	// Normals (3 vec4s = 12 floats)
-	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
-	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
-	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
-
-	// UVs and Material (2 vec4s = 8 floats)
-	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
-	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
+	FLOATS_PER_TRIANGLE: 32,
+	POSITION_A_OFFSET: 0,
+	POSITION_B_OFFSET: 4,
+	POSITION_C_OFFSET: 8,
+	NORMAL_A_OFFSET: 12,
+	NORMAL_B_OFFSET: 16,
+	NORMAL_C_OFFSET: 20,
+	UV_AB_OFFSET: 24,
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, meshIndex
 };
 
 class CWBVHNode {

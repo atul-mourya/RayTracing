@@ -1,5 +1,4 @@
 import debugModelsData from './DebugModels.json';
-import { WebGLRenderer } from 'three';
 
 // export const MODEL_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/';
 export const MODEL_FILES = [
@@ -421,22 +420,7 @@ export const TEXTURE_CONSTANTS = {
 	BUFFER_POOL_SIZE: 20,
 	CANVAS_POOL_SIZE: 12,
 	CACHE_SIZE_LIMIT: 50,
-	MAX_TEXTURE_SIZE: ( () => {
-
-		try {
-
-			const renderer = new WebGLRenderer();
-			const size = renderer.capabilities.maxTextureSize;
-			renderer.dispose();
-			return size;
-
-		} catch {
-
-			return 4096;
-
-		}
-
-	} )()
+	MAX_TEXTURE_SIZE: 8192 // WebGPU minimum spec for maxTextureDimension2D
 };
 
 // Default texture matrix for materials

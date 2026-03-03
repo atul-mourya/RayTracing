@@ -16,7 +16,7 @@ const TRIANGLE_DATA_LAYOUT = {
 
 	// UVs and Material (2 vec4s = 8 floats)
 	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
-	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, meshIndex
 };
 
 self.onmessage = function ( e ) {
@@ -122,11 +122,11 @@ function convertObjectsToFloat32Array( triangleObjects ) {
 		data[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 2 ] = tri.uvB.x;
 		data[ offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 3 ] = tri.uvB.y;
 
-		// Second vec4: uvC.x, uvC.y, materialIndex, padding
+		// Second vec4: uvC.x, uvC.y, materialIndex, meshIndex
 		data[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 0 ] = tri.uvC.x;
 		data[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 1 ] = tri.uvC.y;
 		data[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2 ] = tri.materialIndex;
-		data[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ] = 0; // vec4 padding
+		data[ offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ] = tri.meshIndex;
 
 	}
 

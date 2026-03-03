@@ -4,7 +4,7 @@ import BVHBuilder from './BVHBuilder.js';
 import TextureCreator from './TextureCreator.js'; // Using optimized TextureCreator
 import GeometryExtractor from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
-import { updateLoading } from '../Processor/utils.js';
+import { updateLoading, resetLoading } from '../Processor/utils.js';
 
 /**
  * TriangleSDF - Handles the triangle-based signed distance field
@@ -196,6 +196,7 @@ export default class TriangleSDF {
 			} );
 
 			this.processingStage = 'complete';
+			resetLoading();
 			return this;
 
 		} catch ( error ) {
@@ -223,6 +224,8 @@ export default class TriangleSDF {
 	async _extractGeometry( object ) {
 
 		updateLoading( {
+			isLoading: true,
+			title: "Processing",
 			status: "Extracting geometry...",
 			progress: 0
 		} );
@@ -572,8 +575,8 @@ export default class TriangleSDF {
 			// Set processing flag to prevent concurrent operations
 			this.isProcessing = true;
 
-			// Extract only material-related data from the scene
-			const extractedData = this.geometryExtractor.extract( object );
+			// Extract only material-related data from the scene (skip geometry extraction)
+			const extractedData = this.geometryExtractor.extractMaterialsOnly( object );
 
 			// Dispose old texture resources BEFORE updating arrays
 			this._disposeMaterialTextures();

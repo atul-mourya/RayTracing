@@ -45,6 +45,7 @@ export const VisibilityData = struct( {
 // ================================================================================
 
 const MAX_STACK_DEPTH = 32;
+const MAX_BVH_ITERATIONS = 512;
 const BVH_STRIDE = 3;
 const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
@@ -463,7 +464,7 @@ export const traverseBVH = Fn( ( [
 
 	const iterCount = int( 0 ).toVar();
 
-	Loop( stackPtr.greaterThan( int( 0 ) ).and( iterCount.lessThan( int( 256 ) ) ), () => {
+	Loop( stackPtr.greaterThan( int( 0 ) ).and( iterCount.lessThan( int( MAX_BVH_ITERATIONS ) ) ), () => {
 
 		iterCount.addAssign( 1 );
 		stackPtr.subAssign( 1 );
@@ -635,7 +636,7 @@ export const traverseBVHShadow = Fn( ( [
 
 	const sIterCount = int( 0 ).toVar();
 
-	Loop( stackPtr.greaterThan( int( 0 ) ).and( closestHit.didHit.not() ).and( sIterCount.lessThan( int( 256 ) ) ), () => {
+	Loop( stackPtr.greaterThan( int( 0 ) ).and( closestHit.didHit.not() ).and( sIterCount.lessThan( int( MAX_BVH_ITERATIONS ) ) ), () => {
 
 		sIterCount.addAssign( 1 );
 		stackPtr.subAssign( 1 );

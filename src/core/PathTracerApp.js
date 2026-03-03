@@ -22,7 +22,7 @@ import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
 import { DEFAULT_STATE } from '../Constants.js';
-import { updateStats } from './Processor/utils.js';
+import { updateStats, resetLoading } from './Processor/utils.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
 import { useStore } from '@/store';
@@ -323,6 +323,8 @@ export class PathTracerApp extends EventDispatcher {
 					await this.pathTracingStage.setEnvironmentMap( envTexture );
 
 				}
+
+				resetLoading();
 
 			}
 
@@ -824,6 +826,14 @@ export class PathTracerApp extends EventDispatcher {
 	animate() {
 
 		this.animationId = requestAnimationFrame( () => this.animate() );
+
+		// Skip all rendering while scene data is being loaded or processed
+		if ( this._loadingInProgress || this.sdf?.isProcessing ) {
+
+			this.stats?.update();
+			return;
+
+		}
 
 		// Update controls
 		if ( this.controls ) {

@@ -5,7 +5,7 @@ import { GLTFLoader, HDRLoader, DRACOLoader, EXRLoader } from 'three/examples/js
 import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
-import { disposeObjectFromMemory, updateLoading, resetLoading } from './utils';
+import { disposeObjectFromMemory, updateLoading } from './utils';
 import { MODEL_FILES, DEFAULT_STATE } from '@/Constants';
 
 // Define supported file formats
@@ -132,11 +132,6 @@ class AssetLoader extends EventDispatcher {
 
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 100 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -482,11 +477,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename: filePath } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -776,11 +766,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename: modelUrl } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -810,11 +795,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading GLB:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -848,11 +828,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading FBX:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -890,11 +865,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -931,11 +901,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading STL:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -986,11 +951,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -1027,11 +987,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -1065,11 +1020,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading 3MF:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -1105,11 +1055,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading USDZ:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 

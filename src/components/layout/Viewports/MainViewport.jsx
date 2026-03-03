@@ -13,7 +13,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 	const [ isDragging, setIsDragging ] = useState( false );
 	const setEnvironment = useAssetsStore( useCallback( state => state.setEnvironment, [] ) );
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
-	const resetLoading = useStore( useCallback( state => state.resetLoading, [] ) );
+
 	const environmentMode = usePathTracerStore( useCallback( state => state.environmentMode, [] ) );
 	const handleEnvironmentModeChange = usePathTracerStore( useCallback( state => state.handleEnvironmentModeChange, [] ) );
 	const { toast } = useToast();
@@ -62,9 +62,6 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 				}
 
-				setLoading( { isLoading: true, title: "Loading", status: "Loading Complete!", progress: 100 } );
-				setTimeout( () => resetLoading(), 1000 );
-
 			};
 
 			const handleAssetError = ( event ) => {
@@ -98,7 +95,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 		}
 
-	}, [ toast, setEnvironment, resetLoading, setLoading, environmentMode, handleEnvironmentModeChange ] );
+	}, [ toast, setEnvironment, setLoading, environmentMode, handleEnvironmentModeChange ] );
 
 	// Drag event handlers
 	const handleDragOver = useCallback( ( e ) => {
