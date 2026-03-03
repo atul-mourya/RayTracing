@@ -1,5 +1,4 @@
 let canvas, ctx;
-let imageBitmapCache = new Map();
 
 // Memory limits and chunking configuration
 const MEMORY_LIMITS = {
@@ -652,22 +651,3 @@ function calculateReducedDimensions( textures, maxTextureSize ) {
 
 }
 
-// Cleanup function
-self.addEventListener( 'beforeunload', () => {
-
-	if ( imageBitmapCache ) {
-
-		imageBitmapCache.forEach( bitmap => {
-
-			if ( bitmap && bitmap.close ) {
-
-				bitmap.close();
-
-			}
-
-		} );
-		imageBitmapCache.clear();
-
-	}
-
-} );

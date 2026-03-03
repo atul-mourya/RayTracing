@@ -102,8 +102,8 @@ const LoadingOverlay = ( {
 						</div>
 					)}
 
-					{/* Show estimated time remaining for BVH building */}
-					{loading.status && loading.status.includes( 'Building BVH' ) && (
+					{/* Show hint during heavy processing phases */}
+					{loading.status && ( loading.status.includes( 'Building BVH' ) || loading.status.includes( 'Processing Textures' ) ) && (
 						<p className="text-xs text-muted-foreground mt-1">
 							{loading.progress < 100
 								? "This may take a while for large models..."

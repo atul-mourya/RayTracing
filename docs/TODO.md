@@ -11,12 +11,6 @@
 
 ### Known Issues
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] oidn denoiser not working properly on safari browser and windows devices
-- [ ] shader compilation failure observed in RTX devices. 
-- [ ] implement missing use of preprocessor directives in shaders to enable/disable features like:
-  - [ ] mrt outputs
-  - [ ] specularIntensity, specularColor
-  - [ ] emissiveIntensity, emissiveColor
 
 ### Code Quality & Performance
 - [ ] **Performance Profiling**
@@ -46,7 +40,7 @@
 - [ ] Study dot grid / moiré–like effect and its impact on rendering
 
 ### Lighting & Materials
-- [ ] area light controls like width, depth, target, helper toggle,etc.
+- [ ] area light controls for helper toggle
 - [ ] Separate out environment and background sampling with different textures just like in three.js
 - [ ] Implement environment cube map support for hdris
 - [ ] Implement dds texture support

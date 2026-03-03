@@ -158,26 +158,36 @@ export default class TriangleSDF {
 			this._reset();
 			this._log( 'Starting scene processing' );
 
-			// Step 1: Extract geometry (0-30%)
+			// Step 1: Extract geometry (0-20%)
 			this.processingStage = 'extraction';
 			const extractionStartTime = performance.now();
 			await this._extractGeometry( object );
 			this.performanceMetrics.geometryExtractionTime = performance.now() - extractionStartTime;
 
-			// Step 2: Build BVH (30-80%)
+			// Step 2: BVH + textures in parallel (20-95%)
+			// Texture creation only needs GeometryExtractor output (materials + texture maps)
+			// BVH construction is independent — run both concurrently
 			this.processingStage = 'bvh';
 			const bvhStartTime = performance.now();
-			await this._buildBVH();
-			this.performanceMetrics.bvhBuildTime = performance.now() - bvhStartTime;
-
-			// Step 3: Create textures (80-100%)
-			this.processingStage = 'textures';
 			const textureStartTime = performance.now();
-			await this._createTextures();
+
+			const bvhPromise = this._buildBVH();
+			const texturePromise = this._createMaterialTextures();
+
+			await Promise.all( [ bvhPromise, texturePromise ] );
+
+			this.performanceMetrics.bvhBuildTime = performance.now() - bvhStartTime;
 			this.performanceMetrics.textureCreationTime = performance.now() - textureStartTime;
 
-			// Create additional scene elements (spheres, etc.)
+			// Step 3: BVH raw data (needs bvhRoot from step 2)
 			this.processingStage = 'finalize';
+			if ( this.bvhRoot ) {
+
+				this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
+
+			}
+
+			// Create additional scene elements (spheres, etc.)
 			this.spheres = this._createSpheres();
 
 			// Calculate total performance
@@ -230,6 +240,8 @@ export default class TriangleSDF {
 			progress: 0
 		} );
 
+		// 0-20% range for extraction
+
 		this._log( 'Extracting geometry' );
 		const startTime = performance.now();
 
@@ -266,7 +278,7 @@ export default class TriangleSDF {
 
 			updateLoading( {
 				status: `Extracted ${this.triangleCount.toLocaleString()} triangles`,
-				progress: 30
+				progress: 20
 			} );
 
 		} catch ( error ) {
@@ -274,7 +286,7 @@ export default class TriangleSDF {
 			console.error( '[TriangleSDF] Geometry extraction error:', error );
 			updateLoading( {
 				status: `Extraction error: ${error.message}`,
-				progress: 30
+				progress: 20
 			} );
 			throw error;
 
@@ -290,7 +302,7 @@ export default class TriangleSDF {
 
 		updateLoading( {
 			status: "Building BVH...",
-			progress: 30
+			progress: 20
 		} );
 
 		if ( this.triangleCount === 0 ) {
@@ -321,7 +333,8 @@ export default class TriangleSDF {
 			// Define progress callback
 			const progressCallback = ( progress ) => {
 
-				const scaledProgress = 30 + Math.floor( progress * 0.5 );
+				// Map BVH 0-100% to UI 20-95%
+				const scaledProgress = 20 + Math.floor( progress * 0.75 );
 				const triangleCount = this.triangleCount.toLocaleString();
 				updateLoading( {
 					status: `Building BVH for ${triangleCount} triangles... ${progress}%`,
@@ -353,7 +366,7 @@ export default class TriangleSDF {
 
 			updateLoading( {
 				status: "BVH construction complete",
-				progress: 80
+				progress: 95
 			} );
 
 		} catch ( error ) {
@@ -361,7 +374,7 @@ export default class TriangleSDF {
 			console.error( '[TriangleSDF] BVH building error:', error );
 			updateLoading( {
 				status: `BVH error: ${error.message}`,
-				progress: 80
+				progress: 95
 			} );
 			throw error;
 
@@ -370,35 +383,24 @@ export default class TriangleSDF {
 	}
 
 	/**
-     * Create texture data from geometry and materials
+     * Create material textures and emissive data concurrently with BVH.
+     * Only depends on GeometryExtractor output, NOT on BVH.
      * @private
      */
-	async _createTextures() {
+	async _createMaterialTextures() {
 
-		updateLoading( {
-			status: "Processing Textures...",
-			progress: 80
-		} );
-
-		this._log( 'Creating textures' );
-		const startTime = performance.now();
+		this._log( 'Creating material textures (parallel with BVH)' );
 
 		try {
 
-			// Raw Float32Arrays for storage buffers — triangleData already exists as this.triangleData
+			// Material raw data for storage buffers
 			if ( this.materials?.length ) {
 
 				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
 
 			}
 
-			if ( this.bvhRoot ) {
-
-				this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
-
-			}
-
-			// Material texture arrays are needed as actual GPU textures
+			// Material texture arrays → GPU DataArrayTextures
 			const mapTypesList = [
 				{ data: this.maps, prop: 'albedoTextures' },
 				{ data: this.normalMaps, prop: 'normalTextures' },
@@ -416,7 +418,11 @@ export default class TriangleSDF {
 
 					mapPromises.push(
 						this.textureCreator.createTexturesToDataTexture( data )
-							.then( texture => { this[ prop ] = texture; } )
+							.then( texture => {
+
+								this[ prop ] = texture;
+
+							} )
 					);
 
 				}
@@ -425,42 +431,23 @@ export default class TriangleSDF {
 
 			await Promise.all( mapPromises );
 
-			const duration = performance.now() - startTime;
-			this._log( `Texture creation complete (${duration.toFixed( 2 )}ms)`, {
+			this._log( 'Material textures complete', {
 				materialData: !! this.materialData,
-				bvhData: !! this.bvhData,
 			} );
 
 			// Extract emissive triangles for direct lighting
-			updateLoading( {
-				status: "Building emissive triangle index...",
-				progress: 95
-			} );
-
 			this.emissiveTriangleCount = this.emissiveTriangleBuilder.extractEmissiveTriangles(
 				this.triangleData,
 				this.materials,
 				this.triangleCount
 			);
 
-			// Create emissive triangle data for GPU
 			this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
-
-			const emissiveStats = this.emissiveTriangleBuilder.getStats();
-			this._log( `Emissive triangle extraction complete`, emissiveStats );
-
-			updateLoading( {
-				status: "Texture processing complete",
-				progress: 100
-			} );
+			this._log( 'Emissive triangle extraction complete', this.emissiveTriangleBuilder.getStats() );
 
 		} catch ( error ) {
 
 			console.error( '[TriangleSDF] Texture creation error:', error );
-			updateLoading( {
-				status: `Texture error: ${error.message}`,
-				progress: 100
-			} );
 			throw error;
 
 		}
