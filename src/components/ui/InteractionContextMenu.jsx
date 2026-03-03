@@ -613,6 +613,7 @@ const InteractionContextMenu = () => {
 			data-state="open"
 			role="menu"
 			tabIndex={- 1}
+			onContextMenu={( e ) => e.preventDefault()}
 			style={{
 				position: 'fixed',
 				left: `${menuState.x}px`,

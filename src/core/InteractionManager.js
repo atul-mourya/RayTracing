@@ -51,6 +51,15 @@ class InteractionManager extends EventDispatcher {
 		this.handleMouseDown = this.handleMouseDown.bind( this );
 		this.handleMouseUp = this.handleMouseUp.bind( this );
 		this.handleContextMenu = this.handleContextMenu.bind( this );
+		this.handleContextPointerDown = this.handleContextPointerDown.bind( this );
+		this.handleContextPointerUp = this.handleContextPointerUp.bind( this );
+
+		// Context menu right-click detection is always active (not gated by select mode)
+		// Uses pointer events to avoid suppression from OrbitControls preventDefault on pointerdown
+		this.contextPointerDownPosition = null;
+		this.canvas.addEventListener( 'pointerdown', this.handleContextPointerDown );
+		this.canvas.addEventListener( 'pointerup', this.handleContextPointerUp );
+		this.canvas.addEventListener( 'contextmenu', this.handleContextMenu );
 
 	}
 
@@ -191,7 +200,6 @@ class InteractionManager extends EventDispatcher {
 			this.canvas.addEventListener( 'mouseup', this.handleMouseUp );
 			this.canvas.addEventListener( 'click', this.handleSelectClick );
 			this.canvas.addEventListener( 'dblclick', this.handleSelectDoubleClick );
-			this.canvas.addEventListener( 'contextmenu', this.handleContextMenu );
 
 		} else {
 
@@ -199,7 +207,6 @@ class InteractionManager extends EventDispatcher {
 			this.canvas.removeEventListener( 'mouseup', this.handleMouseUp );
 			this.canvas.removeEventListener( 'click', this.handleSelectClick );
 			this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
-			this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
 
 			// Clear pending click timeout
 			if ( this.clickTimeout ) {
@@ -236,12 +243,11 @@ class InteractionManager extends EventDispatcher {
 		// Restore cursor
 		this.canvas.style.cursor = 'auto';
 
-		// Remove event listeners
+		// Remove event listeners (context menu listeners stay active)
 		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 		this.canvas.removeEventListener( 'mouseup', this.handleMouseUp );
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
-		this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
 
 		// Clear timeout
 		if ( this.clickTimeout ) {
@@ -432,32 +438,62 @@ class InteractionManager extends EventDispatcher {
 	// ==================== CONTEXT MENU ====================
 
 	/**
-	 * Handle mouseup to show context menu for right-click
-	 * Only shows menu if right button was clicked without dragging
+	 * Handle mouseup for select mode (no longer handles context menu)
 	 * @private
 	 */
-	handleMouseUp( event ) {
+	handleMouseUp() {
 
-		// Only handle right-click (button 2)
+		// Context menu is now handled by handleContextPointerUp (always active)
+
+	}
+
+	/**
+	 * Track right-click pointer down for context menu drag detection.
+	 * Uses pointer events (always active) to avoid suppression by OrbitControls.
+	 * @private
+	 */
+	handleContextPointerDown( event ) {
+
+		if ( event.button !== 2 ) return;
+
+		this.contextPointerDownPosition = {
+			x: event.clientX,
+			y: event.clientY
+		};
+
+	}
+
+	/**
+	 * Handle right-click pointer up to show context menu.
+	 * Always active regardless of select mode — works for objects selected
+	 * via outliner, canvas click-to-select, or any other method.
+	 * @private
+	 */
+	handleContextPointerUp( event ) {
+
 		if ( event.button !== 2 ) return;
 
 		// Check if this was a drag operation
-		if ( this.wasMouseDragged( event ) ) {
+		if ( this.contextPointerDownPosition ) {
 
-			this.mouseDownPosition = null;
+			const deltaX = Math.abs( event.clientX - this.contextPointerDownPosition.x );
+			const deltaY = Math.abs( event.clientY - this.contextPointerDownPosition.y );
+			const distance = Math.sqrt( deltaX * deltaX + deltaY * deltaY );
+
+			if ( distance > this.dragThreshold ) {
+
+				this.contextPointerDownPosition = null;
+				return;
+
+			}
+
+		} else {
+
 			return;
 
 		}
 
-		// Safety check
-		if ( ! this.mouseDownPosition || this.mouseDownPosition.button !== 2 ) {
-
-			this.mouseDownPosition = null;
-			return;
-
-		}
-
-		this.mouseDownPosition = null;
+		this.contextPointerDownPosition = null;
 
 		// Only show context menu if an object is selected
 		const selectedObject = useStore.getState().selectedObject;
@@ -479,7 +515,6 @@ class InteractionManager extends EventDispatcher {
 
 	/**
 	 * Prevent default context menu from showing
-	 * We handle context menu on mouseup instead to detect drag operations
 	 * @private
 	 */
 	handleContextMenu( event ) {
@@ -548,6 +583,8 @@ class InteractionManager extends EventDispatcher {
 		this.canvas.removeEventListener( 'click', this.handleSelectClick );
 		this.canvas.removeEventListener( 'dblclick', this.handleSelectDoubleClick );
 		this.canvas.removeEventListener( 'contextmenu', this.handleContextMenu );
+		this.canvas.removeEventListener( 'pointerdown', this.handleContextPointerDown );
+		this.canvas.removeEventListener( 'pointerup', this.handleContextPointerUp );
 
 		// Clear timeouts
 		if ( this.clickTimeout ) {
@@ -559,6 +596,7 @@ class InteractionManager extends EventDispatcher {
 
 		// Clear mousedown position
 		this.mouseDownPosition = null;
+		this.contextPointerDownPosition = null;
 
 		// Remove focus indicator from scene
 		if ( this.focusPointIndicator ) {

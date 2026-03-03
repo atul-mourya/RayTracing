@@ -8,7 +8,7 @@ Thank you for your interest in contributing to Rayzee! This document provides gu
 
 - **Node.js** >= 20.11.1
 - **npm** or **yarn**
-- Modern browser with WebGL 2.0 support
+- Modern browser with WebGPU support (Chrome 113+, Edge 113+)
 - Basic knowledge of JavaScript, React, and Three.js
 - Understanding of path tracing concepts (helpful but not required)
 
@@ -97,9 +97,10 @@ src/
 │   ├── ui/              # Reusable UI components
 │   └── layout/          # Layout-specific components
 ├── core/                # Core path tracing engine
-│   ├── main.js         # Main application class
-│   ├── Passes/         # Rendering passes
-│   └── Processor/      # Asset processing
+│   ├── PathTracerApp.js # Main application class
+│   ├── Stages/          # Rendering pipeline stages
+│   ├── TSL/             # TSL shader modules
+│   └── Processor/       # Asset processing
 ├── hooks/              # Custom React hooks
 ├── store/              # Zustand stores
 ├── utils/              # Utility functions
@@ -254,7 +255,7 @@ Any other relevant information.
 ### Low-Priority Areas
 
 - **New Rendering Features**: Volumetrics, subsurface scattering
-- **Platform Support**: Mobile optimization, WebGPU migration
+- **Platform Support**: Mobile optimization, Safari WebGPU compatibility
 - **Export Features**: Animation support, batch operations
 - **Advanced Materials**: Procedural materials, material editor
 
@@ -264,14 +265,13 @@ Any other relevant information.
 
 - **Three.js Documentation**: https://threejs.org/docs/
 - **Path Tracing Theory**: "Physically Based Rendering" by Pharr, Jakob, Humphreys
-- **WebGL/GLSL**: https://webglfundamentals.org/
+- **WebGPU**: https://webgpufundamentals.org/
 - **React Best Practices**: https://react.dev/
 
 ### Useful Tools
 
 - **Browser DevTools**: For debugging and profiling
-- **Spector.js**: WebGL debugging extension
-- **Renderdoc**: Advanced graphics debugging (desktop only)
+- **Chrome DevTools GPU panel**: WebGPU debugging and profiling
 
 ## 🤝 Community Guidelines
 

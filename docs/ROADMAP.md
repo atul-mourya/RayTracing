@@ -14,13 +14,11 @@
 ### WebGPU Migration & Performance
 - [x] **WebGPU Backend Integration (TSL)**
   - [x] Port core path tracing to WebGPU via TSL (Three Shading Language → compiles to WGSL)
-  - [x] Dual-backend architecture with BackendManager & appProxy
-  - [x] Shared GPU texture system (DataTransfer) — no memory duplication
-  - [x] Backend-agnostic store/UI layer via `getApp()` pattern
-  - [x] Fallback system for WebGL2 compatibility
+  - [x] App proxy pattern (`getApp()` / `subscribeApp()`) for store/UI layer
+  - [x] WebGL backend removed — WebGPU is sole renderer
   - [x] Full material system port (Disney BSDF, emissive sampling)
   - [x] InteractionManager support (click-to-select, focus picking)
-  - [x] State preservation across backend switches
+  - [x] Full rendering pipeline with stages (ASVGF, adaptive sampling, edge filtering, etc.)
 
 - [ ] **WebGPU Compute Shaders (Phase 2)**
   - [ ] Compute shader BVH construction for 3-5x build speedup
@@ -205,7 +203,7 @@
 - **Education:** Used in 50+ courses/tutorials
 
 ### Technical Milestones
-- **Q2 2025:** ~~WebGPU beta release~~ ✅ WebGPU TSL backend shipped (dual-backend architecture)
+- **Q2 2025:** ~~WebGPU beta release~~ ✅ WebGPU TSL backend shipped, WebGL removed
 - **Q3 2025:** Volumetric rendering
 - **Q4 2025:** Production pipeline tools, WebGPU compute shaders (ASVGF/denoiser port)
 - **Q1 2026:** Mobile optimization

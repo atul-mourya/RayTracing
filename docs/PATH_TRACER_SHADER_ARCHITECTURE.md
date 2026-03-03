@@ -468,9 +468,9 @@ The WebGPU `PathTracingStage` (`src/core/WebGPU/Stages/PathTracingStage.js`, ~30
 3. Calls `pathTracerMain()` TSL entry point
 4. Produces MRT outputs (`gColor`, `gNormalDepth`, `gAlbedo`)
 5. Manages camera optimization and scene data upload
-6. Supports same rendering modes (progressive, tiled) as WebGL
+6. Supports progressive and tiled rendering modes
 
-Data textures (triangles, BVH, materials, environment) are shared by reference from the WebGL backend via `DataTransfer` — no duplication of heavy GPU data.
+Data textures (triangles, BVH, materials, environment) are loaded directly via the asset pipeline.
 
 ---
 
