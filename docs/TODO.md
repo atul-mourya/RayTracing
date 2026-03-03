@@ -2,6 +2,7 @@
 *Immediate actionable items and development tasks*
 
 ## 🚨 Critical Bug Fixess
+- arealight shadows not seen
 - [ ] scene freezing in some cases
 - [ ] save render doesnt show in results panel in some cases
 - [ ] Sun not getting parsed from glTF files

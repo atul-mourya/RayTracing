@@ -915,8 +915,10 @@ export class WebGPUPathTracerApp extends EventDispatcher {
 		} else {
 
 			// Traditional rasterization when path tracer is disabled
-			// Similar to WebGL's RenderPass behavior
-			this.renderer.render( this.scene, this.camera );
+			// Use the WebGL scene (which has actual meshes) since the WebGPU scene
+			// only contains lights — meshes are never transferred to it
+			const rasterScene = this.existingApp?.scene || this.scene;
+			this.renderer.render( rasterScene, this.camera );
 
 		}
 
