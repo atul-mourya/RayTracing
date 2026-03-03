@@ -2,7 +2,8 @@ import { WebGPURenderer } from 'three/webgpu';
 import { uniform } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher, Vector3,
-	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils, Color
+	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils, Color,
+	Mesh, CircleGeometry, MeshPhysicalMaterial
 } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -193,7 +194,8 @@ export class PathTracerApp extends EventDispatcher {
 		// Create asset pipeline — AssetLoader manages the meshScene
 		this.sdf = new TriangleSDF();
 		this.assetLoader = new AssetLoader( this.meshScene, this.camera, this.controls );
-		this.floorPlane = null;
+		this.setupFloorPlane();
+		this.assetLoader.setFloorPlane( this.floorPlane );
 
 		// Track camera movement for reset
 		this.controls.addEventListener( 'change', () => {
@@ -363,6 +365,25 @@ export class PathTracerApp extends EventDispatcher {
 		console.log( 'WebGPU Path Tracer App initialized' );
 
 		return this;
+
+	}
+
+	setupFloorPlane() {
+
+		this.floorPlane = new Mesh(
+			new CircleGeometry(),
+			new MeshPhysicalMaterial( {
+				transparent: false,
+				color: 0x303030,
+				roughness: 1,
+				metalness: 0,
+				opacity: 0,
+				transmission: 0,
+			} )
+		);
+		this.floorPlane.name = "Ground";
+		this.floorPlane.visible = false;
+		this.meshScene.add( this.floorPlane );
 
 	}
 
