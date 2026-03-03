@@ -9,27 +9,27 @@ import { pathTracerMain } from '../TSL/PathTracer.js';
 import { samplingTechniqueUniform, blueNoiseTextureNode } from '../TSL/Random.js';
 
 // Pipeline system
-import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 // Managers (renderer-agnostic)
-import { TileRenderingManager } from '../../Processor/TileRenderingManager.js';
-import { CameraMovementOptimizer } from '../../Processor/CameraMovementOptimizer.js';
-import { PathTracerUtils } from '../../Processor/PathTracerUtils.js';
+import { TileRenderingManager } from '../Processor/TileRenderingManager.js';
+import { CameraMovementOptimizer } from '../Processor/CameraMovementOptimizer.js';
+import { PathTracerUtils } from '../Processor/PathTracerUtils.js';
 
 // Scene building
-import TriangleSDF from '../../Processor/TriangleSDF';
-import { LightDataTransfer } from '../../Processor/LightDataTransfer';
+import TriangleSDF from '../Processor/TriangleSDF';
+import { LightDataTransfer } from '../Processor/LightDataTransfer';
 
 // Environment
-import { EquirectHdrInfo } from '../../Processor/EquirectHdrInfo';
+import { EquirectHdrInfo } from '../Processor/EquirectHdrInfo';
 import { ProceduralSkyRendererTSL } from '../Processor/ProceduralSkyRendererTSL';
 import { SimpleSkyRendererTSL } from '../Processor/SimpleSkyRendererTSL';
 
 // Constants
-import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../../Constants';
+import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../Constants';
 
 // Blue noise
-import blueNoiseImage from '../../../../public/noise/simple_bluenoise.png';
+import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
 
 /**
  * Data layout constants
@@ -1428,19 +1428,26 @@ export class PathTracingStage extends PipelineStage {
 		// Material texture arrays (DataArrayTexture → texture node)
 		// Must use DataArrayTexture placeholder (not regular Texture) so WGSL emits texture_2d_array<f32>
 		// CRITICAL: Set LinearFilter so isUnfilterable()=false → textureSample instead of textureLoad
-		const dummyArrayTex = new DataArrayTexture( new Uint8Array( [ 255, 255, 255, 255 ] ), 1, 1, 1 );
-		dummyArrayTex.minFilter = LinearFilter;
-		dummyArrayTex.magFilter = LinearFilter;
-		dummyArrayTex.generateMipmaps = false;
-		dummyArrayTex.needsUpdate = true;
-		const arrayPlaceholder = texture( dummyArrayTex );
-		const albedoMapsTex = this.albedoMaps ? texture( this.albedoMaps ) : arrayPlaceholder;
-		const normalMapsTex = this.normalMaps ? texture( this.normalMaps ) : arrayPlaceholder;
-		const bumpMapsTex = this.bumpMaps ? texture( this.bumpMaps ) : arrayPlaceholder;
-		const metalnessMapsTex = this.metalnessMaps ? texture( this.metalnessMaps ) : arrayPlaceholder;
-		const roughnessMapsTex = this.roughnessMaps ? texture( this.roughnessMaps ) : arrayPlaceholder;
-		const emissiveMapsTex = this.emissiveMaps ? texture( this.emissiveMaps ) : arrayPlaceholder;
-		const displacementMapsTex = this.displacementMaps ? texture( this.displacementMaps ) : arrayPlaceholder;
+		// CRITICAL: Each texture type MUST have its OWN placeholder instance — sharing a single
+		// placeholder causes _updateSceneTextures() to corrupt all types when updating .value
+		const createArrayPlaceholder = () => {
+
+			const dummyTex = new DataArrayTexture( new Uint8Array( [ 255, 255, 255, 255 ] ), 1, 1, 1 );
+			dummyTex.minFilter = LinearFilter;
+			dummyTex.magFilter = LinearFilter;
+			dummyTex.generateMipmaps = false;
+			dummyTex.needsUpdate = true;
+			return texture( dummyTex );
+
+		};
+
+		const albedoMapsTex = this.albedoMaps ? texture( this.albedoMaps ) : createArrayPlaceholder();
+		const normalMapsTex = this.normalMaps ? texture( this.normalMaps ) : createArrayPlaceholder();
+		const bumpMapsTex = this.bumpMaps ? texture( this.bumpMaps ) : createArrayPlaceholder();
+		const metalnessMapsTex = this.metalnessMaps ? texture( this.metalnessMaps ) : createArrayPlaceholder();
+		const roughnessMapsTex = this.roughnessMaps ? texture( this.roughnessMaps ) : createArrayPlaceholder();
+		const emissiveMapsTex = this.emissiveMaps ? texture( this.emissiveMaps ) : createArrayPlaceholder();
+		const displacementMapsTex = this.displacementMaps ? texture( this.displacementMaps ) : createArrayPlaceholder();
 
 		const result = {
 			triStorage,

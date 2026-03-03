@@ -1,593 +1,326 @@
-import {
-	ShaderMaterial,
-	LinearFilter,
-	RGBAFormat,
-	FloatType,
-	WebGLRenderTarget,
-	Vector2,
-} from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
+	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
+import { TextureNode, StorageTexture } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { luminance } from '../TSL/Common.js';
+
+// ── wgslFn helpers ──────────────────────────────────────────
 
 /**
- * BilateralFilteringStage - Edge-aware A-trous wavelet filtering
+ * Bilateral edge-stopping weight.
  *
- * A standalone bilateral filtering stage that can be used for:
- * - Denoising path tracer output
- * - Edge-aware upsampling
- * - Post-processing blur with edge preservation
- * - Super-resolution detail injection
+ * Combines luminance, normal, depth, and color similarity into
+ * a single weight multiplied by the kernel weight.
+ */
+const bilateralWeight = /*@__PURE__*/ wgslFn( `
+	fn bilateralWeight(
+		centerLum: f32, sLum: f32,
+		centerNormal: vec3f, sNormal: vec3f,
+		centerDepth: f32, sDepth: f32,
+		centerColor: vec3f, sColor: vec3f,
+		kernelW: f32,
+		phiLum: f32, phiNorm: f32, phiDep: f32, phiCol: f32
+	) -> f32 {
+
+		let lumW = exp( -abs( centerLum - sLum ) * phiLum );
+		let normW = pow( max( dot( centerNormal, sNormal ), 0.0 ), phiNorm );
+		let depW = exp( -abs( centerDepth - sDepth ) / max( phiDep, 0.001 ) );
+		let maxDiff = max( max( abs( centerColor.x - sColor.x ),
+			abs( centerColor.y - sColor.y ) ),
+			abs( centerColor.z - sColor.z ) );
+		let colW = exp( -maxDiff * phiCol );
+		return kernelW * lumW * normW * depW * colW;
+
+	}
+` );
+
+/**
+ * WebGPU Bilateral Filtering Stage (Compute Shader)
  *
- * This stage implements an A-trous wavelet filter with edge-stopping functions
- * based on:
- * - Luminance similarity
- * - Normal similarity
- * - Depth similarity
- * - Color difference
+ * Edge-aware A-trous wavelet filter for spatial denoising.
+ * Runs multiple iterations with increasing step size (2^i),
+ * ping-ponging between two StorageTextures.
  *
- * Unlike the full ASVGF denoiser, this stage has NO temporal dependencies
- * and works on any single frame with color + normal/depth data.
+ * Algorithm:
+ *   1. textureLoad center pixel (color + normalDepth)
+ *   2. Unrolled 5×5 a-trous kernel with edge-stopping weights
+ *   3. Normalize accumulated color
+ *   4. textureStore filtered result
+ *   5. Repeat for 4 iterations (step sizes 1, 2, 4, 8)
  *
- * Execution: CONFIGURABLE - Can run per-frame or per-cycle
+ * Edge-stopping functions:
+ *   - Luminance: exp(-|ΔL| * σ_l)
+ *   - Normal:    dot(n1,n2)^σ_n
+ *   - Depth:     exp(-|Δz| / σ_z)
+ *   - Color:     exp(-maxDiff * σ_c)
  *
- * Events listened to:
- * - bilateralFiltering:updateParameters - Updates filter parameters
- * - pipeline:reset - Resets state
+ * Execution: ALWAYS
  *
- * Textures read from context:
- * - Input texture (configurable, default: 'pathtracer:color')
- * - Normal/depth texture (configurable, default: 'pathtracer:normalDepth')
- * - Optional: variance texture for guided filtering
- * - Optional: history length texture for adaptive filtering
- *
- * Textures published to context:
- * - bilateralFiltering:output - Filtered output
+ * Textures published:  bilateralFiltering:output
+ * Textures read:       configurable color input + pathtracer:normalDepth
  */
 export class BilateralFilteringStage extends PipelineStage {
 
-	constructor( options = {} ) {
+	constructor( renderer, options = {} ) {
 
 		super( 'BilateralFiltering', {
 			...options,
-			executionMode: options.executionMode ?? StageExecutionMode.ALWAYS
+			executionMode: StageExecutionMode.ALWAYS
 		} );
 
-		this.renderer = options.renderer || null;
-		this.width = options.width || 1920;
-		this.height = options.height || 1080;
+		this.renderer = renderer;
+		this.inputTextureName = options.inputTextureName || 'asvgf:output';
+		this.normalDepthTextureName = options.normalDepthTextureName || 'pathtracer:normalDepth';
+		this.iterations = options.iterations ?? 4;
 
-		// Configurable input texture names (allows reuse in different contexts)
-		this.inputTextureName = options.inputTextureName ?? 'pathtracer:color';
-		this.normalDepthTextureName = options.normalDepthTextureName ?? 'pathtracer:normalDepth';
-		this.varianceTextureName = options.varianceTextureName ?? 'asvgf:variance';
-		this.historyLengthTextureName = options.historyLengthTextureName ?? 'asvgf:temporalColor';
+		// Edge-stopping parameters
+		this.phiColor = uniform( options.phiColor ?? 10.0 );
+		this.phiNormal = uniform( options.phiNormal ?? 128.0 );
+		this.phiDepth = uniform( options.phiDepth ?? 1.0 );
+		this.phiLuminance = uniform( options.phiLuminance ?? 4.0 );
+		this.stepSizeU = uniform( 1, 'int' );
+		this.resW = uniform( options.width || 1 );
+		this.resH = uniform( options.height || 1 );
 
-		// Output texture name
-		this.outputTextureName = options.outputTextureName ?? 'bilateralFiltering:output';
+		// Input texture nodes
+		this._readTexNode = new TextureNode();
+		this._normalDepthTexNode = new TextureNode();
 
-		// Filter parameters
-		this.params = {
-			// Edge-stopping parameters
-			phiColor: options.phiColor ?? 10.0,
-			phiNormal: options.phiNormal ?? 128.0,
-			phiDepth: options.phiDepth ?? 1.0,
-			phiLuminance: options.phiLuminance ?? 4.0,
+		// Ping-pong StorageTextures
+		const w = options.width || 1;
+		const h = options.height || 1;
 
-			// A-trous parameters
-			iterations: options.iterations ?? 4,
-			stepSizeMultiplier: options.stepSizeMultiplier ?? 2.0, // Step size = stepSizeMultiplier^iteration
+		// LinearFilter so textureLoad codegen includes required level parameter
+		// when _readTexNode.value is later set to a StorageTexture
+		this._storageTexA = new StorageTexture( w, h );
+		this._storageTexA.type = HalfFloatType;
+		this._storageTexA.format = RGBAFormat;
+		this._storageTexA.minFilter = LinearFilter;
+		this._storageTexA.magFilter = LinearFilter;
 
-			// Optional variance-guided filtering
-			useVarianceGuide: options.useVarianceGuide ?? false,
-			varianceBoost: options.varianceBoost ?? 1.0,
+		this._storageTexB = new StorageTexture( w, h );
+		this._storageTexB.type = HalfFloatType;
+		this._storageTexB.format = RGBAFormat;
+		this._storageTexB.minFilter = LinearFilter;
+		this._storageTexB.magFilter = LinearFilter;
 
-			// Optional history-adaptive filtering
-			useHistoryAdaptive: options.useHistoryAdaptive ?? false,
-			historyFadeStart: options.historyFadeStart ?? 10.0,
-			historyFadeEnd: options.historyFadeEnd ?? 20.0,
+		this._compiled = false;
 
-			...options
-		};
+		// Dispatch dimensions
+		this._dispatchX = Math.ceil( w / 8 );
+		this._dispatchY = Math.ceil( h / 8 );
 
-		// Initialize render targets
-		this.initRenderTargets();
-
-		// Initialize materials
-		this.initMaterials();
-
-		// Create fullscreen quad
-		this.filterQuad = new FullScreenQuad( this.filterMaterial );
+		this._buildCompute();
 
 	}
 
-	initRenderTargets() {
+	/**
+	 * Build two compute nodes — one for each ping-pong write direction.
+	 *
+	 * _computeNodeA: writes to StorageTexA, reads from _readTexNode
+	 * _computeNodeB: writes to StorageTexB, reads from _readTexNode
+	 *
+	 * Read-side texture wrapped in TextureNode so compile-time type is
+	 * regular Texture (avoids Three.js WGSL textureLoad codegen bug).
+	 */
+	_buildCompute() {
 
-		const targetOptions = {
-			minFilter: LinearFilter,
-			magFilter: LinearFilter,
-			format: RGBAFormat,
-			type: FloatType,
-			depthBuffer: false
-		};
-
-		// Ping-pong buffers for iterative filtering
-		this.filterTargetA = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.filterTargetB = new WebGLRenderTarget( this.width, this.height, targetOptions );
-
-		// Final output
-		this.outputTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
+		this._computeNodeA = this._buildComputeForDirection( this._storageTexA );
+		this._computeNodeB = this._buildComputeForDirection( this._storageTexB );
 
 	}
 
-	initMaterials() {
+	_buildComputeForDirection( writeStorageTex ) {
 
-		// A-trous wavelet bilateral filter
-		this.filterMaterial = new ShaderMaterial( {
-			uniforms: {
-				tColor: { value: null },
-				tVariance: { value: null },
-				tNormalDepth: { value: null },
-				tHistoryLength: { value: null },
+		const readTexNode = this._readTexNode;
+		const ndTexNode = this._normalDepthTexNode;
+		const phiColor = this.phiColor;
+		const phiNormal = this.phiNormal;
+		const phiDepth = this.phiDepth;
+		const phiLuminance = this.phiLuminance;
+		const stepSize = this.stepSizeU;
+		const resW = this.resW;
+		const resH = this.resH;
 
-				resolution: { value: new Vector2( this.width, this.height ) },
-				stepSize: { value: 1 },
-				iteration: { value: 0 },
+		// 5×5 A-trous kernel weights (Gaussian approx, sum = 1.0)
+		const kernel = [
+			1.0 / 256.0, 4.0 / 256.0, 6.0 / 256.0, 4.0 / 256.0, 1.0 / 256.0,
+			4.0 / 256.0, 16.0 / 256.0, 24.0 / 256.0, 16.0 / 256.0, 4.0 / 256.0,
+			6.0 / 256.0, 24.0 / 256.0, 36.0 / 256.0, 24.0 / 256.0, 6.0 / 256.0,
+			4.0 / 256.0, 16.0 / 256.0, 24.0 / 256.0, 16.0 / 256.0, 4.0 / 256.0,
+			1.0 / 256.0, 4.0 / 256.0, 6.0 / 256.0, 4.0 / 256.0, 1.0 / 256.0,
+		];
 
-				phiColor: { value: this.params.phiColor },
-				phiNormal: { value: this.params.phiNormal },
-				phiDepth: { value: this.params.phiDepth },
-				phiLuminance: { value: this.params.phiLuminance },
+		const WG_SIZE = 8;
 
-				useVarianceGuide: { value: this.params.useVarianceGuide },
-				varianceBoost: { value: this.params.varianceBoost },
+		const computeFn = Fn( () => {
 
-				useHistoryAdaptive: { value: this.params.useHistoryAdaptive },
-				historyFadeStart: { value: this.params.historyFadeStart },
-				historyFadeEnd: { value: this.params.historyFadeEnd }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
-				precision highp int;
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-				uniform sampler2D tColor;
-				uniform sampler2D tVariance;
-				uniform sampler2D tNormalDepth;
-				uniform sampler2D tHistoryLength;
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				uniform vec2 resolution;
-				uniform int stepSize;
-				uniform int iteration;
+				const coord = ivec2( gx, gy );
 
-				uniform float phiColor;
-				uniform float phiNormal;
-				uniform float phiDepth;
-				uniform float phiLuminance;
+				// Centre sample
+				const centerColor = textureLoad( readTexNode, coord ).xyz;
+				const centerND = textureLoad( ndTexNode, coord );
+				const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
+				const centerDepth = centerND.w;
+				const centerLum = luminance( centerColor );
 
-				uniform bool useVarianceGuide;
-				uniform float varianceBoost;
+				const colorSum = vec3( 0.0 ).toVar();
+				const weightSum = float( 0.0 ).toVar();
 
-				uniform bool useHistoryAdaptive;
-				uniform float historyFadeStart;
-				uniform float historyFadeEnd;
+				// Unrolled 5×5 a-trous kernel
+				for ( let iy = 0; iy < 5; iy ++ ) {
 
-				varying vec2 vUv;
+					for ( let ix = 0; ix < 5; ix ++ ) {
 
-				float getLuma(vec3 color) {
-					return dot(color, vec3(0.2126, 0.7152, 0.0722));
-				}
+						const dx = ix - 2;
+						const dy = iy - 2;
+						const kw = kernel[ iy * 5 + ix ];
 
-				// A-trous wavelet kernel (5x5)
-				const float kernel[25] = float[](
-					1.0/256.0, 4.0/256.0, 6.0/256.0, 4.0/256.0, 1.0/256.0,
-					4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
-					6.0/256.0, 24.0/256.0, 36.0/256.0, 24.0/256.0, 6.0/256.0,
-					4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
-					1.0/256.0, 4.0/256.0, 6.0/256.0, 4.0/256.0, 1.0/256.0
-				);
+						const sx = gx.add( stepSize.mul( dx ) )
+							.clamp( int( 0 ), int( resW ).sub( 1 ) );
+						const sy = gy.add( stepSize.mul( dy ) )
+							.clamp( int( 0 ), int( resH ).sub( 1 ) );
 
-				const ivec2 offsets[25] = ivec2[](
-					ivec2(-2,-2), ivec2(-1,-2), ivec2(0,-2), ivec2(1,-2), ivec2(2,-2),
-					ivec2(-2,-1), ivec2(-1,-1), ivec2(0,-1), ivec2(1,-1), ivec2(2,-1),
-					ivec2(-2,0), ivec2(-1,0), ivec2(0,0), ivec2(1,0), ivec2(2,0),
-					ivec2(-2,1), ivec2(-1,1), ivec2(0,1), ivec2(1,1), ivec2(2,1),
-					ivec2(-2,2), ivec2(-1,2), ivec2(0,2), ivec2(1,2), ivec2(2,2)
-				);
+						const sColor = textureLoad( readTexNode, ivec2( sx, sy ) ).xyz;
+						const sND = textureLoad( ndTexNode, ivec2( sx, sy ) );
+						const sNormal = sND.xyz.mul( 2.0 ).sub( 1.0 );
+						const sDepth = sND.w;
+						const sLum = luminance( sColor );
 
-				// Safe normalization helper - handles zero-length vectors
-				vec3 safeNormalize(vec3 v) {
-					float len = length(v);
-					return len > 0.001 ? v / len : vec3(0.0, 0.0, 1.0);
-				}
-
-				void main() {
-					vec2 texelSize = 1.0 / resolution;
-
-					vec3 centerColor = texture2D(tColor, vUv).rgb;
-					vec4 centerNormalDepth = texture2D(tNormalDepth, vUv);
-
-					float centerLuma = getLuma(centerColor);
-					vec3 centerNormal = safeNormalize(centerNormalDepth.xyz);
-					float centerDepth = centerNormalDepth.w;
-
-					// Compute filter strength modifiers
-					float filterStrength = 1.0;
-					float centerHistoryLength = 1.0;
-
-					// History-adaptive filtering: reduce filtering as history accumulates
-					if (useHistoryAdaptive) {
-						vec4 historyData = texture2D(tHistoryLength, vUv);
-						centerHistoryLength = historyData.a; // History stored in alpha
-
-						// Fade out filtering as history increases
-						float historyFactor = clamp(
-							(centerHistoryLength - historyFadeStart) / (historyFadeEnd - historyFadeStart),
-							0.0, 1.0
+						const w = bilateralWeight(
+							centerLum, sLum,
+							centerNormal, sNormal,
+							centerDepth, sDepth,
+							centerColor, sColor,
+							float( kw ),
+							phiLuminance, phiNormal, phiDepth, phiColor
 						);
-						filterStrength = 1.0 - historyFactor * 0.7; // 100% -> 30% strength
+
+						colorSum.addAssign( sColor.mul( w ) );
+						weightSum.addAssign( w );
+
 					}
 
-					// Variance-guided sigma for luminance edge-stopping
-					float sigma_l = phiLuminance;
-					if (useVarianceGuide) {
-						vec4 variance = texture2D(tVariance, vUv);
-						// Use spatial variance (.w) for better noise estimation
-						float spatialVariance = variance.w * varianceBoost;
-						sigma_l = phiLuminance * sqrt(max(spatialVariance, 1e-6)) * filterStrength;
-					}
-
-					float sigma_n = phiNormal;
-					float sigma_z = phiDepth;
-
-					vec3 weightedSum = vec3(0.0);
-					float weightSum = 0.0;
-
-					for (int i = 0; i < 25; i++) {
-						vec2 offset = vec2(offsets[i]) * float(stepSize) * texelSize;
-						vec2 sampleUV = vUv + offset;
-
-						if (sampleUV.x < 0.0 || sampleUV.x > 1.0 ||
-							sampleUV.y < 0.0 || sampleUV.y > 1.0) {
-							continue;
-						}
-
-						vec3 sampleColor = texture2D(tColor, sampleUV).rgb;
-						vec4 sampleNormalDepth = texture2D(tNormalDepth, sampleUV);
-
-						float sampleLuma = getLuma(sampleColor);
-						vec3 sampleNormal = safeNormalize(sampleNormalDepth.xyz);
-						float sampleDepth = sampleNormalDepth.w;
-
-						// Edge-stopping functions
-						float w_l = exp(-abs(centerLuma - sampleLuma) / max(sigma_l, 1e-6));
-						// Normalize dot product to [0,1] range and apply power for edge-stopping
-						float normalDot = max(0.0, dot(centerNormal, sampleNormal));
-						float w_n = pow(normalDot, sigma_n);
-						float w_z = exp(-abs(centerDepth - sampleDepth) / (sigma_z * max(centerDepth, 1e-3)));
-
-						// Additional color-based edge detection for high-frequency details
-						vec3 colorDiff = abs(centerColor - sampleColor);
-						float maxColorDiff = max(max(colorDiff.r, colorDiff.g), colorDiff.b);
-						float w_c = exp(-maxColorDiff * phiColor * filterStrength);
-
-						// Optional: History-based weight (trust pixels with more samples)
-						float historyWeight = 1.0;
-						if (useHistoryAdaptive) {
-							vec4 sampleHistoryData = texture2D(tHistoryLength, sampleUV);
-							float sampleHistoryLength = sampleHistoryData.a;
-							historyWeight = min(sampleHistoryLength / max(centerHistoryLength, 1.0), 2.0);
-						}
-
-						float weight = kernel[i] * w_l * w_n * w_z * w_c * historyWeight;
-
-						weightedSum += sampleColor * weight;
-						weightSum += weight;
-					}
-
-					// Compute filtered result
-					vec3 filteredColor;
-					if (weightSum > 1e-6) {
-						filteredColor = weightedSum / weightSum;
-					} else {
-						filteredColor = centerColor;
-					}
-
-					// Optional: Blend with original based on history (fade out spatial filtering)
-					if (useHistoryAdaptive) {
-						float historyFactor = clamp(centerHistoryLength / historyFadeEnd, 0.0, 1.0);
-						filteredColor = mix(filteredColor, centerColor, historyFactor * 0.5);
-					}
-
-					gl_FragColor = vec4(filteredColor, 1.0);
 				}
-			`
-		} );
 
-		// Copy material for final output
-		this.copyMaterial = new ShaderMaterial( {
-			uniforms: {
-				tDiffuse: { value: null }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
+				const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
 
-				uniform sampler2D tDiffuse;
-				varying vec2 vUv;
-				void main() {
-					gl_FragColor = texture2D( tDiffuse, vUv );
-				}
-			`
-		} );
-		this.copyQuad = new FullScreenQuad( this.copyMaterial );
+				textureStore(
+					writeStorageTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					vec4( filtered, 1.0 )
+				).toWriteOnly();
 
-	}
-
-	/**
-	 * Setup event listeners
-	 */
-	setupEventListeners() {
-
-		// Listen for parameter updates
-		this.on( 'bilateralFiltering:updateParameters', ( data ) => {
-
-			if ( data ) this.updateParameters( data );
+			} );
 
 		} );
 
-		// Listen for pipeline reset
-		this.on( 'pipeline:reset', () => {
-
-			this.reset();
-
-		} );
+		return computeFn().compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
-	/**
-	 * Update filter parameters
-	 */
-	updateParameters( params ) {
-
-		Object.assign( this.params, params );
-
-		// Update shader uniforms
-		const uniforms = this.filterMaterial.uniforms;
-		uniforms.phiColor.value = this.params.phiColor;
-		uniforms.phiNormal.value = this.params.phiNormal;
-		uniforms.phiDepth.value = this.params.phiDepth;
-		uniforms.phiLuminance.value = this.params.phiLuminance;
-		uniforms.useVarianceGuide.value = this.params.useVarianceGuide;
-		uniforms.varianceBoost.value = this.params.varianceBoost;
-		uniforms.useHistoryAdaptive.value = this.params.useHistoryAdaptive;
-		uniforms.historyFadeStart.value = this.params.historyFadeStart;
-		uniforms.historyFadeEnd.value = this.params.historyFadeEnd;
-
-	}
-
-	/**
-	 * Set number of filter iterations
-	 */
-	setIterations( iterations ) {
-
-		this.params.iterations = iterations;
-
-	}
-
-	/**
-	 * Configure input/output texture names
-	 */
-	setTextureNames( config ) {
-
-		if ( config.input ) this.inputTextureName = config.input;
-		if ( config.normalDepth ) this.normalDepthTextureName = config.normalDepth;
-		if ( config.variance ) this.varianceTextureName = config.variance;
-		if ( config.historyLength ) this.historyLengthTextureName = config.historyLength;
-		if ( config.output ) this.outputTextureName = config.output;
-
-	}
-
-	/**
-	 * Reset state
-	 */
-	reset() {
-
-		// Clear render targets
-		if ( this.renderer ) {
-
-			const currentRT = this.renderer.getRenderTarget();
-
-			this.renderer.setRenderTarget( this.filterTargetA );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( this.filterTargetB );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( this.outputTarget );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( currentRT );
-
-		}
-
-	}
-
-	/**
-	 * Set render size
-	 */
-	setSize( width, height ) {
-
-		this.width = width;
-		this.height = height;
-
-		// Resize render targets
-		this.filterTargetA.setSize( width, height );
-		this.filterTargetB.setSize( width, height );
-		this.outputTarget.setSize( width, height );
-
-		// Update resolution uniform
-		this.filterMaterial.uniforms.resolution.value.set( width, height );
-
-	}
-
-	/**
-	 * Main render method
-	 */
-	render( context, writeBuffer ) {
+	render( context ) {
 
 		if ( ! this.enabled ) return;
 
-		const renderer = this.renderer || context.renderer;
-		if ( ! renderer ) {
+		const inputTex = context.getTexture( this.inputTextureName )
+			|| context.getTexture( 'pathtracer:color' );
+		const ndTex = context.getTexture( this.normalDepthTextureName );
 
-			this.warn( 'No renderer available' );
-			return;
+		if ( ! inputTex ) return;
 
-		}
+		// Auto-size
+		const img = inputTex.image;
+		if ( img && img.width > 0 && img.height > 0 ) {
 
-		// Get input textures from context
-		const colorTexture = context.getTexture( this.inputTextureName );
-		const normalDepthTexture = context.getTexture( this.normalDepthTextureName );
+			if ( img.width !== this._storageTexA.image.width ||
+				img.height !== this._storageTexA.image.height ) {
 
-		if ( ! colorTexture || ! normalDepthTexture ) {
+				this.setSize( img.width, img.height );
 
-			// Input textures not ready, skip
-			return;
-
-		}
-
-		// Optional textures for guided/adaptive filtering
-		const varianceTexture = this.params.useVarianceGuide
-			? context.getTexture( this.varianceTextureName )
-			: null;
-
-		const historyLengthTexture = this.params.useHistoryAdaptive
-			? context.getTexture( this.historyLengthTextureName )
-			: null;
-
-		// Run the bilateral filter
-		this.applyFilter( renderer, colorTexture, normalDepthTexture, varianceTexture, historyLengthTexture );
-
-		// Publish output to context
-		context.setTexture( this.outputTextureName, this.outputTarget.texture );
-
-		// Copy to writeBuffer if provided
-		if ( writeBuffer && ! this.renderToScreen ) {
-
-			this.copyTexture( renderer, this.outputTarget, writeBuffer );
+			}
 
 		}
 
-	}
+		// Set normalDepth (may be null — shader handles gracefully)
+		if ( ndTex ) this._normalDepthTexNode.value = ndTex;
 
-	/**
-	 * Apply bilateral filter with iterative A-trous wavelet
-	 */
-	applyFilter( renderer, colorTexture, normalDepthTexture, varianceTexture, historyLengthTexture ) {
+		// Force-compile both compute nodes on first frame while _readTexNode
+		// still holds EmptyTexture. This ensures WGSLNodeBuilder.generateTextureLoad()
+		// sees isStorageTexture=false and emits the required level parameter.
+		if ( ! this._compiled ) {
 
-		// Set static uniforms
-		const uniforms = this.filterMaterial.uniforms;
-		uniforms.tNormalDepth.value = normalDepthTexture;
-		uniforms.tVariance.value = varianceTexture;
-		uniforms.tHistoryLength.value = historyLengthTexture;
-
-		// Iterative A-trous filtering
-		let inputTexture = colorTexture;
-		let currentOutput = this.filterTargetA;
-		let nextOutput = this.filterTargetB;
-
-		const currentRT = renderer.getRenderTarget();
-
-		for ( let i = 0; i < this.params.iterations; i ++ ) {
-
-			// Set iteration-specific uniforms
-			uniforms.tColor.value = inputTexture;
-			uniforms.stepSize.value = Math.pow( this.params.stepSizeMultiplier, i );
-			uniforms.iteration.value = i;
-
-			// Render to current output
-			renderer.setRenderTarget( currentOutput );
-			this.filterQuad.render( renderer );
-
-			// Swap for next iteration
-			inputTexture = currentOutput.texture;
-			[ currentOutput, nextOutput ] = [ nextOutput, currentOutput ];
+			this.renderer.compute( this._computeNodeA );
+			this.renderer.compute( this._computeNodeB );
+			this._compiled = true;
 
 		}
 
-		// Copy final result to output target
-		this.copyMaterial.uniforms.tDiffuse.value = inputTexture;
-		renderer.setRenderTarget( this.outputTarget );
-		this.copyQuad.render( renderer );
+		// Iteration dispatch: ping-pong between StorageTexA and StorageTexB
+		let readTex = inputTex;
+		let writeNode = this._computeNodeA;
+		let nextWriteNode = this._computeNodeB;
 
-		renderer.setRenderTarget( currentRT );
+		for ( let i = 0; i < this.iterations; i ++ ) {
 
-	}
+			this.stepSizeU.value = 1 << i;
+			this._readTexNode.value = readTex;
 
-	/**
-	 * Direct filter method for standalone use (not via pipeline)
-	 * Returns the output texture directly
-	 */
-	filter( renderer, colorTexture, normalDepthTexture, varianceTexture = null, historyLengthTexture = null ) {
+			this.renderer.compute( writeNode );
 
-		this.applyFilter( renderer, colorTexture, normalDepthTexture, varianceTexture, historyLengthTexture );
-		return this.outputTarget.texture;
+			// Next iteration reads from what we just wrote
+			readTex = ( writeNode === this._computeNodeA )
+				? this._storageTexA
+				: this._storageTexB;
 
-	}
+			// Swap write direction
+			const tmp = writeNode;
+			writeNode = nextWriteNode;
+			nextWriteNode = tmp;
 
-	/**
-	 * Copy texture helper
-	 */
-	copyTexture( renderer, source, destination ) {
+		}
 
-		const currentRT = renderer.getRenderTarget();
-
-		this.copyMaterial.uniforms.tDiffuse.value = source.texture || source;
-		renderer.setRenderTarget( destination );
-		this.copyQuad.render( renderer );
-
-		renderer.setRenderTarget( currentRT );
+		// Publish final output (last written StorageTexture)
+		context.setTexture( 'bilateralFiltering:output', readTex );
 
 	}
 
-	/**
-	 * Get output texture directly
-	 */
-	getOutputTexture() {
+	setSize( width, height ) {
 
-		return this.outputTarget.texture;
+		this._storageTexA.setSize( width, height );
+		this._storageTexB.setSize( width, height );
+		this.resW.value = width;
+		this.resH.value = height;
+
+		// Update dispatch dimensions
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+		this._computeNodeA.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._computeNodeB.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
-	/**
-	 * Dispose resources
-	 */
+	reset() {
+
+		// No temporal state to reset
+
+	}
+
 	dispose() {
 
-		// Dispose render targets
-		this.filterTargetA.dispose();
-		this.filterTargetB.dispose();
-		this.outputTarget.dispose();
-
-		// Dispose materials
-		this.filterMaterial.dispose();
-		this.copyMaterial.dispose();
-
-		// Dispose quads
-		this.filterQuad.dispose();
-		this.copyQuad.dispose();
+		this._computeNodeA?.dispose();
+		this._computeNodeB?.dispose();
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
 
 	}
 

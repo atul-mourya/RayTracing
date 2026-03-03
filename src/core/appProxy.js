@@ -1,91 +1,41 @@
 /**
- * App Proxy — Unified Access to the Active Backend
+ * App Proxy — Unified Access to the Path Tracer App
  *
  * Provides a single entry point (`getApp()`) for all store handlers,
- * services, and UI components to access the currently active path
- * tracer app (WebGL or WebGPU) without coupling to
- * `window.pathTracerApp` or knowing the current backend.
+ * services, and UI components to access the path tracer app.
  *
  * Usage:
- *   import { getApp, getBackend, supportsFeature } from '@/core/appProxy';
+ *   import { getApp } from '@/core/appProxy';
  *
  *   const app = getApp();
  *   if ( app ) app.setMaxBounces( 8 );
  *
- *   if ( supportsFeature( 'bloom' ) ) { ... }
- *
  * @module appProxy
  */
 
-import { getBackendManager, BackendType } from './BackendManager.js';
+let _app = null;
 
 /**
- * Returns the currently active path tracer app instance, or null.
- *
- * Prefers `BackendManager.getCurrentApp()` when available, with
- * `window.pathTracerApp` as a fallback during early initialization.
- *
- * @returns {import('./IPathTracerApp').IPathTracerApp | null}
+ * Registers the app instance.
+ * @param {object} app - The path tracer app
+ */
+export function setApp( app ) {
+
+	_app = app;
+
+}
+
+/**
+ * Returns the path tracer app instance, or null.
+ * @returns {object | null}
  */
 export function getApp() {
 
-	const manager = getBackendManager();
-	const app = manager.getCurrentApp();
+	if ( _app?.isInitialized ) return _app;
 
-	if ( app && app.isInitialized ) return app;
-
-	// Fallback — during early init the manager may not yet have apps registered
+	// Fallback during early init
 	if ( window.pathTracerApp?.isInitialized ) return window.pathTracerApp;
 
 	return null;
-
-}
-
-/**
- * Returns the current backend type string ('webgl' | 'webgpu').
- * @returns {string}
- */
-export function getBackend() {
-
-	return getBackendManager().getBackend();
-
-}
-
-/**
- * Checks whether the *active* backend supports a given feature.
- *
- * @param {string} featureName - Feature key (e.g. 'bloom', 'asvgf', 'lights')
- * @returns {boolean}
- */
-export function supportsFeature( featureName ) {
-
-	const app = getApp();
-	if ( app && typeof app.supportsFeature === 'function' ) {
-
-		return app.supportsFeature( featureName );
-
-	}
-
-	return false;
-
-}
-
-/**
- * Convenience: is the current backend WebGL?
- * @returns {boolean}
- */
-export function isWebGL() {
-
-	return getBackend() === BackendType.WEBGL;
-
-}
-
-/**
- * Convenience: is the current backend WebGPU?
- * @returns {boolean}
- */
-export function isWebGPU() {
-
-	return getBackend() === BackendType.WEBGPU;
 
 }

@@ -1,347 +1,419 @@
-import {
-	ShaderMaterial,
-	WebGLRenderTarget,
-	Vector2,
-	Matrix4,
-	FloatType,
-	RGBAFormat,
-	NearestFilter,
-} from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { Fn, vec2, vec3, vec4, float, uv, uniform, If, normalize, mat3 } from 'three/tsl';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
- * MotionVectorStage - Dedicated motion vector computation
+ * WebGPU Motion Vector Stage
  *
- * Computes per-pixel motion vectors for temporal effects like:
- * - Temporal denoising (ASVGF)
- * - Motion blur (post-process)
- * - Temporal anti-aliasing (TAA)
+ * Computes per-pixel screen-space and world-space motion vectors by
+ * reconstructing world positions from linear ray depth and reprojecting
+ * to the previous frame.
  *
- * Execution: ALWAYS - Motion vectors needed every frame for temporal effects
+ * Algorithm:
+ *   1. Read normalDepth from NormalDepthStage (linear depth in alpha)
+ *   2. Reconstruct camera ray from UV via inverse projection (same as NormalDepthStage)
+ *   3. World position = cameraPos + normalize(rayDir) * linearDepth
+ *   4. Project to previous frame:  prevVP * worldPos
+ *   5. Motion = currentUV - prevUV
  *
- * Outputs:
- * - Screen-space motion vectors (2D displacement in UV space)
- * - World-space velocity vectors (3D velocity for motion blur)
+ * Output formats (RGBA HalfFloat):
+ *   screenSpace — xy=motion (UV-space), z=depth, w=validity
+ *   worldSpace  — xyz=world velocity, w=validity
  *
- * Events emitted:
- * - motionvector:computed - When motion vectors are ready
+ * Critical design decisions:
+ *   - matricesInitialized is NOT reset on pipeline:reset.
+ *     This preserves motion detection across camera-triggered resets.
+ *   - Camera uniforms are synced from PathTracingStage (same source as
+ *     NormalDepthStage) to guarantee exact matrix consistency for world
+ *     position reconstruction. Using the camera object directly can produce
+ *     subtly different matrices due to update timing differences.
  *
- * Textures published to context:
- * - motionVector:screenSpace - Screen-space motion (xy=motion, z=depth, w=validity)
- * - motionVector:worldSpace - World-space velocity (xyz=velocity, w=validity)
+ * Execution: ALWAYS — motion vectors are needed every frame.
  *
- * Textures read from context:
- * - pathtracer:normalDepth - For depth-based world position reconstruction
+ * Events listened:
+ *   pipeline:reset  — reset frame counter (but NOT matrices)
+ *
+ * Textures published:
+ *   motionVector:screenSpace
+ *   motionVector:worldSpace
+ *   motionVector:motion  (alias for screenSpace)
+ *
+ * Textures read:
+ *   pathtracer:normalDepth — linear depth for world position reconstruction
  */
 export class MotionVectorStage extends PipelineStage {
 
-	constructor( options = {} ) {
+	constructor( renderer, camera, options = {} ) {
 
 		super( 'MotionVector', {
 			...options,
 			executionMode: StageExecutionMode.ALWAYS
 		} );
 
-		this.renderer = options.renderer || null;
-		this.camera = options.camera || null;
-		this.width = options.width || 1920;
-		this.height = options.height || 1080;
+		this.renderer = renderer;
+		this.camera = camera;
+		this.pathTracingStage = options.pathTracingStage || null;
 
-		// Camera matrices for motion vector calculation
-		this.prevViewMatrix = new Matrix4();
-		this.prevProjectionMatrix = new Matrix4();
+		const width = options.width || 1;
+		const height = options.height || 1;
+
+		// Camera matrix history (for prevVP tracking)
 		this.prevViewProjectionMatrix = new Matrix4();
-		this.currentViewMatrix = new Matrix4();
-		this.currentProjectionMatrix = new Matrix4();
 		this.currentViewProjectionMatrix = new Matrix4();
 
-		// First frame flag
+		this.matricesInitialized = false;
 		this.isFirstFrame = true;
 		this.frameCount = 0;
-		this.matricesInitialized = false;
 
-		// Initialize render targets
-		this.initRenderTargets();
+		// Camera uniforms for world position reconstruction
+		// Synced from PathTracingStage each frame (same source as NormalDepthStage)
+		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
+		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
+		this.prevVP = uniform( new Matrix4(), 'mat4' );
+		this.isFirstFrameU = uniform( 1.0 ); // 1.0 = true, 0.0 = false
+		this.deltaTime = uniform( 1.0 / 60.0 );
+		this.velocityScale = uniform( 1.0 );
 
-		// Initialize materials
-		this.initMaterials();
+		// Input texture nodes (swappable — no shader recompile)
+		this._normalDepthTexNode = new TextureNode();
 
-		// Create fullscreen quads
-		this.screenSpaceQuad = new FullScreenQuad( this.screenSpaceMaterial );
-		this.worldSpaceQuad = new FullScreenQuad( this.worldSpaceMaterial );
-
-	}
-
-	initRenderTargets() {
-
-		const targetOptions = {
+		// Render targets
+		const rtOpts = {
+			type: HalfFloatType,
+			format: RGBAFormat,
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
-			format: RGBAFormat,
-			type: FloatType,
 			depthBuffer: false,
 			stencilBuffer: false
 		};
 
-		// Screen-space motion vectors: xy=motion, z=depth, w=validity
-		this.screenSpaceTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.screenSpaceTarget.texture.name = 'MotionVector_ScreenSpace';
+		this.screenSpaceTarget = new RenderTarget( width, height, rtOpts );
+		this.worldSpaceTarget = new RenderTarget( width, height, rtOpts );
 
-		// Previous frame's normal/depth for validation
-		this.prevNormalDepthTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.prevNormalDepthTarget.texture.name = 'MotionVector_PrevNormalDepth';
-
-		// World-space velocity: xyz=velocity, w=validity
-		this.worldSpaceTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.worldSpaceTarget.texture.name = 'MotionVector_WorldSpace';
+		// Build materials
+		this._buildScreenSpaceMaterial();
+		this._buildWorldSpaceMaterial();
 
 	}
 
-	initMaterials() {
-
-		// Screen-space motion vector shader
-		// Uses same pattern as ASVGF's working motion calculation
-		this.screenSpaceMaterial = new ShaderMaterial( {
-			uniforms: {
-				tNormalDepth: { value: null },
-				tPrevNormalDepth: { value: null },
-				currentViewProjectionMatrix: { value: new Matrix4() },
-				prevViewProjectionMatrix: { value: new Matrix4() },
-				resolution: { value: new Vector2( this.width, this.height ) }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				uniform sampler2D tNormalDepth;
-				uniform sampler2D tPrevNormalDepth;
-				uniform mat4 currentViewProjectionMatrix;
-				uniform mat4 prevViewProjectionMatrix;
-				uniform vec2 resolution;
-
-				varying vec2 vUv;
-
-				vec3 getWorldPosition(vec2 uv, float depth, mat4 invViewProjMatrix) {
-					vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-					vec4 worldPos = invViewProjMatrix * clipPos;
-					return worldPos.xyz / worldPos.w;
-				}
-
-				void main() {
-					vec4 normalDepth = texture2D(tNormalDepth, vUv);
-					float depth = normalDepth.a;
-
-					if (depth >= 1.0) {
-						// Sky/background - no motion
-						gl_FragColor = vec4(0.0, 0.0, depth, 1.0);
-						return;
-					}
-
-					// Reconstruct world position
-					mat4 invCurrentVP = inverse(currentViewProjectionMatrix);
-					vec3 worldPos = getWorldPosition(vUv, depth, invCurrentVP);
-
-					// Project to previous frame
-					vec4 prevClipPos = prevViewProjectionMatrix * vec4(worldPos, 1.0);
-					vec2 prevScreenPos = (prevClipPos.xy / prevClipPos.w) * 0.5 + 0.5;
-
-					// Calculate motion vector
-					vec2 motion = vUv - prevScreenPos;
-
-					// Validate motion vector
-					if (prevScreenPos.x < 0.0 || prevScreenPos.x > 1.0 ||
-						prevScreenPos.y < 0.0 || prevScreenPos.y > 1.0) {
-						// Outside screen bounds
-						motion = vec2(1000.0); // Invalid motion marker
-					}
-
-					gl_FragColor = vec4(motion, depth, 1.0);
-				}
-			`
-		} );
-
-		// World-space velocity shader (for motion blur)
-		this.worldSpaceMaterial = new ShaderMaterial( {
-			uniforms: {
-				tNormalDepth: { value: null },
-				currentViewProjectionMatrix: { value: new Matrix4() },
-				prevViewProjectionMatrix: { value: new Matrix4() },
-				currentViewMatrixInverse: { value: new Matrix4() },
-				prevViewMatrixInverse: { value: new Matrix4() },
-				resolution: { value: new Vector2( this.width, this.height ) },
-				isFirstFrame: { value: true },
-				deltaTime: { value: 1.0 / 60.0 }, // Assume 60fps, can be updated
-				velocityScale: { value: 1.0 }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				uniform sampler2D tNormalDepth;
-				uniform mat4 currentViewProjectionMatrix;
-				uniform mat4 prevViewProjectionMatrix;
-				uniform mat4 currentViewMatrixInverse;
-				uniform mat4 prevViewMatrixInverse;
-				uniform vec2 resolution;
-				uniform bool isFirstFrame;
-				uniform float deltaTime;
-				uniform float velocityScale;
-
-				varying vec2 vUv;
-
-				vec3 getWorldPosition(vec2 uv, float depth, mat4 invViewProjMatrix) {
-					vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-					vec4 worldPos = invViewProjMatrix * clipPos;
-					return worldPos.xyz / worldPos.w;
-				}
-
-				void main() {
-					vec4 normalDepth = texture2D(tNormalDepth, vUv);
-					float depth = normalDepth.a;
-
-					// First frame or sky: no velocity
-					if (isFirstFrame || depth >= 1.0) {
-						gl_FragColor = vec4(0.0, 0.0, 0.0, depth >= 1.0 ? 1.0 : 0.0);
-						return;
-					}
-
-					// Get current world position
-					mat4 invCurrentVP = inverse(currentViewProjectionMatrix);
-					vec3 currentWorldPos = getWorldPosition(vUv, depth, invCurrentVP);
-
-					// Project to previous frame and get previous world position
-					vec4 prevClipPos = prevViewProjectionMatrix * vec4(currentWorldPos, 1.0);
-					vec2 prevScreenPos = (prevClipPos.xy / prevClipPos.w) * 0.5 + 0.5;
-
-					// Check bounds
-					if (prevScreenPos.x < 0.0 || prevScreenPos.x > 1.0 ||
-						prevScreenPos.y < 0.0 || prevScreenPos.y > 1.0) {
-						gl_FragColor = vec4(0.0, 0.0, 0.0, 0.5); // Partial validity
-						return;
-					}
-
-					// Calculate world-space velocity
-					// For static geometry, velocity comes from camera motion
-					// Get previous frame's world position at the reprojected UV
-					vec3 prevWorldPos = getWorldPosition(prevScreenPos, depth, inverse(prevViewProjectionMatrix));
-
-					// World-space displacement
-					vec3 worldVelocity = (currentWorldPos - prevWorldPos) / deltaTime;
-
-					// Scale velocity for visualization/effect strength
-					worldVelocity *= velocityScale;
-
-					// Output: xyz=velocity, w=validity
-					gl_FragColor = vec4(worldVelocity, 1.0);
-				}
-			`
-		} );
-
-		// Copy material for storing previous frame data
-		this.copyMaterial = new ShaderMaterial( {
-			uniforms: {
-				tDiffuse: { value: null }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				uniform sampler2D tDiffuse;
-				varying vec2 vUv;
-				void main() {
-					gl_FragColor = texture2D( tDiffuse, vUv );
-				}
-			`
-		} );
-		this.copyQuad = new FullScreenQuad( this.copyMaterial );
-
-	}
+	// ──────────────────────────────────────────────────
+	// TSL shader builders
+	// ──────────────────────────────────────────────────
 
 	/**
-	 * Update camera matrices for motion vector calculation
-	 * Must be called before render each frame
+	 * Screen-space motion vector shader.
+	 *
+	 * Reconstructs world position from camera ray + linear depth
+	 * (matching NormalDepthStage's ray generation), then reprojects
+	 * through the previous frame's VP matrix.
 	 */
-	updateCameraMatrices( camera ) {
+	_buildScreenSpaceMaterial() {
 
-		// Store previous matrices (copy current to prev before updating current)
+		const normalDepthTex = this._normalDepthTexNode;
+		const camWorldMat = this.cameraWorldMatrix;
+		const camProjInvMat = this.cameraProjectionMatrixInverse;
+		const prevVP = this.prevVP;
+
+		const shader = Fn( ( [ cwm, cpi ] ) => {
+
+			const coord = uv();
+			const nd = normalDepthTex.sample( coord );
+			const linearDepth = nd.w;
+
+			const result = vec4( 0.0, 0.0, linearDepth, 1.0 ).toVar();
+
+			// Sky / background (depth >= 1e5) — no motion
+			If( linearDepth.lessThan( float( 1e5 ) ), () => {
+
+				// Reconstruct camera ray direction from UV
+				// Negate Y to match PathTracingStage convention
+				// (WebGPU QuadMesh uv().y=0 at top of screen)
+				const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
+				const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
+				const ndcPos = vec3( ndcX, ndcY, 1.0 );
+
+				// Camera-space ray direction via inverse projection
+				const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
+
+				// Transform to world space (rotation only, via mat3 of world matrix)
+				const rayDirWorld = normalize(
+					mat3(
+						cwm[ 0 ].xyz,
+						cwm[ 1 ].xyz,
+						cwm[ 2 ].xyz
+					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+				);
+
+				// Camera position (translation column of world matrix)
+				const camPos = vec3( cwm[ 3 ] );
+
+				// World position = camera origin + ray direction * linear depth
+				const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+
+				// Project to previous frame
+				const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
+				// Flip prevUV.y to match WebGPU uv() convention
+				// (NDC Y=+1 → UV Y=0 at top of screen)
+				const prevNDC = prevClip.xy.div( prevClip.w );
+				const prevUV = vec2(
+					prevNDC.x.mul( 0.5 ).add( 0.5 ),
+					prevNDC.y.mul( - 0.5 ).add( 0.5 )
+				);
+
+				// Motion vector = current - prev (in UV space)
+				const motion = coord.sub( prevUV );
+
+				// Validity check: prev UV must be on screen
+				const valid = prevUV.x.greaterThanEqual( 0.0 )
+					.and( prevUV.x.lessThanEqual( 1.0 ) )
+					.and( prevUV.y.greaterThanEqual( 0.0 ) )
+					.and( prevUV.y.lessThanEqual( 1.0 ) );
+
+				result.assign( valid.select(
+					vec4( motion, linearDepth, 1.0 ),
+					vec4( float( 1000.0 ), float( 1000.0 ), linearDepth, 0.0 )
+				) );
+
+			} );
+
+			return result;
+
+		} );
+
+		this.screenSpaceMaterial = new MeshBasicNodeMaterial();
+		// Use outputNode to preserve .w (validity flag) — colorNode forces alpha=1.0
+		this.screenSpaceMaterial.outputNode = shader( camWorldMat, camProjInvMat );
+		this.screenSpaceMaterial.toneMapped = false;
+		this.screenSpaceQuad = new QuadMesh( this.screenSpaceMaterial );
+
+	}
+
+	_buildWorldSpaceMaterial() {
+
+		const normalDepthTex = this._normalDepthTexNode;
+		const camWorldMat = this.cameraWorldMatrix;
+		const camProjInvMat = this.cameraProjectionMatrixInverse;
+		const prevVP = this.prevVP;
+		const isFirstFrameU = this.isFirstFrameU;
+		const deltaTime = this.deltaTime;
+		const velocityScale = this.velocityScale;
+
+		const shader = Fn( ( [ cwm, cpi ] ) => {
+
+			const coord = uv();
+			const nd = normalDepthTex.sample( coord );
+			const linearDepth = nd.w;
+
+			const result = vec4( 0.0, 0.0, 0.0, 0.0 ).toVar();
+
+			// Skip first frame and sky
+			If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 1e5 ) ) ), () => {
+
+				// Reconstruct world position (same as screen-space shader)
+				// Negate Y to match PathTracingStage convention
+				const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
+				const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
+				const ndcPos = vec3( ndcX, ndcY, 1.0 );
+				const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
+				const rayDirWorld = normalize(
+					mat3(
+						cwm[ 0 ].xyz,
+						cwm[ 1 ].xyz,
+						cwm[ 2 ].xyz
+					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+				);
+				const camPos = vec3( cwm[ 3 ] );
+				const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+
+				// Project to previous frame
+				const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
+				// Flip prevUV.y to match WebGPU uv() convention
+				const prevNDC = prevClip.xy.div( prevClip.w );
+				const prevUV = vec2(
+					prevNDC.x.mul( 0.5 ).add( 0.5 ),
+					prevNDC.y.mul( - 0.5 ).add( 0.5 )
+				);
+
+				const valid = prevUV.x.greaterThanEqual( 0.0 )
+					.and( prevUV.x.lessThanEqual( 1.0 ) )
+					.and( prevUV.y.greaterThanEqual( 0.0 ) )
+					.and( prevUV.y.lessThanEqual( 1.0 ) );
+
+				// World-space velocity approximation from UV displacement
+				const motionUV = coord.sub( prevUV );
+				const worldVelocity = vec3(
+					motionUV.x.div( deltaTime ).mul( velocityScale ),
+					motionUV.y.div( deltaTime ).mul( velocityScale ),
+					0.0
+				);
+
+				result.assign( valid.select(
+					vec4( worldVelocity, 1.0 ),
+					vec4( 0.0, 0.0, 0.0, 0.5 )
+				) );
+
+			} );
+
+			return result;
+
+		} );
+
+		this.worldSpaceMaterial = new MeshBasicNodeMaterial();
+		// Use outputNode to preserve .w (validity flag) — colorNode forces alpha=1.0
+		this.worldSpaceMaterial.outputNode = shader( camWorldMat, camProjInvMat );
+		this.worldSpaceMaterial.toneMapped = false;
+
+		this.worldSpaceQuad = new QuadMesh( this.worldSpaceMaterial );
+
+	}
+
+	// ──────────────────────────────────────────────────
+	// Camera matrix management
+	// ──────────────────────────────────────────────────
+
+	/**
+	 * Sync camera matrices from PathTracingStage and update prevVP.
+	 *
+	 * Camera uniforms (cameraWorldMatrix, cameraProjectionMatrixInverse) are
+	 * sourced from PathTracingStage — the SAME source NormalDepthStage uses.
+	 * This guarantees the ray reconstruction matches the depth values exactly.
+	 *
+	 * The view-projection matrix for prevVP tracking is also derived from
+	 * PathTracingStage's projection and view matrices for consistency.
+	 */
+	_updateCameraMatrices() {
+
+		const pt = this.pathTracingStage;
+
+		// Source camera matrices — prefer PathTracingStage, fall back to camera
+		let worldMatrix, viewMatrix, projMatrix, projMatrixInverse;
+
+		if ( pt && pt.cameraProjectionMatrix ) {
+
+			// Sync from PathTracingStage (same source as NormalDepthStage)
+			worldMatrix = pt.cameraWorldMatrix.value;
+			viewMatrix = pt.cameraViewMatrix.value;
+			projMatrix = pt.cameraProjectionMatrix.value;
+			projMatrixInverse = pt.cameraProjectionMatrixInverse.value;
+
+		} else {
+
+			// Fallback: read directly from camera object
+			const camera = this.camera;
+			if ( ! camera ) return;
+			worldMatrix = camera.matrixWorld;
+			viewMatrix = camera.matrixWorldInverse;
+			projMatrix = camera.projectionMatrix;
+			projMatrixInverse = camera.projectionMatrixInverse;
+
+		}
+
+		// Store previous VP
 		if ( this.matricesInitialized ) {
 
-			this.prevViewMatrix.copy( this.currentViewMatrix );
-			this.prevProjectionMatrix.copy( this.currentProjectionMatrix );
 			this.prevViewProjectionMatrix.copy( this.currentViewProjectionMatrix );
 
 		} else {
 
-			// First frame: initialize prev to current camera state
-			this.prevViewMatrix.copy( camera.matrixWorldInverse );
-			this.prevProjectionMatrix.copy( camera.projectionMatrix );
-			this.prevViewProjectionMatrix.multiplyMatrices(
-				camera.projectionMatrix,
-				camera.matrixWorldInverse
+			// First init: prev = current
+			this.currentViewProjectionMatrix.multiplyMatrices(
+				projMatrix,
+				viewMatrix
 			);
+			this.prevViewProjectionMatrix.copy( this.currentViewProjectionMatrix );
 			this.matricesInitialized = true;
 
 		}
 
-		// Update current matrices - clone to create new objects (like ASVGF does)
-		this.currentViewMatrix = camera.matrixWorldInverse.clone();
-		this.currentProjectionMatrix = camera.projectionMatrix.clone();
-		this.currentViewProjectionMatrix = new Matrix4();
+		// Update current VP from PathTracingStage's matrices
 		this.currentViewProjectionMatrix.multiplyMatrices(
-			this.currentProjectionMatrix,
-			this.currentViewMatrix
+			projMatrix,
+			viewMatrix
 		);
+
+		// Update shader uniforms
+		this.cameraWorldMatrix.value.copy( worldMatrix );
+		this.cameraProjectionMatrixInverse.value.copy( projMatrixInverse );
+		this.prevVP.value.copy( this.prevViewProjectionMatrix );
 
 	}
 
-	/**
-	 * Setup event listeners
-	 */
+	// ──────────────────────────────────────────────────
+	// Pipeline lifecycle
+	// ──────────────────────────────────────────────────
+
 	setupEventListeners() {
 
-		// Listen for pipeline reset
 		this.on( 'pipeline:reset', () => {
 
 			this.reset();
 
 		} );
 
-		// Listen for camera changes
-		this.on( 'camera:moved', () => {
+	}
 
-			// Camera moved - motion vectors will naturally reflect this
-			// No special handling needed
+	render( context ) {
 
+		if ( ! this.enabled ) return;
+
+		// Get normalDepth from context
+		const normalDepthTex = context.getTexture( 'pathtracer:normalDepth' );
+		if ( ! normalDepthTex ) return;
+
+		// Update camera matrices (CPU-side) — synced from PathTracingStage
+		this._updateCameraMatrices();
+
+		// Update isFirstFrame uniform
+		this.isFirstFrameU.value = this.isFirstFrame ? 1.0 : 0.0;
+
+		this.frameCount ++;
+
+		// Auto-size render targets
+		const img = normalDepthTex.image;
+		if ( img && img.width > 0 && img.height > 0 ) {
+
+			if ( img.width !== this.screenSpaceTarget.width ||
+				img.height !== this.screenSpaceTarget.height ) {
+
+				this.setSize( img.width, img.height );
+
+			}
+
+		}
+
+		// Swap input texture (no shader recompile)
+		this._normalDepthTexNode.value = normalDepthTex;
+
+		// Render screen-space motion vectors
+		this.renderer.setRenderTarget( this.screenSpaceTarget );
+		this.screenSpaceQuad.render( this.renderer );
+
+		// Render world-space velocity
+		this.renderer.setRenderTarget( this.worldSpaceTarget );
+		this.worldSpaceQuad.render( this.renderer );
+
+		// Publish
+		context.setTexture( 'motionVector:screenSpace', this.screenSpaceTarget.texture );
+		context.setTexture( 'motionVector:worldSpace', this.worldSpaceTarget.texture );
+		context.setTexture( 'motionVector:motion', this.screenSpaceTarget.texture );
+
+		// Emit
+		this.emit( 'motionvector:computed', {
+			frame: this.frameCount,
+			isFirstFrame: this.isFirstFrame
 		} );
+
+		this.isFirstFrame = false;
 
 	}
 
 	/**
-	 * Reset motion vector state
-	 * NOTE: We intentionally do NOT reset matricesInitialized here!
-	 * Motion vectors need to track camera movement across pipeline resets.
-	 * When camera moves, pipeline resets, but we still want to detect
-	 * that motion by comparing current matrices to previous.
+	 * Reset — intentionally does NOT reset matricesInitialized.
+	 * Motion vectors must track camera motion across pipeline resets.
 	 */
 	reset() {
 
-		// Only reset frame counter
-		// Keep matricesInitialized = true so we continue tracking motion!
-		// Keep isFirstFrame = false if matrices are already initialized
-		// (we have valid previous matrices to compare against)
 		if ( ! this.matricesInitialized ) {
 
 			this.isFirstFrame = true;
@@ -350,254 +422,33 @@ export class MotionVectorStage extends PipelineStage {
 
 		this.frameCount = 0;
 
-		// Clear render targets
-		if ( this.renderer ) {
-
-			const currentRT = this.renderer.getRenderTarget();
-
-			this.renderer.setRenderTarget( this.screenSpaceTarget );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( this.worldSpaceTarget );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( this.prevNormalDepthTarget );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( currentRT );
-
-		}
-
 	}
 
-	/**
-	 * Full reset including matrix state (for scene changes)
-	 */
-	fullReset() {
-
-		this.matricesInitialized = false;
-		this.reset();
-
-	}
-
-	/**
-	 * Set render size
-	 */
 	setSize( width, height ) {
 
-		this.width = width;
-		this.height = height;
-
-		// Resize render targets
 		this.screenSpaceTarget.setSize( width, height );
 		this.worldSpaceTarget.setSize( width, height );
-		this.prevNormalDepthTarget.setSize( width, height );
-
-		// Update resolution uniforms
-		const resolution = new Vector2( width, height );
-		if ( this.screenSpaceMaterial.uniforms.resolution ) {
-
-			this.screenSpaceMaterial.uniforms.resolution.value.copy( resolution );
-
-		}
-
-		if ( this.worldSpaceMaterial.uniforms.resolution ) {
-
-			this.worldSpaceMaterial.uniforms.resolution.value.copy( resolution );
-
-		}
-
-		// Reset on resize
-		this.reset();
 
 	}
 
-	/**
-	 * Main render method
-	 */
-	render( context, writeBuffer ) {
-
-		if ( ! this.enabled ) return;
-
-		const renderer = this.renderer || context.renderer;
-		if ( ! renderer ) {
-
-			this.warn( 'No renderer available' );
-			return;
-
-		}
-
-		// Get normalDepth texture from PathTracer
-		const normalDepthTexture = context.getTexture( 'pathtracer:normalDepth' );
-		if ( ! normalDepthTexture ) {
-
-			// PathTracer hasn't run yet, skip
-			return;
-
-		}
-
-		// Update camera matrices
-		if ( this.camera ) {
-
-			// Ensure camera matrices are fully up to date
-			// 1. updateMatrix() computes local matrix from position/quaternion/scale
-			// 2. updateMatrixWorld() propagates to world matrix
-			// 3. Manually compute matrixWorldInverse
-			this.camera.updateMatrix();
-			this.camera.updateMatrixWorld( true );
-			this.camera.matrixWorldInverse.copy( this.camera.matrixWorld ).invert();
-			this.updateCameraMatrices( this.camera );
-
-		}
-
-		// Increment frame count
-		this.frameCount ++;
-
-		// Compute screen-space motion vectors
-		this.renderScreenSpaceMotion( renderer, normalDepthTexture );
-
-		// Compute world-space velocity (optional, for motion blur)
-		this.renderWorldSpaceVelocity( renderer, normalDepthTexture );
-
-		// Store current normalDepth for next frame
-		this.storeNormalDepth( renderer, normalDepthTexture );
-
-		// Publish textures to context
-		this.publishTextures( context );
-
-		// Emit completion event
-		this.emit( 'motionvector:computed', {
-			frame: this.frameCount,
-			isFirstFrame: this.isFirstFrame
-		} );
-
-		// No longer first frame after this
-		this.isFirstFrame = false;
-
-	}
-
-	renderScreenSpaceMotion( renderer, normalDepthTexture ) {
-
-		// Update uniforms
-		const material = this.screenSpaceMaterial;
-		material.uniforms.tNormalDepth.value = normalDepthTexture;
-		material.uniforms.tPrevNormalDepth.value = this.prevNormalDepthTarget.texture;
-		material.uniforms.currentViewProjectionMatrix.value.copy( this.currentViewProjectionMatrix );
-		material.uniforms.prevViewProjectionMatrix.value.copy( this.prevViewProjectionMatrix );
-
-		// Render to screen-space motion target
-		const currentRT = renderer.getRenderTarget();
-		renderer.setRenderTarget( this.screenSpaceTarget );
-		this.screenSpaceQuad.render( renderer );
-		renderer.setRenderTarget( currentRT );
-
-	}
-
-	renderWorldSpaceVelocity( renderer, normalDepthTexture ) {
-
-		const material = this.worldSpaceMaterial;
-
-		// Update uniforms
-		material.uniforms.tNormalDepth.value = normalDepthTexture;
-		material.uniforms.currentViewProjectionMatrix.value.copy( this.currentViewProjectionMatrix );
-		material.uniforms.prevViewProjectionMatrix.value.copy( this.prevViewProjectionMatrix );
-
-		// Compute inverse view matrices for world-space calculations
-		const currentViewInverse = new Matrix4().copy( this.currentViewMatrix ).invert();
-		const prevViewInverse = new Matrix4().copy( this.prevViewMatrix ).invert();
-
-		material.uniforms.currentViewMatrixInverse.value.copy( currentViewInverse );
-		material.uniforms.prevViewMatrixInverse.value.copy( prevViewInverse );
-		material.uniforms.isFirstFrame.value = this.isFirstFrame;
-
-		// Render
-		const currentRT = renderer.getRenderTarget();
-		renderer.setRenderTarget( this.worldSpaceTarget );
-		this.worldSpaceQuad.render( renderer );
-		renderer.setRenderTarget( currentRT );
-
-	}
-
-	storeNormalDepth( renderer, normalDepthTexture ) {
-
-		// Copy current normalDepth to previous for next frame
-		this.copyMaterial.uniforms.tDiffuse.value = normalDepthTexture;
-
-		const currentRT = renderer.getRenderTarget();
-		renderer.setRenderTarget( this.prevNormalDepthTarget );
-		this.copyQuad.render( renderer );
-		renderer.setRenderTarget( currentRT );
-
-	}
-
-	publishTextures( context ) {
-
-		// Publish screen-space motion vectors
-		context.setTexture( 'motionVector:screenSpace', this.screenSpaceTarget.texture );
-
-		// Publish world-space velocity
-		context.setTexture( 'motionVector:worldSpace', this.worldSpaceTarget.texture );
-
-		// Also publish with legacy naming for backward compatibility with ASVGF
-		context.setTexture( 'motionVector:motion', this.screenSpaceTarget.texture );
-
-	}
-
-	/**
-	 * Get screen-space motion texture directly
-	 */
-	getScreenSpaceTexture() {
-
-		return this.screenSpaceTarget.texture;
-
-	}
-
-	/**
-	 * Get world-space velocity texture directly
-	 */
-	getWorldSpaceTexture() {
-
-		return this.worldSpaceTarget.texture;
-
-	}
-
-	/**
-	 * Set velocity scale for world-space motion blur
-	 */
 	setVelocityScale( scale ) {
 
-		this.worldSpaceMaterial.uniforms.velocityScale.value = scale;
+		this.velocityScale.value = scale;
 
 	}
 
-	/**
-	 * Set delta time for velocity calculation
-	 */
 	setDeltaTime( dt ) {
 
-		this.worldSpaceMaterial.uniforms.deltaTime.value = dt;
+		this.deltaTime.value = dt;
 
 	}
 
-	/**
-	 * Dispose resources
-	 */
 	dispose() {
 
-		// Dispose render targets
-		this.screenSpaceTarget.dispose();
-		this.worldSpaceTarget.dispose();
-		this.prevNormalDepthTarget.dispose();
-
-		// Dispose materials
-		this.screenSpaceMaterial.dispose();
-		this.worldSpaceMaterial.dispose();
-		this.copyMaterial.dispose();
-
-		// Dispose quads
-		this.screenSpaceQuad.dispose();
-		this.worldSpaceQuad.dispose();
-		this.copyQuad.dispose();
+		this.screenSpaceMaterial?.dispose();
+		this.worldSpaceMaterial?.dispose();
+		this.screenSpaceTarget?.dispose();
+		this.worldSpaceTarget?.dispose();
 
 	}
 

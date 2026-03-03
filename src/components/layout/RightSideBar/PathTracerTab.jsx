@@ -1,4 +1,4 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target, Image, Blend, Palette, ArrowUp, ArrowDown, Minus, CloudSun, Wind, Droplets, Cpu, MonitorCog } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target, Image, Blend, Palette, ArrowUp, ArrowDown, Minus, CloudSun, Wind, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,9 +8,8 @@ import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
-import { memo, useCallback } from 'react';
+import { memo } from 'react';
 import { Badge } from "@/components/ui/badge";
-import { useBackendFeature } from '@/hooks/useActiveApp';
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -56,11 +55,6 @@ const PathTracerTab = () => {
 
 	// Destructure all state and handlers from the store
 	const {
-		// Backend state
-		backend,
-		isWebGPUSupported,
-		isBackendSwitching,
-		handleBackendChange,
 		// State
 		enablePathTracer,
 		enableAccumulation,
@@ -87,10 +81,6 @@ const PathTracerTab = () => {
 		useGBuffer,
 		debugMode,
 		debugThreshold,
-		enableBloom,
-		bloomThreshold,
-		bloomStrength,
-		bloomRadius,
 		oidnQuality,
 		oidnHdr,
 		enableOIDN,
@@ -160,10 +150,6 @@ const PathTracerTab = () => {
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
-		handleEnableBloomChange,
-		handleBloomThresholdChange,
-		handleBloomStrengthChange,
-		handleBloomRadiusChange,
 		handleExposureChange,
 		handleEnableEnvironmentChange,
 		handleShowBackgroundChange,
@@ -202,57 +188,9 @@ const PathTracerTab = () => {
 		handleAutoExposureAdaptSpeedChange,
 	} = pathTracerStore;
 
-	const isWebGL = backend === 'webgl';
-	const hasTileRendering = useBackendFeature( 'tileRendering' );
-	const hasAutoExposure = useBackendFeature( 'autoExposure' );
-	const hasEdgeAwareFiltering = useBackendFeature( 'edgeAwareFiltering' );
-	const hasASVGF = useBackendFeature( 'asvgf' );
-
-	// Handle backend selection change
-	const onBackendChange = useCallback( ( value ) => {
-
-		handleBackendChange( value );
-
-	}, [ handleBackendChange ] );
-
 	return (
 		<div className="">
 			<Separator className="bg-primary" />
-
-			{/* Backend Selection */}
-			<ControlGroup name="Render Backend" icon={Cpu} defaultOpen={true}>
-				<div className="flex items-center justify-between">
-					<Select
-						value={backend}
-						onValueChange={onBackendChange}
-						disabled={isBackendSwitching || ! isWebGPUSupported}
-					>
-						<span className="opacity-50 text-xs truncate flex items-center gap-1">
-							<MonitorCog className="w-3 h-3" />
-							Backend
-						</span>
-						<SelectTrigger className="max-w-28 h-5 rounded-full">
-							<SelectValue placeholder="Select backend" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="webgl">WebGL</SelectItem>
-							<SelectItem value="webgpu" disabled={! isWebGPUSupported}>
-								WebGPU {! isWebGPUSupported && '(N/A)'}
-							</SelectItem>
-						</SelectContent>
-					</Select>
-				</div>
-				{isBackendSwitching && (
-					<div className="text-xs text-muted-foreground animate-pulse">
-						Switching backend...
-					</div>
-				)}
-				{! isWebGPUSupported && (
-					<div className="text-xs text-muted-foreground">
-						WebGPU not supported in this browser
-					</div>
-				)}
-			</ControlGroup>
 
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<div className="flex items-center justify-between">
@@ -278,7 +216,7 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="0">Regular</SelectItem>
-							{hasTileRendering && <SelectItem value="1">Tiled</SelectItem>}
+							<SelectItem value="1">Tiled</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
@@ -323,14 +261,14 @@ const PathTracerTab = () => {
 						</SelectContent>
 					</Select>
 				</div>
-				{hasAutoExposure && <div className="flex items-center justify-between">
+				<div className="flex items-center justify-between">
 					<span className="opacity-50 text-xs truncate">Auto Exposure</span>
 					<div className="flex items-center gap-2">
 						{autoExposure && <AutoExposureValue />}
 						<Switch checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
 					</div>
-				</div>}
-				{hasAutoExposure && autoExposure ? (
+				</div>
+				{autoExposure ? (
 					<>
 						<div className="flex items-center justify-between">
 							<Slider icon={Target} label={"Target Brightness"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
@@ -484,8 +422,8 @@ const PathTracerTab = () => {
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="none">None</SelectItem>
-							{hasEdgeAwareFiltering && <SelectItem value="edgeaware">EdgeAware</SelectItem>}
-							{hasASVGF && <SelectItem value="asvgf">ASVGF</SelectItem>}
+							<SelectItem value="edgeaware">EdgeAware</SelectItem>
+							<SelectItem value="asvgf">ASVGF</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
@@ -635,20 +573,6 @@ const PathTracerTab = () => {
 					</div>
 				</> )}
 			</ControlGroup>
-
-			{isWebGL && <ControlGroup name="Post Processing">
-				<div className="flex items-center justify-between">
-					<SliderToggle label={"Bloom Strength"} enabled={ enableBloom } min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={ handleBloomStrengthChange } onToggleChange={ handleEnableBloomChange } />
-				</div>
-				{enableBloom && ( <>
-					<div className="flex items-center justify-between">
-						<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
-					</div></>
-				)}
-			</ControlGroup>}
 
 			{enablePathTracer && (
 				<ControlGroup name="Debugging">

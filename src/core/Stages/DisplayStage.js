@@ -1,6 +1,6 @@
 import { vec4, uv, uniform } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, TextureNode } from 'three/webgpu';
-import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
  * DisplayStage — Terminal pipeline stage for WebGPU.

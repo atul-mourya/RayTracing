@@ -129,7 +129,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		if ( item.visible !== undefined ) return item.visible;
 		if ( item.type !== 'Mesh' || ! getApp() ) return true;
 		const app = getApp();
-		const scene = app.existingApp?.scene || app.scene;
+		const scene = app.meshScene || app.scene;
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		return object?.visible ?? true;
 
@@ -175,7 +175,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 		}
 
-		const scene = app.existingApp?.scene || app.scene;
+		const scene = app.meshScene || app.scene;
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		if ( object ) {
 
@@ -195,7 +195,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		const app = getApp();
 		if ( ! app || ! app.interactionManager ) return;
 
-		const scene = app.existingApp?.scene || app.scene;
+		const scene = app.meshScene || app.scene;
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 
 		if ( object ) {
@@ -410,20 +410,17 @@ const Outliner = () => {
 		const app = getApp();
 		let scene = app?.scene;
 
-		// For WebGPU backend, the scene doesn't contain mesh objects (data is in textures).
-		// Always fall back to the WebGL app's scene for the outliner hierarchy.
-		// Note: checking children.length is insufficient because lights cloned into the
-		// WebGPU scene make it non-empty, hiding the real mesh hierarchy.
-		if ( app?.existingApp?.scene ) {
+		// Use meshScene which holds actual mesh objects for the outliner hierarchy
+		if ( app?.meshScene ) {
 
-			scene = app.existingApp.scene;
+			scene = app.meshScene;
 
 		}
 
-		// Additional fallback: try window.pathTracerApp.scene (original WebGL app)
-		if ( ( ! scene || scene.children.length === 0 ) && window.pathTracerApp?.scene ) {
+		// Additional fallback
+		if ( ( ! scene || scene.children.length === 0 ) && window.pathTracerApp?.meshScene ) {
 
-			scene = window.pathTracerApp.scene;
+			scene = window.pathTracerApp.meshScene;
 
 		}
 

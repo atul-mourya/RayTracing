@@ -162,8 +162,7 @@ const InteractionContextMenu = () => {
 		const selectedObject = menuState.selectedObject;
 		if ( ! app || ! selectedObject ) return;
 
-		// WebGPU scene only contains lights — mesh objects live in the WebGL app's scene
-		const scene = app.existingApp?.scene || app.scene;
+		const scene = app.meshScene || app.scene;
 
 		if ( isIsolated ) {
 

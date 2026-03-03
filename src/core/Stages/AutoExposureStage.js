@@ -1,477 +1,446 @@
-import {
-	ShaderMaterial,
-	NearestFilter,
-	RGBAFormat,
-	FloatType,
-	WebGLRenderTarget,
-	Vector2,
-} from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { Fn, wgslFn, vec2, vec4, float, int, uint, ivec2, uvec2, uv, uniform, If, max,
+	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId } from 'three/tsl';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { FloatType, HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
-import { getApp } from '@/core/appProxy';
-import { DEFAULT_STATE } from '../../Constants.js';
+import { luminance } from '../TSL/Common.js';
+
+// ── wgslFn helpers ──────────────────────────────────────────
 
 /**
- * AutoExposureStage - GPU-based automatic exposure control
+ * Temporal adaptation: map luminance → target exposure, smooth asymmetrically.
  *
- * Computes geometric mean (log-average) luminance using hierarchical
- * GPU reduction, then applies asymmetric temporal smoothing for
- * natural camera-like adaptation.
+ * Returns vec4f(exposure, luminance, targetExposure, 1.0).
+ */
+const adaptExposure = /*@__PURE__*/ wgslFn( `
+	fn adaptExposure(
+		geoMean: f32,
+		prevExposure: f32,
+		keyValue: f32,
+		minExp: f32,
+		maxExp: f32,
+		speedBright: f32,
+		speedDark: f32,
+		dt: f32,
+		isFirstFrame: f32
+	) -> vec4f {
+
+		let targetExp = clamp( keyValue / max( geoMean, 0.001 ), minExp, maxExp );
+		var newExposure = targetExp;
+
+		// Temporal smoothing (skip on first frame)
+		if ( isFirstFrame < 0.5 ) {
+
+			// Asymmetric speed: brighter scenes adapt faster
+			let speed = select( speedDark, speedBright, targetExp < prevExposure );
+			let alpha = 1.0 - exp( -dt * speed );
+			newExposure = mix( prevExposure, targetExp, alpha );
+
+		}
+
+		return vec4f( newExposure, geoMean, targetExp, 1.0 );
+
+	}
+` );
+
+/**
+ * WebGPU Auto-Exposure Stage (Fragment + Compute Shader)
+ *
+ * GPU-based automatic exposure control with human eye-like adaptation.
+ * Uses hierarchical luminance reduction and asymmetric temporal smoothing.
  *
  * Algorithm:
- * 1. Downsample input to 64x64, computing log(luminance) per block
- * 2. Hierarchical reduction: 64->32->16->8->4->2->1
- * 3. Compute geometric mean: exp(sum(log(L)) / N)
- * 4. Temporal smoothing with asymmetric speeds
- * 5. Calculate exposure: keyValue / avgLuminance
+ *   1. Downsample (fragment): full res → 64×64 log-luminance
+ *   2. Reduction (compute): parallel reduction 64×64 → 1×1 via shared memory
+ *      Single workgroup of 256 threads, each loads 16 texels.
+ *      Computes geometric mean: exp(Σlog(L) / N)
+ *   3. Adaptation (fragment): temporal smoothing with prev exposure
+ *   4. Async readback (1×1): apply to renderer.toneMappingExposure
  *
- * Execution: ALWAYS - Runs every frame during interactive navigation
+ * WebGPU advantage: async readback (no GPU pipeline stall).
+ * 1-frame delay is imperceptible for slowly-changing exposure.
  *
- * Events listened to:
- * - pipeline:reset - Resets temporal history
- * - autoexposure:updateParameters - Updates adaptation parameters
- * - autoexposure:toggle - Enable/disable auto-exposure
+ * Execution: ALWAYS
  *
- * Textures read from context:
- * - edgeFiltering:output, asvgf:output, or pathtracer:color
+ * Events listened:
+ *   pipeline:reset              — reset temporal history
+ *   autoexposure:toggle         — enable/disable
+ *   autoexposure:updateParameters — update key value, speeds, bounds
  *
- * State published to context:
- * - autoexposure:value - Current computed exposure value
- * - autoexposure:avgLuminance - Current average luminance
- *
- * Events emitted:
- * - autoexposure:updated - Emitted when exposure changes { exposure, luminance }
+ * Textures published:  (none — publishes state, not textures)
+ * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
+ * State published:     autoexposure:value, autoexposure:avgLuminance
  */
 export class AutoExposureStage extends PipelineStage {
 
-	constructor( options = {} ) {
+	constructor( renderer, options = {} ) {
 
 		super( 'AutoExposure', {
 			...options,
 			executionMode: StageExecutionMode.ALWAYS
 		} );
 
-		this.renderer = options.renderer || null;
-		this.width = options.width || 1920;
-		this.height = options.height || 1080;
+		this.renderer = renderer;
 
-		// Auto-exposure parameters
-		this.params = {
-			enabled: options.enabled ?? DEFAULT_STATE.autoExposure,
+		// Reduction constant
+		this.REDUCTION_SIZE = 64;
 
-			// Key value (target middle gray)
-			keyValue: options.keyValue ?? DEFAULT_STATE.autoExposureKeyValue,
+		// ── Adaptation uniforms ──────────────────────────
 
-			// Exposure limits
-			minExposure: options.minExposure ?? DEFAULT_STATE.autoExposureMinExposure,
-			maxExposure: options.maxExposure ?? DEFAULT_STATE.autoExposureMaxExposure,
+		this.keyValueU = uniform( options.keyValue ?? 0.18 );
+		this.minExposureU = uniform( options.minExposure ?? 0.1 );
+		this.maxExposureU = uniform( options.maxExposure ?? 20.0 );
+		this.adaptSpeedBrightU = uniform( options.adaptSpeedBright ?? 3.0 );
+		this.adaptSpeedDarkU = uniform( options.adaptSpeedDark ?? 0.5 );
+		this.epsilonU = uniform( options.epsilon ?? 0.0001 );
+		this.deltaTimeU = uniform( 1.0 / 60.0 );
+		this.isFirstFrameU = uniform( 1.0 ); // 1.0 = true
+		this.previousExposureU = uniform( options.initialExposure ?? 1.0 );
 
-			// Temporal adaptation speeds (per second)
-			adaptSpeedBright: options.adaptSpeedBright ?? DEFAULT_STATE.autoExposureAdaptSpeedBright,
-			adaptSpeedDark: options.adaptSpeedDark ?? DEFAULT_STATE.autoExposureAdaptSpeedDark,
+		// ── Input texture nodes (swap .value, no recompile) ──
 
-			// Epsilon to prevent log(0)
-			epsilon: options.epsilon ?? 0.0001,
+		this._inputTexNode = new TextureNode();
+		this._luminanceTexNode = new TextureNode();
 
-			// Initial exposure
-			initialExposure: options.initialExposure ?? 1.0,
-		};
+		// ── CPU-side state ───────────────────────────────
 
-		// Reduction target size (power of 2)
-		this.reductionSize = 64;
-		this.reductionLevels = Math.log2( this.reductionSize ); // 6 levels
-
-		// State - current values applied this frame
-		this.currentExposure = this.params.initialExposure;
+		this.currentExposure = options.initialExposure ?? 1.0;
 		this.currentLuminance = 0.18;
-		this.targetExposure = this.params.initialExposure;
+		this.targetExposure = 1.0;
 		this.lastTime = performance.now();
 		this.isFirstFrame = true;
+		this._pendingReadback = false;
 
-		// Readback buffer (reused to avoid allocations)
-		this.readbackBuffer = new Float32Array( 4 );
+		// ── Render targets & storage textures ────────────
 
-		// Initialize render targets and materials
-		this.initRenderTargets();
-		this.initMaterials();
+		this._initRenderTargets();
+		this._buildMaterials();
 
 	}
 
-	initRenderTargets() {
+	_initRenderTargets() {
 
-		const targetOptions = {
+		const rtOpts = {
+			type: FloatType,
+			format: RGBAFormat,
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
-			format: RGBAFormat,
-			type: FloatType,
-			depthBuffer: false
+			depthBuffer: false,
+			stencilBuffer: false
 		};
 
-		// Reduction chain: 64x64 -> 32x32 -> ... -> 1x1
-		this.reductionTargets = [];
-		let size = this.reductionSize;
+		// Downsample target (64×64) — fragment pass writes here
+		this._downsampleTarget = new RenderTarget( this.REDUCTION_SIZE, this.REDUCTION_SIZE, rtOpts );
 
-		for ( let i = 0; i <= this.reductionLevels; i ++ ) {
+		// 1×1 StorageTexture for compute reduction output
+		// LinearFilter so fragment shaders can sample it (NearestFilter + isStorageTexture
+		// triggers a Three.js WGSL codegen bug: textureLoad without level parameter)
+		this._reductionStorageTex = new StorageTexture( 1, 1 );
+		this._reductionStorageTex.type = HalfFloatType;
+		this._reductionStorageTex.format = RGBAFormat;
+		this._reductionStorageTex.minFilter = LinearFilter;
+		this._reductionStorageTex.magFilter = LinearFilter;
 
-			const target = new WebGLRenderTarget( size, size, targetOptions );
-			target.texture.name = `AutoExposure_Reduction_${size}`;
-			this.reductionTargets.push( target );
-			size = Math.max( 1, size / 2 );
-
-		}
-
-		// Adaptation target (1x1) - stores temporal smoothed exposure
-		this.adaptationTarget = new WebGLRenderTarget( 1, 1, targetOptions );
-		this.adaptationTarget.texture.name = 'AutoExposure_Adaptation';
+		// Adaptation target (1×1) — fragment pass for async readback
+		this._adaptationTarget = new RenderTarget( 1, 1, rtOpts );
 
 	}
 
-	initMaterials() {
+	// ──────────────────────────────────────────────────
+	// TSL shader builders
+	// ──────────────────────────────────────────────────
 
-		// Downsample material (full res -> 64x64)
-		// Computes log(luminance) for geometric mean calculation
-		this.downsampleMaterial = new ShaderMaterial( {
-			uniforms: {
-				tInput: { value: null },
-				resolution: { value: new Vector2( this.width, this.height ) },
-				targetResolution: { value: new Vector2( this.reductionSize, this.reductionSize ) },
-				epsilon: { value: this.params.epsilon }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
+	_buildMaterials() {
 
-				uniform sampler2D tInput;
-				uniform vec2 resolution;
-				uniform vec2 targetResolution;
-				uniform float epsilon;
-
-				varying vec2 vUv;
-
-				// sRGB luminance weights
-				const vec3 LUMINANCE_WEIGHTS = vec3( 0.2126, 0.7152, 0.0722 );
-
-				void main() {
-					// Calculate how many source pixels this output pixel covers
-					vec2 blockSize = resolution / targetResolution;
-					vec2 startUV = floor( vUv * targetResolution ) / targetResolution;
-
-					float logLuminanceSum = 0.0;
-					float validPixelCount = 0.0;
-
-					// Sample a 4x4 grid within this block
-					const int SAMPLES = 4;
-					for ( int y = 0; y < SAMPLES; y++ ) {
-						for ( int x = 0; x < SAMPLES; x++ ) {
-							vec2 offset = vec2( float( x ) + 0.5, float( y ) + 0.5 ) / float( SAMPLES );
-							vec2 sampleUV = startUV + offset * blockSize / resolution;
-							sampleUV = clamp( sampleUV, 0.0, 1.0 );
-
-							vec3 color = texture2D( tInput, sampleUV ).rgb;
-							float luminance = dot( color, LUMINANCE_WEIGHTS );
-
-							// Only count positive luminance pixels (avoid log(0))
-							if ( luminance > epsilon ) {
-								logLuminanceSum += log( luminance + epsilon );
-								validPixelCount += 1.0;
-							}
-						}
-					}
-
-					// Store log luminance sum and count for later aggregation
-					// R: sum of log luminances, G: count of valid pixels
-					gl_FragColor = vec4( logLuminanceSum, validPixelCount, 0.0, 1.0 );
-				}
-			`
-		} );
-
-		// Reduction material (hierarchical 2x2 reduction)
-		this.reductionMaterial = new ShaderMaterial( {
-			uniforms: {
-				tInput: { value: null },
-				resolution: { value: new Vector2() },
-				isFinalPass: { value: false }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
-
-				uniform sampler2D tInput;
-				uniform vec2 resolution;
-				uniform bool isFinalPass;
-
-				varying vec2 vUv;
-
-				void main() {
-					vec2 texelSize = 1.0 / resolution;
-
-					// Sample 2x2 neighborhood
-					vec4 s00 = texture2D( tInput, vUv + vec2( -0.25, -0.25 ) * texelSize );
-					vec4 s10 = texture2D( tInput, vUv + vec2(  0.25, -0.25 ) * texelSize );
-					vec4 s01 = texture2D( tInput, vUv + vec2( -0.25,  0.25 ) * texelSize );
-					vec4 s11 = texture2D( tInput, vUv + vec2(  0.25,  0.25 ) * texelSize );
-
-					// Aggregate log luminance sums and counts
-					float totalLogSum = s00.r + s10.r + s01.r + s11.r;
-					float totalCount = s00.g + s10.g + s01.g + s11.g;
-
-					if ( isFinalPass && totalCount > 0.0 ) {
-						// Final pass: compute geometric mean
-						float avgLogLuminance = totalLogSum / totalCount;
-						float geometricMean = exp( avgLogLuminance );
-
-						// Store geometric mean in R channel, count in G
-						gl_FragColor = vec4( geometricMean, totalCount, avgLogLuminance, 1.0 );
-					} else {
-						gl_FragColor = vec4( totalLogSum, totalCount, 0.0, 1.0 );
-					}
-				}
-			`
-		} );
-
-		// Adaptation material - applies temporal smoothing
-		this.adaptationMaterial = new ShaderMaterial( {
-			uniforms: {
-				tCurrentLuminance: { value: null },
-				previousExposure: { value: this.params.initialExposure },
-				previousLuminance: { value: 0.18 },
-				keyValue: { value: this.params.keyValue },
-				minExposure: { value: this.params.minExposure },
-				maxExposure: { value: this.params.maxExposure },
-				adaptSpeedBright: { value: this.params.adaptSpeedBright },
-				adaptSpeedDark: { value: this.params.adaptSpeedDark },
-				deltaTime: { value: 0.016 },
-				isFirstFrame: { value: true }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
-
-				uniform sampler2D tCurrentLuminance;
-				uniform float previousExposure;
-				uniform float previousLuminance;
-				uniform float keyValue;
-				uniform float minExposure;
-				uniform float maxExposure;
-				uniform float adaptSpeedBright;
-				uniform float adaptSpeedDark;
-				uniform float deltaTime;
-				uniform bool isFirstFrame;
-
-				varying vec2 vUv;
-
-				void main() {
-					// Read current geometric mean luminance
-					vec4 lumData = texture2D( tCurrentLuminance, vec2( 0.5, 0.5 ) );
-					float currentLuminance = lumData.r;
-
-					// Calculate target exposure: exposure = keyValue / luminance
-					// This maps the average scene luminance to middle gray
-					float targetExposure = keyValue / max( currentLuminance, 0.001 );
-					targetExposure = clamp( targetExposure, minExposure, maxExposure );
-
-					float newExposure;
-
-					if ( isFirstFrame ) {
-						// First frame: use target directly (no smoothing)
-						newExposure = targetExposure;
-					} else {
-						// Asymmetric temporal adaptation
-						// Faster when going from dark to light (decreasing exposure)
-						float adaptSpeed;
-						if ( targetExposure < previousExposure ) {
-							// Scene getting brighter -> decrease exposure faster
-							adaptSpeed = adaptSpeedBright;
-						} else {
-							// Scene getting darker -> increase exposure slower
-							adaptSpeed = adaptSpeedDark;
-						}
-
-						// Exponential smoothing
-						float alpha = 1.0 - exp( -deltaTime * adaptSpeed );
-						newExposure = mix( previousExposure, targetExposure, alpha );
-					}
-
-					// Output: R = exposure, G = luminance, B = target exposure, A = 1
-					gl_FragColor = vec4( newExposure, currentLuminance, targetExposure, 1.0 );
-				}
-			`
-		} );
-
-		// Create fullscreen quads
-		this.downsampleQuad = new FullScreenQuad( this.downsampleMaterial );
-		this.reductionQuad = new FullScreenQuad( this.reductionMaterial );
-		this.adaptationQuad = new FullScreenQuad( this.adaptationMaterial );
+		this._buildDownsampleMaterial();
+		this._buildReductionCompute();
+		this._buildAdaptationMaterial();
 
 	}
 
 	/**
-	 * Setup event listeners
+	 * Downsample: full resolution → 64×64
+	 *
+	 * Each output pixel covers a block of the input texture.
+	 * Samples a 4×4 grid within the block, computing log(luminance).
+	 *
+	 * Output: R = Σ log(L + ε), G = valid pixel count
 	 */
+	_buildDownsampleMaterial() {
+
+		const inputTex = this._inputTexNode;
+		const epsilon = this.epsilonU;
+
+		const SAMPLES = 4;
+		const BLOCK_UV = 1.0 / 64.0; // Each output pixel covers 1/64 of UV space
+
+		const shader = Fn( () => {
+
+			const coord = uv();
+
+			const logLumSum = float( 0.0 ).toVar();
+			const validCount = float( 0.0 ).toVar();
+
+			// Block origin: snap to grid then offset to start
+			// coord is at pixel centre → block covers ±halfBlock around it
+			for ( let sy = 0; sy < SAMPLES; sy ++ ) {
+
+				for ( let sx = 0; sx < SAMPLES; sx ++ ) {
+
+					// Offset within the block: (sx+0.5)/SAMPLES normalised to block
+					const ox = float( ( sx + 0.5 ) / SAMPLES - 0.5 ).mul( BLOCK_UV );
+					const oy = float( ( sy + 0.5 ) / SAMPLES - 0.5 ).mul( BLOCK_UV );
+
+					const sampleUV = coord.add( vec2( ox, oy ) ).clamp( 0.0, 1.0 );
+					const lum = luminance( inputTex.sample( sampleUV ).xyz );
+
+					If( lum.greaterThan( epsilon ), () => {
+
+						logLumSum.addAssign( lum.add( epsilon ).log() );
+						validCount.addAssign( 1.0 );
+
+					} );
+
+				}
+
+			}
+
+			return vec4( logLumSum, validCount, 0.0, 1.0 );
+
+		} );
+
+		this._downsampleMaterial = new MeshBasicNodeMaterial();
+		this._downsampleMaterial.outputNode = shader();
+		this._downsampleMaterial.toneMapped = false;
+		this._downsampleQuad = new QuadMesh( this._downsampleMaterial );
+
+	}
+
+	/**
+	 * Reduction: parallel compute 64×64 → 1×1
+	 *
+	 * Single workgroup of 256 threads. Each thread loads 16 texels
+	 * from the 64×64 downsample texture, then participates in a
+	 * shared-memory parallel reduction.
+	 *
+	 * Output: StorageTexture(1×1) = vec4(geometricMean, count, avgLogLum, 1)
+	 */
+	_buildReductionCompute() {
+
+		const downsampleTex = this._downsampleTarget.texture;
+		const outputTex = this._reductionStorageTex;
+
+		const WGSIZE = 256;
+		const TEXELS_PER_THREAD = 16; // 4096 / 256
+		const TEX_SIZE = 64;
+
+		const sharedLogSum = workgroupArray( 'float', WGSIZE );
+		const sharedCount = workgroupArray( 'float', WGSIZE );
+
+		const reductionFn = Fn( () => {
+
+			const tid = localId.x;
+
+			// ── Phase 1: Each thread loads and sums 16 texels ──
+
+			const threadLogSum = float( 0.0 ).toVar();
+			const threadCount = float( 0.0 ).toVar();
+
+			for ( let i = 0; i < TEXELS_PER_THREAD; i ++ ) {
+
+				const linearIdx = tid.mul( TEXELS_PER_THREAD ).add( i );
+				const px = linearIdx.mod( TEX_SIZE );
+				const py = linearIdx.div( TEX_SIZE );
+				const data = textureLoad( downsampleTex, ivec2( int( px ), int( py ) ) );
+
+				// data.x = logLumSum, data.y = validCount from downsample
+				threadLogSum.addAssign( data.x );
+				threadCount.addAssign( data.y );
+
+			}
+
+			sharedLogSum.element( tid ).assign( threadLogSum );
+			sharedCount.element( tid ).assign( threadCount );
+
+			// ── Phase 2: Parallel reduction (8 steps) ──────────
+			// JS for-loop unrolls at shader build time
+
+			for ( let stride = WGSIZE / 2; stride >= 1; stride = Math.floor( stride / 2 ) ) {
+
+				workgroupBarrier();
+
+				If( tid.lessThan( uint( stride ) ), () => {
+
+					sharedLogSum.element( tid ).addAssign(
+						sharedLogSum.element( tid.add( uint( stride ) ) )
+					);
+					sharedCount.element( tid ).addAssign(
+						sharedCount.element( tid.add( uint( stride ) ) )
+					);
+
+				} );
+
+			}
+
+			// ── Phase 3: Thread 0 writes final result ──────────
+
+			workgroupBarrier();
+
+			If( tid.equal( uint( 0 ) ), () => {
+
+				const totalLogSum = sharedLogSum.element( uint( 0 ) );
+				const totalCount = sharedCount.element( uint( 0 ) );
+				const safeCount = max( totalCount, float( 1.0 ) );
+				const avgLogLum = totalLogSum.div( safeCount );
+				const geometricMean = avgLogLum.exp();
+
+				textureStore(
+					outputTex,
+					uvec2( uint( 0 ), uint( 0 ) ),
+					vec4( geometricMean, totalCount, avgLogLum, 1.0 )
+				).toWriteOnly();
+
+			} );
+
+		} );
+
+		this._reductionComputeNode = reductionFn().compute( 1, [ WGSIZE, 1, 1 ] );
+
+	}
+
+	/**
+	 * Adaptation: temporal smoothing
+	 *
+	 * Reads geometric mean luminance from 1×1 compute output,
+	 * computes target exposure (keyValue / luminance), and applies
+	 * asymmetric exponential smoothing (fast bright, slow dark).
+	 *
+	 * Output: R = exposure, G = luminance, B = targetExposure, A = 1
+	 */
+	_buildAdaptationMaterial() {
+
+		const lumTex = this._luminanceTexNode;
+		const keyValue = this.keyValueU;
+		const minExp = this.minExposureU;
+		const maxExp = this.maxExposureU;
+		const speedBright = this.adaptSpeedBrightU;
+		const speedDark = this.adaptSpeedDarkU;
+		const dt = this.deltaTimeU;
+		const isFirst = this.isFirstFrameU;
+		const prevExposure = this.previousExposureU;
+
+		const shader = Fn( () => {
+
+			const geoMean = lumTex.sample( uv() ).x;
+
+			return adaptExposure(
+				geoMean, prevExposure, keyValue,
+				minExp, maxExp, speedBright, speedDark,
+				dt, isFirst
+			);
+
+		} );
+
+		this._adaptationMaterial = new MeshBasicNodeMaterial();
+		this._adaptationMaterial.outputNode = shader();
+		this._adaptationMaterial.toneMapped = false;
+		this._adaptationQuad = new QuadMesh( this._adaptationMaterial );
+
+	}
+
+	// ──────────────────────────────────────────────────
+	// Event listeners
+	// ──────────────────────────────────────────────────
+
 	setupEventListeners() {
 
 		this.on( 'pipeline:reset', () => this.reset() );
 
-		this.on( 'autoexposure:updateParameters', ( data ) => {
-
-			if ( data ) this.updateParameters( data );
-
-		} );
-
 		this.on( 'autoexposure:toggle', ( enabled ) => {
 
 			this.enabled = enabled;
-			if ( ! enabled ) {
 
-				// When disabled, let the manual exposure take over
-				// The store will handle restoring manual exposure
+		} );
 
-			}
+		this.on( 'autoexposure:updateParameters', ( data ) => {
+
+			if ( ! data ) return;
+			if ( data.keyValue !== undefined ) this.keyValueU.value = data.keyValue;
+			if ( data.minExposure !== undefined ) this.minExposureU.value = data.minExposure;
+			if ( data.maxExposure !== undefined ) this.maxExposureU.value = data.maxExposure;
+			if ( data.adaptSpeedBright !== undefined ) this.adaptSpeedBrightU.value = data.adaptSpeedBright;
+			if ( data.adaptSpeedDark !== undefined ) this.adaptSpeedDarkU.value = data.adaptSpeedDark;
 
 		} );
 
 	}
 
-	/**
-	 * Update auto-exposure parameters
-	 */
-	updateParameters( params ) {
+	// ──────────────────────────────────────────────────
+	// Render
+	// ──────────────────────────────────────────────────
 
-		Object.assign( this.params, params );
-
-		// Update shader uniforms
-		const adaptUniforms = this.adaptationMaterial.uniforms;
-		adaptUniforms.keyValue.value = this.params.keyValue;
-		adaptUniforms.minExposure.value = this.params.minExposure;
-		adaptUniforms.maxExposure.value = this.params.maxExposure;
-		adaptUniforms.adaptSpeedBright.value = this.params.adaptSpeedBright;
-		adaptUniforms.adaptSpeedDark.value = this.params.adaptSpeedDark;
-
-		this.downsampleMaterial.uniforms.epsilon.value = this.params.epsilon;
-
-	}
-
-	/**
-	 * Reset temporal history
-	 */
-	reset() {
-
-		this.isFirstFrame = true;
-		this.currentExposure = this.params.initialExposure;
-		this.currentLuminance = 0.18;
-		this.targetExposure = this.params.initialExposure;
-		this.lastTime = performance.now();
-
-	}
-
-	/**
-	 * Set render size
-	 */
-	setSize( width, height ) {
-
-		this.width = width;
-		this.height = height;
-		this.downsampleMaterial.uniforms.resolution.value.set( width, height );
-
-	}
-
-	/**
-	 * Main render method
-	 */
 	render( context ) {
 
 		if ( ! this.enabled ) return;
 
-		const renderer = this.renderer || context.renderer;
-		if ( ! renderer ) {
+		// Resolve input texture (fallback chain)
+		const inputTex = context.getTexture( 'edgeFiltering:output' )
+			|| context.getTexture( 'asvgf:output' )
+			|| context.getTexture( 'pathtracer:color' );
 
-			return;
+		if ( ! inputTex ) return;
+
+		// Delta time
+		const now = performance.now();
+		const dt = Math.min( ( now - this.lastTime ) / 1000, 0.1 );
+		this.lastTime = now;
+		this.deltaTimeU.value = this.isFirstFrame ? 1.0 : dt;
+		this.isFirstFrameU.value = this.isFirstFrame ? 1.0 : 0.0;
+		this.previousExposureU.value = this.currentExposure;
+
+		// ── Pass 1: Downsample full res → 64×64 (fragment) ──
+
+		this._inputTexNode.value = inputTex;
+		this.renderer.setRenderTarget( this._downsampleTarget );
+		this._downsampleQuad.render( this.renderer );
+
+		// ── Pass 2: Reduction 64×64 → 1×1 (compute) ────────
+
+		this.renderer.setRenderTarget( null );
+		this.renderer.compute( this._reductionComputeNode );
+
+		// ── Pass 3: Temporal adaptation (fragment) ──────────
+
+		this._luminanceTexNode.value = this._reductionStorageTex;
+		this.renderer.setRenderTarget( this._adaptationTarget );
+		this._adaptationQuad.render( this.renderer );
+
+		// ── Async readback (WebGPU advantage) ────────────
+
+		if ( ! this._pendingReadback ) {
+
+			this._pendingReadback = true;
+
+			this.renderer.readRenderTargetPixelsAsync(
+				this._adaptationTarget, 0, 0, 1, 1
+			).then( ( data ) => {
+
+				this._pendingReadback = false;
+				this._applyReadback( data );
+
+			} ).catch( () => {
+
+				this._pendingReadback = false;
+
+			} );
 
 		}
 
-		// Get input texture (prefer filtered output, fall back to raw)
-		const inputTexture =
-			context.getTexture( 'edgeFiltering:output' ) ||
-			context.getTexture( 'asvgf:output' ) ||
-			context.getTexture( 'pathtracer:color' );
+		// ── Publish state ────────────────────────────────
 
-		if ( ! inputTexture ) return;
-
-		// Calculate delta time
-		const currentTime = performance.now();
-		const deltaTime = ( currentTime - this.lastTime ) / 1000;
-		this.lastTime = currentTime;
-
-		// Store current render target
-		const currentRT = renderer.getRenderTarget();
-
-		// Phase 1: Downsample to 64x64 with log(luminance) computation
-		this.downsampleMaterial.uniforms.tInput.value = inputTexture;
-		renderer.setRenderTarget( this.reductionTargets[ 0 ] );
-		this.downsampleQuad.render( renderer );
-
-		// Phase 2: Hierarchical reduction (64->32->16->8->4->2->1)
-		for ( let i = 0; i < this.reductionLevels; i ++ ) {
-
-			const sourceTarget = this.reductionTargets[ i ];
-			const destTarget = this.reductionTargets[ i + 1 ];
-			const isFinal = ( i === this.reductionLevels - 1 );
-
-			this.reductionMaterial.uniforms.tInput.value = sourceTarget.texture;
-			this.reductionMaterial.uniforms.resolution.value.set(
-				sourceTarget.width, sourceTarget.height
-			);
-			this.reductionMaterial.uniforms.isFinalPass.value = isFinal;
-
-			renderer.setRenderTarget( destTarget );
-			this.reductionQuad.render( renderer );
-
-		}
-
-		// Phase 3: Temporal adaptation
-		const finalReduction = this.reductionTargets[ this.reductionTargets.length - 1 ];
-
-		this.adaptationMaterial.uniforms.tCurrentLuminance.value = finalReduction.texture;
-		this.adaptationMaterial.uniforms.previousExposure.value = this.currentExposure;
-		this.adaptationMaterial.uniforms.previousLuminance.value = this.currentLuminance;
-		this.adaptationMaterial.uniforms.deltaTime.value = this.isFirstFrame ? 1.0 : deltaTime;
-		this.adaptationMaterial.uniforms.isFirstFrame.value = this.isFirstFrame;
-
-		renderer.setRenderTarget( this.adaptationTarget );
-		this.adaptationQuad.render( renderer );
-
-		// Restore render target
-		renderer.setRenderTarget( currentRT );
-
-		// Read back exposure value (sync - negligible for 1x1 texture)
-		this.readbackExposure( renderer );
-
-		// Publish to context
 		context.setState( 'autoexposure:value', this.currentExposure );
 		context.setState( 'autoexposure:avgLuminance', this.currentLuminance );
 
-		// Apply exposure to renderer
-		this.applyExposure();
-
-		// Emit event for UI/other stages
 		this.emit( 'autoexposure:updated', {
 			exposure: this.currentExposure,
 			luminance: this.currentLuminance,
@@ -483,114 +452,91 @@ export class AutoExposureStage extends PipelineStage {
 	}
 
 	/**
-	 * Read back exposure value from GPU
-	 * Uses reusable buffer to avoid allocations
+	 * Process async readback data from 1×1 adaptation target.
 	 */
-	readbackExposure( renderer ) {
+	_applyReadback( data ) {
 
-		renderer.readRenderTargetPixels(
-			this.adaptationTarget, 0, 0, 1, 1, this.readbackBuffer
-		);
+		if ( ! data || data.length < 3 ) return;
 
-		let exposure = this.readbackBuffer[ 0 ];
-		let luminance = this.readbackBuffer[ 1 ];
-		let targetExp = this.readbackBuffer[ 2 ];
+		let exposure = data[ 0 ];
+		let luminance = data[ 1 ];
+		let targetExp = data[ 2 ];
 
-		// Validate values (prevent NaN/Infinity/zero)
-		if ( ! isFinite( exposure ) || isNaN( exposure ) || exposure <= 0 ) {
+		// Validate
+		if ( ! isFinite( exposure ) || exposure <= 0 ) exposure = 1.0;
+		if ( ! isFinite( luminance ) || luminance <= 0 ) luminance = 0.18;
+		if ( ! isFinite( targetExp ) || targetExp <= 0 ) targetExp = exposure;
 
-			exposure = this.params.initialExposure;
-
-		}
-
-		if ( ! isFinite( luminance ) || isNaN( luminance ) || luminance <= 0 ) {
-
-			luminance = 0.18;
-
-		}
-
-		if ( ! isFinite( targetExp ) || isNaN( targetExp ) || targetExp <= 0 ) {
-
-			targetExp = exposure;
-
-		}
-
-		// Update current values
 		this.currentExposure = exposure;
 		this.currentLuminance = luminance;
 		this.targetExposure = targetExp;
 
-	}
-
-	/**
-	 * Apply computed exposure to renderer
-	 */
-	applyExposure() {
-
-		const app = getApp();
-		if ( app ) {
-
-			app.renderer.toneMappingExposure = this.currentExposure;
-
-		}
+		// Apply to renderer
+		this.renderer.toneMappingExposure = exposure;
 
 	}
 
-	/**
-	 * Direct access for manual override
-	 */
+	// ──────────────────────────────────────────────────
+	// Lifecycle
+	// ──────────────────────────────────────────────────
+
+	reset() {
+
+		this.isFirstFrame = true;
+		this.currentExposure = 1.0;
+		this.currentLuminance = 0.18;
+		this.targetExposure = 1.0;
+		this.lastTime = performance.now();
+		this._pendingReadback = false;
+
+	}
+
+	setSize( /* width, height */ ) {
+
+		// Downsample and reduction targets are fixed-size (64×64 → 1×1)
+		// No resizing needed — the downsample shader samples a 4×4 grid
+		// per output pixel regardless of input resolution.
+
+	}
+
 	setExposure( value ) {
 
 		this.currentExposure = value;
-		this.applyExposure();
+		this.previousExposureU.value = value;
+		this.renderer.toneMappingExposure = value;
 
 	}
 
-	/**
-	 * Get current exposure value
-	 */
 	getExposure() {
 
 		return this.currentExposure;
 
 	}
 
-	/**
-	 * Get current average luminance
-	 */
 	getLuminance() {
 
 		return this.currentLuminance;
 
 	}
 
-	/**
-	 * Get target exposure (before temporal smoothing)
-	 */
-	getTargetExposure() {
+	updateParameters( params ) {
 
-		return this.targetExposure;
+		if ( params.keyValue !== undefined ) this.keyValueU.value = params.keyValue;
+		if ( params.minExposure !== undefined ) this.minExposureU.value = params.minExposure;
+		if ( params.maxExposure !== undefined ) this.maxExposureU.value = params.maxExposure;
+		if ( params.adaptSpeedBright !== undefined ) this.adaptSpeedBrightU.value = params.adaptSpeedBright;
+		if ( params.adaptSpeedDark !== undefined ) this.adaptSpeedDarkU.value = params.adaptSpeedDark;
 
 	}
 
-	/**
-	 * Dispose resources
-	 */
 	dispose() {
 
-		// Dispose render targets
-		this.reductionTargets.forEach( target => target.dispose() );
-		this.adaptationTarget.dispose();
-
-		// Dispose materials
-		this.downsampleMaterial.dispose();
-		this.reductionMaterial.dispose();
-		this.adaptationMaterial.dispose();
-
-		// Dispose quads
-		this.downsampleQuad.dispose();
-		this.reductionQuad.dispose();
-		this.adaptationQuad.dispose();
+		this._downsampleMaterial?.dispose();
+		this._adaptationMaterial?.dispose();
+		this._reductionComputeNode?.dispose();
+		this._downsampleTarget?.dispose();
+		this._reductionStorageTex?.dispose();
+		this._adaptationTarget?.dispose();
 
 	}
 

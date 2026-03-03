@@ -1,12 +1,10 @@
-import { useState, useEffect, useSyncExternalStore } from 'react';
-import { getApp, supportsFeature } from '@/core/appProxy';
-import { getBackendManager } from '@/core/BackendManager';
+import { useState, useEffect } from 'react';
+import { getApp } from '@/core/appProxy';
 
 /**
- * React hook that returns the currently active backend app.
- * Re-renders the component when the backend switches.
+ * React hook that returns the path tracer app instance.
  *
- * @returns {Object|null} The active app instance
+ * @returns {Object|null} The app instance
  */
 export function useActiveApp() {
 
@@ -17,75 +15,9 @@ export function useActiveApp() {
 		// Update on mount in case app initialized after first render
 		setApp( getApp() );
 
-		const handleSwitch = () => {
-
-			queueMicrotask( () => setApp( getApp() ) );
-
-		};
-
-		const backendManager = getBackendManager();
-		if ( backendManager ) {
-
-			backendManager.on( 'switched', handleSwitch );
-
-		}
-
-		// Also listen for the window event (fires reliably regardless of timing)
-		window.addEventListener( 'BackendSwitched', handleSwitch );
-
-		return () => {
-
-			if ( backendManager ) backendManager.off( 'switched', handleSwitch );
-			window.removeEventListener( 'BackendSwitched', handleSwitch );
-
-		};
-
 	}, [] );
 
 	return app;
 
 }
 
-/**
- * React hook that checks if a feature is supported by the current backend.
- * Re-evaluates when the backend switches.
- *
- * @param {string} featureName - The feature to check
- * @returns {boolean} Whether the feature is supported
- */
-export function useBackendFeature( featureName ) {
-
-	const [ supported, setSupported ] = useState( () => supportsFeature( featureName ) );
-
-	useEffect( () => {
-
-		setSupported( supportsFeature( featureName ) );
-
-		const handleSwitch = () => {
-
-			queueMicrotask( () => setSupported( supportsFeature( featureName ) ) );
-
-		};
-
-		const backendManager = getBackendManager();
-		if ( backendManager ) {
-
-			backendManager.on( 'switched', handleSwitch );
-
-		}
-
-		// Also listen for the window event (fires reliably regardless of timing)
-		window.addEventListener( 'BackendSwitched', handleSwitch );
-
-		return () => {
-
-			if ( backendManager ) backendManager.off( 'switched', handleSwitch );
-			window.removeEventListener( 'BackendSwitched', handleSwitch );
-
-		};
-
-	}, [ featureName ] );
-
-	return supported;
-
-}

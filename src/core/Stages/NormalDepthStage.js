@@ -1,7 +1,7 @@
 import { Fn, vec3, vec4, float, uv, uniform, normalize, mat3, storage } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, StorageInstancedBufferAttribute } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
-import { PipelineStage, StageExecutionMode } from '../../Pipeline/PipelineStage.js';
+import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { Ray, HitInfo } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
 

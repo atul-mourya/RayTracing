@@ -1,503 +1,346 @@
-import {
-	ShaderMaterial,
-	LinearFilter,
-	RGBAFormat,
-	FloatType,
-	WebGLRenderTarget,
-	Vector2,
-} from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { Fn, wgslFn, float, int, uint, ivec2, uvec2, uniform, If, max,
+	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
+import { TextureNode, StorageTexture } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { luminance } from '../TSL/Common.js';
+
+// ── wgslFn helpers ──────────────────────────────────────────
 
 /**
- * VarianceEstimationStage - Standalone variance computation
+ * Temporal moment accumulation via exponential moving average.
  *
- * Computes temporal and spatial variance for:
- * - Adaptive sampling guidance (concentrate samples on high-variance regions)
- * - Firefly detection (outlier pixels with extremely high variance)
- * - Image quality metrics (convergence monitoring)
- * - Denoiser guidance (variance-weighted filtering)
+ * Returns vec4f(newMean, newMeanSq, temporalVariance * boost, spatialVariance * boost).
+ */
+const temporalAccumulate = /*@__PURE__*/ wgslFn( `
+	fn temporalAccumulate(
+		lum: f32,
+		prevMean: f32,
+		prevMeanSq: f32,
+		alpha: f32,
+		spatialVariance: f32,
+		varianceBoost: f32
+	) -> vec4f {
+
+		let newMean = prevMean + ( lum - prevMean ) * alpha;
+		let newMeanSq = prevMeanSq + ( lum * lum - prevMeanSq ) * alpha;
+		let temporalVariance = max( newMeanSq - newMean * newMean, 0.0 );
+
+		return vec4f(
+			newMean,
+			newMeanSq,
+			temporalVariance * varianceBoost,
+			spatialVariance * varianceBoost
+		);
+
+	}
+` );
+
+/**
+ * WebGPU Variance Estimation Stage (Compute Shader)
  *
- * This stage works INDEPENDENTLY of ASVGF, making variance available
- * even when the full temporal denoiser is disabled.
+ * Computes temporal and spatial variance from the path tracer output.
+ * Used by AdaptiveSamplingStage for sampling guidance and by
+ * BilateralFilteringStage for variance-guided filtering.
  *
- * Execution: CONFIGURABLE - Can run per-frame or per-cycle
+ * Uses compute shader with workgroup shared memory for the 3×3
+ * spatial variance computation. Each 8×8 workgroup loads a 10×10
+ * luminance tile into shared memory.
  *
- * Output texture format (RGBA):
- * - R: Mean luminance
- * - G: Second moment (mean of squared luminance)
- * - B: Temporal variance (secondMoment - mean^2)
- * - A: Spatial variance (3x3 neighborhood variance)
+ * Ping-pong between two StorageTextures for temporal moment
+ * accumulation — two compute nodes, one for each write direction.
  *
- * Events listened to:
- * - variance:updateParameters - Updates variance parameters
- * - pipeline:reset - Resets temporal history
+ * Algorithm:
+ *   1. Cooperative tile loading → shared memory (luminance from color)
+ *   2. Barrier
+ *   3. Spatial variance from 3×3 shared memory neighbourhood
+ *   4. Temporal accumulation via textureLoad on previous moments
+ *   5. Write (mean, meanSq, temporalVar, spatialVar) to StorageTexture
  *
- * Textures read from context:
- * - Input color texture (configurable, default: 'pathtracer:color')
- * - Optional: history length texture for temporal blending
+ * Output format (RGBA HalfFloat):
+ *   R — mean luminance
+ *   G — second moment (mean of squared luminance)
+ *   B — temporal variance
+ *   A — spatial variance
  *
- * Textures published to context:
- * - variance:output - Variance estimation (mean, secondMoment, temporal, spatial)
+ * Execution: ALWAYS
+ *
+ * Textures published:  variance:output
+ * Textures read:       configurable (default pathtracer:color)
  */
 export class VarianceEstimationStage extends PipelineStage {
 
-	constructor( options = {} ) {
+	constructor( renderer, options = {} ) {
 
 		super( 'VarianceEstimation', {
 			...options,
-			executionMode: options.executionMode ?? StageExecutionMode.ALWAYS
+			executionMode: StageExecutionMode.ALWAYS
 		} );
 
-		this.renderer = options.renderer || null;
-		this.width = options.width || 1920;
-		this.height = options.height || 1080;
+		this.renderer = renderer;
+		this.inputTextureName = options.inputTextureName || 'pathtracer:color';
 
-		// Configurable input texture names
-		this.inputTextureName = options.inputTextureName ?? 'pathtracer:color';
-		this.historyLengthTextureName = options.historyLengthTextureName ?? null; // Optional
+		// Parameters
+		this.varianceBoost = uniform( options.varianceBoost ?? 1.0 );
+		this.temporalAlpha = uniform( options.temporalAlpha ?? 0.1 );
+		this.resW = uniform( options.width || 1 );
+		this.resH = uniform( options.height || 1 );
 
-		// Output texture name
-		this.outputTextureName = options.outputTextureName ?? 'variance:output';
+		// Input texture node
+		this._colorTexNode = new TextureNode();
 
-		// Variance parameters
-		this.params = {
-			// Variance boost multiplier
-			varianceBoost: options.varianceBoost ?? 1.0,
+		// Ping-pong StorageTextures for temporal moments
+		const w = options.width || 1;
+		const h = options.height || 1;
 
-			// Temporal blending (when no external history is provided)
-			useTemporalAccumulation: options.useTemporalAccumulation ?? true,
-			temporalAlpha: options.temporalAlpha ?? 0.1, // Blend factor for new samples
+		// LinearFilter so downstream fragment shaders can sample these without hitting
+		// Three.js WGSL codegen bug (textureLoad without level for StorageTextures)
+		this._storageTexA = new StorageTexture( w, h );
+		this._storageTexA.type = HalfFloatType;
+		this._storageTexA.format = RGBAFormat;
+		this._storageTexA.minFilter = LinearFilter;
+		this._storageTexA.magFilter = LinearFilter;
 
-			// Spatial variance kernel size (1 = 3x3, 2 = 5x5)
-			spatialKernelRadius: options.spatialKernelRadius ?? 1,
+		this._storageTexB = new StorageTexture( w, h );
+		this._storageTexB.type = HalfFloatType;
+		this._storageTexB.format = RGBAFormat;
+		this._storageTexB.minFilter = LinearFilter;
+		this._storageTexB.magFilter = LinearFilter;
 
-			// Firefly detection threshold (for downstream stages)
-			fireflyThreshold: options.fireflyThreshold ?? 10.0,
+		this.currentMoments = 0; // 0 = write A, read B; 1 = write B, read A
+		this._compiled = false;
 
-			...options
-		};
+		// Dispatch dimensions
+		this._dispatchX = Math.ceil( w / 8 );
+		this._dispatchY = Math.ceil( h / 8 );
 
-		// Frame tracking
-		this.frameCount = 0;
-		this.isFirstFrame = true;
-
-		// Initialize render targets
-		this.initRenderTargets();
-
-		// Initialize materials
-		this.initMaterials();
-
-		// Create fullscreen quad
-		this.varianceQuad = new FullScreenQuad( this.varianceMaterial );
+		this._buildCompute();
 
 	}
 
-	initRenderTargets() {
+	/**
+	 * Build two compute nodes — one for each ping-pong direction.
+	 *
+	 * _computeNodeA: writes to StorageTexA, reads previous moments from StorageTexB
+	 * _computeNodeB: writes to StorageTexB, reads previous moments from StorageTexA
+	 *
+	 * Read-side textures wrapped in TextureNode so compile-time type is regular Texture
+	 * (avoids Three.js WGSL codegen bug: textureLoad without level for StorageTexture).
+	 * Values are set to actual StorageTextures in render().
+	 */
+	_buildCompute() {
 
-		const targetOptions = {
-			minFilter: LinearFilter,
-			magFilter: LinearFilter,
-			format: RGBAFormat,
-			type: FloatType,
-			depthBuffer: false
-		};
+		// TextureNode wrappers for reading ping-pong textures
+		// Default to EmptyTexture at compile time → codegen includes level parameter
+		this._readTexNodeA = new TextureNode();
+		this._readTexNodeB = new TextureNode();
 
-		// Current variance output
-		this.varianceTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.varianceTarget.texture.name = 'Variance_Output';
-
-		// Previous moments for temporal accumulation
-		this.prevMomentsTarget = new WebGLRenderTarget( this.width, this.height, targetOptions );
-		this.prevMomentsTarget.texture.name = 'Variance_PrevMoments';
+		// A writes to StorageTexA, reads previous moments from B
+		this._computeNodeA = this._buildComputeForDirection( this._storageTexA, this._readTexNodeB );
+		// B writes to StorageTexB, reads previous moments from A
+		this._computeNodeB = this._buildComputeForDirection( this._storageTexB, this._readTexNodeA );
 
 	}
 
-	initMaterials() {
+	_buildComputeForDirection( writeStorageTex, readTexNode ) {
 
-		// Variance estimation shader
-		this.varianceMaterial = new ShaderMaterial( {
-			uniforms: {
-				tColor: { value: null },
-				tPrevMoments: { value: null },
-				tHistoryLength: { value: null },
+		const colorTex = this._colorTexNode;
+		const alpha = this.temporalAlpha;
+		const varianceBoost = this.varianceBoost;
+		const resW = this.resW;
+		const resH = this.resH;
 
-				resolution: { value: new Vector2( this.width, this.height ) },
-				varianceBoost: { value: this.params.varianceBoost },
+		const TILE_W = 10;
+		const TILE_TOTAL = TILE_W * TILE_W; // 100
+		const WG_SIZE = 8;
+		const WG_THREADS = WG_SIZE * WG_SIZE; // 64
+		const EXTRA_LOAD = TILE_TOTAL - WG_THREADS; // 36
 
-				useTemporalAccumulation: { value: this.params.useTemporalAccumulation },
-				temporalAlpha: { value: this.params.temporalAlpha },
-				isFirstFrame: { value: true },
-				frameCount: { value: 0 },
+		const sharedLum = workgroupArray( 'float', TILE_TOTAL );
 
-				spatialKernelRadius: { value: this.params.spatialKernelRadius },
-				fireflyThreshold: { value: this.params.fireflyThreshold },
+		const computeFn = Fn( () => {
 
-				hasExternalHistory: { value: false }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
-				precision highp int;
+			const lx = localId.x;
+			const ly = localId.y;
+			const linearIdx = ly.mul( WG_SIZE ).add( lx );
 
-				uniform sampler2D tColor;
-				uniform sampler2D tPrevMoments;
-				uniform sampler2D tHistoryLength;
+			// Tile origin in global image coords (1px border before the core)
+			const tileOriginX = int( workgroupId.x ).mul( WG_SIZE ).sub( 1 );
+			const tileOriginY = int( workgroupId.y ).mul( WG_SIZE ).sub( 1 );
 
-				uniform vec2 resolution;
-				uniform float varianceBoost;
+			// ── Cooperative tile loading ─────────────────────
 
-				uniform bool useTemporalAccumulation;
-				uniform float temporalAlpha;
-				uniform bool isFirstFrame;
-				uniform float frameCount;
+			// Load #1: all 64 threads load positions 0-63
+			const sx1 = linearIdx.mod( TILE_W );
+			const sy1 = linearIdx.div( TILE_W );
+			const gx1 = tileOriginX.add( int( sx1 ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+			const gy1 = tileOriginY.add( int( sy1 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 
-				uniform int spatialKernelRadius;
-				uniform float fireflyThreshold;
+			const sColor1 = textureLoad( colorTex, ivec2( gx1, gy1 ) ).xyz;
+			sharedLum.element( linearIdx ).assign( luminance( sColor1 ) );
 
-				uniform bool hasExternalHistory;
+			// Load #2: threads 0-35 load positions 64-99
+			If( linearIdx.lessThan( uint( EXTRA_LOAD ) ), () => {
 
-				varying vec2 vUv;
+				const idx2 = linearIdx.add( uint( WG_THREADS ) );
+				const sx2 = idx2.mod( TILE_W );
+				const sy2 = idx2.div( TILE_W );
+				const gx2 = tileOriginX.add( int( sx2 ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+				const gy2 = tileOriginY.add( int( sy2 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
 
-				float getLuma(vec3 color) {
-					return dot(color, vec3(0.2126, 0.7152, 0.0722));
-				}
+				const sColor2 = textureLoad( colorTex, ivec2( gx2, gy2 ) ).xyz;
+				sharedLum.element( idx2 ).assign( luminance( sColor2 ) );
 
-				void main() {
-					vec3 currentColor = texture2D(tColor, vUv).rgb;
-					float currentLuma = getLuma(currentColor);
+			} );
 
-					// Determine history length for temporal blending
-					float historyLength = 1.0;
-					if (hasExternalHistory) {
-						// Use external history length (e.g., from temporal accumulator)
-						vec4 historyData = texture2D(tHistoryLength, vUv);
-						historyLength = max(historyData.a, 1.0);
-					} else if (useTemporalAccumulation) {
-						// Use internal frame count
-						historyLength = frameCount;
+			workgroupBarrier();
+
+			// ── Per-thread computation ───────────────────────
+
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( lx ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( ly ) );
+
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
+
+				// ── Spatial variance from 3×3 shared memory ──
+
+				const spatMean = float( 0.0 ).toVar();
+				const spatMeanSq = float( 0.0 ).toVar();
+
+				for ( let dy = - 1; dy <= 1; dy ++ ) {
+
+					for ( let dx = - 1; dx <= 1; dx ++ ) {
+
+						const val = sharedLum.element(
+							ly.add( 1 + dy ).mul( TILE_W ).add( lx.add( 1 + dx ) )
+						);
+						spatMean.addAssign( val );
+						spatMeanSq.addAssign( val.mul( val ) );
+
 					}
 
-					// Get previous moments
-					vec4 prevMoments = texture2D(tPrevMoments, vUv);
-					float prevMean = prevMoments.x;
-					float prevSecondMoment = prevMoments.y;
-
-					// Compute temporal blending alpha
-					float alpha;
-					if (isFirstFrame) {
-						alpha = 1.0; // First frame: use current sample entirely
-					} else if (hasExternalHistory) {
-						alpha = 1.0 / max(historyLength, 1.0);
-					} else {
-						alpha = temporalAlpha;
-					}
-
-					// Temporal accumulation of moments
-					float newMean = mix(prevMean, currentLuma, alpha);
-					float newSecondMoment = mix(prevSecondMoment, currentLuma * currentLuma, alpha);
-
-					// Compute temporal variance (Var = E[X^2] - E[X]^2)
-					float temporalVariance = max(0.0, newSecondMoment - newMean * newMean);
-					temporalVariance *= varianceBoost;
-
-					// Compute spatial (neighborhood) variance
-					vec2 texelSize = 1.0 / resolution;
-					float neighborhoodSum = 0.0;
-					float neighborhoodSumSq = 0.0;
-					float count = 0.0;
-
-					for (int x = -spatialKernelRadius; x <= spatialKernelRadius; x++) {
-						for (int y = -spatialKernelRadius; y <= spatialKernelRadius; y++) {
-							vec2 offset = vec2(float(x), float(y)) * texelSize;
-							vec2 sampleUV = vUv + offset;
-
-							// Bounds check
-							if (sampleUV.x >= 0.0 && sampleUV.x <= 1.0 &&
-								sampleUV.y >= 0.0 && sampleUV.y <= 1.0) {
-								vec3 neighborColor = texture2D(tColor, sampleUV).rgb;
-								float neighborLuma = getLuma(neighborColor);
-								neighborhoodSum += neighborLuma;
-								neighborhoodSumSq += neighborLuma * neighborLuma;
-								count += 1.0;
-							}
-						}
-					}
-
-					// Spatial variance = E[X^2] - E[X]^2 over neighborhood
-					float neighborhoodMean = neighborhoodSum / count;
-					float neighborhoodSecondMoment = neighborhoodSumSq / count;
-					float spatialVariance = max(0.0, neighborhoodSecondMoment - neighborhoodMean * neighborhoodMean);
-					spatialVariance *= varianceBoost;
-
-					// Output: mean, secondMoment, temporalVariance, spatialVariance
-					gl_FragColor = vec4(newMean, newSecondMoment, temporalVariance, spatialVariance);
 				}
-			`
-		} );
 
-		// Copy material for storing previous moments
-		this.copyMaterial = new ShaderMaterial( {
-			uniforms: {
-				tDiffuse: { value: null }
-			},
-			vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = vec4( position, 1.0 );
-				}
-			`,
-			fragmentShader: /* glsl */`
-				precision highp float;
+				spatMean.divAssign( 9.0 );
+				spatMeanSq.divAssign( 9.0 );
+				const spatialVariance = max( spatMeanSq.sub( spatMean.mul( spatMean ) ), float( 0.0 ) );
 
-				uniform sampler2D tDiffuse;
-				varying vec2 vUv;
-				void main() {
-					gl_FragColor = texture2D( tDiffuse, vUv );
-				}
-			`
-		} );
-		this.copyQuad = new FullScreenQuad( this.copyMaterial );
+				// ── Temporal accumulation ─────────────────────
+				// Current luminance from center of shared memory tile
+				const lum = sharedLum.element( ly.add( 1 ).mul( TILE_W ).add( lx.add( 1 ) ) );
 
-	}
+				// Previous moments via textureLoad (per-pixel, not tiled)
+				const prevMoments = textureLoad( readTexNode, ivec2( gx, gy ) );
 
-	/**
-	 * Setup event listeners
-	 */
-	setupEventListeners() {
+				// ── Write output ──────────────────────────────
 
-		// Listen for parameter updates
-		this.on( 'variance:updateParameters', ( data ) => {
+				textureStore(
+					writeStorageTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					temporalAccumulate(
+						lum, prevMoments.x, prevMoments.y,
+						alpha, spatialVariance, varianceBoost
+					)
+				).toWriteOnly();
 
-			if ( data ) this.updateParameters( data );
+			} );
 
 		} );
 
-		// Listen for pipeline reset
-		this.on( 'pipeline:reset', () => {
-
-			this.reset();
-
-		} );
+		return computeFn().compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
-	/**
-	 * Update variance parameters
-	 */
-	updateParameters( params ) {
-
-		Object.assign( this.params, params );
-
-		// Update shader uniforms
-		const uniforms = this.varianceMaterial.uniforms;
-		uniforms.varianceBoost.value = this.params.varianceBoost;
-		uniforms.useTemporalAccumulation.value = this.params.useTemporalAccumulation;
-		uniforms.temporalAlpha.value = this.params.temporalAlpha;
-		uniforms.spatialKernelRadius.value = this.params.spatialKernelRadius;
-		uniforms.fireflyThreshold.value = this.params.fireflyThreshold;
-
-	}
-
-	/**
-	 * Configure input/output texture names
-	 */
-	setTextureNames( config ) {
-
-		if ( config.input ) this.inputTextureName = config.input;
-		if ( config.historyLength ) this.historyLengthTextureName = config.historyLength;
-		if ( config.output ) this.outputTextureName = config.output;
-
-	}
-
-	/**
-	 * Reset temporal history
-	 */
-	reset() {
-
-		this.frameCount = 0;
-		this.isFirstFrame = true;
-
-		// Clear render targets
-		if ( this.renderer ) {
-
-			const currentRT = this.renderer.getRenderTarget();
-
-			this.renderer.setRenderTarget( this.varianceTarget );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( this.prevMomentsTarget );
-			this.renderer.clear();
-
-			this.renderer.setRenderTarget( currentRT );
-
-		}
-
-	}
-
-	/**
-	 * Set render size
-	 */
-	setSize( width, height ) {
-
-		this.width = width;
-		this.height = height;
-
-		// Resize render targets
-		this.varianceTarget.setSize( width, height );
-		this.prevMomentsTarget.setSize( width, height );
-
-		// Update resolution uniform
-		this.varianceMaterial.uniforms.resolution.value.set( width, height );
-
-	}
-
-	/**
-	 * Main render method
-	 */
-	render( context, writeBuffer ) {
+	render( context ) {
 
 		if ( ! this.enabled ) return;
 
-		const renderer = this.renderer || context.renderer;
-		if ( ! renderer ) {
+		const colorTex = context.getTexture( this.inputTextureName );
+		if ( ! colorTex ) return;
 
-			this.warn( 'No renderer available' );
-			return;
+		// Auto-size
+		const img = colorTex.image;
+		if ( img && img.width > 0 && img.height > 0 ) {
+
+			if ( img.width !== this._storageTexA.image.width ||
+				img.height !== this._storageTexA.image.height ) {
+
+				this.setSize( img.width, img.height );
+
+			}
 
 		}
 
-		// Get input color texture from context
-		const colorTexture = context.getTexture( this.inputTextureName );
-		if ( ! colorTexture ) {
+		this._colorTexNode.value = colorTex;
 
-			// Input not ready, skip
-			return;
+		// Force-compile both compute nodes on first frame while _readTexNodeA/B
+		// still hold EmptyTexture. This ensures WGSLNodeBuilder.generateTextureLoad()
+		// sees isStorageTexture=false and emits the required level parameter.
+		// The throwaway dispatches initialise both StorageTextures to near-zero,
+		// which is correct for temporal moment accumulation on frame 0.
+		if ( ! this._compiled ) {
+
+			this.renderer.compute( this._computeNodeA );
+			this.renderer.compute( this._computeNodeB );
+			this._compiled = true;
 
 		}
 
-		// Optional: get external history length texture
-		const historyLengthTexture = this.historyLengthTextureName
-			? context.getTexture( this.historyLengthTextureName )
-			: null;
+		// Set read-side TextureNode values to actual StorageTextures.
+		// Shaders are already compiled — this only updates the uniform binding.
+		this._readTexNodeA.value = this._storageTexA;
+		this._readTexNodeB.value = this._storageTexB;
 
-		// Increment frame count
-		this.frameCount ++;
+		// Dispatch correct ping-pong direction
+		const computeNode = this.currentMoments === 0
+			? this._computeNodeA // write A, read B
+			: this._computeNodeB; // write B, read A
 
-		// Compute variance
-		this.computeVariance( renderer, colorTexture, historyLengthTexture );
+		this.renderer.compute( computeNode );
 
-		// Publish output to context
-		context.setTexture( this.outputTextureName, this.varianceTarget.texture );
+		// The write target this frame
+		const writeTarget = this.currentMoments === 0
+			? this._storageTexA
+			: this._storageTexB;
 
-		// Also publish with legacy naming for backward compatibility
-		context.setTexture( 'variance:temporal', this.varianceTarget.texture );
-		context.setTexture( 'variance:spatial', this.varianceTarget.texture );
+		// Swap for next frame
+		this.currentMoments = 1 - this.currentMoments;
 
-		// Update first frame flag
-		this.isFirstFrame = false;
-
-	}
-
-	/**
-	 * Compute variance estimation
-	 */
-	computeVariance( renderer, colorTexture, historyLengthTexture ) {
-
-		const uniforms = this.varianceMaterial.uniforms;
-
-		// Set uniforms
-		uniforms.tColor.value = colorTexture;
-		uniforms.tPrevMoments.value = this.prevMomentsTarget.texture;
-		uniforms.tHistoryLength.value = historyLengthTexture;
-		uniforms.hasExternalHistory.value = historyLengthTexture !== null;
-		uniforms.isFirstFrame.value = this.isFirstFrame;
-		uniforms.frameCount.value = this.frameCount;
-
-		// Render variance
-		const currentRT = renderer.getRenderTarget();
-		renderer.setRenderTarget( this.varianceTarget );
-		this.varianceQuad.render( renderer );
-
-		// Store current moments for next frame
-		this.copyMaterial.uniforms.tDiffuse.value = this.varianceTarget.texture;
-		renderer.setRenderTarget( this.prevMomentsTarget );
-		this.copyQuad.render( renderer );
-
-		renderer.setRenderTarget( currentRT );
+		// Publish (StorageTexture works as regular Texture for downstream sampling)
+		context.setTexture( 'variance:output', writeTarget );
 
 	}
 
-	/**
-	 * Direct compute method for standalone use (not via pipeline)
-	 * Returns the variance texture directly
-	 */
-	compute( renderer, colorTexture, historyLengthTexture = null ) {
+	reset() {
 
-		this.frameCount ++;
-		this.computeVariance( renderer, colorTexture, historyLengthTexture );
-		this.isFirstFrame = false;
-		return this.varianceTarget.texture;
+		this.currentMoments = 0;
 
 	}
 
-	/**
-	 * Get variance texture directly
-	 */
-	getVarianceTexture() {
+	setSize( width, height ) {
 
-		return this.varianceTarget.texture;
+		this._storageTexA.setSize( width, height );
+		this._storageTexB.setSize( width, height );
+		this.resW.value = width;
+		this.resH.value = height;
 
-	}
-
-	/**
-	 * Get temporal variance value at a specific UV coordinate
-	 * Note: This requires reading back from GPU - use sparingly
-	 */
-	getTemporalVariance() {
-
-		return {
-			texture: this.varianceTarget.texture,
-			// R = mean, G = secondMoment, B = temporal variance, A = spatial variance
-			temporalChannel: 'b',
-			spatialChannel: 'a'
-		};
+		// Update dispatch dimensions
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+		this._computeNodeA.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._computeNodeB.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
-	/**
-	 * Check if a pixel is likely a firefly based on variance
-	 * This is a utility for downstream stages
-	 */
-	getFireflyThreshold() {
-
-		return this.params.fireflyThreshold;
-
-	}
-
-	/**
-	 * Dispose resources
-	 */
 	dispose() {
 
-		// Dispose render targets
-		this.varianceTarget.dispose();
-		this.prevMomentsTarget.dispose();
-
-		// Dispose materials
-		this.varianceMaterial.dispose();
-		this.copyMaterial.dispose();
-
-		// Dispose quads
-		this.varianceQuad.dispose();
-		this.copyQuad.dispose();
+		this._computeNodeA?.dispose();
+		this._computeNodeB?.dispose();
+		this._storageTexA?.dispose();
+		this._storageTexB?.dispose();
 
 	}
 

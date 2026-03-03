@@ -130,8 +130,7 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		// WebGPU scene only contains lights — mesh objects live in the WebGL app's scene
-		const scene = app.existingApp?.scene || app.scene;
+		const scene = app.meshScene || app.scene;
 		const object = scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
@@ -183,8 +182,7 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		// WebGPU scene only contains lights — mesh objects live in the WebGL app's scene
-		const scene = app.existingApp?.scene || app.scene;
+		const scene = app.meshScene || app.scene;
 		const object = scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
@@ -347,115 +345,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	currentAutoExposure: null,
 	currentAvgLuminance: null,
 
-	// Backend selection (webgl or webgpu)
-	// Default to 'webgpu' - will fallback to 'webgl' if not supported
+	// Backend (always webgpu)
 	backend: 'webgpu',
-	isWebGPUSupported: false,
-	isBackendSwitching: false,
-
-	setBackend: val => set( { backend: val } ),
-	setIsWebGPUSupported: val => set( { isWebGPUSupported: val } ),
-	setIsBackendSwitching: val => set( { isBackendSwitching: val } ),
-
-	// Handler for backend switching with app integration
-	handleBackendChange: async ( newBackend ) => {
-
-		const { backend, setBackend, setIsBackendSwitching } = get();
-		if ( newBackend === backend ) return;
-
-		setIsBackendSwitching( true );
-
-		try {
-
-			const { getBackendManager } = await import( '@/core/BackendManager.js' );
-			const manager = getBackendManager();
-			const success = await manager.setBackend( newBackend );
-
-			if ( success ) {
-
-				setBackend( newBackend );
-
-				// Re-apply all current store values to the new backend
-				// This ensures the new backend matches the UI state exactly
-				const state = get();
-				const app = manager.getActiveApp();
-				if ( app ) {
-
-					const storeToSetterMap = {
-						bounces: 'setMaxBounces',
-						samplesPerPixel: 'setSamplesPerPixel',
-						maxSamples: 'setMaxSamples',
-						transmissiveBounces: 'setTransmissiveBounces',
-						environmentIntensity: 'setEnvironmentIntensity',
-						backgroundIntensity: 'setBackgroundIntensity',
-						showBackground: 'setShowBackground',
-						enableEnvironment: 'setEnableEnvironment',
-						GIIntensity: 'setGlobalIlluminationIntensity',
-						exposure: 'setExposure',
-						enableDOF: 'setEnableDOF',
-						focusDistance: 'setFocusDistance',
-						focalLength: 'setFocalLength',
-						aperture: 'setAperture',
-						samplingTechnique: 'setSamplingTechnique',
-						adaptiveSampling: 'setUseAdaptiveSampling',
-						adaptiveSamplingMax: 'setAdaptiveSamplingMax',
-						fireflyThreshold: 'setFireflyThreshold',
-						enableEmissiveTriangleSampling: 'setEnableEmissiveTriangleSampling',
-						emissiveBoost: 'setEmissiveBoost',
-						debugMode: 'setVisMode',
-						debugThreshold: 'setDebugVisScale',
-					};
-
-					for ( const [ storeKey, setter ] of Object.entries( storeToSetterMap ) ) {
-
-						if ( state[ storeKey ] !== undefined && typeof app[ setter ] === 'function' ) {
-
-							app[ setter ]( state[ storeKey ] );
-
-						}
-
-					}
-
-					app.reset();
-
-				}
-
-				console.log( `Switched to ${newBackend} backend` );
-
-			} else {
-
-				console.warn( `Backend switch to ${newBackend} failed, staying on ${backend}` );
-
-			}
-
-		} catch ( error ) {
-
-			console.error( 'Failed to switch backend:', error );
-			// Fallback: ensure we're still on a working backend
-			const { getBackendManager } = await import( '@/core/BackendManager.js' );
-			const manager = getBackendManager();
-			if ( manager.getBackend() !== backend ) {
-
-				// Manager switched but store didn't update — try reverting
-				try {
-
-					await manager.setBackend( backend );
-
-				} catch ( revertError ) {
-
-					console.error( 'Failed to revert backend:', revertError );
-
-				}
-
-			}
-
-		} finally {
-
-			setIsBackendSwitching( false );
-
-		}
-
-	},
 
 	// Simple setters
 	setMaxSamples: val => set( { maxSamples: val } ),
@@ -487,10 +378,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setRenderTimeLimit: val => set( { renderTimeLimit: val } ),
 	setDebugMode: val => set( { debugMode: val } ),
 	setDebugThreshold: val => set( { debugThreshold: val } ),
-	setEnableBloom: val => set( { enableBloom: val } ),
-	setBloomThreshold: val => set( { bloomThreshold: val } ),
-	setBloomStrength: val => set( { bloomStrength: val } ),
-	setBloomRadius: val => set( { bloomRadius: val } ),
 	setOidnQuality: val => set( { oidnQuality: val } ),
 	setOidnHdr: val => set( { oidnHdr: val } ),
 	setExposure: val => set( { exposure: val } ),
@@ -1066,42 +953,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				'12': 12, '13': 13, '14': 14, '15': 15,
 			}[ val ] || 0;
 			app.setVisMode( mode );
-
-		}
-	),
-
-	handleEnableBloomChange: handleChange(
-		val => set( { enableBloom: val } ),
-		( val, app ) => {
-
-			if ( app.bloomPass ) app.bloomPass.enabled = val;
-
-		}
-	),
-
-	handleBloomThresholdChange: handleChange(
-		val => set( { bloomThreshold: val } ),
-		( val, app ) => {
-
-			if ( app.bloomPass ) app.bloomPass.threshold = val[ 0 ];
-
-		}
-	),
-
-	handleBloomStrengthChange: handleChange(
-		val => set( { bloomStrength: val } ),
-		( val, app ) => {
-
-			if ( app.bloomPass ) app.bloomPass.strength = val[ 0 ];
-
-		}
-	),
-
-	handleBloomRadiusChange: handleChange(
-		val => set( { bloomRadius: val } ),
-		( val, app ) => {
-
-			if ( app.bloomPass ) app.bloomPass.radius = val[ 0 ];
 
 		}
 	),
