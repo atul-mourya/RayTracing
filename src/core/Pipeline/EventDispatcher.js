@@ -1,17 +1,18 @@
-import { EventDispatcher } from 'three';
+import { EventDispatcher as ThreeEventDispatcher } from 'three';
 
 /**
- * EventEmitter - Enhanced event bus extending Three.js EventDispatcher
+ * EventDispatcher - Extended Three.js EventDispatcher with convenience methods
  *
- * Provides convenient pub/sub pattern for loose coupling between pipeline stages.
- * Extends Three.js EventDispatcher with modern convenience methods (on, off, emit).
+ * Adds modern pub/sub API (on, off, emit, once) and utilities
+ * (removeAllListeners, listenerCount, clear, eventNames) on top of
+ * Three.js's built-in EventDispatcher.
  *
  * @example
- * const eventBus = new EventEmitter();
+ * const eventBus = new EventDispatcher();
  * eventBus.on('camera:moved', (data) => console.log('Camera moved:', data));
  * eventBus.emit('camera:moved', { position: [0, 0, 5] });
  */
-export class EventEmitter extends EventDispatcher {
+export class EventDispatcher extends ThreeEventDispatcher {
 
 	constructor() {
 
@@ -53,6 +54,7 @@ export class EventEmitter extends EventDispatcher {
 
 	/**
 	 * Unregister a listener (convenience wrapper for removeEventListener)
+	 * Handles listeners registered via once() transparently
 	 * @param {string} type - Event type
 	 * @param {Function} listener - Callback function to remove
 	 */
@@ -96,10 +98,8 @@ export class EventEmitter extends EventDispatcher {
 	}
 
 	/**
-	 * Remove all listeners for a specific event type
-	 * Note: Three.js EventDispatcher doesn't provide removeAllListeners,
-	 * so we clear our internal tracking and rely on disposal for cleanup
-	 * @param {string} type - Event type (optional)
+	 * Remove all listeners for a specific event type, or all listeners globally
+	 * @param {string} [type] - Event type (omit to clear all)
 	 */
 	removeAllListeners( type ) {
 
@@ -117,8 +117,7 @@ export class EventEmitter extends EventDispatcher {
 
 			}
 
-			// Note: Three.js EventDispatcher stores listeners in ._listeners[type]
-			// We can access it directly to clear all
+			// Clear all regular listeners for this type
 			if ( this._listeners && this._listeners[ type ] ) {
 
 				delete this._listeners[ type ];
