@@ -190,7 +190,7 @@ export const DEFAULT_STATE = {
 
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
-	oidnHDR: false,
+	oidnHdr: true,
 	useGBuffer: true,
 	debugGbufferMaps: false,
 

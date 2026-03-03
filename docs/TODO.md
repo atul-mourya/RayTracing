@@ -29,10 +29,9 @@
 ## ✨ Immediate Features to Implement
 
 ### Advanced Rendering
-- add new catergoy of enviroment maps - abstract. Identify the files and organize it
+- [ ] add new catergoy of enviroment maps - abstract. Identify the files and organize it
 - [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
 - [ ] Implement Variance-based Firefly Suppression
-- [ ] OIDN HDR denoising Support
 - [ ] Transparent background support
 - [ ] Subsurface scattering implementation
 - [ ] Volumetric rendering

@@ -307,13 +307,13 @@ const useEnvironmentStore = create( set => ( {
 
 const FINAL_RENDER_STATE = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
-	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHDR: false, useGBuffer: true,
+	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: false,
 };
 
 const PREVIEW_STATE = {
 	bounces: 3, samplesPerPixel: 1, renderMode: 0, transmissiveBounces: 3, tiles: 3, tilesHelper: false, resolution: 1,
-	enableOIDN: false, oidnQuality: 'fast', oidnHDR: false, useGBuffer: true,
+	enableOIDN: false, oidnQuality: 'fast', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: true,
 };
 
@@ -1517,7 +1517,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				app.denoiser.abort();
 				app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
 				app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
-				app.denoiser.toggleHDR( PREVIEW_STATE.oidnHDR );
+				app.denoiser.toggleHDR( PREVIEW_STATE.oidnHdr );
 				app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
 
 			}
@@ -1572,7 +1572,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				app.denoiser.abort();
 				app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
 				app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
-				app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
+				app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHdr );
 				app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
 
 			}

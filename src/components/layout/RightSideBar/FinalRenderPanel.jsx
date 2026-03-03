@@ -95,12 +95,12 @@ const FinalRenderPanel = () => {
 						<SelectContent>
 							<SelectItem value="fast">Fast</SelectItem>
 							<SelectItem value="balance">Balance</SelectItem>
-							<SelectItem disabled value="high">High</SelectItem>
+							<SelectItem value="high">High</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
 				<div className="flex items-center justify-between py-2 px-2">
-					<Switch label={"HDR"} disabled checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
+					<Switch label={"HDR"} checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
 				</div>
 				<div className="flex items-center justify-between py-2 px-2">
 					<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
