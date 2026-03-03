@@ -1,19 +1,10 @@
-import {
-	WebGLRenderTarget,
-	ShaderMaterial,
-	LinearFilter,
-	RGBAFormat,
-	FloatType
-} from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-
 /**
- * RenderTargetHelper - A component for displaying Three.js render targets or textures in a resizable window
+ * RenderTargetHelper - A component for displaying Three.js render targets in a resizable window
  *
- * Supports both WebGL (sync readback) and WebGPU (async readback) renderers.
+ * Uses async readback for pixel data.
  *
- * @param {THREE.WebGLRenderer|THREE.WebGPURenderer} renderer - The renderer instance
- * @param {THREE.WebGLRenderTarget|THREE.RenderTarget|THREE.Texture} renderTargetOrTexture - The render target or texture to display
+ * @param {THREE.WebGPURenderer} renderer - The renderer instance
+ * @param {THREE.RenderTarget} renderTargetOrTexture - The render target to display
  * @param {Object} options - Optional configuration
  * @param {number} options.width - Initial width of the view (default: 200)
  * @param {number} options.height - Initial height of the view (default: 200)
@@ -28,90 +19,18 @@ import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
  */
 function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
-	// Renderer type detection
-	const isWebGPU = ! renderer.isWebGLRenderer;
-
-	// MRT texture index for readback (WebGPU async path)
+	// MRT texture index for readback
 	const textureIndex = options.textureIndex || 0;
 
 	// Detect if input is a Texture or RenderTarget
 	const isTexture = renderTargetOrTexture.isTexture === true;
 
 	let renderTarget;
-	let internalRenderTarget = null;
-	let textureQuad = null;
-	let textureMaterial = null;
 
 	if ( isTexture ) {
 
-		if ( isWebGPU ) {
-
-			// WebGPU texture-as-input: not yet supported — pass a RenderTarget instead
-			console.warn( 'RenderTargetHelper: Direct Texture input is not supported with WebGPU. Pass a RenderTarget instead.' );
-			renderTarget = null;
-
-		} else {
-
-			// Create internal render target for texture rendering (WebGL)
-			const texture = renderTargetOrTexture;
-			internalRenderTarget = new WebGLRenderTarget(
-				texture.image?.width || 256,
-				texture.image?.height || 256,
-				{
-					minFilter: LinearFilter,
-					magFilter: LinearFilter,
-					format: RGBAFormat,
-					type: FloatType,
-					depthBuffer: false
-				}
-			);
-
-			// Create shader material based on transform option
-			let fragmentShader;
-			if ( options.transform === 'normal-remap' ) {
-
-				// Remap normals from [0,1] to visible range for display
-				fragmentShader = /* glsl */`
-				uniform sampler2D tTexture;
-				varying vec2 vUv;
-				void main() {
-					vec3 value = texture2D(tTexture, vUv).xyz;
-					gl_FragColor = vec4(value * 0.5 + 0.5, 1.0);
-				}
-			`;
-
-			} else {
-
-				// Simple passthrough
-				fragmentShader = /* glsl */`
-				uniform sampler2D tTexture;
-				varying vec2 vUv;
-				void main() {
-					vec4 value = texture2D(tTexture, vUv);
-					gl_FragColor = vec4(value.rgb, 1.0);
-				}
-			`;
-
-			}
-
-			textureMaterial = new ShaderMaterial( {
-				uniforms: {
-					tTexture: { value: texture }
-				},
-				vertexShader: /* glsl */`
-				varying vec2 vUv;
-				void main() {
-					vUv = uv;
-					gl_Position = vec4(position, 1.0);
-				}
-			`,
-				fragmentShader
-			} );
-
-			textureQuad = new FullScreenQuad( textureMaterial );
-			renderTarget = internalRenderTarget;
-
-		}
+		console.warn( 'RenderTargetHelper: Direct Texture input is not supported. Pass a RenderTarget instead.' );
+		renderTarget = null;
 
 	} else {
 
@@ -125,7 +44,7 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 		height: options.height || 200,
 		position: options.position || 'bottom-right',
 		flipX: options.flipX !== undefined ? options.flipX : false,
-		flipY: options.flipY !== undefined ? options.flipY : ! isWebGPU,
+		flipY: options.flipY !== undefined ? options.flipY : false,
 		autoUpdate: options.autoUpdate || false,
 		theme: options.theme || 'dark', // 'light' or 'dark' - changed default to dark to match the app's theme
 		title: options.title || renderTarget?.name || 'Render Target'
@@ -267,8 +186,7 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
 	const context = domCanvas.getContext( '2d' );
 
-	// Pixel data buffers
-	let pixels = new Float32Array( 4 * width * height );
+	// Pixel data buffer
 	let clampedPixels = new Uint8ClampedArray( 4 * width * height );
 
 	// Guard against concurrent async reads (WebGPU)
@@ -321,20 +239,8 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 		if ( ! renderTarget ) return;
 
 		// Get current dimensions from source
-		let currentWidth, currentHeight;
-		if ( isTexture && ! isWebGPU ) {
-
-			// For textures, get dimensions from the texture's image
-			const texture = renderTargetOrTexture;
-			currentWidth = texture.image?.width || renderTarget.width;
-			currentHeight = texture.image?.height || renderTarget.height;
-
-		} else {
-
-			currentWidth = renderTarget.width;
-			currentHeight = renderTarget.height;
-
-		}
+		const currentWidth = renderTarget.width;
+		const currentHeight = renderTarget.height;
 
 		// Check if dimensions have changed
 		if ( width !== currentWidth || height !== currentHeight ) {
@@ -346,15 +252,7 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 			domCanvas.width = width;
 			domCanvas.height = height;
 
-			// Resize internal render target if using texture
-			if ( internalRenderTarget ) {
-
-				internalRenderTarget.setSize( width, height );
-
-			}
-
-			// Recreate pixel buffers
-			pixels = new Float32Array( 4 * width * height );
+			// Recreate pixel buffer
 			clampedPixels = new Uint8ClampedArray( 4 * width * height );
 
 		}
@@ -429,45 +327,23 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
 		try {
 
-			if ( isWebGPU ) {
+			// Asynchronous pixel readback
+			if ( pendingRead ) return; // skip if previous read is still in flight
+			pendingRead = true;
 
-				// ── WebGPU path: asynchronous pixel readback ──
-				if ( pendingRead ) return; // skip if previous read is still in flight
-				pendingRead = true;
+			renderer.readRenderTargetPixelsAsync( renderTarget, 0, 0, width, height, textureIndex )
+				.then( ( buffer ) => {
 
-				renderer.readRenderTargetPixelsAsync( renderTarget, 0, 0, width, height, textureIndex )
-					.then( ( buffer ) => {
+					pendingRead = false;
+					drawPixelBuffer( buffer );
 
-						pendingRead = false;
-						drawPixelBuffer( buffer );
+				} )
+				.catch( ( err ) => {
 
-					} )
-					.catch( ( err ) => {
+					pendingRead = false;
+					console.error( 'RenderTargetHelper: readback error:', err );
 
-						pendingRead = false;
-						console.error( 'RenderTargetHelper: WebGPU readback error:', err );
-
-					} );
-
-			} else {
-
-				// ── WebGL path: synchronous pixel readback ──
-
-				// If using a texture, render it to the internal render target first
-				if ( isTexture && textureQuad && internalRenderTarget ) {
-
-					const currentRenderTarget = renderer.getRenderTarget();
-					renderer.setRenderTarget( internalRenderTarget );
-					textureQuad.render( renderer );
-					renderer.setRenderTarget( currentRenderTarget );
-
-				}
-
-				// Read pixels from render target
-				renderer.readRenderTargetPixels( renderTarget, 0, 0, width, height, pixels );
-				drawPixelBuffer( pixels );
-
-			}
+				} );
 
 		} catch ( error ) {
 
@@ -586,28 +462,6 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
 		}
 
-		// Dispose internal texture rendering resources
-		if ( internalRenderTarget ) {
-
-			internalRenderTarget.dispose();
-			internalRenderTarget = null;
-
-		}
-
-		if ( textureMaterial ) {
-
-			textureMaterial.dispose();
-			textureMaterial = null;
-
-		}
-
-		if ( textureQuad ) {
-
-			textureQuad.dispose();
-			textureQuad = null;
-
-		}
-
 		// Remove from DOM if attached
 		if ( container.parentNode ) {
 
@@ -616,7 +470,6 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 		}
 
 		// Clear references
-		pixels = null;
 		clampedPixels = null;
 
 	};

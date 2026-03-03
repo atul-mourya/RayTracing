@@ -33,9 +33,6 @@ export function getApp() {
 
 	if ( _app?.isInitialized ) return _app;
 
-	// Fallback during early init
-	if ( window.pathTracerApp?.isInitialized ) return window.pathTracerApp;
-
 	return null;
 
 }

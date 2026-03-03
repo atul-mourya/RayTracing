@@ -174,8 +174,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 				const app = new PathTracerApp( canvasRef.current, denoiserCanvasRef.current );
 				appRef.current = app;
-				window.pathTracerApp = app;
-
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
 				await app.init();
 

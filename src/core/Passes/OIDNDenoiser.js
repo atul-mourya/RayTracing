@@ -49,7 +49,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.input = renderer.domElement;
 		this.output = output;
-		this.getMRTTexture = options.getMRTTexture || null;
 		this.extractGBufferData = options.extractGBufferData || null;
 		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
 
@@ -345,171 +344,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	/**
-	 * Extract albedo and normal data from MRT normalDepth texture
-	 * @returns {ImageData|null}
-	 */
-	_extractAlbedoNormalFromMRT() {
-
-		if ( ! this.getMRTTexture ) return null;
-
-		const data = this.getMRTTexture();
-		if ( ! data?.renderTarget ) return null;
-
-		const { width, height } = this.output;
-		const pixelCount = width * height;
-		const buffer = new Float32Array( pixelCount * 4 );
-		const gl = this.renderer.getContext();
-
-		// Pre-allocate ImageData objects
-		const albedoData = new ImageData( width, height );
-		const normalData = new ImageData( width, height );
-
-		// Read albedo from MRT attachment 2
-		this.renderer.setRenderTarget( data.renderTarget );
-		gl.readBuffer( gl.COLOR_ATTACHMENT2 );
-		gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer );
-
-		// Process albedo data with Y-flip (readPixels reads from bottom-left, ImageData expects top-left)
-		const albedoArray = albedoData.data;
-		for ( let y = 0; y < height; y ++ ) {
-
-			const flippedY = height - 1 - y;
-			const srcRowStart = flippedY * width * 4;
-			const dstRowStart = y * width * 4;
-
-			for ( let x = 0; x < width; x ++ ) {
-
-				const srcIdx = srcRowStart + x * 4;
-				const dstIdx = dstRowStart + x * 4;
-
-				albedoArray[ dstIdx ] = Math.min( buffer[ srcIdx ] * 255, 255 ) | 0;
-				albedoArray[ dstIdx + 1 ] = Math.min( buffer[ srcIdx + 1 ] * 255, 255 ) | 0;
-				albedoArray[ dstIdx + 2 ] = Math.min( buffer[ srcIdx + 2 ] * 255, 255 ) | 0;
-				albedoArray[ dstIdx + 3 ] = 255;
-
-			}
-
-		}
-
-		// Read normals from MRT attachment 1
-		gl.readBuffer( gl.COLOR_ATTACHMENT1 );
-		gl.readPixels( 0, 0, width, height, gl.RGBA, gl.FLOAT, buffer );
-		this.renderer.setRenderTarget( null );
-
-		// Process normal data with Y-flip (decode from [0,1] to [-1,1] then remap to [0,255])
-		const normalArray = normalData.data;
-		for ( let y = 0; y < height; y ++ ) {
-
-			const flippedY = height - 1 - y;
-			const srcRowStart = flippedY * width * 4;
-			const dstRowStart = y * width * 4;
-
-			for ( let x = 0; x < width; x ++ ) {
-
-				const srcIdx = srcRowStart + x * 4;
-				const dstIdx = dstRowStart + x * 4;
-
-				normalArray[ dstIdx ] = ( buffer[ srcIdx ] * 255 - 127.5 ) | 0;
-				normalArray[ dstIdx + 1 ] = ( buffer[ srcIdx + 1 ] * 255 - 127.5 ) | 0;
-				normalArray[ dstIdx + 2 ] = ( buffer[ srcIdx + 2 ] * 255 - 127.5 ) | 0;
-				normalArray[ dstIdx + 3 ] = 255;
-
-			}
-
-		}
-
-		return { albedo: albedoData, normal: normalData };
-
-	}
-
 	async _executeUNet() {
 
-		if ( this.isGPUMode ) return this._executeUNetGPU();
-
-		const { width, height } = this.output;
-
-		// Clear and draw current renderer output
-		this.ctx.clearRect( 0, 0, width, height );
-		this.ctx.drawImage( this.input, 0, 0, width, height );
-
-		// Get image data for denoising
-		const imageData = this.ctx.getImageData( 0, 0, width, height );
-
-		// Prepare denoising configuration
-		const config = {
-			color: imageData,
-			tileSize: this.tileSize,
-			denoiseAlpha: true
-		};
-
-		// Add G-buffer data if enabled
-		if ( this.useGBuffer ) {
-
-			// Use pluggable extraction callback if provided (e.g. WebGPU),
-			// otherwise fall back to the built-in WebGL MRT readback.
-			if ( this.extractGBufferData ) {
-
-				const gbufferResult = await this.extractGBufferData( width, height );
-				if ( gbufferResult?.albedo && gbufferResult?.normal ) {
-
-					config.albedo = gbufferResult.albedo;
-					config.normal = gbufferResult.normal;
-
-				} else {
-
-					console.warn( 'OIDNDenoiser: G-buffer extraction returned incomplete data, denoising without G-buffer' );
-
-				}
-
-				// Debug visualization for WebGPU path (uses MRT render target directly)
-				if ( this.debugGbufferMaps && this.getMRTRenderTarget ) {
-
-					const mrtRT = this.getMRTRenderTarget();
-					if ( mrtRT ) {
-
-						this._updateDebugVisualization( mrtRT );
-						this.debugHelpers?.albedo?.show();
-						this.debugHelpers?.normal?.show();
-
-					}
-
-				} else if ( this.debugHelpers ) {
-
-					this.debugHelpers.albedo?.hide();
-					this.debugHelpers.normal?.hide();
-
-				}
-
-			} else {
-
-				const mrtData = this.getMRTTexture();
-
-				// Extract ImageData for OIDN denoiser
-				const { albedo, normal } = this._extractAlbedoNormalFromMRT();
-				config.albedo = albedo;
-				config.normal = normal;
-
-				// Update debug visualization if enabled (uses MRT textures directly)
-				if ( this.debugGbufferMaps && mrtData?.renderTarget ) {
-
-					this._updateDebugVisualization( mrtData.renderTarget );
-					this.debugHelpers.albedo.show();
-					this.debugHelpers.normal.show();
-
-				} else if ( this.debugHelpers ) {
-
-					this.debugHelpers.albedo.hide();
-					this.debugHelpers.normal.hide();
-
-				}
-
-			}
-
-		}
-
-		// Execute denoising with abort support
-		return this._executeWithAbort( config );
+		return this._executeUNetGPU();
 
 	}
 
@@ -789,65 +626,6 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	_executeWithAbort( config ) {
-
-		return new Promise( ( resolve, reject ) => {
-
-			// Check for abort before starting
-			if ( this.state.abortController?.signal.aborted ) {
-
-				reject( new DOMException( 'Aborted', 'AbortError' ) );
-				return;
-
-			}
-
-			let abortDenoise = null;
-
-			// Set up abort handling
-			const abortHandler = () => {
-
-				if ( abortDenoise ) {
-
-					abortDenoise();
-					abortDenoise = null;
-
-				}
-
-				reject( new DOMException( 'Aborted', 'AbortError' ) );
-
-			};
-
-			this.state.abortController.signal.addEventListener( 'abort', abortHandler, { once: true } );
-
-			// Execute denoising
-			abortDenoise = this.unet.tileExecute( {
-				...config,
-				done: () => {
-
-					this.state.abortController.signal.removeEventListener( 'abort', abortHandler );
-					abortDenoise = null;
-					resolve();
-
-				},
-				progress: ( _outputData, tileData, tile ) => {
-
-					// Check for abort during progress
-					if ( this.state.abortController?.signal.aborted ) {
-
-						abortHandler();
-						return;
-
-					}
-
-					this.ctx.putImageData( tileData, tile.x, tile.y );
-
-				}
-			} );
-
-		} );
-
-	}
-
 	abort() {
 
 		if ( ! this.enabled || ! this.state.isDenoising ) return;
@@ -888,7 +666,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	/**
 	 * Update debug visualization using MRT textures directly
-	 * @param {WebGLRenderTarget} mrtRenderTarget - The MRT render target containing albedo and normal
+	 * @param {RenderTarget} mrtRenderTarget - The MRT render target containing albedo and normal
 	 */
 	_updateDebugVisualization( mrtRenderTarget ) {
 
@@ -897,8 +675,6 @@ export class OIDNDenoiser extends EventDispatcher {
 			return;
 
 		}
-
-		const isWebGPU = ! this.renderer.isWebGLRenderer;
 
 		// Check if textures have changed (render target was recreated)
 		const texturesChanged = this.debugHelpers &&
@@ -917,54 +693,27 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			}
 
-			if ( isWebGPU ) {
-
-				// WebGPU: pass full MRT render target with textureIndex for async readback
-				this.debugHelpers = {
-					albedo: RenderTargetHelper( this.renderer, mrtRenderTarget, {
-						width: 250,
-						height: 250,
-						position: 'bottom-right',
-						theme: 'dark',
-						title: 'OIDN Albedo',
-						autoUpdate: false,
-						textureIndex: 2
-					} ),
-					normal: RenderTargetHelper( this.renderer, mrtRenderTarget, {
-						width: 250,
-						height: 250,
-						position: 'bottom-left',
-						theme: 'dark',
-						title: 'OIDN Normal',
-						autoUpdate: false,
-						textureIndex: 1
-					} )
-				};
-
-			} else {
-
-				// WebGL: pass individual textures (rendered via internal ShaderMaterial)
-				this.debugHelpers = {
-					albedo: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 2 ], {
-						width: 250,
-						height: 250,
-						position: 'bottom-right',
-						theme: 'dark',
-						title: 'OIDN Albedo',
-						autoUpdate: false
-					} ),
-					normal: RenderTargetHelper( this.renderer, mrtRenderTarget.textures[ 1 ], {
-						width: 250,
-						height: 250,
-						position: 'bottom-left',
-						theme: 'dark',
-						title: 'OIDN Normal',
-						autoUpdate: false,
-						transform: 'normal-remap'
-					} )
-				};
-
-			}
+			// Pass full MRT render target with textureIndex for async readback
+			this.debugHelpers = {
+				albedo: RenderTargetHelper( this.renderer, mrtRenderTarget, {
+					width: 250,
+					height: 250,
+					position: 'bottom-right',
+					theme: 'dark',
+					title: 'OIDN Albedo',
+					autoUpdate: false,
+					textureIndex: 2
+				} ),
+				normal: RenderTargetHelper( this.renderer, mrtRenderTarget, {
+					width: 250,
+					height: 250,
+					position: 'bottom-left',
+					theme: 'dark',
+					title: 'OIDN Normal',
+					autoUpdate: false,
+					textureIndex: 1
+				} )
+			};
 
 			// Store references to track texture changes
 			this._lastAlbedoTexture = mrtRenderTarget.textures[ 2 ];

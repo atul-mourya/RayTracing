@@ -417,13 +417,6 @@ const Outliner = () => {
 
 		}
 
-		// Additional fallback
-		if ( ( ! scene || scene.children.length === 0 ) && window.pathTracerApp?.meshScene ) {
-
-			scene = window.pathTracerApp.meshScene;
-
-		}
-
 		if ( ! scene ) return [];
 
 		const sceneGraph = [ createLayerItem( scene ) ];
@@ -448,12 +441,10 @@ const Outliner = () => {
 
 		const handleSceneUpdate = () => updateLayers();
 		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
-		window.addEventListener( 'BackendSwitched', handleSceneUpdate );
 		updateLayers();
 		return () => {
 
 			window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
-			window.removeEventListener( 'BackendSwitched', handleSceneUpdate );
 
 		};
 

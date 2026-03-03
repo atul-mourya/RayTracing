@@ -185,7 +185,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		this._buildCompute();
 		this._buildHeatmapMaterial();
 
-		// Floating overlay for heatmap visualization (matches WebGL pattern)
+		// Floating overlay for heatmap visualization
 		this.helper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
 			width: 400,
 			height: 400,

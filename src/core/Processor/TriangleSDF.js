@@ -58,13 +58,11 @@ export default class TriangleSDF {
 		this.spheres = [];
 		this.bvhRoot = null;
 
-		// Raw data for storage buffer backends (WebGPU)
+		// Raw data for storage buffers
 		this.bvhData = null;
 		this.materialData = null;
 
 		// Initialize texture references
-		this.materialTexture = null;
-		this.triangleTexture = null;
 		this.albedoTextures = null;
 		this.normalTextures = null;
 		this.bumpTextures = null;
@@ -72,8 +70,6 @@ export default class TriangleSDF {
 		this.metalnessTextures = null;
 		this.emissiveTextures = null;
 		this.displacementTextures = null;
-		this.bvhTexture = null;
-		this.emissiveTriangleTexture = null;
 		this.emissiveTriangleData = null;
 		this.emissiveTriangleCount = 0;
 
@@ -386,88 +382,50 @@ export default class TriangleSDF {
 
 		try {
 
-			if ( this.config.skipGPUTextures ) {
+			// Raw Float32Arrays for storage buffers — triangleData already exists as this.triangleData
+			if ( this.materials?.length ) {
 
-				// WebGPU path: raw Float32Arrays for storage buffers, skip DataTexture wrapping
-				// triangleData already exists as this.triangleData — no texture needed
-				if ( this.materials?.length ) {
-
-					this.materialData = this.textureCreator.createMaterialRawData( this.materials );
-
-				}
-
-				if ( this.bvhRoot ) {
-
-					this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
-
-				}
-
-				// Material texture arrays are still needed as actual GPU textures
-				const mapTypesList = [
-					{ data: this.maps, prop: 'albedoTextures' },
-					{ data: this.normalMaps, prop: 'normalTextures' },
-					{ data: this.bumpMaps, prop: 'bumpTextures' },
-					{ data: this.roughnessMaps, prop: 'roughnessTextures' },
-					{ data: this.metalnessMaps, prop: 'metalnessTextures' },
-					{ data: this.emissiveMaps, prop: 'emissiveTextures' },
-					{ data: this.displacementMaps, prop: 'displacementTextures' },
-				];
-
-				const mapPromises = [];
-				for ( const { data, prop } of mapTypesList ) {
-
-					if ( data?.length > 0 ) {
-
-						mapPromises.push(
-							this.textureCreator.createTexturesToDataTexture( data )
-								.then( texture => { this[ prop ] = texture; } )
-						);
-
-					}
-
-				}
-
-				await Promise.all( mapPromises );
-
-			} else {
-
-				// WebGL path: full DataTexture creation for all data
-				const params = {
-					materials: this.materials,
-					triangles: this.triangleData,
-					maps: this.maps,
-					normalMaps: this.normalMaps,
-					bumpMaps: this.bumpMaps,
-					roughnessMaps: this.roughnessMaps,
-					metalnessMaps: this.metalnessMaps,
-					emissiveMaps: this.emissiveMaps,
-					displacementMaps: this.displacementMaps,
-					bvhRoot: this.bvhRoot
-				};
-
-				const textures = await this.textureCreator.createAllTextures( params );
-
-				this.materialTexture = textures.materialTexture;
-				this.triangleTexture = textures.triangleTexture;
-				this.albedoTextures = textures.albedoTexture;
-				this.normalTextures = textures.normalTexture;
-				this.bumpTextures = textures.bumpTexture;
-				this.roughnessTextures = textures.roughnessTexture;
-				this.metalnessTextures = textures.metalnessTexture;
-				this.emissiveTextures = textures.emissiveTexture;
-				this.displacementTextures = textures.displacementTexture;
-				this.bvhTexture = textures.bvhTexture;
+				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
 
 			}
 
+			if ( this.bvhRoot ) {
+
+				this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
+
+			}
+
+			// Material texture arrays are needed as actual GPU textures
+			const mapTypesList = [
+				{ data: this.maps, prop: 'albedoTextures' },
+				{ data: this.normalMaps, prop: 'normalTextures' },
+				{ data: this.bumpMaps, prop: 'bumpTextures' },
+				{ data: this.roughnessMaps, prop: 'roughnessTextures' },
+				{ data: this.metalnessMaps, prop: 'metalnessTextures' },
+				{ data: this.emissiveMaps, prop: 'emissiveTextures' },
+				{ data: this.displacementMaps, prop: 'displacementTextures' },
+			];
+
+			const mapPromises = [];
+			for ( const { data, prop } of mapTypesList ) {
+
+				if ( data?.length > 0 ) {
+
+					mapPromises.push(
+						this.textureCreator.createTexturesToDataTexture( data )
+							.then( texture => { this[ prop ] = texture; } )
+					);
+
+				}
+
+			}
+
+			await Promise.all( mapPromises );
+
 			const duration = performance.now() - startTime;
 			this._log( `Texture creation complete (${duration.toFixed( 2 )}ms)`, {
-				skipGPUTextures: this.config.skipGPUTextures,
 				materialData: !! this.materialData,
 				bvhData: !! this.bvhData,
-				materialTexture: !! this.materialTexture,
-				triangleTexture: !! this.triangleTexture,
-				bvhTexture: !! this.bvhTexture,
 			} );
 
 			// Extract emissive triangles for direct lighting
@@ -483,15 +441,7 @@ export default class TriangleSDF {
 			);
 
 			// Create emissive triangle data for GPU
-			if ( this.config.skipGPUTextures ) {
-
-				this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
-
-			} else {
-
-				this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
-
-			}
+			this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
 
 			const emissiveStats = this.emissiveTriangleBuilder.getStats();
 			this._log( `Emissive triangle extraction complete`, emissiveStats );
@@ -511,88 +461,6 @@ export default class TriangleSDF {
 			throw error;
 
 		}
-
-	}
-
-	/**
-	 * Promote existing raw Float32Arrays to DataTextures for WebGL rendering.
-	 * Called when switching from skipGPUTextures mode (WebGPU-default) to full
-	 * WebGL rendering. Creates DataTextures directly from raw data, avoiding
-	 * re-traversal of the BVH tree (which was destructively flattened by
-	 * createBVHRawData during the initial build).
-	 */
-	async promoteRawDataToTextures() {
-
-		this._log( 'Promoting raw data to DataTextures for WebGL' );
-
-		if ( this.triangleData ) {
-
-			this.triangleTexture = this.textureCreator.createTriangleDataTextureDirect( this.triangleData );
-
-		}
-
-		if ( this.bvhData ) {
-
-			this.bvhTexture = this.textureCreator.createBVHTextureFromRawData( this.bvhData );
-
-		}
-
-		if ( this.materialData && this.materials?.length ) {
-
-			this.materialTexture = this.textureCreator.createMaterialTextureFromRawData(
-				this.materialData, this.materials.length
-			);
-
-		}
-
-		if ( this.emissiveTriangleBuilder && this.emissiveTriangleCount > 0 ) {
-
-			this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
-
-		}
-
-		this.config.skipGPUTextures = false;
-
-		this._log( 'Raw data promotion complete', {
-			triangleTexture: !! this.triangleTexture,
-			bvhTexture: !! this.bvhTexture,
-			materialTexture: !! this.materialTexture,
-			emissiveTriangleTexture: !! this.emissiveTriangleTexture,
-		} );
-
-	}
-
-	/**
-	 * Dispose WebGL-only DataTextures and return to raw-data mode.
-	 * Reverse of promoteRawDataToTextures(). Keeps raw Float32Arrays and
-	 * material texture arrays (DataArrayTexture) intact since they are
-	 * shared with WebGPU via DataTransfer.
-	 */
-	demoteToRawData() {
-
-		const webglOnlyTextures = [
-			'materialTexture', 'triangleTexture', 'bvhTexture', 'emissiveTriangleTexture'
-		];
-
-		for ( const prop of webglOnlyTextures ) {
-
-			if ( this[ prop ] ) {
-
-				if ( typeof this[ prop ].dispose === 'function' ) {
-
-					this[ prop ].dispose();
-
-				}
-
-				this[ prop ] = null;
-
-			}
-
-		}
-
-		this.config.skipGPUTextures = true;
-
-		this._log( 'Demoted to raw data mode (DataTextures disposed)' );
 
 	}
 
@@ -660,9 +528,8 @@ export default class TriangleSDF {
 	_disposeTextures() {
 
 		const textureProps = [
-			'materialTexture', 'triangleTexture', 'albedoTextures',
-			'normalTextures', 'bumpTextures', 'roughnessTextures',
-			'metalnessTextures', 'emissiveTextures', 'displacementTextures', 'bvhTexture'
+			'albedoTextures', 'normalTextures', 'bumpTextures', 'roughnessTextures',
+			'metalnessTextures', 'emissiveTextures', 'displacementTextures'
 		];
 
 		// Dispose each texture if it exists
@@ -741,15 +608,10 @@ export default class TriangleSDF {
 			// Create only material and texture-related textures
 			const textures = await this.textureCreator.createMaterialTextures( params );
 
-			// Regenerate raw material data for storage buffer backends (WebGPU)
-			if ( this.config.skipGPUTextures ) {
+			// Regenerate raw material data for storage buffers
+			this.materialData = this.textureCreator.createMaterialRawData( this.materials );
 
-				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
-
-			}
-
-			// Update texture references (keep triangle and BVH textures unchanged)
-			this.materialTexture = textures.materialTexture;
+			// Update texture references (keep triangle and BVH data unchanged)
 			this.albedoTextures = textures.albedoTexture;
 			this.normalTextures = textures.normalTexture;
 			this.bumpTextures = textures.bumpTexture;
@@ -787,7 +649,7 @@ export default class TriangleSDF {
 	_disposeMaterialTextures() {
 
 		const materialTextureProps = [
-			'materialTexture', 'albedoTextures', 'normalTextures',
+			'albedoTextures', 'normalTextures',
 			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures',
 			'displacementTextures'
 		];
@@ -842,7 +704,7 @@ export default class TriangleSDF {
 			cameraCount: this.cameras.length,
 			processingComplete: this.processingStage === 'complete',
 			hasBVH: !! this.bvhRoot,
-			hasTextures: !! this.materialTexture && !! this.triangleTexture,
+			hasTextures: !! this.materialData && !! this.bvhData,
 			useFloat32Array: this.config.useFloat32Array,
 			triangleDataSize: this.triangleData ? ( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 ) + 'MB' : '0MB'
 		};

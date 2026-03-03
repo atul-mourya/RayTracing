@@ -1517,8 +1517,8 @@ export default class TextureCreator {
 
 	/**
 	 * Create a BVH DataTexture directly from a pre-flattened Float32Array.
-	 * Used when restoring WebGL textures from raw data (avoids re-traversing
-	 * the BVH tree which is destructively modified by createBVHRawData).
+	 * Avoids re-traversing the BVH tree which is destructively modified
+	 * by createBVHRawData.
 	 *
 	 * @param {Float32Array} bvhRawData - Pre-flattened BVH data (12 floats per node)
 	 * @returns {DataTexture} BVH DataTexture
@@ -1551,7 +1551,7 @@ export default class TextureCreator {
 
 	/**
 	 * Create a Material DataTexture directly from a pre-built Float32Array.
-	 * Used when restoring WebGL textures from raw data.
+	 * Creates a material DataTexture from pre-built raw data.
 	 *
 	 * @param {Float32Array} materialRawData - Pre-built material data
 	 * @param {number} materialCount - Number of materials

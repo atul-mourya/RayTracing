@@ -52,7 +52,7 @@ const DEFAULT_RT_OPTIONS = {
 /**
  * Path Tracing Stage for WebGPU.
  *
- * Exact port of WebGL PathTracerStage with full feature parity:
+ * Full-featured path tracing stage:
  * - BVH-accelerated ray traversal
  * - GGX/Diffuse BSDF sampling
  * - Environment lighting with importance sampling
@@ -101,7 +101,7 @@ export class PathTracingStage extends PipelineStage {
 		this.tileManager = new TileRenderingManager( width, height, DEFAULT_STATE.tiles );
 
 		// Scene building
-		this.sdfs = new TriangleSDF( { skipGPUTextures: true } );
+		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
 		this.equirectHdrInfo = new EquirectHdrInfo();
 

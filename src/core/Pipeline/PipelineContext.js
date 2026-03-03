@@ -28,7 +28,7 @@ export class PipelineContext {
 		this.textures = new Map();
 
 		// Named render target registry
-		// Format: Map<string, THREE.WebGLRenderTarget>
+		// Format: Map<string, THREE.RenderTarget>
 		this.renderTargets = new Map();
 
 		// Shared uniforms registry
@@ -147,7 +147,7 @@ export class PipelineContext {
 	/**
 	 * Register a render target with a name
 	 * @param {string} name - Render target identifier
-	 * @param {THREE.WebGLRenderTarget} target - Three.js render target
+	 * @param {THREE.RenderTarget} target - Three.js render target
 	 */
 	setRenderTarget( name, target ) {
 
@@ -158,7 +158,7 @@ export class PipelineContext {
 	/**
 	 * Retrieve a render target by name
 	 * @param {string} name - Render target identifier
-	 * @returns {THREE.WebGLRenderTarget|undefined} Render target or undefined
+	 * @returns {THREE.RenderTarget|undefined} Render target or undefined
 	 */
 	getRenderTarget( name ) {
 

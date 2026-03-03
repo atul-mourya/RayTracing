@@ -143,7 +143,7 @@ const useStore = create( set => ( {
 			if ( obj.isMesh && obj.material ) {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
-				const pt = app?.pathTracingPass;
+				const pt = app?.pathTracingStage;
 
 				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
 
@@ -195,7 +195,7 @@ const useStore = create( set => ( {
 			if ( obj.isMesh && obj.material ) {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
-				const pt = app?.pathTracingPass;
+				const pt = app?.pathTracingStage;
 
 				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
 
@@ -345,9 +345,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	currentAutoExposure: null,
 	currentAvgLuminance: null,
 
-	// Backend (always webgpu)
-	backend: 'webgpu',
-
 	// Simple setters
 	setMaxSamples: val => set( { maxSamples: val } ),
 	setEnablePathTracer: val => set( { enablePathTracer: val } ),
@@ -463,7 +460,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				} );
 
 				// Update ASVGF pass
-				app.asvgfPass?.updateParameters( preset );
+				app.asvgfStage?.updateParameters( preset );
 
 				// Force reset to see the change immediately
 				app.reset();
@@ -477,7 +474,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { asvgfDebugMode: val } ),
 		( val, app ) => {
 
-			app.asvgfPass?.updateParameters( {
+			app.asvgfStage?.updateParameters( {
 				debugMode: parseInt( val ),
 				enableDebug: parseInt( val ) > 0
 			} );
@@ -490,7 +487,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleConfigureASVGFForMode: ( mode ) => {
 
 		const app = getApp();
-		if ( ! app?.asvgfPass ) return;
+		if ( ! app?.asvgfStage ) return;
 
 		const configs = {
 			preview: {
@@ -512,15 +509,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const config = configs[ mode ];
 		if ( config ) {
 
-			app.asvgfPass.enabled = config.enabled;
+			app.asvgfStage.enabled = config.enabled;
 
 			// Also enable/disable the extracted stages
-			if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = config.enabled;
-			if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = config.enabled;
+			if ( app.varianceEstimationStage ) app.varianceEstimationStage.enabled = config.enabled;
+			if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = config.enabled;
 
 			if ( config.enabled ) {
 
-				app.asvgfPass.updateParameters( config );
+				app.asvgfStage.updateParameters( config );
 
 			}
 
@@ -558,7 +555,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		};
 
 		const settings = presets[ preset ];
-		if ( settings && app.adaptiveSamplingPass ) {
+		if ( settings && app.adaptiveSamplingStage ) {
 
 			// Update store state
 			Object.entries( settings ).forEach( ( [ key, value ] ) => {
@@ -573,7 +570,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			} );
 
 			// Update adaptive sampling pass parameters
-			app.pathTracingPass?.setAdaptiveSamplingParameters?.( settings );
+			app.pathTracingStage?.setAdaptiveSamplingParameters?.( settings );
 
 		}
 
@@ -650,10 +647,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			app.setUseAdaptiveSampling( val );
-			if ( app.adaptiveSamplingPass ) {
+			if ( app.adaptiveSamplingStage ) {
 
-				app.adaptiveSamplingPass.enabled = val;
-				app.adaptiveSamplingPass.toggleHelper( false );
+				app.adaptiveSamplingStage.enabled = val;
+				app.adaptiveSamplingStage.toggleHelper( false );
 
 			}
 
@@ -662,7 +659,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingMinChange: handleChange(
 		val => set( { adaptiveSamplingMin: val } ),
-		( val, app ) => app.pathTracingPass?.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
+		( val, app ) => app.pathTracingStage?.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
 	),
 
 	handleAdaptiveSamplingMaxChange: handleChange(
@@ -672,19 +669,19 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
 		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		( val, app ) => app.pathTracingPass?.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
+		( val, app ) => app.pathTracingStage?.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
 		val => set( { showAdaptiveSamplingHelper: val } ),
-		( val, app ) => app.adaptiveSamplingPass?.toggleHelper( val )
+		( val, app ) => app.adaptiveSamplingStage?.toggleHelper( val )
 	),
 
 	handleAdaptiveSamplingMaterialBiasChange: handleChange(
 		val => set( { adaptiveSamplingMaterialBias: val } ),
 		( val, app ) => {
 
-			app.pathTracingPass?.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
+			app.pathTracingStage?.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
 
 		}
 	),
@@ -693,7 +690,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingEdgeBias: val } ),
 		( val, app ) => {
 
-			app.pathTracingPass?.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
+			app.pathTracingStage?.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
 
 		}
 	),
@@ -702,7 +699,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingConvergenceSpeed: val } ),
 		( val, app ) => {
 
-			app.pathTracingPass?.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
+			app.pathTracingStage?.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
 
 		}
 	),
@@ -731,11 +728,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			const { tilesHelper } = get();
 			if ( parseInt( val ) === 1 && tilesHelper ) {
 
-				if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = true;
+				if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = true;
 
 			} else if ( parseInt( val ) !== 1 ) {
 
-				if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = false;
+				if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = false;
 
 			}
 
@@ -766,7 +763,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const { renderMode } = get();
-			if ( parseInt( renderMode ) === 1 && app.tileHighlightPass ) app.tileHighlightPass.enabled = val;
+			if ( parseInt( renderMode ) === 1 && app.tileHighlightStage ) app.tileHighlightStage.enabled = val;
 
 		},
 		false
@@ -808,10 +805,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			if ( ! app ) return;
 
 			// Disable all real-time denoisers first (OIDN remains independent)
-			if ( app.asvgfPass ) app.asvgfPass.enabled = false;
-			if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = false;
-			if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = false;
-			if ( app.edgeAwareFilterPass ) app.edgeAwareFilterPass.setFilteringEnabled( false );
+			if ( app.asvgfStage ) app.asvgfStage.enabled = false;
+			if ( app.varianceEstimationStage ) app.varianceEstimationStage.enabled = false;
+			if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = false;
+			if ( app.edgeAwareFilteringStage ) app.edgeAwareFilteringStage.setFilteringEnabled( false );
 
 			// Enable the selected real-time denoiser
 			switch ( val ) {
@@ -843,17 +840,17 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 					}
 
-					app.asvgfPass.enabled = true;
-					if ( app.varianceEstimationPass ) app.varianceEstimationPass.enabled = true;
-					if ( app.bilateralFilteringPass ) app.bilateralFilteringPass.enabled = true;
-					app.asvgfPass.setTemporalEnabled && app.asvgfPass.setTemporalEnabled( true );
+					app.asvgfStage.enabled = true;
+					if ( app.varianceEstimationStage ) app.varianceEstimationStage.enabled = true;
+					if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = true;
+					app.asvgfStage.setTemporalEnabled && app.asvgfStage.setTemporalEnabled( true );
 
 					// Apply current quality preset parameters
 					const store = get();
 					const preset = ASVGF_QUALITY_PRESETS[ store.asvgfQualityPreset ];
 					if ( preset ) {
 
-						app.asvgfPass.updateParameters( preset );
+						app.asvgfStage.updateParameters( preset );
 
 					}
 
@@ -863,7 +860,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				case 'edgeaware':
 				default:
-					app.edgeAwareFilterPass.setFilteringEnabled( true );
+					app.edgeAwareFilteringStage.setFilteringEnabled( true );
 					// Clear stale denoiser outputs so DisplayStage uses fresh textures
 					if ( app.pipeline?.context ) {
 
@@ -897,10 +894,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { pixelEdgeSharpness: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
-			if ( app?.edgeAwareFilterPass ) {
+			if ( app?.edgeAwareFilteringStage ) {
 
 				const value = Array.isArray( val ) ? val[ 0 ] : val;
-				app.edgeAwareFilterPass.updateUniforms( { pixelEdgeSharpness: value } );
+				app.edgeAwareFilteringStage.updateUniforms( { pixelEdgeSharpness: value } );
 
 			}
 
@@ -912,10 +909,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { edgeSharpenSpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
-			if ( app?.edgeAwareFilterPass ) {
+			if ( app?.edgeAwareFilteringStage ) {
 
 				const value = Array.isArray( val ) ? val[ 0 ] : val;
-				app.edgeAwareFilterPass.updateUniforms( { edgeSharpenSpeed: value } );
+				app.edgeAwareFilteringStage.updateUniforms( { edgeSharpenSpeed: value } );
 
 			}
 
@@ -927,10 +924,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { edgeThreshold: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
-			if ( app?.edgeAwareFilterPass ) {
+			if ( app?.edgeAwareFilteringStage ) {
 
 				const value = Array.isArray( val ) ? val[ 0 ] : val;
-				app.edgeAwareFilterPass.updateUniforms( { edgeThreshold: value } );
+				app.edgeAwareFilteringStage.updateUniforms( { edgeThreshold: value } );
 
 			}
 
@@ -972,9 +969,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { autoExposure: val } ),
 		( val, app ) => {
 
-			if ( app?.autoExposurePass ) {
+			if ( app?.autoExposureStage ) {
 
-				app.autoExposurePass.enabled = val;
+				app.autoExposureStage.enabled = val;
 
 				if ( val ) {
 
@@ -990,11 +987,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 					const manualExposure = get().exposure;
 					app.setExposure( manualExposure );
 
-					// WebGPU: auto-exposure wrote to renderer.toneMappingExposure,
-					// but WebGPU uses DisplayStage's TSL uniform for manual exposure.
+					// Auto-exposure wrote to renderer.toneMappingExposure,
+					// but DisplayStage uses its own TSL uniform for manual exposure.
 					// Reset renderer exposure so it doesn't stack with the manual curve.
-					// (WebGL's setExposure already handles toneMappingExposure, so only
-					// reset when DisplayStage exists — i.e. WebGPU backend.)
 					if ( app.displayStage && app.renderer ) {
 
 						app.renderer.toneMappingExposure = 1.0;
@@ -1015,7 +1010,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.autoExposurePass?.updateParameters( { keyValue: value } );
+			app.autoExposureStage?.updateParameters( { keyValue: value } );
 
 		},
 		true
@@ -1026,7 +1021,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.autoExposurePass?.updateParameters( { minExposure: value } );
+			app.autoExposureStage?.updateParameters( { minExposure: value } );
 
 		},
 		true
@@ -1037,7 +1032,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.autoExposurePass?.updateParameters( { maxExposure: value } );
+			app.autoExposureStage?.updateParameters( { maxExposure: value } );
 
 		},
 		true
@@ -1049,7 +1044,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
 			// Maintain ratio between bright and dark adaptation (6:1)
-			app.autoExposurePass?.updateParameters( {
+			app.autoExposureStage?.updateParameters( {
 				adaptSpeedBright: value,
 				adaptSpeedDark: value / 6.0
 			} );
@@ -1405,13 +1400,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAsvgfTemporalAlphaChange: handleChange(
 		val => set( { asvgfTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.asvgfPass?.updateParameters( { temporalAlpha: val[ 0 ] } ),
+		( val, app ) => app.asvgfStage?.updateParameters( { temporalAlpha: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfPhiColorChange: handleChange(
 		val => set( { asvgfPhiColor: val[ 0 ] } ),
-		( val, app ) => app.asvgfPass?.updateParameters( { phiColor: val[ 0 ] } ),
+		( val, app ) => app.asvgfStage?.updateParameters( { phiColor: val[ 0 ] } ),
 		false
 	),
 
@@ -1419,25 +1414,25 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { enableASVGF: val } ),
 		( val, app ) => {
 
-			if ( app.asvgfPass ) app.asvgfPass.enabled = val;
+			if ( app.asvgfStage ) app.asvgfStage.enabled = val;
 
 			// Enable/disable the extracted variance and bilateral filtering stages
-			if ( app.varianceEstimationPass ) {
+			if ( app.varianceEstimationStage ) {
 
-				app.varianceEstimationPass.enabled = val;
+				app.varianceEstimationStage.enabled = val;
 
 			}
 
-			if ( app.bilateralFilteringPass ) {
+			if ( app.bilateralFilteringStage ) {
 
-				app.bilateralFilteringPass.enabled = val;
+				app.bilateralFilteringStage.enabled = val;
 
 			}
 
 			if ( val ) {
 
 				// When enabling ASVGF, ensure temporal processing is enabled
-				app.asvgfPass.setTemporalEnabled && app.asvgfPass.setTemporalEnabled( true );
+				app.asvgfStage.setTemporalEnabled && app.asvgfStage.setTemporalEnabled( true );
 
 				// Apply current quality preset parameters
 				const store = get();
@@ -1445,14 +1440,14 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				if ( preset ) {
 
-					app.asvgfPass.updateParameters( preset );
+					app.asvgfStage.updateParameters( preset );
 
 				}
 
 			}
 
 			// Coordinate with EdgeAware filtering
-			if ( app.edgeAwareFilterPass ) app.edgeAwareFilterPass.setFilteringEnabled( ! val );
+			if ( app.edgeAwareFilteringStage ) app.edgeAwareFilteringStage.setFilteringEnabled( ! val );
 
 			// Reset when toggling
 			app.reset();
@@ -1464,9 +1459,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { showAsvgfHeatmap: val } ),
 		( val, app ) => {
 
-			if ( app?.asvgfPass ) {
+			if ( app?.asvgfStage ) {
 
-				app.asvgfPass.toggleHeatmap && app.asvgfPass.toggleHeatmap( val );
+				app.asvgfStage.toggleHeatmap && app.asvgfStage.toggleHeatmap( val );
 
 			}
 
@@ -1476,13 +1471,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAsvgfPhiLuminanceChange: handleChange(
 		val => set( { asvgfPhiLuminance: val } ),
-		( val, app ) => app.asvgfPass?.updateParameters( { phiLuminance: val[ 0 ] } ),
+		( val, app ) => app.asvgfStage?.updateParameters( { phiLuminance: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfAtrousIterationsChange: handleChange(
 		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
-		( val, app ) => app.asvgfPass?.updateParameters( { atrousIterations: val[ 0 ] } ),
+		( val, app ) => app.asvgfStage?.updateParameters( { atrousIterations: val[ 0 ] } ),
 		false
 	),
 
@@ -1511,10 +1506,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Use setTileCount to properly update completion threshold
 			app.setTileCount( PREVIEW_STATE.tiles );
-			if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = PREVIEW_STATE.tilesHelper;
+			if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = PREVIEW_STATE.tilesHelper;
 
 			// Ensure completion threshold is updated after render mode change
-			app.pathTracingPass?.updateCompletionThreshold?.();
+			app.pathTracingStage?.updateCompletionThreshold?.();
 
 			// Abort any ongoing denoising before switching modes
 			if ( app.denoiser ) {
@@ -1566,10 +1561,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Use setTileCount to properly update completion threshold
 			app.setTileCount( FINAL_RENDER_STATE.tiles );
-			if ( app.tileHighlightPass ) app.tileHighlightPass.enabled = FINAL_RENDER_STATE.tilesHelper;
+			if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = FINAL_RENDER_STATE.tilesHelper;
 
 			// Ensure completion threshold is updated after render mode change
-			app.pathTracingPass?.updateCompletionThreshold?.();
+			app.pathTracingStage?.updateCompletionThreshold?.();
 
 			// Abort any ongoing denoising before switching modes
 			if ( app.denoiser ) {
@@ -1691,14 +1686,9 @@ const useLightStore = create( set => ( {
 
 				}
 
-				// Backend-agnostic: WebGL has pathTracingPass, WebGPU has updateLights()
 				if ( app.updateLights ) {
 
 					app.updateLights();
-
-				} else if ( app.pathTracingPass?.updateLights ) {
-
-					app.pathTracingPass.updateLights();
 
 				}
 

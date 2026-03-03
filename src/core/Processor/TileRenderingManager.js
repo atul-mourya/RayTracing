@@ -75,7 +75,7 @@ export class TileRenderingManager {
 
 	/**
      * Set up scissor testing for tile rendering
-     * @param {WebGLRenderer|WebGPURenderer} renderer - The Three.js renderer
+     * @param {Object} renderer - The Three.js renderer
      * @param {Object} bounds - Scissor bounds {x, y, width, height}
      */
 	enableScissorForTile( renderer, bounds ) {
@@ -93,7 +93,7 @@ export class TileRenderingManager {
 		}
 
 		// Calculate scissor rectangle with bounds validation
-		// Note: WebGL scissor coordinates are from bottom-left, Three.js render targets are top-left
+		// Scissor coordinates are from bottom-left, render targets are top-left
 		// We need to flip the Y coordinate
 		const flippedY = this.height - bounds.y - bounds.height;
 
@@ -111,7 +111,7 @@ export class TileRenderingManager {
 
 		}
 
-		// Use Three.js renderer methods (works with both WebGL and WebGPU)
+		// Use Three.js renderer methods
 		renderer.setScissor( scissorX, scissorY, scissorWidth, scissorHeight );
 		renderer.setScissorTest( true );
 
@@ -122,7 +122,7 @@ export class TileRenderingManager {
 
 	/**
      * Disable scissor testing
-     * @param {WebGLRenderer|WebGPURenderer} renderer - The Three.js renderer
+     * @param {Object} renderer - The Three.js renderer
      */
 	disableScissor( renderer ) {
 
@@ -217,13 +217,13 @@ export class TileRenderingManager {
 
 	/**
      * Handle tile rendering logic for a given frame and render mode
-     * @param {WebGLRenderer} renderer - The Three.js renderer
+     * @param {Object} renderer - The Three.js renderer
      * @param {number} renderMode - Current render mode (0 = full, 1 = tiled)
      * @param {number} frameValue - Current frame number
-     * @param {TileHighlightPass} tileHighlightPass - Optional tile highlight pass
+     * @param {TileHighlightStage} tileHighlightStage - Optional tile highlight pass
      * @returns {Object} - Tile rendering info {tileIndex, tileBounds, shouldSwapTargets, isCompleteCycle}
      */
-	handleTileRendering( renderer, renderMode, frameValue, tileHighlightPass = null ) {
+	handleTileRendering( renderer, renderMode, frameValue, tileHighlightStage = null ) {
 
 		let shouldSwapTargets = true;
 		let currentTileIndex = - 1;
@@ -251,9 +251,9 @@ export class TileRenderingManager {
 				this.enableScissorForTile( renderer, tileBounds );
 
 				// Update tile highlight pass only when values change
-				if ( tileHighlightPass?.enabled ) {
+				if ( tileHighlightStage?.enabled ) {
 
-					this.updateTileHighlightPass( tileHighlightPass, currentTileIndex, renderMode, tileBounds );
+					this.updateTileHighlightStage( tileHighlightStage, currentTileIndex, renderMode, tileBounds );
 
 				}
 
@@ -274,9 +274,9 @@ export class TileRenderingManager {
 			isCompleteCycle = true;
 
 			// Update tile highlight pass for non-tiled mode only when needed
-			if ( tileHighlightPass?.enabled ) {
+			if ( tileHighlightStage?.enabled ) {
 
-				this.updateTileHighlightPass( tileHighlightPass, currentTileIndex, renderMode, null );
+				this.updateTileHighlightStage( tileHighlightStage, currentTileIndex, renderMode, null );
 
 			}
 
@@ -295,28 +295,28 @@ export class TileRenderingManager {
 
 	/**
      * Update tile highlight pass uniforms when needed
-     * @param {TileHighlightPass} tileHighlightPass - The tile highlight pass
+     * @param {TileHighlightStage} tileHighlightStage - The tile highlight pass
      * @param {number} tileIndex - Current tile index
      * @param {number} renderMode - Current render mode
      * @param {Object|null} tileBounds - Current tile bounds
      */
-	updateTileHighlightPass( tileHighlightPass, tileIndex, renderMode, tileBounds ) {
+	updateTileHighlightStage( tileHighlightStage, tileIndex, renderMode, tileBounds ) {
 
 		const needsUpdate = (
-			tileHighlightPass.uniforms.tileIndex.value !== tileIndex ||
-            tileHighlightPass.uniforms.renderMode.value !== renderMode ||
-            tileHighlightPass.uniforms.tiles.value !== this.tiles
+			tileHighlightStage.uniforms.tileIndex.value !== tileIndex ||
+            tileHighlightStage.uniforms.renderMode.value !== renderMode ||
+            tileHighlightStage.uniforms.tiles.value !== this.tiles
 		);
 
 		if ( needsUpdate ) {
 
-			tileHighlightPass.uniforms.tileIndex.value = tileIndex;
-			tileHighlightPass.uniforms.renderMode.value = renderMode;
-			tileHighlightPass.uniforms.tiles.value = this.tiles;
+			tileHighlightStage.uniforms.tileIndex.value = tileIndex;
+			tileHighlightStage.uniforms.renderMode.value = renderMode;
+			tileHighlightStage.uniforms.tiles.value = this.tiles;
 
-			if ( tileBounds && tileHighlightPass.setCurrentTileBounds ) {
+			if ( tileBounds && tileHighlightStage.setCurrentTileBounds ) {
 
-				tileHighlightPass.setCurrentTileBounds( tileBounds );
+				tileHighlightStage.setCurrentTileBounds( tileBounds );
 
 			}
 

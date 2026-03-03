@@ -161,14 +161,14 @@ export class CameraMovementOptimizer {
 		// Reset frame counter but preserve buffers for smooth transition
 		// Call reset(false) directly to avoid clearing render targets
 		const app = getApp();
-		if ( app && app.pathTracingPass ) {
+		if ( app && app.pathTracingStage ) {
 
 			// Soft reset - preserve render buffers to avoid black screen
-			app.pathTracingPass.reset( false );
+			app.pathTracingStage.reset( false );
 
 		} else if ( this.onResetCallback ) {
 
-			// Fallback: use the callback if we can't access PathTracerPass directly
+			// Fallback: use the callback if we can't access PathTracingStage directly
 			// This may cause a black frame but at least it works
 			this.onResetCallback();
 

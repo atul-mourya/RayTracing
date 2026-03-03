@@ -35,11 +35,7 @@ const TARGET_RESOLUTIONS = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
  * WebGPU Path Tracer Application.
  * Full path tracing implementation using WebGPU and TSL.
  *
- * Extends EventDispatcher for event-driven communication with stores/UI,
- * matching the same interface contract as the WebGL PathTracerApp.
- *
- * Can be initialized standalone or with a reference to an existing
- * PathTracerApp to share scene data.
+ * Extends EventDispatcher for event-driven communication with stores/UI.
  */
 export class PathTracerApp extends EventDispatcher {
 
@@ -62,23 +58,16 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Mesh scene — holds actual Three.js meshes for raycasting, outlining,
 		// and raster fallback. Separate from this.scene (which only holds lights
-		// for the WebGPU path tracer pipeline).
+		// for the path tracer pipeline).
 		this.meshScene = null;
 
-		// Asset pipeline — owned directly (no WebGL dependency)
+		// Asset pipeline
 		this.assetLoader = null;
 		this.sdf = null;
 		this.cameras = [];
 
 		// Stages
 		this.pathTracingStage = null;
-
-		// Alias so store code using `app.pathTracingPass` works
-		Object.defineProperty( this, 'pathTracingPass', {
-			get: () => this.pathTracingStage,
-			enumerable: true,
-			configurable: true
-		} );
 
 		// State
 		this.isInitialized = false;
@@ -96,7 +85,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Resolution settings
 		this.targetResolution = DEFAULT_STATE.resolution ?? 3;
 
-		// Settings - matching WebGL PathTracerStage uniforms
+		// Settings — PathTracingStage uniforms
 		this.maxBounces = DEFAULT_STATE.bounces ?? 4;
 		this.samplesPerPixel = DEFAULT_STATE.samplesPerPixel ?? 1;
 		this.maxSamples = DEFAULT_STATE.maxSamples ?? 2048;
@@ -174,7 +163,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		await this.renderer.init();
 
-		// Set tone mapping to match WebGL renderer
 		// Exposure is applied in the display shader via TSL uniform, so
 		// keep toneMappingExposure at 1.0 to avoid double-application.
 		this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -203,7 +191,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.controls.saveState();
 
 		// Create asset pipeline — AssetLoader manages the meshScene
-		this.sdf = new TriangleSDF( { skipGPUTextures: true } );
+		this.sdf = new TriangleSDF();
 		this.assetLoader = new AssetLoader( this.meshScene, this.camera, this.controls );
 		this.floorPlane = null;
 
@@ -229,7 +217,7 @@ export class PathTracerApp extends EventDispatcher {
 			adaptiveSamplingMax: this.adaptiveSamplingMax,
 			enabled: this.useAdaptiveSampling,
 		} );
-		this.edgeFilteringStage = new EdgeAwareFilteringStage( this.renderer, { enabled: false } );
+		this.edgeAwareFilteringStage = new EdgeAwareFilteringStage( this.renderer, { enabled: false } );
 		this.autoExposureStage = new AutoExposureStage( this.renderer, { enabled: false } );
 		this.tileHighlightStage = new TileHighlightStage( this.renderer, { enabled: false } );
 
@@ -245,7 +233,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Fixed-resolution outline: OutlineNode auto-sizes from renderer's
 		// drawing buffer each frame, but the renderer runs at path-tracer
 		// resolution. Override setSize so the outline always renders at the
-		// display's native DPR — matching WebGL's updateFixedPassResolution().
+		// display's native DPR regardless of path-tracer resolution.
 		const outlineCanvas = this.canvas;
 		const outlineSetSize = this.outlineNode.setSize.bind( this.outlineNode );
 		this.outlineNode.setSize = () => {
@@ -271,15 +259,7 @@ export class PathTracerApp extends EventDispatcher {
 			outlineColorNode
 		} );
 
-		// Expose stages with WebGL-compatible property names so store handlers work
-		this.asvgfPass = this.asvgfStage;
-		this.varianceEstimationPass = this.varianceEstimationStage;
-		this.bilateralFilteringPass = this.bilateralFilteringStage;
-		this.edgeAwareFilterPass = this.edgeFilteringStage;
-		this.autoExposurePass = this.autoExposureStage;
-		this.tileHighlightPass = this.tileHighlightStage;
-
-		// Pipeline orchestration (reuses WebGL's PassPipeline — it's renderer-agnostic)
+		// Pipeline orchestration — stage order matters: each reads textures published by prior stages.
 		// Stage order matters: each stage reads textures published by prior stages.
 		const { clientWidth: w, clientHeight: h } = this.canvas;
 		this.pipeline = new PassPipeline( this.renderer, w || 1, h || 1 );
@@ -290,13 +270,13 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.varianceEstimationStage );
 		this.pipeline.addStage( this.bilateralFilteringStage );
 		this.pipeline.addStage( this.adaptiveSamplingStage );
-		this.pipeline.addStage( this.edgeFilteringStage );
+		this.pipeline.addStage( this.edgeAwareFilteringStage );
 		this.pipeline.addStage( this.autoExposureStage );
 		this.pipeline.addStage( this.tileHighlightStage );
 		this.pipeline.addStage( this.displayStage );
 
 		// Set initial render dimensions so stage render targets aren't stuck at 1x1
-		// (canvas may be hidden initially in dual-canvas model, so guard against 0)
+		// (canvas may be hidden initially, so guard against 0)
 		const initRenderW = Math.round( width * ( targetRes / shortestDim ) ) || 1;
 		const initRenderH = Math.round( height * ( targetRes / shortestDim ) ) || 1;
 		this.pipeline.setSize( initRenderW, initRenderH );
@@ -307,7 +287,7 @@ export class PathTracerApp extends EventDispatcher {
 			camera: this.camera,
 			canvas: this.canvas,
 			assetLoader: this.assetLoader,
-			pathTracingPass: null,
+			pathTracingStage: null,
 			floorPlane: this.floorPlane
 		} );
 		this.setupInteractionListeners();
@@ -645,7 +625,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Build BVH acceleration structure from the mesh scene
 		await this.sdf.buildBVH( this.meshScene );
 
-		// Get raw data from SDF (skipGPUTextures mode produces Float32Arrays)
+		// Get raw data from SDF (Float32Arrays for storage buffers)
 		const triangleData = this.sdf.triangleData;
 		const triangleCount = this.sdf.triangleCount;
 		const bvhData = this.sdf.bvhData;
@@ -781,7 +761,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.needsReset = true;
 
-		// Notify UI of resolution change (matches WebGL behavior)
+		// Notify UI of resolution change
 		const renderWidth = Math.round( width * ( targetRes / shortestDim ) );
 		const renderHeight = Math.round( height * ( targetRes / shortestDim ) );
 
@@ -801,7 +781,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Update resolution using a calculated pixel ratio value.
-	 * Matches WebGL interface: updateResolution(pixelRatio, resolutionIndex)
+	 * Updates resolution using a pixel ratio and optional resolution index.
 	 * @param {number} value - The pixel ratio to set (used directly)
 	 * @param {number} [targetResolutionIndex] - Optional resolution index (0-4) to store for resize recalculation
 	 */
@@ -1142,7 +1122,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.exposure = exposure;
 
 		// Exposure is applied by DisplayStage via TSL uniform
-		// (pow(exposure, 4.0) curve matching WebGL). renderer.toneMappingExposure
+		// (pow(exposure, 4.0) curve). renderer.toneMappingExposure
 		// is kept at 1.0 to avoid doubling.
 		if ( this.displayStage ) {
 
@@ -1231,16 +1211,6 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.reset();
-
-	}
-
-	/**
-	 * Compatibility alias for store access.
-	 * The store calls `app.adaptiveSamplingPass?.toggleHelper(val)`.
-	 */
-	get adaptiveSamplingPass() {
-
-		return this.adaptiveSamplingStage;
 
 	}
 
@@ -1479,18 +1449,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Checks if this backend supports a given feature.
-	 * @param {string} featureName
-	 * @returns {boolean}
-	 */
-	supportsFeature() {
-
-		return true;
-
-	}
-
-	// ─── Missing Interface Methods (no-ops until WebGPU supports them) ──
+	// ─── Stub Methods (no-ops until implemented) ──
 
 	/**
 	 * Sets aperture scale.
@@ -1498,7 +1457,7 @@ export class PathTracerApp extends EventDispatcher {
 	setApertureScale( scale ) {
 
 		this.apertureScale = scale;
-		// WebGPU stage does not yet support aperture scale
+		// Aperture scale not yet implemented in path tracing stage
 		this.reset();
 
 	}
@@ -1700,7 +1659,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Returns camera names from the WebGL app's camera list.
+	 * Returns camera names from the app's camera list.
 	 * @returns {string[]}
 	 */
 	getCameraNames() {
@@ -1725,8 +1684,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Adds a light to the WebGPU scene and updates the path tracer.
-	 * Mirrors the WebGL PathTracerApp.addLight() API.
+	 * Adds a light to the scene and updates the path tracer.
 	 *
 	 * @param {string} type - Light type: 'DirectionalLight', 'PointLight', 'SpotLight', 'RectAreaLight'
 	 * @returns {Object|null} Light descriptor or null if type is invalid
@@ -2076,9 +2034,6 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Returns scene statistics from the path tracing stage, or null.
-	 * In shared-data mode, the WebGPU stage's sdfs is empty (data is
-	 * transferred via textures, not built locally), so fall back to the
-	 * existing WebGL app's statistics.
 	 * @returns {object|null}
 	 */
 	getSceneStatistics() {

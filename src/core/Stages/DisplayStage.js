@@ -23,7 +23,7 @@ export class DisplayStage extends PipelineStage {
 
 		this.renderer = renderer;
 
-		// Exposure uniform — pow(exposure, 4.0) curve matching WebGL
+		// Exposure uniform — pow(exposure, 4.0) curve
 		this.exposure = uniform( options.exposure ?? 1.0 );
 
 		// Updatable texture node — swap .value each frame, no shader recompile

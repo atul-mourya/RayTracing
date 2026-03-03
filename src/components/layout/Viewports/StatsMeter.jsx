@@ -103,9 +103,8 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		const handleSceneUpdate = () => updateSceneStats();
 
-		// Listen for scene rebuild and backend switch events
+		// Listen for scene rebuild events
 		window.addEventListener( 'SceneRebuild', handleSceneUpdate );
-		window.addEventListener( 'BackendSwitched', handleSceneUpdate );
 
 		// Initial update
 		updateSceneStats();
@@ -113,7 +112,6 @@ const StatsMeter = ( { viewportMode } ) => {
 		return () => {
 
 			window.removeEventListener( 'SceneRebuild', handleSceneUpdate );
-			window.removeEventListener( 'BackendSwitched', handleSceneUpdate );
 
 		};
 

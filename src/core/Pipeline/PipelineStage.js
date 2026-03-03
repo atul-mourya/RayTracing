@@ -201,7 +201,7 @@ export class PipelineStage {
 	 * Main render method - MUST be implemented in subclasses
 	 *
 	 * @param {PipelineContext} context - Shared context with textures, state, etc.
-	 * @param {THREE.WebGLRenderTarget} [writeBuffer] - Optional output buffer
+	 * @param {THREE.RenderTarget} [writeBuffer] - Optional output buffer
 	 * @throws {Error} If not implemented
 	 */
 	render( context, writeBuffer ) {

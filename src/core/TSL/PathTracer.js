@@ -250,8 +250,7 @@ const pathTracerImpl = Fn( ( [
 	const pixelCoord = screenCoordinate.xy.toVar();
 
 	// Screen position in NDC [-1, 1]
-	// Negate Y to match WebGL's bottom-up gl_FragCoord convention
-	// (WebGPU screenCoordinate.y is top-down)
+	// Negate Y because screenCoordinate.y is top-down but NDC expects bottom-up
 	const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();
 	screenPosition.y.assign( screenPosition.y.negate() );
 
