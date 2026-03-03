@@ -209,14 +209,6 @@ export const getSpotAttenuation = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
-// Power heuristic for MIS
-export const misHeuristic = /*@__PURE__*/ wgslFn( `
-	fn misHeuristic( a: f32, b: f32 ) -> f32 {
-		let aa = a * a;
-		let bb = b * b;
-		return aa / max( aa + bb, 1e-6f );
-	}
-` );
 
 // ================================================================================
 // CONE SAMPLING FOR SOFT DIRECTIONAL SHADOWS

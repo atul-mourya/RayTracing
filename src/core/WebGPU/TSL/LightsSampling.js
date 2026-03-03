@@ -58,7 +58,6 @@ import {
 	isDirectionValid,
 	getDistanceAttenuation,
 	getSpotAttenuation,
-	misHeuristic,
 	intersectAreaLight,
 } from './LightsCore.js';
 
@@ -883,7 +882,7 @@ export const sampleAreaLightContribution = Fn( ( [
 						const brdfPdf = calculateMaterialPDF( worldWo, lightDir, hitNormal, material ).toVar();
 
 						// Apply MIS weighting
-						const misWeight = select( brdfPdf.greaterThan( 0.0 ), misHeuristic( { a: lightPdf, b: brdfPdf } ), float( 1.0 ) ).toVar();
+						const misWeight = select( brdfPdf.greaterThan( 0.0 ), powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } ), float( 1.0 ) ).toVar();
 
 						// Calculate final contribution - guard division
 						const lightEmission = light.color.mul( light.intensity ).toVar();

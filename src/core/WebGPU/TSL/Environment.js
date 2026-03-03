@@ -140,7 +140,7 @@ export const sampleEquirectProbability = Fn( ( [
 
 } );
 
-// Note: misHeuristic() is defined in LightsCore.js
+// Note: powerHeuristic() is defined in Common.js
 
 // Simple environment lookup (no importance sampling)
 export const sampleEnvironment = Fn( ( [

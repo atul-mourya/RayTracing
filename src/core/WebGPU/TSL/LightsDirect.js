@@ -33,7 +33,7 @@ import { fresnelSchlickFloat } from './Fresnel.js';
 import { iorToFresnel0 } from './Fresnel.js';
 import {
 	DirectionalLight, AreaLight, PointLight, SpotLight,
-	sampleCone, intersectAreaLight, misHeuristic,
+	sampleCone, intersectAreaLight,
 } from './LightsCore.js';
 import { calculateBeerLawAbsorption, calculateShadowTransmittance } from './MaterialTransmission.js';
 import { RandomValue } from './Random.js';

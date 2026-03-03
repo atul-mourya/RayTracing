@@ -143,7 +143,7 @@ float sampleEquirectProbability( vec2 r, inout vec3 color, inout vec3 direction 
 
 }
 
-// Note: misHeuristic() is defined in lights_core.fs
+// Note: powerHeuristic() is defined in common.fs
 
 /**
  * Simple environment lookup (no importance sampling)

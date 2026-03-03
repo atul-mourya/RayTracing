@@ -559,7 +559,7 @@ vec3 sampleAreaLightContribution(
     float brdfPdf = calculateMaterialPDF( worldWo, lightDir, surf.normal, surf.material );
 
     // Apply MIS weighting
-    float misWeight = ( brdfPdf > 0.0 ) ? misHeuristic( lightPdf, brdfPdf ) : 1.0;
+    float misWeight = ( brdfPdf > 0.0 ) ? powerHeuristic( lightPdf, brdfPdf ) : 1.0;
 
     // Calculate final contribution - guard division
     vec3 lightEmission = light.color * light.intensity;

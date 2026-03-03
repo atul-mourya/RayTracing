@@ -181,12 +181,6 @@ float getSpotAttenuation( float coneCosine, float penumbraCosine, float angleCos
     return smoothstep( coneCosine, penumbraCosine, angleCosine );
 }
 
-// Power heuristic for Multiple Importance Sampling
-float misHeuristic( float a, float b ) {
-    float aa = a * a;
-    float bb = b * b;
-    return aa / max( aa + bb, EPSILON );
-}
 
 // -----------------------------------------------------------------------------
 // Cone Sampling for Soft Directional Shadows
