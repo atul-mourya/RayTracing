@@ -83,16 +83,9 @@ export const luminance = wgslFn( `
 	}
 ` );
 
-// Optimized power heuristic (β=2) for multiple importance sampling
+// Power heuristic for multiple importance sampling (balance heuristic, power=2)
 export const powerHeuristic = wgslFn( `
 	fn powerHeuristic( pdf1: f32, pdf2: f32 ) -> f32 {
-
-		let ratio = pdf1 / max( pdf2, ${MIN_PDF} );
-
-		if ( ratio > 10.0 ) { return 1.0; }
-		if ( ratio < 0.1 ) { return 0.0; }
-		if ( ratio > 5.0 ) { return 0.95; }
-		if ( ratio < 0.2 ) { return 0.05; }
 
 		let p1 = pdf1 * pdf1;
 		let p2 = pdf2 * pdf2;

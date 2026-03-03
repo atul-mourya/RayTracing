@@ -300,11 +300,11 @@ export class PathTracingStage extends PipelineStage {
 		this.numPointLights = uniform( 0, 'int' );
 		this.numSpotLights = uniform( 0, 'int' );
 
-		// Light buffer nodes (created lazily from Float32Array data)
-		this.directionalLightsBufferNode = uniformArray( new Float32Array( 8 ), 'float' );
-		this.areaLightsBufferNode = uniformArray( new Float32Array( 13 ), 'float' );
-		this.pointLightsBufferNode = uniformArray( new Float32Array( 7 ), 'float' );
-		this.spotLightsBufferNode = uniformArray( new Float32Array( 11 ), 'float' );
+		// Light buffer nodes - pre-allocate for up to 16 lights per type (shader hard cap)
+		this.directionalLightsBufferNode = uniformArray( new Float32Array( 8 * 16 ), 'float' );
+		this.areaLightsBufferNode = uniformArray( new Float32Array( 13 * 16 ), 'float' );
+		this.pointLightsBufferNode = uniformArray( new Float32Array( 7 * 16 ), 'float' );
+		this.spotLightsBufferNode = uniformArray( new Float32Array( 11 * 16 ), 'float' );
 
 		// Camera matrices
 		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
