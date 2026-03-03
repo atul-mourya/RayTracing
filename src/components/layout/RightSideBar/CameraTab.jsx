@@ -6,7 +6,10 @@ import { Switch } from "@/components/ui/switch";
 import { Trackpad } from "@/components/ui/trackpad";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
 import { useCameraStore } from '@/store';
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
+import { getApp } from '@/core/appProxy';
+import { useBackendEvent } from '@/hooks/useBackendEvent';
+import { useActiveApp } from '@/hooks/useActiveApp';
 import { FieldOfView } from "@/assets/icons";
 import { Separator } from "@/components/ui/separator";
 
@@ -44,52 +47,37 @@ const CameraTab = () => {
 		handleFocusChangeEvent,
 	} = useCameraStore();
 
-	useEffect( () => {
+	const activeApp = useActiveApp();
 
-		if ( window.pathTracerApp ) {
+	useBackendEvent( 'focusChanged', handleFocusChangeEvent );
 
-			// Set up camera names and initial selection
-			const updateCameraList = () => {
+	useBackendEvent( 'CamerasUpdated', useCallback( () => {
 
-				setCameraNames( window.pathTracerApp.getCameraNames() );
-				setSelectedCameraIndex( window.pathTracerApp.currentCameraIndex );
+		const app = getApp();
+		if ( app ) {
 
-			};
+			setCameraNames( app.getCameraNames() );
+			if ( ( app.currentCameraIndex ?? 0 ) === 0 ) {
 
-			// Initial setup
-			updateCameraList();
+				setSelectedCameraIndex( 0 );
 
-			// Listen for focus change events (focus mode is already set up in InteractionManager)
-			window.pathTracerApp.addEventListener( 'focusChanged', handleFocusChangeEvent );
-
-			// Listen for camera updates from model loading
-			const handleCameraUpdate = ( event ) => {
-
-				updateCameraList();
-
-				// Always reset to default camera (index 0) in UI as well
-				if ( window.pathTracerApp.currentCameraIndex === 0 ) {
-
-					// Force UI update to show default camera is selected
-					setSelectedCameraIndex( 0 );
-
-				}
-
-			};
-
-			window.pathTracerApp.addEventListener( 'CamerasUpdated', handleCameraUpdate );
-
-			// Clean up event listeners on component unmount
-			return () => {
-
-				window.pathTracerApp.removeEventListener( 'focusChanged', handleFocusChangeEvent );
-				window.pathTracerApp.removeEventListener( 'CamerasUpdated', handleCameraUpdate );
-
-			};
+			}
 
 		}
 
-	}, [] );
+	}, [ setCameraNames, setSelectedCameraIndex ] ) );
+
+	useEffect( () => {
+
+		const app = getApp();
+		if ( app ) {
+
+			setCameraNames( app.getCameraNames() );
+			setSelectedCameraIndex( app.currentCameraIndex ?? 0 );
+
+		}
+
+	}, [ activeApp, setCameraNames, setSelectedCameraIndex ] );
 
 	const cameraPoints = [
 		{ x: 0, y: 50 }, // left view

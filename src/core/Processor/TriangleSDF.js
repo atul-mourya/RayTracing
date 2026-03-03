@@ -58,9 +58,11 @@ export default class TriangleSDF {
 		this.spheres = [];
 		this.bvhRoot = null;
 
+		// Raw data for storage buffers
+		this.bvhData = null;
+		this.materialData = null;
+
 		// Initialize texture references
-		this.materialTexture = null;
-		this.triangleTexture = null;
 		this.albedoTextures = null;
 		this.normalTextures = null;
 		this.bumpTextures = null;
@@ -68,8 +70,7 @@ export default class TriangleSDF {
 		this.metalnessTextures = null;
 		this.emissiveTextures = null;
 		this.displacementTextures = null;
-		this.bvhTexture = null;
-		this.emissiveTriangleTexture = null;
+		this.emissiveTriangleData = null;
 		this.emissiveTriangleCount = 0;
 
 		// Initialize processing components
@@ -381,41 +382,50 @@ export default class TriangleSDF {
 
 		try {
 
-			// Prepare parameters for texture creation
-			const params = {
-				materials: this.materials,
-				triangles: this.triangleData,
-				maps: this.maps,
-				normalMaps: this.normalMaps,
-				bumpMaps: this.bumpMaps,
-				roughnessMaps: this.roughnessMaps,
-				metalnessMaps: this.metalnessMaps,
-				emissiveMaps: this.emissiveMaps,
-				displacementMaps: this.displacementMaps,
-				bvhRoot: this.bvhRoot
-			};
+			// Raw Float32Arrays for storage buffers — triangleData already exists as this.triangleData
+			if ( this.materials?.length ) {
 
-			// Create all textures
-			const textures = await this.textureCreator.createAllTextures( params );
+				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
 
-			// Store texture references
-			this.materialTexture = textures.materialTexture;
-			this.triangleTexture = textures.triangleTexture;
-			this.albedoTextures = textures.albedoTexture;
-			this.normalTextures = textures.normalTexture;
-			this.bumpTextures = textures.bumpTexture;
-			this.roughnessTextures = textures.roughnessTexture;
-			this.metalnessTextures = textures.metalnessTexture;
-			this.emissiveTextures = textures.emissiveTexture;
-			this.displacementTextures = textures.displacementTexture;
-			this.bvhTexture = textures.bvhTexture;
+			}
+
+			if ( this.bvhRoot ) {
+
+				this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
+
+			}
+
+			// Material texture arrays are needed as actual GPU textures
+			const mapTypesList = [
+				{ data: this.maps, prop: 'albedoTextures' },
+				{ data: this.normalMaps, prop: 'normalTextures' },
+				{ data: this.bumpMaps, prop: 'bumpTextures' },
+				{ data: this.roughnessMaps, prop: 'roughnessTextures' },
+				{ data: this.metalnessMaps, prop: 'metalnessTextures' },
+				{ data: this.emissiveMaps, prop: 'emissiveTextures' },
+				{ data: this.displacementMaps, prop: 'displacementTextures' },
+			];
+
+			const mapPromises = [];
+			for ( const { data, prop } of mapTypesList ) {
+
+				if ( data?.length > 0 ) {
+
+					mapPromises.push(
+						this.textureCreator.createTexturesToDataTexture( data )
+							.then( texture => { this[ prop ] = texture; } )
+					);
+
+				}
+
+			}
+
+			await Promise.all( mapPromises );
 
 			const duration = performance.now() - startTime;
 			this._log( `Texture creation complete (${duration.toFixed( 2 )}ms)`, {
-				materialTexture: !! this.materialTexture,
-				triangleTexture: !! this.triangleTexture,
-				bvhTexture: !! this.bvhTexture,
-				textureCreatorCapabilities: this.textureCreator.capabilities
+				materialData: !! this.materialData,
+				bvhData: !! this.bvhData,
 			} );
 
 			// Extract emissive triangles for direct lighting
@@ -430,8 +440,8 @@ export default class TriangleSDF {
 				this.triangleCount
 			);
 
-			// Create emissive triangle texture for GPU
-			this.emissiveTriangleTexture = this.emissiveTriangleBuilder.createEmissiveTexture();
+			// Create emissive triangle data for GPU
+			this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
 
 			const emissiveStats = this.emissiveTriangleBuilder.getStats();
 			this._log( `Emissive triangle extraction complete`, emissiveStats );
@@ -518,9 +528,8 @@ export default class TriangleSDF {
 	_disposeTextures() {
 
 		const textureProps = [
-			'materialTexture', 'triangleTexture', 'albedoTextures',
-			'normalTextures', 'bumpTextures', 'roughnessTextures',
-			'metalnessTextures', 'emissiveTextures', 'displacementTextures', 'bvhTexture'
+			'albedoTextures', 'normalTextures', 'bumpTextures', 'roughnessTextures',
+			'metalnessTextures', 'emissiveTextures', 'displacementTextures'
 		];
 
 		// Dispose each texture if it exists
@@ -599,8 +608,10 @@ export default class TriangleSDF {
 			// Create only material and texture-related textures
 			const textures = await this.textureCreator.createMaterialTextures( params );
 
-			// Update texture references (keep triangle and BVH textures unchanged)
-			this.materialTexture = textures.materialTexture;
+			// Regenerate raw material data for storage buffers
+			this.materialData = this.textureCreator.createMaterialRawData( this.materials );
+
+			// Update texture references (keep triangle and BVH data unchanged)
 			this.albedoTextures = textures.albedoTexture;
 			this.normalTextures = textures.normalTexture;
 			this.bumpTextures = textures.bumpTexture;
@@ -638,7 +649,7 @@ export default class TriangleSDF {
 	_disposeMaterialTextures() {
 
 		const materialTextureProps = [
-			'materialTexture', 'albedoTextures', 'normalTextures',
+			'albedoTextures', 'normalTextures',
 			'bumpTextures', 'roughnessTextures', 'metalnessTextures', 'emissiveTextures',
 			'displacementTextures'
 		];
@@ -693,7 +704,7 @@ export default class TriangleSDF {
 			cameraCount: this.cameras.length,
 			processingComplete: this.processingStage === 'complete',
 			hasBVH: !! this.bvhRoot,
-			hasTextures: !! this.materialTexture && !! this.triangleTexture,
+			hasTextures: !! this.materialData && !! this.bvhData,
 			useFloat32Array: this.config.useFloat32Array,
 			triangleDataSize: this.triangleData ? ( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 ) + 'MB' : '0MB'
 		};

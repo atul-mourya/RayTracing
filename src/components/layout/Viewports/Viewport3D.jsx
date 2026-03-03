@@ -1,15 +1,16 @@
 import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } from 'react';
-import PathTracerApp from '../../../core/main';
 import DimensionDisplay from './DimensionDisplay';
 import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
 import { useToast } from '@/hooks/use-toast';
-import { useStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 import { saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
+import { PathTracerApp } from '@/core/PathTracerApp.js';
+import { getApp, setApp } from '@/core/appProxy';
 
 
 const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
@@ -20,7 +21,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const viewportRef = useRef( null );
 	const viewportWrapperRef = useRef( null );
 	const containerRef = useRef( null );
-	const primaryCanvasRef = useRef( null );
+	const canvasRef = useRef( null );
 	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const isInitialized = useRef( false );
@@ -61,7 +62,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Effect to mark canvases as ready
 	useEffect( () => {
 
-		if ( primaryCanvasRef.current && denoiserCanvasRef.current ) {
+		if ( canvasRef.current && denoiserCanvasRef.current ) {
 
 			// Small delay to ensure DOM is fully rendered
 			const timer = setTimeout( () => {
@@ -113,12 +114,12 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
 
-		const app = appRef.current;
+		const app = getApp();
 		if ( ! app ) return;
 
 		try {
 
-			const canvas = app.denoiser.enabled && app.denoiser.output
+			const canvas = app.denoiser?.enabled && app.denoiser.output
 				? app.denoiser.output
 				: app.renderer.domElement;
 
@@ -162,18 +163,57 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	}, [ setIsRenderComplete ] );
 
 
-	// Effect for app initialization - dependencies optimized
+	// Effect for app initialization
 	useEffect( () => {
 
-		// Only initialize if the component is visible (not in results mode)
-		if ( ! appRef.current && containerRef.current && appMode !== 'results' ) {
-
-			appRef.current = new PathTracerApp( primaryCanvasRef.current, denoiserCanvasRef.current );
-			window.pathTracerApp = appRef.current;
+		if ( ! appRef.current && containerRef.current ) {
 
 			setLoading( { isLoading: true, title: "Starting", status: "Setting up Scene...", progress: 0 } );
 
-			appRef.current.init()
+			const initApp = async () => {
+
+				const app = new PathTracerApp( canvasRef.current, denoiserCanvasRef.current );
+				appRef.current = app;
+				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
+				await app.init();
+
+				// Register with appProxy so getApp() works globally
+				setApp( app );
+
+				setLoading( { isLoading: true, title: "Starting", status: "Loading Assets...", progress: 60 } );
+
+				// Load default environment and model
+				const { EnvironmentService } = await import( '@/services/EnvironmentService' );
+				const { DEFAULT_STATE } = await import( '@/Constants' );
+				const defaultEnv = EnvironmentService.getEnvironmentById( DEFAULT_STATE.environment );
+				if ( defaultEnv?.url ) {
+
+					await app.loadEnvironment( defaultEnv.url );
+
+				}
+
+				// Load model — from URL param or default example
+				const urlParams = new URLSearchParams( window.location.search );
+				const modelUrl = urlParams.get( 'model' );
+				setLoading( { isLoading: true, title: "Starting", status: "Loading Model...", progress: 70 } );
+				if ( modelUrl ) {
+
+					await app.loadModel( modelUrl );
+
+				} else {
+
+					await app.loadExampleModels( DEFAULT_STATE.model );
+
+				}
+
+				setLoading( { isLoading: true, title: "Starting", status: "Setup Complete!", progress: 100 } );
+
+				app.animate();
+				app.reset();
+
+			};
+
+			initApp()
 				.catch( ( err ) => {
 
 					console.error( "Error initializing PathTracerApp:", err );
@@ -186,33 +226,27 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				} )
 				.finally( () => {
 
-					setLoading( { isLoading: true, title: "Starting", status: "Setup Complete!", progress: 100 } );
-
-					// Get a stable reference to the store function
 					const resetLoadingFn = useStore.getState().resetLoading;
 					resetLoadingFn();
 
-					if ( window.pathTracerApp ) {
-
-						window.pathTracerApp.reset();
-
-					}
-
 					isInitialized.current = true;
 					setIsAppInitialized( true );
+
+					window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 				} );
 
 		}
 
-	}, [ setLoading, toast, appMode ] );
+	}, [ setLoading, toast ] );
 
 	// Disable select mode when leaving preview mode
 	useEffect( () => {
 
-		if ( window.pathTracerApp && appMode !== 'preview' ) {
+		const app = getApp();
+		if ( app && appMode !== 'preview' ) {
 
-			window.pathTracerApp.disableSelectMode?.();
+			app.disableSelectMode?.();
 
 		}
 
@@ -221,11 +255,11 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
 
-		if ( ! window.pathTracerApp ) return false;
+		if ( ! getApp() ) return false;
 		if ( viewportMode !== "final-render" ) return false;
 		if ( ! isRenderComplete ) return false;
 		if ( isDenoising ) return false;
-		return window.pathTracerApp.pathTracingPass.isComplete;
+		return getApp().isComplete();
 
 	}, [ isRenderComplete, isDenoising, viewportMode ] );
 
@@ -247,7 +281,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						style={canvasStyle}
 					/>
 					<canvas
-						ref={primaryCanvasRef}
+						ref={canvasRef}
 						width={actualCanvasSize}
 						height={actualCanvasSize}
 						style={canvasStyle}
@@ -256,7 +290,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				</div>
 			</div>
 
-			<StatsMeter viewportMode={viewportMode} appRef={appRef} />
+			<StatsMeter viewportMode={viewportMode} />
 
 			{shouldShowSaveControls && (
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />
@@ -266,14 +300,13 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				<ViewportToolbar
 					onResize={handleViewportResize}
 					viewportWrapperRef={viewportRef}
-					appRef={appRef}
 					autoFitScale={autoFitScale}
 					isManualScale={isManualScale}
 					onResetToAutoFit={handleResetToAutoFit}
 				/>
 			)}
 
-			<InteractionContextMenu appRef={appRef} isAppInitialized={isAppInitialized} />
+			<InteractionContextMenu />
 
 		</div>
 	);

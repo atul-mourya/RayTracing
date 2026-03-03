@@ -1,3 +1,5 @@
+import { getApp } from '@/core/appProxy';
+
 /**
  * Service class for handling asset loading operations
  */
@@ -11,7 +13,8 @@ export class AssetLoaderService {
 	 */
 	static async loadExampleModel( modelIndex, modelFiles ) {
 
-		if ( ! window.pathTracerApp ) {
+		const app = getApp();
+		if ( ! app ) {
 
 			throw new Error( 'PathTracer app not initialized' );
 
@@ -27,7 +30,7 @@ export class AssetLoaderService {
 
 		try {
 
-			await window.pathTracerApp.loadExampleModels( modelIndex );
+			await app.loadExampleModels( modelIndex );
 			return {
 				success: true,
 				modelName: modelFile.name,
@@ -50,7 +53,8 @@ export class AssetLoaderService {
 	 */
 	static async loadDebugModel( modelIndex, debugModels ) {
 
-		if ( ! window.pathTracerApp ) {
+		const app = getApp();
+		if ( ! app ) {
 
 			throw new Error( 'PathTracer app not initialized' );
 
@@ -66,7 +70,7 @@ export class AssetLoaderService {
 
 		try {
 
-			await window.pathTracerApp.loadModel( debugModel.url );
+			await app.loadModel( debugModel.url );
 			return {
 				success: true,
 				modelName: debugModel.name,
@@ -88,7 +92,8 @@ export class AssetLoaderService {
 	 */
 	static async loadEnvironment( envData ) {
 
-		if ( ! window.pathTracerApp ) {
+		const app = getApp();
+		if ( ! app ) {
 
 			throw new Error( 'PathTracer app not initialized' );
 
@@ -112,7 +117,7 @@ export class AssetLoaderService {
 
 			}
 
-			await window.pathTracerApp.loadEnvironment( envData.url );
+			await app.loadEnvironment( envData.url );
 			return {
 				success: true,
 				environmentName: envData.name,
@@ -261,9 +266,10 @@ export class AssetLoaderService {
 	 */
 	static resetPathTracer() {
 
-		if ( window.pathTracerApp?.reset ) {
+		const app = getApp();
+		if ( app?.reset ) {
 
-			window.pathTracerApp.reset();
+			app.reset();
 
 		}
 

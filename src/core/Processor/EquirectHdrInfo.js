@@ -204,6 +204,48 @@ export class EquirectHdrInfo {
 
 	}
 
+	/**
+	 * Get marginal CDF as Float32Array for storage buffers.
+	 * Converts from HalfFloat Uint16Array to Float32Array.
+	 * @returns {Float32Array} 1D array of size height
+	 */
+	getMarginalRawData() {
+
+		const src = this.marginalWeights.image.data;
+		const size = src.length;
+		const floatData = new Float32Array( size );
+
+		for ( let i = 0; i < size; i ++ ) {
+
+			floatData[ i ] = DataUtils.fromHalfFloat( src[ i ] );
+
+		}
+
+		return floatData;
+
+	}
+
+	/**
+	 * Get conditional CDF as Float32Array for storage buffers.
+	 * Converts from HalfFloat Uint16Array to Float32Array.
+	 * @returns {Float32Array} 2D array of size width * height (row-major)
+	 */
+	getConditionalRawData() {
+
+		const src = this.conditionalWeights.image.data;
+		const size = src.length;
+		const floatData = new Float32Array( size );
+
+		for ( let i = 0; i < size; i ++ ) {
+
+			floatData[ i ] = DataUtils.fromHalfFloat( src[ i ] );
+
+		}
+
+		return floatData;
+
+	}
+
 	dispose() {
 
 		this.marginalWeights.dispose();

@@ -27,7 +27,6 @@ const InteractiveModeTabs = memo( () => {
 
 	const activeTab = useStore( state => state.activeTab );
 	const setActiveTab = useStore( state => state.setActiveTab );
-
 	return (
 		<Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full w-full">
 			<TabsList className="relative grid w-full grid-cols-5 h-12 p-0">

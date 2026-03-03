@@ -445,7 +445,7 @@ const useFormatDate = () => {
 		const date = new Date( dateString );
 
 		// Get short year (e.g., "26" from "2026")
-		const year = date.getFullYear().toString().slice( -2 );
+		const year = date.getFullYear().toString().slice( - 2 );
 		const month = date.getMonth() + 1;
 		const day = date.getDate();
 		const hours = date.getHours().toString().padStart( 2, '0' );

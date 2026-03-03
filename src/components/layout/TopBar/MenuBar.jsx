@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { getApp } from '@/core/appProxy';
 import {
 	Menubar,
 	MenubarContent,
@@ -44,9 +45,10 @@ const MenuBar = ( { onOpenImportModal } ) => {
 		try {
 
 			// Use assetLoader's loadModelFromFile method which handles all formats
-			if ( window.pathTracerApp?.assetLoader ) {
+			const app = getApp();
+			if ( app?.assetLoader ) {
 
-				await window.pathTracerApp.assetLoader.loadModelFromFile( file, file.name );
+				await app.assetLoader.loadModelFromFile( file, file.name );
 
 				toast( {
 					title: "Model Loaded",

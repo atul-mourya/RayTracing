@@ -6,24 +6,57 @@
 
 ## Overview
 
-Rayzee uses an event-driven pipeline architecture for its rendering system. The pipeline consists of modular stages that communicate through events and a shared context, providing loose coupling and clear execution order.
+Rayzee uses an **event-driven pipeline** of modular rendering stages built on WebGPU. TSL (Three Shading Language) shaders are compiled to WGSL at runtime. The `PathTracerApp` manages the renderer, scene, camera, and pipeline lifecycle, while the UI/store layer accesses it via `getApp()` from appProxy.
 
-### Key Components
+### System Architecture
 
 ```
-PipelineContext (shared state & textures)
-        ↓
-EventBus (stage communication)
-        ↓
-PassPipeline (orchestration)
-        ↓
-PipelineStage (base class)
-        ↓
-├─ PathTracerStage (ray tracing)
-├─ ASVGFStage (denoising)
-├─ AdaptiveSamplingStage (variance-based sampling)
-├─ EdgeAwareFilteringStage (temporal filtering)
-└─ TileHighlightStage (tile borders visualization)
+                    ┌─────────────────────────────────────────┐
+                    │              UI / React                  │
+                    │  (Zustand Store + appProxy.getApp())    │
+                    └─────────────────┬───────────────────────┘
+                                      │
+                              ┌───────┴───────┐
+                              │  appProxy     │
+                              │  getApp()     │
+                              │  subscribeApp()│
+                              └───────┬───────┘
+                                      │
+                              ┌───────┴───────────────┐
+                              │    PathTracerApp      │
+                              │    (WebGPU Renderer)  │
+                              ├───────────────────────┤
+                              │ PassPipeline          │
+                              │ ├─PathTracingStage    │
+                              │ ├─NormalDepthStage    │
+                              │ ├─MotionVectorStage   │
+                              │ ├─ASVGFStage          │
+                              │ ├─VarianceEstimation  │
+                              │ ├─BilateralFiltering  │
+                              │ ├─AdaptiveSampling    │
+                              │ ├─EdgeAwareFiltering  │
+                              │ ├─AutoExposureStage   │
+                              │ ├─TileHighlightStage  │
+                              │ └─DisplayStage        │
+                              │ InteractionManager    │
+                              │ OIDNDenoiser          │
+                              └───────────────────────┘
+```
+
+### App Proxy (`src/core/appProxy.js`)
+
+All UI/store code accesses the app via `getApp()`:
+
+```javascript
+import { getApp, subscribeApp } from '@/core/appProxy';
+
+const app = getApp();  // Returns app instance or null
+if (app) app.setMaxBounces(8);
+
+// Subscribe to app initialization/changes
+const unsub = subscribeApp((app) => {
+    if (app) console.log('App ready');
+});
 ```
 
 ---
@@ -505,17 +538,11 @@ All stages execute when cycle completes:
 ### Pipeline Integration
 
 ```
-EffectComposer
-    ↓
-RenderPass (Three.js scene)
-    ↓
-PipelineWrapperPass (wraps entire pipeline)
-    ↓ delegates to
 PassPipeline.render(writeBuffer)
     ↓ executes stages sequentially
-[PathTracer → ASVGF → AdaptiveSampling → EdgeFiltering → TileHighlight]
+[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → Bilateral → AdaptiveSampling → EdgeFiltering → AutoExposure → TileHighlight → Display]
     ↓
-writeBuffer → OutlinePass → BloomPass → OutputPass → Screen
+DisplayStage → Screen (with exposure + outline compositing)
 ```
 
 ---
@@ -549,34 +576,38 @@ writeBuffer → OutlinePass → BloomPass → OutputPass → Screen
 
 ```javascript
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
-import { ShaderMaterial, WebGLRenderTarget } from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
+import { uv, uniform } from 'three/tsl';
 
 export class MyCustomStage extends PipelineStage {
 
-    constructor(options = {}) {
+    constructor(renderer, options = {}) {
         super('MyCustom', {
             ...options,
             executionMode: StageExecutionMode.PER_CYCLE // Choose appropriate mode
         });
 
+        this.renderer = renderer;
+
         // Create render target
-        this.outputTarget = new WebGLRenderTarget(
+        this.outputTarget = new RenderTarget(
             options.width,
             options.height
         );
 
-        // Create material
-        this.material = new ShaderMaterial({
-            uniforms: {
-                tInput: { value: null },
-                intensity: { value: 1.0 }
-            },
-            vertexShader: `...`,
-            fragmentShader: `...`
-        });
+        // TSL uniform
+        this.intensity = uniform(1.0);
 
-        this.quad = new FullScreenQuad(this.material);
+        // Updatable texture node
+        this._inputTexNode = new TextureNode();
+
+        // Build TSL shader — sample input and apply intensity
+        const shader = this._inputTexNode.sample(uv()).mul(this.intensity);
+
+        this.material = new MeshBasicNodeMaterial();
+        this.material.outputNode = shader;
+
+        this.quad = new QuadMesh(this.material);
     }
 
     setupEventListeners() {
@@ -592,21 +623,15 @@ export class MyCustomStage extends PipelineStage {
         const inputTexture = context.getTexture('pathtracer:color');
         if (!inputTexture) return;
 
-        this.material.uniforms.tInput.value = inputTexture;
+        // Swap texture node value (no shader recompile)
+        this._inputTexNode.value = inputTexture;
 
         // Render to output target
-        const renderer = context.renderer;
-        renderer.setRenderTarget(this.outputTarget);
-        this.quad.render(renderer);
+        this.renderer.setRenderTarget(this.outputTarget);
+        this.quad.render(this.renderer);
 
         // Publish to context
         context.setTexture('mycustom:output', this.outputTarget.texture);
-
-        // Copy to writeBuffer if needed
-        if (writeBuffer) {
-            renderer.setRenderTarget(writeBuffer);
-            // ... render to writeBuffer
-        }
     }
 
     setSize(width, height) {
@@ -616,7 +641,6 @@ export class MyCustomStage extends PipelineStage {
     dispose() {
         this.outputTarget.dispose();
         this.material.dispose();
-        this.quad.dispose();
     }
 }
 ```
@@ -624,10 +648,10 @@ export class MyCustomStage extends PipelineStage {
 ### Step 2: Add to Pipeline
 
 ```javascript
-// In main.js setupPipeline()
+// In PathTracerApp.js setupPipeline()
 import { MyCustomStage } from './Stages/MyCustomStage.js';
 
-const myStage = new MyCustomStage({
+const myStage = new MyCustomStage(this.renderer, {
     width: this.width,
     height: this.height,
     enabled: true
@@ -638,15 +662,16 @@ this.pipeline.addStage(pathTracerStage);
 this.pipeline.addStage(asvgfStage);
 this.pipeline.addStage(myStage);  // ← Add here
 this.pipeline.addStage(tileHighlightStage);
+this.pipeline.addStage(displayStage);
 ```
 
 ### Step 3: Add Store Handler (Optional)
 
 ```javascript
-// In store.js
+// In store.js - uses getApp() from appProxy
 handleMyCustomIntensity: handleChange(
     val => set({ myCustomIntensity: val }),
-    val => window.pathTracerApp.myStage.material.uniforms.intensity.value = val
+    val => getApp().myStage.intensity.value = val
 ),
 ```
 
@@ -665,6 +690,7 @@ handleMyCustomIntensity: handleChange(
 - **Document events** - What data is emitted
 - **Handle missing inputs gracefully** - Check if textures exist
 - **Test in tile mode** - Ensure your stage works correctly with tiled rendering
+- **Use `getApp()` from appProxy** - Never store direct app references in components
 
 ### Don'ts ❌
 
@@ -740,13 +766,13 @@ if (this.debug) {
 
 ```javascript
 // In browser console
-window.pathTracerApp.pipeline.getInfo();
+getApp().pipeline.getInfo();
 // Returns: stage names, enabled states, execution order
 
-window.pathTracerApp.pipeline.context.textures;
+getApp().pipeline.context.textures;
 // Shows all registered textures
 
-window.pathTracerApp.pipeline.eventBus.listenerCount('tile:changed');
+getApp().pipeline.eventBus.listenerCount('tile:changed');
 // Check event listeners
 ```
 
@@ -754,15 +780,15 @@ window.pathTracerApp.pipeline.eventBus.listenerCount('tile:changed');
 
 ```javascript
 // Enable logging of skipped stages during tile rendering
-window.pathTracerApp.pipeline.stats.enabled = true;
-window.pathTracerApp.pipeline.stats.logSkipped = true;
+getApp().pipeline.stats.enabled = true;
+getApp().pipeline.stats.logSkipped = true;
 
 // Console will show:
 // [Pipeline] Skipped stage 'ASVGF' (executionMode: per_cycle)
 // [Pipeline] Skipped stage 'AdaptiveSampling' (executionMode: per_cycle)
 
 // Check tile completion state
-window.pathTracerApp.pipeline.context.getState('tileRenderingComplete');
+getApp().pipeline.context.getState('tileRenderingComplete');
 // Returns: true (cycle complete) or false (intermediate tile)
 ```
 
@@ -835,6 +861,8 @@ The Pipeline architecture provides:
 - ✅ **Flexibility** - Events enable reactive workflows
 - ✅ **Tile-Aware** - Automatic optimization for tiled rendering via execution modes
 
-**Key Innovation:** The execution mode system allows stages to declaratively control when they run during tile rendering, ensuring post-processing only operates on complete frames for optimal quality and performance.
+**Key Innovation (Execution Modes):** The execution mode system allows stages to declaratively control when they run during tile rendering, ensuring post-processing only operates on complete frames for optimal quality and performance.
 
-**Result:** Clean, maintainable, and scalable rendering pipeline.
+**Key Innovation (TSL):** TSL shaders compile JavaScript shader definitions to WGSL at runtime, enabling path tracing algorithms to run on WebGPU without hand-written WGSL.
+
+**Result:** Clean, maintainable, and scalable WebGPU rendering pipeline with TSL shaders.

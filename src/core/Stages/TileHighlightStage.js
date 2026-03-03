@@ -1,311 +1,228 @@
-import { ShaderMaterial, UniformsUtils, Vector2, Vector3, Vector4 } from 'three';
-import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { Fn, vec3, vec4, float, uv, uniform, If, max, min, abs } from 'three/tsl';
+import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, NearestFilter, Vector3, Vector4 } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
- * TileHighlightStage - Draws borders around tiles during tiled rendering
+ * WebGPU Tile Highlight Stage
  *
- * Refactored from TileHighlightPass to use the new pipeline architecture.
+ * Draws coloured borders around the current tile during tiled rendering.
+ * Reads the final composited output and overlays tile borders.
  *
- * Execution: ALWAYS - Must run every frame to provide visual feedback during tile rendering
+ * Execution: ALWAYS
  *
- * Key changes from TileHighlightPass:
- * - Extends PipelineStage instead of Pass
- * - Listens to 'tile:changed' event instead of setCurrentTileBounds()
- * - Reads input texture from context instead of readBuffer parameter
- * - Updates state from context automatically
+ * Events listened:
+ *   tile:changed       — update tile bounds + index
+ *   renderMode:changed — update render mode
  *
- * Events listened to:
- * - tile:changed - Updates tile bounds and index
- * - pipeline:resize - Updates resolution
+ * Textures published:  tileHighlight:output
+ * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
  */
 export class TileHighlightStage extends PipelineStage {
 
-	constructor( options = {} ) {
+	constructor( renderer, options = {} ) {
 
 		super( 'TileHighlight', {
 			...options,
-			executionMode: StageExecutionMode.ALWAYS // Must run every frame for visual feedback
+			executionMode: StageExecutionMode.ALWAYS
 		} );
 
-		const resolution = options.resolution || { x: 1920, y: 1080 };
+		this.renderer = renderer;
 
-		this.uniforms = UniformsUtils.clone( {
-			tDiffuse: { value: null },
-			resolution: { value: new Vector2( resolution.x, resolution.y ) },
-			tileIndex: { value: - 1 },
-			tiles: { value: options.tiles || 4 },
-			renderMode: { value: 0 },
-			highlightColor: { value: options.highlightColor || new Vector3( 1, 0, 0 ) }, // Red by default
-			borderWidthPixels: { value: options.borderWidthPixels || 2.0 }, // Border width in pixels
-			currentTileBounds: { value: new Vector4( 0, 0, 0, 0 ) } // x, y, width, height
-		} );
+		// Uniforms
+		this.tileIndex = uniform( - 1, 'int' );
+		this.tiles = uniform( 4, 'int' ); // tiles per side (e.g. 4 = 4×4 = 16 tiles)
+		this.renderMode = uniform( 0, 'int' ); // 0 = progressive, 1 = tiled
+		this.highlightColor = uniform( new Vector3( 0.2, 0.8, 1.0 ) );
+		this.borderWidth = uniform( 2.0 );
+		this.tileBoundsX = uniform( 0.0 );
+		this.tileBoundsY = uniform( 0.0 );
+		this.tileBoundsW = uniform( 1.0 );
+		this.tileBoundsH = uniform( 1.0 );
+		this.resW = uniform( options.width || 1 );
+		this.resH = uniform( options.height || 1 );
 
-		this.material = new ShaderMaterial( {
-			uniforms: this.uniforms,
-			vertexShader: `
-                varying vec2 vUv;
-                void main() {
-                    vUv = uv;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-			fragmentShader: `
-                uniform sampler2D tDiffuse;
-                uniform vec2 resolution;
-                uniform int tileIndex;
-                uniform int tiles;
-                uniform int renderMode;
-                uniform vec3 highlightColor;
-                uniform float borderWidthPixels;
-                uniform vec4 currentTileBounds; // x, y, width, height in pixels (top-left origin)
-                varying vec2 vUv;
+		// Input texture node
+		this._inputTexNode = new TextureNode();
 
-                void main() {
-                    vec4 texel = texture2D(tDiffuse, vUv);
-
-                    // Only show highlights in tiled rendering mode and when a valid tile is being rendered
-                    if (renderMode != 1 || tileIndex < 0) {
-                        gl_FragColor = texel;
-                        return;
-                    }
-
-                    // Convert UV to pixel coordinates (WebGL uses bottom-left origin)
-                    vec2 pixelCoord = vUv * resolution;
-
-                    // Convert tile bounds from top-left origin to bottom-left origin to match WebGL
-                    // Original bounds: (x, y, width, height) with (0,0) at top-left
-                    // WebGL coords: (0,0) at bottom-left
-                    float tileLeft = currentTileBounds.x;
-                    float tileBottom = resolution.y - (currentTileBounds.y + currentTileBounds.w); // Flip Y
-                    float tileRight = currentTileBounds.x + currentTileBounds.z;
-                    float tileTop = resolution.y - currentTileBounds.y; // Flip Y
-
-                    // Check if we're within the current tile bounds (using WebGL coordinates)
-                    bool inTileX = pixelCoord.x >= tileLeft && pixelCoord.x < tileRight;
-                    bool inTileY = pixelCoord.y >= tileBottom && pixelCoord.y < tileTop;
-
-                    if (inTileX && inTileY) {
-                        // We're inside the current tile, check if we're on the border
-                        vec2 distanceFromEdge = min(
-                            vec2(pixelCoord.x - tileLeft, pixelCoord.y - tileBottom),  // Distance from left/bottom edge
-                            vec2(tileRight - pixelCoord.x, tileTop - pixelCoord.y)     // Distance from right/top edge
-                        );
-
-                        float minDistance = min(distanceFromEdge.x, distanceFromEdge.y);
-
-                        if (minDistance < borderWidthPixels) {
-                            gl_FragColor = vec4(highlightColor, 1.0);
-                        } else {
-                            gl_FragColor = texel;
-                        }
-                    } else {
-                        gl_FragColor = texel;
-                    }
-                }
-            `
-		} );
-
-		this.fsQuad = new FullScreenQuad( this.material );
-
-		// Store renderer reference (will be set during initialization if needed)
-		this.renderer = options.renderer || null;
-
-		// Pass properties
-		this.renderToScreen = false; // Will be set by EffectComposer
-		this.clear = false; // Don't clear buffer - we're compositing
-
-	}
-
-	/**
-	 * Setup event listeners for pipeline events
-	 */
-	setupEventListeners() {
-
-		// Listen for tile changes
-		this.on( 'tile:changed', ( data ) => {
-
-			if ( data && data.tileBounds ) {
-
-				this.setCurrentTileBounds( data.tileBounds );
-				this.uniforms.tileIndex.value = data.tileIndex !== undefined ? data.tileIndex : - 1;
-				this.uniforms.renderMode.value = data.renderMode !== undefined ? data.renderMode : 0;
-
+		// Render target
+		this.outputTarget = new RenderTarget(
+			options.width || 1, options.height || 1, {
+				type: HalfFloatType,
+				format: RGBAFormat,
+				minFilter: NearestFilter,
+				magFilter: NearestFilter,
+				depthBuffer: false,
+				stencilBuffer: false
 			}
-
-		} );
-
-		// Listen for render mode changes
-		this.on( 'renderMode:changed', ( data ) => {
-
-			if ( data && data.mode !== undefined ) {
-
-				this.uniforms.renderMode.value = data.mode;
-
-			}
-
-		} );
-
-	}
-
-	/**
-	 * Update the current tile bounds for highlighting
-	 * @param {Object} bounds - Tile bounds {x, y, width, height} in top-left coordinate system
-	 */
-	setCurrentTileBounds( bounds ) {
-
-		this.uniforms.currentTileBounds.value.set(
-			bounds.x,
-			bounds.y,
-			bounds.width,
-			bounds.height
 		);
 
+		this._buildMaterial();
+
 	}
 
-	/**
-	 * Main render method - called by pipeline each frame
-	 * @param {PipelineContext} context - Pipeline context
-	 * @param {THREE.WebGLRenderTarget} writeBuffer - Output buffer
-	 */
-	render( context, writeBuffer ) {
+	_buildMaterial() {
+
+		const inputTex = this._inputTexNode;
+		const renderMode = this.renderMode;
+		const tileIndex = this.tileIndex;
+		const borderWidth = this.borderWidth;
+		const highlightColor = this.highlightColor;
+		const boundsX = this.tileBoundsX;
+		const boundsY = this.tileBoundsY;
+		const boundsW = this.tileBoundsW;
+		const boundsH = this.tileBoundsH;
+		const resW = this.resW;
+		const resH = this.resH;
+
+		const shader = Fn( () => {
+
+			const coord = uv();
+			const color = inputTex.sample( coord ).xyz;
+			const result = vec4( color, 1.0 ).toVar();
+
+			// Only draw borders in tiled render mode with valid tile index
+			If( renderMode.equal( 1 ).and( tileIndex.greaterThanEqual( 0 ) ), () => {
+
+				// Pixel position
+				const px = coord.x.mul( resW );
+				const py = coord.y.mul( resH );
+
+				// Tile bounds in pixel space
+				// NormalDepthStage & PathTracer use top-left origin; GPU uses bottom-left
+				// Convert: y_gpu = resH - (boundsY + boundsH)
+				const tileLeft = boundsX;
+				const tileBottom = resH.sub( boundsY.add( boundsH ) );
+				const tileRight = boundsX.add( boundsW );
+				const tileTop = resH.sub( boundsY );
+
+				// Check if pixel is within tile bounds
+				const inTile = px.greaterThanEqual( tileLeft )
+					.and( px.lessThanEqual( tileRight ) )
+					.and( py.greaterThanEqual( tileBottom ) )
+					.and( py.lessThanEqual( tileTop ) );
+
+				If( inTile, () => {
+
+					// Distance to nearest edge
+					const dLeft = abs( px.sub( tileLeft ) );
+					const dRight = abs( px.sub( tileRight ) );
+					const dBottom = abs( py.sub( tileBottom ) );
+					const dTop = abs( py.sub( tileTop ) );
+
+					const minDist = min( min( dLeft, dRight ), min( dBottom, dTop ) );
+
+					// Draw border
+					If( minDist.lessThan( borderWidth ), () => {
+
+						result.assign( vec4( highlightColor, 1.0 ) );
+
+					} );
+
+				} );
+
+			} );
+
+			return result;
+
+		} );
+
+		this.material = new MeshBasicNodeMaterial();
+		this.material.colorNode = shader();
+		this.material.toneMapped = false;
+		this.quad = new QuadMesh( this.material );
+
+	}
+
+	setupEventListeners() {
+
+		this.on( 'tile:changed', ( data ) => {
+
+			if ( ! data ) return;
+			if ( data.tileIndex !== undefined ) this.tileIndex.value = data.tileIndex;
+			if ( data.tiles !== undefined ) this.tiles.value = data.tiles;
+			if ( data.bounds ) {
+
+				this.tileBoundsX.value = data.bounds.x || 0;
+				this.tileBoundsY.value = data.bounds.y || 0;
+				this.tileBoundsW.value = data.bounds.width || 0;
+				this.tileBoundsH.value = data.bounds.height || 0;
+
+			}
+
+		} );
+
+		this.on( 'renderMode:changed', ( data ) => {
+
+			if ( data && data.renderMode !== undefined ) {
+
+				this.renderMode.value = data.renderMode;
+
+			}
+
+		} );
+
+	}
+
+	render( context ) {
 
 		if ( ! this.enabled ) return;
 
-		// Get renderer from context or use stored reference
-		const renderer = this.renderer || context.renderer;
+		// Resolve input with fallback chain
+		const inputTex = context.getTexture( 'edgeFiltering:output' )
+			|| context.getTexture( 'asvgf:output' )
+			|| context.getTexture( 'pathtracer:color' );
 
-		if ( ! renderer ) {
+		if ( ! inputTex ) return;
 
-			this.warn( 'No renderer available' );
+		// If not in tiled mode, pass through
+		if ( this.renderMode.value !== 1 || this.tileIndex.value < 0 ) {
+
+			context.setTexture( 'tileHighlight:output', inputTex );
 			return;
 
 		}
 
-		// Read input texture from context
-		// TileHighlightStage should render AFTER all other passes
-		// So it reads from the last enabled filter stage
-		// Priority: EdgeFiltering > ASVGF > PathTracer
-		let inputTexture = context.getTexture( 'edgeFiltering:output' );
-		if ( ! inputTexture ) {
+		// Auto-size
+		const img = inputTex.image;
+		if ( img && img.width > 0 && img.height > 0 ) {
 
-			inputTexture = context.getTexture( 'asvgf:output' );
+			if ( img.width !== this.outputTarget.width ||
+				img.height !== this.outputTarget.height ) {
 
-		}
+				this.setSize( img.width, img.height );
 
-		if ( ! inputTexture ) {
-
-			inputTexture = context.getTexture( 'pathtracer:color' );
+			}
 
 		}
 
-		if ( ! inputTexture ) {
+		this._inputTexNode.value = inputTex;
 
-			this.warn( 'No input texture available in context' );
-			return;
+		this.renderer.setRenderTarget( this.outputTarget );
+		this.quad.render( this.renderer );
 
-		}
-
-		this.uniforms.tDiffuse.value = inputTexture;
-
-		// Update state from context
-		const renderMode = context.getState( 'renderMode' );
-		if ( renderMode !== undefined ) {
-
-			this.uniforms.renderMode.value = renderMode;
-
-		}
-
-		const tiles = context.getState( 'tiles' );
-		if ( tiles !== undefined ) {
-
-			this.uniforms.tiles.value = tiles;
-
-		}
-
-		// Render to writeBuffer or screen
-		if ( this.renderToScreen ) {
-
-			renderer.setRenderTarget( null );
-			this.fsQuad.render( renderer );
-
-		} else if ( writeBuffer ) {
-
-			renderer.setRenderTarget( writeBuffer );
-			if ( this.clear ) renderer.clear();
-			this.fsQuad.render( renderer );
-
-		}
+		context.setTexture( 'tileHighlight:output', this.outputTarget.texture );
 
 	}
 
-	/**
-	 * Resize handler
-	 * @param {number} width - New width
-	 * @param {number} height - New height
-	 */
 	setSize( width, height ) {
 
-		this.uniforms.resolution.value.set( width, height );
+		this.outputTarget.setSize( width, height );
+		this.resW.value = width;
+		this.resH.value = height;
 
 	}
 
-	/**
-	 * Dispose resources
-	 */
+	reset() {
+
+		// No temporal state
+
+	}
+
 	dispose() {
 
-		if ( this.material ) {
-
-			this.material.dispose();
-
-		}
-
-		if ( this.fsQuad ) {
-
-			this.fsQuad.dispose();
-
-		}
-
-	}
-
-	// ===== PUBLIC API (for compatibility with existing code) =====
-
-	/**
-	 * Set highlight color
-	 * @param {THREE.Vector3|Array} color - RGB color
-	 */
-	setHighlightColor( color ) {
-
-		if ( Array.isArray( color ) ) {
-
-			this.uniforms.highlightColor.value.set( color[ 0 ], color[ 1 ], color[ 2 ] );
-
-		} else {
-
-			this.uniforms.highlightColor.value.copy( color );
-
-		}
-
-	}
-
-	/**
-	 * Set border width in pixels
-	 * @param {number} width - Border width
-	 */
-	setBorderWidth( width ) {
-
-		this.uniforms.borderWidthPixels.value = width;
-
-	}
-
-	/**
-	 * Set number of tiles
-	 * @param {number} tiles - Tiles per side
-	 */
-	setTiles( tiles ) {
-
-		this.uniforms.tiles.value = tiles;
+		this.material?.dispose();
+		this.outputTarget?.dispose();
 
 	}
 

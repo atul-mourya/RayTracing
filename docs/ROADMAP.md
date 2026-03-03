@@ -12,17 +12,23 @@
 ## 🚀 High Impact Features (Priority 1)
 
 ### WebGPU Migration & Performance
-- [ ] **WebGPU Compute Shaders Implementation**
-  - [ ] Port core path tracing to WebGPU compute for 3-5x performance boost
-  - [ ] Implement multi-threaded BVH construction using compute shaders
-  - [ ] Add GPU-accelerated denoising passes
+- [x] **WebGPU Backend Integration (TSL)**
+  - [x] Port core path tracing to WebGPU via TSL (Three Shading Language → compiles to WGSL)
+  - [x] App proxy pattern (`getApp()` / `subscribeApp()`) for store/UI layer
+  - [x] WebGL backend removed — WebGPU is sole renderer
+  - [x] Full material system port (Disney BSDF, emissive sampling)
+  - [x] InteractionManager support (click-to-select, focus picking)
+  - [x] Full rendering pipeline with stages (ASVGF, adaptive sampling, edge filtering, etc.)
+
+- [ ] **WebGPU Compute Shaders (Phase 2)**
+  - [ ] Compute shader BVH construction for 3-5x build speedup
+  - [ ] GPU-accelerated denoising passes (ASVGF port to TSL)
   - [ ] Support WebGPU ray tracing extensions when available
-  - [ ] Fallback system for WebGL2 compatibility
 
 - [ ] **Advanced Hybrid Rendering Pipeline**
   - [ ] Rasterization + path tracing fusion for interactive previews
   - [ ] Temporal upsampling from low-res path tracing
-  - [ ] Motion vector generation for better temporal stability
+  - [x] Motion vector generation for better temporal stability
   - [ ] Depth-aware temporal accumulation
 
 ### Next-Generation Rendering Features
@@ -197,9 +203,9 @@
 - **Education:** Used in 50+ courses/tutorials
 
 ### Technical Milestones
-- **Q2 2025:** WebGPU beta release
+- **Q2 2025:** ~~WebGPU beta release~~ ✅ WebGPU TSL backend shipped, WebGL removed
 - **Q3 2025:** Volumetric rendering
-- **Q4 2025:** Production pipeline tools
+- **Q4 2025:** Production pipeline tools, WebGPU compute shaders (ASVGF/denoiser port)
 - **Q1 2026:** Mobile optimization
 
 ---
@@ -207,19 +213,19 @@
 ## 📊 Implementation Strategy
 
 ### Phase 1 (Immediate - 3 months)
-1. WebGPU proof of concept
-2. UI/UX improvements 
+1. ~~WebGPU proof of concept~~ ✅ **Completed** — Full TSL backend with dual-canvas architecture
+2. UI/UX improvements
 3. Critical bug fixes
 4. Performance profiling setup
 
 ### Phase 2 (Short term - 6 months)  
 1. Volumetric rendering
 2. Advanced materials
-3. Asset pipeline
+3. WebGPU compute shaders (ASVGF port, BVH construction)
 4. Community features
 
 ### Phase 3 (Medium term - 12 months)
-1. Full WebGPU migration
+1. ~~Full WebGPU migration~~ ✅ **Core migration done** — compute shader enhancements ongoing
 2. Mobile optimization  
 3. Desktop applications
 4. Production tools
@@ -262,8 +268,8 @@
 
 ---
 
-*Last Updated: January 2025*
-*Current Version: 1.59.4*
+*Last Updated: June 2025*
+*Current Version: 1.60.0*
 *Project Demo: <https://atul-mourya.github.io/RayTracing/>*
 
 **Contributing:** See [CONTRIBUTING.md] for development guidelines

@@ -49,13 +49,12 @@ async function loadMeshoptEncoder() {
  */
 class AssetLoader extends EventDispatcher {
 
-	constructor( scene, camera, controls, pathTracingPass ) {
+	constructor( scene, camera, controls ) {
 
 		super();
 		this.scene = scene;
 		this.camera = camera;
 		this.controls = controls;
-		this.pathTracingPass = pathTracingPass;
 		this.targetModel = null;
 		this.floorPlane = null;
 		this.sceneScale = 1.0;
@@ -300,15 +299,6 @@ class AssetLoader extends EventDispatcher {
 
 		this.scene.background = texture;
 		this.scene.environment = texture;
-		if ( this.pathTracingPass ) {
-
-			this.pathTracingPass.material.uniforms.environmentIntensity.value = this.scene.environmentIntensity;
-			this.pathTracingPass.material.uniforms.backgroundIntensity.value = this.scene.backgroundIntensity;
-			this.pathTracingPass.material.uniforms.environment.value = texture;
-			this.pathTracingPass.setEnvironmentMap( texture );
-			this.pathTracingPass.reset();
-
-		}
 
 	}
 
@@ -1186,7 +1176,7 @@ class AssetLoader extends EventDispatcher {
 		const sceneScale = maxDim;
 
 		// Rebuild path tracing
-		await this.setupPathTracing( model, sceneScale, maxDim );
+		await this.setupPathTracing( model, sceneScale );
 
 		// Dispatch event with cameras if found
 		this.dispatchEvent( {
@@ -1260,7 +1250,6 @@ class AssetLoader extends EventDispatcher {
 						userData.width,
 						userData.height
 					);
-					light.rotation.x = Math.PI;
 					light.position.z = - 2;
 					light.name = userData.name;
 					object.add( light );
@@ -1288,20 +1277,9 @@ class AssetLoader extends EventDispatcher {
 
 	}
 
-	async setupPathTracing( model, sceneScale, maxDim ) {
+	async setupPathTracing( model, sceneScale ) {
 
-		if ( this.pathTracingPass ) {
-
-			await this.pathTracingPass.build( this.scene );
-			this.sceneScale = sceneScale;
-			this.camera.near = maxDim / 100;
-			this.camera.far = maxDim * 100;
-			this.pathTracingPass.material.uniforms.focusDistance.value = DEFAULT_STATE.focusDistance * ( sceneScale / 1.0 );
-			// Set the scene scale uniform for proper DOF aperture scaling
-			this.pathTracingPass.material.uniforms.sceneScale.value = sceneScale;
-			this.pathTracingPass.reset();
-
-		}
+		this.sceneScale = sceneScale;
 
 	}
 

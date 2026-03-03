@@ -324,7 +324,7 @@ export class PathTracerUtils {
 				Math.pow( x - centerPoint.x, 2 ) +
                 Math.pow( y - centerPoint.y, 2 )
 			);
-			const angle = Math.atan2( y - centerPoint.y, x - centerPoint.x );
+			const angle = Math.atan( y - centerPoint.y, x - centerPoint.x );
 
 			tilePositions.push( {
 				index: i,

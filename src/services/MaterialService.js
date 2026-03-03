@@ -1,4 +1,5 @@
 import { Color } from 'three';
+import { getApp } from '@/core/appProxy';
 
 /**
  * Service class for handling material operations
@@ -219,7 +220,8 @@ export class MaterialService {
 	 */
 	static updatePathTracerMaterial( selectedObject ) {
 
-		if ( ! window.pathTracerApp || ! ( selectedObject && selectedObject.material ) ) {
+		const app = getApp();
+		if ( ! app || ! ( selectedObject && selectedObject.material ) ) {
 
 			console.warn( 'PathTracer app or selected object material not available' );
 			return;
@@ -237,34 +239,13 @@ export class MaterialService {
 			? selectedObject.userData.materialIndex
 			: 0;
 
-		// For API materials, we need to use the complete material update (updateMaterial)
-		// because API materials only have partial properties
-		if ( window.pathTracerApp && window.pathTracerApp.pathTracingPass && window.pathTracerApp.pathTracingPass.updateMaterial ) {
-
-			// Use updateMaterial for complete material reconstruction from API data
-			window.pathTracerApp.pathTracingPass.updateMaterial(
-				objMaterialIndex,
-				selectedObject.material
-			);
-
-		} else if ( window.pathTracerApp && window.pathTracerApp.pathTracingPass && window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture ) {
-
-			// Legacy fallback
-			window.pathTracerApp.pathTracingPass.rebuildMaterialDataTexture(
-				objMaterialIndex,
-				selectedObject.material
-			);
-
-		} else {
-
-			console.warn( 'PathTracer material update function not found' );
-
-		}
+		// Use app-level proxy method for material update
+		app.updateMaterial( objMaterialIndex, selectedObject.material );
 
 		// Reset renderer to apply changes
-		if ( window.pathTracerApp && window.pathTracerApp.reset ) {
+		if ( app.reset ) {
 
-			window.pathTracerApp.reset();
+			app.reset();
 
 		}
 

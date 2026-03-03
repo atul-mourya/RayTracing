@@ -103,7 +103,7 @@ export class LightDataTransfer {
 		const height = light.height * worldScale.y * 0.5;
 
 		let u = new Vector3( width, 0, 0 ).applyQuaternion( worldQuaternion );
-		let v = new Vector3( 0, height, 0 ).applyQuaternion( worldQuaternion );
+		let v = new Vector3( 0, - height, 0 ).applyQuaternion( worldQuaternion );
 
 		// Calculate importance for sorting
 		const importance = this.calculateLightImportance( light, 'area' );
@@ -241,11 +241,11 @@ export class LightDataTransfer {
 
 	updateShaderUniforms( material ) {
 
-		// Use size constants to calculate counts
-		const directionalCount = this.lightData.directional.length;
-		const areaCount = this.lightData.rectArea.length;
-		const pointCount = this.lightData.point.length;
-		const spotCount = this.lightData.spot.length;
+		// Divide flat array lengths by per-light stride to get actual light counts
+		const directionalCount = Math.floor( this.lightData.directional.length / 8 );
+		const areaCount = Math.floor( this.lightData.rectArea.length / 13 );
+		const pointCount = Math.floor( this.lightData.point.length / 7 );
+		const spotCount = Math.floor( this.lightData.spot.length / 11 );
 
 		// Update light counts in shader defines
 		material.defines.MAX_DIRECTIONAL_LIGHTS = directionalCount;

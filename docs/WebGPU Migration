@@ -1,0 +1,317 @@
+
+## 🔄 WebGPU Migration - Gap Analysis & Action Items
+
+### Overview
+Migration from WebGL GLSL shaders to WebGPU TSL (Three.js Shading Language).
+
+**Current State:**
+- WebGL: ~22 shader files, 9 rendering stages, full Disney BSDF, ~110+ configurable parameters
+- WebGPU: ~18 TSL files, 4 stages, basic path tracing with partial BSDF
+
+---
+
+### Phase 1: Core Path Tracing (P0 - Critical)
+
+#### 1.1 BVH Traversal Optimization
+**Gap:** WebGL has optimized stack-based BVH with visibility caching (~30% speedup). WebGPU has basic 16-level traversal.
+
+- [ ] Port visibility caching from `bvhtraverse.fs` to TSL
+- [ ] Implement rope-based skip pointers for faster traversal
+- [ ] Add BVH traversal statistics for debugging (triangle/box test counts)
+- [ ] Optimize memory access patterns for GPU cache efficiency
+
+**Files to reference:**
+- `src/core/Shaders/bvhtraverse.fs` → `src/core/WebGPU/TSL/BVHTraversal.js`
+
+#### 1.2 Material Texture Support
+**Gap:** WebGL supports 8 texture types with UV transforms. WebGPU has basic albedo only.
+
+- [ ] Implement texture sampling for all material maps:
+  - [ ] Diffuse/Albedo map
+  - [ ] Normal map with tangent space transform
+  - [ ] Roughness map
+  - [ ] Metalness map
+  - [ ] Emission map with intensity
+  - [ ] Alpha/Opacity map
+  - [ ] Ambient occlusion map
+  - [ ] Specular map
+- [ ] Implement UV coordinate transforms (scale, offset, rotation)
+- [ ] Add texture array support for multi-material scenes
+- [ ] Implement texture LOD/mipmap selection
+
+**Files to reference:**
+- `src/core/Shaders/material_texture.fs` → `src/core/WebGPU/TSL/Material.js`
+
+#### 1.3 Direct Lighting Integration
+**Gap:** WebGL has full direct lighting with MIS. WebGPU missing entirely.
+
+- [ ] Implement direct light sampling from emissive triangles
+- [ ] Add area light sampling with proper PDF
+- [ ] Implement shadow ray optimization
+- [ ] Add multiple importance sampling (MIS) for direct lighting
+- [ ] Port light selection probability from `lights_selection.fs`
+
+**Files to reference:**
+- `src/core/Shaders/lights_direct.fs`
+- `src/core/Shaders/lights_emissive.fs`
+- `src/core/Shaders/lights_selection.fs`
+
+---
+
+### Phase 2: Material System (P0 - Critical)
+
+#### 2.1 Full Disney BSDF Integration
+**Gap:** WebGPU has partial Disney BSDF in `DisneyBSDF.js`. Missing full integration with path tracer.
+
+- [ ] Complete Disney BSDF parameter support:
+  - [x] Base color, metallic, roughness (implemented)
+  - [x] Clearcoat, clearcoat roughness (implemented)
+  - [x] Transmission, IOR (implemented)
+  - [x] Sheen, sheen tint (implemented)
+  - [ ] Anisotropic, anisotropic rotation
+  - [x] Subsurface (partial)
+  - [x] Iridescence (partial - needs verification)
+  - [ ] Specular intensity, specular tint
+- [ ] Integrate `DisneyBSDF.js` sampling into `PathTracingStage.js`
+- [ ] Replace basic GGX/diffuse with full Disney BSDF evaluation
+- [ ] Add dispersion/chromatic aberration support
+
+**Files to reference:**
+- `src/core/Shaders/material_disney.fs` → `src/core/WebGPU/TSL/DisneyBSDF.js`
+- `src/core/Shaders/material_sampling.fs` → `src/core/WebGPU/TSL/BSDF.js`
+
+#### 2.2 Multi-Lobe Sampling
+**Gap:** WebGL has probabilistic lobe selection. WebGPU samples single lobe.
+
+- [ ] Implement lobe selection probabilities based on material properties
+- [ ] Add diffuse vs specular vs transmission lobe selection
+- [ ] Port fresnel-based lobe weights from `material_fresnel.fs`
+- [ ] Implement proper PDF computation for combined BSDF
+
+**Files to reference:**
+- `src/core/Shaders/material_fresnel.fs`
+- `src/core/Shaders/material_sampling.fs`
+
+---
+
+### Phase 3: Environment & Lighting (P1 - High)
+
+#### 3.1 Environment Map Integration
+**Gap:** WebGPU has `Environment.js` with CDF sampling but not integrated into path tracer.
+
+- [ ] Connect `createImportanceSampledEnvironment` to `PathTracingStage.js`
+- [ ] Generate CDF textures from loaded HDR environment maps
+- [ ] Add environment rotation support
+- [ ] Implement environment intensity uniform
+- [ ] Add MIS weight computation for environment vs BSDF sampling
+
+**Files to reference:**
+- `src/core/Shaders/environment.fs` → `src/core/WebGPU/TSL/Environment.js`
+
+#### 3.2 Procedural Sky Model
+**Gap:** WebGL has Preetham atmospheric scattering. WebGPU has simple gradient only.
+
+- [ ] Port Preetham sky model to TSL
+- [ ] Add sun direction and intensity controls
+- [ ] Implement sun disk rendering
+- [ ] Add turbidity and ground color parameters
+- [ ] Support smooth transition between sky and environment map
+
+**Files to reference:**
+- `src/core/Shaders/environment.fs` (Preetham implementation)
+
+#### 3.3 Area Light Support
+**Gap:** WebGL has rectangle/sphere light primitives. WebGPU has none.
+
+- [ ] Implement analytical area light sampling
+- [ ] Add rectangle light with proper solid angle PDF
+- [ ] Add sphere/disk light support
+- [ ] Implement light visibility testing
+
+---
+
+### Phase 4: Denoising Pipeline (P1 - High)
+
+#### 4.1 ASVGF Enhancement
+**Gap:** WebGPU has basic ASVGF in `WebGPUASVGFStage.js`. Missing variance pass and motion vectors.
+
+- [ ] Implement proper variance estimation pass
+- [ ] Add temporal variance tracking per pixel
+- [ ] Implement motion vector generation for temporal reprojection
+- [ ] Add disocclusion detection and handling
+- [ ] Port A-trous wavelet parameters from WebGL
+- [ ] Implement depth-aware edge stopping
+
+**Files to reference:**
+- `src/core/Stages/ASVGFStage.js` → `src/core/WebGPU/Stages/WebGPUASVGFStage.js`
+- `src/core/Stages/VarianceEstimationStage.js` (new stage needed)
+
+#### 4.2 Additional Denoising Stages
+**Gap:** WebGL has multiple denoising options. WebGPU has ASVGF only.
+
+- [ ] Port `EdgeAwareFilteringStage.js` to WebGPU
+- [ ] Port `BilateralFilteringStage.js` to WebGPU
+- [ ] Implement denoiser quality presets (performance/balanced/quality)
+- [ ] Add toggle between ASVGF and edge-aware filtering
+
+**Files to reference:**
+- `src/core/Stages/EdgeAwareFilteringStage.js`
+- `src/core/Stages/BilateralFilteringStage.js`
+
+#### 4.3 Motion Vector Stage
+**Gap:** WebGL has `MotionVectorStage.js`. WebGPU missing entirely.
+
+- [ ] Implement motion vector computation from camera matrices
+- [ ] Add per-pixel motion vector output
+- [ ] Support animated/moving objects (future)
+- [ ] Integrate with ASVGF temporal reprojection
+
+**Files to reference:**
+- `src/core/Stages/MotionVectorStage.js`
+
+---
+
+### Phase 5: Adaptive & Progressive Rendering (P2 - Medium)
+
+#### 5.1 Adaptive Sampling Stage
+**Gap:** WebGL has variance-guided sampling. WebGPU missing entirely.
+
+- [ ] Port `AdaptiveSamplingStage.js` to WebGPU/TSL
+- [ ] Implement per-pixel variance computation
+- [ ] Add sample count map generation
+- [ ] Implement variance threshold for convergence detection
+- [ ] Add sample redistribution based on variance
+
+**Files to reference:**
+- `src/core/Stages/AdaptiveSamplingStage.js`
+
+#### 5.2 Tile-Based Rendering
+**Gap:** WebGL has tile manager with priority. WebGPU has basic full-frame only.
+
+- [ ] Implement tile manager for progressive refinement
+- [ ] Add tile priority based on variance/interest
+- [ ] Port `TileHighlightStage.js` for visual feedback
+- [ ] Implement tile convergence tracking
+
+**Files to reference:**
+- `src/core/TileManager.js`
+- `src/core/Stages/TileHighlightStage.js`
+
+#### 5.3 Auto Exposure
+**Gap:** WebGL has `AutoExposureStage.js`. WebGPU missing.
+
+- [ ] Implement luminance histogram computation
+- [ ] Add exposure adaptation algorithm
+- [ ] Support manual exposure override
+- [ ] Implement eye adaptation speed control
+
+**Files to reference:**
+- `src/core/Stages/AutoExposureStage.js`
+
+---
+
+### Phase 6: MRT & G-Buffer (P2 - Medium)
+
+#### 6.1 Multiple Render Targets
+**Gap:** WebGL outputs color, normal/depth, albedo, motion. WebGPU has color only.
+
+- [ ] Enable MRT output in `PathTracingStage.js`
+- [ ] Output normal buffer (world space normals)
+- [ ] Output depth buffer (linear depth)
+- [ ] Output albedo buffer (first hit albedo)
+- [ ] Output material ID buffer (for segmentation)
+- [ ] Output emission buffer
+
+**Files to reference:**
+- `src/core/Shaders/pathtracer.fs` (MRT outputs)
+
+#### 6.2 G-Buffer Utilities
+**Gap:** WebGPU lacks G-buffer packing utilities.
+
+- [ ] Implement normal encoding/decoding (octahedral mapping)
+- [ ] Add depth packing for precision
+- [ ] Implement material property packing
+
+---
+
+### Phase 7: Pipeline Integration (P1 - High)
+
+#### 7.1 Event-Driven Communication
+**Gap:** WebGPU stages not fully integrated with event bus.
+
+- [ ] Connect `WebGPUPathTracerStage.js` to pipeline event bus
+- [ ] Emit `pathtracer:frameComplete` with proper data
+- [ ] Listen for `pipeline:reset`, `camera:moved` events
+- [ ] Implement `asvgf:reset` event handling
+
+**Files to reference:**
+- `src/core/Pipeline/EventEmitter.js`
+- `src/core/Stages/PathTracerStage.js`
+
+#### 7.2 Pipeline Context Sharing
+**Gap:** WebGPU stages not publishing textures to context properly.
+
+- [ ] Publish all output textures to `PipelineContext`
+- [ ] Read input textures from context (not direct references)
+- [ ] Implement proper texture lifecycle management
+
+#### 7.3 UI State Synchronization
+**Gap:** WebGPU app not connected to Zustand stores.
+
+- [ ] Connect `WebGPUPathTracerApp.js` to `usePathTracerStore`
+- [ ] Implement all parameter handlers (bounces, samples, etc.)
+- [ ] Add `window.webgpuPathTracerApp` for store synchronization
+- [ ] Support seamless switching between WebGL/WebGPU backends
+
+---
+
+### Phase 8: Advanced Features (P3 - Low)
+
+#### 8.1 Russian Roulette
+**Gap:** WebGL has adaptive RR. WebGPU has basic fixed probability.
+
+- [ ] Implement throughput-based termination probability
+- [ ] Add minimum bounce count before RR kicks in
+- [ ] Ensure unbiased path contribution
+
+#### 8.2 Next Event Estimation (NEE)
+**Gap:** WebGL has full NEE. WebGPU has basic implementation.
+
+- [ ] Implement proper NEE with shadow rays
+- [ ] Add MIS between NEE and BSDF sampling
+- [ ] Support both environment and emissive NEE
+
+#### 8.3 Firefly Suppression
+**Gap:** Not implemented in either. Listed in main TODO.
+
+- [ ] Implement variance-based firefly clamping
+- [ ] Add per-pixel history for outlier detection
+
+---
+
+### Migration Checklist Summary
+
+**P0 - Critical (Core Functionality):**
+- [ ] BVH traversal optimization
+- [ ] Full material texture support
+- [ ] Direct lighting with MIS
+- [ ] Full Disney BSDF integration
+- [ ] Multi-lobe sampling
+
+**P1 - High (Quality & Pipeline):**
+- [ ] Environment map integration
+- [ ] ASVGF enhancement with motion vectors
+- [ ] Pipeline event/context integration
+- [ ] UI state synchronization
+
+**P2 - Medium (Progressive Features):**
+- [ ] Adaptive sampling
+- [ ] Tile-based rendering
+- [ ] Auto exposure
+- [ ] MRT outputs
+
+**P3 - Low (Advanced):**
+- [ ] Procedural sky
+- [ ] Area lights
+- [ ] Firefly suppression
+- [ ] Additional denoising stages

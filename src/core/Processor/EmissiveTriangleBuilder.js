@@ -298,6 +298,37 @@ export class EmissiveTriangleBuilder {
 	}
 
 	/**
+	 * Create raw Float32Array for storage buffer (no 2D DataTexture padding).
+	 * Each emissive entry is 1 vec4: R=triangleIndex, G=power, B=cdf, A=unused.
+	 * @returns {Float32Array} Tightly-packed emissive data
+	 */
+	createEmissiveRawData() {
+
+		if ( this.emissiveCount === 0 ) {
+
+			return new Float32Array( 4 ); // 1 dummy vec4
+
+		}
+
+		const data = new Float32Array( this.emissiveCount * 4 );
+
+		for ( let i = 0; i < this.emissiveCount; i ++ ) {
+
+			const offset = i * 4;
+			data[ offset + 0 ] = this.emissiveIndicesArray[ i ]; // R: triangle index
+			data[ offset + 1 ] = this.emissivePowerArray[ i ]; // G: power
+			data[ offset + 2 ] = this.cdfArray[ i ]; // B: CDF value
+			data[ offset + 3 ] = 0; // A: unused
+
+		}
+
+		console.log( `[EmissiveTriangleBuilder] Created emissive raw data: ${this.emissiveCount} entries (${data.byteLength} bytes)` );
+
+		return data;
+
+	}
+
+	/**
 	 * Get statistics for debugging
 	 */
 	getStats() {

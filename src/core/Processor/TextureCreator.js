@@ -1315,6 +1315,71 @@ export default class TextureCreator {
 
 	}
 
+	/**
+	 * Build raw material Float32Array without DataTexture wrapping.
+	 * Used by WebGPU backend which feeds data into storage buffers.
+	 */
+	createMaterialRawData( materials ) {
+
+		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
+		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
+		const totalMaterials = materials.length;
+
+		const size = totalMaterials * dataLengthPerMaterial;
+		const data = new Float32Array( size );
+
+		for ( let i = 0; i < totalMaterials; i ++ ) {
+
+			const mat = materials[ i ];
+			const stride = i * dataLengthPerMaterial;
+
+			const mapMatrix = mat.mapMatrix ?? DEFAULT_TEXTURE_MATRIX;
+			const normalMapMatrices = mat.normalMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+			const roughnessMapMatrices = mat.roughnessMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+			const metalnessMapMatrices = mat.metalnessMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+			const emissiveMapMatrices = mat.emissiveMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+			const bumpMapMatrices = mat.bumpMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+			const displacementMapMatrices = mat.displacementMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
+
+			const materialData = [
+				mat.color.r, 				mat.color.g, 				mat.color.b, 				mat.metalness,
+				mat.emissive.r, 			mat.emissive.g, 			mat.emissive.b, 			mat.roughness,
+				mat.ior, 					mat.transmission, 			mat.thickness, 				mat.emissiveIntensity,
+				mat.attenuationColor.r, 	mat.attenuationColor.g, 	mat.attenuationColor.b, 	mat.attenuationDistance,
+				mat.dispersion, 			mat.visible, 				mat.sheen, 					mat.sheenRoughness,
+				mat.sheenColor.r, 			mat.sheenColor.g, 			mat.sheenColor.b, 			1,
+				mat.specularIntensity, 		mat.specularColor.r, 		mat.specularColor.g, 		mat.specularColor.b,
+				mat.iridescence, 			mat.iridescenceIOR, 		mat.iridescenceThicknessRange[ 0 ], mat.iridescenceThicknessRange[ 1 ],
+				mat.map, 					mat.normalMap, 				mat.roughnessMap, 			mat.metalnessMap,
+				mat.emissiveMap, 			mat.bumpMap, 				mat.clearcoat, 				mat.clearcoatRoughness,
+				mat.opacity, 				mat.side, 					mat.transparent, 			mat.alphaTest,
+				mat.alphaMode, 				mat.depthWrite, 			mat.normalScale?.x ?? 1, 	mat.normalScale?.y ?? 1,
+				mat.bumpScale,				mat.displacementScale,		mat.displacementMap,		0,
+				mapMatrix[ 0 ], 			mapMatrix[ 1 ], 			mapMatrix[ 2 ], 			mapMatrix[ 3 ],
+				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			1,
+				normalMapMatrices[ 0 ], 	normalMapMatrices[ 1 ], 	normalMapMatrices[ 2 ], 	normalMapMatrices[ 3 ],
+				normalMapMatrices[ 4 ], 	normalMapMatrices[ 5 ], 	normalMapMatrices[ 6 ], 	1,
+				roughnessMapMatrices[ 0 ], 	roughnessMapMatrices[ 1 ], 	roughnessMapMatrices[ 2 ], 	roughnessMapMatrices[ 3 ],
+				roughnessMapMatrices[ 4 ], 	roughnessMapMatrices[ 5 ], 	roughnessMapMatrices[ 6 ], 	1,
+				metalnessMapMatrices[ 0 ], 	metalnessMapMatrices[ 1 ], 	metalnessMapMatrices[ 2 ], 	metalnessMapMatrices[ 3 ],
+				metalnessMapMatrices[ 4 ], 	metalnessMapMatrices[ 5 ], 	metalnessMapMatrices[ 6 ], 	1,
+				emissiveMapMatrices[ 0 ], 	emissiveMapMatrices[ 1 ], 	emissiveMapMatrices[ 2 ], 	emissiveMapMatrices[ 3 ],
+				emissiveMapMatrices[ 4 ], 	emissiveMapMatrices[ 5 ], 	emissiveMapMatrices[ 6 ], 	1,
+				bumpMapMatrices[ 0 ], 		bumpMapMatrices[ 1 ], 		bumpMapMatrices[ 2 ], 		bumpMapMatrices[ 3 ],
+				bumpMapMatrices[ 4 ], 		bumpMapMatrices[ 5 ],	 	bumpMapMatrices[ 6 ], 		1,
+				displacementMapMatrices[ 0 ], displacementMapMatrices[ 1 ], displacementMapMatrices[ 2 ], displacementMapMatrices[ 3 ],
+				displacementMapMatrices[ 4 ], displacementMapMatrices[ 5 ], displacementMapMatrices[ 6 ], 1,
+			];
+
+			data.set( materialData, stride );
+
+		}
+
+		return data;
+
+	}
+
 	createMaterialDataTextureSync( materials ) {
 
 		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
@@ -1394,6 +1459,125 @@ export default class TextureCreator {
 			originalDispose();
 
 		};
+
+		return texture;
+
+	}
+
+	/**
+	 * Build raw BVH Float32Array without DataTexture wrapping.
+	 * Used by WebGPU backend which feeds data into storage buffers.
+	 */
+	createBVHRawData( bvhRoot ) {
+
+		const nodes = [];
+		const flattenBVH = ( node ) => {
+
+			const nodeIndex = nodes.length;
+			nodes.push( node );
+			if ( node.leftChild ) {
+
+				const leftIndex = flattenBVH( node.leftChild );
+				const rightIndex = flattenBVH( node.rightChild );
+				node.leftChild = leftIndex;
+				node.rightChild = rightIndex;
+
+			}
+
+			return nodeIndex;
+
+		};
+
+		flattenBVH( bvhRoot );
+
+		const floatsPerNode = TEXTURE_CONSTANTS.VEC4_PER_BVH_NODE * TEXTURE_CONSTANTS.FLOATS_PER_VEC4;
+		const size = nodes.length * floatsPerNode;
+		const data = new Float32Array( size );
+
+		for ( let i = 0; i < nodes.length; i ++ ) {
+
+			const stride = i * 12;
+			const node = nodes[ i ];
+
+			const nodeData = [
+				node.boundsMin.x, node.boundsMin.y, node.boundsMin.z,
+				node.leftChild !== null ? node.leftChild : - 1,
+				node.boundsMax.x, node.boundsMax.y, node.boundsMax.z,
+				node.rightChild !== null ? node.rightChild : - 1,
+				node.triangleOffset, node.triangleCount, 0, 0
+			];
+
+			data.set( nodeData, stride );
+
+		}
+
+		return data;
+
+	}
+
+	/**
+	 * Create a BVH DataTexture directly from a pre-flattened Float32Array.
+	 * Avoids re-traversing the BVH tree which is destructively modified
+	 * by createBVHRawData.
+	 *
+	 * @param {Float32Array} bvhRawData - Pre-flattened BVH data (12 floats per node)
+	 * @returns {DataTexture} BVH DataTexture
+	 */
+	createBVHTextureFromRawData( bvhRawData ) {
+
+		const dataLength = bvhRawData.length;
+		const width = Math.ceil( Math.sqrt( dataLength / TEXTURE_CONSTANTS.RGBA_COMPONENTS ) );
+		const height = Math.ceil( dataLength / ( TEXTURE_CONSTANTS.RGBA_COMPONENTS * width ) );
+		const size = width * height * TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+
+		let data;
+		if ( size === dataLength ) {
+
+			data = bvhRawData;
+
+		} else {
+
+			data = new Float32Array( size );
+			data.set( bvhRawData );
+
+		}
+
+		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
+
+		return texture;
+
+	}
+
+	/**
+	 * Create a Material DataTexture directly from a pre-built Float32Array.
+	 * Creates a material DataTexture from pre-built raw data.
+	 *
+	 * @param {Float32Array} materialRawData - Pre-built material data
+	 * @param {number} materialCount - Number of materials
+	 * @returns {DataTexture} Material DataTexture
+	 */
+	createMaterialTextureFromRawData( materialRawData, materialCount ) {
+
+		const totalPixels = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL * materialCount;
+		const width = Math.pow( 2, Math.ceil( Math.log2( Math.sqrt( totalPixels ) ) ) );
+		const height = Math.ceil( totalPixels / width );
+		const size = width * height * TEXTURE_CONSTANTS.RGBA_COMPONENTS;
+
+		let data;
+		if ( size === materialRawData.length ) {
+
+			data = materialRawData;
+
+		} else {
+
+			data = new Float32Array( size );
+			data.set( materialRawData );
+
+		}
+
+		const texture = new DataTexture( data, width, height, RGBAFormat, FloatType );
+		texture.needsUpdate = true;
 
 		return texture;
 
@@ -1751,7 +1935,7 @@ export default class TextureCreator {
 
 	createFallbackTexture() {
 
-		const data = new Uint8Array( 4 );
+		const data = new Uint8Array( [ 255, 255, 255, 255 ] );
 		const texture = new DataArrayTexture( data, 1, 1, 1 );
 
 		texture.minFilter = LinearFilter;

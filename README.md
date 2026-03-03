@@ -5,12 +5,12 @@ A sophisticated rea## 🛠️ Tech Stack
 | Category | Technologies |
 |----------|-------------|
 | **Frontend** | React 19, Vite, TailwindCSS |
-| **3D Rendering** | Three.js, WebGL Shaders (GLSL) |
+| **3D Rendering** | Three.js, WebGPU, TSL Shaders (WGSL) |
 | **UI Components** | Radix UI, Lucide Icons |
 | **State Management** | Zustand |
 | **Denoising** | Intel OIDN Web, Custom ASVGF |
 | **Build Tools** | Vite, ESLint, Semantic Release |
-| **Performance** | Stats.gl, MeshOptimizer |e path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGL shaders**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
+| **Performance** | Stats.gl, MeshOptimizer |e path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
 
 🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
 
@@ -26,7 +26,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 ## ✨ Key Features
 
 ### 🚀 Advanced Rendering Engine
-- **Real-time Path Tracing**: GPU-accelerated Monte Carlo path tracing with WebGL shaders
+- **Real-time Path Tracing**: GPU-accelerated Monte Carlo path tracing with WebGPU and TSL shaders
 - **Adaptive Sampling**: Intelligent sample distribution with variance-guided quality control
 - **Progressive Rendering**: Continuous quality improvement with accumulation buffer
 - **Multi-bounce Transport**: Configurable bounce limits for complex light interactions
@@ -64,8 +64,8 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 - **Material Preservation**: Full PBR material pipeline support
 
 #### Technologies Used
-- **Three.js:** For 3D rendering and scene management.
-- **GLSL:** To implement the core path tracing logic in the fragment shader.
+- **Three.js:** For 3D rendering, scene management, and the WebGPU renderer.
+- **TSL (Three Shading Language):** To implement the core path tracing logic, compiled to WGSL at runtime.
 - **React:** For creating the application’s interactive user interface.
 - **Vite:** A fast and modern build tool for development and optimization.
 
@@ -73,7 +73,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 
 ### Prerequisites
 - Node.js >= 20.11.1
-- Modern browser with WebGL 2.0 support
+- Modern browser with WebGPU support (Chrome 113+, Edge 113+, or Firefox Nightly)
 
 ### Installation
 
@@ -174,9 +174,10 @@ The application follows a modular architecture:
 ```
 src/
 ├── core/              # Core path tracing engine
-│   ├── main.js       # Main PathTracerApp class
-│   ├── Processor/    # Asset loading and processing
-│   └── Passes/       # Custom rendering passes
+│   ├── PathTracerApp.js  # Main application class
+│   ├── Stages/           # Rendering pipeline stages
+│   ├── TSL/              # TSL shader modules
+│   └── Processor/        # Asset loading and processing
 ├── components/       # React UI components
 ├── hooks/           # Custom React hooks
 ├── store/           # Zustand state management

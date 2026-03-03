@@ -6,13 +6,19 @@ Rayzee Path Tracing Engine – Internal Shader Design (PathTracer Stage Only)
 
 ## Scope & Exclusions
 
-This document covers ONLY the real-time path tracing stage shader system: the fragment shader `pathtracer.fs` and its include graph (`random.fs`, `bvhtraverse.fs`, `material_sampling.fs`, `environment.fs`, plus other supporting include files like `common.fs`, `struct.fs`, `material_*`, `lights_*`, etc.).
+This document covers the real-time path tracing stage shader system across **both rendering backends**:
+
+1. **WebGL Backend (GLSL)**: The fragment shader `pathtracer.fs` and its include graph (`random.fs`, `bvhtraverse.fs`, `material_sampling.fs`, `environment.fs`, plus supporting includes like `common.fs`, `struct.fs`, `material_*`, `lights_*`, etc.) located in `src/core/Shaders/`.
+2. **WebGPU Backend (TSL)**: The Three Shading Language (TSL) ports of every GLSL module, located in `src/core/WebGPU/TSL/`. TSL is a JavaScript-based shader authoring system that compiles to WGSL at runtime.
+
+Both backends implement the same Monte Carlo path tracing algorithm with identical feature sets. The key difference is the shader language — GLSL for WebGL, TSL/WGSL for WebGPU.
 
 Explicitly excluded (refer to separate docs):
 - Denoisers (ASVGF, EdgeAwareFiltering)
 - Post-processing (Bloom, Tone mapping passes outside shader core)
 - Adaptive sampling pass implementation details (we only describe how the path tracer consumes its texture)
 - Debug visualization passes beyond in-shader `visMode`
+- Backend switching and state management (see `PIPELINE_ARCHITECTURE.md`)
 
 ---
 
@@ -37,6 +43,8 @@ Key features:
 
 ## Include Graph & Modular Breakdown
 
+### WebGL (GLSL) — `src/core/Shaders/`
+
 `pathtracer.fs` orchestrates the render and includes specialized modules:
 
 1. Core Structures & Utilities: `struct.fs`, `common.fs`
@@ -59,7 +67,37 @@ Key features:
 8. Path Integrator Core: `pathtracer_core.fs` (contains `Trace` and path recursion logic)
 9. Debug Utilities: `debugger.fs`
 
-The modularization allows hot swapping enhancements (e.g., improved MIS or BVH traversal) without touching the main integration loop in `main()`.
+### WebGPU (TSL) — `src/core/WebGPU/TSL/`
+
+Every GLSL module has a 1:1 TSL port using `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy-enhanced structs. No raw `wgslFn()` is used.
+
+| GLSL Source | TSL Port | Key Exports |
+|-------------|----------|-------------|
+| `pathtracer.fs` | `PathTracer.js` | `pathTracerMain()` — sample loop, MRT outputs, accumulation |
+| `pathtracer_core.fs` | `PathTracerCore.js` | `Trace()` — bounce loop, russian roulette, BRDF sampling |
+| `bvhtraverse.fs` | `BVHTraversal.js` | Stack-based BVH traversal |
+| `rayintersection.fs` | `RayIntersection.js` | Möller–Trumbore ray-triangle intersection |
+| `material_sampling.fs` | `MaterialSampling.js` | Multi-lobe MIS, GGX, VNDF sampling |
+| `material_evaluation.fs` | `MaterialEvaluation.js` | `evaluateMaterialResponse()` |
+| `material_properties.fs` | `MaterialProperties.js` | BRDF weight calculation, PDF computation |
+| `material_transmission.fs` | `MaterialTransmission.js` | Refraction, volumetric transmission |
+| `clearcoat.fs` | `Clearcoat.js` | Clearcoat BRDF layer |
+| `environment.fs` | `Environment.js` | HDR importance sampling, direction↔UV |
+| `emissive_sampling.fs` | `EmissiveSampling.js` | NEE from emissive triangles |
+| `lights_core.fs` | `LightsCore.js` | Light data structures |
+| `lights_direct.fs` | `LightsDirect.js` | Direct lighting with shadow rays |
+| `lights_indirect.fs` | `LightsIndirect.js` | Multi-strategy MIS for GI |
+| `lights_sampling.fs` | `LightsSampling.js` | Light selection, unified direct lighting |
+| `fresnel.fs` | `Fresnel.js` | Schlick Fresnel, IOR↔F0 |
+| `random.fs` | `Random.js` | PCG, Halton, Sobol, Blue Noise |
+| `texture_sampling.fs` | `TextureSampling.js` | UV transforms, material texture arrays |
+| `displacement.fs` | `Displacement.js` | Height sampling, ray-marched displacement |
+| `debugger.fs` | `Debugger.js` | Debug visualization modes |
+| `struct.fs` | `Struct.js` | `Ray`, `HitInfo`, `RayTracingMaterial`, etc. |
+| `common.fs` | `Common.js` | Constants, `getDatafromDataTexture()`, utilities |
+| (new) | `structProxy.js` | Proxy factory for dot-notation struct access |
+
+The modularization allows hot swapping enhancements (e.g., improved MIS or BVH traversal) without touching the main integration loop in `main()` / `pathTracerMain()`.
 
 ---
 
@@ -356,17 +394,91 @@ Additional micro-optimizations include minimal PDF floor (`MIN_PDF`), early term
 ## Extension Points
 
 Safe areas to extend without disrupting current architecture:
-1. Add new material lobe (e.g., subsurface) by integrating into classification, BRDF weight calculation, and multi-lobe MIS structures.
+1. Add new material lobe (e.g., subsurface) by integrating into classification, BRDF weight calculation, and multi-lobe MIS structures. **Both GLSL and TSL ports must be updated in parallel.**
 2. Enhance environment sampling with alias table or hierarchical importance map — replace CDF inversion functions while keeping `sampleEnvironmentWithContext` interface.
 3. Introduce spectral sampling by extending material data texture (wavelength-dependent factors) and RNG dimension generation.
 4. Add per-triangle custom attributes (e.g., vertex motion vectors) by expanding triangle texture layout and adjusting interpolation in `RayTriangle`.
 5. GPU-side adaptive sampling heuristics — write new guide texture each frame and reuse `getRequiredSamples` path.
+6. **WebGPU compute shaders** — migrate path tracing from fragment-shader rendering to compute pipelines for potential 3-5x performance gains (currently fragment-based in both backends).
+
+---
+
+## WebGPU / TSL Shader Architecture
+
+### TSL Authoring Pattern
+
+TSL (Three Shading Language) shaders are written as JavaScript functions that build a computation graph compiled to WGSL at runtime by Three.js's WebGPU backend. Key patterns:
+
+```js
+// TSL function definition
+const myFunction = Fn(([param1, param2]) => {
+    const result = float(0.0).toVar();
+    If(param1.greaterThan(0.0), () => {
+        result.assign(param1.mul(param2));
+    });
+    return result;
+});
+```
+
+### Key Differences from GLSL
+
+| Aspect | GLSL | TSL |
+|--------|------|-----|
+| Language | Text-based `.fs` files | JavaScript functions building WGSL |
+| Structs | `struct HitInfo { ... }` | `structProxy()` with Proxy for dot-notation |
+| Uniforms | `uniform float exposure` | `uniform(1.0, 'float')` node objects |
+| Loops | `for (int i = 0; ...)` | `Loop(count, ({ i }) => { ... })` |
+| Branching | `if (x > 0)` | `If(x.greaterThan(0), () => { ... })` |
+| MRT | `layout(location=0) out vec4 gColor` | Return object `{ gColor, gNormalDepth, gAlbedo }` |
+| Includes | `#include <module.fs>` | ES module `import` |
+| Build | Vite GLSL plugin (`vite-plugin-glsl`) | Standard JS bundling (no special plugin) |
+
+### TSL Uniform Management
+
+Uniforms in TSL are `uniform()` node objects managed by `PathTracingStage.js` (3012 lines):
+
+```js
+// PathTracingStage.js constructor
+this.maxBounces = uniform(DEFAULT_STATE.bounces, 'int');
+this.exposure = uniform(DEFAULT_STATE.exposure, 'float');
+this.cameraWorldMatrix = uniform(mat4());
+
+// Setter methods update uniform values
+setMaxBounces(bounces) {
+    this.maxBounces.value = bounces;
+}
+```
+
+These uniforms are passed to TSL shader functions and compiled into WGSL uniform bindings automatically.
+
+### Shared Constants
+
+Both backends use the same data layouts (defined in `src/Constants.js`):
+- **MATERIAL_SLOTS**: 27 floats per material in data texture
+- **FLOATS_PER_TRIANGLE**: 32 (8 vec4s per triangle)
+- **BVH_VEC4_PER_NODE**: 3 (12 floats per BVH node)
+- `PI`, `EPSILON = 1e-6`, `MIN_ROUGHNESS = 0.05`, `MIN_PDF = 0.001`
+
+### WebGPU PathTracingStage
+
+The WebGPU `PathTracingStage` (`src/core/WebGPU/Stages/PathTracingStage.js`, ~3012 lines) is the central orchestrator:
+
+1. Creates and manages all TSL uniforms
+2. Handles ping-pong accumulation render targets
+3. Calls `pathTracerMain()` TSL entry point
+4. Produces MRT outputs (`gColor`, `gNormalDepth`, `gAlbedo`)
+5. Manages camera optimization and scene data upload
+6. Supports progressive and tiled rendering modes
+
+Data textures (triangles, BVH, materials, environment) are loaded directly via the asset pipeline.
 
 ---
 
 ## Summary
 
 The path tracer shader architecture emphasizes modularity, data locality, and variance reduction through combined strategies: multi-lobe MIS, environment importance sampling, adaptive per-pixel sample allocation, and robust accumulation control. Optimizations focus on minimizing memory bandwidth (BVH & material caches), reducing divergence (branch-free arithmetic), and stabilizing temporal results (edge tagging, interaction-aware accumulation). This foundation delivers real-time progressive path tracing quality while remaining extensible for advanced effects.
+
+With the addition of the WebGPU/TSL backend, every shader module now exists in two equivalent forms (GLSL and TSL), enabling the application to run on both WebGL and WebGPU rendering backends with identical visual output. The TSL ports maintain the same algorithmic structure and data access patterns as the GLSL originals, ensuring feature parity and consistent rendering quality across backends.
 
 ---
 

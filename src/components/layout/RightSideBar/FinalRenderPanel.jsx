@@ -33,6 +33,7 @@ const FinalRenderPanel = () => {
 		handleUseGBufferChange,
 	} = useStore();
 
+
 	return (
 		<div className="">
 			<ControlGroup name="Path Tracer" defaultOpen={true}>

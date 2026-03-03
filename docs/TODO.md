@@ -2,6 +2,7 @@
 *Immediate actionable items and development tasks*
 
 ## 🚨 Critical Bug Fixess
+- arealight shadows not seen
 - [ ] scene freezing in some cases
 - [ ] save render doesnt show in results panel in some cases
 - [ ] Sun not getting parsed from glTF files
@@ -10,7 +11,7 @@
 
 ### Known Issues
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] oidn denoiser not working properly on safari browser
+- [ ] oidn denoiser not working properly on safari browser and windows devices
 - [ ] shader compilation failure observed in RTX devices. 
 - [ ] implement missing use of preprocessor directives in shaders to enable/disable features like:
   - [ ] mrt outputs
@@ -34,9 +35,7 @@
 ## ✨ Immediate Features to Implement
 
 ### Advanced Rendering
-- [ ] implement time limit based rendering. in the ui, similar to editing maxFrame, implement it for 
-  time to be edited. add a indicator to indicate with is the actual limit being considered for   
-  rendering. perhaps some minimalistic way to switch the active limit considered for rendering.
+- add new catergoy of enviroment maps - abstract. Identify the files and organize it
 - [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
 - [ ] Implement Variance-based Firefly Suppression
 - [ ] OIDN HDR denoising Support
@@ -47,6 +46,7 @@
 - [ ] Study dot grid / moiré–like effect and its impact on rendering
 
 ### Lighting & Materials
+- [ ] area light controls like width, depth, target, helper toggle,etc.
 - [ ] Separate out environment and background sampling with different textures just like in three.js
 - [ ] Implement environment cube map support for hdris
 - [ ] Implement dds texture support
@@ -83,8 +83,10 @@
 - [ ] https://enhance.addy.ie/
 
 ---
+WebGPU Graphics Pipeline:
+https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html
 
-*Last Updated: October 2025*
+*Last Updated: January 2025*
 *See [ROADMAP.md] for long-term vision and strategic planning*
 
 **Priority Legend:**

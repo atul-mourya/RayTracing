@@ -9,6 +9,7 @@ import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo } from 'react';
+import { Badge } from "@/components/ui/badge";
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -80,10 +81,6 @@ const PathTracerTab = () => {
 		useGBuffer,
 		debugMode,
 		debugThreshold,
-		enableBloom,
-		bloomThreshold,
-		bloomStrength,
-		bloomRadius,
 		oidnQuality,
 		oidnHdr,
 		enableOIDN,
@@ -153,10 +150,6 @@ const PathTracerTab = () => {
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
-		handleEnableBloomChange,
-		handleBloomThresholdChange,
-		handleBloomStrengthChange,
-		handleBloomRadiusChange,
 		handleExposureChange,
 		handleEnableEnvironmentChange,
 		handleShowBackgroundChange,
@@ -198,6 +191,7 @@ const PathTracerTab = () => {
 	return (
 		<div className="">
 			<Separator className="bg-primary" />
+
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
 				<div className="flex items-center justify-between">
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
@@ -580,20 +574,6 @@ const PathTracerTab = () => {
 				</> )}
 			</ControlGroup>
 
-			<ControlGroup name="Post Processing">
-				<div className="flex items-center justify-between">
-					<SliderToggle label={"Bloom Strength"} enabled={ enableBloom } min={0} max={3} step={0.1} value={[ bloomStrength ]} onValueChange={ handleBloomStrengthChange } onToggleChange={ handleEnableBloomChange } />
-				</div>
-				{enableBloom && ( <>
-					<div className="flex items-center justify-between">
-						<Slider label={"Bloom Radius"} min={0} max={1} step={0.01} value={[ bloomRadius ]} onValueChange={handleBloomRadiusChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Bloom Threshold"} min={0} max={1} step={0.01} value={[ bloomThreshold ]} onValueChange={handleBloomThresholdChange} />
-					</div></>
-				)}
-			</ControlGroup>
-
 			{enablePathTracer && (
 				<ControlGroup name="Debugging">
 					<div className="flex items-center justify-between">
@@ -618,6 +598,10 @@ const PathTracerTab = () => {
 								<SelectItem value="9">MRT: Normals</SelectItem>
 								<SelectItem value="10">MRT: Depth</SelectItem>
 								<SelectItem value="11">MRT: Albedo</SelectItem>
+								<SelectItem value="12">Indirect Illumination</SelectItem>
+								<SelectItem value="13">CDF Sampling Test</SelectItem>
+								<SelectItem value="14">CDF Direction Round-Trip</SelectItem>
+								<SelectItem value="15">Env Reflection Test</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

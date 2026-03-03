@@ -93,6 +93,30 @@ public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/moonless_golf_1k.hdr
 public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/special-clean-light-studio_2K_80dd6a25-2f8f-4d5a-9dd8-08e977ddc83c.exr
 public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/studio-white-light_1K_1a69ad5b-8d7b-46e4-93b7-09b8e10c9b89.exr
 public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/studio-white-light_2K_6ac159a1-0ef0-4b91-afa8-5b857bba91d7.exr
+public/hdri/HDR/moonless_golf_1k.hdr
+public/hdri/HDR/MR_INT-003_Kitchen_Pierre.hdr
+public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/bg_2_2k.hdr
+public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/Car Scene.exr
+public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/Default (1).exr
+public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/Default.exr
+public/hdri/jpegs/1363446029.1000.jpg
+public/hdri/jpegs/AdobeStock_567616807_Preview.jpeg
+public/hdri/jpegs/AdobeStock_656811857_Preview.jpeg
+public/hdri/jpegs/AdobeStock_800720574_Preview.jpeg
+public/hdri/jpegs/AdobeStock_1095853905_Preview.jpeg
+public/hdri/jpegs/AdobeStock_1233033442_Preview.jpeg
+public/hdri/jpegs/AdobeStock_1363446029_Preview.jpeg
+public/hdri/jpegs/AdobeStock_1436641473_Preview.jpeg
+public/hdri/jpegs/AdobeStock_1436642522_Preview.jpeg
+public/hdri/jpegs/G0rteNiXoAAQHvk.jpeg
+.npmrc
+docs/TRUETRACE_ANALYSIS.md
+.gitignore
+docs/VECTOR_TO_3D_TECHNICAL_ANALYSIS.md
+CLAUDE.md
+.claude/settings.local.json
+.github/copilot-instructions.md
+deleteme.html
 public/models/2022_skoda_kodiaq_tsi_330.glb
 public/models/5231033.glb
 public/models/7912884 (1).glb
@@ -107,6 +131,10 @@ public/models/17434622.glb
 public/models/18435372.glb
 public/models/18471361.glb
 public/models/19896247.glb
+public/models/20510653.glb
+public/models/20980607.glb
+public/models/21158926.glb
+public/models/21549744.glb
 public/models/79128842-2.glb
 public/models/79128842.glb
 public/models/79128843.glb
@@ -139,7 +167,7 @@ public/models/Dragon2.glb
 public/models/engagement-ramona.glb
 public/models/free_porsche_911_carrera_4s.glb
 public/models/future_car.glb
-public/models/hintze_hall_2k_comp.glb
+public/models/GlasswareWhiskeySet002_Blender_Cycles.glb
 public/models/ice_cubes.glb
 public/models/KWUWSU00002.glb
 public/models/lego-transformers.glb
@@ -158,6 +186,7 @@ public/models/monster_under_the_bed_sss_demo_by_metin_seven.glb
 public/models/neon_city.glb
 public/models/normal_map.gltf
 public/models/octopus-tea.glb
+public/models/plane-front-sided.glb
 public/models/plane.glb
 public/models/porsche_911_1975_comp.glb
 public/models/product.glb
@@ -520,34 +549,4 @@ public/models/San_Miguel/textures/wood.3.Bubinga.png
 public/models/San_Miguel/textures/WOOD08_Bump.png
 public/models/San_Miguel/textures/WOOD08.png
 public/models/San_Miguel/textures/zebrina_pendula_bark.png
-public/models/21158926.glb
-public/models/GlasswareWhiskeySet002_Blender_Cycles.glb
-public/models/plane-front-sided.glb
-public/hdri/bg_2_2k.hdr
-public/models/20510653.glb
-public/models/21549744.glb
-public/models/20980607.glb
-public/hdri/HDR/moonless_golf_1k.hdr
-public/hdri/HDR/MR_INT-003_Kitchen_Pierre.hdr
-public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/bg_2_2k.hdr
-public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/Car Scene.exr
-public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/Default (1).exr
-public/hdri/HDR_Light_Studio_25_Free_Studio_HDRI/Default.exr
-public/hdri/jpegs/1363446029.1000.jpg
-public/hdri/jpegs/AdobeStock_567616807_Preview.jpeg
-public/hdri/jpegs/AdobeStock_656811857_Preview.jpeg
-public/hdri/jpegs/AdobeStock_800720574_Preview.jpeg
-public/hdri/jpegs/AdobeStock_1095853905_Preview.jpeg
-public/hdri/jpegs/AdobeStock_1233033442_Preview.jpeg
-public/hdri/jpegs/AdobeStock_1363446029_Preview.jpeg
-public/hdri/jpegs/AdobeStock_1436641473_Preview.jpeg
-public/hdri/jpegs/AdobeStock_1436642522_Preview.jpeg
-public/hdri/jpegs/G0rteNiXoAAQHvk.jpeg
-.npmrc
-docs/TRUETRACE_ANALYSIS.md
-.gitignore
-docs/VECTOR_TO_3D_TECHNICAL_ANALYSIS.md
-CLAUDE.md
-.claude/settings.local.json
-.github/copilot-instructions.md
-deleteme.html
+public/models/15100888.glb

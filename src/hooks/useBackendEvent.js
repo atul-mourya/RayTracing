@@ -1,0 +1,39 @@
+import { useEffect, useRef } from 'react';
+import { getApp } from '@/core/appProxy';
+
+/**
+ * React hook that subscribes to an event on the active app.
+ *
+ * @param {string} eventName - The event name to listen for (e.g., 'RenderComplete')
+ * @param {Function} handler - The callback to invoke when the event fires
+ */
+export function useBackendEvent( eventName, handler ) {
+
+	const handlerRef = useRef( handler );
+	handlerRef.current = handler;
+
+	useEffect( () => {
+
+		const stableHandler = ( event ) => handlerRef.current( event );
+
+		const app = getApp();
+		if ( app ) {
+
+			app.addEventListener( eventName, stableHandler );
+
+		}
+
+		return () => {
+
+			const app = getApp();
+			if ( app ) {
+
+				app.removeEventListener( eventName, stableHandler );
+
+			}
+
+		};
+
+	}, [ eventName ] );
+
+}

@@ -154,7 +154,7 @@ export class PassPipeline {
 
 	/**
 	 * Execute all enabled stages in order
-	 * @param {THREE.WebGLRenderTarget} [writeBuffer] - Optional output buffer
+	 * @param {THREE.RenderTarget} [writeBuffer] - Optional output buffer
 	 */
 	render( writeBuffer = null ) {
 

@@ -4,6 +4,7 @@
  * reducing rendering quality while the camera is moving, then restoring
  * full quality when movement stops.
  */
+import { getApp } from '@/core/appProxy';
 
 export class CameraMovementOptimizer {
 
@@ -159,15 +160,15 @@ export class CameraMovementOptimizer {
 
 		// Reset frame counter but preserve buffers for smooth transition
 		// Call reset(false) directly to avoid clearing render targets
-		const pathTracerApp = window.pathTracerApp;
-		if ( pathTracerApp && pathTracerApp.pathTracingPass ) {
+		const app = getApp();
+		if ( app && app.pathTracingStage ) {
 
 			// Soft reset - preserve render buffers to avoid black screen
-			pathTracerApp.pathTracingPass.reset( false );
+			app.pathTracingStage.reset( false );
 
 		} else if ( this.onResetCallback ) {
 
-			// Fallback: use the callback if we can't access PathTracerPass directly
+			// Fallback: use the callback if we can't access PathTracingStage directly
 			// This may cause a black frame but at least it works
 			this.onResetCallback();
 
