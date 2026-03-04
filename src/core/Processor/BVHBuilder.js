@@ -90,6 +90,13 @@ export default class BVHBuilder {
 		// Pre-allocate bin arrays
 		this.initializeBinArrays();
 
+		// Reusable partition result (avoids per-node object allocation)
+		this._partResult = {
+			mid: 0,
+			lMinX: 0, lMinY: 0, lMinZ: 0, lMaxX: 0, lMaxY: 0, lMaxZ: 0,
+			rMinX: 0, rMinY: 0, rMinZ: 0, rMaxX: 0, rMaxY: 0, rMaxZ: 0
+		};
+
 		// Flat per-triangle arrays (allocated in buildSync)
 		this.centroids = null;
 		this.bMin = null;
@@ -234,18 +241,83 @@ export default class BVHBuilder {
 
 		const rX = sMaxX - sMinX, rY = sMaxY - sMinY, rZ = sMaxZ - sMinZ;
 
-		// Compute morton codes
+		// Compute morton codes (inlined to avoid per-triangle method dispatch)
+		const mc = this.mortonCodes;
+		const mortonScale = ( 1 << this.mortonBits ) - 1;
+		const invRX = rX > 0 ? mortonScale / rX : 0;
+		const invRY = rY > 0 ? mortonScale / rY : 0;
+		const invRZ = rZ > 0 ? mortonScale / rZ : 0;
+
 		for ( let i = 0; i < n; i ++ ) {
 
-			this.mortonCodes[ indices[ i ] ] = this.computeMortonCodeForIndex( indices[ i ], sMinX, sMinY, sMinZ, rX, rY, rZ );
+			const triIdx = indices[ i ];
+			const o = triIdx * 3;
+
+			let mx = ( c[ o ] - sMinX ) * invRX;
+			let my = ( c[ o + 1 ] - sMinY ) * invRY;
+			let mz = ( c[ o + 2 ] - sMinZ ) * invRZ;
+
+			// Clamp and truncate to integer
+			mx = mx < 0 ? 0 : ( mx > mortonScale ? mortonScale : mx ) | 0;
+			my = my < 0 ? 0 : ( my > mortonScale ? mortonScale : my ) | 0;
+			mz = mz < 0 ? 0 : ( mz > mortonScale ? mortonScale : mz ) | 0;
+
+			// Inline expandBits + morton3D
+			mx = ( mx * 0x00010001 ) & 0xFF0000FF;
+			mx = ( mx * 0x00000101 ) & 0x0F00F00F;
+			mx = ( mx * 0x00000011 ) & 0xC30C30C3;
+			mx = ( mx * 0x00000005 ) & 0x49249249;
+
+			my = ( my * 0x00010001 ) & 0xFF0000FF;
+			my = ( my * 0x00000101 ) & 0x0F00F00F;
+			my = ( my * 0x00000011 ) & 0xC30C30C3;
+			my = ( my * 0x00000005 ) & 0x49249249;
+
+			mz = ( mz * 0x00010001 ) & 0xFF0000FF;
+			mz = ( mz * 0x00000101 ) & 0x0F00F00F;
+			mz = ( mz * 0x00000011 ) & 0xC30C30C3;
+			mz = ( mz * 0x00000005 ) & 0x49249249;
+
+			mc[ triIdx ] = ( mz << 2 ) + ( my << 1 ) + mx;
 
 		}
 
-		// Sort indices by morton code
-		const mc = this.mortonCodes;
-		const tempArr = Array.from( indices );
-		tempArr.sort( ( a, b ) => mc[ a ] - mc[ b ] );
-		indices.set( tempArr );
+		// Radix sort indices by morton code (O(N), 4 passes of 8-bit digits)
+		const temp = new Uint32Array( n );
+		const counts = new Uint32Array( 256 );
+
+		for ( let shift = 0; shift < 32; shift += 8 ) {
+
+			counts.fill( 0 );
+
+			// Count digit occurrences
+			for ( let i = 0; i < n; i ++ ) {
+
+				counts[ ( mc[ indices[ i ] ] >>> shift ) & 0xFF ] ++;
+
+			}
+
+			// Prefix sum
+			let total = 0;
+			for ( let i = 0; i < 256; i ++ ) {
+
+				const c = counts[ i ];
+				counts[ i ] = total;
+				total += c;
+
+			}
+
+			// Scatter to temp
+			for ( let i = 0; i < n; i ++ ) {
+
+				const digit = ( mc[ indices[ i ] ] >>> shift ) & 0xFF;
+				temp[ counts[ digit ] ++ ] = indices[ i ];
+
+			}
+
+			indices.set( temp );
+
+		}
 
 		this.splitStats.mortonSortTime += performance.now() - startTime;
 
@@ -410,13 +482,13 @@ export default class BVHBuilder {
 			this.centroids[ o3 + 1 ] = ( ay + by + cy ) / 3;
 			this.centroids[ o3 + 2 ] = ( az + bz + cz ) / 3;
 
-			this.bMin[ o3 ] = Math.min( ax, bx, cx );
-			this.bMin[ o3 + 1 ] = Math.min( ay, by, cy );
-			this.bMin[ o3 + 2 ] = Math.min( az, bz, cz );
+			this.bMin[ o3 ] = ax < bx ? ( ax < cx ? ax : cx ) : ( bx < cx ? bx : cx );
+			this.bMin[ o3 + 1 ] = ay < by ? ( ay < cy ? ay : cy ) : ( by < cy ? by : cy );
+			this.bMin[ o3 + 2 ] = az < bz ? ( az < cz ? az : cz ) : ( bz < cz ? bz : cz );
 
-			this.bMax[ o3 ] = Math.max( ax, bx, cx );
-			this.bMax[ o3 + 1 ] = Math.max( ay, by, cy );
-			this.bMax[ o3 + 2 ] = Math.max( az, bz, cz );
+			this.bMax[ o3 ] = ax > bx ? ( ax > cx ? ax : cx ) : ( bx > cx ? bx : cx );
+			this.bMax[ o3 + 1 ] = ay > by ? ( ay > cy ? ay : cy ) : ( by > cy ? by : cy );
+			this.bMax[ o3 + 2 ] = az > bz ? ( az > cz ? az : cz ) : ( bz > cz ? bz : cz );
 
 			this.indices[ i ] = i;
 
@@ -542,7 +614,7 @@ export default class BVHBuilder {
 
 	// --- Recursive BVH build (operates on index range) ---
 
-	buildNodeRecursive( start, end, depth, progressCallback ) {
+	buildNodeRecursive( start, end, depth, progressCallback, preMinX, preMinY, preMinZ, preMaxX, preMaxY, preMaxZ ) {
 
 		const node = new BVHNode();
 		this.nodes.push( node );
@@ -550,8 +622,17 @@ export default class BVHBuilder {
 
 		const count = end - start;
 
-		// Update bounds from pre-computed per-triangle bounds
-		this.updateNodeBounds( node, start, end );
+		// Use precomputed bounds from parent's partition, or compute for root
+		if ( preMinX !== undefined ) {
+
+			node.boundsMin.set( preMinX, preMinY, preMinZ );
+			node.boundsMax.set( preMaxX, preMaxY, preMaxZ );
+
+		} else {
+
+			this.updateNodeBounds( node, start, end );
+
+		}
 
 		// Leaf condition
 		if ( count <= this.maxLeafSize || depth <= 0 ) {
@@ -581,8 +662,16 @@ export default class BVHBuilder {
 		else if ( splitInfo.method === 'object_median' ) this.splitStats.objectMedianSplits ++;
 		else if ( splitInfo.method === 'spatial_median' ) this.splitStats.spatialMedianSplits ++;
 
-		// In-place partition
-		const mid = this.partitionInPlace( start, end, splitInfo.axis, splitInfo.pos );
+		// Partition and compute child bounds in one pass
+		this.partitionWithBounds( start, end, splitInfo.axis, splitInfo.pos );
+
+		// Snapshot into locals — _partResult is reused and will be overwritten by child recursion
+		const p = this._partResult;
+		const mid = p.mid;
+		const lMnX = p.lMinX, lMnY = p.lMinY, lMnZ = p.lMinZ;
+		const lMxX = p.lMaxX, lMxY = p.lMaxY, lMxZ = p.lMaxZ;
+		const rMnX = p.rMinX, rMnY = p.rMinY, rMnZ = p.rMinZ;
+		const rMxX = p.rMaxX, rMxY = p.rMaxY, rMxZ = p.rMaxZ;
 
 		// Degenerate partition fallback
 		if ( mid === start || mid === end ) {
@@ -594,40 +683,77 @@ export default class BVHBuilder {
 
 		}
 
-		node.leftChild = this.buildNodeRecursive( start, mid, depth - 1, progressCallback );
-		node.rightChild = this.buildNodeRecursive( mid, end, depth - 1, progressCallback );
+		node.leftChild = this.buildNodeRecursive(
+			start, mid, depth - 1, progressCallback,
+			lMnX, lMnY, lMnZ, lMxX, lMxY, lMxZ
+		);
+		node.rightChild = this.buildNodeRecursive(
+			mid, end, depth - 1, progressCallback,
+			rMnX, rMnY, rMnZ, rMxX, rMxY, rMxZ
+		);
 
 		return node;
 
 	}
 
-	// In-place partition: swap indices so [start..mid) have centroid <= splitPos, [mid..end) have centroid > splitPos
-	partitionInPlace( start, end, axis, splitPos ) {
+	// Partition indices and accumulate child bounds in a single pass
+	partitionWithBounds( start, end, axis, splitPos ) {
 
 		const idx = this.indices;
 		const c = this.centroids;
+		const bMn = this.bMin;
+		const bMx = this.bMax;
+
 		let lo = start;
 		let hi = end - 1;
 
+		let lMinX = Infinity, lMinY = Infinity, lMinZ = Infinity;
+		let lMaxX = - Infinity, lMaxY = - Infinity, lMaxZ = - Infinity;
+		let rMinX = Infinity, rMinY = Infinity, rMinZ = Infinity;
+		let rMaxX = - Infinity, rMaxY = - Infinity, rMaxZ = - Infinity;
+
 		while ( lo <= hi ) {
 
-			if ( c[ idx[ lo ] * 3 + axis ] <= splitPos ) {
+			const triIdx = idx[ lo ];
+			const o = triIdx * 3;
 
+			if ( c[ o + axis ] <= splitPos ) {
+
+				// Left partition — accumulate bounds
+				if ( bMn[ o ] < lMinX ) lMinX = bMn[ o ];
+				if ( bMn[ o + 1 ] < lMinY ) lMinY = bMn[ o + 1 ];
+				if ( bMn[ o + 2 ] < lMinZ ) lMinZ = bMn[ o + 2 ];
+				if ( bMx[ o ] > lMaxX ) lMaxX = bMx[ o ];
+				if ( bMx[ o + 1 ] > lMaxY ) lMaxY = bMx[ o + 1 ];
+				if ( bMx[ o + 2 ] > lMaxZ ) lMaxZ = bMx[ o + 2 ];
 				lo ++;
 
 			} else {
 
+				// Right partition — accumulate bounds
+				if ( bMn[ o ] < rMinX ) rMinX = bMn[ o ];
+				if ( bMn[ o + 1 ] < rMinY ) rMinY = bMn[ o + 1 ];
+				if ( bMn[ o + 2 ] < rMinZ ) rMinZ = bMn[ o + 2 ];
+				if ( bMx[ o ] > rMaxX ) rMaxX = bMx[ o ];
+				if ( bMx[ o + 1 ] > rMaxY ) rMaxY = bMx[ o + 1 ];
+				if ( bMx[ o + 2 ] > rMaxZ ) rMaxZ = bMx[ o + 2 ];
+
 				// Swap indices[lo] and indices[hi]
-				const tmp = idx[ lo ];
 				idx[ lo ] = idx[ hi ];
-				idx[ hi ] = tmp;
+				idx[ hi ] = triIdx;
 				hi --;
 
 			}
 
 		}
 
-		return lo; // lo is the first index of the right partition
+		const r = this._partResult;
+		r.mid = lo;
+		r.lMinX = lMinX; r.lMinY = lMinY; r.lMinZ = lMinZ;
+		r.lMaxX = lMaxX; r.lMaxY = lMaxY; r.lMaxZ = lMaxZ;
+		r.rMinX = rMinX; r.rMinY = rMinY; r.rMinZ = rMinZ;
+		r.rMaxX = rMaxX; r.rMaxY = rMaxY; r.rMaxZ = rMaxZ;
+		return r;
 
 	}
 
@@ -687,19 +813,28 @@ export default class BVHBuilder {
 		const rpMax = this.rightPrefixMax;
 		const rpc = this.rightPrefixCount;
 
+		// Single pass: find centroid bounds for all 3 axes
+		let cMin0 = Infinity, cMax0 = - Infinity;
+		let cMin1 = Infinity, cMax1 = - Infinity;
+		let cMin2 = Infinity, cMax2 = - Infinity;
+
+		for ( let i = start; i < end; i ++ ) {
+
+			const o = idx[ i ] * 3;
+			const c0 = c[ o ], c1 = c[ o + 1 ], c2 = c[ o + 2 ];
+			if ( c0 < cMin0 ) cMin0 = c0; if ( c0 > cMax0 ) cMax0 = c0;
+			if ( c1 < cMin1 ) cMin1 = c1; if ( c1 > cMax1 ) cMax1 = c1;
+			if ( c2 < cMin2 ) cMin2 = c2; if ( c2 > cMax2 ) cMax2 = c2;
+
+		}
+
+		const centroidMin = [ cMin0, cMin1, cMin2 ];
+		const centroidMax = [ cMax0, cMax1, cMax2 ];
+
 		for ( let axis = 0; axis < 3; axis ++ ) {
 
-			// Find centroid bounds for this axis
-			let minCentroid = Infinity;
-			let maxCentroid = - Infinity;
-
-			for ( let i = start; i < end; i ++ ) {
-
-				const cv = c[ idx[ i ] * 3 + axis ];
-				if ( cv < minCentroid ) minCentroid = cv;
-				if ( cv > maxCentroid ) maxCentroid = cv;
-
-			}
+			const minCentroid = centroidMin[ axis ];
+			const maxCentroid = centroidMax[ axis ];
 
 			if ( maxCentroid - minCentroid < 1e-6 ) continue;
 
@@ -745,12 +880,18 @@ export default class BVHBuilder {
 				const b3 = b * 3;
 				const p3 = ( b - 1 ) * 3;
 				lpc[ b ] = lpc[ b - 1 ] + bc[ b ];
-				lpMin[ b3 ] = Math.min( lpMin[ p3 ], bbMin[ b3 ] );
-				lpMin[ b3 + 1 ] = Math.min( lpMin[ p3 + 1 ], bbMin[ b3 + 1 ] );
-				lpMin[ b3 + 2 ] = Math.min( lpMin[ p3 + 2 ], bbMin[ b3 + 2 ] );
-				lpMax[ b3 ] = Math.max( lpMax[ p3 ], bbMax[ b3 ] );
-				lpMax[ b3 + 1 ] = Math.max( lpMax[ p3 + 1 ], bbMax[ b3 + 1 ] );
-				lpMax[ b3 + 2 ] = Math.max( lpMax[ p3 + 2 ], bbMax[ b3 + 2 ] );
+				const lp0 = lpMin[ p3 ], lb0 = bbMin[ b3 ];
+				const lp1 = lpMin[ p3 + 1 ], lb1 = bbMin[ b3 + 1 ];
+				const lp2 = lpMin[ p3 + 2 ], lb2 = bbMin[ b3 + 2 ];
+				lpMin[ b3 ] = lp0 < lb0 ? lp0 : lb0;
+				lpMin[ b3 + 1 ] = lp1 < lb1 ? lp1 : lb1;
+				lpMin[ b3 + 2 ] = lp2 < lb2 ? lp2 : lb2;
+				const lxp0 = lpMax[ p3 ], lxb0 = bbMax[ b3 ];
+				const lxp1 = lpMax[ p3 + 1 ], lxb1 = bbMax[ b3 + 1 ];
+				const lxp2 = lpMax[ p3 + 2 ], lxb2 = bbMax[ b3 + 2 ];
+				lpMax[ b3 ] = lxp0 > lxb0 ? lxp0 : lxb0;
+				lpMax[ b3 + 1 ] = lxp1 > lxb1 ? lxp1 : lxb1;
+				lpMax[ b3 + 2 ] = lxp2 > lxb2 ? lxp2 : lxb2;
 
 			}
 
@@ -766,12 +907,18 @@ export default class BVHBuilder {
 				const b3 = b * 3;
 				const n3 = ( b + 1 ) * 3;
 				rpc[ b ] = rpc[ b + 1 ] + bc[ b ];
-				rpMin[ b3 ] = Math.min( rpMin[ n3 ], bbMin[ b3 ] );
-				rpMin[ b3 + 1 ] = Math.min( rpMin[ n3 + 1 ], bbMin[ b3 + 1 ] );
-				rpMin[ b3 + 2 ] = Math.min( rpMin[ n3 + 2 ], bbMin[ b3 + 2 ] );
-				rpMax[ b3 ] = Math.max( rpMax[ n3 ], bbMax[ b3 ] );
-				rpMax[ b3 + 1 ] = Math.max( rpMax[ n3 + 1 ], bbMax[ b3 + 1 ] );
-				rpMax[ b3 + 2 ] = Math.max( rpMax[ n3 + 2 ], bbMax[ b3 + 2 ] );
+				const rn0 = rpMin[ n3 ], rb0 = bbMin[ b3 ];
+				const rn1 = rpMin[ n3 + 1 ], rb1 = bbMin[ b3 + 1 ];
+				const rn2 = rpMin[ n3 + 2 ], rb2 = bbMin[ b3 + 2 ];
+				rpMin[ b3 ] = rn0 < rb0 ? rn0 : rb0;
+				rpMin[ b3 + 1 ] = rn1 < rb1 ? rn1 : rb1;
+				rpMin[ b3 + 2 ] = rn2 < rb2 ? rn2 : rb2;
+				const rxn0 = rpMax[ n3 ], rxb0 = bbMax[ b3 ];
+				const rxn1 = rpMax[ n3 + 1 ], rxb1 = bbMax[ b3 + 1 ];
+				const rxn2 = rpMax[ n3 + 2 ], rxb2 = bbMax[ b3 + 2 ];
+				rpMax[ b3 ] = rxn0 > rxb0 ? rxn0 : rxb0;
+				rpMax[ b3 + 1 ] = rxn1 > rxb1 ? rxn1 : rxb1;
+				rpMax[ b3 + 2 ] = rxn2 > rxb2 ? rxn2 : rxb2;
 
 			}
 
@@ -785,14 +932,16 @@ export default class BVHBuilder {
 
 				if ( leftCount === 0 || rightCount === 0 ) continue;
 
-				const leftSA = this.computeSurfaceAreaFlat(
-					lpMin[ leftIdx ], lpMin[ leftIdx + 1 ], lpMin[ leftIdx + 2 ],
-					lpMax[ leftIdx ], lpMax[ leftIdx + 1 ], lpMax[ leftIdx + 2 ]
-				);
-				const rightSA = this.computeSurfaceAreaFlat(
-					rpMin[ rightIdx ], rpMin[ rightIdx + 1 ], rpMin[ rightIdx + 2 ],
-					rpMax[ rightIdx ], rpMax[ rightIdx + 1 ], rpMax[ rightIdx + 2 ]
-				);
+				// Inlined surface area: 2*(dx*dy + dy*dz + dz*dx)
+				const ldx = lpMax[ leftIdx ] - lpMin[ leftIdx ];
+				const ldy = lpMax[ leftIdx + 1 ] - lpMin[ leftIdx + 1 ];
+				const ldz = lpMax[ leftIdx + 2 ] - lpMin[ leftIdx + 2 ];
+				const leftSA = 2 * ( ldx * ldy + ldy * ldz + ldz * ldx );
+
+				const rdx = rpMax[ rightIdx ] - rpMin[ rightIdx ];
+				const rdy = rpMax[ rightIdx + 1 ] - rpMin[ rightIdx + 1 ];
+				const rdz = rpMax[ rightIdx + 2 ] - rpMin[ rightIdx + 2 ];
+				const rightSA = 2 * ( rdx * rdy + rdy * rdz + rdz * rdx );
 
 				const cost = this.traversalCost +
 					( leftSA / parentSA ) * leftCount * this.intersectionCost +
@@ -858,18 +1007,12 @@ export default class BVHBuilder {
 
 		}
 
-		// Build temp array of centroid values for this axis to find median
+		// Quickselect to find median centroid value in O(N) average
 		const count = end - start;
-		const vals = new Float32Array( count );
-		for ( let i = 0; i < count; i ++ ) {
+		const k = start + Math.floor( count / 2 );
+		this.quickselect( start, end, k, bestAxis );
 
-			vals[ i ] = c[ idx[ start + i ] * 3 + bestAxis ];
-
-		}
-
-		vals.sort();
-		const medianIdx = Math.floor( count / 2 );
-		let splitPos = vals[ medianIdx ];
+		let splitPos = c[ idx[ k ] * 3 + bestAxis ];
 
 		// Verify balanced split
 		let leftCount = 0;
@@ -881,9 +1024,19 @@ export default class BVHBuilder {
 
 		if ( leftCount === 0 || leftCount === count ) {
 
-			if ( medianIdx > 0 ) {
+			// Nudge split between median and its neighbor
+			if ( k > start ) {
 
-				splitPos = ( vals[ medianIdx - 1 ] + vals[ medianIdx ] ) * 0.5;
+				// Find max centroid in left half
+				let leftMax = - Infinity;
+				for ( let i = start; i < k; i ++ ) {
+
+					const v = c[ idx[ i ] * 3 + bestAxis ];
+					if ( v > leftMax ) leftMax = v;
+
+				}
+
+				splitPos = ( leftMax + splitPos ) * 0.5;
 
 			} else {
 
@@ -982,6 +1135,77 @@ export default class BVHBuilder {
 		}
 
 		return { success: true, axis: bestAxis, pos: splitPos, method: 'spatial_median' };
+
+	}
+
+	// --- Quickselect (Hoare's selection algorithm) ---
+
+	quickselect( start, end, k, axis ) {
+
+		const idx = this.indices;
+		const c = this.centroids;
+
+		let lo = start;
+		let hi = end - 1;
+
+		while ( lo < hi ) {
+
+			// Median-of-three pivot selection
+			const mid = ( lo + hi ) >>> 1;
+			const vLo = c[ idx[ lo ] * 3 + axis ];
+			const vMid = c[ idx[ mid ] * 3 + axis ];
+			const vHi = c[ idx[ hi ] * 3 + axis ];
+
+			// Sort lo, mid, hi and use mid as pivot
+			if ( vLo > vMid ) {
+
+				const t = idx[ lo ];
+				idx[ lo ] = idx[ mid ];
+				idx[ mid ] = t;
+
+			}
+
+			if ( vLo > vHi ) {
+
+				const t = idx[ lo ];
+				idx[ lo ] = idx[ hi ];
+				idx[ hi ] = t;
+
+			}
+
+			if ( vMid > vHi ) {
+
+				const t = idx[ mid ];
+				idx[ mid ] = idx[ hi ];
+				idx[ hi ] = t;
+
+			}
+
+			const pivot = c[ idx[ mid ] * 3 + axis ];
+
+			// Partition around pivot
+			let i = lo;
+			let j = hi;
+
+			while ( i <= j ) {
+
+				while ( c[ idx[ i ] * 3 + axis ] < pivot ) i ++;
+				while ( c[ idx[ j ] * 3 + axis ] > pivot ) j --;
+
+				if ( i <= j ) {
+
+					const t = idx[ i ]; idx[ i ] = idx[ j ]; idx[ j ] = t;
+					i ++;
+					j --;
+
+				}
+
+			}
+
+			if ( j < k ) lo = i;
+			if ( i > k ) hi = j;
+
+		}
 
 	}
 
