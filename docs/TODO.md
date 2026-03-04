@@ -2,8 +2,7 @@
 *Immediate actionable items and development tasks*
 
 ## 🚨 Critical Bug Fixess
-- arealight shadows not seen
-- [ ] scene freezing in some cases
+- [ ] arealight shadows not seen
 - [ ] save render doesnt show in results panel in some cases
 - [ ] Sun not getting parsed from glTF files
 - [ ] Object rendering looks dimmer than the environment lighting in the background. Remove the hardcoded multiplier of 2.0 for env lighting on secondary rays to reprodue the issue.
@@ -30,7 +29,6 @@
 
 ### Advanced Rendering
 - [ ] add new catergoy of enviroment maps - abstract. Identify the files and organize it
-- [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
 - [ ] Implement Variance-based Firefly Suppression
 - [ ] Transparent background support
 - [ ] Subsurface scattering implementation
@@ -55,20 +53,18 @@
 - [ ] Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ] Experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ] Experiment with ray frustum culling
-- [ ] Refactor path tracing to use define instead of if-else
 - [ ] GPU-CPU for envriment in procedural sky, gradient sky, solid color sky modes are expensive.
 
 ### UX Enhancements
 - [ ] Add dynamic camera addition and removal
 - [ ] Add dynamic object addition and removal
 - [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
-- [x] useHook - https://github.com/uidotdev/usehooks
 - [ ] UX for Envroment control needs revamp
 
 ### BVH Construction Improvements
 - [ ] BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
 - [ ] Consider PLOC for maximum performance scenarios
-- [ ] Experiment with 4-way branching for GPU traversal -> Explored. Results shows increased memory bandwidth usage
+- [ ] Experiment with 4-way branching for GPU traversal -> Explored.
 
 ### AI integration
 - [ ] Explore AI-driven denoising techniques beyond OIDN
