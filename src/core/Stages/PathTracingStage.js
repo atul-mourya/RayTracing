@@ -27,6 +27,7 @@ import { SimpleSkyRendererTSL } from '../Processor/SimpleSkyRendererTSL';
 
 // Constants
 import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../Constants';
+import BuildTimer from '../Processor/BuildTimer.js';
 
 // Blue noise
 import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
@@ -1320,16 +1321,30 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
+		const timer = new BuildTimer( 'setupMaterial' );
+
+		timer.start( 'Render targets' );
 		this._ensureRenderTargets();
+		timer.end( 'Render targets' );
 
+		timer.start( 'Create texture nodes' );
 		const textureNodes = this._createTextureNodes();
-		const ptOutput = this._createPathTracerOutput( textureNodes );
+		timer.end( 'Create texture nodes' );
 
+		timer.start( 'Create path tracer output (TSL)' );
+		const ptOutput = this._createPathTracerOutput( textureNodes );
+		timer.end( 'Create path tracer output (TSL)' );
+
+		timer.start( 'Create path trace materials' );
 		this._createPathTraceMaterials( ptOutput );
+		timer.end( 'Create path trace materials' );
+
+		timer.start( 'Create display material' );
 		this._createDisplayMaterial();
+		timer.end( 'Create display material' );
 
 		this.isReady = true;
-		console.log( 'PathTracingStage: Material setup complete' );
+		timer.print();
 
 	}
 

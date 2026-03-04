@@ -6,6 +6,7 @@ import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
+import BuildTimer from './BuildTimer';
 import { MODEL_FILES, DEFAULT_STATE } from '@/Constants';
 
 // Define supported file formats
@@ -1063,10 +1064,16 @@ class AssetLoader extends EventDispatcher {
 	// Model processing methods
 	async onModelLoad( model ) {
 
+		let a = performance.now();
+		const buildTimer = new BuildTimer( 'onModelLoad' );
+
 		// Extract cameras from the loaded model
+		buildTimer.start( 'Camera extraction' );
 		const extractedCameras = this.extractCamerasFromModel( model );
+		buildTimer.end( 'Camera extraction' );
 
 		// Center model and adjust camera
+		buildTimer.start( 'Camera setup' );
 		const box = new Box3().setFromObject( model );
 		const center = box.getCenter( new Vector3() );
 		const size = box.getSize( new Vector3() );
@@ -1094,6 +1101,7 @@ class AssetLoader extends EventDispatcher {
 		this.controls.maxDistance = cameraDistance * 10;
 		this.controls.saveState();
 		this.controls.update();
+		buildTimer.end( 'Camera setup' );
 
 		// Adjust floor plane
 		if ( this.floorPlane ) {
@@ -1107,21 +1115,31 @@ class AssetLoader extends EventDispatcher {
 
 		if ( this.optimizeMeshes ) {
 
+			buildTimer.start( 'Mesh optimization' );
 			updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
 			await this.optimizeModel( model );
+			buildTimer.end( 'Mesh optimization' );
 
 		}
 
 		// Process model objects
+		buildTimer.start( 'Process model objects' );
 		this.processModelObjects( model );
+		buildTimer.end( 'Process model objects' );
 
+		buildTimer.start( 'Scene add' );
 		this.scene.add( model );
+		buildTimer.end( 'Scene add' );
 
 		// Calculate scene scale factor based on model size
 		const sceneScale = maxDim;
 
 		// Rebuild path tracing
+		buildTimer.start( 'setupPathTracing' );
 		await this.setupPathTracing( model, sceneScale );
+		buildTimer.end( 'setupPathTracing' );
+
+		buildTimer.print();
 
 		// Dispatch event with cameras if found
 		this.dispatchEvent( {
@@ -1133,7 +1151,8 @@ class AssetLoader extends EventDispatcher {
 
 		// Notify model loaded and processed
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
-
+		let b = performance.measure( a - performance.now() );
+		console.log( 'supp !!: ', b.duration );
 		return { center, size, maxDim, sceneScale };
 
 	}

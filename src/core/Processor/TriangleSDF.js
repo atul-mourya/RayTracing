@@ -5,6 +5,7 @@ import TextureCreator from './TextureCreator.js'; // Using optimized TextureCrea
 import GeometryExtractor from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading, resetLoading } from '../Processor/utils.js';
+import BuildTimer from './BuildTimer.js';
 
 /**
  * TriangleSDF - Handles the triangle-based signed distance field
@@ -150,7 +151,7 @@ export default class TriangleSDF {
 		this.isProcessing = true;
 		this.processingStage = 'init';
 
-		const totalStartTime = performance.now();
+		const timer = new BuildTimer( `TriangleSDF (${object.name || 'scene'})` );
 
 		try {
 
@@ -160,50 +161,45 @@ export default class TriangleSDF {
 
 			// Step 1: Extract geometry (0-20%)
 			this.processingStage = 'extraction';
-			const extractionStartTime = performance.now();
+			timer.start( 'Geometry extraction' );
 			await this._extractGeometry( object );
-			this.performanceMetrics.geometryExtractionTime = performance.now() - extractionStartTime;
+			timer.end( 'Geometry extraction' );
+			this.performanceMetrics.geometryExtractionTime = timer.getDuration( 'Geometry extraction' );
 
 			// Step 2: BVH + textures in parallel (20-95%)
 			// Texture creation only needs GeometryExtractor output (materials + texture maps)
 			// BVH construction is independent — run both concurrently
 			this.processingStage = 'bvh';
-			const bvhStartTime = performance.now();
-			const textureStartTime = performance.now();
+			timer.start( 'BVH construction (worker)' );
+			timer.start( 'Material textures (parallel)' );
 
-			const bvhPromise = this._buildBVH();
-			const texturePromise = this._createMaterialTextures();
+			const bvhPromise = this._buildBVH().then( () => timer.end( 'BVH construction (worker)' ) );
+			const texturePromise = this._createMaterialTextures().then( () => timer.end( 'Material textures (parallel)' ) );
 
 			await Promise.all( [ bvhPromise, texturePromise ] );
 
-			this.performanceMetrics.bvhBuildTime = performance.now() - bvhStartTime;
-			this.performanceMetrics.textureCreationTime = performance.now() - textureStartTime;
+			this.performanceMetrics.bvhBuildTime = timer.getDuration( 'BVH construction (worker)' );
+			this.performanceMetrics.textureCreationTime = timer.getDuration( 'Material textures (parallel)' );
 
-			// Step 3: BVH raw data (needs bvhRoot from step 2)
+			// Step 3: BVH data is already flattened inside the worker (or sync path).
+			// Only fall back to main-thread flattening if bvhData wasn't produced.
 			this.processingStage = 'finalize';
-			if ( this.bvhRoot ) {
+			timer.start( 'BVH data packing' );
+			if ( this.bvhRoot && ! this.bvhData ) {
 
 				this.bvhData = this.textureCreator.createBVHRawData( this.bvhRoot );
 
 			}
 
+			timer.end( 'BVH data packing' );
+
 			// Create additional scene elements (spheres, etc.)
 			this.spheres = this._createSpheres();
 
 			// Calculate total performance
-			this.performanceMetrics.totalProcessingTime = performance.now() - totalStartTime;
+			this.performanceMetrics.totalProcessingTime = performance.now() - timer.totalStart;
 
-			this._log( 'Processing complete', {
-				triangleCount: this.triangleCount,
-				materials: this.materials.length,
-				textures: this.maps.length,
-				performance: {
-					total: this.performanceMetrics.totalProcessingTime.toFixed( 2 ) + 'ms',
-					extraction: this.performanceMetrics.geometryExtractionTime.toFixed( 2 ) + 'ms',
-					bvh: this.performanceMetrics.bvhBuildTime.toFixed( 2 ) + 'ms',
-					textures: this.performanceMetrics.textureCreationTime.toFixed( 2 ) + 'ms'
-				}
-			} );
+			timer.print();
 
 			this.processingStage = 'complete';
 			resetLoading();
@@ -343,12 +339,16 @@ export default class TriangleSDF {
 
 			};
 
-			// Build the BVH
-			this.bvhRoot = await this.bvhBuilder.build(
+			// Build the BVH — original triangleData buffer is transferred to worker (neutered).
+			// Returns reordered triangle data as a new Float32Array (zero-copy transfer back).
+			const result = await this.bvhBuilder.build(
 				this.triangleData,
 				this.config.bvhDepth,
 				progressCallback
 			);
+			this.bvhRoot = result.bvhRoot; // truthy sentinel for hasBVH checks
+			this.bvhData = result.bvhData; // GPU-ready flat array (flattened in worker)
+			if ( result.reorderedTriangles ) this.triangleData = result.reorderedTriangles;
 
 			if ( this.triangleCount <= 500 && originalTreeletEnabled ) {
 
@@ -500,6 +500,7 @@ export default class TriangleSDF {
 		this.cameras = [];
 		this.spheres = [];
 		this.bvhRoot = null;
+		this.bvhData = null;
 
 		// Reset performance metrics
 		this.performanceMetrics = {

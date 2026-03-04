@@ -23,6 +23,7 @@ import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
 import { DEFAULT_STATE } from '../Constants.js';
 import { updateStats, resetLoading } from './Processor/utils.js';
+import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
 import { useStore } from '@/store';
@@ -645,8 +646,12 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	async loadSceneData() {
 
+		const timer = new BuildTimer( 'loadSceneData' );
+
 		// Build BVH acceleration structure from the mesh scene
+		timer.start( 'BVH build (TriangleSDF)' );
 		await this.sdf.buildBVH( this.meshScene );
+		timer.end( 'BVH build (TriangleSDF)' );
 
 		// Get raw data from SDF (Float32Arrays for storage buffers)
 		const triangleData = this.sdf.triangleData;
@@ -662,6 +667,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		timer.start( 'GPU data transfer' );
 		this.pathTracingStage.setTriangleData( triangleData, triangleCount );
 
 		if ( ! bvhData ) {
@@ -713,18 +719,24 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Transfer lights from mesh scene into the WebGPU light scene
 		this._transferSceneLights();
+		timer.end( 'GPU data transfer' );
 
 		// Setup material with all data
+		timer.start( 'Material setup (TSL compile)' );
 		this.pathTracingStage.setupMaterial();
+		timer.end( 'Material setup (TSL compile)' );
 
 		// Build environment CDF for importance sampling AFTER material setup
 		if ( environmentTexture ) {
 
+			timer.start( 'Environment CDF build' );
 			await this.pathTracingStage.setEnvironmentMap( environmentTexture );
+			timer.end( 'Environment CDF build' );
 
 		}
 
 		// Apply all settings to stage
+		timer.start( 'Apply settings' );
 		this.pathTracingStage.setMaxBounces( this.maxBounces );
 		this.pathTracingStage.setSamplesPerPixel( this.samplesPerPixel );
 		this.pathTracingStage.setMaxSamples( this.maxSamples );
@@ -755,6 +767,9 @@ export class PathTracerApp extends EventDispatcher {
 		// Debug
 		this.pathTracingStage.setVisMode( this.visMode );
 		this.pathTracingStage.setDebugVisScale( this.debugVisScale );
+		timer.end( 'Apply settings' );
+
+		timer.print();
 
 		// Dispatch SceneRebuild so UI components (StatsMeter, Outliner, etc.) update
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );

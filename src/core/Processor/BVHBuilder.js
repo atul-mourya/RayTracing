@@ -1,4 +1,3 @@
-import { Vector3 } from "three";
 import TreeletOptimizer from "./TreeletOptimizer";
 
 // Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
@@ -22,8 +21,9 @@ class BVHNode {
 
 	constructor() {
 
-		this.boundsMin = new Vector3();
-		this.boundsMax = new Vector3();
+		// Inline floats instead of Vector3 to avoid 2M+ object allocations
+		this.minX = 0; this.minY = 0; this.minZ = 0;
+		this.maxX = 0; this.maxY = 0; this.maxZ = 0;
 		this.leftChild = null;
 		this.rightChild = null;
 		this.triangleOffset = 0;
@@ -325,6 +325,13 @@ export default class BVHBuilder {
 
 	// --- Build entry points ---
 
+	/**
+	 * Build BVH from triangle data.
+	 * Returns { bvhData: Float32Array, bvhRoot: true, reorderedTriangles: Float32Array }
+	 * where bvhData is the GPU-ready flat array (12 floats/node) and reorderedTriangles
+	 * is the BVH-ordered triangle data. Caller must use reorderedTriangles instead of
+	 * the original input (which is neutered after transfer to the worker).
+	 */
 	build( triangles, depth = 30, progressCallback = null ) {
 
 		this.totalTriangles = triangles.byteLength / ( FPT * 4 );
@@ -342,9 +349,19 @@ export default class BVHBuilder {
 						{ type: 'module' }
 					);
 
+					const triangleCount = triangles.byteLength / ( FPT * 4 );
+					const useShared = typeof SharedArrayBuffer !== 'undefined';
+					console.log( `[BVHBuilder] SharedArrayBuffer: ${useShared ? 'enabled' : 'unavailable (using transfer fallback)'}` );
+
+					// Pre-allocate SharedArrayBuffer for reordered output so worker
+					// writes directly to shared memory (no transfer needed on return).
+					const sharedReorderBuffer = useShared
+						? new SharedArrayBuffer( triangleCount * FPT * 4 )
+						: null;
+
 					worker.onmessage = ( e ) => {
 
-						const { bvhRoot, triangles: newTriangles, error, progress } = e.data;
+						const { bvhData, triangles: transferredTriangles, error, progress, treeletStats } = e.data;
 
 						if ( error ) {
 
@@ -361,11 +378,20 @@ export default class BVHBuilder {
 
 						}
 
-						// Copy reordered data back to original array
-						triangles.set( newTriangles );
+						if ( treeletStats ) {
+
+							this.splitStats = treeletStats;
+
+						}
 
 						worker.terminate();
-						resolve( bvhRoot );
+
+						// Reordered triangles: from shared memory or fallback transfer
+						const reorderedTriangles = sharedReorderBuffer
+							? new Float32Array( sharedReorderBuffer )
+							: transferredTriangles;
+
+						resolve( { bvhData, bvhRoot: true, reorderedTriangles } );
 
 					};
 
@@ -376,13 +402,16 @@ export default class BVHBuilder {
 
 					};
 
-					const triangleCount = triangles.byteLength / ( FPT * 4 );
-					const bufferCopy = triangles.buffer.slice( triangles.byteOffset, triangles.byteOffset + triangles.byteLength );
+					// Transfer the original buffer directly — avoids 362MB copy.
+					const transferBuffer = triangles.buffer;
 					const workerData = {
-						triangleData: bufferCopy,
+						triangleData: transferBuffer,
+						triangleByteOffset: triangles.byteOffset,
+						triangleByteLength: triangles.byteLength,
 						triangleCount,
 						depth,
 						reportProgress: !! progressCallback,
+						sharedReorderBuffer,
 						treeletOptimization: {
 							enabled: this.enableTreeletOptimization,
 							size: this.treeletSize,
@@ -391,19 +420,12 @@ export default class BVHBuilder {
 						}
 					};
 
-					worker.postMessage( workerData, [ bufferCopy ] );
+					worker.postMessage( workerData, [ transferBuffer ] );
 
 				} catch ( error ) {
 
 					console.warn( 'Worker creation failed, falling back to synchronous build:', error );
-					const bvhRoot = this.buildSync( triangles, depth, progressCallback );
-					if ( this.reorderedTriangleData ) {
-
-						triangles.set( this.reorderedTriangleData );
-
-					}
-
-					resolve( bvhRoot );
+					resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
 
 				}
 
@@ -413,14 +435,7 @@ export default class BVHBuilder {
 
 			return new Promise( ( resolve ) => {
 
-				const bvhRoot = this.buildSync( triangles, depth, progressCallback );
-				if ( this.reorderedTriangleData ) {
-
-					triangles.set( this.reorderedTriangleData );
-
-				}
-
-				resolve( bvhRoot );
+				resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
 
 			} );
 
@@ -428,7 +443,21 @@ export default class BVHBuilder {
 
 	}
 
-	buildSync( triangles, depth = 30, progressCallback = null ) {
+	/**
+	 * Synchronous build + flatten helper for non-worker path.
+	 * @private
+	 */
+	_buildSyncAndFlatten( triangles, depth, progressCallback ) {
+
+		const root = this.buildSync( triangles, depth, progressCallback );
+		const bvhData = this.flattenBVH( root );
+		// Return reordered triangles if available (avoids 362MB copy)
+		const reorderedTriangles = this.reorderedTriangleData || null;
+		return { bvhData, bvhRoot: true, reorderedTriangles };
+
+	}
+
+	buildSync( triangles, depth = 30, progressCallback = null, reorderTarget = null ) {
 
 		const buildStartTime = performance.now();
 
@@ -452,12 +481,18 @@ export default class BVHBuilder {
 			treeletOptimizationTime: 0,
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
-			averageSAHImprovement: 0
+			averageSAHImprovement: 0,
+			// Granular phase timings
+			initTime: 0,
+			sahBuildTime: 0,
+			reorderTime: 0
 		};
 
 		const n = this.totalTriangles;
 
-		// Allocate flat per-triangle arrays
+		// Phase 1: Allocate and initialize per-triangle arrays
+		const initStart = performance.now();
+
 		this.centroids = new Float32Array( n * 3 );
 		this.bMin = new Float32Array( n * 3 );
 		this.bMax = new Float32Array( n * 3 );
@@ -494,13 +529,17 @@ export default class BVHBuilder {
 
 		}
 
-		// Morton code spatial clustering
+		this.splitStats.initTime = performance.now() - initStart;
+
+		// Phase 2: Morton code spatial clustering
 		this.sortTrianglesByMortonCode();
 
-		// Build BVH recursively
+		// Phase 3: Recursive SAH build
+		const sahStart = performance.now();
 		const root = this.buildNodeRecursive( 0, n, depth, progressCallback );
+		this.splitStats.sahBuildTime = performance.now() - sahStart;
 
-		// Treelet optimization
+		// Phase 4: Treelet optimization
 		if ( this.enableTreeletOptimization && this.totalTriangles > 1000 ) {
 
 			const isLargeScene = this.totalTriangles > this.treeletComplexityThreshold;
@@ -555,8 +594,9 @@ export default class BVHBuilder {
 
 		}
 
-		// Create reordered triangle data from final index order
-		const reordered = new Float32Array( n * FPT );
+		// Phase 5: Create reordered triangle data from final index order
+		const reorderStart = performance.now();
+		const reordered = reorderTarget || new Float32Array( n * FPT );
 		for ( let i = 0; i < n; i ++ ) {
 
 			const srcOff = this.indices[ i ] * FPT;
@@ -566,25 +606,37 @@ export default class BVHBuilder {
 		}
 
 		this.reorderedTriangleData = reordered;
+		this.splitStats.reorderTime = performance.now() - reorderStart;
 
 		this.splitStats.totalBuildTime = performance.now() - buildStartTime;
 
-		const stats = {
-			'Total Triangles': this.totalTriangles,
+		// Print phase-level timing breakdown
+		const total = this.splitStats.totalBuildTime;
+		const phasePct = ( ms ) => total > 0 ? ( ms / total * 100 ).toFixed( 1 ) + '%' : '0%';
+
+		const timingRows = [
+			{ Phase: 'Init + bounds', 'Time (ms)': Math.round( this.splitStats.initTime ), '%': phasePct( this.splitStats.initTime ) },
+			{ Phase: 'Morton sort', 'Time (ms)': Math.round( this.splitStats.mortonSortTime ), '%': phasePct( this.splitStats.mortonSortTime ) },
+			{ Phase: 'SAH recursive build', 'Time (ms)': Math.round( this.splitStats.sahBuildTime ), '%': phasePct( this.splitStats.sahBuildTime ) },
+			{ Phase: 'Treelet optimization', 'Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ), '%': phasePct( this.splitStats.treeletOptimizationTime ) },
+			{ Phase: 'Triangle reorder', 'Time (ms)': Math.round( this.splitStats.reorderTime ), '%': phasePct( this.splitStats.reorderTime ) },
+			{ Phase: 'TOTAL', 'Time (ms)': Math.round( total ), '%': '100%' }
+		];
+
+		console.groupCollapsed( `⏱ BVH Build (${n.toLocaleString()} triangles, ${Math.round( total )}ms)` );
+		console.table( timingRows );
+		console.table( {
 			'Total Nodes': this.totalNodes,
 			'Max Leaf Size': this.maxLeafSize,
 			'SAH Splits': this.splitStats.sahSplits,
 			'Object Median Splits': this.splitStats.objectMedianSplits,
 			'Spatial Median Splits': this.splitStats.spatialMedianSplits,
 			'Failed Splits': this.splitStats.failedSplits,
-			'Perf: Total Build (ms)': Math.round( this.splitStats.totalBuildTime ),
-			'Perf: Morton Sort (ms)': Math.round( this.splitStats.mortonSortTime ),
-			'Perf: Treelet Opt Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ),
-			'Morton Clustering: Enabled': this.useMortonCodes,
-		};
-
-		console.log( 'BVH Statistics:' );
-		console.table( stats );
+			'Treelets Processed': this.splitStats.treeletsProcessed,
+			'Treelets Improved': this.splitStats.treeletsImproved,
+			'Avg SAH Improvement': ( this.splitStats.averageSAHImprovement * 100 ).toFixed( 2 ) + '%',
+		} );
+		console.groupEnd();
 
 		progressCallback && progressCallback( 100 );
 
@@ -625,8 +677,8 @@ export default class BVHBuilder {
 		// Use precomputed bounds from parent's partition, or compute for root
 		if ( preMinX !== undefined ) {
 
-			node.boundsMin.set( preMinX, preMinY, preMinZ );
-			node.boundsMax.set( preMaxX, preMaxY, preMaxZ );
+			node.minX = preMinX; node.minY = preMinY; node.minZ = preMinZ;
+			node.maxX = preMaxX; node.maxY = preMaxY; node.maxZ = preMaxZ;
 
 		} else {
 
@@ -644,7 +696,7 @@ export default class BVHBuilder {
 
 		}
 
-		// Find split
+		// Find best split using SAH
 		const splitInfo = this.findBestSplitPositionSAH( start, end, node );
 
 		if ( ! splitInfo.success ) {
@@ -778,8 +830,8 @@ export default class BVHBuilder {
 
 		}
 
-		node.boundsMin.set( minX, minY, minZ );
-		node.boundsMax.set( maxX, maxY, maxZ );
+		node.minX = minX; node.minY = minY; node.minZ = minZ;
+		node.maxX = maxX; node.maxY = maxY; node.maxZ = maxZ;
 
 	}
 
@@ -791,7 +843,7 @@ export default class BVHBuilder {
 		let bestAxis = - 1;
 		let bestPos = 0;
 
-		const parentSA = this.computeSurfaceArea( parentNode.boundsMin, parentNode.boundsMax );
+		const parentSA = this.computeSurfaceAreaFlat( parentNode.minX, parentNode.minY, parentNode.minZ, parentNode.maxX, parentNode.maxY, parentNode.maxZ );
 		const count = end - start;
 		const leafCost = this.intersectionCost * count;
 		const currentBinCount = this.getOptimalBinCount( count );
@@ -1209,16 +1261,65 @@ export default class BVHBuilder {
 
 	}
 
-	// --- Surface area helpers ---
+	// --- BVH flattening (GPU-ready format) ---
 
-	computeSurfaceArea( boundsMin, boundsMax ) {
+	/**
+	 * Flatten BVH tree into a Float32Array (12 floats per node).
+	 * Layout per node (3 × vec4):
+	 *   vec4( boundsMin.xyz, leftChildIndex )
+	 *   vec4( boundsMax.xyz, rightChildIndex )
+	 *   vec4( triangleOffset, triangleCount, 0, 0 )
+	 *
+	 * This is the same format as TextureCreator.createBVHRawData,
+	 * but runs inside the worker to avoid structured-clone overhead
+	 * of transferring 1M+ BVHNode objects.
+	 */
+	flattenBVH( root ) {
 
-		const dx = boundsMax.x - boundsMin.x;
-		const dy = boundsMax.y - boundsMin.y;
-		const dz = boundsMax.z - boundsMin.z;
-		return 2 * ( dx * dy + dy * dz + dz * dx );
+		// First pass: assign indices via pre-order traversal
+		const nodes = [];
+		const stack = [ root ];
+		while ( stack.length > 0 ) {
+
+			const node = stack.pop();
+			node._flatIndex = nodes.length;
+			nodes.push( node );
+			// Push right first so left is processed first (pre-order)
+			if ( node.rightChild ) stack.push( node.rightChild );
+			if ( node.leftChild ) stack.push( node.leftChild );
+
+		}
+
+		// Second pass: write flat data
+		const FLOATS_PER_NODE = 12;
+		const data = new Float32Array( nodes.length * FLOATS_PER_NODE );
+
+		for ( let i = 0; i < nodes.length; i ++ ) {
+
+			const node = nodes[ i ];
+			const o = i * FLOATS_PER_NODE;
+
+			data[ o ] = node.minX;
+			data[ o + 1 ] = node.minY;
+			data[ o + 2 ] = node.minZ;
+			data[ o + 3 ] = node.leftChild ? node.leftChild._flatIndex : - 1;
+
+			data[ o + 4 ] = node.maxX;
+			data[ o + 5 ] = node.maxY;
+			data[ o + 6 ] = node.maxZ;
+			data[ o + 7 ] = node.rightChild ? node.rightChild._flatIndex : - 1;
+
+			data[ o + 8 ] = node.triangleOffset;
+			data[ o + 9 ] = node.triangleCount;
+			// data[o+10] and data[o+11] are padding (0)
+
+		}
+
+		return data;
 
 	}
+
+	// --- Surface area helpers ---
 
 	computeSurfaceAreaFlat( minX, minY, minZ, maxX, maxY, maxZ ) {
 

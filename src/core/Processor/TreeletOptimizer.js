@@ -1,4 +1,4 @@
-import { Vector3 } from "three";
+// No external dependencies — uses inline float fields for bounds (no Vector3)
 
 /**
  * Treelet optimization for BVH trees (Bittner et al. 2013).
@@ -297,9 +297,10 @@ export default class TreeletOptimizer {
 
 		if ( node.triangleCount > 0 ) {
 
+			// BVHNode uses inline floats (minX/maxX etc.)
 			leaves.push( {
-				boundsMin: node.boundsMin.clone(),
-				boundsMax: node.boundsMax.clone(),
+				minX: node.minX, minY: node.minY, minZ: node.minZ,
+				maxX: node.maxX, maxY: node.maxY, maxZ: node.maxZ,
 				triangleOffset: node.triangleOffset,
 				triangleCount: node.triangleCount
 			} );
@@ -322,13 +323,13 @@ export default class TreeletOptimizer {
 
 		if ( node.triangleCount > 0 ) {
 
-			return this.surfaceArea( node.boundsMin, node.boundsMax ) * node.triangleCount * this.intersectionCost;
+			return this.surfaceAreaFlat( node.minX, node.minY, node.minZ, node.maxX, node.maxY, node.maxZ ) * node.triangleCount * this.intersectionCost;
 
 		}
 
 		const leftCost = this.evaluateSubtreeSAH( node.leftChild );
 		const rightCost = this.evaluateSubtreeSAH( node.rightChild );
-		const sa = this.surfaceArea( node.boundsMin, node.boundsMax );
+		const sa = this.surfaceAreaFlat( node.minX, node.minY, node.minZ, node.maxX, node.maxY, node.maxZ );
 		return sa * this.traversalCost + leftCost + rightCost;
 
 	}
@@ -351,9 +352,9 @@ export default class TreeletOptimizer {
 			// Leaf slot — look up actual leaf via permutation
 			const leaf = leaves[ perm[ topo ] ];
 			return {
-				cost: this.surfaceArea( leaf.boundsMin, leaf.boundsMax ) * leaf.triangleCount * this.intersectionCost,
-				boundsMin: leaf.boundsMin,
-				boundsMax: leaf.boundsMax
+				cost: this.surfaceAreaFlat( leaf.minX, leaf.minY, leaf.minZ, leaf.maxX, leaf.maxY, leaf.maxZ ) * leaf.triangleCount * this.intersectionCost,
+				minX: leaf.minX, minY: leaf.minY, minZ: leaf.minZ,
+				maxX: leaf.maxX, maxY: leaf.maxY, maxZ: leaf.maxZ
 			};
 
 		}
@@ -361,32 +362,27 @@ export default class TreeletOptimizer {
 		const left = this.evalTopoRecursive( topo[ 0 ], leaves, perm );
 		const right = this.evalTopoRecursive( topo[ 1 ], leaves, perm );
 
-		const bMin = _v0.set(
-			Math.min( left.boundsMin.x, right.boundsMin.x ),
-			Math.min( left.boundsMin.y, right.boundsMin.y ),
-			Math.min( left.boundsMin.z, right.boundsMin.z )
-		).clone();
+		const mnX = Math.min( left.minX, right.minX );
+		const mnY = Math.min( left.minY, right.minY );
+		const mnZ = Math.min( left.minZ, right.minZ );
+		const mxX = Math.max( left.maxX, right.maxX );
+		const mxY = Math.max( left.maxY, right.maxY );
+		const mxZ = Math.max( left.maxZ, right.maxZ );
 
-		const bMax = _v1.set(
-			Math.max( left.boundsMax.x, right.boundsMax.x ),
-			Math.max( left.boundsMax.y, right.boundsMax.y ),
-			Math.max( left.boundsMax.z, right.boundsMax.z )
-		).clone();
-
-		const sa = this.surfaceArea( bMin, bMax );
+		const sa = this.surfaceAreaFlat( mnX, mnY, mnZ, mxX, mxY, mxZ );
 		return {
 			cost: sa * this.traversalCost + left.cost + right.cost,
-			boundsMin: bMin,
-			boundsMax: bMax
+			minX: mnX, minY: mnY, minZ: mnZ,
+			maxX: mxX, maxY: mxY, maxZ: mxZ
 		};
 
 	}
 
-	surfaceArea( boundsMin, boundsMax ) {
+	surfaceAreaFlat( minX, minY, minZ, maxX, maxY, maxZ ) {
 
-		const dx = boundsMax.x - boundsMin.x;
-		const dy = boundsMax.y - boundsMin.y;
-		const dz = boundsMax.z - boundsMin.z;
+		const dx = maxX - minX;
+		const dy = maxY - minY;
+		const dz = maxZ - minZ;
 		return 2 * ( dx * dy + dy * dz + dz * dx );
 
 	}
@@ -477,9 +473,9 @@ export default class TreeletOptimizer {
 
 		const built = this.buildSubtree( topo, leaves, perm );
 
-		// Copy built structure into the existing treelet root node
-		treeletRoot.boundsMin.copy( built.boundsMin );
-		treeletRoot.boundsMax.copy( built.boundsMax );
+		// Copy built structure into the existing treelet root node (inline floats)
+		treeletRoot.minX = built.minX; treeletRoot.minY = built.minY; treeletRoot.minZ = built.minZ;
+		treeletRoot.maxX = built.maxX; treeletRoot.maxY = built.maxY; treeletRoot.maxZ = built.maxZ;
 		treeletRoot.leftChild = built.leftChild;
 		treeletRoot.rightChild = built.rightChild;
 		treeletRoot.triangleOffset = built.triangleOffset;
@@ -494,11 +490,11 @@ export default class TreeletOptimizer {
 
 		if ( typeof topo === 'number' ) {
 
-			// Leaf — create a proper BVHNode
+			// Leaf — create a lightweight node with inline bounds
 			const leaf = leaves[ perm[ topo ] ];
 			const node = new TreeletBVHNode();
-			node.boundsMin.copy( leaf.boundsMin );
-			node.boundsMax.copy( leaf.boundsMax );
+			node.minX = leaf.minX; node.minY = leaf.minY; node.minZ = leaf.minZ;
+			node.maxX = leaf.maxX; node.maxY = leaf.maxY; node.maxZ = leaf.maxZ;
 			node.triangleOffset = leaf.triangleOffset;
 			node.triangleCount = leaf.triangleCount;
 			return node;
@@ -511,16 +507,12 @@ export default class TreeletOptimizer {
 		const node = new TreeletBVHNode();
 		node.leftChild = left;
 		node.rightChild = right;
-		node.boundsMin.set(
-			Math.min( left.boundsMin.x, right.boundsMin.x ),
-			Math.min( left.boundsMin.y, right.boundsMin.y ),
-			Math.min( left.boundsMin.z, right.boundsMin.z )
-		);
-		node.boundsMax.set(
-			Math.max( left.boundsMax.x, right.boundsMax.x ),
-			Math.max( left.boundsMax.y, right.boundsMax.y ),
-			Math.max( left.boundsMax.z, right.boundsMax.z )
-		);
+		node.minX = Math.min( left.minX, right.minX );
+		node.minY = Math.min( left.minY, right.minY );
+		node.minZ = Math.min( left.minZ, right.minZ );
+		node.maxX = Math.max( left.maxX, right.maxX );
+		node.maxY = Math.max( left.maxY, right.maxY );
+		node.maxZ = Math.max( left.maxZ, right.maxZ );
 
 		return node;
 
@@ -571,15 +563,14 @@ export default class TreeletOptimizer {
 /**
  * Lightweight BVH node used during reconstruction.
  * Duck-type compatible with the main BVHNode class —
- * has boundsMin/boundsMax as Vector3, leftChild, rightChild,
- * triangleOffset, triangleCount.
+ * uses inline float fields (minX/maxX etc.).
  */
 class TreeletBVHNode {
 
 	constructor() {
 
-		this.boundsMin = new Vector3();
-		this.boundsMax = new Vector3();
+		this.minX = 0; this.minY = 0; this.minZ = 0;
+		this.maxX = 0; this.maxY = 0; this.maxZ = 0;
 		this.leftChild = null;
 		this.rightChild = null;
 		this.triangleOffset = 0;
@@ -588,7 +579,3 @@ class TreeletBVHNode {
 	}
 
 }
-
-// Reusable temp vectors for SAH evaluation (avoids allocation in hot loop)
-const _v0 = new Vector3();
-const _v1 = new Vector3();
