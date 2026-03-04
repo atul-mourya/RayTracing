@@ -77,8 +77,8 @@ import {
 import { RandomValue, getRandomSample } from './Random.js';
 import { traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment } from './Environment.js';
-import { sampleAllMaterialTextures, sampleDisplacementMap } from './TextureSampling.js';
-import { calculateDisplacedNormal } from './Displacement.js';
+import { sampleAllMaterialTextures } from './TextureSampling.js';
+import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
 import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import {
 	DistributionGGX,
@@ -721,36 +721,37 @@ export const Trace = Fn( ( [
 		// Get material from texture
 		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
-		// Sample all textures in one batch
+		// Tessellation-free displacement — refine intersection with ray-height field marching
+		const samplingUV = hitInfo.uv.toVar();
+		const displacedNormal = hitInfo.normal.toVar();
+
+		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
+
+			const dispResult = DisplacementResult.wrap( refineDisplacedIntersection(
+				currentRay, hitInfo, triangleBuffer, displacementMaps, material, bounceIndex,
+			) ).toVar();
+			samplingUV.assign( dispResult.uv );
+			displacedNormal.assign( dispResult.normal );
+			hitInfo.hitPoint.assign( dispResult.hitPoint );
+
+		} );
+
+		// Sample all textures using displacement-refined UVs
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 			albedoMaps, normalMaps, bumpMaps, metalnessMaps, roughnessMaps, emissiveMaps,
-			material, hitInfo.uv, hitInfo.normal,
+			material, samplingUV, hitInfo.normal,
 		) ).toVar();
 
 		// Update material with texture samples
 		material.color.assign( matSamples.albedo );
 		material.metalness.assign( matSamples.metalness );
 		material.roughness.assign( clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
-		const N = matSamples.normal.toVar();
 
-		// Displacement mapping
+		// Blend displaced normal with texture normal map — displacement provides macro shape, normal map adds micro detail
+		const N = matSamples.normal.toVar();
 		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
 
-			const heightSample = sampleDisplacementMap(
-				displacementMaps, material.displacementMapIndex, hitInfo.uv, material.displacementTransform,
-			);
-			const displacementHeight = heightSample.sub( 0.5 ).mul( material.displacementScale );
-			const displacement = N.mul( displacementHeight );
-			hitInfo.hitPoint.addAssign( displacement );
-
-			If( material.displacementScale.greaterThan( 0.01 ), () => {
-
-				const displacedNormal = calculateDisplacedNormal( displacementMaps, hitInfo.hitPoint, N, hitInfo.uv, material );
-				const blendFactor = clamp( material.displacementScale.mul( 0.5 ), 0.1, 0.8 )
-					.mul( float( 1.0 ).sub( material.roughness.mul( 0.5 ) ) ).toVar();
-				N.assign( normalize( mix( N, displacedNormal, blendFactor ) ) );
-
-			} );
+			N.assign( normalize( displacedNormal.add( matSamples.normal.sub( hitInfo.normal ) ) ) );
 
 		} );
 

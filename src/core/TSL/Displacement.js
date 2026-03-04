@@ -1,150 +1,222 @@
-import { Fn, float, vec2, vec3, int, If, Loop, max, abs, normalize, cross, dot } from 'three/tsl';
+import { Fn, float, vec2, int, If, Loop, abs, normalize, dot, max } from 'three/tsl';
 
-import { HitInfo, Ray, Triangle, RayTracingMaterial } from './Struct.js';
-import { getMaterial } from './Common.js';
+import { struct } from './structProxy.js';
+import { getDatafromStorageBuffer } from './Common.js';
 import { sampleDisplacementMap } from './TextureSampling.js';
-import { RayTriangle } from './RayIntersection.js';
 
-// Configuration constants for displacement mapping
-const MAX_DISPLACEMENT_STEPS = 64;
-const MAX_BINARY_SEARCH_STEPS = 8;
-const DISPLACEMENT_EPSILON = 0.0001;
-const MIN_STEP_SIZE = 0.0005;
+// Ray-displacement intersection configuration
+const MAX_MARCH_STEPS = 32;
+const MIN_MARCH_STEPS = 16;
+const BINARY_STEPS = 5;
+const NORMAL_TEXEL_SIZE = 1.0 / 1024.0;
+const TRI_STRIDE = 8;
 
-// Get surface height at point using displacement mapping
-export const getDisplacedHeight = Fn( ( [ displacementMaps, point, normal, baseUV, material ] ) => {
-
-	const result = float( 0.0 ).toVar();
-
-	If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ), () => {
-
-		const heightSample = sampleDisplacementMap( displacementMaps, material.displacementMapIndex, baseUV, material.displacementTransform );
-		result.assign( heightSample.mul( material.displacementScale ) );
-
-	} );
-
-	return result;
-
+export const DisplacementResult = struct( {
+	hitPoint: 'vec3',
+	uv: 'vec2',
+	normal: 'vec3',
+	height: 'float',
 } );
 
-// Calculate displaced position along surface normal
-export const getDisplacedPosition = Fn( ( [ displacementMaps, basePoint, normal, uv, material ] ) => {
+/**
+ * Tessellation-free displacement mapping via analytical UV ray marching.
+ *
+ * Instead of projecting march points onto the triangle to get barycentrics (which
+ * causes UV distortion from clamping), this computes the ray's UV trajectory
+ * analytically using the triangle's actual tangent vectors (dP/du, dP/dv).
+ *
+ * The ray is parameterized as: P(dt) = hitPoint + rayDir * dt
+ * UV along the ray:           UV(dt) = hitUV + dUV_dt * dt
+ * Ray height above surface:   h_ray(dt) = dt * dot(rayDir, N)
+ * Displaced surface height:   h_surf(dt) = (sample(UV(dt)) - 0.5) * scale
+ *
+ * We find dt where h_ray(dt) = h_surf(dt).
+ */
+export const refineDisplacedIntersection = Fn( ( [
+	ray, hitInfo, triangleBuffer, displacementMaps, material, bounceIndex
+] ) => {
 
-	const height = getDisplacedHeight( displacementMaps, basePoint, normal, uv, material );
-	return basePoint.add( normal.mul( height ) );
+	const resultHitPoint = hitInfo.hitPoint.toVar();
+	const resultUV = hitInfo.uv.toVar();
+	const resultNormal = hitInfo.normal.toVar();
+	const resultHeight = float( 0.0 ).toVar();
 
-} );
+	// Fetch triangle vertex data
+	const triIdx = hitInfo.triangleIndex;
 
-// Simplified displacement application for post-intersection processing
-export const applyDisplacement = Fn( ( [ displacementMaps, basePoint, normal, uv, material ] ) => {
+	const pA = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 0 ), int( TRI_STRIDE ) ).xyz.toVar();
+	const pB = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 1 ), int( TRI_STRIDE ) ).xyz.toVar();
+	const pC = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 2 ), int( TRI_STRIDE ) ).xyz.toVar();
 
-	const result = basePoint.toVar();
+	const uvData1 = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 6 ), int( TRI_STRIDE ) ).toVar();
+	const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 7 ), int( TRI_STRIDE ) ).toVar();
 
-	If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ), () => {
+	const uvA = uvData1.xy.toVar();
+	const uvB = uvData1.zw.toVar();
+	const uvC = uvData2.xy.toVar();
 
-		const height = getDisplacedHeight( displacementMaps, basePoint, normal, uv, material );
-		result.assign( basePoint.add( normal.mul( height ) ) );
+	// Compute tangent vectors from triangle edges + UV differences
+	const edge1 = pB.sub( pA ).toVar();
+	const edge2 = pC.sub( pA ).toVar();
 
-	} );
+	const dUV1 = uvB.sub( uvA ).toVar();
+	const dUV2 = uvC.sub( uvA ).toVar();
+	const det = dUV1.x.mul( dUV2.y ).sub( dUV2.x.mul( dUV1.y ) ).toVar();
 
-	return result;
+	// Skip displacement for degenerate UV mapping
+	If( abs( det ).greaterThan( 1e-8 ), () => {
 
-} );
+		const invDet = float( 1.0 ).div( det );
 
-// Calculate normal for displaced surface using finite differences
-export const calculateDisplacedNormal = Fn( ( [ displacementMaps, point, baseNormal, uv, material ] ) => {
+		// dP/du and dP/dv — world-space tangent vectors from UV parameterization
+		const T = edge1.mul( dUV2.y ).sub( edge2.mul( dUV1.y ) ).mul( invDet ).toVar();
+		const B = edge2.mul( dUV1.x ).sub( edge1.mul( dUV2.x ) ).mul( invDet ).toVar();
+		const N = hitInfo.normal.toVar();
 
-	const result = baseNormal.toVar();
+		const scale = material.displacementScale.div( float( 10.0 ) ); // Arbitrary scale factor for height
+		const rayDir = ray.direction;
 
-	If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ), () => {
+		// Compute UV velocity along the ray: dUV/dt
+		// Project ray direction onto surface tangent plane
+		const NdotD = dot( rayDir, N ).toVar();
+		const rayProj = rayDir.sub( N.mul( NdotD ) ).toVar();
 
-		// Use larger offset for smoother normal variation - prevents overly sharp/glossy appearance
-		const h = float( 0.01 );
+		// Solve: rayProj = du_dt * T + dv_dt * B
+		// Using the Gram matrix inverse of [T, B]
+		const TdotT = dot( T, T );
+		const TdotB = dot( T, B );
+		const BdotB = dot( B, B );
+		const detJ = TdotT.mul( BdotB ).sub( TdotB.mul( TdotB ) ).toVar();
 
-		// Sample heights at nearby UV coordinates
-		const heightCenter = getDisplacedHeight( displacementMaps, point, baseNormal, uv, material );
-		const heightU = getDisplacedHeight( displacementMaps, point, baseNormal, uv.add( vec2( h, 0.0 ) ), material );
-		const heightV = getDisplacedHeight( displacementMaps, point, baseNormal, uv.add( vec2( 0.0, h ) ), material );
+		If( abs( detJ ).greaterThan( 1e-10 ), () => {
 
-		// Calculate partial derivatives with smoothing
-		const dHdU = heightU.sub( heightCenter ).div( h ).mul( 0.5 ).toVar();
-		const dHdV = heightV.sub( heightCenter ).div( h ).mul( 0.5 ).toVar();
+			const invDetJ = float( 1.0 ).div( detJ );
+			const rayProjDotT = dot( rayProj, T );
+			const rayProjDotB = dot( rayProj, B );
 
-		// Create tangent vectors (simplified - assumes UV corresponds to world space)
-		const tangentU = normalize( cross( baseNormal, vec3( 0.0, 1.0, 0.0 ) ) ).toVar();
-		const tangentV = normalize( cross( baseNormal, tangentU ) ).toVar();
+			const du_dt = BdotB.mul( rayProjDotT ).sub( TdotB.mul( rayProjDotB ) ).mul( invDetJ ).toVar();
+			const dv_dt = TdotT.mul( rayProjDotB ).sub( TdotB.mul( rayProjDotT ) ).mul( invDetJ ).toVar();
+			const dUV_dt = vec2( du_dt, dv_dt ).toVar();
 
-		// Perturb normal based on height gradients with reduced strength
-		const displacedNormal = baseNormal.sub( tangentU.mul( dHdU ) ).sub( tangentV.mul( dHdV ) );
-		result.assign( normalize( displacedNormal ) );
+			// Ray height change per unit dt: how fast the ray moves along the surface normal
+			const dh_ray_dt = NdotD.toVar();
 
-	} );
+			// March range: displacement shell extends ±0.5*scale from base surface
+			// Compute dt range to traverse the full shell
+			const absNdotD = max( abs( dh_ray_dt ), 0.001 ).toVar();
+			const dtShell = scale.div( absNdotD ).toVar();
 
-	return result;
+			// Adaptive step count: full steps on primary ray, half on deeper bounces
+			const marchSteps = int( bounceIndex.equal( int( 0 ) ).select(
+				int( MAX_MARCH_STEPS ), int( MIN_MARCH_STEPS )
+			) ).toVar();
 
-} );
+			// Start from above the shell, march through
+			const dtStart = dtShell.negate().toVar();
+			const dtEnd = dtShell.toVar();
+			const dtStep = dtEnd.sub( dtStart ).div( float( marchSteps ) ).toVar();
 
-// Ray marching function to find displaced surface intersection
-export const RayTriangleDisplaced = Fn( ( [ ray, tri, triangleBuffer, materialBuffer, displacementMaps ] ) => {
-
-	// First, get the base triangle intersection
-	const baseHit = RayTriangle( ray, tri ).toVar();
-	const result = baseHit.toVar();
-
-	If( baseHit.didHit, () => {
-
-		// Get material from material index
-		const material = RayTracingMaterial.wrap( getMaterial( tri.materialIndex, materialBuffer ) );
-
-		// If displacement is not enabled, return base hit
-		If( material.displacementMapIndex.greaterThanEqual( int( 0 ) ).and( material.displacementScale.greaterThan( 0.0 ) ), () => {
-
-			const rayDir = ray.direction;
-			const rayOrigin = ray.origin;
-
-			// Start marching from slightly before the base surface
-			const marchStart = max( float( 0.0 ), baseHit.dst.sub( material.displacementScale ) ).toVar();
-			const marchEnd = baseHit.dst.add( material.displacementScale ).toVar();
-
-			// Dynamic step size based on displacement scale
-			const stepSize = max( material.displacementScale.div( 16.0 ), 0.001 ).toVar();
-
-			const baseNormal = baseHit.normal;
-			const baseUV = baseHit.uv;
-
-			const t = marchStart.toVar();
+			// Track for binary refinement
+			const prevDt = dtStart.toVar();
+			const currDt = dtStart.toVar();
 			const found = int( 0 ).toVar();
 
-			Loop( t.lessThan( marchEnd ).and( found.equal( int( 0 ) ) ), () => {
+			// Linear march through displacement shell
+			Loop( { start: int( 0 ), end: marchSteps, type: 'int', condition: '<' }, ( { i } ) => {
 
-				const marchPoint = rayOrigin.add( rayDir.mul( t ) ).toVar();
+				If( found.equal( int( 0 ) ), () => {
 
-				// Project point onto base triangle to get UV coordinates
-				const toPoint = marchPoint.sub( baseHit.hitPoint );
+					const dt = dtStart.add( dtStep.mul( float( i ) ) ).toVar();
 
-				// Use base UV for now (could be improved with proper UV interpolation)
-				const currentUV = baseUV;
+					// UV at this point along the ray
+					const marchUV = hitInfo.uv.add( dUV_dt.mul( dt ) ).toVar();
 
-				// Get displacement at this point
-				const heightSample = sampleDisplacementMap( displacementMaps, material.displacementMapIndex, currentUV, material.displacementTransform );
-				const displacementHeight = heightSample.sub( 0.5 ).mul( material.displacementScale );
-				const displacedSurface = baseHit.hitPoint.add( baseNormal.mul( displacementHeight ) ).toVar();
+					// Ray height above base surface at this dt
+					const rayHeight = dt.mul( dh_ray_dt ).toVar();
 
-				// Check if we're close to the displaced surface
-				const distanceToSurface = dot( marchPoint.sub( displacedSurface ), baseNormal );
+					// Displaced surface height
+					const heightSample = sampleDisplacementMap(
+						displacementMaps, material.displacementMapIndex, marchUV, material.displacementTransform,
+					);
+					const surfaceHeight = heightSample.sub( 0.5 ).mul( scale );
 
-				If( abs( distanceToSurface ).lessThan( stepSize.mul( 0.5 ) ), () => {
+					// Ray crosses below displaced surface → intersection
+					If( rayHeight.lessThanEqual( surfaceHeight ).and( i.greaterThan( int( 0 ) ) ), () => {
 
-					// Found intersection - create displaced hit info
-					result.dst.assign( t );
-					result.hitPoint.assign( marchPoint );
-					result.uv.assign( currentUV );
-					result.normal.assign( calculateDisplacedNormal( displacementMaps, displacedSurface, baseNormal, currentUV, material ) );
-					found.assign( 1 );
+						found.assign( 1 );
+						currDt.assign( dt );
+
+					} ).Else( () => {
+
+						prevDt.assign( dt );
+
+					} );
 
 				} );
 
-				t.addAssign( stepSize );
+			} );
+
+			// Binary refinement
+			If( found.equal( int( 1 ) ), () => {
+
+				const loDt = prevDt.toVar();
+				const hiDt = currDt.toVar();
+
+				Loop( { start: int( 0 ), end: int( BINARY_STEPS ), type: 'int', condition: '<' }, () => {
+
+					const midDt = loDt.add( hiDt ).mul( 0.5 ).toVar();
+					const midUV = hitInfo.uv.add( dUV_dt.mul( midDt ) ).toVar();
+					const midRayHeight = midDt.mul( dh_ray_dt );
+					const midSample = sampleDisplacementMap(
+						displacementMaps, material.displacementMapIndex, midUV, material.displacementTransform,
+					);
+					const midSurfHeight = midSample.sub( 0.5 ).mul( scale );
+
+					If( midRayHeight.lessThanEqual( midSurfHeight ), () => {
+
+						hiDt.assign( midDt );
+
+					} ).Else( () => {
+
+						loDt.assign( midDt );
+
+					} );
+
+				} );
+
+				// Final intersection
+				const finalDt = loDt.add( hiDt ).mul( 0.5 ).toVar();
+				const finalUV = hitInfo.uv.add( dUV_dt.mul( finalDt ) ).toVar();
+				const finalPoint = hitInfo.hitPoint.add( rayDir.mul( finalDt ) ).toVar();
+
+				const finalHeight = sampleDisplacementMap(
+					displacementMaps, material.displacementMapIndex, finalUV, material.displacementTransform,
+				);
+				const displacedHeight = finalHeight.sub( 0.5 ).mul( scale );
+
+				// Compute displaced normal from height-field gradients using UV tangent vectors
+				const h = float( NORMAL_TEXEL_SIZE );
+				const hC = finalHeight;
+				const hU = sampleDisplacementMap(
+					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( h, 0.0 ) ), material.displacementTransform,
+				);
+				const hV = sampleDisplacementMap(
+					displacementMaps, material.displacementMapIndex, finalUV.add( vec2( 0.0, h ) ), material.displacementTransform,
+				);
+
+				// Perturb normal using actual tangent/bitangent from UV parameterization
+				const Tn = normalize( T ).toVar();
+				const Bn = normalize( B ).toVar();
+				const gradU = hU.sub( hC ).mul( scale );
+				const gradV = hV.sub( hC ).mul( scale );
+				const displacedNormal = normalize(
+					N.sub( Tn.mul( gradU ) ).sub( Bn.mul( gradV ) )
+				);
+
+				resultHitPoint.assign( finalPoint );
+				resultUV.assign( finalUV );
+				resultNormal.assign( displacedNormal );
+				resultHeight.assign( displacedHeight );
 
 			} );
 
@@ -152,6 +224,6 @@ export const RayTriangleDisplaced = Fn( ( [ ray, tri, triangleBuffer, materialBu
 
 	} );
 
-	return result;
+	return DisplacementResult( { hitPoint: resultHitPoint, uv: resultUV, normal: resultNormal, height: resultHeight } );
 
 } );

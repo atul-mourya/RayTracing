@@ -357,6 +357,7 @@ export const traverseBVH = Fn( ( [
 		closestHit.uv.assign(
 			uvData1.xy.mul( w ).add( uvData1.zw.mul( closestU ) ).add( uvData2.xy.mul( closestV ) )
 		);
+		closestHit.triangleIndex.assign( closestTriIdx );
 
 	} );
 
