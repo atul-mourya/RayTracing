@@ -558,9 +558,16 @@ export class PathTracerApp extends EventDispatcher {
 
 			},
 
-			// Expose current exposure so the output readback can apply the same curve
-			// as DisplayStage (exposure^4 + ACES tonemap).
-			getExposure: () => this.exposure,
+			// Effective exposure multiplier matching DisplayStage's pipeline:
+			//  • Manual:       pow(exposure, 4) with toneMappingExposure = 1.0
+			//  • AutoExposure: displayExposure = 1.0, toneMappingExposure = autoValue
+			// The tonemapping function receives this as its exposure parameter.
+			getExposure: () => this.autoExposureStage?.enabled
+				? this.renderer.toneMappingExposure
+				: Math.pow( this.exposure, 4.0 ),
+
+			// Current Three.js ToneMapping constant so OIDN can match the renderer.
+			getToneMapping: () => this.renderer.toneMapping,
 
 			getMRTRenderTarget: () => {
 
