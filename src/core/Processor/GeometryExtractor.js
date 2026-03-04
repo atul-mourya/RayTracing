@@ -670,6 +670,8 @@ export default class GeometryExtractor {
 	// Get the raw Float32Array (optimal for worker transfer and zero-copy textures)
 	getTriangleData() {
 
+		if ( ! this.triangleData ) return null;
+
 		// Return only the used portion of the array
 		return this.triangleData.subarray( 0, this.currentTriangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
 
