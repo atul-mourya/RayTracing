@@ -21,6 +21,7 @@ import {
 	notEqual,
 	lessThan,
 	mat3,
+	array,
 } from 'three/tsl';
 
 import { struct } from './structProxy.js';
@@ -46,268 +47,15 @@ export const VisibilityData = struct( {
 
 const MAX_STACK_DEPTH = 32;
 const MAX_BVH_ITERATIONS = 512;
-const BVH_STRIDE = 3;
+const BVH_STRIDE = 4;
 const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
 
 // ================================================================================
-// STACK HELPERS (Pure TSL - no arrays)
+// STACK HELPERS (Native WGSL array via TSL ArrayNode)
 // ================================================================================
 
-const createStack = () => {
-
-	return {
-		s0: int( 0 ).toVar(),
-		s1: int( 0 ).toVar(),
-		s2: int( 0 ).toVar(),
-		s3: int( 0 ).toVar(),
-		s4: int( 0 ).toVar(),
-		s5: int( 0 ).toVar(),
-		s6: int( 0 ).toVar(),
-		s7: int( 0 ).toVar(),
-		s8: int( 0 ).toVar(),
-		s9: int( 0 ).toVar(),
-		s10: int( 0 ).toVar(),
-		s11: int( 0 ).toVar(),
-		s12: int( 0 ).toVar(),
-		s13: int( 0 ).toVar(),
-		s14: int( 0 ).toVar(),
-		s15: int( 0 ).toVar(),
-		s16: int( 0 ).toVar(),
-		s17: int( 0 ).toVar(),
-		s18: int( 0 ).toVar(),
-		s19: int( 0 ).toVar(),
-		s20: int( 0 ).toVar(),
-		s21: int( 0 ).toVar(),
-		s22: int( 0 ).toVar(),
-		s23: int( 0 ).toVar(),
-		s24: int( 0 ).toVar(),
-		s25: int( 0 ).toVar(),
-		s26: int( 0 ).toVar(),
-		s27: int( 0 ).toVar(),
-		s28: int( 0 ).toVar(),
-		s29: int( 0 ).toVar(),
-		s30: int( 0 ).toVar(),
-		s31: int( 0 ).toVar()
-	};
-
-};
-
-const stackRead = ( stack, index ) => {
-
-	return select( index.lessThan( int( 16 ) ),
-		select( index.lessThan( int( 8 ) ),
-			select( index.lessThan( int( 4 ) ),
-				select( index.lessThan( int( 2 ) ),
-					select( index.equal( int( 0 ) ), stack.s0, stack.s1 ),
-					select( index.equal( int( 2 ) ), stack.s2, stack.s3 )
-				),
-				select( index.lessThan( int( 6 ) ),
-					select( index.equal( int( 4 ) ), stack.s4, stack.s5 ),
-					select( index.equal( int( 6 ) ), stack.s6, stack.s7 )
-				)
-			),
-			select( index.lessThan( int( 12 ) ),
-				select( index.lessThan( int( 10 ) ),
-					select( index.equal( int( 8 ) ), stack.s8, stack.s9 ),
-					select( index.equal( int( 10 ) ), stack.s10, stack.s11 )
-				),
-				select( index.lessThan( int( 14 ) ),
-					select( index.equal( int( 12 ) ), stack.s12, stack.s13 ),
-					select( index.equal( int( 14 ) ), stack.s14, stack.s15 )
-				)
-			)
-		),
-		select( index.lessThan( int( 24 ) ),
-			select( index.lessThan( int( 20 ) ),
-				select( index.lessThan( int( 18 ) ),
-					select( index.equal( int( 16 ) ), stack.s16, stack.s17 ),
-					select( index.equal( int( 18 ) ), stack.s18, stack.s19 )
-				),
-				select( index.lessThan( int( 22 ) ),
-					select( index.equal( int( 20 ) ), stack.s20, stack.s21 ),
-					select( index.equal( int( 22 ) ), stack.s22, stack.s23 )
-				)
-			),
-			select( index.lessThan( int( 28 ) ),
-				select( index.lessThan( int( 26 ) ),
-					select( index.equal( int( 24 ) ), stack.s24, stack.s25 ),
-					select( index.equal( int( 26 ) ), stack.s26, stack.s27 )
-				),
-				select( index.lessThan( int( 30 ) ),
-					select( index.equal( int( 28 ) ), stack.s28, stack.s29 ),
-					select( index.equal( int( 30 ) ), stack.s30, stack.s31 )
-				)
-			)
-		)
-	);
-
-};
-
-const stackWrite = ( stack, index, value ) => {
-
-	If( index.equal( int( 0 ) ), () => {
-
-		stack.s0.assign( value );
-
-	} );
-	If( index.equal( int( 1 ) ), () => {
-
-		stack.s1.assign( value );
-
-	} );
-	If( index.equal( int( 2 ) ), () => {
-
-		stack.s2.assign( value );
-
-	} );
-	If( index.equal( int( 3 ) ), () => {
-
-		stack.s3.assign( value );
-
-	} );
-	If( index.equal( int( 4 ) ), () => {
-
-		stack.s4.assign( value );
-
-	} );
-	If( index.equal( int( 5 ) ), () => {
-
-		stack.s5.assign( value );
-
-	} );
-	If( index.equal( int( 6 ) ), () => {
-
-		stack.s6.assign( value );
-
-	} );
-	If( index.equal( int( 7 ) ), () => {
-
-		stack.s7.assign( value );
-
-	} );
-	If( index.equal( int( 8 ) ), () => {
-
-		stack.s8.assign( value );
-
-	} );
-	If( index.equal( int( 9 ) ), () => {
-
-		stack.s9.assign( value );
-
-	} );
-	If( index.equal( int( 10 ) ), () => {
-
-		stack.s10.assign( value );
-
-	} );
-	If( index.equal( int( 11 ) ), () => {
-
-		stack.s11.assign( value );
-
-	} );
-	If( index.equal( int( 12 ) ), () => {
-
-		stack.s12.assign( value );
-
-	} );
-	If( index.equal( int( 13 ) ), () => {
-
-		stack.s13.assign( value );
-
-	} );
-	If( index.equal( int( 14 ) ), () => {
-
-		stack.s14.assign( value );
-
-	} );
-	If( index.equal( int( 15 ) ), () => {
-
-		stack.s15.assign( value );
-
-	} );
-	If( index.equal( int( 16 ) ), () => {
-
-		stack.s16.assign( value );
-
-	} );
-	If( index.equal( int( 17 ) ), () => {
-
-		stack.s17.assign( value );
-
-	} );
-	If( index.equal( int( 18 ) ), () => {
-
-		stack.s18.assign( value );
-
-	} );
-	If( index.equal( int( 19 ) ), () => {
-
-		stack.s19.assign( value );
-
-	} );
-	If( index.equal( int( 20 ) ), () => {
-
-		stack.s20.assign( value );
-
-	} );
-	If( index.equal( int( 21 ) ), () => {
-
-		stack.s21.assign( value );
-
-	} );
-	If( index.equal( int( 22 ) ), () => {
-
-		stack.s22.assign( value );
-
-	} );
-	If( index.equal( int( 23 ) ), () => {
-
-		stack.s23.assign( value );
-
-	} );
-	If( index.equal( int( 24 ) ), () => {
-
-		stack.s24.assign( value );
-
-	} );
-	If( index.equal( int( 25 ) ), () => {
-
-		stack.s25.assign( value );
-
-	} );
-	If( index.equal( int( 26 ) ), () => {
-
-		stack.s26.assign( value );
-
-	} );
-	If( index.equal( int( 27 ) ), () => {
-
-		stack.s27.assign( value );
-
-	} );
-	If( index.equal( int( 28 ) ), () => {
-
-		stack.s28.assign( value );
-
-	} );
-	If( index.equal( int( 29 ) ), () => {
-
-		stack.s29.assign( value );
-
-	} );
-	If( index.equal( int( 30 ) ), () => {
-
-		stack.s30.assign( value );
-
-	} );
-	If( index.equal( int( 31 ) ), () => {
-
-		stack.s31.assign( value );
-
-	} );
-
-};
+const createStack = () => array( 'int', MAX_STACK_DEPTH ).toVar();
 
 // ================================================================================
 // RAY INTERSECTION HELPERS (inlined for BVH traversal performance)
@@ -446,10 +194,16 @@ export const traverseBVH = Fn( ( [
 		triTests: int( 0 ),
 	} ).toVar();
 
-	// Stack
+	// Deferred attribute fetch: store closest triIndex + barycentrics during traversal,
+	// compute hitPoint and UVs once after the loop
+	const closestTriIdx = int( - 1 ).toVar();
+	const closestU = float( 0.0 ).toVar();
+	const closestV = float( 0.0 ).toVar();
+
+	// Stack (native WGSL array — O(1) read/write)
 	const stack = createStack();
 	const stackPtr = int( 1 ).toVar();
-	stack.s0.assign( int( 0 ) ); // Root node
+	stack.element( int( 0 ) ).assign( int( 0 ) ); // Root node
 
 	// Compact axis-aligned ray handling with correct sign preservation
 	const dirSign = mix( vec3( 1.0 ), sign( ray.direction ), notEqual( ray.direction, vec3( 0.0 ) ) );
@@ -468,21 +222,20 @@ export const traverseBVH = Fn( ( [
 
 		iterCount.addAssign( 1 );
 		stackPtr.subAssign( 1 );
-		const nodeIndex = stackRead( stack, stackPtr ).toVar();
+		const nodeIndex = stack.element( stackPtr ).toVar();
 
+		// New layout: 4 vec4 per node
+		// Leaf: vec4(0) = [triOffset, triCount, 0, -1]
+		// Inner: vec4(0) = [leftMin.xyz, leftChild], vec4(1) = [leftMax.xyz, rightChild],
+		//        vec4(2) = [rightMin.xyz, 0], vec4(3) = [rightMax.xyz, 0]
 		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		const nodeData1 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
-
-		const leftChild = int( nodeData0.w ).toVar();
-		const rightChild = int( nodeData1.w ).toVar();
 		closestHit.boxTests.addAssign( 1 );
 
-		If( leftChild.lessThan( int( 0 ) ), () => {
+		If( nodeData0.w.lessThan( 0.0 ), () => {
 
-			// Leaf node
-			const nodeData2 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
-			const triStart = int( nodeData2.x ).toVar();
-			const triCount = int( nodeData2.y ).toVar();
+			// Leaf node — triOffset and triCount packed in vec4(0).xy
+			const triStart = int( nodeData0.x ).toVar();
+			const triCount = int( nodeData0.y ).toVar();
 
 			// Process triangles in leaf
 			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
@@ -497,46 +250,41 @@ export const traverseBVH = Fn( ( [
 
 				const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst } );
 
+				// RayTriangleGeometry already guarantees t < closestHit.dst when w > 0.5
 				If( triResult.w.greaterThan( 0.5 ), () => {
 
 					const t = triResult.x;
 					const u = triResult.y;
 					const v = triResult.z;
 
-					// Only process further if this hit is closer
-					If( t.lessThan( closestHit.dst ), () => {
+					// Fetch normals + material data for visibility check (4 reads)
+					const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
+					const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
+					const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
+					const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
 
-						// Now fetch attributes necessary for shading/visibility (5 fetches from storage buffer)
-						const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
-						const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-						const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
-						const uvData1 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 6 ), int( TRI_STRIDE ) );
-						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
+					const matIdx = int( uvData2.z );
 
-						const matIdx = int( uvData2.z );
-						const meshIdx = int( uvData2.w );
+					// Early material rejection
+					If( isTriangleVisibleCached( matIdx, materialBuffer ), () => {
 
-						// Early material rejection
-						If( isTriangleVisibleCached( matIdx, materialBuffer ), () => {
+						// Interpolate normal
+						const w = float( 1.0 ).sub( u ).sub( v );
+						const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
 
-							// Interpolate normal
-							const w = float( 1.0 ).sub( u ).sub( v );
-							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
+						// Full material visibility check (culling etc)
+						If( isMaterialVisible( matIdx, rayDirection, normal, materialBuffer ), () => {
 
-							// Full material visibility check (culling etc)
-							If( isMaterialVisible( matIdx, rayDirection, normal, materialBuffer ), () => {
+							closestHit.didHit.assign( true );
+							closestHit.dst.assign( t );
+							closestHit.normal.assign( normal );
+							closestHit.materialIndex.assign( matIdx );
+							closestHit.meshIndex.assign( int( uvData2.w ) );
 
-								closestHit.didHit.assign( true );
-								closestHit.dst.assign( t );
-								closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( t ) ) );
-								closestHit.normal.assign( normal );
-								closestHit.uv.assign(
-									uvData1.xy.mul( w ).add( uvData1.zw.mul( u ) ).add( uvData2.xy.mul( v ) )
-								);
-								closestHit.materialIndex.assign( matIdx );
-								closestHit.meshIndex.assign( meshIdx );
-
-							} );
+							// Defer hitPoint + UV computation to post-traversal
+							closestTriIdx.assign( triIndex );
+							closestU.assign( u );
+							closestV.assign( v );
 
 						} );
 
@@ -555,14 +303,16 @@ export const traverseBVH = Fn( ( [
 
 		} ).Else( () => {
 
-			// Read child bounds efficiently
-			const leftData0 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 0 ), int( BVH_STRIDE ) );
-			const leftData1 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 1 ), int( BVH_STRIDE ) );
-			const rightData0 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 0 ), int( BVH_STRIDE ) );
-			const rightData1 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 1 ), int( BVH_STRIDE ) );
+			// Inner node — child AABBs stored in this node (4 reads total, no child fetches)
+			const nodeData1 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
+			const nodeData2 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
+			const nodeData3 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 3 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( { rayOrigin, invDir, boxMin: leftData0.xyz, boxMax: leftData1.xyz } ).toVar();
-			const dstB = fastRayAABBDst( { rayOrigin, invDir, boxMin: rightData0.xyz, boxMax: rightData1.xyz } ).toVar();
+			const leftChild = int( nodeData0.w ).toVar();
+			const rightChild = int( nodeData1.w ).toVar();
+
+			const dstA = fastRayAABBDst( { rayOrigin, invDir, boxMin: nodeData0.xyz, boxMax: nodeData1.xyz } ).toVar();
+			const dstB = fastRayAABBDst( { rayOrigin, invDir, boxMin: nodeData2.xyz, boxMax: nodeData3.xyz } ).toVar();
 
 			// Optimized early rejection
 			const minDst = min( dstA, dstB );
@@ -577,7 +327,7 @@ export const traverseBVH = Fn( ( [
 				// Push far child first (processed last)
 				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stackWrite( stack, stackPtr, farChild );
+					stack.element( stackPtr ).assign( farChild );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -585,7 +335,7 @@ export const traverseBVH = Fn( ( [
 				// Push near child second (processed first)
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stackWrite( stack, stackPtr, nearChild );
+					stack.element( stackPtr ).assign( nearChild );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -593,6 +343,20 @@ export const traverseBVH = Fn( ( [
 			} );
 
 		} );
+
+	} );
+
+	// Deferred: compute hitPoint and UVs once for the final closest hit
+	If( closestHit.didHit, () => {
+
+		closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( closestHit.dst ) ) );
+
+		const w = float( 1.0 ).sub( closestU ).sub( closestV );
+		const uvData1 = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 6 ), int( TRI_STRIDE ) );
+		const uvData2 = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 7 ), int( TRI_STRIDE ) );
+		closestHit.uv.assign(
+			uvData1.xy.mul( w ).add( uvData1.zw.mul( closestU ) ).add( uvData2.xy.mul( closestV ) )
+		);
 
 	} );
 
@@ -625,7 +389,7 @@ export const traverseBVHShadow = Fn( ( [
 
 	const stack = createStack();
 	const stackPtr = int( 1 ).toVar();
-	stack.s0.assign( int( 0 ) );
+	stack.element( int( 0 ) ).assign( int( 0 ) );
 
 	const dirSign = mix( vec3( 1.0 ), sign( ray.direction ), notEqual( ray.direction, vec3( 0.0 ) ) );
 	const invDir = mix(
@@ -640,19 +404,15 @@ export const traverseBVHShadow = Fn( ( [
 
 		sIterCount.addAssign( 1 );
 		stackPtr.subAssign( 1 );
-		const nodeIndex = stackRead( stack, stackPtr ).toVar();
+		const nodeIndex = stack.element( stackPtr ).toVar();
 
 		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		const nodeData1 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
 
-		const leftChild = int( nodeData0.w ).toVar();
-		const rightChild = int( nodeData1.w ).toVar();
+		If( nodeData0.w.lessThan( 0.0 ), () => {
 
-		If( leftChild.lessThan( int( 0 ) ), () => {
-
-			const nodeData2 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
-			const triStart = int( nodeData2.x ).toVar();
-			const triCount = int( nodeData2.y ).toVar();
+			// Leaf node — triOffset and triCount packed in vec4(0).xy
+			const triStart = int( nodeData0.x ).toVar();
+			const triCount = int( nodeData0.y ).toVar();
 
 			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
@@ -676,6 +436,9 @@ export const traverseBVHShadow = Fn( ( [
 						closestHit.materialIndex.assign( matIdx );
 						closestHit.meshIndex.assign( int( uvData2.w ) );
 
+						// Shadow ray only needs any hit — skip remaining triangles in leaf
+						Break();
+
 					} );
 
 				} );
@@ -684,13 +447,16 @@ export const traverseBVHShadow = Fn( ( [
 
 		} ).Else( () => {
 
-			const leftData0 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 0 ), int( BVH_STRIDE ) );
-			const leftData1 = getDatafromStorageBuffer( bvhBuffer, leftChild, int( 1 ), int( BVH_STRIDE ) );
-			const rightData0 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 0 ), int( BVH_STRIDE ) );
-			const rightData1 = getDatafromStorageBuffer( bvhBuffer, rightChild, int( 1 ), int( BVH_STRIDE ) );
+			// Inner node — child AABBs stored in this node
+			const nodeData1 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 1 ), int( BVH_STRIDE ) );
+			const nodeData2 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 2 ), int( BVH_STRIDE ) );
+			const nodeData3 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 3 ), int( BVH_STRIDE ) );
 
-			const dstA = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: leftData0.xyz, boxMax: leftData1.xyz } ).toVar();
-			const dstB = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: rightData0.xyz, boxMax: rightData1.xyz } ).toVar();
+			const leftChild = int( nodeData0.w ).toVar();
+			const rightChild = int( nodeData1.w ).toVar();
+
+			const dstA = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: nodeData0.xyz, boxMax: nodeData1.xyz } ).toVar();
+			const dstB = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: nodeData2.xyz, boxMax: nodeData3.xyz } ).toVar();
 
 			const minDst = min( dstA, dstB );
 			If( minDst.lessThan( closestHit.dst ), () => {
@@ -702,14 +468,14 @@ export const traverseBVHShadow = Fn( ( [
 
 				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stackWrite( stack, stackPtr, farChild );
+					stack.element( stackPtr ).assign( farChild );
 					stackPtr.addAssign( 1 );
 
 				} );
 
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stackWrite( stack, stackPtr, nearChild );
+					stack.element( stackPtr ).assign( nearChild );
 					stackPtr.addAssign( 1 );
 
 				} );

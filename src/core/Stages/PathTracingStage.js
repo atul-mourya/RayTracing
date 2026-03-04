@@ -35,7 +35,7 @@ import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
 /**
  * Data layout constants
  */
-const BVH_VEC4_PER_NODE = 3;
+const BVH_VEC4_PER_NODE = 4;
 const PIXELS_PER_MATERIAL = 27;
 
 /**

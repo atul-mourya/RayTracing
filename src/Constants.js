@@ -413,7 +413,7 @@ export const TEXTURE_CONSTANTS = {
 	PIXELS_PER_MATERIAL: 27,
 	RGBA_COMPONENTS: 4,
 	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
-	VEC4_PER_BVH_NODE: 3,
+	VEC4_PER_BVH_NODE: 4,
 	FLOATS_PER_VEC4: 4,
 	MIN_TEXTURE_WIDTH: 4,
 	MAX_CONCURRENT_WORKERS: Math.min( navigator.hardwareConcurrency || 4, 6 ),

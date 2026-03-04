@@ -918,24 +918,52 @@ export default class TextureCreator {
 
 		flattenBVH( bvhRoot );
 
+		// Layout: 4 vec4 per node (16 floats)
+		// Inner: [leftMin.xyz, leftChild] [leftMax.xyz, rightChild] [rightMin.xyz, 0] [rightMax.xyz, 0]
+		// Leaf:  [triOffset, triCount, 0, -1] [0,0,0,0] [0,0,0,0] [0,0,0,0]
 		const floatsPerNode = TEXTURE_CONSTANTS.VEC4_PER_BVH_NODE * TEXTURE_CONSTANTS.FLOATS_PER_VEC4;
 		const size = nodes.length * floatsPerNode;
 		const data = new Float32Array( size );
 
 		for ( let i = 0; i < nodes.length; i ++ ) {
 
-			const stride = i * 12;
+			const stride = i * floatsPerNode;
 			const node = nodes[ i ];
 
-			const nodeData = [
-				node.boundsMin.x, node.boundsMin.y, node.boundsMin.z,
-				node.leftChild !== null ? node.leftChild : - 1,
-				node.boundsMax.x, node.boundsMax.y, node.boundsMax.z,
-				node.rightChild !== null ? node.rightChild : - 1,
-				node.triangleOffset, node.triangleCount, 0, 0
-			];
+			if ( node.leftChild !== null ) {
 
-			data.set( nodeData, stride );
+				// Inner node: leftChild/rightChild are now flat indices after recursive pass
+				const leftIdx = node.leftChild;
+				const rightIdx = node.rightChild;
+				const left = nodes[ leftIdx ];
+				const right = nodes[ rightIdx ];
+
+				data[ stride ] = left.boundsMin.x;
+				data[ stride + 1 ] = left.boundsMin.y;
+				data[ stride + 2 ] = left.boundsMin.z;
+				data[ stride + 3 ] = leftIdx;
+
+				data[ stride + 4 ] = left.boundsMax.x;
+				data[ stride + 5 ] = left.boundsMax.y;
+				data[ stride + 6 ] = left.boundsMax.z;
+				data[ stride + 7 ] = rightIdx;
+
+				data[ stride + 8 ] = right.boundsMin.x;
+				data[ stride + 9 ] = right.boundsMin.y;
+				data[ stride + 10 ] = right.boundsMin.z;
+
+				data[ stride + 12 ] = right.boundsMax.x;
+				data[ stride + 13 ] = right.boundsMax.y;
+				data[ stride + 14 ] = right.boundsMax.z;
+
+			} else {
+
+				// Leaf node
+				data[ stride ] = node.triangleOffset;
+				data[ stride + 1 ] = node.triangleCount;
+				data[ stride + 3 ] = - 1; // Leaf marker
+
+			}
 
 		}
 

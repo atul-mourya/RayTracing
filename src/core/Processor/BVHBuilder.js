@@ -1291,7 +1291,10 @@ export default class BVHBuilder {
 		}
 
 		// Second pass: write flat data
-		const FLOATS_PER_NODE = 12;
+		// Layout: 4 vec4 per node (16 floats)
+		// Inner: [leftMin.xyz, leftChild] [leftMax.xyz, rightChild] [rightMin.xyz, 0] [rightMax.xyz, 0]
+		// Leaf:  [triOffset, triCount, 0, -1] [0,0,0,0] [0,0,0,0] [0,0,0,0]
+		const FLOATS_PER_NODE = 16;
 		const data = new Float32Array( nodes.length * FLOATS_PER_NODE );
 
 		for ( let i = 0; i < nodes.length; i ++ ) {
@@ -1299,19 +1302,41 @@ export default class BVHBuilder {
 			const node = nodes[ i ];
 			const o = i * FLOATS_PER_NODE;
 
-			data[ o ] = node.minX;
-			data[ o + 1 ] = node.minY;
-			data[ o + 2 ] = node.minZ;
-			data[ o + 3 ] = node.leftChild ? node.leftChild._flatIndex : - 1;
+			if ( node.leftChild ) {
 
-			data[ o + 4 ] = node.maxX;
-			data[ o + 5 ] = node.maxY;
-			data[ o + 6 ] = node.maxZ;
-			data[ o + 7 ] = node.rightChild ? node.rightChild._flatIndex : - 1;
+				// Inner node: store children's AABBs
+				const left = node.leftChild;
+				const right = node.rightChild;
 
-			data[ o + 8 ] = node.triangleOffset;
-			data[ o + 9 ] = node.triangleCount;
-			// data[o+10] and data[o+11] are padding (0)
+				data[ o ] = left.minX;
+				data[ o + 1 ] = left.minY;
+				data[ o + 2 ] = left.minZ;
+				data[ o + 3 ] = left._flatIndex;
+
+				data[ o + 4 ] = left.maxX;
+				data[ o + 5 ] = left.maxY;
+				data[ o + 6 ] = left.maxZ;
+				data[ o + 7 ] = right._flatIndex;
+
+				data[ o + 8 ] = right.minX;
+				data[ o + 9 ] = right.minY;
+				data[ o + 10 ] = right.minZ;
+				// data[o+11] = 0 (padding)
+
+				data[ o + 12 ] = right.maxX;
+				data[ o + 13 ] = right.maxY;
+				data[ o + 14 ] = right.maxZ;
+				// data[o+15] = 0 (padding)
+
+			} else {
+
+				// Leaf node: triOffset, triCount in vec4(0), marked by leftChild = -1
+				data[ o ] = node.triangleOffset;
+				data[ o + 1 ] = node.triangleCount;
+				// data[o+2] = 0 (padding)
+				data[ o + 3 ] = - 1; // Leaf marker
+
+			}
 
 		}
 
