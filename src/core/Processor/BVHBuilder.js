@@ -18,7 +18,7 @@ const TRIANGLE_DATA_LAYOUT = {
 
 const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 
-class CWBVHNode {
+class BVHNode {
 
 	constructor() {
 
@@ -544,7 +544,7 @@ export default class BVHBuilder {
 
 	buildNodeRecursive( start, end, depth, progressCallback ) {
 
-		const node = new CWBVHNode();
+		const node = new BVHNode();
 		this.nodes.push( node );
 		this.totalNodes ++;
 
