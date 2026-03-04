@@ -79,7 +79,7 @@ export default class BVHBuilder {
 		};
 
 		// Treelet optimization configuration
-		this.enableTreeletOptimization = false;
+		this.enableTreeletOptimization = true;
 		this.treeletSize = 5;
 		this.treeletOptimizationPasses = 1;
 		this.treeletMinImprovement = 0.02;

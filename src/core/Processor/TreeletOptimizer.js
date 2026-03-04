@@ -1,25 +1,31 @@
 import { Vector3 } from "three";
 
+/**
+ * Treelet optimization for BVH trees (Bittner et al. 2013).
+ *
+ * For each small subtree ("treelet") of N leaves, enumerates all
+ * Catalan(N-1) distinct binary tree topologies, tries all leaf
+ * permutations (or greedy assignment for N > 5), and replaces the
+ * subtree with the arrangement that minimises SAH cost.
+ */
 export default class TreeletOptimizer {
 
 	constructor( traversalCost, intersectionCost ) {
 
 		this.traversalCost = traversalCost;
 		this.intersectionCost = intersectionCost;
-		this.treeletSize = 5; // Conservative: Reduced to 5 to prevent browser crashes
-		this.minImprovement = 0.01; // Safe: Higher threshold to reduce computation
-		this.maxTreeletDepth = 10; // Allow deeper treelets for complex scenes
-		this.maxTreelets = 20; // Default max treelets per scene (adaptive)
+		this.maxTreeletLeaves = 7;
+		this.minImprovement = 0.02; // relative improvement threshold
 
-		// Memory-controlled topology cache
+		// Precompute topologies for leaf counts 3..maxTreeletLeaves
 		this.topologyCache = new Map();
-		this.maxTopologyEntries = 1000; // Limit cache size to prevent memory issues
-		this.precomputeTopologies();
+		for ( let n = 3; n <= this.maxTreeletLeaves; n ++ ) {
 
-		// Memoization cache for leaf counting to prevent repeated computation
-		this.leafCountCache = new WeakMap();
+			this.topologyCache.set( n, this.generateTopologies( n ) );
 
-		// Statistics
+		}
+
+		// Stats
 		this.stats = {
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
@@ -30,113 +36,69 @@ export default class TreeletOptimizer {
 
 	}
 
-	// Pre-compute all possible binary tree topologies for given leaf counts
-	// With safety limits to prevent memory explosion
-	precomputeTopologies() {
+	// ------------------------------------------------------------------
+	// Topology generation — nested binary trees via Catalan decomposition
+	// ------------------------------------------------------------------
 
-		for ( let leafCount = 3; leafCount <= this.treeletSize; leafCount ++ ) {
+	/**
+	 * Generate all distinct binary tree topologies for `n` leaves.
+	 * Leaves are represented as integers 0..n-1 (slot indices).
+	 * Internal nodes are 2-element arrays [left, right].
+	 *
+	 * Examples for n=3 (Catalan(2)=2):
+	 *   [[0,1],2]   and   [0,[1,2]]
+	 */
+	generateTopologies( n ) {
 
-			try {
+		if ( n === 1 ) return [ 0 ];
+		if ( n === 2 ) return [ [ 0, 1 ] ];
 
-				// Check cache size before adding more entries
-				if ( this.topologyCache.size > this.maxTopologyEntries ) {
+		const results = [];
 
-					console.warn( `TreeletOptimizer: Topology cache limit reached (${this.maxTopologyEntries}). Skipping larger treelets.` );
-					break;
+		// Split n leaves into left (k) and right (n-k) groups.
+		// Base cases return arrays of topologies:
+		//   n=1 → [0]        (one topology: leaf 0)
+		//   n=2 → [[0,1]]    (one topology: pair [0,1])
+		// So `for (const t of topos)` yields individual topologies in all cases.
+		for ( let k = 1; k < n; k ++ ) {
 
-				}
+			const leftTopos = this.generateTopologies( k );
+			const rightTopos = this.generateTopologies( n - k );
 
-				const topologies = this.generateAllTopologies( leafCount );
+			for ( const lt of leftTopos ) {
 
-				// Safety check: don't cache if too many topologies
-				if ( topologies.length > 10000 ) {
+				for ( const rt of rightTopos ) {
 
-					console.warn( `TreeletOptimizer: Too many topologies for leafCount ${leafCount} (${topologies.length}). Skipping.` );
-					continue;
-
-				}
-
-				this.topologyCache.set( leafCount, topologies );
-
-			} catch ( error ) {
-
-				console.error( `TreeletOptimizer: Failed to precompute topologies for leafCount ${leafCount}:`, error );
-				break;
-
-			}
-
-		}
-
-	}
-
-	// Generate all possible binary tree topologies using iterative approach
-	// to prevent stack overflow for large treelet sizes
-	generateAllTopologies( leafCount ) {
-
-		if ( leafCount <= 2 ) return [ leafCount === 1 ? [ 0 ] : [ 0, 1 ] ];
-
-		// Use iterative dynamic programming approach instead of recursion
-		const dp = new Map();
-		dp.set( 1, [[ 0 ]] );
-		dp.set( 2, [[ 0, 1 ]] );
-
-		// Build up solutions iteratively
-		for ( let n = 3; n <= leafCount; n ++ ) {
-
-			const topologies = [];
-			const maxIterations = Math.min( n - 1, 50 ); // Safety limit on iterations
-
-			for ( let leftCount = 1; leftCount < n && leftCount <= maxIterations; leftCount ++ ) {
-
-				const rightCount = n - leftCount;
-
-				// Safety check to prevent excessive memory usage
-				if ( rightCount > 50 ) continue;
-
-				const leftTopologies = dp.get( leftCount ) || [];
-				const rightTopologies = dp.get( rightCount ) || [];
-
-				// Limit the number of combinations to prevent memory explosion
-				const maxCombinations = 1000;
-				let combinationCount = 0;
-
-				for ( const leftTopo of leftTopologies ) {
-
-					for ( const rightTopo of rightTopologies ) {
-
-						if ( combinationCount >= maxCombinations ) {
-
-							console.warn( `TreeletOptimizer: Reached max combinations limit for leafCount ${n}` );
-							break;
-
-						}
-
-						// Offset right topology indices
-						const offsetRightTopo = rightTopo.map( idx => idx + leftCount );
-						topologies.push( [ ...leftTopo, ...offsetRightTopo ] );
-						combinationCount ++;
-
-					}
-
-					if ( combinationCount >= maxCombinations ) break;
+					results.push( [ lt, this.offsetTopology( rt, k ) ] );
 
 				}
 
 			}
 
-			dp.set( n, topologies );
-
 		}
 
-		return dp.get( leafCount ) || [];
+		return results;
 
 	}
 
-	// Main optimization entry point with safety limits
-	optimizeBVH( bvhRoot, progressCallback = null ) {
+	/**
+	 * Offset all leaf indices in a topology by `offset`.
+	 */
+	offsetTopology( topo, offset ) {
+
+		if ( typeof topo === 'number' ) return topo + offset;
+		return [ this.offsetTopology( topo[ 0 ], offset ), this.offsetTopology( topo[ 1 ], offset ) ];
+
+	}
+
+	// ------------------------------------------------------------------
+	// Main entry point
+	// ------------------------------------------------------------------
+
+	optimizeBVH( bvhRoot ) {
 
 		const startTime = performance.now();
-		const maxOptimizationTime = 30000; // 30 second timeout to prevent browser freeze
+		const maxTime = 30000; // 30s safety timeout
 
 		this.stats = {
 			treeletsProcessed: 0,
@@ -146,409 +108,281 @@ export default class TreeletOptimizer {
 			optimizationTime: 0
 		};
 
-		// Identify and optimize treelets with safety limits
+		// Identify all treelet roots (bottom-up, non-overlapping)
 		const treeletRoots = this.identifyTreeletRoots( bvhRoot );
-		const totalTreelets = Math.min( treeletRoots.length, this.maxTreelets ); // Use adaptive limit
 
-		console.log( `Found ${treeletRoots.length} treelets, processing first ${totalTreelets} for optimization (adaptive limit: ${this.maxTreelets})` );
+		for ( let i = 0; i < treeletRoots.length; i ++ ) {
 
-		for ( let i = 0; i < totalTreelets; i ++ ) {
+			if ( performance.now() - startTime > maxTime ) {
 
-			// Check timeout to prevent browser freeze
-			if ( performance.now() - startTime > maxOptimizationTime ) {
-
-				console.warn( `TreeletOptimizer: Timeout reached after ${Math.round( performance.now() - startTime )}ms. Processed ${i}/${totalTreelets} treelets.` );
+				console.warn( `TreeletOptimizer: timeout after ${i}/${treeletRoots.length} treelets` );
 				break;
 
 			}
 
-			const treelet = treeletRoots[ i ];
-
-			try {
-
-				this.optimizeTreelet( treelet );
-
-			} catch ( error ) {
-
-				console.error( `TreeletOptimizer: Error optimizing treelet ${i}:`, error );
-				continue; // Skip problematic treelets instead of crashing
-
-			}
-
-			// Update progress every 50 treelets to avoid excessive callback overhead
-			if ( progressCallback && i % 50 === 0 ) {
-
-				const progress = Math.floor( ( i / totalTreelets ) * 100 );
-				progressCallback( `Optimizing treelets: ${progress}%` );
-
-			}
+			this.optimizeTreelet( treeletRoots[ i ] );
 
 		}
 
 		this.stats.optimizationTime = performance.now() - startTime;
-		this.stats.averageSAHImprovement = this.stats.treeletsProcessed > 0 ?
-			this.stats.totalSAHImprovement / this.stats.treeletsProcessed : 0;
+		this.stats.averageSAHImprovement = this.stats.treeletsProcessed > 0
+			? this.stats.totalSAHImprovement / this.stats.treeletsProcessed
+			: 0;
 
 		return bvhRoot;
 
 	}
 
-	// Identify treelet root nodes throughout the BVH
+	// ------------------------------------------------------------------
+	// Treelet identification — bottom-up, non-overlapping
+	// ------------------------------------------------------------------
+
 	identifyTreeletRoots( bvhRoot ) {
 
-		const treeletRoots = [];
-		const visited = new Set();
+		const roots = [];
+		const processed = new Set();
 
-		console.log( `Starting treelet identification on BVH with root bounds:`, bvhRoot.boundsMin, bvhRoot.boundsMax );
-		this.traverseForTreelets( bvhRoot, treeletRoots, visited, 0 );
-		console.log( `Treelet identification complete: found ${treeletRoots.length} treelets` );
-		return treeletRoots;
+		// Post-order traversal: children before parents so we process
+		// bottom-up and skip subtrees already covered by a deeper treelet.
+		const stack = [ { node: bvhRoot, visited: false } ];
 
-	}
+		while ( stack.length > 0 ) {
 
-	// Recursive traversal to find optimal treelet boundaries with safety limits
-	traverseForTreelets( node, treeletRoots, visited, depth ) {
+			const top = stack[ stack.length - 1 ];
 
-		// Safety checks to prevent infinite recursion and memory issues
-		if ( ! node || visited.has( node ) || node.triangleCount > 0 || depth > 25 ) {
+			if ( top.visited ) {
 
-			if ( depth === 0 && node ) {
+				stack.pop();
+				const node = top.node;
 
-				console.log( `Root node check: triangleCount=${node.triangleCount}, depth=${depth}` );
+				// Skip leaves
+				if ( node.triangleCount > 0 ) continue;
+				// Skip if already inside a processed treelet
+				if ( processed.has( node ) ) continue;
 
-			}
+				const leafCount = this.countLeaves( node );
+				if ( leafCount >= 3 && leafCount <= this.maxTreeletLeaves ) {
 
-			if ( depth > 25 ) {
+					roots.push( node );
+					this.markSubtree( node, processed );
 
-				console.log( `Skipping node at depth ${depth} (too deep)` );
+				}
 
-			}
+			} else {
 
-			return 0; // Skip leaves, already processed nodes, and deep recursion
-
-		}
-
-		// Add current node to visited set immediately to prevent cycles
-		visited.add( node );
-
-		const leftLeafCount = this.countLeafNodes( node.leftChild );
-		const rightLeafCount = this.countLeafNodes( node.rightChild );
-		const totalLeafCount = leftLeafCount + rightLeafCount;
-
-		if ( depth < 3 ) {
-
-			console.log( `Node at depth ${depth}: leftLeaf=${leftLeafCount}, rightLeaf=${rightLeafCount}, total=${totalLeafCount}` );
-
-		}
-
-		// For large subtrees, continue traversing instead of skipping
-		// Only skip if extremely large to prevent memory issues
-		if ( totalLeafCount > 100000 ) {
-
-			if ( depth < 5 ) {
-
-				console.log( `Skipping node at depth ${depth} - extremely large subtree (${totalLeafCount} leaves)` );
+				top.visited = true;
+				const node = top.node;
+				if ( node.triangleCount > 0 ) continue;
+				if ( node.rightChild ) stack.push( { node: node.rightChild, visited: false } );
+				if ( node.leftChild ) stack.push( { node: node.leftChild, visited: false } );
 
 			}
 
-			return totalLeafCount;
-
 		}
 
-		// More conservative treelet selection criteria to prevent problematic cases
-		const isGoodTreeletRoot = totalLeafCount >= 3 &&
-            totalLeafCount <= this.treeletSize &&
-            depth <= this.maxTreeletDepth &&
-            leftLeafCount > 0 && rightLeafCount > 0 && // Ensure balanced
-            this.evaluateTreeletQuality( node, totalLeafCount );
-
-		if ( isGoodTreeletRoot ) {
-
-			console.log( `Found treelet at depth ${depth}: ${totalLeafCount} leaves` );
-
-
-			treeletRoots.push( node );
-			this.markSubtreeVisited( node, visited );
-			return totalLeafCount;
-
-		}
-
-		// Continue traversing children
-		let leafCount = 0;
-		if ( node.leftChild && ! visited.has( node.leftChild ) ) {
-
-			leafCount += this.traverseForTreelets( node.leftChild, treeletRoots, visited, depth + 1 );
-
-		}
-
-		if ( node.rightChild && ! visited.has( node.rightChild ) ) {
-
-			leafCount += this.traverseForTreelets( node.rightChild, treeletRoots, visited, depth + 1 );
-
-		}
-
-		return leafCount;
+		return roots;
 
 	}
 
-	// Optimized: Evaluate treelet quality for better ray traversal performance
-	evaluateTreeletQuality( node, leafCount ) {
+	countLeaves( node ) {
 
-		// Prefer treelets with balanced leaf distribution
-		const leftLeafCount = this.countLeafNodes( node.leftChild );
-		const rightLeafCount = this.countLeafNodes( node.rightChild );
-		const balanceRatio = Math.min( leftLeafCount, rightLeafCount ) / Math.max( leftLeafCount, rightLeafCount );
-
-		// Prefer treelets with good balance (ratio > 0.3) and optimal size (5-9 leaves)
-		const isWellBalanced = balanceRatio > 0.3;
-		const isOptimalSize = leafCount >= 5 && leafCount <= 9;
-
-		// Calculate surface area heuristic to prefer spatially compact treelets
-		const surfaceArea = this.computeSurfaceAreaFromBounds( node.boundsMin, node.boundsMax );
-		const avgLeafSA = surfaceArea / leafCount;
-
-		// Prefer treelets with reasonable surface area per leaf (not too sparse)
-		const isCompact = avgLeafSA < surfaceArea * 2.0; // Heuristic threshold
-
-		return isWellBalanced || isOptimalSize || isCompact;
+		if ( ! node ) return 0;
+		if ( node.triangleCount > 0 ) return 1;
+		return this.countLeaves( node.leftChild ) + this.countLeaves( node.rightChild );
 
 	}
 
-	// Count leaf nodes in a subtree with safety limits and memoization
-	countLeafNodes( node, depth = 0 ) {
+	markSubtree( node, set ) {
 
-		if ( ! node || depth > 35 ) return 0; // Prevent deep recursion
-		if ( node.triangleCount > 0 ) return 1; // Leaf node
-
-		// Check memoization cache to prevent repeated computation
-		if ( this.leafCountCache.has( node ) ) {
-
-			return this.leafCountCache.get( node );
-
-		}
-
-		const leftCount = this.countLeafNodes( node.leftChild, depth + 1 );
-		const rightCount = this.countLeafNodes( node.rightChild, depth + 1 );
-		const totalCount = leftCount + rightCount;
-
-		// Cache the result for future use
-		this.leafCountCache.set( node, totalCount );
-
-		return totalCount;
+		if ( ! node ) return;
+		set.add( node );
+		if ( node.triangleCount > 0 ) return;
+		this.markSubtree( node.leftChild, set );
+		this.markSubtree( node.rightChild, set );
 
 	}
 
-	// Mark all nodes in a subtree as visited with safety limits
-	markSubtreeVisited( node, visited, depth = 0 ) {
+	// ------------------------------------------------------------------
+	// Single treelet optimization
+	// ------------------------------------------------------------------
 
-		if ( ! node || visited.has( node ) || depth > 35 ) return; // Prevent cycles and deep recursion
-
-		visited.add( node );
-		this.markSubtreeVisited( node.leftChild, visited, depth + 1 );
-		this.markSubtreeVisited( node.rightChild, visited, depth + 1 );
-
-	}
-
-	// Optimize a single treelet
 	optimizeTreelet( treeletRoot ) {
 
-		// Extract leaf nodes and their triangle data
-		const leafNodes = [];
-		this.extractLeafNodes( treeletRoot, leafNodes );
+		// Extract leaves
+		const leaves = [];
+		this.extractLeaves( treeletRoot, leaves );
+		const n = leaves.length;
 
-		if ( leafNodes.length < 3 || leafNodes.length > this.treeletSize ) {
-
-			return; // Skip invalid treelets
-
-		}
+		if ( n < 3 || n > this.maxTreeletLeaves ) return;
 
 		this.stats.treeletsProcessed ++;
 
-		// Calculate original SAH cost
 		const originalCost = this.evaluateSubtreeSAH( treeletRoot );
+		const topologies = this.topologyCache.get( n );
+		if ( ! topologies || topologies.length === 0 ) return;
 
-		// Get all possible topologies for this leaf count
-		const topologies = this.topologyCache.get( leafNodes.length ) || [];
 		let bestCost = originalCost;
-		let bestTopology = null;
+		let bestTopo = null;
+		let bestPerm = null;
 
-		// Aggressive safety limits: reduce topology count for complex scenes
-		const maxTopologiesToEvaluate = leafNodes.length <= 4 ? 50 :
-			leafNodes.length <= 5 ? 100 :
-				200; // Cap at 200 max
+		if ( n <= 5 ) {
 
-		if ( topologies.length > maxTopologiesToEvaluate ) {
+			// Full permutation search — feasible for n<=5 (max 120 perms × 14 topos)
+			const perms = this.generatePermutations( n );
 
-			console.warn( `TreeletOptimizer: Limiting topology evaluation from ${topologies.length} to ${maxTopologiesToEvaluate} for performance` );
+			for ( const topo of topologies ) {
 
-		}
+				for ( const perm of perms ) {
 
-		const topologiesToEvaluate = topologies.slice( 0, maxTopologiesToEvaluate );
+					const cost = this.evaluateTopology( topo, leaves, perm );
+					if ( cost < bestCost ) {
 
-		// Evaluate each topology with timeout protection
-		const evaluationStartTime = performance.now();
-		for ( const topology of topologiesToEvaluate ) {
+						bestCost = cost;
+						bestTopo = topo;
+						bestPerm = perm;
 
-			// Timeout check to prevent browser freeze
-			if ( performance.now() - evaluationStartTime > 100 ) {
+					}
 
-				break; // Skip remaining topologies if taking too long
-
-			}
-
-			const cost = this.evaluateTopologySAH( topology, leafNodes );
-			if ( cost < bestCost ) {
-
-				bestCost = cost;
-				bestTopology = topology;
+				}
 
 			}
 
+		} else {
+
+			// Greedy assignment for n>5: for each topology, use identity perm
+			// plus a few SAH-guided swaps
+			const identityPerm = Array.from( { length: n }, ( _, i ) => i );
+
+			for ( const topo of topologies ) {
+
+				// Try identity permutation
+				const cost = this.evaluateTopology( topo, leaves, identityPerm );
+				if ( cost < bestCost ) {
+
+					bestCost = cost;
+					bestTopo = topo;
+					bestPerm = identityPerm;
+
+				}
+
+				// Try greedy swap improvements
+				const result = this.greedySwapOptimize( topo, leaves, identityPerm, cost );
+				if ( result.cost < bestCost ) {
+
+					bestCost = result.cost;
+					bestTopo = topo;
+					bestPerm = result.perm;
+
+				}
+
+			}
+
 		}
 
-		// Apply optimization if improvement is significant
-		const improvement = originalCost - bestCost;
-		if ( improvement > this.minImprovement ) {
+		// Apply if relative improvement exceeds threshold
+		const relativeImprovement = ( originalCost - bestCost ) / originalCost;
+		if ( bestTopo && relativeImprovement > this.minImprovement ) {
 
-			this.reconstructTreelet( treeletRoot, bestTopology, leafNodes );
+			this.reconstructTreelet( treeletRoot, bestTopo, leaves, bestPerm );
 			this.stats.treeletsImproved ++;
-			this.stats.totalSAHImprovement += improvement;
+			this.stats.totalSAHImprovement += relativeImprovement;
 
 		}
 
 	}
 
-	// Extract all leaf nodes from a treelet
-	extractLeafNodes( node, leafNodes ) {
+	extractLeaves( node, leaves ) {
 
 		if ( ! node ) return;
 
 		if ( node.triangleCount > 0 ) {
 
-			leafNodes.push( {
-				triangleOffset: node.triangleOffset,
-				triangleCount: node.triangleCount,
+			leaves.push( {
 				boundsMin: node.boundsMin.clone(),
-				boundsMax: node.boundsMax.clone()
+				boundsMax: node.boundsMax.clone(),
+				triangleOffset: node.triangleOffset,
+				triangleCount: node.triangleCount
 			} );
 			return;
 
 		}
 
-		this.extractLeafNodes( node.leftChild, leafNodes );
-		this.extractLeafNodes( node.rightChild, leafNodes );
+		this.extractLeaves( node.leftChild, leaves );
+		this.extractLeaves( node.rightChild, leaves );
 
 	}
 
-	// Evaluate SAH cost for a complete subtree
+	// ------------------------------------------------------------------
+	// SAH evaluation
+	// ------------------------------------------------------------------
+
 	evaluateSubtreeSAH( node ) {
 
 		if ( ! node ) return 0;
 
 		if ( node.triangleCount > 0 ) {
 
-			// Leaf cost
-			const surfaceArea = this.computeSurfaceAreaFromBounds( node.boundsMin, node.boundsMax );
-			return surfaceArea * node.triangleCount * this.intersectionCost;
+			return this.surfaceArea( node.boundsMin, node.boundsMax ) * node.triangleCount * this.intersectionCost;
 
 		}
 
-		// Internal node cost
 		const leftCost = this.evaluateSubtreeSAH( node.leftChild );
 		const rightCost = this.evaluateSubtreeSAH( node.rightChild );
-		const nodeSurfaceArea = this.computeSurfaceAreaFromBounds( node.boundsMin, node.boundsMax );
-
-		return nodeSurfaceArea * this.traversalCost + leftCost + rightCost;
-
-	}
-
-	// Evaluate SAH cost for a specific topology arrangement
-	evaluateTopologySAH( topology, leafNodes ) {
-
-		// Reconstruct tree structure based on topology
-		const tree = this.buildTopologyTree( topology, leafNodes );
-		return this.evaluateTopologyTreeSAH( tree );
+		const sa = this.surfaceArea( node.boundsMin, node.boundsMax );
+		return sa * this.traversalCost + leftCost + rightCost;
 
 	}
 
-	// Build tree structure from topology description
-	buildTopologyTree( topology, leafNodes ) {
+	/**
+	 * Evaluate SAH cost for a topology with a given leaf permutation.
+	 * Returns { cost, boundsMin, boundsMax } for internal use, or just cost number.
+	 */
+	evaluateTopology( topo, leaves, perm ) {
 
-		if ( topology.length === 1 ) {
+		const result = this.evalTopoRecursive( topo, leaves, perm );
+		return result.cost;
 
-			return leafNodes[ topology[ 0 ] ];
+	}
+
+	evalTopoRecursive( topo, leaves, perm ) {
+
+		if ( typeof topo === 'number' ) {
+
+			// Leaf slot — look up actual leaf via permutation
+			const leaf = leaves[ perm[ topo ] ];
+			return {
+				cost: this.surfaceArea( leaf.boundsMin, leaf.boundsMax ) * leaf.triangleCount * this.intersectionCost,
+				boundsMin: leaf.boundsMin,
+				boundsMax: leaf.boundsMax
+			};
 
 		}
 
-		// Find split point (this is simplified - full implementation would need proper topology parsing)
-		const midPoint = Math.floor( topology.length / 2 );
-		const leftTopology = topology.slice( 0, midPoint );
-		const rightTopology = topology.slice( midPoint );
+		const left = this.evalTopoRecursive( topo[ 0 ], leaves, perm );
+		const right = this.evalTopoRecursive( topo[ 1 ], leaves, perm );
 
-		const leftTree = this.buildTopologyTree( leftTopology, leafNodes );
-		const rightTree = this.buildTopologyTree( rightTopology, leafNodes );
+		const bMin = _v0.set(
+			Math.min( left.boundsMin.x, right.boundsMin.x ),
+			Math.min( left.boundsMin.y, right.boundsMin.y ),
+			Math.min( left.boundsMin.z, right.boundsMin.z )
+		).clone();
 
-		// Compute combined bounds
-		const boundsMin = new Vector3(
-			Math.min( leftTree.boundsMin.x, rightTree.boundsMin.x ),
-			Math.min( leftTree.boundsMin.y, rightTree.boundsMin.y ),
-			Math.min( leftTree.boundsMin.z, rightTree.boundsMin.z )
-		);
+		const bMax = _v1.set(
+			Math.max( left.boundsMax.x, right.boundsMax.x ),
+			Math.max( left.boundsMax.y, right.boundsMax.y ),
+			Math.max( left.boundsMax.z, right.boundsMax.z )
+		).clone();
 
-		const boundsMax = new Vector3(
-			Math.max( leftTree.boundsMax.x, rightTree.boundsMax.x ),
-			Math.max( leftTree.boundsMax.y, rightTree.boundsMax.y ),
-			Math.max( leftTree.boundsMax.z, rightTree.boundsMax.z )
-		);
-
+		const sa = this.surfaceArea( bMin, bMax );
 		return {
-			leftChild: leftTree,
-			rightChild: rightTree,
-			boundsMin,
-			boundsMax,
-			triangleCount: 0
+			cost: sa * this.traversalCost + left.cost + right.cost,
+			boundsMin: bMin,
+			boundsMax: bMax
 		};
 
 	}
 
-	// Evaluate SAH cost for a topology tree structure
-	evaluateTopologyTreeSAH( tree ) {
-
-		if ( tree.triangleCount > 0 ) {
-
-			// Leaf node
-			const surfaceArea = this.computeSurfaceAreaFromBounds( tree.boundsMin, tree.boundsMax );
-			return surfaceArea * tree.triangleCount * this.intersectionCost;
-
-		}
-
-		// Internal node
-		const leftCost = this.evaluateTopologyTreeSAH( tree.leftChild );
-		const rightCost = this.evaluateTopologyTreeSAH( tree.rightChild );
-		const nodeSurfaceArea = this.computeSurfaceAreaFromBounds( tree.boundsMin, tree.boundsMax );
-
-		return nodeSurfaceArea * this.traversalCost + leftCost + rightCost;
-
-	}
-
-	// Reconstruct treelet with optimal topology
-	reconstructTreelet( treeletRoot, bestTopology, leafNodes ) {
-
-		// Build the optimized tree structure
-		const optimizedTree = this.buildTopologyTree( bestTopology, leafNodes );
-
-		// Replace the original treelet with the optimized version
-		treeletRoot.leftChild = optimizedTree.leftChild;
-		treeletRoot.rightChild = optimizedTree.rightChild;
-		treeletRoot.boundsMin.copy( optimizedTree.boundsMin );
-		treeletRoot.boundsMax.copy( optimizedTree.boundsMax );
-		treeletRoot.triangleCount = optimizedTree.triangleCount;
-		treeletRoot.triangleOffset = optimizedTree.triangleOffset;
-
-	}
-
-	// Surface area computation (reuse from main builder)
-	computeSurfaceAreaFromBounds( boundsMin, boundsMax ) {
+	surfaceArea( boundsMin, boundsMax ) {
 
 		const dx = boundsMax.x - boundsMin.x;
 		const dy = boundsMax.y - boundsMin.y;
@@ -557,11 +391,159 @@ export default class TreeletOptimizer {
 
 	}
 
-	// Configuration methods
+	// ------------------------------------------------------------------
+	// Permutation helpers
+	// ------------------------------------------------------------------
+
+	generatePermutations( n ) {
+
+		const result = [];
+		const arr = Array.from( { length: n }, ( _, i ) => i );
+
+		const permute = ( start ) => {
+
+			if ( start === n ) {
+
+				result.push( [ ...arr ] );
+				return;
+
+			}
+
+			for ( let i = start; i < n; i ++ ) {
+
+				[ arr[ start ], arr[ i ] ] = [ arr[ i ], arr[ start ] ];
+				permute( start + 1 );
+				[ arr[ start ], arr[ i ] ] = [ arr[ i ], arr[ start ] ];
+
+			}
+
+		};
+
+		permute( 0 );
+		return result;
+
+	}
+
+	/**
+	 * Greedy pairwise swap optimization for large treelet sizes.
+	 * Starting from an initial permutation, try all pairwise swaps
+	 * and accept any that improve cost. Repeat until no improvement.
+	 */
+	greedySwapOptimize( topo, leaves, initialPerm, initialCost ) {
+
+		const perm = [ ...initialPerm ];
+		let cost = initialCost;
+		let improved = true;
+
+		while ( improved ) {
+
+			improved = false;
+
+			for ( let i = 0; i < perm.length - 1; i ++ ) {
+
+				for ( let j = i + 1; j < perm.length; j ++ ) {
+
+					// Swap
+					[ perm[ i ], perm[ j ] ] = [ perm[ j ], perm[ i ] ];
+					const newCost = this.evaluateTopology( topo, leaves, perm );
+
+					if ( newCost < cost ) {
+
+						cost = newCost;
+						improved = true;
+
+					} else {
+
+						// Swap back
+						[ perm[ i ], perm[ j ] ] = [ perm[ j ], perm[ i ] ];
+
+					}
+
+				}
+
+			}
+
+		}
+
+		return { perm, cost };
+
+	}
+
+	// ------------------------------------------------------------------
+	// Reconstruction — builds proper BVHNode instances
+	// ------------------------------------------------------------------
+
+	reconstructTreelet( treeletRoot, topo, leaves, perm ) {
+
+		const built = this.buildSubtree( topo, leaves, perm );
+
+		// Copy built structure into the existing treelet root node
+		treeletRoot.boundsMin.copy( built.boundsMin );
+		treeletRoot.boundsMax.copy( built.boundsMax );
+		treeletRoot.leftChild = built.leftChild;
+		treeletRoot.rightChild = built.rightChild;
+		treeletRoot.triangleOffset = built.triangleOffset;
+		treeletRoot.triangleCount = built.triangleCount;
+
+	}
+
+	/**
+	 * Recursively build a BVHNode subtree from a topology + leaf permutation.
+	 */
+	buildSubtree( topo, leaves, perm ) {
+
+		if ( typeof topo === 'number' ) {
+
+			// Leaf — create a proper BVHNode
+			const leaf = leaves[ perm[ topo ] ];
+			const node = new TreeletBVHNode();
+			node.boundsMin.copy( leaf.boundsMin );
+			node.boundsMax.copy( leaf.boundsMax );
+			node.triangleOffset = leaf.triangleOffset;
+			node.triangleCount = leaf.triangleCount;
+			return node;
+
+		}
+
+		const left = this.buildSubtree( topo[ 0 ], leaves, perm );
+		const right = this.buildSubtree( topo[ 1 ], leaves, perm );
+
+		const node = new TreeletBVHNode();
+		node.leftChild = left;
+		node.rightChild = right;
+		node.boundsMin.set(
+			Math.min( left.boundsMin.x, right.boundsMin.x ),
+			Math.min( left.boundsMin.y, right.boundsMin.y ),
+			Math.min( left.boundsMin.z, right.boundsMin.z )
+		);
+		node.boundsMax.set(
+			Math.max( left.boundsMax.x, right.boundsMax.x ),
+			Math.max( left.boundsMax.y, right.boundsMax.y ),
+			Math.max( left.boundsMax.z, right.boundsMax.z )
+		);
+
+		return node;
+
+	}
+
+	// ------------------------------------------------------------------
+	// Configuration
+	// ------------------------------------------------------------------
+
 	setTreeletSize( size ) {
 
-		this.treeletSize = Math.max( 3, Math.min( 15, size ) );
-		this.precomputeTopologies();
+		this.maxTreeletLeaves = Math.max( 3, Math.min( 7, size ) );
+
+		// Regenerate topology cache if needed
+		for ( let n = 3; n <= this.maxTreeletLeaves; n ++ ) {
+
+			if ( ! this.topologyCache.has( n ) ) {
+
+				this.topologyCache.set( n, this.generateTopologies( n ) );
+
+			}
+
+		}
 
 	}
 
@@ -571,10 +553,10 @@ export default class TreeletOptimizer {
 
 	}
 
-	setMaxTreelets( maxTreelets ) {
+	setMaxTreelets() {
 
-		this.maxTreelets = Math.max( 5, Math.min( 50, maxTreelets ) );
-		console.log( `TreeletOptimizer: Max treelets set to ${this.maxTreelets}` );
+		// No-op — we process all valid treelets now.
+		// Kept for API compatibility with BVHBuilder.
 
 	}
 
@@ -585,3 +567,28 @@ export default class TreeletOptimizer {
 	}
 
 }
+
+/**
+ * Lightweight BVH node used during reconstruction.
+ * Duck-type compatible with the main BVHNode class —
+ * has boundsMin/boundsMax as Vector3, leftChild, rightChild,
+ * triangleOffset, triangleCount.
+ */
+class TreeletBVHNode {
+
+	constructor() {
+
+		this.boundsMin = new Vector3();
+		this.boundsMax = new Vector3();
+		this.leftChild = null;
+		this.rightChild = null;
+		this.triangleOffset = 0;
+		this.triangleCount = 0;
+
+	}
+
+}
+
+// Reusable temp vectors for SAH evaluation (avoids allocation in hot loop)
+const _v0 = new Vector3();
+const _v1 = new Vector3();
