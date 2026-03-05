@@ -3,10 +3,10 @@
 ## Bugs
 
 ### Critical
-- [ ] Area light shadows not visible
+- [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Iridescence not producing expected colors
-- [ ] convergence issue
+- [ ] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
 - [ ] transparent background + transparent / transmissive materials not working together
 
 ### RCA unknown
@@ -19,12 +19,11 @@
 
 ### Rendering
 - [ ] Variance-based firefly suppression
-- [ ] Transparent background support
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
-- [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] camera motion video rendering
+- [ ] Tile Rendering need a webgpu revamp
 
 ### Lighting & Materials
 - [ ] implement pending Physical material properties
@@ -56,11 +55,6 @@
 - [ ] Offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
-### Optimization
-- [ ] Screen-space radiance caching
-- [ ] Primary ray from rasterization pass for path tracing
-- [ ] Ray frustum culling
-
 ### BVH
 - [ ] BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
 - [ ] Consider PLOC for maximum performance scenarios
@@ -71,6 +65,14 @@
 - [ ] Memory usage tracking
 - [ ] Bottleneck identification
 - [ ] Performance regression tests
+
+---
+
+## Experiments
+- [ ] Screen-space radiance caching
+- [ ] Investigate dot grid / moire-like effect and its impact on rendering
+- [ ] Primary ray from rasterization pass for path tracing
+- [ ] Ray frustum culling
 
 ---
 
