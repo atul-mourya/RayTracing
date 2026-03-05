@@ -91,7 +91,7 @@ export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
 // Get required samples from adaptive sampling texture
 export const getRequiredSamples = Fn( ( [
 	pixelCoord, resolution,
-	adaptiveSamplingTexture, adaptiveSamplingMax,
+	adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
 ] ) => {
 
 	const texCoord = pixelCoord.div( resolution );
@@ -109,7 +109,7 @@ export const getRequiredSamples = Fn( ( [
 		const normalizedSamples = samplingData.r;
 		const targetSamples = normalizedSamples.mul( float( adaptiveSamplingMax ) );
 		const samples = int( floor( targetSamples.add( 0.5 ) ) );
-		result.assign( clamp( samples, 1, adaptiveSamplingMax ) );
+		result.assign( clamp( samples, adaptiveSamplingMin, adaptiveSamplingMax ) );
 
 	} );
 
@@ -169,6 +169,7 @@ export const pathTracerMain = ( params ) => {
 		params.maxBounceCount,
 		params.transmissiveBounces,
 		params.showBackground,
+		params.transparentBackground,
 		params.backgroundIntensity,
 		params.fireflyThreshold,
 		params.globalIlluminationIntensity,
@@ -190,6 +191,7 @@ export const pathTracerMain = ( params ) => {
 		// Adaptive sampling
 		params.useAdaptiveSampling,
 		params.adaptiveSamplingTexture,
+		params.adaptiveSamplingMin,
 		params.adaptiveSamplingMax,
 		// DOF / Camera lens
 		params.enableDOF,
@@ -231,7 +233,7 @@ const pathTracerImpl = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 	// Rendering parameters
 	maxBounceCount, transmissiveBounces,
-	showBackground, backgroundIntensity,
+	showBackground, transparentBackground, backgroundIntensity,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveBoost,
@@ -242,7 +244,7 @@ const pathTracerImpl = Fn( ( [
 	prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
 	accumulationAlpha, cameraIsMoving,
 	// Adaptive sampling
-	useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMax,
+	useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
 	// DOF / Camera lens
 	enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
 ] ) => {
@@ -265,6 +267,9 @@ const pathTracerImpl = Fn( ( [
 	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
 	const linearDepth = float( 1.0 ).toVar();
 
+	// Track primary ray geometry hit for transparent background (1.0 = hit, 0.0 = miss)
+	const primaryHitAlpha = float( 0.0 ).toVar();
+
 	const samplesCount = int( numRaysPerPixel ).toVar();
 
 	// Adaptive sampling
@@ -272,7 +277,7 @@ const pathTracerImpl = Fn( ( [
 
 		const adaptiveSamples = getRequiredSamples(
 			pixelCoord, resolution,
-			adaptiveSamplingTexture, adaptiveSamplingMax,
+			adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
 		);
 		samplesCount.assign( adaptiveSamples );
 
@@ -403,6 +408,9 @@ const pathTracerImpl = Fn( ( [
 						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
 					} ) );
 
+					// Primary ray hit geometry — pixel is opaque for transparent background
+					primaryHitAlpha.assign( 1.0 );
+
 				} ).Else( () => {
 
 					// Background: keep initialized values — worldNormal stays (0,0,1), linearDepth stays 1.0
@@ -425,8 +433,7 @@ const pathTracerImpl = Fn( ( [
 
 	} );
 
-	// Apply dithering AFTER averaging
-	// pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
+	// primaryHitAlpha is set in the sample loop based on firstHitDistance
 
 	// Edge Detection
 	const depthDifference = fwidth( linearDepth );
@@ -457,7 +464,7 @@ const pathTracerImpl = Fn( ( [
 	const finalNormalDepth = vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ).toVar();
 	const finalAlbedo = vec3( objectColor ).toVar();
 
-	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 1 ) ) ).and( hasPreviousAccumulated ), () => {
+	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ), () => {
 
 		const prevUV = pixelCoord.div( resolution );
 		const previousColor = texture( prevAccumTexture, prevUV, 0 ).xyz;
@@ -471,9 +478,12 @@ const pathTracerImpl = Fn( ( [
 
 	} );
 
+	// Output alpha: 1.0 if primary ray hit any geometry (including glass), 0.0 for pure background
+	const outputAlpha = select( transparentBackground, primaryHitAlpha, 1.0 );
+
 	// Clean MRT output
 	return pathTracerOutputStruct( {
-		gColor: vec4( finalColor.xyz, 1.0 ),
+		gColor: vec4( finalColor.xyz, outputAlpha ),
 		gNormalDepth: finalNormalDepth,
 		gAlbedo: vec4( finalAlbedo, 1.0 ),
 	} );

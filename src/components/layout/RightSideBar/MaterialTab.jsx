@@ -130,6 +130,9 @@ const MaterialTab = () => {
 	const [ availableTextures, setAvailableTextures ] = useState( [] );
 	const [ textureStates, setTextureStates ] = useState( {} );
 
+	// Global repeat: when on, any repeat change syncs to all textures
+	const [ globalRepeatEnabled, setGlobalRepeatEnabled ] = useState( false );
+
 	// Helper function to safely get hex string
 	const getHexString = useCallback( ( colorObj ) => {
 
@@ -270,6 +273,32 @@ const MaterialTab = () => {
 	// Handle texture property changes
 	const handleTexturePropertyChange = useCallback( ( textureName, property, value ) => {
 
+		// When global repeat is on, sync repeat to all textures
+		if ( property === 'repeat' && globalRepeatEnabled ) {
+
+			setTextureStates( prev => {
+
+				const next = { ...prev };
+				for ( const key in next ) {
+
+					next[ key ] = { ...next[ key ], repeat: { ...value } };
+
+				}
+
+				return next;
+
+			} );
+
+			availableTextures.forEach( ( { name } ) => {
+
+				materialStore.handleTextureRepeatChange( name, value );
+
+			} );
+
+			return;
+
+		}
+
 		setTextureStates( prev => ( {
 			...prev,
 			[ textureName ]: {
@@ -290,7 +319,7 @@ const MaterialTab = () => {
 
 		handlers[ property ]?.();
 
-	}, [ materialStore ] );
+	}, [ materialStore, globalRepeatEnabled, availableTextures ] );
 
 	// Optimized render function with memoized components
 	const renderPropertyComponent = useCallback( ( property, config ) => {
@@ -528,6 +557,8 @@ const MaterialTab = () => {
 						</div>
 					) : (
 						<div className="space-y-4">
+							{/* Global Repeat Toggle */}
+							<Switch label="Sync Repeat" checked={globalRepeatEnabled} onCheckedChange={setGlobalRepeatEnabled} />
 							{availableTextures.map( ( { name, displayName, texture } ) => (
 								<div key={name} className="space-y-3">
 									<div className="text-center opacity-50 text-xs bg-primary/20 rounded-full">{displayName}</div>

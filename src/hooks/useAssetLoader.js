@@ -65,12 +65,7 @@ export const useAssetLoader = () => {
 				description: error.message,
 				variant: "destructive",
 			} );
-
-		} finally {
-
-			AssetLoaderService.resetPathTracer();
-			setLoading( { isLoading: true, title: "Loading", status: "Model Loaded...", progress: 100 } );
-			setTimeout( () => useStore.getState().resetLoading(), 500 );
+			useStore.getState().resetLoading();
 
 		}
 
@@ -97,12 +92,7 @@ export const useAssetLoader = () => {
 				description: error.message,
 				variant: "destructive",
 			} );
-
-		} finally {
-
-			AssetLoaderService.resetPathTracer();
-			setLoading( { isLoading: true, title: "Loading", status: "Loading Debug Model...", progress: 100 } );
-			setTimeout( () => useStore.getState().resetLoading(), 500 );
+			useStore.getState().resetLoading();
 
 		}
 
@@ -131,6 +121,7 @@ export const useAssetLoader = () => {
 				title: "Environment Loaded Successfully",
 				description: result.environmentName,
 			} );
+			useStore.getState().resetLoading();
 
 		} catch ( error ) {
 
@@ -140,12 +131,7 @@ export const useAssetLoader = () => {
 				description: error.message,
 				variant: "destructive",
 			} );
-
-		} finally {
-
-			AssetLoaderService.resetPathTracer();
-			setLoading( { isLoading: true, title: "Loading", status: "Loading Environment...", progress: 100 } );
-			setTimeout( () => useStore.getState().resetLoading(), 500 );
+			useStore.getState().resetLoading();
 
 		}
 

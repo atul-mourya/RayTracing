@@ -1,5 +1,4 @@
 import debugModelsData from './DebugModels.json';
-import { WebGLRenderer } from 'three';
 
 // export const MODEL_BASE_URL = 'https://raw.githubusercontent.com/gkjohnson/3d-demo-data/main/models/';
 export const MODEL_FILES = [
@@ -117,6 +116,7 @@ export const DEFAULT_STATE = {
 	exposure: 1,
 	enableEnvironment: true,
 	showBackground: true,
+	transparentBackground: false,
 	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
@@ -191,7 +191,7 @@ export const DEFAULT_STATE = {
 
 	enableOIDN: false,
 	oidnQuality: 'fast', // 'fast', 'balance', 'high'
-	oidnHDR: false,
+	oidnHdr: true,
 	useGBuffer: true,
 	debugGbufferMaps: false,
 
@@ -414,29 +414,14 @@ export const TEXTURE_CONSTANTS = {
 	PIXELS_PER_MATERIAL: 27,
 	RGBA_COMPONENTS: 4,
 	VEC4_PER_TRIANGLE: 8, // 3 for positions, 3 for normals, 2 for UVs
-	VEC4_PER_BVH_NODE: 3,
+	VEC4_PER_BVH_NODE: 4,
 	FLOATS_PER_VEC4: 4,
 	MIN_TEXTURE_WIDTH: 4,
 	MAX_CONCURRENT_WORKERS: Math.min( navigator.hardwareConcurrency || 4, 6 ),
 	BUFFER_POOL_SIZE: 20,
 	CANVAS_POOL_SIZE: 12,
 	CACHE_SIZE_LIMIT: 50,
-	MAX_TEXTURE_SIZE: ( () => {
-
-		try {
-
-			const renderer = new WebGLRenderer();
-			const size = renderer.capabilities.maxTextureSize;
-			renderer.dispose();
-			return size;
-
-		} catch {
-
-			return 4096;
-
-		}
-
-	} )()
+	MAX_TEXTURE_SIZE: 8192 // WebGPU minimum spec for maxTextureDimension2D
 };
 
 // Default texture matrix for materials

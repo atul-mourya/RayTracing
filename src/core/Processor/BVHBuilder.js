@@ -1,185 +1,33 @@
-import { Vector3 } from "three";
 import TreeletOptimizer from "./TreeletOptimizer";
 
-// Import the unified data layout constants
+// Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
+// Cannot import Constants.js because BVHBuilder runs inside BVHWorker
+// where `window` (used elsewhere in Constants.js) is not defined.
 const TRIANGLE_DATA_LAYOUT = {
-	FLOATS_PER_TRIANGLE: 32, // 8 vec4s: 3 positions + 3 normals + 2 UV/material
-
-	// Positions (3 vec4s = 12 floats)
-	POSITION_A_OFFSET: 0, // vec4: x, y, z, 0
-	POSITION_B_OFFSET: 4, // vec4: x, y, z, 0
-	POSITION_C_OFFSET: 8, // vec4: x, y, z, 0
-
-	// Normals (3 vec4s = 12 floats)
-	NORMAL_A_OFFSET: 12, // vec4: x, y, z, 0
-	NORMAL_B_OFFSET: 16, // vec4: x, y, z, 0
-	NORMAL_C_OFFSET: 20, // vec4: x, y, z, 0
-
-	// UVs and Material (2 vec4s = 8 floats)
-	UV_AB_OFFSET: 24, // vec4: uvA.x, uvA.y, uvB.x, uvB.y
-	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, 0
+	FLOATS_PER_TRIANGLE: 32,
+	POSITION_A_OFFSET: 0,
+	POSITION_B_OFFSET: 4,
+	POSITION_C_OFFSET: 8,
+	NORMAL_A_OFFSET: 12,
+	NORMAL_B_OFFSET: 16,
+	NORMAL_C_OFFSET: 20,
+	UV_AB_OFFSET: 24,
+	UV_C_MAT_OFFSET: 28 // vec4: uvC.x, uvC.y, materialIndex, meshIndex
 };
 
-class CWBVHNode {
+const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+
+class BVHNode {
 
 	constructor() {
 
-		this.boundsMin = new Vector3();
-		this.boundsMax = new Vector3();
+		// Inline floats instead of Vector3 to avoid 2M+ object allocations
+		this.minX = 0; this.minY = 0; this.minZ = 0;
+		this.maxX = 0; this.maxY = 0; this.maxZ = 0;
 		this.leftChild = null;
 		this.rightChild = null;
 		this.triangleOffset = 0;
 		this.triangleCount = 0;
-
-	}
-
-}
-
-// Helper class for better cache locality and performance
-// Updated to work with triangle format (32 floats)
-class TriangleInfo {
-
-	constructor( index, triangleData = null ) {
-
-		this.index = index;
-		this.triangleData = triangleData;
-		this.triangle = new TriangleWrapper( triangleData, index );
-
-		// Pre-compute centroid for better performance
-		this.centroid = new Vector3(
-			( this.triangle.posA.x + this.triangle.posB.x + this.triangle.posC.x ) / 3,
-			( this.triangle.posA.y + this.triangle.posB.y + this.triangle.posC.y ) / 3,
-			( this.triangle.posA.z + this.triangle.posB.z + this.triangle.posC.z ) / 3
-		);
-
-		// Pre-compute bounds
-		this.bounds = {
-			min: new Vector3(
-				Math.min( this.triangle.posA.x, this.triangle.posB.x, this.triangle.posC.x ),
-				Math.min( this.triangle.posA.y, this.triangle.posB.y, this.triangle.posC.y ),
-				Math.min( this.triangle.posA.z, this.triangle.posB.z, this.triangle.posC.z )
-			),
-			max: new Vector3(
-				Math.max( this.triangle.posA.x, this.triangle.posB.x, this.triangle.posC.x ),
-				Math.max( this.triangle.posA.y, this.triangle.posB.y, this.triangle.posC.y ),
-				Math.max( this.triangle.posA.z, this.triangle.posB.z, this.triangle.posC.z )
-			)
-		};
-
-		// Morton code will be computed later during sorting
-		this.mortonCode = 0;
-
-	}
-
-}
-
-// Wrapper class to provide object-like access to Float32Array triangle data (32-float format)
-class TriangleWrapper {
-
-	constructor( triangleData, triangleIndex ) {
-
-		this.data = triangleData;
-		this.index = triangleIndex;
-		this.offset = triangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
-
-	}
-
-	get posA() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ],
-			z: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ]
-		};
-
-	}
-
-	get posB() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ],
-			z: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ]
-		};
-
-	}
-
-	get posC() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ],
-			z: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ]
-		};
-
-	}
-
-	get normalA() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ],
-			z: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ]
-		};
-
-	}
-
-	get normalB() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ],
-			z: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 2 ]
-		};
-
-	}
-
-	get normalC() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ],
-			z: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ]
-		};
-
-	}
-
-	get uvA() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 1 ]
-		};
-
-	}
-
-	get uvB() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 2 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_AB_OFFSET + 3 ]
-		};
-
-	}
-
-	get uvC() {
-
-		return {
-			x: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 0 ],
-			y: this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 1 ]
-		};
-
-	}
-
-	get materialIndex() {
-
-		return this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 2 ];
-
-	}
-
-	get meshIndex() {
-
-		return this.data[ this.offset + TRIANGLE_DATA_LAYOUT.UV_C_MAT_OFFSET + 3 ];
 
 	}
 
@@ -190,10 +38,10 @@ export default class BVHBuilder {
 	constructor() {
 
 		this.useWorker = true;
-		this.maxLeafSize = 8; // Slightly larger for better performance
-		this.numBins = 32; // Base number of bins (will be adapted)
-		this.minBins = 8; // Minimum bins for sparse nodes
-		this.maxBins = 64; // Maximum bins for dense nodes
+		this.maxLeafSize = 8;
+		this.numBins = 32;
+		this.minBins = 8;
+		this.maxBins = 64;
 		this.nodes = [];
 		this.totalNodes = 0;
 		this.processedTriangles = 0;
@@ -201,26 +49,20 @@ export default class BVHBuilder {
 		this.lastProgressUpdate = 0;
 		this.progressUpdateInterval = 100;
 
-		// SAH constants for better quality
+		// SAH constants
 		this.traversalCost = 1.0;
 		this.intersectionCost = 1.0;
 
 		// Morton code clustering settings
-		this.useMortonCodes = true; // Enable spatial clustering
-		this.mortonBits = 10; // Precision for Morton codes (10 bits per axis = 30 total)
-		this.mortonClusterThreshold = 128; // Use Morton clustering for nodes with more triangles
+		this.useMortonCodes = true;
+		this.mortonBits = 10;
+		this.mortonClusterThreshold = 128;
 
 		// Fallback method configuration
 		this.enableObjectMedianFallback = true;
 		this.enableSpatialMedianFallback = true;
 
-		// Temporary arrays to avoid allocations
-		this.tempLeftTris = [];
-		this.tempRightTris = [];
-		this.binBounds = [];
-		this.binCounts = [];
-
-		// Split method statistics
+		// Split statistics
 		this.splitStats = {
 			sahSplits: 0,
 			objectMedianSplits: 0,
@@ -230,153 +72,113 @@ export default class BVHBuilder {
 			totalSplitAttempts: 0,
 			mortonSortTime: 0,
 			totalBuildTime: 0,
-			// Treelet optimization stats
 			treeletOptimizationTime: 0,
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
 			averageSAHImprovement: 0
 		};
 
-		// Treelet optimization configuration - adaptive settings based on scene complexity
-		this.enableTreeletOptimization = false; // Enable by default for better ray performance
-		this.treeletSize = 5; // Ultra-conservative: Reduced to 5 to prevent combinatorial explosion
-		this.treeletOptimizationPasses = 1; // Conservative: Single pass to prevent excessive computation
-		this.treeletMinImprovement = 0.02; // Higher threshold to reduce computation load
-		this.maxTreeletDepth = 3; // Conservative: Reduced depth to prevent deep recursion
+		// Treelet optimization configuration
+		this.enableTreeletOptimization = true;
+		this.treeletSize = 5;
+		this.treeletOptimizationPasses = 1;
+		this.treeletMinImprovement = 0.02;
+		this.maxTreeletDepth = 3;
+		this.maxTreeletsPerScene = 20;
+		this.treeletComplexityThreshold = 50000;
 
-		// Dynamic scaling based on scene complexity
-		this.maxTreeletsPerScene = 20; // Adaptive limit based on triangle count
-		this.treeletComplexityThreshold = 50000; // Triangle count threshold for aggressive limiting
-
-		// Pre-allocate maximum bin arrays to avoid reallocations
+		// Pre-allocate bin arrays
 		this.initializeBinArrays();
+
+		// Reusable partition result (avoids per-node object allocation)
+		this._partResult = {
+			mid: 0,
+			lMinX: 0, lMinY: 0, lMinZ: 0, lMaxX: 0, lMaxY: 0, lMaxZ: 0,
+			rMinX: 0, rMinY: 0, rMinZ: 0, rMaxX: 0, rMaxY: 0, rMaxZ: 0
+		};
+
+		// Flat per-triangle arrays (allocated in buildSync)
+		this.centroids = null;
+		this.bMin = null;
+		this.bMax = null;
+		this.indices = null;
+		this.mortonCodes = null;
+		this.triangles = null;
+
+		// Reordered output (produced by buildSync)
+		this.reorderedTriangleData = null;
 
 	}
 
 	initializeBinArrays() {
 
-		// Pre-allocate for maximum bins to avoid reallocations
-		for ( let i = 0; i < this.maxBins; i ++ ) {
+		const mb = this.maxBins;
+		// Flat bin bounds: 3 floats per bin (x, y, z)
+		this.binBoundsMin = new Float32Array( mb * 3 );
+		this.binBoundsMax = new Float32Array( mb * 3 );
+		this.binCounts = new Uint32Array( mb );
 
-			this.binBounds[ i ] = {
-				min: new Vector3(),
-				max: new Vector3()
-			};
-			this.binCounts[ i ] = 0;
-
-		}
+		// Prefix-sum arrays for SAH evaluation
+		this.leftPrefixMin = new Float32Array( mb * 3 );
+		this.leftPrefixMax = new Float32Array( mb * 3 );
+		this.leftPrefixCount = new Uint32Array( mb );
+		this.rightPrefixMin = new Float32Array( mb * 3 );
+		this.rightPrefixMax = new Float32Array( mb * 3 );
+		this.rightPrefixCount = new Uint32Array( mb );
 
 	}
 
 	getOptimalBinCount( triangleCount ) {
 
-		// Adaptive bin count based on triangle density
-		// More triangles = more bins for better quality
-		// Fewer triangles = fewer bins for better performance
-
-		if ( triangleCount <= 16 ) {
-
-			return this.minBins; // 8 bins for very sparse nodes
-
-		} else if ( triangleCount <= 64 ) {
-
-			return 16; // Medium bin count for moderate density
-
-		} else if ( triangleCount <= 256 ) {
-
-			return 32; // Standard bin count
-
-		} else if ( triangleCount <= 1024 ) {
-
-			return 48; // Higher bin count for dense nodes
-
-		} else {
-
-			return this.maxBins; // Maximum bins for very dense nodes
-
-		}
+		if ( triangleCount <= 16 ) return this.minBins;
+		if ( triangleCount <= 64 ) return 16;
+		if ( triangleCount <= 256 ) return 32;
+		if ( triangleCount <= 1024 ) return 48;
+		return this.maxBins;
 
 	}
 
-	// Configuration method for fine-tuning adaptive behavior
 	setAdaptiveBinConfig( config ) {
 
 		if ( config.minBins !== undefined ) this.minBins = Math.max( 4, config.minBins );
 		if ( config.maxBins !== undefined ) this.maxBins = Math.min( 128, config.maxBins );
 		if ( config.baseBins !== undefined ) this.numBins = config.baseBins;
-
-		// Re-initialize bin arrays if max bins changed
-		if ( config.maxBins !== undefined ) {
-
-			this.binBounds = [];
-			this.binCounts = [];
-			this.initializeBinArrays();
-
-		}
-
-		console.log( 'Adaptive bin config updated:', {
-			minBins: this.minBins,
-			maxBins: this.maxBins,
-			baseBins: this.numBins
-		} );
+		if ( config.maxBins !== undefined ) this.initializeBinArrays();
 
 	}
 
-	// Configuration for Morton code clustering
 	setMortonConfig( config ) {
 
 		if ( config.enabled !== undefined ) this.useMortonCodes = config.enabled;
 		if ( config.bits !== undefined ) this.mortonBits = Math.max( 6, Math.min( 16, config.bits ) );
 		if ( config.threshold !== undefined ) this.mortonClusterThreshold = Math.max( 16, config.threshold );
 
-		console.log( 'Morton code config updated:', {
-			enabled: this.useMortonCodes,
-			bits: this.mortonBits,
-			threshold: this.mortonClusterThreshold
-		} );
-
 	}
 
-	// Configuration for fallback split methods
 	setFallbackConfig( config ) {
 
 		if ( config.objectMedian !== undefined ) this.enableObjectMedianFallback = config.objectMedian;
 		if ( config.spatialMedian !== undefined ) this.enableSpatialMedianFallback = config.spatialMedian;
 
-		console.log( 'Fallback config updated:', {
-			objectMedianEnabled: this.enableObjectMedianFallback,
-			spatialMedianEnabled: this.enableSpatialMedianFallback
-		} );
-
 	}
 
-	// Configuration for treelet optimization with enhanced safety
 	setTreeletConfig( config ) {
 
 		if ( config.enabled !== undefined ) this.enableTreeletOptimization = config.enabled;
-		if ( config.size !== undefined ) this.treeletSize = Math.max( 3, Math.min( 12, config.size ) ); // Cap at 12 for safety
-		if ( config.passes !== undefined ) this.treeletOptimizationPasses = Math.max( 1, Math.min( 3, config.passes ) ); // Cap at 3 passes
+		if ( config.size !== undefined ) this.treeletSize = Math.max( 3, Math.min( 12, config.size ) );
+		if ( config.passes !== undefined ) this.treeletOptimizationPasses = Math.max( 1, Math.min( 3, config.passes ) );
 		if ( config.minImprovement !== undefined ) this.treeletMinImprovement = Math.max( 0.001, config.minImprovement );
-
-		console.log( 'Treelet optimization config updated:', {
-			enabled: this.enableTreeletOptimization,
-			size: this.treeletSize,
-			passes: this.treeletOptimizationPasses,
-			minImprovement: this.treeletMinImprovement
-		} );
 
 	}
 
-	// Method to safely disable treelet optimization
 	disableTreeletOptimization() {
 
 		this.enableTreeletOptimization = false;
-		console.log( 'Treelet optimization disabled for safety' );
 
 	}
 
-	// Morton code computation functions
-	// Expands a 10-bit integer by inserting 2 zeros after each bit
+	// --- Morton code helpers ---
+
 	expandBits( value ) {
 
 		value = ( value * 0x00010001 ) & 0xFF0000FF;
@@ -387,164 +189,157 @@ export default class BVHBuilder {
 
 	}
 
-	// Computes Morton code for normalized 3D coordinates (0-1023 range)
 	morton3D( x, y, z ) {
 
 		return ( this.expandBits( z ) << 2 ) + ( this.expandBits( y ) << 1 ) + this.expandBits( x );
 
 	}
 
-	// How Morton codes work:
-	// Triangle centroids:
-	// Morton codes preserve spatial proximity:
-	//   (1,1,1) → 0b001001001  ┌─────┬─────┐  Nearby triangles get similar
-	//   (1,1,2) → 0b001001010  │  A  │  B  │  codes and end up adjacent
-	//   (1,2,1) → 0b001010001  ├─────┼─────┤  in the sorted array
-	//   (2,1,1) → 0b010001001  │  C  │  D  │
-	//                          └─────┴─────┘  Better cache locality!
+	computeMortonCodeForIndex( idx, sceneMinX, sceneMinY, sceneMinZ, rangeX, rangeY, rangeZ ) {
 
-	// Compute Morton code for a triangle centroid
-	computeMortonCode( centroid, sceneMin, sceneMax ) {
-
-		// Normalize coordinates to [0, 1] range
-		const range = sceneMax.clone().sub( sceneMin );
-		const normalized = centroid.clone().sub( sceneMin );
-
-		// Avoid division by zero
-		if ( range.x > 0 ) normalized.x /= range.x;
-		if ( range.y > 0 ) normalized.y /= range.y;
-		if ( range.z > 0 ) normalized.z /= range.z;
-
-		// Clamp to [0, 1] and scale to Morton space
+		const c = this.centroids;
+		const o = idx * 3;
 		const mortonScale = ( 1 << this.mortonBits ) - 1;
-		const x = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.x * mortonScale ) ) );
-		const y = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.y * mortonScale ) ) );
-		const z = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.z * mortonScale ) ) );
+
+		let nx = rangeX > 0 ? ( c[ o ] - sceneMinX ) / rangeX : 0;
+		let ny = rangeY > 0 ? ( c[ o + 1 ] - sceneMinY ) / rangeY : 0;
+		let nz = rangeZ > 0 ? ( c[ o + 2 ] - sceneMinZ ) / rangeZ : 0;
+
+		const x = Math.max( 0, Math.min( mortonScale, Math.floor( nx * mortonScale ) ) );
+		const y = Math.max( 0, Math.min( mortonScale, Math.floor( ny * mortonScale ) ) );
+		const z = Math.max( 0, Math.min( mortonScale, Math.floor( nz * mortonScale ) ) );
 
 		return this.morton3D( x, y, z );
 
 	}
 
-	// Sort triangles by Morton code for better spatial locality
-	sortTrianglesByMortonCode( triangleInfos ) {
+	sortTrianglesByMortonCode() {
 
-		if ( ! this.useMortonCodes || triangleInfos.length < this.mortonClusterThreshold ) {
-
-			return triangleInfos; // Skip Morton sorting for small arrays
-
-		}
+		const n = this.totalTriangles;
+		if ( ! this.useMortonCodes || n < this.mortonClusterThreshold ) return;
 
 		const startTime = performance.now();
+		const c = this.centroids;
+		const indices = this.indices;
 
-		// Compute scene bounds
-		const sceneMin = new Vector3( Infinity, Infinity, Infinity );
-		const sceneMax = new Vector3( - Infinity, - Infinity, - Infinity );
+		// Compute scene bounds from centroids
+		let sMinX = Infinity, sMinY = Infinity, sMinZ = Infinity;
+		let sMaxX = - Infinity, sMaxY = - Infinity, sMaxZ = - Infinity;
+		for ( let i = 0; i < n; i ++ ) {
 
-		for ( const triInfo of triangleInfos ) {
-
-			sceneMin.min( triInfo.centroid );
-			sceneMax.max( triInfo.centroid );
-
-		}
-
-		// Compute Morton codes for all triangles
-		for ( const triInfo of triangleInfos ) {
-
-			triInfo.mortonCode = this.computeMortonCode( triInfo.centroid, sceneMin, sceneMax );
-
-		}
-
-		// Sort by Morton code
-		triangleInfos.sort( ( a, b ) => a.mortonCode - b.mortonCode );
-
-		// Track timing
-		this.splitStats.mortonSortTime += performance.now() - startTime;
-
-		return triangleInfos;
-
-	}
-
-	// Advanced recursive Morton clustering for extremely large datasets
-	recursiveMortonCluster( triangleInfos, maxClusterSize = 10000 ) {
-
-		if ( triangleInfos.length <= maxClusterSize ) {
-
-			return this.sortTrianglesByMortonCode( triangleInfos );
+			const idx = indices[ i ];
+			const o = idx * 3;
+			const cx = c[ o ], cy = c[ o + 1 ], cz = c[ o + 2 ];
+			if ( cx < sMinX ) sMinX = cx;
+			if ( cy < sMinY ) sMinY = cy;
+			if ( cz < sMinZ ) sMinZ = cz;
+			if ( cx > sMaxX ) sMaxX = cx;
+			if ( cy > sMaxY ) sMaxY = cy;
+			if ( cz > sMaxZ ) sMaxZ = cz;
 
 		}
 
-		// For very large datasets, cluster recursively
-		const startTime = performance.now();
+		const rX = sMaxX - sMinX, rY = sMaxY - sMinY, rZ = sMaxZ - sMinZ;
 
-		// Compute scene bounds
-		const sceneMin = new Vector3( Infinity, Infinity, Infinity );
-		const sceneMax = new Vector3( - Infinity, - Infinity, - Infinity );
+		// Compute morton codes (inlined to avoid per-triangle method dispatch)
+		const mc = this.mortonCodes;
+		const mortonScale = ( 1 << this.mortonBits ) - 1;
+		const invRX = rX > 0 ? mortonScale / rX : 0;
+		const invRY = rY > 0 ? mortonScale / rY : 0;
+		const invRZ = rZ > 0 ? mortonScale / rZ : 0;
 
-		for ( const triInfo of triangleInfos ) {
+		for ( let i = 0; i < n; i ++ ) {
 
-			sceneMin.min( triInfo.centroid );
-			sceneMax.max( triInfo.centroid );
+			const triIdx = indices[ i ];
+			const o = triIdx * 3;
+
+			let mx = ( c[ o ] - sMinX ) * invRX;
+			let my = ( c[ o + 1 ] - sMinY ) * invRY;
+			let mz = ( c[ o + 2 ] - sMinZ ) * invRZ;
+
+			// Clamp and truncate to integer
+			mx = mx < 0 ? 0 : ( mx > mortonScale ? mortonScale : mx ) | 0;
+			my = my < 0 ? 0 : ( my > mortonScale ? mortonScale : my ) | 0;
+			mz = mz < 0 ? 0 : ( mz > mortonScale ? mortonScale : mz ) | 0;
+
+			// Inline expandBits + morton3D
+			mx = ( mx * 0x00010001 ) & 0xFF0000FF;
+			mx = ( mx * 0x00000101 ) & 0x0F00F00F;
+			mx = ( mx * 0x00000011 ) & 0xC30C30C3;
+			mx = ( mx * 0x00000005 ) & 0x49249249;
+
+			my = ( my * 0x00010001 ) & 0xFF0000FF;
+			my = ( my * 0x00000101 ) & 0x0F00F00F;
+			my = ( my * 0x00000011 ) & 0xC30C30C3;
+			my = ( my * 0x00000005 ) & 0x49249249;
+
+			mz = ( mz * 0x00010001 ) & 0xFF0000FF;
+			mz = ( mz * 0x00000101 ) & 0x0F00F00F;
+			mz = ( mz * 0x00000011 ) & 0xC30C30C3;
+			mz = ( mz * 0x00000005 ) & 0x49249249;
+
+			mc[ triIdx ] = ( mz << 2 ) + ( my << 1 ) + mx;
 
 		}
 
-		// Use coarser Morton codes for initial clustering
-		const coarseBits = Math.max( 6, this.mortonBits - 2 );
+		// Radix sort indices by morton code (O(N), 4 passes of 8-bit digits)
+		const temp = new Uint32Array( n );
+		const counts = new Uint32Array( 256 );
 
-		// Group triangles by coarse Morton codes
-		const clusters = new Map();
-		for ( const triInfo of triangleInfos ) {
+		for ( let shift = 0; shift < 32; shift += 8 ) {
 
-			// Compute coarse Morton code
-			const range = sceneMax.clone().sub( sceneMin );
-			const normalized = triInfo.centroid.clone().sub( sceneMin );
+			counts.fill( 0 );
 
-			if ( range.x > 0 ) normalized.x /= range.x;
-			if ( range.y > 0 ) normalized.y /= range.y;
-			if ( range.z > 0 ) normalized.z /= range.z;
+			// Count digit occurrences
+			for ( let i = 0; i < n; i ++ ) {
 
-			const mortonScale = ( 1 << coarseBits ) - 1;
-			const x = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.x * mortonScale ) ) );
-			const y = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.y * mortonScale ) ) );
-			const z = Math.max( 0, Math.min( mortonScale, Math.floor( normalized.z * mortonScale ) ) );
-
-			const coarseMorton = this.morton3D( x, y, z );
-
-			if ( ! clusters.has( coarseMorton ) ) {
-
-				clusters.set( coarseMorton, [] );
+				counts[ ( mc[ indices[ i ] ] >>> shift ) & 0xFF ] ++;
 
 			}
 
-			clusters.get( coarseMorton ).push( triInfo );
+			// Prefix sum
+			let total = 0;
+			for ( let i = 0; i < 256; i ++ ) {
 
-		}
+				const c = counts[ i ];
+				counts[ i ] = total;
+				total += c;
 
-		// Sort clusters by Morton code and refine each cluster
-		const sortedClusters = Array.from( clusters.entries() ).sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
-		const result = [];
+			}
 
-		for ( const [ , cluster ] of sortedClusters ) {
+			// Scatter to temp
+			for ( let i = 0; i < n; i ++ ) {
 
-			// Clusters are already sorted by Morton code for spatial ordering
-			const sortedCluster = this.sortTrianglesByMortonCode( cluster );
-			result.push( ...sortedCluster );
+				const digit = ( mc[ indices[ i ] ] >>> shift ) & 0xFF;
+				temp[ counts[ digit ] ++ ] = indices[ i ];
+
+			}
+
+			indices.set( temp );
 
 		}
 
 		this.splitStats.mortonSortTime += performance.now() - startTime;
-		return result;
 
 	}
 
+	// --- Build entry points ---
+
+	/**
+	 * Build BVH from triangle data.
+	 * Returns { bvhData: Float32Array, bvhRoot: true, reorderedTriangles: Float32Array }
+	 * where bvhData is the GPU-ready flat array (12 floats/node) and reorderedTriangles
+	 * is the BVH-ordered triangle data. Caller must use reorderedTriangles instead of
+	 * the original input (which is neutered after transfer to the worker).
+	 */
 	build( triangles, depth = 30, progressCallback = null ) {
 
-		this.totalTriangles = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		this.totalTriangles = triangles.byteLength / ( FPT * 4 );
 		this.processedTriangles = 0;
 		this.lastProgressUpdate = performance.now();
 
 		if ( this.useWorker && typeof Worker !== 'undefined' ) {
 
-			console.log( "Using Worker for BVH construction" );
 			return new Promise( ( resolve, reject ) => {
 
 				try {
@@ -554,9 +349,19 @@ export default class BVHBuilder {
 						{ type: 'module' }
 					);
 
+					const triangleCount = triangles.byteLength / ( FPT * 4 );
+					const useShared = typeof SharedArrayBuffer !== 'undefined';
+					console.log( `[BVHBuilder] SharedArrayBuffer: ${useShared ? 'enabled' : 'unavailable (using transfer fallback)'}` );
+
+					// Pre-allocate SharedArrayBuffer for reordered output so worker
+					// writes directly to shared memory (no transfer needed on return).
+					const sharedReorderBuffer = useShared
+						? new SharedArrayBuffer( triangleCount * FPT * 4 )
+						: null;
+
 					worker.onmessage = ( e ) => {
 
-						const { bvhRoot, triangles: newTriangles, error, progress } = e.data;
+						const { bvhData, triangles: transferredTriangles, error, progress, treeletStats } = e.data;
 
 						if ( error ) {
 
@@ -573,12 +378,20 @@ export default class BVHBuilder {
 
 						}
 
-						// Copy reordered data back to original array
-						triangles.set( newTriangles );
+						if ( treeletStats ) {
 
+							this.splitStats = treeletStats;
+
+						}
 
 						worker.terminate();
-						resolve( bvhRoot );
+
+						// Reordered triangles: from shared memory or fallback transfer
+						const reorderedTriangles = sharedReorderBuffer
+							? new Float32Array( sharedReorderBuffer )
+							: transferredTriangles;
+
+						resolve( { bvhData, bvhRoot: true, reorderedTriangles } );
 
 					};
 
@@ -589,20 +402,16 @@ export default class BVHBuilder {
 
 					};
 
-					// Prepare data based on input format
-					let workerData;
-					let transferable = [];
-
-					// Send Float32Array with transferable buffer
-					const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-					// Clone the buffer to avoid detachment issues
-					const bufferCopy = triangles.buffer.slice();
-					workerData = {
-						triangleData: bufferCopy,
+					// Transfer the original buffer directly — avoids 362MB copy.
+					const transferBuffer = triangles.buffer;
+					const workerData = {
+						triangleData: transferBuffer,
+						triangleByteOffset: triangles.byteOffset,
+						triangleByteLength: triangles.byteLength,
 						triangleCount,
 						depth,
 						reportProgress: !! progressCallback,
-						// Include treelet optimization configuration
+						sharedReorderBuffer,
 						treeletOptimization: {
 							enabled: this.enableTreeletOptimization,
 							size: this.treeletSize,
@@ -610,30 +419,13 @@ export default class BVHBuilder {
 							minImprovement: this.treeletMinImprovement
 						}
 					};
-					transferable = [ bufferCopy ];
 
-					worker.postMessage( workerData, transferable );
+					worker.postMessage( workerData, [ transferBuffer ] );
 
 				} catch ( error ) {
 
 					console.warn( 'Worker creation failed, falling back to synchronous build:', error );
-
-					const reorderedTriangles = [];
-					const bvhRoot = this.buildSync( triangles, depth, reorderedTriangles, progressCallback );
-
-					// Update the original triangles array with reordered triangles
-					if ( Array.isArray( triangles ) ) {
-
-						triangles.length = reorderedTriangles.length;
-						for ( let i = 0; i < reorderedTriangles.length; i ++ ) {
-
-							triangles[ i ] = reorderedTriangles[ i ];
-
-						}
-
-					}
-
-					resolve( bvhRoot );
+					resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
 
 				}
 
@@ -641,24 +433,9 @@ export default class BVHBuilder {
 
 		} else {
 
-			// Fallback to synchronous build...
 			return new Promise( ( resolve ) => {
 
-				const reorderedTriangles = [];
-				const bvhRoot = this.buildSync( triangles, depth, reorderedTriangles, progressCallback );
-
-				if ( Array.isArray( triangles ) ) {
-
-					triangles.length = reorderedTriangles.length;
-					for ( let i = 0; i < reorderedTriangles.length; i ++ ) {
-
-						triangles[ i ] = reorderedTriangles[ i ];
-
-					}
-
-				}
-
-				resolve( bvhRoot );
+				resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
 
 			} );
 
@@ -666,7 +443,21 @@ export default class BVHBuilder {
 
 	}
 
-	buildSync( triangles, depth = 30, reorderedTriangles = [], progressCallback = null ) {
+	/**
+	 * Synchronous build + flatten helper for non-worker path.
+	 * @private
+	 */
+	_buildSyncAndFlatten( triangles, depth, progressCallback ) {
+
+		const root = this.buildSync( triangles, depth, progressCallback );
+		const bvhData = this.flattenBVH( root );
+		// Return reordered triangles if available (avoids 362MB copy)
+		const reorderedTriangles = this.reorderedTriangleData || null;
+		return { bvhData, bvhRoot: true, reorderedTriangles };
+
+	}
+
+	buildSync( triangles, depth = 30, progressCallback = null, reorderTarget = null ) {
 
 		const buildStartTime = performance.now();
 
@@ -674,10 +465,10 @@ export default class BVHBuilder {
 		this.nodes = [];
 		this.totalNodes = 0;
 		this.processedTriangles = 0;
-		this.totalTriangles = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
+		this.triangles = triangles;
+		this.totalTriangles = triangles.byteLength / ( FPT * 4 );
 		this.lastProgressUpdate = performance.now();
 
-		// Reset split statistics
 		this.splitStats = {
 			sahSplits: 0,
 			objectMedianSplits: 0,
@@ -687,49 +478,81 @@ export default class BVHBuilder {
 			totalSplitAttempts: 0,
 			mortonSortTime: 0,
 			totalBuildTime: 0,
-			// Treelet optimization stats
 			treeletOptimizationTime: 0,
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
-			averageSAHImprovement: 0
+			averageSAHImprovement: 0,
+			// Granular phase timings
+			initTime: 0,
+			sahBuildTime: 0,
+			reorderTime: 0
 		};
 
-		// Float32Array-based triangles
-		const triangleCount = triangles.byteLength / ( TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4 );
-		let triangleInfos = [];
-		for ( let i = 0; i < triangleCount; i ++ ) {
+		const n = this.totalTriangles;
 
-			triangleInfos.push( new TriangleInfo( i, triangles ) );
+		// Phase 1: Allocate and initialize per-triangle arrays
+		const initStart = performance.now();
+
+		this.centroids = new Float32Array( n * 3 );
+		this.bMin = new Float32Array( n * 3 );
+		this.bMax = new Float32Array( n * 3 );
+		this.indices = new Uint32Array( n );
+		this.mortonCodes = new Uint32Array( n );
+
+		// Initialize from source triangle data
+		const src = triangles;
+		const PA = TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET;
+		const PB = TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET;
+		const PC = TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET;
+
+		for ( let i = 0; i < n; i ++ ) {
+
+			const base = i * FPT;
+			const ax = src[ base + PA ], ay = src[ base + PA + 1 ], az = src[ base + PA + 2 ];
+			const bx = src[ base + PB ], by = src[ base + PB + 1 ], bz = src[ base + PB + 2 ];
+			const cx = src[ base + PC ], cy = src[ base + PC + 1 ], cz = src[ base + PC + 2 ];
+
+			const o3 = i * 3;
+			this.centroids[ o3 ] = ( ax + bx + cx ) / 3;
+			this.centroids[ o3 + 1 ] = ( ay + by + cy ) / 3;
+			this.centroids[ o3 + 2 ] = ( az + bz + cz ) / 3;
+
+			this.bMin[ o3 ] = ax < bx ? ( ax < cx ? ax : cx ) : ( bx < cx ? bx : cx );
+			this.bMin[ o3 + 1 ] = ay < by ? ( ay < cy ? ay : cy ) : ( by < cy ? by : cy );
+			this.bMin[ o3 + 2 ] = az < bz ? ( az < cz ? az : cz ) : ( bz < cz ? bz : cz );
+
+			this.bMax[ o3 ] = ax > bx ? ( ax > cx ? ax : cx ) : ( bx > cx ? bx : cx );
+			this.bMax[ o3 + 1 ] = ay > by ? ( ay > cy ? ay : cy ) : ( by > cy ? by : cy );
+			this.bMax[ o3 + 2 ] = az > bz ? ( az > cz ? az : cz ) : ( bz > cz ? bz : cz );
+
+			this.indices[ i ] = i;
 
 		}
 
+		this.splitStats.initTime = performance.now() - initStart;
 
-		// Apply Morton code spatial clustering for better cache locality
-		// Use recursive clustering for very large datasets - the implemetion is currently missing
-		triangleInfos = this.sortTrianglesByMortonCode( triangleInfos );
+		// Phase 2: Morton code spatial clustering
+		this.sortTrianglesByMortonCode();
 
-		// Create root node
-		const root = this.buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback );
+		// Phase 3: Recursive SAH build
+		const sahStart = performance.now();
+		const root = this.buildNodeRecursive( 0, n, depth, progressCallback );
+		this.splitStats.sahBuildTime = performance.now() - sahStart;
 
-		// Apply treelet optimization if enabled - with enhanced safety checks and adaptive scaling
-		if ( this.enableTreeletOptimization && this.totalTriangles > 1000 ) { // Increased threshold from 500 to 1000
+		// Phase 4: Treelet optimization
+		if ( this.enableTreeletOptimization && this.totalTriangles > 1000 ) {
 
-			// Adaptive treelet configuration based on scene complexity
 			const isLargeScene = this.totalTriangles > this.treeletComplexityThreshold;
-			const adaptiveTreeletSize = isLargeScene ? 3 : this.treeletSize; // Ultra-conservative for large scenes
-			const adaptiveMaxTreelets = isLargeScene ? 10 : this.maxTreeletsPerScene; // Severely limit large scenes
-
-			console.log( `Treelet optimization: Scene size=${this.totalTriangles}, isLarge=${isLargeScene}, treeletSize=${adaptiveTreeletSize}, maxTreelets=${adaptiveMaxTreelets}` );
+			const adaptiveTreeletSize = isLargeScene ? 3 : this.treeletSize;
+			const adaptiveMaxTreelets = isLargeScene ? 10 : this.maxTreeletsPerScene;
 
 			const optimizer = new TreeletOptimizer( this.traversalCost, this.intersectionCost );
 			optimizer.setTreeletSize( adaptiveTreeletSize );
 			optimizer.setMinImprovement( this.treeletMinImprovement );
 			optimizer.setMaxTreelets( adaptiveMaxTreelets );
 
-			console.log( 'Starting treelet optimization...' );
 			const optimizationStartTime = performance.now();
 
-			// Run optimization passes with adaptive convergence and timeout protection
 			for ( let pass = 0; pass < this.treeletOptimizationPasses; pass ++ ) {
 
 				const passCallback = progressCallback ? ( status ) => {
@@ -747,73 +570,81 @@ export default class BVHBuilder {
 				} catch ( error ) {
 
 					console.error( `TreeletOptimizer: Error in pass ${pass + 1}:`, error );
-					break; // Stop optimization on error instead of crashing
+					break;
 
 				}
 
 				const afterStats = optimizer.getStatistics();
-
 				const currentPassImprovements = afterStats.treeletsImproved - beforeStats.treeletsImproved;
-
-				// Early termination if no improvements in current pass or if taking too long
 				const passTime = performance.now() - optimizationStartTime;
 				if ( ( currentPassImprovements === 0 && pass > 0 ) || passTime > 15000 ) {
 
-					console.log( `Treelet optimization stopped after ${pass + 1} passes (improvements: ${currentPassImprovements}, time: ${Math.round( passTime )}ms)` );
 					break;
 
 				}
 
 			}
 
-			// Update statistics
-			const optimizationStats = optimizer.getStatistics();
-			this.splitStats.treeletOptimizationTime = performance.now() - optimizationStartTime;
-			this.splitStats.treeletsProcessed = optimizationStats.treeletsProcessed;
-			this.splitStats.treeletsImproved = optimizationStats.treeletsImproved;
-			this.splitStats.averageSAHImprovement = optimizationStats.averageSAHImprovement;
-
-		} else if ( this.enableTreeletOptimization && this.totalTriangles <= 1000 ) {
-
-			console.log( `Skipping treelet optimization for model with ${this.totalTriangles} triangles (below 1000 triangle threshold for safety)` );
+			const treeletTime = performance.now() - optimizationStartTime;
+			this.splitStats.treeletOptimizationTime = treeletTime;
+			const treeletStats = optimizer.getStatistics();
+			this.splitStats.treeletsProcessed = treeletStats.treeletsProcessed;
+			this.splitStats.treeletsImproved = treeletStats.treeletsImproved;
+			this.splitStats.averageSAHImprovement = treeletStats.averageSAHImprovement;
 
 		}
 
-		// Record total build time
+		// Phase 5: Create reordered triangle data from final index order
+		const reorderStart = performance.now();
+		const reordered = reorderTarget || new Float32Array( n * FPT );
+		for ( let i = 0; i < n; i ++ ) {
+
+			const srcOff = this.indices[ i ] * FPT;
+			const dstOff = i * FPT;
+			reordered.set( src.subarray( srcOff, srcOff + FPT ), dstOff );
+
+		}
+
+		this.reorderedTriangleData = reordered;
+		this.splitStats.reorderTime = performance.now() - reorderStart;
+
 		this.splitStats.totalBuildTime = performance.now() - buildStartTime;
 
-		const stats = {
-			totalNodes: this.totalNodes,
-			triangleCount: reorderedTriangles.length,
-			maxDepth: depth,
-			'Split Method: SAH': this.splitStats.sahSplits,
-			'Split Method: Object Median': this.splitStats.objectMedianSplits,
-			'Split Method: Spatial Median': this.splitStats.spatialMedianSplits,
-			'Split Method: Failed': this.splitStats.failedSplits,
-			'Adaptive Bins: Avg Used': Math.round( this.splitStats.avgBinsUsed * 10 ) / 10,
-			'Adaptive Bins: Min': this.minBins,
-			'Adaptive Bins: Max': this.maxBins,
-			'Adaptive Bins: Base': this.numBins,
-			'Treelet Opt: Enabled': this.enableTreeletOptimization,
-			'Treelet Opt: Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ),
-			'Treelet Opt: Processed': this.splitStats.treeletsProcessed,
-			'Treelet Opt: Improved': this.splitStats.treeletsImproved,
-			'Treelet Opt: Avg SAH Improvement': Math.round( this.splitStats.averageSAHImprovement * 1000 ) / 1000,
-			'Perf: Total Build Time (ms)': Math.round( this.splitStats.totalBuildTime ),
-			'Perf: Morton Sort Time (ms)': Math.round( this.splitStats.mortonSortTime ),
-			'Perf: Treelet Opt Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ),
-			'Perf: Morton %': Math.round( ( this.splitStats.mortonSortTime / this.splitStats.totalBuildTime ) * 100 ),
-			'Perf: Treelet Opt %': Math.round( ( this.splitStats.treeletOptimizationTime / this.splitStats.totalBuildTime ) * 100 ),
-			'Perf: Triangles/sec': Math.round( this.totalTriangles / ( this.splitStats.totalBuildTime / 1000 ) ),
-			'Morton Clustering: Enabled': this.useMortonCodes,
-			'Morton Clustering: Threshold': this.mortonClusterThreshold,
-			'Morton Clustering: Bits': this.mortonBits,
-		};
+		// Print phase-level timing breakdown
+		const total = this.splitStats.totalBuildTime;
+		const phasePct = ( ms ) => total > 0 ? ( ms / total * 100 ).toFixed( 1 ) + '%' : '0%';
 
-		console.log( 'BVH Statistics:' );
-		console.table( stats );
+		const timingRows = [
+			{ Phase: 'Init + bounds', 'Time (ms)': Math.round( this.splitStats.initTime ), '%': phasePct( this.splitStats.initTime ) },
+			{ Phase: 'Morton sort', 'Time (ms)': Math.round( this.splitStats.mortonSortTime ), '%': phasePct( this.splitStats.mortonSortTime ) },
+			{ Phase: 'SAH recursive build', 'Time (ms)': Math.round( this.splitStats.sahBuildTime ), '%': phasePct( this.splitStats.sahBuildTime ) },
+			{ Phase: 'Treelet optimization', 'Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ), '%': phasePct( this.splitStats.treeletOptimizationTime ) },
+			{ Phase: 'Triangle reorder', 'Time (ms)': Math.round( this.splitStats.reorderTime ), '%': phasePct( this.splitStats.reorderTime ) },
+			{ Phase: 'TOTAL', 'Time (ms)': Math.round( total ), '%': '100%' }
+		];
+
+		console.groupCollapsed( `⏱ BVH Build (${n.toLocaleString()} triangles, ${Math.round( total )}ms)` );
+		console.table( timingRows );
+		console.table( {
+			'Total Nodes': this.totalNodes,
+			'Max Leaf Size': this.maxLeafSize,
+			'SAH Splits': this.splitStats.sahSplits,
+			'Object Median Splits': this.splitStats.objectMedianSplits,
+			'Spatial Median Splits': this.splitStats.spatialMedianSplits,
+			'Failed Splits': this.splitStats.failedSplits,
+			'Treelets Processed': this.splitStats.treeletsProcessed,
+			'Treelets Improved': this.splitStats.treeletsImproved,
+			'Avg SAH Improvement': ( this.splitStats.averageSAHImprovement * 100 ).toFixed( 2 ) + '%',
+		} );
+		console.groupEnd();
 
 		progressCallback && progressCallback( 100 );
+
+		// Free flat arrays (no longer needed)
+		this.centroids = null;
+		this.bMin = null;
+		this.bMax = null;
+		this.mortonCodes = null;
 
 		return root;
 
@@ -824,13 +655,8 @@ export default class BVHBuilder {
 		if ( ! progressCallback ) return;
 
 		this.processedTriangles += trianglesProcessed;
-
 		const now = performance.now();
-		if ( now - this.lastProgressUpdate < this.progressUpdateInterval ) {
-
-			return;
-
-		}
+		if ( now - this.lastProgressUpdate < this.progressUpdateInterval ) return;
 
 		this.lastProgressUpdate = now;
 		const progress = Math.min( Math.floor( ( this.processedTriangles / this.totalTriangles ) * 100 ), 99 );
@@ -838,202 +664,336 @@ export default class BVHBuilder {
 
 	}
 
-	buildNodeRecursive( triangleInfos, depth, reorderedTriangles, progressCallback ) {
+	// --- Recursive BVH build (operates on index range) ---
 
-		const node = new CWBVHNode();
+	buildNodeRecursive( start, end, depth, progressCallback, preMinX, preMinY, preMinZ, preMaxX, preMaxY, preMaxZ ) {
+
+		const node = new BVHNode();
 		this.nodes.push( node );
 		this.totalNodes ++;
 
-		// Update bounds using pre-computed triangle bounds
-		this.updateNodeBounds( node, triangleInfos );
+		const count = end - start;
 
-		// Check for leaf conditions
-		if ( triangleInfos.length <= this.maxLeafSize || depth <= 0 ) {
+		// Use precomputed bounds from parent's partition, or compute for root
+		if ( preMinX !== undefined ) {
 
-			node.triangleOffset = reorderedTriangles.length;
-			node.triangleCount = triangleInfos.length;
+			node.minX = preMinX; node.minY = preMinY; node.minZ = preMinZ;
+			node.maxX = preMaxX; node.maxY = preMaxY; node.maxZ = preMaxZ;
 
-			// Add original triangles to reordered array
-			for ( const triInfo of triangleInfos ) {
+		} else {
 
-				reorderedTriangles.push( triInfo.triangle );
+			this.updateNodeBounds( node, start, end );
 
-			}
+		}
 
-			this.updateProgress( triangleInfos.length, progressCallback );
+		// Leaf condition
+		if ( count <= this.maxLeafSize || depth <= 0 ) {
+
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			this.updateProgress( count, progressCallback );
 			return node;
 
 		}
 
-		// Find split position using improved SAH
-		const splitInfo = this.findBestSplitPositionSAH( triangleInfos, node );
+		// Find best split using SAH
+		const splitInfo = this.findBestSplitPositionSAH( start, end, node );
 
 		if ( ! splitInfo.success ) {
 
-			// Track failed splits
 			this.splitStats.failedSplits ++;
-
-			// Make a leaf node if split failed
-			node.triangleOffset = reorderedTriangles.length;
-			node.triangleCount = triangleInfos.length;
-
-			for ( const triInfo of triangleInfos ) {
-
-				reorderedTriangles.push( triInfo.triangle );
-
-			}
-
-			this.updateProgress( triangleInfos.length, progressCallback );
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			this.updateProgress( count, progressCallback );
 			return node;
 
 		}
 
-		// Track successful split method
-		if ( splitInfo.method === 'SAH' ) {
+		// Track split method
+		if ( splitInfo.method === 'SAH' ) this.splitStats.sahSplits ++;
+		else if ( splitInfo.method === 'object_median' ) this.splitStats.objectMedianSplits ++;
+		else if ( splitInfo.method === 'spatial_median' ) this.splitStats.spatialMedianSplits ++;
 
-			this.splitStats.sahSplits ++;
+		// Partition and compute child bounds in one pass
+		this.partitionWithBounds( start, end, splitInfo.axis, splitInfo.pos );
 
-		} else if ( splitInfo.method === 'object_median' ) {
+		// Snapshot into locals — _partResult is reused and will be overwritten by child recursion
+		const p = this._partResult;
+		const mid = p.mid;
+		const lMnX = p.lMinX, lMnY = p.lMinY, lMnZ = p.lMinZ;
+		const lMxX = p.lMaxX, lMxY = p.lMaxY, lMxZ = p.lMaxZ;
+		const rMnX = p.rMinX, rMnY = p.rMinY, rMnZ = p.rMinZ;
+		const rMxX = p.rMaxX, rMxY = p.rMaxY, rMxZ = p.rMaxZ;
 
-			this.splitStats.objectMedianSplits ++;
+		// Degenerate partition fallback
+		if ( mid === start || mid === end ) {
 
-		} else if ( splitInfo.method === 'spatial_median' ) {
-
-			this.splitStats.spatialMedianSplits ++;
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			this.updateProgress( count, progressCallback );
+			return node;
 
 		}
 
-		// Partition triangles efficiently
-		const { left: leftTris, right: rightTris } = this.partitionTrianglesOptimized(
-			triangleInfos,
-			splitInfo.axis,
-			splitInfo.pos
+		node.leftChild = this.buildNodeRecursive(
+			start, mid, depth - 1, progressCallback,
+			lMnX, lMnY, lMnZ, lMxX, lMxY, lMxZ
 		);
-
-		// Fall back to leaf if partition failed
-		if ( leftTris.length === 0 || rightTris.length === 0 ) {
-
-			node.triangleOffset = reorderedTriangles.length;
-			node.triangleCount = triangleInfos.length;
-
-			for ( const triInfo of triangleInfos ) {
-
-				reorderedTriangles.push( triInfo.triangle );
-
-			}
-
-			this.updateProgress( triangleInfos.length, progressCallback );
-			return node;
-
-		}
-
-		// Recursively build children
-		node.leftChild = this.buildNodeRecursive( leftTris, depth - 1, reorderedTriangles, progressCallback );
-		node.rightChild = this.buildNodeRecursive( rightTris, depth - 1, reorderedTriangles, progressCallback );
+		node.rightChild = this.buildNodeRecursive(
+			mid, end, depth - 1, progressCallback,
+			rMnX, rMnY, rMnZ, rMxX, rMxY, rMxZ
+		);
 
 		return node;
 
 	}
 
-	// ... (rest of the methods remain the same as they work with TriangleInfo objects)
-	findBestSplitPositionSAH( triangleInfos, parentNode ) {
+	// Partition indices and accumulate child bounds in a single pass
+	partitionWithBounds( start, end, axis, splitPos ) {
+
+		const idx = this.indices;
+		const c = this.centroids;
+		const bMn = this.bMin;
+		const bMx = this.bMax;
+
+		let lo = start;
+		let hi = end - 1;
+
+		let lMinX = Infinity, lMinY = Infinity, lMinZ = Infinity;
+		let lMaxX = - Infinity, lMaxY = - Infinity, lMaxZ = - Infinity;
+		let rMinX = Infinity, rMinY = Infinity, rMinZ = Infinity;
+		let rMaxX = - Infinity, rMaxY = - Infinity, rMaxZ = - Infinity;
+
+		while ( lo <= hi ) {
+
+			const triIdx = idx[ lo ];
+			const o = triIdx * 3;
+
+			if ( c[ o + axis ] <= splitPos ) {
+
+				// Left partition — accumulate bounds
+				if ( bMn[ o ] < lMinX ) lMinX = bMn[ o ];
+				if ( bMn[ o + 1 ] < lMinY ) lMinY = bMn[ o + 1 ];
+				if ( bMn[ o + 2 ] < lMinZ ) lMinZ = bMn[ o + 2 ];
+				if ( bMx[ o ] > lMaxX ) lMaxX = bMx[ o ];
+				if ( bMx[ o + 1 ] > lMaxY ) lMaxY = bMx[ o + 1 ];
+				if ( bMx[ o + 2 ] > lMaxZ ) lMaxZ = bMx[ o + 2 ];
+				lo ++;
+
+			} else {
+
+				// Right partition — accumulate bounds
+				if ( bMn[ o ] < rMinX ) rMinX = bMn[ o ];
+				if ( bMn[ o + 1 ] < rMinY ) rMinY = bMn[ o + 1 ];
+				if ( bMn[ o + 2 ] < rMinZ ) rMinZ = bMn[ o + 2 ];
+				if ( bMx[ o ] > rMaxX ) rMaxX = bMx[ o ];
+				if ( bMx[ o + 1 ] > rMaxY ) rMaxY = bMx[ o + 1 ];
+				if ( bMx[ o + 2 ] > rMaxZ ) rMaxZ = bMx[ o + 2 ];
+
+				// Swap indices[lo] and indices[hi]
+				idx[ lo ] = idx[ hi ];
+				idx[ hi ] = triIdx;
+				hi --;
+
+			}
+
+		}
+
+		const r = this._partResult;
+		r.mid = lo;
+		r.lMinX = lMinX; r.lMinY = lMinY; r.lMinZ = lMinZ;
+		r.lMaxX = lMaxX; r.lMaxY = lMaxY; r.lMaxZ = lMaxZ;
+		r.rMinX = rMinX; r.rMinY = rMinY; r.rMinZ = rMinZ;
+		r.rMaxX = rMaxX; r.rMaxY = rMaxY; r.rMaxZ = rMaxZ;
+		return r;
+
+	}
+
+	updateNodeBounds( node, start, end ) {
+
+		let minX = Infinity, minY = Infinity, minZ = Infinity;
+		let maxX = - Infinity, maxY = - Infinity, maxZ = - Infinity;
+
+		const idx = this.indices;
+		const bMin = this.bMin;
+		const bMax = this.bMax;
+
+		for ( let i = start; i < end; i ++ ) {
+
+			const o = idx[ i ] * 3;
+			if ( bMin[ o ] < minX ) minX = bMin[ o ];
+			if ( bMin[ o + 1 ] < minY ) minY = bMin[ o + 1 ];
+			if ( bMin[ o + 2 ] < minZ ) minZ = bMin[ o + 2 ];
+			if ( bMax[ o ] > maxX ) maxX = bMax[ o ];
+			if ( bMax[ o + 1 ] > maxY ) maxY = bMax[ o + 1 ];
+			if ( bMax[ o + 2 ] > maxZ ) maxZ = bMax[ o + 2 ];
+
+		}
+
+		node.minX = minX; node.minY = minY; node.minZ = minZ;
+		node.maxX = maxX; node.maxY = maxY; node.maxZ = maxZ;
+
+	}
+
+	// --- SAH with prefix-sum (O(bins) per axis instead of O(bins²)) ---
+
+	findBestSplitPositionSAH( start, end, parentNode ) {
 
 		let bestCost = Infinity;
 		let bestAxis = - 1;
 		let bestPos = 0;
 
-		const parentSA = this.computeSurfaceAreaFromBounds( parentNode.boundsMin, parentNode.boundsMax );
-		const leafCost = this.intersectionCost * triangleInfos.length;
+		const parentSA = this.computeSurfaceAreaFlat( parentNode.minX, parentNode.minY, parentNode.minZ, parentNode.maxX, parentNode.maxY, parentNode.maxZ );
+		const count = end - start;
+		const leafCost = this.intersectionCost * count;
+		const currentBinCount = this.getOptimalBinCount( count );
 
-		// Use adaptive bin count based on triangle density
-		const currentBinCount = this.getOptimalBinCount( triangleInfos.length );
-
-		// Track statistics
 		this.splitStats.totalSplitAttempts ++;
 		this.splitStats.avgBinsUsed = ( ( this.splitStats.avgBinsUsed * ( this.splitStats.totalSplitAttempts - 1 ) ) + currentBinCount ) / this.splitStats.totalSplitAttempts;
 
+		const idx = this.indices;
+		const c = this.centroids;
+		const bMn = this.bMin;
+		const bMx = this.bMax;
+		const bbMin = this.binBoundsMin;
+		const bbMax = this.binBoundsMax;
+		const bc = this.binCounts;
+		const lpMin = this.leftPrefixMin;
+		const lpMax = this.leftPrefixMax;
+		const lpc = this.leftPrefixCount;
+		const rpMin = this.rightPrefixMin;
+		const rpMax = this.rightPrefixMax;
+		const rpc = this.rightPrefixCount;
+
+		// Single pass: find centroid bounds for all 3 axes
+		let cMin0 = Infinity, cMax0 = - Infinity;
+		let cMin1 = Infinity, cMax1 = - Infinity;
+		let cMin2 = Infinity, cMax2 = - Infinity;
+
+		for ( let i = start; i < end; i ++ ) {
+
+			const o = idx[ i ] * 3;
+			const c0 = c[ o ], c1 = c[ o + 1 ], c2 = c[ o + 2 ];
+			if ( c0 < cMin0 ) cMin0 = c0; if ( c0 > cMax0 ) cMax0 = c0;
+			if ( c1 < cMin1 ) cMin1 = c1; if ( c1 > cMax1 ) cMax1 = c1;
+			if ( c2 < cMin2 ) cMin2 = c2; if ( c2 > cMax2 ) cMax2 = c2;
+
+		}
+
+		const centroidMin = [ cMin0, cMin1, cMin2 ];
+		const centroidMax = [ cMax0, cMax1, cMax2 ];
+
 		for ( let axis = 0; axis < 3; axis ++ ) {
 
-			// Find centroid bounds for this axis
-			let minCentroid = Infinity;
-			let maxCentroid = - Infinity;
+			const minCentroid = centroidMin[ axis ];
+			const maxCentroid = centroidMax[ axis ];
 
-			for ( const triInfo of triangleInfos ) {
+			if ( maxCentroid - minCentroid < 1e-6 ) continue;
 
-				const centroid = triInfo.centroid.getComponent( axis );
-				minCentroid = Math.min( minCentroid, centroid );
-				maxCentroid = Math.max( maxCentroid, centroid );
+			// Reset bins
+			for ( let b = 0; b < currentBinCount; b ++ ) {
 
-			}
-
-			if ( maxCentroid - minCentroid < 1e-6 ) continue; // Skip degenerate axis
-
-			// Reset bins (only the ones we're using)
-			for ( let i = 0; i < currentBinCount; i ++ ) {
-
-				this.binCounts[ i ] = 0;
-				this.binBounds[ i ].min.set( Infinity, Infinity, Infinity );
-				this.binBounds[ i ].max.set( - Infinity, - Infinity, - Infinity );
+				bc[ b ] = 0;
+				const b3 = b * 3;
+				bbMin[ b3 ] = Infinity; bbMin[ b3 + 1 ] = Infinity; bbMin[ b3 + 2 ] = Infinity;
+				bbMax[ b3 ] = - Infinity; bbMax[ b3 + 1 ] = - Infinity; bbMax[ b3 + 2 ] = - Infinity;
 
 			}
 
 			// Place triangles into bins
 			const binScale = currentBinCount / ( maxCentroid - minCentroid );
-			for ( const triInfo of triangleInfos ) {
+			for ( let i = start; i < end; i ++ ) {
 
-				const centroid = triInfo.centroid.getComponent( axis );
-				let binIndex = Math.floor( ( centroid - minCentroid ) * binScale );
-				binIndex = Math.min( binIndex, currentBinCount - 1 );
+				const triIdx = idx[ i ];
+				const cv = c[ triIdx * 3 + axis ];
+				let bi = Math.floor( ( cv - minCentroid ) * binScale );
+				if ( bi >= currentBinCount ) bi = currentBinCount - 1;
 
-				this.binCounts[ binIndex ] ++;
-				this.expandBounds( this.binBounds[ binIndex ], triInfo.bounds );
+				bc[ bi ] ++;
+				const b3 = bi * 3;
+				const t3 = triIdx * 3;
+
+				if ( bMn[ t3 ] < bbMin[ b3 ] ) bbMin[ b3 ] = bMn[ t3 ];
+				if ( bMn[ t3 + 1 ] < bbMin[ b3 + 1 ] ) bbMin[ b3 + 1 ] = bMn[ t3 + 1 ];
+				if ( bMn[ t3 + 2 ] < bbMin[ b3 + 2 ] ) bbMin[ b3 + 2 ] = bMn[ t3 + 2 ];
+				if ( bMx[ t3 ] > bbMax[ b3 ] ) bbMax[ b3 ] = bMx[ t3 ];
+				if ( bMx[ t3 + 1 ] > bbMax[ b3 + 1 ] ) bbMax[ b3 + 1 ] = bMx[ t3 + 1 ];
+				if ( bMx[ t3 + 2 ] > bbMax[ b3 + 2 ] ) bbMax[ b3 + 2 ] = bMx[ t3 + 2 ];
 
 			}
 
-			// Evaluate splits between bins
+			// Build left prefix sums
+			lpc[ 0 ] = bc[ 0 ];
+			lpMin[ 0 ] = bbMin[ 0 ]; lpMin[ 1 ] = bbMin[ 1 ]; lpMin[ 2 ] = bbMin[ 2 ];
+			lpMax[ 0 ] = bbMax[ 0 ]; lpMax[ 1 ] = bbMax[ 1 ]; lpMax[ 2 ] = bbMax[ 2 ];
+
+			for ( let b = 1; b < currentBinCount; b ++ ) {
+
+				const b3 = b * 3;
+				const p3 = ( b - 1 ) * 3;
+				lpc[ b ] = lpc[ b - 1 ] + bc[ b ];
+				const lp0 = lpMin[ p3 ], lb0 = bbMin[ b3 ];
+				const lp1 = lpMin[ p3 + 1 ], lb1 = bbMin[ b3 + 1 ];
+				const lp2 = lpMin[ p3 + 2 ], lb2 = bbMin[ b3 + 2 ];
+				lpMin[ b3 ] = lp0 < lb0 ? lp0 : lb0;
+				lpMin[ b3 + 1 ] = lp1 < lb1 ? lp1 : lb1;
+				lpMin[ b3 + 2 ] = lp2 < lb2 ? lp2 : lb2;
+				const lxp0 = lpMax[ p3 ], lxb0 = bbMax[ b3 ];
+				const lxp1 = lpMax[ p3 + 1 ], lxb1 = bbMax[ b3 + 1 ];
+				const lxp2 = lpMax[ p3 + 2 ], lxb2 = bbMax[ b3 + 2 ];
+				lpMax[ b3 ] = lxp0 > lxb0 ? lxp0 : lxb0;
+				lpMax[ b3 + 1 ] = lxp1 > lxb1 ? lxp1 : lxb1;
+				lpMax[ b3 + 2 ] = lxp2 > lxb2 ? lxp2 : lxb2;
+
+			}
+
+			// Build right prefix sums
+			const last = currentBinCount - 1;
+			const l3 = last * 3;
+			rpc[ last ] = bc[ last ];
+			rpMin[ l3 ] = bbMin[ l3 ]; rpMin[ l3 + 1 ] = bbMin[ l3 + 1 ]; rpMin[ l3 + 2 ] = bbMin[ l3 + 2 ];
+			rpMax[ l3 ] = bbMax[ l3 ]; rpMax[ l3 + 1 ] = bbMax[ l3 + 1 ]; rpMax[ l3 + 2 ] = bbMax[ l3 + 2 ];
+
+			for ( let b = last - 1; b >= 0; b -- ) {
+
+				const b3 = b * 3;
+				const n3 = ( b + 1 ) * 3;
+				rpc[ b ] = rpc[ b + 1 ] + bc[ b ];
+				const rn0 = rpMin[ n3 ], rb0 = bbMin[ b3 ];
+				const rn1 = rpMin[ n3 + 1 ], rb1 = bbMin[ b3 + 1 ];
+				const rn2 = rpMin[ n3 + 2 ], rb2 = bbMin[ b3 + 2 ];
+				rpMin[ b3 ] = rn0 < rb0 ? rn0 : rb0;
+				rpMin[ b3 + 1 ] = rn1 < rb1 ? rn1 : rb1;
+				rpMin[ b3 + 2 ] = rn2 < rb2 ? rn2 : rb2;
+				const rxn0 = rpMax[ n3 ], rxb0 = bbMax[ b3 ];
+				const rxn1 = rpMax[ n3 + 1 ], rxb1 = bbMax[ b3 + 1 ];
+				const rxn2 = rpMax[ n3 + 2 ], rxb2 = bbMax[ b3 + 2 ];
+				rpMax[ b3 ] = rxn0 > rxb0 ? rxn0 : rxb0;
+				rpMax[ b3 + 1 ] = rxn1 > rxb1 ? rxn1 : rxb1;
+				rpMax[ b3 + 2 ] = rxn2 > rxb2 ? rxn2 : rxb2;
+
+			}
+
+			// Evaluate splits using prefix sums (O(bins) instead of O(bins²))
 			for ( let i = 1; i < currentBinCount; i ++ ) {
 
-				// Count triangles and compute bounds for left side
-				let leftCount = 0;
-				const leftBounds = {
-					min: new Vector3( Infinity, Infinity, Infinity ),
-					max: new Vector3( - Infinity, - Infinity, - Infinity )
-				};
-
-				for ( let j = 0; j < i; j ++ ) {
-
-					if ( this.binCounts[ j ] > 0 ) {
-
-						leftCount += this.binCounts[ j ];
-						this.expandBounds( leftBounds, this.binBounds[ j ] );
-
-					}
-
-				}
-
-				// Count triangles and compute bounds for right side
-				let rightCount = 0;
-				const rightBounds = {
-					min: new Vector3( Infinity, Infinity, Infinity ),
-					max: new Vector3( - Infinity, - Infinity, - Infinity )
-				};
-
-				for ( let j = i; j < currentBinCount; j ++ ) {
-
-					if ( this.binCounts[ j ] > 0 ) {
-
-						rightCount += this.binCounts[ j ];
-						this.expandBounds( rightBounds, this.binBounds[ j ] );
-
-					}
-
-				}
+				const leftIdx = ( i - 1 ) * 3;
+				const rightIdx = i * 3;
+				const leftCount = lpc[ i - 1 ];
+				const rightCount = rpc[ i ];
 
 				if ( leftCount === 0 || rightCount === 0 ) continue;
 
-				// Compute SAH cost
-				const leftSA = this.computeSurfaceAreaFromBounds( leftBounds.min, leftBounds.max );
-				const rightSA = this.computeSurfaceAreaFromBounds( rightBounds.min, rightBounds.max );
+				// Inlined surface area: 2*(dx*dy + dy*dz + dz*dx)
+				const ldx = lpMax[ leftIdx ] - lpMin[ leftIdx ];
+				const ldy = lpMax[ leftIdx + 1 ] - lpMin[ leftIdx + 1 ];
+				const ldz = lpMax[ leftIdx + 2 ] - lpMin[ leftIdx + 2 ];
+				const leftSA = 2 * ( ldx * ldy + ldy * ldz + ldz * ldx );
+
+				const rdx = rpMax[ rightIdx ] - rpMin[ rightIdx ];
+				const rdy = rpMax[ rightIdx + 1 ] - rpMin[ rightIdx + 1 ];
+				const rdz = rpMax[ rightIdx + 2 ] - rpMin[ rightIdx + 2 ];
+				const rightSA = 2 * ( rdx * rdy + rdy * rdz + rdz * rdx );
 
 				const cost = this.traversalCost +
 					( leftSA / parentSA ) * leftCount * this.intersectionCost +
@@ -1051,55 +1011,38 @@ export default class BVHBuilder {
 
 		}
 
-		// If SAH failed to find a good split, try object median as fallback
+		// Fallbacks
 		if ( bestAxis === - 1 ) {
 
-			if ( this.enableObjectMedianFallback ) {
-
-				return this.findObjectMedianSplit( triangleInfos );
-
-			} else if ( this.enableSpatialMedianFallback ) {
-
-				return this.findSpatialMedianSplit( triangleInfos );
-
-			} else {
-
-				return { success: false, method: 'fallbacks_disabled' };
-
-			}
+			if ( this.enableObjectMedianFallback ) return this.findObjectMedianSplit( start, end );
+			if ( this.enableSpatialMedianFallback ) return this.findSpatialMedianSplit( start, end );
+			return { success: false, method: 'fallbacks_disabled' };
 
 		}
 
-		return {
-			success: bestAxis !== - 1,
-			axis: bestAxis,
-			pos: bestPos,
-			method: 'SAH',
-			binsUsed: currentBinCount
-		};
+		return { success: true, axis: bestAxis, pos: bestPos, method: 'SAH', binsUsed: currentBinCount };
 
 	}
 
-	findObjectMedianSplit( triangleInfos ) {
+	findObjectMedianSplit( start, end ) {
 
+		const idx = this.indices;
+		const c = this.centroids;
 		let bestAxis = - 1;
 		let bestSpread = - 1;
 
-		// Find the axis with the largest spread
 		for ( let axis = 0; axis < 3; axis ++ ) {
 
-			let minCentroid = Infinity;
-			let maxCentroid = - Infinity;
+			let minC = Infinity, maxC = - Infinity;
+			for ( let i = start; i < end; i ++ ) {
 
-			for ( const triInfo of triangleInfos ) {
-
-				const centroid = triInfo.centroid.getComponent( axis );
-				minCentroid = Math.min( minCentroid, centroid );
-				maxCentroid = Math.max( maxCentroid, centroid );
+				const v = c[ idx[ i ] * 3 + axis ];
+				if ( v < minC ) minC = v;
+				if ( v > maxC ) maxC = v;
 
 			}
 
-			const spread = maxCentroid - minCentroid;
+			const spread = maxC - minC;
 			if ( spread > bestSpread ) {
 
 				bestSpread = spread;
@@ -1111,108 +1054,83 @@ export default class BVHBuilder {
 
 		if ( bestAxis === - 1 || bestSpread < 1e-10 ) {
 
-			// If object median fails, try spatial median as final fallback
-			if ( this.enableSpatialMedianFallback ) {
-
-				return this.findSpatialMedianSplit( triangleInfos );
-
-			} else {
-
-				return { success: false, method: 'object_median_failed_no_spatial_fallback' };
-
-			}
+			if ( this.enableSpatialMedianFallback ) return this.findSpatialMedianSplit( start, end );
+			return { success: false, method: 'object_median_failed' };
 
 		}
 
-		// Sort triangles by centroid on the best axis
-		const sortedTriangles = [ ...triangleInfos ];
-		sortedTriangles.sort( ( a, b ) => {
+		// Quickselect to find median centroid value in O(N) average
+		const count = end - start;
+		const k = start + Math.floor( count / 2 );
+		this.quickselect( start, end, k, bestAxis );
 
-			return a.centroid.getComponent( bestAxis ) - b.centroid.getComponent( bestAxis );
+		let splitPos = c[ idx[ k ] * 3 + bestAxis ];
 
-		} );
-
-		// Find median position
-		const medianIndex = Math.floor( sortedTriangles.length / 2 );
-		const medianCentroid = sortedTriangles[ medianIndex ].centroid.getComponent( bestAxis );
-
-		// Ensure we don't get an empty partition by using the actual median triangle's centroid
-		// and adjusting slightly if needed
-		let splitPos = medianCentroid;
-
-		// Check if this split would create balanced partitions
+		// Verify balanced split
 		let leftCount = 0;
-		for ( const triInfo of triangleInfos ) {
+		for ( let i = start; i < end; i ++ ) {
 
-			if ( triInfo.centroid.getComponent( bestAxis ) <= splitPos ) {
-
-				leftCount ++;
-
-			}
+			if ( c[ idx[ i ] * 3 + bestAxis ] <= splitPos ) leftCount ++;
 
 		}
 
-		// If the split is too unbalanced, adjust it
-		if ( leftCount === 0 || leftCount === triangleInfos.length ) {
+		if ( leftCount === 0 || leftCount === count ) {
 
-			// Use the position slightly before the median triangle
-			if ( medianIndex > 0 ) {
+			// Nudge split between median and its neighbor
+			if ( k > start ) {
 
-				const prevCentroid = sortedTriangles[ medianIndex - 1 ].centroid.getComponent( bestAxis );
-				splitPos = ( prevCentroid + medianCentroid ) * 0.5;
+				// Find max centroid in left half
+				let leftMax = - Infinity;
+				for ( let i = start; i < k; i ++ ) {
 
-			} else {
-
-				// Object median failed, try spatial median
-				if ( this.enableSpatialMedianFallback ) {
-
-					return this.findSpatialMedianSplit( triangleInfos );
-
-				} else {
-
-					return { success: false, method: 'object_median_degenerate_no_spatial_fallback' };
+					const v = c[ idx[ i ] * 3 + bestAxis ];
+					if ( v > leftMax ) leftMax = v;
 
 				}
 
+				splitPos = ( leftMax + splitPos ) * 0.5;
+
+			} else {
+
+				if ( this.enableSpatialMedianFallback ) return this.findSpatialMedianSplit( start, end );
+				return { success: false, method: 'object_median_degenerate' };
+
 			}
 
 		}
 
-		return {
-			success: true,
-			axis: bestAxis,
-			pos: splitPos,
-			method: 'object_median'
-		};
+		return { success: true, axis: bestAxis, pos: splitPos, method: 'object_median' };
 
 	}
 
-	findSpatialMedianSplit( triangleInfos ) {
+	findSpatialMedianSplit( start, end ) {
 
+		const idx = this.indices;
+		const c = this.centroids;
+		const bMn = this.bMin;
+		const bMx = this.bMax;
 		let bestAxis = - 1;
 		let bestSpread = - 1;
-		let bestBounds = null;
+		let bestMin = 0, bestMax = 0;
 
-		// Find the axis with the largest spatial spread (based on triangle bounds, not centroids)
 		for ( let axis = 0; axis < 3; axis ++ ) {
 
-			let minBound = Infinity;
-			let maxBound = - Infinity;
+			let minB = Infinity, maxB = - Infinity;
+			for ( let i = start; i < end; i ++ ) {
 
-			// Consider all triangle vertices, not just centroids
-			for ( const triInfo of triangleInfos ) {
-
-				minBound = Math.min( minBound, triInfo.bounds.min.getComponent( axis ) );
-				maxBound = Math.max( maxBound, triInfo.bounds.max.getComponent( axis ) );
+				const o = idx[ i ] * 3 + axis;
+				if ( bMn[ o ] < minB ) minB = bMn[ o ];
+				if ( bMx[ o ] > maxB ) maxB = bMx[ o ];
 
 			}
 
-			const spread = maxBound - minBound;
+			const spread = maxB - minB;
 			if ( spread > bestSpread ) {
 
 				bestSpread = spread;
 				bestAxis = axis;
-				bestBounds = { min: minBound, max: maxBound };
+				bestMin = minB;
+				bestMax = maxB;
 
 			}
 
@@ -1224,130 +1142,215 @@ export default class BVHBuilder {
 
 		}
 
-		// Use spatial median - split at the middle of the bounding box
-		const splitPos = ( bestBounds.min + bestBounds.max ) * 0.5;
+		let splitPos = ( bestMin + bestMax ) * 0.5;
 
-		// Verify this creates a reasonable split
+		// Verify split quality
+		const count = end - start;
 		let leftCount = 0;
-		let rightCount = 0;
+		for ( let i = start; i < end; i ++ ) {
 
-		for ( const triInfo of triangleInfos ) {
-
-			const centroid = triInfo.centroid.getComponent( bestAxis );
-			if ( centroid <= splitPos ) {
-
-				leftCount ++;
-
-			} else {
-
-				rightCount ++;
-
-			}
+			if ( c[ idx[ i ] * 3 + bestAxis ] <= splitPos ) leftCount ++;
 
 		}
 
-		// If still creating degenerate partitions, force a more balanced split
-		if ( leftCount === 0 || rightCount === 0 ) {
+		if ( leftCount === 0 || leftCount === count ) {
 
-			// Create array of all centroid values for this axis
-			const centroids = triangleInfos.map( tri => tri.centroid.getComponent( bestAxis ) );
-			centroids.sort( ( a, b ) => a - b );
+			// Force balanced via sorted median
+			const vals = new Float32Array( count );
+			for ( let i = 0; i < count; i ++ ) {
 
-			// Use the actual median of centroids as split position
-			const medianIndex = Math.floor( centroids.length / 2 );
-			const medianCentroid = centroids[ medianIndex ];
+				vals[ i ] = c[ idx[ start + i ] * 3 + bestAxis ];
 
-			// Ensure we don't have all identical values
-			if ( centroids[ 0 ] === centroids[ centroids.length - 1 ] ) {
+			}
+
+			vals.sort();
+
+			if ( vals[ 0 ] === vals[ count - 1 ] ) {
 
 				return { success: false, method: 'spatial_median_degenerate' };
 
 			}
 
-			// Use position between median values to ensure split
-			let adjustedSplitPos = medianCentroid;
-			if ( medianIndex > 0 && centroids[ medianIndex - 1 ] !== medianCentroid ) {
+			const medianIdx = Math.floor( count / 2 );
+			splitPos = vals[ medianIdx ];
 
-				adjustedSplitPos = ( centroids[ medianIndex - 1 ] + medianCentroid ) * 0.5;
+			if ( medianIdx > 0 && vals[ medianIdx - 1 ] !== splitPos ) {
 
-			} else if ( medianIndex < centroids.length - 1 ) {
+				splitPos = ( vals[ medianIdx - 1 ] + splitPos ) * 0.5;
 
-				adjustedSplitPos = ( medianCentroid + centroids[ medianIndex + 1 ] ) * 0.5;
+			} else if ( medianIdx < count - 1 ) {
+
+				splitPos = ( splitPos + vals[ medianIdx + 1 ] ) * 0.5;
 
 			}
 
-			return {
-				success: true,
-				axis: bestAxis,
-				pos: adjustedSplitPos,
-				method: 'spatial_median'
-			};
-
 		}
 
-		return {
-			success: true,
-			axis: bestAxis,
-			pos: splitPos,
-			method: 'spatial_median'
-		};
+		return { success: true, axis: bestAxis, pos: splitPos, method: 'spatial_median' };
 
 	}
 
-	partitionTrianglesOptimized( triangleInfos, axis, splitPos ) {
+	// --- Quickselect (Hoare's selection algorithm) ---
 
-		// Clear temp arrays
-		this.tempLeftTris.length = 0;
-		this.tempRightTris.length = 0;
+	quickselect( start, end, k, axis ) {
 
-		for ( const triInfo of triangleInfos ) {
+		const idx = this.indices;
+		const c = this.centroids;
 
-			const centroid = triInfo.centroid.getComponent( axis );
-			if ( centroid <= splitPos ) {
+		let lo = start;
+		let hi = end - 1;
 
-				this.tempLeftTris.push( triInfo );
+		while ( lo < hi ) {
+
+			// Median-of-three pivot selection
+			const mid = ( lo + hi ) >>> 1;
+			const vLo = c[ idx[ lo ] * 3 + axis ];
+			const vMid = c[ idx[ mid ] * 3 + axis ];
+			const vHi = c[ idx[ hi ] * 3 + axis ];
+
+			// Sort lo, mid, hi and use mid as pivot
+			if ( vLo > vMid ) {
+
+				const t = idx[ lo ];
+				idx[ lo ] = idx[ mid ];
+				idx[ mid ] = t;
+
+			}
+
+			if ( vLo > vHi ) {
+
+				const t = idx[ lo ];
+				idx[ lo ] = idx[ hi ];
+				idx[ hi ] = t;
+
+			}
+
+			if ( vMid > vHi ) {
+
+				const t = idx[ mid ];
+				idx[ mid ] = idx[ hi ];
+				idx[ hi ] = t;
+
+			}
+
+			const pivot = c[ idx[ mid ] * 3 + axis ];
+
+			// Partition around pivot
+			let i = lo;
+			let j = hi;
+
+			while ( i <= j ) {
+
+				while ( c[ idx[ i ] * 3 + axis ] < pivot ) i ++;
+				while ( c[ idx[ j ] * 3 + axis ] > pivot ) j --;
+
+				if ( i <= j ) {
+
+					const t = idx[ i ]; idx[ i ] = idx[ j ]; idx[ j ] = t;
+					i ++;
+					j --;
+
+				}
+
+			}
+
+			if ( j < k ) lo = i;
+			if ( i > k ) hi = j;
+
+		}
+
+	}
+
+	// --- BVH flattening (GPU-ready format) ---
+
+	/**
+	 * Flatten BVH tree into a Float32Array (12 floats per node).
+	 * Layout per node (3 × vec4):
+	 *   vec4( boundsMin.xyz, leftChildIndex )
+	 *   vec4( boundsMax.xyz, rightChildIndex )
+	 *   vec4( triangleOffset, triangleCount, 0, 0 )
+	 *
+	 * This is the same format as TextureCreator.createBVHRawData,
+	 * but runs inside the worker to avoid structured-clone overhead
+	 * of transferring 1M+ BVHNode objects.
+	 */
+	flattenBVH( root ) {
+
+		// First pass: assign indices via pre-order traversal
+		const nodes = [];
+		const stack = [ root ];
+		while ( stack.length > 0 ) {
+
+			const node = stack.pop();
+			node._flatIndex = nodes.length;
+			nodes.push( node );
+			// Push right first so left is processed first (pre-order)
+			if ( node.rightChild ) stack.push( node.rightChild );
+			if ( node.leftChild ) stack.push( node.leftChild );
+
+		}
+
+		// Second pass: write flat data
+		// Layout: 4 vec4 per node (16 floats)
+		// Inner: [leftMin.xyz, leftChild] [leftMax.xyz, rightChild] [rightMin.xyz, 0] [rightMax.xyz, 0]
+		// Leaf:  [triOffset, triCount, 0, -1] [0,0,0,0] [0,0,0,0] [0,0,0,0]
+		const FLOATS_PER_NODE = 16;
+		const data = new Float32Array( nodes.length * FLOATS_PER_NODE );
+
+		for ( let i = 0; i < nodes.length; i ++ ) {
+
+			const node = nodes[ i ];
+			const o = i * FLOATS_PER_NODE;
+
+			if ( node.leftChild ) {
+
+				// Inner node: store children's AABBs
+				const left = node.leftChild;
+				const right = node.rightChild;
+
+				data[ o ] = left.minX;
+				data[ o + 1 ] = left.minY;
+				data[ o + 2 ] = left.minZ;
+				data[ o + 3 ] = left._flatIndex;
+
+				data[ o + 4 ] = left.maxX;
+				data[ o + 5 ] = left.maxY;
+				data[ o + 6 ] = left.maxZ;
+				data[ o + 7 ] = right._flatIndex;
+
+				data[ o + 8 ] = right.minX;
+				data[ o + 9 ] = right.minY;
+				data[ o + 10 ] = right.minZ;
+				// data[o+11] = 0 (padding)
+
+				data[ o + 12 ] = right.maxX;
+				data[ o + 13 ] = right.maxY;
+				data[ o + 14 ] = right.maxZ;
+				// data[o+15] = 0 (padding)
 
 			} else {
 
-				this.tempRightTris.push( triInfo );
+				// Leaf node: triOffset, triCount in vec4(0), marked by leftChild = -1
+				data[ o ] = node.triangleOffset;
+				data[ o + 1 ] = node.triangleCount;
+				// data[o+2] = 0 (padding)
+				data[ o + 3 ] = - 1; // Leaf marker
 
 			}
 
 		}
 
-		return {
-			left: this.tempLeftTris.slice(), // Copy to avoid reference issues
-			right: this.tempRightTris.slice()
-		};
+		return data;
 
 	}
 
-	updateNodeBounds( node, triangleInfos ) {
+	// --- Surface area helpers ---
 
-		node.boundsMin.set( Infinity, Infinity, Infinity );
-		node.boundsMax.set( - Infinity, - Infinity, - Infinity );
+	computeSurfaceAreaFlat( minX, minY, minZ, maxX, maxY, maxZ ) {
 
-		for ( const triInfo of triangleInfos ) {
-
-			node.boundsMin.min( triInfo.bounds.min );
-			node.boundsMax.max( triInfo.bounds.max );
-
-		}
-
-	}
-
-	expandBounds( targetBounds, sourceBounds ) {
-
-		targetBounds.min.min( sourceBounds.min );
-		targetBounds.max.max( sourceBounds.max );
-
-	}
-
-	computeSurfaceAreaFromBounds( boundsMin, boundsMax ) {
-
-		const dx = boundsMax.x - boundsMin.x;
-		const dy = boundsMax.y - boundsMin.y;
-		const dz = boundsMax.z - boundsMin.z;
+		const dx = maxX - minX;
+		const dy = maxY - minY;
+		const dz = maxZ - minZ;
 		return 2 * ( dx * dy + dy * dz + dz * dx );
 
 	}

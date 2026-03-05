@@ -5,7 +5,8 @@ import { GLTFLoader, HDRLoader, DRACOLoader, EXRLoader } from 'three/examples/js
 import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
-import { disposeObjectFromMemory, updateLoading, resetLoading } from './utils';
+import { disposeObjectFromMemory, updateLoading } from './utils';
+import BuildTimer from './BuildTimer';
 import { MODEL_FILES, DEFAULT_STATE } from '@/Constants';
 
 // Define supported file formats
@@ -132,11 +133,6 @@ class AssetLoader extends EventDispatcher {
 
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 100 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -482,11 +478,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename: filePath } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -776,11 +767,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename: modelUrl } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -810,11 +796,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading GLB:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -848,11 +829,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading FBX:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -890,11 +866,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -931,11 +902,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading STL:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -986,11 +952,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -1027,11 +988,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -1065,11 +1021,6 @@ class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading 3MF:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
-
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
 
 		}
 
@@ -1106,11 +1057,6 @@ class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
 
-		} finally {
-
-			updateLoading( { status: "Ready", progress: 90 } );
-			setTimeout( () => resetLoading(), 1000 );
-
 		}
 
 	}
@@ -1118,10 +1064,16 @@ class AssetLoader extends EventDispatcher {
 	// Model processing methods
 	async onModelLoad( model ) {
 
+		let a = performance.now();
+		const buildTimer = new BuildTimer( 'onModelLoad' );
+
 		// Extract cameras from the loaded model
+		buildTimer.start( 'Camera extraction' );
 		const extractedCameras = this.extractCamerasFromModel( model );
+		buildTimer.end( 'Camera extraction' );
 
 		// Center model and adjust camera
+		buildTimer.start( 'Camera setup' );
 		const box = new Box3().setFromObject( model );
 		const center = box.getCenter( new Vector3() );
 		const size = box.getSize( new Vector3() );
@@ -1149,6 +1101,7 @@ class AssetLoader extends EventDispatcher {
 		this.controls.maxDistance = cameraDistance * 10;
 		this.controls.saveState();
 		this.controls.update();
+		buildTimer.end( 'Camera setup' );
 
 		// Adjust floor plane
 		if ( this.floorPlane ) {
@@ -1162,21 +1115,31 @@ class AssetLoader extends EventDispatcher {
 
 		if ( this.optimizeMeshes ) {
 
+			buildTimer.start( 'Mesh optimization' );
 			updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
 			await this.optimizeModel( model );
+			buildTimer.end( 'Mesh optimization' );
 
 		}
 
 		// Process model objects
+		buildTimer.start( 'Process model objects' );
 		this.processModelObjects( model );
+		buildTimer.end( 'Process model objects' );
 
+		buildTimer.start( 'Scene add' );
 		this.scene.add( model );
+		buildTimer.end( 'Scene add' );
 
 		// Calculate scene scale factor based on model size
 		const sceneScale = maxDim;
 
 		// Rebuild path tracing
+		buildTimer.start( 'setupPathTracing' );
 		await this.setupPathTracing( model, sceneScale );
+		buildTimer.end( 'setupPathTracing' );
+
+		buildTimer.print();
 
 		// Dispatch event with cameras if found
 		this.dispatchEvent( {
@@ -1188,7 +1151,8 @@ class AssetLoader extends EventDispatcher {
 
 		// Notify model loaded and processed
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
-
+		let b = performance.measure( a - performance.now() );
+		console.log( 'supp !!: ', b.duration );
 		return { center, size, maxDim, sceneScale };
 
 	}
@@ -1198,12 +1162,20 @@ class AssetLoader extends EventDispatcher {
 
 		const cameras = [];
 
+		// Ensure world matrices are up-to-date before extraction
+		model.updateWorldMatrix( true, true );
+
 		model.traverse( ( object ) => {
 
 			if ( object.isCamera ) {
 
 				// Clone the camera to avoid modifying the original
 				const camera = object.clone();
+
+				// Apply world transforms — cameras may be children of
+				// transformed nodes, so local position/quaternion != world.
+				object.getWorldPosition( camera.position );
+				object.getWorldQuaternion( camera.quaternion );
 
 				// Set a meaningful name
 				if ( ! camera.name || camera.name === '' ) {

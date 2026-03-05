@@ -100,7 +100,7 @@ export class PipelineStage {
 	 * Initialize stage with pipeline context and event bus
 	 * Called once during pipeline setup
 	 * @param {PipelineContext} context - Shared pipeline context
-	 * @param {EventEmitter} eventBus - Event bus for stage communication
+	 * @param {EventDispatcher} eventBus - Event bus for stage communication
 	 */
 	initialize( context, eventBus ) {
 

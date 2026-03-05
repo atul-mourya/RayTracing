@@ -123,6 +123,14 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				? app.denoiser.output
 				: app.renderer.domElement;
 
+			// Re-render display stage so the WebGPU canvas has valid content
+			// (WebGPU canvases expire their texture after each compositor frame)
+			if ( canvas === app.renderer.domElement && app.displayStage && app.pipeline?.context ) {
+
+				app.displayStage.render( app.pipeline.context );
+
+			}
+
 			const imageData = canvas.toDataURL( 'image/png' );
 			const saveData = {
 				image: imageData,

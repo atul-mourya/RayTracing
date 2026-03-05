@@ -307,13 +307,13 @@ const useEnvironmentStore = create( set => ( {
 
 const FINAL_RENDER_STATE = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
-	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHDR: false, useGBuffer: true,
+	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: false,
 };
 
 const PREVIEW_STATE = {
 	bounces: 3, samplesPerPixel: 1, renderMode: 0, transmissiveBounces: 3, tiles: 3, tilesHelper: false, resolution: 1,
-	enableOIDN: false, oidnQuality: 'fast', oidnHDR: false, useGBuffer: true,
+	enableOIDN: false, oidnQuality: 'fast', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: true,
 };
 
@@ -569,8 +569,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			} );
 
-			// Update adaptive sampling pass parameters
-			app.pathTracingStage?.setAdaptiveSamplingParameters?.( settings );
+			// Sync with engine stages
+			app.setAdaptiveSamplingMax( settings.adaptiveSamplingMax );
+			app.pathTracingStage?.setAdaptiveSamplingMin( settings.adaptiveSamplingMin );
+			app.adaptiveSamplingStage.setAdaptiveSamplingParameters( {
+				threshold: settings.adaptiveSamplingVarianceThreshold,
+				materialBias: settings.adaptiveSamplingMaterialBias,
+				edgeBias: settings.adaptiveSamplingEdgeBias,
+				convergenceSpeedUp: settings.adaptiveSamplingConvergenceSpeed,
+			} );
 
 		}
 
@@ -659,7 +666,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingMinChange: handleChange(
 		val => set( { adaptiveSamplingMin: val } ),
-		( val, app ) => app.pathTracingStage?.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.pathTracingStage?.setAdaptiveSamplingMin( v );
+
+		}
 	),
 
 	handleAdaptiveSamplingMaxChange: handleChange(
@@ -669,7 +681,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
 		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		( val, app ) => app.pathTracingStage?.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setVarianceThreshold( v );
+
+		}
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
@@ -681,7 +698,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingMaterialBias: val } ),
 		( val, app ) => {
 
-			app.pathTracingStage?.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setMaterialBias( v );
 
 		}
 	),
@@ -690,7 +708,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingEdgeBias: val } ),
 		( val, app ) => {
 
-			app.pathTracingStage?.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setEdgeBias( v );
 
 		}
 	),
@@ -699,7 +718,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingConvergenceSpeed: val } ),
 		( val, app ) => {
 
-			app.pathTracingStage?.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setConvergenceSpeed( v );
 
 		}
 	),
@@ -1070,6 +1090,24 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			if ( app.scene ) app.scene.background = val ? app.scene.environment : null;
 			app.setShowBackground( val );
 			app.reset();
+
+		}
+	),
+
+	handleTransparentBackgroundChange: handleChange(
+		val => set( { transparentBackground: val } ),
+		( val, app ) => {
+
+			if ( val ) {
+
+				// Force background off for transparency to work
+				if ( app.scene ) app.scene.background = null;
+				app.setShowBackground( false );
+				set( { showBackground: false } );
+
+			}
+
+			app.setTransparentBackground( val );
 
 		}
 	),
@@ -1517,7 +1555,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				app.denoiser.abort();
 				app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
 				app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
-				app.denoiser.toggleHDR( PREVIEW_STATE.oidnHDR );
+				app.denoiser.toggleHDR( PREVIEW_STATE.oidnHdr );
 				app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
 
 			}
@@ -1572,7 +1610,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				app.denoiser.abort();
 				app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
 				app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
-				app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHDR );
+				app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHdr );
 				app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
 
 			}
@@ -1950,8 +1988,9 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.switchCamera( idx );
-			set( { selectedCameraIndex: idx } );
+			const index = Number( idx );
+			app.switchCamera( index );
+			set( { selectedCameraIndex: index } );
 
 		}
 

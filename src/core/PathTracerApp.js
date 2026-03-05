@@ -22,7 +22,8 @@ import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
 import { DEFAULT_STATE } from '../Constants.js';
-import { updateStats } from './Processor/utils.js';
+import { updateStats, resetLoading } from './Processor/utils.js';
+import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
 import { useStore } from '@/store';
@@ -94,6 +95,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.environmentIntensity = DEFAULT_STATE.environmentIntensity ?? 1.0;
 		this.backgroundIntensity = DEFAULT_STATE.backgroundIntensity ?? 1.0;
 		this.showBackground = DEFAULT_STATE.showBackground ?? true;
+		this.transparentBackground = DEFAULT_STATE.transparentBackground ?? false;
 		this.enableEnvironment = DEFAULT_STATE.enableEnvironment ?? true;
 		this.globalIlluminationIntensity = DEFAULT_STATE.globalIlluminationIntensity ?? 1.0;
 		this.exposure = DEFAULT_STATE.exposure ?? 1.0;
@@ -105,6 +107,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.aperture = DEFAULT_STATE.aperture ?? 0.0;
 		this.apertureScale = 1.0;
 		this.currentCameraIndex = 0;
+		this._defaultCameraState = null; // saved when switching away from default
 
 		// Sampling settings
 		this.samplingTechnique = DEFAULT_STATE.samplingTechnique ?? 0;
@@ -151,6 +154,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Create and initialize WebGPU renderer
 		this.renderer = new WebGPURenderer( {
 			canvas: this.canvas,
+			alpha: true,
 			powerPreference: 'high-performance',
 			requiredLimits: {
 				maxBufferSize: adapterLimits.maxBufferSize,
@@ -323,6 +327,8 @@ export class PathTracerApp extends EventDispatcher {
 					await this.pathTracingStage.setEnvironmentMap( envTexture );
 
 				}
+
+				resetLoading();
 
 			}
 
@@ -555,9 +561,19 @@ export class PathTracerApp extends EventDispatcher {
 
 			},
 
-			// Expose current exposure so the output readback can apply the same curve
-			// as DisplayStage (exposure^4 + ACES tonemap).
-			getExposure: () => this.exposure,
+			// Effective exposure multiplier matching DisplayStage's pipeline:
+			//  • Manual:       pow(exposure, 4) with toneMappingExposure = 1.0
+			//  • AutoExposure: displayExposure = 1.0, toneMappingExposure = autoValue
+			// The tonemapping function receives this as its exposure parameter.
+			getExposure: () => this.autoExposureStage?.enabled
+				? this.renderer.toneMappingExposure
+				: Math.pow( this.exposure, 4.0 ),
+
+			// Current Three.js ToneMapping constant so OIDN can match the renderer.
+			getToneMapping: () => this.renderer.toneMapping,
+
+			// Whether transparent background is enabled (OIDN needs to preserve alpha)
+			getTransparentBackground: () => this.transparentBackground,
 
 			getMRTRenderTarget: () => {
 
@@ -643,8 +659,12 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	async loadSceneData() {
 
+		const timer = new BuildTimer( 'loadSceneData' );
+
 		// Build BVH acceleration structure from the mesh scene
+		timer.start( 'BVH build (TriangleSDF)' );
 		await this.sdf.buildBVH( this.meshScene );
+		timer.end( 'BVH build (TriangleSDF)' );
 
 		// Get raw data from SDF (Float32Arrays for storage buffers)
 		const triangleData = this.sdf.triangleData;
@@ -660,6 +680,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		timer.start( 'GPU data transfer' );
 		this.pathTracingStage.setTriangleData( triangleData, triangleCount );
 
 		if ( ! bvhData ) {
@@ -711,18 +732,24 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Transfer lights from mesh scene into the WebGPU light scene
 		this._transferSceneLights();
+		timer.end( 'GPU data transfer' );
 
 		// Setup material with all data
+		timer.start( 'Material setup (TSL compile)' );
 		this.pathTracingStage.setupMaterial();
+		timer.end( 'Material setup (TSL compile)' );
 
 		// Build environment CDF for importance sampling AFTER material setup
 		if ( environmentTexture ) {
 
+			timer.start( 'Environment CDF build' );
 			await this.pathTracingStage.setEnvironmentMap( environmentTexture );
+			timer.end( 'Environment CDF build' );
 
 		}
 
 		// Apply all settings to stage
+		timer.start( 'Apply settings' );
 		this.pathTracingStage.setMaxBounces( this.maxBounces );
 		this.pathTracingStage.setSamplesPerPixel( this.samplesPerPixel );
 		this.pathTracingStage.setMaxSamples( this.maxSamples );
@@ -730,9 +757,11 @@ export class PathTracerApp extends EventDispatcher {
 		this.pathTracingStage.setEnvironmentIntensity( this.environmentIntensity );
 		this.pathTracingStage.setBackgroundIntensity( this.backgroundIntensity );
 		this.pathTracingStage.setShowBackground( this.showBackground );
+		this.pathTracingStage.setTransparentBackground( this.transparentBackground );
 		this.pathTracingStage.setEnableEnvironment( this.enableEnvironment );
 		this.pathTracingStage.setGlobalIlluminationIntensity( this.globalIlluminationIntensity );
 		this.pathTracingStage.setExposure( this.exposure );
+		this.displayStage.setTransparentBackground( this.transparentBackground );
 
 		// Camera & DOF
 		this.pathTracingStage.setEnableDOF( this.enableDOF );
@@ -753,6 +782,9 @@ export class PathTracerApp extends EventDispatcher {
 		// Debug
 		this.pathTracingStage.setVisMode( this.visMode );
 		this.pathTracingStage.setDebugVisScale( this.debugVisScale );
+		timer.end( 'Apply settings' );
+
+		timer.print();
 
 		// Dispatch SceneRebuild so UI components (StatsMeter, Outliner, etc.) update
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
@@ -825,6 +857,14 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.animationId = requestAnimationFrame( () => this.animate() );
 
+		// Skip all rendering while scene data is being loaded or processed
+		if ( this._loadingInProgress || this.sdf?.isProcessing ) {
+
+			this.stats?.update();
+			return;
+
+		}
+
 		// Update controls
 		if ( this.controls ) {
 
@@ -895,7 +935,7 @@ export class PathTracerApp extends EventDispatcher {
 				if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
 
 					this._renderCompleteDispatched = true;
-					if ( this.denoiser?.output ) this.denoiser.output.style.display = 'block';
+					if ( this.denoiser?.enabled && this.denoiser?.output ) this.denoiser.output.style.display = 'block';
 					this.denoiser?.start();
 					this.dispatchEvent( { type: 'RenderComplete' } );
 					useStore.getState().setIsRenderComplete( true );
@@ -1096,6 +1136,28 @@ export class PathTracerApp extends EventDispatcher {
 		if ( this.pathTracingStage ) {
 
 			this.pathTracingStage.setShowBackground( show );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets whether the background should be transparent (alpha = 0).
+	 */
+	setTransparentBackground( enabled ) {
+
+		this.transparentBackground = enabled;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setTransparentBackground( enabled );
+
+		}
+
+		if ( this.displayStage ) {
+
+			this.displayStage.setTransparentBackground( enabled );
 
 		}
 
@@ -1648,28 +1710,68 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Save default camera state before switching away from it.
+		// this.cameras[0] === this.camera, so copying model-camera
+		// properties into this.camera would destroy the default state.
+		if ( this.currentCameraIndex === 0 && index !== 0 ) {
+
+			this._defaultCameraState = {
+				position: this.camera.position.clone(),
+				quaternion: this.camera.quaternion.clone(),
+				fov: this.camera.fov,
+				near: this.camera.near,
+				far: this.camera.far,
+				target: this.controls ? this.controls.target.clone() : null,
+			};
+
+		}
+
 		this.currentCameraIndex = index;
 
-		const sourceCamera = this.cameras[ index ];
+		if ( index === 0 && this._defaultCameraState ) {
 
-		// Copy camera properties
-		this.camera.position.copy( sourceCamera.position );
-		this.camera.quaternion.copy( sourceCamera.quaternion );
-		this.camera.fov = sourceCamera.fov;
-		this.camera.near = sourceCamera.near;
-		this.camera.far = sourceCamera.far;
-		this.camera.updateProjectionMatrix();
+			// Restore the default camera to its state before the switch
+			const s = this._defaultCameraState;
+			this.camera.position.copy( s.position );
+			this.camera.quaternion.copy( s.quaternion );
+			this.camera.fov = s.fov;
+			this.camera.near = s.near;
+			this.camera.far = s.far;
+			this.camera.updateProjectionMatrix();
+			this.camera.updateMatrixWorld( true );
 
-		// Update orbit controls target to look along the camera's forward direction.
-		// Place the target a fixed distance in front of the camera so OrbitControls
-		// doesn't overwrite the position on its next update().
-		if ( this.controls ) {
+			if ( this.controls && s.target ) {
 
-			const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
-			const focusDist = this.focusDistance || 5.0;
-			this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
-			this.controls.saveState();
-			this.controls.update();
+				this.controls.target.copy( s.target );
+				this.controls.update();
+
+			}
+
+		} else {
+
+			const sourceCamera = this.cameras[ index ];
+
+			// Copy camera properties from the source (world-space transforms
+			// were baked into extracted cameras during extraction).
+			this.camera.position.copy( sourceCamera.position );
+			this.camera.quaternion.copy( sourceCamera.quaternion );
+			this.camera.fov = sourceCamera.fov;
+			this.camera.near = sourceCamera.near;
+			this.camera.far = sourceCamera.far;
+			this.camera.updateProjectionMatrix();
+			this.camera.updateMatrixWorld( true );
+
+			// Place the orbit target along the camera's forward direction
+			// so OrbitControls doesn't overwrite the position on its next update().
+			if ( this.controls ) {
+
+				const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
+				const focusDist = this.focusDistance || 5.0;
+				this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
+
+				this.controls.update();
+
+			}
 
 		}
 
@@ -1896,6 +1998,14 @@ export class PathTracerApp extends EventDispatcher {
 				? this.denoiser.output
 				: this.renderer.domElement;
 
+			// Re-render display stage so the WebGPU canvas has valid content
+			// (WebGPU canvases expire their texture after each compositor frame)
+			if ( canvas === this.renderer.domElement && this.displayStage && this.pipeline?.context ) {
+
+				this.displayStage.render( this.pipeline.context );
+
+			}
+
 			const screenshot = canvas.toDataURL( 'image/png' );
 			const link = document.createElement( 'a' );
 			link.href = screenshot;
@@ -1983,9 +2093,32 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @stub
+	 * Set adaptive sampling parameters on both stages.
+	 * @param {Object} params - Parameters to update
+	 * @param {number} [params.min] - Min samples (PathTracingStage)
+	 * @param {number} [params.threshold] - Variance threshold (AdaptiveSamplingStage)
+	 * @param {number} [params.materialBias] - Material bias (AdaptiveSamplingStage)
+	 * @param {number} [params.edgeBias] - Edge bias (AdaptiveSamplingStage)
+	 * @param {number} [params.convergenceSpeedUp] - Convergence speed (AdaptiveSamplingStage)
+	 * @param {number} [params.adaptiveSamplingMax] - Max samples (both stages)
 	 */
-	setAdaptiveSamplingParameters( /* params */ ) {}
+	setAdaptiveSamplingParameters( params ) {
+
+		if ( params.min !== undefined ) {
+
+			this.pathTracingStage?.setAdaptiveSamplingMin( params.min );
+
+		}
+
+		if ( params.adaptiveSamplingMax !== undefined ) {
+
+			this.setAdaptiveSamplingMax( params.adaptiveSamplingMax );
+
+		}
+
+		this.adaptiveSamplingStage?.setAdaptiveSamplingParameters( params );
+
+	}
 
 	// ── Environment mode helpers ──
 

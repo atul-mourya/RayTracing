@@ -159,10 +159,11 @@ export const computeDotProducts = Fn( ( [ N, V, L ] ) => {
 } );
 
 export const calculateFireflyThreshold = wgslFn( `
-	fn calculateFireflyThreshold( baseThreshold: f32, contextMultiplier: f32, bounceIndex: i32 ) -> f32 {
+	fn calculateFireflyThreshold( baseThreshold: f32, bounceIndex: i32, frame: i32 ) -> f32 {
 
-		let depthFactor = 1.0 / pow( f32( bounceIndex + 1 ), 0.5 );
-		return baseThreshold * contextMultiplier * depthFactor;
+		let depthFactor = 1.0 / ( 1.0 + f32( bounceIndex ) * 0.1 );
+		let relaxation = sqrt( f32( frame + 1 ) );
+		return baseThreshold * depthFactor * relaxation;
 
 	}
 ` );
@@ -197,36 +198,6 @@ export const applySoftSuppressionRGB = wgslFn( `
 
 	}
 `, [ applySoftSuppression ] );
-
-// Get material-specific firefly tolerance multiplier — exact port of GLSL
-export const getMaterialFireflyTolerance = wgslFn( `
-	fn getMaterialFireflyTolerance( metalness: f32, roughness: f32, transmission: f32, dispersion: f32 ) -> f32 {
-
-		var tolerance = 1.0;
-		tolerance *= mix( 1.0, 1.5, step( 0.7, metalness ) );
-		tolerance *= mix( 0.8, 1.2, roughness );
-		tolerance *= mix( 1.0, 0.9, transmission );
-		tolerance *= mix( 1.0, 0.7, clamp( dispersion * 0.1, 0.0, 1.0 ) );
-		return tolerance;
-
-	}
-` );
-
-// Calculate view-dependent firefly tolerance for specular materials — exact port of GLSL
-export const getViewDependentTolerance = wgslFn( `
-	fn getViewDependentTolerance( roughness: f32, sampleDir: vec3f, viewDir: vec3f, normal: vec3f ) -> f32 {
-
-		var tolerance = 1.0;
-		if ( roughness < 0.2 ) {
-			let reflectDir = reflect( -viewDir, normal );
-			let specularAlignment = max( 0.0, dot( sampleDir, reflectDir ) );
-			let viewDependentScale = mix( 1.0, 2.5, pow( specularAlignment, 4.0 ) );
-			tolerance *= viewDependentScale;
-		}
-		return tolerance;
-
-	}
-` );
 
 // Pre-computed material classification for faster branching
 export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clearcoat, emissive ] ) => {

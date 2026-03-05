@@ -27,6 +27,7 @@ import { SimpleSkyRendererTSL } from '../Processor/SimpleSkyRendererTSL';
 
 // Constants
 import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../Constants';
+import BuildTimer from '../Processor/BuildTimer.js';
 
 // Blue noise
 import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
@@ -34,7 +35,7 @@ import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
 /**
  * Data layout constants
  */
-const BVH_VEC4_PER_NODE = 3;
+const BVH_VEC4_PER_NODE = 4;
 const PIXELS_PER_MATERIAL = 27;
 
 /**
@@ -279,6 +280,7 @@ export class PathTracingStage extends PipelineStage {
 		this.environmentIntensity = uniform( DEFAULT_STATE.environmentIntensity, 'float' );
 		this.backgroundIntensity = uniform( DEFAULT_STATE.backgroundIntensity, 'float' );
 		this.showBackground = uniform( DEFAULT_STATE.showBackground ? 1 : 0, 'int' );
+		this.transparentBackground = uniform( DEFAULT_STATE.transparentBackground ? 1 : 0, 'int' );
 		this.enableEnvironment = uniform( DEFAULT_STATE.enableEnvironment ? 1 : 0, 'int' );
 		this.environmentMatrix = uniform( new Matrix4(), 'mat4' );
 		this.useEnvMapIS = uniform( DEFAULT_STATE.useImportanceSampledEnvironment ? 1 : 0, 'int' );
@@ -324,6 +326,7 @@ export class PathTracingStage extends PipelineStage {
 		this.samplingTechnique = samplingTechniqueUniform;
 		this.samplingTechnique.value = DEFAULT_STATE.samplingTechnique;
 		this.useAdaptiveSampling = uniform( DEFAULT_STATE.adaptiveSampling ? 1 : 0, 'int' );
+		this.adaptiveSamplingMin = uniform( DEFAULT_STATE.adaptiveSamplingMin ?? 1, 'int' );
 		this.adaptiveSamplingMax = uniform( DEFAULT_STATE.adaptiveSamplingMax, 'int' );
 		this.fireflyThreshold = uniform( DEFAULT_STATE.fireflyThreshold, 'float' );
 
@@ -363,6 +366,7 @@ export class PathTracingStage extends PipelineStage {
 		this.environmentIntensity.name = 'environmentIntensity';
 		this.backgroundIntensity.name = 'backgroundIntensity';
 		this.showBackground.name = 'showBackground';
+		this.transparentBackground.name = 'transparentBackground';
 		this.enableEnvironment.name = 'enableEnvironment';
 		this.environmentMatrix.name = 'environmentMatrix';
 		this.useEnvMapIS.name = 'useEnvMapIS';
@@ -385,6 +389,7 @@ export class PathTracingStage extends PipelineStage {
 		this.sceneScale.name = 'sceneScale';
 		this.samplingTechnique.name = 'samplingTechnique';
 		this.useAdaptiveSampling.name = 'useAdaptiveSampling';
+		this.adaptiveSamplingMin.name = 'adaptiveSamplingMin';
 		this.adaptiveSamplingMax.name = 'adaptiveSamplingMax';
 		this.fireflyThreshold.name = 'fireflyThreshold';
 		this.enableEmissiveTriangleSampling.name = 'enableEmissiveTriangleSampling';
@@ -1320,16 +1325,30 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
+		const timer = new BuildTimer( 'setupMaterial' );
+
+		timer.start( 'Render targets' );
 		this._ensureRenderTargets();
+		timer.end( 'Render targets' );
 
+		timer.start( 'Create texture nodes' );
 		const textureNodes = this._createTextureNodes();
-		const ptOutput = this._createPathTracerOutput( textureNodes );
+		timer.end( 'Create texture nodes' );
 
+		timer.start( 'Create path tracer output (TSL)' );
+		const ptOutput = this._createPathTracerOutput( textureNodes );
+		timer.end( 'Create path tracer output (TSL)' );
+
+		timer.start( 'Create path trace materials' );
 		this._createPathTraceMaterials( ptOutput );
+		timer.end( 'Create path trace materials' );
+
+		timer.start( 'Create display material' );
 		this._createDisplayMaterial();
+		timer.end( 'Create display material' );
 
 		this.isReady = true;
-		console.log( 'PathTracingStage: Material setup complete' );
+		timer.print();
 
 	}
 
@@ -1549,6 +1568,7 @@ export class PathTracingStage extends PipelineStage {
 			maxBounceCount: this.maxBounces,
 			transmissiveBounces: this.transmissiveBounces,
 			showBackground: this.showBackground,
+			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			fireflyThreshold: this.fireflyThreshold,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
@@ -1573,6 +1593,7 @@ export class PathTracingStage extends PipelineStage {
 			// Adaptive Sampling
 			useAdaptiveSampling: this.useAdaptiveSampling,
 			adaptiveSamplingTexture: adaptiveSamplingTex,
+			adaptiveSamplingMin: this.adaptiveSamplingMin,
 			adaptiveSamplingMax: this.adaptiveSamplingMax,
 
 			// DOF / Camera lens
@@ -1835,13 +1856,35 @@ export class PathTracingStage extends PipelineStage {
 	}
 
 	/**
+	 * Compare two Matrix4 with tolerance to avoid false positives from
+	 * floating-point drift (e.g. OrbitControls spherical↔cartesian round-trips).
+	 * @param {Matrix4} a
+	 * @param {Matrix4} b
+	 * @param {number} epsilon
+	 * @returns {boolean} True if matrices are approximately equal
+	 */
+	_matricesApproxEqual( a, b, epsilon = 1e-10 ) {
+
+		const ae = a.elements;
+		const be = b.elements;
+		for ( let i = 0; i < 16; i ++ ) {
+
+			if ( Math.abs( ae[ i ] - be[ i ] ) > epsilon ) return false;
+
+		}
+
+		return true;
+
+	}
+
+	/**
 	 * Update camera uniforms
 	 * @returns {boolean} True if camera changed
 	 */
 	_updateCameraUniforms() {
 
-		if ( ! this.lastCameraMatrix.equals( this.camera.matrixWorld ) ||
-			! this.lastProjectionMatrix.equals( this.camera.projectionMatrixInverse ) ) {
+		if ( ! this._matricesApproxEqual( this.lastCameraMatrix, this.camera.matrixWorld ) ||
+			! this._matricesApproxEqual( this.lastProjectionMatrix, this.camera.projectionMatrixInverse ) ) {
 
 			this.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
 			this.cameraViewMatrix.value.copy( this.camera.matrixWorldInverse );
@@ -2679,6 +2722,12 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
+	setTransparentBackground( enabled ) {
+
+		this.transparentBackground.value = enabled ? 1 : 0;
+
+	}
+
 	setEnableEnvironment( enable ) {
 
 		this.enableEnvironment.value = enable ? 1 : 0;
@@ -2790,6 +2839,12 @@ export class PathTracingStage extends PipelineStage {
 	setUseAdaptiveSampling( use ) {
 
 		this.useAdaptiveSampling.value = use ? 1 : 0;
+
+	}
+
+	setAdaptiveSamplingMin( min ) {
+
+		this.adaptiveSamplingMin.value = min;
 
 	}
 

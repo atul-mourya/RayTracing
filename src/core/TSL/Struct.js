@@ -76,6 +76,7 @@ export const HitInfo = struct( {
 	uv: 'vec2',
 	materialIndex: 'int',
 	meshIndex: 'int',
+	triangleIndex: 'int',
 	boxTests: 'int',
 	triTests: 'int',
 } );

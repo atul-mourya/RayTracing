@@ -1,5 +1,5 @@
 import { PipelineContext } from './PipelineContext.js';
-import { EventEmitter } from './EventEmitter.js';
+import { EventDispatcher } from './EventDispatcher.js';
 
 /**
  * PassPipeline - Orchestrates execution of pipeline stages
@@ -54,7 +54,7 @@ export class PassPipeline {
 		this.context = new PipelineContext();
 
 		// Event bus for stage communication
-		this.eventBus = new EventEmitter();
+		this.eventBus = new EventDispatcher();
 
 		// Initialize context state
 		this.context.setState( 'width', width );

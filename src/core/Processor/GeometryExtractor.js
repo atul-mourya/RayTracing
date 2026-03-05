@@ -45,14 +45,12 @@ export default class GeometryExtractor {
 
 		this.resetArrays();
 
-		// First pass: count triangles to pre-allocate Float32Array
-		this.triangleCount = this.countTriangles( object );
-
-		// Allocate Float32Array for all triangle data (texture-ready format)
-		this.triangleData = new Float32Array( this.triangleCount * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
+		// Single-pass: allocate with initial capacity, grow dynamically as needed
+		this._triangleCapacity = 1024;
+		this.triangleData = new Float32Array( this._triangleCapacity * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
 		this.currentTriangleIndex = 0;
 
-		// Second pass: extract geometry
+		// Single traversal: extract geometry, materials, lights, and cameras
 		this.traverseObject( object );
 
 		this.logStats();
@@ -60,40 +58,19 @@ export default class GeometryExtractor {
 
 	}
 
-	countTriangles( object ) {
+	// Ensure triangleData has capacity for at least `needed` triangles
+	_ensureCapacity( needed ) {
 
-		let count = 0;
+		if ( needed <= this._triangleCapacity ) return;
 
-		const countInObject = ( obj ) => {
+		// Double until sufficient
+		let newCapacity = this._triangleCapacity;
+		while ( newCapacity < needed ) newCapacity *= 2;
 
-			if ( obj.isMesh && obj.geometry ) {
-
-				const geometry = obj.geometry;
-				const positions = geometry.attributes.position;
-
-				if ( positions ) {
-
-					const indices = geometry.index ? geometry.index.array : null;
-					count += indices ? indices.length / 3 : positions.count / 3;
-
-				}
-
-			}
-
-			if ( obj.children ) {
-
-				for ( const child of obj.children ) {
-
-					countInObject( child );
-
-				}
-
-			}
-
-		};
-
-		countInObject( object );
-		return Math.floor( count );
+		const newData = new Float32Array( newCapacity * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
+		newData.set( this.triangleData );
+		this.triangleData = newData;
+		this._triangleCapacity = newCapacity;
 
 	}
 
@@ -152,8 +129,8 @@ export default class GeometryExtractor {
 
 	processMaterial( material, mesh = null ) {
 
-		// Check if material already exists in our array
-		let materialIndex = this.materials.findIndex( x => x.uuid === material.uuid );
+		// Check if material already exists in our array (O(1) Map lookup)
+		let materialIndex = this._materialUuidMap.get( material.uuid ) ?? - 1;
 		if ( materialIndex === - 1 ) {
 
 			// Force enable depth write if it's disabled
@@ -168,6 +145,7 @@ export default class GeometryExtractor {
 			const newMaterial = this.createMaterialObject( material, mesh );
 			this.materials.push( newMaterial );
 			materialIndex = this.materials.length - 1;
+			this._materialUuidMap.set( material.uuid, materialIndex );
 
 			// Detect material features for shader optimization (strict > 0 check)
 			if ( newMaterial.clearcoat > 0 ) this.sceneFeatures.hasClearcoat = true;
@@ -487,15 +465,30 @@ export default class GeometryExtractor {
 	processTexture( texture, textureArray ) {
 
 		if ( ! texture ) return - 1;
-		let textureIndex = textureArray.length === 0 ? - 1 : textureArray.findIndex( x => x.source.uuid === texture.source.uuid );
-		if ( textureIndex === - 1 && textureArray.length < MAX_TEXTURES_LIMIT ) {
 
-			textureArray.push( texture );
-			return textureArray.length - 1;
+		// O(1) lookup via WeakMap<array, Map<uuid, index>>
+		let indexMap = this._textureIndexCache.get( textureArray );
+		if ( ! indexMap ) {
+
+			indexMap = new Map();
+			this._textureIndexCache.set( textureArray, indexMap );
 
 		}
 
-		return textureIndex;
+		const uuid = texture.source.uuid;
+		const cachedIndex = indexMap.get( uuid );
+		if ( cachedIndex !== undefined ) return cachedIndex;
+
+		if ( textureArray.length < MAX_TEXTURES_LIMIT ) {
+
+			textureArray.push( texture );
+			const newIndex = textureArray.length - 1;
+			indexMap.set( uuid, newIndex );
+			return newIndex;
+
+		}
+
+		return - 1;
 
 	}
 
@@ -538,15 +531,11 @@ export default class GeometryExtractor {
 		const uvB = this._getVec2( 1 );
 		const uvC = this._getVec2( 2 );
 
+		// Ensure capacity for this batch up front (single grow check per mesh)
+		this._ensureCapacity( this.currentTriangleIndex + triangleCount );
+
 		// Batch process triangles to avoid excessive function calls
 		for ( let i = 0; i < triangleCount; i ++ ) {
-
-			if ( this.currentTriangleIndex >= this.triangleCount ) {
-
-				console.warn( 'Triangle count exceeded pre-allocated size' );
-				break;
-
-			}
 
 			const i3 = i * 3;
 
@@ -681,6 +670,8 @@ export default class GeometryExtractor {
 	// Get the raw Float32Array (optimal for worker transfer and zero-copy textures)
 	getTriangleData() {
 
+		if ( ! this.triangleData ) return null;
+
 		// Return only the used portion of the array
 		return this.triangleData.subarray( 0, this.currentTriangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE );
 
@@ -734,10 +725,58 @@ export default class GeometryExtractor {
 
 	logStats() {
 
+		const usedBytes = this.currentTriangleIndex * TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE * 4;
 		console.log( "materials:", this.materials.length );
 		console.log( "triangles:", this.currentTriangleIndex );
-		console.log( "triangle data size (MB):", ( this.triangleData.byteLength / ( 1024 * 1024 ) ).toFixed( 2 ) );
+		console.log( "triangle data size (MB):", ( usedBytes / ( 1024 * 1024 ) ).toFixed( 2 ) );
 		console.log( "maps:", this.maps.length );
+
+	}
+
+	/**
+	 * Extract only materials and texture references without processing geometry.
+	 * Skips triangle counting, Float32Array allocation, and vertex extraction.
+	 */
+	extractMaterialsOnly( object ) {
+
+		this.resetArrays();
+
+		this._traverseMaterialsOnly( object );
+
+		return this.getExtractedData();
+
+	}
+
+	_traverseMaterialsOnly( object ) {
+
+		if ( object.isMesh && object.geometry && object.material ) {
+
+			const materialIndex = this.processMaterial( object.material, object );
+			object.userData.materialIndex = materialIndex;
+
+			const meshIndex = this.meshes.length;
+			this.meshes.push( object );
+			object.userData.meshIndex = meshIndex;
+
+		} else if ( object.isDirectionalLight ) {
+
+			this.directionalLights.push( object );
+
+		} else if ( object.isCamera ) {
+
+			this.cameras.push( object );
+
+		}
+
+		if ( object.children ) {
+
+			for ( const child of object.children ) {
+
+				this._traverseMaterialsOnly( child );
+
+			}
+
+		}
 
 	}
 
@@ -760,6 +799,10 @@ export default class GeometryExtractor {
 		this.displacementMaps = [];
 		this.directionalLights = [];
 		this.cameras = [];
+
+		// UUID → index lookup caches (O(1) instead of O(n) findIndex)
+		this._materialUuidMap = new Map();
+		this._textureIndexCache = new WeakMap();
 
 		// Reset scene-wide feature detection flags
 		this.sceneFeatures = {

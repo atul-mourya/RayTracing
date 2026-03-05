@@ -1,97 +1,98 @@
 # Rayzee Path Tracer - TODO List
-*Immediate actionable items and development tasks*
 
-## 🚨 Critical Bug Fixess
-- arealight shadows not seen
-- [ ] scene freezing in some cases
-- [ ] save render doesnt show in results panel in some cases
-- [ ] Sun not getting parsed from glTF files
-- [ ] Object rendering looks dimmer than the environment lighting in the background. Remove the hardcoded multiplier of 2.0 for env lighting on secondary rays to reprodue the issue.
-- [ ] iridescence not producing expected colors
+## Bugs
 
-### Known Issues
+### Critical
+- [ ] Area light shadows not visible beyond a distance
+- [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
+- [ ] Iridescence not producing expected colors
+- [ ] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
+- [ ] transparent background + transparent / transmissive materials not working together
+- [ ] adaptive sampling ui controls not working
+- [ ] adaptive sampling is not working well in case of cornell box. Observe debug view
+
+### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] oidn denoiser not working properly on safari browser and windows devices
-- [ ] shader compilation failure observed in RTX devices. 
-- [ ] implement missing use of preprocessor directives in shaders to enable/disable features like:
-  - [ ] mrt outputs
-  - [ ] specularIntensity, specularColor
-  - [ ] emissiveIntensity, emissiveColor
-
-### Code Quality & Performance
-- [ ] **Performance Profiling**
-  - [ ] GPU timing measurements
-  - [ ] Memory usage tracking
-  - [ ] Bottleneck identification
-  - [ ] Performance regression tests
-
-- [ ] **Code Organization**
-  - [ ] Comprehensive test suite
-  - [ ] Shader code architecture documentation.
-  - [ ] Asset processing documentation.
+- [ ] Save render doesn't show in results panel in some cases
 
 ---
 
-## ✨ Immediate Features to Implement
+## Features
 
-### Advanced Rendering
-- add new catergoy of enviroment maps - abstract. Identify the files and organize it
-- [ ] instead of eventEmitter for inter-component communication, use threejs EventDispatcher. Extend the missing features in EventDispatcher that are present in eventEmitter. Refactor the code to use EventDispatcher.
-- [ ] Implement Variance-based Firefly Suppression
-- [ ] OIDN HDR denoising Support
-- [ ] Transparent background support
-- [ ] Subsurface scattering implementation
+### Rendering
+- [ ] Variance-based firefly suppression
+- [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
-- [ ] Study dot grid / moiré–like effect and its impact on rendering
+- [ ] camera motion video rendering
+- [ ] Tile Rendering need a webgpu revamp
 
 ### Lighting & Materials
-- [ ] area light controls like width, depth, target, helper toggle,etc.
-- [ ] Separate out environment and background sampling with different textures just like in three.js
-- [ ] Implement environment cube map support for hdris
-- [ ] Implement dds texture support
-- [ ] Implement support for IES light
-- [ ] Introduce tessellation free displacement mapping or parallax occlusion mapping. https://github.com/shocker-0x15/GfxExp/tree/master/tfdm
-- [ ] Implement SDF-based model rendering
-- [ ] Implement Shadow Catcher
-- [ ] Implement ground projection environment mapping
+- [ ] implement pending Physical material properties
+- [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
+- [ ] Area light helper toggle control
+- [ ] Separate environment and background sampling with different textures (like Three.js)
+- [ ] Environment cube map support for HDRIs
+- [ ] DDS texture support
+- [ ] IES light support
+- [ ] SDF-based model rendering
+- [ ] Shadow catcher
+- [ ] Ground projection environment mapping
 
-### Performance & Architecture
-- [ ] separate pipeline for path tracing related passes and helper related passes like tilehelper, outline, etc.
-- [ ] Implement support for Radiance Caching (Screen-Space)
-- [ ] Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
-- [ ] Experiment with leveraging primary ray from rasterization pass for path tracing
-- [ ] Experiment with ray frustum culling
-- [ ] Refactor path tracing to use define instead of if-else
-- [ ] GPU-CPU for envriment in procedural sky, gradient sky, solid color sky modes are expensive.
+### Environment
+- [ ] Add new category of environment maps - abstract (identify files and organize)
+- [ ] Revamp environment control UX
 
-### UX Enhancements
-- [ ] Add dynamic camera addition and removal
-- [ ] Add dynamic object addition and removal
-- [ ] improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
-- [x] useHook - https://github.com/uidotdev/usehooks
-- [ ] UX for Envroment control needs revamp
+### Scene Management
+- [ ] Dynamic camera addition and removal
+- [ ] Dynamic object addition and removal
+- [ ] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 
-### BVH Construction Improvements
+---
+
+## Performance & Architecture
+
+### Pipeline
+- [ ] Separate pipeline for path tracing passes vs helper passes (tile helper, outline, etc.)
+- [ ] Offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
+- [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
+
+### BVH
 - [ ] BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
 - [ ] Consider PLOC for maximum performance scenarios
-- [ ] Experiment with 4-way branching for GPU traversal -> Explored. Results shows increased memory bandwidth usage
+- [ ] 4-way branching for GPU traversal (explored)
 
-### AI integration
+### Profiling
+- [ ] GPU timing measurements
+- [ ] Memory usage tracking
+- [ ] Bottleneck identification
+- [ ] Performance regression tests
+
+---
+
+## Experiments
+- [ ] Screen-space radiance caching
+- [ ] Investigate dot grid / moire-like effect and its impact on rendering
+- [ ] Primary ray from rasterization pass for path tracing
+- [ ] Ray frustum culling
+
+---
+
+## AI Integration
 - [ ] Explore AI-driven denoising techniques beyond OIDN
 - [ ] https://upscalerjs.com/models/
 - [ ] https://enhance.addy.ie/
 
 ---
-WebGPU Graphics Pipeline:
-https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html
 
-*Last Updated: January 2025*
-*See [ROADMAP.md] for long-term vision and strategic planning*
+## Documentation
+- [ ] Comprehensive test suite
+- [ ] Shader code architecture documentation
+- [ ] Asset processing documentation
 
-**Priority Legend:**
-- 🚨 Critical bugs that need immediate attention
-- ✨ New features ready for implementation
-- 🔧 Technical improvements and optimizations
+---
 
-**Contributing:** See [CONTRIBUTING.md] for development guidelines
+## References
+- WebGPU Graphics Pipeline: https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html
+- See [ROADMAP.md] for long-term vision and strategic planning
+- See [CONTRIBUTING.md] for development guidelines
