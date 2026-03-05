@@ -1074,6 +1074,24 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		}
 	),
 
+	handleTransparentBackgroundChange: handleChange(
+		val => set( { transparentBackground: val } ),
+		( val, app ) => {
+
+			if ( val ) {
+
+				// Force background off for transparency to work
+				if ( app.scene ) app.scene.background = null;
+				app.setShowBackground( false );
+				set( { showBackground: false } );
+
+			}
+
+			app.setTransparentBackground( val );
+
+		}
+	),
+
 	handleBackgroundIntensityChange: handleChange(
 		val => set( { backgroundIntensity: val } ),
 		( val, app ) => {

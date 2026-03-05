@@ -169,6 +169,7 @@ export const pathTracerMain = ( params ) => {
 		params.maxBounceCount,
 		params.transmissiveBounces,
 		params.showBackground,
+		params.transparentBackground,
 		params.backgroundIntensity,
 		params.fireflyThreshold,
 		params.globalIlluminationIntensity,
@@ -231,7 +232,7 @@ const pathTracerImpl = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 	// Rendering parameters
 	maxBounceCount, transmissiveBounces,
-	showBackground, backgroundIntensity,
+	showBackground, transparentBackground, backgroundIntensity,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveBoost,
@@ -264,6 +265,9 @@ const pathTracerImpl = Fn( ( [
 	// MRT data
 	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
 	const linearDepth = float( 1.0 ).toVar();
+
+	// Track primary ray geometry hit for transparent background (1.0 = hit, 0.0 = miss)
+	const primaryHitAlpha = float( 0.0 ).toVar();
 
 	const samplesCount = int( numRaysPerPixel ).toVar();
 
@@ -403,6 +407,9 @@ const pathTracerImpl = Fn( ( [
 						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
 					} ) );
 
+					// Primary ray hit geometry — pixel is opaque for transparent background
+					primaryHitAlpha.assign( 1.0 );
+
 				} ).Else( () => {
 
 					// Background: keep initialized values — worldNormal stays (0,0,1), linearDepth stays 1.0
@@ -425,8 +432,7 @@ const pathTracerImpl = Fn( ( [
 
 	} );
 
-	// Apply dithering AFTER averaging
-	// pixelColor.xyz.assign( dithering( pixelColor.xyz, baseSeed ) );
+	// primaryHitAlpha is set in the sample loop based on firstHitDistance
 
 	// Edge Detection
 	const depthDifference = fwidth( linearDepth );
@@ -471,9 +477,12 @@ const pathTracerImpl = Fn( ( [
 
 	} );
 
+	// Output alpha: 1.0 if primary ray hit any geometry (including glass), 0.0 for pure background
+	const outputAlpha = select( transparentBackground, primaryHitAlpha, 1.0 );
+
 	// Clean MRT output
 	return pathTracerOutputStruct( {
-		gColor: vec4( finalColor.xyz, 1.0 ),
+		gColor: vec4( finalColor.xyz, outputAlpha ),
 		gNormalDepth: finalNormalDepth,
 		gAlbedo: vec4( finalAlbedo, 1.0 ),
 	} );

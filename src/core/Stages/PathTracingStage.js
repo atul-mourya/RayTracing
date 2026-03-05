@@ -280,6 +280,7 @@ export class PathTracingStage extends PipelineStage {
 		this.environmentIntensity = uniform( DEFAULT_STATE.environmentIntensity, 'float' );
 		this.backgroundIntensity = uniform( DEFAULT_STATE.backgroundIntensity, 'float' );
 		this.showBackground = uniform( DEFAULT_STATE.showBackground ? 1 : 0, 'int' );
+		this.transparentBackground = uniform( DEFAULT_STATE.transparentBackground ? 1 : 0, 'int' );
 		this.enableEnvironment = uniform( DEFAULT_STATE.enableEnvironment ? 1 : 0, 'int' );
 		this.environmentMatrix = uniform( new Matrix4(), 'mat4' );
 		this.useEnvMapIS = uniform( DEFAULT_STATE.useImportanceSampledEnvironment ? 1 : 0, 'int' );
@@ -364,6 +365,7 @@ export class PathTracingStage extends PipelineStage {
 		this.environmentIntensity.name = 'environmentIntensity';
 		this.backgroundIntensity.name = 'backgroundIntensity';
 		this.showBackground.name = 'showBackground';
+		this.transparentBackground.name = 'transparentBackground';
 		this.enableEnvironment.name = 'enableEnvironment';
 		this.environmentMatrix.name = 'environmentMatrix';
 		this.useEnvMapIS.name = 'useEnvMapIS';
@@ -1564,6 +1566,7 @@ export class PathTracingStage extends PipelineStage {
 			maxBounceCount: this.maxBounces,
 			transmissiveBounces: this.transmissiveBounces,
 			showBackground: this.showBackground,
+			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			fireflyThreshold: this.fireflyThreshold,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
@@ -2691,6 +2694,12 @@ export class PathTracingStage extends PipelineStage {
 	setShowBackground( show ) {
 
 		this.showBackground.value = show ? 1 : 0;
+
+	}
+
+	setTransparentBackground( enabled ) {
+
+		this.transparentBackground.value = enabled ? 1 : 0;
 
 	}
 

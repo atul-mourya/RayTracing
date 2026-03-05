@@ -209,12 +209,17 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.getGPUTextures = options.getGPUTextures || null;
 		this.getExposure = options.getExposure || ( () => 1.0 );
 		this.getToneMapping = options.getToneMapping || ( () => ACESFilmicToneMapping );
+		this.getTransparentBackground = options.getTransparentBackground || ( () => false );
 		this.isGPUMode = !! this.backendParamsGetter;
 		this.gpuDevice = null;
 
 		// Cached GPU storage buffers for texture→buffer copies (reused across denoise calls)
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
 		this._gpuInputBufferSize = { width: 0, height: 0 };
+
+		// Cached alpha channel from the input color buffer (OIDN discards alpha)
+		this._cachedAlpha = null;
+		this._cachedAlphaWidth = 0;
 
 		// Merge options with defaults
 		this.config = { ...MODEL_CONFIG.DEFAULT_OPTIONS, ...options };
@@ -560,6 +565,18 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		device.queue.submit( [ encoder.finish() ] );
 
+		// Cache alpha channel from input color buffer when transparent background is enabled.
+		// OIDN only processes RGB — the alpha channel is lost, so we read it before denoising.
+		if ( this.getTransparentBackground() ) {
+
+			await this._cacheInputAlpha( device, width, height );
+
+		} else {
+
+			this._cachedAlpha = null;
+
+		}
+
 		// Draw the current noisy frame as the base — denoised tiles paint on top progressively
 		this.ctx.drawImage( this.input, 0, 0, width, height );
 
@@ -610,6 +627,43 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._gpuInputBuffers.normal?.destroy();
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
 		this._gpuInputBufferSize = { width: 0, height: 0 };
+
+	}
+
+	/**
+	 * Reads the alpha channel from the input color GPU buffer and caches it as a Uint8Array.
+	 * Called before OIDN denoising when transparent background is enabled.
+	 */
+	async _cacheInputAlpha( device, width, height ) {
+
+		const byteSize = width * height * 4 * 4; // rgba32float
+		const staging = device.createBuffer( {
+			label: 'oidn-alpha-staging',
+			size: byteSize,
+			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+		} );
+
+		const enc = device.createCommandEncoder();
+		enc.copyBufferToBuffer( this._gpuInputBuffers.color, 0, staging, 0, byteSize );
+		device.queue.submit( [ enc.finish() ] );
+
+		await staging.mapAsync( GPUMapMode.READ );
+		const f32 = new Float32Array( staging.getMappedRange() );
+
+		// Extract alpha channel as uint8 (pre-multiplied is not needed — alpha is 0 or 1)
+		const pixelCount = width * height;
+		const alpha = new Uint8Array( pixelCount );
+		for ( let i = 0; i < pixelCount; i ++ ) {
+
+			alpha[ i ] = Math.min( Math.max( f32[ i * 4 + 3 ] * 255, 0 ), 255 ) | 0;
+
+		}
+
+		staging.unmap();
+		staging.destroy();
+
+		this._cachedAlpha = alpha;
+		this._cachedAlphaWidth = width;
 
 	}
 
@@ -703,6 +757,8 @@ export class OIDNDenoiser extends EventDispatcher {
 						const exposure = this.getExposure();
 						const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || acesFilmicToneMap;
 						const gamma = 1 / 2.2;
+						const alpha = this._cachedAlpha;
+						const alphaW = this._cachedAlphaWidth;
 
 						for ( let i = 0, len = f32.length; i < len; i += 4 ) {
 
@@ -710,7 +766,18 @@ export class OIDNDenoiser extends EventDispatcher {
 							tileImageData.data[ i ] = _tmOut[ 0 ] ** gamma * 255 | 0;
 							tileImageData.data[ i + 1 ] = _tmOut[ 1 ] ** gamma * 255 | 0;
 							tileImageData.data[ i + 2 ] = _tmOut[ 2 ] ** gamma * 255 | 0;
-							tileImageData.data[ i + 3 ] = 255;
+
+							if ( alpha ) {
+
+								const px = ( i >> 2 ) % tile.width;
+								const py = ( i >> 2 ) / tile.width | 0;
+								tileImageData.data[ i + 3 ] = alpha[ ( tile.y + py ) * alphaW + tile.x + px ];
+
+							} else {
+
+								tileImageData.data[ i + 3 ] = 255;
+
+							}
 
 						}
 
@@ -763,6 +830,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		const exposure = this.getExposure();
 		const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || acesFilmicToneMap;
 		const gamma = 1 / 2.2;
+		const alpha = this._cachedAlpha;
 
 		for ( let i = 0, len = float32.length; i < len; i += 4 ) {
 
@@ -770,7 +838,7 @@ export class OIDNDenoiser extends EventDispatcher {
 			imageData.data[ i ] = _tmOut[ 0 ] ** gamma * 255 | 0;
 			imageData.data[ i + 1 ] = _tmOut[ 1 ] ** gamma * 255 | 0;
 			imageData.data[ i + 2 ] = _tmOut[ 2 ] ** gamma * 255 | 0;
-			imageData.data[ i + 3 ] = 255;
+			imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
 
 		}
 

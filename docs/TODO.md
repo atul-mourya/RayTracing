@@ -4,9 +4,10 @@
 
 ### Critical
 - [ ] Area light shadows not visible
-- [ ] Sun not getting parsed from glTF files
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Iridescence not producing expected colors
+- [ ] convergence issue
+- [ ] transparent background + transparent / transmissive materials not working together
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -23,8 +24,10 @@
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
+- [ ] camera motion video rendering
 
 ### Lighting & Materials
+- [ ] implement pending Physical material properties
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] Area light helper toggle control
 - [ ] Separate environment and background sampling with different textures (like Three.js)

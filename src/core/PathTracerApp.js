@@ -95,6 +95,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.environmentIntensity = DEFAULT_STATE.environmentIntensity ?? 1.0;
 		this.backgroundIntensity = DEFAULT_STATE.backgroundIntensity ?? 1.0;
 		this.showBackground = DEFAULT_STATE.showBackground ?? true;
+		this.transparentBackground = DEFAULT_STATE.transparentBackground ?? false;
 		this.enableEnvironment = DEFAULT_STATE.enableEnvironment ?? true;
 		this.globalIlluminationIntensity = DEFAULT_STATE.globalIlluminationIntensity ?? 1.0;
 		this.exposure = DEFAULT_STATE.exposure ?? 1.0;
@@ -153,6 +154,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Create and initialize WebGPU renderer
 		this.renderer = new WebGPURenderer( {
 			canvas: this.canvas,
+			alpha: true,
 			powerPreference: 'high-performance',
 			requiredLimits: {
 				maxBufferSize: adapterLimits.maxBufferSize,
@@ -570,6 +572,9 @@ export class PathTracerApp extends EventDispatcher {
 			// Current Three.js ToneMapping constant so OIDN can match the renderer.
 			getToneMapping: () => this.renderer.toneMapping,
 
+			// Whether transparent background is enabled (OIDN needs to preserve alpha)
+			getTransparentBackground: () => this.transparentBackground,
+
 			getMRTRenderTarget: () => {
 
 				const pt = this.pathTracingStage;
@@ -752,9 +757,11 @@ export class PathTracerApp extends EventDispatcher {
 		this.pathTracingStage.setEnvironmentIntensity( this.environmentIntensity );
 		this.pathTracingStage.setBackgroundIntensity( this.backgroundIntensity );
 		this.pathTracingStage.setShowBackground( this.showBackground );
+		this.pathTracingStage.setTransparentBackground( this.transparentBackground );
 		this.pathTracingStage.setEnableEnvironment( this.enableEnvironment );
 		this.pathTracingStage.setGlobalIlluminationIntensity( this.globalIlluminationIntensity );
 		this.pathTracingStage.setExposure( this.exposure );
+		this.displayStage.setTransparentBackground( this.transparentBackground );
 
 		// Camera & DOF
 		this.pathTracingStage.setEnableDOF( this.enableDOF );
@@ -928,7 +935,7 @@ export class PathTracerApp extends EventDispatcher {
 				if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
 
 					this._renderCompleteDispatched = true;
-					if ( this.denoiser?.output ) this.denoiser.output.style.display = 'block';
+					if ( this.denoiser?.enabled && this.denoiser?.output ) this.denoiser.output.style.display = 'block';
 					this.denoiser?.start();
 					this.dispatchEvent( { type: 'RenderComplete' } );
 					useStore.getState().setIsRenderComplete( true );
@@ -1129,6 +1136,28 @@ export class PathTracerApp extends EventDispatcher {
 		if ( this.pathTracingStage ) {
 
 			this.pathTracingStage.setShowBackground( show );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Sets whether the background should be transparent (alpha = 0).
+	 */
+	setTransparentBackground( enabled ) {
+
+		this.transparentBackground = enabled;
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setTransparentBackground( enabled );
+
+		}
+
+		if ( this.displayStage ) {
+
+			this.displayStage.setTransparentBackground( enabled );
 
 		}
 
@@ -1968,6 +1997,14 @@ export class PathTracerApp extends EventDispatcher {
 			const canvas = this.denoiser?.enabled && this.denoiser.output && this.pathTracingStage?.isComplete
 				? this.denoiser.output
 				: this.renderer.domElement;
+
+			// Re-render display stage so the WebGPU canvas has valid content
+			// (WebGPU canvases expire their texture after each compositor frame)
+			if ( canvas === this.renderer.domElement && this.displayStage && this.pipeline?.context ) {
+
+				this.displayStage.render( this.pipeline.context );
+
+			}
 
 			const screenshot = canvas.toDataURL( 'image/png' );
 			const link = document.createElement( 'a' );

@@ -1,5 +1,6 @@
-import { vec4, uv, uniform } from 'three/tsl';
+import { vec4, uv, uniform, select } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, TextureNode } from 'three/webgpu';
+import { NoBlending } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
@@ -26,11 +27,16 @@ export class DisplayStage extends PipelineStage {
 		// Exposure uniform — pow(exposure, 4.0) curve
 		this.exposure = uniform( options.exposure ?? 1.0 );
 
+		// Transparent background toggle
+		this._transparentBackground = uniform( 0, 'int' );
+
 		// Updatable texture node — swap .value each frame, no shader recompile
 		this._displayTexNode = new TextureNode();
 
+		const texSample = this._displayTexNode.sample( uv() );
+
 		// Build material once (TSL compiles on first render)
-		let displayShader = this._displayTexNode.sample( uv() ).xyz
+		let displayShader = texSample.xyz
 			.mul( this.exposure.pow( 4.0 ) );
 
 		// Additively blend outline colour when provided (OutlineNode drives
@@ -42,8 +48,12 @@ export class DisplayStage extends PipelineStage {
 
 		}
 
+		// Alpha: pass through source alpha when transparent, otherwise 1.0
+		const outputAlpha = select( this._transparentBackground, texSample.w, 1.0 );
+
 		this.displayMaterial = new MeshBasicNodeMaterial();
-		this.displayMaterial.colorNode = vec4( displayShader, 1.0 );
+		this.displayMaterial.colorNode = vec4( displayShader, outputAlpha );
+		this.displayMaterial.blending = NoBlending;
 		this.displayMaterial.toneMapped = true;
 
 		this.displayQuad = new QuadMesh( this.displayMaterial );
@@ -85,6 +95,12 @@ export class DisplayStage extends PipelineStage {
 	setExposure( value ) {
 
 		this.exposure.value = value;
+
+	}
+
+	setTransparentBackground( enabled ) {
+
+		this._transparentBackground.value = enabled ? 1 : 0;
 
 	}
 
