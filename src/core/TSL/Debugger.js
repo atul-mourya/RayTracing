@@ -31,6 +31,7 @@ import {
 	mix,
 	If,
 	select,
+	sampler,
 } from 'three/tsl';
 
 import { Ray, HitInfo, RayTracingMaterial, MaterialSamples } from './Struct.js';
@@ -159,9 +160,9 @@ export const TraceDebugMode = Fn( ( [
 
 		If( enableEnvironmentLight, () => {
 
-			const envSample = sampleEnvironment(
-				envTexture, rayDir, envMatrix, environmentIntensity, enableEnvironmentLight,
-			).toVar();
+			const envSample = sampleEnvironment( {
+				tex: envTexture, samp: sampler( envTexture ), direction: rayDir, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+			} ).toVar();
 
 			const envLuminance = dot( envSample.xyz, REC709_LUMINANCE_COEFFICIENTS ).toVar();
 			const rawLuminance = envLuminance.toVar();
@@ -449,9 +450,9 @@ export const TraceDebugMode = Fn( ( [
 				// Bounce ray escaped — incoming radiance from environment
 				If( enableEnvironmentLight, () => {
 
-					incoming.assign( sampleEnvironment(
-						envTexture, bounceDir, envMatrix, environmentIntensity, enableEnvironmentLight,
-					).xyz );
+					incoming.assign( sampleEnvironment( {
+						tex: envTexture, samp: sampler( envTexture ), direction: bounceDir, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+					} ).xyz );
 
 				} );
 
@@ -472,9 +473,9 @@ export const TraceDebugMode = Fn( ( [
 				If( enableEnvironmentLight, () => {
 
 					const normalB = normalize( matSamplesB.normal ).toVar();
-					const envAtB = sampleEnvironment(
-						envTexture, normalB, envMatrix, environmentIntensity, enableEnvironmentLight,
-					).xyz;
+					const envAtB = sampleEnvironment( {
+						tex: envTexture, samp: sampler( envTexture ), direction: normalB, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+					} ).xyz;
 
 					// Diffuse response: albedoB * environment
 					incoming.addAssign( matSamplesB.albedo.rgb.mul( envAtB ) );
@@ -558,9 +559,9 @@ export const TraceDebugMode = Fn( ( [
 
 			// Round-trip: direction → equirectDirectionToUv → texture lookup
 			// sampleEnvironment does exactly this internally
-			const roundTripColor = sampleEnvironment(
-				envTexture, cdfDirection, envMatrix, environmentIntensity, enableEnvironmentLight,
-			).xyz.toVar();
+			const roundTripColor = sampleEnvironment( {
+				tex: envTexture, samp: sampler( envTexture ), direction: cdfDirection, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+			} ).xyz.toVar();
 
 			// Compare: if direction is correct, roundTripColor should match sampledColor
 			const diff = abs( roundTripColor.sub( sampledColor ) ).mul( 10.0 );
@@ -601,18 +602,18 @@ export const TraceDebugMode = Fn( ( [
 			// Reflect: R = D - 2*dot(D,N)*N
 			const reflDir = normalize( rayDir.sub( N.mul( dot( rayDir, N ).mul( 2.0 ) ) ) ).toVar();
 
-			const envColor = sampleEnvironment(
-				envTexture, reflDir, envMatrix, environmentIntensity, enableEnvironmentLight,
-			).xyz;
+			const envColor = sampleEnvironment( {
+				tex: envTexture, samp: sampler( envTexture ), direction: reflDir, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+			} ).xyz;
 
 			const displayColor = envColor.div( envColor.add( 1.0 ) );
 			result.assign( vec4( displayColor, 1.0 ) );
 
 		} ).Else( () => {
 
-			const envColor = sampleEnvironment(
-				envTexture, rayDir, envMatrix, environmentIntensity, enableEnvironmentLight,
-			).xyz;
+			const envColor = sampleEnvironment( {
+				tex: envTexture, samp: sampler( envTexture ), direction: rayDir, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+			} ).xyz;
 
 			const displayColor = envColor.div( envColor.add( 1.0 ) );
 			result.assign( vec4( displayColor, 1.0 ) );

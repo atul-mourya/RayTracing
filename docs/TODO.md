@@ -20,12 +20,14 @@
 ## Features
 
 ### Rendering
+- [ ] Fly mode camera controls as an alternative to orbit controls
 - [ ] Variance-based firefly suppression
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
+- [ ] Full WGSL transition, avoid TSL nodes
 
 ### Lighting & Materials
 - [ ] implement pending Physical material properties

@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, float, int, If, texture, dot, floor, fract, min, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, floor, fract, min, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -142,26 +142,19 @@ export const sampleEquirectProbability = Fn( ( [
 
 // Note: powerHeuristic() is defined in Common.js
 
-// Simple environment lookup (no importance sampling)
-export const sampleEnvironment = Fn( ( [
-	environment,
-	direction,
-	environmentMatrix,
-	environmentIntensity,
-	enableEnvironmentLight
-] ) => {
-
-	const result = vec4( 0.0 ).toVar();
-
-	If( enableEnvironmentLight, () => {
-
-		const uv = equirectDirectionToUv( { direction, environmentMatrix } ).toVar();
-		const texSample = texture( environment, uv, 0 ).toVar();
-
-		result.assign( texSample.mul( environmentIntensity ) );
-
-	} );
-
-	return result;
-
-} );
+// Simple environment lookup (no importance sampling) — native WGSL
+export const sampleEnvironment = /*@__PURE__*/ wgslFn( `
+	fn sampleEnvironment(
+		tex: texture_2d<f32>,
+		samp: sampler,
+		direction: vec3f,
+		environmentMatrix: mat4x4f,
+		environmentIntensity: f32,
+		enableEnvironmentLight: f32
+	) -> vec4f {
+		if ( enableEnvironmentLight < 0.5 ) { return vec4f( 0.0 ); }
+		let uv = equirectDirectionToUv( direction, environmentMatrix );
+		let texSample = textureSampleLevel( tex, samp, uv, 0.0 );
+		return texSample * environmentIntensity;
+	}
+`, [ equirectDirectionToUv ] );

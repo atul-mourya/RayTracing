@@ -41,6 +41,7 @@ import {
 	Continue,
 	select,
 	smoothstep,
+	sampler,
 } from 'three/tsl';
 
 import { struct } from './structProxy.js';
@@ -540,9 +541,9 @@ export const sampleBackgroundLighting = Fn( ( [
 
 	} ).Else( () => {
 
-		const sampled = sampleEnvironment(
-			envTexture, direction, envMatrix, environmentIntensity, enableEnvironmentLight,
-		);
+		const sampled = sampleEnvironment( {
+			tex: envTexture, samp: sampler( envTexture ), direction, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+		} );
 
 		If( isPrimaryRay, () => {
 
