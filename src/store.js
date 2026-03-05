@@ -569,8 +569,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			} );
 
-			// Update adaptive sampling pass parameters
-			app.pathTracingStage?.setAdaptiveSamplingParameters?.( settings );
+			// Sync with engine stages
+			app.setAdaptiveSamplingMax( settings.adaptiveSamplingMax );
+			app.pathTracingStage?.setAdaptiveSamplingMin( settings.adaptiveSamplingMin );
+			app.adaptiveSamplingStage.setAdaptiveSamplingParameters( {
+				threshold: settings.adaptiveSamplingVarianceThreshold,
+				materialBias: settings.adaptiveSamplingMaterialBias,
+				edgeBias: settings.adaptiveSamplingEdgeBias,
+				convergenceSpeedUp: settings.adaptiveSamplingConvergenceSpeed,
+			} );
 
 		}
 
@@ -659,7 +666,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingMinChange: handleChange(
 		val => set( { adaptiveSamplingMin: val } ),
-		( val, app ) => app.pathTracingStage?.setAdaptiveSamplingParameters( { min: val[ 0 ] } )
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.pathTracingStage?.setAdaptiveSamplingMin( v );
+
+		}
 	),
 
 	handleAdaptiveSamplingMaxChange: handleChange(
@@ -669,7 +681,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingVarianceThresholdChange: handleChange(
 		val => set( { adaptiveSamplingVarianceThreshold: val } ),
-		( val, app ) => app.pathTracingStage?.setAdaptiveSamplingParameters( { threshold: Array.isArray( val ) ? val[ 0 ] : val } )
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setVarianceThreshold( v );
+
+		}
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
@@ -681,7 +698,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingMaterialBias: val } ),
 		( val, app ) => {
 
-			app.pathTracingStage?.setAdaptiveSamplingParameters( { materialBias: val[ 0 ] } );
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setMaterialBias( v );
 
 		}
 	),
@@ -690,7 +708,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingEdgeBias: val } ),
 		( val, app ) => {
 
-			app.pathTracingStage?.setAdaptiveSamplingParameters( { edgeBias: val[ 0 ] } );
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setEdgeBias( v );
 
 		}
 	),
@@ -699,7 +718,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { adaptiveSamplingConvergenceSpeed: val } ),
 		( val, app ) => {
 
-			app.pathTracingStage?.setAdaptiveSamplingParameters( { convergenceSpeedUp: val[ 0 ] } );
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			app.adaptiveSamplingStage?.setConvergenceSpeed( v );
 
 		}
 	),

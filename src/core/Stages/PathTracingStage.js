@@ -326,6 +326,7 @@ export class PathTracingStage extends PipelineStage {
 		this.samplingTechnique = samplingTechniqueUniform;
 		this.samplingTechnique.value = DEFAULT_STATE.samplingTechnique;
 		this.useAdaptiveSampling = uniform( DEFAULT_STATE.adaptiveSampling ? 1 : 0, 'int' );
+		this.adaptiveSamplingMin = uniform( DEFAULT_STATE.adaptiveSamplingMin ?? 1, 'int' );
 		this.adaptiveSamplingMax = uniform( DEFAULT_STATE.adaptiveSamplingMax, 'int' );
 		this.fireflyThreshold = uniform( DEFAULT_STATE.fireflyThreshold, 'float' );
 
@@ -388,6 +389,7 @@ export class PathTracingStage extends PipelineStage {
 		this.sceneScale.name = 'sceneScale';
 		this.samplingTechnique.name = 'samplingTechnique';
 		this.useAdaptiveSampling.name = 'useAdaptiveSampling';
+		this.adaptiveSamplingMin.name = 'adaptiveSamplingMin';
 		this.adaptiveSamplingMax.name = 'adaptiveSamplingMax';
 		this.fireflyThreshold.name = 'fireflyThreshold';
 		this.enableEmissiveTriangleSampling.name = 'enableEmissiveTriangleSampling';
@@ -1591,6 +1593,7 @@ export class PathTracingStage extends PipelineStage {
 			// Adaptive Sampling
 			useAdaptiveSampling: this.useAdaptiveSampling,
 			adaptiveSamplingTexture: adaptiveSamplingTex,
+			adaptiveSamplingMin: this.adaptiveSamplingMin,
 			adaptiveSamplingMax: this.adaptiveSamplingMax,
 
 			// DOF / Camera lens
@@ -2814,6 +2817,12 @@ export class PathTracingStage extends PipelineStage {
 	setUseAdaptiveSampling( use ) {
 
 		this.useAdaptiveSampling.value = use ? 1 : 0;
+
+	}
+
+	setAdaptiveSamplingMin( min ) {
+
+		this.adaptiveSamplingMin.value = min;
 
 	}
 

@@ -2093,9 +2093,32 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @stub
+	 * Set adaptive sampling parameters on both stages.
+	 * @param {Object} params - Parameters to update
+	 * @param {number} [params.min] - Min samples (PathTracingStage)
+	 * @param {number} [params.threshold] - Variance threshold (AdaptiveSamplingStage)
+	 * @param {number} [params.materialBias] - Material bias (AdaptiveSamplingStage)
+	 * @param {number} [params.edgeBias] - Edge bias (AdaptiveSamplingStage)
+	 * @param {number} [params.convergenceSpeedUp] - Convergence speed (AdaptiveSamplingStage)
+	 * @param {number} [params.adaptiveSamplingMax] - Max samples (both stages)
 	 */
-	setAdaptiveSamplingParameters( /* params */ ) {}
+	setAdaptiveSamplingParameters( params ) {
+
+		if ( params.min !== undefined ) {
+
+			this.pathTracingStage?.setAdaptiveSamplingMin( params.min );
+
+		}
+
+		if ( params.adaptiveSamplingMax !== undefined ) {
+
+			this.setAdaptiveSamplingMax( params.adaptiveSamplingMax );
+
+		}
+
+		this.adaptiveSamplingStage?.setAdaptiveSamplingParameters( params );
+
+	}
 
 	// ── Environment mode helpers ──
 

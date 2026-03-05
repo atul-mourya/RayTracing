@@ -1,4 +1,4 @@
-import { Fn, wgslFn, uv, uniform, texture, float, int, uint, ivec2, uvec2, If,
+import { Fn, wgslFn, uv, uniform, texture, float, int, uint, ivec2, uvec2, If, min, max,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
@@ -20,16 +20,26 @@ const computeSamplingGuidance = /*@__PURE__*/ wgslFn( `
 		threshold: f32,
 		frame: i32,
 		minFrames: i32,
-		convThreshold: f32
+		convThreshold: f32,
+		materialBias: f32,
+		edgeStrength: f32,
+		edgeBias: f32,
+		convergenceSpeed: f32
 	) -> vec4f {
 
-		var baseReq = clamp( variance / threshold, 0.0, 1.0 );
+		// Base requirement scaled by materialBias (higher = more samples for variable regions)
+		var baseReq = clamp( variance / threshold, 0.0, 1.0 ) * materialBias;
+
+		// Edge enhancement — high contrast edges get extra samples
+		let edgeContribution = edgeStrength * ( edgeBias - 1.0 ) * 0.5;
+		baseReq = clamp( baseReq + edgeContribution, 0.0, 1.0 );
 
 		// Progressive convergence reduction after enough frames
 		if ( frame > minFrames ) {
 
 			let framesPast = f32( frame - minFrames );
-			let convergenceWeight = clamp( framesPast / 100.0, 0.0, 0.7 );
+			// convergenceSpeed: higher = faster convergence (fewer samples over time)
+			let convergenceWeight = clamp( framesPast * convergenceSpeed / 200.0, 0.0, 0.7 );
 			baseReq *= 1.0 - convergenceWeight;
 
 		}
@@ -140,6 +150,9 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		// Sampling parameters
 		this.adaptiveSamplingMax = uniform( options.adaptiveSamplingMax ?? DEFAULT_STATE.adaptiveSamplingMax ?? 32, 'int' );
 		this.varianceThreshold = uniform( options.varianceThreshold ?? DEFAULT_STATE.adaptiveSamplingVarianceThreshold ?? 0.01 );
+		this.materialBias = uniform( options.materialBias ?? DEFAULT_STATE.adaptiveSamplingMaterialBias ?? 1.2 );
+		this.edgeBias = uniform( options.edgeBias ?? DEFAULT_STATE.adaptiveSamplingEdgeBias ?? 1.5 );
+		this.convergenceSpeed = uniform( options.convergenceSpeed ?? DEFAULT_STATE.adaptiveSamplingConvergenceSpeed ?? 2.0 );
 		this.frameNumberUniform = uniform( 0, 'int' );
 
 		// Resolution uniforms (int for compute pixel coords)
@@ -216,6 +229,9 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 		const colorTex = this._colorTexNode;
 		const threshold = this.varianceThreshold;
+		const matBias = this.materialBias;
+		const eBias = this.edgeBias;
+		const convSpeed = this.convergenceSpeed;
 		const frame = this.frameNumberUniform;
 		const minFrames = this.minConvergenceFrames;
 		const convThreshold = this.convergenceThreshold;
@@ -268,11 +284,13 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 			workgroupBarrier();
 
-			// ── 3×3 variance from shared memory ─────────────
+			// ── 3×3 variance + edge detection from shared memory ──
 			// Thread (lx, ly) → shared memory center at (lx+1, ly+1)
 
 			const mean = float( 0.0 ).toVar();
 			const meanSq = float( 0.0 ).toVar();
+			const minLum = float( 1e6 ).toVar();
+			const maxLum = float( 0.0 ).toVar();
 
 			for ( let dy = - 1; dy <= 1; dy ++ ) {
 
@@ -282,6 +300,8 @@ export class AdaptiveSamplingStage extends PipelineStage {
 					const val = sharedLum.element( sharedIdx );
 					mean.addAssign( val );
 					meanSq.addAssign( val.mul( val ) );
+					minLum.assign( min( minLum, val ) );
+					maxLum.assign( max( maxLum, val ) );
 
 				}
 
@@ -293,6 +313,9 @@ export class AdaptiveSamplingStage extends PipelineStage {
 			// Variance = E[X^2] - E[X]^2
 			const variance = meanSq.sub( mean.mul( mean ) ).max( 0.0 );
 
+			// Edge strength: normalized luminance range in 3×3 neighbourhood
+			const edgeStrength = maxLum.sub( minLum ).clamp( 0.0, 1.0 );
+
 			// ── Bounds check and output ─────────────────────
 
 			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( lx ) );
@@ -301,7 +324,8 @@ export class AdaptiveSamplingStage extends PipelineStage {
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
 				const result = computeSamplingGuidance(
-					variance, threshold, int( frame ), int( minFrames ), convThreshold
+					variance, threshold, int( frame ), int( minFrames ), convThreshold,
+					matBias, edgeStrength, eBias, convSpeed
 				);
 
 				textureStore(
@@ -433,6 +457,43 @@ export class AdaptiveSamplingStage extends PipelineStage {
 	setVarianceThreshold( value ) {
 
 		this.varianceThreshold.value = value;
+
+	}
+
+	setMaterialBias( value ) {
+
+		this.materialBias.value = value;
+
+	}
+
+	setEdgeBias( value ) {
+
+		this.edgeBias.value = value;
+
+	}
+
+	setConvergenceSpeed( value ) {
+
+		this.convergenceSpeed.value = value;
+
+	}
+
+	/**
+	 * Unified setter for multiple adaptive sampling parameters.
+	 * @param {Object} params
+	 * @param {number} [params.threshold] - Variance threshold
+	 * @param {number} [params.materialBias] - Material bias multiplier
+	 * @param {number} [params.edgeBias] - Edge bias multiplier
+	 * @param {number} [params.convergenceSpeedUp] - Convergence speed
+	 * @param {number} [params.adaptiveSamplingMax] - Max samples
+	 */
+	setAdaptiveSamplingParameters( params ) {
+
+		if ( params.threshold !== undefined ) this.setVarianceThreshold( params.threshold );
+		if ( params.materialBias !== undefined ) this.setMaterialBias( params.materialBias );
+		if ( params.edgeBias !== undefined ) this.setEdgeBias( params.edgeBias );
+		if ( params.convergenceSpeedUp !== undefined ) this.setConvergenceSpeed( params.convergenceSpeedUp );
+		if ( params.adaptiveSamplingMax !== undefined ) this.setAdaptiveSamplingMax( params.adaptiveSamplingMax );
 
 	}
 
