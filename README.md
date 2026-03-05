@@ -1,16 +1,6 @@
 # Rayzee - Real-Time Path Tracer
 
-A sophisticated rea## 🛠️ Tech Stack
-
-| Category | Technologies |
-|----------|-------------|
-| **Frontend** | React 19, Vite, TailwindCSS |
-| **3D Rendering** | Three.js, WebGPU, TSL Shaders (WGSL) |
-| **UI Components** | Radix UI, Lucide Icons |
-| **State Management** | Zustand |
-| **Denoising** | Intel OIDN Web, Custom ASVGF |
-| **Build Tools** | Vite, ESLint, Semantic Release |
-| **Performance** | Stats.gl, MeshOptimizer |e path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
+A sophisticated real-time path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
 
 🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
 
@@ -19,41 +9,56 @@ A sophisticated rea## 🛠️ Tech Stack
 
 Path tracing is a rendering technique that simulates the physical behavior of light by tracing rays as they bounce through a scene. This approach produces photorealistic images with accurate:
 - Global illumination and indirect lighting
-- Realistic shadows and reflections  
+- Realistic shadows and reflections
 - Complex material interactions
 - Caustics and light scattering effects
 
-## ✨ Key Features
+## Tech Stack
 
-### 🚀 Advanced Rendering Engine
+| Category | Technologies |
+|----------|-------------|
+| **Frontend** | React 19, Vite 7, TailwindCSS 4 |
+| **3D Rendering** | Three.js 0.183+, WebGPU, TSL Shaders (WGSL) |
+| **UI Components** | Radix UI, Lucide Icons |
+| **State Management** | Zustand |
+| **Denoising** | Intel OIDN Web, Custom ASVGF |
+| **Build Tools** | Vite, ESLint, Semantic Release |
+| **Performance** | Stats.gl, MeshOptimizer |
+
+## Key Features
+
+### Advanced Rendering Engine
 - **Real-time Path Tracing**: GPU-accelerated Monte Carlo path tracing with WebGPU and TSL shaders
 - **Adaptive Sampling**: Intelligent sample distribution with variance-guided quality control
 - **Progressive Rendering**: Continuous quality improvement with accumulation buffer
 - **Multi-bounce Transport**: Configurable bounce limits for complex light interactions
 - **Tiled Rendering**: Efficient progressive refinement with tile-based processing
+- **Auto Exposure**: Automatic exposure adjustment for optimal brightness
 
-### 🎨 Visual Quality Features
+### Visual Quality Features
 - **AI-Powered Denoising**: Intel OIDN integration for clean, artifact-free renders
-- **ASVGF Temporal Filtering**: Advanced spatiotemporal noise reduction
+- **ASVGF Temporal Filtering**: Advanced spatiotemporal noise reduction with motion vectors
+- **Bilateral Filtering**: Edge-preserving denoising for real-time quality
 - **HDR Environment Mapping**: Image-based lighting with importance sampling
 - **Advanced Tone Mapping**: Multiple tone mapping operators (ACES, AgX, Reinhard, etc.)
 - **Post-Processing Pipeline**: Bloom, exposure control, and color grading
 - **Depth of Field**: Realistic camera simulation with focus controls
 
-### 🎯 Interactive Controls
+### Interactive Controls
 - **Real-time Parameter Adjustment**: Live editing of all rendering parameters
 - **Camera Management**: Multiple camera angles with instant switching
 - **Material Editing**: Real-time PBR material property adjustments
 - **Environment Controls**: Dynamic HDRI rotation and intensity
 - **Debug Visualizations**: Heat maps, sampling patterns, and diagnostic modes
 
-### 🔧 Performance Optimization
-- **BVH Acceleration**: Optimized ray-scene intersection with bounding volume hierarchies
-- **Mesh Optimization**: Automatic geometry simplification options
+### Performance Optimization
+- **BVH Acceleration**: Optimized ray-scene intersection with bounding volume hierarchies and treelet optimization
+- **Mesh Optimization**: Automatic geometry simplification via MeshOptimizer
+- **Web Worker Processing**: Off-main-thread BVH construction and texture processing
 - **Interaction Mode**: Reduced quality during camera movement for responsive navigation
 - **Firefly Suppression**: Advanced noise reduction for bright pixels
 
-### 💾 Asset Management
+### Asset Management
 - **3D Model Support**: GLB, GLTF, FBX, OBJ, STL, PLY, DAE (Collada), 3MF, USDZ formats
 - **Environment Maps**: HDR and EXR format support for realistic lighting
 - **Image Formats**: PNG, JPEG, WebP for textures and environments
@@ -63,16 +68,10 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 - **Camera Extraction**: Automatic detection of embedded camera positions
 - **Material Preservation**: Full PBR material pipeline support
 
-#### Technologies Used
-- **Three.js:** For 3D rendering, scene management, and the WebGPU renderer.
-- **TSL (Three Shading Language):** To implement the core path tracing logic, compiled to WGSL at runtime.
-- **React:** For creating the application’s interactive user interface.
-- **Vite:** A fast and modern build tool for development and optimization.
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-- Node.js >= 20.11.1
+- Node.js >= 20.19.0
 - Modern browser with WebGPU support (Chrome 113+, Edge 113+, or Firefox Nightly)
 
 ### Installation
@@ -104,7 +103,7 @@ npm run build
 npm run preview
 ```
 
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
@@ -112,7 +111,7 @@ npm run preview
 | `R` | Reset camera to default position |
 | `Esc` | Deselect current object |
 
-## 🎯 Usage Guide
+## Usage Guide
 
 1. **Loading Models**: Drag and drop 3D files (GLB, GLTF, FBX, OBJ, STL, PLY, etc.) or select from the built-in library
 2. **Environment Setup**: Choose from 50+ HDRI environments or load custom HDR/EXR files
@@ -122,11 +121,11 @@ npm run preview
 6. **Progressive Rendering**: Watch the path tracer continuously improve image quality over time
 7. **Results Management**: Save, organize, and post-process your rendered images
 
-### 📸 Working with Results
+### Working with Results
 
 **Rendering & Saving:**
 - Configure final render settings in the "Final Render" panel (resolution, samples, denoising)
-- Choose between Regular or Tiled rendering modes for different quality/performance trade-offs  
+- Choose between Regular or Tiled rendering modes for different quality/performance trade-offs
 - Save completed renders automatically to the local database with timestamp and metadata
 - Access saved renders anytime from the Results panel in the left sidebar
 
@@ -148,56 +147,96 @@ npm run preview
 - **High-Quality Export**: Maintain full resolution and color depth in exported images
 - **Organized Gallery**: Browse and manage all saved renders in an intuitive interface
 
-## 🎨 Features in Detail
+## Architecture
 
-### Adaptive Sampling
-- **Material Intelligence**: Higher sampling for complex materials
-- **Edge Detection**: Increased samples at geometric discontinuities  
-- **Convergence Analysis**: Real-time variance tracking and sample redistribution
-- **Quality Presets**: Performance, Balanced, and Quality modes
-
-### Denoising Pipeline
-- **Intel OIDN**: Production-grade AI denoiser for final output
-- **ASVGF**: Real-time spatiotemporal filtering during progressive rendering
-- **G-Buffer Integration**: Enhanced denoising with geometric information
-
-### Debug Visualizations
-- **Heat Maps**: Visualize sampling density and convergence
-- **Triangle Intersection Counts**: Performance debugging
-- **Material Properties**: Real-time material parameter visualization
-- **Tile Highlighting**: Progressive rendering tile visualization
-
-## 🏗️ Architecture
-
-The application follows a modular architecture:
+The application follows an event-driven stage-based architecture:
 
 ```
 src/
-├── core/              # Core path tracing engine
-│   ├── PathTracerApp.js  # Main application class
-│   ├── Stages/           # Rendering pipeline stages
-│   ├── TSL/              # TSL shader modules
-│   └── Processor/        # Asset loading and processing
-├── components/       # React UI components
-├── hooks/           # Custom React hooks
-├── store/           # Zustand state management
-└── utils/           # Utility functions
+├── core/                    # Core path tracing engine
+│   ├── PathTracerApp.js     # Main application class
+│   ├── appProxy.js          # Decoupled app instance access
+│   ├── InteractionManager.js
+│   ├── Pipeline/            # Stage pipeline infrastructure
+│   │   ├── PassPipeline.js      # Stage execution orchestrator
+│   │   ├── PipelineStage.js     # Base class for stages
+│   │   ├── PipelineContext.js   # Shared state & textures
+│   │   └── EventDispatcher.js   # Event bus for stage communication
+│   ├── Stages/              # Rendering pipeline stages
+│   │   ├── PathTracingStage.js      # Core Monte Carlo path tracing
+│   │   ├── ASVGFStage.js           # Spatiotemporal denoising
+│   │   ├── AdaptiveSamplingStage.js # Variance-guided sampling
+│   │   ├── EdgeAwareFilteringStage.js
+│   │   ├── BilateralFilteringStage.js
+│   │   ├── NormalDepthStage.js      # G-buffer generation
+│   │   ├── MotionVectorStage.js     # Motion vector computation
+│   │   ├── VarianceEstimationStage.js
+│   │   ├── AutoExposureStage.js
+│   │   ├── TileHighlightStage.js
+│   │   └── DisplayStage.js         # Final composition
+│   ├── TSL/                 # TSL shader modules (23 files)
+│   │   ├── PathTracer.js        # Main path tracer logic
+│   │   ├── BVHTraversal.js      # BVH acceleration traversal
+│   │   ├── MaterialSampling.js  # BRDF sampling
+│   │   ├── Environment.js       # Environment mapping
+│   │   ├── LightsDirect.js      # Direct lighting
+│   │   ├── LightsIndirect.js    # Indirect lighting
+│   │   └── ...                  # Disney BRDF, transmission, fog, etc.
+│   └── Processor/           # Asset loading & processing
+│       ├── AssetLoader.js       # GLB/GLTF model loading
+│       ├── GeometryExtractor.js # Mesh → triangle data
+│       ├── BVHBuilder.js        # BVH acceleration structure
+│       ├── TextureCreator.js    # GPU texture generation
+│       └── Workers/             # Web Workers for heavy computation
+│           ├── BVHWorker.js
+│           └── TexturesWorker.js
+├── components/              # React UI components
+│   ├── layout/              # App layout (sidebars, topbar, viewports)
+│   └── ui/                  # 45+ Radix-based UI components
+├── hooks/                   # Custom React hooks (9 hooks)
+├── services/                # External services & APIs
+├── store.js                 # Zustand state management
+└── utils/                   # Utility functions
 ```
 
-## 🤝 Contributing
+### Rendering Pipeline
+
+Stages execute sequentially, communicating via an event bus:
+
+1. **PathTracingStage** — Core Monte Carlo path tracing with MRT outputs
+2. **NormalDepthStage** — G-buffer generation (normals + linear depth)
+3. **MotionVectorStage** — Per-pixel motion vectors for temporal filtering
+4. **VarianceEstimationStage** — Per-pixel variance for adaptive sampling
+5. **AdaptiveSamplingStage** — Variance-guided sample distribution
+6. **ASVGFStage** — Real-time spatiotemporal denoising
+7. **BilateralFilteringStage** — Edge-preserving bilateral filter
+8. **EdgeAwareFilteringStage** — Temporal filtering with edge preservation
+9. **AutoExposureStage** — Automatic exposure adjustment
+10. **TileHighlightStage** — Visual feedback for progressive tile rendering
+11. **DisplayStage** — Final composition and output
+
+### Debug Visualizations
+
+Access via Path Tracer tab → Debug Mode:
+- `1-2`: BVH traversal statistics (triangle/box tests)
+- `3`: Ray distance visualization
+- `4`: Surface normals
+- `6`: Environment map luminance heat map
+- `7`: Environment importance sampling PDF
+
+## Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on:
 - Getting started with development
 - Code style and conventions
-- Testing requirements
 - Pull request process
 - Issue reporting guidelines
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🎨 Gallery
+## Gallery
 
 Experience photorealistic rendering directly in your browser:
 
