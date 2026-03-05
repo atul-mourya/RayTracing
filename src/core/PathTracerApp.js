@@ -106,6 +106,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.aperture = DEFAULT_STATE.aperture ?? 0.0;
 		this.apertureScale = 1.0;
 		this.currentCameraIndex = 0;
+		this._defaultCameraState = null; // saved when switching away from default
 
 		// Sampling settings
 		this.samplingTechnique = DEFAULT_STATE.samplingTechnique ?? 0;
@@ -1680,28 +1681,68 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Save default camera state before switching away from it.
+		// this.cameras[0] === this.camera, so copying model-camera
+		// properties into this.camera would destroy the default state.
+		if ( this.currentCameraIndex === 0 && index !== 0 ) {
+
+			this._defaultCameraState = {
+				position: this.camera.position.clone(),
+				quaternion: this.camera.quaternion.clone(),
+				fov: this.camera.fov,
+				near: this.camera.near,
+				far: this.camera.far,
+				target: this.controls ? this.controls.target.clone() : null,
+			};
+
+		}
+
 		this.currentCameraIndex = index;
 
-		const sourceCamera = this.cameras[ index ];
+		if ( index === 0 && this._defaultCameraState ) {
 
-		// Copy camera properties
-		this.camera.position.copy( sourceCamera.position );
-		this.camera.quaternion.copy( sourceCamera.quaternion );
-		this.camera.fov = sourceCamera.fov;
-		this.camera.near = sourceCamera.near;
-		this.camera.far = sourceCamera.far;
-		this.camera.updateProjectionMatrix();
+			// Restore the default camera to its state before the switch
+			const s = this._defaultCameraState;
+			this.camera.position.copy( s.position );
+			this.camera.quaternion.copy( s.quaternion );
+			this.camera.fov = s.fov;
+			this.camera.near = s.near;
+			this.camera.far = s.far;
+			this.camera.updateProjectionMatrix();
+			this.camera.updateMatrixWorld( true );
 
-		// Update orbit controls target to look along the camera's forward direction.
-		// Place the target a fixed distance in front of the camera so OrbitControls
-		// doesn't overwrite the position on its next update().
-		if ( this.controls ) {
+			if ( this.controls && s.target ) {
 
-			const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
-			const focusDist = this.focusDistance || 5.0;
-			this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
-			this.controls.saveState();
-			this.controls.update();
+				this.controls.target.copy( s.target );
+				this.controls.update();
+
+			}
+
+		} else {
+
+			const sourceCamera = this.cameras[ index ];
+
+			// Copy camera properties from the source (world-space transforms
+			// were baked into extracted cameras during extraction).
+			this.camera.position.copy( sourceCamera.position );
+			this.camera.quaternion.copy( sourceCamera.quaternion );
+			this.camera.fov = sourceCamera.fov;
+			this.camera.near = sourceCamera.near;
+			this.camera.far = sourceCamera.far;
+			this.camera.updateProjectionMatrix();
+			this.camera.updateMatrixWorld( true );
+
+			// Place the orbit target along the camera's forward direction
+			// so OrbitControls doesn't overwrite the position on its next update().
+			if ( this.controls ) {
+
+				const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
+				const focusDist = this.focusDistance || 5.0;
+				this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
+
+				this.controls.update();
+
+			}
 
 		}
 

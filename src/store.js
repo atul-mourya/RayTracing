@@ -1950,8 +1950,9 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.switchCamera( idx );
-			set( { selectedCameraIndex: idx } );
+			const index = Number( idx );
+			app.switchCamera( index );
+			set( { selectedCameraIndex: index } );
 
 		}
 

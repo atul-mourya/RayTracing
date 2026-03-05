@@ -1162,12 +1162,20 @@ class AssetLoader extends EventDispatcher {
 
 		const cameras = [];
 
+		// Ensure world matrices are up-to-date before extraction
+		model.updateWorldMatrix( true, true );
+
 		model.traverse( ( object ) => {
 
 			if ( object.isCamera ) {
 
 				// Clone the camera to avoid modifying the original
 				const camera = object.clone();
+
+				// Apply world transforms — cameras may be children of
+				// transformed nodes, so local position/quaternion != world.
+				object.getWorldPosition( camera.position );
+				object.getWorldQuaternion( camera.quaternion );
 
 				// Set a meaningful name
 				if ( ! camera.name || camera.name === '' ) {
