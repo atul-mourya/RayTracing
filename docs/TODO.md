@@ -8,6 +8,8 @@
 - [ ] Iridescence not producing expected colors
 - [ ] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
 - [ ] transparent background + transparent / transmissive materials not working together
+- [ ] adaptive sampling ui controls not working
+- [ ] adaptive sampling is not working well in case of cornell box. Observe debug view
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI

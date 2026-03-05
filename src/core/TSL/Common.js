@@ -159,10 +159,11 @@ export const computeDotProducts = Fn( ( [ N, V, L ] ) => {
 } );
 
 export const calculateFireflyThreshold = wgslFn( `
-	fn calculateFireflyThreshold( baseThreshold: f32, contextMultiplier: f32, bounceIndex: i32 ) -> f32 {
+	fn calculateFireflyThreshold( baseThreshold: f32, bounceIndex: i32, frame: i32 ) -> f32 {
 
-		let depthFactor = 1.0 / pow( f32( bounceIndex + 1 ), 0.5 );
-		return baseThreshold * contextMultiplier * depthFactor;
+		let depthFactor = 1.0 / ( 1.0 + f32( bounceIndex ) * 0.1 );
+		let relaxation = sqrt( f32( frame + 1 ) );
+		return baseThreshold * depthFactor * relaxation;
 
 	}
 ` );

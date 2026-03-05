@@ -565,15 +565,11 @@ export const sampleBackgroundLighting = Fn( ( [
 // =============================================================================
 
 export const regularizePathContribution = /*@__PURE__*/ wgslFn( `
-	fn regularizePathContribution( contribution: vec3f, throughput: vec3f, pathLength: f32, fireflyThreshold: f32 ) -> vec3f {
-		let throughputMax = maxComponent( throughput );
-		let throughputMin = minComponent( throughput );
-		let throughputVariation = ( throughputMax + 0.001f ) / ( throughputMin + 0.001f );
-		let variationMultiplier = 1.0f / ( 1.0f + log( 1.0f + throughputVariation ) * pathLength * 0.1f );
-		let threshold = calculateFireflyThreshold( fireflyThreshold, variationMultiplier, i32( pathLength ) );
+	fn regularizePathContribution( contribution: vec3f, pathLength: f32, fireflyThreshold: f32, frame: i32 ) -> vec3f {
+		let threshold = calculateFireflyThreshold( fireflyThreshold, i32( pathLength ), frame );
 		return applySoftSuppressionRGB( contribution, threshold, 0.5f );
 	}
-`, [ maxComponent, minComponent, calculateFireflyThreshold, applySoftSuppressionRGB ] );
+`, [ calculateFireflyThreshold, applySoftSuppressionRGB ] );
 
 // =============================================================================
 // Main Path Tracing Loop
@@ -711,7 +707,7 @@ export const Trace = Fn( ( [
 				showBackground, backgroundIntensity,
 			);
 			radiance.addAssign( regularizePathContribution( {
-				contribution: envColor.xyz.mul( throughput ), throughput, pathLength: float( bounceIndex ), fireflyThreshold,
+				contribution: envColor.xyz.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
 			alpha.mulAssign( envColor.a );
 			Break();
@@ -919,7 +915,9 @@ export const Trace = Fn( ( [
 		// 1. EMISSIVE CONTRIBUTION
 		If( length( matSamples.emissive ).greaterThan( 0.0 ), () => {
 
-			radiance.addAssign( matSamples.emissive.mul( throughput ) );
+			radiance.addAssign( regularizePathContribution( {
+				contribution: matSamples.emissive.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+			} ) );
 
 		} );
 
@@ -943,7 +941,7 @@ export const Trace = Fn( ( [
 		);
 
 		radiance.addAssign( regularizePathContribution( {
-			contribution: directLight.mul( throughput ), throughput, pathLength: float( bounceIndex ), fireflyThreshold,
+			contribution: directLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 		} ) );
 
 		// Get importance sampling info with caching
