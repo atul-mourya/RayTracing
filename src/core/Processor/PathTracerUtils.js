@@ -196,8 +196,8 @@ export class PathTracerUtils {
 
 		if ( renderMode === 0 ) {
 
-			// Full quad rendering
-			return 1.0 / Math.max( frameValue, 1 );
+			// Full quad rendering: frame 0 → alpha 1.0 (replace), frame 1 → 0.5, frame 2 → 0.333, ...
+			return 1.0 / ( frameValue + 1 );
 
 		} else {
 

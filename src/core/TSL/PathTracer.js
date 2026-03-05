@@ -464,7 +464,7 @@ const pathTracerImpl = Fn( ( [
 	const finalNormalDepth = vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ).toVar();
 	const finalAlbedo = vec3( objectColor ).toVar();
 
-	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 1 ) ) ).and( hasPreviousAccumulated ), () => {
+	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ), () => {
 
 		const prevUV = pixelCoord.div( resolution );
 		const previousColor = texture( prevAccumTexture, prevUV, 0 ).xyz;

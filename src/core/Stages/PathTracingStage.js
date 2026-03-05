@@ -1856,13 +1856,35 @@ export class PathTracingStage extends PipelineStage {
 	}
 
 	/**
+	 * Compare two Matrix4 with tolerance to avoid false positives from
+	 * floating-point drift (e.g. OrbitControls spherical↔cartesian round-trips).
+	 * @param {Matrix4} a
+	 * @param {Matrix4} b
+	 * @param {number} epsilon
+	 * @returns {boolean} True if matrices are approximately equal
+	 */
+	_matricesApproxEqual( a, b, epsilon = 1e-10 ) {
+
+		const ae = a.elements;
+		const be = b.elements;
+		for ( let i = 0; i < 16; i ++ ) {
+
+			if ( Math.abs( ae[ i ] - be[ i ] ) > epsilon ) return false;
+
+		}
+
+		return true;
+
+	}
+
+	/**
 	 * Update camera uniforms
 	 * @returns {boolean} True if camera changed
 	 */
 	_updateCameraUniforms() {
 
-		if ( ! this.lastCameraMatrix.equals( this.camera.matrixWorld ) ||
-			! this.lastProjectionMatrix.equals( this.camera.projectionMatrixInverse ) ) {
+		if ( ! this._matricesApproxEqual( this.lastCameraMatrix, this.camera.matrixWorld ) ||
+			! this._matricesApproxEqual( this.lastProjectionMatrix, this.camera.projectionMatrixInverse ) ) {
 
 			this.cameraWorldMatrix.value.copy( this.camera.matrixWorld );
 			this.cameraViewMatrix.value.copy( this.camera.matrixWorldInverse );
