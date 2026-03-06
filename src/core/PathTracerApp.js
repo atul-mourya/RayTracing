@@ -1434,6 +1434,51 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Rebuild emissive triangle data when emissive/visibility properties change (only if sampling is enabled)
+		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity', 'visible' ];
+		if ( emissiveAffectingProps.includes( property )
+			&& this.sdf?.emissiveTriangleBuilder
+			&& this.pathTracingStage?.enableEmissiveTriangleSampling?.value ) {
+
+			// Update the cached material snapshot so re-extraction sees the new value
+			const mat = this.sdf.materials[ materialIndex ];
+			if ( mat ) {
+
+				if ( property === 'emissive' ) {
+
+					mat.emissive = value;
+
+				} else if ( property === 'emissiveIntensity' ) {
+
+					mat.emissiveIntensity = value;
+
+				} else if ( property === 'visible' ) {
+
+					mat.visible = value;
+
+				}
+
+				// Fast-path update: only rescans all triangles if emissive set changed
+				const changed = this.sdf.emissiveTriangleBuilder.updateMaterialEmissive(
+					materialIndex, mat,
+					this.sdf.triangleData, this.sdf.materials, this.sdf.triangleCount,
+				);
+
+				if ( changed ) {
+
+					const emissiveRawData = this.sdf.emissiveTriangleBuilder.createEmissiveRawData();
+					this.pathTracingStage.setEmissiveTriangleData(
+						emissiveRawData,
+						this.sdf.emissiveTriangleBuilder.emissiveCount,
+						this.sdf.emissiveTriangleBuilder.totalEmissivePower,
+					);
+
+				}
+
+			}
+
+		}
+
 	}
 
 	/**

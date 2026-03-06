@@ -47,11 +47,12 @@ export class EmissiveTriangleBuilder {
 			const material = materials[ materialIndex ];
 			if ( ! material ) continue;
 
-			// Check if emissive
+			// Check if emissive and visible
 			const emissive = material.emissive || { r: 0, g: 0, b: 0 };
 			const emissiveIntensity = material.emissiveIntensity || 0;
+			const isVisible = material.visible === undefined || material.visible !== 0;
 
-			const isEmissive = emissiveIntensity > 0 && (
+			const isEmissive = isVisible && emissiveIntensity > 0 && (
 				emissive.r > 0 || emissive.g > 0 || emissive.b > 0
 			);
 
@@ -362,6 +363,63 @@ export class EmissiveTriangleBuilder {
 			minPower: minPower,
 			maxPower: maxPower
 		};
+
+	}
+
+	/**
+	 * Fast update when a material's emissive properties change.
+	 * Avoids full triangle scan when possible — only rescans if the set of
+	 * emissive triangles may have changed (material became or stopped being emissive).
+	 * @param {number} materialIndex - Index of the changed material
+	 * @param {object} material - The updated material object
+	 * @param {Array} triangleData - Full triangle data (only needed for full rescan)
+	 * @param {Array} materials - Materials array (only needed for full rescan)
+	 * @param {number} triangleCount - Total triangles (only needed for full rescan)
+	 * @returns {boolean} true if data changed and needs GPU re-upload
+	 */
+	updateMaterialEmissive( materialIndex, material, triangleData, materials, triangleCount ) {
+
+		const emissive = material.emissive || { r: 0, g: 0, b: 0 };
+		const emissiveIntensity = material.emissiveIntensity || 0;
+		const isVisible = material.visible === undefined || material.visible !== 0;
+		const isNowEmissive = isVisible && emissiveIntensity > 0 && ( emissive.r > 0 || emissive.g > 0 || emissive.b > 0 );
+
+		// Check if this material had any emissive triangles before
+		const hadEmissive = this.emissiveTriangles.some( t => t.materialIndex === materialIndex );
+
+		// If the emissive set changed (gained or lost emissive status), full rescan needed
+		if ( isNowEmissive !== hadEmissive ) {
+
+			this.extractEmissiveTriangles( triangleData, materials, triangleCount );
+			return true;
+
+		}
+
+		// If not emissive before and not now, nothing to do
+		if ( ! isNowEmissive ) return false;
+
+		// Fast path: just update power + CDF for affected entries
+		const avgEmissive = ( emissive.r + emissive.g + emissive.b ) / 3.0;
+
+		this.totalEmissivePower = 0;
+		for ( let i = 0; i < this.emissiveCount; i ++ ) {
+
+			const tri = this.emissiveTriangles[ i ];
+			if ( tri.materialIndex === materialIndex ) {
+
+				tri.power = avgEmissive * emissiveIntensity * tri.area;
+				tri.emissive = { r: emissive.r, g: emissive.g, b: emissive.b };
+				tri.emissiveIntensity = emissiveIntensity;
+				this.emissivePowerArray[ i ] = tri.power;
+
+			}
+
+			this.totalEmissivePower += this.emissiveTriangles[ i ].power;
+
+		}
+
+		this._buildCDF();
+		return true;
 
 	}
 

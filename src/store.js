@@ -143,9 +143,8 @@ const useStore = create( set => ( {
 			if ( obj.isMesh && obj.material ) {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
-				const pt = app?.pathTracingStage;
 
-				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+				if ( typeof app.updateMaterialProperty === 'function' ) {
 
 					// Calculate effective visibility by checking all ancestors
 					let effectiveVisible = obj.visible;
@@ -157,7 +156,7 @@ const useStore = create( set => ( {
 
 					}
 
-					pt.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
+					app.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
 
 				}
 
@@ -195,9 +194,8 @@ const useStore = create( set => ( {
 			if ( obj.isMesh && obj.material ) {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
-				const pt = app?.pathTracingStage;
 
-				if ( pt && typeof pt.updateMaterialProperty === 'function' ) {
+				if ( typeof app.updateMaterialProperty === 'function' ) {
 
 					// Calculate effective visibility by checking all ancestors
 					let effectiveVisible = obj.visible;
@@ -209,7 +207,7 @@ const useStore = create( set => ( {
 
 					}
 
-					pt.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
+					app.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
 
 				}
 
