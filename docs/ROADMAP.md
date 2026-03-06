@@ -22,24 +22,30 @@
 
 - [ ] **WebGPU Compute Shaders (Phase 2)**
   - [ ] Compute shader BVH construction for 3-5x build speedup
-  - [ ] GPU-accelerated denoising passes (ASVGF port to TSL)
+  - [x] GPU-accelerated denoising passes (ASVGF port to TSL)
+  - [x] Compute shader bilateral filtering, variance estimation, auto-exposure
   - [ ] Support WebGPU ray tracing extensions when available
 
 - [ ] **Advanced Hybrid Rendering Pipeline**
   - [ ] Rasterization + path tracing fusion for interactive previews
   - [ ] Temporal upsampling from low-res path tracing
   - [x] Motion vector generation for better temporal stability
-  - [ ] Depth-aware temporal accumulation
+  - [x] Depth-aware temporal accumulation (ASVGF spatiotemporal filtering)
 
 ### Next-Generation Rendering Features
 - [ ] **Volumetric Rendering & Atmosphere**
-  - [ ] Heterogeneous volume rendering (clouds, smoke, fog)
+  - [x] Basic volumetric fog and transmission (fog.js TSL module)
+  - [ ] Heterogeneous volume rendering (clouds, smoke)
   - [ ] Atmospheric scattering with multiple scattering
   - [ ] Participating media with anisotropic scattering
   - [ ] Volumetric lighting and shadows
 
 - [ ] **Advanced Material System**
-  - [ ] Disney BSDF 2.0 implementation
+  - [x] Multi-lobe BRDF (GGX specular, diffuse, clearcoat, sheen, transmission)
+  - [x] Thin-film iridescence
+  - [x] Nested transmission with medium stack (glass-in-glass)
+  - [x] Dispersion (chromatic aberration for dielectrics)
+  - [ ] Disney BSDF 2.0 full implementation
   - [ ] Subsurface scattering (BSSRDF)
   - [ ] Procedural material nodes/graph
   - [ ] Fabric/cloth shading models
@@ -48,7 +54,7 @@
 - [ ] **Caustics & Advanced Light Transport**
   - [ ] Bidirectional path tracing (BDPT)
   - [ ] Photon mapping for caustics
-  - [ ] Multiple importance sampling improvements
+  - [x] Multiple importance sampling (environment + emissive triangle + direct lighting MIS)
   - [ ] Light path caching and reuse
 
 ---
@@ -79,8 +85,9 @@
   - [ ] Cloud rendering integration (optional)
 
 - [ ] **Advanced Denoising Pipeline**
-  - [ ] Real-time OIDN with WebAssembly optimization
+  - [x] GPU-native OIDN denoising (HDR with ACES tonemapping)
   - [x] Temporal denoising (SVGF/A-SVGF improvements)
+  - [x] ASVGF quality presets (performance/balanced/quality)
   - [ ] Machine learning denoising models
   - [ ] Custom denoising parameter profiles
 
@@ -90,7 +97,8 @@
 
 ### Performance Optimization
 - [ ] **Next-Gen BVH & Acceleration**
-  - [ ] GPU-accelerated BVH construction
+  - [x] 4-wide BVH with SAH splitting and treelet optimization
+  - [ ] GPU-accelerated BVH construction (compute shader)
   - [ ] Dynamic BVH updates for animated scenes
   - [ ] Ray frustum culling
   - [ ] Primitive specialization (curves, volumes)
@@ -105,6 +113,8 @@
 - [ ] **Intelligent Sampling**
   - [ ] Adaptive sampling 2.0 with ML guidance
   - [x] Variance-guided sample distribution
+  - [x] Blue noise sampling sequences
+  - [x] Emissive triangle sampling with total power integration
 
 - [ ] **Convergence Acceleration**
   - [ ] Reservoir sampling (ReSTIR)
@@ -183,8 +193,8 @@
 
 ### Industry Integration
 - [ ] **Production Pipeline**
-  - [ ] Color management (ACES workflow)
-  - [ ] Multi-pass rendering (AOVs)
+  - [x] Color management (ACES tonemapping pipeline)
+  - [x] Multi-pass rendering / AOVs (MRT: color, normalDepth, albedo)
   - [ ] Batch rendering automation
   - [ ] Integration with render farms
 
@@ -204,31 +214,31 @@
 
 ### Technical Milestones
 - **Q2 2025:** ~~WebGPU beta release~~ ✅ WebGPU TSL backend shipped, WebGL removed
-- **Q3 2025:** Volumetric rendering
-- **Q4 2025:** Production pipeline tools, WebGPU compute shaders (ASVGF/denoiser port)
-- **Q1 2026:** Mobile optimization
+- **Q3 2025:** ~~Volumetric rendering~~ ✅ Basic volumetric fog/transmission, iridescence, dispersion, nested media
+- **Q4 2025:** ~~Compute shaders & denoiser~~ ✅ ASVGF/OIDN GPU-native denoising, compute bilateral filtering, MIS pipeline
+- **Q1 2026:** Mobile optimization (in progress)
 
 ---
 
 ## 📊 Implementation Strategy
 
-### Phase 1 (Immediate - 3 months)
-1. ~~WebGPU proof of concept~~ ✅ **Completed** — Full TSL backend with dual-canvas architecture
-2. UI/UX improvements
-3. Critical bug fixes
-4. Performance profiling setup
+### Phase 1 (Immediate - 3 months) ✅ Complete
+1. ~~WebGPU proof of concept~~ ✅ Full TSL backend with dual-canvas architecture
+2. ~~UI/UX improvements~~ ✅ Interactive/Final mode switching, debug visualizations
+3. ~~Critical bug fixes~~ ✅ NaN guards, Y-flip fixes, camera matrix sync
+4. ~~Performance profiling setup~~ ✅ stats-gl, BVH timings, convergence monitoring
 
-### Phase 2 (Short term - 6 months)  
-1. Volumetric rendering
-2. Advanced materials
-3. WebGPU compute shaders (ASVGF port, BVH construction)
-4. Community features
+### Phase 2 (Short term - 6 months) ✅ Mostly Complete
+1. ~~Volumetric rendering~~ ✅ Basic fog, volumetric transmission
+2. ~~Advanced materials~~ ✅ Iridescence, dispersion, nested transmission, clearcoat, sheen
+3. ~~WebGPU compute shaders~~ ✅ ASVGF denoiser, bilateral filtering, variance estimation (BVH compute still pending)
+4. Community features — pending
 
-### Phase 3 (Medium term - 12 months)
+### Phase 3 (Medium term - 12 months) — In Progress
 1. ~~Full WebGPU migration~~ ✅ **Core migration done** — compute shader enhancements ongoing
-2. Mobile optimization  
-3. Desktop applications
-4. Production tools
+2. Mobile optimization — pending
+3. Desktop applications — pending
+4. ~~Production tools~~ ✅ ACES color management, MRT/AOV output, OIDN GPU denoising
 
 ---
 
@@ -268,8 +278,8 @@
 
 ---
 
-*Last Updated: June 2025*
-*Current Version: 1.60.0*
+*Last Updated: March 2026*
+*Current Version: 3.1.0*
 *Project Demo: <https://atul-mourya.github.io/RayTracing/>*
 
 **Contributing:** See [CONTRIBUTING.md] for development guidelines
