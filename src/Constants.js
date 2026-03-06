@@ -160,7 +160,7 @@ export const DEFAULT_STATE = {
 	transmissiveBounces: 5,
 	samplingTechnique: 3,
 	enableEmissiveTriangleSampling: false, // Enabled by default, InteractionModeController disables during camera movement
-	emissiveBoost: 100.0,
+	emissiveBoost: 1.0,
 
 	adaptiveSampling: false,
 	adaptiveSamplingMin: 1, // Guarantee minimum 1 sample per pixel

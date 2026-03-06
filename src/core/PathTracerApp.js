@@ -726,6 +726,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.pathTracingStage.setEmissiveTriangleData(
 				this.sdf.emissiveTriangleData,
 				this.sdf.emissiveTriangleCount,
+				this.sdf.emissiveTotalPower,
 			);
 
 		}

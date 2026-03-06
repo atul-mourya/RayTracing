@@ -220,9 +220,9 @@ export class PathTracingStage extends PipelineStage {
 		// Blue noise
 		this.blueNoiseTexture = null;
 
-		// Emissive triangles (storage buffer)
-		this.emissiveTriangleStorageAttr = null;
-		this.emissiveTriangleStorageNode = null;
+		// Emissive triangles (storage buffer) — initialized with dummy data so TSL compilation never sees null
+		this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 4 ), 4 );
+		this.emissiveTriangleStorageNode = storage( this.emissiveTriangleStorageAttr, 'vec4', 1 ).toReadOnly();
 
 		// Adaptive sampling
 		this.adaptiveSamplingTexture = null;
@@ -334,6 +334,7 @@ export class PathTracingStage extends PipelineStage {
 		this.enableEmissiveTriangleSampling = uniform( DEFAULT_STATE.enableEmissiveTriangleSampling ? 1 : 0, 'int' );
 		this.emissiveBoost = uniform( DEFAULT_STATE.emissiveBoost, 'float' );
 		this.emissiveTriangleCount = uniform( 0, 'int' );
+		this.emissiveTotalPower = uniform( 0.0, 'float' );
 
 		// Render mode
 		this.renderMode = uniform( DEFAULT_STATE.renderMode, 'int' );
@@ -395,6 +396,7 @@ export class PathTracingStage extends PipelineStage {
 		this.enableEmissiveTriangleSampling.name = 'enableEmissiveTriangleSampling';
 		this.emissiveBoost.name = 'emissiveBoost';
 		this.emissiveTriangleCount.name = 'emissiveTriangleCount';
+		this.emissiveTotalPower.name = 'emissiveTotalPower';
 		this.renderMode.name = 'renderMode';
 		this.resolution.name = 'resolution';
 		this.totalTriangleCount.name = 'totalTriangleCount';
@@ -1576,6 +1578,7 @@ export class PathTracingStage extends PipelineStage {
 			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
 			emissiveTriangleBuffer: emissiveTriStorage,
 			emissiveTriangleCount: this.emissiveTriangleCount,
+			emissiveTotalPower: this.emissiveTotalPower,
 			emissiveBoost: this.emissiveBoost,
 
 			// Debug
@@ -2940,27 +2943,19 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
-	setEmissiveTriangleData( emissiveData, count ) {
+	setEmissiveTriangleData( emissiveData, count, totalPower = 0 ) {
 
 		if ( ! emissiveData ) return;
 
 		const vec4Count = emissiveData.length / 4;
 
-		if ( this.emissiveTriangleStorageNode ) {
-
-			this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( emissiveData, 4 );
-			this.emissiveTriangleStorageNode.value = this.emissiveTriangleStorageAttr;
-			this.emissiveTriangleStorageNode.bufferCount = vec4Count;
-
-		} else {
-
-			this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( emissiveData, 4 );
-			this.emissiveTriangleStorageNode = storage( this.emissiveTriangleStorageAttr, 'vec4', vec4Count ).toReadOnly();
-
-		}
+		this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( emissiveData, 4 );
+		this.emissiveTriangleStorageNode.value = this.emissiveTriangleStorageAttr;
+		this.emissiveTriangleStorageNode.bufferCount = vec4Count;
 
 		this.emissiveTriangleCount.value = count;
-		console.log( `PathTracingStage: ${count} emissive triangles (storage buffer)` );
+		this.emissiveTotalPower.value = totalPower;
+		console.log( `PathTracingStage: ${count} emissive triangles, totalPower=${totalPower.toFixed( 4 )} (storage buffer)` );
 
 	}
 

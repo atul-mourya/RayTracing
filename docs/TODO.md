@@ -77,6 +77,7 @@
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling
+- [ ] Two-level BVH with coarse top-level.
 
 ---
 

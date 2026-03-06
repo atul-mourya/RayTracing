@@ -443,6 +443,7 @@ export default class TriangleSDF {
 			);
 
 			this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
+			this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
 			this._log( 'Emissive triangle extraction complete', this.emissiveTriangleBuilder.getStats() );
 
 		} catch ( error ) {

@@ -61,6 +61,7 @@ import {
 	calculateFireflyThreshold,
 	applySoftSuppressionRGB,
 	getMaterial,
+	powerHeuristic,
 } from './Common.js';
 import {
 	DirectionSample,
@@ -99,6 +100,9 @@ import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
 import { calculateDirectLightingUnified } from './LightsSampling.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
 import { IndirectLightingResult } from './LightsCore.js';
+import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf } from './EmissiveSampling.js';
+import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
+import { traverseBVHShadow } from './BVHTraversal.js';
 
 // =============================================================================
 // Constants
@@ -601,7 +605,7 @@ export const Trace = Fn( ( [
 	backgroundIntensity, showBackground,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
-	emissiveTriangleBuffer, emissiveTriangleCount, emissiveBoost,
+	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
 ] ) => {
@@ -609,6 +613,7 @@ export const Trace = Fn( ( [
 	const radiance = vec3( 0.0 ).toVar();
 	const throughput = vec3( 1.0 ).toVar();
 	const alpha = float( 1.0 ).toVar();
+	const prevBouncePdf = float( 0.0 ).toVar(); // 0 = camera ray (skip MIS for directly visible emissive)
 
 	// Output data
 	const objectNormal = vec3( 0.0 ).toVar();
@@ -913,11 +918,30 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// 1. EMISSIVE CONTRIBUTION
+		// 1. EMISSIVE CONTRIBUTION (with MIS when direct emissive sampling is active)
 		If( length( matSamples.emissive ).greaterThan( 0.0 ), () => {
 
+			const emissiveMISWeight = float( 1.0 ).toVar();
+
+			// Apply MIS when emissive direct sampling is active and this isn't a camera ray hit
+			If( enableEmissiveTriangleSampling.equal( int( 1 ) )
+				.and( emissiveTriangleCount.greaterThan( int( 0 ) ) )
+				.and( prevBouncePdf.greaterThan( 0.0 ) ), () => {
+
+				const lightPdf = calculateEmissiveLightPdf(
+					hitInfo.triangleIndex, hitInfo.dst, rayDirection, rayOrigin,
+					triangleBuffer, materialBuffer, emissiveTotalPower,
+				);
+
+				emissiveMISWeight.assign(
+					powerHeuristic( { pdf1: prevBouncePdf, pdf2: lightPdf } )
+				);
+
+			} );
+
 			radiance.addAssign( regularizePathContribution( {
-				contribution: matSamples.emissive.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+				contribution: matSamples.emissive.mul( throughput ).mul( emissiveMISWeight ),
+				pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
 
 		} );
@@ -944,6 +968,34 @@ export const Trace = Fn( ( [
 		radiance.addAssign( regularizePathContribution( {
 			contribution: directLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 		} ) );
+
+		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
+		If( enableEmissiveTriangleSampling.equal( int( 1 ) ).and( emissiveTriangleCount.greaterThan( int( 0 ) ) ), () => {
+
+			// Wrapper binding BVH params (EmissiveSampling expects 4-param callback)
+			const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist, rs ] ) => {
+
+				return traceShadowRay( origin, dir, maxDist, rs, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer );
+
+			} );
+
+			const emissiveLight = calculateEmissiveTriangleContribution(
+				hitInfo.hitPoint, N, V, material,
+				totalTriangleCount, bounceIndex, rngState,
+				emissiveBoost,
+				emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+				triangleBuffer,
+				materialBuffer,
+				traceShadowRayWrapped,
+				evaluateMaterialResponse,
+				calculateRayOffset,
+			);
+
+			radiance.addAssign( regularizePathContribution( {
+				contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+			} ) );
+
+		} );
 
 		// Get importance sampling info with caching
 		If( psWeightsComputed.not().or( bounceIndex.equal( int( 0 ) ) ), () => {
@@ -989,6 +1041,7 @@ export const Trace = Fn( ( [
 		// Prepare for next bounce
 		rayOrigin.assign( hitInfo.hitPoint.add( N.mul( 0.001 ) ) );
 		rayDirection.assign( indirectResult.direction );
+		prevBouncePdf.assign( indirectResult.pdf );
 
 		stateIsPrimaryRay.assign( tslBool( false ) );
 
