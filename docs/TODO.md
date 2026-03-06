@@ -20,7 +20,6 @@
 
 ### Rendering
 - [ ] Fly mode camera controls as an alternative to orbit controls
-- [ ] Variance-based firefly suppression
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support for direct lights

@@ -113,7 +113,7 @@ class AssetLoader extends EventDispatcher {
 		const format = this.getFileFormat( filename );
 		if ( ! format ) throw new Error( `Unsupported file format: ${filename}` );
 
-		updateLoading( { isLoading: true, status: `Loading ${format.name}...`, progress: 5 } );
+		updateLoading( { isLoading: true, status: `Loading ${format.name}...`, progress: 2 } );
 		try {
 
 			let result;
@@ -420,7 +420,7 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: `Processing ${extension.toUpperCase()} from ZIP...`, progress: 20 } );
+			updateLoading( { isLoading: true, status: `Processing ${extension.toUpperCase()} from ZIP...`, progress: 5 } );
 			const blob = new Blob( [ fileContent.buffer ], { type: 'application/octet-stream' } );
 			const blobUrl = URL.createObjectURL( blob );
 			let result;
@@ -750,9 +750,9 @@ class AssetLoader extends EventDispatcher {
 		try {
 
 			const loader = await this.createGLTFLoader();
-			updateLoading( { status: "Loading Model...", progress: 5 } );
+			updateLoading( { status: "Loading Model...", progress: 2 } );
 			const data = await loader.loadAsync( modelUrl );
-			updateLoading( { status: "Processing Data...", progress: 30 } );
+			updateLoading( { status: "Processing Data...", progress: 10 } );
 
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 
@@ -776,16 +776,15 @@ class AssetLoader extends EventDispatcher {
 		try {
 
 			const loader = await this.createGLTFLoader();
-			updateLoading( { isLoading: true, status: "Processing GLB Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing GLB Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
-			const data = await new Promise( ( resolve, reject ) =>
-				loader.parse( arrayBuffer, '', gltf => resolve( gltf ), error => reject( error ) )
-			);
+			const data = await loader.parseAsync( arrayBuffer, '' );
 
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 
 			this.targetModel = data.scene;
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: data.scene, filename } );
@@ -805,7 +804,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing FBX Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing FBX Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.fbx ) {
 
@@ -818,7 +818,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = object;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: object, filename } );
@@ -838,7 +838,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing OBJ Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing OBJ Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.obj ) {
 
@@ -854,7 +855,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = object;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: object, filename } );
@@ -874,7 +875,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing STL Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing STL Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.stl ) {
 
@@ -891,7 +893,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = mesh;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: mesh, filename } );
@@ -911,7 +913,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing PLY Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing PLY Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.ply ) {
 
@@ -940,7 +943,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = object;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: object, filename } );
@@ -960,7 +963,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing Collada Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing Collada Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.collada ) {
 
@@ -976,7 +980,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = collada.scene;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: collada.scene, filename } );
@@ -996,7 +1000,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing 3MF Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing 3MF Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.threemf ) {
 
@@ -1010,7 +1015,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = object;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: object, filename } );
@@ -1030,7 +1035,8 @@ class AssetLoader extends EventDispatcher {
 
 		try {
 
-			updateLoading( { isLoading: true, status: "Processing USDZ Data...", progress: 10 } );
+			updateLoading( { isLoading: true, status: "Processing USDZ Data...", progress: 5 } );
+			await new Promise( r => setTimeout( r, 0 ) );
 
 			if ( ! this.loaderCache.usdz ) {
 
@@ -1045,7 +1051,7 @@ class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 			this.targetModel = object;
 
-			updateLoading( { isLoading: true, status: "Processing Data...", progress: 50 } );
+			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 
 			this.dispatchEvent( { type: 'load', model: object, filename } );
@@ -1116,7 +1122,7 @@ class AssetLoader extends EventDispatcher {
 		if ( this.optimizeMeshes ) {
 
 			buildTimer.start( 'Mesh optimization' );
-			updateLoading( { status: "Optimizing Mesh...", progress: 40 } );
+			updateLoading( { status: "Optimizing Mesh...", progress: 12 } );
 			await this.optimizeModel( model );
 			buildTimer.end( 'Mesh optimization' );
 

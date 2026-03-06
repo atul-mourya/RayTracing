@@ -357,7 +357,11 @@ class TextureCache {
 			}
 
 			this.accessOrder.push( key );
-			return this.cache.get( key ).clone();
+
+			// Return cached texture directly — clone() fails on large DataArrayTextures
+			// because Three.js's copy() calls JSON.stringify on the data array.
+			// Each map type stores its own reference so shared instances are safe.
+			return this.cache.get( key );
 
 		}
 

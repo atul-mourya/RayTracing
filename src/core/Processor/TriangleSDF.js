@@ -5,7 +5,7 @@ import { buildBVHParallel, shouldUseParallelBuild } from './ParallelBVHBuilder.j
 import TextureCreator from './TextureCreator.js'; // Using optimized TextureCreator
 import GeometryExtractor from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
-import { updateLoading, resetLoading } from '../Processor/utils.js';
+import { updateLoading } from '../Processor/utils.js';
 import BuildTimer from './BuildTimer.js';
 
 /**
@@ -174,10 +174,24 @@ export default class TriangleSDF {
 			timer.start( 'BVH construction (worker)' );
 			timer.start( 'Material textures (parallel)' );
 
+			let texturesDone = false;
 			const bvhPromise = this._buildBVH().then( () => timer.end( 'BVH construction (worker)' ) );
-			const texturePromise = this._createMaterialTextures().then( () => timer.end( 'Material textures (parallel)' ) );
+			const texturePromise = this._createMaterialTextures().then( () => {
 
-			await Promise.all( [ bvhPromise, texturePromise ] );
+				timer.end( 'Material textures (parallel)' );
+				texturesDone = true;
+
+			} );
+
+			// Await BVH first (it drives progress); then show texture status if still running
+			await bvhPromise;
+			if ( ! texturesDone ) {
+
+				updateLoading( { status: "Processing material textures...", progress: 82 } );
+
+			}
+
+			await texturePromise;
 
 			this.performanceMetrics.bvhBuildTime = timer.getDuration( 'BVH construction (worker)' );
 			this.performanceMetrics.textureCreationTime = timer.getDuration( 'Material textures (parallel)' );
@@ -203,7 +217,7 @@ export default class TriangleSDF {
 			timer.print();
 
 			this.processingStage = 'complete';
-			resetLoading();
+			updateLoading( { status: "Scene data ready", progress: 85 } );
 			return this;
 
 		} catch ( error ) {
@@ -234,10 +248,11 @@ export default class TriangleSDF {
 			isLoading: true,
 			title: "Processing",
 			status: "Extracting geometry...",
-			progress: 0
+			progress: 15
 		} );
+		await new Promise( r => setTimeout( r, 0 ) );
 
-		// 0-20% range for extraction
+		// 15-25% range for extraction
 
 		this._log( 'Extracting geometry' );
 		const startTime = performance.now();
@@ -275,7 +290,7 @@ export default class TriangleSDF {
 
 			updateLoading( {
 				status: `Extracted ${this.triangleCount.toLocaleString()} triangles`,
-				progress: 20
+				progress: 25
 			} );
 
 		} catch ( error ) {
@@ -283,7 +298,7 @@ export default class TriangleSDF {
 			console.error( '[TriangleSDF] Geometry extraction error:', error );
 			updateLoading( {
 				status: `Extraction error: ${error.message}`,
-				progress: 20
+				progress: 25
 			} );
 			throw error;
 
@@ -299,7 +314,7 @@ export default class TriangleSDF {
 
 		updateLoading( {
 			status: "Building BVH...",
-			progress: 20
+			progress: 25
 		} );
 
 		if ( this.triangleCount === 0 ) {
@@ -330,8 +345,8 @@ export default class TriangleSDF {
 			// Define progress callback
 			const progressCallback = ( progress ) => {
 
-				// Map BVH 0-100% to UI 20-95%
-				const scaledProgress = 20 + Math.floor( progress * 0.75 );
+				// Map BVH 0-100% to UI 25-80%
+				const scaledProgress = 25 + Math.floor( progress * 0.55 );
 				const triangleCount = this.triangleCount.toLocaleString();
 				updateLoading( {
 					status: `Building BVH for ${triangleCount} triangles... ${progress}%`,
@@ -397,7 +412,7 @@ export default class TriangleSDF {
 
 			updateLoading( {
 				status: "BVH construction complete",
-				progress: 95
+				progress: 80
 			} );
 
 		} catch ( error ) {
@@ -405,7 +420,7 @@ export default class TriangleSDF {
 			console.error( '[TriangleSDF] BVH building error:', error );
 			updateLoading( {
 				status: `BVH error: ${error.message}`,
-				progress: 95
+				progress: 80
 			} );
 			throw error;
 
@@ -442,25 +457,18 @@ export default class TriangleSDF {
 				{ data: this.displacementMaps, prop: 'displacementTextures' },
 			];
 
-			const mapPromises = [];
+			// Process texture types sequentially with yields between each
+			// to avoid back-to-back sync canvas operations that freeze the spinner
 			for ( const { data, prop } of mapTypesList ) {
 
 				if ( data?.length > 0 ) {
 
-					mapPromises.push(
-						this.textureCreator.createTexturesToDataTexture( data )
-							.then( texture => {
-
-								this[ prop ] = texture;
-
-							} )
-					);
+					await new Promise( r => setTimeout( r, 0 ) );
+					this[ prop ] = await this.textureCreator.createTexturesToDataTexture( data );
 
 				}
 
 			}
-
-			await Promise.all( mapPromises );
 
 			this._log( 'Material textures complete', {
 				materialData: !! this.materialData,

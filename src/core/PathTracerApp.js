@@ -22,7 +22,7 @@ import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
 import { DEFAULT_STATE } from '../Constants.js';
-import { updateStats, resetLoading } from './Processor/utils.js';
+import { updateStats, updateLoading, resetLoading } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
@@ -680,6 +680,8 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		updateLoading( { status: "Transferring data to GPU...", progress: 88 } );
+		await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
 		timer.start( 'GPU data transfer' );
 		this.pathTracingStage.setTriangleData( triangleData, triangleCount );
 
@@ -736,6 +738,8 @@ export class PathTracerApp extends EventDispatcher {
 		timer.end( 'GPU data transfer' );
 
 		// Setup material with all data
+		updateLoading( { status: "Compiling shaders...", progress: 92 } );
+		await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
 		timer.start( 'Material setup (TSL compile)' );
 		this.pathTracingStage.setupMaterial();
 		timer.end( 'Material setup (TSL compile)' );
@@ -743,6 +747,8 @@ export class PathTracerApp extends EventDispatcher {
 		// Build environment CDF for importance sampling AFTER material setup
 		if ( environmentTexture ) {
 
+			updateLoading( { status: "Building environment map...", progress: 96 } );
+			await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
 			timer.start( 'Environment CDF build' );
 			await this.pathTracingStage.setEnvironmentMap( environmentTexture );
 			timer.end( 'Environment CDF build' );
@@ -786,6 +792,9 @@ export class PathTracerApp extends EventDispatcher {
 		timer.end( 'Apply settings' );
 
 		timer.print();
+
+		// Dismiss loading overlay
+		resetLoading();
 
 		// Dispatch SceneRebuild so UI components (StatsMeter, Outliner, etc.) update
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
