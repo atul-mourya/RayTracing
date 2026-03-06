@@ -177,6 +177,44 @@ export default class BVHBuilder {
 
 	}
 
+	/**
+	 * Fill per-triangle arrays (centroids, bMin, bMax, indices) from triangle data.
+	 * Arrays must already be allocated on `this` before calling.
+	 */
+	initializeTriangleArrays() {
+
+		const n = this.totalTriangles;
+		const src = this.triangles;
+		const PA = TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET;
+		const PB = TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET;
+		const PC = TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET;
+
+		for ( let i = 0; i < n; i ++ ) {
+
+			const base = i * FPT;
+			const ax = src[ base + PA ], ay = src[ base + PA + 1 ], az = src[ base + PA + 2 ];
+			const bx = src[ base + PB ], by = src[ base + PB + 1 ], bz = src[ base + PB + 2 ];
+			const cx = src[ base + PC ], cy = src[ base + PC + 1 ], cz = src[ base + PC + 2 ];
+
+			const o3 = i * 3;
+			this.centroids[ o3 ] = ( ax + bx + cx ) / 3;
+			this.centroids[ o3 + 1 ] = ( ay + by + cy ) / 3;
+			this.centroids[ o3 + 2 ] = ( az + bz + cz ) / 3;
+
+			this.bMin[ o3 ] = ax < bx ? ( ax < cx ? ax : cx ) : ( bx < cx ? bx : cx );
+			this.bMin[ o3 + 1 ] = ay < by ? ( ay < cy ? ay : cy ) : ( by < cy ? by : cy );
+			this.bMin[ o3 + 2 ] = az < bz ? ( az < cz ? az : cz ) : ( bz < cz ? bz : cz );
+
+			this.bMax[ o3 ] = ax > bx ? ( ax > cx ? ax : cx ) : ( bx > cx ? bx : cx );
+			this.bMax[ o3 + 1 ] = ay > by ? ( ay > cy ? ay : cy ) : ( by > cy ? by : cy );
+			this.bMax[ o3 + 2 ] = az > bz ? ( az > cz ? az : cz ) : ( bz > cz ? bz : cz );
+
+			this.indices[ i ] = i;
+
+		}
+
+	}
+
 	// --- Morton code helpers ---
 
 	expandBits( value ) {
@@ -499,35 +537,7 @@ export default class BVHBuilder {
 		this.indices = new Uint32Array( n );
 		this.mortonCodes = new Uint32Array( n );
 
-		// Initialize from source triangle data
-		const src = triangles;
-		const PA = TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET;
-		const PB = TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET;
-		const PC = TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET;
-
-		for ( let i = 0; i < n; i ++ ) {
-
-			const base = i * FPT;
-			const ax = src[ base + PA ], ay = src[ base + PA + 1 ], az = src[ base + PA + 2 ];
-			const bx = src[ base + PB ], by = src[ base + PB + 1 ], bz = src[ base + PB + 2 ];
-			const cx = src[ base + PC ], cy = src[ base + PC + 1 ], cz = src[ base + PC + 2 ];
-
-			const o3 = i * 3;
-			this.centroids[ o3 ] = ( ax + bx + cx ) / 3;
-			this.centroids[ o3 + 1 ] = ( ay + by + cy ) / 3;
-			this.centroids[ o3 + 2 ] = ( az + bz + cz ) / 3;
-
-			this.bMin[ o3 ] = ax < bx ? ( ax < cx ? ax : cx ) : ( bx < cx ? bx : cx );
-			this.bMin[ o3 + 1 ] = ay < by ? ( ay < cy ? ay : cy ) : ( by < cy ? by : cy );
-			this.bMin[ o3 + 2 ] = az < bz ? ( az < cz ? az : cz ) : ( bz < cz ? bz : cz );
-
-			this.bMax[ o3 ] = ax > bx ? ( ax > cx ? ax : cx ) : ( bx > cx ? bx : cx );
-			this.bMax[ o3 + 1 ] = ay > by ? ( ay > cy ? ay : cy ) : ( by > cy ? by : cy );
-			this.bMax[ o3 + 2 ] = az > bz ? ( az > cz ? az : cz ) : ( bz > cz ? bz : cz );
-
-			this.indices[ i ] = i;
-
-		}
+		this.initializeTriangleArrays();
 
 		this.splitStats.initTime = performance.now() - initStart;
 
@@ -596,12 +606,13 @@ export default class BVHBuilder {
 
 		// Phase 5: Create reordered triangle data from final index order
 		const reorderStart = performance.now();
+		const triSrc = this.triangles;
 		const reordered = reorderTarget || new Float32Array( n * FPT );
 		for ( let i = 0; i < n; i ++ ) {
 
 			const srcOff = this.indices[ i ] * FPT;
 			const dstOff = i * FPT;
-			reordered.set( src.subarray( srcOff, srcOff + FPT ), dstOff );
+			reordered.set( triSrc.subarray( srcOff, srcOff + FPT ), dstOff );
 
 		}
 
@@ -661,6 +672,140 @@ export default class BVHBuilder {
 		this.lastProgressUpdate = now;
 		const progress = Math.min( Math.floor( ( this.processedTriangles / this.totalTriangles ) * 100 ), 99 );
 		progressCallback( progress );
+
+	}
+
+	// --- Top-level BVH build for parallel construction ---
+
+	/**
+	 * Build top levels of BVH, creating frontier leaves for parallel subtree construction.
+	 * Frontier leaves are marked with `isFrontier = true` and recorded in `this.frontierTasks`.
+	 * @param {number} start - Start index in indices array
+	 * @param {number} end - End index in indices array
+	 * @param {number} depth - Remaining depth budget for full tree
+	 * @param {number} frontierDepthRemaining - Levels still to build before creating frontier leaves
+	 * @param {Function} progressCallback - Optional progress callback
+	 * @param {number} preMinX - Precomputed bounds (optional)
+	 */
+	buildNodeRecursiveToDepth( start, end, depth, frontierDepthRemaining, progressCallback, preMinX, preMinY, preMinZ, preMaxX, preMaxY, preMaxZ ) {
+
+		const node = new BVHNode();
+		this.nodes.push( node );
+		this.totalNodes ++;
+
+		const count = end - start;
+
+		// Use precomputed bounds from parent's partition, or compute for root
+		if ( preMinX !== undefined ) {
+
+			node.minX = preMinX; node.minY = preMinY; node.minZ = preMinZ;
+			node.maxX = preMaxX; node.maxY = preMaxY; node.maxZ = preMaxZ;
+
+		} else {
+
+			this.updateNodeBounds( node, start, end );
+
+		}
+
+		// Normal leaf condition (small enough to not need a subtree)
+		if ( count <= this.maxLeafSize || depth <= 0 ) {
+
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			this.updateProgress( count, progressCallback );
+			return node;
+
+		}
+
+		// Frontier condition: stop recursion and record as parallel task
+		if ( frontierDepthRemaining <= 0 && count > this.maxLeafSize * 16 ) {
+
+			const taskId = this.frontierTasks.length;
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			node.isFrontier = true;
+			node.frontierTaskId = taskId;
+			this.frontierTasks.push( {
+				taskId,
+				start,
+				end,
+				depth,
+				preMinX: node.minX, preMinY: node.minY, preMinZ: node.minZ,
+				preMaxX: node.maxX, preMaxY: node.maxY, preMaxZ: node.maxZ
+			} );
+			return node;
+
+		}
+
+		// Find best split using SAH
+		const splitInfo = this.findBestSplitPositionSAH( start, end, node );
+
+		if ( ! splitInfo.success ) {
+
+			this.splitStats.failedSplits ++;
+
+			// If we haven't reached frontier depth yet, make it a frontier task anyway
+			if ( frontierDepthRemaining > 0 || count <= this.maxLeafSize * 16 ) {
+
+				node.triangleOffset = start;
+				node.triangleCount = count;
+				this.updateProgress( count, progressCallback );
+				return node;
+
+			}
+
+			const taskId = this.frontierTasks.length;
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			node.isFrontier = true;
+			node.frontierTaskId = taskId;
+			this.frontierTasks.push( {
+				taskId,
+				start,
+				end,
+				depth,
+				preMinX: node.minX, preMinY: node.minY, preMinZ: node.minZ,
+				preMaxX: node.maxX, preMaxY: node.maxY, preMaxZ: node.maxZ
+			} );
+			return node;
+
+		}
+
+		// Track split method
+		if ( splitInfo.method === 'SAH' ) this.splitStats.sahSplits ++;
+		else if ( splitInfo.method === 'object_median' ) this.splitStats.objectMedianSplits ++;
+		else if ( splitInfo.method === 'spatial_median' ) this.splitStats.spatialMedianSplits ++;
+
+		// Partition and compute child bounds in one pass
+		this.partitionWithBounds( start, end, splitInfo.axis, splitInfo.pos );
+
+		const p = this._partResult;
+		const mid = p.mid;
+		const lMnX = p.lMinX, lMnY = p.lMinY, lMnZ = p.lMinZ;
+		const lMxX = p.lMaxX, lMxY = p.lMaxY, lMxZ = p.lMaxZ;
+		const rMnX = p.rMinX, rMnY = p.rMinY, rMnZ = p.rMinZ;
+		const rMxX = p.rMaxX, rMxY = p.rMaxY, rMxZ = p.rMaxZ;
+
+		// Degenerate partition fallback
+		if ( mid === start || mid === end ) {
+
+			node.triangleOffset = start;
+			node.triangleCount = count;
+			this.updateProgress( count, progressCallback );
+			return node;
+
+		}
+
+		node.leftChild = this.buildNodeRecursiveToDepth(
+			start, mid, depth - 1, frontierDepthRemaining - 1, progressCallback,
+			lMnX, lMnY, lMnZ, lMxX, lMxY, lMxZ
+		);
+		node.rightChild = this.buildNodeRecursiveToDepth(
+			mid, end, depth - 1, frontierDepthRemaining - 1, progressCallback,
+			rMnX, rMnY, rMnZ, rMxX, rMxY, rMxZ
+		);
+
+		return node;
 
 	}
 
@@ -1341,6 +1486,178 @@ export default class BVHBuilder {
 		}
 
 		return data;
+
+	}
+
+	/**
+	 * Flatten BVH tree marking frontier leaves with -2 sentinel.
+	 * Returns the flat data and a frontier map for assembly.
+	 * @param {BVHNode} root
+	 * @returns {{ flatData: Float32Array, frontierMap: Array<{taskId: number, flatIndex: number}> }}
+	 */
+	flattenBVHWithFrontier( root ) {
+
+		const FLOATS_PER_NODE = 16;
+
+		// First pass: assign indices via pre-order traversal
+		const nodes = [];
+		const stack = [ root ];
+		while ( stack.length > 0 ) {
+
+			const node = stack.pop();
+			node._flatIndex = nodes.length;
+			nodes.push( node );
+			if ( node.rightChild ) stack.push( node.rightChild );
+			if ( node.leftChild ) stack.push( node.leftChild );
+
+		}
+
+		// Second pass: write flat data
+		const data = new Float32Array( nodes.length * FLOATS_PER_NODE );
+		const frontierMap = [];
+
+		for ( let i = 0; i < nodes.length; i ++ ) {
+
+			const node = nodes[ i ];
+			const o = i * FLOATS_PER_NODE;
+
+			if ( node.leftChild ) {
+
+				// Inner node
+				const left = node.leftChild;
+				const right = node.rightChild;
+
+				data[ o ] = left.minX;
+				data[ o + 1 ] = left.minY;
+				data[ o + 2 ] = left.minZ;
+				data[ o + 3 ] = left._flatIndex;
+
+				data[ o + 4 ] = left.maxX;
+				data[ o + 5 ] = left.maxY;
+				data[ o + 6 ] = left.maxZ;
+				data[ o + 7 ] = right._flatIndex;
+
+				data[ o + 8 ] = right.minX;
+				data[ o + 9 ] = right.minY;
+				data[ o + 10 ] = right.minZ;
+
+				data[ o + 12 ] = right.maxX;
+				data[ o + 13 ] = right.maxY;
+				data[ o + 14 ] = right.maxZ;
+
+			} else if ( node.isFrontier ) {
+
+				// Frontier leaf: mark with -2 sentinel, use the taskId stored on the node
+				const taskId = node.frontierTaskId;
+				data[ o ] = node.triangleOffset;
+				data[ o + 1 ] = node.triangleCount;
+				data[ o + 2 ] = taskId;
+				data[ o + 3 ] = - 2; // Frontier sentinel
+
+				frontierMap.push( { taskId, flatIndex: i } );
+
+			} else {
+
+				// Regular leaf
+				data[ o ] = node.triangleOffset;
+				data[ o + 1 ] = node.triangleCount;
+				data[ o + 3 ] = - 1; // Leaf marker
+
+			}
+
+		}
+
+		return { flatData: data, frontierMap, nodeCount: nodes.length };
+
+	}
+
+	/**
+	 * Assemble the final BVH from top-level flat data and parallel-built subtrees.
+	 * @param {Float32Array} topFlatData - Flattened top-level tree with frontier sentinels
+	 * @param {number} topNodeCount - Number of nodes in top-level tree
+	 * @param {Array} frontierMap - Array of {taskId, flatIndex} from flattenBVHWithFrontier
+	 * @param {Array<{taskId: number, flatData: Float32Array, nodeCount: number}>} subtreeResults
+	 * @returns {Float32Array} Final GPU-ready BVH flat data
+	 */
+	assembleParallelBVH( topFlatData, topNodeCount, frontierMap, subtreeResults ) {
+
+		const FLOATS_PER_NODE = 16;
+
+		// Sort subtreeResults by taskId for consistent ordering
+		const sortedResults = [ ...subtreeResults ].sort( ( a, b ) => a.taskId - b.taskId );
+
+		// Calculate total node count
+		let totalNodes = topNodeCount;
+		for ( let i = 0; i < sortedResults.length; i ++ ) {
+
+			totalNodes += sortedResults[ i ].nodeCount;
+
+		}
+
+		// Allocate final array
+		const finalData = new Float32Array( totalNodes * FLOATS_PER_NODE );
+
+		// Copy top-level data
+		finalData.set( topFlatData );
+
+		// Build taskId → frontierMap lookup
+		const frontierByTaskId = new Map();
+		for ( const entry of frontierMap ) {
+
+			frontierByTaskId.set( entry.taskId, entry.flatIndex );
+
+		}
+
+		// Append each subtree and patch references
+		let globalOffset = topNodeCount;
+
+		for ( let i = 0; i < sortedResults.length; i ++ ) {
+
+			const result = sortedResults[ i ];
+			const subtreeData = result.flatData;
+			const subtreeNodeCount = result.nodeCount;
+			const destOffset = globalOffset * FLOATS_PER_NODE;
+
+			// Copy subtree data into final array
+			finalData.set( subtreeData, destOffset );
+
+			// Adjust child indices within the subtree by adding globalOffset
+			for ( let j = 0; j < subtreeNodeCount; j ++ ) {
+
+				const o = destOffset + j * FLOATS_PER_NODE;
+
+				// Check if inner node (not a leaf: leaf has -1 at o+3)
+				if ( finalData[ o + 3 ] !== - 1 ) {
+
+					// Adjust leftChildIndex and rightChildIndex
+					finalData[ o + 3 ] += globalOffset;
+					finalData[ o + 7 ] += globalOffset;
+
+				}
+
+			}
+
+			// Overwrite frontier leaf with subtree root data
+			const frontierFlatIndex = frontierByTaskId.get( result.taskId );
+			if ( frontierFlatIndex !== undefined ) {
+
+				const frontierOffset = frontierFlatIndex * FLOATS_PER_NODE;
+				const subtreeRootOffset = destOffset;
+
+				// Copy subtree root's 16 floats over the frontier leaf
+				for ( let k = 0; k < FLOATS_PER_NODE; k ++ ) {
+
+					finalData[ frontierOffset + k ] = finalData[ subtreeRootOffset + k ];
+
+				}
+
+			}
+
+			globalOffset += subtreeNodeCount;
+
+		}
+
+		return finalData;
 
 	}
 

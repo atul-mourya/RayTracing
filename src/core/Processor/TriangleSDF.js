@@ -1,6 +1,7 @@
 // TriangleSDF.js - Minimal changes to integrate optimized texture processing
 import { Color } from "three";
 import BVHBuilder from './BVHBuilder.js';
+import { buildBVHParallel, shouldUseParallelBuild } from './ParallelBVHBuilder.js';
 import TextureCreator from './TextureCreator.js'; // Using optimized TextureCreator
 import GeometryExtractor from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
@@ -339,13 +340,43 @@ export default class TriangleSDF {
 
 			};
 
-			// Build the BVH — original triangleData buffer is transferred to worker (neutered).
-			// Returns reordered triangle data as a new Float32Array (zero-copy transfer back).
-			const result = await this.bvhBuilder.build(
-				this.triangleData,
-				this.config.bvhDepth,
-				progressCallback
-			);
+			let result;
+
+			// Use parallel multi-core build for large scenes
+			if ( shouldUseParallelBuild( this.triangleCount ) ) {
+
+				const treeletEnabled = this.triangleCount > 500
+					&& ( originalTreeletEnabled !== false );
+				result = await buildBVHParallel(
+					this.triangleData,
+					this.config.bvhDepth,
+					progressCallback,
+					{
+						maxLeafSize: this.bvhBuilder.maxLeafSize,
+						numBins: this.bvhBuilder.numBins,
+						maxBins: this.bvhBuilder.maxBins,
+						minBins: this.bvhBuilder.minBins,
+						treeletOptimization: {
+							enabled: treeletEnabled,
+							size: this.config.treeletSize,
+							passes: this.config.treeletOptimizationPasses,
+							minImprovement: this.config.treeletMinImprovement
+						}
+					}
+				);
+				if ( result.splitStats ) this.bvhBuilder.splitStats = result.splitStats;
+
+			} else {
+
+				// Single-worker build (existing path)
+				result = await this.bvhBuilder.build(
+					this.triangleData,
+					this.config.bvhDepth,
+					progressCallback
+				);
+
+			}
+
 			this.bvhRoot = result.bvhRoot; // truthy sentinel for hasBVH checks
 			this.bvhData = result.bvhData; // GPU-ready flat array (flattened in worker)
 			if ( result.reorderedTriangles ) this.triangleData = result.reorderedTriangles;
