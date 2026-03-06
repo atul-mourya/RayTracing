@@ -28,8 +28,7 @@ import {
 } from 'three/tsl';
 
 import { struct } from './structProxy.js';
-import { RayTracingMaterial, HitInfo } from './Struct.js';
-import { MIN_PDF, getDatafromStorageBuffer, getMaterial, powerHeuristic } from './Common.js';
+import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic } from './Common.js';
 import { RandomValue } from './Random.js';
 import { calculateMaterialPDF } from './LightsSampling.js';
 
@@ -282,6 +281,7 @@ export const calculateEmissivePower = Fn( ( [ material, area ] ) => {
 // ================================================================================
 
 const TRI_STRIDE = 8;
+const EMISSIVE_STRIDE = 2; // 2 vec4s per emissive entry
 
 const TriangleData = struct( {
 	v0: 'vec3', v1: 'vec3', v2: 'vec3',
@@ -325,10 +325,12 @@ export const calculateEmissiveLightPdf = Fn( ( [
 	const triData = TriangleData.wrap( fetchTriangleData( triangleIndex, triangleBuffer ) );
 	const area = triangleArea( triData.v0, triData.v1, triData.v2 );
 
-	// Compute this triangle's emissive power on-the-fly
-	const material = RayTracingMaterial.wrap( getMaterial( triData.materialIndex, materialBuffer ) );
-	const avgEmissive = material.emissive.x.add( material.emissive.y ).add( material.emissive.z ).div( 3.0 );
-	const power = max( avgEmissive.mul( material.emissiveIntensity ).mul( area ), float( 1e-10 ) );
+	// Targeted material read: only fetch emissive data (2 vec4s instead of full 27)
+	const MATERIAL_SLOTS = int( 27 );
+	const matData1 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( 1 ), MATERIAL_SLOTS );
+	const matData2 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( 2 ), MATERIAL_SLOTS );
+	const avgEmissive = matData1.x.add( matData1.y ).add( matData1.z ).div( 3.0 );
+	const power = max( avgEmissive.mul( matData2.a ).mul( area ), float( 1e-10 ) );
 	const selectionPdf = power.div( max( emissiveTotalPower, float( 1e-10 ) ) );
 
 	const result = float( 0.0 ).toVar();
@@ -369,7 +371,7 @@ const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveTriangleCount, r
 	Loop( lo.lessThan( hi ), () => {
 
 		const mid = lo.add( hi ).div( 2 ).toVar();
-		const cdfVal = emissiveTriangleBuffer.element( mid ).b;
+		const cdfVal = emissiveTriangleBuffer.element( mid.mul( EMISSIVE_STRIDE ) ).b;
 
 		If( cdfVal.lessThan( rand ), () => {
 
@@ -393,7 +395,6 @@ export const sampleEmissiveTriangle = Fn( ( [
 	rngState,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
-	materialBuffer,
 ] ) => {
 
 	const result = EmissiveSample( {
@@ -415,24 +416,25 @@ export const sampleEmissiveTriangle = Fn( ( [
 		const randEmissive = RandomValue( rngState );
 		const emissiveIndex = binarySearchCDF( emissiveTriangleBuffer, emissiveTriangleCount, randEmissive ).toVar();
 
-		// Fetch emissive triangle data from storage buffer
-		// Layout: each vec4 = (triangleIndex, power, cdf, unused)
-		const emissiveData = emissiveTriangleBuffer.element( emissiveIndex );
-		const triangleIndex = int( emissiveData.r );
-		const samplePower = max( emissiveData.g, float( 1e-10 ) );
+		// Fetch emissive triangle data from storage buffer (2 vec4s per entry)
+		// vec4[0] = (triangleIndex, power, cdf, selectionPdf)
+		// vec4[1] = (emission.r, emission.g, emission.b, area)
+		const baseIdx = emissiveIndex.mul( EMISSIVE_STRIDE );
+		const emissiveData0 = emissiveTriangleBuffer.element( baseIdx );
+		const emissiveData1 = emissiveTriangleBuffer.element( baseIdx.add( 1 ) );
+		const triangleIndex = int( emissiveData0.r );
+		const samplePower = max( emissiveData0.g, float( 1e-10 ) );
+		const emission = emissiveData1.xyz;
+		const area = emissiveData1.w;
 
 		// Fetch triangle geometry
 		const triData = TriangleData.wrap( fetchTriangleData( triangleIndex, triangleBuffer ) );
-
-		// Get material
-		const material = RayTracingMaterial.wrap( getMaterial( triData.materialIndex, materialBuffer ) );
 
 		// Generate random numbers for sampling
 		const xi_r1 = RandomValue( rngState ).toVar();
 		const xi_r2 = RandomValue( rngState ).toVar();
 		const xi = vec2( xi_r1, xi_r2 );
 
-		const area = triangleArea( triData.v0, triData.v1, triData.v2 );
 		const geoNormal = normalize( cross( triData.v1.sub( triData.v0 ), triData.v2.sub( triData.v0 ) ) );
 
 		// Heuristic: spherical sampling for close/large triangles, area for far/small
@@ -468,7 +470,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 
 					result.position.assign( samplePos );
 					result.normal.assign( sampleNormal );
-					result.emission.assign( material.emissive.mul( material.emissiveIntensity ) );
+					result.emission.assign( emission );
 					result.direction.assign( dir );
 					result.distance.assign( dist );
 					result.pdf.assign( max( pdfSolidAngle, MIN_PDF ) );
@@ -503,7 +505,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 
 				result.position.assign( samplePos );
 				result.normal.assign( sampleNormal );
-				result.emission.assign( material.emissive.mul( material.emissiveIntensity ) );
+				result.emission.assign( emission );
 				result.direction.assign( dir );
 				result.distance.assign( dist );
 				result.pdf.assign( max( pdfSolidAngle, MIN_PDF ) );
@@ -535,7 +537,6 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	emissiveBoost,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
-	materialBuffer,
 	// Callback functions to avoid circular deps
 	traceShadowRayFn,
 	evaluateMaterialResponseFn,
@@ -559,7 +560,6 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 			hitPoint, normal, totalTriangleCount, rngState,
 			emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 			triangleBuffer,
-			materialBuffer,
 		) );
 
 		If( emissiveSample.valid.and( emissiveSample.pdf.greaterThan( 0.0 ) ), () => {
@@ -622,7 +622,6 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 	emissiveBoost,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
-	materialBuffer,
 	traceShadowRayFn,
 	evaluateMaterialResponseFn,
 	calculateRayOffsetFn,
@@ -634,7 +633,6 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 		emissiveBoost,
 		emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 		triangleBuffer,
-		materialBuffer,
 		traceShadowRayFn,
 		evaluateMaterialResponseFn,
 		calculateRayOffsetFn,

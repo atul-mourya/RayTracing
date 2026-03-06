@@ -985,7 +985,6 @@ export const Trace = Fn( ( [
 				emissiveBoost,
 				emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 				triangleBuffer,
-				materialBuffer,
 				traceShadowRayWrapped,
 				evaluateMaterialResponse,
 				calculateRayOffset,

@@ -299,26 +299,37 @@ export class EmissiveTriangleBuilder {
 
 	/**
 	 * Create raw Float32Array for storage buffer (no 2D DataTexture padding).
-	 * Each emissive entry is 1 vec4: R=triangleIndex, G=power, B=cdf, A=unused.
+	 * Each emissive entry is 2 vec4s (8 floats):
+	 *   vec4[0]: triangleIndex, power, cdf, selectionPdf
+	 *   vec4[1]: emission.r, emission.g, emission.b, area
 	 * @returns {Float32Array} Tightly-packed emissive data
 	 */
 	createEmissiveRawData() {
 
 		if ( this.emissiveCount === 0 ) {
 
-			return new Float32Array( 4 ); // 1 dummy vec4
+			return new Float32Array( 8 ); // 2 dummy vec4s
 
 		}
 
-		const data = new Float32Array( this.emissiveCount * 4 );
+		const data = new Float32Array( this.emissiveCount * 8 );
 
 		for ( let i = 0; i < this.emissiveCount; i ++ ) {
 
-			const offset = i * 4;
-			data[ offset + 0 ] = this.emissiveIndicesArray[ i ]; // R: triangle index
-			data[ offset + 1 ] = this.emissivePowerArray[ i ]; // G: power
-			data[ offset + 2 ] = this.cdfArray[ i ]; // B: CDF value
-			data[ offset + 3 ] = 0; // A: unused
+			const tri = this.emissiveTriangles[ i ];
+			const offset = i * 8;
+
+			// vec4[0]: triangleIndex, power, cdf, selectionPdf
+			data[ offset + 0 ] = tri.triangleIndex;
+			data[ offset + 1 ] = tri.power;
+			data[ offset + 2 ] = this.cdfArray[ i ];
+			data[ offset + 3 ] = this.totalEmissivePower > 0 ? tri.power / this.totalEmissivePower : 0;
+
+			// vec4[1]: pre-multiplied emission (emissive * intensity), area
+			data[ offset + 4 ] = tri.emissive.r * tri.emissiveIntensity;
+			data[ offset + 5 ] = tri.emissive.g * tri.emissiveIntensity;
+			data[ offset + 6 ] = tri.emissive.b * tri.emissiveIntensity;
+			data[ offset + 7 ] = tri.area;
 
 		}
 

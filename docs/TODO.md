@@ -6,10 +6,9 @@
 - [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Iridescence not producing expected colors
-- [ ] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
+- [x] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
 - [ ] transparent background + transparent / transmissive materials not working together
-- [ ] adaptive sampling ui controls not working
-- [ ] adaptive sampling is not working well in case of cornell box. Observe debug view
+- [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -28,6 +27,7 @@
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
+- [ ] Orthographic Camera Support
 
 ### Lighting & Materials
 - [ ] implement pending Physical material properties
@@ -36,7 +36,7 @@
 - [ ] Separate environment and background sampling with different textures (like Three.js)
 - [ ] Environment cube map support for HDRIs
 - [ ] DDS texture support
-- [ ] IES light support
+- [ ] IES for spotlights
 - [ ] SDF-based model rendering
 - [ ] Shadow catcher
 - [ ] Ground projection environment mapping
@@ -77,7 +77,11 @@
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling
-- [ ] Two-level BVH with coarse top-level.
+- [ ] Two-level BVH with coarse top-level
+- [ ] Bindless texture - True hardware-level bindless isn't available in WebGPU.
+- [ ] stackless BVH traversal
+- [ ] Full Disney BSDF
+- [ ] Efficient Panorama Rendering
 
 ---
 
