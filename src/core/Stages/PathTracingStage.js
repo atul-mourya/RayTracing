@@ -941,9 +941,6 @@ export class PathTracingStage extends PipelineStage {
 		this.hasPreviousAccumulated.value = 0;
 		this.currentTarget = 0;
 
-		// Emit event to reset ASVGF
-		this.emit( 'asvgf:reset' );
-
 		// Reset tile manager
 		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
 

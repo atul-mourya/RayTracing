@@ -3,6 +3,7 @@
 ## Bugs
 
 ### Critical
+- [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
 - [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Iridescence not producing expected colors
@@ -37,8 +38,9 @@
 - [ ] DDS texture support
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
-- [ ] Shadow catcher
+- [ ] Shadow catcher - blender
 - [ ] Ground projection environment mapping
+- [ ] Depth of field with support for anamorphic bokeh
 
 ### Environment
 - [ ] Add new category of environment maps - abstract (identify files and organize)
@@ -59,7 +61,7 @@
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
 ### BVH
-- [ ] BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
+- [ ] Fast BVH refit updates - blender
 - [ ] Consider PLOC for maximum performance scenarios
 - [ ] 4-way branching for GPU traversal (explored)
 
@@ -77,10 +79,12 @@
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling
 - [ ] Two-level BVH with coarse top-level
-- [ ] Bindless texture - True hardware-level bindless isn't available in WebGPU.
-- [ ] stackless BVH traversal
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
+- [ ] No Kulla-Conty or Turquin energy compensation
+- [ ] ReSTIR-based sampling techniques
+- [ ] stackless BVH traversal - slowness expected
+- [ ] Bindless texture - True hardware-level bindless isn't available in WebGPU.
 
 ---
 

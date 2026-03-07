@@ -882,10 +882,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Reset accumulation on camera change
+		// Reset accumulation on camera change (soft: preserve ASVGF temporal history)
 		if ( this.needsReset ) {
 
-			this.reset();
+			this.reset( true );
 			this.needsReset = false;
 
 		}
@@ -1017,12 +1017,20 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Resets the accumulation buffer.
+	 * @param {boolean} soft - When true (camera movement), preserves ASVGF temporal history
 	 */
-	reset() {
+	reset( soft = false ) {
 
 		if ( this.pipeline ) {
 
 			this.pipeline.reset();
+
+			// Hard reset: scene/settings changed — clear ASVGF temporal history
+			if ( ! soft ) {
+
+				this.pipeline.eventBus.emit( 'asvgf:reset' );
+
+			}
 
 		}
 

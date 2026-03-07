@@ -426,6 +426,9 @@ export class ASVGFStage extends PipelineStage {
 						const prevColor = prevData.xyz;
 						const historyLength = prevData.w;
 
+						// History confidence: 0 (fresh) → 1 (fully converged)
+						const historyConfidence = historyLength.div( maxAccumFrames ).clamp( 0.0, 1.0 );
+
 						// 3×3 neighbourhood colour clamping (variance clipping)
 						const nMin = vec3( 1e10 ).toVar();
 						const nMax = vec3( - 1e10 ).toVar();
@@ -449,15 +452,19 @@ export class ASVGFStage extends PipelineStage {
 						nMean.divAssign( 9.0 );
 
 						// Expand bounding box by variance clip factor
-						const boxExtent = nMax.sub( nMin ).mul( varianceClipU );
+						// Widen box for high-history pixels: noisy current shouldn't clamp converged previous
+						const historyExpand = float( 1.0 ).add( historyConfidence.mul( 3.0 ) );
+						const boxExtent = nMax.sub( nMin ).mul( varianceClipU ).mul( historyExpand );
 						const clampMin = nMin.sub( boxExtent );
 						const clampMax = nMax.add( boxExtent );
 						const clampedPrev = prevColor.clamp( clampMin, clampMax );
 
 						// Gradient-adaptive alpha
+						// Dampen gradient for high-history pixels: large difference is noise, not scene change
 						const gradient = textureLoad( gradientTex, coord ).x;
+						const dampedGradient = gradient.mul( float( 1.0 ).sub( historyConfidence.mul( 0.8 ) ) );
 						const effectiveAlpha = gradientAdaptiveAlpha(
-							gradient, temporalAlpha,
+							dampedGradient, temporalAlpha,
 							gradientScale, gradientMinU, gradientMaxU
 						).div( max( similarity, float( 0.1 ) ) )
 							.clamp( temporalAlpha, 1.0 );
@@ -599,8 +606,6 @@ export class ASVGFStage extends PipelineStage {
 	setupEventListeners() {
 
 		this.on( 'asvgf:reset', () => this.resetTemporalData() );
-		this.on( 'camera:moved', () => this.resetTemporalData() );
-		this.on( 'pipeline:reset', () => this.resetTemporalData() );
 
 		this.on( 'asvgf:setTemporal', ( data ) => {
 
@@ -776,7 +781,10 @@ export class ASVGFStage extends PipelineStage {
 
 	reset() {
 
-		this.resetTemporalData();
+		// Intentionally does NOT reset temporal data.
+		// ASVGF uses motion vectors to maintain temporal coherence across
+		// camera movement. Only explicit 'asvgf:reset' events (scene change,
+		// render mode switch) should clear temporal history.
 
 	}
 
