@@ -3,7 +3,6 @@
 ## Bugs
 
 ### Critical
-- [ ] zoom to cursor not working
 - [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
 - [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
@@ -11,7 +10,6 @@
 - [x] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
-- [ ] selecting and object in scene should not reset the convergence, but it does currently
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -41,6 +39,7 @@
 - [ ] implement pending Physical material properties
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
+- [ ] change the slider range of emissive mesh sampling to 0 to 100
 
 ### Materials
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
@@ -89,10 +88,10 @@
 - [ ] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
-- [ ] No Kulla-Conty or Turquin energy compensation
-- [ ] ReSTIR-based sampling techniques
+- [ ] No Kulla-Conty or Turquin energy compensation - didnt like the results, but could be worth revisiting with a more accurate implementation
+- [ ] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
 - [ ] stackless BVH traversal - slowness expected
-- [ ] Bindless texture - True hardware-level bindless isn't available in WebGPU.
+- [ ] Bindless texture - True hardware-level bindless isn't available in WebGPU. WebGPU requires explicit resource layouts for security. Shaders must declare resources like: @group(0) @binding(0) texture_2d. So you can't have an unbounded global texture table. Instead WebGPU uses: bind groups, fixed-size arrays, texture arrays
 
 ---
 
