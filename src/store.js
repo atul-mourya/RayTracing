@@ -1517,6 +1517,59 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false
 	),
 
+	// ─── ReSTIR DI ───
+	handleEnableReSTIRDIChange: handleChange(
+		val => set( { enableReSTIRDI: val } ),
+		( val, app ) => {
+
+			if ( app.restirDIStage ) app.restirDIStage.enabled = val;
+			if ( app.pathTracingStage ) app.pathTracingStage.skipFirstBounceNEE.value = val ? 1 : 0;
+
+		}
+	),
+
+	handleRestirCandidatesChange: handleChange(
+		val => set( { restirCandidates: val[ 0 ] } ),
+		( val, app ) => {
+
+			if ( app.restirDIStage ) {
+
+				app.restirDIStage.numCandidates.value = val[ 0 ];
+				app.restirDIStage.reset();
+
+			}
+
+		}
+	),
+
+	handleRestirSpatialRadiusChange: handleChange(
+		val => set( { restirSpatialRadius: val[ 0 ] } ),
+		( val, app ) => {
+
+			if ( app.restirDIStage ) {
+
+				app.restirDIStage.spatialRadius.value = val[ 0 ];
+				app.restirDIStage.reset();
+
+			}
+
+		}
+	),
+
+	handleRestirSpatialNeighborsChange: handleChange(
+		val => set( { restirSpatialNeighbors: val[ 0 ] } ),
+		( val, app ) => {
+
+			if ( app.restirDIStage ) {
+
+				app.restirDIStage.spatialNeighbors.value = val[ 0 ];
+				app.restirDIStage.reset();
+
+			}
+
+		}
+	),
+
 	// Canvas configuration handlers
 	handleConfigureForPreview: () => {
 

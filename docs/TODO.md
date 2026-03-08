@@ -3,6 +3,7 @@
 ## Bugs
 
 ### Critical
+- [ ] zoom to cursor not working
 - [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
 - [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
@@ -10,6 +11,7 @@
 - [x] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
+- [ ] selecting and object in scene should not reset the convergence, but it does currently
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -27,29 +29,34 @@
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
-- [ ] Orthographic Camera Support
 
-### Lighting & Materials
+### Camera
+- [ ] Dynamic camera addition and removal
+- [ ] Orthographic Camera Support
+- [ ] Depth of field with support for anamorphic bokeh
+- [ ] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
+
+
+### Lighting
 - [ ] implement pending Physical material properties
+- [ ] DDS texture support
+- [ ] Shadow catcher - blender
+
+### Materials
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] Area light helper toggle control
-- [ ] Separate environment and background sampling with different textures (like Three.js)
-- [ ] Environment cube map support for HDRIs
-- [ ] DDS texture support
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
-- [ ] Shadow catcher - blender
-- [ ] Ground projection environment mapping
-- [ ] Depth of field with support for anamorphic bokeh
 
 ### Environment
+- [ ] Environment cube map support for HDRIs
+- [ ] Ground projection environment mapping
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
+- [ ] Separate environment and background sampling with different textures (like Three.js)
 
 ### Scene Management
-- [ ] Dynamic camera addition and removal
 - [ ] Dynamic object addition and removal
-- [ ] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 
 ---
 
@@ -70,6 +77,7 @@
 - [ ] Memory usage tracking
 - [ ] Bottleneck identification
 - [ ] Performance regression tests
+- [ ] Remove unwanted debug modes
 
 ---
 

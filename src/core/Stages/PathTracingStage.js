@@ -330,6 +330,9 @@ export class PathTracingStage extends PipelineStage {
 		this.adaptiveSamplingMax = uniform( DEFAULT_STATE.adaptiveSamplingMax, 'int' );
 		this.fireflyThreshold = uniform( DEFAULT_STATE.fireflyThreshold, 'float' );
 
+		// ReSTIR DI integration
+		this.skipFirstBounceNEE = uniform( 0, 'int' );
+
 		// Emissive
 		this.enableEmissiveTriangleSampling = uniform( DEFAULT_STATE.enableEmissiveTriangleSampling ? 1 : 0, 'int' );
 		this.emissiveBoost = uniform( DEFAULT_STATE.emissiveBoost, 'float' );
@@ -393,6 +396,7 @@ export class PathTracingStage extends PipelineStage {
 		this.adaptiveSamplingMin.name = 'adaptiveSamplingMin';
 		this.adaptiveSamplingMax.name = 'adaptiveSamplingMax';
 		this.fireflyThreshold.name = 'fireflyThreshold';
+		this.skipFirstBounceNEE.name = 'skipFirstBounceNEE';
 		this.enableEmissiveTriangleSampling.name = 'enableEmissiveTriangleSampling';
 		this.emissiveBoost.name = 'emissiveBoost';
 		this.emissiveTriangleCount.name = 'emissiveTriangleCount';
@@ -1577,6 +1581,7 @@ export class PathTracingStage extends PipelineStage {
 			emissiveTriangleCount: this.emissiveTriangleCount,
 			emissiveTotalPower: this.emissiveTotalPower,
 			emissiveBoost: this.emissiveBoost,
+			skipFirstBounceNEE: this.skipFirstBounceNEE,
 
 			// Debug
 			debugVisScale: this.debugVisScale,

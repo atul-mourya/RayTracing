@@ -221,6 +221,12 @@ export const DEFAULT_STATE = {
 	asvgfQualityPreset: 'medium', // 'low', 'medium', 'high'
 	showAsvgfHeatmap: false, // Show ASVGF heatmap visualization
 
+	// ReSTIR DI settings
+	enableReSTIRDI: false,
+	restirCandidates: 32,
+	restirSpatialRadius: 30,
+	restirSpatialNeighbors: 5,
+
 	// Auto-exposure settings
 	autoExposure: false,
 	autoExposureKeyValue: 0.18, // Target middle gray (18% gray)

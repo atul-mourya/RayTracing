@@ -112,6 +112,11 @@ const PathTracerTab = () => {
 		asvgfDebugMode,
 		showAsvgfHeatmap,
 		denoiserStrategy,
+		// ReSTIR DI
+		enableReSTIRDI,
+		restirCandidates,
+		restirSpatialRadius,
+		restirSpatialNeighbors,
 		pixelEdgeSharpness,
 		edgeSharpenSpeed,
 		edgeThreshold,
@@ -179,6 +184,11 @@ const PathTracerTab = () => {
 		handleAsvgfDebugModeChange,
 		handleShowAsvgfHeatmapChange,
 		handleDenoiserStrategyChange,
+		// ReSTIR DI handlers
+		handleEnableReSTIRDIChange,
+		handleRestirCandidatesChange,
+		handleRestirSpatialRadiusChange,
+		handleRestirSpatialNeighborsChange,
 		handlePixelEdgeSharpnessChange,
 		handleEdgeSharpenSpeedChange,
 		handleEdgeThresholdChange,
@@ -416,6 +426,23 @@ const PathTracerTab = () => {
 						</div>
 					</>
 				)}
+			</ControlGroup>
+
+			<ControlGroup name="ReSTIR DI" defaultOpen={false}>
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable ReSTIR DI"} checked={enableReSTIRDI} onCheckedChange={handleEnableReSTIRDIChange} />
+				</div>
+				{enableReSTIRDI && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Candidates"} min={1} max={64} step={1} value={[ restirCandidates ]} onValueChange={handleRestirCandidatesChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Radius"} min={1} max={100} step={1} value={[ restirSpatialRadius ]} onValueChange={handleRestirSpatialRadiusChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Neighbors"} min={1} max={15} step={1} value={[ restirSpatialNeighbors ]} onValueChange={handleRestirSpatialNeighborsChange} />
+					</div>
+				</> )}
 			</ControlGroup>
 
 			<ControlGroup name="Denoising">

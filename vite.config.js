@@ -22,7 +22,7 @@ export default defineConfig( {
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [
 		// HTTPS so WebGPU works on remote devices (requires secure context)
-		basicSsl(),
+		// basicSsl(),
 		react( {
 			babel: {
 			  plugins: [

@@ -71,6 +71,7 @@ export class DisplayStage extends PipelineStage {
 			|| context.getTexture( 'bloom:output' )
 			|| context.getTexture( 'edgeFiltering:output' )
 			|| context.getTexture( 'asvgf:output' )
+			|| context.getTexture( 'restirDI:output' )
 			|| context.getTexture( 'pathtracer:color' );
 
 	}
