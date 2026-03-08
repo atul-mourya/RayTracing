@@ -56,6 +56,7 @@
 
 ### Scene Management
 - [ ] Dynamic object addition and removal
+- [ ] move assests to cdn and object store instead of bundling with the app
 
 ---
 
@@ -88,10 +89,10 @@
 - [ ] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
-- [ ] No Kulla-Conty or Turquin energy compensation - didnt like the results, but could be worth revisiting with a more accurate implementation
-- [ ] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
-- [ ] stackless BVH traversal - slowness expected
-- [ ] Bindless texture - True hardware-level bindless isn't available in WebGPU. WebGPU requires explicit resource layouts for security. Shaders must declare resources like: @group(0) @binding(0) texture_2d. So you can't have an unbounded global texture table. Instead WebGPU uses: bind groups, fixed-size arrays, texture arrays
+- [x] No Kulla-Conty or Turquin energy compensation - didnt like the results, but could be worth revisiting with a more accurate implementation
+- [x] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
+- [x] stackless BVH traversal - slowness expected
+- [x] Bindless texture - True hardware-level bindless isn't available in WebGPU
 
 ---
 
