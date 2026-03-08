@@ -179,7 +179,6 @@ export const pathTracerMain = ( params ) => {
 		params.emissiveTriangleCount,
 		params.emissiveTotalPower,
 		params.emissiveBoost,
-		params.skipFirstBounceNEE,
 		// Debug
 		params.debugVisScale,
 		// Accumulation
@@ -239,7 +238,6 @@ const pathTracerImpl = Fn( ( [
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
-	skipFirstBounceNEE,
 	// Debug
 	debugVisScale,
 	// Accumulation
@@ -390,7 +388,6 @@ const pathTracerImpl = Fn( ( [
 				totalTriangleCount, enableEmissiveTriangleSampling,
 				emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 				pixelCoord, resolution, frame,
-				skipFirstBounceNEE,
 			) );
 
 			sampleColor.assign( traceResult.radiance );

@@ -608,8 +608,6 @@ export const Trace = Fn( ( [
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
-	// ReSTIR DI integration
-	skipFirstBounceNEE,
 ] ) => {
 
 	const radiance = vec3( 0.0 ).toVar();
@@ -948,57 +946,53 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// 2. DIRECT LIGHTING (skip bounce 0 when ReSTIR DI is active)
-		If( skipFirstBounceNEE.equal( int( 0 ) ).or( bounceIndex.greaterThan( int( 0 ) ) ), () => {
+		// 2. DIRECT LIGHTING
+		const directLight = calculateDirectLightingUnified(
+			hitInfo.hitPoint, N, material,
+			V,
+			brdfDir, brdfPdf, brdfValue,
+			rayIndex, bounceIndex, rngState,
+			directionalLightsBuffer, numDirectionalLights,
+			areaLightsBuffer, numAreaLights,
+			pointLightsBuffer, numPointLights,
+			spotLightsBuffer, numSpotLights,
+			bvhBuffer,
+			triangleBuffer,
+			materialBuffer,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight,
+		);
 
-			const directLight = calculateDirectLightingUnified(
-				hitInfo.hitPoint, N, material,
-				V,
-				brdfDir, brdfPdf, brdfValue,
-				rayIndex, bounceIndex, rngState,
-				directionalLightsBuffer, numDirectionalLights,
-				areaLightsBuffer, numAreaLights,
-				pointLightsBuffer, numPointLights,
-				spotLightsBuffer, numSpotLights,
-				bvhBuffer,
+		radiance.addAssign( regularizePathContribution( {
+			contribution: directLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+		} ) );
+
+		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
+		If( enableEmissiveTriangleSampling.equal( int( 1 ) ).and( emissiveTriangleCount.greaterThan( int( 0 ) ) ), () => {
+
+			// Wrapper binding BVH params (EmissiveSampling expects 4-param callback)
+			const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist, rs ] ) => {
+
+				return traceShadowRay( origin, dir, maxDist, rs, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer );
+
+			} );
+
+			const emissiveLight = calculateEmissiveTriangleContribution(
+				hitInfo.hitPoint, N, V, material,
+				totalTriangleCount, bounceIndex, rngState,
+				emissiveBoost,
+				emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
 				triangleBuffer,
-				materialBuffer,
-				envTexture, environmentIntensity, envMatrix,
-				envMarginalWeights, envConditionalWeights,
-				envTotalSum, envResolution,
-				enableEnvironmentLight,
+				traceShadowRayWrapped,
+				evaluateMaterialResponse,
+				calculateRayOffset,
 			);
 
 			radiance.addAssign( regularizePathContribution( {
-				contribution: directLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+				contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
-
-			// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
-			If( enableEmissiveTriangleSampling.equal( int( 1 ) ).and( emissiveTriangleCount.greaterThan( int( 0 ) ) ), () => {
-
-				// Wrapper binding BVH params (EmissiveSampling expects 4-param callback)
-				const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist, rs ] ) => {
-
-					return traceShadowRay( origin, dir, maxDist, rs, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer );
-
-				} );
-
-				const emissiveLight = calculateEmissiveTriangleContribution(
-					hitInfo.hitPoint, N, V, material,
-					totalTriangleCount, bounceIndex, rngState,
-					emissiveBoost,
-					emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
-					triangleBuffer,
-					traceShadowRayWrapped,
-					evaluateMaterialResponse,
-					calculateRayOffset,
-				);
-
-				radiance.addAssign( regularizePathContribution( {
-					contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-				} ) );
-
-			} );
 
 		} );
 

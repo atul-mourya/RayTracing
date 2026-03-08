@@ -27,6 +27,7 @@
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
+- [ ] analyse of model optimization addtion any value
 
 ### Camera
 - [ ] Dynamic camera addition and removal
@@ -36,6 +37,7 @@
 
 
 ### Lighting
+- [ ] emissive mesh triangle sorting 
 - [ ] implement pending Physical material properties
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
@@ -82,7 +84,8 @@
 ---
 
 ## Experiments
-- [ ] Screen-space radiance caching
+- [x] Screen-space radiance caching
+- [ ] Ray-Guiding based on Octahedron Mapping CDF
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling

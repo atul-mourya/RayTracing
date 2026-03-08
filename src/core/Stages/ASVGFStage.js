@@ -5,28 +5,9 @@ import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageText
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
-import { luminance } from '../TSL/Common.js';
+import { luminance, normalDepthWeight } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
-
-/**
- * Normal/depth edge-stopping weight for temporal reprojection.
- *
- * Returns combined similarity: normalWeight * depthWeight.
- */
-const normalDepthWeight = /*@__PURE__*/ wgslFn( `
-	fn normalDepthWeight(
-		n1: vec3f, n2: vec3f,
-		d1: f32, d2: f32,
-		phiN: f32, phiD: f32
-	) -> f32 {
-
-		let normalW = pow( max( dot( n1, n2 ), 0.0 ), phiN );
-		let depthW = exp( -abs( d1 - d2 ) / max( phiD, 0.001 ) );
-		return normalW * depthW;
-
-	}
-` );
 
 /**
  * Gradient-adaptive temporal blending alpha.

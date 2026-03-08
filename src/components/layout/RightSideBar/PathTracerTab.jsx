@@ -112,11 +112,10 @@ const PathTracerTab = () => {
 		asvgfDebugMode,
 		showAsvgfHeatmap,
 		denoiserStrategy,
-		// ReSTIR DI
-		enableReSTIRDI,
-		restirCandidates,
-		restirSpatialRadius,
-		restirSpatialNeighbors,
+		// SSRC
+		ssrcTemporalAlpha,
+		ssrcSpatialRadius,
+		ssrcSpatialWeight,
 		pixelEdgeSharpness,
 		edgeSharpenSpeed,
 		edgeThreshold,
@@ -184,11 +183,10 @@ const PathTracerTab = () => {
 		handleAsvgfDebugModeChange,
 		handleShowAsvgfHeatmapChange,
 		handleDenoiserStrategyChange,
-		// ReSTIR DI handlers
-		handleEnableReSTIRDIChange,
-		handleRestirCandidatesChange,
-		handleRestirSpatialRadiusChange,
-		handleRestirSpatialNeighborsChange,
+		// SSRC handlers
+		handleSsrcTemporalAlphaChange,
+		handleSsrcSpatialRadiusChange,
+		handleSsrcSpatialWeightChange,
 		handlePixelEdgeSharpnessChange,
 		handleEdgeSharpenSpeedChange,
 		handleEdgeThresholdChange,
@@ -428,23 +426,6 @@ const PathTracerTab = () => {
 				)}
 			</ControlGroup>
 
-			<ControlGroup name="ReSTIR DI" defaultOpen={false}>
-				<div className="flex items-center justify-between">
-					<Switch label={"Enable ReSTIR DI"} checked={enableReSTIRDI} onCheckedChange={handleEnableReSTIRDIChange} />
-				</div>
-				{enableReSTIRDI && ( <>
-					<div className="flex items-center justify-between">
-						<Slider label={"Candidates"} min={1} max={64} step={1} value={[ restirCandidates ]} onValueChange={handleRestirCandidatesChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Spatial Radius"} min={1} max={100} step={1} value={[ restirSpatialRadius ]} onValueChange={handleRestirSpatialRadiusChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Spatial Neighbors"} min={1} max={15} step={1} value={[ restirSpatialNeighbors ]} onValueChange={handleRestirSpatialNeighborsChange} />
-					</div>
-				</> )}
-			</ControlGroup>
-
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
 					<Select value={denoiserStrategy} onValueChange={handleDenoiserStrategyChange}>
@@ -456,6 +437,7 @@ const PathTracerTab = () => {
 							<SelectItem value="none">None</SelectItem>
 							<SelectItem value="edgeaware">EdgeAware</SelectItem>
 							<SelectItem value="asvgf">ASVGF</SelectItem>
+							<SelectItem value="ssrc">SSRC</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
@@ -507,6 +489,18 @@ const PathTracerTab = () => {
 							</Select>
 						</div>
 					)}
+				</> )}
+
+				{denoiserStrategy === 'ssrc' && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Temporal Alpha"} min={0.01} max={0.3} step={0.01} value={[ ssrcTemporalAlpha ]} onValueChange={handleSsrcTemporalAlphaChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Radius"} min={1} max={16} step={1} value={[ ssrcSpatialRadius ]} onValueChange={handleSsrcSpatialRadiusChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Weight"} min={0} max={1} step={0.05} value={[ ssrcSpatialWeight ]} onValueChange={handleSsrcSpatialWeightChange} />
+					</div>
 				</> )}
 
 				{/* Separator before AI Denoising section */}

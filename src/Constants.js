@@ -221,11 +221,10 @@ export const DEFAULT_STATE = {
 	asvgfQualityPreset: 'medium', // 'low', 'medium', 'high'
 	showAsvgfHeatmap: false, // Show ASVGF heatmap visualization
 
-	// ReSTIR DI settings
-	enableReSTIRDI: false,
-	restirCandidates: 32,
-	restirSpatialRadius: 30,
-	restirSpatialNeighbors: 5,
+	// SSRC settings
+	ssrcTemporalAlpha: 0.1,
+	ssrcSpatialRadius: 4,
+	ssrcSpatialWeight: 0.4,
 
 	// Auto-exposure settings
 	autoExposure: false,

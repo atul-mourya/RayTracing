@@ -51,7 +51,7 @@ export default class TreeletOptimizer {
 	generateTopologies( n ) {
 
 		if ( n === 1 ) return [ 0 ];
-		if ( n === 2 ) return [ [ 0, 1 ] ];
+		if ( n === 2 ) return [[ 0, 1 ]];
 
 		const results = [];
 

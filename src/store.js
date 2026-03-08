@@ -827,6 +827,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			if ( app.varianceEstimationStage ) app.varianceEstimationStage.enabled = false;
 			if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = false;
 			if ( app.edgeAwareFilteringStage ) app.edgeAwareFilteringStage.setFilteringEnabled( false );
+			if ( app.ssrcStage ) app.ssrcStage.enabled = false;
 
 			// Enable the selected real-time denoiser
 			switch ( val ) {
@@ -843,6 +844,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'variance:output' );
 						ctx.removeTexture( 'bilateralFiltering:output' );
 						ctx.removeTexture( 'edgeFiltering:output' );
+						ctx.removeTexture( 'ssrc:output' );
 
 					}
 
@@ -850,11 +852,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				case 'asvgf': {
 
-					// Clear stale EdgeAware output so DisplayStage picks ASVGF output
+					// Clear stale EdgeAware and SSRC outputs so DisplayStage picks ASVGF output
 					if ( app.pipeline?.context ) {
 
 						const ctx = app.pipeline.context;
 						ctx.removeTexture( 'edgeFiltering:output' );
+						ctx.removeTexture( 'ssrc:output' );
 
 					}
 
@@ -876,6 +879,26 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				}
 
+				case 'ssrc': {
+
+					// Clear stale EdgeAware and ASVGF outputs so DisplayStage picks SSRC output
+					if ( app.pipeline?.context ) {
+
+						const ctx = app.pipeline.context;
+						ctx.removeTexture( 'edgeFiltering:output' );
+						ctx.removeTexture( 'asvgf:output' );
+						ctx.removeTexture( 'asvgf:temporalColor' );
+						ctx.removeTexture( 'asvgf:variance' );
+						ctx.removeTexture( 'variance:output' );
+						ctx.removeTexture( 'bilateralFiltering:output' );
+
+					}
+
+					if ( app.ssrcStage ) app.ssrcStage.enabled = true;
+					break;
+
+				}
+
 				case 'edgeaware':
 				default:
 					app.edgeAwareFilteringStage.setFilteringEnabled( true );
@@ -889,6 +912,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 						ctx.removeTexture( 'variance:output' );
 						ctx.removeTexture( 'bilateralFiltering:output' );
 						ctx.removeTexture( 'edgeFiltering:output' );
+						ctx.removeTexture( 'ssrc:output' );
 
 					}
 
@@ -951,6 +975,25 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		},
 		true // Enable reset to see changes immediately
+	),
+
+	// ─── SSRC handlers ───
+	handleSsrcTemporalAlphaChange: handleChange(
+		val => set( { ssrcTemporalAlpha: val[ 0 ] } ),
+		( val, app ) => app.ssrcStage?.updateParameters( { temporalAlpha: val[ 0 ] } ),
+		false
+	),
+
+	handleSsrcSpatialRadiusChange: handleChange(
+		val => set( { ssrcSpatialRadius: val[ 0 ] } ),
+		( val, app ) => app.ssrcStage?.updateParameters( { spatialRadius: val[ 0 ] } ),
+		false
+	),
+
+	handleSsrcSpatialWeightChange: handleChange(
+		val => set( { ssrcSpatialWeight: val[ 0 ] } ),
+		( val, app ) => app.ssrcStage?.updateParameters( { spatialWeight: val[ 0 ] } ),
+		false
 	),
 
 	handleDebugThresholdChange: handleChange(
@@ -1515,59 +1558,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
 		( val, app ) => app.asvgfStage?.updateParameters( { atrousIterations: val[ 0 ] } ),
 		false
-	),
-
-	// ─── ReSTIR DI ───
-	handleEnableReSTIRDIChange: handleChange(
-		val => set( { enableReSTIRDI: val } ),
-		( val, app ) => {
-
-			if ( app.restirDIStage ) app.restirDIStage.enabled = val;
-			if ( app.pathTracingStage ) app.pathTracingStage.skipFirstBounceNEE.value = val ? 1 : 0;
-
-		}
-	),
-
-	handleRestirCandidatesChange: handleChange(
-		val => set( { restirCandidates: val[ 0 ] } ),
-		( val, app ) => {
-
-			if ( app.restirDIStage ) {
-
-				app.restirDIStage.numCandidates.value = val[ 0 ];
-				app.restirDIStage.reset();
-
-			}
-
-		}
-	),
-
-	handleRestirSpatialRadiusChange: handleChange(
-		val => set( { restirSpatialRadius: val[ 0 ] } ),
-		( val, app ) => {
-
-			if ( app.restirDIStage ) {
-
-				app.restirDIStage.spatialRadius.value = val[ 0 ];
-				app.restirDIStage.reset();
-
-			}
-
-		}
-	),
-
-	handleRestirSpatialNeighborsChange: handleChange(
-		val => set( { restirSpatialNeighbors: val[ 0 ] } ),
-		( val, app ) => {
-
-			if ( app.restirDIStage ) {
-
-				app.restirDIStage.spatialNeighbors.value = val[ 0 ];
-				app.restirDIStage.reset();
-
-			}
-
-		}
 	),
 
 	// Canvas configuration handlers

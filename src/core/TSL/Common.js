@@ -412,3 +412,20 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 	} );
 
 } );
+
+// ── Edge-stopping weight (normal + depth) ──────────────────────────────────
+// Used by ASVGF and SSRC for temporal/spatial reprojection edge-stopping.
+
+export const normalDepthWeight = /*@__PURE__*/ wgslFn( `
+	fn normalDepthWeight(
+		n1: vec3f, n2: vec3f,
+		d1: f32, d2: f32,
+		phiN: f32, phiD: f32
+	) -> f32 {
+
+		let normalW = pow( clamp( dot( n1, n2 ), 0.0, 1.0 ), phiN );
+		let depthW = exp( -abs( d1 - d2 ) / max( phiD, 0.001 ) );
+		return normalW * depthW;
+
+	}
+` );

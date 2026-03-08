@@ -3,7 +3,7 @@ import { uniform } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher, Vector3,
 	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils, Color,
-	Mesh, CircleGeometry, MeshPhysicalMaterial
+	Mesh, CircleGeometry, MeshPhysicalMaterial, TimestampQuery
 } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -19,7 +19,7 @@ import { AdaptiveSamplingStage } from './Stages/AdaptiveSamplingStage.js';
 import { EdgeAwareFilteringStage } from './Stages/EdgeAwareFilteringStage.js';
 import { AutoExposureStage } from './Stages/AutoExposureStage.js';
 import { TileHighlightStage } from './Stages/TileHighlightStage.js';
-import { ReSTIRDIStage } from './Stages/ReSTIRDIStage.js';
+import { SSRCStage } from './Stages/SSRCStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
 import { DEFAULT_STATE } from '../Constants.js';
@@ -218,10 +218,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.motionVectorStage = new MotionVectorStage( this.renderer, this.camera, {
 			pathTracingStage: this.pathTracingStage
 		} );
-		this.restirDIStage = new ReSTIRDIStage( this.renderer, {
-			enabled: false,
-			pathTracingStage: this.pathTracingStage,
-		} );
+		this.ssrcStage = new SSRCStage( this.renderer, { enabled: false } );
 		this.asvgfStage = new ASVGFStage( this.renderer, { enabled: false } );
 		this.varianceEstimationStage = new VarianceEstimationStage( this.renderer, { enabled: false } );
 		this.bilateralFilteringStage = new BilateralFilteringStage( this.renderer, { enabled: false } );
@@ -278,7 +275,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.pathTracingStage );
 		this.pipeline.addStage( this.normalDepthStage );
 		this.pipeline.addStage( this.motionVectorStage );
-		this.pipeline.addStage( this.restirDIStage );
+		this.pipeline.addStage( this.ssrcStage );
 		this.pipeline.addStage( this.asvgfStage );
 		this.pipeline.addStage( this.varianceEstimationStage );
 		this.pipeline.addStage( this.bilateralFilteringStage );
@@ -968,7 +965,8 @@ export class PathTracerApp extends EventDispatcher {
 		this.stats?.update();
 
 		// Resolve GPU timestamp queries to prevent query pool overflow
-		this.renderer.resolveTimestampsAsync?.();
+		this.renderer.resolveTimestampsAsync?.( TimestampQuery.RENDER );
+		this.renderer.resolveTimestampsAsync?.( TimestampQuery.COMPUTE );
 
 	}
 
