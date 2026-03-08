@@ -227,6 +227,12 @@ export const DEFAULT_STATE = {
 	restirSpatialRadius: 30,
 	restirSpatialNeighbors: 5,
 
+	// ReSTIR GI settings
+	enableReSTIRGI: false,
+	restirGISpatialRadius: 30,
+	restirGISpatialNeighbors: 3,
+	restirGIDebugMode: 0, // 0=combined, 1=GI only, 2=radiance, 3=weight heatmap
+
 	// Auto-exposure settings
 	autoExposure: false,
 	autoExposureKeyValue: 0.18, // Target middle gray (18% gray)

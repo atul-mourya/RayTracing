@@ -61,7 +61,7 @@ const EMISSIVE_STRIDE = 2;
 const TWO_PI = Math.PI * 2;
 const WG_SIZE = 8;
 const TEMPORAL_M_CLAMP = 20; // Clamp previous M to 20× current to prevent darkening
-const REC709_LUM = vec3( 0.2126, 0.7152, 0.0722 );
+export const REC709_LUM = vec3( 0.2126, 0.7152, 0.0722 );
 
 // ================================================================================
 // HELPER FUNCTIONS
@@ -71,7 +71,7 @@ const REC709_LUM = vec3( 0.2126, 0.7152, 0.0722 );
  * Reconstruct world position from G-buffer depth and camera matrices.
  * Mat4 uniforms MUST be passed as Fn parameters for bracket-indexing support.
  */
-const reconstructWorldPos = Fn( ( [ gx, gy, linearDepth, resW, resH, cwm, cpi ] ) => {
+export const reconstructWorldPos = Fn( ( [ gx, gy, linearDepth, resW, resH, cwm, cpi ] ) => {
 
 	const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
 	// Y-flip: compute shaders use pixel coords where y=0 at top
@@ -110,7 +110,7 @@ const computeTargetPdf = Fn( ( [ worldPos, surfaceNormal, samplePos, emission ] 
 /**
  * Initialize RNG state for a pixel, deterministic per frame + pass.
  */
-const initRNG = ( gx, gy, resW, frameCount, passOffset ) => {
+export const initRNG = ( gx, gy, resW, frameCount, passOffset ) => {
 
 	const pixelIdx = uint( gy ).mul( uint( resW ) ).add( uint( gx ) );
 	const seed = pixelIdx.mul( uint( 3 ) ).add( uint( passOffset ) ).add( uint( frameCount ).mul( uint( 131071 ) ) );

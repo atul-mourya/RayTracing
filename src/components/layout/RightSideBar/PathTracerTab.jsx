@@ -117,6 +117,11 @@ const PathTracerTab = () => {
 		restirCandidates,
 		restirSpatialRadius,
 		restirSpatialNeighbors,
+		// ReSTIR GI
+		enableReSTIRGI,
+		restirGISpatialRadius,
+		restirGISpatialNeighbors,
+		restirGIDebugMode,
 		pixelEdgeSharpness,
 		edgeSharpenSpeed,
 		edgeThreshold,
@@ -189,6 +194,11 @@ const PathTracerTab = () => {
 		handleRestirCandidatesChange,
 		handleRestirSpatialRadiusChange,
 		handleRestirSpatialNeighborsChange,
+		// ReSTIR GI handlers
+		handleEnableReSTIRGIChange,
+		handleRestirGISpatialRadiusChange,
+		handleRestirGISpatialNeighborsChange,
+		handleRestirGIDebugModeChange,
 		handlePixelEdgeSharpnessChange,
 		handleEdgeSharpenSpeedChange,
 		handleEdgeThresholdChange,
@@ -441,6 +451,35 @@ const PathTracerTab = () => {
 					</div>
 					<div className="flex items-center justify-between">
 						<Slider label={"Spatial Neighbors"} min={1} max={15} step={1} value={[ restirSpatialNeighbors ]} onValueChange={handleRestirSpatialNeighborsChange} />
+					</div>
+				</> )}
+			</ControlGroup>
+
+			<ControlGroup name="ReSTIR GI" defaultOpen={false}>
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable ReSTIR GI"} checked={enableReSTIRGI} onCheckedChange={handleEnableReSTIRGIChange} />
+				</div>
+				{enableReSTIRGI && ( <>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Radius"} min={1} max={100} step={1} value={[ restirGISpatialRadius ]} onValueChange={handleRestirGISpatialRadiusChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider label={"Spatial Neighbors"} min={1} max={10} step={1} value={[ restirGISpatialNeighbors ]} onValueChange={handleRestirGISpatialNeighborsChange} />
+					</div>
+					<div className="flex items-center justify-between">
+						<Select value={String( restirGIDebugMode )} onValueChange={handleRestirGIDebugModeChange}>
+							<span className="opacity-50 text-xs truncate">Debug View</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="0">Combined</SelectItem>
+								<SelectItem value="1">GI Only</SelectItem>
+								<SelectItem value="2">Radiance</SelectItem>
+								<SelectItem value="3">Weight Map</SelectItem>
+								<SelectItem value="4">G-Buffer Normal</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
 				</> )}
 			</ControlGroup>

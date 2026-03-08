@@ -20,6 +20,7 @@ import { EdgeAwareFilteringStage } from './Stages/EdgeAwareFilteringStage.js';
 import { AutoExposureStage } from './Stages/AutoExposureStage.js';
 import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { ReSTIRDIStage } from './Stages/ReSTIRDIStage.js';
+import { ReSTIRGIStage } from './Stages/ReSTIRGIStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
 import { DEFAULT_STATE } from '../Constants.js';
@@ -221,6 +222,10 @@ export class PathTracerApp extends EventDispatcher {
 			enabled: false,
 			pathTracingStage: this.pathTracingStage,
 		} );
+		this.restirGIStage = new ReSTIRGIStage( this.renderer, {
+			enabled: false,
+			pathTracingStage: this.pathTracingStage,
+		} );
 		this.asvgfStage = new ASVGFStage( this.renderer, { enabled: false } );
 		this.varianceEstimationStage = new VarianceEstimationStage( this.renderer, { enabled: false } );
 		this.bilateralFilteringStage = new BilateralFilteringStage( this.renderer, { enabled: false } );
@@ -278,6 +283,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.normalDepthStage );
 		this.pipeline.addStage( this.motionVectorStage );
 		this.pipeline.addStage( this.restirDIStage );
+		this.pipeline.addStage( this.restirGIStage );
 		this.pipeline.addStage( this.asvgfStage );
 		this.pipeline.addStage( this.varianceEstimationStage );
 		this.pipeline.addStage( this.bilateralFilteringStage );

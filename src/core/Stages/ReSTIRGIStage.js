@@ -1,24 +1,24 @@
-// ReSTIR DI Stage — Reservoir-based Spatiotemporal Importance Resampling for Direct Illumination
+// ReSTIR GI Stage — Reservoir-based Spatiotemporal Importance Resampling for Global Illumination
 // Compute-based pipeline stage running 3 passes:
-//   Pass 1: Candidate generation + temporal reuse → ReservoirA
+//   Pass 1: Initial BRDF ray + secondary shading + temporal reuse → ReservoirA
 //   Pass 2: Spatial reuse → ReservoirB
-//   Pass 3: Final shading (shadow ray + Lambertian) → output color
+//   Pass 3: Final shading (visibility + Lambertian) → output color
 
 import { uniform } from 'three/tsl';
 import { StorageTexture, TextureNode } from 'three/webgpu';
 import { FloatType, HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import {
-	buildCandidateGenAndTemporalCompute,
-	buildSpatialReuseCompute,
-	buildFinalShadingCompute,
-} from '../TSL/ReSTIRDI.js';
+	buildGIInitialAndTemporalCompute,
+	buildGISpatialReuseCompute,
+	buildGIFinalShadingCompute,
+} from '../TSL/ReSTIRGI.js';
 
-export class ReSTIRDIStage extends PipelineStage {
+export class ReSTIRGIStage extends PipelineStage {
 
 	constructor( renderer, options = {} ) {
 
-		super( 'ReSTIRDI', {
+		super( 'ReSTIRGI', {
 			...options,
 			executionMode: StageExecutionMode.PER_CYCLE,
 		} );
@@ -30,37 +30,43 @@ export class ReSTIRDIStage extends PipelineStage {
 		this.resW = uniform( 1 );
 		this.resH = uniform( 1 );
 		this.frameCount = uniform( 0, 'int' );
-		this.numCandidates = uniform( options.numCandidates ?? 32, 'int' );
 		this.spatialRadius = uniform( options.spatialRadius ?? 30.0 );
-		this.spatialNeighbors = uniform( options.spatialNeighbors ?? 5, 'int' );
+		this.spatialNeighbors = uniform( options.spatialNeighbors ?? 3, 'int' );
 		this.normalThreshold = uniform( 0.906 ); // cos(25°)
 		this.depthThreshold = uniform( 0.1 );
+		this.debugMode = uniform( 0, 'int' ); // 0=combined, 1=GI only, 2=radiance, 3=weight
 
-		// ─── Input TextureNodes (from pipeline context, assigned at render time) ───
+		// ─── Input TextureNodes (from pipeline context) ───
 		this._normalDepthTexNode = new TextureNode();
 		this._albedoTexNode = new TextureNode();
 		this._motionTexNode = new TextureNode();
+		this._pathTracerTexNode = new TextureNode();
 
-		// Read-side TextureNode wrappers for StorageTextures (ping-pong reads)
-		this._readPrevSampleTexNode = new TextureNode(); // reads ReservoirB sample (prev frame)
-		this._readPrevWeightTexNode = new TextureNode(); // reads ReservoirB weight (prev frame)
-		this._readASampleTexNode = new TextureNode(); // reads ReservoirA sample (for spatial)
-		this._readAWeightTexNode = new TextureNode(); // reads ReservoirA weight (for spatial)
-		this._readBSampleTexNode = new TextureNode(); // reads ReservoirB sample (for shading)
-		this._readBWeightTexNode = new TextureNode(); // reads ReservoirB weight (for shading)
+		// Read-side TextureNode wrappers for StorageTextures
+		this._readPrevSampleTexNode = new TextureNode();
+		this._readPrevRadianceTexNode = new TextureNode();
+		this._readPrevWeightTexNode = new TextureNode();
+		this._readASampleTexNode = new TextureNode();
+		this._readARadianceTexNode = new TextureNode();
+		this._readAWeightTexNode = new TextureNode();
+		this._readBSampleTexNode = new TextureNode();
+		this._readBRadianceTexNode = new TextureNode();
+		this._readBWeightTexNode = new TextureNode();
 
 		// ─── StorageTextures ───
-		const w = 1, h = 1; // Resized on first render
+		const w = 1, h = 1;
 
 		// ReservoirA (intermediate: written by Pass 1, read by Pass 2)
 		this._reservoirASampleTex = this._createStorageTex( w, h, FloatType );
+		this._reservoirARadianceTex = this._createStorageTex( w, h, HalfFloatType );
 		this._reservoirAWeightTex = this._createStorageTex( w, h, HalfFloatType );
 
-		// ReservoirB (final output + temporal prev: written by Pass 2, read by Pass 1 next frame)
+		// ReservoirB (final + temporal prev: written by Pass 2, read by Pass 1 next frame)
 		this._reservoirBSampleTex = this._createStorageTex( w, h, FloatType );
+		this._reservoirBRadianceTex = this._createStorageTex( w, h, HalfFloatType );
 		this._reservoirBWeightTex = this._createStorageTex( w, h, HalfFloatType );
 
-		// Output color (written by Pass 3)
+		// Output color
 		this._outputTex = this._createStorageTex( w, h, HalfFloatType, LinearFilter );
 
 		// ─── State ───
@@ -69,7 +75,6 @@ export class ReSTIRDIStage extends PipelineStage {
 		this._dispatchX = 1;
 		this._dispatchY = 1;
 
-		// Compute nodes (built lazily after scene data loads)
 		this._pass1Node = null;
 		this._pass2Node = null;
 		this._pass3Node = null;
@@ -91,15 +96,14 @@ export class ReSTIRDIStage extends PipelineStage {
 
 		if ( ! this.enabled ) {
 
-			context.removeTexture( 'restirDI:output' );
+			context.removeTexture( 'restirGI:output' );
 			return;
 
 		}
 
-		// Lazy compile: wait for scene data
 		if ( ! this._ensureCompiled() ) return;
 
-		// Auto-resize if needed
+		// Auto-resize
 		const colorTex = context.getTexture( 'pathtracer:color' );
 		if ( colorTex?.image ) {
 
@@ -113,7 +117,7 @@ export class ReSTIRDIStage extends PipelineStage {
 
 		}
 
-		// Update input texture nodes from context
+		// Update input textures from context
 		const normalDepthTex = context.getTexture( 'pathtracer:normalDepth' );
 		const albedoTex = context.getTexture( 'pathtracer:albedo' );
 		const motionTex = context.getTexture( 'motionVector:screenSpace' );
@@ -123,12 +127,13 @@ export class ReSTIRDIStage extends PipelineStage {
 		this._normalDepthTexNode.value = normalDepthTex;
 		if ( albedoTex ) this._albedoTexNode.value = albedoTex;
 		if ( motionTex ) this._motionTexNode.value = motionTex;
+		if ( colorTex ) this._pathTracerTexNode.value = colorTex;
 
-		// Update frame counter
 		this.frameCount.value = this._frameIndex;
 
 		// Force-compile on first render AFTER TextureNode values are set.
-		// Matches ASVGFStage pattern: compile with real texture bindings.
+		// Matches ASVGFStage pattern: compile with real texture bindings
+		// so the WebGPU backend generates distinct bind group entries.
 		if ( ! this._compiled ) {
 
 			this.renderer.compute( this._pass1Node );
@@ -139,29 +144,39 @@ export class ReSTIRDIStage extends PipelineStage {
 
 		}
 
-		// ─── Pass 1: Candidate Generation + Temporal Reuse ───
-		// Read previous frame's ReservoirB
+		// ─── Pass 1: Initial Sample + Temporal Reuse ───
 		this._readPrevSampleTexNode.value = this._reservoirBSampleTex;
+		this._readPrevRadianceTexNode.value = this._reservoirBRadianceTex;
 		this._readPrevWeightTexNode.value = this._reservoirBWeightTex;
 
 		this.renderer.compute( this._pass1Node );
 
 		// ─── Pass 2: Spatial Reuse ───
-		// Read current frame's ReservoirA
 		this._readASampleTexNode.value = this._reservoirASampleTex;
+		this._readARadianceTexNode.value = this._reservoirARadianceTex;
 		this._readAWeightTexNode.value = this._reservoirAWeightTex;
 
 		this.renderer.compute( this._pass2Node );
 
 		// ─── Pass 3: Final Shading ───
-		// Read final ReservoirB (spatial output)
 		this._readBSampleTexNode.value = this._reservoirBSampleTex;
+		this._readBRadianceTexNode.value = this._reservoirBRadianceTex;
 		this._readBWeightTexNode.value = this._reservoirBWeightTex;
 
 		this.renderer.compute( this._pass3Node );
 
-		// Publish output
-		context.setTexture( 'restirDI:output', this._outputTex );
+		if ( this.debugMode.value === 0 ) {
+
+			// Combined mode: overwrite pathtracer:color so ASVGF denoises the combined result
+			context.setTexture( 'pathtracer:color', this._outputTex );
+			context.removeTexture( 'restirGI:output' );
+
+		} else {
+
+			// Debug mode: bypass denoiser, show raw debug output
+			context.setTexture( 'restirGI:output', this._outputTex );
+
+		}
 
 		this._frameIndex ++;
 
@@ -178,8 +193,10 @@ export class ReSTIRDIStage extends PipelineStage {
 		if ( width < 1 || height < 1 ) return;
 
 		this._reservoirASampleTex.setSize( width, height );
+		this._reservoirARadianceTex.setSize( width, height );
 		this._reservoirAWeightTex.setSize( width, height );
 		this._reservoirBSampleTex.setSize( width, height );
+		this._reservoirBRadianceTex.setSize( width, height );
 		this._reservoirBWeightTex.setSize( width, height );
 		this._outputTex.setSize( width, height );
 
@@ -200,8 +217,10 @@ export class ReSTIRDIStage extends PipelineStage {
 	dispose() {
 
 		this._reservoirASampleTex.dispose();
+		this._reservoirARadianceTex.dispose();
 		this._reservoirAWeightTex.dispose();
 		this._reservoirBSampleTex.dispose();
+		this._reservoirBRadianceTex.dispose();
 		this._reservoirBWeightTex.dispose();
 		this._outputTex.dispose();
 
@@ -230,7 +249,7 @@ export class ReSTIRDIStage extends PipelineStage {
 
 	/**
 	 * Lazy compilation: build compute nodes once PathTracingStage has valid buffer data.
-	 * Returns true if compiled and ready.
+	 * Returns true if ready (compute nodes built, and either compiled or ready to compile).
 	 */
 	_ensureCompiled() {
 
@@ -239,7 +258,6 @@ export class ReSTIRDIStage extends PipelineStage {
 		const pt = this.pathTracingStage;
 		if ( ! pt ) return false;
 
-		// Wait for scene data to load (storage nodes are null until then)
 		if ( ! pt.bvhStorageNode || ! pt.triangleStorageNode || ! pt.materialStorageNode ) {
 
 			return false;
@@ -250,20 +268,24 @@ export class ReSTIRDIStage extends PipelineStage {
 
 			// Pre-assign read-side TextureNodes to actual StorageTextures BEFORE
 			// building compute nodes — gives each node a unique texture reference
-			// so the WebGPU backend generates distinct bindings.
+			// so the WebGPU backend generates distinct bindings (not deduplicated).
 			this._readPrevSampleTexNode.value = this._reservoirBSampleTex;
+			this._readPrevRadianceTexNode.value = this._reservoirBRadianceTex;
 			this._readPrevWeightTexNode.value = this._reservoirBWeightTex;
 			this._readASampleTexNode.value = this._reservoirASampleTex;
+			this._readARadianceTexNode.value = this._reservoirARadianceTex;
 			this._readAWeightTexNode.value = this._reservoirAWeightTex;
 			this._readBSampleTexNode.value = this._reservoirBSampleTex;
+			this._readBRadianceTexNode.value = this._reservoirBRadianceTex;
 			this._readBWeightTexNode.value = this._reservoirBWeightTex;
 
 			this._buildComputeNodes();
 
 		}
 
-		// Warm-up compile deferred to render() — needs input TextureNode
-		// values from the pipeline context first (same pattern as ASVGFStage).
+		// Warm-up compile is deferred to render() — needs input TextureNode
+		// values (normalDepth, albedo, etc.) from the pipeline context first.
+		// See the ASVGF pattern: compile AFTER setting TextureNode values.
 		return true;
 
 	}
@@ -272,18 +294,22 @@ export class ReSTIRDIStage extends PipelineStage {
 
 		const pt = this.pathTracingStage;
 
-		// ─── Pass 1: Candidate Gen + Temporal ───
-		const pass1Fn = buildCandidateGenAndTemporalCompute( {
+		// ─── Pass 1: Initial Sample + Temporal ───
+		const pass1Fn = buildGIInitialAndTemporalCompute( {
 			normalDepthTexNode: this._normalDepthTexNode,
 			motionTexNode: this._motionTexNode,
 			prevSampleTexNode: this._readPrevSampleTexNode,
+			prevRadianceTexNode: this._readPrevRadianceTexNode,
 			prevWeightTexNode: this._readPrevWeightTexNode,
 			reservoirASampleTex: this._reservoirASampleTex,
+			reservoirARadianceTex: this._reservoirARadianceTex,
 			reservoirAWeightTex: this._reservoirAWeightTex,
+			bvhBuffer: pt.bvhStorageNode,
+			triangleBuffer: pt.triangleStorageNode,
+			materialBuffer: pt.materialStorageNode,
 			emissiveTriBuffer: pt.emissiveTriangleStorageNode,
 			emissiveTriCount: pt.emissiveTriangleCount,
 			emissivePower: pt.emissiveTotalPower,
-			triangleBuffer: pt.triangleStorageNode,
 			dirLightsBuffer: pt.directionalLightsBufferNode,
 			numDirLights: pt.numDirectionalLights,
 			areaLightsBuffer: pt.areaLightsBufferNode,
@@ -297,7 +323,6 @@ export class ReSTIRDIStage extends PipelineStage {
 			resW: this.resW,
 			resH: this.resH,
 			frameCount: this.frameCount,
-			numCandidates: this.numCandidates,
 		} );
 
 		this._pass1Node = pass1Fn().compute(
@@ -306,11 +331,13 @@ export class ReSTIRDIStage extends PipelineStage {
 		);
 
 		// ─── Pass 2: Spatial Reuse ───
-		const pass2Fn = buildSpatialReuseCompute( {
+		const pass2Fn = buildGISpatialReuseCompute( {
 			normalDepthTexNode: this._normalDepthTexNode,
 			readSampleTexNode: this._readASampleTexNode,
+			readRadianceTexNode: this._readARadianceTexNode,
 			readWeightTexNode: this._readAWeightTexNode,
 			reservoirBSampleTex: this._reservoirBSampleTex,
+			reservoirBRadianceTex: this._reservoirBRadianceTex,
 			reservoirBWeightTex: this._reservoirBWeightTex,
 			cameraWorldMatrix: pt.cameraWorldMatrix,
 			cameraProjInverse: pt.cameraProjectionMatrixInverse,
@@ -329,25 +356,23 @@ export class ReSTIRDIStage extends PipelineStage {
 		);
 
 		// ─── Pass 3: Final Shading ───
-		const pass3Fn = buildFinalShadingCompute( {
+		const pass3Fn = buildGIFinalShadingCompute( {
 			normalDepthTexNode: this._normalDepthTexNode,
 			albedoTexNode: this._albedoTexNode,
+			pathTracerTexNode: this._pathTracerTexNode,
 			finalSampleTexNode: this._readBSampleTexNode,
+			finalRadianceTexNode: this._readBRadianceTexNode,
 			finalWeightTexNode: this._readBWeightTexNode,
 			outputTex: this._outputTex,
 			bvhBuffer: pt.bvhStorageNode,
 			triangleBuffer: pt.triangleStorageNode,
 			materialBuffer: pt.materialStorageNode,
-			emissiveTriBuffer: pt.emissiveTriangleStorageNode,
-			dirLightsBuffer: pt.directionalLightsBufferNode,
-			areaLightsBuffer: pt.areaLightsBufferNode,
-			pointLightsBuffer: pt.pointLightsBufferNode,
-			spotLightsBuffer: pt.spotLightsBufferNode,
 			cameraWorldMatrix: pt.cameraWorldMatrix,
 			cameraProjInverse: pt.cameraProjectionMatrixInverse,
 			resW: this.resW,
 			resH: this.resH,
 			frameCount: this.frameCount,
+			debugMode: this.debugMode,
 		} );
 
 		this._pass3Node = pass3Fn().compute(

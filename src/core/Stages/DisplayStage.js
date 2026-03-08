@@ -69,6 +69,7 @@ export class DisplayStage extends PipelineStage {
 
 		return context.getTexture( 'tileHighlight:output' )
 			|| context.getTexture( 'bloom:output' )
+			|| context.getTexture( 'restirGI:output' ) // debug views bypass denoiser
 			|| context.getTexture( 'edgeFiltering:output' )
 			|| context.getTexture( 'asvgf:output' )
 			|| context.getTexture( 'restirDI:output' )

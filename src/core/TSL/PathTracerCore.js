@@ -608,8 +608,8 @@ export const Trace = Fn( ( [
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
-	// ReSTIR DI integration
-	skipFirstBounceNEE,
+	// ReSTIR DI / GI integration
+	skipFirstBounceNEE, skipFirstBounceIndirect,
 ] ) => {
 
 	const radiance = vec3( 0.0 ).toVar();
@@ -948,8 +948,11 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// 2. DIRECT LIGHTING (skip bounce 0 when ReSTIR DI is active)
+		// 2. DIRECT LIGHTING
+		// Skip bounce 0 when ReSTIR DI is active (handles direct illumination)
+		// Skip bounce 1 when ReSTIR GI is active (handles first-bounce indirect)
 		If( skipFirstBounceNEE.equal( int( 0 ) ).or( bounceIndex.greaterThan( int( 0 ) ) ), () => {
+		If( skipFirstBounceIndirect.equal( int( 0 ) ).or( bounceIndex.notEqual( int( 1 ) ) ), () => {
 
 			const directLight = calculateDirectLightingUnified(
 				hitInfo.hitPoint, N, material,
@@ -1000,7 +1003,8 @@ export const Trace = Fn( ( [
 
 			} );
 
-		} );
+		} ); // end skipFirstBounceIndirect guard
+		} ); // end skipFirstBounceNEE guard
 
 		// Get importance sampling info with caching
 		If( psWeightsComputed.not().or( bounceIndex.equal( int( 0 ) ) ), () => {
