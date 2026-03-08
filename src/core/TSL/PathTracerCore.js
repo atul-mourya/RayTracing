@@ -97,10 +97,11 @@ import {
 	sampleGGXVNDF,
 } from './MaterialSampling.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
-import { calculateDirectLightingUnified } from './LightsSampling.js';
+import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
 import { IndirectLightingResult } from './LightsCore.js';
-import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf } from './EmissiveSampling.js';
+import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, EmissiveSample } from './EmissiveSampling.js';
+import { sampleLightBVHTriangle } from './LightBVHSampling.js';
 import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
 import { traverseBVHShadow } from './BVHTraversal.js';
 
@@ -606,6 +607,7 @@ export const Trace = Fn( ( [
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
+	lightBVHBuffer, lightBVHNodeCount,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
 ] ) => {
@@ -979,20 +981,77 @@ export const Trace = Fn( ( [
 
 			} );
 
-			const emissiveLight = calculateEmissiveTriangleContribution(
-				hitInfo.hitPoint, N, V, material,
-				totalTriangleCount, bounceIndex, rngState,
-				emissiveBoost,
-				emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
-				triangleBuffer,
-				traceShadowRayWrapped,
-				evaluateMaterialResponse,
-				calculateRayOffset,
-			);
+			If( lightBVHNodeCount.greaterThan( int( 0 ) ), () => {
 
-			radiance.addAssign( regularizePathContribution( {
-				contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-			} ) );
+				// Use Light BVH for spatially-aware importance sampling
+				const emissiveSample = EmissiveSample.wrap( sampleLightBVHTriangle(
+					hitInfo.hitPoint, N,
+					rngState,
+					lightBVHBuffer, lightBVHNodeCount,
+					emissiveTriangleBuffer,
+					triangleBuffer,
+				) );
+
+				// Skip for very rough diffuse surfaces on secondary bounces
+				const skip = bounceIndex.greaterThan( int( 1 ) )
+					.and( material.roughness.greaterThan( 0.9 ) )
+					.and( material.metalness.lessThan( 0.1 ) );
+
+				If( skip.not().and( emissiveSample.valid ).and( emissiveSample.pdf.greaterThan( 0.0 ) ), () => {
+
+					const NoL = max( float( 0.0 ), dot( N, emissiveSample.direction ) );
+
+					If( NoL.greaterThan( 0.0 ), () => {
+
+						const rayOffset = calculateRayOffset( hitInfo.hitPoint, N, material );
+						const rayOrigin = hitInfo.hitPoint.add( rayOffset );
+						const shadowDist = emissiveSample.distance.sub( 0.001 );
+						const visibility = traceShadowRayWrapped( rayOrigin, emissiveSample.direction, shadowDist, rngState );
+
+						If( visibility.greaterThan( 0.0 ), () => {
+
+							const brdfValue = evaluateMaterialResponse( V, emissiveSample.direction, N, material );
+							const brdfPdf = calculateMaterialPDF( V, emissiveSample.direction, N, material );
+							const misWeight = select(
+								brdfPdf.greaterThan( 0.0 ),
+								powerHeuristic( { pdf1: emissiveSample.pdf, pdf2: brdfPdf } ),
+								float( 1.0 )
+							);
+
+							const emissiveLight = emissiveSample.emission
+								.mul( brdfValue ).mul( NoL )
+								.div( emissiveSample.pdf )
+								.mul( visibility ).mul( emissiveBoost ).mul( misWeight );
+
+							radiance.addAssign( regularizePathContribution( {
+								contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+							} ) );
+
+						} );
+
+					} );
+
+				} );
+
+			} ).Else( () => {
+
+				// Fallback: flat CDF importance sampling
+				const emissiveLight = calculateEmissiveTriangleContribution(
+					hitInfo.hitPoint, N, V, material,
+					totalTriangleCount, bounceIndex, rngState,
+					emissiveBoost,
+					emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+					triangleBuffer,
+					traceShadowRayWrapped,
+					evaluateMaterialResponse,
+					calculateRayOffset,
+				);
+
+				radiance.addAssign( regularizePathContribution( {
+					contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+				} ) );
+
+			} );
 
 		} );
 

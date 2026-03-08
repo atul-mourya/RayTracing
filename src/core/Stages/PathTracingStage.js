@@ -224,6 +224,10 @@ export class PathTracingStage extends PipelineStage {
 		this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 4 ), 4 );
 		this.emissiveTriangleStorageNode = storage( this.emissiveTriangleStorageAttr, 'vec4', 1 ).toReadOnly();
 
+		// Light BVH storage buffer — initialized with dummy data
+		this.lightBVHStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
+		this.lightBVHStorageNode = storage( this.lightBVHStorageAttr, 'vec4', 1 ).toReadOnly();
+
 		// Adaptive sampling
 		this.adaptiveSamplingTexture = null;
 
@@ -335,6 +339,7 @@ export class PathTracingStage extends PipelineStage {
 		this.emissiveBoost = uniform( DEFAULT_STATE.emissiveBoost, 'float' );
 		this.emissiveTriangleCount = uniform( 0, 'int' );
 		this.emissiveTotalPower = uniform( 0.0, 'float' );
+		this.lightBVHNodeCount = uniform( 0, 'int' );
 
 		// Render mode
 		this.renderMode = uniform( DEFAULT_STATE.renderMode, 'int' );
@@ -397,6 +402,7 @@ export class PathTracingStage extends PipelineStage {
 		this.emissiveBoost.name = 'emissiveBoost';
 		this.emissiveTriangleCount.name = 'emissiveTriangleCount';
 		this.emissiveTotalPower.name = 'emissiveTotalPower';
+		this.lightBVHNodeCount.name = 'lightBVHNodeCount';
 		this.renderMode.name = 'renderMode';
 		this.resolution.name = 'resolution';
 		this.totalTriangleCount.name = 'totalTriangleCount';
@@ -697,6 +703,17 @@ export class PathTracingStage extends PipelineStage {
 		} else {
 
 			this.emissiveTriangleCount.value = 0;
+
+		}
+
+		// Light BVH
+		if ( this.sdfs.lightBVHNodeData ) {
+
+			this.setLightBVHData( this.sdfs.lightBVHNodeData, this.sdfs.lightBVHNodeCount || 0 );
+
+		} else {
+
+			this.lightBVHNodeCount.value = 0;
 
 		}
 
@@ -1410,6 +1427,7 @@ export class PathTracingStage extends PipelineStage {
 		const bvhStorage = this.bvhStorageNode;
 		const matStorage = this.materialStorageNode;
 		const emissiveTriStorage = this.emissiveTriangleStorageNode;
+		const lightBVHStorage = this.lightBVHStorageNode;
 
 		const envTex = texture( this.environmentTexture );
 
@@ -1472,6 +1490,7 @@ export class PathTracingStage extends PipelineStage {
 			bvhStorage,
 			matStorage,
 			emissiveTriStorage,
+			lightBVHStorage,
 			envTex,
 			prevFrameTex,
 			prevNormalDepthTex,
@@ -1506,7 +1525,7 @@ export class PathTracingStage extends PipelineStage {
 	_createPathTracerOutput( textureNodes ) {
 
 		const {
-			triStorage, bvhStorage, matStorage, emissiveTriStorage,
+			triStorage, bvhStorage, matStorage, emissiveTriStorage, lightBVHStorage,
 			envTex, prevFrameTex, prevNormalDepthTex, prevAlbedoTex,
 			adaptiveSamplingTex, marginalCDFStorage, conditionalCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
@@ -1577,6 +1596,8 @@ export class PathTracingStage extends PipelineStage {
 			emissiveTriangleCount: this.emissiveTriangleCount,
 			emissiveTotalPower: this.emissiveTotalPower,
 			emissiveBoost: this.emissiveBoost,
+			lightBVHBuffer: lightBVHStorage,
+			lightBVHNodeCount: this.lightBVHNodeCount,
 
 			// Debug
 			debugVisScale: this.debugVisScale,
@@ -2953,6 +2974,19 @@ export class PathTracingStage extends PipelineStage {
 		this.emissiveTriangleCount.value = count;
 		this.emissiveTotalPower.value = totalPower;
 		console.log( `PathTracingStage: ${count} emissive triangles, totalPower=${totalPower.toFixed( 4 )} (storage buffer)` );
+
+	}
+
+	setLightBVHData( nodeData, nodeCount ) {
+
+		if ( ! nodeData ) return;
+
+		const vec4Count = nodeData.length / 4;
+		this.lightBVHStorageAttr = new StorageInstancedBufferAttribute( nodeData, 4 );
+		this.lightBVHStorageNode.value = this.lightBVHStorageAttr;
+		this.lightBVHStorageNode.bufferCount = vec4Count;
+		this.lightBVHNodeCount.value = nodeCount;
+		console.log( `PathTracingStage: Light BVH ${nodeCount} nodes` );
 
 	}
 

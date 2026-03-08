@@ -74,6 +74,8 @@ export default class TriangleSDF {
 		this.displacementTextures = null;
 		this.emissiveTriangleData = null;
 		this.emissiveTriangleCount = 0;
+		this.lightBVHNodeData = null;
+		this.lightBVHNodeCount = 0;
 
 		// Initialize processing components
 		this._initProcessors();
@@ -485,6 +487,13 @@ export default class TriangleSDF {
 			this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
 			this._log( 'Emissive triangle extraction complete', this.emissiveTriangleBuilder.getStats() );
 
+			// Build Light BVH for spatially-aware emissive sampling
+			this.emissiveTriangleBuilder.buildLightBVH();
+			this.lightBVHNodeData = this.emissiveTriangleBuilder.lightBVHNodeData;
+			this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
+			// Replace emissiveTriangleData with sorted version (LBVH reorders it)
+			this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData || this.emissiveTriangleData;
+
 		} catch ( error ) {
 
 			console.error( '[TriangleSDF] Texture creation error:', error );
@@ -541,6 +550,8 @@ export default class TriangleSDF {
 		this.spheres = [];
 		this.bvhRoot = null;
 		this.bvhData = null;
+		this.lightBVHNodeData = null;
+		this.lightBVHNodeCount = 0;
 
 		// Reset performance metrics
 		this.performanceMetrics = {

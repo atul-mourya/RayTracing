@@ -97,7 +97,7 @@ export const sphericalTriangleSolidAngle = Fn( ( [ v0, v1, v2, p ] ) => {
 } );
 
 // Heuristic: use spherical sampling when triangle is close/large (Blender Cycles approach)
-const useSphericalSampling = Fn( ( [ v0, v1, v2, hitPoint ] ) => {
+export const useSphericalSampling = Fn( ( [ v0, v1, v2, hitPoint ] ) => {
 
 	const e0 = v1.sub( v0 );
 	const e1 = v2.sub( v0 );
@@ -123,7 +123,7 @@ const useSphericalSampling = Fn( ( [ v0, v1, v2, hitPoint ] ) => {
 } );
 
 // Arvo 1995 spherical triangle sampling struct
-const SphericalTriangleSampleResult = struct( {
+export const SphericalTriangleSampleResult = struct( {
 	direction: 'vec3',
 	position: 'vec3',
 	solidAngle: 'float',
@@ -140,7 +140,7 @@ const safeNormalize = Fn( ( [ v ] ) => {
 
 // Arvo 1995: Stratified Sampling of Spherical Triangles
 // Samples a direction uniformly distributed in the solid angle subtended by a triangle
-const sampleSphericalTriangle = Fn( ( [ v0, v1, v2, hitPoint, xi ] ) => {
+export const sampleSphericalTriangle = Fn( ( [ v0, v1, v2, hitPoint, xi ] ) => {
 
 	const result = SphericalTriangleSampleResult( {
 		direction: vec3( 0.0 ),
@@ -224,7 +224,7 @@ const sampleSphericalTriangle = Fn( ( [ v0, v1, v2, hitPoint, xi ] ) => {
 } );
 
 // Compute barycentric coordinates of a point on a triangle plane (Cramer's rule)
-const barycentricFromPoint = Fn( ( [ point, v0, v1, v2 ] ) => {
+export const barycentricFromPoint = Fn( ( [ point, v0, v1, v2 ] ) => {
 
 	const e0 = v1.sub( v0 );
 	const e1 = v2.sub( v0 );
@@ -283,7 +283,7 @@ export const calculateEmissivePower = Fn( ( [ material, area ] ) => {
 const TRI_STRIDE = 8;
 const EMISSIVE_STRIDE = 2; // 2 vec4s per emissive entry
 
-const TriangleData = struct( {
+export const TriangleData = struct( {
 	v0: 'vec3', v1: 'vec3', v2: 'vec3',
 	n0: 'vec3', n1: 'vec3', n2: 'vec3',
 	materialIndex: 'int',

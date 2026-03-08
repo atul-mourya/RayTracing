@@ -8,6 +8,7 @@
 
 import { DataTexture, RGBAFormat, FloatType, NearestFilter } from 'three';
 import { TRIANGLE_DATA_LAYOUT } from '../../Constants.js';
+import { LightBVHBuilder } from './LightBVHBuilder.js';
 
 export class EmissiveTriangleBuilder {
 
@@ -19,6 +20,8 @@ export class EmissiveTriangleBuilder {
 		this.emissiveIndicesArray = null;
 		this.emissivePowerArray = null;
 		this.cdfArray = null;
+		this.lightBVHNodeData = null;
+		this.lightBVHNodeCount = 0;
 
 	}
 
@@ -76,13 +79,28 @@ export class EmissiveTriangleBuilder {
 				const avgEmissive = ( emissive.r + emissive.g + emissive.b ) / 3.0;
 				const power = avgEmissive * emissiveIntensity * area;
 
+				// Centroid for BVH split decisions
+				const cx = ( v0x + v1x + v2x ) / 3;
+				const cy = ( v0y + v1y + v2y ) / 3;
+				const cz = ( v0z + v1z + v2z ) / 3;
+
+				// AABB for BVH node bounds
+				const bMinX = Math.min( v0x, v1x, v2x );
+				const bMinY = Math.min( v0y, v1y, v2y );
+				const bMinZ = Math.min( v0z, v1z, v2z );
+				const bMaxX = Math.max( v0x, v1x, v2x );
+				const bMaxY = Math.max( v0y, v1y, v2y );
+				const bMaxZ = Math.max( v0z, v1z, v2z );
+
 				this.emissiveTriangles.push( {
 					triangleIndex: i,
 					materialIndex: materialIndex,
 					power: power,
 					area: area,
 					emissive: { r: emissive.r, g: emissive.g, b: emissive.b },
-					emissiveIntensity: emissiveIntensity
+					emissiveIntensity: emissiveIntensity,
+					cx, cy, cz,
+					bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ,
 				} );
 
 				this.totalEmissivePower += power;
@@ -435,6 +453,87 @@ export class EmissiveTriangleBuilder {
 	}
 
 	/**
+	 * Build a Light BVH over the current emissive triangles.
+	 * Reorders emissiveTriangleData so that leaf node start/count indices are valid.
+	 * @returns {number} nodeCount
+	 */
+	buildLightBVH() {
+
+		if ( this.emissiveCount === 0 ) {
+
+			// Dummy single leaf node
+			this.lightBVHNodeData = new Float32Array( 16 );
+			this.lightBVHNodeData[ 7 ] = 1.0; // isLeaf
+			this.lightBVHNodeCount = 1;
+			return 1;
+
+		}
+
+		const builder = new LightBVHBuilder();
+		const { nodeData, nodeCount, sortedPerm } = builder.build( this.emissiveTriangles );
+		this.lightBVHNodeData = nodeData;
+		this.lightBVHNodeCount = nodeCount;
+
+		// Rebuild emissive raw data in sorted leaf order so node start/count refs are valid
+		this._rebuildSortedEmissiveData( sortedPerm );
+
+		return nodeCount;
+
+	}
+
+	/**
+	 * Rebuild emissive arrays and raw GPU data in the sorted leaf order given by sortedPerm.
+	 * @param {Int32Array} sortedPerm - sortedPerm[i] = original emissiveTriangles index for position i
+	 * @private
+	 */
+	_rebuildSortedEmissiveData( sortedPerm ) {
+
+		const n = sortedPerm.length;
+
+		// Rebuild typed arrays in sorted order
+		this.emissiveIndicesArray = new Int32Array( n );
+		this.emissivePowerArray = new Float32Array( n );
+
+		for ( let i = 0; i < n; i ++ ) {
+
+			const origIdx = sortedPerm[ i ];
+			this.emissiveIndicesArray[ i ] = this.emissiveTriangles[ origIdx ].triangleIndex;
+			this.emissivePowerArray[ i ] = this.emissiveTriangles[ origIdx ].power;
+
+		}
+
+		// Rebuild CDF for the sorted order (so fallback path still works)
+		this._buildCDF();
+
+		// Rebuild raw emissive GPU data (2 vec4s per entry) in sorted order
+		const data = new Float32Array( n * 8 );
+
+		for ( let i = 0; i < n; i ++ ) {
+
+			const origIdx = sortedPerm[ i ];
+			const tri = this.emissiveTriangles[ origIdx ];
+			const offset = i * 8;
+
+			// vec4[0]: triangleIndex, power, cdf, selectionPdf
+			data[ offset + 0 ] = tri.triangleIndex;
+			data[ offset + 1 ] = tri.power;
+			data[ offset + 2 ] = this.cdfArray[ i ];
+			data[ offset + 3 ] = this.totalEmissivePower > 0 ? tri.power / this.totalEmissivePower : 0;
+
+			// vec4[1]: pre-multiplied emission (emissive * intensity), area
+			data[ offset + 4 ] = tri.emissive.r * tri.emissiveIntensity;
+			data[ offset + 5 ] = tri.emissive.g * tri.emissiveIntensity;
+			data[ offset + 6 ] = tri.emissive.b * tri.emissiveIntensity;
+			data[ offset + 7 ] = tri.area;
+
+		}
+
+		this.emissiveTriangleData = data;
+		console.log( `[EmissiveTriangleBuilder] Rebuilt sorted emissive data: ${n} entries` );
+
+	}
+
+	/**
 	 * Clear all data
 	 */
 	clear() {
@@ -445,6 +544,8 @@ export class EmissiveTriangleBuilder {
 		this.emissiveIndicesArray = null;
 		this.emissivePowerArray = null;
 		this.cdfArray = null;
+		this.lightBVHNodeData = null;
+		this.lightBVHNodeCount = 0;
 
 	}
 
