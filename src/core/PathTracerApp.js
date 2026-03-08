@@ -192,6 +192,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Setup orbit controls
 		this.controls = new OrbitControls( this.camera, this.canvas );
 		this.controls.screenSpacePanning = true;
+		this.controls.zoomToCursor = true;
 
 		// Save initial state so controls.reset() works
 		this.controls.saveState();
