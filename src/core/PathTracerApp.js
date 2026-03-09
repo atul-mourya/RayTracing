@@ -662,6 +662,19 @@ export class PathTracerApp extends EventDispatcher {
 
 		const timer = new BuildTimer( 'loadSceneData' );
 
+		const environmentTexture = this.meshScene.environment;
+
+		// Kick off environment CDF build in parallel with BVH (runs in a Web Worker)
+		let cdfPromise = null;
+		if ( environmentTexture && environmentTexture.image && environmentTexture.image.data ) {
+
+			timer.start( 'Environment CDF build (worker)' );
+			this.pathTracingStage.scene.environment = environmentTexture;
+			cdfPromise = this.pathTracingStage.buildEnvironmentCDF()
+				.then( () => timer.end( 'Environment CDF build (worker)' ) );
+
+		}
+
 		// Build BVH acceleration structure from the mesh scene
 		timer.start( 'BVH build (TriangleSDF)' );
 		await this.sdf.buildBVH( this.meshScene );
@@ -672,7 +685,6 @@ export class PathTracerApp extends EventDispatcher {
 		const triangleCount = this.sdf.triangleCount;
 		const bvhData = this.sdf.bvhData;
 		const materialData = this.sdf.materialData;
-		const environmentTexture = this.meshScene.environment;
 
 		if ( ! triangleData ) {
 
@@ -681,7 +693,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		updateLoading( { status: "Transferring data to GPU...", progress: 88 } );
+		updateLoading( { status: "Transferring data to GPU...", progress: 86 } );
 		await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
 		timer.start( 'GPU data transfer' );
 		this.pathTracingStage.setTriangleData( triangleData, triangleCount );
@@ -734,25 +746,35 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Transfer light BVH data (storage buffer)
+		if ( this.sdf.lightBVHNodeData ) {
+
+			this.pathTracingStage.setLightBVHData(
+				this.sdf.lightBVHNodeData,
+				this.sdf.lightBVHNodeCount,
+			);
+
+		}
+
 		// Transfer lights from mesh scene into the WebGPU light scene
 		this._transferSceneLights();
 		timer.end( 'GPU data transfer' );
 
 		// Setup material with all data
-		updateLoading( { status: "Compiling shaders...", progress: 92 } );
+		updateLoading( { status: "Compiling shaders...", progress: 90 } );
 		await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
 		timer.start( 'Material setup (TSL compile)' );
 		this.pathTracingStage.setupMaterial();
 		timer.end( 'Material setup (TSL compile)' );
 
-		// Build environment CDF for importance sampling AFTER material setup
-		if ( environmentTexture ) {
+		// Wait for the parallel CDF worker to finish (usually already done by now)
+		if ( cdfPromise ) {
 
-			updateLoading( { status: "Building environment map...", progress: 96 } );
-			await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
-			timer.start( 'Environment CDF build' );
-			await this.pathTracingStage.setEnvironmentMap( environmentTexture );
-			timer.end( 'Environment CDF build' );
+			updateLoading( { status: "Finalizing environment map...", progress: 95 } );
+			await cdfPromise;
+
+			// Update TSL env texture nodes (CDF storage buffers already populated)
+			this.pathTracingStage._applyCDFResults();
 
 		}
 

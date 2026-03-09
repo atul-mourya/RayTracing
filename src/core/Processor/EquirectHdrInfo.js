@@ -1,20 +1,4 @@
-import { DataTexture, RedFormat, LinearFilter, DataUtils, HalfFloatType, Source, RepeatWrapping, RGBAFormat, FloatType, ClampToEdgeWrapping } from 'three';
-
-/**
- * Utility function to convert Float32Array to Uint16Array (half-float)
- */
-function toHalfFloatArray( f32Array ) {
-
-	const f16Array = new Uint16Array( f32Array.length );
-	for ( let i = 0, n = f32Array.length; i < n; ++ i ) {
-
-		f16Array[ i ] = DataUtils.toHalfFloat( f32Array[ i ] );
-
-	}
-
-	return f16Array;
-
-}
+import { DataUtils, HalfFloatType, FloatType } from 'three';
 
 /**
  * Binary search to find the closest index
@@ -26,10 +10,8 @@ function binarySearchFindClosestIndexOf( array, targetValue, offset = 0, count =
 
 	while ( lower < upper ) {
 
-		// Calculate the midpoint using bitwise shift for performance
 		const mid = ( lower + upper ) >> 1;
 
-		// Check if the middle array value is above or below the target
 		if ( array[ mid ] < targetValue ) {
 
 			lower = mid + 1;
@@ -57,35 +39,40 @@ function colorToLuminance( r, g, b ) {
 }
 
 /**
- * Preprocess environment map - ensures consistent format
+ * Extract Float32 RGBA pixel data from an environment map.
+ * Handles HalfFloat/integer type conversion and Y-flip.
+ * @returns {{ floatData: Float32Array, width: number, height: number }}
  */
-function preprocessEnvMap( envMap, targetType = HalfFloatType ) {
+export function extractFloatData( envMap ) {
 
-	const map = envMap.clone();
-	map.source = new Source( { ...map.image } );
-	const { width, height, data } = map.image;
+	const { width, height, data } = envMap.image;
 
-	// Validate that texture has CPU-accessible data
 	if ( ! data ) {
 
 		throw new Error( 'EquirectHdrInfo: Environment map must have CPU-accessible image data. Render target textures are not supported.' );
 
 	}
 
-	// Convert data to target type if needed
-	let newData = data;
-	if ( map.type !== targetType ) {
+	// Convert to Float32 regardless of source type
+	let floatData;
 
-		if ( targetType === HalfFloatType ) {
+	if ( envMap.type === FloatType && data instanceof Float32Array ) {
 
-			newData = new Uint16Array( data.length );
+		// Already float — reference directly (read-only downstream)
+		floatData = data;
 
-		} else {
+	} else if ( envMap.type === HalfFloatType ) {
 
-			newData = new Float32Array( data.length );
+		floatData = new Float32Array( data.length );
+		for ( let i = 0, l = data.length; i < l; i ++ ) {
+
+			floatData[ i ] = DataUtils.fromHalfFloat( data[ i ] );
 
 		}
 
+	} else {
+
+		// Integer types (Uint8, Int16, etc.)
 		let maxIntValue;
 		if ( data instanceof Int8Array || data instanceof Int16Array || data instanceof Int32Array ) {
 
@@ -97,177 +84,154 @@ function preprocessEnvMap( envMap, targetType = HalfFloatType ) {
 
 		}
 
+		floatData = new Float32Array( data.length );
 		for ( let i = 0, l = data.length; i < l; i ++ ) {
 
-			let v = data[ i ];
-			if ( map.type === HalfFloatType ) {
-
-				v = DataUtils.fromHalfFloat( data[ i ] );
-
-			}
-
-			if ( map.type !== FloatType && map.type !== HalfFloatType ) {
-
-				v /= maxIntValue;
-
-			}
-
-			if ( targetType === HalfFloatType ) {
-
-				newData[ i ] = DataUtils.toHalfFloat( v );
-
-			} else {
-
-				newData[ i ] = v;
-
-			}
+			floatData[ i ] = data[ i ] / maxIntValue;
 
 		}
-
-		map.image.data = newData;
-		map.type = targetType;
 
 	}
 
 	// Remove Y-flip for CDF computation
-	if ( map.flipY ) {
+	if ( envMap.flipY ) {
 
-		const ogData = newData;
-		newData = newData.slice();
+		const flipped = new Float32Array( floatData.length );
 		for ( let y = 0; y < height; y ++ ) {
 
-			for ( let x = 0; x < width; x ++ ) {
-
-				const newY = height - y - 1;
-				const ogIndex = 4 * ( y * width + x );
-				const newIndex = 4 * ( newY * width + x );
-
-				newData[ newIndex + 0 ] = ogData[ ogIndex + 0 ];
-				newData[ newIndex + 1 ] = ogData[ ogIndex + 1 ];
-				newData[ newIndex + 2 ] = ogData[ ogIndex + 2 ];
-				newData[ newIndex + 3 ] = ogData[ ogIndex + 3 ];
-
-			}
+			const newY = height - y - 1;
+			const srcOffset = y * width * 4;
+			const dstOffset = newY * width * 4;
+			flipped.set( floatData.subarray( srcOffset, srcOffset + width * 4 ), dstOffset );
 
 		}
 
-		map.flipY = false;
-		map.image.data = newData;
+		floatData = flipped;
 
 	}
 
-	return map;
+	return { floatData, width, height };
 
 }
 
 /**
  * EquirectHdrInfo - Importance sampling data for equirectangular HDR maps
- * Exact implementation from three-gpu-pathtracer by gkjohnson
+ *
+ * Builds inverted marginal and conditional CDFs from an HDR environment map.
+ * Outputs Float32Arrays consumed directly by StorageInstancedBufferAttribute
+ * on the GPU — no intermediate DataTexture or HalfFloat conversion needed.
+ *
+ * Supports two modes:
+ * - `updateFrom(hdr)`: synchronous, runs on main thread
+ * - `updateFromAsync(hdr)`: offloads CDF math to a Web Worker
  */
 export class EquirectHdrInfo {
 
 	constructor() {
 
-		// Default black texture
-		const blackTex = new DataTexture( toHalfFloatArray( new Float32Array( [ 0, 0, 0, 0 ] ) ), 1, 1 );
-		blackTex.type = HalfFloatType;
-		blackTex.format = RGBAFormat;
-		blackTex.minFilter = LinearFilter;
-		blackTex.magFilter = LinearFilter;
-		blackTex.wrapS = RepeatWrapping;
-		blackTex.wrapT = RepeatWrapping;
-		blackTex.generateMipmaps = false;
-		blackTex.needsUpdate = true;
-
-		// Marginal weights: 1D texture for row selection
-		const marginalWeights = new DataTexture( toHalfFloatArray( new Float32Array( [ 0, 1 ] ) ), 1, 2 );
-		marginalWeights.type = HalfFloatType;
-		marginalWeights.format = RedFormat;
-		marginalWeights.minFilter = LinearFilter;
-		marginalWeights.magFilter = LinearFilter;
-		marginalWeights.generateMipmaps = false;
-		marginalWeights.needsUpdate = true;
-
-		// Conditional weights: 2D texture for column selection per row
-		const conditionalWeights = new DataTexture( toHalfFloatArray( new Float32Array( [ 0, 0, 1, 1 ] ) ), 2, 2 );
-		conditionalWeights.type = HalfFloatType;
-		conditionalWeights.format = RedFormat;
-		conditionalWeights.minFilter = LinearFilter;
-		conditionalWeights.magFilter = LinearFilter;
-		conditionalWeights.generateMipmaps = false;
-		conditionalWeights.needsUpdate = true;
-
-		this.map = blackTex;
-		this.marginalWeights = marginalWeights;
-		this.conditionalWeights = conditionalWeights;
+		// Placeholder data matching the default storage buffer sizes in PathTracingStage
+		this.marginalData = new Float32Array( [ 0, 1 ] );
+		this.conditionalData = new Float32Array( [ 0, 0, 1, 1 ] );
 		this.totalSum = 0;
+		this.width = 0;
+		this.height = 0;
 
-	}
-
-	/**
-	 * Get marginal CDF as Float32Array for storage buffers.
-	 * Converts from HalfFloat Uint16Array to Float32Array.
-	 * @returns {Float32Array} 1D array of size height
-	 */
-	getMarginalRawData() {
-
-		const src = this.marginalWeights.image.data;
-		const size = src.length;
-		const floatData = new Float32Array( size );
-
-		for ( let i = 0; i < size; i ++ ) {
-
-			floatData[ i ] = DataUtils.fromHalfFloat( src[ i ] );
-
-		}
-
-		return floatData;
-
-	}
-
-	/**
-	 * Get conditional CDF as Float32Array for storage buffers.
-	 * Converts from HalfFloat Uint16Array to Float32Array.
-	 * @returns {Float32Array} 2D array of size width * height (row-major)
-	 */
-	getConditionalRawData() {
-
-		const src = this.conditionalWeights.image.data;
-		const size = src.length;
-		const floatData = new Float32Array( size );
-
-		for ( let i = 0; i < size; i ++ ) {
-
-			floatData[ i ] = DataUtils.fromHalfFloat( src[ i ] );
-
-		}
-
-		return floatData;
+		this._worker = null;
 
 	}
 
 	dispose() {
 
-		this.marginalWeights.dispose();
-		this.conditionalWeights.dispose();
-		this.map.dispose();
+		this.marginalData = null;
+		this.conditionalData = null;
+
+		if ( this._worker ) {
+
+			this._worker.terminate();
+			this._worker = null;
+
+		}
 
 	}
 
+	/**
+	 * Synchronous CDF build on main thread (fallback path).
+	 */
 	updateFrom( hdr ) {
 
-		// Preprocess and normalize the HDR map
-		const map = preprocessEnvMap( hdr );
-		map.wrapS = RepeatWrapping;
-		map.wrapT = ClampToEdgeWrapping;
+		const { floatData, width, height } = extractFloatData( hdr );
 
-		const { width, height, data } = map.image;
+		const result = EquirectHdrInfo.computeCDF( floatData, width, height );
 
-		// Build CDFs for importance sampling
-		const pdfConditional = new Float32Array( width * height );
+		this.marginalData = result.marginalData;
+		this.conditionalData = result.conditionalData;
+		this.totalSum = result.totalSum;
+		this.width = width;
+		this.height = height;
+
+	}
+
+	/**
+	 * Async CDF build offloaded to a Web Worker.
+	 * Float extraction (HalfFloat → Float32) runs on main thread (needs Three.js DataUtils),
+	 * then the pure-math CDF computation runs off-thread.
+	 * @returns {Promise<void>}
+	 */
+	async updateFromAsync( hdr ) {
+
+		const { floatData, width, height } = extractFloatData( hdr );
+
+		// Reuse worker across calls; create on first use
+		if ( ! this._worker ) {
+
+			this._worker = new Worker(
+				new URL( './Workers/CDFWorker.js', import.meta.url ),
+				{ type: 'module' }
+			);
+
+		}
+
+		const result = await new Promise( ( resolve, reject ) => {
+
+			this._worker.onmessage = ( e ) => {
+
+				if ( e.data.error ) {
+
+					reject( new Error( e.data.error ) );
+
+				} else {
+
+					resolve( e.data );
+
+				}
+
+			};
+
+			this._worker.onerror = reject;
+
+			// Transfer floatData to worker (zero-copy)
+			this._worker.postMessage(
+				{ floatData, width, height },
+				[ floatData.buffer ]
+			);
+
+		} );
+
+		this.marginalData = result.marginalData;
+		this.conditionalData = result.conditionalData;
+		this.totalSum = result.totalSum;
+		this.width = result.width;
+		this.height = result.height;
+
+	}
+
+	/**
+	 * Pure-math CDF computation. Used by both the sync path and CDFWorker.
+	 * Static so it can be called without an instance.
+	 */
+	static computeCDF( floatData, width, height ) {
+
 		const cdfConditional = new Float32Array( width * height );
-
-		const pdfMarginal = new Float32Array( height );
 		const cdfMarginal = new Float32Array( height );
 
 		let totalSumValue = 0.0;
@@ -280,16 +244,15 @@ export class EquirectHdrInfo {
 			for ( let x = 0; x < width; x ++ ) {
 
 				const i = y * width + x;
-				const r = DataUtils.fromHalfFloat( data[ 4 * i + 0 ] );
-				const g = DataUtils.fromHalfFloat( data[ 4 * i + 1 ] );
-				const b = DataUtils.fromHalfFloat( data[ 4 * i + 2 ] );
+				const r = floatData[ 4 * i ];
+				const g = floatData[ 4 * i + 1 ];
+				const b = floatData[ 4 * i + 2 ];
 
 				// Weight by luminance
 				const weight = colorToLuminance( r, g, b );
 				cumulativeRowWeight += weight;
 				totalSumValue += weight;
 
-				pdfConditional[ i ] = weight;
 				cdfConditional[ i ] = cumulativeRowWeight;
 
 			}
@@ -299,7 +262,6 @@ export class EquirectHdrInfo {
 
 				for ( let i = y * width, l = y * width + width; i < l; i ++ ) {
 
-					pdfConditional[ i ] /= cumulativeRowWeight;
 					cdfConditional[ i ] /= cumulativeRowWeight;
 
 				}
@@ -309,7 +271,6 @@ export class EquirectHdrInfo {
 			cumulativeWeightMarginal += cumulativeRowWeight;
 
 			// Build marginal CDF (row distribution)
-			pdfMarginal[ y ] = cumulativeRowWeight;
 			cdfMarginal[ y ] = cumulativeWeightMarginal;
 
 		}
@@ -317,18 +278,17 @@ export class EquirectHdrInfo {
 		// Normalize marginal CDF to [0, 1]
 		if ( cumulativeWeightMarginal !== 0 ) {
 
-			for ( let i = 0, l = pdfMarginal.length; i < l; i ++ ) {
+			for ( let i = 0, l = cdfMarginal.length; i < l; i ++ ) {
 
-				pdfMarginal[ i ] /= cumulativeWeightMarginal;
 				cdfMarginal[ i ] /= cumulativeWeightMarginal;
 
 			}
 
 		}
 
-		// Create inverted CDF textures for GPU sampling
-		const marginalDataArray = new Uint16Array( height );
-		const conditionalDataArray = new Uint16Array( width * height );
+		// Create inverted CDF arrays (Float32 directly for storage buffers)
+		const marginalData = new Float32Array( height );
+		const conditionalData = new Float32Array( width * height );
 
 		// Invert marginal CDF
 		for ( let i = 0; i < height; i ++ ) {
@@ -336,7 +296,7 @@ export class EquirectHdrInfo {
 			const dist = ( i + 1 ) / height;
 			const row = binarySearchFindClosestIndexOf( cdfMarginal, dist );
 
-			marginalDataArray[ i ] = DataUtils.toHalfFloat( ( row + 0.5 ) / height );
+			marginalData[ i ] = ( row + 0.5 ) / height;
 
 		}
 
@@ -349,25 +309,13 @@ export class EquirectHdrInfo {
 				const dist = ( x + 1 ) / width;
 				const col = binarySearchFindClosestIndexOf( cdfConditional, dist, y * width, width );
 
-				conditionalDataArray[ i ] = DataUtils.toHalfFloat( ( col + 0.5 ) / width );
+				conditionalData[ i ] = ( col + 0.5 ) / width;
 
 			}
 
 		}
 
-		// Clean up old textures
-		this.dispose();
-
-		// Create new textures
-		const { marginalWeights, conditionalWeights } = this;
-		marginalWeights.image = { width: height, height: 1, data: marginalDataArray };
-		marginalWeights.needsUpdate = true;
-
-		conditionalWeights.image = { width, height, data: conditionalDataArray };
-		conditionalWeights.needsUpdate = true;
-
-		this.totalSum = totalSumValue;
-		this.map = map;
+		return { marginalData, conditionalData, totalSum: totalSumValue };
 
 	}
 

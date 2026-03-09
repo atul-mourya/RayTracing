@@ -59,15 +59,6 @@ export const Sphere = struct( {
 	material: RayTracingMaterial,
 } );
 
-export const EquirectHdrInfo = struct( {
-
-	marginalWeights: 'sampler',
-	conditionalWeights: 'sampler',
-	map: 'sampler',
-
-	totalSum: 'float',
-} );
-
 export const HitInfo = struct( {
 	didHit: 'bool',
 	dst: 'float',

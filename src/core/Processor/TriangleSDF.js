@@ -185,11 +185,19 @@ export default class TriangleSDF {
 
 			} );
 
-			// Await BVH first (it drives progress); then show texture status if still running
+			// Await BVH first (it drives progress and reorders triangleData).
+			// Emissive extraction needs the final reordered triangle indices,
+			// so it runs here — overlapping with any remaining texture work.
 			await bvhPromise;
+
+			updateLoading( { status: "Building light data...", progress: 77 } );
+			timer.start( 'Emissive extraction + Light BVH' );
+			this._buildEmissiveData();
+			timer.end( 'Emissive extraction + Light BVH' );
+
 			if ( ! texturesDone ) {
 
-				updateLoading( { status: "Processing material textures...", progress: 82 } );
+				updateLoading( { status: "Processing material textures...", progress: 80 } );
 
 			}
 
@@ -347,8 +355,8 @@ export default class TriangleSDF {
 			// Define progress callback
 			const progressCallback = ( progress ) => {
 
-				// Map BVH 0-100% to UI 25-80%
-				const scaledProgress = 25 + Math.floor( progress * 0.55 );
+				// Map BVH 0-100% to UI 25-75% (textures run in parallel)
+				const scaledProgress = 25 + Math.floor( progress * 0.50 );
 				const triangleCount = this.triangleCount.toLocaleString();
 				updateLoading( {
 					status: `Building BVH for ${triangleCount} triangles... ${progress}%`,
@@ -414,7 +422,7 @@ export default class TriangleSDF {
 
 			updateLoading( {
 				status: "BVH construction complete",
-				progress: 80
+				progress: 75
 			} );
 
 		} catch ( error ) {
@@ -422,7 +430,7 @@ export default class TriangleSDF {
 			console.error( '[TriangleSDF] BVH building error:', error );
 			updateLoading( {
 				status: `BVH error: ${error.message}`,
-				progress: 80
+				progress: 75
 			} );
 			throw error;
 
@@ -441,7 +449,7 @@ export default class TriangleSDF {
 
 		try {
 
-			// Material raw data for storage buffers
+			// Material raw data for storage buffers (sync, ~1-5ms)
 			if ( this.materials?.length ) {
 
 				this.materialData = this.textureCreator.createMaterialRawData( this.materials );
@@ -449,6 +457,7 @@ export default class TriangleSDF {
 			}
 
 			// Material texture arrays → GPU DataArrayTextures
+			// All 7 map types are independent — process in parallel
 			const mapTypesList = [
 				{ data: this.maps, prop: 'albedoTextures' },
 				{ data: this.normalMaps, prop: 'normalTextures' },
@@ -459,40 +468,22 @@ export default class TriangleSDF {
 				{ data: this.displacementMaps, prop: 'displacementTextures' },
 			];
 
-			// Process texture types sequentially with yields between each
-			// to avoid back-to-back sync canvas operations that freeze the spinner
-			for ( const { data, prop } of mapTypesList ) {
+			await Promise.all(
+				mapTypesList
+					.filter( ( { data } ) => data?.length > 0 )
+					.map( ( { data, prop } ) =>
+						this.textureCreator.createTexturesToDataTexture( data )
+							.then( result => {
 
-				if ( data?.length > 0 ) {
+								this[ prop ] = result;
 
-					await new Promise( r => setTimeout( r, 0 ) );
-					this[ prop ] = await this.textureCreator.createTexturesToDataTexture( data );
-
-				}
-
-			}
+							} )
+					)
+			);
 
 			this._log( 'Material textures complete', {
 				materialData: !! this.materialData,
 			} );
-
-			// Extract emissive triangles for direct lighting
-			this.emissiveTriangleCount = this.emissiveTriangleBuilder.extractEmissiveTriangles(
-				this.triangleData,
-				this.materials,
-				this.triangleCount
-			);
-
-			this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
-			this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
-			this._log( 'Emissive triangle extraction complete', this.emissiveTriangleBuilder.getStats() );
-
-			// Build Light BVH for spatially-aware emissive sampling
-			this.emissiveTriangleBuilder.buildLightBVH();
-			this.lightBVHNodeData = this.emissiveTriangleBuilder.lightBVHNodeData;
-			this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
-			// Replace emissiveTriangleData with sorted version (LBVH reorders it)
-			this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData || this.emissiveTriangleData;
 
 		} catch ( error ) {
 
@@ -500,6 +491,33 @@ export default class TriangleSDF {
 			throw error;
 
 		}
+
+	}
+
+	/**
+	 * Extract emissive triangles and build Light BVH.
+	 * MUST run after BVH reordering — emissive data stores triangle indices
+	 * that reference the main triangle storage buffer.
+	 * @private
+	 */
+	_buildEmissiveData() {
+
+		this.emissiveTriangleCount = this.emissiveTriangleBuilder.extractEmissiveTriangles(
+			this.triangleData,
+			this.materials,
+			this.triangleCount
+		);
+
+		this.emissiveTriangleData = this.emissiveTriangleBuilder.createEmissiveRawData();
+		this.emissiveTotalPower = this.emissiveTriangleBuilder.totalEmissivePower;
+		this._log( 'Emissive triangle extraction complete', this.emissiveTriangleBuilder.getStats() );
+
+		// Build Light BVH for spatially-aware emissive sampling
+		this.emissiveTriangleBuilder.buildLightBVH();
+		this.lightBVHNodeData = this.emissiveTriangleBuilder.lightBVHNodeData;
+		this.lightBVHNodeCount = this.emissiveTriangleBuilder.lightBVHNodeCount;
+		// Replace emissiveTriangleData with sorted version (LBVH reorders it)
+		this.emissiveTriangleData = this.emissiveTriangleBuilder.emissiveTriangleData || this.emissiveTriangleData;
 
 	}
 

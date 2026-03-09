@@ -1229,8 +1229,8 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	_updateCDFStorageBuffers() {
 
-		this.setEnvMarginalData( this.equirectHdrInfo.getMarginalRawData() );
-		this.setEnvConditionalData( this.equirectHdrInfo.getConditionalRawData() );
+		this.setEnvMarginalData( this.equirectHdrInfo.marginalData );
+		this.setEnvConditionalData( this.equirectHdrInfo.conditionalData );
 
 	}
 
@@ -2150,7 +2150,7 @@ export class PathTracingStage extends PipelineStage {
 
 	// ===== ENVIRONMENT MANAGEMENT =====
 
-	async buildEnvironmentCDF() {
+	async buildEnvironmentCDF( { useWorker = true } = {} ) {
 
 		if ( ! this.scene.environment ) {
 
@@ -2178,7 +2178,15 @@ export class PathTracingStage extends PipelineStage {
 
 			}
 
-			this.equirectHdrInfo.updateFrom( textureForCDF );
+			if ( useWorker ) {
+
+				await this.equirectHdrInfo.updateFromAsync( textureForCDF );
+
+			} else {
+
+				this.equirectHdrInfo.updateFrom( textureForCDF );
+
+			}
 
 			this.cdfBuildTime = performance.now() - startTime;
 
@@ -2186,20 +2194,43 @@ export class PathTracingStage extends PipelineStage {
 			this.envTotalSum.value = this.equirectHdrInfo.totalSum;
 			this.useEnvMapIS.value = 1;
 
-			const envMap = this.equirectHdrInfo.map;
-			if ( envMap && envMap.image ) {
+			const { width, height } = this.equirectHdrInfo;
+			if ( width && height ) {
 
-				this.envResolution.value.set( envMap.image.width, envMap.image.height );
+				this.envResolution.value.set( width, height );
 
 			}
 
-			console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms` );
+			console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (worker: ${useWorker})` );
 
 		} catch ( error ) {
 
 			console.error( 'Error building environment CDF:', error );
 			this.useEnvMapIS.value = 0;
 			this.envTotalSum.value = 0.0;
+
+		}
+
+	}
+
+	/**
+	 * Apply CDF results and update TSL env texture nodes after a parallel CDF build.
+	 * Called from loadSceneData where buildEnvironmentCDF ran in parallel with BVH.
+	 */
+	_applyCDFResults() {
+
+		const envMap = this.scene.environment;
+
+		const nodes = this._sceneTextureNodes;
+		if ( nodes && envMap && nodes.envTex ) {
+
+			nodes.envTex.value = envMap;
+
+		}
+
+		if ( envMap && ! envMap._isGeneratedProcedural ) {
+
+			this.hasSun.value = 0;
 
 		}
 
