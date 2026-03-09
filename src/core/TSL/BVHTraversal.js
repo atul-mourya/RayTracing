@@ -16,6 +16,7 @@ import {
 	sign,
 	min,
 	normalize,
+	cross,
 	mix,
 	vec4,
 	notEqual,
@@ -436,6 +437,11 @@ export const traverseBVHShadow = Fn( ( [
 						closestHit.dst.assign( triResult.x );
 						closestHit.materialIndex.assign( matIdx );
 						closestHit.meshIndex.assign( int( uvData2.w ) );
+
+						// Compute hit point and geometric normal -- required for transmissive
+						// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
+						closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
+						closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
 
 						// Shadow ray only needs any hit — skip remaining triangles in leaf
 						Break();

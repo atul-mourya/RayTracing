@@ -3,11 +3,9 @@
 ## Bugs
 
 ### Critical
-- [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
 - [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Iridescence not producing expected colors
-- [x] convergence issue - in some case when a orbit controlled camera dolly in or out, the accumulation doesnt converge and every frame looks differently noised rendered with no convergence to provision
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 
@@ -20,6 +18,7 @@
 ## Features
 
 ### Rendering
+- [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
 - [ ] Fly mode camera controls as an alternative to orbit controls
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
@@ -42,9 +41,9 @@
 - [ ] implement pending Physical material properties
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
+- [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 
 ### Materials
-- [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] Area light helper toggle control
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
@@ -56,6 +55,7 @@
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
 - [ ] Separate environment and background sampling with different textures (like Three.js)
+- [ ] Attempt Bidirectional path tracing support
 
 ### Scene Management
 - [ ] Dynamic object addition and removal
