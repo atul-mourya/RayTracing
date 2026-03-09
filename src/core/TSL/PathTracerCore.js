@@ -697,6 +697,9 @@ export const Trace = Fn( ( [
 
 		} );
 
+		// Non-compounding GI intensity: applied per-bounce to radiance, not throughput
+		const giScale = select( bounceIndex.greaterThan( int( 0 ) ), globalIlluminationIntensity, float( 1.0 ) );
+
 		// Traverse BVH
 		const currentRay = Ray( { origin: rayOrigin, direction: rayDirection } );
 		const hitInfo = HitInfo.wrap( traverseBVH(
@@ -715,7 +718,7 @@ export const Trace = Fn( ( [
 				showBackground, backgroundIntensity,
 			);
 			radiance.addAssign( regularizePathContribution( {
-				contribution: envColor.xyz.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+				contribution: envColor.xyz.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
 			alpha.mulAssign( envColor.a );
 			Break();
@@ -942,7 +945,7 @@ export const Trace = Fn( ( [
 			} );
 
 			radiance.addAssign( regularizePathContribution( {
-				contribution: matSamples.emissive.mul( throughput ).mul( emissiveMISWeight ),
+				contribution: matSamples.emissive.mul( throughput ).mul( giScale ).mul( emissiveMISWeight ),
 				pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
 
@@ -968,7 +971,7 @@ export const Trace = Fn( ( [
 		);
 
 		radiance.addAssign( regularizePathContribution( {
-			contribution: directLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+			contribution: directLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 		} ) );
 
 		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
@@ -1024,7 +1027,7 @@ export const Trace = Fn( ( [
 								.mul( visibility ).mul( emissiveBoost ).mul( misWeight );
 
 							radiance.addAssign( regularizePathContribution( {
-								contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+								contribution: emissiveLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 							} ) );
 
 						} );
@@ -1048,7 +1051,7 @@ export const Trace = Fn( ( [
 				);
 
 				radiance.addAssign( regularizePathContribution( {
-					contribution: emissiveLight.mul( throughput ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+					contribution: emissiveLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 				} ) );
 
 			} );
@@ -1084,7 +1087,6 @@ export const Trace = Fn( ( [
 			envMarginalWeights, envConditionalWeights,
 			envTotalSum, envResolution,
 			enableEnvironmentLight, useEnvMapIS,
-			globalIlluminationIntensity,
 		) );
 		throughput.mulAssign( indirectResult.throughput );
 

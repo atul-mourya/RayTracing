@@ -529,7 +529,8 @@ export const handleTransmission = Fn( ( [
 
 		} );
 
-		result.throughput.assign( material.color.xyz );
+		// Energy-conserving reflection: Fresnel-weighted with PDF compensation
+		result.throughput.assign( material.color.xyz.mul( Fr ).div( max( reflectProb, 0.05 ) ) );
 
 	} ).Else( () => {
 
@@ -543,7 +544,8 @@ export const handleTransmission = Fn( ( [
 
 				result.direction.assign( mtResult.direction );
 				result.didReflect.assign( true );
-				result.throughput.assign( material.color.xyz );
+				// TIR during intended transmission: compensate for selection probability
+				result.throughput.assign( material.color.xyz.div( max( float( 1.0 ).sub( reflectProb ), 0.05 ) ) );
 
 			} ).Else( () => {
 
@@ -668,8 +670,8 @@ export const handleTransmission = Fn( ( [
 		// Common transmission calculations
 		If( result.didReflect.not(), () => {
 
-			// Apply material color blending for transmission
-			result.throughput.mulAssign( mix( material.color.xyz, vec3( 1.0 ), material.transmission.mul( 0.2 ) ) );
+			// Apply material color for transmission
+			result.throughput.mulAssign( material.color.xyz );
 
 			// Apply Beer's law absorption when entering medium
 			If( entering.and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {
@@ -678,8 +680,8 @@ export const handleTransmission = Fn( ( [
 
 			} );
 
-			// Apply PDF compensation for probabilistic transmission sampling
-			result.throughput.mulAssign( float( 1.0 ).div( max( float( 1.0 ).sub( reflectProb ), 0.05 ) ) );
+			// Fresnel transmission factor with PDF compensation
+			result.throughput.mulAssign( float( 1.0 ).sub( Fr ).div( max( float( 1.0 ).sub( reflectProb ), 0.05 ) ) );
 
 		} );
 

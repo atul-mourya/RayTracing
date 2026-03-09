@@ -22,11 +22,10 @@
 - [ ] Fly mode camera controls as an alternative to orbit controls
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
-- [ ] Caustic support for direct lights
+- [ ] Caustic support
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
-- [x] analyse if meshoptimizer operation adding any value (removed — vertex reordering adds no benefit to BVH path tracers)
 - [ ] which all techniques are usefull to improve the indirect lighting?
 
 ### Camera

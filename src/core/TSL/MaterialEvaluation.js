@@ -91,8 +91,8 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 			// Physically-based sheen attenuation with minimum to prevent black pixels
 			const maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
 			const sheenReflectance = material.sheen.mul( maxSheen ).mul( sheenDist );
-			// Clamp attenuation to preserve at least 10% of base layer
-			const sheenAttenuation = max( float( 1.0 ).sub( clamp( sheenReflectance, 0.0, 0.9 ) ), 0.1 );
+			// Energy-conserving sheen: base layer reduced by exactly what sheen reflects
+			const sheenAttenuation = float( 1.0 ).sub( clamp( sheenReflectance, 0.0, 1.0 ) );
 
 			result.assign( baseLayer.mul( sheenAttenuation ).add( sheenTerm ) );
 
@@ -174,7 +174,7 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 				const sheenTerm = material.sheenColor.mul( material.sheen ).mul( sheenDist ).mul( NoL );
 				const maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
 				const sheenReflectance = material.sheen.mul( maxSheen ).mul( sheenDist );
-				const sheenAttenuation = max( float( 1.0 ).sub( clamp( sheenReflectance, 0.0, 0.9 ) ), 0.1 );
+				const sheenAttenuation = float( 1.0 ).sub( clamp( sheenReflectance, 0.0, 1.0 ) );
 
 				result.assign( baseLayer.mul( sheenAttenuation ).add( sheenTerm ) );
 

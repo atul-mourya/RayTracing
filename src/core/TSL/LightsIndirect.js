@@ -305,8 +305,6 @@ export const calculateIndirectLighting = Fn( ( [
 	envMarginalWeights, envConditionalWeights,
 	envTotalSum, envResolution,
 	enableEnvironmentLight, useEnvMapIS,
-	// Global illumination scale
-	globalIlluminationIntensity,
 ] ) => {
 
 	// Initialize result
@@ -470,9 +468,6 @@ export const calculateIndirectLighting = Fn( ( [
 
 		// Throughput calculation
 		const throughput = sampleBrdfValue.mul( NoL ).mul( misWeight ).div( samplePdf ).toVar();
-
-		// Apply global illumination scaling
-		throughput.mulAssign( globalIlluminationIntensity );
 
 		r_direction.assign( sampleDir );
 		r_throughput.assign( throughput );
