@@ -987,7 +987,7 @@ export const Trace = Fn( ( [
 				const emissiveSample = EmissiveSample.wrap( sampleLightBVHTriangle(
 					hitInfo.hitPoint, N,
 					rngState,
-					lightBVHBuffer, lightBVHNodeCount,
+					lightBVHBuffer,
 					emissiveTriangleBuffer,
 					triangleBuffer,
 				) );

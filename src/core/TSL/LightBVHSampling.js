@@ -52,7 +52,6 @@ export const sampleLightBVHTriangle = Fn( ( [
 	hitPoint, surfaceNormal,
 	rngState,
 	lbvhBuffer,
-	lbvhNodeCount,
 	emissiveTriangleBuffer,
 	triangleBuffer,
 ] ) => {
@@ -123,13 +122,19 @@ export const sampleLightBVHTriangle = Fn( ( [
 		const lDistSq = max( dot( lDiff, lDiff ), float( 0.01 ) );
 		const rDistSq = max( dot( rDiff, rDiff ), float( 0.01 ) );
 
+		// Cosine factor: how much the child cluster faces the shading point.
+		// Floor at 0.1 so lights just below the horizon aren't fully discarded
+		// (they can still contribute via transmission or curved surfaces).
+		const lCos = max( dot( normalize( lDiff ), surfaceNormal ), float( 0.1 ) );
+		const rCos = max( dot( normalize( rDiff ), surfaceNormal ), float( 0.1 ) );
+
 		// Child power
 		const lPower = max( ld0.w, float( 0.0 ) );
 		const rPower = max( rd0.w, float( 0.0 ) );
 
-		// Importance = power / dist²
-		const lImportance = lPower.div( lDistSq );
-		const rImportance = rPower.div( rDistSq );
+		// Importance = power * cosine / dist²
+		const lImportance = lPower.mul( lCos ).div( lDistSq );
+		const rImportance = rPower.mul( rCos ).div( rDistSq );
 		const totalImportance = lImportance.add( rImportance );
 
 		If( totalImportance.lessThanEqual( float( 0.0 ) ), () => {

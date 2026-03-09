@@ -554,7 +554,7 @@ const PathTracerTab = () => {
 					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
 				</div>
 				<div className="flex items-center justify-between">
-					<SliderToggle label={"Emissive Mesh Sampling"} enabled={ enableEmissiveTriangleSampling } min={1} max={1000} step={1} value={[ emissiveBoost ]} onValueChange={ handleEmissiveBoostChange } onToggleChange={ handleEnableEmissiveTriangleSamplingChange } />
+					<SliderToggle label={"Emissive Mesh Sampling"} enabled={ enableEmissiveTriangleSampling } min={0} max={100} step={1} value={[ emissiveBoost ]} onValueChange={ handleEmissiveBoostChange } onToggleChange={ handleEnableEmissiveTriangleSamplingChange } />
 				</div>
 				{/* Feature disabled temporarily */}
 				<Separator />
