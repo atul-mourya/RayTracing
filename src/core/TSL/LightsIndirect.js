@@ -403,7 +403,10 @@ export const calculateIndirectLighting = Fn( ( [
 
 		} );
 
-		const NoL = max( dot( N, sampleDir ), 0.0 ).toVar();
+		// For transmission directions (below surface), use |cos| instead of max(cos, 0)
+		const rawNoL = dot( N, sampleDir ).toVar();
+		const NoL = max( rawNoL, 0.0 ).toVar();
+		const absNoL = abs( rawNoL ).toVar();
 
 		// Calculate combined PDF for MIS (all active strategies)
 		const combinedPdf = float( 0.0 ).toVar();
@@ -466,8 +469,9 @@ export const calculateIndirectLighting = Fn( ( [
 		// MIS weight calculation
 		const misWeight = samplePdf.div( combinedPdf ).toVar();
 
-		// Throughput calculation
-		const throughput = sampleBrdfValue.mul( NoL ).mul( misWeight ).div( samplePdf ).toVar();
+		// Throughput calculation: use |cos| for transmission, max(cos,0) for reflection strategies
+		const cosineWeight = select( selectedStrategy.equal( int( 3 ) ), absNoL, NoL );
+		const throughput = sampleBrdfValue.mul( cosineWeight ).mul( misWeight ).div( samplePdf ).toVar();
 
 		r_direction.assign( sampleDir );
 		r_throughput.assign( throughput );

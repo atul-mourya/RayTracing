@@ -32,7 +32,7 @@ import {
 
 import { struct } from './structProxy.js';
 import { Ray, RayTracingMaterial, RenderState, HitInfo, DotProducts, DirectionSample } from './Struct.js';
-import { PI, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
+import { PI, EPSILON, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
 import { iorToFresnel0, fresnelSchlickFloat } from './Fresnel.js';
 import { DistributionGGX, calculateGGXPDF } from './MaterialProperties.js';
 import { ImportanceSampleGGX } from './MaterialSampling.js';
@@ -491,17 +491,7 @@ export const handleTransmission = Fn( ( [
 		// Blend based on metalness
 		const baseReflectProb = mix( dielectricReflect, metallicReflect, material.metalness ).toVar();
 
-		// Bias toward transmission for dispersive materials to show more dispersion
-		If( material.dispersion.greaterThan( 0.0 ), () => {
-
-			const dispersionBoost = clamp( material.dispersion.mul( 0.1 ), 0.0, 0.5 );
-			reflectProb.assign( baseReflectProb.mul( float( 1.0 ).sub( dispersionBoost ) ) );
-
-		} ).Else( () => {
-
-			reflectProb.assign( baseReflectProb );
-
-		} );
+		reflectProb.assign( baseReflectProb );
 
 	} );
 
@@ -674,6 +664,10 @@ export const handleTransmission = Fn( ( [
 
 			// Apply material color for transmission
 			result.throughput.mulAssign( material.color.xyz );
+
+			// Non-symmetric transport correction: radiance scales by (n1/n2)² at refractive interface
+			// due to solid angle compression/expansion (cancels for round-trip enter+exit paths)
+			result.throughput.mulAssign( n1.mul( n1 ).div( max( n2.mul( n2 ), EPSILON ) ) );
 
 			// Apply Beer's law absorption when entering medium
 			If( entering.and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {

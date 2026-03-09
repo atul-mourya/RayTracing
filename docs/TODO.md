@@ -20,16 +20,15 @@
 
 ### Rendering
 - [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
-- [ ] Fly mode camera controls as an alternative to orbit controls
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
-- [ ] which all techniques are usefull to improve the indirect lighting?
 
 ### Camera
+- [ ] Fly mode camera controls as an alternative to orbit controls
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
 - [ ] Depth of field with support for anamorphic bokeh
@@ -49,7 +48,6 @@
 - [ ] SDF-based model rendering
 
 ### Environment
-- enviroment cdf build should be parallelized instead of waiting for other processes to finish. Should be put it worker, should it? give it a thought
 - [ ] Environment cube map support for HDRIs
 - [ ] Ground projection environment mapping
 - [ ] Add new category of environment maps - abstract (identify files and organize)

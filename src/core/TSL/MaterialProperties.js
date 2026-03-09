@@ -93,6 +93,32 @@ export const multiscatterCompensation = Fn( ( [ F0, NoV, roughness ] ) => {
 
 } );
 
+// Compute the total specular directional albedo including multiscatter compensation.
+// Returns per-channel fraction of energy captured by specular reflection,
+// used for energy-conserving diffuse weight: kD = (1 - E_total) * (1 - metalness).
+export const specularDirectionalAlbedo = Fn( ( [ F0, NoV, roughness ] ) => {
+
+	// Analytical DFG approximation (same as multiscatterCompensation)
+	const r0 = float( 1.0 ).sub( roughness );
+	const r1 = roughness.mul( - 0.0275 ).add( 0.0425 );
+	const r2 = roughness.mul( - 0.572 ).add( 1.04 );
+	const r3 = roughness.mul( 0.022 ).sub( 0.04 );
+	const a004 = min( r0.mul( r0 ), exp( float( - 6.4308 ).mul( NoV ) ) ).mul( r0 ).add( r1 );
+	const dfgScale = float( - 1.04 ).mul( a004 ).add( r2 );
+	const dfgBias = float( 1.04 ).mul( a004 ).add( r3 );
+
+	// Single-scatter directional albedo per channel: E_ss = F0 * scale + bias
+	const E_ss = max( F0.mul( dfgScale ).add( vec3( dfgBias ) ), vec3( 0.0 ) );
+
+	// Directional albedo at F0=1 (white furnace test)
+	const Ew = max( dfgScale.add( dfgBias ), 0.1 );
+
+	// Apply multiscatter compensation to get total specular albedo
+	const compensation = vec3( 1.0 ).add( F0.mul( float( 1.0 ).div( Ew ).sub( 1.0 ) ) );
+	return clamp( E_ss.mul( compensation ), vec3( 0.0 ), vec3( 1.0 ) );
+
+} );
+
 // -----------------------------------------------------------------------------
 // PDF Calculation Helpers
 // -----------------------------------------------------------------------------
