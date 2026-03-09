@@ -1,4 +1,4 @@
-import { Fn, float, vec3, vec4, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep, lessThan, select } from 'three/tsl';
+import { Fn, float, vec3, vec4, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
 
 import {
 	BRDFWeights,
@@ -203,7 +203,11 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 			fresnelSchlickFloat( cosTheta2, R1.y ),
 			fresnelSchlickFloat( cosTheta2, R1.z )
 		).toVar();
-		const phi23 = mix( vec3( 0.0 ), vec3( PI ), lessThan( baseIOR, vec3( iridescenceIor ) ) ).toVar();
+		const phi23 = vec3(
+			baseIOR.x.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) ),
+			baseIOR.y.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) ),
+			baseIOR.z.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) )
+		).toVar();
 
 		const OPD = float( 2.0 ).mul( iridescenceIor ).mul( thinFilmThickness ).mul( cosTheta2 ).toVar();
 		const phi = vec3( phi21 ).add( phi23 ).toVar();

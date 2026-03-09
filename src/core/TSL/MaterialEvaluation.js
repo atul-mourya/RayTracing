@@ -26,11 +26,12 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
 	const result = vec3( 0.0 ).toVar();
 
-	// Early exit for purely diffuse materials
+	// Early exit for purely diffuse materials (skip if iridescent)
 	If( material.roughness.greaterThan( 0.98 )
 		.and( material.metalness.lessThan( 0.02 ) )
 		.and( material.transmission.equal( 0.0 ) )
-		.and( material.clearcoat.equal( 0.0 ) ), () => {
+		.and( material.clearcoat.equal( 0.0 ) )
+		.and( material.iridescence.equal( 0.0 ) ), () => {
 
 		result.assign( material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).mul( PI_INV ) );
 
@@ -66,8 +67,8 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 		// Add iridescence effect if enabled
 		If( material.iridescence.greaterThan( 0.0 ), () => {
 
-			// Calculate thickness based on the range
-			const thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
+			// Per glTF KHR_materials_iridescence spec: use max thickness when no texture
+			const thickness = material.iridescenceThicknessRange.y;
 			const iridescenceFresnel = evalIridescence( float( 1.0 ), material.iridescenceIOR, dots.VoH, thickness, F0 );
 			F0.assign( mix( F0, iridescenceFresnel, material.iridescence ) );
 
@@ -150,7 +151,8 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 			// Iridescence
 			If( material.iridescence.greaterThan( 0.0 ), () => {
 
-				const thickness = mix( material.iridescenceThicknessRange.x, material.iridescenceThicknessRange.y, 0.5 );
+				// Per glTF KHR_materials_iridescence spec: use max thickness when no texture
+				const thickness = material.iridescenceThicknessRange.y;
 				const iridescenceFresnel = evalIridescence( float( 1.0 ), material.iridescenceIOR, VoH, thickness, F0 );
 				F0.assign( clamp( mix( F0, iridescenceFresnel, material.iridescence ), vec3( 0.0 ), vec3( 1.0 ) ) );
 

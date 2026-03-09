@@ -83,7 +83,6 @@
 ---
 
 ## Experiments
-- [x] Screen-space radiance caching
 - [ ] Ray-Guiding based on Octahedron Mapping CDF
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing
@@ -91,10 +90,12 @@
 - [ ] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
-- [x] No Kulla-Conty or Turquin energy compensation - didnt like the results, but could be worth revisiting with a more accurate implementation
+- [x] Screen-space radiance caching
+- [x] No Kulla-Conty or Turquin energy compensation
 - [x] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
 - [x] stackless BVH traversal - slowness expected
 - [x] Bindless texture - True hardware-level bindless isn't available in WebGPU
+- [ ] irradiance probes
 
 ---
 
