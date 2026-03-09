@@ -10,7 +10,7 @@ import {
 } from './Common.js';
 import { fresnelSchlick, fresnelSchlickFloat } from './Fresnel.js';
 import {
-	DistributionGGX, SheenDistribution, GeometrySmith,
+	DistributionGGX, SheenDistribution, GeometrySmith, multiscatterCompensation,
 } from './MaterialProperties.js';
 import { evalIridescence } from './MaterialProperties.js';
 
@@ -75,8 +75,12 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 		const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
 		const F = fresnelSchlick( dots.VoH, F0 ).toVar();
 
-		// Combined specular calculation with NaN protection
-		const specular = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
+		// Single-scatter specular BRDF
+		const specularSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
+
+		// Kulla-Conty multiscatter energy compensation for rough surfaces
+		const specular = specularSS.mul( multiscatterCompensation( F0, dots.NoV, material.roughness ) );
+
 		const kD = vec3( 1.0 ).sub( F ).mul( float( 1.0 ).sub( material.metalness ) );
 		const diffuse = kD.mul( materialColor ).mul( PI_INV );
 
@@ -88,11 +92,9 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 			const sheenDist = SheenDistribution( dots.NoH, material.sheenRoughness );
 			const sheenTerm = material.sheenColor.mul( material.sheen ).mul( sheenDist ).mul( dots.NoL );
 
-			// Physically-based sheen attenuation with minimum to prevent black pixels
-			const maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
-			const sheenReflectance = material.sheen.mul( maxSheen ).mul( sheenDist );
-			// Energy-conserving sheen: base layer reduced by exactly what sheen reflects
-			const sheenAttenuation = float( 1.0 ).sub( clamp( sheenReflectance, 0.0, 1.0 ) );
+			// Per-channel energy-conserving sheen attenuation
+			const sheenReflectance = clamp( material.sheenColor.mul( material.sheen ).mul( sheenDist ), vec3( 0.0 ), vec3( 1.0 ) );
+			const sheenAttenuation = vec3( 1.0 ).sub( sheenReflectance );
 
 			result.assign( baseLayer.mul( sheenAttenuation ).add( sheenTerm ) );
 
@@ -157,11 +159,12 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 
 			const F = fresnelSchlick( VoH, F0 ).toVar();
 
-			// Safer division for specular term
+			// Single-scatter specular BRDF
 			const specularDenom = max( float( 4.0 ).mul( cache.NoV ).mul( NoL ), EPSILON );
-			const specular = min( D.mul( G ).mul( F ).div( specularDenom ), vec3( 16.0 ) );
+			const specularSS = D.mul( G ).mul( F ).div( specularDenom );
 
-			// Energy conservation: ensure diffuse + specular doesn't exceed 1
+			// Kulla-Conty multiscatter energy compensation for rough surfaces
+			const specular = specularSS.mul( multiscatterCompensation( F0, cache.NoV, material.roughness ) );
 			const kD = vec3( 1.0 ).sub( F ).mul( float( 1.0 ).sub( material.metalness ) );
 			const diffuse = kD.mul( material.color.rgb ).mul( PI_INV );
 
@@ -172,9 +175,9 @@ export const evaluateMaterialResponseCached = Fn( ( [ V, L, N, material, cache ]
 
 				const sheenDist = SheenDistribution( NoH, material.sheenRoughness );
 				const sheenTerm = material.sheenColor.mul( material.sheen ).mul( sheenDist ).mul( NoL );
-				const maxSheen = max( max( material.sheenColor.r, material.sheenColor.g ), material.sheenColor.b );
-				const sheenReflectance = material.sheen.mul( maxSheen ).mul( sheenDist );
-				const sheenAttenuation = float( 1.0 ).sub( clamp( sheenReflectance, 0.0, 1.0 ) );
+				// Per-channel energy-conserving sheen attenuation
+				const sheenReflectance = clamp( material.sheenColor.mul( material.sheen ).mul( sheenDist ), vec3( 0.0 ), vec3( 1.0 ) );
+				const sheenAttenuation = vec3( 1.0 ).sub( sheenReflectance );
 
 				result.assign( baseLayer.mul( sheenAttenuation ).add( sheenTerm ) );
 
@@ -217,7 +220,10 @@ export const evaluateLayeredBRDF = Fn( ( [ dots, material ] ) => {
 	const D = DistributionGGX( dots.NoH, material.roughness );
 	const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
 	const F = fresnelSchlick( dots.VoH, F0 ).toVar();
-	const baseBRDF = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
+	const baseBRDFSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
+
+	// Kulla-Conty multiscatter energy compensation for rough surfaces
+	const baseBRDF = baseBRDFSS.mul( multiscatterCompensation( F0, dots.NoV, material.roughness ) );
 
 	// Fresnel masking for diffuse component
 	const kD = vec3( 1.0 ).sub( F ).mul( float( 1.0 ).sub( material.metalness ) );

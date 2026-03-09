@@ -144,23 +144,17 @@ export const calculateSamplingWeights = Fn( ( [ V, N, material ] ) => {
 	const NoV = max( dot( N, V ), 0.0 );
 	const fresnelFactor = pow( float( 1.0 ).sub( NoV ), 5.0 );
 
-	// Enhanced diffuse weight (reduced at grazing angles)
-	const diffuse = brdfWeights.diffuse.mul( float( 1.0 ).sub( fresnelFactor.mul( 0.3 ) ) ).toVar();
+	// Energy-conserving Fresnel redistribution: energy lost by diffuse transfers to specular
+	// This preserves the total (diffuse + specular) weight while shifting toward specular at grazing angles
+	const fresnelTransfer = brdfWeights.diffuse.mul( fresnelFactor );
+	const diffuse = brdfWeights.diffuse.sub( fresnelTransfer ).toVar();
+	const specular = brdfWeights.specular.add( fresnelTransfer ).toVar();
 
-	// Enhanced specular weight (increased at grazing angles)
-	const specular = brdfWeights.specular.mul( float( 1.0 ).add( fresnelFactor.mul( 0.5 ) ) ).toVar();
-
-	// Clearcoat weight with fresnel enhancement
-	const clearcoat = brdfWeights.clearcoat.mul( float( 1.0 ).add( fresnelFactor.mul( 0.8 ) ) ).toVar();
-
-	// Transmission weight (view-dependent)
+	// Other lobes remain unchanged — no artificial inflation
+	const clearcoat = brdfWeights.clearcoat.toVar();
 	const transmission = brdfWeights.transmission.mul( tempIorFactor ).toVar();
-
-	// Sheen weight (enhanced at grazing angles)
-	const sheen = brdfWeights.sheen.mul( float( 1.0 ).add( fresnelFactor ) ).toVar();
-
-	// Iridescence weight
-	const iridescence = brdfWeights.iridescence.mul( float( 1.0 ).add( fresnelFactor.mul( 0.6 ) ) ).toVar();
+	const sheen = brdfWeights.sheen.toVar();
+	const iridescence = brdfWeights.iridescence.toVar();
 
 	// Calculate total weight for normalization
 	const totalWeight = max(

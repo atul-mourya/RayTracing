@@ -1,4 +1,4 @@
-import { WebGPURenderer } from 'three/webgpu';
+import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
 import { uniform } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher, Vector3,
@@ -6,6 +6,7 @@ import {
 	Mesh, CircleGeometry, MeshPhysicalMaterial, TimestampQuery
 } from 'three';
 import { Inspector } from 'three/addons/inspector/Inspector.js';
+import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { outline } from 'three/addons/tsl/display/OutlineNode.js';
 import Stats from 'stats-gl';
@@ -168,6 +169,9 @@ export class PathTracerApp extends EventDispatcher {
 		// this.renderer.inspector = new Inspector();
 
 		await this.renderer.init();
+
+		// Initialize LTC textures required by RectAreaLight in WebGPU renderer
+		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
 		// Exposure is applied in the display shader via TSL uniform, so
 		// keep toneMappingExposure at 1.0 to avoid double-application.

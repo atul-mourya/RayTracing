@@ -58,8 +58,8 @@ export function extractFloatData( envMap ) {
 
 	if ( envMap.type === FloatType && data instanceof Float32Array ) {
 
-		// Already float — reference directly (read-only downstream)
-		floatData = data;
+		// Copy so the original texture buffer is not detached by worker transfer
+		floatData = new Float32Array( data );
 
 	} else if ( envMap.type === HalfFloatType ) {
 

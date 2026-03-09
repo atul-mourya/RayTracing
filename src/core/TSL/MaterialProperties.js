@@ -61,6 +61,39 @@ export const GeometrySmith = Fn( ( [ NoV, NoL, roughness ] ) => {
 } );
 
 // -----------------------------------------------------------------------------
+// Kulla-Conty Multiscatter Energy Compensation
+// -----------------------------------------------------------------------------
+// Single-scatter GGX loses energy for rough surfaces because it ignores light
+// bouncing multiple times between microfacets. This function returns a per-channel
+// multiplicative factor for the specular BRDF that compensates for this loss.
+// Based on: Kulla & Conty 2017 + Karis 2014 analytical DFG approximation.
+
+export const multiscatterCompensation = Fn( ( [ F0, NoV, roughness ] ) => {
+
+	// Analytical DFG approximation (Karis 2014)
+	// Computes scale and bias where E(F0) = F0 * scale + bias
+	const r0 = float( 1.0 ).sub( roughness );
+	const r1 = roughness.mul( - 0.0275 ).add( 0.0425 );
+	const r2 = roughness.mul( - 0.572 ).add( 1.04 );
+	const r3 = roughness.mul( 0.022 ).sub( 0.04 );
+
+	// exp2(-9.28 * NoV) = exp(-6.4308 * NoV)
+	const a004 = min( r0.mul( r0 ), exp( float( - 6.4308 ).mul( NoV ) ) ).mul( r0 ).add( r1 );
+
+	const dfgScale = float( - 1.04 ).mul( a004 ).add( r2 );
+	const dfgBias = float( 1.04 ).mul( a004 ).add( r3 );
+
+	// Directional albedo at F0=1 (white furnace test)
+	const Ew = max( dfgScale.add( dfgBias ), 0.1 );
+
+	// Energy compensation: 1 + F0 * (1/Ew - 1)
+	// At F0=1 (metals): fully compensates to 1/Ew
+	// At F0=0.04 (dielectrics): negligible correction
+	return vec3( 1.0 ).add( F0.mul( float( 1.0 ).div( Ew ).sub( 1.0 ) ) );
+
+} );
+
+// -----------------------------------------------------------------------------
 // PDF Calculation Helpers
 // -----------------------------------------------------------------------------
 
@@ -233,15 +266,17 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 
 	} );
 
-	// Iridescence: fold into specular weight since iridescence modifies specular F0
-	// and should be sampled with GGX importance sampling, not as a separate diffuse-like lobe
+	// Iridescence: shifts energy from diffuse to specular since it modifies specular F0
+	// This preserves the total weight (no inflation) while increasing specular importance
 	const iridescenceBase = invRoughness.mul( mc.isSmooth.select( float( 0.6 ), float( 0.5 ) ) );
 	const iridescenceWeight = material.iridescence.mul( iridescenceBase )
 		.mul( float( 0.5 ).add( float( 0.5 ).mul(
 			material.iridescenceThicknessRange.y.sub( material.iridescenceThicknessRange.x ).div( 1000.0 )
 		) ) )
 		.mul( float( 0.5 ).add( float( 0.5 ).mul( material.iridescenceIOR.div( 2.0 ) ) ) );
-	specular.addAssign( iridescenceWeight );
+	const iridescenceShift = min( iridescenceWeight, diffuse );
+	specular.addAssign( iridescenceShift );
+	diffuse.subAssign( iridescenceShift );
 
 	// Single normalization pass
 	const total = specular.add( diffuse ).add( sheen ).add( clearcoat ).add( transmission );

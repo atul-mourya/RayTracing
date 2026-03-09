@@ -481,18 +481,20 @@ export const handleTransmission = Fn( ( [
 
 	} ).Else( () => {
 
-		// For dielectrics: balance Fresnel reflection with material transmission
-		const dielectricReflect = Fr.add( float( 1.0 ).sub( Fr ).mul( float( 1.0 ).sub( material.transmission ) ) );
+		// Pure Fresnel reflection probability for dielectrics
+		// The outer code (handleMaterialTransparency) already handles the transmission probability
+		// split, so inside handleTransmission we only need Fresnel-based reflect/transmit decisions
+		const dielectricReflect = Fr;
 		// For metals: mostly reflect regardless of transmission setting
 		const metallicReflect = float( 0.95 );
 
 		// Blend based on metalness
 		const baseReflectProb = mix( dielectricReflect, metallicReflect, material.metalness ).toVar();
 
-		// FORCE more transmission for dispersive materials
+		// Bias toward transmission for dispersive materials to show more dispersion
 		If( material.dispersion.greaterThan( 0.0 ), () => {
 
-			const dispersionBoost = clamp( material.dispersion.mul( 0.1 ), 0.0, 0.8 );
+			const dispersionBoost = clamp( material.dispersion.mul( 0.1 ), 0.0, 0.5 );
 			reflectProb.assign( baseReflectProb.mul( float( 1.0 ).sub( dispersionBoost ) ) );
 
 		} ).Else( () => {
@@ -645,7 +647,7 @@ export const handleTransmission = Fn( ( [
 					const baseVisibility = normalizedDispersion.mul( angleBoost );
 					const combinedVariation = spatialVariation.add( refractVariation );
 					const spatialMod = float( 0.5 ).add( float( 0.5 ).mul( sin( combinedVariation.mul( 3.14159 ) ) ) );
-					const dispersionVisibility = clamp( baseVisibility.mul( spatialMod ), 0.1, 0.8 );
+					const dispersionVisibility = clamp( baseVisibility.mul( spatialMod ), 0.0, 0.8 );
 
 					// Mix rainbow color with clear base for realistic prism effect
 					result.throughput.assign( mix( vec3( 1.0 ), rainbowColor, dispersionVisibility ) );
