@@ -50,7 +50,6 @@
     "clsx": "^2.1.1",
     "lodash": "^4.17.21",
     "lucide-react": "^0.541.0",
-    "meshoptimizer": "^1.0.1",
     "mime": "^4.1.0",
     "oidn-web": "^0.3.4",
     "react": "19.0.0",

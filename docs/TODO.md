@@ -27,7 +27,8 @@
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
-- [ ] analyse if meshoptimizer operation adding any value
+- [x] analyse if meshoptimizer operation adding any value (removed — vertex reordering adds no benefit to BVH path tracers)
+- [ ] which all techniques are usefull to improve the indirect lighting?
 
 ### Camera
 - [ ] Dynamic camera addition and removal
@@ -49,6 +50,7 @@
 - [ ] SDF-based model rendering
 
 ### Environment
+- enviroment cdf build should be parallelized instead of waiting for other processes to finish. Should be put it worker, should it? give it a thought
 - [ ] Environment cube map support for HDRIs
 - [ ] Ground projection environment mapping
 - [ ] Add new category of environment maps - abstract (identify files and organize)

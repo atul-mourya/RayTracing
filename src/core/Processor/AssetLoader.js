@@ -1,5 +1,5 @@
 import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping, LinearMipmapLinearFilter,
-	TextureLoader, BufferAttribute, Mesh, MeshStandardMaterial, Points, PointsMaterial, LoadingManager, EventDispatcher
+	TextureLoader, Mesh, MeshStandardMaterial, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
 import { GLTFLoader, HDRLoader, DRACOLoader, EXRLoader } from 'three/examples/jsm/Addons';
 import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
@@ -22,29 +22,6 @@ const SUPPORTED_FORMATS = {
 	'zip': { type: 'archive', name: 'ZIP Archive' }
 };
 
-// Import MeshoptEncoder for mesh optimization
-let MeshoptEncoder;
-
-// Load the MeshoptEncoder dynamically
-async function loadMeshoptEncoder() {
-
-	try {
-
-		const module = await import( 'meshoptimizer' );
-		MeshoptEncoder = module.MeshoptEncoder;
-		await MeshoptEncoder.ready;
-		console.log( 'MeshoptEncoder loaded and ready' );
-		return true;
-
-	} catch ( error ) {
-
-		console.warn( 'Failed to load MeshoptEncoder:', error );
-		return false;
-
-	}
-
-}
-
 /**
  * AssetLoader class - handles loading of 3D models, environment maps, and archives
  */
@@ -60,15 +37,6 @@ class AssetLoader extends EventDispatcher {
 		this.floorPlane = null;
 		this.sceneScale = 1.0;
 		this.loaderCache = {};
-		this.optimizeMeshes = DEFAULT_STATE.optimizeMeshes;
-		this.meshoptEncoderLoaded = false;
-		this.initMeshoptEncoder();
-
-	}
-
-	async initMeshoptEncoder() {
-
-		this.meshoptEncoderLoaded = await loadMeshoptEncoder();
 
 	}
 
@@ -1119,15 +1087,6 @@ class AssetLoader extends EventDispatcher {
 
 		}
 
-		if ( this.optimizeMeshes ) {
-
-			buildTimer.start( 'Mesh optimization' );
-			updateLoading( { status: "Optimizing Mesh...", progress: 12 } );
-			await this.optimizeModel( model );
-			buildTimer.end( 'Mesh optimization' );
-
-		}
-
 		// Process model objects
 		buildTimer.start( 'Process model objects' );
 		this.processModelObjects( model );
@@ -1261,139 +1220,10 @@ class AssetLoader extends EventDispatcher {
 
 	}
 
-	// Optimization methods
-	async optimizeModel( model ) {
-
-		if ( ! this.meshoptEncoderLoaded ) {
-
-			console.log( 'MeshoptEncoder not loaded, skipping optimization' );
-			return;
-
-		}
-
-		try {
-
-			model.traverse( object => {
-
-				if ( object.isMesh && object.geometry ) {
-
-					this.optimizeMeshGeometry( object.geometry );
-
-				}
-
-			} );
-			console.log( 'Model optimization complete' );
-
-		} catch ( error ) {
-
-			console.error( 'Error during mesh optimization:', error );
-
-		}
-
-	}
-
-	optimizeMeshGeometry( geometry ) {
-
-		try {
-
-			if ( ! geometry.index || ! geometry.attributes.position ) return;
-
-			const indices = Array.from( geometry.index.array );
-			const triangles = true;
-			const optsize = true;
-
-			const [ remap, unique ] = MeshoptEncoder.reorderMesh( new Uint32Array( indices ), triangles, optsize );
-
-			if ( ! remap || ! unique ) {
-
-				console.warn( 'MeshoptEncoder.reorderMesh failed to produce valid output' );
-				return;
-
-			}
-
-			const remappedIndices = new Uint32Array( indices.length );
-			for ( let i = 0; i < indices.length; i ++ ) {
-
-				remappedIndices[ i ] = remap[ indices[ i ] ];
-
-			}
-
-			let newIndexBuffer;
-			if ( remappedIndices.every( idx => idx < 65536 ) ) {
-
-				newIndexBuffer = new Uint16Array( remappedIndices );
-
-			} else {
-
-				newIndexBuffer = remappedIndices;
-
-			}
-
-			geometry.setIndex( new BufferAttribute( newIndexBuffer, 1 ) );
-			this.optimizeAttributes( geometry, remap, unique );
-
-		} catch ( error ) {
-
-			console.error( 'Error optimizing geometry:', error );
-
-		}
-
-	}
-
-	optimizeAttributes( geometry, remap, unique ) {
-
-		Object.keys( geometry.attributes ).forEach( name => {
-
-			const attribute = geometry.attributes[ name ];
-			const itemSize = attribute.itemSize;
-			const count = attribute.count;
-			const newArray = new Float32Array( unique * itemSize );
-
-			for ( let i = 0; i < count; i ++ ) {
-
-				const newIndex = remap[ i ];
-				if ( newIndex !== 0xffffffff ) {
-
-					for ( let j = 0; j < itemSize; j ++ ) {
-
-						newArray[ newIndex * itemSize + j ] = attribute.array[ i * itemSize + j ];
-
-					}
-
-				}
-
-			}
-
-			geometry.setAttribute( name, new BufferAttribute( newArray, itemSize ) );
-
-		} );
-
-	}
-
 	// Utility methods
 	setFloorPlane( floorPlane ) {
 
 		this.floorPlane = floorPlane;
-
-	}
-
-	setOptimizeMeshes( enabled ) {
-
-		this.optimizeMeshes = enabled;
-		if ( enabled && ! this.meshoptEncoderLoaded ) {
-
-			this.initMeshoptEncoder();
-
-		}
-
-	}
-
-	getOptimizationStatus() {
-
-		return {
-			optimizeMeshes: this.optimizeMeshes,
-			meshoptEncoderLoaded: this.meshoptEncoderLoaded,
-		};
 
 	}
 

@@ -23,7 +23,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 | **State Management** | Zustand |
 | **Denoising** | Intel OIDN Web, Custom ASVGF |
 | **Build Tools** | Vite, ESLint, Semantic Release |
-| **Performance** | Stats.gl, MeshOptimizer |
+| **Performance** | Stats.gl |
 
 ## Key Features
 
@@ -53,7 +53,6 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 
 ### Performance Optimization
 - **BVH Acceleration**: Optimized ray-scene intersection with bounding volume hierarchies and treelet optimization
-- **Mesh Optimization**: Automatic geometry simplification via MeshOptimizer
 - **Web Worker Processing**: Off-main-thread BVH construction and texture processing
 - **Interaction Mode**: Reduced quality during camera movement for responsive navigation
 - **Firefly Suppression**: Advanced noise reduction for bright pixels

@@ -107,7 +107,6 @@ export const DEBUG_MODELS = debugModelsData
 	} );
 
 export const DEFAULT_STATE = {
-	optimizeMeshes: true,
 	model: 9,
 	environment: 'aristea_wreck_puresky', // Environment ID from local_environments.json
 

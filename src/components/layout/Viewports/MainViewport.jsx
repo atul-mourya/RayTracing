@@ -5,7 +5,6 @@ import LoadingOverlay from './LoadingOverlay';
 import { useToast } from '@/hooks/use-toast';
 import { Toaster } from "@/components/ui/toaster";
 import { useStore, useAssetsStore, usePathTracerStore } from '@/store';
-import { DEFAULT_STATE } from '@/Constants';
 import { getApp } from '@/core/appProxy';
 
 const MainViewport = ( { mode = "preview" } ) => {
@@ -22,9 +21,6 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 		const app = getApp();
 		if ( app && app.assetLoader ) {
-
-			// Set optimization settings
-			app.assetLoader.setOptimizeMeshes( DEFAULT_STATE.optimizeMeshes );
 
 			const handleBeforeEnvironmentLoad = ( event ) => {
 
