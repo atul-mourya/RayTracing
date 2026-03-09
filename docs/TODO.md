@@ -27,7 +27,7 @@
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
-- [ ] analyse of model optimization addtion any value
+- [ ] analyse if meshoptimizer operation adding any value
 
 ### Camera
 - [ ] Dynamic camera addition and removal
@@ -41,7 +41,6 @@
 - [ ] implement pending Physical material properties
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
-- [ ] change the slider range of emissive mesh sampling to 0 to 100
 
 ### Materials
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
