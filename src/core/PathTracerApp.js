@@ -642,6 +642,16 @@ export class PathTracerApp extends EventDispatcher {
 			light.getWorldQuaternion( cloned.quaternion );
 			light.getWorldScale( cloned.scale );
 
+			// RectAreaLightHelper ignores world scale, so bake it into width/height
+			// to keep the helper visualization consistent with the shader data
+			if ( cloned.isRectAreaLight ) {
+
+				cloned.width *= cloned.scale.x;
+				cloned.height *= cloned.scale.y;
+				cloned.scale.set( 1, 1, 1 );
+
+			}
+
 			// SpotLights need their target transferred with world position
 			if ( light.isSpotLight && light.target ) {
 
