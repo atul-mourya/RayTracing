@@ -10,7 +10,6 @@
 ### RCA unknown
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] Save render doesn't show in results panel in some cases
 
 ---
 
@@ -62,7 +61,6 @@
 ## Performance & Architecture
 
 ### Pipeline
-- [ ] Separate pipeline for path tracing passes vs helper passes (tile helper, outline, etc.)
 - [ ] Offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
@@ -92,7 +90,8 @@
 - [x] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
 - [x] stackless BVH traversal - slowness expected
 - [x] Bindless texture - True hardware-level bindless isn't available in WebGPU
-- [ ] irradiance probes
+- [ ] irradiance probes,
+- [ ] Photon mapping
 
 ---
 
