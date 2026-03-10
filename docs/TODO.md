@@ -28,7 +28,7 @@
 - [ ] Full WGSL transition, avoid TSL nodes
 
 ### Camera
-- [ ] Fly mode camera controls as an alternative to orbit controls
+- [ ] first person camera mode controls as an alternative to orbit controls
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
 - [ ] Depth of field with support for anamorphic bokeh
@@ -43,9 +43,9 @@
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 
 ### Materials
-- [ ] Area light helper toggle control
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
+- [ ] better ux. list of lights in lights tab. selection to show contextual controls in lightsTab
 
 ### Environment
 - [ ] Environment cube map support for HDRIs

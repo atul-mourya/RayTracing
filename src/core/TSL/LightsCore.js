@@ -5,7 +5,6 @@ import {
 	Fn, wgslFn,
 	vec3,
 	float,
-	bool as tslBool,
 	If,
 	dot,
 	normalize,
@@ -15,8 +14,6 @@ import {
 } from 'three/tsl';
 
 import { struct } from './structProxy.js';
-import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
-import { Ray } from './Struct.js';
 
 // ================================================================================
 // LIGHT STRUCTURES
@@ -130,7 +127,7 @@ export const getAreaLight = Fn( ( [ areaLightsBuffer, index ] ) => {
 		),
 		intensity: areaLightsBuffer.element( baseIndex.add( 12 ) ),
 		normal: normalize( crossUV ),
-		area: length( crossUV ),
+		area: length( crossUV ).mul( 4.0 ),
 	} );
 
 } );
@@ -280,52 +277,3 @@ export const intersectAreaLight = Fn( ( [ light, rayOrigin, rayDirection ] ) => 
 
 } );
 
-// ================================================================================
-// DEBUG/HELPER FUNCTIONS
-// ================================================================================
-
-export const evaluateAreaLightHelper = Fn( ( [ light, ray ] ) => {
-
-	// Get light plane normal
-	const lightNormal = normalize( cross( light.u, light.v ) );
-
-	// Calculate intersection with the light plane
-	const denom = dot( lightNormal, ray.direction );
-
-	const result = vec3( 0.0 ).toVar();
-	const didHit = tslBool( false ).toVar();
-
-	// Skip if ray is parallel to plane
-	If( abs( denom ).greaterThanEqual( 1e-6 ), () => {
-
-		// Calculate intersection distance
-		const t = dot( light.position.sub( ray.origin ), lightNormal ).div( denom );
-
-		// Skip if intersection is behind ray
-		If( t.greaterThanEqual( 0.0 ), () => {
-
-			// Calculate intersection point
-			const hitPoint = ray.origin.add( ray.direction.mul( t ) );
-			const localPoint = hitPoint.sub( light.position );
-
-			// Project onto light's axes
-			const u = dot( localPoint, normalize( light.u ) );
-			const v = dot( localPoint, normalize( light.v ) );
-
-			// Check if point is within rectangle bounds
-			If( abs( u ).lessThanEqual( length( light.u ) ).and( abs( v ).lessThanEqual( length( light.v ) ) ), () => {
-
-				didHit.assign( true );
-				// Return visualization color based on light properties
-				result.assign( light.color.mul( light.intensity ).mul( 0.1 ) );
-
-			} );
-
-		} );
-
-	} );
-
-	// Return vec4: xyz = color, w = didHit (1.0 or 0.0)
-	return result;
-
-} );

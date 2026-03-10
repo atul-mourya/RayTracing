@@ -1698,6 +1698,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 // Light store
 const useLightStore = create( set => ( {
 	...DEFAULT_STATE,
+	showLightHelper: DEFAULT_STATE.showLightHelper,
 	lights: [],
 	setLights: lights => set( { lights } ),
 	updateLight: ( idx, prop, val ) => set( s => {
@@ -1834,6 +1835,19 @@ const useLightStore = create( set => ( {
 			return s;
 
 		} );
+
+	},
+
+	// Toggle area light helper visibility
+	handleShowLightHelperChange: ( val ) => {
+
+		set( { showLightHelper: val } );
+		const app = getApp();
+		if ( app ) {
+
+			app.setShowLightHelper( val );
+
+		}
 
 	},
 

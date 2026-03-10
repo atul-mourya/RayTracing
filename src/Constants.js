@@ -177,6 +177,7 @@ export const DEFAULT_STATE = {
 	renderMode: 0,
 	tiles: 3,
 	tilesHelper: false,
+	showLightHelper: false,
 	resolution: 1,
 
 	directionalLightIntensity: 0,

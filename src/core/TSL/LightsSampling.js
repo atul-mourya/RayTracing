@@ -124,10 +124,10 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 	// Validate light area to prevent NaN
 	If( light.area.greaterThan( 0.0 ), () => {
 
-		// Sample random position on rectangle
+		// Sample random position on rectangle (u/v are half-vectors, so map [0,1] → [-1,1])
 		const randomPos = light.position
-			.add( light.u.mul( ruv.x.sub( 0.5 ) ) )
-			.add( light.v.mul( ruv.y.sub( 0.5 ) ) )
+			.add( light.u.mul( ruv.x.mul( 2.0 ).sub( 1.0 ) ) )
+			.add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) )
 			.toVar();
 
 		const toLight = randomPos.sub( rayOrigin ).toVar();
@@ -836,7 +836,7 @@ export const sampleAreaLightContribution = Fn( ( [
 	const ruv_r1 = RandomValue( rngState ).toVar();
 	const ruv_r2 = RandomValue( rngState ).toVar();
 	const ruv = vec2( ruv_r1, ruv_r2 ).toVar();
-	const lightPos = light.position.add( light.u.mul( ruv.x.sub( 0.5 ) ) ).add( light.v.mul( ruv.y.sub( 0.5 ) ) ).toVar();
+	const lightPos = light.position.add( light.u.mul( ruv.x.mul( 2.0 ).sub( 1.0 ) ) ).add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) ).toVar();
 
 	const toLight = lightPos.sub( rayOrigin ).toVar();
 	const lightDistSq = dot( toLight, toLight ).toVar();

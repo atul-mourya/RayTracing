@@ -1,5 +1,6 @@
 import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { useEffect, useCallback } from 'react';
 
 const LightsTab = () => {
 
-	const { lights, setLights, updateLight, updateDirectionalLightAngle, addLight, removeLight, clearAllLights } = useLightStore();
+	const { lights, setLights, updateLight, updateDirectionalLightAngle, addLight, removeLight, clearAllLights, showLightHelper, handleShowLightHelperChange } = useLightStore();
 
 	const handleLightChange = ( index, property, value ) => {
 
@@ -147,6 +148,15 @@ const LightsTab = () => {
 					)}
 				</div>
 			</div>
+
+			<Separator className="bg-primary" />
+
+			{/* Light Helper Toggle */}
+			{lights.length > 0 && (
+				<div className="flex items-center justify-between">
+					<Switch label={"Light Helper"} checked={showLightHelper} onCheckedChange={handleShowLightHelperChange} />
+				</div>
+			)}
 
 			{/* Lights List */}
 			{lights.length === 0 ? (

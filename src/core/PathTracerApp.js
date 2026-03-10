@@ -9,6 +9,7 @@ import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { outline } from 'three/addons/tsl/display/OutlineNode.js';
+import { SceneHelpers } from './SceneHelpers.js';
 import Stats from 'stats-gl';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
 import { NormalDepthStage } from './Stages/NormalDepthStage.js';
@@ -64,6 +65,9 @@ export class PathTracerApp extends EventDispatcher {
 		// and raster fallback. Separate from this.scene (which only holds lights
 		// for the path tracer pipeline).
 		this.meshScene = null;
+
+		// Scene helpers — lightweight overlay for light visualization
+		this.sceneHelpers = null;
 
 		// Asset pipeline
 		this.assetLoader = null;
@@ -192,6 +196,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Create scenes — separate light scene (for path tracer) and mesh scene (for raycasting)
 		this.scene = new Scene();
 		this.meshScene = new Scene();
+		this.sceneHelpers = new SceneHelpers();
 
 		// Setup orbit controls
 		this.controls = new OrbitControls( this.camera, this.canvas );
@@ -654,6 +659,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Process the cloned lights into uniform buffer arrays
 		this.updateLights();
+		this._syncLightHelpers();
 
 	}
 
@@ -937,6 +943,7 @@ export class PathTracerApp extends EventDispatcher {
 
 						this._needsDisplayRefresh = false;
 						this.displayStage.render( this.pipeline.context );
+						this._renderHelperOverlay();
 
 					}
 
@@ -987,6 +994,9 @@ export class PathTracerApp extends EventDispatcher {
 			this.renderer.render( this.meshScene, this.camera );
 
 		}
+
+		// Render light helpers as overlay on top of current frame
+		this._renderHelperOverlay();
 
 		this.stats?.update();
 
@@ -1170,6 +1180,49 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.reset();
+
+	}
+
+	/**
+	 * Sets whether to show area light helpers.
+	 */
+	setShowLightHelper( show ) {
+
+		this.sceneHelpers.visible = show;
+
+		if ( show ) {
+
+			this._syncLightHelpers();
+
+		} else {
+
+			this.sceneHelpers.clear();
+
+		}
+
+	}
+
+	/**
+	 * Syncs helpers in sceneHelpers with current scene lights.
+	 */
+	_syncLightHelpers() {
+
+		if ( ! this.sceneHelpers.visible ) return;
+
+		const lights = this.scene.getObjectsByProperty( 'isLight', true );
+		this.sceneHelpers.sync( lights );
+
+	}
+
+	/**
+	 * Renders light helpers as overlay. Call after DisplayStage.
+	 */
+	_renderHelperOverlay() {
+
+		// Ensure light world matrices are up-to-date (this.scene is not rendered
+		// by the rasterizer during path tracing, so matrixWorld may be stale).
+		this.scene.updateMatrixWorld();
+		this.sceneHelpers.render( this.renderer, this.camera );
 
 	}
 
@@ -1948,6 +2001,7 @@ export class PathTracerApp extends EventDispatcher {
 		light.name = `${type.replace( 'Light', '' )} ${count + 1}`;
 		this.scene.add( light );
 		this.updateLights();
+		this._syncLightHelpers();
 		this.reset();
 
 		const descriptor = {
@@ -1984,6 +2038,7 @@ export class PathTracerApp extends EventDispatcher {
 		const light = this.scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! light || ! light.isLight ) return false;
 
+		this.sceneHelpers.remove( light );
 		if ( light.target ) light.target.removeFromParent();
 		light.removeFromParent();
 		this.updateLights();
@@ -1997,6 +2052,7 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	clearLights() {
 
+		this.sceneHelpers.clear();
 		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
 
 			if ( light.target ) this.scene.remove( light.target );
@@ -2307,6 +2363,8 @@ export class PathTracerApp extends EventDispatcher {
 			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
 
 		}
+
+		this.sceneHelpers.clear();
 
 		if ( this.outlineNode ) {
 
