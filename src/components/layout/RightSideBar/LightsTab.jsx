@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Sun, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical } from 'lucide-react';
+import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Vector3Component } from "@/components/ui/vector3";
@@ -10,50 +10,192 @@ import { getApp } from '@/core/appProxy';
 import { Separator } from '@/components/ui/separator';
 import { useEffect, useCallback } from 'react';
 
+const LIGHT_CONFIG = {
+	DirectionalLight: {
+		icon: ArrowsUpFromLine,
+		iconClass: 'rotate-45 -scale-100',
+		label: 'Directional',
+		intensity: { min: 0, max: 100, step: 0.5 },
+	},
+	PointLight: {
+		icon: Lightbulb,
+		iconClass: '',
+		label: 'Point',
+		intensity: { min: 0, max: 100, step: 0.5 },
+	},
+	SpotLight: {
+		icon: Spotlight,
+		iconClass: '',
+		label: 'Spot',
+		intensity: { min: 0, max: 100, step: 0.5 },
+	},
+	RectAreaLight: {
+		icon: Grid3X3,
+		iconClass: '',
+		label: 'Area',
+		intensity: { min: 0, max: 200, step: 5 },
+	},
+};
+
+const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
+
+	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
+	const Icon = config.icon;
+
+	return (
+		<div
+			role="button"
+			tabIndex={0}
+			onClick={() => onSelect( index )}
+			onKeyDown={( e ) => {
+
+				if ( e.key === 'Enter' || e.key === ' ' ) {
+
+					e.preventDefault();
+					onSelect( index );
+
+				}
+
+			}}
+			className={`group flex items-center gap-2 py-1 px-2 cursor-pointer transition-colors rounded-sm ${
+				isSelected
+					? 'bg-primary/15'
+					: 'hover:bg-accent/30'
+			}`}
+		>
+			<Icon size={12} className={`shrink-0 ${config.iconClass} ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+			<span className={`text-xs truncate flex-1 ${isSelected ? 'text-primary font-medium' : ''}`}>{light.name}</span>
+			<div
+				className="w-2.5 h-2.5 rounded-full shrink-0 border border-border"
+				style={{ backgroundColor: light.color }}
+			/>
+			<Button
+				size="sm"
+				variant="ghost"
+				onClick={( e ) => {
+
+					e.stopPropagation();
+					onRemove( index );
+
+				}}
+				className="h-4 w-4 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
+			>
+				<Trash2 size={9} />
+			</Button>
+		</div>
+	);
+
+};
+
+const LightDetailPanel = ( { light, index, onLightChange } ) => {
+
+	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
+
+	return (
+		<div className="space-y-4 py-4 px-2">
+			{/* Common controls */}
+			<div className="flex items-center justify-between">
+				<Slider
+					label="Intensity"
+					icon={Sunrise}
+					min={config.intensity.min}
+					max={config.intensity.max}
+					step={config.intensity.step}
+					value={[ light.intensity ]}
+					onValueChange={value => onLightChange( index, 'intensity', value )}
+				/>
+			</div>
+			<div className="flex items-center justify-between">
+				<ColorInput
+					label="Color"
+					icon={Rainbow}
+					value={light.color}
+					onChange={color => onLightChange( index, 'color', color )}
+				/>
+			</div>
+			<div className="flex items-center justify-between">
+				<Vector3Component
+					label="Position"
+					value={light.position}
+					onValueChange={value => onLightChange( index, 'position', value )}
+				/>
+			</div>
+
+			{/* SpotLight-specific controls */}
+			{light.type === 'SpotLight' && (
+				<>
+					<div className="flex items-center justify-between">
+						<Vector3Component
+							label="Target"
+							value={light.target || [ 0, 0, - 1 ]}
+							onValueChange={value => onLightChange( index, 'target', value )}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label="Cone Angle"
+							icon={CircleDot}
+							min={0}
+							max={90}
+							step={1}
+							value={[ light.angle ]}
+							onValueChange={value => onLightChange( index, 'angle', value )}
+						/>
+					</div>
+				</>
+			)}
+
+			{/* RectAreaLight-specific controls */}
+			{light.type === 'RectAreaLight' && (
+				<>
+					<div className="flex items-center justify-between">
+						<Slider
+							label="Width"
+							icon={RectangleHorizontal}
+							min={0.1}
+							max={20}
+							step={0.1}
+							value={[ light.width || 2 ]}
+							onValueChange={value => onLightChange( index, 'width', value )}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label="Height"
+							icon={RectangleVertical}
+							min={0.1}
+							max={20}
+							step={0.1}
+							value={[ light.height || 2 ]}
+							onValueChange={value => onLightChange( index, 'height', value )}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Vector3Component
+							label="Target"
+							value={light.target || [ 0, 0, 0 ]}
+							onValueChange={value => onLightChange( index, 'target', value )}
+						/>
+					</div>
+				</>
+			)}
+		</div>
+	);
+
+};
+
 const LightsTab = () => {
 
-	const { lights, setLights, updateLight, updateDirectionalLightAngle, addLight, removeLight, clearAllLights, showLightHelper, handleShowLightHelperChange } = useLightStore();
+	const {
+		lights, setLights, updateLight,
+		addLight, removeLight, clearAllLights,
+		showLightHelper, handleShowLightHelperChange,
+		selectedLightIndex, setSelectedLightIndex,
+	} = useLightStore();
 
 	const handleLightChange = ( index, property, value ) => {
 
 		updateLight( index, property, value );
-
-	};
-
-	// Add angle change handler specifically for directional lights
-	const handleDirectionalLightAngleChange = ( index, value ) => {
-
-		const angleInDegrees = value[ 0 ];
-		updateDirectionalLightAngle( index, angleInDegrees );
-		handleLightChange( index, 'angle', value );
-
-	};
-
-	const getLightIcon = ( type ) => {
-
-		switch ( type ) {
-
-			case 'DirectionalLight': return <ArrowsUpFromLine size="14" className="mr-2 rotate-45 -scale-100" />;
-			case 'PointLight': return <Lightbulb size="14" className="mr-2" />;
-			case 'RectAreaLight': return <Grid3X3 size="14" className="mr-2" />;
-			case 'SpotLight': return <Spotlight size="14" className="mr-2" />;
-			default: return <Sun className="mr-2" />;
-
-		}
-
-	};
-
-	const getMinMaxStep = ( type ) => { // where type is type of light
-
-		switch ( type ) {
-
-			case 'DirectionalLight': return { min: 0, max: 100, step: 0.5 };
-			case 'PointLight': return { min: 0, max: 100, step: 0.5 };
-			case 'SpotLight': return { min: 0, max: 100, step: 0.5 };
-			case 'RectAreaLight': return { min: 0, max: 200, step: 5 };
-			default: return { min: 0, max: 100, step: 0.5 };
-
-		}
 
 	};
 
@@ -63,8 +205,6 @@ const LightsTab = () => {
 		if ( app ) {
 
 			const sceneLights = app.getLights();
-
-			// Only update if there are actual changes to prevent unnecessary resets
 			if ( JSON.stringify( sceneLights ) !== JSON.stringify( lights ) ) {
 
 				setLights( sceneLights );
@@ -79,48 +219,48 @@ const LightsTab = () => {
 
 		updateLightsFromScene();
 		window.addEventListener( 'SceneRebuild', updateLightsFromScene );
-
 		return () => window.removeEventListener( 'SceneRebuild', updateLightsFromScene );
 
 	}, [ updateLightsFromScene ] );
 
-	// Handle adding new light
 	const handleAddLight = async ( lightType ) => {
 
 		await addLight( lightType );
 
 	};
 
-	// Handle removing a light
 	const handleRemoveLight = ( index ) => {
 
 		removeLight( index );
 
 	};
 
-	// Handle clearing all lights
 	const handleClearAllLights = () => {
 
 		clearAllLights();
 
 	};
 
+	const selectedLight = selectedLightIndex !== null && lights[ selectedLightIndex ] ? lights[ selectedLightIndex ] : null;
 
 	return (
-		<div className="px-2 space-y-4">
+		<div>
 			<Separator className="bg-primary" />
-			{/* Light Management Controls */}
-			<div className="flex items-center justify-between py-2 px-1 mb-0">
-				<span className="text-sm font-medium">Lights ( {lights.length} )</span>
-				<div className="flex gap-2">
-					{/* Add Light Dropdown */}
+
+			{/* Header */}
+			<div className="flex items-center justify-between py-2 px-2 text-xs bg-muted opacity-60">
+				<span>Lights</span>
+				<div className="flex items-center gap-1.5">
+					{lights.length > 0 && (
+						<span className="text-[10px] opacity-80">{lights.length}</span>
+					)}
 					<DropdownMenu>
 						<DropdownMenuTrigger asChild>
-							<Button size="sm" variant="outline" className="h-5">
-								Add
-							</Button>
+							<button className="hover:opacity-100 opacity-60 transition-opacity">
+								<Plus size={14} />
+							</button>
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" >
+						<DropdownMenuContent align="end">
 							<DropdownMenuItem className="text-xs" onClick={() => handleAddLight( 'DirectionalLight' )}>
 								<ArrowsUpFromLine className="mr-2 h-3 w-3 rotate-45 -scale-100" />
 								Directional Light
@@ -137,134 +277,63 @@ const LightsTab = () => {
 								<Grid3X3 className="mr-2 h-3 w-3" />
 								Area Light
 							</DropdownMenuItem>
+							{lights.length > 0 && (
+								<>
+									<Separator className="my-1" />
+									<DropdownMenuItem className="text-xs text-destructive focus:text-destructive" onClick={handleClearAllLights}>
+										<Trash2 className="mr-2 h-3 w-3" />
+										Clear All
+									</DropdownMenuItem>
+								</>
+							)}
 						</DropdownMenuContent>
 					</DropdownMenu>
-
-					{/* Clear All Lights */}
-					{lights.length > 0 && (
-						<Button size="sm" variant="outline" onClick={handleClearAllLights} className="h-5">
-							Clear All
-						</Button>
-					)}
 				</div>
 			</div>
 
-			<Separator className="bg-primary" />
-
-			{/* Light Helper Toggle */}
-			{lights.length > 0 && (
-				<div className="flex items-center justify-between">
-					<Switch label={"Light Helper"} checked={showLightHelper} onCheckedChange={handleShowLightHelperChange} />
-				</div>
-			)}
-
-			{/* Lights List */}
+			{/* Empty state */}
 			{lights.length === 0 ? (
-				<div className="text-center py-8">
+				<div className="text-center py-8 px-2">
 					<Lightbulb className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
 					<p className="text-sm text-muted-foreground">No lights in scene</p>
-					<p className="text-xs text-muted-foreground mt-1">Add a new light</p>
+					<p className="text-xs text-muted-foreground mt-1">Add a light to get started</p>
 				</div>
 			) : (
-				lights.map( ( light, index ) => (
-					<div key={light.uuid} className="space-y-2 p-2 border border-border rounded-lg bg-accent/10">
-						<div className="flex items-center justify-between">
-							<div className="flex items-center gap-2">
-								{getLightIcon( light.type )}
-								<div className="text-xs font-medium truncate">{light.name}</div>
-							</div>
-							<Button
-								size="sm"
-								variant="ghost"
-								onClick={() => handleRemoveLight( index )}
-								className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-							>
-								<Trash2 className="h-3 w-3" />
-							</Button>
-						</div>
-						<Separator />
-						<div className="flex items-center justify-center">
-							<div className="text-xs text-muted-foreground">{light.type}</div>
-						</div>
-						<div className="flex items-center justify-between">
-							<Slider label={`Intensity`} icon={Sunrise} min={ getMinMaxStep( light.type ).min } max={ getMinMaxStep( light.type ).max } step={ getMinMaxStep( light.type ).step } value={[ light.intensity ]} onValueChange={value => handleLightChange( index, 'intensity', value )} />
-						</div>
-						<div className="flex items-center justify-between">
-							<ColorInput label={`Color`} icon={Rainbow} value={light.color} onChange={color => handleLightChange( index, 'color', color )} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Vector3Component label={`Position`} value={light.position} onValueChange={value => handleLightChange( index, 'position', value )} />
-						</div>
-						{light.type === 'DirectionalLight' && (
-							<div className="flex items-center justify-between">
-								{/* <Slider
-									label={`Soft Shadow Angle`}
-									icon={CircleDot}
-									min={0}
-									max={10}
-									step={0.1}
-									value={[ light.angle || 0 ]}
-									onValueChange={value => handleDirectionalLightAngleChange( index, value )}
-								/> */}
-							</div>
-						)}
-						{light.type === 'SpotLight' && (
-							<>
-								<div className="flex items-center justify-between">
-									<Vector3Component
-										label={`Target`}
-										value={light.target || [ 0, 0, - 1 ]}
-										onValueChange={value => handleLightChange( index, 'target', value )}
-									/>
-								</div>
-								<div className="flex items-center justify-between">
-									<Slider
-										label={`Cone Angle`}
-										icon={CircleDot}
-										min={0}
-										max={90}
-										step={1}
-										value={[ light.angle ]}
-										onValueChange={value => handleLightChange( index, 'angle', value )}
-									/>
-								</div>
-							</>
-						)}
-						{light.type === 'RectAreaLight' && (
-							<>
-								<div className="flex items-center justify-between">
-									<Slider
-										label={`Width`}
-										icon={RectangleHorizontal}
-										min={0.1}
-										max={20}
-										step={0.1}
-										value={[ light.width || 2 ]}
-										onValueChange={value => handleLightChange( index, 'width', value )}
-									/>
-								</div>
-								<div className="flex items-center justify-between">
-									<Slider
-										label={`Height`}
-										icon={RectangleVertical}
-										min={0.1}
-										max={20}
-										step={0.1}
-										value={[ light.height || 2 ]}
-										onValueChange={value => handleLightChange( index, 'height', value )}
-									/>
-								</div>
-								<div className="flex items-center justify-between">
-									<Vector3Component
-										label={`Target`}
-										value={light.target || [ 0, 0, 0 ]}
-										onValueChange={value => handleLightChange( index, 'target', value )}
-									/>
-								</div>
-							</>
-						)}
+				<>
+					{/* Light Helper Toggle */}
+					<div className="flex items-center justify-between py-2 px-2">
+						<Switch label="Light Helper" checked={showLightHelper} onCheckedChange={handleShowLightHelperChange} />
 					</div>
-				) ) )}
+
+					<Separator className="bg-primary" />
+					{/* Lights list */}
+					<div className="border-b-[0.5px] border-current opacity-60" />
+					<div className="py-1">
+						{lights.map( ( light, index ) => (
+							<LightListItem
+								key={light.uuid}
+								light={light}
+								index={index}
+								isSelected={selectedLightIndex === index}
+								onSelect={( idx ) => setSelectedLightIndex( selectedLightIndex === idx ? null : idx )}
+								onRemove={handleRemoveLight}
+							/>
+						) )}
+					</div>
+
+					{/* Selected light detail panel */}
+					{selectedLight && (
+						<>
+							<Separator />
+							<LightDetailPanel
+								light={selectedLight}
+								index={selectedLightIndex}
+								onLightChange={handleLightChange}
+							/>
+						</>
+					)}
+				</>
+			)}
 		</div>
 	);
 

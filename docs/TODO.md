@@ -3,7 +3,7 @@
 ## Bugs
 
 ### Critical
-- [ ] Area light shadows not visible beyond a distance
+- [ ] window resizing should not cause convergence to reset.
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 
@@ -42,7 +42,6 @@
 ### Materials
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
-- [ ] better ux. list of lights in lights tab. selection to show contextual controls in lightsTab
 
 ### Environment
 - [ ] Environment cube map support for HDRIs

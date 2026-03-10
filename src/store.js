@@ -1700,6 +1700,8 @@ const useLightStore = create( set => ( {
 	...DEFAULT_STATE,
 	showLightHelper: DEFAULT_STATE.showLightHelper,
 	lights: [],
+	selectedLightIndex: null,
+	setSelectedLightIndex: idx => set( { selectedLightIndex: idx } ),
 	setLights: lights => set( { lights } ),
 	updateLight: ( idx, prop, val ) => set( s => {
 
@@ -1805,7 +1807,7 @@ const useLightStore = create( set => ( {
 		const newLight = app.addLight( lightType );
 		if ( newLight ) {
 
-			set( s => ( { lights: [ ...s.lights, newLight ] } ) );
+			set( s => ( { lights: [ ...s.lights, newLight ], selectedLightIndex: s.lights.length } ) );
 			window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 		}
@@ -1828,7 +1830,19 @@ const useLightStore = create( set => ( {
 			if ( success ) {
 
 				window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
-				return { lights: s.lights.filter( ( _, idx ) => idx !== lightIndex ) };
+				const newLights = s.lights.filter( ( _, idx ) => idx !== lightIndex );
+				let newSelected = s.selectedLightIndex;
+				if ( newSelected === lightIndex ) {
+
+					newSelected = newLights.length > 0 ? Math.min( lightIndex, newLights.length - 1 ) : null;
+
+				} else if ( newSelected !== null && newSelected > lightIndex ) {
+
+					newSelected = newSelected - 1;
+
+				}
+
+				return { lights: newLights, selectedLightIndex: newSelected };
 
 			}
 
@@ -1858,7 +1872,7 @@ const useLightStore = create( set => ( {
 		if ( ! app ) return;
 
 		app.clearLights();
-		set( { lights: [] } );
+		set( { lights: [], selectedLightIndex: null } );
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
 	},
