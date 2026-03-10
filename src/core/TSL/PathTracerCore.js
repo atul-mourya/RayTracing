@@ -751,7 +751,7 @@ export const Trace = Fn( ( [
 
 		// Update material with texture samples
 		material.color.assign( matSamples.albedo );
-		material.metalness.assign( matSamples.metalness );
+		material.metalness.assign( clamp( matSamples.metalness, 0.0, 1.0 ) );
 		material.roughness.assign( clamp( matSamples.roughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
 
 		// Blend displaced normal with texture normal map — displacement provides macro shape, normal map adds micro detail

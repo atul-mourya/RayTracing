@@ -5,10 +5,8 @@
 ### Critical
 - [ ] Area light shadows not visible beyond a distance
 - [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
-- [ ] Iridescence not producing expected colors
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
-- [ ] strange artifacts in denoiser observed for interior scenes
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
