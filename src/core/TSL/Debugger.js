@@ -19,8 +19,6 @@ import {
 	vec4,
 	int,
 	uint,
-	bool as tslBool,
-	abs,
 	max,
 	min,
 	dot,
@@ -36,7 +34,7 @@ import {
 
 import { Ray, HitInfo, RayTracingMaterial, MaterialSamples } from './Struct.js';
 import { traverseBVH } from './BVHTraversal.js';
-import { sampleEnvironment, sampleEquirect, sampleEquirectProbability, equirectUvToDirection, equirectDirectionToUv } from './Environment.js';
+import { sampleEnvironment } from './Environment.js';
 import { REC709_LUMINANCE_COEFFICIENTS, getMaterial } from './Common.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { pcgHash, wang_hash, RandomValue } from './Random.js';
@@ -81,17 +79,14 @@ export const TraceDebugMode = Fn( ( [
 	materialBuffer,
 	// Environment resources
 	envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
-	envMarginalWeights, envConditionalWeights,
-	envTotalSum, envResolution,
-	useEnvMapIS,
 	// Debug parameters
 	visMode, debugVisScale,
 	// Screen info
 	pixelCoord, resolution,
-	// Texture arrays (for MRT debug modes 8-11)
+	// Texture arrays (for MRT debug modes)
 	albedoMaps, normalMaps, bumpMaps,
 	metalnessMaps, roughnessMaps, emissiveMaps,
-	// Camera matrices (for depth debug mode 10)
+	// Camera matrices (for depth debug mode)
 	cameraProjectionMatrix, cameraViewMatrix,
 	// Frame counter (for stochastic debug modes)
 	frame,
@@ -108,8 +103,8 @@ export const TraceDebugMode = Fn( ( [
 		materialBuffer,
 	).toVar() );
 
-	// Case 1: Triangle test count visualization (GLSL case 1 → stats.x = triTests)
-	If( visMode.equal( int( 1 ) ), () => {
+	// Case 7: Triangle Tests
+	If( visMode.equal( int( 7 ) ), () => {
 
 		const vis = float( hitInfo.triTests ).div( debugVisScale );
 		result.assign( select(
@@ -120,8 +115,8 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 2: Box/node test count visualization (GLSL case 2 → stats.y = boxTests)
-	If( visMode.equal( int( 2 ) ), () => {
+	// Case 8: Box Tests
+	If( visMode.equal( int( 8 ) ), () => {
 
 		const vis = float( hitInfo.boxTests ).div( debugVisScale );
 		result.assign( select(
@@ -132,31 +127,8 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 3: Ray distance visualization
-	If( visMode.equal( int( 3 ) ), () => {
-
-		const dist = length( rayOrigin.sub( hitInfo.hitPoint ) ).div( debugVisScale );
-		result.assign( vec4( vec3( dist ), 1.0 ) );
-
-	} );
-
-	// Case 4: Surface normals
-	If( visMode.equal( int( 4 ) ), () => {
-
-		If( hitInfo.didHit.not(), () => {
-
-			result.assign( vec4( 0.0, 0.0, 0.0, 1.0 ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( visualizeNormal( { normal: hitInfo.normal } ), 1.0 ) );
-
-		} );
-
-	} );
-
-	// Case 6: Environment Map Luminance Visualization
-	If( visMode.equal( int( 6 ) ), () => {
+	// Case 10: Env Luminance
+	If( visMode.equal( int( 10 ) ), () => {
 
 		If( enableEnvironmentLight, () => {
 
@@ -231,57 +203,8 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 7: Environment Importance Sampling PDF Direction Map
-	If( visMode.equal( int( 7 ) ), () => {
-
-		If( enableEnvironmentLight.and( useEnvMapIS ), () => {
-
-			// Use screen space to map UV coordinates
-			// Flip Y: WebGPU pixelCoord is top-down, but equirectUvToDirection expects bottom-up (like WebGL gl_FragCoord)
-			const uv = vec2( pixelCoord.x.div( resolution.x ), float( 1.0 ).sub( pixelCoord.y.div( resolution.y ) ) );
-
-			// Convert UV to direction
-			const direction = equirectUvToDirection( uv, envMatrix );
-
-			// Get PDF for this direction
-			const envEvalResult = sampleEquirect(
-				envTexture, direction, envMatrix, envTotalSum, envResolution,
-			).toVar();
-			const pdf = envEvalResult.w.toVar();
-
-			// Visualize with better scaling
-			const logPdf = log( pdf.add( 1e-8 ) );
-			const normalizedPdf = logPdf.add( 15.0 ).div( 15.0 ).toVar();
-
-			// Heat map colors
-			const color = vec3( 0.0 ).toVar();
-
-			If( normalizedPdf.lessThan( 0.33 ), () => {
-
-				color.assign( mix( vec3( 0.0, 0.0, 0.0 ), vec3( 0.0, 0.0, 1.0 ), normalizedPdf.mul( 3.0 ) ) );
-
-			} ).ElseIf( normalizedPdf.lessThan( 0.66 ), () => {
-
-				color.assign( mix( vec3( 0.0, 0.0, 1.0 ), vec3( 0.0, 1.0, 0.0 ), normalizedPdf.sub( 0.33 ).mul( 3.0 ) ) );
-
-			} ).Else( () => {
-
-				color.assign( mix( vec3( 0.0, 1.0, 0.0 ), vec3( 1.0, 0.0, 0.0 ), normalizedPdf.sub( 0.66 ).mul( 3.0 ) ) );
-
-			} );
-
-			result.assign( vec4( color, 1.0 ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 1.0, 0.0, 1.0, 1.0 ) );
-
-		} );
-
-	} );
-
-	// Case 8: Emissive Lighting Visualization
-	If( visMode.equal( int( 8 ) ), () => {
+	// Case 4: Emissive
+	If( visMode.equal( int( 4 ) ), () => {
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -324,8 +247,8 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 9: MRT: World-space normals (gNormalDepth.rgb)
-	If( visMode.equal( int( 9 ) ), () => {
+	// Case 1: Normals
+	If( visMode.equal( int( 1 ) ), () => {
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -352,8 +275,8 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 10: MRT: Linear depth (gNormalDepth.a)
-	If( visMode.equal( int( 10 ) ), () => {
+	// Case 2: Depth
+	If( visMode.equal( int( 2 ) ), () => {
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -372,8 +295,8 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 11: MRT: Albedo (gAlbedo.rgb)
-	If( visMode.equal( int( 11 ) ), () => {
+	// Case 3: Albedo
+	If( visMode.equal( int( 3 ) ), () => {
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -398,10 +321,10 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 12: Indirect Illumination (single-bounce GI)
+	// Case 5: Indirect (GI)
 	// Shows only light that has bounced at least once — no direct lighting.
 	// Converges progressively via the accumulation pipeline.
-	If( visMode.equal( int( 12 ) ), () => {
+	If( visMode.equal( int( 5 ) ), () => {
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -494,107 +417,11 @@ export const TraceDebugMode = Fn( ( [
 
 	} );
 
-	// Case 13: CDF Sampling Validation
-	// Uses screen UV as random input to sampleEquirectProbability,
-	// renders the environment color returned by CDF sampling.
-	// If CDF is correct, this should look like a contrast-enhanced version of the env map.
-	// If CDF is broken, colors/directions will be wrong.
-	If( visMode.equal( int( 13 ) ), () => {
-
-		If( enableEnvironmentLight.and( useEnvMapIS ), () => {
-
-			// Use screen UV as deterministic "random" input to CDF sampling
-			const r = vec2(
-				pixelCoord.x.div( resolution.x ),
-				pixelCoord.y.div( resolution.y ),
-			);
-
-			const sampledColor = vec3( 0.0 ).toVar();
-			const sampleResult = sampleEquirectProbability(
-				envTexture, envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity, envTotalSum, envResolution,
-				r, sampledColor,
-			).toVar();
-
-			const pdf = sampleResult.w.toVar();
-
-			// Render the sampled color (what the CDF returns for this UV pair)
-			// Tone-map to prevent oversaturation
-			const displayColor = sampledColor.div( sampledColor.add( 1.0 ) );
-			result.assign( select( pdf.greaterThan( 0.0 ), vec4( displayColor, 1.0 ), vec4( 1.0, 0.0, 1.0, 1.0 ) ) );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 0.2, 0.2, 0.2, 1.0 ) );
-
-		} );
-
-	} );
-
-	// Case 14: CDF Direction Round-Trip Validation
-	// Tests whether the direction returned by CDF importance sampling actually
-	// maps back to the correct location on the environment map.
-	// Left half: error visualization (green = match, red = mismatch)
-	// Right half: environment color looked up via the CDF direction
-	// Compare right half with mode 13 — if they differ, the direction conversion has a bug.
-	If( visMode.equal( int( 14 ) ), () => {
-
-		If( enableEnvironmentLight.and( useEnvMapIS ), () => {
-
-			// Same CDF sampling as mode 13
-			const r = vec2(
-				pixelCoord.x.div( resolution.x ),
-				pixelCoord.y.div( resolution.y ),
-			);
-
-			const sampledColor = vec3( 0.0 ).toVar();
-			const sampleResult = sampleEquirectProbability(
-				envTexture, envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity, envTotalSum, envResolution,
-				r, sampledColor,
-			).toVar();
-
-			// Get the CDF-sampled direction
-			const cdfDirection = sampleResult.xyz.toVar();
-
-			// Round-trip: direction → equirectDirectionToUv → texture lookup
-			// sampleEnvironment does exactly this internally
-			const roundTripColor = sampleEnvironment( {
-				tex: envTexture, samp: sampler( envTexture ), direction: cdfDirection, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
-			} ).xyz.toVar();
-
-			// Compare: if direction is correct, roundTripColor should match sampledColor
-			const diff = abs( roundTripColor.sub( sampledColor ) ).mul( 10.0 );
-			const maxDiff = clamp( max( max( diff.x, diff.y ), diff.z ), 0.0, 1.0 );
-
-			const screenX = pixelCoord.x.div( resolution.x );
-
-			If( screenX.lessThan( 0.5 ), () => {
-
-				// Left half: error map (green = match, red = direction error)
-				result.assign( vec4( maxDiff, float( 1.0 ).sub( maxDiff ), 0.0, 1.0 ) );
-
-			} ).Else( () => {
-
-				// Right half: round-trip color (tone-mapped) — compare with mode 13
-				const displayColor = roundTripColor.div( roundTripColor.add( 1.0 ) );
-				result.assign( vec4( displayColor, 1.0 ) );
-
-			} );
-
-		} ).Else( () => {
-
-			result.assign( vec4( 0.2, 0.2, 0.2, 1.0 ) );
-
-		} );
-
-	} );
-
-	// Case 15: Environment at Reflected Direction
+	// Case 6: Env Reflection
 	// Shows the environment color evaluated at the reflection direction for the first hit.
 	// For misses, shows environment at ray direction.
 	// This tests whether sampleEnvironment produces correct colors for arbitrary directions.
-	If( visMode.equal( int( 15 ) ), () => {
+	If( visMode.equal( int( 6 ) ), () => {
 
 		If( hitInfo.didHit, () => {
 

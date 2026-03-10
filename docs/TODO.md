@@ -4,11 +4,11 @@
 
 ### Critical
 - [ ] Area light shadows not visible beyond a distance
-- [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 
 ### RCA unknown
+- [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] Save render doesn't show in results panel in some cases
 
@@ -76,7 +76,6 @@
 - [ ] Memory usage tracking
 - [ ] Bottleneck identification
 - [ ] Performance regression tests
-- [ ] Remove unwanted debug modes
 
 ---
 

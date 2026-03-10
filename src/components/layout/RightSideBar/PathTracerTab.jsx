@@ -612,22 +612,17 @@ const PathTracerTab = () => {
 								<SelectValue placeholder="Select mode" />
 							</SelectTrigger>
 							<SelectContent>
-								<SelectItem value="0">Beauty</SelectItem>
-								<SelectItem value="1">Triangle test count</SelectItem>
-								<SelectItem value="2">Box test count</SelectItem>
-								<SelectItem value="3">Distance</SelectItem>
-								<SelectItem value="4">Normal</SelectItem>
-								<SelectItem value="5">Sampling</SelectItem>
-								<SelectItem value="6">EnvMap Luminance</SelectItem>
-								<SelectItem value="7">Env MIS PDF Direction</SelectItem>
-								<SelectItem value="8">Emissive Lighting</SelectItem>
-								<SelectItem value="9">MRT: Normals</SelectItem>
-								<SelectItem value="10">MRT: Depth</SelectItem>
-								<SelectItem value="11">MRT: Albedo</SelectItem>
-								<SelectItem value="12">Indirect Illumination</SelectItem>
-								<SelectItem value="13">CDF Sampling Test</SelectItem>
-								<SelectItem value="14">CDF Direction Round-Trip</SelectItem>
-								<SelectItem value="15">Env Reflection Test</SelectItem>
+								<SelectItem value="0">None</SelectItem>
+								<SelectItem value="1">Normals</SelectItem>
+								<SelectItem value="2">Depth</SelectItem>
+								<SelectItem value="3">Albedo</SelectItem>
+								<SelectItem value="4">Emissive</SelectItem>
+								<SelectItem value="5">Indirect (GI)</SelectItem>
+								<SelectItem value="6">Env Reflection</SelectItem>
+								<SelectItem value="7">Triangle Tests</SelectItem>
+								<SelectItem value="8">Box Tests</SelectItem>
+								<SelectItem value="9">Stratified Samples</SelectItem>
+								<SelectItem value="10">Env Luminance</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

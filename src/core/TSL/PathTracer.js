@@ -324,8 +324,8 @@ const pathTracerImpl = Fn( ( [
 			pixelCoord, rayIndex, samplesCount, seed, resolution, frame,
 		).toVar();
 
-		// Debug mode 5: Visualize stratified samples
-		If( visMode.equal( int( 5 ) ), () => {
+		// Debug mode 9: Visualize stratified samples
+		If( visMode.equal( int( 9 ) ), () => {
 
 			pixelColor.assign( vec4( stratifiedJitter, 1.0, 1.0 ) );
 			pixelSamples.assign( 1 );
@@ -354,9 +354,6 @@ const pathTracerImpl = Fn( ( [
 				triangleBuffer,
 				materialBuffer,
 				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
-				envMarginalWeights, envConditionalWeights,
-				envTotalSum, envResolution,
-				useEnvMapIS,
 				visMode, debugVisScale,
 				pixelCoord, resolution,
 				albedoMaps, normalMaps, bumpMaps,
