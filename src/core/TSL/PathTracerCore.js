@@ -308,7 +308,7 @@ export const generateSampledDirection = Fn( ( [
 	// Transmission sampling (fallback)
 	If( sampled.not(), () => {
 
-		const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
+		const entering = dot( V, N ).lessThan( 0.0 ).toVar();
 		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState,
 		) );
@@ -855,7 +855,12 @@ export const Trace = Fn( ( [
 			// Update ray and continue
 			throughput.mulAssign( interaction.throughput );
 			alpha.mulAssign( interaction.alpha );
-			rayOrigin.assign( hitInfo.hitPoint.add( rayDirection.mul( 0.001 ) ) );
+
+			// For reflection (Fresnel/TIR): offset along the geometric normal to stay on the same side
+			// For transmission: offset along the old ray direction to push through the surface
+			const reflectOffsetDir = select( interaction.entering, N, N.negate() );
+			const offsetDir = select( interaction.didReflect, reflectOffsetDir, rayDirection );
+			rayOrigin.assign( hitInfo.hitPoint.add( offsetDir.mul( 0.001 ) ) );
 			rayDirection.assign( interaction.direction );
 
 			stateIsPrimaryRay.assign( tslBool( false ) );

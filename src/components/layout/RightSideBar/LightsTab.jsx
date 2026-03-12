@@ -1,11 +1,12 @@
 import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
+import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Switch } from "@/components/ui/switch";
 import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useLightStore } from '@/store';
+import { useLightStore, usePathTracerStore } from '@/store';
 import { getApp } from '@/core/appProxy';
 import { Separator } from '@/components/ui/separator';
 import { useEffect, useCallback } from 'react';
@@ -193,6 +194,13 @@ const LightsTab = () => {
 		selectedLightIndex, setSelectedLightIndex,
 	} = useLightStore();
 
+	const {
+		enableEmissiveTriangleSampling,
+		emissiveBoost,
+		handleEnableEmissiveTriangleSamplingChange,
+		handleEmissiveBoostChange,
+	} = usePathTracerStore();
+
 	const handleLightChange = ( index, property, value ) => {
 
 		updateLight( index, property, value );
@@ -245,6 +253,11 @@ const LightsTab = () => {
 
 	return (
 		<div>
+			{/* Emissive Mesh Sampling */}
+			<div className="flex items-center justify-between py-2 px-2">
+				<SliderToggle label={"Emissive Geometry"} enabled={ enableEmissiveTriangleSampling } min={0} max={100} step={1} value={[ emissiveBoost ]} onValueChange={ handleEmissiveBoostChange } onToggleChange={ handleEnableEmissiveTriangleSamplingChange } />
+			</div>
+
 			<Separator className="bg-primary" />
 
 			{/* Header */}

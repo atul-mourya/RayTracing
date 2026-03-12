@@ -310,7 +310,9 @@ const FINAL_RENDER_STATE = {
 };
 
 const PREVIEW_STATE = {
-	bounces: 3, samplesPerPixel: 1, renderMode: 0, transmissiveBounces: 3, tiles: 3, tilesHelper: false, resolution: 1,
+	maxSamples: DEFAULT_STATE.maxSamples, bounces: DEFAULT_STATE.bounces, samplesPerPixel: DEFAULT_STATE.samplesPerPixel,
+	renderMode: DEFAULT_STATE.renderMode, transmissiveBounces: DEFAULT_STATE.transmissiveBounces,
+	tiles: DEFAULT_STATE.tiles, tilesHelper: DEFAULT_STATE.tilesHelper, resolution: DEFAULT_STATE.resolution,
 	enableOIDN: false, oidnQuality: 'fast', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: true,
 };
@@ -1578,6 +1580,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		requestAnimationFrame( () => {
 
+			app.setMaxSamples( PREVIEW_STATE.maxSamples );
 			app.setMaxBounces( PREVIEW_STATE.bounces );
 			app.setSamplesPerPixel( PREVIEW_STATE.samplesPerPixel );
 			app.setRenderMode( PREVIEW_STATE.renderMode );
