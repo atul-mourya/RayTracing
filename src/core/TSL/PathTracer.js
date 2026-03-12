@@ -298,12 +298,6 @@ const pathTracerImpl = Fn( ( [
 
 			} );
 
-			// If still 0 after accumulation check, output MRT defaults and return
-			If( samplesCount.equal( int( 0 ) ), () => {
-
-				// Handled below after the loop
-
-			} );
 
 		} );
 
@@ -314,6 +308,9 @@ const pathTracerImpl = Fn( ( [
 	const objectColor = vec3( 0.0 ).toVar();
 	const objectID = float( - 1000.0 ).toVar();
 	const pixelSharpness = float( 0.0 ).toVar();
+
+	// Pre-compute loop-invariant jitter scale
+	const jitterScale = vec2( 2.0 ).div( resolution ).toVar();
 
 	// Main sample loop
 	Loop( { start: int( 0 ), end: samplesCount, type: 'int', condition: '<' }, ( { i: rayIndex } ) => {
@@ -333,7 +330,7 @@ const pathTracerImpl = Fn( ( [
 
 		} );
 
-		const jitter = stratifiedJitter.sub( 0.5 ).mul( vec2( 2.0 ).div( resolution ) );
+		const jitter = stratifiedJitter.sub( 0.5 ).mul( jitterScale );
 		const jitteredScreenPosition = screenPosition.add( jitter );
 
 		const ray = Ray.wrap( generateRayFromCamera(
@@ -344,7 +341,6 @@ const pathTracerImpl = Fn( ( [
 
 		const sampleColor = vec4( 0.0 ).toVar();
 
-		// pixelColor.assign( svec4( 1.0, 0.0, 1.0, 1.0 ) ); // Magenta debug color for uninitialized rays
 		// Debug or normal trace
 		If( visMode.greaterThan( int( 0 ) ), () => {
 
@@ -440,12 +436,10 @@ const pathTracerImpl = Fn( ( [
 	const depthDifference = fwidth( linearDepth );
 	const depthEdge = smoothstep( float( 0.01 ), float( 0.05 ), depthDifference );
 
-	const differenceNx = fwidth( objectNormal.x );
-	const differenceNy = fwidth( objectNormal.y );
-	const differenceNz = fwidth( objectNormal.z );
-	const normalDifference = smoothstep( float( 0.3 ), float( 0.8 ), differenceNx )
-		.add( smoothstep( float( 0.3 ), float( 0.8 ), differenceNy ) )
-		.add( smoothstep( float( 0.3 ), float( 0.8 ), differenceNz ) );
+	const normalFwidth = fwidth( objectNormal );
+	const normalDifference = smoothstep( float( 0.3 ), float( 0.8 ), normalFwidth.x )
+		.add( smoothstep( float( 0.3 ), float( 0.8 ), normalFwidth.y ) )
+		.add( smoothstep( float( 0.3 ), float( 0.8 ), normalFwidth.z ) );
 
 	const objectDifference = min( fwidth( objectID ), 1.0 );
 

@@ -673,9 +673,6 @@ export const Trace = Fn( ( [
 		iorFactor: float( 1.0 ), maxSheenColor: float( 0.0 ),
 	} ).toVar();
 
-	// Cached sampling info
-	const psCachedSamplingInfo = vec4( 0.0 ).toVar();
-
 	// Track effective bounces
 	const effectiveBounces = int( 0 ).toVar();
 
@@ -765,6 +762,7 @@ export const Trace = Fn( ( [
 
 		// Compute current and previous medium IOR from stack for transmission
 		const currentMediumIOR = float( 1.0 ).toVar();
+		const previousMediumIOR = float( 1.0 ).toVar();
 		If( mediumStackDepth.equal( int( 1 ) ), () => {
 
 			currentMediumIOR.assign( mediumStack_ior_1 );
@@ -772,20 +770,11 @@ export const Trace = Fn( ( [
 		} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
 
 			currentMediumIOR.assign( mediumStack_ior_2 );
-
-		} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
-
-			currentMediumIOR.assign( mediumStack_ior_3 );
-
-		} );
-
-		const previousMediumIOR = float( 1.0 ).toVar();
-		If( mediumStackDepth.equal( int( 2 ) ), () => {
-
 			previousMediumIOR.assign( mediumStack_ior_1 );
 
 		} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
 
+			currentMediumIOR.assign( mediumStack_ior_3 );
 			previousMediumIOR.assign( mediumStack_ior_2 );
 
 		} );
