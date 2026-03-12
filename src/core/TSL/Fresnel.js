@@ -47,3 +47,5 @@ export const iorToFresnel0 = Fn( ( [ transmittedIor, incidentIor ] ) => {
 	return ratio.mul( ratio );
 
 } );
+
+export const dielectricF0 = ( ior ) => vec3( iorToFresnel0( ior, float( 1.0 ) ) );

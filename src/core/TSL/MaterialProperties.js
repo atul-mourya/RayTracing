@@ -14,7 +14,7 @@ import {
 } from './Common.js';
 
 import {
-	fresnelSchlickFloat, fresnel0ToIor, iorToFresnel0Vec3, iorToFresnel0,
+	fresnelSchlickFloat, fresnel0ToIor, iorToFresnel0Vec3, iorToFresnel0, dielectricF0,
 } from './Fresnel.js';
 
 // -----------------------------------------------------------------------------
@@ -401,7 +401,7 @@ export const getImportanceSamplingInfo = Fn( ( [
 		alpha: material.roughness.mul( material.roughness ),
 		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
 		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
-		F0: vec3( 0.04 ),
+		F0: dielectricF0( material.ior ),
 		diffuseColor: material.color.rgb,
 		specularColor: material.color.rgb,
 		tsAlbedo: material.color,
@@ -545,8 +545,8 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 	const r = samples.roughness.add( 1.0 );
 	const k = r.mul( r ).div( 8.0 ).toVar();
 
-	const dielectricF0 = vec3( 0.04 ).mul( material.specularColor );
-	const F0 = mix( dielectricF0, samples.albedo.rgb, samples.metalness ).mul( material.specularIntensity ).toVar();
+	const baseF0 = dielectricF0( material.ior ).mul( material.specularColor );
+	const F0 = mix( baseF0, samples.albedo.rgb, samples.metalness ).mul( material.specularIntensity ).toVar();
 	const diffuseColor = samples.albedo.rgb.mul( float( 1.0 ).sub( samples.metalness ) ).toVar();
 	const specularColor = samples.albedo.rgb.toVar();
 
@@ -603,8 +603,8 @@ export const createMaterialCacheLegacy = Fn( ( [ N, V, material ] ) => {
 	const r = material.roughness.add( 1.0 );
 	const k = r.mul( r ).div( 8.0 ).toVar();
 
-	const dielectricF0 = vec3( 0.04 ).mul( material.specularColor );
-	const F0 = mix( dielectricF0, material.color.rgb, material.metalness ).mul( material.specularIntensity ).toVar();
+	const baseF0 = dielectricF0( material.ior ).mul( material.specularColor );
+	const F0 = mix( baseF0, material.color.rgb, material.metalness ).mul( material.specularIntensity ).toVar();
 	const diffuseColor = material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).toVar();
 	const specularColor = material.color.rgb.toVar();
 

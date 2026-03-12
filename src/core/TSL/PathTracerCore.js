@@ -91,6 +91,7 @@ import {
 	getImportanceSamplingInfo,
 } from './MaterialProperties.js';
 import { evaluateMaterialResponse } from './MaterialEvaluation.js';
+import { dielectricF0 } from './Fresnel.js';
 import {
 	ImportanceSampleCosine,
 	ImportanceSampleGGX,
@@ -190,7 +191,7 @@ export const generateSampledDirection = Fn( ( [
 
 			// Create minimal temporary cache
 			const tempCache = MaterialCache( {
-				F0: vec3( 0.04 ),
+				F0: dielectricF0( material.ior ),
 				NoV: float( 1.0 ),
 				diffuseColor: vec3( 0.0 ),
 				specularColor: vec3( 0.0 ),
@@ -307,7 +308,7 @@ export const generateSampledDirection = Fn( ( [
 	// Transmission sampling (fallback)
 	If( sampled.not(), () => {
 
-		const entering = dot( V, N ).lessThan( 0.0 ).toVar();
+		const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
 		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState,
 		) );
@@ -556,7 +557,7 @@ export const sampleBackgroundLighting = Fn( ( [
 
 		} ).Else( () => {
 
-			envColor.assign( sampled.mul( 2.0 ) );
+			envColor.assign( sampled );
 
 		} );
 

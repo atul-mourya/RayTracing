@@ -11,6 +11,7 @@ import {
 	PI, PI_INV, MIN_PDF, EPSILON,
 	classifyMaterial, square,
 } from './Common.js';
+import { dielectricF0 } from './Fresnel.js';
 
 import { calculateBRDFWeights, calculateGGXPDF } from './MaterialProperties.js';
 import { RandomValue } from './Random.js';
@@ -122,7 +123,7 @@ export const calculateSamplingWeights = Fn( ( [ V, N, material ] ) => {
 		alpha: material.roughness.mul( material.roughness ),
 		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
 		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
-		F0: vec3( 0.04 ),
+		F0: dielectricF0( material.ior ),
 		diffuseColor: material.color.rgb,
 		specularColor: material.color.rgb,
 		tsAlbedo: material.color, // placeholder

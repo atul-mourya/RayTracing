@@ -8,7 +8,7 @@ import {
 	PI, PI_INV, EPSILON, MIN_CLEARCOAT_ROUGHNESS,
 	computeDotProducts,
 } from './Common.js';
-import { fresnelSchlick, fresnelSchlickFloat } from './Fresnel.js';
+import { fresnelSchlick, fresnelSchlickFloat, dielectricF0 } from './Fresnel.js';
 import {
 	DistributionGGX, SheenDistribution, GeometrySmith, multiscatterCompensation, specularDirectionalAlbedo,
 } from './MaterialProperties.js';
@@ -42,7 +42,7 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
 		// Calculate base F0 with specular parameters, clamped to physically valid range
 		const F0 = clamp(
-			mix( vec3( 0.04 ).mul( material.specularColor ), material.color.rgb, material.metalness )
+			mix( dielectricF0( material.ior ).mul( material.specularColor ), material.color.rgb, material.metalness )
 				.mul( material.specularIntensity ),
 			vec3( 0.0 ), vec3( 1.0 )
 		).toVar();
@@ -226,7 +226,7 @@ export const calculateLayerAttenuation = Fn( ( [ clearcoat, VoH ] ) => {
 export const evaluateLayeredBRDF = Fn( ( [ dots, material ] ) => {
 
 	// Base F0 calculation with specular parameters, clamped to physically valid range
-	const baseF0 = vec3( 0.04 );
+	const baseF0 = dielectricF0( material.ior );
 	const F0 = clamp(
 		mix( baseF0.mul( material.specularColor ), material.color.rgb, material.metalness )
 			.mul( material.specularIntensity ),
