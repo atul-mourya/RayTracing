@@ -199,20 +199,24 @@ class SmartBufferPool {
 		// Check memory health and warn if needed
 		this.checkMemoryHealth();
 
-		return buffer.subarray( 0, size );
+		// Create a fresh view over the full underlying ArrayBuffer to avoid
+		// subarray length clamping when the pool recycles a smaller view.
+		return new Type( buffer.buffer, buffer.byteOffset, size );
 
 	}
 
 	releaseBuffer( buffer, Type = Float32Array ) {
 
-		// Fix: Use the same key generation logic as getBuffer
-		const optimalSize = this.getOptimalSize( buffer.length );
+		// Recover the full allocated size from the underlying ArrayBuffer
+		const fullLength = ( buffer.buffer.byteLength - buffer.byteOffset ) / Type.BYTES_PER_ELEMENT;
+		const optimalSize = this.getOptimalSize( fullLength );
 		const key = `${Type.name}-${optimalSize}`;
 		const pool = this.pools.get( key ) || [];
 
 		if ( pool.length < TEXTURE_CONSTANTS.BUFFER_POOL_SIZE ) {
 
-			pool.push( buffer );
+			// Store the full-extent view so future getBuffer calls can serve any size <= optimalSize
+			pool.push( new Type( buffer.buffer, buffer.byteOffset, fullLength ) );
 			this.pools.set( key, pool );
 
 		} else {
