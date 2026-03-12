@@ -92,6 +92,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Resolution settings
 		this.targetResolution = DEFAULT_STATE.resolution ?? 3;
+		this._lastRenderWidth = 0;
+		this._lastRenderHeight = 0;
+		this._resizeDebounceTimer = null;
 
 		// Settings — PathTracingStage uniforms
 		this.maxBounces = DEFAULT_STATE.bounces ?? 4;
@@ -236,7 +239,7 @@ export class PathTracerApp extends EventDispatcher {
 			enabled: this.useAdaptiveSampling,
 		} );
 		this.edgeAwareFilteringStage = new EdgeAwareFilteringStage( this.renderer, { enabled: false } );
-		this.autoExposureStage = new AutoExposureStage( this.renderer, { enabled: false } );
+		this.autoExposureStage = new AutoExposureStage( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
 		this.tileHighlightStage = new TileHighlightStage( this.renderer, { enabled: false } );
 
 		// Outline effect — uses the mesh scene (which holds actual meshes) for
@@ -273,7 +276,10 @@ export class PathTracerApp extends EventDispatcher {
 			.mul( edgeStrength );
 
 		this.displayStage = new DisplayStage( this.renderer, {
-			exposure: this.exposure,
+			// When auto-exposure is enabled by default, neutralize the manual
+			// exposure curve (pow(1,4)=1) so it doesn't stack with auto-exposure's
+			// renderer.toneMappingExposure.
+			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : this.exposure,
 			outlineColorNode
 		} );
 
@@ -299,6 +305,8 @@ export class PathTracerApp extends EventDispatcher {
 		const initRenderW = Math.round( width * ( targetRes / shortestDim ) ) || 1;
 		const initRenderH = Math.round( height * ( targetRes / shortestDim ) ) || 1;
 		this.pipeline.setSize( initRenderW, initRenderH );
+		this._lastRenderWidth = initRenderW;
+		this._lastRenderHeight = initRenderH;
 
 		// Initialize interaction manager for click-to-select
 		this.interactionManager = new InteractionManager( {
@@ -848,6 +856,9 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Handles window resize events.
+	 * Display updates (renderer size, camera aspect) happen immediately.
+	 * Render target resizing and convergence reset are debounced so that
+	 * dragging the window edge doesn't continuously restart accumulation.
 	 */
 	onResize() {
 
@@ -859,17 +870,40 @@ export class PathTracerApp extends EventDispatcher {
 		// Recalculate pixel ratio
 		const targetRes = TARGET_RESOLUTIONS[ this.targetResolution ] || 512;
 		const shortestDim = Math.min( width, height ) || 512;
-		this.renderer.setPixelRatio( targetRes / shortestDim );
+		const pixelRatio = targetRes / shortestDim;
 
+		// Immediate: update display so the canvas doesn't look distorted
+		this.renderer.setPixelRatio( pixelRatio );
 		this.renderer.setSize( width, height, false );
 		this.camera.aspect = width / height;
 		this.camera.updateProjectionMatrix();
 
-		this.needsReset = true;
+		const renderWidth = Math.round( width * pixelRatio );
+		const renderHeight = Math.round( height * pixelRatio );
 
-		// Notify UI of resolution change
-		const renderWidth = Math.round( width * ( targetRes / shortestDim ) );
-		const renderHeight = Math.round( height * ( targetRes / shortestDim ) );
+		// Skip render target resize + reset if dimensions haven't changed
+		if ( renderWidth === this._lastRenderWidth && renderHeight === this._lastRenderHeight ) return;
+
+		// Debounce the expensive part: render target resize + convergence reset
+		clearTimeout( this._resizeDebounceTimer );
+		this._resizeDebounceTimer = setTimeout( () => {
+
+			this._applyRenderResize( renderWidth, renderHeight );
+
+		}, 300 );
+
+	}
+
+	/**
+	 * Apply the actual render target resize and trigger convergence reset.
+	 * Called after the debounce period or directly for programmatic resolution changes.
+	 * @param {number} renderWidth
+	 * @param {number} renderHeight
+	 */
+	_applyRenderResize( renderWidth, renderHeight ) {
+
+		this._lastRenderWidth = renderWidth;
+		this._lastRenderHeight = renderHeight;
 
 		// Propagate render dimensions to pipeline stages (adaptive sampling, etc.)
 		if ( this.pipeline ) {
@@ -880,6 +914,8 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Resize denoiser canvas to match render dimensions
 		this.denoiser?.setSize( renderWidth, renderHeight );
+
+		this.needsReset = true;
 
 		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: renderWidth, height: renderHeight } } ) );
 
@@ -899,7 +935,28 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.onResize();
+		// Perform immediate display update via onResize, then apply render
+		// target resize without debounce since this is a deliberate user action.
+		const width = this.canvas.clientWidth;
+		const height = this.canvas.clientHeight;
+
+		if ( width === 0 || height === 0 ) return;
+
+		const targetRes = TARGET_RESOLUTIONS[ this.targetResolution ] || 512;
+		const shortestDim = Math.min( width, height ) || 512;
+		const pixelRatio = targetRes / shortestDim;
+
+		this.renderer.setPixelRatio( pixelRatio );
+		this.renderer.setSize( width, height, false );
+		this.camera.aspect = width / height;
+		this.camera.updateProjectionMatrix();
+
+		const renderWidth = Math.round( width * pixelRatio );
+		const renderHeight = Math.round( height * pixelRatio );
+
+		// Cancel any pending debounced resize and apply immediately
+		clearTimeout( this._resizeDebounceTimer );
+		this._applyRenderResize( renderWidth, renderHeight );
 
 	}
 
@@ -2421,6 +2478,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		clearTimeout( this._resizeDebounceTimer );
 		window.removeEventListener( 'resize', this.resizeHandler );
 
 		this.isInitialized = false;
