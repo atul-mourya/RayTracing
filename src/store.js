@@ -1196,16 +1196,21 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	),
 
 	// Environment Mode Handlers
-	handleEnvironmentModeChange: handleChange(
-		val => set( { environmentMode: val } ),
-		async ( val, app ) => {
+	handleEnvironmentModeChange: ( val ) => {
 
-			if ( ! app ) return;
+		const app = getApp();
+		const previousMode = get().environmentMode;
 
-			const modeMap = { hdri: 0, procedural: 1, gradient: 2, color: 3 };
+		set( { environmentMode: val } );
 
-			// Store previous HDRI if switching away
-			if ( val !== 'hdri' && get().environmentMode === 'hdri' ) {
+		if ( ! app ) return;
+
+		const modeMap = { hdri: 0, procedural: 1, gradient: 2, color: 3 };
+
+		( async () => {
+
+			// Store previous HDRI if switching away from HDRI
+			if ( val !== 'hdri' && previousMode === 'hdri' ) {
 
 				app._previousHDRI = app.getEnvironmentTexture();
 				app._previousCDF = app.getEnvironmentCDF();
@@ -1231,6 +1236,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 				if ( app._previousHDRI ) {
 
 					await app.setEnvironmentMap( app._previousHDRI );
+					app._previousHDRI = null;
+					app._previousCDF = null;
 
 				}
 
@@ -1247,8 +1254,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			app.reset();
 
-		}
-	),
+		} )();
+
+	},
 
 	// Gradient Sky Handlers
 	handleGradientZenithColorChange: handleChange(
