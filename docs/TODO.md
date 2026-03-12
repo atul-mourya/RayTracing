@@ -3,12 +3,10 @@
 ## Bugs
 
 ### Critical
-- [ ] window resizing should not cause convergence to reset.
 - [ ] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 
 ### RCA unknown
-- [ ] Object rendering looks dimmer than environment lighting in background (hardcoded 2.0 multiplier for env lighting on secondary rays)
 - [ ] Soft shadows for directional lights not working when enabled from UI
 
 ---
@@ -16,7 +14,6 @@
 ## Features
 
 ### Rendering
-- [ ] change default enviroment and model to best showcase the renderer, make the tonemapping default to auto-exposure
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support
@@ -25,6 +22,7 @@
 - [ ] Full WGSL transition, avoid TSL nodes
 
 ### Camera
+- [ ] custom canvas size size / custom aspect ratio support
 - [ ] first person camera mode controls as an alternative to orbit controls
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
@@ -33,7 +31,7 @@
 
 
 ### Lighting
-- [ ] emissive mesh triangle sorting 
+- [ ] emissive mesh triangle sorting - overkill maybe
 - [ ] implement pending Physical material properties
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
@@ -49,7 +47,6 @@
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
 - [ ] Separate environment and background sampling with different textures (like Three.js)
-- [ ] Attempt Bidirectional path tracing support
 
 ### Scene Management
 - [ ] Dynamic object addition and removal
@@ -89,8 +86,9 @@
 - [x] ReSTIR-based sampling techniques - Branch open with name "ReSTIR"
 - [x] stackless BVH traversal - slowness expected
 - [x] Bindless texture - True hardware-level bindless isn't available in WebGPU
-- [ ] irradiance probes,
+- [x] irradiance probes,
 - [ ] Photon mapping
+- [ ] Bidirectional path tracing support
 
 ---
 
