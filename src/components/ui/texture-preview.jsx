@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { ChevronRight } from 'lucide-react';
 
-const TexturePreview = ( { texture } ) => {
+const TexturePreview = ( { texture, label, actions, expanded, onToggle } ) => {
 
-	const [ showLargePreview, setShowLargePreview ] = useState( false );
 	const canvasRef = useRef( null );
 	const largeCanvasRef = useRef( null );
+	const thumbRef = useRef( null );
+	const popoverPosRef = useRef( null );
+	const [ hovered, setHovered ] = useState( false );
 
-	// Helper function to render texture to canvas (inspired by Three.js editor)
 	const renderTextureToCanvas = useCallback( ( texture, canvas ) => {
 
 		if ( ! canvas || ! texture ) return;
@@ -14,7 +16,6 @@ const TexturePreview = ( { texture } ) => {
 		const context = canvas.getContext( '2d' );
 		if ( ! context ) return;
 
-		// Clear canvas
 		context.clearRect( 0, 0, canvas.width, canvas.height );
 
 		if ( texture.image && texture.image.width > 0 ) {
@@ -30,14 +31,12 @@ const TexturePreview = ( { texture } ) => {
 
 				if ( texture.isDataTexture || texture.isCompressedTexture ) {
 
-					// For data textures, we need special handling
-					// This is a simplified version - you might need more complex handling
 					context.fillStyle = '#444';
 					context.fillRect( x, y, width, height );
 					context.fillStyle = '#fff';
-					context.font = '8px Arial';
+					context.font = '10px Arial';
 					context.textAlign = 'center';
-					context.fillText( 'DATA', canvas.width / 2, canvas.height / 2 );
+					context.fillText( 'DATA', canvas.width / 2, canvas.height / 2 + 4 );
 
 				} else {
 
@@ -45,33 +44,30 @@ const TexturePreview = ( { texture } ) => {
 
 				}
 
-			} catch ( error ) {
+			} catch {
 
-				// Fallback for CORS or other image loading issues
 				context.fillStyle = '#333';
 				context.fillRect( x, y, width, height );
 				context.fillStyle = '#999';
-				context.font = '8px Arial';
+				context.font = '10px Arial';
 				context.textAlign = 'center';
-				context.fillText( 'IMG', canvas.width / 2, canvas.height / 2 );
+				context.fillText( 'IMG', canvas.width / 2, canvas.height / 2 + 4 );
 
 			}
 
 		} else {
 
-			// No valid image
 			context.fillStyle = '#222';
 			context.fillRect( 0, 0, canvas.width, canvas.height );
 			context.fillStyle = '#666';
-			context.font = '8px Arial';
+			context.font = '10px Arial';
 			context.textAlign = 'center';
-			context.fillText( '?', canvas.width / 2, canvas.height / 2 );
+			context.fillText( '?', canvas.width / 2, canvas.height / 2 + 4 );
 
 		}
 
 	}, [] );
 
-	// Update canvas when texture changes
 	useEffect( () => {
 
 		if ( canvasRef.current && texture ) {
@@ -82,68 +78,98 @@ const TexturePreview = ( { texture } ) => {
 
 	}, [ texture, renderTextureToCanvas ] );
 
-	// Update large canvas when shown
 	useEffect( () => {
 
-		if ( largeCanvasRef.current && texture && showLargePreview ) {
+		if ( largeCanvasRef.current && texture && hovered ) {
 
 			renderTextureToCanvas( texture, largeCanvasRef.current );
 
 		}
 
-	}, [ texture, showLargePreview, renderTextureToCanvas ] );
+	}, [ texture, hovered, renderTextureToCanvas ] );
+
+	const getTextureInfo = () => {
+
+		if ( ! texture?.image ) return null;
+		if ( texture.isDataTexture ) return 'Data';
+		if ( texture.isCompressedTexture ) return 'Compressed';
+		return `${texture.image.width}\u00D7${texture.image.height}`;
+
+	};
 
 	if ( ! texture ) {
 
 		return (
-			<div className="flex items-center justify-between">
-				<span className="text-xs opacity-50">Texture Preview</span>
-				<div className="w-8 h-8 bg-muted rounded border flex items-center justify-center">
-					<span className="text-xs opacity-50">...</span>
-				</div>
+			<div className="w-full h-10 bg-muted/20 rounded border border-dashed border-muted-foreground/20 flex items-center justify-center">
+				<span className="text-[10px] opacity-40">No texture</span>
 			</div>
 		);
 
 	}
 
-	const getTextureInfo = () => {
-
-		if ( ! texture.image ) return 'No Image';
-		if ( texture.isDataTexture ) return 'Data Texture';
-		if ( texture.isCompressedTexture ) return 'Compressed';
-		return `${texture.image.width}×${texture.image.height}`;
-
-	};
+	const sizeLabel = getTextureInfo();
+	const isToggleable = typeof onToggle === 'function';
 
 	return (
-		<div className="relative">
-			<div className="flex items-center justify-between">
-				<span className="text-xs opacity-50">Texture Preview</span>
-				<div
-					className="relative w-8 h-8 border rounded overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
-					onMouseEnter={() => setShowLargePreview( true )}
-					onMouseLeave={() => setShowLargePreview( false )}
-					title={`${getTextureInfo()}`}
-				>
-					<canvas
-						ref={canvasRef}
-						width={32}
-						height={32}
-						className="w-full h-full"
-						style={{ imageRendering: 'pixelated' }}
-					/>
+		<div className="relative flex items-center gap-2 group">
+			{/* Square thumbnail */}
+			<div
+				ref={thumbRef}
+				className="relative w-10 h-10 shrink-0 rounded border overflow-hidden cursor-pointer bg-muted/20"
+				onMouseEnter={() => {
+
+					if ( thumbRef.current ) {
+
+						const rect = thumbRef.current.getBoundingClientRect();
+						popoverPosRef.current = { left: rect.left, bottom: window.innerHeight - rect.top + 4 };
+
+					}
+
+					setHovered( true );
+
+				}}
+				onMouseLeave={() => setHovered( false )}
+			>
+				<canvas
+					ref={canvasRef}
+					width={64}
+					height={64}
+					className="w-full h-full"
+				/>
+			</div>
+
+			{/* Label area — clickable to toggle when collapsible */}
+			<div
+				className={`flex-1 min-w-0 flex items-center gap-1 ${isToggleable ? 'cursor-pointer select-none' : ''}`}
+				onClick={isToggleable ? onToggle : undefined}
+			>
+				{isToggleable && (
+					<ChevronRight size={10} className={`shrink-0 opacity-40 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+				)}
+				<div className="min-w-0">
+					{label && <div className="text-[11px] font-medium truncate leading-tight">{label}</div>}
+					{sizeLabel && <div className="text-[10px] opacity-40 leading-tight">{sizeLabel}</div>}
 				</div>
 			</div>
 
-			{/* Large preview on hover */}
-			{showLargePreview && (
-				<div className="absolute right-0 top-0 z-50 bg-background border rounded-lg shadow-xl transform -translate-x-9 -translate-y-2">
+			{/* Action icons — appear on hover */}
+			{actions && (
+				<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+					{actions}
+				</div>
+			)}
+
+			{/* Large preview popover — fixed to escape overflow clipping */}
+			{hovered && popoverPosRef.current && (
+				<div
+					className="fixed z-100 bg-background border rounded-lg shadow-xl p-0.5"
+					style={{ left: popoverPosRef.current.left, bottom: popoverPosRef.current.bottom }}
+				>
 					<canvas
 						ref={largeCanvasRef}
-						width={128}
-						height={128}
-						className="w-32 h-32 border rounded"
-						style={{ imageRendering: 'pixelated' }}
+						width={192}
+						height={192}
+						className="w-40 h-40 rounded"
 					/>
 				</div>
 			)}

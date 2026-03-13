@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Slider } from "@/components/ui/slider";
 import { ColorInput } from "@/components/ui/colorinput";
 import { NumberInput } from "@/components/ui/number-input";
@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { TexturePreview } from '@/components/ui/texture-preview';
 import { LinkableVector2 } from '@/components/ui/linkable-vector2';
+import { RefreshCw, Trash2, Plus } from 'lucide-react';
 
 // Configuration for all material properties - pregrouped by section
 const MATERIAL_PROPERTIES = {
@@ -86,6 +87,17 @@ const COMMON_TEXTURE_NAMES = [
 	'clearcoatNormalMap', 'clearcoatRoughnessMap'
 ];
 
+// Texture slots that users can add via the UI (subset that the path tracer supports)
+const ADDABLE_TEXTURE_SLOTS = [
+	{ name: 'map', label: 'Albedo (Color)' },
+	{ name: 'normalMap', label: 'Normal' },
+	{ name: 'roughnessMap', label: 'Roughness' },
+	{ name: 'metalnessMap', label: 'Metalness' },
+	{ name: 'emissiveMap', label: 'Emissive' },
+	{ name: 'bumpMap', label: 'Bump' },
+	{ name: 'displacementMap', label: 'Displacement' },
+];
+
 // Helper to determine if a feature is enabled based on material state values
 const isFeatureEnabled = ( materialState, featureName ) => {
 
@@ -132,6 +144,22 @@ const MaterialTab = () => {
 
 	// Global repeat: when on, any repeat change syncs to all textures
 	const [ globalRepeatEnabled, setGlobalRepeatEnabled ] = useState( false );
+
+	// File input ref for texture picker
+	const fileInputRef = useRef( null );
+	const pendingTextureSlotRef = useRef( null );
+
+	// Loading state for texture changes
+	const [ loadingTexture, setLoadingTexture ] = useState( null );
+
+	// Track which texture sections are expanded (collapsed by default)
+	const [ expandedTextures, setExpandedTextures ] = useState( {} );
+
+	const toggleTextureExpanded = useCallback( ( textureName ) => {
+
+		setExpandedTextures( prev => ( { ...prev, [ textureName ]: ! prev[ textureName ] } ) );
+
+	}, [] );
 
 	// Helper function to safely get hex string
 	const getHexString = useCallback( ( colorObj ) => {
@@ -232,6 +260,13 @@ const MaterialTab = () => {
 
 	}, [ selectedObject ] );
 
+	// Reset expanded textures when selected object changes
+	useEffect( () => {
+
+		setExpandedTextures( {} );
+
+	}, [ selectedObject ] );
+
 	// Setup event listeners
 	useEffect( () => {
 
@@ -321,6 +356,40 @@ const MaterialTab = () => {
 
 	}, [ materialStore, globalRepeatEnabled, availableTextures ] );
 
+	// Handle texture file selection
+	const handleTextureFileSelect = useCallback( async ( event ) => {
+
+		const file = event.target.files?.[ 0 ];
+		const textureName = pendingTextureSlotRef.current;
+		if ( ! file || ! textureName ) return;
+
+		// Reset input so same file can be re-selected
+		event.target.value = '';
+
+		setLoadingTexture( textureName );
+		await materialStore.handleTextureChange( textureName, file );
+		setLoadingTexture( null );
+		pendingTextureSlotRef.current = null;
+
+	}, [ materialStore ] );
+
+	// Open file picker for a specific texture slot
+	const openTexturePicker = useCallback( ( textureName ) => {
+
+		pendingTextureSlotRef.current = textureName;
+		fileInputRef.current?.click();
+
+	}, [] );
+
+	// Remove texture from a slot
+	const handleRemoveTexture = useCallback( async ( textureName ) => {
+
+		setLoadingTexture( textureName );
+		await materialStore.handleTextureRemove( textureName );
+		setLoadingTexture( null );
+
+	}, [ materialStore ] );
+
 	// Optimized render function with memoized components
 	const renderPropertyComponent = useCallback( ( property, config ) => {
 
@@ -381,7 +450,7 @@ const MaterialTab = () => {
 				return (
 					<>
 						<div className="opacity-50 text-xs">{config.label}</div>
-						<div className="grid grid-cols-2 gap-y-1 items-center">
+						<div className="grid grid-cols-[20px_1fr] gap-y-1 items-center">
 							<NumberInput
 								label="X"
 								value={value.x}
@@ -551,31 +620,98 @@ const MaterialTab = () => {
 
 				{/* Textures Tab */}
 				<TabsContent value="textures" className="flex-1 min-h-0 overflow-y-auto mx-2 py-2 space-y-3">
-					{availableTextures.length === 0 ? (
-						<div className="text-center text-muted-foreground text-sm py-8">
-							No textures available on this material
-						</div>
-					) : (
-						<div className="space-y-4">
-							{/* Global Repeat Toggle */}
-							<Switch label="Sync Repeat" checked={globalRepeatEnabled} onCheckedChange={setGlobalRepeatEnabled} />
+					{/* Hidden file input for texture picker */}
+					<input
+						ref={fileInputRef}
+						type="file"
+						accept="image/*"
+						className="hidden"
+						onChange={handleTextureFileSelect}
+					/>
+
+					{availableTextures.length > 0 && (
+						<div className="space-y-1">
 							{availableTextures.map( ( { name, displayName, texture } ) => (
-								<div key={name} className="space-y-3">
-									<div className="text-center opacity-50 text-xs bg-primary/20 rounded-full">{displayName}</div>
-									<TexturePreview texture={texture} />
-									{Object.entries( TEXTURE_PROPERTIES ).map( ( [ property, config ] ) => {
+								<div key={name}>
+									<TexturePreview
+										texture={texture}
+										label={displayName}
+										expanded={expandedTextures[ name ]}
+										onToggle={() => toggleTextureExpanded( name )}
+										actions={
+											<>
+												<button
+													className="p-1 rounded-md hover:bg-primary/20 transition-colors disabled:opacity-50"
+													onClick={() => openTexturePicker( name )}
+													disabled={loadingTexture === name}
+													title="Change texture"
+												>
+													<RefreshCw size={12} className={loadingTexture === name ? 'animate-spin' : ''} />
+												</button>
+												<button
+													className="p-1 rounded-md text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+													onClick={() => handleRemoveTexture( name )}
+													disabled={loadingTexture === name}
+													title="Remove texture"
+												>
+													<Trash2 size={12} />
+												</button>
+											</>
+										}
+									/>
+									{expandedTextures[ name ] && (
+										<div className="mt-1 mb-2 space-y-1">
+											{Object.entries( TEXTURE_PROPERTIES ).map( ( [ property, config ] ) => {
 
-										const component = renderTexturePropertyComponent( name, property, config );
-										return component ? (
-											<div key={`${name}-${property}`} className="flex items-center justify-between">
-												{component}
-											</div>
-										) : null;
+												const component = renderTexturePropertyComponent( name, property, config );
+												return component ? (
+													<div key={`${name}-${property}`} className="flex items-center justify-between">
+														{component}
+													</div>
+												) : null;
 
-									} )}
-									<Separator className="mb-2" />
+											} )}
+										</div>
+									)}
+									<Separator className="my-1.5" />
 								</div>
 							) )}
+							<div className="flex items-center justify-between">
+								<Switch label="Sync Repeat" checked={globalRepeatEnabled} onCheckedChange={setGlobalRepeatEnabled} />
+							</div>
+						</div>
+					)}
+
+					{/* Add Texture Section */}
+					{( () => {
+
+						const usedSlots = new Set( availableTextures.map( t => t.name ) );
+						const emptySlots = ADDABLE_TEXTURE_SLOTS.filter( s => ! usedSlots.has( s.name ) );
+						if ( emptySlots.length === 0 ) return null;
+
+						return (
+							<div className="space-y-2">
+								<div className="text-center opacity-50 text-xs">Add Texture</div>
+								<div className="flex flex-wrap gap-1 justify-center">
+									{emptySlots.map( ( { name, label } ) => (
+										<button
+											key={name}
+											className="text-[10px] px-2 py-0.5 rounded-full border border-dashed border-primary/40 hover:bg-primary/10 transition-colors disabled:opacity-50 inline-flex items-center gap-0.5"
+											onClick={() => openTexturePicker( name )}
+											disabled={loadingTexture === name}
+										>
+											<Plus size={10} />{loadingTexture === name ? '...' : label}
+										</button>
+									) )}
+								</div>
+							</div>
+						);
+
+					} )()}
+
+					{availableTextures.length === 0 && ! selectedObject?.material && (
+						<div className="text-center text-muted-foreground text-sm py-8">
+							No textures available on this material
 						</div>
 					)}
 				</TabsContent>

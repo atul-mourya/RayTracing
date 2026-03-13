@@ -2530,6 +2530,111 @@ const useMaterialStore = create( ( set, get ) => ( {
 	 * handleToggleFeature('volumetric', false);
 	 * // Sets: transmission=0, preserves ior and thickness values
 	 */
+
+	/**
+	 * Change or add a texture on the selected material.
+	 * Loads the image file, assigns it to the material slot, and triggers a full material rebuild.
+	 * @param {string} textureName - Material texture slot (e.g., 'map', 'normalMap', 'roughnessMap')
+	 * @param {File} file - Image file from file input
+	 */
+	handleTextureChange: async ( textureName, file ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+
+		let url;
+		try {
+
+			const { TextureLoader, RepeatWrapping, SRGBColorSpace, LinearSRGBColorSpace } = await import( 'three' );
+			url = URL.createObjectURL( file );
+			const loader = new TextureLoader();
+			const newTexture = await loader.loadAsync( url );
+
+			// Configure texture
+			newTexture.wrapS = RepeatWrapping;
+			newTexture.wrapT = RepeatWrapping;
+			newTexture.name = file.name;
+
+			// Albedo/emissive maps use sRGB; others use linear
+			const srgbMaps = [ 'map', 'emissiveMap' ];
+			newTexture.colorSpace = srgbMaps.includes( textureName )
+				? SRGBColorSpace
+				: LinearSRGBColorSpace;
+
+			// Preserve existing transform if replacing
+			const existing = obj.material[ textureName ];
+			if ( existing?.isTexture ) {
+
+				newTexture.offset.copy( existing.offset );
+				newTexture.repeat.copy( existing.repeat );
+				newTexture.rotation = existing.rotation;
+				existing.dispose();
+
+			}
+
+			// Assign to material
+			obj.material[ textureName ] = newTexture;
+			obj.material.needsUpdate = true;
+
+			// Rebuild all material textures on the GPU
+			const app = getApp();
+			if ( app ) {
+
+				await app.rebuildMaterials();
+				app.reset();
+
+			}
+
+			// Notify UI
+			window.dispatchEvent( new Event( 'MaterialUpdate' ) );
+
+		} catch ( error ) {
+
+			console.error( `Error changing texture ${textureName}:`, error );
+
+		} finally {
+
+			if ( url ) URL.revokeObjectURL( url );
+
+		}
+
+	},
+
+	/**
+	 * Remove a texture from the selected material slot.
+	 * @param {string} textureName - Material texture slot to clear
+	 */
+	handleTextureRemove: async ( textureName ) => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+
+		try {
+
+			const existing = obj.material[ textureName ];
+			if ( existing?.isTexture ) existing.dispose();
+
+			obj.material[ textureName ] = null;
+			obj.material.needsUpdate = true;
+
+			const app = getApp();
+			if ( app ) {
+
+				await app.rebuildMaterials();
+				app.reset();
+
+			}
+
+			window.dispatchEvent( new Event( 'MaterialUpdate' ) );
+
+		} catch ( error ) {
+
+			console.error( `Error removing texture ${textureName}:`, error );
+
+		}
+
+	},
+
 	handleToggleFeature: ( featureName, enabled ) => {
 
 		const obj = useStore.getState().selectedObject;

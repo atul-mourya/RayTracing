@@ -1038,7 +1038,6 @@ class AssetLoader extends EventDispatcher {
 	// Model processing methods
 	async onModelLoad( model ) {
 
-		let a = performance.now();
 		const buildTimer = new BuildTimer( 'onModelLoad' );
 
 		// Extract cameras from the loaded model
@@ -1116,8 +1115,6 @@ class AssetLoader extends EventDispatcher {
 
 		// Notify model loaded and processed
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
-		let b = performance.measure( a - performance.now() );
-		console.log( 'supp !!: ', b.duration );
 		return { center, size, maxDim, sceneScale };
 
 	}

@@ -66,7 +66,7 @@ const LinkableVector2 = ( { label, value, onChange, step = 0.1, min, max, classN
 						<CustomUnlinkIcon size={12} className="opacity-50" />
 					)}
 				</div>
-				<div className="grid grid-cols-2 gap-1 flex-1 items-center">
+				<div className="grid grid-cols-[20px_1fr] gap-1 flex-1 items-center">
 					<NumberInput
 						label="X"
 						value={value.x}
