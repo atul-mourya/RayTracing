@@ -90,6 +90,9 @@ const FinalRenderPanel = () => {
 				<div className="flex items-center justify-between py-2 px-2">
 					<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
 				</div>
+				<div className="flex items-center justify-between py-2 px-2">
+					<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
+				</div>
 			</> )}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
 		</div>

@@ -200,6 +200,9 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.extractGBufferData = options.extractGBufferData || null;
 		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
 
+		// Tile highlight visualization during denoising
+		this.showTileHelper = true;
+
 		// WebGPU GPU-native path (no CPU readback for inputs)
 		// backendParams: () => { device: GPUDevice, adapterInfo: GPUAdapterInfo|null }
 		// getGPUTextures: () => { color: GPUTexture, albedo: GPUTexture, normal: GPUTexture }
@@ -579,6 +582,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Draw the current noisy frame as the base — denoised tiles paint on top progressively
 		this.ctx.drawImage( this.input, 0, 0, width, height );
+		this._tileGridDrawn = false;
 
 		// Pass GPU storage buffers to oidn-web (GPUBuffer path, well-tested)
 		const config = {
@@ -725,6 +729,14 @@ export class OIDNDenoiser extends EventDispatcher {
 					// row-by-row copyBufferToBuffer (no stride support in WebGPU buffer copies).
 					if ( ! outputData?.data || ! tile ) return;
 
+					// Draw tile grid overlay once on the noisy base image
+					if ( this.showTileHelper && ! this._tileGridDrawn ) {
+
+						this._tileGridDrawn = true;
+						this._drawTileGrid( tile, outputData.width, outputData.height );
+
+					}
+
 					const device = this.gpuDevice;
 					const fullWidth = outputData.width;
 					const bytesPerPixel = 16; // rgba32float = 4 × float32
@@ -791,6 +803,49 @@ export class OIDNDenoiser extends EventDispatcher {
 			} );
 
 		} );
+
+	}
+
+	/**
+	 * Draws a grid overlay on the noisy base image. Called once when the first
+	 * progress tile arrives. As each tile is denoised, putImageData naturally
+	 * overwrites the grid lines for that region — the grid "erases itself".
+	 */
+	_drawTileGrid( firstTile, imageWidth, imageHeight ) {
+
+		const tileW = firstTile.width;
+		const tileH = firstTile.height;
+		const cols = Math.ceil( imageWidth / tileW );
+		const rows = Math.ceil( imageHeight / tileH );
+		const ctx = this.ctx;
+
+		ctx.save();
+		ctx.strokeStyle = 'rgba(255, 0, 0, 0.25)';
+		ctx.lineWidth = 1;
+
+		// Vertical lines
+		for ( let c = 1; c < cols; c ++ ) {
+
+			const x = c * tileW + 0.5;
+			ctx.beginPath();
+			ctx.moveTo( x, 0 );
+			ctx.lineTo( x, imageHeight );
+			ctx.stroke();
+
+		}
+
+		// Horizontal lines
+		for ( let r = 1; r < rows; r ++ ) {
+
+			const y = r * tileH + 0.5;
+			ctx.beginPath();
+			ctx.moveTo( 0, y );
+			ctx.lineTo( imageWidth, y );
+			ctx.stroke();
+
+		}
+
+		ctx.restore();
 
 	}
 

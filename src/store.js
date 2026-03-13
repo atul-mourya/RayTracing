@@ -827,6 +827,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			const { renderMode } = get();
 			if ( parseInt( renderMode ) === 1 && app.tileHighlightStage ) app.tileHighlightStage.enabled = val;
+			if ( app.denoiser ) app.denoiser.showTileHelper = val;
 
 		},
 		false
