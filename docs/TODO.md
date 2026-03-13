@@ -4,7 +4,6 @@
 
 ### Critical
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
-- [ ] show denoiser tile helper
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -22,7 +21,6 @@
 - [ ] Full WGSL transition, avoid TSL nodes
 
 ### Camera
-- [ ] custom canvas size size / custom aspect ratio support
 - [ ] first person camera mode controls as an alternative to orbit controls
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support

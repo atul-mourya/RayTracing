@@ -49,6 +49,7 @@ const Slider = React.forwardRef( ( {
 	// Dragging state refs
 	const dragDistanceRef = React.useRef( 0 );
 	const lastPointerXRef = React.useRef( 0 );
+	const pointerDownOnValueRef = React.useRef( false );
 
 	// Get slider width for calculations
 	const [ sliderWidth, setSliderWidth ] = React.useState( 0 );
@@ -174,12 +175,16 @@ const Slider = React.forwardRef( ( {
 
 		if ( disabled ) return;
 
+		// Track whether pointerdown was on the value display area
+		const isOnValue = !! e.target.closest( '[data-value-display]' );
+		pointerDownOnValueRef.current = isOnValue;
+
 		// Initialize drag tracking
 		dragDistanceRef.current = 0;
 		lastPointerXRef.current = e.clientX;
 
-		// Immediately update value based on click position (same logic as move)
-		if ( sliderRef.current ) {
+		// Only jump value immediately when clicking the track, not the value display
+		if ( ! isOnValue && sliderRef.current ) {
 
 			const sliderRect = sliderRef.current.getBoundingClientRect();
 			const relativeX = Math.max( 0, Math.min( e.clientX - sliderRect.left, sliderWidth ) );
@@ -193,19 +198,30 @@ const Slider = React.forwardRef( ( {
 
 		}
 
-		// Set up pointer capture
+		// Always set up pointer capture for dragging
 		const target = e.currentTarget;
 		target.onpointermove = handlePointerMove;
 		target.setPointerCapture( e.pointerId );
 		onDragStart?.();
 
-	}, [ currentValue, disabled, handlePointerMove, onDragStart, sliderWidth, actualSliderMin, actualSliderMax, clampValue, handleChange ] );
+	}, [ disabled, handlePointerMove, onDragStart, sliderWidth, actualSliderMin, actualSliderMax, clampValue, handleChange ] );
 
 	const handlePointerUp = React.useCallback( e => {
 
 		const target = e.currentTarget;
 		target.releasePointerCapture( e.pointerId );
 		target.onpointermove = null;
+
+		// If clicked on value display with minimal drag, enter editing mode
+		if ( pointerDownOnValueRef.current && dragDistanceRef.current < 3 ) {
+
+			pointerDownOnValueRef.current = false;
+			if ( ! disabled ) setIsEditing( true );
+			return;
+
+		}
+
+		pointerDownOnValueRef.current = false;
 		onDragEnd?.();
 
 		if ( ! disabled ) {
@@ -288,7 +304,6 @@ const Slider = React.forwardRef( ( {
 				onPointerDown={handlePointerDown}
 				onPointerUp={handlePointerUp}
 				onLostPointerCapture={handlePointerUp}
-				onFocus={() => ! disabled && setIsEditing( true )}
 				{...domProps}
 			>
 				{/* Base track */}
@@ -347,15 +362,8 @@ const Slider = React.forwardRef( ( {
 					/>
 				) : (
 					<span
+						data-value-display
 						className="text-xs absolute h-full right-2 cursor-text select-none text-foreground inline-flex items-center"
-						onPointerDown={( e ) => e.stopPropagation()}
-						onClick={( e ) => {
-
-							e.preventDefault();
-							e.stopPropagation();
-							if ( ! disabled ) setIsEditing( true );
-
-						}}
 					>
 						{isNaN( currentValue ) ? "-" : + ( currentValue || 0 ).toFixed( precision )}
 					</span>
