@@ -4,6 +4,7 @@
 
 ### Critical
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
+- [ ] pasting material doenst honer texture transforms
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -30,12 +31,12 @@
 
 ### Lighting
 - [ ] emissive mesh triangle sorting - overkill maybe
-- [ ] implement pending Physical material properties
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 
 ### Materials
+- [ ] implement pending Physical material properties
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
 
