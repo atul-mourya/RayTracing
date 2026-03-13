@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  * Custom hook for auto-fit scaling functionality in viewports
  * @param {Object} options - Configuration options
  * @param {React.RefObject} options.viewportRef - Reference to the viewport container
- * @param {number} options.canvasSize - Size of the canvas to fit
+ * @param {number} options.canvasWidth - Width of the canvas to fit
+ * @param {number} options.canvasHeight - Height of the canvas to fit
  * @param {number} options.padding - Padding around the canvas (default: 40)
  * @param {number} options.minScale - Minimum scale percentage (default: 25)
  * @param {number} options.maxScale - Maximum scale percentage (default: 300)
@@ -14,12 +15,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  */
 export const useAutoFitScale = ( {
 	viewportRef,
-	canvasSize,
+	canvasWidth,
+	canvasHeight,
 	padding = 40,
 	minScale = 25,
 	maxScale = 300,
 	manualThreshold = 5,
-	enabled = true // Add enabled flag
+	enabled = true
 } ) => {
 
 	const [ viewportScale, setViewportScale ] = useState( 100 );
@@ -43,15 +45,15 @@ export const useAutoFitScale = ( {
 		const availableHeight = viewportRect.height - padding;
 
 		// Calculate scale to fit both width and height
-		const scaleX = ( availableWidth / canvasSize ) * 100;
-		const scaleY = ( availableHeight / canvasSize ) * 100;
+		const scaleX = ( availableWidth / canvasWidth ) * 100;
+		const scaleY = ( availableHeight / canvasHeight ) * 100;
 
 		// Use the smaller scale to ensure it fits in both dimensions
 		const bestFitScale = Math.min( scaleX, scaleY, maxScale );
 
 		return Math.max( Math.ceil( bestFitScale ), minScale );
 
-	}, [ viewportRef, canvasSize, padding, minScale, maxScale, enabled ] );
+	}, [ viewportRef, canvasWidth, canvasHeight, padding, minScale, maxScale, enabled ] );
 
 	// Update auto-fit scale when viewport resizes
 	useEffect( () => {

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
-import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS } from '@/Constants';
+import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, computeCanvasDimensions } from '@/Constants';
 import { getApp } from '@/core/appProxy';
 
 /**
@@ -305,14 +305,14 @@ const useEnvironmentStore = create( set => ( {
 
 const FINAL_RENDER_STATE = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
-	resolution: 3, enableOIDN: true, oidnQuality: 'balance', oidnHdr: true, useGBuffer: true,
+	enableOIDN: true, oidnQuality: 'balance', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: false,
 };
 
 const PREVIEW_STATE = {
 	maxSamples: DEFAULT_STATE.maxSamples, bounces: DEFAULT_STATE.bounces, samplesPerPixel: DEFAULT_STATE.samplesPerPixel,
 	renderMode: DEFAULT_STATE.renderMode, transmissiveBounces: DEFAULT_STATE.transmissiveBounces,
-	tiles: DEFAULT_STATE.tiles, tilesHelper: DEFAULT_STATE.tilesHelper, resolution: DEFAULT_STATE.resolution,
+	tiles: DEFAULT_STATE.tiles, tilesHelper: DEFAULT_STATE.tilesHelper,
 	enableOIDN: false, oidnQuality: 'fast', oidnHdr: true, useGBuffer: true,
 	interactionModeEnabled: true,
 };
@@ -368,7 +368,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setRenderMode: val => set( { renderMode: val } ),
 	setTiles: val => set( { tiles: val } ),
 	setTilesHelper: val => set( { tilesHelper: val } ),
-	setResolution: val => set( { resolution: val } ),
+	setResolution: val => set( { resolution: parseInt( val, 10 ) } ),
+	setOrientation: val => set( { orientation: val } ),
+	setFinalRenderResolution: val => set( { finalRenderResolution: parseInt( val, 10 ) } ),
 	setEnableOIDN: val => set( { enableOIDN: val } ),
 	setUseGBuffer: val => set( { useGBuffer: val } ),
 	setRenderLimitMode: val => set( { renderLimitMode: val } ),
@@ -431,6 +433,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAutoExposureAdaptSpeedDark: val => set( { autoExposureAdaptSpeedDark: val } ),
 	setCurrentAutoExposure: val => set( { currentAutoExposure: val } ),
 	setCurrentAvgLuminance: val => set( { currentAvgLuminance: val } ),
+
+	// Canvas dimension setters
+	setAspectRatioPreset: val => set( { aspectRatioPreset: val } ),
 
 	// Denoiser strategy and EdgeAware filter setters
 	setDenoiserStrategy: val => set( { denoiserStrategy: val } ),
@@ -628,26 +633,64 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => app.setEmissiveBoost( val )
 	),
 
-	handleResolutionChange: handleChange(
-		val => set( { resolution: val } ),
-		( val, app ) => {
+	// --- Output dimension handlers (resolution + aspect ratio + orientation) ---
 
-			// Map UI value to absolute pixel resolution
-			const targetResolution = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ val ] || 512;
+	// Helper: recompute canvas dims from current state and apply to app
+	_applyCanvasDimensions: ( overrides = {} ) => {
 
-			// Calculate pixel ratio based on canvas client dimensions
-			// Use the shorter dimension to ensure target resolution fits
-			const clientWidth = app.canvas.clientWidth;
-			const clientHeight = app.canvas.clientHeight;
-			const shortestDimension = Math.min( clientWidth, clientHeight );
+		const state = { ...get(), ...overrides };
+		const res = state.appMode === 'final-render' ? state.finalRenderResolution : state.resolution;
+		const { width, height } = computeCanvasDimensions( res, state.aspectRatioPreset, state.orientation );
 
-			// Calculate pixel ratio to achieve target resolution on shortest side
-			const pixelRatio = targetResolution / shortestDimension;
-			// Pass resolution index to store for resize recalculation
-			app.updateResolution( pixelRatio, parseInt( val, 10 ) );
+		set( { ...overrides, canvasWidth: width, canvasHeight: height } );
+
+		const app = getApp();
+		if ( app ) {
+
+			app.setCanvasSize( width, height );
+			app.reset();
 
 		}
-	),
+
+	},
+
+	handleResolutionChange: ( val ) => {
+
+		const resolution = parseInt( val, 10 );
+		get()._applyCanvasDimensions( { resolution } );
+
+	},
+
+	handleAspectPresetChange: ( preset ) => {
+
+		get()._applyCanvasDimensions( { aspectRatioPreset: preset } );
+
+	},
+
+	handleOrientationToggle: () => {
+
+		const current = get().orientation;
+		get()._applyCanvasDimensions( { orientation: current === 'landscape' ? 'portrait' : 'landscape' } );
+
+	},
+
+	handleFinalRenderResolutionChange: ( val ) => {
+
+		const finalRes = parseInt( val, 10 );
+		const state = get();
+		const { width, height } = computeCanvasDimensions( finalRes, state.aspectRatioPreset, state.orientation );
+
+		set( { finalRenderResolution: finalRes, canvasWidth: width, canvasHeight: height } );
+
+		const app = getApp();
+		if ( app ) {
+
+			app.setCanvasSize( width, height );
+			app.reset();
+
+		}
+
+	},
 
 	handleAdaptiveSamplingChange: handleChange(
 		val => set( { adaptiveSampling: val } ),
@@ -1612,10 +1655,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			}
 
-			// Use absolute pixel resolution based on mode setting
-			const previewTargetRes = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ PREVIEW_STATE.resolution ] || 512;
-			const previewShortestDim = Math.min( app.canvas.clientWidth, app.canvas.clientHeight );
-			app.updateResolution( previewTargetRes / previewShortestDim, PREVIEW_STATE.resolution );
+			// Restore canvas to preview resolution
+			const state = get();
+			const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
+			set( { canvasWidth: width, canvasHeight: height } );
+			app.setCanvasSize( width, height );
 
 			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
 			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
@@ -1667,10 +1711,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			}
 
-			// Use absolute pixel resolution based on mode setting
-			const finalTargetRes = { '0': 256, '1': 512, '2': 1024, '3': 2048, '4': 4096 }[ FINAL_RENDER_STATE.resolution ] || 2048;
-			const finalShortestDim = Math.min( app.canvas.clientWidth, app.canvas.clientHeight );
-			app.updateResolution( finalTargetRes / finalShortestDim, FINAL_RENDER_STATE.resolution );
+			// Resize canvas to final render resolution with current aspect ratio
+			const state = get();
+			const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
+			set( { canvasWidth: width, canvasHeight: height } );
+			app.setCanvasSize( width, height );
 
 			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
 			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );

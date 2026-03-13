@@ -10,6 +10,7 @@ import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo } from 'react';
 import { Badge } from "@/components/ui/badge";
+import CanvasDimensionControls from './CanvasDimensionControls';
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -75,7 +76,6 @@ const PathTracerTab = () => {
 		renderMode,
 		tiles,
 		tilesHelper,
-		resolution,
 		useGBuffer,
 		debugMode,
 		debugThreshold,
@@ -131,7 +131,6 @@ const PathTracerTab = () => {
 		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
 		handleSamplingTechniqueChange,
-		handleResolutionChange,
 		handleAdaptiveSamplingChange,
 		handleAdaptiveSamplingMinChange,
 		handleAdaptiveSamplingMaxChange,
@@ -236,21 +235,7 @@ const PathTracerTab = () => {
 						</div>
 					</>
 				)}
-				<div className="flex items-center justify-between">
-					<Select value={resolution.toString()} onValueChange={handleResolutionChange}>
-						<span className="opacity-50 text-xs truncate">Resolution</span>
-						<SelectTrigger className="max-w-32 h-5 rounded-full">
-							<SelectValue placeholder="Select resolution" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="0">256</SelectItem>
-							<SelectItem value="1">512</SelectItem>
-							<SelectItem value="2">1024</SelectItem>
-							<SelectItem value="3">2048</SelectItem>
-							<SelectItem value="4">4096</SelectItem>
-						</SelectContent>
-					</Select>
-				</div>
+				<CanvasDimensionControls />
 			</ControlGroup>
 
 			<ControlGroup name="Scene">

@@ -27,7 +27,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const isInitialized = useRef( false );
 
 	// Viewport state
-	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 );
+	const canvasWidth = usePathTracerStore( useCallback( state => state.canvasWidth, [] ) );
+	const canvasHeight = usePathTracerStore( useCallback( state => state.canvasHeight, [] ) );
 	const [ canvasReady, setCanvasReady ] = useState( false );
 	const [ renderResolution, setRenderResolution ] = useState( { width: 512, height: 512 } );
 	const [ isAppInitialized, setIsAppInitialized ] = useState( false );
@@ -51,7 +52,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 		handleResetToAutoFit
 	} = useAutoFitScale( {
 		viewportRef,
-		canvasSize: actualCanvasSize,
+		canvasWidth,
+		canvasHeight,
 		padding: 40,
 		minScale: 25,
 		maxScale: 200,
@@ -75,7 +77,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		}
 
-	}, [ actualCanvasSize ] );
+	}, [ canvasWidth, canvasHeight ] );
 
 	// Effect to listen for resolution changes and update render resolution
 	useEffect( () => {
@@ -273,8 +275,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 	// Memoize style objects
 	const { wrapperStyle, containerStyle, canvasStyle } = useMemo( () =>
-		generateViewportStyles( actualCanvasSize, viewportScale ),
-	[ actualCanvasSize, viewportScale ]
+		generateViewportStyles( canvasWidth, canvasHeight, viewportScale ),
+	[ canvasWidth, canvasHeight, viewportScale ]
 	);
 
 	return (
@@ -284,14 +286,14 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
 					<canvas
 						ref={denoiserCanvasRef}
-						width={actualCanvasSize}
-						height={actualCanvasSize}
+						width={canvasWidth}
+						height={canvasHeight}
 						style={canvasStyle}
 					/>
 					<canvas
 						ref={canvasRef}
-						width={actualCanvasSize}
-						height={actualCanvasSize}
+						width={canvasWidth}
+						height={canvasHeight}
 						style={canvasStyle}
 					/>
 					<DimensionDisplay dimension={renderResolution} />

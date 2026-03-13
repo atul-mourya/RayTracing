@@ -106,9 +106,60 @@ export const DEBUG_MODELS = debugModelsData
 
 	} );
 
+// Aspect ratio presets — always landscape-native (orientation toggle handles portrait)
+export const ASPECT_RATIO_PRESETS = {
+	'1:1': { label: '1:1', width: 1, height: 1 },
+	'16:9': { label: '16:9', width: 16, height: 9 },
+	'4:3': { label: '4:3', width: 4, height: 3 },
+	'3:2': { label: '3:2', width: 3, height: 2 },
+	'2.39:1': { label: '2.39:1', width: 239, height: 100 },
+	'21:9': { label: '21:9', width: 21, height: 9 },
+};
+
+// Resolution presets — longest edge in pixels
+export const RESOLUTION_PRESETS = [
+	{ value: 256, label: '256' },
+	{ value: 512, label: '512' },
+	{ value: 1024, label: '1024' },
+	{ value: 2048, label: '2048' },
+	{ value: 4096, label: '4096' },
+];
+
+/**
+ * Compute canvas width/height from resolution + aspect ratio + orientation.
+ * Resolution = longest edge. Aspect ratio defines the shape. Orientation flips it.
+ */
+export function computeCanvasDimensions( resolution, aspectPreset, orientation ) {
+
+	const preset = ASPECT_RATIO_PRESETS[ aspectPreset ];
+	if ( ! preset ) return { width: resolution, height: resolution };
+
+	const maxRatio = Math.max( preset.width, preset.height );
+	const minRatio = Math.min( preset.width, preset.height );
+	const longSide = resolution;
+	const shortSide = Math.round( resolution * minRatio / maxRatio );
+
+	if ( orientation === 'portrait' && longSide !== shortSide ) {
+
+		return { width: shortSide, height: longSide };
+
+	}
+
+	return { width: longSide, height: shortSide };
+
+}
+
 export const DEFAULT_STATE = {
 	model: 9,
 	environment: 'aristea_wreck_puresky', // Environment ID from local_environments.json
+
+	// Canvas output — derived from resolution + aspect + orientation
+	resolution: 512,
+	aspectRatioPreset: '1:1',
+	orientation: 'landscape',
+	finalRenderResolution: 2048,
+	canvasWidth: 512,
+	canvasHeight: 512,
 
 	originalPixelRatio: window.devicePixelRatio / 2,
 	toneMapping: 4,
@@ -178,7 +229,6 @@ export const DEFAULT_STATE = {
 	tiles: 3,
 	tilesHelper: false,
 	showLightHelper: false,
-	resolution: 1,
 
 	directionalLightIntensity: 0,
 	directionalLightColor: "#ffffff",

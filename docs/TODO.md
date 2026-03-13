@@ -3,8 +3,8 @@
 ## Bugs
 
 ### Critical
-- [x] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
+- [ ] show denoiser tile helper
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI

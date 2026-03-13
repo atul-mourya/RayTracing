@@ -56,8 +56,9 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const aiCanvasRef = useRef( null );
 	const imageProcessorRef = useRef( null );
 
-	// Dynamic canvas size based on viewport and image quality
-	const [ actualCanvasSize, setActualCanvasSize ] = useState( 512 );
+	// Dynamic canvas size based on loaded image dimensions
+	const [ actualCanvasWidth, setActualCanvasWidth ] = useState( 512 );
+	const [ actualCanvasHeight, setActualCanvasHeight ] = useState( 512 );
 	const [ imageLoadState, setImageLoadState ] = useState( { loaded: false, error: false } );
 	const [ isImageDrawn, setIsImageDrawn ] = useState( false );
 	const [ viewingOriginal, setViewingOriginal ] = useState( false );
@@ -77,7 +78,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		handleResetToAutoFit
 	} = useAutoFitScale( {
 		viewportRef,
-		canvasSize: actualCanvasSize,
+		canvasWidth: actualCanvasWidth,
+		canvasHeight: actualCanvasHeight,
 		padding: 80,
 		minScale: 25,
 		maxScale: 300
@@ -321,9 +323,11 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 			try {
 
-				// Calculate optimal canvas size based on image and viewport
-				const maxCanvasSize = Math.min( img.width, img.height, 2048 ); // Limit for 4K
-				setActualCanvasSize( Math.min( maxCanvasSize, 1024 ) ); // Reasonable default
+				// Calculate optimal canvas size based on image dimensions
+				const maxDim = 1024;
+				const scale = Math.min( maxDim / img.width, maxDim / img.height, 1 );
+				setActualCanvasWidth( Math.round( img.width * scale ) );
+				setActualCanvasHeight( Math.round( img.height * scale ) );
 
 				// Draw the rendered image on original canvas
 				drawImageOnCanvas( img, originalCanvas, originalCtx );
@@ -507,8 +511,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	// Memoize style objects
 	const { wrapperStyle, containerStyle } = useMemo( () =>
-		generateViewportStyles( actualCanvasSize, viewportScale ),
-	[ actualCanvasSize, viewportScale ]
+		generateViewportStyles( actualCanvasWidth, actualCanvasHeight, viewportScale ),
+	[ actualCanvasWidth, actualCanvasHeight, viewportScale ]
 	);
 
 	// UI handlers
@@ -726,8 +730,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 						width="2048"
 						height="2048"
 						style={{
-							width: `${actualCanvasSize}px`,
-							height: `${actualCanvasSize}px`,
+							width: `${actualCanvasWidth}px`,
+							height: `${actualCanvasHeight}px`,
 							backgroundColor: 'black',
 							display: ( viewingOriginal || viewingAIVariant || ! imageLoadState.loaded ) ? 'none' : 'block',
 							imageRendering: 'pixelated' // Better for 4K images
@@ -740,8 +744,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 						width="2048"
 						height="2048"
 						style={{
-							width: `${actualCanvasSize}px`,
-							height: `${actualCanvasSize}px`,
+							width: `${actualCanvasWidth}px`,
+							height: `${actualCanvasHeight}px`,
 							backgroundColor: 'black',
 							display: ( viewingOriginal && imageLoadState.loaded && ! viewingAIVariant ) ? 'block' : 'none',
 							imageRendering: 'pixelated' // Better for 4K images
@@ -754,8 +758,8 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 						width="2048"
 						height="2048"
 						style={{
-							width: `${actualCanvasSize}px`,
-							height: `${actualCanvasSize}px`,
+							width: `${actualCanvasWidth}px`,
+							height: `${actualCanvasHeight}px`,
 							backgroundColor: 'black',
 							display: ( viewingAIVariant && imageLoadState.loaded && ! viewingOriginal ) ? 'block' : 'none',
 							imageRendering: 'pixelated' // Better for 4K images

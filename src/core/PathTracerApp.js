@@ -33,8 +33,6 @@ import { useStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
 
-// Resolution index to pixel values mapping (same as main app)
-const TARGET_RESOLUTIONS = { 0: 256, 1: 512, 2: 1024, 3: 2048, 4: 4096 };
 
 /**
  * WebGPU Path Tracer Application.
@@ -90,8 +88,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.timeElapsed = 0;
 
 
-		// Resolution settings
-		this.targetResolution = DEFAULT_STATE.resolution ?? 3;
+		// Resolution settings — canvas dimensions = render dimensions (pixel ratio 1.0)
 		this._lastRenderWidth = 0;
 		this._lastRenderHeight = 0;
 		this._resizeDebounceTimer = null;
@@ -185,15 +182,13 @@ export class PathTracerApp extends EventDispatcher {
 		this.renderer.toneMapping = ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1.0;
 
-		// Calculate pixel ratio
+		// Canvas dimensions = render dimensions
 		const width = this.canvas.clientWidth;
 		const height = this.canvas.clientHeight;
-		const targetRes = TARGET_RESOLUTIONS[ this.targetResolution ] || 512;
-		const shortestDim = Math.min( width, height ) || 512;
-		this.renderer.setPixelRatio( targetRes / shortestDim );
+		this.renderer.setPixelRatio( 1.0 );
 
 		// Setup camera
-		this.camera = new PerspectiveCamera( 65, 1, 0.01, 1000 );
+		this.camera = new PerspectiveCamera( 65, width / height || 1, 0.01, 1000 );
 		this.camera.position.set( 0, 0, 5 );
 
 		// Create scenes — separate light scene (for path tracer) and mesh scene (for raycasting)
@@ -302,8 +297,8 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Set initial render dimensions so stage render targets aren't stuck at 1x1
 		// (canvas may be hidden initially, so guard against 0)
-		const initRenderW = Math.round( width * ( targetRes / shortestDim ) ) || 1;
-		const initRenderH = Math.round( height * ( targetRes / shortestDim ) ) || 1;
+		const initRenderW = width || 1;
+		const initRenderH = height || 1;
 		this.pipeline.setSize( initRenderW, initRenderH );
 		this._lastRenderWidth = initRenderW;
 		this._lastRenderHeight = initRenderH;
@@ -867,19 +862,14 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( width === 0 || height === 0 ) return;
 
-		// Recalculate pixel ratio
-		const targetRes = TARGET_RESOLUTIONS[ this.targetResolution ] || 512;
-		const shortestDim = Math.min( width, height ) || 512;
-		const pixelRatio = targetRes / shortestDim;
-
 		// Immediate: update display so the canvas doesn't look distorted
-		this.renderer.setPixelRatio( pixelRatio );
+		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
 		this.camera.aspect = width / height;
 		this.camera.updateProjectionMatrix();
 
-		const renderWidth = Math.round( width * pixelRatio );
-		const renderHeight = Math.round( height * pixelRatio );
+		const renderWidth = width;
+		const renderHeight = height;
 
 		// Skip render target resize + reset if dimensions haven't changed
 		if ( renderWidth === this._lastRenderWidth && renderHeight === this._lastRenderHeight ) return;
@@ -922,41 +912,34 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Update resolution using a calculated pixel ratio value.
-	 * Updates resolution using a pixel ratio and optional resolution index.
-	 * @param {number} value - The pixel ratio to set (used directly)
-	 * @param {number} [targetResolutionIndex] - Optional resolution index (0-4) to store for resize recalculation
+	 * Updates the canvas display size to match new dimensions.
+	 * Canvas dimensions = render dimensions (pixel ratio 1.0).
+	 * Called when the user changes canvas width/height via the UI.
+	 * @param {number} width - New canvas width in pixels
+	 * @param {number} height - New canvas height in pixels
 	 */
-	updateResolution( value, targetResolutionIndex ) {
+	setCanvasSize( width, height ) {
 
-		if ( targetResolutionIndex !== undefined ) {
+		this.canvas.style.width = `${width}px`;
+		this.canvas.style.height = `${height}px`;
 
-			this.targetResolution = targetResolutionIndex;
+		if ( this.denoiserCanvas ) {
+
+			this.denoiserCanvas.style.width = `${width}px`;
+			this.denoiserCanvas.style.height = `${height}px`;
 
 		}
 
-		// Perform immediate display update via onResize, then apply render
-		// target resize without debounce since this is a deliberate user action.
-		const width = this.canvas.clientWidth;
-		const height = this.canvas.clientHeight;
-
+		// Immediate resize — no debounce since this is a deliberate user action
 		if ( width === 0 || height === 0 ) return;
 
-		const targetRes = TARGET_RESOLUTIONS[ this.targetResolution ] || 512;
-		const shortestDim = Math.min( width, height ) || 512;
-		const pixelRatio = targetRes / shortestDim;
-
-		this.renderer.setPixelRatio( pixelRatio );
+		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
 		this.camera.aspect = width / height;
 		this.camera.updateProjectionMatrix();
 
-		const renderWidth = Math.round( width * pixelRatio );
-		const renderHeight = Math.round( height * pixelRatio );
-
-		// Cancel any pending debounced resize and apply immediately
 		clearTimeout( this._resizeDebounceTimer );
-		this._applyRenderResize( renderWidth, renderHeight );
+		this._applyRenderResize( width, height );
 
 	}
 

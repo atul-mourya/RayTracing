@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { usePathTracerStore as useStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { Separator } from '@/components/ui/separator';
+import CanvasDimensionControls from './CanvasDimensionControls';
 
 
 const FinalRenderPanel = () => {
@@ -15,7 +16,6 @@ const FinalRenderPanel = () => {
 		renderMode,
 		tiles,
 		tilesHelper,
-		resolution,
 		enableOIDN,
 		useGBuffer,
 		oidnQuality,
@@ -26,7 +26,6 @@ const FinalRenderPanel = () => {
 		handleRenderModeChange,
 		handleTileUpdate,
 		handleTileHelperToggle,
-		handleResolutionChange,
 		handleEnableOIDNChange,
 		handleOidnQualityChange,
 		handleOidnHdrChange,
@@ -65,21 +64,7 @@ const FinalRenderPanel = () => {
 						</div>
 					</>
 				)}
-				<div className="flex items-center justify-between">
-					<Select value={resolution.toString()} onValueChange={handleResolutionChange}>
-						<span className="opacity-50 text-xs truncate">Resolution</span>
-						<SelectTrigger className="max-w-32 h-5 rounded-full">
-							<SelectValue placeholder="Select resolution" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="0">256</SelectItem>
-							<SelectItem value="1">512</SelectItem>
-							<SelectItem value="2">1024</SelectItem>
-							<SelectItem value="3">2048</SelectItem>
-							<SelectItem value="4">4096</SelectItem>
-						</SelectContent>
-					</Select>
-				</div>
+				<CanvasDimensionControls resolutionKey="finalRenderResolution" />
 			</ControlGroup>
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
 			<div className="flex items-center justify-between py-2 px-2">
