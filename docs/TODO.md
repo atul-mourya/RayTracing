@@ -3,7 +3,7 @@
 ## Bugs
 
 ### Critical
-- [ ] transparent background + transparent / transmissive materials not working together
+- [x] transparent background + transparent / transmissive materials not working together
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 
 ### RCA unknown
