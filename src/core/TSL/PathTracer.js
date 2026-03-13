@@ -9,7 +9,7 @@
  *  - pathTracerMain         — main entry (sample loop, MRT, accumulation)
  *
  * MRT Outputs:
- *  - gColor:      RGB + edge sharpness (alpha)
+ *  - gColor:      RGB + alpha (transparent bg: per-sample hit/miss alpha, opaque: 1.0)
  *  - gNormalDepth: Normal(RGB) + depth(A)
  *  - gAlbedo:     Albedo(RGB) for OIDN denoiser
  */
@@ -182,8 +182,8 @@ export const pathTracerMain = ( params ) => {
 		const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
 		const linearDepth = float( 1.0 ).toVar();
 
-		// Track primary ray geometry hit for transparent background (1.0 = hit, 0.0 = miss)
-		const primaryHitAlpha = float( 0.0 ).toVar();
+		// Accumulate per-sample alpha for transparent background (0.0 = env, 1.0 = geometry)
+		const pixelAlpha = float( 0.0 ).toVar();
 
 		const samplesCount = int( numRaysPerPixel ).toVar();
 
@@ -202,7 +202,9 @@ export const pathTracerMain = ( params ) => {
 				If( enableAccumulation.and( hasPreviousAccumulated ), () => {
 
 					const prevUV = pixelCoord.div( resolution );
-					pixelColor.assign( texture( prevAccumTexture, prevUV, 0 ) );
+					const prevSample = texture( prevAccumTexture, prevUV, 0 );
+					pixelColor.assign( prevSample );
+					pixelAlpha.assign( prevSample.w );
 
 				} ).Else( () => {
 
@@ -288,7 +290,7 @@ export const pathTracerMain = ( params ) => {
 					envTotalSum, envResolution,
 					enableEnvironmentLight, useEnvMapIS,
 					maxBounceCount, transmissiveBounces,
-					backgroundIntensity, showBackground,
+					backgroundIntensity, showBackground, transparentBackground,
 					fireflyThreshold, globalIlluminationIntensity,
 					totalTriangleCount, enableEmissiveTriangleSampling,
 					emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
@@ -315,9 +317,6 @@ export const pathTracerMain = ( params ) => {
 							worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
 						} ) );
 
-						// Primary ray hit geometry — pixel is opaque for transparent background
-						primaryHitAlpha.assign( 1.0 );
-
 					} );
 
 				} );
@@ -325,6 +324,7 @@ export const pathTracerMain = ( params ) => {
 			} );
 
 			pixelColor.addAssign( sampleColor );
+			pixelAlpha.addAssign( sampleColor.w );
 			pixelSamples.addAssign( 1 );
 
 		} );
@@ -333,10 +333,11 @@ export const pathTracerMain = ( params ) => {
 		If( pixelSamples.greaterThan( int( 0 ) ), () => {
 
 			pixelColor.divAssign( float( pixelSamples ) );
+			pixelAlpha.divAssign( float( pixelSamples ) );
 
 		} );
 
-		// Edge sharpness for post-process sharpening
+		// Edge sharpness for post-process sharpening (stored in pixelColor.w, separate from alpha)
 		pixelColor.w.assign( computeEdgeSharpness( objectNormal, linearDepth, objectID ) );
 
 		// Temporal accumulation
@@ -344,18 +345,26 @@ export const pathTracerMain = ( params ) => {
 		const finalNormalDepth = vec4( worldNormal.mul( 0.5 ).add( 0.5 ), linearDepth ).toVar();
 		const finalAlbedo = vec3( objectColor ).toVar();
 
+		// Output alpha: accumulated per-sample alpha when transparent, otherwise 1.0
+		const outputAlpha = select( transparentBackground, pixelAlpha, float( 1.0 ) ).toVar();
+
 		If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ), () => {
 
 			const prevUV = pixelCoord.div( resolution );
+			const prevAccumSample = texture( prevAccumTexture, prevUV, 0 ).toVar();
 
-			finalColor.assign( mix( texture( prevAccumTexture, prevUV, 0 ).xyz, pixelColor.xyz, accumulationAlpha ) );
+			finalColor.assign( mix( prevAccumSample.xyz, pixelColor.xyz, accumulationAlpha ) );
 			finalNormalDepth.assign( mix( texture( prevNormalDepthTexture, prevUV, 0 ), finalNormalDepth, accumulationAlpha ) );
 			finalAlbedo.assign( mix( texture( prevAlbedoTexture, prevUV, 0 ).xyz, finalAlbedo, accumulationAlpha ) );
 
-		} );
+			// Temporally accumulate alpha from previous frame's gColor.w
+			If( transparentBackground, () => {
 
-		// Output alpha: 1.0 if primary ray hit any geometry (including glass), 0.0 for pure background
-		const outputAlpha = select( transparentBackground, primaryHitAlpha, 1.0 );
+				outputAlpha.assign( mix( prevAccumSample.w, pixelAlpha, accumulationAlpha ) );
+
+			} );
+
+		} );
 
 		// Clean MRT output
 		return pathTracerOutputStruct( {

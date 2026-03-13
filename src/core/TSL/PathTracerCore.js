@@ -604,7 +604,7 @@ export const Trace = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 	// Rendering parameters
 	maxBounceCount, transmissiveBounces,
-	backgroundIntensity, showBackground,
+	backgroundIntensity, showBackground, transparentBackground,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
 	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
@@ -616,6 +616,7 @@ export const Trace = Fn( ( [
 	const radiance = vec3( 0.0 ).toVar();
 	const throughput = vec3( 1.0 ).toVar();
 	const alpha = float( 1.0 ).toVar();
+	const hasHitOpaqueSurface = tslBool( false ).toVar(); // Tracks if ray chain has hit non-transmissive geometry
 	const prevBouncePdf = float( 0.0 ).toVar(); // 0 = camera ray (skip MIS for directly visible emissive)
 
 	// Output data
@@ -718,7 +719,19 @@ export const Trace = Fn( ( [
 			radiance.addAssign( regularizePathContribution( {
 				contribution: envColor.xyz.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
-			alpha.mulAssign( envColor.a );
+
+			// Transparent background: only transparent if ray escaped WITHOUT hitting opaque geometry first.
+			// Secondary bounces from opaque surfaces escaping to env should NOT make the pixel transparent.
+			If( transparentBackground.and( hasHitOpaqueSurface.not() ), () => {
+
+				alpha.assign( 0.0 );
+
+			} ).ElseIf( transparentBackground.not(), () => {
+
+				alpha.mulAssign( envColor.a );
+
+			} );
+
 			Break();
 
 		} );
@@ -843,7 +856,14 @@ export const Trace = Fn( ( [
 
 			// Update ray and continue
 			throughput.mulAssign( interaction.throughput );
-			alpha.mulAssign( interaction.alpha );
+
+			// Transparent background: defer alpha decision to final hit/miss
+			// Normal mode: apply material transparency alpha (blend/mask/transmission)
+			If( transparentBackground.not(), () => {
+
+				alpha.mulAssign( interaction.alpha );
+
+			} );
 
 			// For reflection (Fresnel/TIR): offset along the geometric normal to stay on the same side
 			// For transmission: offset along the old ray direction to push through the surface
@@ -868,8 +888,15 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// Apply transparency alpha
-		alpha.mulAssign( interaction.alpha );
+		// Apply transparency alpha (skip in transparent background mode — alpha is binary hit/miss)
+		If( transparentBackground.not(), () => {
+
+			alpha.mulAssign( interaction.alpha );
+
+		} );
+
+		// Ray hit non-transmissive geometry — lock alpha at 1.0 for subsequent bounces
+		hasHitOpaqueSurface.assign( tslBool( true ) );
 
 		const randomSample = getRandomSample( pixelCoord, rayIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
 
