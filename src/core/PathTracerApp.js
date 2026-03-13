@@ -452,6 +452,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.interactionManager.addEventListener( 'objectSelected', ( event ) => {
 
 			this.selectObject( event.object );
+			this.refreshFrame();
 
 			this.dispatchEvent( {
 				type: 'objectSelected',
@@ -464,6 +465,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.interactionManager.addEventListener( 'objectDeselected', ( event ) => {
 
 			this.selectObject( null );
+			this.refreshFrame();
 
 			this.dispatchEvent( {
 				type: 'objectDeselected',
@@ -476,6 +478,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.interactionManager.addEventListener( 'objectDoubleClicked', ( event ) => {
 
 			this.selectObject( event.object );
+			this.refreshFrame();
 
 			useStore.getState().setActiveTab( 'material' );
 

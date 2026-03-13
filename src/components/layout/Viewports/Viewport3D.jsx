@@ -254,7 +254,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	useEffect( () => {
 
 		const app = getApp();
-		if ( app && appMode !== 'preview' ) {
+		if ( app && appMode !== 'preview' && appMode !== 'results' ) {
 
 			app.disableSelectMode?.();
 

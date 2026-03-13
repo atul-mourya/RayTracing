@@ -180,14 +180,6 @@ class InteractionManager extends EventDispatcher {
 	 */
 	toggleSelectMode() {
 
-		// Only allow in preview mode
-		const appMode = useStore.getState().appMode;
-		if ( appMode !== 'preview' ) {
-
-			return false;
-
-		}
-
 		this.selectMode = ! this.selectMode;
 
 		// Update cursor
@@ -335,10 +327,6 @@ class InteractionManager extends EventDispatcher {
 
 			this.clickTimeout = null;
 
-			// Verify still in preview mode
-			const appMode = useStore.getState().appMode;
-			if ( appMode !== 'preview' ) return;
-
 			// Perform raycast
 			const mouseCoords = this.getMouseCoordinates( event );
 			this.raycaster.setFromCamera( mouseCoords, this.camera );
@@ -408,10 +396,6 @@ class InteractionManager extends EventDispatcher {
 			this.clickTimeout = null;
 
 		}
-
-		// Verify in preview mode
-		const appMode = useStore.getState().appMode;
-		if ( appMode !== 'preview' ) return;
 
 		// Perform raycast
 		const mouseCoords = this.getMouseCoordinates( event );
@@ -498,10 +482,6 @@ class InteractionManager extends EventDispatcher {
 		// Only show context menu if an object is selected
 		const selectedObject = useStore.getState().selectedObject;
 		if ( ! selectedObject ) return;
-
-		// Verify in preview mode
-		const appMode = useStore.getState().appMode;
-		if ( appMode !== 'preview' ) return;
 
 		// Dispatch event for React component to handle
 		this.dispatchEvent( {

@@ -113,8 +113,8 @@ const RenderControls = () => {
 			isActive: false,
 			disabled: false
 		},
-		// Only show select mode button in preview mode
-		...( appMode === 'preview' ? [ {
+		// Show select mode button in preview and results modes
+		...( ( appMode === 'preview' || appMode === 'results' ) ? [ {
 			icon: <MousePointer2 size={14} />,
 			label: 'Click to Select',
 			onClick: handleToggleSelectMode,
