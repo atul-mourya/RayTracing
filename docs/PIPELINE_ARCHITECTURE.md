@@ -28,6 +28,11 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               ├───────────────────────┤
                               │ PassPipeline          │
                               │ ├─PathTracingStage    │
+                              │ │ ├─UniformManager    │
+                              │ │ ├─MaterialDataMgr   │
+                              │ │ ├─EnvironmentMgr    │
+                              │ │ ├─ShaderComposer    │
+                              │ │ └─RenderTargetPool  │
                               │ ├─NormalDepthStage    │
                               │ ├─MotionVectorStage   │
                               │ ├─ASVGFStage          │
@@ -345,6 +350,72 @@ this.disable();
 
 **Events Emitted:**
 - `tile:changed` - When current tile changes
+
+#### Composition Architecture
+
+PathTracingStage (~1500 lines) delegates data management to 5 focused sub-managers via composition:
+
+```
+PathTracingStage
+  ├── uniforms: UniformManager          (~260 lines)
+  ├── materialData: MaterialDataManager  (~530 lines)
+  ├── environment: EnvironmentManager    (~470 lines)
+  ├── shaderComposer: ShaderComposer     (~400 lines)
+  └── renderTargets: RenderTargetPool    (~100 lines)
+```
+
+PathTracingStage keeps: constructor, `render()`, `reset()`, `build()`, event emission, camera updates, ASVGF coordination, tile orchestration, and disposal. Everything else is delegated.
+
+**Sub-Manager Access Pattern:**
+
+External code (other stages, PathTracerApp) accesses sub-managers directly:
+
+```javascript
+// UniformManager — get/set TSL uniform nodes
+const maxBounces = stage.uniforms.get('maxBounces');      // returns TSL uniform node
+stage.uniforms.set('maxBounces', 12);                     // sets node.value
+
+// Dynamic getters on PathTracingStage (shorthand for uniforms)
+stage.maxBounces;                // equivalent to stage.uniforms.get('maxBounces')
+stage.cameraWorldMatrix;         // equivalent to stage.uniforms.get('cameraWorldMatrix')
+
+// MaterialDataManager
+stage.materialData.materialStorageAttr;   // StorageInstancedBufferAttribute
+stage.materialData.materialStorageNode;   // storage().toReadOnly() node
+stage.materialData.albedoMaps;            // DataArrayTexture
+stage.materialData.updateMaterialProperty(index, property, value);
+
+// EnvironmentManager
+stage.environment.environmentTexture;     // current env texture
+stage.environment.envParams;              // { type, color, ... }
+await stage.environment.setEnvironmentMap(envMap);
+await stage.environment.generateProceduralSkyTexture();
+
+// ShaderComposer
+stage.shaderComposer.setupMaterial({ stage, renderTargets });
+stage.shaderComposer.updateSceneTextures(stage);  // in-place texture node update
+stage.shaderComposer.accumQuad;           // QuadMesh for path trace render
+stage.shaderComposer.displayQuad;         // QuadMesh for display render
+
+// RenderTargetPool
+stage.renderTargets.swap();
+stage.renderTargets.getCurrentAccumulation();  // returns current RenderTarget
+stage.renderTargets.ensureSize(width, height);
+```
+
+**Callback Pattern:**
+
+Sub-managers use callbacks to communicate back without circular dependencies:
+
+```javascript
+// In PathTracingStage constructor:
+this.materialData.callbacks.onReset = () => this.reset();
+this.environment.callbacks.onReset = () => this.reset();
+this.environment.callbacks.getSceneTextureNodes = () =>
+    this.shaderComposer.getSceneTextureNodes();
+```
+
+**Key Design Constraint:** TSL uniform nodes and texture nodes are created once and never replaced — only `.value` is mutated. This preserves compiled shader graph references. All sub-managers follow this pattern.
 
 ---
 

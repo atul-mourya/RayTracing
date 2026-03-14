@@ -435,14 +435,13 @@ const InteractionContextMenu = () => {
 		material.needsUpdate = true;
 
 		// Perform full material update to sync all properties and texture indices
-		if ( pt?.updateMaterial ) {
+		if ( pt?.materialData ) {
 
-			pt.updateMaterial( object.userData?.materialIndex ?? 0, material );
+			pt.materialData.updateMaterial( object.userData?.materialIndex ?? 0, material );
 
 		} else {
 
-			// Fallback (should not happen in current architecture)
-			console.warn( 'PathTracerStage.updateMaterial not available' );
+			console.warn( 'PathTracerStage.materialData not available' );
 
 		}
 

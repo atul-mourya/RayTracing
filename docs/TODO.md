@@ -4,7 +4,11 @@
 
 ### Critical
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
-- [ ] pasting material doenst honer texture transforms
+- [ ] pasting material doenst honor texture transforms
+- [ ] inconsistancy between exposure value on auto-exposure enabled / disabled,
+- [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
+- [ ] ASVGF varaince debug view mostly blue even with high noise
+- [ ] material property changes not seen when denoise completed.
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -14,12 +18,14 @@
 ## Features
 
 ### Rendering
+- [ ] Save rendering state
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support
 - [ ] camera motion video rendering
 - [ ] Tile Rendering need a webgpu revamp
 - [ ] Full WGSL transition, avoid TSL nodes
+- [ ] Realtime OIDN denoising with WebGPU compute shader implementation
 
 ### Camera
 - [ ] first person camera mode controls as an alternative to orbit controls

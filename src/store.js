@@ -576,7 +576,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Sync with engine stages
 			app.setAdaptiveSamplingMax( settings.adaptiveSamplingMax );
-			app.pathTracingStage?.setAdaptiveSamplingMin( settings.adaptiveSamplingMin );
+			app.pathTracingStage?.setUniform( 'adaptiveSamplingMin', settings.adaptiveSamplingMin );
 			app.adaptiveSamplingStage.setAdaptiveSamplingParameters( {
 				threshold: settings.adaptiveSamplingVarianceThreshold,
 				materialBias: settings.adaptiveSamplingMaterialBias,
@@ -712,7 +712,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.pathTracingStage?.setAdaptiveSamplingMin( v );
+			app.pathTracingStage?.setUniform( 'adaptiveSamplingMin', v );
 
 		}
 	),

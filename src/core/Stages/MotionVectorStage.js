@@ -289,13 +289,13 @@ export class MotionVectorStage extends PipelineStage {
 		// Source camera matrices — prefer PathTracingStage, fall back to camera
 		let worldMatrix, viewMatrix, projMatrix, projMatrixInverse;
 
-		if ( pt && pt.cameraProjectionMatrix ) {
+		if ( pt && pt.uniforms ) {
 
 			// Sync from PathTracingStage (same source as NormalDepthStage)
-			worldMatrix = pt.cameraWorldMatrix.value;
-			viewMatrix = pt.cameraViewMatrix.value;
-			projMatrix = pt.cameraProjectionMatrix.value;
-			projMatrixInverse = pt.cameraProjectionMatrixInverse.value;
+			worldMatrix = pt.uniforms.get( 'cameraWorldMatrix' ).value;
+			viewMatrix = pt.uniforms.get( 'cameraViewMatrix' ).value;
+			projMatrix = pt.uniforms.get( 'cameraProjectionMatrix' ).value;
+			projMatrixInverse = pt.uniforms.get( 'cameraProjectionMatrixInverse' ).value;
 
 		} else {
 

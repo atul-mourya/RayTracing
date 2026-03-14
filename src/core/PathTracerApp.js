@@ -340,7 +340,7 @@ export class PathTracerApp extends EventDispatcher {
 				const envTexture = this.meshScene.environment;
 				if ( envTexture && this.pathTracingStage ) {
 
-					await this.pathTracingStage.setEnvironmentMap( envTexture );
+					await this.pathTracingStage.environment.setEnvironmentMap( envTexture );
 
 				}
 
@@ -376,7 +376,7 @@ export class PathTracerApp extends EventDispatcher {
 		// A single degenerate triangle + 1 BVH node + 1 material entry.
 		this.pathTracingStage.setTriangleData( new Float32Array( 32 ), 0 );
 		this.pathTracingStage.setBVHData( new Float32Array( 16 ) );
-		this.pathTracingStage.setMaterialData( new Float32Array( 16 ) );
+		this.pathTracingStage.materialData.setMaterialData( new Float32Array( 16 ) );
 		this.pathTracingStage.setupMaterial();
 
 		// Setup stats panel
@@ -563,9 +563,9 @@ export class PathTracerApp extends EventDispatcher {
 			getGPUTextures: () => {
 
 				const pt = this.pathTracingStage;
-				if ( ! pt?.renderTargetA ) return null;
+				if ( ! pt?.renderTargets?.renderTargetA ) return null;
 
-				const currentRT = pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
+				const currentRT = pt.renderTargets.getCurrentAccumulation();
 				if ( ! currentRT?.textures || currentRT.textures.length < 3 ) return null;
 
 				const { backend } = this.renderer;
@@ -594,8 +594,8 @@ export class PathTracerApp extends EventDispatcher {
 			getMRTRenderTarget: () => {
 
 				const pt = this.pathTracingStage;
-				if ( ! pt?.renderTargetA ) return null;
-				return pt.currentTarget === 0 ? pt.renderTargetA : pt.renderTargetB;
+				if ( ! pt?.renderTargets?.renderTargetA ) return null;
+				return pt.renderTargets.getCurrentAccumulation();
 
 			}
 		} );
@@ -696,7 +696,7 @@ export class PathTracerApp extends EventDispatcher {
 
 			timer.start( 'Environment CDF build (worker)' );
 			this.pathTracingStage.scene.environment = environmentTexture;
-			cdfPromise = this.pathTracingStage.buildEnvironmentCDF()
+			cdfPromise = this.pathTracingStage.environment.buildEnvironmentCDF()
 				.then( () => timer.end( 'Environment CDF build (worker)' ) );
 
 		}
@@ -735,7 +735,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( materialData ) {
 
-			this.pathTracingStage.setMaterialData( materialData );
+			this.pathTracingStage.materialData.setMaterialData( materialData );
 
 		} else {
 
@@ -745,7 +745,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( environmentTexture ) {
 
-			this.pathTracingStage.setEnvironmentTexture( environmentTexture );
+			this.pathTracingStage.environment.setEnvironmentTexture( environmentTexture );
 
 		}
 
@@ -759,7 +759,7 @@ export class PathTracerApp extends EventDispatcher {
 			emissiveMaps: this.sdf.emissiveTextures,
 			displacementMaps: this.sdf.displacementTextures,
 		};
-		this.pathTracingStage.setMaterialTextures( materialTextureArrays );
+		this.pathTracingStage.materialData.setMaterialTextures( materialTextureArrays );
 
 		// Transfer emissive triangle data (storage buffer)
 		if ( this.sdf.emissiveTriangleData ) {
@@ -800,44 +800,45 @@ export class PathTracerApp extends EventDispatcher {
 			await cdfPromise;
 
 			// Update TSL env texture nodes (CDF storage buffers already populated)
-			this.pathTracingStage._applyCDFResults();
+			this.pathTracingStage.environment.applyCDFResults();
 
 		}
 
 		// Apply all settings to stage
 		timer.start( 'Apply settings' );
-		this.pathTracingStage.setMaxBounces( this.maxBounces );
-		this.pathTracingStage.setSamplesPerPixel( this.samplesPerPixel );
-		this.pathTracingStage.setMaxSamples( this.maxSamples );
-		this.pathTracingStage.setTransmissiveBounces( this.transmissiveBounces );
-		this.pathTracingStage.setEnvironmentIntensity( this.environmentIntensity );
-		this.pathTracingStage.setBackgroundIntensity( this.backgroundIntensity );
-		this.pathTracingStage.setShowBackground( this.showBackground );
-		this.pathTracingStage.setTransparentBackground( this.transparentBackground );
-		this.pathTracingStage.setEnableEnvironment( this.enableEnvironment );
-		this.pathTracingStage.setGlobalIlluminationIntensity( this.globalIlluminationIntensity );
-		this.pathTracingStage.setExposure( this.exposure );
+		const pt = this.pathTracingStage;
+		pt.setUniform( 'maxBounces', this.maxBounces );
+		pt.setUniform( 'samplesPerPixel', this.samplesPerPixel );
+		pt.setUniform( 'maxSamples', this.maxSamples );
+		pt.setUniform( 'transmissiveBounces', this.transmissiveBounces );
+		pt.setUniform( 'environmentIntensity', this.environmentIntensity );
+		pt.setUniform( 'backgroundIntensity', this.backgroundIntensity );
+		pt.setUniform( 'showBackground', this.showBackground );
+		pt.setUniform( 'transparentBackground', this.transparentBackground );
+		pt.setUniform( 'enableEnvironment', this.enableEnvironment );
+		pt.setUniform( 'globalIlluminationIntensity', this.globalIlluminationIntensity );
+		pt.setUniform( 'exposure', this.exposure );
 		this.displayStage.setTransparentBackground( this.transparentBackground );
 
 		// Camera & DOF
-		this.pathTracingStage.setEnableDOF( this.enableDOF );
-		this.pathTracingStage.setFocusDistance( this.focusDistance );
-		this.pathTracingStage.setFocalLength( this.focalLength );
-		this.pathTracingStage.setAperture( this.aperture );
+		pt.setUniform( 'enableDOF', this.enableDOF );
+		pt.setUniform( 'focusDistance', this.focusDistance );
+		pt.setUniform( 'focalLength', this.focalLength );
+		pt.setUniform( 'aperture', this.aperture );
 
 		// Sampling
-		this.pathTracingStage.setSamplingTechnique( this.samplingTechnique );
-		this.pathTracingStage.setUseAdaptiveSampling( this.useAdaptiveSampling );
-		this.pathTracingStage.setAdaptiveSamplingMax( this.adaptiveSamplingMax );
-		this.pathTracingStage.setFireflyThreshold( this.fireflyThreshold );
+		pt.setUniform( 'samplingTechnique', this.samplingTechnique );
+		pt.setUniform( 'useAdaptiveSampling', this.useAdaptiveSampling );
+		pt.setUniform( 'adaptiveSamplingMax', this.adaptiveSamplingMax );
+		pt.setUniform( 'fireflyThreshold', this.fireflyThreshold );
 
 		// Emissive
-		this.pathTracingStage.setEnableEmissiveTriangleSampling( this.enableEmissiveTriangleSampling );
-		this.pathTracingStage.setEmissiveBoost( this.emissiveBoost );
+		pt.setUniform( 'enableEmissiveTriangleSampling', this.enableEmissiveTriangleSampling );
+		pt.setUniform( 'emissiveBoost', this.emissiveBoost );
 
 		// Debug
-		this.pathTracingStage.setVisMode( this.visMode );
-		this.pathTracingStage.setDebugVisScale( this.debugVisScale );
+		pt.setUniform( 'visMode', this.visMode );
+		pt.setUniform( 'debugVisScale', this.debugVisScale );
 		timer.end( 'Apply settings' );
 
 		timer.print();
@@ -1148,90 +1149,46 @@ export class PathTracerApp extends EventDispatcher {
 	setMaxBounces( bounces ) {
 
 		this.maxBounces = bounces;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setMaxBounces( bounces );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'maxBounces', bounces );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets the environment intensity.
-	 */
 	setEnvironmentIntensity( intensity ) {
 
 		this.environmentIntensity = intensity;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setEnvironmentIntensity( intensity );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'environmentIntensity', intensity );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets samples per pixel.
-	 */
 	setSamplesPerPixel( samples ) {
 
 		this.samplesPerPixel = samples;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setSamplesPerPixel( samples );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'samplesPerPixel', samples );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets maximum samples.
-	 */
 	setMaxSamples( samples ) {
 
 		this.maxSamples = samples;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setMaxSamples( samples );
-
-		}
+		this.pathTracingStage?.setUniform( 'maxSamples', samples );
 
 	}
 
-	/**
-	 * Sets transmissive bounces.
-	 */
 	setTransmissiveBounces( bounces ) {
 
 		this.transmissiveBounces = bounces;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setTransmissiveBounces( bounces );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'transmissiveBounces', bounces );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets background intensity.
-	 */
 	setBackgroundIntensity( intensity ) {
 
 		this.backgroundIntensity = intensity;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setBackgroundIntensity( intensity );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'backgroundIntensity', intensity );
 		this.reset();
 
 	}
@@ -1279,311 +1236,149 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Sets whether to show background.
-	 */
 	setShowBackground( show ) {
 
 		this.showBackground = show;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setShowBackground( show );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'showBackground', show );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets whether the background should be transparent (alpha = 0).
-	 */
 	setTransparentBackground( enabled ) {
 
 		this.transparentBackground = enabled;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setTransparentBackground( enabled );
-
-		}
-
-		if ( this.displayStage ) {
-
-			this.displayStage.setTransparentBackground( enabled );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'transparentBackground', enabled );
+		this.displayStage?.setTransparentBackground( enabled );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets whether environment lighting is enabled.
-	 */
 	setEnableEnvironment( enable ) {
 
 		this.enableEnvironment = enable;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setEnableEnvironment( enable );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'enableEnvironment', enable );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets global illumination intensity.
-	 */
 	setGlobalIlluminationIntensity( intensity ) {
 
 		this.globalIlluminationIntensity = intensity;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setGlobalIlluminationIntensity( intensity );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'globalIlluminationIntensity', intensity );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets exposure.
-	 */
 	setExposure( exposure ) {
 
 		this.exposure = exposure;
-
-		// Exposure is applied by DisplayStage via TSL uniform
-		// (pow(exposure, 4.0) curve). renderer.toneMappingExposure
-		// is kept at 1.0 to avoid doubling.
-		if ( this.displayStage ) {
-
-			this.displayStage.setExposure( exposure );
-
-		}
-
+		this.displayStage?.setExposure( exposure );
 		this.reset();
 
 	}
 
-	/**
-	 * Enables/disables depth of field.
-	 */
 	setEnableDOF( enable ) {
 
 		this.enableDOF = enable;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setEnableDOF( enable );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'enableDOF', enable );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets focus distance.
-	 */
 	setFocusDistance( distance ) {
 
 		this.focusDistance = distance;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setFocusDistance( distance );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'focusDistance', distance );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets focal length.
-	 */
 	setFocalLength( length ) {
 
 		this.focalLength = length;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setFocalLength( length );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'focalLength', length );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets aperture size.
-	 */
 	setAperture( aperture ) {
 
 		this.aperture = aperture;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setAperture( aperture );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'aperture', aperture );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets sampling technique.
-	 */
 	setSamplingTechnique( technique ) {
 
 		this.samplingTechnique = technique;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setSamplingTechnique( technique );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'samplingTechnique', technique );
 		this.reset();
 
 	}
 
-	/**
-	 * Enables/disables adaptive sampling.
-	 */
 	setUseAdaptiveSampling( use ) {
 
 		this.useAdaptiveSampling = use;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setUseAdaptiveSampling( use );
-
-		}
-
-		// Enable/disable the variance computation stage
-		if ( this.adaptiveSamplingStage ) {
-
-			use ? this.adaptiveSamplingStage.enable() : this.adaptiveSamplingStage.disable();
-
-		}
-
+		this.pathTracingStage?.setUniform( 'useAdaptiveSampling', use );
+		use ? this.adaptiveSamplingStage?.enable() : this.adaptiveSamplingStage?.disable();
 		this.reset();
 
 	}
 
-	/**
-	 * Sets adaptive sampling maximum.
-	 */
 	setAdaptiveSamplingMax( max ) {
 
 		this.adaptiveSamplingMax = max;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setAdaptiveSamplingMax( max );
-
-		}
-
-		if ( this.adaptiveSamplingStage ) {
-
-			this.adaptiveSamplingStage.setAdaptiveSamplingMax( max );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'adaptiveSamplingMax', max );
+		this.adaptiveSamplingStage?.setAdaptiveSamplingMax( max );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets firefly threshold.
-	 */
 	setFireflyThreshold( threshold ) {
 
 		this.fireflyThreshold = threshold;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setFireflyThreshold( threshold );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'fireflyThreshold', threshold );
 		this.reset();
 
 	}
 
-	/**
-	 * Enables/disables emissive triangle sampling.
-	 */
 	setEnableEmissiveTriangleSampling( enable ) {
 
 		this.enableEmissiveTriangleSampling = enable;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setEnableEmissiveTriangleSampling( enable );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'enableEmissiveTriangleSampling', enable );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets emissive boost factor.
-	 */
 	setEmissiveBoost( boost ) {
 
 		this.emissiveBoost = boost;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setEmissiveBoost( boost );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'emissiveBoost', boost );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets visualization/debug mode.
-	 */
 	setVisMode( mode ) {
 
 		this.visMode = mode;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setVisMode( mode );
-
-		}
-
+		this.pathTracingStage?.setUniform( 'visMode', mode );
 		this.reset();
 
 	}
 
-	/**
-	 * Sets debug visualization scale.
-	 */
 	setDebugVisScale( scale ) {
 
 		this.debugVisScale = scale;
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setDebugVisScale( scale );
-
-		}
+		this.pathTracingStage?.setUniform( 'debugVisScale', scale );
 
 		this.reset();
 
 	}
 
-	/**
-	 * Updates a material property in the path tracer.
-	 */
 	updateMaterialProperty( materialIndex, property, value ) {
 
-		if ( typeof this.pathTracingStage?.updateMaterialProperty === 'function' ) {
-
-			this.pathTracingStage.updateMaterialProperty( materialIndex, property, value );
-
-		}
+		this.pathTracingStage?.materialData.updateMaterialProperty( materialIndex, property, value );
 
 		// Rebuild emissive triangle data when emissive/visibility properties change (only if sampling is enabled)
 		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity', 'visible' ];
@@ -1591,7 +1386,6 @@ export class PathTracerApp extends EventDispatcher {
 			&& this.sdf?.emissiveTriangleBuilder
 			&& this.pathTracingStage?.enableEmissiveTriangleSampling?.value ) {
 
-			// Update the cached material snapshot so re-extraction sees the new value
 			const mat = this.sdf.materials[ materialIndex ];
 			if ( mat ) {
 
@@ -1609,7 +1403,6 @@ export class PathTracerApp extends EventDispatcher {
 
 				}
 
-				// Fast-path update: only rescans all triangles if emissive set changed
 				const changed = this.sdf.emissiveTriangleBuilder.updateMaterialEmissive(
 					materialIndex, mat,
 					this.sdf.triangleData, this.sdf.materials, this.sdf.triangleCount,
@@ -1632,53 +1425,27 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Updates texture transform data in the path tracer.
-	 */
 	updateTextureTransform( materialIndex, textureName, transform ) {
 
-		if ( typeof this.pathTracingStage?.updateTextureTransform === 'function' ) {
-
-			this.pathTracingStage.updateTextureTransform( materialIndex, textureName, transform );
-
-		}
+		this.pathTracingStage?.materialData.updateTextureTransform( materialIndex, textureName, transform );
 
 	}
 
-	/**
-	 * Marks the path tracer material as needing recompilation.
-	 */
 	refreshMaterial() {
 
-		// WebGPU uses TSL nodes, no manual material refresh needed
 		this.reset();
 
 	}
 
-	/**
-	 * Updates a complete material on the path tracer.
-	 */
 	updateMaterial( materialIndex, material ) {
 
-		if ( typeof this.pathTracingStage?.updateMaterial === 'function' ) {
-
-			// Delegate to stage for full material update (all properties + texture indices)
-			this.pathTracingStage.updateMaterial( materialIndex, material );
-
-		}
+		this.pathTracingStage?.materialData.updateMaterial( materialIndex, material );
 
 	}
 
-	/**
-	 * Rebuilds all materials from the scene.
-	 */
 	async rebuildMaterials( scene ) {
 
-		if ( typeof this.pathTracingStage?.rebuildMaterials === 'function' ) {
-
-			await this.pathTracingStage.rebuildMaterials( scene || this.meshScene );
-
-		}
+		await this.pathTracingStage?.rebuildMaterials( scene || this.meshScene );
 
 	}
 
@@ -1796,7 +1563,7 @@ export class PathTracerApp extends EventDispatcher {
 			const environmentTexture = this.meshScene.environment;
 			if ( environmentTexture && this.pathTracingStage ) {
 
-				await this.pathTracingStage.setEnvironmentMap( environmentTexture );
+				await this.pathTracingStage.environment.setEnvironmentMap( environmentTexture );
 
 			}
 
@@ -2274,7 +2041,7 @@ export class PathTracerApp extends EventDispatcher {
 	setEnvironmentRotation( val ) {
 
 		this.environmentRotation = val;
-		this.pathTracingStage.setEnvironmentRotation( val );
+		this.pathTracingStage.environment.setEnvironmentRotation( val );
 
 	}
 
@@ -2325,14 +2092,14 @@ export class PathTracerApp extends EventDispatcher {
 	/** Returns envParams from the path tracing stage. */
 	getEnvParams() {
 
-		return this.pathTracingStage?.envParams ?? null;
+		return this.pathTracingStage?.environment?.envParams ?? null;
 
 	}
 
 	/** Returns the current environment texture. */
 	getEnvironmentTexture() {
 
-		return this.pathTracingStage?.environmentTexture ?? null;
+		return this.pathTracingStage?.environment?.environmentTexture ?? null;
 
 	}
 
@@ -2343,24 +2110,21 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/** Generates a procedural sky texture. */
 	async generateProceduralSkyTexture() {
 
-		return this.pathTracingStage?.generateProceduralSkyTexture?.();
+		return this.pathTracingStage?.environment.generateProceduralSkyTexture();
 
 	}
 
-	/** Generates a gradient sky texture. */
 	async generateGradientTexture() {
 
-		return this.pathTracingStage?.generateGradientTexture?.();
+		return this.pathTracingStage?.environment.generateGradientTexture();
 
 	}
 
-	/** Generates a solid-colour sky texture. */
 	async generateSolidColorTexture() {
 
-		return this.pathTracingStage?.generateSolidColorTexture?.();
+		return this.pathTracingStage?.environment.generateSolidColorTexture();
 
 	}
 
@@ -2373,7 +2137,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		await this.pathTracingStage.setEnvironmentMap( texture );
+		await this.pathTracingStage.environment.setEnvironmentMap( texture );
 		this.reset();
 
 	}
@@ -2381,7 +2145,7 @@ export class PathTracerApp extends EventDispatcher {
 	/** Marks the environment texture as needing a GPU re-upload. */
 	markEnvironmentNeedsUpdate() {
 
-		const tex = this.pathTracingStage?.environmentTexture;
+		const tex = this.pathTracingStage?.environment?.environmentTexture;
 		if ( tex ) tex.needsUpdate = true;
 
 	}

@@ -152,16 +152,17 @@ export class NormalDepthStage extends PipelineStage {
 		}
 
 		// Material storage
-		if ( pt.materialStorageAttr && ! this._matStorageNode ) {
+		const matStorageAttr = pt.materialData.materialStorageAttr;
+		if ( matStorageAttr && ! this._matStorageNode ) {
 
 			this._matStorageNode = storage(
-				pt.materialStorageAttr, 'vec4', pt.materialStorageAttr.count
+				matStorageAttr, 'vec4', matStorageAttr.count
 			).toReadOnly();
 
-		} else if ( pt.materialStorageAttr && this._matStorageNode ) {
+		} else if ( matStorageAttr && this._matStorageNode ) {
 
-			this._matStorageNode.value = pt.materialStorageAttr;
-			this._matStorageNode.bufferCount = pt.materialStorageAttr.count;
+			this._matStorageNode.value = matStorageAttr;
+			this._matStorageNode.bufferCount = matStorageAttr.count;
 
 		}
 
@@ -257,8 +258,8 @@ export class NormalDepthStage extends PipelineStage {
 		const pt = this.pathTracingStage;
 		if ( pt ) {
 
-			this.cameraWorldMatrix.value.copy( pt.cameraWorldMatrix.value );
-			this.cameraProjectionMatrixInverse.value.copy( pt.cameraProjectionMatrixInverse.value );
+			this.cameraWorldMatrix.value.copy( pt.uniforms.get( 'cameraWorldMatrix' ).value );
+			this.cameraProjectionMatrixInverse.value.copy( pt.uniforms.get( 'cameraProjectionMatrixInverse' ).value );
 
 		}
 

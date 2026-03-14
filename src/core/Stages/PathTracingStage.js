@@ -1,12 +1,10 @@
-import { Fn, vec4, texture, uv, uniform, uniformArray, storage, mrt } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageInstancedBufferAttribute } from 'three/webgpu';
+import { storage } from 'three/tsl';
+import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import {
-	RGBAFormat, NearestFilter, LinearFilter, Vector2, Matrix4, Vector3, Color,
-	TextureLoader, RepeatWrapping, FloatType, DataTexture, DataArrayTexture
+	NearestFilter, Vector2, Matrix4,
+	TextureLoader, RepeatWrapping, FloatType
 } from 'three';
-
-import { pathTracerMain } from '../TSL/PathTracer.js';
-import { samplingTechniqueUniform, blueNoiseTextureNode } from '../TSL/Random.js';
+import { blueNoiseTextureNode } from '../TSL/Random.js';
 
 // Pipeline system
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
@@ -15,19 +13,18 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
 import { TileRenderingManager } from '../Processor/TileRenderingManager.js';
 import { CameraMovementOptimizer } from '../Processor/CameraMovementOptimizer.js';
 import { PathTracerUtils } from '../Processor/PathTracerUtils.js';
+import { RenderTargetPool } from '../Processor/RenderTargetPool.js';
+import { UniformManager } from '../Processor/UniformManager.js';
+import { MaterialDataManager } from '../Processor/MaterialDataManager.js';
+import { EnvironmentManager } from '../Processor/EnvironmentManager.js';
+import { ShaderComposer } from '../Processor/ShaderComposer.js';
 
 // Scene building
 import TriangleSDF from '../Processor/TriangleSDF';
 import { LightDataTransfer } from '../Processor/LightDataTransfer';
 
-// Environment
-import { EquirectHdrInfo } from '../Processor/EquirectHdrInfo';
-import { ProceduralSkyRendererTSL } from '../Processor/ProceduralSkyRendererTSL';
-import { SimpleSkyRendererTSL } from '../Processor/SimpleSkyRendererTSL';
-
 // Constants
-import { DEFAULT_STATE, TEXTURE_CONSTANTS } from '../../Constants';
-import BuildTimer from '../Processor/BuildTimer.js';
+import { DEFAULT_STATE } from '../../Constants';
 
 // Blue noise
 import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
@@ -36,19 +33,6 @@ import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';
  * Data layout constants
  */
 const BVH_VEC4_PER_NODE = 4;
-const PIXELS_PER_MATERIAL = 27;
-
-/**
- * Default render target options
- */
-const DEFAULT_RT_OPTIONS = {
-	type: FloatType,
-	format: RGBAFormat,
-	minFilter: NearestFilter,
-	magFilter: NearestFilter,
-	depthBuffer: false,
-	stencilBuffer: false
-};
 
 /**
  * Path Tracing Stage for WebGPU.
@@ -104,18 +88,11 @@ export class PathTracingStage extends PipelineStage {
 		// Scene building
 		this.sdfs = new TriangleSDF();
 		this.lightDataTransfer = new LightDataTransfer();
-		this.equirectHdrInfo = new EquirectHdrInfo();
-
-		// Sky renderers (lazy init)
-		this.proceduralSkyRenderer = null;
-		this.simpleSkyRenderer = null;
 
 		// State management
 		this.accumulationEnabled = true;
 		this.isComplete = false;
 		this.cameras = [];
-		this.compiledFeatures = null;
-
 		// Performance monitoring
 		this.performanceMonitor = PathTracerUtils.createPerformanceMonitor();
 		this.completionThreshold = 0;
@@ -124,11 +101,27 @@ export class PathTracingStage extends PipelineStage {
 		// Initialize data textures
 		this._initDataTextures();
 
-		// Initialize render targets
-		this._initRenderTargets();
+		// Initialize render target pool
+		this.renderTargets = new RenderTargetPool( 0, 0 );
 
-		// Initialize uniforms
-		this._initUniforms();
+		// Initialize uniforms via UniformManager
+		this.uniforms = new UniformManager( width, height );
+
+		// Define getters for every uniform so that this.maxBounces, this.frame, etc.
+		// return the uniform node (backward-compat with this.X.value pattern).
+		this._defineUniformGetters();
+
+		// Initialize material data manager
+		this.materialData = new MaterialDataManager( this.sdfs );
+		this.materialData.callbacks.onReset = () => this.reset();
+
+		// Initialize environment manager
+		this.environment = new EnvironmentManager( this.scene, this.uniforms );
+		this.environment.callbacks.onReset = () => this.reset();
+		this.environment.callbacks.getSceneTextureNodes = () => this.shaderComposer.getSceneTextureNodes();
+
+		// Initialize shader composer
+		this.shaderComposer = new ShaderComposer();
 
 		// Initialize rendering state
 		this._initRenderingState();
@@ -136,14 +129,10 @@ export class PathTracingStage extends PipelineStage {
 		// Setup blue noise
 		this.setupBlueNoise();
 
-		// Initialize environment parameters
-		this._initEnvParams();
-
 		// Cache frequently used objects
 		this.tempVector2 = new Vector2();
 		this.lastCameraMatrix = new Matrix4();
 		this.lastProjectionMatrix = new Matrix4();
-		this.environmentRotationMatrix = new Matrix4();
 
 		// Denoising management state
 		this.lastRenderMode = - 1;
@@ -151,10 +140,6 @@ export class PathTracingStage extends PipelineStage {
 		this.renderModeChangeTimeout = null;
 		this.renderModeChangeDelay = 50;
 		this.pendingRenderMode = null;
-
-		// Environment and CDF state
-		this.lastCDFValidation = null;
-		this.cdfBuildTime = 0;
 
 		// Adaptive sampling state
 		this.adaptiveSamplingFrameToggle = false;
@@ -187,30 +172,6 @@ export class PathTracingStage extends PipelineStage {
 		this.bvhStorageNode = null;
 		this.bvhNodeCount = 0;
 
-		// Material data (storage buffer for WebGPU)
-		this.materialStorageAttr = null;
-		this.materialStorageNode = null;
-		this.materialCount = 0;
-
-		// Environment map — initialize with a 1×1 black placeholder so the TSL
-		// shader always compiles with a valid texture binding.  The real
-		// environment texture is swapped in later via setEnvironmentMap().
-		this._envPlaceholder = new DataTexture(
-			new Float32Array( [ 0, 0, 0, 1 ] ), 1, 1, RGBAFormat, FloatType
-		);
-		this._envPlaceholder.needsUpdate = true;
-		this.environmentTexture = this._envPlaceholder;
-		this.envTexSize = new Vector2();
-
-		// Environment importance sampling
-		// CDF storage buffers for environment importance sampling
-		// Initialize with placeholder data so shader graph compiles with correct types
-		this.envMarginalStorageAttr = null;
-		this.envMarginalStorageNode = null;
-		this.envConditionalStorageAttr = null;
-		this.envConditionalStorageNode = null;
-		this._initCDFStorageBuffers();
-
 		// Lights
 		this.directionalLightsData = null;
 		this.pointLightsData = null;
@@ -231,185 +192,40 @@ export class PathTracingStage extends PipelineStage {
 		// Adaptive sampling
 		this.adaptiveSamplingTexture = null;
 
-		// Material texture arrays
-		this.albedoMaps = null;
-		this.emissiveMaps = null;
-		this.normalMaps = null;
-		this.bumpMaps = null;
-		this.roughnessMaps = null;
-		this.metalnessMaps = null;
-		this.displacementMaps = null;
-
 		// Spheres
 		this.spheres = [];
 
 	}
 
 	/**
-	 * Initialize render target state
+	 * Dynamically defines getters for all uniform names so that
+	 * this.maxBounces, this.frame, etc. return the uniform node.
+	 * Also defines light buffer node getters.
+	 * @private
 	 */
-	_initRenderTargets() {
+	_defineUniformGetters() {
 
-		// Ping-pong accumulation targets with MRT (count: 3)
-		// textures[0] = gColor, textures[1] = gNormalDepth, textures[2] = gAlbedo
-		this.renderTargetA = null;
-		this.renderTargetB = null;
-		this.currentTarget = 0;
-		this.renderWidth = 0;
-		this.renderHeight = 0;
+		const uniforms = this.uniforms;
 
-	}
+		for ( const name of uniforms.keys() ) {
 
-	/**
-	 * Initialize all uniforms grouped by category
-	 */
-	_initUniforms() {
+			Object.defineProperty( this, name, {
+				get: () => uniforms.get( name ),
+				configurable: true,
+			} );
 
-		// Frame and sampling
-		this.frame = uniform( 0, 'uint' );
-		this.maxBounces = uniform( DEFAULT_STATE.bounces, 'int' );
-		this.samplesPerPixel = uniform( DEFAULT_STATE.samplesPerPixel, 'int' );
-		this.maxSamples = uniform( DEFAULT_STATE.maxSamples, 'int' );
-		this.transmissiveBounces = uniform( DEFAULT_STATE.transmissiveBounces, 'int' );
-		this.visMode = uniform( DEFAULT_STATE.debugMode, 'int' );
-		this.debugVisScale = uniform( DEFAULT_STATE.debugVisScale, 'float' );
+		}
 
-		// Accumulation
-		this.enableAccumulation = uniform( 1, 'int' );
-		this.accumulationAlpha = uniform( 0.0, 'float' );
-		this.cameraIsMoving = uniform( 0, 'int' );
-		this.hasPreviousAccumulated = uniform( 0, 'int' );
+		// Light buffer node getters
+		const lightBuffers = uniforms.getLightBufferNodes();
+		for ( const [ suffix, node ] of Object.entries( lightBuffers ) ) {
 
-		// Environment
-		this.environmentIntensity = uniform( DEFAULT_STATE.environmentIntensity, 'float' );
-		this.backgroundIntensity = uniform( DEFAULT_STATE.backgroundIntensity, 'float' );
-		this.showBackground = uniform( DEFAULT_STATE.showBackground ? 1 : 0, 'int' );
-		this.transparentBackground = uniform( DEFAULT_STATE.transparentBackground ? 1 : 0, 'int' );
-		this.enableEnvironment = uniform( DEFAULT_STATE.enableEnvironment ? 1 : 0, 'int' );
-		this.environmentMatrix = uniform( new Matrix4(), 'mat4' );
-		this.useEnvMapIS = uniform( DEFAULT_STATE.useImportanceSampledEnvironment ? 1 : 0, 'int' );
-		this.envTotalSum = uniform( 0.0, 'float' );
-		this.envResolution = uniform( new Vector2( 1, 1 ), 'vec2' );
+			Object.defineProperty( this, `${suffix}LightsBufferNode`, {
+				get: () => node,
+				configurable: true,
+			} );
 
-		// Sun parameters
-		this.sunDirection = uniform( new Vector3( 0, 1, 0 ), 'vec3' );
-		this.sunAngularSize = uniform( 0.0087, 'float' );
-		this.hasSun = uniform( 0, 'int' );
-
-		// Lighting
-		this.globalIlluminationIntensity = uniform( DEFAULT_STATE.globalIlluminationIntensity, 'float' );
-		this.exposure = uniform( DEFAULT_STATE.exposure, 'float' );
-
-		// Light counts (uniforms updated when lights change)
-		this.numDirectionalLights = uniform( 0, 'int' );
-		this.numAreaLights = uniform( 0, 'int' );
-		this.numPointLights = uniform( 0, 'int' );
-		this.numSpotLights = uniform( 0, 'int' );
-
-		// Light buffer nodes - pre-allocate for up to 16 lights per type (shader hard cap)
-		this.directionalLightsBufferNode = uniformArray( new Float32Array( 8 * 16 ), 'float' );
-		this.areaLightsBufferNode = uniformArray( new Float32Array( 13 * 16 ), 'float' );
-		this.pointLightsBufferNode = uniformArray( new Float32Array( 7 * 16 ), 'float' );
-		this.spotLightsBufferNode = uniformArray( new Float32Array( 11 * 16 ), 'float' );
-
-		// Camera matrices
-		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
-		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
-		this.cameraViewMatrix = uniform( new Matrix4(), 'mat4' );
-		this.cameraProjectionMatrix = uniform( new Matrix4(), 'mat4' );
-
-		// DOF
-		this.enableDOF = uniform( DEFAULT_STATE.enableDOF ? 1 : 0, 'int' );
-		this.focusDistance = uniform( DEFAULT_STATE.focusDistance, 'float' );
-		this.focalLength = uniform( DEFAULT_STATE.focalLength, 'float' );
-		this.aperture = uniform( DEFAULT_STATE.aperture, 'float' );
-		this.apertureScale = uniform( 1.0, 'float' );
-		this.sceneScale = uniform( 1.0, 'float' );
-
-		// Sampling — use the module-level uniforms from Random.js so TSL sees the same nodes
-		this.samplingTechnique = samplingTechniqueUniform;
-		this.samplingTechnique.value = DEFAULT_STATE.samplingTechnique;
-		this.useAdaptiveSampling = uniform( DEFAULT_STATE.adaptiveSampling ? 1 : 0, 'int' );
-		this.adaptiveSamplingMin = uniform( DEFAULT_STATE.adaptiveSamplingMin ?? 1, 'int' );
-		this.adaptiveSamplingMax = uniform( DEFAULT_STATE.adaptiveSamplingMax, 'int' );
-		this.fireflyThreshold = uniform( DEFAULT_STATE.fireflyThreshold, 'float' );
-
-		// Emissive
-		this.enableEmissiveTriangleSampling = uniform( DEFAULT_STATE.enableEmissiveTriangleSampling ? 1 : 0, 'int' );
-		this.emissiveBoost = uniform( DEFAULT_STATE.emissiveBoost, 'float' );
-		this.emissiveTriangleCount = uniform( 0, 'int' );
-		this.emissiveTotalPower = uniform( 0.0, 'float' );
-		this.lightBVHNodeCount = uniform( 0, 'int' );
-
-		// Render mode
-		this.renderMode = uniform( DEFAULT_STATE.renderMode, 'int' );
-
-		// Resolution (for RNG seeding)
-		this.resolution = uniform( new Vector2( this.width, this.height ), 'vec2' );
-
-		// (BVH and material texture size uniforms removed — now using storage buffers)
-
-		// Scene data
-		this.totalTriangleCount = uniform( 0, 'int' );
-
-		this._nameTheUniforms();
-
-	}
-
-	_nameTheUniforms() {
-
-		this.frame.name = 'frame';
-		this.maxBounces.name = 'maxBounces';
-		this.samplesPerPixel.name = 'samplesPerPixel';
-		this.maxSamples.name = 'maxSamples';
-		this.transmissiveBounces.name = 'transmissiveBounces';
-		this.visMode.name = 'visMode';
-		this.debugVisScale.name = 'debugVisScale';
-		this.enableAccumulation.name = 'enableAccumulation';
-		this.accumulationAlpha.name = 'accumulationAlpha';
-		this.cameraIsMoving.name = 'cameraIsMoving';
-		this.hasPreviousAccumulated.name = 'hasPreviousAccumulated';
-		this.environmentIntensity.name = 'environmentIntensity';
-		this.backgroundIntensity.name = 'backgroundIntensity';
-		this.showBackground.name = 'showBackground';
-		this.transparentBackground.name = 'transparentBackground';
-		this.enableEnvironment.name = 'enableEnvironment';
-		this.environmentMatrix.name = 'environmentMatrix';
-		this.useEnvMapIS.name = 'useEnvMapIS';
-		this.envTotalSum.name = 'envTotalSum';
-		this.envResolution.name = 'envResolution';
-		this.sunDirection.name = 'sunDirection';
-		this.sunAngularSize.name = 'sunAngularSize';
-		this.hasSun.name = 'hasSun';
-		this.globalIlluminationIntensity.name = 'globalIlluminationIntensity';
-		this.exposure.name = 'exposure';
-		this.cameraWorldMatrix.name = 'cameraWorldMatrix';
-		this.cameraProjectionMatrixInverse.name = 'cameraProjectionMatrixInverse';
-		this.cameraViewMatrix.name = 'ptCameraViewMatrix';
-		this.cameraProjectionMatrix.name = 'ptCameraProjectionMatrix';
-		this.enableDOF.name = 'enableDOF';
-		this.focusDistance.name = 'focusDistance';
-		this.focalLength.name = 'focalLength';
-		this.aperture.name = 'aperture';
-		this.apertureScale.name = 'apertureScale';
-		this.sceneScale.name = 'sceneScale';
-		this.samplingTechnique.name = 'samplingTechnique';
-		this.useAdaptiveSampling.name = 'useAdaptiveSampling';
-		this.adaptiveSamplingMin.name = 'adaptiveSamplingMin';
-		this.adaptiveSamplingMax.name = 'adaptiveSamplingMax';
-		this.fireflyThreshold.name = 'fireflyThreshold';
-		this.enableEmissiveTriangleSampling.name = 'enableEmissiveTriangleSampling';
-		this.emissiveBoost.name = 'emissiveBoost';
-		this.emissiveTriangleCount.name = 'emissiveTriangleCount';
-		this.emissiveTotalPower.name = 'emissiveTotalPower';
-		this.lightBVHNodeCount.name = 'lightBVHNodeCount';
-		this.renderMode.name = 'renderMode';
-		this.resolution.name = 'resolution';
-		this.totalTriangleCount.name = 'totalTriangleCount';
-		this.numDirectionalLights.name = 'numDirectionalLights';
-		this.numAreaLights.name = 'numAreaLights';
-		this.numPointLights.name = 'numPointLights';
-		this.numSpotLights.name = 'numSpotLights';
+		}
 
 	}
 
@@ -418,61 +234,9 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	_initRenderingState() {
 
-		// Materials and quads
-		this.accumMaterial = null;
-		this.displayMaterial = null;
-
-		this.pathTraceQuad = null;
-		this.accumQuad = null;
-		this.displayQuad = null;
-
-		// Texture nodes (for dynamic updates)
-		this.prevFrameTexNode = null;
-		this.prevNormalDepthTexNode = null;
-		this.prevAlbedoTexNode = null;
-		this.displayTexNode = null;
-
 		// State flags
 		this.isReady = false;
 		this.frameCount = 0;
-
-	}
-
-	/**
-	 * Initialize environment parameters (CPU-side)
-	 */
-	_initEnvParams() {
-
-		this.envParams = {
-			mode: 'hdri',
-
-			// Gradient Sky parameters
-			gradientZenithColor: new Color( DEFAULT_STATE.gradientZenithColor ),
-			gradientHorizonColor: new Color( DEFAULT_STATE.gradientHorizonColor ),
-			gradientGroundColor: new Color( DEFAULT_STATE.gradientGroundColor ),
-
-			// Solid Color Sky parameter
-			solidSkyColor: new Color( DEFAULT_STATE.solidSkyColor ),
-
-			// Procedural Sky (Preetham Model) parameters
-			skySunDirection: this._calculateInitialSunDirection(),
-			skySunIntensity: DEFAULT_STATE.skySunIntensity,
-			skyRayleighDensity: DEFAULT_STATE.skyRayleighDensity,
-			skyTurbidity: DEFAULT_STATE.skyTurbidity,
-			skyMieAnisotropy: DEFAULT_STATE.skyMieAnisotropy,
-		};
-
-	}
-
-	_calculateInitialSunDirection() {
-
-		const azimuth = DEFAULT_STATE.skySunAzimuth * ( Math.PI / 180 );
-		const elevation = DEFAULT_STATE.skySunElevation * ( Math.PI / 180 );
-		return new Vector3(
-			Math.cos( elevation ) * Math.sin( azimuth ),
-			Math.sin( elevation ),
-			Math.cos( elevation ) * Math.cos( azimuth )
-		).normalize();
 
 	}
 
@@ -659,7 +423,7 @@ export class PathTracingStage extends PipelineStage {
 		this.cameras = this.sdfs.cameras;
 
 		// Inject shader defines based on detected material features
-		this.injectMaterialFeatureDefines();
+		this.materialData.injectMaterialFeatureDefines();
 
 		// Update uniforms with scene data
 		this.updateSceneUniforms();
@@ -681,19 +445,13 @@ export class PathTracingStage extends PipelineStage {
 		// Set data references
 		this.setTriangleData( this.sdfs.triangleData, this.sdfs.triangleCount );
 		this.setBVHData( this.sdfs.bvhData );
-		this.setMaterialData( this.sdfs.materialData );
+		this.materialData.setMaterialData( this.sdfs.materialData );
 
 		// Update triangle count
 		this.totalTriangleCount.value = this.sdfs.triangleCount || 0;
 
 		// Material texture arrays
-		this.albedoMaps = this.sdfs.albedoTextures;
-		this.emissiveMaps = this.sdfs.emissiveTextures;
-		this.normalMaps = this.sdfs.normalTextures;
-		this.bumpMaps = this.sdfs.bumpTextures;
-		this.roughnessMaps = this.sdfs.roughnessTextures;
-		this.metalnessMaps = this.sdfs.metalnessTextures;
-		this.displacementMaps = this.sdfs.displacementTextures;
+		this.materialData.loadTexturesFromSdfs();
 
 		// Emissive triangles (storage buffer)
 		if ( this.sdfs.emissiveTriangleData ) {
@@ -749,7 +507,7 @@ export class PathTracingStage extends PipelineStage {
 		// Add sun as directional light if procedural sky is active
 		if ( this.hasSun.value ) {
 
-			const scaledSunIntensity = this.envParams.skySunIntensity * 950.0;
+			const scaledSunIntensity = this.environment.envParams.skySunIntensity * 950.0;
 
 			const sunLight = {
 				intensity: scaledSunIntensity,
@@ -837,117 +595,6 @@ export class PathTracingStage extends PipelineStage {
 	}
 
 	/**
-	 * Re-scan material data texture to detect which features are currently in use
-	 * @returns {boolean} True if features changed
-	 */
-	rescanMaterialFeatures() {
-
-		if ( ! this.materialStorageAttr?.array ) {
-
-			console.warn( '[PathTracingStage] Material storage buffer not available for feature scanning' );
-			return false;
-
-		}
-
-		const data = this.materialStorageAttr.array;
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const materialCount = this.sdfs.materialCount || 1;
-
-		const newFeatures = {
-			hasClearcoat: false,
-			hasTransmission: false,
-			hasDispersion: false,
-			hasIridescence: false,
-			hasSheen: false,
-			hasTransparency: false,
-			hasMultiLobeMaterials: false,
-			hasMRTOutputs: true
-		};
-
-		for ( let i = 0; i < materialCount; i ++ ) {
-
-			const stride = i * dataLengthPerMaterial;
-
-			const transmission = data[ stride + 9 ];
-			const dispersion = data[ stride + 16 ];
-			const sheen = data[ stride + 18 ];
-			const iridescence = data[ stride + 28 ];
-			const clearcoat = data[ stride + 38 ];
-			const opacity = data[ stride + 40 ];
-			const transparent = data[ stride + 42 ];
-			const alphaTest = data[ stride + 43 ];
-
-			if ( clearcoat > 0 ) newFeatures.hasClearcoat = true;
-			if ( transmission > 0 ) newFeatures.hasTransmission = true;
-			if ( dispersion > 0 ) newFeatures.hasDispersion = true;
-			if ( iridescence > 0 ) newFeatures.hasIridescence = true;
-			if ( sheen > 0 ) newFeatures.hasSheen = true;
-			if ( transparent > 0 || opacity < 1.0 || alphaTest > 0 ) newFeatures.hasTransparency = true;
-
-			const featureCount = [
-				clearcoat > 0,
-				transmission > 0,
-				iridescence > 0,
-				sheen > 0
-			].filter( Boolean ).length;
-
-			if ( featureCount >= 2 ) {
-
-				newFeatures.hasMultiLobeMaterials = true;
-
-			}
-
-		}
-
-		const oldFeaturesJSON = JSON.stringify( this.sdfs.sceneFeatures );
-		const newFeaturesJSON = JSON.stringify( newFeatures );
-		const changed = oldFeaturesJSON !== newFeaturesJSON;
-
-		if ( changed ) {
-
-			this.sdfs.sceneFeatures = newFeatures;
-
-		}
-
-		return changed;
-
-	}
-
-	/**
-	 * Inject shader preprocessor defines based on detected scene material features
-	 */
-	injectMaterialFeatureDefines() {
-
-		const features = this.sdfs.sceneFeatures;
-
-		if ( ! features ) {
-
-			console.warn( '[PathTracingStage] No sceneFeatures detected, skipping define injection' );
-			return;
-
-		}
-
-		const featuresJSON = JSON.stringify( features );
-		const featuresChanged = ! this.compiledFeatures || this.compiledFeatures !== featuresJSON;
-
-		if ( ! featuresChanged ) {
-
-			return;
-
-		}
-
-		// For TSL, we can't inject defines into the shader at runtime
-		// Instead, we would need to conditionally generate the shader
-		// For now, log the features for debugging
-		console.log( '[PathTracingStage] Material features:', features );
-
-		this.compiledFeatures = featuresJSON;
-
-	}
-
-	/**
 	 * Reset accumulation
 	 * @param {boolean} clearBuffers - Whether to clear render targets
 	 */
@@ -956,23 +603,15 @@ export class PathTracingStage extends PipelineStage {
 		this.frameCount = 0;
 		this.frame.value = 0;
 		this.hasPreviousAccumulated.value = 0;
-		this.currentTarget = 0;
+		this.renderTargets.currentTarget = 0;
 
 		// Reset tile manager
 		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
 
 		// Clear targets if requested
-		if ( clearBuffers && this.renderTargetA && this.renderTargetB && this.renderer ) {
+		if ( clearBuffers && this.renderTargets.renderTargetA && this.renderer ) {
 
-			const currentRT = this.renderer.getRenderTarget();
-
-			this.renderer.setRenderTarget( this.renderTargetA );
-			this.renderer.clear( true, false, false );
-
-			this.renderer.setRenderTarget( this.renderTargetB );
-			this.renderer.clear( true, false, false );
-
-			this.renderer.setRenderTarget( currentRT );
+			this.renderTargets.clear( this.renderer );
 
 		}
 
@@ -1033,31 +672,6 @@ export class PathTracingStage extends PipelineStage {
 	}
 
 	// ===== MANAGER DELEGATION METHODS =====
-
-	getCurrentAccumulation() {
-
-		const target = this.currentTarget === 0 ? this.renderTargetA : this.renderTargetB;
-		return target?.texture ?? null;
-
-	}
-
-	getCurrentRawSample() {
-
-		return this.getCurrentAccumulation();
-
-	}
-
-	getMRTTextures() {
-
-		const currentTarget = this.currentTarget === 0 ? this.renderTargetA : this.renderTargetB;
-
-		return {
-			color: currentTarget?.textures?.[ 0 ] ?? null,
-			normalDepth: currentTarget?.textures?.[ 1 ] ?? null,
-			albedo: currentTarget?.textures?.[ 2 ] ?? null
-		};
-
-	}
 
 	enterInteractionMode() {
 
@@ -1152,103 +766,6 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
-	/**
-	 * Sets the material data from raw Float32Array via storage buffer.
-	 * @param {Float32Array} matImageData - Raw material data from DataTexture.image.data
-	 */
-	setMaterialData( matImageData ) {
-
-		if ( ! matImageData ) return;
-
-		const vec4Count = matImageData.length / 4;
-
-		if ( this.materialStorageNode ) {
-
-			this.materialStorageAttr = new StorageInstancedBufferAttribute( matImageData, 4 );
-			this.materialStorageNode.value = this.materialStorageAttr;
-			this.materialStorageNode.bufferCount = vec4Count;
-
-		} else {
-
-			this.materialStorageAttr = new StorageInstancedBufferAttribute( matImageData, 4 );
-			this.materialStorageNode = storage( this.materialStorageAttr, 'vec4', vec4Count ).toReadOnly();
-
-		}
-
-		this.materialCount = Math.floor( vec4Count / PIXELS_PER_MATERIAL );
-		console.log( `PathTracingStage: ${this.materialCount} materials (storage buffer)` );
-
-	}
-
-	/**
-	 * Initialize CDF storage buffers with placeholder data.
-	 * Must be called before shader compilation so the nodes exist in the graph.
-	 */
-	_initCDFStorageBuffers() {
-
-		// Marginal: 1 float per entry, default placeholder
-		const marginalPlaceholder = new Float32Array( [ 0, 1 ] );
-		this.envMarginalStorageAttr = new StorageInstancedBufferAttribute( marginalPlaceholder, 1 );
-		this.envMarginalStorageNode = storage( this.envMarginalStorageAttr, 'float', 2 ).toReadOnly();
-
-		// Conditional: 1 float per entry, default placeholder
-		const conditionalPlaceholder = new Float32Array( [ 0, 0, 1, 1 ] );
-		this.envConditionalStorageAttr = new StorageInstancedBufferAttribute( conditionalPlaceholder, 1 );
-		this.envConditionalStorageNode = storage( this.envConditionalStorageAttr, 'float', 4 ).toReadOnly();
-
-	}
-
-	/**
-	 * Update marginal CDF storage buffer from Float32Array.
-	 */
-	setEnvMarginalData( floatData ) {
-
-		if ( ! floatData ) return;
-
-		this.envMarginalStorageAttr = new StorageInstancedBufferAttribute( floatData, 1 );
-		this.envMarginalStorageNode.value = this.envMarginalStorageAttr;
-		this.envMarginalStorageNode.bufferCount = floatData.length;
-
-	}
-
-	/**
-	 * Update conditional CDF storage buffer from Float32Array.
-	 */
-	setEnvConditionalData( floatData ) {
-
-		if ( ! floatData ) return;
-
-		this.envConditionalStorageAttr = new StorageInstancedBufferAttribute( floatData, 1 );
-		this.envConditionalStorageNode.value = this.envConditionalStorageAttr;
-		this.envConditionalStorageNode.bufferCount = floatData.length;
-
-	}
-
-	/**
-	 * Update both CDF storage buffers from equirectHdrInfo.
-	 */
-	_updateCDFStorageBuffers() {
-
-		this.setEnvMarginalData( this.equirectHdrInfo.marginalData );
-		this.setEnvConditionalData( this.equirectHdrInfo.conditionalData );
-
-	}
-
-	/**
-	 * Sets the environment map texture.
-	 * @param {Texture} envTex
-	 */
-	setEnvironmentTexture( envTex ) {
-
-		if ( ! envTex ) return;
-
-		this.environmentTexture = envTex;
-		this.envTexSize.set( envTex.image.width, envTex.image.height );
-
-		console.log( `PathTracingStage: Environment map ${envTex.image.width}x${envTex.image.height}` );
-
-	}
-
 	// ===== RENDER TARGETS =====
 
 	/**
@@ -1258,46 +775,10 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	createRenderTargets( width, height ) {
 
-		this._disposeRenderTargets();
-
-		this.renderWidth = width;
-		this.renderHeight = height;
-
-		// MRT accumulation targets: 3 color attachments per target
-		//   textures[0] = gColor       (accumulated RGB + alpha)
-		//   textures[1] = gNormalDepth  (normal.RGB + linearDepth.A)
-		//   textures[2] = gAlbedo       (albedo.RGB + alpha)
-		const mrtOptions = { ...DEFAULT_RT_OPTIONS, count: 3 };
-
-		this.renderTargetA = new RenderTarget( width, height, mrtOptions );
-		this.renderTargetB = new RenderTarget( width, height, mrtOptions );
-
-		// Name textures — MRTNode.setup() maps mrt() keys to texture indices via these names
-		for ( const rt of [ this.renderTargetA, this.renderTargetB ] ) {
-
-			rt.textures[ 0 ].name = 'gColor';
-			rt.textures[ 1 ].name = 'gNormalDepth';
-			rt.textures[ 2 ].name = 'gAlbedo';
-
-		}
+		this.renderTargets.create( width, height );
 
 		// Update resolution uniform
 		this.resolution.value.set( width, height );
-
-		console.log( `PathTracingStage: Created ${width}x${height} MRT render targets (count: 3)` );
-
-	}
-
-	/**
-	 * Dispose existing render targets
-	 */
-	_disposeRenderTargets() {
-
-		this.renderTargetA?.dispose();
-		this.renderTargetB?.dispose();
-
-		this.renderTargetA = null;
-		this.renderTargetB = null;
 
 	}
 
@@ -1334,68 +815,21 @@ export class PathTracingStage extends PipelineStage {
 
 		// If material already exists, update texture nodes in-place
 		// instead of rebuilding the shader (avoids TSL recompilation issues)
-		if ( this.isReady && this._sceneTextureNodes ) {
+		if ( this.isReady && this.shaderComposer.getSceneTextureNodes() ) {
 
-			this._updateSceneTextures();
+			this.shaderComposer.updateSceneTextures( this );
 			return;
 
 		}
 
-		const timer = new BuildTimer( 'setupMaterial' );
-
-		timer.start( 'Render targets' );
 		this._ensureRenderTargets();
-		timer.end( 'Render targets' );
 
-		timer.start( 'Create texture nodes' );
-		const textureNodes = this._createTextureNodes();
-		timer.end( 'Create texture nodes' );
-
-		timer.start( 'Create path tracer output (TSL)' );
-		const ptOutput = this._createPathTracerOutput( textureNodes );
-		timer.end( 'Create path tracer output (TSL)' );
-
-		timer.start( 'Create path trace materials' );
-		this._createPathTraceMaterials( ptOutput );
-		timer.end( 'Create path trace materials' );
-
-		timer.start( 'Create display material' );
-		this._createDisplayMaterial();
-		timer.end( 'Create display material' );
+		this.shaderComposer.setupMaterial( {
+			stage: this,
+			renderTargets: this.renderTargets,
+		} );
 
 		this.isReady = true;
-		timer.print();
-
-	}
-
-	/**
-	 * Updates texture node values in-place after a model change.
-	 * This avoids rebuilding the entire TSL shader graph which causes
-	 * WGSL compilation failures due to variable naming conflicts.
-	 */
-	_updateSceneTextures() {
-
-		const nodes = this._sceneTextureNodes;
-
-		// Triangle, BVH, and material storage buffers are already updated
-		// in-place by setTriangleData() / setBVHData() / setMaterialData()
-
-		if ( this.environmentTexture && nodes.envTex ) {
-
-			nodes.envTex.value = this.environmentTexture;
-
-		}
-
-		// Update material texture arrays
-		if ( this.albedoMaps && nodes.albedoMapsTex ) nodes.albedoMapsTex.value = this.albedoMaps;
-		if ( this.normalMaps && nodes.normalMapsTex ) nodes.normalMapsTex.value = this.normalMaps;
-		if ( this.bumpMaps && nodes.bumpMapsTex ) nodes.bumpMapsTex.value = this.bumpMaps;
-		if ( this.metalnessMaps && nodes.metalnessMapsTex ) nodes.metalnessMapsTex.value = this.metalnessMaps;
-		if ( this.roughnessMaps && nodes.roughnessMapsTex ) nodes.roughnessMapsTex.value = this.roughnessMaps;
-		if ( this.emissiveMaps && nodes.emissiveMapsTex ) nodes.emissiveMapsTex.value = this.emissiveMaps;
-		if ( this.displacementMaps && nodes.displacementMapsTex ) nodes.displacementMapsTex.value = this.displacementMaps;
-
-		console.log( 'PathTracingStage: Scene textures updated in-place' );
 
 	}
 
@@ -1408,277 +842,11 @@ export class PathTracingStage extends PipelineStage {
 		const width = Math.max( 1, canvas.width || this.width );
 		const height = Math.max( 1, canvas.height || this.height );
 
-		if ( this.renderWidth !== width || this.renderHeight !== height || ! this.renderTargetA ) {
+		if ( this.renderTargets.ensureSize( width, height ) ) {
 
-			this.createRenderTargets( width, height );
+			this.resolution.value.set( width, height );
 
 		}
-
-	}
-
-	/**
-	 * Create texture nodes for shader
-	 * @returns {Object} Texture nodes and metadata
-	 */
-	_createTextureNodes() {
-
-		// Scene data: all storage buffers (WebGPU native)
-		const triStorage = this.triangleStorageNode;
-		const bvhStorage = this.bvhStorageNode;
-		const matStorage = this.materialStorageNode;
-		const emissiveTriStorage = this.emissiveTriangleStorageNode;
-		const lightBVHStorage = this.lightBVHStorageNode;
-
-		const envTex = texture( this.environmentTexture );
-
-		// Previous frame textures for accumulation (use new TextureNode() if render target not ready)
-		const prevFrameTex = this.renderTargetA?.texture
-			? texture( this.renderTargetA.texture )
-			: new TextureNode();
-		this.prevFrameTexNode = prevFrameTex;
-
-		const prevNormalDepthTex = this.renderTargetA?.textures?.[ 1 ]
-			? texture( this.renderTargetA.textures[ 1 ] )
-			: new TextureNode();
-		this.prevNormalDepthTexNode = prevNormalDepthTex;
-
-		const prevAlbedoTex = this.renderTargetA?.textures?.[ 2 ]
-			? texture( this.renderTargetA.textures[ 2 ] )
-			: new TextureNode();
-		this.prevAlbedoTexNode = prevAlbedoTex;
-
-		// Placeholder texture node for optional textures (TSL requires valid texture instances)
-		const placeholderTex = new TextureNode();
-
-		// Adaptive sampling texture — own TextureNode so it can be updated from context
-		const hasAdaptiveSampling = this.adaptiveSamplingTexture !== null;
-		const adaptiveSamplingTex = hasAdaptiveSampling
-			? texture( this.adaptiveSamplingTexture )
-			: new TextureNode();
-		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
-
-		// Environment importance sampling CDF (storage buffers)
-		const marginalCDFStorage = this.envMarginalStorageNode;
-		const conditionalCDFStorage = this.envConditionalStorageNode;
-
-		// Material texture arrays (DataArrayTexture → texture node)
-		// Must use DataArrayTexture placeholder (not regular Texture) so WGSL emits texture_2d_array<f32>
-		// CRITICAL: Set LinearFilter so isUnfilterable()=false → textureSample instead of textureLoad
-		// CRITICAL: Each texture type MUST have its OWN placeholder instance — sharing a single
-		// placeholder causes _updateSceneTextures() to corrupt all types when updating .value
-		const createArrayPlaceholder = () => {
-
-			const dummyTex = new DataArrayTexture( new Uint8Array( [ 255, 255, 255, 255 ] ), 1, 1, 1 );
-			dummyTex.minFilter = LinearFilter;
-			dummyTex.magFilter = LinearFilter;
-			dummyTex.generateMipmaps = false;
-			dummyTex.needsUpdate = true;
-			return texture( dummyTex );
-
-		};
-
-		const albedoMapsTex = this.albedoMaps ? texture( this.albedoMaps ) : createArrayPlaceholder();
-		const normalMapsTex = this.normalMaps ? texture( this.normalMaps ) : createArrayPlaceholder();
-		const bumpMapsTex = this.bumpMaps ? texture( this.bumpMaps ) : createArrayPlaceholder();
-		const metalnessMapsTex = this.metalnessMaps ? texture( this.metalnessMaps ) : createArrayPlaceholder();
-		const roughnessMapsTex = this.roughnessMaps ? texture( this.roughnessMaps ) : createArrayPlaceholder();
-		const emissiveMapsTex = this.emissiveMaps ? texture( this.emissiveMaps ) : createArrayPlaceholder();
-		const displacementMapsTex = this.displacementMaps ? texture( this.displacementMaps ) : createArrayPlaceholder();
-
-		const result = {
-			triStorage,
-			bvhStorage,
-			matStorage,
-			emissiveTriStorage,
-			lightBVHStorage,
-			envTex,
-			prevFrameTex,
-			prevNormalDepthTex,
-			prevAlbedoTex,
-			placeholderTex,
-			adaptiveSamplingTex,
-			marginalCDFStorage,
-			conditionalCDFStorage,
-			hasAdaptiveSampling,
-			// Texture arrays
-			albedoMapsTex,
-			normalMapsTex,
-			bumpMapsTex,
-			metalnessMapsTex,
-			roughnessMapsTex,
-			emissiveMapsTex,
-			displacementMapsTex,
-		};
-
-		// Store references for in-place updates on model change
-		this._sceneTextureNodes = result;
-
-		return result;
-
-	}
-
-	/**
-	 * Create path tracer output
-	 * @param {Object} textureNodes
-	 * @returns {Object} Path tracer output nodes
-	 */
-	_createPathTracerOutput( textureNodes ) {
-
-		const {
-			triStorage, bvhStorage, matStorage, emissiveTriStorage, lightBVHStorage,
-			envTex, prevFrameTex, prevNormalDepthTex, prevAlbedoTex,
-			adaptiveSamplingTex, marginalCDFStorage, conditionalCDFStorage,
-			albedoMapsTex, normalMapsTex, bumpMapsTex,
-			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex,
-			displacementMapsTex,
-		} = textureNodes;
-
-		return pathTracerMain( {
-
-			// Frame / resolution
-			resolution: this.resolution,
-			frame: this.frame,
-			samplesPerPixel: this.samplesPerPixel,
-			visMode: this.visMode,
-
-			// Camera matrices
-			cameraWorldMatrix: this.cameraWorldMatrix,
-			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
-			cameraViewMatrix: this.cameraViewMatrix,
-			cameraProjectionMatrix: this.cameraProjectionMatrix,
-
-			// BVH / Scene (all storage buffers)
-			bvhBuffer: bvhStorage,
-			triangleBuffer: triStorage,
-			materialBuffer: matStorage,
-
-			// Texture arrays
-			albedoMaps: albedoMapsTex,
-			normalMaps: normalMapsTex,
-			bumpMaps: bumpMapsTex,
-			metalnessMaps: metalnessMapsTex,
-			roughnessMaps: roughnessMapsTex,
-			emissiveMaps: emissiveMapsTex,
-			displacementMaps: displacementMapsTex,
-
-			// Lights
-			directionalLightsBuffer: this.directionalLightsBufferNode,
-			numDirectionalLights: this.numDirectionalLights,
-			areaLightsBuffer: this.areaLightsBufferNode,
-			numAreaLights: this.numAreaLights,
-			pointLightsBuffer: this.pointLightsBufferNode,
-			numPointLights: this.numPointLights,
-			spotLightsBuffer: this.spotLightsBufferNode,
-			numSpotLights: this.numSpotLights,
-
-			// Environment
-			envTexture: envTex,
-			environmentIntensity: this.environmentIntensity,
-			envMatrix: this.environmentMatrix,
-			envMarginalWeights: marginalCDFStorage,
-			envConditionalWeights: conditionalCDFStorage,
-			envTotalSum: this.envTotalSum,
-			envResolution: this.envResolution,
-			enableEnvironmentLight: this.enableEnvironment,
-			useEnvMapIS: this.useEnvMapIS,
-
-			// Rendering parameters
-			maxBounceCount: this.maxBounces,
-			transmissiveBounces: this.transmissiveBounces,
-			showBackground: this.showBackground,
-			transparentBackground: this.transparentBackground,
-			backgroundIntensity: this.backgroundIntensity,
-			fireflyThreshold: this.fireflyThreshold,
-			globalIlluminationIntensity: this.globalIlluminationIntensity,
-			totalTriangleCount: this.totalTriangleCount,
-			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
-			emissiveTriangleBuffer: emissiveTriStorage,
-			emissiveTriangleCount: this.emissiveTriangleCount,
-			emissiveTotalPower: this.emissiveTotalPower,
-			emissiveBoost: this.emissiveBoost,
-			lightBVHBuffer: lightBVHStorage,
-			lightBVHNodeCount: this.lightBVHNodeCount,
-
-			// Debug
-			debugVisScale: this.debugVisScale,
-
-			// Accumulation
-			enableAccumulation: this.enableAccumulation,
-			hasPreviousAccumulated: this.hasPreviousAccumulated,
-			prevAccumTexture: prevFrameTex,
-			prevNormalDepthTexture: prevNormalDepthTex,
-			prevAlbedoTexture: prevAlbedoTex,
-			accumulationAlpha: this.accumulationAlpha,
-			cameraIsMoving: this.cameraIsMoving,
-
-			// Adaptive Sampling
-			useAdaptiveSampling: this.useAdaptiveSampling,
-			adaptiveSamplingTexture: adaptiveSamplingTex,
-			adaptiveSamplingMin: this.adaptiveSamplingMin,
-			adaptiveSamplingMax: this.adaptiveSamplingMax,
-
-			// DOF / Camera lens
-			enableDOF: this.enableDOF,
-			focalLength: this.focalLength,
-			aperture: this.aperture,
-			focusDistance: this.focusDistance,
-			sceneScale: this.sceneScale,
-			apertureScale: this.apertureScale,
-		} );
-
-	}
-
-	/**
-	 * Create path trace and accumulation materials
-	 * @param {Object} ptOutput
-	 */
-	_createPathTraceMaterials( ptOutput ) {
-
-		this.accumMaterial = new MeshBasicNodeMaterial();
-		this.accumMaterial.colorNode = ptOutput.get( 'gColor' );
-
-		// Single-pass MRT: write color, normalDepth, and albedo in one render call.
-		// MRTNode maps output names to render target texture indices via texture.name.
-		// This avoids creating separate materials (which caused WGSL "unresolved value"
-		// errors from shared module-scope texture nodes like blueNoiseTextureNode).
-		this.accumMaterial.mrtNode = mrt( {
-			gColor: ptOutput.get( 'gColor' ),
-			gNormalDepth: ptOutput.get( 'gNormalDepth' ),
-			gAlbedo: ptOutput.get( 'gAlbedo' ),
-		} );
-
-		this.accumQuad = new QuadMesh( this.accumMaterial );
-
-	}
-
-	/**
-	 * Create display material for final output
-	 */
-	_createDisplayMaterial() {
-
-		// Use new TextureNode() if render target not ready (defensive programming)
-		const displayTex = this.renderTargetA?.texture
-			? texture( this.renderTargetA.texture )
-			: new TextureNode();
-		this.displayTexNode = displayTex;
-
-		// Apply exposure in the display shader so it's reactive to uniform changes.
-		// The renderer's toneMappingExposure is kept at 1.0 to avoid double-application;
-		// ACES tone mapping still applies via material.toneMapped = true.
-		const exposureUniform = this.exposure;
-
-		const displayShader = Fn( () => {
-
-			const color = displayTex.sample( uv() );
-			const exposedColor = color.xyz.mul( exposureUniform.pow( 4.0 ) );
-			return vec4( exposedColor, 1.0 );
-
-		} );
-
-		this.displayMaterial = new MeshBasicNodeMaterial();
-		this.displayMaterial.colorNode = displayShader();
-		this.displayMaterial.toneMapped = true;
-		this.displayQuad = new QuadMesh( this.displayMaterial );
 
 	}
 
@@ -1704,12 +872,12 @@ export class PathTracingStage extends PipelineStage {
 		this.performanceMonitor?.start();
 
 		// Read adaptive sampling guidance from pipeline context (produced by AdaptiveSamplingStage)
-		if ( context && this.adaptiveSamplingTexNode ) {
+		if ( context && this.shaderComposer.adaptiveSamplingTexNode ) {
 
 			const asTex = context.getTexture( 'adaptiveSampling:output' );
 			if ( asTex ) {
 
-				this.adaptiveSamplingTexNode.value = asTex;
+				this.shaderComposer.adaptiveSamplingTexNode.value = asTex;
 
 			}
 
@@ -1784,30 +952,30 @@ export class PathTracingStage extends PipelineStage {
 		this.frame.value = frameValue;
 
 		// Get targets
-		const { readTarget, writeTarget } = this._getTargets();
+		const { readTarget, writeTarget } = this.renderTargets.getTargets();
 
 		// Update previous frame textures (color + MRT normal/albedo)
-		if ( this.prevFrameTexNode ) {
+		if ( this.shaderComposer.prevFrameTexNode ) {
 
-			this.prevFrameTexNode.value = readTarget.texture;
-
-		}
-
-		if ( this.prevNormalDepthTexNode && readTarget.textures?.[ 1 ] ) {
-
-			this.prevNormalDepthTexNode.value = readTarget.textures[ 1 ];
+			this.shaderComposer.prevFrameTexNode.value = readTarget.texture;
 
 		}
 
-		if ( this.prevAlbedoTexNode && readTarget.textures?.[ 2 ] ) {
+		if ( this.shaderComposer.prevNormalDepthTexNode && readTarget.textures?.[ 1 ] ) {
 
-			this.prevAlbedoTexNode.value = readTarget.textures[ 2 ];
+			this.shaderComposer.prevNormalDepthTexNode.value = readTarget.textures[ 1 ];
+
+		}
+
+		if ( this.shaderComposer.prevAlbedoTexNode && readTarget.textures?.[ 2 ] ) {
+
+			this.shaderComposer.prevAlbedoTexNode.value = readTarget.textures[ 2 ];
 
 		}
 
 		// Render accumulation pass
 		this.renderer.setRenderTarget( writeTarget );
-		this.accumQuad.render( this.renderer );
+		this.shaderComposer.accumQuad.render( this.renderer );
 
 		// Publish textures to context for downstream stages (DisplayStage)
 		if ( context ) {
@@ -1817,14 +985,14 @@ export class PathTracingStage extends PipelineStage {
 		} else {
 
 			// Standalone mode (no pipeline) — render directly to screen
-			if ( this.displayTexNode ) {
+			if ( this.shaderComposer.displayTexNode ) {
 
-				this.displayTexNode.value = writeTarget.texture;
+				this.shaderComposer.displayTexNode.value = writeTarget.texture;
 
 			}
 
 			this.renderer.setRenderTarget( null );
-			this.displayQuad.render( this.renderer );
+			this.shaderComposer.displayQuad.render( this.renderer );
 
 		}
 
@@ -1834,7 +1002,7 @@ export class PathTracingStage extends PipelineStage {
 		// Swap targets and increment
 		if ( tileInfo.shouldSwapTargets ) {
 
-			this.currentTarget = 1 - this.currentTarget;
+			this.renderTargets.swap();
 
 		}
 
@@ -1865,7 +1033,7 @@ export class PathTracingStage extends PipelineStage {
 		const canvas = this.renderer.domElement;
 		const { width, height } = canvas;
 
-		if ( width !== this.renderWidth || height !== this.renderHeight ) {
+		if ( width !== this.renderTargets.renderWidth || height !== this.renderTargets.renderHeight ) {
 
 			this.createRenderTargets( width, height );
 			this.frameCount = 0;
@@ -1973,19 +1141,6 @@ export class PathTracingStage extends PipelineStage {
 			this.hasPreviousAccumulated.value = 0;
 
 		}
-
-	}
-
-	/**
-	 * Get read and write targets for ping-pong
-	 * @returns {Object} { readTarget, writeTarget }
-	 */
-	_getTargets() {
-
-		const readTarget = this.currentTarget === 0 ? this.renderTargetA : this.renderTargetB;
-		const writeTarget = this.currentTarget === 0 ? this.renderTargetB : this.renderTargetA;
-
-		return { readTarget, writeTarget };
 
 	}
 
@@ -2148,839 +1303,17 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
-	// ===== ENVIRONMENT MANAGEMENT =====
-
-	async buildEnvironmentCDF( { useWorker = true } = {} ) {
-
-		if ( ! this.scene.environment ) {
-
-			this._updateCDFStorageBuffers();
-			this.envTotalSum.value = 0.0;
-			this.useEnvMapIS.value = 0;
-			return;
-
-		}
-
-		try {
-
-			const startTime = performance.now();
-			const textureForCDF = this.scene.environment;
-
-			// Environment textures are always DataTextures (HDRI loaded from file,
-			// or procedural/gradient/solid converted via renderTargetToDataTexture).
-			// If for any reason the texture has no CPU data, skip CDF.
-			if ( ! textureForCDF.image || ! textureForCDF.image.data ) {
-
-				this._updateCDFStorageBuffers();
-				this.envTotalSum.value = 0.0;
-				this.useEnvMapIS.value = 0;
-				return;
-
-			}
-
-			if ( useWorker ) {
-
-				await this.equirectHdrInfo.updateFromAsync( textureForCDF );
-
-			} else {
-
-				this.equirectHdrInfo.updateFrom( textureForCDF );
-
-			}
-
-			this.cdfBuildTime = performance.now() - startTime;
-
-			this._updateCDFStorageBuffers();
-			this.envTotalSum.value = this.equirectHdrInfo.totalSum;
-			this.useEnvMapIS.value = 1;
-
-			const { width, height } = this.equirectHdrInfo;
-			if ( width && height ) {
-
-				this.envResolution.value.set( width, height );
-
-			}
-
-			console.log( `Environment CDF built in ${this.cdfBuildTime.toFixed( 2 )}ms (worker: ${useWorker})` );
-
-		} catch ( error ) {
-
-			console.error( 'Error building environment CDF:', error );
-			this.useEnvMapIS.value = 0;
-			this.envTotalSum.value = 0.0;
-
-		}
-
-	}
+	// ===== UNIFORM & DATA SETTERS =====
 
 	/**
-	 * Apply CDF results and update TSL env texture nodes after a parallel CDF build.
-	 * Called from loadSceneData where buildEnvironmentCDF ran in parallel with BVH.
+	 * Generic uniform setter. Handles booleans (→ int 0/1),
+	 * vectors/matrices (→ .copy()), and plain scalars automatically.
+	 * @param {string} name - Uniform name (e.g. 'maxBounces', 'showBackground')
+	 * @param {*} value
 	 */
-	_applyCDFResults() {
+	setUniform( name, value ) {
 
-		const envMap = this.scene.environment;
-
-		const nodes = this._sceneTextureNodes;
-		if ( nodes && envMap && nodes.envTex ) {
-
-			nodes.envTex.value = envMap;
-
-		}
-
-		if ( envMap && ! envMap._isGeneratedProcedural ) {
-
-			this.hasSun.value = 0;
-
-		}
-
-	}
-
-	async setEnvironmentMap( envMap ) {
-
-		this.scene.environment = envMap;
-		this.setEnvironmentTexture( envMap );
-
-		if ( envMap ) {
-
-			await this.buildEnvironmentCDF();
-
-		} else {
-
-			this._updateCDFStorageBuffers();
-			this.envTotalSum.value = 0.0;
-			this.useEnvMapIS.value = 0;
-
-		}
-
-		// Update TSL texture nodes so the shader sees the new environment
-		const nodes = this._sceneTextureNodes;
-		if ( nodes ) {
-
-			if ( envMap && nodes.envTex ) {
-
-				nodes.envTex.value = envMap;
-
-			}
-
-			// CDF storage buffers are already updated in-place by _updateCDFStorageBuffers()
-
-		}
-
-		if ( envMap && ! envMap._isGeneratedProcedural ) {
-
-			this.hasSun.value = 0;
-
-		}
-
-		this.reset();
-
-	}
-
-	setEnvironmentRotation( rotationDegrees ) {
-
-		const rotationRadians = rotationDegrees * ( Math.PI / 180 );
-		this.environmentRotationMatrix.makeRotationY( rotationRadians );
-		this.environmentMatrix.value.copy( this.environmentRotationMatrix );
-
-	}
-
-	async generateGradientTexture() {
-
-		if ( ! this.simpleSkyRenderer ) {
-
-			this.simpleSkyRenderer = new SimpleSkyRendererTSL( 512, 256 );
-
-		}
-
-		const params = {
-			zenithColor: this.envParams.gradientZenithColor,
-			horizonColor: this.envParams.gradientHorizonColor,
-			groundColor: this.envParams.gradientGroundColor,
-		};
-
-		try {
-
-			const texture = this.simpleSkyRenderer.renderGradient( params );
-			texture._isGeneratedProcedural = true;
-			await this.setEnvironmentMap( texture );
-			this.hasSun.value = 0;
-
-		} catch ( error ) {
-
-			console.error( 'Error generating gradient sky:', error );
-
-		}
-
-	}
-
-	async generateSolidColorTexture() {
-
-		if ( ! this.simpleSkyRenderer ) {
-
-			this.simpleSkyRenderer = new SimpleSkyRendererTSL( 512, 256 );
-
-		}
-
-		const params = {
-			color: this.envParams.solidSkyColor,
-		};
-
-		try {
-
-			const texture = this.simpleSkyRenderer.renderSolid( params );
-			texture._isGeneratedProcedural = true;
-			await this.setEnvironmentMap( texture );
-			this.hasSun.value = 0;
-
-		} catch ( error ) {
-
-			console.error( 'Error generating solid color sky:', error );
-
-		}
-
-	}
-
-	async generateProceduralSkyTexture() {
-
-		if ( ! this.proceduralSkyRenderer ) {
-
-			this.proceduralSkyRenderer = new ProceduralSkyRendererTSL( 512, 256 );
-
-		}
-
-		const params = {
-			sunDirection: this.envParams.skySunDirection.clone(),
-			sunIntensity: this.envParams.skySunIntensity * 0.05,
-			rayleighDensity: this.envParams.skyRayleighDensity * 2.0,
-			mieDensity: this.envParams.skyTurbidity * 0.005,
-			mieAnisotropy: this.envParams.skyMieAnisotropy,
-			turbidity: this.envParams.skyTurbidity * 2.0,
-		};
-
-		try {
-
-			const texture = this.proceduralSkyRenderer.render( params );
-			texture._isGeneratedProcedural = true;
-			await this.setEnvironmentMap( texture );
-
-			this.sunDirection.value.copy( this.envParams.skySunDirection );
-			this.sunAngularSize.value = 0.0087;
-			this.hasSun.value = 1;
-
-			console.log( `Sun parameters synced: dir=${this.envParams.skySunDirection.toArray().map( v => v.toFixed( 2 ) ).join( ',' )}` );
-
-		} catch ( error ) {
-
-			console.error( 'Error generating procedural sky:', error );
-
-		}
-
-	}
-
-	// ===== MATERIAL MANAGEMENT =====
-
-	updateTextureTransform( materialIndex, textureName, transformMatrix ) {
-
-		if ( ! this.materialStorageAttr ) {
-
-			console.warn( "Material storage buffer not available" );
-			return;
-
-		}
-
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const data = this.materialStorageAttr.array;
-		const stride = materialIndex * dataLengthPerMaterial;
-
-		const transformOffsets = {
-			'map': 52,
-			'normalMap': 60,
-			'roughnessMap': 68,
-			'metalnessMap': 76,
-			'emissiveMap': 84,
-			'bumpMap': 92,
-			'displacementMap': 100
-		};
-
-		const offset = transformOffsets[ textureName ];
-		if ( offset === undefined ) {
-
-			console.warn( `Unknown texture name for transform update: ${textureName}` );
-			return;
-
-		}
-
-		for ( let i = 0; i < 9; i ++ ) {
-
-			if ( stride + offset + i < data.length ) {
-
-				data[ stride + offset + i ] = transformMatrix[ i ];
-
-			}
-
-		}
-
-		this.materialStorageAttr.needsUpdate = true;
-		this.reset();
-
-	}
-
-	updateMaterial( materialIndex, material ) {
-
-		const completeMaterialData = this.sdfs.geometryExtractor.createMaterialObject( material );
-		this.updateMaterialDataFromObject( materialIndex, completeMaterialData );
-
-	}
-
-	updateMaterialProperty( materialIndex, property, value ) {
-
-		if ( ! this.materialStorageAttr ) {
-
-			console.warn( "Material storage buffer not available" );
-			return;
-
-		}
-
-		const data = this.materialStorageAttr.array;
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const stride = materialIndex * dataLengthPerMaterial;
-
-		switch ( property ) {
-
-			case 'color':
-				if ( value.r !== undefined ) {
-
-					data[ stride + 0 ] = value.r;
-					data[ stride + 1 ] = value.g;
-					data[ stride + 2 ] = value.b;
-
-				} else if ( Array.isArray( value ) ) {
-
-					data[ stride + 0 ] = value[ 0 ];
-					data[ stride + 1 ] = value[ 1 ];
-					data[ stride + 2 ] = value[ 2 ];
-
-				}
-
-				break;
-			case 'metalness': data[ stride + 3 ] = value; break;
-			case 'emissive':
-				if ( value.r !== undefined ) {
-
-					data[ stride + 4 ] = value.r;
-					data[ stride + 5 ] = value.g;
-					data[ stride + 6 ] = value.b;
-
-				} else if ( Array.isArray( value ) ) {
-
-					data[ stride + 4 ] = value[ 0 ];
-					data[ stride + 5 ] = value[ 1 ];
-					data[ stride + 6 ] = value[ 2 ];
-
-				}
-
-				break;
-			case 'roughness': data[ stride + 7 ] = value; break;
-			case 'ior': data[ stride + 8 ] = value; break;
-			case 'transmission': data[ stride + 9 ] = value; break;
-			case 'thickness': data[ stride + 10 ] = value; break;
-			case 'emissiveIntensity': data[ stride + 11 ] = value; break;
-			case 'attenuationColor':
-				if ( value.r !== undefined ) {
-
-					data[ stride + 12 ] = value.r;
-					data[ stride + 13 ] = value.g;
-					data[ stride + 14 ] = value.b;
-
-				} else if ( Array.isArray( value ) ) {
-
-					data[ stride + 12 ] = value[ 0 ];
-					data[ stride + 13 ] = value[ 1 ];
-					data[ stride + 14 ] = value[ 2 ];
-
-				}
-
-				break;
-			case 'attenuationDistance': data[ stride + 15 ] = value; break;
-			case 'dispersion': data[ stride + 16 ] = value; break;
-			case 'visible': data[ stride + 17 ] = value; break;
-			case 'sheen': data[ stride + 18 ] = value; break;
-			case 'sheenRoughness': data[ stride + 19 ] = value; break;
-			case 'sheenColor':
-				if ( value.r !== undefined ) {
-
-					data[ stride + 20 ] = value.r;
-					data[ stride + 21 ] = value.g;
-					data[ stride + 22 ] = value.b;
-
-				} else if ( Array.isArray( value ) ) {
-
-					data[ stride + 20 ] = value[ 0 ];
-					data[ stride + 21 ] = value[ 1 ];
-					data[ stride + 22 ] = value[ 2 ];
-
-				}
-
-				break;
-			case 'specularIntensity': data[ stride + 24 ] = value; break;
-			case 'specularColor':
-				if ( value.r !== undefined ) {
-
-					data[ stride + 25 ] = value.r;
-					data[ stride + 26 ] = value.g;
-					data[ stride + 27 ] = value.b;
-
-				} else if ( Array.isArray( value ) ) {
-
-					data[ stride + 25 ] = value[ 0 ];
-					data[ stride + 26 ] = value[ 1 ];
-					data[ stride + 27 ] = value[ 2 ];
-
-				}
-
-				break;
-			case 'iridescence': data[ stride + 28 ] = value; break;
-			case 'iridescenceIOR': data[ stride + 29 ] = value; break;
-			case 'iridescenceThicknessRange':
-				if ( Array.isArray( value ) ) {
-
-					data[ stride + 30 ] = value[ 0 ];
-					data[ stride + 31 ] = value[ 1 ];
-
-				}
-
-				break;
-			case 'clearcoat': data[ stride + 38 ] = value; break;
-			case 'clearcoatRoughness': data[ stride + 39 ] = value; break;
-			case 'opacity': data[ stride + 40 ] = value; break;
-			case 'side': data[ stride + 41 ] = value; break;
-			case 'transparent': data[ stride + 42 ] = value; break;
-			case 'alphaTest': data[ stride + 43 ] = value; break;
-			case 'alphaMode': data[ stride + 44 ] = value; break;
-			case 'depthWrite': data[ stride + 45 ] = value; break;
-			case 'normalScale':
-				if ( value.x !== undefined ) {
-
-					data[ stride + 46 ] = value.x;
-					data[ stride + 47 ] = value.y;
-
-				} else if ( typeof value === 'number' ) {
-
-					data[ stride + 46 ] = value;
-					data[ stride + 47 ] = value;
-
-				}
-
-				break;
-			case 'bumpScale': data[ stride + 48 ] = value; break;
-			case 'displacementScale': data[ stride + 49 ] = value; break;
-			default:
-				console.warn( `Unknown material property: ${property}` );
-				return;
-
-		}
-
-		this.materialStorageAttr.needsUpdate = true;
-
-		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest' ];
-		if ( featureProperties.includes( property ) ) {
-
-			const featuresChanged = this.rescanMaterialFeatures();
-			if ( featuresChanged ) {
-
-				this.injectMaterialFeatureDefines();
-
-			}
-
-		}
-
-		this.reset();
-
-	}
-
-	updateMaterialDataFromObject( materialIndex, materialData ) {
-
-		if ( ! this.materialStorageAttr ) {
-
-			console.warn( "Material storage buffer not available" );
-			return;
-
-		}
-
-		const data = this.materialStorageAttr.array;
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const stride = materialIndex * dataLengthPerMaterial;
-
-		if ( materialData.color ) {
-
-			data[ stride + 0 ] = materialData.color.r ?? materialData.color[ 0 ] ?? 1;
-			data[ stride + 1 ] = materialData.color.g ?? materialData.color[ 1 ] ?? 1;
-			data[ stride + 2 ] = materialData.color.b ?? materialData.color[ 2 ] ?? 1;
-
-		}
-
-		data[ stride + 3 ] = materialData.metalness ?? 0;
-
-		if ( materialData.emissive ) {
-
-			data[ stride + 4 ] = materialData.emissive.r ?? materialData.emissive[ 0 ] ?? 0;
-			data[ stride + 5 ] = materialData.emissive.g ?? materialData.emissive[ 1 ] ?? 0;
-			data[ stride + 6 ] = materialData.emissive.b ?? materialData.emissive[ 2 ] ?? 0;
-
-		}
-
-		data[ stride + 7 ] = materialData.roughness ?? 1;
-		data[ stride + 8 ] = materialData.ior ?? 1.5;
-		data[ stride + 9 ] = materialData.transmission ?? 0;
-		data[ stride + 10 ] = materialData.thickness ?? 0.1;
-		data[ stride + 11 ] = materialData.emissiveIntensity ?? 1;
-
-		if ( materialData.attenuationColor ) {
-
-			data[ stride + 12 ] = materialData.attenuationColor.r ?? materialData.attenuationColor[ 0 ] ?? 1;
-			data[ stride + 13 ] = materialData.attenuationColor.g ?? materialData.attenuationColor[ 1 ] ?? 1;
-			data[ stride + 14 ] = materialData.attenuationColor.b ?? materialData.attenuationColor[ 2 ] ?? 1;
-
-		}
-
-		data[ stride + 15 ] = materialData.attenuationDistance ?? Infinity;
-		data[ stride + 16 ] = materialData.dispersion ?? 0;
-		data[ stride + 17 ] = materialData.visible ?? 1;
-		data[ stride + 18 ] = materialData.sheen ?? 0;
-		data[ stride + 19 ] = materialData.sheenRoughness ?? 1;
-
-		if ( materialData.sheenColor ) {
-
-			data[ stride + 20 ] = materialData.sheenColor.r ?? materialData.sheenColor[ 0 ] ?? 0;
-			data[ stride + 21 ] = materialData.sheenColor.g ?? materialData.sheenColor[ 1 ] ?? 0;
-			data[ stride + 22 ] = materialData.sheenColor.b ?? materialData.sheenColor[ 2 ] ?? 0;
-
-		}
-
-		data[ stride + 24 ] = materialData.specularIntensity ?? 1;
-
-		if ( materialData.specularColor ) {
-
-			data[ stride + 25 ] = materialData.specularColor.r ?? materialData.specularColor[ 0 ] ?? 1;
-			data[ stride + 26 ] = materialData.specularColor.g ?? materialData.specularColor[ 1 ] ?? 1;
-			data[ stride + 27 ] = materialData.specularColor.b ?? materialData.specularColor[ 2 ] ?? 1;
-
-		}
-
-		data[ stride + 28 ] = materialData.iridescence ?? 0;
-		data[ stride + 29 ] = materialData.iridescenceIOR ?? 1.3;
-
-		if ( materialData.iridescenceThicknessRange ) {
-
-			data[ stride + 30 ] = materialData.iridescenceThicknessRange[ 0 ] ?? 100;
-			data[ stride + 31 ] = materialData.iridescenceThicknessRange[ 1 ] ?? 400;
-
-		}
-
-		data[ stride + 32 ] = materialData.map ?? - 1;
-		data[ stride + 33 ] = materialData.normalMap ?? - 1;
-		data[ stride + 34 ] = materialData.roughnessMap ?? - 1;
-		data[ stride + 35 ] = materialData.metalnessMap ?? - 1;
-		data[ stride + 36 ] = materialData.emissiveMap ?? - 1;
-		data[ stride + 37 ] = materialData.bumpMap ?? - 1;
-
-		data[ stride + 38 ] = materialData.clearcoat ?? 0;
-		data[ stride + 39 ] = materialData.clearcoatRoughness ?? 0;
-		data[ stride + 40 ] = materialData.opacity ?? 1;
-		data[ stride + 41 ] = materialData.side ?? 0;
-		data[ stride + 42 ] = materialData.transparent ?? 0;
-		data[ stride + 43 ] = materialData.alphaTest ?? 0;
-		data[ stride + 44 ] = materialData.alphaMode ?? 0;
-		data[ stride + 45 ] = materialData.depthWrite ?? 1;
-		data[ stride + 46 ] = materialData.normalScale?.x ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
-		data[ stride + 47 ] = materialData.normalScale?.y ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
-		data[ stride + 48 ] = materialData.bumpScale ?? 1;
-		data[ stride + 49 ] = materialData.displacementScale ?? 1;
-		data[ stride + 50 ] = materialData.displacementMap ?? - 1;
-
-		this.materialStorageAttr.needsUpdate = true;
-
-		const featuresChanged = this.rescanMaterialFeatures();
-		if ( featuresChanged ) {
-
-			this.injectMaterialFeatureDefines();
-
-		}
-
-		this.reset();
-
-	}
-
-	updateMaterialDataTexture( materialIndex, property, value ) {
-
-		this.updateMaterialProperty( materialIndex, property, value );
-
-	}
-
-	rebuildMaterialDataTexture( materialIndex, material ) {
-
-		this.updateMaterial( materialIndex, material );
-
-	}
-
-	// ===== UNIFORM SETTERS =====
-
-	setMaxBounces( bounces ) {
-
-		this.maxBounces.value = bounces;
-
-	}
-
-	setSamplesPerPixel( samples ) {
-
-		this.samplesPerPixel.value = samples;
-
-	}
-
-	setMaxSamples( samples ) {
-
-		this.maxSamples.value = samples;
-
-	}
-
-	setTransmissiveBounces( bounces ) {
-
-		this.transmissiveBounces.value = bounces;
-
-	}
-
-	setEnvironmentIntensity( intensity ) {
-
-		this.environmentIntensity.value = intensity;
-
-	}
-
-	setBackgroundIntensity( intensity ) {
-
-		this.backgroundIntensity.value = intensity;
-
-	}
-
-	setShowBackground( show ) {
-
-		this.showBackground.value = show ? 1 : 0;
-
-	}
-
-	setTransparentBackground( enabled ) {
-
-		this.transparentBackground.value = enabled ? 1 : 0;
-
-	}
-
-	setEnableEnvironment( enable ) {
-
-		this.enableEnvironment.value = enable ? 1 : 0;
-
-	}
-
-	setGlobalIlluminationIntensity( intensity ) {
-
-		this.globalIlluminationIntensity.value = intensity;
-
-	}
-
-	setExposure( exposure ) {
-
-		this.exposure.value = exposure;
-
-	}
-
-	setEnvironmentMatrix( matrix ) {
-
-		this.environmentMatrix.value.copy( matrix );
-
-	}
-
-	setEnableAccumulation( enable ) {
-
-		this.enableAccumulation.value = enable ? 1 : 0;
-
-	}
-
-	setAccumulationAlpha( alpha ) {
-
-		this.accumulationAlpha.value = alpha;
-
-	}
-
-	setCameraIsMoving( moving ) {
-
-		this.cameraIsMoving.value = moving ? 1 : 0;
-
-	}
-
-	setHasPreviousAccumulated( has ) {
-
-		this.hasPreviousAccumulated.value = has ? 1 : 0;
-
-	}
-
-	setTotalTriangleCount( count ) {
-
-		this.totalTriangleCount.value = count;
-
-	}
-
-	setVisMode( mode ) {
-
-		this.visMode.value = mode;
-
-	}
-
-	setDebugVisScale( scale ) {
-
-		this.debugVisScale.value = scale;
-
-	}
-
-	setEnableDOF( enable ) {
-
-		this.enableDOF.value = enable ? 1 : 0;
-
-	}
-
-	setFocusDistance( distance ) {
-
-		this.focusDistance.value = distance;
-
-	}
-
-	setFocalLength( length ) {
-
-		this.focalLength.value = length;
-
-	}
-
-	setAperture( aperture ) {
-
-		this.aperture.value = aperture;
-
-	}
-
-	setApertureScale( scale ) {
-
-		this.apertureScale.value = scale;
-
-	}
-
-	setSceneScale( scale ) {
-
-		this.sceneScale.value = scale;
-
-	}
-
-	setSamplingTechnique( technique ) {
-
-		this.samplingTechnique.value = technique;
-
-	}
-
-	setUseAdaptiveSampling( use ) {
-
-		this.useAdaptiveSampling.value = use ? 1 : 0;
-
-	}
-
-	setAdaptiveSamplingMin( min ) {
-
-		this.adaptiveSamplingMin.value = min;
-
-	}
-
-	setAdaptiveSamplingMax( max ) {
-
-		this.adaptiveSamplingMax.value = max;
-
-	}
-
-	setFireflyThreshold( threshold ) {
-
-		this.fireflyThreshold.value = threshold;
-
-	}
-
-	setEnableEmissiveTriangleSampling( enable ) {
-
-		this.enableEmissiveTriangleSampling.value = enable ? 1 : 0;
-
-	}
-
-	setEmissiveBoost( boost ) {
-
-		this.emissiveBoost.value = boost;
-
-	}
-
-	setUseEnvMapIS( use ) {
-
-		this.useEnvMapIS.value = use ? 1 : 0;
-
-	}
-
-	setEnvTotalSum( sum ) {
-
-		this.envTotalSum.value = sum;
-
-	}
-
-	setEnvResolution( width, height ) {
-
-		this.envResolution.value.set( width, height );
-
-	}
-
-	setSunDirection( direction ) {
-
-		this.sunDirection.value.copy( direction );
-
-	}
-
-	setSunAngularSize( size ) {
-
-		this.sunAngularSize.value = size;
-
-	}
-
-	setHasSun( hasSun ) {
-
-		this.hasSun.value = hasSun ? 1 : 0;
-
-	}
-
-	setDirectionalLights( lights ) {
-
-		this.directionalLightsData = lights;
-
-	}
-
-	setPointLights( lights ) {
-
-		this.pointLightsData = lights;
-
-	}
-
-	setSpotLights( lights ) {
-
-		this.spotLightsData = lights;
-
-	}
-
-	setAreaLights( lights ) {
-
-		this.areaLightsData = lights;
+		this.uniforms.set( name, value );
 
 	}
 
@@ -3018,36 +1351,6 @@ export class PathTracingStage extends PipelineStage {
 		this.lightBVHStorageNode.bufferCount = vec4Count;
 		this.lightBVHNodeCount.value = nodeCount;
 		console.log( `PathTracingStage: Light BVH ${nodeCount} nodes` );
-
-	}
-
-	setAdaptiveSamplingTexture( tex ) {
-
-		this.adaptiveSamplingTexture = tex;
-
-	}
-
-	setMaterialTextures( textures ) {
-
-		if ( textures.albedoMaps ) this.albedoMaps = textures.albedoMaps;
-		if ( textures.emissiveMaps ) this.emissiveMaps = textures.emissiveMaps;
-		if ( textures.normalMaps ) this.normalMaps = textures.normalMaps;
-		if ( textures.bumpMaps ) this.bumpMaps = textures.bumpMaps;
-		if ( textures.roughnessMaps ) this.roughnessMaps = textures.roughnessMaps;
-		if ( textures.metalnessMaps ) this.metalnessMaps = textures.metalnessMaps;
-		if ( textures.displacementMaps ) this.displacementMaps = textures.displacementMaps;
-
-	}
-
-	setRenderMode( mode ) {
-
-		this.renderMode.value = mode;
-
-	}
-
-	setSpheres( spheres ) {
-
-		this.spheres = spheres;
 
 	}
 
@@ -3094,7 +1397,7 @@ export class PathTracingStage extends PipelineStage {
 
 			await this.sdfs.rebuildMaterials( scene );
 			this.updateSceneUniforms();
-			this._updateSceneTextures();
+			this.shaderComposer.updateSceneTextures( this );
 			this.updateLights();
 			this.reset();
 
@@ -3146,39 +1449,23 @@ export class PathTracingStage extends PipelineStage {
 		// Dispose managers
 		this.tileManager?.dispose();
 		this.cameraOptimizer?.dispose();
-
-		// Dispose materials
-		this.accumMaterial?.dispose();
-		this.displayMaterial?.dispose();
+		this.materialData?.dispose();
+		this.environment?.dispose();
+		this.shaderComposer?.dispose();
 
 		// Dispose render targets
-		this._disposeRenderTargets();
+		this.renderTargets?.dispose();
 
 		// Dispose textures
 		this.blueNoiseTexture?.dispose();
 		this.placeholderTexture?.dispose();
-		this._envPlaceholder?.dispose();
 
 		// Clear data references
 		this.triangleStorageAttr = null;
 		this.triangleStorageNode = null;
 		this.bvhStorageAttr = null;
 		this.bvhStorageNode = null;
-		this.materialStorageAttr = null;
-		this.materialStorageNode = null;
-		this.environmentTexture = null;
 		this.placeholderTexture = null;
-
-		// Dispose environment
-		this.equirectHdrInfo?.dispose();
-		this.proceduralSkyRenderer?.dispose?.();
-		this.simpleSkyRenderer?.dispose?.();
-
-		// Clear texture nodes
-		this.prevFrameTexNode = null;
-		this.prevNormalDepthTexNode = null;
-		this.prevAlbedoTexNode = null;
-		this.displayTexNode = null;
 
 		this.isReady = false;
 
