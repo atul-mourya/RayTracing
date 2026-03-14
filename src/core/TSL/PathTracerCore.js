@@ -557,7 +557,7 @@ export const sampleBackgroundLighting = Fn( ( [
 
 		} ).Else( () => {
 
-			envColor.assign( sampled );
+			envColor.assign( sampled.mul( 2.0 ) );
 
 		} );
 

@@ -6,6 +6,7 @@
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
 - [ ] asvgf dont feel denoising effectively in realtime
+- [ ] occasional jarring flickers with auto-exposure
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI
