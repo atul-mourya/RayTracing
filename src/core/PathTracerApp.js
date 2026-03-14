@@ -578,12 +578,12 @@ export class PathTracerApp extends EventDispatcher {
 			},
 
 			// Effective exposure multiplier matching DisplayStage's pipeline:
-			//  • Manual:       pow(exposure, 4) with toneMappingExposure = 1.0
+			//  • Manual:       linear exposure with toneMappingExposure = 1.0
 			//  • AutoExposure: displayExposure = 1.0, toneMappingExposure = autoValue
 			// The tonemapping function receives this as its exposure parameter.
 			getExposure: () => this.autoExposureStage?.enabled
 				? this.renderer.toneMappingExposure
-				: Math.pow( this.exposure, 4.0 ),
+				: this.exposure,
 
 			// Current Three.js ToneMapping constant so OIDN can match the renderer.
 			getToneMapping: () => this.renderer.toneMapping,
@@ -1423,11 +1423,15 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		this.reset();
+
 	}
 
 	updateTextureTransform( materialIndex, textureName, transform ) {
 
 		this.pathTracingStage?.materialData.updateTextureTransform( materialIndex, textureName, transform );
+
+		this.reset();
 
 	}
 

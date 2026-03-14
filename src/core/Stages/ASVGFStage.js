@@ -505,6 +505,8 @@ export class ASVGFStage extends PipelineStage {
 		const motionTex = this._heatmapMotionTexNode;
 		const gradientTex = this._heatmapGradientTexNode;
 		const mode = this.debugMode;
+		const resW = this.resW;
+		const resH = this.resH;
 
 		const shader = Fn( () => {
 
@@ -523,12 +525,36 @@ export class ASVGFStage extends PipelineStage {
 
 			} ).ElseIf( mode.equal( int( 1 ) ), () => {
 
-				// Mode 1: Variance — raw input vs denoised output
-				const raw = rawColorTex.sample( coord ).xyz;
-				const denoised = colorTex.sample( coord ).xyz;
-				const rawLum = dot( raw, vec3( 0.2126, 0.7152, 0.0722 ) );
-				const denoisedLum = dot( denoised, vec3( 0.2126, 0.7152, 0.0722 ) );
-				const t = abs( rawLum.sub( denoisedLum ) ).mul( 5.0 ).clamp( 0.0, 1.0 );
+				// Mode 1: Spatial luminance variance of raw path tracer input.
+				// Computes E[L²] - E[L]² over a 3×3 neighbourhood, which correctly
+				// highlights noisy regions regardless of accumulation state.
+				const texelX = float( 1.0 ).div( float( resW ) );
+				const texelY = float( 1.0 ).div( float( resH ) );
+				const meanLum = float( 0.0 ).toVar();
+				const meanLumSq = float( 0.0 ).toVar();
+
+				for ( let dy = - 1; dy <= 1; dy ++ ) {
+
+					for ( let dx = - 1; dx <= 1; dx ++ ) {
+
+						const offset = vec3( texelX.mul( dx ), texelY.mul( dy ), 0.0 ).xy;
+						const s = rawColorTex.sample( coord.add( offset ) ).xyz;
+						const lum = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
+						meanLum.addAssign( lum );
+						meanLumSq.addAssign( lum.mul( lum ) );
+
+					}
+
+				}
+
+				meanLum.divAssign( 9.0 );
+				meanLumSq.divAssign( 9.0 );
+				const variance = max( meanLumSq.sub( meanLum.mul( meanLum ) ), float( 0.0 ) );
+
+				// Relative variance (normalise by mean to handle HDR range),
+				// then scale into 0-1 for the heatmap.
+				const relVar = variance.div( max( meanLum.mul( meanLum ), float( 0.0001 ) ) );
+				const t = relVar.mul( 10.0 ).clamp( 0.0, 1.0 );
 
 				// Blue → Cyan → Green → Yellow → Red
 				const r = t.sub( 0.5 ).mul( 4.0 ).clamp( 0.0, 1.0 );

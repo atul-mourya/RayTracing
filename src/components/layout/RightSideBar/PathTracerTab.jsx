@@ -276,7 +276,7 @@ const PathTracerTab = () => {
 					</>
 				) : (
 					<div className="flex items-center justify-between">
-						<Slider icon={Exposure} label={"Exposure"} min={0} max={5} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
+						<Slider icon={Exposure} label={"Exposure"} min={0} max={10} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
 					</div>
 				)}
 				<div className="flex items-center justify-between">

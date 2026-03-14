@@ -4,11 +4,8 @@
 
 ### Critical
 - [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
-- [ ] pasting material doenst honor texture transforms
-- [ ] inconsistancy between exposure value on auto-exposure enabled / disabled,
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
-- [ ] ASVGF varaince debug view mostly blue even with high noise
-- [ ] material property changes not seen when denoise completed.
+- [ ] asvgf dont feel denoising effectively in realtime
 
 ### RCA unknown
 - [ ] Soft shadows for directional lights not working when enabled from UI

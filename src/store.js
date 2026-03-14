@@ -1082,10 +1082,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				if ( val ) {
 
-					// When enabling: WebGPU DisplayStage applies its own pow(exposure, 4.0)
-					// curve on top of renderer.toneMappingExposure. Auto-exposure writes
-					// directly to toneMappingExposure, so neutralize the DisplayStage
-					// curve by setting its exposure to 1.0 (pow(1,4)=1).
+					// When enabling: auto-exposure writes directly to
+					// renderer.toneMappingExposure. Neutralize the DisplayStage
+					// manual exposure so it doesn't stack.
 					app.displayStage?.setExposure( 1.0 );
 
 				} else {

@@ -431,6 +431,33 @@ export class MaterialDataManager {
 		data[ stride + 49 ] = materialData.displacementScale ?? 1;
 		data[ stride + 50 ] = materialData.displacementMap ?? - 1;
 
+		// Texture transformation matrices (9 floats each, identity if missing)
+		const identity = [ 1, 0, 0, 0, 1, 0, 0, 0, 1 ];
+		const transformEntries = [
+			{ key: 'mapMatrix', offset: 52 },
+			{ key: 'normalMapMatrices', offset: 60 },
+			{ key: 'roughnessMapMatrices', offset: 68 },
+			{ key: 'metalnessMapMatrices', offset: 76 },
+			{ key: 'emissiveMapMatrices', offset: 84 },
+			{ key: 'bumpMapMatrices', offset: 92 },
+			{ key: 'displacementMapMatrices', offset: 100 }
+		];
+
+		for ( const { key, offset } of transformEntries ) {
+
+			const matrix = materialData[ key ] ?? identity;
+			for ( let i = 0; i < 9; i ++ ) {
+
+				if ( stride + offset + i < data.length ) {
+
+					data[ stride + offset + i ] = matrix[ i ];
+
+				}
+
+			}
+
+		}
+
 		this.materialStorageAttr.needsUpdate = true;
 
 		const featuresChanged = this.rescanMaterialFeatures();

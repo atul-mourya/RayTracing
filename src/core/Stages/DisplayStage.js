@@ -24,7 +24,7 @@ export class DisplayStage extends PipelineStage {
 
 		this.renderer = renderer;
 
-		// Exposure uniform — pow(exposure, 4.0) curve
+		// Exposure uniform — linear multiplier (consistent with auto-exposure)
 		this.exposure = uniform( options.exposure ?? 1.0 );
 
 		// Transparent background toggle
@@ -37,7 +37,7 @@ export class DisplayStage extends PipelineStage {
 
 		// Build material once (TSL compiles on first render)
 		let displayShader = texSample.xyz
-			.mul( this.exposure.pow( 4.0 ) );
+			.mul( this.exposure );
 
 		// Additively blend outline colour when provided (OutlineNode drives
 		// its own multi-pass rendering via updateBefore, so including it in
