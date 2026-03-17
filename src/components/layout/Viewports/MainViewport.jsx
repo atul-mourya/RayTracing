@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useEffect } from 'react';
+import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import Viewport3D from './Viewport3D';
 import DropzoneOverlay from './DropzoneOverlay';
 import LoadingOverlay from './LoadingOverlay';
@@ -10,6 +10,7 @@ import { getApp } from '@/core/appProxy';
 const MainViewport = ( { mode = "preview" } ) => {
 
 	const [ isDragging, setIsDragging ] = useState( false );
+	const dragCounter = useRef( 0 );
 	const setEnvironment = useAssetsStore( useCallback( state => state.setEnvironment, [] ) );
 	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
 
@@ -93,18 +94,27 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 	}, [ toast, setEnvironment, setLoading, environmentMode, handleEnvironmentModeChange ] );
 
-	// Drag event handlers
+	// Drag event handlers — use a counter to avoid flickering when
+	// the cursor moves over child elements (common issue on Windows).
+	const handleDragEnter = useCallback( ( e ) => {
+
+		e.preventDefault();
+		dragCounter.current++;
+		if ( dragCounter.current === 1 ) setIsDragging( true );
+
+	}, [] );
+
 	const handleDragOver = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setIsDragging( true );
 
 	}, [] );
 
 	const handleDragLeave = useCallback( ( e ) => {
 
 		e.preventDefault();
-		setIsDragging( false );
+		dragCounter.current--;
+		if ( dragCounter.current === 0 ) setIsDragging( false );
 
 	}, [] );
 
@@ -112,6 +122,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 	const handleDrop = useCallback( ( e ) => {
 
 		e.preventDefault();
+		dragCounter.current = 0;
 		setIsDragging( false );
 
 		const file = e.dataTransfer.files[ 0 ];
@@ -180,6 +191,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 	return (
 		<div className="w-full h-full relative"
+			onDragEnter={handleDragEnter}
 			onDragOver={handleDragOver}
 			onDragLeave={handleDragLeave}
 			onDrop={handleDrop}
