@@ -12,7 +12,7 @@ export const generateViewportStyles = ( canvasWidth, canvasHeight, viewportScale
 		height: `${canvasHeight}px`,
 		transform: `scale(${viewportScale / 100})`,
 		transformOrigin: 'center center',
-		transition: "transform 0.1s ease-out"
+		transition: "none"
 	};
 
 	const containerStyle = {

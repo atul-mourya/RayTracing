@@ -1616,114 +1616,93 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Canvas configuration handlers
 	handleConfigureForPreview: () => {
 
-		const a = get();
-		Object.entries( PREVIEW_STATE ).forEach( ( [ k, v ] ) => {
-
-			const setter = `set${k[ 0 ].toUpperCase()}${k.slice( 1 )}`;
-			const value = Array.isArray( v ) ? [ ...v ] : ( v && typeof v === 'object' ) ? { ...v } : v;
-			a[ setter ]?.( value );
-
-		} );
+		set( { ...PREVIEW_STATE } );
 
 		const app = getApp();
 		if ( ! app ) return;
 		app.controls.enabled = true;
 
-		requestAnimationFrame( () => {
+		// Batch uniform updates directly to avoid per-setter reset() calls
+		app.maxSamples = PREVIEW_STATE.maxSamples;
+		app.pathTracingStage?.setUniform( 'maxSamples', PREVIEW_STATE.maxSamples );
+		app.maxBounces = PREVIEW_STATE.bounces;
+		app.pathTracingStage?.setUniform( 'maxBounces', PREVIEW_STATE.bounces );
+		app.samplesPerPixel = PREVIEW_STATE.samplesPerPixel;
+		app.pathTracingStage?.setUniform( 'samplesPerPixel', PREVIEW_STATE.samplesPerPixel );
+		app.transmissiveBounces = PREVIEW_STATE.transmissiveBounces;
+		app.pathTracingStage?.setUniform( 'transmissiveBounces', PREVIEW_STATE.transmissiveBounces );
 
-			app.setMaxSamples( PREVIEW_STATE.maxSamples );
-			app.setMaxBounces( PREVIEW_STATE.bounces );
-			app.setSamplesPerPixel( PREVIEW_STATE.samplesPerPixel );
-			app.setRenderMode( PREVIEW_STATE.renderMode );
-			app.setTransmissiveBounces( PREVIEW_STATE.transmissiveBounces );
+		app.setTileCount( PREVIEW_STATE.tiles );
+		if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = PREVIEW_STATE.tilesHelper;
+		app.pathTracingStage?.updateCompletionThreshold?.();
 
-			// Use setTileCount to properly update completion threshold
-			app.setTileCount( PREVIEW_STATE.tiles );
-			if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = PREVIEW_STATE.tilesHelper;
+		if ( app.denoiser ) {
 
-			// Ensure completion threshold is updated after render mode change
-			app.pathTracingStage?.updateCompletionThreshold?.();
+			app.denoiser.abort();
+			app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
+			app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
+			app.denoiser.toggleHDR( PREVIEW_STATE.oidnHdr );
+			app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
 
-			// Abort any ongoing denoising before switching modes
-			if ( app.denoiser ) {
+		}
 
-				app.denoiser.abort();
-				app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
-				app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
-				app.denoiser.toggleHDR( PREVIEW_STATE.oidnHdr );
-				app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
+		const state = get();
+		const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
+		set( { canvasWidth: width, canvasHeight: height } );
+		app.setCanvasSize( width, height );
 
-			}
+		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
+		app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
 
-			// Restore canvas to preview resolution
-			const state = get();
-			const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
-			set( { canvasWidth: width, canvasHeight: height } );
-			app.setCanvasSize( width, height );
-
-			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
-			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
-
-			app.pauseRendering = false;
-			app.reset();
-
-		} );
+		app.needsReset = false;
+		app.pauseRendering = false;
+		app.reset();
 
 	},
 
 	handleConfigureForFinalRender: () => {
 
-		const a = get();
-		Object.entries( FINAL_RENDER_STATE ).forEach( ( [ k, v ] ) => {
-
-			const setter = `set${k.charAt( 0 ).toUpperCase()}${k.slice( 1 )}`;
-			a[ setter ]?.( typeof v === 'number' ? v : v.toString() );
-
-		} );
+		set( { ...FINAL_RENDER_STATE } );
 
 		const app = getApp();
 		if ( ! app ) return;
 		app.controls.enabled = false;
 
-		requestAnimationFrame( () => {
+		// Batch uniform updates directly to avoid per-setter reset() calls
+		app.maxSamples = FINAL_RENDER_STATE.maxSamples;
+		app.pathTracingStage?.setUniform( 'maxSamples', FINAL_RENDER_STATE.maxSamples );
+		app.maxBounces = FINAL_RENDER_STATE.bounces;
+		app.pathTracingStage?.setUniform( 'maxBounces', FINAL_RENDER_STATE.bounces );
+		app.samplesPerPixel = FINAL_RENDER_STATE.samplesPerPixel;
+		app.pathTracingStage?.setUniform( 'samplesPerPixel', FINAL_RENDER_STATE.samplesPerPixel );
+		app.transmissiveBounces = FINAL_RENDER_STATE.transmissiveBounces;
+		app.pathTracingStage?.setUniform( 'transmissiveBounces', FINAL_RENDER_STATE.transmissiveBounces );
 
-			app.setMaxSamples( FINAL_RENDER_STATE.maxSamples );
-			app.setMaxBounces( FINAL_RENDER_STATE.bounces );
-			app.setSamplesPerPixel( FINAL_RENDER_STATE.samplesPerPixel );
-			app.setRenderMode( FINAL_RENDER_STATE.renderMode );
-			app.setTransmissiveBounces( FINAL_RENDER_STATE.transmissiveBounces );
+		app.setTileCount( FINAL_RENDER_STATE.tiles );
+		if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = FINAL_RENDER_STATE.tilesHelper;
+		app.pathTracingStage?.updateCompletionThreshold?.();
 
-			// Use setTileCount to properly update completion threshold
-			app.setTileCount( FINAL_RENDER_STATE.tiles );
-			if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = FINAL_RENDER_STATE.tilesHelper;
+		if ( app.denoiser ) {
 
-			// Ensure completion threshold is updated after render mode change
-			app.pathTracingStage?.updateCompletionThreshold?.();
+			app.denoiser.abort();
+			app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
+			app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
+			app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHdr );
+			app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
 
-			// Abort any ongoing denoising before switching modes
-			if ( app.denoiser ) {
+		}
 
-				app.denoiser.abort();
-				app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
-				app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
-				app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHdr );
-				app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
+		const state = get();
+		const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
+		set( { canvasWidth: width, canvasHeight: height } );
+		app.setCanvasSize( width, height );
 
-			}
+		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
+		app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
 
-			// Resize canvas to final render resolution with current aspect ratio
-			const state = get();
-			const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
-			set( { canvasWidth: width, canvasHeight: height } );
-			app.setCanvasSize( width, height );
-
-			app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
-			app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
-
-			app.pauseRendering = false;
-			app.reset();
-
-		} );
+		app.needsReset = false;
+		app.pauseRendering = false;
+		app.reset();
 
 	},
 
