@@ -196,7 +196,7 @@ export const pathTracerMain = ( params ) => {
 			);
 			samplesCount.assign( adaptiveSamples );
 
-			// Handle converged pixels
+			// Handle converged pixels — carry forward all data from previous frame
 			If( samplesCount.equal( int( 0 ) ), () => {
 
 				If( enableAccumulation.and( hasPreviousAccumulated ), () => {
@@ -205,6 +205,12 @@ export const pathTracerMain = ( params ) => {
 					const prevSample = texture( prevAccumTexture, prevUV, 0 );
 					pixelColor.assign( prevSample );
 					pixelAlpha.assign( prevSample.w );
+
+					// Carry forward MRT data so accumulation blend preserves them
+					// (without this, default worldNormal/linearDepth slowly corrupt the MRT)
+					const prevND = texture( prevNormalDepthTexture, prevUV, 0 );
+					worldNormal.assign( prevND.xyz.mul( 2.0 ).sub( 1.0 ) );
+					linearDepth.assign( prevND.w );
 
 				} ).Else( () => {
 

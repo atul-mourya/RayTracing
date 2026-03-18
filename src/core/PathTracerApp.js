@@ -1322,6 +1322,19 @@ export class PathTracerApp extends EventDispatcher {
 		this.useAdaptiveSampling = use;
 		this.pathTracingStage?.setUniform( 'useAdaptiveSampling', use );
 		use ? this.adaptiveSamplingStage?.enable() : this.adaptiveSamplingStage?.disable();
+
+		// AdaptiveSamplingStage reads variance:output from VarianceEstimationStage
+		if ( use ) {
+
+			this.varianceEstimationStage?.enable();
+
+		} else if ( ! this.asvgfStage?.enabled ) {
+
+			// Only disable if ASVGF (the other consumer) is also off
+			this.varianceEstimationStage?.disable();
+
+		}
+
 		this.reset();
 
 	}

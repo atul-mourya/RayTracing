@@ -1,60 +1,55 @@
-import { Fn, wgslFn, uv, uniform, texture, float, int, uint, ivec2, uvec2, If, min, max,
-	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
+import { Fn, wgslFn, uv, uniform, texture, int, uint, ivec2, uvec2, If,
+	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { DEFAULT_STATE } from '../../Constants.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
-import { luminance } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
 /**
- * Map variance to normalised sample count with convergence logic.
+ * Map temporal variance to normalised sample count with convergence logic.
+ *
+ * Uses temporal variance (frame-to-frame pixel change from VarianceEstimationStage)
+ * as the primary convergence signal, with a small spatial variance boost for noisy
+ * neighbourhoods where the temporal EMA may underestimate.
  *
  * Returns vec4f(normalizedSamples, varianceRatio, converged, 1.0).
  */
 const computeSamplingGuidance = /*@__PURE__*/ wgslFn( `
 	fn computeSamplingGuidance(
-		variance: f32,
+		temporalVariance: f32,
+		spatialVariance: f32,
 		threshold: f32,
 		frame: i32,
 		minFrames: i32,
 		convThreshold: f32,
-		materialBias: f32,
-		edgeStrength: f32,
-		edgeBias: f32,
-		convergenceSpeed: f32
+		sensitivity: f32
 	) -> vec4f {
 
-		// Base requirement scaled by materialBias (higher = more samples for variable regions)
-		var baseReq = clamp( variance / threshold, 0.0, 1.0 ) * materialBias;
+		// Temporal variance: how much pixel value changes frame-to-frame
+		// This directly measures rendering noise / convergence
+		let varianceRatio = clamp( temporalVariance / threshold, 0.0, 1.0 );
 
-		// Edge enhancement — high contrast edges get extra samples
-		let edgeContribution = edgeStrength * ( edgeBias - 1.0 ) * 0.5;
-		baseReq = clamp( baseReq + edgeContribution, 0.0, 1.0 );
+		// Apply sensitivity — higher values assign more samples to noisy pixels
+		var normalizedSamples = clamp( varianceRatio * sensitivity, 0.0, 1.0 );
 
-		// Progressive convergence reduction after enough frames
-		if ( frame > minFrames ) {
+		// Small spatial boost for noisy neighbourhoods where temporal EMA may lag
+		let spatialBoost = clamp( spatialVariance / ( threshold * 4.0 ), 0.0, 0.2 );
+		normalizedSamples = clamp( normalizedSamples + spatialBoost, 0.0, 1.0 );
 
-			let framesPast = f32( frame - minFrames );
-			// convergenceSpeed: higher = faster convergence (fewer samples over time)
-			let convergenceWeight = clamp( framesPast * convergenceSpeed / 200.0, 0.0, 0.7 );
-			baseReq *= 1.0 - convergenceWeight;
+		// Warm-up: variance estimates need a few frames to stabilise
+		if ( frame < minFrames ) {
 
-		}
-
-		// Early-frame boost
-		if ( frame < 5 ) {
-
-			baseReq = max( baseReq, 0.6 );
+			let warmupFactor = f32( frame ) / f32( minFrames );
+			normalizedSamples = mix( 1.0, normalizedSamples, warmupFactor * warmupFactor );
 
 		}
 
-		let normalizedSamples = clamp( baseReq, 0.0, 1.0 );
-
+		// Convergence: mark pixel when temporal variance drops below threshold
 		var converged = 0.0;
-		if ( variance < convThreshold && frame > minFrames ) {
+		if ( temporalVariance < convThreshold && frame > minFrames ) {
 
 			converged = 1.0;
 
@@ -62,7 +57,7 @@ const computeSamplingGuidance = /*@__PURE__*/ wgslFn( `
 
 		return vec4f(
 			normalizedSamples,
-			clamp( variance / threshold, 0.0, 1.0 ),
+			varianceRatio,
 			converged,
 			1.0
 		);
@@ -103,21 +98,17 @@ const heatmapGradient = /*@__PURE__*/ wgslFn( `
 /**
  * WebGPU Adaptive Sampling Stage (Compute Shader)
  *
- * Computes per-pixel variance from the path tracer colour output and
+ * Reads per-pixel temporal variance from VarianceEstimationStage and
  * produces a guidance texture that tells the path tracer how many
  * samples each pixel needs.
  *
- * Uses compute shader with workgroup shared memory for the 3×3
- * neighbourhood variance computation. Each 8×8 workgroup loads a
- * 10×10 tile into shared memory (8×8 core + 1px border), eliminating
- * redundant texture reads across neighbouring pixels.
- *
  * Algorithm:
- *   1. Cooperative tile loading → shared memory (luminance from color)
- *   2. Barrier
- *   3. Spatial variance from 3×3 shared memory neighbourhood
- *   4. Map variance → normalised sample count with convergence logic
- *   5. Write (normalizedSamples, varianceRatio, converged, 1) to StorageTexture
+ *   1. Read temporal + spatial variance from variance:output
+ *   2. Map temporal variance → normalised sample count (0–1)
+ *   3. Apply sensitivity scaling and spatial boost
+ *   4. Warm-up ramp for early frames (variance EMA not yet stable)
+ *   5. Mark converged pixels (temporal variance below threshold)
+ *   6. Write (normalizedSamples, varianceRatio, converged, 1) to StorageTexture
  *
  * Output format (RGBA HalfFloat):
  *   R — normalizedSamples  (0-1, multiply by adaptiveSamplingMax)
@@ -131,7 +122,7 @@ const heatmapGradient = /*@__PURE__*/ wgslFn( `
  * ensuring variance is computed from complete frame data.
  *
  * Textures published:  adaptiveSampling:output
- * Textures read:       pathtracer:color
+ * Textures read:       variance:output (from VarianceEstimationStage)
  */
 export class AdaptiveSamplingStage extends PipelineStage {
 
@@ -159,8 +150,8 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		this.resolutionWidth = uniform( options.width || 1024 );
 		this.resolutionHeight = uniform( options.height || 1024 );
 
-		// Convergence parameters
-		this.minConvergenceFrames = uniform( 50 );
+		// Convergence parameters — temporal variance stabilises after ~10 frames (EMA alpha=0.1)
+		this.minConvergenceFrames = uniform( 10 );
 		this.convergenceThreshold = uniform( 0.005 );
 
 		// StorageTexture for compute output (replaces RenderTarget)
@@ -189,10 +180,10 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		this._dispatchX = Math.ceil( w / 8 );
 		this._dispatchY = Math.ceil( h / 8 );
 
-		// Input texture node — updated each frame from context
+		// Input: variance texture from VarianceEstimationStage
 		// Use regular TextureNode (not StorageTexture) as compile-time placeholder so
 		// textureLoad codegen includes the required level parameter for texture_2d
-		this._colorTexNode = new TextureNode();
+		this._varianceTexNode = new TextureNode();
 
 		// Build compute + heatmap shaders
 		this._buildCompute();
@@ -213,25 +204,19 @@ export class AdaptiveSamplingStage extends PipelineStage {
 	}
 
 	/**
-	 * Build compute shader for 3×3 neighbourhood variance.
+	 * Build compute shader that maps variance → sampling guidance.
+	 *
+	 * Reads per-pixel temporal and spatial variance from VarianceEstimationStage
+	 * output and maps it to a normalised sample count. No shared memory needed —
+	 * each thread processes one pixel independently.
 	 *
 	 * Workgroup: [8,8,1] — 64 threads per workgroup
-	 * Shared memory: 10×10 = 100 floats (luminance tile)
-	 *
-	 * Tile loading: 64 threads cooperatively load 100 texels.
-	 *   - Threads 0-63 each load position [linearIdx] in the 10×10 tile
-	 *   - Threads 0-35 also load position [64+linearIdx] for remaining 36 texels
-	 *
-	 * After barrier, each thread reads its 3×3 neighbourhood from
-	 * shared memory (center at localId + 1) — zero redundant texture reads.
 	 */
 	_buildCompute() {
 
-		const colorTex = this._colorTexNode;
+		const varianceTex = this._varianceTexNode;
 		const threshold = this.varianceThreshold;
-		const matBias = this.materialBias;
-		const eBias = this.edgeBias;
-		const convSpeed = this.convergenceSpeed;
+		const sensitivity = this.materialBias; // repurposed: higher = more samples for noisy pixels
 		const frame = this.frameNumberUniform;
 		const minFrames = this.minConvergenceFrames;
 		const convThreshold = this.convergenceThreshold;
@@ -239,93 +224,26 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		const resH = this.resolutionHeight;
 		const outputTex = this._outputStorageTex;
 
-		const TILE_W = 10; // 8 + 2 border
-		const TILE_TOTAL = TILE_W * TILE_W; // 100
 		const WG_SIZE = 8;
-		const WG_THREADS = WG_SIZE * WG_SIZE; // 64
-		const EXTRA_LOAD = TILE_TOTAL - WG_THREADS; // 36
-
-		const sharedLum = workgroupArray( 'float', TILE_TOTAL );
 
 		const computeFn = Fn( () => {
 
-			const lx = localId.x;
-			const ly = localId.y;
-			const linearIdx = ly.mul( WG_SIZE ).add( lx );
-
-			// Tile origin in global image coords (1px border before the core)
-			const tileOriginX = int( workgroupId.x ).mul( WG_SIZE ).sub( 1 );
-			const tileOriginY = int( workgroupId.y ).mul( WG_SIZE ).sub( 1 );
-
-			// ── Cooperative tile loading ─────────────────────
-
-			// Load #1: all 64 threads load positions 0-63
-			const sx1 = linearIdx.mod( TILE_W );
-			const sy1 = linearIdx.div( TILE_W );
-			const gx1 = tileOriginX.add( int( sx1 ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-			const gy1 = tileOriginY.add( int( sy1 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-
-			const sColor1 = textureLoad( colorTex, ivec2( gx1, gy1 ) ).xyz;
-			sharedLum.element( linearIdx ).assign( luminance( sColor1 ) );
-
-			// Load #2: threads 0-35 load positions 64-99
-			If( linearIdx.lessThan( uint( EXTRA_LOAD ) ), () => {
-
-				const idx2 = linearIdx.add( uint( WG_THREADS ) );
-				const sx2 = idx2.mod( TILE_W );
-				const sy2 = idx2.div( TILE_W );
-				const gx2 = tileOriginX.add( int( sx2 ) ).clamp( int( 0 ), int( resW ).sub( 1 ) );
-				const gy2 = tileOriginY.add( int( sy2 ) ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-
-				const sColor2 = textureLoad( colorTex, ivec2( gx2, gy2 ) ).xyz;
-				sharedLum.element( idx2 ).assign( luminance( sColor2 ) );
-
-			} );
-
-			workgroupBarrier();
-
-			// ── 3×3 variance + edge detection from shared memory ──
-			// Thread (lx, ly) → shared memory center at (lx+1, ly+1)
-
-			const mean = float( 0.0 ).toVar();
-			const meanSq = float( 0.0 ).toVar();
-			const minLum = float( 1e6 ).toVar();
-			const maxLum = float( 0.0 ).toVar();
-
-			for ( let dy = - 1; dy <= 1; dy ++ ) {
-
-				for ( let dx = - 1; dx <= 1; dx ++ ) {
-
-					const sharedIdx = ly.add( 1 + dy ).mul( TILE_W ).add( lx.add( 1 + dx ) );
-					const val = sharedLum.element( sharedIdx );
-					mean.addAssign( val );
-					meanSq.addAssign( val.mul( val ) );
-					minLum.assign( min( minLum, val ) );
-					maxLum.assign( max( maxLum, val ) );
-
-				}
-
-			}
-
-			mean.divAssign( 9.0 );
-			meanSq.divAssign( 9.0 );
-
-			// Variance = E[X^2] - E[X]^2
-			const variance = meanSq.sub( mean.mul( mean ) ).max( 0.0 );
-
-			// Edge strength: normalized luminance range in 3×3 neighbourhood
-			const edgeStrength = maxLum.sub( minLum ).clamp( 0.0, 1.0 );
-
-			// ── Bounds check and output ─────────────────────
-
-			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( lx ) );
-			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( ly ) );
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
+				// Variance texture: R=mean, G=meanSq, B=temporalVariance, A=spatialVariance
+				const varianceData = textureLoad( varianceTex, ivec2( gx, gy ) );
+
 				const result = computeSamplingGuidance(
-					variance, threshold, int( frame ), int( minFrames ), convThreshold,
-					matBias, edgeStrength, eBias, convSpeed
+					varianceData.z, // temporal variance
+					varianceData.w, // spatial variance
+					threshold,
+					int( frame ),
+					int( minFrames ),
+					convThreshold,
+					sensitivity
 				);
 
 				textureStore(
@@ -392,12 +310,12 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 		this.frameNumberUniform.value = this.frameNumber;
 
-		// Get path tracer colour output from context
-		const colorTexture = context.getTexture( 'pathtracer:color' );
-		if ( ! colorTexture ) return;
+		// Get temporal/spatial variance from VarianceEstimationStage
+		const varianceTexture = context.getTexture( 'variance:output' );
+		if ( ! varianceTexture ) return;
 
-		// Auto-match storage texture size to path tracer output
-		const img = colorTexture.image;
+		// Auto-match storage texture size to variance output
+		const img = varianceTexture.image;
 		if ( img && img.width > 0 && img.height > 0 &&
 			( img.width !== this._outputStorageTex.image.width ||
 			  img.height !== this._outputStorageTex.image.height ) ) {
@@ -407,9 +325,9 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		}
 
 		// Update input texture (no shader recompile, just swap value)
-		this._colorTexNode.value = colorTexture;
+		this._varianceTexNode.value = varianceTexture;
 
-		// Compute dispatch — variance computation via shared memory
+		// Compute dispatch — map variance → sampling guidance
 		this.renderer.compute( this._computeNode );
 
 		// Publish guidance texture for PathTracingStage to consume

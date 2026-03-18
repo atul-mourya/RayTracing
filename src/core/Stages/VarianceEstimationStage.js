@@ -318,6 +318,18 @@ export class VarianceEstimationStage extends PipelineStage {
 
 		this.currentMoments = 0;
 
+		// Re-initialize both StorageTextures to near-zero so stale temporal
+		// data from a previous scene/camera state doesn't leak into the new
+		// variance estimates. Uses the same compile-safe EmptyTexture read path.
+		if ( this._compiled ) {
+
+			this._readTexNodeA.value = this._storageTexA;
+			this._readTexNodeB.value = this._storageTexB;
+			this.renderer.compute( this._computeNodeA );
+			this.renderer.compute( this._computeNodeB );
+
+		}
+
 	}
 
 	setSize( width, height ) {

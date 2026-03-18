@@ -704,6 +704,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			}
 
+			// Clean up stale variance context when disabling
+			if ( ! val && app.pipeline?.context && ! app.asvgfStage?.enabled ) {
+
+				app.pipeline.context.removeTexture( 'variance:output' );
+
+			}
+
 		}
 	),
 
@@ -870,7 +877,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Disable all real-time denoisers first (OIDN remains independent)
 			if ( app.asvgfStage ) app.asvgfStage.enabled = false;
-			if ( app.varianceEstimationStage ) app.varianceEstimationStage.enabled = false;
+			// Keep varianceEstimation alive if adaptive sampling still needs it
+			if ( app.varianceEstimationStage && ! app.useAdaptiveSampling ) app.varianceEstimationStage.enabled = false;
 			if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = false;
 			if ( app.edgeAwareFilteringStage ) app.edgeAwareFilteringStage.setFilteringEnabled( false );
 			if ( app.ssrcStage ) app.ssrcStage.enabled = false;
