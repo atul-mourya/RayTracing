@@ -375,7 +375,13 @@ class TextureCache {
 
 	set( key, texture ) {
 
-		if ( this.cache.size >= this.maxSize && ! this.cache.has( key ) ) {
+		if ( this.cache.has( key ) ) {
+
+			// Remove stale access order entry to prevent duplicates
+			const index = this.accessOrder.indexOf( key );
+			if ( index > - 1 ) this.accessOrder.splice( index, 1 );
+
+		} else if ( this.cache.size >= this.maxSize ) {
 
 			this.evictLRU();
 

@@ -938,6 +938,19 @@ export const Trace = Fn( ( [
 			brdfValue.assign( brdfSample.value );
 			brdfPdf.assign( brdfSample.pdf );
 
+			// Sync psCachedClassification for downstream consumers (importance sampling, Russian roulette).
+			// generateSampledDirection computed the correct classification internally via materialIndex
+			// guard, but TSL Fn can't write back to the caller's variable — update it here.
+			If( psLastMaterialIndex.notEqual( hitInfo.materialIndex ).or( psClassificationCached.not() ), () => {
+
+				psCachedClassification.assign( classifyMaterial(
+					material.metalness, material.roughness,
+					material.transmission, material.clearcoat,
+					material.emissive,
+				) );
+
+			} );
+
 			// Update cache state after generateSampledDirection
 			psClassificationCached.assign( tslBool( true ) );
 			psLastMaterialIndex.assign( hitInfo.materialIndex );
@@ -1171,6 +1184,10 @@ export const Trace = Fn( ( [
 
 		// Increment effective bounces
 		effectiveBounces.addAssign( 1 );
+
+		// Reset per-bounce caches so next iteration recomputes for its own material
+		psWeightsComputed.assign( tslBool( false ) );
+		psMaterialCacheCached.assign( tslBool( false ) );
 
 	} );
 
