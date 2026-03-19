@@ -337,7 +337,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	performanceModeAdaptive: 'medium',
 
 	adaptiveSamplingMaterialBias: 1.2,
-	adaptiveSamplingEdgeBias: 1.5,
 	adaptiveSamplingConvergenceSpeed: 2.0,
 	adaptiveSamplingQualityPreset: 'balanced',
 
@@ -536,26 +535,23 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			performance: {
 				adaptiveSamplingMin: 1,
 				adaptiveSamplingMax: 4,
-				adaptiveSamplingVarianceThreshold: 0.01,
+				adaptiveSamplingVarianceThreshold: 0.2,
 				adaptiveSamplingMaterialBias: 1.0,
-				adaptiveSamplingEdgeBias: 1.2,
-				adaptiveSamplingConvergenceSpeed: 3.0
+				adaptiveSamplingConvergenceSpeed: 3.0 // aggressive convergence (scales threshold up)
 			},
 			balanced: {
 				adaptiveSamplingMin: 2,
 				adaptiveSamplingMax: 8,
-				adaptiveSamplingVarianceThreshold: 0.005,
+				adaptiveSamplingVarianceThreshold: 0.1,
 				adaptiveSamplingMaterialBias: 1.2,
-				adaptiveSamplingEdgeBias: 1.5,
 				adaptiveSamplingConvergenceSpeed: 2.0
 			},
 			quality: {
 				adaptiveSamplingMin: 4,
 				adaptiveSamplingMax: 16,
-				adaptiveSamplingVarianceThreshold: 0.002,
+				adaptiveSamplingVarianceThreshold: 0.05,
 				adaptiveSamplingMaterialBias: 1.5,
-				adaptiveSamplingEdgeBias: 2.0,
-				adaptiveSamplingConvergenceSpeed: 1.0
+				adaptiveSamplingConvergenceSpeed: 1.0 // conservative convergence
 			}
 		};
 
@@ -580,7 +576,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			app.adaptiveSamplingStage.setAdaptiveSamplingParameters( {
 				threshold: settings.adaptiveSamplingVarianceThreshold,
 				materialBias: settings.adaptiveSamplingMaterialBias,
-				edgeBias: settings.adaptiveSamplingEdgeBias,
 				convergenceSpeedUp: settings.adaptiveSamplingConvergenceSpeed,
 			} );
 

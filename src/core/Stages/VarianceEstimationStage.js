@@ -1,7 +1,7 @@
 import { Fn, wgslFn, float, int, uint, ivec2, uvec2, uniform, If, max,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { TextureNode, StorageTexture } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
+import { FloatType, RGBAFormat, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { luminance } from '../TSL/Common.js';
 
@@ -95,20 +95,24 @@ export class VarianceEstimationStage extends PipelineStage {
 
 		// LinearFilter so downstream fragment shaders can sample these without hitting
 		// Three.js WGSL codegen bug (textureLoad without level for StorageTextures)
+		// FloatType (f32) required — HalfFloat's ~3.3 decimal digits cause catastrophic
+		// cancellation in (meanSq - mean²) for converged pixels, producing a variance
+		// floor of ~0.0001 that the (frame+1)² scaling amplifies to enormous values.
 		this._storageTexA = new StorageTexture( w, h );
-		this._storageTexA.type = HalfFloatType;
+		this._storageTexA.type = FloatType;
 		this._storageTexA.format = RGBAFormat;
 		this._storageTexA.minFilter = LinearFilter;
 		this._storageTexA.magFilter = LinearFilter;
 
 		this._storageTexB = new StorageTexture( w, h );
-		this._storageTexB.type = HalfFloatType;
+		this._storageTexB.type = FloatType;
 		this._storageTexB.format = RGBAFormat;
 		this._storageTexB.minFilter = LinearFilter;
 		this._storageTexB.magFilter = LinearFilter;
 
 		this.currentMoments = 0; // 0 = write A, read B; 1 = write B, read A
 		this._compiled = false;
+		this._needsWarmReset = false;
 
 		// Dispatch dimensions
 		this._dispatchX = Math.ceil( w / 8 );
@@ -294,6 +298,20 @@ export class VarianceEstimationStage extends PipelineStage {
 		this._readTexNodeA.value = this._storageTexA;
 		this._readTexNodeB.value = this._storageTexB;
 
+		// Warm reset: initialize BOTH ping-pong textures to current scene data
+		// using alpha=1.0 so mean=currentLum, meanSq=currentLum², variance=0.
+		// This avoids ~30 frames of EMA convergence from stale pre-reset data.
+		if ( this._needsWarmReset ) {
+
+			const savedAlpha = this.temporalAlpha.value;
+			this.temporalAlpha.value = 1.0;
+			this.renderer.compute( this._computeNodeA );
+			this.renderer.compute( this._computeNodeB );
+			this.temporalAlpha.value = savedAlpha;
+			this._needsWarmReset = false;
+
+		}
+
 		// Dispatch correct ping-pong direction
 		const computeNode = this.currentMoments === 0
 			? this._computeNodeA // write A, read B
@@ -317,18 +335,10 @@ export class VarianceEstimationStage extends PipelineStage {
 	reset() {
 
 		this.currentMoments = 0;
-
-		// Re-initialize both StorageTextures to near-zero so stale temporal
-		// data from a previous scene/camera state doesn't leak into the new
-		// variance estimates. Uses the same compile-safe EmptyTexture read path.
-		if ( this._compiled ) {
-
-			this._readTexNodeA.value = this._storageTexA;
-			this._readTexNodeB.value = this._storageTexB;
-			this.renderer.compute( this._computeNodeA );
-			this.renderer.compute( this._computeNodeB );
-
-		}
+		// Defer initialization to next render() when fresh scene data is available.
+		// Using alpha=1.0 on the first post-reset frame immediately anchors the EMA
+		// to the new scene, avoiding ~30 frames of convergence from stale data.
+		this._needsWarmReset = true;
 
 	}
 

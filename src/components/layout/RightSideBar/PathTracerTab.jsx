@@ -69,7 +69,6 @@ const PathTracerTab = () => {
 		adaptiveSamplingVarianceThreshold,
 		showAdaptiveSamplingHelper,
 		adaptiveSamplingMaterialBias,
-		adaptiveSamplingEdgeBias,
 		adaptiveSamplingConvergenceSpeed,
 		adaptiveSamplingQualityPreset,
 		fireflyThreshold,
@@ -137,7 +136,6 @@ const PathTracerTab = () => {
 		handleAdaptiveSamplingVarianceThresholdChange,
 		handleAdaptiveSamplingHelperToggle,
 		handleAdaptiveSamplingMaterialBiasChange,
-		handleAdaptiveSamplingEdgeBiasChange,
 		handleAdaptiveSamplingConvergenceSpeedChange,
 		handleAdaptiveSamplingQualityPresetChange,
 		handleFireflyThresholdChange,
@@ -560,14 +558,11 @@ const PathTracerTab = () => {
 						<Slider label={"Max Samples"} min={4} max={32} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Convergence Threshold"} min={0.0001} max={0.01} step={0.0001} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+						<Slider label={"Convergence Threshold"} min={0.01} max={0.5} step={0.01} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
 					</div>
 					<Separator />
 					<div className="flex items-center justify-between">
-						<Slider label={"Material Intelligence"} icon={Brain} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingMaterialBias ]} onValueChange={handleAdaptiveSamplingMaterialBiasChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Edge Focus"} icon={Zap} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingEdgeBias ]} onValueChange={handleAdaptiveSamplingEdgeBiasChange} />
+						<Slider label={"Sensitivity"} icon={Brain} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingMaterialBias ]} onValueChange={handleAdaptiveSamplingMaterialBiasChange} />
 					</div>
 					<div className="flex items-center justify-between">
 						<Slider label={"Convergence Speed"} icon={Target} min={0.5} max={5.0} step={0.1} value={[ adaptiveSamplingConvergenceSpeed ]} onValueChange={handleAdaptiveSamplingConvergenceSpeedChange} />

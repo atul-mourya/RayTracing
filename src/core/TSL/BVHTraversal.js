@@ -145,7 +145,7 @@ export const getVisibilityData = Fn( ( [ materialIndex, materialBuffer ] ) => {
 } );
 
 // Fast visibility check using material texture
-export const isTriangleVisibleCached = Fn( ( [ materialIndex, materialBuffer ] ) => {
+export const isTriangleVisible = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
 	const visData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
 	return visData.g.greaterThan( 0.5 );
@@ -267,7 +267,7 @@ export const traverseBVH = Fn( ( [
 					const matIdx = int( uvData2.z );
 
 					// Early material rejection
-					If( isTriangleVisibleCached( matIdx, materialBuffer ), () => {
+					If( isTriangleVisible( matIdx, materialBuffer ), () => {
 
 						// Interpolate normal
 						const w = float( 1.0 ).sub( u ).sub( v );
@@ -431,7 +431,7 @@ export const traverseBVHShadow = Fn( ( [
 					const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
 					const matIdx = int( uvData2.z );
 
-					If( isTriangleVisibleCached( matIdx, materialBuffer ), () => {
+					If( isTriangleVisible( matIdx, materialBuffer ), () => {
 
 						closestHit.didHit.assign( true );
 						closestHit.dst.assign( triResult.x );

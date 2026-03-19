@@ -593,7 +593,7 @@ When changing shader code, watch these anchors:
 |---|---|---|
 | `PathTracer.js` | `pathTracerMain()`, `getRequiredSamples()`, accumulation block | Entry point, sample loop, adaptive sampling, accumulation |
 | `PathTracerCore.js` | `Trace()`, `TraceResult`, path loop termination | Bounce iteration, termination, MIS assembly |
-| `BVHTraversal.js` | `traverseBVH()`, `isTriangleVisibleCached()`, stack logic | Acceleration structure traversal & visibility culling |
+| `BVHTraversal.js` | `traverseBVH()`, `isTriangleVisible()`, stack logic | Acceleration structure traversal & visibility culling |
 | `MaterialSampling.js` | `sampleMaterialWithMultiLobeMIS()`, `calculateMultiLobeMISWeight()` | Multi-lobe sampling & PDF combination |
 | `MaterialEvaluation.js` | `evaluateMaterialResponse()` | Combines BRDF components |
 | `Environment.js` | `sampleEnvironmentWithContext()`, `calculateEnvironmentPDFWithMIS()` | HDR env sampling & PDF computation |

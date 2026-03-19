@@ -21,21 +21,34 @@ const computeSamplingGuidance = /*@__PURE__*/ wgslFn( `
 	fn computeSamplingGuidance(
 		temporalVariance: f32,
 		spatialVariance: f32,
+		meanLuminance: f32,
 		threshold: f32,
 		frame: i32,
 		minFrames: i32,
 		convThreshold: f32,
-		sensitivity: f32
+		sensitivity: f32,
+		convSpeedScale: f32
 	) -> vec4f {
 
-		// Temporal variance: how much pixel value changes frame-to-frame
-		// This directly measures rendering noise / convergence
-		let varianceRatio = clamp( temporalVariance / threshold, 0.0, 1.0 );
+		// The path tracer accumulates via alpha = 1/(frame+1), so temporal variance
+		// of the accumulated output shrinks as ~sigma²/(frame+1)². Scale by (frame+1)
+		// to get accumulated image quality ~sigma²/N — decreases as image converges.
+		let frameScale = f32( frame + 1 );
+		let effectiveVariance = temporalVariance * frameScale;
+
+		// Normalize by luminance² — converts absolute variance to relative (CV²).
+		// Floor of 0.01 prevents noise amplification for near-black pixels
+		// (linear luminance < 0.1 → below perceptual visibility threshold).
+		let normFactor = max( meanLuminance * meanLuminance, 0.01 );
+		let normalizedVariance = effectiveVariance / normFactor;
+
+		let varianceRatio = clamp( normalizedVariance / threshold, 0.0, 1.0 );
 
 		// Apply sensitivity — higher values assign more samples to noisy pixels
 		var normalizedSamples = clamp( varianceRatio * sensitivity, 0.0, 1.0 );
 
-		// Small spatial boost for noisy neighbourhoods where temporal EMA may lag
+		// Small spatial boost for noisy neighbourhoods (un-scaled — provides
+		// a minor secondary signal that naturally diminishes as image converges)
 		let spatialBoost = clamp( spatialVariance / ( threshold * 4.0 ), 0.0, 0.2 );
 		normalizedSamples = clamp( normalizedSamples + spatialBoost, 0.0, 1.0 );
 
@@ -47,9 +60,12 @@ const computeSamplingGuidance = /*@__PURE__*/ wgslFn( `
 
 		}
 
-		// Convergence: mark pixel when temporal variance drops below threshold
+		// Convergence: mark pixel only when per-frame noise is truly negligible.
+		// convSpeedScale controls aggressiveness: higher = easier to converge
+		// (scales the threshold up, so more pixels qualify as converged).
+		let scaledConvThreshold = convThreshold * convSpeedScale;
 		var converged = 0.0;
-		if ( temporalVariance < convThreshold && frame > minFrames ) {
+		if ( normalizedVariance < scaledConvThreshold && frame > minFrames ) {
 
 			converged = 1.0;
 
@@ -152,7 +168,9 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 		// Convergence parameters — temporal variance stabilises after ~10 frames (EMA alpha=0.1)
 		this.minConvergenceFrames = uniform( 10 );
-		this.convergenceThreshold = uniform( 0.005 );
+		// Must be well below varianceThreshold — convergence means "skip entirely".
+		// With (frame+1)² scaling, effective variance ≈ 5×σ², so 0.01 → σ² ≈ 0.002.
+		this.convergenceThreshold = uniform( 0.01 );
 
 		// StorageTexture for compute output (replaces RenderTarget)
 		const w = options.width || 1;
@@ -216,7 +234,8 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 		const varianceTex = this._varianceTexNode;
 		const threshold = this.varianceThreshold;
-		const sensitivity = this.materialBias; // repurposed: higher = more samples for noisy pixels
+		const sensitivity = this.materialBias; // "Sensitivity": higher = more samples for noisy pixels
+		const convSpeedScale = this.convergenceSpeed; // "Convergence Speed": scales convergence threshold
 		const frame = this.frameNumberUniform;
 		const minFrames = this.minConvergenceFrames;
 		const convThreshold = this.convergenceThreshold;
@@ -239,11 +258,13 @@ export class AdaptiveSamplingStage extends PipelineStage {
 				const result = computeSamplingGuidance(
 					varianceData.z, // temporal variance
 					varianceData.w, // spatial variance
+					varianceData.x, // mean luminance (for HDR normalization)
 					threshold,
 					int( frame ),
 					int( minFrames ),
 					convThreshold,
-					sensitivity
+					sensitivity,
+					convSpeedScale
 				);
 
 				textureStore(
