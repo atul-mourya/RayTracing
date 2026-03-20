@@ -171,6 +171,15 @@ export class StorageTexturePool {
 
 			this.readTarget.setSize( width, height );
 
+			// RenderTarget.setSize() updates texture.image dimensions but does NOT
+			// bump texture.version. Without this, copyTextureToTexture's internal
+			// updateTexture() early-returns, leaving stale GPU textures in place.
+			for ( const tex of this.readTarget.textures ) {
+
+				tex.needsUpdate = true;
+
+			}
+
 		}
 
 	}

@@ -504,7 +504,9 @@ export class MotionVectorStage extends PipelineStage {
 		this._screenSpaceStorageTex.setSize( width, height );
 		this._worldSpaceStorageTex.setSize( width, height );
 		this.screenSpaceTarget.setSize( width, height );
+		this.screenSpaceTarget.texture.needsUpdate = true;
 		this.worldSpaceTarget.setSize( width, height );
+		this.worldSpaceTarget.texture.needsUpdate = true;
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
 

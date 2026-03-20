@@ -256,6 +256,7 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 		// Only resize the RenderTarget — StorageTexture stays at max allocation
 		// (StorageTexture.setSize() breaks textureStore bind groups, Three.js bug #32969)
 		this.outputTarget.setSize( width, height );
+		this.outputTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 

@@ -403,6 +403,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		this._outputStorageTex.setSize( width, height );
 		this._heatmapStorageTex.setSize( width, height );
 		this.heatmapTarget.setSize( width, height );
+		this.heatmapTarget.texture.needsUpdate = true;
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
 

@@ -793,6 +793,7 @@ export class ASVGFStage extends PipelineStage {
 		this._gradientStorageTex.setSize( width, height );
 		this._heatmapStorageTex.setSize( width, height );
 		this.heatmapTarget.setSize( width, height );
+		this.heatmapTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 

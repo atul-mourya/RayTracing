@@ -343,6 +343,7 @@ export class NormalDepthStage extends PipelineStage {
 
 		this._outputStorageTex.setSize( width, height );
 		this.renderTarget.setSize( width, height );
+		this.renderTarget.texture.needsUpdate = true;
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
 
