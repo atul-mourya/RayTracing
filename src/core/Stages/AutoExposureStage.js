@@ -1,7 +1,7 @@
-import { Fn, wgslFn, vec2, vec4, float, int, uint, ivec2, uvec2, uv, uniform, If, max,
-	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
-import { FloatType, HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
+import { Fn, wgslFn, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
+	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { FloatType, RGBAFormat, NearestFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { luminance } from '../TSL/Common.js';
 
@@ -44,17 +44,17 @@ const adaptExposure = /*@__PURE__*/ wgslFn( `
 ` );
 
 /**
- * WebGPU Auto-Exposure Stage (Fragment + Compute Shader)
+ * WebGPU Auto-Exposure Stage (Fully Compute Shader)
  *
  * GPU-based automatic exposure control with human eye-like adaptation.
  * Uses hierarchical luminance reduction and asymmetric temporal smoothing.
  *
  * Algorithm:
- *   1. Downsample (fragment): full res → 64×64 log-luminance
+ *   1. Downsample (compute): full res → 64×64 log-luminance
  *   2. Reduction (compute): parallel reduction 64×64 → 1×1 via shared memory
  *      Single workgroup of 256 threads, each loads 16 texels.
  *      Computes geometric mean: exp(Σlog(L) / N)
- *   3. Adaptation (fragment): temporal smoothing with prev exposure
+ *   3. Adaptation (compute): temporal smoothing with prev exposure
  *   4. Async readback (1×1): apply to renderer.toneMappingExposure
  *
  * WebGPU advantage: async readback (no GPU pipeline stall).
@@ -97,10 +97,15 @@ export class AutoExposureStage extends PipelineStage {
 		this.isFirstFrameU = uniform( 1.0 ); // 1.0 = true
 		this.previousExposureU = uniform( options.initialExposure ?? 1.0 );
 
+		// ── Input resolution uniforms (for downsample compute) ──
+
+		this.inputResW = uniform( 1 );
+		this.inputResH = uniform( 1 );
+
 		// ── Input texture nodes (swap .value, no recompile) ──
 
 		this._inputTexNode = new TextureNode();
-		this._luminanceTexNode = new TextureNode();
+		this._reductionReadTexNode = new TextureNode();
 
 		// ── CPU-side state ───────────────────────────────
 
@@ -114,7 +119,7 @@ export class AutoExposureStage extends PipelineStage {
 		// ── Render targets & storage textures ────────────
 
 		this._initRenderTargets();
-		this._buildMaterials();
+		this._buildCompute();
 
 	}
 
@@ -129,19 +134,35 @@ export class AutoExposureStage extends PipelineStage {
 			stencilBuffer: false
 		};
 
-		// Downsample target (64×64) — fragment pass writes here
+		// Downsample RenderTarget (64×64) — copy destination from compute StorageTexture
 		this._downsampleTarget = new RenderTarget( this.REDUCTION_SIZE, this.REDUCTION_SIZE, rtOpts );
 
-		// 1×1 StorageTexture for compute reduction output
-		// LinearFilter so fragment shaders can sample it (NearestFilter + isStorageTexture
-		// triggers a Three.js WGSL codegen bug: textureLoad without level parameter)
-		this._reductionStorageTex = new StorageTexture( 1, 1 );
-		this._reductionStorageTex.type = HalfFloatType;
-		this._reductionStorageTex.format = RGBAFormat;
-		this._reductionStorageTex.minFilter = LinearFilter;
-		this._reductionStorageTex.magFilter = LinearFilter;
+		// Downsample StorageTexture (64×64) — compute writes here
+		this._downsampleStorageTex = new StorageTexture( this.REDUCTION_SIZE, this.REDUCTION_SIZE );
+		this._downsampleStorageTex.type = FloatType;
+		this._downsampleStorageTex.format = RGBAFormat;
+		this._downsampleStorageTex.minFilter = NearestFilter;
+		this._downsampleStorageTex.magFilter = NearestFilter;
 
-		// Adaptation target (1×1) — fragment pass for async readback
+		// 1×1 StorageTexture for compute reduction output
+		this._reductionStorageTex = new StorageTexture( 1, 1 );
+		this._reductionStorageTex.type = FloatType;
+		this._reductionStorageTex.format = RGBAFormat;
+		this._reductionStorageTex.minFilter = NearestFilter;
+		this._reductionStorageTex.magFilter = NearestFilter;
+
+		// 1×1 RenderTarget — readable copy of reduction output (cross-dispatch reads
+		// from StorageTexture return zeros — must copy to RenderTarget first)
+		this._reductionReadTarget = new RenderTarget( 1, 1, rtOpts );
+
+		// Adaptation StorageTexture (1×1) — compute writes here
+		this._adaptationStorageTex = new StorageTexture( 1, 1 );
+		this._adaptationStorageTex.type = FloatType;
+		this._adaptationStorageTex.format = RGBAFormat;
+		this._adaptationStorageTex.minFilter = NearestFilter;
+		this._adaptationStorageTex.magFilter = NearestFilter;
+
+		// Adaptation target (1×1) — readable copy for async readback
 		this._adaptationTarget = new RenderTarget( 1, 1, rtOpts );
 
 	}
@@ -150,49 +171,62 @@ export class AutoExposureStage extends PipelineStage {
 	// TSL shader builders
 	// ──────────────────────────────────────────────────
 
-	_buildMaterials() {
+	_buildCompute() {
 
-		this._buildDownsampleMaterial();
+		this._buildDownsampleCompute();
 		this._buildReductionCompute();
-		this._buildAdaptationMaterial();
+		this._buildAdaptationCompute();
 
 	}
 
 	/**
-	 * Downsample: full resolution → 64×64
+	 * Downsample (compute): full resolution → 64×64
 	 *
-	 * Each output pixel covers a block of the input texture.
-	 * Samples a 4×4 grid within the block, computing log(luminance).
+	 * Dispatch: [8, 8, 1] workgroups of [8, 8, 1] = 64×64 threads total.
+	 * Each thread (one output pixel) samples a NxN grid from the input texture.
 	 *
 	 * Output: R = Σ log(L + ε), G = valid pixel count
 	 */
-	_buildDownsampleMaterial() {
+	_buildDownsampleCompute() {
 
 		const inputTex = this._inputTexNode;
+		const outputTex = this._downsampleStorageTex;
 		const epsilon = this.epsilonU;
+		const resW = this.inputResW;
+		const resH = this.inputResH;
 
 		const SAMPLES = 4;
-		const BLOCK_UV = 1.0 / 64.0; // Each output pixel covers 1/64 of UV space
+		const OUT_SIZE = 64;
+		const WG_SIZE = 8;
 
-		const shader = Fn( () => {
+		const computeFn = Fn( () => {
 
-			const coord = uv();
+			// Global thread ID → output pixel coordinate
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
+
+			// Block size in input pixels: how many input pixels each output pixel covers
+			const blockW = resW.div( float( OUT_SIZE ) );
+			const blockH = resH.div( float( OUT_SIZE ) );
+
+			// Block origin in input pixel space
+			const blockOriginX = float( gx ).mul( blockW );
+			const blockOriginY = float( gy ).mul( blockH );
 
 			const logLumSum = float( 0.0 ).toVar();
 			const validCount = float( 0.0 ).toVar();
 
-			// Block origin: snap to grid then offset to start
-			// coord is at pixel centre → block covers ±halfBlock around it
+			// Sample a SAMPLES×SAMPLES grid within the block
 			for ( let sy = 0; sy < SAMPLES; sy ++ ) {
 
 				for ( let sx = 0; sx < SAMPLES; sx ++ ) {
 
-					// Offset within the block: (sx+0.5)/SAMPLES normalised to block
-					const ox = float( ( sx + 0.5 ) / SAMPLES - 0.5 ).mul( BLOCK_UV );
-					const oy = float( ( sy + 0.5 ) / SAMPLES - 0.5 ).mul( BLOCK_UV );
+					// Offset within block: (sx+0.5)/SAMPLES normalised to block size
+					const inputX = int( blockOriginX.add( float( ( sx + 0.5 ) / SAMPLES ).mul( blockW ) ) );
+					const inputY = int( blockOriginY.add( float( ( sy + 0.5 ) / SAMPLES ).mul( blockH ) ) );
 
-					const sampleUV = coord.add( vec2( ox, oy ) ).clamp( 0.0, 1.0 );
-					const lum = luminance( inputTex.sample( sampleUV ).xyz );
+					const sample = textureLoad( inputTex, ivec2( inputX, inputY ) );
+					const lum = luminance( sample.xyz );
 
 					If( lum.greaterThan( epsilon ), () => {
 
@@ -205,14 +239,18 @@ export class AutoExposureStage extends PipelineStage {
 
 			}
 
-			return vec4( logLumSum, validCount, 0.0, 1.0 );
+			textureStore(
+				outputTex,
+				uvec2( uint( gx ), uint( gy ) ),
+				vec4( logLumSum, validCount, 0.0, 1.0 )
+			).toWriteOnly();
 
 		} );
 
-		this._downsampleMaterial = new MeshBasicNodeMaterial();
-		this._downsampleMaterial.outputNode = shader();
-		this._downsampleMaterial.toneMapped = false;
-		this._downsampleQuad = new QuadMesh( this._downsampleMaterial );
+		this._downsampleComputeNode = computeFn().compute(
+			[ OUT_SIZE / WG_SIZE, OUT_SIZE / WG_SIZE, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
@@ -309,17 +347,19 @@ export class AutoExposureStage extends PipelineStage {
 	}
 
 	/**
-	 * Adaptation: temporal smoothing
+	 * Adaptation (compute): temporal smoothing
 	 *
-	 * Reads geometric mean luminance from 1×1 compute output,
-	 * computes target exposure (keyValue / luminance), and applies
-	 * asymmetric exponential smoothing (fast bright, slow dark).
+	 * Single-thread compute dispatch [1, 1, 1], workgroup [1, 1, 1].
+	 * Reads geometric mean from reduction RenderTarget (copied from StorageTexture),
+	 * reads previous adaptation from adaptation RenderTarget,
+	 * applies asymmetric temporal smoothing, writes to adaptation StorageTexture.
 	 *
 	 * Output: R = exposure, G = luminance, B = targetExposure, A = 1
 	 */
-	_buildAdaptationMaterial() {
+	_buildAdaptationCompute() {
 
-		const lumTex = this._luminanceTexNode;
+		const reductionTex = this._reductionReadTexNode;
+		const outputTex = this._adaptationStorageTex;
 		const keyValue = this.keyValueU;
 		const minExp = this.minExposureU;
 		const maxExp = this.maxExposureU;
@@ -329,22 +369,26 @@ export class AutoExposureStage extends PipelineStage {
 		const isFirst = this.isFirstFrameU;
 		const prevExposure = this.previousExposureU;
 
-		const shader = Fn( () => {
+		const computeFn = Fn( () => {
 
-			const geoMean = lumTex.sample( uv() ).x;
+			// Read geometric mean from reduction result (1×1 RenderTarget)
+			const geoMean = textureLoad( reductionTex, ivec2( int( 0 ), int( 0 ) ) ).x;
 
-			return adaptExposure(
+			const result = adaptExposure(
 				geoMean, prevExposure, keyValue,
 				minExp, maxExp, speedBright, speedDark,
 				dt, isFirst
 			);
 
+			textureStore(
+				outputTex,
+				uvec2( uint( 0 ), uint( 0 ) ),
+				result
+			).toWriteOnly();
+
 		} );
 
-		this._adaptationMaterial = new MeshBasicNodeMaterial();
-		this._adaptationMaterial.outputNode = shader();
-		this._adaptationMaterial.toneMapped = false;
-		this._adaptationQuad = new QuadMesh( this._adaptationMaterial );
+		this._adaptationComputeNode = computeFn().compute( 1, [ 1, 1, 1 ] );
 
 	}
 
@@ -398,22 +442,26 @@ export class AutoExposureStage extends PipelineStage {
 		this.isFirstFrameU.value = this.isFirstFrame ? 1.0 : 0.0;
 		this.previousExposureU.value = this.currentExposure;
 
-		// ── Pass 1: Downsample full res → 64×64 (fragment) ──
+		// Update input resolution uniforms for downsample compute
+		this.inputResW.value = inputTex.image?.width || 1;
+		this.inputResH.value = inputTex.image?.height || 1;
+
+		// ── Pass 1: Downsample full res → 64×64 (compute) ──
 
 		this._inputTexNode.value = inputTex;
-		this.renderer.setRenderTarget( this._downsampleTarget );
-		this._downsampleQuad.render( this.renderer );
+		this.renderer.compute( this._downsampleComputeNode );
+		this.renderer.copyTextureToTexture( this._downsampleStorageTex, this._downsampleTarget.texture );
 
 		// ── Pass 2: Reduction 64×64 → 1×1 (compute) ────────
 
-		this.renderer.setRenderTarget( null );
 		this.renderer.compute( this._reductionComputeNode );
+		this.renderer.copyTextureToTexture( this._reductionStorageTex, this._reductionReadTarget.texture );
 
-		// ── Pass 3: Temporal adaptation (fragment) ──────────
+		// ── Pass 3: Temporal adaptation (compute) ───────────
 
-		this._luminanceTexNode.value = this._reductionStorageTex;
-		this.renderer.setRenderTarget( this._adaptationTarget );
-		this._adaptationQuad.render( this.renderer );
+		this._reductionReadTexNode.value = this._reductionReadTarget.texture;
+		this.renderer.compute( this._adaptationComputeNode );
+		this.renderer.copyTextureToTexture( this._adaptationStorageTex, this._adaptationTarget.texture );
 
 		// ── Async readback (WebGPU advantage) ────────────
 
@@ -494,8 +542,8 @@ export class AutoExposureStage extends PipelineStage {
 	setSize( /* width, height */ ) {
 
 		// Downsample and reduction targets are fixed-size (64×64 → 1×1)
-		// No resizing needed — the downsample shader samples a 4×4 grid
-		// per output pixel regardless of input resolution.
+		// No resizing needed — the downsample compute shader reads input
+		// resolution from uniforms and computes block sizes dynamically.
 
 	}
 
@@ -531,11 +579,14 @@ export class AutoExposureStage extends PipelineStage {
 
 	dispose() {
 
-		this._downsampleMaterial?.dispose();
-		this._adaptationMaterial?.dispose();
+		this._downsampleComputeNode?.dispose();
 		this._reductionComputeNode?.dispose();
+		this._adaptationComputeNode?.dispose();
 		this._downsampleTarget?.dispose();
+		this._downsampleStorageTex?.dispose();
 		this._reductionStorageTex?.dispose();
+		this._reductionReadTarget?.dispose();
+		this._adaptationStorageTex?.dispose();
 		this._adaptationTarget?.dispose();
 
 	}

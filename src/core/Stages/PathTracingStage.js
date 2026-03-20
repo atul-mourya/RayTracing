@@ -13,7 +13,7 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
 import { TileRenderingManager } from '../Processor/TileRenderingManager.js';
 import { CameraMovementOptimizer } from '../Processor/CameraMovementOptimizer.js';
 import { PathTracerUtils } from '../Processor/PathTracerUtils.js';
-import { RenderTargetPool } from '../Processor/RenderTargetPool.js';
+import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
 import { UniformManager } from '../Processor/UniformManager.js';
 import { MaterialDataManager } from '../Processor/MaterialDataManager.js';
 import { EnvironmentManager } from '../Processor/EnvironmentManager.js';
@@ -101,8 +101,8 @@ export class PathTracingStage extends PipelineStage {
 		// Initialize data textures
 		this._initDataTextures();
 
-		// Initialize render target pool
-		this.renderTargets = new RenderTargetPool( 0, 0 );
+		// Initialize storage texture pool (ping-pong compute output)
+		this.storageTextures = new StorageTexturePool( 0, 0 );
 
 		// Initialize uniforms via UniformManager
 		this.uniforms = new UniformManager( width, height );
@@ -603,17 +603,10 @@ export class PathTracingStage extends PipelineStage {
 		this.frameCount = 0;
 		this.frame.value = 0;
 		this.hasPreviousAccumulated.value = 0;
-		this.renderTargets.currentTarget = 0;
+		this.storageTextures.currentTarget = 0;
 
 		// Reset tile manager
 		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
-
-		// Clear targets if requested
-		if ( clearBuffers && this.renderTargets.renderTargetA && this.renderer ) {
-
-			this.renderTargets.clear( this.renderer );
-
-		}
 
 		// Update completion threshold
 		this.updateCompletionThreshold();
@@ -656,7 +649,8 @@ export class PathTracingStage extends PipelineStage {
 
 		this.resolution.value.set( width, height );
 		this.tileManager.setSize( width, height );
-		this.createRenderTargets( width, height );
+		this.createStorageTextures( width, height );
+		this.shaderComposer.setSize( width, height );
 
 	}
 
@@ -766,16 +760,27 @@ export class PathTracingStage extends PipelineStage {
 
 	}
 
-	// ===== RENDER TARGETS =====
+	// ===== STORAGE TEXTURES =====
 
 	/**
-	 * Creates render targets for accumulation.
+	 * Creates storage textures for compute accumulation.
 	 * @param {number} width
 	 * @param {number} height
 	 */
-	createRenderTargets( width, height ) {
+	createStorageTextures( width, height ) {
 
-		this.renderTargets.create( width, height );
+		if ( this.storageTextures.writeColor ) {
+
+			// Resize existing textures — preserves JS object references
+			// so the compiled compute node's bindings remain valid
+			this.storageTextures.setSize( width, height );
+
+		} else {
+
+			// Initial creation
+			this.storageTextures.create( width, height );
+
+		}
 
 		// Update resolution uniform
 		this.resolution.value.set( width, height );
@@ -813,7 +818,7 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		// If material already exists, update texture nodes in-place
+		// If compute nodes already exist, update texture nodes in-place
 		// instead of rebuilding the shader (avoids TSL recompilation issues)
 		if ( this.isReady && this.shaderComposer.getSceneTextureNodes() ) {
 
@@ -822,11 +827,11 @@ export class PathTracingStage extends PipelineStage {
 
 		}
 
-		this._ensureRenderTargets();
+		this._ensureStorageTextures();
 
-		this.shaderComposer.setupMaterial( {
+		this.shaderComposer.setupCompute( {
 			stage: this,
-			renderTargets: this.renderTargets,
+			storageTextures: this.storageTextures,
 		} );
 
 		this.isReady = true;
@@ -834,15 +839,15 @@ export class PathTracingStage extends PipelineStage {
 	}
 
 	/**
-	 * Ensure render targets exist at correct size
+	 * Ensure storage textures exist at correct size
 	 */
-	_ensureRenderTargets() {
+	_ensureStorageTextures() {
 
 		const canvas = this.renderer.domElement;
 		const width = Math.max( 1, canvas.width || this.width );
 		const height = Math.max( 1, canvas.height || this.height );
 
-		if ( this.renderTargets.ensureSize( width, height ) ) {
+		if ( this.storageTextures.ensureSize( width, height ) ) {
 
 			this.resolution.value.set( width, height );
 
@@ -951,60 +956,54 @@ export class PathTracingStage extends PipelineStage {
 		// Update frame uniform
 		this.frame.value = frameValue;
 
-		// Get targets
-		const { readTarget, writeTarget } = this.renderTargets.getTargets();
+		// Force-compile compute nodes on first frame
+		this.shaderComposer.forceCompile( this.renderer );
 
-		// Update previous frame textures (color + MRT normal/albedo)
-		if ( this.shaderComposer.prevFrameTexNode ) {
+		// Update tile bounds uniforms (replaces scissor test)
+		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
 
-			this.shaderComposer.prevFrameTexNode.value = readTarget.texture;
-
-		}
-
-		if ( this.shaderComposer.prevNormalDepthTexNode && readTarget.textures?.[ 1 ] ) {
-
-			this.shaderComposer.prevNormalDepthTexNode.value = readTarget.textures[ 1 ];
-
-		}
-
-		if ( this.shaderComposer.prevAlbedoTexNode && readTarget.textures?.[ 2 ] ) {
-
-			this.shaderComposer.prevAlbedoTexNode.value = readTarget.textures[ 2 ];
-
-		}
-
-		// Render accumulation pass
-		this.renderer.setRenderTarget( writeTarget );
-		this.shaderComposer.accumQuad.render( this.renderer );
-
-		// Publish textures to context for downstream stages (DisplayStage)
-		if ( context ) {
-
-			this._publishTexturesToContext( context, writeTarget );
+			this.shaderComposer.tileMinX.value = tileInfo.tileBounds.x;
+			this.shaderComposer.tileMinY.value = tileInfo.tileBounds.y;
+			this.shaderComposer.tileMaxX.value = tileInfo.tileBounds.x + tileInfo.tileBounds.width;
+			this.shaderComposer.tileMaxY.value = tileInfo.tileBounds.y + tileInfo.tileBounds.height;
 
 		} else {
 
-			// Standalone mode (no pipeline) — render directly to screen
-			if ( this.shaderComposer.displayTexNode ) {
+			// Full-screen render (no tiling)
+			this.shaderComposer.tileMinX.value = 0;
+			this.shaderComposer.tileMinY.value = 0;
+			this.shaderComposer.tileMaxX.value = this.storageTextures.renderWidth;
+			this.shaderComposer.tileMaxY.value = this.storageTextures.renderHeight;
 
-				this.shaderComposer.displayTexNode.value = writeTarget.texture;
+		}
 
-			}
+		// Update previous-frame texture node values from readTarget
+		// (these sample the last frame's results via texture())
+		const readTextures = this.storageTextures.getReadTextures();
+		if ( this.shaderComposer.prevColorTexNode ) {
 
-			this.renderer.setRenderTarget( null );
-			this.shaderComposer.displayQuad.render( this.renderer );
+			this.shaderComposer.prevColorTexNode.value = readTextures.color;
+			this.shaderComposer.prevNormalDepthTexNode.value = readTextures.normalDepth;
+			this.shaderComposer.prevAlbedoTexNode.value = readTextures.albedo;
+
+		}
+
+		// Dispatch single compute node
+		this.renderer.compute( this.shaderComposer.computeNode );
+
+		// Copy StorageTextures → RenderTarget textures for downstream reads
+		this.storageTextures.copyToReadTargets( this.renderer );
+
+		// Publish readable textures to context for downstream stages
+		const readTex = this.storageTextures.getReadTextures();
+		if ( context ) {
+
+			this._publishTexturesToContext( context, readTex );
 
 		}
 
 		// Emit state events
 		this._emitStateEvents();
-
-		// Swap targets and increment
-		if ( tileInfo.shouldSwapTargets ) {
-
-			this.renderTargets.swap();
-
-		}
 
 		this.frameCount ++;
 
@@ -1033,9 +1032,10 @@ export class PathTracingStage extends PipelineStage {
 		const canvas = this.renderer.domElement;
 		const { width, height } = canvas;
 
-		if ( width !== this.renderTargets.renderWidth || height !== this.renderTargets.renderHeight ) {
+		if ( width !== this.storageTextures.renderWidth || height !== this.storageTextures.renderHeight ) {
 
-			this.createRenderTargets( width, height );
+			this.createStorageTextures( width, height );
+			this.shaderComposer.setSize( width, height );
 			this.frameCount = 0;
 
 		}
@@ -1147,13 +1147,13 @@ export class PathTracingStage extends PipelineStage {
 	/**
 	 * Publish textures to pipeline context
 	 * @param {PipelineContext} context
-	 * @param {RenderTarget} writeTarget - The just-rendered MRT render target
+	 * @param {Object} writeTex - The just-written StorageTexture set { color, normalDepth, albedo }
 	 */
-	_publishTexturesToContext( context, writeTarget ) {
+	_publishTexturesToContext( context, writeTex ) {
 
-		context.setTexture( 'pathtracer:color', writeTarget.textures[ 0 ] );
-		context.setTexture( 'pathtracer:normalDepth', writeTarget.textures[ 1 ] );
-		context.setTexture( 'pathtracer:albedo', writeTarget.textures[ 2 ] );
+		context.setTexture( 'pathtracer:color', writeTex.color );
+		context.setTexture( 'pathtracer:normalDepth', writeTex.normalDepth );
+		context.setTexture( 'pathtracer:albedo', writeTex.albedo );
 
 		context.setState( 'interactionMode', this.cameraOptimizer?.isInInteractionMode() ?? false );
 		context.setState( 'renderMode', this.renderMode.value );
@@ -1431,13 +1431,6 @@ export class PathTracingStage extends PipelineStage {
 	 */
 	dispose() {
 
-		// Clean up scissor state
-		if ( this.tileManager?.scissorEnabled ) {
-
-			this.tileManager.disableScissor( this.renderer );
-
-		}
-
 		// Clear timeouts
 		if ( this.renderModeChangeTimeout ) {
 
@@ -1453,8 +1446,8 @@ export class PathTracingStage extends PipelineStage {
 		this.environment?.dispose();
 		this.shaderComposer?.dispose();
 
-		// Dispose render targets
-		this.renderTargets?.dispose();
+		// Dispose storage textures
+		this.storageTextures?.dispose();
 
 		// Dispose textures
 		this.blueNoiseTexture?.dispose();

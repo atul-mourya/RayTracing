@@ -1,23 +1,30 @@
-import { Fn, vec2, vec3, vec4, float, uv, uniform, If, normalize, mat3 } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
+import { Fn, vec2, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, normalize, mat3,
+	textureLoad, textureStore, workgroupId, localId } from 'three/tsl';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
- * WebGPU Motion Vector Stage
+ * WebGPU Motion Vector Stage (Compute Shader)
  *
  * Computes per-pixel screen-space and world-space motion vectors by
  * reconstructing world positions from linear ray depth and reprojecting
  * to the previous frame.
  *
+ * Architecture (copy approach — proven working in PathTracingStage):
+ *   1. Two compute shaders write to StorageTextures via textureStore
+ *   2. After dispatch, copyTextureToTexture transfers StorageTexture → RenderTarget
+ *   3. RenderTarget textures are published to context (NOT StorageTextures —
+ *      cross-dispatch reads from StorageTexture return zeros in Three.js WebGPU)
+ *
  * Algorithm:
  *   1. Read normalDepth from NormalDepthStage (linear depth in alpha)
- *   2. Reconstruct camera ray from UV via inverse projection (same as NormalDepthStage)
+ *   2. Reconstruct camera ray from pixel coords via inverse projection
  *   3. World position = cameraPos + normalize(rayDir) * linearDepth
  *   4. Project to previous frame:  prevVP * worldPos
  *   5. Motion = currentUV - prevUV
  *
- * Output formats (RGBA HalfFloat):
+ * Output formats (RGBA Float → copied to RGBA HalfFloat RenderTarget):
  *   screenSpace — xy=motion (UV-space), z=depth, w=validity
  *   worldSpace  — xyz=world velocity, w=validity
  *
@@ -35,9 +42,9 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
  *   pipeline:reset  — reset frame counter (but NOT matrices)
  *
  * Textures published:
- *   motionVector:screenSpace
- *   motionVector:worldSpace
- *   motionVector:motion  (alias for screenSpace)
+ *   motionVector:screenSpace (from RenderTarget, not StorageTexture)
+ *   motionVector:worldSpace  (from RenderTarget, not StorageTexture)
+ *   motionVector:motion      (alias for screenSpace)
  *
  * Textures read:
  *   pathtracer:normalDepth — linear depth for world position reconstruction
@@ -75,10 +82,27 @@ export class MotionVectorStage extends PipelineStage {
 		this.deltaTime = uniform( 1.0 / 60.0 );
 		this.velocityScale = uniform( 1.0 );
 
-		// Input texture nodes (swappable — no shader recompile)
+		// Resolution uniforms (for compute pixel coords)
+		this.resolutionWidth = uniform( width );
+		this.resolutionHeight = uniform( height );
+
+		// Input texture node (swappable — no shader recompile)
 		this._normalDepthTexNode = new TextureNode();
 
-		// Render targets
+		// Write-only StorageTextures (compute output)
+		this._screenSpaceStorageTex = new StorageTexture( width, height );
+		this._screenSpaceStorageTex.type = HalfFloatType;
+		this._screenSpaceStorageTex.format = RGBAFormat;
+		this._screenSpaceStorageTex.minFilter = NearestFilter;
+		this._screenSpaceStorageTex.magFilter = NearestFilter;
+
+		this._worldSpaceStorageTex = new StorageTexture( width, height );
+		this._worldSpaceStorageTex.type = HalfFloatType;
+		this._worldSpaceStorageTex.format = RGBAFormat;
+		this._worldSpaceStorageTex.minFilter = NearestFilter;
+		this._worldSpaceStorageTex.magFilter = NearestFilter;
+
+		// Readable RenderTargets (copy destinations — published to context)
 		const rtOpts = {
 			type: HalfFloatType,
 			format: RGBAFormat,
@@ -91,105 +115,134 @@ export class MotionVectorStage extends PipelineStage {
 		this.screenSpaceTarget = new RenderTarget( width, height, rtOpts );
 		this.worldSpaceTarget = new RenderTarget( width, height, rtOpts );
 
-		// Build materials
-		this._buildScreenSpaceMaterial();
-		this._buildWorldSpaceMaterial();
+		// Dispatch dimensions (8x8 workgroups)
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+
+		// Build compute nodes
+		this._buildScreenSpaceCompute();
+		this._buildWorldSpaceCompute();
 
 	}
 
 	// ──────────────────────────────────────────────────
-	// TSL shader builders
+	// TSL compute shader builders
 	// ──────────────────────────────────────────────────
 
 	/**
-	 * Screen-space motion vector shader.
+	 * Screen-space motion vector compute shader.
 	 *
 	 * Reconstructs world position from camera ray + linear depth
 	 * (matching NormalDepthStage's ray generation), then reprojects
 	 * through the previous frame's VP matrix.
 	 */
-	_buildScreenSpaceMaterial() {
+	_buildScreenSpaceCompute() {
 
 		const normalDepthTex = this._normalDepthTexNode;
 		const camWorldMat = this.cameraWorldMatrix;
 		const camProjInvMat = this.cameraProjectionMatrixInverse;
 		const prevVP = this.prevVP;
+		const resW = this.resolutionWidth;
+		const resH = this.resolutionHeight;
+		const outputTex = this._screenSpaceStorageTex;
 
-		const shader = Fn( ( [ cwm, cpi ] ) => {
+		const WG_SIZE = 8;
 
-			const coord = uv();
-			const nd = normalDepthTex.sample( coord );
-			const linearDepth = nd.w;
+		const computeFn = Fn( ( [ cwm, cpi ] ) => {
 
-			const result = vec4( 0.0, 0.0, linearDepth, 1.0 ).toVar();
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-			// Sky / background (depth >= 1e5) — no motion
-			If( linearDepth.lessThan( float( 1e5 ) ), () => {
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				// Reconstruct camera ray direction from UV
-				// Negate Y to match PathTracingStage convention
-				// (WebGPU QuadMesh uv().y=0 at top of screen)
-				const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
-				const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
-				const ndcPos = vec3( ndcX, ndcY, 1.0 );
+				const nd = textureLoad( normalDepthTex, ivec2( gx, gy ) );
+				const linearDepth = nd.w;
 
-				// Camera-space ray direction via inverse projection
-				const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
-
-				// Transform to world space (rotation only, via mat3 of world matrix)
-				const rayDirWorld = normalize(
-					mat3(
-						cwm[ 0 ].xyz,
-						cwm[ 1 ].xyz,
-						cwm[ 2 ].xyz
-					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+				// Current pixel UV (for motion = currentUV - prevUV)
+				const currentUV = vec2(
+					float( gx ).add( 0.5 ).div( resW ),
+					float( gy ).add( 0.5 ).div( resH )
 				);
 
-				// Camera position (translation column of world matrix)
-				const camPos = vec3( cwm[ 3 ] );
+				const result = vec4( 0.0, 0.0, linearDepth, 1.0 ).toVar();
 
-				// World position = camera origin + ray direction * linear depth
-				const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+				// Sky / background (depth >= 1e5) — no motion
+				If( linearDepth.lessThan( float( 1e5 ) ), () => {
 
-				// Project to previous frame
-				const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
-				// Flip prevUV.y to match WebGPU uv() convention
-				// (NDC Y=+1 → UV Y=0 at top of screen)
-				const prevNDC = prevClip.xy.div( prevClip.w );
-				const prevUV = vec2(
-					prevNDC.x.mul( 0.5 ).add( 0.5 ),
-					prevNDC.y.mul( - 0.5 ).add( 0.5 )
-				);
+					// Pixel coordinate → NDC
+					// Negate Y to match PathTracingStage convention
+					const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
+					const ndcY = float( gy ).add( 0.5 ).div( resH ).mul( 2.0 ).sub( 1.0 ).negate();
+					const ndcPos = vec3( ndcX, ndcY, 1.0 );
 
-				// Motion vector = current - prev (in UV space)
-				const motion = coord.sub( prevUV );
+					// Camera-space ray direction via inverse projection
+					const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
 
-				// Validity check: prev UV must be on screen
-				const valid = prevUV.x.greaterThanEqual( 0.0 )
-					.and( prevUV.x.lessThanEqual( 1.0 ) )
-					.and( prevUV.y.greaterThanEqual( 0.0 ) )
-					.and( prevUV.y.lessThanEqual( 1.0 ) );
+					// Transform to world space (rotation only, via mat3 of world matrix)
+					const rayDirWorld = normalize(
+						mat3(
+							cwm[ 0 ].xyz,
+							cwm[ 1 ].xyz,
+							cwm[ 2 ].xyz
+						).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+					);
 
-				result.assign( valid.select(
-					vec4( motion, linearDepth, 1.0 ),
-					vec4( float( 1000.0 ), float( 1000.0 ), linearDepth, 0.0 )
-				) );
+					// Camera position (translation column of world matrix)
+					const camPos = vec3( cwm[ 3 ] );
+
+					// World position = camera origin + ray direction * linear depth
+					const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+
+					// Project to previous frame
+					const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
+					// Flip prevUV.y to match WebGPU convention
+					// (NDC Y=+1 → UV Y=0 at top of screen)
+					const prevNDC = prevClip.xy.div( prevClip.w );
+					const prevUV = vec2(
+						prevNDC.x.mul( 0.5 ).add( 0.5 ),
+						prevNDC.y.mul( - 0.5 ).add( 0.5 )
+					);
+
+					// Motion vector = current - prev (in UV space)
+					const motion = currentUV.sub( prevUV );
+
+					// Validity check: prev UV must be on screen
+					const valid = prevUV.x.greaterThanEqual( 0.0 )
+						.and( prevUV.x.lessThanEqual( 1.0 ) )
+						.and( prevUV.y.greaterThanEqual( 0.0 ) )
+						.and( prevUV.y.lessThanEqual( 1.0 ) );
+
+					result.assign( valid.select(
+						vec4( motion, linearDepth, 1.0 ),
+						vec4( float( 1000.0 ), float( 1000.0 ), linearDepth, 0.0 )
+					) );
+
+				} );
+
+				textureStore(
+					outputTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					result
+				).toWriteOnly();
 
 			} );
 
-			return result;
-
 		} );
 
-		this.screenSpaceMaterial = new MeshBasicNodeMaterial();
-		// Use outputNode to preserve .w (validity flag) — colorNode forces alpha=1.0
-		this.screenSpaceMaterial.outputNode = shader( camWorldMat, camProjInvMat );
-		this.screenSpaceMaterial.toneMapped = false;
-		this.screenSpaceQuad = new QuadMesh( this.screenSpaceMaterial );
+		this._screenSpaceComputeNode = computeFn( camWorldMat, camProjInvMat ).compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
-	_buildWorldSpaceMaterial() {
+	/**
+	 * World-space velocity compute shader.
+	 *
+	 * Approximates world-space velocity from UV displacement,
+	 * scaled by deltaTime and velocityScale.
+	 */
+	_buildWorldSpaceCompute() {
 
 		const normalDepthTex = this._normalDepthTexNode;
 		const camWorldMat = this.cameraWorldMatrix;
@@ -198,73 +251,92 @@ export class MotionVectorStage extends PipelineStage {
 		const isFirstFrameU = this.isFirstFrameU;
 		const deltaTime = this.deltaTime;
 		const velocityScale = this.velocityScale;
+		const resW = this.resolutionWidth;
+		const resH = this.resolutionHeight;
+		const outputTex = this._worldSpaceStorageTex;
 
-		const shader = Fn( ( [ cwm, cpi ] ) => {
+		const WG_SIZE = 8;
 
-			const coord = uv();
-			const nd = normalDepthTex.sample( coord );
-			const linearDepth = nd.w;
+		const computeFn = Fn( ( [ cwm, cpi ] ) => {
 
-			const result = vec4( 0.0, 0.0, 0.0, 0.0 ).toVar();
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-			// Skip first frame and sky
-			If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 1e5 ) ) ), () => {
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				// Reconstruct world position (same as screen-space shader)
-				// Negate Y to match PathTracingStage convention
-				const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
-				const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
-				const ndcPos = vec3( ndcX, ndcY, 1.0 );
-				const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
-				const rayDirWorld = normalize(
-					mat3(
-						cwm[ 0 ].xyz,
-						cwm[ 1 ].xyz,
-						cwm[ 2 ].xyz
-					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
-				);
-				const camPos = vec3( cwm[ 3 ] );
-				const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
+				const nd = textureLoad( normalDepthTex, ivec2( gx, gy ) );
+				const linearDepth = nd.w;
 
-				// Project to previous frame
-				const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
-				// Flip prevUV.y to match WebGPU uv() convention
-				const prevNDC = prevClip.xy.div( prevClip.w );
-				const prevUV = vec2(
-					prevNDC.x.mul( 0.5 ).add( 0.5 ),
-					prevNDC.y.mul( - 0.5 ).add( 0.5 )
-				);
+				const result = vec4( 0.0, 0.0, 0.0, 0.0 ).toVar();
 
-				const valid = prevUV.x.greaterThanEqual( 0.0 )
-					.and( prevUV.x.lessThanEqual( 1.0 ) )
-					.and( prevUV.y.greaterThanEqual( 0.0 ) )
-					.and( prevUV.y.lessThanEqual( 1.0 ) );
+				// Skip first frame and sky
+				If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 1e5 ) ) ), () => {
 
-				// World-space velocity approximation from UV displacement
-				const motionUV = coord.sub( prevUV );
-				const worldVelocity = vec3(
-					motionUV.x.div( deltaTime ).mul( velocityScale ),
-					motionUV.y.div( deltaTime ).mul( velocityScale ),
-					0.0
-				);
+					// Pixel coordinate → NDC
+					// Negate Y to match PathTracingStage convention
+					const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
+					const ndcY = float( gy ).add( 0.5 ).div( resH ).mul( 2.0 ).sub( 1.0 ).negate();
+					const ndcPos = vec3( ndcX, ndcY, 1.0 );
+					const rayDirCS = cpi.mul( vec4( ndcPos, 1.0 ) );
+					const rayDirWorld = normalize(
+						mat3(
+							cwm[ 0 ].xyz,
+							cwm[ 1 ].xyz,
+							cwm[ 2 ].xyz
+						).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+					);
+					const camPos = vec3( cwm[ 3 ] );
+					const worldPos = camPos.add( rayDirWorld.mul( linearDepth ) );
 
-				result.assign( valid.select(
-					vec4( worldVelocity, 1.0 ),
-					vec4( 0.0, 0.0, 0.0, 0.5 )
-				) );
+					// Current pixel UV
+					const currentUV = vec2(
+						float( gx ).add( 0.5 ).div( resW ),
+						float( gy ).add( 0.5 ).div( resH )
+					);
+
+					// Project to previous frame
+					const prevClip = prevVP.mul( vec4( worldPos, 1.0 ) );
+					// Flip prevUV.y to match WebGPU convention
+					const prevNDC = prevClip.xy.div( prevClip.w );
+					const prevUV = vec2(
+						prevNDC.x.mul( 0.5 ).add( 0.5 ),
+						prevNDC.y.mul( - 0.5 ).add( 0.5 )
+					);
+
+					const valid = prevUV.x.greaterThanEqual( 0.0 )
+						.and( prevUV.x.lessThanEqual( 1.0 ) )
+						.and( prevUV.y.greaterThanEqual( 0.0 ) )
+						.and( prevUV.y.lessThanEqual( 1.0 ) );
+
+					// World-space velocity approximation from UV displacement
+					const motionUV = currentUV.sub( prevUV );
+					const worldVelocity = vec3(
+						motionUV.x.div( deltaTime ).mul( velocityScale ),
+						motionUV.y.div( deltaTime ).mul( velocityScale ),
+						0.0
+					);
+
+					result.assign( valid.select(
+						vec4( worldVelocity, 1.0 ),
+						vec4( 0.0, 0.0, 0.0, 0.5 )
+					) );
+
+				} );
+
+				textureStore(
+					outputTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					result
+				).toWriteOnly();
 
 			} );
 
-			return result;
-
 		} );
 
-		this.worldSpaceMaterial = new MeshBasicNodeMaterial();
-		// Use outputNode to preserve .w (validity flag) — colorNode forces alpha=1.0
-		this.worldSpaceMaterial.outputNode = shader( camWorldMat, camProjInvMat );
-		this.worldSpaceMaterial.toneMapped = false;
-
-		this.worldSpaceQuad = new QuadMesh( this.worldSpaceMaterial );
+		this._worldSpaceComputeNode = computeFn( camWorldMat, camProjInvMat ).compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
@@ -357,7 +429,7 @@ export class MotionVectorStage extends PipelineStage {
 
 		if ( ! this.enabled ) return;
 
-		// Get normalDepth from context
+		// Get normalDepth from context (RenderTarget texture from NormalDepthStage)
 		const normalDepthTex = context.getTexture( 'pathtracer:normalDepth' );
 		if ( ! normalDepthTex ) return;
 
@@ -369,7 +441,7 @@ export class MotionVectorStage extends PipelineStage {
 
 		this.frameCount ++;
 
-		// Auto-size render targets
+		// Auto-size to match normalDepth
 		const img = normalDepthTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
@@ -382,18 +454,21 @@ export class MotionVectorStage extends PipelineStage {
 
 		}
 
-		// Swap input texture (no shader recompile)
+		// Swap input texture (no shader recompile, just swap value)
 		this._normalDepthTexNode.value = normalDepthTex;
 
-		// Render screen-space motion vectors
-		this.renderer.setRenderTarget( this.screenSpaceTarget );
-		this.screenSpaceQuad.render( this.renderer );
+		// Dispatch screen-space motion vector compute
+		this.renderer.compute( this._screenSpaceComputeNode );
 
-		// Render world-space velocity
-		this.renderer.setRenderTarget( this.worldSpaceTarget );
-		this.worldSpaceQuad.render( this.renderer );
+		// Dispatch world-space velocity compute
+		this.renderer.compute( this._worldSpaceComputeNode );
 
-		// Publish
+		// Copy StorageTextures → RenderTargets (cross-dispatch reads from
+		// StorageTexture return zeros — must use RenderTarget for downstream stages)
+		this.renderer.copyTextureToTexture( this._screenSpaceStorageTex, this.screenSpaceTarget.texture );
+		this.renderer.copyTextureToTexture( this._worldSpaceStorageTex, this.worldSpaceTarget.texture );
+
+		// Publish RenderTarget textures to context
 		context.setTexture( 'motionVector:screenSpace', this.screenSpaceTarget.texture );
 		context.setTexture( 'motionVector:worldSpace', this.worldSpaceTarget.texture );
 		context.setTexture( 'motionVector:motion', this.screenSpaceTarget.texture );
@@ -426,8 +501,27 @@ export class MotionVectorStage extends PipelineStage {
 
 	setSize( width, height ) {
 
+		this._screenSpaceStorageTex.setSize( width, height );
+		this._worldSpaceStorageTex.setSize( width, height );
 		this.screenSpaceTarget.setSize( width, height );
 		this.worldSpaceTarget.setSize( width, height );
+		this.resolutionWidth.value = width;
+		this.resolutionHeight.value = height;
+
+		// Update dispatch dimensions
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+		if ( this._screenSpaceComputeNode ) {
+
+			this._screenSpaceComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+
+		}
+
+		if ( this._worldSpaceComputeNode ) {
+
+			this._worldSpaceComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+
+		}
 
 	}
 
@@ -445,8 +539,10 @@ export class MotionVectorStage extends PipelineStage {
 
 	dispose() {
 
-		this.screenSpaceMaterial?.dispose();
-		this.worldSpaceMaterial?.dispose();
+		this._screenSpaceComputeNode?.dispose();
+		this._worldSpaceComputeNode?.dispose();
+		this._screenSpaceStorageTex?.dispose();
+		this._worldSpaceStorageTex?.dispose();
 		this.screenSpaceTarget?.dispose();
 		this.worldSpaceTarget?.dispose();
 

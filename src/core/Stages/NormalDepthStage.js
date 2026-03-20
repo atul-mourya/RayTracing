@@ -1,12 +1,13 @@
-import { Fn, vec3, vec4, float, uv, uniform, normalize, mat3, storage } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, StorageInstancedBufferAttribute } from 'three/webgpu';
+import { Fn, vec3, vec4, float, int, uint, uvec2, uniform, normalize, mat3, storage, If,
+	textureStore, workgroupId, localId } from 'three/tsl';
+import { RenderTarget, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { Ray, HitInfo } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
 
 /**
- * NormalDepth Stage for WebGPU
+ * NormalDepth Stage for WebGPU (Compute Shader)
  *
  * Produces a G-buffer containing surface normals and linear depth by casting
  * primary rays through the BVH. This is a lightweight pass (~1-2 ms) that
@@ -15,7 +16,13 @@ import { traverseBVH } from '../TSL/BVHTraversal.js';
  * The output is required by denoising stages (ASVGF, BilateralFiltering)
  * and by the MotionVectorStage.
  *
- * Output format (RGBA HalfFloat):
+ * Architecture (copy approach — proven working in PathTracingStage):
+ *   1. Compute shader writes to a StorageTexture via textureStore
+ *   2. After dispatch, copyTextureToTexture transfers StorageTexture → RenderTarget
+ *   3. RenderTarget texture is published to context (NOT StorageTexture —
+ *      cross-dispatch reads from StorageTexture return zeros in Three.js WebGPU)
+ *
+ * Output format (RGBA Float):
  *   RGB — world-space normal encoded as (N * 0.5 + 0.5)
  *   A   — linear depth (distance along primary ray)
  *
@@ -29,7 +36,7 @@ import { traverseBVH } from '../TSL/BVHTraversal.js';
  *   pipeline:reset  — mark dirty
  *
  * Textures published:
- *   pathtracer:normalDepth — RGBA HalfFloat G-buffer
+ *   pathtracer:normalDepth — RGBA Float G-buffer (from RenderTarget, not StorageTexture)
  */
 export class NormalDepthStage extends PipelineStage {
 
@@ -59,29 +66,38 @@ export class NormalDepthStage extends PipelineStage {
 		this.resolutionWidth = uniform( options.width || 1 );
 		this.resolutionHeight = uniform( options.height || 1 );
 
-		// Render target
-		this.renderTarget = new RenderTarget(
-			options.width || 1,
-			options.height || 1,
-			{
-				type: HalfFloatType,
-				format: RGBAFormat,
-				minFilter: NearestFilter,
-				magFilter: NearestFilter,
-				depthBuffer: false,
-				stencilBuffer: false
-			}
-		);
+		const w = options.width || 1;
+		const h = options.height || 1;
+
+		// Write-only StorageTexture (compute output)
+		this._outputStorageTex = new StorageTexture( w, h );
+		this._outputStorageTex.type = HalfFloatType;
+		this._outputStorageTex.format = RGBAFormat;
+		this._outputStorageTex.minFilter = NearestFilter;
+		this._outputStorageTex.magFilter = NearestFilter;
+
+		// Readable RenderTarget (copy destination — published to context)
+		this.renderTarget = new RenderTarget( w, h, {
+			type: HalfFloatType,
+			format: RGBAFormat,
+			minFilter: NearestFilter,
+			magFilter: NearestFilter,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+
+		// Dispatch dimensions (8x8 workgroups)
+		this._dispatchX = Math.ceil( w / 8 );
+		this._dispatchY = Math.ceil( h / 8 );
 
 		// Own storage nodes — created lazily when data is available
 		this._triStorageNode = null;
 		this._bvhStorageNode = null;
 		this._matStorageNode = null;
 
-		// Material + quad — built once when storage buffers are ready
-		this.material = null;
-		this.quad = null;
-		this._materialBuilt = false;
+		// Compute node — built once when storage buffers are ready
+		this._computeNode = null;
+		this._computeBuilt = false;
 
 	}
 
@@ -114,7 +130,7 @@ export class NormalDepthStage extends PipelineStage {
 	 *
 	 * Creates own `storage()` nodes pointing at the same underlying
 	 * StorageInstancedBufferAttribute so the GPU buffer is shared,
-	 * but each material has its own binding (avoids the module-scope
+	 * but each compute node has its own binding (avoids the module-scope
 	 * TextureNode issue that breaks MRT).
 	 */
 	_syncStorageBuffers() {
@@ -171,67 +187,79 @@ export class NormalDepthStage extends PipelineStage {
 	}
 
 	// ──────────────────────────────────────────────────
-	// Material (built once when buffers are ready)
+	// Compute node (built once when buffers are ready)
 	// ──────────────────────────────────────────────────
 
-	_buildMaterial() {
+	_buildCompute() {
 
 		const triStorage = this._triStorageNode;
 		const bvhStorage = this._bvhStorageNode;
 		const matStorage = this._matStorageNode;
 		const camWorld = this.cameraWorldMatrix;
 		const camProjInv = this.cameraProjectionMatrixInverse;
+		const resW = this.resolutionWidth;
+		const resH = this.resolutionHeight;
+		const outputTex = this._outputStorageTex;
+
+		const WG_SIZE = 8;
 
 		// Pass mat4 uniforms as Fn parameters so TSL wraps them
 		// with bracket-indexing support (closure captures don't get this)
-		const shader = Fn( ( [ camWorldMat, camProjInvMat ] ) => {
+		const computeFn = Fn( ( [ camWorldMat, camProjInvMat ] ) => {
 
-			// Screen UV → NDC
-			const coord = uv();
-			const ndcX = coord.x.mul( 2.0 ).sub( 1.0 );
-			// Negate Y: in WebGPU, QuadMesh uv().y=0 at the top of the screen,
-			// so raw ndcY would be -1 at top (wrong). Negation matches
-			// PathTracingStage's screenCoordinate-based Y negation.
-			const ndcY = coord.y.mul( 2.0 ).sub( 1.0 ).negate();
-			const ndcPos = vec3( ndcX, ndcY, 1.0 );
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-			// Camera ray (no DOF)
-			const rayDirCS = camProjInvMat.mul( vec4( ndcPos, 1.0 ) );
-			const rayDirWorld = normalize(
-				mat3(
-					camWorldMat[ 0 ].xyz,
-					camWorldMat[ 1 ].xyz,
-					camWorldMat[ 2 ].xyz
-				).mul( rayDirCS.xyz.div( rayDirCS.w ) )
-			);
-			const rayOrigin = vec3( camWorldMat[ 3 ] );
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-			const ray = Ray( { origin: rayOrigin, direction: rayDirWorld } );
+				// Pixel coordinate → NDC
+				// Negate Y: in WebGPU, pixel Y=0 at top of screen
+				const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
+				const ndcY = float( gy ).add( 0.5 ).div( resH ).mul( 2.0 ).sub( 1.0 ).negate();
+				const ndcPos = vec3( ndcX, ndcY, 1.0 );
 
-			// BVH traversal (primary ray only) — wrap result for struct field access
-			const hit = HitInfo.wrap( traverseBVH( ray, bvhStorage, triStorage, matStorage ) );
+				// Camera ray (no DOF)
+				const rayDirCS = camProjInvMat.mul( vec4( ndcPos, 1.0 ) );
+				const rayDirWorld = normalize(
+					mat3(
+						camWorldMat[ 0 ].xyz,
+						camWorldMat[ 1 ].xyz,
+						camWorldMat[ 2 ].xyz
+					).mul( rayDirCS.xyz.div( rayDirCS.w ) )
+				);
+				const rayOrigin = vec3( camWorldMat[ 3 ] );
 
-			// Encode: normal * 0.5 + 0.5 in RGB, linear depth in A
-			const encodedNormal = hit.normal.mul( 0.5 ).add( 0.5 );
-			const depth = hit.dst;
+				const ray = Ray( { origin: rayOrigin, direction: rayDirWorld } );
 
-			// Sky / miss: zero normal, large depth
-			const result = hit.didHit.select(
-				vec4( encodedNormal, depth ),
-				vec4( 0.0, 0.0, 0.0, float( 1e6 ) )
-			);
+				// BVH traversal (primary ray only) — wrap result for struct field access
+				const hit = HitInfo.wrap( traverseBVH( ray, bvhStorage, triStorage, matStorage ) );
 
-			return result;
+				// Encode: normal * 0.5 + 0.5 in RGB, linear depth in A
+				const encodedNormal = hit.normal.mul( 0.5 ).add( 0.5 );
+				const depth = hit.dst;
+
+				// Sky / miss: zero normal, large depth
+				const result = hit.didHit.select(
+					vec4( encodedNormal, depth ),
+					vec4( 0.0, 0.0, 0.0, float( 1e6 ) )
+				);
+
+				textureStore(
+					outputTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					result
+				).toWriteOnly();
+
+			} );
 
 		} );
 
-		this.material = new MeshBasicNodeMaterial();
-		// Use outputNode to preserve .w (linear depth) — colorNode forces alpha=1.0
-		this.material.outputNode = shader( camWorld, camProjInv );
-		this.material.toneMapped = false;
+		this._computeNode = computeFn( camWorld, camProjInv ).compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
-		this.quad = new QuadMesh( this.material );
-		this._materialBuilt = true;
+		this._computeBuilt = true;
 
 	}
 
@@ -247,10 +275,10 @@ export class NormalDepthStage extends PipelineStage {
 		const buffersReady = this._syncStorageBuffers();
 		if ( ! buffersReady ) return;
 
-		// Build material on first call (deferred until buffers exist)
-		if ( ! this._materialBuilt ) {
+		// Build compute node on first call (deferred until buffers exist)
+		if ( ! this._computeBuilt ) {
 
-			this._buildMaterial();
+			this._buildCompute();
 
 		}
 
@@ -272,7 +300,7 @@ export class NormalDepthStage extends PipelineStage {
 
 		}
 
-		// Auto-match render target size
+		// Auto-match size to path tracer output
 		const ptColor = context.getTexture( 'pathtracer:color' );
 		if ( ptColor && ptColor.image ) {
 
@@ -286,11 +314,14 @@ export class NormalDepthStage extends PipelineStage {
 
 		}
 
-		// Render primary ray G-buffer
-		this.renderer.setRenderTarget( this.renderTarget );
-		this.quad.render( this.renderer );
+		// Dispatch compute shader
+		this.renderer.compute( this._computeNode );
 
-		// Publish to context
+		// Copy StorageTexture → RenderTarget (cross-dispatch reads from
+		// StorageTexture return zeros — must use RenderTarget for downstream stages)
+		this.renderer.copyTextureToTexture( this._outputStorageTex, this.renderTarget.texture );
+
+		// Publish RenderTarget texture to context
 		context.setTexture( 'pathtracer:normalDepth', this.renderTarget.texture );
 
 		// Clear dirty flag — next frame will reuse cached result
@@ -310,16 +341,28 @@ export class NormalDepthStage extends PipelineStage {
 
 	setSize( width, height ) {
 
+		this._outputStorageTex.setSize( width, height );
 		this.renderTarget.setSize( width, height );
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
+
+		// Update dispatch dimensions
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+		if ( this._computeNode ) {
+
+			this._computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+
+		}
+
 		this._dirty = true;
 
 	}
 
 	dispose() {
 
-		this.material?.dispose();
+		this._computeNode?.dispose();
+		this._outputStorageTex?.dispose();
 		this.renderTarget?.dispose();
 
 	}

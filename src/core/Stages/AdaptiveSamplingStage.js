@@ -1,6 +1,6 @@
-import { Fn, wgslFn, uv, uniform, texture, int, uint, ivec2, uvec2, If,
+import { Fn, wgslFn, uniform, int, uint, ivec2, uvec2, If,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import { DEFAULT_STATE } from '../../Constants.js';
@@ -176,13 +176,19 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		// LinearFilter so fragment shaders (heatmap) can sample it without hitting
-		// Three.js WGSL codegen bug (textureLoad without level for StorageTextures)
+		// LinearFilter for textureLoad codegen compatibility
 		this._outputStorageTex = new StorageTexture( w, h );
 		this._outputStorageTex.type = HalfFloatType;
 		this._outputStorageTex.format = RGBAFormat;
 		this._outputStorageTex.minFilter = LinearFilter;
 		this._outputStorageTex.magFilter = LinearFilter;
+
+		// Heatmap StorageTexture for compute output
+		this._heatmapStorageTex = new StorageTexture( w, h );
+		this._heatmapStorageTex.type = FloatType;
+		this._heatmapStorageTex.format = RGBAFormat;
+		this._heatmapStorageTex.minFilter = NearestFilter;
+		this._heatmapStorageTex.magFilter = NearestFilter;
 
 		// Heatmap render target — FloatType for clean CPU readback via RenderTargetHelper
 		this.heatmapTarget = new RenderTarget( w, h, {
@@ -205,7 +211,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 
 		// Build compute + heatmap shaders
 		this._buildCompute();
-		this._buildHeatmapMaterial();
+		this._buildHeatmapCompute();
 
 		// Floating overlay for heatmap visualization
 		this.helper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
@@ -285,28 +291,47 @@ export class AdaptiveSamplingStage extends PipelineStage {
 	}
 
 	/**
-	 * Build heatmap visualization material.
+	 * Build heatmap visualization compute shader.
 	 *
-	 * Reads the sampling guidance StorageTexture and maps
+	 * Reads the sampling guidance StorageTexture via textureLoad and maps
 	 * normalizedSamples to a smooth blue→cyan→green→yellow→red gradient.
 	 * Converged pixels are desaturated, brightness is modulated by variance.
+	 * Writes to _heatmapStorageTex, then copied to heatmapTarget for
+	 * RenderTargetHelper display.
 	 */
-	_buildHeatmapMaterial() {
+	_buildHeatmapCompute() {
 
-		const samplingTex = texture( this._outputStorageTex );
+		const samplingTex = this._outputStorageTex;
+		const heatmapOut = this._heatmapStorageTex;
+		const resW = this.resolutionWidth;
+		const resH = this.resolutionHeight;
 
-		const heatmapShader = Fn( () => {
+		const WG_SIZE = 8;
 
-			const data = samplingTex.sample( uv() );
-			return heatmapGradient( data.x.clamp( 0.0, 1.0 ), data.y, data.z );
+		const computeFn = Fn( () => {
+
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
+
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
+
+				const data = textureLoad( samplingTex, ivec2( gx, gy ) );
+				const result = heatmapGradient( data.x.clamp( 0.0, 1.0 ), data.y, data.z );
+
+				textureStore(
+					heatmapOut,
+					uvec2( uint( gx ), uint( gy ) ),
+					result
+				).toWriteOnly();
+
+			} );
 
 		} );
 
-		this.heatmapMaterial = new MeshBasicNodeMaterial();
-		this.heatmapMaterial.colorNode = heatmapShader();
-		this.heatmapMaterial.toneMapped = false;
-
-		this.heatmapQuad = new QuadMesh( this.heatmapMaterial );
+		this._heatmapComputeNode = computeFn().compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
@@ -358,8 +383,8 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		// Render heatmap + update helper overlay if visualization enabled
 		if ( this.showAdaptiveSamplingHelper ) {
 
-			this.renderer.setRenderTarget( this.heatmapTarget );
-			this.heatmapQuad.render( this.renderer );
+			this.renderer.compute( this._heatmapComputeNode );
+			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
 			this.helper.update();
 
 		}
@@ -376,6 +401,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 	setSize( width, height ) {
 
 		this._outputStorageTex.setSize( width, height );
+		this._heatmapStorageTex.setSize( width, height );
 		this.heatmapTarget.setSize( width, height );
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
@@ -384,6 +410,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		this._dispatchX = Math.ceil( width / 8 );
 		this._dispatchY = Math.ceil( height / 8 );
 		this._computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._heatmapComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
@@ -439,7 +466,8 @@ export class AdaptiveSamplingStage extends PipelineStage {
 	dispose() {
 
 		this._computeNode?.dispose();
-		this.heatmapMaterial?.dispose();
+		this._heatmapComputeNode?.dispose();
+		this._heatmapStorageTex?.dispose();
 		this._outputStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
 		this.helper?.dispose();

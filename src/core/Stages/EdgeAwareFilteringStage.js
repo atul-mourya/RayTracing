@@ -1,10 +1,12 @@
-import { Fn, vec3, vec4, float, uv, uniform, If, dot, max, min, abs, mix } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
-import { HalfFloatType, RGBAFormat, NearestFilter } from 'three';
+import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
+	If, dot, max, abs, mix,
+	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { HalfFloatType, RGBAFormat, NearestFilter, Box2, Vector2 } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 
 /**
- * WebGPU Edge-Aware Filtering Stage
+ * WebGPU Edge-Aware Filtering Stage (Compute Shader)
  *
  * Edge-preserving temporal filtering with progressive edge sharpening.
  * Uses a large directional sampling kernel for edge-guided smoothing,
@@ -46,9 +48,23 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 		// Input texture node
 		this._inputTexNode = new TextureNode();
 
-		// Render target
+		// Output StorageTexture (compute writes here)
+		// Pre-allocated at max size — NEVER resize/dispose after this.
+		// StorageTexture.setSize() breaks textureStore bind groups (Three.js bug #32969).
+		const MAX_STORAGE_SIZE = 2048;
 		const w = options.width || 1;
 		const h = options.height || 1;
+
+		this._outputStorageTex = new StorageTexture( MAX_STORAGE_SIZE, MAX_STORAGE_SIZE );
+		this._outputStorageTex.type = HalfFloatType;
+		this._outputStorageTex.format = RGBAFormat;
+		this._outputStorageTex.minFilter = NearestFilter;
+		this._outputStorageTex.magFilter = NearestFilter;
+
+		// Reusable Box2 for srcRegion in copyTextureToTexture
+		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
+
+		// Output RenderTarget (readable copy for downstream stages)
 		this.outputTarget = new RenderTarget( w, h, {
 			type: HalfFloatType,
 			format: RGBAFormat,
@@ -58,13 +74,18 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 			stencilBuffer: false
 		} );
 
-		this._buildMaterial();
+		// Dispatch dimensions
+		this._dispatchX = Math.ceil( w / 8 );
+		this._dispatchY = Math.ceil( h / 8 );
+
+		this._buildCompute();
 
 	}
 
-	_buildMaterial() {
+	_buildCompute() {
 
 		const inputTex = this._inputTexNode;
+		const outputStorageTex = this._outputStorageTex;
 		const sharpness = this.pixelEdgeSharpness;
 		const sharpenSpeed = this.edgeSharpenSpeed;
 		const threshold = this.edgeThreshold;
@@ -72,75 +93,85 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 		const resW = this.resW;
 		const resH = this.resH;
 
-		const shader = Fn( () => {
+		const WG_SIZE = 8;
 
-			const coord = uv();
-			const txW = float( 1.0 ).div( resW );
-			const txH = float( 1.0 ).div( resH );
+		const computeFn = Fn( () => {
 
-			const center = inputTex.sample( coord ).xyz;
-			const centerLum = dot( center, vec3( 0.2126, 0.7152, 0.0722 ) );
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-			// Progressive edge sharpening factor
-			const edgeFactor = sharpness.add( iterCount.mul( sharpenSpeed ) ).clamp( 0.0, 0.95 );
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-			// Sample 13-pixel cross pattern for edge-aware filtering
-			// 4 directions × 3 samples each + centre
-			const colorSum = center.toVar();
-			const weightSum = float( 1.0 ).toVar();
+				const center = textureLoad( inputTex, ivec2( gx, gy ) ).xyz;
+				const centerLum = dot( center, vec3( 0.2126, 0.7152, 0.0722 ) );
 
-			// Directions: right, up, left, down, and diagonals
-			const dirs = [
-				[ 1, 0 ], [ 0, 1 ], [ - 1, 0 ], [ 0, - 1 ],
-				[ 1, 1 ], [ - 1, 1 ], [ - 1, - 1 ], [ 1, - 1 ],
-			];
+				// Progressive edge sharpening factor
+				const edgeFactor = sharpness.add( iterCount.mul( sharpenSpeed ) ).clamp( 0.0, 0.95 );
 
-			// Sample along each direction at distances 1, 2, 3
-			for ( const [ dx, dy ] of dirs ) {
+				// Sample 8-direction cross pattern for edge-aware filtering
+				// 8 directions x 2 distances + centre
+				const colorSum = center.toVar();
+				const weightSum = float( 1.0 ).toVar();
 
-				for ( const dist of [ 1, 2 ] ) {
+				// Directions: right, up, left, down, and diagonals
+				const dirs = [
+					[ 1, 0 ], [ 0, 1 ], [ - 1, 0 ], [ 0, - 1 ],
+					[ 1, 1 ], [ - 1, 1 ], [ - 1, - 1 ], [ 1, - 1 ],
+				];
 
-					const sUV = coord.add( vec3( txW.mul( dx * dist ), txH.mul( dy * dist ), 0 ).xy );
-					const sColor = inputTex.sample( sUV ).xyz;
-					const sLum = dot( sColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+				// Sample along each direction at distances 1, 2
+				for ( const [ dx, dy ] of dirs ) {
 
-					// Luminance-based edge weight
-					const lumDiff = abs( centerLum.sub( sLum ) );
-					const edgeWeight = lumDiff.div( max( threshold, float( 0.001 ) ) ).negate().exp();
+					for ( const dist of [ 1, 2 ] ) {
 
-					// Distance falloff
-					const distWeight = float( 1.0 ).div( float( dist ).add( 0.5 ) );
+						const sx = gx.add( dx * dist ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+						const sy = gy.add( dy * dist ).clamp( int( 0 ), int( resH ).sub( 1 ) );
+						const sColor = textureLoad( inputTex, ivec2( sx, sy ) ).xyz;
+						const sLum = dot( sColor, vec3( 0.2126, 0.7152, 0.0722 ) );
 
-					const w = edgeWeight.mul( distWeight );
-					colorSum.addAssign( sColor.mul( w ) );
-					weightSum.addAssign( w );
+						// Luminance-based edge weight
+						const lumDiff = abs( centerLum.sub( sLum ) );
+						const edgeWeight = lumDiff.div( max( threshold, float( 0.001 ) ) ).negate().exp();
+
+						// Distance falloff
+						const distWeight = float( 1.0 ).div( float( dist ).add( 0.5 ) );
+
+						const w = edgeWeight.mul( distWeight );
+						colorSum.addAssign( sColor.mul( w ) );
+						weightSum.addAssign( w );
+
+					}
 
 				}
 
-			}
+				const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
 
-			const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
+				// Blend between filtered and original based on edge sharpening factor
+				const finalColor = mix( filtered, center, edgeFactor );
 
-			// Blend between filtered and original based on edge sharpening factor
-			const finalColor = mix( filtered, center, edgeFactor );
+				// Firefly suppression for very high luminance
+				const finalLum = dot( finalColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+				const clampedColor = finalColor.toVar();
+				If( finalLum.greaterThan( 10.0 ), () => {
 
-			// Firefly suppression for very high luminance
-			const finalLum = dot( finalColor, vec3( 0.2126, 0.7152, 0.0722 ) );
-			const clampedColor = finalColor.toVar();
-			If( finalLum.greaterThan( 10.0 ), () => {
+					clampedColor.assign( finalColor.mul( float( 10.0 ).div( finalLum ) ) );
 
-				clampedColor.assign( finalColor.mul( float( 10.0 ).div( finalLum ) ) );
+				} );
+
+				textureStore(
+					outputStorageTex,
+					uvec2( uint( gx ), uint( gy ) ),
+					vec4( clampedColor, 1.0 )
+				).toWriteOnly();
 
 			} );
 
-			return vec4( clampedColor, 1.0 );
-
 		} );
 
-		this.material = new MeshBasicNodeMaterial();
-		this.material.colorNode = shader();
-		this.material.toneMapped = false;
-		this.quad = new QuadMesh( this.material );
+		this._computeNode = computeFn().compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
@@ -184,11 +215,16 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 		this._iterations ++;
 		this.iterationCount.value = this._iterations;
 
-		// Render
-		this.renderer.setRenderTarget( this.outputTarget );
-		this.quad.render( this.renderer );
+		// Dispatch compute
+		this.renderer.compute( this._computeNode );
 
-		// Publish
+		// Copy StorageTexture → RenderTarget for downstream readability
+		// Use Box2 srcRegion since StorageTexture is pre-allocated at max size
+		this._srcRegion.min.set( 0, 0 );
+		this._srcRegion.max.set( this.outputTarget.width, this.outputTarget.height );
+		this.renderer.copyTextureToTexture( this._outputStorageTex, this.outputTarget.texture, this._srcRegion );
+
+		// Publish RenderTarget texture (NOT StorageTexture)
 		context.setTexture( 'edgeFiltering:output', this.outputTarget.texture );
 
 	}
@@ -217,15 +253,23 @@ export class EdgeAwareFilteringStage extends PipelineStage {
 
 	setSize( width, height ) {
 
+		// Only resize the RenderTarget — StorageTexture stays at max allocation
+		// (StorageTexture.setSize() breaks textureStore bind groups, Three.js bug #32969)
 		this.outputTarget.setSize( width, height );
 		this.resW.value = width;
 		this.resH.value = height;
+
+		// Update dispatch dimensions
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
+		this._computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
 	dispose() {
 
-		this.material?.dispose();
+		this._computeNode?.dispose();
+		this._outputStorageTex?.dispose();
 		this.outputTarget?.dispose();
 
 	}

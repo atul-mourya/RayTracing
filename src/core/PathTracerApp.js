@@ -557,22 +557,18 @@ export class PathTracerApp extends EventDispatcher {
 				adapterInfo: null // Three.js doesn't cache adapterInfo; null is safe
 			} ),
 
-			// Return raw GPUTexture handles from the current MRT render target.
-			// textures[0] = gColor (HDR rgba32float), [1] = gNormalDepth, [2] = gAlbedo.
-			// oidn-web reads these via textureLoad in WGSL — no readRenderTargetPixelsAsync needed.
+			// Return raw GPUTexture handles from the MRT RenderTarget.
 			getGPUTextures: () => {
 
 				const pt = this.pathTracingStage;
-				if ( ! pt?.renderTargets?.renderTargetA ) return null;
+				if ( ! pt?.storageTextures?.readTarget ) return null;
 
-				const currentRT = pt.renderTargets.getCurrentAccumulation();
-				if ( ! currentRT?.textures || currentRT.textures.length < 3 ) return null;
-
+				const readTextures = pt.storageTextures.getReadTextures();
 				const { backend } = this.renderer;
 				return {
-					color: backend.get( currentRT.textures[ 0 ] ).texture,
-					normal: backend.get( currentRT.textures[ 1 ] ).texture,
-					albedo: backend.get( currentRT.textures[ 2 ] ).texture
+					color: backend.get( readTextures.color ).texture,
+					normal: backend.get( readTextures.normalDepth ).texture,
+					albedo: backend.get( readTextures.albedo ).texture
 				};
 
 			},
@@ -594,8 +590,7 @@ export class PathTracerApp extends EventDispatcher {
 			getMRTRenderTarget: () => {
 
 				const pt = this.pathTracingStage;
-				if ( ! pt?.renderTargets?.renderTargetA ) return null;
-				return pt.renderTargets.getCurrentAccumulation();
+				return pt?.storageTextures?.readTarget ?? null;
 
 			}
 		} );

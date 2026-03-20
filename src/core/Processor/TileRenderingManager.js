@@ -1,6 +1,6 @@
 /**
  * TileRenderingManager.js
- * Handles all tile-based rendering logic including scissor testing,
+ * Handles all tile-based rendering logic including tile bounds calculation,
  * spiral order generation, and tile bounds calculation.
  */
 
@@ -19,7 +19,6 @@ export class TileRenderingManager {
 
 		// Tile rendering state
 		this.currentTileBounds = null;
-		this.scissorEnabled = false;
 
 		// Generate initial spiral order
 		this.spiralOrder = this.generateSpiralOrder( tiles );
@@ -78,59 +77,6 @@ export class TileRenderingManager {
      * @param {Object} renderer - The Three.js renderer
      * @param {Object} bounds - Scissor bounds {x, y, width, height}
      */
-	enableScissorForTile( renderer, bounds ) {
-
-		// Skip if already set to these exact bounds
-		if ( this.scissorEnabled &&
-            this.currentTileBounds &&
-            this.currentTileBounds.x === bounds.x &&
-            this.currentTileBounds.y === bounds.y &&
-            this.currentTileBounds.width === bounds.width &&
-            this.currentTileBounds.height === bounds.height ) {
-
-			return;
-
-		}
-
-		// Calculate scissor rectangle with bounds validation
-		// Scissor coordinates are from bottom-left, render targets are top-left
-		// We need to flip the Y coordinate
-		const flippedY = this.height - bounds.y - bounds.height;
-
-		// Validate scissor bounds to prevent errors
-		const scissorX = Math.max( 0, Math.min( bounds.x, this.width ) );
-		const scissorY = Math.max( 0, Math.min( flippedY, this.height ) );
-		const scissorWidth = Math.max( 0, Math.min( bounds.width, this.width - scissorX ) );
-		const scissorHeight = Math.max( 0, Math.min( bounds.height, this.height - scissorY ) );
-
-		// Warn if clamping occurred
-		if ( scissorX !== bounds.x || scissorY !== flippedY ||
-			 scissorWidth !== bounds.width || scissorHeight !== bounds.height ) {
-
-			console.warn( `TileRenderingManager: Scissor bounds clamped from (${bounds.x},${flippedY},${bounds.width},${bounds.height}) to (${scissorX},${scissorY},${scissorWidth},${scissorHeight})` );
-
-		}
-
-		// Use Three.js renderer methods
-		renderer.setScissor( scissorX, scissorY, scissorWidth, scissorHeight );
-		renderer.setScissorTest( true );
-
-		this.scissorEnabled = true;
-		this.currentTileBounds = { ...bounds };
-
-	}
-
-	/**
-     * Disable scissor testing
-     * @param {Object} renderer - The Three.js renderer
-     */
-	disableScissor( renderer ) {
-
-		renderer.setScissorTest( false );
-		this.scissorEnabled = false;
-		this.currentTileBounds = null;
-
-	}
 
 	/**
      * Generate spiral order for tile rendering (center-out pattern)
@@ -234,9 +180,7 @@ export class TileRenderingManager {
 
 			if ( frameValue === 0 ) {
 
-				// First frame: render entire image, disable scissor
-				// This is a complete cycle (full screen render)
-				this.disableScissor( renderer );
+				// First frame: render entire image (full screen)
 				currentTileIndex = - 1;
 				isCompleteCycle = true;
 
@@ -246,9 +190,8 @@ export class TileRenderingManager {
 				const linearTileIndex = ( frameValue - 1 ) % this.totalTilesCache;
 				currentTileIndex = this.spiralOrder[ linearTileIndex ];
 
-				// Set up scissor testing for current tile
+				// Calculate tile bounds (scissor replaced by compute tile uniforms)
 				tileBounds = this.calculateTileBounds( currentTileIndex, this.tiles, this.width, this.height );
-				this.enableScissorForTile( renderer, tileBounds );
 
 				// Update tile highlight pass only when values change
 				if ( tileHighlightStage?.enabled ) {
@@ -267,9 +210,7 @@ export class TileRenderingManager {
 
 		} else {
 
-			// Regular rendering mode: disable scissor
-			// Every frame is a complete cycle in progressive mode
-			this.disableScissor( renderer );
+			// Regular rendering mode: every frame is a complete cycle
 			currentTileIndex = - 1;
 			isCompleteCycle = true;
 
@@ -394,8 +335,7 @@ export class TileRenderingManager {
 			tileIndex: this.tileIndex,
 			tiles: this.tiles,
 			totalTiles: this.totalTilesCache,
-			currentBounds: this.currentTileBounds,
-			scissorEnabled: this.scissorEnabled
+			currentBounds: this.currentTileBounds
 		};
 
 	}
@@ -407,7 +347,6 @@ export class TileRenderingManager {
 
 		this.tileBoundsCache.clear();
 		this.currentTileBounds = null;
-		this.scissorEnabled = false;
 
 	}
 

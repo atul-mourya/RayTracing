@@ -1,7 +1,7 @@
-import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uv, uniform,
+import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 	If, dot, max, min, abs, mix,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
-import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
 import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
@@ -99,7 +99,7 @@ export class ASVGFStage extends PipelineStage {
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		// LinearFilter required for heatmap fragment sampling + textureLoad codegen workaround
+		// LinearFilter for textureLoad codegen compatibility
 		this._temporalTexA = new StorageTexture( w, h );
 		this._temporalTexA.type = HalfFloatType;
 		this._temporalTexA.format = RGBAFormat;
@@ -141,10 +141,16 @@ export class ASVGFStage extends PipelineStage {
 		this._buildGradientCompute();
 		this._buildTemporalCompute();
 
-		// ── Heatmap debug visualization (fragment shader, kept as-is) ──
+		// ── Heatmap debug visualization (compute shader) ──
 
 		this.showHeatmap = false;
 		this.debugMode = uniform( 0, 'int' );
+
+		this._heatmapStorageTex = new StorageTexture( w, h );
+		this._heatmapStorageTex.type = FloatType;
+		this._heatmapStorageTex.format = RGBAFormat;
+		this._heatmapStorageTex.minFilter = NearestFilter;
+		this._heatmapStorageTex.magFilter = NearestFilter;
 
 		this.heatmapTarget = new RenderTarget( w, h, {
 			type: FloatType,
@@ -163,7 +169,7 @@ export class ASVGFStage extends PipelineStage {
 		this._heatmapMotionTexNode = new TextureNode();
 		this._heatmapGradientTexNode = new TextureNode();
 
-		this._buildHeatmapMaterial();
+		this._buildHeatmapCompute();
 
 		this.heatmapHelper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
 			width: 400,
@@ -493,10 +499,10 @@ export class ASVGFStage extends PipelineStage {
 	}
 
 	// ──────────────────────────────────────────────────
-	// Heatmap debug visualization (fragment shader)
+	// Heatmap debug visualization (compute shader)
 	// ──────────────────────────────────────────────────
 
-	_buildHeatmapMaterial() {
+	_buildHeatmapCompute() {
 
 		const rawColorTex = this._heatmapRawColorTexNode;
 		const colorTex = this._heatmapColorTexNode;
@@ -504,105 +510,118 @@ export class ASVGFStage extends PipelineStage {
 		const ndTex = this._heatmapNDTexNode;
 		const motionTex = this._heatmapMotionTexNode;
 		const gradientTex = this._heatmapGradientTexNode;
+		const heatmapOut = this._heatmapStorageTex;
 		const mode = this.debugMode;
 		const resW = this.resW;
 		const resH = this.resH;
 
-		const shader = Fn( () => {
+		const WG_SIZE = 8;
 
-			const coord = uv();
-			const result = vec4( 0.0, 0.0, 0.0, 1.0 ).toVar();
+		const computeFn = Fn( () => {
 
-			// Use If/ElseIf/Else chain — separate If() blocks cause TSL
-			// to generate non-exclusive WGSL branches where texture samples
-			// from inactive branches can contaminate the output.
+			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
+			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
 
-			// Mode 0: Beauty (denoised output)
-			If( mode.equal( int( 0 ) ), () => {
+			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				const c = colorTex.sample( coord ).xyz;
-				result.assign( vec4( c, 1.0 ) );
+				const coord = ivec2( gx, gy );
+				const result = vec4( 0.0, 0.0, 0.0, 1.0 ).toVar();
 
-			} ).ElseIf( mode.equal( int( 1 ) ), () => {
+				// Use If/ElseIf/Else chain — separate If() blocks cause TSL
+				// to generate non-exclusive WGSL branches where texture samples
+				// from inactive branches can contaminate the output.
 
-				// Mode 1: Spatial luminance variance of raw path tracer input.
-				// Computes E[L²] - E[L]² over a 3×3 neighbourhood, which correctly
-				// highlights noisy regions regardless of accumulation state.
-				const texelX = float( 1.0 ).div( float( resW ) );
-				const texelY = float( 1.0 ).div( float( resH ) );
-				const meanLum = float( 0.0 ).toVar();
-				const meanLumSq = float( 0.0 ).toVar();
+				// Mode 0: Beauty (denoised output)
+				If( mode.equal( int( 0 ) ), () => {
 
-				for ( let dy = - 1; dy <= 1; dy ++ ) {
+					const c = textureLoad( colorTex, coord ).xyz;
+					result.assign( vec4( c, 1.0 ) );
 
-					for ( let dx = - 1; dx <= 1; dx ++ ) {
+				} ).ElseIf( mode.equal( int( 1 ) ), () => {
 
-						const offset = vec3( texelX.mul( dx ), texelY.mul( dy ), 0.0 ).xy;
-						const s = rawColorTex.sample( coord.add( offset ) ).xyz;
-						const lum = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
-						meanLum.addAssign( lum );
-						meanLumSq.addAssign( lum.mul( lum ) );
+					// Mode 1: Spatial luminance variance of raw path tracer input.
+					// Computes E[L²] - E[L]² over a 3×3 neighbourhood, which correctly
+					// highlights noisy regions regardless of accumulation state.
+					const meanLum = float( 0.0 ).toVar();
+					const meanLumSq = float( 0.0 ).toVar();
+
+					for ( let dy = - 1; dy <= 1; dy ++ ) {
+
+						for ( let dx = - 1; dx <= 1; dx ++ ) {
+
+							const sx = gx.add( dx ).clamp( int( 0 ), int( resW ).sub( 1 ) );
+							const sy = gy.add( dy ).clamp( int( 0 ), int( resH ).sub( 1 ) );
+							const s = textureLoad( rawColorTex, ivec2( sx, sy ) ).xyz;
+							const lum = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
+							meanLum.addAssign( lum );
+							meanLumSq.addAssign( lum.mul( lum ) );
+
+						}
 
 					}
 
-				}
+					meanLum.divAssign( 9.0 );
+					meanLumSq.divAssign( 9.0 );
+					const variance = max( meanLumSq.sub( meanLum.mul( meanLum ) ), float( 0.0 ) );
 
-				meanLum.divAssign( 9.0 );
-				meanLumSq.divAssign( 9.0 );
-				const variance = max( meanLumSq.sub( meanLum.mul( meanLum ) ), float( 0.0 ) );
+					// Relative variance (normalise by mean to handle HDR range),
+					// then scale into 0-1 for the heatmap.
+					const relVar = variance.div( max( meanLum.mul( meanLum ), float( 0.0001 ) ) );
+					const t = relVar.mul( 10.0 ).clamp( 0.0, 1.0 );
 
-				// Relative variance (normalise by mean to handle HDR range),
-				// then scale into 0-1 for the heatmap.
-				const relVar = variance.div( max( meanLum.mul( meanLum ), float( 0.0001 ) ) );
-				const t = relVar.mul( 10.0 ).clamp( 0.0, 1.0 );
+					// Blue → Cyan → Green → Yellow → Red
+					const r = t.sub( 0.5 ).mul( 4.0 ).clamp( 0.0, 1.0 );
+					const g = t.mul( 4.0 ).clamp( 0.0, 1.0 ).sub(
+						t.sub( 0.75 ).mul( 4.0 ).clamp( 0.0, 1.0 )
+					);
+					const b = float( 1.0 ).sub( t.sub( 0.25 ).mul( 4.0 ).clamp( 0.0, 1.0 ) );
+					result.assign( vec4( r, g, b, 1.0 ) );
 
-				// Blue → Cyan → Green → Yellow → Red
-				const r = t.sub( 0.5 ).mul( 4.0 ).clamp( 0.0, 1.0 );
-				const g = t.mul( 4.0 ).clamp( 0.0, 1.0 ).sub(
-					t.sub( 0.75 ).mul( 4.0 ).clamp( 0.0, 1.0 )
-				);
-				const b = float( 1.0 ).sub( t.sub( 0.25 ).mul( 4.0 ).clamp( 0.0, 1.0 ) );
-				result.assign( vec4( r, g, b, 1.0 ) );
+				} ).ElseIf( mode.equal( int( 2 ) ), () => {
 
-			} ).ElseIf( mode.equal( int( 2 ) ), () => {
+					// Mode 2: History length
+					const historyLength = textureLoad( temporalTex, coord ).w;
+					const t = historyLength.div( 32.0 ).clamp( 0.0, 1.0 );
+					result.assign( vec4( float( 1.0 ).sub( t ), t, float( 0.2 ), 1.0 ) );
 
-				// Mode 2: History length
-				const historyLength = temporalTex.sample( coord ).w;
-				const t = historyLength.div( 32.0 ).clamp( 0.0, 1.0 );
-				result.assign( vec4( float( 1.0 ).sub( t ), t, float( 0.2 ), 1.0 ) );
+				} ).ElseIf( mode.equal( int( 3 ) ), () => {
 
-			} ).ElseIf( mode.equal( int( 3 ) ), () => {
+					// Mode 3: Motion vectors
+					const motion = textureLoad( motionTex, coord );
+					const mx = abs( motion.x ).mul( 100.0 ).clamp( 0.0, 1.0 );
+					const my = abs( motion.y ).mul( 100.0 ).clamp( 0.0, 1.0 );
+					const magnitude = mx.add( my ).clamp( 0.0, 1.0 );
+					result.assign( vec4( mx, my, magnitude.mul( 0.3 ), 1.0 ) );
 
-				// Mode 3: Motion vectors
-				const motion = motionTex.sample( coord );
-				const mx = abs( motion.x ).mul( 100.0 ).clamp( 0.0, 1.0 );
-				const my = abs( motion.y ).mul( 100.0 ).clamp( 0.0, 1.0 );
-				const magnitude = mx.add( my ).clamp( 0.0, 1.0 );
-				result.assign( vec4( mx, my, magnitude.mul( 0.3 ), 1.0 ) );
+				} ).ElseIf( mode.equal( int( 4 ) ), () => {
 
-			} ).ElseIf( mode.equal( int( 4 ) ), () => {
+					// Mode 4: Normals
+					const nd = textureLoad( ndTex, coord );
+					result.assign( vec4( nd.xyz, 1.0 ) );
 
-				// Mode 4: Normals
-				const nd = ndTex.sample( coord );
-				result.assign( vec4( nd.xyz, 1.0 ) );
+				} ).Else( () => {
 
-			} ).Else( () => {
+					// Mode 5: Temporal gradient
+					const grad = textureLoad( gradientTex, coord ).x;
+					const t = grad.mul( 5.0 ).clamp( 0.0, 1.0 );
+					result.assign( vec4( t, t.mul( 0.5 ), float( 1.0 ).sub( t ), 1.0 ) );
 
-				// Mode 5: Temporal gradient
-				const grad = gradientTex.sample( coord ).x;
-				const t = grad.mul( 5.0 ).clamp( 0.0, 1.0 );
-				result.assign( vec4( t, t.mul( 0.5 ), float( 1.0 ).sub( t ), 1.0 ) );
+				} );
+
+				textureStore(
+					heatmapOut,
+					uvec2( uint( gx ), uint( gy ) ),
+					result
+				).toWriteOnly();
 
 			} );
 
-			return result;
-
 		} );
 
-		this.heatmapMaterial = new MeshBasicNodeMaterial();
-		this.heatmapMaterial.colorNode = shader();
-		this.heatmapMaterial.toneMapped = false;
-		this.heatmapQuad = new QuadMesh( this.heatmapMaterial );
+		this._heatmapComputeNode = computeFn().compute(
+			[ this._dispatchX, this._dispatchY, 1 ],
+			[ WG_SIZE, WG_SIZE, 1 ]
+		);
 
 	}
 
@@ -715,9 +734,8 @@ export class ASVGFStage extends PipelineStage {
 			if ( motionTex ) this._heatmapMotionTexNode.value = motionTex;
 			this._heatmapGradientTexNode.value = this._gradientStorageTex;
 
-			this.renderer.setRenderTarget( this.heatmapTarget );
-			this.heatmapQuad.render( this.renderer );
-			this.renderer.setRenderTarget( null );
+			this.renderer.compute( this._heatmapComputeNode );
+			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
 			this.heatmapHelper.update();
 
 		}
@@ -773,6 +791,7 @@ export class ASVGFStage extends PipelineStage {
 		this._prevNDTexA.setSize( width, height );
 		this._prevNDTexB.setSize( width, height );
 		this._gradientStorageTex.setSize( width, height );
+		this._heatmapStorageTex.setSize( width, height );
 		this.heatmapTarget.setSize( width, height );
 		this.resW.value = width;
 		this.resH.value = height;
@@ -783,6 +802,7 @@ export class ASVGFStage extends PipelineStage {
 		this._gradientNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 		this._temporalNodeA.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 		this._temporalNodeB.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._heatmapComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
@@ -805,7 +825,8 @@ export class ASVGFStage extends PipelineStage {
 		this._prevNDTexA?.dispose();
 		this._prevNDTexB?.dispose();
 		this._gradientStorageTex?.dispose();
-		this.heatmapMaterial?.dispose();
+		this._heatmapComputeNode?.dispose();
+		this._heatmapStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
 		this.heatmapHelper?.dispose();
 
