@@ -192,6 +192,28 @@ export class ImageProcessorComposer {
 
 	}
 
+	resize( width, height ) {
+
+		this.width = width;
+		this.height = height;
+		this.renderer.setSize( width, height, false );
+		this.composer.setSize( width, height );
+
+		// Recreate texture to pick up new canvas dimensions
+		if ( this.quad.material.map ) {
+
+			this.quad.material.map.dispose();
+
+		}
+
+		const texture = new THREE.CanvasTexture( this.inputCanvas );
+		texture.minFilter = THREE.LinearFilter;
+		texture.magFilter = THREE.LinearFilter;
+		this.quad.material.map = texture;
+		this.quad.material.needsUpdate = true;
+
+	}
+
 	updateTexture() {
 
 		if ( this.quad && this.quad.material && this.quad.material.map ) {

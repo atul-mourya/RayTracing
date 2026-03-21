@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { cn } from "@/lib/utils";
 
 const SNAP_THRESHOLD = 5;
+const AXIS_SNAP_THRESHOLD = 4;
 const VIEW_BOX = "-3 -3 106 106"; // Add some padding to the viewBox to avoid clipping the at edges otherwide it should be 0 0 100 100
 const INITIAL_POSITION = { x: 50, y: 50 };
 
@@ -39,6 +40,16 @@ export function Trackpad( { className, points = [], onMove, label, ...props } ) 
 
 	}, [ points ] );
 
+	// Snap to vertical (x=50) or horizontal (y=50) center axes
+	const snapToAxis = useCallback( ( pos ) => {
+
+		const snapped = { x: pos.x, y: pos.y };
+		if ( Math.abs( pos.x - 50 ) < AXIS_SNAP_THRESHOLD ) snapped.x = 50;
+		if ( Math.abs( pos.y - 50 ) < AXIS_SNAP_THRESHOLD ) snapped.y = 50;
+		return snapped;
+
+	}, [] );
+
 	const updatePosition = useCallback( ( event ) => {
 
 		const newPosition = calculatePosition( event.clientX, event.clientY );
@@ -53,12 +64,12 @@ export function Trackpad( { className, points = [], onMove, label, ...props } ) 
 
 		} else {
 
-			setPosition( newPosition );
+			setPosition( snapToAxis( newPosition ) );
 			setSnappedPoint( null );
 
 		}
 
-	}, [ calculatePosition, findNearestPoint ] );
+	}, [ calculatePosition, findNearestPoint, snapToAxis ] );
 
 	const handleMouseDown = useCallback( ( event ) => {
 

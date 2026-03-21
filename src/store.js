@@ -2032,15 +2032,28 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleFovChange: val => {
 
-		set( { fov: val, activePreset: "custom" } );
 		const app = getApp();
 		if ( app ) {
 
+			const oldFov = app.camera.fov;
+			const target = app.controls.target.clone();
+			const oldDistance = app.camera.position.distanceTo( target );
+
+			// Keep perceived size constant: distance * tan(fov/2) = constant
+			const newDistance = oldDistance * Math.tan( oldFov * Math.PI / 360 ) / Math.tan( val * Math.PI / 360 );
+
+			// Move camera along the orbit direction
+			const direction = app.camera.position.clone().sub( target ).normalize();
+			app.camera.position.copy( target ).addScaledVector( direction, newDistance );
+
 			app.camera.fov = val;
 			app.camera.updateProjectionMatrix();
+			app.controls.update();
 			app.reset();
 
 		}
+
+		set( { fov: val, activePreset: "custom" } );
 
 	},
 

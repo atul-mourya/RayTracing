@@ -90,25 +90,26 @@ const useResultsData = () => {
 			const cachedData = imageCache.get( 'renders' );
 			if ( cachedData && isMountedRef.current ) {
 
-				setImagesState( prev => ( {
-					...prev,
-					renderedImages: cachedData.images,
-					loading: false,
-					isFetching: false,
-					lastCacheUpdate: cachedData.timestamp
-				} ) );
+				setImagesState( prev => {
 
-				// Handle selection from cache
-				if ( cachedData.images.length > 0 && prev.selectedImageIndex === null ) {
+					const newState = {
+						...prev,
+						renderedImages: cachedData.images,
+						loading: false,
+						isFetching: false,
+						lastCacheUpdate: cachedData.timestamp
+					};
 
-					setImagesState( prev => ( { ...prev, selectedImageIndex: 0 } ) );
-					if ( isResultsTabRef.current ) {
+					// Auto-select first image if none selected
+					if ( cachedData.images.length > 0 && prev.selectedImageIndex === null ) {
 
-						setSelectedResult( cachedData.images[ 0 ] );
+						newState.selectedImageIndex = 0;
 
 					}
 
-				}
+					return newState;
+
+				} );
 
 				return;
 
@@ -161,22 +162,9 @@ const useResultsData = () => {
 
 					newState.selectedImageIndex = 0;
 
-					// Only update selected result if we're in results tab
-					if ( isResultsTabRef.current ) {
-
-						setSelectedResultRef.current( images[ 0 ] );
-
-					}
-
 				} else if ( images.length === 0 ) {
 
 					newState.selectedImageIndex = null;
-
-					if ( isResultsTabRef.current ) {
-
-						setSelectedResultRef.current( null );
-
-					}
 
 				}
 

@@ -281,6 +281,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		}
 
 		const originalCanvas = originalCanvasRef.current;
+		const editedCanvas = editedCanvasRef.current;
 		const aiCanvas = aiCanvasRef.current;
 		const originalCtx = originalCanvas.getContext( '2d' );
 		const aiCtx = aiCanvas.getContext( '2d' );
@@ -293,25 +294,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		setImageLoadState( { loaded: false, error: false } );
 		setViewingAIVariant( false );
 
-		// Helper function to draw image on canvas
-		const drawImageOnCanvas = ( img, canvas, ctx ) => {
-
-			const hRatio = canvas.width / img.width;
-			const vRatio = canvas.height / img.height;
-			const ratio = Math.min( hRatio, vRatio );
-
-			const centerX = ( canvas.width - img.width * ratio ) / 2;
-			const centerY = ( canvas.height - img.height * ratio ) / 2;
-
-			ctx.imageSmoothingEnabled = false;
-			ctx.drawImage(
-				img, 0, 0, img.width, img.height,
-				centerX, centerY, img.width * ratio, img.height * ratio
-			);
-			ctx.imageSmoothingEnabled = true;
-
-		};
-
 		// Create image with optimized loading
 		const img = new Image();
 		img.crossOrigin = 'anonymous'; // Enable CORS for 4K images
@@ -323,14 +305,22 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 			try {
 
-				// Calculate optimal canvas size based on image dimensions
+				// Set canvas buffer to match image dimensions (preserves aspect ratio and full resolution)
+				// Note: editedCanvas dimensions are handled by ImageProcessor.resize()
+				// to avoid disrupting its WebGL context
+				originalCanvas.width = img.width;
+				originalCanvas.height = img.height;
+				aiCanvas.width = img.width;
+				aiCanvas.height = img.height;
+
+				// Calculate display dimensions (capped for on-screen display)
 				const maxDim = 1024;
 				const scale = Math.min( maxDim / img.width, maxDim / img.height, 1 );
 				setActualCanvasWidth( Math.round( img.width * scale ) );
 				setActualCanvasHeight( Math.round( img.height * scale ) );
 
-				// Draw the rendered image on original canvas
-				drawImageOnCanvas( img, originalCanvas, originalCtx );
+				// Draw image at full size (canvas matches image, no letterboxing needed)
+				originalCtx.drawImage( img, 0, 0 );
 
 				// Load AI variant if it exists
 				if ( imageData.aiGeneratedImage ) {
@@ -342,7 +332,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 						if ( ! abortController.signal.aborted ) {
 
-							drawImageOnCanvas( aiImg, aiCanvas, aiCtx );
+							aiCtx.drawImage( aiImg, 0, 0, aiCanvas.width, aiCanvas.height );
 
 						}
 
@@ -361,12 +351,11 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				setIsImageDrawn( true );
 				setImageLoadState( { loaded: true, error: false } );
 
-				// Initialize image processor with the new image
+				// Resize and update image processor for new dimensions
 				if ( imageProcessorRef.current && ! abortController.signal.aborted ) {
 
-					// Update the texture with the new image
+					imageProcessorRef.current.resize( img.width, img.height );
 					imageProcessorRef.current.quad.material.map.needsUpdate = true;
-					// Note: processing will be applied automatically via the debounced effect
 
 				}
 
@@ -727,8 +716,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					{/* Canvas for edited image - optimized for 4K */}
 					<canvas
 						ref={editedCanvasRef}
-						width="2048"
-						height="2048"
 						style={{
 							width: `${actualCanvasWidth}px`,
 							height: `${actualCanvasHeight}px`,
@@ -741,8 +728,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					{/* Canvas for original image - optimized for 4K */}
 					<canvas
 						ref={originalCanvasRef}
-						width="2048"
-						height="2048"
 						style={{
 							width: `${actualCanvasWidth}px`,
 							height: `${actualCanvasHeight}px`,
@@ -755,8 +740,6 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 					{/* Canvas for AI variant - optimized for 4K */}
 					<canvas
 						ref={aiCanvasRef}
-						width="2048"
-						height="2048"
 						style={{
 							width: `${actualCanvasWidth}px`,
 							height: `${actualCanvasHeight}px`,
