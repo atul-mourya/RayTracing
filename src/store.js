@@ -58,6 +58,8 @@ const useStore = create( set => ( {
 	setIsDenoising: val => set( { isDenoising: val } ),
 	isRenderComplete: false,
 	setIsRenderComplete: val => set( { isRenderComplete: val } ),
+	isRendering: true,
+	setIsRendering: val => set( { isRendering: val } ),
 	resetLoading: () => set( { loading: { isLoading: false, progress: 0, title: '', status: '' } } ),
 	appMode: 'preview',
 	setAppMode: mode => set( { appMode: mode } ),
@@ -1659,6 +1661,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		app.needsReset = false;
 		app.pauseRendering = false;
+		set( { isRendering: true } );
 		app.reset();
 
 	},
@@ -1705,6 +1708,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		app.needsReset = false;
 		app.pauseRendering = false;
+		set( { isRendering: true } );
 		app.reset();
 
 	},
@@ -1714,6 +1718,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( ! app ) return;
 		app.pauseRendering = true;
+		set( { isRendering: false } );
 		app.controls.enabled = false;
 		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'none' );
 		app.denoiser?.output && ( app.denoiser.output.style.display = 'none' );

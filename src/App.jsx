@@ -10,7 +10,7 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { useStore } from '@/store';
+import { useStore, usePathTracerStore } from '@/store';
 import { getApp } from '@/core/appProxy';
 
 const App = () => {
@@ -133,32 +133,34 @@ const App = () => {
 		const handleTogglePlayPause = () => {
 
 			const app = getApp();
-			if ( app ) {
+			if ( ! app || ! app.pathTracerEnabled ) return;
 
-				const renderComplete = app.isComplete();
+			const { setIsRendering } = useStore.getState();
+			const renderComplete = app.isComplete();
 
-				if ( renderComplete ) {
+			if ( renderComplete ) {
 
-					// If rendering is complete, always restart
+				// If rendering is complete, always restart
+				app.pauseRendering = false;
+				setIsRendering( true );
+				app.reset();
+
+			} else {
+
+				// If rendering is in progress, toggle pause/resume
+				const isCurrentlyPaused = app.pauseRendering;
+
+				if ( isCurrentlyPaused ) {
+
+					// Resume rendering from where it left off
 					app.pauseRendering = false;
-					app.reset();
+					setIsRendering( true );
 
 				} else {
 
-					// If rendering is in progress, toggle pause/resume
-					const isCurrentlyPaused = app.pauseRendering;
-
-					if ( isCurrentlyPaused ) {
-
-						// Resume rendering from where it left off
-						app.pauseRendering = false;
-
-					} else {
-
-						// Pause rendering
-						app.pauseRendering = true;
-
-					}
+					// Pause rendering
+					app.pauseRendering = true;
+					setIsRendering( false );
 
 				}
 

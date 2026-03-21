@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { Play, Pause, SkipBack, MousePointer2 } from 'lucide-react';
 import {
 	Tooltip,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useStore, useCameraStore } from '@/store';
+import { useStore, usePathTracerStore, useCameraStore } from '@/store';
 import { getApp } from '@/core/appProxy';
 import { useBackendEvent } from '@/hooks/useBackendEvent';
 
@@ -39,7 +39,9 @@ const ControlButton = ( { icon, label, onClick, isActive, disabled } ) => (
 
 const RenderControls = () => {
 
-	const [ isPlaying, setIsPlaying ] = useState( false );
+	const isRendering = useStore( state => state.isRendering );
+	const setIsRendering = useStore( state => state.setIsRendering );
+	const enablePathTracer = usePathTracerStore( state => state.enablePathTracer );
 	const selectMode = useCameraStore( state => state.selectMode );
 	const handleToggleSelectMode = useCameraStore( state => state.handleToggleSelectMode );
 	const appMode = useStore( state => state.appMode );
@@ -50,10 +52,10 @@ const RenderControls = () => {
 		const app = getApp();
 		if ( ! app ) return;
 
-		if ( isPlaying ) {
+		if ( isRendering ) {
 
 			app.pauseRendering = true;
-			setIsPlaying( false );
+			setIsRendering( false );
 
 		} else {
 
@@ -66,7 +68,7 @@ const RenderControls = () => {
 
 			}
 
-			setIsPlaying( true );
+			setIsRendering( true );
 
 		}
 
@@ -86,7 +88,7 @@ const RenderControls = () => {
 
 				app.reset();
 				app.pauseRendering = false;
-				setIsPlaying( true );
+				setIsRendering( true );
 
 			}, 100 );
 
@@ -94,25 +96,27 @@ const RenderControls = () => {
 
 	};
 
-	useBackendEvent( 'RenderComplete', useCallback( () => setIsPlaying( false ), [] ) );
-	useBackendEvent( 'RenderReset', useCallback( () => setIsPlaying( true ), [] ) );
+	useBackendEvent( 'RenderComplete', useCallback( () => setIsRendering( false ), [ setIsRendering ] ) );
+	useBackendEvent( 'RenderReset', useCallback( () => setIsRendering( true ), [ setIsRendering ] ) );
 
-	// Control button definitions
+	// Control button definitions — play/pause/restart only when path tracer is enabled
 	const controls = [
-		{
-			icon: isPlaying ? <Pause size={14} /> : <Play size={14} />,
-			label: isPlaying ? 'Pause' : 'Play',
-			onClick: handleTogglePlay,
-			isActive: false,
-			disabled: false
-		},
-		{
-			icon: <SkipBack size={14} />,
-			label: 'Restart',
-			onClick: handleRestart,
-			isActive: false,
-			disabled: false
-		},
+		...( enablePathTracer ? [
+			{
+				icon: isRendering ? <Pause size={14} /> : <Play size={14} />,
+				label: isRendering ? 'Pause' : 'Play',
+				onClick: handleTogglePlay,
+				isActive: false,
+				disabled: false
+			},
+			{
+				icon: <SkipBack size={14} />,
+				label: 'Restart',
+				onClick: handleRestart,
+				isActive: false,
+				disabled: false
+			}
+		] : [] ),
 		// Show select mode button in preview and results modes
 		...( ( appMode === 'preview' || appMode === 'results' ) ? [ {
 			icon: <MousePointer2 size={14} />,

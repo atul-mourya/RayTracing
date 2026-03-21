@@ -78,6 +78,7 @@ export class PathTracerApp extends EventDispatcher {
 		// State
 		this.isInitialized = false;
 		this.pauseRendering = false;
+		this.pathTracerEnabled = true;
 		this.animationId = null;
 		this.needsReset = false;
 		this._renderCompleteDispatched = false;
@@ -975,72 +976,73 @@ export class PathTracerApp extends EventDispatcher {
 		// Update camera matrix
 		this.camera.updateMatrixWorld();
 
-		// Check if path tracing is enabled (pauseRendering = !enablePathTracer)
-		const enablePathTracer = ! this.pauseRendering;
+		// Raster fallback when path tracer is disabled entirely
+		if ( ! this.pathTracerEnabled ) {
 
-		if ( enablePathTracer ) {
+			this.renderer.render( this.meshScene, this.camera );
+			this._renderHelperOverlay();
+			return;
 
-			// Render path tracing
-			if ( this.pathTracingStage?.isReady ) {
+		}
 
-				// Skip rendering and stats updates when render is already complete
-				if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) {
+		// Paused — keep the last rendered frame visible
+		if ( this.pauseRendering ) return;
 
-					// Still allow display-only refresh (e.g. outline on selection change)
-					// without re-running path tracer or re-dispatching completion.
-					if ( this._needsDisplayRefresh ) {
+		// Render path tracing
+		if ( this.pathTracingStage?.isReady ) {
 
-						this._needsDisplayRefresh = false;
-						this.displayStage.render( this.pipeline.context );
-						this._renderHelperOverlay();
+			// Skip rendering and stats updates when render is already complete
+			if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) {
 
-					}
+				// Still allow display-only refresh (e.g. outline on selection change)
+				// without re-running path tracer or re-dispatching completion.
+				if ( this._needsDisplayRefresh ) {
 
-					return;
-
-				}
-
-				this.pipeline.render();
-
-				const frameCount = this.pathTracingStage.frameCount || 0;
-
-				// Only update time while rendering is in progress
-				if ( ! this.pathTracingStage.isComplete ) {
-
-					const currentTime = performance.now();
-					this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
+					this._needsDisplayRefresh = false;
+					this.displayStage.render( this.pipeline.context );
+					this._renderHelperOverlay();
 
 				}
 
-				updateStats( {
-					timeElapsed: this.timeElapsed,
-					samples: frameCount
-				} );
-
-				// Check if time limit reached and force completion
-				if ( this.renderLimitMode === 'time' && this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit ) {
-
-					this.pathTracingStage.isComplete = true;
-
-				}
-
-				// Check for render completion (use stage's own isComplete flag)
-				if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
-
-					this._renderCompleteDispatched = true;
-					if ( this.denoiser?.enabled && this.denoiser?.output ) this.denoiser.output.style.display = 'block';
-					this.denoiser?.start();
-					this.dispatchEvent( { type: 'RenderComplete' } );
-					useStore.getState().setIsRenderComplete( true );
-
-				}
+				return;
 
 			}
 
-		} else {
+			this.pipeline.render();
 
-			// Traditional rasterization when path tracer is disabled
-			this.renderer.render( this.meshScene, this.camera );
+			const frameCount = this.pathTracingStage.frameCount || 0;
+
+			// Only update time while rendering is in progress
+			if ( ! this.pathTracingStage.isComplete ) {
+
+				const currentTime = performance.now();
+				this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
+
+			}
+
+			updateStats( {
+				timeElapsed: this.timeElapsed,
+				samples: frameCount
+			} );
+
+			// Check if time limit reached and force completion
+			if ( this.renderLimitMode === 'time' && this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit ) {
+
+				this.pathTracingStage.isComplete = true;
+
+			}
+
+			// Check for render completion (use stage's own isComplete flag)
+			if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
+
+				this._renderCompleteDispatched = true;
+				if ( this.denoiser?.enabled && this.denoiser?.output ) this.denoiser.output.style.display = 'block';
+				this.denoiser?.start();
+				this.dispatchEvent( { type: 'RenderComplete' } );
+				useStore.getState().setIsRenderComplete( true );
+				useStore.getState().setIsRendering( false );
+
+			}
 
 		}
 
@@ -1135,6 +1137,7 @@ export class PathTracerApp extends EventDispatcher {
 		this._renderCompleteDispatched = false;
 		this.dispatchEvent( { type: 'RenderReset' } );
 		useStore.getState().setIsRenderComplete( false );
+		useStore.getState().setIsRendering( true );
 
 	}
 
@@ -2016,7 +2019,7 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	setPathTracerEnabled( val ) {
 
-		this.pauseRendering = ! val;
+		this.pathTracerEnabled = val;
 
 	}
 
