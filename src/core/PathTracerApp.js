@@ -1526,10 +1526,15 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Sets render mode.
+	 * @param {number} mode - 0 = progressive (full-screen), 1 = tiled
 	 */
-	setRenderMode( /* mode */ ) {
+	setRenderMode( mode ) {
 
-		// Not implemented in WebGPU yet
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.setUniform( 'renderMode', parseInt( mode ) );
+
+		}
 
 	}
 
@@ -2038,9 +2043,18 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * @stub
+	 * Sets tile count for tiled rendering.
+	 * @param {number} val - Tiles per row/column (e.g., 3 = 3x3 = 9 tiles)
 	 */
-	setTileCount( /* val */ ) {}
+	setTileCount( val ) {
+
+		if ( this.pathTracingStage?.tileManager ) {
+
+			this.pathTracingStage.tileManager.setTileCount( val );
+
+		}
+
+	}
 
 	setRenderLimitMode( val ) {
 

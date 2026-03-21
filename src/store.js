@@ -1637,6 +1637,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		app.transmissiveBounces = PREVIEW_STATE.transmissiveBounces;
 		app.pathTracingStage?.setUniform( 'transmissiveBounces', PREVIEW_STATE.transmissiveBounces );
 
+		app.setRenderMode( PREVIEW_STATE.renderMode );
 		app.setTileCount( PREVIEW_STATE.tiles );
 		if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = PREVIEW_STATE.tilesHelper;
 		app.pathTracingStage?.updateCompletionThreshold?.();
@@ -1684,6 +1685,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		app.transmissiveBounces = FINAL_RENDER_STATE.transmissiveBounces;
 		app.pathTracingStage?.setUniform( 'transmissiveBounces', FINAL_RENDER_STATE.transmissiveBounces );
 
+		app.setRenderMode( FINAL_RENDER_STATE.renderMode );
 		app.setTileCount( FINAL_RENDER_STATE.tiles );
 		if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = FINAL_RENDER_STATE.tilesHelper;
 		app.pathTracingStage?.updateCompletionThreshold?.();

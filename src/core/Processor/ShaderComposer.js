@@ -35,11 +35,14 @@ export class ShaderComposer {
 		// Adaptive sampling texture (updated per-frame from context)
 		this.adaptiveSamplingTexNode = null;
 
-		// Tile bounds uniforms (set per-frame by PathTracingStage)
-		this.tileMinX = uniform( 0, 'int' );
-		this.tileMinY = uniform( 0, 'int' );
-		this.tileMaxX = uniform( 1920, 'int' );
-		this.tileMaxY = uniform( 1080, 'int' );
+		// Tile offset uniforms — pixel origin of the active tile region
+		// Dispatch covers only tile-sized workgroups; offset maps them to image space
+		this.tileOffsetX = uniform( 0, 'int' );
+		this.tileOffsetY = uniform( 0, 'int' );
+
+		// Render dimensions for edge-workgroup bounds checking
+		this.renderWidth = uniform( 1920, 'int' );
+		this.renderHeight = uniform( 1080, 'int' );
 
 		// Dispatch dimensions
 		this._dispatchX = 0;
@@ -74,8 +77,8 @@ export class ShaderComposer {
 		this._dispatchX = Math.ceil( width / WG_SIZE );
 		this._dispatchY = Math.ceil( height / WG_SIZE );
 
-		this.tileMaxX.value = width;
-		this.tileMaxY.value = height;
+		this.renderWidth.value = width;
+		this.renderHeight.value = height;
 
 		const writeTex = storageTextures.getWriteTextures();
 
@@ -128,8 +131,44 @@ export class ShaderComposer {
 
 		if ( this.computeNode ) this.computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
-		this.tileMaxX.value = width;
-		this.tileMaxY.value = height;
+		this.renderWidth.value = width;
+		this.renderHeight.value = height;
+
+		// Reset tile offset (full-screen)
+		this.tileOffsetX.value = 0;
+		this.tileOffsetY.value = 0;
+
+	}
+
+	/**
+	 * Set dispatch to cover only the active tile region.
+	 * Adjusts dispatch count and tile offset so threads map directly to tile pixels.
+	 * @param {number} offsetX - Tile origin X in pixels
+	 * @param {number} offsetY - Tile origin Y in pixels
+	 * @param {number} tileWidth - Tile width in pixels
+	 * @param {number} tileHeight - Tile height in pixels
+	 */
+	setTileDispatch( offsetX, offsetY, tileWidth, tileHeight ) {
+
+		this.tileOffsetX.value = offsetX;
+		this.tileOffsetY.value = offsetY;
+
+		const dispatchX = Math.ceil( tileWidth / WG_SIZE );
+		const dispatchY = Math.ceil( tileHeight / WG_SIZE );
+
+		if ( this.computeNode ) this.computeNode.setCount( [ dispatchX, dispatchY, 1 ] );
+
+	}
+
+	/**
+	 * Reset dispatch to full-screen (no tiling).
+	 */
+	setFullScreenDispatch() {
+
+		this.tileOffsetX.value = 0;
+		this.tileOffsetY.value = 0;
+
+		if ( this.computeNode ) this.computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
 
@@ -211,10 +250,10 @@ export class ShaderComposer {
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 		} = textureNodes;
 
-		const tileMinX = this.tileMinX;
-		const tileMinY = this.tileMinY;
-		const tileMaxX = this.tileMaxX;
-		const tileMaxY = this.tileMaxY;
+		const tileOffsetX = this.tileOffsetX;
+		const tileOffsetY = this.tileOffsetY;
+		const renderWidth = this.renderWidth;
+		const renderHeight = this.renderHeight;
 
 		const prevColorTexNode = this.prevColorTexNode;
 		const prevNormalDepthTexNode = this.prevNormalDepthTexNode;
@@ -222,11 +261,12 @@ export class ShaderComposer {
 
 		const computeFn = Fn( () => {
 
-			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
-			const gy = int( workgroupId.y ).mul( WG_SIZE ).add( int( localId.y ) );
+			// Map thread to image-space pixel via tile offset
+			const gx = tileOffsetX.add( int( workgroupId.x ).mul( WG_SIZE ) ).add( int( localId.x ) );
+			const gy = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
 
-			If( gx.greaterThanEqual( tileMinX ).and( gx.lessThan( tileMaxX ) )
-				.and( gy.greaterThanEqual( tileMinY ).and( gy.lessThan( tileMaxY ) ) ), () => {
+			// Bounds check only needed for edge workgroups that overshoot render dimensions
+			If( gx.lessThan( renderWidth ).and( gy.lessThan( renderHeight ) ), () => {
 
 				const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
 

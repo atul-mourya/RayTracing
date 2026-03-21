@@ -959,21 +959,19 @@ export class PathTracingStage extends PipelineStage {
 		// Force-compile compute nodes on first frame
 		this.shaderComposer.forceCompile( this.renderer );
 
-		// Update tile bounds uniforms (replaces scissor test)
+		// Set dispatch region — tile-only dispatch for tiled mode, full-screen otherwise
 		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
 
-			this.shaderComposer.tileMinX.value = tileInfo.tileBounds.x;
-			this.shaderComposer.tileMinY.value = tileInfo.tileBounds.y;
-			this.shaderComposer.tileMaxX.value = tileInfo.tileBounds.x + tileInfo.tileBounds.width;
-			this.shaderComposer.tileMaxY.value = tileInfo.tileBounds.y + tileInfo.tileBounds.height;
+			// Dispatch only the workgroups covering this tile
+			this.shaderComposer.setTileDispatch(
+				tileInfo.tileBounds.x, tileInfo.tileBounds.y,
+				tileInfo.tileBounds.width, tileInfo.tileBounds.height
+			);
 
 		} else {
 
-			// Full-screen render (no tiling)
-			this.shaderComposer.tileMinX.value = 0;
-			this.shaderComposer.tileMinY.value = 0;
-			this.shaderComposer.tileMaxX.value = this.storageTextures.renderWidth;
-			this.shaderComposer.tileMaxY.value = this.storageTextures.renderHeight;
+			// Full-screen render — dispatch all workgroups
+			this.shaderComposer.setFullScreenDispatch();
 
 		}
 
