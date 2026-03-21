@@ -6,11 +6,8 @@
 - [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentory stutter
 - [ ] occasional jarring flickers with auto-exposure - studio vray aparment example file - windows device
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
-- [x] Aspect ratio / canvas size is not maintained in results tab.
-- [z] persist the perceived distance same when changing the FOV
-- [x] camera verticle and horizontal line in trackpad to be snappable
+  
 - [ ] New snap points to be added for trackpad
-- [ ] results tab - unable to zoom and scroll using physical mouse, it needs to behave same as zoom to cursor feature.
 - [ ] when i save a final render, and switch to results tab, the saved render is not visible in the results tab until refreshing the page
 - [ ] Get feedback on default render settings and convergence criteria, and adjust for better out-of-box experience
 - [ ] save settings in local storage and load on app start for better user experience. also provide export/import option for settings to share with others or use across devices

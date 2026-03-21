@@ -9,6 +9,7 @@ import { ImageProcessorComposer } from '@/utils/ImageProcessor';
 import ViewportToolbar from './ViewportToolbar';
 import { deleteRender, saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
+import { usePanZoom } from '@/hooks/usePanZoom';
 import { generateViewportStyles } from '@/utils/viewport';
 
 // Utility function to format render time (compact version)
@@ -64,7 +65,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const [ viewingOriginal, setViewingOriginal ] = useState( false );
 	const [ selectedImageId, setSelectedImageId ] = useState( null );
 	const [ originalSettings, setOriginalSettings ] = useState( null );
-	const [ longPressActive, setLongPressActive ] = useState( false );
+	const longPressActiveRef = useRef( false );
 	const longPressTimeoutRef = useRef( null );
 	const [ isHovering, setIsHovering ] = useState( false );
 	const [ viewingAIVariant, setViewingAIVariant ] = useState( false );
@@ -84,6 +85,29 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		minScale: 25,
 		maxScale: 300
 	} );
+
+	// Pan & scroll-zoom
+	const {
+		panOffset,
+		isPanning,
+		resetPan,
+		handlePointerDown,
+	} = usePanZoom( {
+		viewportRef,
+		viewportScale,
+		onScaleChange: handleViewportResize,
+		minScale: 25,
+		maxScale: 300,
+		enabled: !! imageData,
+		suppressRef: longPressActiveRef,
+	} );
+
+	// Reset pan when auto-fit kicks in (viewport resize or explicit reset)
+	useEffect( () => {
+
+		if ( ! isManualScale ) resetPan();
+
+	}, [ isManualScale, autoFitScale, resetPan ] );
 
 	// Calculate if changes have been made using useMemo for efficiency
 	const hasChanges = useMemo( () => {
@@ -293,6 +317,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		setIsImageDrawn( false );
 		setImageLoadState( { loaded: false, error: false } );
 		setViewingAIVariant( false );
+		resetPan();
 
 		// Create image with optimized loading
 		const img = new Image();
@@ -410,7 +435,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 		};
 
-	}, [ imageData, setImageProcessingParam ] );
+	}, [ imageData, setImageProcessingParam, resetPan ] );
 
 	// Apply image processing when parameters change (debounced for 4K performance)
 	useEffect( () => {
@@ -445,7 +470,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 		longPressTimeoutRef.current = setTimeout( () => {
 
 			setViewingOriginal( true );
-			setLongPressActive( true );
+			longPressActiveRef.current = true;
 
 		}, 200 ); // 200ms delay for long press to activate
 
@@ -461,15 +486,15 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 		}
 
-		// If long press was active, switch back to edited view
-		if ( longPressActive ) {
+		// If long press was active, switch back to edited view (read ref to avoid stale closure)
+		if ( longPressActiveRef.current ) {
 
 			setViewingOriginal( false );
-			setLongPressActive( false );
+			longPressActiveRef.current = false;
 
 		}
 
-	}, [ longPressActive ] );
+	}, [] );
 
 	// Cancel long press on mouse/touch move
 	const cancelLongPress = useCallback( () => {
@@ -498,11 +523,16 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	}, [] );
 
-	// Memoize style objects
-	const { wrapperStyle, containerStyle } = useMemo( () =>
+	// Memoize style objects with pan offset
+	const { wrapperStyle: baseWrapperStyle, containerStyle } = useMemo( () =>
 		generateViewportStyles( actualCanvasWidth, actualCanvasHeight, viewportScale ),
 	[ actualCanvasWidth, actualCanvasHeight, viewportScale ]
 	);
+
+	const wrapperStyle = useMemo( () => ( {
+		...baseWrapperStyle,
+		transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${viewportScale / 100})`,
+	} ), [ baseWrapperStyle, panOffset.x, panOffset.y, viewportScale ] );
 
 	// UI handlers
 	const resetImageProcessing = () => {
@@ -587,6 +617,14 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 
 	};
 
+	// Wrap auto-fit reset to also reset pan
+	const handleResetToAutoFitWithPan = useCallback( () => {
+
+		handleResetToAutoFit();
+		resetPan();
+
+	}, [ handleResetToAutoFit, resetPan ] );
+
 	// Create a mock app ref for ViewportToolbar compatibility
 	const mockAppRef = useRef( null );
 
@@ -600,7 +638,12 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	}, [ handleScreenshot ] );
 
 	return (
-		<div ref={viewportRef} className="flex justify-center items-center h-full z-10">
+		<div
+			ref={viewportRef}
+			className="flex justify-center items-center h-full z-10"
+			style={{ cursor: isPanning ? 'grabbing' : ( imageData ? 'grab' : 'default' ) }}
+			onPointerDown={imageData ? handlePointerDown : undefined}
+		>
 			{/* Long press hint - only shows when hovering over the canvas or actively viewing original */}
 			{imageData && ( isHovering || viewingOriginal ) && (
 				<div className="absolute top-2 left-1/2 transform -translate-x-1/2 z-20">
@@ -690,7 +733,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				{/* Container with fixed size */}
 				<div
 					ref={containerRef}
-					className="relative cursor-pointer"
+					className="relative"
 					style={containerStyle}
 				>
 					{/* Loading indicator for 4K images */}
@@ -770,7 +813,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 				zoomStep={25}
 				autoFitScale={autoFitScale}
 				isManualScale={isManualScale}
-				onResetToAutoFit={handleResetToAutoFit}
+				onResetToAutoFit={handleResetToAutoFitWithPan}
 				controls={{
 					resetZoom: true,
 					zoomButtons: true,
