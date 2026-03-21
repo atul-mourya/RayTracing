@@ -122,20 +122,13 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		if ( value === storeMaxSamples ) return;
 
-		// Update store
+		// Update store and local state
 		setStoreMaxSamples( value );
-
-		// Update local state
 		setMaxSamples( value );
 
-		// Update app via setter API
+		// Update app — setMaxSamples handles completion state internally, never resets
 		const app = getApp();
-		if ( app ) {
-
-			app.setMaxSamples( value );
-			app.reset();
-
-		}
+		if ( app ) app.setMaxSamples( value );
 
 	}, [ storeMaxSamples, setStoreMaxSamples ] );
 

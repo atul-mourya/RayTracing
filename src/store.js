@@ -1521,12 +1521,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleRenderTimeLimitChange: handleChange(
 		val => set( { renderTimeLimit: val } ),
-		( val, app ) => {
-
-			app.renderTimeLimit = parseFloat( val );
-			app.reset();
-
-		}
+		( val, app ) => app.setRenderTimeLimit( parseFloat( val ) ),
+		false // never resets — completion reconciled internally
 	),
 
 	handleInteractionModeEnabledChange: handleChange(

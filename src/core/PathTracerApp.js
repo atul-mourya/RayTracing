@@ -1173,6 +1173,76 @@ export class PathTracerApp extends EventDispatcher {
 		this.maxSamples = samples;
 		this.pathTracingStage?.setUniform( 'maxSamples', samples );
 
+		if ( this.pathTracingStage ) {
+
+			this.pathTracingStage.updateCompletionThreshold();
+			this._reconcileCompletion();
+
+		}
+
+	}
+
+	/**
+	 * Sets the render time limit without resetting.
+	 * @param {number} timeLimit - New time limit in seconds
+	 */
+	setRenderTimeLimit( timeLimit ) {
+
+		this.renderTimeLimit = timeLimit;
+		this._reconcileCompletion();
+
+	}
+
+	/**
+	 * Reconciles completion state after a limit change.
+	 * - If current progress is below the new limit → resume rendering
+	 * - If current progress is at or past the new limit → mark complete
+	 * Never resets — accumulated work is always preserved.
+	 */
+	_reconcileCompletion() {
+
+		const stage = this.pathTracingStage;
+		if ( ! stage ) return;
+
+		const shouldBeComplete = this._isRenderLimitReached();
+
+		if ( shouldBeComplete && ! stage.isComplete ) {
+
+			// Progress already exceeds new (lower) limit — just stop
+			stage.isComplete = true;
+
+		} else if ( ! shouldBeComplete && stage.isComplete ) {
+
+			// Limit was raised — resume from where we left off
+			stage.isComplete = false;
+			this._renderCompleteDispatched = false;
+
+			this.canvas.style.opacity = '1';
+			if ( this.denoiser?.output ) this.denoiser.output.style.display = 'none';
+
+			useStore.getState().setIsRenderComplete( false );
+			useStore.getState().setIsRendering( true );
+
+		}
+
+	}
+
+	/**
+	 * Checks whether the current render progress has reached the active limit.
+	 */
+	_isRenderLimitReached() {
+
+		const stage = this.pathTracingStage;
+		if ( ! stage ) return false;
+
+		if ( this.renderLimitMode === 'time' ) {
+
+			return this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit;
+
+		}
+
+		return stage.frameCount >= stage.completionThreshold;
+
 	}
 
 	setTransmissiveBounces( bounces ) {
