@@ -12,6 +12,7 @@
 - [ ] Get feedback on default render settings and convergence criteria, and adjust for better out-of-box experience
 - [ ] save settings in local storage and load on app start for better user experience. also provide export/import option for settings to share with others or use across devices
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls. Example
+- [ ] if max frame is increased by the user while the render is running, and the current frame is less than the previous max frame, the render should continue until the new max frame instead of resetting the render and starting from frame 0 again. This will allow users to increase max frame on the fly without interrupting the render progress. Same for time budget, if increased on the fly, the render should continue until the new time budget is reached instead of resetting.
 
 ### Known
 - [ ] Soft shadows for directional lights not working when enabled from UI
