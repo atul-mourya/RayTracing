@@ -116,8 +116,8 @@ export class MotionVectorStage extends PipelineStage {
 		this.worldSpaceTarget = new RenderTarget( width, height, rtOpts );
 
 		// Dispatch dimensions (8x8 workgroups)
-		this._dispatchX = Math.ceil( width / 8 );
-		this._dispatchY = Math.ceil( height / 8 );
+		this._dispatchX = Math.ceil( width / 16 );
+		this._dispatchY = Math.ceil( height / 16 );
 
 		// Build compute nodes
 		this._buildScreenSpaceCompute();
@@ -146,7 +146,7 @@ export class MotionVectorStage extends PipelineStage {
 		const resH = this.resolutionHeight;
 		const outputTex = this._screenSpaceStorageTex;
 
-		const WG_SIZE = 8;
+		const WG_SIZE = 16;
 
 		const computeFn = Fn( ( [ cwm, cpi ] ) => {
 
@@ -255,7 +255,7 @@ export class MotionVectorStage extends PipelineStage {
 		const resH = this.resolutionHeight;
 		const outputTex = this._worldSpaceStorageTex;
 
-		const WG_SIZE = 8;
+		const WG_SIZE = 16;
 
 		const computeFn = Fn( ( [ cwm, cpi ] ) => {
 
@@ -511,8 +511,8 @@ export class MotionVectorStage extends PipelineStage {
 		this.resolutionHeight.value = height;
 
 		// Update dispatch dimensions
-		this._dispatchX = Math.ceil( width / 8 );
-		this._dispatchY = Math.ceil( height / 8 );
+		this._dispatchX = Math.ceil( width / 16 );
+		this._dispatchY = Math.ceil( height / 16 );
 		if ( this._screenSpaceComputeNode ) {
 
 			this._screenSpaceComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );

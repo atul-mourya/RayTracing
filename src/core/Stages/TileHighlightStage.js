@@ -74,8 +74,8 @@ export class TileHighlightStage extends PipelineStage {
 		} );
 
 		// Dispatch dimensions
-		this._dispatchX = Math.ceil( w / 8 );
-		this._dispatchY = Math.ceil( h / 8 );
+		this._dispatchX = Math.ceil( w / 16 );
+		this._dispatchY = Math.ceil( h / 16 );
 
 		this._buildCompute();
 
@@ -96,7 +96,7 @@ export class TileHighlightStage extends PipelineStage {
 		const resW = this.resW;
 		const resH = this.resH;
 
-		const WG_SIZE = 8;
+		const WG_SIZE = 16;
 
 		const computeFn = Fn( () => {
 
@@ -255,8 +255,8 @@ export class TileHighlightStage extends PipelineStage {
 		this.resH.value = height;
 
 		// Update dispatch dimensions
-		this._dispatchX = Math.ceil( width / 8 );
-		this._dispatchY = Math.ceil( height / 8 );
+		this._dispatchX = Math.ceil( width / 16 );
+		this._dispatchY = Math.ceil( height / 16 );
 		this._computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
 
 	}
