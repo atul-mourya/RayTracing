@@ -643,7 +643,22 @@ export class PathTracerApp extends EventDispatcher {
 				if ( this.denoiser?.enabled ) return null; // denoiser already wrote to output canvas
 				return this.renderer.domElement;
 
-			}
+			},
+
+			// HDR pipeline: read float32 directly from path tracer GPU textures
+			getGPUTextures: () => {
+
+				const pt = this.pathTracingStage;
+				if ( ! pt?.storageTextures?.readTarget ) return null;
+
+				const readTextures = pt.storageTextures.getReadTextures();
+				return { color: this.renderer.backend.get( readTextures.color ).texture };
+
+			},
+			getExposure: () => this.autoExposureStage?.enabled
+				? this.renderer.toneMappingExposure
+				: this.exposure,
+			getToneMapping: () => this.renderer.toneMapping
 		} );
 
 		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;

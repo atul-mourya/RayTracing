@@ -22,6 +22,7 @@ const FinalRenderPanel = () => {
 		oidnHdr,
 		enableUpscaler,
 		upscalerScale,
+		upscalerHdr,
 
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
@@ -34,6 +35,7 @@ const FinalRenderPanel = () => {
 		handleUseGBufferChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
+		handleUpscalerHdrChange,
 	} = useStore();
 
 
@@ -102,7 +104,7 @@ const FinalRenderPanel = () => {
 			<div className="flex items-center justify-between py-2 px-2">
 				<Switch label={"AI Upscaler"} checked={enableUpscaler} onCheckedChange={handleEnableUpscalerChange} />
 			</div>
-			{enableUpscaler && (
+			{enableUpscaler && ( <>
 				<div className="flex items-center justify-between py-2 px-2">
 					<Select value={upscalerScale.toString()} onValueChange={handleUpscalerScaleChange}>
 						<span className="opacity-50 text-xs truncate">Scale Factor</span>
@@ -115,7 +117,10 @@ const FinalRenderPanel = () => {
 						</SelectContent>
 					</Select>
 				</div>
-			)}
+				<div className="flex items-center justify-between py-2 px-2">
+					<Switch label={"HDR"} checked={upscalerHdr} onCheckedChange={handleUpscalerHdrChange} />
+				</div>
+			</> )}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
 		</div>
 	);

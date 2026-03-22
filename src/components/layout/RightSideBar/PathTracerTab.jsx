@@ -83,6 +83,7 @@ const PathTracerTab = () => {
 		enableOIDN,
 		enableUpscaler,
 		upscalerScale,
+		upscalerHdr,
 		exposure,
 		enableEnvironment,
 		showBackground,
@@ -149,6 +150,7 @@ const PathTracerTab = () => {
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
+		handleUpscalerHdrChange,
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
@@ -524,7 +526,7 @@ const PathTracerTab = () => {
 					<Switch label={"AI Upscaler"} checked={enableUpscaler} onCheckedChange={handleEnableUpscalerChange} />
 				</div>
 
-				{enableUpscaler && (
+				{enableUpscaler && ( <>
 					<div className="flex items-center justify-between">
 						<Select value={upscalerScale.toString()} onValueChange={handleUpscalerScaleChange}>
 							<span className="opacity-50 text-xs truncate">Scale Factor</span>
@@ -537,7 +539,10 @@ const PathTracerTab = () => {
 							</SelectContent>
 						</Select>
 					</div>
-				)}
+					<div className="flex items-center justify-between">
+						<Switch label={"HDR"} checked={upscalerHdr} onCheckedChange={handleUpscalerHdrChange} />
+					</div>
+				</> )}
 			</ControlGroup>
 
 			<ControlGroup name="Sampling">

@@ -120,7 +120,7 @@
 - [ ] Move inference to a Web Worker to keep UI responsive during upscaling
 
 ### Quality
-- [ ] HDR pipeline — upscale in linear/HDR space before tonemapping (zero-copy from path tracer GPU textures via `Tensor.fromGpuBuffer()`)
+- [x] HDR pipeline — reads float32 from GPU textures, tonemaps at float32 precision before model, avoids uint8 quantization bottleneck
 
 ### Models
 - [ ] Model quality presets (fast/balanced/quality) with different model sizes per scale factor
