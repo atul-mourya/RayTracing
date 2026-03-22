@@ -121,7 +121,6 @@
 
 ### Quality
 - [ ] HDR pipeline — upscale in linear/HDR space before tonemapping (zero-copy from path tracer GPU textures via `Tensor.fromGpuBuffer()`)
-- [ ] Alpha preservation — cache and restore alpha channel for transparent backgrounds (matching OIDN pattern)
 
 ### Models
 - [ ] Model quality presets (fast/balanced/quality) with different model sizes per scale factor

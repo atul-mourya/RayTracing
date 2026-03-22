@@ -79,6 +79,10 @@ export class AIUpscaler extends EventDispatcher {
 		this._session = null;
 		this._currentModelUrl = null;
 
+		// Alpha channel cache (bilinear-upscaled from source, applied per tile)
+		this._upscaledAlpha = null;
+		this._upscaledAlphaWidth = 0;
+
 		// Canvas state backup for abort recovery
 		this._backupCanvas = null;
 		this._baseWidth = output.width;
@@ -234,6 +238,7 @@ export class AIUpscaler extends EventDispatcher {
 		} finally {
 
 			this._capturedSource = null;
+			this._upscaledAlpha = null;
 			this.state.isUpscaling = false;
 			this.state.abortController = null;
 			this.dispatchEvent( { type: 'end' } );
@@ -285,6 +290,10 @@ export class AIUpscaler extends EventDispatcher {
 		// Canvas already sized and base image drawn in execute()
 		const ctx = this.output.getContext( '2d', { willReadFrequently: true, alpha: true } );
 
+		// Cache bilinear-upscaled alpha channel from source for restoration per tile.
+		// The SR model outputs RGB only — alpha would be lost without this.
+		this._cacheUpscaledAlpha( sourceImageData, srcW * scale, srcH * scale );
+
 		// Tile-based inference
 		const overlap = MODEL_CONFIG.TILE_OVERLAP;
 		const tileSize = this.tileSize;
@@ -313,12 +322,12 @@ export class AIUpscaler extends EventDispatcher {
 				// Run inference on this tile
 				const tileOutput = await this._inferTile( tileInput, tw, th );
 
-				// Write upscaled tile to canvas
+				// Write upscaled tile to canvas with restored alpha
 				const writeX = srcX * scale;
 				const writeY = srcY * scale;
 				const upscaledW = tw * scale;
 				const upscaledH = th * scale;
-				const tileImageData = this._tensorToImageData( tileOutput, upscaledW, upscaledH );
+				const tileImageData = this._tensorToImageData( tileOutput, upscaledW, upscaledH, writeX, writeY );
 				ctx.putImageData( tileImageData, writeX, writeY );
 
 				completedTiles ++;
@@ -412,23 +421,115 @@ export class AIUpscaler extends EventDispatcher {
 
 	/**
 	 * Converts NCHW Float32 tensor output [3, H, W] to RGBA ImageData.
+	 * Restores alpha from the cached upscaled alpha channel.
+	 * @param {Float32Array} tensorData - Model output in NCHW [1, 3, H, W]
+	 * @param {number} width - Tile width in upscaled pixels
+	 * @param {number} height - Tile height in upscaled pixels
+	 * @param {number} tileX - Tile X offset in the upscaled canvas
+	 * @param {number} tileY - Tile Y offset in the upscaled canvas
 	 */
-	_tensorToImageData( tensorData, width, height ) {
+	_tensorToImageData( tensorData, width, height, tileX, tileY ) {
 
 		const imageData = new ImageData( width, height );
 		const pixels = imageData.data;
 		const planeSize = width * height;
+		const alpha = this._upscaledAlpha;
+		const alphaW = this._upscaledAlphaWidth;
 
 		for ( let i = 0; i < planeSize; i ++ ) {
 
 			pixels[ i * 4 ] = Math.min( 255, Math.max( 0, tensorData[ i ] * 255 + 0.5 ) ) | 0;
 			pixels[ i * 4 + 1 ] = Math.min( 255, Math.max( 0, tensorData[ planeSize + i ] * 255 + 0.5 ) ) | 0;
 			pixels[ i * 4 + 2 ] = Math.min( 255, Math.max( 0, tensorData[ 2 * planeSize + i ] * 255 + 0.5 ) ) | 0;
-			pixels[ i * 4 + 3 ] = 255;
+
+			// Restore alpha from cached upscaled source
+			if ( alpha ) {
+
+				const row = ( i / width ) | 0;
+				const col = i % width;
+				pixels[ i * 4 + 3 ] = alpha[ ( tileY + row ) * alphaW + ( tileX + col ) ];
+
+			} else {
+
+				pixels[ i * 4 + 3 ] = 255;
+
+			}
 
 		}
 
 		return imageData;
+
+	}
+
+	/**
+	 * Extracts and bilinear-upscales the alpha channel from the source image.
+	 * Uses canvas drawImage for high-quality interpolation.
+	 */
+	_cacheUpscaledAlpha( sourceImageData, outW, outH ) {
+
+		const { data, width, height } = sourceImageData;
+
+		// Check if source has any non-opaque pixels
+		let hasAlpha = false;
+		for ( let i = 3; i < data.length; i += 4 ) {
+
+			if ( data[ i ] < 255 ) {
+
+				hasAlpha = true;
+				break;
+
+			}
+
+		}
+
+		if ( ! hasAlpha ) {
+
+			this._upscaledAlpha = null;
+			this._upscaledAlphaWidth = 0;
+			return;
+
+		}
+
+		// Create a canvas with just the alpha channel as grayscale
+		const srcCanvas = document.createElement( 'canvas' );
+		srcCanvas.width = width;
+		srcCanvas.height = height;
+		const srcCtx = srcCanvas.getContext( '2d' );
+		const alphaImage = srcCtx.createImageData( width, height );
+
+		for ( let i = 0, len = width * height; i < len; i ++ ) {
+
+			const a = data[ i * 4 + 3 ];
+			alphaImage.data[ i * 4 ] = a;
+			alphaImage.data[ i * 4 + 1 ] = a;
+			alphaImage.data[ i * 4 + 2 ] = a;
+			alphaImage.data[ i * 4 + 3 ] = 255;
+
+		}
+
+		srcCtx.putImageData( alphaImage, 0, 0 );
+
+		// Bilinear-upscale via canvas drawImage
+		const dstCanvas = document.createElement( 'canvas' );
+		dstCanvas.width = outW;
+		dstCanvas.height = outH;
+		const dstCtx = dstCanvas.getContext( '2d' );
+		dstCtx.imageSmoothingEnabled = true;
+		dstCtx.imageSmoothingQuality = 'high';
+		dstCtx.drawImage( srcCanvas, 0, 0, outW, outH );
+
+		// Extract the upscaled alpha as a flat Uint8Array (R channel = alpha)
+		const upscaledData = dstCtx.getImageData( 0, 0, outW, outH ).data;
+		const alphaArray = new Uint8Array( outW * outH );
+
+		for ( let i = 0, len = outW * outH; i < len; i ++ ) {
+
+			alphaArray[ i ] = upscaledData[ i * 4 ];
+
+		}
+
+		this._upscaledAlpha = alphaArray;
+		this._upscaledAlphaWidth = outW;
 
 	}
 
@@ -494,6 +595,7 @@ export class AIUpscaler extends EventDispatcher {
 
 		this._currentModelUrl = null;
 		this._backupCanvas = null;
+		this._upscaledAlpha = null;
 		this.state.abortController = null;
 
 		console.log( 'AIUpscaler disposed' );
