@@ -200,6 +200,12 @@ export const DEFAULT_STATE = {
 	focusDistance: 0.8,
 	aperture: 5.6,
 	focalLength: 50,
+	apertureScale: 1.0,
+
+	// Auto-focus
+	autoFocusMode: 'auto', // 'manual' | 'auto'
+	afScreenPoint: { x: 0.5, y: 0.5 },
+	afSmoothingFactor: 0.15,
 
 	enablePathTracer: true,
 	enableAccumulation: true,
@@ -400,49 +406,67 @@ export const CAMERA_PRESETS = {
 		description: "Shallow depth of field, background blur",
 		fov: 45,
 		focusDistance: 1.5,
-		aperture: 2.0,
-		focalLength: 85
+		aperture: 1.4,
+		focalLength: 135,
+		apertureScale: 1.5
 	},
 	landscape: {
 		name: "Landscape",
 		description: "Maximum depth of field, everything in focus",
 		fov: 65,
 		focusDistance: 10.0,
-		aperture: 11.0,
-		focalLength: 24
+		aperture: 16.0,
+		focalLength: 24,
+		apertureScale: 0.5
 	},
 	macro: {
 		name: "Macro",
 		description: "Extreme close-up with thin focus plane",
 		fov: 40,
 		focusDistance: 0.3,
-		aperture: 2.8,
-		focalLength: 100
+		aperture: 2.0,
+		focalLength: 100,
+		apertureScale: 2.0
 	},
 	product: {
 		name: "Product",
 		description: "Sharp detail with subtle background separation",
-		fov: 65,
+		fov: 50,
 		focusDistance: 0.8,
-		aperture: 5.6,
-		focalLength: 50
+		aperture: 2.8,
+		focalLength: 85,
+		apertureScale: 1.0
 	},
 	architectural: {
 		name: "Architectural",
 		description: "Wide view with deep focus",
 		fov: 75,
 		focusDistance: 5.0,
-		aperture: 8.0,
-		focalLength: 16
+		aperture: 11.0,
+		focalLength: 16,
+		apertureScale: 0.5
 	},
 	cinematic: {
 		name: "Cinematic",
 		description: "Dramatic depth separation",
-		fov: 40,
+		fov: 35,
 		focusDistance: 3.0,
 		aperture: 1.4,
-		focalLength: 135
+		focalLength: 200,
+		apertureScale: 1.8
 	}
+};
+
+export const AUTO_FOCUS_MODES = {
+	MANUAL: 'manual',
+	AUTO: 'auto',
+};
+
+export const AF_DEFAULTS = {
+	SMOOTHING_FACTOR: 0.15,
+	RESET_THRESHOLD: 0.05, // 5% change triggers accumulation reset
+	FALLBACK_DISTANCE: 10.0, // Default when no valid hit exists
+	SNAP_THRESHOLD: 0.5, // 50% change = snap instead of smooth
 };
 
 // Triangle data layout constants - shared between GeometryExtractor and TextureCreator

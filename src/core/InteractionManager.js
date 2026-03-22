@@ -38,6 +38,10 @@ class InteractionManager extends EventDispatcher {
 		this.focusMode = false;
 		this.focusPointIndicator = null;
 
+		// AF point placement state
+		this.afPointPlacementMode = false;
+		this.handleAFPointClick = this.handleAFPointClick.bind( this );
+
 		// Select mode state
 		this.selectMode = false;
 		this.clickTimeout = null;
@@ -168,6 +172,52 @@ class InteractionManager extends EventDispatcher {
 			}
 
 		}, 2000 );
+
+	}
+
+	// ==================== AF POINT PLACEMENT ====================
+
+	/**
+	 * Enter AF point placement mode for screen-point auto-focus.
+	 */
+	enterAFPointPlacementMode() {
+
+		this.afPointPlacementMode = true;
+		this.canvas.style.cursor = 'crosshair';
+		this.canvas.addEventListener( 'click', this.handleAFPointClick );
+
+	}
+
+	/**
+	 * Exit AF point placement mode.
+	 */
+	exitAFPointPlacementMode() {
+
+		this.afPointPlacementMode = false;
+		this.canvas.style.cursor = 'auto';
+		this.canvas.removeEventListener( 'click', this.handleAFPointClick );
+
+	}
+
+	/**
+	 * Handle click to place AF point.
+	 * @private
+	 */
+	handleAFPointClick( event ) {
+
+		const rect = this.canvas.getBoundingClientRect();
+		// Normalized screen coordinates (0-1)
+		const x = ( event.clientX - rect.left ) / rect.width;
+		const y = ( event.clientY - rect.top ) / rect.height;
+
+		// Exit placement mode
+		this.exitAFPointPlacementMode();
+
+		// Dispatch event
+		this.dispatchEvent( {
+			type: 'afPointPlaced',
+			point: { x, y }
+		} );
 
 	}
 
@@ -557,6 +607,7 @@ class InteractionManager extends EventDispatcher {
 	dispose() {
 
 		// Remove all event listeners
+		this.canvas.removeEventListener( 'click', this.handleAFPointClick );
 		this.canvas.removeEventListener( 'click', this.handleFocusClick );
 		this.canvas.removeEventListener( 'mousedown', this.handleMouseDown );
 		this.canvas.removeEventListener( 'mouseup', this.handleMouseUp );

@@ -1928,10 +1928,17 @@ const useCameraStore = create( ( set, get ) => ( {
 	focusMode: false,
 	selectMode: false,
 
+	// Auto-focus state
+	autoFocusMode: DEFAULT_STATE.autoFocusMode,
+	afScreenPoint: { ...DEFAULT_STATE.afScreenPoint },
+	afSmoothingFactor: DEFAULT_STATE.afSmoothingFactor,
+	afPlacingPoint: false,
+
 	setCameraNames: names => set( { cameraNames: names } ),
 	setSelectedCameraIndex: idx => set( { selectedCameraIndex: idx } ),
 	setFocusMode: mode => set( { focusMode: mode } ),
 	setSelectMode: mode => set( { selectMode: mode } ),
+	setAutoFocusDistance: val => set( { focusDistance: val } ),
 	setFov: val => set( { fov: val, activePreset: "custom" } ),
 	setFocusDistance: val => set( { focusDistance: val, activePreset: "custom" } ),
 	setAperture: val => set( { aperture: val, activePreset: "custom" } ),
@@ -1948,6 +1955,8 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleToggleFocusMode: () => {
 
+		const { autoFocusMode } = get();
+		if ( autoFocusMode !== 'manual' ) return; // Block when auto-focus active
 		const app = getApp();
 		if ( ! app ) return;
 		const isActive = app.toggleFocusMode();
@@ -1993,13 +2002,80 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleFocusDistanceChange: val => {
 
-		set( { focusDistance: val, activePreset: "custom" } );
+		set( { focusDistance: val, activePreset: "custom", autoFocusMode: 'manual' } );
 		const app = getApp();
 		if ( app ) {
 
 			const scale = app.assetLoader?.getSceneScale() || 1.0;
 			app.setFocusDistance( val * scale );
+			app.setAutoFocusMode( 'manual' );
 			app.reset();
+
+		}
+
+	},
+
+	handleAutoFocusModeChange: mode => {
+
+		const prevMode = get().autoFocusMode;
+
+		// Switching away from auto to manual: freeze current focus distance
+		if ( mode === 'manual' && prevMode !== 'manual' ) {
+
+			set( { autoFocusMode: mode, afPlacingPoint: false } );
+			const app = getApp();
+			if ( app ) app.setAutoFocusMode( mode );
+			return;
+
+		}
+
+		set( { autoFocusMode: mode, afPlacingPoint: false } );
+		const app = getApp();
+		if ( app ) app.setAutoFocusMode( mode );
+
+	},
+
+	handleAFScreenPointChange: point => {
+
+		set( { afScreenPoint: point, afPlacingPoint: false } );
+		const app = getApp();
+		if ( app ) app.setAFScreenPoint( point.x, point.y );
+
+	},
+
+	handleAFResetToCenter: () => {
+
+		const center = { x: 0.5, y: 0.5 };
+		set( { afScreenPoint: center } );
+		const app = getApp();
+		if ( app ) app.setAFScreenPoint( 0.5, 0.5 );
+
+	},
+
+	handleAFSmoothingChange: val => {
+
+		set( { afSmoothingFactor: val } );
+		const app = getApp();
+		if ( app ) app.afSmoothingFactor = val;
+
+	},
+
+	handleToggleAFPointPlacement: () => {
+
+		const current = get().afPlacingPoint;
+		set( { afPlacingPoint: ! current } );
+		const app = getApp();
+		if ( app ) {
+
+			if ( ! current ) {
+
+				app.enterAFPointPlacementMode();
+
+			} else {
+
+				app.exitAFPointPlacementMode();
+
+			}
 
 		}
 
@@ -2015,18 +2091,28 @@ const useCameraStore = create( ( set, get ) => ( {
 		}
 
 		const preset = CAMERA_PRESETS[ key ];
-		set( { ...preset, activePreset: key } );
+		const presetApertureScale = preset.apertureScale ?? 1.0;
+		set( { ...preset, apertureScale: presetApertureScale, activePreset: key } );
 
 		const app = getApp();
 		if ( app ) {
 
-			const scale = app.assetLoader?.getSceneScale() || 1.0;
+			const isAutoFocus = get().autoFocusMode === 'auto';
+
 			app.camera.fov = preset.fov;
 			app.camera.updateProjectionMatrix();
-			app.setFocusDistance( preset.focusDistance * scale );
 			app.setAperture( preset.aperture );
 			app.setFocalLength( preset.focalLength );
-			app.setApertureScale( get().apertureScale || 1.0 );
+			app.setApertureScale( presetApertureScale );
+
+			// Skip focus distance when auto-focus is active — it will recompute
+			if ( ! isAutoFocus ) {
+
+				const scale = app.assetLoader?.getSceneScale() || 1.0;
+				app.setFocusDistance( preset.focusDistance * scale );
+
+			}
+
 			app.reset();
 
 		}
@@ -2121,6 +2207,7 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	handleApertureScaleChange: val => {
 
+		set( { apertureScale: val, activePreset: "custom" } );
 		const app = getApp();
 		if ( app ) {
 
@@ -2131,7 +2218,7 @@ const useCameraStore = create( ( set, get ) => ( {
 
 	},
 
-	handleFocusChangeEvent: event => set( { focusDistance: event.distance, focusMode: false, activePreset: "custom" } ),
+	handleFocusChangeEvent: event => set( { focusDistance: event.distance, focusMode: false, activePreset: "custom", autoFocusMode: 'manual' } ),
 
 } ) );
 

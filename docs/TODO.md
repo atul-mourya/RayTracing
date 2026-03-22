@@ -3,44 +3,47 @@
 ## Bugs
 
 ### MVP
-- [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentory stutter
-- [ ] occasional jarring flickers with auto-exposure - studio vray aparment example file - windows device
+- [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
   
-- [ ] New snap points to be added for trackpad
-- [ ] when i save a final render, and switch to results tab, the saved render is not visible in the results tab until refreshing the page
-- [ ] Get feedback on default render settings and convergence criteria, and adjust for better out-of-box experience
-- [ ] save settings in local storage and load on app start for better user experience. also provide export/import option for settings to share with others or use across devices
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls. Example
-- [ ] if max frame is increased by the user while the render is running, and the current frame is less than the previous max frame, the render should continue until the new max frame instead of resetting the render and starting from frame 0 again. This will allow users to increase max frame on the fly without interrupting the render progress. Same for time budget, if increased on the fly, the render should continue until the new time budget is reached instead of resetting.
 
 ### Known
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] when convergence is done and i trigger play from ui, it switches to rasterisation. Similarly on double press of spacebar triggers it all even if still converging
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
-- [ ] asvgf dont feel denoising effectively in realtime
 - [ ] open issues by threejs https://github.com/mrdoob/three.js/issues/32969 and 33061
 2Jd84No5SP
+
+### Unconfirmed
+- [ ] occasional jarring flickers with auto-exposure - studio vray aparment example file - windows device
+- [ ] when i save a final render, and switch to results tab, the saved render is not visible in the results tab until refreshing the page
+- [ ] Get feedback on default render settings and convergence criteria, and adjust for better out-of-box experience
+
 ---
 
 ## Features
 
+### General
+- [ ] Save rendering state in local storage and load on app start
+- [ ] export/import option for settings
+
 ### Rendering
-- [ ] Save rendering state
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support
 - [ ] camera motion video rendering
-- [ ] Tile Rendering need a webgpu revamp
+- [ ] Tile Rendering helper not working
+- [ ] Tile Rendering count displayed in UI is wrong. it shows tile count * current tile index, instead of just current tile index
 - [ ] Full WGSL transition, avoid TSL nodes
 - [ ] Realtime OIDN denoising with WebGPU compute shader implementation
 
 ### Camera
+- [ ] New snap points to be added for trackpad
 - [ ] first person camera mode controls as an alternative to orbit controls
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
 - [ ] Depth of field with support for anamorphic bokeh
-- [ ] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
+- [x] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 
 
 ### Lighting

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } from 'react';
 import DimensionDisplay from './DimensionDisplay';
+import AutoFocusOverlay from './AutoFocusOverlay';
 import StatsMeter from './StatsMeter';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
@@ -296,7 +297,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						height={canvasHeight}
 						style={canvasStyle}
 					/>
-					<DimensionDisplay dimension={renderResolution} />
+					<AutoFocusOverlay containerRef={containerRef} />
+				<DimensionDisplay dimension={renderResolution} />
 				</div>
 			</div>
 

@@ -1,9 +1,10 @@
-import { Ruler, Telescope, Aperture, Camera, Target } from 'lucide-react';
+import { Ruler, Telescope, Aperture, Camera, Target, Crosshair, RotateCcw } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Trackpad } from "@/components/ui/trackpad";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CAMERA_RANGES, CAMERA_PRESETS } from '@/Constants';
 import { useCameraStore } from '@/store';
 import { useEffect, useCallback } from 'react';
@@ -25,8 +26,14 @@ const CameraTab = () => {
 		zoomToCursor,
 		activePreset,
 		focusMode,
+		apertureScale,
 		cameraNames,
 		selectedCameraIndex,
+
+		// Auto-focus state
+		autoFocusMode,
+		afScreenPoint,
+		afPlacingPoint,
 
 		// Basic setters
 		setCameraNames,
@@ -45,6 +52,11 @@ const CameraTab = () => {
 		handleCameraChange,
 		handleApertureScaleChange,
 		handleFocusChangeEvent,
+
+		// Auto-focus handlers
+		handleAutoFocusModeChange,
+		handleToggleAFPointPlacement,
+		handleAFResetToCenter,
 	} = useCameraStore();
 
 	const activeApp = useActiveApp();
@@ -90,6 +102,9 @@ const CameraTab = () => {
 		{ x: 25, y: 75 }, // bottom left view
 		{ x: 75, y: 75 }, // bottom right view
 	];
+
+	const isAutoFocus = autoFocusMode === 'auto';
+	const isAFPointCustom = afScreenPoint.x !== 0.5 || afScreenPoint.y !== 0.5;
 
 	return (
 		<>
@@ -168,25 +183,88 @@ const CameraTab = () => {
 						</div>
 
 						<div className="flex items-center justify-between">
-							<Slider
-								label={"Focus Distance (m)"}
-								icon={Telescope}
-								min={CAMERA_RANGES.focusDistance.min}
-								max={CAMERA_RANGES.focusDistance.max}
-								step={0.1}
-								value={[ focusDistance.toFixed( 1 ) ]}
-								onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
-							/>
-							<Button
-								variant={focusMode ? "default" : "outline"}
-								size="icon"
-								onClick={handleToggleFocusMode}
-								className="ml-2 h-5 rounded-full"
-								title="Click in scene to set focus point"
+							<span className="opacity-50 text-xs truncate">Focus</span>
+							<ToggleGroup
+								type="single"
+								value={autoFocusMode}
+								onValueChange={( val ) => val && handleAutoFocusModeChange( val )}
+								className="max-w-36"
 							>
-								<Target size={12} />
-							</Button>
+								<ToggleGroupItem value="manual" className="text-xs px-3 h-5">
+									Manual
+								</ToggleGroupItem>
+								<ToggleGroupItem value="auto" className="text-xs px-3 h-5">
+									Auto
+								</ToggleGroupItem>
+							</ToggleGroup>
 						</div>
+
+						{/* Manual mode: slider + click-to-focus target */}
+						{!isAutoFocus && (
+							<div className="flex items-center justify-between">
+								<Slider
+									label={"Focus Distance (m)"}
+									icon={Telescope}
+									min={CAMERA_RANGES.focusDistance.min}
+									max={CAMERA_RANGES.focusDistance.max}
+									step={0.1}
+									value={[ focusDistance.toFixed( 1 ) ]}
+									onValueChange={( values ) => handleFocusDistanceChange( values[ 0 ] )}
+								/>
+								<Button
+									variant={focusMode ? "default" : "outline"}
+									size="icon"
+									onClick={handleToggleFocusMode}
+									className="ml-2 h-5 rounded-full"
+									title="Click in scene to set focus point"
+								>
+									<Target size={12} />
+								</Button>
+							</div>
+						)}
+
+						{/* Auto mode: read-only slider + AF point controls + smoothing */}
+						{isAutoFocus && (
+							<>
+								<div className="flex items-center justify-between">
+									<Slider
+										label={"Focus Distance (m)"}
+										icon={Telescope}
+										min={CAMERA_RANGES.focusDistance.min}
+										max={CAMERA_RANGES.focusDistance.max}
+										step={0.1}
+										value={[ focusDistance.toFixed( 1 ) ]}
+										disabled={true}
+									/>
+									<span className="ml-2 text-[10px] opacity-40 whitespace-nowrap">(auto)</span>
+								</div>
+								<div className="flex items-center justify-between">
+									<span className="opacity-50 text-xs truncate">AF Point</span>
+									<div className="flex items-center gap-1.5">
+										<Button
+											variant={afPlacingPoint ? "default" : "outline"}
+											size="sm"
+											onClick={handleToggleAFPointPlacement}
+											className="h-5 rounded-full text-xs px-2"
+										>
+											<Crosshair size={12} className="mr-1" />
+											{afPlacingPoint ? "Click viewport..." : "Set Point"}
+										</Button>
+										{isAFPointCustom && (
+											<Button
+												variant="outline"
+												size="icon"
+												onClick={handleAFResetToCenter}
+												className="h-5 w-5 rounded-full"
+												title="Reset to center"
+											>
+												<RotateCcw size={10} />
+											</Button>
+										)}
+									</div>
+								</div>
+							</>
+						)}
 
 						<div className="flex items-center justify-between">
 							<Select value={aperture.toString()} onValueChange={handleApertureChange}>
@@ -224,7 +302,7 @@ const CameraTab = () => {
 								min={0.1}
 								max={2.0}
 								step={0.1}
-								value={[ 1.0 ]} // Default value
+								value={[ apertureScale ?? 1.0 ]}
 								onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
 							/>
 						</div>

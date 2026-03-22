@@ -24,12 +24,12 @@ import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { SSRCStage } from './Stages/SSRCStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
-import { DEFAULT_STATE } from '../Constants.js';
+import { DEFAULT_STATE, AF_DEFAULTS } from '../Constants.js';
 import { updateStats, updateLoading, resetLoading } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
-import { useStore } from '@/store';
+import { useStore, useCameraStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
 
@@ -113,6 +113,14 @@ export class PathTracerApp extends EventDispatcher {
 		this.focalLength = DEFAULT_STATE.focalLength ?? 50.0;
 		this.aperture = DEFAULT_STATE.aperture ?? 0.0;
 		this.apertureScale = 1.0;
+
+		// Auto-focus state
+		this.autoFocusMode = DEFAULT_STATE.autoFocusMode;
+		this.afScreenPoint = { ...DEFAULT_STATE.afScreenPoint };
+		this.afSmoothingFactor = DEFAULT_STATE.afSmoothingFactor;
+		this._lastValidFocusDistance = null;
+		this._smoothedFocusDistance = null;
+
 		this.currentCameraIndex = 0;
 		this._defaultCameraState = null; // saved when switching away from default
 
@@ -511,6 +519,15 @@ export class PathTracerApp extends EventDispatcher {
 				this.controls.enabled = true;
 
 			}
+
+		} );
+
+		// Auto-focus point placement
+		this.interactionManager.addEventListener( 'afPointPlaced', ( event ) => {
+
+			this.setAFScreenPoint( event.point.x, event.point.y );
+			if ( this.controls ) this.controls.enabled = true;
+			useCameraStore.getState().handleAFScreenPointChange( event.point );
 
 		} );
 
@@ -987,6 +1004,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Paused — keep the last rendered frame visible
 		if ( this.pauseRendering ) return;
+
+		// Auto-focus: compute focus distance before rendering
+		this.updateAutoFocus();
 
 		// Render path tracing
 		if ( this.pathTracingStage?.isReady ) {
@@ -1589,8 +1609,169 @@ export class PathTracerApp extends EventDispatcher {
 	setApertureScale( scale ) {
 
 		this.apertureScale = scale;
-		// Aperture scale not yet implemented in path tracing stage
+		this.pathTracingStage?.setUniform( 'apertureScale', scale );
 		this.reset();
+
+	}
+
+	// ─── Auto-Focus ──
+
+	setAutoFocusMode( mode ) {
+
+		this.autoFocusMode = mode;
+
+		// When switching to an auto mode, force immediate recomputation
+		if ( mode !== 'manual' ) {
+
+			this._smoothedFocusDistance = null; // reset smoothing to pick up fresh
+			this._afPointDirty = true; // force reset on next frame
+
+		}
+
+	}
+
+	setAFScreenPoint( x, y ) {
+
+		this.afScreenPoint = { x, y };
+
+		// Force immediate focus recomputation and reset so the viewport updates
+		this._afPointDirty = true;
+
+	}
+
+	enterAFPointPlacementMode() {
+
+		if ( ! this.interactionManager ) return;
+		this.interactionManager.enterAFPointPlacementMode();
+		if ( this.controls ) this.controls.enabled = false;
+
+	}
+
+	exitAFPointPlacementMode() {
+
+		if ( ! this.interactionManager ) return;
+		this.interactionManager.exitAFPointPlacementMode();
+		if ( this.controls ) this.controls.enabled = true;
+
+	}
+
+	/**
+	 * Per-frame auto-focus update. Called in animate() before pipeline.render().
+	 * Uses Raycaster to get depth at the target screen point.
+	 */
+	updateAutoFocus() {
+
+		if ( this.autoFocusMode === 'manual' ) return;
+
+		// Lock focus during active tiled final rendering (renderMode=1, mid-render)
+		// Don't lock interactive mode (renderMode=0) or completed renders
+		const stage = this.pathTracingStage;
+		if ( stage?.isReady
+			&& stage.renderMode?.value === 1
+			&& stage.frameCount > 0
+			&& ! stage.isComplete ) return;
+
+
+
+		// Convert AF screen point (normalized 0-1) to NDC (-1 to 1)
+		const ndcX = this.afScreenPoint.x * 2 - 1;
+		const ndcY = - ( this.afScreenPoint.y * 2 - 1 ); // Y flip: screen Y=0 is top
+
+		// Cast ray using InteractionManager's raycaster
+		const raycaster = this.interactionManager?.raycaster;
+		if ( ! raycaster ) return;
+
+		raycaster.setFromCamera( { x: ndcX, y: ndcY }, this.camera );
+		const intersects = raycaster.intersectObjects( this.meshScene.children, true );
+
+		// Filter out helpers and floor plane
+		const validHit = intersects.find( hit =>
+			hit.object !== this.interactionManager?.focusPointIndicator &&
+			hit.object !== this.floorPlane &&
+			! hit.object.name.includes( 'Helper' ) &&
+			hit.object.type === 'Mesh'
+		);
+
+		let rawDistance;
+		if ( validHit ) {
+
+			rawDistance = validHit.distance;
+			this._lastValidFocusDistance = rawDistance;
+
+		} else {
+
+			// Hold last valid distance (spec: background/sky hits)
+			if ( this._lastValidFocusDistance !== null ) {
+
+				rawDistance = this._lastValidFocusDistance;
+
+			} else {
+
+				// Fallback: use default
+				const scale = this.assetLoader?.getSceneScale() || 1.0;
+				rawDistance = AF_DEFAULTS.FALLBACK_DISTANCE * scale;
+				this._lastValidFocusDistance = rawDistance;
+
+			}
+
+		}
+
+		// Explicit point move — snap immediately and force reset
+		const forceReset = this._afPointDirty;
+		this._afPointDirty = false;
+
+		// Temporal smoothing
+		if ( forceReset || this._smoothedFocusDistance === null || this._smoothedFocusDistance === 0 ) {
+
+			this._smoothedFocusDistance = rawDistance;
+
+		} else {
+
+			const changeFraction = Math.abs( rawDistance - this._smoothedFocusDistance )
+				/ this._smoothedFocusDistance;
+
+			if ( changeFraction > AF_DEFAULTS.SNAP_THRESHOLD ) {
+
+				// Large jump: snap immediately
+				this._smoothedFocusDistance = rawDistance;
+
+			} else {
+
+				// Smooth interpolation
+				this._smoothedFocusDistance += this.afSmoothingFactor
+					* ( rawDistance - this._smoothedFocusDistance );
+
+			}
+
+		}
+
+		// Check if focus changed enough to update
+		const prevFocus = this.focusDistance;
+		const newFocus = this._smoothedFocusDistance;
+
+		if ( forceReset || prevFocus === 0 || Math.abs( newFocus - prevFocus ) / Math.max( prevFocus, 0.001 ) > 0.001 ) {
+
+			// Update uniform directly
+			this.focusDistance = newFocus;
+			this.pathTracingStage?.setUniform( 'focusDistance', newFocus );
+
+			// Update store for UI display (unscaled value)
+			const scale = this.assetLoader?.getSceneScale() || 1.0;
+			useCameraStore.getState().setAutoFocusDistance( newFocus / scale );
+
+			// Reset accumulation on explicit point change or large threshold change
+			const changeRatio = Math.abs( newFocus - prevFocus ) / Math.max( prevFocus, 0.001 );
+			if ( forceReset ) {
+
+				this.reset(); // hard reset on explicit point change
+
+			} else if ( changeRatio > AF_DEFAULTS.RESET_THRESHOLD ) {
+
+				this.reset( true ); // soft reset for continuous camera tracking
+
+			}
+
+		}
 
 	}
 
