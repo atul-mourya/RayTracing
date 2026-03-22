@@ -81,6 +81,8 @@ const PathTracerTab = () => {
 		oidnQuality,
 		oidnHdr,
 		enableOIDN,
+		enableUpscaler,
+		upscalerScale,
 		exposure,
 		enableEnvironment,
 		showBackground,
@@ -145,6 +147,8 @@ const PathTracerTab = () => {
 		handleOidnQualityChange,
 		handleOidnHdrChange,
 		handleEnableOIDNChange,
+		handleEnableUpscalerChange,
+		handleUpscalerScaleChange,
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
@@ -512,6 +516,28 @@ const PathTracerTab = () => {
 						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
 					</div>
 				</> )}
+
+				<Separator />
+
+				{/* AI Upscaler Control */}
+				<div className="flex items-center justify-between">
+					<Switch label={"AI Upscaler"} checked={enableUpscaler} onCheckedChange={handleEnableUpscalerChange} />
+				</div>
+
+				{enableUpscaler && (
+					<div className="flex items-center justify-between">
+						<Select value={upscalerScale.toString()} onValueChange={handleUpscalerScaleChange}>
+							<span className="opacity-50 text-xs truncate">Scale Factor</span>
+							<SelectTrigger className="max-w-24 h-5 rounded-full" >
+								<SelectValue placeholder="Select scale" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="2">2x</SelectItem>
+								<SelectItem value="4">4x</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+				)}
 			</ControlGroup>
 
 			<ControlGroup name="Sampling">

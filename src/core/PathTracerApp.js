@@ -29,6 +29,7 @@ import { updateStats, updateLoading, resetLoading } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
+import { AIUpscaler } from './Passes/AIUpscaler.js';
 import { useStore, useCameraStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
@@ -329,6 +330,9 @@ export class PathTracerApp extends EventDispatcher {
 		// Initialize OIDN denoiser
 		this._setupDenoiser();
 
+		// Initialize AI upscaler
+		this._setupUpscaler();
+
 		// Handle resize
 		this.onResize();
 		this.resizeHandler = () => this.onResize();
@@ -618,6 +622,35 @@ export class PathTracerApp extends EventDispatcher {
 		// Sync denoiser state with store
 		this.denoiser.addEventListener( 'start', () => useStore.getState().setIsDenoising( true ) );
 		this.denoiser.addEventListener( 'end', () => useStore.getState().setIsDenoising( false ) );
+
+	}
+
+	/**
+	 * Initializes the AI upscaler for post-render super-resolution.
+	 */
+	_setupUpscaler() {
+
+		if ( ! this.denoiserCanvas ) return;
+
+		this.upscaler = new AIUpscaler( this.denoiserCanvas, this.renderer, {
+			scaleFactor: DEFAULT_STATE.upscalerScale || 2,
+
+			// Returns the correct source canvas:
+			// - If OIDN ran, the denoiser canvas already has the result → return null (reads from output)
+			// - If OIDN didn't run, read from the WebGPU renderer canvas
+			getSourceCanvas: () => {
+
+				if ( this.denoiser?.enabled ) return null; // denoiser already wrote to output canvas
+				return this.renderer.domElement;
+
+			}
+		} );
+
+		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;
+
+		// Sync upscaler state with store
+		this.upscaler.addEventListener( 'start', () => useStore.getState().setIsUpscaling( true ) );
+		this.upscaler.addEventListener( 'end', () => useStore.getState().setIsUpscaling( false ) );
 
 	}
 
@@ -922,6 +955,9 @@ export class PathTracerApp extends EventDispatcher {
 		// Resize denoiser canvas to match render dimensions
 		this.denoiser?.setSize( renderWidth, renderHeight );
 
+		// Notify upscaler of base resolution change
+		this.upscaler?.setBaseSize( renderWidth, renderHeight );
+
 		this.needsReset = true;
 
 		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: renderWidth, height: renderHeight } } ) );
@@ -1056,8 +1092,44 @@ export class PathTracerApp extends EventDispatcher {
 			if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
 
 				this._renderCompleteDispatched = true;
-				if ( this.denoiser?.enabled && this.denoiser?.output ) this.denoiser.output.style.display = 'block';
-				this.denoiser?.start();
+
+				// Show the post-process canvas if any post-process is enabled
+				if ( ( this.denoiser?.enabled || this.upscaler?.enabled ) && this.denoiserCanvas ) {
+
+					this.denoiserCanvas.style.display = 'block';
+
+				}
+
+				// Chain: denoise first (if enabled), then upscale (if enabled)
+				const startUpscaler = () => {
+
+					if ( this.upscaler?.enabled ) {
+
+						this.upscaler.start();
+
+					}
+
+				};
+
+				if ( this.denoiser?.enabled ) {
+
+					this.denoiser.addEventListener( 'end', startUpscaler, { once: true } );
+					this.denoiser.start();
+
+				} else {
+
+					// Re-render display stage so the WebGPU canvas has valid content
+					// for the upscaler to read (WebGPU textures expire each frame)
+					if ( this.upscaler?.enabled && this.displayStage && this.pipeline?.context ) {
+
+						this.displayStage.render( this.pipeline.context );
+
+					}
+
+					startUpscaler();
+
+				}
+
 				this.dispatchEvent( { type: 'RenderComplete' } );
 				useStore.getState().setIsRenderComplete( true );
 				useStore.getState().setIsRendering( false );
@@ -1143,12 +1215,38 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Restore main canvas visibility and hide denoiser overlay
+		// Restore main canvas visibility and hide post-process overlay
 		this.canvas.style.opacity = '1';
+		if ( this.upscaler ) {
+
+			this.upscaler.abort();
+
+		}
+
 		if ( this.denoiser ) {
 
 			if ( this.denoiser.enabled ) this.denoiser.abort();
 			if ( this.denoiser.output ) this.denoiser.output.style.display = 'none';
+
+		}
+
+		// Restore denoiser canvas to base render resolution (upscaler may have resized it)
+		if ( this.denoiserCanvas && this._lastRenderWidth && this._lastRenderHeight ) {
+
+			const wasResized = this.denoiserCanvas.width !== this._lastRenderWidth
+				|| this.denoiserCanvas.height !== this._lastRenderHeight;
+
+			this.denoiserCanvas.width = this._lastRenderWidth;
+			this.denoiserCanvas.height = this._lastRenderHeight;
+
+			// Restore dimension display only if upscaler had changed it
+			if ( wasResized ) {
+
+				window.dispatchEvent( new CustomEvent( 'resolution_changed', {
+					detail: { width: this._lastRenderWidth, height: this._lastRenderHeight }
+				} ) );
+
+			}
 
 		}
 
@@ -2231,9 +2329,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		try {
 
-			// Use denoised output if OIDN is enabled and render is complete
-			const canvas = this.denoiser?.enabled && this.denoiser.output && this.pathTracingStage?.isComplete
-				? this.denoiser.output
+			// Use post-processed output if denoiser or upscaler is enabled and render is complete
+			const canvas = ( this.denoiser?.enabled || this.upscaler?.enabled ) && this.denoiserCanvas && this.pathTracingStage?.isComplete
+				? this.denoiserCanvas
 				: this.renderer.domElement;
 
 			// Re-render display stage so the WebGPU canvas has valid content
@@ -2474,6 +2572,13 @@ export class PathTracerApp extends EventDispatcher {
 
 			this.denoiser.dispose();
 			this.denoiser = null;
+
+		}
+
+		if ( this.upscaler ) {
+
+			this.upscaler.dispose();
+			this.upscaler = null;
 
 		}
 

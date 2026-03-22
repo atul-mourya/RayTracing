@@ -251,6 +251,9 @@ export const DEFAULT_STATE = {
 	useGBuffer: true,
 	debugGbufferMaps: false,
 
+	enableUpscaler: false,
+	upscalerScale: 2, // 2 or 4
+
 	debugMode: 0,
 	debugThreshold: 100,
 	debugModel: 0,

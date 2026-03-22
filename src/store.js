@@ -56,6 +56,8 @@ const useStore = create( set => ( {
 	setStats: stats => set( { stats } ),
 	isDenoising: false,
 	setIsDenoising: val => set( { isDenoising: val } ),
+	isUpscaling: false,
+	setIsUpscaling: val => set( { isUpscaling: val } ),
 	isRenderComplete: false,
 	setIsRenderComplete: val => set( { isRenderComplete: val } ),
 	isRendering: true,
@@ -380,6 +382,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setDebugThreshold: val => set( { debugThreshold: val } ),
 	setOidnQuality: val => set( { oidnQuality: val } ),
 	setOidnHdr: val => set( { oidnHdr: val } ),
+	setEnableUpscaler: val => set( { enableUpscaler: val } ),
+	setUpscalerScale: val => set( { upscalerScale: val } ),
 	setExposure: val => set( { exposure: val } ),
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
 	setShowBackground: val => set( { showBackground: val } ),
@@ -862,6 +866,22 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleUseGBufferChange: handleChange(
 		val => set( { useGBuffer: val } ),
 		( val, app ) => app.denoiser?.toggleUseGBuffer( val ),
+		false
+	),
+
+	handleEnableUpscalerChange: handleChange(
+		val => set( { enableUpscaler: val } ),
+		( val, app ) => {
+
+			if ( app.upscaler ) app.upscaler.enabled = val;
+
+		},
+		false
+	),
+
+	handleUpscalerScaleChange: handleChange(
+		val => set( { upscalerScale: Number( val ) } ),
+		( val, app ) => app.upscaler?.setScaleFactor( Number( val ) ),
 		false
 	),
 
@@ -1648,6 +1668,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		}
 
+		if ( app.upscaler ) {
+
+			app.upscaler.abort();
+
+		}
+
 		const state = get();
 		const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
@@ -1693,6 +1719,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
 			app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHdr );
 			app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
+
+		}
+
+		if ( app.upscaler ) {
+
+			app.upscaler.abort();
 
 		}
 

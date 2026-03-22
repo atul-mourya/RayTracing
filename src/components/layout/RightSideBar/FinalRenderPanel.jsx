@@ -20,6 +20,8 @@ const FinalRenderPanel = () => {
 		useGBuffer,
 		oidnQuality,
 		oidnHdr,
+		enableUpscaler,
+		upscalerScale,
 
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
@@ -30,6 +32,8 @@ const FinalRenderPanel = () => {
 		handleOidnQualityChange,
 		handleOidnHdrChange,
 		handleUseGBufferChange,
+		handleEnableUpscalerChange,
+		handleUpscalerScaleChange,
 	} = useStore();
 
 
@@ -94,6 +98,24 @@ const FinalRenderPanel = () => {
 					<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
 				</div>
 			</> )}
+			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
+			<div className="flex items-center justify-between py-2 px-2">
+				<Switch label={"AI Upscaler"} checked={enableUpscaler} onCheckedChange={handleEnableUpscalerChange} />
+			</div>
+			{enableUpscaler && (
+				<div className="flex items-center justify-between py-2 px-2">
+					<Select value={upscalerScale.toString()} onValueChange={handleUpscalerScaleChange}>
+						<span className="opacity-50 text-xs truncate">Scale Factor</span>
+						<SelectTrigger className="max-w-24 h-5 rounded-full" >
+							<SelectValue placeholder="Select scale" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="2">2x</SelectItem>
+							<SelectItem value="4">4x</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+			)}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
 		</div>
 	);

@@ -113,6 +113,26 @@
 - [ ] https://upscalerjs.com/models/
 - [ ] https://enhance.addy.ie/
 
+## AI Upscaler
+### Performance
+- [ ] Profile WebGPU EP — verify heavy ops (Conv, DepthToSpace) actually run on GPU, not just shape ops
+- [ ] Auto-detect tile size based on GPU VRAM (smaller for integrated GPUs, larger for discrete)
+- [ ] Move inference to a Web Worker to keep UI responsive during upscaling
+
+### Quality
+- [ ] HDR pipeline — upscale in linear/HDR space before tonemapping (zero-copy from path tracer GPU textures via `Tensor.fromGpuBuffer()`)
+- [ ] Alpha preservation — cache and restore alpha channel for transparent backgrounds (matching OIDN pattern)
+
+### Models
+- [ ] Model quality presets (fast/balanced/quality) with different model sizes per scale factor
+- [ ] Custom model URL support — let users provide their own ONNX SR model
+- [ ] Persistent model caching via IndexedDB (don't rely solely on browser HTTP cache)
+
+### UX
+- [ ] Progress bar — render the `progress` event as a visual percentage/bar (not just spinner)
+- [ ] Estimated time remaining based on per-tile timing
+- [ ] Explicit cancel button in the UI during upscaling
+
 ---
 
 ## Documentation

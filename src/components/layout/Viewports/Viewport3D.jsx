@@ -36,6 +36,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 	// Optimized store subscriptions
 	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
+	const isUpscaling = useStore( useCallback( state => state.isUpscaling, [] ) );
 	const isRenderComplete = useStore( useCallback( state => state.isRenderComplete, [] ) );
 	const setIsRenderComplete = useStore( useCallback( state => state.setIsRenderComplete, [] ) );
 	const stats = useStore( useCallback( state => state.stats, [] ) );
@@ -122,8 +123,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		try {
 
-			const canvas = app.denoiser?.enabled && app.denoiser.output
-				? app.denoiser.output
+			const canvas = ( app.denoiser?.enabled || app.upscaler?.enabled ) && app.denoiserCanvas
+				? app.denoiserCanvas
 				: app.renderer.domElement;
 
 			// Re-render display stage so the WebGPU canvas has valid content
@@ -270,9 +271,10 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 		if ( viewportMode !== "final-render" ) return false;
 		if ( ! isRenderComplete ) return false;
 		if ( isDenoising ) return false;
+		if ( isUpscaling ) return false;
 		return getApp().isComplete();
 
-	}, [ isRenderComplete, isDenoising, viewportMode ] );
+	}, [ isRenderComplete, isDenoising, isUpscaling, viewportMode ] );
 
 	// Memoize style objects
 	const { wrapperStyle, containerStyle, canvasStyle } = useMemo( () =>

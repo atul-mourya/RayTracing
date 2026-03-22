@@ -71,6 +71,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 	const stats = useStore( useCallback( state => state.stats, [] ) );
 	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
+	const isUpscaling = useStore( useCallback( state => state.isUpscaling, [] ) );
 
 	// Local state for maxSamples (legacy behavior support)
 	const [ maxSamples, setMaxSamples ] = useState( storeMaxSamples );
@@ -189,6 +190,13 @@ const StatsMeter = ( { viewportMode } ) => {
 			{isDenoising && (
 				<div className="ml-2 py-1 rounded-full flex items-center">
 					<span className="mr-2">Denoising</span>
+					<Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+				</div>
+			)}
+
+			{isUpscaling && (
+				<div className="ml-2 py-1 rounded-full flex items-center">
+					<span className="mr-2">Upscaling</span>
 					<Loader2 className="h-4 w-4 animate-spin text-blue-400" />
 				</div>
 			)}
