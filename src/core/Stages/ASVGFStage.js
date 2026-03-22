@@ -446,15 +446,17 @@ export class ASVGFStage extends PipelineStage {
 						const clampMax = nMax.add( boxExtent );
 						const clampedPrev = prevColor.clamp( clampMin, clampMax );
 
-						// Gradient-adaptive alpha
-						// Dampen gradient for high-history pixels: large difference is noise, not scene change
-						const gradient = textureLoad( gradientTex, coord ).x;
-						const dampedGradient = gradient.mul( float( 1.0 ).sub( historyConfidence.mul( 0.8 ) ) );
-						const effectiveAlpha = gradientAdaptiveAlpha(
-							dampedGradient, temporalAlpha,
-							gradientScale, gradientMinU, gradientMaxU
-						).div( max( similarity, float( 0.1 ) ) )
-							.clamp( temporalAlpha, 1.0 );
+						// History-adaptive alpha: 1/(N+1), floored at temporalAlpha.
+						// Standard SVGF approach — gives optimal noise reduction for
+						// temporal accumulation. Variance clipping above handles
+						// disocclusion; gradient not used here because with 1 SPP
+						// input the gradient is dominated by Monte Carlo noise, not
+						// scene changes, which drives alpha toward 1.0 and kills
+						// accumulation.
+						const effectiveAlpha = max(
+							float( 1.0 ).div( historyLength.add( 1.0 ) ),
+							temporalAlpha
+						);
 
 						// Blend
 						const blended = mix( clampedPrev, currentColor, effectiveAlpha );
