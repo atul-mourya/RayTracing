@@ -56,7 +56,20 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 			let phase1Stats = null;
 			const allWorkers = [ coordinatorWorker ];
 
+			// Shared mutable state for phase 2 timer (accessible across closures)
+			const timerRef = { id: null };
+
+			// Guard against multiple fallback invocations from concurrent worker errors
+			let settled = false;
+
 			const cleanup = () => {
+
+				if ( timerRef.id ) {
+
+					clearTimeout( timerRef.id );
+					timerRef.id = null;
+
+				}
 
 				for ( const w of allWorkers ) {
 
@@ -72,6 +85,8 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 
 			const fallbackToSingle = ( reason ) => {
 
+				if ( settled ) return;
+				settled = true;
 				console.warn( `[ParallelBVH] Parallel build failed (${reason}), falling back to single worker` );
 				cleanup();
 				// Copy from SharedArrayBuffer to regular ArrayBuffer for transfer
@@ -82,13 +97,8 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 
 			};
 
-			// Phase 2 timeout
-			let phase2Timer = null;
-
 			coordinatorWorker.onerror = ( error ) => {
 
-				cleanup();
-				if ( phase2Timer ) clearTimeout( phase2Timer );
 				fallbackToSingle( `coordinator error: ${error.message}` );
 
 			};
@@ -99,7 +109,6 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 
 				if ( msg.error || msg.type === 'error' ) {
 
-					if ( phase2Timer ) clearTimeout( phase2Timer );
 					fallbackToSingle( msg.error );
 					return;
 
@@ -122,7 +131,7 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 						msg, numWorkers, sharedTriangleData, sharedCentroids,
 						sharedBMin, sharedBMax, sharedIndices, sharedReorderBuffer,
 						triangleCount, progressCallback, coordinatorWorker,
-						allWorkers, cleanup, fallbackToSingle, resolve, phase2Timer,
+						allWorkers, cleanup, fallbackToSingle, resolve, timerRef,
 						config
 					);
 					return;
@@ -132,6 +141,7 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 				// Phase 3 complete
 				if ( msg.type === 'assembleResult' ) {
 
+					settled = true;
 					cleanup();
 					const reorderedTriangles = new Float32Array( sharedReorderBuffer );
 					resolve( { bvhData: msg.bvhData, bvhRoot: true, reorderedTriangles, splitStats: phase1Stats || {} } );
@@ -178,7 +188,7 @@ function handlePhase2(
 	phase1Result, numWorkers, sharedTriangleData, sharedCentroids,
 	sharedBMin, sharedBMax, sharedIndices, sharedReorderBuffer,
 	triangleCount, progressCallback, coordinatorWorker,
-	allWorkers, cleanup, fallbackToSingle, resolve, phase2Timer,
+	allWorkers, cleanup, fallbackToSingle, resolve, timerRef,
 	config
 ) {
 
@@ -234,7 +244,7 @@ function handlePhase2(
 	let completedSubtreeTriangles = 0;
 
 	// Timeout for Phase 2
-	phase2Timer = setTimeout( () => {
+	timerRef.id = setTimeout( () => {
 
 		fallbackToSingle( 'Phase 2 timeout (30s)' );
 
@@ -242,7 +252,8 @@ function handlePhase2(
 
 	const onAllSubtreesDone = () => {
 
-		clearTimeout( phase2Timer );
+		clearTimeout( timerRef.id );
+		timerRef.id = null;
 
 		progressCallback && progressCallback( 85 );
 
@@ -297,7 +308,6 @@ function handlePhase2(
 
 		subtreeWorker.onerror = ( error ) => {
 
-			clearTimeout( phase2Timer );
 			fallbackToSingle( `subtree worker error: ${error.message}` );
 
 		};
@@ -308,7 +318,6 @@ function handlePhase2(
 
 			if ( msg.type === 'error' ) {
 
-				clearTimeout( phase2Timer );
 				fallbackToSingle( `subtree task ${msg.taskId} error: ${msg.error}` );
 				return;
 

@@ -42,7 +42,6 @@ export default class BVHBuilder {
 		this.numBins = 32;
 		this.minBins = 8;
 		this.maxBins = 64;
-		this.nodes = [];
 		this.totalNodes = 0;
 		this.processedTriangles = 0;
 		this.totalTriangles = 0;
@@ -150,7 +149,7 @@ export default class BVHBuilder {
 	setMortonConfig( config ) {
 
 		if ( config.enabled !== undefined ) this.useMortonCodes = config.enabled;
-		if ( config.bits !== undefined ) this.mortonBits = Math.max( 6, Math.min( 16, config.bits ) );
+		if ( config.bits !== undefined ) this.mortonBits = Math.max( 6, Math.min( 10, config.bits ) );
 		if ( config.threshold !== undefined ) this.mortonClusterThreshold = Math.max( 16, config.threshold );
 
 	}
@@ -387,7 +386,7 @@ export default class BVHBuilder {
 						{ type: 'module' }
 					);
 
-					const triangleCount = triangles.byteLength / ( FPT * 4 );
+					const triangleCount = this.totalTriangles;
 					const useShared = typeof SharedArrayBuffer !== 'undefined';
 					console.log( `[BVHBuilder] SharedArrayBuffer: ${useShared ? 'enabled' : 'unavailable (using transfer fallback)'}` );
 
@@ -500,7 +499,6 @@ export default class BVHBuilder {
 		const buildStartTime = performance.now();
 
 		// Reset state
-		this.nodes = [];
 		this.totalNodes = 0;
 		this.processedTriangles = 0;
 		this.triangles = triangles;
@@ -571,8 +569,6 @@ export default class BVHBuilder {
 
 				} : null;
 
-				const beforeStats = optimizer.getStatistics();
-
 				try {
 
 					optimizer.optimizeBVH( root, passCallback );
@@ -584,10 +580,10 @@ export default class BVHBuilder {
 
 				}
 
+				// optimizeBVH resets stats internally, so afterStats reflects this pass only
 				const afterStats = optimizer.getStatistics();
-				const currentPassImprovements = afterStats.treeletsImproved - beforeStats.treeletsImproved;
 				const passTime = performance.now() - optimizationStartTime;
-				if ( ( currentPassImprovements === 0 && pass > 0 ) || passTime > 15000 ) {
+				if ( ( afterStats.treeletsImproved === 0 && pass > 0 ) || passTime > 15000 ) {
 
 					break;
 
@@ -690,7 +686,6 @@ export default class BVHBuilder {
 	buildNodeRecursiveToDepth( start, end, depth, frontierDepthRemaining, progressCallback, preMinX, preMinY, preMinZ, preMaxX, preMaxY, preMaxZ ) {
 
 		const node = new BVHNode();
-		this.nodes.push( node );
 		this.totalNodes ++;
 
 		const count = end - start;
@@ -814,7 +809,6 @@ export default class BVHBuilder {
 	buildNodeRecursive( start, end, depth, progressCallback, preMinX, preMinY, preMinZ, preMaxX, preMaxY, preMaxZ ) {
 
 		const node = new BVHNode();
-		this.nodes.push( node );
 		this.totalNodes ++;
 
 		const count = end - start;
@@ -1211,27 +1205,32 @@ export default class BVHBuilder {
 
 		let splitPos = c[ idx[ k ] * 3 + bestAxis ];
 
-		// Verify balanced split
-		let leftCount = 0;
-		for ( let i = start; i < end; i ++ ) {
+		// Quickselect guarantees [start,k) <= splitPos, so leftCount >= k-start > 0.
+		// Check if degenerate: all elements at [k+1,end) also <= splitPos (all same value).
+		let degenerate = true;
+		for ( let i = k + 1; i < end; i ++ ) {
 
-			if ( c[ idx[ i ] * 3 + bestAxis ] <= splitPos ) leftCount ++;
+			if ( c[ idx[ i ] * 3 + bestAxis ] > splitPos ) {
+
+				degenerate = false;
+				break;
+
+			}
 
 		}
 
-		if ( leftCount === 0 || leftCount === count ) {
+		if ( degenerate ) {
 
-			// Nudge split between median and its neighbor
-			if ( k > start ) {
+			// Nudge split between median and its left neighbor
+			let leftMax = - Infinity;
+			for ( let i = start; i < k; i ++ ) {
 
-				// Find max centroid in left half
-				let leftMax = - Infinity;
-				for ( let i = start; i < k; i ++ ) {
+				const v = c[ idx[ i ] * 3 + bestAxis ];
+				if ( v > leftMax ) leftMax = v;
 
-					const v = c[ idx[ i ] * 3 + bestAxis ];
-					if ( v > leftMax ) leftMax = v;
+			}
 
-				}
+			if ( leftMax < splitPos ) {
 
 				splitPos = ( leftMax + splitPos ) * 0.5;
 
@@ -1300,32 +1299,56 @@ export default class BVHBuilder {
 
 		if ( leftCount === 0 || leftCount === count ) {
 
-			// Force balanced via sorted median
-			const vals = new Float32Array( count );
-			for ( let i = 0; i < count; i ++ ) {
+			// Force balanced via quickselect median (O(N) instead of O(N log N) sort)
+			const k = start + Math.floor( count / 2 );
+			this.quickselect( start, end, k, bestAxis );
 
-				vals[ i ] = c[ idx[ start + i ] * 3 + bestAxis ];
+			const medianVal = c[ idx[ k ] * 3 + bestAxis ];
+
+			// Check if all centroids are identical on this axis
+			let allSame = true;
+			for ( let i = start; i < end; i ++ ) {
+
+				if ( c[ idx[ i ] * 3 + bestAxis ] !== medianVal ) {
+
+					allSame = false;
+					break;
+
+				}
 
 			}
 
-			vals.sort();
-
-			if ( vals[ 0 ] === vals[ count - 1 ] ) {
+			if ( allSame ) {
 
 				return { success: false, method: 'spatial_median_degenerate' };
 
 			}
 
-			const medianIdx = Math.floor( count / 2 );
-			splitPos = vals[ medianIdx ];
+			// Nudge split between median and its neighbor to guarantee a non-empty partition
+			let leftMax = - Infinity;
+			for ( let i = start; i < k; i ++ ) {
 
-			if ( medianIdx > 0 && vals[ medianIdx - 1 ] !== splitPos ) {
+				const v = c[ idx[ i ] * 3 + bestAxis ];
+				if ( v > leftMax ) leftMax = v;
 
-				splitPos = ( vals[ medianIdx - 1 ] + splitPos ) * 0.5;
+			}
 
-			} else if ( medianIdx < count - 1 ) {
+			if ( leftMax < medianVal ) {
 
-				splitPos = ( splitPos + vals[ medianIdx + 1 ] ) * 0.5;
+				splitPos = ( leftMax + medianVal ) * 0.5;
+
+			} else {
+
+				// leftMax == medianVal; find first element > medianVal in right half
+				let rightMin = Infinity;
+				for ( let i = k + 1; i < end; i ++ ) {
+
+					const v = c[ idx[ i ] * 3 + bestAxis ];
+					if ( v < rightMin ) rightMin = v;
+
+				}
+
+				splitPos = ( medianVal + rightMin ) * 0.5;
 
 			}
 
@@ -1409,11 +1432,11 @@ export default class BVHBuilder {
 	// --- BVH flattening (GPU-ready format) ---
 
 	/**
-	 * Flatten BVH tree into a Float32Array (12 floats per node).
-	 * Layout per node (3 × vec4):
-	 *   vec4( boundsMin.xyz, leftChildIndex )
-	 *   vec4( boundsMax.xyz, rightChildIndex )
-	 *   vec4( triangleOffset, triangleCount, 0, 0 )
+	 * Flatten BVH tree into a Float32Array (16 floats per node).
+	 * Layout per node (4 × vec4):
+	 *   Inner: vec4( leftMin.xyz, leftChildIdx ) vec4( leftMax.xyz, rightChildIdx )
+	 *          vec4( rightMin.xyz, 0 )           vec4( rightMax.xyz, 0 )
+	 *   Leaf:  vec4( triOffset, triCount, 0, -1 ) [zeros × 12]
 	 *
 	 * This is the same format as TextureCreator.createBVHRawData,
 	 * but runs inside the worker to avoid structured-clone overhead

@@ -63,7 +63,6 @@ function handlePhase1( data ) {
 		builder.totalTriangles = triangleCount;
 
 		// Reset state
-		builder.nodes = [];
 		builder.totalNodes = 0;
 		builder.processedTriangles = 0;
 		builder.lastProgressUpdate = performance.now();

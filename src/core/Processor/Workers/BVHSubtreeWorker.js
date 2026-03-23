@@ -37,7 +37,6 @@ self.onmessage = function ( e ) {
 			builder.totalTriangles = triangleCount;
 
 			// Reset build state
-			builder.nodes = [];
 			builder.totalNodes = 0;
 			builder.processedTriangles = 0;
 			builder.lastProgressUpdate = performance.now();
