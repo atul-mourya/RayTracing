@@ -1,9 +1,5 @@
-import * as ort from 'onnxruntime-web/webgpu';
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 import { TONE_MAP_FNS, SRGB_GAMMA } from './ToneMapCPU.js';
-
-// Configure ORT WASM paths for CDN delivery (avoids bundling large WASM files)
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/';
 
 
 // ─── Model Configuration ───────────────────────────────────────────────────────
@@ -85,9 +81,10 @@ export class AIUpscaler extends EventDispatcher {
 			abortController: null
 		};
 
-		// ORT session cache
-		this._session = null;
+		// Worker for off-main-thread inference
+		this._worker = null;
 		this._currentModelUrl = null;
+		this._tileId = 0;
 
 		// Alpha channel cache (bilinear-upscaled from source, applied per tile)
 		this._upscaledAlpha = null;
@@ -103,42 +100,62 @@ export class AIUpscaler extends EventDispatcher {
 	// ─── Model Management ─────────────────────────────────────────────────────
 
 	/**
-	 * Loads the ONNX model for the current scale factor.
+	 * Ensures the worker is created and the model is loaded for the current scale factor.
 	 */
 	async _ensureSession() {
 
 		const url = MODEL_CONFIG.MODELS[ this.scaleFactor ];
 		if ( ! url ) throw new Error( `No model URL for scale factor ${this.scaleFactor}` );
 
-		// Reuse cached session if model hasn't changed
-		if ( this._session && this._currentModelUrl === url ) return;
+		// Reuse if model hasn't changed
+		if ( this._worker && this._currentModelUrl === url ) return;
 
 		this.state.isLoading = true;
 		this.dispatchEvent( { type: 'loading', message: `Loading ${this.scaleFactor}x upscale model...` } );
 
 		try {
 
-			// Dispose previous session (scale factor changed)
-			if ( this._session ) {
+			// Create worker on first use
+			if ( ! this._worker ) {
 
-				await this._session.release();
-				this._session = null;
+				this._worker = new Worker(
+					new URL( './AIUpscalerWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
 
 			}
 
-			const response = await fetch( url );
-			if ( ! response.ok ) throw new Error( `Failed to fetch model: ${response.status}` );
-			const modelBuffer = await response.arrayBuffer();
+			// Send model load request and wait for response
+			await new Promise( ( resolve, reject ) => {
 
-			this._session = await ort.InferenceSession.create( modelBuffer, {
-				...MODEL_CONFIG.SESSION_OPTIONS
+				const handler = ( e ) => {
+
+					if ( e.data.type === 'loaded' ) {
+
+						this._worker.removeEventListener( 'message', handler );
+						console.log( `AI Upscaler: ${this.scaleFactor}x model loaded, backend: ${e.data.backend}` );
+						resolve();
+
+					} else if ( e.data.type === 'error' ) {
+
+						this._worker.removeEventListener( 'message', handler );
+						reject( new Error( e.data.message ) );
+
+					}
+
+				};
+
+				this._worker.addEventListener( 'message', handler );
+				this._worker.postMessage( {
+					type: 'load',
+					url,
+					sessionOptions: MODEL_CONFIG.SESSION_OPTIONS
+				} );
+
 			} );
 
 			this._currentModelUrl = url;
 			this.dispatchEvent( { type: 'loaded' } );
-
-			const backend = ort.env.webgpu?.device ? 'webgpu' : 'wasm';
-			console.log( `AI Upscaler: ${this.scaleFactor}x model loaded (${( modelBuffer.byteLength / 1024 / 1024 ).toFixed( 1 )}MB), backend: ${backend}` );
 
 		} catch ( error ) {
 
@@ -507,18 +524,40 @@ export class AIUpscaler extends EventDispatcher {
 	}
 
 	/**
-	 * Runs the ONNX model on a single tile.
+	 * Runs the ONNX model on a single tile via the worker.
 	 * Input: NCHW Float32Array [1, 3, H, W], values in [0, 1]
 	 * Output: NCHW Float32Array [1, 3, H*scale, W*scale]
 	 */
 	async _inferTile( tileData, width, height ) {
 
-		const inputName = this._session.inputNames[ 0 ];
-		const outputName = this._session.outputNames[ 0 ];
-		const inputTensor = new ort.Tensor( 'float32', tileData, [ 1, 3, height, width ] );
+		const id = ++ this._tileId;
 
-		const results = await this._session.run( { [ inputName ]: inputTensor } );
-		return results[ outputName ].data;
+		return new Promise( ( resolve, reject ) => {
+
+			const handler = ( e ) => {
+
+				if ( e.data.id !== id ) return;
+				this._worker.removeEventListener( 'message', handler );
+
+				if ( e.data.type === 'inferred' ) {
+
+					resolve( e.data.outputData );
+
+				} else if ( e.data.type === 'error' ) {
+
+					reject( new Error( e.data.message ) );
+
+				}
+
+			};
+
+			this._worker.addEventListener( 'message', handler );
+			this._worker.postMessage(
+				{ type: 'infer', tileData, width, height, id },
+				[ tileData.buffer ] // Transfer ownership (zero-copy)
+			);
+
+		} );
 
 	}
 
@@ -728,10 +767,11 @@ export class AIUpscaler extends EventDispatcher {
 
 		this.abort();
 
-		if ( this._session ) {
+		if ( this._worker ) {
 
-			await this._session.release();
-			this._session = null;
+			this._worker.postMessage( { type: 'dispose' } );
+			this._worker.terminate();
+			this._worker = null;
 
 		}
 

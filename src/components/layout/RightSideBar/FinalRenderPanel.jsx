@@ -35,7 +35,6 @@ const FinalRenderPanel = () => {
 		handleUseGBufferChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
-		handleUpscalerHdrChange,
 	} = useStore();
 
 
@@ -116,9 +115,6 @@ const FinalRenderPanel = () => {
 							<SelectItem value="4">4x</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
-				<div className="flex items-center justify-between py-2 px-2">
-					<Switch label={"HDR"} checked={upscalerHdr} onCheckedChange={handleUpscalerHdrChange} />
 				</div>
 			</> )}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />

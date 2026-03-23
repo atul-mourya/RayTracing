@@ -117,10 +117,8 @@
 ### Performance
 - [ ] Profile WebGPU EP — verify heavy ops (Conv, DepthToSpace) actually run on GPU, not just shape ops
 - [ ] Auto-detect tile size based on GPU VRAM (smaller for integrated GPUs, larger for discrete)
-- [ ] Move inference to a Web Worker to keep UI responsive during upscaling
+- [x] Move inference to a Web Worker to keep UI responsive during upscaling
 
-### Quality
-- [x] HDR pipeline — reads float32 from GPU textures, tonemaps at float32 precision before model, avoids uint8 quantization bottleneck
 
 ### Models
 - [ ] Model quality presets (fast/balanced/quality) with different model sizes per scale factor
@@ -128,7 +126,6 @@
 - [ ] Persistent model caching via IndexedDB (don't rely solely on browser HTTP cache)
 
 ### UX
-- [ ] Progress bar — render the `progress` event as a visual percentage/bar (not just spinner)
 - [ ] Estimated time remaining based on per-tile timing
 - [ ] Explicit cancel button in the UI during upscaling
 

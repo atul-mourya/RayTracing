@@ -150,7 +150,6 @@ const PathTracerTab = () => {
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
-		handleUpscalerHdrChange,
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
@@ -538,9 +537,6 @@ const PathTracerTab = () => {
 								<SelectItem value="4">4x</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"HDR"} checked={upscalerHdr} onCheckedChange={handleUpscalerHdrChange} />
 					</div>
 				</> )}
 			</ControlGroup>

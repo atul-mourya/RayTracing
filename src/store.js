@@ -888,12 +888,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false
 	),
 
-	handleUpscalerHdrChange: handleChange(
-		val => set( { upscalerHdr: val } ),
-		( val, app ) => app.upscaler?.toggleHDR( val ),
-		false
-	),
-
 	// Denoiser strategy and EdgeAware filter handlers
 	handleDenoiserStrategyChange: handleChange(
 		val => set( { denoiserStrategy: val } ),
