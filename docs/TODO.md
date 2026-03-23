@@ -26,6 +26,7 @@
 ### General
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
+- [ ] Decouple engine from ui
 
 ### Rendering
 - [ ] Subsurface scattering
@@ -115,7 +116,6 @@
 
 ## AI Upscaler
 ### Performance
-- [x] Auto-detect tile size based on GPU type (128 mobile, 256 integrated, 512 discrete)
 - [ ] Custom model URL support — let users provide their own ONNX SR model
 - [ ] Estimated time remaining based on per-tile timing
 

@@ -1103,9 +1103,20 @@ export class PathTracerApp extends EventDispatcher {
 
 			}
 
+			// In tiled mode, convert raw frame count to completed sample passes
+			const stage = this.pathTracingStage;
+			let displaySamples = frameCount;
+			if ( stage.renderMode?.value === 1 && frameCount > 0 ) {
+
+				const totalTiles = stage.tileManager.totalTilesCache;
+				// Frame 0 is a full-screen pass, frames 1+ are individual tiles
+				displaySamples = 1 + Math.floor( ( frameCount - 1 ) / totalTiles );
+
+			}
+
 			updateStats( {
 				timeElapsed: this.timeElapsed,
-				samples: frameCount
+				samples: displaySamples
 			} );
 
 			// Check if time limit reached and force completion
