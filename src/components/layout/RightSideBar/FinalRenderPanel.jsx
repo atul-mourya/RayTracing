@@ -22,7 +22,7 @@ const FinalRenderPanel = () => {
 		oidnHdr,
 		enableUpscaler,
 		upscalerScale,
-		upscalerHdr,
+		upscalerQuality,
 
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
@@ -35,6 +35,7 @@ const FinalRenderPanel = () => {
 		handleUseGBufferChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
+		handleUpscalerQualityChange,
 	} = useStore();
 
 
@@ -113,6 +114,19 @@ const FinalRenderPanel = () => {
 						<SelectContent>
 							<SelectItem value="2">2x</SelectItem>
 							<SelectItem value="4">4x</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+				<div className="flex items-center justify-between py-2 px-2">
+					<Select value={upscalerQuality} onValueChange={handleUpscalerQualityChange}>
+						<span className="opacity-50 text-xs truncate">Quality</span>
+						<SelectTrigger className="max-w-32 h-5 rounded-full" >
+							<SelectValue placeholder="Select quality" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="fast">Fast</SelectItem>
+							<SelectItem value="balanced">Balanced</SelectItem>
+							<SelectItem value="quality">Quality</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>

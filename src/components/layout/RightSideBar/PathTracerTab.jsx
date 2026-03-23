@@ -83,7 +83,7 @@ const PathTracerTab = () => {
 		enableOIDN,
 		enableUpscaler,
 		upscalerScale,
-		upscalerHdr,
+		upscalerQuality,
 		exposure,
 		enableEnvironment,
 		showBackground,
@@ -150,6 +150,7 @@ const PathTracerTab = () => {
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
+		handleUpscalerQualityChange,
 		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
@@ -535,6 +536,19 @@ const PathTracerTab = () => {
 							<SelectContent>
 								<SelectItem value="2">2x</SelectItem>
 								<SelectItem value="4">4x</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className="flex items-center justify-between">
+						<Select value={upscalerQuality} onValueChange={handleUpscalerQualityChange}>
+							<span className="opacity-50 text-xs truncate">Quality</span>
+							<SelectTrigger className="max-w-32 h-5 rounded-full" >
+								<SelectValue placeholder="Select quality" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="fast">Fast</SelectItem>
+								<SelectItem value="balanced">Balanced</SelectItem>
+								<SelectItem value="quality">Quality</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>

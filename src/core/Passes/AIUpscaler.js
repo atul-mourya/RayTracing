@@ -4,14 +4,30 @@ import { TONE_MAP_FNS, SRGB_GAMMA } from './ToneMapCPU.js';
 
 // ─── Model Configuration ───────────────────────────────────────────────────────
 
+const HF_BASE = 'https://huggingface.co/notaneimu/onnx-image-models/resolve/main/';
+
 const MODEL_CONFIG = {
 
-	// Native 2x and 4x models — both compact, dynamic input dimensions
-	// 2x: SPAN (1.6MB) — NTIRE 2024 winner, fast and compact
-	// 4x: Real-ESRGAN SRVGGNetCompact (4.9MB) — general-purpose
-	MODELS: {
-		2: 'https://huggingface.co/notaneimu/onnx-image-models/resolve/main/2x-spanx2-ch48.onnx',
-		4: 'https://huggingface.co/OwlMaster/AllFilesRope/resolve/main/realesr-general-x4v3.onnx'
+	// Quality presets: each has a 2x and 4x model (all NCHW, dynamic input dims)
+	QUALITY_PRESETS: {
+		fast: {
+			// 1.6MB — SPAN
+			2: HF_BASE + '2x-spanx2-ch48.onnx',
+			// 1.6MB — SPAN
+			4: HF_BASE + '4xNomos8k_span_otf_strong_fp32_opset17.onnx'
+		},
+		balanced: {
+			// 2.4MB — SRVGGNetCompact
+			2: HF_BASE + '2xNomosUni_compact_otf_medium.onnx',
+			// 4.9MB — SRVGGNetCompact
+			4: HF_BASE + 'RealESRGAN_x4plus.onnx'
+		},
+		quality: {
+			// 67MB — RRDBNet
+			2: HF_BASE + '2x-realesrgan-x2plus.onnx',
+			// 16.5MB — MoSR
+			4: HF_BASE + '4xNomos2_hq_mosr_fp32.onnx'
+		}
 	},
 
 	// Larger tiles = fewer GPU dispatches = faster. 512 works on most GPUs with 4GB+ VRAM.
@@ -72,6 +88,7 @@ export class AIUpscaler extends EventDispatcher {
 		this.enabled = false;
 		this.hdr = false;
 		this.scaleFactor = options.scaleFactor || 2;
+		this.quality = options.quality || 'fast';
 		this.tileSize = options.tileSize || MODEL_CONFIG.TILE_SIZE;
 
 		// State
@@ -104,8 +121,10 @@ export class AIUpscaler extends EventDispatcher {
 	 */
 	async _ensureSession() {
 
-		const url = MODEL_CONFIG.MODELS[ this.scaleFactor ];
-		if ( ! url ) throw new Error( `No model URL for scale factor ${this.scaleFactor}` );
+		const preset = MODEL_CONFIG.QUALITY_PRESETS[ this.quality ];
+		if ( ! preset ) throw new Error( `Unknown quality preset: ${this.quality}` );
+		const url = preset[ this.scaleFactor ];
+		if ( ! url ) throw new Error( `No model for ${this.quality}/${this.scaleFactor}x` );
 
 		// Reuse if model hasn't changed
 		if ( this._worker && this._currentModelUrl === url ) return;
@@ -737,6 +756,19 @@ export class AIUpscaler extends EventDispatcher {
 	toggleHDR( value ) {
 
 		this.hdr = !! value;
+
+	}
+
+	setQuality( value ) {
+
+		if ( ! MODEL_CONFIG.QUALITY_PRESETS[ value ] ) {
+
+			console.warn( `AIUpscaler: Invalid quality "${value}", must be fast/balanced/quality` );
+			return;
+
+		}
+
+		this.quality = value;
 
 	}
 

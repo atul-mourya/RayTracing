@@ -117,11 +117,9 @@
 ### Performance
 - [ ] Profile WebGPU EP — verify heavy ops (Conv, DepthToSpace) actually run on GPU, not just shape ops
 - [ ] Auto-detect tile size based on GPU VRAM (smaller for integrated GPUs, larger for discrete)
-- [x] Move inference to a Web Worker to keep UI responsive during upscaling
 
 
 ### Models
-- [ ] Model quality presets (fast/balanced/quality) with different model sizes per scale factor
 - [ ] Custom model URL support — let users provide their own ONNX SR model
 - [ ] Persistent model caching via IndexedDB (don't rely solely on browser HTTP cache)
 

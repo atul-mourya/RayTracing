@@ -634,6 +634,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.upscaler = new AIUpscaler( this.denoiserCanvas, this.renderer, {
 			scaleFactor: DEFAULT_STATE.upscalerScale || 2,
+			quality: DEFAULT_STATE.upscalerQuality || 'fast',
 
 			// Returns the correct source canvas:
 			// - If OIDN ran, the denoiser canvas already has the result → return null (reads from output)

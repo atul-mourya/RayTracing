@@ -253,6 +253,7 @@ export const DEFAULT_STATE = {
 
 	enableUpscaler: false,
 	upscalerScale: 2, // 2 or 4
+	upscalerQuality: 'fast', // 'fast', 'balanced', 'quality'
 	upscalerHdr: true,
 
 	debugMode: 0,

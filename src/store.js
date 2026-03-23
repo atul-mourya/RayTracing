@@ -386,6 +386,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setOidnHdr: val => set( { oidnHdr: val } ),
 	setEnableUpscaler: val => set( { enableUpscaler: val } ),
 	setUpscalerScale: val => set( { upscalerScale: val } ),
+	setUpscalerQuality: val => set( { upscalerQuality: val } ),
 	setUpscalerHdr: val => set( { upscalerHdr: val } ),
 	setExposure: val => set( { exposure: val } ),
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
@@ -885,6 +886,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleUpscalerScaleChange: handleChange(
 		val => set( { upscalerScale: Number( val ) } ),
 		( val, app ) => app.upscaler?.setScaleFactor( Number( val ) ),
+		false
+	),
+
+	handleUpscalerQualityChange: handleChange(
+		val => set( { upscalerQuality: val } ),
+		( val, app ) => app.upscaler?.setQuality( val ),
 		false
 	),
 
