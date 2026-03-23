@@ -3,6 +3,7 @@ import { ItemsCatalog } from '@/components/ui/items-catalog';
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEnvironmentStore } from '@/store';
+import { getApp } from '@/core/appProxy';
 
 // Proxy URL for Poly Haven API requests
 const PROXY_URL = 'https://api.polyhaven.com';
@@ -148,12 +149,17 @@ const EnvironmentCatalog = ( { value, onValueChange } ) => {
 
 						const url = URL.createObjectURL( file );
 
-						// Store the file information for reference when loading
-						window.uploadedEnvironmentFileInfo = {
-							name: file.name,
-							type: file.type,
-							size: file.size
-						};
+						// Store file info on asset loader for extension detection
+						const app = getApp();
+						if ( app?.assetLoader ) {
+
+							app.assetLoader.uploadedFileInfo = {
+								name: file.name,
+								type: file.type,
+								size: file.size
+							};
+
+						}
 
 						const customEnv = {
 							id: 'custom-upload',

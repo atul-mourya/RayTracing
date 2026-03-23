@@ -56,8 +56,7 @@ const useResultsData = () => {
 
 	// Access store values directly to avoid selector issues
 	const appMode = useStore( state => state.appMode );
-	const setSelectedResultRef = useRef();
-	setSelectedResultRef.current = useStore( state => state.setSelectedResult );
+	const setSelectedResult = useStore( state => state.setSelectedResult );
 
 	// Update isResultsTab ref when appMode changes
 	useEffect( () => {
@@ -261,11 +260,11 @@ const useResultsData = () => {
 			renderedImages.length > 0 &&
 			isResultsTabRef.current ) {
 
-			setSelectedResultRef.current( renderedImages[ selectedImageIndex ] );
+			setSelectedResult( renderedImages[ selectedImageIndex ] );
 
 		}
 
-	}, [ imagesState.selectedImageIndex, imagesState.renderedImages ] );
+	}, [ imagesState.selectedImageIndex, imagesState.renderedImages, setSelectedResult ] );
 
 	// Handle image selection
 	const handleImageSelect = useCallback( ( index ) => {

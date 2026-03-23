@@ -1,5 +1,4 @@
 
-import { useCallback } from 'react';
 import { Slider } from "@/components/ui/slider";
 import { useStore } from '@/store';
 import { Button } from "@/components/ui/button";
@@ -10,9 +9,9 @@ import { Separator } from '@/components/ui/separator';
 
 const ColorCorrectionsTab = () => {
 
-	const imageProcessing = useStore( useCallback( state => state.imageProcessing, [] ) );
-	const handleImageProcessingParamChange = useStore( useCallback( state => state.handleImageProcessingParamChange, [] ) );
-	const handleResetImageProcessing = useStore( useCallback( state => state.handleResetImageProcessing || state.resetImageProcessing, [] ) );
+	const imageProcessing = useStore( state => state.imageProcessing );
+	const handleImageProcessingParamChange = useStore( state => state.handleImageProcessingParamChange );
+	const handleResetImageProcessing = useStore( state => state.handleResetImageProcessing || state.resetImageProcessing );
 
 	return (
 		<div className="">

@@ -118,7 +118,7 @@ const isFeatureEnabled = ( materialState, featureName ) => {
 
 const MaterialTab = () => {
 
-	const selectedObject = useStore( useCallback( state => state.selectedObject, [] ) );
+	const selectedObject = useStore( state => state.selectedObject );
 	const name = selectedObject?.name ?? "Unknown";
 	const materialStore = useMaterialStore();
 

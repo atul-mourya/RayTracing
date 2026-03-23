@@ -28,22 +28,21 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const isInitialized = useRef( false );
 
 	// Viewport state
-	const canvasWidth = usePathTracerStore( useCallback( state => state.canvasWidth, [] ) );
-	const canvasHeight = usePathTracerStore( useCallback( state => state.canvasHeight, [] ) );
+	const canvasWidth = usePathTracerStore( state => state.canvasWidth );
+	const canvasHeight = usePathTracerStore( state => state.canvasHeight );
 	const [ canvasReady, setCanvasReady ] = useState( false );
 	const [ renderResolution, setRenderResolution ] = useState( { width: 512, height: 512 } );
 	const [ isAppInitialized, setIsAppInitialized ] = useState( false );
 
-	// Optimized store subscriptions
-	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
-	const isUpscaling = useStore( useCallback( state => state.isUpscaling, [] ) );
-	const isRenderComplete = useStore( useCallback( state => state.isRenderComplete, [] ) );
-	const setIsRenderComplete = useStore( useCallback( state => state.setIsRenderComplete, [] ) );
-	const stats = useStore( useCallback( state => state.stats, [] ) );
-
-	// Store access - memoized to prevent recreation
-	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
-	const appMode = useStore( useCallback( state => state.appMode, [] ) );
+	// Store subscriptions
+	const isDenoising = useStore( state => state.isDenoising );
+	const isUpscaling = useStore( state => state.isUpscaling );
+	const isRenderComplete = useStore( state => state.isRenderComplete );
+	const setIsRenderComplete = useStore( state => state.setIsRenderComplete );
+	const stats = useStore( state => state.stats );
+	const statsRef = useRef( stats );
+	const setLoading = useStore( state => state.setLoading );
+	const appMode = useStore( state => state.appMode );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -84,14 +83,15 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Effect to listen for resolution changes and update render resolution
 	useEffect( () => {
 
-		const handleResolutionChange = ( { width, height } ) => {
+		const handleResolutionChange = ( event ) => {
 
+			const { width, height } = event.detail;
 			setRenderResolution( { width, height } );
 
 		};
 
 		// Listen for resolution change events
-		window.addEventListener( 'resolution_changed', ( event ) => handleResolutionChange( event.detail ) );
+		window.addEventListener( 'resolution_changed', handleResolutionChange );
 
 		// Set initial resolution when app is initialized
 		if ( isAppInitialized && appRef.current ) {
@@ -100,7 +100,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 			const app = appRef.current;
 			if ( app && app.width && app.height ) {
 
-				handleResolutionChange( { width: app.width, height: app.height } );
+				setRenderResolution( { width: app.width, height: app.height } );
 
 			}
 
@@ -114,6 +114,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 	}, [ isAppInitialized ] );
 
+
+	// Keep stats ref current so handleSave doesn't depend on stats (which changes every frame)
+	useEffect( () => { statsRef.current = stats; }, [ stats ] );
 
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
@@ -146,13 +149,12 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 					exposure: 0,
 				},
 				timestamp: new Date(),
-				renderTime: stats.timeElapsed || 0,
+				renderTime: statsRef.current.timeElapsed || 0,
 				isEdited: true
 			};
 
 			const id = await saveRender( saveData );
 			window.dispatchEvent( new CustomEvent( 'render-saved', { detail: { id } } ) );
-			// setRenderComplete( false );
 			setIsRenderComplete( false );
 
 		} catch ( error ) {
@@ -166,7 +168,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		}
 
-	}, [ setIsRenderComplete, toast, stats ] );
+	}, [ setIsRenderComplete, toast ] );
 
 	const handleDiscard = useCallback( () => {
 
@@ -267,14 +269,15 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Compute whether to show save controls
 	const shouldShowSaveControls = useMemo( () => {
 
-		if ( ! getApp() ) return false;
+		const app = getApp();
+		if ( ! app ) return false;
 		if ( viewportMode !== "final-render" ) return false;
 		if ( ! isRenderComplete ) return false;
 		if ( isDenoising ) return false;
 		if ( isUpscaling ) return false;
-		return getApp().isComplete();
+		return app.isComplete();
 
-	}, [ isRenderComplete, isDenoising, isUpscaling, viewportMode ] );
+	}, [ isRenderComplete, isDenoising, isUpscaling, viewportMode, isAppInitialized ] );
 
 	// Memoize style objects
 	const { wrapperStyle, containerStyle, canvasStyle } = useMemo( () =>

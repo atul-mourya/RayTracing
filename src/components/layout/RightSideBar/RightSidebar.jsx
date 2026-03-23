@@ -1,4 +1,4 @@
-import { useMemo, memo, useCallback, lazy, Suspense } from 'react';
+import { useMemo, memo, lazy, Suspense } from 'react';
 import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife, Bot } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from '@/components/ui/separator';
@@ -144,8 +144,7 @@ ResultsModeTabs.displayName = 'ResultsModeTabs';
 // Main RightSidebar component
 const RightSidebar = () => {
 
-	// Optimized store subscription - only subscribe to appMode
-	const appMode = useStore( useCallback( state => state.appMode, [] ) );
+	const appMode = useStore( state => state.appMode );
 
 	// Use useMemo to determine which component to render based on appMode
 	const currentModeComponent = useMemo( () => {

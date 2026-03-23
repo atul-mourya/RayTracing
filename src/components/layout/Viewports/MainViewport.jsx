@@ -11,26 +11,37 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 	const [ isDragging, setIsDragging ] = useState( false );
 	const dragCounter = useRef( 0 );
-	const setEnvironment = useAssetsStore( useCallback( state => state.setEnvironment, [] ) );
-	const setLoading = useStore( useCallback( state => state.setLoading, [] ) );
-
-	const environmentMode = usePathTracerStore( useCallback( state => state.environmentMode, [] ) );
-	const handleEnvironmentModeChange = usePathTracerStore( useCallback( state => state.handleEnvironmentModeChange, [] ) );
+	const setEnvironment = useAssetsStore( state => state.setEnvironment );
+	const setLoading = useStore( state => state.setLoading );
+	const environmentMode = usePathTracerStore( state => state.environmentMode );
+	const handleEnvironmentModeChange = usePathTracerStore( state => state.handleEnvironmentModeChange );
 	const { toast } = useToast();
+
+	// Refs for values that change frequently — avoids tearing down/re-adding listeners
+	const environmentModeRef = useRef( environmentMode );
+	const handleEnvironmentModeChangeRef = useRef( handleEnvironmentModeChange );
+	const toastRef = useRef( toast );
+	const setEnvironmentRef = useRef( setEnvironment );
+	const setLoadingRef = useRef( setLoading );
+
+	useEffect( () => { environmentModeRef.current = environmentMode; }, [ environmentMode ] );
+	useEffect( () => { handleEnvironmentModeChangeRef.current = handleEnvironmentModeChange; }, [ handleEnvironmentModeChange ] );
+	useEffect( () => { toastRef.current = toast; }, [ toast ] );
+	useEffect( () => { setEnvironmentRef.current = setEnvironment; }, [ setEnvironment ] );
+	useEffect( () => { setLoadingRef.current = setLoading; }, [ setLoading ] );
 
 	useEffect( () => {
 
 		const app = getApp();
 		if ( app && app.assetLoader ) {
 
-			const handleBeforeEnvironmentLoad = ( event ) => {
+			const handleBeforeEnvironmentLoad = () => {
 
 				// Automatically switch to 'hdri' mode when loading an HDRI environment
-				// This follows the event-based pipeline architecture
-				if ( environmentMode !== 'hdri' ) {
+				if ( environmentModeRef.current !== 'hdri' ) {
 
-					console.log( `[MainViewport] Automatically switching environment mode from '${environmentMode}' to 'hdri'` );
-					handleEnvironmentModeChange( 'hdri' );
+					console.log( `[MainViewport] Automatically switching environment mode from '${environmentModeRef.current}' to 'hdri'` );
+					handleEnvironmentModeChangeRef.current( 'hdri' );
 
 				}
 
@@ -38,7 +49,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 			const handleAssetLoad = ( event ) => {
 
-				toast( {
+				toastRef.current( {
 					title: event.type === 'model' ? "Model Loaded" : "Environment Loaded",
 					description: `Successfully loaded ${event.filename || ''}`,
 				} );
@@ -55,7 +66,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 						redirection: '',
 						url: event.url || ''
 					};
-					setEnvironment( customEnv );
+					setEnvironmentRef.current( customEnv );
 
 				}
 
@@ -63,13 +74,13 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 			const handleAssetError = ( event ) => {
 
-				toast( {
+				toastRef.current( {
 					title: "Failed to load asset",
 					description: event.message || "Please try another file.",
 					variant: "destructive",
 				} );
 
-				setLoading( { isLoading: false } );
+				setLoadingRef.current( { isLoading: false } );
 
 			};
 
@@ -77,13 +88,8 @@ const MainViewport = ( { mode = "preview" } ) => {
 			app.assetLoader.addEventListener( 'load', handleAssetLoad );
 			app.assetLoader.addEventListener( 'error', handleAssetError );
 
-			// app.addEventListener( 'ModelLoaded', () => {
-			// 	// Additional UI updates if needed
-			// } );
-
 			return () => {
 
-				// Clean up listeners on component unmount
 				app.assetLoader.removeEventListener( 'beforeEnvironmentLoad', handleBeforeEnvironmentLoad );
 				app.assetLoader.removeEventListener( 'load', handleAssetLoad );
 				app.assetLoader.removeEventListener( 'error', handleAssetError );
@@ -92,7 +98,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 		}
 
-	}, [ toast, setEnvironment, setLoading, environmentMode, handleEnvironmentModeChange ] );
+	}, [] );
 
 	// Drag event handlers — use a counter to avoid flickering when
 	// the cursor moves over child elements (common issue on Windows).
@@ -166,8 +172,8 @@ const MainViewport = ( { mode = "preview" } ) => {
 
 			const url = URL.createObjectURL( file );
 
-			// Store file info in global context for reference in the loader
-			window.uploadedEnvironmentFileInfo = {
+			// Store file info on asset loader for extension detection
+			app.assetLoader.uploadedFileInfo = {
 				name: file.name,
 				type: file.type,
 				size: file.size

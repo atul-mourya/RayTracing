@@ -73,6 +73,8 @@ const useStore = create( set => ( {
 	setLayers: layers => set( { layers } ),
 	selectedResult: null,
 	setSelectedResult: imageData => set( { selectedResult: imageData } ),
+	resultsViewportRef: null,
+	setResultsViewportRef: ref => set( { resultsViewportRef: ref } ),
 	imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 0 },
 	setImageProcessingParam: ( param, val ) => set( s => ( { imageProcessing: { ...s.imageProcessing, [ param ]: val } } ) ),
 	resetImageProcessing: () => set( { imageProcessing: { brightness: 0, contrast: 0, saturation: 0, hue: 0, exposure: 0, gamma: 2.2 } } ),
@@ -86,7 +88,7 @@ const useStore = create( set => ( {
 		useStore.setState( { imageProcessing: resetValues } );
 
 		// Apply immediate processing if image processor is available
-		const resultsViewport = window.resultsViewportRef?.current;
+		const resultsViewport = useStore.getState().resultsViewportRef?.current;
 		if ( resultsViewport?.getImageProcessor ) {
 
 			const processor = resultsViewport.getImageProcessor();
@@ -112,7 +114,7 @@ const useStore = create( set => ( {
 		} ) );
 
 		// Apply immediate processing if image processor is available
-		const resultsViewport = window.resultsViewportRef?.current;
+		const resultsViewport = useStore.getState().resultsViewportRef?.current;
 		if ( resultsViewport?.getImageProcessor ) {
 
 			const processor = resultsViewport.getImageProcessor();

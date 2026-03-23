@@ -1,4 +1,4 @@
-import { useMemo, useCallback, lazy, Suspense } from 'react';
+import { useMemo, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import { useStore, usePathTracerStore } from '@/store';
 import AuthProvider from './AuthProvider';
 import MenuBar from './MenuBar';
@@ -23,12 +23,14 @@ const ModalLoadingFallback = () => (
 
 const TopBar = () => {
 
-	// Optimized store subscriptions - only subscribe to what we need
-	const appMode = useStore( useCallback( state => state.appMode, [] ) );
-	const setAppMode = useStore( useCallback( state => state.setAppMode, [] ) );
+	// Store subscriptions
+	const appMode = useStore( state => state.appMode );
+	const setAppMode = useStore( state => state.setAppMode );
+	const handleModeChange = usePathTracerStore( state => state.handleModeChange );
 
-	// Access the path tracer mode change handler
-	const handleModeChange = usePathTracerStore( useCallback( state => state.handleModeChange, [] ) );
+	// Ref for appMode to keep handleTabChange stable
+	const appModeRef = useRef( appMode );
+	useEffect( () => { appModeRef.current = appMode; }, [ appMode ] );
 
 	// Use custom hooks
 	const {
@@ -39,18 +41,17 @@ const TopBar = () => {
 		handleImportFromUrl
 	} = useImportUrl();
 
-	// Handle tab change
+	// Handle tab change — stable callback (no appMode in deps)
 	const handleTabChange = useCallback( ( value ) => {
 
-		// Only update if value has changed
-		if ( value !== appMode ) {
+		if ( value !== appModeRef.current ) {
 
 			handleModeChange( value );
 			setAppMode( value );
 
 		}
 
-	}, [ appMode, setAppMode, handleModeChange ] );
+	}, [ setAppMode, handleModeChange ] );
 
 	// Handle GitHub redirect
 	const handleGithubRedirection = useCallback( () => {

@@ -37,6 +37,7 @@ class AssetLoader extends EventDispatcher {
 		this.floorPlane = null;
 		this.sceneScale = 1.0;
 		this.loaderCache = {};
+		this.uploadedFileInfo = null;
 
 	}
 
@@ -131,7 +132,7 @@ class AssetLoader extends EventDispatcher {
 	async loadEnvironmentFromFile( file, filename ) {
 
 		const url = URL.createObjectURL( file );
-		window.uploadedEnvironmentFileInfo = { name: filename, type: file.type, size: file.size };
+		this.uploadedFileInfo = { name: filename, type: file.type, size: file.size };
 		try {
 
 			const texture = await this.loadEnvironment( url );
@@ -225,9 +226,9 @@ class AssetLoader extends EventDispatcher {
 
 		}
 
-		if ( ! extension && window.uploadedEnvironmentFileInfo ) {
+		if ( ! extension && this.uploadedFileInfo ) {
 
-			extension = window.uploadedEnvironmentFileInfo.name.split( '.' ).pop().toLowerCase();
+			extension = this.uploadedFileInfo.name.split( '.' ).pop().toLowerCase();
 
 		}
 

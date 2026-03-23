@@ -252,10 +252,14 @@ export class EnvironmentService {
 			// Handle custom environment uploads (preserve file info)
 			if ( envData.id === 'custom-upload' && envData.name ) {
 
-				window.uploadedEnvironmentFileInfo = {
-					name: envData.name,
-					url: envData.url
-				};
+				if ( app?.assetLoader ) {
+
+					app.assetLoader.uploadedFileInfo = {
+						name: envData.name,
+						url: envData.url
+					};
+
+				}
 
 			}
 

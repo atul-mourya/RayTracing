@@ -1,4 +1,4 @@
-import { useRef, useCallback, lazy, Suspense } from 'react';
+import { useRef, lazy, Suspense } from 'react';
 import MainViewport from './MainViewport';
 import RenderControls from './RenderControls';
 import { useStore } from '@/store';
@@ -18,7 +18,7 @@ const ViewportLoadingFallback = () => (
 
 const ViewportTabs = () => {
 
-	const appMode = useStore( useCallback( state => state.appMode, [] ) );
+	const appMode = useStore( state => state.appMode );
 	const mainViewportRef = useRef( null );
 	const resultsViewportRef = useRef( null );
 

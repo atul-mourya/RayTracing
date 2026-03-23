@@ -16,6 +16,7 @@ export function useBackendEvent( eventName, handler ) {
 
 		const stableHandler = ( event ) => handlerRef.current( event );
 
+		// Capture app reference so cleanup removes from the same instance
 		const app = getApp();
 		if ( app ) {
 
@@ -25,7 +26,6 @@ export function useBackendEvent( eventName, handler ) {
 
 		return () => {
 
-			const app = getApp();
 			if ( app ) {
 
 				app.removeEventListener( eventName, stableHandler );

@@ -60,22 +60,19 @@ const EditableValue = ( { value, onCommit } ) => {
 
 const StatsMeter = ( { viewportMode } ) => {
 
-	// Optimized store subscriptions
-	const storeMaxSamples = usePathTracerStore( useCallback( state => state.maxSamples, [] ) );
-	const setStoreMaxSamples = usePathTracerStore( useCallback( state => state.setMaxSamples, [] ) );
+	// Store subscriptions
+	const storeMaxSamples = usePathTracerStore( state => state.maxSamples );
+	const setStoreMaxSamples = usePathTracerStore( state => state.setMaxSamples );
+	const renderLimitMode = usePathTracerStore( state => state.renderLimitMode );
+	const handleRenderLimitModeChange = usePathTracerStore( state => state.handleRenderLimitModeChange );
+	const renderTimeLimit = usePathTracerStore( state => state.renderTimeLimit );
+	const handleRenderTimeLimitChange = usePathTracerStore( state => state.handleRenderTimeLimitChange );
 
-	const renderLimitMode = usePathTracerStore( useCallback( state => state.renderLimitMode, [] ) );
-	const handleRenderLimitModeChange = usePathTracerStore( useCallback( state => state.handleRenderLimitModeChange, [] ) );
-	const renderTimeLimit = usePathTracerStore( useCallback( state => state.renderTimeLimit, [] ) );
-	const handleRenderTimeLimitChange = usePathTracerStore( useCallback( state => state.handleRenderTimeLimitChange, [] ) );
+	const stats = useStore( state => state.stats );
+	const isDenoising = useStore( state => state.isDenoising );
+	const isUpscaling = useStore( state => state.isUpscaling );
+	const upscalingProgress = useStore( state => state.upscalingProgress );
 
-	const stats = useStore( useCallback( state => state.stats, [] ) );
-	const isDenoising = useStore( useCallback( state => state.isDenoising, [] ) );
-	const isUpscaling = useStore( useCallback( state => state.isUpscaling, [] ) );
-	const upscalingProgress = useStore( useCallback( state => state.upscalingProgress, [] ) );
-
-	// Local state for maxSamples (legacy behavior support)
-	const [ maxSamples, setMaxSamples ] = useState( storeMaxSamples );
 	const [ sceneStats, setSceneStats ] = useState( null );
 
 	// Get scene statistics from the active app via app-level API
@@ -124,9 +121,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		if ( value === storeMaxSamples ) return;
 
-		// Update store and local state
 		setStoreMaxSamples( value );
-		setMaxSamples( value );
 
 		// Update app — setMaxSamples handles completion state internally, never resets
 		const app = getApp();
@@ -144,16 +139,8 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		app.setMaxSamples( newMaxSamples );
 		setStoreMaxSamples( newMaxSamples );
-		setMaxSamples( newMaxSamples );
 
 	}, [ viewportMode, setStoreMaxSamples ] );
-
-	// Update local maxSamples when store value changes
-	useEffect( () => {
-
-		setMaxSamples( storeMaxSamples );
-
-	}, [ storeMaxSamples ] );
 
 
 	return (
@@ -186,7 +173,7 @@ const StatsMeter = ( { viewportMode } ) => {
 				</span>
 				<span className="text-white">{stats.samples}</span>
 				{renderLimitMode === 'frames' && (
-					<> / <EditableValue value={maxSamples} onCommit={handleMaxSamplesEdit} /> </>
+					<> / <EditableValue value={storeMaxSamples} onCommit={handleMaxSamplesEdit} /> </>
 				)}
 			</div>
 

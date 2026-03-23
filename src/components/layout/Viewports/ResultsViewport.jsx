@@ -44,6 +44,7 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 	const imageData = useStore( state => state.selectedResult );
 	const imageProcessing = useStore( state => state.imageProcessing );
 	const setImageProcessingParam = useStore( state => state.setImageProcessingParam );
+	const setResultsViewportRef = useStore( state => state.setResultsViewportRef );
 
 	// Hooks
 	const { toast } = useToast();
@@ -196,15 +197,16 @@ const ResultsViewport = forwardRef( function ResultsViewport( props, ref ) {
 			takeScreenshot: handleScreenshot
 		};
 
-		// Also expose globally for real-time color correction
-		window.resultsViewportRef = ref;
+		// Expose via store for real-time color correction (replaces window global)
+		setResultsViewportRef( ref );
 
-		// Cleanup global reference on unmount
+		// Cleanup store reference on unmount
 		return () => {
 
-			if ( window.resultsViewportRef === ref ) {
+			// Only clear if it's still our ref (avoid clearing a newer ref)
+			if ( useStore.getState().resultsViewportRef === ref ) {
 
-				window.resultsViewportRef = null;
+				setResultsViewportRef( null );
 
 			}
 

@@ -110,10 +110,15 @@ export class AssetLoaderService {
 			// Handle custom environment uploads
 			if ( envData.id === 'custom-upload' && envData.name ) {
 
-				window.uploadedEnvironmentFileInfo = {
-					name: envData.name,
-					url: envData.url
-				};
+				const app = getApp();
+				if ( app?.assetLoader ) {
+
+					app.assetLoader.uploadedFileInfo = {
+						name: envData.name,
+						url: envData.url
+					};
+
+				}
 
 			}
 
