@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
 import { useStore, usePathTracerStore } from '@/store';
 import { getApp } from '@/core/appProxy';
+import { StatusLabel } from '@/components/ui/status-label';
 import { cn } from "@/lib/utils";
 
 const EditableValue = ( { value, onCommit } ) => {
@@ -157,49 +157,49 @@ const StatsMeter = ( { viewportMode } ) => {
 
 
 	return (
-		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded flex items-center gap-1">
-			{sceneStats?.triangleCount > 0 && (
-				<span className="mr-1">Triangles: <span className="text-white">{sceneStats.triangleCount.toLocaleString()}</span> | </span>
-			)}
+		<div className="absolute top-2 left-2 text-xs text-foreground bg-background opacity-50 p-1 rounded flex flex-col gap-1">
+			<div className="flex items-center gap-1">
+				{sceneStats?.triangleCount > 0 && (
+					<span className="mr-1">Triangles: <span className="text-white">{sceneStats.triangleCount.toLocaleString()}</span> |</span>
+				)}
 
-			{/* Time Control */}
-			<span
-				onClick={() => handleRenderLimitModeChange( 'time' )}
-				className={cn( "cursor-pointer hover:text-white transition-colors", renderLimitMode === 'time' && "font-bold text-blue-400" )}
-			>
-				Time:
-			</span>
-			<span className="text-white">{stats.timeElapsed.toFixed( 2 )}</span>s
-			{renderLimitMode === 'time' && (
-				<> / <EditableValue value={renderTimeLimit} onCommit={handleRenderTimeLimitChange} />s </>
-			)}
+				{/* Time Control */}
+				<span
+					onClick={() => handleRenderLimitModeChange( 'time' )}
+					className={cn( "cursor-pointer hover:text-white transition-colors", renderLimitMode === 'time' && "font-bold text-blue-400" )}
+				>
+					Time:
+				</span>
+				<span className="text-white">{stats.timeElapsed.toFixed( 2 )}</span>s
+				{renderLimitMode === 'time' && (
+					<> / <EditableValue value={renderTimeLimit} onCommit={handleRenderTimeLimitChange} />s </>
+				)}
 
-			<span className="mx-1">|</span>
+				<span className="mx-1">|</span>
 
-			{/* Frames Control */}
-			<span
-				onClick={() => handleRenderLimitModeChange( 'frames' )}
-				className={cn( "cursor-pointer hover:text-white transition-colors", renderLimitMode === 'frames' && "font-bold text-blue-400" )}
-			>
-				Frames:
-			</span>
-			<span className="text-white">{stats.samples}</span>
-			{renderLimitMode === 'frames' && (
-				<> / <EditableValue value={maxSamples} onCommit={handleMaxSamplesEdit} /> </>
-			)}
+				{/* Frames Control */}
+				<span
+					onClick={() => handleRenderLimitModeChange( 'frames' )}
+					className={cn( "cursor-pointer hover:text-white transition-colors", renderLimitMode === 'frames' && "font-bold text-blue-400" )}
+				>
+					Frames:
+				</span>
+				<span className="text-white">{stats.samples}</span>
+				{renderLimitMode === 'frames' && (
+					<> / <EditableValue value={maxSamples} onCommit={handleMaxSamplesEdit} /> </>
+				)}
+			</div>
 
 			{isDenoising && (
-				<div className="ml-2 py-1 rounded-full flex items-center">
-					<span className="mr-2">Denoising</span>
-					<Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-				</div>
+				<StatusLabel label="Denoising" />
 			)}
 
 			{isUpscaling && (
-				<div className="ml-2 py-1 rounded-full flex items-center">
-					<span className="mr-2">Upscaling {Math.round( upscalingProgress * 100 )}%</span>
-					<Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-				</div>
+				<StatusLabel
+					label="Upscaling"
+					percent={upscalingProgress * 100}
+					onCancel={() => getApp()?.upscaler?.abort()}
+				/>
 			)}
 		</div>
 	);

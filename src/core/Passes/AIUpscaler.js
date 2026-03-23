@@ -277,16 +277,15 @@ export class AIUpscaler extends EventDispatcher {
 				console.error( 'AI Upscaler: Upscaling error:', error );
 				this.dispatchEvent( { type: 'error', error } );
 
+				// Restore canvas and input visibility on non-abort failure
+				this._restoreBackup();
+				this.input.style.opacity = '1';
+
+				window.dispatchEvent( new CustomEvent( 'resolution_changed', {
+					detail: { width: this._baseWidth, height: this._baseHeight }
+				} ) );
+
 			}
-
-			// Restore canvas and input visibility on failure
-			this._restoreBackup();
-			this.input.style.opacity = '1';
-
-			// Restore original dimension display
-			window.dispatchEvent( new CustomEvent( 'resolution_changed', {
-				detail: { width: this._baseWidth, height: this._baseHeight }
-			} ) );
 
 			return false;
 
@@ -294,9 +293,15 @@ export class AIUpscaler extends EventDispatcher {
 
 			this._capturedSource = null;
 			this._upscaledAlpha = null;
-			this.state.isUpscaling = false;
-			this.state.abortController = null;
-			this.dispatchEvent( { type: 'end' } );
+
+			// Only clean up if abort() hasn't already done it
+			if ( this.state.isUpscaling ) {
+
+				this.state.isUpscaling = false;
+				this.state.abortController = null;
+				this.dispatchEvent( { type: 'end' } );
+
+			}
 
 		}
 

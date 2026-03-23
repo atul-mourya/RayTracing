@@ -124,7 +124,6 @@
 
 ### UX
 - [ ] Estimated time remaining based on per-tile timing
-- [ ] Explicit cancel button in the UI during upscaling
 
 ---
 
