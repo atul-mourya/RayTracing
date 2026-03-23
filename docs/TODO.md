@@ -115,7 +115,7 @@
 
 ## AI Upscaler
 ### Performance
-- [ ] Profile WebGPU EP — verify heavy ops (Conv, DepthToSpace) actually run on GPU, not just shape ops
+- [ ] remove wasm fallback if confirmed working on windows devices
 - [ ] Auto-detect tile size based on GPU VRAM (smaller for integrated GPUs, larger for discrete)
 
 
