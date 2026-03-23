@@ -88,6 +88,7 @@ export class AIUpscaler extends EventDispatcher {
 		this.scaleFactor = options.scaleFactor || 2;
 		this.quality = options.quality || 'fast';
 		this.tileSize = options.tileSize || MODEL_CONFIG.TILE_SIZE;
+		this._tileSizeOverride = !! options.tileSize;
 
 		// State
 		this.state = {
@@ -150,7 +151,15 @@ export class AIUpscaler extends EventDispatcher {
 					if ( e.data.type === 'loaded' ) {
 
 						this._worker.removeEventListener( 'message', handler );
-						console.log( `AI Upscaler: ${this.scaleFactor}x model loaded, backend: ${e.data.backend}` );
+
+						// Apply GPU-recommended tile size (auto-detected in worker)
+						if ( e.data.tileSize && ! this._tileSizeOverride ) {
+
+							this.tileSize = e.data.tileSize;
+
+						}
+
+						console.log( `AI Upscaler: ${this.scaleFactor}x model loaded, backend: ${e.data.backend}, tileSize: ${this.tileSize}` );
 						resolve();
 
 					} else if ( e.data.type === 'error' ) {

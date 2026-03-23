@@ -132,11 +132,39 @@ async function loadModel( url, sessionOptions ) {
 	session = await ort.InferenceSession.create( modelBuffer, sessionOptions );
 	currentModelUrl = url;
 
-	const backend = 'webgpu';
-	const sizeMB = ( modelBuffer.byteLength / 1024 / 1024 ).toFixed( 1 );
-	console.log( `AI Upscaler Worker: model loaded (${sizeMB}MB), backend: ${backend}` );
+	// Detect GPU and recommend tile size based on device type
+	let tileSize = 512; // default
+	try {
 
-	self.postMessage( { type: 'loaded', backend } );
+		const adapter = await navigator.gpu?.requestAdapter();
+		const info = await adapter?.requestAdapterInfo?.() || adapter?.info;
+		const isMobile = /apple|swiftshader|llvmpipe/i.test( info?.vendor || '' )
+			|| /apple|swiftshader/i.test( info?.architecture || '' );
+		const isIntegrated = info?.device?.toLowerCase?.()?.includes( 'integrated' )
+			|| /intel.*iris|intel.*uhd|intel.*hd|amd.*vega|radeon.*graphics/i.test( info?.description || '' );
+
+		if ( isMobile ) {
+
+			tileSize = 128;
+
+		} else if ( isIntegrated ) {
+
+			tileSize = 256;
+
+		} else {
+
+			tileSize = 512;
+
+		}
+
+		console.log( `AI Upscaler Worker: GPU="${info?.description || info?.device || 'unknown'}", tileSize=${tileSize}` );
+
+	} catch { /* fallback to default */ }
+
+	const sizeMB = ( modelBuffer.byteLength / 1024 / 1024 ).toFixed( 1 );
+	console.log( `AI Upscaler Worker: model loaded (${sizeMB}MB), backend: webgpu` );
+
+	self.postMessage( { type: 'loaded', backend: 'webgpu', tileSize } );
 
 }
 

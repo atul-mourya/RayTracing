@@ -115,14 +115,8 @@
 
 ## AI Upscaler
 ### Performance
-- [ ] remove wasm fallback if confirmed working on windows devices
-- [ ] Auto-detect tile size based on GPU VRAM (smaller for integrated GPUs, larger for discrete)
-
-
-### Models
+- [x] Auto-detect tile size based on GPU type (128 mobile, 256 integrated, 512 discrete)
 - [ ] Custom model URL support — let users provide their own ONNX SR model
-
-### UX
 - [ ] Estimated time remaining based on per-tile timing
 
 ---
