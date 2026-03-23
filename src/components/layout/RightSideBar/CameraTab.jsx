@@ -133,7 +133,7 @@ const CameraTab = () => {
 						icon={FieldOfView}
 						min={CAMERA_RANGES.fov.min}
 						max={CAMERA_RANGES.fov.max}
-						step={5}
+						step={1}
 						value={[ fov ]}
 						onValueChange={handleFovChange}
 					/>

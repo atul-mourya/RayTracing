@@ -332,7 +332,7 @@ export const ASVGF_QUALITY_PRESETS = {
 
 export const CAMERA_RANGES = {
 	fov: {
-		min: 20, // Super telephoto equivalent
+		min: 10, // Super telephoto equivalent
 		max: 90, // Wide angle
 		default: DEFAULT_STATE.fov // Standard lens
 	},
