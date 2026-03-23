@@ -121,7 +121,6 @@
 
 ### Models
 - [ ] Custom model URL support — let users provide their own ONNX SR model
-- [ ] Persistent model caching via IndexedDB (don't rely solely on browser HTTP cache)
 
 ### UX
 - [ ] Estimated time remaining based on per-tile timing

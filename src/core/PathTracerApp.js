@@ -1130,6 +1130,9 @@ export class PathTracerApp extends EventDispatcher {
 				// Chain: denoise first (if enabled), then upscale (if enabled)
 				const startUpscaler = () => {
 
+					// Guard: don't start upscaler if render was reset while OIDN was running
+					if ( ! this._renderCompleteDispatched ) return;
+
 					if ( this.upscaler?.enabled ) {
 
 						this.upscaler.start();

@@ -20,8 +20,94 @@ import * as ort from 'onnxruntime-web/webgpu';
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/';
 ort.env.logLevel = 'error';
 
+const IDB_NAME = 'ai-upscaler-models';
+const IDB_STORE = 'models';
+
 let session = null;
 let currentModelUrl = null;
+
+// ─── IndexedDB Model Cache ───────────────────────────────────────────────────
+
+function openDB() {
+
+	return new Promise( ( resolve, reject ) => {
+
+		const req = indexedDB.open( IDB_NAME, 1 );
+		req.onupgradeneeded = () => req.result.createObjectStore( IDB_STORE );
+		req.onsuccess = () => resolve( req.result );
+		req.onerror = () => reject( req.error );
+
+	} );
+
+}
+
+async function getCachedModel( url ) {
+
+	try {
+
+		const db = await openDB();
+		return await new Promise( ( resolve, reject ) => {
+
+			const tx = db.transaction( IDB_STORE, 'readonly' );
+			const req = tx.objectStore( IDB_STORE ).get( url );
+			req.onsuccess = () => resolve( req.result || null );
+			req.onerror = () => reject( req.error );
+
+		} );
+
+	} catch {
+
+		return null;
+
+	}
+
+}
+
+async function cacheModel( url, buffer ) {
+
+	try {
+
+		const db = await openDB();
+		await new Promise( ( resolve, reject ) => {
+
+			const tx = db.transaction( IDB_STORE, 'readwrite' );
+			tx.objectStore( IDB_STORE ).put( buffer, url );
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject( tx.error );
+
+		} );
+
+	} catch {
+
+		// Cache write failure is non-fatal
+	}
+
+}
+
+// ─── Model Loading ───────────────────────────────────────────────────────────
+
+async function fetchModel( url ) {
+
+	// Try IndexedDB cache first
+	const cached = await getCachedModel( url );
+	if ( cached ) {
+
+		console.log( `AI Upscaler Worker: model loaded from cache (${( cached.byteLength / 1024 / 1024 ).toFixed( 1 )}MB)` );
+		return cached;
+
+	}
+
+	// Network fetch + cache
+	const response = await fetch( url );
+	if ( ! response.ok ) throw new Error( `Failed to fetch model: ${response.status}` );
+	const buffer = await response.arrayBuffer();
+
+	// Cache in background (don't block session creation)
+	cacheModel( url, buffer.slice( 0 ) );
+
+	return buffer;
+
+}
 
 async function loadModel( url, sessionOptions ) {
 
@@ -41,9 +127,7 @@ async function loadModel( url, sessionOptions ) {
 
 	}
 
-	const response = await fetch( url );
-	if ( ! response.ok ) throw new Error( `Failed to fetch model: ${response.status}` );
-	const modelBuffer = await response.arrayBuffer();
+	const modelBuffer = await fetchModel( url );
 
 	session = await ort.InferenceSession.create( modelBuffer, sessionOptions );
 	currentModelUrl = url;
