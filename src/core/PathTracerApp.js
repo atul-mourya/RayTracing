@@ -664,8 +664,19 @@ export class PathTracerApp extends EventDispatcher {
 		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;
 
 		// Sync upscaler state with store
-		this.upscaler.addEventListener( 'start', () => useStore.getState().setIsUpscaling( true ) );
-		this.upscaler.addEventListener( 'end', () => useStore.getState().setIsUpscaling( false ) );
+		this.upscaler.addEventListener( 'start', () => {
+
+			useStore.getState().setIsUpscaling( true );
+			useStore.getState().setUpscalingProgress( 0 );
+
+		} );
+		this.upscaler.addEventListener( 'progress', ( e ) => useStore.getState().setUpscalingProgress( e.progress ) );
+		this.upscaler.addEventListener( 'end', () => {
+
+			useStore.getState().setIsUpscaling( false );
+			useStore.getState().setUpscalingProgress( 0 );
+
+		} );
 
 	}
 

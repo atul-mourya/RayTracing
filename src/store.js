@@ -58,6 +58,8 @@ const useStore = create( set => ( {
 	setIsDenoising: val => set( { isDenoising: val } ),
 	isUpscaling: false,
 	setIsUpscaling: val => set( { isUpscaling: val } ),
+	upscalingProgress: 0,
+	setUpscalingProgress: val => set( { upscalingProgress: val } ),
 	isRenderComplete: false,
 	setIsRenderComplete: val => set( { isRenderComplete: val } ),
 	isRendering: true,
