@@ -308,7 +308,7 @@ export const generateSampledDirection = Fn( ( [
 	// Transmission sampling (fallback)
 	If( sampled.not(), () => {
 
-		const entering = dot( V, N ).lessThan( 0.0 ).toVar();
+		const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
 		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState,
 		) );

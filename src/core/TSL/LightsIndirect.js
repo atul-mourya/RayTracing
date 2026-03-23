@@ -386,7 +386,7 @@ export const calculateIndirectLighting = Fn( ( [
 		} ).ElseIf( selectedStrategy.equal( int( 3 ) ), () => {
 
 			// Strategy 3: Transmission
-			const entering = dot( V, N ).lessThan( 0.0 ).toVar();
+			const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
 			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState
 			).toVar() );
@@ -448,7 +448,7 @@ export const calculateIndirectLighting = Fn( ( [
 		If( weights.useTransmission.and( material.transmission.greaterThan( 0.0 ) ), () => {
 
 			// Calculate transmission PDF for this direction
-			const entering = dot( V, N ).lessThan( 0.0 ).toVar();
+			const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
 			const transmissionPdf = calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering ).toVar();
 			combinedPdf.addAssign( weights.transmissionWeight.mul( transmissionPdf ) );
 
