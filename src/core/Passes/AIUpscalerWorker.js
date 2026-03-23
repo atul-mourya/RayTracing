@@ -16,7 +16,7 @@
 
 import * as ort from 'onnxruntime-web/webgpu';
 
-// Configure WASM paths for CDN delivery
+// WASM paths for CDN delivery — WebGPU EP still uses WASM for lightweight shape ops
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/';
 ort.env.logLevel = 'error';
 
@@ -113,7 +113,7 @@ async function loadModel( url, sessionOptions ) {
 
 	if ( session && currentModelUrl === url ) {
 
-		const backend = ort.env.webgpu?.device ? 'webgpu' : 'wasm';
+		const backend = 'webgpu';
 		self.postMessage( { type: 'loaded', backend } );
 		return;
 
@@ -132,7 +132,7 @@ async function loadModel( url, sessionOptions ) {
 	session = await ort.InferenceSession.create( modelBuffer, sessionOptions );
 	currentModelUrl = url;
 
-	const backend = ort.env.webgpu?.device ? 'webgpu' : 'wasm';
+	const backend = 'webgpu';
 	const sizeMB = ( modelBuffer.byteLength / 1024 / 1024 ).toFixed( 1 );
 	console.log( `AI Upscaler Worker: model loaded (${sizeMB}MB), backend: ${backend}` );
 

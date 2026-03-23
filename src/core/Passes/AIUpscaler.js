@@ -38,11 +38,9 @@ const MODEL_CONFIG = {
 
 	// ORT session options — WebGPU EP requires preferredLayout: 'NCHW' for SR models
 	// (default NHWC layout causes internal buffer shape mismatches).
-	// Falls back to WASM if WebGPU is unavailable.
 	SESSION_OPTIONS: {
 		executionProviders: [
-			{ name: 'webgpu', preferredLayout: 'NCHW' },
-			'wasm'
+			{ name: 'webgpu', preferredLayout: 'NCHW' }
 		],
 		graphOptimizationLevel: 'all'
 	}
