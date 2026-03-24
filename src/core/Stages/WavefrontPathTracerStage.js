@@ -387,6 +387,7 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			pointLightsBuffer: this.pointLightsBufferNode,
 			numPointLights: this.numPointLights,
 			maxBounceCount: this.maxBounces,
+			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,

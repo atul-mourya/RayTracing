@@ -26,6 +26,7 @@ import { RAY_FLAG } from '../../Processor/QueueManager.js';
 import {
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf,
 	writeRayRadiance, writeRayNormalDepth, writeRayAlbedoID,
+	writeMediumStack,
 } from '../../Processor/PackedRayBuffer.js';
 
 const WG_SIZE = 16;
@@ -138,6 +139,9 @@ export function buildGenerateKernel( params ) {
 				// Initialize first-hit defaults (background)
 				writeRayNormalDepth( rayBufferRW, rayID, vec4( 0.5, 0.5, 1.0, 1.0 ) );
 				writeRayAlbedoID( rayBufferRW, rayID, vec4( 0.0, 0.0, 0.0, - 1000.0 ) );
+
+				// Initialize medium stack (empty, transmissiveBounces from uniform)
+				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
 
 				// Write RNG seed
 				rngBufferRW.element( rayID ).assign( seed );

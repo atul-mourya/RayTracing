@@ -30,11 +30,13 @@ import { getMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
 import { calculateMaterialPDF } from '../LightsSampling.js';
+import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
 import { getImportanceSamplingInfo } from '../MaterialProperties.js';
 import {
+	Ray,
 	RayTracingMaterial,
 	MaterialSamples,
 	DirectionSample,
@@ -48,6 +50,7 @@ import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
 	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
+	readMediumStack, writeMediumStack,
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -86,7 +89,7 @@ export function buildShadeKernel( params ) {
 		directionalLightsBuffer, numDirectionalLights,
 		pointLightsBuffer, numPointLights,
 		// Uniforms
-		maxBounceCount,
+		maxBounceCount, transmissiveBounces,
 		transparentBackground, backgroundIntensity,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
@@ -223,6 +226,104 @@ export function buildShadeKernel( params ) {
 				currentRadiance.w.assign( 1.0 );
 
 			} );
+
+		} );
+
+		// ─── TRANSPARENCY / REFRACTION ──────────────────────────
+		const medStack = readMediumStack( rayBufferRW, rayID );
+		const mediumStackDepth = int( medStack.stackDepth ).toVar();
+		const mediumStack_ior_1 = medStack.ior1.toVar();
+		const mediumStack_ior_2 = medStack.ior2.toVar();
+		const mediumStack_ior_3 = medStack.ior3.toVar();
+		const transTraversals = int( medStack.transTraversals ).toVar();
+
+		// Compute current/previous medium IOR from stack
+		const currentMediumIOR = float( 1.0 ).toVar();
+		const previousMediumIOR = float( 1.0 ).toVar();
+		If( mediumStackDepth.equal( 1 ), () => {
+
+			currentMediumIOR.assign( mediumStack_ior_1 );
+
+		} ).ElseIf( mediumStackDepth.equal( 2 ), () => {
+
+			currentMediumIOR.assign( mediumStack_ior_2 );
+			previousMediumIOR.assign( mediumStack_ior_1 );
+
+		} ).ElseIf( mediumStackDepth.equal( 3 ), () => {
+
+			currentMediumIOR.assign( mediumStack_ior_3 );
+			previousMediumIOR.assign( mediumStack_ior_2 );
+
+		} );
+
+		const currentRay = Ray( { origin, direction } );
+		const interaction = MaterialInteractionResult.wrap( handleMaterialTransparency(
+			currentRay, hitPoint, N, material, rngState,
+			int( transTraversals ),
+			currentMediumIOR, previousMediumIOR,
+		) ).toVar();
+
+		If( interaction.continueRay, () => {
+
+			// Update medium stack for transmission (not reflection/TIR)
+			If( interaction.isTransmissive.and( interaction.didReflect.not() ), () => {
+
+				If( interaction.entering, () => {
+
+					If( mediumStackDepth.lessThan( 3 ), () => {
+
+						mediumStackDepth.addAssign( 1 );
+						If( mediumStackDepth.equal( 1 ), () => {
+
+							mediumStack_ior_1.assign( material.ior );
+
+						} );
+						If( mediumStackDepth.equal( 2 ), () => {
+
+							mediumStack_ior_2.assign( material.ior );
+
+						} );
+						If( mediumStackDepth.equal( 3 ), () => {
+
+							mediumStack_ior_3.assign( material.ior );
+
+						} );
+
+					} );
+
+				} ).Else( () => {
+
+					If( mediumStackDepth.greaterThan( 0 ), () => {
+
+						mediumStackDepth.subAssign( 1 );
+
+					} );
+
+				} );
+
+			} );
+
+			// Decrement transmissive traversals budget
+			If( interaction.isTransmissive.and( transTraversals.greaterThan( 0 ) ), () => {
+
+				transTraversals.subAssign( 1 );
+
+			} );
+
+			throughput.mulAssign( interaction.throughput );
+
+			// Offset ray: reflection stays on same side, transmission pushes through
+			const reflectOffsetDir = select( interaction.entering, N, N.negate() );
+			const offsetDir = select( interaction.didReflect, reflectOffsetDir, direction );
+			const newOrigin = hitPoint.add( offsetDir.mul( 0.001 ) );
+
+			writeRayOriginPixel( rayBufferRW, rayID, newOrigin, pixelIndex );
+			writeRayDirFlags( rayBufferRW, rayID, interaction.direction, flags );
+			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
+			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3 );
+			rngBufferRW.element( rayID ).assign( rngState );
+			return; // Skip BRDF/NEE for transparent interaction
 
 		} );
 
@@ -398,6 +499,7 @@ export function buildShadeKernel( params ) {
 		writeRayDirFlags( rayBufferRW, rayID, bounceDir, flags );
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+		writeMediumStack( rayBufferRW, rayID, mediumStackDepth, transTraversals, mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3 );
 		rngBufferRW.element( rayID ).assign( rngState );
 
 	} );

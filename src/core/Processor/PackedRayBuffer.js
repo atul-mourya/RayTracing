@@ -16,8 +16,8 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 // ─── Stride constants ───────────────────────────────────────────────────
 
-/** 6 vec4 per ray */
-export const RAY_STRIDE = 6;
+/** 7 vec4 per ray (6 base + 1 medium stack) */
+export const RAY_STRIDE = 7;
 /** 2 vec4 per hit */
 export const HIT_STRIDE = 2;
 /** 3 vec4 per shadow ray */
@@ -33,6 +33,7 @@ export const RAY = {
 	RADIANCE_ALPHA: 3, // vec4(radiance.xyz, alpha)
 	NORMAL_DEPTH: 4, // vec4(encodedNormal.xyz, linearDepth)  [MRT]
 	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
+	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals), ior1, ior2, ior3)
 };
 
 /** Hit buffer slot offsets (add to rayID * HIT_STRIDE) */
@@ -304,3 +305,24 @@ export const writeShadowPacked = ( buf, id, origin, maxDist, direction, parentRa
 		.assign( vec4( pendingRadiance, 0.0 ) );
 
 };
+
+// ── Medium stack read/write helpers ──
+// Slot 6: vec4(uintBitsToFloat(stackDepth | transTraversals<<8), ior1, ior2, ior3)
+
+export const readMediumStack = ( buf, id ) => {
+
+	const packed = buf.element( id.mul( RAY_STRIDE ).add( RAY.MEDIUM_STACK ) );
+	const packedInt = floatBitsToUint( packed.x );
+	return {
+		stackDepth: packedInt.and( 0xFF ),
+		transTraversals: packedInt.shiftRight( 8 ).and( 0xFF ),
+		ior1: packed.y,
+		ior2: packed.z,
+		ior3: packed.w,
+	};
+
+};
+
+export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, ior2, ior3 ) =>
+	buf.element( id.mul( RAY_STRIDE ).add( RAY.MEDIUM_STACK ) )
+		.assign( vec4( uintBitsToFloat( stackDepth.or( transTraversals.shiftLeft( 8 ) ) ), ior1, ior2, ior3 ) );
