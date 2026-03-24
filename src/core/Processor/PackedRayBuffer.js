@@ -11,7 +11,7 @@
  * separate TSL nodes that bind to the SAME GPU data with different access modes.
  */
 
-import { storage, uintBitsToFloat, floatBitsToUint, vec4 } from 'three/tsl';
+import { storage, uintBitsToFloat, floatBitsToUint, vec4, uint } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 // ─── Stride constants ───────────────────────────────────────────────────
@@ -260,7 +260,7 @@ export const readHitNormal = ( buf, id ) =>
 	buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).xyz;
 
 export const readHitMaterialIndex = ( buf, id ) =>
-	floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).and( 0xFFFF );
+	uint( floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).and( 0xFFFF ) );
 
 export const readHitMeshIndex = ( buf, id ) =>
 	floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).shiftRight( 16 );

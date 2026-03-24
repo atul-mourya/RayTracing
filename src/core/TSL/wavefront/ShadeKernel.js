@@ -29,7 +29,8 @@ import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '..
 import { getMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
-import { calculateMaterialPDF } from '../LightsSampling.js';
+import { calculateDirectLightingUnified, calculateMaterialPDF } from '../LightsSampling.js';
+import { traverseBVHShadow } from '../BVHTraversal.js';
 import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
@@ -71,14 +72,12 @@ const MISS_DIST = 1e19;
 export function buildShadeKernel( params ) {
 
 	const {
-		// Scene storage buffers (3)
-		materialBuffer,
+		// Scene storage buffers (5 — requires maxStorageBuffersPerShaderStage >= 10)
+		bvhBuffer, triangleBuffer, materialBuffer,
 		envMarginalWeights, envConditionalWeights,
 		// Packed buffers (5)
 		rayBufferRW, rngBufferRW, hitBufferRO,
 		shadowBufferRW, counters,
-		// NOTE: No activeIndicesRO — use instanceIndex as rayID to stay at 8 bindings.
-		// The ACTIVE flag check handles inactive rays (early exit).
 		// Textures (not storage buffers)
 		albedoMaps, normalMaps, bumpMaps,
 		metalnessMaps, roughnessMaps, emissiveMaps,
@@ -87,7 +86,9 @@ export function buildShadeKernel( params ) {
 		envTotalSum, envResolution,
 		// Light uniform arrays (NOT storage buffers)
 		directionalLightsBuffer, numDirectionalLights,
+		areaLightsBuffer, numAreaLights,
 		pointLightsBuffer, numPointLights,
+		spotLightsBuffer, numSpotLights,
 		// Uniforms
 		maxBounceCount, transmissiveBounces,
 		transparentBackground, backgroundIntensity,
@@ -154,20 +155,9 @@ export function buildShadeKernel( params ) {
 					enableEnvironmentLight,
 				} );
 
-				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, globalIlluminationIntensity );
-				const envContribution = envColor.mul( bgScale ).toVar();
-
-				// MIS: weight indirect contribution by brdfPdf / (brdfPdf + lightPdf)
-				// Only apply MIS for bounce > 0 (primary miss = full weight)
-				If( bounceIndex.greaterThan( 0 ), () => {
-
-					const prevPdf = readRayPdf( rayBufferRW, rayID );
-					const envPdfResult = sampleEquirect( envTexture, direction, envMatrix, envTotalSum, envResolution );
-					const lightPdf = envPdfResult.w;
-					const misWeight = powerHeuristic( { pdf1: prevPdf, pdf2: lightPdf } );
-					envContribution.mulAssign( misWeight );
-
-				} );
+				// Match monolithic: bgIntensity for primary miss, 2.0 for secondary
+				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, float( 2.0 ) );
+				const envContribution = envColor.mul( bgScale );
 
 				currentRadiance.assign( vec4(
 					currentRadiance.xyz.add( throughput.mul( envContribution.xyz ) ),
@@ -331,65 +321,16 @@ export function buildShadeKernel( params ) {
 		const emissive = matSamples.emissive.toVar();
 		If( length( emissive ).greaterThan( 0.0 ), () => {
 
+			const emissiveGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
 			currentRadiance.assign( vec4(
-				currentRadiance.xyz.add( throughput.mul( emissive ).mul( globalIlluminationIntensity ) ),
+				currentRadiance.xyz.add( throughput.mul( emissive ).mul( emissiveGiScale ) ),
 				currentRadiance.w
 			) );
 
 		} );
 
-		// ─── DIRECT LIGHTING (NEE — additive to radiance) ───────
-		// NEE adds directly to radiance; indirect (below) sets bounce throughput.
-		// These are independent samplings of the same integral, combined via MIS.
+		// ─── BRDF SAMPLE (needed by both direct + indirect) ─────
 		const V = direction.negate().toVar();
-
-		If( enableEnvironmentLight, () => {
-
-			const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar();
-			const r = vec2( RandomValue( rngState ), RandomValue( rngState ) );
-			const envColor = vec3( 0.0 ).toVar();
-
-			const envSample = sampleEquirectProbability(
-				envTexture,
-				envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity,
-				envTotalSum, envResolution,
-				r, envColor,
-			);
-
-			const lightDir = envSample.xyz.toVar();
-			const lightPdf = envSample.w.toVar();
-			const NoL = max( 0.0, dot( N, lightDir ) );
-
-			If( NoL.greaterThan( 0.0 ).and( lightPdf.greaterThan( 0.001 ) ), () => {
-
-				const brdfValue = evaluateMaterialResponse( V, lightDir, N, material );
-				const brdfPdf = calculateMaterialPDF( V, lightDir, N, material );
-				const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } );
-
-				// Deferred shadow ray — pending radiance added by Accumulate if visible
-				// Scale to share energy budget with calculateIndirectLighting's env IS strategy
-				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight ).mul( 0.3 );
-
-				const shadowIdx = atomicAdd( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 1 ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
-					.assign( vec4( rayOrigin, float( 100000.0 ) ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) )
-					.assign( vec4( lightDir, uintBitsToFloat( rayID ) ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) )
-					.assign( vec4( pending, 0.0 ) );
-
-			} );
-
-		} );
-
-		// ─── FIREFLY SUPPRESSION ────────────────────────────────
-		const suppressedRadiance = regularizePathContribution(
-			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
-		);
-		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
-
-		// ─── INDIRECT LIGHTING (BRDF direction + throughput) ─────
 		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
 		// Fresh classification each bounce (no cross-bounce cache)
@@ -422,6 +363,36 @@ export function buildShadeKernel( params ) {
 			false, emptyCache,
 		) ).toVar();
 
+		// ─── DIRECT LIGHTING (full calculateDirectLightingUnified) ──
+		const directLight = calculateDirectLightingUnified(
+			hitPoint, N, material,
+			V,
+			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			int( 0 ), bounceIndex, rngState,
+			directionalLightsBuffer, numDirectionalLights,
+			areaLightsBuffer, numAreaLights,
+			pointLightsBuffer, numPointLights,
+			spotLightsBuffer, numSpotLights,
+			bvhBuffer, triangleBuffer, materialBuffer,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight,
+		);
+
+		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+		currentRadiance.assign( vec4(
+			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
+			currentRadiance.w
+		) );
+
+		// ─── FIREFLY SUPPRESSION ────────────────────────────────
+		const suppressedRadiance = regularizePathContribution(
+			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
+		);
+		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
+
+		// ─── INDIRECT LIGHTING ──────────────────────────────────
 		// Step 2: Importance sampling info for strategy selection
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, emptyClassification,

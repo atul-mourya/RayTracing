@@ -70,7 +70,7 @@ export function buildSortKernel( params ) {
 		If( tid.lessThan( activeCount ), () => {
 
 			const rayID = activeIndicesReadRO.element( tid );
-			const matIdx = readHitMaterialIndex( hitBufferRO, rayID );
+			const matIdx = uint( readHitMaterialIndex( hitBufferRO, rayID ) );
 			const bin = matIdx.clamp( uint( 0 ), uint( MAX_BINS - 1 ) );
 
 			// Count in shared histogram (workgroup-local)
@@ -130,7 +130,7 @@ export function buildSortKernel( params ) {
 		If( tid.lessThan( activeCount ), () => {
 
 			const rayID = activeIndicesReadRO.element( tid );
-			const matIdx = readHitMaterialIndex( hitBufferRO, rayID );
+			const matIdx = uint( readHitMaterialIndex( hitBufferRO, rayID ) );
 			const bin = matIdx.clamp( uint( 0 ), uint( MAX_BINS - 1 ) );
 
 			// Get position within this workgroup's sorted output

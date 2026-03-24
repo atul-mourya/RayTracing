@@ -179,6 +179,7 @@ export class PathTracerApp extends EventDispatcher {
 				maxBufferSize: adapterLimits.maxBufferSize,
 				maxStorageBufferBindingSize: adapterLimits.maxStorageBufferBindingSize,
 				maxColorAttachmentBytesPerSample: 128,
+				maxStorageBuffersPerShaderStage: Math.min( adapterLimits.maxStorageBuffersPerShaderStage, 10 ),
 			}
 		} );
 

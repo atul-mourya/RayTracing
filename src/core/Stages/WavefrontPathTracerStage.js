@@ -177,10 +177,8 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			// Material sort for subgroup coherence (skip bounce 0 — primary hits are screen-coherent)
 			if ( bounce > 0 ) km.dispatch( 'sort' );
 
-			km.dispatch( 'resetShadowCounter' );
 			km.dispatch( 'shade' );
-			km.dispatch( 'connect' );
-			km.dispatch( 'accumulate' );
+			// Connect/Accumulate not needed — calculateDirectLightingUnified does inline shadow rays
 
 			// Reset active counter before compaction
 			km.dispatch( 'resetActiveCounter' );
@@ -361,8 +359,10 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			)
 		);
 
-		// ── Shade ──
+		// ── Shade (requires maxStorageBuffersPerShaderStage >= 10) ──
 		const shadeFn = buildShadeKernel( {
+			bvhBuffer: texNodes.bvhStorage,
+			triangleBuffer: texNodes.triStorage,
 			materialBuffer: texNodes.matStorage,
 			envMarginalWeights: texNodes.marginalCDFStorage,
 			envConditionalWeights: texNodes.conditionalCDFStorage,
@@ -388,8 +388,12 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			// Light uniform arrays (NOT storage buffers)
 			directionalLightsBuffer: this.directionalLightsBufferNode,
 			numDirectionalLights: this.numDirectionalLights,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			numAreaLights: this.numAreaLights,
 			pointLightsBuffer: this.pointLightsBufferNode,
 			numPointLights: this.numPointLights,
+			spotLightsBuffer: this.spotLightsBufferNode,
+			numSpotLights: this.numSpotLights,
 			maxBounceCount: this.maxBounces,
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
