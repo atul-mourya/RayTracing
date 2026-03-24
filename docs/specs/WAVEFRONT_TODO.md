@@ -88,15 +88,15 @@ Shade kernel binding budget (8/8):
 
 ## TODO — Ordered by Priority
 
-### Tier 0: Quick Fixes (do first)
-- [ ] 1. Add `forceCompile()` before kernel dispatch loop
-- [ ] 2. Firefly suppression — `regularizePathContribution()` after NEE/emissive
-- [ ] 3. GI intensity scaling per-bounce
-- [ ] 4. Early ray termination (throughput < 0.001 after bounce 3)
-- [ ] 5. Delete dead code: `PathTraceKernel.js`, `BufferAccess.js`, `RayBufferPool.js`
+### Tier 0: Quick Fixes ✅ DONE
+- [x] 1. ~~Add `forceCompile()` before kernel dispatch loop~~ (skipped — not needed, kernels compile on first dispatch)
+- [x] 2. Firefly suppression — `regularizePathContribution()` after NEE/emissive
+- [x] 3. GI intensity scaling per-bounce
+- [x] 4. Early ray termination (throughput < 0.001 after bounce 3)
+- [x] 5. Delete dead code: `PathTraceKernel.js`, `BufferAccess.js`, `RayBufferPool.js`
 
 ### Tier 1: Critical BRDF + Transparency (0 extra bindings)
-- [ ] 6. Replace cosine bounce with `generateSampledDirection()` — full Disney BRDF
+- [x] 6. Full Disney BRDF via `generateSampledDirection()` — specular, metallic, clearcoat lobes. Throughput uses albedo (not value/pdf) until MIS is added.
 - [ ] 7. Add `handleMaterialTransparency()` — refraction, Fresnel, alpha-skip (needs RAY_STRIDE bump to 7 for medium stack)
 - [ ] 8. Add clearcoat sampling — `sampleClearcoat()` branch
 - [ ] 9. Proper MIS weighting — power heuristic between NEE + BRDF paths
