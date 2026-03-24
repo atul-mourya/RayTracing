@@ -26,7 +26,7 @@ import {
 } from 'three/tsl';
 
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '../Environment.js';
-import { getMaterial, powerHeuristic } from '../Common.js';
+import { getMaterial, powerHeuristic, classifyMaterial } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
 import { calculateDirectLightingUnified, calculateMaterialPDF } from '../LightsSampling.js';
@@ -333,12 +333,11 @@ export function buildShadeKernel( params ) {
 		const V = direction.negate().toVar();
 		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
-		// Fresh classification each bounce (no cross-bounce cache)
-		const emptyClassification = MaterialClassification( {
-			isMetallic: false, isRough: false, isSmooth: false,
-			isTransmissive: false, hasClearcoat: false, isEmissive: false,
-			complexityScore: float( 0.0 ),
-		} );
+		// Compute real material classification (not cached across bounces)
+		const mc = MaterialClassification.wrap( classifyMaterial(
+			material.metalness, material.roughness, material.transmission,
+			material.clearcoat, material.emissive,
+		) ).toVar();
 		const emptyWeights = BRDFWeights( {
 			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
 			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),
@@ -358,7 +357,7 @@ export function buildShadeKernel( params ) {
 		// Step 1: BRDF sample for specular direction
 		const brdfSample = DirectionSample.wrap( generateSampledDirection(
 			V, N, material, int( hitMatIdx ), xi, rngState,
-			false, int( - 1 ), emptyClassification,
+			false, int( - 1 ), mc,
 			false, emptyWeights,
 			false, emptyCache,
 		) ).toVar();
@@ -381,6 +380,7 @@ export function buildShadeKernel( params ) {
 		);
 
 		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+
 		currentRadiance.assign( vec4(
 			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
 			currentRadiance.w
@@ -392,31 +392,13 @@ export function buildShadeKernel( params ) {
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		// ─── INDIRECT LIGHTING ──────────────────────────────────
-		// Step 2: Importance sampling info for strategy selection
-		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
-			material, bounceIndex, emptyClassification,
-			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
-		) ).toVar();
-
-		// Step 3: calculateIndirectLighting — selects strategy, computes proper throughput
-		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
-			V, N, material,
-			brdfSample.direction, brdfSample.pdf, brdfSample.value,
-			int( 0 ), bounceIndex,
-			rngState,
-			samplingInfo,
-			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
-			envTotalSum, envResolution,
-			enableEnvironmentLight, useEnvMapIS,
-		) ).toVar();
-
-		const bounceDir = indirectResult.direction.toVar();
-		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
-
-		// Proper throughput from calculateIndirectLighting (multi-strategy MIS)
-		throughput.mulAssign( indirectResult.throughput );
+		// ─── INDIRECT BOUNCE ────────────────────────────────────
+		// Use BRDF-sampled direction (importance sampling for specular/diffuse lobes)
+		// Throughput = albedo (energy-conserving for Lambertian surfaces)
+		// Direct lighting is handled by calculateDirectLightingUnified above
+		const bounceDir = brdfSample.direction.toVar();
+		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
+		throughput.mulAssign( albedo );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
