@@ -18,11 +18,9 @@ import { PackedRayBuffer } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { WavefrontKernelManager } from '../Processor/WavefrontKernelManager.js';
 import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/wavefront/GenerateKernel.js';
-import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel.js';
-import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
+import { buildExtendShadeKernel, EXTENDSHADE_WG_SIZE } from '../TSL/wavefront/ExtendShadeKernel.js';
 import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKernel.js';
 import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
-import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
 import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
 import {
@@ -165,22 +163,22 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 		// Initialize active indices (all pixels)
 		km.dispatch( 'initActiveIndices' );
 
-		// Bounce loop (CPU-driven, fixed count)
+		// Bounce loop — fused ExtendShade + deferred shadow pipeline
 		const maxBounces = this.maxBounces.value;
 
 		for ( let bounce = 0; bounce <= maxBounces; bounce ++ ) {
 
 			this._wfCurrentBounce.value = bounce;
 
-			km.dispatch( 'extend' );
+			// Fused BVH traversal + material eval + deferred shadow ray gen
+			km.dispatch( 'resetShadowCounter' );
+			km.dispatch( 'extendShade' );
 
-			// Material sort for subgroup coherence (skip bounce 0 — primary hits are screen-coherent)
-			if ( bounce > 0 ) km.dispatch( 'sort' );
+			// Shadow ray pipeline
+			km.dispatch( 'connect' );
+			km.dispatch( 'accumulate' );
 
-			km.dispatch( 'shade' );
-			// Connect/Accumulate not needed — calculateDirectLightingUnified does inline shadow rays
-
-			// Reset active counter before compaction
+			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );
 			km.dispatch( 'compact' );
 			this._queueManager.swap();
@@ -342,25 +340,8 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			)
 		);
 
-		// ── Extend ──
-		const extFn = buildExtendKernel( {
-			bvhBuffer: texNodes.bvhStorage,
-			triangleBuffer: texNodes.triStorage,
-			materialBuffer: texNodes.matStorage,
-			rayBufferRO: pb.rayBuffer.ro,
-			hitBufferRW: pb.hitBuffer.rw,
-			activeIndicesRO: qm.getActiveReadRO(),
-			maxRayCount: this._wfMaxRayCount,
-		} );
-		this._kernelManager.register( 'extend',
-			extFn().compute(
-				[ Math.ceil( maxRays / EXTEND_WG_SIZE ), 1, 1 ],
-				[ EXTEND_WG_SIZE, 1, 1 ]
-			)
-		);
-
-		// ── Shade (requires maxStorageBuffersPerShaderStage >= 10) ──
-		const shadeFn = buildShadeKernel( {
+		// ── Fused ExtendShade (BVH + material + deferred shadow) ──
+		const esFn = buildExtendShadeKernel( {
 			bvhBuffer: texNodes.bvhStorage,
 			triangleBuffer: texNodes.triStorage,
 			materialBuffer: texNodes.matStorage,
@@ -368,10 +349,8 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			envConditionalWeights: texNodes.conditionalCDFStorage,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
-			hitBufferRO: pb.hitBuffer.ro,
 			shadowBufferRW: pb.shadowBuffer.rw,
 			counters,
-			// activeIndicesRO removed — Shade uses instanceIndex as rayID to stay at 8 bindings
 			albedoMaps: texNodes.albedoMapsTex,
 			normalMaps: texNodes.normalMapsTex,
 			bumpMaps: texNodes.bumpMapsTex,
@@ -385,7 +364,6 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			useEnvMapIS: this.useEnvMapIS,
 			envTotalSum: this.envTotalSum,
 			envResolution: this.envResolution,
-			// Light uniform arrays (NOT storage buffers)
 			directionalLightsBuffer: this.directionalLightsBufferNode,
 			numDirectionalLights: this.numDirectionalLights,
 			areaLightsBuffer: this.areaLightsBufferNode,
@@ -406,25 +384,10 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
 		} );
-		this._kernelManager.register( 'shade',
-			shadeFn().compute(
-				[ Math.ceil( maxRays / SHADE_WG_SIZE ), 1, 1 ],
-				[ SHADE_WG_SIZE, 1, 1 ]
-			)
-		);
-
-		// ── Sort (material sorting for subgroup coherence) ──
-		const sortFn = buildSortKernel( {
-			hitBufferRO: pb.hitBuffer.ro,
-			activeIndicesReadRO: qm.getActiveReadRO(),
-			sortedIndicesRW: qm.getSortedRW(),
-			counters,
-			maxRayCount: this._wfMaxRayCount,
-		} );
-		this._kernelManager.register( 'sort',
-			sortFn().compute(
-				[ Math.ceil( maxRays / SORT_WG_SIZE ), 1, 1 ],
-				[ SORT_WG_SIZE, 1, 1 ]
+		this._kernelManager.register( 'extendShade',
+			esFn().compute(
+				[ Math.ceil( maxRays / EXTENDSHADE_WG_SIZE ), 1, 1 ],
+				[ EXTENDSHADE_WG_SIZE, 1, 1 ]
 			)
 		);
 

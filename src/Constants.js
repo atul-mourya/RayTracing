@@ -150,7 +150,7 @@ export function computeCanvasDimensions( resolution, aspectPreset, orientation )
 }
 
 export const DEFAULT_STATE = {
-	model: 9,
+	model: 25,
 	environment: 'autoshop_01', // Environment ID from local_environments.json
 
 	// Canvas output — derived from resolution + aspect + orientation
