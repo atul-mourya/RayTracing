@@ -59,7 +59,8 @@ import {
 import { RandomValue } from '../Random.js';
 import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
-	RAY_STRIDE, RAY, SHADOW_STRIDE, SHADOW,
+	RAY_STRIDE, RAY, HIT_STRIDE, HIT, SHADOW_STRIDE, SHADOW, writeHitPacked,
+	readHitDistance, readHitBarycentrics, readHitNormal, readHitMaterialIndex, readHitMeshIndex,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -77,8 +78,8 @@ export function buildExtendShadeKernel( params ) {
 		// Scene storage buffers (5)
 		bvhBuffer, triangleBuffer, materialBuffer,
 		envMarginalWeights, envConditionalWeights,
-		// Packed buffers (4)
-		rayBufferRW, rngBufferRW,
+		// Packed buffers (5)
+		rayBufferRW, rngBufferRW, hitBufferRW,
 		shadowBufferRW, counters,
 		// Textures (not storage buffers)
 		albedoMaps, normalMaps, bumpMaps,
@@ -134,9 +135,21 @@ export function buildExtendShadeKernel( params ) {
 			ray, bvhBuffer, triangleBuffer, materialBuffer,
 		) ).toVar();
 
+		// Write hit to buffer + read back (workaround for TSL binding issue)
+		writeHitPacked(
+			hitBufferRW, rayID,
+			hitInfo.dst, uint( hitInfo.triangleIndex ),
+			hitInfo.uv.x, hitInfo.uv.y,
+			hitInfo.normal,
+			uint( hitInfo.materialIndex ), uint( hitInfo.meshIndex ),
+		);
+		const hitDst = readHitDistance( hitBufferRW, rayID ).toVar();
+		const hitUV = readHitBarycentrics( hitBufferRW, rayID ).toVar();
+		const hitNrm = readHitNormal( hitBufferRW, rayID ).toVar();
+		const hitMatIdx = readHitMaterialIndex( hitBufferRW, rayID ).toVar();
 
 		// ─── MISS ───────────────────────────────────────────────
-		If( hitInfo.dst.greaterThan( MISS_DIST ), () => {
+		If( hitDst.greaterThan( MISS_DIST ), () => {
 
 			If( enableEnvironmentLight, () => {
 
@@ -166,10 +179,8 @@ export function buildExtendShadeKernel( params ) {
 		} );
 
 		// ─── HIT: MATERIAL + TEXTURES ───────────────────────────
-		const hitPoint = origin.add( direction.mul( hitInfo.dst ) ).toVar();
-		const N = normalize( hitInfo.normal ).toVar();
-		const hitMatIdx = hitInfo.materialIndex.toVar();
-		const hitUV = hitInfo.uv.toVar();
+		const hitPoint = origin.add( direction.mul( hitDst ) ).toVar();
+		const N = normalize( hitNrm ).toVar();
 
 		const material = RayTracingMaterial.wrap(
 			getMaterial( int( hitMatIdx ), materialBuffer )

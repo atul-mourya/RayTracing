@@ -172,7 +172,8 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 			this._wfCurrentBounce.value = bounce;
 
-			km.dispatch( 'extendShade' );
+			km.dispatch( 'extend' );
+			km.dispatch( 'shade' );
 
 			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );
@@ -408,6 +409,7 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			envConditionalWeights: texNodes.conditionalCDFStorage,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
+			hitBufferRW: pb.hitBuffer.rw,
 			shadowBufferRW: pb.shadowBuffer.rw,
 			counters,
 			albedoMaps: texNodes.albedoMapsTex,
