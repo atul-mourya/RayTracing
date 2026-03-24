@@ -331,13 +331,15 @@ export function buildShadeKernel( params ) {
 
 		// ─── BRDF SAMPLE (needed by both direct + indirect) ─────
 		const V = direction.negate().toVar();
-		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
-		// Compute real material classification (not cached across bounces)
+		// Compute real material classification
 		const mc = MaterialClassification.wrap( classifyMaterial(
 			material.metalness, material.roughness, material.transmission,
 			material.clearcoat, material.emissive,
 		) ).toVar();
+
+		// BRDF sample (for direct lighting MIS + specular strategy input)
+		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 		const emptyWeights = BRDFWeights( {
 			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
 			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),
@@ -354,7 +356,6 @@ export function buildShadeKernel( params ) {
 			iorFactor: float( 0.67 ), maxSheenColor: float( 0.0 ),
 		} );
 
-		// Step 1: BRDF sample for specular direction
 		const brdfSample = DirectionSample.wrap( generateSampledDirection(
 			V, N, material, int( hitMatIdx ), xi, rngState,
 			false, int( - 1 ), mc,
@@ -362,10 +363,9 @@ export function buildShadeKernel( params ) {
 			false, emptyCache,
 		) ).toVar();
 
-		// ─── DIRECT LIGHTING (full calculateDirectLightingUnified) ──
+		// ─── DIRECT LIGHTING ────────────────────────────────────
 		const directLight = calculateDirectLightingUnified(
-			hitPoint, N, material,
-			V,
+			hitPoint, N, material, V,
 			brdfSample.direction, brdfSample.pdf, brdfSample.value,
 			int( 0 ), bounceIndex, rngState,
 			directionalLightsBuffer, numDirectionalLights,
@@ -380,7 +380,6 @@ export function buildShadeKernel( params ) {
 		);
 
 		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
-
 		currentRadiance.assign( vec4(
 			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
 			currentRadiance.w
@@ -392,15 +391,32 @@ export function buildShadeKernel( params ) {
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		// ─── INDIRECT BOUNCE ────────────────────────────────────
-		const bounceDir = brdfSample.direction.toVar();
-		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
+		// ─── INDIRECT BOUNCE (calculateIndirectLighting for direction + throughput) ──
+		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
+			material, bounceIndex, mc,
+			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
+		) ).toVar();
 
-		// Throughput: albedo attenuation per bounce.
-		// The monolithic's calculateIndirectLighting produces ~0.8*albedo average
-		// throughput due to multi-strategy MIS and cosine weighting. Without the
-		// full combined PDF, albedo alone over-estimates by ~20%.
-		throughput.mulAssign( albedo );
+		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
+			V, N, material,
+			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			int( 0 ), bounceIndex, rngState, samplingInfo,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight, useEnvMapIS,
+		) ).toVar();
+
+		const bounceDir = indirectResult.direction.toVar();
+		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
+
+		// Clamp throughput to prevent env IS strategy from producing ~1.0
+		const indThroughput = indirectResult.throughput;
+		throughput.mulAssign( vec3(
+			indThroughput.x.clamp( 0.0, albedo.x.add( 0.1 ) ),
+			indThroughput.y.clamp( 0.0, albedo.y.add( 0.1 ) ),
+			indThroughput.z.clamp( 0.0, albedo.z.add( 0.1 ) ),
+		) );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
