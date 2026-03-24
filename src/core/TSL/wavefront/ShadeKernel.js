@@ -237,9 +237,45 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// NEE disabled — calculateIndirectLighting handles env IS via strategy 0.
-		// NEE shadow rays will be re-added for discrete lights (Tier 2).
+		// ─── DIRECT LIGHTING (NEE — additive to radiance) ───────
+		// NEE adds directly to radiance; indirect (below) sets bounce throughput.
+		// These are independent samplings of the same integral, combined via MIS.
 		const V = direction.negate().toVar();
+
+		If( enableEnvironmentLight, () => {
+
+			const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar();
+			const r = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+			const envColor = vec3( 0.0 ).toVar();
+
+			const envSample = sampleEquirectProbability(
+				envTexture,
+				envMarginalWeights, envConditionalWeights,
+				envMatrix, environmentIntensity,
+				envTotalSum, envResolution,
+				r, envColor,
+			);
+
+			const lightDir = envSample.xyz.toVar();
+			const lightPdf = envSample.w.toVar();
+			const NoL = max( 0.0, dot( N, lightDir ) );
+
+			If( NoL.greaterThan( 0.0 ).and( lightPdf.greaterThan( 0.001 ) ), () => {
+
+				const brdfValue = evaluateMaterialResponse( V, lightDir, N, material );
+				const brdfPdf = calculateMaterialPDF( V, lightDir, N, material );
+				const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } );
+
+				// Add directly to radiance (unshadowed for now — shadow rays in Tier 2)
+				const directContrib = brdfValue.mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight );
+				currentRadiance.assign( vec4(
+					currentRadiance.xyz.add( throughput.mul( directContrib ) ),
+					currentRadiance.w
+				) );
+
+			} );
+
+		} );
 
 		// ─── FIREFLY SUPPRESSION ────────────────────────────────
 		const suppressedRadiance = regularizePathContribution(
