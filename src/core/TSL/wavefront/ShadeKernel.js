@@ -197,7 +197,14 @@ export function buildShadeKernel( params ) {
 			material, hitUV, N,
 		) ).toVar();
 
+		// Apply texture samples to material (CRITICAL — BRDF functions use material.color/metalness/roughness)
+		material.color.assign( matSamples.albedo );
+		material.metalness.assign( matSamples.metalness.clamp( 0.0, 1.0 ) );
+		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
+
 		const albedo = matSamples.albedo.toVar();
+		// Update N with texture-perturbed normal for all subsequent BRDF evaluations
+		N.assign( matSamples.normal );
 
 		// ─── FIRST-HIT MRT DATA (bounce 0 only) ────────────────
 		If( bounceIndex.equal( 0 ), () => {
@@ -392,16 +399,27 @@ export function buildShadeKernel( params ) {
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
 		// ─── INDIRECT BOUNCE ────────────────────────────────────
-		// BRDF-sampled direction + albedo/PI throughput (Lambertian approximation)
-		// calculateDirectLightingUnified handles full MIS NEE above;
-		// indirect path attenuates by albedo/PI per bounce (energy-conserving)
-		const bounceDir = brdfSample.direction.toVar();
-		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
+		// Disable env IS for indirect — NEE already handles it via
+		// calculateDirectLightingUnified. This prevents env IS strategy from
+		// producing inflated throughput (~0.5 instead of ~albedo).
+		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
+			material, bounceIndex, mc,
+			environmentIntensity, int( 0 ), int( 0 ), // useEnvMapIS=false, enableEnv=false for indirect
+		) ).toVar();
 
-		// albedo/PI: correct Lambertian throughput for cosine-weighted sampling
-		// (value/pdf for cosine sampling = albedo/PI * PI/cos * cos = albedo)
-		// Divide by PI to account for the BRDF normalization
-		throughput.mulAssign( albedo.mul( 0.45 ) );
+		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
+			V, N, material,
+			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			int( 0 ), bounceIndex, rngState, samplingInfo,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			int( 0 ), int( 0 ), // enableEnvironmentLight=false, useEnvMapIS=false for indirect
+		) ).toVar();
+
+		const bounceDir = indirectResult.direction.toVar();
+		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
+		throughput.mulAssign( indirectResult.throughput );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
