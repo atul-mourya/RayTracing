@@ -22,6 +22,7 @@ import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel
 import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
 import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKernel.js';
 import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
+import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
 import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
 import {
@@ -172,6 +173,9 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			this._wfCurrentBounce.value = bounce;
 
 			km.dispatch( 'extend' );
+
+			// Material sort for subgroup coherence (skip bounce 0 — primary hits are screen-coherent)
+			if ( bounce > 0 ) km.dispatch( 'sort' );
 
 			km.dispatch( 'resetShadowCounter' );
 			km.dispatch( 'shade' );
@@ -402,6 +406,21 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			shadeFn().compute(
 				[ Math.ceil( maxRays / SHADE_WG_SIZE ), 1, 1 ],
 				[ SHADE_WG_SIZE, 1, 1 ]
+			)
+		);
+
+		// ── Sort (material sorting for subgroup coherence) ──
+		const sortFn = buildSortKernel( {
+			hitBufferRO: pb.hitBuffer.ro,
+			activeIndicesReadRO: qm.getActiveReadRO(),
+			sortedIndicesRW: qm.getSortedRW(),
+			counters,
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'sort',
+			sortFn().compute(
+				[ Math.ceil( maxRays / SORT_WG_SIZE ), 1, 1 ],
+				[ SORT_WG_SIZE, 1, 1 ]
 			)
 		);
 
