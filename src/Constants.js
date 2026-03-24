@@ -151,7 +151,7 @@ export function computeCanvasDimensions( resolution, aspectPreset, orientation )
 
 export const DEFAULT_STATE = {
 	model: 9,
-	environment: 'aristea_wreck_puresky', // Environment ID from local_environments.json
+	environment: 'autoshop_01', // Environment ID from local_environments.json
 
 	// Canvas output — derived from resolution + aspect + orientation
 	resolution: 512,

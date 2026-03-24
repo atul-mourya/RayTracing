@@ -393,11 +393,12 @@ export function buildShadeKernel( params ) {
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
 		// ─── INDIRECT BOUNCE ────────────────────────────────────
-		// Use BRDF-sampled direction (importance sampling for specular/diffuse lobes)
-		// Throughput = albedo (energy-conserving for Lambertian surfaces)
-		// Direct lighting is handled by calculateDirectLightingUnified above
 		const bounceDir = brdfSample.direction.toVar();
 		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
+
+		// Throughput: albedo attenuation per bounce.
+		// Full value/pdf requires multi-strategy combined PDF from
+		// calculateIndirectLighting (currently has env IS over-contribution issue).
 		throughput.mulAssign( albedo );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
