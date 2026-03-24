@@ -25,10 +25,11 @@ import {
 	atomicAdd, uintBitsToFloat,
 } from 'three/tsl';
 
-import { sampleEnvironment, sampleEquirectProbability } from '../Environment.js';
-import { getMaterial } from '../Common.js';
+import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '../Environment.js';
+import { getMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
+import { calculateMaterialPDF } from '../LightsSampling.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
 import {
 	RayTracingMaterial,
@@ -42,7 +43,7 @@ import { RandomValue } from '../Random.js';
 import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
 	SHADOW_STRIDE, SHADOW,
-	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput,
+	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -147,7 +148,20 @@ export function buildShadeKernel( params ) {
 				} );
 
 				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, globalIlluminationIntensity );
-				const envContribution = envColor.mul( bgScale );
+				const envContribution = envColor.mul( bgScale ).toVar();
+
+				// MIS: weight indirect contribution by brdfPdf / (brdfPdf + lightPdf)
+				// Only apply MIS for bounce > 0 (primary miss = full weight)
+				If( bounceIndex.greaterThan( 0 ), () => {
+
+					const prevPdf = readRayPdf( rayBufferRW, rayID );
+					const envPdfResult = sampleEquirect( envTexture, direction, envMatrix, envTotalSum, envResolution );
+					const lightPdf = envPdfResult.w;
+					const misWeight = powerHeuristic( { pdf1: prevPdf, pdf2: lightPdf } );
+					envContribution.mulAssign( misWeight );
+
+				} );
+
 				currentRadiance.assign( vec4(
 					currentRadiance.xyz.add( throughput.mul( envContribution.xyz ) ),
 					currentRadiance.w
@@ -220,11 +234,9 @@ export function buildShadeKernel( params ) {
 		} );
 
 		// ─── DEFERRED DIRECT LIGHTING (NEE via inline env IS) ───
-		// TODO: Re-enable with proper MIS weighting (power heuristic between NEE + BRDF)
-		// Currently disabled because NEE + full BRDF indirect double-counts energy.
 		const V = direction.negate().toVar();
 
-		If( enableEnvironmentLight.and( false ), () => { // eslint-disable-line no-constant-condition
+		If( enableEnvironmentLight, () => {
 
 			// Environment IS — sample important direction from HDRI CDF
 			const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar();
@@ -245,10 +257,11 @@ export function buildShadeKernel( params ) {
 
 			If( NoL.greaterThan( 0.0 ).and( lightPdf.greaterThan( 0.001 ) ), () => {
 
-				// Full BRDF evaluation (pure math — no extra storage buffers)
+				// Full BRDF evaluation + MIS weight
 				const brdfValue = evaluateMaterialResponse( V, lightDir, N, material );
-				// Scale by 0.5 to approximate MIS weight (indirect bounce + NEE share energy)
-				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( 0.5 );
+				const brdfPdf = calculateMaterialPDF( V, lightDir, N, material );
+				const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } );
+				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight );
 
 				// Write deferred shadow ray
 				const shadowIdx = atomicAdd( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 1 ) );
@@ -306,9 +319,10 @@ export function buildShadeKernel( params ) {
 		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
 		const brdfEval = brdfSample.value.toVar();
 
-		// Update throughput: for cosine-weighted sampling, value/pdf ≈ albedo
-		// Use albedo directly as throughput multiplier (energy-conserving)
-		// Full value/pdf will be re-enabled with proper MIS
+		// Throughput: use albedo as stable energy multiplier.
+		// BRDF-sampled directions from generateSampledDirection handle importance
+		// sampling for the direction; albedo handles the energy attenuation.
+		// Full value/pdf requires calculateIndirectLighting (Phase 2).
 		throughput.mulAssign( albedo );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
