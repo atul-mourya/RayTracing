@@ -267,7 +267,8 @@ export function buildShadeKernel( params ) {
 				const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } );
 
 				// Deferred shadow ray — pending radiance added by Accumulate if visible
-				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight );
+				// Scale to share energy budget with calculateIndirectLighting's env IS strategy
+				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight ).mul( 0.3 );
 
 				const shadowIdx = atomicAdd( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 1 ) );
 				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
