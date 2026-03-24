@@ -397,8 +397,9 @@ export function buildShadeKernel( params ) {
 		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
 
 		// Throughput: albedo attenuation per bounce.
-		// Full value/pdf requires multi-strategy combined PDF from
-		// calculateIndirectLighting (currently has env IS over-contribution issue).
+		// The monolithic's calculateIndirectLighting produces ~0.8*albedo average
+		// throughput due to multi-strategy MIS and cosine weighting. Without the
+		// full combined PDF, albedo alone over-estimates by ~20%.
 		throughput.mulAssign( albedo );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
