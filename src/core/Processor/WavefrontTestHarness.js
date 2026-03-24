@@ -17,7 +17,7 @@ import {
 	instanceIndex, atomicAdd, atomicStore, atomicLoad,
 } from 'three/tsl';
 import { attributeArray } from 'three/tsl';
-import { RayBufferPool } from './RayBufferPool.js';
+import { PackedRayBuffer } from './PackedRayBuffer.js';
 
 /**
  * Helper: read back a StorageBufferNode's underlying GPU data.
@@ -204,38 +204,37 @@ async function testBufferRoundtrip( renderer ) {
 
 /**
  * T0.3: Memory Allocation Verification
- * Instantiate RayBufferPool at 1920×1080 and verify buffer count and estimated size.
+ * Instantiate PackedRayBuffer at 1920×1080 and verify allocation.
  */
 function testMemoryAllocation() {
 
-	console.group( '[T0.3] Memory Allocation' );
+	console.group( '[T0.3] Memory Allocation (PackedRayBuffer)' );
 
 	try {
 
-		const maxRays = 1920 * 1080; // 2,073,600
-		const pool = new RayBufferPool( maxRays );
+		const maxRays = 1920 * 1080;
+		const pool = new PackedRayBuffer( maxRays );
 
-		const bufferCount = pool.buffers.size;
-		const totalMB = pool.totalBytes / ( 1024 * 1024 );
-		const capacity = pool.getCapacity();
+		const capacity = pool.capacity;
+		const hasRay = !! pool.rayBuffer;
+		const hasHit = !! pool.hitBuffer;
+		const hasShadow = !! pool.shadowBuffer;
+		const hasRng = !! pool.rngBuffer;
+		const hasVis = !! pool.visibilityBuffer;
 
 		console.log( `Requested: ${maxRays} rays` );
-		console.log( `Allocated capacity: ${capacity} rays (over-allocated + power-of-2)` );
-		console.log( `Buffer fields: ${bufferCount}` );
-		console.log( `Estimated total: ${totalMB.toFixed( 1 )} MB` );
+		console.log( `Allocated capacity: ${capacity} rays` );
+		console.log( `Buffers: ray=${hasRay} hit=${hasHit} shadow=${hasShadow} rng=${hasRng} vis=${hasVis}` );
 
-		// Verify expected buffer count: 9 ray + 5 hit + 5 shadow + 2 first-hit + 1 visibility = 22
-		const expectedBufferCount = 22;
-		const passed = bufferCount === expectedBufferCount && capacity >= maxRays;
+		const allPresent = hasRay && hasHit && hasShadow && hasRng && hasVis;
+		const passed = allPresent && capacity >= maxRays;
 
-		console.log( `Buffer count: ${bufferCount} (expected: ${expectedBufferCount}) — ${bufferCount === expectedBufferCount ? 'PASS ✓' : 'FAIL ✗'}` );
+		console.log( `All buffers present: ${allPresent ? 'PASS ✓' : 'FAIL ✗'}` );
 		console.log( `Capacity >= requested: ${capacity >= maxRays ? 'PASS ✓' : 'FAIL ✗'}` );
 
-		// Test resize (should not reallocate if within capacity)
 		const reallocated = pool.resize( maxRays - 100 );
 		console.log( `Resize smaller (no realloc): ${! reallocated ? 'PASS ✓' : 'FAIL ✗'}` );
 
-		// Test resize larger (should reallocate)
 		const reallocated2 = pool.resize( capacity + 1 );
 		console.log( `Resize larger (realloc): ${reallocated2 ? 'PASS ✓' : 'FAIL ✗'}` );
 

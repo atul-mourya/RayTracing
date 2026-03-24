@@ -391,6 +391,8 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,
 			cameraViewMatrix: this.cameraViewMatrix,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
 		} );

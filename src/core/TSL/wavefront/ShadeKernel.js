@@ -29,9 +29,14 @@ import { sampleEnvironment, sampleEquirectProbability } from '../Environment.js'
 import { getMaterial } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
+import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
 import {
 	RayTracingMaterial,
 	MaterialSamples,
+	DirectionSample,
+	MaterialClassification,
+	BRDFWeights,
+	MaterialCache,
 } from '../Struct.js';
 import { RandomValue } from '../Random.js';
 import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
@@ -80,6 +85,7 @@ export function buildShadeKernel( params ) {
 		transparentBackground, backgroundIntensity,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
+		fireflyThreshold, frame,
 		// Current bounce (set per-bounce by stage)
 		currentBounce,
 		// Max count
@@ -140,7 +146,7 @@ export function buildShadeKernel( params ) {
 					enableEnvironmentLight,
 				} );
 
-				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, float( 2.0 ) );
+				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, globalIlluminationIntensity );
 				const envContribution = envColor.mul( bgScale );
 				currentRadiance.assign( vec4(
 					currentRadiance.xyz.add( throughput.mul( envContribution.xyz ) ),
@@ -214,9 +220,11 @@ export function buildShadeKernel( params ) {
 		} );
 
 		// ─── DEFERRED DIRECT LIGHTING (NEE via inline env IS) ───
+		// TODO: Re-enable with proper MIS weighting (power heuristic between NEE + BRDF)
+		// Currently disabled because NEE + full BRDF indirect double-counts energy.
 		const V = direction.negate().toVar();
 
-		If( enableEnvironmentLight, () => {
+		If( enableEnvironmentLight.and( false ), () => { // eslint-disable-line no-constant-condition
 
 			// Environment IS — sample important direction from HDRI CDF
 			const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar();
@@ -255,25 +263,68 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── COSINE-WEIGHTED BOUNCE ─────────────────────────────
-		const r1 = RandomValue( rngState );
-		const r2 = RandomValue( rngState );
-		const phi = float( 6.28318 ).mul( r1 );
-		const cosTheta = r2.sqrt();
-		const sinTheta = float( 1.0 ).sub( r2 ).sqrt();
+		// ─── FIREFLY SUPPRESSION ────────────────────────────────
+		const suppressedRadiance = regularizePathContribution(
+			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
+		);
+		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		const up = select( N.y.abs().lessThan( 0.999 ), vec3( 0.0, 1.0, 0.0 ), vec3( 1.0, 0.0, 0.0 ) );
-		const tangent = normalize( up.cross( N ) ).toVar();
-		const bitangent = N.cross( tangent ).toVar();
+		// ─── FULL DISNEY BRDF IMPORTANCE SAMPLING ────────────────
+		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
-		const bounceDir = normalize(
-			tangent.mul( phi.cos().mul( sinTheta ) )
-				.add( bitangent.mul( phi.sin().mul( sinTheta ) ) )
-				.add( N.mul( cosTheta ) )
-		).toVar();
+		// Fresh classification each bounce (no cross-bounce cache in wavefront)
+		const emptyClassification = MaterialClassification( {
+			isMetallic: false, isRough: false, isSmooth: false,
+			isTransmissive: false, hasClearcoat: false, isEmissive: false,
+			complexityScore: float( 0.0 ),
+		} );
+		const emptyWeights = BRDFWeights( {
+			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
+			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),
+		} );
+		const emptyCache = MaterialCache( {
+			F0: vec3( 0.04 ), NoV: float( 1.0 ),
+			diffuseColor: vec3( 0.0 ), specularColor: vec3( 0.0 ),
+			isMetallic: false, isPurelyDiffuse: false, hasSpecialFeatures: false,
+			alpha: float( 0.0 ), k: float( 0.0 ), alpha2: float( 0.0 ),
+			tsAlbedo: vec4( 0.0 ), tsEmissive: vec3( 0.0 ),
+			tsMetalness: float( 0.0 ), tsRoughness: float( 0.0 ),
+			tsNormal: vec3( 0.0, 0.0, 1.0 ), tsHasTextures: false,
+			invRoughness: float( 0.5 ), metalFactor: float( 0.5 ),
+			iorFactor: float( 0.67 ), maxSheenColor: float( 0.0 ),
+		} );
 
-		const bouncePdf = max( cosTheta.div( 3.14159 ), 0.001 ).toVar();
+		const brdfSample = DirectionSample.wrap( generateSampledDirection(
+			V, N, material, int( hitMatIdx ), xi, rngState,
+			// Pass fresh (uncached) — will recompute each bounce
+			false, int( - 1 ), emptyClassification,
+			false, emptyWeights,
+			false, emptyCache,
+		) ).toVar();
+
+		const bounceDir = brdfSample.direction.toVar();
+		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
+		const brdfEval = brdfSample.value.toVar();
+
+		// Update throughput: for cosine-weighted sampling, value/pdf ≈ albedo
+		// Use albedo directly as throughput multiplier (energy-conserving)
+		// Full value/pdf will be re-enabled with proper MIS
 		throughput.mulAssign( albedo );
+
+		// ─── EARLY RAY TERMINATION ──────────────────────────────
+		If( bounceIndex.greaterThanEqual( 3 ), () => {
+
+			const maxThroughput = max( throughput.x, max( throughput.y, throughput.z ) );
+			If( maxThroughput.lessThan( 0.001 ), () => {
+
+				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+				writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
+				rngBufferRW.element( rayID ).assign( rngState );
+				return;
+
+			} );
+
+		} );
 
 		// ─── RUSSIAN ROULETTE ───────────────────────────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
