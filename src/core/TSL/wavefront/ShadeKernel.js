@@ -410,12 +410,12 @@ export function buildShadeKernel( params ) {
 		const bounceDir = indirectResult.direction.toVar();
 		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
 
-		// Clamp throughput to prevent env IS strategy from producing ~1.0
+		// Clamp throughput per-component to albedo to prevent env IS over-contribution
 		const indThroughput = indirectResult.throughput;
 		throughput.mulAssign( vec3(
-			indThroughput.x.clamp( 0.0, albedo.x.add( 0.1 ) ),
-			indThroughput.y.clamp( 0.0, albedo.y.add( 0.1 ) ),
-			indThroughput.z.clamp( 0.0, albedo.z.add( 0.1 ) ),
+			indThroughput.x.clamp( 0.0, max( albedo.x, 0.04 ) ),
+			indThroughput.y.clamp( 0.0, max( albedo.y, 0.04 ) ),
+			indThroughput.z.clamp( 0.0, max( albedo.z, 0.04 ) ),
 		) );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
