@@ -119,14 +119,16 @@ Shade kernel binding budget (8/8):
 - [ ] 20. Adaptive sampling — not tested yet
 - [ ] 21. Debug visualization modes (visMode 1-7) — not tested yet
 
-### KNOWN ISSUE: ~20% brighter than monolithic
-The remaining brightness gap comes from the indirect throughput using `albedo` instead of `calculateIndirectLighting`'s multi-strategy combined PDF. The monolithic computes `throughput = value * cos * misWeight / combinedPdf` where `combinedPdf` sums env IS + specular + diffuse strategy PDFs. Without the combined PDF, `albedo` over-estimates by ~20%.
-
-**To fix**: Debug why `calculateIndirectLighting` over-contributes when called from the wavefront Shade kernel. The root cause is the env IS strategy (strategy 0) producing throughput ~1.0 instead of ~albedo. Likely related to how `computeSamplingInfo` weights the strategies when called with fresh (uncached) MaterialClassification.
+### FIXED: Visual parity achieved
+Root cause of brightness gap was 3 missing lines — material.color/metalness/roughness
+were never updated with texture-sampled values after sampleAllMaterialTextures().
+All BRDF functions used white/default base material instead of textured values.
+Fix: apply matSamples to material struct before BRDF evaluation.
+Full calculateIndirectLighting + calculateDirectLightingUnified now work correctly.
 
 ### Tier 5: Performance (Phase 2)
 - [x] 22. Material sorting kernel — counting sort by materialIndex (16 bins, workgroup-local)
-- [ ] 23. Performance benchmarking vs monolithic
+- [x] 23. Performance benchmarking — **wavefront is 0.69× at 3 bounces, 0.40× at 8 bounces** (steady-state, 512×512, 2 materials). Slower due to dispatch overhead + buffer I/O. Needs: fewer dispatches (merge kernels), larger scenes, more materials for sort benefit.
 - [ ] 24. Prefix-sum compaction
 - [ ] 25. Half-precision buffers
 - [ ] 26. Async readback for dynamic dispatch
