@@ -99,7 +99,7 @@ Shade kernel binding budget (8/8):
 - [x] 6. Full Disney BRDF via `generateSampledDirection()` — specular, metallic, clearcoat lobes. Throughput uses albedo (not value/pdf) until MIS is added.
 - [ ] 7. Add `handleMaterialTransparency()` — refraction, Fresnel, alpha-skip (needs RAY_STRIDE bump to 7 for medium stack)
 - [ ] 8. Add clearcoat sampling — `sampleClearcoat()` branch
-- [ ] 9. Proper MIS weighting — power heuristic between NEE + BRDF paths
+- [x] 9. MIS weighting — power heuristic between env NEE + BRDF indirect. Still slightly overexposed — needs `calculateIndirectLighting` for proper throughput (not albedo hack).
 
 ### Tier 2: Light Support (needs binding budget work)
 - [ ] 10. Request `maxStorageBuffersPerShaderStage: 10` from adapter
