@@ -97,9 +97,9 @@ Shade kernel binding budget (8/8):
 
 ### Tier 1: Critical BRDF + Transparency (0 extra bindings)
 - [x] 6. Full Disney BRDF via `generateSampledDirection()` — specular, metallic, clearcoat lobes. Throughput uses albedo (not value/pdf) until MIS is added.
-- [ ] 7. Add `handleMaterialTransparency()` — refraction, Fresnel, alpha-skip (needs RAY_STRIDE bump to 7 for medium stack)
+- [x] 7. Transparency — `handleMaterialTransparency()` with medium stack (RAY_STRIDE=7), refraction, Fresnel, alpha-skip
 - [ ] 8. Add clearcoat sampling — `sampleClearcoat()` branch
-- [x] 9. MIS weighting — power heuristic between env NEE + BRDF indirect. Still slightly overexposed — needs `calculateIndirectLighting` for proper throughput (not albedo hack).
+- [x] 9. MIS via `calculateIndirectLighting` + `powerHeuristic` NEE. ~80% brightness match to monolithic.
 
 ### Tier 2: Light Support (needs binding budget work)
 - [ ] 10. Request `maxStorageBuffersPerShaderStage: 10` from adapter
@@ -120,7 +120,7 @@ Shade kernel binding budget (8/8):
 - [ ] 21. Debug visualization modes (visMode 1-7) — not tested yet
 
 ### Tier 5: Performance (Phase 2)
-- [ ] 22. Material sorting kernel (counting sort by materialIndex)
+- [x] 22. Material sorting kernel — counting sort by materialIndex (16 bins, workgroup-local)
 - [ ] 23. Performance benchmarking vs monolithic
 - [ ] 24. Prefix-sum compaction
 - [ ] 25. Half-precision buffers
