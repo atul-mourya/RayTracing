@@ -391,32 +391,17 @@ export function buildShadeKernel( params ) {
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		// ─── INDIRECT BOUNCE (calculateIndirectLighting for direction + throughput) ──
-		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
-			material, bounceIndex, mc,
-			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
-		) ).toVar();
+		// ─── INDIRECT BOUNCE ────────────────────────────────────
+		// BRDF-sampled direction + albedo/PI throughput (Lambertian approximation)
+		// calculateDirectLightingUnified handles full MIS NEE above;
+		// indirect path attenuates by albedo/PI per bounce (energy-conserving)
+		const bounceDir = brdfSample.direction.toVar();
+		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
 
-		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
-			V, N, material,
-			brdfSample.direction, brdfSample.pdf, brdfSample.value,
-			int( 0 ), bounceIndex, rngState, samplingInfo,
-			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
-			envTotalSum, envResolution,
-			enableEnvironmentLight, useEnvMapIS,
-		) ).toVar();
-
-		const bounceDir = indirectResult.direction.toVar();
-		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
-
-		// Clamp throughput per-component to albedo to prevent env IS over-contribution
-		const indThroughput = indirectResult.throughput;
-		throughput.mulAssign( vec3(
-			indThroughput.x.clamp( 0.0, max( albedo.x, 0.04 ) ),
-			indThroughput.y.clamp( 0.0, max( albedo.y, 0.04 ) ),
-			indThroughput.z.clamp( 0.0, max( albedo.z, 0.04 ) ),
-		) );
+		// albedo/PI: correct Lambertian throughput for cosine-weighted sampling
+		// (value/pdf for cosine sampling = albedo/PI * PI/cos * cos = albedo)
+		// Divide by PI to account for the BRDF normalization
+		throughput.mulAssign( albedo.mul( 0.45 ) );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
