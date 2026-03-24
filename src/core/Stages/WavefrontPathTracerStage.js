@@ -172,8 +172,7 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 			this._wfCurrentBounce.value = bounce;
 
-			km.dispatch( 'extend' );
-			km.dispatch( 'shade' );
+			km.dispatch( 'extendShade' );
 
 			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );

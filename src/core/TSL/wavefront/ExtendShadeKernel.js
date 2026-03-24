@@ -134,9 +134,6 @@ export function buildExtendShadeKernel( params ) {
 			ray, bvhBuffer, triangleBuffer, materialBuffer,
 		) ).toVar();
 
-		// ═══════════════════════════════════════════════════════════
-		// PHASE 2: SHADING (material eval + bounce — hit data in registers)
-		// ═══════════════════════════════════════════════════════════
 
 		// ─── MISS ───────────────────────────────────────────────
 		If( hitInfo.dst.greaterThan( MISS_DIST ), () => {
@@ -171,8 +168,8 @@ export function buildExtendShadeKernel( params ) {
 		// ─── HIT: MATERIAL + TEXTURES ───────────────────────────
 		const hitPoint = origin.add( direction.mul( hitInfo.dst ) ).toVar();
 		const N = normalize( hitInfo.normal ).toVar();
-		const hitMatIdx = hitInfo.materialIndex;
-		const hitUV = hitInfo.uv;
+		const hitMatIdx = hitInfo.materialIndex.toVar();
+		const hitUV = hitInfo.uv.toVar();
 
 		const material = RayTracingMaterial.wrap(
 			getMaterial( int( hitMatIdx ), materialBuffer )
@@ -190,6 +187,17 @@ export function buildExtendShadeKernel( params ) {
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 		const albedo = matSamples.albedo.toVar();
 		N.assign( matSamples.normal );
+
+		// DEBUG: output UV to check if texture coords are correct
+		If( bounceIndex.equal( 0 ), () => {
+
+			currentRadiance.assign( vec4( hitUV.x, hitUV.y, 0.0, 1.0 ) );
+			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+			writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
+			rngBufferRW.element( rayID ).assign( rngState );
+			return;
+
+		} );
 
 		// ─── FIRST-HIT MRT ──────────────────────────────────────
 		If( bounceIndex.equal( 0 ), () => {
@@ -342,27 +350,8 @@ export function buildExtendShadeKernel( params ) {
 			false, int( - 1 ), mc, false, emptyWeights, false, emptyCache,
 		) ).toVar();
 
-		// ─── DIRECT LIGHTING (full MIS with inline shadow rays) ──
-		const directLight = calculateDirectLightingUnified(
-			hitPoint, N, material, V,
-			brdfSample.direction, brdfSample.pdf, brdfSample.value,
-			int( 0 ), bounceIndex, rngState,
-			directionalLightsBuffer, numDirectionalLights,
-			areaLightsBuffer, numAreaLights,
-			pointLightsBuffer, numPointLights,
-			spotLightsBuffer, numSpotLights,
-			bvhBuffer, triangleBuffer, materialBuffer,
-			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
-			envTotalSum, envResolution,
-			enableEnvironmentLight,
-		);
-
-		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
-		currentRadiance.assign( vec4(
-			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
-			currentRadiance.w
-		) );
+		// ─── DIRECT LIGHTING — DISABLED for debug ──
+		// Testing if removing calculateDirectLightingUnified fixes UV issue
 
 		// ─── FIREFLY SUPPRESSION ────────────────────────────────
 		const suppressedRadiance = regularizePathContribution(
