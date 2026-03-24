@@ -19,6 +19,8 @@ import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { WavefrontKernelManager } from '../Processor/WavefrontKernelManager.js';
 import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/wavefront/GenerateKernel.js';
 import { buildExtendShadeKernel, EXTENDSHADE_WG_SIZE } from '../TSL/wavefront/ExtendShadeKernel.js';
+import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel.js';
+import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
 import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKernel.js';
 import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
 import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
@@ -170,13 +172,8 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 			this._wfCurrentBounce.value = bounce;
 
-			// Fused BVH traversal + material eval + deferred shadow ray gen
-			km.dispatch( 'resetShadowCounter' );
-			km.dispatch( 'extendShade' );
-
-			// Shadow ray pipeline
-			km.dispatch( 'connect' );
-			km.dispatch( 'accumulate' );
+			km.dispatch( 'extend' );
+			km.dispatch( 'shade' );
 
 			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );
@@ -338,6 +335,69 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 				[ Math.ceil( w / GENERATE_WG_SIZE ), Math.ceil( h / GENERATE_WG_SIZE ), 1 ],
 				[ GENERATE_WG_SIZE, GENERATE_WG_SIZE, 1 ]
 			)
+		);
+
+		// ── Extend (separate, for debug) ──
+		const extFn = buildExtendKernel( {
+			bvhBuffer: texNodes.bvhStorage,
+			triangleBuffer: texNodes.triStorage,
+			materialBuffer: texNodes.matStorage,
+			rayBufferRO: pb.rayBuffer.ro,
+			hitBufferRW: pb.hitBuffer.rw,
+			activeIndicesRO: qm.getActiveReadRO(),
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'extend',
+			extFn().compute( [ Math.ceil( maxRays / EXTEND_WG_SIZE ), 1, 1 ], [ EXTEND_WG_SIZE, 1, 1 ] )
+		);
+
+		// ── Shade (separate, for debug) ──
+		const shadeFn = buildShadeKernel( {
+			bvhBuffer: texNodes.bvhStorage,
+			triangleBuffer: texNodes.triStorage,
+			materialBuffer: texNodes.matStorage,
+			envMarginalWeights: texNodes.marginalCDFStorage,
+			envConditionalWeights: texNodes.conditionalCDFStorage,
+			rayBufferRW: pb.rayBuffer.rw,
+			rngBufferRW: pb.rngBuffer.rw,
+			hitBufferRO: pb.hitBuffer.ro,
+			shadowBufferRW: pb.shadowBuffer.rw,
+			counters,
+			albedoMaps: texNodes.albedoMapsTex,
+			normalMaps: texNodes.normalMapsTex,
+			bumpMaps: texNodes.bumpMapsTex,
+			metalnessMaps: texNodes.metalnessMapsTex,
+			roughnessMaps: texNodes.roughnessMapsTex,
+			emissiveMaps: texNodes.emissiveMapsTex,
+			envTexture: texNodes.envTex,
+			environmentIntensity: this.environmentIntensity,
+			envMatrix: this.environmentMatrix,
+			enableEnvironmentLight: this.enableEnvironment,
+			useEnvMapIS: this.useEnvMapIS,
+			envTotalSum: this.envTotalSum,
+			envResolution: this.envResolution,
+			directionalLightsBuffer: this.directionalLightsBufferNode,
+			numDirectionalLights: this.numDirectionalLights,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			numAreaLights: this.numAreaLights,
+			pointLightsBuffer: this.pointLightsBufferNode,
+			numPointLights: this.numPointLights,
+			spotLightsBuffer: this.spotLightsBufferNode,
+			numSpotLights: this.numSpotLights,
+			maxBounceCount: this.maxBounces,
+			transmissiveBounces: this.transmissiveBounces,
+			transparentBackground: this.transparentBackground,
+			backgroundIntensity: this.backgroundIntensity,
+			globalIlluminationIntensity: this.globalIlluminationIntensity,
+			cameraProjectionMatrix: this.cameraProjectionMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
+			currentBounce: this._wfCurrentBounce,
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'shade',
+			shadeFn().compute( [ Math.ceil( maxRays / SHADE_WG_SIZE ), 1, 1 ], [ SHADE_WG_SIZE, 1, 1 ] )
 		);
 
 		// ── Fused ExtendShade (BVH + material + deferred shadow) ──

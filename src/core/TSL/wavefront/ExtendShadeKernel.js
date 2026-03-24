@@ -34,9 +34,10 @@ import {
 
 import { traverseBVH } from '../BVHTraversal.js';
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '../Environment.js';
-import { getMaterial, classifyMaterial } from '../Common.js';
+import { getMaterial, classifyMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
+import { calculateDirectLightingUnified } from '../LightsSampling.js';
 import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
@@ -311,50 +312,9 @@ export function buildExtendShadeKernel( params ) {
 
 		} );
 
-		// ─── DEFERRED DIRECT LIGHTING (env IS → shadow ray) ─────
+		// ─── BRDF SAMPLE (needed by direct + indirect) ─────────
 		const V = direction.negate().toVar();
 
-		If( enableEnvironmentLight, () => {
-
-			const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar();
-			const r = vec2( RandomValue( rngState ), RandomValue( rngState ) );
-			const envColor = vec3( 0.0 ).toVar();
-
-			const envSample = sampleEquirectProbability(
-				envTexture, envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity, envTotalSum, envResolution,
-				r, envColor,
-			);
-
-			const lightDir = envSample.xyz.toVar();
-			const lightPdf = envSample.w.toVar();
-			const NoL = max( 0.0, dot( N, lightDir ) );
-
-			If( NoL.greaterThan( 0.0 ).and( lightPdf.greaterThan( 0.001 ) ), () => {
-
-				const brdfValue = evaluateMaterialResponse( V, lightDir, N, material );
-				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf );
-
-				const shadowIdx = atomicAdd( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 1 ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
-					.assign( vec4( rayOrigin, float( 100000.0 ) ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) )
-					.assign( vec4( lightDir, uintBitsToFloat( rayID ) ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) )
-					.assign( vec4( pending, 0.0 ) );
-
-			} );
-
-		} );
-
-		// ─── FIREFLY SUPPRESSION ────────────────────────────────
-		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
-		const suppressedRadiance = regularizePathContribution(
-			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
-		);
-		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
-
-		// ─── INDIRECT BOUNCE ────────────────────────────────────
 		const mc = MaterialClassification.wrap( classifyMaterial(
 			material.metalness, material.roughness, material.transmission,
 			material.clearcoat, material.emissive,
@@ -381,6 +341,34 @@ export function buildExtendShadeKernel( params ) {
 			V, N, material, int( hitMatIdx ), xi, rngState,
 			false, int( - 1 ), mc, false, emptyWeights, false, emptyCache,
 		) ).toVar();
+
+		// ─── DIRECT LIGHTING (full MIS with inline shadow rays) ──
+		const directLight = calculateDirectLightingUnified(
+			hitPoint, N, material, V,
+			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			int( 0 ), bounceIndex, rngState,
+			directionalLightsBuffer, numDirectionalLights,
+			areaLightsBuffer, numAreaLights,
+			pointLightsBuffer, numPointLights,
+			spotLightsBuffer, numSpotLights,
+			bvhBuffer, triangleBuffer, materialBuffer,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight,
+		);
+
+		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+		currentRadiance.assign( vec4(
+			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
+			currentRadiance.w
+		) );
+
+		// ─── FIREFLY SUPPRESSION ────────────────────────────────
+		const suppressedRadiance = regularizePathContribution(
+			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
+		);
+		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, mc,
