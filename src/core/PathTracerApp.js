@@ -12,6 +12,7 @@ import { outline } from 'three/addons/tsl/display/OutlineNode.js';
 import { SceneHelpers } from './SceneHelpers.js';
 import Stats from 'stats-gl';
 import { PathTracingStage } from './Stages/PathTracingStage.js';
+import { WavefrontPathTracerStage } from './Stages/WavefrontPathTracerStage.js';
 import { NormalDepthStage } from './Stages/NormalDepthStage.js';
 import { MotionVectorStage } from './Stages/MotionVectorStage.js';
 import { ASVGFStage } from './Stages/ASVGFStage.js';
@@ -34,6 +35,8 @@ import { useStore, useCameraStore } from '@/store';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
 
+// Wavefront test harness — lazy loaded, registers window.__wavefrontTests
+import( /* webpackChunkName: "wavefront-tests" */ './Processor/WavefrontTestHarness.js' ).catch( () => {} );
 
 /**
  * WebGPU Path Tracer Application.
@@ -228,7 +231,9 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 
 		// Create pipeline stages
-		this.pathTracingStage = new PathTracingStage( this.renderer, this.scene, this.camera );
+		const useWavefront = DEFAULT_STATE.wavefrontEnabled ?? false;
+		const PathTracerClass = useWavefront ? WavefrontPathTracerStage : PathTracingStage;
+		this.pathTracingStage = new PathTracerClass( this.renderer, this.scene, this.camera );
 		this.normalDepthStage = new NormalDepthStage( this.renderer, {
 			pathTracingStage: this.pathTracingStage
 		} );
