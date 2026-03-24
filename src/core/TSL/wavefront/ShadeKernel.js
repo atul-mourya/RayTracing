@@ -266,12 +266,16 @@ export function buildShadeKernel( params ) {
 				const brdfPdf = calculateMaterialPDF( V, lightDir, N, material );
 				const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } );
 
-				// Add directly to radiance (unshadowed for now — shadow rays in Tier 2)
-				const directContrib = brdfValue.mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight );
-				currentRadiance.assign( vec4(
-					currentRadiance.xyz.add( throughput.mul( directContrib ) ),
-					currentRadiance.w
-				) );
+				// Deferred shadow ray — pending radiance added by Accumulate if visible
+				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight );
+
+				const shadowIdx = atomicAdd( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 1 ) );
+				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
+					.assign( vec4( rayOrigin, float( 100000.0 ) ) );
+				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) )
+					.assign( vec4( lightDir, uintBitsToFloat( rayID ) ) );
+				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) )
+					.assign( vec4( pending, 0.0 ) );
 
 			} );
 

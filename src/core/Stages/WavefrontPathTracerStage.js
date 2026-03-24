@@ -173,8 +173,10 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 			km.dispatch( 'extend' );
 
+			km.dispatch( 'resetShadowCounter' );
 			km.dispatch( 'shade' );
-			// Connect/Accumulate disabled — calculateIndirectLighting handles env IS internally
+			km.dispatch( 'connect' );
+			km.dispatch( 'accumulate' );
 
 			// Reset active counter before compaction
 			km.dispatch( 'resetActiveCounter' );
