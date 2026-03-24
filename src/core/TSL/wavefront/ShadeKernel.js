@@ -398,13 +398,10 @@ export function buildShadeKernel( params ) {
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		// ─── INDIRECT BOUNCE ────────────────────────────────────
-		// Disable env IS for indirect — NEE already handles it via
-		// calculateDirectLightingUnified. This prevents env IS strategy from
-		// producing inflated throughput (~0.5 instead of ~albedo).
+		// ─── INDIRECT BOUNCE (full calculateIndirectLighting) ────
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, mc,
-			environmentIntensity, int( 0 ), int( 0 ), // useEnvMapIS=false, enableEnv=false for indirect
+			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
 		) ).toVar();
 
 		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
@@ -414,7 +411,7 @@ export function buildShadeKernel( params ) {
 			envTexture, environmentIntensity, envMatrix,
 			envMarginalWeights, envConditionalWeights,
 			envTotalSum, envResolution,
-			int( 0 ), int( 0 ), // enableEnvironmentLight=false, useEnvMapIS=false for indirect
+			enableEnvironmentLight, useEnvMapIS,
 		) ).toVar();
 
 		const bounceDir = indirectResult.direction.toVar();
