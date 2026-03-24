@@ -30,11 +30,15 @@ import { getMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
 import { calculateMaterialPDF } from '../LightsSampling.js';
+import { calculateIndirectLighting } from '../LightsIndirect.js';
+import { IndirectLightingResult } from '../LightsCore.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
+import { getImportanceSamplingInfo } from '../MaterialProperties.js';
 import {
 	RayTracingMaterial,
 	MaterialSamples,
 	DirectionSample,
+	ImportanceSamplingInfo,
 	MaterialClassification,
 	BRDFWeights,
 	MaterialCache,
@@ -76,7 +80,7 @@ export function buildShadeKernel( params ) {
 		albedoMaps, normalMaps, bumpMaps,
 		metalnessMaps, roughnessMaps, emissiveMaps,
 		envTexture, environmentIntensity, envMatrix,
-		enableEnvironmentLight,
+		enableEnvironmentLight, useEnvMapIS,
 		envTotalSum, envResolution,
 		// Light uniform arrays (NOT storage buffers)
 		directionalLightsBuffer, numDirectionalLights,
@@ -233,48 +237,9 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── DEFERRED DIRECT LIGHTING (NEE via inline env IS) ───
+		// NEE disabled — calculateIndirectLighting handles env IS via strategy 0.
+		// NEE shadow rays will be re-added for discrete lights (Tier 2).
 		const V = direction.negate().toVar();
-
-		If( enableEnvironmentLight, () => {
-
-			// Environment IS — sample important direction from HDRI CDF
-			const rayOrigin = hitPoint.add( N.mul( 0.001 ) ).toVar();
-			const r = vec2( RandomValue( rngState ), RandomValue( rngState ) );
-			const envColor = vec3( 0.0 ).toVar();
-
-			const envSample = sampleEquirectProbability(
-				envTexture,
-				envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity,
-				envTotalSum, envResolution,
-				r, envColor,
-			);
-
-			const lightDir = envSample.xyz.toVar();
-			const lightPdf = envSample.w.toVar();
-			const NoL = max( 0.0, dot( N, lightDir ) );
-
-			If( NoL.greaterThan( 0.0 ).and( lightPdf.greaterThan( 0.001 ) ), () => {
-
-				// Full BRDF evaluation + MIS weight
-				const brdfValue = evaluateMaterialResponse( V, lightDir, N, material );
-				const brdfPdf = calculateMaterialPDF( V, lightDir, N, material );
-				const misWeight = powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } );
-				const pending = throughput.mul( brdfValue ).mul( envColor ).mul( NoL ).div( lightPdf ).mul( misWeight );
-
-				// Write deferred shadow ray
-				const shadowIdx = atomicAdd( counters.element( uint( COUNTER.SHADOW_RAY_COUNT ) ), uint( 1 ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.ORIGIN_DIST ) )
-					.assign( vec4( rayOrigin, float( 100000.0 ) ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.DIR_PARENT ) )
-					.assign( vec4( lightDir, uintBitsToFloat( rayID ) ) );
-				shadowBufferRW.element( shadowIdx.mul( SHADOW_STRIDE ).add( SHADOW.RADIANCE ) )
-					.assign( vec4( pending, 0.0 ) );
-
-			} );
-
-		} );
 
 		// ─── FIREFLY SUPPRESSION ────────────────────────────────
 		const suppressedRadiance = regularizePathContribution(
@@ -282,10 +247,10 @@ export function buildShadeKernel( params ) {
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		// ─── FULL DISNEY BRDF IMPORTANCE SAMPLING ────────────────
+		// ─── INDIRECT LIGHTING (BRDF direction + throughput) ─────
 		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 
-		// Fresh classification each bounce (no cross-bounce cache in wavefront)
+		// Fresh classification each bounce (no cross-bounce cache)
 		const emptyClassification = MaterialClassification( {
 			isMetallic: false, isRough: false, isSmooth: false,
 			isTransmissive: false, hasClearcoat: false, isEmissive: false,
@@ -307,23 +272,38 @@ export function buildShadeKernel( params ) {
 			iorFactor: float( 0.67 ), maxSheenColor: float( 0.0 ),
 		} );
 
+		// Step 1: BRDF sample for specular direction
 		const brdfSample = DirectionSample.wrap( generateSampledDirection(
 			V, N, material, int( hitMatIdx ), xi, rngState,
-			// Pass fresh (uncached) — will recompute each bounce
 			false, int( - 1 ), emptyClassification,
 			false, emptyWeights,
 			false, emptyCache,
 		) ).toVar();
 
-		const bounceDir = brdfSample.direction.toVar();
-		const bouncePdf = max( brdfSample.pdf, 0.001 ).toVar();
-		const brdfEval = brdfSample.value.toVar();
+		// Step 2: Importance sampling info for strategy selection
+		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
+			material, bounceIndex, emptyClassification,
+			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
+		) ).toVar();
 
-		// Throughput: use albedo as stable energy multiplier.
-		// BRDF-sampled directions from generateSampledDirection handle importance
-		// sampling for the direction; albedo handles the energy attenuation.
-		// Full value/pdf requires calculateIndirectLighting (Phase 2).
-		throughput.mulAssign( albedo );
+		// Step 3: calculateIndirectLighting — selects strategy, computes proper throughput
+		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
+			V, N, material,
+			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			int( 0 ), bounceIndex,
+			rngState,
+			samplingInfo,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight, useEnvMapIS,
+		) ).toVar();
+
+		const bounceDir = indirectResult.direction.toVar();
+		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
+
+		// Proper throughput from calculateIndirectLighting (multi-strategy MIS)
+		throughput.mulAssign( indirectResult.throughput );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
