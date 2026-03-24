@@ -119,6 +119,11 @@ Shade kernel binding budget (8/8):
 - [ ] 20. Adaptive sampling — not tested yet
 - [ ] 21. Debug visualization modes (visMode 1-7) — not tested yet
 
+### KNOWN ISSUE: ~20% brighter than monolithic
+The remaining brightness gap comes from the indirect throughput using `albedo` instead of `calculateIndirectLighting`'s multi-strategy combined PDF. The monolithic computes `throughput = value * cos * misWeight / combinedPdf` where `combinedPdf` sums env IS + specular + diffuse strategy PDFs. Without the combined PDF, `albedo` over-estimates by ~20%.
+
+**To fix**: Debug why `calculateIndirectLighting` over-contributes when called from the wavefront Shade kernel. The root cause is the env IS strategy (strategy 0) producing throughput ~1.0 instead of ~albedo. Likely related to how `computeSamplingInfo` weights the strategies when called with fresh (uncached) MaterialClassification.
+
 ### Tier 5: Performance (Phase 2)
 - [x] 22. Material sorting kernel — counting sort by materialIndex (16 bins, workgroup-local)
 - [ ] 23. Performance benchmarking vs monolithic
