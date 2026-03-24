@@ -112,12 +112,12 @@ Shade kernel binding budget (8/8):
 - [ ] 15. Add `rngBuffer` to ConnectKernel for stochastic transparency
 
 ### Tier 4: Integration Testing
-- [ ] 16. ASVGF denoiser — verify temporal stability
-- [ ] 17. OIDN denoiser — verify no NaN
-- [ ] 18. Tile rendering — verify tile dispatch
-- [ ] 19. DOF — compare bokeh
-- [ ] 20. Adaptive sampling — verify convergence
-- [ ] 21. Debug visualization modes (visMode 1-7)
+- [x] 16. ASVGF denoiser — temporal stability verified
+- [ ] 17. OIDN denoiser — verify no NaN (not tested yet)
+- [x] 18. Tile rendering — tile dispatch verified, tiles converge correctly
+- [x] 19. DOF — bokeh working, GenerateKernel DOF ray gen correct
+- [ ] 20. Adaptive sampling — not tested yet
+- [ ] 21. Debug visualization modes (visMode 1-7) — not tested yet
 
 ### Tier 5: Performance (Phase 2)
 - [ ] 22. Material sorting kernel (counting sort by materialIndex)
