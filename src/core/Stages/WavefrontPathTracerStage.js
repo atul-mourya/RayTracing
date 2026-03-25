@@ -19,6 +19,8 @@ import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
 import { WavefrontKernelManager } from '../Processor/WavefrontKernelManager.js';
 import { buildGenerateKernel, GENERATE_WG_SIZE } from '../TSL/wavefront/GenerateKernel.js';
 import { buildExtendShadeKernel, EXTENDSHADE_WG_SIZE } from '../TSL/wavefront/ExtendShadeKernel.js';
+import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel.js';
+import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
 import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKernel.js';
 import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
 import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
@@ -179,8 +181,10 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 			this._wfCurrentBounce.value = bounce;
 
-			// Fused BVH traversal + material eval + inline shadow direct lighting
-			km.dispatch( 'extendShade' );
+			// Separate Extend + Shade (fused kernel has pink tint bug on multi-material scenes)
+			km.dispatch( 'extend' );
+			km.dispatch( 'shade' );
+			// TODO: investigate fused ExtendShadeKernel WGSL codegen issue
 
 			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );
@@ -354,13 +358,15 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 		const freshMat = this.materialData.materialStorageNode;
 		const freshMarginal = this.environment.envMarginalStorageNode;
 		const freshConditional = this.environment.envConditionalStorageNode;
-		const freshAlbedoMaps = this.materialData.albedoMaps ? texture( this.materialData.albedoMaps ) : texNodes.albedoMapsTex;
-		const freshNormalMaps = this.materialData.normalMaps ? texture( this.materialData.normalMaps ) : texNodes.normalMapsTex;
-		const freshBumpMaps = this.materialData.bumpMaps ? texture( this.materialData.bumpMaps ) : texNodes.bumpMapsTex;
-		const freshMetalnessMaps = this.materialData.metalnessMaps ? texture( this.materialData.metalnessMaps ) : texNodes.metalnessMapsTex;
-		const freshRoughnessMaps = this.materialData.roughnessMaps ? texture( this.materialData.roughnessMaps ) : texNodes.roughnessMapsTex;
-		const freshEmissiveMaps = this.materialData.emissiveMaps ? texture( this.materialData.emissiveMaps ) : texNodes.emissiveMapsTex;
-		const freshEnvTex = this.environment.environmentTexture ? texture( this.environment.environmentTexture ) : texNodes.envTex;
+		// Use ShaderComposer's cached texture nodes — these are the SAME nodes
+		// the monolithic kernel uses (with .value updated by updateSceneTextures)
+		const freshAlbedoMaps = texNodes.albedoMapsTex;
+		const freshNormalMaps = texNodes.normalMapsTex;
+		const freshBumpMaps = texNodes.bumpMapsTex;
+		const freshMetalnessMaps = texNodes.metalnessMapsTex;
+		const freshRoughnessMaps = texNodes.roughnessMapsTex;
+		const freshEmissiveMaps = texNodes.emissiveMapsTex;
+		const freshEnvTex = texNodes.envTex;
 
 		const esFn = buildExtendShadeKernel( {
 			bvhBuffer: freshBvh,
@@ -397,6 +403,7 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			transmissiveBounces: this.transmissiveBounces,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
+			showBackground: this.showBackground,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,
 			cameraProjectionMatrix: this.cameraProjectionMatrix,
 			cameraViewMatrix: this.cameraViewMatrix,
@@ -409,6 +416,75 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			esFn().compute(
 				[ Math.ceil( maxRays / EXTENDSHADE_WG_SIZE ), 1, 1 ],
 				[ EXTENDSHADE_WG_SIZE, 1, 1 ]
+			)
+		);
+
+		// ── Separate Extend kernel (for testing) ──
+		const extFn = buildExtendKernel( {
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			rayBufferRO: pb.rayBuffer.ro,
+			hitBufferRW: pb.hitBuffer.rw,
+			activeIndicesRO: qm.getActiveReadRO(),
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'extend',
+			extFn().compute(
+				[ Math.ceil( maxRays / EXTEND_WG_SIZE ), 1, 1 ],
+				[ EXTEND_WG_SIZE, 1, 1 ]
+			)
+		);
+
+		// ── Separate Shade kernel (for testing) ──
+		const shadeFn = buildShadeKernel( {
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			envMarginalWeights: freshMarginal,
+			envConditionalWeights: freshConditional,
+			rayBufferRW: pb.rayBuffer.rw,
+			rngBufferRW: pb.rngBuffer.rw,
+			hitBufferRO: pb.hitBuffer.ro,
+			shadowBufferRW: pb.shadowBuffer.rw,
+			counters,
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+			envTexture: freshEnvTex,
+			environmentIntensity: this.environmentIntensity,
+			envMatrix: this.environmentMatrix,
+			enableEnvironmentLight: this.enableEnvironment,
+			useEnvMapIS: this.useEnvMapIS,
+			envTotalSum: this.envTotalSum,
+			envResolution: this.envResolution,
+			directionalLightsBuffer: this.directionalLightsBufferNode,
+			numDirectionalLights: this.numDirectionalLights,
+			areaLightsBuffer: this.areaLightsBufferNode,
+			numAreaLights: this.numAreaLights,
+			pointLightsBuffer: this.pointLightsBufferNode,
+			numPointLights: this.numPointLights,
+			spotLightsBuffer: this.spotLightsBufferNode,
+			numSpotLights: this.numSpotLights,
+			maxBounceCount: this.maxBounces,
+			transmissiveBounces: this.transmissiveBounces,
+			transparentBackground: this.transparentBackground,
+			backgroundIntensity: this.backgroundIntensity,
+			globalIlluminationIntensity: this.globalIlluminationIntensity,
+			cameraProjectionMatrix: this.cameraProjectionMatrix,
+			cameraViewMatrix: this.cameraViewMatrix,
+			fireflyThreshold: this.fireflyThreshold,
+			frame: this.frame,
+			currentBounce: this._wfCurrentBounce,
+			maxRayCount: this._wfMaxRayCount,
+		} );
+		this._kernelManager.register( 'shade',
+			shadeFn().compute(
+				[ Math.ceil( maxRays / SHADE_WG_SIZE ), 1, 1 ],
+				[ SHADE_WG_SIZE, 1, 1 ]
 			)
 		);
 

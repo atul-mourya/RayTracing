@@ -34,6 +34,7 @@ import {
 
 import { traverseBVH } from '../BVHTraversal.js';
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '../Environment.js';
+import { sampleBackgroundLighting } from '../PathTracerCore.js';
 import { getMaterial, classifyMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
@@ -92,7 +93,7 @@ export function buildExtendShadeKernel( params ) {
 		spotLightsBuffer, numSpotLights,
 		// Uniforms
 		maxBounceCount, transmissiveBounces,
-		transparentBackground, backgroundIntensity,
+		transparentBackground, backgroundIntensity, showBackground,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame,
@@ -137,25 +138,29 @@ export function buildExtendShadeKernel( params ) {
 		// PHASE 2: SHADING (material eval + bounce — hit data in registers)
 		// ═══════════════════════════════════════════════════════════
 
-		// ─── MISS ───────────────────────────────────────────────
-		If( hitInfo.dst.greaterThan( MISS_DIST ), () => {
+		// ─── MISS (matches monolithic Trace() lines 711-733) ────
+		If( hitInfo.didHit.not(), () => {
 
-			If( enableEnvironmentLight, () => {
+			const isPrimaryRay = bounceIndex.equal( 0 );
+			const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
 
-				const envColor = sampleEnvironment( {
-					tex: envTexture, samp: sampler( envTexture ),
-					direction, environmentMatrix: envMatrix,
-					environmentIntensity, enableEnvironmentLight,
-				} );
-				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, float( 2.0 ) );
-				currentRadiance.assign( vec4(
-					currentRadiance.xyz.add( throughput.mul( envColor.mul( bgScale ).xyz ) ),
-					currentRadiance.w
-				) );
+			const envColor = sampleBackgroundLighting(
+				isPrimaryRay, direction,
+				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
+				showBackground, backgroundIntensity,
+			);
 
-			} );
+			// Apply firefly suppression + throughput + GI scale (matches monolithic)
+			const missContrib = regularizePathContribution(
+				envColor.xyz.mul( throughput ).mul( giScale ),
+				float( bounceIndex ), fireflyThreshold, int( frame ),
+			);
+			currentRadiance.assign( vec4(
+				currentRadiance.xyz.add( missContrib ),
+				currentRadiance.w
+			) );
 
-			If( bounceIndex.equal( 0 ).and( transparentBackground ), () => {
+			If( isPrimaryRay.and( transparentBackground ), () => {
 
 				currentRadiance.w.assign( 0.0 );
 
@@ -189,6 +194,8 @@ export function buildExtendShadeKernel( params ) {
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 		const albedo = matSamples.albedo.toVar();
 		N.assign( matSamples.normal );
+
+		// (debug removed)
 
 		// ─── FIRST-HIT MRT ──────────────────────────────────────
 		If( bounceIndex.equal( 0 ), () => {
