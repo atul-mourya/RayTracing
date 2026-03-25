@@ -358,15 +358,19 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 		const freshMat = this.materialData.materialStorageNode;
 		const freshMarginal = this.environment.envMarginalStorageNode;
 		const freshConditional = this.environment.envConditionalStorageNode;
-		// Use ShaderComposer's cached texture nodes — these are the SAME nodes
-		// the monolithic kernel uses (with .value updated by updateSceneTextures)
-		const freshAlbedoMaps = texNodes.albedoMapsTex;
-		const freshNormalMaps = texNodes.normalMapsTex;
-		const freshBumpMaps = texNodes.bumpMapsTex;
-		const freshMetalnessMaps = texNodes.metalnessMapsTex;
-		const freshRoughnessMaps = texNodes.roughnessMapsTex;
-		const freshEmissiveMaps = texNodes.emissiveMapsTex;
-		const freshEnvTex = texNodes.envTex;
+		// Create INDEPENDENT texture nodes that have never been compiled
+		// by any other pipeline. This avoids Three.js TextureNode caching
+		// issues between the monolithic and wavefront compute pipelines.
+		const _mat = this.materialData;
+		const _env = this.environment;
+		const _placeholder = texNodes.albedoMapsTex; // dummy fallback
+		const freshAlbedoMaps = _mat.albedoMaps ? texture( _mat.albedoMaps ) : _placeholder;
+		const freshNormalMaps = _mat.normalMaps ? texture( _mat.normalMaps ) : texNodes.normalMapsTex;
+		const freshBumpMaps = _mat.bumpMaps ? texture( _mat.bumpMaps ) : texNodes.bumpMapsTex;
+		const freshMetalnessMaps = _mat.metalnessMaps ? texture( _mat.metalnessMaps ) : texNodes.metalnessMapsTex;
+		const freshRoughnessMaps = _mat.roughnessMaps ? texture( _mat.roughnessMaps ) : texNodes.roughnessMapsTex;
+		const freshEmissiveMaps = _mat.emissiveMaps ? texture( _mat.emissiveMaps ) : texNodes.emissiveMapsTex;
+		const freshEnvTex = _env.environmentTexture ? texture( _env.environmentTexture ) : texNodes.envTex;
 
 		const esFn = buildExtendShadeKernel( {
 			bvhBuffer: freshBvh,
@@ -436,7 +440,7 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			)
 		);
 
-		// ── Separate Shade kernel (for testing) ──
+		// ── Separate Shade kernel ──
 		const shadeFn = buildShadeKernel( {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
@@ -448,6 +452,7 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 			hitBufferRO: pb.hitBuffer.ro,
 			shadowBufferRW: pb.shadowBuffer.rw,
 			counters,
+			activeIndicesRO: qm.getActiveReadRO(),
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,

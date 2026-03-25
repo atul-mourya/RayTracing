@@ -78,6 +78,8 @@ export function buildShadeKernel( params ) {
 		// Packed buffers (5)
 		rayBufferRW, rngBufferRW, hitBufferRO,
 		shadowBufferRW, counters,
+		// Active indices (needed to match ExtendKernel's ray ID mapping)
+		activeIndicesRO,
 		// Textures (not storage buffers)
 		albedoMaps, normalMaps, bumpMaps,
 		metalnessMaps, roughnessMaps, emissiveMaps,
@@ -111,8 +113,8 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// Use instanceIndex directly as rayID (no activeIndicesRO — saves 1 binding)
-		const rayID = threadIdx;
+		// Use activeIndicesRO to match ExtendKernel's ray ID mapping
+		const rayID = activeIndicesRO.element( threadIdx );
 
 		// Read ray state from packed buffer
 		const flags = readRayBounceFlags( rayBufferRW, rayID ).toVar();
