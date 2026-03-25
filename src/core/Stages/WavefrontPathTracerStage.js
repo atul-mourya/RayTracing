@@ -12,7 +12,7 @@
  *   - pathtracer:color, pathtracer:normalDepth, pathtracer:albedo
  */
 
-import { uniform } from 'three/tsl';
+import { uniform, texture, storage } from 'three/tsl';
 import { PathTracingStage } from './PathTracingStage.js';
 import { PackedRayBuffer } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
@@ -345,25 +345,40 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 		);
 
 		// ── Fused ExtendShade (BVH + material + deferred shadow) ──
-		// Use LIVE storage nodes from sub-managers (not ShaderComposer cache)
-		// to ensure we reference the current scene's GPU buffers
+		// Create FRESH storage nodes from CURRENT attributes to avoid stale
+		// GPU buffer bindings after scene load replaces the attributes.
+		// Use the SAME storage nodes the monolithic uses — they reference
+		// the current attribute after scene load via .value update
+		const freshBvh = this.bvhStorageNode;
+		const freshTri = this.triangleStorageNode;
+		const freshMat = this.materialData.materialStorageNode;
+		const freshMarginal = this.environment.envMarginalStorageNode;
+		const freshConditional = this.environment.envConditionalStorageNode;
+		const freshAlbedoMaps = this.materialData.albedoMaps ? texture( this.materialData.albedoMaps ) : texNodes.albedoMapsTex;
+		const freshNormalMaps = this.materialData.normalMaps ? texture( this.materialData.normalMaps ) : texNodes.normalMapsTex;
+		const freshBumpMaps = this.materialData.bumpMaps ? texture( this.materialData.bumpMaps ) : texNodes.bumpMapsTex;
+		const freshMetalnessMaps = this.materialData.metalnessMaps ? texture( this.materialData.metalnessMaps ) : texNodes.metalnessMapsTex;
+		const freshRoughnessMaps = this.materialData.roughnessMaps ? texture( this.materialData.roughnessMaps ) : texNodes.roughnessMapsTex;
+		const freshEmissiveMaps = this.materialData.emissiveMaps ? texture( this.materialData.emissiveMaps ) : texNodes.emissiveMapsTex;
+		const freshEnvTex = this.environment.environmentTexture ? texture( this.environment.environmentTexture ) : texNodes.envTex;
+
 		const esFn = buildExtendShadeKernel( {
-			bvhBuffer: this.bvhStorageNode,
-			triangleBuffer: this.triangleStorageNode,
-			materialBuffer: this.materialData.materialStorageNode,
-			envMarginalWeights: this.environment.envMarginalStorageNode,
-			envConditionalWeights: this.environment.envConditionalStorageNode,
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
+			envMarginalWeights: freshMarginal,
+			envConditionalWeights: freshConditional,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
 			shadowBufferRW: pb.shadowBuffer.rw,
 			counters,
-			albedoMaps: texNodes.albedoMapsTex,
-			normalMaps: texNodes.normalMapsTex,
-			bumpMaps: texNodes.bumpMapsTex,
-			metalnessMaps: texNodes.metalnessMapsTex,
-			roughnessMaps: texNodes.roughnessMapsTex,
-			emissiveMaps: texNodes.emissiveMapsTex,
-			envTexture: texNodes.envTex,
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+			envTexture: freshEnvTex,
 			environmentIntensity: this.environmentIntensity,
 			envMatrix: this.environmentMatrix,
 			enableEnvironmentLight: this.enableEnvironment,
@@ -399,9 +414,9 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 		// ── Connect (shadow ray traversal) ──
 		const connectFn = buildConnectKernel( {
-			bvhBuffer: this.bvhStorageNode,
-			triangleBuffer: this.triangleStorageNode,
-			materialBuffer: this.materialData.materialStorageNode,
+			bvhBuffer: freshBvh,
+			triangleBuffer: freshTri,
+			materialBuffer: freshMat,
 			shadowBufferRO: pb.shadowBuffer.ro,
 			visibilityBufferRW: pb.visibilityBuffer.rw,
 			counters,

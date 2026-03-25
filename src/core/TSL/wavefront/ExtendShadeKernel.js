@@ -173,6 +173,10 @@ export function buildExtendShadeKernel( params ) {
 		const hitMatIdx = hitInfo.materialIndex;
 		const hitUV = hitInfo.uv;
 
+		const material = RayTracingMaterial.wrap(
+			getMaterial( int( hitMatIdx ), materialBuffer )
+		).toVar();
+
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 			albedoMaps, normalMaps, bumpMaps,
 			metalnessMaps, roughnessMaps, emissiveMaps,
