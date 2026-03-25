@@ -37,14 +37,13 @@ import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '..
 import { getMaterial, classifyMaterial, powerHeuristic } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
-import { calculateDirectLightingUnified } from '../LightsSampling.js';
 import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
 import { getImportanceSamplingInfo } from '../MaterialProperties.js';
 import {
-	sampleLightWithImportance,
+	calculateDirectLightingUnified,
 } from '../LightsSampling.js';
 import {
 	Ray, HitInfo,
@@ -59,8 +58,7 @@ import {
 import { RandomValue } from '../Random.js';
 import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
-	RAY_STRIDE, RAY, HIT_STRIDE, HIT, SHADOW_STRIDE, SHADOW, writeHitPacked,
-	readHitDistance, readHitBarycentrics, readHitNormal, readHitMaterialIndex, readHitMeshIndex,
+	RAY_STRIDE, RAY, SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -78,8 +76,8 @@ export function buildExtendShadeKernel( params ) {
 		// Scene storage buffers (5)
 		bvhBuffer, triangleBuffer, materialBuffer,
 		envMarginalWeights, envConditionalWeights,
-		// Packed buffers (5)
-		rayBufferRW, rngBufferRW, hitBufferRW,
+		// Packed buffers (4)
+		rayBufferRW, rngBufferRW,
 		shadowBufferRW, counters,
 		// Textures (not storage buffers)
 		albedoMaps, normalMaps, bumpMaps,
@@ -135,21 +133,12 @@ export function buildExtendShadeKernel( params ) {
 			ray, bvhBuffer, triangleBuffer, materialBuffer,
 		) ).toVar();
 
-		// Write hit to buffer + read back (workaround for TSL binding issue)
-		writeHitPacked(
-			hitBufferRW, rayID,
-			hitInfo.dst, uint( hitInfo.triangleIndex ),
-			hitInfo.uv.x, hitInfo.uv.y,
-			hitInfo.normal,
-			uint( hitInfo.materialIndex ), uint( hitInfo.meshIndex ),
-		);
-		const hitDst = readHitDistance( hitBufferRW, rayID ).toVar();
-		const hitUV = readHitBarycentrics( hitBufferRW, rayID ).toVar();
-		const hitNrm = readHitNormal( hitBufferRW, rayID ).toVar();
-		const hitMatIdx = readHitMaterialIndex( hitBufferRW, rayID ).toVar();
+		// ═══════════════════════════════════════════════════════════
+		// PHASE 2: SHADING (material eval + bounce — hit data in registers)
+		// ═══════════════════════════════════════════════════════════
 
 		// ─── MISS ───────────────────────────────────────────────
-		If( hitDst.greaterThan( MISS_DIST ), () => {
+		If( hitInfo.dst.greaterThan( MISS_DIST ), () => {
 
 			If( enableEnvironmentLight, () => {
 
@@ -179,8 +168,10 @@ export function buildExtendShadeKernel( params ) {
 		} );
 
 		// ─── HIT: MATERIAL + TEXTURES ───────────────────────────
-		const hitPoint = origin.add( direction.mul( hitDst ) ).toVar();
-		const N = normalize( hitNrm ).toVar();
+		const hitPoint = origin.add( direction.mul( hitInfo.dst ) ).toVar();
+		const N = normalize( hitInfo.normal ).toVar();
+		const hitMatIdx = hitInfo.materialIndex;
+		const hitUV = hitInfo.uv;
 
 		const material = RayTracingMaterial.wrap(
 			getMaterial( int( hitMatIdx ), materialBuffer )
@@ -198,17 +189,6 @@ export function buildExtendShadeKernel( params ) {
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 		const albedo = matSamples.albedo.toVar();
 		N.assign( matSamples.normal );
-
-		// DEBUG: output UV to check if texture coords are correct
-		If( bounceIndex.equal( 0 ), () => {
-
-			currentRadiance.assign( vec4( hitUV.x, hitUV.y, 0.0, 1.0 ) );
-			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-			writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
-			rngBufferRW.element( rayID ).assign( rngState );
-			return;
-
-		} );
 
 		// ─── FIRST-HIT MRT ──────────────────────────────────────
 		If( bounceIndex.equal( 0 ), () => {
@@ -331,9 +311,8 @@ export function buildExtendShadeKernel( params ) {
 
 		} );
 
-		// ─── BRDF SAMPLE (needed by direct + indirect) ─────────
+		// ─── BRDF SAMPLE (needed by both direct + indirect) ────
 		const V = direction.negate().toVar();
-
 		const mc = MaterialClassification.wrap( classifyMaterial(
 			material.metalness, material.roughness, material.transmission,
 			material.clearcoat, material.emissive,
@@ -361,8 +340,27 @@ export function buildExtendShadeKernel( params ) {
 			false, int( - 1 ), mc, false, emptyWeights, false, emptyCache,
 		) ).toVar();
 
-		// ─── DIRECT LIGHTING — DISABLED for debug ──
-		// Testing if removing calculateDirectLightingUnified fixes UV issue
+		// ─── DIRECT LIGHTING (full MIS with inline shadow) ──────
+		const directLight = calculateDirectLightingUnified(
+			hitPoint, N, material, V,
+			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			int( 0 ), bounceIndex, rngState,
+			directionalLightsBuffer, numDirectionalLights,
+			areaLightsBuffer, numAreaLights,
+			pointLightsBuffer, numPointLights,
+			spotLightsBuffer, numSpotLights,
+			bvhBuffer, triangleBuffer, materialBuffer,
+			envTexture, environmentIntensity, envMatrix,
+			envMarginalWeights, envConditionalWeights,
+			envTotalSum, envResolution,
+			enableEnvironmentLight,
+		);
+
+		const giScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+		currentRadiance.assign( vec4(
+			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
+			currentRadiance.w
+		) );
 
 		// ─── FIREFLY SUPPRESSION ────────────────────────────────
 		const suppressedRadiance = regularizePathContribution(
@@ -370,6 +368,7 @@ export function buildExtendShadeKernel( params ) {
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
+		// ─── INDIRECT BOUNCE ────────────────────────────────────
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, mc,
 			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
@@ -388,6 +387,8 @@ export function buildExtendShadeKernel( params ) {
 		const bounceDir = indirectResult.direction.toVar();
 		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
 		throughput.mulAssign( indirectResult.throughput );
+
+		// (debug removed)
 
 		// ─── EARLY TERMINATION + RUSSIAN ROULETTE ───────────────
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
