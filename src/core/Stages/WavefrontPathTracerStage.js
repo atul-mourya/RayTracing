@@ -55,7 +55,16 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 	setupMaterial() {
 
 		super.setupMaterial();
-		this._buildWavefrontKernels();
+
+		// Only build wavefront kernels when scene has actual data
+		// (first setupMaterial call has 0 triangles/materials — skip it)
+		if ( this.materialData?.materialCount > 0 ) {
+
+			if ( this._kernelManager ) this._kernelManager.dispose();
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
+
+		}
 
 	}
 
@@ -336,12 +345,14 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 		);
 
 		// ── Fused ExtendShade (BVH + material + deferred shadow) ──
+		// Use LIVE storage nodes from sub-managers (not ShaderComposer cache)
+		// to ensure we reference the current scene's GPU buffers
 		const esFn = buildExtendShadeKernel( {
-			bvhBuffer: texNodes.bvhStorage,
-			triangleBuffer: texNodes.triStorage,
-			materialBuffer: texNodes.matStorage,
-			envMarginalWeights: texNodes.marginalCDFStorage,
-			envConditionalWeights: texNodes.conditionalCDFStorage,
+			bvhBuffer: this.bvhStorageNode,
+			triangleBuffer: this.triangleStorageNode,
+			materialBuffer: this.materialData.materialStorageNode,
+			envMarginalWeights: this.environment.envMarginalStorageNode,
+			envConditionalWeights: this.environment.envConditionalStorageNode,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
 			shadowBufferRW: pb.shadowBuffer.rw,
@@ -388,9 +399,9 @@ export class WavefrontPathTracerStage extends PathTracingStage {
 
 		// ── Connect (shadow ray traversal) ──
 		const connectFn = buildConnectKernel( {
-			bvhBuffer: texNodes.bvhStorage,
-			triangleBuffer: texNodes.triStorage,
-			materialBuffer: texNodes.matStorage,
+			bvhBuffer: this.bvhStorageNode,
+			triangleBuffer: this.triangleStorageNode,
+			materialBuffer: this.materialData.materialStorageNode,
 			shadowBufferRO: pb.shadowBuffer.ro,
 			visibilityBufferRW: pb.visibilityBuffer.rw,
 			counters,
