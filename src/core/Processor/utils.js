@@ -1,22 +1,29 @@
 import { SphereGeometry, Mesh, MeshPhysicalMaterial, Group, Object3D, Color, Vector3 } from 'three';
-import { useStore } from '@/store';
+import { EngineEvents } from '../EngineEvents.js';
 
-export const resetLoading = () => useStore.getState().resetLoading();
+let _statusCallback = null;
+
+/**
+ * Set the callback that receives loading/stats events.
+ * Called by PathTracerApp during initialization to wire events to the engine's EventDispatcher.
+ */
+export function setStatusCallback( cb ) {
+
+	_statusCallback = cb;
+
+}
+
+export const resetLoading = () => _statusCallback?.( { type: EngineEvents.LOADING_RESET } );
+
 export const updateLoading = ( loadingState ) => {
 
-	const state = useStore.getState();
-	const loading = state.loading;
-	const newLoading = { ...loading, ...loadingState };
-	state.setLoading( newLoading );
+	_statusCallback?.( { type: EngineEvents.LOADING_UPDATE, ...loadingState } );
 
 };
 
 export const updateStats = ( statsUpdate ) => {
 
-	const state = useStore.getState();
-	const stats = state.stats || {};
-	const newStats = { ...stats, ...statsUpdate };
-	state.setStats( newStats );
+	_statusCallback?.( { type: EngineEvents.STATS_UPDATE, ...statsUpdate } );
 
 };
 

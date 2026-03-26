@@ -7,7 +7,7 @@
  */
 
 import { DataTexture, RGBAFormat, FloatType, NearestFilter } from 'three';
-import { TRIANGLE_DATA_LAYOUT } from '../../Constants.js';
+import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 import { LightBVHBuilder } from './LightBVHBuilder.js';
 
 export class EmissiveTriangleBuilder {

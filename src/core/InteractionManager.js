@@ -5,7 +5,6 @@ import {
 	Mesh,
 	MeshBasicMaterial
 } from 'three';
-import { useStore, useCameraStore } from '@/store';
 
 /**
  * InteractionManager
@@ -43,6 +42,7 @@ class InteractionManager extends EventDispatcher {
 		this.handleAFPointClick = this.handleAFPointClick.bind( this );
 
 		// Select mode state
+		this.selectedObject = null; // Tracked internally, synced by PathTracerApp
 		this.selectMode = false;
 		this.clickTimeout = null;
 		this.mouseDownPosition = null; // Track mousedown position to detect drags
@@ -302,9 +302,6 @@ class InteractionManager extends EventDispatcher {
 		// Clear mousedown position
 		this.mouseDownPosition = null;
 
-		// Update store
-		useCameraStore.getState().setSelectMode( false );
-
 		// Emit event
 		this.dispatchEvent( {
 			type: 'selectModeChanged',
@@ -387,7 +384,7 @@ class InteractionManager extends EventDispatcher {
 			if ( validIntersects.length > 0 ) {
 
 				const object = validIntersects[ 0 ].object;
-				const currentlySelectedObject = useStore.getState().selectedObject;
+				const currentlySelectedObject = this.selectedObject;
 				const isAlreadySelected = currentlySelectedObject && currentlySelectedObject.uuid === object.uuid;
 
 				if ( isAlreadySelected ) {
@@ -530,7 +527,7 @@ class InteractionManager extends EventDispatcher {
 		this.contextPointerDownPosition = null;
 
 		// Only show context menu if an object is selected
-		const selectedObject = useStore.getState().selectedObject;
+		const selectedObject = this.selectedObject;
 		if ( ! selectedObject ) return;
 
 		// Dispatch event for React component to handle

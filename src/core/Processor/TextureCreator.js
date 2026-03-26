@@ -1,5 +1,5 @@
 import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType } from "three";
-import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX } from '../../Constants.js';
+import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX } from '../EngineDefaults.js';
 
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
@@ -198,6 +198,17 @@ class SmartBufferPool {
 
 		// Check memory health and warn if needed
 		this.checkMemoryHealth();
+
+		// Safety check: verify the underlying ArrayBuffer is large enough for the requested view.
+		// A recycled buffer may have an undersized ArrayBuffer if it was released with a wrong Type.
+		const requiredBytes = buffer.byteOffset + size * Type.BYTES_PER_ELEMENT;
+		if ( requiredBytes > buffer.buffer.byteLength ) {
+
+			// Discard the undersized buffer and allocate a fresh one
+			buffer = new Type( size );
+			this.memoryUsage += buffer.byteLength;
+
+		}
 
 		// Create a fresh view over the full underlying ArrayBuffer to avoid
 		// subarray length clamping when the pool recycles a smaller view.

@@ -15,7 +15,7 @@ import {
 import { EquirectHdrInfo } from './EquirectHdrInfo.js';
 import { ProceduralSkyRendererTSL } from './ProceduralSkyRendererTSL.js';
 import { SimpleSkyRendererTSL } from './SimpleSkyRendererTSL.js';
-import { DEFAULT_STATE } from '../../Constants.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
 export class EnvironmentManager {
 

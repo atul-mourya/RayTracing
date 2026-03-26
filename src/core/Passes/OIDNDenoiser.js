@@ -1,6 +1,6 @@
 import { initUNetFromURL } from 'oidn-web';
 import { EventDispatcher, NoToneMapping, LinearToneMapping, ReinhardToneMapping, CineonToneMapping, ACESFilmicToneMapping, AgXToneMapping, NeutralToneMapping } from 'three';
-import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
+import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
 
 // ─── CPU tone mapping matching Three.js ToneMappingFunctions.js (WebGPU) ───
 // All functions write tonemapped linear RGB into `out` array.
@@ -197,6 +197,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.input = renderer.domElement;
 		this.output = output;
+		this.debugContainer = options.debugContainer || null;
 		this.extractGBufferData = options.extractGBufferData || null;
 		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
 
@@ -998,8 +999,9 @@ export class OIDNDenoiser extends EventDispatcher {
 			this._lastNormalTexture = mrtRenderTarget.textures[ 1 ];
 
 			// Add helpers to DOM
-			document.body.appendChild( this.debugHelpers.albedo );
-			document.body.appendChild( this.debugHelpers.normal );
+			const container = this.debugContainer || document.body;
+			container.appendChild( this.debugHelpers.albedo );
+			container.appendChild( this.debugHelpers.normal );
 
 			// Hide by default (visibility state will be restored by calling code)
 			this.debugHelpers.albedo.hide();

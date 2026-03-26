@@ -24,7 +24,7 @@ import TriangleSDF from '../Processor/TriangleSDF';
 import { LightDataTransfer } from '../Processor/LightDataTransfer';
 
 // Constants
-import { DEFAULT_STATE } from '../../Constants';
+import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
 // Blue noise
 import blueNoiseImage from '../../../public/noise/simple_bluenoise.png';

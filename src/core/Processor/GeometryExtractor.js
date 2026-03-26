@@ -1,5 +1,5 @@
 import { Vector3, Vector2, Color, Matrix3, Matrix4, FrontSide, BackSide, DoubleSide, RGBAFormat } from "three";
-import { TRIANGLE_DATA_LAYOUT } from '../../Constants.js';
+import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 
 const MAX_TEXTURES_LIMIT = 128;
 

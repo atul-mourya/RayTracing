@@ -8,7 +8,7 @@
 import { uniform, uniformArray } from 'three/tsl';
 import { Vector2, Matrix4, Vector3 } from 'three';
 import { samplingTechniqueUniform } from '../TSL/Random.js';
-import { DEFAULT_STATE } from '../../Constants.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
 /**
  * Map of uniform names to their WGSL shader names (where different).

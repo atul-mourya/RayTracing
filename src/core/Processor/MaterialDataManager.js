@@ -9,7 +9,7 @@
 
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
-import { TEXTURE_CONSTANTS } from '../../Constants.js';
+import { TEXTURE_CONSTANTS } from '../EngineDefaults.js';
 
 const PIXELS_PER_MATERIAL = 27;
 

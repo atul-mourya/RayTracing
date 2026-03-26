@@ -7,7 +7,6 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
 import BuildTimer from './BuildTimer';
-import { MODEL_FILES, DEFAULT_STATE } from '@/Constants';
 
 // Define supported file formats
 const SUPPORTED_FORMATS = {
@@ -707,9 +706,15 @@ class AssetLoader extends EventDispatcher {
 
 	}
 
-	async loadExampleModels( index ) {
+	async loadExampleModels( index, modelFiles ) {
 
-		const modelUrl = `${MODEL_FILES[ index ].url}`;
+		if ( ! modelFiles || ! modelFiles[ index ] ) {
+
+			throw new Error( `No model file at index ${index}` );
+
+		}
+
+		const modelUrl = `${modelFiles[ index ].url}`;
 		return await this.loadModel( modelUrl );
 
 	}
@@ -1036,6 +1041,21 @@ class AssetLoader extends EventDispatcher {
 
 	}
 
+	async loadObject3D( object3d, name = 'object3d' ) {
+
+		object3d.name = object3d.name || name;
+
+		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.targetModel = object3d;
+
+		updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
+		await this.onModelLoad( this.targetModel );
+
+		this.dispatchEvent( { type: 'load', model: object3d, filename: name } );
+		return object3d;
+
+	}
+
 	// Model processing methods
 	async onModelLoad( model ) {
 
@@ -1115,7 +1135,7 @@ class AssetLoader extends EventDispatcher {
 		} );
 
 		// Notify model loaded and processed
-		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+		this.dispatchEvent( { type: 'SceneRebuild' } );
 		return { center, size, maxDim, sceneScale };
 
 	}
@@ -1170,6 +1190,12 @@ class AssetLoader extends EventDispatcher {
 		model.traverse( ( object ) => {
 
 			const userData = object.userData;
+
+			if ( object.isRectAreaLight ) {
+
+				object.intensity *= 10000/4; // Compensate for Three.js's dimming of RectAreaLights
+
+			}
 
 			// Process ceiling lights
 			if ( object.name.startsWith( 'RectAreaLightPlaceholder' ) &&

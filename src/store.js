@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, computeCanvasDimensions } from '@/Constants';
+import { FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from '@/core/EngineDefaults';
 import { getApp } from '@/core/appProxy';
 
 /**
@@ -311,19 +312,9 @@ const useEnvironmentStore = create( set => ( {
 // This clean separation eliminates naming confusion and provides clear,
 // self-documenting code for the rendering pipeline.
 
-const FINAL_RENDER_STATE = {
-	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1, renderMode: 1, tiles: 3, tilesHelper: false,
-	enableOIDN: true, oidnQuality: 'balance', oidnHdr: true, useGBuffer: true,
-	interactionModeEnabled: false,
-};
-
-const PREVIEW_STATE = {
-	maxSamples: DEFAULT_STATE.maxSamples, bounces: DEFAULT_STATE.bounces, samplesPerPixel: DEFAULT_STATE.samplesPerPixel,
-	renderMode: DEFAULT_STATE.renderMode, transmissiveBounces: DEFAULT_STATE.transmissiveBounces,
-	tiles: DEFAULT_STATE.tiles, tilesHelper: DEFAULT_STATE.tilesHelper,
-	enableOIDN: false, oidnQuality: 'fast', oidnHdr: true, useGBuffer: true,
-	interactionModeEnabled: true,
-};
+// Aliases for store spreading (single source of truth in EngineDefaults.js)
+const FINAL_RENDER_STATE = FINAL_RENDER_CONFIG;
+const PREVIEW_STATE = PREVIEW_RENDER_CONFIG;
 
 // Debounced procedural sky texture generation (300ms delay)
 // This prevents expensive texture regeneration on every slider movement
@@ -701,24 +692,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingChange: handleChange(
 		val => set( { adaptiveSampling: val } ),
-		( val, app ) => {
-
-			app.setUseAdaptiveSampling( val );
-			if ( app.adaptiveSamplingStage ) {
-
-				app.adaptiveSamplingStage.enabled = val;
-				app.adaptiveSamplingStage.toggleHelper( false );
-
-			}
-
-			// Clean up stale variance context when disabling
-			if ( ! val && app.pipeline?.context && ! app.asvgfStage?.enabled ) {
-
-				app.pipeline.context.removeTexture( 'variance:output' );
-
-			}
-
-		}
+		( val, app ) => app.setAdaptiveSamplingEnabled( val ),
+		false // engine method handles reset internally
 	),
 
 	handleAdaptiveSamplingMinChange: handleChange(
@@ -899,120 +874,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	// Denoiser strategy and EdgeAware filter handlers
 	handleDenoiserStrategyChange: handleChange(
-		val => set( { denoiserStrategy: val } ),
-		( val, app ) => {
-
-			if ( ! app ) return;
-
-			// Disable all real-time denoisers first (OIDN remains independent)
-			if ( app.asvgfStage ) app.asvgfStage.enabled = false;
-			// Keep varianceEstimation alive if adaptive sampling still needs it
-			if ( app.varianceEstimationStage && ! app.useAdaptiveSampling ) app.varianceEstimationStage.enabled = false;
-			if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = false;
-			if ( app.edgeAwareFilteringStage ) app.edgeAwareFilteringStage.setFilteringEnabled( false );
-			if ( app.ssrcStage ) app.ssrcStage.enabled = false;
-
-			// Enable the selected real-time denoiser
-			switch ( val ) {
-
-				case 'none':
-					// All real-time denoisers already disabled above
-					// Clear any stale denoiser outputs to ensure clean pipeline
-					if ( app.pipeline?.context ) {
-
-						const ctx = app.pipeline.context;
-						ctx.removeTexture( 'asvgf:output' );
-						ctx.removeTexture( 'asvgf:temporalColor' );
-						ctx.removeTexture( 'asvgf:variance' );
-						ctx.removeTexture( 'variance:output' );
-						ctx.removeTexture( 'bilateralFiltering:output' );
-						ctx.removeTexture( 'edgeFiltering:output' );
-						ctx.removeTexture( 'ssrc:output' );
-
-					}
-
-					break;
-
-				case 'asvgf': {
-
-					// Clear stale EdgeAware and SSRC outputs so DisplayStage picks ASVGF output
-					if ( app.pipeline?.context ) {
-
-						const ctx = app.pipeline.context;
-						ctx.removeTexture( 'edgeFiltering:output' );
-						ctx.removeTexture( 'ssrc:output' );
-
-					}
-
-					app.asvgfStage.enabled = true;
-					if ( app.varianceEstimationStage ) app.varianceEstimationStage.enabled = true;
-					if ( app.bilateralFilteringStage ) app.bilateralFilteringStage.enabled = true;
-					app.asvgfStage.setTemporalEnabled && app.asvgfStage.setTemporalEnabled( true );
-
-					// Apply current quality preset parameters
-					const store = get();
-					const preset = ASVGF_QUALITY_PRESETS[ store.asvgfQualityPreset ];
-					if ( preset ) {
-
-						app.asvgfStage.updateParameters( preset );
-
-					}
-
-					break;
-
-				}
-
-				case 'ssrc': {
-
-					// Clear stale EdgeAware and ASVGF outputs so DisplayStage picks SSRC output
-					if ( app.pipeline?.context ) {
-
-						const ctx = app.pipeline.context;
-						ctx.removeTexture( 'edgeFiltering:output' );
-						ctx.removeTexture( 'asvgf:output' );
-						ctx.removeTexture( 'asvgf:temporalColor' );
-						ctx.removeTexture( 'asvgf:variance' );
-						ctx.removeTexture( 'variance:output' );
-						ctx.removeTexture( 'bilateralFiltering:output' );
-
-					}
-
-					if ( app.ssrcStage ) app.ssrcStage.enabled = true;
-					break;
-
-				}
-
-				case 'edgeaware':
-				default:
-					app.edgeAwareFilteringStage.setFilteringEnabled( true );
-					// Clear stale denoiser outputs so DisplayStage uses fresh textures
-					if ( app.pipeline?.context ) {
-
-						const ctx = app.pipeline.context;
-						ctx.removeTexture( 'asvgf:output' );
-						ctx.removeTexture( 'asvgf:temporalColor' );
-						ctx.removeTexture( 'asvgf:variance' );
-						ctx.removeTexture( 'variance:output' );
-						ctx.removeTexture( 'bilateralFiltering:output' );
-						ctx.removeTexture( 'edgeFiltering:output' );
-						ctx.removeTexture( 'ssrc:output' );
-
-					}
-
-					break;
-
-			}
-
-			// Update store state for real-time denoisers only (OIDN remains independent)
-			set( {
-				enableASVGF: val === 'asvgf'
-				// enableOIDN remains independent
-			} );
-
-			// Reset when switching denoiser strategy
-			app.reset();
-
-		}
+		val => set( { denoiserStrategy: val, enableASVGF: val === 'asvgf' } ),
+		( val, app ) => app.setDenoiserStrategy( val, get().asvgfQualityPreset ),
+		false // engine method handles reset internally
 	),
 
 	handlePixelEdgeSharpnessChange: handleChange(
@@ -1111,41 +975,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Auto-exposure handlers
 	handleAutoExposureChange: handleChange(
 		val => set( { autoExposure: val } ),
-		( val, app ) => {
-
-			if ( app?.autoExposureStage ) {
-
-				app.autoExposureStage.enabled = val;
-
-				if ( val ) {
-
-					// When enabling: auto-exposure writes directly to
-					// renderer.toneMappingExposure. Neutralize the DisplayStage
-					// manual exposure so it doesn't stack.
-					app.displayStage?.setExposure( 1.0 );
-
-				} else {
-
-					// When disabling auto-exposure, restore manual exposure
-					const manualExposure = get().exposure;
-					app.setExposure( manualExposure );
-
-					// Auto-exposure wrote to renderer.toneMappingExposure,
-					// but DisplayStage uses its own TSL uniform for manual exposure.
-					// Reset renderer exposure so it doesn't stack with the manual curve.
-					if ( app.displayStage && app.renderer ) {
-
-						app.renderer.toneMappingExposure = 1.0;
-
-					}
-
-				}
-
-				app.reset();
-
-			}
-
-		}
+		( val, app ) => app.setAutoExposureEnabled( val ),
+		false // engine method handles reset internally
 	),
 
 	handleAutoExposureKeyValueChange: handleChange(
@@ -1278,63 +1109,9 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Environment Mode Handlers
 	handleEnvironmentModeChange: ( val ) => {
 
-		const app = getApp();
-		const previousMode = get().environmentMode;
-
 		set( { environmentMode: val } );
-
-		if ( ! app ) return;
-
-		const modeMap = { hdri: 0, procedural: 1, gradient: 2, color: 3 };
-
-		( async () => {
-
-			// Store previous HDRI if switching away from HDRI
-			if ( val !== 'hdri' && previousMode === 'hdri' ) {
-
-				app._previousHDRI = app.getEnvironmentTexture();
-				app._previousCDF = app.getEnvironmentCDF();
-
-			}
-
-			// Generate texture for procedural modes
-			if ( val === 'gradient' ) {
-
-				await app.generateGradientTexture();
-
-			} else if ( val === 'color' ) {
-
-				await app.generateSolidColorTexture();
-
-			} else if ( val === 'procedural' ) {
-
-				await app.generateProceduralSkyTexture();
-
-			} else if ( val === 'hdri' ) {
-
-				// Restore previous HDRI
-				if ( app._previousHDRI ) {
-
-					await app.setEnvironmentMap( app._previousHDRI );
-					app._previousHDRI = null;
-					app._previousCDF = null;
-
-				}
-
-			}
-
-			// Update envParams mode (CPU-side parameter, not passed to shader)
-			const envParams = app.getEnvParams();
-			if ( envParams ) envParams.mode = val;
-
-			// Force texture update
-			app.markEnvironmentNeedsUpdate();
-
-			console.log( '✅ Environment mode changed to:', val, '(uniform value:', modeMap[ val ], ')' );
-
-			app.reset();
-
-		} )();
+		const app = getApp();
+		if ( app ) app.setEnvironmentMode( val );
 
 	},
 
@@ -1577,47 +1354,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEnableASVGFChange: handleChange(
 		val => set( { enableASVGF: val } ),
-		( val, app ) => {
-
-			if ( app.asvgfStage ) app.asvgfStage.enabled = val;
-
-			// Enable/disable the extracted variance and bilateral filtering stages
-			if ( app.varianceEstimationStage ) {
-
-				app.varianceEstimationStage.enabled = val;
-
-			}
-
-			if ( app.bilateralFilteringStage ) {
-
-				app.bilateralFilteringStage.enabled = val;
-
-			}
-
-			if ( val ) {
-
-				// When enabling ASVGF, ensure temporal processing is enabled
-				app.asvgfStage.setTemporalEnabled && app.asvgfStage.setTemporalEnabled( true );
-
-				// Apply current quality preset parameters
-				const store = get();
-				const preset = ASVGF_QUALITY_PRESETS[ store.asvgfQualityPreset ];
-
-				if ( preset ) {
-
-					app.asvgfStage.updateParameters( preset );
-
-				}
-
-			}
-
-			// Coordinate with EdgeAware filtering
-			if ( app.edgeAwareFilteringStage ) app.edgeAwareFilteringStage.setFilteringEnabled( ! val );
-
-			// Reset when toggling
-			app.reset();
-
-		}
+		( val, app ) => app.setASVGFEnabled( val, get().asvgfQualityPreset ),
+		false // engine method handles reset internally
 	),
 
 	handleShowAsvgfHeatmapChange: handleChange(
@@ -1649,109 +1387,31 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Canvas configuration handlers
 	handleConfigureForPreview: () => {
 
-		set( { ...PREVIEW_STATE } );
+		set( { ...PREVIEW_STATE, isRendering: true } );
 
 		const app = getApp();
 		if ( ! app ) return;
-		app.controls.enabled = true;
-
-		// Batch uniform updates directly to avoid per-setter reset() calls
-		app.maxSamples = PREVIEW_STATE.maxSamples;
-		app.pathTracingStage?.setUniform( 'maxSamples', PREVIEW_STATE.maxSamples );
-		app.maxBounces = PREVIEW_STATE.bounces;
-		app.pathTracingStage?.setUniform( 'maxBounces', PREVIEW_STATE.bounces );
-		app.samplesPerPixel = PREVIEW_STATE.samplesPerPixel;
-		app.pathTracingStage?.setUniform( 'samplesPerPixel', PREVIEW_STATE.samplesPerPixel );
-		app.transmissiveBounces = PREVIEW_STATE.transmissiveBounces;
-		app.pathTracingStage?.setUniform( 'transmissiveBounces', PREVIEW_STATE.transmissiveBounces );
-
-		app.setRenderMode( PREVIEW_STATE.renderMode );
-		app.setTileCount( PREVIEW_STATE.tiles );
-		if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = PREVIEW_STATE.tilesHelper;
-		app.pathTracingStage?.updateCompletionThreshold?.();
-
-		if ( app.denoiser ) {
-
-			app.denoiser.abort();
-			app.denoiser.enabled = PREVIEW_STATE.enableOIDN;
-			app.denoiser.updateQuality( PREVIEW_STATE.oidnQuality );
-			app.denoiser.toggleHDR( PREVIEW_STATE.oidnHdr );
-			app.denoiser.toggleUseGBuffer( PREVIEW_STATE.useGBuffer );
-
-		}
-
-		if ( app.upscaler ) {
-
-			app.upscaler.abort();
-
-		}
 
 		const state = get();
 		const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
-		app.setCanvasSize( width, height );
 
-		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
-		app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
-
-		app.needsReset = false;
-		app.pauseRendering = false;
-		set( { isRendering: true } );
-		app.reset();
+		app.configureForMode( 'preview', { canvasWidth: width, canvasHeight: height } );
 
 	},
 
 	handleConfigureForFinalRender: () => {
 
-		set( { ...FINAL_RENDER_STATE } );
+		set( { ...FINAL_RENDER_STATE, isRendering: true } );
 
 		const app = getApp();
 		if ( ! app ) return;
-		app.controls.enabled = false;
-
-		// Batch uniform updates directly to avoid per-setter reset() calls
-		app.maxSamples = FINAL_RENDER_STATE.maxSamples;
-		app.pathTracingStage?.setUniform( 'maxSamples', FINAL_RENDER_STATE.maxSamples );
-		app.maxBounces = FINAL_RENDER_STATE.bounces;
-		app.pathTracingStage?.setUniform( 'maxBounces', FINAL_RENDER_STATE.bounces );
-		app.samplesPerPixel = FINAL_RENDER_STATE.samplesPerPixel;
-		app.pathTracingStage?.setUniform( 'samplesPerPixel', FINAL_RENDER_STATE.samplesPerPixel );
-		app.transmissiveBounces = FINAL_RENDER_STATE.transmissiveBounces;
-		app.pathTracingStage?.setUniform( 'transmissiveBounces', FINAL_RENDER_STATE.transmissiveBounces );
-
-		app.setRenderMode( FINAL_RENDER_STATE.renderMode );
-		app.setTileCount( FINAL_RENDER_STATE.tiles );
-		if ( app.tileHighlightStage ) app.tileHighlightStage.enabled = FINAL_RENDER_STATE.tilesHelper;
-		app.pathTracingStage?.updateCompletionThreshold?.();
-
-		if ( app.denoiser ) {
-
-			app.denoiser.abort();
-			app.denoiser.enabled = FINAL_RENDER_STATE.enableOIDN;
-			app.denoiser.updateQuality( FINAL_RENDER_STATE.oidnQuality );
-			app.denoiser.toggleHDR( FINAL_RENDER_STATE.oidnHdr );
-			app.denoiser.toggleUseGBuffer( FINAL_RENDER_STATE.useGBuffer );
-
-		}
-
-		if ( app.upscaler ) {
-
-			app.upscaler.abort();
-
-		}
 
 		const state = get();
 		const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
-		app.setCanvasSize( width, height );
 
-		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'block' );
-		app.denoiser?.output && ( app.denoiser.output.style.display = 'block' );
-
-		app.needsReset = false;
-		app.pauseRendering = false;
-		set( { isRendering: true } );
-		app.reset();
+		app.configureForMode( 'final-render', { canvasWidth: width, canvasHeight: height } );
 
 	},
 
@@ -1759,11 +1419,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		const app = getApp();
 		if ( ! app ) return;
-		app.pauseRendering = true;
+		app.configureForMode( 'results' );
 		set( { isRendering: false } );
-		app.controls.enabled = false;
-		app.renderer?.domElement && ( app.renderer.domElement.style.display = 'none' );
-		app.denoiser?.output && ( app.denoiser.output.style.display = 'none' );
 
 	},
 

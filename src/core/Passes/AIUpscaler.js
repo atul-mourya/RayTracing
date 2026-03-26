@@ -269,9 +269,7 @@ export class AIUpscaler extends EventDispatcher {
 			await this._runUpscale();
 
 			// Update dimension display to reflect upscaled resolution
-			window.dispatchEvent( new CustomEvent( 'resolution_changed', {
-				detail: { width: this.output.width, height: this.output.height }
-			} ) );
+			this.dispatchEvent( { type: 'resolution_changed', width: this.output.width, height: this.output.height } );
 
 			return true;
 
@@ -290,9 +288,7 @@ export class AIUpscaler extends EventDispatcher {
 				this._restoreBackup();
 				this.input.style.opacity = '1';
 
-				window.dispatchEvent( new CustomEvent( 'resolution_changed', {
-					detail: { width: this._baseWidth, height: this._baseHeight }
-				} ) );
+				this.dispatchEvent( { type: 'resolution_changed', width: this._baseWidth, height: this._baseHeight } );
 
 			}
 
@@ -327,9 +323,7 @@ export class AIUpscaler extends EventDispatcher {
 		this._restoreBackup();
 
 		// Restore original dimension display
-		window.dispatchEvent( new CustomEvent( 'resolution_changed', {
-			detail: { width: this._baseWidth, height: this._baseHeight }
-		} ) );
+		this.dispatchEvent( { type: 'resolution_changed', width: this._baseWidth, height: this._baseHeight } );
 
 		this.state.isUpscaling = false;
 		this.dispatchEvent( { type: 'end' } );

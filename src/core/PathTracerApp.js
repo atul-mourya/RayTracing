@@ -24,13 +24,13 @@ import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { SSRCStage } from './Stages/SSRCStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
 import { PassPipeline } from './Pipeline/PassPipeline.js';
-import { DEFAULT_STATE, AF_DEFAULTS } from '../Constants.js';
-import { updateStats, updateLoading, resetLoading } from './Processor/utils.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, AF_DEFAULTS, ASVGF_QUALITY_PRESETS, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
+import { updateStats, updateLoading, resetLoading, setStatusCallback } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
 import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
 import { AIUpscaler } from './Passes/AIUpscaler.js';
-import { useStore, useCameraStore } from '@/store';
+import { EngineEvents } from './EngineEvents.js';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
 
@@ -46,13 +46,16 @@ export class PathTracerApp extends EventDispatcher {
 	/**
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
 	 * @param {HTMLCanvasElement} [denoiserCanvas] - Optional canvas for OIDN denoiser output
+	 * @param {Object} [options] - Engine options
+	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
 	 */
-	constructor( canvas, denoiserCanvas = null ) {
+	constructor( canvas, denoiserCanvas = null, options = {} ) {
 
 		super();
 
 		this.canvas = canvas;
 		this.denoiserCanvas = denoiserCanvas;
+		this._autoResize = options.autoResize !== false;
 
 		// Core objects
 		this.renderer = null;
@@ -149,6 +152,9 @@ export class PathTracerApp extends EventDispatcher {
 	 * Initializes the WebGPU renderer and related objects.
 	 */
 	async init() {
+
+		// Wire loading/stats utilities to dispatch events through this app instance
+		setStatusCallback( ( event ) => this.dispatchEvent( event ) );
 
 		// Check WebGPU support
 		if ( ! navigator.gpu ) {
@@ -336,7 +342,11 @@ export class PathTracerApp extends EventDispatcher {
 		// Handle resize
 		this.onResize();
 		this.resizeHandler = () => this.onResize();
-		window.addEventListener( 'resize', this.resizeHandler );
+		if ( this._autoResize ) {
+
+			window.addEventListener( 'resize', this.resizeHandler );
+
+		}
 
 		// Listen for asset loads so drag-drop / menu imports auto-sync.
 		// Skip if loadModel/loadExampleModels is already orchestrating the load.
@@ -488,15 +498,19 @@ export class PathTracerApp extends EventDispatcher {
 
 		} );
 
+		this.interactionManager.addEventListener( 'selectModeChanged', ( event ) => {
+
+			this.dispatchEvent( { type: EngineEvents.SELECT_MODE_CHANGED, enabled: event.enabled } );
+
+		} );
+
 		this.interactionManager.addEventListener( 'objectDoubleClicked', ( event ) => {
 
 			this.selectObject( event.object );
 			this.refreshFrame();
 
-			useStore.getState().setActiveTab( 'material' );
-
 			this.dispatchEvent( {
-				type: 'objectDoubleClicked',
+				type: EngineEvents.OBJECT_DOUBLE_CLICKED,
 				object: event.object,
 				uuid: event.uuid
 			} );
@@ -531,7 +545,7 @@ export class PathTracerApp extends EventDispatcher {
 
 			this.setAFScreenPoint( event.point.x, event.point.y );
 			if ( this.controls ) this.controls.enabled = true;
-			useCameraStore.getState().handleAFScreenPointChange( event.point );
+			this.dispatchEvent( { type: EngineEvents.AF_POINT_PLACED, point: event.point } );
 
 		} );
 
@@ -546,15 +560,12 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( ! this.autoExposureStage ) return;
 
-		import( '@/store' ).then( ( { usePathTracerStore } ) => {
+		this.autoExposureStage.on( 'autoexposure:updated', ( data ) => {
 
-			this.autoExposureStage.on( 'autoexposure:updated', ( data ) => {
-
-				const { exposure, luminance } = data;
-
-				usePathTracerStore.getState().setCurrentAutoExposure( exposure );
-				usePathTracerStore.getState().setCurrentAvgLuminance( luminance );
-
+			this.dispatchEvent( {
+				type: EngineEvents.AUTO_EXPOSURE_UPDATED,
+				exposure: data.exposure,
+				luminance: data.luminance
 			} );
 
 		} );
@@ -619,9 +630,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
-		// Sync denoiser state with store
-		this.denoiser.addEventListener( 'start', () => useStore.getState().setIsDenoising( true ) );
-		this.denoiser.addEventListener( 'end', () => useStore.getState().setIsDenoising( false ) );
+		// Forward denoiser lifecycle events
+		this.denoiser.addEventListener( 'start', () => this.dispatchEvent( { type: EngineEvents.DENOISING_START } ) );
+		this.denoiser.addEventListener( 'end', () => this.dispatchEvent( { type: EngineEvents.DENOISING_END } ) );
 
 	}
 
@@ -664,18 +675,23 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;
 
-		// Sync upscaler state with store
-		this.upscaler.addEventListener( 'start', () => {
+		// Forward upscaler resolution changes
+		this.upscaler.addEventListener( 'resolution_changed', ( e ) => {
 
-			useStore.getState().setIsUpscaling( true );
-			useStore.getState().setUpscalingProgress( 0 );
+			this.dispatchEvent( { type: 'resolution_changed', width: e.width, height: e.height } );
 
 		} );
-		this.upscaler.addEventListener( 'progress', ( e ) => useStore.getState().setUpscalingProgress( e.progress ) );
+
+		// Forward upscaler lifecycle events
+		this.upscaler.addEventListener( 'start', () => {
+
+			this.dispatchEvent( { type: EngineEvents.UPSCALING_START } );
+
+		} );
+		this.upscaler.addEventListener( 'progress', ( e ) => this.dispatchEvent( { type: EngineEvents.UPSCALING_PROGRESS, progress: e.progress } ) );
 		this.upscaler.addEventListener( 'end', () => {
 
-			useStore.getState().setIsUpscaling( false );
-			useStore.getState().setUpscalingProgress( 0 );
+			this.dispatchEvent( { type: EngineEvents.UPSCALING_END } );
 
 		} );
 
@@ -919,8 +935,8 @@ export class PathTracerApp extends EventDispatcher {
 		// Dismiss loading overlay
 		resetLoading();
 
-		// Dispatch SceneRebuild so UI components (StatsMeter, Outliner, etc.) update
-		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
+		// Notify UI that scene was rebuilt
+		this.dispatchEvent( { type: 'SceneRebuild' } );
 
 		return true;
 
@@ -987,7 +1003,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.needsReset = true;
 
-		window.dispatchEvent( new CustomEvent( 'resolution_changed', { detail: { width: renderWidth, height: renderHeight } } ) );
+		this.dispatchEvent( { type: 'resolution_changed', width: renderWidth, height: renderHeight } );
 
 	}
 
@@ -1172,8 +1188,7 @@ export class PathTracerApp extends EventDispatcher {
 				}
 
 				this.dispatchEvent( { type: 'RenderComplete' } );
-				useStore.getState().setIsRenderComplete( true );
-				useStore.getState().setIsRendering( false );
+				this.dispatchEvent( { type: EngineEvents.RENDER_COMPLETE } );
 
 			}
 
@@ -1283,9 +1298,7 @@ export class PathTracerApp extends EventDispatcher {
 			// Restore dimension display only if upscaler had changed it
 			if ( wasResized ) {
 
-				window.dispatchEvent( new CustomEvent( 'resolution_changed', {
-					detail: { width: this._lastRenderWidth, height: this._lastRenderHeight }
-				} ) );
+				this.dispatchEvent( { type: 'resolution_changed', width: this._lastRenderWidth, height: this._lastRenderHeight } );
 
 			}
 
@@ -1295,8 +1308,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.lastResetTime = performance.now();
 		this._renderCompleteDispatched = false;
 		this.dispatchEvent( { type: 'RenderReset' } );
-		useStore.getState().setIsRenderComplete( false );
-		useStore.getState().setIsRendering( true );
+		this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
 
 	}
 
@@ -1379,8 +1391,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.canvas.style.opacity = '1';
 			if ( this.denoiser?.output ) this.denoiser.output.style.display = 'none';
 
-			useStore.getState().setIsRenderComplete( false );
-			useStore.getState().setIsRendering( true );
+			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
 
 		}
 
@@ -1896,7 +1907,7 @@ export class PathTracerApp extends EventDispatcher {
 
 			// Update store for UI display (unscaled value)
 			const scale = this.assetLoader?.getSceneScale() || 1.0;
-			useCameraStore.getState().setAutoFocusDistance( newFocus / scale );
+			this.dispatchEvent( { type: EngineEvents.AUTO_FOCUS_UPDATED, distance: newFocus / scale } );
 
 			// Reset accumulation on explicit point change or large threshold change
 			const changeRatio = Math.abs( newFocus - prevFocus ) / Math.max( prevFocus, 0.001 );
@@ -1992,13 +2003,13 @@ export class PathTracerApp extends EventDispatcher {
 	 * Loads example models by index.
 	 * @param {number} index - Example model index
 	 */
-	async loadExampleModels( index ) {
+	async loadExampleModels( index, modelFiles ) {
 
 		this._loadingInProgress = true;
 
 		try {
 
-			await this.assetLoader.loadExampleModels( index );
+			await this.assetLoader.loadExampleModels( index, modelFiles );
 			this._syncControlsAfterLoad();
 			await this.loadSceneData();
 			this.reset();
@@ -2029,7 +2040,14 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		useStore.getState().setSelectedObject( object || null );
+		// Sync selection state with InteractionManager for toggle/context-menu logic
+		if ( this.interactionManager ) {
+
+			this.interactionManager.selectedObject = object || null;
+
+		}
+
+		this.dispatchEvent( { type: EngineEvents.OBJECT_SELECTED, object: object || null } );
 
 	}
 
@@ -2593,6 +2611,7 @@ export class PathTracerApp extends EventDispatcher {
 	dispose() {
 
 		this.stopAnimation();
+		setStatusCallback( null );
 
 		if ( this.assetLoader && this._onAssetLoaded ) {
 
@@ -2658,6 +2677,284 @@ export class PathTracerApp extends EventDispatcher {
 		window.removeEventListener( 'resize', this.resizeHandler );
 
 		this.isInitialized = false;
+
+	}
+
+	// ── Orchestration methods (moved from store.js) ─────────────
+
+	/**
+	 * Switches the real-time denoiser strategy.
+	 * Disables all real-time denoisers first, then enables the selected one.
+	 * Clears stale pipeline context textures to avoid DisplayStage fallback issues.
+	 * @param {string} strategy - 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
+	 * @param {string} [asvgfPreset] - ASVGF quality preset to apply when strategy is 'asvgf'
+	 */
+	setDenoiserStrategy( strategy, asvgfPreset ) {
+
+		// Disable all real-time denoisers first (OIDN remains independent)
+		if ( this.asvgfStage ) this.asvgfStage.enabled = false;
+		if ( this.varianceEstimationStage && ! this.useAdaptiveSampling ) this.varianceEstimationStage.enabled = false;
+		if ( this.bilateralFilteringStage ) this.bilateralFilteringStage.enabled = false;
+		if ( this.edgeAwareFilteringStage ) this.edgeAwareFilteringStage.setFilteringEnabled( false );
+		if ( this.ssrcStage ) this.ssrcStage.enabled = false;
+
+		// Clear all stale denoiser textures from context, then enable selected strategy
+		this._clearDenoiserTextures();
+
+		switch ( strategy ) {
+
+			case 'asvgf':
+				this.asvgfStage.enabled = true;
+				if ( this.varianceEstimationStage ) this.varianceEstimationStage.enabled = true;
+				if ( this.bilateralFilteringStage ) this.bilateralFilteringStage.enabled = true;
+				this.asvgfStage.setTemporalEnabled && this.asvgfStage.setTemporalEnabled( true );
+				this._applyASVGFPreset( asvgfPreset || 'medium' );
+				break;
+
+			case 'ssrc':
+				if ( this.ssrcStage ) this.ssrcStage.enabled = true;
+				break;
+
+			case 'edgeaware':
+				if ( this.edgeAwareFilteringStage ) this.edgeAwareFilteringStage.setFilteringEnabled( true );
+				break;
+
+		}
+
+		this.reset();
+
+	}
+
+	/** Remove all denoiser output textures from pipeline context. */
+	_clearDenoiserTextures() {
+
+		const ctx = this.pipeline?.context;
+		if ( ! ctx ) return;
+		const keys = [
+			'asvgf:output', 'asvgf:temporalColor', 'asvgf:variance',
+			'variance:output', 'bilateralFiltering:output',
+			'edgeFiltering:output', 'ssrc:output',
+		];
+		keys.forEach( k => ctx.removeTexture( k ) );
+
+	}
+
+	/** Look up and apply an ASVGF quality preset. */
+	_applyASVGFPreset( presetName ) {
+
+		const preset = ASVGF_QUALITY_PRESETS[ presetName ];
+		if ( preset ) this.asvgfStage?.updateParameters( preset );
+
+	}
+
+	/**
+	 * Configures the engine for a specific rendering mode.
+	 * @param {string} mode - 'preview' | 'final-render' | 'results'
+	 * @param {Object} [options] - Additional options
+	 * @param {number} [options.canvasWidth] - Canvas width for this mode
+	 * @param {number} [options.canvasHeight] - Canvas height for this mode
+	 */
+	configureForMode( mode, options = {} ) {
+
+		if ( mode === 'results' ) {
+
+			this.pauseRendering = true;
+			this.controls.enabled = false;
+			this.renderer?.domElement && ( this.renderer.domElement.style.display = 'none' );
+			this.denoiser?.output && ( this.denoiser.output.style.display = 'none' );
+			return;
+
+		}
+
+		const isFinal = mode === 'final-render';
+		const config = isFinal ? FINAL_RENDER_CONFIG : PREVIEW_RENDER_CONFIG;
+
+		this.controls.enabled = ! isFinal;
+
+		// Batch uniform updates
+		this.maxSamples = config.maxSamples;
+		this.pathTracingStage?.setUniform( 'maxSamples', config.maxSamples );
+		this.maxBounces = config.bounces;
+		this.pathTracingStage?.setUniform( 'maxBounces', config.bounces );
+		this.samplesPerPixel = config.samplesPerPixel;
+		this.pathTracingStage?.setUniform( 'samplesPerPixel', config.samplesPerPixel );
+		this.transmissiveBounces = config.transmissiveBounces;
+		this.pathTracingStage?.setUniform( 'transmissiveBounces', config.transmissiveBounces );
+
+		this.setRenderMode( config.renderMode );
+		this.setTileCount( config.tiles );
+		if ( this.tileHighlightStage ) this.tileHighlightStage.enabled = config.tilesHelper;
+		this.pathTracingStage?.updateCompletionThreshold?.();
+
+		if ( this.denoiser ) {
+
+			this.denoiser.abort();
+			this.denoiser.enabled = config.enableOIDN;
+			this.denoiser.updateQuality( config.oidnQuality );
+			this.denoiser.toggleHDR( config.oidnHdr );
+			this.denoiser.toggleUseGBuffer( config.useGBuffer );
+
+		}
+
+		if ( this.upscaler ) this.upscaler.abort();
+
+		if ( options.canvasWidth && options.canvasHeight ) {
+
+			this.setCanvasSize( options.canvasWidth, options.canvasHeight );
+
+		}
+
+		this.renderer?.domElement && ( this.renderer.domElement.style.display = 'block' );
+		this.denoiser?.output && ( this.denoiser.output.style.display = 'block' );
+
+		this.needsReset = false;
+		this.pauseRendering = false;
+		this.reset();
+
+	}
+
+	/**
+	 * Enables/disables ASVGF denoising with coordination of related stages.
+	 * @param {boolean} enabled
+	 * @param {string} [qualityPreset] - ASVGF quality preset name
+	 */
+	setASVGFEnabled( enabled, qualityPreset ) {
+
+		if ( this.asvgfStage ) this.asvgfStage.enabled = enabled;
+		if ( this.varianceEstimationStage ) this.varianceEstimationStage.enabled = enabled;
+		if ( this.bilateralFilteringStage ) this.bilateralFilteringStage.enabled = enabled;
+
+		if ( enabled ) {
+
+			this.asvgfStage?.setTemporalEnabled?.( true );
+			this._applyASVGFPreset( qualityPreset || 'medium' );
+
+		}
+
+		// Coordinate with EdgeAware filtering
+		if ( this.edgeAwareFilteringStage ) this.edgeAwareFilteringStage.setFilteringEnabled( ! enabled );
+
+		this.reset();
+
+	}
+
+	/**
+	 * Enables/disables auto-exposure with proper exposure stacking management.
+	 * @param {boolean} enabled
+	 */
+	setAutoExposureEnabled( enabled ) {
+
+		if ( ! this.autoExposureStage ) return;
+
+		this.autoExposureStage.enabled = enabled;
+
+		if ( enabled ) {
+
+			// Neutralize DisplayStage manual exposure to avoid stacking
+			this.displayStage?.setExposure( 1.0 );
+
+		} else {
+
+			// Restore manual exposure
+			this.displayStage?.setExposure( this.exposure );
+			// Reset renderer exposure so it doesn't stack with the manual curve
+			if ( this.displayStage && this.renderer ) {
+
+				this.renderer.toneMappingExposure = 1.0;
+
+			}
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Switches the environment rendering mode.
+	 * @param {string} mode - 'hdri' | 'procedural' | 'gradient' | 'color'
+	 */
+	async setEnvironmentMode( mode ) {
+
+		const previousMode = this._environmentMode || 'hdri';
+		this._environmentMode = mode;
+
+		// Store previous HDRI if switching away
+		if ( mode !== 'hdri' && previousMode === 'hdri' ) {
+
+			this._previousHDRI = this.getEnvironmentTexture();
+			this._previousCDF = this.getEnvironmentCDF();
+
+		}
+
+		// Generate texture for the new mode
+		if ( mode === 'gradient' ) {
+
+			await this.generateGradientTexture();
+
+		} else if ( mode === 'color' ) {
+
+			await this.generateSolidColorTexture();
+
+		} else if ( mode === 'procedural' ) {
+
+			await this.generateProceduralSkyTexture();
+
+		} else if ( mode === 'hdri' ) {
+
+			if ( this._previousHDRI ) {
+
+				await this.setEnvironmentMap( this._previousHDRI );
+				this._previousHDRI = null;
+				this._previousCDF = null;
+
+			}
+
+		}
+
+		// Update envParams mode
+		const envParams = this.getEnvParams();
+		if ( envParams ) envParams.mode = mode;
+
+		this.markEnvironmentNeedsUpdate();
+		this.reset();
+
+	}
+
+	/**
+	 * Enables/disables adaptive sampling with proper stage and context cleanup.
+	 * @param {boolean} enabled
+	 */
+	setAdaptiveSamplingEnabled( enabled ) {
+
+		this.setUseAdaptiveSampling( enabled );
+
+		if ( this.adaptiveSamplingStage ) {
+
+			this.adaptiveSamplingStage.enabled = enabled;
+			this.adaptiveSamplingStage.toggleHelper( false );
+
+		}
+
+		// Clean up stale variance context when disabling
+		if ( ! enabled && this.pipeline?.context && ! this.asvgfStage?.enabled ) {
+
+			this.pipeline.context.removeTexture( 'variance:output' );
+
+		}
+
+		this.reset();
+
+	}
+
+	/**
+	 * Applies an ASVGF quality preset.
+	 * @param {string} presetName - 'low' | 'medium' | 'high'
+	 */
+	applyASVGFPreset( presetName ) {
+
+		this._applyASVGFPreset( presetName );
+		this.reset();
 
 	}
 

@@ -3,8 +3,8 @@ import { Fn, wgslFn, uniform, int, uint, ivec2, uvec2, If,
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
-import { DEFAULT_STATE } from '../../Constants.js';
-import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
+import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
@@ -150,6 +150,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 		} );
 
 		this.renderer = renderer;
+		this.debugContainer = options.debugContainer || null;
 		this.frameNumber = 0;
 		this.delayByFrames = options.delayByFrames ?? 2;
 		this.showAdaptiveSamplingHelper = false;
@@ -223,7 +224,7 @@ export class AdaptiveSamplingStage extends PipelineStage {
 			autoUpdate: false
 		} );
 		this.helper.hide();
-		document.body.appendChild( this.helper );
+		( this.debugContainer || document.body ).appendChild( this.helper );
 
 	}
 

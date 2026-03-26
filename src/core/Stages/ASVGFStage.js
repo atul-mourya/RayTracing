@@ -4,7 +4,7 @@ import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
-import RenderTargetHelper from '../../lib/RenderTargetHelper.js';
+import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
 import { luminance, normalDepthWeight } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
@@ -64,6 +64,7 @@ export class ASVGFStage extends PipelineStage {
 		} );
 
 		this.renderer = renderer;
+		this.debugContainer = options.debugContainer || null;
 
 		// Parameters
 		this.temporalAlpha = uniform( options.temporalAlpha ?? 0.1 );
@@ -180,7 +181,7 @@ export class ASVGFStage extends PipelineStage {
 			autoUpdate: false
 		} );
 		this.heatmapHelper.hide();
-		document.body.appendChild( this.heatmapHelper );
+		( this.debugContainer || document.body ).appendChild( this.heatmapHelper );
 
 		this.frameCount = 0;
 
