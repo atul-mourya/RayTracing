@@ -24,6 +24,8 @@ export {
 	TEXTURE_CONSTANTS,
 	DEFAULT_TEXTURE_MATRIX,
 	MEMORY_CONSTANTS,
+	FINAL_RENDER_CONFIG,
+	PREVIEW_RENDER_CONFIG,
 } from './EngineDefaults.js';
 
 // Pipeline infrastructure (for advanced consumers building custom stages)

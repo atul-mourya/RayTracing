@@ -1187,13 +1187,14 @@ class AssetLoader extends EventDispatcher {
 
 	processModelObjects( model ) {
 
+		let visitedAreaLights = [];
 		model.traverse( ( object ) => {
 
 			const userData = object.userData;
 
-			if ( object.isRectAreaLight ) {
+			if ( object.isRectAreaLight && ! visitedAreaLights.includes( object.uuid ) ) {
 
-				object.intensity *= 10000/4; // Compensate for Three.js's dimming of RectAreaLights
+				object.intensity *= 10000 / 4; // Compensate for Three.js's dimming of RectAreaLights
 
 			}
 
@@ -1214,6 +1215,7 @@ class AssetLoader extends EventDispatcher {
 					light.position.z = - 2;
 					light.name = userData.name;
 					object.add( light );
+					visitedAreaLights.push( light.uuid );
 
 				}
 
