@@ -1031,19 +1031,21 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleTransparentBackgroundChange: val => {
 
-		set( { transparentBackground: val } );
 		const app = getApp();
-		if ( app ) {
+		if ( val ) {
 
-			if ( val ) {
+			set( { transparentBackground: val, showBackground: false } );
+			if ( app ) {
 
 				if ( app.scene ) app.scene.background = null;
-				app.set( 'showBackground', false );
-				set( { showBackground: false } );
+				app.setMany( { showBackground: false, transparentBackground: val } );
 
 			}
 
-			app.set( 'transparentBackground', val );
+		} else {
+
+			set( { transparentBackground: val } );
+			app?.set( 'transparentBackground', val );
 
 		}
 
@@ -1664,6 +1666,7 @@ const useCameraStore = create( ( set, get ) => ( {
 			const scale = app.assetLoader?.getSceneScale() || 1.0;
 			app.set( 'focusDistance', val * scale );
 			app.cameraManager.setAutoFocusMode( 'manual' );
+			app.reset();
 
 		}
 

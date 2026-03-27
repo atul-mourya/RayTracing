@@ -107,12 +107,7 @@ export class LightManager extends EventDispatcher {
 	clearLights() {
 
 		this.sceneHelpers.clear();
-		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
-
-			if ( light.target ) this.scene.remove( light.target );
-			this.scene.remove( light );
-
-		} );
+		this._removeAllLights();
 		this.updateLights();
 
 	}
@@ -143,13 +138,7 @@ export class LightManager extends EventDispatcher {
 	 */
 	transferSceneLights( meshScene ) {
 
-		// Clear existing lights to avoid stale accumulation
-		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
-
-			if ( light.target ) this.scene.remove( light.target );
-			this.scene.remove( light );
-
-		} );
+		this._removeAllLights();
 
 		const sourceLights = meshScene.getObjectsByProperty( 'isLight', true );
 
@@ -219,6 +208,17 @@ export class LightManager extends EventDispatcher {
 	// ── Private ───────────────────────────────────────────────────
 
 	/** Syncs helpers in sceneHelpers with current scene lights. */
+	_removeAllLights() {
+
+		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
+
+			if ( light.target ) this.scene.remove( light.target );
+			this.scene.remove( light );
+
+		} );
+
+	}
+
 	_syncHelpers() {
 
 		if ( ! this.sceneHelpers.visible ) return;
@@ -236,11 +236,7 @@ export class LightManager extends EventDispatcher {
 
 		let angle = 0;
 
-		if ( light.type === 'DirectionalLight' && light.angle !== undefined ) {
-
-			angle = MathUtils.radToDeg( light.angle );
-
-		} else if ( light.type === 'SpotLight' && light.angle !== undefined ) {
+		if ( light.type === 'SpotLight' && light.angle !== undefined ) {
 
 			angle = MathUtils.radToDeg( light.angle );
 

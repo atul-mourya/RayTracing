@@ -24,7 +24,7 @@ const SETTING_ROUTES = {
 	enableEnvironment: { uniform: 'enableEnvironment', reset: true },
 	globalIlluminationIntensity: { uniform: 'globalIlluminationIntensity', reset: true },
 	enableDOF: { uniform: 'enableDOF', reset: true },
-	focusDistance: { uniform: 'focusDistance', reset: true },
+	focusDistance: { uniform: 'focusDistance', reset: false },
 	focalLength: { uniform: 'focalLength', reset: true },
 	aperture: { uniform: 'aperture', reset: true },
 	apertureScale: { uniform: 'apertureScale', reset: true },
@@ -110,9 +110,8 @@ export class RenderSettings extends EventDispatcher {
 
 	/**
 	 * Sets a single render parameter.
-	 *
-	 * @param {string} key   - Setting key (e.g. 'maxBounces')
-	 * @param {*}      value - New value
+	 * @param {string} key
+	 * @param {*}      value
 	 * @param {Object}  [options]
 	 * @param {boolean} [options.reset]  - Override the route's default reset behavior
 	 * @param {boolean} [options.silent] - Suppress the settingChanged event
@@ -125,42 +124,12 @@ export class RenderSettings extends EventDispatcher {
 		this._values.set( key, value );
 
 		const route = SETTING_ROUTES[ key ];
+		if ( ! route ) return;
 
-		if ( ! route ) {
-
-			// Unknown key — store it but don't route anywhere.
-			// This allows consumers to stash custom state.
-			return;
-
-		}
-
-		if ( route.uniform ) {
-
-			this._pathTracingStage?.setUniform( route.uniform, value );
-
-			if ( route.after ) {
-
-				this._pathTracingStage?.[ route.after ]?.();
-
-			}
-
-		} else if ( route.handler ) {
-
-			this._handlers[ route.handler ]?.( value, prev );
-
-		} else if ( route.delegate ) {
-
-			this._delegates[ route.delegate ]?.updateParam?.( route.param, value );
-
-		}
+		this._applyRoute( route, value, prev );
 
 		const shouldReset = reset !== undefined ? reset : ( route.reset ?? true );
-
-		if ( shouldReset ) {
-
-			this._resetCallback?.();
-
-		}
+		if ( shouldReset ) this._resetCallback?.();
 
 		if ( ! silent ) {
 
@@ -172,10 +141,9 @@ export class RenderSettings extends EventDispatcher {
 
 	/**
 	 * Batch-update multiple settings. Only calls reset() once at the end.
-	 *
-	 * @param {Object} updates - Key/value pairs to update
+	 * @param {Object} updates - Key/value pairs
 	 * @param {Object} [options]
-	 * @param {boolean} [options.silent] - Suppress individual settingChanged events
+	 * @param {boolean} [options.silent] - Suppress settingChanged events
 	 */
 	setMany( updates, { silent } = {} ) {
 
@@ -191,28 +159,9 @@ export class RenderSettings extends EventDispatcher {
 			const route = SETTING_ROUTES[ key ];
 			if ( ! route ) continue;
 
-			if ( route.uniform ) {
+			this._applyRoute( route, value, prev );
 
-				this._pathTracingStage?.setUniform( route.uniform, value );
-
-				if ( route.after ) {
-
-					this._pathTracingStage?.[ route.after ]?.();
-
-				}
-
-			} else if ( route.handler ) {
-
-				this._handlers[ route.handler ]?.( value, prev );
-
-			} else if ( route.delegate ) {
-
-				this._delegates[ route.delegate ]?.updateParam?.( route.param, value );
-
-			}
-
-			const routeReset = route.reset ?? true;
-			if ( routeReset ) needsReset = true;
+			if ( route.reset ?? true ) needsReset = true;
 
 			if ( ! silent ) {
 
@@ -222,29 +171,16 @@ export class RenderSettings extends EventDispatcher {
 
 		}
 
-		if ( needsReset ) {
-
-			this._resetCallback?.();
-
-		}
+		if ( needsReset ) this._resetCallback?.();
 
 	}
 
-	/**
-	 * Reads the current value of a setting.
-	 * @param {string} key
-	 * @returns {*}
-	 */
 	get( key ) {
 
 		return this._values.get( key );
 
 	}
 
-	/**
-	 * Returns a plain-object snapshot of all settings.
-	 * @returns {Object}
-	 */
 	getAll() {
 
 		return Object.fromEntries( this._values );
@@ -262,27 +198,33 @@ export class RenderSettings extends EventDispatcher {
 			const route = SETTING_ROUTES[ key ];
 			if ( ! route ) continue;
 
-			if ( route.uniform ) {
-
-				this._pathTracingStage?.setUniform( route.uniform, value );
-
-				if ( route.after ) {
-
-					this._pathTracingStage?.[ route.after ]?.();
-
-				}
-
-			} else if ( route.handler ) {
-
-				this._handlers[ route.handler ]?.( value, this._values.get( key ) );
-
-			}
+			// prev is undefined on initial apply — handlers should not rely on it
+			this._applyRoute( route, value, undefined );
 
 		}
 
 	}
 
 	// ── Private ───────────────────────────────────────────────────
+
+	_applyRoute( route, value, prev ) {
+
+		if ( route.uniform ) {
+
+			this._pathTracingStage?.setUniform( route.uniform, value );
+			if ( route.after ) this._pathTracingStage?.[ route.after ]?.();
+
+		} else if ( route.handler ) {
+
+			this._handlers[ route.handler ]?.( value, prev );
+
+		} else if ( route.delegate ) {
+
+			this._delegates[ route.delegate ]?.updateParam?.( route.param, value );
+
+		}
+
+	}
 
 	/**
 	 * Populates the values map from ENGINE_DEFAULTS.

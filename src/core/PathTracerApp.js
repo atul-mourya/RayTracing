@@ -303,6 +303,28 @@ export class PathTracerApp extends EventDispatcher {
 		// Set up auto-exposure event listener
 		this._setupAutoExposureListener();
 
+		// ── Stable auto-focus context (avoid per-frame allocation) ──
+		this._autoFocusContext = {
+			meshScene: this.meshScene,
+			assetLoader: this.assetLoader,
+			floorPlane: this._floorPlane,
+			get currentFocusDistance() {
+
+				return null;
+
+			}, // replaced below
+			pathTracingStage: this.stages.pathTracing,
+			setFocusDistance: ( d ) => this.settings.set( 'focusDistance', d, { silent: true } ),
+			softReset: () => this.reset( true ),
+			hardReset: () => this.reset(),
+		};
+
+		// Use a getter so currentFocusDistance reads live value without allocation
+		const settingsRef = this.settings;
+		Object.defineProperty( this._autoFocusContext, 'currentFocusDistance', {
+			get: () => settingsRef.get( 'focusDistance' ),
+		} );
+
 		// ── Bind RenderSettings ──
 		this.settings.bind( {
 			pathTracingStage: this.stages.pathTracing,
@@ -416,16 +438,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( this.pauseRendering ) return;
 
 		// Auto-focus: compute focus distance before rendering
-		this.cameraManager.updateAutoFocus( {
-			meshScene: this.meshScene,
-			assetLoader: this.assetLoader,
-			floorPlane: this._floorPlane,
-			currentFocusDistance: this.settings.get( 'focusDistance' ),
-			pathTracingStage: this.stages.pathTracing,
-			setFocusDistance: ( d ) => this.settings.set( 'focusDistance', d, { silent: true } ),
-			softReset: () => this.reset( true ),
-			hardReset: () => this.reset(),
-		} );
+		this.cameraManager.updateAutoFocus( this._autoFocusContext );
 
 		// Render path tracing
 		if ( this.stages.pathTracing?.isReady ) {
@@ -624,27 +637,10 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	async loadModel( url ) {
 
-		this._loadingInProgress = true;
-
-		try {
-
-			await this.assetLoader.loadModel( url );
-			this._syncControlsAfterLoad();
-			await this.loadSceneData();
-			this.reset();
-			this.cameraManager.currentCameraIndex = 0;
-			this.dispatchEvent( { type: 'ModelLoaded', url } );
-			this.dispatchEvent( {
-				type: 'CamerasUpdated',
-				cameras: this.cameraManager.cameras,
-				cameraNames: this.cameraManager.getCameraNames()
-			} );
-
-		} finally {
-
-			this._loadingInProgress = false;
-
-		}
+		await this._loadWithSceneRebuild(
+			() => this.assetLoader.loadModel( url ),
+			{ type: 'ModelLoaded', url }
+		);
 
 	}
 
@@ -685,16 +681,26 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	async loadExampleModels( index, modelFiles ) {
 
+		await this._loadWithSceneRebuild(
+			() => this.assetLoader.loadExampleModels( index, modelFiles ),
+			{ type: 'ModelLoaded', index }
+		);
+
+	}
+
+	/** Shared pipeline: load asset → sync controls → build BVH → reset → dispatch events */
+	async _loadWithSceneRebuild( loadFn, eventPayload ) {
+
 		this._loadingInProgress = true;
 
 		try {
 
-			await this.assetLoader.loadExampleModels( index, modelFiles );
+			await loadFn();
 			this._syncControlsAfterLoad();
 			await this.loadSceneData();
 			this.reset();
 			this.cameraManager.currentCameraIndex = 0;
-			this.dispatchEvent( { type: 'ModelLoaded', index } );
+			this.dispatchEvent( eventPayload );
 			this.dispatchEvent( {
 				type: 'CamerasUpdated',
 				cameras: this.cameraManager.cameras,
@@ -1072,7 +1078,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.settings.set( 'useAdaptiveSampling', enabled );
 		this.denoiserOrchestrator.setAdaptiveSamplingEnabled( enabled );
-		this.reset();
 
 	}
 

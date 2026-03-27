@@ -57,7 +57,6 @@ export class DenoiserOrchestrator extends EventDispatcher {
 		if ( ! this.denoiserCanvas ) return;
 
 		const pt = this._stages.pathTracing;
-		const autoExposure = this._stages.autoExposure;
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
@@ -81,14 +80,9 @@ export class DenoiserOrchestrator extends EventDispatcher {
 
 			},
 
-			getExposure: () => autoExposure?.enabled
-				? this.renderer.toneMappingExposure
-				: this._getExposure(),
-
-			getToneMapping: () => this.renderer.toneMapping,
-
+			getExposure: () => this._getEffectiveExposure(),
+			getToneMapping: () => this._getToneMapping(),
 			getTransparentBackground: () => this._getTransparentBg(),
-
 			getMRTRenderTarget: () => pt?.storageTextures?.readTarget ?? null,
 		} );
 
@@ -110,7 +104,6 @@ export class DenoiserOrchestrator extends EventDispatcher {
 		if ( ! this.denoiserCanvas ) return;
 
 		const pt = this._stages.pathTracing;
-		const autoExposure = this._stages.autoExposure;
 
 		this.upscaler = new AIUpscaler( this.denoiserCanvas, this.renderer, {
 			scaleFactor: DEFAULT_STATE.upscalerScale || 2,
@@ -131,11 +124,8 @@ export class DenoiserOrchestrator extends EventDispatcher {
 
 			},
 
-			getExposure: () => autoExposure?.enabled
-				? this.renderer.toneMappingExposure
-				: this._getExposure(),
-
-			getToneMapping: () => this.renderer.toneMapping,
+			getExposure: () => this._getEffectiveExposure(),
+			getToneMapping: () => this._getToneMapping(),
 		} );
 
 		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;
@@ -384,6 +374,20 @@ export class DenoiserOrchestrator extends EventDispatcher {
 	}
 
 	// ── Private ───────────────────────────────────────────────────
+
+	_getEffectiveExposure() {
+
+		return this._stages.autoExposure?.enabled
+			? this.renderer.toneMappingExposure
+			: this._getExposure();
+
+	}
+
+	_getToneMapping() {
+
+		return this.renderer.toneMapping;
+
+	}
 
 	_isAdaptiveSamplingActive() {
 
