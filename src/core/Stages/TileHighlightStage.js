@@ -3,7 +3,7 @@ import { Fn, vec4, float, int, uint, ivec2, uvec2, uniform,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Vector3, Box2, Vector2 } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 /**
  * WebGPU Tile Highlight Stage (Compute Shader)
@@ -20,7 +20,7 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
  * Textures published:  tileHighlight:output
  * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
  */
-export class TileHighlightStage extends PipelineStage {
+export class TileHighlightStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

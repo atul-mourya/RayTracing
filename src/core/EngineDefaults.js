@@ -134,7 +134,7 @@ export const ENGINE_DEFAULTS = {
 	ssrcSpatialWeight: 0.4,
 
 	// Auto-exposure settings
-	autoExposure: true,
+	autoExposure: false,
 	autoExposureKeyValue: 0.18,
 	autoExposureMinExposure: 0.1,
 	autoExposureMaxExposure: 20.0,

@@ -34,7 +34,7 @@ export const StageExecutionMode = {
 };
 
 /**
- * PipelineStage - Base class for all pipeline stages
+ * RenderStage - Base class for all pipeline stages
  *
  * Provides standard lifecycle methods and event handling capabilities.
  * All rendering passes should extend this class and implement the render() method.
@@ -56,7 +56,7 @@ export const StageExecutionMode = {
  * 7. dispose() - Called when stage is destroyed (optional)
  *
  * @example
- * class MyDenoiserStage extends PipelineStage {
+ * class MyDenoiserStage extends RenderStage {
  *   constructor() {
  *     super('MyDenoiser', {
  *       enabled: true,
@@ -75,7 +75,7 @@ export const StageExecutionMode = {
  *   }
  * }
  */
-export class PipelineStage {
+export class RenderStage {
 
 	/**
 	 * Create a new pipeline stage

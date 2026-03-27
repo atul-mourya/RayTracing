@@ -32,4 +32,7 @@ export const EngineEvents = {
 	AUTO_FOCUS_UPDATED: 'engine:autoFocusUpdated',
 	AUTO_EXPOSURE_UPDATED: 'engine:autoExposureUpdated',
 	AF_POINT_PLACED: 'engine:afPointPlaced',
+
+	// Settings
+	SETTING_CHANGED: 'engine:settingChanged',
 };

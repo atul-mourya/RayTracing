@@ -142,15 +142,13 @@ const InteractionContextMenu = () => {
 		const app = getApp();
 		const object = menuState.selectedObject;
 
-		if ( ! app || ! object || ! app.controls ) return;
+		if ( ! app || ! object ) return;
 
 		const box = new Box3().setFromObject( object );
 		const center = new Vector3();
 		box.getCenter( center );
 
-		app.controls.target.copy( center );
-		app.controls.update();
-		app.reset();
+		app.focusOnPoint( center );
 
 		closeMenu();
 
@@ -196,7 +194,7 @@ const InteractionContextMenu = () => {
 
 				if ( child.isMesh ) {
 
-					const isFloorPlane = child === app.floorPlane || child.name === 'Ground';
+					const isFloorPlane = child.name === 'Ground';
 					const isHelper = child.name.includes( 'Helper' );
 
 					if ( isFloorPlane || isHelper ) return;
@@ -300,7 +298,7 @@ const InteractionContextMenu = () => {
 		if ( ! app || ! object || ! object.material || ! copiedMaterial ) return;
 
 		const material = object.material;
-		const pt = app.pathTracingStage;
+		const pt = app.stages.pathTracing;
 
 		// Apply material properties
 		if ( copiedMaterial.color !== undefined && material.color ) {
@@ -459,9 +457,9 @@ const InteractionContextMenu = () => {
 		// Dispatch deselect event through InteractionManager
 		// This triggers the proper event flow in PathTracerApp
 		const app = getApp();
-		if ( app?.interactionManager ) {
+		if ( app ) {
 
-			app.interactionManager.dispatchEvent( { type: 'objectDeselected' } );
+			app.dispatchInteractionEvent( { type: 'objectDeselected' } );
 
 		}
 
@@ -506,9 +504,7 @@ const InteractionContextMenu = () => {
 
 		};
 
-		app.interactionManager.addEventListener( 'contextMenuRequested', handleContextMenuRequested );
-
-		return () => app.interactionManager?.removeEventListener( 'contextMenuRequested', handleContextMenuRequested );
+		return app.onInteractionEvent( 'contextMenuRequested', handleContextMenuRequested );
 
 	}, [ activeApp ] );
 

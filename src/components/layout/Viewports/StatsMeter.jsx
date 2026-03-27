@@ -125,7 +125,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		// Update app — setMaxSamples handles completion state internally, never resets
 		const app = getApp();
-		if ( app ) app.setMaxSamples( value );
+		if ( app ) app.set( 'maxSamples', value );
 
 	}, [ storeMaxSamples, setStoreMaxSamples ] );
 
@@ -137,7 +137,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		const newMaxSamples = viewportMode === "preview" ? 60 : 30;
 
-		app.setMaxSamples( newMaxSamples );
+		app.set( 'maxSamples', newMaxSamples );
 		setStoreMaxSamples( newMaxSamples );
 
 	}, [ viewportMode, setStoreMaxSamples ] );

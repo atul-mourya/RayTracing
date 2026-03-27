@@ -193,7 +193,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		e.stopPropagation();
 
 		const app = getApp();
-		if ( ! app || ! app.interactionManager ) return;
+		if ( ! app ) return;
 
 		const scene = app.meshScene || app.scene;
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
@@ -210,7 +210,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 			}
 
 			// Dispatch event for InteractionContextMenu
-			app.interactionManager.dispatchEvent( {
+			app.dispatchInteractionEvent( {
 				type: 'contextMenuRequested',
 				x: e.clientX,
 				y: e.clientY,

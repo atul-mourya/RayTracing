@@ -3,7 +3,7 @@ import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
 import { luminance, normalDepthWeight } from '../TSL/Common.js';
 
@@ -54,7 +54,7 @@ const gradientAdaptiveAlpha = /*@__PURE__*/ wgslFn( `
  * Textures published:  asvgf:output, asvgf:temporalColor
  * Textures read:       pathtracer:color, pathtracer:normalDepth, motionVector:screenSpace
  */
-export class ASVGFStage extends PipelineStage {
+export class ASVGFStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

@@ -1,7 +1,7 @@
 import { vec4, uv, uniform, select } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, TextureNode } from 'three/webgpu';
 import { NoBlending } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 /**
  * DisplayStage — Terminal pipeline stage for WebGPU.
@@ -13,7 +13,7 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
  * Display, the fallback chain automatically picks up the latest output
  * without any wiring changes.
  */
-export class DisplayStage extends PipelineStage {
+export class DisplayStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

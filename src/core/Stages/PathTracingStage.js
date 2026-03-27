@@ -7,7 +7,7 @@ import {
 import { blueNoiseTextureNode } from '../TSL/Random.js';
 
 // Pipeline system
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 // Managers (renderer-agnostic)
 import { TileRenderingManager } from '../Processor/TileRenderingManager.js';
@@ -58,7 +58,7 @@ const BVH_VEC4_PER_NODE = 4;
  * - pathtracer:color - Main color output
  * - pathtracer:normalDepth - Normal/depth buffer
  */
-export class PathTracingStage extends PipelineStage {
+export class PathTracingStage extends RenderStage {
 
 	/**
 	 * @param {WebGPURenderer} renderer - Three.js WebGPU renderer

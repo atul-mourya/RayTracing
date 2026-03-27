@@ -2,7 +2,7 @@ import { Fn, wgslFn, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { FloatType, RGBAFormat, NearestFilter } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
@@ -71,7 +71,7 @@ const adaptExposure = /*@__PURE__*/ wgslFn( `
  * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
  * State published:     autoexposure:value, autoexposure:avgLuminance
  */
-export class AutoExposureStage extends PipelineStage {
+export class AutoExposureStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

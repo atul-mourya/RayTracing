@@ -7,6 +7,7 @@
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
   
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls. Example
+- [ ] load scene with default exposure. enable auto-exposure. move the camera such that it computes new exposure values. now, if i disable the auto exposure, the ui should the default exposure value but the render still look like what was auto computed
 
 ### Known
 - [ ] Soft shadows for directional lights not working when enabled from UI

@@ -2,7 +2,7 @@ import { Fn, wgslFn, float, int, uint, ivec2, uvec2, uniform, If, max,
 	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
 import { TextureNode, StorageTexture } from 'three/webgpu';
 import { FloatType, RGBAFormat, LinearFilter } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
@@ -68,7 +68,7 @@ const temporalAccumulate = /*@__PURE__*/ wgslFn( `
  * Textures published:  variance:output
  * Textures read:       configurable (default pathtracer:color)
  */
-export class VarianceEstimationStage extends PipelineStage {
+export class VarianceEstimationStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

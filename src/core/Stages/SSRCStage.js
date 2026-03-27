@@ -14,10 +14,10 @@
 import { uniform } from 'three/tsl';
 import { StorageTexture, TextureNode } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { buildTemporalPass, buildSpatialPass } from '../TSL/SSRC.js';
 
-export class SSRCStage extends PipelineStage {
+export class SSRCStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

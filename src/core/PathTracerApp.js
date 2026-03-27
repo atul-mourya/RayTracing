@@ -1,11 +1,9 @@
 import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
 import { uniform } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher, Vector3,
-	DirectionalLight, PointLight, SpotLight, RectAreaLight, Object3D, MathUtils, Color,
-	Mesh, CircleGeometry, MeshPhysicalMaterial, TimestampQuery
+	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher,
+	Color, Mesh, CircleGeometry, MeshPhysicalMaterial, TimestampQuery
 } from 'three';
-import { Inspector } from 'three/addons/inspector/Inspector.js';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { outline } from 'three/addons/tsl/display/OutlineNode.js';
@@ -23,21 +21,30 @@ import { AutoExposureStage } from './Stages/AutoExposureStage.js';
 import { TileHighlightStage } from './Stages/TileHighlightStage.js';
 import { SSRCStage } from './Stages/SSRCStage.js';
 import { DisplayStage } from './Stages/DisplayStage.js';
-import { PassPipeline } from './Pipeline/PassPipeline.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE, AF_DEFAULTS, ASVGF_QUALITY_PRESETS, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
+import { RenderPipeline } from './Pipeline/RenderPipeline.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
 import InteractionManager from './InteractionManager.js';
-import { OIDNDenoiser } from './Passes/OIDNDenoiser.js';
-import { AIUpscaler } from './Passes/AIUpscaler.js';
 import { EngineEvents } from './EngineEvents.js';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
 
+// Managers
+import { RenderSettings } from './RenderSettings.js';
+import { CameraManager } from './managers/CameraManager.js';
+import { LightManager } from './managers/LightManager.js';
+import { DenoiserOrchestrator } from './managers/DenoiserOrchestrator.js';
+
 
 /**
  * WebGPU Path Tracer Application.
- * Full path tracing implementation using WebGPU and TSL.
+ *
+ * Thin facade that delegates to focused managers:
+ * - {@link RenderSettings} — single source of truth for all render parameters
+ * - {@link CameraManager} — camera switching, auto-focus, DOF
+ * - {@link LightManager} — light CRUD, helpers, GPU transfer
+ * - {@link DenoiserOrchestrator} — denoiser strategy, OIDN, AI upscaler
  *
  * Extends EventDispatcher for event-driven communication with stores/UI.
  */
@@ -57,99 +64,113 @@ export class PathTracerApp extends EventDispatcher {
 		this.denoiserCanvas = denoiserCanvas;
 		this._autoResize = options.autoResize !== false;
 
-		// Core objects
+		// ── Settings (single source of truth for all render parameters) ──
+		this.settings = new RenderSettings( DEFAULT_STATE );
+
+		// ── Core objects (populated in init) ──
 		this.renderer = null;
-		this.camera = null;
+		this._camera = null;
 		this.scene = null;
-		this.controls = null;
-
-		// Mesh scene — holds actual Three.js meshes for raycasting, outlining,
-		// and raster fallback. Separate from this.scene (which only holds lights
-		// for the path tracer pipeline).
 		this.meshScene = null;
+		this._sceneHelpers = null;
+		this._controls = null;
 
-		// Scene helpers — lightweight overlay for light visualization
-		this.sceneHelpers = null;
-
-		// Asset pipeline
+		// ── Asset pipeline ──
 		this.assetLoader = null;
-		this.sdf = null;
-		this.cameras = [];
+		this._sdf = null;
 
-		// Stages
-		this.pathTracingStage = null;
+		// ── Pipeline & stages ──
+		this.pipeline = null;
 
-		// State
+		/**
+		 * Named access to all pipeline stages.
+		 * Advanced consumers can reach into stages for fine-grained control.
+		 * @type {Object}
+		 */
+		this.stages = {};
+
+		// ── Managers (populated in init) ──
+		this.cameraManager = null;
+		this.lightManager = null;
+		this.denoiserOrchestrator = null;
+
+		// ── State ──
 		this.isInitialized = false;
 		this.pauseRendering = false;
 		this.pathTracerEnabled = true;
 		this.animationId = null;
 		this.needsReset = false;
 		this._renderCompleteDispatched = false;
-		this.denoiser = null;
+		this._loadingInProgress = false;
+		this._needsDisplayRefresh = false;
 
 		// Stats tracking
 		this.lastResetTime = performance.now();
 		this.timeElapsed = 0;
 
-
-		// Resolution settings — canvas dimensions = render dimensions (pixel ratio 1.0)
+		// Resolution state
 		this._lastRenderWidth = 0;
 		this._lastRenderHeight = 0;
 		this._resizeDebounceTimer = null;
 
-		// Settings — PathTracingStage uniforms
-		this.maxBounces = DEFAULT_STATE.bounces ?? 4;
-		this.samplesPerPixel = DEFAULT_STATE.samplesPerPixel ?? 1;
-		this.maxSamples = DEFAULT_STATE.maxSamples ?? 2048;
-		this.transmissiveBounces = DEFAULT_STATE.transmissiveBounces ?? 10;
-		this.environmentIntensity = DEFAULT_STATE.environmentIntensity ?? 1.0;
-		this.backgroundIntensity = DEFAULT_STATE.backgroundIntensity ?? 1.0;
-		this.showBackground = DEFAULT_STATE.showBackground ?? true;
-		this.transparentBackground = DEFAULT_STATE.transparentBackground ?? false;
-		this.enableEnvironment = DEFAULT_STATE.enableEnvironment ?? true;
-		this.globalIlluminationIntensity = DEFAULT_STATE.globalIlluminationIntensity ?? 1.0;
-		this.exposure = DEFAULT_STATE.exposure ?? 1.0;
+	}
 
-		// Camera & DOF settings
-		this.enableDOF = DEFAULT_STATE.enableDOF ?? false;
-		this.focusDistance = DEFAULT_STATE.focusDistance ?? 5.0;
-		this.focalLength = DEFAULT_STATE.focalLength ?? 50.0;
-		this.aperture = DEFAULT_STATE.aperture ?? 0.0;
-		this.apertureScale = 1.0;
+	// ═══════════════════════════════════════════════════════════════
+	// Settings API — unified parameter access
+	// ═══════════════════════════════════════════════════════════════
 
-		// Auto-focus state
-		this.autoFocusMode = DEFAULT_STATE.autoFocusMode;
-		this.afScreenPoint = { ...DEFAULT_STATE.afScreenPoint };
-		this.afSmoothingFactor = DEFAULT_STATE.afSmoothingFactor;
-		this._lastValidFocusDistance = null;
-		this._smoothedFocusDistance = null;
+	/**
+	 * Sets a render parameter. Replaces all individual setXxx() methods.
+	 * @param {string} key   - Setting key (e.g. 'maxBounces', 'exposure')
+	 * @param {*}      value - New value
+	 * @param {Object}  [options]
+	 * @param {boolean} [options.reset]  - Override default reset behavior
+	 * @param {boolean} [options.silent] - Suppress settingChanged event
+	 */
+	set( key, value, options ) {
 
-		this.currentCameraIndex = 0;
-		this._defaultCameraState = null; // saved when switching away from default
-
-		// Sampling settings
-		this.samplingTechnique = DEFAULT_STATE.samplingTechnique ?? 0;
-		this.useAdaptiveSampling = DEFAULT_STATE.adaptiveSampling ?? false;
-		this.adaptiveSamplingMax = DEFAULT_STATE.adaptiveSamplingMax ?? 32;
-		this.fireflyThreshold = DEFAULT_STATE.fireflyThreshold ?? 10.0;
-
-		// Emissive settings
-		this.enableEmissiveTriangleSampling = DEFAULT_STATE.enableEmissiveTriangleSampling ?? true;
-		this.emissiveBoost = DEFAULT_STATE.emissiveBoost ?? 1.0;
-
-		// Debug settings
-		this.visMode = DEFAULT_STATE.debugMode ?? 0;
-		this.debugVisScale = DEFAULT_STATE.debugVisScale ?? 1.0;
-
-		// Render limit settings
-		this.renderLimitMode = DEFAULT_STATE.renderLimitMode;
-		this.renderTimeLimit = DEFAULT_STATE.renderTimeLimit;
+		this.settings.set( key, value, options );
 
 	}
 
 	/**
-	 * Initializes the WebGPU renderer and related objects.
+	 * Batch-update multiple settings. Only resets once.
+	 * @param {Object} updates - Key/value pairs
+	 * @param {Object} [options]
+	 */
+	setMany( updates, options ) {
+
+		this.settings.setMany( updates, options );
+
+	}
+
+	/**
+	 * Reads the current value of a setting.
+	 * @param {string} key
+	 * @returns {*}
+	 */
+	get( key ) {
+
+		return this.settings.get( key );
+
+	}
+
+	/**
+	 * Returns a snapshot of all current settings.
+	 * @returns {Object}
+	 */
+	getAll() {
+
+		return this.settings.getAll();
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Lifecycle
+	// ═══════════════════════════════════════════════════════════════
+
+	/**
+	 * Initializes the WebGPU renderer, pipeline stages, and managers.
 	 */
 	async init() {
 
@@ -163,7 +184,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Query adapter limits so we can request the maximum supported buffer size
 		const adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } );
 		if ( ! adapter ) {
 
@@ -186,160 +206,112 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 
 		window.renderer = this.renderer; // For debugging
-		// this.renderer.inspector = new Inspector();
 
 		await this.renderer.init();
 
 		// Initialize LTC textures required by RectAreaLight in WebGPU renderer
 		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
-		// Exposure is applied in the display shader via TSL uniform, so
-		// keep toneMappingExposure at 1.0 to avoid double-application.
 		this.renderer.toneMapping = ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1.0;
 
-		// Canvas dimensions = render dimensions
 		const width = this.canvas.clientWidth;
 		const height = this.canvas.clientHeight;
 		this.renderer.setPixelRatio( 1.0 );
 
 		// Setup camera
-		this.camera = new PerspectiveCamera( 65, width / height || 1, 0.01, 1000 );
-		this.camera.position.set( 0, 0, 5 );
+		this._camera = new PerspectiveCamera( 65, width / height || 1, 0.01, 1000 );
+		this._camera.position.set( 0, 0, 5 );
 
-		// Create scenes — separate light scene (for path tracer) and mesh scene (for raycasting)
+		// Create scenes
 		this.scene = new Scene();
 		this.meshScene = new Scene();
-		this.sceneHelpers = new SceneHelpers();
+		this._sceneHelpers = new SceneHelpers();
 
 		// Setup orbit controls
-		this.controls = new OrbitControls( this.camera, this.canvas );
-		this.controls.screenSpacePanning = true;
-		this.controls.zoomToCursor = true;
+		this._controls = new OrbitControls( this._camera, this.canvas );
+		this._controls.screenSpacePanning = true;
+		this._controls.zoomToCursor = true;
+		this._controls.saveState();
 
-		// Save initial state so controls.reset() works
-		this.controls.saveState();
-
-		// Create asset pipeline — AssetLoader manages the meshScene
-		this.sdf = new TriangleSDF();
-		this.assetLoader = new AssetLoader( this.meshScene, this.camera, this.controls );
-		this.setupFloorPlane();
-		this.assetLoader.setFloorPlane( this.floorPlane );
+		// Asset pipeline
+		this._sdf = new TriangleSDF();
+		this.assetLoader = new AssetLoader( this.meshScene, this._camera, this._controls );
+		this._setupFloorPlane();
+		this.assetLoader.setFloorPlane( this._floorPlane );
 
 		// Track camera movement for reset
-		this.controls.addEventListener( 'change', () => {
+		this._controls.addEventListener( 'change', () => {
 
 			this.needsReset = true;
 
 		} );
 
-		// Create pipeline stages
-		this.pathTracingStage = new PathTracingStage( this.renderer, this.scene, this.camera );
-		this.normalDepthStage = new NormalDepthStage( this.renderer, {
-			pathTracingStage: this.pathTracingStage
-		} );
-		this.motionVectorStage = new MotionVectorStage( this.renderer, this.camera, {
-			pathTracingStage: this.pathTracingStage
-		} );
-		this.ssrcStage = new SSRCStage( this.renderer, { enabled: false } );
-		this.asvgfStage = new ASVGFStage( this.renderer, { enabled: false } );
-		this.varianceEstimationStage = new VarianceEstimationStage( this.renderer, { enabled: false } );
-		this.bilateralFilteringStage = new BilateralFilteringStage( this.renderer, { enabled: false } );
-		this.adaptiveSamplingStage = new AdaptiveSamplingStage( this.renderer, {
-			adaptiveSamplingMax: this.adaptiveSamplingMax,
-			enabled: this.useAdaptiveSampling,
-		} );
-		this.edgeAwareFilteringStage = new EdgeAwareFilteringStage( this.renderer, { enabled: false } );
-		this.autoExposureStage = new AutoExposureStage( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
-		this.tileHighlightStage = new TileHighlightStage( this.renderer, { enabled: false } );
+		// ── Create pipeline stages ──
+		this._createStages();
 
-		// Outline effect — uses the mesh scene (which holds actual meshes) for
-		// depth/mask rasterisation.
-		const outlineScene = this.meshScene;
-		this.outlineNode = outline( outlineScene, this.camera, {
-			selectedObjects: [],
-			edgeThickness: uniform( 1.0 ),
-			edgeGlow: uniform( 0.0 ),
-		} );
-
-		// Fixed-resolution outline: OutlineNode auto-sizes from renderer's
-		// drawing buffer each frame, but the renderer runs at path-tracer
-		// resolution. Override setSize so the outline always renders at the
-		// display's native DPR regardless of path-tracer resolution.
-		const outlineCanvas = this.canvas;
-		const outlineSetSize = this.outlineNode.setSize.bind( this.outlineNode );
-		this.outlineNode.setSize = () => {
-
-			const dpr = window.devicePixelRatio;
-			outlineSetSize(
-				Math.round( outlineCanvas.clientWidth * dpr ),
-				Math.round( outlineCanvas.clientHeight * dpr )
-			);
-
-		};
-
-		const edgeStrength = uniform( 3.0 );
-		const visibleEdgeColor = uniform( new Color( 0xffffff ) );
-		const hiddenEdgeColor = uniform( new Color( 0x190a05 ) );
-		const { visibleEdge, hiddenEdge } = this.outlineNode;
-		const outlineColorNode = visibleEdge.mul( visibleEdgeColor )
-			.add( hiddenEdge.mul( hiddenEdgeColor ) )
-			.mul( edgeStrength );
-
-		this.displayStage = new DisplayStage( this.renderer, {
-			// When auto-exposure is enabled by default, neutralize the manual
-			// exposure curve (pow(1,4)=1) so it doesn't stack with auto-exposure's
-			// renderer.toneMappingExposure.
-			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : this.exposure,
-			outlineColorNode
-		} );
-
-		// Pipeline orchestration — stage order matters: each reads textures published by prior stages.
-		// Stage order matters: each stage reads textures published by prior stages.
+		// ── Pipeline orchestration ──
 		const { clientWidth: w, clientHeight: h } = this.canvas;
-		this.pipeline = new PassPipeline( this.renderer, w || 1, h || 1 );
-		this.pipeline.addStage( this.pathTracingStage );
-		this.pipeline.addStage( this.normalDepthStage );
-		this.pipeline.addStage( this.motionVectorStage );
-		this.pipeline.addStage( this.ssrcStage );
-		this.pipeline.addStage( this.asvgfStage );
-		this.pipeline.addStage( this.varianceEstimationStage );
-		this.pipeline.addStage( this.bilateralFilteringStage );
-		this.pipeline.addStage( this.adaptiveSamplingStage );
-		this.pipeline.addStage( this.edgeAwareFilteringStage );
-		this.pipeline.addStage( this.autoExposureStage );
-		this.pipeline.addStage( this.tileHighlightStage );
-		this.pipeline.addStage( this.displayStage );
+		this.pipeline = new RenderPipeline( this.renderer, w || 1, h || 1 );
+		this.pipeline.addStage( this.stages.pathTracing );
+		this.pipeline.addStage( this.stages.normalDepth );
+		this.pipeline.addStage( this.stages.motionVector );
+		this.pipeline.addStage( this.stages.ssrc );
+		this.pipeline.addStage( this.stages.asvgf );
+		this.pipeline.addStage( this.stages.varianceEstimation );
+		this.pipeline.addStage( this.stages.bilateralFiltering );
+		this.pipeline.addStage( this.stages.adaptiveSampling );
+		this.pipeline.addStage( this.stages.edgeAwareFiltering );
+		this.pipeline.addStage( this.stages.autoExposure );
+		this.pipeline.addStage( this.stages.tileHighlight );
+		this.pipeline.addStage( this.stages.display );
 
-		// Set initial render dimensions so stage render targets aren't stuck at 1x1
-		// (canvas may be hidden initially, so guard against 0)
+		// Set initial render dimensions
 		const initRenderW = width || 1;
 		const initRenderH = height || 1;
 		this.pipeline.setSize( initRenderW, initRenderH );
 		this._lastRenderWidth = initRenderW;
 		this._lastRenderHeight = initRenderH;
 
-		// Initialize interaction manager for click-to-select
-		this.interactionManager = new InteractionManager( {
+		// ── Interaction manager ──
+		this._interactionManager = new InteractionManager( {
 			scene: this.meshScene,
-			camera: this.camera,
+			camera: this._camera,
 			canvas: this.canvas,
 			assetLoader: this.assetLoader,
 			pathTracingStage: null,
-			floorPlane: this.floorPlane
+			floorPlane: this._floorPlane
 		} );
-		this.setupInteractionListeners();
+		this._setupInteractionListeners();
 
-		// Set up auto-exposure event listener to update store in real-time
-		this.setupAutoExposureListener();
+		// ── Managers ──
+		this.cameraManager = new CameraManager( this._camera, this._controls, this._interactionManager );
+		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracing );
+		this._setupDenoiserOrchestrator();
 
-		// Initialize OIDN denoiser
-		this._setupDenoiser();
+		// Wire CameraManager events → app events
+		this.cameraManager.addEventListener( 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
+		this.cameraManager.addEventListener( EngineEvents.AUTO_FOCUS_UPDATED, ( e ) => this.dispatchEvent( e ) );
 
-		// Initialize AI upscaler
-		this._setupUpscaler();
+		// Wire DenoiserOrchestrator events → app events
+		this._forwardEvents( this.denoiserOrchestrator, [
+			EngineEvents.DENOISING_START, EngineEvents.DENOISING_END,
+			EngineEvents.UPSCALING_START, EngineEvents.UPSCALING_PROGRESS, EngineEvents.UPSCALING_END,
+			'resolution_changed',
+		] );
 
-		// Handle resize
+		// Set up auto-exposure event listener
+		this._setupAutoExposureListener();
+
+		// ── Bind RenderSettings ──
+		this.settings.bind( {
+			pathTracingStage: this.stages.pathTracing,
+			resetCallback: () => this.reset(),
+			handlers: this._buildSettingsHandlers(),
+			delegates: {},
+		} );
+
+		// ── Resize handling ──
 		this.onResize();
 		this.resizeHandler = () => this.onResize();
 		if ( this._autoResize ) {
@@ -348,8 +320,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Listen for asset loads so drag-drop / menu imports auto-sync.
-		// Skip if loadModel/loadExampleModels is already orchestrating the load.
+		// ── Asset load events ──
 		this._onAssetLoaded = async ( event ) => {
 
 			if ( this._loadingInProgress ) return;
@@ -361,9 +332,9 @@ export class PathTracerApp extends EventDispatcher {
 			} else if ( event.texture ) {
 
 				const envTexture = this.meshScene.environment;
-				if ( envTexture && this.pathTracingStage ) {
+				if ( envTexture && this.stages.pathTracing ) {
 
-					await this.pathTracingStage.environment.setEnvironmentMap( envTexture );
+					await this.stages.pathTracing.environment.setEnvironmentMap( envTexture );
 
 				}
 
@@ -378,664 +349,33 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.assetLoader.addEventListener( 'load', this._onAssetLoaded );
 
-		// Capture extracted cameras from model loads
 		this.assetLoader.addEventListener( 'modelProcessed', ( event ) => {
 
-			// Build camera list: default camera + any extracted from the model
-			this.cameras = [ this.camera, ...( event.cameras || [] ) ];
+			const cameras = [ this._camera, ...( event.cameras || [] ) ];
+			this.cameraManager.setCameras( cameras );
 
-			// Store floor plane reference for interaction manager
-			this.floorPlane = this.assetLoader.floorPlane;
-			if ( this.interactionManager ) {
+			this._floorPlane = this.assetLoader.floorPlane;
+			if ( this._interactionManager ) {
 
-				this.interactionManager.floorPlane = this.floorPlane;
+				this._interactionManager.floorPlane = this._floorPlane;
 
 			}
 
 		} );
 
-		// Seed path tracer with minimal empty scene data so it can render
-		// the environment background even before a model is loaded.
-		// A single degenerate triangle + 1 BVH node + 1 material entry.
-		this.pathTracingStage.setTriangleData( new Float32Array( 32 ), 0 );
-		this.pathTracingStage.setBVHData( new Float32Array( 16 ) );
-		this.pathTracingStage.materialData.setMaterialData( new Float32Array( 16 ) );
-		this.pathTracingStage.setupMaterial();
+		// Seed path tracer with minimal empty scene data
+		this.stages.pathTracing.setTriangleData( new Float32Array( 32 ), 0 );
+		this.stages.pathTracing.setBVHData( new Float32Array( 16 ) );
+		this.stages.pathTracing.materialData.setMaterialData( new Float32Array( 16 ) );
+		this.stages.pathTracing.setupMaterial();
 
 		// Setup stats panel
-		this.initStats();
+		this._initStats();
 
 		this.isInitialized = true;
-
 		console.log( 'WebGPU Path Tracer App initialized' );
 
 		return this;
-
-	}
-
-	setupFloorPlane() {
-
-		this.floorPlane = new Mesh(
-			new CircleGeometry(),
-			new MeshPhysicalMaterial( {
-				transparent: false,
-				color: 0x303030,
-				roughness: 1,
-				metalness: 0,
-				opacity: 0,
-				transmission: 0,
-			} )
-		);
-		this.floorPlane.name = "Ground";
-		this.floorPlane.visible = false;
-		this.meshScene.add( this.floorPlane );
-
-	}
-
-	initStats() {
-
-		this.stats = new Stats( { horizontal: true, trackGPU: true } );
-		this.stats.dom.style.position = 'absolute';
-		this.stats.dom.style.top = 'unset';
-		this.stats.dom.style.bottom = '48px';
-
-		this.stats.init( this.renderer );
-		this.canvas.parentElement.parentElement.parentElement.appendChild( this.stats.dom );
-
-		const foregroundColor = '#ffffff';
-		const backgroundColor = '#1e293b';
-
-		const gradient = this.stats.fpsPanel.context.createLinearGradient( 0, this.stats.fpsPanel.GRAPH_Y, 0, this.stats.fpsPanel.GRAPH_Y + this.stats.fpsPanel.GRAPH_HEIGHT );
-		gradient.addColorStop( 0, foregroundColor );
-
-		this.stats.fpsPanel.fg = this.stats.msPanel.fg = foregroundColor;
-		this.stats.fpsPanel.bg = this.stats.msPanel.bg = backgroundColor;
-		this.stats.fpsPanel.gradient = this.stats.msPanel.gradient = gradient;
-
-		if ( this.stats.gpuPanel ) {
-
-			this.stats.gpuPanel.fg = foregroundColor;
-			this.stats.gpuPanel.bg = backgroundColor;
-			this.stats.gpuPanel.gradient = gradient;
-
-		}
-
-		this.stats.dom.style.display = '';
-
-	}
-
-	/**
-	 * Sets up event listeners for interaction manager events.
-	 */
-	setupInteractionListeners() {
-
-		if ( ! this.interactionManager ) return;
-
-		// Object selection events
-		this.interactionManager.addEventListener( 'objectSelected', ( event ) => {
-
-			this.selectObject( event.object );
-			this.refreshFrame();
-
-			this.dispatchEvent( {
-				type: 'objectSelected',
-				object: event.object,
-				uuid: event.uuid
-			} );
-
-		} );
-
-		this.interactionManager.addEventListener( 'objectDeselected', ( event ) => {
-
-			this.selectObject( null );
-			this.refreshFrame();
-
-			this.dispatchEvent( {
-				type: 'objectDeselected',
-				object: event.object,
-				uuid: event.uuid
-			} );
-
-		} );
-
-		this.interactionManager.addEventListener( 'selectModeChanged', ( event ) => {
-
-			this.dispatchEvent( { type: EngineEvents.SELECT_MODE_CHANGED, enabled: event.enabled } );
-
-		} );
-
-		this.interactionManager.addEventListener( 'objectDoubleClicked', ( event ) => {
-
-			this.selectObject( event.object );
-			this.refreshFrame();
-
-			this.dispatchEvent( {
-				type: EngineEvents.OBJECT_DOUBLE_CLICKED,
-				object: event.object,
-				uuid: event.uuid
-			} );
-
-		} );
-
-		// Focus mode events
-		this.interactionManager.addEventListener( 'focusChanged', ( event ) => {
-
-			this.setFocusDistance( event.worldDistance );
-
-			this.dispatchEvent( {
-				type: 'focusChanged',
-				distance: event.distance
-			} );
-
-		} );
-
-		// Re-enable orbit controls when focus mode auto-exits after a click
-		this.interactionManager.addEventListener( 'focusModeChanged', ( event ) => {
-
-			if ( ! event.enabled && this.controls ) {
-
-				this.controls.enabled = true;
-
-			}
-
-		} );
-
-		// Auto-focus point placement
-		this.interactionManager.addEventListener( 'afPointPlaced', ( event ) => {
-
-			this.setAFScreenPoint( event.point.x, event.point.y );
-			if ( this.controls ) this.controls.enabled = true;
-			this.dispatchEvent( { type: EngineEvents.AF_POINT_PLACED, point: event.point } );
-
-		} );
-
-	}
-
-	/**
-	 * Set up event listener for auto-exposure updates.
-	 * Updates the store when exposure values change for UI display,
-	 * and applies the computed exposure to renderer.toneMappingExposure.
-	 */
-	setupAutoExposureListener() {
-
-		if ( ! this.autoExposureStage ) return;
-
-		this.autoExposureStage.on( 'autoexposure:updated', ( data ) => {
-
-			this.dispatchEvent( {
-				type: EngineEvents.AUTO_EXPOSURE_UPDATED,
-				exposure: data.exposure,
-				luminance: data.luminance
-			} );
-
-		} );
-
-	}
-
-	/**
-	 * Initializes the OIDN denoiser for the WebGPU backend.
-	 */
-	_setupDenoiser() {
-
-		if ( ! this.denoiserCanvas ) return;
-
-		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
-			...DEFAULT_STATE,
-			useGBuffer: true,
-
-			// Share the existing GPUDevice so oidn-web registers its TF.js backend on the
-			// same device — enabling zero-copy GPU texture inputs.
-			backendParams: () => ( {
-				device: this.renderer.backend.device,
-				adapterInfo: null // Three.js doesn't cache adapterInfo; null is safe
-			} ),
-
-			// Return raw GPUTexture handles from the MRT RenderTarget.
-			getGPUTextures: () => {
-
-				const pt = this.pathTracingStage;
-				if ( ! pt?.storageTextures?.readTarget ) return null;
-
-				const readTextures = pt.storageTextures.getReadTextures();
-				const { backend } = this.renderer;
-				return {
-					color: backend.get( readTextures.color ).texture,
-					normal: backend.get( readTextures.normalDepth ).texture,
-					albedo: backend.get( readTextures.albedo ).texture
-				};
-
-			},
-
-			// Effective exposure multiplier matching DisplayStage's pipeline:
-			//  • Manual:       linear exposure with toneMappingExposure = 1.0
-			//  • AutoExposure: displayExposure = 1.0, toneMappingExposure = autoValue
-			// The tonemapping function receives this as its exposure parameter.
-			getExposure: () => this.autoExposureStage?.enabled
-				? this.renderer.toneMappingExposure
-				: this.exposure,
-
-			// Current Three.js ToneMapping constant so OIDN can match the renderer.
-			getToneMapping: () => this.renderer.toneMapping,
-
-			// Whether transparent background is enabled (OIDN needs to preserve alpha)
-			getTransparentBackground: () => this.transparentBackground,
-
-			getMRTRenderTarget: () => {
-
-				const pt = this.pathTracingStage;
-				return pt?.storageTextures?.readTarget ?? null;
-
-			}
-		} );
-
-		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
-
-		// Forward denoiser lifecycle events
-		this.denoiser.addEventListener( 'start', () => this.dispatchEvent( { type: EngineEvents.DENOISING_START } ) );
-		this.denoiser.addEventListener( 'end', () => this.dispatchEvent( { type: EngineEvents.DENOISING_END } ) );
-
-	}
-
-	/**
-	 * Initializes the AI upscaler for post-render super-resolution.
-	 */
-	_setupUpscaler() {
-
-		if ( ! this.denoiserCanvas ) return;
-
-		this.upscaler = new AIUpscaler( this.denoiserCanvas, this.renderer, {
-			scaleFactor: DEFAULT_STATE.upscalerScale || 2,
-			quality: DEFAULT_STATE.upscalerQuality || 'fast',
-
-			// Returns the correct source canvas:
-			// - If OIDN ran, the denoiser canvas already has the result → return null (reads from output)
-			// - If OIDN didn't run, read from the WebGPU renderer canvas
-			getSourceCanvas: () => {
-
-				if ( this.denoiser?.enabled ) return null; // denoiser already wrote to output canvas
-				return this.renderer.domElement;
-
-			},
-
-			// HDR pipeline: read float32 directly from path tracer GPU textures
-			getGPUTextures: () => {
-
-				const pt = this.pathTracingStage;
-				if ( ! pt?.storageTextures?.readTarget ) return null;
-
-				const readTextures = pt.storageTextures.getReadTextures();
-				return { color: this.renderer.backend.get( readTextures.color ).texture };
-
-			},
-			getExposure: () => this.autoExposureStage?.enabled
-				? this.renderer.toneMappingExposure
-				: this.exposure,
-			getToneMapping: () => this.renderer.toneMapping
-		} );
-
-		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;
-
-		// Forward upscaler resolution changes
-		this.upscaler.addEventListener( 'resolution_changed', ( e ) => {
-
-			this.dispatchEvent( { type: 'resolution_changed', width: e.width, height: e.height } );
-
-		} );
-
-		// Forward upscaler lifecycle events
-		this.upscaler.addEventListener( 'start', () => {
-
-			this.dispatchEvent( { type: EngineEvents.UPSCALING_START } );
-
-		} );
-		this.upscaler.addEventListener( 'progress', ( e ) => this.dispatchEvent( { type: EngineEvents.UPSCALING_PROGRESS, progress: e.progress } ) );
-		this.upscaler.addEventListener( 'end', () => {
-
-			this.dispatchEvent( { type: EngineEvents.UPSCALING_END } );
-
-		} );
-
-	}
-
-	/**
-	 * Clones Three.js light objects from the mesh scene into the WebGPU light
-	 * scene, then updates the PathTracingStage light uniform buffers.
-	 */
-	_transferSceneLights() {
-
-		// Clear existing lights from WebGPU scene before re-transferring
-		// to avoid stale lights accumulating across model loads
-		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
-
-			if ( light.target ) this.scene.remove( light.target );
-			this.scene.remove( light );
-
-		} );
-
-		const sourceLights = this.meshScene.getObjectsByProperty( 'isLight', true );
-
-		if ( ! sourceLights || sourceLights.length === 0 ) {
-
-			// No scene lights — still call updateLights to process procedural sky sun
-			this.updateLights();
-			return;
-
-		}
-
-		// Clone each light into the WebGPU scene with world transforms.
-		// Lights may be nested in the model hierarchy (e.g. children of placeholder meshes),
-		// so we must bake their world transform before adding to scene root.
-		for ( const light of sourceLights ) {
-
-			const cloned = light.clone();
-
-			// Ensure source matrixWorld is up to date
-			light.updateWorldMatrix( true, false );
-
-			// Bake world transform into the clone (since it goes to scene root)
-			light.getWorldPosition( cloned.position );
-			light.getWorldQuaternion( cloned.quaternion );
-			light.getWorldScale( cloned.scale );
-
-			// RectAreaLightHelper ignores world scale, so bake it into width/height
-			// to keep the helper visualization consistent with the shader data
-			if ( cloned.isRectAreaLight ) {
-
-				cloned.width *= cloned.scale.x;
-				cloned.height *= cloned.scale.y;
-				cloned.scale.set( 1, 1, 1 );
-
-			}
-
-			// SpotLights need their target transferred with world position
-			if ( light.isSpotLight && light.target ) {
-
-				const clonedTarget = new Object3D();
-				light.target.updateWorldMatrix( true, false );
-				light.target.getWorldPosition( clonedTarget.position );
-				this.scene.add( clonedTarget );
-				cloned.target = clonedTarget;
-
-			}
-
-			this.scene.add( cloned );
-
-		}
-
-		// Process the cloned lights into uniform buffer arrays
-		this.updateLights();
-		this._syncLightHelpers();
-
-	}
-
-	/**
-	 * Builds BVH from meshScene and uploads all scene data to the path tracer stages.
-	 *
-	 * @returns {boolean} True if data was loaded successfully
-	 */
-	async loadSceneData() {
-
-		const timer = new BuildTimer( 'loadSceneData' );
-
-		const environmentTexture = this.meshScene.environment;
-
-		// Kick off environment CDF build in parallel with BVH (runs in a Web Worker)
-		let cdfPromise = null;
-		if ( environmentTexture && environmentTexture.image && environmentTexture.image.data ) {
-
-			timer.start( 'Environment CDF build (worker)' );
-			this.pathTracingStage.scene.environment = environmentTexture;
-			cdfPromise = this.pathTracingStage.environment.buildEnvironmentCDF()
-				.then( () => timer.end( 'Environment CDF build (worker)' ) );
-
-		}
-
-		// Build BVH acceleration structure from the mesh scene
-		timer.start( 'BVH build (TriangleSDF)' );
-		await this.sdf.buildBVH( this.meshScene );
-		timer.end( 'BVH build (TriangleSDF)' );
-
-		// Get raw data from SDF (Float32Arrays for storage buffers)
-		const triangleData = this.sdf.triangleData;
-		const triangleCount = this.sdf.triangleCount;
-		const bvhData = this.sdf.bvhData;
-		const materialData = this.sdf.materialData;
-
-		if ( ! triangleData ) {
-
-			console.error( 'PathTracerApp: Failed to get triangle data' );
-			return false;
-
-		}
-
-		updateLoading( { status: "Transferring data to GPU...", progress: 86 } );
-		await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
-		timer.start( 'GPU data transfer' );
-		this.pathTracingStage.setTriangleData( triangleData, triangleCount );
-
-		if ( ! bvhData ) {
-
-			console.error( 'PathTracerApp: Failed to get BVH data' );
-			return false;
-
-		}
-
-		this.pathTracingStage.setBVHData( bvhData );
-
-		if ( materialData ) {
-
-			this.pathTracingStage.materialData.setMaterialData( materialData );
-
-		} else {
-
-			console.warn( 'PathTracerApp: No material data, using defaults' );
-
-		}
-
-		if ( environmentTexture ) {
-
-			this.pathTracingStage.environment.setEnvironmentTexture( environmentTexture );
-
-		}
-
-		// Transfer material texture arrays (albedo, normal, bump, roughness, metalness, emissive, displacement)
-		const materialTextureArrays = {
-			albedoMaps: this.sdf.albedoTextures,
-			normalMaps: this.sdf.normalTextures,
-			bumpMaps: this.sdf.bumpTextures,
-			roughnessMaps: this.sdf.roughnessTextures,
-			metalnessMaps: this.sdf.metalnessTextures,
-			emissiveMaps: this.sdf.emissiveTextures,
-			displacementMaps: this.sdf.displacementTextures,
-		};
-		this.pathTracingStage.materialData.setMaterialTextures( materialTextureArrays );
-
-		// Transfer emissive triangle data (storage buffer)
-		if ( this.sdf.emissiveTriangleData ) {
-
-			this.pathTracingStage.setEmissiveTriangleData(
-				this.sdf.emissiveTriangleData,
-				this.sdf.emissiveTriangleCount,
-				this.sdf.emissiveTotalPower,
-			);
-
-		}
-
-		// Transfer light BVH data (storage buffer)
-		if ( this.sdf.lightBVHNodeData ) {
-
-			this.pathTracingStage.setLightBVHData(
-				this.sdf.lightBVHNodeData,
-				this.sdf.lightBVHNodeCount,
-			);
-
-		}
-
-		// Transfer lights from mesh scene into the WebGPU light scene
-		this._transferSceneLights();
-		timer.end( 'GPU data transfer' );
-
-		// Setup material with all data
-		updateLoading( { status: "Compiling shaders...", progress: 90 } );
-		await new Promise( r => setTimeout( r, 0 ) ); // yield for UI repaint
-		timer.start( 'Material setup (TSL compile)' );
-		this.pathTracingStage.setupMaterial();
-		timer.end( 'Material setup (TSL compile)' );
-
-		// Wait for the parallel CDF worker to finish (usually already done by now)
-		if ( cdfPromise ) {
-
-			updateLoading( { status: "Finalizing environment map...", progress: 95 } );
-			await cdfPromise;
-
-			// Update TSL env texture nodes (CDF storage buffers already populated)
-			this.pathTracingStage.environment.applyCDFResults();
-
-		}
-
-		// Apply all settings to stage
-		timer.start( 'Apply settings' );
-		const pt = this.pathTracingStage;
-		pt.setUniform( 'maxBounces', this.maxBounces );
-		pt.setUniform( 'samplesPerPixel', this.samplesPerPixel );
-		pt.setUniform( 'maxSamples', this.maxSamples );
-		pt.setUniform( 'transmissiveBounces', this.transmissiveBounces );
-		pt.setUniform( 'environmentIntensity', this.environmentIntensity );
-		pt.setUniform( 'backgroundIntensity', this.backgroundIntensity );
-		pt.setUniform( 'showBackground', this.showBackground );
-		pt.setUniform( 'transparentBackground', this.transparentBackground );
-		pt.setUniform( 'enableEnvironment', this.enableEnvironment );
-		pt.setUniform( 'globalIlluminationIntensity', this.globalIlluminationIntensity );
-		pt.setUniform( 'exposure', this.exposure );
-		this.displayStage.setTransparentBackground( this.transparentBackground );
-
-		// Camera & DOF
-		pt.setUniform( 'enableDOF', this.enableDOF );
-		pt.setUniform( 'focusDistance', this.focusDistance );
-		pt.setUniform( 'focalLength', this.focalLength );
-		pt.setUniform( 'aperture', this.aperture );
-
-		// Sampling
-		pt.setUniform( 'samplingTechnique', this.samplingTechnique );
-		pt.setUniform( 'useAdaptiveSampling', this.useAdaptiveSampling );
-		pt.setUniform( 'adaptiveSamplingMax', this.adaptiveSamplingMax );
-		pt.setUniform( 'fireflyThreshold', this.fireflyThreshold );
-
-		// Emissive
-		pt.setUniform( 'enableEmissiveTriangleSampling', this.enableEmissiveTriangleSampling );
-		pt.setUniform( 'emissiveBoost', this.emissiveBoost );
-
-		// Debug
-		pt.setUniform( 'visMode', this.visMode );
-		pt.setUniform( 'debugVisScale', this.debugVisScale );
-		timer.end( 'Apply settings' );
-
-		timer.print();
-
-		// Dismiss loading overlay
-		resetLoading();
-
-		// Notify UI that scene was rebuilt
-		this.dispatchEvent( { type: 'SceneRebuild' } );
-
-		return true;
-
-	}
-
-	/**
-	 * Handles window resize events.
-	 * Display updates (renderer size, camera aspect) happen immediately.
-	 * Render target resizing and convergence reset are debounced so that
-	 * dragging the window edge doesn't continuously restart accumulation.
-	 */
-	onResize() {
-
-		const width = this.canvas.clientWidth;
-		const height = this.canvas.clientHeight;
-
-		if ( width === 0 || height === 0 ) return;
-
-		// Immediate: update display so the canvas doesn't look distorted
-		this.renderer.setPixelRatio( 1.0 );
-		this.renderer.setSize( width, height, false );
-		this.camera.aspect = width / height;
-		this.camera.updateProjectionMatrix();
-
-		const renderWidth = width;
-		const renderHeight = height;
-
-		// Skip render target resize + reset if dimensions haven't changed
-		if ( renderWidth === this._lastRenderWidth && renderHeight === this._lastRenderHeight ) return;
-
-		// Debounce the expensive part: render target resize + convergence reset
-		clearTimeout( this._resizeDebounceTimer );
-		this._resizeDebounceTimer = setTimeout( () => {
-
-			this._applyRenderResize( renderWidth, renderHeight );
-
-		}, 300 );
-
-	}
-
-	/**
-	 * Apply the actual render target resize and trigger convergence reset.
-	 * Called after the debounce period or directly for programmatic resolution changes.
-	 * @param {number} renderWidth
-	 * @param {number} renderHeight
-	 */
-	_applyRenderResize( renderWidth, renderHeight ) {
-
-		this._lastRenderWidth = renderWidth;
-		this._lastRenderHeight = renderHeight;
-
-		// Propagate render dimensions to pipeline stages (adaptive sampling, etc.)
-		if ( this.pipeline ) {
-
-			this.pipeline.setSize( renderWidth, renderHeight );
-
-		}
-
-		// Resize denoiser canvas to match render dimensions
-		this.denoiser?.setSize( renderWidth, renderHeight );
-
-		// Notify upscaler of base resolution change
-		this.upscaler?.setBaseSize( renderWidth, renderHeight );
-
-		this.needsReset = true;
-
-		this.dispatchEvent( { type: 'resolution_changed', width: renderWidth, height: renderHeight } );
-
-	}
-
-	/**
-	 * Updates the canvas display size to match new dimensions.
-	 * Canvas dimensions = render dimensions (pixel ratio 1.0).
-	 * Called when the user changes canvas width/height via the UI.
-	 * @param {number} width - New canvas width in pixels
-	 * @param {number} height - New canvas height in pixels
-	 */
-	setCanvasSize( width, height ) {
-
-		this.canvas.style.width = `${width}px`;
-		this.canvas.style.height = `${height}px`;
-
-		if ( this.denoiserCanvas ) {
-
-			this.denoiserCanvas.style.width = `${width}px`;
-			this.denoiserCanvas.style.height = `${height}px`;
-
-		}
-
-		// Immediate resize — no debounce since this is a deliberate user action
-		if ( width === 0 || height === 0 ) return;
-
-		this.renderer.setPixelRatio( 1.0 );
-		this.renderer.setSize( width, height, false );
-		this.camera.aspect = width / height;
-		this.camera.updateProjectionMatrix();
-
-		clearTimeout( this._resizeDebounceTimer );
-		this._applyRenderResize( width, height );
 
 	}
 
@@ -1046,22 +386,15 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.animationId = requestAnimationFrame( () => this.animate() );
 
-		// Skip all rendering while scene data is being loaded or processed
-		if ( this._loadingInProgress || this.sdf?.isProcessing ) {
+		if ( this._loadingInProgress || this._sdf?.isProcessing ) {
 
-			this.stats?.update();
+			this._stats?.update();
 			return;
 
 		}
 
-		// Update controls
-		if ( this.controls ) {
+		if ( this._controls ) this._controls.update();
 
-			this.controls.update();
-
-		}
-
-		// Reset accumulation on camera change (soft: preserve ASVGF temporal history)
 		if ( this.needsReset ) {
 
 			this.reset( true );
@@ -1069,36 +402,40 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Update camera matrix
-		this.camera.updateMatrixWorld();
+		this._camera.updateMatrixWorld();
 
-		// Raster fallback when path tracer is disabled entirely
+		// Raster fallback when path tracer is disabled
 		if ( ! this.pathTracerEnabled ) {
 
-			this.renderer.render( this.meshScene, this.camera );
+			this.renderer.render( this.meshScene, this._camera );
 			this._renderHelperOverlay();
 			return;
 
 		}
 
-		// Paused — keep the last rendered frame visible
 		if ( this.pauseRendering ) return;
 
 		// Auto-focus: compute focus distance before rendering
-		this.updateAutoFocus();
+		this.cameraManager.updateAutoFocus( {
+			meshScene: this.meshScene,
+			assetLoader: this.assetLoader,
+			floorPlane: this._floorPlane,
+			currentFocusDistance: this.settings.get( 'focusDistance' ),
+			pathTracingStage: this.stages.pathTracing,
+			setFocusDistance: ( d ) => this.settings.set( 'focusDistance', d, { silent: true } ),
+			softReset: () => this.reset( true ),
+			hardReset: () => this.reset(),
+		} );
 
 		// Render path tracing
-		if ( this.pathTracingStage?.isReady ) {
+		if ( this.stages.pathTracing?.isReady ) {
 
-			// Skip rendering and stats updates when render is already complete
-			if ( this.pathTracingStage.isComplete && this._renderCompleteDispatched ) {
+			if ( this.stages.pathTracing.isComplete && this._renderCompleteDispatched ) {
 
-				// Still allow display-only refresh (e.g. outline on selection change)
-				// without re-running path tracer or re-dispatching completion.
 				if ( this._needsDisplayRefresh ) {
 
 					this._needsDisplayRefresh = false;
-					this.displayStage.render( this.pipeline.context );
+					this.stages.display.render( this.pipeline.context );
 					this._renderHelperOverlay();
 
 				}
@@ -1109,83 +446,44 @@ export class PathTracerApp extends EventDispatcher {
 
 			this.pipeline.render();
 
-			const frameCount = this.pathTracingStage.frameCount || 0;
+			const frameCount = this.stages.pathTracing.frameCount || 0;
 
-			// Only update time while rendering is in progress
-			if ( ! this.pathTracingStage.isComplete ) {
+			if ( ! this.stages.pathTracing.isComplete ) {
 
-				const currentTime = performance.now();
-				this.timeElapsed = ( currentTime - this.lastResetTime ) / 1000;
+				this.timeElapsed = ( performance.now() - this.lastResetTime ) / 1000;
 
 			}
 
-			// In tiled mode, convert raw frame count to completed sample passes
-			const stage = this.pathTracingStage;
+			// Tiled mode: convert raw frame count to completed sample passes
+			const stage = this.stages.pathTracing;
 			let displaySamples = frameCount;
 			if ( stage.renderMode?.value === 1 && frameCount > 0 ) {
 
 				const totalTiles = stage.tileManager.totalTilesCache;
-				// Frame 0 is a full-screen pass, frames 1+ are individual tiles
 				displaySamples = 1 + Math.floor( ( frameCount - 1 ) / totalTiles );
 
 			}
 
-			updateStats( {
-				timeElapsed: this.timeElapsed,
-				samples: displaySamples
-			} );
+			updateStats( { timeElapsed: this.timeElapsed, samples: displaySamples } );
 
-			// Check if time limit reached and force completion
-			if ( this.renderLimitMode === 'time' && this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit ) {
+			// Check time limit
+			const renderLimitMode = this.settings.get( 'renderLimitMode' );
+			const renderTimeLimit = this.settings.get( 'renderTimeLimit' );
+			if ( renderLimitMode === 'time' && renderTimeLimit > 0 && this.timeElapsed >= renderTimeLimit ) {
 
-				this.pathTracingStage.isComplete = true;
+				this.stages.pathTracing.isComplete = true;
 
 			}
 
-			// Check for render completion (use stage's own isComplete flag)
-			if ( this.pathTracingStage.isComplete && ! this._renderCompleteDispatched ) {
+			// Render completion → denoise/upscale chain
+			if ( this.stages.pathTracing.isComplete && ! this._renderCompleteDispatched ) {
 
 				this._renderCompleteDispatched = true;
 
-				// Show the post-process canvas if any post-process is enabled
-				if ( ( this.denoiser?.enabled || this.upscaler?.enabled ) && this.denoiserCanvas ) {
-
-					this.denoiserCanvas.style.display = 'block';
-
-				}
-
-				// Chain: denoise first (if enabled), then upscale (if enabled)
-				const startUpscaler = () => {
-
-					// Guard: don't start upscaler if render was reset while OIDN was running
-					if ( ! this._renderCompleteDispatched ) return;
-
-					if ( this.upscaler?.enabled ) {
-
-						this.upscaler.start();
-
-					}
-
-				};
-
-				if ( this.denoiser?.enabled ) {
-
-					this.denoiser.addEventListener( 'end', startUpscaler, { once: true } );
-					this.denoiser.start();
-
-				} else {
-
-					// Re-render display stage so the WebGPU canvas has valid content
-					// for the upscaler to read (WebGPU textures expire each frame)
-					if ( this.upscaler?.enabled && this.displayStage && this.pipeline?.context ) {
-
-						this.displayStage.render( this.pipeline.context );
-
-					}
-
-					startUpscaler();
-
-				}
+				this.denoiserOrchestrator.onRenderComplete( {
+					isStillComplete: () => this._renderCompleteDispatched,
+					context: this.pipeline?.context,
+				} );
 
 				this.dispatchEvent( { type: 'RenderComplete' } );
 				this.dispatchEvent( { type: EngineEvents.RENDER_COMPLETE } );
@@ -1194,12 +492,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Render light helpers as overlay on top of current frame
 		this._renderHelperOverlay();
+		this._stats?.update();
 
-		this.stats?.update();
-
-		// Resolve GPU timestamp queries to prevent query pool overflow
 		this.renderer.resolveTimestampsAsync?.( TimestampQuery.RENDER );
 		this.renderer.resolveTimestampsAsync?.( TimestampQuery.COMPUTE );
 
@@ -1219,74 +514,39 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Pauses the animation loop.
-	 */
+	/** Pauses the animation loop. */
 	pause() {
 
-		if ( this.animationId ) {
-
-			cancelAnimationFrame( this.animationId );
-			this.animationId = null;
-			console.log( 'PathTracerApp: Paused' );
-
-		}
-
-		if ( this.stats ) this.stats.dom.style.display = 'none';
+		this.stopAnimation();
+		if ( this._stats ) this._stats.dom.style.display = 'none';
 
 	}
 
-	/**
-	 * Resumes the animation loop.
-	 */
+	/** Resumes the animation loop. */
 	resume() {
 
-		if ( ! this.animationId ) {
-
-			this.animate();
-			console.log( 'PathTracerApp: Resumed' );
-
-		}
-
-		if ( this.stats ) this.stats.dom.style.display = '';
+		if ( ! this.animationId ) this.animate();
+		if ( this._stats ) this._stats.dom.style.display = '';
 
 	}
 
 	/**
 	 * Resets the accumulation buffer.
-	 * @param {boolean} soft - When true (camera movement), preserves ASVGF temporal history
+	 * @param {boolean} soft - When true, preserves ASVGF temporal history
 	 */
 	reset( soft = false ) {
 
 		if ( this.pipeline ) {
 
 			this.pipeline.reset();
-
-			// Hard reset: scene/settings changed — clear ASVGF temporal history
-			if ( ! soft ) {
-
-				this.pipeline.eventBus.emit( 'asvgf:reset' );
-
-			}
+			if ( ! soft ) this.pipeline.eventBus.emit( 'asvgf:reset' );
 
 		}
 
-		// Restore main canvas visibility and hide post-process overlay
-		this.canvas.style.opacity = '1';
-		if ( this.upscaler ) {
+		// Abort post-processing
+		this.denoiserOrchestrator?.abort( this.canvas );
 
-			this.upscaler.abort();
-
-		}
-
-		if ( this.denoiser ) {
-
-			if ( this.denoiser.enabled ) this.denoiser.abort();
-			if ( this.denoiser.output ) this.denoiser.output.style.display = 'none';
-
-		}
-
-		// Restore denoiser canvas to base render resolution (upscaler may have resized it)
+		// Restore denoiser canvas to base render resolution
 		if ( this.denoiserCanvas && this._lastRenderWidth && this._lastRenderHeight ) {
 
 			const wasResized = this.denoiserCanvas.width !== this._lastRenderWidth
@@ -1295,7 +555,6 @@ export class PathTracerApp extends EventDispatcher {
 			this.denoiserCanvas.width = this._lastRenderWidth;
 			this.denoiserCanvas.height = this._lastRenderHeight;
 
-			// Restore dimension display only if upscaler had changed it
 			if ( wasResized ) {
 
 				this.dispatchEvent( { type: 'resolution_changed', width: this._lastRenderWidth, height: this._lastRenderHeight } );
@@ -1313,631 +572,51 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Sets the maximum number of bounces.
+	 * Disposes of all resources.
 	 */
-	setMaxBounces( bounces ) {
+	dispose() {
 
-		this.maxBounces = bounces;
-		this.pathTracingStage?.setUniform( 'maxBounces', bounces );
-		this.reset();
+		this.stopAnimation();
+		setStatusCallback( null );
 
-	}
+		if ( this.assetLoader && this._onAssetLoaded ) {
 
-	setEnvironmentIntensity( intensity ) {
-
-		this.environmentIntensity = intensity;
-		this.pathTracingStage?.setUniform( 'environmentIntensity', intensity );
-		this.reset();
-
-	}
-
-	setSamplesPerPixel( samples ) {
-
-		this.samplesPerPixel = samples;
-		this.pathTracingStage?.setUniform( 'samplesPerPixel', samples );
-		this.reset();
-
-	}
-
-	setMaxSamples( samples ) {
-
-		this.maxSamples = samples;
-		this.pathTracingStage?.setUniform( 'maxSamples', samples );
-
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.updateCompletionThreshold();
-			this._reconcileCompletion();
+			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
 
 		}
 
-	}
+		this._sceneHelpers?.clear();
 
-	/**
-	 * Sets the render time limit without resetting.
-	 * @param {number} timeLimit - New time limit in seconds
-	 */
-	setRenderTimeLimit( timeLimit ) {
+		if ( this._outlineNode ) {
 
-		this.renderTimeLimit = timeLimit;
-		this._reconcileCompletion();
-
-	}
-
-	/**
-	 * Reconciles completion state after a limit change.
-	 * - If current progress is below the new limit → resume rendering
-	 * - If current progress is at or past the new limit → mark complete
-	 * Never resets — accumulated work is always preserved.
-	 */
-	_reconcileCompletion() {
-
-		const stage = this.pathTracingStage;
-		if ( ! stage ) return;
-
-		const shouldBeComplete = this._isRenderLimitReached();
-
-		if ( shouldBeComplete && ! stage.isComplete ) {
-
-			// Progress already exceeds new (lower) limit — just stop
-			stage.isComplete = true;
-
-		} else if ( ! shouldBeComplete && stage.isComplete ) {
-
-			// Limit was raised — resume from where we left off
-			stage.isComplete = false;
-			this._renderCompleteDispatched = false;
-
-			this.canvas.style.opacity = '1';
-			if ( this.denoiser?.output ) this.denoiser.output.style.display = 'none';
-
-			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
+			this._outlineNode.dispose();
+			this._outlineNode = null;
 
 		}
 
-	}
+		this.denoiserOrchestrator?.dispose();
+		this.pipeline?.dispose();
+		this._interactionManager?.dispose();
+		this._controls?.dispose();
+		this.renderer?.dispose();
 
-	/**
-	 * Checks whether the current render progress has reached the active limit.
-	 */
-	_isRenderLimitReached() {
+		if ( this._stats ) {
 
-		const stage = this.pathTracingStage;
-		if ( ! stage ) return false;
-
-		if ( this.renderLimitMode === 'time' ) {
-
-			return this.renderTimeLimit > 0 && this.timeElapsed >= this.renderTimeLimit;
+			this._stats.dom.remove();
+			this._stats = null;
 
 		}
 
-		return stage.frameCount >= stage.completionThreshold;
+		clearTimeout( this._resizeDebounceTimer );
+		window.removeEventListener( 'resize', this.resizeHandler );
+
+		this.isInitialized = false;
 
 	}
 
-	setTransmissiveBounces( bounces ) {
-
-		this.transmissiveBounces = bounces;
-		this.pathTracingStage?.setUniform( 'transmissiveBounces', bounces );
-		this.reset();
-
-	}
-
-	setBackgroundIntensity( intensity ) {
-
-		this.backgroundIntensity = intensity;
-		this.pathTracingStage?.setUniform( 'backgroundIntensity', intensity );
-		this.reset();
-
-	}
-
-	/**
-	 * Sets whether to show area light helpers.
-	 */
-	setShowLightHelper( show ) {
-
-		this.sceneHelpers.visible = show;
-
-		if ( show ) {
-
-			this._syncLightHelpers();
-
-		} else {
-
-			this.sceneHelpers.clear();
-
-		}
-
-	}
-
-	/**
-	 * Syncs helpers in sceneHelpers with current scene lights.
-	 */
-	_syncLightHelpers() {
-
-		if ( ! this.sceneHelpers.visible ) return;
-
-		const lights = this.scene.getObjectsByProperty( 'isLight', true );
-		this.sceneHelpers.sync( lights );
-
-	}
-
-	/**
-	 * Renders light helpers as overlay. Call after DisplayStage.
-	 */
-	_renderHelperOverlay() {
-
-		// Ensure light world matrices are up-to-date (this.scene is not rendered
-		// by the rasterizer during path tracing, so matrixWorld may be stale).
-		this.scene.updateMatrixWorld();
-		this.sceneHelpers.render( this.renderer, this.camera );
-
-	}
-
-	setShowBackground( show ) {
-
-		this.showBackground = show;
-		this.pathTracingStage?.setUniform( 'showBackground', show );
-		this.reset();
-
-	}
-
-	setTransparentBackground( enabled ) {
-
-		this.transparentBackground = enabled;
-		this.pathTracingStage?.setUniform( 'transparentBackground', enabled );
-		this.displayStage?.setTransparentBackground( enabled );
-		this.reset();
-
-	}
-
-	setEnableEnvironment( enable ) {
-
-		this.enableEnvironment = enable;
-		this.pathTracingStage?.setUniform( 'enableEnvironment', enable );
-		this.reset();
-
-	}
-
-	setGlobalIlluminationIntensity( intensity ) {
-
-		this.globalIlluminationIntensity = intensity;
-		this.pathTracingStage?.setUniform( 'globalIlluminationIntensity', intensity );
-		this.reset();
-
-	}
-
-	setExposure( exposure ) {
-
-		this.exposure = exposure;
-		this.displayStage?.setExposure( exposure );
-		this.reset();
-
-	}
-
-	setEnableDOF( enable ) {
-
-		this.enableDOF = enable;
-		this.pathTracingStage?.setUniform( 'enableDOF', enable );
-		this.reset();
-
-	}
-
-	setFocusDistance( distance ) {
-
-		this.focusDistance = distance;
-		this.pathTracingStage?.setUniform( 'focusDistance', distance );
-		this.reset();
-
-	}
-
-	setFocalLength( length ) {
-
-		this.focalLength = length;
-		this.pathTracingStage?.setUniform( 'focalLength', length );
-		this.reset();
-
-	}
-
-	setAperture( aperture ) {
-
-		this.aperture = aperture;
-		this.pathTracingStage?.setUniform( 'aperture', aperture );
-		this.reset();
-
-	}
-
-	setSamplingTechnique( technique ) {
-
-		this.samplingTechnique = technique;
-		this.pathTracingStage?.setUniform( 'samplingTechnique', technique );
-		this.reset();
-
-	}
-
-	setUseAdaptiveSampling( use ) {
-
-		this.useAdaptiveSampling = use;
-		this.pathTracingStage?.setUniform( 'useAdaptiveSampling', use );
-		use ? this.adaptiveSamplingStage?.enable() : this.adaptiveSamplingStage?.disable();
-
-		// AdaptiveSamplingStage reads variance:output from VarianceEstimationStage
-		if ( use ) {
-
-			this.varianceEstimationStage?.enable();
-
-		} else if ( ! this.asvgfStage?.enabled ) {
-
-			// Only disable if ASVGF (the other consumer) is also off
-			this.varianceEstimationStage?.disable();
-
-		}
-
-		this.reset();
-
-	}
-
-	setAdaptiveSamplingMax( max ) {
-
-		this.adaptiveSamplingMax = max;
-		this.pathTracingStage?.setUniform( 'adaptiveSamplingMax', max );
-		this.adaptiveSamplingStage?.setAdaptiveSamplingMax( max );
-		this.reset();
-
-	}
-
-	setFireflyThreshold( threshold ) {
-
-		this.fireflyThreshold = threshold;
-		this.pathTracingStage?.setUniform( 'fireflyThreshold', threshold );
-		this.reset();
-
-	}
-
-	setEnableEmissiveTriangleSampling( enable ) {
-
-		this.enableEmissiveTriangleSampling = enable;
-		this.pathTracingStage?.setUniform( 'enableEmissiveTriangleSampling', enable );
-		this.reset();
-
-	}
-
-	setEmissiveBoost( boost ) {
-
-		this.emissiveBoost = boost;
-		this.pathTracingStage?.setUniform( 'emissiveBoost', boost );
-		this.reset();
-
-	}
-
-	setVisMode( mode ) {
-
-		this.visMode = mode;
-		this.pathTracingStage?.setUniform( 'visMode', mode );
-		this.reset();
-
-	}
-
-	setDebugVisScale( scale ) {
-
-		this.debugVisScale = scale;
-		this.pathTracingStage?.setUniform( 'debugVisScale', scale );
-
-		this.reset();
-
-	}
-
-	updateMaterialProperty( materialIndex, property, value ) {
-
-		this.pathTracingStage?.materialData.updateMaterialProperty( materialIndex, property, value );
-
-		// Rebuild emissive triangle data when emissive/visibility properties change (only if sampling is enabled)
-		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity', 'visible' ];
-		if ( emissiveAffectingProps.includes( property )
-			&& this.sdf?.emissiveTriangleBuilder
-			&& this.pathTracingStage?.enableEmissiveTriangleSampling?.value ) {
-
-			const mat = this.sdf.materials[ materialIndex ];
-			if ( mat ) {
-
-				if ( property === 'emissive' ) {
-
-					mat.emissive = value;
-
-				} else if ( property === 'emissiveIntensity' ) {
-
-					mat.emissiveIntensity = value;
-
-				} else if ( property === 'visible' ) {
-
-					mat.visible = value;
-
-				}
-
-				const changed = this.sdf.emissiveTriangleBuilder.updateMaterialEmissive(
-					materialIndex, mat,
-					this.sdf.triangleData, this.sdf.materials, this.sdf.triangleCount,
-				);
-
-				if ( changed ) {
-
-					const emissiveRawData = this.sdf.emissiveTriangleBuilder.createEmissiveRawData();
-					this.pathTracingStage.setEmissiveTriangleData(
-						emissiveRawData,
-						this.sdf.emissiveTriangleBuilder.emissiveCount,
-						this.sdf.emissiveTriangleBuilder.totalEmissivePower,
-					);
-
-				}
-
-			}
-
-		}
-
-		this.reset();
-
-	}
-
-	updateTextureTransform( materialIndex, textureName, transform ) {
-
-		this.pathTracingStage?.materialData.updateTextureTransform( materialIndex, textureName, transform );
-
-		this.reset();
-
-	}
-
-	refreshMaterial() {
-
-		this.reset();
-
-	}
-
-	updateMaterial( materialIndex, material ) {
-
-		this.pathTracingStage?.materialData.updateMaterial( materialIndex, material );
-
-	}
-
-	async rebuildMaterials( scene ) {
-
-		await this.pathTracingStage?.rebuildMaterials( scene || this.meshScene );
-
-	}
-
-	/**
-	 * Returns whether the render is complete.
-	 */
-	isComplete() {
-
-		return this.pathTracingStage?.isComplete ?? false;
-
-	}
-
-	/**
-	 * Gets the current frame count.
-	 */
-	getFrameCount() {
-
-		return this.pathTracingStage?.frameCount || 0;
-
-	}
-
-	/**
-	 * Gets the camera for external manipulation.
-	 */
-	getCamera() {
-
-		return this.camera;
-
-	}
-
-	/**
-	 * Gets the controls for external manipulation.
-	 */
-	getControls() {
-
-		return this.controls;
-
-	}
-
-	/**
-	 * Syncs controls state after model load (AssetLoader updates camera/controls
-	 * directly since it shares them with us).
-	 */
-	_syncControlsAfterLoad() {
-
-		this.controls.saveState();
-		this.controls.update();
-
-	}
-
-	// ─── Stub Methods (no-ops until implemented) ──
-
-	/**
-	 * Sets aperture scale.
-	 */
-	setApertureScale( scale ) {
-
-		this.apertureScale = scale;
-		this.pathTracingStage?.setUniform( 'apertureScale', scale );
-		this.reset();
-
-	}
-
-	// ─── Auto-Focus ──
-
-	setAutoFocusMode( mode ) {
-
-		this.autoFocusMode = mode;
-
-		// When switching to an auto mode, force immediate recomputation
-		if ( mode !== 'manual' ) {
-
-			this._smoothedFocusDistance = null; // reset smoothing to pick up fresh
-			this._afPointDirty = true; // force reset on next frame
-
-		}
-
-	}
-
-	setAFScreenPoint( x, y ) {
-
-		this.afScreenPoint = { x, y };
-
-		// Force immediate focus recomputation and reset so the viewport updates
-		this._afPointDirty = true;
-
-	}
-
-	enterAFPointPlacementMode() {
-
-		if ( ! this.interactionManager ) return;
-		this.interactionManager.enterAFPointPlacementMode();
-		if ( this.controls ) this.controls.enabled = false;
-
-	}
-
-	exitAFPointPlacementMode() {
-
-		if ( ! this.interactionManager ) return;
-		this.interactionManager.exitAFPointPlacementMode();
-		if ( this.controls ) this.controls.enabled = true;
-
-	}
-
-	/**
-	 * Per-frame auto-focus update. Called in animate() before pipeline.render().
-	 * Uses Raycaster to get depth at the target screen point.
-	 */
-	updateAutoFocus() {
-
-		if ( this.autoFocusMode === 'manual' ) return;
-
-		// Lock focus during active tiled final rendering (renderMode=1, mid-render)
-		// Don't lock interactive mode (renderMode=0) or completed renders
-		const stage = this.pathTracingStage;
-		if ( stage?.isReady
-			&& stage.renderMode?.value === 1
-			&& stage.frameCount > 0
-			&& ! stage.isComplete ) return;
-
-
-
-		// Convert AF screen point (normalized 0-1) to NDC (-1 to 1)
-		const ndcX = this.afScreenPoint.x * 2 - 1;
-		const ndcY = - ( this.afScreenPoint.y * 2 - 1 ); // Y flip: screen Y=0 is top
-
-		// Cast ray using InteractionManager's raycaster
-		const raycaster = this.interactionManager?.raycaster;
-		if ( ! raycaster ) return;
-
-		raycaster.setFromCamera( { x: ndcX, y: ndcY }, this.camera );
-		const intersects = raycaster.intersectObjects( this.meshScene.children, true );
-
-		// Filter out helpers and floor plane
-		const validHit = intersects.find( hit =>
-			hit.object !== this.interactionManager?.focusPointIndicator &&
-			hit.object !== this.floorPlane &&
-			! hit.object.name.includes( 'Helper' ) &&
-			hit.object.type === 'Mesh'
-		);
-
-		let rawDistance;
-		if ( validHit ) {
-
-			rawDistance = validHit.distance;
-			this._lastValidFocusDistance = rawDistance;
-
-		} else {
-
-			// Hold last valid distance (spec: background/sky hits)
-			if ( this._lastValidFocusDistance !== null ) {
-
-				rawDistance = this._lastValidFocusDistance;
-
-			} else {
-
-				// Fallback: use default
-				const scale = this.assetLoader?.getSceneScale() || 1.0;
-				rawDistance = AF_DEFAULTS.FALLBACK_DISTANCE * scale;
-				this._lastValidFocusDistance = rawDistance;
-
-			}
-
-		}
-
-		// Explicit point move — snap immediately and force reset
-		const forceReset = this._afPointDirty;
-		this._afPointDirty = false;
-
-		// Temporal smoothing
-		if ( forceReset || this._smoothedFocusDistance === null || this._smoothedFocusDistance === 0 ) {
-
-			this._smoothedFocusDistance = rawDistance;
-
-		} else {
-
-			const changeFraction = Math.abs( rawDistance - this._smoothedFocusDistance )
-				/ this._smoothedFocusDistance;
-
-			if ( changeFraction > AF_DEFAULTS.SNAP_THRESHOLD ) {
-
-				// Large jump: snap immediately
-				this._smoothedFocusDistance = rawDistance;
-
-			} else {
-
-				// Smooth interpolation
-				this._smoothedFocusDistance += this.afSmoothingFactor
-					* ( rawDistance - this._smoothedFocusDistance );
-
-			}
-
-		}
-
-		// Check if focus changed enough to update
-		const prevFocus = this.focusDistance;
-		const newFocus = this._smoothedFocusDistance;
-
-		if ( forceReset || prevFocus === 0 || Math.abs( newFocus - prevFocus ) / Math.max( prevFocus, 0.001 ) > 0.001 ) {
-
-			// Update uniform directly
-			this.focusDistance = newFocus;
-			this.pathTracingStage?.setUniform( 'focusDistance', newFocus );
-
-			// Update store for UI display (unscaled value)
-			const scale = this.assetLoader?.getSceneScale() || 1.0;
-			this.dispatchEvent( { type: EngineEvents.AUTO_FOCUS_UPDATED, distance: newFocus / scale } );
-
-			// Reset accumulation on explicit point change or large threshold change
-			const changeRatio = Math.abs( newFocus - prevFocus ) / Math.max( prevFocus, 0.001 );
-			if ( forceReset ) {
-
-				this.reset(); // hard reset on explicit point change
-
-			} else if ( changeRatio > AF_DEFAULTS.RESET_THRESHOLD ) {
-
-				this.reset( true ); // soft reset for continuous camera tracking
-
-			}
-
-		}
-
-	}
-
-	/**
-	 * Sets render mode.
-	 * @param {number} mode - 0 = progressive (full-screen), 1 = tiled
-	 */
-	setRenderMode( mode ) {
-
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setUniform( 'renderMode', parseInt( mode ) );
-
-		}
-
-	}
+	// ═══════════════════════════════════════════════════════════════
+	// Asset Loading
+	// ═══════════════════════════════════════════════════════════════
 
 	/**
 	 * Loads a model, builds BVH, and uploads scene data.
@@ -1953,12 +632,12 @@ export class PathTracerApp extends EventDispatcher {
 			this._syncControlsAfterLoad();
 			await this.loadSceneData();
 			this.reset();
-			this.currentCameraIndex = 0;
+			this.cameraManager.currentCameraIndex = 0;
 			this.dispatchEvent( { type: 'ModelLoaded', url } );
 			this.dispatchEvent( {
 				type: 'CamerasUpdated',
-				cameras: this.cameras,
-				cameraNames: this.getCameraNames()
+				cameras: this.cameraManager.cameras,
+				cameraNames: this.cameraManager.getCameraNames()
 			} );
 
 		} finally {
@@ -1982,9 +661,9 @@ export class PathTracerApp extends EventDispatcher {
 			await this.assetLoader.loadEnvironment( url );
 
 			const environmentTexture = this.meshScene.environment;
-			if ( environmentTexture && this.pathTracingStage ) {
+			if ( environmentTexture && this.stages.pathTracing ) {
 
-				await this.pathTracingStage.environment.setEnvironmentMap( environmentTexture );
+				await this.stages.pathTracing.environment.setEnvironmentMap( environmentTexture );
 
 			}
 
@@ -2001,7 +680,8 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * Loads example models by index.
-	 * @param {number} index - Example model index
+	 * @param {number} index
+	 * @param {Array} modelFiles
 	 */
 	async loadExampleModels( index, modelFiles ) {
 
@@ -2013,12 +693,12 @@ export class PathTracerApp extends EventDispatcher {
 			this._syncControlsAfterLoad();
 			await this.loadSceneData();
 			this.reset();
-			this.currentCameraIndex = 0;
+			this.cameraManager.currentCameraIndex = 0;
 			this.dispatchEvent( { type: 'ModelLoaded', index } );
 			this.dispatchEvent( {
 				type: 'CamerasUpdated',
-				cameras: this.cameras,
-				cameraNames: this.getCameraNames()
+				cameras: this.cameraManager.cameras,
+				cameraNames: this.cameraManager.getCameraNames()
 			} );
 
 		} finally {
@@ -2030,738 +710,216 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Selects an object for highlighting (outline effect + UI).
+	 * Builds BVH from meshScene and uploads all scene data to the path tracer.
+	 * @returns {boolean}
 	 */
-	selectObject( object ) {
+	async loadSceneData() {
 
-		if ( this.outlineNode ) {
+		const timer = new BuildTimer( 'loadSceneData' );
+		const environmentTexture = this.meshScene.environment;
 
-			this.outlineNode.selectedObjects = object ? [ object ] : [];
+		// Environment CDF build in parallel with BVH
+		let cdfPromise = null;
+		if ( environmentTexture?.image?.data ) {
+
+			timer.start( 'Environment CDF build (worker)' );
+			this.stages.pathTracing.scene.environment = environmentTexture;
+			cdfPromise = this.stages.pathTracing.environment.buildEnvironmentCDF()
+				.then( () => timer.end( 'Environment CDF build (worker)' ) );
 
 		}
 
-		// Sync selection state with InteractionManager for toggle/context-menu logic
-		if ( this.interactionManager ) {
+		// Build BVH
+		timer.start( 'BVH build (TriangleSDF)' );
+		await this._sdf.buildBVH( this.meshScene );
+		timer.end( 'BVH build (TriangleSDF)' );
 
-			this.interactionManager.selectedObject = object || null;
+		const { triangleData, triangleCount, bvhData, materialData } = this._sdf;
 
-		}
+		if ( ! triangleData ) {
 
-		this.dispatchEvent( { type: EngineEvents.OBJECT_SELECTED, object: object || null } );
-
-	}
-
-	/**
-	 * Toggles focus mode for click-to-focus DOF.
-	 */
-	toggleFocusMode() {
-
-		if ( ! this.interactionManager ) return false;
-		const enabled = this.interactionManager.toggleFocusMode();
-		if ( this.controls ) {
-
-			this.controls.enabled = ! enabled;
+			console.error( 'PathTracerApp: Failed to get triangle data' );
+			return false;
 
 		}
 
-		return enabled;
+		updateLoading( { status: "Transferring data to GPU...", progress: 86 } );
+		await new Promise( r => setTimeout( r, 0 ) );
+		timer.start( 'GPU data transfer' );
+		this.stages.pathTracing.setTriangleData( triangleData, triangleCount );
 
-	}
+		if ( ! bvhData ) {
 
-	/**
-	 * Toggles select mode for click-to-select objects.
-	 */
-	toggleSelectMode() {
-
-		if ( ! this.interactionManager ) return false;
-		return this.interactionManager.toggleSelectMode();
-
-	}
-
-	/**
-	 * Disables select mode.
-	 */
-	disableSelectMode() {
-
-		this.interactionManager?.disableSelectMode();
-
-	}
-
-	/**
-	 * Switch to a camera by index.
-	 * @param {number} index - Camera index
-	 */
-	switchCamera( index ) {
-
-		if ( ! this.cameras || this.cameras.length === 0 ) return;
-
-		if ( index < 0 || index >= this.cameras.length ) {
-
-			console.warn( `WebGPU: Invalid camera index ${index}. Using default camera.` );
-			index = 0;
+			console.error( 'PathTracerApp: Failed to get BVH data' );
+			return false;
 
 		}
 
-		// Save default camera state before switching away from it.
-		// this.cameras[0] === this.camera, so copying model-camera
-		// properties into this.camera would destroy the default state.
-		if ( this.currentCameraIndex === 0 && index !== 0 ) {
+		this.stages.pathTracing.setBVHData( bvhData );
 
-			this._defaultCameraState = {
-				position: this.camera.position.clone(),
-				quaternion: this.camera.quaternion.clone(),
-				fov: this.camera.fov,
-				near: this.camera.near,
-				far: this.camera.far,
-				target: this.controls ? this.controls.target.clone() : null,
-			};
+		if ( materialData ) {
 
-		}
-
-		this.currentCameraIndex = index;
-
-		if ( index === 0 && this._defaultCameraState ) {
-
-			// Restore the default camera to its state before the switch
-			const s = this._defaultCameraState;
-			this.camera.position.copy( s.position );
-			this.camera.quaternion.copy( s.quaternion );
-			this.camera.fov = s.fov;
-			this.camera.near = s.near;
-			this.camera.far = s.far;
-			this.camera.updateProjectionMatrix();
-			this.camera.updateMatrixWorld( true );
-
-			if ( this.controls && s.target ) {
-
-				this.controls.target.copy( s.target );
-				this.controls.update();
-
-			}
+			this.stages.pathTracing.materialData.setMaterialData( materialData );
 
 		} else {
 
-			const sourceCamera = this.cameras[ index ];
-
-			// Copy camera properties from the source (world-space transforms
-			// were baked into extracted cameras during extraction).
-			this.camera.position.copy( sourceCamera.position );
-			this.camera.quaternion.copy( sourceCamera.quaternion );
-			this.camera.fov = sourceCamera.fov;
-			this.camera.near = sourceCamera.near;
-			this.camera.far = sourceCamera.far;
-			this.camera.updateProjectionMatrix();
-			this.camera.updateMatrixWorld( true );
-
-			// Place the orbit target along the camera's forward direction
-			// so OrbitControls doesn't overwrite the position on its next update().
-			if ( this.controls ) {
-
-				const forward = new Vector3( 0, 0, - 1 ).applyQuaternion( sourceCamera.quaternion );
-				const focusDist = this.focusDistance || 5.0;
-				this.controls.target.copy( this.camera.position ).addScaledVector( forward, focusDist );
-
-				this.controls.update();
-
-			}
+			console.warn( 'PathTracerApp: No material data, using defaults' );
 
 		}
 
-		this.onResize();
-		this.reset();
-		this.dispatchEvent( { type: 'CameraSwitched', cameraIndex: index } );
+		if ( environmentTexture ) {
 
-	}
+			this.stages.pathTracing.environment.setEnvironmentTexture( environmentTexture );
 
-	/**
-	 * Returns camera names from the app's camera list.
-	 * @returns {string[]}
-	 */
-	getCameraNames() {
+		}
 
-		const cameras = this.cameras;
-		if ( ! cameras || cameras.length === 0 ) return [ 'Default Camera' ];
-
-		return cameras.map( ( camera, index ) => {
-
-			if ( index === 0 ) {
-
-				return 'Default Camera';
-
-			} else {
-
-				return camera.name || `Camera ${index}`;
-
-			}
-
+		// Transfer material texture arrays
+		this.stages.pathTracing.materialData.setMaterialTextures( {
+			albedoMaps: this._sdf.albedoTextures,
+			normalMaps: this._sdf.normalTextures,
+			bumpMaps: this._sdf.bumpTextures,
+			roughnessMaps: this._sdf.roughnessTextures,
+			metalnessMaps: this._sdf.metalnessTextures,
+			emissiveMaps: this._sdf.emissiveTextures,
+			displacementMaps: this._sdf.displacementTextures,
 		} );
 
-	}
+		// Emissive triangle data
+		if ( this._sdf.emissiveTriangleData ) {
 
-	/**
-	 * Adds a light to the scene and updates the path tracer.
-	 *
-	 * @param {string} type - Light type: 'DirectionalLight', 'PointLight', 'SpotLight', 'RectAreaLight'
-	 * @returns {Object|null} Light descriptor or null if type is invalid
-	 */
-	addLight( type ) {
-
-		const defaults = {
-			DirectionalLight: { position: [ 1, 1, 1 ], intensity: 1.0, color: '#ffffff' },
-			PointLight: { position: [ 0, 2, 0 ], intensity: 100, color: '#ffffff' },
-			SpotLight: { position: [ 0, 1, 0 ], intensity: 300, color: '#ffffff', angle: 15 },
-			RectAreaLight: { position: [ 0, 2, 0 ], intensity: 500, color: '#ffffff', width: 2, height: 2 }
-		};
-
-		const props = defaults[ type ];
-		if ( ! props ) return null;
-
-		let light;
-
-		if ( type === 'DirectionalLight' ) {
-
-			light = new DirectionalLight( props.color, props.intensity );
-			light.position.fromArray( props.position );
-
-		} else if ( type === 'PointLight' ) {
-
-			light = new PointLight( props.color, props.intensity );
-			light.position.fromArray( props.position );
-
-		} else if ( type === 'SpotLight' ) {
-
-			light = new SpotLight( props.color, props.intensity );
-			light.position.fromArray( props.position );
-			light.angle = MathUtils.degToRad( props.angle );
-			const target = new Object3D();
-			this.scene.add( target );
-			light.target = target;
-
-		} else if ( type === 'RectAreaLight' ) {
-
-			light = new RectAreaLight( props.color, props.intensity, props.width, props.height );
-			light.position.fromArray( props.position );
-			light.lookAt( 0, 0, 0 );
+			this.stages.pathTracing.setEmissiveTriangleData(
+				this._sdf.emissiveTriangleData,
+				this._sdf.emissiveTriangleCount,
+				this._sdf.emissiveTotalPower,
+			);
 
 		}
 
-		const count = this.scene.getObjectsByProperty( 'isLight', true ).length;
-		light.name = `${type.replace( 'Light', '' )} ${count + 1}`;
-		this.scene.add( light );
-		this.updateLights();
-		this._syncLightHelpers();
-		this.reset();
+		// Light BVH data
+		if ( this._sdf.lightBVHNodeData ) {
 
-		const descriptor = {
-			uuid: light.uuid,
-			name: light.name,
-			type: light.type,
-			intensity: light.intensity,
-			color: `#${light.color.getHexString()}`,
-			position: [ light.position.x, light.position.y, light.position.z ],
-			angle: light.angle
-		};
-
-		if ( type === 'RectAreaLight' ) {
-
-			descriptor.width = light.width;
-			descriptor.height = light.height;
-			const dir = light.getWorldDirection( light.position.clone() );
-			descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
+			this.stages.pathTracing.setLightBVHData(
+				this._sdf.lightBVHNodeData,
+				this._sdf.lightBVHNodeCount,
+			);
 
 		}
 
-		return descriptor;
+		// Transfer lights
+		this.lightManager.transferSceneLights( this.meshScene );
+		timer.end( 'GPU data transfer' );
 
-	}
+		// Compile shaders
+		updateLoading( { status: "Compiling shaders...", progress: 90 } );
+		await new Promise( r => setTimeout( r, 0 ) );
+		timer.start( 'Material setup (TSL compile)' );
+		this.stages.pathTracing.setupMaterial();
+		timer.end( 'Material setup (TSL compile)' );
 
-	/**
-	 * Removes a light from the WebGPU scene by UUID.
-	 *
-	 * @param {string} uuid - UUID of the light to remove
-	 * @returns {boolean} True if light was found and removed
-	 */
-	removeLight( uuid ) {
+		// Wait for CDF
+		if ( cdfPromise ) {
 
-		const light = this.scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! light || ! light.isLight ) return false;
+			updateLoading( { status: "Finalizing environment map...", progress: 95 } );
+			await cdfPromise;
+			this.stages.pathTracing.environment.applyCDFResults();
 
-		this.sceneHelpers.remove( light );
-		if ( light.target ) light.target.removeFromParent();
-		light.removeFromParent();
-		this.updateLights();
-		this.reset();
+		}
+
+		// Apply all settings to stages in one shot
+		timer.start( 'Apply settings' );
+		this.settings.applyAll();
+		this.stages.display.setTransparentBackground( this.settings.get( 'transparentBackground' ) );
+		timer.end( 'Apply settings' );
+
+		timer.print();
+		resetLoading();
+
+		this.dispatchEvent( { type: 'SceneRebuild' } );
 		return true;
 
 	}
 
-	/**
-	 * Removes all lights from the WebGPU scene.
-	 */
-	clearLights() {
+	// ═══════════════════════════════════════════════════════════════
+	// Resize
+	// ═══════════════════════════════════════════════════════════════
 
-		this.sceneHelpers.clear();
-		this.scene.getObjectsByProperty( 'isLight', true ).forEach( light => {
+	onResize() {
 
-			if ( light.target ) this.scene.remove( light.target );
-			this.scene.remove( light );
+		const width = this.canvas.clientWidth;
+		const height = this.canvas.clientHeight;
+		if ( width === 0 || height === 0 ) return;
 
-		} );
-		this.updateLights();
-		this.reset();
+		this.renderer.setPixelRatio( 1.0 );
+		this.renderer.setSize( width, height, false );
+		this._camera.aspect = width / height;
+		this._camera.updateProjectionMatrix();
 
-	}
-
-	/**
-	 * Returns descriptors for all lights in the WebGPU scene.
-	 *
-	 * @returns {Array<Object>} Array of light descriptor objects
-	 */
-	getLights() {
-
-		return this.scene.getObjectsByProperty( 'isLight', true ).map( light => {
-
-			let angle = 0;
-			if ( light.type === 'DirectionalLight' && light.angle !== undefined ) {
-
-				angle = MathUtils.radToDeg( light.angle );
-
-			} else if ( light.type === 'SpotLight' ) {
-
-				if ( light.angle !== undefined ) {
-
-					angle = MathUtils.radToDeg( light.angle );
-
-				}
-
-			}
-
-			const descriptor = {
-				uuid: light.uuid,
-				name: light.name,
-				type: light.type,
-				intensity: light.intensity,
-				color: `#${light.color.getHexString()}`,
-				position: [ light.position.x, light.position.y, light.position.z ],
-				angle: angle
-			};
-
-			if ( light.type === 'RectAreaLight' ) {
-
-				descriptor.width = light.width;
-				descriptor.height = light.height;
-				const dir = light.getWorldDirection( light.position.clone() );
-				descriptor.target = [ light.position.x + dir.x, light.position.y + dir.y, light.position.z + dir.z ];
-
-			} else if ( light.type === 'SpotLight' && light.target ) {
-
-				descriptor.target = [ light.target.position.x, light.target.position.y, light.target.position.z ];
-
-			}
-
-			return descriptor;
-
-		} );
-
-	}
-
-	/**
-	 * Reprocesses all scene lights and updates the path tracer uniform buffers.
-	 * Called after any light addition, removal, or property change.
-	 */
-	updateLights() {
-
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.updateLights();
-
-		}
-
-	}
-
-	/**
-	 * Takes a screenshot of the current render and downloads it.
-	 */
-	takeScreenshot() {
-
-		if ( ! this.renderer?.domElement ) return;
-
-		try {
-
-			// Use post-processed output if denoiser or upscaler is enabled and render is complete
-			const canvas = ( this.denoiser?.enabled || this.upscaler?.enabled ) && this.denoiserCanvas && this.pathTracingStage?.isComplete
-				? this.denoiserCanvas
-				: this.renderer.domElement;
-
-			// Re-render display stage so the WebGPU canvas has valid content
-			// (WebGPU canvases expire their texture after each compositor frame)
-			if ( canvas === this.renderer.domElement && this.displayStage && this.pipeline?.context ) {
-
-				this.displayStage.render( this.pipeline.context );
-
-			}
-
-			const screenshot = canvas.toDataURL( 'image/png' );
-			const link = document.createElement( 'a' );
-			link.href = screenshot;
-			link.download = 'screenshot.png';
-			link.click();
-
-		} catch ( error ) {
-
-			console.error( 'PathTracerApp: Screenshot failed:', error );
-
-		}
-
-	}
-
-	/**
-	 * Requests a display-only refresh (e.g. after outline selection change).
-	 * In the completed state the path tracer is NOT re-run; only the
-	 * DisplayStage re-renders so the outline updates on screen.
-	 */
-	refreshFrame() {
-
-		this._needsDisplayRefresh = true;
-
-	}
-
-	/**
-	 * Enables/disables the path tracer.
-	 * @param {boolean} val
-	 */
-	setPathTracerEnabled( val ) {
-
-		this.pathTracerEnabled = val;
-
-	}
-
-	/**
-	 * Enables/disables accumulation.
-	 * @param {boolean} val
-	 */
-	setAccumulationEnabled( val ) {
-
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setAccumulationEnabled( val );
-
-		}
-
-	}
-
-	/**
-	 * Sets tile count for tiled rendering.
-	 * @param {number} val - Tiles per row/column (e.g., 3 = 3x3 = 9 tiles)
-	 */
-	setTileCount( val ) {
-
-		if ( this.pathTracingStage?.tileManager ) {
-
-			this.pathTracingStage.tileManager.setTileCount( val );
-
-		}
-
-	}
-
-	setRenderLimitMode( val ) {
-
-		this.renderLimitMode = val;
-		if ( this.pathTracingStage?.setRenderLimitMode ) {
-
-			this.pathTracingStage.setRenderLimitMode( val );
-
-		}
-
-	}
-
-	setEnvironmentRotation( val ) {
-
-		this.environmentRotation = val;
-		this.pathTracingStage.environment.setEnvironmentRotation( val );
-
-	}
-
-	/**
-	 * Enables/disables interaction mode (quality reduction during camera movement).
-	 * @param {boolean} val
-	 */
-	setInteractionModeEnabled( val ) {
-
-		if ( this.pathTracingStage ) {
-
-			this.pathTracingStage.setInteractionModeEnabled( val );
-
-		}
-
-	}
-
-	/**
-	 * Set adaptive sampling parameters on both stages.
-	 * @param {Object} params - Parameters to update
-	 * @param {number} [params.min] - Min samples (PathTracingStage)
-	 * @param {number} [params.threshold] - Variance threshold (AdaptiveSamplingStage)
-	 * @param {number} [params.materialBias] - Material bias (AdaptiveSamplingStage)
-	 * @param {number} [params.edgeBias] - Edge bias (AdaptiveSamplingStage)
-	 * @param {number} [params.convergenceSpeedUp] - Convergence speed (AdaptiveSamplingStage)
-	 * @param {number} [params.adaptiveSamplingMax] - Max samples (both stages)
-	 */
-	setAdaptiveSamplingParameters( params ) {
-
-		if ( params.min !== undefined ) {
-
-			this.pathTracingStage?.setAdaptiveSamplingMin( params.min );
-
-		}
-
-		if ( params.adaptiveSamplingMax !== undefined ) {
-
-			this.setAdaptiveSamplingMax( params.adaptiveSamplingMax );
-
-		}
-
-		this.adaptiveSamplingStage?.setAdaptiveSamplingParameters( params );
-
-	}
-
-	// ── Environment mode helpers ──
-
-	/** Returns envParams from the path tracing stage. */
-	getEnvParams() {
-
-		return this.pathTracingStage?.environment?.envParams ?? null;
-
-	}
-
-	/** Returns the current environment texture. */
-	getEnvironmentTexture() {
-
-		return this.pathTracingStage?.environment?.environmentTexture ?? null;
-
-	}
-
-	/** Returns the current environment CDF texture — not yet supported. */
-	getEnvironmentCDF() {
-
-		return null;
-
-	}
-
-	async generateProceduralSkyTexture() {
-
-		return this.pathTracingStage?.environment.generateProceduralSkyTexture();
-
-	}
-
-	async generateGradientTexture() {
-
-		return this.pathTracingStage?.environment.generateGradientTexture();
-
-	}
-
-	async generateSolidColorTexture() {
-
-		return this.pathTracingStage?.environment.generateSolidColorTexture();
-
-	}
-
-	async setEnvironmentMap( texture ) {
-
-		if ( ! this.pathTracingStage ) {
-
-			console.warn( 'PathTracerApp: PathTracingStage not initialized' );
-			return;
-
-		}
-
-		await this.pathTracingStage.environment.setEnvironmentMap( texture );
-		this.reset();
-
-	}
-
-	/** Marks the environment texture as needing a GPU re-upload. */
-	markEnvironmentNeedsUpdate() {
-
-		const tex = this.pathTracingStage?.environment?.environmentTexture;
-		if ( tex ) tex.needsUpdate = true;
-
-	}
-
-	/**
-	 * Returns scene statistics from the path tracing stage, or null.
-	 * @returns {object|null}
-	 */
-	getSceneStatistics() {
-
-		try {
-
-			return this.sdf?.getStatistics?.() ?? null;
-
-		} catch {
-
-			return null;
-
-		}
-
-	}
-
-	/**
-	 * Disposes of all resources.
-	 */
-	dispose() {
-
-		this.stopAnimation();
-		setStatusCallback( null );
-
-		if ( this.assetLoader && this._onAssetLoaded ) {
-
-			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
-
-		}
-
-		this.sceneHelpers.clear();
-
-		if ( this.outlineNode ) {
-
-			this.outlineNode.dispose();
-			this.outlineNode = null;
-
-		}
-
-		if ( this.denoiser ) {
-
-			this.denoiser.dispose();
-			this.denoiser = null;
-
-		}
-
-		if ( this.upscaler ) {
-
-			this.upscaler.dispose();
-			this.upscaler = null;
-
-		}
-
-		if ( this.pipeline ) {
-
-			this.pipeline.dispose();
-
-		}
-
-		if ( this.interactionManager ) {
-
-			this.interactionManager.dispose();
-
-		}
-
-		if ( this.controls ) {
-
-			this.controls.dispose();
-
-		}
-
-		if ( this.renderer ) {
-
-			this.renderer.dispose();
-
-		}
-
-		if ( this.stats ) {
-
-			this.stats.dom.remove();
-			this.stats = null;
-
-		}
+		if ( width === this._lastRenderWidth && height === this._lastRenderHeight ) return;
 
 		clearTimeout( this._resizeDebounceTimer );
-		window.removeEventListener( 'resize', this.resizeHandler );
+		this._resizeDebounceTimer = setTimeout( () => {
 
-		this.isInitialized = false;
+			this._applyRenderResize( width, height );
+
+		}, 300 );
 
 	}
 
-	// ── Orchestration methods (moved from store.js) ─────────────
+	_applyRenderResize( renderWidth, renderHeight ) {
 
-	/**
-	 * Switches the real-time denoiser strategy.
-	 * Disables all real-time denoisers first, then enables the selected one.
-	 * Clears stale pipeline context textures to avoid DisplayStage fallback issues.
-	 * @param {string} strategy - 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
-	 * @param {string} [asvgfPreset] - ASVGF quality preset to apply when strategy is 'asvgf'
-	 */
-	setDenoiserStrategy( strategy, asvgfPreset ) {
+		this._lastRenderWidth = renderWidth;
+		this._lastRenderHeight = renderHeight;
 
-		// Disable all real-time denoisers first (OIDN remains independent)
-		if ( this.asvgfStage ) this.asvgfStage.enabled = false;
-		if ( this.varianceEstimationStage && ! this.useAdaptiveSampling ) this.varianceEstimationStage.enabled = false;
-		if ( this.bilateralFilteringStage ) this.bilateralFilteringStage.enabled = false;
-		if ( this.edgeAwareFilteringStage ) this.edgeAwareFilteringStage.setFilteringEnabled( false );
-		if ( this.ssrcStage ) this.ssrcStage.enabled = false;
+		this.pipeline?.setSize( renderWidth, renderHeight );
+		this.denoiserOrchestrator?.denoiser?.setSize( renderWidth, renderHeight );
+		this.denoiserOrchestrator?.upscaler?.setBaseSize( renderWidth, renderHeight );
+		this.needsReset = true;
 
-		// Clear all stale denoiser textures from context, then enable selected strategy
-		this._clearDenoiserTextures();
+		this.dispatchEvent( { type: 'resolution_changed', width: renderWidth, height: renderHeight } );
 
-		switch ( strategy ) {
+	}
 
-			case 'asvgf':
-				this.asvgfStage.enabled = true;
-				if ( this.varianceEstimationStage ) this.varianceEstimationStage.enabled = true;
-				if ( this.bilateralFilteringStage ) this.bilateralFilteringStage.enabled = true;
-				this.asvgfStage.setTemporalEnabled && this.asvgfStage.setTemporalEnabled( true );
-				this._applyASVGFPreset( asvgfPreset || 'medium' );
-				break;
+	setCanvasSize( width, height ) {
 
-			case 'ssrc':
-				if ( this.ssrcStage ) this.ssrcStage.enabled = true;
-				break;
+		this.canvas.style.width = `${width}px`;
+		this.canvas.style.height = `${height}px`;
 
-			case 'edgeaware':
-				if ( this.edgeAwareFilteringStage ) this.edgeAwareFilteringStage.setFilteringEnabled( true );
-				break;
+		if ( this.denoiserCanvas ) {
+
+			this.denoiserCanvas.style.width = `${width}px`;
+			this.denoiserCanvas.style.height = `${height}px`;
 
 		}
 
-		this.reset();
+		if ( width === 0 || height === 0 ) return;
+
+		this.renderer.setPixelRatio( 1.0 );
+		this.renderer.setSize( width, height, false );
+		this._camera.aspect = width / height;
+		this._camera.updateProjectionMatrix();
+
+		clearTimeout( this._resizeDebounceTimer );
+		this._applyRenderResize( width, height );
 
 	}
 
-	/** Remove all denoiser output textures from pipeline context. */
-	_clearDenoiserTextures() {
-
-		const ctx = this.pipeline?.context;
-		if ( ! ctx ) return;
-		const keys = [
-			'asvgf:output', 'asvgf:temporalColor', 'asvgf:variance',
-			'variance:output', 'bilateralFiltering:output',
-			'edgeFiltering:output', 'ssrc:output',
-		];
-		keys.forEach( k => ctx.removeTexture( k ) );
-
-	}
-
-	/** Look up and apply an ASVGF quality preset. */
-	_applyASVGFPreset( presetName ) {
-
-		const preset = ASVGF_QUALITY_PRESETS[ presetName ];
-		if ( preset ) this.asvgfStage?.updateParameters( preset );
-
-	}
+	// ═══════════════════════════════════════════════════════════════
+	// Mode Configuration
+	// ═══════════════════════════════════════════════════════════════
 
 	/**
 	 * Configures the engine for a specific rendering mode.
 	 * @param {string} mode - 'preview' | 'final-render' | 'results'
-	 * @param {Object} [options] - Additional options
-	 * @param {number} [options.canvasWidth] - Canvas width for this mode
-	 * @param {number} [options.canvasHeight] - Canvas height for this mode
+	 * @param {Object} [options]
 	 */
 	configureForMode( mode, options = {} ) {
 
 		if ( mode === 'results' ) {
 
 			this.pauseRendering = true;
-			this.controls.enabled = false;
+			this._controls.enabled = false;
 			this.renderer?.domElement && ( this.renderer.domElement.style.display = 'none' );
-			this.denoiser?.output && ( this.denoiser.output.style.display = 'none' );
+			this.denoiserOrchestrator?.denoiser?.output && ( this.denoiserOrchestrator.denoiser.output.style.display = 'none' );
 			return;
 
 		}
@@ -2769,34 +927,33 @@ export class PathTracerApp extends EventDispatcher {
 		const isFinal = mode === 'final-render';
 		const config = isFinal ? FINAL_RENDER_CONFIG : PREVIEW_RENDER_CONFIG;
 
-		this.controls.enabled = ! isFinal;
+		this._controls.enabled = ! isFinal;
 
-		// Batch uniform updates
-		this.maxSamples = config.maxSamples;
-		this.pathTracingStage?.setUniform( 'maxSamples', config.maxSamples );
-		this.maxBounces = config.bounces;
-		this.pathTracingStage?.setUniform( 'maxBounces', config.bounces );
-		this.samplesPerPixel = config.samplesPerPixel;
-		this.pathTracingStage?.setUniform( 'samplesPerPixel', config.samplesPerPixel );
-		this.transmissiveBounces = config.transmissiveBounces;
-		this.pathTracingStage?.setUniform( 'transmissiveBounces', config.transmissiveBounces );
+		// Batch uniform updates via settings
+		this.settings.setMany( {
+			maxSamples: config.maxSamples,
+			maxBounces: config.bounces,
+			samplesPerPixel: config.samplesPerPixel,
+			transmissiveBounces: config.transmissiveBounces,
+		}, { silent: true } );
 
 		this.setRenderMode( config.renderMode );
 		this.setTileCount( config.tiles );
-		if ( this.tileHighlightStage ) this.tileHighlightStage.enabled = config.tilesHelper;
-		this.pathTracingStage?.updateCompletionThreshold?.();
+		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = config.tilesHelper;
+		this.stages.pathTracing?.updateCompletionThreshold?.();
 
-		if ( this.denoiser ) {
+		const denoiser = this.denoiserOrchestrator?.denoiser;
+		if ( denoiser ) {
 
-			this.denoiser.abort();
-			this.denoiser.enabled = config.enableOIDN;
-			this.denoiser.updateQuality( config.oidnQuality );
-			this.denoiser.toggleHDR( config.oidnHdr );
-			this.denoiser.toggleUseGBuffer( config.useGBuffer );
+			denoiser.abort();
+			denoiser.enabled = config.enableOIDN;
+			denoiser.updateQuality( config.oidnQuality );
+			denoiser.toggleHDR( config.oidnHdr );
+			denoiser.toggleUseGBuffer( config.useGBuffer );
 
 		}
 
-		if ( this.upscaler ) this.upscaler.abort();
+		this.denoiserOrchestrator?.upscaler?.abort();
 
 		if ( options.canvasWidth && options.canvasHeight ) {
 
@@ -2805,7 +962,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.renderer?.domElement && ( this.renderer.domElement.style.display = 'block' );
-		this.denoiser?.output && ( this.denoiser.output.style.display = 'block' );
+		this.denoiserOrchestrator?.denoiser?.output && ( this.denoiserOrchestrator.denoiser.output.style.display = 'block' );
 
 		this.needsReset = false;
 		this.pauseRendering = false;
@@ -2813,73 +970,228 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Enables/disables ASVGF denoising with coordination of related stages.
-	 * @param {boolean} enabled
-	 * @param {string} [qualityPreset] - ASVGF quality preset name
-	 */
+	// ═══════════════════════════════════════════════════════════════
+	// Delegated APIs — Camera
+	// ═══════════════════════════════════════════════════════════════
+
+	switchCamera( index ) {
+
+		this.cameraManager.switchCamera(
+			index,
+			this.settings.get( 'focusDistance' ),
+			() => this.onResize(),
+			() => this.reset()
+		);
+
+	}
+
+	getCameraNames() {
+
+		return this.cameraManager.getCameraNames();
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Delegated APIs — Lights
+	// ═══════════════════════════════════════════════════════════════
+
+	addLight( type ) {
+
+		const descriptor = this.lightManager.addLight( type );
+		this.reset();
+		return descriptor;
+
+	}
+
+	removeLight( uuid ) {
+
+		const removed = this.lightManager.removeLight( uuid );
+		if ( removed ) this.reset();
+		return removed;
+
+	}
+
+	clearLights() {
+
+		this.lightManager.clearLights();
+		this.reset();
+
+	}
+
+	getLights() {
+
+		return this.lightManager.getLights();
+
+	}
+
+	updateLights() {
+
+		this.lightManager.updateLights();
+
+	}
+
+	setShowLightHelper( show ) {
+
+		this.lightManager.setShowLightHelper( show );
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Delegated APIs — Denoiser
+	// ═══════════════════════════════════════════════════════════════
+
+	setDenoiserStrategy( strategy, asvgfPreset ) {
+
+		this.denoiserOrchestrator.setDenoiserStrategy( strategy, asvgfPreset );
+		this.reset();
+
+	}
+
 	setASVGFEnabled( enabled, qualityPreset ) {
 
-		if ( this.asvgfStage ) this.asvgfStage.enabled = enabled;
-		if ( this.varianceEstimationStage ) this.varianceEstimationStage.enabled = enabled;
-		if ( this.bilateralFilteringStage ) this.bilateralFilteringStage.enabled = enabled;
-
-		if ( enabled ) {
-
-			this.asvgfStage?.setTemporalEnabled?.( true );
-			this._applyASVGFPreset( qualityPreset || 'medium' );
-
-		}
-
-		// Coordinate with EdgeAware filtering
-		if ( this.edgeAwareFilteringStage ) this.edgeAwareFilteringStage.setFilteringEnabled( ! enabled );
-
+		this.denoiserOrchestrator.setASVGFEnabled( enabled, qualityPreset );
 		this.reset();
 
 	}
 
-	/**
-	 * Enables/disables auto-exposure with proper exposure stacking management.
-	 * @param {boolean} enabled
-	 */
+	applyASVGFPreset( presetName ) {
+
+		this.denoiserOrchestrator.applyASVGFPreset( presetName );
+		this.reset();
+
+	}
+
 	setAutoExposureEnabled( enabled ) {
 
-		if ( ! this.autoExposureStage ) return;
-
-		this.autoExposureStage.enabled = enabled;
-
-		if ( enabled ) {
-
-			// Neutralize DisplayStage manual exposure to avoid stacking
-			this.displayStage?.setExposure( 1.0 );
-
-		} else {
-
-			// Restore manual exposure
-			this.displayStage?.setExposure( this.exposure );
-			// Reset renderer exposure so it doesn't stack with the manual curve
-			if ( this.displayStage && this.renderer ) {
-
-				this.renderer.toneMappingExposure = 1.0;
-
-			}
-
-		}
-
+		this.denoiserOrchestrator.setAutoExposureEnabled( enabled, this.settings.get( 'exposure' ) );
 		this.reset();
 
 	}
 
-	/**
-	 * Switches the environment rendering mode.
-	 * @param {string} mode - 'hdri' | 'procedural' | 'gradient' | 'color'
-	 */
+	setAdaptiveSamplingEnabled( enabled ) {
+
+		this.settings.set( 'useAdaptiveSampling', enabled );
+		this.denoiserOrchestrator.setAdaptiveSamplingEnabled( enabled );
+		this.reset();
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Delegated APIs — Interaction
+	// ═══════════════════════════════════════════════════════════════
+
+	selectObject( object ) {
+
+		if ( this._outlineNode ) {
+
+			this._outlineNode.selectedObjects = object ? [ object ] : [];
+
+		}
+
+		if ( this._interactionManager ) {
+
+			this._interactionManager.selectedObject = object || null;
+
+		}
+
+		this.dispatchEvent( { type: EngineEvents.OBJECT_SELECTED, object: object || null } );
+
+	}
+
+	toggleFocusMode() {
+
+		if ( ! this._interactionManager ) return false;
+		const enabled = this._interactionManager.toggleFocusMode();
+		if ( this._controls ) this._controls.enabled = ! enabled;
+		return enabled;
+
+	}
+
+	toggleSelectMode() {
+
+		if ( ! this._interactionManager ) return false;
+		return this._interactionManager.toggleSelectMode();
+
+	}
+
+	disableSelectMode() {
+
+		this._interactionManager?.disableSelectMode();
+
+	}
+
+	refreshFrame() {
+
+		this._needsDisplayRefresh = true;
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Delegated APIs — Environment
+	// ═══════════════════════════════════════════════════════════════
+
+	getEnvParams() {
+
+		return this.stages.pathTracing?.environment?.envParams ?? null;
+
+	}
+
+	getEnvironmentTexture() {
+
+		return this.stages.pathTracing?.environment?.environmentTexture ?? null;
+
+	}
+
+	getEnvironmentCDF() {
+
+		return null;
+
+	}
+
+	async generateProceduralSkyTexture() {
+
+		return this.stages.pathTracing?.environment.generateProceduralSkyTexture();
+
+	}
+
+	async generateGradientTexture() {
+
+		return this.stages.pathTracing?.environment.generateGradientTexture();
+
+	}
+
+	async generateSolidColorTexture() {
+
+		return this.stages.pathTracing?.environment.generateSolidColorTexture();
+
+	}
+
+	async setEnvironmentMap( texture ) {
+
+		if ( ! this.stages.pathTracing ) {
+
+			console.warn( 'PathTracerApp: PathTracingStage not initialized' );
+			return;
+
+		}
+
+		await this.stages.pathTracing.environment.setEnvironmentMap( texture );
+		this.reset();
+
+	}
+
+	markEnvironmentNeedsUpdate() {
+
+		const tex = this.stages.pathTracing?.environment?.environmentTexture;
+		if ( tex ) tex.needsUpdate = true;
+
+	}
+
 	async setEnvironmentMode( mode ) {
 
 		const previousMode = this._environmentMode || 'hdri';
 		this._environmentMode = mode;
 
-		// Store previous HDRI if switching away
 		if ( mode !== 'hdri' && previousMode === 'hdri' ) {
 
 			this._previousHDRI = this.getEnvironmentTexture();
@@ -2887,7 +1199,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Generate texture for the new mode
 		if ( mode === 'gradient' ) {
 
 			await this.generateGradientTexture();
@@ -2912,7 +1223,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		// Update envParams mode
 		const envParams = this.getEnvParams();
 		if ( envParams ) envParams.mode = mode;
 
@@ -2921,25 +1231,202 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Enables/disables adaptive sampling with proper stage and context cleanup.
-	 * @param {boolean} enabled
-	 */
-	setAdaptiveSamplingEnabled( enabled ) {
+	// ═══════════════════════════════════════════════════════════════
+	// Read-Only Accessors
+	// ═══════════════════════════════════════════════════════════════
 
-		this.setUseAdaptiveSampling( enabled );
+	isComplete() {
 
-		if ( this.adaptiveSamplingStage ) {
+		return this.stages.pathTracing?.isComplete ?? false;
 
-			this.adaptiveSamplingStage.enabled = enabled;
-			this.adaptiveSamplingStage.toggleHelper( false );
+	}
+
+	getFrameCount() {
+
+		return this.stages.pathTracing?.frameCount || 0;
+
+	}
+
+	/** Camera and controls — accessible via cameraManager */
+	get camera() {
+
+		return this.cameraManager?.camera ?? this._camera;
+
+	}
+
+	get controls() {
+
+		return this.cameraManager?.controls ?? this._controls;
+
+	}
+
+	getSceneStatistics() {
+
+		try {
+
+			return this._sdf?.getStatistics?.() ?? null;
+
+		} catch {
+
+			return null;
 
 		}
 
-		// Clean up stale variance context when disabling
-		if ( ! enabled && this.pipeline?.context && ! this.asvgfStage?.enabled ) {
+	}
 
-			this.pipeline.context.removeTexture( 'variance:output' );
+	/**
+	 * Returns the canvas element suitable for reading pixels from.
+	 * Ensures the WebGPU canvas has fresh content if it's the source.
+	 * Use this instead of directly accessing renderer.domElement / denoiserCanvas.
+	 * @returns {HTMLCanvasElement|null}
+	 */
+	getOutputCanvas() {
+
+		if ( ! this.renderer?.domElement ) return null;
+
+		const denoiser = this.denoiserOrchestrator?.denoiser;
+		const upscaler = this.denoiserOrchestrator?.upscaler;
+		const usePostProcess = ( denoiser?.enabled || upscaler?.enabled )
+			&& this.denoiserCanvas
+			&& this.stages.pathTracing?.isComplete;
+
+		if ( usePostProcess ) return this.denoiserCanvas;
+
+		// Re-render display stage so the WebGPU canvas has valid content
+		if ( this.stages.display && this.pipeline?.context ) {
+
+			this.stages.display.render( this.pipeline.context );
+
+		}
+
+		return this.renderer.domElement;
+
+	}
+
+	/**
+	 * Focuses the orbit camera on the center of a 3D object's bounding box.
+	 * @param {import('three').Vector3} center - World-space center to focus on
+	 */
+	focusOnPoint( center ) {
+
+		if ( ! center || ! this._controls ) return;
+		this._controls.target.copy( center );
+		this._controls.update();
+		this.reset();
+
+	}
+
+	/**
+	 * Dispatches an event through the interaction manager.
+	 * @param {Object} event
+	 */
+	dispatchInteractionEvent( event ) {
+
+		this._interactionManager?.dispatchEvent( event );
+
+	}
+
+	/**
+	 * Subscribes to an interaction manager event.
+	 * @param {string} type
+	 * @param {Function} handler
+	 * @returns {Function} unsubscribe function
+	 */
+	onInteractionEvent( type, handler ) {
+
+		this._interactionManager?.addEventListener( type, handler );
+		return () => this._interactionManager?.removeEventListener( type, handler );
+
+	}
+
+	takeScreenshot() {
+
+		const canvas = this.getOutputCanvas();
+		if ( ! canvas ) return;
+
+		try {
+
+			const screenshot = canvas.toDataURL( 'image/png' );
+			const link = document.createElement( 'a' );
+			link.href = screenshot;
+			link.download = 'screenshot.png';
+			link.click();
+
+		} catch ( error ) {
+
+			console.error( 'PathTracerApp: Screenshot failed:', error );
+
+		}
+
+	}
+
+	setPathTracerEnabled( val ) {
+
+		this.pathTracerEnabled = val;
+
+	}
+	setAccumulationEnabled( val ) {
+
+		this.stages.pathTracing?.setAccumulationEnabled( val );
+
+	}
+	setRenderMode( mode ) {
+
+		this.stages.pathTracing?.setUniform( 'renderMode', parseInt( mode ) );
+
+	}
+	setTileCount( val ) {
+
+		this.stages.pathTracing?.tileManager?.setTileCount( val );
+
+	}
+	setInteractionModeEnabled( val ) {
+
+		this.stages.pathTracing?.setInteractionModeEnabled( val );
+
+	}
+
+	setAdaptiveSamplingParameters( params ) {
+
+		if ( params.min !== undefined ) this.stages.pathTracing?.setAdaptiveSamplingMin( params.min );
+		if ( params.adaptiveSamplingMax !== undefined ) this.settings.set( 'adaptiveSamplingMax', params.adaptiveSamplingMax );
+		this.stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
+
+	}
+
+	updateMaterialProperty( materialIndex, property, value ) {
+
+		this.stages.pathTracing?.materialData.updateMaterialProperty( materialIndex, property, value );
+
+		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity', 'visible' ];
+		if ( emissiveAffectingProps.includes( property )
+			&& this._sdf?.emissiveTriangleBuilder
+			&& this.stages.pathTracing?.enableEmissiveTriangleSampling?.value ) {
+
+			const mat = this._sdf.materials[ materialIndex ];
+			if ( mat ) {
+
+				if ( property === 'emissive' ) mat.emissive = value;
+				else if ( property === 'emissiveIntensity' ) mat.emissiveIntensity = value;
+				else if ( property === 'visible' ) mat.visible = value;
+
+				const changed = this._sdf.emissiveTriangleBuilder.updateMaterialEmissive(
+					materialIndex, mat,
+					this._sdf.triangleData, this._sdf.materials, this._sdf.triangleCount,
+				);
+
+				if ( changed ) {
+
+					const emissiveRawData = this._sdf.emissiveTriangleBuilder.createEmissiveRawData();
+					this.stages.pathTracing.setEmissiveTriangleData(
+						emissiveRawData,
+						this._sdf.emissiveTriangleBuilder.emissiveCount,
+						this._sdf.emissiveTriangleBuilder.totalEmissivePower,
+					);
+
+				}
+
+			}
 
 		}
 
@@ -2947,16 +1434,553 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	/**
-	 * Applies an ASVGF quality preset.
-	 * @param {string} presetName - 'low' | 'medium' | 'high'
-	 */
-	applyASVGFPreset( presetName ) {
+	updateTextureTransform( materialIndex, textureName, transform ) {
 
-		this._applyASVGFPreset( presetName );
+		this.stages.pathTracing?.materialData.updateTextureTransform( materialIndex, textureName, transform );
 		this.reset();
+
+	}
+
+	refreshMaterial() {
+
+		this.reset();
+
+	}
+
+	updateMaterial( materialIndex, material ) {
+
+		this.stages.pathTracing?.materialData.updateMaterial( materialIndex, material );
+
+	}
+
+	async rebuildMaterials( scene ) {
+
+		await this.stages.pathTracing?.rebuildMaterials( scene || this.meshScene );
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Stage Parameter Facade — hides direct stage access from store
+	// ═══════════════════════════════════════════════════════════════
+
+	// ── ASVGF ──
+
+	/** Updates ASVGF stage parameters (temporalAlpha, phiColor, etc.) */
+	updateASVGFParameters( params ) {
+
+		this.stages.asvgf?.updateParameters( params );
+
+	}
+
+	/** Toggles the ASVGF heatmap debug overlay */
+	toggleASVGFHeatmap( enabled ) {
+
+		this.stages.asvgf?.toggleHeatmap?.( enabled );
+
+	}
+
+	/**
+	 * Configures ASVGF for a specific render mode.
+	 * @param {Object} config - { enabled, temporalAlpha, atrousIterations, ... }
+	 */
+	configureASVGFForMode( config ) {
+
+		if ( ! this.stages.asvgf ) return;
+
+		this.stages.asvgf.enabled = config.enabled;
+		if ( this.stages.varianceEstimation ) this.stages.varianceEstimation.enabled = config.enabled;
+		if ( this.stages.bilateralFiltering ) this.stages.bilateralFiltering.enabled = config.enabled;
+
+		if ( config.enabled ) {
+
+			this.stages.asvgf.updateParameters( config );
+
+		}
+
+	}
+
+	// ── SSRC ──
+
+	/** Updates SSRC stage parameters (temporalAlpha, spatialRadius, spatialWeight) */
+	updateSSRCParameters( params ) {
+
+		this.stages.ssrc?.updateParameters( params );
+
+	}
+
+	// ── EdgeAware Filtering ──
+
+	/** Updates EdgeAware filtering uniforms (pixelEdgeSharpness, edgeSharpenSpeed, edgeThreshold) */
+	updateEdgeAwareUniforms( params ) {
+
+		this.stages.edgeAwareFiltering?.updateUniforms( params );
+
+	}
+
+	// ── Auto Exposure ──
+
+	/** Updates auto-exposure stage parameters */
+	updateAutoExposureParameters( params ) {
+
+		this.stages.autoExposure?.updateParameters( params );
+
+	}
+
+	// ── Adaptive Sampling ──
+
+	/** Updates adaptive sampling stage parameters */
+	updateAdaptiveSamplingParameters( params ) {
+
+		this.stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
+
+	}
+
+	setAdaptiveSamplingVarianceThreshold( v ) {
+
+		this.stages.adaptiveSampling?.setVarianceThreshold( v );
+
+	}
+
+	setAdaptiveSamplingMaterialBias( v ) {
+
+		this.stages.adaptiveSampling?.setMaterialBias( v );
+
+	}
+
+	setAdaptiveSamplingEdgeBias( v ) {
+
+		this.stages.adaptiveSampling?.setEdgeBias( v );
+
+	}
+
+	setAdaptiveSamplingConvergenceSpeed( v ) {
+
+		this.stages.adaptiveSampling?.setConvergenceSpeed( v );
+
+	}
+
+	toggleAdaptiveSamplingHelper( enabled ) {
+
+		this.stages.adaptiveSampling?.toggleHelper( enabled );
+
+	}
+
+	// ── Tile Highlight ──
+
+	setTileHighlightEnabled( enabled ) {
+
+		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = enabled;
+
+	}
+
+	// ── OIDN Denoiser ──
+
+	setOIDNEnabled( enabled ) {
+
+		const d = this.denoiserOrchestrator?.denoiser;
+		if ( d ) d.enabled = enabled;
+
+	}
+
+	updateOIDNQuality( quality ) {
+
+		this.denoiserOrchestrator?.denoiser?.updateQuality( quality );
+
+	}
+
+	toggleOIDNHdr( enabled ) {
+
+		this.denoiserOrchestrator?.denoiser?.toggleHDR( enabled );
+
+	}
+
+	toggleOIDNUseGBuffer( enabled ) {
+
+		this.denoiserOrchestrator?.denoiser?.toggleUseGBuffer( enabled );
+
+	}
+
+	setOIDNTileHelper( enabled ) {
+
+		const d = this.denoiserOrchestrator?.denoiser;
+		if ( d ) d.showTileHelper = enabled;
+
+	}
+
+	// ── AI Upscaler ──
+
+	setUpscalerEnabled( enabled ) {
+
+		const u = this.denoiserOrchestrator?.upscaler;
+		if ( u ) u.enabled = enabled;
+
+	}
+
+	setUpscalerScaleFactor( factor ) {
+
+		this.denoiserOrchestrator?.upscaler?.setScaleFactor( factor );
+
+	}
+
+	setUpscalerQuality( quality ) {
+
+		this.denoiserOrchestrator?.upscaler?.setQuality( quality );
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Private — Stage creation & setup
+	// ═══════════════════════════════════════════════════════════════
+
+	_createStages() {
+
+		const adaptiveSamplingMax = this.settings.get( 'adaptiveSamplingMax' );
+		const useAdaptiveSampling = this.settings.get( 'useAdaptiveSampling' );
+
+		this.stages.pathTracing = new PathTracingStage( this.renderer, this.scene, this._camera );
+		this.stages.normalDepth = new NormalDepthStage( this.renderer, {
+			pathTracingStage: this.stages.pathTracing
+		} );
+		this.stages.motionVector = new MotionVectorStage( this.renderer, this._camera, {
+			pathTracingStage: this.stages.pathTracing
+		} );
+		this.stages.ssrc = new SSRCStage( this.renderer, { enabled: false } );
+		this.stages.asvgf = new ASVGFStage( this.renderer, { enabled: false } );
+		this.stages.varianceEstimation = new VarianceEstimationStage( this.renderer, { enabled: false } );
+		this.stages.bilateralFiltering = new BilateralFilteringStage( this.renderer, { enabled: false } );
+		this.stages.adaptiveSampling = new AdaptiveSamplingStage( this.renderer, {
+			adaptiveSamplingMax,
+			enabled: useAdaptiveSampling,
+		} );
+		this.stages.edgeAwareFiltering = new EdgeAwareFilteringStage( this.renderer, { enabled: false } );
+		this.stages.autoExposure = new AutoExposureStage( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
+		this.stages.tileHighlight = new TileHighlightStage( this.renderer, { enabled: false } );
+
+		// Outline effect
+		const outlineScene = this.meshScene;
+		this._outlineNode = outline( outlineScene, this._camera, {
+			selectedObjects: [],
+			edgeThickness: uniform( 1.0 ),
+			edgeGlow: uniform( 0.0 ),
+		} );
+
+		const outlineCanvas = this.canvas;
+		const outlineSetSize = this._outlineNode.setSize.bind( this._outlineNode );
+		this._outlineNode.setSize = () => {
+
+			const dpr = window.devicePixelRatio;
+			outlineSetSize(
+				Math.round( outlineCanvas.clientWidth * dpr ),
+				Math.round( outlineCanvas.clientHeight * dpr )
+			);
+
+		};
+
+		const edgeStrength = uniform( 3.0 );
+		const visibleEdgeColor = uniform( new Color( 0xffffff ) );
+		const hiddenEdgeColor = uniform( new Color( 0x190a05 ) );
+		const { visibleEdge, hiddenEdge } = this._outlineNode;
+		const outlineColorNode = visibleEdge.mul( visibleEdgeColor )
+			.add( hiddenEdge.mul( hiddenEdgeColor ) )
+			.mul( edgeStrength );
+
+		this.stages.display = new DisplayStage( this.renderer, {
+			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
+			outlineColorNode
+		} );
+
+	}
+
+	_setupDenoiserOrchestrator() {
+
+		this.denoiserOrchestrator = new DenoiserOrchestrator( {
+			renderer: this.renderer,
+			denoiserCanvas: this.denoiserCanvas,
+			scene: this.scene,
+			camera: this._camera,
+			stages: {
+				pathTracing: this.stages.pathTracing,
+				asvgf: this.stages.asvgf,
+				varianceEstimation: this.stages.varianceEstimation,
+				bilateralFiltering: this.stages.bilateralFiltering,
+				adaptiveSampling: this.stages.adaptiveSampling,
+				edgeAwareFiltering: this.stages.edgeAwareFiltering,
+				ssrc: this.stages.ssrc,
+				autoExposure: this.stages.autoExposure,
+				display: this.stages.display,
+				tileHighlight: this.stages.tileHighlight,
+			},
+			pipeline: this.pipeline,
+			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,
+			getTransparentBg: () => this.settings.get( 'transparentBackground' ) ?? false,
+		} );
+
+		this.denoiserOrchestrator.setupDenoiser();
+		this.denoiserOrchestrator.setupUpscaler();
+
+	}
+
+	/**
+	 * Builds handler functions for multi-stage settings that can't
+	 * be routed with a simple uniform forward.
+	 */
+	_buildSettingsHandlers() {
+
+		return {
+
+			handleTransparentBackground: ( value ) => {
+
+				this.stages.pathTracing?.setUniform( 'transparentBackground', value );
+				this.stages.display?.setTransparentBackground( value );
+
+			},
+
+			handleExposure: ( value ) => {
+
+				if ( ! this.stages.autoExposure?.enabled ) {
+
+					this.stages.display?.setExposure( value );
+
+				}
+
+			},
+
+			handleRenderLimitMode: ( value ) => {
+
+				if ( this.stages.pathTracing?.setRenderLimitMode ) {
+
+					this.stages.pathTracing.setRenderLimitMode( value );
+
+				}
+
+			},
+
+			handleMaxSamples: ( value ) => {
+
+				this.stages.pathTracing?.setUniform( 'maxSamples', value );
+				this.stages.pathTracing?.updateCompletionThreshold();
+				this._reconcileCompletion();
+
+			},
+
+			handleRenderTimeLimit: () => {
+
+				this._reconcileCompletion();
+
+			},
+
+			handleRenderMode: ( value ) => {
+
+				this.stages.pathTracing?.setUniform( 'renderMode', parseInt( value ) );
+
+			},
+
+			handleEnvironmentRotation: ( value ) => {
+
+				this.stages.pathTracing?.environment.setEnvironmentRotation( value );
+
+			},
+
+		};
+
+	}
+
+	_reconcileCompletion() {
+
+		const stage = this.stages.pathTracing;
+		if ( ! stage ) return;
+
+		const shouldBeComplete = this._isRenderLimitReached();
+
+		if ( shouldBeComplete && ! stage.isComplete ) {
+
+			stage.isComplete = true;
+
+		} else if ( ! shouldBeComplete && stage.isComplete ) {
+
+			stage.isComplete = false;
+			this._renderCompleteDispatched = false;
+
+			// Adjust lastResetTime so timeElapsed continues from where it paused
+			// rather than including idle time spent while completed
+			this.lastResetTime = performance.now() - this.timeElapsed * 1000;
+
+			this.canvas.style.opacity = '1';
+			const denoiserOutput = this.denoiserOrchestrator?.denoiser?.output;
+			if ( denoiserOutput ) denoiserOutput.style.display = 'none';
+
+			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
+
+		}
+
+	}
+
+	_isRenderLimitReached() {
+
+		const stage = this.stages.pathTracing;
+		if ( ! stage ) return false;
+
+		if ( this.settings.get( 'renderLimitMode' ) === 'time' ) {
+
+			const limit = this.settings.get( 'renderTimeLimit' );
+			return limit > 0 && this.timeElapsed >= limit;
+
+		}
+
+		return stage.frameCount >= stage.completionThreshold;
+
+	}
+
+	_setupFloorPlane() {
+
+		this._floorPlane = new Mesh(
+			new CircleGeometry(),
+			new MeshPhysicalMaterial( {
+				transparent: false,
+				color: 0x303030,
+				roughness: 1,
+				metalness: 0,
+				opacity: 0,
+				transmission: 0,
+			} )
+		);
+		this._floorPlane.name = "Ground";
+		this._floorPlane.visible = false;
+		this.meshScene.add( this._floorPlane );
+
+	}
+
+	_initStats() {
+
+		this._stats = new Stats( { horizontal: true, trackGPU: true } );
+		this._stats.dom.style.position = 'absolute';
+		this._stats.dom.style.top = 'unset';
+		this._stats.dom.style.bottom = '48px';
+
+		this._stats.init( this.renderer );
+		this.canvas.parentElement.parentElement.parentElement.appendChild( this._stats.dom );
+
+		const foregroundColor = '#ffffff';
+		const backgroundColor = '#1e293b';
+
+		const gradient = this._stats.fpsPanel.context.createLinearGradient( 0, this._stats.fpsPanel.GRAPH_Y, 0, this._stats.fpsPanel.GRAPH_Y + this._stats.fpsPanel.GRAPH_HEIGHT );
+		gradient.addColorStop( 0, foregroundColor );
+
+		this._stats.fpsPanel.fg = this._stats.msPanel.fg = foregroundColor;
+		this._stats.fpsPanel.bg = this._stats.msPanel.bg = backgroundColor;
+		this._stats.fpsPanel.gradient = this._stats.msPanel.gradient = gradient;
+
+		if ( this._stats.gpuPanel ) {
+
+			this._stats.gpuPanel.fg = foregroundColor;
+			this._stats.gpuPanel.bg = backgroundColor;
+			this._stats.gpuPanel.gradient = gradient;
+
+		}
+
+		this._stats.dom.style.display = '';
+
+	}
+
+	_setupInteractionListeners() {
+
+		if ( ! this._interactionManager ) return;
+
+		this._interactionManager.addEventListener( 'objectSelected', ( event ) => {
+
+			this.selectObject( event.object );
+			this.refreshFrame();
+			this.dispatchEvent( { type: 'objectSelected', object: event.object, uuid: event.uuid } );
+
+		} );
+
+		this._interactionManager.addEventListener( 'objectDeselected', ( event ) => {
+
+			this.selectObject( null );
+			this.refreshFrame();
+			this.dispatchEvent( { type: 'objectDeselected', object: event.object, uuid: event.uuid } );
+
+		} );
+
+		this._interactionManager.addEventListener( 'selectModeChanged', ( event ) => {
+
+			this.dispatchEvent( { type: EngineEvents.SELECT_MODE_CHANGED, enabled: event.enabled } );
+
+		} );
+
+		this._interactionManager.addEventListener( 'objectDoubleClicked', ( event ) => {
+
+			this.selectObject( event.object );
+			this.refreshFrame();
+			this.dispatchEvent( { type: EngineEvents.OBJECT_DOUBLE_CLICKED, object: event.object, uuid: event.uuid } );
+
+		} );
+
+		this._interactionManager.addEventListener( 'focusChanged', ( event ) => {
+
+			this.settings.set( 'focusDistance', event.worldDistance );
+			this.dispatchEvent( { type: 'focusChanged', distance: event.distance } );
+
+		} );
+
+		this._interactionManager.addEventListener( 'focusModeChanged', ( event ) => {
+
+			if ( ! event.enabled && this._controls ) this._controls.enabled = true;
+
+		} );
+
+		this._interactionManager.addEventListener( 'afPointPlaced', ( event ) => {
+
+			this.cameraManager.setAFScreenPoint( event.point.x, event.point.y );
+			if ( this._controls ) this._controls.enabled = true;
+			this.dispatchEvent( { type: EngineEvents.AF_POINT_PLACED, point: event.point } );
+
+		} );
+
+	}
+
+	_setupAutoExposureListener() {
+
+		if ( ! this.stages.autoExposure ) return;
+
+		this.stages.autoExposure.on( 'autoexposure:updated', ( data ) => {
+
+			this.dispatchEvent( {
+				type: EngineEvents.AUTO_EXPOSURE_UPDATED,
+				exposure: data.exposure,
+				luminance: data.luminance
+			} );
+
+		} );
+
+	}
+
+	_renderHelperOverlay() {
+
+		this.scene.updateMatrixWorld();
+		this._sceneHelpers.render( this.renderer, this._camera );
+
+	}
+
+	_syncControlsAfterLoad() {
+
+		this._controls.saveState();
+		this._controls.update();
+
+	}
+
+	/**
+	 * Forwards events from a source EventDispatcher to this app instance.
+	 */
+	_forwardEvents( source, eventTypes ) {
+
+		if ( ! source ) return;
+		for ( const type of eventTypes ) {
+
+			source.addEventListener( type, ( e ) => this.dispatchEvent( e ) );
+
+		}
 
 	}
 
 }
-

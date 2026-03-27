@@ -3,7 +3,7 @@ import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Box2, Vector2 } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 /**
  * WebGPU Edge-Aware Filtering Stage (Compute Shader)
@@ -23,7 +23,7 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
  * Textures published:  edgeFiltering:output
  * Textures read:       asvgf:output (fallback: pathtracer:color)
  */
-export class EdgeAwareFilteringStage extends PipelineStage {
+export class EdgeAwareFilteringStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

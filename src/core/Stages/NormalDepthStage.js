@@ -2,7 +2,7 @@ import { Fn, vec3, vec4, float, int, uint, uvec2, uniform, normalize, mat3, stor
 	textureStore, workgroupId, localId } from 'three/tsl';
 import { RenderTarget, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { Ray, HitInfo } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
 
@@ -38,7 +38,7 @@ import { traverseBVH } from '../TSL/BVHTraversal.js';
  * Textures published:
  *   pathtracer:normalDepth — RGBA Float G-buffer (from RenderTarget, not StorageTexture)
  */
-export class NormalDepthStage extends PipelineStage {
+export class NormalDepthStage extends RenderStage {
 
 	/**
 	 * @param {WebGPURenderer} renderer

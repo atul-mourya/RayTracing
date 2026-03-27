@@ -2,7 +2,7 @@ import { PipelineContext } from './PipelineContext.js';
 import { EventDispatcher } from './EventDispatcher.js';
 
 /**
- * PassPipeline - Orchestrates execution of pipeline stages
+ * RenderPipeline - Orchestrates execution of pipeline stages
  *
  * Manages:
  * - Stage execution order (stages execute in the order they're added)
@@ -17,7 +17,7 @@ import { EventDispatcher } from './EventDispatcher.js';
  * - Easy to extend (just add new stages)
  *
  * @example
- * const pipeline = new PassPipeline(renderer, 1920, 1080);
+ * const pipeline = new RenderPipeline(renderer, 1920, 1080);
  *
  * // Add stages in execution order
  * pipeline.addStage(new PathTracerStage(...));
@@ -33,7 +33,7 @@ import { EventDispatcher } from './EventDispatcher.js';
  * // Clean up
  * pipeline.dispose();
  */
-export class PassPipeline {
+export class RenderPipeline {
 
 	/**
 	 * Create a new pipeline
@@ -73,7 +73,7 @@ export class PassPipeline {
 	/**
 	 * Add a stage to the pipeline
 	 * Stages execute in the order they're added
-	 * @param {PipelineStage} stage - Stage to add
+	 * @param {RenderStage} stage - Stage to add
 	 */
 	addStage( stage ) {
 
@@ -92,7 +92,7 @@ export class PassPipeline {
 	/**
 	 * Get a stage by name
 	 * @param {string} name - Stage name
-	 * @returns {PipelineStage|undefined} Stage or undefined if not found
+	 * @returns {RenderStage|undefined} Stage or undefined if not found
 	 */
 	getStage( name ) {
 

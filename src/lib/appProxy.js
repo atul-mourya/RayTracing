@@ -11,7 +11,7 @@
  *   import { getApp } from '@/lib/appProxy';
  *
  *   const app = getApp();
- *   if ( app ) app.setMaxBounces( 8 );
+ *   if ( app ) app.set( 'maxBounces', 8 );
  *
  * @module appProxy
  */

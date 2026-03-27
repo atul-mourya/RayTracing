@@ -118,7 +118,11 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 
 	// Keep stats ref current so handleSave doesn't depend on stats (which changes every frame)
-	useEffect( () => { statsRef.current = stats; }, [ stats ] );
+	useEffect( () => {
+
+		statsRef.current = stats;
+
+	}, [ stats ] );
 
 	// Save/Discard Handlers
 	const handleSave = useCallback( async () => {
@@ -128,17 +132,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		try {
 
-			const canvas = ( app.denoiser?.enabled || app.upscaler?.enabled ) && app.denoiserCanvas
-				? app.denoiserCanvas
-				: app.renderer.domElement;
-
-			// Re-render display stage so the WebGPU canvas has valid content
-			// (WebGPU canvases expire their texture after each compositor frame)
-			if ( canvas === app.renderer.domElement && app.displayStage && app.pipeline?.context ) {
-
-				app.displayStage.render( app.pipeline.context );
-
-			}
+			const canvas = app.getOutputCanvas();
+			if ( ! canvas ) return;
 
 			const imageData = canvas.toDataURL( 'image/png' );
 			const saveData = {
@@ -309,7 +304,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						style={canvasStyle}
 					/>
 					<AutoFocusOverlay containerRef={containerRef} />
-				<DimensionDisplay dimension={renderResolution} />
+					<DimensionDisplay dimension={renderResolution} />
 				</div>
 			</div>
 

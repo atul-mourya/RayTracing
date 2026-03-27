@@ -2,7 +2,7 @@ import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, ma
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, LinearFilter } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
@@ -60,7 +60,7 @@ const bilateralWeight = /*@__PURE__*/ wgslFn( `
  * Textures published:  bilateralFiltering:output
  * Textures read:       configurable color input + pathtracer:normalDepth
  */
-export class BilateralFilteringStage extends PipelineStage {
+export class BilateralFilteringStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

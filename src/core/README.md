@@ -14,7 +14,6 @@ await engine.init();
 await engine.loadEnvironment('studio.hdr');
 await engine.loadModel('scene.glb');
 engine.animate();
-engine.reset();
 </script>
 ```
 
@@ -31,6 +30,50 @@ new PathTracerApp(canvas, denoiserCanvas?, options?)
 | `options.autoResize` | `boolean` | Auto-listen for window resize (default `true`) |
 
 ## API Reference
+
+### Settings — Unified Parameter Access
+
+All render parameters go through a single API. No individual setter methods.
+
+```js
+engine.set('maxBounces', 8);
+engine.set('exposure', 1.5);
+engine.get('maxBounces');                     // 8
+engine.setMany({ maxBounces: 8, exposure: 1.5 }); // batch, single reset
+engine.getAll();                              // snapshot of all settings
+```
+
+**Available setting keys:**
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `maxBounces` | `number` | 3 | Ray bounce limit |
+| `samplesPerPixel` | `number` | 1 | SPP multiplier |
+| `maxSamples` | `number` | 60 | Max accumulated samples |
+| `transmissiveBounces` | `number` | 5 | Bounces through transparent materials |
+| `fireflyThreshold` | `number` | 1.8 | Clamp bright outliers |
+| `exposure` | `number` | 1.0 | Manual exposure |
+| `enableDOF` | `boolean` | false | Depth of field |
+| `focusDistance` | `number` | 0.8 | Focus distance |
+| `aperture` | `number` | 5.6 | F-stop |
+| `focalLength` | `number` | 50 | Focal length in mm |
+| `apertureScale` | `number` | 1.0 | Aperture multiplier |
+| `samplingTechnique` | `number` | 3 | Sampling strategy |
+| `environmentIntensity` | `number` | 1.0 | Environment brightness |
+| `backgroundIntensity` | `number` | 1.0 | Background brightness |
+| `showBackground` | `boolean` | true | Show environment background |
+| `transparentBackground` | `boolean` | false | Alpha transparency |
+| `enableEnvironment` | `boolean` | true | Enable environment lighting |
+| `globalIlluminationIntensity` | `number` | 1.0 | GI multiplier |
+| `enableEmissiveTriangleSampling` | `boolean` | false | Direct emissive sampling |
+| `emissiveBoost` | `number` | 1.0 | Emissive multiplier |
+| `useAdaptiveSampling` | `boolean` | false | Variance-guided sampling |
+| `adaptiveSamplingMax` | `number` | 8 | Max samples for high-variance pixels |
+| `visMode` | `number` | 0 | Debug visualization mode |
+| `debugVisScale` | `number` | 100 | Debug vis scale factor |
+| `renderLimitMode` | `string` | 'frames' | `'frames'` or `'time'` |
+| `renderTimeLimit` | `number` | 30 | Time limit in seconds |
+| `environmentRotation` | `number` | 0.0 | Env rotation in radians |
 
 ### Lifecycle
 
@@ -50,57 +93,91 @@ new PathTracerApp(canvas, denoiserCanvas?, options?)
 | `await loadEnvironment(url)` | Load HDR environment map |
 | `await loadExampleModels(index, modelFiles)` | Load from a model catalog array |
 
-### Rendering
+### Rendering Mode
 
 | Method | Description |
 |--------|-------------|
-| `setMaxBounces(n)` | Ray bounce limit |
-| `setSamplesPerPixel(n)` | SPP multiplier |
-| `setMaxSamples(n)` | Max accumulated samples |
-| `setTransmissiveBounces(n)` | Bounces through transparent materials |
-| `setFireflyThreshold(v)` | Clamp bright outliers |
-| `setExposure(v)` | Manual exposure |
+| `configureForMode(mode, opts?)` | Batch-configure for `'preview'`, `'final-render'`, or `'results'` |
 | `setRenderMode(0\|1)` | 0=progressive, 1=tiled |
 | `setTileCount(n)` | Tiles per axis (e.g. 3 = 3x3 grid) |
-| `configureForMode(mode, opts?)` | Batch-configure for `'preview'`, `'final-render'`, or `'results'` |
 | `isComplete()` | Whether render converged |
 | `getFrameCount()` | Current accumulated frame count |
+| `getOutputCanvas()` | Returns the correct canvas for reading pixels |
+| `takeScreenshot()` | Download current render as PNG |
 
-### Denoising
+### Managers
+
+Access camera, lights, and denoising through focused manager objects:
+
+#### `engine.cameraManager`
+
+| Property / Method | Description |
+|-------------------|-------------|
+| `.camera` | Active `PerspectiveCamera` |
+| `.controls` | `OrbitControls` instance |
+| `.switchCamera(index)` | Switch to loaded camera (0=default) |
+| `.getCameraNames()` | Array of camera display names |
+| `.setAutoFocusMode('manual'\|'auto')` | Auto-focus mode |
+| `.setAFScreenPoint(x, y)` | Focus point in screen-space (0-1) |
+| `.enterAFPointPlacementMode()` | Click-to-place AF point |
+| `.exitAFPointPlacementMode()` | Exit AF placement |
+
+#### `engine.lightManager`
 
 | Method | Description |
 |--------|-------------|
-| `setDenoiserStrategy(s, preset?)` | `'none'` \| `'asvgf'` \| `'ssrc'` \| `'edgeaware'` |
-| `setASVGFEnabled(bool, preset?)` | Toggle ASVGF with optional quality preset |
-| `applyASVGFPreset(name)` | `'low'` \| `'medium'` \| `'high'` |
-| `setAutoExposureEnabled(bool)` | Toggle auto-exposure (manages stacking with manual) |
+| `.addLight(type)` | `'DirectionalLight'` \| `'PointLight'` \| `'SpotLight'` \| `'RectAreaLight'` |
+| `.removeLight(uuid)` | Remove by UUID |
+| `.getLights()` | Get all light descriptors |
+| `.clearLights()` | Remove all lights |
+| `.updateLights()` | Sync lights to GPU |
+| `.setShowLightHelper(bool)` | Toggle light visualizations |
 
-### Camera & DOF
+#### `engine.denoiserOrchestrator`
 
 | Method | Description |
 |--------|-------------|
-| `getCamera()` | Active `PerspectiveCamera` |
-| `getControls()` | `OrbitControls` instance |
-| `switchCamera(index)` | Switch to loaded camera (0=default) |
-| `setEnableDOF(bool)` | Toggle depth of field |
-| `setFocusDistance(v)` | Manual focus distance |
-| `setAperture(v)` | F-stop (1.4 ... 16) |
-| `setFocalLength(v)` | Focal length in mm |
-| `setAutoFocusMode('manual'\|'auto')` | Auto-focus mode |
-| `setAFScreenPoint(x, y)` | Focus point in screen-space (0-1) |
+| `.setDenoiserStrategy(s, preset?)` | `'none'` \| `'asvgf'` \| `'ssrc'` \| `'edgeaware'` |
+| `.setASVGFEnabled(bool, preset?)` | Toggle ASVGF with optional quality preset |
+| `.applyASVGFPreset(name)` | `'low'` \| `'medium'` \| `'high'` |
+| `.setAutoExposureEnabled(bool)` | Toggle auto-exposure |
+| `.setAdaptiveSamplingEnabled(bool)` | Toggle adaptive sampling |
 
-### Environment
+### Stage Parameter Updates
+
+For fine-grained control over individual pipeline stages:
+
+| Method | Description |
+|--------|-------------|
+| `updateASVGFParameters(params)` | Update ASVGF params (temporalAlpha, phiColor, etc.) |
+| `updateSSRCParameters(params)` | Update SSRC params |
+| `updateEdgeAwareUniforms(params)` | Update edge-aware filter uniforms |
+| `updateAutoExposureParameters(params)` | Update auto-exposure params |
+| `updateAdaptiveSamplingParameters(params)` | Update adaptive sampling params |
+| `setTileHighlightEnabled(bool)` | Toggle tile highlight overlay |
+
+### OIDN & AI Upscaler
+
+| Method | Description |
+|--------|-------------|
+| `setOIDNEnabled(bool)` | Enable/disable OIDN denoiser |
+| `updateOIDNQuality(quality)` | `'fast'` \| `'balance'` \| `'high'` |
+| `toggleOIDNHdr(bool)` | Toggle HDR mode |
+| `toggleOIDNUseGBuffer(bool)` | Toggle G-buffer guided denoising |
+| `setUpscalerEnabled(bool)` | Enable/disable AI upscaler |
+| `setUpscalerScaleFactor(n)` | Upscale factor (2, 4) |
+| `setUpscalerQuality(quality)` | `'fast'` \| `'balance'` |
+
+### Environment Modes
 
 | Method | Description |
 |--------|-------------|
 | `setEnvironmentMode(m)` | `'hdri'` \| `'procedural'` \| `'gradient'` \| `'color'` |
-| `setEnvironmentIntensity(v)` | Environment brightness |
-| `setBackgroundIntensity(v)` | Background brightness (independent) |
-| `setEnvironmentRotation(v)` | Rotation in radians |
-| `setShowBackground(bool)` | Show/hide environment background |
-| `setTransparentBackground(bool)` | Alpha transparency |
+| `await setEnvironmentMap(texture)` | Set custom env texture |
 | `generateProceduralSkyTexture()` | Regenerate procedural sky |
 | `generateGradientTexture()` | Regenerate gradient sky |
+| `generateSolidColorTexture()` | Regenerate solid color sky |
+| `markEnvironmentNeedsUpdate()` | Flag env texture for GPU re-upload |
 
 ### Materials
 
@@ -110,15 +187,6 @@ new PathTracerApp(canvas, denoiserCanvas?, options?)
 | `updateTextureTransform(idx, name, matrix)` | Update UV transform |
 | `rebuildMaterials(scene)` | Full material rebuild and GPU upload |
 
-### Lights
-
-| Method | Description |
-|--------|-------------|
-| `addLight(type)` | `'DirectionalLight'` \| `'PointLight'` \| `'SpotLight'` \| `'RectAreaLight'` |
-| `removeLight(uuid)` | Remove by UUID |
-| `updateLights()` | Sync lights to GPU |
-| `setShowLightHelper(bool)` | Toggle light visualizations |
-
 ### Interaction
 
 | Method | Description |
@@ -126,17 +194,32 @@ new PathTracerApp(canvas, denoiserCanvas?, options?)
 | `selectObject(obj)` | Select for outline highlight |
 | `toggleSelectMode()` | Toggle click-to-select |
 | `toggleFocusMode()` | Toggle click-to-focus |
+| `focusOnPoint(vec3)` | Move orbit target to world point |
+| `dispatchInteractionEvent(event)` | Forward events to interaction manager |
+| `onInteractionEvent(type, handler)` | Subscribe to interaction events (returns unsubscribe fn) |
 
-### Adaptive Sampling
+### Direct Stage Access
 
-| Method | Description |
-|--------|-------------|
-| `setAdaptiveSamplingEnabled(bool)` | Toggle with stage cleanup |
-| `setAdaptiveSamplingMax(n)` | Max samples for high-variance pixels |
+For advanced consumers, all 12 pipeline stages are accessible via `engine.stages`:
+
+```js
+engine.stages.pathTracing     // PathTracingStage
+engine.stages.normalDepth     // NormalDepthStage
+engine.stages.motionVector    // MotionVectorStage
+engine.stages.asvgf           // ASVGFStage
+engine.stages.varianceEstimation
+engine.stages.bilateralFiltering
+engine.stages.adaptiveSampling
+engine.stages.edgeAwareFiltering
+engine.stages.autoExposure
+engine.stages.tileHighlight
+engine.stages.ssrc
+engine.stages.display         // DisplayStage
+```
 
 ## Events
 
-Subscribe via `engine.addEventListener(EngineEvents.X, handler)`. All event objects include `type` and `target`.
+Subscribe via `engine.addEventListener(EngineEvents.X, handler)`.
 
 | Event | Extra Fields | When |
 |-------|-------------|------|
@@ -157,6 +240,7 @@ Subscribe via `engine.addEventListener(EngineEvents.X, handler)`. All event obje
 | `AUTO_FOCUS_UPDATED` | `distance` | Auto-focus distance changed |
 | `AUTO_EXPOSURE_UPDATED` | `exposure`, `luminance` | Auto-exposure computed |
 | `AF_POINT_PLACED` | `point` | Focus point placed via click |
+| `SETTING_CHANGED` | `key`, `value`, `prev` | Any render setting changed |
 
 ## Exports
 
@@ -165,6 +249,13 @@ import {
   PathTracerApp,        // Main engine class
   EngineEvents,         // Event type constants
 
+  // Settings & managers
+  RenderSettings,       // Unified parameter store
+  CameraManager,        // Camera switching, auto-focus, DOF
+  LightManager,         // Light CRUD and GPU transfer
+  DenoiserOrchestrator, // Denoiser strategy, OIDN, upscaler
+
+  // Configuration
   ENGINE_DEFAULTS,      // Default config values
   ASVGF_QUALITY_PRESETS,// { low, medium, high }
   CAMERA_PRESETS,       // { portrait, landscape, macro, product, architectural, cinematic }
@@ -174,9 +265,9 @@ import {
   FINAL_RENDER_CONFIG,  // High-quality render preset
   PREVIEW_RENDER_CONFIG,// Interactive preview preset
 
-  // Advanced — for building custom pipeline stages
-  PassPipeline,
-  PipelineStage,
+  // Pipeline (for building custom stages)
+  RenderPipeline,
+  RenderStage,
   StageExecutionMode,
   PipelineContext,
 } from './src/core/index.js';

@@ -2,7 +2,7 @@ import { Fn, vec2, vec3, vec4, float, int, uint, ivec2, uvec2, uniform, If, norm
 	textureLoad, textureStore, workgroupId, localId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Matrix4 } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 /**
  * WebGPU Motion Vector Stage (Compute Shader)
@@ -49,7 +49,7 @@ import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js'
  * Textures read:
  *   pathtracer:normalDepth — linear depth for world position reconstruction
  */
-export class MotionVectorStage extends PipelineStage {
+export class MotionVectorStage extends RenderStage {
 
 	constructor( renderer, camera, options = {} ) {
 

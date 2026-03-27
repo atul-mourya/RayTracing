@@ -2,7 +2,7 @@ import { Fn, wgslFn, uniform, int, uint, ivec2, uvec2, If,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
 
@@ -140,7 +140,7 @@ const heatmapGradient = /*@__PURE__*/ wgslFn( `
  * Textures published:  adaptiveSampling:output
  * Textures read:       variance:output (from VarianceEstimationStage)
  */
-export class AdaptiveSamplingStage extends PipelineStage {
+export class AdaptiveSamplingStage extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 
