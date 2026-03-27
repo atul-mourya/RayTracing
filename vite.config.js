@@ -10,6 +10,16 @@ const __dirname = path.resolve();
 const ReactCompilerConfig = {}; // Define ReactCompilerConfig
 
 export default defineConfig( {
+	test: {
+		globals: true,
+		environment: 'node',
+		include: [ 'tests/**/*.test.js' ],
+		coverage: {
+			provider: 'v8',
+			include: [ 'src/core/**/*.js', 'src/lib/**/*.js', 'src/utils/**/*.js' ],
+			exclude: [ '**/.DS_Store', '**/*.md', '**/Workers/**' ],
+		},
+	},
 	base: './',
 	server: {
 		// Expose to LAN
@@ -18,6 +28,7 @@ export default defineConfig( {
 			'Cross-Origin-Opener-Policy': 'same-origin',
 			'Cross-Origin-Embedder-Policy': 'credentialless',
 		},
+		port: 5174
 	},
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [

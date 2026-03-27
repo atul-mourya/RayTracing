@@ -28,7 +28,10 @@ jobs:
           cache: 'npm'
           
       - run: npm ci
-      
+
+      - name: Run Tests
+        run: npm test
+
       # Run semantic-release first to update version
       - name: Semantic Release
         id: semantic

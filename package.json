@@ -12,6 +12,9 @@
     "lint": "eslint .",
     "lint-fix": "npx eslint --fix",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "release": "cross-env $(cat .env | xargs) semantic-release --no-ci"
   },
   "dependencies": {
@@ -72,6 +75,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^5.0.0",
+    "@vitest/coverage-v8": "^4.1.2",
     "babel-plugin-react-compiler": "^19.0.0-beta-714736e-20250131",
     "cross-env": "^7.0.3",
     "eslint": "^9.11.1",
@@ -85,7 +89,8 @@
     "semantic-release": "^24.2.1",
     "tailwindcss": "^4.0.1",
     "vite": "^7.0.0",
-    "vite-plugin-top-level-await": "^1.4.4"
+    "vite-plugin-top-level-await": "^1.4.4",
+    "vitest": "^4.1.2"
   },
   "optionalDependencies": {
     "@esbuild/linux-x64": "0.24.0",
