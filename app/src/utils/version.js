@@ -1,5 +1,5 @@
-// Import package.json to access the version
-import packageJson from '../../package.json';
+// Import root package.json — semantic-release bumps the version there
+import packageJson from '../../../package.json';
 
 // Export the version for use throughout the application
 export const appVersion = packageJson.version === '0.0.0' ? 'dev' : packageJson.version;
