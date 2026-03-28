@@ -5,6 +5,7 @@ import topLevelAwait from "vite-plugin-top-level-await";
 const __dirname = path.resolve();
 
 export default defineConfig( {
+	base: './',
 	plugins: [
 		topLevelAwait( {
 			promiseExportName: "__tla",

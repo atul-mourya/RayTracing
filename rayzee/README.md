@@ -100,7 +100,7 @@ npm publishing is coming soon. `three` and `stats-gl` are required peer dependen
 
 ### Vanilla JS (no bundler)
 
-A single HTML file — no Node.js, no build step. Uses [ES module import maps](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap) to resolve dependencies from a CDN.
+A single HTML file — no Node.js, no build step. Uses [ES module import maps](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/script/type/importmap) to resolve the pre-built ESM bundle and its dependencies from a CDN.
 
 ```html
 <!DOCTYPE html>
@@ -115,9 +115,8 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
       "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.tsl.js",
       "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
-      "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
       "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
-      "rayzee": "https://cdn.jsdelivr.net/gh/atul-mourya/RayTracing@main/rayzee/src/index.js"
+      "rayzee": "https://cdn.jsdelivr.net/gh/atul-mourya/RayTracing@main/rayzee/dist/rayzee.es.js"
     }
   }
   </script>
@@ -146,7 +145,13 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
 </html>
 ```
 
-> **Note**: The import map approach loads engine source modules individually from the CDN, so initial load is slower than a bundled build. For production, use the Vite setup above.
+Serve with any static server (ES modules require HTTP, not `file://`):
+
+```bash
+npx serve .
+```
+
+> **Note**: The import map approach loads dependencies from a CDN, so initial load is slower than a bundled build. For production, use the Vite setup above.
 
 ### React
 

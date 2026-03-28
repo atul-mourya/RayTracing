@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Rayzee Path Tracer - Test</title>
+  <style>body { margin: 0; overflow: hidden; background: #111; }</style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
+      "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.tsl.js",
+      "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
+      "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
+      "rayzee": "./rayzee/dist/rayzee.es.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="viewport"></canvas>
+  <script type="module">
+    import { PathTracerApp } from 'rayzee';
+
+    const canvas = document.getElementById('viewport');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const engine = new PathTracerApp(canvas);
+    await engine.init();
+    await engine.loadModel('./app/public/models/CornellBox1.glb');
+    await engine.loadEnvironment('./app/public/hdri/Polyhaven/raw/adams_place_bridge_1k.hdr');
+    engine.animate();
+
+    engine.set('maxBounces', 8);
+    engine.set('exposure', 1.0);
+
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      engine.onResize();
+    });
+  </script>
+</body>
+</html>

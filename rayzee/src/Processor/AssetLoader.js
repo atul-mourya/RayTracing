@@ -1,9 +1,12 @@
 import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping, LinearMipmapLinearFilter,
 	TextureLoader, Mesh, MeshStandardMaterial, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
-import { GLTFLoader, HDRLoader, DRACOLoader, EXRLoader } from 'three/examples/jsm/Addons';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
 import BuildTimer from './BuildTimer';

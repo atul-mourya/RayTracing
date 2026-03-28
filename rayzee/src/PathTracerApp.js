@@ -55,6 +55,7 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {HTMLCanvasElement} [denoiserCanvas] - Optional canvas for OIDN denoiser output
 	 * @param {Object} [options] - Engine options
 	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
+	 * @param {HTMLElement} [options.statsContainer] - DOM element to append the stats panel to (defaults to document.body)
 	 */
 	constructor( canvas, denoiserCanvas = null, options = {} ) {
 
@@ -63,6 +64,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.canvas = canvas;
 		this.denoiserCanvas = denoiserCanvas;
 		this._autoResize = options.autoResize !== false;
+		this._statsContainer = options.statsContainer || null;
 
 		// ── Settings (single source of truth for all render parameters) ──
 		this.settings = new RenderSettings( DEFAULT_STATE );
@@ -1863,7 +1865,8 @@ export class PathTracerApp extends EventDispatcher {
 		this._stats.dom.style.bottom = '48px';
 
 		this._stats.init( this.renderer );
-		this.canvas.parentElement.parentElement.parentElement.appendChild( this._stats.dom );
+		const container = this._statsContainer || this.canvas.parentElement || document.body;
+		container.appendChild( this._stats.dom );
 
 		const foregroundColor = '#ffffff';
 		const backgroundColor = '#1e293b';

@@ -1,5 +1,19 @@
-import { initUNetFromURL } from 'oidn-web';
 import { EventDispatcher, NoToneMapping, LinearToneMapping, ReinhardToneMapping, CineonToneMapping, ACESFilmicToneMapping, AgXToneMapping, NeutralToneMapping } from 'three';
+
+let _initUNetFromURL = null;
+async function getInitUNetFromURL() {
+
+	if ( ! _initUNetFromURL ) {
+
+		const mod = await import( 'oidn-web' );
+		_initUNetFromURL = mod.initUNetFromURL;
+
+	}
+
+	return _initUNetFromURL;
+
+}
+
 import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
 
 // ─── CPU tone mapping matching Three.js ToneMappingFunctions.js (WebGPU) ───
@@ -354,7 +368,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			}
 
-			this.unet = await initUNetFromURL( tzaUrl, backendParams, {
+			const initFn = await getInitUNetFromURL();
+			this.unet = await initFn( tzaUrl, backendParams, {
 				aux: this.useGBuffer,
 				// GPU path requires hdr: true (only HDR+aux weight files have a GPU pipeline)
 				hdr: this.isGPUMode ? true : this.hdr,
