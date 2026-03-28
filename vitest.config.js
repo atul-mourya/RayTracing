@@ -18,6 +18,7 @@ export default defineConfig( {
 		alias: {
 			"@/core": path.resolve( __dirname, "rayzee/src" ),
 			"@": path.resolve( __dirname, "app/src" ),
+			"oidn-web": path.resolve( __dirname, "tests/__mocks__/oidn-web.js" ),
 		},
 	},
 } );
