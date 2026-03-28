@@ -2,6 +2,15 @@
 
 A sophisticated real-time path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
 
+The project is organized as a monorepo with two packages:
+- **`rayzee/`** — The standalone rendering engine, publishable to npm
+- **`app/`** — The React UI application that wraps the engine
+
+External clients can use the engine independently:
+```js
+import { PathTracerApp } from 'rayzee';
+```
+
 🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
 
 
@@ -81,7 +90,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
    cd RayTracing
    ```
 
-2. **Install dependencies**
+2. **Install dependencies** (installs both `rayzee/` and `app/` workspaces)
    ```bash
    npm install
    ```
@@ -93,13 +102,15 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 
 4. **Open in browser**
    ```
-   http://localhost:5173
+   http://localhost:5174
    ```
 
 ### Build for Production
 ```bash
-npm run build
-npm run preview
+npm run build          # Builds both engine and app
+npm run build:engine   # Build only the rayzee engine
+npm run build:app      # Build only the React app
+npm run preview        # Preview the production build locally
 ```
 
 ## Keyboard Shortcuts
@@ -151,51 +162,59 @@ npm run preview
 The application follows an event-driven stage-based architecture:
 
 ```
-src/
-├── core/                    # Core path tracing engine
-│   ├── PathTracerApp.js     # Main application class
-│   ├── appProxy.js          # Decoupled app instance access
-│   ├── InteractionManager.js
-│   ├── Pipeline/            # Stage pipeline infrastructure
-│   │   ├── PassPipeline.js      # Stage execution orchestrator
-│   │   ├── PipelineStage.js     # Base class for stages
-│   │   ├── PipelineContext.js   # Shared state & textures
-│   │   └── EventDispatcher.js   # Event bus for stage communication
-│   ├── Stages/              # Rendering pipeline stages
-│   │   ├── PathTracingStage.js      # Core Monte Carlo path tracing
-│   │   ├── ASVGFStage.js           # Spatiotemporal denoising
-│   │   ├── AdaptiveSamplingStage.js # Variance-guided sampling
-│   │   ├── EdgeAwareFilteringStage.js
-│   │   ├── BilateralFilteringStage.js
-│   │   ├── NormalDepthStage.js      # G-buffer generation
-│   │   ├── MotionVectorStage.js     # Motion vector computation
-│   │   ├── VarianceEstimationStage.js
-│   │   ├── AutoExposureStage.js
-│   │   ├── TileHighlightStage.js
-│   │   └── DisplayStage.js         # Final composition
-│   ├── TSL/                 # TSL shader modules (23 files)
-│   │   ├── PathTracer.js        # Main path tracer logic
-│   │   ├── BVHTraversal.js      # BVH acceleration traversal
-│   │   ├── MaterialSampling.js  # BRDF sampling
-│   │   ├── Environment.js       # Environment mapping
-│   │   ├── LightsDirect.js      # Direct lighting
-│   │   ├── LightsIndirect.js    # Indirect lighting
-│   │   └── ...                  # Disney BRDF, transmission, fog, etc.
-│   └── Processor/           # Asset loading & processing
-│       ├── AssetLoader.js       # GLB/GLTF model loading
-│       ├── GeometryExtractor.js # Mesh → triangle data
-│       ├── BVHBuilder.js        # BVH acceleration structure
-│       ├── TextureCreator.js    # GPU texture generation
-│       └── Workers/             # Web Workers for heavy computation
-│           ├── BVHWorker.js
-│           └── TexturesWorker.js
-├── components/              # React UI components
-│   ├── layout/              # App layout (sidebars, topbar, viewports)
-│   └── ui/                  # 45+ Radix-based UI components
-├── hooks/                   # Custom React hooks (9 hooks)
-├── services/                # External services & APIs
-├── store.js                 # Zustand state management
-└── utils/                   # Utility functions
+├── rayzee/                  # Standalone rendering engine (npm package)
+│   └── src/
+│       ├── index.js             # Public API
+│       ├── PathTracerApp.js     # Main application class
+│       ├── InteractionManager.js
+│       ├── Pipeline/            # Stage pipeline infrastructure
+│       │   ├── PassPipeline.js      # Stage execution orchestrator
+│       │   ├── PipelineStage.js     # Base class for stages
+│       │   ├── PipelineContext.js   # Shared state & textures
+│       │   └── EventDispatcher.js   # Event bus for stage communication
+│       ├── Stages/              # Rendering pipeline stages
+│       │   ├── PathTracingStage.js      # Core Monte Carlo path tracing
+│       │   ├── ASVGFStage.js           # Spatiotemporal denoising
+│       │   ├── AdaptiveSamplingStage.js # Variance-guided sampling
+│       │   ├── EdgeAwareFilteringStage.js
+│       │   ├── BilateralFilteringStage.js
+│       │   ├── NormalDepthStage.js      # G-buffer generation
+│       │   ├── MotionVectorStage.js     # Motion vector computation
+│       │   ├── VarianceEstimationStage.js
+│       │   ├── AutoExposureStage.js
+│       │   ├── TileHighlightStage.js
+│       │   └── DisplayStage.js         # Final composition
+│       ├── TSL/                 # TSL shader modules (23 files)
+│       │   ├── PathTracer.js        # Main path tracer logic
+│       │   ├── BVHTraversal.js      # BVH acceleration traversal
+│       │   ├── MaterialSampling.js  # BRDF sampling
+│       │   ├── Environment.js       # Environment mapping
+│       │   ├── LightsDirect.js      # Direct lighting
+│       │   ├── LightsIndirect.js    # Indirect lighting
+│       │   └── ...                  # Disney BRDF, transmission, fog, etc.
+│       └── Processor/           # Asset loading & processing
+│           ├── AssetLoader.js       # GLB/GLTF model loading
+│           ├── GeometryExtractor.js # Mesh → triangle data
+│           ├── BVHBuilder.js        # BVH acceleration structure
+│           ├── TextureCreator.js    # GPU texture generation
+│           └── Workers/             # Web Workers for heavy computation
+│               ├── BVHWorker.js
+│               └── TexturesWorker.js
+├── app/                     # React UI application
+│   ├── index.html
+│   ├── public/              # Static assets
+│   └── src/
+│       ├── components/          # React UI components
+│       │   ├── layout/              # App layout (sidebars, topbar, viewports)
+│       │   └── ui/                  # 45+ Radix-based UI components
+│       ├── hooks/               # Custom React hooks (9 hooks)
+│       ├── services/            # External services & APIs
+│       ├── store.js             # Zustand state management
+│       └── utils/               # Utility functions
+├── tests/                   # Vitest test suites
+├── package.json             # Workspace orchestration
+├── vitest.config.js
+└── eslint.config.js
 ```
 
 ### Rendering Pipeline
@@ -239,8 +258,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Experience photorealistic rendering directly in your browser:
 
-![Sample Render 1](public/results/result1.png)
-![Sample Render 2](public/results/result2.png)
+![Sample Render 1](app/public/results/result1.png)
+![Sample Render 2](app/public/results/result2.png)
 
 ---
 

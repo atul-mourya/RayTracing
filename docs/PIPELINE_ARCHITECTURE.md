@@ -48,7 +48,7 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               └───────────────────────┘
 ```
 
-### App Proxy (`src/core/appProxy.js`)
+### App Proxy (`rayzee/src/appProxy.js`)
 
 All UI/store code accesses the app via `getApp()`:
 
@@ -739,7 +739,7 @@ this.pipeline.addStage(displayStage);
 ### Step 3: Add Store Handler (Optional)
 
 ```javascript
-// In store.js - uses getApp() from appProxy
+// In app/src/store.js - uses getApp() from appProxy
 handleMyCustomIntensity: handleChange(
     val => set({ myCustomIntensity: val }),
     val => getApp().myStage.intensity.value = val

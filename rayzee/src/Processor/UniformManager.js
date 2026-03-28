@@ -1,0 +1,266 @@
+/**
+ * UniformManager.js
+ * Manages all TSL uniform nodes for the path tracing pipeline.
+ * Uniform nodes are created once and never replaced — only .value is mutated.
+ * This preserves TSL shader graph references after compilation.
+ */
+
+import { uniform, uniformArray } from 'three/tsl';
+import { Vector2, Matrix4, Vector3 } from 'three';
+import { samplingTechniqueUniform } from '../TSL/Random.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
+
+/**
+ * Map of uniform names to their WGSL shader names (where different).
+ * Most uniforms use the same name for both key and shader name.
+ */
+const SHADER_NAMES = {
+	cameraViewMatrix: 'ptCameraViewMatrix',
+	cameraProjectionMatrix: 'ptCameraProjectionMatrix',
+};
+
+export class UniformManager {
+
+	constructor( width = 1920, height = 1080 ) {
+
+		/** @type {Map<string, import('three/tsl').UniformNode>} */
+		this._uniforms = new Map();
+
+		/** @type {Set<string>} Uniforms that store boolean values as int 0/1 */
+		this._booleans = new Set();
+
+		/** @type {Object} Light buffer uniformArray nodes */
+		this._lightBuffers = {};
+
+		this._initUniforms( width, height );
+		this._nameAll();
+
+	}
+
+	/**
+	 * Get a uniform node by name.
+	 * @param {string} name
+	 * @returns {import('three/tsl').UniformNode}
+	 */
+	get( name ) {
+
+		return this._uniforms.get( name );
+
+	}
+
+	/**
+	 * Set a uniform's value. Auto-handles booleans (→ int 0/1),
+	 * vectors/matrices (→ .copy()), and plain scalars.
+	 * @param {string} name
+	 * @param {*} value
+	 */
+	set( name, value ) {
+
+		const node = this._uniforms.get( name );
+		if ( ! node ) {
+
+			console.warn( `UniformManager: Unknown uniform "${name}"` );
+			return;
+
+		}
+
+		if ( this._booleans.has( name ) ) {
+
+			node.value = value ? 1 : 0;
+
+		} else if ( value != null && typeof value === 'object' && typeof node.value?.copy === 'function' ) {
+
+			node.value.copy( value );
+
+		} else {
+
+			node.value = value;
+
+		}
+
+	}
+
+	/**
+	 * Check if a uniform exists.
+	 * @param {string} name
+	 * @returns {boolean}
+	 */
+	has( name ) {
+
+		return this._uniforms.has( name );
+
+	}
+
+	/**
+	 * Returns an iterator over uniform names.
+	 * @returns {IterableIterator<string>}
+	 */
+	keys() {
+
+		return this._uniforms.keys();
+
+	}
+
+	/**
+	 * Get the light buffer uniformArray nodes.
+	 * @returns {{ directional: UniformArrayNode, area: UniformArrayNode, point: UniformArrayNode, spot: UniformArrayNode }}
+	 */
+	getLightBufferNodes() {
+
+		return this._lightBuffers;
+
+	}
+
+	/**
+	 * Batch-update multiple uniforms at once.
+	 * @param {Object} updates - Map of uniform name → value
+	 * @returns {boolean} True if any values changed
+	 */
+	updateMany( updates ) {
+
+		let hasChanges = false;
+
+		for ( const [ key, value ] of Object.entries( updates ) ) {
+
+			const node = this._uniforms.get( key );
+			if ( node && node.value !== value ) {
+
+				node.value = value;
+				hasChanges = true;
+
+			}
+
+		}
+
+		return hasChanges;
+
+	}
+
+	/**
+	 * Initialize all uniforms.
+	 * @private
+	 */
+	_initUniforms( width, height ) {
+
+		const u = ( name, value, type ) => {
+
+			const node = uniform( value, type );
+			this._uniforms.set( name, node );
+			return node;
+
+		};
+
+		// Boolean uniform helper (stores as int 0/1, auto-converts on set)
+		const ub = ( name, value ) => {
+
+			this._booleans.add( name );
+			return u( name, value ? 1 : 0, 'int' );
+
+		};
+
+		// Frame and sampling
+		u( 'frame', 0, 'uint' );
+		u( 'maxBounces', DEFAULT_STATE.bounces, 'int' );
+		u( 'samplesPerPixel', DEFAULT_STATE.samplesPerPixel, 'int' );
+		u( 'maxSamples', DEFAULT_STATE.maxSamples, 'int' );
+		u( 'transmissiveBounces', DEFAULT_STATE.transmissiveBounces, 'int' );
+		u( 'visMode', DEFAULT_STATE.debugMode, 'int' );
+		u( 'debugVisScale', DEFAULT_STATE.debugVisScale, 'float' );
+
+		// Accumulation
+		ub( 'enableAccumulation', true );
+		u( 'accumulationAlpha', 0.0, 'float' );
+		ub( 'cameraIsMoving', false );
+		ub( 'hasPreviousAccumulated', false );
+
+		// Environment
+		u( 'environmentIntensity', DEFAULT_STATE.environmentIntensity, 'float' );
+		u( 'backgroundIntensity', DEFAULT_STATE.backgroundIntensity, 'float' );
+		ub( 'showBackground', DEFAULT_STATE.showBackground );
+		ub( 'transparentBackground', DEFAULT_STATE.transparentBackground );
+		ub( 'enableEnvironment', DEFAULT_STATE.enableEnvironment );
+		u( 'environmentMatrix', new Matrix4(), 'mat4' );
+		ub( 'useEnvMapIS', DEFAULT_STATE.useImportanceSampledEnvironment );
+		u( 'envTotalSum', 0.0, 'float' );
+		u( 'envResolution', new Vector2( 1, 1 ), 'vec2' );
+
+		// Sun parameters
+		u( 'sunDirection', new Vector3( 0, 1, 0 ), 'vec3' );
+		u( 'sunAngularSize', 0.0087, 'float' );
+		ub( 'hasSun', false );
+
+		// Lighting
+		u( 'globalIlluminationIntensity', DEFAULT_STATE.globalIlluminationIntensity, 'float' );
+		u( 'exposure', DEFAULT_STATE.exposure, 'float' );
+
+		// Light counts
+		u( 'numDirectionalLights', 0, 'int' );
+		u( 'numAreaLights', 0, 'int' );
+		u( 'numPointLights', 0, 'int' );
+		u( 'numSpotLights', 0, 'int' );
+
+		// Light buffer nodes - pre-allocate for up to 16 lights per type (shader hard cap)
+		this._lightBuffers = {
+			directional: uniformArray( new Float32Array( 8 * 16 ), 'float' ),
+			area: uniformArray( new Float32Array( 13 * 16 ), 'float' ),
+			point: uniformArray( new Float32Array( 7 * 16 ), 'float' ),
+			spot: uniformArray( new Float32Array( 11 * 16 ), 'float' ),
+		};
+
+		// Camera matrices
+		u( 'cameraWorldMatrix', new Matrix4(), 'mat4' );
+		u( 'cameraProjectionMatrixInverse', new Matrix4(), 'mat4' );
+		u( 'cameraViewMatrix', new Matrix4(), 'mat4' );
+		u( 'cameraProjectionMatrix', new Matrix4(), 'mat4' );
+
+		// DOF
+		ub( 'enableDOF', DEFAULT_STATE.enableDOF );
+		u( 'focusDistance', DEFAULT_STATE.focusDistance, 'float' );
+		u( 'focalLength', DEFAULT_STATE.focalLength, 'float' );
+		u( 'aperture', DEFAULT_STATE.aperture, 'float' );
+		u( 'apertureScale', 1.0, 'float' );
+		u( 'sceneScale', 1.0, 'float' );
+
+		// Sampling — use the module-level uniform from Random.js so TSL sees the same node
+		this._uniforms.set( 'samplingTechnique', samplingTechniqueUniform );
+		samplingTechniqueUniform.value = DEFAULT_STATE.samplingTechnique;
+
+		ub( 'useAdaptiveSampling', DEFAULT_STATE.adaptiveSampling );
+		u( 'adaptiveSamplingMin', DEFAULT_STATE.adaptiveSamplingMin ?? 1, 'int' );
+		u( 'adaptiveSamplingMax', DEFAULT_STATE.adaptiveSamplingMax, 'int' );
+		u( 'fireflyThreshold', DEFAULT_STATE.fireflyThreshold, 'float' );
+
+		// Emissive
+		ub( 'enableEmissiveTriangleSampling', DEFAULT_STATE.enableEmissiveTriangleSampling );
+		u( 'emissiveBoost', DEFAULT_STATE.emissiveBoost, 'float' );
+		u( 'emissiveTriangleCount', 0, 'int' );
+		u( 'emissiveTotalPower', 0.0, 'float' );
+		u( 'lightBVHNodeCount', 0, 'int' );
+
+		// Render mode
+		u( 'renderMode', DEFAULT_STATE.renderMode, 'int' );
+
+		// Resolution (for RNG seeding)
+		u( 'resolution', new Vector2( width, height ), 'vec2' );
+
+		// Scene data
+		u( 'totalTriangleCount', 0, 'int' );
+
+	}
+
+	/**
+	 * Assign .name on each uniform node for WGSL debugging.
+	 * Uses SHADER_NAMES overrides where the WGSL name differs from the key.
+	 * @private
+	 */
+	_nameAll() {
+
+		for ( const [ key, node ] of this._uniforms ) {
+
+			node.name = SHADER_NAMES[ key ] || key;
+
+		}
+
+	}
+
+}

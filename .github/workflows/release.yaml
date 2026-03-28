@@ -55,7 +55,7 @@ jobs:
         if: steps.semantic.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: './app/dist'
 
       - name: Deploy to GitHub Pages
         if: steps.semantic.outcome == 'success'

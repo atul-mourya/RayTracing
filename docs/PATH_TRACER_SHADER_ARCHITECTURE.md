@@ -6,9 +6,9 @@ Rayzee Path Tracing Engine – Internal Shader Design (PathTracer Stage Only)
 
 ## Scope & Exclusions
 
-This document covers the real-time path tracing stage shader system for the **WebGPU backend (TSL)**. The legacy WebGL/GLSL backend (`src/core/Shaders/`) has been fully removed — the codebase is now WebGPU-only.
+This document covers the real-time path tracing stage shader system for the **WebGPU backend (TSL)**. The legacy WebGL/GLSL backend (`rayzee/src/Shaders/`) has been fully removed — the codebase is now WebGPU-only.
 
-TSL (Three Shading Language) is a JavaScript-based shader authoring system that compiles to WGSL at runtime via Three.js's WebGPU backend. All 25 shader modules live in `src/core/TSL/`.
+TSL (Three Shading Language) is a JavaScript-based shader authoring system that compiles to WGSL at runtime via Three.js's WebGPU backend. All 25 shader modules live in `rayzee/src/TSL/`.
 
 Explicitly excluded (refer to separate docs):
 - Denoisers (ASVGF, EdgeAwareFiltering, BilateralFiltering)
@@ -42,7 +42,7 @@ Key features:
 
 ---
 
-## Module Map (`src/core/TSL/`)
+## Module Map (`rayzee/src/TSL/`)
 
 Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy-enhanced structs. No raw `wgslFn()` is used in the hot path.
 
@@ -233,7 +233,7 @@ The Light BVH accelerates emissive triangle sampling by organizing emissive tria
 Light BVH sampling is selected when `lightBVHNodeCount > 0`. The composite PDF accounts for both tree-traversal probabilities and per-triangle sampling. MIS weight combines this with the BRDF lobe PDF.
 
 ### Builder
-`LightBVHBuilder.js` (in `src/core/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracingStage.setLightBVHData()` uploads the packed node buffer.
+`LightBVHBuilder.js` (in `rayzee/src/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracingStage.setLightBVHData()` uploads the packed node buffer.
 
 ---
 
