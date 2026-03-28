@@ -296,14 +296,15 @@ export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, cur
 // -----------------------------------------------------------------------------
 // Low-discrepancy sequence generators
 // -----------------------------------------------------------------------------
-// Halton sequence generator with Owen scrambling
+// Halton sequence generator with per-digit additive scrambling
 
 export const haltonScrambled = /*@__PURE__*/ wgslFn( `
 	fn haltonScrambled( index: i32, base: i32, scramble: u32 ) -> f32 {
 
 		var result = 0.0f;
 		var f = 1.0f;
-		var i = index;
+		var i = index + 1;
+		var s = scramble;
 		var iter = 0;
 
 		while ( i > 0 && iter < 32 ) {
@@ -311,18 +312,22 @@ export const haltonScrambled = /*@__PURE__*/ wgslFn( `
 			iter += 1;
 			f /= f32( base );
 
-			// Apply digit scrambling
+			// Additive permutation per digit: (digit + s_k) mod base
+			// Guaranteed bijection within [0, base) for any s_k
 			var digit = i % base;
-			digit = i32( wang_hash( u32( digit ) ^ scramble ) % u32( base ) );
+			digit = ( digit + i32( s % u32( base ) ) ) % base;
 			result += f * f32( digit );
-			i = i32( floor( f32( i ) / f32( base ) ) );
+			i /= base;
+
+			// Evolve scramble per digit position for position-dependent permutations
+			s = s * 747796405u + 2891336453u;
 
 		}
 
 		return result;
 
 	}
-`, [ wang_hash ] );
+` );
 
 // Owen scrambling for Sobol sequence
 
@@ -353,13 +358,17 @@ export const owen_scrambled_sobol = /*@__PURE__*/ wgslFn( `
 
 			if ( ( index & ( 1u << u32( i ) ) ) != 0u ) {
 
-				result ^= getSobolDirectionVector( i ) << dimension;
+				result ^= getSobolDirectionVector( i );
 
 			}
 
 		}
 
-		result = owen_scramble( result, seed );
+		// Mix dimension into seed for inter-dimensional decorrelation
+		// (Van der Corput base is shared; Owen scrambling with distinct seeds
+		// produces decorrelated sequences across dimensions)
+		let dimSeed = seed ^ ( dimension * 0x9e3779b9u + 0x6a09e667u );
+		result = owen_scramble( result, dimSeed );
 		return f32( result ) / 4294967296.0f;
 
 	}
@@ -441,8 +450,9 @@ export const getRandomSampleND = ( pixelCoord, sampleIndex, bounceIndex, rngStat
 
 	} ).ElseIf( technique.equal( int( 1 ) ), () => {
 
-		// Halton
-		const scramble = pcgHash( { state: uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) } );
+		// Halton — mix frame + bounceIndex into scramble for temporal and per-bounce decorrelation
+		const pixelHash = uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) );
+		const scramble = pcgHash( { state: pixelHash.bitXor( frame.mul( uint( 0x9e3779b9 ) ) ).bitXor( uint( bounceIndex ).mul( uint( 0x517cc1b7 ) ) ) } ).toVar();
 
 		result.x.assign( haltonScrambled( { index: sampleIndex, base: int( 2 ), scramble } ) );
 
@@ -466,8 +476,9 @@ export const getRandomSampleND = ( pixelCoord, sampleIndex, bounceIndex, rngStat
 
 	} ).ElseIf( technique.equal( int( 2 ) ), () => {
 
-		// Sobol
-		const seed = pcgHash( { state: uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) ) } );
+		// Sobol — mix frame + bounceIndex into seed for temporal and per-bounce decorrelation
+		const pixelHash = uint( pixelCoord.x ).add( uint( pixelCoord.y ).mul( uint( resolution.x ) ) );
+		const seed = pcgHash( { state: pixelHash.bitXor( frame.mul( uint( 0x9e3779b9 ) ) ).bitXor( uint( bounceIndex ).mul( uint( 0x517cc1b7 ) ) ) } ).toVar();
 
 		result.x.assign( owen_scrambled_sobol( { index: uint( sampleIndex ), dimension: uint( 0 ), seed } ) );
 
@@ -534,16 +545,16 @@ export const HybridRandomSample2D = ( state, sampleIndex, pixelIndex, resolution
 
 	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 2 ) ), () => {
 
-		// Sobol (technique 2)
+		// Sobol (technique 2) — mix frame for temporal decorrelation
 
-		const seed = pcgHash( { state: uint( pixelIndex ) } );
+		const seed = pcgHash( { state: uint( pixelIndex ).bitXor( uint( frame ).mul( uint( 0x9e3779b9 ) ) ) } );
 		quasi.assign( owen_scrambled_sobol2D( { index: uint( sampleIndex ), seed } ) );
 
 	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 1 ) ), () => {
 
-		// Halton (technique 1)
+		// Halton (technique 1) — mix frame for temporal decorrelation
 
-		const scramble = wang_hash( { seed: uint( pixelIndex ) } );
+		const scramble = wang_hash( { seed: uint( pixelIndex ).bitXor( uint( frame ).mul( uint( 0x9e3779b9 ) ) ) } );
 		quasi.assign( vec2( haltonScrambled( { index: sampleIndex, base: int( 2 ), scramble } ), haltonScrambled( { index: sampleIndex, base: int( 3 ), scramble } ) ) );
 
 	} ).Else( () => {
