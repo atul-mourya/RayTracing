@@ -1,6 +1,6 @@
 // Three.js Transpiler r182
 
-import { uniform, texture, textureSize, float, If, Fn, wgslFn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, vec4, add, mix } from 'three/tsl';
+import { uniform, texture, textureSize, float, If, Fn, wgslFn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, vec4, mix } from 'three/tsl';
 import { DataTexture, FloatType } from 'three';
 
 // -----------------------------------------------------------------------------
@@ -203,17 +203,6 @@ export const sampleBlueNoiseRaw = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex
 	return blueNoiseTextureNode.load( texCoord );
 
 }, { pixelCoords: 'vec2', sampleIndex: 'int', bounceIndex: 'int', frame: 'int', return: 'vec4' } );
-
-// Get a single float value from blue noise (for 1D sampling)
-
-export const sampleBlueNoise1D = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex, dimension, frame ] ) => {
-
-	const noise = sampleBlueNoiseRaw( pixelCoords, sampleIndex, dimension.div( int( 4 ) ), frame );
-	const component = mod( dimension, int( 4 ) );
-
-	return select( component.equal( int( 0 ) ), noise.x, select( component.equal( int( 1 ) ), noise.y, select( component.equal( int( 2 ) ), noise.z, noise.w ) ) );
-
-}, { pixelCoords: 'vec2', sampleIndex: 'int', dimension: 'int', return: 'float', frame: 'int' } );
 
 // Get 2D blue noise sample with dimension offset
 
@@ -526,60 +515,6 @@ export const getRandomSampleND = ( pixelCoord, sampleIndex, bounceIndex, rngStat
 };
 
 // -----------------------------------------------------------------------------
-// Hybrid sampling methods
-// -----------------------------------------------------------------------------
-// Combine quasi-random and pseudo-random sampling with blue noise awareness
-
-export const HybridRandomSample2D = ( state, sampleIndex, pixelIndex, resolution, frame ) => {
-
-	const quasi = vec2( 0.0 ).toVar();
-	const useQuasi = int( 1 ).toVar();
-
-	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
-
-		// Blue noise (technique 3)
-
-		const pixelCoord = vec2( float( mod( pixelIndex, int( resolution.x ) ) ), float( pixelIndex.div( int( resolution.x ) ) ) );
-		quasi.assign( sampleBlueNoise2D( pixelCoord, sampleIndex, int( 0 ), frame ) );
-		useQuasi.assign( 0 );
-
-	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 2 ) ), () => {
-
-		// Sobol (technique 2) — mix frame for temporal decorrelation
-
-		const seed = pcgHash( { state: uint( pixelIndex ).bitXor( uint( frame ).mul( uint( 0x9e3779b9 ) ) ) } );
-		quasi.assign( owen_scrambled_sobol2D( { index: uint( sampleIndex ), seed } ) );
-
-	} ).ElseIf( samplingTechnique.greaterThanEqual( int( 1 ) ), () => {
-
-		// Halton (technique 1) — mix frame for temporal decorrelation
-
-		const scramble = wang_hash( { seed: uint( pixelIndex ).bitXor( uint( frame ).mul( uint( 0x9e3779b9 ) ) ) } );
-		quasi.assign( vec2( haltonScrambled( { index: sampleIndex, base: int( 2 ), scramble } ), haltonScrambled( { index: sampleIndex, base: int( 3 ), scramble } ) ) );
-
-	} ).Else( () => {
-
-		// PCG fallback (technique 0) - use fast variant for fallback path
-		// .toVar() on each call to capture value before next state advance
-		const q1 = RandomValueFast( state ).toVar();
-		const q2 = RandomValueFast( state ).toVar();
-		quasi.assign( vec2( q1, q2 ) );
-		useQuasi.assign( 0 );
-
-	} );
-
-	// Add small random offset for better convergence - use fast RNG for perturbation
-	// Only apply for quasi-random sequences (Sobol, Halton)
-	// .toVar() on each call to capture value before next state advance
-	const p1 = RandomValueFast( state ).toVar();
-	const p2 = RandomValueFast( state ).toVar();
-	const pseudo = vec2( p1, p2 );
-
-	return select( useQuasi.greaterThan( int( 0 ) ), fract( quasi.add( pseudo.mul( 0.01 ) ) ), quasi );
-
-};
-
-// -----------------------------------------------------------------------------
 // Main sampling interface functions
 // -----------------------------------------------------------------------------
 // Get random sample based on preferred technique (2D)
@@ -678,86 +613,3 @@ export const getDecorrelatedSeed = /*@__PURE__*/ wgslFn( `
 	}
 `, [ wang_hash, pcgHash ] );
 
-// -----------------------------------------------------------------------------
-// Specialized sampling functions
-// -----------------------------------------------------------------------------
-// Get sample optimized for primary rays (pixel anti-aliasing) with enhanced blue noise fallback
-
-export const getPrimaryRaySample = ( pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ) => {
-
-	// result variable avoids early-return ReturnNode escaping into outer Fn scope
-	const result = vec2( 0.0 ).toVar();
-
-	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
-
-		// Blue noise - optimal for primary rays
-
-		result.assign( sampleProgressiveBlueNoise( pixelCoord, sampleIndex, totalSamples, frame ) );
-
-	} ).Else( () => {
-
-		// Enhanced stratified sampling with blue noise influence for better convergence
-
-		const stratifiedSample = getStratifiedSample( pixelCoord, sampleIndex, totalSamples, rngState, resolution, frame ).toVar();
-
-		// Add blue noise influence for improved anti-aliasing convergence
-
-		If( totalSamples.greaterThan( int( 1 ) ), () => {
-
-			const blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, int( 1 ), frame ).mul( 0.15 );
-			stratifiedSample.assign( mix( stratifiedSample, blueNoiseHint, 0.25 ) );
-
-		} );
-
-		result.assign( stratifiedSample );
-
-	} );
-
-	return result;
-
-};
-
-// Get sample optimized for BRDF sampling with enhanced convergence
-
-export const getBRDFSample = ( pixelCoord, sampleIndex, bounceIndex, rngState, frame ) => {
-
-	// BRDF sampling benefits from different dimensions than pixel sampling
-
-	const dimensionOffset = add( int( 2 ), bounceIndex.mul( int( 2 ) ) );
-
-	// Start at dimension 2
-	// result variable avoids early-return ReturnNode escaping into outer Fn scope
-	const result = vec2( 0.0 ).toVar();
-
-	If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
-
-		// Blue noise - optimal for BRDF sampling
-
-		result.assign( sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame ) );
-
-	} ).Else( () => {
-
-		// Enhanced random sampling with subtle blue noise influence for better BRDF convergence
-		// Use fast RNG for BRDF sampling where speed is more important than perfect distribution
-		// .toVar() on each call to capture value before next state advance
-
-		const r1 = RandomValueFast( rngState ).toVar();
-		const r2 = RandomValueFast( rngState ).toVar();
-		const randomSample = vec2( r1, r2 ).toVar();
-
-		// Add blue noise influence for deeper bounces where quality matters
-
-		If( bounceIndex.greaterThan( int( 0 ) ), () => {
-
-			const blueNoiseHint = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame ).mul( 0.12 );
-			randomSample.assign( mix( randomSample, blueNoiseHint, 0.15 ) );
-
-		} );
-
-		result.assign( randomSample );
-
-	} );
-
-	return result;
-
-};
