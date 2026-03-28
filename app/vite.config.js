@@ -5,7 +5,9 @@ import { defineConfig } from "vite";
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import topLevelAwait from "vite-plugin-top-level-await";
 import process from 'process';
+import { readFileSync } from 'fs';
 const __dirname = path.resolve();
+const rootPkg = JSON.parse( readFileSync( path.resolve( __dirname, '../package.json' ), 'utf-8' ) );
 
 const ReactCompilerConfig = {}; // Define ReactCompilerConfig
 
@@ -65,6 +67,7 @@ export default defineConfig( {
 	// Only define specific environment variables that are needed
 	// Avoid exposing all of process.env for security reasons
 	define: {
-		'process.env.NODE_ENV': JSON.stringify( process.env.NODE_ENV )
+		'process.env.NODE_ENV': JSON.stringify( process.env.NODE_ENV ),
+		'__APP_VERSION__': JSON.stringify( process.env.VITE_APP_VERSION || rootPkg.version ),
 	}
 } );

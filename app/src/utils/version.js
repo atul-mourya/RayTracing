@@ -1,19 +1,18 @@
-// Import root package.json — semantic-release bumps the version there
-import packageJson from '../../../package.json';
+// __APP_VERSION__ is injected at build time by Vite (see vite.config.js).
+// It reads from VITE_APP_VERSION env var if set, otherwise from root package.json.
+// This ensures consistent version display regardless of deployment source.
 
-// Export the version for use throughout the application
-export const appVersion = packageJson.version === '0.0.0' ? 'dev' : packageJson.version;
+/* global __APP_VERSION__ */
+export const appVersion = __APP_VERSION__ === '0.0.0' ? 'dev' : __APP_VERSION__;
 
-// Function to log the version to console
 export function logVersion() {
 
 	console.log( `Application version: ${appVersion}` );
 
 }
 
-// Function to check if version is the default unset version
 export function isVersionSet() {
 
-	return packageJson.version !== '0.0.0';
+	return __APP_VERSION__ !== '0.0.0';
 
 }
