@@ -1,4 +1,4 @@
-import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType } from "three";
+import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType, SRGBColorSpace } from "three";
 import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX } from '../EngineDefaults.js';
 
 // Canvas pooling for efficient reuse of canvas elements
@@ -1146,12 +1146,12 @@ export default class TextureCreator {
 
 						switch ( type ) {
 
-							case 'albedo': textures.albedoTexture = texture; break;
+							case 'albedo': texture.colorSpace = SRGBColorSpace; textures.albedoTexture = texture; break;
 							case 'normal': textures.normalTexture = texture; break;
 							case 'bump': textures.bumpTexture = texture; break;
 							case 'roughness': textures.roughnessTexture = texture; break;
 							case 'metalness': textures.metalnessTexture = texture; break;
-							case 'emissive': textures.emissiveTexture = texture; break;
+							case 'emissive': texture.colorSpace = SRGBColorSpace; textures.emissiveTexture = texture; break;
 							case 'displacement': textures.displacementTexture = texture; break;
 
 						}

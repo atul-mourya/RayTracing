@@ -12,6 +12,7 @@ export const ENGINE_DEFAULTS = {
 
 	toneMapping: 4,
 	exposure: 1,
+	saturation: 1.2,
 	enableEnvironment: true,
 	showBackground: true,
 	transparentBackground: false,

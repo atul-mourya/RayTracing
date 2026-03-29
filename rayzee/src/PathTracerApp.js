@@ -1693,6 +1693,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stages.display = new DisplayStage( this.renderer, {
 			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
+			saturation: this.settings.get( 'saturation' ) ?? DEFAULT_STATE.saturation,
 			outlineColorNode
 		} );
 
@@ -1749,6 +1750,12 @@ export class PathTracerApp extends EventDispatcher {
 					this.stages.display?.setExposure( value );
 
 				}
+
+			},
+
+			handleSaturation: ( value ) => {
+
+				this.stages.display?.setSaturation( value );
 
 			},
 

@@ -382,6 +382,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setUpscalerQuality: val => set( { upscalerQuality: val } ),
 	setUpscalerHdr: val => set( { upscalerHdr: val } ),
 	setExposure: val => set( { exposure: val } ),
+	setSaturation: val => set( { saturation: val } ),
 	setEnableEnvironment: val => set( { enableEnvironment: val } ),
 	setShowBackground: val => set( { showBackground: val } ),
 	setBackgroundIntensity: val => set( { backgroundIntensity: val } ),
@@ -953,6 +954,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		getApp()?.set( 'exposure', val );
 
 	},
+
+	handleSaturationChange: handleChange(
+		val => set( { saturation: val } ),
+		( val, app ) => app.set( 'saturation', val ),
+		false
+	),
 
 	// Auto-exposure handlers
 	handleAutoExposureChange: handleChange(

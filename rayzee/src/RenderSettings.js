@@ -42,6 +42,7 @@ const SETTING_ROUTES = {
 	maxSamples: { handler: 'handleMaxSamples', reset: false },
 	transparentBackground: { handler: 'handleTransparentBackground' },
 	exposure: { handler: 'handleExposure' },
+	saturation: { handler: 'handleSaturation' },
 	renderLimitMode: { handler: 'handleRenderLimitMode' },
 	renderTimeLimit: { handler: 'handleRenderTimeLimit', reset: false },
 	renderMode: { handler: 'handleRenderMode' },

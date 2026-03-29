@@ -1,4 +1,4 @@
-import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, sqrt, mix, clamp, texture } from 'three/tsl';
+import { Fn, wgslFn, float, vec2, vec3, vec4, int, If, normalize, cross, abs, mix, clamp, texture } from 'three/tsl';
 
 import {
 	UVCache,
@@ -208,9 +208,8 @@ export const processAlbedo = Fn( ( [ albedoMaps, material, uvCache ] ) => {
 	If( material.albedoMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
 		const albedoSample = texture( albedoMaps, uvCache.albedoUV ).depth( int( material.albedoMapIndex ) ).toVar();
-		// Fast sRGB approximation
-		const linear = albedoSample.rgb.mul( albedoSample.rgb ).mul( sqrt( albedoSample.rgb ) );
-		result.assign( vec4( material.color.rgb.mul( linear ), material.color.a.mul( albedoSample.a ) ) );
+		// sRGB→linear handled by GPU hardware (texture.colorSpace = SRGBColorSpace → rgba8unorm-srgb format)
+		result.assign( vec4( material.color.rgb.mul( albedoSample.rgb ), material.color.a.mul( albedoSample.a ) ) );
 
 	} );
 
@@ -315,9 +314,8 @@ export const processEmissive = Fn( ( [ emissiveMaps, material, albedoColor, uvCa
 	If( material.emissiveMapIndex.greaterThanEqual( int( 0 ) ), () => {
 
 		const emissiveSample = texture( emissiveMaps, uvCache.emissiveUV ).depth( int( material.emissiveMapIndex ) ).toVar();
-		// Fast sRGB approximation for emissive
-		const emissiveLinear = emissiveSample.rgb.mul( emissiveSample.rgb ).mul( sqrt( emissiveSample.rgb ) );
-		emissionBase.assign( emissionBase.mul( emissiveLinear ) );
+		// sRGB→linear handled by GPU hardware (texture.colorSpace = SRGBColorSpace → rgba8unorm-srgb format)
+		emissionBase.assign( emissionBase.mul( emissiveSample.rgb ) );
 
 	} );
 

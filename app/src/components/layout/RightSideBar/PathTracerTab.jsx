@@ -85,6 +85,7 @@ const PathTracerTab = () => {
 		upscalerScale,
 		upscalerQuality,
 		exposure,
+		saturation,
 		enableEnvironment,
 		showBackground,
 		transparentBackground,
@@ -155,6 +156,7 @@ const PathTracerTab = () => {
 		handleDebugThresholdChange,
 		handleDebugModeChange,
 		handleExposureChange,
+		handleSaturationChange,
 		handleEnableEnvironmentChange,
 		handleShowBackgroundChange,
 		handleTransparentBackgroundChange,
@@ -283,6 +285,9 @@ const PathTracerTab = () => {
 						<Slider icon={Exposure} label={"Exposure"} min={0} max={10} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
 					</div>
 				)}
+				<div className="flex items-center justify-between">
+					<Slider icon={Exposure} label={"Saturation"} min={0} max={2} step={0.01} value={[ saturation ]} snapPoints={[ 1 ]} onValueChange={handleSaturationChange} />
+				</div>
 				<div className="flex items-center justify-between">
 					<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} snapPoints={[ 1 ]} onValueChange={handleGIIntensityChange} />
 				</div>

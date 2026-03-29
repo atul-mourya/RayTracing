@@ -1,7 +1,8 @@
-import { vec4, uv, uniform, select } from 'three/tsl';
+import { vec4, vec3, uv, uniform, select, dot, mix } from 'three/tsl';
 import { MeshBasicNodeMaterial, QuadMesh, TextureNode } from 'three/webgpu';
 import { NoBlending } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
+import { REC709_LUMINANCE_COEFFICIENTS } from '../TSL/Common.js';
 
 /**
  * DisplayStage — Terminal pipeline stage for WebGPU.
@@ -27,6 +28,9 @@ export class DisplayStage extends RenderStage {
 		// Exposure uniform — linear multiplier (consistent with auto-exposure)
 		this.exposure = uniform( options.exposure ?? 1.0 );
 
+		// Pre-tonemapping saturation — compensates for ACES/AgX desaturation (1.0 = neutral)
+		this.saturation = uniform( options.saturation ?? 1.0 );
+
 		// Transparent background toggle
 		this._transparentBackground = uniform( 0, 'int' );
 
@@ -36,8 +40,11 @@ export class DisplayStage extends RenderStage {
 		const texSample = this._displayTexNode.sample( uv() );
 
 		// Build material once (TSL compiles on first render)
-		let displayShader = texSample.xyz
-			.mul( this.exposure );
+		const exposed = texSample.xyz.mul( this.exposure );
+
+		// Saturation adjustment (before tonemapping): mix between luminance and color
+		const luma = dot( exposed, REC709_LUMINANCE_COEFFICIENTS );
+		let displayShader = mix( vec3( luma ), exposed, this.saturation );
 
 		// Additively blend outline colour when provided (OutlineNode drives
 		// its own multi-pass rendering via updateBefore, so including it in
@@ -96,6 +103,12 @@ export class DisplayStage extends RenderStage {
 	setExposure( value ) {
 
 		this.exposure.value = value;
+
+	}
+
+	setSaturation( value ) {
+
+		this.saturation.value = value;
 
 	}
 
