@@ -504,7 +504,7 @@ export class AutoExposureStage extends RenderStage {
 	 */
 	_applyReadback( data ) {
 
-		if ( ! data || data.length < 3 ) return;
+		if ( ! this.enabled || ! data || data.length < 3 ) return;
 
 		let exposure = data[ 0 ];
 		let luminance = data[ 1 ];
