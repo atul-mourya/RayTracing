@@ -26,7 +26,6 @@
 ### General
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
-- [ ] Decouple engine from ui
 
 ### Rendering
 - [ ] Subsurface scattering
@@ -34,7 +33,6 @@
 - [ ] Caustic support
 - [ ] camera motion video rendering
 - [ ] Tile Rendering helper not working
-- [ ] Tile Rendering count displayed in UI is wrong. it shows tile count * current tile index, instead of just current tile index
 - [ ] Full WGSL transition, avoid TSL nodes
 - [ ] Realtime OIDN denoising with WebGPU compute shader implementation
 
@@ -44,7 +42,6 @@
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
 - [ ] Depth of field with support for anamorphic bokeh
-- [x] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
 
 
 ### Lighting

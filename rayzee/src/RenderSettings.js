@@ -28,6 +28,7 @@ const SETTING_ROUTES = {
 	focalLength: { uniform: 'focalLength', reset: true },
 	aperture: { uniform: 'aperture', reset: true },
 	apertureScale: { uniform: 'apertureScale', reset: true },
+	anamorphicRatio: { uniform: 'anamorphicRatio', reset: true },
 	samplingTechnique: { uniform: 'samplingTechnique', reset: true },
 	fireflyThreshold: { uniform: 'fireflyThreshold', reset: true },
 	enableEmissiveTriangleSampling: { uniform: 'enableEmissiveTriangleSampling', reset: true },

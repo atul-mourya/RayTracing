@@ -219,6 +219,7 @@ export class UniformManager {
 		u( 'focalLength', DEFAULT_STATE.focalLength, 'float' );
 		u( 'aperture', DEFAULT_STATE.aperture, 'float' );
 		u( 'apertureScale', 1.0, 'float' );
+		u( 'anamorphicRatio', DEFAULT_STATE.anamorphicRatio ?? 1.0, 'float' );
 		u( 'sceneScale', 1.0, 'float' );
 
 		// Sampling — use the module-level uniform from Random.js so TSL sees the same node

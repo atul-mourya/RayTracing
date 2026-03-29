@@ -1,4 +1,4 @@
-import { Ruler, Telescope, Aperture, Camera, Target, Crosshair, RotateCcw } from 'lucide-react';
+import { Ruler, Telescope, Aperture, Camera, Target, Crosshair, RotateCcw, Ellipsis } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,6 +27,7 @@ const CameraTab = () => {
 		activePreset,
 		focusMode,
 		apertureScale,
+		anamorphicRatio,
 		cameraNames,
 		selectedCameraIndex,
 
@@ -51,6 +52,7 @@ const CameraTab = () => {
 		handleCameraMove,
 		handleCameraChange,
 		handleApertureScaleChange,
+		handleAnamorphicRatioChange,
 		handleFocusChangeEvent,
 
 		// Auto-focus handlers
@@ -304,6 +306,18 @@ const CameraTab = () => {
 								step={0.1}
 								value={[ apertureScale ?? 1.0 ]}
 								onValueChange={( values ) => handleApertureScaleChange( values[ 0 ] )}
+							/>
+						</div>
+
+						<div className="flex items-center justify-between">
+							<Slider
+								label={"Bokeh Stretch"}
+								icon={Ellipsis}
+								min={1.0}
+								max={2.0}
+								step={0.05}
+								value={[ anamorphicRatio ?? 1.0 ]}
+								onValueChange={( values ) => handleAnamorphicRatioChange( values[ 0 ] )}
 							/>
 						</div>
 					</>

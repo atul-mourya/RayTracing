@@ -151,7 +151,7 @@ export const pathTracerMain = ( params ) => {
 		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
 		accumulationAlpha, cameraIsMoving,
 		useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
-		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
+		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
 	} = params;
 
 	// Integer coordinates for textureStore writes
@@ -246,7 +246,7 @@ export const pathTracerMain = ( params ) => {
 		const ray = Ray.wrap( generateRayFromCamera(
 			jitteredScreenPosition, seed,
 			cameraWorldMatrix, cameraProjectionMatrixInverse,
-			enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
+			enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
 		) );
 
 		const sampleColor = vec4( 0.0 ).toVar();

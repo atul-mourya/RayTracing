@@ -342,6 +342,7 @@ export class ShaderComposer {
 					focusDistance: stage.focusDistance,
 					sceneScale: stage.sceneScale,
 					apertureScale: stage.apertureScale,
+					anamorphicRatio: stage.anamorphicRatio,
 				} );
 
 			} );

@@ -504,7 +504,7 @@ export const traverseBVHShadow = Fn( ( [
 export const generateRayFromCamera = Fn( ( [
 	screenPosition, rngState,
 	cameraWorldMatrix, cameraProjectionMatrixInverse,
-	enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale
+	enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio
 ] ) => {
 
 	// Convert screen position to NDC
@@ -539,12 +539,16 @@ export const generateRayFromCamera = Fn( ( [
 		// Generate random point on aperture disk
 		const randomPoint = RandomPointInCircle( rngState );
 
+		// Apply anamorphic squeeze — stretch horizontally for oval bokeh
+		const lensX = randomPoint.x.mul( anamorphicRatio.max( 0.01 ) );
+		const lensY = randomPoint.y;
+
 		// Extract camera coordinate system directly from camera matrix
 		const cameraRight = normalize( vec3( cameraWorldMatrix[ 0 ] ) );
 		const cameraUp = normalize( vec3( cameraWorldMatrix[ 1 ] ) );
 
 		// Apply aperture offset using camera's actual coordinate system
-		const offset = cameraRight.mul( randomPoint.x ).add( cameraUp.mul( randomPoint.y ) ).mul( apertureRadius );
+		const offset = cameraRight.mul( lensX ).add( cameraUp.mul( lensY ) ).mul( apertureRadius );
 
 		// Calculate new ray from offset origin to focal point
 		resultOrigin.assign( rayOriginWorld.add( offset ) );

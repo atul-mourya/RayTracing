@@ -1741,7 +1741,8 @@ const useCameraStore = create( ( set, get ) => ( {
 
 		const preset = CAMERA_PRESETS[ key ];
 		const presetApertureScale = preset.apertureScale ?? 1.0;
-		set( { ...preset, apertureScale: presetApertureScale, activePreset: key } );
+		const presetAnamorphicRatio = preset.anamorphicRatio ?? 1.0;
+		set( { ...preset, apertureScale: presetApertureScale, anamorphicRatio: presetAnamorphicRatio, activePreset: key } );
 
 		const app = getApp();
 		if ( app ) {
@@ -1755,6 +1756,7 @@ const useCameraStore = create( ( set, get ) => ( {
 				aperture: preset.aperture,
 				focalLength: preset.focalLength,
 				apertureScale: presetApertureScale,
+				anamorphicRatio: presetAnamorphicRatio,
 			};
 
 			// Skip focus distance when auto-focus is active — it will recompute
@@ -1854,6 +1856,13 @@ const useCameraStore = create( ( set, get ) => ( {
 
 		set( { apertureScale: val, activePreset: "custom" } );
 		getApp()?.set( 'apertureScale', val );
+
+	},
+
+	handleAnamorphicRatioChange: val => {
+
+		set( { anamorphicRatio: val, activePreset: "custom" } );
+		getApp()?.set( 'anamorphicRatio', val );
 
 	},
 

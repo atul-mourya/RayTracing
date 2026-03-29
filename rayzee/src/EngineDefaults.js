@@ -48,6 +48,7 @@ export const ENGINE_DEFAULTS = {
 	aperture: 5.6,
 	focalLength: 50,
 	apertureScale: 1.0,
+	anamorphicRatio: 1.0,
 
 	// Auto-focus
 	autoFocusMode: 'auto', // 'manual' | 'auto'
@@ -297,12 +298,13 @@ export const CAMERA_PRESETS = {
 	},
 	cinematic: {
 		name: "Cinematic",
-		description: "Dramatic depth separation",
+		description: "Dramatic depth separation with anamorphic bokeh",
 		fov: 35,
 		focusDistance: 3.0,
 		aperture: 1.4,
 		focalLength: 200,
-		apertureScale: 1.8
+		apertureScale: 1.8,
+		anamorphicRatio: 1.5
 	}
 };
 
