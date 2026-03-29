@@ -74,7 +74,7 @@ export const ENGINE_DEFAULTS = {
 	showAdaptiveSamplingHelper: false,
 	performanceModeAdaptive: 'medium',
 
-	fireflyThreshold: 1.8,
+	fireflyThreshold: 3.0,
 	renderLimitMode: 'frames',
 	renderTimeLimit: 30,
 	renderMode: 0,

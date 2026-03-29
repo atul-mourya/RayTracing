@@ -78,7 +78,7 @@ import {
 } from './Struct.js';
 import { RandomValue, getRandomSample } from './Random.js';
 import { traverseBVH } from './BVHTraversal.js';
-import { sampleEnvironment } from './Environment.js';
+import { sampleEnvironment, sampleEquirect } from './Environment.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
 import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
@@ -339,7 +339,7 @@ export const estimatePathContribution = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	const throughputStrength = maxComponent( { v: throughput } ).toVar();
+	const throughputStrength = max( maxComponent( { v: throughput } ), 0.0 ).toVar();
 
 	// Use cached material classification
 	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
@@ -402,20 +402,16 @@ export const handleRussianRoulette = Fn( ( [
 	// Always continue for first few bounces
 	If( depth.greaterThanEqual( int( 3 ) ), () => {
 
-		const throughputStrength = maxComponent( { v: throughput } ).toVar();
+		const throughputStrength = max( maxComponent( { v: throughput } ), 0.0 ).toVar();
 
 		// Energy-conserving early termination for very low throughput paths
-		const earlyTerminated = tslBool( false ).toVar();
 		If( throughputStrength.lessThan( 0.0008 ).and( depth.greaterThan( int( 4 ) ) ), () => {
 
 			const lowThroughputProb = max( throughputStrength.mul( 125.0 ), 0.01 );
 			const rrSample = RandomValue( rngState );
 			result.assign( select( rrSample.lessThan( lowThroughputProb ), lowThroughputProb, float( 0.0 ) ) );
-			earlyTerminated.assign( tslBool( true ) );
 
-		} );
-
-		If( earlyTerminated.not(), () => {
+		} ).Else( () => {
 
 			// Get classification
 			const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
@@ -425,20 +421,24 @@ export const handleRussianRoulette = Fn( ( [
 
 			const materialImportance = mc.complexityScore.toVar();
 
-			// Boost importance for special materials
-			If( mc.isEmissive.and( depth.lessThan( int( 6 ) ) ), () => {
+			// Boost importance for special materials — depth hierarchy reflects
+			// how many bounces each transport type physically needs:
+			// Specular metals: deepest (mirror chains carry energy efficiently)
+			// Transmissive: deep (caustics, internal reflections)
+			// Emissive: shallowest (emission already collected, continuation rarely valuable)
+			If( mc.isMetallic.and( mc.isSmooth ).and( depth.lessThan( int( 7 ) ) ), () => {
 
 				materialImportance.addAssign( 0.3 );
 
 			} );
-			If( mc.isTransmissive.and( depth.lessThan( int( 5 ) ) ), () => {
+			If( mc.isTransmissive.and( depth.lessThan( int( 6 ) ) ), () => {
 
 				materialImportance.addAssign( 0.25 );
 
 			} );
-			If( mc.isMetallic.and( mc.isSmooth ).and( depth.lessThan( int( 4 ) ) ), () => {
+			If( mc.isEmissive.and( depth.lessThan( int( 4 ) ) ), () => {
 
-				materialImportance.addAssign( 0.2 );
+				materialImportance.addAssign( 0.15 );
 
 			} );
 			materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
@@ -461,7 +461,7 @@ export const handleRussianRoulette = Fn( ( [
 
 			} ).Else( () => {
 
-				// Path importance
+				// Path importance — used across all depth ranges
 				const pathContribution = float( 0.0 ).toVar();
 
 				If( classificationCached.and( weightsComputed ), () => {
@@ -478,24 +478,25 @@ export const handleRussianRoulette = Fn( ( [
 
 				} );
 
-				// Adaptive continuation probability
-				const rrProb = float( 0.0 ).toVar();
-				const adaptiveFactor = materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).toVar();
+				// Smooth adaptive continuation probability (no discrete depth brackets)
+				// Early behavior: throughput + material driven, generous
+				const earlyProb = clamp(
+					materialImportance.mul( 0.4 ).add( throughputStrength.mul( 0.6 ) ).mul( 1.2 ),
+					0.15, 0.95,
+				);
+				// Deep behavior: aggressive termination, material-aware floor
+				const deepProb = clamp(
+					throughputStrength.mul( 0.4 ).add( materialImportance.mul( 0.1 ) ),
+					0.03, 0.6,
+				);
 
-				If( depth.lessThan( int( 6 ) ), () => {
+				// Smooth blend from early → deep using depth relative to minBounces
+				// At minBounces: t=0 (earlyProb), at minBounces+10: t=1 (deepProb)
+				const depthT = clamp( float( depth.sub( minBounces ) ).div( 10.0 ), 0.0, 1.0 );
+				const rrProb = mix( earlyProb, deepProb, depthT ).toVar();
 
-					rrProb.assign( clamp( adaptiveFactor.mul( 1.2 ), 0.15, 0.95 ) );
-
-				} ).ElseIf( depth.lessThan( int( 10 ) ), () => {
-
-					const baseProb = clamp( throughputStrength.mul( 0.8 ), 0.08, 0.85 );
-					rrProb.assign( mix( baseProb, pathContribution, 0.6 ) );
-
-				} ).Else( () => {
-
-					rrProb.assign( clamp( throughputStrength.mul( 0.4 ).add( materialImportance.mul( 0.1 ) ), 0.03, 0.6 ) );
-
-				} );
+				// Mix in path contribution for direction-aware survival
+				rrProb.assign( mix( rrProb, max( rrProb, pathContribution ), 0.4 ) );
 
 				// Material-specific boosts
 				If( materialImportance.greaterThan( 0.5 ), () => {
@@ -505,12 +506,12 @@ export const handleRussianRoulette = Fn( ( [
 
 				} );
 
-				// Smoother depth-based decay
+				// Exponential depth decay
 				const depthDecay = float( 0.12 ).add( materialImportance.mul( 0.08 ) );
 				const depthFactor = exp( float( depth.sub( minBounces ) ).negate().mul( depthDecay ) );
 				rrProb.mulAssign( depthFactor );
 
-				// Minimum probability
+				// Minimum probability floor
 				const minProb = select( mc.isEmissive, float( 0.04 ), float( 0.02 ) );
 				rrProb.assign( max( rrProb, minProb ) );
 
@@ -557,7 +558,7 @@ export const sampleBackgroundLighting = Fn( ( [
 
 		} ).Else( () => {
 
-			envColor.assign( sampled.mul( 2.0 ) );
+			envColor.assign( sampled );
 
 		} );
 
@@ -637,7 +638,7 @@ export const Trace = Fn( ( [
 	const stateTransmissiveTraversals = transmissiveBounces.toVar();
 	const stateRayType = int( RAY_TYPE_CAMERA ).toVar();
 	const stateIsPrimaryRay = tslBool( true ).toVar();
-	const stateActualBounceDepth = int( 0 ).toVar();
+
 
 	// Path state cache fields (managed individually since TSL can't do inout struct)
 	const psWeightsComputed = tslBool( false ).toVar();
@@ -687,7 +688,7 @@ export const Trace = Fn( ( [
 		// Update state
 		stateTraversals.assign( maxBounceCount.sub( effectiveBounces ) );
 		stateIsPrimaryRay.assign( bounceIndex.equal( int( 0 ) ) );
-		stateActualBounceDepth.assign( bounceIndex );
+
 
 		// Check bounce budget
 		If( effectiveBounces.greaterThan( maxBounceCount ), () => {
@@ -716,8 +717,28 @@ export const Trace = Fn( ( [
 				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
 				showBackground, backgroundIntensity,
 			);
+
+			// MIS weight for implicit environment hit — prevents double-counting with NEE.
+			// Primary rays and camera rays (prevBouncePdf == 0) get full weight.
+			// Secondary rays use power heuristic between the scatter PDF and the
+			// environment importance-sampling PDF, mirroring the emissive MIS at line ~978.
+			const envMisWeight = float( 1.0 ).toVar();
+			If( prevBouncePdf.greaterThan( 0.0 ).and( enableEnvironmentLight ).and( useEnvMapIS ), () => {
+
+				const envEval = sampleEquirect(
+					envTexture, rayDirection, envMatrix, envTotalSum, envResolution,
+				);
+				const envPdf = envEval.w.toVar();
+				If( envPdf.greaterThan( 0.0 ), () => {
+
+					envMisWeight.assign( powerHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) );
+
+				} );
+
+			} );
+
 			radiance.addAssign( regularizePathContribution( {
-				contribution: envColor.xyz.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+				contribution: envColor.xyz.mul( throughput ).mul( giScale ).mul( envMisWeight ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
 			} ) );
 
 			// Transparent background: only transparent if ray escaped WITHOUT hitting opaque geometry first.
@@ -1125,18 +1146,10 @@ export const Trace = Fn( ( [
 		) );
 		throughput.mulAssign( indirectResult.throughput );
 
-		// Early ray termination
-		const maxThroughput = max( max( throughput.x, throughput.y ), throughput.z );
-		If( maxThroughput.lessThan( 0.001 ).and( bounceIndex.greaterThan( int( 3 ) ) ), () => {
-
-			Break();
-
-		} );
-
 		// Prepare for next bounce
 		rayOrigin.assign( hitInfo.hitPoint.add( N.mul( 0.001 ) ) );
 		rayDirection.assign( indirectResult.direction );
-		prevBouncePdf.assign( indirectResult.pdf );
+		prevBouncePdf.assign( indirectResult.combinedPdf );
 
 		stateIsPrimaryRay.assign( tslBool( false ) );
 
@@ -1168,7 +1181,7 @@ export const Trace = Fn( ( [
 
 		// 4. RUSSIAN ROULETTE
 		const rrSurvivalProb = handleRussianRoulette(
-			stateActualBounceDepth, throughput, material, hitInfo.materialIndex,
+			bounceIndex, throughput, material, hitInfo.materialIndex,
 			rayDirection, rngState,
 			psClassificationCached, psLastMaterialIndex, psCachedClassification,
 			psWeightsComputed, psPathImportance,

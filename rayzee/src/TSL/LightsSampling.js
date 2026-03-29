@@ -1253,11 +1253,13 @@ export const calculateDirectLightingUnified = Fn( ( [
 							const brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitNormal, material );
 							const bPdf = calculateMaterialPDF( viewDir, envDirection, hitNormal, material ).toVar();
 
-							const envPdfWeighted = envPdf.mul( envWeight ).toVar();
-							const brdfPdfWeighted = bPdf.mul( brdfWeight ).toVar();
+							// MIS between NEE env sampling and implicit path (scattered ray hitting env).
+							// Approximate the indirect path's combined PDF at this direction:
+							// combinedPdf ≈ materialPdf + envWeight * envPdf (env IS also an indirect strategy)
+							const indirectCombinedPdfApprox = bPdf.add( envPdf.mul( envWeight ) ).toVar();
 							const misW = select(
 								bPdf.greaterThan( 0.0 ),
-								powerHeuristic( { pdf1: envPdfWeighted, pdf2: brdfPdfWeighted } ),
+								powerHeuristic( { pdf1: envPdf, pdf2: indirectCombinedPdfApprox } ),
 								float( 1.0 )
 							).toVar();
 

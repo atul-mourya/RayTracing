@@ -312,6 +312,7 @@ export const calculateIndirectLighting = Fn( ( [
 	const r_throughput = vec3( 0.0 ).toVar();
 	const r_misWeight = float( 0.0 ).toVar();
 	const r_pdf = float( 0.0 ).toVar();
+	const r_combinedPdf = float( 0.0 ).toVar();
 
 	// Validate input sampling info
 	const validInput = samplingInfo.diffuseImportance.greaterThanEqual( 0.0 )
@@ -477,6 +478,7 @@ export const calculateIndirectLighting = Fn( ( [
 		r_throughput.assign( throughput );
 		r_misWeight.assign( misWeight );
 		r_pdf.assign( samplePdf );
+		r_combinedPdf.assign( combinedPdf );
 
 	} ); // End validInput check
 
@@ -485,6 +487,7 @@ export const calculateIndirectLighting = Fn( ( [
 		throughput: r_throughput,
 		misWeight: r_misWeight,
 		pdf: r_pdf,
+		combinedPdf: r_combinedPdf,
 	} );
 
 } );
