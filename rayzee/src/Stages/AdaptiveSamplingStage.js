@@ -228,6 +228,12 @@ export class AdaptiveSamplingStage extends RenderStage {
 
 	}
 
+	setupEventListeners() {
+
+		this.on( 'pathtracer:viewpointChanged', () => this.reset() );
+
+	}
+
 	/**
 	 * Build compute shader that maps variance → sampling guidance.
 	 *
@@ -396,6 +402,11 @@ export class AdaptiveSamplingStage extends RenderStage {
 
 		this.frameNumber = 0;
 		this.frameNumberUniform.value = 0;
+
+		// Remove stale guidance from context so PathTracingStage (which runs
+		// before us) doesn't read converged-pixel data from the old viewpoint
+		// during the delay frames before we publish fresh guidance.
+		if ( this.context ) this.context.removeTexture( 'adaptiveSampling:output' );
 
 	}
 

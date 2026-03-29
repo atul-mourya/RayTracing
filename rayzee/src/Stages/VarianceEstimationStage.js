@@ -122,6 +122,12 @@ export class VarianceEstimationStage extends RenderStage {
 
 	}
 
+	setupEventListeners() {
+
+		this.on( 'pathtracer:viewpointChanged', () => this.reset() );
+
+	}
+
 	/**
 	 * Build two compute nodes — one for each ping-pong direction.
 	 *
@@ -339,6 +345,8 @@ export class VarianceEstimationStage extends RenderStage {
 		// Using alpha=1.0 on the first post-reset frame immediately anchors the EMA
 		// to the new scene, avoiding ~30 frames of convergence from stale data.
 		this._needsWarmReset = true;
+
+		if ( this.context ) this.context.removeTexture( 'variance:output' );
 
 	}
 

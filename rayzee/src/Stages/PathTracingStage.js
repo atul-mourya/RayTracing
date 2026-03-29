@@ -346,7 +346,13 @@ export class PathTracingStage extends RenderStage {
 				enableAccumulation: false,
 				enableEmissiveTriangleSampling: false,
 			},
-			onReset: () => this.reset( false )
+			onReset: () => {
+
+				this.reset( false );
+				// Notify dependent stages so they discard stale data from the old viewpoint.
+				this.emit( 'pathtracer:viewpointChanged' );
+
+			}
 		} );
 
 	}
