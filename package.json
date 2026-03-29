@@ -1,7 +1,7 @@
 {
   "name": "rayzee-monorepo",
   "private": true,
-  "version": "4.0.5",
+  "version": "4.0.6",
   "type": "module",
   "exports": {
     ".": "./rayzee/src/index.js"
