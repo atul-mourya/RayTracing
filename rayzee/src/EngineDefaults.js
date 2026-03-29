@@ -18,7 +18,7 @@ export const ENGINE_DEFAULTS = {
 	useImportanceSampledEnvironment: true,
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
-	environmentRotation: 0.0,
+	environmentRotation: 270.0,
 	globalIlluminationIntensity: 1,
 
 	// Environment Mode System
