@@ -1197,7 +1197,7 @@ class AssetLoader extends EventDispatcher {
 
 			if ( object.isRectAreaLight && ! visitedAreaLights.includes( object.uuid ) ) {
 
-				object.intensity *= 10000 / 4; // Compensate for Three.js's dimming of RectAreaLights
+				object.intensity *= 100 / 4; // Compensate for Three.js's dimming of RectAreaLights
 
 			}
 
@@ -1211,7 +1211,7 @@ class AssetLoader extends EventDispatcher {
 
 					const light = new RectAreaLight(
 						new Color( ...userData.color ),
-						userData.intensity / 4,
+						userData.intensity * 0.1 / 4,
 						userData.width,
 						userData.height
 					);
