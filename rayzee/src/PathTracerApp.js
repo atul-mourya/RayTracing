@@ -105,6 +105,7 @@ export class PathTracerApp extends EventDispatcher {
 		this._renderCompleteDispatched = false;
 		this._loadingInProgress = false;
 		this._needsDisplayRefresh = false;
+		this._paused = false;
 
 		// Stats tracking
 		this.lastResetTime = performance.now();
@@ -246,6 +247,7 @@ export class PathTracerApp extends EventDispatcher {
 		this._controls.addEventListener( 'change', () => {
 
 			this.needsReset = true;
+			this.wake();
 
 		} );
 
@@ -455,6 +457,8 @@ export class PathTracerApp extends EventDispatcher {
 
 				}
 
+				// Stop the loop to avoid constant CPU usage while idle
+				this.stopAnimation();
 				return;
 
 			}
@@ -529,9 +533,17 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** Wakes the animation loop if it was stopped due to idle. */
+	wake() {
+
+		if ( ! this.animationId && this.isInitialized && ! this._paused ) this.animate();
+
+	}
+
 	/** Pauses the animation loop. */
 	pause() {
 
+		this._paused = true;
 		this.stopAnimation();
 		if ( this._stats ) this._stats.dom.style.display = 'none';
 
@@ -540,6 +552,7 @@ export class PathTracerApp extends EventDispatcher {
 	/** Resumes the animation loop. */
 	resume() {
 
+		this._paused = false;
 		if ( ! this.animationId ) this.animate();
 		if ( this._stats ) this._stats.dom.style.display = '';
 
@@ -581,6 +594,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.timeElapsed = 0;
 		this.lastResetTime = performance.now();
 		this._renderCompleteDispatched = false;
+		this.wake();
 		this.dispatchEvent( { type: 'RenderReset' } );
 		this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
 
@@ -1130,6 +1144,7 @@ export class PathTracerApp extends EventDispatcher {
 	refreshFrame() {
 
 		this._needsDisplayRefresh = true;
+		this.wake();
 
 	}
 
