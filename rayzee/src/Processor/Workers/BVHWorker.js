@@ -91,7 +91,10 @@ function handlePhase1( data ) {
 		const root = builder.buildNodeRecursiveToDepth( 0, triangleCount, depth, parallelDepth, progressCallback );
 		builder.splitStats.sahBuildTime = performance.now() - sahStart;
 
-		// Phase 1d: Flatten top-level tree with frontier sentinels
+		// Phase 1d: Surface-area child ordering (DFS cache locality)
+		builder.applySAOrdering( root );
+
+		// Phase 1e: Flatten top-level tree with frontier sentinels
 		const flattenStart = performance.now();
 		const { flatData, frontierMap, nodeCount } = builder.flattenBVHWithFrontier( root );
 		const flattenTime = performance.now() - flattenStart;

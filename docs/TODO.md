@@ -5,8 +5,6 @@
 ### MVP
 - [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
-  
-- [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls. Example
 
 
 ### Known
@@ -26,6 +24,7 @@
 ### General
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
+- [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
 
 ### Rendering
 - [ ] Subsurface scattering
@@ -49,6 +48,7 @@
 - [ ] DDS texture support
 - [ ] Shadow catcher - blender
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
+- [ ] light transform gizmo helpers
 
 ### Materials
 - [ ] implement pending Physical material properties
@@ -71,7 +71,6 @@
 ## Performance & Architecture
 
 ### Pipeline
-- [ ] Offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
 ### BVH
@@ -88,6 +87,7 @@
 ---
 
 ## Experiments
+- [ ] Offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
 - [ ] Ray-Guiding based on Octahedron Mapping CDF
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing

@@ -157,7 +157,7 @@ export const fastRayAABBDst = Fn( ( [ ray, invDir, boxMin, boxMax ] ) => {
 	const tMax = max( t1, t2 );
 
 	const dstNear = max( max( tMin.x, tMin.y ), tMin.z );
-	const dstFar = min( min( tMax.x, tMax.y ), tMax.z );
+	const dstFar = min( min( tMax.x, tMax.y ), tMax.z ).mul( 1.00000024 ); // Robust traversal: 2 ULP padding (Ize 2013)
 
 	// Optimized early rejection
 	return select( dstFar.greaterThanEqual( max( dstNear, 0.0 ) ), max( dstNear, 0.0 ), float( 1e20 ) );

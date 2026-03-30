@@ -48,9 +48,10 @@ export default class BVHBuilder {
 		this.lastProgressUpdate = 0;
 		this.progressUpdateInterval = 100;
 
-		// SAH constants
+		// SAH constants — GPU intersection is ~2.5x more expensive than traversal
+		// (8 storage buffer fetches + Möller-Trumbore vs 4 vec4 reads + slab test)
 		this.traversalCost = 1.0;
-		this.intersectionCost = 1.0;
+		this.intersectionCost = 2.5;
 
 		// Morton code clustering settings
 		this.useMortonCodes = true;
@@ -518,6 +519,7 @@ export default class BVHBuilder {
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
 			averageSAHImprovement: 0,
+			saOrderTime: 0,
 			// Granular phase timings
 			initTime: 0,
 			sahBuildTime: 0,
@@ -600,7 +602,12 @@ export default class BVHBuilder {
 
 		}
 
-		// Phase 5: Create reordered triangle data from final index order
+		// Phase 5: Surface-area child ordering (DFS cache locality)
+		const saOrderStart = performance.now();
+		this.applySAOrdering( root );
+		this.splitStats.saOrderTime = performance.now() - saOrderStart;
+
+		// Phase 6: Create reordered triangle data from final index order
 		const reorderStart = performance.now();
 		const triSrc = this.triangles;
 		const reordered = reorderTarget || new Float32Array( n * FPT );
@@ -626,6 +633,7 @@ export default class BVHBuilder {
 			{ Phase: 'Morton sort', 'Time (ms)': Math.round( this.splitStats.mortonSortTime ), '%': phasePct( this.splitStats.mortonSortTime ) },
 			{ Phase: 'SAH recursive build', 'Time (ms)': Math.round( this.splitStats.sahBuildTime ), '%': phasePct( this.splitStats.sahBuildTime ) },
 			{ Phase: 'Treelet optimization', 'Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ), '%': phasePct( this.splitStats.treeletOptimizationTime ) },
+			{ Phase: 'SA ordering', 'Time (ms)': Math.round( this.splitStats.saOrderTime ), '%': phasePct( this.splitStats.saOrderTime ) },
 			{ Phase: 'Triangle reorder', 'Time (ms)': Math.round( this.splitStats.reorderTime ), '%': phasePct( this.splitStats.reorderTime ) },
 			{ Phase: 'TOTAL', 'Time (ms)': Math.round( total ), '%': '100%' }
 		];
@@ -1424,6 +1432,54 @@ export default class BVHBuilder {
 
 			if ( j < k ) lo = i;
 			if ( i > k ) hi = j;
+
+		}
+
+	}
+
+	// --- Surface-area child ordering (DFS cache locality) ---
+
+	/**
+	 * Ensure left child always has >= surface area of right child.
+	 * This places the larger subtree first in the DFS flat layout,
+	 * improving cache locality during traversal.
+	 * Iterative post-order to avoid stack overflow on deep trees.
+	 */
+	applySAOrdering( root ) {
+
+		if ( ! root || ! root.leftChild ) return;
+
+		// Iterative post-order traversal — swap after both children are processed
+		const stack = [ root ];
+		const order = [];
+
+		while ( stack.length > 0 ) {
+
+			const node = stack.pop();
+			if ( ! node.leftChild || ! node.rightChild ) continue;
+
+			order.push( node );
+			stack.push( node.leftChild );
+			stack.push( node.rightChild );
+
+		}
+
+		// Process in reverse (bottom-up)
+		for ( let i = order.length - 1; i >= 0; i -- ) {
+
+			const node = order[ i ];
+			const L = node.leftChild;
+			const R = node.rightChild;
+
+			const ldx = L.maxX - L.minX, ldy = L.maxY - L.minY, ldz = L.maxZ - L.minZ;
+			const rdx = R.maxX - R.minX, rdy = R.maxY - R.minY, rdz = R.maxZ - R.minZ;
+
+			if ( rdx * rdy + rdy * rdz + rdz * rdx > ldx * ldy + ldy * ldz + ldz * ldx ) {
+
+				node.leftChild = R;
+				node.rightChild = L;
+
+			}
 
 		}
 

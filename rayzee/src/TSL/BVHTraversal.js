@@ -115,7 +115,7 @@ const fastRayAABBDst = wgslFn( `
 		let tmax = max( t1, t2 );
 
 		let tNear = max( max( tmin.x, tmin.y ), tmin.z );
-		let tFar = min( min( tmax.x, tmax.y ), tmax.z );
+		let tFar = min( min( tmax.x, tmax.y ), tmax.z ) * 1.00000024f; // Robust traversal: 2 ULP padding (Ize 2013)
 
 		let isHit = tNear <= tFar && tFar > 0.0f;
 		return select( 1e20f, max( tNear, 0.0f ), isHit );
@@ -465,6 +465,9 @@ export const traverseBVHShadow = Fn( ( [
 			const dstA = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: nodeData0.xyz, boxMax: nodeData1.xyz } ).toVar();
 			const dstB = fastRayAABBDst( { rayOrigin: ray.origin, invDir, boxMin: nodeData2.xyz, boxMax: nodeData3.xyz } ).toVar();
 
+			// Distance-ordered traversal — nearer child first for faster any-hit
+			// termination. SA build ordering improves cache locality (larger-SA
+			// child = left = first in DFS flat layout).
 			const minDst = min( dstA, dstB );
 			If( minDst.lessThan( closestHit.dst ), () => {
 
@@ -473,6 +476,7 @@ export const traverseBVHShadow = Fn( ( [
 				const farChild = select( aCloser, rightChild, leftChild ).toVar();
 				const farDst = select( aCloser, dstB, dstA ).toVar();
 
+				// Push far child first (processed last)
 				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
 					stack.element( stackPtr ).assign( farChild );
@@ -480,6 +484,7 @@ export const traverseBVHShadow = Fn( ( [
 
 				} );
 
+				// Push near child second (processed first)
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
 					stack.element( stackPtr ).assign( nearChild );

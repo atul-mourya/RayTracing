@@ -4,28 +4,15 @@ RayTracing Project TODO
 🐛 Bugs & Issues
 ----------------
 
-- [ ]  some meshes in outliner shows as group and i'm not able to activate material editor ( example bistro )
-- [ ]  when switching to render mode, ongoing denoising process should be cancelled
-- [ ]  transparent true or false makes no difference
-
-- [ ] wip tile rendering - https://claude.ai/chat/47f754db-f674-4965-849e-5afa2748dc8b
-
 ✨ Core Features
 ---------------
 
-- [ ]  Oidn HRD denoising Support
-- [ ]  Transparent background support
 - [ ]  Subsurface scattering implementation
 - [ ]  Volumetric rendering
 - [ ]  Caustic support for direct lights
-- [ ]  Auto exposure control - https://x.com/chriskwallis/status/1817041601274708240
-- [ ]  Implement support for point light
-- [ ]  Implement support for spot light
 - [ ]  Implement support for IES light
-- [ ]  Introduce tessalation free displacement mapping
 - [ ]  Implement SDF-based model rendering
 - [ ]  Implement Dynamic BVH update
-- [ ]  Implement support for Radiance Caching
 - [ ]  Implement Shadow Catcher
 - [ ]  Implement ground projection environment mapping
 - [ ]  Implement Bidirectional Path Tracing mode
@@ -36,26 +23,14 @@ RayTracing Project TODO
 ---------------------------
 
 - [ ]  Implement offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
-- [ ]  Refactor lights to use data texture instead of uniform buffer
 - [ ]  Experiment with leveraging primary ray from rasterization pass for path tracing
 - [ ]  Experiment with ray frustum culling
-- [ ]  Refactor path tracing to use define instead of if-else
 
 🎨 UX Enhancements
 ------------------
-- [ ]  Add dynamic lights addition and removal
 - [ ]  Add dynamic camera addition and removal
 - [ ]  Add dynamic object addition and removal
-- [ ]  improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
-- [ ]  useHook - https://github.com/uidotdev/usehooks
-- [ ]  Recent searches dropdown in catalog with clear button
-- [ ]  Esc: Deselect current item
-- [ ]  R: Reset camera
-- [ ]  Space: Play/pause rendering
-- [ ]  Star/heart button on each card catalog item
-- [ ]  "Favorites" tab in each category
 - [ ]  Estimated time remaining
-- [ ]  Model polycount
 - [ ]  More to do https://claude.ai/chat/70c8cdf7-519e-4d1f-a889-c226c707dd46
 
 BVH Construction Improvements
@@ -66,9 +41,6 @@ BVH Construction Improvements
 
 🔄 Major Refactoring
 --------------------
-
-- [ ]  Develop WebGPU version using TSL
-    -   Reference: <https://github.com/gnikoloff/webgpu-raytracer>
 - [ ]  Implement offscreen canvas rendering for non-blocking UI
 
 🚀 Hybrid Rendering Implementation Plan

@@ -98,6 +98,9 @@ self.onmessage = function ( e ) {
 
 			}
 
+			// Surface-area child ordering (DFS cache locality)
+			builder.applySAOrdering( root );
+
 			// Flatten subtree (local indices starting from 0)
 			const flatData = builder.flattenBVH( root );
 			const nodeCount = flatData.length / 16;
