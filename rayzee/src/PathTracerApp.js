@@ -679,6 +679,7 @@ export class PathTracerApp extends EventDispatcher {
 
 			}
 
+			this.pipeline?.eventBus.emit( 'autoexposure:resetHistory' );
 			this.reset();
 			this.dispatchEvent( { type: 'EnvironmentLoaded', url } );
 
@@ -714,6 +715,7 @@ export class PathTracerApp extends EventDispatcher {
 			await loadFn();
 			this._syncControlsAfterLoad();
 			await this.loadSceneData();
+			this.pipeline?.eventBus.emit( 'autoexposure:resetHistory' );
 			this.reset();
 			this.cameraManager.currentCameraIndex = 0;
 			this.dispatchEvent( eventPayload );
@@ -1247,6 +1249,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( envParams ) envParams.mode = mode;
 
 		this.markEnvironmentNeedsUpdate();
+		this.pipeline?.eventBus.emit( 'autoexposure:resetHistory' );
 		this.reset();
 
 	}

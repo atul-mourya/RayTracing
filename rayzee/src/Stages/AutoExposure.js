@@ -115,6 +115,7 @@ export class AutoExposure extends RenderStage {
 		this.lastTime = performance.now();
 		this.isFirstFrame = true;
 		this._pendingReadback = false;
+		this._readbackGeneration = 0;
 
 		// ── Render targets & storage textures ────────────
 
@@ -399,6 +400,7 @@ export class AutoExposure extends RenderStage {
 	setupEventListeners() {
 
 		this.on( 'pipeline:reset', () => this.reset() );
+		this.on( 'autoexposure:resetHistory', () => this.resetHistory() );
 
 		this.on( 'autoexposure:toggle', ( enabled ) => {
 
@@ -468,13 +470,19 @@ export class AutoExposure extends RenderStage {
 		if ( ! this._pendingReadback ) {
 
 			this._pendingReadback = true;
+			const generation = this._readbackGeneration;
 
 			this.renderer.readRenderTargetPixelsAsync(
 				this._adaptationTarget, 0, 0, 1, 1
 			).then( ( data ) => {
 
 				this._pendingReadback = false;
-				this._applyReadback( data );
+				// Discard stale readback from before a reset
+				if ( generation === this._readbackGeneration ) {
+
+					this._applyReadback( data );
+
+				}
 
 			} ).catch( () => {
 
@@ -528,13 +536,31 @@ export class AutoExposure extends RenderStage {
 	// Lifecycle
 	// ──────────────────────────────────────────────────
 
+	/**
+	 * Soft reset: preserve exposure state, let temporal smoothing adapt.
+	 * Called on pipeline:reset (camera moves, parameter changes).
+	 */
 	reset() {
+
+		this.lastTime = performance.now();
+		// Bump generation so any in-flight readback is discarded
+		this._readbackGeneration ++;
+		this._pendingReadback = false;
+
+	}
+
+	/**
+	 * Hard reset: wipe exposure history for a clean start.
+	 * Called on scene/environment changes where previous exposure is meaningless.
+	 */
+	resetHistory() {
 
 		this.isFirstFrame = true;
 		this.currentExposure = 1.0;
 		this.currentLuminance = 0.18;
 		this.targetExposure = 1.0;
 		this.lastTime = performance.now();
+		this._readbackGeneration ++;
 		this._pendingReadback = false;
 
 	}

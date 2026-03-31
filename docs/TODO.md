@@ -3,15 +3,15 @@
 ## Bugs
 
 ### MVP
-- [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
+- [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
-- oidndenoiser is desaturation the results
-- [ ] occasional flickers with auto-exposure
+- [ ] oidndenoiser is desaturation the results
   
 
 ### Known
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
+- [ ] ASVFG gives smearing effect when moving the camera
 - [ ] open issues by threejs https://github.com/mrdoob/three.js/issues/32969 and 33061
 2Jd84No5SP
 
