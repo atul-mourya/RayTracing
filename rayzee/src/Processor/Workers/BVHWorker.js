@@ -175,7 +175,7 @@ function handleAssemble( data ) {
 
 function handleFullBuild( data ) {
 
-	const { triangleData, triangleByteOffset, triangleByteLength, depth, reportProgress, treeletOptimization, sharedReorderBuffer } = data;
+	const { triangleData, triangleByteOffset, triangleByteLength, depth, reportProgress, treeletOptimization, reinsertionOptimization, sharedReorderBuffer } = data;
 	const builder = new BVHBuilder();
 
 	try {
@@ -183,6 +183,12 @@ function handleFullBuild( data ) {
 		if ( treeletOptimization ) {
 
 			builder.setTreeletConfig( treeletOptimization );
+
+		}
+
+		if ( reinsertionOptimization ) {
+
+			builder.setReinsertionConfig( reinsertionOptimization );
 
 		}
 

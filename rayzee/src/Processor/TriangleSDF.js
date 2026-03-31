@@ -386,6 +386,11 @@ export default class TriangleSDF {
 							size: this.config.treeletSize,
 							passes: this.config.treeletOptimizationPasses,
 							minImprovement: this.config.treeletMinImprovement
+						},
+						reinsertionOptimization: {
+							enabled: this.bvhBuilder.enableReinsertionOptimization,
+							batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
+							maxIterations: this.bvhBuilder.reinsertionMaxIterations
 						}
 					}
 				);

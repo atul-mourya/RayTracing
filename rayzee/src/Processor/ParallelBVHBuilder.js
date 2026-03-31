@@ -389,6 +389,7 @@ function handlePhase2(
 			maxBins: config.maxBins,
 			minBins: config.minBins,
 			treeletConfig: config.treeletOptimization,
+			reinsertionConfig: config.reinsertionOptimization,
 			reportProgress: !! progressCallback
 		} );
 
@@ -461,7 +462,8 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 				depth,
 				reportProgress: !! progressCallback,
 				sharedReorderBuffer,
-				treeletOptimization: config.treeletOptimization
+				treeletOptimization: config.treeletOptimization,
+				reinsertionOptimization: config.reinsertionOptimization
 			}, [ transferBuffer ] );
 
 		} catch ( error ) {

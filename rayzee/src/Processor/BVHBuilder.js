@@ -1,4 +1,5 @@
 import TreeletOptimizer from "./TreeletOptimizer";
+import ReinsertionOptimizer from "./ReinsertionOptimizer";
 
 // Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
 // Cannot import Constants.js because BVHBuilder runs inside BVHWorker
@@ -75,7 +76,10 @@ export default class BVHBuilder {
 			treeletOptimizationTime: 0,
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
-			averageSAHImprovement: 0
+			averageSAHImprovement: 0,
+			reinsertionOptimizationTime: 0,
+			reinsertionsApplied: 0,
+			reinsertionIterations: 0
 		};
 
 		// Treelet optimization configuration
@@ -86,6 +90,11 @@ export default class BVHBuilder {
 		this.maxTreeletDepth = 3;
 		this.maxTreeletsPerScene = 20;
 		this.treeletComplexityThreshold = 50000;
+
+		// Reinsertion optimization configuration
+		this.enableReinsertionOptimization = true;
+		this.reinsertionBatchSizeRatio = 0.02;
+		this.reinsertionMaxIterations = 2;
 
 		// Pre-allocate bin arrays
 		this.initializeBinArrays();
@@ -174,6 +183,14 @@ export default class BVHBuilder {
 	disableTreeletOptimization() {
 
 		this.enableTreeletOptimization = false;
+
+	}
+
+	setReinsertionConfig( config ) {
+
+		if ( config.enabled !== undefined ) this.enableReinsertionOptimization = config.enabled;
+		if ( config.batchSizeRatio !== undefined ) this.reinsertionBatchSizeRatio = Math.max( 0.005, Math.min( 0.1, config.batchSizeRatio ) );
+		if ( config.maxIterations !== undefined ) this.reinsertionMaxIterations = Math.max( 1, Math.min( 5, config.maxIterations ) );
 
 	}
 
@@ -455,6 +472,11 @@ export default class BVHBuilder {
 							size: this.treeletSize,
 							passes: this.treeletOptimizationPasses,
 							minImprovement: this.treeletMinImprovement
+						},
+						reinsertionOptimization: {
+							enabled: this.enableReinsertionOptimization,
+							batchSizeRatio: this.reinsertionBatchSizeRatio,
+							maxIterations: this.reinsertionMaxIterations
 						}
 					};
 
@@ -519,6 +541,9 @@ export default class BVHBuilder {
 			treeletsProcessed: 0,
 			treeletsImproved: 0,
 			averageSAHImprovement: 0,
+			reinsertionOptimizationTime: 0,
+			reinsertionsApplied: 0,
+			reinsertionIterations: 0,
 			saOrderTime: 0,
 			// Granular phase timings
 			initTime: 0,
@@ -602,6 +627,36 @@ export default class BVHBuilder {
 
 		}
 
+		// Phase 4b: Reinsertion optimization (Meister & Bittner)
+		if ( this.enableReinsertionOptimization && this.totalTriangles > 1000 ) {
+
+			const reinsertionOptimizer = new ReinsertionOptimizer( this.traversalCost, this.intersectionCost );
+			reinsertionOptimizer.setBatchSizeRatio( this.reinsertionBatchSizeRatio );
+			reinsertionOptimizer.setMaxIterations( this.reinsertionMaxIterations );
+
+			const reinsertCallback = progressCallback ? ( status ) => {
+
+				progressCallback( status );
+
+			} : null;
+
+			try {
+
+				reinsertionOptimizer.optimizeBVH( root, reinsertCallback );
+
+			} catch ( error ) {
+
+				console.error( 'ReinsertionOptimizer: Error:', error );
+
+			}
+
+			const reinsertStats = reinsertionOptimizer.getStatistics();
+			this.splitStats.reinsertionOptimizationTime = reinsertStats.timeMs;
+			this.splitStats.reinsertionsApplied = reinsertStats.reinsertionsApplied;
+			this.splitStats.reinsertionIterations = reinsertStats.iterations;
+
+		}
+
 		// Phase 5: Surface-area child ordering (DFS cache locality)
 		const saOrderStart = performance.now();
 		this.applySAOrdering( root );
@@ -633,6 +688,7 @@ export default class BVHBuilder {
 			{ Phase: 'Morton sort', 'Time (ms)': Math.round( this.splitStats.mortonSortTime ), '%': phasePct( this.splitStats.mortonSortTime ) },
 			{ Phase: 'SAH recursive build', 'Time (ms)': Math.round( this.splitStats.sahBuildTime ), '%': phasePct( this.splitStats.sahBuildTime ) },
 			{ Phase: 'Treelet optimization', 'Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ), '%': phasePct( this.splitStats.treeletOptimizationTime ) },
+			{ Phase: 'Reinsertion optimization', 'Time (ms)': Math.round( this.splitStats.reinsertionOptimizationTime ), '%': phasePct( this.splitStats.reinsertionOptimizationTime ) },
 			{ Phase: 'SA ordering', 'Time (ms)': Math.round( this.splitStats.saOrderTime ), '%': phasePct( this.splitStats.saOrderTime ) },
 			{ Phase: 'Triangle reorder', 'Time (ms)': Math.round( this.splitStats.reorderTime ), '%': phasePct( this.splitStats.reorderTime ) },
 			{ Phase: 'TOTAL', 'Time (ms)': Math.round( total ), '%': '100%' }
@@ -650,6 +706,8 @@ export default class BVHBuilder {
 			'Treelets Processed': this.splitStats.treeletsProcessed,
 			'Treelets Improved': this.splitStats.treeletsImproved,
 			'Avg SAH Improvement': ( this.splitStats.averageSAHImprovement * 100 ).toFixed( 2 ) + '%',
+			'Reinsertions Applied': this.splitStats.reinsertionsApplied,
+			'Reinsertion Iterations': this.splitStats.reinsertionIterations,
 		} );
 		console.groupEnd();
 

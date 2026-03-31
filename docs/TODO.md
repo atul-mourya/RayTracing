@@ -5,7 +5,9 @@
 ### MVP
 - [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
-
+- changing the max samples in ui doesnt continue the render
+- right click context menu not opening
+- oidndenoiser is desaturation the results
 
 ### Known
 - [ ] Soft shadows for directional lights not working when enabled from UI

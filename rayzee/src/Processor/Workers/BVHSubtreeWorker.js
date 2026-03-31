@@ -1,5 +1,6 @@
 import BVHBuilder from '../BVHBuilder.js';
 import TreeletOptimizer from '../TreeletOptimizer.js';
+import ReinsertionOptimizer from '../ReinsertionOptimizer.js';
 
 self.onmessage = function ( e ) {
 
@@ -9,6 +10,7 @@ self.onmessage = function ( e ) {
 		triangleCount,
 		maxLeafSize, numBins, maxBins, minBins,
 		treeletConfig,
+		reinsertionConfig,
 		reportProgress
 	} = e.data;
 
@@ -93,6 +95,25 @@ self.onmessage = function ( e ) {
 						break;
 
 					}
+
+				}
+
+			}
+
+			// Reinsertion optimization on subtree
+			if ( reinsertionConfig && reinsertionConfig.enabled && ( task.end - task.start ) > 1000 ) {
+
+				const reinsertionOptimizer = new ReinsertionOptimizer( builder.traversalCost, builder.intersectionCost );
+				if ( reinsertionConfig.batchSizeRatio ) reinsertionOptimizer.setBatchSizeRatio( reinsertionConfig.batchSizeRatio );
+				if ( reinsertionConfig.maxIterations ) reinsertionOptimizer.setMaxIterations( reinsertionConfig.maxIterations );
+
+				try {
+
+					reinsertionOptimizer.optimizeBVH( root, null );
+
+				} catch ( err ) {
+
+					console.error( `[BVHSubtreeWorker] Reinsertion error:`, err );
 
 				}
 
