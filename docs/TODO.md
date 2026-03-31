@@ -5,9 +5,10 @@
 ### MVP
 - [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
-- changing the max samples in ui doesnt continue the render
-- right click context menu not opening
 - oidndenoiser is desaturation the results
+- assess the need for ToneMapCPU. why not threejs tonemap which is already defined
+- [ ] occasional flickers with auto-exposure
+  
 
 ### Known
 - [ ] Soft shadows for directional lights not working when enabled from UI
@@ -16,9 +17,6 @@
 2Jd84No5SP
 
 ### Unconfirmed
-- [ ] occasional jarring flickers with auto-exposure - studio vray aparment example file - windows device
-- [ ] when i save a final render, and switch to results tab, the saved render is not visible in the results tab until refreshing the page
-
 ---
 
 ## Features

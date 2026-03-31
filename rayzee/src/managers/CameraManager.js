@@ -13,7 +13,7 @@ export class CameraManager extends EventDispatcher {
 	/**
 	 * @param {import('three').PerspectiveCamera} camera
 	 * @param {import('three/addons/controls/OrbitControls.js').OrbitControls} controls
-	 * @param {import('../InteractionManager.js').default} interactionManager
+	 * @param {import('./InteractionManager.js').default} interactionManager
 	 */
 	constructor( camera, controls, interactionManager ) {
 

@@ -25,7 +25,7 @@ import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
-import InteractionManager from './InteractionManager.js';
+import InteractionManager from './managers/InteractionManager.js';
 import { EngineEvents } from './EngineEvents.js';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';
@@ -34,7 +34,7 @@ import TriangleSDF from './Processor/TriangleSDF.js';
 import { RenderSettings } from './RenderSettings.js';
 import { CameraManager } from './managers/CameraManager.js';
 import { LightManager } from './managers/LightManager.js';
-import { DenoiserOrchestrator } from './managers/DenoiserOrchestrator.js';
+import { DenoiseManager } from './managers/DenoiseManager.js';
 
 
 /**
@@ -44,7 +44,7 @@ import { DenoiserOrchestrator } from './managers/DenoiserOrchestrator.js';
  * - {@link RenderSettings} — single source of truth for all render parameters
  * - {@link CameraManager} — camera switching, auto-focus, DOF
  * - {@link LightManager} — light CRUD, helpers, GPU transfer
- * - {@link DenoiserOrchestrator} — denoiser strategy, OIDN, AI upscaler
+ * - {@link DenoiseManager} — denoiser strategy, OIDN, AI upscaler
  *
  * Extends EventDispatcher for event-driven communication with stores/UI.
  */
@@ -94,7 +94,7 @@ export class PathTracerApp extends EventDispatcher {
 		// ── Managers (populated in init) ──
 		this.cameraManager = null;
 		this.lightManager = null;
-		this.denoiserOrchestrator = null;
+		this.denoiseManager = null;
 
 		// ── State ──
 		this.isInitialized = false;
@@ -291,14 +291,14 @@ export class PathTracerApp extends EventDispatcher {
 		// ── Managers ──
 		this.cameraManager = new CameraManager( this._camera, this._controls, this._interactionManager );
 		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracing );
-		this._setupDenoiserOrchestrator();
+		this._setupDenoiseManager();
 
 		// Wire CameraManager events → app events
 		this.cameraManager.addEventListener( 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
 		this.cameraManager.addEventListener( EngineEvents.AUTO_FOCUS_UPDATED, ( e ) => this.dispatchEvent( e ) );
 
-		// Wire DenoiserOrchestrator events → app events
-		this._forwardEvents( this.denoiserOrchestrator, [
+		// Wire DenoiseManager events → app events
+		this._forwardEvents( this.denoiseManager, [
 			EngineEvents.DENOISING_START, EngineEvents.DENOISING_END,
 			EngineEvents.UPSCALING_START, EngineEvents.UPSCALING_PROGRESS, EngineEvents.UPSCALING_END,
 			'resolution_changed',
@@ -499,7 +499,7 @@ export class PathTracerApp extends EventDispatcher {
 
 				this._renderCompleteDispatched = true;
 
-				this.denoiserOrchestrator.onRenderComplete( {
+				this.denoiseManager.onRenderComplete( {
 					isStillComplete: () => this._renderCompleteDispatched,
 					context: this.pipeline?.context,
 				} );
@@ -572,7 +572,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		// Abort post-processing
-		this.denoiserOrchestrator?.abort( this.canvas );
+		this.denoiseManager?.abort( this.canvas );
 
 		// Restore denoiser canvas to base render resolution
 		if ( this.denoiserCanvas && this._lastRenderWidth && this._lastRenderHeight ) {
@@ -623,7 +623,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.denoiserOrchestrator?.dispose();
+		this.denoiseManager?.dispose();
 		this.pipeline?.dispose();
 		this._interactionManager?.dispose();
 		this._controls?.dispose();
@@ -893,8 +893,8 @@ export class PathTracerApp extends EventDispatcher {
 		this._lastRenderHeight = renderHeight;
 
 		this.pipeline?.setSize( renderWidth, renderHeight );
-		this.denoiserOrchestrator?.denoiser?.setSize( renderWidth, renderHeight );
-		this.denoiserOrchestrator?.upscaler?.setBaseSize( renderWidth, renderHeight );
+		this.denoiseManager?.denoiser?.setSize( renderWidth, renderHeight );
+		this.denoiseManager?.upscaler?.setBaseSize( renderWidth, renderHeight );
 		this.needsReset = true;
 
 		this.dispatchEvent( { type: 'resolution_changed', width: renderWidth, height: renderHeight } );
@@ -941,7 +941,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.pauseRendering = true;
 			this._controls.enabled = false;
 			this.renderer?.domElement && ( this.renderer.domElement.style.display = 'none' );
-			this.denoiserOrchestrator?.denoiser?.output && ( this.denoiserOrchestrator.denoiser.output.style.display = 'none' );
+			this.denoiseManager?.denoiser?.output && ( this.denoiseManager.denoiser.output.style.display = 'none' );
 			return;
 
 		}
@@ -964,7 +964,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = config.tilesHelper;
 		this.stages.pathTracing?.updateCompletionThreshold?.();
 
-		const denoiser = this.denoiserOrchestrator?.denoiser;
+		const denoiser = this.denoiseManager?.denoiser;
 		if ( denoiser ) {
 
 			denoiser.abort();
@@ -973,7 +973,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.denoiserOrchestrator?.upscaler?.abort();
+		this.denoiseManager?.upscaler?.abort();
 
 		if ( options.canvasWidth && options.canvasHeight ) {
 
@@ -982,7 +982,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.renderer?.domElement && ( this.renderer.domElement.style.display = 'block' );
-		this.denoiserOrchestrator?.denoiser?.output && ( this.denoiserOrchestrator.denoiser.output.style.display = 'block' );
+		this.denoiseManager?.denoiser?.output && ( this.denoiseManager.denoiser.output.style.display = 'block' );
 
 		this.needsReset = false;
 		this.pauseRendering = false;
@@ -1062,28 +1062,28 @@ export class PathTracerApp extends EventDispatcher {
 
 	setDenoiserStrategy( strategy, asvgfPreset ) {
 
-		this.denoiserOrchestrator.setDenoiserStrategy( strategy, asvgfPreset );
+		this.denoiseManager.setDenoiserStrategy( strategy, asvgfPreset );
 		this.reset();
 
 	}
 
 	setASVGFEnabled( enabled, qualityPreset ) {
 
-		this.denoiserOrchestrator.setASVGFEnabled( enabled, qualityPreset );
+		this.denoiseManager.setASVGFEnabled( enabled, qualityPreset );
 		this.reset();
 
 	}
 
 	applyASVGFPreset( presetName ) {
 
-		this.denoiserOrchestrator.applyASVGFPreset( presetName );
+		this.denoiseManager.applyASVGFPreset( presetName );
 		this.reset();
 
 	}
 
 	setAutoExposureEnabled( enabled ) {
 
-		this.denoiserOrchestrator.setAutoExposureEnabled( enabled, this.settings.get( 'exposure' ) );
+		this.denoiseManager.setAutoExposureEnabled( enabled, this.settings.get( 'exposure' ) );
 		this.reset();
 
 	}
@@ -1091,7 +1091,7 @@ export class PathTracerApp extends EventDispatcher {
 	setAdaptiveSamplingEnabled( enabled ) {
 
 		this.settings.set( 'useAdaptiveSampling', enabled );
-		this.denoiserOrchestrator.setAdaptiveSamplingEnabled( enabled );
+		this.denoiseManager.setAdaptiveSamplingEnabled( enabled );
 
 	}
 
@@ -1304,8 +1304,8 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( ! this.renderer?.domElement ) return null;
 
-		const denoiser = this.denoiserOrchestrator?.denoiser;
-		const upscaler = this.denoiserOrchestrator?.upscaler;
+		const denoiser = this.denoiseManager?.denoiser;
+		const upscaler = this.denoiseManager?.upscaler;
 		const usePostProcess = ( denoiser?.enabled || upscaler?.enabled )
 			&& this.denoiserCanvas
 			&& this.stages.pathTracing?.isComplete;
@@ -1597,20 +1597,20 @@ export class PathTracerApp extends EventDispatcher {
 
 	setOIDNEnabled( enabled ) {
 
-		const d = this.denoiserOrchestrator?.denoiser;
+		const d = this.denoiseManager?.denoiser;
 		if ( d ) d.enabled = enabled;
 
 	}
 
 	updateOIDNQuality( quality ) {
 
-		this.denoiserOrchestrator?.denoiser?.updateQuality( quality );
+		this.denoiseManager?.denoiser?.updateQuality( quality );
 
 	}
 
 	setOIDNTileHelper( enabled ) {
 
-		const d = this.denoiserOrchestrator?.denoiser;
+		const d = this.denoiseManager?.denoiser;
 		if ( d ) d.showTileHelper = enabled;
 
 	}
@@ -1619,20 +1619,20 @@ export class PathTracerApp extends EventDispatcher {
 
 	setUpscalerEnabled( enabled ) {
 
-		const u = this.denoiserOrchestrator?.upscaler;
+		const u = this.denoiseManager?.upscaler;
 		if ( u ) u.enabled = enabled;
 
 	}
 
 	setUpscalerScaleFactor( factor ) {
 
-		this.denoiserOrchestrator?.upscaler?.setScaleFactor( factor );
+		this.denoiseManager?.upscaler?.setScaleFactor( factor );
 
 	}
 
 	setUpscalerQuality( quality ) {
 
-		this.denoiserOrchestrator?.upscaler?.setQuality( quality );
+		this.denoiseManager?.upscaler?.setQuality( quality );
 
 	}
 
@@ -1700,9 +1700,9 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	_setupDenoiserOrchestrator() {
+	_setupDenoiseManager() {
 
-		this.denoiserOrchestrator = new DenoiserOrchestrator( {
+		this.denoiseManager = new DenoiseManager( {
 			renderer: this.renderer,
 			denoiserCanvas: this.denoiserCanvas,
 			scene: this.scene,
@@ -1725,8 +1725,8 @@ export class PathTracerApp extends EventDispatcher {
 			getTransparentBg: () => this.settings.get( 'transparentBackground' ) ?? false,
 		} );
 
-		this.denoiserOrchestrator.setupDenoiser();
-		this.denoiserOrchestrator.setupUpscaler();
+		this.denoiseManager.setupDenoiser();
+		this.denoiseManager.setupUpscaler();
 
 	}
 
@@ -1822,7 +1822,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.lastResetTime = performance.now() - this.timeElapsed * 1000;
 
 			this.canvas.style.opacity = '1';
-			const denoiserOutput = this.denoiserOrchestrator?.denoiser?.output;
+			const denoiserOutput = this.denoiseManager?.denoiser?.output;
 			if ( denoiserOutput ) denoiserOutput.style.display = 'none';
 
 			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
