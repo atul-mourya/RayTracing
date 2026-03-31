@@ -9,7 +9,7 @@ import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
-import BuildTimer from './BuildTimer';
+import { BuildTimer } from './BuildTimer.js';
 
 // Define supported file formats
 const SUPPORTED_FORMATS = {
@@ -27,7 +27,7 @@ const SUPPORTED_FORMATS = {
 /**
  * AssetLoader class - handles loading of 3D models, environment maps, and archives
  */
-class AssetLoader extends EventDispatcher {
+export class AssetLoader extends EventDispatcher {
 
 	constructor( scene, camera, controls ) {
 
@@ -1324,4 +1324,3 @@ class AssetLoader extends EventDispatcher {
 
 }
 
-export default AssetLoader;

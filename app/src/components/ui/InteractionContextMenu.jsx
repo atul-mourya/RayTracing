@@ -298,7 +298,7 @@ const InteractionContextMenu = () => {
 		if ( ! app || ! object || ! object.material || ! copiedMaterial ) return;
 
 		const material = object.material;
-		const pt = app.stages.pathTracing;
+		const pt = app.stages.pathTracer;
 
 		// Apply material properties
 		if ( copiedMaterial.color !== undefined && material.color ) {

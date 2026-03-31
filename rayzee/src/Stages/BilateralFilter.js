@@ -60,7 +60,7 @@ const bilateralWeight = /*@__PURE__*/ wgslFn( `
  * Textures published:  bilateralFiltering:output
  * Textures read:       configurable color input + pathtracer:normalDepth
  */
-export class BilateralFilteringStage extends RenderStage {
+export class BilateralFilter extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

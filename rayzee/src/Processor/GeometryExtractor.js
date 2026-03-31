@@ -3,7 +3,7 @@ import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 
 const MAX_TEXTURES_LIMIT = 128;
 
-export default class GeometryExtractor {
+export class GeometryExtractor {
 
 	constructor() {
 

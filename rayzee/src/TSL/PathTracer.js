@@ -109,7 +109,7 @@ export const getRequiredSamples = Fn( ( [
 
 /**
  * Generates TSL nodes for the path tracer compute kernel body.
- * Must be called from within a compute Fn() scope (e.g., in ShaderComposer).
+ * Must be called from within a compute Fn() scope (e.g., in ShaderBuilder).
  *
  * Previous-frame reads use texture() sampling from MRT RenderTarget textures
  * (populated by copyTextureToTexture after each dispatch).

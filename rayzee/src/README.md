@@ -201,18 +201,18 @@ For fine-grained control over individual pipeline stages:
 For advanced consumers, all 12 pipeline stages are accessible via `engine.stages`:
 
 ```js
-engine.stages.pathTracing     // PathTracingStage
-engine.stages.normalDepth     // NormalDepthStage
-engine.stages.motionVector    // MotionVectorStage
-engine.stages.asvgf           // ASVGFStage
-engine.stages.varianceEstimation
-engine.stages.bilateralFiltering
+engine.stages.pathTracer      // PathTracer
+engine.stages.normalDepth     // NormalDepth
+engine.stages.motionVector    // MotionVector
+engine.stages.asvgf           // ASVGF
+engine.stages.variance
+engine.stages.bilateralFilter
 engine.stages.adaptiveSampling
-engine.stages.edgeAwareFiltering
+engine.stages.edgeFilter
 engine.stages.autoExposure
 engine.stages.tileHighlight
 engine.stages.ssrc
-engine.stages.display         // DisplayStage
+engine.stages.display         // Display
 ```
 
 ## Events
@@ -251,7 +251,7 @@ import {
   RenderSettings,       // Unified parameter store
   CameraManager,        // Camera switching, auto-focus, DOF
   LightManager,         // Light CRUD and GPU transfer
-  DenoiseManager, // Denoiser strategy, OIDN, upscaler
+  DenoisingManager, // Denoiser strategy, OIDN, upscaler
 
   // Configuration
   ENGINE_DEFAULTS,      // Default config values

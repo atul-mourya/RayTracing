@@ -1,4 +1,4 @@
-import { SphereGeometry, Mesh, MeshPhysicalMaterial, Group, Object3D, Color, Vector3 } from 'three';
+import { SphereGeometry, Mesh, MeshPhysicalMaterial, Group, Object3D, Color, Vector3, ShaderMaterial, Vector2, Matrix4, GLSL3 } from 'three';
 import { EngineEvents } from '../EngineEvents.js';
 
 let _statusCallback = null;
@@ -191,6 +191,388 @@ export function generateMaterialSpheres( rows = 5, columns = 5, spacing = 1.2 ) 
 	}
 
 	return sphereGroup;
+
+}
+
+// ── Path Tracer Utilities (formerly PathTracerUtils static class) ──
+
+export function updateCompletionThreshold( renderMode, maxFrames, totalTiles ) {
+
+	return renderMode === 1 ? totalTiles * maxFrames : maxFrames;
+
+}
+
+export function createDebounceFunction( callback, delay ) {
+
+	let timeoutId = null;
+	let pendingValue = null;
+
+	return function ( value ) {
+
+		if ( timeoutId ) {
+
+			clearTimeout( timeoutId );
+
+		}
+
+		pendingValue = value;
+		timeoutId = setTimeout( () => {
+
+			if ( pendingValue !== null ) {
+
+				callback( pendingValue );
+
+			}
+
+			timeoutId = null;
+			pendingValue = null;
+
+		}, delay );
+
+	};
+
+}
+
+export function createPathTracingMaterial( options ) {
+
+	const {
+		vertexShader,
+		fragmentShader,
+		uniforms = {},
+		defines = {}
+	} = options;
+
+	return new ShaderMaterial( {
+		name: 'PathTracingShader',
+		defines: {
+			MAX_SPHERE_COUNT: 0,
+			MAX_DIRECTIONAL_LIGHTS: 0,
+			MAX_AREA_LIGHTS: 0,
+			MAX_POINT_LIGHTS: 0,
+			MAX_SPOT_LIGHTS: 0,
+			ENABLE_ACCUMULATION: '',
+			...defines
+		},
+		uniforms: {
+			resolution: { value: new Vector2() },
+			cameraWorldMatrix: { value: new Matrix4() },
+			cameraProjectionMatrixInverse: { value: new Matrix4() },
+			frame: { value: 0 },
+			...uniforms
+		},
+		vertexShader,
+		fragmentShader,
+		glslVersion: GLSL3
+	} );
+
+}
+
+export function validateAndUpdateUniforms( material, updates ) {
+
+	let hasChanges = false;
+
+	Object.entries( updates ).forEach( ( [ key, value ] ) => {
+
+		if ( material.uniforms[ key ] &&
+			! areValuesEqual( material.uniforms[ key ].value, value ) ) {
+
+			material.uniforms[ key ].value = value;
+			hasChanges = true;
+
+		}
+
+	} );
+
+	return hasChanges;
+
+}
+
+export function areValuesEqual( a, b ) {
+
+	if ( a === b ) return true;
+
+	if ( a && b && typeof a.equals === 'function' ) {
+
+		return a.equals( b );
+
+	}
+
+	if ( Array.isArray( a ) && Array.isArray( b ) ) {
+
+		if ( a.length !== b.length ) return false;
+		return a.every( ( val, index ) => areValuesEqual( val, b[ index ] ) );
+
+	}
+
+	if ( a && b && typeof a === 'object' && typeof b === 'object' ) {
+
+		const keysA = Object.keys( a );
+		const keysB = Object.keys( b );
+		if ( keysA.length !== keysB.length ) return false;
+		return keysA.every( key => areValuesEqual( a[ key ], b[ key ] ) );
+
+	}
+
+	return false;
+
+}
+
+export function calculateAccumulationAlpha( frameValue, renderMode, totalTiles, isInteractionMode = false ) {
+
+	if ( isInteractionMode ) {
+
+		return 1.0;
+
+	}
+
+	if ( renderMode === 0 ) {
+
+		return 1.0 / ( frameValue + 1 );
+
+	} else {
+
+		if ( frameValue === 0 ) {
+
+			return 1.0;
+
+		} else {
+
+			const completedTileCycles = Math.floor( ( frameValue - 1 ) / totalTiles );
+			const totalSamples = 1 + completedTileCycles;
+			return 1.0 / ( totalSamples + 1 );
+
+		}
+
+	}
+
+}
+
+export function createPerformanceMonitor() {
+
+	let startTime = 0;
+	let endTime = 0;
+	let frameCount = 0;
+	let totalTime = 0;
+
+	return {
+		start() {
+
+			startTime = performance.now();
+
+		},
+
+		end() {
+
+			endTime = performance.now();
+			const frameTime = endTime - startTime;
+			totalTime += frameTime;
+			frameCount ++;
+			return frameTime;
+
+		},
+
+		getAverageFrameTime() {
+
+			return frameCount > 0 ? totalTime / frameCount : 0;
+
+		},
+
+		getFPS() {
+
+			const avgFrameTime = this.getAverageFrameTime();
+			return avgFrameTime > 0 ? 1000 / avgFrameTime : 0;
+
+		},
+
+		reset() {
+
+			frameCount = 0;
+			totalTime = 0;
+
+		}
+	};
+
+}
+
+export function optimizeShaderDefines( defines, state ) {
+
+	const optimized = { ...defines };
+
+	if ( ! state.useAdaptiveSampling ) {
+
+		delete optimized.ENABLE_ADAPTIVE_SAMPLING;
+
+	}
+
+	if ( ! state.enableAccumulation ) {
+
+		delete optimized.ENABLE_ACCUMULATION;
+
+	}
+
+	if ( state.sphereCount === 0 ) {
+
+		optimized.MAX_SPHERE_COUNT = 0;
+
+	}
+
+	return optimized;
+
+}
+
+export function calculateSpiralOrder( tiles, center = null ) {
+
+	const totalTiles = tiles * tiles;
+	const centerPoint = center || new Vector2( ( tiles - 1 ) / 2, ( tiles - 1 ) / 2 );
+	const tilePositions = [];
+
+	for ( let i = 0; i < totalTiles; i ++ ) {
+
+		const x = i % tiles;
+		const y = Math.floor( i / tiles );
+		const distance = Math.sqrt(
+			Math.pow( x - centerPoint.x, 2 ) +
+			Math.pow( y - centerPoint.y, 2 )
+		);
+		const angle = Math.atan( y - centerPoint.y, x - centerPoint.x );
+
+		tilePositions.push( {
+			index: i,
+			x,
+			y,
+			distance,
+			angle
+		} );
+
+	}
+
+	tilePositions.sort( ( a, b ) => {
+
+		const distanceDiff = a.distance - b.distance;
+		if ( Math.abs( distanceDiff ) < 0.01 ) {
+
+			return a.angle - b.angle;
+
+		}
+
+		return distanceDiff;
+
+	} );
+
+	return tilePositions.map( pos => pos.index );
+
+}
+
+export function clamp( value, min, max ) {
+
+	return Math.min( Math.max( value, min ), max );
+
+}
+
+export function lerp( a, b, t ) {
+
+	return a + ( b - a ) * clamp( t, 0, 1 );
+
+}
+
+export function isRenderComplete( frameValue, renderMode, maxFrames, totalTiles ) {
+
+	if ( renderMode === 0 ) {
+
+		return frameValue >= maxFrames;
+
+	} else {
+
+		return frameValue >= maxFrames * totalTiles;
+
+	}
+
+}
+
+export function getCurrentSampleCount( frameValue, renderMode, totalTiles ) {
+
+	if ( renderMode === 0 ) {
+
+		return frameValue;
+
+	} else {
+
+		return Math.floor( frameValue / totalTiles );
+
+	}
+
+}
+
+export function formatDuration( milliseconds ) {
+
+	if ( milliseconds < 1000 ) {
+
+		return `${milliseconds.toFixed( 0 )}ms`;
+
+	}
+
+	const seconds = milliseconds / 1000;
+	if ( seconds < 60 ) {
+
+		return `${seconds.toFixed( 1 )}s`;
+
+	}
+
+	const minutes = Math.floor( seconds / 60 );
+	const remainingSeconds = seconds % 60;
+	return `${minutes}m ${remainingSeconds.toFixed( 0 )}s`;
+
+}
+
+export function createLRUCache( maxSize ) {
+
+	const cache = new Map();
+
+	return {
+		get( key ) {
+
+			if ( cache.has( key ) ) {
+
+				const value = cache.get( key );
+				cache.delete( key );
+				cache.set( key, value );
+				return value;
+
+			}
+
+			return undefined;
+
+		},
+
+		set( key, value ) {
+
+			if ( cache.has( key ) ) {
+
+				cache.delete( key );
+
+			} else if ( cache.size >= maxSize ) {
+
+				const firstKey = cache.keys().next().value;
+				cache.delete( firstKey );
+
+			}
+
+			cache.set( key, value );
+
+		},
+
+		clear() {
+
+			cache.clear();
+
+		},
+
+		size() {
+
+			return cache.size;
+
+		}
+	};
 
 }
 

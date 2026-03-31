@@ -8,7 +8,7 @@
  * permutations (or greedy assignment for N > 5), and replaces the
  * subtree with the arrangement that minimises SAH cost.
  */
-export default class TreeletOptimizer {
+export class TreeletOptimizer {
 
 	constructor( traversalCost, intersectionCost ) {
 

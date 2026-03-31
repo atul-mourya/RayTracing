@@ -18,7 +18,7 @@ import {
  */
 export class InteractionManager extends EventDispatcher {
 
-	constructor( { scene, camera, canvas, assetLoader, pathTracingStage, floorPlane } ) {
+	constructor( { scene, camera, canvas, assetLoader, pathTracer, floorPlane } ) {
 
 		super();
 
@@ -27,7 +27,7 @@ export class InteractionManager extends EventDispatcher {
 		this.camera = camera;
 		this.canvas = canvas;
 		this.assetLoader = assetLoader;
-		this.pathTracingStage = pathTracingStage;
+		this.pathTracer = pathTracer;
 		this.floorPlane = floorPlane;
 
 		// Raycaster for intersection detection
@@ -642,7 +642,7 @@ export class InteractionManager extends EventDispatcher {
 		this.camera = null;
 		this.canvas = null;
 		this.assetLoader = null;
-		this.pathTracingStage = null;
+		this.pathTracer = null;
 		this.floorPlane = null;
 		this.raycaster = null;
 

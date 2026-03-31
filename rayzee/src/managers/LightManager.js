@@ -14,15 +14,15 @@ export class LightManager extends EventDispatcher {
 	/**
 	 * @param {import('three').Scene}      scene          - WebGPU light scene
 	 * @param {import('../SceneHelpers.js').SceneHelpers} sceneHelpers
-	 * @param {import('../Stages/PathTracingStage.js').PathTracingStage} pathTracingStage
+	 * @param {import('../Stages/PathTracer.js').PathTracer} pathTracer
 	 */
-	constructor( scene, sceneHelpers, pathTracingStage ) {
+	constructor( scene, sceneHelpers, pathTracer ) {
 
 		super();
 
 		this.scene = scene;
 		this.sceneHelpers = sceneHelpers;
-		this.pathTracingStage = pathTracingStage;
+		this.pathTracer = pathTracer;
 
 	}
 
@@ -127,7 +127,7 @@ export class LightManager extends EventDispatcher {
 	 */
 	updateLights() {
 
-		this.pathTracingStage?.updateLights();
+		this.pathTracer?.updateLights();
 
 	}
 

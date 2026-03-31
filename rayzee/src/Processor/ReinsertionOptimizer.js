@@ -13,7 +13,7 @@
  *
  * Typically yields 10-20% SAH cost reduction on top of treelet optimization.
  */
-export default class ReinsertionOptimizer {
+export class ReinsertionOptimizer {
 
 	constructor( traversalCost, intersectionCost ) {
 

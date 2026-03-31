@@ -71,7 +71,7 @@ const adaptExposure = /*@__PURE__*/ wgslFn( `
  * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
  * State published:     autoexposure:value, autoexposure:avgLuminance
  */
-export class AutoExposureStage extends RenderStage {
+export class AutoExposure extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

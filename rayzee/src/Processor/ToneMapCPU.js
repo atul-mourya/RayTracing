@@ -154,11 +154,11 @@ export const TONE_MAP_FNS = new Map( [
 /** sRGB gamma (1/2.2) */
 export const SRGB_GAMMA = 1 / 2.2;
 
-/** Rec.709 luminance coefficients (same as DisplayStage / Common.js). */
+/** Rec.709 luminance coefficients (same as Display / Common.js). */
 const LUM_R = 0.2126, LUM_G = 0.7152, LUM_B = 0.0722;
 
 /**
- * Pre-tonemapping saturation adjustment matching DisplayStage's GPU shader:
+ * Pre-tonemapping saturation adjustment matching Display's GPU shader:
  *   mix( vec3(luma), exposed, saturation )
  * Operates in-place on the `out` array (expects exposed linear RGB).
  * @param {Float32Array} out - [r, g, b] to adjust

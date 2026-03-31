@@ -20,7 +20,7 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
  * Textures published:  tileHighlight:output
  * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
  */
-export class TileHighlightStage extends RenderStage {
+export class TileHighlight extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 
@@ -116,7 +116,7 @@ export class TileHighlightStage extends RenderStage {
 					const py = float( gy );
 
 					// Tile bounds in pixel space
-					// NormalDepthStage & PathTracer use top-left origin; GPU uses bottom-left
+					// NormalDepth & PathTracer use top-left origin; GPU uses bottom-left
 					// Convert: y_gpu = resH - (boundsY + boundsH)
 					const tileLeft = boundsX;
 					const tileBottom = resH.sub( boundsY.add( boundsH ) );

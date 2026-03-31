@@ -54,4 +54,4 @@ For every TSL code change, verify:
 6. `.toVar()` on all mutable variables
 7. Proper `workgroupBarrier()` between shared memory write/read
 8. `textureStore` uses `.toWriteOnly()` in compute shaders
-9. Camera matrices synced from PathTracingStage (not read independently)
+9. Camera matrices synced from PathTracer (not read independently)

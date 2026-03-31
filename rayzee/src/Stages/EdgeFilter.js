@@ -23,7 +23,7 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
  * Textures published:  edgeFiltering:output
  * Textures read:       asvgf:output (fallback: pathtracer:color)
  */
-export class EdgeAwareFilteringStage extends RenderStage {
+export class EdgeFilter extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

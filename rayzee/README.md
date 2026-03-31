@@ -360,7 +360,7 @@ import {
   RenderSettings,
   CameraManager,
   LightManager,
-  DenoiseManager,
+  DenoisingManager,
 } from 'rayzee';
 
 // Advanced: pipeline infrastructure

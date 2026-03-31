@@ -13,7 +13,7 @@ TSL (Three Shading Language) is a JavaScript-based shader authoring system that 
 Explicitly excluded (refer to separate docs):
 - Denoisers (ASVGF, EdgeAwareFiltering, BilateralFiltering)
 - Post-processing (Bloom, Tone mapping, AutoExposure)
-- Screen Space Radiance Caching (SSRCStage — separate stage)
+- Screen Space Radiance Caching (SSRC — separate stage)
 - Adaptive sampling pass implementation details (we only describe how the path tracer consumes its texture)
 - Debug visualization passes beyond in-shader `visMode`
 - Backend switching and state management (see `PIPELINE_ARCHITECTURE.md`)
@@ -78,7 +78,7 @@ Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy
 
 ## Render Targets & Output Semantics
 
-MRT layout (3 outputs per ping-pong pair, managed by `PathTracingStage.js`):
+MRT layout (3 outputs per ping-pong pair, managed by `PathTracer.js`):
 
 ```
 textures[0] = gColor      // RGB accumulated radiance + A = pixelSharpness (edge flag)
@@ -94,7 +94,7 @@ Depth in `gNormalDepth.a` stores **linear ray distance** (hit.dst), NOT NDC dept
 
 ## Uniform Groups (JS → GPU Data Flow)
 
-Uniforms are initialized and maintained in `PathTracingStage.js` (~3000 lines). Principal categories:
+Uniforms are initialized and maintained in `PathTracer.js` (~3000 lines). Principal categories:
 
 1. **Camera & DOF:**
    - `cameraWorldMatrix`, `cameraProjectionMatrixInverse`, `cameraViewMatrix`, `cameraProjectionMatrix`
@@ -233,7 +233,7 @@ The Light BVH accelerates emissive triangle sampling by organizing emissive tria
 Light BVH sampling is selected when `lightBVHNodeCount > 0`. The composite PDF accounts for both tree-traversal probabilities and per-triangle sampling. MIS weight combines this with the BRDF lobe PDF.
 
 ### Builder
-`LightBVHBuilder.js` (in `rayzee/src/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracingStage.setLightBVHData()` uploads the packed node buffer.
+`LightBVHBuilder.js` (in `rayzee/src/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracer.setLightBVHData()` uploads the packed node buffer.
 
 ---
 
@@ -327,7 +327,7 @@ Importance (luminance / pdf) clamped only on deep bounces (after bounce 4) with 
 
 ## Adaptive Sampling Integration
 
-The `AdaptiveSamplingStage` produces `adaptiveSamplingTexture` (RGBA containing normalized sample counts and convergence flags). In shader:
+The `AdaptiveSampling` stage produces `adaptiveSamplingTexture` (RGBA containing normalized sample counts and convergence flags). In shader:
 
 ```js
 // TSL equivalent
@@ -343,7 +343,7 @@ If(samplingData.z.greaterThan(0.5), () => { /* converged — skip */ });
 
 - Shader receives `previousAccumulatedTexture` and blends:
   `finalColor = previous + (current - previous) * accumulationAlpha`
-- Alpha computed CPU-side (`PathTracerUtils.calculateAccumulationAlpha`) factoring frame count, tile progression, and interaction resets.
+- Alpha computed CPU-side (`calculateAccumulationAlpha` from `utils.js`) factoring frame count, tile progression, and interaction resets.
 - Accumulation disabled during camera interaction (`cameraIsMoving`), preventing low-quality smear; re-enabled immediately after exit with prior result retained.
 
 Edge flag (A in `gColor`) *always* recalculated, ensuring temporal passes have accurate structural guides even on converged or reused pixels.
@@ -391,10 +391,10 @@ const myFunction = Fn(([param1, param2]) => {
 
 ### Uniform Management
 
-Uniforms are `uniform()` node objects managed by `PathTracingStage.js`:
+Uniforms are `uniform()` node objects managed by `PathTracer.js`:
 
 ```js
-// PathTracingStage.js constructor
+// PathTracer.js constructor
 this.maxBounces = uniform(DEFAULT_STATE.bounces, 'int');
 this.exposure = uniform(DEFAULT_STATE.exposure, 'float');
 this.cameraWorldMatrix = uniform(mat4());
@@ -599,7 +599,7 @@ When changing shader code, watch these anchors:
 | `Environment.js` | `sampleEnvironmentWithContext()`, `calculateEnvironmentPDFWithMIS()` | HDR env sampling & PDF computation |
 | `LightBVHSampling.js` | `sampleLightBVHTriangle()`, traversal PDF product | Light BVH stochastic descent & PDF tracking |
 | `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `sampleBlueNoise2D()` | Stochastic sampling quality & distribution |
-| `PathTracingStage.js` | MRT setup, uniform declarations, `setLightBVHData()` | Stage orchestration, uniform management |
+| `PathTracer.js` | MRT setup, uniform declarations, `setLightBVHData()` | Stage orchestration, uniform management |
 
 Numerical constants to keep consistent:
 - `MIN_PDF`, epsilon thresholds in environment & BVH.

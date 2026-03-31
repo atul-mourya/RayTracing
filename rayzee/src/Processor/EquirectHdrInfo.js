@@ -49,7 +49,7 @@ export function extractFloatData( envMap ) {
 
 	if ( ! data ) {
 
-		throw new Error( 'EquirectHdrInfo: Environment map must have CPU-accessible image data. Render target textures are not supported.' );
+		throw new Error( 'EquirectHDRInfo: Environment map must have CPU-accessible image data. Render target textures are not supported.' );
 
 	}
 
@@ -115,7 +115,7 @@ export function extractFloatData( envMap ) {
 }
 
 /**
- * EquirectHdrInfo - Importance sampling data for equirectangular HDR maps
+ * EquirectHDRInfo - Importance sampling data for equirectangular HDR maps
  *
  * Builds inverted marginal and conditional CDFs from an HDR environment map.
  * Outputs Float32Arrays consumed directly by StorageInstancedBufferAttribute
@@ -125,11 +125,11 @@ export function extractFloatData( envMap ) {
  * - `updateFrom(hdr)`: synchronous, runs on main thread
  * - `updateFromAsync(hdr)`: offloads CDF math to a Web Worker
  */
-export class EquirectHdrInfo {
+export class EquirectHDRInfo {
 
 	constructor() {
 
-		// Placeholder data matching the default storage buffer sizes in PathTracingStage
+		// Placeholder data matching the default storage buffer sizes in PathTracer
 		this.marginalData = new Float32Array( [ 0, 1 ] );
 		this.conditionalData = new Float32Array( [ 0, 0, 1, 1 ] );
 		this.totalSum = 0;
@@ -161,7 +161,7 @@ export class EquirectHdrInfo {
 
 		const { floatData, width, height } = extractFloatData( hdr );
 
-		const result = EquirectHdrInfo.computeCDF( floatData, width, height );
+		const result = EquirectHDRInfo.computeCDF( floatData, width, height );
 
 		this.marginalData = result.marginalData;
 		this.conditionalData = result.conditionalData;

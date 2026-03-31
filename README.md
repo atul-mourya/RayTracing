@@ -169,7 +169,7 @@ The application follows an event-driven stage-based architecture:
 │       ├── managers/            # Focused manager classes
 │       │   ├── CameraManager.js     # Camera switching, auto-focus, DOF
 │       │   ├── LightManager.js      # Light CRUD, helpers, GPU transfer
-│       │   ├── DenoiseManager.js    # Denoiser strategy, OIDN, upscaler
+│       │   ├── DenoisingManager.js  # Denoiser strategy, OIDN, upscaler
 │       │   └── InteractionManager.js# Click-to-select, focus picking
 │       ├── Pipeline/            # Stage pipeline infrastructure
 │       │   ├── RenderPipeline.js    # Stage execution orchestrator
@@ -177,17 +177,17 @@ The application follows an event-driven stage-based architecture:
 │       │   ├── PipelineContext.js   # Shared state & textures
 │       │   └── EventDispatcher.js   # Event bus for stage communication
 │       ├── Stages/              # Rendering pipeline stages
-│       │   ├── PathTracingStage.js      # Core Monte Carlo path tracing
-│       │   ├── ASVGFStage.js           # Spatiotemporal denoising
-│       │   ├── AdaptiveSamplingStage.js # Variance-guided sampling
-│       │   ├── EdgeAwareFilteringStage.js
-│       │   ├── BilateralFilteringStage.js
-│       │   ├── NormalDepthStage.js      # G-buffer generation
-│       │   ├── MotionVectorStage.js     # Motion vector computation
-│       │   ├── VarianceEstimationStage.js
-│       │   ├── AutoExposureStage.js
-│       │   ├── TileHighlightStage.js
-│       │   └── DisplayStage.js         # Final composition
+│       │   ├── PathTracer.js            # Core Monte Carlo path tracing
+│       │   ├── ASVGF.js                # Spatiotemporal denoising
+│       │   ├── AdaptiveSampling.js      # Variance-guided sampling
+│       │   ├── EdgeFilter.js
+│       │   ├── BilateralFilter.js
+│       │   ├── NormalDepth.js           # G-buffer generation
+│       │   ├── MotionVector.js          # Motion vector computation
+│       │   ├── Variance.js
+│       │   ├── AutoExposure.js
+│       │   ├── TileHighlight.js
+│       │   └── Display.js              # Final composition
 │       ├── TSL/                 # TSL shader modules (23 files)
 │       │   ├── PathTracer.js        # Main path tracer logic
 │       │   ├── BVHTraversal.js      # BVH acceleration traversal
@@ -225,17 +225,17 @@ The application follows an event-driven stage-based architecture:
 
 Stages execute sequentially, communicating via an event bus:
 
-1. **PathTracingStage** — Core Monte Carlo path tracing with MRT outputs
-2. **NormalDepthStage** — G-buffer generation (normals + linear depth)
-3. **MotionVectorStage** — Per-pixel motion vectors for temporal filtering
-4. **VarianceEstimationStage** — Per-pixel variance for adaptive sampling
-5. **AdaptiveSamplingStage** — Variance-guided sample distribution
-6. **ASVGFStage** — Real-time spatiotemporal denoising
-7. **BilateralFilteringStage** — Edge-preserving bilateral filter
-8. **EdgeAwareFilteringStage** — Temporal filtering with edge preservation
-9. **AutoExposureStage** — Automatic exposure adjustment
-10. **TileHighlightStage** — Visual feedback for progressive tile rendering
-11. **DisplayStage** — Final composition and output
+1. **PathTracer** — Core Monte Carlo path tracing with MRT outputs
+2. **NormalDepth** — G-buffer generation (normals + linear depth)
+3. **MotionVector** — Per-pixel motion vectors for temporal filtering
+4. **Variance** — Per-pixel variance for adaptive sampling
+5. **AdaptiveSampling** — Variance-guided sample distribution
+6. **ASVGF** — Real-time spatiotemporal denoising
+7. **BilateralFilter** — Edge-preserving bilateral filter
+8. **EdgeFilter** — Temporal filtering with edge preservation
+9. **AutoExposure** — Automatic exposure adjustment
+10. **TileHighlight** — Visual feedback for progressive tile rendering
+11. **Display** — Final composition and output
 
 ### Debug Visualizations
 

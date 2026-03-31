@@ -435,7 +435,7 @@ class TextureCache {
 
 }
 
-export default class TextureCreator {
+export class TextureCreator {
 
 	constructor( options = {} ) {
 

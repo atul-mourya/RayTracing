@@ -1,5 +1,5 @@
 /**
- * RenderTargetHelper - A component for displaying Three.js render targets in a resizable window
+ * createRenderTargetHelper - A component for displaying Three.js render targets in a resizable window
  *
  * Uses async readback for pixel data.
  *
@@ -17,7 +17,7 @@
  * @param {string} options.transform - Optional shader transform: 'normal-remap' remaps [0,1] to visible range
  * @returns {HTMLElement} The container element with attached methods
  */
-function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
+export function createRenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
 	// MRT texture index for readback
 	const textureIndex = options.textureIndex || 0;
@@ -492,4 +492,3 @@ function RenderTargetHelper( renderer, renderTargetOrTexture, options = {} ) {
 
 }
 
-export default RenderTargetHelper;

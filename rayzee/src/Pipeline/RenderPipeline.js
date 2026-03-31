@@ -20,9 +20,9 @@ import { EventDispatcher } from './EventDispatcher.js';
  * const pipeline = new RenderPipeline(renderer, 1920, 1080);
  *
  * // Add stages in execution order
- * pipeline.addStage(new PathTracerStage(...));
- * pipeline.addStage(new ASVGFStage(...));
- * pipeline.addStage(new AdaptiveSamplingStage(...));
+ * pipeline.addStage(new PathTracer(...));
+ * pipeline.addStage(new ASVGF(...));
+ * pipeline.addStage(new AdaptiveSampling(...));
  *
  * // Render all stages
  * pipeline.render(writeBuffer);

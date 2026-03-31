@@ -1,6 +1,6 @@
-import BVHBuilder from '../BVHBuilder.js';
-import TreeletOptimizer from '../TreeletOptimizer.js';
-import ReinsertionOptimizer from '../ReinsertionOptimizer.js';
+import { BVHBuilder } from '../BVHBuilder.js';
+import { TreeletOptimizer } from '../TreeletOptimizer.js';
+import { ReinsertionOptimizer } from '../ReinsertionOptimizer.js';
 
 self.onmessage = function ( e ) {
 

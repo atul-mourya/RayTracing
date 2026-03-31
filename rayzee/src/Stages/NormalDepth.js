@@ -14,9 +14,9 @@ import { traverseBVH } from '../TSL/BVHTraversal.js';
  * shares the same BVH / triangle / material storage buffers as the path tracer.
  *
  * The output is required by denoising stages (ASVGF, BilateralFiltering)
- * and by the MotionVectorStage.
+ * and by the MotionVector.
  *
- * Architecture (copy approach — proven working in PathTracingStage):
+ * Architecture (copy approach — proven working in PathTracer):
  *   1. Compute shader writes to a StorageTexture via textureStore
  *   2. After dispatch, copyTextureToTexture transfers StorageTexture → RenderTarget
  *   3. RenderTarget texture is published to context (NOT StorageTexture —
@@ -38,12 +38,12 @@ import { traverseBVH } from '../TSL/BVHTraversal.js';
  * Textures published:
  *   pathtracer:normalDepth — RGBA Float G-buffer (from RenderTarget, not StorageTexture)
  */
-export class NormalDepthStage extends RenderStage {
+export class NormalDepth extends RenderStage {
 
 	/**
 	 * @param {WebGPURenderer} renderer
 	 * @param {Object} options
-	 * @param {Object} options.pathTracingStage — reference to PathTracingStage (for shared buffers)
+	 * @param {Object} options.pathTracer — reference to PathTracer (for shared buffers)
 	 */
 	constructor( renderer, options = {} ) {
 
@@ -53,12 +53,12 @@ export class NormalDepthStage extends RenderStage {
 		} );
 
 		this.renderer = renderer;
-		this.pathTracingStage = options.pathTracingStage;
+		this.pathTracer = options.pathTracer;
 
 		// Dirty flag — only re-render when true
 		this._dirty = true;
 
-		// Own camera uniforms (updated from PathTracingStage values each frame)
+		// Own camera uniforms (updated from PathTracer values each frame)
 		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
 		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
 
@@ -126,7 +126,7 @@ export class NormalDepthStage extends RenderStage {
 	// ──────────────────────────────────────────────────
 
 	/**
-	 * Synchronise storage buffer nodes from PathTracingStage.
+	 * Synchronise storage buffer nodes from PathTracer.
 	 *
 	 * Creates own `storage()` nodes pointing at the same underlying
 	 * StorageInstancedBufferAttribute so the GPU buffer is shared,
@@ -135,7 +135,7 @@ export class NormalDepthStage extends RenderStage {
 	 */
 	_syncStorageBuffers() {
 
-		const pt = this.pathTracingStage;
+		const pt = this.pathTracer;
 		if ( ! pt ) return false;
 
 		// Triangle storage
@@ -282,8 +282,8 @@ export class NormalDepthStage extends RenderStage {
 
 		}
 
-		// Sync camera uniforms from PathTracingStage
-		const pt = this.pathTracingStage;
+		// Sync camera uniforms from PathTracer
+		const pt = this.pathTracer;
 		if ( pt ) {
 
 			this.cameraWorldMatrix.value.copy( pt.uniforms.get( 'cameraWorldMatrix' ).value );

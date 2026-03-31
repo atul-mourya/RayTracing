@@ -1,10 +1,10 @@
 /**
- * TileRenderingManager.js
+ * TileManager.js
  * Handles all tile-based rendering logic including tile bounds calculation,
  * spiral order generation, and tile bounds calculation.
  */
 
-export class TileRenderingManager {
+export class TileManager {
 
 	constructor( width, height, tiles ) {
 
@@ -166,7 +166,7 @@ export class TileRenderingManager {
      * @param {Object} renderer - The Three.js renderer
      * @param {number} renderMode - Current render mode (0 = full, 1 = tiled)
      * @param {number} frameValue - Current frame number
-     * @param {TileHighlightStage} tileHighlightStage - Optional tile highlight pass
+     * @param {TileHighlight} tileHighlightStage - Optional tile highlight pass
      * @returns {Object} - Tile rendering info {tileIndex, tileBounds, shouldSwapTargets, isCompleteCycle}
      */
 	handleTileRendering( renderer, renderMode, frameValue, tileHighlightStage = null ) {
@@ -196,7 +196,7 @@ export class TileRenderingManager {
 				// Update tile highlight pass only when values change
 				if ( tileHighlightStage?.enabled ) {
 
-					this.updateTileHighlightStage( tileHighlightStage, currentTileIndex, renderMode, tileBounds );
+					this.updateTileHighlight( tileHighlightStage, currentTileIndex, renderMode, tileBounds );
 
 				}
 
@@ -217,7 +217,7 @@ export class TileRenderingManager {
 			// Update tile highlight pass for non-tiled mode only when needed
 			if ( tileHighlightStage?.enabled ) {
 
-				this.updateTileHighlightStage( tileHighlightStage, currentTileIndex, renderMode, null );
+				this.updateTileHighlight( tileHighlightStage, currentTileIndex, renderMode, null );
 
 			}
 
@@ -236,12 +236,12 @@ export class TileRenderingManager {
 
 	/**
      * Update tile highlight pass uniforms when needed
-     * @param {TileHighlightStage} tileHighlightStage - The tile highlight pass
+     * @param {TileHighlight} tileHighlightStage - The tile highlight pass
      * @param {number} tileIndex - Current tile index
      * @param {number} renderMode - Current render mode
      * @param {Object|null} tileBounds - Current tile bounds
      */
-	updateTileHighlightStage( tileHighlightStage, tileIndex, renderMode, tileBounds ) {
+	updateTileHighlight( tileHighlightStage, tileIndex, renderMode, tileBounds ) {
 
 		const needsUpdate = (
 			tileHighlightStage.uniforms.tileIndex.value !== tileIndex ||
@@ -274,21 +274,21 @@ export class TileRenderingManager {
 		// Validate tile count and provide warnings
 		if ( newTileCount < 1 ) {
 
-			console.warn( 'TileRenderingManager: Tile count must be at least 1, clamping to 1' );
+			console.warn( 'TileManager: Tile count must be at least 1, clamping to 1' );
 			newTileCount = 1;
 
 		}
 
 		if ( newTileCount > 10 ) {
 
-			console.warn( 'TileRenderingManager: Tile count > 10 may cause performance issues' );
+			console.warn( 'TileManager: Tile count > 10 may cause performance issues' );
 
 		}
 
 		if ( newTileCount > 6 ) {
 
 			const totalTiles = newTileCount * newTileCount;
-			console.warn( `TileRenderingManager: ${newTileCount}x${newTileCount} = ${totalTiles} tiles may impact performance and memory usage` );
+			console.warn( `TileManager: ${newTileCount}x${newTileCount} = ${totalTiles} tiles may impact performance and memory usage` );
 
 		}
 

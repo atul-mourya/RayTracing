@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import TreeletOptimizer from '@/core/Processor/TreeletOptimizer.js';
+import { TreeletOptimizer } from '@/core/Processor/TreeletOptimizer.js';
 
 describe( 'TreeletOptimizer', () => {
 

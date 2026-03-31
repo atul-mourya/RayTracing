@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// Mock Three.js (LightDataTransfer imports Vector3, Quaternion)
+// Mock Three.js (LightSerializer imports Vector3, Quaternion)
 vi.mock( 'three', () => ( {
 	Vector3: class {
 
@@ -14,15 +14,15 @@ vi.mock( 'three', () => ( {
 	}
 } ) );
 
-import { LightDataTransfer } from '@/core/Processor/LightDataTransfer.js';
+import { LightSerializer } from '@/core/Processor/LightSerializer.js';
 
-describe( 'LightDataTransfer', () => {
+describe( 'LightSerializer', () => {
 
 	describe( 'calculateLightImportance', () => {
 
 		it( 'directional light: importance = intensity * luminance', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			const light = {
 				color: { r: 1, g: 1, b: 1 }, // pure white
 				intensity: 5.0
@@ -36,7 +36,7 @@ describe( 'LightDataTransfer', () => {
 
 		it( 'directional light: colored light has lower importance', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			const red = { color: { r: 1, g: 0, b: 0 }, intensity: 5.0 };
 			const white = { color: { r: 1, g: 1, b: 1 }, intensity: 5.0 };
 
@@ -48,7 +48,7 @@ describe( 'LightDataTransfer', () => {
 
 		it( 'area light: factors in sqrt(area)', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			const light = {
 				color: { r: 1, g: 1, b: 1 },
 				intensity: 1.0,
@@ -64,7 +64,7 @@ describe( 'LightDataTransfer', () => {
 
 		it( 'point light: factors in sqrt(distance)', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			const light = {
 				color: { r: 1, g: 1, b: 1 },
 				intensity: 1.0,
@@ -79,7 +79,7 @@ describe( 'LightDataTransfer', () => {
 
 		it( 'spot light: factors in distance and cone angle', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			const light = {
 				color: { r: 1, g: 1, b: 1 },
 				intensity: 1.0,
@@ -95,7 +95,7 @@ describe( 'LightDataTransfer', () => {
 
 		it( 'zero intensity produces zero importance', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			const light = { color: { r: 1, g: 1, b: 1 }, intensity: 0 };
 			expect( transfer.calculateLightImportance( light ) ).toBe( 0 );
 
@@ -107,7 +107,7 @@ describe( 'LightDataTransfer', () => {
 
 		it( 'resets all caches', () => {
 
-			const transfer = new LightDataTransfer();
+			const transfer = new LightSerializer();
 			transfer.directionalLightCache.push( {} );
 			transfer.areaLightCache.push( {} );
 			transfer.clear();

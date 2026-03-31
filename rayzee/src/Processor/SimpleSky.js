@@ -4,7 +4,7 @@ import {
 } from 'three';
 
 /**
- * SimpleSkyRendererTSL
+ * SimpleSky
  *
  * CPU-based gradient and solid colour environment texture generator.
  * Produces a DataTexture directly — no render targets, no GPU readback,
@@ -15,7 +15,7 @@ import {
  *   renderSolid(params)    → texture
  */
 
-export class SimpleSkyRendererTSL {
+export class SimpleSky {
 
 	constructor( width = 512, height = 256 ) {
 

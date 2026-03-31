@@ -299,7 +299,7 @@ const useEnvironmentStore = create( set => ( {
 //    - FINAL_RENDER_STATE: High-quality rendering for final output
 //    - Results mode: View completed renders
 //
-// 2. DYNAMIC CAMERA OPTIMIZATION (CameraMovementOptimizer Level):
+// 2. DYNAMIC CAMERA OPTIMIZATION (CameraOptimizer Level):
 //    - Temporarily reduces quality during camera movement within any global mode
 //    - Automatically restores quality when camera movement stops
 //    - Provides smooth interaction without interrupting the global rendering quality
@@ -339,7 +339,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	adaptiveSamplingConvergenceSpeed: 2.0,
 	adaptiveSamplingQualityPreset: 'balanced',
 
-	// Auto-exposure computed values (updated in real-time by AutoExposureStage)
+	// Auto-exposure computed values (updated in real-time by AutoExposure)
 	currentAutoExposure: null,
 	currentAvgLuminance: null,
 

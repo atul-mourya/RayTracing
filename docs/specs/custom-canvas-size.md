@@ -98,7 +98,7 @@ When canvas dimensions change from `oldW×oldH` to `newW×newH`:
 3. **Renderer**: `renderer.setSize(newW, newH)` with appropriate pixel ratio.
 4. **Pipeline resize**: `pipeline.setSize(renderW, renderH)` propagates to all stages.
 5. **All render targets**: Recreated at `renderW × renderH`.
-6. **Tile rendering**: `TileRenderingManager` receives new dimensions — tile bounds recalculated (already handles non-square correctly).
+6. **Tile rendering**: `TileManager` receives new dimensions — tile bounds recalculated (already handles non-square correctly).
 7. **Denoiser**: OIDN buffers reallocated for new dimensions.
 8. **Reset**: Full accumulation reset (`app.reset()`).
 9. **Image export**: `canvas.toDataURL()` naturally captures at the new dimensions.
@@ -156,7 +156,7 @@ This ensures a 16:9 canvas at tier 3 (2048) renders at 2048×1152, not 3641×204
 
 **Challenge**: Current tile grid is NxN (square grid). For extreme aspect ratios (3:1), this produces very wide, short tiles that may not be optimal for cache coherence.
 
-**Nuance**: Tile rendering in path tracers typically uses square tiles regardless of image aspect ratio (Blender uses 256×256 tiles by default). The tile grid naturally adapts — a 3840×2160 image with 256×256 tiles has 15×9 = 135 tiles. The existing `TileRenderingManager.calculateTileBounds` already handles this correctly with its `Math.ceil` division.
+**Nuance**: Tile rendering in path tracers typically uses square tiles regardless of image aspect ratio (Blender uses 256×256 tiles by default). The tile grid naturally adapts — a 3840×2160 image with 256×256 tiles has 15×9 = 135 tiles. The existing `TileManager.calculateTileBounds` already handles this correctly with its `Math.ceil` division.
 
 **No change needed** for tile rendering logic itself, only for the tile count calculation and spiral traversal pattern to work with non-square grids.
 
@@ -246,7 +246,7 @@ All handlers follow the existing `handleChange` pattern: update store, update ap
 | Resolution mapping | `store.js`, `PathTracerApp.js` | Longest-edge-based pixel ratio calculation |
 | Camera frustum | `PathTracerApp.js` | Already uses `width/height` — just needs non-square input |
 | Render targets | All stages via `pipeline.setSize()` | Already parameterized — no change |
-| Tile rendering | `TileRenderingManager.js` | Already handles non-square — verify spiral order |
+| Tile rendering | `TileManager.js` | Already handles non-square — verify spiral order |
 | Denoiser canvas | `Viewport3D.jsx` | Match denoiser canvas to new dimensions |
 | Image export | `Viewport3D.jsx` | Ensure export captures at render resolution |
 | UI controls | `PathTracerTab.jsx` or `FinalRenderPanel.jsx` | New dimension/preset inputs |

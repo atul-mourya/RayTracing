@@ -4,7 +4,7 @@ import {
 } from 'three';
 
 /**
- * ProceduralSkyRendererTSL
+ * ProceduralSky
  *
  * CPU-based Preetham atmospheric scattering sky generator.
  * Produces a DataTexture directly — no render targets, no GPU readback,
@@ -188,7 +188,7 @@ function smoothstep( edge0, edge1, x ) {
 
 // ── Renderer Class ──
 
-export class ProceduralSkyRendererTSL {
+export class ProceduralSky {
 
 	constructor( width = 512, height = 256 ) {
 

@@ -12,9 +12,9 @@ import { storage } from 'three/tsl';
 import {
 	RGBAFormat, FloatType, Vector2, Vector3, Color, Matrix4, DataTexture,
 } from 'three';
-import { EquirectHdrInfo } from './EquirectHdrInfo.js';
-import { ProceduralSkyRendererTSL } from './ProceduralSkyRendererTSL.js';
-import { SimpleSkyRendererTSL } from './SimpleSkyRendererTSL.js';
+import { EquirectHDRInfo } from '../Processor/EquirectHDRInfo.js';
+import { ProceduralSky } from '../Processor/ProceduralSky.js';
+import { SimpleSky } from '../Processor/SimpleSky.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
 export class EnvironmentManager {
@@ -29,7 +29,7 @@ export class EnvironmentManager {
 		this.uniforms = uniforms;
 
 		// CDF computation engine
-		this.equirectHdrInfo = new EquirectHdrInfo();
+		this.equirectHdrInfo = new EquirectHDRInfo();
 
 		// Sky renderers (lazy init)
 		this.proceduralSkyRenderer = null;
@@ -339,7 +339,7 @@ export class EnvironmentManager {
 
 		if ( ! this.simpleSkyRenderer ) {
 
-			this.simpleSkyRenderer = new SimpleSkyRendererTSL( 512, 256 );
+			this.simpleSkyRenderer = new SimpleSky( 512, 256 );
 
 		}
 
@@ -371,7 +371,7 @@ export class EnvironmentManager {
 
 		if ( ! this.simpleSkyRenderer ) {
 
-			this.simpleSkyRenderer = new SimpleSkyRendererTSL( 512, 256 );
+			this.simpleSkyRenderer = new SimpleSky( 512, 256 );
 
 		}
 
@@ -401,7 +401,7 @@ export class EnvironmentManager {
 
 		if ( ! this.proceduralSkyRenderer ) {
 
-			this.proceduralSkyRenderer = new ProceduralSkyRendererTSL( 512, 256 );
+			this.proceduralSkyRenderer = new ProceduralSky( 512, 256 );
 
 		}
 

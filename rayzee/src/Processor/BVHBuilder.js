@@ -1,5 +1,5 @@
-import TreeletOptimizer from "./TreeletOptimizer";
-import ReinsertionOptimizer from "./ReinsertionOptimizer";
+import { TreeletOptimizer } from './TreeletOptimizer.js';
+import { ReinsertionOptimizer } from './ReinsertionOptimizer.js';
 
 // Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
 // Cannot import Constants.js because BVHBuilder runs inside BVHWorker
@@ -34,7 +34,7 @@ class BVHNode {
 
 }
 
-export default class BVHBuilder {
+export class BVHBuilder {
 
 	constructor() {
 

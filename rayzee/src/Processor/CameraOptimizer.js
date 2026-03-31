@@ -1,10 +1,10 @@
 /**
- * CameraMovementOptimizer.js
+ * CameraOptimizer.js
  * Manages performance optimization during camera interaction by temporarily
  * reducing rendering quality while the camera is moving, then restoring
  * full quality when movement stops.
  */
-export class CameraMovementOptimizer {
+export class CameraOptimizer {
 
 	constructor( renderer, material, settings = {} ) {
 

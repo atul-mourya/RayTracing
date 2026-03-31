@@ -1,5 +1,5 @@
 /**
- * ShaderComposer.js
+ * ShaderBuilder.js
  * Owns TSL shader graph construction and compute node management
  * for the path tracing pipeline.
  *
@@ -16,11 +16,11 @@ import { Fn, texture, vec2, float, int, uniform, If,
 import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { pathTracerMain } from '../TSL/PathTracer.js';
-import BuildTimer from './BuildTimer.js';
+import { BuildTimer } from './BuildTimer.js';
 
 const WG_SIZE = 8;
 
-export class ShaderComposer {
+export class ShaderBuilder {
 
 	constructor() {
 
@@ -57,7 +57,7 @@ export class ShaderComposer {
 	 * Creates the full compute shader graph from scratch.
 	 *
 	 * @param {Object} config
-	 * @param {Object} config.stage - PathTracingStage instance
+	 * @param {Object} config.stage - PathTracer instance
 	 * @param {Object} config.storageTextures - StorageTexturePool
 	 */
 	setupCompute( config ) {
@@ -114,7 +114,7 @@ export class ShaderComposer {
 		if ( mat.emissiveMaps && nodes.emissiveMapsTex ) nodes.emissiveMapsTex.value = mat.emissiveMaps;
 		if ( mat.displacementMaps && nodes.displacementMapsTex ) nodes.displacementMapsTex.value = mat.displacementMaps;
 
-		console.log( 'ShaderComposer: Scene textures updated in-place' );
+		console.log( 'ShaderBuilder: Scene textures updated in-place' );
 
 	}
 

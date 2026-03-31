@@ -32,7 +32,7 @@ Bottom-right : Metalness 1.00, Roughness 0.00 (Polished Metal)
 Center       : Metalness 0.50, Roughness 0.50 (Semi-glossy, Semi-metallic)
  */
 
-function generateMaterialSpheres( rows = 5, columns = 5, spacing = 1.2 ) {
+export function generateMaterialSpheres( rows = 5, columns = 5, spacing = 1.2 ) {
 
 	const sphereGroup = new Group();
 	const sphereGeometry = new SphereGeometry( 0.5, 32, 32 );
@@ -69,4 +69,3 @@ function generateMaterialSpheres( rows = 5, columns = 5, spacing = 1.2 ) {
 
 }
 
-export default generateMaterialSpheres;

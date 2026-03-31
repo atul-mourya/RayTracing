@@ -1,6 +1,6 @@
 import { Vector3, Quaternion } from 'three';
 
-export class LightDataTransfer {
+export class LightSerializer {
 
 	constructor() {
 

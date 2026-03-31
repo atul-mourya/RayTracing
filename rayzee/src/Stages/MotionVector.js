@@ -11,14 +11,14 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
  * reconstructing world positions from linear ray depth and reprojecting
  * to the previous frame.
  *
- * Architecture (copy approach — proven working in PathTracingStage):
+ * Architecture (copy approach — proven working in PathTracer):
  *   1. Two compute shaders write to StorageTextures via textureStore
  *   2. After dispatch, copyTextureToTexture transfers StorageTexture → RenderTarget
  *   3. RenderTarget textures are published to context (NOT StorageTextures —
  *      cross-dispatch reads from StorageTexture return zeros in Three.js WebGPU)
  *
  * Algorithm:
- *   1. Read normalDepth from NormalDepthStage (linear depth in alpha)
+ *   1. Read normalDepth from NormalDepth (linear depth in alpha)
  *   2. Reconstruct camera ray from pixel coords via inverse projection
  *   3. World position = cameraPos + normalize(rayDir) * linearDepth
  *   4. Project to previous frame:  prevVP * worldPos
@@ -31,8 +31,8 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
  * Critical design decisions:
  *   - matricesInitialized is NOT reset on pipeline:reset.
  *     This preserves motion detection across camera-triggered resets.
- *   - Camera uniforms are synced from PathTracingStage (same source as
- *     NormalDepthStage) to guarantee exact matrix consistency for world
+ *   - Camera uniforms are synced from PathTracer (same source as
+ *     NormalDepth) to guarantee exact matrix consistency for world
  *     position reconstruction. Using the camera object directly can produce
  *     subtly different matrices due to update timing differences.
  *
@@ -49,7 +49,7 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
  * Textures read:
  *   pathtracer:normalDepth — linear depth for world position reconstruction
  */
-export class MotionVectorStage extends RenderStage {
+export class MotionVector extends RenderStage {
 
 	constructor( renderer, camera, options = {} ) {
 
@@ -60,7 +60,7 @@ export class MotionVectorStage extends RenderStage {
 
 		this.renderer = renderer;
 		this.camera = camera;
-		this.pathTracingStage = options.pathTracingStage || null;
+		this.pathTracer = options.pathTracer || null;
 
 		const width = options.width || 1;
 		const height = options.height || 1;
@@ -74,7 +74,7 @@ export class MotionVectorStage extends RenderStage {
 		this.frameCount = 0;
 
 		// Camera uniforms for world position reconstruction
-		// Synced from PathTracingStage each frame (same source as NormalDepthStage)
+		// Synced from PathTracer each frame (same source as NormalDepth)
 		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
 		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
 		this.prevVP = uniform( new Matrix4(), 'mat4' );
@@ -133,7 +133,7 @@ export class MotionVectorStage extends RenderStage {
 	 * Screen-space motion vector compute shader.
 	 *
 	 * Reconstructs world position from camera ray + linear depth
-	 * (matching NormalDepthStage's ray generation), then reprojects
+	 * (matching NormalDepth's ray generation), then reprojects
 	 * through the previous frame's VP matrix.
 	 */
 	_buildScreenSpaceCompute() {
@@ -170,7 +170,7 @@ export class MotionVectorStage extends RenderStage {
 				If( linearDepth.lessThan( float( 1e5 ) ), () => {
 
 					// Pixel coordinate → NDC
-					// Negate Y to match PathTracingStage convention
+					// Negate Y to match PathTracer convention
 					const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
 					const ndcY = float( gy ).add( 0.5 ).div( resH ).mul( 2.0 ).sub( 1.0 ).negate();
 					const ndcPos = vec3( ndcX, ndcY, 1.0 );
@@ -273,7 +273,7 @@ export class MotionVectorStage extends RenderStage {
 				If( isFirstFrameU.lessThan( 0.5 ).and( linearDepth.lessThan( float( 1e5 ) ) ), () => {
 
 					// Pixel coordinate → NDC
-					// Negate Y to match PathTracingStage convention
+					// Negate Y to match PathTracer convention
 					const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
 					const ndcY = float( gy ).add( 0.5 ).div( resH ).mul( 2.0 ).sub( 1.0 ).negate();
 					const ndcPos = vec3( ndcX, ndcY, 1.0 );
@@ -345,25 +345,25 @@ export class MotionVectorStage extends RenderStage {
 	// ──────────────────────────────────────────────────
 
 	/**
-	 * Sync camera matrices from PathTracingStage and update prevVP.
+	 * Sync camera matrices from PathTracer and update prevVP.
 	 *
 	 * Camera uniforms (cameraWorldMatrix, cameraProjectionMatrixInverse) are
-	 * sourced from PathTracingStage — the SAME source NormalDepthStage uses.
+	 * sourced from PathTracer — the SAME source NormalDepth uses.
 	 * This guarantees the ray reconstruction matches the depth values exactly.
 	 *
 	 * The view-projection matrix for prevVP tracking is also derived from
-	 * PathTracingStage's projection and view matrices for consistency.
+	 * PathTracer's projection and view matrices for consistency.
 	 */
 	_updateCameraMatrices() {
 
-		const pt = this.pathTracingStage;
+		const pt = this.pathTracer;
 
-		// Source camera matrices — prefer PathTracingStage, fall back to camera
+		// Source camera matrices — prefer PathTracer, fall back to camera
 		let worldMatrix, viewMatrix, projMatrix, projMatrixInverse;
 
 		if ( pt && pt.uniforms ) {
 
-			// Sync from PathTracingStage (same source as NormalDepthStage)
+			// Sync from PathTracer (same source as NormalDepth)
 			worldMatrix = pt.uniforms.get( 'cameraWorldMatrix' ).value;
 			viewMatrix = pt.uniforms.get( 'cameraViewMatrix' ).value;
 			projMatrix = pt.uniforms.get( 'cameraProjectionMatrix' ).value;
@@ -398,7 +398,7 @@ export class MotionVectorStage extends RenderStage {
 
 		}
 
-		// Update current VP from PathTracingStage's matrices
+		// Update current VP from PathTracer's matrices
 		this.currentViewProjectionMatrix.multiplyMatrices(
 			projMatrix,
 			viewMatrix
@@ -429,11 +429,11 @@ export class MotionVectorStage extends RenderStage {
 
 		if ( ! this.enabled ) return;
 
-		// Get normalDepth from context (RenderTarget texture from NormalDepthStage)
+		// Get normalDepth from context (RenderTarget texture from NormalDepth)
 		const normalDepthTex = context.getTexture( 'pathtracer:normalDepth' );
 		if ( ! normalDepthTex ) return;
 
-		// Update camera matrices (CPU-side) — synced from PathTracingStage
+		// Update camera matrices (CPU-side) — synced from PathTracer
 		this._updateCameraMatrices();
 
 		// Update isFirstFrame uniform

@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TileRenderingManager } from '@/core/Processor/TileRenderingManager.js';
+import { TileManager } from '@/core/managers/TileManager.js';
 
-describe( 'TileRenderingManager', () => {
+describe( 'TileManager', () => {
 
 	let manager;
 
 	beforeEach( () => {
 
-		manager = new TileRenderingManager( 1920, 1080, 3 );
+		manager = new TileManager( 1920, 1080, 3 );
 
 	} );
 

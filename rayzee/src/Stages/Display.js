@@ -5,7 +5,7 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { REC709_LUMINANCE_COEFFICIENTS } from '../TSL/Common.js';
 
 /**
- * DisplayStage — Terminal pipeline stage for WebGPU.
+ * Display — Terminal pipeline stage for WebGPU.
  *
  * Reads the final colour texture from the pipeline context (using a
  * priority fallback chain), applies exposure, and renders to screen.
@@ -14,7 +14,7 @@ import { REC709_LUMINANCE_COEFFICIENTS } from '../TSL/Common.js';
  * Display, the fallback chain automatically picks up the latest output
  * without any wiring changes.
  */
-export class DisplayStage extends RenderStage {
+export class Display extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 

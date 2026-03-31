@@ -4,14 +4,14 @@ import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
-import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
+import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
 /**
  * Map temporal variance to normalised sample count with convergence logic.
  *
- * Uses temporal variance (frame-to-frame pixel change from VarianceEstimationStage)
+ * Uses temporal variance (frame-to-frame pixel change from Variance)
  * as the primary convergence signal, with a small spatial variance boost for noisy
  * neighbourhoods where the temporal EMA may underestimate.
  *
@@ -114,7 +114,7 @@ const heatmapGradient = /*@__PURE__*/ wgslFn( `
 /**
  * WebGPU Adaptive Sampling Stage (Compute Shader)
  *
- * Reads per-pixel temporal variance from VarianceEstimationStage and
+ * Reads per-pixel temporal variance from Variance and
  * produces a guidance texture that tells the path tracer how many
  * samples each pixel needs.
  *
@@ -138,9 +138,9 @@ const heatmapGradient = /*@__PURE__*/ wgslFn( `
  * ensuring variance is computed from complete frame data.
  *
  * Textures published:  adaptiveSampling:output
- * Textures read:       variance:output (from VarianceEstimationStage)
+ * Textures read:       variance:output (from Variance)
  */
-export class AdaptiveSamplingStage extends RenderStage {
+export class AdaptiveSampling extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 
@@ -191,7 +191,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 		this._heatmapStorageTex.minFilter = NearestFilter;
 		this._heatmapStorageTex.magFilter = NearestFilter;
 
-		// Heatmap render target — FloatType for clean CPU readback via RenderTargetHelper
+		// Heatmap render target — FloatType for clean CPU readback via createRenderTargetHelper
 		this.heatmapTarget = new RenderTarget( w, h, {
 			format: RGBAFormat,
 			type: FloatType,
@@ -205,7 +205,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 		this._dispatchX = Math.ceil( w / 16 );
 		this._dispatchY = Math.ceil( h / 16 );
 
-		// Input: variance texture from VarianceEstimationStage
+		// Input: variance texture from Variance
 		// Use regular TextureNode (not StorageTexture) as compile-time placeholder so
 		// textureLoad codegen includes the required level parameter for texture_2d
 		this._varianceTexNode = new TextureNode();
@@ -215,7 +215,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 		this._buildHeatmapCompute();
 
 		// Floating overlay for heatmap visualization
-		this.helper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
+		this.helper = createRenderTargetHelper( this.renderer, this.heatmapTarget, {
 			width: 400,
 			height: 400,
 			position: 'bottom-right',
@@ -237,7 +237,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 	/**
 	 * Build compute shader that maps variance → sampling guidance.
 	 *
-	 * Reads per-pixel temporal and spatial variance from VarianceEstimationStage
+	 * Reads per-pixel temporal and spatial variance from Variance
 	 * output and maps it to a normalised sample count. No shared memory needed —
 	 * each thread processes one pixel independently.
 	 *
@@ -304,7 +304,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 	 * normalizedSamples to a smooth blue→cyan→green→yellow→red gradient.
 	 * Converged pixels are desaturated, brightness is modulated by variance.
 	 * Writes to _heatmapStorageTex, then copied to heatmapTarget for
-	 * RenderTargetHelper display.
+	 * createRenderTargetHelper display.
 	 */
 	_buildHeatmapCompute() {
 
@@ -363,7 +363,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 
 		this.frameNumberUniform.value = this.frameNumber;
 
-		// Get temporal/spatial variance from VarianceEstimationStage
+		// Get temporal/spatial variance from Variance
 		const varianceTexture = context.getTexture( 'variance:output' );
 		if ( ! varianceTexture ) return;
 
@@ -383,7 +383,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 		// Compute dispatch — map variance → sampling guidance
 		this.renderer.compute( this._computeNode );
 
-		// Publish guidance texture for PathTracingStage to consume
+		// Publish guidance texture for PathTracer to consume
 		// (StorageTexture extends Texture, works as regular texture for sampling)
 		context.setTexture( 'adaptiveSampling:output', this._outputStorageTex );
 
@@ -403,7 +403,7 @@ export class AdaptiveSamplingStage extends RenderStage {
 		this.frameNumber = 0;
 		this.frameNumberUniform.value = 0;
 
-		// Remove stale guidance from context so PathTracingStage (which runs
+		// Remove stale guidance from context so PathTracer (which runs
 		// before us) doesn't read converged-pixel data from the old viewpoint
 		// during the delay frames before we publish fresh guidance.
 		if ( this.context ) this.context.removeTexture( 'adaptiveSampling:output' );

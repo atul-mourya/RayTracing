@@ -15,7 +15,7 @@ import { ENGINE_DEFAULTS as DEFAULT_STATE, ASVGF_QUALITY_PRESETS } from '../Engi
  *
  * Extracted from PathTracerApp to keep the facade slim.
  */
-export class DenoiseManager extends EventDispatcher {
+export class DenoisingManager extends EventDispatcher {
 
 	/**
 	 * @param {Object} params
@@ -40,7 +40,7 @@ export class DenoiseManager extends EventDispatcher {
 		this.pipeline = pipeline;
 
 		// Stage references — only used internally for orchestration
-		this._stages = stages; // { pathTracing, asvgf, varianceEstimation, bilateralFiltering, adaptiveSampling, edgeAwareFiltering, ssrc, autoExposure, display, tileHighlight }
+		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, display, tileHighlight }
 
 		this._getExposure = getExposure;
 		this._getSaturation = getSaturation;
@@ -58,7 +58,7 @@ export class DenoiseManager extends EventDispatcher {
 
 		if ( ! this.denoiserCanvas ) return;
 
-		const pt = this._stages.pathTracing;
+		const pt = this._stages.pathTracer;
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
@@ -105,7 +105,7 @@ export class DenoiseManager extends EventDispatcher {
 
 		if ( ! this.denoiserCanvas ) return;
 
-		const pt = this._stages.pathTracing;
+		const pt = this._stages.pathTracer;
 
 		this.upscaler = new AIUpscaler( this.denoiserCanvas, this.renderer, {
 			scaleFactor: DEFAULT_STATE.upscalerScale || 2,
@@ -158,9 +158,9 @@ export class DenoiseManager extends EventDispatcher {
 
 		// Disable all real-time denoisers first
 		if ( s.asvgf ) s.asvgf.enabled = false;
-		if ( s.varianceEstimation && ! this._isAdaptiveSamplingActive() ) s.varianceEstimation.enabled = false;
-		if ( s.bilateralFiltering ) s.bilateralFiltering.enabled = false;
-		if ( s.edgeAwareFiltering ) s.edgeAwareFiltering.setFilteringEnabled( false );
+		if ( s.variance && ! this._isAdaptiveSamplingActive() ) s.variance.enabled = false;
+		if ( s.bilateralFilter ) s.bilateralFilter.enabled = false;
+		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( false );
 		if ( s.ssrc ) s.ssrc.enabled = false;
 
 		this._clearDenoiserTextures();
@@ -169,8 +169,8 @@ export class DenoiseManager extends EventDispatcher {
 
 			case 'asvgf':
 				s.asvgf.enabled = true;
-				if ( s.varianceEstimation ) s.varianceEstimation.enabled = true;
-				if ( s.bilateralFiltering ) s.bilateralFiltering.enabled = true;
+				if ( s.variance ) s.variance.enabled = true;
+				if ( s.bilateralFilter ) s.bilateralFilter.enabled = true;
 				s.asvgf.setTemporalEnabled?.( true );
 				this._applyASVGFPreset( asvgfPreset || 'medium' );
 				break;
@@ -180,7 +180,7 @@ export class DenoiseManager extends EventDispatcher {
 				break;
 
 			case 'edgeaware':
-				if ( s.edgeAwareFiltering ) s.edgeAwareFiltering.setFilteringEnabled( true );
+				if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( true );
 				break;
 
 		}
@@ -196,8 +196,8 @@ export class DenoiseManager extends EventDispatcher {
 
 		const s = this._stages;
 		if ( s.asvgf ) s.asvgf.enabled = enabled;
-		if ( s.varianceEstimation ) s.varianceEstimation.enabled = enabled;
-		if ( s.bilateralFiltering ) s.bilateralFiltering.enabled = enabled;
+		if ( s.variance ) s.variance.enabled = enabled;
+		if ( s.bilateralFilter ) s.bilateralFilter.enabled = enabled;
 
 		if ( enabled ) {
 
@@ -207,7 +207,7 @@ export class DenoiseManager extends EventDispatcher {
 		}
 
 		// Coordinate with EdgeAware filtering
-		if ( s.edgeAwareFiltering ) s.edgeAwareFiltering.setFilteringEnabled( ! enabled );
+		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( ! enabled );
 
 	}
 
@@ -235,7 +235,7 @@ export class DenoiseManager extends EventDispatcher {
 
 		if ( enabled ) {
 
-			// Neutralize DisplayStage manual exposure to avoid stacking
+			// Neutralize Display manual exposure to avoid stacking
 			s.display?.setExposure( 1.0 );
 
 		} else {
@@ -269,11 +269,11 @@ export class DenoiseManager extends EventDispatcher {
 		// Variance stage is shared by both ASVGF and adaptive sampling
 		if ( enabled ) {
 
-			if ( s.varianceEstimation ) s.varianceEstimation.enabled = true;
+			if ( s.variance ) s.variance.enabled = true;
 
 		} else if ( ! s.asvgf?.enabled ) {
 
-			if ( s.varianceEstimation ) s.varianceEstimation.enabled = false;
+			if ( s.variance ) s.variance.enabled = false;
 
 		}
 

@@ -3,7 +3,7 @@ name: review-stage
 description: >
   Review a pipeline stage for correctness, performance, and architectural compliance.
   Use when creating a new PipelineStage, modifying an existing one, or debugging stage interactions.
-  Pass the stage filename as an argument (e.g., /review-stage ASVGFStage).
+  Pass the stage filename as an argument (e.g., /review-stage ASVGF).
 allowed-tools: Read, Glob, Grep
 ---
 
@@ -30,10 +30,10 @@ Stages live in `rayzee/src/Stages/`. Find the file matching the user's input.
 - [ ] Inputs read via `context.getTexture('name')` — not passed directly
 - [ ] Outputs published via `context.setTexture('name', texture)`
 - [ ] Stale textures cleaned from context when stage is disabled
-- [ ] Consider DisplayStage fallback chain priority impact
+- [ ] Consider Display fallback chain priority impact
 
 ### 4. Camera & Uniform Synchronization
-- [ ] If using camera matrices: syncs from PathTracingStage uniforms, NOT camera object
+- [ ] If using camera matrices: syncs from PathTracer uniforms, NOT camera object
 - [ ] Uniforms created once, only `.value` mutated (preserves shader graph references)
 
 ### 5. Rendering Mode Awareness

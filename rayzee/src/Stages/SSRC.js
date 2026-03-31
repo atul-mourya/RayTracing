@@ -17,7 +17,7 @@ import { HalfFloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { buildTemporalPass, buildSpatialPass } from '../TSL/SSRC.js';
 
-export class SSRCStage extends RenderStage {
+export class SSRC extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 
@@ -61,7 +61,7 @@ export class SSRCStage extends RenderStage {
 		this._prevNDTexA = this._createStorageTex( w, h, NearestFilter );
 		this._prevNDTexB = this._createStorageTex( w, h, NearestFilter );
 
-		// Final output (LinearFilter for DisplayStage fragment shader sampling)
+		// Final output (LinearFilter for Display fragment shader sampling)
 		this._outputTex = this._createStorageTex( w, h, LinearFilter );
 
 		// ─── State ───

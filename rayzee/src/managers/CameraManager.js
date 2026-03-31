@@ -196,17 +196,17 @@ export class CameraManager extends EventDispatcher {
 	 * @param {Object} params.assetLoader
 	 * @param {import('three').Mesh} params.floorPlane
 	 * @param {number} params.currentFocusDistance
-	 * @param {import('./PathTracingStage.js').PathTracingStage} params.pathTracingStage
+	 * @param {import('./PathTracer.js').PathTracer} params.pathTracer
 	 * @param {Function} params.setFocusDistance - Callback to update uniform + settings
 	 * @param {Function} params.softReset       - Callback for soft accumulation reset
 	 * @param {Function} params.hardReset       - Callback for hard accumulation reset
 	 */
-	updateAutoFocus( { meshScene, assetLoader, floorPlane, currentFocusDistance, pathTracingStage, setFocusDistance, softReset, hardReset } ) {
+	updateAutoFocus( { meshScene, assetLoader, floorPlane, currentFocusDistance, pathTracer, setFocusDistance, softReset, hardReset } ) {
 
 		if ( this.autoFocusMode === 'manual' ) return;
 
 		// Lock focus during active tiled final rendering
-		const stage = pathTracingStage;
+		const stage = pathTracer;
 		if ( stage?.isReady
 			&& stage.renderMode?.value === 1
 			&& stage.frameCount > 0

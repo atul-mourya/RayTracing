@@ -331,7 +331,7 @@ updateAdaptiveResolution(frameTime) {
 ```
 
 #### 6.4 Smart Tile Rendering
-**Current:** [TileRenderingManager.js](src/core/Processor/TileRenderingManager.js) uses spiral order
+**Current:** [TileManager.js](src/core/Processor/TileManager.js) uses spiral order
 
 **Enhancement:** **Importance-based tile ordering**
 
@@ -429,7 +429,7 @@ TrueTrace handles **animated/deformable meshes** in real-time.
    - **Expected Gain:** Better material variety
 
 10. **Importance-Based Tile Ordering**
-    - **File:** [TileRenderingManager.js](src/core/Processor/TileRenderingManager.js)
+    - **File:** [TileManager.js](src/core/Processor/TileManager.js)
     - **Effort:** 1 day
     - **Expected Gain:** Perceptually faster convergence
 

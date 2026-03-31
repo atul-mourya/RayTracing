@@ -1,4 +1,4 @@
-import BVHBuilder from '../BVHBuilder.js';
+import { BVHBuilder } from '../BVHBuilder.js';
 
 const FPT = 32; // FLOATS_PER_TRIANGLE
 

@@ -5,15 +5,15 @@ import { EngineEvents } from './EngineEvents.js';
 /**
  * Routing table: maps each setting key to its target stage/handler.
  *
- * - `uniform`  → forwarded to PathTracingStage.setUniform(uniform, value)
+ * - `uniform`  → forwarded to PathTracer.setUniform(uniform, value)
  * - `handler`  → calls a named handler method for multi-stage settings
  * - `delegate` → routes to a named manager's updateParam(param, value)
  * - `reset`    → whether to reset accumulation after the change (default true)
- * - `after`    → optional method to call on PathTracingStage after the uniform is set
+ * - `after`    → optional method to call on PathTracer after the uniform is set
  */
 const SETTING_ROUTES = {
 
-	// ── Simple PathTracingStage uniforms ──────────────────────────
+	// ── Simple PathTracer uniforms ──────────────────────────
 
 	maxBounces: { uniform: 'maxBounces', reset: true },
 	samplesPerPixel: { uniform: 'samplesPerPixel', reset: true },
@@ -81,8 +81,8 @@ export class RenderSettings extends EventDispatcher {
 		/** @type {Map<string, *>} */
 		this._values = new Map();
 
-		/** @type {import('./Stages/PathTracingStage.js').PathTracingStage|null} */
-		this._pathTracingStage = null;
+		/** @type {import('./Stages/PathTracer.js').PathTracer|null} */
+		this._pathTracer = null;
 
 		/** @type {Function|null} - Callback to reset accumulation */
 		this._resetCallback = null;
@@ -101,9 +101,9 @@ export class RenderSettings extends EventDispatcher {
 	/**
 	 * Wires internal references. Called by PathTracerApp after init().
 	 */
-	bind( { pathTracingStage, resetCallback, handlers = {}, delegates = {} } ) {
+	bind( { pathTracer, resetCallback, handlers = {}, delegates = {} } ) {
 
-		this._pathTracingStage = pathTracingStage;
+		this._pathTracer = pathTracer;
 		this._resetCallback = resetCallback;
 		this._handlers = handlers;
 		this._delegates = delegates;
@@ -213,8 +213,8 @@ export class RenderSettings extends EventDispatcher {
 
 		if ( route.uniform ) {
 
-			this._pathTracingStage?.setUniform( route.uniform, value );
-			if ( route.after ) this._pathTracingStage?.[ route.after ]?.();
+			this._pathTracer?.setUniform( route.uniform, value );
+			if ( route.after ) this._pathTracer?.[ route.after ]?.();
 
 		} else if ( route.handler ) {
 

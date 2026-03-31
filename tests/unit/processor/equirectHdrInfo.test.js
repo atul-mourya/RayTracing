@@ -7,8 +7,8 @@ vi.mock( 'three', () => ( {
 	FloatType: 1015,
 } ) );
 
-import { extractFloatData } from '@/core/Processor/EquirectHdrInfo.js';
-import { EquirectHdrInfo } from '@/core/Processor/EquirectHdrInfo.js';
+import { extractFloatData } from '@/core/Processor/EquirectHDRInfo.js';
+import { EquirectHDRInfo } from '@/core/Processor/EquirectHDRInfo.js';
 
 describe( 'extractFloatData', () => {
 
@@ -82,7 +82,7 @@ describe( 'extractFloatData', () => {
 
 } );
 
-describe( 'EquirectHdrInfo.computeCDF', () => {
+describe( 'EquirectHDRInfo.computeCDF', () => {
 
 	it( 'uniform image produces near-uniform CDF', () => {
 
@@ -99,7 +99,7 @@ describe( 'EquirectHdrInfo.computeCDF', () => {
 
 		}
 
-		const { marginalData, conditionalData, totalSum } = EquirectHdrInfo.computeCDF( floatData, width, height );
+		const { marginalData, conditionalData, totalSum } = EquirectHDRInfo.computeCDF( floatData, width, height );
 
 		expect( totalSum ).toBeGreaterThan( 0 );
 		expect( marginalData ).toHaveLength( height );
@@ -128,7 +128,7 @@ describe( 'EquirectHdrInfo.computeCDF', () => {
 		floatData[ 2 ] = 100; // B
 		floatData[ 3 ] = 1;   // A
 
-		const { totalSum } = EquirectHdrInfo.computeCDF( floatData, width, height );
+		const { totalSum } = EquirectHDRInfo.computeCDF( floatData, width, height );
 
 		// Total sum should be dominated by the bright pixel
 		expect( totalSum ).toBeGreaterThan( 99 ); // luminance ~100
@@ -141,7 +141,7 @@ describe( 'EquirectHdrInfo.computeCDF', () => {
 		const height = 2;
 		const floatData = new Float32Array( width * height * 4 ); // all zeros
 
-		const { totalSum } = EquirectHdrInfo.computeCDF( floatData, width, height );
+		const { totalSum } = EquirectHDRInfo.computeCDF( floatData, width, height );
 		expect( totalSum ).toBe( 0 );
 
 	} );

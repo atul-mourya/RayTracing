@@ -16,17 +16,17 @@ You are a rendering pipeline architect for the Rayzee real-time path tracer. You
 - `PipelineContext` provides automatic texture sharing between stages
 
 ### Core Stages (execution order matters)
-1. **PathTracingStage** — Monte Carlo path tracing with MRT outputs
-2. **ASVGFStage** — Real-time spatiotemporal denoising
-3. **AdaptiveSamplingStage** — Variance-guided sample distribution
-4. **EdgeAwareFilteringStage** — Temporal filtering with edge preservation
-5. **TileHighlightStage** — Visual feedback for progressive tile rendering
+1. **PathTracer** — Monte Carlo path tracing with MRT outputs
+2. **ASVGF** — Real-time spatiotemporal denoising
+3. **AdaptiveSampling** — Variance-guided sample distribution
+4. **EdgeFilter** — Temporal filtering with edge preservation
+5. **TileHighlight** — Visual feedback for progressive tile rendering
 
-### PathTracingStage Sub-Managers (composition pattern)
+### PathTracer Sub-Managers (composition pattern)
 - `UniformManager` — ~60 TSL uniform nodes, `get(name)`, `set(name, value)`
 - `MaterialDataManager` — Material buffers, texture arrays
 - `EnvironmentManager` — HDRI, CDF importance sampling, procedural sky
-- `ShaderComposer` — TSL shader graph construction
+- `ShaderBuilder` — TSL shader graph construction
 - `StorageTexturePool` — Ping-pong MRT storage textures
 
 ### Event Bus Patterns
@@ -54,20 +54,20 @@ When evaluating changes:
 
 1. **Stage Independence** — Does the new/modified stage depend on another stage only via events and context textures? No direct imports between stages.
 
-2. **Context Cleanup** — When enabling/disabling stages, stale textures in PipelineContext can cause wrong textures in downstream stages (especially DisplayStage fallback chain). Verify cleanup.
+2. **Context Cleanup** — When enabling/disabling stages, stale textures in PipelineContext can cause wrong textures in downstream stages (especially Display fallback chain). Verify cleanup.
 
-3. **DisplayStage Fallback Chain** — Priority: `tileHighlight > bloom > edgeFiltering > asvgf > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
+3. **Display Fallback Chain** — Priority: `tileHighlight > bloom > edgeFiltering > asvgf > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
 
 4. **Denoiser Coordination** — ASVGF (real-time) vs OIDN (final quality) must never run simultaneously. EdgeAware filtering disabled when ASVGF enabled.
 
 5. **Rendering Modes** — Interactive (low quality, real-time), Final (high quality, tiled), Results (paused). Mode switching batch-updates uniforms and resets pipeline.
 
-6. **Camera Matrix Consistency** — Stages sharing depth/position data MUST sync camera matrices from PathTracingStage uniforms, not from the camera object directly.
+6. **Camera Matrix Consistency** — Stages sharing depth/position data MUST sync camera matrices from PathTracer uniforms, not from the camera object directly.
 
 ## Design Principles
 - Prefer event-driven communication over direct coupling
 - New stages should be independently toggleable via `enabled` flag
-- Always consider the DisplayStage fallback chain when adding outputs
+- Always consider the Display fallback chain when adding outputs
 - Memory management: consider GPU buffer lifecycle and disposal
 - Web Workers for heavy computation (BVH, textures)
 

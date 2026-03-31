@@ -1,5 +1,5 @@
 /**
- * ParallelBVHBuilder - Multi-core BVH construction orchestrator.
+ * parallelBVHBuilder - Multi-core BVH construction orchestrator.
  *
  * This file is intentionally separate from BVHBuilder.js to avoid
  * circular worker imports. Workers import BVHBuilder; this file

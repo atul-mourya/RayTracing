@@ -16,7 +16,7 @@ const PIXELS_PER_MATERIAL = 27;
 export class MaterialDataManager {
 
 	/**
-	 * @param {Object} sdfs - TriangleSDF instance (for geometryExtractor & sceneFeatures)
+	 * @param {Object} sdfs - SceneProcessor instance (for geometryExtractor & sceneFeatures)
 	 */
 	constructor( sdfs ) {
 

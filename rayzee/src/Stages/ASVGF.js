@@ -4,7 +4,7 @@ import { Fn, wgslFn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
-import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
+import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
 import { luminance, normalDepthWeight } from '../TSL/Common.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
@@ -54,7 +54,7 @@ const gradientAdaptiveAlpha = /*@__PURE__*/ wgslFn( `
  * Textures published:  asvgf:output, asvgf:temporalColor
  * Textures read:       pathtracer:color, pathtracer:normalDepth, motionVector:screenSpace
  */
-export class ASVGFStage extends RenderStage {
+export class ASVGF extends RenderStage {
 
 	constructor( renderer, options = {} ) {
 
@@ -172,7 +172,7 @@ export class ASVGFStage extends RenderStage {
 
 		this._buildHeatmapCompute();
 
-		this.heatmapHelper = RenderTargetHelper( this.renderer, this.heatmapTarget, {
+		this.heatmapHelper = createRenderTargetHelper( this.renderer, this.heatmapTarget, {
 			width: 400,
 			height: 400,
 			position: 'bottom-right',

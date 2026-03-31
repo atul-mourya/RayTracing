@@ -10,18 +10,18 @@ import { blueNoiseTextureNode } from '../TSL/Random.js';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 
 // Managers (renderer-agnostic)
-import { TileRenderingManager } from '../Processor/TileRenderingManager.js';
-import { CameraMovementOptimizer } from '../Processor/CameraMovementOptimizer.js';
-import { PathTracerUtils } from '../Processor/PathTracerUtils.js';
+import { TileManager } from '../managers/TileManager.js';
+import { CameraOptimizer } from '../Processor/CameraOptimizer.js';
+import { createPerformanceMonitor, calculateAccumulationAlpha, updateCompletionThreshold } from '../Processor/utils.js';
 import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
-import { UniformManager } from '../Processor/UniformManager.js';
-import { MaterialDataManager } from '../Processor/MaterialDataManager.js';
-import { EnvironmentManager } from '../Processor/EnvironmentManager.js';
-import { ShaderComposer } from '../Processor/ShaderComposer.js';
+import { UniformManager } from '../managers/UniformManager.js';
+import { MaterialDataManager } from '../managers/MaterialDataManager.js';
+import { EnvironmentManager } from '../managers/EnvironmentManager.js';
+import { ShaderBuilder } from '../Processor/ShaderBuilder.js';
 
 // Scene building
-import TriangleSDF from '../Processor/TriangleSDF';
-import { LightDataTransfer } from '../Processor/LightDataTransfer';
+import { SceneProcessor } from '../Processor/SceneProcessor.js';
+import { LightSerializer } from '../Processor/LightSerializer';
 
 // Constants
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
@@ -49,7 +49,7 @@ const BVH_VEC4_PER_NODE = 4;
  * Events emitted:
  * - pathtracer:frameComplete - When a frame finishes rendering
  * - camera:moved - When camera position/orientation changes
- * - tile:changed - When current tile changes (for TileHighlightStage)
+ * - tile:changed - When current tile changes (for TileHighlight)
  * - asvgf:reset - Request ASVGF to reset temporal data
  * - asvgf:updateParameters - Update ASVGF parameters
  * - asvgf:setTemporal - Enable/disable ASVGF temporal accumulation
@@ -58,7 +58,7 @@ const BVH_VEC4_PER_NODE = 4;
  * - pathtracer:color - Main color output
  * - pathtracer:normalDepth - Normal/depth buffer
  */
-export class PathTracingStage extends RenderStage {
+export class PathTracer extends RenderStage {
 
 	/**
 	 * @param {WebGPURenderer} renderer - Three.js WebGPU renderer
@@ -83,18 +83,18 @@ export class PathTracingStage extends RenderStage {
 		this.scene = scene;
 
 		// Initialize managers
-		this.tileManager = new TileRenderingManager( width, height, DEFAULT_STATE.tiles );
+		this.tileManager = new TileManager( width, height, DEFAULT_STATE.tiles );
 
 		// Scene building
-		this.sdfs = new TriangleSDF();
-		this.lightDataTransfer = new LightDataTransfer();
+		this.sdfs = new SceneProcessor();
+		this.lightSerializer = new LightSerializer();
 
 		// State management
 		this.accumulationEnabled = true;
 		this.isComplete = false;
 		this.cameras = [];
 		// Performance monitoring
-		this.performanceMonitor = PathTracerUtils.createPerformanceMonitor();
+		this.performanceMonitor = createPerformanceMonitor();
 		this.completionThreshold = 0;
 		this.renderLimitMode = 'frames';
 
@@ -118,10 +118,10 @@ export class PathTracingStage extends RenderStage {
 		// Initialize environment manager
 		this.environment = new EnvironmentManager( this.scene, this.uniforms );
 		this.environment.callbacks.onReset = () => this.reset();
-		this.environment.callbacks.getSceneTextureNodes = () => this.shaderComposer.getSceneTextureNodes();
+		this.environment.callbacks.getSceneTextureNodes = () => this.shaderBuilder.getSceneTextureNodes();
 
 		// Initialize shader composer
-		this.shaderComposer = new ShaderComposer();
+		this.shaderBuilder = new ShaderBuilder();
 
 		// Initialize rendering state
 		this._initRenderingState();
@@ -336,7 +336,7 @@ export class PathTracingStage extends RenderStage {
 			}
 		};
 
-		this.cameraOptimizer = new CameraMovementOptimizer( this.renderer, materialInterface, {
+		this.cameraOptimizer = new CameraOptimizer( this.renderer, materialInterface, {
 			enabled: DEFAULT_STATE.interactionModeEnabled,
 			qualitySettings: {
 				maxBounceCount: 1,
@@ -375,7 +375,7 @@ export class PathTracingStage extends RenderStage {
 			this.blueNoiseTexture = texture;
 			blueNoiseTextureNode.value = texture;
 
-			console.log( `PathTracingStage: Blue noise loaded ${texture.image.width}x${texture.image.height}` );
+			console.log( `PathTracer: Blue noise loaded ${texture.image.width}x${texture.image.height}` );
 
 		} );
 
@@ -444,7 +444,7 @@ export class PathTracingStage extends RenderStage {
 	}
 
 	/**
-	 * Update scene uniforms from TriangleSDF data
+	 * Update scene uniforms from SceneProcessor data
 	 */
 	updateSceneUniforms() {
 
@@ -502,7 +502,7 @@ export class PathTracingStage extends RenderStage {
 			defines: {}
 		};
 
-		this.lightDataTransfer.processSceneLights( this.scene, mockMaterial );
+		this.lightSerializer.processSceneLights( this.scene, mockMaterial );
 
 		// Store light data
 		this.directionalLightsData = mockMaterial.uniforms.directionalLights.value;
@@ -530,9 +530,9 @@ export class PathTracingStage extends RenderStage {
 				}
 			};
 
-			this.lightDataTransfer.addDirectionalLight( sunLight );
-			this.lightDataTransfer.preprocessLights();
-			this.lightDataTransfer.updateShaderUniforms( mockMaterial );
+			this.lightSerializer.addDirectionalLight( sunLight );
+			this.lightSerializer.preprocessLights();
+			this.lightSerializer.updateShaderUniforms( mockMaterial );
 
 			this.directionalLightsData = mockMaterial.uniforms.directionalLights.value;
 
@@ -656,7 +656,7 @@ export class PathTracingStage extends RenderStage {
 		this.resolution.value.set( width, height );
 		this.tileManager.setSize( width, height );
 		this.createStorageTextures( width, height );
-		this.shaderComposer.setSize( width, height );
+		this.shaderBuilder.setSize( width, height );
 
 	}
 
@@ -734,7 +734,7 @@ export class PathTracingStage extends RenderStage {
 
 		this.triangleCount = triangleCount;
 
-		console.log( `PathTracingStage: ${this.triangleCount} triangles (storage buffer)` );
+		console.log( `PathTracer: ${this.triangleCount} triangles (storage buffer)` );
 
 	}
 
@@ -762,7 +762,7 @@ export class PathTracingStage extends RenderStage {
 		}
 
 		this.bvhNodeCount = Math.floor( vec4Count / BVH_VEC4_PER_NODE );
-		console.log( `PathTracingStage: ${this.bvhNodeCount} BVH nodes (storage buffer)` );
+		console.log( `PathTracer: ${this.bvhNodeCount} BVH nodes (storage buffer)` );
 
 	}
 
@@ -812,30 +812,30 @@ export class PathTracingStage extends RenderStage {
 
 		if ( ! this.triangleStorageNode ) {
 
-			console.error( 'PathTracingStage: Triangle data required' );
+			console.error( 'PathTracer: Triangle data required' );
 			return;
 
 		}
 
 		if ( ! this.bvhStorageNode ) {
 
-			console.error( 'PathTracingStage: BVH data required' );
+			console.error( 'PathTracer: BVH data required' );
 			return;
 
 		}
 
 		// If compute nodes already exist, update texture nodes in-place
 		// instead of rebuilding the shader (avoids TSL recompilation issues)
-		if ( this.isReady && this.shaderComposer.getSceneTextureNodes() ) {
+		if ( this.isReady && this.shaderBuilder.getSceneTextureNodes() ) {
 
-			this.shaderComposer.updateSceneTextures( this );
+			this.shaderBuilder.updateSceneTextures( this );
 			return;
 
 		}
 
 		this._ensureStorageTextures();
 
-		this.shaderComposer.setupCompute( {
+		this.shaderBuilder.setupCompute( {
 			stage: this,
 			storageTextures: this.storageTextures,
 		} );
@@ -882,13 +882,13 @@ export class PathTracingStage extends RenderStage {
 
 		this.performanceMonitor?.start();
 
-		// Read adaptive sampling guidance from pipeline context (produced by AdaptiveSamplingStage)
-		if ( context && this.shaderComposer.adaptiveSamplingTexNode ) {
+		// Read adaptive sampling guidance from pipeline context (produced by AdaptiveSampling)
+		if ( context && this.shaderBuilder.adaptiveSamplingTexNode ) {
 
 			const asTex = context.getTexture( 'adaptiveSampling:output' );
 			if ( asTex ) {
 
-				this.shaderComposer.adaptiveSamplingTexNode.value = asTex;
+				this.shaderBuilder.adaptiveSamplingTexNode.value = asTex;
 
 			}
 
@@ -963,13 +963,13 @@ export class PathTracingStage extends RenderStage {
 		this.frame.value = frameValue;
 
 		// Force-compile compute nodes on first frame
-		this.shaderComposer.forceCompile( this.renderer );
+		this.shaderBuilder.forceCompile( this.renderer );
 
 		// Set dispatch region — tile-only dispatch for tiled mode, full-screen otherwise
 		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
 
 			// Dispatch only the workgroups covering this tile
-			this.shaderComposer.setTileDispatch(
+			this.shaderBuilder.setTileDispatch(
 				tileInfo.tileBounds.x, tileInfo.tileBounds.y,
 				tileInfo.tileBounds.width, tileInfo.tileBounds.height
 			);
@@ -977,23 +977,23 @@ export class PathTracingStage extends RenderStage {
 		} else {
 
 			// Full-screen render — dispatch all workgroups
-			this.shaderComposer.setFullScreenDispatch();
+			this.shaderBuilder.setFullScreenDispatch();
 
 		}
 
 		// Update previous-frame texture node values from readTarget
 		// (these sample the last frame's results via texture())
 		const readTextures = this.storageTextures.getReadTextures();
-		if ( this.shaderComposer.prevColorTexNode ) {
+		if ( this.shaderBuilder.prevColorTexNode ) {
 
-			this.shaderComposer.prevColorTexNode.value = readTextures.color;
-			this.shaderComposer.prevNormalDepthTexNode.value = readTextures.normalDepth;
-			this.shaderComposer.prevAlbedoTexNode.value = readTextures.albedo;
+			this.shaderBuilder.prevColorTexNode.value = readTextures.color;
+			this.shaderBuilder.prevNormalDepthTexNode.value = readTextures.normalDepth;
+			this.shaderBuilder.prevAlbedoTexNode.value = readTextures.albedo;
 
 		}
 
 		// Dispatch single compute node
-		this.renderer.compute( this.shaderComposer.computeNode );
+		this.renderer.compute( this.shaderBuilder.computeNode );
 
 		// Copy StorageTextures → RenderTarget textures for downstream reads
 		this.storageTextures.copyToReadTargets( this.renderer );
@@ -1039,7 +1039,7 @@ export class PathTracingStage extends RenderStage {
 		if ( width !== this.storageTextures.renderWidth || height !== this.storageTextures.renderHeight ) {
 
 			this.createStorageTextures( width, height );
-			this.shaderComposer.setSize( width, height );
+			this.shaderBuilder.setSize( width, height );
 			this.frameCount = 0;
 
 		}
@@ -1128,7 +1128,7 @@ export class PathTracingStage extends RenderStage {
 
 				const effectiveFrame = frameValue - this.interactionModeChangeFrame;
 
-				this.accumulationAlpha.value = PathTracerUtils.calculateAccumulationAlpha(
+				this.accumulationAlpha.value = calculateAccumulationAlpha(
 					Math.max( effectiveFrame, 0 ),
 					renderMode,
 					this.tileManager.totalTilesCache,
@@ -1198,7 +1198,7 @@ export class PathTracingStage extends RenderStage {
 
 		} else {
 
-			this.completionThreshold = PathTracerUtils.updateCompletionThreshold(
+			this.completionThreshold = updateCompletionThreshold(
 				renderMode,
 				maxFrames,
 				this.tileManager.totalTilesCache
@@ -1341,7 +1341,7 @@ export class PathTracingStage extends RenderStage {
 
 		this.emissiveTriangleCount.value = count;
 		this.emissiveTotalPower.value = totalPower;
-		console.log( `PathTracingStage: ${count} emissive triangles, totalPower=${totalPower.toFixed( 4 )} (storage buffer)` );
+		console.log( `PathTracer: ${count} emissive triangles, totalPower=${totalPower.toFixed( 4 )} (storage buffer)` );
 
 	}
 
@@ -1354,7 +1354,7 @@ export class PathTracingStage extends RenderStage {
 		this.lightBVHStorageNode.value = this.lightBVHStorageAttr;
 		this.lightBVHStorageNode.bufferCount = vec4Count;
 		this.lightBVHNodeCount.value = nodeCount;
-		console.log( `PathTracingStage: Light BVH ${nodeCount} nodes` );
+		console.log( `PathTracer: Light BVH ${nodeCount} nodes` );
 
 	}
 
@@ -1397,19 +1397,19 @@ export class PathTracingStage extends RenderStage {
 
 		try {
 
-			console.log( 'PathTracingStage: Starting material rebuild...' );
+			console.log( 'PathTracer: Starting material rebuild...' );
 
 			await this.sdfs.rebuildMaterials( scene );
 			this.updateSceneUniforms();
-			this.shaderComposer.updateSceneTextures( this );
+			this.shaderBuilder.updateSceneTextures( this );
 			this.updateLights();
 			this.reset();
 
-			console.log( 'PathTracingStage materials rebuilt successfully' );
+			console.log( 'PathTracer materials rebuilt successfully' );
 
 		} catch ( error ) {
 
-			console.error( 'Error rebuilding PathTracingStage materials:', error );
+			console.error( 'Error rebuilding PathTracer materials:', error );
 
 			try {
 
@@ -1448,7 +1448,7 @@ export class PathTracingStage extends RenderStage {
 		this.cameraOptimizer?.dispose();
 		this.materialData?.dispose();
 		this.environment?.dispose();
-		this.shaderComposer?.dispose();
+		this.shaderBuilder?.dispose();
 
 		// Dispose storage textures
 		this.storageTextures?.dispose();

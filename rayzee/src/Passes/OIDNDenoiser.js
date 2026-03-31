@@ -14,8 +14,8 @@ async function getInitUNetFromURL() {
 
 }
 
-import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
-import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from './ToneMapCPU.js';
+import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
+import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
 
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
@@ -604,7 +604,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 						for ( let i = 0, len = f32.length; i < len; i += 4 ) {
 
-							// Exposure + saturation (pre-tonemap, matching DisplayStage)
+							// Exposure + saturation (pre-tonemap, matching Display)
 							let er = f32[ i ] * exposure, eg = f32[ i + 1 ] * exposure, eb = f32[ i + 2 ] * exposure;
 							if ( saturation !== 1.0 ) {
 
@@ -729,7 +729,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		for ( let i = 0, len = float32.length; i < len; i += 4 ) {
 
-			// Exposure + saturation (pre-tonemap, matching DisplayStage)
+			// Exposure + saturation (pre-tonemap, matching Display)
 			let er = float32[ i ] * exposure, eg = float32[ i + 1 ] * exposure, eb = float32[ i + 2 ] * exposure;
 			if ( saturation !== 1.0 ) {
 
@@ -823,7 +823,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			// Pass full MRT render target with textureIndex for async readback
 			this.debugHelpers = {
-				albedo: RenderTargetHelper( this.renderer, mrtRenderTarget, {
+				albedo: createRenderTargetHelper( this.renderer, mrtRenderTarget, {
 					width: 250,
 					height: 250,
 					position: 'bottom-right',
@@ -832,7 +832,7 @@ export class OIDNDenoiser extends EventDispatcher {
 					autoUpdate: false,
 					textureIndex: 2
 				} ),
-				normal: RenderTargetHelper( this.renderer, mrtRenderTarget, {
+				normal: createRenderTargetHelper( this.renderer, mrtRenderTarget, {
 					width: 250,
 					height: 250,
 					position: 'bottom-left',

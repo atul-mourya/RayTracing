@@ -7,7 +7,7 @@
  *   timer.end('stepName');
  *   timer.print(); // logs summary table
  */
-export default class BuildTimer {
+export class BuildTimer {
 
 	constructor( label = 'Build' ) {
 

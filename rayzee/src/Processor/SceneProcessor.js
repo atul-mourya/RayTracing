@@ -1,21 +1,21 @@
-// TriangleSDF.js - Minimal changes to integrate optimized texture processing
+// SceneProcessor.js - Processes scene geometry into GPU-ready data (BVH, textures, materials)
 import { Color } from "three";
-import BVHBuilder from './BVHBuilder.js';
-import { buildBVHParallel, shouldUseParallelBuild } from './ParallelBVHBuilder.js';
-import TextureCreator from './TextureCreator.js'; // Using optimized TextureCreator
-import GeometryExtractor from './GeometryExtractor.js';
+import { BVHBuilder } from './BVHBuilder.js';
+import { buildBVHParallel, shouldUseParallelBuild } from './parallelBVHBuilder.js';
+import { TextureCreator } from './TextureCreator.js';
+import { GeometryExtractor } from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
-import BuildTimer from './BuildTimer.js';
+import { BuildTimer } from './BuildTimer.js';
 
 /**
- * TriangleSDF - Handles the triangle-based signed distance field
- * processing for path tracing with peak performance optimizations.
+ * SceneProcessor - Processes scene geometry into GPU-ready data:
+ * BVH acceleration, texture atlas, material buffers.
  */
-export default class TriangleSDF {
+export class SceneProcessor {
 
 	/**
-     * Create a new TriangleSDF processor
+     * Create a new SceneProcessor
      * @param {Object} options - Configuration options
      * @param {boolean} [options.useWorkers=true] - Use worker threads when available
      * @param {number} [options.bvhDepth=30] - Maximum BVH tree depth
@@ -132,7 +132,7 @@ export default class TriangleSDF {
 
 		if ( this.config.verbose ) {
 
-			console.log( `[TriangleSDF] ${message}`, data || '' );
+			console.log( `[SceneProcessor] ${message}`, data || '' );
 
 		}
 
@@ -141,7 +141,7 @@ export default class TriangleSDF {
 	/**
      * Build the BVH from a 3D object/scene
      * @param {Object3D} object - Three.js object to process
-     * @returns {Promise<TriangleSDF>} - This instance (for chaining)
+     * @returns {Promise<SceneProcessor>} - This instance (for chaining)
      */
 	async buildBVH( object ) {
 
@@ -154,7 +154,7 @@ export default class TriangleSDF {
 		this.isProcessing = true;
 		this.processingStage = 'init';
 
-		const timer = new BuildTimer( `TriangleSDF (${object.name || 'scene'})` );
+		const timer = new BuildTimer( `SceneProcessor (${object.name || 'scene'})` );
 
 		try {
 
@@ -233,7 +233,7 @@ export default class TriangleSDF {
 		} catch ( error ) {
 
 			this.processingStage = 'error';
-			console.error( '[TriangleSDF] Processing error:', error );
+			console.error( '[SceneProcessor] Processing error:', error );
 			updateLoading( {
 				status: `Error: ${error.message}`,
 				progress: 100
@@ -305,7 +305,7 @@ export default class TriangleSDF {
 
 		} catch ( error ) {
 
-			console.error( '[TriangleSDF] Geometry extraction error:', error );
+			console.error( '[SceneProcessor] Geometry extraction error:', error );
 			updateLoading( {
 				status: `Extraction error: ${error.message}`,
 				progress: 25
@@ -432,7 +432,7 @@ export default class TriangleSDF {
 
 		} catch ( error ) {
 
-			console.error( '[TriangleSDF] BVH building error:', error );
+			console.error( '[SceneProcessor] BVH building error:', error );
 			updateLoading( {
 				status: `BVH error: ${error.message}`,
 				progress: 75
@@ -492,7 +492,7 @@ export default class TriangleSDF {
 
 		} catch ( error ) {
 
-			console.error( '[TriangleSDF] Texture creation error:', error );
+			console.error( '[SceneProcessor] Texture creation error:', error );
 			throw error;
 
 		}
@@ -619,7 +619,7 @@ export default class TriangleSDF {
 	/**
      * Rebuild only materials and textures without touching triangle/BVH data
      * @param {Object3D} object - Three.js object to extract materials from
-     * @returns {Promise<TriangleSDF>} - This instance (for chaining)
+     * @returns {Promise<SceneProcessor>} - This instance (for chaining)
      */
 	async rebuildMaterials( object ) {
 
@@ -695,7 +695,7 @@ export default class TriangleSDF {
 
 		} catch ( error ) {
 
-			console.error( '[TriangleSDF] Material rebuild error:', error );
+			console.error( '[SceneProcessor] Material rebuild error:', error );
 			throw error;
 
 		} finally {
@@ -733,7 +733,7 @@ export default class TriangleSDF {
 
 				} catch ( error ) {
 
-					console.warn( `[TriangleSDF] Error disposing ${prop}:`, error );
+					console.warn( `[SceneProcessor] Error disposing ${prop}:`, error );
 
 				} finally {
 

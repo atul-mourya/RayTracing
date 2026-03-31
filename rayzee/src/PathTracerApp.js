@@ -9,32 +9,32 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { outline } from 'three/addons/tsl/display/OutlineNode.js';
 import { SceneHelpers } from './SceneHelpers.js';
 import Stats from 'stats-gl';
-import { PathTracingStage } from './Stages/PathTracingStage.js';
-import { NormalDepthStage } from './Stages/NormalDepthStage.js';
-import { MotionVectorStage } from './Stages/MotionVectorStage.js';
-import { ASVGFStage } from './Stages/ASVGFStage.js';
-import { VarianceEstimationStage } from './Stages/VarianceEstimationStage.js';
-import { BilateralFilteringStage } from './Stages/BilateralFilteringStage.js';
-import { AdaptiveSamplingStage } from './Stages/AdaptiveSamplingStage.js';
-import { EdgeAwareFilteringStage } from './Stages/EdgeAwareFilteringStage.js';
-import { AutoExposureStage } from './Stages/AutoExposureStage.js';
-import { TileHighlightStage } from './Stages/TileHighlightStage.js';
-import { SSRCStage } from './Stages/SSRCStage.js';
-import { DisplayStage } from './Stages/DisplayStage.js';
+import { PathTracer } from './Stages/PathTracer.js';
+import { NormalDepth } from './Stages/NormalDepth.js';
+import { MotionVector } from './Stages/MotionVector.js';
+import { ASVGF } from './Stages/ASVGF.js';
+import { Variance } from './Stages/Variance.js';
+import { BilateralFilter } from './Stages/BilateralFilter.js';
+import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
+import { EdgeFilter } from './Stages/EdgeFilter.js';
+import { AutoExposure } from './Stages/AutoExposure.js';
+import { TileHighlight } from './Stages/TileHighlight.js';
+import { SSRC } from './Stages/SSRC.js';
+import { Display } from './Stages/Display.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback } from './Processor/utils.js';
-import BuildTimer from './Processor/BuildTimer.js';
+import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
 import { EngineEvents } from './EngineEvents.js';
-import AssetLoader from './Processor/AssetLoader.js';
-import TriangleSDF from './Processor/TriangleSDF.js';
+import { AssetLoader } from './Processor/AssetLoader.js';
+import { SceneProcessor } from './Processor/SceneProcessor.js';
 
 // Managers
 import { RenderSettings } from './RenderSettings.js';
 import { CameraManager } from './managers/CameraManager.js';
 import { LightManager } from './managers/LightManager.js';
-import { DenoiseManager } from './managers/DenoiseManager.js';
+import { DenoisingManager } from './managers/DenoisingManager.js';
 
 
 /**
@@ -44,7 +44,7 @@ import { DenoiseManager } from './managers/DenoiseManager.js';
  * - {@link RenderSettings} — single source of truth for all render parameters
  * - {@link CameraManager} — camera switching, auto-focus, DOF
  * - {@link LightManager} — light CRUD, helpers, GPU transfer
- * - {@link DenoiseManager} — denoiser strategy, OIDN, AI upscaler
+ * - {@link DenoisingManager} — denoiser strategy, OIDN, AI upscaler
  *
  * Extends EventDispatcher for event-driven communication with stores/UI.
  */
@@ -94,7 +94,7 @@ export class PathTracerApp extends EventDispatcher {
 		// ── Managers (populated in init) ──
 		this.cameraManager = null;
 		this.lightManager = null;
-		this.denoiseManager = null;
+		this.denoisingManager = null;
 
 		// ── State ──
 		this.isInitialized = false;
@@ -238,7 +238,7 @@ export class PathTracerApp extends EventDispatcher {
 		this._controls.saveState();
 
 		// Asset pipeline
-		this._sdf = new TriangleSDF();
+		this._sdf = new SceneProcessor();
 		this.assetLoader = new AssetLoader( this.meshScene, this._camera, this._controls );
 		this._setupFloorPlane();
 		this.assetLoader.setFloorPlane( this._floorPlane );
@@ -257,15 +257,15 @@ export class PathTracerApp extends EventDispatcher {
 		// ── Pipeline orchestration ──
 		const { clientWidth: w, clientHeight: h } = this.canvas;
 		this.pipeline = new RenderPipeline( this.renderer, w || 1, h || 1 );
-		this.pipeline.addStage( this.stages.pathTracing );
+		this.pipeline.addStage( this.stages.pathTracer );
 		this.pipeline.addStage( this.stages.normalDepth );
 		this.pipeline.addStage( this.stages.motionVector );
 		this.pipeline.addStage( this.stages.ssrc );
 		this.pipeline.addStage( this.stages.asvgf );
-		this.pipeline.addStage( this.stages.varianceEstimation );
-		this.pipeline.addStage( this.stages.bilateralFiltering );
+		this.pipeline.addStage( this.stages.variance );
+		this.pipeline.addStage( this.stages.bilateralFilter );
 		this.pipeline.addStage( this.stages.adaptiveSampling );
-		this.pipeline.addStage( this.stages.edgeAwareFiltering );
+		this.pipeline.addStage( this.stages.edgeFilter );
 		this.pipeline.addStage( this.stages.autoExposure );
 		this.pipeline.addStage( this.stages.tileHighlight );
 		this.pipeline.addStage( this.stages.display );
@@ -283,22 +283,22 @@ export class PathTracerApp extends EventDispatcher {
 			camera: this._camera,
 			canvas: this.canvas,
 			assetLoader: this.assetLoader,
-			pathTracingStage: null,
+			pathTracer: null,
 			floorPlane: this._floorPlane
 		} );
 		this._setupInteractionListeners();
 
 		// ── Managers ──
 		this.cameraManager = new CameraManager( this._camera, this._controls, this._interactionManager );
-		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracing );
-		this._setupDenoiseManager();
+		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracer );
+		this._setupDenoisingManager();
 
 		// Wire CameraManager events → app events
 		this.cameraManager.addEventListener( 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
 		this.cameraManager.addEventListener( EngineEvents.AUTO_FOCUS_UPDATED, ( e ) => this.dispatchEvent( e ) );
 
-		// Wire DenoiseManager events → app events
-		this._forwardEvents( this.denoiseManager, [
+		// Wire DenoisingManager events → app events
+		this._forwardEvents( this.denoisingManager, [
 			EngineEvents.DENOISING_START, EngineEvents.DENOISING_END,
 			EngineEvents.UPSCALING_START, EngineEvents.UPSCALING_PROGRESS, EngineEvents.UPSCALING_END,
 			'resolution_changed',
@@ -317,7 +317,7 @@ export class PathTracerApp extends EventDispatcher {
 				return null;
 
 			}, // replaced below
-			pathTracingStage: this.stages.pathTracing,
+			pathTracer: this.stages.pathTracer,
 			setFocusDistance: ( d ) => this.settings.set( 'focusDistance', d, { silent: true } ),
 			softReset: () => this.reset( true ),
 			hardReset: () => this.reset(),
@@ -331,7 +331,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		// ── Bind RenderSettings ──
 		this.settings.bind( {
-			pathTracingStage: this.stages.pathTracing,
+			pathTracer: this.stages.pathTracer,
 			resetCallback: () => this.reset(),
 			handlers: this._buildSettingsHandlers(),
 			delegates: {},
@@ -358,9 +358,9 @@ export class PathTracerApp extends EventDispatcher {
 			} else if ( event.texture ) {
 
 				const envTexture = this.meshScene.environment;
-				if ( envTexture && this.stages.pathTracing ) {
+				if ( envTexture && this.stages.pathTracer ) {
 
-					await this.stages.pathTracing.environment.setEnvironmentMap( envTexture );
+					await this.stages.pathTracer.environment.setEnvironmentMap( envTexture );
 
 				}
 
@@ -390,10 +390,10 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 
 		// Seed path tracer with minimal empty scene data
-		this.stages.pathTracing.setTriangleData( new Float32Array( 32 ), 0 );
-		this.stages.pathTracing.setBVHData( new Float32Array( 16 ) );
-		this.stages.pathTracing.materialData.setMaterialData( new Float32Array( 16 ) );
-		this.stages.pathTracing.setupMaterial();
+		this.stages.pathTracer.setTriangleData( new Float32Array( 32 ), 0 );
+		this.stages.pathTracer.setBVHData( new Float32Array( 16 ) );
+		this.stages.pathTracer.materialData.setMaterialData( new Float32Array( 16 ) );
+		this.stages.pathTracer.setupMaterial();
 
 		// Setup stats panel
 		this._initStats();
@@ -445,9 +445,9 @@ export class PathTracerApp extends EventDispatcher {
 		this.cameraManager.updateAutoFocus( this._autoFocusContext );
 
 		// Render path tracing
-		if ( this.stages.pathTracing?.isReady ) {
+		if ( this.stages.pathTracer?.isReady ) {
 
-			if ( this.stages.pathTracing.isComplete && this._renderCompleteDispatched ) {
+			if ( this.stages.pathTracer.isComplete && this._renderCompleteDispatched ) {
 
 				if ( this._needsDisplayRefresh ) {
 
@@ -465,16 +465,16 @@ export class PathTracerApp extends EventDispatcher {
 
 			this.pipeline.render();
 
-			const frameCount = this.stages.pathTracing.frameCount || 0;
+			const frameCount = this.stages.pathTracer.frameCount || 0;
 
-			if ( ! this.stages.pathTracing.isComplete ) {
+			if ( ! this.stages.pathTracer.isComplete ) {
 
 				this.timeElapsed = ( performance.now() - this.lastResetTime ) / 1000;
 
 			}
 
 			// Tiled mode: convert raw frame count to completed sample passes
-			const stage = this.stages.pathTracing;
+			const stage = this.stages.pathTracer;
 			let displaySamples = frameCount;
 			if ( stage.renderMode?.value === 1 && frameCount > 0 ) {
 
@@ -490,16 +490,16 @@ export class PathTracerApp extends EventDispatcher {
 			const renderTimeLimit = this.settings.get( 'renderTimeLimit' );
 			if ( renderLimitMode === 'time' && renderTimeLimit > 0 && this.timeElapsed >= renderTimeLimit ) {
 
-				this.stages.pathTracing.isComplete = true;
+				this.stages.pathTracer.isComplete = true;
 
 			}
 
 			// Render completion → denoise/upscale chain
-			if ( this.stages.pathTracing.isComplete && ! this._renderCompleteDispatched ) {
+			if ( this.stages.pathTracer.isComplete && ! this._renderCompleteDispatched ) {
 
 				this._renderCompleteDispatched = true;
 
-				this.denoiseManager.onRenderComplete( {
+				this.denoisingManager.onRenderComplete( {
 					isStillComplete: () => this._renderCompleteDispatched,
 					context: this.pipeline?.context,
 				} );
@@ -572,7 +572,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		// Abort post-processing
-		this.denoiseManager?.abort( this.canvas );
+		this.denoisingManager?.abort( this.canvas );
 
 		// Restore denoiser canvas to base render resolution
 		if ( this.denoiserCanvas && this._lastRenderWidth && this._lastRenderHeight ) {
@@ -623,7 +623,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.denoiseManager?.dispose();
+		this.denoisingManager?.dispose();
 		this.pipeline?.dispose();
 		this._interactionManager?.dispose();
 		this._controls?.dispose();
@@ -673,9 +673,9 @@ export class PathTracerApp extends EventDispatcher {
 			await this.assetLoader.loadEnvironment( url );
 
 			const environmentTexture = this.meshScene.environment;
-			if ( environmentTexture && this.stages.pathTracing ) {
+			if ( environmentTexture && this.stages.pathTracer ) {
 
-				await this.stages.pathTracing.environment.setEnvironmentMap( environmentTexture );
+				await this.stages.pathTracer.environment.setEnvironmentMap( environmentTexture );
 
 			}
 
@@ -745,16 +745,16 @@ export class PathTracerApp extends EventDispatcher {
 		if ( environmentTexture?.image?.data ) {
 
 			timer.start( 'Environment CDF build (worker)' );
-			this.stages.pathTracing.scene.environment = environmentTexture;
-			cdfPromise = this.stages.pathTracing.environment.buildEnvironmentCDF()
+			this.stages.pathTracer.scene.environment = environmentTexture;
+			cdfPromise = this.stages.pathTracer.environment.buildEnvironmentCDF()
 				.then( () => timer.end( 'Environment CDF build (worker)' ) );
 
 		}
 
 		// Build BVH
-		timer.start( 'BVH build (TriangleSDF)' );
+		timer.start( 'BVH build (SceneProcessor)' );
 		await this._sdf.buildBVH( this.meshScene );
-		timer.end( 'BVH build (TriangleSDF)' );
+		timer.end( 'BVH build (SceneProcessor)' );
 
 		const { triangleData, triangleCount, bvhData, materialData } = this._sdf;
 
@@ -768,7 +768,7 @@ export class PathTracerApp extends EventDispatcher {
 		updateLoading( { status: "Transferring data to GPU...", progress: 86 } );
 		await new Promise( r => setTimeout( r, 0 ) );
 		timer.start( 'GPU data transfer' );
-		this.stages.pathTracing.setTriangleData( triangleData, triangleCount );
+		this.stages.pathTracer.setTriangleData( triangleData, triangleCount );
 
 		if ( ! bvhData ) {
 
@@ -777,11 +777,11 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.stages.pathTracing.setBVHData( bvhData );
+		this.stages.pathTracer.setBVHData( bvhData );
 
 		if ( materialData ) {
 
-			this.stages.pathTracing.materialData.setMaterialData( materialData );
+			this.stages.pathTracer.materialData.setMaterialData( materialData );
 
 		} else {
 
@@ -791,12 +791,12 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( environmentTexture ) {
 
-			this.stages.pathTracing.environment.setEnvironmentTexture( environmentTexture );
+			this.stages.pathTracer.environment.setEnvironmentTexture( environmentTexture );
 
 		}
 
 		// Transfer material texture arrays
-		this.stages.pathTracing.materialData.setMaterialTextures( {
+		this.stages.pathTracer.materialData.setMaterialTextures( {
 			albedoMaps: this._sdf.albedoTextures,
 			normalMaps: this._sdf.normalTextures,
 			bumpMaps: this._sdf.bumpTextures,
@@ -809,7 +809,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Emissive triangle data
 		if ( this._sdf.emissiveTriangleData ) {
 
-			this.stages.pathTracing.setEmissiveTriangleData(
+			this.stages.pathTracer.setEmissiveTriangleData(
 				this._sdf.emissiveTriangleData,
 				this._sdf.emissiveTriangleCount,
 				this._sdf.emissiveTotalPower,
@@ -820,7 +820,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Light BVH data
 		if ( this._sdf.lightBVHNodeData ) {
 
-			this.stages.pathTracing.setLightBVHData(
+			this.stages.pathTracer.setLightBVHData(
 				this._sdf.lightBVHNodeData,
 				this._sdf.lightBVHNodeCount,
 			);
@@ -835,7 +835,7 @@ export class PathTracerApp extends EventDispatcher {
 		updateLoading( { status: "Compiling shaders...", progress: 90 } );
 		await new Promise( r => setTimeout( r, 0 ) );
 		timer.start( 'Material setup (TSL compile)' );
-		this.stages.pathTracing.setupMaterial();
+		this.stages.pathTracer.setupMaterial();
 		timer.end( 'Material setup (TSL compile)' );
 
 		// Wait for CDF
@@ -843,7 +843,7 @@ export class PathTracerApp extends EventDispatcher {
 
 			updateLoading( { status: "Finalizing environment map...", progress: 95 } );
 			await cdfPromise;
-			this.stages.pathTracing.environment.applyCDFResults();
+			this.stages.pathTracer.environment.applyCDFResults();
 
 		}
 
@@ -893,8 +893,8 @@ export class PathTracerApp extends EventDispatcher {
 		this._lastRenderHeight = renderHeight;
 
 		this.pipeline?.setSize( renderWidth, renderHeight );
-		this.denoiseManager?.denoiser?.setSize( renderWidth, renderHeight );
-		this.denoiseManager?.upscaler?.setBaseSize( renderWidth, renderHeight );
+		this.denoisingManager?.denoiser?.setSize( renderWidth, renderHeight );
+		this.denoisingManager?.upscaler?.setBaseSize( renderWidth, renderHeight );
 		this.needsReset = true;
 
 		this.dispatchEvent( { type: 'resolution_changed', width: renderWidth, height: renderHeight } );
@@ -941,7 +941,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.pauseRendering = true;
 			this._controls.enabled = false;
 			this.renderer?.domElement && ( this.renderer.domElement.style.display = 'none' );
-			this.denoiseManager?.denoiser?.output && ( this.denoiseManager.denoiser.output.style.display = 'none' );
+			this.denoisingManager?.denoiser?.output && ( this.denoisingManager.denoiser.output.style.display = 'none' );
 			return;
 
 		}
@@ -962,9 +962,9 @@ export class PathTracerApp extends EventDispatcher {
 		this.setRenderMode( config.renderMode );
 		this.setTileCount( config.tiles );
 		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = config.tilesHelper;
-		this.stages.pathTracing?.updateCompletionThreshold?.();
+		this.stages.pathTracer?.updateCompletionThreshold?.();
 
-		const denoiser = this.denoiseManager?.denoiser;
+		const denoiser = this.denoisingManager?.denoiser;
 		if ( denoiser ) {
 
 			denoiser.abort();
@@ -973,7 +973,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.denoiseManager?.upscaler?.abort();
+		this.denoisingManager?.upscaler?.abort();
 
 		if ( options.canvasWidth && options.canvasHeight ) {
 
@@ -982,7 +982,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this.renderer?.domElement && ( this.renderer.domElement.style.display = 'block' );
-		this.denoiseManager?.denoiser?.output && ( this.denoiseManager.denoiser.output.style.display = 'block' );
+		this.denoisingManager?.denoiser?.output && ( this.denoisingManager.denoiser.output.style.display = 'block' );
 
 		this.needsReset = false;
 		this.pauseRendering = false;
@@ -1062,28 +1062,28 @@ export class PathTracerApp extends EventDispatcher {
 
 	setDenoiserStrategy( strategy, asvgfPreset ) {
 
-		this.denoiseManager.setDenoiserStrategy( strategy, asvgfPreset );
+		this.denoisingManager.setDenoiserStrategy( strategy, asvgfPreset );
 		this.reset();
 
 	}
 
 	setASVGFEnabled( enabled, qualityPreset ) {
 
-		this.denoiseManager.setASVGFEnabled( enabled, qualityPreset );
+		this.denoisingManager.setASVGFEnabled( enabled, qualityPreset );
 		this.reset();
 
 	}
 
 	applyASVGFPreset( presetName ) {
 
-		this.denoiseManager.applyASVGFPreset( presetName );
+		this.denoisingManager.applyASVGFPreset( presetName );
 		this.reset();
 
 	}
 
 	setAutoExposureEnabled( enabled ) {
 
-		this.denoiseManager.setAutoExposureEnabled( enabled, this.settings.get( 'exposure' ) );
+		this.denoisingManager.setAutoExposureEnabled( enabled, this.settings.get( 'exposure' ) );
 		this.reset();
 
 	}
@@ -1091,7 +1091,7 @@ export class PathTracerApp extends EventDispatcher {
 	setAdaptiveSamplingEnabled( enabled ) {
 
 		this.settings.set( 'useAdaptiveSampling', enabled );
-		this.denoiseManager.setAdaptiveSamplingEnabled( enabled );
+		this.denoisingManager.setAdaptiveSamplingEnabled( enabled );
 
 	}
 
@@ -1152,13 +1152,13 @@ export class PathTracerApp extends EventDispatcher {
 
 	getEnvParams() {
 
-		return this.stages.pathTracing?.environment?.envParams ?? null;
+		return this.stages.pathTracer?.environment?.envParams ?? null;
 
 	}
 
 	getEnvironmentTexture() {
 
-		return this.stages.pathTracing?.environment?.environmentTexture ?? null;
+		return this.stages.pathTracer?.environment?.environmentTexture ?? null;
 
 	}
 
@@ -1170,39 +1170,39 @@ export class PathTracerApp extends EventDispatcher {
 
 	async generateProceduralSkyTexture() {
 
-		return this.stages.pathTracing?.environment.generateProceduralSkyTexture();
+		return this.stages.pathTracer?.environment.generateProceduralSkyTexture();
 
 	}
 
 	async generateGradientTexture() {
 
-		return this.stages.pathTracing?.environment.generateGradientTexture();
+		return this.stages.pathTracer?.environment.generateGradientTexture();
 
 	}
 
 	async generateSolidColorTexture() {
 
-		return this.stages.pathTracing?.environment.generateSolidColorTexture();
+		return this.stages.pathTracer?.environment.generateSolidColorTexture();
 
 	}
 
 	async setEnvironmentMap( texture ) {
 
-		if ( ! this.stages.pathTracing ) {
+		if ( ! this.stages.pathTracer ) {
 
-			console.warn( 'PathTracerApp: PathTracingStage not initialized' );
+			console.warn( 'PathTracerApp: PathTracer not initialized' );
 			return;
 
 		}
 
-		await this.stages.pathTracing.environment.setEnvironmentMap( texture );
+		await this.stages.pathTracer.environment.setEnvironmentMap( texture );
 		this.reset();
 
 	}
 
 	markEnvironmentNeedsUpdate() {
 
-		const tex = this.stages.pathTracing?.environment?.environmentTexture;
+		const tex = this.stages.pathTracer?.environment?.environmentTexture;
 		if ( tex ) tex.needsUpdate = true;
 
 	}
@@ -1257,13 +1257,13 @@ export class PathTracerApp extends EventDispatcher {
 
 	isComplete() {
 
-		return this.stages.pathTracing?.isComplete ?? false;
+		return this.stages.pathTracer?.isComplete ?? false;
 
 	}
 
 	getFrameCount() {
 
-		return this.stages.pathTracing?.frameCount || 0;
+		return this.stages.pathTracer?.frameCount || 0;
 
 	}
 
@@ -1304,11 +1304,11 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( ! this.renderer?.domElement ) return null;
 
-		const denoiser = this.denoiseManager?.denoiser;
-		const upscaler = this.denoiseManager?.upscaler;
+		const denoiser = this.denoisingManager?.denoiser;
+		const upscaler = this.denoisingManager?.upscaler;
 		const usePostProcess = ( denoiser?.enabled || upscaler?.enabled )
 			&& this.denoiserCanvas
-			&& this.stages.pathTracing?.isComplete;
+			&& this.stages.pathTracer?.isComplete;
 
 		if ( usePostProcess ) return this.denoiserCanvas;
 
@@ -1387,28 +1387,28 @@ export class PathTracerApp extends EventDispatcher {
 	}
 	setAccumulationEnabled( val ) {
 
-		this.stages.pathTracing?.setAccumulationEnabled( val );
+		this.stages.pathTracer?.setAccumulationEnabled( val );
 
 	}
 	setRenderMode( mode ) {
 
-		this.stages.pathTracing?.setUniform( 'renderMode', parseInt( mode ) );
+		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( mode ) );
 
 	}
 	setTileCount( val ) {
 
-		this.stages.pathTracing?.tileManager?.setTileCount( val );
+		this.stages.pathTracer?.tileManager?.setTileCount( val );
 
 	}
 	setInteractionModeEnabled( val ) {
 
-		this.stages.pathTracing?.setInteractionModeEnabled( val );
+		this.stages.pathTracer?.setInteractionModeEnabled( val );
 
 	}
 
 	setAdaptiveSamplingParameters( params ) {
 
-		if ( params.min !== undefined ) this.stages.pathTracing?.setAdaptiveSamplingMin( params.min );
+		if ( params.min !== undefined ) this.stages.pathTracer?.setAdaptiveSamplingMin( params.min );
 		if ( params.adaptiveSamplingMax !== undefined ) this.settings.set( 'adaptiveSamplingMax', params.adaptiveSamplingMax );
 		this.stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
 
@@ -1416,12 +1416,12 @@ export class PathTracerApp extends EventDispatcher {
 
 	updateMaterialProperty( materialIndex, property, value ) {
 
-		this.stages.pathTracing?.materialData.updateMaterialProperty( materialIndex, property, value );
+		this.stages.pathTracer?.materialData.updateMaterialProperty( materialIndex, property, value );
 
 		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity', 'visible' ];
 		if ( emissiveAffectingProps.includes( property )
 			&& this._sdf?.emissiveTriangleBuilder
-			&& this.stages.pathTracing?.enableEmissiveTriangleSampling?.value ) {
+			&& this.stages.pathTracer?.enableEmissiveTriangleSampling?.value ) {
 
 			const mat = this._sdf.materials[ materialIndex ];
 			if ( mat ) {
@@ -1438,7 +1438,7 @@ export class PathTracerApp extends EventDispatcher {
 				if ( changed ) {
 
 					const emissiveRawData = this._sdf.emissiveTriangleBuilder.createEmissiveRawData();
-					this.stages.pathTracing.setEmissiveTriangleData(
+					this.stages.pathTracer.setEmissiveTriangleData(
 						emissiveRawData,
 						this._sdf.emissiveTriangleBuilder.emissiveCount,
 						this._sdf.emissiveTriangleBuilder.totalEmissivePower,
@@ -1456,7 +1456,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	updateTextureTransform( materialIndex, textureName, transform ) {
 
-		this.stages.pathTracing?.materialData.updateTextureTransform( materialIndex, textureName, transform );
+		this.stages.pathTracer?.materialData.updateTextureTransform( materialIndex, textureName, transform );
 		this.reset();
 
 	}
@@ -1469,13 +1469,13 @@ export class PathTracerApp extends EventDispatcher {
 
 	updateMaterial( materialIndex, material ) {
 
-		this.stages.pathTracing?.materialData.updateMaterial( materialIndex, material );
+		this.stages.pathTracer?.materialData.updateMaterial( materialIndex, material );
 
 	}
 
 	async rebuildMaterials( scene ) {
 
-		await this.stages.pathTracing?.rebuildMaterials( scene || this.meshScene );
+		await this.stages.pathTracer?.rebuildMaterials( scene || this.meshScene );
 
 	}
 
@@ -1508,8 +1508,8 @@ export class PathTracerApp extends EventDispatcher {
 		if ( ! this.stages.asvgf ) return;
 
 		this.stages.asvgf.enabled = config.enabled;
-		if ( this.stages.varianceEstimation ) this.stages.varianceEstimation.enabled = config.enabled;
-		if ( this.stages.bilateralFiltering ) this.stages.bilateralFiltering.enabled = config.enabled;
+		if ( this.stages.variance ) this.stages.variance.enabled = config.enabled;
+		if ( this.stages.bilateralFilter ) this.stages.bilateralFilter.enabled = config.enabled;
 
 		if ( config.enabled ) {
 
@@ -1533,7 +1533,7 @@ export class PathTracerApp extends EventDispatcher {
 	/** Updates EdgeAware filtering uniforms (pixelEdgeSharpness, edgeSharpenSpeed, edgeThreshold) */
 	updateEdgeAwareUniforms( params ) {
 
-		this.stages.edgeAwareFiltering?.updateUniforms( params );
+		this.stages.edgeFilter?.updateUniforms( params );
 
 	}
 
@@ -1597,20 +1597,20 @@ export class PathTracerApp extends EventDispatcher {
 
 	setOIDNEnabled( enabled ) {
 
-		const d = this.denoiseManager?.denoiser;
+		const d = this.denoisingManager?.denoiser;
 		if ( d ) d.enabled = enabled;
 
 	}
 
 	updateOIDNQuality( quality ) {
 
-		this.denoiseManager?.denoiser?.updateQuality( quality );
+		this.denoisingManager?.denoiser?.updateQuality( quality );
 
 	}
 
 	setOIDNTileHelper( enabled ) {
 
-		const d = this.denoiseManager?.denoiser;
+		const d = this.denoisingManager?.denoiser;
 		if ( d ) d.showTileHelper = enabled;
 
 	}
@@ -1619,20 +1619,20 @@ export class PathTracerApp extends EventDispatcher {
 
 	setUpscalerEnabled( enabled ) {
 
-		const u = this.denoiseManager?.upscaler;
+		const u = this.denoisingManager?.upscaler;
 		if ( u ) u.enabled = enabled;
 
 	}
 
 	setUpscalerScaleFactor( factor ) {
 
-		this.denoiseManager?.upscaler?.setScaleFactor( factor );
+		this.denoisingManager?.upscaler?.setScaleFactor( factor );
 
 	}
 
 	setUpscalerQuality( quality ) {
 
-		this.denoiseManager?.upscaler?.setQuality( quality );
+		this.denoisingManager?.upscaler?.setQuality( quality );
 
 	}
 
@@ -1645,24 +1645,24 @@ export class PathTracerApp extends EventDispatcher {
 		const adaptiveSamplingMax = this.settings.get( 'adaptiveSamplingMax' );
 		const useAdaptiveSampling = this.settings.get( 'useAdaptiveSampling' );
 
-		this.stages.pathTracing = new PathTracingStage( this.renderer, this.scene, this._camera );
-		this.stages.normalDepth = new NormalDepthStage( this.renderer, {
-			pathTracingStage: this.stages.pathTracing
+		this.stages.pathTracer = new PathTracer( this.renderer, this.scene, this._camera );
+		this.stages.normalDepth = new NormalDepth( this.renderer, {
+			pathTracer: this.stages.pathTracer
 		} );
-		this.stages.motionVector = new MotionVectorStage( this.renderer, this._camera, {
-			pathTracingStage: this.stages.pathTracing
+		this.stages.motionVector = new MotionVector( this.renderer, this._camera, {
+			pathTracer: this.stages.pathTracer
 		} );
-		this.stages.ssrc = new SSRCStage( this.renderer, { enabled: false } );
-		this.stages.asvgf = new ASVGFStage( this.renderer, { enabled: false } );
-		this.stages.varianceEstimation = new VarianceEstimationStage( this.renderer, { enabled: false } );
-		this.stages.bilateralFiltering = new BilateralFilteringStage( this.renderer, { enabled: false } );
-		this.stages.adaptiveSampling = new AdaptiveSamplingStage( this.renderer, {
+		this.stages.ssrc = new SSRC( this.renderer, { enabled: false } );
+		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
+		this.stages.variance = new Variance( this.renderer, { enabled: false } );
+		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
+		this.stages.adaptiveSampling = new AdaptiveSampling( this.renderer, {
 			adaptiveSamplingMax,
 			enabled: useAdaptiveSampling,
 		} );
-		this.stages.edgeAwareFiltering = new EdgeAwareFilteringStage( this.renderer, { enabled: false } );
-		this.stages.autoExposure = new AutoExposureStage( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
-		this.stages.tileHighlight = new TileHighlightStage( this.renderer, { enabled: false } );
+		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
+		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
+		this.stages.tileHighlight = new TileHighlight( this.renderer, { enabled: false } );
 
 		// Outline effect
 		const outlineScene = this.meshScene;
@@ -1692,7 +1692,7 @@ export class PathTracerApp extends EventDispatcher {
 			.add( hiddenEdge.mul( hiddenEdgeColor ) )
 			.mul( edgeStrength );
 
-		this.stages.display = new DisplayStage( this.renderer, {
+		this.stages.display = new Display( this.renderer, {
 			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
 			saturation: this.settings.get( 'saturation' ) ?? DEFAULT_STATE.saturation,
 			outlineColorNode
@@ -1700,20 +1700,20 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
-	_setupDenoiseManager() {
+	_setupDenoisingManager() {
 
-		this.denoiseManager = new DenoiseManager( {
+		this.denoisingManager = new DenoisingManager( {
 			renderer: this.renderer,
 			denoiserCanvas: this.denoiserCanvas,
 			scene: this.scene,
 			camera: this._camera,
 			stages: {
-				pathTracing: this.stages.pathTracing,
+				pathTracer: this.stages.pathTracer,
 				asvgf: this.stages.asvgf,
-				varianceEstimation: this.stages.varianceEstimation,
-				bilateralFiltering: this.stages.bilateralFiltering,
+				variance: this.stages.variance,
+				bilateralFilter: this.stages.bilateralFilter,
 				adaptiveSampling: this.stages.adaptiveSampling,
-				edgeAwareFiltering: this.stages.edgeAwareFiltering,
+				edgeFilter: this.stages.edgeFilter,
 				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
 				display: this.stages.display,
@@ -1725,8 +1725,8 @@ export class PathTracerApp extends EventDispatcher {
 			getTransparentBg: () => this.settings.get( 'transparentBackground' ) ?? false,
 		} );
 
-		this.denoiseManager.setupDenoiser();
-		this.denoiseManager.setupUpscaler();
+		this.denoisingManager.setupDenoiser();
+		this.denoisingManager.setupUpscaler();
 
 	}
 
@@ -1740,7 +1740,7 @@ export class PathTracerApp extends EventDispatcher {
 
 			handleTransparentBackground: ( value ) => {
 
-				this.stages.pathTracing?.setUniform( 'transparentBackground', value );
+				this.stages.pathTracer?.setUniform( 'transparentBackground', value );
 				this.stages.display?.setTransparentBackground( value );
 
 			},
@@ -1763,9 +1763,9 @@ export class PathTracerApp extends EventDispatcher {
 
 			handleRenderLimitMode: ( value ) => {
 
-				if ( this.stages.pathTracing?.setRenderLimitMode ) {
+				if ( this.stages.pathTracer?.setRenderLimitMode ) {
 
-					this.stages.pathTracing.setRenderLimitMode( value );
+					this.stages.pathTracer.setRenderLimitMode( value );
 
 				}
 
@@ -1773,8 +1773,8 @@ export class PathTracerApp extends EventDispatcher {
 
 			handleMaxSamples: ( value ) => {
 
-				this.stages.pathTracing?.setUniform( 'maxSamples', value );
-				this.stages.pathTracing?.updateCompletionThreshold();
+				this.stages.pathTracer?.setUniform( 'maxSamples', value );
+				this.stages.pathTracer?.updateCompletionThreshold();
 				this._reconcileCompletion();
 
 			},
@@ -1787,13 +1787,13 @@ export class PathTracerApp extends EventDispatcher {
 
 			handleRenderMode: ( value ) => {
 
-				this.stages.pathTracing?.setUniform( 'renderMode', parseInt( value ) );
+				this.stages.pathTracer?.setUniform( 'renderMode', parseInt( value ) );
 
 			},
 
 			handleEnvironmentRotation: ( value ) => {
 
-				this.stages.pathTracing?.environment.setEnvironmentRotation( value );
+				this.stages.pathTracer?.environment.setEnvironmentRotation( value );
 
 			},
 
@@ -1803,7 +1803,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	_reconcileCompletion() {
 
-		const stage = this.stages.pathTracing;
+		const stage = this.stages.pathTracer;
 		if ( ! stage ) return;
 
 		const shouldBeComplete = this._isRenderLimitReached();
@@ -1822,7 +1822,7 @@ export class PathTracerApp extends EventDispatcher {
 			this.lastResetTime = performance.now() - this.timeElapsed * 1000;
 
 			this.canvas.style.opacity = '1';
-			const denoiserOutput = this.denoiseManager?.denoiser?.output;
+			const denoiserOutput = this.denoisingManager?.denoiser?.output;
 			if ( denoiserOutput ) denoiserOutput.style.display = 'none';
 
 			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
@@ -1836,7 +1836,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	_isRenderLimitReached() {
 
-		const stage = this.stages.pathTracing;
+		const stage = this.stages.pathTracer;
 		if ( ! stage ) return false;
 
 		if ( this.settings.get( 'renderLimitMode' ) === 'time' ) {
