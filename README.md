@@ -186,7 +186,6 @@ The application follows an event-driven stage-based architecture:
 │       │   ├── MotionVector.js          # Motion vector computation
 │       │   ├── Variance.js
 │       │   ├── AutoExposure.js
-│       │   ├── TileHighlight.js
 │       │   └── Display.js              # Final composition
 │       ├── TSL/                 # TSL shader modules (23 files)
 │       │   ├── PathTracer.js        # Main path tracer logic
@@ -234,8 +233,9 @@ Stages execute sequentially, communicating via an event bus:
 7. **BilateralFilter** — Edge-preserving bilateral filter
 8. **EdgeFilter** — Temporal filtering with edge preservation
 9. **AutoExposure** — Automatic exposure adjustment
-10. **TileHighlight** — Visual feedback for progressive tile rendering
-11. **Display** — Final composition and output
+10. **Display** — Final composition and output
+
+Tile visualization is handled by the **OverlayManager** (2D canvas overlay), not a pipeline stage.
 
 ### Debug Visualizations
 

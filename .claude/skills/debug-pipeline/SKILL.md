@@ -20,11 +20,10 @@ Ask the user (if not already clear) which symptom they see:
 
 ## Step 2: Check the Display Fallback Chain
 The Display stage picks the first available texture from this priority list:
-1. `tileHighlight:output`
-2. `bloom:output`
-3. `edgeFiltering:output`
-4. `asvgf:output`
-5. `pathtracer:color`
+1. `bloom:output`
+2. `edgeFiltering:output`
+3. `asvgf:output`
+4. `pathtracer:color`
 
 **If a higher-priority stage is enabled but outputting black/wrong data, it overrides the correct output.**
 

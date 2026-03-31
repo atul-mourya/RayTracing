@@ -49,7 +49,7 @@ const BVH_VEC4_PER_NODE = 4;
  * Events emitted:
  * - pathtracer:frameComplete - When a frame finishes rendering
  * - camera:moved - When camera position/orientation changes
- * - tile:changed - When current tile changes (for TileHighlight)
+ * - tile:changed - When current tile changes (for OverlayManager TileHelper)
  * - asvgf:reset - Request ASVGF to reset temporal data
  * - asvgf:updateParameters - Update ASVGF parameters
  * - asvgf:setTemporal - Enable/disable ASVGF temporal accumulation

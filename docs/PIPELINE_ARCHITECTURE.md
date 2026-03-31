@@ -41,7 +41,6 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │ ├─AdaptiveSampling    │
                               │ ├─EdgeFilter          │
                               │ ├─AutoExposure        │
-                              │ ├─TileHighlight       │
                               │ └─Display             │
                               │ managers/             │
                               │  ├─CameraManager      │
@@ -175,11 +174,9 @@ this.emit('tile:changed', {
     renderMode: 1
 });
 
-// TileHighlight listens
-this.on('tile:changed', (data) => {
-    this.setCurrentTileBounds(data.tileBounds);
-    this.uniforms.tileIndex.value = data.tileIndex;
-});
+// OverlayManager's TileHelper listens (via PathTracerApp wiring)
+// tileHelper.setActiveTile(data.tileBounds);
+// tileHelper.show();
 ```
 
 ---
@@ -203,8 +200,6 @@ pipeline.addStage(pathTracerStage);
 pipeline.addStage(asvgfStage);
 pipeline.addStage(adaptiveSamplingStage);
 pipeline.addStage(edgeFilteringStage);
-pipeline.addStage(tileHighlightStage);
-
 // Render all enabled stages
 pipeline.render(writeBuffer);
 
@@ -245,7 +240,7 @@ export const StageExecutionMode = {
 
 | Mode | Use Case | Example Stages |
 |------|----------|---------------|
-| `ALWAYS` | Accumulator stages, real-time feedback | PathTracer, TileHighlight |
+| `ALWAYS` | Accumulator stages, real-time feedback | PathTracer |
 | `PER_CYCLE` | Post-processing, denoisers, filters | ASVGF, EdgeFilter, AdaptiveSampling |
 | `PER_TILE` | Per-tile analysis (future use) | - |
 | `CONDITIONAL` | Complex custom logic | - |
@@ -501,28 +496,9 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 
 ---
 
-### TileHighlight
+### Tile Visualization (OverlayManager)
 
-**Purpose:** Visualize tile boundaries during tiled rendering
-**Execution Mode:** `ALWAYS` - Provides real-time visual feedback
-
-**Input:**
-- `edgeFiltering:output` OR
-- `asvgf:output` OR
-- `pathtracer:color` (priority order)
-
-**Output:** Final composited image with tile borders
-
-**Key Features:**
-- Red border visualization
-- Only active in tiled rendering mode
-- Configurable border width
-- Coordinate space transformation
-
-**Events Listened:**
-- `tile:changed` - Update tile bounds
-
-**Rationale:** Must run every frame to show which tile is currently being rendered.
+Tile visualization is handled outside the GPU pipeline by `OverlayManager` + `TileHelper`, rendering on a 2D canvas overlay. This avoids GPU overhead and ensures tile borders are never baked into saved images. The `tile:changed` event drives the overlay via PathTracerApp wiring.
 
 ---
 
@@ -549,9 +525,7 @@ All stages execute every frame:
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'edgeFiltering:output' to context
 
-5. TileHighlight.render() [ALWAYS] ✅ Executes
-   ↓ reads last filter output
-   ↓ writes to writeBuffer → EffectComposer → Screen
+5. Display.render() → Screen (with exposure + outline compositing)
 ```
 
 ### Tile Rendering - Intermediate Tile (renderMode=1, tiles 1-15 of 16)
@@ -573,9 +547,7 @@ Post-processing stages skip intermediate tiles:
 4. EdgeFilter.render() [PER_CYCLE] ⏭️ SKIPPED
    (Temporal filtering needs complete frame data)
 
-5. TileHighlight.render() [ALWAYS] ✅ Executes
-   ↓ draws border around current tile
-   ↓ writes to writeBuffer → EffectComposer → Screen
+   (Tile overlay rendered separately by OverlayManager on 2D canvas)
 ```
 
 ### Tile Rendering - Cycle Complete (renderMode=1, tile 16 of 16)
@@ -599,15 +571,11 @@ All stages execute when cycle completes:
 4. EdgeFilter.render() [PER_CYCLE] ✅ Executes
    ↓ filters complete frame
    ↓ writes 'edgeFiltering:output' to context
-
-5. TileHighlight.render() [ALWAYS] ✅ Executes
-   ↓ draws final composited result
-   ↓ writes to writeBuffer → EffectComposer → Screen
 ```
 
 **Performance Impact:**
 - Progressive mode: All stages every frame (standard overhead)
-- Tile mode intermediate: Only PathTracer + TileHighlight (reduced overhead)
+- Tile mode intermediate: Only PathTracer executes (reduced overhead)
 - Tile mode complete: All stages (standard overhead, but less frequent)
 
 ### Pipeline Integration
@@ -615,7 +583,7 @@ All stages execute when cycle completes:
 ```
 RenderPipeline.render(writeBuffer)
     ↓ executes stages sequentially
-[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → AdaptiveSampling → EdgeFilter → AutoExposure → TileHighlight → Display]
+[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → AdaptiveSampling → EdgeFilter → AutoExposure → Display]
     ↓
 Display → Screen (with exposure + outline compositing)
 ```
@@ -628,12 +596,12 @@ Display → Screen (with exposure + outline compositing)
 
 | Texture Key | Producer | Consumers | Description |
 |-------------|----------|-----------|-------------|
-| `pathtracer:color` | PathTracer | ASVGF, EdgeFilter, TileHighlight | Accumulated path traced color |
+| `pathtracer:color` | PathTracer | ASVGF, EdgeFilter, Display | Accumulated path traced color |
 | `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, AdaptiveSampling | G-buffer: normals + depth |
-| `asvgf:output` | ASVGF | TileHighlight | Denoised color |
+| `asvgf:output` | ASVGF | Display | Denoised color |
 | `asvgf:variance` | ASVGF | AdaptiveSampling | Variance map |
 | `asvgf:temporalColor` | ASVGF | - | Temporal accumulation |
-| `edgeFiltering:output` | EdgeFilter | TileHighlight | Filtered color |
+| `edgeFiltering:output` | EdgeFilter | Display | Filtered color |
 | `adaptiveSampling:output` | AdaptiveSampling | - | Sample mask |
 | `adaptiveSampling:heatmap` | AdaptiveSampling | - | Heatmap visualization |
 
@@ -736,7 +704,6 @@ const myStage = new MyCustomStage(this.renderer, {
 this.pipeline.addStage(pathTracer);
 this.pipeline.addStage(asvgf);
 this.pipeline.addStage(myStage);  // ← Add here
-this.pipeline.addStage(tileHighlight);
 this.pipeline.addStage(display);
 ```
 

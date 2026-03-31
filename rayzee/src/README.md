@@ -154,7 +154,7 @@ For fine-grained control over individual pipeline stages:
 | `updateEdgeAwareUniforms(params)` | Update edge-aware filter uniforms |
 | `updateAutoExposureParameters(params)` | Update auto-exposure params |
 | `updateAdaptiveSamplingParameters(params)` | Update adaptive sampling params |
-| `setTileHighlightEnabled(bool)` | Toggle tile highlight overlay |
+| `setTileHelperEnabled(bool)` | Toggle tile highlight overlay (2D canvas, never baked into renders) |
 
 ### OIDN & AI Upscaler
 
@@ -198,7 +198,7 @@ For fine-grained control over individual pipeline stages:
 
 ### Direct Stage Access
 
-For advanced consumers, all 12 pipeline stages are accessible via `engine.stages`:
+For advanced consumers, all pipeline stages are accessible via `engine.stages`:
 
 ```js
 engine.stages.pathTracer      // PathTracer
@@ -210,9 +210,9 @@ engine.stages.bilateralFilter
 engine.stages.adaptiveSampling
 engine.stages.edgeFilter
 engine.stages.autoExposure
-engine.stages.tileHighlight
 engine.stages.ssrc
 engine.stages.display         // Display
+engine.overlayManager         // OverlayManager (tile helper, scene helpers)
 ```
 
 ## Events

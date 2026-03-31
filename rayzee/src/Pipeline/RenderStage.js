@@ -6,7 +6,7 @@
 export const StageExecutionMode = {
 	/**
 	 * ALWAYS - Execute every frame regardless of tile state
-	 * Use for: Accumulator stages (PathTracer), visualization overlays (TileHighlight)
+	 * Use for: Accumulator stages (PathTracer), visualization overlays
 	 */
 	ALWAYS: 'always',
 

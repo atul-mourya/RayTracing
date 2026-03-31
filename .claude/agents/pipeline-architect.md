@@ -20,7 +20,7 @@ You are a rendering pipeline architect for the Rayzee real-time path tracer. You
 2. **ASVGF** — Real-time spatiotemporal denoising
 3. **AdaptiveSampling** — Variance-guided sample distribution
 4. **EdgeFilter** — Temporal filtering with edge preservation
-5. **TileHighlight** — Visual feedback for progressive tile rendering
+5. **OverlayManager** — Tile visualization via 2D canvas overlay (not a pipeline stage)
 
 ### PathTracer Sub-Managers (composition pattern)
 - `UniformManager` — ~60 TSL uniform nodes, `get(name)`, `set(name, value)`
@@ -56,7 +56,7 @@ When evaluating changes:
 
 2. **Context Cleanup** — When enabling/disabling stages, stale textures in PipelineContext can cause wrong textures in downstream stages (especially Display fallback chain). Verify cleanup.
 
-3. **Display Fallback Chain** — Priority: `tileHighlight > bloom > edgeFiltering > asvgf > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
+3. **Display Fallback Chain** — Priority: `bloom > edgeFiltering > asvgf > ssrc > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
 
 4. **Denoiser Coordination** — ASVGF (real-time) vs OIDN (final quality) must never run simultaneously. EdgeAware filtering disabled when ASVGF enabled.
 

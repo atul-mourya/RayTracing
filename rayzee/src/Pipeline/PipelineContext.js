@@ -67,8 +67,6 @@ export class PipelineContext {
 			enableASVGF: false,
 			enableAdaptiveSampling: false,
 			enableEdgeFiltering: false,
-			enableTileHighlight: false,
-
 			// Can be extended by stages as needed
 		};
 
