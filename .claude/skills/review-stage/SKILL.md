@@ -10,12 +10,12 @@ allowed-tools: Read, Glob, Grep
 You are reviewing a rendering pipeline stage in the Rayzee path tracer. The user will specify which stage to review (or you should ask).
 
 ## Stage Location
-Stages live in `src/core/Stages/`. Find the file matching the user's input.
+Stages live in `rayzee/src/Stages/`. Find the file matching the user's input.
 
 ## Review Checklist
 
 ### 1. Base Class Compliance
-- [ ] Extends `PipelineStage` from `src/core/Pipeline/PipelineStage.js`
+- [ ] Extends `RenderStage` from `rayzee/src/Pipeline/RenderStage.js`
 - [ ] Implements required lifecycle methods: `setup()`, `render()`, `dispose()`
 - [ ] Calls `super()` with appropriate config (name, enabled state)
 - [ ] Has proper `dispose()` that cleans up all GPU resources (render targets, textures, materials)

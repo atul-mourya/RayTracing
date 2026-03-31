@@ -16,7 +16,7 @@ import {
  *
  * Event-driven architecture with clean separation from main app
  */
-class InteractionManager extends EventDispatcher {
+export class InteractionManager extends EventDispatcher {
 
 	constructor( { scene, camera, canvas, assetLoader, pathTracingStage, floorPlane } ) {
 
@@ -650,4 +650,3 @@ class InteractionManager extends EventDispatcher {
 
 }
 
-export default InteractionManager;

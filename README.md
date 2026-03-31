@@ -166,10 +166,14 @@ The application follows an event-driven stage-based architecture:
 │   └── src/
 │       ├── index.js             # Public API
 │       ├── PathTracerApp.js     # Main application class
-│       ├── InteractionManager.js
+│       ├── managers/            # Focused manager classes
+│       │   ├── CameraManager.js     # Camera switching, auto-focus, DOF
+│       │   ├── LightManager.js      # Light CRUD, helpers, GPU transfer
+│       │   ├── DenoiseManager.js    # Denoiser strategy, OIDN, upscaler
+│       │   └── InteractionManager.js# Click-to-select, focus picking
 │       ├── Pipeline/            # Stage pipeline infrastructure
-│       │   ├── PassPipeline.js      # Stage execution orchestrator
-│       │   ├── PipelineStage.js     # Base class for stages
+│       │   ├── RenderPipeline.js    # Stage execution orchestrator
+│       │   ├── RenderStage.js       # Base class for stages
 │       │   ├── PipelineContext.js   # Shared state & textures
 │       │   └── EventDispatcher.js   # Event bus for stage communication
 │       ├── Stages/              # Rendering pipeline stages

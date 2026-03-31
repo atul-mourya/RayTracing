@@ -7,7 +7,7 @@ WebGPU path tracing engine. Framework-agnostic — works with React, Vue, Svelte
 ```html
 <canvas id="c" width="512" height="512"></canvas>
 <script type="module">
-import { PathTracerApp } from './src/core/index.js';
+import { PathTracerApp } from 'rayzee';
 
 const engine = new PathTracerApp(document.getElementById('c'));
 await engine.init();
@@ -268,7 +268,7 @@ import {
   RenderStage,
   StageExecutionMode,
   PipelineContext,
-} from './src/core/index.js';
+} from 'rayzee';
 ```
 
 ## React Integration

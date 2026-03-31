@@ -26,13 +26,13 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │    PathTracerApp      │
                               │    (WebGPU Renderer)  │
                               ├───────────────────────┤
-                              │ PassPipeline          │
+                              │ RenderPipeline          │
                               │ ├─PathTracingStage    │
                               │ │ ├─UniformManager    │
                               │ │ ├─MaterialDataMgr   │
                               │ │ ├─EnvironmentMgr    │
                               │ │ ├─ShaderComposer    │
-                              │ │ └─RenderTargetPool  │
+                              │ │ └─StorageTexturePool  │
                               │ ├─NormalDepthStage    │
                               │ ├─MotionVectorStage   │
                               │ ├─ASVGFStage          │
@@ -43,17 +43,21 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │ ├─AutoExposureStage   │
                               │ ├─TileHighlightStage  │
                               │ └─DisplayStage        │
-                              │ InteractionManager    │
+                              │ managers/             │
+                              │  ├─CameraManager      │
+                              │  ├─LightManager       │
+                              │  ├─DenoiseManager     │
+                              │  └─InteractionManager  │
                               │ OIDNDenoiser          │
                               └───────────────────────┘
 ```
 
-### App Proxy (`rayzee/src/appProxy.js`)
+### App Proxy (`app/src/lib/appProxy.js`)
 
 All UI/store code accesses the app via `getApp()`:
 
 ```javascript
-import { getApp, subscribeApp } from '@/core/appProxy';
+import { getApp, subscribeApp } from '@/lib/appProxy';
 
 const app = getApp();  // Returns app instance or null
 if (app) app.setMaxBounces(8);
@@ -130,7 +134,7 @@ context.reset();
 
 **Example:**
 ```javascript
-// PathTracerStage publishes its output
+// PathTracingStage publishes its output
 context.setTexture('pathtracer:color', this.colorTarget.texture);
 context.setTexture('pathtracer:normalDepth', this.normalDepthTarget.texture);
 
@@ -164,7 +168,7 @@ Event-driven communication between stages.
 
 **Example:**
 ```javascript
-// PathTracerStage emits tile change
+// PathTracingStage emits tile change
 this.emit('tile:changed', {
     tileIndex: 0,
     tileBounds: { x, y, width, height },
@@ -180,7 +184,7 @@ this.on('tile:changed', (data) => {
 
 ---
 
-### 3. PassPipeline
+### 3. RenderPipeline
 
 Orchestrates stage execution.
 
@@ -192,7 +196,7 @@ Orchestrates stage execution.
 
 **Usage:**
 ```javascript
-const pipeline = new PassPipeline(renderer, width, height);
+const pipeline = new RenderPipeline(renderer, width, height);
 
 // Add stages in execution order
 pipeline.addStage(pathTracerStage);
@@ -212,7 +216,7 @@ pipeline.dispose();
 
 ---
 
-### 4. PipelineStage (Base Class)
+### 4. RenderStage (Base Class)
 
 Base class for all stages.
 
@@ -241,7 +245,7 @@ export const StageExecutionMode = {
 
 | Mode | Use Case | Example Stages |
 |------|----------|---------------|
-| `ALWAYS` | Accumulator stages, real-time feedback | PathTracerStage, TileHighlightStage |
+| `ALWAYS` | Accumulator stages, real-time feedback | PathTracingStage, TileHighlightStage |
 | `PER_CYCLE` | Post-processing, denoisers, filters | ASVGFStage, EdgeAwareFilteringStage, AdaptiveSamplingStage |
 | `PER_TILE` | Per-tile analysis (future use) | - |
 | `CONDITIONAL` | Complex custom logic | - |
@@ -255,7 +259,7 @@ During tile rendering, intermediate tiles contain incomplete frame data. Post-pr
 
 **Example:**
 ```javascript
-export class MyDenoiserStage extends PipelineStage {
+export class MyDenoiserStage extends RenderStage {
     constructor(options = {}) {
         super('MyDenoiser', {
             ...options,
@@ -272,7 +276,7 @@ export class MyDenoiserStage extends PipelineStage {
 
 **Key Methods to Override:**
 ```javascript
-class MyStage extends PipelineStage {
+class MyStage extends RenderStage {
 
     // Required: Render this stage
     render(context, writeBuffer) {
@@ -331,7 +335,7 @@ this.disable();
 
 ## Stage Descriptions
 
-### PathTracerStage
+### PathTracingStage
 
 **Purpose:** Core ray tracing renderer
 **Execution Mode:** `ALWAYS` - Must accumulate samples every frame
@@ -361,7 +365,7 @@ PathTracingStage
   ├── materialData: MaterialDataManager  (~530 lines)
   ├── environment: EnvironmentManager    (~470 lines)
   ├── shaderComposer: ShaderComposer     (~400 lines)
-  └── renderTargets: RenderTargetPool    (~100 lines)
+  └── storageTextures: StorageTexturePool   (~100 lines)
 ```
 
 PathTracingStage keeps: constructor, `render()`, `reset()`, `build()`, event emission, camera updates, ASVGF coordination, tile orchestration, and disposal. Everything else is delegated.
@@ -397,10 +401,10 @@ stage.shaderComposer.updateSceneTextures(stage);  // in-place texture node updat
 stage.shaderComposer.accumQuad;           // QuadMesh for path trace render
 stage.shaderComposer.displayQuad;         // QuadMesh for display render
 
-// RenderTargetPool
-stage.renderTargets.swap();
-stage.renderTargets.getCurrentAccumulation();  // returns current RenderTarget
-stage.renderTargets.ensureSize(width, height);
+// StorageTexturePool
+stage.storageTextures.swap();
+stage.storageTextures.getReadTextures();  // returns current read textures
+stage.storageTextures.ensureSize(width, height);
 ```
 
 **Callback Pattern:**
@@ -529,7 +533,7 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 All stages execute every frame:
 
 ```
-1. PathTracerStage.render() [ALWAYS]
+1. PathTracingStage.render() [ALWAYS]
    ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
    ↓ sets 'tileRenderingComplete' = true
 
@@ -555,7 +559,7 @@ All stages execute every frame:
 Post-processing stages skip intermediate tiles:
 
 ```
-1. PathTracerStage.render() [ALWAYS] ✅ Executes
+1. PathTracingStage.render() [ALWAYS] ✅ Executes
    ↓ renders tile 5 (for example)
    ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
    ↓ sets 'tileRenderingComplete' = false
@@ -579,7 +583,7 @@ Post-processing stages skip intermediate tiles:
 All stages execute when cycle completes:
 
 ```
-1. PathTracerStage.render() [ALWAYS] ✅ Executes
+1. PathTracingStage.render() [ALWAYS] ✅ Executes
    ↓ renders final tile (16)
    ↓ writes 'pathtracer:color', 'pathtracer:normalDepth' to context
    ↓ sets 'tileRenderingComplete' = true
@@ -609,7 +613,7 @@ All stages execute when cycle completes:
 ### Pipeline Integration
 
 ```
-PassPipeline.render(writeBuffer)
+RenderPipeline.render(writeBuffer)
     ↓ executes stages sequentially
 [PathTracer → NormalDepth → MotionVector → ASVGF → Variance → Bilateral → AdaptiveSampling → EdgeFiltering → AutoExposure → TileHighlight → Display]
     ↓
@@ -624,8 +628,8 @@ DisplayStage → Screen (with exposure + outline compositing)
 
 | Texture Key | Producer | Consumers | Description |
 |-------------|----------|-----------|-------------|
-| `pathtracer:color` | PathTracerStage | ASVGF, EdgeFiltering, TileHighlight | Accumulated path traced color |
-| `pathtracer:normalDepth` | PathTracerStage | ASVGF, EdgeFiltering, AdaptiveSampling | G-buffer: normals + depth |
+| `pathtracer:color` | PathTracingStage | ASVGF, EdgeFiltering, TileHighlight | Accumulated path traced color |
+| `pathtracer:normalDepth` | PathTracingStage | ASVGF, EdgeFiltering, AdaptiveSampling | G-buffer: normals + depth |
 | `asvgf:output` | ASVGFStage | TileHighlight | Denoised color |
 | `asvgf:variance` | ASVGFStage | AdaptiveSampling | Variance map |
 | `asvgf:temporalColor` | ASVGFStage | - | Temporal accumulation |
@@ -646,11 +650,11 @@ DisplayStage → Screen (with exposure + outline compositing)
 - **CONDITIONAL** - If you have complex custom logic
 
 ```javascript
-import { PipelineStage, StageExecutionMode } from '../Pipeline/PipelineStage.js';
+import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { MeshBasicNodeMaterial, QuadMesh, RenderTarget, TextureNode } from 'three/webgpu';
 import { uv, uniform } from 'three/tsl';
 
-export class MyCustomStage extends PipelineStage {
+export class MyCustomStage extends RenderStage {
 
     constructor(renderer, options = {}) {
         super('MyCustom', {

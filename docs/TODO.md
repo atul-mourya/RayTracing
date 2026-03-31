@@ -8,6 +8,7 @@
 - oidndenoiser is desaturation the results
 - assess the need for ToneMapCPU. why not threejs tonemap which is already defined
 - [ ] occasional flickers with auto-exposure
+- [ ] move dimension display and fps monitor in parent container such that it does not resize due to resize controller
   
 
 ### Known
@@ -115,6 +116,7 @@
 ### Performance
 - [ ] Custom model URL support — let users provide their own ONNX SR model
 - [ ] Estimated time remaining based on per-tile timing
+- [ ] FSR 2.x port
 
 ---
 

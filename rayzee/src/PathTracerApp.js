@@ -25,7 +25,7 @@ import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback } from './Processor/utils.js';
 import BuildTimer from './Processor/BuildTimer.js';
-import InteractionManager from './managers/InteractionManager.js';
+import { InteractionManager } from './managers/InteractionManager.js';
 import { EngineEvents } from './EngineEvents.js';
 import AssetLoader from './Processor/AssetLoader.js';
 import TriangleSDF from './Processor/TriangleSDF.js';

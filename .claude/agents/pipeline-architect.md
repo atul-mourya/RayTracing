@@ -10,13 +10,13 @@ You are a rendering pipeline architect for the Rayzee real-time path tracer. You
 ## Pipeline Architecture
 
 ### Stage Execution Model
-- `PassPipeline.js` orchestrates stage execution order with shared `PipelineContext` and `EventEmitter`
-- `PipelineStage.js` is the base class for all rendering stages
+- `RenderPipeline.js` orchestrates stage execution order with shared `PipelineContext` and `EventDispatcher`
+- `RenderStage.js` is the base class for all rendering stages
 - Stages communicate via events, NEVER direct coupling
 - `PipelineContext` provides automatic texture sharing between stages
 
 ### Core Stages (execution order matters)
-1. **PathTracerStage** — Monte Carlo path tracing with MRT outputs
+1. **PathTracingStage** — Monte Carlo path tracing with MRT outputs
 2. **ASVGFStage** — Real-time spatiotemporal denoising
 3. **AdaptiveSamplingStage** — Variance-guided sample distribution
 4. **EdgeAwareFilteringStage** — Temporal filtering with edge preservation
@@ -27,7 +27,7 @@ You are a rendering pipeline architect for the Rayzee real-time path tracer. You
 - `MaterialDataManager` — Material buffers, texture arrays
 - `EnvironmentManager` — HDRI, CDF importance sampling, procedural sky
 - `ShaderComposer` — TSL shader graph construction
-- `RenderTargetPool` — Ping-pong MRT render targets
+- `StorageTexturePool` — Ping-pong MRT storage textures
 
 ### Event Bus Patterns
 ```js
