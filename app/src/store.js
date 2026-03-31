@@ -1675,7 +1675,13 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleAFScreenPointChange: point => {
 
 		set( { afScreenPoint: point, afPlacingPoint: false } );
-		getApp()?.cameraManager.setAFScreenPoint( point.x, point.y );
+		const app = getApp();
+		if ( app ) {
+
+			app.cameraManager.setAFScreenPoint( point.x, point.y );
+			app.wake();
+
+		}
 
 	},
 
@@ -1683,7 +1689,13 @@ const useCameraStore = create( ( set, get ) => ( {
 
 		const center = { x: 0.5, y: 0.5 };
 		set( { afScreenPoint: center } );
-		getApp()?.cameraManager.setAFScreenPoint( 0.5, 0.5 );
+		const app = getApp();
+		if ( app ) {
+
+			app.cameraManager.setAFScreenPoint( 0.5, 0.5 );
+			app.wake();
+
+		}
 
 	},
 
