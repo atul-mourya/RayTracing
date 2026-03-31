@@ -26,9 +26,10 @@ export class DenoiserOrchestrator extends EventDispatcher {
 	 * @param {Object}                                 params.stages     - Named references to pipeline stages
 	 * @param {import('../Pipeline/RenderPipeline.js').RenderPipeline} params.pipeline
 	 * @param {Function}                               params.getExposure       - () => current exposure value
+	 * @param {Function}                               params.getSaturation     - () => current saturation value
 	 * @param {Function}                               params.getTransparentBg  - () => boolean
 	 */
-	constructor( { renderer, denoiserCanvas, scene, camera, stages, pipeline, getExposure, getTransparentBg } ) {
+	constructor( { renderer, denoiserCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg } ) {
 
 		super();
 
@@ -42,6 +43,7 @@ export class DenoiserOrchestrator extends EventDispatcher {
 		this._stages = stages; // { pathTracing, asvgf, varianceEstimation, bilateralFiltering, adaptiveSampling, edgeAwareFiltering, ssrc, autoExposure, display, tileHighlight }
 
 		this._getExposure = getExposure;
+		this._getSaturation = getSaturation;
 		this._getTransparentBg = getTransparentBg;
 
 		this.denoiser = null;
@@ -81,6 +83,7 @@ export class DenoiserOrchestrator extends EventDispatcher {
 
 			getExposure: () => this._getEffectiveExposure(),
 			getToneMapping: () => this._getToneMapping(),
+			getSaturation: () => this._getSaturation(),
 			getTransparentBackground: () => this._getTransparentBg(),
 			getMRTRenderTarget: () => pt?.storageTextures?.readTarget ?? null,
 		} );
@@ -125,6 +128,7 @@ export class DenoiserOrchestrator extends EventDispatcher {
 
 			getExposure: () => this._getEffectiveExposure(),
 			getToneMapping: () => this._getToneMapping(),
+			getSaturation: () => this._getSaturation(),
 		} );
 
 		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;

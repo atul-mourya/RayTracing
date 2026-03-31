@@ -1,4 +1,4 @@
-import { EventDispatcher, NoToneMapping, LinearToneMapping, ReinhardToneMapping, CineonToneMapping, ACESFilmicToneMapping, AgXToneMapping, NeutralToneMapping } from 'three';
+import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 
 let _initUNetFromURL = null;
 async function getInitUNetFromURL() {
@@ -15,162 +15,7 @@ async function getInitUNetFromURL() {
 }
 
 import RenderTargetHelper from '../Processor/RenderTargetHelper.js';
-
-// ─── CPU tone mapping matching Three.js ToneMappingFunctions.js (WebGPU) ───
-// All functions write tonemapped linear RGB into `out` array.
-
-const clamp01 = x => Math.min( Math.max( x, 0 ), 1 );
-
-function noToneMap( r, g, b, _exposure, out ) {
-
-	out[ 0 ] = clamp01( r );
-	out[ 1 ] = clamp01( g );
-	out[ 2 ] = clamp01( b );
-
-}
-
-function linearToneMap( r, g, b, exposure, out ) {
-
-	out[ 0 ] = clamp01( r * exposure );
-	out[ 1 ] = clamp01( g * exposure );
-	out[ 2 ] = clamp01( b * exposure );
-
-}
-
-function reinhardToneMap( r, g, b, exposure, out ) {
-
-	r *= exposure; g *= exposure; b *= exposure;
-	out[ 0 ] = clamp01( r / ( r + 1 ) );
-	out[ 1 ] = clamp01( g / ( g + 1 ) );
-	out[ 2 ] = clamp01( b / ( b + 1 ) );
-
-}
-
-function cineonToneMap( r, g, b, exposure, out ) {
-
-	r = Math.max( r * exposure - 0.004, 0 );
-	g = Math.max( g * exposure - 0.004, 0 );
-	b = Math.max( b * exposure - 0.004, 0 );
-	const f = c => Math.pow( ( c * ( 6.2 * c + 0.5 ) ) / ( c * ( 6.2 * c + 1.7 ) + 0.06 ), 2.2 );
-	out[ 0 ] = f( r );
-	out[ 1 ] = f( g );
-	out[ 2 ] = f( b );
-
-}
-
-// Full ACES RRT+ODT with colour-space matrices (matches Three.js WebGPU, NOT the Narkowicz fit)
-function acesFilmicToneMap( r, g, b, exposure, out ) {
-
-	r = r * exposure / 0.6;
-	g = g * exposure / 0.6;
-	b = b * exposure / 0.6;
-
-	// ACESInputMat  (sRGB → AP1)
-	let ir = 0.59719 * r + 0.35458 * g + 0.04823 * b;
-	let ig = 0.07600 * r + 0.90834 * g + 0.01566 * b;
-	let ib = 0.02840 * r + 0.13383 * g + 0.83777 * b;
-
-	// RRTAndODTFit
-	const fit = c => ( c * ( c + 0.0245786 ) - 0.000090537 ) / ( c * ( 0.983729 * c + 0.4329510 ) + 0.238081 );
-	ir = fit( ir ); ig = fit( ig ); ib = fit( ib );
-
-	// ACESOutputMat (AP1 → sRGB)
-	out[ 0 ] = clamp01( 1.60475 * ir - 0.53108 * ig - 0.07367 * ib );
-	out[ 1 ] = clamp01( - 0.10208 * ir + 1.10813 * ig - 0.00605 * ib );
-	out[ 2 ] = clamp01( - 0.00327 * ir - 0.07276 * ig + 1.07602 * ib );
-
-}
-
-function agxToneMap( r, g, b, exposure, out ) {
-
-	r *= exposure; g *= exposure; b *= exposure;
-
-	// LINEAR_SRGB_TO_LINEAR_REC2020
-	let cr = 0.6274 * r + 0.3293 * g + 0.0433 * b;
-	let cg = 0.0691 * r + 0.9195 * g + 0.0113 * b;
-	let cb = 0.0164 * r + 0.0880 * g + 0.8956 * b;
-
-	// AgXInsetMatrix
-	let ar = 0.856627153315983 * cr + 0.0951212405381588 * cg + 0.0482516061458583 * cb;
-	let ag = 0.137318972929847 * cr + 0.761241990602591 * cg + 0.101439036467562 * cb;
-	let ab = 0.11189821299995 * cr + 0.0767994186031903 * cg + 0.811302368396859 * cb;
-
-	// log2 → normalize to [0,1]
-	const AgxMinEv = - 12.47393, AgxMaxEv = 4.026069, range = AgxMaxEv - AgxMinEv;
-	ar = clamp01( ( Math.log2( Math.max( ar, 1e-10 ) ) - AgxMinEv ) / range );
-	ag = clamp01( ( Math.log2( Math.max( ag, 1e-10 ) ) - AgxMinEv ) / range );
-	ab = clamp01( ( Math.log2( Math.max( ab, 1e-10 ) ) - AgxMinEv ) / range );
-
-	// agxDefaultContrastApprox  (6th-degree polynomial)
-	const approx = x => {
-
-		const x2 = x * x, x4 = x2 * x2;
-		return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
-
-	};
-
-	ar = approx( ar ); ag = approx( ag ); ab = approx( ab );
-
-	// AgXOutsetMatrix
-	let or = 1.1271005818144368 * ar - 0.11060664309660323 * ag - 0.016493938717834573 * ab;
-	let og = - 0.1413297634984383 * ar + 1.157823702216272 * ag - 0.016493938717834257 * ab;
-	let ob = - 0.14132976349843826 * ar - 0.11060664309660294 * ag + 1.2519364065950405 * ab;
-
-	// pow 2.2
-	or = Math.pow( Math.max( 0, or ), 2.2 );
-	og = Math.pow( Math.max( 0, og ), 2.2 );
-	ob = Math.pow( Math.max( 0, ob ), 2.2 );
-
-	// LINEAR_REC2020_TO_LINEAR_SRGB
-	out[ 0 ] = clamp01( 1.6605 * or - 0.5876 * og - 0.0728 * ob );
-	out[ 1 ] = clamp01( - 0.1246 * or + 1.1329 * og - 0.0083 * ob );
-	out[ 2 ] = clamp01( - 0.0182 * or - 0.1006 * og + 1.1187 * ob );
-
-}
-
-function neutralToneMap( r, g, b, exposure, out ) {
-
-	const StartCompression = 0.8 - 0.04; // 0.76
-	const Desaturation = 0.15;
-
-	r *= exposure; g *= exposure; b *= exposure;
-
-	const x = Math.min( r, Math.min( g, b ) );
-	const offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
-
-	r -= offset; g -= offset; b -= offset;
-
-	const peak = Math.max( r, Math.max( g, b ) );
-
-	if ( peak < StartCompression ) {
-
-		out[ 0 ] = r; out[ 1 ] = g; out[ 2 ] = b;
-		return;
-
-	}
-
-	const d = 1 - StartCompression;
-	const newPeak = 1 - d * d / ( peak + d - StartCompression );
-	const scale = newPeak / peak;
-	r *= scale; g *= scale; b *= scale;
-	const gFactor = 1 - 1 / ( Desaturation * ( peak - newPeak ) + 1 );
-
-	out[ 0 ] = r + ( newPeak - r ) * gFactor;
-	out[ 1 ] = g + ( newPeak - g ) * gFactor;
-	out[ 2 ] = b + ( newPeak - b ) * gFactor;
-
-}
-
-/** Look-up table mapping Three.js ToneMapping constants to CPU functions. */
-const TONE_MAP_FNS = new Map( [
-	[ NoToneMapping, noToneMap ],
-	[ LinearToneMapping, linearToneMap ],
-	[ ReinhardToneMapping, reinhardToneMap ],
-	[ CineonToneMapping, cineonToneMap ],
-	[ ACESFilmicToneMapping, acesFilmicToneMap ],
-	[ AgXToneMapping, agxToneMap ],
-	[ NeutralToneMapping, neutralToneMap ]
-] );
+import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from './ToneMapCPU.js';
 
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
@@ -225,6 +70,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.getGPUTextures = options.getGPUTextures || null;
 		this.getExposure = options.getExposure || ( () => 1.0 );
 		this.getToneMapping = options.getToneMapping || ( () => ACESFilmicToneMapping );
+		this.getSaturation = options.getSaturation || ( () => 1.0 );
 		this.getTransparentBackground = options.getTransparentBackground || ( () => false );
 		this.isGPUMode = !! this.backendParamsGetter;
 		this.gpuDevice = null;
@@ -751,17 +597,27 @@ export class OIDNDenoiser extends EventDispatcher {
 						const f32 = new Float32Array( staging.getMappedRange() );
 						const tileImageData = new ImageData( tile.width, tile.height );
 						const exposure = this.getExposure();
-						const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || acesFilmicToneMap;
-						const gamma = 1 / 2.2;
+						const saturation = this.getSaturation();
+						const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
 						const alpha = this._cachedAlpha;
 						const alphaW = this._cachedAlphaWidth;
 
 						for ( let i = 0, len = f32.length; i < len; i += 4 ) {
 
-							tmFn( f32[ i ], f32[ i + 1 ], f32[ i + 2 ], exposure, _tmOut );
-							tileImageData.data[ i ] = _tmOut[ 0 ] ** gamma * 255 | 0;
-							tileImageData.data[ i + 1 ] = _tmOut[ 1 ] ** gamma * 255 | 0;
-							tileImageData.data[ i + 2 ] = _tmOut[ 2 ] ** gamma * 255 | 0;
+							// Exposure + saturation (pre-tonemap, matching DisplayStage)
+							let er = f32[ i ] * exposure, eg = f32[ i + 1 ] * exposure, eb = f32[ i + 2 ] * exposure;
+							if ( saturation !== 1.0 ) {
+
+								_tmOut[ 0 ] = er; _tmOut[ 1 ] = eg; _tmOut[ 2 ] = eb;
+								applySaturation( _tmOut, saturation );
+								er = _tmOut[ 0 ]; eg = _tmOut[ 1 ]; eb = _tmOut[ 2 ];
+
+							}
+
+							tmFn( er, eg, eb, 1.0, _tmOut );
+							tileImageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
+							tileImageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
+							tileImageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
 
 							if ( alpha ) {
 
@@ -867,16 +723,26 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		const imageData = new ImageData( width, height );
 		const exposure = this.getExposure();
-		const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || acesFilmicToneMap;
-		const gamma = 1 / 2.2;
+		const saturation = this.getSaturation();
+		const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
 		const alpha = this._cachedAlpha;
 
 		for ( let i = 0, len = float32.length; i < len; i += 4 ) {
 
-			tmFn( float32[ i ], float32[ i + 1 ], float32[ i + 2 ], exposure, _tmOut );
-			imageData.data[ i ] = _tmOut[ 0 ] ** gamma * 255 | 0;
-			imageData.data[ i + 1 ] = _tmOut[ 1 ] ** gamma * 255 | 0;
-			imageData.data[ i + 2 ] = _tmOut[ 2 ] ** gamma * 255 | 0;
+			// Exposure + saturation (pre-tonemap, matching DisplayStage)
+			let er = float32[ i ] * exposure, eg = float32[ i + 1 ] * exposure, eb = float32[ i + 2 ] * exposure;
+			if ( saturation !== 1.0 ) {
+
+				_tmOut[ 0 ] = er; _tmOut[ 1 ] = eg; _tmOut[ 2 ] = eb;
+				applySaturation( _tmOut, saturation );
+				er = _tmOut[ 0 ]; eg = _tmOut[ 1 ]; eb = _tmOut[ 2 ];
+
+			}
+
+			tmFn( er, eg, eb, 1.0, _tmOut );
+			imageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
+			imageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
+			imageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
 			imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
 
 		}

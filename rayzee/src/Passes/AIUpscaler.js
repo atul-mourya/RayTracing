@@ -1,5 +1,5 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
-import { TONE_MAP_FNS, SRGB_GAMMA } from './ToneMapCPU.js';
+import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from './ToneMapCPU.js';
 
 
 // ─── Model Configuration ───────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ export class AIUpscaler extends EventDispatcher {
 		this.getGPUTextures = options.getGPUTextures || null;
 		this.getExposure = options.getExposure || ( () => 1.0 );
 		this.getToneMapping = options.getToneMapping || ( () => ACESFilmicToneMapping );
+		this.getSaturation = options.getSaturation || ( () => 1.0 );
 
 		// Configuration
 		this.enabled = false;
@@ -362,6 +363,7 @@ export class AIUpscaler extends EventDispatcher {
 
 			this._hdrToneMapFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
 			this._hdrExposure = this.getExposure();
+			this._hdrSaturation = this.getSaturation();
 			this._tmOut = new Float32Array( 3 );
 
 		}
@@ -521,12 +523,22 @@ export class AIUpscaler extends EventDispatcher {
 
 				if ( isHDR ) {
 
-					// HDR: tonemap + gamma to sRGB [0,1] at float32 precision.
+					// HDR: exposure + saturation + tonemap + gamma to sRGB [0,1] at float32 precision.
 					// The SR model expects sRGB-range input — we tonemap before the model
 					// but keep float32 precision (no uint8 quantization bottleneck).
 					const tmFn = this._hdrToneMapFn;
 					const exposure = this._hdrExposure;
-					tmFn( data[ srcIdx ], data[ srcIdx + 1 ], data[ srcIdx + 2 ], exposure, this._tmOut );
+					const saturation = this._hdrSaturation;
+					let er = data[ srcIdx ] * exposure, eg = data[ srcIdx + 1 ] * exposure, eb = data[ srcIdx + 2 ] * exposure;
+					if ( saturation !== 1.0 ) {
+
+						this._tmOut[ 0 ] = er; this._tmOut[ 1 ] = eg; this._tmOut[ 2 ] = eb;
+						applySaturation( this._tmOut, saturation );
+						er = this._tmOut[ 0 ]; eg = this._tmOut[ 1 ]; eb = this._tmOut[ 2 ];
+
+					}
+
+					tmFn( er, eg, eb, 1.0, this._tmOut );
 					floats[ dstIdx ] = Math.pow( this._tmOut[ 0 ], SRGB_GAMMA );
 					floats[ pixelCount + dstIdx ] = Math.pow( this._tmOut[ 1 ], SRGB_GAMMA );
 					floats[ 2 * pixelCount + dstIdx ] = Math.pow( this._tmOut[ 2 ], SRGB_GAMMA );
@@ -722,12 +734,22 @@ export class AIUpscaler extends EventDispatcher {
 			const pixels = imageData.data;
 			const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
 			const exposure = this.getExposure();
+			const saturation = this.getSaturation();
 			const out = new Float32Array( 3 );
 
 			for ( let i = 0, len = width * height; i < len; i ++ ) {
 
 				const si = i * 4;
-				tmFn( data[ si ], data[ si + 1 ], data[ si + 2 ], exposure, out );
+				let er = data[ si ] * exposure, eg = data[ si + 1 ] * exposure, eb = data[ si + 2 ] * exposure;
+				if ( saturation !== 1.0 ) {
+
+					out[ 0 ] = er; out[ 1 ] = eg; out[ 2 ] = eb;
+					applySaturation( out, saturation );
+					er = out[ 0 ]; eg = out[ 1 ]; eb = out[ 2 ];
+
+				}
+
+				tmFn( er, eg, eb, 1.0, out );
 				pixels[ si ] = ( Math.pow( out[ 0 ], SRGB_GAMMA ) * 255 + 0.5 ) | 0;
 				pixels[ si + 1 ] = ( Math.pow( out[ 1 ], SRGB_GAMMA ) * 255 + 0.5 ) | 0;
 				pixels[ si + 2 ] = ( Math.pow( out[ 2 ], SRGB_GAMMA ) * 255 + 0.5 ) | 0;

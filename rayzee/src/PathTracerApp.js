@@ -1721,6 +1721,7 @@ export class PathTracerApp extends EventDispatcher {
 			},
 			pipeline: this.pipeline,
 			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,
+			getSaturation: () => this.settings.get( 'saturation' ) ?? 1.0,
 			getTransparentBg: () => this.settings.get( 'transparentBackground' ) ?? false,
 		} );
 
