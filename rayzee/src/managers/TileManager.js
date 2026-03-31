@@ -166,60 +166,36 @@ export class TileManager {
      * @param {Object} renderer - The Three.js renderer
      * @param {number} renderMode - Current render mode (0 = full, 1 = tiled)
      * @param {number} frameValue - Current frame number
-     * @param {TileHighlight} tileHighlightStage - Optional tile highlight pass
      * @returns {Object} - Tile rendering info {tileIndex, tileBounds, shouldSwapTargets, isCompleteCycle}
      */
-	handleTileRendering( renderer, renderMode, frameValue, tileHighlightStage = null ) {
+	handleTileRendering( renderer, renderMode, frameValue ) {
 
 		let shouldSwapTargets = true;
 		let currentTileIndex = - 1;
 		let tileBounds = null;
-		let isCompleteCycle = true; // Progressive mode is always complete
+		let isCompleteCycle = true;
 
-		if ( renderMode === 1 ) { // Tiled rendering
+		if ( renderMode === 1 ) {
 
 			if ( frameValue === 0 ) {
 
-				// First frame: render entire image (full screen)
 				currentTileIndex = - 1;
 				isCompleteCycle = true;
 
 			} else {
 
-				// Calculate current tile index (frames 1+ are tile-based)
 				const linearTileIndex = ( frameValue - 1 ) % this.totalTilesCache;
 				currentTileIndex = this.spiralOrder[ linearTileIndex ];
-
-				// Calculate tile bounds (scissor replaced by compute tile uniforms)
 				tileBounds = this.calculateTileBounds( currentTileIndex, this.tiles, this.width, this.height );
-
-				// Update tile highlight pass only when values change
-				if ( tileHighlightStage?.enabled ) {
-
-					this.updateTileHighlight( tileHighlightStage, currentTileIndex, renderMode, tileBounds );
-
-				}
-
-				// Check if this is the last tile in the cycle
 				isCompleteCycle = ( linearTileIndex === this.totalTilesCache - 1 );
-
-				// Only swap targets after completing all tiles in a sample
 				shouldSwapTargets = isCompleteCycle;
 
 			}
 
 		} else {
 
-			// Regular rendering mode: every frame is a complete cycle
 			currentTileIndex = - 1;
 			isCompleteCycle = true;
-
-			// Update tile highlight pass for non-tiled mode only when needed
-			if ( tileHighlightStage?.enabled ) {
-
-				this.updateTileHighlight( tileHighlightStage, currentTileIndex, renderMode, null );
-
-			}
 
 		}
 
@@ -229,39 +205,8 @@ export class TileManager {
 			tileIndex: currentTileIndex,
 			tileBounds,
 			shouldSwapTargets,
-			isCompleteCycle // New flag for pipeline stage execution control
+			isCompleteCycle
 		};
-
-	}
-
-	/**
-     * Update tile highlight pass uniforms when needed
-     * @param {TileHighlight} tileHighlightStage - The tile highlight pass
-     * @param {number} tileIndex - Current tile index
-     * @param {number} renderMode - Current render mode
-     * @param {Object|null} tileBounds - Current tile bounds
-     */
-	updateTileHighlight( tileHighlightStage, tileIndex, renderMode, tileBounds ) {
-
-		const needsUpdate = (
-			tileHighlightStage.uniforms.tileIndex.value !== tileIndex ||
-            tileHighlightStage.uniforms.renderMode.value !== renderMode ||
-            tileHighlightStage.uniforms.tiles.value !== this.tiles
-		);
-
-		if ( needsUpdate ) {
-
-			tileHighlightStage.uniforms.tileIndex.value = tileIndex;
-			tileHighlightStage.uniforms.renderMode.value = renderMode;
-			tileHighlightStage.uniforms.tiles.value = this.tiles;
-
-			if ( tileBounds && tileHighlightStage.setCurrentTileBounds ) {
-
-				tileHighlightStage.setCurrentTileBounds( tileBounds );
-
-			}
-
-		}
 
 	}
 

@@ -18,7 +18,6 @@ import { BilateralFilter } from './Stages/BilateralFilter.js';
 import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
-import { TileHighlight } from './Stages/TileHighlight.js';
 import { SSRC } from './Stages/SSRC.js';
 import { Display } from './Stages/Display.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
@@ -270,7 +269,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.stages.adaptiveSampling );
 		this.pipeline.addStage( this.stages.edgeFilter );
 		this.pipeline.addStage( this.stages.autoExposure );
-		this.pipeline.addStage( this.stages.tileHighlight );
 		this.pipeline.addStage( this.stages.display );
 
 		// Set initial render dimensions
@@ -968,7 +966,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.setRenderMode( config.renderMode );
 		this.setTileCount( config.tiles );
-		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = config.tilesHelper;
+		this.setTileHelperEnabled( config.tilesHelper );
 		this.stages.pathTracer?.updateCompletionThreshold?.();
 
 		const denoiser = this.denoisingManager?.denoiser;
@@ -1597,15 +1595,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	setTileHighlightEnabled( enabled ) {
 
-		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = enabled;
-
-		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
-		if ( tileHelper ) {
-
-			tileHelper.enabled = enabled;
-			if ( ! enabled ) tileHelper.hide();
-
-		}
+		this.setTileHelperEnabled( enabled );
 
 	}
 
@@ -1625,6 +1615,12 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	setOIDNTileHelper( enabled ) {
+
+		this.setTileHelperEnabled( enabled );
+
+	}
+
+	setTileHelperEnabled( enabled ) {
 
 		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
 		if ( tileHelper ) {
@@ -1683,8 +1679,6 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
-		this.stages.tileHighlight = new TileHighlight( this.renderer, { enabled: false } );
-
 		// Outline effect
 		const outlineScene = this.meshScene;
 		this._outlineNode = outline( outlineScene, this._camera, {
@@ -1738,7 +1732,6 @@ export class PathTracerApp extends EventDispatcher {
 				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
 				display: this.stages.display,
-				tileHighlight: this.stages.tileHighlight,
 			},
 			pipeline: this.pipeline,
 			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,

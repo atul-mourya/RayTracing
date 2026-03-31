@@ -784,11 +784,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			const { tilesHelper } = get();
 			if ( parseInt( val ) === 1 && tilesHelper ) {
 
-				app.setTileHighlightEnabled( true );
+				app.setTileHelperEnabled( true );
 
 			} else if ( parseInt( val ) !== 1 ) {
 
-				app.setTileHighlightEnabled( false );
+				app.setTileHelperEnabled( false );
 
 			}
 
@@ -818,9 +818,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { tilesHelper: val } ),
 		( val, app ) => {
 
-			const { renderMode } = get();
-			if ( parseInt( renderMode ) === 1 ) app.setTileHighlightEnabled( val );
-			app.setOIDNTileHelper( val );
+			app.setTileHelperEnabled( val );
 
 		},
 		false

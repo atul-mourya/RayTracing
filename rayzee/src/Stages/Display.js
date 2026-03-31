@@ -74,8 +74,7 @@ export class Display extends RenderStage {
 	 */
 	_resolveDisplayTexture( context ) {
 
-		return context.getTexture( 'tileHighlight:output' )
-			|| context.getTexture( 'bloom:output' )
+		return context.getTexture( 'bloom:output' )
 			|| context.getTexture( 'edgeFiltering:output' )
 			|| context.getTexture( 'asvgf:output' )
 			|| context.getTexture( 'ssrc:output' )
