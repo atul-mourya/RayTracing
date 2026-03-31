@@ -190,6 +190,13 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
 				await app.init();
 
+				// Mount HUD overlay canvas on top of the WebGPU canvas
+				if ( app.overlayManager ) {
+
+					containerRef.current.appendChild( app.overlayManager.getHUDCanvas() );
+
+				}
+
 				// Register with appProxy so getApp() works globally
 				setApp( app );
 

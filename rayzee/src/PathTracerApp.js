@@ -35,6 +35,8 @@ import { RenderSettings } from './RenderSettings.js';
 import { CameraManager } from './managers/CameraManager.js';
 import { LightManager } from './managers/LightManager.js';
 import { DenoisingManager } from './managers/DenoisingManager.js';
+import { OverlayManager } from './managers/OverlayManager.js';
+import { TileHelper } from './managers/helpers/TileHelper.js';
 
 
 /**
@@ -95,6 +97,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.cameraManager = null;
 		this.lightManager = null;
 		this.denoisingManager = null;
+		this.overlayManager = null;
 
 		// ── State ──
 		this.isInitialized = false;
@@ -292,6 +295,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.cameraManager = new CameraManager( this._camera, this._controls, this._interactionManager );
 		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracer );
 		this._setupDenoisingManager();
+		this._setupOverlayManager();
 
 		// Wire CameraManager events → app events
 		this.cameraManager.addEventListener( 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
@@ -614,6 +618,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		this.overlayManager?.dispose();
 		this._sceneHelpers?.clear();
 
 		if ( this._outlineNode ) {
@@ -1594,6 +1599,14 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( this.stages.tileHighlight ) this.stages.tileHighlight.enabled = enabled;
 
+		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
+		if ( tileHelper ) {
+
+			tileHelper.enabled = enabled;
+			if ( ! enabled ) tileHelper.hide();
+
+		}
+
 	}
 
 	// ── OIDN Denoiser ──
@@ -1613,8 +1626,13 @@ export class PathTracerApp extends EventDispatcher {
 
 	setOIDNTileHelper( enabled ) {
 
-		const d = this.denoisingManager?.denoiser;
-		if ( d ) d.showTileHelper = enabled;
+		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
+		if ( tileHelper ) {
+
+			tileHelper.enabled = enabled;
+			if ( ! enabled ) tileHelper.hide();
+
+		}
 
 	}
 
@@ -1981,9 +1999,82 @@ export class PathTracerApp extends EventDispatcher {
 	_renderHelperOverlay() {
 
 		this.scene.updateMatrixWorld();
-		this._sceneHelpers.render( this.renderer, this._camera );
+		this.overlayManager?.render();
 
 	}
+
+	_setupOverlayManager() {
+
+		this.overlayManager = new OverlayManager( this.renderer, this._camera );
+		this.overlayManager.setHelperScene( this._sceneHelpers );
+
+		// ── Tile helper (shared across path tracer, OIDN, upscaler) ──
+		const tileHelper = new TileHelper();
+		this.overlayManager.register( 'tiles', tileHelper );
+
+		// Sync render size
+		tileHelper.setRenderSize( this._lastRenderWidth || 1, this._lastRenderHeight || 1 );
+		this.addEventListener( 'resolution_changed', ( e ) => {
+
+			tileHelper.setRenderSize( e.width, e.height );
+
+		} );
+
+		// ── Path tracer tile events ──
+		this.pipeline.eventBus.on( 'tile:changed', ( e ) => {
+
+			if ( e.renderMode === 1 && e.tileBounds ) {
+
+				tileHelper.setActiveTile( e.tileBounds );
+				tileHelper.show();
+
+			}
+
+		} );
+
+		this.pipeline.eventBus.on( 'pipeline:reset', () => tileHelper.hide() );
+		this.addEventListener( EngineEvents.RENDER_COMPLETE, () => tileHelper.hide() );
+
+		// ── OIDN denoiser tile events ──
+		this._setupDenoiserTileHelper( tileHelper );
+
+	}
+
+	_setupDenoiserTileHelper( tileHelper ) {
+
+		// OIDN/upscaler tile events fire while the animation loop is stopped
+		// (render completed → stopAnimation → async denoise). We must manually
+		// trigger HUD redraws since overlayManager.render() isn't being called.
+		const sources = [ this.denoisingManager?.denoiser, this.denoisingManager?.upscaler ];
+
+		for ( const source of sources ) {
+
+			if ( ! source ) continue;
+
+			source.addEventListener( 'tileProgress', ( e ) => {
+
+				if ( e.tile ) {
+
+					tileHelper.setRenderSize( e.imageWidth, e.imageHeight );
+					tileHelper.setActiveTile( e.tile );
+					tileHelper.show();
+					this.overlayManager?.refreshHUD();
+
+				}
+
+			} );
+
+			source.addEventListener( 'end', () => {
+
+				tileHelper.hide();
+				this.overlayManager?.refreshHUD();
+
+			} );
+
+		}
+
+	}
+
 
 	_syncControlsAfterLoad() {
 

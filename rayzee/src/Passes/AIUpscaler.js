@@ -411,6 +411,14 @@ export class AIUpscaler extends EventDispatcher {
 					tile: { x: tx, y: ty, total: totalTiles, completed: completedTiles }
 				} );
 
+				// Emit pixel-space tile bounds for OverlayManager's TileHelper
+				this.dispatchEvent( {
+					type: 'tileProgress',
+					tile: { x: writeX, y: writeY, width: upscaledW, height: upscaledH },
+					imageWidth: srcW * scale,
+					imageHeight: srcH * scale
+				} );
+
 			}
 
 		}
