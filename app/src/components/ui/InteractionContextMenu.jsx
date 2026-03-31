@@ -491,7 +491,7 @@ const InteractionContextMenu = () => {
 	React.useEffect( () => {
 
 		const app = activeApp;
-		if ( ! app?.interactionManager ) return;
+		if ( ! app ) return;
 
 		const handleContextMenuRequested = ( event ) => {
 
