@@ -1840,6 +1840,9 @@ export class PathTracerApp extends EventDispatcher {
 
 			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
 
+			// Restart the animation loop (it was stopped when render completed)
+			this.wake();
+
 		}
 
 	}
