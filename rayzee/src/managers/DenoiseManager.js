@@ -15,7 +15,7 @@ import { ENGINE_DEFAULTS as DEFAULT_STATE, ASVGF_QUALITY_PRESETS } from '../Engi
  *
  * Extracted from PathTracerApp to keep the facade slim.
  */
-export class DenoiserOrchestrator extends EventDispatcher {
+export class DenoiseManager extends EventDispatcher {
 
 	/**
 	 * @param {Object} params

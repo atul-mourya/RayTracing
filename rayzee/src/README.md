@@ -133,7 +133,7 @@ Access camera, lights, and denoising through focused manager objects:
 | `.updateLights()` | Sync lights to GPU |
 | `.setShowLightHelper(bool)` | Toggle light visualizations |
 
-#### `engine.denoiserOrchestrator`
+#### `engine.denoiseManager`
 
 | Method | Description |
 |--------|-------------|
@@ -251,7 +251,7 @@ import {
   RenderSettings,       // Unified parameter store
   CameraManager,        // Camera switching, auto-focus, DOF
   LightManager,         // Light CRUD and GPU transfer
-  DenoiserOrchestrator, // Denoiser strategy, OIDN, upscaler
+  DenoiseManager, // Denoiser strategy, OIDN, upscaler
 
   // Configuration
   ENGINE_DEFAULTS,      // Default config values

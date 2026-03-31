@@ -32,7 +32,7 @@ export {
 export { RenderSettings } from './RenderSettings.js';
 export { CameraManager } from './managers/CameraManager.js';
 export { LightManager } from './managers/LightManager.js';
-export { DenoiserOrchestrator } from './managers/DenoiserOrchestrator.js';
+export { DenoiseManager } from './managers/DenoiseManager.js';
 
 // Pipeline infrastructure (for advanced consumers building custom stages)
 export { RenderPipeline } from './Pipeline/RenderPipeline.js';
