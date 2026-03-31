@@ -370,13 +370,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setOrientation: val => set( { orientation: val } ),
 	setFinalRenderResolution: val => set( { finalRenderResolution: parseInt( val, 10 ) } ),
 	setEnableOIDN: val => set( { enableOIDN: val } ),
-	setUseGBuffer: val => set( { useGBuffer: val } ),
 	setRenderLimitMode: val => set( { renderLimitMode: val } ),
 	setRenderTimeLimit: val => set( { renderTimeLimit: val } ),
 	setDebugMode: val => set( { debugMode: val } ),
 	setDebugThreshold: val => set( { debugThreshold: val } ),
 	setOidnQuality: val => set( { oidnQuality: val } ),
-	setOidnHdr: val => set( { oidnHdr: val } ),
 	setEnableUpscaler: val => set( { enableUpscaler: val } ),
 	setUpscalerScale: val => set( { upscalerScale: val } ),
 	setUpscalerQuality: val => set( { upscalerQuality: val } ),
@@ -837,18 +835,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleOidnQualityChange: handleChange(
 		val => set( { oidnQuality: val } ),
 		( val, app ) => app.updateOIDNQuality( val ),
-		false
-	),
-
-	handleOidnHdrChange: handleChange(
-		val => set( { oidnHdr: val } ),
-		( val, app ) => app.toggleOIDNHdr( val ),
-		false
-	),
-
-	handleUseGBufferChange: handleChange(
-		val => set( { useGBuffer: val } ),
-		( val, app ) => app.toggleOIDNUseGBuffer( val ),
 		false
 	),
 

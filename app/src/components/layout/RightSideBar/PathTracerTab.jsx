@@ -75,11 +75,9 @@ const PathTracerTab = () => {
 		renderMode,
 		tiles,
 		tilesHelper,
-		useGBuffer,
 		debugMode,
 		debugThreshold,
 		oidnQuality,
-		oidnHdr,
 		enableOIDN,
 		enableUpscaler,
 		upscalerScale,
@@ -147,12 +145,10 @@ const PathTracerTab = () => {
 		handleTileUpdate,
 		handleTileHelperToggle,
 		handleOidnQualityChange,
-		handleOidnHdrChange,
 		handleEnableOIDNChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
 		handleUpscalerQualityChange,
-		handleUseGBufferChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
 		handleExposureChange,
@@ -515,12 +511,6 @@ const PathTracerTab = () => {
 								<SelectItem disabled value="high">High</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"HDR"} checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
 					</div>
 				</> )}
 

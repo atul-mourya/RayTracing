@@ -970,8 +970,6 @@ export class PathTracerApp extends EventDispatcher {
 			denoiser.abort();
 			denoiser.enabled = config.enableOIDN;
 			denoiser.updateQuality( config.oidnQuality );
-			denoiser.toggleHDR( config.oidnHdr );
-			denoiser.toggleUseGBuffer( config.useGBuffer );
 
 		}
 
@@ -1607,18 +1605,6 @@ export class PathTracerApp extends EventDispatcher {
 	updateOIDNQuality( quality ) {
 
 		this.denoiserOrchestrator?.denoiser?.updateQuality( quality );
-
-	}
-
-	toggleOIDNHdr( enabled ) {
-
-		this.denoiserOrchestrator?.denoiser?.toggleHDR( enabled );
-
-	}
-
-	toggleOIDNUseGBuffer( enabled ) {
-
-		this.denoiserOrchestrator?.denoiser?.toggleUseGBuffer( enabled );
 
 	}
 

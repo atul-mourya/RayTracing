@@ -17,9 +17,7 @@ const FinalRenderPanel = () => {
 		tiles,
 		tilesHelper,
 		enableOIDN,
-		useGBuffer,
 		oidnQuality,
-		oidnHdr,
 		enableUpscaler,
 		upscalerScale,
 		upscalerQuality,
@@ -31,8 +29,6 @@ const FinalRenderPanel = () => {
 		handleTileHelperToggle,
 		handleEnableOIDNChange,
 		handleOidnQualityChange,
-		handleOidnHdrChange,
-		handleUseGBufferChange,
 		handleEnableUpscalerChange,
 		handleUpscalerScaleChange,
 		handleUpscalerQualityChange,
@@ -89,12 +85,6 @@ const FinalRenderPanel = () => {
 							<SelectItem value="high">High</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
-				<div className="flex items-center justify-between py-2 px-2">
-					<Switch label={"HDR"} checked={oidnHdr} onCheckedChange={handleOidnHdrChange} />
-				</div>
-				<div className="flex items-center justify-between py-2 px-2">
-					<Switch label={"Use GBuffer"} checked={useGBuffer} onCheckedChange={handleUseGBufferChange} />
 				</div>
 				<div className="flex items-center justify-between py-2 px-2">
 					<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />

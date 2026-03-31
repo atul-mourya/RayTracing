@@ -60,7 +60,6 @@ export class DenoiserOrchestrator extends EventDispatcher {
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
-			useGBuffer: true,
 
 			backendParams: () => ( {
 				device: this.renderer.backend.device,

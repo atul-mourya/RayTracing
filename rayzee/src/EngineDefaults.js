@@ -95,8 +95,6 @@ export const ENGINE_DEFAULTS = {
 
 	enableOIDN: false,
 	oidnQuality: 'fast',
-	oidnHdr: true,
-	useGBuffer: true,
 	debugGbufferMaps: false,
 
 	enableUpscaler: false,
@@ -361,7 +359,7 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 export const FINAL_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1,
 	renderMode: 1, tiles: 3, tilesHelper: false,
-	enableOIDN: true, oidnQuality: 'balance', oidnHdr: true, useGBuffer: true,
+	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 };
 
@@ -370,7 +368,7 @@ export const PREVIEW_RENDER_CONFIG = {
 	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
 	tiles: ENGINE_DEFAULTS.tiles, tilesHelper: ENGINE_DEFAULTS.tilesHelper,
-	enableOIDN: false, oidnQuality: 'fast', oidnHdr: true, useGBuffer: true,
+	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,
 };
 

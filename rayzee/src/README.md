@@ -162,8 +162,6 @@ For fine-grained control over individual pipeline stages:
 |--------|-------------|
 | `setOIDNEnabled(bool)` | Enable/disable OIDN denoiser |
 | `updateOIDNQuality(quality)` | `'fast'` \| `'balance'` \| `'high'` |
-| `toggleOIDNHdr(bool)` | Toggle HDR mode |
-| `toggleOIDNUseGBuffer(bool)` | Toggle G-buffer guided denoising |
 | `setUpscalerEnabled(bool)` | Enable/disable AI upscaler |
 | `setUpscalerScaleFactor(n)` | Upscale factor (2, 4) |
 | `setUpscalerQuality(quality)` | `'fast'` \| `'balance'` |

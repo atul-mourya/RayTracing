@@ -185,9 +185,7 @@ const MODEL_CONFIG = {
 	},
 	DEFAULT_OPTIONS: {
 		enableOIDN: true,
-		useGBuffer: true,
 		oidnQuality: 'fast',
-		oidnHdr: false,
 		debugGbufferMaps: true,
 		tileSize: 256
 	}
@@ -244,9 +242,7 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Destructure for easier access
 		this.enabled = this.config.enableOIDN;
-		this.useGBuffer = this.config.useGBuffer;
 		this.quality = this.config.oidnQuality;
-		this.hdr = this.config.oidnHdr;
 		this.debugGbufferMaps = this.config.debugGbufferMaps;
 		this.tileSize = this.config.tileSize;
 
@@ -370,9 +366,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 			const initFn = await getInitUNetFromURL();
 			this.unet = await initFn( tzaUrl, backendParams, {
-				aux: this.useGBuffer,
-				// GPU path requires hdr: true (only HDR+aux weight files have a GPU pipeline)
-				hdr: this.isGPUMode ? true : this.hdr,
+				aux: true,
+				hdr: true,
 				maxTileSize: this.tileSize
 			} );
 
@@ -398,11 +393,8 @@ export class OIDNDenoiser extends EventDispatcher {
 		const { BASE_URL, QUALITY_SUFFIXES } = MODEL_CONFIG;
 
 		const modelSize = QUALITY_SUFFIXES[ this.quality ] || '';
-		// GPU path requires the HDR model variant (GPU pipeline only exists for hdr+aux weights)
-		const dynamicRange = ( this.isGPUMode || this.hdr ) ? '_hdr' : '_ldr';
-		const aux = this.useGBuffer ? '_alb_nrm' : '';
 
-		return `${BASE_URL}rt${dynamicRange}${aux}${modelSize}.tza`;
+		return `${BASE_URL}rt_hdr_alb_nrm${modelSize}.tza`;
 
 	}
 
@@ -415,26 +407,12 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Update configuration
 		Object.assign( this.config, newConfig );
-		this.useGBuffer = this.config.useGBuffer;
 		this.quality = this.config.oidnQuality;
-		this.hdr = this.config.oidnHdr;
 		this.debugGbufferMaps = this.config.debugGbufferMaps;
 		this.tileSize = this.config.tileSize;
 
 		// Reload denoiser if necessary
 		await this._setupUNetDenoiser();
-
-	}
-
-	async toggleUseGBuffer( value ) {
-
-		await this.updateConfiguration( { useGBuffer: value } );
-
-	}
-
-	async toggleHDR( value ) {
-
-		await this.updateConfiguration( { oidnHdr: value } );
 
 	}
 
@@ -574,13 +552,8 @@ export class OIDNDenoiser extends EventDispatcher {
 		);
 
 		copyTex( textures.color, this._gpuInputBuffers.color );
-
-		if ( this.useGBuffer ) {
-
-			copyTex( textures.albedo, this._gpuInputBuffers.albedo );
-			copyTex( textures.normal, this._gpuInputBuffers.normal );
-
-		}
+		copyTex( textures.albedo, this._gpuInputBuffers.albedo );
+		copyTex( textures.normal, this._gpuInputBuffers.normal );
 
 		device.queue.submit( [ encoder.finish() ] );
 
@@ -602,15 +575,10 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Pass GPU storage buffers to oidn-web (GPUBuffer path, well-tested)
 		const config = {
-			color: { data: this._gpuInputBuffers.color, width, height }
+			color: { data: this._gpuInputBuffers.color, width, height },
+			albedo: { data: this._gpuInputBuffers.albedo, width, height },
+			normal: { data: this._gpuInputBuffers.normal, width, height }
 		};
-
-		if ( this.useGBuffer ) {
-
-			config.albedo = { data: this._gpuInputBuffers.albedo, width, height };
-			config.normal = { data: this._gpuInputBuffers.normal, width, height };
-
-		}
 
 		return this._executeWithAbortGPU( config );
 
