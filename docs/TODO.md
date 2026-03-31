@@ -6,9 +6,7 @@
 - [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
 - oidndenoiser is desaturation the results
-- assess the need for ToneMapCPU. why not threejs tonemap which is already defined
 - [ ] occasional flickers with auto-exposure
-- [ ] move dimension display and fps monitor in parent container such that it does not resize due to resize controller
   
 
 ### Known

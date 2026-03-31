@@ -183,7 +183,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 			const initApp = async () => {
 
-				const app = new PathTracerApp( canvasRef.current, denoiserCanvasRef.current );
+				const app = new PathTracerApp( canvasRef.current, denoiserCanvasRef.current, {
+						statsContainer: viewportRef.current
+					} );
 				appRef.current = app;
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
 				await app.init();
@@ -304,10 +306,10 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 						style={canvasStyle}
 					/>
 					<AutoFocusOverlay containerRef={containerRef} />
-					<DimensionDisplay dimension={renderResolution} />
 				</div>
 			</div>
 
+			<DimensionDisplay dimension={renderResolution} />
 			<StatsMeter viewportMode={viewportMode} />
 
 			{shouldShowSaveControls && (
