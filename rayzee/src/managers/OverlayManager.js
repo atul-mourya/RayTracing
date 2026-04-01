@@ -165,15 +165,41 @@ export class OverlayManager {
 	 */
 	render() {
 
-		// 1. Render 3D HelperScene overlay
+		// 1. Render 3D HelperScene overlay (light gizmos, etc.)
 		if ( this._helperScene ) {
 
 			this._helperScene.render( this.renderer, this.camera );
 
 		}
 
-		// 2. Draw HUD canvas (2D helpers)
+		// 2. Render scene-layer helpers (outline, etc.)
+		for ( const helper of this._helpers.values() ) {
+
+			if ( helper.visible && helper.layer === 'scene' && helper.render ) {
+
+				helper.render( this.renderer, this.camera );
+
+			}
+
+		}
+
+		// 3. Draw HUD canvas (2D helpers)
 		this.refreshHUD();
+
+	}
+
+	/**
+	 * Forwards display dimensions to helpers that need resize.
+	 * @param {number} width - Display width in pixels
+	 * @param {number} height - Display height in pixels
+	 */
+	setSize( width, height ) {
+
+		for ( const helper of this._helpers.values() ) {
+
+			helper.setSize?.( width, height );
+
+		}
 
 	}
 

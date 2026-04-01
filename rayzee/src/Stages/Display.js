@@ -46,15 +46,6 @@ export class Display extends RenderStage {
 		const luma = dot( exposed, REC709_LUMINANCE_COEFFICIENTS );
 		let displayShader = mix( vec3( luma ), exposed, this.saturation );
 
-		// Additively blend outline colour when provided (OutlineNode drives
-		// its own multi-pass rendering via updateBefore, so including it in
-		// the node graph is all that's needed).
-		if ( options.outlineColorNode ) {
-
-			displayShader = displayShader.add( options.outlineColorNode );
-
-		}
-
 		// Alpha: pass through source alpha when transparent, otherwise 1.0
 		const outputAlpha = select( this._transparentBackground, texSample.w, 1.0 );
 

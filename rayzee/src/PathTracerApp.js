@@ -1,12 +1,10 @@
 import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
-import { uniform } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, PerspectiveCamera, Scene, EventDispatcher,
-	Color, Mesh, CircleGeometry, MeshPhysicalMaterial, TimestampQuery
+	Mesh, CircleGeometry, MeshPhysicalMaterial, TimestampQuery
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { outline } from 'three/addons/tsl/display/OutlineNode.js';
 import { SceneHelpers } from './SceneHelpers.js';
 import Stats from 'stats-gl';
 import { PathTracer } from './Stages/PathTracer.js';
@@ -36,6 +34,7 @@ import { LightManager } from './managers/LightManager.js';
 import { DenoisingManager } from './managers/DenoisingManager.js';
 import { OverlayManager } from './managers/OverlayManager.js';
 import { TileHelper } from './managers/helpers/TileHelper.js';
+import { OutlineHelper } from './managers/helpers/OutlineHelper.js';
 
 
 /**
@@ -618,14 +617,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.overlayManager?.dispose();
 		this._sceneHelpers?.clear();
-
-		if ( this._outlineNode ) {
-
-			this._outlineNode.dispose();
-			this._outlineNode = null;
-
-		}
-
 		this.denoisingManager?.dispose();
 		this.pipeline?.dispose();
 		this._interactionManager?.dispose();
@@ -881,6 +872,13 @@ export class PathTracerApp extends EventDispatcher {
 		this._camera.aspect = width / height;
 		this._camera.updateProjectionMatrix();
 
+		// Overlay helpers always render at display resolution
+		const dpr = window.devicePixelRatio || 1;
+		this.overlayManager?.setSize(
+			Math.round( width * dpr ),
+			Math.round( height * dpr )
+		);
+
 		if ( width === this._lastRenderWidth && height === this._lastRenderHeight ) return;
 
 		clearTimeout( this._resizeDebounceTimer );
@@ -1106,9 +1104,10 @@ export class PathTracerApp extends EventDispatcher {
 
 	selectObject( object ) {
 
-		if ( this._outlineNode ) {
+		const outlineHelper = this.overlayManager?.getHelper( 'outline' );
+		if ( outlineHelper ) {
 
-			this._outlineNode.selectedObjects = object ? [ object ] : [];
+			outlineHelper.setSelectedObjects( object ? [ object ] : [] );
 
 		}
 
@@ -1679,38 +1678,10 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
-		// Outline effect
-		const outlineScene = this.meshScene;
-		this._outlineNode = outline( outlineScene, this._camera, {
-			selectedObjects: [],
-			edgeThickness: uniform( 1.0 ),
-			edgeGlow: uniform( 0.0 ),
-		} );
-
-		const outlineCanvas = this.canvas;
-		const outlineSetSize = this._outlineNode.setSize.bind( this._outlineNode );
-		this._outlineNode.setSize = () => {
-
-			const dpr = window.devicePixelRatio;
-			outlineSetSize(
-				Math.round( outlineCanvas.clientWidth * dpr ),
-				Math.round( outlineCanvas.clientHeight * dpr )
-			);
-
-		};
-
-		const edgeStrength = uniform( 3.0 );
-		const visibleEdgeColor = uniform( new Color( 0xffffff ) );
-		const hiddenEdgeColor = uniform( new Color( 0x190a05 ) );
-		const { visibleEdge, hiddenEdge } = this._outlineNode;
-		const outlineColorNode = visibleEdge.mul( visibleEdgeColor )
-			.add( hiddenEdge.mul( hiddenEdgeColor ) )
-			.mul( edgeStrength );
 
 		this.stages.display = new Display( this.renderer, {
 			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
 			saturation: this.settings.get( 'saturation' ) ?? DEFAULT_STATE.saturation,
-			outlineColorNode
 		} );
 
 	}
@@ -2030,6 +2001,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		// ── OIDN denoiser tile events ──
 		this._setupDenoiserTileHelper( tileHelper );
+
+		// ── Outline helper (renders at display resolution, not render resolution) ──
+		const outlineHelper = new OutlineHelper( this.renderer, this.meshScene, this._camera );
+		this.overlayManager.register( 'outline', outlineHelper );
 
 	}
 

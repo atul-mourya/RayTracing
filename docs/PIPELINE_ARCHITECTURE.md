@@ -533,7 +533,8 @@ All stages execute every frame:
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'edgeFiltering:output' to context
 
-5. Display.render() → Screen (with exposure + outline compositing)
+5. Display.render() → Screen (exposure + tonemapping)
+   ↓ then OverlayManager renders outline + helpers on top
 ```
 
 ### Tile Rendering - Intermediate Tile (renderMode=1, tiles 1-15 of 16)
@@ -593,7 +594,9 @@ RenderPipeline.render(writeBuffer)
     ↓ executes stages sequentially
 [PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → AdaptiveSampling → EdgeFilter → AutoExposure → Display]
     ↓
-Display → Screen (with exposure + outline compositing)
+Display → Screen (exposure + tonemapping)
+    ↓
+OverlayManager → outline + scene helpers + HUD (at display resolution)
 ```
 
 ---
