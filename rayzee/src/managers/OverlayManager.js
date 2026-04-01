@@ -40,6 +40,10 @@ export class OverlayManager {
 		// ── HelperScene reference (set via setHelperScene) ──
 		this._helperScene = null;
 
+		// ── Size dedup ──
+		this._lastWidth = 0;
+		this._lastHeight = 0;
+
 	}
 
 	/**
@@ -194,6 +198,10 @@ export class OverlayManager {
 	 * @param {number} height - Display height in pixels
 	 */
 	setSize( width, height ) {
+
+		if ( width === this._lastWidth && height === this._lastHeight ) return;
+		this._lastWidth = width;
+		this._lastHeight = height;
 
 		for ( const helper of this._helpers.values() ) {
 
