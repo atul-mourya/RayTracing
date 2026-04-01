@@ -6,6 +6,7 @@
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 - [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
 - [ ] oidndenoiser is desaturation the results
+- [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
   
 
 ### Known
