@@ -923,6 +923,12 @@ export class PathTracerApp extends EventDispatcher {
 		this._camera.aspect = width / height;
 		this._camera.updateProjectionMatrix();
 
+		const dpr = window.devicePixelRatio || 1;
+		this.overlayManager?.setSize(
+			Math.round( width * dpr ),
+			Math.round( height * dpr )
+		);
+
 		clearTimeout( this._resizeDebounceTimer );
 		this._applyRenderResize( width, height );
 
