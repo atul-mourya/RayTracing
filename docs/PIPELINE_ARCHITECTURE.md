@@ -26,15 +26,20 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │    PathTracerApp      │
                               │    (WebGPU Renderer)  │
                               ├───────────────────────┤
-                              │ RenderPipeline          │
+                              │ RenderSettings        │
+                              │ AssetLoader           │
+                              │ SceneProcessor        │
+                              ├───────────────────────┤
+                              │ RenderPipeline        │
                               │ ├─PathTracer          │
                               │ │ ├─UniformManager    │
                               │ │ ├─MaterialDataMgr   │
                               │ │ ├─EnvironmentMgr    │
-                              │ │ ├─ShaderBuilder    │
-                              │ │ └─StorageTexturePool  │
+                              │ │ ├─ShaderBuilder     │
+                              │ │ └─StorageTexturePool│
                               │ ├─NormalDepth         │
                               │ ├─MotionVector        │
+                              │ ├─SSRC                │
                               │ ├─ASVGF               │
                               │ ├─Variance            │
                               │ ├─BilateralFilter     │
@@ -42,12 +47,15 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │ ├─EdgeFilter          │
                               │ ├─AutoExposure        │
                               │ └─Display             │
+                              ├───────────────────────┤
                               │ managers/             │
                               │  ├─CameraManager      │
                               │  ├─LightManager       │
-                              │  ├─DenoisingManager     │
-                              │  └─InteractionManager  │
-                              │ OIDNDenoiser          │
+                              │  ├─DenoisingManager   │
+                              │  │  ├─OIDNDenoiser    │
+                              │  │  └─AIUpscaler      │
+                              │  └─OverlayManager     │
+                              │     └─TileHelper      │
                               └───────────────────────┘
 ```
 
