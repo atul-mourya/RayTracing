@@ -30,7 +30,6 @@
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support
-- [ ] camera motion video rendering
 - [ ] Full WGSL transition, avoid TSL nodes
 - [ ] Realtime OIDN denoising with WebGPU compute shader implementation
 
@@ -66,6 +65,11 @@
 - [ ] Dynamic object addition and removal
 - [ ] move assests to cdn and object store instead of bundling with the app
 
+### Animation
+- [ ] Timeline scrubber for animation control
+- [ ] Camera animation - interpolate camera path keyframes during video render
+- [ ] PNG image sequence export for better quality and post-processing flexibility
+- [ ] Multi-clip blending - cross-fade between animation clips with configurable transition duration
 ---
 
 ## Performance & Architecture
@@ -75,6 +79,10 @@
 
 ### BVH
 - [x] Fast BVH refit updates - O(N) bottom-up AABB refit for animated geometry
+- [ ] Parallel refit — split bottom-up traversal across multiple workers for large scenes
+- [ ] GPU compute refit — once Three.js supports read-write storage buffers, move AABB recomputation to a compute shader for sub-millisecond refits
+- [ ] Incremental rebuild — when SAH degrades past threshold, rebuild only the degraded subtree instead of the whole BVH
+
 - [ ] Consider PLOC for maximum performance scenarios
 - [ ] 4-way branching for GPU traversal (explored)
 
