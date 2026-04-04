@@ -64,6 +64,11 @@ export class SceneProcessor {
 		this.bvhData = null;
 		this.materialData = null;
 
+		// BVH refit support
+		this.originalToBvhMap = null; // Uint32Array: original tri index → BVH-order index
+		this._refitWorker = null;
+		this._refitSharedBuffers = null; // SharedArrayBuffer refs for zero-copy refit
+
 		// Initialize texture references
 		this.albedoTextures = null;
 		this.normalTextures = null;
@@ -409,6 +414,10 @@ export class SceneProcessor {
 
 			this.bvhRoot = result.bvhRoot; // truthy sentinel for hasBVH checks
 			this.bvhData = result.bvhData; // GPU-ready flat array (flattened in worker)
+			this.originalToBvhMap = result.originalToBvh || null; // Inverse index map for BVH refit
+			// Invalidate refit state — new scene has different triangle count / BVH layout.
+			// Worker caches shared buffer refs, so it must be re-created too.
+			this._disposeRefitWorker();
 			if ( result.reorderedTriangles ) this.triangleData = result.reorderedTriangles;
 
 			if ( this.triangleCount <= 500 && originalTreeletEnabled ) {
@@ -828,6 +837,125 @@ export class SceneProcessor {
 
 	}
 
+	// ===== BVH REFIT (Animation Support) =====
+
+	/**
+	 * Refit BVH with updated vertex positions (same topology — no triangle add/remove).
+	 * O(N) bottom-up AABB update instead of full O(N log N) SAH rebuild.
+	 *
+	 * @param {Float32Array} newPositions - 9 floats per triangle (ax,ay,az, bx,by,bz, cx,cy,cz) in original mesh order
+	 * @returns {Promise<{ refitTimeMs: number }>}
+	 */
+	async refitBVH( newPositions ) {
+
+		if ( ! this.bvhData || ! this.triangleData || ! this.originalToBvhMap ) {
+
+			throw new Error( 'No BVH data available for refit. Run buildBVH() first.' );
+
+		}
+
+		// Lazy-create worker
+		if ( ! this._refitWorker ) {
+
+			this._refitWorker = new Worker(
+				new URL( './Workers/BVHRefitWorker.js', import.meta.url ),
+				{ type: 'module' }
+			);
+
+		}
+
+		// First call: set up SharedArrayBuffers for zero-copy communication.
+		// Worker writes into shared bvh/tri data; main thread reads them for GPU upload.
+		// Race-free because _animRefitInFlight guard prevents overlapping calls.
+		if ( ! this._refitSharedBuffers ) {
+
+			const sharedBvhBuf = new SharedArrayBuffer( this.bvhData.byteLength );
+			const sharedTriBuf = new SharedArrayBuffer( this.triangleData.byteLength );
+			const sharedPosBuf = new SharedArrayBuffer( newPositions.byteLength );
+
+			const sharedBvhData = new Float32Array( sharedBvhBuf );
+			const sharedTriData = new Float32Array( sharedTriBuf );
+
+			sharedBvhData.set( this.bvhData );
+			sharedTriData.set( this.triangleData );
+
+			// Replace local refs with shared views
+			this.bvhData = sharedBvhData;
+			this.triangleData = sharedTriData;
+
+			// Build bvhToOriginal map (inverse of originalToBvh) for cache-friendly
+			// sequential writes in the worker's updateTrianglePositions.
+			const triCount = this.originalToBvhMap.length;
+			const bvhToOriginal = new Uint32Array( triCount );
+			for ( let i = 0; i < triCount; i ++ ) {
+
+				bvhToOriginal[ this.originalToBvhMap[ i ] ] = i;
+
+			}
+
+			this._refitSharedBuffers = {
+				bvhBuf: sharedBvhBuf,
+				triBuf: sharedTriBuf,
+				posBuf: sharedPosBuf,
+				posView: new Float32Array( sharedPosBuf ),
+			};
+
+			// Send shared buffers + immutable index map to worker (cached there)
+			this._refitWorker.postMessage( {
+				type: 'init',
+				sharedBvhBuf,
+				sharedTriBuf,
+				sharedPosBuf,
+				bvhToOriginal,
+			}, [ bvhToOriginal.buffer ] );
+
+		}
+
+		// Write new positions into shared buffer (main thread → worker, zero-copy)
+		this._refitSharedBuffers.posView.set( newPositions );
+
+		return new Promise( ( resolve, reject ) => {
+
+			this._refitWorker.onmessage = ( e ) => {
+
+				const msg = e.data;
+				if ( msg.type === 'refitComplete' ) {
+
+					// bvhData/triangleData already updated via shared memory
+					resolve( { refitTimeMs: msg.refitTimeMs } );
+
+				} else if ( msg.type === 'error' ) {
+
+					reject( new Error( msg.error ) );
+
+				}
+
+			};
+
+			// Signal worker — no data transfer needed, everything is in shared memory
+			this._refitWorker.postMessage( { type: 'refit' } );
+
+		} );
+
+	}
+
+	/**
+	 * Terminate the refit worker if active.
+	 * @private
+	 */
+	_disposeRefitWorker() {
+
+		if ( this._refitWorker ) {
+
+			this._refitWorker.terminate();
+			this._refitWorker = null;
+
+		}
+
+		this._refitSharedBuffers = null;
+
+	}
+
 	/**
      * Completely dispose of all resources
      * Call this when the instance is no longer needed
@@ -835,6 +963,9 @@ export class SceneProcessor {
 	dispose() {
 
 		this._log( 'Disposing resources' );
+
+		// Dispose refit worker
+		this._disposeRefitWorker();
 
 		// Dispose textures
 		this._disposeTextures();

@@ -39,3 +39,6 @@ export { OverlayManager } from './managers/OverlayManager.js';
 export { RenderPipeline } from './Pipeline/RenderPipeline.js';
 export { RenderStage, StageExecutionMode } from './Pipeline/RenderStage.js';
 export { PipelineContext } from './Pipeline/PipelineContext.js';
+
+// Animation (for advanced consumers)
+export { AnimationManager } from './managers/AnimationManager.js';

@@ -6,7 +6,7 @@ import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
 import { useToast } from '@/hooks/use-toast';
-import { useStore, usePathTracerStore, useCameraStore } from '@/store';
+import { useStore, usePathTracerStore, useCameraStore, useAnimationStore } from '@/store';
 import { saveRender } from '@/utils/database';
 import { useAutoFitScale } from '@/hooks/useAutoFitScale';
 import { generateViewportStyles } from '@/utils/viewport';
@@ -201,7 +201,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				setApp( app );
 
 				// Bridge engine events → Zustand stores
-				engineCleanupRef.current = connectEngineToStore( app, { useStore, useCameraStore, usePathTracerStore } );
+				engineCleanupRef.current = connectEngineToStore( app, { useStore, useCameraStore, usePathTracerStore, useAnimationStore } );
 
 				setLoading( { isLoading: true, title: "Starting", status: "Loading Assets...", progress: 60 } );
 

@@ -127,12 +127,31 @@ Critical for maintaining 60fps during heavy computations:
 - **`TexturesWorker.js`**: Batch texture processing with memory-optimized chunking
 - **`BVHSubtreeWorker.js`**: BVH subtree optimization for GPU traversal
 - **`CDFWorker.js`**: CDF computation for environment importance sampling
+- **`BVHRefitWorker.js`**: O(N) bottom-up BVH AABB refit for animated geometry (SharedArrayBuffer protocol)
+
+### Animation System (`rayzee/src/managers/`)
+GLTF skeletal/morph animation playback with real-time BVH refit:
+- **`AnimationManager.js`**: Owns Three.js `AnimationMixer`, CPU skinning via `mesh.getVertexPosition()`, and position extraction. Key methods: `play()`, `stop()`, `seekTo(time)`, `setSpeed()`, `setLoop()`. Uses two-phase extraction: skin unique vertices first, then assemble triangles from index buffer.
+- **`VideoRenderer.js`**: WebM video capture via `MediaRecorder` + `canvas.captureStream()`. Two modes: **quick capture** (real-time playback) and **offline render** (frame-by-frame with N SPP accumulation per frame).
+- **`BVHRefitter.js`** (in `Processor/`): Core O(N) refit algorithm — reverse pre-order traversal for bottom-up AABB recomputation. Reuses existing BVH tree structure, only updates bounding boxes.
+
+**Animation data flow**:
+1. `AssetLoader` preserves `data.animations` from GLTFLoader
+2. `AnimationManager.init()` creates mixer on GLTF model root (with fallback to scene root for track resolution)
+3. Per frame: `mixer.update(delta)` → `scene.updateMatrixWorld(true)` → `getVertexPosition()` per vertex → `refitBVH(positions)` via worker
+4. `PathTracer.updateTriangleData()` / `updateBVHData()` — fast GPU buffer writes (no reallocation)
+
+**BVH refit data flow**:
+- `BVHBuilder` produces `originalToBvhMap` (Uint32Array) during initial build — maps original triangle indices to BVH-reordered indices
+- `SceneProcessor.refitBVH()` sends positions + map to `BVHRefitWorker` via SharedArrayBuffer
+- Worker updates triangle positions in BVH order, then refits AABBs bottom-up
 
 ### State Management (`app/src/store.js`)
 Zustand-based stores with **automatic 3D engine synchronization**:
 - `usePathTracerStore` - Rendering parameters with handlers that use `getApp()` from appProxy
 - `useAssetsStore` - Model/environment loading state
 - `useCameraStore` - Camera controls with DOF presets
+- `useAnimationStore` - Animation playback, clip selection, recording state
 - Pattern: `handleChange()` utility creates handlers that update both store state and the app, triggering `app.reset()` for immediate visual feedback
 
 ### React Hooks for Engine Integration

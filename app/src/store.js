@@ -2594,4 +2594,87 @@ const useFavoritesStore = create( ( set, get ) => ( {
 	} )
 } ) );
 
-export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore, useFavoritesStore };
+// ═══════════════════════════════════════════════════════════════
+// Animation Store
+// ═══════════════════════════════════════════════════════════════
+
+const useAnimationStore = create( ( set, get ) => ( {
+
+	clips: [],
+	selectedClip: 0,
+	isPlaying: false,
+	isPaused: false,
+	speed: 1.0,
+	loop: true,
+
+	setClips: ( clips ) => set( { clips, selectedClip: 0, isPlaying: false, isPaused: false } ),
+	setIsPlaying: ( isPlaying ) => set( { isPlaying } ),
+	setIsPaused: ( isPaused ) => set( { isPaused } ),
+
+	handlePlay: () => {
+
+		const app = getApp();
+		if ( ! app ) return;
+		const { selectedClip, isPaused } = get();
+		if ( isPaused ) {
+
+			app.resumeAnimation();
+			set( { isPlaying: true, isPaused: false } );
+
+		} else {
+
+			app.playAnimation( selectedClip );
+			set( { isPlaying: true, isPaused: false } );
+
+		}
+
+	},
+
+	handlePause: () => {
+
+		const app = getApp();
+		if ( app ) app.pauseAnimation();
+		set( { isPlaying: false, isPaused: true } );
+
+	},
+
+	handleStop: () => {
+
+		const app = getApp();
+		if ( app ) app.stopAnimationPlayback();
+		set( { isPlaying: false, isPaused: false } );
+
+	},
+
+	handleClipChange: ( index ) => {
+
+		const app = getApp();
+		const { isPlaying } = get();
+		set( { selectedClip: index } );
+		if ( isPlaying && app ) {
+
+			app.playAnimation( index );
+
+		}
+
+	},
+
+	handleSpeedChange: ( speed ) => {
+
+		const app = getApp();
+		if ( app ) app.setAnimationSpeed( speed );
+		set( { speed } );
+
+	},
+
+	handleLoopChange: ( loop ) => {
+
+		const app = getApp();
+		if ( app ) app.setAnimationLoop( loop );
+		set( { loop } );
+
+	},
+
+} ) );
+
+export { useStore, useAssetsStore, useEnvironmentStore, usePathTracerStore, useLightStore, useCameraStore, useMaterialStore, useFavoritesStore, useAnimationStore };

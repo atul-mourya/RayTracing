@@ -40,6 +40,7 @@ export class AssetLoader extends EventDispatcher {
 		this.sceneScale = 1.0;
 		this.loaderCache = {};
 		this.uploadedFileInfo = null;
+		this.animations = [];
 
 	}
 
@@ -734,6 +735,7 @@ export class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 
 			this.targetModel = data.scene;
+			this.animations = data.animations || [];
 			await this.onModelLoad( this.targetModel );
 			this.dispatchEvent( { type: 'load', model: data.scene, filename: modelUrl.split( '/' ).pop() } );
 			return data;
@@ -761,6 +763,7 @@ export class AssetLoader extends EventDispatcher {
 			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
 
 			this.targetModel = data.scene;
+			this.animations = data.animations || [];
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 			await this.onModelLoad( this.targetModel );
 

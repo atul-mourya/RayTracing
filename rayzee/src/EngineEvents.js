@@ -35,4 +35,10 @@ export const EngineEvents = {
 
 	// Settings
 	SETTING_CHANGED: 'engine:settingChanged',
+
+	// Animation
+	ANIMATION_STARTED: 'engine:animationStarted',
+	ANIMATION_PAUSED: 'engine:animationPaused',
+	ANIMATION_STOPPED: 'engine:animationStopped',
+	ANIMATION_FINISHED: 'engine:animationFinished',
 };

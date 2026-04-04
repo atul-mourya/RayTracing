@@ -13,7 +13,7 @@ import { EngineEvents } from 'rayzee';
  * @param {Object} stores - Zustand stores { useStore, useCameraStore, usePathTracerStore }
  * @returns {Function} cleanup - Call to unsubscribe all listeners
  */
-export function connectEngineToStore( engine, { useStore, useCameraStore, usePathTracerStore } ) {
+export function connectEngineToStore( engine, { useStore, useCameraStore, usePathTracerStore, useAnimationStore } ) {
 
 	const handlers = [];
 
@@ -122,8 +122,58 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 
 	} );
 
-	// ── Window event forwarding (backward compat for components listening on window) ──
+	// ── Animation ───────────────────────────────────────────
+	on( EngineEvents.ANIMATION_STARTED, () => {
+
+		if ( useAnimationStore ) useAnimationStore.getState().setIsPlaying?.( true );
+
+	} );
+
+	on( EngineEvents.ANIMATION_PAUSED, () => {
+
+		if ( useAnimationStore ) {
+
+			const state = useAnimationStore.getState();
+			state.setIsPlaying?.( false );
+			state.setIsPaused?.( true );
+
+		}
+
+	} );
+
+	on( EngineEvents.ANIMATION_STOPPED, () => {
+
+		if ( useAnimationStore ) {
+
+			const state = useAnimationStore.getState();
+			state.setIsPlaying?.( false );
+			state.setIsPaused?.( false );
+
+		}
+
+	} );
+
+	on( EngineEvents.ANIMATION_FINISHED, () => {
+
+		if ( useAnimationStore ) {
+
+			const state = useAnimationStore.getState();
+			state.setIsPlaying?.( false );
+			state.setIsPaused?.( false );
+
+		}
+
+	} );
+
 	on( 'SceneRebuild', () => {
+
+		// Update animation clips list when a new scene is loaded
+		if ( useAnimationStore ) {
+
+			const clips = engine.animationClips || [];
+			useAnimationStore.getState().setClips( clips );
+
+		}
 
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 

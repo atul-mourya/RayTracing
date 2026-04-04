@@ -1,5 +1,5 @@
 import { useMemo, memo, lazy, Suspense } from 'react';
-import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife, Bot } from 'lucide-react';
+import { Sliders, Camera, Box, Sun, SwatchBook, Blend, PocketKnife, Bot, Film } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from '@/components/ui/separator';
 import { useStore } from '@/store';
@@ -11,6 +11,7 @@ const LightsTab = lazy( () => import( './LightsTab' ) );
 const AssetsTab = lazy( () => import( './AssetsTab' ) );
 const PathTracerTab = lazy( () => import( './PathTracerTab' ) );
 const MaterialTab = lazy( () => import( './MaterialTab' ) );
+const AnimationTab = lazy( () => import( './AnimationTab' ) );
 const ColorCorrectionsTab = lazy( () => import( './ColorCorrectionsTab' ) );
 const AITab = lazy( () => import( './AITab' ) );
 
@@ -29,7 +30,7 @@ const InteractiveModeTabs = memo( () => {
 	const setActiveTab = useStore( state => state.setActiveTab );
 	return (
 		<Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full w-full">
-			<TabsList className="relative grid w-full grid-cols-5 h-12 p-0">
+			<TabsList className="relative grid w-full grid-cols-6 h-12 p-0">
 				<TabsTrigger value="pathtracer" className="flex flex-col items-center py-2">
 					<Sliders size={12} />
 					<span className="text-xs mt-1">Tracer</span>
@@ -45,6 +46,10 @@ const InteractiveModeTabs = memo( () => {
 				<TabsTrigger value="material" className="flex flex-col items-center py-2">
 					<SwatchBook size={12} />
 					<span className="text-xs mt-1">Material</span>
+				</TabsTrigger>
+				<TabsTrigger value="animation" className="flex flex-col items-center py-2">
+					<Film size={12} />
+					<span className="text-xs mt-1">Anim</span>
 				</TabsTrigger>
 				<TabsTrigger value="assets" className="flex flex-col items-center py-2">
 					<Box size={12} />
@@ -73,6 +78,12 @@ const InteractiveModeTabs = memo( () => {
 			<TabsContent value="material" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
 				<Suspense fallback={<TabLoadingFallback />}>
 					<MaterialTab />
+				</Suspense>
+			</TabsContent>
+
+			<TabsContent value="animation" className="relative h-full data-[state=inactive]:hidden data-[state=active]:flex flex-col overflow-y-auto mt-0">
+				<Suspense fallback={<TabLoadingFallback />}>
+					<AnimationTab />
 				</Suspense>
 			</TabsContent>
 

@@ -33,6 +33,7 @@ import { CameraManager } from './managers/CameraManager.js';
 import { LightManager } from './managers/LightManager.js';
 import { DenoisingManager } from './managers/DenoisingManager.js';
 import { OverlayManager } from './managers/OverlayManager.js';
+import { AnimationManager } from './managers/AnimationManager.js';
 import { TileHelper } from './managers/helpers/TileHelper.js';
 import { OutlineHelper } from './managers/helpers/OutlineHelper.js';
 
@@ -80,6 +81,8 @@ export class PathTracerApp extends EventDispatcher {
 		// ── Asset pipeline ──
 		this.assetLoader = null;
 		this._sdf = null;
+		this.animationManager = new AnimationManager();
+		this._animRefitInFlight = false;
 
 		// ── Pipeline & stages ──
 		this.pipeline = null;
@@ -422,6 +425,22 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( this._controls ) this._controls.update();
 
+		// Animation playback: compute skinned positions and refit BVH.
+		// Guard prevents overlapping async refits (fire-and-forget with 1-frame latency).
+		if ( this.animationManager?.isPlaying && ! this._animRefitInFlight ) {
+
+			const positions = this.animationManager.update();
+			if ( positions ) {
+
+				this._animRefitInFlight = true;
+				this.refitBVH( positions )
+					.catch( err => console.error( 'Animation refit error:', err ) )
+					.finally( () => { this._animRefitInFlight = false; } );
+
+			}
+
+		}
+
 		if ( this.needsReset ) {
 
 			this.reset( true );
@@ -606,6 +625,7 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	dispose() {
 
+		this.animationManager?.dispose();
 		this.stopAnimation();
 		setStatusCallback( null );
 
@@ -733,6 +753,10 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	async loadSceneData() {
 
+		// Stop any running animation before rebuilding scene data
+		this.animationManager.dispose();
+		this._animRefitInFlight = false;
+
 		const timer = new BuildTimer( 'loadSceneData' );
 		const environmentTexture = this.meshScene.environment;
 
@@ -852,8 +876,133 @@ export class PathTracerApp extends EventDispatcher {
 		timer.print();
 		resetLoading();
 
+		// Initialize animation manager if GLTF has animation clips.
+		// scene = meshScene (for full matrixWorld updates including parent chain)
+		// mixerRoot = targetModel (GLTF model root, for animation track name resolution)
+		const animations = this.assetLoader?.animations || [];
+		if ( animations.length > 0 ) {
+
+			const mixerRoot = this.assetLoader?.targetModel || this.meshScene;
+			this.animationManager.init( this.meshScene, mixerRoot, this._sdf.meshes, animations, this._sdf.triangleCount );
+			this.animationManager.onFinished = () => {
+
+				this._animRefitInFlight = false;
+				this.dispatchEvent( { type: EngineEvents.ANIMATION_FINISHED } );
+
+			};
+
+		}
+
 		this.dispatchEvent( { type: 'SceneRebuild' } );
 		return true;
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// BVH Refit (Animation)
+	// ═══════════════════════════════════════════════════════════════
+
+	/**
+	 * Update vertex positions for animation without full BVH rebuild.
+	 * O(N) bottom-up AABB refit instead of O(N log N) SAH rebuild.
+	 *
+	 * Topology must stay the same (same triangle count and connectivity).
+	 * Call this per-frame for skeletal/morph-target animation.
+	 *
+	 * @param {Float32Array} newPositions - 9 floats per triangle (ax,ay,az, bx,by,bz, cx,cy,cz) in original mesh order
+	 * @returns {Promise<{ refitTimeMs: number }>}
+	 */
+	async refitBVH( newPositions ) {
+
+		const result = await this._sdf.refitBVH( newPositions );
+
+		this.stages.pathTracer.updateTriangleData( this._sdf.triangleData );
+		this.stages.pathTracer.updateBVHData( this._sdf.bvhData );
+		this.reset();
+
+		return result;
+
+	}
+
+	/**
+	 * Start playing a GLTF animation clip.
+	 * @param {number} [clipIndex=0] - Clip index, or -1 to play all
+	 */
+	playAnimation( clipIndex = 0 ) {
+
+		if ( ! this.animationManager?.hasAnimations ) {
+
+			console.warn( 'playAnimation: No animation clips available' );
+			return;
+
+		}
+
+		this.animationManager.play( clipIndex );
+		this.wake();
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_STARTED, clipIndex } );
+
+	}
+
+	/**
+	 * Pause animation — preserves current time position.
+	 */
+	pauseAnimation() {
+
+		this.animationManager?.pause();
+		this._animRefitInFlight = false;
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_PAUSED } );
+
+	}
+
+	/**
+	 * Resume animation from paused state.
+	 */
+	resumeAnimation() {
+
+		this.animationManager?.resume();
+		this.wake();
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_STARTED } );
+
+	}
+
+	/**
+	 * Stop animation — resets to beginning.
+	 */
+	stopAnimationPlayback() {
+
+		this.animationManager?.stop();
+		this._animRefitInFlight = false;
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_STOPPED } );
+
+	}
+
+	/**
+	 * Set animation playback speed.
+	 * @param {number} speed - Multiplier (1.0 = normal)
+	 */
+	setAnimationSpeed( speed ) {
+
+		this.animationManager?.setSpeed( speed );
+
+	}
+
+	/**
+	 * Set animation loop mode.
+	 * @param {boolean} loop - true for repeat, false for play-once
+	 */
+	setAnimationLoop( loop ) {
+
+		this.animationManager?.setLoop( loop );
+
+	}
+
+	/**
+	 * Get info about available animation clips.
+	 * @returns {{ index: number, name: string, duration: number }[]}
+	 */
+	get animationClips() {
+
+		return this.animationManager?.clips || [];
 
 	}
 

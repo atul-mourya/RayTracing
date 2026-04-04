@@ -416,7 +416,7 @@ export class BVHBuilder {
 
 					worker.onmessage = ( e ) => {
 
-						const { bvhData, triangles: transferredTriangles, error, progress, treeletStats } = e.data;
+						const { bvhData, triangles: transferredTriangles, originalToBvh, error, progress, treeletStats } = e.data;
 
 						if ( error ) {
 
@@ -446,7 +446,7 @@ export class BVHBuilder {
 							? new Float32Array( sharedReorderBuffer )
 							: transferredTriangles;
 
-						resolve( { bvhData, bvhRoot: true, reorderedTriangles } );
+						resolve( { bvhData, bvhRoot: true, reorderedTriangles, originalToBvh: originalToBvh || null } );
 
 					};
 
@@ -513,7 +513,8 @@ export class BVHBuilder {
 		const bvhData = this.flattenBVH( root );
 		// Return reordered triangles if available (avoids 362MB copy)
 		const reorderedTriangles = this.reorderedTriangleData || null;
-		return { bvhData, bvhRoot: true, reorderedTriangles };
+		const originalToBvh = this.originalToBvhMap || null;
+		return { bvhData, bvhRoot: true, reorderedTriangles, originalToBvh };
 
 	}
 
@@ -675,6 +676,18 @@ export class BVHBuilder {
 		}
 
 		this.reorderedTriangleData = reordered;
+
+		// Phase 6b: Build inverse index map for BVH refit
+		// originalToBvh[originalTriIdx] = bvhOrderIdx
+		const originalToBvh = new Uint32Array( n );
+		for ( let i = 0; i < n; i ++ ) {
+
+			originalToBvh[ this.indices[ i ] ] = i;
+
+		}
+
+		this.originalToBvhMap = originalToBvh;
+
 		this.splitStats.reorderTime = performance.now() - reorderStart;
 
 		this.splitStats.totalBuildTime = performance.now() - buildStartTime;

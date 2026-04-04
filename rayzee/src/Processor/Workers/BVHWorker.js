@@ -153,14 +153,23 @@ function handleAssemble( data ) {
 
 		}
 
+		// Build inverse index map for BVH refit
+		const originalToBvh = new Uint32Array( triangleCount );
+		for ( let i = 0; i < triangleCount; i ++ ) {
+
+			originalToBvh[ indices[ i ] ] = i;
+
+		}
+
 		const totalTime = performance.now() - startTime;
 		console.log( `[BVHWorker] Phase 3 (assemble + reorder): ${Math.round( totalTime )}ms (${( bvhData.byteLength / 1024 / 1024 ).toFixed( 1 )}MB BVH)` );
 
 		self.postMessage( {
 			type: 'assembleResult',
 			bvhData,
+			originalToBvh,
 			triangleCount
-		}, [ bvhData.buffer ] );
+		}, [ bvhData.buffer, originalToBvh.buffer ] );
 
 	} catch ( error ) {
 
@@ -213,25 +222,35 @@ function handleFullBuild( data ) {
 		const flattenTime = performance.now() - flattenStart;
 		console.log( `[BVHWorker] Flatten BVH: ${Math.round( flattenTime )}ms (${( bvhData.byteLength / 1024 / 1024 ).toFixed( 1 )}MB)` );
 
+		const originalToBvh = builder.originalToBvhMap || null;
+
 		if ( sharedReorderBuffer ) {
+
+			const transferables = [ bvhData.buffer ];
+			if ( originalToBvh ) transferables.push( originalToBvh.buffer );
 
 			self.postMessage( {
 				bvhData,
+				originalToBvh,
 				triangleCount: inputTriangles.length / 32,
 				treeletStats: builder.splitStats
-			}, [ bvhData.buffer ] );
+			}, transferables );
 
 		} else {
 
 			const reorderedFloat32Array = builder.reorderedTriangleData;
 			const triangleCount = reorderedFloat32Array.byteLength / ( 32 * 4 );
 
+			const transferables = [ bvhData.buffer, reorderedFloat32Array.buffer ];
+			if ( originalToBvh ) transferables.push( originalToBvh.buffer );
+
 			self.postMessage( {
 				bvhData,
 				triangles: reorderedFloat32Array,
+				originalToBvh,
 				triangleCount,
 				treeletStats: builder.splitStats
-			}, [ bvhData.buffer, reorderedFloat32Array.buffer ] );
+			}, transferables );
 
 		}
 

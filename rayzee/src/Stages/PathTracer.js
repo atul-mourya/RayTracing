@@ -766,6 +766,36 @@ export class PathTracer extends RenderStage {
 
 	}
 
+	// ===== FAST BUFFER UPDATES (BVH Refit / Animation) =====
+
+	/**
+	 * Update an existing GPU storage buffer in-place (no reallocation).
+	 * @param {StorageInstancedBufferAttribute} attr
+	 * @param {Float32Array} data
+	 * @private
+	 */
+	_updateStorageBuffer( attr, data ) {
+
+		if ( ! attr ) return;
+		attr.array.set( data );
+		attr.needsUpdate = true;
+
+	}
+
+	/** Update triangle positions in the existing GPU buffer. */
+	updateTriangleData( triangleData ) {
+
+		this._updateStorageBuffer( this.triangleStorageAttr, triangleData );
+
+	}
+
+	/** Update BVH node data in the existing GPU buffer. */
+	updateBVHData( bvhData ) {
+
+		this._updateStorageBuffer( this.bvhStorageAttr, bvhData );
+
+	}
+
 	// ===== STORAGE TEXTURES =====
 
 	/**

@@ -144,7 +144,7 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 					settled = true;
 					cleanup();
 					const reorderedTriangles = new Float32Array( sharedReorderBuffer );
-					resolve( { bvhData: msg.bvhData, bvhRoot: true, reorderedTriangles, splitStats: phase1Stats || {} } );
+					resolve( { bvhData: msg.bvhData, bvhRoot: true, reorderedTriangles, originalToBvh: msg.originalToBvh || null, splitStats: phase1Stats || {} } );
 					return;
 
 				}
@@ -420,7 +420,7 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 
 			worker.onmessage = ( e ) => {
 
-				const { bvhData, triangles: transferredTriangles, error, progress, treeletStats } = e.data;
+				const { bvhData, triangles: transferredTriangles, originalToBvh, error, progress, treeletStats } = e.data;
 
 				if ( error ) {
 
@@ -442,7 +442,7 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 					? new Float32Array( sharedReorderBuffer )
 					: transferredTriangles;
 
-				resolve( { bvhData, bvhRoot: true, reorderedTriangles, splitStats: treeletStats || {} } );
+				resolve( { bvhData, bvhRoot: true, reorderedTriangles, originalToBvh: originalToBvh || null, splitStats: treeletStats || {} } );
 
 			};
 
