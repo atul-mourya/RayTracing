@@ -6,14 +6,14 @@
  * them in the format expected by PathTracerApp.refitBVH().
  */
 
-import { AnimationMixer, Clock, Vector3, LoopRepeat, LoopOnce } from 'three';
+import { AnimationMixer, Timer, Vector3, LoopRepeat, LoopOnce } from 'three';
 
 export class AnimationManager {
 
 	constructor() {
 
 		this.mixer = null;
-		this.clock = new Clock( false );
+		this.timer = new Timer();
 		this.actions = [];
 		this.isPlaying = false;
 
@@ -89,7 +89,7 @@ export class AnimationManager {
 		this.mixer.addEventListener( 'finished', () => {
 
 			this.isPlaying = false;
-			this.clock.stop();
+			this.timer.reset();
 			if ( this.onFinished ) this.onFinished();
 
 		} );
@@ -142,7 +142,7 @@ export class AnimationManager {
 
 		}
 
-		this.clock.start();
+		this.timer.reset();
 		this.isPlaying = true;
 
 	}
@@ -155,7 +155,7 @@ export class AnimationManager {
 		if ( ! this.mixer ) return;
 
 		this.mixer.timeScale = 0;
-		this.clock.stop();
+		this.timer.reset();
 		this.isPlaying = false;
 
 	}
@@ -168,7 +168,7 @@ export class AnimationManager {
 		if ( ! this.mixer ) return;
 
 		this.mixer.timeScale = this._savedTimeScale || 1;
-		this.clock.start();
+		this.timer.reset();
 		this.isPlaying = true;
 
 	}
@@ -182,7 +182,7 @@ export class AnimationManager {
 
 		this.mixer.stopAllAction();
 		this.mixer.timeScale = this._savedTimeScale || 1;
-		this.clock.stop();
+		this.timer.reset();
 		this.isPlaying = false;
 
 	}
@@ -277,7 +277,8 @@ export class AnimationManager {
 
 		if ( ! this.isPlaying || ! this.mixer ) return null;
 
-		const delta = this.clock.getDelta();
+		this.timer.update();
+		const delta = this.timer.getDelta();
 		this.mixer.update( delta );
 
 		this._computePositions();
@@ -418,7 +419,7 @@ export class AnimationManager {
 
 		this.actions = [];
 		this.isPlaying = false;
-		this.clock.stop();
+		this.timer.reset();
 		this._scene = null;
 		this._mixerRoot = null;
 		this._meshes = null;
