@@ -63,8 +63,9 @@ vi.mock( 'three', () => {
 			const action = {
 				_clip: clip,
 				_loop: LoopRepeat,
+				paused: false,
 				clampWhenFinished: false,
-				play: vi.fn().mockReturnThis(),
+				play: vi.fn( function () { this.paused = false; return this; } ),
 				stop: vi.fn().mockReturnThis(),
 				isRunning: vi.fn( () => true ),
 				getClip: () => clip,
@@ -76,7 +77,7 @@ vi.mock( 'three', () => {
 		}
 
 		update( delta ) { this.time += delta * this.timeScale; }
-		setTime( t ) { this.time = t; }
+		setTime( t ) { this.time = 0; this._actions.forEach( a => { a.time = 0; } ); this.update( t ); }
 		stopAllAction() { this._actions.forEach( a => a.stop() ); }
 		uncacheRoot() {}
 
@@ -310,6 +311,60 @@ describe( 'AnimationManager', () => {
 			manager.play( 0 );
 			manager.update();
 			expect( mockMixerRoot.updateMatrixWorld ).toHaveBeenCalledWith( true );
+
+		} );
+
+	} );
+
+	describe( 'seekTo', () => {
+
+		it( 'returns null when no mixer', () => {
+
+			expect( manager.seekTo( 1.0 ) ).toBeNull();
+
+		} );
+
+		it( 'seeks to the given time and returns positions', () => {
+
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			const result = manager.seekTo( 1.0, 0 );
+			expect( result ).toBeInstanceOf( Float32Array );
+			expect( result.length ).toBe( 9 );
+			expect( manager.mixer.time ).toBe( 1.0 );
+
+		} );
+
+		it( 'activates the correct clip action', () => {
+
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.seekTo( 0.5, 1 );
+			expect( manager.actions[ 1 ].play ).toHaveBeenCalled();
+
+		} );
+
+		it( 'pauses actions after seeking to prevent further advancement', () => {
+
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.seekTo( 1.0, 0 );
+			expect( manager.actions[ 0 ].paused ).toBe( true );
+
+		} );
+
+		it( 'plays all clips with clipIndex -1', () => {
+
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.seekTo( 0.5, - 1 );
+			expect( manager.actions[ 0 ].play ).toHaveBeenCalled();
+			expect( manager.actions[ 1 ].play ).toHaveBeenCalled();
+
+		} );
+
+		it( 'works from stopped state', () => {
+
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.stop();
+			const result = manager.seekTo( 0.5 );
+			expect( result ).toBeInstanceOf( Float32Array );
 
 		} );
 

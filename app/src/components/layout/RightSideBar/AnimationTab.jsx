@@ -1,10 +1,12 @@
-import { Play, Pause, Square, Film, Gauge, ListMusic } from 'lucide-react';
+import { Play, Pause, Square, Film, Gauge, ListMusic, X } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from '@/components/ui/separator';
-import { useAnimationStore } from '@/store';
+import { Progress } from '@/components/ui/progress';
+import { NumberInput } from '@/components/ui/number-input';
+import { useAnimationStore, VIDEO_RENDER_FPS } from '@/store';
 
 const AnimationTab = () => {
 
@@ -20,6 +22,14 @@ const AnimationTab = () => {
 	const handleClipChange = useAnimationStore( s => s.handleClipChange );
 	const handleSpeedChange = useAnimationStore( s => s.handleSpeedChange );
 	const handleLoopChange = useAnimationStore( s => s.handleLoopChange );
+	const isVideoRendering = useAnimationStore( s => s.isVideoRendering );
+	const videoRenderProgress = useAnimationStore( s => s.videoRenderProgress );
+	const videoRenderFrame = useAnimationStore( s => s.videoRenderFrame );
+	const videoRenderTotalFrames = useAnimationStore( s => s.videoRenderTotalFrames );
+	const loopCount = useAnimationStore( s => s.loopCount );
+	const handleLoopCountChange = useAnimationStore( s => s.handleLoopCountChange );
+	const handleRenderAnimation = useAnimationStore( s => s.handleRenderAnimation );
+	const handleCancelVideoRender = useAnimationStore( s => s.handleCancelVideoRender );
 
 	if ( clips.length === 0 ) {
 
@@ -37,6 +47,7 @@ const AnimationTab = () => {
 	}
 
 	const selectedClipData = clips[ selectedClip ] || clips[ 0 ];
+	const videoDuration = selectedClipData ? ( selectedClipData.duration * Math.max( 1, loopCount ) ) / ( speed || 1 ) : 0;
 
 	return (
 		<>
@@ -48,6 +59,7 @@ const AnimationTab = () => {
 					<Select
 						value={String( selectedClip )}
 						onValueChange={( val ) => handleClipChange( Number( val ) )}
+						disabled={isVideoRendering}
 					>
 						<span className="opacity-50 text-xs truncate">Animation Clip</span>
 						<SelectTrigger className="max-w-40 h-5 rounded-full">
@@ -73,6 +85,7 @@ const AnimationTab = () => {
 						size="sm"
 						className="flex-1 h-6 text-xs"
 						onClick={isPlaying ? handlePause : handlePlay}
+						disabled={isVideoRendering}
 					>
 						{isPlaying ? (
 							<><Pause size={12} className="mr-1" /> Pause</>
@@ -85,7 +98,7 @@ const AnimationTab = () => {
 						size="sm"
 						className="h-6"
 						onClick={handleStop}
-						disabled={! isPlaying && ! isPaused}
+						disabled={isVideoRendering || ( ! isPlaying && ! isPaused )}
 						aria-label="Stop animation"
 					>
 						<Square size={12} />
@@ -121,8 +134,61 @@ const AnimationTab = () => {
 						checked={loop}
 						label="Loop"
 						onCheckedChange={handleLoopChange}
+						disabled={isVideoRendering}
 					/>
 				</div>
+
+				<Separator />
+
+				{/* Video Render Settings */}
+				{!isVideoRendering && (
+					<>
+						<div className="flex items-center justify-between">
+							<NumberInput
+								label="Render Loops"
+								min={1}
+								max={100}
+								step={1}
+								precision={0}
+								value={loopCount}
+								onValueChange={handleLoopCountChange}
+							/>
+						</div>
+						{videoDuration > 0 && (
+							<div className="flex justify-between text-xs">
+								<span className="opacity-50">Video Duration</span>
+								<span className="opacity-70">{videoDuration.toFixed( 1 )}s ({Math.ceil( videoDuration * VIDEO_RENDER_FPS )} frames)</span>
+							</div>
+						)}
+					</>
+				)}
+				{isVideoRendering ? (
+					<div className="space-y-2">
+						<div className="flex items-center justify-between text-xs">
+							<span className="opacity-50">Rendering frame {videoRenderFrame}/{videoRenderTotalFrames}</span>
+							<span className="opacity-70">{Math.round( videoRenderProgress )}%</span>
+						</div>
+						<Progress value={videoRenderProgress} className="h-1.5" />
+						<Button
+							variant="destructive"
+							size="sm"
+							className="w-full h-6 text-xs"
+							onClick={handleCancelVideoRender}
+						>
+							<X size={12} className="mr-1" /> Cancel Render
+						</Button>
+					</div>
+				) : (
+					<Button
+						variant="default"
+						size="sm"
+						className="w-full h-6 text-xs"
+						onClick={() => handleRenderAnimation()}
+						disabled={isPlaying || clips.length === 0}
+					>
+						<Film size={12} className="mr-1" /> Render Animation
+					</Button>
+				)}
 
 			</div>
 		</>

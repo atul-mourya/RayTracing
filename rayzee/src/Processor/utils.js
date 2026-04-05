@@ -27,6 +27,24 @@ export const updateStats = ( statsUpdate ) => {
 
 };
 
+/**
+ * Convert raw frameCount to user-facing sample count.
+ * In tiled mode, one "sample pass" spans all tiles.
+ */
+export function getDisplaySamples( pathTracerStage ) {
+
+	const frameCount = pathTracerStage.frameCount || 0;
+	if ( pathTracerStage.renderMode?.value === 1 && frameCount > 0 ) {
+
+		const totalTiles = pathTracerStage.tileManager?.totalTilesCache || 1;
+		return 1 + Math.floor( ( frameCount - 1 ) / totalTiles );
+
+	}
+
+	return frameCount;
+
+}
+
 export function getNearestPowerOf2( size ) {
 
 	return Math.pow( 2, Math.ceil( Math.log2( size ) ) );

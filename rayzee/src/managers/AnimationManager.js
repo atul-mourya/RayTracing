@@ -215,6 +215,49 @@ export class AnimationManager {
 	}
 
 	/**
+	 * Seek to an absolute time and extract deformed vertex positions.
+	 * Does not require playback — works from any state (stopped, paused, playing).
+	 *
+	 * @param {number} time - Absolute time in seconds
+	 * @param {number} [clipIndex=0] - Clip to evaluate, or -1 for all active
+	 * @returns {Float32Array|null} Position buffer (9 floats/tri) or null if no mixer
+	 */
+	seekTo( time, clipIndex = 0 ) {
+
+		if ( ! this.mixer || this.actions.length === 0 ) return null;
+
+		// Ensure the target action(s) are active so setTime evaluates them.
+		// Actions must NOT be paused — setTime() calls update() internally,
+		// which skips paused actions entirely.
+		this.mixer.stopAllAction();
+
+		if ( clipIndex === - 1 ) {
+
+			for ( const action of this.actions ) action.play();
+
+		} else if ( clipIndex >= 0 && clipIndex < this.actions.length ) {
+
+			this.actions[ clipIndex ].play();
+
+		}
+
+		// setTime() resets mixer.time to 0, resets all action times to 0,
+		// then calls update(time) to evaluate at the absolute time position
+		this.mixer.setTime( time );
+
+		// Pause after evaluation to prevent further time advancement
+		for ( const action of this.actions ) {
+
+			if ( action.isRunning() ) action.paused = true;
+
+		}
+
+		this._computePositions();
+		return this._posBuffer;
+
+	}
+
+	/**
 	 * Get the current playback time of the mixer.
 	 * @returns {number}
 	 */

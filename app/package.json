@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "rayzee": "*",
     "@google/genai": "^1.20.0",
     "@google/generative-ai": "^0.24.1",
     "@radix-ui/react-accordion": "^1.2.1",
@@ -48,6 +47,7 @@
     "mime": "^4.1.0",
     "oidn-web": "^0.3.4",
     "onnxruntime-web": "^1.24.3",
+    "rayzee": "*",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-resizable-panels": "^2.1.6",
@@ -55,6 +55,7 @@
     "tailwind-merge": "^2.5.3",
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.183.0",
+    "webm-muxer": "^5.1.4",
     "zustand": "^5.0.8"
   }
 }

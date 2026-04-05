@@ -20,7 +20,7 @@ import { SSRC } from './Stages/SSRC.js';
 import { Display } from './Stages/Display.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
-import { updateStats, updateLoading, resetLoading, setStatusCallback } from './Processor/utils.js';
+import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
 import { EngineEvents } from './EngineEvents.js';
@@ -485,25 +485,13 @@ export class PathTracerApp extends EventDispatcher {
 
 			this.pipeline.render();
 
-			const frameCount = this.stages.pathTracer.frameCount || 0;
-
 			if ( ! this.stages.pathTracer.isComplete ) {
 
 				this.timeElapsed = ( performance.now() - this.lastResetTime ) / 1000;
 
 			}
 
-			// Tiled mode: convert raw frame count to completed sample passes
-			const stage = this.stages.pathTracer;
-			let displaySamples = frameCount;
-			if ( stage.renderMode?.value === 1 && frameCount > 0 ) {
-
-				const totalTiles = stage.tileManager.totalTilesCache;
-				displaySamples = 1 + Math.floor( ( frameCount - 1 ) / totalTiles );
-
-			}
-
-			updateStats( { timeElapsed: this.timeElapsed, samples: displaySamples } );
+			updateStats( { timeElapsed: this.timeElapsed, samples: getDisplaySamples( this.stages.pathTracer ) } );
 
 			// Check time limit
 			const renderLimitMode = this.settings.get( 'renderLimitMode' );

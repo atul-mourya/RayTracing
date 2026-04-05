@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, computeCanvasDimensions } from '@/Constants';
-import { FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from 'rayzee';
+import { ENGINE_DEFAULTS, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG, VideoRenderManager } from 'rayzee';
 import { getApp } from '@/lib/appProxy';
+import { VideoEncoderPipeline, checkCodecSupport } from '@/lib/VideoEncoder';
 
 /**
  * Debounce utility - delays function execution until after wait time has elapsed
@@ -2598,6 +2599,12 @@ const useFavoritesStore = create( ( set, get ) => ( {
 // Animation Store
 // ═══════════════════════════════════════════════════════════════
 
+export const VIDEO_RENDER_FPS = 30;
+
+// Module-scoped refs — not reactive state, only used for imperative cancel
+let _activeVideoManager = null;
+let _activeEncoder = null;
+
 const useAnimationStore = create( ( set, get ) => ( {
 
 	clips: [],
@@ -2607,7 +2614,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 	speed: 1.0,
 	loop: true,
 
-	setClips: ( clips ) => set( { clips, selectedClip: 0, isPlaying: false, isPaused: false } ),
+	setClips: ( clips ) => set( { clips, selectedClip: 0, isPlaying: false, isPaused: false, speed: 1.0, loop: true, loopCount: 1 } ),
 	setIsPlaying: ( isPlaying ) => set( { isPlaying } ),
 	setIsPaused: ( isPaused ) => set( { isPaused } ),
 
@@ -2672,6 +2679,114 @@ const useAnimationStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) app.setAnimationLoop( loop );
 		set( { loop } );
+
+	},
+
+	// ── Video Rendering ──────────────────────────────────────
+
+	loopCount: 1,
+	isVideoRendering: false,
+	videoRenderProgress: 0,
+	videoRenderFrame: 0,
+	videoRenderTotalFrames: 0,
+
+	handleLoopCountChange: ( val ) => set( { loopCount: val } ),
+
+	handleRenderAnimation: async ( { totalDuration } = {} ) => {
+
+		const app = getApp();
+		if ( ! app || ! app.animationManager?.hasAnimations ) return;
+
+		const { selectedClip, loopCount, speed } = get();
+		const clip = app.animationManager.clips[ selectedClip ];
+		if ( ! clip ) return;
+
+		const fps = VIDEO_RENDER_FPS;
+		const loops = Math.max( 1, loopCount );
+		const effectiveDuration = ( clip.duration * loops ) / ( speed || 1 );
+		const duration = totalDuration || effectiveDuration;
+		const totalFrames = Math.ceil( duration * fps );
+
+		// Check codec support
+		const canvas = app.getOutputCanvas() || app.renderer?.domElement;
+		if ( ! canvas ) return;
+
+		const { supported, codec } = await checkCodecSupport( canvas.width, canvas.height );
+		if ( ! supported ) {
+
+			console.error( 'VideoEncoder: No supported video codec found (VP9/VP8)' );
+			return;
+
+		}
+
+		set( { isVideoRendering: true, videoRenderProgress: 0, videoRenderFrame: 0, videoRenderTotalFrames: totalFrames } );
+
+		const encoder = new VideoEncoderPipeline( canvas.width, canvas.height, { fps, codec } );
+		const videoManager = new VideoRenderManager( app );
+
+		_activeVideoManager = videoManager;
+		_activeEncoder = encoder;
+
+		await videoManager.renderAnimation( {
+			clipIndex: selectedClip,
+			fps,
+			speed: speed || 1,
+			samplesPerFrame: ENGINE_DEFAULTS.maxSamples,
+			enableOIDN: true,
+			totalFrames,
+			onFrame: async ( bitmap ) => {
+
+				await encoder.addFrame( bitmap );
+
+			},
+			onProgress: ( { frame, totalFrames: total, percent } ) => {
+
+				set( { videoRenderProgress: percent, videoRenderFrame: frame, videoRenderTotalFrames: total } );
+
+			},
+			onComplete: async ( success ) => {
+
+				if ( success ) {
+
+					try {
+
+						const blob = await encoder.finalize();
+						const url = URL.createObjectURL( blob );
+						const a = document.createElement( 'a' );
+						a.href = url;
+						a.download = `animation-${Date.now()}.webm`;
+						a.click();
+						setTimeout( () => URL.revokeObjectURL( url ), 60_000 );
+
+					} catch ( err ) {
+
+						console.error( 'VideoEncoder: Finalize failed:', err );
+
+					}
+
+				} else {
+
+					// Clean up encoder on cancellation
+					try {
+
+						encoder._encoder.close();
+
+					} catch { /* already closed */ }
+
+				}
+
+				_activeVideoManager = null;
+				_activeEncoder = null;
+				set( { isVideoRendering: false, videoRenderProgress: 0, videoRenderFrame: 0, videoRenderTotalFrames: 0 } );
+
+			},
+		} );
+
+	},
+
+	handleCancelVideoRender: () => {
+
+		if ( _activeVideoManager ) _activeVideoManager.cancel();
 
 	},
 

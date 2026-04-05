@@ -41,4 +41,8 @@ export const EngineEvents = {
 	ANIMATION_PAUSED: 'engine:animationPaused',
 	ANIMATION_STOPPED: 'engine:animationStopped',
 	ANIMATION_FINISHED: 'engine:animationFinished',
+
+	// Video rendering
+	VIDEO_RENDER_PROGRESS: 'engine:videoRenderProgress',
+	VIDEO_RENDER_COMPLETE: 'engine:videoRenderComplete',
 };

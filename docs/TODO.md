@@ -70,6 +70,8 @@
 - [ ] Camera animation - interpolate camera path keyframes during video render
 - [ ] PNG image sequence export for better quality and post-processing flexibility
 - [ ] Multi-clip blending - cross-fade between animation clips with configurable transition duration
+- [ ] ArrayBufferTarget memory for long videos - StreamTarget upgrade
+
 ---
 
 ## Performance & Architecture

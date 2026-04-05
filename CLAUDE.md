@@ -107,6 +107,7 @@ Optional scope: `feat(asvgf):`, `fix(tsl):`, `refactor(pipeline):`, etc.
 ### App-Side Engine Integration (`app/src/lib/`)
 - **`appProxy.js`**: `getApp()`, `setApp()`, `subscribeApp()` — decouples all consumers from direct app references
 - **`EngineAdapter.js`**: Bridges engine events to Zustand stores
+- **`VideoEncoder.js`**: WebCodecs VP9/VP8 encoder + `webm-muxer` for `.webm` video output. `VideoEncoderPipeline` class accepts `ImageBitmap` frames, encodes via `VideoEncoder` API, muxes into WebM container.
 
 ### Processor Classes (`rayzee/src/Processor/`)
 PathTracer delegates to these via composition — external code accesses them directly (e.g., `stage.uniforms.get('maxBounces')`, `stage.materialData.albedoMaps`, `stage.environment.envParams`):
@@ -132,7 +133,7 @@ Critical for maintaining 60fps during heavy computations:
 ### Animation System (`rayzee/src/managers/`)
 GLTF skeletal/morph animation playback with real-time BVH refit:
 - **`AnimationManager.js`**: Owns Three.js `AnimationMixer`, CPU skinning via `mesh.getVertexPosition()`, and position extraction. Key methods: `play()`, `stop()`, `seekTo(time)`, `setSpeed()`, `setLoop()`. Uses two-phase extraction: skin unique vertices first, then assemble triangles from index buffer.
-- **`VideoRenderer.js`**: WebM video capture via `MediaRecorder` + `canvas.captureStream()`. Two modes: **quick capture** (real-time playback) and **offline render** (frame-by-frame with N SPP accumulation per frame).
+- **`VideoRenderManager.js`**: Offline frame-by-frame animation video export. Drives seek → BVH refit → SPP accumulation → OIDN denoise → canvas capture cycle per frame. Saves/restores engine state, stops rAF loop during render, delivers `ImageBitmap` frames via callback for encoding.
 - **`BVHRefitter.js`** (in `Processor/`): Core O(N) refit algorithm — reverse pre-order traversal for bottom-up AABB recomputation. Reuses existing BVH tree structure, only updates bounding boxes.
 
 **Animation data flow**:
@@ -146,12 +147,20 @@ GLTF skeletal/morph animation playback with real-time BVH refit:
 - `SceneProcessor.refitBVH()` sends positions + map to `BVHRefitWorker` via SharedArrayBuffer
 - Worker updates triangle positions in BVH order, then refits AABBs bottom-up
 
+**Video render data flow**:
+1. `VideoRenderManager.renderAnimation()` saves engine state, stops rAF, configures final-render mode
+2. Per frame: `AnimationManager.seekTo(time)` → `refitBVH(positions)` → `stopAnimation()` (kill rAF restart from reset)
+3. Tight loop: `pipeline.render()` until `pathTracer.isComplete`, yielding every 4 passes
+4. If OIDN enabled: `_waitForDenoise()` wraps `DENOISING_END` event as promise (30s timeout)
+5. `getOutputCanvas()` → `createImageBitmap()` → `onFrame(bitmap)` callback → `VideoEncoderPipeline.addFrame()`
+6. On complete: `encoder.finalize()` → `.webm` Blob → browser download. Engine state restored.
+
 ### State Management (`app/src/store.js`)
 Zustand-based stores with **automatic 3D engine synchronization**:
 - `usePathTracerStore` - Rendering parameters with handlers that use `getApp()` from appProxy
 - `useAssetsStore` - Model/environment loading state
 - `useCameraStore` - Camera controls with DOF presets
-- `useAnimationStore` - Animation playback, clip selection, recording state
+- `useAnimationStore` - Animation playback, clip selection, speed/loop controls
 - Pattern: `handleChange()` utility creates handlers that update both store state and the app, triggering `app.reset()` for immediate visual feedback
 
 ### React Hooks for Engine Integration
