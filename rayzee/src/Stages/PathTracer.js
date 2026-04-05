@@ -146,7 +146,6 @@ export class PathTracer extends RenderStage {
 
 		// Track interaction mode state for accumulation
 		this.lastInteractionModeState = false;
-		this.interactionModeChangeFrame = 0;
 
 		// Track changes for event emission
 		this.cameraChanged = false;
@@ -348,8 +347,7 @@ export class PathTracer extends RenderStage {
 			},
 			onReset: () => {
 
-				this.reset( false );
-				// Notify dependent stages so they discard stale data from the old viewpoint.
+				this.reset();
 				this.emit( 'pathtracer:viewpointChanged' );
 
 			}
@@ -602,9 +600,8 @@ export class PathTracer extends RenderStage {
 
 	/**
 	 * Reset accumulation
-	 * @param {boolean} clearBuffers - Whether to clear render targets
 	 */
-	reset( clearBuffers = true ) {
+	reset() {
 
 		this.frameCount = 0;
 		this.frame.value = 0;
@@ -622,12 +619,7 @@ export class PathTracer extends RenderStage {
 		this.lastRenderMode = - 1;
 		this.tileCompletionFrame = 0;
 
-		if ( clearBuffers ) {
-
-			this.lastInteractionModeState = false;
-			this.interactionModeChangeFrame = 0;
-
-		}
+		this.lastInteractionModeState = false;
 
 	}
 
@@ -1039,7 +1031,15 @@ export class PathTracer extends RenderStage {
 		// Emit state events
 		this._emitStateEvents();
 
-		this.frameCount ++;
+		// Only count frames toward completion when accumulating.
+		// Interaction-mode frames provide visual feedback but should not
+		// consume the sample budget — otherwise the render "completes"
+		// with N frames of 1-SPP noise before the timeout exits.
+		if ( ! ( this.cameraOptimizer?.isInInteractionMode() ) ) {
+
+			this.frameCount ++;
+
+		}
 
 		// Restore original values
 		if ( originalMaxBounces !== null ) {
@@ -1133,19 +1133,7 @@ export class PathTracer extends RenderStage {
 	_updateAccumulationUniforms( frameValue, renderMode ) {
 
 		const currentInteractionMode = this.cameraOptimizer?.isInInteractionMode() ?? false;
-
-		if ( currentInteractionMode !== this.lastInteractionModeState ) {
-
-			this.lastInteractionModeState = currentInteractionMode;
-			this.interactionModeChangeFrame = frameValue;
-
-			if ( currentInteractionMode ) {
-
-				this.hasPreviousAccumulated.value = 0;
-
-			}
-
-		}
+		this.lastInteractionModeState = currentInteractionMode;
 
 		if ( this.accumulationEnabled ) {
 
@@ -1156,16 +1144,14 @@ export class PathTracer extends RenderStage {
 
 			} else {
 
-				const effectiveFrame = frameValue - this.interactionModeChangeFrame;
-
 				this.accumulationAlpha.value = calculateAccumulationAlpha(
-					Math.max( effectiveFrame, 0 ),
+					frameValue,
 					renderMode,
 					this.tileManager.totalTilesCache,
 					false
 				);
 
-				this.hasPreviousAccumulated.value = ( effectiveFrame >= 0 && frameValue > 0 ) ? 1 : 0;
+				this.hasPreviousAccumulated.value = frameValue > 0 ? 1 : 0;
 
 			}
 
