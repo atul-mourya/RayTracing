@@ -249,64 +249,42 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmissi
 
 	const throughputStrength = maxComponent( { v: throughput } ).toVar();
 
-	const isSecondaryBounce = bounceIndex.greaterThan( int( 0 ) );
-	const envBoostForIndirect = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar();
-
-	const brdfWeight = float( 0.35 ).toVar();
-	const lightWeight = float( 0.3 ).toVar();
-	const envWeight = float( 0.35 ).toVar();
+	// Environment is now handled via deterministic NEE — not part of stochastic selection.
+	// Only lights and BRDF are stochastically selected.
+	const brdfWeight = float( 0.5 ).toVar();
+	const lightWeight = float( 0.5 ).toVar();
 	const useBRDFSampling = tslBool( true );
 	const useLightSampling = throughputStrength.greaterThan( 0.01 ).toVar();
-	const useEnvSampling = tslBool( true );
 
 	If( roughness.lessThan( 0.1 ).and( metalness.greaterThan( 0.8 ) ), () => {
 
-		// Highly specular materials
-		brdfWeight.assign( 0.6 );
-		lightWeight.assign( 0.15 );
-		envWeight.assign( float( 0.25 ).mul( envBoostForIndirect ) );
+		// Highly specular materials — favor BRDF
+		brdfWeight.assign( 0.7 );
+		lightWeight.assign( 0.3 );
 
 	} ).ElseIf( roughness.greaterThan( 0.7 ), () => {
 
-		// Diffuse materials
-		brdfWeight.assign( 0.25 );
-		lightWeight.assign( 0.35 );
-		envWeight.assign( float( 0.4 ).mul( envBoostForIndirect ) );
-
-	} ).Else( () => {
-
-		// Balanced approach for mixed materials
-		brdfWeight.assign( 0.35 );
-		lightWeight.assign( 0.3 );
-		envWeight.assign( float( 0.35 ).mul( envBoostForIndirect ) );
+		// Diffuse materials — favor light sampling
+		brdfWeight.assign( 0.4 );
+		lightWeight.assign( 0.6 );
 
 	} );
 
-	// Normalize weights
-	const totalWeight = brdfWeight.add( lightWeight ).add( envWeight ).toVar();
-	If( totalWeight.greaterThan( 0.0 ), () => {
-
-		const invTotal = float( 1.0 ).div( totalWeight );
-		brdfWeight.mulAssign( invTotal );
-		lightWeight.mulAssign( invTotal );
-		envWeight.mulAssign( invTotal );
-
-	} );
-
-	// Gentle adjustment for very deep bounces
+	// Gentle adjustment for very deep bounces — shift toward BRDF
 	If( bounceIndex.greaterThan( int( 5 ) ), () => {
 
-		lightWeight.mulAssign( 0.85 );
+		brdfWeight.assign( 0.6 );
+		lightWeight.assign( 0.4 );
 
 	} );
 
 	return MISStrategy( {
 		brdfWeight,
 		lightWeight,
-		envWeight,
+		envWeight: float( 0.0 ),
 		useBRDFSampling,
 		useLightSampling,
-		useEnvSampling
+		useEnvSampling: tslBool( false ),
 	} );
 
 } );

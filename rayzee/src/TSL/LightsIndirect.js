@@ -1,15 +1,17 @@
 /**
  * LightsIndirect.js - Indirect Lighting (Global Illumination)
  *
- * Exact port of lights_indirect.fs
  * Pure TSL: Fn(), If(), Loop(), .toVar(), .assign() — NO wgslFn()
+ *
+ * Material-only bounce direction sampling. Environment is NOT an indirect
+ * strategy — it is handled via deterministic NEE in LightsSampling.js.
  *
  * Contains:
  *  - calculateTransmissionPDF  — transmission PDF for MIS
  *  - calculateClearcoatPDF     — clearcoat PDF for MIS
- *  - computeSamplingInfo       — compute importance weights for each strategy
- *  - selectSamplingStrategy    — CDF-based strategy selection
- *  - calculateIndirectLighting — main indirect lighting with multi-strategy MIS
+ *  - computeSamplingInfo       — compute importance weights for material strategies
+ *  - selectSamplingStrategy    — CDF-based strategy selection (specular, diffuse, transmission, clearcoat)
+ *  - calculateIndirectLighting — material multi-strategy MIS for bounce direction
  */
 
 import {
@@ -117,18 +119,7 @@ export const computeSamplingInfo = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
-	// Environment sampling weight
-	const envW = float( 0.0 ).toVar();
-	const useEnv = tslBool( false ).toVar();
-
-	If( enableEnvironmentLight.and( useEnvMapIS ), () => {
-
-		envW.assign( samplingInfo.envmapImportance );
-		useEnv.assign( envW.greaterThan( 0.001 ) );
-
-	} );
-
-	// Separate each sampling strategy
+	// Material-only strategies (env handled via deterministic NEE in direct lighting)
 	const specularW = samplingInfo.specularImportance.toVar();
 	const useSpecular = specularW.greaterThan( 0.001 ).toVar();
 
@@ -141,20 +132,15 @@ export const computeSamplingInfo = Fn( ( [
 	const clearcoatW = samplingInfo.clearcoatImportance.toVar();
 	const useClearcoat = clearcoatW.greaterThan( 0.001 ).toVar();
 
-	// Calculate total weight
-	const totalW = envW.add( specularW ).add( diffuseW ).add( transmissionW ).add( clearcoatW ).toVar();
+	const totalW = specularW.add( diffuseW ).add( transmissionW ).add( clearcoatW ).toVar();
 
-	// Proper normalization and fallback
 	If( totalW.lessThan( 0.001 ), () => {
 
-		// Safe fallback to diffuse sampling
-		envW.assign( 0.0 );
 		specularW.assign( 0.0 );
 		diffuseW.assign( 1.0 );
 		transmissionW.assign( 0.0 );
 		clearcoatW.assign( 0.0 );
 		totalW.assign( 1.0 );
-		useEnv.assign( tslBool( false ) );
 		useSpecular.assign( tslBool( false ) );
 		useDiffuse.assign( tslBool( true ) );
 		useTransmission.assign( tslBool( false ) );
@@ -162,9 +148,7 @@ export const computeSamplingInfo = Fn( ( [
 
 	} ).Else( () => {
 
-		// Normalize weights to sum to 1.0
 		const invTotal = float( 1.0 ).div( totalW ).toVar();
-		envW.mulAssign( invTotal );
 		specularW.mulAssign( invTotal );
 		diffuseW.mulAssign( invTotal );
 		transmissionW.mulAssign( invTotal );
@@ -174,13 +158,13 @@ export const computeSamplingInfo = Fn( ( [
 	} );
 
 	return SamplingStrategyWeights( {
-		envWeight: envW,
+		envWeight: float( 0.0 ),
 		specularWeight: specularW,
 		diffuseWeight: diffuseW,
 		transmissionWeight: transmissionW,
 		clearcoatWeight: clearcoatW,
 		totalWeight: totalW,
-		useEnv,
+		useEnv: tslBool( false ),
 		useSpecular,
 		useDiffuse,
 		useTransmission,
@@ -194,7 +178,8 @@ export const computeSamplingInfo = Fn( ( [
 // =============================================================================
 
 // Returns vec2(selectedStrategy, strategyPdf)
-// Strategy IDs: 0=env, 1=specular, 2=diffuse, 3=transmission, 4=clearcoat
+// Strategy IDs: 1=specular, 2=diffuse, 3=transmission, 4=clearcoat
+// (env removed — handled via deterministic NEE in direct lighting)
 export const selectSamplingStrategy = Fn( ( [ weights, randomValue ] ) => {
 
 	const selectedStrategy = int( 2 ).toVar(); // Default: diffuse
@@ -202,20 +187,6 @@ export const selectSamplingStrategy = Fn( ( [ weights, randomValue ] ) => {
 
 	const cumulative = float( 0.0 ).toVar();
 	const found = tslBool( false ).toVar();
-
-	If( weights.useEnv.and( found.not() ), () => {
-
-		cumulative.addAssign( weights.envWeight );
-
-		If( randomValue.lessThan( cumulative ), () => {
-
-			selectedStrategy.assign( 0 );
-			strategyPdf.assign( weights.envWeight );
-			found.assign( tslBool( true ) );
-
-		} );
-
-	} );
 
 	If( weights.useSpecular.and( found.not() ), () => {
 
@@ -356,23 +327,11 @@ export const calculateIndirectLighting = Fn( ( [
 		const sampleBrdfValue = vec3( 0.0 ).toVar();
 
 		// Execute selected strategy (chained If/ElseIf/Else for exclusive branches)
+		// Environment removed — handled via deterministic NEE in direct lighting
 
-		// Strategy 0: Environment
-		If( selectedStrategy.equal( int( 0 ) ), () => {
+		// Strategy 1: Specular
+		If( selectedStrategy.equal( int( 1 ) ), () => {
 
-			const envColorUnused = vec3( 0.0 ).toVar();
-			const envSampleResult = sampleEquirectProbability(
-				envTexture, envMarginalWeights, envConditionalWeights,
-				envMatrix, environmentIntensity, envTotalSum, envResolution, sampleRand, envColorUnused
-			).toVar();
-
-			sampleDir.assign( envSampleResult.xyz );
-			samplePdf.assign( envSampleResult.w );
-			sampleBrdfValue.assign( evaluateMaterialResponse( V, sampleDir, N, material ) );
-
-		} ).ElseIf( selectedStrategy.equal( int( 1 ) ), () => {
-
-			// Strategy 1: Specular
 			sampleDir.assign( brdfSampleDirection );
 			samplePdf.assign( brdfSamplePdf );
 			sampleBrdfValue.assign( brdfSampleValue );
@@ -409,24 +368,8 @@ export const calculateIndirectLighting = Fn( ( [
 		const NoL = max( rawNoL, 0.0 ).toVar();
 		const absNoL = abs( rawNoL ).toVar();
 
-		// Calculate combined PDF for MIS (all active strategies)
+		// Calculate combined PDF for MIS (material strategies only)
 		const combinedPdf = float( 0.0 ).toVar();
-
-		If( weights.useEnv, () => {
-
-			const envEvalResult = sampleEquirect(
-				envTexture, sampleDir, envMatrix, envTotalSum, envResolution
-			).toVar();
-			const envPdf = envEvalResult.w.toVar();
-
-			// Only include environment in MIS if it has valid contribution
-			If( envPdf.greaterThan( 0.0 ), () => {
-
-				combinedPdf.addAssign( weights.envWeight.mul( envPdf ) );
-
-			} );
-
-		} );
 
 		If( weights.useSpecular, () => {
 

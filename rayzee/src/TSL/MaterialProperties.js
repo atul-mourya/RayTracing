@@ -423,19 +423,6 @@ export const getImportanceSamplingInfo = Fn( ( [
 	const transmissionImportance = weights.transmission.toVar();
 	const clearcoatImportance = weights.clearcoat.toVar();
 
-	// Environment importance
-	const baseEnvStrength = environmentIntensity.mul( 0.2 ).toVar();
-	const isSecondaryBounce = bounceIndex.greaterThan( int( 0 ) );
-	const indirectEnvBoost = isSecondaryBounce.select( float( 1.5 ), float( 1.0 ) ).toVar();
-
-	const envMaterialFactor = float( 1.0 ).toVar();
-	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 2.5 ), float( mc.isMetallic ) ) );
-	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 2.2 ), float( mc.isRough ) ) );
-	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 0.5 ), float( mc.isTransmissive ) ) );
-	envMaterialFactor.mulAssign( mix( float( 1.0 ), float( 1.6 ), float( mc.hasClearcoat ) ) );
-
-	const envmapImportance = baseEnvStrength.mul( envMaterialFactor ).mul( indirectEnvBoost ).toVar();
-
 	// Depth adjustments
 	If( bounceIndex.greaterThan( int( 2 ) ), () => {
 
@@ -450,14 +437,7 @@ export const getImportanceSamplingInfo = Fn( ( [
 	If( mc.isMetallic.and( bounceIndex.lessThan( int( 3 ) ) ), () => {
 
 		specularImportance.assign( max( specularImportance, 0.6 ) );
-		envmapImportance.assign( max( envmapImportance, 0.35 ) );
 		diffuseImportance.mulAssign( 0.4 );
-
-	} );
-
-	If( mc.isRough.and( mc.isMetallic.not() ).and( isSecondaryBounce ), () => {
-
-		envmapImportance.assign( max( envmapImportance, 0.4 ) );
 
 	} );
 
@@ -466,20 +446,19 @@ export const getImportanceSamplingInfo = Fn( ( [
 		transmissionImportance.assign( max( transmissionImportance, 0.8 ) );
 		diffuseImportance.mulAssign( 0.2 );
 		specularImportance.mulAssign( 0.6 );
-		envmapImportance.mulAssign( 0.8 );
 
 	} );
 
 	If( mc.hasClearcoat, () => {
 
 		clearcoatImportance.assign( max( clearcoatImportance, 0.4 ) );
-		envmapImportance.assign( max( envmapImportance, 0.25 ) );
 
 	} );
 
-	// Normalize to sum to 1.0
+	// Normalize material strategies to sum to 1.0
+	// (environment is handled via deterministic NEE in direct lighting, not an indirect strategy)
 	const sum = diffuseImportance.add( specularImportance ).add( transmissionImportance )
-		.add( clearcoatImportance ).add( envmapImportance ).toVar();
+		.add( clearcoatImportance ).toVar();
 
 	If( sum.greaterThan( 0.001 ), () => {
 
@@ -488,22 +467,10 @@ export const getImportanceSamplingInfo = Fn( ( [
 		specularImportance.mulAssign( invSum );
 		transmissionImportance.mulAssign( invSum );
 		clearcoatImportance.mulAssign( invSum );
-		envmapImportance.mulAssign( invSum );
 
 	} ).Else( () => {
 
-		If( useEnvMapIS.and( enableEnvironmentLight ), () => {
-
-			diffuseImportance.assign( 0.35 );
-			envmapImportance.assign( 0.65 );
-
-		} ).Else( () => {
-
-			diffuseImportance.assign( 0.6 );
-			envmapImportance.assign( 0.4 );
-
-		} );
-
+		diffuseImportance.assign( 1.0 );
 		specularImportance.assign( 0.0 );
 		transmissionImportance.assign( 0.0 );
 		clearcoatImportance.assign( 0.0 );
@@ -515,7 +482,7 @@ export const getImportanceSamplingInfo = Fn( ( [
 		specularImportance,
 		transmissionImportance,
 		clearcoatImportance,
-		envmapImportance,
+		envmapImportance: float( 0.0 ),
 	} );
 
 } );

@@ -7,6 +7,8 @@
 - [ ] oidndenoiser is desaturation the results
 - [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
 - [ ] why some pixels show black in the first rendered frame even if it hits the environment map
+- [ ] getting warning at resolution change to 256x256 "Destroyed texture [Texture (unlabeled 512x512 px, TextureFormat::RGBA16Float)] used in a submit.
+While calling [Queue].Submit([[CommandBuffer from CommandEncoder "computeGroup_55867"]])"
   
 
 ### Known

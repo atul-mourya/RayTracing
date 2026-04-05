@@ -62,8 +62,8 @@ Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy
 | `LightBVHSampling.js` | `sampleLightBVHTriangle()` | Stochastic light BVH traversal for emissive sampling |
 | `LightsCore.js` | Light data structs | Light type definitions (Directional, Point, Spot, Area) |
 | `LightsDirect.js` | `evaluateDirectLighting()` | Direct lighting with shadow rays |
-| `LightsIndirect.js` | `evaluateIndirectLighting()` | Multi-strategy MIS for GI |
-| `LightsSampling.js` | `selectAndSampleLight()` | Light selection, unified direct lighting |
+| `LightsIndirect.js` | `calculateIndirectLighting()` | Material-only multi-strategy MIS for GI (specular, diffuse, transmission, clearcoat) |
+| `LightsSampling.js` | `calculateDirectLightingUnified()` | Stochastic discrete light/BRDF selection + deterministic environment NEE |
 | `Fresnel.js` | `schlickFresnel()` | Schlick Fresnel, IOR↔F0 |
 | `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `sampleBlueNoise2D()` | PCG, Halton, Sobol, Blue Noise |
 | `TextureSampling.js` | `sampleMaterialTexture()` | UV transforms, material texture arrays |
@@ -210,10 +210,10 @@ StorageBuffer containing packed BVH node data built by `LightBVHBuilder.js`. Str
 The iterative bounce loop resides inside `Trace` (from `PathTracerCore.js`), which performs:
    - Intersection via `traverseBVH`
    - Material classification & caching
-   - Direct light / emissive evaluation (uniform sampling or Light BVH)
-   - Environment hit termination or continuation
+   - Direct lighting: deterministic environment NEE (always runs, two-strategy MIS with implicit miss path) + stochastic discrete light/BRDF selection + emissive triangle NEE (uniform sampling or Light BVH)
+   - Indirect bounce: material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat — environment excluded from indirect strategies)
+   - Environment hit termination at miss (MIS-weighted against material scatter PDF)
    - Russian roulette or depth termination using `maxBounces` & `transmissiveBounces`
-   - MIS between emissive, material lobes, environment contributions
 
 ---
 

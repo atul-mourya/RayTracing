@@ -1,8 +1,11 @@
 /**
  * LightsSampling.js - Light Sampling and Unified Direct Lighting
  *
- * Exact port of lights_sampling.fs
  * Pure TSL: Fn(), If(), Loop(), .toVar(), .assign() — NO wgslFn()
+ *
+ * Direct lighting combines:
+ *  - Stochastic discrete light / BRDF selection (area, point, spot, directional)
+ *  - Deterministic environment NEE (always runs, two-strategy Veach MIS with implicit miss)
  *
  * Contains:
  *  - initLightSample                  — fully initialize LightSample
@@ -947,12 +950,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 		) );
 
 		// Extract MIS fields to mutable variables
+		// (env is handled deterministically below, not part of stochastic selection)
 		const useBRDFSampling = misResult.useBRDFSampling.toVar();
 		const useLightSampling = misResult.useLightSampling.toVar();
-		const useEnvSampling = misResult.useEnvSampling.toVar();
 		const brdfWeight = misResult.brdfWeight.toVar();
 		const lightWeight = misResult.lightWeight.toVar();
-		const envWeight = misResult.envWeight.toVar();
 
 		// Adaptive light processing
 		const totalLights = numDirectionalLights.add( numAreaLights ).add( numPointLights ).add( numSpotLights ).toVar();
@@ -962,7 +964,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 		// Check if discrete lights exist
 		const hasDiscreteLights = totalLights.greaterThan( int( 0 ) ).toVar();
 
-		// Calculate total sampling weight only include light weight if lights exist
+		// Calculate total sampling weight for stochastic {lights, BRDF} selection
 		const totalSamplingWeight = float( 0.0 ).toVar();
 
 		If( useLightSampling.and( hasDiscreteLights ), () => {
@@ -977,67 +979,40 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 		} );
 
-		If( useEnvSampling.and( enableEnvironmentLight ), () => {
-
-			totalSamplingWeight.addAssign( envWeight );
-
-		} );
-
 		If( totalSamplingWeight.lessThanEqual( 0.0 ), () => {
 
 			totalSamplingWeight.assign( 1.0 );
-			// Fallback: prioritize environment if enabled, otherwise BRDF
-			If( enableEnvironmentLight, () => {
-
-				useEnvSampling.assign( tslBool( true ) );
-				envWeight.assign( 1.0 );
-
-			} ).Else( () => {
-
-				useBRDFSampling.assign( tslBool( true ) );
-				brdfWeight.assign( 1.0 );
-
-			} );
+			useBRDFSampling.assign( tslBool( true ) );
+			brdfWeight.assign( 1.0 );
 
 		} );
 
 		const stratRand1 = RandomValue( rngState ).toVar();
 		const stratRand2 = RandomValue( rngState ).toVar();
 
-		// Determine sampling technique
+		// Determine sampling technique: stochastic {lights, BRDF}
 		const rand = stratRand1;
 		const sampleLights = tslBool( false ).toVar();
 		const sampleBRDF = tslBool( false ).toVar();
-		const sampleEnv = tslBool( false ).toVar();
 
 		// Calculate effective weights for probability (only include light weight if lights exist)
 		const effectiveLightWeight = select( hasDiscreteLights, lightWeight, float( 0.0 ) ).toVar();
 		// Guard division
 		const invTotalSamplingWeight = float( 1.0 ).div( max( totalSamplingWeight, 1e-10 ) ).toVar();
 		const cumulativeLight = effectiveLightWeight.mul( invTotalSamplingWeight ).toVar();
-		const cumulativeBRDF = effectiveLightWeight.add( brdfWeight ).mul( invTotalSamplingWeight ).toVar();
 
 		If( rand.lessThan( cumulativeLight ).and( useLightSampling ).and( hasDiscreteLights ), () => {
 
 			sampleLights.assign( tslBool( true ) );
 
-		} ).ElseIf( rand.lessThan( cumulativeBRDF ).and( useBRDFSampling ), () => {
+		} ).ElseIf( useBRDFSampling, () => {
 
 			sampleBRDF.assign( tslBool( true ) );
-
-		} ).ElseIf( useEnvSampling.and( enableEnvironmentLight ), () => {
-
-			sampleEnv.assign( tslBool( true ) );
 
 		} ).ElseIf( hasDiscreteLights, () => {
 
 			// Fallback to light sampling only if lights exist
 			sampleLights.assign( tslBool( true ) );
-
-		} ).ElseIf( enableEnvironmentLight, () => {
-
-			// Fallback to environment sampling when no discrete lights
-			sampleEnv.assign( tslBool( true ) );
 
 		} );
 
@@ -1213,61 +1188,57 @@ export const calculateDirectLightingUnified = Fn( ( [
 		} );
 
 		// =====================================================================
-		// ENVIRONMENT SAMPLING PATH
+		// DETERMINISTIC ENVIRONMENT NEE
+		// Always runs (not stochastic) — forms a two-strategy Veach MIS
+		// estimator together with the implicit miss check in the main loop.
 		// =====================================================================
 
-		If( sampleEnv, () => {
+		If( enableEnvironmentLight, () => {
 
-			If( enableEnvironmentLight.and( useEnvSampling ), () => {
+			const env_r1 = RandomValue( rngState ).toVar();
+			const env_r2 = RandomValue( rngState ).toVar();
+			const envRandom = vec2( env_r1, env_r2 ).toVar();
+			const envColor = vec3( 0.0 ).toVar();
 
-				const env_r1 = RandomValue( rngState ).toVar();
-				const env_r2 = RandomValue( rngState ).toVar();
-				const envRandom = vec2( env_r1, env_r2 ).toVar();
-				const envColor = vec3( 0.0 ).toVar();
+			// Sample direction + PDF + color from importance-sampled environment
+			const envSampleResult = sampleEquirectProbability(
+				envTexture, envMarginalWeights, envConditionalWeights,
+				envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom, envColor
+			).toVar();
 
-				// Sample direction + PDF + color from importance-sampled environment
-				const envSampleResult = sampleEquirectProbability(
-					envTexture, envMarginalWeights, envConditionalWeights,
-					envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom, envColor
-				).toVar();
+			const envDirection = envSampleResult.xyz.toVar();
+			const envPdf = envSampleResult.w.toVar();
 
-				const envDirection = envSampleResult.xyz.toVar();
-				const envPdf = envSampleResult.w.toVar();
+			If( envPdf.greaterThan( 0.0 ), () => {
 
-				If( envPdf.greaterThan( 0.0 ), () => {
+				const NoL = max( float( 0.0 ), dot( hitNormal, envDirection ) ).toVar();
 
-					const NoL = max( float( 0.0 ), dot( hitNormal, envDirection ) ).toVar();
+				If( NoL.greaterThan( 0.0 ).and( isDirectionValid( { direction: envDirection, surfaceNormal: hitNormal } ) ), () => {
 
-					If( NoL.greaterThan( 0.0 ).and( isDirectionValid( { direction: envDirection, surfaceNormal: hitNormal } ) ), () => {
+					const visibility = traceShadowRay(
+						rayOrigin, envDirection, float( 1000.0 ), rngState,
+						traverseBVHShadow,
+						bvhBuffer,
+						triangleBuffer,
+						materialBuffer,
+					);
 
-						const visibility = traceShadowRay(
-							rayOrigin, envDirection, float( 1000.0 ), rngState,
-							traverseBVHShadow,
-							bvhBuffer,
-							triangleBuffer,
-							materialBuffer,
-						);
+					If( visibility.greaterThan( 0.0 ), () => {
 
-						If( visibility.greaterThan( 0.0 ), () => {
+						const brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitNormal, material );
+						const bPdf = calculateMaterialPDF( viewDir, envDirection, hitNormal, material ).toVar();
 
-							const brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitNormal, material );
-							const bPdf = calculateMaterialPDF( viewDir, envDirection, hitNormal, material ).toVar();
+						// Standard two-strategy MIS: NEE (envPdf) vs implicit miss (materialPdf).
+						// The implicit path uses material combinedPdf as prevBouncePdf at the miss check.
+						const misW = select(
+							bPdf.greaterThan( 0.0 ),
+							powerHeuristic( { pdf1: envPdf, pdf2: bPdf } ),
+							float( 1.0 )
+						).toVar();
 
-							// MIS between NEE env sampling and implicit path (scattered ray hitting env).
-							// Approximate the indirect path's combined PDF at this direction:
-							// combinedPdf ≈ materialPdf + envWeight * envPdf (env IS also an indirect strategy)
-							const indirectCombinedPdfApprox = bPdf.add( envPdf.mul( envWeight ) ).toVar();
-							const misW = select(
-								bPdf.greaterThan( 0.0 ),
-								powerHeuristic( { pdf1: envPdf, pdf2: indirectCombinedPdfApprox } ),
-								float( 1.0 )
-							).toVar();
-
-							// Guard division
-							const envContribution = envColor.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( envPdf, 1e-10 ) );
-							totalContribution.addAssign( envContribution.mul( totalSamplingWeight ).div( max( envWeight, 1e-10 ) ) );
-
-						} );
+						// Guard division — no stochastic scaling needed (deterministic estimator)
+						const envContribution = envColor.mul( brdfValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( envPdf, 1e-10 ) );
+						totalContribution.addAssign( envContribution );
 
 					} );
 
