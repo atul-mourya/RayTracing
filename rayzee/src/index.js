@@ -46,5 +46,8 @@ export { PipelineContext } from './Pipeline/PipelineContext.js';
 // Animation (for advanced consumers)
 export { AnimationManager } from './managers/AnimationManager.js';
 
+// Transform controls
+export { TransformManager } from './managers/TransformManager.js';
+
 // Video rendering
 export { VideoRenderManager } from './managers/VideoRenderManager.js';

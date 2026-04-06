@@ -34,6 +34,7 @@ import { LightManager } from './managers/LightManager.js';
 import { DenoisingManager } from './managers/DenoisingManager.js';
 import { OverlayManager } from './managers/OverlayManager.js';
 import { AnimationManager } from './managers/AnimationManager.js';
+import { TransformManager } from './managers/TransformManager.js';
 import { TileHelper } from './managers/helpers/TileHelper.js';
 import { OutlineHelper } from './managers/helpers/OutlineHelper.js';
 
@@ -297,6 +298,14 @@ export class PathTracerApp extends EventDispatcher {
 		this._setupDenoisingManager();
 		this._setupOverlayManager();
 
+		// ── Transform controls ──
+		this._transformManager = new TransformManager( {
+			camera: this._camera,
+			canvas: this.canvas,
+			orbitControls: this._controls,
+			app: this,
+		} );
+
 		// Wire CameraManager events → app events
 		this.cameraManager.addEventListener( 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
 		this.cameraManager.addEventListener( EngineEvents.AUTO_FOCUS_UPDATED, ( e ) => this.dispatchEvent( e ) );
@@ -435,7 +444,11 @@ export class PathTracerApp extends EventDispatcher {
 				this._animRefitInFlight = true;
 				this.refitBVH( positions )
 					.catch( err => console.error( 'Animation refit error:', err ) )
-					.finally( () => { this._animRefitInFlight = false; } );
+					.finally( () => {
+
+						this._animRefitInFlight = false;
+
+					} );
 
 			}
 
@@ -623,6 +636,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		this._transformManager?.dispose();
 		this.overlayManager?.dispose();
 		this._sceneHelpers?.clear();
 		this.denoisingManager?.dispose();
@@ -881,6 +895,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Initialize transform manager mesh data for BVH refit on object transforms
+		this._transformManager?.setMeshData( this._sdf.meshes, this._sdf.triangleCount );
+
 		this.dispatchEvent( { type: 'SceneRebuild' } );
 		return true;
 
@@ -898,11 +915,12 @@ export class PathTracerApp extends EventDispatcher {
 	 * Call this per-frame for skeletal/morph-target animation.
 	 *
 	 * @param {Float32Array} newPositions - 9 floats per triangle (ax,ay,az, bx,by,bz, cx,cy,cz) in original mesh order
+	 * @param {Float32Array} [newNormals] - Optional 9 floats per triangle smooth normals. If omitted, face normals are computed from positions.
 	 * @returns {Promise<{ refitTimeMs: number }>}
 	 */
-	async refitBVH( newPositions ) {
+	async refitBVH( newPositions, newNormals ) {
 
-		const result = await this._sdf.refitBVH( newPositions );
+		const result = await this._sdf.refitBVH( newPositions, newNormals );
 
 		this.stages.pathTracer.updateTriangleData( this._sdf.triangleData );
 		this.stages.pathTracer.updateBVHData( this._sdf.bvhData );
@@ -1254,6 +1272,21 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		// Attach/detach transform gizmo
+		if ( this._transformManager ) {
+
+			if ( object ) {
+
+				this._transformManager.attach( object );
+
+			} else {
+
+				this._transformManager.detach();
+
+			}
+
+		}
+
 		this.dispatchEvent( { type: EngineEvents.OBJECT_SELECTED, object: object || null } );
 
 	}
@@ -1277,6 +1310,30 @@ export class PathTracerApp extends EventDispatcher {
 	disableSelectMode() {
 
 		this._interactionManager?.disableSelectMode();
+		this._transformManager?.detach();
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Delegated APIs — Transform
+	// ═══════════════════════════════════════════════════════════════
+
+	setTransformMode( mode ) {
+
+		this._transformManager?.setMode( mode );
+		this.dispatchEvent( { type: EngineEvents.TRANSFORM_MODE_CHANGED, mode } );
+
+	}
+
+	setTransformSpace( space ) {
+
+		this._transformManager?.setSpace( space );
+
+	}
+
+	get transformManager() {
+
+		return this._transformManager;
 
 	}
 
@@ -2101,6 +2158,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.scene.updateMatrixWorld();
 		this.overlayManager?.render();
+		this._transformManager?.render( this.renderer );
 
 	}
 

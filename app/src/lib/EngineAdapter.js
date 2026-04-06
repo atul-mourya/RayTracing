@@ -102,6 +102,25 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 
 	} );
 
+	// ── Object transform ────────────────────────────────────
+	on( EngineEvents.OBJECT_TRANSFORM_START, () => {
+
+		useStore.getState().setIsTransforming( true );
+
+	} );
+
+	on( EngineEvents.OBJECT_TRANSFORM_END, () => {
+
+		useStore.getState().setIsTransforming( false );
+
+	} );
+
+	on( EngineEvents.TRANSFORM_MODE_CHANGED, ( e ) => {
+
+		useStore.setState( { transformMode: e.mode } );
+
+	} );
+
 	// ── Camera ───────────────────────────────────────────────
 	on( EngineEvents.AF_POINT_PLACED, ( e ) => {
 

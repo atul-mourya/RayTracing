@@ -68,6 +68,9 @@ const App = () => {
 
 			}
 
+			const noModifiers = ! event.ctrlKey && ! event.altKey && ! event.shiftKey && ! event.metaKey;
+			const hasSelection = !! useStore.getState().selectedObject;
+
 			// Prevent default behavior only for our specific shortcuts
 			switch ( event.key ) {
 
@@ -76,13 +79,42 @@ const App = () => {
 					handleDeselect();
 					break;
 
-				case 'r':
-				case 'R':
-					// Only trigger if no modifier keys are pressed
-					if ( ! event.ctrlKey && ! event.altKey && ! event.shiftKey && ! event.metaKey ) {
+				case 'w':
+				case 'W':
+					if ( noModifiers && hasSelection ) {
 
 						event.preventDefault();
-						handleResetCamera();
+						getApp()?.setTransformMode( 'translate' );
+
+					}
+
+					break;
+
+				case 'e':
+				case 'E':
+					if ( noModifiers && hasSelection ) {
+
+						event.preventDefault();
+						getApp()?.setTransformMode( 'rotate' );
+
+					}
+
+					break;
+
+				case 'r':
+				case 'R':
+					if ( noModifiers ) {
+
+						event.preventDefault();
+						if ( hasSelection ) {
+
+							getApp()?.setTransformMode( 'scale' );
+
+						} else {
+
+							handleResetCamera();
+
+						}
 
 					}
 

@@ -22,9 +22,11 @@
 ## Features
 
 ### General
+- [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
+- [ ] Migrate to vite 8+
 
 ### Rendering
 - [ ] Subsurface scattering

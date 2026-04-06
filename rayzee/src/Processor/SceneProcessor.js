@@ -7,6 +7,7 @@ import { GeometryExtractor } from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
+import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 
 /**
  * SceneProcessor - Processes scene geometry into GPU-ready data:
@@ -846,7 +847,7 @@ export class SceneProcessor {
 	 * @param {Float32Array} newPositions - 9 floats per triangle (ax,ay,az, bx,by,bz, cx,cy,cz) in original mesh order
 	 * @returns {Promise<{ refitTimeMs: number }>}
 	 */
-	async refitBVH( newPositions ) {
+	async refitBVH( newPositions, newNormals ) {
 
 		if ( ! this.bvhData || ! this.triangleData || ! this.originalToBvhMap ) {
 
@@ -921,7 +922,14 @@ export class SceneProcessor {
 				const msg = e.data;
 				if ( msg.type === 'refitComplete' ) {
 
-					// bvhData/triangleData already updated via shared memory
+					// bvhData/triangleData already updated via shared memory.
+					// If smooth normals provided, overwrite the face normals the worker computed.
+					if ( newNormals ) {
+
+						this._patchSmoothNormals( newNormals );
+
+					}
+
 					resolve( { refitTimeMs: msg.refitTimeMs } );
 
 				} else if ( msg.type === 'error' ) {
@@ -936,6 +944,43 @@ export class SceneProcessor {
 			this._refitWorker.postMessage( { type: 'refit' } );
 
 		} );
+
+	}
+
+	/**
+	 * Overwrite face normals in triangleData with smooth vertex normals.
+	 * Called on the main thread after the worker finishes position+face-normal update.
+	 *
+	 * @param {Float32Array} normals - 9 floats per triangle (nAx,nAy,nAz, nBx,nBy,nBz, nCx,nCy,nCz) in original mesh order
+	 * @private
+	 */
+	_patchSmoothNormals( normals ) {
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const NA = TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET;
+		const NB = TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET;
+		const NC = TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET;
+		const triCount = this.originalToBvhMap.length;
+
+		for ( let orig = 0; orig < triCount; orig ++ ) {
+
+			const bvhIdx = this.originalToBvhMap[ orig ];
+			const dst = bvhIdx * FPT;
+			const src = orig * 9;
+
+			this.triangleData[ dst + NA ] = normals[ src ];
+			this.triangleData[ dst + NA + 1 ] = normals[ src + 1 ];
+			this.triangleData[ dst + NA + 2 ] = normals[ src + 2 ];
+
+			this.triangleData[ dst + NB ] = normals[ src + 3 ];
+			this.triangleData[ dst + NB + 1 ] = normals[ src + 4 ];
+			this.triangleData[ dst + NB + 2 ] = normals[ src + 5 ];
+
+			this.triangleData[ dst + NC ] = normals[ src + 6 ];
+			this.triangleData[ dst + NC + 1 ] = normals[ src + 7 ];
+			this.triangleData[ dst + NC + 2 ] = normals[ src + 8 ];
+
+		}
 
 	}
 
