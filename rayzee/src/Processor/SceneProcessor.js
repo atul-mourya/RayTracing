@@ -366,157 +366,104 @@ export class SceneProcessor {
 			this.instanceTable = new InstanceTable();
 			this.instanceTable.allocate( ranges.length );
 			const meshCount = ranges.length;
-			let completedMeshes = 0;
 
 			const originalTreeletEnabled = this.config.enableTreeletOptimization;
+			const LARGE_MESH_THRESHOLD = 200000;
 
-			// Separate meshes into sync (small) and async (large) builds
-			const syncTasks = [];
-			const asyncTasks = [];
+			// Separate into worker-pool tasks and multi-worker parallel tasks
+			const poolTasks = [];
+			const parallelTasks = [];
 
 			for ( let m = 0; m < meshCount; m ++ ) {
 
 				const range = ranges[ m ];
 				if ( range.count === 0 ) continue;
 
-				if ( shouldUseParallelBuild( range.count ) ) {
+				if ( range.count >= LARGE_MESH_THRESHOLD && shouldUseParallelBuild( range.count ) ) {
 
-					asyncTasks.push( { m, range } );
+					parallelTasks.push( { m, range } );
 
 				} else {
 
-					syncTasks.push( { m, range } );
+					poolTasks.push( { m, range } );
 
 				}
 
 			}
 
-			// Build small meshes synchronously (fast, no worker overhead)
-			for ( const { m, range } of syncTasks ) {
+			// Worker config shared by all builds
+			const workerOpts = {
+				depth: this.config.bvhDepth,
+				treeletOptimization: {
+					enabled: originalTreeletEnabled !== false,
+					size: this.config.treeletSize,
+					passes: this.config.treeletOptimizationPasses,
+					minImprovement: this.config.treeletMinImprovement
+				},
+				reinsertionOptimization: {
+					enabled: this.bvhBuilder.enableReinsertionOptimization,
+					batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
+					maxIterations: this.bvhBuilder.reinsertionMaxIterations
+				}
+			};
 
-				const meshTriData = this.triangleData.subarray(
+			const totalTasks = poolTasks.length + parallelTasks.length;
+
+			// Build all meshes via bounded worker pool (main thread stays free)
+			const poolPromise = this._buildBLASesWithPool( poolTasks, workerOpts, ( done ) => {
+
+				updateLoading( {
+					status: `Building BLAS ${done + parallelTasks.length}/${totalTasks}...`,
+					progress: 25 + Math.floor( ( done / totalTasks ) * 45 )
+				} );
+
+			} );
+
+			// Very large meshes use multi-worker parallel builder concurrently
+			const parallelPromises = parallelTasks.map( ( { m, range } ) => {
+
+				const meshTriData = this.triangleData.slice(
 					range.start * FPT,
 					( range.start + range.count ) * FPT
 				);
 
-				if ( range.count <= 500 && originalTreeletEnabled ) {
+				return buildBVHParallel( meshTriData, this.config.bvhDepth, null, {
+					maxLeafSize: this.bvhBuilder.maxLeafSize,
+					numBins: this.bvhBuilder.numBins,
+					maxBins: this.bvhBuilder.maxBins,
+					minBins: this.bvhBuilder.minBins,
+					...workerOpts
+				} ).then( result => ( { m, range, result } ) );
 
-					this.bvhBuilder.setTreeletConfig( { enabled: false } );
+			} );
 
-				} else if ( originalTreeletEnabled ) {
+			// Await both paths concurrently
+			const [ poolResults, parallelResults ] = await Promise.all( [
+				poolPromise,
+				Promise.all( parallelPromises )
+			] );
 
-					this.bvhBuilder.setTreeletConfig( {
-						enabled: true,
-						size: this.config.treeletSize,
-						passes: this.config.treeletOptimizationPasses,
-						minImprovement: this.config.treeletMinImprovement
-					} );
+			// Store all results
+			for ( const { m, range, result } of [ ...poolResults, ...parallelResults ] ) {
 
-				}
+				if ( result.reorderedTriangles ) {
 
-				const root = this.bvhBuilder.buildSync( meshTriData, this.config.bvhDepth );
-				const bvhData = this.bvhBuilder.flattenBVH( root );
-				const reorderedTriangles = this.bvhBuilder.reorderedTriangleData || null;
-				const originalToBvh = this.bvhBuilder.originalToBvhMap || null;
-
-				if ( reorderedTriangles ) {
-
-					this.triangleData.set( reorderedTriangles, range.start * FPT );
+					this.triangleData.set( result.reorderedTriangles, range.start * FPT );
 
 				}
 
 				this.instanceTable.setEntry( {
 					meshIndex: m,
-					blasNodeCount: bvhData.length / 16,
+					blasNodeCount: result.bvhData.length / 16,
 					triOffset: range.start,
 					triCount: range.count,
-					originalToBvhMap: originalToBvh,
-					bvhData,
-				} );
-
-				completedMeshes ++;
-
-			}
-
-			updateLoading( {
-				status: `Built ${completedMeshes}/${meshCount} BLASes (sync)...`,
-				progress: 25 + Math.floor( ( completedMeshes / meshCount ) * 45 )
-			} );
-
-			// Build large meshes concurrently via Promise.all
-			if ( asyncTasks.length > 0 ) {
-
-				const parallelOpts = {
-					maxLeafSize: this.bvhBuilder.maxLeafSize,
-					numBins: this.bvhBuilder.numBins,
-					maxBins: this.bvhBuilder.maxBins,
-					minBins: this.bvhBuilder.minBins,
-					treeletOptimization: {
-						enabled: originalTreeletEnabled !== false,
-						size: this.config.treeletSize,
-						passes: this.config.treeletOptimizationPasses,
-						minImprovement: this.config.treeletMinImprovement
-					},
-					reinsertionOptimization: {
-						enabled: this.bvhBuilder.enableReinsertionOptimization,
-						batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
-						maxIterations: this.bvhBuilder.reinsertionMaxIterations
-					}
-				};
-
-				const asyncPromises = asyncTasks.map( ( { m, range } ) => {
-
-					const meshTriData = this.triangleData.slice(
-						range.start * FPT,
-						( range.start + range.count ) * FPT
-					);
-
-					return buildBVHParallel( meshTriData, this.config.bvhDepth, null, parallelOpts )
-						.then( result => ( { m, range, result } ) );
-
-				} );
-
-				const asyncResults = await Promise.all( asyncPromises );
-
-				for ( const { m, range, result } of asyncResults ) {
-
-					if ( result.reorderedTriangles ) {
-
-						this.triangleData.set( result.reorderedTriangles, range.start * FPT );
-
-					}
-
-					this.instanceTable.setEntry( {
-						meshIndex: m,
-						blasNodeCount: result.bvhData.length / 16,
-						triOffset: range.start,
-						triCount: range.count,
-						originalToBvhMap: result.originalToBvh || null,
-						bvhData: result.bvhData,
-					} );
-
-					completedMeshes ++;
-
-				}
-
-				updateLoading( {
-					status: `Built ${completedMeshes}/${meshCount} BLASes...`,
-					progress: 70
+					originalToBvhMap: result.originalToBvh || null,
+					bvhData: result.bvhData,
 				} );
 
 			}
 
-			// Restore treelet config
-			if ( originalTreeletEnabled ) {
-
-				this.bvhBuilder.setTreeletConfig( {
-					enabled: originalTreeletEnabled,
-					size: this.config.treeletSize,
-					passes: this.config.treeletOptimizationPasses,
-					minImprovement: this.config.treeletMinImprovement
-				} );
-
-			}
+			updateLoading( { status: 'Built all BLASes', progress: 70 } );
 
 			// ── Step 2: Compute AABBs and build TLAS ──
 
@@ -605,6 +552,125 @@ export class SceneProcessor {
 			}
 
 		}
+
+	}
+
+	/**
+	 * Build multiple BLASes using a bounded worker pool.
+	 * Each mesh is dispatched to an available BVHWorker; at most poolSize workers run concurrently.
+	 *
+	 * @param {Array<{m: number, range: {start: number, count: number}}>} tasks
+	 * @param {Object} opts - Worker build options (depth, treeletOptimization, reinsertionOptimization)
+	 * @param {Function} onProgress - Called with (completedCount) as builds finish
+	 * @returns {Promise<Array<{m, range, result}>>}
+	 * @private
+	 */
+	_buildBLASesWithPool( tasks, opts, onProgress ) {
+
+		if ( tasks.length === 0 ) return Promise.resolve( [] );
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const poolSize = Math.min( tasks.length, this.config.maxConcurrentTextureTasks || 4 );
+		const results = [];
+		let nextTask = 0;
+		let completed = 0;
+
+		return new Promise( ( resolve, reject ) => {
+
+			const workers = [];
+
+			const dispatchNext = ( worker ) => {
+
+				if ( nextTask >= tasks.length ) {
+
+					// No more tasks — terminate this worker
+					worker.terminate();
+					workers.splice( workers.indexOf( worker ), 1 );
+					if ( workers.length === 0 ) resolve( results );
+					return;
+
+				}
+
+				const { m, range } = tasks[ nextTask ++ ];
+				const meshTriData = this.triangleData.slice(
+					range.start * FPT,
+					( range.start + range.count ) * FPT
+				);
+
+				// Disable treelet for tiny meshes
+				const triCount = range.count;
+				const treeletOpts = triCount <= 500
+					? { ...opts.treeletOptimization, enabled: false }
+					: opts.treeletOptimization;
+
+				worker._currentTask = { m, range };
+				worker.postMessage( {
+					triangleData: meshTriData.buffer,
+					triangleByteOffset: meshTriData.byteOffset,
+					triangleByteLength: meshTriData.byteLength,
+					triangleCount: triCount,
+					depth: opts.depth,
+					reportProgress: false,
+					sharedReorderBuffer: null,
+					treeletOptimization: treeletOpts,
+					reinsertionOptimization: opts.reinsertionOptimization,
+				}, [ meshTriData.buffer ] );
+
+			};
+
+			const onWorkerMessage = ( worker, e ) => {
+
+				const data = e.data;
+
+				if ( data.error ) {
+
+					workers.forEach( w => w.terminate() );
+					reject( new Error( data.error ) );
+					return;
+
+				}
+
+				if ( data.progress !== undefined ) return; // Ignore progress messages
+
+				const { m, range } = worker._currentTask;
+				results.push( {
+					m,
+					range,
+					result: {
+						bvhData: data.bvhData,
+						reorderedTriangles: data.triangles || null,
+						originalToBvh: data.originalToBvh || null,
+					}
+				} );
+
+				completed ++;
+				onProgress?.( completed );
+
+				dispatchNext( worker );
+
+			};
+
+			// Spin up the pool
+			for ( let i = 0; i < poolSize; i ++ ) {
+
+				const worker = new Worker(
+					new URL( './Workers/BVHWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+				worker.onmessage = ( e ) => onWorkerMessage( worker, e );
+				worker.onerror = ( err ) => {
+
+					workers.forEach( w => w.terminate() );
+					reject( err );
+
+				};
+
+				workers.push( worker );
+				dispatchNext( worker );
+
+			}
+
+		} );
 
 	}
 
