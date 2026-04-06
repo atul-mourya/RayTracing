@@ -71,6 +71,7 @@ export class InstanceTable {
 
 		for ( const entry of this.entries ) {
 
+			if ( ! entry ) continue;
 			entry.worldAABB = this._readRootAABB( entry.bvhData, entry, triangleData );
 
 		}
@@ -175,6 +176,7 @@ export class InstanceTable {
 
 		for ( const entry of this.entries ) {
 
+			if ( ! entry ) continue;
 			entry.blasOffset = offset;
 			offset += entry.blasNodeCount;
 

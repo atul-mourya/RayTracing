@@ -523,7 +523,8 @@ export class SceneProcessor {
 			updateLoading( { status: "Building TLAS...", progress: 72 } );
 
 			this.instanceTable.computeAABBs( this.triangleData );
-			const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( this.instanceTable.entries );
+			const validEntries = this.instanceTable.entries.filter( e => e !== null );
+			const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( validEntries );
 
 			// ── Step 3: Assign offsets and assemble combined buffer ──
 
@@ -531,15 +532,14 @@ export class SceneProcessor {
 			const totalNodes = this.instanceTable.totalNodeCount;
 
 			// Flatten TLAS (leaves get absolute blasOffset from instance table)
-			const tlasData = this.tlasBuilder.flatten( tlasRoot, this.instanceTable.entries );
+			const tlasData = this.tlasBuilder.flatten( tlasRoot, validEntries );
 
 			// Assemble combined buffer: [TLAS][BLAS_0][BLAS_1]...[BLAS_M]
 			this.bvhData = new Float32Array( totalNodes * 16 );
 			this.bvhData.set( tlasData );
 
-			for ( const entry of this.instanceTable.entries ) {
+			for ( const entry of validEntries ) {
 
-				// Copy BLAS data into combined buffer, then adjust indices in-place
 				const destOffset = entry.blasOffset * 16;
 				this.bvhData.set( entry.bvhData, destOffset );
 				this._offsetBLASInPlace( destOffset, entry.bvhData.length / 16, entry.blasOffset, entry.triOffset );
@@ -550,7 +550,7 @@ export class SceneProcessor {
 			this._buildGlobalOriginalToBvhMap();
 
 			// Free per-BLAS transient data (now baked into combined buffer / global map)
-			for ( const entry of this.instanceTable.entries ) {
+			for ( const entry of validEntries ) {
 
 				entry.originalToBvhMap = null;
 				entry.bvhData = null;
@@ -618,6 +618,8 @@ export class SceneProcessor {
 		this.originalToBvhMap = new Uint32Array( this.triangleCount );
 
 		for ( const entry of this.instanceTable.entries ) {
+
+			if ( ! entry ) continue;
 
 			// Build per-mesh bvhToOriginal (inverse map for sequential writes)
 			const bvhToOrig = new Uint32Array( entry.triCount );
@@ -1349,6 +1351,7 @@ export class SceneProcessor {
 		this._blasOffsetMap.clear();
 		for ( const entry of this.instanceTable.entries ) {
 
+			if ( ! entry ) continue;
 			this._blasOffsetMap.set( entry.blasOffset, entry );
 
 		}
