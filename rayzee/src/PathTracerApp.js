@@ -943,8 +943,37 @@ export class PathTracerApp extends EventDispatcher {
 
 		const result = this._sdf.refitBLASes( affectedMeshIndices, newPositions, newNormals );
 
-		this.stages.pathTracer.updateTriangleData( this._sdf.triangleData );
-		this.stages.pathTracer.updateBVHData( this._sdf.bvhData );
+		// Compute dirty ranges for partial GPU upload instead of full buffer copy
+		const instanceTable = this._sdf.instanceTable;
+		const triRanges = [];
+		const bvhRanges = [];
+		const FPT = 32; // FLOATS_PER_TRIANGLE
+		const FPN = 16; // FLOATS_PER_NODE
+
+		for ( const meshIdx of affectedMeshIndices ) {
+
+			const entry = instanceTable.entries[ meshIdx ];
+			if ( ! entry ) continue;
+
+			triRanges.push( {
+				offset: entry.triOffset * FPT,
+				count: entry.triCount * FPT
+			} );
+
+			bvhRanges.push( {
+				offset: entry.blasOffset * FPN,
+				count: entry.blasNodeCount * FPN
+			} );
+
+		}
+
+		// Always include TLAS range (rebuilt on every refit)
+		bvhRanges.push( {
+			offset: 0,
+			count: instanceTable.tlasNodeCount * FPN
+		} );
+
+		this.stages.pathTracer.updateBufferRanges( triRanges, bvhRanges );
 		this.reset();
 
 		return result;

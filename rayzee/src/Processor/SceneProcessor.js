@@ -609,8 +609,8 @@ export class SceneProcessor {
 	}
 
 	/**
-	 * Build a global originalToBvhMap from per-BLAS maps.
-	 * Maps global original triangle index → global BVH-reordered triangle index.
+	 * Build global originalToBvhMap and per-mesh bvhToOriginal maps.
+	 * The inverse map enables cache-friendly sequential writes during position updates.
 	 * @private
 	 */
 	_buildGlobalOriginalToBvhMap() {
@@ -619,25 +619,31 @@ export class SceneProcessor {
 
 		for ( const entry of this.instanceTable.entries ) {
 
+			// Build per-mesh bvhToOriginal (inverse map for sequential writes)
+			const bvhToOrig = new Uint32Array( entry.triCount );
+
 			if ( entry.originalToBvhMap ) {
 
 				for ( let i = 0; i < entry.triCount; i ++ ) {
 
-					// Per-BLAS map gives local reordered index within the mesh's range
-					this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + entry.originalToBvhMap[ i ];
+					const bvhLocal = entry.originalToBvhMap[ i ];
+					this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + bvhLocal;
+					bvhToOrig[ bvhLocal ] = i;
 
 				}
 
 			} else {
 
-				// Identity mapping if no reordering occurred
 				for ( let i = 0; i < entry.triCount; i ++ ) {
 
 					this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + i;
+					bvhToOrig[ i ] = i;
 
 				}
 
 			}
+
+			entry.bvhToOriginal = bvhToOrig;
 
 		}
 
@@ -1204,8 +1210,8 @@ export class SceneProcessor {
 
 		}
 
-		// Step 2: Rebuild TLAS (fast — just SAH over mesh AABBs)
-		this._rebuildTLAS();
+		// Step 2: Refit TLAS AABBs in-place (O(tlasNodeCount), no SAH rebuild)
+		this._refitTLAS();
 
 		return { refitTimeMs: performance.now() - start };
 
@@ -1213,7 +1219,7 @@ export class SceneProcessor {
 
 	/**
 	 * Update triangle positions for a single mesh entry.
-	 * Writes positions from newPositions (original order) into triangleData (BVH order).
+	 * Iterates in BVH order for sequential writes (cache-friendly), random reads from newPositions.
 	 * @private
 	 */
 	_updateMeshTrianglePositions( entry, newPositions ) {
@@ -1226,12 +1232,13 @@ export class SceneProcessor {
 		const NB = TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET;
 		const NC = TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET;
 
-		for ( let i = 0; i < entry.triCount; i ++ ) {
+		const bvhToOrig = entry.bvhToOriginal;
 
-			const origGlobal = entry.triOffset + i;
-			const bvhGlobal = this.originalToBvhMap[ origGlobal ];
-			const dst = bvhGlobal * FPT;
-			const src = origGlobal * 9;
+		for ( let bvhLocal = 0; bvhLocal < entry.triCount; bvhLocal ++ ) {
+
+			const origLocal = bvhToOrig[ bvhLocal ];
+			const dst = ( entry.triOffset + bvhLocal ) * FPT;
+			const src = ( entry.triOffset + origLocal ) * 9;
 
 			const ax = newPositions[ src ];
 			const ay = newPositions[ src + 1 ];
@@ -1253,7 +1260,6 @@ export class SceneProcessor {
 			this.triangleData[ dst + PC + 1 ] = cy;
 			this.triangleData[ dst + PC + 2 ] = cz;
 
-			// Compute face normal
 			const abx = bx - ax, aby = by - ay, abz = bz - az;
 			const acx = cx - ax, acy = cy - ay, acz = cz - az;
 			const nx = aby * acz - abz * acy;
@@ -1317,19 +1323,93 @@ export class SceneProcessor {
 	}
 
 	/**
-	 * Rebuild TLAS from current instance table AABBs.
-	 * Overwrites the TLAS portion of bvhData (indices [0, tlasNodeCount)).
+	 * Refit TLAS AABBs in-place without rebuilding the tree structure.
+	 * O(tlasNodeCount) bottom-up pass — much faster than full SAH rebuild.
 	 * @private
 	 */
-	_rebuildTLAS() {
+	_refitTLAS() {
 
-		const { root: tlasRoot } = this.tlasBuilder.build( this.instanceTable.entries );
-		const tlasData = this.tlasBuilder.flatten( tlasRoot, this.instanceTable.entries );
+		const tlasNodeCount = this.instanceTable.tlasNodeCount;
+		const FPN = 16;
 
-		// Overwrite TLAS portion of combined buffer
-		// If TLAS node count changed (shouldn't for same mesh set), we'd need to reassemble.
-		// For same mesh count, TLAS structure can differ but node count is deterministic: 2*M-1.
-		this.bvhData.set( tlasData );
+		// Grow-only bounds buffer for TLAS refit
+		if ( ! this._tlasBounds || this._tlasBounds.length < tlasNodeCount * 6 ) {
+
+			this._tlasBounds = new Float32Array( tlasNodeCount * 6 );
+
+		}
+
+		// Build blasOffset → entry lookup (avoids O(M) .find() per leaf)
+		if ( ! this._blasOffsetMap ) {
+
+			this._blasOffsetMap = new Map();
+
+		}
+
+		this._blasOffsetMap.clear();
+		for ( const entry of this.instanceTable.entries ) {
+
+			this._blasOffsetMap.set( entry.blasOffset, entry );
+
+		}
+
+		// Bottom-up pass: reverse iteration over TLAS nodes
+		for ( let i = tlasNodeCount - 1; i >= 0; i -- ) {
+
+			const o = i * FPN;
+			const marker = this.bvhData[ o + 3 ];
+
+			if ( marker === - 2 ) {
+
+				// BLAS-pointer leaf: read AABB from instance table
+				const blasRoot = this.bvhData[ o ];
+				const entry = this._blasOffsetMap.get( blasRoot );
+				if ( entry && entry.worldAABB ) {
+
+					const b = i * 6;
+					this._tlasBounds[ b ] = entry.worldAABB.minX;
+					this._tlasBounds[ b + 1 ] = entry.worldAABB.minY;
+					this._tlasBounds[ b + 2 ] = entry.worldAABB.minZ;
+					this._tlasBounds[ b + 3 ] = entry.worldAABB.maxX;
+					this._tlasBounds[ b + 4 ] = entry.worldAABB.maxY;
+					this._tlasBounds[ b + 5 ] = entry.worldAABB.maxZ;
+
+				}
+
+			} else if ( marker >= 0 ) {
+
+				// Inner node: union of children bounds, update bvhData in-place
+				const leftIdx = this.bvhData[ o + 3 ];
+				const rightIdx = this.bvhData[ o + 7 ];
+				const lb = leftIdx * 6;
+				const rb = rightIdx * 6;
+				const bounds = this._tlasBounds;
+
+				this.bvhData[ o ] = bounds[ lb ];
+				this.bvhData[ o + 1 ] = bounds[ lb + 1 ];
+				this.bvhData[ o + 2 ] = bounds[ lb + 2 ];
+				this.bvhData[ o + 4 ] = bounds[ lb + 3 ];
+				this.bvhData[ o + 5 ] = bounds[ lb + 4 ];
+				this.bvhData[ o + 6 ] = bounds[ lb + 5 ];
+
+				this.bvhData[ o + 8 ] = bounds[ rb ];
+				this.bvhData[ o + 9 ] = bounds[ rb + 1 ];
+				this.bvhData[ o + 10 ] = bounds[ rb + 2 ];
+				this.bvhData[ o + 12 ] = bounds[ rb + 3 ];
+				this.bvhData[ o + 13 ] = bounds[ rb + 4 ];
+				this.bvhData[ o + 14 ] = bounds[ rb + 5 ];
+
+				const b = i * 6;
+				bounds[ b ] = Math.min( bounds[ lb ], bounds[ rb ] );
+				bounds[ b + 1 ] = Math.min( bounds[ lb + 1 ], bounds[ rb + 1 ] );
+				bounds[ b + 2 ] = Math.min( bounds[ lb + 2 ], bounds[ rb + 2 ] );
+				bounds[ b + 3 ] = Math.max( bounds[ lb + 3 ], bounds[ rb + 3 ] );
+				bounds[ b + 4 ] = Math.max( bounds[ lb + 4 ], bounds[ rb + 4 ] );
+				bounds[ b + 5 ] = Math.max( bounds[ lb + 5 ], bounds[ rb + 5 ] );
+
+			}
+
+		}
 
 	}
 
