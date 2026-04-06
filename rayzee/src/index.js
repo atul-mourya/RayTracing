@@ -5,6 +5,9 @@
  * Subscribe to EngineEvents via addEventListener() to integrate with any UI framework.
  */
 
+// Patches (side-effect imports — must run before any StorageTexture usage)
+import './TSL/storageTexturePatch.js';
+
 // Main application
 export { PathTracerApp } from './PathTracerApp.js';
 
