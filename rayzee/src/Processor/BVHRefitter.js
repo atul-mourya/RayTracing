@@ -23,6 +23,7 @@ const TRIANGLE_DATA_LAYOUT = {
 const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
 const FLOATS_PER_NODE = 16; // 4 vec4s per BVH node
 const LEAF_MARKER = - 1;
+const BLAS_POINTER_MARKER = - 2;
 
 export class BVHRefitter {
 
@@ -100,6 +101,119 @@ export class BVHRefitter {
 	}
 
 	/**
+	 * Refit a BLAS sub-range within the combined BVH buffer.
+	 * Same algorithm as refit() but scoped to nodes [startNode, startNode + count).
+	 *
+	 * @param {Float32Array} bvhData - Combined BVH array (TLAS + all BLASes)
+	 * @param {Float32Array} triangleData - Global triangle data
+	 * @param {number} startNode - First node index of this BLAS in bvhData
+	 * @param {number} nodeCount - Number of nodes in this BLAS
+	 */
+	refitRange( bvhData, triangleData, startNode, nodeCount ) {
+
+		// Grow-only bounds buffer to avoid reallocation on mixed-size BLASes
+		if ( nodeCount > this._boundsNodeCount ) {
+
+			this._bounds = new Float32Array( nodeCount * 6 );
+			this._boundsNodeCount = nodeCount;
+
+		}
+
+		const bounds = this._bounds;
+		const endNode = startNode + nodeCount;
+
+		for ( let i = endNode - 1; i >= startNode; i -- ) {
+
+			const o = i * FLOATS_PER_NODE;
+			const b = ( i - startNode ) * 6; // bounds indexed relative to BLAS start
+
+			if ( bvhData[ o + 3 ] === LEAF_MARKER ) {
+
+				const triOffset = bvhData[ o ];
+				const triCount = bvhData[ o + 1 ];
+
+				let minX = Infinity, minY = Infinity, minZ = Infinity;
+				let maxX = - Infinity, maxY = - Infinity, maxZ = - Infinity;
+
+				for ( let t = 0; t < triCount; t ++ ) {
+
+					const tOff = ( triOffset + t ) * FPT;
+					const ax = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET ];
+					const ay = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 1 ];
+					const az = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET + 2 ];
+					const bx = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET ];
+					const by = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 1 ];
+					const bz = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET + 2 ];
+					const cx = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET ];
+					const cy = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 1 ];
+					const cz = triangleData[ tOff + TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET + 2 ];
+
+					minX = Math.min( minX, ax, bx, cx );
+					minY = Math.min( minY, ay, by, cy );
+					minZ = Math.min( minZ, az, bz, cz );
+					maxX = Math.max( maxX, ax, bx, cx );
+					maxY = Math.max( maxY, ay, by, cy );
+					maxZ = Math.max( maxZ, az, bz, cz );
+
+				}
+
+				bounds[ b ] = minX;
+				bounds[ b + 1 ] = minY;
+				bounds[ b + 2 ] = minZ;
+				bounds[ b + 3 ] = maxX;
+				bounds[ b + 4 ] = maxY;
+				bounds[ b + 5 ] = maxZ;
+
+			} else {
+
+				// Inner node — child indices are absolute, but bounds index relative to startNode
+				const leftIdx = bvhData[ o + 3 ];
+				const rightIdx = bvhData[ o + 7 ];
+				const lb = ( leftIdx - startNode ) * 6;
+				const rb = ( rightIdx - startNode ) * 6;
+
+				const lMinX = bounds[ lb ];
+				const lMinY = bounds[ lb + 1 ];
+				const lMinZ = bounds[ lb + 2 ];
+				const lMaxX = bounds[ lb + 3 ];
+				const lMaxY = bounds[ lb + 4 ];
+				const lMaxZ = bounds[ lb + 5 ];
+
+				const rMinX = bounds[ rb ];
+				const rMinY = bounds[ rb + 1 ];
+				const rMinZ = bounds[ rb + 2 ];
+				const rMaxX = bounds[ rb + 3 ];
+				const rMaxY = bounds[ rb + 4 ];
+				const rMaxZ = bounds[ rb + 5 ];
+
+				bvhData[ o ] = lMinX;
+				bvhData[ o + 1 ] = lMinY;
+				bvhData[ o + 2 ] = lMinZ;
+				bvhData[ o + 4 ] = lMaxX;
+				bvhData[ o + 5 ] = lMaxY;
+				bvhData[ o + 6 ] = lMaxZ;
+
+				bvhData[ o + 8 ] = rMinX;
+				bvhData[ o + 9 ] = rMinY;
+				bvhData[ o + 10 ] = rMinZ;
+				bvhData[ o + 12 ] = rMaxX;
+				bvhData[ o + 13 ] = rMaxY;
+				bvhData[ o + 14 ] = rMaxZ;
+
+				bounds[ b ] = Math.min( lMinX, rMinX );
+				bounds[ b + 1 ] = Math.min( lMinY, rMinY );
+				bounds[ b + 2 ] = Math.min( lMinZ, rMinZ );
+				bounds[ b + 3 ] = Math.max( lMaxX, rMaxX );
+				bounds[ b + 4 ] = Math.max( lMaxY, rMaxY );
+				bounds[ b + 5 ] = Math.max( lMaxZ, rMaxZ );
+
+			}
+
+		}
+
+	}
+
+	/**
 	 * Bottom-up refit of all BVH node AABBs.
 	 * Reverse pre-order iteration gives valid bottom-up order (children have higher
 	 * indices than parents in pre-order, so reversing processes children first).
@@ -126,9 +240,11 @@ export class BVHRefitter {
 			const o = i * FLOATS_PER_NODE;
 			const b = i * 6;
 
-			if ( bvhData[ o + 3 ] === LEAF_MARKER ) {
+			const marker = bvhData[ o + 3 ];
 
-				// Leaf node: compute AABB from triangles
+			if ( marker === LEAF_MARKER ) {
+
+				// Triangle leaf: compute AABB from triangles
 				const triOffset = bvhData[ o ];
 				const triCount = bvhData[ o + 1 ];
 
@@ -167,6 +283,18 @@ export class BVHRefitter {
 				bounds[ b + 3 ] = maxX;
 				bounds[ b + 4 ] = maxY;
 				bounds[ b + 5 ] = maxZ;
+
+			} else if ( marker === BLAS_POINTER_MARKER ) {
+
+				// BLAS-pointer leaf (TLAS): read BLAS root node's bounds (already computed)
+				const blasRoot = bvhData[ o ];
+				const br = blasRoot * 6;
+				bounds[ b ] = bounds[ br ];
+				bounds[ b + 1 ] = bounds[ br + 1 ];
+				bounds[ b + 2 ] = bounds[ br + 2 ];
+				bounds[ b + 3 ] = bounds[ br + 3 ];
+				bounds[ b + 4 ] = bounds[ br + 4 ];
+				bounds[ b + 5 ] = bounds[ br + 5 ];
 
 			} else {
 

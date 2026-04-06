@@ -63,9 +63,9 @@ Optional scope: `feat(asvgf):`, `fix(tsl):`, `refactor(pipeline):`, etc.
 │       ├── PathTracerApp.js
 │       ├── Pipeline/
 │       ├── Stages/
-│       ├── TSL/
-│       ├── Processor/
-│       └── managers/
+│       ├── TSL/        # BVHTraversal.js has TLAS/BLAS two-level dispatch
+│       ├── Processor/  # BVHBuilder, BVHRefitter, SceneProcessor, TLASBuilder, InstanceTable
+│       └── managers/   # AnimationManager, TransformManager, VideoRenderManager
 ├── app/                # React UI application
 │   ├── src/            # Components, hooks, store, services
 │   │   ├── lib/appProxy.js
@@ -116,6 +116,8 @@ PathTracer delegates to these via composition — external code accesses them di
 - **`EnvironmentManager.js`**: HDRI loading, CDF importance sampling (`buildEnvironmentCDF()`), procedural/gradient/solid sky generation, environment rotation. Owns `environmentTexture`, `envParams`, and CDF storage nodes.
 - **`ShaderBuilder.js`**: TSL shader graph construction, texture node management, material creation. Builds the full path tracer output via `setupMaterial()`. Supports in-place texture updates via `updateSceneTextures()` on model change (avoids full shader rebuild).
 - **`StorageTexturePool.js`**: Ping-pong MRT storage textures for progressive accumulation. `create()`, `swap()`, `getReadTextures()`, `ensureSize()`.
+- **`TLASBuilder.js`**: Builds SAH BVH over mesh-level AABBs for the top-level acceleration structure. Flattens with BLAS-pointer leaves (marker `-2`). Caches flatten buffer across rebuilds.
+- **`InstanceTable.js`**: Per-mesh BLAS metadata — tracks `blasOffset`, `blasNodeCount`, `triOffset`, `triCount`, `worldAABB` for each mesh. Provides O(1) AABB reads from BLAS root nodes. Entries indexed by meshIndex (positional).
 
 ### TSL Shader Modules (`rayzee/src/TSL/`)
 23 TSL files using `Fn()`, `If()`, `Loop()`, `.toVar()`:
@@ -130,11 +132,12 @@ Critical for maintaining 60fps during heavy computations:
 - **`CDFWorker.js`**: CDF computation for environment importance sampling
 - **`BVHRefitWorker.js`**: O(N) bottom-up BVH AABB refit for animated geometry (SharedArrayBuffer protocol)
 
-### Animation System (`rayzee/src/managers/`)
-GLTF skeletal/morph animation playback with real-time BVH refit:
+### Animation & Transform System (`rayzee/src/managers/`)
+GLTF skeletal/morph animation playback and interactive object transforms with BVH refit:
 - **`AnimationManager.js`**: Owns Three.js `AnimationMixer`, CPU skinning via `mesh.getVertexPosition()`, and position extraction. Key methods: `play()`, `stop()`, `seekTo(time)`, `setSpeed()`, `setLoop()`. Uses two-phase extraction: skin unique vertices first, then assemble triangles from index buffer.
+- **`TransformManager.js`**: Interactive translate/rotate/scale gizmo via Three.js `TransformControls`. Creates its own `Scene` for gizmo rendering (not SceneHelpers — its `visible` guard blocks gizmo). On drag end, extracts world-space positions + smooth normals (via normal matrix) for affected meshes only, then calls `refitBLASes()` for per-mesh BVH refit. Keyboard shortcuts: W=translate, E=rotate, R=scale (consolidated in `App.jsx`).
 - **`VideoRenderManager.js`**: Offline frame-by-frame animation video export. Drives seek → BVH refit → SPP accumulation → OIDN denoise → canvas capture cycle per frame. Saves/restores engine state, stops rAF loop during render, delivers `ImageBitmap` frames via callback for encoding.
-- **`BVHRefitter.js`** (in `Processor/`): Core O(N) refit algorithm — reverse pre-order traversal for bottom-up AABB recomputation. Reuses existing BVH tree structure, only updates bounding boxes.
+- **`BVHRefitter.js`** (in `Processor/`): O(N) refit algorithm — reverse pre-order traversal for bottom-up AABB recomputation. Supports both full-buffer `refit()` and per-BLAS `refitRange(startNode, nodeCount)`. Handles BLAS-pointer nodes in TLAS (reads BLAS root bounds).
 
 **Animation data flow**:
 1. `AssetLoader` preserves `data.animations` from GLTFLoader
@@ -142,10 +145,15 @@ GLTF skeletal/morph animation playback with real-time BVH refit:
 3. Per frame: `mixer.update(delta)` → `scene.updateMatrixWorld(true)` → `getVertexPosition()` per vertex → `refitBVH(positions)` via worker
 4. `PathTracer.updateTriangleData()` / `updateBVHData()` — fast GPU buffer writes (no reallocation)
 
-**BVH refit data flow**:
-- `BVHBuilder` produces `originalToBvhMap` (Uint32Array) during initial build — maps original triangle indices to BVH-reordered indices
-- `SceneProcessor.refitBVH()` sends positions + map to `BVHRefitWorker` via SharedArrayBuffer
-- Worker updates triangle positions in BVH order, then refits AABBs bottom-up
+**Transform data flow**:
+1. User selects object → `TransformManager.attach(object)` + `OutlineHelper` shows outline
+2. Drag gizmo → `OrbitControls` disabled, `app.needsReset = true` per frame (real-time outline updates)
+3. Drag end → `_recomputeAndRefit()`: compute positions + smooth normals for affected meshes → `refitBLASes(affectedIndices, positions, normals)`
+4. Per-BLAS refit + TLAS rebuild → GPU upload → accumulation restart
+
+**BVH refit data flow (two-level)**:
+- **Full refit** (animation): `SceneProcessor.refitBVH()` → worker updates all triangle positions + refits entire combined BVH buffer (TLAS + all BLASes) via SharedArrayBuffer
+- **Per-mesh refit** (transform): `SceneProcessor.refitBLASes(meshIndices)` → main thread updates only affected meshes' triangles, refits their BLAS ranges, rebuilds TLAS from updated AABBs
 
 **Video render data flow**:
 1. `VideoRenderManager.renderAnimation()` saves engine state, stops rAF, configures final-render mode
@@ -161,6 +169,7 @@ Zustand-based stores with **automatic 3D engine synchronization**:
 - `useAssetsStore` - Model/environment loading state
 - `useCameraStore` - Camera controls with DOF presets
 - `useAnimationStore` - Animation playback, clip selection, speed/loop controls
+- Transform state (`transformMode`, `transformSpace`, `isTransforming`) lives in `useStore` with handlers that sync to engine via `getApp()?.setTransformMode()`
 - Pattern: `handleChange()` utility creates handlers that update both store state and the app, triggering `app.reset()` for immediate visual feedback
 
 ### React Hooks for Engine Integration
@@ -169,12 +178,23 @@ Zustand-based stores with **automatic 3D engine synchronization**:
 ### Data Layout & GPU Optimization
 **Triangle Data Layout** (32 floats per triangle, vec4-aligned):
 ```js
-// app/src/Constants.js - TRIANGLE_DATA_LAYOUT
+// EngineDefaults.js - TRIANGLE_DATA_LAYOUT
 FLOATS_PER_TRIANGLE: 32  // 8 vec4s for GPU efficiency
 POSITION_A_OFFSET: 0     // 3 vec4s for positions (A,B,C)
 NORMAL_A_OFFSET: 12      // 3 vec4s for normals (A,B,C)
 UV_AB_OFFSET: 24         // 2 vec4s for UVs + material index
 ```
+
+**Two-Level BVH Layout** (packed in single GPU storage buffer):
+```
+Combined bvhData: [ TLAS nodes ][ BLAS_0 nodes ][ BLAS_1 nodes ]...[ BLAS_M nodes ]
+```
+- **16 floats per node** (4 × vec4). Inner nodes store children's AABBs + child indices.
+- **Triangle leaf** (marker `-1`): `[triOffset, triCount, 0, -1]` — absolute index into triangleData
+- **BLAS-pointer leaf** (marker `-2`): `[blasRootNodeIndex, 0, 0, -2]` — TLAS leaf pointing to a BLAS root
+- Traversal distinguishes leaf types via threshold: `nodeData0.w > -1.5` → triangle leaf, else → BLAS pointer (push onto stack)
+- **`InstanceTable`**: CPU-side per-mesh metadata (blasOffset, blasNodeCount, triOffset, triCount, worldAABB)
+- **`TLASBuilder`**: SAH BVH over mesh AABBs with cached flatten buffer
 
 ## Key Development Patterns
 
@@ -236,9 +256,9 @@ Always use `getApp()` from `@/lib/appProxy` to access the app instance. Never us
 
 ### Asset Processing Workflow
 1. **AssetLoader** loads GLB/GLTF models with automatic camera extraction
-2. **GeometryExtractor** converts meshes to optimized triangle data (32-float layout)
-3. **BVHBuilder** constructs acceleration structure (Web Worker)
-4. **TextureCreator** generates GPU textures for materials, triangles, BVH data
+2. **GeometryExtractor** converts meshes to optimized triangle data (32-float layout), records per-mesh `meshTriangleRanges`
+3. **SceneProcessor** builds two-level BVH (TLAS/BLAS): per-mesh BLAS via `BVHBuilder` (parallel for large meshes via `Promise.all`), then `TLASBuilder` builds SAH tree over mesh AABBs, then assembles combined buffer `[TLAS | BLAS_0 | BLAS_1 | ...]`
+4. **TextureCreator** generates GPU textures for materials (runs in parallel with BVH build)
 
 ## Development Commands
 
@@ -284,11 +304,12 @@ const MEMORY_LIMITS = {
 ```
 
 ### Shader Data Access Pattern
-Materials and BVH data accessed via texture lookups in TSL:
+Materials and BVH data accessed via storage buffer lookups in TSL:
 ```js
 // Standard pattern in TSL shaders
-const getDatafromDataTexture = Fn(([tex, texSize, stride, sampleIndex, dataOffset]) => { ... })
+const getDatafromStorageBuffer = Fn(([buffer, index, offset, stride]) => { ... })
 ```
+BVH traversal (`BVHTraversal.js`) uses stack-based DFS with two-level dispatch: TLAS inner nodes → BLAS-pointer leaves (push BLAS root onto stack) → BLAS inner nodes → triangle leaves (Möller-Trumbore intersection). Both `traverseBVH` (closest hit) and `traverseBVHShadow` (any hit, early exit) handle BLAS pointers.
 
 ### Camera & DOF System
 Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro with proper focal length calculations. Focus picking via click-to-focus interaction mode.
@@ -303,6 +324,9 @@ Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro wit
 6. **Resolution Scaling**: Path tracer resolution independent of UI — use `updateResolution(scale, index)` (2-arg signature)
 7. **React Compiler**: Uses React Compiler plugin — avoid manual memoization patterns that conflict with automatic optimization
 8. **Feature Guards**: Check stage availability before accessing optional stages (e.g., `app.asvgfStage?.enabled`)
+9. **BVH Leaf Markers**: `-1` = triangle leaf, `-2` = BLAS-pointer leaf. Traversal uses threshold `-1.5` to distinguish. `BVHRefitter` has inline copies of these constants (cannot import EngineDefaults in worker context).
+10. **InstanceTable Entry Order**: Entries are indexed by `meshIndex` (positional). Use `setEntry()` with explicit index, never push-based insertion, to avoid ordering bugs with mixed sync/async BLAS builds.
+11. **Transform vs Animation Refit**: Transforms use `refitBLASes()` (per-mesh, sync, main thread). Animations use `refitBVH()` (full scene, async, worker). Don't mix them — the worker path operates on SharedArrayBuffer that must match the combined TLAS/BLAS layout.
 
 ## Testing & Validation
 - Visual testing via built-in debug modes and example scenes

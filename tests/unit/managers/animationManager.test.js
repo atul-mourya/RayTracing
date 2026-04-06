@@ -21,6 +21,20 @@ vi.mock( 'three', () => {
 
 	}
 
+	class Timer {
+
+		constructor() {
+
+			this._delta = 1 / 60;
+
+		}
+
+		reset() {}
+		update() {}
+		getDelta() { return this._delta; }
+
+	}
+
 	class Vector3 {
 
 		constructor( x = 0, y = 0, z = 0 ) {
@@ -83,7 +97,7 @@ vi.mock( 'three', () => {
 
 	}
 
-	return { AnimationMixer, Clock, Vector3, LoopRepeat, LoopOnce };
+	return { AnimationMixer, Clock, Timer, Vector3, LoopRepeat, LoopOnce };
 
 } );
 

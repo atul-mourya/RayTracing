@@ -931,6 +931,27 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * Refit specific mesh BLASes and rebuild TLAS after object transform.
+	 * Faster than refitBVH for single-object transforms in multi-mesh scenes.
+	 *
+	 * @param {number[]} affectedMeshIndices - Mesh indices to refit
+	 * @param {Float32Array} newPositions - 9 floats per triangle in original mesh order
+	 * @param {Float32Array} [newNormals] - Optional smooth normals
+	 * @returns {{ refitTimeMs: number }}
+	 */
+	refitBLASes( affectedMeshIndices, newPositions, newNormals ) {
+
+		const result = this._sdf.refitBLASes( affectedMeshIndices, newPositions, newNormals );
+
+		this.stages.pathTracer.updateTriangleData( this._sdf.triangleData );
+		this.stages.pathTracer.updateBVHData( this._sdf.bvhData );
+		this.reset();
+
+		return result;
+
+	}
+
+	/**
 	 * Start playing a GLTF animation clip.
 	 * @param {number} [clipIndex=0] - Clip index, or -1 to play all
 	 */

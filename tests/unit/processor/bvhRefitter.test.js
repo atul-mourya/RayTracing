@@ -190,4 +190,125 @@ describe( 'BVHRefitter', () => {
 
 	} );
 
+	describe( 'refitRange (per-BLAS sub-range)', () => {
+
+		it( 'refits only the specified node range', () => {
+
+			// Combined buffer: 2 "TLAS" placeholder nodes + 3 BLAS nodes
+			// BLAS is a 3-node tree at indices [2,3,4]: inner(2) → leaf(3, tri 0), leaf(4, tri 1)
+			const bvhData = new Float32Array( [
+				// Node 0, 1: TLAS placeholders (not touched by refitRange)
+				...new Array( 32 ).fill( 999 ),
+				// Node 2 (inner): children at 3 and 4
+				...makeInner( [ 0, 0, 0 ], [ 1, 1, 1 ], 3, [ 0, 0, 0 ], [ 1, 1, 1 ], 4 ),
+				// Node 3 (leaf): triOffset=0, triCount=1
+				...makeLeaf( 0, 1 ),
+				// Node 4 (leaf): triOffset=1, triCount=1
+				...makeLeaf( 1, 1 ),
+			] );
+
+			const tri0 = makeTriangle( 0, 0, 0, 2, 0, 0, 0, 2, 0 );
+			const tri1 = makeTriangle( 10, 10, 10, 12, 10, 10, 10, 12, 10 );
+			const triangleData = new Float32Array( 64 );
+			triangleData.set( tri0, 0 );
+			triangleData.set( tri1, 32 );
+
+			refitter.refitRange( bvhData, triangleData, 2, 3 ); // startNode=2, nodeCount=3
+
+			// TLAS nodes should be untouched
+			expect( bvhData[ 0 ] ).toBe( 999 );
+
+			// BLAS root (node 2) should have updated AABBs
+			// Left child (node 3) = tri0 bounds: (0,0,0)→(2,2,0)
+			expect( bvhData[ 32 + 0 ] ).toBe( 0 );  // leftMin.x
+			expect( bvhData[ 32 + 4 ] ).toBe( 2 );  // leftMax.x
+			expect( bvhData[ 32 + 5 ] ).toBe( 2 );  // leftMax.y
+			// Right child (node 4) = tri1 bounds: (10,10,10)→(12,12,10)
+			expect( bvhData[ 32 + 8 ] ).toBe( 10 );  // rightMin.x
+			expect( bvhData[ 32 + 12 ] ).toBe( 12 ); // rightMax.x
+
+		} );
+
+		it( 'grow-only bounds buffer avoids reallocation on smaller subsequent calls', () => {
+
+			const bvhData = new Float32Array( [
+				...makeInner( [ 0, 0, 0 ], [ 1, 1, 1 ], 1, [ 0, 0, 0 ], [ 1, 1, 1 ], 2 ),
+				...makeLeaf( 0, 1 ),
+				...makeLeaf( 1, 1 ),
+			] );
+			const triangleData = new Float32Array( 64 );
+			triangleData.set( makeTriangle( 0, 0, 0, 1, 0, 0, 0, 1, 0 ), 0 );
+			triangleData.set( makeTriangle( 2, 2, 2, 3, 2, 2, 2, 3, 2 ), 32 );
+
+			// First call with 3 nodes
+			refitter.refitRange( bvhData, triangleData, 0, 3 );
+			const firstBounds = refitter._bounds;
+			expect( refitter._boundsNodeCount ).toBe( 3 );
+
+			// Second call with 1 node (smaller) — should NOT reallocate
+			const smallBvh = new Float32Array( [ ...makeLeaf( 0, 1 ) ] );
+			refitter.refitRange( smallBvh, triangleData, 0, 1 );
+			expect( refitter._bounds ).toBe( firstBounds );
+			expect( refitter._boundsNodeCount ).toBe( 3 ); // Still 3 (grow-only)
+
+		} );
+
+	} );
+
+	describe( 'refit with BLAS-pointer nodes', () => {
+
+		it( 'reads BLAS root bounds for TLAS BLAS-pointer leaves', () => {
+
+			// Combined buffer simulating TLAS/BLAS layout:
+			// Node 0: TLAS inner → children 1, 2
+			// Node 1: TLAS BLAS-pointer leaf → blasRoot = 3
+			// Node 2: TLAS BLAS-pointer leaf → blasRoot = 5
+			// Node 3: BLAS0 inner → children 4 (unused, just for bounds)
+			// Node 4: BLAS0 leaf (tri 0)
+			// Node 5: BLAS1 inner → children 6 (unused)
+			// Node 6: BLAS1 leaf (tri 1)
+
+			// Simplified: BLAS roots are inner nodes whose bounds we already know
+			const bvhData = new Float32Array( [
+				// Node 0: TLAS root inner (AABBs will be overwritten by refit)
+				...makeInner( [ 0, 0, 0 ], [ 1, 1, 1 ], 1, [ 0, 0, 0 ], [ 1, 1, 1 ], 2 ),
+				// Node 1: TLAS BLAS-pointer leaf → blasRoot=3
+				3, 0, 0, - 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				// Node 2: TLAS BLAS-pointer leaf → blasRoot=5
+				5, 0, 0, - 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+				// Node 3: BLAS0 root (inner) → leaf at 4
+				...makeInner( [ 0, 0, 0 ], [ 3, 3, 3 ], 4, [ 0, 0, 0 ], [ 3, 3, 3 ], 4 ),
+				// Node 4: BLAS0 leaf (tri 0)
+				...makeLeaf( 0, 1 ),
+				// Node 5: BLAS1 root (inner) → leaf at 6
+				...makeInner( [ 10, 10, 10 ], [ 13, 13, 13 ], 6, [ 10, 10, 10 ], [ 13, 13, 13 ], 6 ),
+				// Node 6: BLAS1 leaf (tri 1)
+				...makeLeaf( 1, 1 ),
+			] );
+
+			const tri0 = makeTriangle( 0, 0, 0, 3, 0, 0, 0, 3, 3 );
+			const tri1 = makeTriangle( 10, 10, 10, 13, 10, 10, 10, 13, 13 );
+			const triangleData = new Float32Array( 64 );
+			triangleData.set( tri0, 0 );
+			triangleData.set( tri1, 32 );
+
+			refitter.refit( bvhData, triangleData, 7 );
+
+			// TLAS root (node 0) should have:
+			// Left child AABB = BLAS0 root bounds = (0,0,0)→(3,3,3)
+			expect( bvhData[ 0 ] ).toBe( 0 );  // leftMin.x
+			expect( bvhData[ 1 ] ).toBe( 0 );  // leftMin.y
+			expect( bvhData[ 4 ] ).toBe( 3 );  // leftMax.x
+			expect( bvhData[ 5 ] ).toBe( 3 );  // leftMax.y
+			expect( bvhData[ 6 ] ).toBe( 3 );  // leftMax.z
+
+			// Right child AABB = BLAS1 root bounds = (10,10,10)→(13,13,13)
+			expect( bvhData[ 8 ] ).toBe( 10 );  // rightMin.x
+			expect( bvhData[ 12 ] ).toBe( 13 ); // rightMax.x
+			expect( bvhData[ 13 ] ).toBe( 13 ); // rightMax.y
+
+		} );
+
+	} );
+
 } );

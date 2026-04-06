@@ -122,8 +122,14 @@ export class GeometryExtractor {
 		this.meshes.push( mesh );
 		mesh.userData.meshIndex = meshIndex;
 
+		// Record triangle range start for this mesh (for TLAS/BLAS per-mesh BVH)
+		const rangeStart = this.currentTriangleIndex;
+
 		// Extract geometry with both material and mesh indices
 		this.extractGeometry( mesh, materialIndex, meshIndex );
+
+		// Record per-mesh triangle range
+		this.meshTriangleRanges.push( { start: rangeStart, count: this.currentTriangleIndex - rangeStart } );
 
 	}
 
@@ -789,7 +795,8 @@ export class GeometryExtractor {
 
 		// Reset other arrays
 		this.materials = [];
-		this.meshes = []; // Add mesh tracking
+		this.meshes = [];
+		this.meshTriangleRanges = []; // Per-mesh { start, count } for TLAS/BLAS
 		this.maps = [];
 		this.normalMaps = [];
 		this.bumpMaps = [];
@@ -824,7 +831,8 @@ export class GeometryExtractor {
 			triangleData: this.getTriangleData(), // Texture-ready Float32Array format
 			triangleCount: this.getTriangleCount(),
 			materials: this.materials,
-			meshes: this.meshes, // Add mesh data
+			meshes: this.meshes,
+			meshTriangleRanges: this.meshTriangleRanges, // Per-mesh { start, count } for TLAS/BLAS
 			maps: this.maps,
 			normalMaps: this.normalMaps,
 			bumpMaps: this.bumpMaps,

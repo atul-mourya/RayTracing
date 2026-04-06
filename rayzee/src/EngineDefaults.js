@@ -337,6 +337,12 @@ export const TRIANGLE_DATA_LAYOUT = {
 	UV_C_MAT_OFFSET: 28
 };
 
+// BVH node leaf markers
+export const BVH_LEAF_MARKERS = {
+	TRIANGLE_LEAF: - 1, // Leaf containing triangle references
+	BLAS_POINTER_LEAF: - 2, // TLAS leaf pointing to a BLAS root node
+};
+
 // Texture processing constants
 export const TEXTURE_CONSTANTS = {
 	PIXELS_PER_MATERIAL: 27,

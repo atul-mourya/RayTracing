@@ -83,9 +83,11 @@
 
 ### BVH
 - [x] Fast BVH refit updates - O(N) bottom-up AABB refit for animated geometry
+- [x] Two-level BVH (TLAS/BLAS) — per-mesh BLAS + top-level SAH over mesh AABBs, per-mesh refit for transforms
 - [ ] Parallel refit — split bottom-up traversal across multiple workers for large scenes
 - [ ] GPU compute refit — once Three.js supports read-write storage buffers, move AABB recomputation to a compute shader for sub-millisecond refits
 - [ ] Incremental rebuild — when SAH degrades past threshold, rebuild only the degraded subtree instead of the whole BVH
+- [ ] Object-space triangles + instance transform buffer for true instancing (same BLAS, multiple transforms)
 
 - [ ] Consider PLOC for maximum performance scenarios
 - [ ] 4-way branching for GPU traversal (explored)
@@ -104,7 +106,7 @@
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling
-- [ ] Two-level BVH with coarse top-level
+- [x] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
 - [x] Screen-space radiance caching

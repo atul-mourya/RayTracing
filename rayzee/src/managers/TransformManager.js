@@ -235,13 +235,21 @@ export class TransformManager {
 		}
 
 		this._refitInFlight = true;
-		this._app.refitBVH( this._posBuffer, this._normalBuffer )
-			.catch( err => console.error( 'Transform refit error:', err ) )
-			.finally( () => {
 
-				this._refitInFlight = false;
+		try {
 
-			} );
+			// Use per-BLAS refit for affected meshes only (faster than full BVH refit)
+			this._app.refitBLASes( affectedIndices, this._posBuffer, this._normalBuffer );
+
+		} catch ( err ) {
+
+			console.error( 'Transform refit error:', err );
+
+		} finally {
+
+			this._refitInFlight = false;
+
+		}
 
 	}
 
