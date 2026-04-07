@@ -407,6 +407,196 @@ describe( 'RenderPipeline', () => {
 
 		} );
 
+		it( 'includes context textures, renderTargets, uniforms, events', () => {
+
+			const info = pipeline.getInfo();
+			expect( info ).toHaveProperty( 'textures' );
+			expect( info ).toHaveProperty( 'renderTargets' );
+			expect( info ).toHaveProperty( 'uniforms' );
+			expect( info ).toHaveProperty( 'events' );
+			expect( info ).toHaveProperty( 'contextState' );
+
+		} );
+
+	} );
+
+	// ── logStats ───────────────────────────────────────────────
+
+	describe( 'logStats', () => {
+
+		it( 'logs "not enabled" when stats disabled', () => {
+
+			const spy = vi.spyOn( console, 'log' ).mockImplementation( () => {} );
+			pipeline.logStats();
+			expect( spy ).toHaveBeenCalledWith( expect.stringContaining( 'not enabled' ) );
+			spy.mockRestore();
+
+		} );
+
+		it( 'logs stats when enabled and frames rendered', () => {
+
+			const groupSpy = vi.spyOn( console, 'group' ).mockImplementation( () => {} );
+			const logSpy = vi.spyOn( console, 'log' ).mockImplementation( () => {} );
+			const groupEndSpy = vi.spyOn( console, 'groupEnd' ).mockImplementation( () => {} );
+
+			pipeline.setStatsEnabled( true );
+			pipeline.addStage( createMockStage( 'A' ) );
+			pipeline.render();
+			pipeline.logStats();
+
+			expect( groupSpy ).toHaveBeenCalled();
+			expect( groupEndSpy ).toHaveBeenCalled();
+
+			groupSpy.mockRestore();
+			logSpy.mockRestore();
+			groupEndSpy.mockRestore();
+
+		} );
+
+	} );
+
+	// ── logInfo ────────────────────────────────────────────────
+
+	describe( 'logInfo', () => {
+
+		it( 'logs pipeline info to console', () => {
+
+			const groupSpy = vi.spyOn( console, 'group' ).mockImplementation( () => {} );
+			const logSpy = vi.spyOn( console, 'log' ).mockImplementation( () => {} );
+			const groupEndSpy = vi.spyOn( console, 'groupEnd' ).mockImplementation( () => {} );
+
+			pipeline.addStage( createMockStage( 'A' ) );
+			pipeline.logInfo();
+
+			expect( groupSpy ).toHaveBeenCalled();
+			expect( logSpy ).toHaveBeenCalled();
+			expect( groupEndSpy ).toHaveBeenCalled();
+
+			groupSpy.mockRestore();
+			logSpy.mockRestore();
+			groupEndSpy.mockRestore();
+
+		} );
+
+	} );
+
+	// ── stats edge cases ──────────────────────────────────────
+
+	describe( 'stats edge cases', () => {
+
+		it( 'keeps only last 60 timing entries per stage', () => {
+
+			pipeline.setStatsEnabled( true );
+			pipeline.addStage( createMockStage( 'A' ) );
+
+			for ( let i = 0; i < 70; i ++ ) {
+
+				pipeline.render();
+
+			}
+
+			const timings = pipeline.stats.timings.get( 'A' );
+			expect( timings.length ).toBe( 60 );
+
+		} );
+
+		it( 'keeps only last 60 total timing entries', () => {
+
+			pipeline.setStatsEnabled( true );
+
+			for ( let i = 0; i < 70; i ++ ) {
+
+				pipeline.render();
+
+			}
+
+			const totalTimings = pipeline.stats.timings.get( '_total' );
+			expect( totalTimings.length ).toBe( 60 );
+
+		} );
+
+		it( 'logs skipped stages when logSkipped is true', () => {
+
+			const spy = vi.spyOn( console, 'log' ).mockImplementation( () => {} );
+
+			pipeline.setStatsEnabled( true );
+			pipeline.stats.logSkipped = true;
+
+			const stage = createMockStage( 'Denoiser', { enabled: false } );
+			pipeline.addStage( stage );
+			pipeline.render();
+
+			expect( spy ).toHaveBeenCalledWith( expect.stringContaining( 'Skipped' ) );
+			spy.mockRestore();
+
+		} );
+
+		it( 'reset clears stats timings', () => {
+
+			pipeline.setStatsEnabled( true );
+			pipeline.addStage( createMockStage( 'A' ) );
+			pipeline.render();
+			pipeline.reset();
+
+			expect( pipeline.stats.timings.size ).toBe( 0 );
+			expect( pipeline.stats.frameCount ).toBe( 0 );
+
+		} );
+
+	} );
+
+	// ── error resilience ──────────────────────────────────────
+
+	describe( 'error resilience', () => {
+
+		it( 'reset continues when stage reset throws', () => {
+
+			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
+			const a = createMockStage( 'A' );
+			a.reset = vi.fn( () => { throw new Error( 'reset fail' ); } );
+			const b = createMockStage( 'B' );
+
+			pipeline.addStage( a );
+			pipeline.addStage( b );
+			pipeline.reset();
+
+			expect( b.reset ).toHaveBeenCalled();
+			spy.mockRestore();
+
+		} );
+
+		it( 'setSize continues when stage setSize throws', () => {
+
+			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
+			const a = createMockStage( 'A' );
+			a.setSize = vi.fn( () => { throw new Error( 'resize fail' ); } );
+			const b = createMockStage( 'B' );
+
+			pipeline.addStage( a );
+			pipeline.addStage( b );
+			pipeline.setSize( 800, 600 );
+
+			expect( b.setSize ).toHaveBeenCalledWith( 800, 600 );
+			spy.mockRestore();
+
+		} );
+
+		it( 'dispose continues when stage dispose throws', () => {
+
+			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
+			const a = createMockStage( 'A' );
+			a.dispose = vi.fn( () => { throw new Error( 'dispose fail' ); } );
+			const b = createMockStage( 'B' );
+
+			pipeline.addStage( a );
+			pipeline.addStage( b );
+			pipeline.dispose();
+
+			expect( b.dispose ).toHaveBeenCalled();
+			spy.mockRestore();
+
+		} );
+
 	} );
 
 } );

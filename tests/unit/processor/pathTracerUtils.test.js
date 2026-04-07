@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { clamp, lerp, formatDuration, calculateAccumulationAlpha,
 	isRenderComplete, getCurrentSampleCount, updateCompletionThreshold,
 	calculateSpiralOrder, createLRUCache, createPerformanceMonitor,
-	createDebounceFunction, areValuesEqual, optimizeShaderDefines } from '@/core/Processor/utils.js';
+	createDebounceFunction, areValuesEqual, optimizeShaderDefines,
+	getNearestPowerOf2, getDisplaySamples, validateAndUpdateUniforms,
+	setStatusCallback, resetLoading, updateLoading, updateStats,
+	disposeMaterial, disposeMaterialTextures } from '@/core/Processor/utils.js';
 
 // ── clamp ────────────────────────────────────────────────────────
 
@@ -532,6 +535,206 @@ describe( 'optimizeShaderDefines', () => {
 		const defines = { ENABLE_ADAPTIVE_SAMPLING: '' };
 		optimizeShaderDefines( defines, { useAdaptiveSampling: false } );
 		expect( defines ).toHaveProperty( 'ENABLE_ADAPTIVE_SAMPLING' );
+
+	} );
+
+} );
+
+// ── getNearestPowerOf2 ──────────────────────────────────────
+
+describe( 'getNearestPowerOf2', () => {
+
+	it( 'returns same value for exact power of 2', () => {
+
+		expect( getNearestPowerOf2( 256 ) ).toBe( 256 );
+		expect( getNearestPowerOf2( 1024 ) ).toBe( 1024 );
+
+	} );
+
+	it( 'rounds up to next power of 2', () => {
+
+		expect( getNearestPowerOf2( 100 ) ).toBe( 128 );
+		expect( getNearestPowerOf2( 500 ) ).toBe( 512 );
+		expect( getNearestPowerOf2( 1 ) ).toBe( 1 );
+		expect( getNearestPowerOf2( 3 ) ).toBe( 4 );
+
+	} );
+
+} );
+
+// ── getDisplaySamples ───────────────────────────────────────
+
+describe( 'getDisplaySamples', () => {
+
+	it( 'returns frameCount directly in progressive mode (renderMode=0 or undefined)', () => {
+
+		const stage = { frameCount: 10 };
+		expect( getDisplaySamples( stage ) ).toBe( 10 );
+
+	} );
+
+	it( 'returns 0 for zero frameCount', () => {
+
+		expect( getDisplaySamples( {} ) ).toBe( 0 );
+
+	} );
+
+	it( 'computes sample count in tiled mode (renderMode=1)', () => {
+
+		const stage = {
+			frameCount: 9,
+			renderMode: { value: 1 },
+			tileManager: { totalTilesCache: 4 },
+		};
+		// 1 + floor((9-1)/4) = 1 + 2 = 3
+		expect( getDisplaySamples( stage ) ).toBe( 3 );
+
+	} );
+
+	it( 'returns 0 for tiled mode with frameCount=0', () => {
+
+		const stage = {
+			frameCount: 0,
+			renderMode: { value: 1 },
+			tileManager: { totalTilesCache: 4 },
+		};
+		expect( getDisplaySamples( stage ) ).toBe( 0 );
+
+	} );
+
+} );
+
+// ── validateAndUpdateUniforms ───────────────────────────────
+
+describe( 'validateAndUpdateUniforms', () => {
+
+	it( 'updates changed uniforms and returns true', () => {
+
+		const material = {
+			uniforms: {
+				bounces: { value: 5 },
+				samples: { value: 1 },
+			},
+		};
+
+		const changed = validateAndUpdateUniforms( material, { bounces: 10 } );
+		expect( changed ).toBe( true );
+		expect( material.uniforms.bounces.value ).toBe( 10 );
+
+	} );
+
+	it( 'returns false when no values changed', () => {
+
+		const material = {
+			uniforms: {
+				bounces: { value: 5 },
+			},
+		};
+
+		const changed = validateAndUpdateUniforms( material, { bounces: 5 } );
+		expect( changed ).toBe( false );
+
+	} );
+
+	it( 'ignores keys not in material uniforms', () => {
+
+		const material = {
+			uniforms: {
+				bounces: { value: 5 },
+			},
+		};
+
+		const changed = validateAndUpdateUniforms( material, { nonexistent: 99 } );
+		expect( changed ).toBe( false );
+
+	} );
+
+} );
+
+// ── status callbacks ────────────────────────────────────────
+
+describe( 'status callbacks', () => {
+
+	it( 'setStatusCallback wires up resetLoading/updateLoading/updateStats', () => {
+
+		const cb = vi.fn();
+		setStatusCallback( cb );
+
+		resetLoading();
+		expect( cb ).toHaveBeenCalledTimes( 1 );
+
+		updateLoading( { progress: 50 } );
+		expect( cb ).toHaveBeenCalledTimes( 2 );
+
+		updateStats( { triangles: 1000 } );
+		expect( cb ).toHaveBeenCalledTimes( 3 );
+
+		// Clean up
+		setStatusCallback( null );
+
+	} );
+
+	it( 'callbacks are safe when no callback set', () => {
+
+		setStatusCallback( null );
+		expect( () => resetLoading() ).not.toThrow();
+		expect( () => updateLoading( {} ) ).not.toThrow();
+		expect( () => updateStats( {} ) ).not.toThrow();
+
+	} );
+
+} );
+
+// ── disposeMaterial ─────────────────────────────────────────
+
+describe( 'disposeMaterial', () => {
+
+	it( 'disposes a single material', () => {
+
+		const mat = { dispose: vi.fn(), userData: {} };
+		disposeMaterial( mat );
+		expect( mat.dispose ).toHaveBeenCalled();
+
+	} );
+
+	it( 'disposes array of materials', () => {
+
+		const mat1 = { dispose: vi.fn(), userData: {} };
+		const mat2 = { dispose: vi.fn(), userData: {} };
+		disposeMaterial( [ mat1, mat2 ] );
+		expect( mat1.dispose ).toHaveBeenCalled();
+		expect( mat2.dispose ).toHaveBeenCalled();
+
+	} );
+
+	it( 'skips fallback materials', () => {
+
+		const mat = { dispose: vi.fn(), userData: { isFallback: true } };
+		disposeMaterial( mat );
+		expect( mat.dispose ).not.toHaveBeenCalled();
+
+	} );
+
+} );
+
+// ── disposeMaterialTextures ─────────────────────────────────
+
+describe( 'disposeMaterialTextures', () => {
+
+	it( 'disposes all texture types', () => {
+
+		const tex = { dispose: vi.fn() };
+		const mat = { map: tex, normalMap: { dispose: vi.fn() } };
+		disposeMaterialTextures( mat );
+		expect( tex.dispose ).toHaveBeenCalled();
+		expect( mat.map ).toBeNull();
+		expect( mat.normalMap ).toBeNull();
+
+	} );
+
+	it( 'handles null material safely', () => {
+
+		expect( () => disposeMaterialTextures( null ) ).not.toThrow();
 
 	} );
 

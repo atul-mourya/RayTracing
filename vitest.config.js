@@ -15,7 +15,54 @@ export default defineConfig( {
 				[ 'text-summary' ]
 			],
 			include: [ 'rayzee/src/**/*.js', 'app/src/lib/**/*.js' ],
-			exclude: [ '**/.DS_Store', '**/*.md', '**/Workers/**' ],
+			exclude: [
+				'**/.DS_Store', '**/*.md', '**/Workers/**',
+
+				// ── GPU-dependent: TSL shaders (require WebGPU runtime) ──
+				'rayzee/src/TSL/**',
+
+				// ── GPU-dependent: Pipeline stages (TSL compute shaders, StorageTextures) ──
+				'rayzee/src/Stages/ASVGF.js',
+				'rayzee/src/Stages/AdaptiveSampling.js',
+				'rayzee/src/Stages/AutoExposure.js',
+				'rayzee/src/Stages/BilateralFilter.js',
+				'rayzee/src/Stages/Display.js',
+				'rayzee/src/Stages/EdgeFilter.js',
+				'rayzee/src/Stages/MotionVector.js',
+				'rayzee/src/Stages/NormalDepth.js',
+				'rayzee/src/Stages/PathTracer.js',
+				'rayzee/src/Stages/SSRC.js',
+				'rayzee/src/Stages/Variance.js',
+
+				// ── GPU-dependent: WebGPU renderer orchestration ──
+				'rayzee/src/PathTracerApp.js',
+				'rayzee/src/index.js',
+
+				// ── GPU-dependent: TSL shader graph / WebGPU textures ──
+				'rayzee/src/Processor/ShaderBuilder.js',
+				'rayzee/src/Processor/StorageTexturePool.js',
+				'rayzee/src/Processor/TextureCreator.js',
+				'rayzee/src/Processor/createRenderTargetHelper.js',
+				'rayzee/src/Processor/SceneProcessor.js',
+				'rayzee/src/Processor/parallelBVHBuilder.js',
+				'rayzee/src/Processor/generateMaterialSpheres.js',
+
+				// ── GPU-dependent: Asset loading with GPU texture upload ──
+				'rayzee/src/Processor/AssetLoader.js',
+
+				// ── GPU-dependent: Managers with deep TSL/WebGPU integration ──
+				'rayzee/src/managers/MaterialDataManager.js',
+				'rayzee/src/managers/EnvironmentManager.js',
+				'rayzee/src/managers/RenderTargetManager.js',
+				'rayzee/src/managers/UniformManager.js',
+				'rayzee/src/managers/DenoisingManager.js',
+				'rayzee/src/managers/VideoRenderManager.js',
+				'rayzee/src/managers/InteractionManager.js',
+				'rayzee/src/managers/helpers/OutlineHelper.js',
+
+				// ── GPU-dependent: Denoiser passes (oidn-web GPU pipeline) ──
+				'rayzee/src/Passes/**',
+			],
 		},
 	},
 	resolve: {

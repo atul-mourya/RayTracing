@@ -253,6 +253,147 @@ describe( 'RenderStage', () => {
 
 		} );
 
+		it( 'once fires listener exactly once', () => {
+
+			const stage = new RenderStage( 'Test' );
+			stage.initialize( context, eventBus );
+
+			const listener = vi.fn();
+			stage.once( 'test:once', listener );
+			stage.emit( 'test:once' );
+			stage.emit( 'test:once' );
+			expect( listener ).toHaveBeenCalledTimes( 1 );
+
+		} );
+
+		it( 'once is safe without eventBus', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( () => stage.once( 'test', () => {} ) ).not.toThrow();
+
+		} );
+
+		it( 'off removes listener', () => {
+
+			const stage = new RenderStage( 'Test' );
+			stage.initialize( context, eventBus );
+
+			const listener = vi.fn();
+			stage.on( 'test:off', listener );
+			stage.off( 'test:off', listener );
+			stage.emit( 'test:off' );
+			expect( listener ).not.toHaveBeenCalled();
+
+		} );
+
+		it( 'off is safe without eventBus', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( () => stage.off( 'test', () => {} ) ).not.toThrow();
+
+		} );
+
+	} );
+
+	// ── shouldExecute (default) ───────────────────────────────
+
+	describe( 'shouldExecute (default CONDITIONAL)', () => {
+
+		it( 'default shouldExecute returns true', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( stage.shouldExecute( context ) ).toBe( true );
+
+		} );
+
+	} );
+
+	// ── Unknown execution mode ────────────────────────────────
+
+	describe( 'unknown execution mode', () => {
+
+		it( 'warns and returns true for unknown mode', () => {
+
+			const spy = vi.spyOn( console, 'warn' ).mockImplementation( () => {} );
+			const stage = new RenderStage( 'Test', { executionMode: 'unknown_mode' } );
+			stage.initialize( context, eventBus );
+
+			expect( stage.shouldExecuteThisFrame( context ) ).toBe( true );
+			expect( spy ).toHaveBeenCalled();
+			spy.mockRestore();
+
+		} );
+
+	} );
+
+	// ── Debug utilities ───────────────────────────────────────
+
+	describe( 'debug utilities', () => {
+
+		it( 'log() prefixes with stage name', () => {
+
+			const spy = vi.spyOn( console, 'log' ).mockImplementation( () => {} );
+			const stage = new RenderStage( 'MyStage' );
+			stage.log( 'hello' );
+			expect( spy ).toHaveBeenCalledWith( '[MyStage]', 'hello' );
+			spy.mockRestore();
+
+		} );
+
+		it( 'warn() prefixes with stage name', () => {
+
+			const spy = vi.spyOn( console, 'warn' ).mockImplementation( () => {} );
+			const stage = new RenderStage( 'MyStage' );
+			stage.warn( 'warning' );
+			expect( spy ).toHaveBeenCalledWith( '[MyStage]', 'warning' );
+			spy.mockRestore();
+
+		} );
+
+		it( 'error() prefixes with stage name', () => {
+
+			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
+			const stage = new RenderStage( 'MyStage' );
+			stage.error( 'err' );
+			expect( spy ).toHaveBeenCalledWith( '[MyStage]', 'err' );
+			spy.mockRestore();
+
+		} );
+
+	} );
+
+	// ── Lifecycle no-ops ──────────────────────────────────────
+
+	describe( 'lifecycle no-ops', () => {
+
+		it( 'reset is callable', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( () => stage.reset() ).not.toThrow();
+
+		} );
+
+		it( 'setSize is callable', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( () => stage.setSize( 800, 600 ) ).not.toThrow();
+
+		} );
+
+		it( 'dispose is callable', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( () => stage.dispose() ).not.toThrow();
+
+		} );
+
+		it( 'setupEventListeners is callable', () => {
+
+			const stage = new RenderStage( 'Test' );
+			expect( () => stage.setupEventListeners() ).not.toThrow();
+
+		} );
+
 	} );
 
 } );

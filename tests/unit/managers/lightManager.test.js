@@ -1,0 +1,218 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Mock Three.js dependencies before importing LightManager
+vi.mock( 'three', () => {
+
+	class EventDispatcher {
+
+		constructor() { this._listeners = {}; }
+		addEventListener( t, l ) { ( this._listeners[ t ] ||= [] ).push( l ); }
+		removeEventListener( t, l ) { if ( this._listeners[ t ] ) { const i = this._listeners[ t ].indexOf( l ); if ( i > - 1 ) this._listeners[ t ].splice( i, 1 ); } }
+		dispatchEvent( e ) { ( this._listeners[ e.type ] || [] ).forEach( l => l( e ) ); }
+
+	}
+
+	class Light {
+
+		constructor( c, i ) {
+
+			this.color = { r: 1, g: 1, b: 1, set( v ) { return this; }, getHexString() { return 'ffffff'; } };
+			this.intensity = i || 1;
+			this.position = {
+				fromArray( a ) { this.x = a[ 0 ]; this.y = a[ 1 ]; this.z = a[ 2 ]; return this; },
+				clone() { return { x: this.x, y: this.y, z: this.z }; },
+				x: 0, y: 0, z: 0
+			};
+			this.uuid = Math.random().toString( 36 );
+			this.name = '';
+			this.type = this.constructor.name;
+			this.isLight = true;
+
+		}
+
+		lookAt() {}
+
+		getWorldDirection( v ) { return { x: 0, y: 0, z: - 1 }; }
+
+	}
+
+	return {
+		EventDispatcher,
+		DirectionalLight: class DirectionalLight extends Light {
+
+			constructor( c, i ) { super( c, i ); this.isDirectionalLight = true; this.type = 'DirectionalLight'; }
+
+		},
+		PointLight: class PointLight extends Light {
+
+			constructor( c, i ) { super( c, i ); this.isPointLight = true; this.type = 'PointLight'; }
+
+		},
+		SpotLight: class SpotLight extends Light {
+
+			constructor( c, i ) {
+
+				super( c, i );
+				this.isSpotLight = true;
+				this.type = 'SpotLight';
+				this.angle = Math.PI / 4;
+				this.target = { position: { set() {}, x: 0, y: 0, z: 0 } };
+
+			}
+
+		},
+		RectAreaLight: class RectAreaLight extends Light {
+
+			constructor( c, i, w, h ) {
+
+				super( c, i );
+				this.isRectAreaLight = true;
+				this.type = 'RectAreaLight';
+				this.width = w || 1;
+				this.height = h || 1;
+
+			}
+
+		},
+		Object3D: class {
+
+			constructor() { this.position = { set() {}, x: 0, y: 0, z: 0 }; }
+
+		},
+		MathUtils: {
+			degToRad: d => d * Math.PI / 180,
+			radToDeg: r => r * 180 / Math.PI,
+		},
+	};
+
+} );
+
+import { LightManager } from '@/core/managers/LightManager.js';
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function createMockScene() {
+
+	const children = [];
+
+	return {
+		add( obj ) { children.push( obj ); },
+		remove( obj ) { const i = children.indexOf( obj ); if ( i > - 1 ) children.splice( i, 1 ); },
+		getObjectsByProperty( prop, value ) { return children.filter( c => c[ prop ] === value ); },
+		getObjectByProperty( prop, value ) { return children.find( c => c[ prop ] === value ); },
+		_children: children,
+	};
+
+}
+
+function createMockSceneHelpers() {
+
+	return {
+		visible: false,
+		sync: vi.fn(),
+		clear: vi.fn(),
+		remove: vi.fn(),
+	};
+
+}
+
+function createMockPathTracer() {
+
+	return {
+		updateLights: vi.fn(),
+	};
+
+}
+
+// ── Tests ────────────────────────────────────────────────────
+
+describe( 'LightManager', () => {
+
+	let scene, sceneHelpers, pathTracer, manager;
+
+	beforeEach( () => {
+
+		scene = createMockScene();
+		sceneHelpers = createMockSceneHelpers();
+		pathTracer = createMockPathTracer();
+		manager = new LightManager( scene, sceneHelpers, pathTracer );
+
+	} );
+
+	// ── addLight ─────────────────────────────────────────────
+
+	describe( 'addLight', () => {
+
+		it( 'should return a descriptor for DirectionalLight', () => {
+
+			const result = manager.addLight( 'DirectionalLight' );
+
+			expect( result ).not.toBeNull();
+			expect( result ).toHaveProperty( 'uuid' );
+			expect( result ).toHaveProperty( 'type', 'DirectionalLight' );
+			expect( result ).toHaveProperty( 'intensity', 1.0 );
+
+		} );
+
+		it( 'should return a descriptor for PointLight', () => {
+
+			const result = manager.addLight( 'PointLight' );
+
+			expect( result ).not.toBeNull();
+			expect( result ).toHaveProperty( 'uuid' );
+			expect( result ).toHaveProperty( 'type', 'PointLight' );
+			expect( result ).toHaveProperty( 'intensity', 100 );
+
+		} );
+
+		it( 'should return a descriptor for SpotLight', () => {
+
+			const result = manager.addLight( 'SpotLight' );
+
+			expect( result ).not.toBeNull();
+			expect( result ).toHaveProperty( 'uuid' );
+			expect( result ).toHaveProperty( 'type', 'SpotLight' );
+			expect( result ).toHaveProperty( 'intensity', 300 );
+
+		} );
+
+		it( 'should return a descriptor for RectAreaLight', () => {
+
+			const result = manager.addLight( 'RectAreaLight' );
+
+			expect( result ).not.toBeNull();
+			expect( result ).toHaveProperty( 'uuid' );
+			expect( result ).toHaveProperty( 'type', 'RectAreaLight' );
+			expect( result ).toHaveProperty( 'intensity', 500 );
+
+		} );
+
+		it( 'should return null for an invalid light type', () => {
+
+			const result = manager.addLight( 'InvalidType' );
+
+			expect( result ).toBeNull();
+
+		} );
+
+		it( 'should add the created light to the scene', () => {
+
+			manager.addLight( 'DirectionalLight' );
+
+			const lights = scene.getObjectsByProperty( 'isLight', true );
+			expect( lights.length ).toBe( 1 );
+			expect( lights[ 0 ].isDirectionalLight ).toBe( true );
+
+		} );
+
+		it( 'should call pathTracer.updateLights after adding a light', () => {
+
+			manager.addLight( 'PointLight' );
+
+			expect( pathTracer.updateLights ).toHaveBeenCalled();
+
+		} );
+
+	} );
+
+} );
