@@ -73,6 +73,8 @@ export class SceneProcessor {
 		this.originalToBvhMap = null; // Uint32Array: original tri index → BVH-order index (global, for legacy compat)
 		this._refitWorker = null;
 		this._refitSharedBuffers = null; // SharedArrayBuffer refs for zero-copy refit
+		this._rebuildGeneration = 0; // Monotonic counter to discard stale background rebuilds
+		this._pendingRebuilds = new Map(); // meshIndex → worker
 
 		// Initialize texture references
 		this.albedoTextures = null;
@@ -1493,6 +1495,181 @@ export class SceneProcessor {
 	}
 
 	/**
+	 * Schedule background BLAS rebuilds for affected meshes.
+	 * Rebuilds optimal SAH BVH in a worker, then swaps into the combined buffer.
+	 * Stale rebuilds (object moved again) are discarded via generation counter.
+	 *
+	 * @param {number[]} meshIndices - Mesh indices to rebuild
+	 * @param {Function} onSwap - Called after a successful swap (for GPU upload)
+	 */
+	scheduleBackgroundRebuild( meshIndices, onSwap ) {
+
+		if ( ! this.instanceTable || ! this.triangleData ) return;
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		this._rebuildGeneration ++;
+		const generation = this._rebuildGeneration;
+
+		for ( const meshIdx of meshIndices ) {
+
+			const entry = this.instanceTable.entries[ meshIdx ];
+			if ( ! entry ) continue;
+
+			// Cancel any in-flight rebuild for this mesh
+			const existing = this._pendingRebuilds.get( meshIdx );
+			if ( existing ) existing.terminate();
+
+			// Copy current world-space triangle data for this mesh
+			const meshTriData = this.triangleData.slice(
+				entry.triOffset * FPT,
+				( entry.triOffset + entry.triCount ) * FPT
+			);
+
+			const worker = new Worker(
+				new URL( './Workers/BVHWorker.js', import.meta.url ),
+				{ type: 'module' }
+			);
+
+			this._pendingRebuilds.set( meshIdx, worker );
+
+			worker.onmessage = ( e ) => {
+
+				const data = e.data;
+				worker.terminate();
+				this._pendingRebuilds.delete( meshIdx );
+
+				if ( data.error ) {
+
+					console.error( `Background BLAS rebuild error (mesh ${meshIdx}):`, data.error );
+					return;
+
+				}
+
+				// Discard if object was transformed again since this rebuild started
+				if ( generation !== this._rebuildGeneration ) return;
+
+				this._swapBLAS( meshIdx, entry, data, onSwap );
+
+			};
+
+			worker.onerror = ( err ) => {
+
+				console.error( `Background BLAS rebuild worker error (mesh ${meshIdx}):`, err );
+				worker.terminate();
+				this._pendingRebuilds.delete( meshIdx );
+
+			};
+
+			// Disable treelet for tiny meshes
+			const treeletEnabled = entry.triCount > 500;
+
+			worker.postMessage( {
+				triangleData: meshTriData.buffer,
+				triangleByteOffset: meshTriData.byteOffset,
+				triangleByteLength: meshTriData.byteLength,
+				triangleCount: entry.triCount,
+				depth: this.config.bvhDepth,
+				reportProgress: false,
+				sharedReorderBuffer: null,
+				treeletOptimization: {
+					enabled: treeletEnabled,
+					size: this.config.treeletSize,
+					passes: this.config.treeletOptimizationPasses,
+					minImprovement: this.config.treeletMinImprovement
+				},
+				reinsertionOptimization: {
+					enabled: this.bvhBuilder.enableReinsertionOptimization,
+					batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
+					maxIterations: this.bvhBuilder.reinsertionMaxIterations
+				},
+			}, [ meshTriData.buffer ] );
+
+		}
+
+	}
+
+	/**
+	 * Swap a rebuilt BLAS into the combined buffer.
+	 * @private
+	 */
+	_swapBLAS( meshIdx, entry, workerData, onSwap ) {
+
+		const FPN = 16;
+		const newBvhData = workerData.bvhData;
+		const newNodeCount = newBvhData.length / FPN;
+
+		// Node count must match — refit doesn't change topology, rebuild shouldn't either
+		// for the same triangle set. If it differs, the buffer layout is invalid.
+		if ( newNodeCount !== entry.blasNodeCount ) {
+
+			console.warn( `Background rebuild: node count mismatch for mesh ${meshIdx} (${newNodeCount} vs ${entry.blasNodeCount}), skipping swap` );
+			return;
+
+		}
+
+		// Write rebuilt BLAS nodes into the combined buffer at the entry's offset
+		const destOffset = entry.blasOffset * FPN;
+		this.bvhData.set( newBvhData, destOffset );
+		this._offsetBLASInPlace( destOffset, newNodeCount, entry.blasOffset, entry.triOffset );
+
+		// Write reordered triangles back into global array
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const reorderedTris = workerData.triangles;
+		if ( reorderedTris ) {
+
+			this.triangleData.set( reorderedTris, entry.triOffset * FPT );
+
+		}
+
+		// Update per-mesh maps
+		const newOrigToBvh = workerData.originalToBvh;
+		if ( newOrigToBvh ) {
+
+			// Update global originalToBvhMap for this mesh's range
+			for ( let i = 0; i < entry.triCount; i ++ ) {
+
+				this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + newOrigToBvh[ i ];
+
+			}
+
+			// Update per-mesh bvhToOriginal
+			const bvhToOrig = new Uint32Array( entry.triCount );
+			for ( let i = 0; i < entry.triCount; i ++ ) {
+
+				bvhToOrig[ newOrigToBvh[ i ] ] = i;
+
+			}
+
+			entry.bvhToOriginal = bvhToOrig;
+
+		}
+
+		// Recompute AABB and refit TLAS
+		this.instanceTable.recomputeAABB( meshIdx, this.bvhData, this.triangleData );
+		this._refitTLAS();
+
+		this._log( `Background BLAS rebuild complete for mesh ${meshIdx}` );
+
+		onSwap?.();
+
+	}
+
+	/**
+	 * Cancel all pending background rebuilds.
+	 */
+	cancelBackgroundRebuilds() {
+
+		for ( const worker of this._pendingRebuilds.values() ) {
+
+			worker.terminate();
+
+		}
+
+		this._pendingRebuilds.clear();
+
+	}
+
+	/**
 	 * Terminate the refit worker if active.
 	 * @private
 	 */
@@ -1506,6 +1683,7 @@ export class SceneProcessor {
 		}
 
 		this._refitSharedBuffers = null;
+		this.cancelBackgroundRebuilds();
 
 	}
 

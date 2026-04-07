@@ -6,6 +6,7 @@
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 - [ ] oidndenoiser is desaturation the results
 - [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
+- [ ] Some worker threads are always running. Assess if they are needed and terminate if not with proper lifecycle management.
   
 
 ### Known

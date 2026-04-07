@@ -976,6 +976,16 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.updateBufferRanges( triRanges, bvhRanges );
 		this.reset();
 
+		// Kick off background rebuild for optimal SAH quality
+		this._sdf.scheduleBackgroundRebuild( affectedMeshIndices, () => {
+
+			// Swap complete — upload updated buffers and restart accumulation
+			this.stages.pathTracer.updateTriangleData( this._sdf.triangleData );
+			this.stages.pathTracer.updateBVHData( this._sdf.bvhData );
+			this.reset();
+
+		} );
+
 		return result;
 
 	}
