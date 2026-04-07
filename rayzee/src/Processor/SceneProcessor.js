@@ -465,52 +465,62 @@ export class SceneProcessor {
 
 			updateLoading( { status: 'Built all BLASes', progress: 70 } );
 
-			// ── Step 2: Compute AABBs and build TLAS ──
+			// ── Step 2: Assemble BVH buffer ──
 
 			updateLoading( { status: "Building TLAS...", progress: 72 } );
 
-			this.instanceTable.computeAABBs( this.triangleData );
 			const validEntries = this.instanceTable.entries.filter( e => e !== null );
-			const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( validEntries );
 
-			// ── Step 3: Assign offsets and assemble combined buffer ──
+			if ( validEntries.length === 1 ) {
 
-			this.instanceTable.assignOffsets( tlasNodeCount );
-			const totalNodes = this.instanceTable.totalNodeCount;
-
-			// Flatten TLAS (leaves get absolute blasOffset from instance table)
-			const tlasData = this.tlasBuilder.flatten( tlasRoot, validEntries );
-
-			// Assemble combined buffer: [TLAS][BLAS_0][BLAS_1]...[BLAS_M]
-			this.bvhData = new Float32Array( totalNodes * 16 );
-			this.bvhData.set( tlasData );
-
-			for ( const entry of validEntries ) {
-
-				const destOffset = entry.blasOffset * 16;
-				this.bvhData.set( entry.bvhData, destOffset );
-				this._offsetBLASInPlace( destOffset, entry.bvhData.length / 16, entry.blasOffset, entry.triOffset );
-
-			}
-
-			// Build global originalToBvhMap for legacy refit compatibility
-			this._buildGlobalOriginalToBvhMap();
-
-			// Free per-BLAS transient data (now baked into combined buffer / global map)
-			for ( const entry of validEntries ) {
-
+				// Single mesh — use BLAS directly as flat BVH (no TLAS wrapper).
+				// Avoids per-ray TLAS overhead and the extra branch in traversal.
+				const entry = validEntries[ 0 ];
+				this.bvhData = entry.bvhData;
+				this.instanceTable.assignOffsets( 0 ); // BLAS at offset 0
+				this._buildGlobalOriginalToBvhMap();
 				entry.originalToBvhMap = null;
 				entry.bvhData = null;
 
+			} else {
+
+				// Multi-mesh — build TLAS over mesh AABBs
+				this.instanceTable.computeAABBs( this.triangleData );
+				const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( validEntries );
+
+				this.instanceTable.assignOffsets( tlasNodeCount );
+				const totalNodes = this.instanceTable.totalNodeCount;
+
+				const tlasData = this.tlasBuilder.flatten( tlasRoot, validEntries );
+
+				// Assemble combined buffer: [TLAS][BLAS_0][BLAS_1]...[BLAS_M]
+				this.bvhData = new Float32Array( totalNodes * 16 );
+				this.bvhData.set( tlasData );
+
+				for ( const entry of validEntries ) {
+
+					const destOffset = entry.blasOffset * 16;
+					this.bvhData.set( entry.bvhData, destOffset );
+					this._offsetBLASInPlace( destOffset, entry.bvhData.length / 16, entry.blasOffset, entry.triOffset );
+
+				}
+
+				this._buildGlobalOriginalToBvhMap();
+
+				for ( const entry of validEntries ) {
+
+					entry.originalToBvhMap = null;
+					entry.bvhData = null;
+
+				}
+
 			}
 
-			this.bvhRoot = true; // Truthy sentinel for hasBVH checks
-
-			// Invalidate refit state
+			this.bvhRoot = true;
 			this._disposeRefitWorker();
 
 			const duration = performance.now() - startTime;
-			this._log( `Two-level BVH complete: ${this.instanceTable.count} BLASes, ${tlasNodeCount} TLAS nodes, ${totalNodes} total (${duration.toFixed( 2 )}ms)` );
+			this._log( `BVH complete: ${validEntries.length} mesh(es), ${this.bvhData.length / 16} nodes (${duration.toFixed( 2 )}ms)` );
 
 			updateLoading( {
 				status: "BVH construction complete",

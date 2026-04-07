@@ -117,6 +117,8 @@
 - [x] irradiance probes,
 - [ ] Photon mapping
 - [ ] Bidirectional path tracing support
+- [ ] Experiment PLOC for maximum BVH performance scenarios
+  
 
 ---
 
