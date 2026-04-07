@@ -82,15 +82,15 @@
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
 ### BVH
-- [x] Fast BVH refit updates - O(N) bottom-up AABB refit for animated geometry
-- [x] Two-level BVH (TLAS/BLAS) — per-mesh BLAS + top-level SAH over mesh AABBs, per-mesh refit for transforms
-- [ ] Parallel refit — split bottom-up traversal across multiple workers for large scenes
-- [ ] GPU compute refit — once Three.js supports read-write storage buffers, move AABB recomputation to a compute shader for sub-millisecond refits
-- [ ] Incremental rebuild — when SAH degrades past threshold, rebuild only the degraded subtree instead of the whole BVH
-- [ ] Object-space triangles + instance transform buffer for true instancing (same BLAS, multiple transforms)
-
-- [ ] Consider PLOC for maximum performance scenarios
-- [ ] 4-way branching for GPU traversal (explored)
+- [x] O(N) bottom-up BVH refit for animated geometry
+- [x] Two-level BVH (TLAS/BLAS) with per-mesh refit for transforms
+- [x] Bounded worker pool for BLAS builds (no main-thread blocking)
+- [x] Ranged GPU upload (addUpdateRange) for partial buffer updates
+- [x] TLAS in-place refit instead of full SAH rebuild on transform
+- [ ] Object-space triangles + instance transform buffer for true instancing
+- [ ] GPU compute refit via compute shader (blocked on Three.js read-write storage buffers)
+- [ ] Background BLAS rebuild after refit when SAH quality degrades
+- [ ] Compact Wide BVH (CWBVH) — 4/8-way branching for GPU traversal
 
 ### Profiling
 - [ ] GPU timing measurements
