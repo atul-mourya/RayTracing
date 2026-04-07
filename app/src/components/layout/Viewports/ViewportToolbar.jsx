@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw, Maximize, Target, Camera, Minimize } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Maximize, Target, Camera, Minimize, Move, RotateCw, Maximize2, Globe, Box } from "lucide-react";
+import { useStore } from '@/store';
 import {
 	Tooltip,
 	TooltipTrigger,
@@ -73,6 +74,13 @@ const ViewportToolbar = ( {
 	}
 
 } ) => {
+
+	// Transform controls state
+	const selectedObject = useStore( s => s.selectedObject );
+	const transformMode = useStore( s => s.transformMode );
+	const transformSpace = useStore( s => s.transformSpace );
+	const handleTransformModeChange = useStore( s => s.handleTransformModeChange );
+	const handleTransformSpaceChange = useStore( s => s.handleTransformSpaceChange );
 
 	// Size state for resizer
 	const [ size, setSize ] = useState( defaultSize );
@@ -160,8 +168,8 @@ const ViewportToolbar = ( {
 
 	}, [] );
 
-	// Enhanced Control button with auto-fit indicator
-	const ControlButton = ( { onClick, tooltip, icon, disabled = false, isAutoFit = false } ) => (
+	// Enhanced Control button with active state indicator
+	const ControlButton = ( { onClick, tooltip, icon, disabled = false, isAutoFit = false, isActive = false } ) => (
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
@@ -171,14 +179,14 @@ const ViewportToolbar = ( {
 					disabled={disabled}
 					className={cn(
 						"h-6 w-6 p-1 hover:bg-primary/20 hover:scale-105 mx-1 rounded-full disabled:opacity-50 disabled:cursor-not-allowed",
-						isAutoFit && ! isManualScale && "bg-primary/30 text-primary"
+						( ( isAutoFit && ! isManualScale ) || isActive ) && "bg-primary/30 text-primary"
 					)}
 				>
 					{React.cloneElement( icon, {
 						size: iconSize,
 						className: cn(
 							"text-foreground/70",
-							isAutoFit && ! isManualScale && "text-primary"
+							( ( isAutoFit && ! isManualScale ) || isActive ) && "text-primary"
 						)
 					} )}
 				</Button>
@@ -204,6 +212,36 @@ const ViewportToolbar = ( {
 			className
 		)}>
 			<TooltipProvider>
+				{/* Transform Controls — visible when object selected */}
+				{selectedObject && (
+					<>
+						<ControlButton
+							onClick={() => handleTransformModeChange( 'translate' )}
+							tooltip="Translate (W)"
+							icon={<Move />}
+							isActive={transformMode === 'translate'}
+						/>
+						<ControlButton
+							onClick={() => handleTransformModeChange( 'rotate' )}
+							tooltip="Rotate (E)"
+							icon={<RotateCw />}
+							isActive={transformMode === 'rotate'}
+						/>
+						<ControlButton
+							onClick={() => handleTransformModeChange( 'scale' )}
+							tooltip="Scale (R)"
+							icon={<Maximize2 />}
+							isActive={transformMode === 'scale'}
+						/>
+						<ControlButton
+							onClick={() => handleTransformSpaceChange( transformSpace === 'world' ? 'local' : 'world' )}
+							tooltip={`${transformSpace === 'world' ? 'World' : 'Local'} Space`}
+							icon={transformSpace === 'world' ? <Globe /> : <Box />}
+						/>
+						<Separator orientation="vertical" className="h-5 mx-1 my-1 bg-foreground/10" />
+					</>
+				)}
+
 				{/* Zoom Controls Group */}
 				{controls.resetZoom && (
 					<ControlButton

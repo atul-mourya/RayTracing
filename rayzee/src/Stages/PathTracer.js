@@ -774,17 +774,56 @@ export class PathTracer extends RenderStage {
 
 	}
 
-	/** Update triangle positions in the existing GPU buffer. */
+	/** Update triangle positions in the existing GPU buffer (full). */
 	updateTriangleData( triangleData ) {
 
 		this._updateStorageBuffer( this.triangleStorageAttr, triangleData );
 
 	}
 
-	/** Update BVH node data in the existing GPU buffer. */
+	/** Update BVH node data in the existing GPU buffer (full). */
 	updateBVHData( bvhData ) {
 
 		this._updateStorageBuffer( this.bvhStorageAttr, bvhData );
+
+	}
+
+	/**
+	 * Update only specific ranges of the GPU storage buffers.
+	 * Uses addUpdateRange for partial GPU upload instead of full buffer copy.
+	 *
+	 * @param {Array<{offset: number, count: number}>} triRanges - Dirty triangle ranges (element index + count)
+	 * @param {Array<{offset: number, count: number}>} bvhRanges - Dirty BVH node ranges (element index + count)
+	 */
+	updateBufferRanges( triRanges, bvhRanges ) {
+
+		if ( this.triangleStorageAttr && triRanges.length > 0 ) {
+
+			this.triangleStorageAttr.clearUpdateRanges();
+
+			for ( const r of triRanges ) {
+
+				this.triangleStorageAttr.addUpdateRange( r.offset, r.count );
+
+			}
+
+			this.triangleStorageAttr.version ++;
+
+		}
+
+		if ( this.bvhStorageAttr && bvhRanges.length > 0 ) {
+
+			this.bvhStorageAttr.clearUpdateRanges();
+
+			for ( const r of bvhRanges ) {
+
+				this.bvhStorageAttr.addUpdateRange( r.offset, r.count );
+
+			}
+
+			this.bvhStorageAttr.version ++;
+
+		}
 
 	}
 

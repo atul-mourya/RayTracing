@@ -24,6 +24,7 @@ export {
 	AUTO_FOCUS_MODES,
 	AF_DEFAULTS,
 	TRIANGLE_DATA_LAYOUT,
+	BVH_LEAF_MARKERS,
 	TEXTURE_CONSTANTS,
 	DEFAULT_TEXTURE_MATRIX,
 	MEMORY_CONSTANTS,
@@ -45,6 +46,9 @@ export { PipelineContext } from './Pipeline/PipelineContext.js';
 
 // Animation (for advanced consumers)
 export { AnimationManager } from './managers/AnimationManager.js';
+
+// Transform controls
+export { TransformManager } from './managers/TransformManager.js';
 
 // Video rendering
 export { VideoRenderManager } from './managers/VideoRenderManager.js';

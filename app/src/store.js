@@ -52,6 +52,23 @@ const handleChange = ( setter, appUpdater, needsReset = true ) => val => {
 const useStore = create( set => ( {
 	selectedObject: null,
 	setSelectedObject: obj => set( { selectedObject: obj } ),
+
+	// Transform controls
+	transformMode: 'translate',
+	transformSpace: 'world',
+	isTransforming: false,
+	setIsTransforming: val => set( { isTransforming: val } ),
+	handleTransformModeChange: handleChange(
+		val => set( { transformMode: val } ),
+		( val, app ) => app.setTransformMode( val ),
+		false
+	),
+	handleTransformSpaceChange: handleChange(
+		val => set( { transformSpace: val } ),
+		( val, app ) => app.setTransformSpace( val ),
+		false
+	),
+
 	loading: { isLoading: false, progress: 0, title: '', status: '' },
 	setLoading: state => set( s => ( { loading: { ...s.loading, ...state } } ) ),
 	stats: { samples: 0, timeElapsed: 0 },

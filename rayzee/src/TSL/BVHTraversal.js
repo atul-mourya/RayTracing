@@ -234,58 +234,63 @@ export const traverseBVH = Fn( ( [
 
 		If( nodeData0.w.lessThan( 0.0 ), () => {
 
-			// Leaf node — triOffset and triCount packed in vec4(0).xy
-			const triStart = int( nodeData0.x ).toVar();
-			const triCount = int( nodeData0.y ).toVar();
+			// Leaf node — distinguish triangle leaf (-1) from BLAS-pointer leaf (-2)
+			If( nodeData0.w.greaterThan( float( - 1.5 ) ), () => {
 
-			// Process triangles in leaf
-			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
+				// Triangle leaf (marker -1) — triOffset and triCount packed in vec4(0).xy
+				const triStart = int( nodeData0.x ).toVar();
+				const triCount = int( nodeData0.y ).toVar();
 
-				closestHit.triTests.addAssign( 1 );
-				const triIndex = triStart.add( i ).toVar();
+				// Process triangles in leaf
+				Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-				// Fetch geometry first (3 fetches from storage buffer)
-				const pA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
-				const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
-				const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
+					closestHit.triTests.addAssign( 1 );
+					const triIndex = triStart.add( i ).toVar();
 
-				const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst } );
+					// Fetch geometry first (3 fetches from storage buffer)
+					const pA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
+					const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
+					const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-				// RayTriangleGeometry already guarantees t < closestHit.dst when w > 0.5
-				If( triResult.w.greaterThan( 0.5 ), () => {
+					const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst } );
 
-					const t = triResult.x;
-					const u = triResult.y;
-					const v = triResult.z;
+					// RayTriangleGeometry already guarantees t < closestHit.dst when w > 0.5
+					If( triResult.w.greaterThan( 0.5 ), () => {
 
-					// Fetch normals + material data for visibility check (4 reads)
-					const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
-					const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-					const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
-					const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
+						const t = triResult.x;
+						const u = triResult.y;
+						const v = triResult.z;
 
-					const matIdx = int( uvData2.z );
+						// Fetch normals + material data for visibility check (4 reads)
+						const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
+						const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
+						const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
+						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
 
-					// Early material rejection
-					If( isTriangleVisible( matIdx, materialBuffer ), () => {
+						const matIdx = int( uvData2.z );
 
-						// Interpolate normal
-						const w = float( 1.0 ).sub( u ).sub( v );
-						const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
+						// Early material rejection
+						If( isTriangleVisible( matIdx, materialBuffer ), () => {
 
-						// Full material visibility check (culling etc)
-						If( isMaterialVisible( matIdx, rayDirection, normal, materialBuffer ), () => {
+							// Interpolate normal
+							const w = float( 1.0 ).sub( u ).sub( v );
+							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
 
-							closestHit.didHit.assign( true );
-							closestHit.dst.assign( t );
-							closestHit.normal.assign( normal );
-							closestHit.materialIndex.assign( matIdx );
-							closestHit.meshIndex.assign( int( uvData2.w ) );
+							// Full material visibility check (culling etc)
+							If( isMaterialVisible( matIdx, rayDirection, normal, materialBuffer ), () => {
 
-							// Defer hitPoint + UV computation to post-traversal
-							closestTriIdx.assign( triIndex );
-							closestU.assign( u );
-							closestV.assign( v );
+								closestHit.didHit.assign( true );
+								closestHit.dst.assign( t );
+								closestHit.normal.assign( normal );
+								closestHit.materialIndex.assign( matIdx );
+								closestHit.meshIndex.assign( int( uvData2.w ) );
+
+								// Defer hitPoint + UV computation to post-traversal
+								closestTriIdx.assign( triIndex );
+								closestU.assign( u );
+								closestV.assign( v );
+
+							} );
 
 						} );
 
@@ -293,12 +298,23 @@ export const traverseBVH = Fn( ( [
 
 				} );
 
-			} );
+				// If we found a very close hit, we can terminate early
+				If( closestHit.didHit.and( closestHit.dst.lessThan( 0.001 ) ), () => {
 
-			// If we found a very close hit, we can terminate early
-			If( closestHit.didHit.and( closestHit.dst.lessThan( 0.001 ) ), () => {
+					Break();
 
-				Break();
+				} );
+
+			} ).Else( () => {
+
+				// BLAS-pointer leaf (marker -2) — push BLAS root node onto stack
+				const blasRoot = int( nodeData0.x ).toVar();
+				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
+
+					stack.element( stackPtr ).assign( blasRoot );
+					stackPtr.addAssign( 1 );
+
+				} );
 
 			} );
 
@@ -412,41 +428,57 @@ export const traverseBVHShadow = Fn( ( [
 
 		If( nodeData0.w.lessThan( 0.0 ), () => {
 
-			// Leaf node — triOffset and triCount packed in vec4(0).xy
-			const triStart = int( nodeData0.x ).toVar();
-			const triCount = int( nodeData0.y ).toVar();
+			// Leaf node — distinguish triangle leaf (-1) from BLAS-pointer leaf (-2)
+			If( nodeData0.w.greaterThan( float( - 1.5 ) ), () => {
 
-			Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
+				// Triangle leaf (marker -1) — triOffset and triCount packed in vec4(0).xy
+				const triStart = int( nodeData0.x ).toVar();
+				const triCount = int( nodeData0.y ).toVar();
 
-				const triIndex = triStart.add( i ).toVar();
+				Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-				const pA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
-				const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
-				const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
+					const triIndex = triStart.add( i ).toVar();
 
-				const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst } );
+					const pA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 0 ), int( TRI_STRIDE ) ).xyz;
+					const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
+					const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-				If( triResult.w.greaterThan( 0.5 ), () => {
+					const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst } );
 
-					const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
-					const matIdx = int( uvData2.z );
+					If( triResult.w.greaterThan( 0.5 ), () => {
 
-					If( isTriangleVisible( matIdx, materialBuffer ), () => {
+						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
+						const matIdx = int( uvData2.z );
 
-						closestHit.didHit.assign( true );
-						closestHit.dst.assign( triResult.x );
-						closestHit.materialIndex.assign( matIdx );
-						closestHit.meshIndex.assign( int( uvData2.w ) );
+						If( isTriangleVisible( matIdx, materialBuffer ), () => {
 
-						// Compute hit point and geometric normal -- required for transmissive
-						// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
-						closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
-						closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
+							closestHit.didHit.assign( true );
+							closestHit.dst.assign( triResult.x );
+							closestHit.materialIndex.assign( matIdx );
+							closestHit.meshIndex.assign( int( uvData2.w ) );
 
-						// Shadow ray only needs any hit — skip remaining triangles in leaf
-						Break();
+							// Compute hit point and geometric normal -- required for transmissive
+							// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
+							closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
+							closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
+
+							// Shadow ray only needs any hit — skip remaining triangles in leaf
+							Break();
+
+						} );
 
 					} );
+
+				} );
+
+			} ).Else( () => {
+
+				// BLAS-pointer leaf (marker -2) — push BLAS root node onto stack
+				const blasRoot = int( nodeData0.x ).toVar();
+				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
+
+					stack.element( stackPtr ).assign( blasRoot );
+					stackPtr.addAssign( 1 );
 
 				} );
 

@@ -1,12 +1,16 @@
 // SceneProcessor.js - Processes scene geometry into GPU-ready data (BVH, textures, materials)
 import { Color } from "three";
 import { BVHBuilder } from './BVHBuilder.js';
+import { BVHRefitter } from './BVHRefitter.js';
 import { buildBVHParallel, shouldUseParallelBuild } from './ParallelBVHBuilder.js';
+import { TLASBuilder } from './TLASBuilder.js';
+import { InstanceTable } from './InstanceTable.js';
 import { TextureCreator } from './TextureCreator.js';
 import { GeometryExtractor } from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
+import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 
 /**
  * SceneProcessor - Processes scene geometry into GPU-ready data:
@@ -64,10 +68,13 @@ export class SceneProcessor {
 		this.bvhData = null;
 		this.materialData = null;
 
-		// BVH refit support
-		this.originalToBvhMap = null; // Uint32Array: original tri index → BVH-order index
+		// Two-level BVH (TLAS/BLAS) support
+		this.instanceTable = null; // Per-mesh BLAS metadata
+		this.originalToBvhMap = null; // Uint32Array: original tri index → BVH-order index (global, for legacy compat)
 		this._refitWorker = null;
 		this._refitSharedBuffers = null; // SharedArrayBuffer refs for zero-copy refit
+		this._rebuildGeneration = 0; // Monotonic counter to discard stale background rebuilds
+		this._pendingRebuilds = new Map(); // meshIndex → worker
 
 		// Initialize texture references
 		this.albedoTextures = null;
@@ -126,6 +133,9 @@ export class SceneProcessor {
 
 		// Create emissive triangle builder for direct lighting
 		this.emissiveTriangleBuilder = new EmissiveTriangleBuilder();
+
+		// Create TLAS builder for two-level BVH
+		this.tlasBuilder = new TLASBuilder();
 
 	}
 
@@ -285,7 +295,8 @@ export class SceneProcessor {
 			// Store other extracted data
 			this.materials = extractedData.materials;
 			this.materialCount = this.materials.length; // Store material count for feature scanning
-			this.meshes = extractedData.meshes; // Add mesh data
+			this.meshes = extractedData.meshes;
+			this.meshTriangleRanges = extractedData.meshTriangleRanges; // Per-mesh { start, count } for TLAS/BLAS
 			this.maps = extractedData.maps;
 			this.normalMaps = extractedData.normalMaps;
 			this.bumpMaps = extractedData.bumpMaps;
@@ -322,9 +333,9 @@ export class SceneProcessor {
 	}
 
 	/**
-     * Build the BVH structure from extracted triangles
-     * @private
-     */
+	 * Build two-level BVH (TLAS/BLAS): one BLAS per mesh, one TLAS over mesh AABBs.
+	 * @private
+	 */
 	async _buildBVH() {
 
 		updateLoading( {
@@ -338,101 +349,180 @@ export class SceneProcessor {
 
 		}
 
-		this._log( 'Building BVH' );
+		this._log( 'Building two-level BVH (TLAS/BLAS)' );
 		const startTime = performance.now();
 
 		try {
 
-			// Dynamically disable treelet optimization for low-poly models
-			const originalTreeletEnabled = this.config.enableTreeletOptimization;
-			if ( this.triangleCount <= 500 && originalTreeletEnabled ) {
+			const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+			const ranges = this.meshTriangleRanges;
 
-				this._log( `Disabling treelet optimization for low-poly model (${this.triangleCount} triangles <= 500)` );
-				this.bvhBuilder.setTreeletConfig( {
-					enabled: false,
+			if ( ! ranges || ranges.length === 0 ) {
+
+				throw new Error( "No mesh triangle ranges available for TLAS/BLAS build" );
+
+			}
+
+			// ── Step 1: Build per-mesh BLASes ──
+
+			this.instanceTable = new InstanceTable();
+			this.instanceTable.allocate( ranges.length );
+			const meshCount = ranges.length;
+
+			const originalTreeletEnabled = this.config.enableTreeletOptimization;
+			const LARGE_MESH_THRESHOLD = 200000;
+
+			// Separate into worker-pool tasks and multi-worker parallel tasks
+			const poolTasks = [];
+			const parallelTasks = [];
+
+			for ( let m = 0; m < meshCount; m ++ ) {
+
+				const range = ranges[ m ];
+				if ( range.count === 0 ) continue;
+
+				if ( range.count >= LARGE_MESH_THRESHOLD && shouldUseParallelBuild( range.count ) ) {
+
+					parallelTasks.push( { m, range } );
+
+				} else {
+
+					poolTasks.push( { m, range } );
+
+				}
+
+			}
+
+			// Worker config shared by all builds
+			const workerOpts = {
+				depth: this.config.bvhDepth,
+				treeletOptimization: {
+					enabled: originalTreeletEnabled !== false,
 					size: this.config.treeletSize,
 					passes: this.config.treeletOptimizationPasses,
 					minImprovement: this.config.treeletMinImprovement
+				},
+				reinsertionOptimization: {
+					enabled: this.bvhBuilder.enableReinsertionOptimization,
+					batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
+					maxIterations: this.bvhBuilder.reinsertionMaxIterations
+				}
+			};
+
+			const totalTasks = poolTasks.length + parallelTasks.length;
+
+			// Build all meshes via bounded worker pool (main thread stays free)
+			const poolPromise = this._buildBLASesWithPool( poolTasks, workerOpts, ( done ) => {
+
+				updateLoading( {
+					status: `Building BLAS ${done + parallelTasks.length}/${totalTasks}...`,
+					progress: 25 + Math.floor( ( done / totalTasks ) * 45 )
+				} );
+
+			} );
+
+			// Very large meshes use multi-worker parallel builder concurrently
+			const parallelPromises = parallelTasks.map( ( { m, range } ) => {
+
+				const meshTriData = this.triangleData.slice(
+					range.start * FPT,
+					( range.start + range.count ) * FPT
+				);
+
+				return buildBVHParallel( meshTriData, this.config.bvhDepth, null, {
+					maxLeafSize: this.bvhBuilder.maxLeafSize,
+					numBins: this.bvhBuilder.numBins,
+					maxBins: this.bvhBuilder.maxBins,
+					minBins: this.bvhBuilder.minBins,
+					...workerOpts
+				} ).then( result => ( { m, range, result } ) );
+
+			} );
+
+			// Await both paths concurrently
+			const [ poolResults, parallelResults ] = await Promise.all( [
+				poolPromise,
+				Promise.all( parallelPromises )
+			] );
+
+			// Store all results
+			for ( const { m, range, result } of [ ...poolResults, ...parallelResults ] ) {
+
+				if ( result.reorderedTriangles ) {
+
+					this.triangleData.set( result.reorderedTriangles, range.start * FPT );
+
+				}
+
+				this.instanceTable.setEntry( {
+					meshIndex: m,
+					blasNodeCount: result.bvhData.length / 16,
+					triOffset: range.start,
+					triCount: range.count,
+					originalToBvhMap: result.originalToBvh || null,
+					bvhData: result.bvhData,
 				} );
 
 			}
 
-			// Define progress callback
-			const progressCallback = ( progress ) => {
+			updateLoading( { status: 'Built all BLASes', progress: 70 } );
 
-				// Map BVH 0-100% to UI 25-75% (textures run in parallel)
-				const scaledProgress = 25 + Math.floor( progress * 0.50 );
-				const triangleCount = this.triangleCount.toLocaleString();
-				updateLoading( {
-					status: `Building BVH for ${triangleCount} triangles... ${progress}%`,
-					progress: scaledProgress
-				} );
+			// ── Step 2: Assemble BVH buffer ──
 
-			};
+			updateLoading( { status: "Building TLAS...", progress: 72 } );
 
-			let result;
+			const validEntries = this.instanceTable.entries.filter( e => e !== null );
 
-			// Use parallel multi-core build for large scenes
-			if ( shouldUseParallelBuild( this.triangleCount ) ) {
+			if ( validEntries.length === 1 ) {
 
-				const treeletEnabled = this.triangleCount > 500
-					&& ( originalTreeletEnabled !== false );
-				result = await buildBVHParallel(
-					this.triangleData,
-					this.config.bvhDepth,
-					progressCallback,
-					{
-						maxLeafSize: this.bvhBuilder.maxLeafSize,
-						numBins: this.bvhBuilder.numBins,
-						maxBins: this.bvhBuilder.maxBins,
-						minBins: this.bvhBuilder.minBins,
-						treeletOptimization: {
-							enabled: treeletEnabled,
-							size: this.config.treeletSize,
-							passes: this.config.treeletOptimizationPasses,
-							minImprovement: this.config.treeletMinImprovement
-						},
-						reinsertionOptimization: {
-							enabled: this.bvhBuilder.enableReinsertionOptimization,
-							batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
-							maxIterations: this.bvhBuilder.reinsertionMaxIterations
-						}
-					}
-				);
-				if ( result.splitStats ) this.bvhBuilder.splitStats = result.splitStats;
+				// Single mesh — use BLAS directly as flat BVH (no TLAS wrapper).
+				// Avoids per-ray TLAS overhead and the extra branch in traversal.
+				const entry = validEntries[ 0 ];
+				this.bvhData = entry.bvhData;
+				this.instanceTable.assignOffsets( 0 ); // BLAS at offset 0
+				this._buildGlobalOriginalToBvhMap();
+				entry.originalToBvhMap = null;
+				entry.bvhData = null;
 
 			} else {
 
-				// Single-worker build (existing path)
-				result = await this.bvhBuilder.build(
-					this.triangleData,
-					this.config.bvhDepth,
-					progressCallback
-				);
+				// Multi-mesh — build TLAS over mesh AABBs
+				this.instanceTable.computeAABBs( this.triangleData );
+				const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( validEntries );
+
+				this.instanceTable.assignOffsets( tlasNodeCount );
+				const totalNodes = this.instanceTable.totalNodeCount;
+
+				const tlasData = this.tlasBuilder.flatten( tlasRoot, validEntries );
+
+				// Assemble combined buffer: [TLAS][BLAS_0][BLAS_1]...[BLAS_M]
+				this.bvhData = new Float32Array( totalNodes * 16 );
+				this.bvhData.set( tlasData );
+
+				for ( const entry of validEntries ) {
+
+					const destOffset = entry.blasOffset * 16;
+					this.bvhData.set( entry.bvhData, destOffset );
+					this._offsetBLASInPlace( destOffset, entry.bvhData.length / 16, entry.blasOffset, entry.triOffset );
+
+				}
+
+				this._buildGlobalOriginalToBvhMap();
+
+				for ( const entry of validEntries ) {
+
+					entry.originalToBvhMap = null;
+					entry.bvhData = null;
+
+				}
 
 			}
 
-			this.bvhRoot = result.bvhRoot; // truthy sentinel for hasBVH checks
-			this.bvhData = result.bvhData; // GPU-ready flat array (flattened in worker)
-			this.originalToBvhMap = result.originalToBvh || null; // Inverse index map for BVH refit
-			// Invalidate refit state — new scene has different triangle count / BVH layout.
-			// Worker caches shared buffer refs, so it must be re-created too.
+			this.bvhRoot = true;
 			this._disposeRefitWorker();
-			if ( result.reorderedTriangles ) this.triangleData = result.reorderedTriangles;
-
-			if ( this.triangleCount <= 500 && originalTreeletEnabled ) {
-
-				this.bvhBuilder.setTreeletConfig( {
-					enabled: originalTreeletEnabled,
-					size: this.config.treeletSize,
-					passes: this.config.treeletOptimizationPasses,
-					minImprovement: this.config.treeletMinImprovement
-				} );
-
-			}
 
 			const duration = performance.now() - startTime;
-			this._log( `BVH building complete (${duration.toFixed( 2 )}ms)` );
+			this._log( `BVH complete: ${validEntries.length} mesh(es), ${this.bvhData.length / 16} nodes (${duration.toFixed( 2 )}ms)` );
 
 			updateLoading( {
 				status: "BVH construction complete",
@@ -447,6 +537,193 @@ export class SceneProcessor {
 				progress: 75
 			} );
 			throw error;
+
+		}
+
+	}
+
+	/**
+	 * Adjust BLAS node indices in-place within the combined bvhData buffer.
+	 * @private
+	 */
+	_offsetBLASInPlace( destFloat, nodeCount, nodeOffset, triOffset ) {
+
+		for ( let i = 0; i < nodeCount; i ++ ) {
+
+			const o = destFloat + i * 16;
+
+			if ( this.bvhData[ o + 3 ] === - 1 ) {
+
+				this.bvhData[ o ] += triOffset;
+
+			} else {
+
+				this.bvhData[ o + 3 ] += nodeOffset;
+				this.bvhData[ o + 7 ] += nodeOffset;
+
+			}
+
+		}
+
+	}
+
+	/**
+	 * Build multiple BLASes using a bounded worker pool.
+	 * Each mesh is dispatched to an available BVHWorker; at most poolSize workers run concurrently.
+	 *
+	 * @param {Array<{m: number, range: {start: number, count: number}}>} tasks
+	 * @param {Object} opts - Worker build options (depth, treeletOptimization, reinsertionOptimization)
+	 * @param {Function} onProgress - Called with (completedCount) as builds finish
+	 * @returns {Promise<Array<{m, range, result}>>}
+	 * @private
+	 */
+	_buildBLASesWithPool( tasks, opts, onProgress ) {
+
+		if ( tasks.length === 0 ) return Promise.resolve( [] );
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const poolSize = Math.min( tasks.length, this.config.maxConcurrentTextureTasks || 4 );
+		const results = [];
+		let nextTask = 0;
+		let completed = 0;
+
+		return new Promise( ( resolve, reject ) => {
+
+			const workers = [];
+
+			const dispatchNext = ( worker ) => {
+
+				if ( nextTask >= tasks.length ) {
+
+					// No more tasks — terminate this worker
+					worker.terminate();
+					workers.splice( workers.indexOf( worker ), 1 );
+					if ( workers.length === 0 ) resolve( results );
+					return;
+
+				}
+
+				const { m, range } = tasks[ nextTask ++ ];
+				const meshTriData = this.triangleData.slice(
+					range.start * FPT,
+					( range.start + range.count ) * FPT
+				);
+
+				// Disable treelet for tiny meshes
+				const triCount = range.count;
+				const treeletOpts = triCount <= 500
+					? { ...opts.treeletOptimization, enabled: false }
+					: opts.treeletOptimization;
+
+				worker._currentTask = { m, range };
+				worker.postMessage( {
+					triangleData: meshTriData.buffer,
+					triangleByteOffset: meshTriData.byteOffset,
+					triangleByteLength: meshTriData.byteLength,
+					triangleCount: triCount,
+					depth: opts.depth,
+					reportProgress: false,
+					sharedReorderBuffer: null,
+					treeletOptimization: treeletOpts,
+					reinsertionOptimization: opts.reinsertionOptimization,
+				}, [ meshTriData.buffer ] );
+
+			};
+
+			const onWorkerMessage = ( worker, e ) => {
+
+				const data = e.data;
+
+				if ( data.error ) {
+
+					workers.forEach( w => w.terminate() );
+					reject( new Error( data.error ) );
+					return;
+
+				}
+
+				if ( data.progress !== undefined ) return; // Ignore progress messages
+
+				const { m, range } = worker._currentTask;
+				results.push( {
+					m,
+					range,
+					result: {
+						bvhData: data.bvhData,
+						reorderedTriangles: data.triangles || null,
+						originalToBvh: data.originalToBvh || null,
+					}
+				} );
+
+				completed ++;
+				onProgress?.( completed );
+
+				dispatchNext( worker );
+
+			};
+
+			// Spin up the pool
+			for ( let i = 0; i < poolSize; i ++ ) {
+
+				const worker = new Worker(
+					new URL( './Workers/BVHWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+				worker.onmessage = ( e ) => onWorkerMessage( worker, e );
+				worker.onerror = ( err ) => {
+
+					workers.forEach( w => w.terminate() );
+					reject( err );
+
+				};
+
+				workers.push( worker );
+				dispatchNext( worker );
+
+			}
+
+		} );
+
+	}
+
+	/**
+	 * Build global originalToBvhMap and per-mesh bvhToOriginal maps.
+	 * The inverse map enables cache-friendly sequential writes during position updates.
+	 * @private
+	 */
+	_buildGlobalOriginalToBvhMap() {
+
+		this.originalToBvhMap = new Uint32Array( this.triangleCount );
+
+		for ( const entry of this.instanceTable.entries ) {
+
+			if ( ! entry ) continue;
+
+			// Build per-mesh bvhToOriginal (inverse map for sequential writes)
+			const bvhToOrig = new Uint32Array( entry.triCount );
+
+			if ( entry.originalToBvhMap ) {
+
+				for ( let i = 0; i < entry.triCount; i ++ ) {
+
+					const bvhLocal = entry.originalToBvhMap[ i ];
+					this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + bvhLocal;
+					bvhToOrig[ bvhLocal ] = i;
+
+				}
+
+			} else {
+
+				for ( let i = 0; i < entry.triCount; i ++ ) {
+
+					this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + i;
+					bvhToOrig[ i ] = i;
+
+				}
+
+			}
+
+			entry.bvhToOriginal = bvhToOrig;
 
 		}
 
@@ -570,6 +847,7 @@ export class SceneProcessor {
 		this.triangleData = null;
 		this.triangleCount = 0;
 		this.materials = [];
+		this.meshTriangleRanges = null;
 		this.maps = [];
 		this.normalMaps = [];
 		this.bumpMaps = [];
@@ -582,6 +860,7 @@ export class SceneProcessor {
 		this.spheres = [];
 		this.bvhRoot = null;
 		this.bvhData = null;
+		this.instanceTable = null;
 		this.lightBVHNodeData = null;
 		this.lightBVHNodeCount = 0;
 
@@ -846,7 +1125,7 @@ export class SceneProcessor {
 	 * @param {Float32Array} newPositions - 9 floats per triangle (ax,ay,az, bx,by,bz, cx,cy,cz) in original mesh order
 	 * @returns {Promise<{ refitTimeMs: number }>}
 	 */
-	async refitBVH( newPositions ) {
+	async refitBVH( newPositions, newNormals ) {
 
 		if ( ! this.bvhData || ! this.triangleData || ! this.originalToBvhMap ) {
 
@@ -921,7 +1200,14 @@ export class SceneProcessor {
 				const msg = e.data;
 				if ( msg.type === 'refitComplete' ) {
 
-					// bvhData/triangleData already updated via shared memory
+					// bvhData/triangleData already updated via shared memory.
+					// If smooth normals provided, overwrite the face normals the worker computed.
+					if ( newNormals ) {
+
+						this._patchSmoothNormals( newNormals );
+
+					}
+
 					resolve( { refitTimeMs: msg.refitTimeMs } );
 
 				} else if ( msg.type === 'error' ) {
@@ -940,6 +1226,450 @@ export class SceneProcessor {
 	}
 
 	/**
+	 * Overwrite face normals in triangleData with smooth vertex normals (full scene).
+	 * @private
+	 */
+	_patchSmoothNormals( normals ) {
+
+		this._patchNormalsRange( normals, 0, this.originalToBvhMap.length );
+
+	}
+
+	/**
+	 * Refit specific BLASes and rebuild TLAS after object transform or per-mesh animation.
+	 * Runs on the main thread (fast for per-mesh updates).
+	 *
+	 * @param {number[]} affectedMeshIndices - Indices into meshTriangleRanges / instanceTable.entries
+	 * @param {Float32Array} newPositions - 9 floats per triangle in original mesh order (full scene)
+	 * @param {Float32Array} [newNormals] - Optional smooth normals (9 floats per tri)
+	 * @returns {{ refitTimeMs: number }}
+	 */
+	refitBLASes( affectedMeshIndices, newPositions, newNormals ) {
+
+		if ( ! this.instanceTable || ! this.bvhData || ! this.triangleData ) {
+
+			throw new Error( 'No TLAS/BLAS data available. Run buildBVH() first.' );
+
+		}
+
+		const start = performance.now();
+
+		// Lazy-create refitter instance
+		if ( ! this._blasRefitter ) {
+
+			this._blasRefitter = new BVHRefitter();
+
+		}
+
+		// Step 1: Update triangle positions and refit each affected BLAS
+		for ( const meshIdx of affectedMeshIndices ) {
+
+			const entry = this.instanceTable.entries[ meshIdx ];
+			if ( ! entry ) continue;
+
+			// Update triangle positions within this mesh's range
+			this._updateMeshTrianglePositions( entry, newPositions );
+
+			// Patch smooth normals for this mesh if provided
+			if ( newNormals ) {
+
+				this._patchMeshSmoothNormals( entry, newNormals );
+
+			}
+
+			// Refit this BLAS's nodes
+			this._blasRefitter.refitRange(
+				this.bvhData,
+				this.triangleData,
+				entry.blasOffset,
+				entry.blasNodeCount
+			);
+
+			// Recompute this mesh's AABB for TLAS rebuild
+			this.instanceTable.recomputeAABB( meshIdx, this.bvhData, this.triangleData );
+
+		}
+
+		// Step 2: Refit TLAS AABBs in-place (O(tlasNodeCount), no SAH rebuild)
+		this._refitTLAS();
+
+		return { refitTimeMs: performance.now() - start };
+
+	}
+
+	/**
+	 * Update triangle positions for a single mesh entry.
+	 * Iterates in BVH order for sequential writes (cache-friendly), random reads from newPositions.
+	 * @private
+	 */
+	_updateMeshTrianglePositions( entry, newPositions ) {
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const PA = TRIANGLE_DATA_LAYOUT.POSITION_A_OFFSET;
+		const PB = TRIANGLE_DATA_LAYOUT.POSITION_B_OFFSET;
+		const PC = TRIANGLE_DATA_LAYOUT.POSITION_C_OFFSET;
+		const NA = TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET;
+		const NB = TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET;
+		const NC = TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET;
+
+		const bvhToOrig = entry.bvhToOriginal;
+
+		for ( let bvhLocal = 0; bvhLocal < entry.triCount; bvhLocal ++ ) {
+
+			const origLocal = bvhToOrig[ bvhLocal ];
+			const dst = ( entry.triOffset + bvhLocal ) * FPT;
+			const src = ( entry.triOffset + origLocal ) * 9;
+
+			const ax = newPositions[ src ];
+			const ay = newPositions[ src + 1 ];
+			const az = newPositions[ src + 2 ];
+			const bx = newPositions[ src + 3 ];
+			const by = newPositions[ src + 4 ];
+			const bz = newPositions[ src + 5 ];
+			const cx = newPositions[ src + 6 ];
+			const cy = newPositions[ src + 7 ];
+			const cz = newPositions[ src + 8 ];
+
+			this.triangleData[ dst + PA ] = ax;
+			this.triangleData[ dst + PA + 1 ] = ay;
+			this.triangleData[ dst + PA + 2 ] = az;
+			this.triangleData[ dst + PB ] = bx;
+			this.triangleData[ dst + PB + 1 ] = by;
+			this.triangleData[ dst + PB + 2 ] = bz;
+			this.triangleData[ dst + PC ] = cx;
+			this.triangleData[ dst + PC + 1 ] = cy;
+			this.triangleData[ dst + PC + 2 ] = cz;
+
+			const abx = bx - ax, aby = by - ay, abz = bz - az;
+			const acx = cx - ax, acy = cy - ay, acz = cz - az;
+			const nx = aby * acz - abz * acy;
+			const ny = abz * acx - abx * acz;
+			const nz = abx * acy - aby * acx;
+
+			this.triangleData[ dst + NA ] = nx;
+			this.triangleData[ dst + NA + 1 ] = ny;
+			this.triangleData[ dst + NA + 2 ] = nz;
+			this.triangleData[ dst + NB ] = nx;
+			this.triangleData[ dst + NB + 1 ] = ny;
+			this.triangleData[ dst + NB + 2 ] = nz;
+			this.triangleData[ dst + NC ] = nx;
+			this.triangleData[ dst + NC + 1 ] = ny;
+			this.triangleData[ dst + NC + 2 ] = nz;
+
+		}
+
+	}
+
+	/**
+	 * Patch smooth normals for a single mesh's triangles.
+	 * @private
+	 */
+	_patchMeshSmoothNormals( entry, normals ) {
+
+		this._patchNormalsRange( normals, entry.triOffset, entry.triCount );
+
+	}
+
+	/**
+	 * Shared normal-patching loop for a range of triangles.
+	 * @private
+	 */
+	_patchNormalsRange( normals, startOrig, count ) {
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const NA = TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET;
+		const NB = TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET;
+		const NC = TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET;
+
+		for ( let i = 0; i < count; i ++ ) {
+
+			const orig = startOrig + i;
+			const bvhIdx = this.originalToBvhMap[ orig ];
+			const dst = bvhIdx * FPT;
+			const src = orig * 9;
+
+			this.triangleData[ dst + NA ] = normals[ src ];
+			this.triangleData[ dst + NA + 1 ] = normals[ src + 1 ];
+			this.triangleData[ dst + NA + 2 ] = normals[ src + 2 ];
+			this.triangleData[ dst + NB ] = normals[ src + 3 ];
+			this.triangleData[ dst + NB + 1 ] = normals[ src + 4 ];
+			this.triangleData[ dst + NB + 2 ] = normals[ src + 5 ];
+			this.triangleData[ dst + NC ] = normals[ src + 6 ];
+			this.triangleData[ dst + NC + 1 ] = normals[ src + 7 ];
+			this.triangleData[ dst + NC + 2 ] = normals[ src + 8 ];
+
+		}
+
+	}
+
+	/**
+	 * Refit TLAS AABBs in-place without rebuilding the tree structure.
+	 * O(tlasNodeCount) bottom-up pass — much faster than full SAH rebuild.
+	 * @private
+	 */
+	_refitTLAS() {
+
+		const tlasNodeCount = this.instanceTable.tlasNodeCount;
+		const FPN = 16;
+
+		// Grow-only bounds buffer for TLAS refit
+		if ( ! this._tlasBounds || this._tlasBounds.length < tlasNodeCount * 6 ) {
+
+			this._tlasBounds = new Float32Array( tlasNodeCount * 6 );
+
+		}
+
+		// Build blasOffset → entry lookup (avoids O(M) .find() per leaf)
+		if ( ! this._blasOffsetMap ) {
+
+			this._blasOffsetMap = new Map();
+
+		}
+
+		this._blasOffsetMap.clear();
+		for ( const entry of this.instanceTable.entries ) {
+
+			if ( ! entry ) continue;
+			this._blasOffsetMap.set( entry.blasOffset, entry );
+
+		}
+
+		// Bottom-up pass: reverse iteration over TLAS nodes
+		for ( let i = tlasNodeCount - 1; i >= 0; i -- ) {
+
+			const o = i * FPN;
+			const marker = this.bvhData[ o + 3 ];
+
+			if ( marker === - 2 ) {
+
+				// BLAS-pointer leaf: read AABB from instance table
+				const blasRoot = this.bvhData[ o ];
+				const entry = this._blasOffsetMap.get( blasRoot );
+				if ( entry && entry.worldAABB ) {
+
+					const b = i * 6;
+					this._tlasBounds[ b ] = entry.worldAABB.minX;
+					this._tlasBounds[ b + 1 ] = entry.worldAABB.minY;
+					this._tlasBounds[ b + 2 ] = entry.worldAABB.minZ;
+					this._tlasBounds[ b + 3 ] = entry.worldAABB.maxX;
+					this._tlasBounds[ b + 4 ] = entry.worldAABB.maxY;
+					this._tlasBounds[ b + 5 ] = entry.worldAABB.maxZ;
+
+				}
+
+			} else if ( marker >= 0 ) {
+
+				// Inner node: union of children bounds, update bvhData in-place
+				const leftIdx = this.bvhData[ o + 3 ];
+				const rightIdx = this.bvhData[ o + 7 ];
+				const lb = leftIdx * 6;
+				const rb = rightIdx * 6;
+				const bounds = this._tlasBounds;
+
+				this.bvhData[ o ] = bounds[ lb ];
+				this.bvhData[ o + 1 ] = bounds[ lb + 1 ];
+				this.bvhData[ o + 2 ] = bounds[ lb + 2 ];
+				this.bvhData[ o + 4 ] = bounds[ lb + 3 ];
+				this.bvhData[ o + 5 ] = bounds[ lb + 4 ];
+				this.bvhData[ o + 6 ] = bounds[ lb + 5 ];
+
+				this.bvhData[ o + 8 ] = bounds[ rb ];
+				this.bvhData[ o + 9 ] = bounds[ rb + 1 ];
+				this.bvhData[ o + 10 ] = bounds[ rb + 2 ];
+				this.bvhData[ o + 12 ] = bounds[ rb + 3 ];
+				this.bvhData[ o + 13 ] = bounds[ rb + 4 ];
+				this.bvhData[ o + 14 ] = bounds[ rb + 5 ];
+
+				const b = i * 6;
+				bounds[ b ] = Math.min( bounds[ lb ], bounds[ rb ] );
+				bounds[ b + 1 ] = Math.min( bounds[ lb + 1 ], bounds[ rb + 1 ] );
+				bounds[ b + 2 ] = Math.min( bounds[ lb + 2 ], bounds[ rb + 2 ] );
+				bounds[ b + 3 ] = Math.max( bounds[ lb + 3 ], bounds[ rb + 3 ] );
+				bounds[ b + 4 ] = Math.max( bounds[ lb + 4 ], bounds[ rb + 4 ] );
+				bounds[ b + 5 ] = Math.max( bounds[ lb + 5 ], bounds[ rb + 5 ] );
+
+			}
+
+		}
+
+	}
+
+	/**
+	 * Schedule background BLAS rebuilds for affected meshes.
+	 * Rebuilds optimal SAH BVH in a worker, then swaps into the combined buffer.
+	 * Stale rebuilds (object moved again) are discarded via generation counter.
+	 *
+	 * @param {number[]} meshIndices - Mesh indices to rebuild
+	 * @param {Function} onSwap - Called after a successful swap (for GPU upload)
+	 */
+	scheduleBackgroundRebuild( meshIndices, onSwap ) {
+
+		if ( ! this.instanceTable || ! this.triangleData ) return;
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		this._rebuildGeneration ++;
+		const generation = this._rebuildGeneration;
+
+		for ( const meshIdx of meshIndices ) {
+
+			const entry = this.instanceTable.entries[ meshIdx ];
+			if ( ! entry ) continue;
+
+			// Cancel any in-flight rebuild for this mesh
+			const existing = this._pendingRebuilds.get( meshIdx );
+			if ( existing ) existing.terminate();
+
+			// Copy current world-space triangle data for this mesh
+			const meshTriData = this.triangleData.slice(
+				entry.triOffset * FPT,
+				( entry.triOffset + entry.triCount ) * FPT
+			);
+
+			const worker = new Worker(
+				new URL( './Workers/BVHWorker.js', import.meta.url ),
+				{ type: 'module' }
+			);
+
+			this._pendingRebuilds.set( meshIdx, worker );
+
+			worker.onmessage = ( e ) => {
+
+				const data = e.data;
+				worker.terminate();
+				this._pendingRebuilds.delete( meshIdx );
+
+				if ( data.error ) {
+
+					console.error( `Background BLAS rebuild error (mesh ${meshIdx}):`, data.error );
+					return;
+
+				}
+
+				// Discard if object was transformed again since this rebuild started
+				if ( generation !== this._rebuildGeneration ) return;
+
+				this._swapBLAS( meshIdx, entry, data, onSwap );
+
+			};
+
+			worker.onerror = ( err ) => {
+
+				console.error( `Background BLAS rebuild worker error (mesh ${meshIdx}):`, err );
+				worker.terminate();
+				this._pendingRebuilds.delete( meshIdx );
+
+			};
+
+			// Disable treelet for tiny meshes
+			const treeletEnabled = entry.triCount > 500;
+
+			worker.postMessage( {
+				triangleData: meshTriData.buffer,
+				triangleByteOffset: meshTriData.byteOffset,
+				triangleByteLength: meshTriData.byteLength,
+				triangleCount: entry.triCount,
+				depth: this.config.bvhDepth,
+				reportProgress: false,
+				sharedReorderBuffer: null,
+				treeletOptimization: {
+					enabled: treeletEnabled,
+					size: this.config.treeletSize,
+					passes: this.config.treeletOptimizationPasses,
+					minImprovement: this.config.treeletMinImprovement
+				},
+				reinsertionOptimization: {
+					enabled: this.bvhBuilder.enableReinsertionOptimization,
+					batchSizeRatio: this.bvhBuilder.reinsertionBatchSizeRatio,
+					maxIterations: this.bvhBuilder.reinsertionMaxIterations
+				},
+			}, [ meshTriData.buffer ] );
+
+		}
+
+	}
+
+	/**
+	 * Swap a rebuilt BLAS into the combined buffer.
+	 * @private
+	 */
+	_swapBLAS( meshIdx, entry, workerData, onSwap ) {
+
+		const FPN = 16;
+		const newBvhData = workerData.bvhData;
+		const newNodeCount = newBvhData.length / FPN;
+
+		// Node count must match — refit doesn't change topology, rebuild shouldn't either
+		// for the same triangle set. If it differs, the buffer layout is invalid.
+		if ( newNodeCount !== entry.blasNodeCount ) {
+
+			console.warn( `Background rebuild: node count mismatch for mesh ${meshIdx} (${newNodeCount} vs ${entry.blasNodeCount}), skipping swap` );
+			return;
+
+		}
+
+		// Write rebuilt BLAS nodes into the combined buffer at the entry's offset
+		const destOffset = entry.blasOffset * FPN;
+		this.bvhData.set( newBvhData, destOffset );
+		this._offsetBLASInPlace( destOffset, newNodeCount, entry.blasOffset, entry.triOffset );
+
+		// Write reordered triangles back into global array
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const reorderedTris = workerData.triangles;
+		if ( reorderedTris ) {
+
+			this.triangleData.set( reorderedTris, entry.triOffset * FPT );
+
+		}
+
+		// Update per-mesh maps
+		const newOrigToBvh = workerData.originalToBvh;
+		if ( newOrigToBvh ) {
+
+			// Update global originalToBvhMap for this mesh's range
+			for ( let i = 0; i < entry.triCount; i ++ ) {
+
+				this.originalToBvhMap[ entry.triOffset + i ] = entry.triOffset + newOrigToBvh[ i ];
+
+			}
+
+			// Update per-mesh bvhToOriginal
+			const bvhToOrig = new Uint32Array( entry.triCount );
+			for ( let i = 0; i < entry.triCount; i ++ ) {
+
+				bvhToOrig[ newOrigToBvh[ i ] ] = i;
+
+			}
+
+			entry.bvhToOriginal = bvhToOrig;
+
+		}
+
+		// Recompute AABB and refit TLAS
+		this.instanceTable.recomputeAABB( meshIdx, this.bvhData, this.triangleData );
+		this._refitTLAS();
+
+		this._log( `Background BLAS rebuild complete for mesh ${meshIdx}` );
+
+		onSwap?.();
+
+	}
+
+	/**
+	 * Cancel all pending background rebuilds.
+	 */
+	cancelBackgroundRebuilds() {
+
+		for ( const worker of this._pendingRebuilds.values() ) {
+
+			worker.terminate();
+
+		}
+
+		this._pendingRebuilds.clear();
+
+	}
+
+	/**
 	 * Terminate the refit worker if active.
 	 * @private
 	 */
@@ -953,6 +1683,7 @@ export class SceneProcessor {
 		}
 
 		this._refitSharedBuffers = null;
+		this.cancelBackgroundRebuilds();
 
 	}
 
@@ -984,6 +1715,8 @@ export class SceneProcessor {
 		// Clear reference to other processing components
 		this.geometryExtractor = null;
 		this.bvhBuilder = null;
+		this.tlasBuilder = null;
+		this._blasRefitter = null;
 
 	}
 

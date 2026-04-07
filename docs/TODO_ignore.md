@@ -12,7 +12,7 @@ RayTracing Project TODO
 - [ ]  Caustic support for direct lights
 - [ ]  Implement support for IES light
 - [ ]  Implement SDF-based model rendering
-- [ ]  Implement Dynamic BVH update
+- [x]  Implement Dynamic BVH update (two-level TLAS/BLAS with per-mesh refit)
 - [ ]  Implement Shadow Catcher
 - [ ]  Implement ground projection environment mapping
 - [ ]  Implement Bidirectional Path Tracing mode
@@ -35,7 +35,7 @@ RayTracing Project TODO
 
 BVH Construction Improvements
 -----------------------------
-- [ ]  BVH update / refit - https://claude.ai/share/e55132c8-758a-4117-b5ae-04d73e67351b
+- [x]  BVH update / refit (implemented: O(N) bottom-up refit + two-level TLAS/BLAS)
 - [ ]  Experiment with 4-way branching for GPU traversal
 - [ ]  Consider PLOC only if you need maximum performance and can invest in the more complex implementation
 

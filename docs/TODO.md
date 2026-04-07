@@ -6,6 +6,7 @@
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 - [ ] oidndenoiser is desaturation the results
 - [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
+- [ ] Some worker threads are always running. Assess if they are needed and terminate if not with proper lifecycle management.
   
 
 ### Known
@@ -22,9 +23,11 @@
 ## Features
 
 ### General
+- [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
+- [ ] Migrate to vite 8+
 
 ### Rendering
 - [ ] Subsurface scattering
@@ -80,13 +83,15 @@
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
 ### BVH
-- [x] Fast BVH refit updates - O(N) bottom-up AABB refit for animated geometry
-- [ ] Parallel refit — split bottom-up traversal across multiple workers for large scenes
-- [ ] GPU compute refit — once Three.js supports read-write storage buffers, move AABB recomputation to a compute shader for sub-millisecond refits
-- [ ] Incremental rebuild — when SAH degrades past threshold, rebuild only the degraded subtree instead of the whole BVH
-
-- [ ] Consider PLOC for maximum performance scenarios
-- [ ] 4-way branching for GPU traversal (explored)
+- [x] O(N) bottom-up BVH refit for animated geometry
+- [x] Two-level BVH (TLAS/BLAS) with per-mesh refit for transforms
+- [x] Bounded worker pool for BLAS builds (no main-thread blocking)
+- [x] Ranged GPU upload (addUpdateRange) for partial buffer updates
+- [x] TLAS in-place refit instead of full SAH rebuild on transform
+- [ ] Object-space triangles + instance transform buffer for true instancing
+- [ ] GPU compute refit via compute shader (blocked on Three.js read-write storage buffers)
+- [ ] Background BLAS rebuild after refit when SAH quality degrades
+- [ ] Compact Wide BVH (CWBVH) — 4/8-way branching for GPU traversal
 
 ### Profiling
 - [ ] GPU timing measurements
@@ -102,7 +107,7 @@
 - [ ] Investigate dot grid / moire-like effect and its impact on rendering
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling
-- [ ] Two-level BVH with coarse top-level
+- [x] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
 - [x] Screen-space radiance caching
@@ -113,6 +118,8 @@
 - [x] irradiance probes,
 - [ ] Photon mapping
 - [ ] Bidirectional path tracing support
+- [ ] Experiment PLOC for maximum BVH performance scenarios
+  
 
 ---
 

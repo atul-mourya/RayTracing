@@ -28,6 +28,11 @@ export const EngineEvents = {
 	OBJECT_DOUBLE_CLICKED: 'engine:objectDoubleClicked',
 	SELECT_MODE_CHANGED: 'engine:selectModeChanged',
 
+	// Object transform
+	OBJECT_TRANSFORM_START: 'engine:objectTransformStart',
+	OBJECT_TRANSFORM_END: 'engine:objectTransformEnd',
+	TRANSFORM_MODE_CHANGED: 'engine:transformModeChanged',
+
 	// Camera
 	AUTO_FOCUS_UPDATED: 'engine:autoFocusUpdated',
 	AUTO_EXPOSURE_UPDATED: 'engine:autoExposureUpdated',
