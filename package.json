@@ -25,9 +25,8 @@
     "lint": "eslint .",
     "lint-fix": "npx eslint --fix",
     "preview": "npm -w @rayzee/app run preview",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
     "release": "cross-env $(cat .env | xargs) semantic-release --no-ci"
   },
   "devDependencies": {
@@ -38,8 +37,8 @@
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-basic-ssl": "^2.1.4",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^4.1.2",
     "babel-plugin-react-compiler": "^19.0.0-beta-714736e-20250131",
     "cross-env": "^7.0.3",
@@ -52,13 +51,10 @@
     "globals": "^15.9.0",
     "postcss": "^8.4.47",
     "semantic-release": "^24.2.1",
-    "tailwindcss": "^4.0.1",
-    "vite": "^7.0.0",
-    "vite-plugin-top-level-await": "^1.4.4",
+    "tailwindcss": "^4.2.2",
+    "vite": "^8.0.0",
     "vitest": "^4.1.2"
   },
   "optionalDependencies": {
-    "@esbuild/linux-x64": "0.24.0",
-    "@rollup/rollup-linux-x64-gnu": "4.9.5"
   }
 }

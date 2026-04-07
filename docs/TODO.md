@@ -7,6 +7,7 @@
 - [ ] oidndenoiser is desaturation the results
 - [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
 - [ ] Some worker threads are always running. Assess if they are needed and terminate if not with proper lifecycle management.
+- [ ] enhance test coverage of the engine
   
 
 ### Known
@@ -27,7 +28,6 @@
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
-- [ ] Migrate to vite 8+
 
 ### Rendering
 - [ ] Subsurface scattering

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import basicSsl from '@vitejs/plugin-basic-ssl';
-import topLevelAwait from "vite-plugin-top-level-await";
+
 import process from 'process';
 import { readFileSync } from 'fs';
 const __dirname = path.resolve();
@@ -52,11 +52,7 @@ export default defineConfig( {
 			  ],
 			},
 		  } ),
-		tailwindcss(),
-		topLevelAwait( {
-			promiseExportName: "__tla",
-			promiseImportName: i => `__tla_${i}`
-		} )
+		tailwindcss()
 	],
 	resolve: {
 		alias: {

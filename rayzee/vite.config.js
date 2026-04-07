@@ -1,17 +1,12 @@
 import path from "path";
 import { defineConfig } from "vite";
-import topLevelAwait from "vite-plugin-top-level-await";
+
 
 const __dirname = path.resolve();
 
 export default defineConfig( {
 	base: './',
-	plugins: [
-		topLevelAwait( {
-			promiseExportName: "__tla",
-			promiseImportName: i => `__tla_${i}`
-		} )
-	],
+	plugins: [],
 	assetsInclude: [ "**/*.hdr" ],
 	define: {
 		'process.env.NODE_ENV': JSON.stringify( process.env.NODE_ENV )
@@ -23,7 +18,7 @@ export default defineConfig( {
 			fileName: ( format ) => `rayzee.${format}.js`,
 		},
 		outDir: "dist",
-		rollupOptions: {
+		rolldownOptions: {
 			external: [
 				"three",
 				/^three\//,

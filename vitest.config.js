@@ -10,6 +10,10 @@ export default defineConfig( {
 		include: [ 'tests/**/*.test.js' ],
 		coverage: {
 			provider: 'v8',
+			reporter: [
+				[ 'text' ],
+				[ 'text-summary' ]
+			],
 			include: [ 'rayzee/src/**/*.js', 'app/src/lib/**/*.js' ],
 			exclude: [ '**/.DS_Store', '**/*.md', '**/Workers/**' ],
 		},
