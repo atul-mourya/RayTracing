@@ -3,11 +3,29 @@
   "version": "3.13.1",
   "type": "module",
   "description": "Real-time WebGPU path tracing engine built on Three.js",
+  "main": "dist/rayzee.umd.js",
+  "module": "dist/rayzee.es.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "import": "./dist/rayzee.es.js",
+      "require": "./dist/rayzee.umd.js"
+    }
   },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/atul-mourya/RayTracing.git",
+    "directory": "rayzee"
+  },
+  "keywords": ["path-tracing", "webgpu", "three.js", "ray-tracing", "renderer"],
+  "author": "Atul Mourya",
+  "license": "MIT",
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "three": ">=0.170.0"

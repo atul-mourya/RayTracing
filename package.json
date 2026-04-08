@@ -1,15 +1,8 @@
 {
   "name": "rayzee-monorepo",
   "private": true,
-  "version": "4.7.0",
+  "version": "0.0.0",
   "type": "module",
-  "exports": {
-    ".": "./rayzee/src/index.js"
-  },
-  "peerDependencies": {
-    "three": ">=0.170.0",
-    "stats-gl": ">=4.0.0"
-  },
   "workspaces": [
     "rayzee",
     "app"
