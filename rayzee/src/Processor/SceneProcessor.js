@@ -8,7 +8,7 @@ import { InstanceTable } from './InstanceTable.js';
 import { TextureCreator } from './TextureCreator.js';
 import { GeometryExtractor } from './GeometryExtractor.js';
 import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
-import { updateLoading } from '../Processor/utils.js';
+import { updateLoading, createWorker } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
 import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 
@@ -665,9 +665,8 @@ export class SceneProcessor {
 			// Spin up the pool
 			for ( let i = 0; i < poolSize; i ++ ) {
 
-				const worker = new Worker(
-					new URL( './Workers/BVHWorker.js', import.meta.url ),
-					{ type: 'module' }
+				const worker = createWorker(
+					new URL( './Workers/BVHWorker.js', import.meta.url )
 				);
 				worker.onmessage = ( e ) => onWorkerMessage( worker, e );
 				worker.onerror = ( err ) => {
@@ -1136,9 +1135,8 @@ export class SceneProcessor {
 		// Lazy-create worker
 		if ( ! this._refitWorker ) {
 
-			this._refitWorker = new Worker(
-				new URL( './Workers/BVHRefitWorker.js', import.meta.url ),
-				{ type: 'module' }
+			this._refitWorker = createWorker(
+				new URL( './Workers/BVHRefitWorker.js', import.meta.url )
 			);
 
 		}
@@ -1525,9 +1523,8 @@ export class SceneProcessor {
 				( entry.triOffset + entry.triCount ) * FPT
 			);
 
-			const worker = new Worker(
-				new URL( './Workers/BVHWorker.js', import.meta.url ),
-				{ type: 'module' }
+			const worker = createWorker(
+				new URL( './Workers/BVHWorker.js', import.meta.url )
 			);
 
 			this._pendingRebuilds.set( meshIdx, worker );

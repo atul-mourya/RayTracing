@@ -45,6 +45,29 @@ export function getDisplaySamples( pathTracerStage ) {
 
 }
 
+/**
+ * Create a Worker that works cross-origin (e.g. from a CDN).
+ * Wraps the script URL in a same-origin Blob that imports it as an ES module.
+ */
+export function createWorker( url ) {
+
+	try {
+
+		return new Worker( url, { type: 'module' } );
+
+	} catch ( e ) {
+
+		// Cross-origin: wrap in a same-origin blob that imports the remote script
+		const blob = new Blob(
+			[ `import ${JSON.stringify( url.toString() )};` ],
+			{ type: 'application/javascript' }
+		);
+		return new Worker( URL.createObjectURL( blob ), { type: 'module' } );
+
+	}
+
+}
+
 export function getNearestPowerOf2( size ) {
 
 	return Math.pow( 2, Math.ceil( Math.log2( size ) ) );
