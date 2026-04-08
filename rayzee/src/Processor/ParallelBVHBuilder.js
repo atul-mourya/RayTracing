@@ -7,8 +7,6 @@
  * a cycle that Vite cannot resolve.
  */
 
-import { createWorker } from './utils.js';
-
 const FPT = 32; // FLOATS_PER_TRIANGLE
 const PARALLEL_THRESHOLD = 50000;
 const MAX_PARALLEL_WORKERS = 8;
@@ -50,8 +48,9 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 			const sharedReorderBuffer = new SharedArrayBuffer( triangleCount * FPT * 4 );
 
 			// Phase 1: Coordinator worker
-			const coordinatorWorker = createWorker(
-				new URL( './Workers/BVHWorker.js', import.meta.url )
+			const coordinatorWorker = new Worker(
+				new URL( './Workers/BVHWorker.js', import.meta.url ),
+				{ type: 'module' }
 			);
 
 			let phase1Stats = null;
@@ -300,8 +299,9 @@ function handlePhase2(
 		const bucket = workerTaskBuckets[ w ];
 		if ( bucket.length === 0 ) continue;
 
-		const subtreeWorker = createWorker(
-			new URL( './Workers/BVHSubtreeWorker.js', import.meta.url )
+		const subtreeWorker = new Worker(
+			new URL( './Workers/BVHSubtreeWorker.js', import.meta.url ),
+			{ type: 'module' }
 		);
 
 		allWorkers.push( subtreeWorker );
@@ -407,8 +407,9 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 
 		try {
 
-			const worker = createWorker(
-				new URL( './Workers/BVHWorker.js', import.meta.url )
+			const worker = new Worker(
+				new URL( './Workers/BVHWorker.js', import.meta.url ),
+				{ type: 'module' }
 			);
 
 			const triangleCount = triangles.byteLength / ( FPT * 4 );

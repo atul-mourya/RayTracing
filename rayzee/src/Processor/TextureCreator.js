@@ -1,6 +1,5 @@
 import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType, SRGBColorSpace } from "three";
 import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX } from '../EngineDefaults.js';
-import { createWorker } from './utils.js';
 
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
@@ -596,8 +595,9 @@ export class TextureCreator {
 
 		try {
 
-			const worker = createWorker(
-				new URL( './Workers/TexturesWorker.js', import.meta.url )
+			const worker = new Worker(
+				new URL( './Workers/TexturesWorker.js', import.meta.url ),
+				{ type: 'module' }
 			);
 
 			// Prepare textures for worker with direct transfer

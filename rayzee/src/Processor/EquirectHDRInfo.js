@@ -1,5 +1,4 @@
 import { DataUtils, HalfFloatType, FloatType } from 'three';
-import { createWorker } from './utils.js';
 
 /**
  * Binary search to find the closest index
@@ -185,8 +184,9 @@ export class EquirectHDRInfo {
 		// Reuse worker across calls; create on first use
 		if ( ! this._worker ) {
 
-			this._worker = createWorker(
-				new URL( './Workers/CDFWorker.js', import.meta.url )
+			this._worker = new Worker(
+				new URL( './Workers/CDFWorker.js', import.meta.url ),
+				{ type: 'module' }
 			);
 
 		}

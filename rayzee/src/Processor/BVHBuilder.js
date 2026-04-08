@@ -1,6 +1,5 @@
 import { TreeletOptimizer } from './TreeletOptimizer.js';
 import { ReinsertionOptimizer } from './ReinsertionOptimizer.js';
-import { createWorker } from './utils.js';
 
 // Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
 // Cannot import Constants.js because BVHBuilder runs inside BVHWorker
@@ -400,8 +399,9 @@ export class BVHBuilder {
 
 				try {
 
-					const worker = createWorker(
-						new URL( './Workers/BVHWorker.js', import.meta.url )
+					const worker = new Worker(
+						new URL( './Workers/BVHWorker.js', import.meta.url ),
+						{ type: 'module' }
 					);
 
 					const triangleCount = this.totalTriangles;
