@@ -228,7 +228,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.renderer.setPixelRatio( 1.0 );
 
 		// Setup camera
-		this._camera = new PerspectiveCamera( 65, width / height || 1, 0.01, 1000 );
+		this._camera = new PerspectiveCamera( 60, width / height || 1, 0.01, 1000 );
 		this._camera.position.set( 0, 0, 5 );
 
 		// Create scenes
