@@ -14,11 +14,24 @@
  *     { type: 'error', message, id? }
  */
 
-import * as ort from 'onnxruntime-web/webgpu';
+// Loaded lazily via CDN to avoid bundling the 69 MB onnxruntime-web package
+const ORT_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/ort.webgpu.bundle.min.mjs';
 
-// WASM paths for CDN delivery — WebGPU EP still uses WASM for lightweight shape ops
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/';
-ort.env.logLevel = 'error';
+let ort = null;
+
+async function getOrt() {
+
+	if ( ort ) return ort;
+
+	ort = await import( /* @vite-ignore */ ORT_CDN_URL );
+
+	// WASM paths for CDN delivery — WebGPU EP still uses WASM for lightweight shape ops
+	ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/';
+	ort.env.logLevel = 'error';
+
+	return ort;
+
+}
 
 const IDB_NAME = 'ai-upscaler-models';
 const IDB_STORE = 'models';
@@ -127,9 +140,9 @@ async function loadModel( url, sessionOptions ) {
 
 	}
 
-	const modelBuffer = await fetchModel( url );
+	const [ modelBuffer, ortLib ] = await Promise.all( [ fetchModel( url ), getOrt() ] );
 
-	session = await ort.InferenceSession.create( modelBuffer, sessionOptions );
+	session = await ortLib.InferenceSession.create( modelBuffer, sessionOptions );
 	currentModelUrl = url;
 
 	// Detect GPU and recommend tile size based on device type
@@ -170,9 +183,10 @@ async function loadModel( url, sessionOptions ) {
 
 async function inferTile( tileData, width, height, id ) {
 
+	const ortLib = await getOrt();
 	const inputName = session.inputNames[ 0 ];
 	const outputName = session.outputNames[ 0 ];
-	const inputTensor = new ort.Tensor( 'float32', tileData, [ 1, 3, height, width ] );
+	const inputTensor = new ortLib.Tensor( 'float32', tileData, [ 1, 3, height, width ] );
 
 	const results = await session.run( { [ inputName ]: inputTensor } );
 	const outputData = results[ outputName ].data;

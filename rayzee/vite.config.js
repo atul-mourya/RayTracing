@@ -30,7 +30,6 @@ export default defineConfig( {
 				/^three\//,
 				/^three\/examples\//,
 				"oidn-web",
-				"onnxruntime-web",
 				"stats-gl",
 			],
 			output: [
@@ -47,7 +46,6 @@ export default defineConfig( {
 
 						if ( id === "three" || id.startsWith( "three/" ) || id.startsWith( "three\\/" ) ) return "THREE";
 						if ( id === "oidn-web" ) return "OIDNWeb";
-						if ( id === "onnxruntime-web" ) return "ort";
 						if ( id === "stats-gl" ) return "Stats";
 						return id;
 

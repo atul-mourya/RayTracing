@@ -26,8 +26,8 @@ import { LightSerializer } from '../Processor/LightSerializer';
 // Constants
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
-// Blue noise
-import blueNoiseImage from '../../assets/noise/simple_bluenoise.png';
+// Blue noise (loaded at runtime from CDN — not inlined to keep bundle small)
+const blueNoiseImage = 'https://assets.rayzee.atulmourya.com/noise/simple_bluenoise.png';
 
 /**
  * Data layout constants
@@ -361,6 +361,7 @@ export class PathTracer extends RenderStage {
 	setupBlueNoise() {
 
 		const loader = new TextureLoader();
+		loader.setCrossOrigin( 'anonymous' );
 		loader.load( blueNoiseImage, ( texture ) => {
 
 			texture.minFilter = NearestFilter;

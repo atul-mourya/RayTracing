@@ -1,5 +1,6 @@
 import localEnvironmentsData from '../data/local_environments.json';
 import { getApp } from '@/lib/appProxy';
+import { ASSETS_BASE_URL } from '@/Constants';
 
 /**
  * Service class for handling environment/HDRI operations
@@ -20,7 +21,7 @@ export class EnvironmentService {
 	 */
 	static _getBaseUrl() {
 
-		return `${import.meta.env.BASE_URL}hdri/`;
+		return `${ASSETS_BASE_URL}/hdri/`;
 
 	}
 
