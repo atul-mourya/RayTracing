@@ -19,6 +19,12 @@ export default defineConfig( {
 		},
 		outDir: "dist",
 		rolldownOptions: {
+			onwarn( warning, warn ) {
+
+				if ( warning.code === 'EMPTY_IMPORT_META' ) return;
+				warn( warning );
+
+			},
 			external: [
 				"three",
 				/^three\//,
