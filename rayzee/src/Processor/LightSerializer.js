@@ -65,21 +65,35 @@ export class LightSerializer {
 
 		if ( light.intensity <= 0.0 ) return; // Skip zero intensity lights
 
-		// Convert world position to direction
 		light.updateMatrixWorld();
 		const position = light.getWorldPosition( new Vector3() );
+
+		// Compute direction toward the light source.
+		// Three.js convention: light shines from position toward target.
+		// For shadow rays we need the reverse: direction from target toward position.
+		let direction;
+		if ( light.target ) {
+
+			light.target.updateMatrixWorld();
+			const targetPos = light.target.getWorldPosition( new Vector3() );
+			direction = position.sub( targetPos ).normalize();
+
+		} else {
+
+			direction = position.normalize();
+
+		}
 
 		// Calculate importance for sorting
 		const importance = this.calculateLightImportance( light, 'directional' );
 
 		// Get angle parameter from light (default to 0 for sharp shadows)
-		// You can add this as a custom property to your DirectionalLight
 		const angle = light.userData.angle || light.angle || 0.0; // In radians
 
 		// Store in cache with importance
 		this.directionalLightCache.push( {
 			data: [
-				position.x, position.y, position.z, // position (3)
+				direction.x, direction.y, direction.z, // direction toward light (3)
 				light.color.r, light.color.g, light.color.b, // color (3)
 				light.intensity, // intensity (1)
 				angle // angular diameter in radians (1)
@@ -139,7 +153,9 @@ export class LightSerializer {
 			data: [
 				position.x, position.y, position.z, // position (3)
 				light.color.r, light.color.g, light.color.b, // color (3)
-				light.intensity // intensity (1)
+				light.intensity, // intensity (1)
+				light.distance || 0.0, // cutoff distance (0 = infinite) (1)
+				light.decay !== undefined ? light.decay : 2.0 // decay exponent (1)
 			],
 			importance: importance,
 			light: light
@@ -167,7 +183,10 @@ export class LightSerializer {
 				direction.x, direction.y, direction.z, // direction (3)
 				light.color.r, light.color.g, light.color.b, // color (3)
 				light.intensity, // intensity (1)
-				light.angle || Math.PI / 4 // cone half-angle in radians (1)
+				light.angle || Math.PI / 4, // cone half-angle in radians (1)
+				light.penumbra || 0.0, // penumbra [0,1] (1)
+				light.distance || 0.0, // cutoff distance (0 = infinite) (1)
+				light.decay !== undefined ? light.decay : 2.0 // decay exponent (1)
 			],
 			importance: importance,
 			light: light
@@ -244,8 +263,8 @@ export class LightSerializer {
 		// Divide flat array lengths by per-light stride to get actual light counts
 		const directionalCount = Math.floor( this.lightData.directional.length / 8 );
 		const areaCount = Math.floor( this.lightData.rectArea.length / 13 );
-		const pointCount = Math.floor( this.lightData.point.length / 7 );
-		const spotCount = Math.floor( this.lightData.spot.length / 11 );
+		const pointCount = Math.floor( this.lightData.point.length / 9 );
+		const spotCount = Math.floor( this.lightData.spot.length / 14 );
 
 		// Update light counts in shader defines
 		material.defines.MAX_DIRECTIONAL_LIGHTS = directionalCount;

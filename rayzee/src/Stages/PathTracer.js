@@ -572,11 +572,11 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		// Point lights (7 floats per light)
+		// Point lights (9 floats per light)
 		if ( this.pointLightsData && this.pointLightsData.length > 0 ) {
 
 			this.pointLightsBufferNode.array = Array.from( this.pointLightsData );
-			this.numPointLights.value = Math.floor( this.pointLightsData.length / 7 );
+			this.numPointLights.value = Math.floor( this.pointLightsData.length / 9 );
 
 		} else {
 
@@ -584,11 +584,11 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		// Spot lights (11 floats per light)
+		// Spot lights (14 floats per light)
 		if ( this.spotLightsData && this.spotLightsData.length > 0 ) {
 
 			this.spotLightsBufferNode.array = Array.from( this.spotLightsData );
-			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 11 );
+			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 14 );
 
 		} else {
 

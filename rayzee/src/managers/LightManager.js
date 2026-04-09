@@ -166,7 +166,7 @@ export class LightManager extends EventDispatcher {
 
 			}
 
-			if ( light.isSpotLight && light.target ) {
+			if ( ( light.isSpotLight || light.isDirectionalLight ) && light.target ) {
 
 				const clonedTarget = new Object3D();
 				light.target.updateWorldMatrix( true, false );

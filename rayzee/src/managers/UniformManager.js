@@ -203,8 +203,8 @@ export class UniformManager {
 		this._lightBuffers = {
 			directional: uniformArray( new Float32Array( 8 * 16 ), 'float' ),
 			area: uniformArray( new Float32Array( 13 * 16 ), 'float' ),
-			point: uniformArray( new Float32Array( 7 * 16 ), 'float' ),
-			spot: uniformArray( new Float32Array( 11 * 16 ), 'float' ),
+			point: uniformArray( new Float32Array( 9 * 16 ), 'float' ),
+			spot: uniformArray( new Float32Array( 14 * 16 ), 'float' ),
 		};
 
 		// Camera matrices

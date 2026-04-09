@@ -145,7 +145,7 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 			const cosAngle = dot( direction.negate(), lightNormal ).toVar();
 
 			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
-			ls_emission.assign( light.color.mul( light.intensity ) );
+			ls_emission.assign( light.color.mul( light.intensity ).div( PI ) );
 			ls_distance.assign( dist );
 			ls_direction.assign( direction );
 			// Guard division: ensure denominator is never zero
@@ -205,7 +205,7 @@ export const sampleCircAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 			const cosAngle = dot( direction.negate(), lightNormal ).toVar();
 
 			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
-			ls_emission.assign( light.color.mul( light.intensity ) );
+			ls_emission.assign( light.color.mul( light.intensity ).div( PI ) );
 			ls_distance.assign( dist );
 			ls_direction.assign( direction );
 			// Guard division
@@ -258,9 +258,11 @@ export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, ruv, lightSel
 
 		If( ls_valid, () => {
 
-			const penumbraCosAngle = cos( light.angle.mul( 0.9 ) ).toVar(); // 10% penumbra
+			// Penumbra: inner cone angle = outerAngle * (1 - penumbra)
+			// Clamp penumbraCosAngle > coneCosAngle to avoid smoothstep UB when penumbra = 0
+			const penumbraCosAngle = cos( light.angle.mul( float( 1.0 ).sub( light.penumbra ) ) ).max( coneCosAngle.add( 1e-5 ) ).toVar();
 			const coneAttenuation = getSpotAttenuation( { coneCosine: coneCosAngle, penumbraCosine: penumbraCosAngle, angleCosine: spotCosAngle } );
-			const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: float( 0.0 ), decayExponent: float( 2.0 ) } );
+			const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: light.distance, decayExponent: light.decay } );
 
 			ls_emission.assign( light.color.mul( light.intensity ).mul( distanceAttenuation ).mul( coneAttenuation ) );
 
@@ -297,8 +299,8 @@ export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSe
 
 		const lightDir = toLight.div( lightDist ).toVar();
 
-		// Calculate distance attenuation
-		const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: float( 0.0 ), decayExponent: float( 2.0 ) } );
+		// Calculate distance attenuation using the light's actual distance and decay properties
+		const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: light.distance, decayExponent: light.decay } );
 
 		ls_lightType.assign( int( LIGHT_TYPE_POINT ) );
 		ls_direction.assign( lightDir );

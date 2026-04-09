@@ -40,6 +40,8 @@ export const PointLight = struct( {
 	position: 'vec3',
 	color: 'vec3',
 	intensity: 'float',
+	distance: 'float', // cutoff distance (0 = infinite)
+	decay: 'float', // decay exponent (2 = physically correct)
 } );
 
 export const SpotLight = struct( {
@@ -48,6 +50,9 @@ export const SpotLight = struct( {
 	color: 'vec3',
 	intensity: 'float',
 	angle: 'float', // cone half-angle in radians
+	penumbra: 'float', // penumbra factor [0,1]
+	distance: 'float', // cutoff distance (0 = infinite)
+	decay: 'float', // decay exponent (2 = physically correct)
 } );
 
 export const LightSample = struct( {
@@ -135,7 +140,7 @@ export const getAreaLight = Fn( ( [ areaLightsBuffer, index ] ) => {
 
 export const getPointLight = Fn( ( [ pointLightsBuffer, index ] ) => {
 
-	const baseIndex = index.mul( 7 );
+	const baseIndex = index.mul( 9 );
 	return PointLight( {
 		position: vec3(
 			pointLightsBuffer.element( baseIndex ),
@@ -148,13 +153,15 @@ export const getPointLight = Fn( ( [ pointLightsBuffer, index ] ) => {
 			pointLightsBuffer.element( baseIndex.add( 5 ) ),
 		),
 		intensity: pointLightsBuffer.element( baseIndex.add( 6 ) ),
+		distance: pointLightsBuffer.element( baseIndex.add( 7 ) ),
+		decay: pointLightsBuffer.element( baseIndex.add( 8 ) ),
 	} );
 
 } );
 
 export const getSpotLight = Fn( ( [ spotLightsBuffer, index ] ) => {
 
-	const baseIndex = index.mul( 11 );
+	const baseIndex = index.mul( 14 );
 	return SpotLight( {
 		position: vec3(
 			spotLightsBuffer.element( baseIndex ),
@@ -173,6 +180,9 @@ export const getSpotLight = Fn( ( [ spotLightsBuffer, index ] ) => {
 		),
 		intensity: spotLightsBuffer.element( baseIndex.add( 9 ) ),
 		angle: spotLightsBuffer.element( baseIndex.add( 10 ) ),
+		penumbra: spotLightsBuffer.element( baseIndex.add( 11 ) ),
+		distance: spotLightsBuffer.element( baseIndex.add( 12 ) ),
+		decay: spotLightsBuffer.element( baseIndex.add( 13 ) ),
 	} );
 
 } );
