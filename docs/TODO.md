@@ -8,6 +8,9 @@
 - [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
 - [ ] Some worker threads are always running. Assess if they are needed and terminate if not with proper lifecycle management.
 - [ ] enhance test coverage of the engine
+- [ ] animate lights support
+- [ ] directional light not working from test file
+- [ ] assess bundle size and optimize for the engine
   
 
 ### Known
