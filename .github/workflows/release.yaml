@@ -29,6 +29,9 @@ jobs:
           
       - run: npm ci
 
+      - name: Build Engine
+        run: npm run build:engine
+
       - name: Run Tests
         run: npm test
 
