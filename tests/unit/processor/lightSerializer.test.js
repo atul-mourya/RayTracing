@@ -143,7 +143,15 @@ describe( 'LightSerializer', () => {
 				color,
 				userData: {},
 				updateMatrixWorld: vi.fn(),
-				getWorldPosition: vi.fn( () => ( { x: 0, y: 10, z: 0 } ) ),
+				getWorldPosition: vi.fn( () => ( {
+					x: 0, y: 10, z: 0,
+					sub( other ) { this.x -= other.x; this.y -= other.y; this.z -= other.z; return this; },
+					normalize() { const l = Math.sqrt( this.x ** 2 + this.y ** 2 + this.z ** 2 ); this.x /= l; this.y /= l; this.z /= l; return this; }
+				} ) ),
+				target: {
+					updateMatrixWorld: vi.fn(),
+					getWorldPosition: vi.fn( () => ( { x: 0, y: 0, z: 0 } ) ),
+				},
 			};
 
 		}
@@ -200,12 +208,12 @@ describe( 'LightSerializer', () => {
 
 		}
 
-		it( 'adds light to cache with 7 floats (pos, color, intensity)', () => {
+		it( 'adds light to cache with 9 floats (pos, color, intensity, distance, decay)', () => {
 
 			const serializer = new LightSerializer();
 			serializer.addPointLight( makePointLight() );
 			expect( serializer.pointLightCache ).toHaveLength( 1 );
-			expect( serializer.pointLightCache[ 0 ].data ).toHaveLength( 7 );
+			expect( serializer.pointLightCache[ 0 ].data ).toHaveLength( 9 );
 
 		} );
 
@@ -244,12 +252,12 @@ describe( 'LightSerializer', () => {
 
 		}
 
-		it( 'adds light to cache with 11 floats', () => {
+		it( 'adds light to cache with 14 floats', () => {
 
 			const serializer = new LightSerializer();
 			serializer.addSpotLight( makeSpotLight() );
 			expect( serializer.spotLightCache ).toHaveLength( 1 );
-			expect( serializer.spotLightCache[ 0 ].data ).toHaveLength( 11 );
+			expect( serializer.spotLightCache[ 0 ].data ).toHaveLength( 14 );
 
 		} );
 
@@ -274,7 +282,15 @@ describe( 'LightSerializer', () => {
 				color: { r: 1, g: 1, b: 1 },
 				userData: {},
 				updateMatrixWorld: vi.fn(),
-				getWorldPosition: vi.fn( () => ( { x: 0, y: 1, z: 0 } ) ),
+				getWorldPosition: vi.fn( () => ( {
+					x: 0, y: 1, z: 0,
+					sub( other ) { this.x -= other.x; this.y -= other.y; this.z -= other.z; return this; },
+					normalize() { const l = Math.sqrt( this.x ** 2 + this.y ** 2 + this.z ** 2 ); this.x /= l; this.y /= l; this.z /= l; return this; }
+				} ) ),
+				target: {
+					updateMatrixWorld: vi.fn(),
+					getWorldPosition: vi.fn( () => ( { x: 0, y: 0, z: 0 } ) ),
+				},
 			};
 
 		}
@@ -320,8 +336,8 @@ describe( 'LightSerializer', () => {
 			// Manually populate lightData to test uniform update
 			serializer.lightData.directional = new Array( 16 ).fill( 0 ); // 2 lights * 8
 			serializer.lightData.rectArea = new Array( 13 ).fill( 0 ); // 1 light * 13
-			serializer.lightData.point = new Array( 14 ).fill( 0 ); // 2 lights * 7
-			serializer.lightData.spot = new Array( 22 ).fill( 0 ); // 2 lights * 11
+			serializer.lightData.point = new Array( 18 ).fill( 0 ); // 2 lights * 9
+			serializer.lightData.spot = new Array( 28 ).fill( 0 ); // 2 lights * 14
 
 			const material = {
 				defines: {},
