@@ -1,4 +1,5 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
+import { createWorker } from '../Processor/createWorker.js';
 import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
 
 
@@ -137,7 +138,7 @@ export class AIUpscaler extends EventDispatcher {
 			// Create worker on first use
 			if ( ! this._worker ) {
 
-				this._worker = new Worker(
+				this._worker = createWorker(
 					new URL( '../Processor/Workers/AIUpscalerWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);

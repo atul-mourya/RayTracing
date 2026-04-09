@@ -7,6 +7,8 @@
  * a cycle that Vite cannot resolve.
  */
 
+import { createWorker } from './createWorker.js';
+
 const FPT = 32; // FLOATS_PER_TRIANGLE
 const PARALLEL_THRESHOLD = 50000;
 const MAX_PARALLEL_WORKERS = 8;
@@ -34,6 +36,11 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 
 	return new Promise( ( resolve, reject ) => {
 
+		const coordinatorWorker = createWorker(
+			new URL( './Workers/BVHWorker.js', import.meta.url ),
+			{ type: 'module' }
+		);
+
 		try {
 
 			// Allocate SharedArrayBuffers
@@ -46,12 +53,6 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 			const sharedIndices = new SharedArrayBuffer( triangleCount * 4 );
 			const sharedMortonCodes = new SharedArrayBuffer( triangleCount * 4 );
 			const sharedReorderBuffer = new SharedArrayBuffer( triangleCount * FPT * 4 );
-
-			// Phase 1: Coordinator worker
-			const coordinatorWorker = new Worker(
-				new URL( './Workers/BVHWorker.js', import.meta.url ),
-				{ type: 'module' }
-			);
 
 			let phase1Stats = null;
 			const allWorkers = [ coordinatorWorker ];
@@ -299,7 +300,7 @@ function handlePhase2(
 		const bucket = workerTaskBuckets[ w ];
 		if ( bucket.length === 0 ) continue;
 
-		const subtreeWorker = new Worker(
+		const subtreeWorker = createWorker(
 			new URL( './Workers/BVHSubtreeWorker.js', import.meta.url ),
 			{ type: 'module' }
 		);
@@ -407,7 +408,7 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 
 		try {
 
-			const worker = new Worker(
+			const worker = createWorker(
 				new URL( './Workers/BVHWorker.js', import.meta.url ),
 				{ type: 'module' }
 			);

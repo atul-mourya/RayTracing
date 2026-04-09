@@ -11,6 +11,7 @@ import { EmissiveTriangleBuilder } from './EmissiveTriangleBuilder.js';
 import { updateLoading } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
 import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
+import { createWorker } from './createWorker.js';
 
 /**
  * SceneProcessor - Processes scene geometry into GPU-ready data:
@@ -665,7 +666,7 @@ export class SceneProcessor {
 			// Spin up the pool
 			for ( let i = 0; i < poolSize; i ++ ) {
 
-				const worker = new Worker(
+				const worker = createWorker(
 					new URL( './Workers/BVHWorker.js', import.meta.url ),
 					{ type: 'module' }
 				);
@@ -1136,7 +1137,7 @@ export class SceneProcessor {
 		// Lazy-create worker
 		if ( ! this._refitWorker ) {
 
-			this._refitWorker = new Worker(
+			this._refitWorker = createWorker(
 				new URL( './Workers/BVHRefitWorker.js', import.meta.url ),
 				{ type: 'module' }
 			);
@@ -1525,7 +1526,7 @@ export class SceneProcessor {
 				( entry.triOffset + entry.triCount ) * FPT
 			);
 
-			const worker = new Worker(
+			const worker = createWorker(
 				new URL( './Workers/BVHWorker.js', import.meta.url ),
 				{ type: 'module' }
 			);
