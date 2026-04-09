@@ -677,6 +677,21 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * Loads a Three.js Object3D directly into the path tracer scene.
+	 * Builds BVH from the object's meshes and uploads scene data.
+	 * @param {import('three').Object3D} object3d - The Object3D to render
+	 * @param {string} [name='object3d'] - Display name for the object
+	 */
+	async loadObject3D( object3d, name = 'object3d' ) {
+
+		await this._loadWithSceneRebuild(
+			() => this.assetLoader.loadObject3D( object3d, name ),
+			{ type: 'Object3DLoaded', name }
+		);
+
+	}
+
+	/**
 	 * Loads an environment map and rebuilds CDF.
 	 * @param {string} url - Environment URL
 	 */
