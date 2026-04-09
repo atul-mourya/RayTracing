@@ -2,8 +2,9 @@
  * Cross-origin Worker utility.
  *
  * Browsers block `new Worker(url)` when the script is cross-origin (e.g. CDN).
- * The workaround: create a same-origin blob that `import()`s the real script.
- * This preserves the original URL as the base for relative imports inside the worker.
+ * The workaround: create a same-origin blob that re-exports via dynamic import().
+ * This preserves the original URL as the module base for relative imports inside
+ * the worker script.
  */
 
 function crossOriginWorker( url, options ) {
