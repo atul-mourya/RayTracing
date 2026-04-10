@@ -17,10 +17,10 @@ export default defineConfig( {
 	server: {
 		// Expose to LAN
 		host: true,
-		// headers: {
-		// 	'Cross-Origin-Opener-Policy': 'same-origin',
-		// 	'Cross-Origin-Embedder-Policy': 'credentialless',
-		// },
+		headers: {
+			'Cross-Origin-Opener-Policy': 'same-origin',
+			'Cross-Origin-Embedder-Policy': 'credentialless',
+		},
 		// port: 5174
 	},
 	assetsInclude: [ "**/*.hdr" ],
@@ -56,6 +56,7 @@ export default defineConfig( {
 	],
 	resolve: {
 		alias: {
+			"rayzee": path.resolve( __dirname, "../rayzee/src/index.js" ),
 			"@/core": path.resolve( __dirname, "../rayzee/src" ),
 			"@": path.resolve( __dirname, "./src" ),
 		},
