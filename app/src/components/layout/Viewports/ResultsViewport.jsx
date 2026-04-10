@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, forwardRef, useMemo, useCallback } from 'react';
-import { debounce } from 'lodash';
+import { debounce } from '@/utils/debounce';
 import { RotateCcw, Save, Eye, Image as ImageIcon } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { TooltipProvider } from '@radix-ui/react-tooltip';

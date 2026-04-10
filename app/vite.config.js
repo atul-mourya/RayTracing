@@ -2,7 +2,7 @@ import path from "path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
-import basicSsl from '@vitejs/plugin-basic-ssl';
+// import basicSsl from '@vitejs/plugin-basic-ssl';
 
 import process from 'process';
 import { readFileSync } from 'fs';
