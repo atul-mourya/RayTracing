@@ -93,7 +93,7 @@ The viewport container must adapt to show non-square canvases:
 
 When canvas dimensions change from `oldW×oldH` to `newW×newH`:
 
-1. **Canvas resize**: Both the WebGPU canvas and the denoiser canvas update to `newW×newH` (display size) or the CSS-scaled equivalent.
+1. **Canvas resize**: The WebGPU canvas and the engine-managed denoiser canvas update to `newW×newH` (display size) or the CSS-scaled equivalent.
 2. **Camera frustum**: `camera.aspect = newW / newH`, then `updateProjectionMatrix()`.
 3. **Renderer**: `renderer.setSize(newW, newH)` with appropriate pixel ratio.
 4. **Pipeline resize**: `pipeline.setSize(renderW, renderH)` propagates to all stages.
@@ -179,9 +179,9 @@ This ensures a 16:9 canvas at tier 3 (2048) renders at 2048×1152, not 3641×204
 
 ### 4.8 Denoiser Canvas Sync
 
-**Challenge**: The OIDN denoiser writes to a separate 2D canvas (`denoiserCanvasRef`). This canvas must match the render output dimensions exactly.
+**Challenge**: The OIDN denoiser writes to a separate 2D canvas. This canvas must match the render output dimensions exactly.
 
-**Mitigation**: Both canvases (WebGPU render canvas and denoiser output canvas) resize together in the same resize handler. The denoiser canvas dimensions are always derived from the same source of truth.
+**Mitigation**: The engine internally creates and manages the denoiser canvas, inserting it as a sibling before the main WebGPU canvas. Both canvases resize together — the engine syncs the denoiser canvas dimensions in `onResize()` and `setCanvasSize()`. The denoiser canvas is automatically cleaned up on `dispose()`.
 
 ### 4.9 WebGPU Texture Size Limits
 
@@ -247,7 +247,7 @@ All handlers follow the existing `handleChange` pattern: update store, update ap
 | Camera frustum | `PathTracerApp.js` | Already uses `width/height` — just needs non-square input |
 | Render targets | All stages via `pipeline.setSize()` | Already parameterized — no change |
 | Tile rendering | `TileManager.js` | Already handles non-square — verify spiral order |
-| Denoiser canvas | `Viewport3D.jsx` | Match denoiser canvas to new dimensions |
+| Denoiser canvas | `PathTracerApp.js` | Engine-managed — auto-synced on resize |
 | Image export | `Viewport3D.jsx` | Ensure export captures at render resolution |
 | UI controls | `PathTracerTab.jsx` or `FinalRenderPanel.jsx` | New dimension/preset inputs |
 | Store | `store.js`, `Constants.js` | New state fields and handlers |

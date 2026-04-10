@@ -20,13 +20,12 @@ engine.animate();
 ## Constructor
 
 ```js
-new PathTracerApp(canvas, denoiserCanvas?, options?)
+new PathTracerApp(canvas, options?)
 ```
 
 | Param | Type | Description |
 |-------|------|-------------|
 | `canvas` | `HTMLCanvasElement` | Render target |
-| `denoiserCanvas` | `HTMLCanvasElement \| null` | Optional canvas for OIDN output |
 | `options.autoResize` | `boolean` | Auto-listen for window resize (default `true`) |
 
 ## API Reference

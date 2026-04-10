@@ -166,13 +166,12 @@ No special build config is needed — models and HDRs are loaded via URL at runt
 The main engine class. Extends Three.js `EventDispatcher`.
 
 ```js
-const engine = new PathTracerApp(canvas, denoiserCanvas?, options?)
+const engine = new PathTracerApp(canvas, options?)
 ```
 
 | Parameter | Type | Description |
 |---|---|---|
 | `canvas` | `HTMLCanvasElement` | Rendering target |
-| `denoiserCanvas` | `HTMLCanvasElement` | Optional canvas for OIDN denoiser output |
 | `options.autoResize` | `boolean` | Auto-resize on window resize (default: `true`) |
 | `options.statsContainer` | `HTMLElement` | DOM element to append the stats panel to (defaults to `document.body`) |
 

@@ -66,7 +66,6 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 			upscaler: { abort: vi.fn() },
 		},
 		renderer: { domElement: { style: {} } },
-		denoiserCanvas: null,
 		pauseRendering: false,
 		needsReset: false,
 		configureForMode: vi.fn(),

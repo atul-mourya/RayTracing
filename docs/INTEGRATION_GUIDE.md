@@ -139,7 +139,7 @@ btn.addEventListener('click', async () => {
     if (!rayzeeApp) {
       rayzeeCanvas.width = container.clientWidth;
       rayzeeCanvas.height = container.clientHeight;
-      rayzeeApp = new PathTracerApp(rayzeeCanvas, null, { autoResize: false });
+      rayzeeApp = new PathTracerApp(rayzeeCanvas, { autoResize: false });
       await rayzeeApp.init();
 
       // Optional: load an HDR environment for lighting
@@ -180,7 +180,7 @@ window.addEventListener('resize', () => {
 
 | Method | Description |
 |---|---|
-| `new PathTracerApp(canvas, null, options)` | Create engine instance |
+| `new PathTracerApp(canvas, options)` | Create engine instance |
 | `engine.init()` | Initialize WebGPU renderer (async) |
 | `engine.loadObject3D(object3d, name)` | Load a Three.js Object3D into the path tracer |
 | `engine.loadModel(url)` | Load a GLB/GLTF model from URL |

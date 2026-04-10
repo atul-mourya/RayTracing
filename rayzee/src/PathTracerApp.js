@@ -54,17 +54,16 @@ export class PathTracerApp extends EventDispatcher {
 
 	/**
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
-	 * @param {HTMLCanvasElement} [denoiserCanvas] - Optional canvas for OIDN denoiser output
 	 * @param {Object} [options] - Engine options
 	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
 	 * @param {HTMLElement} [options.statsContainer] - DOM element to append the stats panel to (defaults to document.body)
 	 */
-	constructor( canvas, denoiserCanvas = null, options = {} ) {
+	constructor( canvas, options = {} ) {
 
 		super();
 
 		this.canvas = canvas;
-		this.denoiserCanvas = denoiserCanvas;
+		this.denoiserCanvas = null;
 		this._autoResize = options.autoResize !== false;
 		this._statsContainer = options.statsContainer || null;
 
@@ -295,6 +294,7 @@ export class PathTracerApp extends EventDispatcher {
 		// ── Managers ──
 		this.cameraManager = new CameraManager( this._camera, this._controls, this._interactionManager );
 		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracer );
+		this._createDenoiserCanvas();
 		this._setupDenoisingManager();
 		this._setupOverlayManager();
 
@@ -640,6 +640,14 @@ export class PathTracerApp extends EventDispatcher {
 		this.overlayManager?.dispose();
 		this._sceneHelpers?.clear();
 		this.denoisingManager?.dispose();
+
+		if ( this.denoiserCanvas?.parentNode ) {
+
+			this.denoiserCanvas.parentNode.removeChild( this.denoiserCanvas );
+			this.denoiserCanvas = null;
+
+		}
+
 		this.pipeline?.dispose();
 		this._interactionManager?.dispose();
 		this._controls?.dispose();
@@ -1101,6 +1109,13 @@ export class PathTracerApp extends EventDispatcher {
 		this.renderer.setSize( width, height, false );
 		this._camera.aspect = width / height;
 		this._camera.updateProjectionMatrix();
+
+		if ( this.denoiserCanvas ) {
+
+			this.denoiserCanvas.style.width = `${width}px`;
+			this.denoiserCanvas.style.height = `${height}px`;
+
+		}
 
 		// Overlay helpers always render at display resolution
 		const dpr = window.devicePixelRatio || 1;
@@ -1952,6 +1967,24 @@ export class PathTracerApp extends EventDispatcher {
 			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
 			saturation: this.settings.get( 'saturation' ) ?? DEFAULT_STATE.saturation,
 		} );
+
+	}
+
+	_createDenoiserCanvas() {
+
+		if ( this.denoiserCanvas ) return; // guard against double init
+
+		const parent = this.canvas.parentNode;
+		if ( ! parent ) return; // headless / detached canvas — skip
+
+		const dc = document.createElement( 'canvas' );
+		dc.width = this.canvas.width;
+		dc.height = this.canvas.height;
+		dc.style.width = `${this.canvas.clientWidth}px`;
+		dc.style.height = `${this.canvas.clientHeight}px`;
+
+		parent.insertBefore( dc, this.canvas );
+		this.denoiserCanvas = dc;
 
 	}
 

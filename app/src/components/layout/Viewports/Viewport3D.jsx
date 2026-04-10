@@ -24,7 +24,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const viewportWrapperRef = useRef( null );
 	const containerRef = useRef( null );
 	const canvasRef = useRef( null );
-	const denoiserCanvasRef = useRef( null );
 	const appRef = useRef( null );
 	const engineCleanupRef = useRef( null );
 	const isInitialized = useRef( false );
@@ -67,7 +66,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	// Effect to mark canvases as ready
 	useEffect( () => {
 
-		if ( canvasRef.current && denoiserCanvasRef.current ) {
+		if ( canvasRef.current ) {
 
 			// Small delay to ensure DOM is fully rendered
 			const timer = setTimeout( () => {
@@ -183,9 +182,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 			const initApp = async () => {
 
-				const app = new PathTracerApp( canvasRef.current, denoiserCanvasRef.current, {
-						statsContainer: viewportRef.current
-					} );
+				const app = new PathTracerApp( canvasRef.current, {
+					statsContainer: viewportRef.current
+				} );
 				appRef.current = app;
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
 				await app.init();
@@ -300,12 +299,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 			<div ref={viewportWrapperRef} className="relative shadow-2xl" style={wrapperStyle} >
 				<div ref={containerRef} className={`relative`} style={containerStyle} >
-					<canvas
-						ref={denoiserCanvasRef}
-						width={canvasWidth}
-						height={canvasHeight}
-						style={canvasStyle}
-					/>
 					<canvas
 						ref={canvasRef}
 						width={canvasWidth}
