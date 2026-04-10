@@ -45,24 +45,24 @@ jobs:
           
       # Only proceed with deployment if a new release was created
       - name: Build
-        if: steps.semantic.outcome == 'success'
+        if: steps.semantic.outputs.new-release-published == 'true'
         run: npm run build
         env:
-          VITE_APP_VERSION: ${{ steps.semantic.outputs.new_release_version || '' }}
+          VITE_APP_VERSION: ${{ steps.semantic.outputs.new-release-version }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          
+
       - name: Setup Pages
-        if: steps.semantic.outcome == 'success'
+        if: steps.semantic.outputs.new-release-published == 'true'
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
-        if: steps.semantic.outcome == 'success'
+        if: steps.semantic.outputs.new-release-published == 'true'
         uses: actions/upload-pages-artifact@v4
         with:
           path: './app/dist'
 
       - name: Deploy to GitHub Pages
-        if: steps.semantic.outcome == 'success'
+        if: steps.semantic.outputs.new-release-published == 'true'
         id: deployment
         uses: actions/deploy-pages@v5

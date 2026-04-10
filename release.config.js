@@ -14,6 +14,7 @@ const config = {
 			}
 		} ],
 		'@semantic-release/release-notes-generator',
+		'semantic-release-export-data',
 		[ '@semantic-release/npm', {
 			npmPublish: true,
 			pkgRoot: 'rayzee',

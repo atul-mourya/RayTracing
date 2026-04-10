@@ -5,12 +5,10 @@
 ### MVP
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 - [ ] oidndenoiser is desaturation the results
-- [ ] cloudflare page shows one version behind in the ui, however the feature of the new version already included
-- [ ] Some worker threads are always running. Assess if they are needed and terminate if not with proper lifecycle management.
+- [x] cloudflare page shows one version behind in the ui, however the feature of the new version already included
 - [ ] enhance test coverage of the engine
 - [ ] animate lights support
 - [ ] directional light not working from test file
-- [ ] assess bundle size and optimize for the engine
   
 
 ### Known
@@ -69,7 +67,6 @@
 
 ### Scene Management
 - [ ] Dynamic object addition and removal
-- [ ] move assests to cdn and object store instead of bundling with the app
 
 ### Animation
 - [ ] Timeline scrubber for animation control
