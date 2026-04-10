@@ -42,13 +42,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          
+
+      # Read the version semantic-release wrote to rayzee/package.json
+      - name: Read released version
+        if: steps.semantic.outcome == 'success'
+        id: version
+        run: echo "value=$(node -p \"require('./rayzee/package.json').version\")" >> "$GITHUB_OUTPUT"
+
       # Only proceed with deployment if a new release was created
       - name: Build
         if: steps.semantic.outcome == 'success'
         run: npm run build
         env:
-          VITE_APP_VERSION: ${{ steps.semantic.outputs.new_release_version || '' }}
+          VITE_APP_VERSION: ${{ steps.version.outputs.value }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           
