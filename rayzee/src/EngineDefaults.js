@@ -43,7 +43,7 @@ export const ENGINE_DEFAULTS = {
 	skyPreset: 'clearMorning',
 
 	enableDOF: false,
-	fov: 65,
+	fov: 55,
 	focusDistance: 0.8,
 	aperture: 5.6,
 	focalLength: 50,
