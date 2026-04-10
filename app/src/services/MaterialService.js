@@ -240,7 +240,7 @@ export class MaterialService {
 			: 0;
 
 		// Use app-level proxy method for material update
-		app.updateMaterial( objMaterialIndex, selectedObject.material );
+		app.materials.replace( objMaterialIndex, selectedObject.material );
 
 		// Reset renderer to apply changes
 		if ( app.reset ) {

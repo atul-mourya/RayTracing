@@ -212,7 +212,7 @@ const LightsTab = () => {
 		const app = getApp();
 		if ( app ) {
 
-			const sceneLights = app.getLights();
+			const sceneLights = app.lights.getAll();
 			if ( JSON.stringify( sceneLights ) !== JSON.stringify( lights ) ) {
 
 				setLights( sceneLights );

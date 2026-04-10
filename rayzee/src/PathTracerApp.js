@@ -27,6 +27,17 @@ import { EngineEvents } from './EngineEvents.js';
 import { AssetLoader } from './Processor/AssetLoader.js';
 import { SceneProcessor } from './Processor/SceneProcessor.js';
 
+// Sub-API facades
+import { OutputAPI } from './api/OutputAPI.js';
+import { LightsAPI } from './api/LightsAPI.js';
+import { AnimationAPI } from './api/AnimationAPI.js';
+import { SelectionAPI } from './api/SelectionAPI.js';
+import { TransformAPI } from './api/TransformAPI.js';
+import { CameraAPI } from './api/CameraAPI.js';
+import { EnvironmentAPI } from './api/EnvironmentAPI.js';
+import { MaterialsAPI } from './api/MaterialsAPI.js';
+import { DenoisingAPI } from './api/DenoisingAPI.js';
+
 // Managers
 import { RenderSettings } from './RenderSettings.js';
 import { CameraManager } from './managers/CameraManager.js';
@@ -120,6 +131,17 @@ export class PathTracerApp extends EventDispatcher {
 		this._lastRenderHeight = 0;
 		this._resizeDebounceTimer = null;
 
+		// ── Sub-API facade instances (lazily created via getters) ──
+		this._outputAPI = null;
+		this._lightsAPI = null;
+		this._animationAPI = null;
+		this._selectionAPI = null;
+		this._transformAPI = null;
+		this._cameraAPI = null;
+		this._environmentAPI = null;
+		this._materialsAPI = null;
+		this._denoisingAPI = null;
+
 	}
 
 	// ═══════════════════════════════════════════════════════════════
@@ -169,6 +191,82 @@ export class PathTracerApp extends EventDispatcher {
 	getAll() {
 
 		return this.settings.getAll();
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Sub-API Facades — namespaced access to grouped functionality
+	// ═══════════════════════════════════════════════════════════════
+
+	/** Canvas output, screenshots, resize, and scene statistics. */
+	get output() {
+
+		if ( ! this._outputAPI ) this._outputAPI = new OutputAPI( this );
+		return this._outputAPI;
+
+	}
+
+	/** Light CRUD, helpers, and GPU sync. */
+	get lights() {
+
+		if ( ! this._lightsAPI ) this._lightsAPI = new LightsAPI( this );
+		return this._lightsAPI;
+
+	}
+
+	/** Animation playback controls. */
+	get animation() {
+
+		if ( ! this._animationAPI ) this._animationAPI = new AnimationAPI( this );
+		return this._animationAPI;
+
+	}
+
+	/** Object selection and interaction modes. */
+	get selection() {
+
+		if ( ! this._selectionAPI ) this._selectionAPI = new SelectionAPI( this );
+		return this._selectionAPI;
+
+	}
+
+	/** Transform gizmo mode and space. */
+	get transform() {
+
+		if ( ! this._transformAPI ) this._transformAPI = new TransformAPI( this );
+		return this._transformAPI;
+
+	}
+
+	/** Camera switching, auto-focus, and DOF — also exposes raw Three.js objects via .active and .controls. */
+	get camera() {
+
+		if ( ! this._cameraAPI ) this._cameraAPI = new CameraAPI( this );
+		return this._cameraAPI;
+
+	}
+
+	/** Environment maps, sky modes, and procedural generation. */
+	get environment() {
+
+		if ( ! this._environmentAPI ) this._environmentAPI = new EnvironmentAPI( this );
+		return this._environmentAPI;
+
+	}
+
+	/** Material property updates and texture transforms. */
+	get materials() {
+
+		if ( ! this._materialsAPI ) this._materialsAPI = new MaterialsAPI( this );
+		return this._materialsAPI;
+
+	}
+
+	/** Denoiser strategy, ASVGF, OIDN, upscaler, adaptive sampling, and auto-exposure. */
+	get denoising() {
+
+		if ( ! this._denoisingAPI ) this._denoisingAPI = new DenoisingAPI( this );
+		return this._denoisingAPI;
 
 	}
 
@@ -1017,6 +1115,7 @@ export class PathTracerApp extends EventDispatcher {
 	 * Start playing a GLTF animation clip.
 	 * @param {number} [clipIndex=0] - Clip index, or -1 to play all
 	 */
+	/** @internal Use engine.animation.play() */
 	playAnimation( clipIndex = 0 ) {
 
 		if ( ! this.animationManager?.hasAnimations ) {
@@ -1033,6 +1132,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * @internal Use engine.animation.pause()
 	 * Pause animation — preserves current time position.
 	 */
 	pauseAnimation() {
@@ -1044,7 +1144,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Resume animation from paused state.
+	 * @internal Use engine.animation.resume()
 	 */
 	resumeAnimation() {
 
@@ -1055,7 +1155,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Stop animation — resets to beginning.
+	 * @internal Use engine.animation.stop()
 	 */
 	stopAnimationPlayback() {
 
@@ -1066,8 +1166,8 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Set animation playback speed.
-	 * @param {number} speed - Multiplier (1.0 = normal)
+	 * @internal Use engine.animation.setSpeed()
+	 * @param {number} speed
 	 */
 	setAnimationSpeed( speed ) {
 
@@ -1076,8 +1176,8 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Set animation loop mode.
-	 * @param {boolean} loop - true for repeat, false for play-once
+	 * @internal Use engine.animation.setLoop()
+	 * @param {boolean} loop
 	 */
 	setAnimationLoop( loop ) {
 
@@ -1086,7 +1186,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Get info about available animation clips.
+	 * @internal Use engine.animation.clips
 	 * @returns {{ index: number, name: string, duration: number }[]}
 	 */
 	get animationClips() {
@@ -1099,6 +1199,7 @@ export class PathTracerApp extends EventDispatcher {
 	// Resize
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.output.resize() */
 	onResize() {
 
 		const width = this.canvas.clientWidth;
@@ -1149,6 +1250,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.output.setSize() */
 	setCanvasSize( width, height ) {
 
 		this.canvas.style.width = `${width}px`;
@@ -1242,6 +1344,7 @@ export class PathTracerApp extends EventDispatcher {
 	// Delegated APIs — Camera
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.cameraAPI.switch() */
 	switchCamera( index ) {
 
 		this.cameraManager.switchCamera(
@@ -1253,6 +1356,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.cameraAPI.getNames() */
 	getCameraNames() {
 
 		return this.cameraManager.getCameraNames();
@@ -1263,6 +1367,7 @@ export class PathTracerApp extends EventDispatcher {
 	// Delegated APIs — Lights
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.lights.add() */
 	addLight( type ) {
 
 		const descriptor = this.lightManager.addLight( type );
@@ -1271,6 +1376,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.lights.remove() */
 	removeLight( uuid ) {
 
 		const removed = this.lightManager.removeLight( uuid );
@@ -1279,6 +1385,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.lights.clear() */
 	clearLights() {
 
 		this.lightManager.clearLights();
@@ -1286,18 +1393,21 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.lights.getAll() */
 	getLights() {
 
 		return this.lightManager.getLights();
 
 	}
 
+	/** @internal Use engine.lights.sync() */
 	updateLights() {
 
 		this.lightManager.updateLights();
 
 	}
 
+	/** @internal Use engine.lights.showHelpers() */
 	setShowLightHelper( show ) {
 
 		this.lightManager.setShowLightHelper( show );
@@ -1308,6 +1418,7 @@ export class PathTracerApp extends EventDispatcher {
 	// Delegated APIs — Denoiser
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.denoising.setStrategy() */
 	setDenoiserStrategy( strategy, asvgfPreset ) {
 
 		this.denoisingManager.setDenoiserStrategy( strategy, asvgfPreset );
@@ -1315,6 +1426,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.setASVGFEnabled() */
 	setASVGFEnabled( enabled, qualityPreset ) {
 
 		this.denoisingManager.setASVGFEnabled( enabled, qualityPreset );
@@ -1322,6 +1434,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.applyASVGFPreset() */
 	applyASVGFPreset( presetName ) {
 
 		this.denoisingManager.applyASVGFPreset( presetName );
@@ -1329,6 +1442,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.setAutoExposure() */
 	setAutoExposureEnabled( enabled ) {
 
 		this.denoisingManager.setAutoExposureEnabled( enabled, this.settings.get( 'exposure' ) );
@@ -1336,6 +1450,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.setAdaptiveSampling() */
 	setAdaptiveSamplingEnabled( enabled ) {
 
 		this.settings.set( 'useAdaptiveSampling', enabled );
@@ -1347,6 +1462,7 @@ export class PathTracerApp extends EventDispatcher {
 	// Delegated APIs — Interaction
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.selection.select() */
 	selectObject( object ) {
 
 		const outlineHelper = this.overlayManager?.getHelper( 'outline' );
@@ -1381,6 +1497,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.selection.toggleFocusMode() */
 	toggleFocusMode() {
 
 		if ( ! this._interactionManager ) return false;
@@ -1390,6 +1507,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.selection.toggleMode() */
 	toggleSelectMode() {
 
 		if ( ! this._interactionManager ) return false;
@@ -1397,6 +1515,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.selection.disableMode() */
 	disableSelectMode() {
 
 		this._interactionManager?.disableSelectMode();
@@ -1408,6 +1527,7 @@ export class PathTracerApp extends EventDispatcher {
 	// Delegated APIs — Transform
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.transform.setMode() */
 	setTransformMode( mode ) {
 
 		this._transformManager?.setMode( mode );
@@ -1415,12 +1535,14 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.transform.setSpace() */
 	setTransformSpace( space ) {
 
 		this._transformManager?.setSpace( space );
 
 	}
 
+	/** @internal Use engine.transform.manager */
 	get transformManager() {
 
 		return this._transformManager;
@@ -1438,42 +1560,49 @@ export class PathTracerApp extends EventDispatcher {
 	// Delegated APIs — Environment
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.environment.params */
 	getEnvParams() {
 
 		return this.stages.pathTracer?.environment?.envParams ?? null;
 
 	}
 
+	/** @internal Use engine.environment.texture */
 	getEnvironmentTexture() {
 
 		return this.stages.pathTracer?.environment?.environmentTexture ?? null;
 
 	}
 
+	/** @internal */
 	getEnvironmentCDF() {
 
 		return null;
 
 	}
 
+	/** @internal Use engine.environment.generateProcedural() */
 	async generateProceduralSkyTexture() {
 
 		return this.stages.pathTracer?.environment.generateProceduralSkyTexture();
 
 	}
 
+	/** @internal Use engine.environment.generateGradient() */
 	async generateGradientTexture() {
 
 		return this.stages.pathTracer?.environment.generateGradientTexture();
 
 	}
 
+	/** @internal Use engine.environment.generateSolid() */
 	async generateSolidColorTexture() {
 
 		return this.stages.pathTracer?.environment.generateSolidColorTexture();
 
 	}
 
+	/** @internal Use engine.environment.setTexture() */
 	async setEnvironmentMap( texture ) {
 
 		if ( ! this.stages.pathTracer ) {
@@ -1488,6 +1617,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.environment.markDirty() */
 	markEnvironmentNeedsUpdate() {
 
 		const tex = this.stages.pathTracer?.environment?.environmentTexture;
@@ -1495,6 +1625,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.environment.setMode() */
 	async setEnvironmentMode( mode ) {
 
 		const previousMode = this._environmentMode || 'hdri';
@@ -1544,31 +1675,31 @@ export class PathTracerApp extends EventDispatcher {
 	// Read-Only Accessors
 	// ═══════════════════════════════════════════════════════════════
 
+	/** @internal Use engine.output.isComplete() */
 	isComplete() {
 
 		return this.stages.pathTracer?.isComplete ?? false;
 
 	}
 
+	/** @internal Use engine.output.getFrameCount() */
 	getFrameCount() {
 
 		return this.stages.pathTracer?.frameCount || 0;
 
 	}
 
-	/** Camera and controls — accessible via cameraManager */
-	get camera() {
+	/**
+	 * Convenience alias for the raw Three.js PerspectiveCamera.
+	 * Prefer engine.camera.active for consistency with the sub-API pattern.
+	 */
+	get activeCamera() {
 
 		return this.cameraManager?.camera ?? this._camera;
 
 	}
 
-	get controls() {
-
-		return this.cameraManager?.controls ?? this._controls;
-
-	}
-
+	/** @internal Use engine.output.getStatistics() */
 	getSceneStatistics() {
 
 		try {
@@ -1584,6 +1715,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * @internal Use engine.output.getCanvas()
 	 * Returns the canvas element suitable for reading pixels from.
 	 * Ensures the WebGPU canvas has fresh content if it's the source.
 	 * Use this instead of directly accessing renderer.domElement / denoiserCanvas.
@@ -1613,8 +1745,8 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Focuses the orbit camera on the center of a 3D object's bounding box.
-	 * @param {import('three').Vector3} center - World-space center to focus on
+	 * @internal Use engine.cameraAPI.focusOn()
+	 * @param {import('three').Vector3} center
 	 */
 	focusOnPoint( center ) {
 
@@ -1626,7 +1758,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Dispatches an event through the interaction manager.
+	 * @internal Use engine.selection.dispatchEvent()
 	 * @param {Object} event
 	 */
 	dispatchInteractionEvent( event ) {
@@ -1636,7 +1768,7 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Subscribes to an interaction manager event.
+	 * @internal Use engine.selection.on()
 	 * @param {string} type
 	 * @param {Function} handler
 	 * @returns {Function} unsubscribe function
@@ -1648,6 +1780,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.output.screenshot() */
 	takeScreenshot() {
 
 		const canvas = this.getOutputCanvas();
@@ -1695,6 +1828,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.setAdaptiveSamplingParams() */
 	setAdaptiveSamplingParameters( params ) {
 
 		if ( params.min !== undefined ) this.stages.pathTracer?.setAdaptiveSamplingMin( params.min );
@@ -1703,6 +1837,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.materials.setProperty() */
 	updateMaterialProperty( materialIndex, property, value ) {
 
 		this.stages.pathTracer?.materialData.updateMaterialProperty( materialIndex, property, value );
@@ -1743,6 +1878,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.materials.setTextureTransform() */
 	updateTextureTransform( materialIndex, textureName, transform ) {
 
 		this.stages.pathTracer?.materialData.updateTextureTransform( materialIndex, textureName, transform );
@@ -1750,18 +1886,21 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.materials.refresh() */
 	refreshMaterial() {
 
 		this.reset();
 
 	}
 
+	/** @internal Use engine.materials.replace() */
 	updateMaterial( materialIndex, material ) {
 
 		this.stages.pathTracer?.materialData.updateMaterial( materialIndex, material );
 
 	}
 
+	/** @internal Use engine.materials.rebuild() */
 	async rebuildMaterials( scene ) {
 
 		await this.stages.pathTracer?.rebuildMaterials( scene || this.meshScene );
@@ -1774,14 +1913,14 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── ASVGF ──
 
-	/** Updates ASVGF stage parameters (temporalAlpha, phiColor, etc.) */
+	/** @internal Use engine.denoising.setASVGFParams() */
 	updateASVGFParameters( params ) {
 
 		this.stages.asvgf?.updateParameters( params );
 
 	}
 
-	/** Toggles the ASVGF heatmap debug overlay */
+	/** @internal Use engine.denoising.toggleASVGFHeatmap() */
 	toggleASVGFHeatmap( enabled ) {
 
 		this.stages.asvgf?.toggleHeatmap?.( enabled );
@@ -1789,8 +1928,8 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Configures ASVGF for a specific render mode.
-	 * @param {Object} config - { enabled, temporalAlpha, atrousIterations, ... }
+	 * @internal Use engine.denoising.configureASVGFForMode()
+	 * @param {Object} config
 	 */
 	configureASVGFForMode( config ) {
 
@@ -1810,7 +1949,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── SSRC ──
 
-	/** Updates SSRC stage parameters (temporalAlpha, spatialRadius, spatialWeight) */
+	/** @internal Use engine.denoising.setSSRCParams() */
 	updateSSRCParameters( params ) {
 
 		this.stages.ssrc?.updateParameters( params );
@@ -1819,7 +1958,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── EdgeAware Filtering ──
 
-	/** Updates EdgeAware filtering uniforms (pixelEdgeSharpness, edgeSharpenSpeed, edgeThreshold) */
+	/** @internal Use engine.denoising.setEdgeAwareParams() */
 	updateEdgeAwareUniforms( params ) {
 
 		this.stages.edgeFilter?.updateUniforms( params );
@@ -1828,7 +1967,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── Auto Exposure ──
 
-	/** Updates auto-exposure stage parameters */
+	/** @internal Use engine.denoising.setAutoExposureParams() */
 	updateAutoExposureParameters( params ) {
 
 		this.stages.autoExposure?.updateParameters( params );
@@ -1837,37 +1976,42 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── Adaptive Sampling ──
 
-	/** Updates adaptive sampling stage parameters */
+	/** @internal Use engine.denoising.setAdaptiveSamplingParams() */
 	updateAdaptiveSamplingParameters( params ) {
 
 		this.stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
 
 	}
 
+	/** @internal Use engine.denoising.setAdaptiveSamplingParams({ varianceThreshold }) */
 	setAdaptiveSamplingVarianceThreshold( v ) {
 
 		this.stages.adaptiveSampling?.setVarianceThreshold( v );
 
 	}
 
+	/** @internal Use engine.denoising.setAdaptiveSamplingParams({ materialBias }) */
 	setAdaptiveSamplingMaterialBias( v ) {
 
 		this.stages.adaptiveSampling?.setMaterialBias( v );
 
 	}
 
+	/** @internal Use engine.denoising.setAdaptiveSamplingParams({ edgeBias }) */
 	setAdaptiveSamplingEdgeBias( v ) {
 
 		this.stages.adaptiveSampling?.setEdgeBias( v );
 
 	}
 
+	/** @internal Use engine.denoising.setAdaptiveSamplingParams({ convergenceSpeed }) */
 	setAdaptiveSamplingConvergenceSpeed( v ) {
 
 		this.stages.adaptiveSampling?.setConvergenceSpeed( v );
 
 	}
 
+	/** @internal Use engine.denoising.toggleAdaptiveSamplingHelper() */
 	toggleAdaptiveSamplingHelper( enabled ) {
 
 		this.stages.adaptiveSampling?.toggleHelper( enabled );
@@ -1876,6 +2020,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── Tile Highlight ──
 
+	/** @internal Use engine.denoising.setTileHighlightEnabled() */
 	setTileHighlightEnabled( enabled ) {
 
 		this.setTileHelperEnabled( enabled );
@@ -1884,6 +2029,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── OIDN Denoiser ──
 
+	/** @internal Use engine.denoising.setOIDNEnabled() */
 	setOIDNEnabled( enabled ) {
 
 		const d = this.denoisingManager?.denoiser;
@@ -1891,18 +2037,21 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.setOIDNQuality() */
 	updateOIDNQuality( quality ) {
 
 		this.denoisingManager?.denoiser?.updateQuality( quality );
 
 	}
 
+	/** @internal Use engine.denoising.setOIDNTileHelper() */
 	setOIDNTileHelper( enabled ) {
 
 		this.setTileHelperEnabled( enabled );
 
 	}
 
+	/** @internal Use engine.denoising.setTileHelperEnabled() */
 	setTileHelperEnabled( enabled ) {
 
 		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
@@ -1917,6 +2066,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	// ── AI Upscaler ──
 
+	/** @internal Use engine.denoising.setUpscalerEnabled() */
 	setUpscalerEnabled( enabled ) {
 
 		const u = this.denoisingManager?.upscaler;
@@ -1924,12 +2074,14 @@ export class PathTracerApp extends EventDispatcher {
 
 	}
 
+	/** @internal Use engine.denoising.setUpscalerScaleFactor() */
 	setUpscalerScaleFactor( factor ) {
 
 		this.denoisingManager?.upscaler?.setScaleFactor( factor );
 
 	}
 
+	/** @internal Use engine.denoising.setUpscalerQuality() */
 	setUpscalerQuality( quality ) {
 
 		this.denoisingManager?.upscaler?.setQuality( quality );

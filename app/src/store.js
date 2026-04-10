@@ -60,12 +60,12 @@ const useStore = create( set => ( {
 	setIsTransforming: val => set( { isTransforming: val } ),
 	handleTransformModeChange: handleChange(
 		val => set( { transformMode: val } ),
-		( val, app ) => app.setTransformMode( val ),
+		( val, app ) => app.transform.setMode( val ),
 		false
 	),
 	handleTransformSpaceChange: handleChange(
 		val => set( { transformSpace: val } ),
-		( val, app ) => app.setTransformSpace( val ),
+		( val, app ) => app.transform.setSpace( val ),
 		false
 	),
 
@@ -171,7 +171,7 @@ const useStore = create( set => ( {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
 
-				if ( typeof app.updateMaterialProperty === 'function' ) {
+				if ( typeof app.materials.setProperty === 'function' ) {
 
 					// Calculate effective visibility by checking all ancestors
 					let effectiveVisible = obj.visible;
@@ -183,7 +183,7 @@ const useStore = create( set => ( {
 
 					}
 
-					app.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
+					app.materials.setProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
 
 				}
 
@@ -222,7 +222,7 @@ const useStore = create( set => ( {
 
 				const materialIndex = obj.userData?.materialIndex ?? 0;
 
-				if ( typeof app.updateMaterialProperty === 'function' ) {
+				if ( typeof app.materials.setProperty === 'function' ) {
 
 					// Calculate effective visibility by checking all ancestors
 					let effectiveVisible = obj.visible;
@@ -234,7 +234,7 @@ const useStore = create( set => ( {
 
 					}
 
-					app.updateMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
+					app.materials.setProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
 
 				}
 
@@ -341,7 +341,7 @@ const debouncedGenerateProceduralSkyTexture = debounce( () => {
 	const app = getApp();
 	if ( app ) {
 
-		app.generateProceduralSkyTexture();
+		app.environment.generateProcedural();
 
 	}
 
@@ -483,7 +483,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 				} );
 
-				app.updateASVGFParameters( preset );
+				app.denoising.setASVGFParams( preset );
 				app.reset();
 
 			}
@@ -495,7 +495,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { asvgfDebugMode: val } ),
 		( val, app ) => {
 
-			app.updateASVGFParameters( {
+			app.denoising.setASVGFParams( {
 				debugMode: parseInt( val ),
 				enableDebug: parseInt( val ) > 0
 			} );
@@ -530,7 +530,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const config = configs[ mode ];
 		if ( config ) {
 
-			app.configureASVGFForMode( config );
+			app.denoising.configureASVGFForMode( config );
 
 		}
 
@@ -579,8 +579,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			// Sync with engine
 			app.set( 'adaptiveSamplingMax', settings.adaptiveSamplingMax );
-			app.setAdaptiveSamplingParameters( { min: settings.adaptiveSamplingMin } );
-			app.updateAdaptiveSamplingParameters( {
+			app.denoising.setAdaptiveSamplingParams( { min: settings.adaptiveSamplingMin } );
+			app.denoising.setAdaptiveSamplingParams( {
 				threshold: settings.adaptiveSamplingVarianceThreshold,
 				materialBias: settings.adaptiveSamplingMaterialBias,
 				convergenceSpeedUp: settings.adaptiveSamplingConvergenceSpeed,
@@ -662,7 +662,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.setCanvasSize( width, height );
+			app.output.setSize( width, height );
 			app.reset();
 
 		}
@@ -700,7 +700,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.setCanvasSize( width, height );
+			app.output.setSize( width, height );
 			app.reset();
 
 		}
@@ -709,7 +709,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAdaptiveSamplingChange: handleChange(
 		val => set( { adaptiveSampling: val } ),
-		( val, app ) => app.setAdaptiveSamplingEnabled( val ),
+		( val, app ) => app.denoising.setAdaptiveSampling( val ),
 		false // engine method handles reset internally
 	),
 
@@ -718,7 +718,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.setAdaptiveSamplingParameters( { min: v } );
+			app.denoising.setAdaptiveSamplingParams( { min: v } );
 
 		}
 	),
@@ -736,14 +736,14 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.setAdaptiveSamplingVarianceThreshold( v );
+			app.denoising.setAdaptiveSamplingParams( { varianceThreshold: v } );
 
 		}
 	),
 
 	handleAdaptiveSamplingHelperToggle: handleChange(
 		val => set( { showAdaptiveSamplingHelper: val } ),
-		( val, app ) => app.toggleAdaptiveSamplingHelper( val )
+		( val, app ) => app.denoising.toggleAdaptiveSamplingHelper( val )
 	),
 
 	handleAdaptiveSamplingMaterialBiasChange: handleChange(
@@ -751,7 +751,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.setAdaptiveSamplingMaterialBias( v );
+			app.denoising.setAdaptiveSamplingParams( { materialBias: v } );
 
 		}
 	),
@@ -761,7 +761,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.setAdaptiveSamplingEdgeBias( v );
+			app.denoising.setAdaptiveSamplingParams( { edgeBias: v } );
 
 		}
 	),
@@ -771,7 +771,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const v = Array.isArray( val ) ? val[ 0 ] : val;
-			app.setAdaptiveSamplingConvergenceSpeed( v );
+			app.denoising.setAdaptiveSamplingParams( { convergenceSpeed: v } );
 
 		}
 	),
@@ -802,11 +802,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			const { tilesHelper } = get();
 			if ( parseInt( val ) === 1 && tilesHelper ) {
 
-				app.setTileHelperEnabled( true );
+				app.denoising.setTileHelperEnabled( true );
 
 			} else if ( parseInt( val ) !== 1 ) {
 
-				app.setTileHelperEnabled( false );
+				app.denoising.setTileHelperEnabled( false );
 
 			}
 
@@ -836,7 +836,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { tilesHelper: val } ),
 		( val, app ) => {
 
-			app.setTileHelperEnabled( val );
+			app.denoising.setTileHelperEnabled( val );
 
 		},
 		false
@@ -844,38 +844,38 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleEnableOIDNChange: handleChange(
 		val => set( { enableOIDN: val } ),
-		( val, app ) => app.setOIDNEnabled( val ),
+		( val, app ) => app.denoising.setOIDNEnabled( val ),
 		false
 	),
 
 	handleOidnQualityChange: handleChange(
 		val => set( { oidnQuality: val } ),
-		( val, app ) => app.updateOIDNQuality( val ),
+		( val, app ) => app.denoising.setOIDNQuality( val ),
 		false
 	),
 
 	handleEnableUpscalerChange: handleChange(
 		val => set( { enableUpscaler: val } ),
-		( val, app ) => app.setUpscalerEnabled( val ),
+		( val, app ) => app.denoising.setUpscalerEnabled( val ),
 		false
 	),
 
 	handleUpscalerScaleChange: handleChange(
 		val => set( { upscalerScale: Number( val ) } ),
-		( val, app ) => app.setUpscalerScaleFactor( Number( val ) ),
+		( val, app ) => app.denoising.setUpscalerScaleFactor( Number( val ) ),
 		false
 	),
 
 	handleUpscalerQualityChange: handleChange(
 		val => set( { upscalerQuality: val } ),
-		( val, app ) => app.setUpscalerQuality( val ),
+		( val, app ) => app.denoising.setUpscalerQuality( val ),
 		false
 	),
 
 	// Denoiser strategy and EdgeAware filter handlers
 	handleDenoiserStrategyChange: handleChange(
 		val => set( { denoiserStrategy: val, enableASVGF: val === 'asvgf' } ),
-		( val, app ) => app.setDenoiserStrategy( val, get().asvgfQualityPreset ),
+		( val, app ) => app.denoising.setStrategy( val, get().asvgfQualityPreset ),
 		false // engine method handles reset internally
 	),
 
@@ -884,7 +884,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.updateEdgeAwareUniforms( { pixelEdgeSharpness: value } );
+			app.denoising.setEdgeAwareParams( { pixelEdgeSharpness: value } );
 
 		},
 		true
@@ -895,7 +895,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.updateEdgeAwareUniforms( { edgeSharpenSpeed: value } );
+			app.denoising.setEdgeAwareParams( { edgeSharpenSpeed: value } );
 
 		},
 		true
@@ -906,7 +906,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.updateEdgeAwareUniforms( { edgeThreshold: value } );
+			app.denoising.setEdgeAwareParams( { edgeThreshold: value } );
 
 		},
 		true
@@ -915,19 +915,19 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// ─── SSRC handlers ───
 	handleSsrcTemporalAlphaChange: handleChange(
 		val => set( { ssrcTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.updateSSRCParameters( { temporalAlpha: val[ 0 ] } ),
+		( val, app ) => app.denoising.setSSRCParams( { temporalAlpha: val[ 0 ] } ),
 		false
 	),
 
 	handleSsrcSpatialRadiusChange: handleChange(
 		val => set( { ssrcSpatialRadius: val[ 0 ] } ),
-		( val, app ) => app.updateSSRCParameters( { spatialRadius: val[ 0 ] } ),
+		( val, app ) => app.denoising.setSSRCParams( { spatialRadius: val[ 0 ] } ),
 		false
 	),
 
 	handleSsrcSpatialWeightChange: handleChange(
 		val => set( { ssrcSpatialWeight: val[ 0 ] } ),
-		( val, app ) => app.updateSSRCParameters( { spatialWeight: val[ 0 ] } ),
+		( val, app ) => app.denoising.setSSRCParams( { spatialWeight: val[ 0 ] } ),
 		false
 	),
 
@@ -966,7 +966,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	// Auto-exposure handlers
 	handleAutoExposureChange: handleChange(
 		val => set( { autoExposure: val } ),
-		( val, app ) => app.setAutoExposureEnabled( val ),
+		( val, app ) => app.denoising.setAutoExposure( val ),
 		false // engine method handles reset internally
 	),
 
@@ -975,7 +975,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.updateAutoExposureParameters( { keyValue: value } );
+			app.denoising.setAutoExposureParams( { keyValue: value } );
 
 		},
 		true
@@ -986,7 +986,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.updateAutoExposureParameters( { minExposure: value } );
+			app.denoising.setAutoExposureParams( { minExposure: value } );
 
 		},
 		true
@@ -997,7 +997,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.updateAutoExposureParameters( { maxExposure: value } );
+			app.denoising.setAutoExposureParams( { maxExposure: value } );
 
 		},
 		true
@@ -1009,7 +1009,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
 			// Maintain ratio between bright and dark adaptation (6:1)
-			app.updateAutoExposureParameters( {
+			app.denoising.setAutoExposureParams( {
 				adaptSpeedBright: value,
 				adaptSpeedDark: value / 6.0
 			} );
@@ -1093,7 +1093,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { environmentMode: val } );
 		const app = getApp();
-		if ( app ) app.setEnvironmentMode( val );
+		if ( app ) app.environment.setMode( val );
 
 	},
 
@@ -1104,11 +1104,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'gradient' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
 			envParams.gradientZenithColor.copy( color );
-			app.generateGradientTexture();
+			app.environment.generateGradient();
 
 		}
 	),
@@ -1119,11 +1119,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'gradient' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
 			envParams.gradientHorizonColor.copy( color );
-			app.generateGradientTexture();
+			app.environment.generateGradient();
 
 		}
 	),
@@ -1134,11 +1134,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'gradient' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
 			envParams.gradientGroundColor.copy( color );
-			app.generateGradientTexture();
+			app.environment.generateGradient();
 
 		}
 	),
@@ -1150,11 +1150,11 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'color' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			const color = new THREE.Color( val );
 			envParams.solidSkyColor.copy( color );
-			app.generateSolidColorTexture();
+			app.environment.generateSolid();
 
 		}
 	),
@@ -1166,7 +1166,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 
 			// Update sun direction based on azimuth and elevation
@@ -1191,7 +1191,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 
 			// Update sun direction based on azimuth and elevation
@@ -1216,7 +1216,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			envParams.skySunIntensity = val;
 			// Use debounced version to prevent rapid regeneration
@@ -1231,7 +1231,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			envParams.skyRayleighDensity = val;
 			// Use debounced version to prevent rapid regeneration
@@ -1246,7 +1246,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			envParams.skyTurbidity = val;
 			// Use debounced version to prevent rapid regeneration
@@ -1262,7 +1262,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 			if ( ! app || get().environmentMode !== 'procedural' ) return;
 
-			const envParams = app.getEnvParams();
+			const envParams = app.environment.params;
 			if ( ! envParams ) return;
 			envParams.skyMieAnisotropy = val;
 			// Use debounced version to prevent rapid regeneration
@@ -1322,36 +1322,36 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleAsvgfTemporalAlphaChange: handleChange(
 		val => set( { asvgfTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.updateASVGFParameters( { temporalAlpha: val[ 0 ] } ),
+		( val, app ) => app.denoising.setASVGFParams( { temporalAlpha: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfPhiColorChange: handleChange(
 		val => set( { asvgfPhiColor: val[ 0 ] } ),
-		( val, app ) => app.updateASVGFParameters( { phiColor: val[ 0 ] } ),
+		( val, app ) => app.denoising.setASVGFParams( { phiColor: val[ 0 ] } ),
 		false
 	),
 
 	handleEnableASVGFChange: handleChange(
 		val => set( { enableASVGF: val } ),
-		( val, app ) => app.setASVGFEnabled( val, get().asvgfQualityPreset ),
+		( val, app ) => app.denoising.setASVGFEnabled( val, get().asvgfQualityPreset ),
 		false
 	),
 
 	handleShowAsvgfHeatmapChange: handleChange(
 		val => set( { showAsvgfHeatmap: val } ),
-		( val, app ) => app.toggleASVGFHeatmap( val )
+		( val, app ) => app.denoising.toggleASVGFHeatmap( val )
 	),
 
 	handleAsvgfPhiLuminanceChange: handleChange(
 		val => set( { asvgfPhiLuminance: val } ),
-		( val, app ) => app.updateASVGFParameters( { phiLuminance: val[ 0 ] } ),
+		( val, app ) => app.denoising.setASVGFParams( { phiLuminance: val[ 0 ] } ),
 		false
 	),
 
 	handleAsvgfAtrousIterationsChange: handleChange(
 		val => set( { asvgfAtrousIterations: val[ 0 ] } ),
-		( val, app ) => app.updateASVGFParameters( { atrousIterations: val[ 0 ] } ),
+		( val, app ) => app.denoising.setASVGFParams( { atrousIterations: val[ 0 ] } ),
 		false
 	),
 
@@ -1481,9 +1481,9 @@ const useLightStore = create( set => ( {
 
 				}
 
-				if ( app.updateLights ) {
+				if ( app.lights?.sync ) {
 
-					app.updateLights();
+					app.lights.sync();
 
 				}
 
@@ -1517,7 +1517,7 @@ const useLightStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const newLight = app.addLight( lightType );
+		const newLight = app.lights.add( lightType );
 		if ( newLight ) {
 
 			set( s => ( { lights: [ ...s.lights, newLight ], selectedLightIndex: s.lights.length } ) );
@@ -1538,7 +1538,7 @@ const useLightStore = create( set => ( {
 			if ( lightIndex < 0 || lightIndex >= s.lights.length ) return s;
 
 			const lightToRemove = s.lights[ lightIndex ];
-			const success = app.removeLight( lightToRemove.uuid );
+			const success = app.lights.remove( lightToRemove.uuid );
 
 			if ( success ) {
 
@@ -1572,7 +1572,7 @@ const useLightStore = create( set => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.setShowLightHelper( val );
+			app.lights.showHelpers( val );
 
 		}
 
@@ -1584,7 +1584,7 @@ const useLightStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		app.clearLights();
+		app.lights.clear();
 		set( { lights: [], selectedLightIndex: null } );
 		window.dispatchEvent( new CustomEvent( 'SceneRebuild' ) );
 
@@ -1631,7 +1631,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		if ( autoFocusMode !== 'manual' ) return; // Block when auto-focus active
 		const app = getApp();
 		if ( ! app ) return;
-		const isActive = app.toggleFocusMode();
+		const isActive = app.selection.toggleFocusMode();
 		console.log( 'Focus mode:', isActive ? 'enabled' : 'disabled' );
 		set( { focusMode: isActive } );
 
@@ -1642,7 +1642,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const isActive = app.toggleSelectMode();
+		const isActive = app.selection.toggleMode();
 		set( { selectMode: isActive } );
 
 	},
@@ -1660,7 +1660,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app?.controls ) {
 
-			app.controls.zoomToCursor = val;
+			app.camera.controls.zoomToCursor = val;
 
 		}
 
@@ -1674,7 +1674,7 @@ const useCameraStore = create( ( set, get ) => ( {
 
 			const scale = app.assetLoader?.getSceneScale() || 1.0;
 			app.set( 'focusDistance', val * scale );
-			app.cameraManager.setAutoFocusMode( 'manual' );
+			app.camera.setAutoFocusMode( 'manual' );
 			app.reset();
 
 		}
@@ -1694,7 +1694,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.cameraManager.setAFScreenPoint( point.x, point.y );
+			app.camera.setAFScreenPoint( point.x, point.y );
 			app.wake();
 
 		}
@@ -1708,7 +1708,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			app.cameraManager.setAFScreenPoint( 0.5, 0.5 );
+			app.camera.setAFScreenPoint( 0.5, 0.5 );
 			app.wake();
 
 		}
@@ -1763,8 +1763,8 @@ const useCameraStore = create( ( set, get ) => ( {
 
 			const isAutoFocus = get().autoFocusMode === 'auto';
 
-			app.camera.fov = preset.fov;
-			app.camera.updateProjectionMatrix();
+			app.camera.active.fov = preset.fov;
+			app.camera.active.updateProjectionMatrix();
 
 			const updates = {
 				aperture: preset.aperture,
@@ -1792,20 +1792,20 @@ const useCameraStore = create( ( set, get ) => ( {
 		const app = getApp();
 		if ( app ) {
 
-			const oldFov = app.camera.fov;
-			const target = app.controls.target.clone();
-			const oldDistance = app.camera.position.distanceTo( target );
+			const oldFov = app.camera.active.fov;
+			const target = app.camera.controls.target.clone();
+			const oldDistance = app.camera.active.position.distanceTo( target );
 
 			// Keep perceived size constant: distance * tan(fov/2) = constant
 			const newDistance = oldDistance * Math.tan( oldFov * Math.PI / 360 ) / Math.tan( val * Math.PI / 360 );
 
 			// Move camera along the orbit direction
-			const direction = app.camera.position.clone().sub( target ).normalize();
-			app.camera.position.copy( target ).addScaledVector( direction, newDistance );
+			const direction = app.camera.active.position.clone().sub( target ).normalize();
+			app.camera.active.position.copy( target ).addScaledVector( direction, newDistance );
 
-			app.camera.fov = val;
-			app.camera.updateProjectionMatrix();
-			app.controls.update();
+			app.camera.active.fov = val;
+			app.camera.active.updateProjectionMatrix();
+			app.camera.controls.update();
 			app.reset();
 
 		}
@@ -1859,7 +1859,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		if ( app ) {
 
 			const index = Number( idx );
-			app.switchCamera( index );
+			app.camera.switch( index );
 			set( { selectedCameraIndex: index } );
 
 		}
@@ -1905,7 +1905,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 
 			}
 
-			app.updateMaterialProperty( idx, prop, val );
+			app.materials.setProperty( idx, prop, val );
 
 
 		} catch ( error ) {
@@ -2048,7 +2048,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 		transform[ 8 ] = 1; // m22
 
 		// Update the appropriate transform in material data texture
-		app.updateTextureTransform( materialIndex, textureName, transform );
+		app.materials.setTextureTransform( materialIndex, textureName, transform );
 
 	},
 
@@ -2326,7 +2326,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 			const app = getApp();
 			if ( app ) {
 
-				await app.rebuildMaterials();
+				await app.materials.rebuild();
 				app.reset();
 
 			}
@@ -2366,7 +2366,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 			const app = getApp();
 			if ( app ) {
 
-				await app.rebuildMaterials();
+				await app.materials.rebuild();
 				app.reset();
 
 			}
@@ -2524,7 +2524,7 @@ const useMaterialStore = create( ( set, get ) => ( {
 			const app = getApp();
 			if ( app ) {
 
-				app.refreshMaterial();
+				app.materials.refresh();
 				app.reset();
 
 			}
@@ -2642,12 +2642,12 @@ const useAnimationStore = create( ( set, get ) => ( {
 		const { selectedClip, isPaused } = get();
 		if ( isPaused ) {
 
-			app.resumeAnimation();
+			app.animation.resume();
 			set( { isPlaying: true, isPaused: false } );
 
 		} else {
 
-			app.playAnimation( selectedClip );
+			app.animation.play( selectedClip );
 			set( { isPlaying: true, isPaused: false } );
 
 		}
@@ -2657,7 +2657,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 	handlePause: () => {
 
 		const app = getApp();
-		if ( app ) app.pauseAnimation();
+		if ( app ) app.animation.pause();
 		set( { isPlaying: false, isPaused: true } );
 
 	},
@@ -2665,7 +2665,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 	handleStop: () => {
 
 		const app = getApp();
-		if ( app ) app.stopAnimationPlayback();
+		if ( app ) app.animation.stop();
 		set( { isPlaying: false, isPaused: false } );
 
 	},
@@ -2677,7 +2677,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 		set( { selectedClip: index } );
 		if ( isPlaying && app ) {
 
-			app.playAnimation( index );
+			app.animation.play( index );
 
 		}
 
@@ -2686,7 +2686,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 	handleSpeedChange: ( speed ) => {
 
 		const app = getApp();
-		if ( app ) app.setAnimationSpeed( speed );
+		if ( app ) app.animation.setSpeed( speed );
 		set( { speed } );
 
 	},
@@ -2694,7 +2694,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 	handleLoopChange: ( loop ) => {
 
 		const app = getApp();
-		if ( app ) app.setAnimationLoop( loop );
+		if ( app ) app.animation.setLoop( loop );
 		set( { loop } );
 
 	},
@@ -2712,10 +2712,10 @@ const useAnimationStore = create( ( set, get ) => ( {
 	handleRenderAnimation: async ( { totalDuration } = {} ) => {
 
 		const app = getApp();
-		if ( ! app || ! app.animationManager?.hasAnimations ) return;
+		if ( ! app || ! app.animation?.clips?.length ) return;
 
 		const { selectedClip, loopCount, speed } = get();
-		const clip = app.animationManager.clips[ selectedClip ];
+		const clip = app.animation.clips[ selectedClip ];
 		if ( ! clip ) return;
 
 		const fps = VIDEO_RENDER_FPS;
@@ -2725,7 +2725,7 @@ const useAnimationStore = create( ( set, get ) => ( {
 		const totalFrames = Math.ceil( duration * fps );
 
 		// Check codec support
-		const canvas = app.getOutputCanvas() || app.renderer?.domElement;
+		const canvas = app.output.getCanvas() || app.renderer?.domElement;
 		if ( ! canvas ) return;
 
 		const { supported, codec } = await checkCodecSupport( canvas.width, canvas.height );

@@ -83,7 +83,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 			try {
 
-				const statistics = app.getSceneStatistics?.();
+				const statistics = app.output?.getStatistics();
 				setSceneStats( statistics ?? null );
 
 			} catch ( error ) {

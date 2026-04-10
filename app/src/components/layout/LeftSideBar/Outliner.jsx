@@ -168,7 +168,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 
 		if ( selectedObject && selectedObject.uuid === item.uuid ) {
 
-			app.selectObject( null );
+			app.selection.select( null );
 			app.refreshFrame();
 			setSelectedObject( null );
 			return;
@@ -179,7 +179,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		if ( object ) {
 
-			app.selectObject( object );
+			app.selection.select( object );
 			app.refreshFrame();
 			setSelectedObject( object );
 
@@ -203,14 +203,14 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 			// Select object if not already selected
 			if ( ! selectedObject || selectedObject.uuid !== item.uuid ) {
 
-				app.selectObject( object );
+				app.selection.select( object );
 				app.refreshFrame();
 				setSelectedObject( object );
 
 			}
 
 			// Dispatch event for InteractionContextMenu
-			app.dispatchInteractionEvent( {
+			app.selection.dispatchEvent( {
 				type: 'contextMenuRequested',
 				x: e.clientX,
 				y: e.clientY,

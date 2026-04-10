@@ -139,7 +139,7 @@ const App = () => {
 			if ( app ) {
 
 				// Deselect any selected object
-				app.selectObject( null );
+				app.selection.select( null );
 				app.refreshFrame?.();
 
 				// Update the store to reflect deselection
@@ -153,10 +153,10 @@ const App = () => {
 		const handleResetCamera = () => {
 
 			const app = getApp();
-			if ( app?.controls ) {
+			if ( app?.camera?.controls ) {
 
 				// Reset the orbit controls to their default state
-				app.controls.reset();
+				app.camera.controls.reset();
 
 			}
 

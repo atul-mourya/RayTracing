@@ -189,7 +189,7 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 		// Update animation clips list when a new scene is loaded
 		if ( useAnimationStore ) {
 
-			const clips = engine.animationClips || [];
+			const clips = engine.animation?.clips || [];
 			useAnimationStore.getState().setClips( clips );
 
 		}

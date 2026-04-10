@@ -148,7 +148,7 @@ const InteractionContextMenu = () => {
 		const center = new Vector3();
 		box.getCenter( center );
 
-		app.focusOnPoint( center );
+		app.camera.focusOn( center );
 
 		closeMenu();
 
@@ -459,7 +459,7 @@ const InteractionContextMenu = () => {
 		const app = getApp();
 		if ( app ) {
 
-			app.dispatchInteractionEvent( { type: 'objectDeselected' } );
+			app.selection.dispatchEvent( { type: 'objectDeselected' } );
 
 		}
 
@@ -504,7 +504,7 @@ const InteractionContextMenu = () => {
 
 		};
 
-		return app.onInteractionEvent( 'contextMenuRequested', handleContextMenuRequested );
+		return app.selection.on( 'contextMenuRequested', handleContextMenuRequested );
 
 	}, [ activeApp ] );
 

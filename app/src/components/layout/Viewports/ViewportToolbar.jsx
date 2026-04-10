@@ -158,7 +158,7 @@ const ViewportToolbar = ( {
 
 	const handleResetCamera = useCallback( () => {
 
-		getApp()?.controls?.reset();
+		getApp()?.camera?.controls?.reset();
 
 	}, [] );
 

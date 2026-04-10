@@ -131,7 +131,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 		try {
 
-			const canvas = app.getOutputCanvas();
+			const canvas = app.output.getCanvas();
 			if ( ! canvas ) return;
 
 			const imageData = canvas.toDataURL( 'image/png' );
@@ -269,7 +269,7 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 		const app = getApp();
 		if ( app && appMode !== 'preview' && appMode !== 'results' ) {
 
-			app.disableSelectMode?.();
+			app.selection?.disableMode();
 
 		}
 

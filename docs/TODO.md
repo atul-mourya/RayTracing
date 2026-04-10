@@ -5,10 +5,8 @@
 ### MVP
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 - [ ] oidndenoiser is desaturation the results
-- [x] cloudflare page shows one version behind in the ui, however the feature of the new version already included
 - [ ] enhance test coverage of the engine
-- [ ] animate lights support
-- [ ] directional light not working from test file
+- [ ] lint fix
   
 
 ### Known
@@ -18,6 +16,7 @@
 - [ ] ASVFG gives smearing effect when moving the camera
 - [ ] open issues by threejs https://github.com/mrdoob/three.js/issues/32969 and 33061
 2Jd84No5SP
+- [ ] directional light not working from kronos test file: https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/DirectionalLight/README.md
 
 ### Unconfirmed
 ---
@@ -69,6 +68,7 @@
 - [ ] Dynamic object addition and removal
 
 ### Animation
+- [ ] animate lights support
 - [ ] Timeline scrubber for animation control
 - [ ] Camera animation - interpolate camera path keyframes during video render
 - [ ] PNG image sequence export for better quality and post-processing flexibility
