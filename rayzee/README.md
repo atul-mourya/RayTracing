@@ -5,22 +5,10 @@ A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic —
 ## Installation
 
 ```bash
-npm install rayzee@github:atul-mourya/RayTracing three stats-gl
+npm install rayzee three
 ```
 
-Or add to `package.json`:
-
-```json
-{
-  "dependencies": {
-    "rayzee": "github:atul-mourya/RayTracing",
-    "three": "^0.183.0",
-    "stats-gl": "^4.0.2"
-  }
-}
-```
-
-npm publishing is coming soon. `three` and `stats-gl` are required peer dependencies.
+`three` (>=0.170.0) is a required peer dependency. `stats-gl` is installed automatically as a transitive dependency.
 
 ## Getting Started
 
@@ -31,26 +19,10 @@ npm publishing is coming soon. `three` and `stats-gl` are required peer dependen
    ```bash
    npm create vite@latest my-raytracer -- --template vanilla
    cd my-raytracer
-   npm install rayzee@github:atul-mourya/RayTracing three stats-gl
+   npm install rayzee three
    ```
 
-2. **Configure Vite** — WebGPU needs cross-origin isolation headers and `.hdr` asset support. Create or update `vite.config.js`:
-
-   ```js
-   import { defineConfig } from 'vite';
-
-   export default defineConfig({
-     server: {
-       headers: {
-         'Cross-Origin-Opener-Policy': 'same-origin',
-         'Cross-Origin-Embedder-Policy': 'credentialless',
-       },
-     },
-     assetsInclude: ['**/*.hdr'],
-   });
-   ```
-
-3. **Set up the HTML**
+2. **Set up the HTML**
 
    ```html
    <!-- index.html -->
@@ -60,7 +32,7 @@ npm publishing is coming soon. `three` and `stats-gl` are required peer dependen
    </body>
    ```
 
-4. **Write the code**
+3. **Write the code**
 
    ```js
    // main.js
@@ -88,11 +60,11 @@ npm publishing is coming soon. `three` and `stats-gl` are required peer dependen
    });
 
    // Tweak settings
-   engine.set('maxBounces', 8);
+   engine.set('bounces', 8);
    engine.set('exposure', 1.2);
    ```
 
-5. **Run**
+4. **Run**
 
    ```bash
    npm run dev
@@ -132,7 +104,8 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
 
     const engine = new PathTracerApp(canvas);
     await engine.init();
-    await engine.loadModel('https://example.com/scene.glb');
+    // Replace with your own model URL
+    await engine.loadModel('https://your-cdn.com/scene.glb');
     engine.animate();
 
     window.addEventListener('resize', () => {
@@ -164,25 +137,27 @@ export default function Viewport({ modelUrl }) {
   const engineRef = useRef(null);
 
   useEffect(() => {
-    let engine;
+    const canvas = canvasRef.current;
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
 
-    async function start() {
-      engine = new PathTracerApp(canvasRef.current);
+    const engine = new PathTracerApp(canvas);
+    engineRef.current = engine;
+
+    (async () => {
       await engine.init();
       if (modelUrl) await engine.loadModel(modelUrl);
       engine.animate();
-      engineRef.current = engine;
-    }
+    })();
 
-    start();
-    return () => engine?.dispose();
+    return () => engine.dispose();
   }, [modelUrl]);
 
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100vh' }} />;
 }
 ```
 
-The same Vite config (headers + assetsInclude) applies for React projects.
+No special build config is needed — models and HDRs are loaded via URL at runtime.
 
 ## API Reference
 
@@ -199,6 +174,7 @@ const engine = new PathTracerApp(canvas, denoiserCanvas?, options?)
 | `canvas` | `HTMLCanvasElement` | Rendering target |
 | `denoiserCanvas` | `HTMLCanvasElement` | Optional canvas for OIDN denoiser output |
 | `options.autoResize` | `boolean` | Auto-resize on window resize (default: `true`) |
+| `options.statsContainer` | `HTMLElement` | DOM element to append the stats panel to (defaults to `document.body`) |
 
 #### Lifecycle
 
@@ -209,25 +185,29 @@ engine.pause()                // Pause rendering
 engine.resume()               // Resume rendering
 engine.reset()                // Reset accumulation (restart from sample 0)
 engine.dispose()              // Clean up all resources
+engine.wake()                 // Resume render loop if idle (called automatically on interaction)
+engine.isComplete()           // Check if rendering has converged
+engine.getFrameCount()        // Get the current accumulated frame count
 ```
 
 #### Loading Assets
 
 ```js
 await engine.loadModel(url)           // Load GLB/GLTF/FBX/OBJ/STL/PLY/DAE/3MF/USDZ
+await engine.loadObject3D(object3d)   // Load a Three.js Object3D directly
 await engine.loadEnvironment(url)     // Load HDR/EXR environment map
 ```
 
 #### Settings
 
 ```js
-engine.set('maxBounces', 8)           // Set a single parameter
+engine.set('bounces', 8)              // Set a single parameter
 engine.setMany({                      // Set multiple parameters at once
-  maxBounces: 8,
+  bounces: 8,
   samplesPerPixel: 1,
   exposure: 1.0
 })
-engine.get('maxBounces')              // Read a parameter
+engine.get('bounces')                 // Read a parameter
 engine.getAll()                       // Get all current settings
 ```
 
@@ -235,25 +215,33 @@ Key settings:
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `maxBounces` | `number` | 5 | Max ray bounce depth |
+| `bounces` | `number` | 3 | Max ray bounce depth |
 | `samplesPerPixel` | `number` | 1 | Samples per pixel per frame |
+| `maxSamples` | `number` | 60 | Max accumulated samples before stopping |
 | `exposure` | `number` | 1.0 | Exposure value |
+| `saturation` | `number` | 1.2 | Color saturation |
 | `enableEnvironment` | `boolean` | true | Use environment lighting |
 | `environmentIntensity` | `number` | 1.0 | Environment light strength |
-| `environmentRotation` | `number` | 0 | Environment Y-rotation (radians) |
-| `fireflyThreshold` | `number` | 10 | Firefly clamping threshold |
+| `environmentRotation` | `number` | 270 | Environment Y-rotation (degrees) |
+| `fireflyThreshold` | `number` | 3.0 | Firefly clamping threshold |
 | `transmissiveBounces` | `number` | 5 | Max bounces for transmissive materials |
-| `visMode` | `number` | 0 | Debug visualization mode (0 = off) |
+| `enableDOF` | `boolean` | false | Enable depth of field |
+| `focusDistance` | `number` | 0.8 | DOF focus distance |
+| `aperture` | `number` | 5.6 | DOF aperture (f-stop) |
+| `focalLength` | `number` | 50 | DOF focal length (mm) |
+| `adaptiveSampling` | `boolean` | false | Variance-guided sample distribution |
+| `transparentBackground` | `boolean` | false | Transparent canvas background |
+| `debugMode` | `number` | 0 | Debug visualization mode (0 = off) |
+| `environmentMode` | `string` | 'hdri' | Sky mode: `'hdri'` \| `'procedural'` \| `'gradient'` \| `'color'` |
 
 See `ENGINE_DEFAULTS` for the full list with default values.
 
 #### Rendering Modes
 
 ```js
-import { FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from 'rayzee';
-
-engine.configureForMode('final')      // High quality (tiled, 20 bounces)
-engine.configureForMode('interactive') // Real-time navigation (3 bounces)
+engine.configureForMode('final-render')  // High quality (tiled, 20 bounces, OIDN)
+engine.configureForMode('preview')       // Real-time navigation (3 bounces)
+engine.configureForMode('results')       // Paused rendering for image viewing
 ```
 
 #### Camera
@@ -262,6 +250,9 @@ engine.configureForMode('interactive') // Real-time navigation (3 bounces)
 engine.switchCamera(index)            // Switch between scene cameras
 engine.getCameraNames()               // List available cameras
 engine.toggleFocusMode()              // Enable click-to-focus DOF
+engine.focusOnPoint(center)           // Focus orbit camera on a world-space point
+engine.camera                         // Access the active PerspectiveCamera
+engine.controls                       // Access OrbitControls
 ```
 
 #### Lights
@@ -269,17 +260,58 @@ engine.toggleFocusMode()              // Enable click-to-focus DOF
 ```js
 engine.addLight('point')              // Add a light (point, spot, directional, area)
 engine.removeLight(uuid)              // Remove by UUID
+engine.clearLights()                  // Remove all lights
 engine.getLights()                     // Get all lights
+engine.updateLights()                 // Re-upload light data to GPU
 engine.setShowLightHelper(true)       // Toggle visual helpers
+```
+
+#### Object Selection & Transform
+
+```js
+engine.toggleSelectMode()             // Toggle object selection mode
+engine.selectObject(object)           // Programmatically select an object
+engine.setTransformMode('translate')  // Set gizmo mode: 'translate' | 'rotate' | 'scale'
+engine.setTransformSpace('world')     // Set gizmo space: 'world' | 'local'
+engine.transformManager               // Access the underlying TransformManager
+```
+
+#### Animation
+
+```js
+engine.playAnimation(clipIndex)       // Play a GLTF animation clip
+engine.pauseAnimation()               // Pause playback
+engine.resumeAnimation()              // Resume playback
+engine.stopAnimationPlayback()        // Stop and reset
+engine.setAnimationSpeed(speed)       // Set playback speed multiplier
+engine.setAnimationLoop(loop)         // Enable/disable looping
+engine.animationClips                 // Get available animation clips
 ```
 
 #### Denoising
 
 ```js
-engine.setDenoiserStrategy('asvgf')   // Real-time temporal denoiser
-engine.setDenoiserStrategy('oidn')    // Intel OIDN (higher quality, final renders)
-engine.setDenoiserStrategy('none')    // No denoising
-engine.setASVGFEnabled(true, 'balanced') // ASVGF with quality preset
+engine.setDenoiserStrategy('asvgf')       // Real-time temporal denoiser
+engine.setDenoiserStrategy('oidn')        // Intel OIDN (higher quality, final renders)
+engine.setDenoiserStrategy('edgeaware')   // Edge-preserving temporal filter (default)
+engine.setDenoiserStrategy('none')        // No denoising
+engine.setASVGFEnabled(true, 'medium')    // ASVGF with quality preset (low/medium/high)
+engine.applyASVGFPreset('high')           // Apply an ASVGF quality preset
+engine.setAutoExposureEnabled(true)       // Toggle auto-exposure
+engine.setAdaptiveSamplingEnabled(true)   // Toggle adaptive sampling
+```
+
+#### Environment
+
+```js
+engine.getEnvParams()                         // Get current environment parameters
+engine.getEnvironmentTexture()                // Get the loaded environment texture
+engine.setEnvironmentMap(texture)             // Set a custom environment texture
+engine.setEnvironmentMode('procedural')       // Switch sky mode
+engine.generateProceduralSkyTexture()         // Generate Preetham-model sky
+engine.generateGradientTexture()              // Generate gradient sky
+engine.generateSolidColorTexture()            // Generate solid color sky
+engine.markEnvironmentNeedsUpdate()           // Flag environment for GPU re-upload
 ```
 
 #### Canvas & Resolution
@@ -287,6 +319,25 @@ engine.setASVGFEnabled(true, 'balanced') // ASVGF with quality preset
 ```js
 engine.setCanvasSize(1920, 1080)      // Set explicit canvas dimensions
 engine.onResize()                     // Trigger manual resize recalculation
+engine.getOutputCanvas()              // Get the canvas with the final rendered image
+engine.takeScreenshot()               // Download a PNG screenshot
+```
+
+#### Materials
+
+```js
+engine.updateMaterialProperty(index, property, value)  // Update a material property
+engine.updateTextureTransform(index, textureName, transform)
+engine.refreshMaterial()              // Re-upload all material data to GPU
+engine.updateMaterial(index, material) // Replace a material entirely
+await engine.rebuildMaterials(scene)  // Full material rebuild (texture changes)
+```
+
+#### Scene Info
+
+```js
+engine.getSceneStatistics()           // Triangle count, mesh count, etc.
+engine.stages                         // Named access to all pipeline stages
 ```
 
 ### Events
@@ -297,40 +348,47 @@ Subscribe to engine lifecycle events via `addEventListener`:
 import { EngineEvents } from 'rayzee';
 
 engine.addEventListener(EngineEvents.RENDER_COMPLETE, (e) => {
-  console.log('Render complete', e.detail);
+  console.log('Render complete');
 });
 
 engine.addEventListener(EngineEvents.STATS_UPDATE, (e) => {
-  console.log('FPS:', e.detail.fps);
+  console.log('Stats:', e);
 });
 ```
 
 | Event | Fired when |
 |---|---|
-| `RENDER_COMPLETE` | A frame finishes rendering |
+| `RENDER_COMPLETE` | Rendering has converged |
 | `RENDER_RESET` | Accumulation buffer is reset |
 | `DENOISING_START` / `DENOISING_END` | Denoiser runs |
 | `UPSCALING_START` / `UPSCALING_PROGRESS` / `UPSCALING_END` | AI upscaler runs |
 | `LOADING_UPDATE` / `LOADING_RESET` | Asset loading progress |
 | `STATS_UPDATE` | Performance stats updated |
 | `OBJECT_SELECTED` / `OBJECT_DESELECTED` | Object selection changes |
+| `OBJECT_DOUBLE_CLICKED` | Object double-clicked |
+| `OBJECT_TRANSFORM_START` / `OBJECT_TRANSFORM_END` | Transform gizmo drag |
+| `TRANSFORM_MODE_CHANGED` | Gizmo mode changed |
+| `SELECT_MODE_CHANGED` | Selection mode toggled |
 | `SETTING_CHANGED` | A render setting is modified |
 | `AUTO_FOCUS_UPDATED` | Auto-focus recalculated |
 | `AUTO_EXPOSURE_UPDATED` | Auto-exposure recalculated |
+| `AF_POINT_PLACED` | Focus point placed on screen |
+| `ANIMATION_STARTED` / `ANIMATION_PAUSED` / `ANIMATION_STOPPED` / `ANIMATION_FINISHED` | Animation lifecycle |
+| `VIDEO_RENDER_PROGRESS` / `VIDEO_RENDER_COMPLETE` | Video export progress |
 
 ### Advanced: Custom Pipeline Stages
 
 Build custom rendering stages by extending `RenderStage`:
 
 ```js
-import { RenderStage, PipelineContext } from 'rayzee';
+import { RenderStage } from 'rayzee';
 
 class MyCustomStage extends RenderStage {
   constructor() {
     super('my-stage');
   }
 
-  render(renderer, context) {
+  render(context, writeBuffer) {
     const input = context.getTexture('pathtracer:color');
     // ... process input, write output
     context.setTexture('my-stage:output', this.outputTexture);
@@ -351,6 +409,13 @@ import {
   CAMERA_PRESETS,
   CAMERA_RANGES,
   SKY_PRESETS,
+  AUTO_FOCUS_MODES,
+  AF_DEFAULTS,
+  TRIANGLE_DATA_LAYOUT,
+  BVH_LEAF_MARKERS,
+  TEXTURE_CONSTANTS,
+  DEFAULT_TEXTURE_MATRIX,
+  MEMORY_CONSTANTS,
   FINAL_RENDER_CONFIG,
   PREVIEW_RENDER_CONFIG,
 } from 'rayzee';
@@ -361,6 +426,10 @@ import {
   CameraManager,
   LightManager,
   DenoisingManager,
+  OverlayManager,
+  AnimationManager,
+  TransformManager,
+  VideoRenderManager,
 } from 'rayzee';
 
 // Advanced: pipeline infrastructure
@@ -374,32 +443,23 @@ import {
 
 ## Browser Requirements
 
-- WebGPU support (Chrome 113+, Edge 113+, Firefox Nightly)
+- WebGPU support (Chrome 113+, Edge 113+, Safari 18+, Firefox 141+)
 - Secure context (HTTPS or localhost)
 
 ## Optional Dependencies
 
-| Package | Purpose |
-|---|---|
-| `oidn-web` | Intel Open Image Denoise for high-quality final renders |
-| `onnxruntime-web` | AI-powered upscaling |
-
-Install them alongside rayzee if needed:
-
-```bash
-npm install oidn-web onnxruntime-web
-```
+| Package | Purpose | Install needed? |
+|---|---|---|
+| `oidn-web` | Intel Open Image Denoise for high-quality final renders | Yes — `npm install oidn-web` |
+| `onnxruntime-web` | AI-powered upscaling | No — loaded from CDN at runtime |
 
 ## Troubleshooting
 
 **Black screen / "WebGPU not supported"**
-Your browser may not support WebGPU. Use Chrome 113+ or Edge 113+. Ensure you're on HTTPS or localhost.
-
-**CORS errors loading models/HDRs**
-Add cross-origin isolation headers to your dev server (see the Vite config in Getting Started).
+Your browser may not support WebGPU. Use Chrome 113+, Edge 113+, Safari 18+, or Firefox 141+. Ensure you're on HTTPS or localhost.
 
 **Models not loading**
-Place `.glb` / `.hdr` files in your `public/` folder and reference them with absolute paths (e.g., `/scene.glb`).
+If serving locally, place files in your `public/` folder and reference them with absolute paths (e.g., `/scene.glb`). For remote files, ensure the server allows CORS.
 
 ## License
 

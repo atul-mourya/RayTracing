@@ -17,11 +17,11 @@ export default defineConfig( {
 	server: {
 		// Expose to LAN
 		host: true,
-		headers: {
-			'Cross-Origin-Opener-Policy': 'same-origin',
-			'Cross-Origin-Embedder-Policy': 'credentialless',
-		},
-		port: 5174
+		// headers: {
+		// 	'Cross-Origin-Opener-Policy': 'same-origin',
+		// 	'Cross-Origin-Embedder-Policy': 'credentialless',
+		// },
+		// port: 5174
 	},
 	assetsInclude: [ "**/*.hdr" ],
 	plugins: [

@@ -7,7 +7,7 @@ const __dirname = path.resolve();
 export default defineConfig( {
 	base: './',
 	plugins: [],
-	assetsInclude: [ "**/*.hdr" ],
+	// assetsInclude: [ "**/*.hdr" ],
 	define: {
 		'process.env.NODE_ENV': JSON.stringify( process.env.NODE_ENV )
 	},
