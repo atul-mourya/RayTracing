@@ -67,6 +67,7 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
 	 * @param {Object} [options] - Engine options
 	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
+	 * @param {boolean} [options.showStats=true] - Show the performance stats panel
 	 * @param {HTMLElement} [options.statsContainer] - DOM element to append the stats panel to (defaults to document.body)
 	 */
 	constructor( canvas, options = {} ) {
@@ -76,6 +77,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.canvas = canvas;
 		this.denoiserCanvas = null;
 		this._autoResize = options.autoResize !== false;
+		this._showStats = options.showStats !== false;
 		this._statsContainer = options.statsContainer || null;
 
 		// ── Settings (single source of truth for all render parameters) ──
@@ -507,7 +509,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.setupMaterial();
 
 		// Setup stats panel
-		this._initStats();
+		if ( this._showStats ) this._initStats();
 
 		this.isInitialized = true;
 		console.log( 'WebGPU Path Tracer App initialized' );
@@ -2233,6 +2235,12 @@ export class PathTracerApp extends EventDispatcher {
 			handleEnvironmentRotation: ( value ) => {
 
 				this.stages.pathTracer?.environment.setEnvironmentRotation( value );
+
+			},
+
+			handleInteractionModeEnabled: ( value ) => {
+
+				this.setInteractionModeEnabled( value );
 
 			},
 

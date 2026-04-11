@@ -178,6 +178,7 @@ const engine = new PathTracerApp(canvas, options?)
 |---|---|---|
 | `canvas` | `HTMLCanvasElement` | Rendering target |
 | `options.autoResize` | `boolean` | Auto-resize on window resize (default: `true`) |
+| `options.showStats` | `boolean` | Show the performance stats panel (default: `true`) |
 | `options.statsContainer` | `HTMLElement` | DOM element to append the stats panel to (defaults to `document.body`) |
 
 #### Lifecycle
@@ -233,6 +234,7 @@ Key settings:
 | `focalLength` | `number` | 50 | DOF focal length (mm) |
 | `adaptiveSampling` | `boolean` | false | Variance-guided sample distribution |
 | `transparentBackground` | `boolean` | false | Transparent canvas background |
+| `interactionModeEnabled` | `boolean` | true | Lower quality during camera movement for smoother navigation |
 | `debugMode` | `number` | 0 | Debug visualization mode (0 = off) |
 | `environmentMode` | `string` | 'hdri' | Sky mode: `'hdri'` \| `'procedural'` \| `'gradient'` \| `'color'` |
 

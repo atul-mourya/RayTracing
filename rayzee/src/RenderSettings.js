@@ -40,6 +40,7 @@ const SETTING_ROUTES = {
 
 	// ── Multi-stage / special handling ────────────────────────────
 
+	interactionModeEnabled: { handler: 'handleInteractionModeEnabled', reset: false },
 	maxSamples: { handler: 'handleMaxSamples', reset: false },
 	transparentBackground: { handler: 'handleTransparentBackground' },
 	exposure: { handler: 'handleExposure' },
