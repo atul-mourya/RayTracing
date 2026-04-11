@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "oidn-web": ">=0.3.0",
-    "rayzee": "^4.8.10",
+    "rayzee": "^4.8.11",
     "stats-gl": "^4.0.2",
-    "three": "^0.183.0"
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "vite": "^8.0.0"

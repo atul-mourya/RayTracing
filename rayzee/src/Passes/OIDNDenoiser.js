@@ -383,23 +383,53 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Ensure storage buffers are sized correctly (recreate on resolution change)
 		this._ensureGPUInputBuffers( width, height );
 
-		// Copy render target textures → GPU storage buffers in a single command submission.
-		// copyTextureToBuffer requires COPY_SRC on the texture (Three.js render targets have it)
-		// and COPY_DST on the buffer. bytesPerRow for rgba32float = width * 16.
+		// Copy render target textures → tightly packed GPU storage buffers for oidn-web.
+		// copyTextureToBuffer requires bytesPerRow to be a multiple of 256. When the tight
+		// row size (width * 16) isn't aligned, copy via a padded staging buffer per texture
+		// then strip padding row-by-row.
 		const encoder = device.createCommandEncoder( { label: 'oidn-tex-to-buf' } );
-		const bytesPerRow = width * 16; // rgba32float = 4 channels × 4 bytes
+		const tightRowBytes = width * 16; // rgba32float
+		const paddedRowBytes = Math.ceil( tightRowBytes / 256 ) * 256;
+		const needsPadStrip = paddedRowBytes !== tightRowBytes;
+		const stagingBufs = [];
 
-		const copyTex = ( tex, buf ) => encoder.copyTextureToBuffer(
-			{ texture: tex, mipLevel: 0 },
-			{ buffer: buf, offset: 0, bytesPerRow, rowsPerImage: height },
-			{ width, height, depthOrArrayLayers: 1 }
-		);
+		const copyTex = ( tex, tightBuf ) => {
+
+			if ( ! needsPadStrip ) {
+
+				encoder.copyTextureToBuffer(
+					{ texture: tex, mipLevel: 0 },
+					{ buffer: tightBuf, offset: 0, bytesPerRow: tightRowBytes, rowsPerImage: height },
+					{ width, height, depthOrArrayLayers: 1 }
+				);
+
+			} else {
+
+				const padBuf = device.createBuffer( { size: paddedRowBytes * height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC } );
+				stagingBufs.push( padBuf );
+
+				encoder.copyTextureToBuffer(
+					{ texture: tex, mipLevel: 0 },
+					{ buffer: padBuf, offset: 0, bytesPerRow: paddedRowBytes, rowsPerImage: height },
+					{ width, height, depthOrArrayLayers: 1 }
+				);
+
+				for ( let row = 0; row < height; row ++ ) {
+
+					encoder.copyBufferToBuffer( padBuf, row * paddedRowBytes, tightBuf, row * tightRowBytes, tightRowBytes );
+
+				}
+
+			}
+
+		};
 
 		copyTex( textures.color, this._gpuInputBuffers.color );
 		copyTex( textures.albedo, this._gpuInputBuffers.albedo );
 		copyTex( textures.normal, this._gpuInputBuffers.normal );
 
 		device.queue.submit( [ encoder.finish() ] );
+		for ( const buf of stagingBufs ) buf.destroy();
 
 		// Cache alpha channel from input color buffer when transparent background is enabled.
 		// OIDN only processes RGB — the alpha channel is lost, so we read it before denoising.
@@ -440,7 +470,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._destroyGPUInputBuffers();
 
 		const device = this.gpuDevice;
-		const byteSize = width * height * 4 * 4; // rgba32float = 16 bytes/pixel
+		const byteSize = width * height * 16; // rgba32float, tightly packed for oidn-web
 		const usage = GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
 
 		this._gpuInputBuffers.color = device.createBuffer( { label: 'oidn-in-color', size: byteSize, usage } );
@@ -466,7 +496,7 @@ export class OIDNDenoiser extends EventDispatcher {
 	 */
 	async _cacheInputAlpha( device, width, height ) {
 
-		const byteSize = width * height * 4 * 4; // rgba32float
+		const byteSize = width * height * 16; // rgba32float, tightly packed
 		const staging = device.createBuffer( {
 			label: 'oidn-alpha-staging',
 			size: byteSize,
@@ -565,9 +595,16 @@ export class OIDNDenoiser extends EventDispatcher {
 
 					const device = this.gpuDevice;
 					const fullWidth = outputData.width;
+					const fullHeight = outputData.height;
 					const bytesPerPixel = 16; // rgba32float = 4 × float32
-					const tileRowBytes = tile.width * bytesPerPixel;
-					const tileByteSize = tile.width * tile.height * bytesPerPixel;
+
+					// Clamp tile to image bounds (edge tiles may extend past the image)
+					const clampedW = Math.min( tile.width, fullWidth - tile.x );
+					const clampedH = Math.min( tile.height, fullHeight - tile.y );
+					if ( clampedW <= 0 || clampedH <= 0 ) return;
+
+					const tileRowBytes = clampedW * bytesPerPixel;
+					const tileByteSize = clampedW * clampedH * bytesPerPixel;
 
 					const staging = device.createBuffer( {
 						size: tileByteSize,
@@ -577,7 +614,7 @@ export class OIDNDenoiser extends EventDispatcher {
 					// Copy each tile row from its position in the full output buffer
 					const enc = device.createCommandEncoder();
 
-					for ( let row = 0; row < tile.height; row ++ ) {
+					for ( let row = 0; row < clampedH; row ++ ) {
 
 						const srcOffset = ( ( tile.y + row ) * fullWidth + tile.x ) * bytesPerPixel;
 						const dstOffset = row * tileRowBytes;
@@ -591,7 +628,7 @@ export class OIDNDenoiser extends EventDispatcher {
 					staging.mapAsync( GPUMapMode.READ ).then( () => {
 
 						const f32 = new Float32Array( staging.getMappedRange() );
-						const tileImageData = new ImageData( tile.width, tile.height );
+						const tileImageData = new ImageData( clampedW, clampedH );
 						const exposure = this.getExposure();
 						const saturation = this.getSaturation();
 						const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
@@ -617,8 +654,8 @@ export class OIDNDenoiser extends EventDispatcher {
 
 							if ( alpha ) {
 
-								const px = ( i >> 2 ) % tile.width;
-								const py = ( i >> 2 ) / tile.width | 0;
+								const px = ( i >> 2 ) % clampedW;
+								const py = ( i >> 2 ) / clampedW | 0;
 								tileImageData.data[ i + 3 ] = alpha[ ( tile.y + py ) * alphaW + tile.x + px ];
 
 							} else {
