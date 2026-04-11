@@ -501,6 +501,43 @@ import {
 | `oidn-web` | Intel Open Image Denoise for high-quality final renders | Yes — `npm install oidn-web` |
 | `onnxruntime-web` | AI-powered upscaling | No — loaded from CDN at runtime |
 
+### Enabling OIDN (Intel Open Image Denoise)
+
+OIDN provides high-quality AI denoising for final renders. It runs automatically after the render converges (reaches `maxSamples`).
+
+1. **Install the package**
+
+   ```bash
+   npm install oidn-web
+   ```
+
+2. **Enable in your app**
+
+   ```js
+   // After engine.init() completes
+   engine.denoising.setOIDNEnabled(true);
+   engine.denoising.setOIDNQuality('balance'); // 'fast' | 'balance' | 'high'
+   ```
+
+3. **Listen for progress** (optional)
+
+   ```js
+   engine.addEventListener(EngineEvents.DENOISING_START, () => {
+     console.log('Denoising started');
+   });
+   engine.addEventListener(EngineEvents.DENOISING_END, () => {
+     console.log('Denoising complete');
+   });
+   ```
+
+| Quality | Model size | Speed | Best for |
+|---|---|---|---|
+| `'fast'` | ~20 MB | Fastest | Quick previews |
+| `'balance'` | ~50 MB | Moderate | General use (default) |
+| `'high'` | ~100 MB | Slowest | Final quality renders |
+
+> **Note:** The neural network model is downloaded on first use. Subsequent runs use the browser cache. OIDN also works with `configureForMode('final-render')`, which enables it automatically alongside high-quality render settings.
+
 ## Troubleshooting
 
 **Black screen / "WebGPU not supported"**
