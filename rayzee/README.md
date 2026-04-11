@@ -540,6 +540,30 @@ OIDN provides high-quality AI denoising for final renders. It runs automatically
 
 ## Troubleshooting
 
+**OIDN: `Cannot find module './tza'` (webpack)**
+The `oidn-web` package uses dynamic imports that webpack cannot resolve. This does not affect Vite or other ESM-native bundlers. Add `oidn-web` to your webpack externals:
+
+```js
+// webpack.config.js
+module.exports = {
+  externals: {
+    'oidn-web': 'oidn-web'
+  }
+};
+```
+
+Then load it via a script tag or import map instead:
+
+```html
+<script type="importmap">
+{
+  "imports": {
+    "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.0/+esm"
+  }
+}
+</script>
+```
+
 **Black screen / "WebGPU not supported"**
 Your browser may not support WebGPU. Use Chrome 113+, Edge 113+, Safari 18+, or Firefox 141+. Ensure you're on HTTPS or localhost.
 
