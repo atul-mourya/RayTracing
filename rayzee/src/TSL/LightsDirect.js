@@ -79,6 +79,7 @@ export const traceShadowRay = Fn( ( [
 
 	const transmittance = float( 1.0 ).toVar();
 	const rayOrigin = origin.toVar();
+	const remainingDist = float( maxDist ).toVar();
 
 	const MAX_SHADOW_TRANSMISSIONS = 8;
 
@@ -91,10 +92,11 @@ export const traceShadowRay = Fn( ( [
 			bvhBuffer,
 			triangleBuffer,
 			materialBuffer,
+			remainingDist,
 		) );
 
-		// No hit or hit beyond light distance
-		If( shadowHit.didHit.not().or( shadowHit.dst.greaterThan( maxDist ) ), () => {
+		// No hit within remaining distance to light
+		If( shadowHit.didHit.not(), () => {
 
 			Break();
 
@@ -139,8 +141,9 @@ export const traceShadowRay = Fn( ( [
 
 			} );
 
-			// Continue ray
+			// Continue ray past transmissive surface
 			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( 0.001 ) ) );
+			remainingDist.subAssign( shadowHit.dst.add( 0.001 ) );
 
 		} ).ElseIf( shadowMaterial.transparent, () => {
 
@@ -154,8 +157,9 @@ export const traceShadowRay = Fn( ( [
 
 			} );
 
-			// Continue ray
+			// Continue ray past transparent surface
 			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( 0.001 ) ) );
+			remainingDist.subAssign( shadowHit.dst.add( 0.001 ) );
 
 		} ).Else( () => {
 

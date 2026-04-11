@@ -391,11 +391,12 @@ export const traverseBVHShadow = Fn( ( [
 	bvhBuffer,
 	triangleBuffer,
 	materialBuffer,
+	maxShadowDist,
 ] ) => {
 
 	const closestHit = HitInfo( {
 		didHit: false,
-		dst: float( 1e20 ),
+		dst: maxShadowDist,
 		hitPoint: vec3( 0.0 ),
 		normal: vec3( 0.0 ),
 		uv: vec2( 0.0 ),
