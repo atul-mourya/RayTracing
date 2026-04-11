@@ -145,7 +145,7 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 			const cosAngle = dot( direction.negate(), lightNormal ).toVar();
 
 			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
-			ls_emission.assign( light.color.mul( light.intensity ).div( PI ) );
+			ls_emission.assign( light.color.mul( light.intensity ) );
 			ls_distance.assign( dist );
 			ls_direction.assign( direction );
 			// Guard division: ensure denominator is never zero
@@ -205,7 +205,7 @@ export const sampleCircAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 			const cosAngle = dot( direction.negate(), lightNormal ).toVar();
 
 			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
-			ls_emission.assign( light.color.mul( light.intensity ).div( PI ) );
+			ls_emission.assign( light.color.mul( light.intensity ) );
 			ls_distance.assign( dist );
 			ls_direction.assign( direction );
 			// Guard division
@@ -1062,12 +1062,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 							const lightPdfWeighted = lightSample.pdf.mul( lightWeight ).toVar();
 							const brdfPdfWeighted = bPdf.mul( brdfWeight ).toVar();
 
-							// Apply power heuristic for area lights and primary directional lights
+							// Apply power heuristic only for area lights — the BRDF path can
+							// intersect area lights, so both strategies contribute and MIS is valid.
+							// Point/spot/directional lights are delta or non-intersectable by the
+							// BRDF path, so MIS would only reduce energy without compensation.
 							If( lightSample.lightType.equal( int( LIGHT_TYPE_AREA ) ), () => {
-
-								misW.assign( powerHeuristic( { pdf1: lightPdfWeighted, pdf2: brdfPdfWeighted } ) );
-
-							} ).ElseIf( bounceIndex.equal( int( 0 ) ).and( lightSample.lightType.equal( int( LIGHT_TYPE_DIRECTIONAL ) ) ), () => {
 
 								misW.assign( powerHeuristic( { pdf1: lightPdfWeighted, pdf2: brdfPdfWeighted } ) );
 
