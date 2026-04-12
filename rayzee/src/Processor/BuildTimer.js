@@ -51,20 +51,16 @@ export class BuildTimer {
 
 		const totalDuration = performance.now() - this.totalStart;
 
-		const rows = this.order.map( name => {
+		const parts = this.order
+			.map( name => {
 
-			const entry = this.entries.get( name );
-			const dur = entry?.duration ?? 0;
-			const pct = totalDuration > 0 ? ( dur / totalDuration * 100 ).toFixed( 1 ) : '0.0';
-			return { Step: name, 'Time (ms)': Math.round( dur ), '%': pct + '%' };
+				const dur = this.entries.get( name )?.duration ?? 0;
+				return dur >= 1 ? `${name} ${Math.round( dur )}ms` : null;
 
-		} );
+			} )
+			.filter( Boolean );
 
-		rows.push( { Step: 'TOTAL', 'Time (ms)': Math.round( totalDuration ), '%': '100%' } );
-
-		console.groupCollapsed( `⏱ ${this.label} Timing (${Math.round( totalDuration )}ms)` );
-		console.table( rows );
-		console.groupEnd();
+		console.log( `[${this.label}] ${Math.round( totalDuration )}ms` + ( parts.length ? ` | ${parts.join( ' · ' )}` : '' ) );
 
 		return { steps: Object.fromEntries( this.order.map( n => [ n, Math.round( this.entries.get( n )?.duration ?? 0 ) ] ) ), total: Math.round( totalDuration ) };
 

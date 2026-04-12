@@ -692,37 +692,14 @@ export class BVHBuilder {
 
 		this.splitStats.totalBuildTime = performance.now() - buildStartTime;
 
-		// Print phase-level timing breakdown
 		const total = this.splitStats.totalBuildTime;
-		const phasePct = ( ms ) => total > 0 ? ( ms / total * 100 ).toFixed( 1 ) + '%' : '0%';
-
-		const timingRows = [
-			{ Phase: 'Init + bounds', 'Time (ms)': Math.round( this.splitStats.initTime ), '%': phasePct( this.splitStats.initTime ) },
-			{ Phase: 'Morton sort', 'Time (ms)': Math.round( this.splitStats.mortonSortTime ), '%': phasePct( this.splitStats.mortonSortTime ) },
-			{ Phase: 'SAH recursive build', 'Time (ms)': Math.round( this.splitStats.sahBuildTime ), '%': phasePct( this.splitStats.sahBuildTime ) },
-			{ Phase: 'Treelet optimization', 'Time (ms)': Math.round( this.splitStats.treeletOptimizationTime ), '%': phasePct( this.splitStats.treeletOptimizationTime ) },
-			{ Phase: 'Reinsertion optimization', 'Time (ms)': Math.round( this.splitStats.reinsertionOptimizationTime ), '%': phasePct( this.splitStats.reinsertionOptimizationTime ) },
-			{ Phase: 'SA ordering', 'Time (ms)': Math.round( this.splitStats.saOrderTime ), '%': phasePct( this.splitStats.saOrderTime ) },
-			{ Phase: 'Triangle reorder', 'Time (ms)': Math.round( this.splitStats.reorderTime ), '%': phasePct( this.splitStats.reorderTime ) },
-			{ Phase: 'TOTAL', 'Time (ms)': Math.round( total ), '%': '100%' }
-		];
-
-		console.groupCollapsed( `⏱ BVH Build (${n.toLocaleString()} triangles, ${Math.round( total )}ms)` );
-		console.table( timingRows );
-		console.table( {
-			'Total Nodes': this.totalNodes,
-			'Max Leaf Size': this.maxLeafSize,
-			'SAH Splits': this.splitStats.sahSplits,
-			'Object Median Splits': this.splitStats.objectMedianSplits,
-			'Spatial Median Splits': this.splitStats.spatialMedianSplits,
-			'Failed Splits': this.splitStats.failedSplits,
-			'Treelets Processed': this.splitStats.treeletsProcessed,
-			'Treelets Improved': this.splitStats.treeletsImproved,
-			'Avg SAH Improvement': ( this.splitStats.averageSAHImprovement * 100 ).toFixed( 2 ) + '%',
-			'Reinsertions Applied': this.splitStats.reinsertionsApplied,
-			'Reinsertion Iterations': this.splitStats.reinsertionIterations,
-		} );
-		console.groupEnd();
+		const s = this.splitStats;
+		console.log(
+			`[BVH] ${n.toLocaleString()} tris → ${this.totalNodes} nodes in ${Math.round( total )}ms` +
+			` | SAH ${s.sahSplits} objMed ${s.objectMedianSplits} spatMed ${s.spatialMedianSplits} failed ${s.failedSplits}` +
+			( s.treeletsProcessed ? ` | treelets ${s.treeletsImproved}/${s.treeletsProcessed} improved` : '' ) +
+			( s.reinsertionsApplied ? ` | reinsertions ${s.reinsertionsApplied}` : '' )
+		);
 
 		progressCallback && progressCallback( 100 );
 
