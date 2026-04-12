@@ -5,6 +5,7 @@ import {
 	Mesh,
 	MeshBasicMaterial
 } from 'three';
+import { EngineEvents } from '../EngineEvents.js';
 
 /**
  * InteractionManager
@@ -65,6 +66,91 @@ export class InteractionManager extends EventDispatcher {
 		this.canvas.addEventListener( 'pointerup', this.handleContextPointerUp );
 		this.canvas.addEventListener( 'contextmenu', this.handleContextMenu );
 
+		// Cross-manager dependencies (injected after init via setDependencies)
+		this._overlayManager = null;
+		this._transformManager = null;
+		this._appDispatch = null;
+		this._orbitControls = null;
+
+	}
+
+	// ==================== CROSS-MANAGER COORDINATION ====================
+
+	/**
+	 * Inject dependencies needed for select/deselect coordination.
+	 * Call once after all managers are created.
+	 *
+	 * @param {Object} deps
+	 * @param {import('./OverlayManager.js').OverlayManager} deps.overlayManager
+	 * @param {import('./TransformManager.js').TransformManager} deps.transformManager
+	 * @param {Function} deps.appDispatch - (event) => dispatches on PathTracerApp
+	 * @param {import('three/addons/controls/OrbitControls.js').OrbitControls} [deps.orbitControls]
+	 */
+	setDependencies( { overlayManager, transformManager, appDispatch, orbitControls } ) {
+
+		this._overlayManager = overlayManager || null;
+		this._transformManager = transformManager || null;
+		this._appDispatch = appDispatch || null;
+		this._orbitControls = orbitControls || null;
+
+	}
+
+	/**
+	 * Programmatically selects an object (or deselects if null).
+	 * Coordinates: outline helper, internal state, transform gizmo, and event dispatch.
+	 * @param {import('three').Object3D|null} object
+	 */
+	select( object ) {
+
+		const outline = this._overlayManager?.getHelper( 'outline' );
+		if ( outline ) outline.setSelectedObjects( object ? [ object ] : [] );
+
+		this.selectedObject = object || null;
+
+		if ( object ) {
+
+			this._transformManager?.attach( object );
+
+		} else {
+
+			this._transformManager?.detach();
+
+		}
+
+		this._appDispatch?.( { type: EngineEvents.OBJECT_SELECTED, object: object || null } );
+
+	}
+
+	/**
+	 * Deselects the current object.
+	 */
+	deselect() {
+
+		this.select( null );
+
+	}
+
+	/**
+	 * Disables selection mode and detaches the transform gizmo.
+	 */
+	disableMode() {
+
+		this.disableSelectMode();
+		this._transformManager?.detach();
+
+	}
+
+	/**
+	 * Subscribes to an interaction event.
+	 * @param {string} type - Event type
+	 * @param {Function} handler - Event handler
+	 * @returns {Function} Unsubscribe function
+	 */
+	on( type, handler ) {
+
+		this.addEventListener( type, handler );
+		return () => this.removeEventListener( type, handler );
+
 	}
 
 	// ==================== FOCUS MODE ====================
@@ -90,6 +176,9 @@ export class InteractionManager extends EventDispatcher {
 			this.canvas.removeEventListener( 'click', this.handleFocusClick );
 
 		}
+
+		// Disable orbit controls when focus mode is active
+		if ( this._orbitControls ) this._orbitControls.enabled = ! this.focusMode;
 
 		// Emit event for external listeners
 		this.dispatchEvent( {
@@ -597,6 +686,59 @@ export class InteractionManager extends EventDispatcher {
 	}
 
 	// ==================== LIFECYCLE ====================
+
+	/**
+	 * Wires interaction events to app-level dispatches and side-effects.
+	 * Call once during init after selection sub-API is available on the app.
+	 *
+	 * @param {import('../PathTracerApp.js').PathTracerApp} app
+	 */
+	wireAppEvents( app ) {
+
+		this.addEventListener( 'objectSelected', ( event ) => {
+
+			this.select( event.object );
+			app.refreshFrame();
+			app.dispatchEvent( { type: 'objectSelected', object: event.object, uuid: event.uuid } );
+
+		} );
+
+		this.addEventListener( 'objectDeselected', ( event ) => {
+
+			this.select( null );
+			app.refreshFrame();
+			app.dispatchEvent( { type: 'objectDeselected', object: event.object, uuid: event.uuid } );
+
+		} );
+
+		this.addEventListener( 'selectModeChanged', ( event ) => {
+
+			app.dispatchEvent( { type: EngineEvents.SELECT_MODE_CHANGED, enabled: event.enabled } );
+
+		} );
+
+		this.addEventListener( 'objectDoubleClicked', ( event ) => {
+
+			this.select( event.object );
+			app.refreshFrame();
+			app.dispatchEvent( { type: EngineEvents.OBJECT_DOUBLE_CLICKED, object: event.object, uuid: event.uuid } );
+
+		} );
+
+		this.addEventListener( 'focusChanged', ( event ) => {
+
+			app.settings.set( 'focusDistance', event.worldDistance );
+			app.dispatchEvent( { type: 'focusChanged', distance: event.distance } );
+
+		} );
+
+		this.addEventListener( 'afPointPlaced', ( event ) => {
+
+			app.dispatchEvent( { type: EngineEvents.AF_POINT_PLACED, point: event.point } );
+
+		} );
+
+	}
 
 	/**
 	 * Clean up all event listeners and state

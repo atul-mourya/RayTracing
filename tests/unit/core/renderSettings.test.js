@@ -60,7 +60,7 @@ describe( 'RenderSettings', () => {
 		it( 'routes uniform setting to pathTracer', () => {
 
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: vi.fn() } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: vi.fn() } );
 
 			settings.set( 'maxBounces', 8 );
 			expect( mockStage.setUniform ).toHaveBeenCalledWith( 'maxBounces', 8 );
@@ -71,7 +71,7 @@ describe( 'RenderSettings', () => {
 
 			const resetCb = vi.fn();
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: resetCb } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: resetCb } );
 
 			settings.set( 'maxBounces', 12 ); // maxBounces has reset: true
 			expect( resetCb ).toHaveBeenCalledTimes( 1 );
@@ -82,7 +82,7 @@ describe( 'RenderSettings', () => {
 
 			const resetCb = vi.fn();
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: resetCb } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: resetCb } );
 
 			settings.set( 'focusDistance', 5.0 ); // focusDistance has reset: false
 			expect( resetCb ).not.toHaveBeenCalled();
@@ -91,15 +91,14 @@ describe( 'RenderSettings', () => {
 
 		it( 'routes handler setting to named handler', () => {
 
-			const handleExposure = vi.fn();
+			const mockDisplay = { setExposure: vi.fn() };
 			settings.bind( {
-				pathTracer: null,
+				stages: { pathTracer: null, display: mockDisplay },
 				resetCallback: vi.fn(),
-				handlers: { handleExposure }
 			} );
 
 			settings.set( 'exposure', 2.0 );
-			expect( handleExposure ).toHaveBeenCalledWith( 2.0, 1 ); // new, prev
+			expect( mockDisplay.setExposure ).toHaveBeenCalledWith( 2.0 );
 
 		} );
 
@@ -116,7 +115,7 @@ describe( 'RenderSettings', () => {
 
 			const resetCb = vi.fn();
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: resetCb } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: resetCb } );
 
 			// focusDistance has reset: false, but we override to true
 			settings.set( 'focusDistance', 10, { reset: true } );
@@ -142,7 +141,7 @@ describe( 'RenderSettings', () => {
 
 			const resetCb = vi.fn();
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: resetCb } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: resetCb } );
 
 			settings.setMany( { maxBounces: 8, samplesPerPixel: 2 } );
 			expect( resetCb ).toHaveBeenCalledTimes( 1 );
@@ -152,7 +151,7 @@ describe( 'RenderSettings', () => {
 		it( 'skips unchanged values', () => {
 
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: vi.fn() } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: vi.fn() } );
 
 			const original = settings.get( 'maxBounces' );
 			settings.setMany( { maxBounces: original } );
@@ -184,7 +183,7 @@ describe( 'RenderSettings', () => {
 		it( 'wires pathTracer', () => {
 
 			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: vi.fn() } );
+			settings.bind( { stages: { pathTracer: mockStage }, resetCallback: vi.fn() } );
 			settings.set( 'maxBounces', 5 );
 			expect( mockStage.setUniform ).toHaveBeenCalled();
 
@@ -205,8 +204,9 @@ describe( 'RenderSettings', () => {
 
 		it( 'pushes all values to stages', () => {
 
-			const mockStage = { setUniform: vi.fn() };
-			settings.bind( { pathTracer: mockStage, resetCallback: vi.fn() } );
+			const mockStage = { setUniform: vi.fn(), setInteractionModeEnabled: vi.fn(), updateCompletionThreshold: vi.fn(), environment: { setEnvironmentRotation: vi.fn() } };
+			const mockDisplay = { setExposure: vi.fn(), setSaturation: vi.fn(), setTransparentBackground: vi.fn() };
+			settings.bind( { stages: { pathTracer: mockStage, display: mockDisplay }, resetCallback: vi.fn(), reconcileCompletion: vi.fn() } );
 			settings.applyAll();
 
 			// Should have called setUniform for each uniform-routed key

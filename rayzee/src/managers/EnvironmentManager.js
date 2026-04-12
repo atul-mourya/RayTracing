@@ -78,9 +78,102 @@ export class EnvironmentManager {
 
 		/**
 		 * Optional callbacks set by the owning stage.
-		 * @type {{ onReset?: Function, getSceneTextureNodes?: Function }}
+		 * @type {{ onReset?: Function, onAutoExposureReset?: Function, getSceneTextureNodes?: Function }}
 		 */
 		this.callbacks = {};
+
+		// Mode state machine (absorbed from EnvironmentAPI)
+		this._previousHDRI = null;
+
+	}
+
+	// ===== MODE STATE MACHINE =====
+
+	/**
+	 * Switches the environment mode (hdri, gradient, color, procedural).
+	 * Preserves the HDRI texture when switching away, restores when switching back.
+	 * @param {'hdri'|'gradient'|'color'|'procedural'} mode
+	 */
+	async setMode( mode ) {
+
+		const prev = this.envParams.mode;
+		this.envParams.mode = mode;
+
+		// Cache HDRI texture when leaving HDRI mode
+		if ( mode !== 'hdri' && prev === 'hdri' ) {
+
+			this._previousHDRI = this.environmentTexture;
+
+		}
+
+		if ( mode === 'gradient' ) {
+
+			await this.generateGradientTexture();
+
+		} else if ( mode === 'color' ) {
+
+			await this.generateSolidColorTexture();
+
+		} else if ( mode === 'procedural' ) {
+
+			await this.generateProceduralSkyTexture();
+
+		} else if ( mode === 'hdri' && this._previousHDRI ) {
+
+			await this.setEnvironmentMap( this._previousHDRI );
+			this._previousHDRI = null;
+
+		}
+
+		this.markDirty();
+		this.callbacks.onAutoExposureReset?.();
+		this._notifyReset();
+
+	}
+
+	/**
+	 * Marks the environment texture as needing GPU re-upload on the next frame.
+	 */
+	markDirty() {
+
+		if ( this.environmentTexture ) this.environmentTexture.needsUpdate = true;
+
+	}
+
+	// ===== Aliases (match Sub-API surface for zero-churn migration) =====
+
+	/** @see envParams */
+	get params() {
+
+		return this.envParams;
+
+	}
+
+	/** @see environmentTexture */
+	get texture() {
+
+		return this.environmentTexture;
+
+	}
+
+	/** @see generateGradientTexture */
+	generateGradient() {
+
+		return this.generateGradientTexture();
+
+	}
+
+	/** @see generateSolidColorTexture */
+	generateSolid() {
+
+		return this.generateSolidColorTexture();
+
+	}
+
+	/** @see generateProceduralSkyTexture */
+	generateProcedural() {
+
+		return this.generateProceduralSkyTexture();
 
 	}
 

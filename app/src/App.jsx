@@ -84,7 +84,7 @@ const App = () => {
 					if ( noModifiers && hasSelection ) {
 
 						event.preventDefault();
-						getApp()?.setTransformMode( 'translate' );
+						getApp()?.transformManager.setMode( 'translate' );
 
 					}
 
@@ -95,7 +95,7 @@ const App = () => {
 					if ( noModifiers && hasSelection ) {
 
 						event.preventDefault();
-						getApp()?.setTransformMode( 'rotate' );
+						getApp()?.transformManager.setMode( 'rotate' );
 
 					}
 
@@ -108,7 +108,7 @@ const App = () => {
 						event.preventDefault();
 						if ( hasSelection ) {
 
-							getApp()?.setTransformMode( 'scale' );
+							getApp()?.transformManager.setMode( 'scale' );
 
 						} else {
 
@@ -139,7 +139,7 @@ const App = () => {
 			if ( app ) {
 
 				// Deselect any selected object
-				app.selection.select( null );
+				app.interactionManager.deselect();
 				app.refreshFrame?.();
 
 				// Update the store to reflect deselection
@@ -153,10 +153,10 @@ const App = () => {
 		const handleResetCamera = () => {
 
 			const app = getApp();
-			if ( app?.camera?.controls ) {
+			if ( app?.cameraManager?.controls ) {
 
 				// Reset the orbit controls to their default state
-				app.camera.controls.reset();
+				app.cameraManager.controls.reset();
 
 			}
 

@@ -70,7 +70,7 @@ const CameraTab = () => {
 		const app = getApp();
 		if ( app ) {
 
-			setCameraNames( app.camera.getNames() );
+			setCameraNames( app.cameraManager.getNames() );
 			if ( ( app.currentCameraIndex ?? 0 ) === 0 ) {
 
 				setSelectedCameraIndex( 0 );
@@ -86,7 +86,7 @@ const CameraTab = () => {
 		const app = getApp();
 		if ( app ) {
 
-			setCameraNames( app.camera.getNames() );
+			setCameraNames( app.cameraManager.getNames() );
 			setSelectedCameraIndex( app.currentCameraIndex ?? 0 );
 
 		}

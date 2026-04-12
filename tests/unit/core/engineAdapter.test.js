@@ -40,7 +40,11 @@ function createMockEngine() {
 	const listeners = {};
 
 	return {
-		addEventListener( type, fn ) { ( listeners[ type ] ||= [] ).push( fn ); },
+		addEventListener( type, fn ) {
+
+			( listeners[ type ] ||= [] ).push( fn );
+
+		},
 		removeEventListener( type, fn ) {
 
 			if ( listeners[ type ] ) {
@@ -51,7 +55,11 @@ function createMockEngine() {
 			}
 
 		},
-		_emit( type, data ) { ( listeners[ type ] || [] ).forEach( fn => fn( data ) ); },
+		_emit( type, data ) {
+
+			( listeners[ type ] || [] ).forEach( fn => fn( data ) );
+
+		},
 		_listeners: listeners,
 	};
 
@@ -145,6 +153,36 @@ describe( 'connectEngineToStore', () => {
 		engine._emit( 'DENOISING_END' );
 
 		expect( stores._state.setIsDenoising ).toHaveBeenCalledWith( false );
+
+	} );
+
+	it( 'should update animation clips on SceneRebuild', () => {
+
+		// SceneRebuild handler also dispatches a window CustomEvent
+		globalThis.window = { dispatchEvent: vi.fn() };
+		globalThis.CustomEvent = class CustomEvent {
+
+			constructor( type ) {
+
+				this.type = type;
+
+			}
+
+		};
+
+		const mockClips = [ { index: 0, name: 'Walk', duration: 2.0 } ];
+		engine.animationManager = { clips: mockClips };
+
+		const setClips = vi.fn();
+		stores.useAnimationStore = { getState: () => ( { setClips } ) };
+
+		connectEngineToStore( engine, stores );
+		engine._emit( 'SceneRebuild' );
+
+		expect( setClips ).toHaveBeenCalledWith( mockClips );
+
+		delete globalThis.window;
+		delete globalThis.CustomEvent;
 
 	} );
 

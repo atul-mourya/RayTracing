@@ -63,10 +63,10 @@ npm install rayzee three
    engine.set('bounces', 8);
    engine.set('exposure', 1.2);
 
-   // Use namespaced sub-APIs
-   engine.camera.switch(0);
-   engine.lights.add('PointLight');
-   engine.output.screenshot();
+   // Use namespaced APIs and direct methods
+   engine.cameraManager.switch(0);
+   engine.lightManager.add('PointLight');
+   engine.screenshot();
    ```
 
 4. **Run**
@@ -116,7 +116,7 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
     window.addEventListener('resize', () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      engine.output.resize();
+      engine.onResize();
     });
   </script>
 </body>
@@ -168,7 +168,7 @@ No special build config is needed — models and HDRs are loaded via URL at runt
 
 ### PathTracerApp
 
-The main engine class. Extends Three.js `EventDispatcher`. Related functionality is grouped into **namespaced sub-APIs** accessed via `engine.camera`, `engine.lights`, etc.
+The main engine class. Extends Three.js `EventDispatcher`. Related functionality is grouped into **namespaced managers** accessed via `engine.cameraManager`, `engine.lightManager`, etc., or as direct methods on the engine instance.
 
 ```js
 const engine = new PathTracerApp(canvas, options?)
@@ -250,137 +250,137 @@ engine.configureForMode('results')       // Paused rendering for image viewing
 
 ---
 
-### engine.camera
+### engine.cameraManager
 
 Camera switching, auto-focus, DOF, and direct Three.js access.
 
 ```js
-engine.camera.active                  // The active PerspectiveCamera
-engine.camera.controls                // The OrbitControls instance
-engine.camera.switch(index)           // Switch between scene cameras
-engine.camera.getNames()              // List available cameras
-engine.camera.focusOn(center)         // Focus orbit camera on a world-space point
-engine.camera.setAutoFocusMode(mode)  // 'auto' | 'manual'
-engine.camera.setAFScreenPoint(x, y)  // Set normalized AF screen point (0-1)
+engine.cameraManager.active                  // The active PerspectiveCamera
+engine.cameraManager.controls                // The OrbitControls instance
+engine.cameraManager.switch(index)           // Switch between scene cameras
+engine.cameraManager.getNames()              // List available cameras
+engine.cameraManager.focusOn(center)         // Focus orbit camera on a world-space point
+engine.cameraManager.setAutoFocusMode(mode)  // 'auto' | 'manual'
+engine.cameraManager.setAFScreenPoint(x, y)  // Set normalized AF screen point (0-1)
 ```
 
-### engine.lights
+### engine.lightManager
 
 Light CRUD, visual helpers, and GPU sync.
 
 ```js
-engine.lights.add('PointLight')       // Add a light (PointLight, SpotLight, DirectionalLight, RectAreaLight)
-engine.lights.remove(uuid)            // Remove by UUID
-engine.lights.clear()                 // Remove all lights
-engine.lights.getAll()                // Get all light descriptors
-engine.lights.sync()                  // Re-upload light data to GPU
-engine.lights.showHelpers(true)       // Toggle visual helpers
+engine.lightManager.add('PointLight')       // Add a light (PointLight, SpotLight, DirectionalLight, RectAreaLight)
+engine.lightManager.remove(uuid)            // Remove by UUID
+engine.lightManager.clear()                 // Remove all lights
+engine.lightManager.getAll()                // Get all light descriptors
+engine.lightManager.sync()                  // Re-upload light data to GPU
+engine.lightManager.showHelpers(true)       // Toggle visual helpers
 ```
 
-### engine.animation
+### engine.animationManager
 
 GLTF animation playback controls.
 
 ```js
-engine.animation.play(clipIndex)      // Play an animation clip
-engine.animation.pause()              // Pause playback
-engine.animation.resume()             // Resume playback
-engine.animation.stop()               // Stop and reset
-engine.animation.setSpeed(2)          // Set playback speed multiplier
-engine.animation.setLoop(true)        // Enable/disable looping
-engine.animation.clips                // Get available animation clips
+engine.animationManager.play(clipIndex)      // Play an animation clip
+engine.animationManager.pause()              // Pause playback
+engine.animationManager.resume()             // Resume playback
+engine.animationManager.stop()               // Stop and reset
+engine.animationManager.setSpeed(2)          // Set playback speed multiplier
+engine.animationManager.setLoop(true)        // Enable/disable looping
+engine.animationManager.clips                // Get available animation clips
 ```
 
-### engine.materials
+### Materials
 
-Material property updates and texture transforms.
+Material property updates and texture transforms — accessed as direct methods on the engine.
 
 ```js
-engine.materials.setProperty(index, property, value)  // Update a material property
-engine.materials.setTextureTransform(index, name, transform)
-engine.materials.refresh()            // Re-upload all material data to GPU
-engine.materials.replace(index, mat)  // Replace a material entirely
-await engine.materials.rebuild(scene) // Full rebuild (after texture changes)
+engine.setMaterialProperty(index, property, value)  // Update a material property
+engine.setTextureTransform(index, name, transform)   // Update texture transform
+engine.reset()                        // Re-upload all material data to GPU
+engine.stages.pathTracer.materialData.updateMaterial(index, mat)  // Replace a material
+await engine.rebuildMaterials(scene)  // Full rebuild (after texture changes)
 ```
 
-### engine.environment
+### engine.environmentManager
 
 Environment maps, sky modes, and procedural generation.
 
 ```js
-engine.environment.params             // Current environment parameters
-engine.environment.texture            // The loaded environment texture
-await engine.environment.load(url)    // Load HDR/EXR environment map
-await engine.environment.setTexture(tex) // Set a custom environment texture
-await engine.environment.setMode(mode)   // 'hdri' | 'procedural' | 'gradient' | 'color'
-await engine.environment.generateProcedural() // Preetham-model sky
-await engine.environment.generateGradient()   // Gradient sky
-await engine.environment.generateSolid()      // Solid color sky
-engine.environment.markDirty()        // Flag environment for GPU re-upload
+engine.environmentManager.params             // Current environment parameters
+engine.environmentManager.texture            // The loaded environment texture
+await engine.environmentManager.load(url)    // Load HDR/EXR environment map
+await engine.environmentManager.setTexture(tex) // Set a custom environment texture
+await engine.environmentManager.setMode(mode)   // 'hdri' | 'procedural' | 'gradient' | 'color'
+await engine.environmentManager.generateProcedural() // Preetham-model sky
+await engine.environmentManager.generateGradient()   // Gradient sky
+await engine.environmentManager.generateSolid()      // Solid color sky
+engine.environmentManager.markDirty()        // Flag environment for GPU re-upload
 ```
 
-### engine.denoising
+### engine.denoisingManager
 
 Denoiser strategy, ASVGF, OIDN, upscaler, adaptive sampling, and auto-exposure.
 
 ```js
 // Strategy
-engine.denoising.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
-engine.denoising.setASVGFEnabled(true, 'medium')
-engine.denoising.applyASVGFPreset('high')         // 'low' | 'medium' | 'high'
-engine.denoising.setAutoExposure(true)
-engine.denoising.setAdaptiveSampling(true)
+engine.denoisingManager.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
+engine.denoisingManager.setASVGFEnabled(true, 'medium')
+engine.denoisingManager.applyASVGFPreset('high')         // 'low' | 'medium' | 'high'
+engine.denoisingManager.setAutoExposure(true)
+engine.denoisingManager.setAdaptiveSampling(true)
 
 // Fine-grained parameters
-engine.denoising.setASVGFParams({ temporalAlpha: 0.1, phiColor: 10 })
-engine.denoising.setSSRCParams({ temporalAlpha: 0.1, spatialRadius: 3 })
-engine.denoising.setEdgeAwareParams({ pixelEdgeSharpness: 1.0 })
-engine.denoising.setAutoExposureParams({ keyValue: 0.18 })
-engine.denoising.setAdaptiveSamplingParams({ varianceThreshold: 0.01 })
+engine.denoisingManager.setASVGFParams({ temporalAlpha: 0.1, phiColor: 10 })
+engine.denoisingManager.setSSRCParams({ temporalAlpha: 0.1, spatialRadius: 3 })
+engine.denoisingManager.setEdgeAwareParams({ pixelEdgeSharpness: 1.0 })
+engine.denoisingManager.setAutoExposureParams({ keyValue: 0.18 })
+engine.denoisingManager.setAdaptiveSamplingParams({ varianceThreshold: 0.01 })
 
 // OIDN & Upscaler
-engine.denoising.setOIDNEnabled(true)
-engine.denoising.setOIDNQuality('high')
-engine.denoising.setUpscalerEnabled(true)
-engine.denoising.setUpscalerScaleFactor(2)
-engine.denoising.setUpscalerQuality('high')
+engine.denoisingManager.setOIDNEnabled(true)
+engine.denoisingManager.setOIDNQuality('high')
+engine.denoisingManager.setUpscalerEnabled(true)
+engine.denoisingManager.setUpscalerScaleFactor(2)
+engine.denoisingManager.setUpscalerQuality('high')
 ```
 
-### engine.selection
+### engine.interactionManager
 
 Object picking and interaction modes.
 
 ```js
-engine.selection.select(object)       // Programmatically select an object
-engine.selection.deselect()           // Deselect the current object
-engine.selection.toggleMode()         // Toggle object selection mode
-engine.selection.disableMode()        // Disable selection mode
-engine.selection.toggleFocusMode()    // Toggle click-to-focus DOF
-engine.selection.on(type, handler)    // Subscribe to interaction events
+engine.interactionManager.select(object)       // Programmatically select an object
+engine.interactionManager.deselect()           // Deselect the current object
+engine.interactionManager.toggleSelectMode()   // Toggle object selection mode
+engine.interactionManager.disableMode()        // Disable selection mode and detach gizmo
+engine.interactionManager.toggleFocusMode()    // Toggle click-to-focus DOF
+engine.interactionManager.on(type, handler)    // Subscribe (returns unsubscribe function)
 ```
 
-### engine.transform
+### engine.transformManager
 
 Transform gizmo controls.
 
 ```js
-engine.transform.setMode('translate') // 'translate' | 'rotate' | 'scale'
-engine.transform.setSpace('world')    // 'world' | 'local'
-engine.transform.manager              // Access the underlying TransformManager
+engine.transformManager.setMode('translate') // 'translate' | 'rotate' | 'scale'
+engine.transformManager.setSpace('world')    // 'world' | 'local'
+engine.transformManager.manager              // Access the underlying TransformManager
 ```
 
-### engine.output
+### Output Methods
 
-Canvas output, screenshots, and scene statistics.
+Canvas output, screenshots, and scene statistics — accessed as direct methods on the engine.
 
 ```js
-engine.output.getCanvas()             // Get the canvas with the final rendered image
-engine.output.screenshot()            // Download a PNG screenshot
-engine.output.getStatistics()         // Triangle count, mesh count, etc.
-engine.output.setSize(1920, 1080)     // Set explicit canvas dimensions
-engine.output.resize()                // Trigger manual resize recalculation
-engine.output.isComplete()            // Check if rendering has converged
-engine.output.getFrameCount()         // Get the current accumulated frame count
+engine.getCanvas()             // Get the canvas with the final rendered image
+engine.screenshot()            // Download a PNG screenshot
+engine.getStatistics()         // Triangle count, mesh count, etc.
+engine.setCanvasSize(1920, 1080)  // Set explicit canvas dimensions
+engine.onResize()              // Trigger manual resize recalculation
+engine.isComplete()            // Check if rendering has converged
+engine.getFrameCount()         // Get the current accumulated frame count
 ```
 
 ---
@@ -443,19 +443,6 @@ class MyCustomStage extends RenderStage {
 // Core
 import { PathTracerApp, EngineEvents } from 'rayzee';
 
-// Sub-API facades (also accessible as engine.camera, engine.lights, etc.)
-import {
-  CameraAPI,
-  LightsAPI,
-  AnimationAPI,
-  MaterialsAPI,
-  EnvironmentAPI,
-  DenoisingAPI,
-  SelectionAPI,
-  TransformAPI,
-  OutputAPI,
-} from 'rayzee';
-
 // Configuration & presets
 import {
   ENGINE_DEFAULTS,
@@ -517,8 +504,8 @@ OIDN provides high-quality AI denoising for final renders. It runs automatically
 
    ```js
    // After engine.init() completes
-   engine.denoising.setOIDNEnabled(true);
-   engine.denoising.setOIDNQuality('balance'); // 'fast' | 'balance' | 'high'
+   engine.denoisingManager.setOIDNEnabled(true);
+   engine.denoisingManager.setOIDNQuality('balance'); // 'fast' | 'balance' | 'high'
    ```
 
 3. **Listen for progress** (optional)

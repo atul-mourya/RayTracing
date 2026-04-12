@@ -27,8 +27,10 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 	let frameCount = 0;
 
 	return {
-		_controls: { enabled: true },
-		_camera: { updateMatrixWorld: vi.fn() },
+		cameraManager: {
+			camera: { updateMatrixWorld: vi.fn() },
+			controls: { enabled: true },
+		},
 		animationManager: {
 			hasAnimations: true,
 			clips: [ { index: 0, name: 'Walk', duration: clipDuration } ],
@@ -43,6 +45,8 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 				get frameCount() { return frameCount; },
 				renderMode: { value: 0 },
 				updateCompletionThreshold: vi.fn(),
+				setUniform: vi.fn(),
+				tileManager: { setTileCount: vi.fn() },
 			},
 			display: { render: vi.fn() },
 		},
@@ -76,7 +80,7 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 		setRenderMode: vi.fn(),
 		setTileCount: vi.fn(),
 		setTileHelperEnabled: vi.fn(),
-		getOutputCanvas: vi.fn( () => {
+		getCanvas: vi.fn( () => {
 
 			// Return a minimal object that createImageBitmap can't actually use,
 			// but we mock createImageBitmap globally
@@ -153,7 +157,7 @@ describe( 'VideoRenderManager', () => {
 
 			await manager.renderAnimation( { fps: 30, totalFrames: 1 } );
 			// Controls are disabled during render, then restored
-			expect( app._controls.enabled ).toBe( true ); // restored after
+			expect( app.cameraManager.controls.enabled ).toBe( true ); // restored after
 
 		} );
 

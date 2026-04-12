@@ -107,6 +107,7 @@ export class TransformManager {
 	setMode( mode ) {
 
 		this._controls.setMode( mode );
+		this._app?.dispatchEvent( { type: EngineEvents.TRANSFORM_MODE_CHANGED, mode } );
 
 	}
 

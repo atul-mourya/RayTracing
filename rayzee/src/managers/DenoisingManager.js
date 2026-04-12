@@ -20,7 +20,7 @@ export class DenoisingManager extends EventDispatcher {
 	/**
 	 * @param {Object} params
 	 * @param {import('three/webgpu').WebGPURenderer} params.renderer
-	 * @param {HTMLCanvasElement|null}                 params.denoiserCanvas
+	 * @param {HTMLCanvasElement}                      params.mainCanvas  - The primary rendering canvas
 	 * @param {import('three').Scene}                  params.scene
 	 * @param {import('three').PerspectiveCamera}      params.camera
 	 * @param {Object}                                 params.stages     - Named references to pipeline stages
@@ -29,12 +29,13 @@ export class DenoisingManager extends EventDispatcher {
 	 * @param {Function}                               params.getSaturation     - () => current saturation value
 	 * @param {Function}                               params.getTransparentBg  - () => boolean
 	 */
-	constructor( { renderer, denoiserCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg } ) {
+	constructor( { renderer, mainCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg } ) {
 
 		super();
 
 		this.renderer = renderer;
-		this.denoiserCanvas = denoiserCanvas;
+		this.mainCanvas = mainCanvas;
+		this.denoiserCanvas = this._createDenoiserCanvas( mainCanvas );
 		this.scene = scene;
 		this.camera = camera;
 		this.pipeline = pipeline;
@@ -48,6 +49,74 @@ export class DenoisingManager extends EventDispatcher {
 
 		this.denoiser = null;
 		this.upscaler = null;
+
+		// Resolution tracking — used for canvas restoration on reset
+		this._lastRenderWidth = 0;
+		this._lastRenderHeight = 0;
+
+	}
+
+	_createDenoiserCanvas( mainCanvas ) {
+
+		const parent = mainCanvas.parentNode;
+		if ( ! parent ) return null;
+
+		const dc = document.createElement( 'canvas' );
+		dc.width = mainCanvas.width;
+		dc.height = mainCanvas.height;
+		dc.style.width = `${mainCanvas.clientWidth}px`;
+		dc.style.height = `${mainCanvas.clientHeight}px`;
+
+		parent.insertBefore( dc, mainCanvas );
+		return dc;
+
+	}
+
+	/**
+	 * Updates the render resolution and propagates to denoiser/upscaler.
+	 * @param {number} width
+	 * @param {number} height
+	 */
+	setRenderSize( width, height ) {
+
+		this._lastRenderWidth = width;
+		this._lastRenderHeight = height;
+		this.denoiser?.setSize( width, height );
+		this.upscaler?.setBaseSize( width, height );
+
+	}
+
+	/**
+	 * Syncs the denoiser canvas CSS dimensions to match display size.
+	 * @param {number} width
+	 * @param {number} height
+	 */
+	syncCanvasStyle( width, height ) {
+
+		if ( this.denoiserCanvas ) {
+
+			this.denoiserCanvas.style.width = `${width}px`;
+			this.denoiserCanvas.style.height = `${height}px`;
+
+		}
+
+	}
+
+	/**
+	 * Restores the denoiser canvas to base render resolution after upscaling.
+	 * @returns {boolean} true if the canvas was resized
+	 */
+	restoreBaseResolution() {
+
+		if ( ! this.denoiserCanvas || ! this._lastRenderWidth || ! this._lastRenderHeight ) return false;
+
+		const wasResized = this.denoiserCanvas.width !== this._lastRenderWidth
+			|| this.denoiserCanvas.height !== this._lastRenderHeight;
+
+		this.denoiserCanvas.width = this._lastRenderWidth;
+		this.denoiserCanvas.height = this._lastRenderHeight;
+
+		return wasResized;
 
 	}
 
@@ -374,9 +443,226 @@ export class DenoisingManager extends EventDispatcher {
 
 		}
 
+		if ( this.denoiserCanvas?.parentNode ) {
+
+			this.denoiserCanvas.parentNode.removeChild( this.denoiserCanvas );
+			this.denoiserCanvas = null;
+
+		}
+
+	}
+
+	// ── Injected Dependencies (set after construction) ───────────
+
+	/** @param {import('./OverlayManager.js').OverlayManager} overlayManager */
+	setOverlayManager( overlayManager ) {
+
+		this._overlayManager = overlayManager;
+
+	}
+
+	/** @param {Function} fn - () => void, triggers accumulation reset */
+	setResetCallback( fn ) {
+
+		this._onReset = fn;
+
+	}
+
+	/** @param {import('../RenderSettings.js').RenderSettings} settings */
+	setSettings( settings ) {
+
+		this._settings = settings;
+
+	}
+
+	// ── Stage Parameter Forwarding ───────────────────────────────
+	// These methods match the DenoisingAPI surface so call sites need
+	// zero or minimal changes after facade removal.
+
+	/** Updates ASVGF stage parameters. */
+	setASVGFParams( params ) {
+
+		this._stages.asvgf?.updateParameters( params );
+
+	}
+
+	/** Toggles the ASVGF heatmap debug overlay. */
+	toggleASVGFHeatmap( enabled ) {
+
+		this._stages.asvgf?.toggleHeatmap?.( enabled );
+
+	}
+
+	/**
+	 * Configures ASVGF for a specific render mode (multi-stage coordination).
+	 * @param {Object} config - { enabled, temporalAlpha, atrousIterations, ... }
+	 */
+	configureASVGFForMode( config ) {
+
+		if ( ! this._stages.asvgf ) return;
+
+		this._stages.asvgf.enabled = config.enabled;
+		if ( this._stages.variance ) this._stages.variance.enabled = config.enabled;
+		if ( this._stages.bilateralFilter ) this._stages.bilateralFilter.enabled = config.enabled;
+
+		if ( config.enabled ) {
+
+			this._stages.asvgf.updateParameters( config );
+
+		}
+
+	}
+
+	/** Updates SSRC stage parameters. */
+	setSSRCParams( params ) {
+
+		this._stages.ssrc?.updateParameters( params );
+
+	}
+
+	/** Updates edge-aware filtering parameters. */
+	setEdgeAwareParams( params ) {
+
+		this._stages.edgeFilter?.updateUniforms( params );
+
+	}
+
+	/** Updates auto-exposure stage parameters. */
+	setAutoExposureParams( params ) {
+
+		this._stages.autoExposure?.updateParameters( params );
+
+	}
+
+	/**
+	 * Updates adaptive sampling parameters (with settings bridge).
+	 * @param {Object} params
+	 */
+	setAdaptiveSamplingParams( params ) {
+
+		if ( params.min !== undefined ) this._stages.pathTracer?.setAdaptiveSamplingMin( params.min );
+		if ( params.adaptiveSamplingMax !== undefined ) this._settings?.set( 'adaptiveSamplingMax', params.adaptiveSamplingMax );
+		this._stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
+
+	}
+
+	/** Toggles the adaptive sampling debug helper. */
+	toggleAdaptiveSamplingHelper( enabled ) {
+
+		this._stages.adaptiveSampling?.toggleHelper( enabled );
+
+	}
+
+	// ── OIDN ─────────────────────────────────────────────────────
+
+	/** Enables or disables Intel OIDN denoiser. */
+	setOIDNEnabled( enabled ) {
+
+		if ( this.denoiser ) this.denoiser.enabled = enabled;
+
+	}
+
+	/** Sets OIDN denoiser quality. */
+	setOIDNQuality( quality ) {
+
+		this.denoiser?.updateQuality( quality );
+
+	}
+
+	/** Enables or disables the OIDN tile helper overlay. */
+	setOIDNTileHelper( enabled ) {
+
+		this._setTileHelper( enabled );
+
+	}
+
+	/** Enables or disables the tile helper overlay. */
+	setTileHelperEnabled( enabled ) {
+
+		this._setTileHelper( enabled );
+
+	}
+
+	/** Enables or disables tile highlight. */
+	setTileHighlightEnabled( enabled ) {
+
+		this._setTileHelper( enabled );
+
+	}
+
+	// ── AI Upscaler ──────────────────────────────────────────────
+
+	/** Enables or disables the AI upscaler. */
+	setUpscalerEnabled( enabled ) {
+
+		if ( this.upscaler ) this.upscaler.enabled = enabled;
+
+	}
+
+	/** Sets the upscaler scale factor. */
+	setUpscalerScaleFactor( factor ) {
+
+		this.upscaler?.setScaleFactor( factor );
+
+	}
+
+	/** Sets the upscaler quality level. */
+	setUpscalerQuality( quality ) {
+
+		this.upscaler?.setQuality( quality );
+
+	}
+
+	// ── Convenience (match DenoisingAPI names with reset) ────────
+
+	/**
+	 * Enables or disables auto-exposure (convenience wrapper).
+	 * @param {boolean} enabled
+	 */
+	setAutoExposure( enabled ) {
+
+		this.setAutoExposureEnabled( enabled, this._getExposure() );
+		this._onReset?.();
+
+	}
+
+	/**
+	 * Enables or disables adaptive sampling (convenience wrapper with settings bridge).
+	 * @param {boolean} enabled
+	 */
+	setAdaptiveSampling( enabled ) {
+
+		this._settings?.set( 'useAdaptiveSampling', enabled );
+		this.setAdaptiveSamplingEnabled( enabled );
+
+	}
+
+	/**
+	 * Switches strategy with automatic reset (convenience wrapper).
+	 * @param {'none'|'asvgf'|'ssrc'|'edgeaware'} strategy
+	 * @param {string} [asvgfPreset]
+	 */
+	setStrategy( strategy, asvgfPreset ) {
+
+		this.setDenoiserStrategy( strategy, asvgfPreset );
+		this._onReset?.();
+
 	}
 
 	// ── Private ───────────────────────────────────────────────────
+
+	_setTileHelper( enabled ) {
+
+		const tileHelper = this._overlayManager?.getHelper( 'tiles' );
+		if ( tileHelper ) {
+
+			tileHelper.enabled = enabled;
+			if ( ! enabled ) tileHelper.hide();
+
+		}
+
+	}
+
 
 	_getEffectiveExposure() {
 

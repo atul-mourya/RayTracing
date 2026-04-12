@@ -1,3 +1,7 @@
+import { TileHelper } from './helpers/TileHelper.js';
+import { OutlineHelper } from './helpers/OutlineHelper.js';
+import { EngineEvents } from '../EngineEvents.js';
+
 /**
  * OverlayManager — Unified overlay system for visual helpers.
  *
@@ -60,6 +64,99 @@ export class OverlayManager {
 	getHUDCanvas() {
 
 		return this._hudCanvas;
+
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// Default helpers setup
+	// ═══════════════════════════════════════════════════════════════
+
+	/**
+	 * Creates and wires the default overlay helpers (tile progress, outline).
+	 * Call once during app init after pipeline and managers are ready.
+	 *
+	 * @param {Object} config
+	 * @param {import('../SceneHelpers.js').SceneHelpers} config.helperScene
+	 * @param {import('three').Scene} config.meshScene
+	 * @param {import('../Pipeline/RenderPipeline.js').RenderPipeline} config.pipeline
+	 * @param {import('./DenoisingManager.js').DenoisingManager} config.denoisingManager
+	 * @param {import('three').EventDispatcher} config.app - App instance for resize/render-complete events
+	 * @param {number} config.renderWidth
+	 * @param {number} config.renderHeight
+	 */
+	setupDefaultHelpers( { helperScene, meshScene, pipeline, denoisingManager, app, renderWidth, renderHeight } ) {
+
+		this.setHelperScene( helperScene );
+
+		// ── Tile helper (shared across path tracer, OIDN, upscaler) ──
+		const tileHelper = new TileHelper();
+		this.register( 'tiles', tileHelper );
+
+		tileHelper.setRenderSize( renderWidth || 1, renderHeight || 1 );
+
+		app.addEventListener( 'resolution_changed', ( e ) => {
+
+			tileHelper.setRenderSize( e.width, e.height );
+
+		} );
+
+		// Path tracer tile events
+		pipeline.eventBus.on( 'tile:changed', ( e ) => {
+
+			if ( e.renderMode === 1 && e.tileBounds ) {
+
+				tileHelper.setActiveTile( e.tileBounds );
+				tileHelper.show();
+
+			}
+
+		} );
+
+		pipeline.eventBus.on( 'pipeline:reset', () => tileHelper.hide() );
+		app.addEventListener( EngineEvents.RENDER_COMPLETE, () => tileHelper.hide() );
+
+		// OIDN/upscaler tile events
+		this._wireDenoiserTileEvents( tileHelper, denoisingManager );
+
+		// ── Outline helper ──
+		const outlineHelper = new OutlineHelper( this.renderer, meshScene, this.camera );
+		this.register( 'outline', outlineHelper );
+
+	}
+
+	/**
+	 * Wires denoiser/upscaler tile progress events to the tile helper.
+	 * These fire while the animation loop is stopped, so we trigger manual HUD redraws.
+	 */
+	_wireDenoiserTileEvents( tileHelper, denoisingManager ) {
+
+		const sources = [ denoisingManager?.denoiser, denoisingManager?.upscaler ];
+
+		for ( const source of sources ) {
+
+			if ( ! source ) continue;
+
+			source.addEventListener( 'tileProgress', ( e ) => {
+
+				if ( e.tile ) {
+
+					tileHelper.setRenderSize( e.imageWidth, e.imageHeight );
+					tileHelper.setActiveTile( e.tile );
+					tileHelper.show();
+					this.refreshHUD();
+
+				}
+
+			} );
+
+			source.addEventListener( 'end', () => {
+
+				tileHelper.hide();
+				this.refreshHUD();
+
+			} );
+
+		}
 
 	}
 

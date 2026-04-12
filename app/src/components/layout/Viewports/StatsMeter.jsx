@@ -83,7 +83,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 			try {
 
-				const statistics = app.output?.getStatistics();
+				const statistics = app.getStatistics?.();
 				setSceneStats( statistics ?? null );
 
 			} catch ( error ) {
@@ -125,7 +125,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		// Update app — setMaxSamples handles completion state internally, never resets
 		const app = getApp();
-		if ( app ) app.set( 'maxSamples', value );
+		if ( app ) app.settings.set( 'maxSamples', value );
 
 	}, [ storeMaxSamples, setStoreMaxSamples ] );
 
@@ -137,7 +137,7 @@ const StatsMeter = ( { viewportMode } ) => {
 
 		const newMaxSamples = viewportMode === "preview" ? 60 : 30;
 
-		app.set( 'maxSamples', newMaxSamples );
+		app.settings.set( 'maxSamples', newMaxSamples );
 		setStoreMaxSamples( newMaxSamples );
 
 	}, [ viewportMode, setStoreMaxSamples ] );

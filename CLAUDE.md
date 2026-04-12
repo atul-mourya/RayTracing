@@ -169,7 +169,7 @@ Zustand-based stores with **automatic 3D engine synchronization**:
 - `useAssetsStore` - Model/environment loading state
 - `useCameraStore` - Camera controls with DOF presets
 - `useAnimationStore` - Animation playback, clip selection, speed/loop controls
-- Transform state (`transformMode`, `transformSpace`, `isTransforming`) lives in `useStore` with handlers that sync to engine via `getApp()?.setTransformMode()`
+- Transform state (`transformMode`, `transformSpace`, `isTransforming`) lives in `useStore` with handlers that sync to engine via `getApp()?.transform.setMode()`
 - Pattern: `handleChange()` utility creates handlers that update both store state and the app, triggering `app.reset()` for immediate visual feedback
 
 ### React Hooks for Engine Integration

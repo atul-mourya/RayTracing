@@ -11,50 +11,76 @@ vi.mock( 'three', () => {
 
 	}
 
+	class PerspectiveCamera {
+
+		constructor( fov = 50, aspect = 1, near = 0.1, far = 1000 ) {
+
+			this.fov = fov;
+			this.aspect = aspect;
+			this.near = near;
+			this.far = far;
+			this.position = { x: 0, y: 0, z: 0, set( x, y, z ) { this.x = x; this.y = y; this.z = z; }, copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) };
+			this.quaternion = { copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) };
+			this.name = '';
+			this.updateProjectionMatrix = vi.fn();
+			this.updateMatrixWorld = vi.fn();
+
+		}
+
+	}
+
 	return {
 		EventDispatcher,
-		Vector3: class { constructor( x = 0, y = 0, z = 0 ) { this.x = x; this.y = y; this.z = z; } copy( v ) { this.x = v.x; this.y = v.y; this.z = v.z; return this; } subVectors( a, b ) { this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this; } normalize() { return this; } multiplyScalar() { return this; } add() { return this; } length() { return 1; } },
+		PerspectiveCamera,
+		Vector3: class { constructor( x = 0, y = 0, z = 0 ) { this.x = x; this.y = y; this.z = z; } copy( v ) { this.x = v.x; this.y = v.y; this.z = v.z; return this; } subVectors( a, b ) { this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this; } normalize() { return this; } multiplyScalar() { return this; } add() { return this; } addScaledVector() { return this; } length() { return 1; } applyQuaternion() { return this; } },
 	};
 
 } );
 
-import { CameraManager } from '@/core/managers/CameraManager.js';
+vi.mock( 'three/addons/controls/OrbitControls.js', () => ( {
+	OrbitControls: class {
 
-function createMockCamera( name = '' ) {
+		constructor() {
 
-	return {
-		name,
-		position: { x: 0, y: 0, z: 5, copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) },
-		rotation: { copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) },
-		fov: 50,
-		near: 0.1,
-		far: 1000,
-		aspect: 1.5,
-		updateProjectionMatrix: vi.fn(),
-		lookAt: vi.fn(),
-	};
+			this.target = { x: 0, y: 0, z: 0, copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) };
+			this.enabled = true;
+			this.screenSpacePanning = false;
+			this.zoomToCursor = false;
 
-}
+		}
 
-function createMockControls() {
+		update() {}
+		saveState() {}
+		dispose() {}
+		addEventListener() {}
+		removeEventListener() {}
 
-	return {
-		target: { x: 0, y: 0, z: 0, copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) },
-		update: vi.fn(),
-		enabled: true,
-	};
+	}
+} ) );
+
+vi.mock( '@/core/EngineEvents.js', () => ( {
+	EngineEvents: { AUTO_FOCUS_UPDATED: 'AUTO_FOCUS_UPDATED' }
+} ) );
+
+vi.mock( '@/core/EngineDefaults.js', () => ( {
+	AF_DEFAULTS: { SMOOTHING_FACTOR: 0.2, FALLBACK_DISTANCE: 5.0, SNAP_THRESHOLD: 0.5, RESET_THRESHOLD: 0.01 }
+} ) );
+
+const { CameraManager } = await import( '@/core/managers/CameraManager.js' );
+
+function createMockCanvas() {
+
+	return { clientWidth: 800, clientHeight: 600 };
 
 }
 
 describe( 'CameraManager', () => {
 
-	let manager, camera, controls;
+	let manager;
 
 	beforeEach( () => {
 
-		camera = createMockCamera();
-		controls = createMockControls();
-		manager = new CameraManager( camera, controls, null );
+		manager = new CameraManager( createMockCanvas() );
 
 	} );
 
@@ -64,15 +90,15 @@ describe( 'CameraManager', () => {
 
 		it( 'stores camera and controls', () => {
 
-			expect( manager.camera ).toBe( camera );
-			expect( manager.controls ).toBe( controls );
+			expect( manager.camera ).toBeDefined();
+			expect( manager.controls ).toBeDefined();
 
 		} );
 
 		it( 'initializes with default camera in cameras list', () => {
 
 			expect( manager.cameras ).toHaveLength( 1 );
-			expect( manager.cameras[ 0 ] ).toBe( camera );
+			expect( manager.cameras[ 0 ] ).toBe( manager.camera );
 
 		} );
 
@@ -96,8 +122,8 @@ describe( 'CameraManager', () => {
 
 		it( 'replaces camera list', () => {
 
-			const cam2 = createMockCamera( 'ModelCam' );
-			manager.setCameras( [ camera, cam2 ] );
+			const cam2 = { name: 'ModelCam' };
+			manager.setCameras( [ manager.camera, cam2 ] );
 			expect( manager.cameras ).toHaveLength( 2 );
 
 		} );
@@ -116,8 +142,8 @@ describe( 'CameraManager', () => {
 
 		it( 'returns named cameras', () => {
 
-			const cam2 = createMockCamera( 'Front' );
-			manager.setCameras( [ camera, cam2 ] );
+			const cam2 = { name: 'Front' };
+			manager.setCameras( [ manager.camera, cam2 ] );
 
 			const names = manager.getCameraNames();
 			expect( names[ 0 ] ).toBe( 'Default Camera' );
@@ -127,8 +153,8 @@ describe( 'CameraManager', () => {
 
 		it( 'uses "Camera N" for unnamed cameras', () => {
 
-			const cam2 = createMockCamera( '' );
-			manager.setCameras( [ camera, cam2 ] );
+			const cam2 = { name: '' };
+			manager.setCameras( [ manager.camera, cam2 ] );
 
 			const names = manager.getCameraNames();
 			expect( names[ 1 ] ).toBe( 'Camera 1' );

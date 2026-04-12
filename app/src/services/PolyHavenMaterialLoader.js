@@ -302,7 +302,7 @@ export class PolyHavenMaterialLoader {
 				await new Promise( resolve => setTimeout( resolve, 100 ) );
 
 				// Use the new material rebuild method
-				await app.materials.rebuild();
+				await app.rebuildMaterials();
 
 				console.log( 'Path tracer successfully updated with new material' );
 

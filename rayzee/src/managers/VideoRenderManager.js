@@ -87,7 +87,7 @@ export class VideoRenderManager {
 		app.stages.pathTracer?.updateCompletionThreshold?.();
 
 		// Disable camera controls during render
-		if ( app._controls ) app._controls.enabled = false;
+		if ( app.cameraManager.controls ) app.cameraManager.controls.enabled = false;
 
 		try {
 
@@ -132,7 +132,7 @@ export class VideoRenderManager {
 				if ( this._cancelled ) break;
 
 				// 5. Capture frame from output canvas
-				const canvas = app.getOutputCanvas();
+				const canvas = app.getCanvas();
 				if ( canvas && onFrame ) {
 
 					const bitmap = await createImageBitmap( canvas );
@@ -205,7 +205,7 @@ export class VideoRenderManager {
 
 		while ( ! pathTracer.isComplete && ! this._cancelled ) {
 
-			app._camera.updateMatrixWorld();
+			app.cameraManager.camera.updateMatrixWorld();
 			app.pipeline.render();
 
 			// Yield every 4 passes to keep UI responsive and update stats
@@ -280,7 +280,7 @@ export class VideoRenderManager {
 			samplesPerPixel: app.settings.get( 'samplesPerPixel' ),
 			transmissiveBounces: app.settings.get( 'transmissiveBounces' ),
 			renderMode: app.stages.pathTracer?.renderMode?.value,
-			controlsEnabled: app._controls?.enabled,
+			controlsEnabled: app.cameraManager.controls?.enabled,
 			oidnEnabled: app.denoisingManager?.denoiser?.enabled,
 			oidnQuality: app.denoisingManager?.denoiser?.quality,
 			wasPlaying: app.animationManager?.isPlaying,
@@ -306,13 +306,13 @@ export class VideoRenderManager {
 
 		if ( app.stages.pathTracer && state.renderMode !== undefined ) {
 
-			app.setRenderMode( state.renderMode );
+			app.stages.pathTracer?.setUniform( 'renderMode', parseInt( state.renderMode ) );
 
 		}
 
 		app.stages.pathTracer?.updateCompletionThreshold?.();
 
-		if ( app._controls ) app._controls.enabled = state.controlsEnabled ?? true;
+		if ( app.cameraManager.controls ) app.cameraManager.controls.enabled = state.controlsEnabled ?? true;
 
 		if ( app.denoisingManager?.denoiser ) {
 

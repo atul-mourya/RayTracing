@@ -15,14 +15,17 @@ export class LightManager extends EventDispatcher {
 	 * @param {import('three').Scene}      scene          - WebGPU light scene
 	 * @param {import('../SceneHelpers.js').SceneHelpers} sceneHelpers
 	 * @param {import('../Stages/PathTracer.js').PathTracer} pathTracer
+	 * @param {Object} [options]
+	 * @param {Function} [options.onReset] - Callback to reset accumulation after light changes
 	 */
-	constructor( scene, sceneHelpers, pathTracer ) {
+	constructor( scene, sceneHelpers, pathTracer, options = {} ) {
 
 		super();
 
 		this.scene = scene;
 		this.sceneHelpers = sceneHelpers;
 		this.pathTracer = pathTracer;
+		this._onReset = options.onReset || null;
 
 	}
 
@@ -78,6 +81,7 @@ export class LightManager extends EventDispatcher {
 		this.scene.add( light );
 		this.updateLights();
 		this._syncHelpers();
+		this._onReset?.();
 
 		return this._buildDescriptor( light );
 
@@ -97,6 +101,7 @@ export class LightManager extends EventDispatcher {
 		if ( light.target ) light.target.removeFromParent();
 		light.removeFromParent();
 		this.updateLights();
+		this._onReset?.();
 		return true;
 
 	}
@@ -109,6 +114,7 @@ export class LightManager extends EventDispatcher {
 		this.sceneHelpers.clear();
 		this._removeAllLights();
 		this.updateLights();
+		this._onReset?.();
 
 	}
 
@@ -202,6 +208,50 @@ export class LightManager extends EventDispatcher {
 			this.sceneHelpers.clear();
 
 		}
+
+	}
+
+	// ── Aliases (match Sub-API surface for zero-churn migration) ──
+
+	/** @see addLight */
+	add( type ) {
+
+		return this.addLight( type );
+
+	}
+
+	/** @see removeLight */
+	remove( uuid ) {
+
+		return this.removeLight( uuid );
+
+	}
+
+	/** @see clearLights */
+	clear() {
+
+		this.clearLights();
+
+	}
+
+	/** @see getLights */
+	getAll() {
+
+		return this.getLights();
+
+	}
+
+	/** @see updateLights */
+	sync() {
+
+		this.updateLights();
+
+	}
+
+	/** @see setShowLightHelper */
+	showHelpers( show ) {
+
+		this.setShowLightHelper( show );
 
 	}
 

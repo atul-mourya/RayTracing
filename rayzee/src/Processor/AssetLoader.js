@@ -1,5 +1,5 @@
 import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping, LinearMipmapLinearFilter,
-	TextureLoader, Mesh, MeshStandardMaterial, Points, PointsMaterial, LoadingManager, EventDispatcher
+	TextureLoader, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, CircleGeometry, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
@@ -1253,6 +1253,30 @@ export class AssetLoader extends EventDispatcher {
 	}
 
 	// Utility methods
+
+	/**
+	 * Creates and adds a floor plane to the scene.
+	 * The floor plane is used for focus raycasting and ground contact.
+	 */
+	createFloorPlane() {
+
+		this.floorPlane = new Mesh(
+			new CircleGeometry(),
+			new MeshPhysicalMaterial( {
+				transparent: false,
+				color: 0x303030,
+				roughness: 1,
+				metalness: 0,
+				opacity: 0,
+				transmission: 0,
+			} )
+		);
+		this.floorPlane.name = "Ground";
+		this.floorPlane.visible = false;
+		this.scene.add( this.floorPlane );
+
+	}
+
 	setFloorPlane( floorPlane ) {
 
 		this.floorPlane = floorPlane;

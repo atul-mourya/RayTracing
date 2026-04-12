@@ -6,28 +6,34 @@
  * them in the format expected by PathTracerApp.refitBVH().
  */
 
-import { AnimationMixer, Timer, Vector3, LoopRepeat, LoopOnce } from 'three';
+import { AnimationMixer, EventDispatcher, Timer, Vector3, LoopRepeat, LoopOnce } from 'three';
+import { EngineEvents } from '../EngineEvents.js';
 
-export class AnimationManager {
+export class AnimationManager extends EventDispatcher {
 
 	constructor() {
+
+		super();
 
 		this.mixer = null;
 		this.timer = new Timer();
 		this.actions = [];
 		this.isPlaying = false;
 
-		this._scene = null;       // scene root (for matrixWorld updates)
-		this._mixerRoot = null;   // mixer target (GLTF model root for track resolution)
+		this._scene = null; // scene root (for matrixWorld updates)
+		this._mixerRoot = null; // mixer target (GLTF model root for track resolution)
 		this._meshes = null;
 		this._meshTriRanges = null; // { start, count, uniqueVerts, indices }[]
-		this._posBuffer = null;     // Float32Array(triCount * 9) — reused each frame
+		this._posBuffer = null; // Float32Array(triCount * 9) — reused each frame
 		this._tempVec = new Vector3();
-		this._skinnedCache = null;  // per-mesh Float32Array for skinned vertex positions
+		this._skinnedCache = null; // per-mesh Float32Array for skinned vertex positions
 		this._totalTriangleCount = 0;
 		this._clipsCache = null;
 		this._savedTimeScale = 1;
 		this.onFinished = null; // callback when a non-looping clip ends
+
+		/** Injected by PathTracerApp — wakes the render loop after play/resume. */
+		this.wakeCallback = null;
 
 	}
 
@@ -144,6 +150,8 @@ export class AnimationManager {
 
 		this.timer.reset();
 		this.isPlaying = true;
+		this.wakeCallback?.();
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_STARTED } );
 
 	}
 
@@ -157,6 +165,7 @@ export class AnimationManager {
 		this.mixer.timeScale = 0;
 		this.timer.reset();
 		this.isPlaying = false;
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_PAUSED } );
 
 	}
 
@@ -170,6 +179,8 @@ export class AnimationManager {
 		this.mixer.timeScale = this._savedTimeScale || 1;
 		this.timer.reset();
 		this.isPlaying = true;
+		this.wakeCallback?.();
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_STARTED } );
 
 	}
 
@@ -184,6 +195,7 @@ export class AnimationManager {
 		this.mixer.timeScale = this._savedTimeScale || 1;
 		this.timer.reset();
 		this.isPlaying = false;
+		this.dispatchEvent( { type: EngineEvents.ANIMATION_STOPPED } );
 
 	}
 

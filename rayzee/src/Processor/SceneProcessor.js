@@ -1298,6 +1298,152 @@ export class SceneProcessor {
 	}
 
 	/**
+	 * Computes the dirty buffer ranges for a set of affected mesh BLASes.
+	 * Used for partial GPU upload after per-mesh refit instead of full buffer copy.
+	 *
+	 * @param {number[]} affectedMeshIndices
+	 * @returns {{ triRanges: Array<{offset:number,count:number}>, bvhRanges: Array<{offset:number,count:number}> }}
+	 */
+	computeBLASDirtyRanges( affectedMeshIndices ) {
+
+		const FPT = TRIANGLE_DATA_LAYOUT.FLOATS_PER_TRIANGLE;
+		const FPN = 16; // FLOATS_PER_NODE — 4 × vec4 per BVH node
+		const triRanges = [];
+		const bvhRanges = [];
+
+		for ( const meshIdx of affectedMeshIndices ) {
+
+			const entry = this.instanceTable.entries[ meshIdx ];
+			if ( ! entry ) continue;
+
+			triRanges.push( { offset: entry.triOffset * FPT, count: entry.triCount * FPT } );
+			bvhRanges.push( { offset: entry.blasOffset * FPN, count: entry.blasNodeCount * FPN } );
+
+		}
+
+		// Always include TLAS range (rebuilt on every refit)
+		bvhRanges.push( { offset: 0, count: this.instanceTable.tlasNodeCount * FPN } );
+
+		return { triRanges, bvhRanges };
+
+	}
+
+	/**
+	 * Transfers all scene data (geometry, BVH, materials, textures, emissive, lights)
+	 * from this SceneProcessor to the PathTracer stage for GPU rendering.
+	 *
+	 * @param {import('../Stages/PathTracer.js').PathTracer} pathTracer
+	 * @param {import('../managers/LightManager.js').LightManager} lightManager
+	 * @param {import('three').Scene} meshScene
+	 * @param {import('three').Texture|null} environmentTexture
+	 * @returns {boolean} false if critical data is missing
+	 */
+	uploadToPathTracer( pathTracer, lightManager, meshScene, environmentTexture ) {
+
+		if ( ! this.triangleData ) {
+
+			console.error( 'SceneProcessor: Failed to get triangle data' );
+			return false;
+
+		}
+
+		pathTracer.setTriangleData( this.triangleData, this.triangleCount );
+
+		if ( ! this.bvhData ) {
+
+			console.error( 'SceneProcessor: Failed to get BVH data' );
+			return false;
+
+		}
+
+		pathTracer.setBVHData( this.bvhData );
+
+		if ( this.materialData ) {
+
+			pathTracer.materialData.setMaterialData( this.materialData );
+
+		} else {
+
+			console.warn( 'SceneProcessor: No material data, using defaults' );
+
+		}
+
+		if ( environmentTexture ) {
+
+			pathTracer.environment.setEnvironmentTexture( environmentTexture );
+
+		}
+
+		pathTracer.materialData.setMaterialTextures( {
+			albedoMaps: this.albedoTextures,
+			normalMaps: this.normalTextures,
+			bumpMaps: this.bumpTextures,
+			roughnessMaps: this.roughnessTextures,
+			metalnessMaps: this.metalnessTextures,
+			emissiveMaps: this.emissiveTextures,
+			displacementMaps: this.displacementTextures,
+		} );
+
+		if ( this.emissiveTriangleData ) {
+
+			pathTracer.setEmissiveTriangleData(
+				this.emissiveTriangleData,
+				this.emissiveTriangleCount,
+				this.emissiveTotalPower,
+			);
+
+		}
+
+		if ( this.lightBVHNodeData ) {
+
+			pathTracer.setLightBVHData(
+				this.lightBVHNodeData,
+				this.lightBVHNodeCount,
+			);
+
+		}
+
+		lightManager.transferSceneLights( meshScene );
+		return true;
+
+	}
+
+	/**
+	 * Updates material emissive data and rebuilds emissive triangle sampling data.
+	 * Returns null if no change, or the updated emissive data for GPU upload.
+	 *
+	 * @param {number} materialIndex
+	 * @param {string} property - 'emissive' | 'emissiveIntensity' | 'visible'
+	 * @param {*} value
+	 * @returns {{ rawData: Float32Array, emissiveCount: number, totalPower: number }|null}
+	 */
+	updateMaterialEmissive( materialIndex, property, value ) {
+
+		if ( ! this.emissiveTriangleBuilder ) return null;
+
+		const mat = this.materials[ materialIndex ];
+		if ( ! mat ) return null;
+
+		if ( property === 'emissive' ) mat.emissive = value;
+		else if ( property === 'emissiveIntensity' ) mat.emissiveIntensity = value;
+		else if ( property === 'visible' ) mat.visible = value;
+
+		const changed = this.emissiveTriangleBuilder.updateMaterialEmissive(
+			materialIndex, mat,
+			this.triangleData, this.materials, this.triangleCount,
+		);
+
+		if ( ! changed ) return null;
+
+		return {
+			rawData: this.emissiveTriangleBuilder.createEmissiveRawData(),
+			emissiveCount: this.emissiveTriangleBuilder.emissiveCount,
+			totalPower: this.emissiveTriangleBuilder.totalEmissivePower,
+		};
+
+	}
+
+	/**
 	 * Update triangle positions for a single mesh entry.
 	 * Iterates in BVH order for sequential writes (cache-friendly), random reads from newPositions.
 	 * @private

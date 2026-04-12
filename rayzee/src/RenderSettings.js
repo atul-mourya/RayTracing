@@ -101,13 +101,91 @@ export class RenderSettings extends EventDispatcher {
 
 	/**
 	 * Wires internal references. Called by PathTracerApp after init().
+	 *
+	 * @param {Object} params
+	 * @param {Object} params.stages           - Pipeline stages { pathTracer, display, autoExposure, ... }
+	 * @param {Function} params.resetCallback   - Called to reset accumulation
+	 * @param {Function} [params.reconcileCompletion] - Called when completion limits change
 	 */
-	bind( { pathTracer, resetCallback, handlers = {}, delegates = {} } ) {
+	bind( { stages, resetCallback, reconcileCompletion } ) {
 
-		this._pathTracer = pathTracer;
+		this._pathTracer = stages.pathTracer;
 		this._resetCallback = resetCallback;
-		this._handlers = handlers;
-		this._delegates = delegates;
+		this._delegates = {};
+		this._handlers = this._buildHandlers( stages, reconcileCompletion );
+
+	}
+
+	/**
+	 * Builds handler functions for multi-stage settings that can't
+	 * be routed with a simple uniform forward.
+	 */
+	_buildHandlers( stages, reconcileCompletion ) {
+
+		return {
+
+			handleTransparentBackground: ( value ) => {
+
+				stages.pathTracer?.setUniform( 'transparentBackground', value );
+				stages.display?.setTransparentBackground( value );
+
+			},
+
+			handleExposure: ( value ) => {
+
+				if ( ! stages.autoExposure?.enabled ) {
+
+					stages.display?.setExposure( value );
+
+				}
+
+			},
+
+			handleSaturation: ( value ) => {
+
+				stages.display?.setSaturation( value );
+
+			},
+
+			handleRenderLimitMode: ( value ) => {
+
+				stages.pathTracer?.setRenderLimitMode?.( value );
+
+			},
+
+			handleMaxSamples: ( value ) => {
+
+				stages.pathTracer?.setUniform( 'maxSamples', value );
+				stages.pathTracer?.updateCompletionThreshold();
+				reconcileCompletion?.();
+
+			},
+
+			handleRenderTimeLimit: () => {
+
+				reconcileCompletion?.();
+
+			},
+
+			handleRenderMode: ( value ) => {
+
+				stages.pathTracer?.setUniform( 'renderMode', parseInt( value ) );
+
+			},
+
+			handleEnvironmentRotation: ( value ) => {
+
+				stages.pathTracer?.environment.setEnvironmentRotation( value );
+
+			},
+
+			handleInteractionModeEnabled: ( value ) => {
+
+				stages.pathTracer?.setInteractionModeEnabled( value );
+
+			},
+
+		};
 
 	}
 

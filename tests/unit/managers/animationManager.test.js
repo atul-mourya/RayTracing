@@ -97,9 +97,26 @@ vi.mock( 'three', () => {
 
 	}
 
-	return { AnimationMixer, Clock, Timer, Vector3, LoopRepeat, LoopOnce };
+	class EventDispatcher {
+
+		constructor() { this._listeners = {}; }
+		addEventListener( type, fn ) { ( this._listeners[ type ] ??= [] ).push( fn ); }
+		removeEventListener( type, fn ) { const a = this._listeners[ type ]; if ( a ) { const i = a.indexOf( fn ); if ( i >= 0 ) a.splice( i, 1 ); } }
+		dispatchEvent( event ) { ( this._listeners[ event.type ] || [] ).forEach( fn => fn( event ) ); }
+
+	}
+
+	return { AnimationMixer, Clock, Timer, Vector3, LoopRepeat, LoopOnce, EventDispatcher };
 
 } );
+
+vi.mock( '@/core/EngineEvents.js', () => ( {
+	EngineEvents: {
+		ANIMATION_STARTED: 'ANIMATION_STARTED',
+		ANIMATION_PAUSED: 'ANIMATION_PAUSED',
+		ANIMATION_STOPPED: 'ANIMATION_STOPPED',
+	}
+} ) );
 
 const { AnimationManager } = await import( '@/core/managers/AnimationManager.js' );
 

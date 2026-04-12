@@ -53,15 +53,5 @@ export { TransformManager } from './managers/TransformManager.js';
 // Video rendering
 export { VideoRenderManager } from './managers/VideoRenderManager.js';
 
-// Sub-API facades (namespaced access via engine.camera, engine.lights, etc.)
-export {
-	OutputAPI,
-	LightsAPI,
-	AnimationAPI,
-	SelectionAPI,
-	TransformAPI,
-	CameraAPI,
-	EnvironmentAPI,
-	MaterialsAPI,
-	DenoisingAPI,
-} from './api/index.js';
+// Interaction
+export { InteractionManager } from './managers/InteractionManager.js';

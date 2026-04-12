@@ -7,6 +7,7 @@
 - [ ] oidndenoiser is desaturation the results
 - [ ] enhance test coverage of the engine
 - [ ] lint fix
+- [ ] camera trackpad change does nothing
   
 
 ### Known

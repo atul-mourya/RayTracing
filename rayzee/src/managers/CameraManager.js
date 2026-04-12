@@ -1,30 +1,38 @@
-import { EventDispatcher, Vector3 } from 'three';
+import { EventDispatcher, PerspectiveCamera, Vector3 } from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EngineEvents, } from '../EngineEvents.js';
 import { AF_DEFAULTS } from '../EngineDefaults.js';
 
 /**
- * Manages camera switching, auto-focus, and AF point placement.
+ * Manages camera creation, switching, auto-focus, and AF point placement.
  *
- * Extracted from PathTracerApp to keep the facade slim.
+ * Owns the PerspectiveCamera and OrbitControls instances.
  * Dispatches events that PathTracerApp relays to external consumers.
  */
 export class CameraManager extends EventDispatcher {
 
 	/**
-	 * @param {import('three').PerspectiveCamera} camera
-	 * @param {import('three/addons/controls/OrbitControls.js').OrbitControls} controls
-	 * @param {import('./InteractionManager.js').InteractionManager} interactionManager
+	 * @param {HTMLCanvasElement} canvas - Canvas element for orbit controls
 	 */
-	constructor( camera, controls, interactionManager ) {
+	constructor( canvas ) {
 
 		super();
 
-		this.camera = camera;
-		this.controls = controls;
-		this.interactionManager = interactionManager;
+		const width = canvas.clientWidth;
+		const height = canvas.clientHeight;
+
+		this.camera = new PerspectiveCamera( 60, width / height || 1, 0.01, 1000 );
+		this.camera.position.set( 0, 0, 5 );
+
+		this.controls = new OrbitControls( this.camera, canvas );
+		this.controls.screenSpacePanning = true;
+		this.controls.zoomToCursor = true;
+		this.controls.saveState();
+
+		this.interactionManager = null;
 
 		/** @type {import('three').PerspectiveCamera[]} */
-		this.cameras = [ camera ];
+		this.cameras = [ this.camera ];
 		this.currentCameraIndex = 0;
 
 		// Auto-focus state
@@ -37,6 +45,11 @@ export class CameraManager extends EventDispatcher {
 
 		// Saved state for default camera when switching to model cameras
 		this._defaultCameraState = null;
+
+		// Callbacks injected by PathTracerApp
+		this._onResize = null;
+		this._onReset = null;
+		this._getSettings = null;
 
 	}
 
@@ -68,13 +81,36 @@ export class CameraManager extends EventDispatcher {
 	}
 
 	/**
+	 * Stores callbacks for camera operations (resize, reset, settings access).
+	 * Call once after all managers are ready.
+	 *
+	 * @param {Object} callbacks
+	 * @param {Function} callbacks.onResize   - Trigger viewport resize
+	 * @param {Function} callbacks.onReset    - Trigger accumulation reset
+	 * @param {Function} callbacks.getSettings - (key) => value
+	 */
+	initCallbacks( { onResize, onReset, getSettings } ) {
+
+		this._onResize = onResize;
+		this._onReset = onReset;
+		this._getSettings = getSettings;
+
+	}
+
+	/**
 	 * Switches the active camera by index.
+	 * Uses stored callbacks from initCallbacks() for resize/reset.
 	 * @param {number} index
-	 * @param {number} focusDistance - Current focus distance (for orbit target placement)
-	 * @param {Function} onResize   - Callback to trigger resize after camera change
-	 * @param {Function} onReset    - Callback to trigger accumulation reset
+	 * @param {number} [focusDistance] - Override focus distance (falls back to settings)
+	 * @param {Function} [onResize]   - Override resize callback
+	 * @param {Function} [onReset]    - Override reset callback
 	 */
 	switchCamera( index, focusDistance, onResize, onReset ) {
+
+		// Use stored callbacks if not provided (backward-compatible signature)
+		focusDistance = focusDistance ?? this._getSettings?.( 'focusDistance' );
+		onResize = onResize ?? this._onResize;
+		onReset = onReset ?? this._onReset;
 
 		if ( ! this.cameras || this.cameras.length === 0 ) return;
 
@@ -150,6 +186,35 @@ export class CameraManager extends EventDispatcher {
 
 	}
 
+	/**
+	 * Focuses the orbit camera on a world-space point.
+	 * @param {import('three').Vector3} center
+	 */
+	focusOn( center ) {
+
+		if ( ! center || ! this.controls ) return;
+		this.controls.target.copy( center );
+		this.controls.update();
+		this._onReset?.();
+
+	}
+
+	// ── Aliases (match Sub-API surface) ───────────────────────────
+
+	/** The active Three.js PerspectiveCamera. */
+	get active() {
+
+		return this.camera;
+
+	}
+
+	/** @see getCameraNames */
+	getNames() {
+
+		return this.getCameraNames();
+
+	}
+
 	// ── Auto-Focus ────────────────────────────────────────────────
 
 	setAutoFocusMode( mode ) {
@@ -201,7 +266,10 @@ export class CameraManager extends EventDispatcher {
 	 * @param {Function} params.softReset       - Callback for soft accumulation reset
 	 * @param {Function} params.hardReset       - Callback for hard accumulation reset
 	 */
-	updateAutoFocus( { meshScene, assetLoader, floorPlane, currentFocusDistance, pathTracer, setFocusDistance, softReset, hardReset } ) {
+	updateAutoFocus( ctx ) {
+
+		const { meshScene, assetLoader, floorPlane, currentFocusDistance, pathTracer, setFocusDistance, softReset, hardReset } = ctx || this._afContext || {};
+		if ( ! meshScene ) return;
 
 		if ( this.autoFocusMode === 'manual' ) return;
 
@@ -300,6 +368,56 @@ export class CameraManager extends EventDispatcher {
 			}
 
 		}
+
+	}
+
+	/**
+	 * Deferred dependency injection — InteractionManager needs the camera
+	 * in its constructor, so it can't be passed during CameraManager creation.
+	 * @param {import('./InteractionManager.js').InteractionManager} interactionManager
+	 */
+	setInteractionManager( interactionManager ) {
+
+		this.interactionManager = interactionManager;
+
+	}
+
+	/**
+	 * Initialises the stable auto-focus context. Call once after all
+	 * managers and stages are ready. CameraManager stores the context
+	 * and `updateAutoFocus()` reads from it each frame — no per-frame allocation.
+	 *
+	 * @param {Object} deps
+	 * @param {import('three').Scene}           deps.meshScene
+	 * @param {import('../Processor/AssetLoader.js').AssetLoader} deps.assetLoader
+	 * @param {import('three').Mesh}            deps.floorPlane
+	 * @param {import('../Stages/PathTracer.js').PathTracer} deps.pathTracer
+	 * @param {import('../RenderSettings.js').RenderSettings} deps.settings
+	 * @param {Function}                        deps.softReset
+	 * @param {Function}                        deps.hardReset
+	 */
+	initAutoFocus( { meshScene, assetLoader, floorPlane, pathTracer, settings, softReset, hardReset } ) {
+
+		this._afContext = {
+			meshScene,
+			assetLoader,
+			floorPlane,
+			pathTracer,
+			setFocusDistance: ( d ) => settings.set( 'focusDistance', d, { silent: true } ),
+			softReset,
+			hardReset,
+		};
+
+		// Live getter — reads current value without allocation
+		Object.defineProperty( this._afContext, 'currentFocusDistance', {
+			get: () => settings.get( 'focusDistance' ),
+		} );
+
+	}
+
+	dispose() {
+
+		this.controls?.dispose();
 
 	}
 
