@@ -1658,7 +1658,7 @@ const useCameraStore = create( ( set, get ) => ( {
 
 		set( { zoomToCursor: val } );
 		const app = getApp();
-		if ( app?.controls ) {
+		if ( app?.cameraManager?.controls ) {
 
 			app.cameraManager.controls.zoomToCursor = val;
 
@@ -1837,8 +1837,9 @@ const useCameraStore = create( ( set, get ) => ( {
 	handleCameraMove: point => {
 
 		const app = getApp();
-		if ( ! app?.controls ) return;
-		const { controls, camera } = app;
+		if ( ! app?.cameraManager?.controls ) return;
+		const controls = app.cameraManager.controls;
+		const camera = app.cameraManager.camera;
 		const target = controls.target.clone();
 		const distance = camera.position.distanceTo( target );
 		const remap = ( val, inMin, inMax, outMin, outMax ) => ( val - inMin ) * ( outMax - outMin ) / ( inMax - inMin ) + outMin;
