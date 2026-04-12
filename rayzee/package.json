@@ -34,7 +34,7 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "three": ">=0.170.0"
+    "three": ">=0.183.2"
   },
   "dependencies": {
     "stats-gl": "^4.0.2"
