@@ -116,46 +116,65 @@ export class TLASBuilder {
 		let bestAxis = 0;
 		let bestSplit = 0;
 
-		for ( let axis = 0; axis < 3; axis ++ ) {
+		// Only attempt SAH when surface area is finite and positive —
+		// degenerate/overflow AABBs (meshes far from origin) produce NaN costs.
+		if ( parentSA > 0 && isFinite( parentSA ) ) {
 
-			// Sort indices by centroid along axis
-			const sorted = indices.slice().sort( ( a, b ) => {
+			for ( let axis = 0; axis < 3; axis ++ ) {
 
-				const aabbA = entries[ a ].worldAABB;
-				const aabbB = entries[ b ].worldAABB;
-				const cA = this._centroid( aabbA, axis );
-				const cB = this._centroid( aabbB, axis );
-				return cA - cB;
+				// Sort indices by centroid along axis
+				const sorted = indices.slice().sort( ( a, b ) => {
 
-			} );
+					const aabbA = entries[ a ].worldAABB;
+					const aabbB = entries[ b ].worldAABB;
+					const cA = this._centroid( aabbA, axis );
+					const cB = this._centroid( aabbB, axis );
+					return cA - cB;
 
-			// Evaluate SAH for each split position
-			for ( let i = 1; i < sorted.length; i ++ ) {
+				} );
 
-				const leftAABB = this._computeGroupAABB( entries, sorted, 0, i );
-				const rightAABB = this._computeGroupAABB( entries, sorted, i, sorted.length );
+				// Evaluate SAH for each split position
+				for ( let i = 1; i < sorted.length; i ++ ) {
 
-				const leftSA = this._surfaceArea(
-					leftAABB.minX, leftAABB.minY, leftAABB.minZ,
-					leftAABB.maxX, leftAABB.maxY, leftAABB.maxZ
-				);
-				const rightSA = this._surfaceArea(
-					rightAABB.minX, rightAABB.minY, rightAABB.minZ,
-					rightAABB.maxX, rightAABB.maxY, rightAABB.maxZ
-				);
+					const leftAABB = this._computeGroupAABB( entries, sorted, 0, i );
+					const rightAABB = this._computeGroupAABB( entries, sorted, i, sorted.length );
 
-				// SAH cost: traversal + (leftSA/parentSA * leftCount + rightSA/parentSA * rightCount)
-				const cost = 1.0 + ( leftSA * i + rightSA * ( sorted.length - i ) ) / parentSA;
+					const leftSA = this._surfaceArea(
+						leftAABB.minX, leftAABB.minY, leftAABB.minZ,
+						leftAABB.maxX, leftAABB.maxY, leftAABB.maxZ
+					);
+					const rightSA = this._surfaceArea(
+						rightAABB.minX, rightAABB.minY, rightAABB.minZ,
+						rightAABB.maxX, rightAABB.maxY, rightAABB.maxZ
+					);
 
-				if ( cost < bestCost ) {
+					// SAH cost: traversal + (leftSA/parentSA * leftCount + rightSA/parentSA * rightCount)
+					const cost = 1.0 + ( leftSA * i + rightSA * ( sorted.length - i ) ) / parentSA;
 
-					bestCost = cost;
-					bestAxis = axis;
-					bestSplit = i;
+					if ( cost < bestCost ) {
+
+						bestCost = cost;
+						bestAxis = axis;
+						bestSplit = i;
+
+					}
 
 				}
 
 			}
+
+		}
+
+		// Fallback to median split when SAH fails to find a valid partition
+		// (degenerate AABB, overflow surface area, or coincident centroids).
+		if ( bestSplit <= 0 || bestSplit >= indices.length ) {
+
+			bestAxis = 0;
+			const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+			if ( dy > dx && dy > dz ) bestAxis = 1;
+			else if ( dz > dx ) bestAxis = 2;
+
+			bestSplit = indices.length >> 1;
 
 		}
 
@@ -301,10 +320,22 @@ export class TLASBuilder {
 
 	}
 
-	_countNodes( node ) {
+	_countNodes( root ) {
 
-		if ( ! node ) return 0;
-		return 1 + this._countNodes( node.leftChild ) + this._countNodes( node.rightChild );
+		if ( ! root ) return 0;
+
+		let count = 0;
+		const stack = [ root ];
+		while ( stack.length > 0 ) {
+
+			const node = stack.pop();
+			count ++;
+			if ( node.leftChild ) stack.push( node.leftChild );
+			if ( node.rightChild ) stack.push( node.rightChild );
+
+		}
+
+		return count;
 
 	}
 
