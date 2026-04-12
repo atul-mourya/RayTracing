@@ -60,11 +60,11 @@ npm install rayzee three
    });
 
    // Tweak settings
-   engine.set('bounces', 8);
-   engine.set('exposure', 1.2);
+   engine.settings.set('bounces', 8);
+   engine.settings.set('exposure', 1.2);
 
    // Use namespaced APIs and direct methods
-   engine.cameraManager.switch(0);
+   engine.cameraManager.switchCamera(0);
    engine.lightManager.add('PointLight');
    engine.screenshot();
    ```
@@ -196,7 +196,7 @@ engine.wake()                 // Resume render loop if idle
 #### Loading Assets
 
 ```js
-await engine.loadModel(url)           // Load GLB/GLTF/FBX/OBJ/STL/PLY/DAE/3MF/USDZ
+await engine.loadModel(url)           // Load GLB/GLTF/FBX/OBJ/STL/PLY/DAE/3MF/USDZ/ZIP
 await engine.loadObject3D(object3d)   // Load a Three.js Object3D directly
 await engine.loadEnvironment(url)     // Load HDR/EXR environment map
 ```
@@ -204,14 +204,14 @@ await engine.loadEnvironment(url)     // Load HDR/EXR environment map
 #### Settings
 
 ```js
-engine.set('bounces', 8)              // Set a single parameter
-engine.setMany({                      // Set multiple parameters at once
+engine.settings.set('bounces', 8)              // Set a single parameter
+engine.settings.setMany({                      // Set multiple parameters at once
   bounces: 8,
   samplesPerPixel: 1,
   exposure: 1.0
 })
-engine.get('bounces')                 // Read a parameter
-engine.getAll()                       // Get all current settings
+engine.settings.get('bounces')                 // Read a parameter
+engine.settings.getAll()                       // Get all current settings
 ```
 
 Key settings:
@@ -257,7 +257,7 @@ Camera switching, auto-focus, DOF, and direct Three.js access.
 ```js
 engine.cameraManager.active                  // The active PerspectiveCamera
 engine.cameraManager.controls                // The OrbitControls instance
-engine.cameraManager.switch(index)           // Switch between scene cameras
+engine.cameraManager.switchCamera(index)      // Switch between scene cameras
 engine.cameraManager.getNames()              // List available cameras
 engine.cameraManager.focusOn(center)         // Focus orbit camera on a world-space point
 engine.cameraManager.setAutoFocusMode(mode)  // 'auto' | 'manual'
@@ -310,8 +310,8 @@ Environment maps, sky modes, and procedural generation.
 ```js
 engine.environmentManager.params             // Current environment parameters
 engine.environmentManager.texture            // The loaded environment texture
-await engine.environmentManager.load(url)    // Load HDR/EXR environment map
-await engine.environmentManager.setTexture(tex) // Set a custom environment texture
+await engine.loadEnvironment(url)            // Load HDR/EXR environment map (method on engine)
+await engine.environmentManager.setEnvironmentMap(tex) // Set a custom environment texture
 await engine.environmentManager.setMode(mode)   // 'hdri' | 'procedural' | 'gradient' | 'color'
 await engine.environmentManager.generateProcedural() // Preetham-model sky
 await engine.environmentManager.generateGradient()   // Gradient sky
@@ -366,7 +366,7 @@ Transform gizmo controls.
 ```js
 engine.transformManager.setMode('translate') // 'translate' | 'rotate' | 'scale'
 engine.transformManager.setSpace('world')    // 'world' | 'local'
-engine.transformManager.manager              // Access the underlying TransformManager
+engine.transformManager.controls             // Access the underlying TransformControls
 ```
 
 ### Output Methods
@@ -471,6 +471,7 @@ import {
   AnimationManager,
   TransformManager,
   VideoRenderManager,
+  InteractionManager,
   RenderPipeline,
   RenderStage,
   StageExecutionMode,
