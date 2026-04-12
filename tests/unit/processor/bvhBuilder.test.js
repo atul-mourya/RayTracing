@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock( '@/core/Processor/TreeletOptimizer.js', () => ( {
 	TreeletOptimizer: class {
@@ -13,7 +13,11 @@ vi.mock( '@/core/Processor/TreeletOptimizer.js', () => ( {
 		setMinImprovement() {}
 		setMaxTreelets() {}
 		optimizeBVH() {}
-		getStatistics() { return this.stats; }
+		getStatistics() {
+
+			return this.stats;
+
+		}
 
 	}
 } ) );
@@ -30,7 +34,11 @@ vi.mock( '@/core/Processor/ReinsertionOptimizer.js', () => ( {
 		setBatchSizeRatio() {}
 		setMaxIterations() {}
 		optimizeBVH() {}
-		getStatistics() { return this.stats; }
+		getStatistics() {
+
+			return this.stats;
+
+		}
 
 	}
 } ) );

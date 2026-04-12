@@ -20,8 +20,16 @@ vi.mock( 'three', () => ( {
 vi.mock( '@/core/Processor/LightBVHBuilder.js', () => ( {
 	LightBVHBuilder: class {
 
-		constructor() { this.nodeCount = 0; }
-		build() { return 0; }
+		constructor() {
+
+			this.nodeCount = 0;
+
+		}
+		build() {
+
+			return 0;
+
+		}
 
 	}
 } ) );

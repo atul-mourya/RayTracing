@@ -222,7 +222,11 @@ describe( 'RenderPipeline', () => {
 			vi.spyOn( console, 'error' ).mockImplementation( () => {} );
 
 			const a = createMockStage( 'A' );
-			a.render = vi.fn( () => { throw new Error( 'fail' ); } );
+			a.render = vi.fn( () => {
+
+				throw new Error( 'fail' );
+
+			} );
 			const b = createMockStage( 'B' );
 
 			pipeline.addStage( a );
@@ -553,7 +557,11 @@ describe( 'RenderPipeline', () => {
 
 			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
 			const a = createMockStage( 'A' );
-			a.reset = vi.fn( () => { throw new Error( 'reset fail' ); } );
+			a.reset = vi.fn( () => {
+
+				throw new Error( 'reset fail' );
+
+			} );
 			const b = createMockStage( 'B' );
 
 			pipeline.addStage( a );
@@ -569,7 +577,11 @@ describe( 'RenderPipeline', () => {
 
 			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
 			const a = createMockStage( 'A' );
-			a.setSize = vi.fn( () => { throw new Error( 'resize fail' ); } );
+			a.setSize = vi.fn( () => {
+
+				throw new Error( 'resize fail' );
+
+			} );
 			const b = createMockStage( 'B' );
 
 			pipeline.addStage( a );
@@ -585,7 +597,11 @@ describe( 'RenderPipeline', () => {
 
 			const spy = vi.spyOn( console, 'error' ).mockImplementation( () => {} );
 			const a = createMockStage( 'A' );
-			a.dispose = vi.fn( () => { throw new Error( 'dispose fail' ); } );
+			a.dispose = vi.fn( () => {
+
+				throw new Error( 'dispose fail' );
+
+			} );
 			const b = createMockStage( 'B' );
 
 			pipeline.addStage( a );

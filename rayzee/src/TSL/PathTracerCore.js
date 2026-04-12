@@ -22,12 +22,9 @@ import {
 	vec3,
 	vec4,
 	int,
-	uint,
 	bool as tslBool,
 	max,
 	min,
-	abs,
-	sqrt,
 	exp,
 	clamp,
 	mix,
@@ -47,15 +44,12 @@ import {
 import { struct } from './structProxy.js';
 
 import {
-	PI,
 	PI_INV,
-	EPSILON,
 	MIN_ROUGHNESS,
 	MAX_ROUGHNESS,
 	MIN_CLEARCOAT_ROUGHNESS,
 	MIN_PDF,
 	maxComponent,
-	minComponent,
 	classifyMaterial,
 	constructTBN,
 	calculateFireflyThreshold,
@@ -66,8 +60,6 @@ import {
 import {
 	DirectionSample,
 	MaterialClassification,
-	PathState,
-	RenderState,
 	MaterialCache,
 	BRDFWeights,
 	Ray,
@@ -83,7 +75,6 @@ import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
 import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import {
-	DistributionGGX,
 	SheenDistribution,
 	calculateVNDFPDF,
 	calculateBRDFWeights,
@@ -115,7 +106,6 @@ const RAY_TYPE_CAMERA = 0;
 const RAY_TYPE_REFLECTION = 1;
 const RAY_TYPE_TRANSMISSION = 2;
 const RAY_TYPE_DIFFUSE = 3;
-const RAY_TYPE_SHADOW = 4;
 
 // Trace result struct
 export const TraceResult = struct( {

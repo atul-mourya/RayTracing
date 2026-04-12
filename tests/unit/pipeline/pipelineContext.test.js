@@ -245,7 +245,11 @@ describe( 'PipelineContext', () => {
 
 		it( 'callback error does not break other watchers', () => {
 
-			const errorCb = vi.fn( () => { throw new Error( 'boom' ); } );
+			const errorCb = vi.fn( () => {
+
+				throw new Error( 'boom' );
+
+			} );
 			const normalCb = vi.fn();
 
 			vi.spyOn( console, 'error' ).mockImplementation( () => {} );

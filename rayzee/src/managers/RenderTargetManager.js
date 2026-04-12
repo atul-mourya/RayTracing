@@ -9,7 +9,6 @@ import {
 	NearestFilter,
 	LinearSRGBColorSpace,
 	ShaderMaterial,
-	Vector2,
 	GLSL3
 } from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';

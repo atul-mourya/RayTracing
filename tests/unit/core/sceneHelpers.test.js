@@ -3,9 +3,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock( 'three', () => ( {
 	Scene: class {
 
-		constructor() { this.children = []; }
-		add( obj ) { this.children.push( obj ); }
-		remove( obj ) { const i = this.children.indexOf( obj ); if ( i > - 1 ) this.children.splice( i, 1 ); }
+		constructor() {
+
+			this.children = [];
+
+		}
+		add( obj ) {
+
+			this.children.push( obj );
+
+		}
+		remove( obj ) {
+
+			const i = this.children.indexOf( obj ); if ( i > - 1 ) this.children.splice( i, 1 );
+
+		}
 
 	},
 	PointLightHelper: class {

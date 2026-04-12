@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { TLASBuilder } from '@/core/Processor/TLASBuilder.js';
 
 function makeEntry( meshIndex, aabb, blasOffset = 0 ) {
@@ -121,8 +121,8 @@ describe( 'TLASBuilder', () => {
 			const data = builder.flatten( root, entries );
 
 			expect( data ).toHaveLength( 16 ); // 1 node * 16 floats
-			expect( data[ 0 ] ).toBe( 10 );    // blasOffset
-			expect( data[ 3 ] ).toBe( - 2 );   // BLAS-pointer marker
+			expect( data[ 0 ] ).toBe( 10 ); // blasOffset
+			expect( data[ 3 ] ).toBe( - 2 ); // BLAS-pointer marker
 
 		} );
 
@@ -163,7 +163,7 @@ describe( 'TLASBuilder', () => {
 			const data = builder.flatten( root, entries );
 
 			// Root is node 0 (inner), children are nodes 1 and 2
-			const leftChild = data[ 3 ];  // leftChild index
+			const leftChild = data[ 3 ]; // leftChild index
 			const rightChild = data[ 7 ]; // rightChild index
 			expect( leftChild ).toBeGreaterThanOrEqual( 1 );
 			expect( leftChild ).toBeLessThan( 3 );

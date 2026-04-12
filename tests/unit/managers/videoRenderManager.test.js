@@ -40,9 +40,17 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 		stages: {
 			pathTracer: {
 				isReady: true,
-				get isComplete() { return frameCount >= framesTillComplete; },
+				get isComplete() {
+
+					return frameCount >= framesTillComplete;
+
+				},
 				set isComplete( v ) {},
-				get frameCount() { return frameCount; },
+				get frameCount() {
+
+					return frameCount;
+
+				},
 				renderMode: { value: 0 },
 				updateCompletionThreshold: vi.fn(),
 				setUniform: vi.fn(),
@@ -52,7 +60,11 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 		},
 		pipeline: {
 			context: {},
-			render: vi.fn( () => { frameCount ++; } ),
+			render: vi.fn( () => {
+
+				frameCount ++;
+
+			} ),
 			reset: vi.fn(),
 		},
 		settings: {
@@ -75,8 +87,16 @@ function createMockApp( { clipDuration = 2.0, framesTillComplete = 3 } = {} ) {
 		configureForMode: vi.fn(),
 		stopAnimation: vi.fn(),
 		wake: vi.fn(),
-		reset: vi.fn( () => { frameCount = 0; } ),
-		refitBVH: vi.fn( async () => { frameCount = 0; } ),
+		reset: vi.fn( () => {
+
+			frameCount = 0;
+
+		} ),
+		refitBVH: vi.fn( async () => {
+
+			frameCount = 0;
+
+		} ),
 		setRenderMode: vi.fn(),
 		setTileCount: vi.fn(),
 		setTileHelperEnabled: vi.fn(),

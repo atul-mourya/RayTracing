@@ -202,7 +202,7 @@ const CameraTab = () => {
 						</div>
 
 						{/* Manual mode: slider + click-to-focus target */}
-						{!isAutoFocus && (
+						{! isAutoFocus && (
 							<div className="flex items-center justify-between">
 								<Slider
 									label={"Focus Distance (m)"}

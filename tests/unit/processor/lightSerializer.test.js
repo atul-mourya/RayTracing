@@ -4,12 +4,20 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock( 'three', () => ( {
 	Vector3: class {
 
-		constructor( x = 0, y = 0, z = 0 ) { this.x = x; this.y = y; this.z = z; }
+		constructor( x = 0, y = 0, z = 0 ) {
+
+			this.x = x; this.y = y; this.z = z;
+
+		}
 
 	},
 	Quaternion: class {
 
-		constructor() { this.x = 0; this.y = 0; this.z = 0; this.w = 1; }
+		constructor() {
+
+			this.x = 0; this.y = 0; this.z = 0; this.w = 1;
+
+		}
 
 	}
 } ) );
@@ -145,8 +153,16 @@ describe( 'LightSerializer', () => {
 				updateMatrixWorld: vi.fn(),
 				getWorldPosition: vi.fn( () => ( {
 					x: 0, y: 10, z: 0,
-					sub( other ) { this.x -= other.x; this.y -= other.y; this.z -= other.z; return this; },
-					normalize() { const l = Math.sqrt( this.x ** 2 + this.y ** 2 + this.z ** 2 ); this.x /= l; this.y /= l; this.z /= l; return this; }
+					sub( other ) {
+
+						this.x -= other.x; this.y -= other.y; this.z -= other.z; return this;
+
+					},
+					normalize() {
+
+						const l = Math.sqrt( this.x ** 2 + this.y ** 2 + this.z ** 2 ); this.x /= l; this.y /= l; this.z /= l; return this;
+
+					}
 				} ) ),
 				target: {
 					updateMatrixWorld: vi.fn(),
@@ -245,7 +261,15 @@ describe( 'LightSerializer', () => {
 				target: {
 					getWorldPosition: vi.fn( () => ( {
 						...targetPos,
-						sub: vi.fn( function () { return { x: 0, y: - 5, z: 0, normalize: vi.fn( function () { return this; } ) }; } )
+						sub: vi.fn( function () {
+
+							return { x: 0, y: - 5, z: 0, normalize: vi.fn( function () {
+
+								return this;
+
+							} ) };
+
+						} )
 					} ) ),
 				},
 			};
@@ -284,8 +308,16 @@ describe( 'LightSerializer', () => {
 				updateMatrixWorld: vi.fn(),
 				getWorldPosition: vi.fn( () => ( {
 					x: 0, y: 1, z: 0,
-					sub( other ) { this.x -= other.x; this.y -= other.y; this.z -= other.z; return this; },
-					normalize() { const l = Math.sqrt( this.x ** 2 + this.y ** 2 + this.z ** 2 ); this.x /= l; this.y /= l; this.z /= l; return this; }
+					sub( other ) {
+
+						this.x -= other.x; this.y -= other.y; this.z -= other.z; return this;
+
+					},
+					normalize() {
+
+						const l = Math.sqrt( this.x ** 2 + this.y ** 2 + this.z ** 2 ); this.x /= l; this.y /= l; this.z /= l; return this;
+
+					}
 				} ) ),
 				target: {
 					updateMatrixWorld: vi.fn(),

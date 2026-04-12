@@ -30,7 +30,11 @@ const TopBar = () => {
 
 	// Ref for appMode to keep handleTabChange stable
 	const appModeRef = useRef( appMode );
-	useEffect( () => { appModeRef.current = appMode; }, [ appMode ] );
+	useEffect( () => {
+
+		appModeRef.current = appMode;
+
+	}, [ appMode ] );
 
 	// Use custom hooks
 	const {

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { TreeletOptimizer } from '@/core/Processor/TreeletOptimizer.js';
 
 describe( 'TreeletOptimizer', () => {
@@ -24,7 +24,7 @@ describe( 'TreeletOptimizer', () => {
 		it( 'n=2 returns single pair [[0,1]]', () => {
 
 			const topos = optimizer.generateTopologies( 2 );
-			expect( topos ).toEqual( [ [ 0, 1 ] ] );
+			expect( topos ).toEqual( [[ 0, 1 ]] );
 
 		} );
 
@@ -120,8 +120,8 @@ describe( 'TreeletOptimizer', () => {
 
 		it( 'offsets a nested topology', () => {
 
-			const result = optimizer.offsetTopology( [ 0, [ 1, 2 ] ], 5 );
-			expect( result ).toEqual( [ 5, [ 6, 7 ] ] );
+			const result = optimizer.offsetTopology( [ 0, [ 1, 2 ]], 5 );
+			expect( result ).toEqual( [ 5, [ 6, 7 ]] );
 
 		} );
 

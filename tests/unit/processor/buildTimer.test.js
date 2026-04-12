@@ -10,6 +10,7 @@ describe( 'BuildTimer', () => {
 		// Simulate some work with a small spin
 		const start = performance.now();
 		while ( performance.now() - start < 2 ) { /* spin */ }
+
 		timer.end( 'step1' );
 
 		expect( timer.getDuration( 'step1' ) ).toBeGreaterThan( 0 );

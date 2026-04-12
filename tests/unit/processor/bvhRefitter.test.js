@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { BVHRefitter } from '@/core/Processor/BVHRefitter.js';
 
 // BVH flat layout: 16 floats per node
@@ -51,7 +51,7 @@ describe( 'BVHRefitter', () => {
 			// 2 triangles, BVH order: bvh[0]=orig[1], bvh[1]=orig[0]
 			const triangleData = new Float32Array( 64 ); // 2 * 32
 			const newPositions = new Float32Array( [
-				1, 2, 3, 4, 5, 6, 7, 8, 9,   // original tri 0
+				1, 2, 3, 4, 5, 6, 7, 8, 9, // original tri 0
 				10, 20, 30, 40, 50, 60, 70, 80, 90 // original tri 1
 			] );
 			// bvhToOriginal: bvh[0]→orig[1], bvh[1]→orig[0]
@@ -67,9 +67,9 @@ describe( 'BVHRefitter', () => {
 			expect( triangleData[ 8 ] ).toBe( 70 ); // posC.x
 
 			// bvh index 1 should have original tri 0 positions
-			expect( triangleData[ 32 ] ).toBe( 1 );  // posA.x
-			expect( triangleData[ 36 ] ).toBe( 4 );  // posB.x
-			expect( triangleData[ 40 ] ).toBe( 7 );  // posC.x
+			expect( triangleData[ 32 ] ).toBe( 1 ); // posA.x
+			expect( triangleData[ 36 ] ).toBe( 4 ); // posB.x
+			expect( triangleData[ 40 ] ).toBe( 7 ); // posC.x
 
 		} );
 
@@ -122,15 +122,15 @@ describe( 'BVHRefitter', () => {
 			refitter.refit( bvhData, triangleData, 3 );
 
 			// After refit, root's left child AABB = tri0 bounds = (0,0,0)→(1,1,0)
-			expect( bvhData[ 0 ] ).toBe( 0 );  // leftMin.x
-			expect( bvhData[ 1 ] ).toBe( 0 );  // leftMin.y
-			expect( bvhData[ 2 ] ).toBe( 0 );  // leftMin.z
-			expect( bvhData[ 4 ] ).toBe( 1 );  // leftMax.x
-			expect( bvhData[ 5 ] ).toBe( 1 );  // leftMax.y
-			expect( bvhData[ 6 ] ).toBe( 0 );  // leftMax.z
+			expect( bvhData[ 0 ] ).toBe( 0 ); // leftMin.x
+			expect( bvhData[ 1 ] ).toBe( 0 ); // leftMin.y
+			expect( bvhData[ 2 ] ).toBe( 0 ); // leftMin.z
+			expect( bvhData[ 4 ] ).toBe( 1 ); // leftMax.x
+			expect( bvhData[ 5 ] ).toBe( 1 ); // leftMax.y
+			expect( bvhData[ 6 ] ).toBe( 0 ); // leftMax.z
 
 			// Root's right child AABB = tri1 bounds = (5,5,5)→(6,6,5)
-			expect( bvhData[ 8 ] ).toBe( 5 );  // rightMin.x
+			expect( bvhData[ 8 ] ).toBe( 5 ); // rightMin.x
 			expect( bvhData[ 12 ] ).toBe( 6 ); // rightMax.x
 			expect( bvhData[ 13 ] ).toBe( 6 ); // rightMax.y
 			expect( bvhData[ 14 ] ).toBe( 5 ); // rightMax.z
@@ -166,9 +166,9 @@ describe( 'BVHRefitter', () => {
 			const bvhData = new Float32Array( [
 				...makeInner( [ 0, 0, 0 ], [ 1, 1, 1 ], 1, [ 0, 0, 0 ], [ 1, 1, 1 ], 2 ), // 0: root
 				...makeInner( [ 0, 0, 0 ], [ 1, 1, 1 ], 3, [ 0, 0, 0 ], [ 1, 1, 1 ], 4 ), // 1: inner
-				...makeLeaf( 2, 1 ),  // 2: right leaf (tri 2)
-				...makeLeaf( 0, 1 ),  // 3: left-left leaf (tri 0)
-				...makeLeaf( 1, 1 ),  // 4: left-right leaf (tri 1)
+				...makeLeaf( 2, 1 ), // 2: right leaf (tri 2)
+				...makeLeaf( 0, 1 ), // 3: left-left leaf (tri 0)
+				...makeLeaf( 1, 1 ), // 4: left-right leaf (tri 1)
 			] );
 
 			const triangleData = new Float32Array( 96 ); // 3 triangles
@@ -180,11 +180,11 @@ describe( 'BVHRefitter', () => {
 
 			// Node 1's left child (node 3) = tri 0 bounds = (-1,-1,-1)→(0,0,-1)
 			expect( bvhData[ 16 + 0 ] ).toBe( - 1 ); // leftMin.x
-			expect( bvhData[ 16 + 4 ] ).toBe( 0 );   // leftMax.x
+			expect( bvhData[ 16 + 4 ] ).toBe( 0 ); // leftMax.x
 
 			// Root's right child (node 2) = tri 2 bounds = (10,10,10)→(11,11,10)
-			expect( bvhData[ 8 ] ).toBe( 10 );   // rightMin.x
-			expect( bvhData[ 12 ] ).toBe( 11 );  // rightMax.x
+			expect( bvhData[ 8 ] ).toBe( 10 ); // rightMin.x
+			expect( bvhData[ 12 ] ).toBe( 11 ); // rightMax.x
 
 		} );
 
@@ -220,11 +220,11 @@ describe( 'BVHRefitter', () => {
 
 			// BLAS root (node 2) should have updated AABBs
 			// Left child (node 3) = tri0 bounds: (0,0,0)→(2,2,0)
-			expect( bvhData[ 32 + 0 ] ).toBe( 0 );  // leftMin.x
-			expect( bvhData[ 32 + 4 ] ).toBe( 2 );  // leftMax.x
-			expect( bvhData[ 32 + 5 ] ).toBe( 2 );  // leftMax.y
+			expect( bvhData[ 32 + 0 ] ).toBe( 0 ); // leftMin.x
+			expect( bvhData[ 32 + 4 ] ).toBe( 2 ); // leftMax.x
+			expect( bvhData[ 32 + 5 ] ).toBe( 2 ); // leftMax.y
 			// Right child (node 4) = tri1 bounds: (10,10,10)→(12,12,10)
-			expect( bvhData[ 32 + 8 ] ).toBe( 10 );  // rightMin.x
+			expect( bvhData[ 32 + 8 ] ).toBe( 10 ); // rightMin.x
 			expect( bvhData[ 32 + 12 ] ).toBe( 12 ); // rightMax.x
 
 		} );
@@ -296,14 +296,14 @@ describe( 'BVHRefitter', () => {
 
 			// TLAS root (node 0) should have:
 			// Left child AABB = BLAS0 root bounds = (0,0,0)→(3,3,3)
-			expect( bvhData[ 0 ] ).toBe( 0 );  // leftMin.x
-			expect( bvhData[ 1 ] ).toBe( 0 );  // leftMin.y
-			expect( bvhData[ 4 ] ).toBe( 3 );  // leftMax.x
-			expect( bvhData[ 5 ] ).toBe( 3 );  // leftMax.y
-			expect( bvhData[ 6 ] ).toBe( 3 );  // leftMax.z
+			expect( bvhData[ 0 ] ).toBe( 0 ); // leftMin.x
+			expect( bvhData[ 1 ] ).toBe( 0 ); // leftMin.y
+			expect( bvhData[ 4 ] ).toBe( 3 ); // leftMax.x
+			expect( bvhData[ 5 ] ).toBe( 3 ); // leftMax.y
+			expect( bvhData[ 6 ] ).toBe( 3 ); // leftMax.z
 
 			// Right child AABB = BLAS1 root bounds = (10,10,10)→(13,13,13)
-			expect( bvhData[ 8 ] ).toBe( 10 );  // rightMin.x
+			expect( bvhData[ 8 ] ).toBe( 10 ); // rightMin.x
 			expect( bvhData[ 12 ] ).toBe( 13 ); // rightMax.x
 			expect( bvhData[ 13 ] ).toBe( 13 ); // rightMax.y
 

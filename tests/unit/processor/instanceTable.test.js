@@ -81,11 +81,11 @@ describe( 'InstanceTable', () => {
 			table.assignOffsets( 7 ); // 7 TLAS nodes
 
 			expect( table.tlasNodeCount ).toBe( 7 );
-			expect( table.entries[ 0 ].blasOffset ).toBe( 7 );      // 7
-			expect( table.entries[ 1 ].blasOffset ).toBe( 17 );     // 7 + 10
-			expect( table.entries[ 2 ].blasOffset ).toBe( 37 );     // 7 + 10 + 20
-			expect( table.totalBLASNodes ).toBe( 35 );              // 10 + 20 + 5
-			expect( table.totalNodeCount ).toBe( 42 );              // 7 + 35
+			expect( table.entries[ 0 ].blasOffset ).toBe( 7 ); // 7
+			expect( table.entries[ 1 ].blasOffset ).toBe( 17 ); // 7 + 10
+			expect( table.entries[ 2 ].blasOffset ).toBe( 37 ); // 7 + 10 + 20
+			expect( table.totalBLASNodes ).toBe( 35 ); // 10 + 20 + 5
+			expect( table.totalNodeCount ).toBe( 42 ); // 7 + 35
 
 		} );
 

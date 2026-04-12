@@ -166,6 +166,7 @@ describe( 'EventDispatcher', () => {
 		it( 'decrements after off()', () => {
 
 			const listener = () => {};
+
 			dispatcher.on( 'test', listener );
 			dispatcher.off( 'test', listener );
 			expect( dispatcher.listenerCount( 'test' ) ).toBe( 0 );

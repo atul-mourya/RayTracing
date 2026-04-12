@@ -1,10 +1,7 @@
 import { Fn, float, vec2, vec3, int, If, dot, cross, abs, normalize, sqrt, min, max, select } from 'three/tsl';
 
 import {
-	Ray,
 	HitInfo,
-	Triangle,
-	Sphere,
 } from './Struct.js';
 
 // Optimized Intersection with Geometry only (no attributes)

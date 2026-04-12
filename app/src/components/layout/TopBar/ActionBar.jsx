@@ -1,4 +1,4 @@
-import { Github, ChevronDown } from 'lucide-react';
+import { Github } from 'lucide-react';
 import { ThemeToggle } from '../../theme-toggle';
 import { Button } from "@/components/ui/button";
 import { NavUser } from '@/components/ui/nav-user';

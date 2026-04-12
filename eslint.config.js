@@ -9,7 +9,7 @@ import reactCompiler from 'eslint-plugin-react-compiler';
 // console.log(mdcs)
 export default [
 	// mdcs,
-	{ ignores: [ 'node_modules', 'dist' ] },
+	{ ignores: [ 'node_modules', '**/dist', '.claude' ] },
 	{
 		files: [ '**/*.{js,jsx}' ],
 		languageOptions: {

@@ -331,7 +331,7 @@ describe( 'TransformManager', () => {
 			expect( tm._meshTriRanges[ 0 ] ).toEqual(
 				expect.objectContaining( { start: 0, count: 1, uniqueVerts: 3 } )
 			);
-			expect( tm._posBuffer ).toHaveLength( 9 );    // 1 tri * 9 floats
+			expect( tm._posBuffer ).toHaveLength( 9 ); // 1 tri * 9 floats
 			expect( tm._normalBuffer ).toHaveLength( 9 );
 
 		} );

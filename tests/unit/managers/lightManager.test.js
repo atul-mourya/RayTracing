@@ -5,10 +5,30 @@ vi.mock( 'three', () => {
 
 	class EventDispatcher {
 
-		constructor() { this._listeners = {}; }
-		addEventListener( t, l ) { ( this._listeners[ t ] ||= [] ).push( l ); }
-		removeEventListener( t, l ) { if ( this._listeners[ t ] ) { const i = this._listeners[ t ].indexOf( l ); if ( i > - 1 ) this._listeners[ t ].splice( i, 1 ); } }
-		dispatchEvent( e ) { ( this._listeners[ e.type ] || [] ).forEach( l => l( e ) ); }
+		constructor() {
+
+			this._listeners = {};
+
+		}
+		addEventListener( t, l ) {
+
+			( this._listeners[ t ] ||= [] ).push( l );
+
+		}
+		removeEventListener( t, l ) {
+
+			if ( this._listeners[ t ] ) {
+
+				const i = this._listeners[ t ].indexOf( l ); if ( i > - 1 ) this._listeners[ t ].splice( i, 1 );
+
+			}
+
+		}
+		dispatchEvent( e ) {
+
+			( this._listeners[ e.type ] || [] ).forEach( l => l( e ) );
+
+		}
 
 	}
 
@@ -16,11 +36,27 @@ vi.mock( 'three', () => {
 
 		constructor( c, i ) {
 
-			this.color = { r: 1, g: 1, b: 1, set( v ) { return this; }, getHexString() { return 'ffffff'; } };
+			this.color = { r: 1, g: 1, b: 1, set( v ) {
+
+				return this;
+
+			}, getHexString() {
+
+				return 'ffffff';
+
+			} };
 			this.intensity = i || 1;
 			this.position = {
-				fromArray( a ) { this.x = a[ 0 ]; this.y = a[ 1 ]; this.z = a[ 2 ]; return this; },
-				clone() { return { x: this.x, y: this.y, z: this.z }; },
+				fromArray( a ) {
+
+					this.x = a[ 0 ]; this.y = a[ 1 ]; this.z = a[ 2 ]; return this;
+
+				},
+				clone() {
+
+					return { x: this.x, y: this.y, z: this.z };
+
+				},
 				x: 0, y: 0, z: 0
 			};
 			this.uuid = Math.random().toString( 36 );
@@ -32,7 +68,11 @@ vi.mock( 'three', () => {
 
 		lookAt() {}
 
-		getWorldDirection( v ) { return { x: 0, y: 0, z: - 1 }; }
+		getWorldDirection( v ) {
+
+			return { x: 0, y: 0, z: - 1 };
+
+		}
 
 	}
 
@@ -40,12 +80,20 @@ vi.mock( 'three', () => {
 		EventDispatcher,
 		DirectionalLight: class DirectionalLight extends Light {
 
-			constructor( c, i ) { super( c, i ); this.isDirectionalLight = true; this.type = 'DirectionalLight'; }
+			constructor( c, i ) {
+
+				super( c, i ); this.isDirectionalLight = true; this.type = 'DirectionalLight';
+
+			}
 
 		},
 		PointLight: class PointLight extends Light {
 
-			constructor( c, i ) { super( c, i ); this.isPointLight = true; this.type = 'PointLight'; }
+			constructor( c, i ) {
+
+				super( c, i ); this.isPointLight = true; this.type = 'PointLight';
+
+			}
 
 		},
 		SpotLight: class SpotLight extends Light {
@@ -76,7 +124,11 @@ vi.mock( 'three', () => {
 		},
 		Object3D: class {
 
-			constructor() { this.position = { set() {}, x: 0, y: 0, z: 0 }; }
+			constructor() {
+
+				this.position = { set() {}, x: 0, y: 0, z: 0 };
+
+			}
 
 		},
 		MathUtils: {
@@ -96,10 +148,26 @@ function createMockScene() {
 	const children = [];
 
 	return {
-		add( obj ) { children.push( obj ); },
-		remove( obj ) { const i = children.indexOf( obj ); if ( i > - 1 ) children.splice( i, 1 ); },
-		getObjectsByProperty( prop, value ) { return children.filter( c => c[ prop ] === value ); },
-		getObjectByProperty( prop, value ) { return children.find( c => c[ prop ] === value ); },
+		add( obj ) {
+
+			children.push( obj );
+
+		},
+		remove( obj ) {
+
+			const i = children.indexOf( obj ); if ( i > - 1 ) children.splice( i, 1 );
+
+		},
+		getObjectsByProperty( prop, value ) {
+
+			return children.filter( c => c[ prop ] === value );
+
+		},
+		getObjectByProperty( prop, value ) {
+
+			return children.find( c => c[ prop ] === value );
+
+		},
 		_children: children,
 	};
 

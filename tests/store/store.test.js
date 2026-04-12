@@ -9,9 +9,17 @@ vi.mock( '@/lib/appProxy.js', () => {
 	let _app = null;
 	return {
 		getApp: () => _app,
-		setApp: ( app ) => { _app = app; },
+		setApp: ( app ) => {
+
+			_app = app;
+
+		},
 		subscribeApp: vi.fn( () => () => {} ),
-		__setMockApp: ( app ) => { _app = app; },
+		__setMockApp: ( app ) => {
+
+			_app = app;
+
+		},
 	};
 
 } );

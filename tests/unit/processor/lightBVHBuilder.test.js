@@ -119,8 +119,8 @@ describe( 'LightBVHBuilder', () => {
 
 			expect( nodeCount ).toBe( 1 );
 			expect( nodeData[ 7 ] ).toBe( 1.0 ); // isLeaf
-			expect( nodeData[ 8 ] ).toBe( 0 );   // emissiveStart
-			expect( nodeData[ 9 ] ).toBe( 4 );   // emissiveCount
+			expect( nodeData[ 8 ] ).toBe( 0 ); // emissiveStart
+			expect( nodeData[ 9 ] ).toBe( 4 ); // emissiveCount
 
 		} );
 

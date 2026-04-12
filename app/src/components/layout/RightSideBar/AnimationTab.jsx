@@ -141,7 +141,7 @@ const AnimationTab = () => {
 				<Separator />
 
 				{/* Video Render Settings */}
-				{!isVideoRendering && (
+				{! isVideoRendering && (
 					<>
 						<div className="flex items-center justify-between">
 							<NumberInput

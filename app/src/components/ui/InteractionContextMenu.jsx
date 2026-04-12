@@ -301,125 +301,27 @@ const InteractionContextMenu = () => {
 		const pt = app.stages.pathTracer;
 
 		// Apply material properties
-		if ( copiedMaterial.color !== undefined && material.color ) {
-
-			material.color.setHex( copiedMaterial.color );
-
-		}
-
-		if ( copiedMaterial.metalness !== undefined ) {
-
-			material.metalness = copiedMaterial.metalness;
-
-		}
-
-		if ( copiedMaterial.roughness !== undefined ) {
-
-			material.roughness = copiedMaterial.roughness;
-
-		}
-
-		if ( copiedMaterial.opacity !== undefined ) {
-
-			material.opacity = copiedMaterial.opacity;
-
-		}
-
-		if ( copiedMaterial.emissive !== undefined && material.emissive ) {
-
-			material.emissive.setHex( copiedMaterial.emissive );
-
-		}
-
-		if ( copiedMaterial.emissiveIntensity !== undefined ) {
-
-			material.emissiveIntensity = copiedMaterial.emissiveIntensity;
-
-		}
-
-		if ( copiedMaterial.clearcoat !== undefined ) {
-
-			material.clearcoat = copiedMaterial.clearcoat;
-
-		}
-
-		if ( copiedMaterial.clearcoatRoughness !== undefined ) {
-
-			material.clearcoatRoughness = copiedMaterial.clearcoatRoughness;
-
-		}
-
-		if ( copiedMaterial.ior !== undefined ) {
-
-			material.ior = copiedMaterial.ior;
-
-		}
-
-		if ( copiedMaterial.transmission !== undefined ) {
-
-			material.transmission = copiedMaterial.transmission;
-
-		}
-
-		if ( copiedMaterial.thickness !== undefined ) {
-
-			material.thickness = copiedMaterial.thickness;
-
-		}
-
-		if ( copiedMaterial.specularIntensity !== undefined ) {
-
-			material.specularIntensity = copiedMaterial.specularIntensity;
-
-		}
-
-		if ( copiedMaterial.specularColor !== undefined && material.specularColor ) {
-
-			material.specularColor.setHex( copiedMaterial.specularColor );
-
-		}
-
-		if ( copiedMaterial.sheen !== undefined ) {
-
-			material.sheen = copiedMaterial.sheen;
-
-		}
-
-		if ( copiedMaterial.sheenRoughness !== undefined ) {
-
-			material.sheenRoughness = copiedMaterial.sheenRoughness;
-
-		}
-
-		if ( copiedMaterial.sheenColor !== undefined && material.sheenColor ) {
-
-			material.sheenColor.setHex( copiedMaterial.sheenColor );
-
-		}
-
-		if ( copiedMaterial.iridescence !== undefined ) {
-
-			material.iridescence = copiedMaterial.iridescence;
-
-		}
-
-		if ( copiedMaterial.iridescenceIOR !== undefined ) {
-
-			material.iridescenceIOR = copiedMaterial.iridescenceIOR;
-
-		}
-
-		if ( copiedMaterial.normalScale !== undefined && material.normalScale ) {
-
-			material.normalScale.set( copiedMaterial.normalScale, copiedMaterial.normalScale );
-
-		}
-
-		if ( copiedMaterial.bumpScale !== undefined ) {
-
-			material.bumpScale = copiedMaterial.bumpScale;
-
-		}
+		/* eslint-disable react-compiler/react-compiler -- intentional Three.js object mutation, not React state */
+		if ( copiedMaterial.color !== undefined && material.color ) material.color.setHex( copiedMaterial.color );
+		if ( copiedMaterial.metalness !== undefined ) material.metalness = copiedMaterial.metalness;
+		if ( copiedMaterial.roughness !== undefined ) material.roughness = copiedMaterial.roughness;
+		if ( copiedMaterial.opacity !== undefined ) material.opacity = copiedMaterial.opacity;
+		if ( copiedMaterial.emissive !== undefined && material.emissive ) material.emissive.setHex( copiedMaterial.emissive );
+		if ( copiedMaterial.emissiveIntensity !== undefined ) material.emissiveIntensity = copiedMaterial.emissiveIntensity;
+		if ( copiedMaterial.clearcoat !== undefined ) material.clearcoat = copiedMaterial.clearcoat;
+		if ( copiedMaterial.clearcoatRoughness !== undefined ) material.clearcoatRoughness = copiedMaterial.clearcoatRoughness;
+		if ( copiedMaterial.ior !== undefined ) material.ior = copiedMaterial.ior;
+		if ( copiedMaterial.transmission !== undefined ) material.transmission = copiedMaterial.transmission;
+		if ( copiedMaterial.thickness !== undefined ) material.thickness = copiedMaterial.thickness;
+		if ( copiedMaterial.specularIntensity !== undefined ) material.specularIntensity = copiedMaterial.specularIntensity;
+		if ( copiedMaterial.specularColor !== undefined && material.specularColor ) material.specularColor.setHex( copiedMaterial.specularColor );
+		if ( copiedMaterial.sheen !== undefined ) material.sheen = copiedMaterial.sheen;
+		if ( copiedMaterial.sheenRoughness !== undefined ) material.sheenRoughness = copiedMaterial.sheenRoughness;
+		if ( copiedMaterial.sheenColor !== undefined && material.sheenColor ) material.sheenColor.setHex( copiedMaterial.sheenColor );
+		if ( copiedMaterial.iridescence !== undefined ) material.iridescence = copiedMaterial.iridescence;
+		if ( copiedMaterial.iridescenceIOR !== undefined ) material.iridescenceIOR = copiedMaterial.iridescenceIOR;
+		if ( copiedMaterial.normalScale !== undefined && material.normalScale ) material.normalScale.set( copiedMaterial.normalScale, copiedMaterial.normalScale );
+		if ( copiedMaterial.bumpScale !== undefined ) material.bumpScale = copiedMaterial.bumpScale;
 
 		// Apply textures
 		if ( copiedMaterial.map !== undefined ) material.map = copiedMaterial.map;
@@ -429,6 +331,7 @@ const InteractionContextMenu = () => {
 		if ( copiedMaterial.emissiveMap !== undefined ) material.emissiveMap = copiedMaterial.emissiveMap;
 		if ( copiedMaterial.bumpMap !== undefined ) material.bumpMap = copiedMaterial.bumpMap;
 		if ( copiedMaterial.displacementMap !== undefined ) material.displacementMap = copiedMaterial.displacementMap;
+		/* eslint-enable react-compiler/react-compiler */
 
 		material.needsUpdate = true;
 

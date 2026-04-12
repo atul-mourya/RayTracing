@@ -24,7 +24,6 @@ const blueNoiseTextureSize = vec2( textureSize( blueNoiseTextureNode ) );
 
 // Golden ratio constants for dimension decorrelation
 
-const PHI = float( 1.61803398875 );
 const INV_PHI = float( 0.61803398875 );
 const INV_PHI2 = float( 0.38196601125 );
 

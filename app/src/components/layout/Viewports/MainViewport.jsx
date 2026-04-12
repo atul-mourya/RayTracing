@@ -24,11 +24,31 @@ const MainViewport = ( { mode = "preview" } ) => {
 	const setEnvironmentRef = useRef( setEnvironment );
 	const setLoadingRef = useRef( setLoading );
 
-	useEffect( () => { environmentModeRef.current = environmentMode; }, [ environmentMode ] );
-	useEffect( () => { handleEnvironmentModeChangeRef.current = handleEnvironmentModeChange; }, [ handleEnvironmentModeChange ] );
-	useEffect( () => { toastRef.current = toast; }, [ toast ] );
-	useEffect( () => { setEnvironmentRef.current = setEnvironment; }, [ setEnvironment ] );
-	useEffect( () => { setLoadingRef.current = setLoading; }, [ setLoading ] );
+	useEffect( () => {
+
+		environmentModeRef.current = environmentMode;
+
+	}, [ environmentMode ] );
+	useEffect( () => {
+
+		handleEnvironmentModeChangeRef.current = handleEnvironmentModeChange;
+
+	}, [ handleEnvironmentModeChange ] );
+	useEffect( () => {
+
+		toastRef.current = toast;
+
+	}, [ toast ] );
+	useEffect( () => {
+
+		setEnvironmentRef.current = setEnvironment;
+
+	}, [ setEnvironment ] );
+	useEffect( () => {
+
+		setLoadingRef.current = setLoading;
+
+	}, [ setLoading ] );
 
 	useEffect( () => {
 
@@ -105,7 +125,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 	const handleDragEnter = useCallback( ( e ) => {
 
 		e.preventDefault();
-		dragCounter.current++;
+		dragCounter.current ++;
 		if ( dragCounter.current === 1 ) setIsDragging( true );
 
 	}, [] );
@@ -119,7 +139,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 	const handleDragLeave = useCallback( ( e ) => {
 
 		e.preventDefault();
-		dragCounter.current--;
+		dragCounter.current --;
 		if ( dragCounter.current === 0 ) setIsDragging( false );
 
 	}, [] );
@@ -170,7 +190,7 @@ const MainViewport = ( { mode = "preview" } ) => {
 		// For environment maps, create and store the URL
 		if ( format.type === 'environment' || format.type === 'image' ) {
 
-			const url = URL.createObjectURL( file );
+			// const url = URL.createObjectURL( file );
 
 			// Store file info on asset loader for extension detection
 			app.assetLoader.uploadedFileInfo = {

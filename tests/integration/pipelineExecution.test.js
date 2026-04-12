@@ -57,7 +57,7 @@ class EmitterStage extends RenderStage {
 
 	}
 
-	render( context ) {
+	render() {
 
 		this.emit( this.eventType, this.eventData );
 
@@ -108,7 +108,11 @@ describe( 'Pipeline Integration: Stage Execution', () => {
 
 		class OrderStage extends RenderStage {
 
-			render() { order.push( this.name ); }
+			render() {
+
+				order.push( this.name );
+
+			}
 
 		}
 
@@ -127,7 +131,11 @@ describe( 'Pipeline Integration: Stage Execution', () => {
 
 		class OrderStage extends RenderStage {
 
-			render() { order.push( this.name ); }
+			render() {
+
+				order.push( this.name );
+
+			}
 
 		}
 
@@ -277,8 +285,16 @@ describe( 'Pipeline Integration: Execution Modes', () => {
 
 		class CycleStage extends RenderStage {
 
-			constructor() { super( 'Cycle', { executionMode: StageExecutionMode.PER_CYCLE } ); }
-			render() { renderFn(); }
+			constructor() {
+
+				super( 'Cycle', { executionMode: StageExecutionMode.PER_CYCLE } );
+
+			}
+			render() {
+
+				renderFn();
+
+			}
 
 		}
 
@@ -299,8 +315,16 @@ describe( 'Pipeline Integration: Execution Modes', () => {
 
 		class CycleStage extends RenderStage {
 
-			constructor() { super( 'Cycle', { executionMode: StageExecutionMode.PER_CYCLE } ); }
-			render() { renderFn(); }
+			constructor() {
+
+				super( 'Cycle', { executionMode: StageExecutionMode.PER_CYCLE } );
+
+			}
+			render() {
+
+				renderFn();
+
+			}
 
 		}
 
@@ -323,8 +347,16 @@ describe( 'Pipeline Integration: Execution Modes', () => {
 
 		class ConditionalStage extends RenderStage {
 
-			constructor() { super( 'Cond', { executionMode: StageExecutionMode.CONDITIONAL } ); }
-			shouldExecute() { return shouldRun; }
+			constructor() {
+
+				super( 'Cond', { executionMode: StageExecutionMode.CONDITIONAL } );
+
+			}
+			shouldExecute() {
+
+				return shouldRun;
+
+			}
 			render() {}
 
 		}
@@ -356,11 +388,27 @@ describe( 'Pipeline Integration: Full Lifecycle', () => {
 
 		class LifecycleStage extends RenderStage {
 
-			constructor() { super( 'Lifecycle' ); }
+			constructor() {
+
+				super( 'Lifecycle' );
+
+			}
 			render() {}
-			reset() { resetFn(); }
-			setSize( w, h ) { setSizeFn( w, h ); }
-			dispose() { disposeFn(); }
+			reset() {
+
+				resetFn();
+
+			}
+			setSize( w, h ) {
+
+				setSizeFn( w, h );
+
+			}
+			dispose() {
+
+				disposeFn();
+
+			}
 
 		}
 

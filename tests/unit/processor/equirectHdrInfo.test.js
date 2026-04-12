@@ -126,7 +126,7 @@ describe( 'EquirectHDRInfo.computeCDF', () => {
 		floatData[ 0 ] = 100; // R
 		floatData[ 1 ] = 100; // G
 		floatData[ 2 ] = 100; // B
-		floatData[ 3 ] = 1;   // A
+		floatData[ 3 ] = 1; // A
 
 		const { totalSum } = EquirectHDRInfo.computeCDF( floatData, width, height );
 

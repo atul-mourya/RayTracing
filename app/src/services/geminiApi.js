@@ -109,9 +109,7 @@ class AIImageGenerator {
 					const blob = new Blob( [ bytes ], { type: inlineData.mimeType } );
 					generatedImageData = this.blobToDataURL( blob );
 
-				}
-				// Collect text response
-				else if ( chunk.text ) {
+				} else if ( chunk.text ) { // Collect text response
 
 					textResponse += chunk.text;
 

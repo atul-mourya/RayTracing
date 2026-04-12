@@ -4,10 +4,30 @@ vi.mock( 'three', () => {
 
 	class EventDispatcher {
 
-		constructor() { this._listeners = {}; }
-		addEventListener( t, l ) { ( this._listeners[ t ] ||= [] ).push( l ); }
-		removeEventListener( t, l ) { if ( this._listeners[ t ] ) { const i = this._listeners[ t ].indexOf( l ); if ( i > - 1 ) this._listeners[ t ].splice( i, 1 ); } }
-		dispatchEvent( e ) { ( this._listeners[ e.type ] || [] ).forEach( l => l( e ) ); }
+		constructor() {
+
+			this._listeners = {};
+
+		}
+		addEventListener( t, l ) {
+
+			( this._listeners[ t ] ||= [] ).push( l );
+
+		}
+		removeEventListener( t, l ) {
+
+			if ( this._listeners[ t ] ) {
+
+				const i = this._listeners[ t ].indexOf( l ); if ( i > - 1 ) this._listeners[ t ].splice( i, 1 );
+
+			}
+
+		}
+		dispatchEvent( e ) {
+
+			( this._listeners[ e.type ] || [] ).forEach( l => l( e ) );
+
+		}
 
 	}
 
@@ -19,8 +39,20 @@ vi.mock( 'three', () => {
 			this.aspect = aspect;
 			this.near = near;
 			this.far = far;
-			this.position = { x: 0, y: 0, z: 0, set( x, y, z ) { this.x = x; this.y = y; this.z = z; }, copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) };
-			this.quaternion = { copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) };
+			this.position = { x: 0, y: 0, z: 0, set( x, y, z ) {
+
+				this.x = x; this.y = y; this.z = z;
+
+			}, copy: vi.fn(), clone: vi.fn( function () {
+
+				return { ...this };
+
+			} ) };
+			this.quaternion = { copy: vi.fn(), clone: vi.fn( function () {
+
+				return { ...this };
+
+			} ) };
 			this.name = '';
 			this.updateProjectionMatrix = vi.fn();
 			this.updateMatrixWorld = vi.fn();
@@ -32,7 +64,47 @@ vi.mock( 'three', () => {
 	return {
 		EventDispatcher,
 		PerspectiveCamera,
-		Vector3: class { constructor( x = 0, y = 0, z = 0 ) { this.x = x; this.y = y; this.z = z; } copy( v ) { this.x = v.x; this.y = v.y; this.z = v.z; return this; } subVectors( a, b ) { this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this; } normalize() { return this; } multiplyScalar() { return this; } add() { return this; } addScaledVector() { return this; } length() { return 1; } applyQuaternion() { return this; } },
+		Vector3: class {
+
+			constructor( x = 0, y = 0, z = 0 ) {
+
+				this.x = x; this.y = y; this.z = z;
+
+			} copy( v ) {
+
+				this.x = v.x; this.y = v.y; this.z = v.z; return this;
+
+			} subVectors( a, b ) {
+
+				this.x = a.x - b.x; this.y = a.y - b.y; this.z = a.z - b.z; return this;
+
+			} normalize() {
+
+				return this;
+
+			} multiplyScalar() {
+
+				return this;
+
+			} add() {
+
+				return this;
+
+			} addScaledVector() {
+
+				return this;
+
+			} length() {
+
+				return 1;
+
+			} applyQuaternion() {
+
+				return this;
+
+			}
+
+		},
 	};
 
 } );
@@ -42,7 +114,11 @@ vi.mock( 'three/addons/controls/OrbitControls.js', () => ( {
 
 		constructor() {
 
-			this.target = { x: 0, y: 0, z: 0, copy: vi.fn(), clone: vi.fn( function () { return { ...this }; } ) };
+			this.target = { x: 0, y: 0, z: 0, copy: vi.fn(), clone: vi.fn( function () {
+
+				return { ...this };
+
+			} ) };
 			this.enabled = true;
 			this.screenSpacePanning = false;
 			this.zoomToCursor = false;

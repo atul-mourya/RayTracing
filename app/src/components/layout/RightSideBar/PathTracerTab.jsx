@@ -1,4 +1,5 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Zap, Target, Image, Blend, Palette, ArrowUp, ArrowDown, Minus, CloudSun, Wind, Droplets } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
+// import { Zap, ArrowDown, Minus, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,7 +10,6 @@ import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo } from 'react';
-import { Badge } from "@/components/ui/badge";
 import CanvasDimensionControls from './CanvasDimensionControls';
 
 /**

@@ -15,9 +15,21 @@ vi.mock( 'three', () => {
 
 		}
 
-		start() { this.running = true; }
-		stop() { this.running = false; }
-		getDelta() { return this._delta; }
+		start() {
+
+			this.running = true;
+
+		}
+		stop() {
+
+			this.running = false;
+
+		}
+		getDelta() {
+
+			return this._delta;
+
+		}
 
 	}
 
@@ -31,7 +43,11 @@ vi.mock( 'three', () => {
 
 		reset() {}
 		update() {}
-		getDelta() { return this._delta; }
+		getDelta() {
+
+			return this._delta;
+
+		}
 
 	}
 
@@ -43,7 +59,11 @@ vi.mock( 'three', () => {
 
 		}
 
-		applyMatrix4() { return this; }
+		applyMatrix4() {
+
+			return this;
+
+		}
 
 	}
 
@@ -79,30 +99,74 @@ vi.mock( 'three', () => {
 				_loop: LoopRepeat,
 				paused: false,
 				clampWhenFinished: false,
-				play: vi.fn( function () { this.paused = false; return this; } ),
+				play: vi.fn( function () {
+
+					this.paused = false; return this;
+
+				} ),
 				stop: vi.fn().mockReturnThis(),
 				isRunning: vi.fn( () => true ),
 				getClip: () => clip,
-				setLoop: vi.fn( function ( mode ) { this._loop = mode; } ),
+				setLoop: vi.fn( function ( mode ) {
+
+					this._loop = mode;
+
+				} ),
 			};
 			this._actions.push( action );
 			return action;
 
 		}
 
-		update( delta ) { this.time += delta * this.timeScale; }
-		setTime( t ) { this.time = 0; this._actions.forEach( a => { a.time = 0; } ); this.update( t ); }
-		stopAllAction() { this._actions.forEach( a => a.stop() ); }
+		update( delta ) {
+
+			this.time += delta * this.timeScale;
+
+		}
+		setTime( t ) {
+
+			this.time = 0; this._actions.forEach( a => {
+
+				a.time = 0;
+
+			} ); this.update( t );
+
+		}
+		stopAllAction() {
+
+			this._actions.forEach( a => a.stop() );
+
+		}
 		uncacheRoot() {}
 
 	}
 
 	class EventDispatcher {
 
-		constructor() { this._listeners = {}; }
-		addEventListener( type, fn ) { ( this._listeners[ type ] ??= [] ).push( fn ); }
-		removeEventListener( type, fn ) { const a = this._listeners[ type ]; if ( a ) { const i = a.indexOf( fn ); if ( i >= 0 ) a.splice( i, 1 ); } }
-		dispatchEvent( event ) { ( this._listeners[ event.type ] || [] ).forEach( fn => fn( event ) ); }
+		constructor() {
+
+			this._listeners = {};
+
+		}
+		addEventListener( type, fn ) {
+
+			( this._listeners[ type ] ??= [] ).push( fn );
+
+		}
+		removeEventListener( type, fn ) {
+
+			const a = this._listeners[ type ]; if ( a ) {
+
+				const i = a.indexOf( fn ); if ( i >= 0 ) a.splice( i, 1 );
+
+			}
+
+		}
+		dispatchEvent( event ) {
+
+			( this._listeners[ event.type ] || [] ).forEach( fn => fn( event ) );
+
+		}
 
 	}
 
