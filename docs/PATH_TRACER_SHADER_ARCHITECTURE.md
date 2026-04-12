@@ -171,7 +171,7 @@ Traversal reduces reads by only fetching slot 3 for leaf nodes.
 Packed per-material properties across multiple pixels (27 floats per material). Hot-path subsets:
 - Base: color (rgb), metalness, emissive (rgb), roughness, ior, transmission, thickness, emissiveIntensity
 - Volumetric & attenuation: attenuationColor (rgb), attenuationDistance, dispersion
-- Visibility & classification: visible, sheen, sheenRoughness, sheenColor (rgb)
+- Sheen & classification: sheen, sheenRoughness, sheenColor (rgb)
 - Specular & iridescence: specularIntensity, specularColor (rgb), iridescence, iridescenceIOR, iridescenceThicknessRange
 - Clearcoat: clearcoat, clearcoatRoughness
 - Alpha and side flags: opacity, side, transparent, alphaTest, alphaMode, depthWrite
@@ -267,11 +267,9 @@ Highlights:
 - Texture access minimization: fetch node slots 0–1 for bounds, slot 2 only for leaf.
 - Early pruning: compare min distance of child bounds with current closest hit distance.
 - Near/far ordering pushes far child first → processes near child immediately (depth-first).
-- Per-ray visibility cache (`visCache`) prevents redundant material visibility fetches (~30% texture read reduction).
-- Two-stage visibility:
-  1. Fast check (cached) for early rejection.
-  2. Full side culling (front/back/double) only if potential closest hit.
-- Shadow ray early termination path (any hit suffices).
+- Per-mesh visibility at BLAS-pointer level: meshIndex stored in TLAS leaf, checked against `meshVisibilityBuffer` before pushing BLAS onto stack — skips entire mesh BLAS if hidden.
+- Side culling (`passesSideCulling`): single buffer read (slot 10) for front/back/double-side check on triangle hits.
+- Shadow ray early termination path (any hit suffices, no material visibility check needed).
 
 ### Intersection
 `RayTriangle` from `RayIntersection.js` performs barycentric intersection returning distance, normal, and barycentrics after interpolation of per-vertex normals & UVs.
@@ -430,7 +428,7 @@ Non-zero modes may invoke `TraceDebugMode` for heatmaps (triangle/box test count
 | Area | Technique | Benefit |
 |---|---|---|
 | BVH Traversal | Slots 0–1 read first, slot 2 only for leaves | Reduced memory bandwidth |
-| BVH Visibility | Per-ray material visibility cache | ~30% fewer material texture fetches |
+| Mesh Visibility | Per-mesh check at BLAS-pointer level | Entire BLAS skipped for hidden meshes |
 | Light BVH | Power-weighted stochastic traversal | O(log N) emissive sampling vs O(N) CDF |
 | RNG | Fast RNG for non-critical samples | Lower ALU cost |
 | Material Sampling | PathState caching of classification & BRDF weights | Avoid recomputation per bounce |
@@ -449,7 +447,7 @@ Non-zero modes may invoke `TraceDebugMode` for heatmaps (triangle/box test count
 - Background pixel guard: `gNormalDepth` uses default `(0,0,1)` normal + `linearDepth=1.0` for miss rays (`objectNormal = vec3(0)` → `normalize` → NaN without guard).
 - Pole region handling (`sinTheta` clamps, epsilon UV limits) avoids singularities in environment spherical mapping.
 - Transmission fallback (total internal reflection) uses small PDF to maintain normalization consistency.
-- Visibility cache reset each ray to avoid cross-ray contamination.
+- Per-mesh visibility buffer initialized before shader graph construction (`setMeshVisibilityBuffer` in BVHTraversal.js).
 - Adaptive sampling ensures at least one sample to prevent stale output when no accumulation available.
 
 ---
@@ -542,7 +540,7 @@ Before large refactors or when optimizing GPU time:
 
 1. **BVH Traversal**
    - [ ] Node texture reads minimized (slot 2 only for leaves)?
-   - [ ] Visibility cache still per-ray reset? (avoid cross-ray contamination)
+   - [ ] Per-mesh visibility buffer set before shader graph construction (`setMeshVisibilityBuffer`)?
    - [ ] Early exit threshold (`dst < 0.001`) appropriate for scene scale?
 
 2. **Material Sampling**
@@ -593,7 +591,7 @@ When changing shader code, watch these anchors:
 |---|---|---|
 | `PathTracer.js` | `pathTracerMain()`, `getRequiredSamples()`, accumulation block | Entry point, sample loop, adaptive sampling, accumulation |
 | `PathTracerCore.js` | `Trace()`, `TraceResult`, path loop termination | Bounce iteration, termination, MIS assembly |
-| `BVHTraversal.js` | `traverseBVH()`, `isTriangleVisible()`, stack logic | Acceleration structure traversal & visibility culling |
+| `BVHTraversal.js` | `traverseBVH()`, `passesSideCulling()`, `setMeshVisibilityBuffer()`, stack logic | Acceleration structure traversal, per-mesh visibility at BLAS-pointer level, side culling |
 | `MaterialSampling.js` | `sampleMaterialWithMultiLobeMIS()`, `calculateMultiLobeMISWeight()` | Multi-lobe sampling & PDF combination |
 | `MaterialEvaluation.js` | `evaluateMaterialResponse()` | Combines BRDF components |
 | `Environment.js` | `sampleEnvironmentWithContext()`, `calculateEnvironmentPDFWithMIS()` | HDR env sampling & PDF computation |

@@ -1413,7 +1413,7 @@ export class SceneProcessor {
 	 * Returns null if no change, or the updated emissive data for GPU upload.
 	 *
 	 * @param {number} materialIndex
-	 * @param {string} property - 'emissive' | 'emissiveIntensity' | 'visible'
+	 * @param {string} property - 'emissive' | 'emissiveIntensity'
 	 * @param {*} value
 	 * @returns {{ rawData: Float32Array, emissiveCount: number, totalPower: number }|null}
 	 */
@@ -1426,7 +1426,6 @@ export class SceneProcessor {
 
 		if ( property === 'emissive' ) mat.emissive = value;
 		else if ( property === 'emissiveIntensity' ) mat.emissiveIntensity = value;
-		else if ( property === 'visible' ) mat.visible = value;
 
 		const changed = this.emissiveTriangleBuilder.updateMaterialEmissive(
 			materialIndex, mat,

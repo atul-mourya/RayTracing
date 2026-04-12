@@ -116,7 +116,7 @@ PathTracer delegates to these via composition — external code accesses them di
 - **`EnvironmentManager.js`**: HDRI loading, CDF importance sampling (`buildEnvironmentCDF()`), procedural/gradient/solid sky generation, environment rotation. Owns `environmentTexture`, `envParams`, and CDF storage nodes.
 - **`ShaderBuilder.js`**: TSL shader graph construction, texture node management, material creation. Builds the full path tracer output via `setupMaterial()`. Supports in-place texture updates via `updateSceneTextures()` on model change (avoids full shader rebuild).
 - **`StorageTexturePool.js`**: Ping-pong MRT storage textures for progressive accumulation. `create()`, `swap()`, `getReadTextures()`, `ensureSize()`.
-- **`TLASBuilder.js`**: Builds SAH BVH over mesh-level AABBs for the top-level acceleration structure. Flattens with BLAS-pointer leaves (marker `-2`). Caches flatten buffer across rebuilds.
+- **`TLASBuilder.js`**: Builds SAH BVH over mesh-level AABBs for the top-level acceleration structure. Flattens with BLAS-pointer leaves (marker `-2`, stores `meshIndex` for per-mesh visibility). Caches flatten buffer across rebuilds.
 - **`InstanceTable.js`**: Per-mesh BLAS metadata — tracks `blasOffset`, `blasNodeCount`, `triOffset`, `triCount`, `worldAABB` for each mesh. Provides O(1) AABB reads from BLAS root nodes. Entries indexed by meshIndex (positional).
 
 ### TSL Shader Modules (`rayzee/src/TSL/`)
@@ -170,6 +170,7 @@ Zustand-based stores with **automatic 3D engine synchronization**:
 - `useCameraStore` - Camera controls with DOF presets
 - `useAnimationStore` - Animation playback, clip selection, speed/loop controls
 - Transform state (`transformMode`, `transformSpace`, `isTransforming`) lives in `useStore` with handlers that sync to engine via `getApp()?.transform.setMode()`
+- Mesh/group visibility (`toggleMeshVisibility`, `setMeshVisibility`) lives in `useStore` — toggles `object.visible` on the Three.js object then calls `app.updateAllMeshVisibility()` to update the per-mesh GPU visibility buffer
 - Pattern: `handleChange()` utility creates handlers that update both store state and the app, triggering `app.reset()` for immediate visual feedback
 
 ### React Hooks for Engine Integration
@@ -191,8 +192,8 @@ Combined bvhData: [ TLAS nodes ][ BLAS_0 nodes ][ BLAS_1 nodes ]...[ BLAS_M node
 ```
 - **16 floats per node** (4 × vec4). Inner nodes store children's AABBs + child indices.
 - **Triangle leaf** (marker `-1`): `[triOffset, triCount, 0, -1]` — absolute index into triangleData
-- **BLAS-pointer leaf** (marker `-2`): `[blasRootNodeIndex, 0, 0, -2]` — TLAS leaf pointing to a BLAS root
-- Traversal distinguishes leaf types via threshold: `nodeData0.w > -1.5` → triangle leaf, else → BLAS pointer (push onto stack)
+- **BLAS-pointer leaf** (marker `-2`): `[blasRootNodeIndex, meshIndex, 0, -2]` — TLAS leaf pointing to a BLAS root, with meshIndex for per-mesh visibility check
+- Traversal distinguishes leaf types via threshold: `nodeData0.w > -1.5` → triangle leaf, else → BLAS pointer (check per-mesh visibility, push onto stack if visible)
 - **`InstanceTable`**: CPU-side per-mesh metadata (blasOffset, blasNodeCount, triOffset, triCount, worldAABB)
 - **`TLASBuilder`**: SAH BVH over mesh AABBs with cached flatten buffer
 
@@ -309,7 +310,7 @@ Materials and BVH data accessed via storage buffer lookups in TSL:
 // Standard pattern in TSL shaders
 const getDatafromStorageBuffer = Fn(([buffer, index, offset, stride]) => { ... })
 ```
-BVH traversal (`BVHTraversal.js`) uses stack-based DFS with two-level dispatch: TLAS inner nodes → BLAS-pointer leaves (push BLAS root onto stack) → BLAS inner nodes → triangle leaves (Möller-Trumbore intersection). Both `traverseBVH` (closest hit) and `traverseBVHShadow` (any hit, early exit) handle BLAS pointers.
+BVH traversal (`BVHTraversal.js`) uses stack-based DFS with two-level dispatch: TLAS inner nodes → BLAS-pointer leaves (per-mesh visibility check via `meshVisibilityBuffer`, skip BLAS if hidden, else push BLAS root onto stack) → BLAS inner nodes → triangle leaves (Möller-Trumbore intersection + `passesSideCulling`). Both `traverseBVH` (closest hit) and `traverseBVHShadow` (any hit, early exit) handle BLAS pointers with mesh visibility gating. Per-mesh visibility is set via `setMeshVisibilityBuffer()` (module-level in BVHTraversal.js, configured by ShaderBuilder before graph construction).
 
 ### Camera & DOF System
 Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro with proper focal length calculations. Focus picking via click-to-focus interaction mode.
@@ -327,6 +328,7 @@ Photography-inspired presets (`CAMERA_PRESETS`) for portrait/landscape/macro wit
 9. **BVH Leaf Markers**: `-1` = triangle leaf, `-2` = BLAS-pointer leaf. Traversal uses threshold `-1.5` to distinguish. `BVHRefitter` has inline copies of these constants (cannot import EngineDefaults in worker context).
 10. **InstanceTable Entry Order**: Entries are indexed by `meshIndex` (positional). Use `setEntry()` with explicit index, never push-based insertion, to avoid ordering bugs with mixed sync/async BLAS builds.
 11. **Transform vs Animation Refit**: Transforms use `refitBLASes()` (per-mesh, sync, main thread). Animations use `refitBVH()` (full scene, async, worker). Don't mix them — the worker path operates on SharedArrayBuffer that must match the combined TLAS/BLAS layout.
+12. **Mesh Visibility**: Controlled per-mesh at the BLAS-pointer level in BVH traversal, NOT per-material. Use `app.updateAllMeshVisibility()` after changing `object.visible` on any Three.js object/group — it walks the parent chain to resolve world-visibility and writes a per-mesh GPU buffer. Material-level `visible` property was removed from the pipeline. The `passesSideCulling()` function in BVHTraversal.js handles front/back/double-side culling only (1 buffer read).
 
 ## Testing & Validation
 - Visual testing via built-in debug modes and example scenes

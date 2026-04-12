@@ -163,20 +163,12 @@ describe( 'EmissiveTriangleBuilder', () => {
 
 		} );
 
-		it( 'skips invisible materials', () => {
+		it( 'ignores material visible flag (per-mesh visibility handled at BLAS-pointer level)', () => {
 
 			const triangleData = makeTriangleData( [ { ...UNIT_TRI, materialIndex: 0 } ] );
 			const materials = [ { emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 5, visible: 0 } ];
 
-			expect( builder.extractEmissiveTriangles( triangleData, materials, 1 ) ).toBe( 0 );
-
-		} );
-
-		it( 'treats undefined visible as visible', () => {
-
-			const triangleData = makeTriangleData( [ { ...UNIT_TRI, materialIndex: 0 } ] );
-			const materials = [ { emissive: { r: 1, g: 1, b: 1 }, emissiveIntensity: 1 } ];
-
+			// Material visible flag no longer affects emissive extraction
 			expect( builder.extractEmissiveTriangles( triangleData, materials, 1 ) ).toBe( 1 );
 
 		} );

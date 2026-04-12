@@ -50,12 +50,11 @@ export class EmissiveTriangleBuilder {
 			const material = materials[ materialIndex ];
 			if ( ! material ) continue;
 
-			// Check if emissive and visible
+			// Check if emissive
 			const emissive = material.emissive || { r: 0, g: 0, b: 0 };
 			const emissiveIntensity = material.emissiveIntensity || 0;
-			const isVisible = material.visible === undefined || material.visible !== 0;
 
-			const isEmissive = isVisible && emissiveIntensity > 0 && (
+			const isEmissive = emissiveIntensity > 0 && (
 				emissive.r > 0 || emissive.g > 0 || emissive.b > 0
 			);
 
@@ -410,8 +409,7 @@ export class EmissiveTriangleBuilder {
 
 		const emissive = material.emissive || { r: 0, g: 0, b: 0 };
 		const emissiveIntensity = material.emissiveIntensity || 0;
-		const isVisible = material.visible === undefined || material.visible !== 0;
-		const isNowEmissive = isVisible && emissiveIntensity > 0 && ( emissive.r > 0 || emissive.g > 0 || emissive.b > 0 );
+		const isNowEmissive = emissiveIntensity > 0 && ( emissive.r > 0 || emissive.g > 0 || emissive.b > 0 );
 
 		// Check if this material had any emissive triangles before
 		const hadEmissive = this.emissiveTriangles.some( t => t.materialIndex === materialIndex );

@@ -301,6 +301,11 @@ engine.setTextureTransform(index, name, transform)   // Update texture transform
 engine.reset()                        // Re-upload all material data to GPU
 engine.stages.pathTracer.materialData.updateMaterial(index, mat)  // Replace a material
 await engine.rebuildMaterials(scene)  // Full rebuild (after texture changes)
+
+// Per-mesh visibility (toggle Three.js object.visible, then sync to GPU)
+object.visible = false;               // Set on any mesh or group
+engine.updateAllMeshVisibility()       // Recompute all mesh visibility from scene hierarchy
+engine.setMeshVisibility(meshIndex, visible)  // Update single mesh visibility
 ```
 
 ### engine.environmentManager

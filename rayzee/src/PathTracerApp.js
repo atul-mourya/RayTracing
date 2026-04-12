@@ -533,6 +533,11 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( ! this._sdf.uploadToPathTracer( this.stages.pathTracer, this.lightManager, this.meshScene, environmentTexture ) ) return false;
 
+		// Build per-mesh visibility buffer (must happen before setupMaterial so the
+		// shader graph captures the storage node during compilation)
+		this.stages.pathTracer._meshRefs = this.stages.pathTracer._collectMeshRefs( this.meshScene );
+		this.stages.pathTracer.setMeshVisibilityData( this.stages.pathTracer._meshRefs );
+
 		timer.end( 'GPU data transfer' );
 
 		// Compile shaders
@@ -877,7 +882,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stages.pathTracer?.materialData.updateMaterialProperty( materialIndex, property, value );
 
-		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity', 'visible' ];
+		const emissiveAffectingProps = [ 'emissive', 'emissiveIntensity' ];
 		if ( emissiveAffectingProps.includes( property )
 			&& this.stages.pathTracer?.enableEmissiveTriangleSampling?.value ) {
 
@@ -892,6 +897,30 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		this.reset();
+
+	}
+
+	/**
+	 * Update per-mesh visibility without rebuilding the scene.
+	 * Walks the parent chain to resolve world-space visibility.
+	 * @param {number} meshIndex
+	 * @param {boolean} visible
+	 */
+	setMeshVisibility( meshIndex, visible ) {
+
+		this.stages.pathTracer?.updateMeshVisibility( meshIndex, visible );
+		this.reset();
+
+	}
+
+	/**
+	 * Recompute world-visibility for all meshes.
+	 * Call after changing visibility on groups or parent objects.
+	 */
+	updateAllMeshVisibility() {
+
+		this.stages.pathTracer?.updateAllMeshVisibility();
 		this.reset();
 
 	}

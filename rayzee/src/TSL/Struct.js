@@ -30,7 +30,6 @@ export const RayTracingMaterial = struct( {
 	alphaMode: 'int', // 0: OPAQUE, 1: MASK, 2: BLEND
 	side: 'int',
 	depthWrite: 'int',
-	visible: 'bool',
 	albedoMapIndex: 'int',
 	emissiveMapIndex: 'int',
 	normalMapIndex: 'int',

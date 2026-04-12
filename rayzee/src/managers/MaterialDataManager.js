@@ -229,7 +229,6 @@ export class MaterialDataManager {
 				break;
 			case 'attenuationDistance': data[ stride + 15 ] = value; break;
 			case 'dispersion': data[ stride + 16 ] = value; break;
-			case 'visible': data[ stride + 17 ] = value; break;
 			case 'sheen': data[ stride + 18 ] = value; break;
 			case 'sheenRoughness': data[ stride + 19 ] = value; break;
 			case 'sheenColor':
@@ -378,7 +377,7 @@ export class MaterialDataManager {
 
 		data[ stride + 15 ] = materialData.attenuationDistance ?? Infinity;
 		data[ stride + 16 ] = materialData.dispersion ?? 0;
-		data[ stride + 17 ] = materialData.visible ?? 1;
+		data[ stride + 17 ] = 1; // Reserved slot (per-mesh visibility handled at BLAS-pointer level)
 		data[ stride + 18 ] = materialData.sheen ?? 0;
 		data[ stride + 19 ] = materialData.sheenRoughness ?? 1;
 

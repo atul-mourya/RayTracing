@@ -14,7 +14,6 @@ import { RefreshCw, Trash2, Plus } from 'lucide-react';
 // Configuration for all material properties - pregrouped by section
 const MATERIAL_PROPERTIES = {
 	basic: [
-		[ 'visible', { type: 'switch', default: true, label: 'Visible' } ],
 		[ 'color', { type: 'color', default: '#ffffff', label: 'Color' } ],
 		[ 'roughness', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Roughness' } ],
 		[ 'metalness', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Metalness' } ],
@@ -183,11 +182,6 @@ const MaterialTab = () => {
 				if ( config.type === 'color' ) {
 
 					newState[ key ] = getHexString( selectedObject.material[ key ] );
-
-				} else if ( key === 'visible' ) {
-
-					// 'visible' is a mesh property, not a material property
-					newState[ key ] = selectedObject.visible ?? config.default;
 
 				} else {
 

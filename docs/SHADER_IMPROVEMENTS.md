@@ -585,21 +585,18 @@ analyse utilization of various caching.
   float metalFactor = 0.5 + 0.5 * material.metalness;
   Impact: Expensive per-sample calculations that could be precomputed.
 
-  6. Inefficient Visibility Checks (bvhtraverse.fs:59-75)
+  6. Inefficient Visibility Checks (bvhtraverse.fs:59-75) — RESOLVED
 
-  // Two separate texture reads for visibility
-  vec4 visibilityData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 4,
-  MATERIAL_SLOTS );
-  vec4 sideData = getDatafromDataTexture( materialTexture, materialTexSize, materialIndex, 10,
-  MATERIAL_SLOTS );
-  Impact: Double texture reads for simple visibility tests.
+  Material-level visibility removed from the pipeline. Per-mesh visibility now handled at
+  BLAS-pointer level (zero per-triangle cost). Side culling uses a single buffer read (slot 10).
+  See `passesSideCulling()` in BVHTraversal.js.
 
   Optimization Recommendations
 
   High Impact (30-50% performance gain):
 
   1. Pack BVH Data: Combine left/right child bounds into fewer texture reads
-  2. Material Data Restructuring: Pack visibility and side data into single texture read
+  2. Material Data Restructuring: Pack visibility and side data into single texture read — RESOLVED (visibility removed, side culling is 1 read)
   3. Precompute BRDF Weights: Cache weight calculations in material texture
   4. Environment Sample Caching: Pre-bake environment importance maps
 

@@ -268,7 +268,7 @@ export class TLASBuilder {
 				// Leaf node — BLAS pointer
 				const entry = entries[ n.entryIndex ];
 				data[ o ] = entry.blasOffset; // Absolute node index of BLAS root in combined buffer
-				// data[o+1] = 0
+				data[ o + 1 ] = n.entryIndex; // meshIndex for per-mesh visibility check
 				// data[o+2] = 0
 				data[ o + 3 ] = BVH_LEAF_MARKERS.BLAS_POINTER_LEAF; // -2 marker
 

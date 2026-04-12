@@ -25,7 +25,6 @@ import {
 	array,
 } from 'three/tsl';
 
-import { struct } from './structProxy.js';
 import { Ray, HitInfo } from './Struct.js';
 import { getDatafromStorageBuffer, MATERIAL_SLOTS } from './Common.js';
 import { RandomPointInCircle } from './Random.js';
@@ -33,14 +32,6 @@ import { RandomPointInCircle } from './Random.js';
 // ================================================================================
 // STRUCTS
 // ================================================================================
-
-// Combined visibility data structure
-export const VisibilityData = struct( {
-	visible: 'bool',
-	side: 'int',
-	transparent: 'bool',
-	opacity: 'float'
-} );
 
 // ================================================================================
 // CONSTANTS
@@ -51,6 +42,20 @@ const MAX_BVH_ITERATIONS = 512;
 const BVH_STRIDE = 4;
 const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
+
+// Per-mesh visibility buffer (set by ShaderBuilder before graph construction)
+let _meshVisibilityBuffer = null;
+
+/**
+ * Set the per-mesh visibility storage buffer node.
+ * Must be called before the shader graph is constructed (i.e., before setupCompute).
+ * @param {StorageNode} buffer - TSL storage node indexed by meshIndex
+ */
+export function setMeshVisibilityBuffer( buffer ) {
+
+	_meshVisibilityBuffer = buffer;
+
+}
 
 // ================================================================================
 // STACK HELPERS (Native WGSL array via TSL ArrayNode)
@@ -127,48 +132,17 @@ const fastRayAABBDst = wgslFn( `
 // VISIBILITY FUNCTIONS
 // ================================================================================
 
-// Fetch all visibility data in 2 reads
-export const getVisibilityData = Fn( ( [ materialIndex, materialBuffer ] ) => {
+// Side culling — 1 buffer read (slot 10 only)
+// Per-mesh visibility handled at BLAS-pointer level; material visibility always 1.
+export const passesSideCulling = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
 
-	// Read visibility flag from slot 4
-	const visData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
-	// Read side and transparency data from slot 10
 	const sideData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) );
-
-	return VisibilityData( {
-		visible: visData.g.greaterThan( 0.5 ),
-		opacity: sideData.r,
-		side: int( sideData.g ),
-		transparent: sideData.b.greaterThan( 0.5 ),
-	} );
-
-} );
-
-// Fast visibility check using material texture
-export const isTriangleVisible = Fn( ( [ materialIndex, materialBuffer ] ) => {
-
-	const visData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) );
-	return visData.g.greaterThan( 0.5 );
-
-} );
-
-// Complete visibility check with side culling
-export const isMaterialVisibleOptimized = wgslFn( `
-	fn isMaterialVisibleOptimized( visible: bool, side: i32, rayDirection: vec3f, normal: vec3f ) -> bool {
-		if ( !visible ) { return false; }
-		let rayDotNormal = dot( rayDirection, normal );
-		let doubleSide = side == 2;
-		let frontSide  = side == 0 && rayDotNormal < -0.0001f;
-		let backSide   = side == 1 && rayDotNormal > 0.0001f;
-		return doubleSide || frontSide || backSide;
-	}
-` );
-
-// Single visibility check with combined data fetch
-export const isMaterialVisible = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
-
-	const vis = VisibilityData.wrap( getVisibilityData( materialIndex, materialBuffer ) );
-	return isMaterialVisibleOptimized( { visible: vis.visible, side: vis.side, rayDirection, normal } );
+	const side = int( sideData.g );
+	const rayDotNormal = rayDirection.dot( normal );
+	const doubleSide = side.equal( int( 2 ) );
+	const frontSide = side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) );
+	const backSide = side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) );
+	return doubleSide.or( frontSide ).or( backSide );
 
 } );
 
@@ -269,28 +243,23 @@ export const traverseBVH = Fn( ( [
 
 						const matIdx = int( uvData2.z );
 
-						// Early material rejection
-						If( isTriangleVisible( matIdx, materialBuffer ), () => {
+						// Interpolate normal
+						const w = float( 1.0 ).sub( u ).sub( v );
+						const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
 
-							// Interpolate normal
-							const w = float( 1.0 ).sub( u ).sub( v );
-							const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
+						// Side culling check (per-mesh visibility handled at BLAS-pointer level)
+						If( passesSideCulling( matIdx, rayDirection, normal, materialBuffer ), () => {
 
-							// Full material visibility check (culling etc)
-							If( isMaterialVisible( matIdx, rayDirection, normal, materialBuffer ), () => {
+							closestHit.didHit.assign( true );
+							closestHit.dst.assign( t );
+							closestHit.normal.assign( normal );
+							closestHit.materialIndex.assign( matIdx );
+							closestHit.meshIndex.assign( int( uvData2.w ) );
 
-								closestHit.didHit.assign( true );
-								closestHit.dst.assign( t );
-								closestHit.normal.assign( normal );
-								closestHit.materialIndex.assign( matIdx );
-								closestHit.meshIndex.assign( int( uvData2.w ) );
-
-								// Defer hitPoint + UV computation to post-traversal
-								closestTriIdx.assign( triIndex );
-								closestU.assign( u );
-								closestV.assign( v );
-
-							} );
+							// Defer hitPoint + UV computation to post-traversal
+							closestTriIdx.assign( triIndex );
+							closestU.assign( u );
+							closestV.assign( v );
 
 						} );
 
@@ -308,13 +277,34 @@ export const traverseBVH = Fn( ( [
 			} ).Else( () => {
 
 				// BLAS-pointer leaf (marker -2) — push BLAS root node onto stack
+				// nodeData0: [blasRootNodeIndex, meshIndex, 0, -2]
 				const blasRoot = int( nodeData0.x ).toVar();
-				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stack.element( stackPtr ).assign( blasRoot );
-					stackPtr.addAssign( 1 );
+				if ( _meshVisibilityBuffer ) {
 
-				} );
+					// Per-mesh visibility check — skip entire BLAS if mesh is hidden
+					// getDatafromStorageBuffer( buffer, stride=1, sampleIndex=meshIdx, dataOffset=0 )
+					const meshIdx = int( nodeData0.y ).toVar();
+					const meshVis = getDatafromStorageBuffer( _meshVisibilityBuffer, int( 1 ), meshIdx, int( 0 ) ).x;
+
+					If( meshVis.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
+
+						stack.element( stackPtr ).assign( blasRoot );
+						stackPtr.addAssign( 1 );
+
+					} );
+
+				} else {
+
+					// No visibility buffer — push unconditionally (original behavior)
+					If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
+
+						stack.element( stackPtr ).assign( blasRoot );
+						stackPtr.addAssign( 1 );
+
+					} );
+
+				}
 
 			} );
 
@@ -390,7 +380,7 @@ export const traverseBVHShadow = Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
-	materialBuffer,
+	_materialBuffer, // eslint-disable-line no-unused-vars -- kept for call-site compatibility
 	maxShadowDist,
 ] ) => {
 
@@ -448,25 +438,21 @@ export const traverseBVHShadow = Fn( ( [
 
 					If( triResult.w.greaterThan( 0.5 ), () => {
 
+						// Per-mesh visibility handled at BLAS-pointer level — accept any hit
 						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
-						const matIdx = int( uvData2.z );
 
-						If( isTriangleVisible( matIdx, materialBuffer ), () => {
+						closestHit.didHit.assign( true );
+						closestHit.dst.assign( triResult.x );
+						closestHit.materialIndex.assign( int( uvData2.z ) );
+						closestHit.meshIndex.assign( int( uvData2.w ) );
 
-							closestHit.didHit.assign( true );
-							closestHit.dst.assign( triResult.x );
-							closestHit.materialIndex.assign( matIdx );
-							closestHit.meshIndex.assign( int( uvData2.w ) );
+						// Compute hit point and geometric normal -- required for transmissive
+						// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
+						closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
+						closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
 
-							// Compute hit point and geometric normal -- required for transmissive
-							// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
-							closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
-							closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
-
-							// Shadow ray only needs any hit — skip remaining triangles in leaf
-							Break();
-
-						} );
+						// Shadow ray only needs any hit — skip remaining triangles in leaf
+						Break();
 
 					} );
 
@@ -475,13 +461,34 @@ export const traverseBVHShadow = Fn( ( [
 			} ).Else( () => {
 
 				// BLAS-pointer leaf (marker -2) — push BLAS root node onto stack
+				// nodeData0: [blasRootNodeIndex, meshIndex, 0, -2]
 				const blasRoot = int( nodeData0.x ).toVar();
-				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stack.element( stackPtr ).assign( blasRoot );
-					stackPtr.addAssign( 1 );
+				if ( _meshVisibilityBuffer ) {
 
-				} );
+					// Per-mesh visibility check — skip entire BLAS if mesh is hidden
+					// getDatafromStorageBuffer( buffer, stride=1, sampleIndex=meshIdx, dataOffset=0 )
+					const meshIdx = int( nodeData0.y ).toVar();
+					const meshVis = getDatafromStorageBuffer( _meshVisibilityBuffer, int( 1 ), meshIdx, int( 0 ) ).x;
+
+					If( meshVis.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
+
+						stack.element( stackPtr ).assign( blasRoot );
+						stackPtr.addAssign( 1 );
+
+					} );
+
+				} else {
+
+					// No visibility buffer — push unconditionally (original behavior)
+					If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
+
+						stack.element( stackPtr ).assign( blasRoot );
+						stackPtr.addAssign( 1 );
+
+					} );
+
+				}
 
 			} );
 

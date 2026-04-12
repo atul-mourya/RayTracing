@@ -353,7 +353,6 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 		attenuationColor: data3.rgb,
 		attenuationDistance: data3.a,
 		dispersion: data4.r,
-		visible: data4.g,
 		sheen: data4.b,
 		sheenRoughness: data4.a,
 		sheenColor: data5.rgb,

@@ -188,6 +188,10 @@ export class PathTracer extends RenderStage {
 		this.lightBVHStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
 		this.lightBVHStorageNode = storage( this.lightBVHStorageAttr, 'vec4', 1 ).toReadOnly();
 
+		// Per-mesh visibility (storage buffer for TLAS BLAS-pointer skip)
+		this.meshVisibilityStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( [ 1, 0, 0, 0 ] ), 4 );
+		this.meshVisibilityStorageNode = storage( this.meshVisibilityStorageAttr, 'vec4', 1 ).toReadOnly();
+
 		// Adaptive sampling
 		this.adaptiveSamplingTexture = null;
 
@@ -480,6 +484,10 @@ export class PathTracer extends RenderStage {
 
 		}
 
+		// Per-mesh visibility — collect meshes from scene ordered by meshIndex
+		this._meshRefs = this._collectMeshRefs( this.scene );
+		this.setMeshVisibilityData( this._meshRefs );
+
 		// Spheres
 		this.spheres = this.sdfs.spheres || [];
 
@@ -756,6 +764,109 @@ export class PathTracer extends RenderStage {
 
 		this.bvhNodeCount = Math.floor( vec4Count / BVH_VEC4_PER_NODE );
 		console.log( `PathTracer: ${this.bvhNodeCount} BVH nodes (storage buffer)` );
+
+	}
+
+	/**
+	 * Build per-mesh visibility storage buffer from mesh world-visibility.
+	 * Each mesh gets one float (1.0 = visible, 0.0 = hidden).
+	 * Padded to vec4 alignment for GPU storage buffer compatibility.
+	 * @param {Array} meshes - Array of Three.js mesh objects
+	 */
+	setMeshVisibilityData( meshes ) {
+
+		if ( ! meshes || meshes.length === 0 ) return;
+
+		const meshCount = meshes.length;
+		// One vec4 per mesh — visibility stored in .x (simple indexing on GPU)
+		const data = new Float32Array( meshCount * 4 );
+
+		for ( let i = 0; i < meshCount; i ++ ) {
+
+			data[ i * 4 ] = this._isWorldVisible( meshes[ i ] ) ? 1.0 : 0.0;
+
+		}
+
+		this.meshVisibilityStorageAttr = new StorageInstancedBufferAttribute( data, 4 );
+		this.meshVisibilityStorageNode.value = this.meshVisibilityStorageAttr;
+		this.meshVisibilityStorageNode.bufferCount = meshCount;
+
+	}
+
+	/**
+	 * Update visibility for a single mesh in the GPU buffer (no rebuild).
+	 * @param {number} meshIndex
+	 * @param {boolean} visible
+	 */
+	updateMeshVisibility( meshIndex, visible ) {
+
+		if ( ! this.meshVisibilityStorageAttr ) return;
+
+		this.meshVisibilityStorageAttr.array[ meshIndex * 4 ] = visible ? 1.0 : 0.0;
+		this.meshVisibilityStorageAttr.needsUpdate = true;
+
+	}
+
+	/**
+	 * Recompute world-visibility for all meshes and update the GPU buffer.
+	 * Call this when group visibility changes at runtime.
+	 */
+	updateAllMeshVisibility() {
+
+		if ( ! this._meshRefs || ! this.meshVisibilityStorageAttr ) return;
+
+		const data = this.meshVisibilityStorageAttr.array;
+		for ( let i = 0; i < this._meshRefs.length; i ++ ) {
+
+			data[ i * 4 ] = this._isWorldVisible( this._meshRefs[ i ] ) ? 1.0 : 0.0;
+
+		}
+
+		this.meshVisibilityStorageAttr.needsUpdate = true;
+
+	}
+
+	/**
+	 * Collect mesh references from scene, ordered by meshIndex (assigned during extraction).
+	 * @param {Object3D} scene
+	 * @returns {Array}
+	 * @private
+	 */
+	_collectMeshRefs( scene ) {
+
+		if ( ! scene ) return [];
+
+		const meshes = [];
+		scene.traverse( obj => {
+
+			if ( obj.isMesh && obj.userData.meshIndex !== undefined ) {
+
+				meshes[ obj.userData.meshIndex ] = obj;
+
+			}
+
+		} );
+
+		return meshes;
+
+	}
+
+	/**
+	 * Walk the parent chain to determine world-space visibility.
+	 * @param {Object3D} object
+	 * @returns {boolean}
+	 * @private
+	 */
+	_isWorldVisible( object ) {
+
+		while ( object ) {
+
+			if ( ! object.visible ) return false;
+			object = object.parent;
+
+		}
+
+		return true;
 
 	}
 

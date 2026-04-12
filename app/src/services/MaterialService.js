@@ -37,7 +37,6 @@ export class MaterialService {
 			iridescence: 0.0,
 			iridescenceIOR: 1.3,
 			iridescenceThicknessRange: [ 100, 400 ],
-			visible: 1,
 			transparent: 0,
 			alphaTest: 0.0,
 			side: 0 // FrontSide
@@ -203,8 +202,6 @@ export class MaterialService {
 		// Rendering properties
 		ensureAndSet( threeMaterial, 'transparent', completeMaterial.transparent > 0 );
 		ensureAndSet( threeMaterial, 'alphaTest', completeMaterial.alphaTest );
-		ensureAndSet( threeMaterial, 'visible', completeMaterial.visible > 0 );
-
 		// Handle side property (convert number to Three.js constants)
 		const sideMap = { 0: 0, 1: 1, 2: 2 }; // FrontSide, BackSide, DoubleSide
 		ensureAndSet( threeMaterial, 'side', sideMap[ completeMaterial.side ] !== undefined ? sideMap[ completeMaterial.side ] : 0 );

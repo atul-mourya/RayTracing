@@ -114,7 +114,7 @@ describe( 'TLASBuilder', () => {
 
 		} );
 
-		it( 'flattens single-leaf TLAS with BLAS-pointer marker', () => {
+		it( 'flattens single-leaf TLAS with BLAS-pointer marker and meshIndex', () => {
 
 			const entries = [ makeEntry( 0, makeAABB( 0, 0, 0, 1, 1, 1 ), 10 ) ];
 			const { root } = builder.build( entries );
@@ -122,6 +122,7 @@ describe( 'TLASBuilder', () => {
 
 			expect( data ).toHaveLength( 16 ); // 1 node * 16 floats
 			expect( data[ 0 ] ).toBe( 10 ); // blasOffset
+			expect( data[ 1 ] ).toBe( 0 ); // meshIndex (entryIndex)
 			expect( data[ 3 ] ).toBe( - 2 ); // BLAS-pointer marker
 
 		} );
@@ -137,19 +138,25 @@ describe( 'TLASBuilder', () => {
 
 			expect( data ).toHaveLength( 48 ); // 3 nodes * 16 floats
 
-			// Count BLAS-pointer leaves (marker -2)
+			// Count BLAS-pointer leaves (marker -2) and verify meshIndex
 			let blasPointers = 0;
 			let innerNodes = 0;
+			const meshIndices = [];
 			for ( let i = 0; i < 3; i ++ ) {
 
 				const marker = data[ i * 16 + 3 ];
-				if ( marker === - 2 ) blasPointers ++;
-				else if ( marker >= 0 ) innerNodes ++;
+				if ( marker === - 2 ) {
+
+					blasPointers ++;
+					meshIndices.push( data[ i * 16 + 1 ] );
+
+				} else if ( marker >= 0 ) innerNodes ++;
 
 			}
 
 			expect( blasPointers ).toBe( 2 );
 			expect( innerNodes ).toBe( 1 );
+			expect( meshIndices.sort() ).toEqual( [ 0, 1 ] ); // Both meshIndices present
 
 		} );
 

@@ -16,6 +16,7 @@ import { Fn, texture, vec2, float, int, uniform, If,
 import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { pathTracerMain } from '../TSL/PathTracer.js';
+import { setMeshVisibilityBuffer } from '../TSL/BVHTraversal.js';
 import { BuildTimer } from './BuildTimer.js';
 
 const WG_SIZE = 8;
@@ -187,6 +188,9 @@ export class ShaderBuilder {
 		const matStorage = stage.materialData.materialStorageNode;
 		const emissiveTriStorage = stage.emissiveTriangleStorageNode;
 		const lightBVHStorage = stage.lightBVHStorageNode;
+
+		// Set per-mesh visibility buffer (module-level in BVHTraversal.js, read during graph construction)
+		setMeshVisibilityBuffer( stage.meshVisibilityStorageNode );
 
 		const envTex = texture( stage.environment.environmentTexture );
 

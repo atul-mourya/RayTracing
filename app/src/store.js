@@ -161,43 +161,11 @@ const useStore = create( set => ( {
 		const object = scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
-		// Toggle Three.js object visibility
 		object.visible = ! object.visible;
 
-		// Helper to update path tracer visibility recursively
-		const updatePTVisibility = ( obj ) => {
+		// Update per-mesh visibility buffer (handles parent-chain resolution internally)
+		app.updateAllMeshVisibility();
 
-			if ( obj.isMesh && obj.material ) {
-
-				const materialIndex = obj.userData?.materialIndex ?? 0;
-
-				if ( typeof app.setMaterialProperty === 'function' ) {
-
-					// Calculate effective visibility by checking all ancestors
-					let effectiveVisible = obj.visible;
-					let curr = obj.parent;
-					while ( curr && effectiveVisible ) {
-
-						if ( ! curr.visible ) effectiveVisible = false;
-						curr = curr.parent;
-
-					}
-
-					app.setMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
-
-				}
-
-			}
-
-		};
-
-		// Update visibility for the object and all its children
-		object.traverse( updatePTVisibility );
-
-		// Reset path tracer to see changes
-		app.reset();
-
-		// Dispatch custom event for synchronization with Outliner
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
 			detail: { uuid, visible: object.visible }
 		} ) );
@@ -212,43 +180,11 @@ const useStore = create( set => ( {
 		const object = scene.getObjectByProperty( 'uuid', uuid );
 		if ( ! object ) return;
 
-		// Set Three.js object visibility
 		object.visible = visible;
 
-		// Helper to update path tracer visibility recursively
-		const updatePTVisibility = ( obj ) => {
+		// Update per-mesh visibility buffer (handles parent-chain resolution internally)
+		app.updateAllMeshVisibility();
 
-			if ( obj.isMesh && obj.material ) {
-
-				const materialIndex = obj.userData?.materialIndex ?? 0;
-
-				if ( typeof app.setMaterialProperty === 'function' ) {
-
-					// Calculate effective visibility by checking all ancestors
-					let effectiveVisible = obj.visible;
-					let curr = obj.parent;
-					while ( curr && effectiveVisible ) {
-
-						if ( ! curr.visible ) effectiveVisible = false;
-						curr = curr.parent;
-
-					}
-
-					app.setMaterialProperty( materialIndex, 'visible', effectiveVisible ? 1 : 0 );
-
-				}
-
-			}
-
-		};
-
-		// Update visibility for the object and all its children
-		object.traverse( updatePTVisibility );
-
-		// Reset path tracer to see changes
-		app.reset();
-
-		// Dispatch custom event for synchronization with Outliner
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
 			detail: { uuid, visible }
 		} ) );
@@ -2190,22 +2126,6 @@ const useMaterialStore = create( ( set, get ) => ( {
 	handleIridescenceChange: val => get().updateMaterialProperty( 'iridescence', val[ 0 ] ),
 	handleIridescenceIORChange: val => get().updateMaterialProperty( 'iridescenceIOR', val[ 0 ] ),
 	handleIridescenceThicknessRangeChange: val => get().updateMaterialProperty( 'iridescenceThicknessRange', val ),
-	handleVisibleChange: val => {
-
-		const obj = useStore.getState().selectedObject;
-		if ( obj ) {
-
-			obj.visible = val;
-			get().updateMaterialProperty( 'visible', val ? 1 : 0 );
-
-			// Dispatch custom event for synchronization with Outliner
-			window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
-				detail: { uuid: obj.uuid, visible: val }
-			} ) );
-
-		}
-
-	},
 	handleNormalScaleChange: val => {
 
 		const value = Array.isArray( val ) ? val[ 0 ] : val;

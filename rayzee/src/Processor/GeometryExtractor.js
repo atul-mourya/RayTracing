@@ -114,7 +114,7 @@ export class GeometryExtractor {
 		}
 
 		// Process material and get its index
-		const materialIndex = this.processMaterial( mesh.material, mesh );
+		const materialIndex = this.processMaterial( mesh.material );
 		mesh.userData.materialIndex = materialIndex;
 
 		// Assign mesh index and store mesh reference
@@ -133,7 +133,7 @@ export class GeometryExtractor {
 
 	}
 
-	processMaterial( material, mesh = null ) {
+	processMaterial( material ) {
 
 		// Check if material already exists in our array (O(1) Map lookup)
 		let materialIndex = this._materialUuidMap.get( material.uuid ) ?? - 1;
@@ -148,7 +148,7 @@ export class GeometryExtractor {
 			}
 
 			// Create a new material object and add it to the array
-			const newMaterial = this.createMaterialObject( material, mesh );
+			const newMaterial = this.createMaterialObject( material );
 			this.materials.push( newMaterial );
 			materialIndex = this.materials.length - 1;
 			this._materialUuidMap.set( material.uuid, materialIndex );
@@ -327,7 +327,7 @@ export class GeometryExtractor {
 
 	}
 
-	createMaterialObject( material, mesh = null ) {
+	createMaterialObject( material ) {
 
 		const defaults = this.getPhysicalDefaults();
 		const materialType = this.getMaterialType( material );
@@ -407,8 +407,6 @@ export class GeometryExtractor {
 			// Rendering properties
 			side: this.getMaterialSide( material ),
 			depthWrite: material.depthWrite ?? true ? 1 : 0,
-			// Use mesh visibility if available, otherwise fall back to material or default to true
-			visible: mesh ? ( mesh.visible ? 1 : 0 ) : ( material.visible ?? true ? 1 : 0 ),
 
 			// Texture processing
 			map: this.processTexture( material.map, this.maps ),
@@ -757,7 +755,7 @@ export class GeometryExtractor {
 
 		if ( object.isMesh && object.geometry && object.material ) {
 
-			const materialIndex = this.processMaterial( object.material, object );
+			const materialIndex = this.processMaterial( object.material );
 			object.userData.materialIndex = materialIndex;
 
 			const meshIndex = this.meshes.length;
