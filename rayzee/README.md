@@ -8,7 +8,7 @@ A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic —
 npm install rayzee three
 ```
 
-`three` (>=0.170.0) is a required peer dependency. `stats-gl` is installed automatically as a transitive dependency.
+`three` (>=0.183.0) is a required peer dependency. `stats-gl` is installed automatically as a transitive dependency.
 
 ## Getting Started
 
