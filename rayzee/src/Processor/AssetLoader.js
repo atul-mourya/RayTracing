@@ -1,4 +1,4 @@
-import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping, LinearMipmapLinearFilter,
+import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping,
 	TextureLoader, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, CircleGeometry, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -171,8 +171,6 @@ export class AssetLoader extends EventDispatcher {
 			}
 
 			texture.generateMipmaps = true;
-			// texture.minFilter = LinearMipmapLinearFilter;
-			// texture.magFilter = LinearFilter;
 
 			this.applyEnvironmentToScene( texture );
 			this.dispatchEvent( { type: 'load', texture } );
@@ -353,7 +351,7 @@ export class AssetLoader extends EventDispatcher {
 
 	}
 
-	async findAndLoadModelFromZip( zip, filename ) {
+	async findAndLoadModelFromZip( zip ) {
 
 		const mainModelFiles = [
 			'scene.gltf', 'scene.glb', 'model.gltf', 'model.glb',
@@ -459,7 +457,6 @@ export class AssetLoader extends EventDispatcher {
 		if ( extension === 'gltf' ) {
 
 			const gltfContent = strFromU8( fileContent );
-			const gltfJson = JSON.parse( gltfContent );
 			const manager = new LoadingManager();
 			const gltfDir = filePath.split( '/' ).slice( 0, - 1 ).join( '/' );
 

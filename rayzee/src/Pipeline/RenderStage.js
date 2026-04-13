@@ -142,7 +142,6 @@ export class RenderStage {
 
 		const renderMode = context.getState( 'renderMode' ) || 0;
 		const tileRenderingComplete = context.getState( 'tileRenderingComplete' );
-		const frame = context.getState( 'frame' ) || 0;
 
 		switch ( this.executionMode ) {
 

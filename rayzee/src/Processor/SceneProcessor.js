@@ -820,8 +820,8 @@ export class SceneProcessor {
 
 		// Factory method for creating any additional scene elements
 		// Currently returns an empty array by default
-		const white = new Color( 0xffffff );
-		const black = new Color( 0x000000 );
+		// const white = new Color( 0xffffff );
+		// const black = new Color( 0x000000 );
 		return [
 			// { position: new Vector3( - 4, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0 } },
 			// { position: new Vector3( - 1.5, 2, 0 ), radius: 0.8, material: { color: white, emissive: black, emissiveIntensity: 0, roughness: 1.0 } },
