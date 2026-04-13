@@ -1,4 +1,4 @@
-import { DataUtils, HalfFloatType, FloatType } from 'three';
+import { DataUtils, HalfFloatType, FloatType, SRGBColorSpace } from 'three';
 
 /**
  * Binary search to find the closest index
@@ -39,17 +39,34 @@ function colorToLuminance( r, g, b ) {
 }
 
 /**
+ * sRGB to linear conversion (IEC 61966-2-1 transfer function)
+ */
+function sRGBToLinear( c ) {
+
+	return c <= 0.04045 ? c / 12.92 : ( ( c + 0.055 ) / 1.055 ) ** 2.4;
+
+}
+
+/**
  * Extract Float32 RGBA pixel data from an environment map.
- * Handles HalfFloat/integer type conversion and Y-flip.
+ * Handles HalfFloat/integer type conversion, canvas extraction for
+ * non-DataTexture images (JPG/PNG), sRGB-to-linear conversion, and Y-flip.
  * @returns {{ floatData: Float32Array, width: number, height: number }}
  */
 export function extractFloatData( envMap ) {
 
-	const { width, height, data } = envMap.image;
+	const { width, height } = envMap.image;
+	let data = envMap.image.data;
+	let needsSRGBToLinear = false;
 
+	// No CPU-accessible data — extract from HTMLImageElement / ImageBitmap via canvas
 	if ( ! data ) {
 
-		throw new Error( 'EquirectHDRInfo: Environment map must have CPU-accessible image data. Render target textures are not supported.' );
+		const canvas = new OffscreenCanvas( width, height );
+		const ctx = canvas.getContext( '2d' );
+		ctx.drawImage( envMap.image, 0, 0, width, height );
+		data = ctx.getImageData( 0, 0, width, height ).data;
+		needsSRGBToLinear = true;
 
 	}
 
@@ -72,7 +89,7 @@ export function extractFloatData( envMap ) {
 
 	} else {
 
-		// Integer types (Uint8, Int16, etc.)
+		// Integer types (Uint8, Uint8Clamped, Int16, etc.)
 		let maxIntValue;
 		if ( data instanceof Int8Array || data instanceof Int16Array || data instanceof Int32Array ) {
 
@@ -88,6 +105,26 @@ export function extractFloatData( envMap ) {
 		for ( let i = 0, l = data.length; i < l; i ++ ) {
 
 			floatData[ i ] = data[ i ] / maxIntValue;
+
+		}
+
+	}
+
+	// Also flag sRGB conversion for DataTextures explicitly marked as sRGB
+	if ( ! needsSRGBToLinear && envMap.colorSpace === SRGBColorSpace ) {
+
+		needsSRGBToLinear = true;
+
+	}
+
+	// Convert sRGB to linear so CDF luminance matches GPU-sampled linear values
+	if ( needsSRGBToLinear ) {
+
+		for ( let i = 0, l = floatData.length; i < l; i += 4 ) {
+
+			floatData[ i ] = sRGBToLinear( floatData[ i ] );
+			floatData[ i + 1 ] = sRGBToLinear( floatData[ i + 1 ] );
+			floatData[ i + 2 ] = sRGBToLinear( floatData[ i + 2 ] );
 
 		}
 

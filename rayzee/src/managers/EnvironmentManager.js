@@ -312,7 +312,7 @@ export class EnvironmentManager {
 			const startTime = performance.now();
 			const textureForCDF = this.scene.environment;
 
-			if ( ! textureForCDF.image || ! textureForCDF.image.data ) {
+			if ( ! textureForCDF.image ) {
 
 				this._updateCDFStorageBuffers();
 				this.uniforms.set( 'envTotalSum', 0.0 );
