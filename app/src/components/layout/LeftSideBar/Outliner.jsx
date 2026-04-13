@@ -118,7 +118,7 @@ const ChevronToggle = memo( ( { isOpen, onToggle, hasChildren } ) => {
 
 ChevronToggle.displayName = 'ChevronToggle';
 
-const LayerTreeItem = memo( ( { item, depth } ) => {
+const LayerTreeItem = memo( ( { item, depth, parentHidden } ) => {
 
 	const [ isOpen, setIsOpen ] = useState( true );
 	const selectedObject = useStore( ( state ) => state.selectedObject );
@@ -237,7 +237,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 				className={cn(
 					"group flex items-center h-7 pr-1 cursor-pointer transition-colors border-none outline-none min-w-full w-fit",
 					isSelected ? STYLES.itemActive : "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-					! isVisible && "opacity-50"
+					( parentHidden || ! isVisible ) && "opacity-50"
 				)}
 				style={{ paddingLeft: paddingLeft }}
 				onClick={handleNodeClick}
@@ -275,7 +275,7 @@ const LayerTreeItem = memo( ( { item, depth } ) => {
 			{item.children.length > 0 && isOpen && (
 				<div className="flex flex-col">
 					{item.children.map( child => (
-						<LayerTreeItem key={child.uuid} item={child} depth={depth + 1} />
+						<LayerTreeItem key={child.uuid} item={child} depth={depth + 1} parentHidden={parentHidden || ! isVisible} />
 					) )}
 				</div>
 			)}
