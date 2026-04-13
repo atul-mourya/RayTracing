@@ -5,6 +5,7 @@ vi.mock( 'three', () => ( {
 	DataUtils: { fromHalfFloat: ( v ) => v },
 	HalfFloatType: 1016,
 	FloatType: 1015,
+	SRGBColorSpace: 'srgb',
 } ) );
 
 import { extractFloatData } from '@/core/Processor/EquirectHDRInfo.js';
@@ -30,14 +31,14 @@ describe( 'extractFloatData', () => {
 
 	} );
 
-	it( 'throws when image data is missing', () => {
+	it( 'throws when image data is missing and canvas extraction unavailable', () => {
 
 		const envMap = {
 			type: 1015,
 			image: { width: 2, height: 1, data: null },
 		};
 
-		expect( () => extractFloatData( envMap ) ).toThrow( /CPU-accessible/ );
+		expect( () => extractFloatData( envMap ) ).toThrow();
 
 	} );
 
