@@ -71,6 +71,7 @@ import {
 	calculatePointLightImportance,
 	calculateSpotLightImportance,
 	traceShadowRay,
+	calculateRayOffset,
 } from './LightsDirect.js';
 
 import { traverseBVHShadow } from './BVHTraversal.js';
@@ -940,7 +941,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 ] ) => {
 
 	const totalContribution = vec3( 0.0 ).toVar();
-	const rayOrigin = hitPoint.add( hitNormal.mul( 0.001 ) ).toVar();
+	const rayOrigin = hitPoint.add( calculateRayOffset( hitPoint, hitNormal, material ) ).toVar();
 
 	// Early exit for highly emissive surfaces
 	If( material.emissiveIntensity.lessThanEqual( 10.0 ), () => {
@@ -1041,7 +1042,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 				If( NoL.greaterThan( 0.0 ).and( lightImportance.mul( NoL ).greaterThan( importanceThreshold ) ).and( isDirectionValid( { direction: lightSample.direction, surfaceNormal: hitNormal } ) ), () => {
 
-					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) ).toVar();
+					const shadowDistance = min( lightSample.distance.mul( 0.999 ), float( 1000.0 ) ).toVar();
 					const visibility = traceShadowRay(
 						rayOrigin, lightSample.direction, shadowDistance, rngState,
 						traverseBVHShadow,

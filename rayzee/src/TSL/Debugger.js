@@ -356,7 +356,8 @@ export const TraceDebugMode = Fn( ( [
 			const bounceDir = cosineWeightedSample( { N: normalA, xi } ).toVar();
 
 			// Trace secondary ray from the hit point (offset along normal to avoid self-intersection)
-			const bounceOrigin = hitInfo.hitPoint.add( normalA.mul( 0.001 ) ).toVar();
+			const debugEps = max( float( 1e-4 ), length( hitInfo.hitPoint ).mul( 1e-6 ) );
+			const bounceOrigin = hitInfo.hitPoint.add( normalA.mul( debugEps ) ).toVar();
 			const bounceRay = Ray( { origin: bounceOrigin, direction: bounceDir } );
 
 			const bounceHit = HitInfo.wrap( traverseBVH(
