@@ -990,7 +990,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		} else {
 
 			set( { transparentBackground: val } );
-			app?.set( 'transparentBackground', val );
+			app?.settings.set( 'transparentBackground', val );
 
 		}
 
