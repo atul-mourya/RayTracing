@@ -880,8 +880,7 @@ export const Trace = Fn( ( [
 			// For transmission: offset along the old ray direction to push through the surface
 			const reflectOffsetDir = select( interaction.entering, N, N.negate() );
 			const offsetDir = select( interaction.didReflect, reflectOffsetDir, rayDirection );
-			const bounceEps = max( float( 1e-4 ), length( hitInfo.hitPoint ).mul( 1e-6 ) );
-			rayOrigin.assign( hitInfo.hitPoint.add( offsetDir.mul( bounceEps ) ) );
+			rayOrigin.assign( hitInfo.hitPoint.add( offsetDir.mul( 0.001 ) ) );
 			rayDirection.assign( interaction.direction );
 
 			stateIsPrimaryRay.assign( tslBool( false ) );
@@ -1055,7 +1054,7 @@ export const Trace = Fn( ( [
 
 						const rayOffset = calculateRayOffset( hitInfo.hitPoint, N, material );
 						const rayOrigin = hitInfo.hitPoint.add( rayOffset );
-						const shadowDist = emissiveSample.distance.mul( 0.999 );
+						const shadowDist = emissiveSample.distance.sub( 0.001 );
 						const visibility = traceShadowRayWrapped( rayOrigin, emissiveSample.direction, shadowDist, rngState );
 
 						If( visibility.greaterThan( 0.0 ), () => {
@@ -1138,7 +1137,7 @@ export const Trace = Fn( ( [
 		throughput.mulAssign( indirectResult.throughput );
 
 		// Prepare for next bounce
-		rayOrigin.assign( hitInfo.hitPoint.add( calculateRayOffset( hitInfo.hitPoint, N, material ) ) );
+		rayOrigin.assign( hitInfo.hitPoint.add( N.mul( 0.001 ) ) );
 		rayDirection.assign( indirectResult.direction );
 		prevBouncePdf.assign( indirectResult.combinedPdf );
 

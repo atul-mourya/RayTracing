@@ -257,7 +257,7 @@ export const intersectAreaLight = Fn( ( [ light, rayOrigin, rayDirection ] ) => 
 		const t = dot( light.position.sub( rayOrigin ), normal ).mul( invDenom ).toVar();
 
 		// Skip intersections behind the ray
-		If( t.greaterThan( 1e-5 ), () => {
+		If( t.greaterThan( 0.001 ), () => {
 
 			// Optimized rectangle test using vector rejection
 			const hitPoint = rayOrigin.add( rayDirection.mul( t ) );

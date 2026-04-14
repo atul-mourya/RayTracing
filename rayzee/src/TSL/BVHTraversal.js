@@ -268,7 +268,7 @@ export const traverseBVH = Fn( ( [
 				} );
 
 				// If we found a very close hit, we can terminate early
-				If( closestHit.didHit.and( closestHit.dst.lessThan( 1e-6 ) ), () => {
+				If( closestHit.didHit.and( closestHit.dst.lessThan( 0.001 ) ), () => {
 
 					Break();
 

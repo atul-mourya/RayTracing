@@ -142,9 +142,8 @@ export const traceShadowRay = Fn( ( [
 			} );
 
 			// Continue ray past transmissive surface
-			const transEps = max( float( 1e-5 ), length( shadowHit.hitPoint ).mul( 1e-6 ) );
-			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( transEps ) ) );
-			remainingDist.subAssign( shadowHit.dst.add( transEps ) );
+			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( 0.001 ) ) );
+			remainingDist.subAssign( shadowHit.dst.add( 0.001 ) );
 
 		} ).ElseIf( shadowMaterial.transparent, () => {
 
@@ -159,9 +158,8 @@ export const traceShadowRay = Fn( ( [
 			} );
 
 			// Continue ray past transparent surface
-			const alphaEps = max( float( 1e-5 ), length( shadowHit.hitPoint ).mul( 1e-6 ) );
-			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( alphaEps ) ) );
-			remainingDist.subAssign( shadowHit.dst.add( alphaEps ) );
+			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( 0.001 ) ) );
+			remainingDist.subAssign( shadowHit.dst.add( 0.001 ) );
 
 		} ).Else( () => {
 
@@ -259,7 +257,7 @@ export const estimateLightImportance = Fn( ( [ light, hitPoint, normal, material
 
 		If( lightFacing.greaterThan( 0.0 ), () => {
 
-			const solidAngle = light.area.div( max( distSq, 1e-4 ) );
+			const solidAngle = light.area.div( max( distSq, 0.1 ) );
 			const power = light.intensity.mul( dot( light.color, REC709_LUMINANCE_COEFFICIENTS ) ).mul( light.area );
 
 			// Material-aware weighting
@@ -661,7 +659,7 @@ export const calculatePointLightContribution = Fn( ( [
 			const rayOffset = calculateRayOffset( hitPoint, normal, material );
 			const rayOrigin = hitPoint.add( rayOffset );
 
-			const visibility = traceShadowRayFn( rayOrigin, lightDir, distance.mul( 0.999 ), rngState );
+			const visibility = traceShadowRayFn( rayOrigin, lightDir, distance.sub( 0.001 ), rngState );
 
 			If( visibility.greaterThan( 0.0 ), () => {
 
@@ -713,7 +711,7 @@ export const calculateSpotLightContribution = Fn( ( [
 				const rayOffset = calculateRayOffset( hitPoint, normal, material );
 				const rayOrigin = hitPoint.add( rayOffset );
 
-				const visibility = traceShadowRayFn( rayOrigin, lightDir, distance.mul( 0.999 ), rngState );
+				const visibility = traceShadowRayFn( rayOrigin, lightDir, distance.sub( 0.001 ), rngState );
 
 				If( visibility.greaterThan( 0.0 ), () => {
 
