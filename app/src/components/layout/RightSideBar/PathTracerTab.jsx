@@ -106,6 +106,7 @@ const PathTracerTab = () => {
 		skyTurbidity,
 		skyMieAnisotropy,
 		skyPreset,
+		enableAlphaShadows,
 		interactionModeEnabled,
 		asvgfQualityPreset,
 		asvgfDebugMode,
@@ -141,6 +142,7 @@ const PathTracerTab = () => {
 		handleAdaptiveSamplingConvergenceSpeedChange,
 		handleAdaptiveSamplingQualityPresetChange,
 		handleFireflyThresholdChange,
+		handleEnableAlphaShadowsChange,
 		handleRenderModeChange,
 		handleTileUpdate,
 		handleTileHelperToggle,
@@ -568,7 +570,9 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
 				</div>
-				{/* Feature disabled temporarily */}
+				<div className="flex items-center justify-between">
+					<Switch label={"Alpha Shadows"} checked={enableAlphaShadows} onCheckedChange={handleEnableAlphaShadowsChange} />
+				</div>
 				<Separator />
 				<div className="flex items-center justify-between">
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />

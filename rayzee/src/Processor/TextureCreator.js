@@ -1,5 +1,5 @@
 import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType, SRGBColorSpace } from "three";
-import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX } from '../EngineDefaults.js';
+import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX, MATERIAL_DATA_LAYOUT } from '../EngineDefaults.js';
 
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
@@ -858,9 +858,9 @@ export class TextureCreator {
 	 */
 	createMaterialRawData( materials ) {
 
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
+		// Layout is defined by MATERIAL_DATA_LAYOUT in EngineDefaults.js.
+		// The inline array below must match that layout exactly (positional order = canonical layout).
+		const dataLengthPerMaterial = MATERIAL_DATA_LAYOUT.FLOATS_PER_MATERIAL;
 		const totalMaterials = materials.length;
 
 		const size = totalMaterials * dataLengthPerMaterial;
@@ -879,19 +879,34 @@ export class TextureCreator {
 			const bumpMapMatrices = mat.bumpMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
 			const displacementMapMatrices = mat.displacementMapMatrices ?? DEFAULT_TEXTURE_MATRIX;
 
+			// Slot order: shadow/culling → BxDF core → maps → extended → displacement → transforms
+			// Must match MATERIAL_DATA_LAYOUT in EngineDefaults.js exactly.
 			const materialData = [
-				mat.color.r, 				mat.color.g, 				mat.color.b, 				mat.metalness,
-				mat.emissive.r, 			mat.emissive.g, 			mat.emissive.b, 			mat.roughness,
+				// Slot 0: shadow core (ior, transmission, thickness, emissiveIntensity)
 				mat.ior, 					mat.transmission, 			mat.thickness, 				mat.emissiveIntensity,
+				// Slot 1: shadow (attenuationColor, attenuationDistance)
 				mat.attenuationColor.r, 	mat.attenuationColor.g, 	mat.attenuationColor.b, 	mat.attenuationDistance,
-				mat.dispersion, 			mat.visible, 				mat.sheen, 					mat.sheenRoughness,
-				mat.sheenColor.r, 			mat.sheenColor.g, 			mat.sheenColor.b, 			1,
-				mat.specularIntensity, 		mat.specularColor.r, 		mat.specularColor.g, 		mat.specularColor.b,
-				mat.iridescence, 			mat.iridescenceIOR, 		mat.iridescenceThicknessRange[ 0 ], mat.iridescenceThicknessRange[ 1 ],
-				mat.map, 					mat.normalMap, 				mat.roughnessMap, 			mat.metalnessMap,
-				mat.emissiveMap, 			mat.bumpMap, 				mat.clearcoat, 				mat.clearcoatRoughness,
+				// Slot 2: shadow + culling (opacity, side, transparent, alphaTest)
 				mat.opacity, 				mat.side, 					mat.transparent, 			mat.alphaTest,
+				// Slot 3: shadow (alphaMode, depthWrite, normalScale)
 				mat.alphaMode, 				mat.depthWrite, 			mat.normalScale?.x ?? 1, 	mat.normalScale?.y ?? 1,
+				// Slot 4: BxDF core (color, metalness)
+				mat.color.r, 				mat.color.g, 				mat.color.b, 				mat.metalness,
+				// Slot 5: BxDF core (emissive, roughness)
+				mat.emissive.r, 			mat.emissive.g, 			mat.emissive.b, 			mat.roughness,
+				// Slot 6: map indices A (albedo, normal, roughness, metalness)
+				mat.map, 					mat.normalMap, 				mat.roughnessMap, 			mat.metalnessMap,
+				// Slot 7: map indices B (emissive, bump, clearcoat, clearcoatRoughness)
+				mat.emissiveMap, 			mat.bumpMap, 				mat.clearcoat, 				mat.clearcoatRoughness,
+				// Slot 8: extended BxDF (dispersion, visible, sheen, sheenRoughness)
+				mat.dispersion, 			mat.visible, 				mat.sheen, 					mat.sheenRoughness,
+				// Slot 9: extended BxDF (sheenColor, reserved)
+				mat.sheenColor.r, 			mat.sheenColor.g, 			mat.sheenColor.b, 			1,
+				// Slot 10: extended BxDF (specularIntensity, specularColor)
+				mat.specularIntensity, 		mat.specularColor.r, 		mat.specularColor.g, 		mat.specularColor.b,
+				// Slot 11: extended BxDF (iridescence)
+				mat.iridescence, 			mat.iridescenceIOR, 		mat.iridescenceThicknessRange[ 0 ], mat.iridescenceThicknessRange[ 1 ],
+				// Slot 12: displacement
 				mat.bumpScale,				mat.displacementScale,		mat.displacementMap,		0,
 				mapMatrix[ 0 ], 			mapMatrix[ 1 ], 			mapMatrix[ 2 ], 			mapMatrix[ 3 ],
 				mapMatrix[ 4 ], 			mapMatrix[ 5 ], 			mapMatrix[ 6 ], 			1,

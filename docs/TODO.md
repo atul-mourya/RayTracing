@@ -120,6 +120,7 @@
 - [ ] Photon mapping
 - [ ] Bidirectional path tracing support
 - [ ] Experiment PLOC for maximum BVH performance scenarios
+- [ ] tiered-material-buffer-access generalization
   
 
 ---

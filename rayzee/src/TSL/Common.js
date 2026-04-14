@@ -5,6 +5,7 @@ import {
 	MaterialClassification,
 	MISStrategy,
 	RayTracingMaterial,
+	ShadowMaterial,
 } from './Struct.js';
 
 export const PI = 3.14159;
@@ -16,7 +17,11 @@ export const MIN_CLEARCOAT_ROUGHNESS = 0.089;
 export const MAX_ROUGHNESS = 1.0;
 export const MIN_PDF = 0.001;
 export const REC709_LUMINANCE_COEFFICIENTS = vec3( 0.2126, 0.7152, 0.0722 );
-export const MATERIAL_SLOTS = 27;
+import { MATERIAL_DATA_LAYOUT } from '../EngineDefaults.js';
+
+export const MATERIAL_SLOTS = MATERIAL_DATA_LAYOUT.SLOTS_PER_MATERIAL;
+export const MATERIAL_SLOT = MATERIAL_DATA_LAYOUT.SLOT;
+const S = MATERIAL_SLOT;
 
 // XYZ to sRGB color space conversion matrix
 export const XYZ_TO_REC709 = mat3(
@@ -313,33 +318,33 @@ export const arrayToMat3 = wgslFn( `
 
 export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 
-	const data0 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 0 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data1 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 1 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data2 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 2 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data3 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 3 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data4 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 4 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data5 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 5 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data6 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 6 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data7 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 7 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data8 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 8 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data9 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 9 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data10 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data11 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 11 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data12 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 12 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data13 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 13 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data14 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 14 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data15 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 15 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data16 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 16 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data17 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 17 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data18 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 18 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data19 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 19 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data20 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 20 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data21 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 21 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data22 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 22 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data23 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 23 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data24 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 24 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data25 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 25 ), int( MATERIAL_SLOTS ) ).toVar();
-	const data26 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 26 ), int( MATERIAL_SLOTS ) ).toVar();
+	const data0 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.COLOR_METALNESS ), int( MATERIAL_SLOTS ) ).toVar();
+	const data1 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.EMISSIVE_ROUGHNESS ), int( MATERIAL_SLOTS ) ).toVar();
+	const data2 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.IOR_TRANSMISSION ), int( MATERIAL_SLOTS ) ).toVar();
+	const data3 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ATTENUATION ), int( MATERIAL_SLOTS ) ).toVar();
+	const data4 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.DISPERSION_SHEEN ), int( MATERIAL_SLOTS ) ).toVar();
+	const data5 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SHEEN_COLOR ), int( MATERIAL_SLOTS ) ).toVar();
+	const data6 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.SPECULAR ), int( MATERIAL_SLOTS ) ).toVar();
+	const data7 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.IRIDESCENCE ), int( MATERIAL_SLOTS ) ).toVar();
+	const data8 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.MAP_INDICES_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data9 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.MAP_INDICES_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data10 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.OPACITY_ALPHA ), int( MATERIAL_SLOTS ) ).toVar();
+	const data11 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ALPHA_MODE ), int( MATERIAL_SLOTS ) ).toVar();
+	const data12 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.BUMP_DISPLACEMENT ), int( MATERIAL_SLOTS ) ).toVar();
+	const data13 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ALBEDO_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data14 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ALBEDO_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data15 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.NORMAL_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data16 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.NORMAL_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data17 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ROUGHNESS_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data18 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ROUGHNESS_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data19 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.METALNESS_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data20 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.METALNESS_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data21 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.EMISSIVE_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data22 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.EMISSIVE_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data23 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.BUMP_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data24 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.BUMP_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+	const data25 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.DISPLACEMENT_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data26 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.DISPLACEMENT_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
 
 	return RayTracingMaterial( {
 		color: vec4( data0.rgb, 1.0 ),
@@ -386,6 +391,35 @@ export const getMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 		emissiveTransform: arrayToMat3( { data1: data21, data2: data22 } ),
 		bumpTransform: arrayToMat3( { data1: data23, data2: data24 } ),
 		displacementTransform: arrayToMat3( { data1: data25, data2: data26 } ),
+	} );
+
+} );
+
+// ── Shadow material thin reader (7 slot reads instead of 27) ─────────────
+// Only fetches fields needed by traceShadowRay: alpha, transmission, attenuation, albedo transform.
+
+export const getShadowMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
+
+	const data2 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.IOR_TRANSMISSION ), int( MATERIAL_SLOTS ) ).toVar();
+	const data3 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ATTENUATION ), int( MATERIAL_SLOTS ) ).toVar();
+	const data8 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.MAP_INDICES_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data10 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.OPACITY_ALPHA ), int( MATERIAL_SLOTS ) ).toVar();
+	const data11 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ALPHA_MODE ), int( MATERIAL_SLOTS ) ).toVar();
+	const data13 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ALBEDO_TRANSFORM_A ), int( MATERIAL_SLOTS ) ).toVar();
+	const data14 = getDatafromStorageBuffer( materialBuffer, materialIndex, int( S.ALBEDO_TRANSFORM_B ), int( MATERIAL_SLOTS ) ).toVar();
+
+	return ShadowMaterial( {
+		color: vec4( 1.0 ), // Shadow path never samples full textures; color.a is always 1.0
+		ior: data2.r,
+		transmission: data2.g,
+		attenuationColor: data3.rgb,
+		attenuationDistance: data3.a,
+		albedoMapIndex: int( data8.r ),
+		opacity: data10.r,
+		transparent: data10.b,
+		alphaTest: data10.a,
+		alphaMode: int( data11.r ),
+		albedoTransform: arrayToMat3( { data1: data13, data2: data14 } ),
 	} );
 
 } );

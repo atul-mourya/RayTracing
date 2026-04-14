@@ -729,6 +729,13 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	handleEnableAlphaShadowsChange: val => {
+
+		set( { enableAlphaShadows: val } );
+		getApp()?.settings.set( 'enableAlphaShadows', val );
+
+	},
+
 	handleRenderModeChange: handleChange(
 		val => set( { renderMode: val } ),
 		( val, app ) => {

@@ -52,6 +52,22 @@ export const RayTracingMaterial = struct( {
 	iridescenceThicknessRange: 'vec2',
 } );
 
+// Lightweight material for shadow ray evaluation — only the fields needed
+// by traceShadowRay (alpha, transmission, transparency, attenuation).
+export const ShadowMaterial = struct( {
+	color: 'vec4',
+	ior: 'float',
+	transmission: 'float',
+	attenuationColor: 'vec3',
+	attenuationDistance: 'float',
+	albedoMapIndex: 'int',
+	opacity: 'float',
+	transparent: 'bool',
+	alphaTest: 'float',
+	alphaMode: 'int',
+	albedoTransform: 'mat3',
+} );
+
 export const Sphere = struct( {
 	position: 'vec3',
 	radius: 'float',

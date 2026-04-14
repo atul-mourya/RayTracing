@@ -240,6 +240,7 @@ export class UniformManager {
 
 		// Render mode
 		u( 'renderMode', DEFAULT_STATE.renderMode, 'int' );
+		ub( 'enableAlphaShadows', DEFAULT_STATE.enableAlphaShadows );
 
 		// Resolution (for RNG seeding)
 		u( 'resolution', new Vector2( width, height ), 'vec2' );

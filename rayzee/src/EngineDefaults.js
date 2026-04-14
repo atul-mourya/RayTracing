@@ -80,6 +80,7 @@ export const ENGINE_DEFAULTS = {
 	renderLimitMode: 'frames',
 	renderTimeLimit: 30,
 	renderMode: 0,
+	enableAlphaShadows: false,
 	tiles: 3,
 	tilesHelper: false,
 	showLightHelper: false,
@@ -337,6 +338,80 @@ export const TRIANGLE_DATA_LAYOUT = {
 	UV_C_MAT_OFFSET: 28
 };
 
+// Material data layout constants — single source of truth for material buffer offsets.
+// Shared between CPU writers (TextureCreator, MaterialDataManager) and GPU readers (Common.js getMaterial).
+export const MATERIAL_DATA_LAYOUT = {
+
+	SLOTS_PER_MATERIAL: 27, // vec4 slots per material
+	FLOATS_PER_MATERIAL: 108, // total floats per material (27 × 4)
+
+	// ── Flat float offsets (CPU side) ────────────────────────────────
+	// Used as: data[ materialIndex * FLOATS_PER_MATERIAL + offset ]
+	// Ordered for cache-line coherence: shadow/culling → BxDF core → maps → extended → transforms
+
+	// Slot 0: ior + transmission + thickness + emissiveIntensity   [shadow]
+	IOR: 0, TRANSMISSION: 1, THICKNESS: 2, EMISSIVE_INTENSITY: 3,
+	// Slot 1: attenuationColor.rgb + attenuationDistance            [shadow]
+	ATTENUATION_COLOR: 4, ATTENUATION_DISTANCE: 7,
+	// Slot 2: opacity + side + transparent + alphaTest              [shadow + culling]
+	OPACITY: 8, SIDE: 9, TRANSPARENT: 10, ALPHA_TEST: 11,
+	// Slot 3: alphaMode + depthWrite + normalScale                  [shadow]
+	ALPHA_MODE: 12, DEPTH_WRITE: 13, NORMAL_SCALE: 14,
+	// Slot 4: color.rgb + metalness                                 [BxDF core]
+	COLOR: 16, METALNESS: 19,
+	// Slot 5: emissive.rgb + roughness                              [BxDF core]
+	EMISSIVE: 20, ROUGHNESS: 23,
+	// Slot 6: map indices (albedo, normal, roughness, metalness)    [maps]
+	ALBEDO_MAP_INDEX: 24, NORMAL_MAP_INDEX: 25, ROUGHNESS_MAP_INDEX: 26, METALNESS_MAP_INDEX: 27,
+	// Slot 7: map indices (emissive, bump) + clearcoat              [maps]
+	EMISSIVE_MAP_INDEX: 28, BUMP_MAP_INDEX: 29, CLEARCOAT: 30, CLEARCOAT_ROUGHNESS: 31,
+	// Slot 8: dispersion + visible + sheen + sheenRoughness         [extended BxDF]
+	DISPERSION: 32, VISIBLE: 33, SHEEN: 34, SHEEN_ROUGHNESS: 35,
+	// Slot 9: sheenColor.rgb + (reserved)                           [extended BxDF]
+	SHEEN_COLOR: 36,
+	// Slot 10: specularIntensity + specularColor.rgb                [extended BxDF]
+	SPECULAR_INTENSITY: 40, SPECULAR_COLOR: 41,
+	// Slot 11: iridescence + iridescenceIOR + iridescenceThicknessRange [extended BxDF]
+	IRIDESCENCE: 44, IRIDESCENCE_IOR: 45, IRIDESCENCE_THICKNESS_RANGE: 46,
+	// Slot 12: bumpScale + displacementScale + displacementMapIndex + (padding)
+	BUMP_SCALE: 48, DISPLACEMENT_SCALE: 49, DISPLACEMENT_MAP_INDEX: 50,
+
+	// ── Transform float offsets (8 floats each: 7 matrix values + 1 padding) ──
+	ALBEDO_TRANSFORM: 52,
+	NORMAL_TRANSFORM: 60,
+	ROUGHNESS_TRANSFORM: 68,
+	METALNESS_TRANSFORM: 76,
+	EMISSIVE_TRANSFORM: 84,
+	BUMP_TRANSFORM: 92,
+	DISPLACEMENT_TRANSFORM: 100,
+
+	// ── Vec4 slot indices (GPU/TSL side) ─────────────────────────────
+	// Used with getDatafromStorageBuffer( buf, matIdx, int(slot), int(SLOTS_PER_MATERIAL) )
+	SLOT: {
+		IOR_TRANSMISSION: 0, // [shadow] ior, transmission, thickness, emissiveIntensity
+		ATTENUATION: 1, // [shadow] attenuationColor, attenuationDistance
+		OPACITY_ALPHA: 2, // [shadow+culling] opacity, side, transparent, alphaTest
+		ALPHA_MODE: 3, // [shadow] alphaMode, depthWrite, normalScale
+		COLOR_METALNESS: 4, // [BxDF] color.rgb, metalness
+		EMISSIVE_ROUGHNESS: 5, // [BxDF] emissive.rgb, roughness
+		MAP_INDICES_A: 6, // [maps] albedo, normal, roughness, metalness
+		MAP_INDICES_B: 7, // [maps] emissive, bump, clearcoat, clearcoatRoughness
+		DISPERSION_SHEEN: 8, // [extended] dispersion, visible, sheen, sheenRoughness
+		SHEEN_COLOR: 9, // [extended] sheenColor, reserved
+		SPECULAR: 10, // [extended] specularIntensity, specularColor
+		IRIDESCENCE: 11, // [extended] iridescence, iridescenceIOR, iridescenceThicknessRange
+		BUMP_DISPLACEMENT: 12, // bumpScale, displacementScale, displacementMapIndex
+		ALBEDO_TRANSFORM_A: 13, ALBEDO_TRANSFORM_B: 14,
+		NORMAL_TRANSFORM_A: 15, NORMAL_TRANSFORM_B: 16,
+		ROUGHNESS_TRANSFORM_A: 17, ROUGHNESS_TRANSFORM_B: 18,
+		METALNESS_TRANSFORM_A: 19, METALNESS_TRANSFORM_B: 20,
+		EMISSIVE_TRANSFORM_A: 21, EMISSIVE_TRANSFORM_B: 22,
+		BUMP_TRANSFORM_A: 23, BUMP_TRANSFORM_B: 24,
+		DISPLACEMENT_TRANSFORM_A: 25, DISPLACEMENT_TRANSFORM_B: 26,
+	},
+
+};
+
 // BVH node leaf markers
 export const BVH_LEAF_MARKERS = {
 	TRIANGLE_LEAF: - 1, // Leaf containing triangle references
@@ -364,14 +439,14 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // Render mode configurations
 export const FINAL_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1,
-	renderMode: 1, tiles: 3, tilesHelper: false,
+	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: false,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 };
 
 export const PREVIEW_RENDER_CONFIG = {
 	maxSamples: ENGINE_DEFAULTS.maxSamples, bounces: ENGINE_DEFAULTS.bounces,
-	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode,
+	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,
 	tiles: ENGINE_DEFAULTS.tiles, tilesHelper: ENGINE_DEFAULTS.tilesHelper,
 	enableOIDN: false, oidnQuality: 'fast',

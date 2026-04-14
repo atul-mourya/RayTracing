@@ -28,7 +28,7 @@ import {
 } from 'three/tsl';
 
 import { struct } from './structProxy.js';
-import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic } from './Common.js';
+import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
 import { RandomValue } from './Random.js';
 import { calculateMaterialPDF } from './LightsSampling.js';
 
@@ -326,9 +326,8 @@ export const calculateEmissiveLightPdf = Fn( ( [
 	const area = triangleArea( triData.v0, triData.v1, triData.v2 );
 
 	// Targeted material read: only fetch emissive data (2 vec4s instead of full 27)
-	const MATERIAL_SLOTS = int( 27 );
-	const matData1 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( 1 ), MATERIAL_SLOTS );
-	const matData2 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( 2 ), MATERIAL_SLOTS );
+	const matData1 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( MATERIAL_SLOT.EMISSIVE_ROUGHNESS ), MATERIAL_SLOTS );
+	const matData2 = getDatafromStorageBuffer( materialBuffer, triData.materialIndex, int( MATERIAL_SLOT.IOR_TRANSMISSION ), MATERIAL_SLOTS );
 	const avgEmissive = matData1.x.add( matData1.y ).add( matData1.z ).div( 3.0 );
 	const power = max( avgEmissive.mul( matData2.a ).mul( area ), float( 1e-10 ) );
 	const selectionPdf = power.div( max( emissiveTotalPower, float( 1e-10 ) ) );

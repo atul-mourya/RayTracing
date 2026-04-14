@@ -26,7 +26,7 @@ import {
 } from 'three/tsl';
 
 import { Ray, HitInfo } from './Struct.js';
-import { getDatafromStorageBuffer, MATERIAL_SLOTS } from './Common.js';
+import { getDatafromStorageBuffer, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
 import { RandomPointInCircle } from './Random.js';
 
 // ================================================================================
@@ -136,7 +136,7 @@ const fastRayAABBDst = wgslFn( `
 // Per-mesh visibility handled at BLAS-pointer level; material visibility always 1.
 export const passesSideCulling = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
 
-	const sideData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( 10 ), int( MATERIAL_SLOTS ) );
+	const sideData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( MATERIAL_SLOT.OPACITY_ALPHA ), int( MATERIAL_SLOTS ) );
 	const side = int( sideData.g );
 	const rayDotNormal = rayDirection.dot( normal );
 	const doubleSide = side.equal( int( 2 ) );
@@ -450,6 +450,12 @@ export const traverseBVHShadow = Fn( ( [
 						// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
 						closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
 						closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
+
+						// Store barycentrics + triangle index for deferred UV computation.
+						// Actual UV interpolation happens in traceShadowRay only when
+						// the material needs alpha testing — zero overhead for opaque hits.
+						closestHit.uv.assign( vec2( triResult.y, triResult.z ) );
+						closestHit.triangleIndex.assign( triIndex );
 
 						// Shadow ray only needs any hit — skip remaining triangles in leaf
 						Break();

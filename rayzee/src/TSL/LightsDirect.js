@@ -25,10 +25,11 @@ import {
 	clamp,
 	smoothstep,
 	select,
+	texture,
 } from 'three/tsl';
 
-import { Ray, RayTracingMaterial, HitInfo, DirectionSample, MaterialCache } from './Struct.js';
-import { PI, TWO_PI, EPSILON, REC709_LUMINANCE_COEFFICIENTS, powerHeuristic, getMaterial } from './Common.js';
+import { Ray, ShadowMaterial, HitInfo, DirectionSample, MaterialCache } from './Struct.js';
+import { PI, TWO_PI, EPSILON, REC709_LUMINANCE_COEFFICIENTS, powerHeuristic, getShadowMaterial, getDatafromStorageBuffer } from './Common.js';
 import { fresnelSchlickFloat } from './Fresnel.js';
 import { iorToFresnel0 } from './Fresnel.js';
 import {
@@ -37,6 +38,33 @@ import {
 } from './LightsCore.js';
 import { calculateBeerLawAbsorption, calculateShadowTransmittance } from './MaterialTransmission.js';
 import { RandomValue } from './Random.js';
+import { getTransformedUV } from './TextureSampling.js';
+
+// Module-level state for alpha-cutout shadow testing.
+// Set by ShaderBuilder before graph construction (same pattern as _meshVisibilityBuffer in BVHTraversal.js).
+let _shadowAlbedoMaps = null;
+let _enableAlphaShadows = null;
+
+/**
+ * Set the albedo texture array node for alpha-aware shadow rays.
+ * Must be called before the shader graph is constructed.
+ * @param {TextureNode} maps - TSL texture node for the albedo array
+ */
+export function setShadowAlbedoMaps( maps ) {
+
+	_shadowAlbedoMaps = maps;
+
+}
+
+/**
+ * Set the runtime uniform node that toggles alpha-cutout shadows.
+ * @param {UniformNode} node - TSL int uniform (0 = disabled, 1 = enabled)
+ */
+export function setAlphaShadowsUniform( node ) {
+
+	_enableAlphaShadows = node;
+
+}
 
 // ================================================================================
 // SHADOW RAY MATERIAL TRANSPARENCY
@@ -102,11 +130,82 @@ export const traceShadowRay = Fn( ( [
 
 		} );
 
-		// Fetch material for the hit surface
-		const shadowMaterial = RayTracingMaterial.wrap( getMaterial( shadowHit.materialIndex, materialBuffer ) );
+		// Fetch material for the hit surface (thin reader: 7 slots instead of 27)
+		const shadowMaterial = ShadowMaterial.wrap( getShadowMaterial( shadowHit.materialIndex, materialBuffer ) );
 
-		// Handle transmissive materials
-		If( shadowMaterial.transmission.greaterThan( 0.0 ), () => {
+		// ---------------------------------------------------------------
+		// Alpha-cutout handling (MASK / BLEND with albedo texture alpha)
+		// Gated by runtime uniform + alphaMode check — zero overhead for opaque materials.
+		// UV computation deferred here from BVH traversal: barycentrics stored in shadowHit.uv,
+		// triangle index in shadowHit.triangleIndex. Actual UV interpolation only when needed.
+		// ---------------------------------------------------------------
+		const alphaCutout = tslBool( false ).toVar();
+
+		if ( _enableAlphaShadows ) If( _enableAlphaShadows.equal( int( 1 ) ), () => {
+
+			// Sample texture alpha once (shared by MASK and BLEND paths).
+			// Deferred UV: barycentrics in shadowHit.uv, triangle index in shadowHit.triangleIndex.
+			const texAlpha = float( 1.0 ).toVar();
+
+			if ( _shadowAlbedoMaps ) {
+
+				If( shadowMaterial.albedoMapIndex.greaterThanEqual( int( 0 ) ), () => {
+
+					const baryU = shadowHit.uv.x;
+					const baryV = shadowHit.uv.y;
+					const baryW = float( 1.0 ).sub( baryU ).sub( baryV );
+					const TRI_STRIDE = int( 8 );
+					const uvData1 = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 6 ), TRI_STRIDE );
+					const uvData2 = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 7 ), TRI_STRIDE );
+					const hitUV = uvData1.xy.mul( baryW ).add( uvData1.zw.mul( baryU ) ).add( uvData2.xy.mul( baryV ) );
+					const albedoUV = getTransformedUV( { uv: hitUV, transform: shadowMaterial.albedoTransform } );
+					texAlpha.assign( texture( _shadowAlbedoMaps, albedoUV ).depth( int( shadowMaterial.albedoMapIndex ) ).a );
+
+				} );
+
+			}
+
+			If( shadowMaterial.alphaMode.equal( int( 1 ) ), () => {
+
+				// MASK mode: binary alpha cutout
+				const effectiveAlpha = shadowMaterial.color.a.mul( texAlpha );
+				const cutoff = select( shadowMaterial.alphaTest.greaterThan( 0.0 ), shadowMaterial.alphaTest, float( 0.5 ) );
+				If( effectiveAlpha.lessThan( cutoff ), () => {
+
+					alphaCutout.assign( true );
+
+				} );
+
+			} ).ElseIf( shadowMaterial.alphaMode.equal( int( 2 ) ), () => {
+
+				// BLEND mode: modulate transmittance by alpha
+				const blendAlpha = clamp( shadowMaterial.color.a.mul( shadowMaterial.opacity ).mul( texAlpha ), 0.0, 1.0 );
+				transmittance.mulAssign( float( 1.0 ).sub( blendAlpha ) );
+
+				If( transmittance.lessThan( 0.005 ), () => {
+
+					transmittance.assign( 0.0 );
+					Break();
+
+				} );
+
+				alphaCutout.assign( true );
+
+			} );
+
+		} );
+
+		// ---------------------------------------------------------------
+		// Surface interaction: alpha-skip, transmission, transparent, or opaque
+		// ---------------------------------------------------------------
+		If( alphaCutout, () => {
+
+			// Alpha-transparent surface — advance ray past it
+			const alphaEps = max( float( 1e-5 ), length( shadowHit.hitPoint ).mul( 1e-6 ) );
+			rayOrigin.assign( shadowHit.hitPoint.add( dir.mul( alphaEps ) ) );
+			remainingDist.subAssign( shadowHit.dst.add( alphaEps ) );
+
+		} ).ElseIf( shadowMaterial.transmission.greaterThan( 0.0 ), () => {
 
 			const entering = dot( dir, shadowHit.normal ).lessThan( 0.0 );
 			const N = select( entering, shadowHit.normal, shadowHit.normal.negate() );

@@ -31,6 +31,7 @@ const SETTING_ROUTES = {
 	anamorphicRatio: { uniform: 'anamorphicRatio', reset: true },
 	samplingTechnique: { uniform: 'samplingTechnique', reset: true },
 	fireflyThreshold: { uniform: 'fireflyThreshold', reset: true },
+	enableAlphaShadows: { uniform: 'enableAlphaShadows', reset: true },
 	enableEmissiveTriangleSampling: { uniform: 'enableEmissiveTriangleSampling', reset: true },
 	emissiveBoost: { uniform: 'emissiveBoost', reset: true },
 	visMode: { uniform: 'visMode', reset: true },

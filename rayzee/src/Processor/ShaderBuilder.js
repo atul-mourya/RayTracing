@@ -17,6 +17,7 @@ import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { pathTracerMain } from '../TSL/PathTracer.js';
 import { setMeshVisibilityBuffer } from '../TSL/BVHTraversal.js';
+import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
 import { BuildTimer } from './BuildTimer.js';
 
 const WG_SIZE = 8;
@@ -192,6 +193,9 @@ export class ShaderBuilder {
 		// Set per-mesh visibility buffer (module-level in BVHTraversal.js, read during graph construction)
 		setMeshVisibilityBuffer( stage.meshVisibilityStorageNode );
 
+		// Set alpha-shadow uniform (module-level in LightsDirect.js, read at runtime)
+		setAlphaShadowsUniform( stage.uniforms.get( 'enableAlphaShadows' ) );
+
 		const envTex = texture( stage.environment.environmentTexture );
 
 		// Adaptive sampling texture
@@ -227,6 +231,11 @@ export class ShaderBuilder {
 		const roughnessMapsTex = mat.roughnessMaps ? texture( mat.roughnessMaps ) : createArrayPlaceholder();
 		const emissiveMapsTex = mat.emissiveMaps ? texture( mat.emissiveMaps ) : createArrayPlaceholder();
 		const displacementMapsTex = mat.displacementMaps ? texture( mat.displacementMaps ) : createArrayPlaceholder();
+
+		// Set albedo texture array for alpha-aware shadow rays (module-level in LightsDirect.js).
+		// Always pass the texture node (real or placeholder) so alpha-cutout code is emitted
+		// into the shader at graph construction time. Runtime albedoMapIndex >= 0 guards sampling.
+		setShadowAlbedoMaps( albedoMapsTex );
 
 		const result = {
 			triStorage, bvhStorage, matStorage, emissiveTriStorage, lightBVHStorage,

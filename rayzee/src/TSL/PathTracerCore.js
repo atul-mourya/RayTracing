@@ -747,7 +747,9 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// Get material from texture
+		// Get full material (27 reads). Lazy transform loading was tested but regressed
+		// textured scenes due to identity-construct + conditional-assign overhead.
+		// Shadow rays use getShadowMaterial() (7 reads) — the real bandwidth win.
 		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
 
 		// Tessellation-free displacement — refine intersection with ray-height field marching

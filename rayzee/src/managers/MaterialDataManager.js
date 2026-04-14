@@ -9,9 +9,9 @@
 
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
-import { TEXTURE_CONSTANTS } from '../EngineDefaults.js';
+import { TEXTURE_CONSTANTS, MATERIAL_DATA_LAYOUT as M } from '../EngineDefaults.js';
 
-const PIXELS_PER_MATERIAL = 27;
+const PIXELS_PER_MATERIAL = M.SLOTS_PER_MATERIAL;
 
 export class MaterialDataManager {
 
@@ -166,139 +166,136 @@ export class MaterialDataManager {
 		}
 
 		const data = this.materialStorageAttr.array;
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const stride = materialIndex * dataLengthPerMaterial;
+		const stride = materialIndex * M.FLOATS_PER_MATERIAL;
 
 		switch ( property ) {
 
 			case 'color':
 				if ( value.r !== undefined ) {
 
-					data[ stride + 0 ] = value.r;
-					data[ stride + 1 ] = value.g;
-					data[ stride + 2 ] = value.b;
+					data[ stride + M.COLOR ] = value.r;
+					data[ stride + M.COLOR + 1 ] = value.g;
+					data[ stride + M.COLOR + 2 ] = value.b;
 
 				} else if ( Array.isArray( value ) ) {
 
-					data[ stride + 0 ] = value[ 0 ];
-					data[ stride + 1 ] = value[ 1 ];
-					data[ stride + 2 ] = value[ 2 ];
+					data[ stride + M.COLOR ] = value[ 0 ];
+					data[ stride + M.COLOR + 1 ] = value[ 1 ];
+					data[ stride + M.COLOR + 2 ] = value[ 2 ];
 
 				}
 
 				break;
-			case 'metalness': data[ stride + 3 ] = value; break;
+			case 'metalness': data[ stride + M.METALNESS ] = value; break;
 			case 'emissive':
 				if ( value.r !== undefined ) {
 
-					data[ stride + 4 ] = value.r;
-					data[ stride + 5 ] = value.g;
-					data[ stride + 6 ] = value.b;
+					data[ stride + M.EMISSIVE ] = value.r;
+					data[ stride + M.EMISSIVE + 1 ] = value.g;
+					data[ stride + M.EMISSIVE + 2 ] = value.b;
 
 				} else if ( Array.isArray( value ) ) {
 
-					data[ stride + 4 ] = value[ 0 ];
-					data[ stride + 5 ] = value[ 1 ];
-					data[ stride + 6 ] = value[ 2 ];
+					data[ stride + M.EMISSIVE ] = value[ 0 ];
+					data[ stride + M.EMISSIVE + 1 ] = value[ 1 ];
+					data[ stride + M.EMISSIVE + 2 ] = value[ 2 ];
 
 				}
 
 				break;
-			case 'roughness': data[ stride + 7 ] = value; break;
-			case 'ior': data[ stride + 8 ] = value; break;
-			case 'transmission': data[ stride + 9 ] = value; break;
-			case 'thickness': data[ stride + 10 ] = value; break;
-			case 'emissiveIntensity': data[ stride + 11 ] = value; break;
+			case 'roughness': data[ stride + M.ROUGHNESS ] = value; break;
+			case 'ior': data[ stride + M.IOR ] = value; break;
+			case 'transmission': data[ stride + M.TRANSMISSION ] = value; break;
+			case 'thickness': data[ stride + M.THICKNESS ] = value; break;
+			case 'emissiveIntensity': data[ stride + M.EMISSIVE_INTENSITY ] = value; break;
 			case 'attenuationColor':
 				if ( value.r !== undefined ) {
 
-					data[ stride + 12 ] = value.r;
-					data[ stride + 13 ] = value.g;
-					data[ stride + 14 ] = value.b;
+					data[ stride + M.ATTENUATION_COLOR ] = value.r;
+					data[ stride + M.ATTENUATION_COLOR + 1 ] = value.g;
+					data[ stride + M.ATTENUATION_COLOR + 2 ] = value.b;
 
 				} else if ( Array.isArray( value ) ) {
 
-					data[ stride + 12 ] = value[ 0 ];
-					data[ stride + 13 ] = value[ 1 ];
-					data[ stride + 14 ] = value[ 2 ];
+					data[ stride + M.ATTENUATION_COLOR ] = value[ 0 ];
+					data[ stride + M.ATTENUATION_COLOR + 1 ] = value[ 1 ];
+					data[ stride + M.ATTENUATION_COLOR + 2 ] = value[ 2 ];
 
 				}
 
 				break;
-			case 'attenuationDistance': data[ stride + 15 ] = value; break;
-			case 'dispersion': data[ stride + 16 ] = value; break;
-			case 'sheen': data[ stride + 18 ] = value; break;
-			case 'sheenRoughness': data[ stride + 19 ] = value; break;
+			case 'attenuationDistance': data[ stride + M.ATTENUATION_DISTANCE ] = value; break;
+			case 'dispersion': data[ stride + M.DISPERSION ] = value; break;
+			case 'sheen': data[ stride + M.SHEEN ] = value; break;
+			case 'sheenRoughness': data[ stride + M.SHEEN_ROUGHNESS ] = value; break;
 			case 'sheenColor':
 				if ( value.r !== undefined ) {
 
-					data[ stride + 20 ] = value.r;
-					data[ stride + 21 ] = value.g;
-					data[ stride + 22 ] = value.b;
+					data[ stride + M.SHEEN_COLOR ] = value.r;
+					data[ stride + M.SHEEN_COLOR + 1 ] = value.g;
+					data[ stride + M.SHEEN_COLOR + 2 ] = value.b;
 
 				} else if ( Array.isArray( value ) ) {
 
-					data[ stride + 20 ] = value[ 0 ];
-					data[ stride + 21 ] = value[ 1 ];
-					data[ stride + 22 ] = value[ 2 ];
+					data[ stride + M.SHEEN_COLOR ] = value[ 0 ];
+					data[ stride + M.SHEEN_COLOR + 1 ] = value[ 1 ];
+					data[ stride + M.SHEEN_COLOR + 2 ] = value[ 2 ];
 
 				}
 
 				break;
-			case 'specularIntensity': data[ stride + 24 ] = value; break;
+			case 'specularIntensity': data[ stride + M.SPECULAR_INTENSITY ] = value; break;
 			case 'specularColor':
 				if ( value.r !== undefined ) {
 
-					data[ stride + 25 ] = value.r;
-					data[ stride + 26 ] = value.g;
-					data[ stride + 27 ] = value.b;
+					data[ stride + M.SPECULAR_COLOR ] = value.r;
+					data[ stride + M.SPECULAR_COLOR + 1 ] = value.g;
+					data[ stride + M.SPECULAR_COLOR + 2 ] = value.b;
 
 				} else if ( Array.isArray( value ) ) {
 
-					data[ stride + 25 ] = value[ 0 ];
-					data[ stride + 26 ] = value[ 1 ];
-					data[ stride + 27 ] = value[ 2 ];
+					data[ stride + M.SPECULAR_COLOR ] = value[ 0 ];
+					data[ stride + M.SPECULAR_COLOR + 1 ] = value[ 1 ];
+					data[ stride + M.SPECULAR_COLOR + 2 ] = value[ 2 ];
 
 				}
 
 				break;
-			case 'iridescence': data[ stride + 28 ] = value; break;
-			case 'iridescenceIOR': data[ stride + 29 ] = value; break;
+			case 'iridescence': data[ stride + M.IRIDESCENCE ] = value; break;
+			case 'iridescenceIOR': data[ stride + M.IRIDESCENCE_IOR ] = value; break;
 			case 'iridescenceThicknessRange':
 				if ( Array.isArray( value ) ) {
 
-					data[ stride + 30 ] = value[ 0 ];
-					data[ stride + 31 ] = value[ 1 ];
+					data[ stride + M.IRIDESCENCE_THICKNESS_RANGE ] = value[ 0 ];
+					data[ stride + M.IRIDESCENCE_THICKNESS_RANGE + 1 ] = value[ 1 ];
 
 				}
 
 				break;
-			case 'clearcoat': data[ stride + 38 ] = value; break;
-			case 'clearcoatRoughness': data[ stride + 39 ] = value; break;
-			case 'opacity': data[ stride + 40 ] = value; break;
-			case 'side': data[ stride + 41 ] = value; break;
-			case 'transparent': data[ stride + 42 ] = value; break;
-			case 'alphaTest': data[ stride + 43 ] = value; break;
-			case 'alphaMode': data[ stride + 44 ] = value; break;
-			case 'depthWrite': data[ stride + 45 ] = value; break;
+			case 'clearcoat': data[ stride + M.CLEARCOAT ] = value; break;
+			case 'clearcoatRoughness': data[ stride + M.CLEARCOAT_ROUGHNESS ] = value; break;
+			case 'opacity': data[ stride + M.OPACITY ] = value; break;
+			case 'side': data[ stride + M.SIDE ] = value; break;
+			case 'transparent': data[ stride + M.TRANSPARENT ] = value; break;
+			case 'alphaTest': data[ stride + M.ALPHA_TEST ] = value; break;
+			case 'alphaMode': data[ stride + M.ALPHA_MODE ] = value; break;
+			case 'depthWrite': data[ stride + M.DEPTH_WRITE ] = value; break;
 			case 'normalScale':
 				if ( value.x !== undefined ) {
 
-					data[ stride + 46 ] = value.x;
-					data[ stride + 47 ] = value.y;
+					data[ stride + M.NORMAL_SCALE ] = value.x;
+					data[ stride + M.NORMAL_SCALE + 1 ] = value.y;
 
 				} else if ( typeof value === 'number' ) {
 
-					data[ stride + 46 ] = value;
-					data[ stride + 47 ] = value;
+					data[ stride + M.NORMAL_SCALE ] = value;
+					data[ stride + M.NORMAL_SCALE + 1 ] = value;
 
 				}
 
 				break;
-			case 'bumpScale': data[ stride + 48 ] = value; break;
-			case 'displacementScale': data[ stride + 49 ] = value; break;
+			case 'bumpScale': data[ stride + M.BUMP_SCALE ] = value; break;
+			case 'displacementScale': data[ stride + M.DISPLACEMENT_SCALE ] = value; break;
 			default:
 				console.warn( `Unknown material property: ${property}` );
 				return;
@@ -338,108 +335,105 @@ export class MaterialDataManager {
 		}
 
 		const data = this.materialStorageAttr.array;
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
-		const stride = materialIndex * dataLengthPerMaterial;
+		const stride = materialIndex * M.FLOATS_PER_MATERIAL;
 
 		if ( materialData.color ) {
 
-			data[ stride + 0 ] = materialData.color.r ?? materialData.color[ 0 ] ?? 1;
-			data[ stride + 1 ] = materialData.color.g ?? materialData.color[ 1 ] ?? 1;
-			data[ stride + 2 ] = materialData.color.b ?? materialData.color[ 2 ] ?? 1;
+			data[ stride + M.COLOR ] = materialData.color.r ?? materialData.color[ 0 ] ?? 1;
+			data[ stride + M.COLOR + 1 ] = materialData.color.g ?? materialData.color[ 1 ] ?? 1;
+			data[ stride + M.COLOR + 2 ] = materialData.color.b ?? materialData.color[ 2 ] ?? 1;
 
 		}
 
-		data[ stride + 3 ] = materialData.metalness ?? 0;
+		data[ stride + M.METALNESS ] = materialData.metalness ?? 0;
 
 		if ( materialData.emissive ) {
 
-			data[ stride + 4 ] = materialData.emissive.r ?? materialData.emissive[ 0 ] ?? 0;
-			data[ stride + 5 ] = materialData.emissive.g ?? materialData.emissive[ 1 ] ?? 0;
-			data[ stride + 6 ] = materialData.emissive.b ?? materialData.emissive[ 2 ] ?? 0;
+			data[ stride + M.EMISSIVE ] = materialData.emissive.r ?? materialData.emissive[ 0 ] ?? 0;
+			data[ stride + M.EMISSIVE + 1 ] = materialData.emissive.g ?? materialData.emissive[ 1 ] ?? 0;
+			data[ stride + M.EMISSIVE + 2 ] = materialData.emissive.b ?? materialData.emissive[ 2 ] ?? 0;
 
 		}
 
-		data[ stride + 7 ] = materialData.roughness ?? 1;
-		data[ stride + 8 ] = materialData.ior ?? 1.5;
-		data[ stride + 9 ] = materialData.transmission ?? 0;
-		data[ stride + 10 ] = materialData.thickness ?? 0.1;
-		data[ stride + 11 ] = materialData.emissiveIntensity ?? 1;
+		data[ stride + M.ROUGHNESS ] = materialData.roughness ?? 1;
+		data[ stride + M.IOR ] = materialData.ior ?? 1.5;
+		data[ stride + M.TRANSMISSION ] = materialData.transmission ?? 0;
+		data[ stride + M.THICKNESS ] = materialData.thickness ?? 0.1;
+		data[ stride + M.EMISSIVE_INTENSITY ] = materialData.emissiveIntensity ?? 1;
 
 		if ( materialData.attenuationColor ) {
 
-			data[ stride + 12 ] = materialData.attenuationColor.r ?? materialData.attenuationColor[ 0 ] ?? 1;
-			data[ stride + 13 ] = materialData.attenuationColor.g ?? materialData.attenuationColor[ 1 ] ?? 1;
-			data[ stride + 14 ] = materialData.attenuationColor.b ?? materialData.attenuationColor[ 2 ] ?? 1;
+			data[ stride + M.ATTENUATION_COLOR ] = materialData.attenuationColor.r ?? materialData.attenuationColor[ 0 ] ?? 1;
+			data[ stride + M.ATTENUATION_COLOR + 1 ] = materialData.attenuationColor.g ?? materialData.attenuationColor[ 1 ] ?? 1;
+			data[ stride + M.ATTENUATION_COLOR + 2 ] = materialData.attenuationColor.b ?? materialData.attenuationColor[ 2 ] ?? 1;
 
 		}
 
-		data[ stride + 15 ] = materialData.attenuationDistance ?? Infinity;
-		data[ stride + 16 ] = materialData.dispersion ?? 0;
-		data[ stride + 17 ] = 1; // Reserved slot (per-mesh visibility handled at BLAS-pointer level)
-		data[ stride + 18 ] = materialData.sheen ?? 0;
-		data[ stride + 19 ] = materialData.sheenRoughness ?? 1;
+		data[ stride + M.ATTENUATION_DISTANCE ] = materialData.attenuationDistance ?? Infinity;
+		data[ stride + M.DISPERSION ] = materialData.dispersion ?? 0;
+		data[ stride + M.VISIBLE ] = 1; // Reserved slot (per-mesh visibility handled at BLAS-pointer level)
+		data[ stride + M.SHEEN ] = materialData.sheen ?? 0;
+		data[ stride + M.SHEEN_ROUGHNESS ] = materialData.sheenRoughness ?? 1;
 
 		if ( materialData.sheenColor ) {
 
-			data[ stride + 20 ] = materialData.sheenColor.r ?? materialData.sheenColor[ 0 ] ?? 0;
-			data[ stride + 21 ] = materialData.sheenColor.g ?? materialData.sheenColor[ 1 ] ?? 0;
-			data[ stride + 22 ] = materialData.sheenColor.b ?? materialData.sheenColor[ 2 ] ?? 0;
+			data[ stride + M.SHEEN_COLOR ] = materialData.sheenColor.r ?? materialData.sheenColor[ 0 ] ?? 0;
+			data[ stride + M.SHEEN_COLOR + 1 ] = materialData.sheenColor.g ?? materialData.sheenColor[ 1 ] ?? 0;
+			data[ stride + M.SHEEN_COLOR + 2 ] = materialData.sheenColor.b ?? materialData.sheenColor[ 2 ] ?? 0;
 
 		}
 
-		data[ stride + 24 ] = materialData.specularIntensity ?? 1;
+		data[ stride + M.SPECULAR_INTENSITY ] = materialData.specularIntensity ?? 1;
 
 		if ( materialData.specularColor ) {
 
-			data[ stride + 25 ] = materialData.specularColor.r ?? materialData.specularColor[ 0 ] ?? 1;
-			data[ stride + 26 ] = materialData.specularColor.g ?? materialData.specularColor[ 1 ] ?? 1;
-			data[ stride + 27 ] = materialData.specularColor.b ?? materialData.specularColor[ 2 ] ?? 1;
+			data[ stride + M.SPECULAR_COLOR ] = materialData.specularColor.r ?? materialData.specularColor[ 0 ] ?? 1;
+			data[ stride + M.SPECULAR_COLOR + 1 ] = materialData.specularColor.g ?? materialData.specularColor[ 1 ] ?? 1;
+			data[ stride + M.SPECULAR_COLOR + 2 ] = materialData.specularColor.b ?? materialData.specularColor[ 2 ] ?? 1;
 
 		}
 
-		data[ stride + 28 ] = materialData.iridescence ?? 0;
-		data[ stride + 29 ] = materialData.iridescenceIOR ?? 1.3;
+		data[ stride + M.IRIDESCENCE ] = materialData.iridescence ?? 0;
+		data[ stride + M.IRIDESCENCE_IOR ] = materialData.iridescenceIOR ?? 1.3;
 
 		if ( materialData.iridescenceThicknessRange ) {
 
-			data[ stride + 30 ] = materialData.iridescenceThicknessRange[ 0 ] ?? 100;
-			data[ stride + 31 ] = materialData.iridescenceThicknessRange[ 1 ] ?? 400;
+			data[ stride + M.IRIDESCENCE_THICKNESS_RANGE ] = materialData.iridescenceThicknessRange[ 0 ] ?? 100;
+			data[ stride + M.IRIDESCENCE_THICKNESS_RANGE + 1 ] = materialData.iridescenceThicknessRange[ 1 ] ?? 400;
 
 		}
 
-		data[ stride + 32 ] = materialData.map ?? - 1;
-		data[ stride + 33 ] = materialData.normalMap ?? - 1;
-		data[ stride + 34 ] = materialData.roughnessMap ?? - 1;
-		data[ stride + 35 ] = materialData.metalnessMap ?? - 1;
-		data[ stride + 36 ] = materialData.emissiveMap ?? - 1;
-		data[ stride + 37 ] = materialData.bumpMap ?? - 1;
+		data[ stride + M.ALBEDO_MAP_INDEX ] = materialData.map ?? - 1;
+		data[ stride + M.NORMAL_MAP_INDEX ] = materialData.normalMap ?? - 1;
+		data[ stride + M.ROUGHNESS_MAP_INDEX ] = materialData.roughnessMap ?? - 1;
+		data[ stride + M.METALNESS_MAP_INDEX ] = materialData.metalnessMap ?? - 1;
+		data[ stride + M.EMISSIVE_MAP_INDEX ] = materialData.emissiveMap ?? - 1;
+		data[ stride + M.BUMP_MAP_INDEX ] = materialData.bumpMap ?? - 1;
 
-		data[ stride + 38 ] = materialData.clearcoat ?? 0;
-		data[ stride + 39 ] = materialData.clearcoatRoughness ?? 0;
-		data[ stride + 40 ] = materialData.opacity ?? 1;
-		data[ stride + 41 ] = materialData.side ?? 0;
-		data[ stride + 42 ] = materialData.transparent ?? 0;
-		data[ stride + 43 ] = materialData.alphaTest ?? 0;
-		data[ stride + 44 ] = materialData.alphaMode ?? 0;
-		data[ stride + 45 ] = materialData.depthWrite ?? 1;
-		data[ stride + 46 ] = materialData.normalScale?.x ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
-		data[ stride + 47 ] = materialData.normalScale?.y ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
-		data[ stride + 48 ] = materialData.bumpScale ?? 1;
-		data[ stride + 49 ] = materialData.displacementScale ?? 1;
-		data[ stride + 50 ] = materialData.displacementMap ?? - 1;
+		data[ stride + M.CLEARCOAT ] = materialData.clearcoat ?? 0;
+		data[ stride + M.CLEARCOAT_ROUGHNESS ] = materialData.clearcoatRoughness ?? 0;
+		data[ stride + M.OPACITY ] = materialData.opacity ?? 1;
+		data[ stride + M.SIDE ] = materialData.side ?? 0;
+		data[ stride + M.TRANSPARENT ] = materialData.transparent ?? 0;
+		data[ stride + M.ALPHA_TEST ] = materialData.alphaTest ?? 0;
+		data[ stride + M.ALPHA_MODE ] = materialData.alphaMode ?? 0;
+		data[ stride + M.DEPTH_WRITE ] = materialData.depthWrite ?? 1;
+		data[ stride + M.NORMAL_SCALE ] = materialData.normalScale?.x ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
+		data[ stride + M.NORMAL_SCALE + 1 ] = materialData.normalScale?.y ?? ( typeof materialData.normalScale === 'number' ? materialData.normalScale : 1 );
+		data[ stride + M.BUMP_SCALE ] = materialData.bumpScale ?? 1;
+		data[ stride + M.DISPLACEMENT_SCALE ] = materialData.displacementScale ?? 1;
+		data[ stride + M.DISPLACEMENT_MAP_INDEX ] = materialData.displacementMap ?? - 1;
 
 		// Texture transformation matrices (9 floats each, identity if missing)
 		const identity = [ 1, 0, 0, 0, 1, 0, 0, 0, 1 ];
 		const transformEntries = [
-			{ key: 'mapMatrix', offset: 52 },
-			{ key: 'normalMapMatrices', offset: 60 },
-			{ key: 'roughnessMapMatrices', offset: 68 },
-			{ key: 'metalnessMapMatrices', offset: 76 },
-			{ key: 'emissiveMapMatrices', offset: 84 },
-			{ key: 'bumpMapMatrices', offset: 92 },
-			{ key: 'displacementMapMatrices', offset: 100 }
+			{ key: 'mapMatrix', offset: M.ALBEDO_TRANSFORM },
+			{ key: 'normalMapMatrices', offset: M.NORMAL_TRANSFORM },
+			{ key: 'roughnessMapMatrices', offset: M.ROUGHNESS_TRANSFORM },
+			{ key: 'metalnessMapMatrices', offset: M.METALNESS_TRANSFORM },
+			{ key: 'emissiveMapMatrices', offset: M.EMISSIVE_TRANSFORM },
+			{ key: 'bumpMapMatrices', offset: M.BUMP_TRANSFORM },
+			{ key: 'displacementMapMatrices', offset: M.DISPLACEMENT_TRANSFORM }
 		];
 
 		for ( const { key, offset } of transformEntries ) {
@@ -497,20 +491,17 @@ export class MaterialDataManager {
 
 		}
 
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const data = this.materialStorageAttr.array;
-		const stride = materialIndex * dataLengthPerMaterial;
+		const stride = materialIndex * M.FLOATS_PER_MATERIAL;
 
 		const transformOffsets = {
-			'map': 52,
-			'normalMap': 60,
-			'roughnessMap': 68,
-			'metalnessMap': 76,
-			'emissiveMap': 84,
-			'bumpMap': 92,
-			'displacementMap': 100
+			'map': M.ALBEDO_TRANSFORM,
+			'normalMap': M.NORMAL_TRANSFORM,
+			'roughnessMap': M.ROUGHNESS_TRANSFORM,
+			'metalnessMap': M.METALNESS_TRANSFORM,
+			'emissiveMap': M.EMISSIVE_TRANSFORM,
+			'bumpMap': M.BUMP_TRANSFORM,
+			'displacementMap': M.DISPLACEMENT_TRANSFORM
 		};
 
 		const offset = transformOffsets[ textureName ];
@@ -552,9 +543,6 @@ export class MaterialDataManager {
 		}
 
 		const data = this.materialStorageAttr.array;
-		const pixelsRequired = TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL;
-		const dataInEachPixel = TEXTURE_CONSTANTS.RGBA_COMPONENTS;
-		const dataLengthPerMaterial = pixelsRequired * dataInEachPixel;
 		const materialCount = this.sdfs.materialCount || 1;
 
 		const newFeatures = {
@@ -570,16 +558,16 @@ export class MaterialDataManager {
 
 		for ( let i = 0; i < materialCount; i ++ ) {
 
-			const stride = i * dataLengthPerMaterial;
+			const stride = i * M.FLOATS_PER_MATERIAL;
 
-			const transmission = data[ stride + 9 ];
-			const dispersion = data[ stride + 16 ];
-			const sheen = data[ stride + 18 ];
-			const iridescence = data[ stride + 28 ];
-			const clearcoat = data[ stride + 38 ];
-			const opacity = data[ stride + 40 ];
-			const transparent = data[ stride + 42 ];
-			const alphaTest = data[ stride + 43 ];
+			const transmission = data[ stride + M.TRANSMISSION ];
+			const dispersion = data[ stride + M.DISPERSION ];
+			const sheen = data[ stride + M.SHEEN ];
+			const iridescence = data[ stride + M.IRIDESCENCE ];
+			const clearcoat = data[ stride + M.CLEARCOAT ];
+			const opacity = data[ stride + M.OPACITY ];
+			const transparent = data[ stride + M.TRANSPARENT ];
+			const alphaTest = data[ stride + M.ALPHA_TEST ];
 
 			if ( clearcoat > 0 ) newFeatures.hasClearcoat = true;
 			if ( transmission > 0 ) newFeatures.hasTransmission = true;
