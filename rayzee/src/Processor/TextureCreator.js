@@ -496,8 +496,11 @@ export class TextureCreator {
 		const cached = this.textureCache.get( cacheKey );
 		if ( cached ) return cached;
 
+		// Normalize non-drawable images (KTX2 CompressedTexture RGBA, DataTexture)
+		const { normalized, bitmapsToClose } = await this._normalizeTexturesForProcessing( textures );
+
 		// Select optimal processing strategy
-		const strategy = this.selectProcessingStrategy( textures );
+		const strategy = this.selectProcessingStrategy( normalized );
 		let result;
 
 		try {
@@ -505,19 +508,19 @@ export class TextureCreator {
 			switch ( strategy.method ) {
 
 				case 'worker-direct':
-					result = await this.processWithWorkerDirect( textures );
+					result = await this.processWithWorkerDirect( normalized );
 					break;
 				case 'worker-chunked':
-					result = await this.processWithWorkerChunked( textures, strategy.chunkSize );
+					result = await this.processWithWorkerChunked( normalized, strategy.chunkSize );
 					break;
 				case 'main-batch':
-					result = await this.processOnMainThreadBatch( textures, strategy.batchSize );
+					result = await this.processOnMainThreadBatch( normalized, strategy.batchSize );
 					break;
 				case 'main-streaming':
-					result = await this.processOnMainThreadStreaming( textures );
+					result = await this.processOnMainThreadStreaming( normalized );
 					break;
 				default:
-					result = await this.processOnMainThreadSync( textures );
+					result = await this.processOnMainThreadSync( normalized );
 
 			}
 
@@ -533,7 +536,11 @@ export class TextureCreator {
 		} catch ( error ) {
 
 			console.warn( 'Texture processing failed, trying fallback:', error );
-			return await this.processOnMainThreadSync( textures );
+			return await this.processOnMainThreadSync( normalized );
+
+		} finally {
+
+			for ( const bmp of bitmapsToClose ) bmp.close();
 
 		}
 
@@ -1258,6 +1265,109 @@ export class TextureCreator {
 
 	}
 
+	// ── KTX2 / DataTexture normalization ────────────────────────────────
+
+	/**
+	 * Normalize textures so every entry has a drawable `.image`.
+	 * - RGBA CompressedTexture (KTX2 Basis → RGBA): pixel data from mipmaps[0]
+	 * - GPU-compressed texture (BC7/ASTC/ETC2): warning (should be pre-decompressed)
+	 * - DataTexture (raw RGBA pixels): pixel data from image.data
+	 * - Regular texture: passed through as-is
+	 *
+	 * Bitmap creation is parallelized via Promise.all.
+	 */
+	async _normalizeTexturesForProcessing( textures ) {
+
+		const normalized = [];
+		const bitmapsToClose = [];
+		const bitmapJobs = []; // { index, promise }
+
+		for ( const tex of textures ) {
+
+			if ( ! tex?.image ) continue;
+
+			// RGBA CompressedTexture (KTX2 Basis transcode wraps output as CompressedTexture)
+			if ( tex.isCompressedTexture && tex.format === RGBAFormat && tex.mipmaps?.[ 0 ]?.data ) {
+
+				const mip = tex.mipmaps[ 0 ];
+				const idx = normalized.length;
+				normalized.push( null ); // placeholder — filled after Promise.all
+				bitmapJobs.push( { index: idx, promise: _rawPixelsToBitmap( mip.data, mip.width, mip.height ) } );
+				continue;
+
+			}
+
+			// True GPU-compressed texture in a mixed group — can't extract pixels on CPU.
+			// All-compressed groups are handled by the CompressedArrayTexture path upstream.
+			if ( tex.isCompressedTexture ) {
+
+				console.warn( '[TextureCreator] GPU-compressed texture in mixed group — using placeholder' );
+				normalized.push( null );
+				continue;
+
+			}
+
+			// DataTexture with raw pixel array
+			if ( tex.image.data && ! ( tex.image instanceof HTMLImageElement ) &&
+				! ( tex.image instanceof HTMLCanvasElement ) &&
+				! ( typeof ImageBitmap !== 'undefined' && tex.image instanceof ImageBitmap ) ) {
+
+				const idx = normalized.length;
+				normalized.push( null );
+				bitmapJobs.push( { index: idx, promise: _rawPixelsToBitmap( tex.image.data, tex.image.width, tex.image.height ) } );
+				continue;
+
+			}
+
+			normalized.push( tex );
+
+		}
+
+		// Resolve all bitmap conversions in parallel
+		if ( bitmapJobs.length > 0 ) {
+
+			const results = await Promise.allSettled( bitmapJobs.map( j => j.promise ) );
+
+			for ( let i = 0; i < bitmapJobs.length; i ++ ) {
+
+				const { index } = bitmapJobs[ i ];
+				const result = results[ i ];
+
+				if ( result.status === 'fulfilled' ) {
+
+					const bitmap = result.value;
+					bitmapsToClose.push( bitmap );
+					normalized[ index ] = { image: bitmap };
+
+				} else {
+
+					console.warn( '[TextureCreator] Failed to create ImageBitmap:', result.reason );
+
+				}
+
+			}
+
+		}
+
+		// Replace any remaining nulls (failed conversions) with a 1x1 white placeholder
+		// to preserve array indexing alignment with material texture indices.
+		for ( let i = 0; i < normalized.length; i ++ ) {
+
+			if ( normalized[ i ] === null ) {
+
+				const placeholder = new Uint8ClampedArray( [ 255, 255, 255, 255 ] );
+				const bitmap = await createImageBitmap( new ImageData( placeholder, 1, 1 ) );
+				bitmapsToClose.push( bitmap );
+				normalized[ i ] = { image: bitmap };
+
+			}
+
+		}
+
+		return { normalized, bitmapsToClose };
+
+	}
+
 	createFallbackTexture() {
 
 		const data = new Uint8Array( [ 255, 255, 255, 255 ] );
@@ -1291,3 +1401,14 @@ export class TextureCreator {
 	}
 
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/** Convert raw RGBA pixel data to an ImageBitmap (zero-copy Uint8ClampedArray view). */
+function _rawPixelsToBitmap( data, width, height ) {
+
+	const clamped = new Uint8ClampedArray( data.buffer, data.byteOffset, data.byteLength );
+	return createImageBitmap( new ImageData( clamped, width, height ) );
+
+}
+

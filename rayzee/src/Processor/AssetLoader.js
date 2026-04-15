@@ -4,6 +4,7 @@ import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, Equirecta
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
 import { createMeshesFromMultiMaterialMesh } from 'three/addons/utils/SceneUtils.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -41,6 +42,13 @@ export class AssetLoader extends EventDispatcher {
 		this.loaderCache = {};
 		this.uploadedFileInfo = null;
 		this.animations = [];
+		this.renderer = null;
+
+	}
+
+	setRenderer( renderer ) {
+
+		this.renderer = renderer;
 
 	}
 
@@ -698,8 +706,31 @@ export class AssetLoader extends EventDispatcher {
 		dracoLoader.setDecoderConfig( { type: 'js' } );
 		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
 
+		const ktx2Loader = new KTX2Loader();
+		ktx2Loader.setTranscoderPath( 'https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/libs/basis/' );
+
+		if ( this.renderer ) {
+
+			ktx2Loader.detectSupport( this.renderer );
+
+			// Force RGBA output for Basis Universal textures. GPU-compressed
+			// texture arrays (CompressedArrayTexture) are blocked by a Three.js
+			// TSL limitation: the node compiler maintains global state that
+			// survives dispose(), so swapping texture array formats between
+			// DataArrayTexture and CompressedArrayTexture at runtime causes
+			// WGSL compilation failures (unresolved uniform bindings).
+			ktx2Loader.workerConfig = {
+				astcSupported: false, etc1Supported: false, etc2Supported: false,
+				dxtSupported: false, bptcSupported: false, pvrtcSupported: false,
+			};
+
+		}
+
+		this.loaderCache.ktx2 = ktx2Loader;
+
 		const loader = new GLTFLoader();
 		loader.setDRACOLoader( dracoLoader );
+		loader.setKTX2Loader( ktx2Loader );
 		loader.setMeshoptDecoder( MeshoptDecoder );
 
 		this.loaderCache.gltf = loader;

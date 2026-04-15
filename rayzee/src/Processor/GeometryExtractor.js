@@ -542,55 +542,29 @@ export class GeometryExtractor {
 		for ( let i = 0; i < triangleCount; i ++ ) {
 
 			const i3 = i * 3;
+			const idxA = indices ? indices[ i3 + 0 ] : i3 + 0;
+			const idxB = indices ? indices[ i3 + 1 ] : i3 + 1;
+			const idxC = indices ? indices[ i3 + 2 ] : i3 + 2;
 
-			// Get vertices
-			if ( indices ) {
+			this.getVertex( positions, idxA, posA );
+			this.getVertex( positions, idxB, posB );
+			this.getVertex( positions, idxC, posC );
 
-				this.getVertexFromIndices( positions, indices[ i3 + 0 ], posA );
-				this.getVertexFromIndices( positions, indices[ i3 + 1 ], posB );
-				this.getVertexFromIndices( positions, indices[ i3 + 2 ], posC );
+			this.getVertex( normals, idxA, normalA );
+			this.getVertex( normals, idxB, normalB );
+			this.getVertex( normals, idxC, normalC );
 
-				this.getVertexFromIndices( normals, indices[ i3 + 0 ], normalA );
-				this.getVertexFromIndices( normals, indices[ i3 + 1 ], normalB );
-				this.getVertexFromIndices( normals, indices[ i3 + 2 ], normalC );
+			if ( uvs ) {
 
-				if ( uvs ) {
-
-					this.getVertexFromIndices( uvs, indices[ i3 + 0 ], uvA );
-					this.getVertexFromIndices( uvs, indices[ i3 + 1 ], uvB );
-					this.getVertexFromIndices( uvs, indices[ i3 + 2 ], uvC );
-
-				} else {
-
-					uvA.set( 0, 0 );
-					uvB.set( 0, 0 );
-					uvC.set( 0, 0 );
-
-				}
+				this.getVertex( uvs, idxA, uvA );
+				this.getVertex( uvs, idxB, uvB );
+				this.getVertex( uvs, idxC, uvC );
 
 			} else {
 
-				this.getVertex( positions, i3 + 0, posA );
-				this.getVertex( positions, i3 + 1, posB );
-				this.getVertex( positions, i3 + 2, posC );
-
-				this.getVertex( normals, i3 + 0, normalA );
-				this.getVertex( normals, i3 + 1, normalB );
-				this.getVertex( normals, i3 + 2, normalC );
-
-				if ( uvs ) {
-
-					this.getVertex( uvs, i3 + 0, uvA );
-					this.getVertex( uvs, i3 + 1, uvB );
-					this.getVertex( uvs, i3 + 2, uvC );
-
-				} else {
-
-					uvA.set( 0, 0 );
-					uvB.set( 0, 0 );
-					uvC.set( 0, 0 );
-
-				}
+				uvA.set( 0, 0 );
+				uvB.set( 0, 0 );
+				uvC.set( 0, 0 );
 
 			}
 
@@ -689,37 +663,18 @@ export class GeometryExtractor {
 	}
 
 	// Optimized attribute access methods
-	getVertexFromIndices( attribute, index, target ) {
-
-		if ( attribute.itemSize === 2 ) {
-
-			target.x = attribute.array[ index * 2 ];
-			target.y = attribute.array[ index * 2 + 1 ];
-
-		} else if ( attribute.itemSize === 3 ) {
-
-			target.x = attribute.array[ index * 3 ];
-			target.y = attribute.array[ index * 3 + 1 ];
-			target.z = attribute.array[ index * 3 + 2 ];
-
-		}
-
-		return target;
-
-	}
-
 	getVertex( attribute, index, target ) {
 
 		if ( attribute.itemSize === 2 ) {
 
-			target.x = attribute.array[ index * 2 ];
-			target.y = attribute.array[ index * 2 + 1 ];
+			target.x = attribute.getX( index );
+			target.y = attribute.getY( index );
 
-		} else if ( attribute.itemSize === 3 ) {
+		} else if ( attribute.itemSize >= 3 ) {
 
-			target.x = attribute.array[ index * 3 ];
-			target.y = attribute.array[ index * 3 + 1 ];
-			target.z = attribute.array[ index * 3 + 2 ];
+			target.x = attribute.getX( index );
+			target.y = attribute.getY( index );
+			target.z = attribute.getZ( index );
 
 		}
 

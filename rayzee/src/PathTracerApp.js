@@ -1014,6 +1014,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this._sdf = new SceneProcessor();
 		this.assetLoader = new AssetLoader( this.meshScene, this.cameraManager.camera, this.cameraManager.controls );
+		this.assetLoader.setRenderer( this.renderer );
 		this.assetLoader.createFloorPlane();
 
 		this.cameraManager.controls.addEventListener( 'change', () => {

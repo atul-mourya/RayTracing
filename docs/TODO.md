@@ -45,7 +45,6 @@
 
 ### Lighting
 - [ ] emissive mesh triangle sorting - overkill maybe
-- [ ] DDS texture support
 - [ ] Shadow catcher - blender
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] light transform gizmo helpers
@@ -57,6 +56,9 @@
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
 - [ ] transmission support for displacement materials
+- [ ] Supporting GPU-compressed texture arrays requires adding per-scene format selection at build time - the TSL compiler doesn't support clean
+  teardown/rebuild of compute pipelines when texture binding types
+  change.
 
 ### Environment
 - [ ] Environment cube map support for HDRIs
@@ -120,7 +122,7 @@
 - [ ] Photon mapping
 - [ ] Bidirectional path tracing support
 - [ ] Experiment PLOC for maximum BVH performance scenarios
-- [ ] tiered-material-buffer-access generalization
+- [x] tiered-material-buffer-access generalization - already at its practical optimum
   
 
 ---
