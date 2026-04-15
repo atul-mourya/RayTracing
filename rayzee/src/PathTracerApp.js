@@ -128,6 +128,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Resolution state
 		this._resizeDebounceTimer = null;
+		this._resizeObserver = null;
+		this._lastObservedWidth = 0;
+		this._lastObservedHeight = 0;
 
 	}
 
@@ -383,7 +386,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		clearTimeout( this._resizeDebounceTimer );
-		window.removeEventListener( 'resize', this.resizeHandler );
+		this._resizeObserver?.disconnect();
 
 		this.isInitialized = false;
 
@@ -639,6 +642,9 @@ export class PathTracerApp extends EventDispatcher {
 		const width = this.canvas.clientWidth;
 		const height = this.canvas.clientHeight;
 		if ( width === 0 || height === 0 ) return;
+		if ( width === this._lastObservedWidth && height === this._lastObservedHeight ) return;
+		this._lastObservedWidth = width;
+		this._lastObservedHeight = height;
 
 		this.renderer.setPixelRatio( 1.0 );
 		this.renderer.setSize( width, height, false );
@@ -1155,10 +1161,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Resize handling
 		this.onResize();
-		this.resizeHandler = () => this.onResize();
 		if ( this._autoResize ) {
 
-			window.addEventListener( 'resize', this.resizeHandler );
+			this._resizeObserver = new ResizeObserver( () => this.onResize() );
+			this._resizeObserver.observe( this.canvas );
 
 		}
 
