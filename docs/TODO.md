@@ -49,7 +49,6 @@
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
 - [ ] light transform gizmo helpers
 - [ ] Textured area lights
-- [ ] support shadows for alpha channeled diffuse maps
 
 ### Materials
 - [ ] implement pending Physical material properties
