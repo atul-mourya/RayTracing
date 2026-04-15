@@ -699,7 +699,7 @@ export class InteractionManager extends EventDispatcher {
 
 			this.select( event.object );
 			app.refreshFrame();
-			app.dispatchEvent( { type: 'objectSelected', object: event.object, uuid: event.uuid } );
+			app.dispatchEvent( { type: EngineEvents.OBJECT_SELECTED, object: event.object, uuid: event.uuid } );
 
 		} );
 
@@ -707,7 +707,7 @@ export class InteractionManager extends EventDispatcher {
 
 			this.select( null );
 			app.refreshFrame();
-			app.dispatchEvent( { type: 'objectDeselected', object: event.object, uuid: event.uuid } );
+			app.dispatchEvent( { type: EngineEvents.OBJECT_DESELECTED, object: event.object, uuid: event.uuid } );
 
 		} );
 
