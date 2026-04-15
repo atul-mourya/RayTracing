@@ -111,6 +111,7 @@ export class Display extends RenderStage {
 	dispose() {
 
 		this.displayMaterial?.dispose();
+		this.displayQuad?.dispose();
 
 	}
 
