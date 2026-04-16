@@ -93,7 +93,8 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
       "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
       "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
-      "rayzee": "https://cdn.jsdelivr.net/gh/atul-mourya/RayTracing@main/rayzee/dist/rayzee.es.js"
+      "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js",
+      "rayzee": "https://cdn.jsdelivr.net/npm/rayzee/dist/rayzee.es.js"
     }
   }
   </script>
@@ -533,6 +534,28 @@ OIDN provides high-quality AI denoising for final renders. It runs automatically
 
 > **Note:** The neural network model is downloaded on first use. Subsequent runs use the browser cache. OIDN also works with `configureForMode('final-render')`, which enables it automatically alongside high-quality render settings.
 
+### Enabling the AI Upscaler
+
+The upscaler runs ONNX super-resolution models via `onnxruntime-web`. Unlike OIDN, `onnxruntime-web` is lazily fetched from a CDN inside a Web Worker — **no npm install or import map entry is needed**.
+
+```js
+engine.denoisingManager.setUpscalerEnabled(true);
+engine.denoisingManager.setUpscalerQuality('fast');      // 'fast' | 'balanced' | 'quality'
+engine.denoisingManager.setUpscalerScaleFactor(2);       // 2 | 4
+
+engine.addEventListener(EngineEvents.UPSCALING_START,    () => console.log('Upscaling started'));
+engine.addEventListener(EngineEvents.UPSCALING_PROGRESS, (e) => console.log('Upscaling', e));
+engine.addEventListener(EngineEvents.UPSCALING_END,      () => console.log('Upscaling complete'));
+```
+
+| Quality | Model | 2× size | 4× size |
+|---|---|---|---|
+| `'fast'` | SPAN | 1.6 MB | 1.6 MB |
+| `'balanced'` | SRVGGNetCompact | 2.4 MB | 4.9 MB |
+| `'quality'` | RRDBNet / MoSR | 67 MB | 16.5 MB |
+
+**Chaining with OIDN:** Upscaling and OIDN **can** run together — on render completion, OIDN runs first, then its denoised output is fed into the upscaler. Enable both; no manual coordination required.
+
 ## Troubleshooting
 
 **OIDN: `Cannot find module './tza'` (webpack)**
@@ -553,11 +576,21 @@ Then load it via a script tag or import map instead:
 <script type="importmap">
 {
   "imports": {
-    "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.0/+esm"
+    "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js"
   }
 }
 </script>
 ```
+
+**OIDN: `TypeError: t.alea is not a function` or `Argument 'x' passed to 'conv2d' must be a Tensor ... got 'L'`**
+You're loading `oidn-web` via `jsdelivr.net/npm/oidn-web/+esm` or `esm.sh/oidn-web`. Don't — use the **self-bundled** `/dist/oidn.js` path instead:
+
+```diff
+- "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/+esm"
++ "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js"
+```
+
+Why: `oidn-web` transitively depends on `@tensorflow/tfjs-core`, which does `import * as t from "seedrandom"` and calls `t.alea(...)`. jsDelivr's `/+esm` CJS→ESM shim of `seedrandom` emits only `export default` (no named exports), so `t.alea` is undefined. Swapping to `esm.sh` trades that for a different issue: deep-path imports produce multiple tfjs-core instances, so a Tensor made in one module fails `instanceof` checks in another (`got 'L'`). The `/dist/oidn.js` file in the npm package is a single pre-bundled ESM with all of tfjs inlined — no external imports, one tfjs instance, same exports. Use it.
 
 **Black screen / "WebGPU not supported"**
 Your browser may not support WebGPU. Use Chrome 113+, Edge 113+, Safari 18+, or Firefox 141+. Ensure you're on HTTPS or localhost.

@@ -160,10 +160,10 @@ For fine-grained control over individual pipeline stages:
 | Method | Description |
 |--------|-------------|
 | `setOIDNEnabled(bool)` | Enable/disable OIDN denoiser |
-| `updateOIDNQuality(quality)` | `'fast'` \| `'balance'` \| `'high'` |
+| `setOIDNQuality(quality)` | `'fast'` \| `'balance'` \| `'high'` |
 | `setUpscalerEnabled(bool)` | Enable/disable AI upscaler |
-| `setUpscalerScaleFactor(n)` | Upscale factor (2, 4) |
-| `setUpscalerQuality(quality)` | `'fast'` \| `'balance'` |
+| `setUpscalerScaleFactor(n)` | Upscale factor (`2` \| `4`) |
+| `setUpscalerQuality(quality)` | `'fast'` \| `'balanced'` \| `'quality'` |
 
 ### Environment Modes
 

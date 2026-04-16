@@ -68,13 +68,17 @@ export default defineConfig({
     "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
     "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
     "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
+    "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js",
     "rayzee": "https://cdn.jsdelivr.net/npm/rayzee/dist/rayzee.es.js"
   }
 }
 </script>
 ```
 
-> **Note**: CDN usage requires rayzee v4.9+ which includes the cross-origin worker fix. Workers loaded from a different origin need a blob-based proxy — this is handled automatically by the engine.
+> **Notes**:
+> - Requires rayzee **v5.3.7+**, which bundles workers through Vite's worker pipeline so cross-origin worker loading from a CDN works reliably.
+> - `oidn-web` is only needed if you call `setOIDNEnabled(true)`. Always use the `/dist/oidn.js` path, **not** `/+esm` — see the [OIDN troubleshooting section](../rayzee/README.md#troubleshooting) for why.
+> - `onnxruntime-web` (for the AI upscaler) is loaded lazily inside a Web Worker and does **not** need an import map entry.
 
 ## Integration Code
 

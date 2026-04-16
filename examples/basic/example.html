@@ -11,7 +11,7 @@
       "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
       "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
-      "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.0/+esm",
+      "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js",
       "rayzee": "https://cdn.jsdelivr.net/npm/rayzee@5.3.7/dist/rayzee.es.js"
     }
   }
@@ -35,9 +35,14 @@
     engine.settings.set('bounces', 8);
     engine.settings.set('exposure', 1.0);
 
-    // Enable OIDN denoiser — runs automatically when render converges
-    engine.denoising.setOIDNEnabled(true);
-    engine.denoising.setOIDNQuality('balance'); // 'fast' | 'balance' | 'high'
+    // OIDN denoiser — runs on convergence
+    engine.denoisingManager.setOIDNEnabled(true);
+    engine.denoisingManager.setOIDNQuality('balance');       // 'fast' | 'balance' | 'high'
+
+    // AI upscaler — chains after OIDN
+    engine.denoisingManager.setUpscalerEnabled(true);
+    engine.denoisingManager.setUpscalerQuality('fast');      // 'fast' | 'balanced' | 'quality'
+    engine.denoisingManager.setUpscalerScaleFactor(2);       // 2 | 4
 
     engine.addEventListener(EngineEvents.DENOISING_START, () => {
       console.log('Denoising started');
@@ -45,11 +50,20 @@
     engine.addEventListener(EngineEvents.DENOISING_END, () => {
       console.log('Denoising complete');
     });
+    engine.addEventListener(EngineEvents.UPSCALING_START, () => {
+      console.log('Upscaling started');
+    });
+    engine.addEventListener(EngineEvents.UPSCALING_PROGRESS, (e) => {
+      console.log('Upscaling progress:', e);
+    });
+    engine.addEventListener(EngineEvents.UPSCALING_END, () => {
+      console.log('Upscaling complete');
+    });
 
     window.addEventListener('resize', () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      engine.output.resize();
+      engine.onResize();
     });
   </script>
 </body>
