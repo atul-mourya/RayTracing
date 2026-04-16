@@ -165,6 +165,56 @@ export default function Viewport({ modelUrl }) {
 
 No special build config is needed — models and HDRs are loaded via URL at runtime.
 
+### Integrating Alongside an Existing Three.js App
+
+If your app already has a WebGL/WebGPU rasterized view and you want to add a path-traced mode on demand, run rayzee on its own **separate canvas** (WebGL and WebGPU can't share one) and toggle visibility.
+
+```js
+import { PathTracerApp } from 'rayzee';
+
+// 1. WebGPU detection
+if (!navigator.gpu || !(await navigator.gpu.requestAdapter())) return;
+
+// 2. Overlay canvas (hidden until toggled on)
+const ptCanvas = document.createElement('canvas');
+Object.assign(ptCanvas.style, { position: 'absolute', inset: 0, display: 'none' });
+container.appendChild(ptCanvas);
+
+let engine = null;
+async function togglePathTrace(on) {
+  if (on && !engine) {
+    ptCanvas.width = container.clientWidth;
+    ptCanvas.height = container.clientHeight;
+    engine = new PathTracerApp(ptCanvas, { autoResize: false });
+    await engine.init();
+    await engine.loadEnvironment('/env.hdr');             // required for realistic lighting
+    await engine.loadObject3D(yourScene);                 // rayzee takes ownership — pass a clone if the host still renders it
+    engine.animate();
+  }
+  ptCanvas.style.display = on ? 'block' : 'none';
+  hostCanvas.style.display = on ? 'none' : 'block';
+  on ? engine?.resume() : engine?.pause();                // pause the inactive renderer to avoid GPU contention
+}
+```
+
+Key constraints:
+
+- **`loadObject3D` takes ownership** of the passed `Object3D` (sets it as the active model, disposes the previous one). If your host app continues to render the same scene graph, pass `scene.clone(true)` — deep-cloning shares geometry/texture data, so memory cost is small. Clone once on first toggle, not on every switch.
+- **Rayzee ignores `onBeforeCompile`.** It reads PBR material properties (albedo, roughness, metalness, …) directly into its own GPU buffers; custom shader injection on the host material has no effect on the path-traced view.
+- **Always load an environment.** Path tracing without an env map produces a black background and no indirect lighting.
+- **`three` is a peer dep on both sides.** Vite/webpack dedupe automatically. For script-tag setups, load one copy of `three` globally.
+
+### Vite tip
+
+When rayzee is installed from npm, its pre-built `dist/rayzee.es.js` uses worker and `import.meta.url` patterns that Vite's dep pre-bundler re-parses incorrectly. Exclude it:
+
+```js
+// vite.config.js
+export default defineConfig({
+  optimizeDeps: { exclude: ['rayzee'] },
+});
+```
+
 ## API Reference
 
 ### PathTracerApp
