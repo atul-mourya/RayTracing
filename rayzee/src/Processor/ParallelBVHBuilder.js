@@ -7,6 +7,8 @@
  * a cycle that Vite cannot resolve.
  */
 
+import { fetchAsWorker } from './Workers/fetchAsWorker.js';
+
 const FPT = 32; // FLOATS_PER_TRIANGLE
 const PARALLEL_THRESHOLD = 50000;
 const MAX_PARALLEL_WORKERS = 8;
@@ -34,7 +36,7 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 
 	return new Promise( ( resolve, reject ) => {
 
-		try {
+		( async () => {
 
 			// Allocate SharedArrayBuffers
 			const sharedTriangleData = new SharedArrayBuffer( triangles.byteLength );
@@ -48,10 +50,22 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 			const sharedReorderBuffer = new SharedArrayBuffer( triangleCount * FPT * 4 );
 
 			// Phase 1: Coordinator worker
-			const coordinatorWorker = new Worker(
-				new URL( './Workers/BVHWorker.js', import.meta.url ),
-				{ type: 'module' }
-			);
+			let coordinatorWorker;
+			try {
+
+				coordinatorWorker = new Worker(
+					new URL( './Workers/BVHWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+			} catch ( e ) {
+
+				if ( e.name !== 'SecurityError' ) throw e;
+				coordinatorWorker = await fetchAsWorker(
+					new URL( './Workers/BVHWorker.js', import.meta.url )
+				);
+
+			}
 
 			let phase1Stats = null;
 			const allWorkers = [ coordinatorWorker ];
@@ -133,7 +147,7 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 						triangleCount, progressCallback, coordinatorWorker,
 						allWorkers, cleanup, fallbackToSingle, resolve, timerRef,
 						config
-					);
+					).catch( err => fallbackToSingle( err.message ) );
 					return;
 
 				}
@@ -169,12 +183,12 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 				treeletOptimization: config.treeletOptimization
 			} );
 
-		} catch ( error ) {
+		} )().catch( ( error ) => {
 
 			console.warn( '[ParallelBVH] Parallel build setup failed:', error );
 			reject( error );
 
-		}
+		} );
 
 	} );
 
@@ -184,7 +198,7 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
  * Handle Phase 2: distribute subtree tasks to worker pool and collect results.
  * @private
  */
-function handlePhase2(
+async function handlePhase2(
 	phase1Result, numWorkers, sharedTriangleData, sharedCentroids,
 	sharedBMin, sharedBMax, sharedIndices, sharedReorderBuffer,
 	triangleCount, progressCallback, coordinatorWorker,
@@ -299,10 +313,22 @@ function handlePhase2(
 		const bucket = workerTaskBuckets[ w ];
 		if ( bucket.length === 0 ) continue;
 
-		const subtreeWorker = new Worker(
-			new URL( './Workers/BVHSubtreeWorker.js', import.meta.url ),
-			{ type: 'module' }
-		);
+		let subtreeWorker;
+		try {
+
+			subtreeWorker = new Worker(
+				new URL( './Workers/BVHSubtreeWorker.js', import.meta.url ),
+				{ type: 'module' }
+			);
+
+		} catch ( e ) {
+
+			if ( e.name !== 'SecurityError' ) throw e;
+			subtreeWorker = await fetchAsWorker(
+				new URL( './Workers/BVHSubtreeWorker.js', import.meta.url )
+			);
+
+		}
 
 		allWorkers.push( subtreeWorker );
 
@@ -405,12 +431,24 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 
 	return new Promise( ( resolve, reject ) => {
 
-		try {
+		( async () => {
 
-			const worker = new Worker(
-				new URL( './Workers/BVHWorker.js', import.meta.url ),
-				{ type: 'module' }
-			);
+			let worker;
+			try {
+
+				worker = new Worker(
+					new URL( './Workers/BVHWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+			} catch ( e ) {
+
+				if ( e.name !== 'SecurityError' ) throw e;
+				worker = await fetchAsWorker(
+					new URL( './Workers/BVHWorker.js', import.meta.url )
+				);
+
+			}
 
 			const triangleCount = triangles.byteLength / ( FPT * 4 );
 			const useShared = typeof SharedArrayBuffer !== 'undefined';
@@ -466,12 +504,12 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 				reinsertionOptimization: config.reinsertionOptimization
 			}, [ transferBuffer ] );
 
-		} catch ( error ) {
+		} )().catch( ( error ) => {
 
 			console.warn( '[ParallelBVH] Single worker fallback failed:', error );
 			reject( error );
 
-		}
+		} );
 
 	} );
 

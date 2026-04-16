@@ -1,5 +1,6 @@
 import { DataArrayTexture, RGBAFormat, LinearFilter, UnsignedByteType, SRGBColorSpace } from "three";
 import { TEXTURE_CONSTANTS, MEMORY_CONSTANTS, DEFAULT_TEXTURE_MATRIX, MATERIAL_DATA_LAYOUT } from '../EngineDefaults.js';
+import { fetchAsWorker } from './Workers/fetchAsWorker.js';
 
 // Canvas pooling for efficient reuse of canvas elements
 class CanvasPool {
@@ -602,10 +603,22 @@ export class TextureCreator {
 
 		try {
 
-			const worker = new Worker(
-				new URL( './Workers/TexturesWorker.js', import.meta.url ),
-				{ type: 'module' }
-			);
+			let worker;
+			try {
+
+				worker = new Worker(
+					new URL( './Workers/TexturesWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+			} catch ( e ) {
+
+				if ( e.name !== 'SecurityError' ) throw e;
+				worker = await fetchAsWorker(
+					new URL( './Workers/TexturesWorker.js', import.meta.url )
+				);
+
+			}
 
 			// Prepare textures for worker with direct transfer
 			const texturesData = await this.prepareTexturesForWorkerDirect( textures );

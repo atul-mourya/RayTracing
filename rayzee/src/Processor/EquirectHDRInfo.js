@@ -1,4 +1,5 @@
 import { DataUtils, HalfFloatType, FloatType, SRGBColorSpace } from 'three';
+import { fetchAsWorker } from './Workers/fetchAsWorker.js';
 
 /**
  * Binary search to find the closest index
@@ -221,10 +222,21 @@ export class EquirectHDRInfo {
 		// Reuse worker across calls; create on first use
 		if ( ! this._worker ) {
 
-			this._worker = new Worker(
-				new URL( './Workers/CDFWorker.js', import.meta.url ),
-				{ type: 'module' }
-			);
+			try {
+
+				this._worker = new Worker(
+					new URL( './Workers/CDFWorker.js', import.meta.url ),
+					{ type: 'module' }
+				);
+
+			} catch ( e ) {
+
+				if ( e.name !== 'SecurityError' ) throw e;
+				this._worker = await fetchAsWorker(
+					new URL( './Workers/CDFWorker.js', import.meta.url )
+				);
+
+			}
 
 		}
 

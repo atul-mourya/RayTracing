@@ -1,5 +1,6 @@
 import { TreeletOptimizer } from './TreeletOptimizer.js';
 import { ReinsertionOptimizer } from './ReinsertionOptimizer.js';
+import { fetchAsWorker } from './Workers/fetchAsWorker.js';
 
 // Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
 // Cannot import Constants.js because BVHBuilder runs inside BVHWorker
@@ -397,12 +398,7 @@ export class BVHBuilder {
 
 			return new Promise( ( resolve, reject ) => {
 
-				try {
-
-					const worker = new Worker(
-						new URL( './Workers/BVHWorker.js', import.meta.url ),
-						{ type: 'module' }
-					);
+				const setupWorker = ( worker ) => {
 
 					const triangleCount = this.totalTriangles;
 					const useShared = typeof SharedArrayBuffer !== 'undefined';
@@ -482,10 +478,34 @@ export class BVHBuilder {
 
 					worker.postMessage( workerData, [ transferBuffer ] );
 
+				};
+
+				try {
+
+					setupWorker( new Worker(
+						new URL( './Workers/BVHWorker.js', import.meta.url ),
+						{ type: 'module' }
+					) );
+
 				} catch ( error ) {
 
-					console.warn( 'Worker creation failed, falling back to synchronous build:', error );
-					resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
+					if ( error.name === 'SecurityError' ) {
+
+						fetchAsWorker(
+							new URL( './Workers/BVHWorker.js', import.meta.url )
+						).then( setupWorker ).catch( () => {
+
+							console.warn( 'Worker fetch fallback failed, using synchronous build' );
+							resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
+
+						} );
+
+					} else {
+
+						console.warn( 'Worker creation failed, falling back to synchronous build:', error );
+						resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );
+
+					}
 
 				}
 
