@@ -645,8 +645,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.cameraManager.camera.aspect = width / height;
 		this.cameraManager.camera.updateProjectionMatrix();
 
-		this.denoisingManager?.syncCanvasStyle( width, height );
-
 		// Overlay helpers always render at display resolution
 		const dpr = window.devicePixelRatio || 1;
 		this.overlayManager?.setSize(
@@ -678,8 +676,6 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	setCanvasSize( width, height ) {
-
-		this.denoisingManager?.syncCanvasStyle( width, height );
 
 		if ( width === 0 || height === 0 ) return;
 

@@ -64,8 +64,10 @@ export class DenoisingManager extends EventDispatcher {
 		const dc = document.createElement( 'canvas' );
 		dc.width = mainCanvas.width;
 		dc.height = mainCanvas.height;
-		dc.style.width = `${mainCanvas.clientWidth}px`;
-		dc.style.height = `${mainCanvas.clientHeight}px`;
+		dc.style.position = 'absolute';
+		dc.style.inset = '0';
+		dc.style.width = '100%';
+		dc.style.height = '100%';
 
 		parent.insertBefore( dc, mainCanvas );
 		return dc;
@@ -86,21 +88,6 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/**
-	 * Syncs the denoiser canvas CSS dimensions to match display size.
-	 * @param {number} width
-	 * @param {number} height
-	 */
-	syncCanvasStyle( width, height ) {
-
-		if ( this.denoiserCanvas ) {
-
-			this.denoiserCanvas.style.width = `${width}px`;
-			this.denoiserCanvas.style.height = `${height}px`;
-
-		}
-
-	}
 
 	/**
 	 * Restores the denoiser canvas to base render resolution after upscaling.
