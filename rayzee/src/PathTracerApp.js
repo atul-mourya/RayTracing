@@ -679,8 +679,6 @@ export class PathTracerApp extends EventDispatcher {
 
 	setCanvasSize( width, height ) {
 
-		this.canvas.style.width = `${width}px`;
-		this.canvas.style.height = `${height}px`;
 		this.denoisingManager?.syncCanvasStyle( width, height );
 
 		if ( width === 0 || height === 0 ) return;
