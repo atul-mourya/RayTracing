@@ -8,6 +8,8 @@
  */
 
 import { fetchAsWorker } from './Workers/fetchAsWorker.js';
+import BVH_WORKER_URL from './Workers/BVHWorker.js?worker&url';
+import BVH_SUBTREE_WORKER_URL from './Workers/BVHSubtreeWorker.js?worker&url';
 
 const FPT = 32; // FLOATS_PER_TRIANGLE
 const PARALLEL_THRESHOLD = 50000;
@@ -53,17 +55,12 @@ export function buildBVHParallel( triangles, depth, progressCallback, config ) {
 			let coordinatorWorker;
 			try {
 
-				coordinatorWorker = new Worker(
-					new URL( './Workers/BVHWorker.js', import.meta.url ),
-					{ type: 'module' }
-				);
+				coordinatorWorker = new Worker( BVH_WORKER_URL, { type: 'module' } );
 
 			} catch ( e ) {
 
 				if ( e.name !== 'SecurityError' ) throw e;
-				coordinatorWorker = await fetchAsWorker(
-					new URL( './Workers/BVHWorker.js', import.meta.url )
-				);
+				coordinatorWorker = await fetchAsWorker( BVH_WORKER_URL );
 
 			}
 
@@ -316,17 +313,12 @@ async function handlePhase2(
 		let subtreeWorker;
 		try {
 
-			subtreeWorker = new Worker(
-				new URL( './Workers/BVHSubtreeWorker.js', import.meta.url ),
-				{ type: 'module' }
-			);
+			subtreeWorker = new Worker( BVH_SUBTREE_WORKER_URL, { type: 'module' } );
 
 		} catch ( e ) {
 
 			if ( e.name !== 'SecurityError' ) throw e;
-			subtreeWorker = await fetchAsWorker(
-				new URL( './Workers/BVHSubtreeWorker.js', import.meta.url )
-			);
+			subtreeWorker = await fetchAsWorker( BVH_SUBTREE_WORKER_URL );
 
 		}
 
@@ -436,17 +428,12 @@ function buildSingleWorker( triangles, depth, progressCallback, config ) {
 			let worker;
 			try {
 
-				worker = new Worker(
-					new URL( './Workers/BVHWorker.js', import.meta.url ),
-					{ type: 'module' }
-				);
+				worker = new Worker( BVH_WORKER_URL, { type: 'module' } );
 
 			} catch ( e ) {
 
 				if ( e.name !== 'SecurityError' ) throw e;
-				worker = await fetchAsWorker(
-					new URL( './Workers/BVHWorker.js', import.meta.url )
-				);
+				worker = await fetchAsWorker( BVH_WORKER_URL );
 
 			}
 

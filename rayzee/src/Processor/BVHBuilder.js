@@ -1,6 +1,7 @@
 import { TreeletOptimizer } from './TreeletOptimizer.js';
 import { ReinsertionOptimizer } from './ReinsertionOptimizer.js';
 import { fetchAsWorker } from './Workers/fetchAsWorker.js';
+import BVH_WORKER_URL from './Workers/BVHWorker.js?worker&url';
 
 // Inline copy of TRIANGLE_DATA_LAYOUT (mirrors Constants.js).
 // Cannot import Constants.js because BVHBuilder runs inside BVHWorker
@@ -482,18 +483,13 @@ export class BVHBuilder {
 
 				try {
 
-					setupWorker( new Worker(
-						new URL( './Workers/BVHWorker.js', import.meta.url ),
-						{ type: 'module' }
-					) );
+					setupWorker( new Worker( BVH_WORKER_URL, { type: 'module' } ) );
 
 				} catch ( error ) {
 
 					if ( error.name === 'SecurityError' ) {
 
-						fetchAsWorker(
-							new URL( './Workers/BVHWorker.js', import.meta.url )
-						).then( setupWorker ).catch( () => {
+						fetchAsWorker( BVH_WORKER_URL ).then( setupWorker ).catch( () => {
 
 							console.warn( 'Worker fetch fallback failed, using synchronous build' );
 							resolve( this._buildSyncAndFlatten( triangles, depth, progressCallback ) );

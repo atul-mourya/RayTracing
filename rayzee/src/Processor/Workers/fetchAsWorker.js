@@ -11,6 +11,11 @@
  * The Blob URL is intentionally **not** revoked — workers may reference
  * `self.location.href` to spawn sub-workers (e.g. BVHWorker).
  *
+ * Always spawns the worker as a module. In bundled builds Vite inlines
+ * the fallback URL as a `data:` containing the original ESM source
+ * (with top-level `import` statements), which requires `type: 'module'`.
+ * IIFE-bundled assets also load correctly as module workers.
+ *
  * @param {URL|string} url  Worker script URL (may be cross-origin)
  * @returns {Promise<Worker>}
  */
@@ -25,6 +30,6 @@ export async function fetchAsWorker( url ) {
 	}
 
 	const blob = new Blob( [ await response.text() ], { type: 'application/javascript' } );
-	return new Worker( URL.createObjectURL( blob ) );
+	return new Worker( URL.createObjectURL( blob ), { type: 'module' } );
 
 }

@@ -12,6 +12,8 @@ import { updateLoading } from '../Processor/utils.js';
 import { BuildTimer } from './BuildTimer.js';
 import { TRIANGLE_DATA_LAYOUT } from '../EngineDefaults.js';
 import { fetchAsWorker } from './Workers/fetchAsWorker.js';
+import BVH_WORKER_URL from './Workers/BVHWorker.js?worker&url';
+import BVH_REFIT_WORKER_URL from './Workers/BVHRefitWorker.js?worker&url';
 
 /**
  * SceneProcessor - Processes scene geometry into GPU-ready data:
@@ -671,17 +673,18 @@ export class SceneProcessor {
 					let worker;
 					try {
 
-						worker = new Worker(
-							new URL( './Workers/BVHWorker.js', import.meta.url ),
-							{ type: 'module' }
-						);
+						worker = new Worker( BVH_WORKER_URL, { type: 'module' } );
 
 					} catch ( e ) {
 
-						if ( e.name !== 'SecurityError' ) { reject( e ); return; }
-						worker = await fetchAsWorker(
-							new URL( './Workers/BVHWorker.js', import.meta.url )
-						);
+						if ( e.name !== 'SecurityError' ) {
+
+							reject( e );
+							return;
+
+						}
+
+						worker = await fetchAsWorker( BVH_WORKER_URL );
 
 					}
 
@@ -1156,17 +1159,12 @@ export class SceneProcessor {
 
 			try {
 
-				this._refitWorker = new Worker(
-					new URL( './Workers/BVHRefitWorker.js', import.meta.url ),
-					{ type: 'module' }
-				);
+				this._refitWorker = new Worker( BVH_REFIT_WORKER_URL, { type: 'module' } );
 
 			} catch ( e ) {
 
 				if ( e.name !== 'SecurityError' ) throw e;
-				this._refitWorker = await fetchAsWorker(
-					new URL( './Workers/BVHRefitWorker.js', import.meta.url )
-				);
+				this._refitWorker = await fetchAsWorker( BVH_REFIT_WORKER_URL );
 
 			}
 
@@ -1759,18 +1757,13 @@ export class SceneProcessor {
 			let worker;
 			try {
 
-				worker = new Worker(
-					new URL( './Workers/BVHWorker.js', import.meta.url ),
-					{ type: 'module' }
-				);
+				worker = new Worker( BVH_WORKER_URL, { type: 'module' } );
 				dispatchRebuild( meshIdx, entry, worker );
 
 			} catch ( e ) {
 
 				if ( e.name !== 'SecurityError' ) throw e;
-				fetchAsWorker(
-					new URL( './Workers/BVHWorker.js', import.meta.url )
-				).then( w => dispatchRebuild( meshIdx, entry, w ) );
+				fetchAsWorker( BVH_WORKER_URL ).then( w => dispatchRebuild( meshIdx, entry, w ) );
 
 			}
 

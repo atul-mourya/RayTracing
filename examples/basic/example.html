@@ -12,7 +12,7 @@
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
       "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
       "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.0/+esm",
-      "rayzee": "https://cdn.jsdelivr.net/npm/rayzee@4.8.10/dist/rayzee.es.js"
+      "rayzee": "/rayzee/dist/rayzee.es.js"
     }
   }
   </script>
@@ -32,8 +32,8 @@
     await engine.loadEnvironment('https://assets.rayzee.atulmourya.com/hdri/Polyhaven/raw/adams_place_bridge_1k.hdr');
     engine.animate();
 
-    engine.set('bounces', 8);
-    engine.set('exposure', 1.0);
+    engine.settings.set('bounces', 8);
+    engine.settings.set('exposure', 1.0);
 
     // Enable OIDN denoiser — runs automatically when render converges
     engine.denoising.setOIDNEnabled(true);

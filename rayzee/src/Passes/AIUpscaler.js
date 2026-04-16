@@ -1,6 +1,7 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
 import { fetchAsWorker } from '../Processor/Workers/fetchAsWorker.js';
+import AI_UPSCALER_WORKER_URL from '../Processor/Workers/AIUpscalerWorker.js?worker&url';
 
 
 // ─── Model Configuration ───────────────────────────────────────────────────────
@@ -140,17 +141,12 @@ export class AIUpscaler extends EventDispatcher {
 
 				try {
 
-					this._worker = new Worker(
-						new URL( '../Processor/Workers/AIUpscalerWorker.js', import.meta.url ),
-						{ type: 'module' }
-					);
+					this._worker = new Worker( AI_UPSCALER_WORKER_URL, { type: 'module' } );
 
 				} catch ( e ) {
 
 					if ( e.name !== 'SecurityError' ) throw e;
-					this._worker = await fetchAsWorker(
-						new URL( '../Processor/Workers/AIUpscalerWorker.js', import.meta.url )
-					);
+					this._worker = await fetchAsWorker( AI_UPSCALER_WORKER_URL );
 
 				}
 
