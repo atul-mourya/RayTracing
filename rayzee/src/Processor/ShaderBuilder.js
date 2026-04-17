@@ -50,6 +50,11 @@ export class ShaderBuilder {
 		this._dispatchX = 0;
 		this._dispatchY = 0;
 
+		// Reused per-frame dispatchSize array — avoids GC pressure from
+		// allocating [x,y,z] on every setFullScreenDispatch/setTileDispatch call.
+		// WebGPUBackend only reads indices 0..2 of this array during compute dispatch.
+		this._dispatchSize = [ 0, 0, 1 ];
+
 		// Scene texture nodes cache (for in-place updates on model change)
 		this._sceneTextureNodes = null;
 
@@ -138,7 +143,13 @@ export class ShaderBuilder {
 		this._dispatchX = Math.ceil( width / WG_SIZE );
 		this._dispatchY = Math.ceil( height / WG_SIZE );
 
-		if ( this.computeNode ) this.computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		if ( this.computeNode ) {
+
+			this._dispatchSize[ 0 ] = this._dispatchX;
+			this._dispatchSize[ 1 ] = this._dispatchY;
+			this.computeNode.dispatchSize = this._dispatchSize;
+
+		}
 
 		this.renderWidth.value = width;
 		this.renderHeight.value = height;
@@ -165,7 +176,13 @@ export class ShaderBuilder {
 		const dispatchX = Math.ceil( tileWidth / WG_SIZE );
 		const dispatchY = Math.ceil( tileHeight / WG_SIZE );
 
-		if ( this.computeNode ) this.computeNode.dispatchSize = [ dispatchX, dispatchY, 1 ];
+		if ( this.computeNode ) {
+
+			this._dispatchSize[ 0 ] = dispatchX;
+			this._dispatchSize[ 1 ] = dispatchY;
+			this.computeNode.dispatchSize = this._dispatchSize;
+
+		}
 
 	}
 
@@ -177,7 +194,13 @@ export class ShaderBuilder {
 		this.tileOffsetX.value = 0;
 		this.tileOffsetY.value = 0;
 
-		if ( this.computeNode ) this.computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		if ( this.computeNode ) {
+
+			this._dispatchSize[ 0 ] = this._dispatchX;
+			this._dispatchSize[ 1 ] = this._dispatchY;
+			this.computeNode.dispatchSize = this._dispatchSize;
+
+		}
 
 	}
 
