@@ -77,6 +77,7 @@ const PathTracerTab = () => {
 		tilesHelper,
 		debugMode,
 		debugThreshold,
+		showInspector,
 		oidnQuality,
 		enableOIDN,
 		enableUpscaler,
@@ -153,6 +154,7 @@ const PathTracerTab = () => {
 		handleUpscalerQualityChange,
 		handleDebugThresholdChange,
 		handleDebugModeChange,
+		handleInspectorToggle,
 		handleExposureChange,
 		handleSaturationChange,
 		handleEnableEnvironmentChange,
@@ -642,6 +644,11 @@ const PathTracerTab = () => {
 					<div className="flex items-center justify-between">
 						<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ debugThreshold ]} onValueChange={handleDebugThresholdChange} />
 					</div>
+					{import.meta.env.DEV && (
+						<div className="flex items-center justify-between">
+							<Switch label={"Inspector"} checked={showInspector} onCheckedChange={handleInspectorToggle} />
+						</div>
+					)}
 				</ControlGroup>
 			)}
 		</div>

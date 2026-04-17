@@ -13,6 +13,8 @@
 - [ ] ASVGF heatmap shows black - normal
 - [ ] ASVGF heatmap shows improper motion vector
 - [ ] unify all patches in one file
+- [ ] scrutenize for which all stages are needed as default
+- [ ] dispose, reset, etc life cycle for rayzee
   
 ### Known
 

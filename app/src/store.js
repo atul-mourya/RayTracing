@@ -293,6 +293,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	adaptiveSamplingConvergenceSpeed: 2.0,
 	adaptiveSamplingQualityPreset: 'balanced',
 
+	showInspector: false,
+
 	// Auto-exposure computed values (updated in real-time by AutoExposure)
 	currentAutoExposure: null,
 	currentAvgLuminance: null,
@@ -316,6 +318,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setAdaptiveSamplingConvergenceSpeed: val => set( { adaptiveSamplingConvergenceSpeed: val } ),
 	setAdaptiveSamplingQualityPreset: val => set( { adaptiveSamplingQualityPreset: val } ),
 	setShowAdaptiveSamplingHelper: val => set( { showAdaptiveSamplingHelper: val } ),
+	setShowInspector: val => set( { showInspector: val } ),
 	setFireflyThreshold: val => set( { fireflyThreshold: val } ),
 	setRenderMode: val => set( { renderMode: val } ),
 	setTiles: val => set( { tiles: val } ),
@@ -681,6 +684,37 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		val => set( { showAdaptiveSamplingHelper: val } ),
 		( val, app ) => app.denoisingManager.toggleAdaptiveSamplingHelper( val )
 	),
+
+	handleInspectorToggle: async val => {
+
+		set( { showInspector: val } );
+		const app = getApp();
+		if ( ! app ) return;
+
+		if ( val && ! app._inspector ) {
+
+			const { Inspector } = await import( 'three/addons/inspector/Inspector.js' );
+			const inspector = new Inspector();
+			// Vite dev server serves index.html (not JSON) for raw fetches of files
+			// under node_modules, which breaks the Inspector's extensions probe.
+			inspector.settings._getExtensions = async () => [];
+			// Mount to <body> so the profiler panel escapes the viewport wrapper's
+			// `transform: scale()` (which re-parents `position: fixed` children).
+			document.body.appendChild( inspector.domElement );
+			app.renderer.inspector = inspector;
+			app._inspector = inspector;
+
+		}
+
+		// Toggle DOM visibility directly — Inspector.show()/.hide() in r184 call
+		// Profiler.show(tab) which requires a tab argument and throws otherwise.
+		if ( app._inspector ) {
+
+			app._inspector.domElement.style.display = val ? '' : 'none';
+
+		}
+
+	},
 
 	handleAdaptiveSamplingMaterialBiasChange: handleChange(
 		val => set( { adaptiveSamplingMaterialBias: val } ),
