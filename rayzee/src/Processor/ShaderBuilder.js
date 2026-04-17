@@ -53,6 +53,10 @@ export class ShaderBuilder {
 		// Scene texture nodes cache (for in-place updates on model change)
 		this._sceneTextureNodes = null;
 
+		// Whether the GPU compute pipeline has been compiled (via a real dispatch).
+		// Reset on setupCompute() rebuilds and on dispose().
+		this._compiled = false;
+
 	}
 
 	/**
@@ -88,6 +92,9 @@ export class ShaderBuilder {
 			stage, textureNodes,
 			writeTex.color, writeTex.normalDepth, writeTex.albedo
 		);
+
+		// New compute node → needs a fresh GPU pipeline compile
+		this._compiled = false;
 
 		timer.end( 'Build compute node (TSL)' );
 
@@ -174,9 +181,26 @@ export class ShaderBuilder {
 
 	}
 
-	forceCompile() {
+	/**
+	 * Front-load GPU compute pipeline creation via a single dispatch.
+	 *
+	 * Three.js WebGPU has no `createComputePipelineAsync` path — compute
+	 * pipelines always compile synchronously on first `renderer.compute(node)`.
+	 * Calling this at build time (while a "Compiling shaders…" status is
+	 * already visible) moves the stall off the first animate frame.
+	 *
+	 * The dispatch writes to ping-pong storage textures whose contents are
+	 * discarded by the subsequent `reset()` (frame counter back to 0 →
+	 * `hasPreviousAccumulated = 0` → prev textures are not read).
+	 *
+	 * @param {object} renderer - WebGPURenderer
+	 */
+	forceCompile( renderer ) {
 
-		// No-op — compilation happens on first renderer.compute() call.
+		if ( this._compiled || ! this.computeNode || ! renderer ) return;
+
+		this._compiled = true;
+		renderer.compute( this.computeNode );
 
 	}
 
@@ -379,6 +403,7 @@ export class ShaderBuilder {
 		this.prevAlbedoTexNode = null;
 		this.adaptiveSamplingTexNode = null;
 		this._sceneTextureNodes = null;
+		this._compiled = false;
 
 	}
 

@@ -547,6 +547,24 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.setupMaterial();
 		timer.end( 'Material setup (TSL compile)' );
 
+		// Front-load GPU pipeline creation so the first animate frame is snappy:
+		//  - compute: Three.js has no async compute compile — one dispatch at
+		//    build time moves the stall to this loading moment.
+		//  - raster fallback: compileAsync yields to main thread (r184+).
+		timer.start( 'Pipeline precompile' );
+		this.stages.pathTracer.shaderBuilder.forceCompile( this.renderer );
+		try {
+
+			await this.renderer.compileAsync( this.meshScene, this.cameraManager.camera );
+
+		} catch ( err ) {
+
+			console.warn( 'PathTracerApp: raster fallback precompile failed', err );
+
+		}
+
+		timer.end( 'Pipeline precompile' );
+
 		// Wait for CDF
 		if ( cdfPromise ) {
 

@@ -1135,9 +1135,6 @@ export class PathTracer extends RenderStage {
 		// Update frame uniform
 		this.frame.value = frameValue;
 
-		// Force-compile compute nodes on first frame
-		this.shaderBuilder.forceCompile( this.renderer );
-
 		// Set dispatch region — tile-only dispatch for tiled mode, full-screen otherwise
 		if ( tileInfo.tileIndex >= 0 && tileInfo.tileBounds ) {
 
