@@ -111,7 +111,8 @@ export class Display extends RenderStage {
 	dispose() {
 
 		this.displayMaterial?.dispose();
-		this.displayQuad?.dispose();
+		// QuadMesh extends Mesh — no dispose method; material already disposed.
+		this.displayQuad = null;
 
 	}
 

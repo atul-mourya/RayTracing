@@ -121,7 +121,9 @@ export class OutlineHelper {
 		this.visible = false;
 		this._outlineNode?.dispose();
 		this._material?.dispose();
-		this._quad?.dispose();
+		// QuadMesh extends Mesh — no dispose method on the mesh itself;
+		// its material is already disposed above. Just drop the ref.
+		this._quad = null;
 
 	}
 

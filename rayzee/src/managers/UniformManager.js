@@ -265,4 +265,23 @@ export class UniformManager {
 
 	}
 
+	/**
+	 * Releases uniform node references. Safe to call multiple times.
+	 *
+	 * Note: TSL uniform nodes are registered in the shader graph — once a
+	 * compiled pipeline references them they are kept alive by the renderer
+	 * until the pipeline is disposed. Clearing our maps here just drops the
+	 * JS-side strong refs so UniformManager itself can be collected.
+	 */
+	dispose() {
+
+		if ( this._disposed ) return;
+		this._disposed = true;
+
+		this._uniforms.clear();
+		this._booleans.clear();
+		this._lightBuffers = {};
+
+	}
+
 }

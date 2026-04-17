@@ -255,6 +255,26 @@ export class LightManager extends EventDispatcher {
 
 	}
 
+	/**
+	 * Releases all scene lights, helper nodes, and callback refs.
+	 * Safe to call multiple times.
+	 */
+	dispose() {
+
+		if ( this._disposed ) return;
+		this._disposed = true;
+
+		this.sceneHelpers?.clear();
+		this._removeAllLights();
+
+		// Drop external refs so GC can collect scene/pathTracer
+		this._onReset = null;
+		this.pathTracer = null;
+		this.sceneHelpers = null;
+		this.scene = null;
+
+	}
+
 	// ── Private ───────────────────────────────────────────────────
 
 	/** Syncs helpers in sceneHelpers with current scene lights. */

@@ -283,4 +283,78 @@ describe( 'LightManager', () => {
 
 	} );
 
+	// ── dispose ──────────────────────────────────────────────
+
+	describe( 'dispose', () => {
+
+		it( 'should clear sceneHelpers before nulling the ref', () => {
+
+			manager.addLight( 'DirectionalLight' );
+			const helpersRef = sceneHelpers;
+
+			manager.dispose();
+
+			expect( helpersRef.clear ).toHaveBeenCalled();
+
+		} );
+
+		it( 'should remove all lights from the scene', () => {
+
+			manager.addLight( 'DirectionalLight' );
+			manager.addLight( 'PointLight' );
+			manager.addLight( 'SpotLight' );
+
+			// Pre-check: three lights present (SpotLight adds a target → 4 children, but only 3 with isLight=true)
+			expect( scene.getObjectsByProperty( 'isLight', true ).length ).toBe( 3 );
+
+			manager.dispose();
+
+			expect( scene.getObjectsByProperty( 'isLight', true ).length ).toBe( 0 );
+
+		} );
+
+		it( 'should null external refs so the manager releases scene/pathTracer', () => {
+
+			manager.dispose();
+
+			expect( manager.scene ).toBeNull();
+			expect( manager.pathTracer ).toBeNull();
+			expect( manager.sceneHelpers ).toBeNull();
+			expect( manager._onReset ).toBeNull();
+
+		} );
+
+		it( 'should be idempotent — calling dispose twice does not throw', () => {
+
+			manager.addLight( 'PointLight' );
+
+			expect( () => {
+
+				manager.dispose();
+				manager.dispose();
+
+			} ).not.toThrow();
+
+		} );
+
+		it( 'should not call sceneHelpers.clear on the second dispose call', () => {
+
+			manager.dispose();
+			sceneHelpers.clear.mockClear();
+
+			manager.dispose();
+
+			expect( sceneHelpers.clear ).not.toHaveBeenCalled();
+
+		} );
+
+		it( 'should work even when no lights were added', () => {
+
+			expect( () => manager.dispose() ).not.toThrow();
+			expect( manager.scene ).toBeNull();
+
+		} );
+
+	} );
+
 } );

@@ -1613,6 +1613,7 @@ export class PathTracer extends RenderStage {
 		this.materialData?.dispose();
 		this.environment?.dispose();
 		this.shaderBuilder?.dispose();
+		this.uniforms?.dispose();
 
 		// Dispose storage textures
 		this.storageTextures?.dispose();

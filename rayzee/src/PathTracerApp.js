@@ -19,7 +19,7 @@ import { Display } from './Stages/Display.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
-import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples } from './Processor/utils.js';
+import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples, disposeObjectFromMemory } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
 import { EngineEvents } from './EngineEvents.js';
@@ -128,6 +128,45 @@ export class PathTracerApp extends EventDispatcher {
 
 		// Resolution state
 		this._resizeDebounceTimer = null;
+
+		// Tracked listeners for clean dispose()
+		this._trackedListeners = [];
+		this._disposed = false;
+
+	}
+
+	/**
+	 * Registers an event listener and tracks it for automatic cleanup on dispose().
+	 * @param {EventTarget|{addEventListener:Function, removeEventListener:Function}} target
+	 * @param {string} type
+	 * @param {Function} handler
+	 */
+	_addTrackedListener( target, type, handler ) {
+
+		if ( ! target ) return;
+		target.addEventListener( type, handler );
+		this._trackedListeners.push( { target, type, handler } );
+
+	}
+
+	/** Removes all listeners registered via _addTrackedListener. */
+	_removeTrackedListeners() {
+
+		for ( const { target, type, handler } of this._trackedListeners ) {
+
+			try {
+
+				target.removeEventListener( type, handler );
+
+			} catch ( err ) {
+
+				console.warn( 'PathTracerApp: failed to remove listener', type, err );
+
+			}
+
+		}
+
+		this._trackedListeners.length = 0;
 
 	}
 
@@ -356,19 +395,22 @@ export class PathTracerApp extends EventDispatcher {
 	 */
 	dispose() {
 
-		this.animationManager?.dispose();
+		if ( this._disposed ) return;
+		this._disposed = true;
+
 		this.stopAnimation();
+		clearTimeout( this._resizeDebounceTimer );
+
+		// Remove all tracked listeners (app-owned subscriptions across managers/DOM)
+		this._removeTrackedListeners();
+
 		setStatusCallback( null );
 
-		if ( this.assetLoader && this._onAssetLoaded ) {
-
-			this.assetLoader.removeEventListener( 'load', this._onAssetLoaded );
-
-		}
-
+		this.animationManager?.dispose();
 		this.transformManager?.dispose();
 		this.overlayManager?.dispose();
 		this._sceneHelpers?.clear();
+		this.lightManager?.dispose();
 		this.denoisingManager?.dispose();
 		this.pipeline?.dispose();
 		this.interactionManager?.dispose();
@@ -382,9 +424,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		clearTimeout( this._resizeDebounceTimer );
-		window.removeEventListener( 'resize', this.resizeHandler );
-
 		this.isInitialized = false;
 
 	}
@@ -392,6 +431,61 @@ export class PathTracerApp extends EventDispatcher {
 	// ═══════════════════════════════════════════════════════════════
 	// Asset Loading
 	// ═══════════════════════════════════════════════════════════════
+
+	/**
+	 * Tears down the current scene: stops animation, deselects, disposes
+	 * the loaded model + its GPU resources, clears lights, and seeds the
+	 * path tracer with an empty scene. Leaves the renderer, pipeline, and
+	 * managers intact so a subsequent loadModel() can reuse them.
+	 *
+	 * Safe to call at any point after init() (including while idle).
+	 * Throws if called concurrently with a load.
+	 */
+	unloadScene() {
+
+		if ( ! this.isInitialized ) return;
+		if ( this._loadingInProgress ) {
+
+			throw new Error( 'PathTracerApp.unloadScene: cannot unload while a load is in progress' );
+
+		}
+
+		if ( this._disposed ) return;
+
+		// Stop animation + refit
+		this.animationManager?.dispose();
+		this._animRefitInFlight = false;
+
+		// Drop selection + transform gizmo attachment
+		this.interactionManager?.deselect();
+		this.transformManager?.detach?.();
+
+		// Dispose the loaded model (geometries, materials, textures)
+		if ( this.assetLoader?.targetModel ) {
+
+			disposeObjectFromMemory( this.assetLoader.targetModel );
+			this.assetLoader.targetModel = null;
+
+		}
+
+		// Clear lights in the WebGPU light scene
+		this.lightManager?.clearLights?.();
+
+		// Seed path tracer with empty data (matches the init-time seed)
+		if ( this.stages.pathTracer ) {
+
+			this.stages.pathTracer.setTriangleData( new Float32Array( 32 ), 0 );
+			this.stages.pathTracer.setBVHData( new Float32Array( 16 ) );
+			this.stages.pathTracer.materialData.setMaterialData( new Float32Array( 16 ) );
+			this.stages.pathTracer.setEmissiveTriangleData?.( new Float32Array( 0 ), 0, 0 );
+			this.stages.pathTracer.setupMaterial();
+
+		}
+
+		this.reset();
+		this.dispatchEvent( { type: 'SceneUnloaded' } );
+
+	}
 
 	/**
 	 * Loads a model, builds BVH, and uploads scene data.
@@ -426,6 +520,12 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {string} url - Environment URL
 	 */
 	async loadEnvironment( url ) {
+
+		if ( this._loadingInProgress ) {
+
+			throw new Error( 'PathTracerApp.loadEnvironment: another load is already in progress' );
+
+		}
 
 		this._loadingInProgress = true;
 
@@ -468,6 +568,12 @@ export class PathTracerApp extends EventDispatcher {
 
 	/** Shared pipeline: load asset → sync controls → build BVH → reset → dispatch events */
 	async _loadWithSceneRebuild( loadFn, eventPayload ) {
+
+		if ( this._loadingInProgress ) {
+
+			throw new Error( 'PathTracerApp: another load is already in progress' );
+
+		}
 
 		this._loadingInProgress = true;
 
@@ -862,6 +968,16 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
+	 * Whether a model/environment load is currently in progress.
+	 * @returns {boolean}
+	 */
+	get isLoading() {
+
+		return this._loadingInProgress;
+
+	}
+
+	/**
 	 * Whether the path tracer has finished converging.
 	 * @returns {boolean}
 	 */
@@ -1029,7 +1145,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.assetLoader.setRenderer( this.renderer );
 		this.assetLoader.createFloorPlane();
 
-		this.cameraManager.controls.addEventListener( 'change', () => {
+		this._addTrackedListener( this.cameraManager.controls, 'change', () => {
 
 			this.needsReset = true;
 			this.wake();
@@ -1111,8 +1227,8 @@ export class PathTracerApp extends EventDispatcher {
 	_wireEvents() {
 
 		// Forward manager events → app events
-		this.cameraManager.addEventListener( 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
-		this.cameraManager.addEventListener( EngineEvents.AUTO_FOCUS_UPDATED, ( e ) => this.dispatchEvent( e ) );
+		this._addTrackedListener( this.cameraManager, 'CameraSwitched', ( e ) => this.dispatchEvent( e ) );
+		this._addTrackedListener( this.cameraManager, EngineEvents.AUTO_FOCUS_UPDATED, ( e ) => this.dispatchEvent( e ) );
 
 		this._forwardEvents( this.denoisingManager, [
 			EngineEvents.DENOISING_START, EngineEvents.DENOISING_END,
@@ -1129,12 +1245,12 @@ export class PathTracerApp extends EventDispatcher {
 			EngineEvents.ANIMATION_PAUSED,
 			EngineEvents.ANIMATION_STOPPED,
 		] );
-		this.animationManager.addEventListener( EngineEvents.ANIMATION_PAUSED, () => {
+		this._addTrackedListener( this.animationManager, EngineEvents.ANIMATION_PAUSED, () => {
 
 			this._animRefitInFlight = false;
 
 		} );
-		this.animationManager.addEventListener( EngineEvents.ANIMATION_STOPPED, () => {
+		this._addTrackedListener( this.animationManager, EngineEvents.ANIMATION_STOPPED, () => {
 
 			this._animRefitInFlight = false;
 
@@ -1170,7 +1286,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.resizeHandler = () => this.onResize();
 		if ( this._autoResize ) {
 
-			window.addEventListener( 'resize', this.resizeHandler );
+			this._addTrackedListener( window, 'resize', this.resizeHandler );
 
 		}
 
@@ -1201,9 +1317,9 @@ export class PathTracerApp extends EventDispatcher {
 
 		};
 
-		this.assetLoader.addEventListener( 'load', this._onAssetLoaded );
+		this._addTrackedListener( this.assetLoader, 'load', this._onAssetLoaded );
 
-		this.assetLoader.addEventListener( 'modelProcessed', ( event ) => {
+		this._addTrackedListener( this.assetLoader, 'modelProcessed', ( event ) => {
 
 			const cameras = [ this.cameraManager.camera, ...( event.cameras || [] ) ];
 			this.cameraManager.setCameras( cameras );
@@ -1400,7 +1516,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( ! source ) return;
 		for ( const type of eventTypes ) {
 
-			source.addEventListener( type, ( e ) => this.dispatchEvent( e ) );
+			this._addTrackedListener( source, type, ( e ) => this.dispatchEvent( e ) );
 
 		}
 
