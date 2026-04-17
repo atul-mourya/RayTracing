@@ -449,7 +449,16 @@ export class RenderPipeline {
 
 		console.group( '[Pipeline] Performance Stats' );
 		console.log( `Frames: ${stats.frameCount}` );
-		console.log( `Total: ${stats.total.toFixed( 2 )}ms (min: ${stats.totalMin.toFixed( 2 )}ms, max: ${stats.totalMax.toFixed( 2 )}ms)` );
+
+		if ( stats.totalMin !== undefined ) {
+
+			console.log( `Total: ${stats.total.toFixed( 2 )}ms (min: ${stats.totalMin.toFixed( 2 )}ms, max: ${stats.totalMax.toFixed( 2 )}ms)` );
+
+		} else {
+
+			console.log( 'Total: no frames recorded yet (pipeline.render() has not run since stats were enabled — the path tracer may have converged and stopped its animation loop)' );
+
+		}
 
 		for ( const [ name, timing ] of Object.entries( stats.stages ) ) {
 

@@ -12,6 +12,7 @@
 - [ ] SSRC apha, seems to have no effect
 - [ ] ASVGF heatmap shows black - normal
 - [ ] ASVGF heatmap shows improper motion vector
+- [ ] unify all patches in one file
   
 ### Known
 

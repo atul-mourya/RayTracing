@@ -28,6 +28,14 @@ export function setApp( app ) {
 	_app = app;
 	_listeners.forEach( fn => fn( getApp() ) );
 
+	// Dev-only console access: `window.app.pipeline.setStatsEnabled(true)` etc.
+	// Gated on Vite's DEV flag so it's stripped from production builds.
+	if ( import.meta.env && import.meta.env.DEV ) {
+
+		globalThis.app = app;
+
+	}
+
 }
 
 /**
