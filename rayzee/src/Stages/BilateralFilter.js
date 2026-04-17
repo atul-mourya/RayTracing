@@ -304,8 +304,8 @@ export class BilateralFilter extends RenderStage {
 		// Update dispatch dimensions
 		this._dispatchX = Math.ceil( width / 8 );
 		this._dispatchY = Math.ceil( height / 8 );
-		this._computeNodeA.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
-		this._computeNodeB.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._computeNodeA.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		this._computeNodeB.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 	}
 

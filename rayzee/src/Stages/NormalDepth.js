@@ -352,7 +352,7 @@ export class NormalDepth extends RenderStage {
 		this._dispatchY = Math.ceil( height / 8 );
 		if ( this._computeNode ) {
 
-			this._computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+			this._computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 		}
 

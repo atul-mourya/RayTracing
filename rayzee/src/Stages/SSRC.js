@@ -175,10 +175,10 @@ export class SSRC extends RenderStage {
 		this._dispatchX = Math.ceil( width / 8 );
 		this._dispatchY = Math.ceil( height / 8 );
 
-		const count = [ this._dispatchX, this._dispatchY, 1 ];
-		if ( this._pass1NodeA ) this._pass1NodeA.setCount( count );
-		if ( this._pass1NodeB ) this._pass1NodeB.setCount( count );
-		if ( this._pass2Node ) this._pass2Node.setCount( count );
+		const dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		if ( this._pass1NodeA ) this._pass1NodeA.dispatchSize = dispatchSize;
+		if ( this._pass1NodeB ) this._pass1NodeB.dispatchSize = dispatchSize;
+		if ( this._pass2Node ) this._pass2Node.dispatchSize = dispatchSize;
 
 		this._resetCache();
 

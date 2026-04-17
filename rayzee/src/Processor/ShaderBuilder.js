@@ -131,7 +131,7 @@ export class ShaderBuilder {
 		this._dispatchX = Math.ceil( width / WG_SIZE );
 		this._dispatchY = Math.ceil( height / WG_SIZE );
 
-		if ( this.computeNode ) this.computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		if ( this.computeNode ) this.computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 		this.renderWidth.value = width;
 		this.renderHeight.value = height;
@@ -158,7 +158,7 @@ export class ShaderBuilder {
 		const dispatchX = Math.ceil( tileWidth / WG_SIZE );
 		const dispatchY = Math.ceil( tileHeight / WG_SIZE );
 
-		if ( this.computeNode ) this.computeNode.setCount( [ dispatchX, dispatchY, 1 ] );
+		if ( this.computeNode ) this.computeNode.dispatchSize = [ dispatchX, dispatchY, 1 ];
 
 	}
 
@@ -170,7 +170,7 @@ export class ShaderBuilder {
 		this.tileOffsetX.value = 0;
 		this.tileOffsetY.value = 0;
 
-		if ( this.computeNode ) this.computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		if ( this.computeNode ) this.computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 	}
 

@@ -515,13 +515,13 @@ export class MotionVector extends RenderStage {
 		this._dispatchY = Math.ceil( height / 16 );
 		if ( this._screenSpaceComputeNode ) {
 
-			this._screenSpaceComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+			this._screenSpaceComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 		}
 
 		if ( this._worldSpaceComputeNode ) {
 
-			this._worldSpaceComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+			this._worldSpaceComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 		}
 

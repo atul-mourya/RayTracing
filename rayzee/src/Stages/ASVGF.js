@@ -803,10 +803,10 @@ export class ASVGF extends RenderStage {
 		// Update dispatch dimensions
 		this._dispatchX = Math.ceil( width / 8 );
 		this._dispatchY = Math.ceil( height / 8 );
-		this._gradientNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
-		this._temporalNodeA.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
-		this._temporalNodeB.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
-		this._heatmapComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._gradientNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		this._temporalNodeA.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		this._temporalNodeB.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		this._heatmapComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 	}
 

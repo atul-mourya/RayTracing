@@ -422,8 +422,8 @@ export class AdaptiveSampling extends RenderStage {
 		// Update dispatch dimensions
 		this._dispatchX = Math.ceil( width / 16 );
 		this._dispatchY = Math.ceil( height / 16 );
-		this._computeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
-		this._heatmapComputeNode.setCount( [ this._dispatchX, this._dispatchY, 1 ] );
+		this._computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
+		this._heatmapComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 
 	}
 

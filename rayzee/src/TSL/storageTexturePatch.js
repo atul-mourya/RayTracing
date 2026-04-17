@@ -7,7 +7,10 @@
  * group keeps referencing the destroyed GPUTextureView → writes silently fail.
  *
  * Three.js issue: https://github.com/mrdoob/three.js/issues/32969
- * Targeted fix: r184+ (2026-03-25)
+ * Upstream fix: PR #33028 landed in r184 — invalidates bind-group cache on
+ * StorageTexture dispose. This monkey-patch is kept as defense-in-depth since
+ * StorageTexturePool still relies on pre-allocation (issue #33061 — TSL compute
+ * re-compile zeros — is deferred to r185).
  *
  * Import this module once at app startup (side-effect only).
  */
