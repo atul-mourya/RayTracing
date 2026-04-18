@@ -59,6 +59,10 @@ Modified:
   src/store.js               — Store toggle
 ```
 
+### Bugs Fixed After Initial Integration (2026-04-19)
+
+- **Environment change didn't update wavefront render** — `_buildWavefrontKernels` creates INDEPENDENT texture nodes (comment: "avoids Three.js TextureNode caching issues between monolithic and wavefront compute pipelines"). When `EnvironmentManager.setEnvironmentMap()` ran, it updated the monolithic's `envTex.value` but the wavefront's `freshEnvTex` stayed pinned to the old texture. **Fix**: save the fresh texture nodes as `this._wfTexNodes` and refresh their `.value` each frame in `render()` via `_refreshWfTextureNodes()`. Same pattern applies preemptively to material texture arrays — cheap since TextureNode `.value = sameRef` is a no-op. Verified: loading a new HDRI while in wavefront mode now updates backdrop + reflections within 1 frame.
+
 ### Key Bugs Fixed During Implementation
 1. **`storage(attr, 'vec4', count)` with count>0** creates separate GPU buffers per node. Must use `count=0` so RW/RO nodes share via `StorageBufferNode.getHash()` global cache.
 2. **`HitInfo.wrap()`** needed for `traverseBVHShadow` return value.
@@ -108,8 +112,7 @@ Shade kernel binding budget (8/8):
 - [ ] 13. Add emissive triangle NEE (needs sub-kernel split or higher limit)
 
 ### Tier 3: Shadow Quality
-- [ ] 14. Transparent shadow transmission in ConnectKernel
-- [ ] 15. Add `rngBuffer` to ConnectKernel for stochastic transparency
+- [x] 14/15. **Transparent shadow transmission** — effectively already working (2026-04-19). Investigation showed `WavefrontPathTracer.render()` does NOT dispatch `connect` or `accumulate`; instead `ShadeKernel` calls `calculateDirectLightingUnified` inline, which internally calls `traceShadowRay` (from `LightsDirect.js`). That function already handles the full transparent-shadow loop: alpha-cutout (MASK/BLEND), transmissive (glass + Beer-Lambert), transparent (opacity), up to 8 iterations. **No wavefront-specific work needed** — the monolithic shadow infrastructure is reused. `ConnectKernel`/`AccumulateKernel` are dead code kept for a future deferred-shadow pipeline; if that pipeline is ever wired up, `rngBuffer` would be needed only if stochastic transparency is added (current `traceShadowRay` takes rngState but doesn't read it).
 
 ### Tier 4: Integration Testing
 - [x] 16. ASVGF denoiser — temporal stability verified

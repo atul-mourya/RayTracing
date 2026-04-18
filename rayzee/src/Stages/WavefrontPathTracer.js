@@ -161,6 +161,12 @@ export class WavefrontPathTracer extends PathTracer {
 
 		}
 
+		// Refresh fresh-texture-node values — env/material texture arrays can
+		// change between frames (environment swap, material texture array rebuild)
+		// and the monolithic pipeline's updateSceneTextures path doesn't reach
+		// wavefront's independent texture nodes.
+		this._refreshWfTextureNodes();
+
 		// ═══════════════════════════════════════════════════════════
 		// WAVEFRONT KERNEL DISPATCH
 		// ═══════════════════════════════════════════════════════════
@@ -253,6 +259,30 @@ export class WavefrontPathTracer extends PathTracer {
 		super.setSize( width, height );
 
 		this._rebuildKernelsIfResized( oldW, oldH );
+
+	}
+
+	/**
+	 * Sync the wavefront's independent texture nodes with the current
+	 * environment/material textures. Cheap: TextureNode `.value = sameRef` is
+	 * a no-op; only a changed reference triggers GPU rebinding next frame.
+	 */
+	_refreshWfTextureNodes() {
+
+		const t = this._wfTexNodes;
+		if ( ! t ) return;
+
+		const env = this.environment?.environmentTexture;
+		if ( env && t.envTex ) t.envTex.value = env;
+
+		const mat = this.materialData;
+		if ( ! mat ) return;
+		if ( mat.albedoMaps && t.albedoMaps ) t.albedoMaps.value = mat.albedoMaps;
+		if ( mat.normalMaps && t.normalMaps ) t.normalMaps.value = mat.normalMaps;
+		if ( mat.bumpMaps && t.bumpMaps ) t.bumpMaps.value = mat.bumpMaps;
+		if ( mat.metalnessMaps && t.metalnessMaps ) t.metalnessMaps.value = mat.metalnessMaps;
+		if ( mat.roughnessMaps && t.roughnessMaps ) t.roughnessMaps.value = mat.roughnessMaps;
+		if ( mat.emissiveMaps && t.emissiveMaps ) t.emissiveMaps.value = mat.emissiveMaps;
 
 	}
 
@@ -428,6 +458,9 @@ export class WavefrontPathTracer extends PathTracer {
 		// Create INDEPENDENT texture nodes that have never been compiled
 		// by any other pipeline. This avoids Three.js TextureNode caching
 		// issues between the monolithic and wavefront compute pipelines.
+		// Node references are saved on `this` so render() can refresh their
+		// `.value` when the underlying texture is swapped (env change,
+		// material texture array replacement, etc.) without rebuilding kernels.
 		const _mat = this.materialData;
 		const _env = this.environment;
 		const _placeholder = texNodes.albedoMapsTex; // dummy fallback
@@ -438,6 +471,16 @@ export class WavefrontPathTracer extends PathTracer {
 		const freshRoughnessMaps = _mat.roughnessMaps ? texture( _mat.roughnessMaps ) : texNodes.roughnessMapsTex;
 		const freshEmissiveMaps = _mat.emissiveMaps ? texture( _mat.emissiveMaps ) : texNodes.emissiveMapsTex;
 		const freshEnvTex = _env.environmentTexture ? texture( _env.environmentTexture ) : texNodes.envTex;
+
+		this._wfTexNodes = {
+			envTex: freshEnvTex,
+			albedoMaps: freshAlbedoMaps,
+			normalMaps: freshNormalMaps,
+			bumpMaps: freshBumpMaps,
+			metalnessMaps: freshMetalnessMaps,
+			roughnessMaps: freshRoughnessMaps,
+			emissiveMaps: freshEmissiveMaps,
+		};
 
 		const esFn = buildExtendShadeKernel( {
 			bvhBuffer: freshBvh,
