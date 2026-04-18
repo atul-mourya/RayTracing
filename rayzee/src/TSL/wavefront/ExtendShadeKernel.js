@@ -30,6 +30,7 @@ import {
 	instanceIndex,
 	sampler,
 	atomicAdd, uintBitsToFloat,
+	Return,
 } from 'three/tsl';
 
 import { traverseBVH } from '../BVHTraversal.js';
@@ -106,7 +107,7 @@ export function buildExtendShadeKernel( params ) {
 		const threadIdx = instanceIndex;
 		If( threadIdx.greaterThanEqual( maxRayCount ), () => {
 
-			return;
+			Return();
 
 		} );
 
@@ -114,7 +115,7 @@ export function buildExtendShadeKernel( params ) {
 		const flags = readRayBounceFlags( rayBufferRW, rayID ).toVar();
 		If( flags.bitAnd( uint( RAY_FLAG.ACTIVE ) ).equal( uint( 0 ) ), () => {
 
-			return;
+			Return();
 
 		} );
 
@@ -168,7 +169,7 @@ export function buildExtendShadeKernel( params ) {
 
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
-			return;
+			Return();
 
 		} );
 
@@ -302,7 +303,7 @@ export function buildExtendShadeKernel( params ) {
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3 );
 			rngBufferRW.element( rayID ).assign( rngState );
-			return;
+			Return();
 
 		} );
 
@@ -406,7 +407,7 @@ export function buildExtendShadeKernel( params ) {
 				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 				rngBufferRW.element( rayID ).assign( rngState );
-				return;
+				Return();
 
 			} );
 
@@ -423,7 +424,7 @@ export function buildExtendShadeKernel( params ) {
 				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 				rngBufferRW.element( rayID ).assign( rngState );
-				return;
+				Return();
 
 			} );
 
@@ -436,7 +437,7 @@ export function buildExtendShadeKernel( params ) {
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 			rngBufferRW.element( rayID ).assign( rngState );
-			return;
+			Return();
 
 		} );
 

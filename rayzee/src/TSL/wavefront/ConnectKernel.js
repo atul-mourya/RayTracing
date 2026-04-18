@@ -16,6 +16,7 @@ import {
 	If, select,
 	instanceIndex,
 	atomicLoad,
+	Return,
 } from 'three/tsl';
 
 import { traverseBVHShadow } from '../BVHTraversal.js';
@@ -53,7 +54,7 @@ export function buildConnectKernel( params ) {
 
 		If( shadowID.greaterThanEqual( shadowRayCount ), () => {
 
-			return;
+			Return();
 
 		} );
 

@@ -16,6 +16,7 @@ import {
 	If,
 	instanceIndex,
 	atomicLoad,
+	Return,
 } from 'three/tsl';
 
 import {
@@ -52,7 +53,7 @@ export function buildAccumulateKernel( params ) {
 
 		If( shadowID.greaterThanEqual( shadowRayCount ), () => {
 
-			return;
+			Return();
 
 		} );
 

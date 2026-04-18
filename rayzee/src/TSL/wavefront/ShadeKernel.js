@@ -23,6 +23,7 @@ import {
 	instanceIndex,
 	sampler,
 	atomicAdd, uintBitsToFloat,
+	Return,
 } from 'three/tsl';
 
 import { sampleEnvironment, sampleEquirectProbability, sampleEquirect } from '../Environment.js';
@@ -109,7 +110,7 @@ export function buildShadeKernel( params ) {
 
 		If( threadIdx.greaterThanEqual( maxRayCount ), () => {
 
-			return;
+			Return();
 
 		} );
 
@@ -122,7 +123,7 @@ export function buildShadeKernel( params ) {
 		// Skip inactive rays
 		If( flags.bitAnd( uint( RAY_FLAG.ACTIVE ) ).equal( uint( 0 ) ), () => {
 
-			return;
+			Return();
 
 		} );
 
@@ -157,12 +158,35 @@ export function buildShadeKernel( params ) {
 					enableEnvironmentLight,
 				} );
 
-				// Match monolithic: bgIntensity for primary miss, 2.0 for secondary
-				const bgScale = select( bounceIndex.equal( 0 ), backgroundIntensity, float( 2.0 ) );
-				const envContribution = envColor.mul( bgScale );
+				// MIS weight for implicit env hit — prevents double-counting with NEE.
+				// Primary rays (bounce 0) get backgroundIntensity as a display-only scale.
+				// Secondary rays use power heuristic between the scatter PDF stored in the
+				// ray buffer and the env importance-sampling PDF, matching PathTracerCore.
+				const envMisWeight = float( 1.0 ).toVar();
+				If( bounceIndex.greaterThan( 0 ).and( useEnvMapIS ), () => {
+
+					const prevBouncePdf = readRayPdf( rayBufferRW, rayID );
+					If( prevBouncePdf.greaterThan( 0.0 ), () => {
+
+						const envEval = sampleEquirect(
+							envTexture, direction, envMatrix, envTotalSum, envResolution,
+						);
+						const envPdf = envEval.w;
+						If( envPdf.greaterThan( 0.0 ), () => {
+
+							envMisWeight.assign( powerHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) );
+
+						} );
+
+					} );
+
+				} );
+
+				const envGiScale = select( bounceIndex.greaterThan( 0 ), globalIlluminationIntensity, float( 1.0 ) );
+				const envScale = select( bounceIndex.equal( 0 ), backgroundIntensity, envMisWeight.mul( envGiScale ) );
 
 				currentRadiance.assign( vec4(
-					currentRadiance.xyz.add( throughput.mul( envContribution.xyz ) ),
+					currentRadiance.xyz.add( throughput.mul( envColor.xyz ).mul( envScale ) ),
 					currentRadiance.w
 				) );
 
@@ -178,7 +202,7 @@ export function buildShadeKernel( params ) {
 			// Write radiance and mark inactive
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
-			return;
+			Return();
 
 		} );
 
@@ -322,7 +346,7 @@ export function buildShadeKernel( params ) {
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3 );
 			rngBufferRW.element( rayID ).assign( rngState );
-			return; // Skip BRDF/NEE for transparent interaction
+			Return(); // Skip BRDF/NEE for transparent interaction
 
 		} );
 
@@ -429,7 +453,7 @@ export function buildShadeKernel( params ) {
 				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 				rngBufferRW.element( rayID ).assign( rngState );
-				return;
+				Return();
 
 			} );
 
@@ -447,7 +471,7 @@ export function buildShadeKernel( params ) {
 				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 				rngBufferRW.element( rayID ).assign( rngState );
-				return;
+				Return();
 
 			} );
 
@@ -461,7 +485,7 @@ export function buildShadeKernel( params ) {
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 			rngBufferRW.element( rayID ).assign( rngState );
-			return;
+			Return();
 
 		} );
 

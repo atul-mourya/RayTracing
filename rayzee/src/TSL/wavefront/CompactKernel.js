@@ -14,6 +14,7 @@ import {
 	If,
 	instanceIndex,
 	atomicAdd,
+	Return,
 } from 'three/tsl';
 
 import { readRayBounceFlags } from '../../Processor/PackedRayBuffer.js';
@@ -47,7 +48,7 @@ export function buildCompactKernel( params ) {
 
 		If( threadIdx.greaterThanEqual( currentActiveCount ), () => {
 
-			return;
+			Return();
 
 		} );
 

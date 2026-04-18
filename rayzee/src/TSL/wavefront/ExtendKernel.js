@@ -13,6 +13,7 @@ import {
 	Fn, uint,
 	If,
 	instanceIndex,
+	Return,
 } from 'three/tsl';
 
 import { traverseBVH } from '../BVHTraversal.js';
@@ -52,7 +53,7 @@ export function buildExtendKernel( params ) {
 		// Bounds check
 		If( threadIdx.greaterThanEqual( maxRayCount ), () => {
 
-			return;
+			Return();
 
 		} );
 
