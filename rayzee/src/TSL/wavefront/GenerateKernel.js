@@ -46,7 +46,7 @@ export function buildGenerateKernel( params ) {
 		resolution, frame, samplesPerPixel,
 		// Camera
 		cameraWorldMatrix, cameraProjectionMatrixInverse,
-		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
+		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
 		// Tile
 		tileOffsetX, tileOffsetY, renderWidth, renderHeight,
 		// Adaptive sampling
@@ -127,7 +127,7 @@ export function buildGenerateKernel( params ) {
 				const ray = Ray.wrap( generateRayFromCamera(
 					jitteredScreenPosition, seed,
 					cameraWorldMatrix, cameraProjectionMatrixInverse,
-					enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale,
+					enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
 				) );
 
 				// Write to packed ray buffer

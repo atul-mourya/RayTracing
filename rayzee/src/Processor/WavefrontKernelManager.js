@@ -114,7 +114,7 @@ export class WavefrontKernelManager {
 
 		const node = this.kernels.get( name );
 		if ( ! node ) return;
-		node.setCount( count );
+		node.dispatchSize = count;
 
 	}
 

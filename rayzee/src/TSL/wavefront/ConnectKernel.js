@@ -67,7 +67,7 @@ export function buildConnectKernel( params ) {
 
 		// Phase 1B: Single opaque shadow test (no transparency loop)
 		const hitInfo = HitInfo.wrap( traverseBVHShadow(
-			shadowRay, bvhBuffer, triangleBuffer, materialBuffer,
+			shadowRay, bvhBuffer, triangleBuffer, materialBuffer, maxDist,
 		) ).toVar();
 
 		// Visible if no hit closer than maxDist

@@ -89,10 +89,10 @@ export class WavefrontPathTracer extends PathTracer {
 		this.performanceMonitor?.start();
 
 		// Adaptive sampling texture
-		if ( context && this.shaderComposer.adaptiveSamplingTexNode ) {
+		if ( context && this.shaderBuilder.adaptiveSamplingTexNode ) {
 
 			const asTex = context.getTexture( 'adaptiveSampling:output' );
-			if ( asTex ) this.shaderComposer.adaptiveSamplingTexNode.value = asTex;
+			if ( asTex ) this.shaderBuilder.adaptiveSamplingTexNode.value = asTex;
 
 		}
 
@@ -151,11 +151,11 @@ export class WavefrontPathTracer extends PathTracer {
 
 		// Previous-frame textures
 		const readTextures = this.storageTextures.getReadTextures();
-		if ( this.shaderComposer.prevColorTexNode ) {
+		if ( this.shaderBuilder.prevColorTexNode ) {
 
-			this.shaderComposer.prevColorTexNode.value = readTextures.color;
-			this.shaderComposer.prevNormalDepthTexNode.value = readTextures.normalDepth;
-			this.shaderComposer.prevAlbedoTexNode.value = readTextures.albedo;
+			this.shaderBuilder.prevColorTexNode.value = readTextures.color;
+			this.shaderBuilder.prevNormalDepthTexNode.value = readTextures.normalDepth;
+			this.shaderBuilder.prevAlbedoTexNode.value = readTextures.albedo;
 
 		}
 
@@ -219,7 +219,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 	_buildWavefrontKernels() {
 
-		const texNodes = this.shaderComposer.getSceneTextureNodes();
+		const texNodes = this.shaderBuilder.getSceneTextureNodes();
 		if ( ! texNodes ) return;
 
 		const w = this.storageTextures.renderWidth;
@@ -261,10 +261,10 @@ export class WavefrontPathTracer extends PathTracer {
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
 
-		const prevColor = this.shaderComposer.prevColorTexNode;
-		const prevND = this.shaderComposer.prevNormalDepthTexNode;
-		const prevAlbedo = this.shaderComposer.prevAlbedoTexNode;
-		const adaptiveTex = this.shaderComposer.adaptiveSamplingTexNode;
+		const prevColor = this.shaderBuilder.prevColorTexNode;
+		const prevND = this.shaderBuilder.prevNormalDepthTexNode;
+		const prevAlbedo = this.shaderBuilder.prevAlbedoTexNode;
+		const adaptiveTex = this.shaderBuilder.adaptiveSamplingTexNode;
 		const writeTex = this.storageTextures.getWriteTextures();
 
 		// ── Reset Counters kernel ──
@@ -328,6 +328,7 @@ export class WavefrontPathTracer extends PathTracer {
 			focusDistance: this.focusDistance,
 			sceneScale: this.sceneScale,
 			apertureScale: this.apertureScale,
+			anamorphicRatio: this.anamorphicRatio,
 			tileOffsetX: this._wfTileOffsetX,
 			tileOffsetY: this._wfTileOffsetY,
 			renderWidth: this._wfRenderWidth,
