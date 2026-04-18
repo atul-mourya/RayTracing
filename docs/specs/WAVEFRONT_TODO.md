@@ -177,15 +177,35 @@ and <3% on others (stochastic).
 - [ ] 25. Half-precision buffers
 - [ ] 26. Async readback for dynamic dispatch
 
-### Tier 5b: Sort follow-ups (after benchmark 2026-04)
-- [ ] 32. Swap dispatch order so Compact runs before Sort, not after. Current flow is Extend → Sort → Shade → Compact; Sort currently processes dead rays too. Running Compact first means Sort's `activeCount` shrinks each bounce — smaller workload at later bounces.
-- [~] 33. ~~Raise MAX_BINS~~ — **benchmarked 16/32/64, result was mixed.** Only Sofaset (47 materials) wins (−13% at 32 bins, −13% at 64 bins). Scenes whose VISIBLE material count is ≤16 regress significantly — Pagani (40 materials declared but ~16 used in view) loses 29% at 32 bins. The scan cost scales with MAX_BINS and dominates unless actual material diversity exploits the bins. Kept at 16. See item 39 for the correct fix: adaptive per-scene bin count.
-- [ ] 34. Global (cross-workgroup) sort for full material coherence, not just per-workgroup. Needs a two-pass prefix-sum across workgroups. Only worth doing once per-WG sort proves net-positive on some scene.
-- [ ] 35. Re-benchmark at 8 bounces and at 1024×1024 resolution. Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit.
+### Tier 5b: Sort follow-ups (ordered by dependency, 2026-04)
+
+**Completed this cycle:**
 - [x] 36. ~~Sofaset outlier investigation~~ — resolved by enabling sort. Sort brings Sofaset from +86% to +19% vs monolithic, confirming the outlier was material-divergence-driven, not BLAS/emissive-driven.
 - [x] 37. ~~Re-run sort ON/OFF benchmark~~ — done 2026-04-19 (see item 23 table).
-- [ ] 38. Scenes where sort ON is slightly slower (Ferrari +2%, Helmet +2%, Modern Bathroom +7%) — worth a runtime heuristic: only dispatch sort when `materialCount > N` threshold, to skip the overhead on scenes with low material diversity.
-- [ ] 39. Adaptive sort bin count — pass `materialCount` (or a clamped derived value) as a uniform; Sort's prefix-sum scan caps at `min(MAX_BINS_HARD, materialCount)`. Captures both the Sofaset coherence win and avoids the Pagani scan-overhead regression. Would also let us raise `MAX_BINS_HARD` to 64 without penalty on low-material scenes.
+- [~] 33. ~~Raise MAX_BINS statically~~ — benchmarked 16/32/64, result was mixed. Only Sofaset wins (−13%); Pagani regresses 29%. The scan cost scales linearly with MAX_BINS and is paid unconditionally by every workgroup, so raising bins is only a win if actual material diversity exploits them. **Superseded by items 32+41+39**, which together address the root causes (dead-ray scan waste, declared-vs-visible material gap, one-size-fits-all bin bound). Kept at 16.
+
+**Prerequisite phase — do these FIRST, in this order:**
+
+- [ ] 32. **Swap dispatch order: Compact → Sort → Shade** (currently Sort → Shade → Compact). Sort currently processes dead rays too, because compaction happens after shade. Running Compact first means Sort's `activeCount` shrinks each bounce — the scan cost becomes proportional to live rays instead of max rays. Prerequisite for all other MAX_BINS tuning.
+
+- [ ] 40. **Indirect dispatch for Sort based on live `activeRayCount`**. Today Sort dispatches `ceil(maxRays / WG_SIZE)` workgroups every bounce, regardless of how many rays are alive. With `dispatchWorkgroupsIndirect`, late bounces launch far fewer workgroups. Compounds item 32's benefit: fewer workgroups, each doing less scan.
+
+- [ ] 41. **Material ID remapping / compaction**. Many scenes declare far more materials than they actually use (Pagani: 40 declared, ~16 hit). A pre-sort remap pass compresses material IDs to a dense `0..N-1` range where `N` = *used* materials. Once this lands, MAX_BINS=16 covers most real scenes without clamping, and item 39 becomes mostly moot.
+
+**Re-measure phase:**
+
+- [ ] 42. **Re-bench MAX_BINS at 16/32/64 after items 32+40+41**. Expectation: the Pagani/Modern-Bathroom regressions shrink substantially because (a) only live rays are sorted, (b) with remapping, material diversity ≤16 for most scenes, (c) fewer total workgroups run the scan. If the regression gap is <5%, raise MAX_BINS to 32 as the new static default.
+
+**Only if items 32/40/41 don't fully close the gap:**
+
+- [ ] 39. **Adaptive bin count via uniform** — `min(MAX_BINS_HARD, materialCount)` passed per-scene. Captures Sofaset win without Pagani regression. Only worth building if item 42's re-measure still shows a tuning gap.
+- [ ] 38. **Skip Sort dispatch when materialCount is very low** (Ferrari/Helmet have ~5 materials, sort costs them 2–7% with no win). One `if` in the bounce-loop dispatch. Cheap backstop.
+
+**Larger phase-2 improvements:**
+
+- [ ] 34. **Global (cross-workgroup) sort** for full material coherence, not just per-workgroup. Needs a two-pass prefix-sum across workgroups. Only worth doing after the prerequisite phase lands — and possibly never, if per-WG sort is already net-positive everywhere.
+- [ ] 43. **Parallel prefix scan inside Sort** (Hillis-Steele or Blelloch). Replaces the current O(MAX_BINS) serial scan done by thread 0 with an O(log MAX_BINS) parallel scan. **Blocked on TSL gaining atomic workgroup memory** — current TSL `workgroupArray('uint')` emits plain `array<u32>` rather than `array<atomic<u32>>`, so any workgroup-local atomic scan fails WGSL validation.
+- [ ] 35. **Re-benchmark at 8 bounces and 1024×1024 resolution**. Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit. Run after the prerequisite phase so the numbers reflect the final architecture.
 
 ### Tier 6: Full Parity + Migration
 - [ ] 27. Displacement mapping in Shade
