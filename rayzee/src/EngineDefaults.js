@@ -57,8 +57,10 @@ export const ENGINE_DEFAULTS = {
 
 	// Wavefront path tracing (feature flag) — renders but has 2x energy (NEE+indirect double-count, needs MIS)
 	wavefrontEnabled: true,
-	// Material-index sort kernel between Extend and Shade — counting sort via storage-atomic histogram
-	wavefrontSortMaterials: false,
+	// Material-index sort kernel between Extend and Shade — counting sort via storage-atomic histogram.
+	// Post-TSL-idiom-fix benchmark (2026-04-19) shows sort is net-positive on 3/6 test scenes
+	// (−36% on Outdoor Sofaset, −6% on Pagani, −5% on Cornell) with worst case +7% (Modern Bathroom).
+	wavefrontSortMaterials: true,
 
 	enablePathTracer: true,
 	enableAccumulation: true,

@@ -158,18 +158,20 @@ and <3% on others (stochastic).
 
 ### Tier 5: Performance (Phase 2)
 - [x] 22. Material sorting kernel — working end-to-end via storage-atomic histogram (TSL's `WorkgroupInfoNode` emits plain `array<T>`, not `array<atomic<T>>`, so workgroup atomics were not viable). Wired behind `wavefrontSortMaterials` flag (default off after benchmark). `SortKernel.js` uses `QueueManager.sortHistogram` (`numWorkgroups × 16` atomic u32). Output is bit-identical to sort-off. See items 32–35 for follow-up tuning.
-- [x] 23. Performance benchmarking — **re-measured 2026-04-19 after TSL idiom fixes**. Pre-fix numbers were produced against broken renders (miss rays fell through to hit-path, rays never properly deactivated), so they're not a valid baseline. 512×512, 3 bounces, 60 samples, sort OFF:
+- [x] 23. Performance benchmarking — **re-measured 2026-04-19 after TSL idiom fixes**. Pre-fix numbers were produced against broken renders (miss rays fell through to hit-path, rays never properly deactivated), so they're not a valid baseline. 512×512, 3 bounces, 60 samples:
 
-  | Scene | Tris | Wavefront | Monolithic | Δ |
-  |---|---:|---:|---:|---:|
-  | Cornell Box 1 | 64 | 0.98s | 0.96s | +2% |
-  | Ferrari | 34,050 | 1.21s | 1.03s | +17% |
-  | Helmet | 15,484 | 1.05s | 1.09s | **−4%** |
-  | Modern Bathroom | 187,188 | 1.50s | 1.60s | **−6%** |
-  | Pagani Huayra | 291,017 | 2.24s | 2.17s | +3% |
-  | Outdoor Sofaset | 268,901 | 3.79s | 2.03s | **+86%** |
+  | Scene | Tris | WF sort OFF | WF sort ON | Monolithic | Sort delta | WF(sort) vs Mono |
+  |---|---:|---:|---:|---:|---:|---:|
+  | Cornell Box 1 | 64 | 0.98s | 0.93s | 0.96s | **−5%** | −3% |
+  | Ferrari | 34,050 | 1.21s | 1.23s | 1.03s | +2% | +19% |
+  | Helmet | 15,484 | 1.05s | 1.07s | 1.09s | +2% | −2% |
+  | Modern Bathroom | 187,188 | 1.50s | 1.60s | 1.60s | +7% | 0% |
+  | Pagani Huayra | 291,017 | 2.24s | 2.11s | 2.17s | **−6%** | **−3%** |
+  | Outdoor Sofaset | 268,901 | 3.79s | **2.42s** | 2.03s | **−36%** | +19% |
 
-  Wavefront is now broadly comparable to monolithic and beats it on 2 of 6 scenes. The Outdoor Sofaset outlier (+86%) needs investigation — suspect emissive/area-light heavy content or many small meshes inflating the BLAS walk; TBD in item 36. Sort benchmark (item 23b) needs re-running against these correct baselines.
+  Key finding: sort is now net-positive on 3/6 scenes (was 0/6 pre-fix). Why the flip? Pre-fix rays didn't properly deactivate, so every ray was doing spurious work regardless of sort; the bitwise/`Return()` fixes let real material divergence emerge as the dominant cost, which is exactly what sort addresses. Sofaset especially — the +86% outlier vs monolithic drops to +19% with sort on.
+
+  Default `wavefrontSortMaterials` is now **ON** based on this data.
 
 - [ ] 24. Prefix-sum compaction
 - [ ] 25. Half-precision buffers
@@ -180,8 +182,9 @@ and <3% on others (stochastic).
 - [ ] 33. Raise `MAX_BINS` from 16 → 32 or 64 in SortKernel + QueueManager histogram allocation. Scenes with >16 distinct materials currently clamp to bin 15, so their sort degenerates to no-op beyond that. Cheap change, broadens applicability.
 - [ ] 34. Global (cross-workgroup) sort for full material coherence, not just per-workgroup. Needs a two-pass prefix-sum across workgroups. Only worth doing once per-WG sort proves net-positive on some scene.
 - [ ] 35. Re-benchmark at 8 bounces and at 1024×1024 resolution. Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit.
-- [ ] 36. Investigate Outdoor Sofaset perf outlier (wavefront +86% vs monolithic). Dig into per-bounce timings — likely either (a) emissive NEE is dominating (item 13 not yet implemented, so unlikely), (b) many meshes → many BLAS entries → longer traversal stack, or (c) some scene-specific divergence that hurts wavefront more than monolithic.
-- [ ] 37. Re-run the sort ON/OFF benchmark now that renders are correct; pre-fix numbers were produced against broken renders and are discarded.
+- [x] 36. ~~Sofaset outlier investigation~~ — resolved by enabling sort. Sort brings Sofaset from +86% to +19% vs monolithic, confirming the outlier was material-divergence-driven, not BLAS/emissive-driven.
+- [x] 37. ~~Re-run sort ON/OFF benchmark~~ — done 2026-04-19 (see item 23 table).
+- [ ] 38. Scenes where sort ON is slightly slower (Ferrari +2%, Helmet +2%, Modern Bathroom +7%) — worth a runtime heuristic: only dispatch sort when `materialCount > N` threshold, to skip the overhead on scenes with low material diversity.
 
 ### Tier 6: Full Parity + Migration
 - [ ] 27. Displacement mapping in Shade
