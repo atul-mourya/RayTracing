@@ -183,7 +183,10 @@ export class WavefrontPathTracer extends PathTracer {
 
 			this._wfCurrentBounce.value = bounce;
 
-			// Separate Extend + Shade (fused kernel has pink tint bug on multi-material scenes)
+			// Separate Extend + optional Sort + Shade. The fused ExtendShade kernel
+			// is visually correct but regresses ~15% on complex scenes (Bistro bench
+			// 2026-04-19) — register pressure drops occupancy more than fusion saves
+			// in kernel-boundary I/O. Keep the separate path as production default.
 			km.dispatch( 'extend' );
 			if ( this._sortMaterials ) {
 
@@ -192,7 +195,6 @@ export class WavefrontPathTracer extends PathTracer {
 
 			}
 			km.dispatch( 'shade' );
-			// TODO: investigate fused ExtendShadeKernel WGSL codegen issue
 
 			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );
@@ -218,6 +220,54 @@ export class WavefrontPathTracer extends PathTracer {
 		if ( originalSamplesPerPixel !== null ) this.samplesPerPixel.value = originalSamplesPerPixel;
 
 		this.performanceMonitor?.end();
+
+	}
+
+	/**
+	 * Override resize to rebuild wavefront kernels when canvas size changes.
+	 * Parent only resizes storageTextures/shaderBuilder; wavefront also needs
+	 * _wfRenderWidth/Height/MaxRayCount uniforms, _packedBuffers, _queueManager,
+	 * and kernel dispatch counts updated.
+	 */
+	_handleResize() {
+
+		const oldW = this.storageTextures.renderWidth;
+		const oldH = this.storageTextures.renderHeight;
+
+		super._handleResize();
+
+		this._rebuildKernelsIfResized( oldW, oldH );
+
+	}
+
+	/**
+	 * setSize() is the UI-driven resize path (Resolution dropdown). Parent
+	 * calls createStorageTextures() directly without going through
+	 * _handleResize(), so we must hook here too.
+	 */
+	setSize( width, height ) {
+
+		const oldW = this.storageTextures.renderWidth;
+		const oldH = this.storageTextures.renderHeight;
+
+		super.setSize( width, height );
+
+		this._rebuildKernelsIfResized( oldW, oldH );
+
+	}
+
+	_rebuildKernelsIfResized( oldW, oldH ) {
+
+		const newW = this.storageTextures.renderWidth;
+		const newH = this.storageTextures.renderHeight;
+
+		if ( ( newW !== oldW || newH !== oldH ) && this.materialData?.materialCount > 0 ) {
+
+			if ( this._kernelManager ) this._kernelManager.dispose();
+			this._wavefrontReady = false;
+			this._buildWavefrontKernels();
+
+		}
 
 	}
 

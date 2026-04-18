@@ -51,6 +51,19 @@ export class WavefrontKernelManager {
 		 */
 		this.timing = new Map();
 
+		/**
+		 * Optional per-kernel CPU-side submission timing (encode/dispatch cost only;
+		 * does NOT measure GPU execution time). Toggle via enableProfiling().
+		 * @type {boolean}
+		 */
+		this.profiling = false;
+
+		/**
+		 * Aggregated profile: kernel name → { calls, totalMs }.
+		 * @type {Map<string, {calls: number, totalMs: number}>}
+		 */
+		this.profile = new Map();
+
 		// Initialize workgroup sizes from defaults
 		for ( const [ name, wgSize ] of Object.entries( WORKGROUP_SIZES ) ) {
 
@@ -96,6 +109,21 @@ export class WavefrontKernelManager {
 			timingEntry.compiledOnce = true;
 			timingEntry.lastDispatchMs = t1 - t0;
 			console.log( `[Wavefront] Kernel '${name}' first dispatch (includes compilation): ${( t1 - t0 ).toFixed( 1 )}ms` );
+
+		} else if ( this.profiling ) {
+
+			const t0 = performance.now();
+			this.renderer.compute( node );
+			const t1 = performance.now();
+			let p = this.profile.get( name );
+			if ( ! p ) {
+
+				p = { calls: 0, totalMs: 0 };
+				this.profile.set( name, p );
+
+			}
+			p.calls ++;
+			p.totalMs += t1 - t0;
 
 		} else {
 
@@ -204,10 +232,43 @@ export class WavefrontKernelManager {
 
 	}
 
+	/**
+	 * Toggle per-kernel CPU-submission profiling. Measures only encode/dispatch
+	 * cost on CPU (GPU work is async and NOT included).
+	 * @param {boolean} enabled
+	 */
+	enableProfiling( enabled ) {
+
+		this.profiling = enabled;
+		if ( enabled ) this.profile.clear();
+
+	}
+
+	/**
+	 * Get accumulated profiling data.
+	 * @returns {Object} name → { calls, totalMs, avgMs }
+	 */
+	getProfileReport() {
+
+		const rows = [];
+		let sum = 0;
+		for ( const [ name, { calls, totalMs } ] of this.profile ) {
+
+			sum += totalMs;
+			rows.push( { name, calls, totalMs: +totalMs.toFixed( 2 ), avgMs: +( totalMs / calls ).toFixed( 3 ) } );
+
+		}
+		rows.sort( ( a, b ) => b.totalMs - a.totalMs );
+		rows.push( { name: 'TOTAL', calls: rows.reduce( ( s, r ) => s + r.calls, 0 ), totalMs: +sum.toFixed( 2 ), avgMs: null } );
+		return rows;
+
+	}
+
 	dispose() {
 
 		this.kernels.clear();
 		this.timing.clear();
+		this.profile.clear();
 
 	}
 

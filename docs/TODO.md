@@ -153,6 +153,7 @@
 - [ ] Mega Geometries - PTLAS - Partitioned TLAS
 - [ ] Think of if glass and transparent object need diffuse component - wasted gi ray - just compute refraction ray inside gi pass
 - [ ] SHaRC - Spatial Hash Radiance Cache
+- [ ] clear unwanted memory after scene processing.
   
 ---
 

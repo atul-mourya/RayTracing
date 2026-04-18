@@ -158,20 +158,33 @@ and <3% on others (stochastic).
 
 ### Tier 5: Performance (Phase 2)
 - [x] 22. Material sorting kernel — working end-to-end via storage-atomic histogram (TSL's `WorkgroupInfoNode` emits plain `array<T>`, not `array<atomic<T>>`, so workgroup atomics were not viable). Wired behind `wavefrontSortMaterials` flag (default off after benchmark). `SortKernel.js` uses `QueueManager.sortHistogram` (`numWorkgroups × 16` atomic u32). Output is bit-identical to sort-off. See items 32–35 for follow-up tuning.
-- [x] 23. Performance benchmarking — **re-measured 2026-04-19 after TSL idiom fixes**. Pre-fix numbers were produced against broken renders (miss rays fell through to hit-path, rays never properly deactivated), so they're not a valid baseline. 512×512, 3 bounces, 60 samples:
+- [x] 23. Performance benchmarking — **re-measured 2026-04-19 after TSL idiom fixes, then re-measured with warm-cycle methodology.** 512×512, 3 bounces, 60 samples.
 
-  | Scene | Tris | WF sort OFF | WF sort ON | Monolithic | Sort delta | WF(sort) vs Mono |
-  |---|---:|---:|---:|---:|---:|---:|
-  | Cornell Box 1 | 64 | 0.98s | 0.93s | 0.96s | **−5%** | −3% |
-  | Ferrari | 34,050 | 1.21s | 1.23s | 1.03s | +2% | +19% |
-  | Helmet | 15,484 | 1.05s | 1.07s | 1.09s | +2% | −2% |
-  | Modern Bathroom | 187,188 | 1.50s | 1.60s | 1.60s | +7% | 0% |
-  | Pagani Huayra | 291,017 | 2.24s | 2.11s | 2.17s | **−6%** | **−3%** |
-  | Outdoor Sofaset | 268,901 | 3.79s | **2.42s** | 2.03s | **−36%** | +19% |
+  **IMPORTANT methodological note**: first 60-frame cycle after a scene load or page reload is slowed 20–40% by shader compilation, JIT warmup, and cold GPU caches. Earlier measurements in this file (marked "cold" or pre-2026-04-19) were polluted by this overhead. **Use warm-cycle median** (median of 3 runs, each after an `app.reset()`, discarding the first load cycle) as the steady-state truth.
 
-  Key finding: sort is now net-positive on 3/6 scenes (was 0/6 pre-fix). Why the flip? Pre-fix rays didn't properly deactivate, so every ray was doing spurious work regardless of sort; the bitwise/`Return()` fixes let real material divergence emerge as the dominant cost, which is exactly what sort addresses. Sofaset especially — the +86% outlier vs monolithic drops to +19% with sort on.
+  **Warm-cycle steady-state (median of 3 reruns, 2026-04-19):**
 
-  Default `wavefrontSortMaterials` is now **ON** based on this data.
+  | Scene | Tris | Monolithic | WF sort OFF | WF sort ON (no guard) | WF sort ON (indirect) |
+  |---|---:|---:|---:|---:|---:|
+  | Camera | 18,016 | 0.49s | — | 0.64s | 0.59s |
+  | Cornell Box 1 | 64 | 0.83s | — | 0.67s | 0.67s |
+  | Ferrari | 34,050 | 0.76s | — | 1.00s | 0.99s |
+  | Helmet | 15,484 | 0.58s | — | 0.83s | 0.82s |
+  | Modern Bathroom | 187,188 | 1.57s | — | 1.19s | 1.19s |
+  | Pagani Huayra | 291,017 | 1.83s | — | 1.83s | 1.85s |
+  | Outdoor Sofaset | 268,901 | 1.64s | — | 1.65s | 1.66s |
+
+  **Findings:**
+
+  1. **Wavefront vs monolithic (warm, sort ON)**: wavefront wins on 2 scenes (Cornell −19%, Modern Bathroom −24%), loses on 3 (Camera +20%, Ferrari +30%, Helmet +41%), ties on 2 (Pagani, Sofaset). The cold-cycle "4/6 wins" was misleading because cold-cycle shader compile dominates both engines similarly.
+
+  2. **Why the simple/complex split**: wavefront dispatches ~15 kernels per frame (resetCounters, generate, initActiveIndices, extend, resetHist, sort, shade, resetActive, compact per bounce, finalWrite). Each has launch overhead. Monolithic is 1 big dispatch. When GPU is warm, per-frame launch cost dominates simple scenes; per-ray shading work dominates complex scenes. Wavefront only wins when coherence benefits exceed per-frame launch overhead.
+
+  3. **Indirect dispatch (32b) vs plain sort (no guard) is a wash on warm cycles.** Slight help on Camera (−8%), essentially identical elsewhere (±1%). The 10-20% "wins" I saw in cold benchmarks were cold-cycle compile overhead that amortized away. The dispatch-overhead argument for indirect is mostly theoretical for our scene sizes at 512×512/3 bounces.
+
+  4. **Wavefront-as-default (item 31) is not justified on this data.** The cold-cycle interpretation suggested it; the warm-cycle numbers show wavefront is a specialized optimization for dense/coherent scenes, not a general-purpose replacement. Keep it flagged, recommend per-scene profiling.
+
+  **Default `wavefrontSortMaterials` remains ON**: sort ON is equal to or better than sort OFF on all tested scenes at warm steady-state, and it's the production-standard pattern.
 
 - [ ] 24. Prefix-sum compaction
 - [ ] 25. Half-precision buffers
@@ -179,33 +192,116 @@ and <3% on others (stochastic).
 
 ### Tier 5b: Sort follow-ups (ordered by dependency, 2026-04)
 
+### How production GPU renderers handle this
+(Context for why our sort design is a proof of concept, not a destination.)
+
+- **Indirect dispatch is standard**. OptiX, DXR, pbrt-v4 GPU, Cycles GPU all size sort/trace/shade dispatches to the live ray queue count via indirect dispatch, not a fixed max. "Launch 1024 WGs and skip most of them" isn't a production pattern.
+- **Material sort is usually global radix**, not per-workgroup counting. Radix over a packed 32-bit key (material ID + hit geom hash, sometimes direction) gives cross-workgroup coherence and doesn't clamp on bin count. CUB / onesweep on CUDA; WebGPU is catching up.
+- **Histograms live in workgroup-shared memory**. We can't do that yet because TSL's `WorkgroupInfoNode` doesn't emit `atomic<T>` element type — confirmed earlier in this branch. We fall back to storage-atomic histograms, which is slower and why the counting-sort approach is underperforming. When TSL gains workgroup atomics, revisit.
+- **Persistent threads / work-stealing** are another common pattern — threads pull work from a global queue, self-balancing across material classes without an explicit sort. Larger refactor.
+- **CPU path tracers don't sort** — material coherence is a GPU-SIMT problem.
+
 **Completed this cycle:**
 - [x] 36. ~~Sofaset outlier investigation~~ — resolved by enabling sort. Sort brings Sofaset from +86% to +19% vs monolithic, confirming the outlier was material-divergence-driven, not BLAS/emissive-driven.
 - [x] 37. ~~Re-run sort ON/OFF benchmark~~ — done 2026-04-19 (see item 23 table).
-- [~] 33. ~~Raise MAX_BINS statically~~ — benchmarked 16/32/64, result was mixed. Only Sofaset wins (−13%); Pagani regresses 29%. The scan cost scales linearly with MAX_BINS and is paid unconditionally by every workgroup, so raising bins is only a win if actual material diversity exploits them. **Superseded by items 32+41+39**, which together address the root causes (dead-ray scan waste, declared-vs-visible material gap, one-size-fits-all bin bound). Kept at 16.
+- [~] 33. ~~Raise MAX_BINS statically~~ — benchmarked 16/32/64, result was mixed. Only Sofaset wins (−13%); Pagani regresses 29%. The scan cost scales linearly with MAX_BINS and is paid unconditionally by every workgroup, so raising bins is only a win if actual material diversity exploits them. Kept at 16.
+- [~] 32a. ~~Early-exit guard on empty workgroups~~ **(attempted, reverted)**. Wrapped `If(wgBase < activeCount)` around phase gates. Two issues surfaced:
+  1. Putting `storageBarrier()` inside a branch conditioned on `atomicLoad` fails WGSL uniformity analysis (atomicLoad is considered possibly-non-uniform). First attempt silently failed compilation; produced black renders that timed fast because no work ran.
+  2. The WGSL-safe rewrite (barriers always called, only work-phase gated per thread with `.and(wgActive)`) produced a **net +4.3% regression** across 6 scenes. Only Sofaset (−5%) and Modern Bathroom (−1%) benefited; Helmet regressed +13%, Cornell +8%, Ferrari +4%, Pagani +7%. The "savings" were small (thread 0 of empty WGs skipping a 16-iter scan on zeros ≈ ~13K atomic ops/bounce) and dwarfed by the per-thread cost of the extra `.and(wgActive)` check run by every thread in every WG.
+  **Lesson**: the right pattern is "don't launch the workgroup" (32b), not "launch and early-return". 32a's premise was correct; forcing it into WGSL-compliant shape broke its cost/benefit math.
 
 **Prerequisite phase — do these FIRST, in this order:**
 
-- [ ] 32. **Swap dispatch order: Compact → Sort → Shade** (currently Sort → Shade → Compact). Sort currently processes dead rays too, because compaction happens after shade. Running Compact first means Sort's `activeCount` shrinks each bounce — the scan cost becomes proportional to live rays instead of max rays. Prerequisite for all other MAX_BINS tuning.
-
-- [ ] 40. **Indirect dispatch for Sort based on live `activeRayCount`**. Today Sort dispatches `ceil(maxRays / WG_SIZE)` workgroups every bounce, regardless of how many rays are alive. With `dispatchWorkgroupsIndirect`, late bounces launch far fewer workgroups. Compounds item 32's benefit: fewer workgroups, each doing less scan.
+- [~] 32b/40. **Indirect dispatch attempted, net-zero on warm cycles.** Prototype lives in working tree (uncommitted): IndirectStorageBufferAttribute in QueueManager, prepSortDispatch kernel in WavefrontPathTracer, Sort registered with indirect attr. Three.js supports this fully (`IndirectStorageBufferAttribute` → `dispatchWorkgroupsIndirect`). Implementation is correct, renders match monolithic exactly. But warm-cycle benchmark shows only Camera benefits (−8%); all other scenes are ±1% vs no-guard. The prep kernel's own launch overhead roughly offsets the empty-workgroup savings at 512×512/3 bounces. Might be worth keeping at higher resolutions or higher bounce counts where empty-workgroup count grows (item 35 will tell). For now: keep stashed, not a general win.
 
 - [ ] 41. **Material ID remapping / compaction**. Many scenes declare far more materials than they actually use (Pagani: 40 declared, ~16 hit). A pre-sort remap pass compresses material IDs to a dense `0..N-1` range where `N` = *used* materials. Once this lands, MAX_BINS=16 covers most real scenes without clamping, and item 39 becomes mostly moot.
 
 **Re-measure phase:**
 
-- [ ] 42. **Re-bench MAX_BINS at 16/32/64 after items 32+40+41**. Expectation: the Pagani/Modern-Bathroom regressions shrink substantially because (a) only live rays are sorted, (b) with remapping, material diversity ≤16 for most scenes, (c) fewer total workgroups run the scan. If the regression gap is <5%, raise MAX_BINS to 32 as the new static default.
+- [ ] 42. **Re-bench MAX_BINS at 16/32/64 after items 32b+41**. Expectation: the Pagani/Modern-Bathroom regressions shrink substantially because (a) only live rays are sorted, (b) with remapping, material diversity ≤16 for most scenes. If the regression gap is <5%, raise MAX_BINS to 32 as the new static default.
 
-**Only if items 32/40/41 don't fully close the gap:**
+**Only if items 32b/41 don't fully close the gap:**
 
 - [ ] 39. **Adaptive bin count via uniform** — `min(MAX_BINS_HARD, materialCount)` passed per-scene. Captures Sofaset win without Pagani regression. Only worth building if item 42's re-measure still shows a tuning gap.
 - [ ] 38. **Skip Sort dispatch when materialCount is very low** (Ferrari/Helmet have ~5 materials, sort costs them 2–7% with no win). One `if` in the bounce-loop dispatch. Cheap backstop.
 
-**Larger phase-2 improvements:**
+**Larger phase-2 improvements (closer to production designs):**
 
-- [ ] 34. **Global (cross-workgroup) sort** for full material coherence, not just per-workgroup. Needs a two-pass prefix-sum across workgroups. Only worth doing after the prerequisite phase lands — and possibly never, if per-WG sort is already net-positive everywhere.
-- [ ] 43. **Parallel prefix scan inside Sort** (Hillis-Steele or Blelloch). Replaces the current O(MAX_BINS) serial scan done by thread 0 with an O(log MAX_BINS) parallel scan. **Blocked on TSL gaining atomic workgroup memory** — current TSL `workgroupArray('uint')` emits plain `array<u32>` rather than `array<atomic<u32>>`, so any workgroup-local atomic scan fails WGSL validation.
-- [ ] 35. **Re-benchmark at 8 bounces and 1024×1024 resolution**. Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit. Run after the prerequisite phase so the numbers reflect the final architecture.
+- [ ] 34. **Global radix sort** over a packed 32-bit key (material ID + hit geometry hash, possibly direction). Gives cross-workgroup coherence — rays hitting the same material in different workgroups get grouped. This is what production renderers actually do. Much bigger than our counting sort; likely requires CUB-style onesweep radix or similar. Only worth doing after 32b+41 show that per-WG sort is insufficient.
+- [ ] 43. **Parallel prefix scan + workgroup-shared histogram** (inside current counting-sort design). Replace the O(MAX_BINS) serial scan done by thread 0 with an O(log MAX_BINS) parallel scan using `var<workgroup>: array<atomic<u32>, N>`. **Blocked on TSL gaining atomic workgroup memory** — current `workgroupArray('uint')` emits plain `array<u32>` rather than `array<atomic<u32>>`, so any workgroup-local atomic scan fails WGSL validation. When upstream TSL lands this, sort overhead drops substantially.
+- [ ] 44. **Subgroup ops (ballot / shuffle) for in-subgroup reordering**. Some renderers skip the explicit sort pass and use subgroup extensions to rearrange threads within a 32/64-thread subgroup on the fly. Requires WebGPU subgroups (Chrome shipping but experimental).
+- [ ] 45. **Persistent threads / work-stealing**. Threads pull work from a global atomic queue instead of being pre-assigned. Load-balances across material classes without an explicit sort. Larger architectural change.
+- [~] 35. **Re-benchmark at 8 bounces and 1024×1024 resolution** — partial (Bistro only, 2026-04-19). Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit.
+
+  **Blocker encountered & fixed**: wavefront rendered only the top-left 512×512 region when resolution was raised via UI. Root cause: `PathTracer.setSize()` updated storage textures but WavefrontPathTracer never rebuilt kernels, so `_wfRenderWidth/Height/MaxRayCount` uniforms and `_packedBuffers`/`_queueManager` sizes stayed at old dimensions. Generate's bounds check silently dropped rays outside the stale window. Fix: override `setSize()` and `_handleResize()` in WavefrontPathTracer to call `_buildWavefrontKernels()` on size change.
+
+  **Bistro result — 1024×1024, 8 bounces, 2.83M tris, 132 materials (UI-timed total for 60 frames):**
+
+  | Mode | Time/60f | ms/frame | vs monolithic |
+  |---|---:|---:|---:|
+  | Monolithic | 5.50s | 91.7 | baseline |
+  | Wavefront (sort OFF) | 8.30s | 138 | +51% |
+  | Wavefront (sort ON) | 8.46s | 141 | +54% |
+
+  **Findings:**
+  1. **Wavefront regresses ~50% on a dense, material-diverse, complex scene at high res/bounces.** The "coherence wins on complex scenes" hypothesis did NOT hold for Bistro — the opposite of what item 35 was meant to confirm.
+  2. **Sort overhead is tiny (~2%)** even with 132 materials cycling through 16 bins. Item 41 (material ID remap) will not recover more than ~2% of the gap on this scene.
+  3. **Real cost is per-bounce kernel launch + buffer I/O**: 5 kernels × 9 bounces = 45 dispatches, each round-tripping ray state through packed storage buffers. Monolithic does this in fused registers.
+  4. **Scenes where wavefront could still win** are ones where ray divergence produces big shading-work-per-ray differences that coherence groups meaningfully reduce — not where ray shading is already uniform-enough that dispatch overhead wins.
+  5. Until kernel fusion or indirect dispatch-driven queue shrinkage (late-bounce workgroup culling) lands, **wavefront is a net loss at production resolutions and bounce counts**. Defer item 31 (wavefront-as-default) indefinitely.
+
+  **Per-kernel CPU-submission profile (Bistro, sort ON, 60 frames, 2026-04-19):**
+
+  | Kernel | Calls | CPU ms | Avg/call |
+  |---|---:|---:|---:|
+  | shade | 540 | 14.59 | 0.027 |
+  | resetCounters | 60 | 6.46 | 0.108 |
+  | extend | 540 | 6.27 | 0.012 |
+  | compact | 540 | 5.87 | 0.011 |
+  | sort | 540 | 4.96 | 0.009 |
+  | resetSortHistogram | 540 | 4.94 | 0.009 |
+  | resetActiveCounter | 540 | 4.67 | 0.009 |
+  | generate | 60 | 3.86 | 0.064 |
+  | finalWrite | 60 | 1.15 | 0.019 |
+  | initActiveIndices | 60 | 1.00 | 0.017 |
+  | **TOTAL** | 3480 | **53.78** | |
+
+  CPU dispatch cost is **0.54% of wall time** (53.78ms CPU / 9992ms wall). Per frame: 0.9ms CPU, 165.6ms GPU. Wavefront is fully GPU-bound on Bistro.
+
+  This rules out "per-bounce kernel launch overhead" as the cause of regression — submission is essentially free. The GPU cost is pipeline barriers between 50 dispatches/frame and ray state round-tripping through VRAM. Kernel fusion and half-precision ray state are the only knobs with enough leverage.
+
+  **Vite HMR gotcha**: editing `EngineDefaults.js` mid-session caused `WavefrontPathTracer` to see stale `wavefrontSortMaterials: false` even though the file had `true`. Reloading with `?bust=<n>` query on the URL forced Vite to re-parse the module. Any future dev-time benchmarking that toggles defaults should use a fresh URL, not just Cmd-Shift-R.
+
+  **Per-kernel profiler usage** (added 2026-04-19 to `WavefrontKernelManager`):
+  ```js
+  const km = window.app.stages.pathTracer._kernelManager;
+  km.enableProfiling(true);
+  window.app.reset();
+  // ... run some frames ...
+  console.table(km.getProfileReport());
+  km.enableProfiling(false);
+  ```
+  Measures CPU submission time only (GPU work is async and NOT included). For GPU timing, use stats-gl's existing `gpuQueries` or add timestamp queries via `device.queryType: 'timestamp'`.
+
+  **Kernel fusion test — Fused ExtendShade is slower than separate on Bistro (2026-04-19):**
+
+  | Config | ms/frame | vs monolithic |
+  |---|---:|---:|
+  | Monolithic | 91.7 | baseline |
+  | Separate extend + shade (sort OFF) | 160.4 | +75% |
+  | Separate extend + sort + shade | 166.5 | +82% |
+  | **Fused extendShade** | **192.1** | **+109%** |
+
+  Visually correct — no pink-tint bug (TSL idiom fixes resolved it). But fusion **regresses 15–20%** vs separate kernels. Inverts the "fusion = win" hypothesis.
+
+  **Why fusion loses**: register pressure kills occupancy. The fused kernel holds BVH traversal state + material struct + texture samples + shading state all in registers simultaneously, so fewer threads fit per SM, fewer workgroups are in flight, less latency hiding. Small focused kernels (extend-only, shade-only) each have lower register footprint and run at higher occupancy. The inter-kernel I/O cost is real but smaller than the occupancy loss from fusion.
+
+  **Obsolete comment**: remove the `// Separate Extend + Shade (fused kernel has pink tint bug on multi-material scenes)` comment in `WavefrontPathTracer.render()` — the bug is gone and fusion is slower anyway, so the separate path is the performance choice, not a workaround.
+
+  **Implications**:
+  1. Item 25 (half-precision buffers) — still worth trying, reduces I/O without register pressure
+  2. Item 45 (persistent threads) — keeps state in registers across bounces without fusion's occupancy cost
+  3. Kernel fusion is **not a generally useful lever** on our shader graph; the default separate-kernel pipeline is already the right shape. Focus optimization elsewhere.
 
 ### Tier 6: Full Parity + Migration
 - [ ] 27. Displacement mapping in Shade
