@@ -30,7 +30,7 @@ import {
 	fract,
 } from 'three/tsl';
 
-import { struct } from './structProxy.js';
+import { struct } from './patches.js';
 import { Ray, RayTracingMaterial, RenderState, HitInfo, DotProducts, DirectionSample } from './Struct.js';
 import { PI, EPSILON, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
 import { iorToFresnel0, fresnelSchlickFloat } from './Fresnel.js';

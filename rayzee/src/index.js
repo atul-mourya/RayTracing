@@ -6,7 +6,7 @@
  */
 
 // Patches (side-effect imports — must run before any StorageTexture usage)
-import './TSL/wgslGlobalVarsPatch.js';
+import './TSL/patches.js';
 
 // Main application
 export { PathTracerApp } from './PathTracerApp.js';

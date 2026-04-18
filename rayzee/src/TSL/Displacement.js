@@ -1,6 +1,6 @@
 import { Fn, float, vec2, int, If, Loop, abs, normalize, dot, max } from 'three/tsl';
 
-import { struct } from './structProxy.js';
+import { struct } from './patches.js';
 import { getDatafromStorageBuffer } from './Common.js';
 import { sampleDisplacementMap } from './TextureSampling.js';
 

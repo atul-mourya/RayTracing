@@ -13,7 +13,7 @@ import {
 	abs,
 } from 'three/tsl';
 
-import { struct } from './structProxy.js';
+import { struct } from './patches.js';
 
 // ================================================================================
 // LIGHT STRUCTURES

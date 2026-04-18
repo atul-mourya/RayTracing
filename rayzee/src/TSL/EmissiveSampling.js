@@ -27,7 +27,7 @@ import {
 	atan,
 } from 'three/tsl';
 
-import { struct } from './structProxy.js';
+import { struct } from './patches.js';
 import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
 import { RandomValue } from './Random.js';
 import { calculateMaterialPDF } from './LightsSampling.js';

@@ -1,4 +1,4 @@
-import { struct } from './structProxy.js';
+import { struct } from './patches.js';
 
 export const Ray = struct( {
 	origin: 'vec3',

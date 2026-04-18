@@ -13,7 +13,7 @@ import {
 	If,
 } from 'three/tsl';
 
-import { struct } from './structProxy.js';
+import { struct } from './patches.js';
 
 import { Ray, HitInfo, RayTracingMaterial, DotProducts } from './Struct.js';
 import { PI, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
