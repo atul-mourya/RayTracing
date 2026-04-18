@@ -179,12 +179,13 @@ and <3% on others (stochastic).
 
 ### Tier 5b: Sort follow-ups (after benchmark 2026-04)
 - [ ] 32. Swap dispatch order so Compact runs before Sort, not after. Current flow is Extend → Sort → Shade → Compact; Sort currently processes dead rays too. Running Compact first means Sort's `activeCount` shrinks each bounce — smaller workload at later bounces.
-- [ ] 33. Raise `MAX_BINS` from 16 → 32 or 64 in SortKernel + QueueManager histogram allocation. Scenes with >16 distinct materials currently clamp to bin 15, so their sort degenerates to no-op beyond that. Cheap change, broadens applicability.
+- [~] 33. ~~Raise MAX_BINS~~ — **benchmarked 16/32/64, result was mixed.** Only Sofaset (47 materials) wins (−13% at 32 bins, −13% at 64 bins). Scenes whose VISIBLE material count is ≤16 regress significantly — Pagani (40 materials declared but ~16 used in view) loses 29% at 32 bins. The scan cost scales with MAX_BINS and dominates unless actual material diversity exploits the bins. Kept at 16. See item 39 for the correct fix: adaptive per-scene bin count.
 - [ ] 34. Global (cross-workgroup) sort for full material coherence, not just per-workgroup. Needs a two-pass prefix-sum across workgroups. Only worth doing once per-WG sort proves net-positive on some scene.
 - [ ] 35. Re-benchmark at 8 bounces and at 1024×1024 resolution. Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit.
 - [x] 36. ~~Sofaset outlier investigation~~ — resolved by enabling sort. Sort brings Sofaset from +86% to +19% vs monolithic, confirming the outlier was material-divergence-driven, not BLAS/emissive-driven.
 - [x] 37. ~~Re-run sort ON/OFF benchmark~~ — done 2026-04-19 (see item 23 table).
 - [ ] 38. Scenes where sort ON is slightly slower (Ferrari +2%, Helmet +2%, Modern Bathroom +7%) — worth a runtime heuristic: only dispatch sort when `materialCount > N` threshold, to skip the overhead on scenes with low material diversity.
+- [ ] 39. Adaptive sort bin count — pass `materialCount` (or a clamped derived value) as a uniform; Sort's prefix-sum scan caps at `min(MAX_BINS_HARD, materialCount)`. Captures both the Sofaset coherence win and avoids the Pagani scan-overhead regression. Would also let us raise `MAX_BINS_HARD` to 64 without penalty on low-material scenes.
 
 ### Tier 6: Full Parity + Migration
 - [ ] 27. Displacement mapping in Shade

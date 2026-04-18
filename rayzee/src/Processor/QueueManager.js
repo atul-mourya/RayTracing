@@ -130,6 +130,11 @@ export class QueueManager {
 		// Sort histogram: numWorkgroups × 16 atomic<u32> slots.
 		// TSL lacks atomic workgroup-scoped storage, so histogram + prefix-sum
 		// must live in storage memory. Each workgroup owns its own 16 slots.
+		// Bin count bench (2026-04-19): 32/64 bins regress on scenes whose
+		// visible material count is ≤16 (Pagani 40 materials but actually uses
+		// ~16 in view regressed 29%). Only Sofaset wins with more bins.
+		// A future adaptive `min(MAX_BINS, materialCount)` uniform would
+		// capture both cases — see item 39.
 		const SORT_WG_SIZE = 256;
 		const SORT_BINS = 16;
 		const numWorkgroups = Math.ceil( capacity / SORT_WG_SIZE );
