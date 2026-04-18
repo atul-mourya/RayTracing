@@ -127,7 +127,7 @@ Fix: apply matSamples to material struct before BRDF evaluation.
 Full calculateIndirectLighting + calculateDirectLightingUnified now work correctly.
 
 ### Tier 5: Performance (Phase 2)
-- [x] 22. Material sorting kernel — counting sort by materialIndex (16 bins, workgroup-local)
+- [~] 22. Material sorting kernel — **wired into stage dispatch behind `wavefrontSortMaterials` flag (default off), but SortKernel itself is broken**. It uses `atomicAdd` on `workgroupArray` elements, but TSL's `WorkgroupInfoNode` generates `array<T>` rather than `array<atomic<T>>`, so WGSL validation fails and the dispatch silently no-ops. Fix options: (a) rewrite SortKernel with serial per-workgroup scatter (no atomics), (b) migrate histogram+prefix-sum to storage-buffer atomics (adds one binding), or (c) rewrite SortKernel as `wgslFn` with raw WGSL `var<workgroup> hist: array<atomic<u32>, 16>`.
 - [x] 23. Performance benchmarking — **wavefront is 0.69× at 3 bounces, 0.40× at 8 bounces** (steady-state, 512×512, 2 materials). Slower due to dispatch overhead + buffer I/O. Needs: fewer dispatches (merge kernels), larger scenes, more materials for sort benefit.
 - [ ] 24. Prefix-sum compaction
 - [ ] 25. Half-precision buffers

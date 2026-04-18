@@ -57,6 +57,8 @@ export const ENGINE_DEFAULTS = {
 
 	// Wavefront path tracing (feature flag) — renders but has 2x energy (NEE+indirect double-count, needs MIS)
 	wavefrontEnabled: true,
+	// Material-index sort kernel between Extend and Shade — currently broken: SortKernel uses atomicAdd on workgroupArray, TSL lacks workgroup-atomic support
+	wavefrontSortMaterials: false,
 
 	enablePathTracer: true,
 	enableAccumulation: true,

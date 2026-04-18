@@ -25,8 +25,10 @@ import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKer
 import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
 import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
+import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
+import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
-	Fn, uint, atomicStore, instanceIndex,
+	Fn, uint, atomicStore, instanceIndex, If,
 } from 'three/tsl';
 
 export class WavefrontPathTracer extends PathTracer {
@@ -183,6 +185,7 @@ export class WavefrontPathTracer extends PathTracer {
 
 			// Separate Extend + Shade (fused kernel has pink tint bug on multi-material scenes)
 			km.dispatch( 'extend' );
+			if ( this._sortMaterials ) km.dispatch( 'sort' );
 			km.dispatch( 'shade' );
 			// TODO: investigate fused ExtendShadeKernel WGSL codegen issue
 
@@ -257,6 +260,8 @@ export class WavefrontPathTracer extends PathTracer {
 		const pb = this._packedBuffers;
 		const qm = this._queueManager;
 
+		this._sortMaterials = ENGINE_DEFAULTS.wavefrontSortMaterials ?? false;
+
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
 		this._wfMaxRayCount.value = maxRays;
@@ -307,6 +312,12 @@ export class WavefrontPathTracer extends PathTracer {
 
 			const tid = instanceIndex;
 			activeWriteA.element( tid ).assign( tid );
+			// Seed the atomic active-ray counter so Sort (which reads it) has a valid bound on bounce 0
+			If( tid.equal( uint( 0 ) ), () => {
+
+				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( maxRays ) );
+
+			} );
 
 		} );
 		this._kernelManager.register( 'initActiveIndices',
@@ -441,6 +452,25 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
+		// ── Sort kernel (material-index counting sort for subgroup coherence) ──
+		if ( this._sortMaterials ) {
+
+			const sortFn = buildSortKernel( {
+				hitBufferRO: pb.hitBuffer.ro,
+				activeIndicesReadRO: qm.getActiveReadRO(),
+				sortedIndicesRW: qm.getSortedRW(),
+				counters,
+				maxRayCount: this._wfMaxRayCount,
+			} );
+			this._kernelManager.register( 'sort',
+				sortFn().compute(
+					[ Math.ceil( maxRays / SORT_WG_SIZE ), 1, 1 ],
+					[ SORT_WG_SIZE, 1, 1 ]
+				)
+			);
+
+		}
+
 		// ── Separate Shade kernel ──
 		const shadeFn = buildShadeKernel( {
 			bvhBuffer: freshBvh,
@@ -453,7 +483,7 @@ export class WavefrontPathTracer extends PathTracer {
 			hitBufferRO: pb.hitBuffer.ro,
 			shadowBufferRW: pb.shadowBuffer.rw,
 			counters,
-			activeIndicesRO: qm.getActiveReadRO(),
+			activeIndicesRO: this._sortMaterials ? qm.getSortedRO() : qm.getActiveReadRO(),
 			albedoMaps: freshAlbedoMaps,
 			normalMaps: freshNormalMaps,
 			bumpMaps: freshBumpMaps,
