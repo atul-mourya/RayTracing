@@ -260,7 +260,7 @@ export const readHitNormal = ( buf, id ) =>
 	buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).xyz;
 
 export const readHitMaterialIndex = ( buf, id ) =>
-	uint( floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).and( 0xFFFF ) );
+	uint( floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).bitAnd( 0xFFFF ) );
 
 export const readHitMeshIndex = ( buf, id ) =>
 	floatBitsToUint( buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) ).w ).shiftRight( 16 );
@@ -272,7 +272,7 @@ export const writeHitPacked = ( buf, id, distance, triIndex, baryU, baryV, norma
 	buf.element( id.mul( HIT_STRIDE ).add( HIT.DIST_TRI_BARY ) )
 		.assign( vec4( distance, uintBitsToFloat( triIndex ), baryU, baryV ) );
 	buf.element( id.mul( HIT_STRIDE ).add( HIT.NORMAL_MAT ) )
-		.assign( vec4( normal, uintBitsToFloat( matIndex.or( meshIndex.shiftLeft( 16 ) ) ) ) );
+		.assign( vec4( normal, uintBitsToFloat( matIndex.bitOr( meshIndex.shiftLeft( 16 ) ) ) ) );
 
 };
 
@@ -314,8 +314,8 @@ export const readMediumStack = ( buf, id ) => {
 	const packed = buf.element( id.mul( RAY_STRIDE ).add( RAY.MEDIUM_STACK ) );
 	const packedInt = floatBitsToUint( packed.x );
 	return {
-		stackDepth: packedInt.and( 0xFF ),
-		transTraversals: packedInt.shiftRight( 8 ).and( 0xFF ),
+		stackDepth: packedInt.bitAnd( 0xFF ),
+		transTraversals: packedInt.shiftRight( 8 ).bitAnd( 0xFF ),
 		ior1: packed.y,
 		ior2: packed.z,
 		ior3: packed.w,
@@ -325,4 +325,4 @@ export const readMediumStack = ( buf, id ) => {
 
 export const writeMediumStack = ( buf, id, stackDepth, transTraversals, ior1, ior2, ior3 ) =>
 	buf.element( id.mul( RAY_STRIDE ).add( RAY.MEDIUM_STACK ) )
-		.assign( vec4( uintBitsToFloat( stackDepth.or( transTraversals.shiftLeft( 8 ) ) ), ior1, ior2, ior3 ) );
+		.assign( vec4( uintBitsToFloat( stackDepth.bitOr( transTraversals.shiftLeft( 8 ) ) ), ior1, ior2, ior3 ) );

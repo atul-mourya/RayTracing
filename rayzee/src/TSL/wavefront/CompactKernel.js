@@ -57,7 +57,7 @@ export function buildCompactKernel( params ) {
 		// Check if still active
 		const flags = readRayBounceFlags( rayBufferRO, rayID );
 
-		If( flags.and( uint( RAY_FLAG.ACTIVE ) ).notEqual( uint( 0 ) ), () => {
+		If( flags.bitAnd( uint( RAY_FLAG.ACTIVE ) ).notEqual( uint( 0 ) ), () => {
 
 			// Atomic append to next bounce's active list
 			const writeIdx = atomicAdd( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( 1 ) );

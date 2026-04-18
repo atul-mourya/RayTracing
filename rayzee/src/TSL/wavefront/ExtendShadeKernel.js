@@ -112,7 +112,7 @@ export function buildExtendShadeKernel( params ) {
 
 		const rayID = threadIdx;
 		const flags = readRayBounceFlags( rayBufferRW, rayID ).toVar();
-		If( flags.and( uint( RAY_FLAG.ACTIVE ) ).equal( uint( 0 ) ), () => {
+		If( flags.bitAnd( uint( RAY_FLAG.ACTIVE ) ).equal( uint( 0 ) ), () => {
 
 			return;
 
@@ -167,7 +167,7 @@ export function buildExtendShadeKernel( params ) {
 			} );
 
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-			writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
+			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 			return;
 
 		} );
@@ -404,7 +404,7 @@ export function buildExtendShadeKernel( params ) {
 			If( maxThroughput.lessThan( 0.001 ), () => {
 
 				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-				writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
+				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 				rngBufferRW.element( rayID ).assign( rngState );
 				return;
 
@@ -421,7 +421,7 @@ export function buildExtendShadeKernel( params ) {
 			If( rr.greaterThan( survivalProb ), () => {
 
 				writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-				writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
+				writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 				rngBufferRW.element( rayID ).assign( rngState );
 				return;
 
@@ -434,7 +434,7 @@ export function buildExtendShadeKernel( params ) {
 		If( bounceIndex.greaterThanEqual( maxBounceCount ), () => {
 
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-			writeRayDirFlags( rayBufferRW, rayID, direction, flags.and( uint( ~ RAY_FLAG.ACTIVE ) ) );
+			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 			rngBufferRW.element( rayID ).assign( rngState );
 			return;
 
