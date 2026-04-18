@@ -6,14 +6,14 @@ Rayzee Path Tracing Engine – Internal Shader Design (PathTracer Stage Only)
 
 ## Scope & Exclusions
 
-This document covers the real-time path tracing stage shader system for the **WebGPU backend (TSL)**. The legacy WebGL/GLSL backend (`src/core/Shaders/`) has been fully removed — the codebase is now WebGPU-only.
+This document covers the real-time path tracing stage shader system for the **WebGPU backend (TSL)**. The legacy WebGL/GLSL backend (`rayzee/src/Shaders/`) has been fully removed — the codebase is now WebGPU-only.
 
-TSL (Three Shading Language) is a JavaScript-based shader authoring system that compiles to WGSL at runtime via Three.js's WebGPU backend. All 25 shader modules live in `src/core/TSL/`.
+TSL (Three Shading Language) is a JavaScript-based shader authoring system that compiles to WGSL at runtime via Three.js's WebGPU backend. All 25 shader modules live in `rayzee/src/TSL/`.
 
 Explicitly excluded (refer to separate docs):
 - Denoisers (ASVGF, EdgeAwareFiltering, BilateralFiltering)
 - Post-processing (Bloom, Tone mapping, AutoExposure)
-- Screen Space Radiance Caching (SSRCStage — separate stage)
+- Screen Space Radiance Caching (SSRC — separate stage)
 - Adaptive sampling pass implementation details (we only describe how the path tracer consumes its texture)
 - Debug visualization passes beyond in-shader `visMode`
 - Backend switching and state management (see `PIPELINE_ARCHITECTURE.md`)
@@ -42,7 +42,7 @@ Key features:
 
 ---
 
-## Module Map (`src/core/TSL/`)
+## Module Map (`rayzee/src/TSL/`)
 
 Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy-enhanced structs. No raw `wgslFn()` is used in the hot path.
 
@@ -62,8 +62,8 @@ Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy
 | `LightBVHSampling.js` | `sampleLightBVHTriangle()` | Stochastic light BVH traversal for emissive sampling |
 | `LightsCore.js` | Light data structs | Light type definitions (Directional, Point, Spot, Area) |
 | `LightsDirect.js` | `evaluateDirectLighting()` | Direct lighting with shadow rays |
-| `LightsIndirect.js` | `evaluateIndirectLighting()` | Multi-strategy MIS for GI |
-| `LightsSampling.js` | `selectAndSampleLight()` | Light selection, unified direct lighting |
+| `LightsIndirect.js` | `calculateIndirectLighting()` | Material-only multi-strategy MIS for GI (specular, diffuse, transmission, clearcoat) |
+| `LightsSampling.js` | `calculateDirectLightingUnified()` | Stochastic discrete light/BRDF selection + deterministic environment NEE |
 | `Fresnel.js` | `schlickFresnel()` | Schlick Fresnel, IOR↔F0 |
 | `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `sampleBlueNoise2D()` | PCG, Halton, Sobol, Blue Noise |
 | `TextureSampling.js` | `sampleMaterialTexture()` | UV transforms, material texture arrays |
@@ -72,13 +72,13 @@ Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy
 | `Struct.js` | `Ray`, `HitInfo`, `RayTracingMaterial`, `EmissiveSample`, etc. | GPU-side struct definitions |
 | `Common.js` | `getDatafromDataTexture()`, constants | Shared constants, texture data accessors |
 | `SSRC.js` | SSRC cache fetch | Screen Space Radiance Caching integration (consumed by PathTracerCore) |
-| `structProxy.js` | `structProxy()` factory | Proxy factory for dot-notation struct access in TSL |
+| `patches.js` | `struct()` factory + `WebGPUBackend` monkey-patch | Proxy-enhanced struct factory for dot-notation access, plus r184 compute register-pressure patch |
 
 ---
 
 ## Render Targets & Output Semantics
 
-MRT layout (3 outputs per ping-pong pair, managed by `PathTracingStage.js`):
+MRT layout (3 outputs per ping-pong pair, managed by `PathTracer.js`):
 
 ```
 textures[0] = gColor      // RGB accumulated radiance + A = pixelSharpness (edge flag)
@@ -94,7 +94,7 @@ Depth in `gNormalDepth.a` stores **linear ray distance** (hit.dst), NOT NDC dept
 
 ## Uniform Groups (JS → GPU Data Flow)
 
-Uniforms are initialized and maintained in `PathTracingStage.js` (~3000 lines). Principal categories:
+Uniforms are initialized and maintained in `PathTracer.js` (~3000 lines). Principal categories:
 
 1. **Camera & DOF:**
    - `cameraWorldMatrix`, `cameraProjectionMatrixInverse`, `cameraViewMatrix`, `cameraProjectionMatrix`
@@ -171,7 +171,7 @@ Traversal reduces reads by only fetching slot 3 for leaf nodes.
 Packed per-material properties across multiple pixels (27 floats per material). Hot-path subsets:
 - Base: color (rgb), metalness, emissive (rgb), roughness, ior, transmission, thickness, emissiveIntensity
 - Volumetric & attenuation: attenuationColor (rgb), attenuationDistance, dispersion
-- Visibility & classification: visible, sheen, sheenRoughness, sheenColor (rgb)
+- Sheen & classification: sheen, sheenRoughness, sheenColor (rgb)
 - Specular & iridescence: specularIntensity, specularColor (rgb), iridescence, iridescenceIOR, iridescenceThicknessRange
 - Clearcoat: clearcoat, clearcoatRoughness
 - Alpha and side flags: opacity, side, transparent, alphaTest, alphaMode, depthWrite
@@ -210,10 +210,10 @@ StorageBuffer containing packed BVH node data built by `LightBVHBuilder.js`. Str
 The iterative bounce loop resides inside `Trace` (from `PathTracerCore.js`), which performs:
    - Intersection via `traverseBVH`
    - Material classification & caching
-   - Direct light / emissive evaluation (uniform sampling or Light BVH)
-   - Environment hit termination or continuation
+   - Direct lighting: deterministic environment NEE (always runs, two-strategy MIS with implicit miss path) + stochastic discrete light/BRDF selection + emissive triangle NEE (uniform sampling or Light BVH)
+   - Indirect bounce: material-only multi-strategy MIS (specular, diffuse, transmission, clearcoat — environment excluded from indirect strategies)
+   - Environment hit termination at miss (MIS-weighted against material scatter PDF)
    - Russian roulette or depth termination using `maxBounces` & `transmissiveBounces`
-   - MIS between emissive, material lobes, environment contributions
 
 ---
 
@@ -233,7 +233,7 @@ The Light BVH accelerates emissive triangle sampling by organizing emissive tria
 Light BVH sampling is selected when `lightBVHNodeCount > 0`. The composite PDF accounts for both tree-traversal probabilities and per-triangle sampling. MIS weight combines this with the BRDF lobe PDF.
 
 ### Builder
-`LightBVHBuilder.js` (in `src/core/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracingStage.setLightBVHData()` uploads the packed node buffer.
+`LightBVHBuilder.js` (in `rayzee/src/Processor/`) constructs the BVH off-thread using SAH-like power splitting. `PathTracer.setLightBVHData()` uploads the packed node buffer.
 
 ---
 
@@ -267,11 +267,9 @@ Highlights:
 - Texture access minimization: fetch node slots 0–1 for bounds, slot 2 only for leaf.
 - Early pruning: compare min distance of child bounds with current closest hit distance.
 - Near/far ordering pushes far child first → processes near child immediately (depth-first).
-- Per-ray visibility cache (`visCache`) prevents redundant material visibility fetches (~30% texture read reduction).
-- Two-stage visibility:
-  1. Fast check (cached) for early rejection.
-  2. Full side culling (front/back/double) only if potential closest hit.
-- Shadow ray early termination path (any hit suffices).
+- Per-mesh visibility at BLAS-pointer level: meshIndex stored in TLAS leaf, checked against `meshVisibilityBuffer` before pushing BLAS onto stack — skips entire mesh BLAS if hidden.
+- Side culling (`passesSideCulling`): single buffer read (slot 10) for front/back/double-side check on triangle hits.
+- Shadow ray early termination path (any hit suffices, no material visibility check needed).
 
 ### Intersection
 `RayTriangle` from `RayIntersection.js` performs barycentric intersection returning distance, normal, and barycentrics after interpolation of per-vertex normals & UVs.
@@ -327,7 +325,7 @@ Importance (luminance / pdf) clamped only on deep bounces (after bounce 4) with 
 
 ## Adaptive Sampling Integration
 
-The `AdaptiveSamplingStage` produces `adaptiveSamplingTexture` (RGBA containing normalized sample counts and convergence flags). In shader:
+The `AdaptiveSampling` stage produces `adaptiveSamplingTexture` (RGBA containing normalized sample counts and convergence flags). In shader:
 
 ```js
 // TSL equivalent
@@ -343,7 +341,7 @@ If(samplingData.z.greaterThan(0.5), () => { /* converged — skip */ });
 
 - Shader receives `previousAccumulatedTexture` and blends:
   `finalColor = previous + (current - previous) * accumulationAlpha`
-- Alpha computed CPU-side (`PathTracerUtils.calculateAccumulationAlpha`) factoring frame count, tile progression, and interaction resets.
+- Alpha computed CPU-side (`calculateAccumulationAlpha` from `utils.js`) factoring frame count, tile progression, and interaction resets.
 - Accumulation disabled during camera interaction (`cameraIsMoving`), preventing low-quality smear; re-enabled immediately after exit with prior result retained.
 
 Edge flag (A in `gColor`) *always* recalculated, ensuring temporal passes have accurate structural guides even on converged or reused pixels.
@@ -379,7 +377,7 @@ const myFunction = Fn(([param1, param2]) => {
 | Aspect | GLSL (removed) | TSL (current) |
 |---|---|---|
 | Language | Text `.fs` files | JS functions → WGSL |
-| Structs | `struct HitInfo { ... }` | `structProxy()` with Proxy |
+| Structs | `struct HitInfo { ... }` | `struct()` from `patches.js` (Proxy-wrapped) |
 | Uniforms | `uniform float exposure` | `uniform(1.0, 'float')` node objects |
 | Loops | `for (int i = 0; ...)` | `Loop(count, ({ i }) => { ... })` |
 | Branching | `if (x > 0)` | `If(x.greaterThan(0), () => { ... })` |
@@ -391,10 +389,10 @@ const myFunction = Fn(([param1, param2]) => {
 
 ### Uniform Management
 
-Uniforms are `uniform()` node objects managed by `PathTracingStage.js`:
+Uniforms are `uniform()` node objects managed by `PathTracer.js`:
 
 ```js
-// PathTracingStage.js constructor
+// PathTracer.js constructor
 this.maxBounces = uniform(DEFAULT_STATE.bounces, 'int');
 this.exposure = uniform(DEFAULT_STATE.exposure, 'float');
 this.cameraWorldMatrix = uniform(mat4());
@@ -430,7 +428,7 @@ Non-zero modes may invoke `TraceDebugMode` for heatmaps (triangle/box test count
 | Area | Technique | Benefit |
 |---|---|---|
 | BVH Traversal | Slots 0–1 read first, slot 2 only for leaves | Reduced memory bandwidth |
-| BVH Visibility | Per-ray material visibility cache | ~30% fewer material texture fetches |
+| Mesh Visibility | Per-mesh check at BLAS-pointer level | Entire BLAS skipped for hidden meshes |
 | Light BVH | Power-weighted stochastic traversal | O(log N) emissive sampling vs O(N) CDF |
 | RNG | Fast RNG for non-critical samples | Lower ALU cost |
 | Material Sampling | PathState caching of classification & BRDF weights | Avoid recomputation per bounce |
@@ -449,7 +447,7 @@ Non-zero modes may invoke `TraceDebugMode` for heatmaps (triangle/box test count
 - Background pixel guard: `gNormalDepth` uses default `(0,0,1)` normal + `linearDepth=1.0` for miss rays (`objectNormal = vec3(0)` → `normalize` → NaN without guard).
 - Pole region handling (`sinTheta` clamps, epsilon UV limits) avoids singularities in environment spherical mapping.
 - Transmission fallback (total internal reflection) uses small PDF to maintain normalization consistency.
-- Visibility cache reset each ray to avoid cross-ray contamination.
+- Per-mesh visibility buffer initialized before shader graph construction (`setMeshVisibilityBuffer` in BVHTraversal.js).
 - Adaptive sampling ensures at least one sample to prevent stale output when no accumulation available.
 
 ---
@@ -542,7 +540,7 @@ Before large refactors or when optimizing GPU time:
 
 1. **BVH Traversal**
    - [ ] Node texture reads minimized (slot 2 only for leaves)?
-   - [ ] Visibility cache still per-ray reset? (avoid cross-ray contamination)
+   - [ ] Per-mesh visibility buffer set before shader graph construction (`setMeshVisibilityBuffer`)?
    - [ ] Early exit threshold (`dst < 0.001`) appropriate for scene scale?
 
 2. **Material Sampling**
@@ -593,13 +591,13 @@ When changing shader code, watch these anchors:
 |---|---|---|
 | `PathTracer.js` | `pathTracerMain()`, `getRequiredSamples()`, accumulation block | Entry point, sample loop, adaptive sampling, accumulation |
 | `PathTracerCore.js` | `Trace()`, `TraceResult`, path loop termination | Bounce iteration, termination, MIS assembly |
-| `BVHTraversal.js` | `traverseBVH()`, `isTriangleVisible()`, stack logic | Acceleration structure traversal & visibility culling |
+| `BVHTraversal.js` | `traverseBVH()`, `passesSideCulling()`, `setMeshVisibilityBuffer()`, stack logic | Acceleration structure traversal, per-mesh visibility at BLAS-pointer level, side culling |
 | `MaterialSampling.js` | `sampleMaterialWithMultiLobeMIS()`, `calculateMultiLobeMISWeight()` | Multi-lobe sampling & PDF combination |
 | `MaterialEvaluation.js` | `evaluateMaterialResponse()` | Combines BRDF components |
 | `Environment.js` | `sampleEnvironmentWithContext()`, `calculateEnvironmentPDFWithMIS()` | HDR env sampling & PDF computation |
 | `LightBVHSampling.js` | `sampleLightBVHTriangle()`, traversal PDF product | Light BVH stochastic descent & PDF tracking |
 | `Random.js` | `getDecorrelatedSeed()`, `getStratifiedSample()`, `sampleBlueNoise2D()` | Stochastic sampling quality & distribution |
-| `PathTracingStage.js` | MRT setup, uniform declarations, `setLightBVHData()` | Stage orchestration, uniform management |
+| `PathTracer.js` | MRT setup, uniform declarations, `setLightBVHData()` | Stage orchestration, uniform management |
 
 Numerical constants to keep consistent:
 - `MIN_PDF`, epsilon thresholds in environment & BVH.

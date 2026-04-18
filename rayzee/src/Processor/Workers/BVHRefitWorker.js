@@ -1,0 +1,59 @@
+/**
+ * BVHRefitWorker — Off-main-thread BVH refit using SharedArrayBuffer.
+ *
+ * Protocol:
+ *   'init'  → receives SharedArrayBuffers + index map (once per scene)
+ *   'refit' → reads shared positions, writes shared bvh/tri data (per frame)
+ */
+
+import { BVHRefitter } from '../BVHRefitter.js';
+
+const FLOATS_PER_NODE = 16;
+const refitter = new BVHRefitter();
+
+// Cached shared memory views (set once on 'init', reused every frame)
+let bvhData = null;
+let triData = null;
+let posData = null;
+let bvhToOriginal = null;
+let nodeCount = 0;
+
+self.onmessage = function ( e ) {
+
+	const { type } = e.data;
+
+	if ( type === 'init' ) {
+
+		bvhData = new Float32Array( e.data.sharedBvhBuf );
+		triData = new Float32Array( e.data.sharedTriBuf );
+		posData = new Float32Array( e.data.sharedPosBuf );
+		bvhToOriginal = e.data.bvhToOriginal; // transferred Uint32Array
+		nodeCount = bvhData.length / FLOATS_PER_NODE;
+		return;
+
+	}
+
+	if ( type === 'refit' ) {
+
+		try {
+
+			const startTime = performance.now();
+
+			refitter.updateTrianglePositions( triData, posData, bvhToOriginal );
+			refitter.refit( bvhData, triData, nodeCount );
+
+			self.postMessage( {
+				type: 'refitComplete',
+				refitTimeMs: performance.now() - startTime
+			} );
+
+		} catch ( error ) {
+
+			console.error( '[BVHRefitWorker] Refit error:', error );
+			self.postMessage( { type: 'error', error: error.message } );
+
+		}
+
+	}
+
+};

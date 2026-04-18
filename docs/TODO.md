@@ -3,62 +3,81 @@
 ## Bugs
 
 ### MVP
-- [ ] Switching to Final Render Tab, does the css animated resize operation while doing the thread blocking Final Rendering causing momentary stutter
-- [ ] outline resolution need to stay constant regardless of render resolution, currently it gets blurrier at lower resolutions,
-  
-- [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls. Example
 
+- [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
+- [ ] oidndenoiser is desaturation the results
+- [ ] enhance test coverage of the engine
+- [ ] lint fix
+- [ ] SSRC apha, seems to have no effect
+- [ ] ASVGF heatmap shows black - normal
+- [ ] ASVGF heatmap shows improper motion vector
+- [ ] scrutenize for which all stages are needed as default
+- [ ] dispose, reset, etc life cycle for rayzee engine. 
+- [ ] needs WebGPU, can't unit-test
+- [ ] memory leak after denoise and upscaling??
+  
 ### Known
+
+- [ ] some pixels show black in the first rendered frame even if it hits the environment map
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
-- [ ] open issues by threejs https://github.com/mrdoob/three.js/issues/32969 and 33061
+- [ ] ASVFG gives smearing effect when moving the camera
+- [ ] open issues by threejs <https://github.com/mrdoob/three.js/issues/32969> and 33061
 2Jd84No5SP
+- [ ] directional light not working from kronos test file: <https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/DirectionalLight/README.md>
 
 ### Unconfirmed
-- [ ] occasional jarring flickers with auto-exposure - studio vray aparment example file - windows device
-- [ ] when i save a final render, and switch to results tab, the saved render is not visible in the results tab until refreshing the page
-- [ ] Get feedback on default render settings and convergence criteria, and adjust for better out-of-box experience
 
 ---
 
 ## Features
 
 ### General
+
+- [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
-- [ ] Decouple engine from ui
+- [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
+- [ ] transform control redesign
+
+### Compilation
+- [ ] compileAsync for compute shader
 
 ### Rendering
+
 - [ ] Subsurface scattering
 - [ ] Volumetric rendering
 - [ ] Caustic support
-- [ ] camera motion video rendering
-- [ ] Tile Rendering helper not working
-- [ ] Tile Rendering count displayed in UI is wrong. it shows tile count * current tile index, instead of just current tile index
 - [ ] Full WGSL transition, avoid TSL nodes
 - [ ] Realtime OIDN denoising with WebGPU compute shader implementation
 
 ### Camera
+
 - [ ] New snap points to be added for trackpad
 - [ ] first person camera mode controls as an alternative to orbit controls
 - [ ] Dynamic camera addition and removal
 - [ ] Orthographic Camera Support
-- [ ] Depth of field with support for anamorphic bokeh
-- [x] Improve focus control - https://x.com/thefrontendcat/status/1885422008344903980
-
 
 ### Lighting
+
 - [ ] emissive mesh triangle sorting - overkill maybe
-- [ ] DDS texture support
 - [ ] Shadow catcher - blender
 - [ ] implement Stochastic Lightcuts for Sampling Many Lights - by Cem Yuksel
+- [ ] light transform gizmo helpers
+- [ ] Textured area lights
 
 ### Materials
+
 - [ ] implement pending Physical material properties
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
+- [ ] transmission support for displacement materials
+- [ ] Supporting GPU-compressed texture arrays requires adding per-scene format selection at build time - the TSL compiler doesn't support clean
+  teardown/rebuild of compute pipelines when texture binding types
+  change.
 
 ### Environment
+
 - [ ] Environment cube map support for HDRIs
 - [ ] Ground projection environment mapping
 - [ ] Add new category of environment maps - abstract (identify files and organize)
@@ -66,23 +85,40 @@
 - [ ] Separate environment and background sampling with different textures (like Three.js)
 
 ### Scene Management
+
 - [ ] Dynamic object addition and removal
-- [ ] move assests to cdn and object store instead of bundling with the app
+
+### Animation
+
+- [ ] animate lights support
+- [ ] Timeline scrubber for animation control
+- [ ] Camera animation - interpolate camera path keyframes during video render
+- [ ] PNG image sequence export for better quality and post-processing flexibility
+- [ ] Multi-clip blending - cross-fade between animation clips with configurable transition duration
+- [ ] ArrayBufferTarget memory for long videos - StreamTarget upgrade
 
 ---
 
 ## Performance & Architecture
 
 ### Pipeline
-- [ ] Offscreen canvas rendering - https://threejs.org/manual/#en/offscreencanvas
+
 - [ ] GPU-CPU sync for environment in procedural sky, gradient sky, solid color sky modes
 
 ### BVH
-- [ ] Fast BVH refit updates - blender
-- [ ] Consider PLOC for maximum performance scenarios
-- [ ] 4-way branching for GPU traversal (explored)
+
+- [x] O(N) bottom-up BVH refit for animated geometry
+- [x] Two-level BVH (TLAS/BLAS) with per-mesh refit for transforms
+- [x] Bounded worker pool for BLAS builds (no main-thread blocking)
+- [x] Ranged GPU upload (addUpdateRange) for partial buffer updates
+- [x] TLAS in-place refit instead of full SAH rebuild on transform
+- [ ] Object-space triangles + instance transform buffer for true instancing
+- [ ] GPU compute refit via compute shader (blocked on Three.js read-write storage buffers)
+- [ ] Background BLAS rebuild after refit when SAH quality degrades
+- [ ] Compact Wide BVH (CWBVH) — 4/8-way branching for GPU traversal
 
 ### Profiling
+
 - [ ] GPU timing measurements
 - [ ] Memory usage tracking
 - [ ] Bottleneck identification
@@ -91,11 +127,13 @@
 ---
 
 ## Experiments
+
+- [ ] Offscreen canvas rendering - <https://threejs.org/manual/#en/offscreencanvas>
 - [ ] Ray-Guiding based on Octahedron Mapping CDF
-- [ ] Investigate dot grid / moire-like effect and its impact on rendering
+- [ ] Interleaved Gradient Noise
 - [ ] Primary ray from rasterization pass for path tracing
 - [ ] Ray frustum culling
-- [ ] Two-level BVH with coarse top-level
+- [x] Two-level BVH with coarse top-level
 - [ ] Full Disney BSDF
 - [ ] Efficient Panorama Rendering
 - [x] Screen-space radiance caching
@@ -106,46 +144,45 @@
 - [x] irradiance probes,
 - [ ] Photon mapping
 - [ ] Bidirectional path tracing support
-
+- [ ] Experiment PLOC for maximum BVH performance scenarios
+- [x] tiered-material-buffer-access generalization - already at its practical optimum
+- [ ] Use ColorUtils.setKelvin() for light temperature
+- [ ] Opacity micro map
+- [ ] Shader Execution Reordering
+- [ ] Mega Geometries - Compressed Clusters as input to BLAS
+- [ ] Mega Geometries - PTLAS - Partitioned TLAS
+- [ ] Think of if glass and transparent object need diffuse component - wasted gi ray - just compute refraction ray inside gi pass
+- [ ] SHaRC - Spatial Hash Radiance Cache
+  
 ---
 
 ## AI Integration
+
 - [ ] Explore AI-driven denoising techniques beyond OIDN
-- [ ] https://upscalerjs.com/models/
-- [ ] https://enhance.addy.ie/
+- [ ] <https://upscalerjs.com/models/>
+- [ ] <https://enhance.addy.ie/>
+- [ ] NRD - Nvidia Realtime Denoiser
 
 ## AI Upscaler
+
 ### Performance
+
 - [ ] Custom model URL support — let users provide their own ONNX SR model
 - [ ] Estimated time remaining based on per-tile timing
+- [ ] FSR 2.x port
 
 ---
 
 ## Documentation
-- [ ] Comprehensive test suite
+
 - [ ] Shader code architecture documentation
 - [ ] Asset processing documentation
 
 ---
 
 ## References
-- WebGPU Graphics Pipeline: https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html
+
+- WebGPU Graphics Pipeline: <https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html>
 - See [ROADMAP.md] for long-term vision and strategic planning
 - See [CONTRIBUTING.md] for development guidelines
-
-
-
-__Side note:: Ignore below. Only an outdated note__
-Root Cause: Two independent bugs, both making IOR appear stronger than set.
-
-Bug 1 (Primary — refraction direction wrong)
-generateSampledDirection is the fallback transmission path (fires for partial glass where transmission < 1.0). It computed:
-
-
-const entering = dot(V, N).lessThan(0.0)  // WRONG
-Since V = -rayDir, this is equivalent to dot(rayDir, N) > 0 — the exact opposite of "entering". So when a ray hit the front face of glass, entering = false, causing sampleMicrofacetTransmission to use etaRatio = ior (exit path) instead of 1/ior (entry path). The refracted ray bent away from the normal instead of toward it — same visual effect as a dramatically higher IOR.
-
-Bug 2 (Secondary — wrong Fresnel reflectance)
-evaluateMaterialResponse hardcoded the dielectric F0 as vec3(0.04), which is the correct value only for IOR=1.5. For any other IOR, Fresnel reflectance was wrong — e.g., at IOR=2.0 the physical F0 is ~0.111 but the code used 0.04. This caused incorrect reflection/transmission balance at grazing angles for all non-default IOR values.
-
-Why the main glass path was unaffected: handleMaterialTransparency → handleTransmission has its own correct entering logic and N reorientation — so full glass (transmission=1.0) routed entirely through that path and rendered correctly. The bug only manifested for partial glass or when the CDF budget fell through to the fallback.
+- The Future of Path Tracing | Best Practices, Optimizations & Future Standards <https://www.youtube.com/watch?v=0IrzX4LDIx8>

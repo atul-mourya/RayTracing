@@ -65,7 +65,7 @@
 - [ ] **Modern Node-Based Material Editor**
   - [ ] Visual material graph with real-time preview
   - [ ] Procedural texture generation nodes
-  - [ ] Material library with PBR presets
+  - [x] Material library with PBR presets
   - [ ] Import/export material definitions
 
 - [ ] **Scene Management & Asset Pipeline**
@@ -73,7 +73,7 @@
   - [ ] Version control integration (Git LFS)
 
 - [ ] **Advanced Camera Controls**
-  - [ ] Cinema-grade camera with physical parameters
+  - [x] Cinema-grade camera with physical parameters
   - [ ] Camera animation and keyframing
   - [ ] Virtual camera with gamepad support
 
@@ -99,7 +99,7 @@
 - [ ] **Next-Gen BVH & Acceleration**
   - [x] 4-wide BVH with SAH splitting and treelet optimization
   - [ ] GPU-accelerated BVH construction (compute shader)
-  - [ ] Dynamic BVH updates for animated scenes
+  - [x] Dynamic BVH updates for animated scenes
   - [ ] Ray frustum culling
   - [ ] Primitive specialization (curves, volumes)
 

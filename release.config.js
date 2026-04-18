@@ -14,13 +14,14 @@ const config = {
 			}
 		} ],
 		'@semantic-release/release-notes-generator',
+		'semantic-release-export-data',
 		[ '@semantic-release/npm', {
-			npmPublish: false,
-			pkgRoot: '.',
+			npmPublish: true,
+			pkgRoot: 'rayzee',
 		} ],
 		[ '@semantic-release/git', {
-			assets: [ 'package.json' ],
-			message: 'chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}'
+			assets: [ 'rayzee/package.json' ],
+			message: 'chore(release): ${nextRelease.version}\n\n${nextRelease.notes}'
 		} ],
 		'@semantic-release/github'
 	],

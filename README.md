@@ -2,6 +2,15 @@
 
 A sophisticated real-time path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
 
+The project is organized as a monorepo with two packages:
+- **`rayzee/`** — The standalone rendering engine, publishable to npm
+- **`app/`** — The React UI application that wraps the engine
+
+External clients can use the engine independently:
+```js
+import { PathTracerApp } from 'rayzee';
+```
+
 🌐 **[Live Demo](https://atul-mourya.github.io/RayTracing/)**
 
 
@@ -81,7 +90,7 @@ Path tracing is a rendering technique that simulates the physical behavior of li
    cd RayTracing
    ```
 
-2. **Install dependencies**
+2. **Install dependencies** (installs both `rayzee/` and `app/` workspaces)
    ```bash
    npm install
    ```
@@ -93,13 +102,15 @@ Path tracing is a rendering technique that simulates the physical behavior of li
 
 4. **Open in browser**
    ```
-   http://localhost:5173
+   http://localhost:5174
    ```
 
 ### Build for Production
 ```bash
-npm run build
-npm run preview
+npm run build          # Builds both engine and app
+npm run build:engine   # Build only the rayzee engine
+npm run build:app      # Build only the React app
+npm run preview        # Preview the production build locally
 ```
 
 ## Keyboard Shortcuts
@@ -151,68 +162,80 @@ npm run preview
 The application follows an event-driven stage-based architecture:
 
 ```
-src/
-├── core/                    # Core path tracing engine
-│   ├── PathTracerApp.js     # Main application class
-│   ├── appProxy.js          # Decoupled app instance access
-│   ├── InteractionManager.js
-│   ├── Pipeline/            # Stage pipeline infrastructure
-│   │   ├── PassPipeline.js      # Stage execution orchestrator
-│   │   ├── PipelineStage.js     # Base class for stages
-│   │   ├── PipelineContext.js   # Shared state & textures
-│   │   └── EventDispatcher.js   # Event bus for stage communication
-│   ├── Stages/              # Rendering pipeline stages
-│   │   ├── PathTracingStage.js      # Core Monte Carlo path tracing
-│   │   ├── ASVGFStage.js           # Spatiotemporal denoising
-│   │   ├── AdaptiveSamplingStage.js # Variance-guided sampling
-│   │   ├── EdgeAwareFilteringStage.js
-│   │   ├── BilateralFilteringStage.js
-│   │   ├── NormalDepthStage.js      # G-buffer generation
-│   │   ├── MotionVectorStage.js     # Motion vector computation
-│   │   ├── VarianceEstimationStage.js
-│   │   ├── AutoExposureStage.js
-│   │   ├── TileHighlightStage.js
-│   │   └── DisplayStage.js         # Final composition
-│   ├── TSL/                 # TSL shader modules (23 files)
-│   │   ├── PathTracer.js        # Main path tracer logic
-│   │   ├── BVHTraversal.js      # BVH acceleration traversal
-│   │   ├── MaterialSampling.js  # BRDF sampling
-│   │   ├── Environment.js       # Environment mapping
-│   │   ├── LightsDirect.js      # Direct lighting
-│   │   ├── LightsIndirect.js    # Indirect lighting
-│   │   └── ...                  # Disney BRDF, transmission, fog, etc.
-│   └── Processor/           # Asset loading & processing
-│       ├── AssetLoader.js       # GLB/GLTF model loading
-│       ├── GeometryExtractor.js # Mesh → triangle data
-│       ├── BVHBuilder.js        # BVH acceleration structure
-│       ├── TextureCreator.js    # GPU texture generation
-│       └── Workers/             # Web Workers for heavy computation
-│           ├── BVHWorker.js
-│           └── TexturesWorker.js
-├── components/              # React UI components
-│   ├── layout/              # App layout (sidebars, topbar, viewports)
-│   └── ui/                  # 45+ Radix-based UI components
-├── hooks/                   # Custom React hooks (9 hooks)
-├── services/                # External services & APIs
-├── store.js                 # Zustand state management
-└── utils/                   # Utility functions
+├── rayzee/                  # Standalone rendering engine (npm package)
+│   └── src/
+│       ├── index.js             # Public API
+│       ├── PathTracerApp.js     # Main application class
+│       ├── managers/            # Focused manager classes
+│       │   ├── CameraManager.js     # Camera switching, auto-focus, DOF
+│       │   ├── LightManager.js      # Light CRUD, helpers, GPU transfer
+│       │   ├── DenoisingManager.js  # Denoiser strategy, OIDN, upscaler
+│       │   └── InteractionManager.js# Click-to-select, focus picking
+│       ├── Pipeline/            # Stage pipeline infrastructure
+│       │   ├── RenderPipeline.js    # Stage execution orchestrator
+│       │   ├── RenderStage.js       # Base class for stages
+│       │   ├── PipelineContext.js   # Shared state & textures
+│       │   └── EventDispatcher.js   # Event bus for stage communication
+│       ├── Stages/              # Rendering pipeline stages
+│       │   ├── PathTracer.js            # Core Monte Carlo path tracing
+│       │   ├── ASVGF.js                # Spatiotemporal denoising
+│       │   ├── AdaptiveSampling.js      # Variance-guided sampling
+│       │   ├── EdgeFilter.js
+│       │   ├── BilateralFilter.js
+│       │   ├── NormalDepth.js           # G-buffer generation
+│       │   ├── MotionVector.js          # Motion vector computation
+│       │   ├── Variance.js
+│       │   ├── AutoExposure.js
+│       │   └── Display.js              # Final composition
+│       ├── TSL/                 # TSL shader modules (23 files)
+│       │   ├── PathTracer.js        # Main path tracer logic
+│       │   ├── BVHTraversal.js      # BVH acceleration traversal
+│       │   ├── MaterialSampling.js  # BRDF sampling
+│       │   ├── Environment.js       # Environment mapping
+│       │   ├── LightsDirect.js      # Direct lighting
+│       │   ├── LightsIndirect.js    # Indirect lighting
+│       │   └── ...                  # Disney BRDF, transmission, fog, etc.
+│       └── Processor/           # Asset loading & processing
+│           ├── AssetLoader.js       # GLB/GLTF model loading
+│           ├── GeometryExtractor.js # Mesh → triangle data
+│           ├── BVHBuilder.js        # BVH acceleration structure
+│           ├── TextureCreator.js    # GPU texture generation
+│           └── Workers/             # Web Workers for heavy computation
+│               ├── BVHWorker.js
+│               └── TexturesWorker.js
+├── app/                     # React UI application
+│   ├── index.html
+│   ├── public/              # Static assets
+│   └── src/
+│       ├── components/          # React UI components
+│       │   ├── layout/              # App layout (sidebars, topbar, viewports)
+│       │   └── ui/                  # 45+ Radix-based UI components
+│       ├── hooks/               # Custom React hooks (9 hooks)
+│       ├── services/            # External services & APIs
+│       ├── store.js             # Zustand state management
+│       └── utils/               # Utility functions
+├── tests/                   # Vitest test suites
+├── package.json             # Workspace orchestration
+├── vitest.config.js
+└── eslint.config.js
 ```
 
 ### Rendering Pipeline
 
 Stages execute sequentially, communicating via an event bus:
 
-1. **PathTracingStage** — Core Monte Carlo path tracing with MRT outputs
-2. **NormalDepthStage** — G-buffer generation (normals + linear depth)
-3. **MotionVectorStage** — Per-pixel motion vectors for temporal filtering
-4. **VarianceEstimationStage** — Per-pixel variance for adaptive sampling
-5. **AdaptiveSamplingStage** — Variance-guided sample distribution
-6. **ASVGFStage** — Real-time spatiotemporal denoising
-7. **BilateralFilteringStage** — Edge-preserving bilateral filter
-8. **EdgeAwareFilteringStage** — Temporal filtering with edge preservation
-9. **AutoExposureStage** — Automatic exposure adjustment
-10. **TileHighlightStage** — Visual feedback for progressive tile rendering
-11. **DisplayStage** — Final composition and output
+1. **PathTracer** — Core Monte Carlo path tracing with MRT outputs
+2. **NormalDepth** — G-buffer generation (normals + linear depth)
+3. **MotionVector** — Per-pixel motion vectors for temporal filtering
+4. **Variance** — Per-pixel variance for adaptive sampling
+5. **AdaptiveSampling** — Variance-guided sample distribution
+6. **ASVGF** — Real-time spatiotemporal denoising
+7. **BilateralFilter** — Edge-preserving bilateral filter
+8. **EdgeFilter** — Temporal filtering with edge preservation
+9. **AutoExposure** — Automatic exposure adjustment
+10. **Display** — Final composition and output
+
+Tile visualization is handled by the **OverlayManager** (2D canvas overlay), not a pipeline stage.
 
 ### Debug Visualizations
 
@@ -239,8 +262,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Experience photorealistic rendering directly in your browser:
 
-![Sample Render 1](public/results/result1.png)
-![Sample Render 2](public/results/result2.png)
+![Sample Render 1](app/public/results/result1.png)
+![Sample Render 2](app/public/results/result2.png)
 
 ---
 

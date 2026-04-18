@@ -1,0 +1,341 @@
+import { EventDispatcher } from 'three';
+import { ENGINE_DEFAULTS } from './EngineDefaults.js';
+import { EngineEvents } from './EngineEvents.js';
+
+/**
+ * Routing table: maps each setting key to its target stage/handler.
+ *
+ * - `uniform`  → forwarded to PathTracer.setUniform(uniform, value)
+ * - `handler`  → calls a named handler method for multi-stage settings
+ * - `delegate` → routes to a named manager's updateParam(param, value)
+ * - `reset`    → whether to reset accumulation after the change (default true)
+ * - `after`    → optional method to call on PathTracer after the uniform is set
+ */
+const SETTING_ROUTES = {
+
+	// ── Simple PathTracer uniforms ──────────────────────────
+
+	maxBounces: { uniform: 'maxBounces', reset: true },
+	samplesPerPixel: { uniform: 'samplesPerPixel', reset: true },
+	transmissiveBounces: { uniform: 'transmissiveBounces', reset: true },
+	environmentIntensity: { uniform: 'environmentIntensity', reset: true },
+	backgroundIntensity: { uniform: 'backgroundIntensity', reset: true },
+	showBackground: { uniform: 'showBackground', reset: true },
+	enableEnvironment: { uniform: 'enableEnvironment', reset: true },
+	globalIlluminationIntensity: { uniform: 'globalIlluminationIntensity', reset: true },
+	enableDOF: { uniform: 'enableDOF', reset: true },
+	focusDistance: { uniform: 'focusDistance', reset: false },
+	focalLength: { uniform: 'focalLength', reset: true },
+	aperture: { uniform: 'aperture', reset: true },
+	apertureScale: { uniform: 'apertureScale', reset: true },
+	anamorphicRatio: { uniform: 'anamorphicRatio', reset: true },
+	samplingTechnique: { uniform: 'samplingTechnique', reset: true },
+	fireflyThreshold: { uniform: 'fireflyThreshold', reset: true },
+	enableAlphaShadows: { uniform: 'enableAlphaShadows', reset: true },
+	enableEmissiveTriangleSampling: { uniform: 'enableEmissiveTriangleSampling', reset: true },
+	emissiveBoost: { uniform: 'emissiveBoost', reset: true },
+	visMode: { uniform: 'visMode', reset: true },
+	debugVisScale: { uniform: 'debugVisScale', reset: true },
+	useAdaptiveSampling: { uniform: 'useAdaptiveSampling', reset: true },
+	adaptiveSamplingMax: { uniform: 'adaptiveSamplingMax', reset: true },
+
+	// ── Multi-stage / special handling ────────────────────────────
+
+	interactionModeEnabled: { handler: 'handleInteractionModeEnabled', reset: false },
+	maxSamples: { handler: 'handleMaxSamples', reset: false },
+	transparentBackground: { handler: 'handleTransparentBackground' },
+	exposure: { handler: 'handleExposure' },
+	saturation: { handler: 'handleSaturation' },
+	renderLimitMode: { handler: 'handleRenderLimitMode' },
+	renderTimeLimit: { handler: 'handleRenderTimeLimit', reset: false },
+	renderMode: { handler: 'handleRenderMode' },
+	environmentRotation: { handler: 'handleEnvironmentRotation' },
+
+};
+
+/**
+ * Default keys to extract from ENGINE_DEFAULTS for initializing the values map.
+ * Maps ENGINE_DEFAULTS key → RenderSettings key when they differ.
+ */
+const DEFAULTS_KEY_MAP = {
+	bounces: 'maxBounces',
+	adaptiveSampling: 'useAdaptiveSampling',
+	debugMode: 'visMode',
+};
+
+/**
+ * Single source of truth for all render parameters.
+ *
+ * Replaces the 48 property initializations and 22+ boilerplate setter
+ * methods that were duplicated across PathTracerApp and UniformManager.
+ *
+ * Usage:
+ *   settings.set('maxBounces', 8);
+ *   settings.get('maxBounces');               // 8
+ *   settings.setMany({ maxBounces: 8, exposure: 1.5 });
+ */
+export class RenderSettings extends EventDispatcher {
+
+	constructor( defaults = ENGINE_DEFAULTS ) {
+
+		super();
+
+		/** @type {Map<string, *>} */
+		this._values = new Map();
+
+		/** @type {import('./Stages/PathTracer.js').PathTracer|null} */
+		this._pathTracer = null;
+
+		/** @type {Function|null} - Callback to reset accumulation */
+		this._resetCallback = null;
+
+		/** @type {Object<string, Function>} - Named handlers for multi-stage settings */
+		this._handlers = {};
+
+		/** @type {Object<string, Object>} - Named delegate managers */
+		this._delegates = {};
+
+		// Initialize values from ENGINE_DEFAULTS
+		this._initDefaults( defaults );
+
+	}
+
+	/**
+	 * Wires internal references. Called by PathTracerApp after init().
+	 *
+	 * @param {Object} params
+	 * @param {Object} params.stages           - Pipeline stages { pathTracer, display, autoExposure, ... }
+	 * @param {Function} params.resetCallback   - Called to reset accumulation
+	 * @param {Function} [params.reconcileCompletion] - Called when completion limits change
+	 */
+	bind( { stages, resetCallback, reconcileCompletion } ) {
+
+		this._pathTracer = stages.pathTracer;
+		this._resetCallback = resetCallback;
+		this._delegates = {};
+		this._handlers = this._buildHandlers( stages, reconcileCompletion );
+
+	}
+
+	/**
+	 * Builds handler functions for multi-stage settings that can't
+	 * be routed with a simple uniform forward.
+	 */
+	_buildHandlers( stages, reconcileCompletion ) {
+
+		return {
+
+			handleTransparentBackground: ( value ) => {
+
+				stages.pathTracer?.setUniform( 'transparentBackground', value );
+				stages.display?.setTransparentBackground( value );
+
+			},
+
+			handleExposure: ( value ) => {
+
+				if ( ! stages.autoExposure?.enabled ) {
+
+					stages.display?.setExposure( value );
+
+				}
+
+			},
+
+			handleSaturation: ( value ) => {
+
+				stages.display?.setSaturation( value );
+
+			},
+
+			handleRenderLimitMode: ( value ) => {
+
+				stages.pathTracer?.setRenderLimitMode?.( value );
+
+			},
+
+			handleMaxSamples: ( value ) => {
+
+				stages.pathTracer?.setUniform( 'maxSamples', value );
+				stages.pathTracer?.updateCompletionThreshold();
+				reconcileCompletion?.();
+
+			},
+
+			handleRenderTimeLimit: () => {
+
+				reconcileCompletion?.();
+
+			},
+
+			handleRenderMode: ( value ) => {
+
+				stages.pathTracer?.setUniform( 'renderMode', parseInt( value ) );
+
+			},
+
+			handleEnvironmentRotation: ( value ) => {
+
+				stages.pathTracer?.environment.setEnvironmentRotation( value );
+
+			},
+
+			handleInteractionModeEnabled: ( value ) => {
+
+				stages.pathTracer?.setInteractionModeEnabled( value );
+
+			},
+
+		};
+
+	}
+
+	/**
+	 * Sets a single render parameter.
+	 * @param {string} key
+	 * @param {*}      value
+	 * @param {Object}  [options]
+	 * @param {boolean} [options.reset]  - Override the route's default reset behavior
+	 * @param {boolean} [options.silent] - Suppress the settingChanged event
+	 */
+	set( key, value, { reset, silent } = {} ) {
+
+		const prev = this._values.get( key );
+		if ( prev === value ) return;
+
+		this._values.set( key, value );
+
+		const route = SETTING_ROUTES[ key ];
+		if ( ! route ) return;
+
+		this._applyRoute( route, value, prev );
+
+		const shouldReset = reset !== undefined ? reset : ( route.reset ?? true );
+		if ( shouldReset ) this._resetCallback?.();
+
+		if ( ! silent ) {
+
+			this.dispatchEvent( { type: EngineEvents.SETTING_CHANGED, key, value, prev } );
+
+		}
+
+	}
+
+	/**
+	 * Batch-update multiple settings. Only calls reset() once at the end.
+	 * @param {Object} updates - Key/value pairs
+	 * @param {Object} [options]
+	 * @param {boolean} [options.silent] - Suppress settingChanged events
+	 */
+	setMany( updates, { silent } = {} ) {
+
+		let needsReset = false;
+
+		for ( const [ key, value ] of Object.entries( updates ) ) {
+
+			const prev = this._values.get( key );
+			if ( prev === value ) continue;
+
+			this._values.set( key, value );
+
+			const route = SETTING_ROUTES[ key ];
+			if ( ! route ) continue;
+
+			this._applyRoute( route, value, prev );
+
+			if ( route.reset ?? true ) needsReset = true;
+
+			if ( ! silent ) {
+
+				this.dispatchEvent( { type: EngineEvents.SETTING_CHANGED, key, value, prev } );
+
+			}
+
+		}
+
+		if ( needsReset ) this._resetCallback?.();
+
+	}
+
+	get( key ) {
+
+		return this._values.get( key );
+
+	}
+
+	getAll() {
+
+		return Object.fromEntries( this._values );
+
+	}
+
+	/**
+	 * Pushes all stored values to their target stages.
+	 * Called after loadSceneData() to ensure GPU uniforms match stored values.
+	 */
+	applyAll() {
+
+		for ( const [ key, value ] of this._values ) {
+
+			const route = SETTING_ROUTES[ key ];
+			if ( ! route ) continue;
+
+			// prev is undefined on initial apply — handlers should not rely on it
+			this._applyRoute( route, value, undefined );
+
+		}
+
+	}
+
+	// ── Private ───────────────────────────────────────────────────
+
+	_applyRoute( route, value, prev ) {
+
+		if ( route.uniform ) {
+
+			this._pathTracer?.setUniform( route.uniform, value );
+			if ( route.after ) this._pathTracer?.[ route.after ]?.();
+
+		} else if ( route.handler ) {
+
+			this._handlers[ route.handler ]?.( value, prev );
+
+		} else if ( route.delegate ) {
+
+			this._delegates[ route.delegate ]?.updateParam?.( route.param, value );
+
+		}
+
+	}
+
+	/**
+	 * Populates the values map from ENGINE_DEFAULTS.
+	 * Handles key renames via DEFAULTS_KEY_MAP.
+	 */
+	_initDefaults( defaults ) {
+
+		// Keys that exist in both SETTING_ROUTES and ENGINE_DEFAULTS (direct match)
+		for ( const key of Object.keys( SETTING_ROUTES ) ) {
+
+			if ( key in defaults ) {
+
+				this._values.set( key, defaults[ key ] );
+
+			}
+
+		}
+
+		// Keys where ENGINE_DEFAULTS uses a different name
+		for ( const [ defaultsKey, settingsKey ] of Object.entries( DEFAULTS_KEY_MAP ) ) {
+
+			if ( defaultsKey in defaults ) {
+
+				this._values.set( settingsKey, defaults[ defaultsKey ] );
+
+			}
+
+		}
+
+	}
+
+}
