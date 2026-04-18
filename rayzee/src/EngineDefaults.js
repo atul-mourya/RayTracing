@@ -55,7 +55,7 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Wavefront path tracing (feature flag) — disabled post-merge pending TSL API fixup
+	// Wavefront path tracing (feature flag) — renders but has 2x energy (NEE+indirect double-count, needs MIS)
 	wavefrontEnabled: true,
 
 	enablePathTracer: true,
