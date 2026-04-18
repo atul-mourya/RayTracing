@@ -8,15 +8,13 @@
 - [ ] oidndenoiser is desaturation the results
 - [ ] enhance test coverage of the engine
 - [ ] lint fix
-- [ ] compileAsync
 - [ ] SSRC apha, seems to have no effect
 - [ ] ASVGF heatmap shows black - normal
 - [ ] ASVGF heatmap shows improper motion vector
-- [ ] unify all patches in one file
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
 - [ ] needs WebGPU, can't unit-test
-- [ ] transform control redesign
+- [ ] memory leak after denoise and upscaling??
   
 ### Known
 
@@ -40,6 +38,10 @@
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
 - [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
+- [ ] transform control redesign
+
+### Compilation
+- [ ] compileAsync for compute shader
 
 ### Rendering
 
@@ -145,6 +147,12 @@
 - [ ] Experiment PLOC for maximum BVH performance scenarios
 - [x] tiered-material-buffer-access generalization - already at its practical optimum
 - [ ] Use ColorUtils.setKelvin() for light temperature
+- [ ] Opacity micro map
+- [ ] Shader Execution Reordering
+- [ ] Mega Geometries - Compressed Clusters as input to BLAS
+- [ ] Mega Geometries - PTLAS - Partitioned TLAS
+- [ ] Think of if glass and transparent object need diffuse component - wasted gi ray - just compute refraction ray inside gi pass
+- [ ] SHaRC - Spatial Hash Radiance Cache
   
 ---
 
@@ -153,6 +161,7 @@
 - [ ] Explore AI-driven denoising techniques beyond OIDN
 - [ ] <https://upscalerjs.com/models/>
 - [ ] <https://enhance.addy.ie/>
+- [ ] NRD - Nvidia Realtime Denoiser
 
 ## AI Upscaler
 
@@ -176,3 +185,4 @@
 - WebGPU Graphics Pipeline: <https://shi-yan.github.io/webgpuunleashed/Introduction/the_gpu_pipeline.html>
 - See [ROADMAP.md] for long-term vision and strategic planning
 - See [CONTRIBUTING.md] for development guidelines
+- The Future of Path Tracing | Best Practices, Optimizations & Future Standards <https://www.youtube.com/watch?v=0IrzX4LDIx8>

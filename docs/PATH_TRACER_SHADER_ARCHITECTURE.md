@@ -72,7 +72,7 @@ Every TSL file uses `Fn()`, `If()`, `Loop()`, `.toVar()`, `.assign()`, and proxy
 | `Struct.js` | `Ray`, `HitInfo`, `RayTracingMaterial`, `EmissiveSample`, etc. | GPU-side struct definitions |
 | `Common.js` | `getDatafromDataTexture()`, constants | Shared constants, texture data accessors |
 | `SSRC.js` | SSRC cache fetch | Screen Space Radiance Caching integration (consumed by PathTracerCore) |
-| `structProxy.js` | `structProxy()` factory | Proxy factory for dot-notation struct access in TSL |
+| `patches.js` | `struct()` factory + `WebGPUBackend` monkey-patch | Proxy-enhanced struct factory for dot-notation access, plus r184 compute register-pressure patch |
 
 ---
 
@@ -377,7 +377,7 @@ const myFunction = Fn(([param1, param2]) => {
 | Aspect | GLSL (removed) | TSL (current) |
 |---|---|---|
 | Language | Text `.fs` files | JS functions → WGSL |
-| Structs | `struct HitInfo { ... }` | `structProxy()` with Proxy |
+| Structs | `struct HitInfo { ... }` | `struct()` from `patches.js` (Proxy-wrapped) |
 | Uniforms | `uniform float exposure` | `uniform(1.0, 'float')` node objects |
 | Loops | `for (int i = 0; ...)` | `Loop(count, ({ i }) => { ... })` |
 | Branching | `if (x > 0)` | `If(x.greaterThan(0), () => { ... })` |
