@@ -185,7 +185,12 @@ export class WavefrontPathTracer extends PathTracer {
 
 			// Separate Extend + Shade (fused kernel has pink tint bug on multi-material scenes)
 			km.dispatch( 'extend' );
-			if ( this._sortMaterials ) km.dispatch( 'sort' );
+			if ( this._sortMaterials ) {
+
+				km.dispatch( 'resetSortHistogram' );
+				km.dispatch( 'sort' );
+
+			}
 			km.dispatch( 'shade' );
 			// TODO: investigate fused ExtendShadeKernel WGSL codegen issue
 
@@ -455,12 +460,32 @@ export class WavefrontPathTracer extends PathTracer {
 		// ── Sort kernel (material-index counting sort for subgroup coherence) ──
 		if ( this._sortMaterials ) {
 
+			// Reset histogram to zero before each Sort dispatch (atomicAdd accumulates).
+			const histogram = qm.getSortHistogram();
+			const histogramSize = qm.getSortHistogramSize();
+			const resetHistFn = Fn( () => {
+
+				const tid = instanceIndex;
+				If( tid.lessThan( uint( histogramSize ) ), () => {
+
+					atomicStore( histogram.element( tid ), uint( 0 ) );
+
+				} );
+
+			} );
+			this._kernelManager.register( 'resetSortHistogram',
+				resetHistFn().compute(
+					[ Math.ceil( histogramSize / 256 ), 1, 1 ],
+					[ 256, 1, 1 ]
+				)
+			);
+
 			const sortFn = buildSortKernel( {
 				hitBufferRO: pb.hitBuffer.ro,
 				activeIndicesReadRO: qm.getActiveReadRO(),
 				sortedIndicesRW: qm.getSortedRW(),
+				sortHistogram: histogram,
 				counters,
-				maxRayCount: this._wfMaxRayCount,
 			} );
 			this._kernelManager.register( 'sort',
 				sortFn().compute(

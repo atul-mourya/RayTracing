@@ -127,12 +127,23 @@ export class QueueManager {
 		this.sortedIndices = storage( sortAttr, 'uint' );
 		this.sortedIndicesRO = storage( sortAttr, 'uint' ).toReadOnly();
 
+		// Sort histogram: numWorkgroups × 16 atomic<u32> slots.
+		// TSL lacks atomic workgroup-scoped storage, so histogram + prefix-sum
+		// must live in storage memory. Each workgroup owns its own 16 slots.
+		const SORT_WG_SIZE = 256;
+		const SORT_BINS = 16;
+		const numWorkgroups = Math.ceil( capacity / SORT_WG_SIZE );
+		const sortHistogramSize = numWorkgroups * SORT_BINS;
+		this._sortHistogramSize = sortHistogramSize;
+		this.sortHistogram = attributeArray( sortHistogramSize, 'uint' ).toAtomic();
+
 		this.pingPong = 0;
 
 		const totalBytes = (
 			COUNTER.COUNT * 4 + // counters
 			capacity * 4 * 2 + // active indices A + B
-			capacity * 4 // sorted indices
+			capacity * 4 + // sorted indices
+			sortHistogramSize * 4 // sort histogram
 		);
 
 		console.log(
@@ -202,6 +213,26 @@ export class QueueManager {
 	getSortedRW() {
 
 		return this.sortedIndices;
+
+	}
+
+	/**
+	 * Get sort histogram (atomic read-write for Sort kernel).
+	 * @returns {StorageBufferNode}
+	 */
+	getSortHistogram() {
+
+		return this.sortHistogram;
+
+	}
+
+	/**
+	 * Number of u32 slots in sort histogram (numWorkgroups × 16).
+	 * @returns {number}
+	 */
+	getSortHistogramSize() {
+
+		return this._sortHistogramSize;
 
 	}
 
