@@ -81,6 +81,12 @@ export class OIDNDenoiser extends EventDispatcher {
 		// order guarantees the overwrites are serialized).
 		this._gpuInputPadBuffer = null;
 		this._gpuInputPaddedRowBytes = 0;
+		// Pooled MAP_READ staging buffer for _cacheInputAlpha. Only allocated
+		// when transparent-background readback is used, destroyed on resolution
+		// change or dispose. Same spirit as r184's ReadbackBuffer — we can't use
+		// renderer.getArrayBufferAsync because the source is a raw GPUBuffer,
+		// not a Three.js BufferAttribute.
+		this._alphaReadbackBuffer = null;
 
 		// Cached alpha channel from the input color buffer (OIDN discards alpha)
 		this._cachedAlpha = null;
@@ -508,9 +514,11 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._gpuInputBuffers.albedo?.destroy();
 		this._gpuInputBuffers.normal?.destroy();
 		this._gpuInputPadBuffer?.destroy();
+		this._alphaReadbackBuffer?.destroy();
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
 		this._gpuInputPadBuffer = null;
 		this._gpuInputPaddedRowBytes = 0;
+		this._alphaReadbackBuffer = null;
 		this._gpuInputBufferSize = { width: 0, height: 0 };
 
 	}
@@ -522,11 +530,21 @@ export class OIDNDenoiser extends EventDispatcher {
 	async _cacheInputAlpha( device, width, height ) {
 
 		const byteSize = width * height * 16; // rgba32float, tightly packed
-		const staging = device.createBuffer( {
-			label: 'oidn-alpha-staging',
-			size: byteSize,
-			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-		} );
+
+		// Lazy-allocate the pooled staging buffer on first call at this resolution.
+		// _destroyGPUInputBuffers clears it on resolution change or dispose, so if
+		// it is non-null here, it already matches the current resolution.
+		if ( this._alphaReadbackBuffer === null ) {
+
+			this._alphaReadbackBuffer = device.createBuffer( {
+				label: 'oidn-alpha-readback',
+				size: byteSize,
+				usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+			} );
+
+		}
+
+		const staging = this._alphaReadbackBuffer;
 
 		const enc = device.createCommandEncoder();
 		enc.copyBufferToBuffer( this._gpuInputBuffers.color, 0, staging, 0, byteSize );
@@ -545,7 +563,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		}
 
 		staging.unmap();
-		staging.destroy();
 
 		this._cachedAlpha = alpha;
 		this._cachedAlphaWidth = width;

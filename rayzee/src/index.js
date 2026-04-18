@@ -6,7 +6,6 @@
  */
 
 // Patches (side-effect imports — must run before any StorageTexture usage)
-import './TSL/storageTexturePatch.js';
 import './TSL/wgslGlobalVarsPatch.js';
 
 // Main application

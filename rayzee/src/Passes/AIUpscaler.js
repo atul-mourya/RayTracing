@@ -114,6 +114,14 @@ export class AIUpscaler extends EventDispatcher {
 		this._baseWidth = output.width;
 		this._baseHeight = output.height;
 
+		// Pooled HDR readback staging buffer — reused across _captureSourceHDR calls.
+		// Rebuilt only when the source texture dimensions change (same spirit as
+		// r184's ReadbackBuffer; we can't use renderer.getArrayBufferAsync directly
+		// because our source is a raw GPUTexture, not a Three.js BufferAttribute).
+		this._hdrStagingBuffer = null;
+		this._hdrStagingWidth = 0;
+		this._hdrStagingHeight = 0;
+
 	}
 
 	// ─── Model Management ─────────────────────────────────────────────────────
@@ -477,14 +485,26 @@ export class AIUpscaler extends EventDispatcher {
 		const width = colorTexture.width;
 		const height = colorTexture.height;
 
-		// GPU texture → staging buffer → CPU readback
+		// GPU texture → pooled staging buffer → CPU readback.
+		// The staging buffer is kept alive between calls (unmap, don't destroy)
+		// and only re-created when texture dimensions change.
 		const bytesPerRow = Math.ceil( width * 16 / 256 ) * 256; // rgba32float=16 bytes, aligned to 256
 		const bufferSize = bytesPerRow * height;
 
-		const stagingBuffer = device.createBuffer( {
-			size: bufferSize,
-			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
-		} );
+		if ( this._hdrStagingWidth !== width || this._hdrStagingHeight !== height ) {
+
+			this._hdrStagingBuffer?.destroy();
+			this._hdrStagingBuffer = device.createBuffer( {
+				label: 'aiupscaler-hdr-readback',
+				size: bufferSize,
+				usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+			} );
+			this._hdrStagingWidth = width;
+			this._hdrStagingHeight = height;
+
+		}
+
+		const stagingBuffer = this._hdrStagingBuffer;
 
 		const encoder = device.createCommandEncoder();
 		encoder.copyTextureToBuffer(
@@ -511,7 +531,6 @@ export class AIUpscaler extends EventDispatcher {
 		}
 
 		stagingBuffer.unmap();
-		stagingBuffer.destroy();
 
 		// Mark as HDR so _extractTile and _tensorToImageData handle it correctly
 		return { data, width, height, isHDR: true };
@@ -855,6 +874,11 @@ export class AIUpscaler extends EventDispatcher {
 		this._backupCanvas = null;
 		this._upscaledAlpha = null;
 		this.state.abortController = null;
+
+		this._hdrStagingBuffer?.destroy();
+		this._hdrStagingBuffer = null;
+		this._hdrStagingWidth = 0;
+		this._hdrStagingHeight = 0;
 
 		console.log( 'AIUpscaler disposed' );
 

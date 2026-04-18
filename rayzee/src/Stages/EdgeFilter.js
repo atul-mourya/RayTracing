@@ -50,7 +50,9 @@ export class EdgeFilter extends RenderStage {
 
 		// Output StorageTexture (compute writes here)
 		// Pre-allocated at max size — NEVER resize/dispose after this.
-		// StorageTexture.setSize() breaks textureStore bind groups (Three.js bug #32969).
+		// Kept as a defensive pattern: bug #32969 (setSize bind-group staleness)
+		// was fixed in r184 (PR #33028), but #33061 (TSL compute pipeline
+		// re-compile returns zeros) is still open.
 		const MAX_STORAGE_SIZE = 2048;
 		const w = options.width || 1;
 		const h = options.height || 1;
@@ -254,7 +256,8 @@ export class EdgeFilter extends RenderStage {
 	setSize( width, height ) {
 
 		// Only resize the RenderTarget — StorageTexture stays at max allocation
-		// (StorageTexture.setSize() breaks textureStore bind groups, Three.js bug #32969)
+		// (see constructor note: pre-allocation is a defensive pattern, retained
+		// after r184 fixed #32969, because #33061 is still open.)
 		this.outputTarget.setSize( width, height );
 		this.outputTarget.texture.needsUpdate = true;
 		this.resW.value = width;
