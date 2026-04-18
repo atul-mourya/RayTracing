@@ -127,8 +127,18 @@ Fix: apply matSamples to material struct before BRDF evaluation.
 Full calculateIndirectLighting + calculateDirectLightingUnified now work correctly.
 
 ### Tier 5: Performance (Phase 2)
-- [~] 22. Material sorting kernel — **wired into stage dispatch behind `wavefrontSortMaterials` flag (default off), but SortKernel itself is broken**. It uses `atomicAdd` on `workgroupArray` elements, but TSL's `WorkgroupInfoNode` generates `array<T>` rather than `array<atomic<T>>`, so WGSL validation fails and the dispatch silently no-ops. Fix options: (a) rewrite SortKernel with serial per-workgroup scatter (no atomics), (b) migrate histogram+prefix-sum to storage-buffer atomics (adds one binding), or (c) rewrite SortKernel as `wgslFn` with raw WGSL `var<workgroup> hist: array<atomic<u32>, 16>`.
-- [x] 23. Performance benchmarking — **wavefront is 0.69× at 3 bounces, 0.40× at 8 bounces** (steady-state, 512×512, 2 materials). Slower due to dispatch overhead + buffer I/O. Needs: fewer dispatches (merge kernels), larger scenes, more materials for sort benefit.
+- [x] 22. Material sorting kernel — working end-to-end via storage-atomic histogram (TSL's `WorkgroupInfoNode` emits plain `array<T>`, not `array<atomic<T>>`, so workgroup atomics were not viable). Wired behind `wavefrontSortMaterials` flag (default off after benchmark). `SortKernel.js` uses `QueueManager.sortHistogram` (`numWorkgroups × 16` atomic u32). Output is bit-identical to sort-off. See items 32–35 for follow-up tuning.
+- [x] 23. Performance benchmarking — 512×512, 3 bounces, 60 samples, across 5 scenes (Cornell/Ferrari/Helmet/Modern Bathroom/Pagani Huayra, 64–291K tris):
+
+  | Scene | Tris | sort OFF | sort ON | Δ |
+  |---|---:|---:|---:|---:|
+  | Cornell Box 1 | 64 | 0.96s | 1.20s | +25% |
+  | Ferrari | 34,050 | 1.03s | 1.20s | +17% |
+  | Helmet | 15,484 | 1.09s | 1.24s | +14% |
+  | Modern Bathroom | 187,188 | 1.60s | 1.75s | +9% |
+  | Pagani Huayra | 291,017 | 2.17s | 2.17s | 0% |
+
+  Gap narrows monotonically with scene complexity; break-even at ~290K tris. Sort dispatch is roughly fixed-cost (~0.15s/frame of work) while coherence benefit scales with material diversity, so crossover is predictable. Default flag OFF until a net-positive regime is identified.
 - [ ] 24. Prefix-sum compaction
 - [ ] 25. Half-precision buffers
 - [ ] 26. Async readback for dynamic dispatch
