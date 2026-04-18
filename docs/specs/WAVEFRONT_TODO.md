@@ -98,7 +98,7 @@ Shade kernel binding budget (8/8):
 ### Tier 1: Critical BRDF + Transparency (0 extra bindings)
 - [x] 6. Full Disney BRDF via `generateSampledDirection()` — specular, metallic, clearcoat lobes. Throughput uses albedo (not value/pdf) until MIS is added.
 - [x] 7. Transparency — `handleMaterialTransparency()` with medium stack (RAY_STRIDE=7), refraction, Fresnel, alpha-skip
-- [ ] 8. Add clearcoat sampling — `sampleClearcoat()` branch
+- [x] 8. Clearcoat sampling — added 2026-04-19 in ShadeKernel. Wraps the BRDF sample in `If(material.clearcoat > 0)` that calls `sampleClearcoat(ray, hitInfo, material, xi, rngState)`, else falls back to `generateSampledDirection` (original path). Verified on Pagani Huayra (40 mats, clearcoat paint): renders correctly with glossy highlights, no NaN, no new errors.
 - [x] 9. MIS via `calculateIndirectLighting` + `powerHeuristic` NEE. ~80% brightness match to monolithic.
 
 ### Tier 2: Light Support (needs binding budget work)
@@ -113,11 +113,11 @@ Shade kernel binding budget (8/8):
 
 ### Tier 4: Integration Testing
 - [x] 16. ASVGF denoiser — temporal stability verified
-- [ ] 17. OIDN denoiser — verify no NaN (not tested yet)
+- [x] 17. OIDN denoiser — verified 2026-04-19 on camera + Bistro scenes, wavefront + OIDN produces clean denoised output, no NaN/Inf in pixel sample.
 - [x] 18. Tile rendering — tile dispatch verified, tiles converge correctly
 - [x] 19. DOF — bokeh working, GenerateKernel DOF ray gen correct
-- [ ] 20. Adaptive sampling — not tested yet
-- [ ] 21. Debug visualization modes (visMode 1-7) — not tested yet
+- [x] 20. Adaptive sampling — verified 2026-04-19, stage enabled end-to-end with wavefront, texture node wired through Generate kernel, no visual regression.
+- [ ] 21. Debug visualization modes (visMode 1-10) — **not implemented** in wavefront. Monolithic short-circuits via `TraceDebugMode()` at `PathTracer.js:255`; Shade/Generate kernels in wavefront ignore the visMode uniform entirely. Non-trivial to port (needs visMode uniform wired + branch in Shade/Generate to replace output with debug color). Developer tool only — low urgency.
 
 ### FIXED: Visual parity achieved
 Root cause of brightness gap was 3 missing lines — material.color/metalness/roughness
@@ -235,13 +235,18 @@ and <3% on others (stochastic).
 
   **Blocker encountered & fixed**: wavefront rendered only the top-left 512×512 region when resolution was raised via UI. Root cause: `PathTracer.setSize()` updated storage textures but WavefrontPathTracer never rebuilt kernels, so `_wfRenderWidth/Height/MaxRayCount` uniforms and `_packedBuffers`/`_queueManager` sizes stayed at old dimensions. Generate's bounds check silently dropped rays outside the stale window. Fix: override `setSize()` and `_handleResize()` in WavefrontPathTracer to call `_buildWavefrontKernels()` on size change.
 
-  **Bistro result — 1024×1024, 8 bounces, 2.83M tris, 132 materials (UI-timed total for 60 frames):**
+  **Stress test — 1024×1024, 8 bounces, warm-cycle median of 3 runs:**
 
-  | Mode | Time/60f | ms/frame | vs monolithic |
-  |---|---:|---:|---:|
-  | Monolithic | 5.50s | 91.7 | baseline |
-  | Wavefront (sort OFF) | 8.30s | 138 | +51% |
-  | Wavefront (sort ON) | 8.46s | 141 | +54% |
+  | Scene | Tris | Mats | Monolithic | Wavefront | Regression |
+  |---|---:|---:|---:|---:|---:|
+  | Bistro | 2.83M | 132 | 91.7 ms/f | 147.4 ms/f | **+61%** |
+  | Sponza | 262K | 26 | 32.7 ms/f | 62.2 ms/f | **+90%** |
+
+  Warm runs are tightly reproducible (Bistro: 8842/8966/8838ms for 60 frames; Sponza: 3734/3735/3733ms). Cold-cycle (first load) adds 25–30% overhead from shader compile and must be discarded.
+
+  **Counter-intuitive finding**: *simpler* Sponza regresses MORE than *complex* Bistro. Wavefront's fixed per-frame architectural overhead (dispatches, barriers, kernel-boundary I/O) dominates proportionally when monolithic's per-ray work is light. Wavefront becomes relatively less bad as ray complexity grows — the opposite of the "complex scenes benefit from coherence" hypothesis.
+
+  Sort adds only ~2% on Bistro (user-tested, sort OFF: 8.30s vs sort ON: 8.46s).
 
   **Findings:**
   1. **Wavefront regresses ~50% on a dense, material-diverse, complex scene at high res/bounces.** The "coherence wins on complex scenes" hypothesis did NOT hold for Bistro — the opposite of what item 35 was meant to confirm.

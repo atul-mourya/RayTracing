@@ -37,8 +37,10 @@ import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
 import { getImportanceSamplingInfo } from '../MaterialProperties.js';
+import { sampleClearcoat, ClearcoatResult } from '../Clearcoat.js';
 import {
 	Ray,
+	HitInfo,
 	RayTracingMaterial,
 	MaterialSamples,
 	DirectionSample,
@@ -389,17 +391,43 @@ export function buildShadeKernel( params ) {
 			iorFactor: float( 0.67 ), maxSheenColor: float( 0.0 ),
 		} );
 
-		const brdfSample = DirectionSample.wrap( generateSampledDirection(
-			V, N, material, int( hitMatIdx ), xi, rngState,
-			false, int( - 1 ), mc,
-			false, emptyWeights,
-			false, emptyCache,
-		) ).toVar();
+		const brdfDir = vec3( 0.0 ).toVar();
+		const brdfValue = vec3( 0.0 ).toVar();
+		const brdfPdf = float( 0.0 ).toVar();
+
+		If( material.clearcoat.greaterThan( 0.0 ), () => {
+
+			const ccRay = Ray( { origin, direction } );
+			const ccHit = HitInfo( {
+				didHit: true, dst: hitDist, hitPoint, normal: N, uv: hitUV,
+				materialIndex: int( hitMatIdx ), meshIndex: int( 0 ),
+				triangleIndex: int( 0 ), boxTests: int( 0 ), triTests: int( 0 ),
+			} );
+			const ccResult = ClearcoatResult.wrap( sampleClearcoat(
+				ccRay, ccHit, material, xi, rngState,
+			) );
+			brdfDir.assign( ccResult.L );
+			brdfValue.assign( ccResult.brdf );
+			brdfPdf.assign( ccResult.pdf );
+
+		} ).Else( () => {
+
+			const bs = DirectionSample.wrap( generateSampledDirection(
+				V, N, material, int( hitMatIdx ), xi, rngState,
+				false, int( - 1 ), mc,
+				false, emptyWeights,
+				false, emptyCache,
+			) );
+			brdfDir.assign( bs.direction );
+			brdfValue.assign( bs.value );
+			brdfPdf.assign( bs.pdf );
+
+		} );
 
 		// ─── DIRECT LIGHTING ────────────────────────────────────
 		const directLight = calculateDirectLightingUnified(
 			hitPoint, N, material, V,
-			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			brdfDir, brdfPdf, brdfValue,
 			int( 0 ), bounceIndex, rngState,
 			directionalLightsBuffer, numDirectionalLights,
 			areaLightsBuffer, numAreaLights,
@@ -432,7 +460,7 @@ export function buildShadeKernel( params ) {
 
 		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
 			V, N, material,
-			brdfSample.direction, brdfSample.pdf, brdfSample.value,
+			brdfDir, brdfPdf, brdfValue,
 			int( 0 ), bounceIndex, rngState, samplingInfo,
 			envTexture, environmentIntensity, envMatrix,
 			envMarginalWeights, envConditionalWeights,
