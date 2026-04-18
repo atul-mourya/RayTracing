@@ -76,6 +76,11 @@ export class OIDNDenoiser extends EventDispatcher {
 		// Cached GPU storage buffers for texture→buffer copies (reused across denoise calls)
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
 		this._gpuInputBufferSize = { width: 0, height: 0 };
+		// Shared pad-strip buffer for non-256-aligned widths. Reused across
+		// color/albedo/normal copies within the same encoder (WebGPU command
+		// order guarantees the overwrites are serialized).
+		this._gpuInputPadBuffer = null;
+		this._gpuInputPaddedRowBytes = 0;
 
 		// Cached alpha channel from the input color buffer (OIDN discards alpha)
 		this._cachedAlpha = null;
@@ -385,13 +390,15 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Copy render target textures → tightly packed GPU storage buffers for oidn-web.
 		// copyTextureToBuffer requires bytesPerRow to be a multiple of 256. When the tight
-		// row size (width * 16) isn't aligned, copy via a padded staging buffer per texture
-		// then strip padding row-by-row.
+		// row size (width * 16) isn't aligned, copy via a shared pre-allocated padded buffer
+		// (see _ensureGPUInputBuffers) then strip padding row-by-row. The pad buffer is
+		// reused across color/albedo/normal — safe because WebGPU serializes commands
+		// within a single encoder.
 		const encoder = device.createCommandEncoder( { label: 'oidn-tex-to-buf' } );
 		const tightRowBytes = width * 16; // rgba32float
-		const paddedRowBytes = Math.ceil( tightRowBytes / 256 ) * 256;
-		const needsPadStrip = paddedRowBytes !== tightRowBytes;
-		const stagingBufs = [];
+		const paddedRowBytes = this._gpuInputPaddedRowBytes;
+		const needsPadStrip = paddedRowBytes > tightRowBytes;
+		const padBuf = this._gpuInputPadBuffer;
 
 		const copyTex = ( tex, tightBuf ) => {
 
@@ -404,9 +411,6 @@ export class OIDNDenoiser extends EventDispatcher {
 				);
 
 			} else {
-
-				const padBuf = device.createBuffer( { size: paddedRowBytes * height, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC } );
-				stagingBufs.push( padBuf );
 
 				encoder.copyTextureToBuffer(
 					{ texture: tex, mipLevel: 0 },
@@ -429,7 +433,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		copyTex( textures.normal, this._gpuInputBuffers.normal );
 
 		device.queue.submit( [ encoder.finish() ] );
-		for ( const buf of stagingBufs ) buf.destroy();
 
 		// Cache alpha channel from input color buffer when transparent background is enabled.
 		// OIDN only processes RGB — the alpha channel is lost, so we read it before denoising.
@@ -478,6 +481,25 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._gpuInputBuffers.normal = device.createBuffer( { label: 'oidn-in-normal', size: byteSize, usage } );
 		this._gpuInputBufferSize = { width, height };
 
+		// Pre-allocate the row-pad staging buffer when width * 16 isn't 256-aligned.
+		// Shared across the three texture copies; recreated only on resolution change.
+		const tightRowBytes = width * 16;
+		const paddedRowBytes = Math.ceil( tightRowBytes / 256 ) * 256;
+		if ( paddedRowBytes !== tightRowBytes ) {
+
+			this._gpuInputPadBuffer = device.createBuffer( {
+				label: 'oidn-in-pad',
+				size: paddedRowBytes * height,
+				usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+			} );
+			this._gpuInputPaddedRowBytes = paddedRowBytes;
+
+		} else {
+
+			this._gpuInputPaddedRowBytes = tightRowBytes;
+
+		}
+
 	}
 
 	_destroyGPUInputBuffers() {
@@ -485,7 +507,10 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._gpuInputBuffers.color?.destroy();
 		this._gpuInputBuffers.albedo?.destroy();
 		this._gpuInputBuffers.normal?.destroy();
+		this._gpuInputPadBuffer?.destroy();
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
+		this._gpuInputPadBuffer = null;
+		this._gpuInputPaddedRowBytes = 0;
 		this._gpuInputBufferSize = { width: 0, height: 0 };
 
 	}

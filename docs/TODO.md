@@ -14,7 +14,9 @@
 - [ ] ASVGF heatmap shows improper motion vector
 - [ ] unify all patches in one file
 - [ ] scrutenize for which all stages are needed as default
-- [ ] dispose, reset, etc life cycle for rayzee
+- [ ] dispose, reset, etc life cycle for rayzee engine. 
+- [ ] needs WebGPU, can't unit-test
+- [ ] transform control redesign
   
 ### Known
 
@@ -142,6 +144,7 @@
 - [ ] Bidirectional path tracing support
 - [ ] Experiment PLOC for maximum BVH performance scenarios
 - [x] tiered-material-buffer-access generalization - already at its practical optimum
+- [ ] Use ColorUtils.setKelvin() for light temperature
   
 ---
 

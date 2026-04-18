@@ -1,6 +1,7 @@
 import { Fn, wgslFn, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
-	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId } from 'three/tsl';
-import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
+	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId,
+	attributeArray } from 'three/tsl';
+import { RenderTarget, TextureNode, StorageTexture, ReadbackBuffer } from 'three/webgpu';
 import { FloatType, RGBAFormat, NearestFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
@@ -54,8 +55,11 @@ const adaptExposure = /*@__PURE__*/ wgslFn( `
  *   2. Reduction (compute): parallel reduction 64×64 → 1×1 via shared memory
  *      Single workgroup of 256 threads, each loads 16 texels.
  *      Computes geometric mean: exp(Σlog(L) / N)
- *   3. Adaptation (compute): temporal smoothing with prev exposure
- *   4. Async readback (1×1): apply to renderer.toneMappingExposure
+ *   3. Adaptation (compute): temporal smoothing with prev exposure; writes
+ *      vec4(exposure, luminance, targetExposure, 1) into a 1-element storage buffer.
+ *   4. Async readback via `renderer.getArrayBufferAsync(attr, ReadbackBuffer)`:
+ *      the ReadbackBuffer pools its staging GPUBuffer across frames, avoiding
+ *      per-frame allocation churn. Apply to renderer.toneMappingExposure.
  *
  * WebGPU advantage: async readback (no GPU pipeline stall).
  * 1-frame delay is imperceptible for slowly-changing exposure.
@@ -156,15 +160,12 @@ export class AutoExposure extends RenderStage {
 		// from StorageTexture return zeros — must copy to RenderTarget first)
 		this._reductionReadTarget = new RenderTarget( 1, 1, rtOpts );
 
-		// Adaptation StorageTexture (1×1) — compute writes here
-		this._adaptationStorageTex = new StorageTexture( 1, 1 );
-		this._adaptationStorageTex.type = FloatType;
-		this._adaptationStorageTex.format = RGBAFormat;
-		this._adaptationStorageTex.minFilter = NearestFilter;
-		this._adaptationStorageTex.magFilter = NearestFilter;
-
-		// Adaptation target (1×1) — readable copy for async readback
-		this._adaptationTarget = new RenderTarget( 1, 1, rtOpts );
+		// Adaptation result — 1×vec4 storage buffer attribute. Compute writes
+		// vec4(exposure, luminance, targetExposure, 1) here; CPU reads via
+		// getArrayBufferAsync + a pooled ReadbackBuffer (16 bytes).
+		this._adaptationResult = attributeArray( 1, 'vec4' );
+		this._readbackBuffer = new ReadbackBuffer( 16 );
+		this._readbackBuffer.name = 'AutoExposureAdaptation';
 
 	}
 
@@ -351,16 +352,15 @@ export class AutoExposure extends RenderStage {
 	 * Adaptation (compute): temporal smoothing
 	 *
 	 * Single-thread compute dispatch [1, 1, 1], workgroup [1, 1, 1].
-	 * Reads geometric mean from reduction RenderTarget (copied from StorageTexture),
-	 * reads previous adaptation from adaptation RenderTarget,
-	 * applies asymmetric temporal smoothing, writes to adaptation StorageTexture.
-	 *
-	 * Output: R = exposure, G = luminance, B = targetExposure, A = 1
+	 * Reads geometric mean from reduction RenderTarget, applies asymmetric
+	 * temporal smoothing using the previous-exposure uniform, and writes
+	 * vec4(exposure, luminance, targetExposure, 1) into a 1-element storage
+	 * buffer which the CPU reads via getArrayBufferAsync + ReadbackBuffer.
 	 */
 	_buildAdaptationCompute() {
 
 		const reductionTex = this._reductionReadTexNode;
-		const outputTex = this._adaptationStorageTex;
+		const resultBuf = this._adaptationResult;
 		const keyValue = this.keyValueU;
 		const minExp = this.minExposureU;
 		const maxExp = this.maxExposureU;
@@ -381,11 +381,7 @@ export class AutoExposure extends RenderStage {
 				dt, isFirst
 			);
 
-			textureStore(
-				outputTex,
-				uvec2( uint( 0 ), uint( 0 ) ),
-				result
-			).toWriteOnly();
+			resultBuf.element( uint( 0 ) ).assign( result );
 
 		} );
 
@@ -463,28 +459,43 @@ export class AutoExposure extends RenderStage {
 
 		this._reductionReadTexNode.value = this._reductionReadTarget.texture;
 		this.renderer.compute( this._adaptationComputeNode );
-		this.renderer.copyTextureToTexture( this._adaptationStorageTex, this._adaptationTarget.texture );
 
-		// ── Async readback (WebGPU advantage) ────────────
+		// ── Async readback via pooled ReadbackBuffer ─────
+		// getArrayBufferAsync reuses the ReadbackBuffer's internal staging
+		// GPUBuffer across frames. ReadbackBuffer.release() must be called
+		// before it can be reused — the _pendingReadback flag gates reentry.
 
 		if ( ! this._pendingReadback ) {
 
 			this._pendingReadback = true;
 			const generation = this._readbackGeneration;
 
-			this.renderer.readRenderTargetPixelsAsync(
-				this._adaptationTarget, 0, 0, 1, 1
-			).then( ( data ) => {
+			this.renderer.getArrayBufferAsync(
+				this._adaptationResult.value, this._readbackBuffer
+			).then( ( readback ) => {
 
+				// Copy the 4 floats out of the mapped buffer before release(),
+				// because release() nulls readback.buffer and unmaps the GPU buffer.
+				const data = readback && readback.buffer
+					? new Float32Array( readback.buffer.slice( 0 ) )
+					: null;
+				this._readbackBuffer.release();
 				this._pendingReadback = false;
+
 				// Discard stale readback from before a reset
-				if ( generation === this._readbackGeneration ) {
+				if ( data && generation === this._readbackGeneration ) {
 
 					this._applyReadback( data );
 
 				}
 
 			} ).catch( () => {
+
+				try {
+
+					this._readbackBuffer.release();
+
+				} catch { /* buffer may not be mapped on error */ }
 
 				this._pendingReadback = false;
 
@@ -612,8 +623,7 @@ export class AutoExposure extends RenderStage {
 		this._downsampleStorageTex?.dispose();
 		this._reductionStorageTex?.dispose();
 		this._reductionReadTarget?.dispose();
-		this._adaptationStorageTex?.dispose();
-		this._adaptationTarget?.dispose();
+		this._readbackBuffer?.dispose();
 
 	}
 
