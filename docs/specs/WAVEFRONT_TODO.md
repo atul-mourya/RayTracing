@@ -126,6 +126,36 @@ All BRDF functions used white/default base material instead of textured values.
 Fix: apply matSamples to material struct before BRDF evaluation.
 Full calculateIndirectLighting + calculateDirectLightingUnified now work correctly.
 
+### FIXED (2026-04): TSL idiom bugs that masqueraded as material + brightness issues
+
+After the Apr 2026 merge+re-verify pass, three related issues were found and fixed:
+
+1. **`.and()` and `.or()` are boolean (`&&` / `||`) in TSL, not bitwise**. The packed
+   hit-buffer op `matIndex.or(meshIndex.shiftLeft(16))` was collapsing to 0 or 1.
+   Every hit reported `mat=1` regardless of actual material — 47-material scenes
+   looked uniform white. Ray ACTIVE-bit clear (`flags.and(~ACTIVE)`) also silently
+   reduced flags to 1 rather than clearing the bit. Swept `.and/.or` → `.bitAnd/.bitOr`
+   in PackedRayBuffer and four wavefront kernels.
+
+2. **JS `return;` inside a TSL `If()` callback only exits the callback**, not the
+   outer Fn body. All wavefront kernels used `return;` for early-exit (inactive ray
+   skip, miss-handler short-circuit, russian roulette, max-bounce, etc). The code
+   AFTER each `If` kept running on rays that were supposed to be done. On miss rays,
+   that meant the HIT PROCESSING block ran with `hitMatIdx=65535` (uint(-1)&0xFFFF),
+   reading out-of-bounds material slots and adding garbage. The visible symptom was
+   a ~+1.0 bias on the R channel of env-background pixels. Replaced all 17 sites
+   with TSL's `Return()` (from `three/tsl`, via `utils/Discard.js`) which emits a
+   real WGSL `return`.
+
+3. **Secondary env-miss used hardcoded `bgScale = 2.0`** as a placeholder for
+   missing MIS. ShadeKernel now reads `prevBouncePdf` from the ray buffer,
+   evaluates `sampleEquirect` for the env PDF, and uses `powerHeuristic` as the
+   secondary miss weight — matching PathTracerCore.
+
+Result: Outdoor Sofaset, Pagani Huayra, and Camera all render with correct material
+differentiation. Sampled pixels match monolithic within 0.001 on most points
+and <3% on others (stochastic).
+
 ### Tier 5: Performance (Phase 2)
 - [x] 22. Material sorting kernel — working end-to-end via storage-atomic histogram (TSL's `WorkgroupInfoNode` emits plain `array<T>`, not `array<atomic<T>>`, so workgroup atomics were not viable). Wired behind `wavefrontSortMaterials` flag (default off after benchmark). `SortKernel.js` uses `QueueManager.sortHistogram` (`numWorkgroups × 16` atomic u32). Output is bit-identical to sort-off. See items 32–35 for follow-up tuning.
 - [x] 23. Performance benchmarking — 512×512, 3 bounces, 60 samples, across 5 scenes (Cornell/Ferrari/Helmet/Modern Bathroom/Pagani Huayra, 64–291K tris):
