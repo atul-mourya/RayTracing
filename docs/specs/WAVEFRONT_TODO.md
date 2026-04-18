@@ -133,6 +133,12 @@ Full calculateIndirectLighting + calculateDirectLightingUnified now work correct
 - [ ] 25. Half-precision buffers
 - [ ] 26. Async readback for dynamic dispatch
 
+### Tier 5b: Sort follow-ups (after benchmark 2026-04)
+- [ ] 32. Swap dispatch order so Compact runs before Sort, not after. Current flow is Extend → Sort → Shade → Compact; Sort currently processes dead rays too. Running Compact first means Sort's `activeCount` shrinks each bounce — smaller workload at later bounces.
+- [ ] 33. Raise `MAX_BINS` from 16 → 32 or 64 in SortKernel + QueueManager histogram allocation. Scenes with >16 distinct materials currently clamp to bin 15, so their sort degenerates to no-op beyond that. Cheap change, broadens applicability.
+- [ ] 34. Global (cross-workgroup) sort for full material coherence, not just per-workgroup. Needs a two-pass prefix-sum across workgroups. Only worth doing once per-WG sort proves net-positive on some scene.
+- [ ] 35. Re-benchmark at 8 bounces and at 1024×1024 resolution. Coherence wins compound on longer paths and larger sample pools; 3-bounce/512² may be understating the benefit.
+
 ### Tier 6: Full Parity + Migration
 - [ ] 27. Displacement mapping in Shade
 - [ ] 28. Medium stack persistence across bounces
