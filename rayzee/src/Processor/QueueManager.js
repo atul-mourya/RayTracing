@@ -103,7 +103,20 @@ export class QueueManager {
 		this.capacity = capacity;
 
 		// Atomic counter buffer: 4 × atomic<u32>
-		this.counters = attributeArray( COUNTER.COUNT, 'uint' ).toAtomic();
+		// Use explicit StorageInstancedBufferAttribute (not attributeArray) so we
+		// can reference it for async readback (item 26).
+		this._countersAttr = new StorageInstancedBufferAttribute( new Uint32Array( COUNTER.COUNT ), 1 );
+		this.counters = storage( this._countersAttr, 'uint' ).toAtomic();
+
+		// Per-bounce snapshot buffer (item 26): after each bounce's compact, the
+		// kernel copies ACTIVE_RAY_COUNT into this buffer at slot [bounce]. Read
+		// back async and used next frame to size/skip late bounces when ray death
+		// curve has stabilized. 32 slots covers worst-case max bounces.
+		this.MAX_BOUNCE_SNAPSHOTS = 32;
+		this._bounceCountsAttr = new StorageInstancedBufferAttribute(
+			new Uint32Array( this.MAX_BOUNCE_SNAPSHOTS ), 1,
+		);
+		this.bounceCounts = storage( this._bounceCountsAttr, 'uint' );
 
 		// Active ray indices: ping-pong pair
 		// Use shared StorageInstancedBufferAttribute + count=0 so RW/RO share GPU buffer
@@ -253,6 +266,37 @@ export class QueueManager {
 	getSortGlobalHistogram() {
 
 		return this.sortGlobalHistogram;
+
+	}
+
+	/**
+	 * Get the raw counters attribute for async readback (item 26).
+	 * Pass to `renderer.getArrayBufferAsync(this.getCountersAttribute(), ...)`.
+	 * @returns {StorageInstancedBufferAttribute}
+	 */
+	getCountersAttribute() {
+
+		return this._countersAttr;
+
+	}
+
+	/**
+	 * Get the per-bounce snapshot buffer (for kernel writes).
+	 * @returns {StorageBufferNode}
+	 */
+	getBounceCounts() {
+
+		return this.bounceCounts;
+
+	}
+
+	/**
+	 * Get the per-bounce snapshot attribute for async readback.
+	 * @returns {StorageInstancedBufferAttribute}
+	 */
+	getBounceCountsAttribute() {
+
+		return this._bounceCountsAttr;
 
 	}
 

@@ -34,7 +34,7 @@ import {
 } from '../TSL/wavefront/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
-	Fn, uint, atomicStore, instanceIndex, If,
+	Fn, uint, atomicStore, atomicLoad, instanceIndex, If,
 } from 'three/tsl';
 
 export class WavefrontPathTracer extends PathTracer {
@@ -48,6 +48,20 @@ export class WavefrontPathTracer extends PathTracer {
 		this._queueManager = null;
 		this._kernelManager = null;
 		this._wavefrontReady = false;
+
+		// Async counter readback for dynamic dispatch (item 26).
+		// After each bounce's compact, a 1-thread snapshot kernel copies
+		// ACTIVE_RAY_COUNT into a per-bounce buffer. We async-read it each frame;
+		// the stale per-bounce curve informs this frame's early-exit heuristic.
+		this._lastBounceCounts = null; // Uint32Array snapshot from past frame
+		this._readbackPending = false;
+		this._readbackEveryNFrames = 4; // limit readback cadence; stale is fine
+		this._readbackFrameCounter = 0;
+		// If last frame had ≤ threshold rays surviving bounce N, skip N+1..maxBounces this frame.
+		// Tuning: 1% of typical primary ray count. Above this, rays contribute
+		// enough light that skipping would cause visible darkening. Camera 512/3b
+		// sees 82K/18K/4K/1 per bounce; threshold 2000 skips only the truly dead tail.
+		this._bounceEarlyExitThreshold = 2000;
 
 		// Wavefront-specific uniforms
 		this._wfTileOffsetX = uniform( 0, 'int' );
@@ -219,7 +233,23 @@ export class WavefrontPathTracer extends PathTracer {
 			// Stream compaction
 			km.dispatch( 'resetActiveCounter' );
 			km.dispatch( 'compact' );
+			km.dispatch( 'snapshotBounceCount' );
 			this._queueManager.swap();
+
+			// Item 26: early-exit based on last frame's per-bounce snapshot.
+			// If last frame this bounce had <= threshold rays, remaining bounces
+			// contribute negligible light — skip them. Uses stale (1-2 frame old)
+			// data via async readback, acceptable for heuristic.
+			if (
+				this._lastBounceCounts
+				&& bounce < maxBounces
+				&& this._lastBounceCounts[ bounce ] !== undefined
+				&& this._lastBounceCounts[ bounce ] <= this._bounceEarlyExitThreshold
+			) {
+
+				break;
+
+			}
 
 		}
 
@@ -227,6 +257,11 @@ export class WavefrontPathTracer extends PathTracer {
 		km.dispatch( 'finalWrite' );
 
 		// ═══════════════════════════════════════════════════════════
+
+		// Async readback of atomic counters (item 26). Runs every N frames; result
+		// resolves 1-2 frames later and feeds the bounce-loop early-exit heuristic
+		// on subsequent frames. Cheap (16 bytes) and async — no GPU stall.
+		this._maybeReadbackCounters();
 
 		this.storageTextures.copyToReadTargets( this.renderer );
 
@@ -273,6 +308,38 @@ export class WavefrontPathTracer extends PathTracer {
 		super.setSize( width, height );
 
 		this._rebuildKernelsIfResized( oldW, oldH );
+
+	}
+
+	/**
+	 * Async readback of the per-bounce snapshot buffer (item 26). Fires every N
+	 * frames; result updates `this._lastBounceCounts` when it resolves. Never
+	 * awaited in render() — readback completes 1-2 frames later, so the bounce
+	 * loop uses data from a past frame as a heuristic for early-exit.
+	 */
+	_maybeReadbackCounters() {
+
+		if ( this._readbackPending ) return;
+
+		this._readbackFrameCounter ++;
+		if ( this._readbackFrameCounter < this._readbackEveryNFrames ) return;
+		this._readbackFrameCounter = 0;
+
+		const attr = this._queueManager?.getBounceCountsAttribute();
+		if ( ! attr ) return;
+
+		this._readbackPending = true;
+		this.renderer.getArrayBufferAsync( attr ).then( ( buf ) => {
+
+			this._lastBounceCounts = new Uint32Array( buf.slice( 0 ) );
+			this._readbackPending = false;
+
+		} ).catch( ( e ) => {
+
+			console.warn( 'Wavefront bounceCounts readback failed:', e );
+			this._readbackPending = false;
+
+		} );
 
 	}
 
@@ -413,6 +480,22 @@ export class WavefrontPathTracer extends PathTracer {
 		} );
 		this._kernelManager.register( 'resetShadowCounter',
 			resetShadowFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+		);
+
+		// ── Snapshot Bounce Active Count (item 26) ──
+		// Copies current ACTIVE_RAY_COUNT into bounceCounts[currentBounce] so CPU
+		// readback can see the ray-death curve across bounces. Single-thread kernel.
+		const bounceCountsBuf = qm.getBounceCounts();
+		const wfCurrentBounce = this._wfCurrentBounce;
+		const snapshotFn = Fn( () => {
+
+			const cnt = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
+			const slot = uint( wfCurrentBounce ).clamp( uint( 0 ), uint( qm.MAX_BOUNCE_SNAPSHOTS - 1 ) );
+			bounceCountsBuf.element( slot ).assign( cnt );
+
+		} );
+		this._kernelManager.register( 'snapshotBounceCount',
+			snapshotFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
 		);
 
 		// ── Init Active Indices (fill with sequential IDs) ──

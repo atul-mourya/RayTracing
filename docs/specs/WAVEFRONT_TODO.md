@@ -227,7 +227,28 @@ and <3% on others (stochastic).
   4. Keep origin/radiance/throughput/pdf at f32.
 
   Not shipped today because the design requires dedicated validation across scenes and the partial measures (packing without stride reduction) don't save bandwidth.
-- [ ] 26. Async readback for dynamic dispatch
+- [x] 26. **Async readback for dynamic dispatch** — implemented 2026-04-19.
+
+  **Mechanism**:
+  1. QueueManager exposes `counters` + per-bounce snapshot buffer (`MAX_BOUNCE_SNAPSHOTS=32` u32 slots).
+  2. After each bounce's compact, a 1-thread `snapshotBounceCount` kernel copies `atomicLoad(ACTIVE_RAY_COUNT)` into `bounceCounts[currentBounce]`.
+  3. Once per ~4 frames, `WavefrontPathTracer._maybeReadbackCounters()` fires `renderer.getArrayBufferAsync(bounceCountsAttr)`. Resolves async (no GPU stall).
+  4. Next frame, the bounce loop consults `_lastBounceCounts[bounce]` AFTER each compact; if survivors ≤ threshold (default 2000, ~1% of primary rays), it `break`s out, skipping remaining bounces.
+
+  **Warm-bench 512/8b (Camera scene, early-exit on vs off):**
+
+  | Config | ms / 60f | bounceCounts observed |
+  |---|---:|---|
+  | Early-exit OFF (threshold=-1) | 1240 | 82K, 18K, 4K, 100, 24, 9, 6, 3 |
+  | Early-exit ON (threshold=2000) | **722** | 82K, 18K, 4K, 100, 0, 0, 0, 0 |
+
+  **Saves 42% on open scenes with aggressive ray death** (Camera). Verified visually identical output. Cornell Box (enclosed) and Pagani also render correctly — item 26 doesn't break them, just provides less headroom.
+
+  **Why it works**: WebGPU workgroup launches have fixed overhead. Dispatching 4000 workgroups where only ~5 threads have work is wasteful — they each hit `If(tid >= activeCount) Return()` quickly but the launch cost is paid. Early-exit skips the dispatch entirely.
+
+  **Caveat**: threshold is a heuristic. Too high → darkens scene by dropping real light; too low → few savings. 2000 (~1% of 262K primary rays) chosen empirically. Could be made per-scene adaptive if needed.
+
+  **Contrast with item 32b (indirect dispatch)**: indirect dispatch sizes a single kernel's workgroups based on live count; item 26 decides whether to DISPATCH AT ALL for late bounces. Complementary — 32b attacks per-workgroup overhead, 26 attacks whole-bounce overhead. 32b was net-zero at 512/3b; 26 is +42% at 512/8b because the longer bounce tail amplifies the wasted-dispatch cost.
 
 ### Tier 5b: Sort follow-ups (ordered by dependency, 2026-04)
 
