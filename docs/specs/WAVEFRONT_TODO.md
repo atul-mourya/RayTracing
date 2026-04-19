@@ -217,7 +217,17 @@ and <3% on others (stochastic).
 
 - [~] 32b/40. **Indirect dispatch attempted, net-zero on warm cycles.** Prototype lives in working tree (uncommitted): IndirectStorageBufferAttribute in QueueManager, prepSortDispatch kernel in WavefrontPathTracer, Sort registered with indirect attr. Three.js supports this fully (`IndirectStorageBufferAttribute` → `dispatchWorkgroupsIndirect`). Implementation is correct, renders match monolithic exactly. But warm-cycle benchmark shows only Camera benefits (−8%); all other scenes are ±1% vs no-guard. The prep kernel's own launch overhead roughly offsets the empty-workgroup savings at 512×512/3 bounces. Might be worth keeping at higher resolutions or higher bounce counts where empty-workgroup count grows (item 35 will tell). For now: keep stashed, not a general win.
 
-- [ ] 41. **Material ID remapping / compaction**. Many scenes declare far more materials than they actually use (Pagani: 40 declared, ~16 hit). A pre-sort remap pass compresses material IDs to a dense `0..N-1` range where `N` = *used* materials. Once this lands, MAX_BINS=16 covers most real scenes without clamping, and item 39 becomes mostly moot.
+- [x] 41. **Material ID remapping** — implemented 2026-04-19. GeometryExtractor tracks per-material triangle count; SceneProcessor forwards it; MaterialDataManager builds a `remap[declaredMatIdx] → denseBinIdx` table by sorting materials by triangle count (descending) and assigning bin = rank position. SortKernel reads `remap[matIdx].clamp(0, MAX_BINS-1)` instead of raw `matIdx.clamp`, so the long tail of rarely-used materials collapses into bin 15 while frequently-used ones get exclusive bins. Gated at `materialCount > 32` (below that, direct clamp is already ≥ 50% coverage and the extra storage-buffer read dominates the coherence gain — Bathroom 24-mat experiment showed +5% regression without gate).
+
+  **Warm-bench gains (512×512, 3 bounces):**
+
+  | Scene | Mats | Before (direct clamp) | After (remap) | Delta |
+  |---|---:|---:|---:|---:|
+  | Pagani | 40 | 1830 ms / 60f | 1699 ms | **−7%** |
+  | Sofaset | 47 | 1650 ms | 1531 ms | **−7%** |
+  | Bathroom | 24 | 1190 ms | 1247 ms (remap bypassed) | n/a |
+
+  Even heavier wins expected on Bistro (132 mats, 10× dense-tail overflow) — not verified due to pre-existing texture-OOM loading bug on that scene. Revisit Item 42 (MAX_BINS=32/64 re-bench) now that remap makes dense scenes actually benefit from more bins.
 
 **Re-measure phase:**
 

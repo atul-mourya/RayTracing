@@ -591,6 +591,7 @@ export class WavefrontPathTracer extends PathTracer {
 				sortedIndicesRW: qm.getSortedRW(),
 				sortHistogram: histogram,
 				counters,
+				materialBinRemap: this.materialData?.materialBinRemapNode,
 			} );
 			this._kernelManager.register( 'sort',
 				sortFn().compute(

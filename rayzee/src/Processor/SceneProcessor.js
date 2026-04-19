@@ -298,6 +298,7 @@ export class SceneProcessor {
 			// Store other extracted data
 			this.materials = extractedData.materials;
 			this.materialCount = this.materials.length; // Store material count for feature scanning
+			this.materialTriangleCounts = extractedData.materialTriangleCounts; // Per-material tri count for sort-bin remap
 			this.meshes = extractedData.meshes;
 			this.meshTriangleRanges = extractedData.meshTriangleRanges; // Per-mesh { start, count } for TLAS/BLAS
 			this.maps = extractedData.maps;
@@ -1388,6 +1389,11 @@ export class SceneProcessor {
 		if ( this.materialData ) {
 
 			pathTracer.materialData.setMaterialData( this.materialData );
+			if ( this.materialTriangleCounts ) {
+
+				pathTracer.materialData.setMaterialBinRemap( this.materialTriangleCounts );
+
+			}
 
 		} else {
 

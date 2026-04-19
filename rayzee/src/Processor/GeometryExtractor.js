@@ -522,6 +522,10 @@ export class GeometryExtractor {
 	// triangle extraction that stores directly in texture format
 	extractTrianglesInBatch( positions, normals, uvs, indices, triangleCount, materialIndex, meshIndex ) {
 
+		// Track per-material triangle count for sort-bin remap (item 41)
+		while ( this.materialTriangleCounts.length <= materialIndex ) this.materialTriangleCounts.push( 0 );
+		this.materialTriangleCounts[ materialIndex ] += triangleCount;
+
 		// Pre-allocate objects for positions, normals, and UVs
 		const posA = this._getVec3( 0 );
 		const posB = this._getVec3( 1 );
@@ -748,6 +752,7 @@ export class GeometryExtractor {
 
 		// Reset other arrays
 		this.materials = [];
+		this.materialTriangleCounts = []; // Per-material triangle count (for sort-bin remap, item 41)
 		this.meshes = [];
 		this.meshTriangleRanges = []; // Per-mesh { start, count } for TLAS/BLAS
 		this.maps = [];
@@ -784,6 +789,7 @@ export class GeometryExtractor {
 			triangleData: this.getTriangleData(), // Texture-ready Float32Array format
 			triangleCount: this.getTriangleCount(),
 			materials: this.materials,
+			materialTriangleCounts: this.materialTriangleCounts,
 			meshes: this.meshes,
 			meshTriangleRanges: this.meshTriangleRanges, // Per-mesh { start, count } for TLAS/BLAS
 			maps: this.maps,
