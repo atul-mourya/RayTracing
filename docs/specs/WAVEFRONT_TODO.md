@@ -190,7 +190,37 @@ and <3% on others (stochastic).
   **Default `wavefrontSortMaterials` remains ON**: sort ON is equal to or better than sort OFF on all tested scenes at warm steady-state, and it's the production-standard pattern.
 
 - [ ] 24. Prefix-sum compaction
-- [ ] 25. Half-precision buffers
+- [~] 25. Half-precision buffers — **investigated, deferred** 2026-04-19.
+
+  **Goal**: cut GPU bandwidth between kernels (the dominant wavefront cost per the Bistro profile).
+
+  **Precision analysis**:
+  | Field | Current | f16 safe? | Notes |
+  |---|---|---|---|
+  | origin | f32×3 | NO | world-space position, precision critical for BVH |
+  | direction | f32×3 | YES | unit vector, bounded ±1 |
+  | flags | u32 | N/A | bit ops need full width |
+  | throughput | f32×3 | MAYBE | HDR scenes can exceed f16 max (65504) |
+  | pdf | f32 | NO | very small values, f16 underflows |
+  | radiance | f32×3 | NO | HDR; emissive samples routinely >65504 |
+  | hit normal | f32×3 | YES | unit vector, octahedral encoding |
+  | hit uv (tex) | f32×2 | YES | in [0,1] |
+  | hit dist | f32 | NO | range critical |
+  | matIdx/meshIdx | u32×2 | MAYBE | meshIdx can exceed 256 on large scenes |
+  | MRT albedo/normal/depth | f32×4 | YES | bounded, per-pixel once |
+  | IOR stack | f32 | YES | range [1, 2.5] |
+
+  **Bandwidth math**: ray buffer is ~112 B/ray × 1M rays = 112 MB, read/written by 4-5 kernels per bounce → 500-700 MB/bounce. Hit buffer ~32 B/hit × 1M = 32 MB × 3 kernels = ~100 MB/bounce. Ray buffer is 5-7× the hit buffer. Real savings require compacting the RAY buffer, not just hit.
+
+  **Blocker**: the biggest-win packing (HIT_STRIDE 2→1 for 50% hit savings) requires fitting `dist(f32) + triIdx(u32) + packedUV(u32) + packedNormal+matIdx+meshIdx(u32)` into 16 bytes. That forces matIdx+meshIdx into ≤16 bits combined. Current code uses 16+16 = 32. Squeezing to 8+8 caps meshes at 256, which fails on large scenes (Bistro is borderline). Without a design for a scene-dependent meshIdx encoding (e.g., a CPU-side remap like item 41 but for meshes), this isn't safe to ship.
+
+  **Path forward** (not this session):
+  1. Add mesh-ID remap (dense per-scene, analogous to item 41 for materials) so meshIdx fits u8.
+  2. Compact hit buffer to HIT_STRIDE=1 with octahedral normal + packed uv + matIdx/meshIdx.
+  3. Benchmark; if promising, extend to packing direction/albedo/normal in the ray buffer's MRT slots.
+  4. Keep origin/radiance/throughput/pdf at f32.
+
+  Not shipped today because the design requires dedicated validation across scenes and the partial measures (packing without stride reduction) don't save bandwidth.
 - [ ] 26. Async readback for dynamic dispatch
 
 ### Tier 5b: Sort follow-ups (ordered by dependency, 2026-04)
