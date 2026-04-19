@@ -8,7 +8,7 @@
  * Direct lighting (NEE) deferred to Phase 1B+ once pipeline is validated.
  *
  * Storage buffer bindings: 8 (at limit)
- *   materialBuffer(1) + envMarginalWeights(1) + envConditionalWeights(1)
+ *   materialBuffer(1) + envCDFBuffer(1) [+ lightBuffer(1) for item 13]
  *   + rayBuffer_RW(1) + rngBuffer_RW(1) + hitBuffer_RO(1)
  *   + shadowBuffer_WR(1) + counters(1)
  *

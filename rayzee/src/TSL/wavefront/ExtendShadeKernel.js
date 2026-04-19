@@ -12,7 +12,7 @@
  *
  * Storage buffer bindings: 8
  *   bvhBuffer(1) + triangleBuffer(1) + materialBuffer(1)
- *   + envMarginalWeights(1) + envConditionalWeights(1)
+ *   + envCDFBuffer(1) [packed since main d8e0bf4]
  *   + rayBuffer_RW(1) + rngBuffer_RW(1) + counters(1)
  *
  * Shadow rays go to shadowBuffer via the Shade kernel's counters binding.
