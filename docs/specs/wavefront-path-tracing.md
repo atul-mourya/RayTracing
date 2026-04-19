@@ -1,8 +1,38 @@
 # Wavefront Path Tracing — Technical Specification
 
-**Status:** Proposal
+**Status:** Implemented (experimental, opt-in). Does not replace monolithic — the two coexist behind `ENGINE_DEFAULTS.wavefrontEnabled`.
 **Author:** Rayzee Team
-**Date:** 2026-03-24
+**Date:** 2026-03-24 (proposal); revised 2026-04-19 (post-implementation)
+**Scope:** Add a multi-kernel wavefront path tracer alongside the monolithic per-pixel compute kernel
+
+## Implementation Status (2026-04-19)
+
+**Current reality vs original proposal:**
+
+- Wavefront pipeline is functionally complete for the rendering features the monolithic supports (BRDF, clearcoat, transmission, alpha shadows, env IS, MIS, DOF, tile rendering, ASVGF/OIDN denoisers, adaptive sampling, displacement, medium stack).
+- **Wavefront is a net perf regression at production workloads**, not a replacement. Warm-cycle bench at 1024×1024 / 8 bounces:
+  - Bistro (2.83M tris, 132 mats): monolithic 91.7 ms/frame vs wavefront 141-147 ms (+54-61%).
+  - Sponza (262K tris, 26 mats): monolithic 32.7 ms vs wavefront 62.2 ms (+90%).
+- Root cause per CPU + GPU profiling: wavefront is ~99% GPU-bound. CPU dispatch cost is negligible (~0.9 ms/frame); the rest is GPU memory/barrier throughput on ray-state round-trips between kernels. Kernel fusion (ExtendShade) regresses further due to register pressure (Bistro: 192 ms fused vs 166 ms separate).
+- Wavefront DOES win on some small/moderate scenes (Cornell −19%, Modern Bathroom −24% at 512/3b) where ray work is light enough that sub-kernel coherence > fixed architectural overhead.
+
+**Coherence optimizations shipped:**
+- Per-workgroup counting sort with 16-bin histogram (kept at 16 after 32-bin experiment regressed +17-29%).
+- Material-ID remap ranked by triangle frequency (item 41): −7% on Pagani and Sofaset at 512/3b.
+- Sort skipped when materialCount ≤ 8 (item 38); remap gated above 2×MAX_BINS.
+- Global counting sort (item 34): implemented behind `wavefrontSortGlobal` flag; regresses +18-30% vs per-WG and off by default.
+
+**Known limitations:**
+- Emissive-triangle NEE (item 13) unimplemented — blocked by TSL: `Fn()` can't close over storage buffers in a nested `Fn()`.
+- Debug visMode modes (1-10) not ported.
+- Path importance caching (item 29) not applicable — cache would have to persist through the ray buffer across kernel dispatches.
+
+**Migration plan (original §12) has been revised:** wavefront is NOT the default. Keep both paths; route per-scene based on complexity if needed.
+
+Detailed status: [docs/specs/WAVEFRONT_TODO.md](./WAVEFRONT_TODO.md).
+
+---
+
 **Scope:** Replace the monolithic per-pixel compute kernel with a multi-kernel wavefront architecture
 
 ---
