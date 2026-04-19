@@ -628,7 +628,9 @@ export class GeometryExtractor {
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 0 ] = normalC.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 1 ] = normalC.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 2 ] = normalC.z;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 3 ] = 0; // vec4 padding
+		// Repurposed padding: per-triangle side flag (0=front, 1=back, 2=double).
+		// Lets BVH traversal do side culling without a material-buffer read per hit.
+		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_C_OFFSET + 3 ] = this.materials[ materialIndex ]?.side ?? 0;
 
 		// UVs and material index (2 vec4s = 8 floats)
 		// First vec4: uvA.x, uvA.y, uvB.x, uvB.y

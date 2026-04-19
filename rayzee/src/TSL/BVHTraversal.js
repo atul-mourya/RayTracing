@@ -224,10 +224,14 @@ export const traverseBVH = Fn( ( [
 						const u = triResult.y;
 						const v = triResult.z;
 
-						// Fetch normals + material data for visibility check (4 reads)
+						// Fetch normals + UV data for visibility check (4 reads).
+						// normalCData.w carries the per-triangle side flag (0/1/2) — saves a
+						// per-candidate material-buffer read vs calling passesSideCulling.
 						const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
 						const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
-						const nC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) ).xyz;
+						const normalCData = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) );
+						const nC = normalCData.xyz;
+						const side = int( normalCData.w ).toVar();
 						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
 
 						const matIdx = int( uvData2.z );
@@ -236,8 +240,13 @@ export const traverseBVH = Fn( ( [
 						const w = float( 1.0 ).sub( u ).sub( v );
 						const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
 
-						// Side culling check (per-mesh visibility handled at BLAS-pointer level)
-						If( passesSideCulling( matIdx, rayDirection, normal, materialBuffer ), () => {
+						// Side culling (inline; per-mesh visibility is at the BLAS-pointer level).
+						// 0=front (reject back-facing), 1=back (reject front-facing), 2=double (pass).
+						const rayDotNormal = rayDirection.dot( normal );
+						const sidePass = side.equal( int( 2 ) )
+							.or( side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) ) )
+							.or( side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) ) );
+						If( sidePass, () => {
 
 							closestHit.didHit.assign( true );
 							closestHit.dst.assign( t );

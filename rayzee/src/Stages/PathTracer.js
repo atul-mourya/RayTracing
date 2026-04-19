@@ -114,6 +114,19 @@ export class PathTracer extends RenderStage {
 		// Initialize material data manager
 		this.materialData = new MaterialDataManager( this.sdfs );
 		this.materialData.callbacks.onReset = () => this.reset();
+		// Triangle data carries the per-triangle `side` flag (NORMAL_C.w). The
+		// authoritative CPU array is triangleStorageAttr.array (not sdfs.triangleData,
+		// which isn't populated on the PathTracerApp build path). The patch mutates
+		// the array in place — only a dirty flag is needed for GPU re-upload.
+		this.materialData.callbacks.getTriangleData = () => ( {
+			array: this.triangleStorageAttr?.array,
+			count: this.triangleCount,
+		} );
+		this.materialData.callbacks.onTriangleDataChanged = () => {
+
+			if ( this.triangleStorageAttr ) this.triangleStorageAttr.needsUpdate = true;
+
+		};
 
 		// Initialize environment manager
 		this.environment = new EnvironmentManager( this.scene, this.uniforms );

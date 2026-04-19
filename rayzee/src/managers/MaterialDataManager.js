@@ -9,9 +9,12 @@
 
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
-import { TEXTURE_CONSTANTS, MATERIAL_DATA_LAYOUT as M } from '../EngineDefaults.js';
+import { MATERIAL_DATA_LAYOUT as M, TRIANGLE_DATA_LAYOUT as T } from '../EngineDefaults.js';
 
 const PIXELS_PER_MATERIAL = M.SLOTS_PER_MATERIAL;
+// Per-triangle float offsets used by _patchTriangleSideForMaterial.
+const TRI_MAT_IDX_OFFSET = T.UV_C_MAT_OFFSET + 2; // uvData2.z in shader
+const TRI_SIDE_OFFSET = T.NORMAL_C_OFFSET + 3; // normalCData.w in shader
 
 export class MaterialDataManager {
 
@@ -41,7 +44,7 @@ export class MaterialDataManager {
 
 		/**
 		 * Optional callbacks set by the owning stage.
-		 * @type {{ onReset?: Function, onFeaturesChanged?: Function }}
+		 * @type {{ onReset?: Function, onFeaturesChanged?: Function, getTriangleData?: Function, onTriangleDataChanged?: Function }}
 		 */
 		this.callbacks = {};
 
@@ -275,7 +278,11 @@ export class MaterialDataManager {
 			case 'clearcoat': data[ stride + M.CLEARCOAT ] = value; break;
 			case 'clearcoatRoughness': data[ stride + M.CLEARCOAT_ROUGHNESS ] = value; break;
 			case 'opacity': data[ stride + M.OPACITY ] = value; break;
-			case 'side': data[ stride + M.SIDE ] = value; break;
+			case 'side': data[ stride + M.SIDE ] = value;
+				// Side is also mirrored into per-triangle data (NORMAL_C.w) so BVH
+				// traversal can do side culling without reading the material buffer.
+				this._patchTriangleSideForMaterial( materialIndex, value );
+				break;
 			case 'transparent': data[ stride + M.TRANSPARENT ] = value; break;
 			case 'alphaTest': data[ stride + M.ALPHA_TEST ] = value; break;
 			case 'alphaMode': data[ stride + M.ALPHA_MODE ] = value; break;
@@ -414,6 +421,8 @@ export class MaterialDataManager {
 		data[ stride + M.CLEARCOAT_ROUGHNESS ] = materialData.clearcoatRoughness ?? 0;
 		data[ stride + M.OPACITY ] = materialData.opacity ?? 1;
 		data[ stride + M.SIDE ] = materialData.side ?? 0;
+		// Mirror side into per-triangle data so BVH traversal avoids a material-buffer read.
+		this._patchTriangleSideForMaterial( materialIndex, materialData.side ?? 0 );
 		data[ stride + M.TRANSPARENT ] = materialData.transparent ?? 0;
 		data[ stride + M.ALPHA_TEST ] = materialData.alphaTest ?? 0;
 		data[ stride + M.ALPHA_MODE ] = materialData.alphaMode ?? 0;
@@ -654,6 +663,44 @@ export class MaterialDataManager {
 	_notifyFeaturesChanged() {
 
 		this.injectMaterialFeatureDefines();
+
+	}
+
+	/**
+	 * Rewrite the per-triangle `side` flag (NORMAL_C.w) for every triangle whose
+	 * materialIndex matches. Linear over triangles because there's no reverse
+	 * index — side edits are a rare UI action so the scan cost is acceptable.
+	 * @private
+	 */
+	_patchTriangleSideForMaterial( materialIndex, sideValue ) {
+
+		// Triangle data lives on the owning stage's StorageInstancedBufferAttribute,
+		// not on this.sdfs (which may be a different SceneProcessor instance than
+		// the one that uploaded the data in PathTracerApp's build flow).
+		const triInfo = this.callbacks.getTriangleData?.();
+		const triData = triInfo?.array;
+		const triCount = triInfo?.count | 0;
+		if ( ! triData || triCount === 0 ) return;
+
+		const stride = T.FLOATS_PER_TRIANGLE;
+		let patched = 0;
+		for ( let i = 0; i < triCount; i ++ ) {
+
+			const base = i * stride;
+			if ( triData[ base + TRI_MAT_IDX_OFFSET ] === materialIndex ) {
+
+				triData[ base + TRI_SIDE_OFFSET ] = sideValue;
+				patched ++;
+
+			}
+
+		}
+
+		if ( patched > 0 && this.callbacks.onTriangleDataChanged ) {
+
+			this.callbacks.onTriangleDataChanged();
+
+		}
 
 	}
 
