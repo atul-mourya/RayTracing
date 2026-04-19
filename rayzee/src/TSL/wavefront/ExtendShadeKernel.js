@@ -77,7 +77,7 @@ export function buildExtendShadeKernel( params ) {
 	const {
 		// Scene storage buffers (5)
 		bvhBuffer, triangleBuffer, materialBuffer,
-		envMarginalWeights, envConditionalWeights,
+		envCDFBuffer,
 		// Packed buffers (4)
 		rayBufferRW, rngBufferRW,
 		shadowBufferRW, counters,
@@ -359,7 +359,7 @@ export function buildExtendShadeKernel( params ) {
 			spotLightsBuffer, numSpotLights,
 			bvhBuffer, triangleBuffer, materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
+			envCDFBuffer,
 			envTotalSum, envResolution,
 			enableEnvironmentLight,
 		);
@@ -387,7 +387,7 @@ export function buildExtendShadeKernel( params ) {
 			brdfSample.direction, brdfSample.pdf, brdfSample.value,
 			int( 0 ), bounceIndex, rngState, samplingInfo,
 			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
+			envCDFBuffer,
 			envTotalSum, envResolution,
 			enableEnvironmentLight, useEnvMapIS,
 		) ).toVar();

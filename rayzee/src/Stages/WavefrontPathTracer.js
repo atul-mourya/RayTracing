@@ -477,8 +477,10 @@ export class WavefrontPathTracer extends PathTracer {
 		const freshBvh = this.bvhStorageNode;
 		const freshTri = this.triangleStorageNode;
 		const freshMat = this.materialData.materialStorageNode;
-		const freshMarginal = this.environment.envMarginalStorageNode;
-		const freshConditional = this.environment.envConditionalStorageNode;
+		// Packed env CDF (1 binding replaces old marginal+conditional pair — main commit d8e0bf4)
+		const freshEnvCDF = this.environment.envCDFStorageNode;
+		// Packed light buffer (1 binding carrying both lightBVH nodes + emissive tris)
+		const freshLight = this.lightStorageNode;
 		// Create INDEPENDENT texture nodes that have never been compiled
 		// by any other pipeline. This avoids Three.js TextureNode caching
 		// issues between the monolithic and wavefront compute pipelines.
@@ -512,8 +514,7 @@ export class WavefrontPathTracer extends PathTracer {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
 			materialBuffer: freshMat,
-			envMarginalWeights: freshMarginal,
-			envConditionalWeights: freshConditional,
+			envCDFBuffer: freshEnvCDF,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
 			shadowBufferRW: pb.shadowBuffer.rw,
@@ -680,8 +681,8 @@ export class WavefrontPathTracer extends PathTracer {
 			bvhBuffer: freshBvh,
 			triangleBuffer: freshTri,
 			materialBuffer: freshMat,
-			envMarginalWeights: freshMarginal,
-			envConditionalWeights: freshConditional,
+			envCDFBuffer: freshEnvCDF,
+			lightBuffer: freshLight,
 			rayBufferRW: pb.rayBuffer.rw,
 			rngBufferRW: pb.rngBuffer.rw,
 			hitBufferRO: pb.hitBuffer.ro,
@@ -719,6 +720,14 @@ export class WavefrontPathTracer extends PathTracer {
 			cameraViewMatrix: this.cameraViewMatrix,
 			fireflyThreshold: this.fireflyThreshold,
 			frame: this.frame,
+			// Emissive triangle NEE (item 13)
+			emissiveTriangleCount: this.emissiveTriangleCount,
+			emissiveVec4Offset: this.emissiveVec4Offset,
+			emissiveTotalPower: this.emissiveTotalPower,
+			emissiveBoost: this.emissiveBoost,
+			totalTriangleCount: this.totalTriangleCount,
+			enableEmissiveTriangleSampling: this.enableEmissiveTriangleSampling,
+			lightBVHNodeCount: this.lightBVHNodeCount,
 			currentBounce: this._wfCurrentBounce,
 			maxRayCount: this._wfMaxRayCount,
 		} );

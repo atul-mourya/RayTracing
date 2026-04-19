@@ -31,6 +31,7 @@ import { getMaterial, powerHeuristic, classifyMaterial } from '../Common.js';
 import { sampleAllMaterialTextures } from '../TextureSampling.js';
 import { evaluateMaterialResponse } from '../MaterialEvaluation.js';
 import { calculateDirectLightingUnified, calculateMaterialPDF } from '../LightsSampling.js';
+import { traceShadowRay, calculateRayOffset } from '../LightsDirect.js';
 import { traverseBVHShadow } from '../BVHTraversal.js';
 import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
@@ -39,6 +40,8 @@ import { regularizePathContribution, generateSampledDirection } from '../PathTra
 import { getImportanceSamplingInfo } from '../MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from '../Clearcoat.js';
 import { refineDisplacedIntersection, DisplacementResult } from '../Displacement.js';
+import { calculateEmissiveTriangleContribution, EmissiveSample } from '../EmissiveSampling.js';
+import { sampleLightBVHTriangle } from '../LightBVHSampling.js';
 import {
 	Ray,
 	HitInfo,
@@ -76,9 +79,11 @@ const MISS_DIST = 1e19;
 export function buildShadeKernel( params ) {
 
 	const {
-		// Scene storage buffers (5 — requires maxStorageBuffersPerShaderStage >= 10)
+		// Scene storage buffers (4 after packing env CDF)
 		bvhBuffer, triangleBuffer, materialBuffer,
-		envMarginalWeights, envConditionalWeights,
+		envCDFBuffer,
+		// Optional packed light buffer (emissive tris + light BVH nodes) — 1 binding
+		lightBuffer,
 		// Packed buffers (5)
 		rayBufferRW, rngBufferRW, hitBufferRO,
 		shadowBufferRW, counters,
@@ -102,11 +107,17 @@ export function buildShadeKernel( params ) {
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame,
+		// Emissive triangle NEE (item 13) — opt-in via enableEmissiveTriangleSampling
+		emissiveTriangleCount, emissiveVec4Offset, emissiveTotalPower,
+		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
+		lightBVHNodeCount,
 		// Current bounce (set per-bounce by stage)
 		currentBounce,
 		// Max count
 		maxRayCount,
 	} = params;
+
+	const useEmissiveNEE = lightBuffer !== undefined;
 
 	const computeFn = Fn( () => {
 
@@ -478,7 +489,7 @@ export function buildShadeKernel( params ) {
 			spotLightsBuffer, numSpotLights,
 			bvhBuffer, triangleBuffer, materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
+			envCDFBuffer,
 			envTotalSum, envResolution,
 			enableEnvironmentLight,
 		);
@@ -488,6 +499,120 @@ export function buildShadeKernel( params ) {
 			currentRadiance.xyz.add( throughput.mul( directLight ).mul( giScale ) ),
 			currentRadiance.w
 		) );
+
+		// ─── EMISSIVE TRIANGLE NEE (item 13, unblocked by packed lightBuffer) ────
+		// Mirrors PathTracerCore.js:1025-1107. Light BVH fast path when available,
+		// flat-CDF fallback otherwise. Both paths go through the shared lightBuffer
+		// binding; emissiveVec4Offset locates the emissive section within it.
+		if ( useEmissiveNEE ) {
+
+			If(
+				enableEmissiveTriangleSampling.equal( int( 1 ) )
+					.and( emissiveTriangleCount.greaterThan( int( 0 ) ) ),
+				() => {
+
+					// 4-param shadow wrapper — closes over scene storage buffers that
+					// calculateEmissiveTriangleContribution's inner callback needs.
+					const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist, rs ] ) => {
+
+						return traceShadowRay(
+							origin, dir, maxDist, rs,
+							traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer,
+						);
+
+					} );
+
+					If( lightBVHNodeCount.greaterThan( int( 0 ) ), () => {
+
+						// Light-BVH fast path (spatially-aware importance sampling)
+						const emissiveSample = EmissiveSample.wrap( sampleLightBVHTriangle(
+							hitPoint, N,
+							rngState,
+							lightBuffer,
+							lightBuffer,
+							emissiveVec4Offset,
+							triangleBuffer,
+						) );
+
+						// Skip for very rough diffuse surfaces on secondary bounces (monolithic match)
+						const skip = bounceIndex.greaterThan( int( 1 ) )
+							.and( material.roughness.greaterThan( 0.9 ) )
+							.and( material.metalness.lessThan( 0.1 ) );
+
+						If( skip.not().and( emissiveSample.valid ).and( emissiveSample.pdf.greaterThan( 0.0 ) ), () => {
+
+							const NoL = max( float( 0.0 ), dot( N, emissiveSample.direction ) );
+
+							If( NoL.greaterThan( 0.0 ), () => {
+
+								const rayOffset = calculateRayOffset( hitPoint, N, material );
+								const rayOrigin = hitPoint.add( rayOffset );
+								const shadowDist = emissiveSample.distance.sub( 0.001 );
+								const visibility = traceShadowRayWrapped(
+									rayOrigin, emissiveSample.direction, shadowDist, rngState,
+								);
+
+								If( visibility.greaterThan( 0.0 ), () => {
+
+									const brdfVal = evaluateMaterialResponse( V, emissiveSample.direction, N, material );
+									const bPdf = calculateMaterialPDF( V, emissiveSample.direction, N, material );
+									const misW = select(
+										bPdf.greaterThan( 0.0 ),
+										powerHeuristic( { pdf1: emissiveSample.pdf, pdf2: bPdf } ),
+										float( 1.0 ),
+									);
+
+									const emissiveLight = emissiveSample.emission
+										.mul( brdfVal ).mul( NoL )
+										.div( emissiveSample.pdf )
+										.mul( visibility ).mul( emissiveBoost ).mul( misW );
+
+									currentRadiance.assign( vec4(
+										currentRadiance.xyz.add(
+											regularizePathContribution(
+												emissiveLight.mul( throughput ).mul( giScale ),
+												float( bounceIndex ), fireflyThreshold, int( frame ),
+											),
+										),
+										currentRadiance.w,
+									) );
+
+								} );
+
+							} );
+
+						} );
+
+					} ).Else( () => {
+
+						// Flat-CDF fallback — same packed buffer, emissive triangles start at offset.
+						const emissiveLight = calculateEmissiveTriangleContribution(
+							hitPoint, N, V, material,
+							totalTriangleCount, bounceIndex, rngState,
+							emissiveBoost,
+							lightBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
+							triangleBuffer,
+							traceShadowRayWrapped,
+							evaluateMaterialResponse,
+							calculateRayOffset,
+						);
+
+						currentRadiance.assign( vec4(
+							currentRadiance.xyz.add(
+								regularizePathContribution(
+									emissiveLight.mul( throughput ).mul( giScale ),
+									float( bounceIndex ), fireflyThreshold, int( frame ),
+								),
+							),
+							currentRadiance.w,
+						) );
+
+					} );
+
+				},
+			);
+
+		}
 
 		// ─── FIREFLY SUPPRESSION ────────────────────────────────
 		const suppressedRadiance = regularizePathContribution(
@@ -506,7 +631,7 @@ export function buildShadeKernel( params ) {
 			brdfDir, brdfPdf, brdfValue,
 			int( 0 ), bounceIndex, rngState, samplingInfo,
 			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
+			envCDFBuffer,
 			envTotalSum, envResolution,
 			enableEnvironmentLight, useEnvMapIS,
 		) ).toVar();
