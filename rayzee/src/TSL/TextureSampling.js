@@ -281,7 +281,7 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 	const result = currentNormal.toVar();
 
-	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ), () => {
+	If( material.bumpMapIndex.greaterThanEqual( int( 0 ) ).and( material.bumpScale.greaterThan( 0.0 ) ), () => {
 
 		// Approximate texel size
 		const texelSize = vec2( 1.0 / 1024.0 ).toVar();
