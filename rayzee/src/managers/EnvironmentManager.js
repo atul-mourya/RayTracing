@@ -43,11 +43,11 @@ export class EnvironmentManager {
 		this.environmentTexture = this._envPlaceholder;
 		this.envTexSize = new Vector2();
 
-		// CDF storage buffers
-		this.envMarginalStorageAttr = null;
-		this.envMarginalStorageNode = null;
-		this.envConditionalStorageAttr = null;
-		this.envConditionalStorageNode = null;
+		// CDF storage buffer (marginal + conditional packed into one buffer).
+		// Layout: [ marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats) ]
+		// Conditional offset is the marginal length, which equals envResolution.y at runtime.
+		this.envCDFStorageAttr = null;
+		this.envCDFStorageNode = null;
 		this._initCDFStorageBuffers();
 
 		// Environment rotation
@@ -177,74 +177,52 @@ export class EnvironmentManager {
 
 	}
 
-	// ===== CDF STORAGE BUFFERS =====
+	// ===== CDF STORAGE BUFFER =====
 
 	/**
-	 * Initialize CDF storage buffers with placeholder data.
-	 * Must be called before shader compilation so the nodes exist in the graph.
+	 * Initialize the packed CDF storage buffer with placeholder data.
+	 * Must be called before shader compilation so the node exists in the graph.
+	 *
+	 * Layout: [ marginal (size = envResolution.y) | conditional (size = envResolution.x * envResolution.y) ]
+	 * Placeholder shape is a 1x2 env map: marginal=[0,1], conditional=[0,0,1,1].
 	 * @private
 	 */
 	_initCDFStorageBuffers() {
 
-		// Marginal: 1 float per entry, default placeholder
-		const marginalPlaceholder = new Float32Array( [ 0, 1 ] );
-		this.envMarginalStorageAttr = new StorageInstancedBufferAttribute( marginalPlaceholder, 1 );
-		this.envMarginalStorageNode = storage( this.envMarginalStorageAttr, 'float', 2 ).toReadOnly();
-
-		// Conditional: 1 float per entry, default placeholder
-		const conditionalPlaceholder = new Float32Array( [ 0, 0, 1, 1 ] );
-		this.envConditionalStorageAttr = new StorageInstancedBufferAttribute( conditionalPlaceholder, 1 );
-		this.envConditionalStorageNode = storage( this.envConditionalStorageAttr, 'float', 4 ).toReadOnly();
+		const placeholder = new Float32Array( [ 0, 1, 0, 0, 1, 1 ] );
+		this.envCDFStorageAttr = new StorageInstancedBufferAttribute( placeholder, 1 );
+		this.envCDFStorageNode = storage( this.envCDFStorageAttr, 'float', placeholder.length ).toReadOnly();
 
 	}
 
 	/**
-	 * Update marginal CDF storage buffer from Float32Array.
-	 */
-	setEnvMarginalData( floatData ) {
-
-		if ( ! floatData ) return;
-
-		this.envMarginalStorageAttr = new StorageInstancedBufferAttribute( floatData, 1 );
-		this.envMarginalStorageNode.value = this.envMarginalStorageAttr;
-		this.envMarginalStorageNode.bufferCount = floatData.length;
-
-	}
-
-	/**
-	 * Update conditional CDF storage buffer from Float32Array.
-	 */
-	setEnvConditionalData( floatData ) {
-
-		if ( ! floatData ) return;
-
-		this.envConditionalStorageAttr = new StorageInstancedBufferAttribute( floatData, 1 );
-		this.envConditionalStorageNode.value = this.envConditionalStorageAttr;
-		this.envConditionalStorageNode.bufferCount = floatData.length;
-
-	}
-
-	/**
-	 * Update both CDF storage buffers from equirectHdrInfo.
+	 * Update the packed CDF storage buffer from equirectHdrInfo.
+	 * Concatenates marginal + conditional into one buffer.
 	 * @private
 	 */
 	_updateCDFStorageBuffers() {
 
-		this.setEnvMarginalData( this.equirectHdrInfo.marginalData );
-		this.setEnvConditionalData( this.equirectHdrInfo.conditionalData );
+		const marginal = this.equirectHdrInfo.marginalData;
+		const conditional = this.equirectHdrInfo.conditionalData;
+		if ( ! marginal || ! conditional ) return;
+
+		const combined = new Float32Array( marginal.length + conditional.length );
+		combined.set( marginal, 0 );
+		combined.set( conditional, marginal.length );
+
+		this.envCDFStorageAttr = new StorageInstancedBufferAttribute( combined, 1 );
+		this.envCDFStorageNode.value = this.envCDFStorageAttr;
+		this.envCDFStorageNode.bufferCount = combined.length;
 
 	}
 
 	/**
-	 * Get CDF storage nodes for shader graph.
-	 * @returns {{ marginalNode: StorageNode, conditionalNode: StorageNode }}
+	 * Get the packed CDF storage node for shader graph.
+	 * @returns {{ cdfNode: StorageNode }}
 	 */
 	getCDFStorageNodes() {
 
-		return {
-			marginalNode: this.envMarginalStorageNode,
-			conditionalNode: this.envConditionalStorageNode,
-		};
+		return { cdfNode: this.envCDFStorageNode };
 
 	}
 
@@ -559,10 +537,8 @@ export class EnvironmentManager {
 
 		this.proceduralSkyRenderer = null;
 		this.simpleSkyRenderer = null;
-		this.envMarginalStorageAttr = null;
-		this.envMarginalStorageNode = null;
-		this.envConditionalStorageAttr = null;
-		this.envConditionalStorageNode = null;
+		this.envCDFStorageAttr = null;
+		this.envCDFStorageNode = null;
 		this._envPlaceholder?.dispose();
 		this._envPlaceholder = null;
 		this.environmentTexture = null;

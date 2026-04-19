@@ -237,6 +237,9 @@ export class UniformManager {
 		u( 'emissiveTriangleCount', 0, 'int' );
 		u( 'emissiveTotalPower', 0.0, 'float' );
 		u( 'lightBVHNodeCount', 0, 'int' );
+		// Offset (in vec4 elements) within the packed light buffer where emissive
+		// triangle data starts. Equals lightBVHNodeCount * LBVH_STRIDE; computed on upload.
+		u( 'emissiveVec4Offset', 0, 'int' );
 
 		// Render mode
 		u( 'renderMode', DEFAULT_STATE.renderMode, 'int' );

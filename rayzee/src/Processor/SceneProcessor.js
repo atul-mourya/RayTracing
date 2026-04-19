@@ -476,48 +476,36 @@ export class SceneProcessor {
 
 			const validEntries = this.instanceTable.entries.filter( e => e !== null );
 
-			if ( validEntries.length === 1 ) {
+			// Always build a TLAS — even for a single mesh — so the BLAS-pointer leaf
+			// carries packed per-mesh visibility in its slot [2]. The 1-node TLAS
+			// overhead (one extra leaf fetch per ray) is negligible and eliminates
+			// a dedicated visibility storage buffer binding.
+			this.instanceTable.computeAABBs( this.triangleData );
+			const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( validEntries );
 
-				// Single mesh — use BLAS directly as flat BVH (no TLAS wrapper).
-				// Avoids per-ray TLAS overhead and the extra branch in traversal.
-				const entry = validEntries[ 0 ];
-				this.bvhData = entry.bvhData;
-				this.instanceTable.assignOffsets( 0 ); // BLAS at offset 0
-				this._buildGlobalOriginalToBvhMap();
+			this.instanceTable.assignOffsets( tlasNodeCount );
+			const totalNodes = this.instanceTable.totalNodeCount;
+
+			const tlasData = this.tlasBuilder.flatten( tlasRoot, validEntries );
+
+			// Assemble combined buffer: [TLAS][BLAS_0][BLAS_1]...[BLAS_M]
+			this.bvhData = new Float32Array( totalNodes * 16 );
+			this.bvhData.set( tlasData );
+
+			for ( const entry of validEntries ) {
+
+				const destOffset = entry.blasOffset * 16;
+				this.bvhData.set( entry.bvhData, destOffset );
+				this._offsetBLASInPlace( destOffset, entry.bvhData.length / 16, entry.blasOffset, entry.triOffset );
+
+			}
+
+			this._buildGlobalOriginalToBvhMap();
+
+			for ( const entry of validEntries ) {
+
 				entry.originalToBvhMap = null;
 				entry.bvhData = null;
-
-			} else {
-
-				// Multi-mesh — build TLAS over mesh AABBs
-				this.instanceTable.computeAABBs( this.triangleData );
-				const { root: tlasRoot, nodeCount: tlasNodeCount } = this.tlasBuilder.build( validEntries );
-
-				this.instanceTable.assignOffsets( tlasNodeCount );
-				const totalNodes = this.instanceTable.totalNodeCount;
-
-				const tlasData = this.tlasBuilder.flatten( tlasRoot, validEntries );
-
-				// Assemble combined buffer: [TLAS][BLAS_0][BLAS_1]...[BLAS_M]
-				this.bvhData = new Float32Array( totalNodes * 16 );
-				this.bvhData.set( tlasData );
-
-				for ( const entry of validEntries ) {
-
-					const destOffset = entry.blasOffset * 16;
-					this.bvhData.set( entry.bvhData, destOffset );
-					this._offsetBLASInPlace( destOffset, entry.bvhData.length / 16, entry.blasOffset, entry.triOffset );
-
-				}
-
-				this._buildGlobalOriginalToBvhMap();
-
-				for ( const entry of validEntries ) {
-
-					entry.originalToBvhMap = null;
-					entry.bvhData = null;
-
-				}
 
 			}
 
@@ -1384,6 +1372,7 @@ export class SceneProcessor {
 		}
 
 		pathTracer.setBVHData( this.bvhData );
+		pathTracer.setInstanceTable( this.instanceTable );
 
 		if ( this.materialData ) {
 

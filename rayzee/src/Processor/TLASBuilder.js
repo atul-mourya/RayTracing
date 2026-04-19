@@ -199,10 +199,13 @@ export class TLASBuilder {
 	/**
 	 * Flatten TLAS tree into Float32Array.
 	 * Inner nodes: same format as BVH.
-	 * Leaf nodes: [blasRootNodeIndex, 0, 0, -2] (BLAS-pointer marker).
+	 * Leaf nodes: [blasRootNodeIndex, meshIndex, visibility, -2] (BLAS-pointer marker).
+	 *
+	 * Side effect: records each entry's flat leaf index on `entry.tlasLeafIndex` so that
+	 * visibility can later be patched in place (combinedBvhData[tlasLeafIndex*16 + 2]).
 	 *
 	 * @param {TLASNode} root
-	 * @param {Array<{blasOffset: number}>} entries - Instance table entries with assigned blasOffsets
+	 * @param {Array<{blasOffset: number, visible: boolean, tlasLeafIndex: number}>} entries
 	 * @returns {Float32Array}
 	 */
 	flatten( root, entries ) {
@@ -268,9 +271,11 @@ export class TLASBuilder {
 				// Leaf node — BLAS pointer
 				const entry = entries[ n.entryIndex ];
 				data[ o ] = entry.blasOffset; // Absolute node index of BLAS root in combined buffer
-				data[ o + 1 ] = n.entryIndex; // meshIndex for per-mesh visibility check
-				// data[o+2] = 0
+				data[ o + 1 ] = n.entryIndex; // meshIndex (kept for debug/ID — traversal uses slot [2])
+				data[ o + 2 ] = entry.visible === false ? 0.0 : 1.0; // Per-mesh visibility (packed — frees a binding)
 				data[ o + 3 ] = BVH_LEAF_MARKERS.BLAS_POINTER_LEAF; // -2 marker
+
+				entry.tlasLeafIndex = i;
 
 			}
 

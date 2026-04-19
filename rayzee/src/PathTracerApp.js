@@ -639,8 +639,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( ! this._sdf.uploadToPathTracer( this.stages.pathTracer, this.lightManager, this.meshScene, environmentTexture ) ) return false;
 
-		// Build per-mesh visibility buffer (must happen before setupMaterial so the
-		// shader graph captures the storage node during compilation)
+		// Patch per-mesh visibility into the TLAS leaves we just uploaded
 		this.stages.pathTracer._meshRefs = this.stages.pathTracer._collectMeshRefs( this.meshScene );
 		this.stages.pathTracer.setMeshVisibilityData( this.stages.pathTracer._meshRefs );
 

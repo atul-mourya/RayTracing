@@ -53,6 +53,7 @@ export const sampleLightBVHTriangle = Fn( ( [
 	rngState,
 	lbvhBuffer,
 	emissiveTriangleBuffer,
+	emissiveVec4Offset,
 	triangleBuffer,
 ] ) => {
 
@@ -185,7 +186,7 @@ export const sampleLightBVHTriangle = Fn( ( [
 		Loop( { start: int( 0 ), end: emissiveCount }, ( { i } ) => {
 
 			const entryIdx = emissiveStart.add( i );
-			const baseIdx = entryIdx.mul( int( EMISSIVE_STRIDE ) );
+			const baseIdx = emissiveVec4Offset.add( entryIdx.mul( int( EMISSIVE_STRIDE ) ) );
 			const emData0 = emissiveTriangleBuffer.element( baseIdx );
 			const triPower = max( emData0.g, float( 0.0 ) );
 			cumPower.addAssign( triPower );
@@ -204,7 +205,7 @@ export const sampleLightBVHTriangle = Fn( ( [
 		selectionPdf.mulAssign( selectedPower.div( leafTotalPower ) );
 
 		// Now sample the selected triangle (same path as flat CDF sampling)
-		const baseIdx = selectedEmissiveIndex.mul( int( EMISSIVE_STRIDE ) );
+		const baseIdx = emissiveVec4Offset.add( selectedEmissiveIndex.mul( int( EMISSIVE_STRIDE ) ) );
 		const emissiveData0 = emissiveTriangleBuffer.element( baseIdx );
 		const emissiveData1 = emissiveTriangleBuffer.element( baseIdx.add( int( 1 ) ) );
 
