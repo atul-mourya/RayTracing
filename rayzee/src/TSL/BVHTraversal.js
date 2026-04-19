@@ -224,17 +224,15 @@ export const traverseBVH = Fn( ( [
 						const u = triResult.y;
 						const v = triResult.z;
 
-						// Fetch normals + UV data for visibility check (4 reads).
-						// normalCData.w carries the per-triangle side flag (0/1/2) — saves a
-						// per-candidate material-buffer read vs calling passesSideCulling.
+						// Fetch normals for side-culling (3 reads). Slot 7 (uvData2,
+						// carries matIdx + meshIndex) is deferred to post-traversal —
+						// it's only needed for the one winning triangle, not per candidate.
+						// normalCData.w carries the per-triangle side flag (0/1/2).
 						const nA = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 3 ), int( TRI_STRIDE ) ).xyz;
 						const nB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 4 ), int( TRI_STRIDE ) ).xyz;
 						const normalCData = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 5 ), int( TRI_STRIDE ) );
 						const nC = normalCData.xyz;
 						const side = int( normalCData.w ).toVar();
-						const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 7 ), int( TRI_STRIDE ) );
-
-						const matIdx = int( uvData2.z );
 
 						// Interpolate normal
 						const w = float( 1.0 ).sub( u ).sub( v );
@@ -251,10 +249,9 @@ export const traverseBVH = Fn( ( [
 							closestHit.didHit.assign( true );
 							closestHit.dst.assign( t );
 							closestHit.normal.assign( normal );
-							closestHit.materialIndex.assign( matIdx );
-							closestHit.meshIndex.assign( int( uvData2.w ) );
 
-							// Defer hitPoint + UV computation to post-traversal
+							// Defer materialIndex/meshIndex/hitPoint/UV to post-traversal
+							// (all re-derived from closestTriIdx with a single uvData2 fetch below).
 							closestTriIdx.assign( triIndex );
 							closestU.assign( u );
 							closestV.assign( v );
@@ -333,7 +330,7 @@ export const traverseBVH = Fn( ( [
 
 	} );
 
-	// Deferred: compute hitPoint and UVs once for the final closest hit
+	// Deferred: compute hitPoint, UVs, and fetch matIdx/meshIndex once for the final closest hit
 	If( closestHit.didHit, () => {
 
 		closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( closestHit.dst ) ) );
@@ -344,6 +341,8 @@ export const traverseBVH = Fn( ( [
 		closestHit.uv.assign(
 			uvData1.xy.mul( w ).add( uvData1.zw.mul( closestU ) ).add( uvData2.xy.mul( closestV ) )
 		);
+		closestHit.materialIndex.assign( int( uvData2.z ) );
+		closestHit.meshIndex.assign( int( uvData2.w ) );
 		closestHit.triangleIndex.assign( closestTriIdx );
 
 	} );
