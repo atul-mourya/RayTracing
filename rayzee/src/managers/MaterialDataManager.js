@@ -9,7 +9,7 @@
 
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import { storage } from 'three/tsl';
-import { TEXTURE_CONSTANTS, MATERIAL_DATA_LAYOUT as M } from '../EngineDefaults.js';
+import { TEXTURE_CONSTANTS, MATERIAL_DATA_LAYOUT as M, ENGINE_DEFAULTS } from '../EngineDefaults.js';
 
 const PIXELS_PER_MATERIAL = M.SLOTS_PER_MATERIAL;
 
@@ -111,7 +111,7 @@ export class MaterialDataManager {
 	setMaterialBinRemap( materialTriangleCounts ) {
 
 		const n = this.materialCount;
-		const MAX_BINS = 16;
+		const MAX_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
 
 		// Only build the remap when material count is large enough that the
 		// direct clamp is pathologically lossy. At n ≤ MAX_BINS clamp is exact;

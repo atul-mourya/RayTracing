@@ -26,6 +26,12 @@ import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/Accu
 import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
 import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
+import {
+	buildSortGlobalHistogramKernel,
+	buildSortGlobalPrefixSumKernel,
+	buildSortGlobalScatterKernel,
+	SORT_GLOBAL_WG_SIZE,
+} from '../TSL/wavefront/SortGlobalKernels.js';
 import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 import {
 	Fn, uint, atomicStore, instanceIndex, If,
@@ -194,7 +200,14 @@ export class WavefrontPathTracer extends PathTracer {
 			// 2026-04-19) — register pressure drops occupancy more than fusion saves
 			// in kernel-boundary I/O. Keep the separate path as production default.
 			km.dispatch( 'extend' );
-			if ( this._sortMaterials ) {
+			if ( this._sortGlobal ) {
+
+				km.dispatch( 'resetSortGlobalHistogram' );
+				km.dispatch( 'sortGlobalHist' );
+				km.dispatch( 'sortGlobalPrefix' );
+				km.dispatch( 'sortGlobalScatter' );
+
+			} else if ( this._sortMaterials ) {
 
 				km.dispatch( 'resetSortHistogram' );
 				km.dispatch( 'sort' );
@@ -356,6 +369,7 @@ export class WavefrontPathTracer extends PathTracer {
 		const matCount = this.materialData?.materialCount ?? 0;
 		this._sortMaterials = ( ENGINE_DEFAULTS.wavefrontSortMaterials ?? false )
 			&& matCount > SORT_MIN_MATERIALS;
+		this._sortGlobal = this._sortMaterials && ( ENGINE_DEFAULTS.wavefrontSortGlobal ?? false );
 
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
@@ -599,6 +613,65 @@ export class WavefrontPathTracer extends PathTracer {
 					[ SORT_WG_SIZE, 1, 1 ]
 				)
 			);
+
+			// ── Global sort kernels (item 34) — built alongside per-WG sort so the
+			// dispatch path can pick at runtime without a full kernel rebuild.
+			if ( this._sortGlobal ) {
+
+				const globalHist = qm.getSortGlobalHistogram();
+				const sortBins = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
+
+				// Reset the 16-slot global histogram before each dispatch.
+				const resetGlobalHistFn = Fn( () => {
+
+					If( instanceIndex.lessThan( uint( sortBins ) ), () => {
+
+						atomicStore( globalHist.element( instanceIndex ), uint( 0 ) );
+
+					} );
+
+				} );
+				this._kernelManager.register( 'resetSortGlobalHistogram',
+					resetGlobalHistFn().compute( [ 1, 1, 1 ], [ sortBins, 1, 1 ] )
+				);
+
+				const globalHistFn = buildSortGlobalHistogramKernel( {
+					hitBufferRO: pb.hitBuffer.ro,
+					activeIndicesReadRO: qm.getActiveReadRO(),
+					sortGlobalHistogram: globalHist,
+					counters,
+					materialBinRemap: this.materialData?.materialBinRemapNode,
+				} );
+				this._kernelManager.register( 'sortGlobalHist',
+					globalHistFn().compute(
+						[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
+						[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+					)
+				);
+
+				const globalPrefixFn = buildSortGlobalPrefixSumKernel( {
+					sortGlobalHistogram: globalHist,
+				} );
+				this._kernelManager.register( 'sortGlobalPrefix',
+					globalPrefixFn().compute( [ 1, 1, 1 ], [ 1, 1, 1 ] )
+				);
+
+				const globalScatterFn = buildSortGlobalScatterKernel( {
+					hitBufferRO: pb.hitBuffer.ro,
+					activeIndicesReadRO: qm.getActiveReadRO(),
+					sortedIndicesRW: qm.getSortedRW(),
+					sortGlobalHistogram: globalHist,
+					counters,
+					materialBinRemap: this.materialData?.materialBinRemapNode,
+				} );
+				this._kernelManager.register( 'sortGlobalScatter',
+					globalScatterFn().compute(
+						[ Math.ceil( maxRays / SORT_GLOBAL_WG_SIZE ), 1, 1 ],
+						[ SORT_GLOBAL_WG_SIZE, 1, 1 ]
+					)
+				);
+
+			}
 
 		}
 

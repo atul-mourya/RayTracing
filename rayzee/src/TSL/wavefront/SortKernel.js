@@ -28,9 +28,10 @@ import {
 
 import { readHitMaterialIndex } from '../../Processor/PackedRayBuffer.js';
 import { COUNTER } from '../../Processor/QueueManager.js';
+import { ENGINE_DEFAULTS } from '../../EngineDefaults.js';
 
 const WG_SIZE = 256;
-const MAX_BINS = 16;
+const MAX_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
 
 /**
  * Build the Sort compute kernel (counting sort by materialIndex).

@@ -231,16 +231,46 @@ and <3% on others (stochastic).
 
 **Re-measure phase:**
 
-- [ ] 42. **Re-bench MAX_BINS at 16/32/64 after items 32b+41**. Expectation: the Pagani/Modern-Bathroom regressions shrink substantially because (a) only live rays are sorted, (b) with remapping, material diversity ≤16 for most scenes. If the regression gap is <5%, raise MAX_BINS to 32 as the new static default.
+- [x] 42. **Re-bench MAX_BINS at 16/32/64** — done 2026-04-19. Parametrized via `ENGINE_DEFAULTS.wavefrontSortBins` (read by `SortKernel`, `QueueManager`, `MaterialDataManager`). Warm-bench 512/3b:
+
+  | Scene | Mats | 16 + remap | 32 no-remap (gated) | Delta |
+  |---|---:|---:|---:|---:|
+  | Pagani | 40 | 1699 ms | 1996 ms | **+17%** |
+  | Sofaset | 47 | 1531 ms | 1979 ms | **+29%** |
+
+  Raising bins **regresses on the tested scenes**. Two reasons:
+  1. Phase-2 scan cost scales linearly with MAX_BINS (thread 0 per workgroup loops N iterations); 32 bins doubles the serial scan work on EVERY workgroup regardless of active count.
+  2. At 32 bins, 40-47 material scenes fall below the remap gate (`materialCount > 2×MAX_BINS = 64`), so the dense-material coherence win from item 41 doesn't fire.
+
+  Could potentially win with (a) lower remap threshold at higher bin counts, (b) Bistro-class scenes with >64 materials. Not pursued — the 16+remap combo is the production optimum for current benchmark suite. **Default stays at 16.**
 
 **Only if items 32b/41 don't fully close the gap:**
 
-- [ ] 39. **Adaptive bin count via uniform** — `min(MAX_BINS_HARD, materialCount)` passed per-scene. Captures Sofaset win without Pagani regression. Only worth building if item 42's re-measure still shows a tuning gap.
+- [~] 39. **Adaptive bin count via uniform** — **superseded by items 38+41+42**. Threshold analysis after those landed:
+  - Scenes with ≤8 materials skip sort entirely (item 38) — no bin count needed.
+  - Scenes with 9-16 materials: direct clamp `matIdx.clamp(0,15)` is already exact, remap bypassed (item 41 gate). Adaptive bins would shave at most 7 scan iterations per workgroup — sub-percent impact.
+  - Scenes with >16 materials: capped at 16 anyway (item 42 showed raising MAX_BINS regresses, so dynamic = static).
+  Net actionable range for adaptive bins is 0 materials. Not implemented.
 - [x] 38. **Skip Sort dispatch when materialCount is very low** — implemented 2026-04-19. `_buildWavefrontKernels` sets `this._sortMaterials = flag && matCount > 8`. Sort + resetSortHistogram kernels aren't registered when sort is off, and the bounce loop gates on the flag. Verified: camera (2 mats) skips sort, Ferrari (7 mats) skips sort, Pagani (40 mats) runs sort. Ferrari warm is unchanged (~1.03s / 60f at 512/3b) — the ~3% sort overhead is at the noise floor at this resolution. Gain is cleaner rather than fast.
 
 **Larger phase-2 improvements (closer to production designs):**
 
-- [ ] 34. **Global radix sort** over a packed 32-bit key (material ID + hit geometry hash, possibly direction). Gives cross-workgroup coherence — rays hitting the same material in different workgroups get grouped. This is what production renderers actually do. Much bigger than our counting sort; likely requires CUB-style onesweep radix or similar. Only worth doing after 32b+41 show that per-WG sort is insufficient.
+- [x] 34. **Global counting sort** — implemented and benched 2026-04-19, shipped behind `ENGINE_DEFAULTS.wavefrontSortGlobal` (default `false`). Three-kernel pipeline in `SortGlobalKernels.js`: histogram → prefix-sum → scatter. Produces correct global material ordering (visually verified on Pagani).
+
+  **Warm-bench 512/3b:**
+
+  | Scene | Mats | Per-WG + remap | Global sort | Delta |
+  |---|---:|---:|---:|---:|
+  | Pagani | 40 | 1699 ms | 1999 ms | **+18%** |
+  | Sofaset | 47 | 1531 ms | 1984 ms | **+30%** |
+
+  **Why global loses**:
+  1. Four dispatches (reset/hist/prefix/scatter) vs one — GPU pipeline barriers between each.
+  2. Global atomic contention across all workgroups on the shared 16-bin histogram (per-WG version's atomics stay within a workgroup).
+  3. Serial prefix-sum (single thread) becomes a sync point.
+  4. Consistent with earlier per-kernel CPU-profile finding: wavefront is **memory/barrier bound on GPU**, not shader-divergence bound — so buying more coherence with more dispatches is a bad trade.
+
+  Kept as opt-in flag for future re-eval if (a) scenes grow past 64-128 materials where radix bucketing matters more, or (b) we gain subgroup ops (item 44) that amortize prefix-sum across threads. Full 32-bit radix (multiple passes for material + geometry hash) not worth pursuing until per-WG runs out of room.
 - [ ] 43. **Parallel prefix scan + workgroup-shared histogram** (inside current counting-sort design). Replace the O(MAX_BINS) serial scan done by thread 0 with an O(log MAX_BINS) parallel scan using `var<workgroup>: array<atomic<u32>, N>`. **Blocked on TSL gaining atomic workgroup memory** — current `workgroupArray('uint')` emits plain `array<u32>` rather than `array<atomic<u32>>`, so any workgroup-local atomic scan fails WGSL validation. When upstream TSL lands this, sort overhead drops substantially.
 - [ ] 44. **Subgroup ops (ballot / shuffle) for in-subgroup reordering**. Some renderers skip the explicit sort pass and use subgroup extensions to rearrange threads within a 32/64-thread subgroup on the fly. Requires WebGPU subgroups (Chrome shipping but experimental).
 - [ ] 45. **Persistent threads / work-stealing**. Threads pull work from a global atomic queue instead of being pre-assigned. Load-balances across material classes without an explicit sort. Larger architectural change.

@@ -13,6 +13,7 @@
 
 import { attributeArray, storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
+import { ENGINE_DEFAULTS } from '../EngineDefaults.js';
 
 /** Counter indices — must match ResetCounters kernel */
 export const COUNTER = {
@@ -136,11 +137,15 @@ export class QueueManager {
 		// A future adaptive `min(MAX_BINS, materialCount)` uniform would
 		// capture both cases — see item 39.
 		const SORT_WG_SIZE = 256;
-		const SORT_BINS = 16;
+		const SORT_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
 		const numWorkgroups = Math.ceil( capacity / SORT_WG_SIZE );
 		const sortHistogramSize = numWorkgroups * SORT_BINS;
 		this._sortHistogramSize = sortHistogramSize;
 		this.sortHistogram = attributeArray( sortHistogramSize, 'uint' ).toAtomic();
+
+		// Global counting-sort histogram (item 34): 16 atomic u32, shared across
+		// all workgroups. Used by the three-kernel global sort path.
+		this.sortGlobalHistogram = attributeArray( SORT_BINS, 'uint' ).toAtomic();
 
 		this.pingPong = 0;
 
@@ -238,6 +243,16 @@ export class QueueManager {
 	getSortHistogramSize() {
 
 		return this._sortHistogramSize;
+
+	}
+
+	/**
+	 * Get global sort histogram (16 atomic u32) for cross-workgroup sort.
+	 * @returns {StorageBufferNode}
+	 */
+	getSortGlobalHistogram() {
+
+		return this.sortGlobalHistogram;
 
 	}
 

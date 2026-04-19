@@ -61,6 +61,15 @@ export const ENGINE_DEFAULTS = {
 	// Post-TSL-idiom-fix benchmark (2026-04-19) shows sort is net-positive on 3/6 test scenes
 	// (−36% on Outdoor Sofaset, −6% on Pagani, −5% on Cornell) with worst case +7% (Modern Bathroom).
 	wavefrontSortMaterials: true,
+	// Bin count for counting sort (item 42 re-bench). 16/32/64 tested.
+	// Post-remap (item 41) the rare-tail collapses into overflow bin, so higher
+	// bin counts actually distribute coherence better instead of wasting bins.
+	wavefrontSortBins: 16,
+	// Global (cross-workgroup) counting sort instead of per-workgroup (item 34).
+	// Three-kernel pipeline: histogram → prefix-sum → scatter. Rays with the same
+	// material end up in contiguous GLOBAL memory instead of per-workgroup regions.
+	// Higher subgroup coherence in Shade; extra dispatch + barrier overhead.
+	wavefrontSortGlobal: false,
 
 	enablePathTracer: true,
 	enableAccumulation: true,
