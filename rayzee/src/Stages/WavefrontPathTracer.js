@@ -57,11 +57,11 @@ export class WavefrontPathTracer extends PathTracer {
 		this._readbackPending = false;
 		this._readbackEveryNFrames = 4; // limit readback cadence; stale is fine
 		this._readbackFrameCounter = 0;
-		// If last frame had ≤ threshold rays surviving bounce N, skip N+1..maxBounces this frame.
-		// Tuning: 1% of typical primary ray count. Above this, rays contribute
-		// enough light that skipping would cause visible darkening. Camera 512/3b
-		// sees 82K/18K/4K/1 per bounce; threshold 2000 skips only the truly dead tail.
-		this._bounceEarlyExitThreshold = 2000;
+		// Bounce-early-exit threshold — updated per-scene in _buildWavefrontKernels.
+		// Target: 0.1% of primary ray count, floored at 100 for tiny resolutions.
+		// At 0.1% the surviving rays' contribution is statistically invisible
+		// (~1 pixel per 1000 affected by truncation). Set to -1 to disable entirely.
+		this._bounceEarlyExitThreshold = 100;
 
 		// Wavefront-specific uniforms
 		this._wfTileOffsetX = uniform( 0, 'int' );
@@ -395,6 +395,16 @@ export class WavefrontPathTracer extends PathTracer {
 		const w = this.storageTextures.renderWidth;
 		const h = this.storageTextures.renderHeight;
 		const maxRays = w * h;
+
+		// Item 26: scale the early-exit threshold with resolution. 0.1% of primary
+		// rays is below the per-pixel-noise floor for image impact. Overrideable
+		// per-instance (set to -1 to disable). Scene-agnostic — bounceCounts from
+		// readback stay aligned with ray count since primary-count = w*h.
+		if ( this._bounceEarlyExitThreshold !== - 1 ) {
+
+			this._bounceEarlyExitThreshold = Math.max( 100, Math.floor( maxRays / 1000 ) );
+
+		}
 
 		// Allocate packed buffers
 		if ( ! this._packedBuffers ) {
