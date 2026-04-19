@@ -227,6 +227,14 @@ and <3% on others (stochastic).
   4. Keep origin/radiance/throughput/pdf at f32.
 
   Not shipped today because the design requires dedicated validation across scenes and the partial measures (packing without stride reduction) don't save bandwidth.
+
+  **Attempted and reverted 2026-04-19** (post–main merge):
+  - Implemented full HIT_STRIDE 2→1 compaction with octahedral-u8×u8 normal + packHalf2x16 UV + 8-bit matIdx + 8-bit meshIdx = 32 bits in `.w` of a single vec4.
+  - Visually correct on Camera + Pagani (no normal banding on glossy paint — anisotropic texture filtering masks 2° encoding error).
+  - **Perf impact: noise floor.** Camera 512/3b warm: 719ms with HIT_STRIDE=1 vs 720ms with HIT_STRIDE=2. Pagani 512/8b warm: 1715ms vs ~1700ms.
+  - **Diagnosis**: modern GPU L1/L2 caches handle the 32-byte hit struct fine, and one cache line (128 B) covers 4 hits either way. Halving stride doesn't improve cache hit rate — it just moves data in bigger batches.
+  - **Lesson for item 25 broadly**: wavefront's measured GPU-bound cost is not total-bytes-moved but **pipeline-barrier and memory-latency** related. Compacting formats doesn't reduce barrier cost. To actually attack the bottleneck, we need fewer kernel boundaries (item 45 persistent threads) — not smaller data per kernel.
+  - Reverted. Infrastructure (octahedral encode/decode helpers) discarded; can be resurrected from git if needed.
 - [x] 26. **Async readback for dynamic dispatch** — implemented 2026-04-19.
 
   **Mechanism**:
