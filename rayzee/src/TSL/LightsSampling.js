@@ -934,7 +934,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 	materialBuffer,
 	// Environment resources
 	envTexture, environmentIntensity, envMatrix,
-	envMarginalWeights, envConditionalWeights,
+	envCDFBuffer,
 	envTotalSum, envResolution,
 	enableEnvironmentLight,
 ] ) => {
@@ -1203,7 +1203,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 			// Sample direction + PDF + color from importance-sampled environment
 			const envSampleResult = sampleEquirectProbability(
-				envTexture, envMarginalWeights, envConditionalWeights,
+				envTexture, envCDFBuffer,
 				envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom, envColor
 			).toVar();
 

@@ -57,7 +57,23 @@ export class InstanceTable {
 			worldAABB: null, // Computed from triangle data
 			originalToBvhMap,
 			bvhData,
+			visible: true, // Per-mesh visibility (baked into TLAS leaf slot [2])
+			tlasLeafIndex: - 1, // Set by TLASBuilder.flatten() — enables in-place visibility patching
 		};
+
+	}
+
+	/**
+	 * Set per-mesh visibility flag. Does NOT update the GPU buffer —
+	 * caller must patch combinedBvhData[tlasLeafIndex*16 + 2] and mark bvh attr dirty.
+	 *
+	 * @param {number} meshIndex
+	 * @param {boolean} visible
+	 */
+	setVisibility( meshIndex, visible ) {
+
+		const entry = this.entries[ meshIndex ];
+		if ( entry ) entry.visible = visible;
 
 	}
 

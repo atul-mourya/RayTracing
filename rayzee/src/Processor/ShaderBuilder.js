@@ -16,7 +16,6 @@ import { Fn, texture, vec2, float, int, uniform, If,
 import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { pathTracerMain } from '../TSL/PathTracer.js';
-import { setMeshVisibilityBuffer } from '../TSL/BVHTraversal.js';
 import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
 import { BuildTimer } from './BuildTimer.js';
 
@@ -234,11 +233,9 @@ export class ShaderBuilder {
 		const triStorage = stage.triangleStorageNode;
 		const bvhStorage = stage.bvhStorageNode;
 		const matStorage = stage.materialData.materialStorageNode;
-		const emissiveTriStorage = stage.emissiveTriangleStorageNode;
-		const lightBVHStorage = stage.lightBVHStorageNode;
-
-		// Set per-mesh visibility buffer (module-level in BVHTraversal.js, read during graph construction)
-		setMeshVisibilityBuffer( stage.meshVisibilityStorageNode );
+		// Packed light buffer — [lightBVH | emissive triangles]. One node fed to both
+		// TSL params; emissive reads offset by stage.emissiveVec4Offset.
+		const lightBufferStorage = stage.lightStorageNode;
 
 		// Set alpha-shadow uniform (module-level in LightsDirect.js, read at runtime)
 		setAlphaShadowsUniform( stage.uniforms.get( 'enableAlphaShadows' ) );
@@ -249,9 +246,9 @@ export class ShaderBuilder {
 		const adaptiveSamplingTex = new TextureNode();
 		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
 
-		// Environment importance sampling CDF (storage buffers)
-		const marginalCDFStorage = stage.environment.envMarginalStorageNode;
-		const conditionalCDFStorage = stage.environment.envConditionalStorageNode;
+		// Environment importance sampling CDF — packed storage buffer
+		// Layout: [marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats)]
+		const envCDFStorage = stage.environment.envCDFStorageNode;
 
 		// Previous-frame texture nodes — initialized from readTarget textures
 		const readTextures = storageTextures.getReadTextures();
@@ -285,8 +282,8 @@ export class ShaderBuilder {
 		setShadowAlbedoMaps( albedoMapsTex );
 
 		const result = {
-			triStorage, bvhStorage, matStorage, emissiveTriStorage, lightBVHStorage,
-			envTex, adaptiveSamplingTex, marginalCDFStorage, conditionalCDFStorage,
+			triStorage, bvhStorage, matStorage, lightBufferStorage,
+			envTex, adaptiveSamplingTex, envCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 		};
@@ -304,8 +301,8 @@ export class ShaderBuilder {
 		writeColorTex, writeNDTex, writeAlbedoTex ) {
 
 		const {
-			triStorage, bvhStorage, matStorage, emissiveTriStorage, lightBVHStorage,
-			envTex, adaptiveSamplingTex, marginalCDFStorage, conditionalCDFStorage,
+			triStorage, bvhStorage, matStorage, lightBufferStorage,
+			envTex, adaptiveSamplingTex, envCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
 		} = textureNodes;
@@ -366,8 +363,7 @@ export class ShaderBuilder {
 					envTexture: envTex,
 					environmentIntensity: stage.environmentIntensity,
 					envMatrix: stage.environmentMatrix,
-					envMarginalWeights: marginalCDFStorage,
-					envConditionalWeights: conditionalCDFStorage,
+					envCDFBuffer: envCDFStorage,
 					envTotalSum: stage.envTotalSum,
 					envResolution: stage.envResolution,
 					enableEnvironmentLight: stage.enableEnvironment,
@@ -381,11 +377,12 @@ export class ShaderBuilder {
 					globalIlluminationIntensity: stage.globalIlluminationIntensity,
 					totalTriangleCount: stage.totalTriangleCount,
 					enableEmissiveTriangleSampling: stage.enableEmissiveTriangleSampling,
-					emissiveTriangleBuffer: emissiveTriStorage,
+					emissiveTriangleBuffer: lightBufferStorage,
 					emissiveTriangleCount: stage.emissiveTriangleCount,
 					emissiveTotalPower: stage.emissiveTotalPower,
 					emissiveBoost: stage.emissiveBoost,
-					lightBVHBuffer: lightBVHStorage,
+					emissiveVec4Offset: stage.emissiveVec4Offset,
+					lightBVHBuffer: lightBufferStorage,
 					lightBVHNodeCount: stage.lightBVHNodeCount,
 					debugVisScale: stage.debugVisScale,
 					enableAccumulation: stage.enableAccumulation,

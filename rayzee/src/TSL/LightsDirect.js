@@ -41,7 +41,7 @@ import { RandomValue } from './Random.js';
 import { getTransformedUV } from './TextureSampling.js';
 
 // Module-level state for alpha-cutout shadow testing.
-// Set by ShaderBuilder before graph construction (same pattern as _meshVisibilityBuffer in BVHTraversal.js).
+// Set by ShaderBuilder before graph construction.
 let _shadowAlbedoMaps = null;
 let _enableAlphaShadows = null;
 

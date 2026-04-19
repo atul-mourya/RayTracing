@@ -590,7 +590,7 @@ export const Trace = Fn( ( [
 	spotLightsBuffer, numSpotLights,
 	// Environment
 	envTexture, environmentIntensity, envMatrix,
-	envMarginalWeights, envConditionalWeights,
+	envCDFBuffer,
 	envTotalSum, envResolution,
 	enableEnvironmentLight, useEnvMapIS,
 	// Rendering parameters
@@ -598,7 +598,7 @@ export const Trace = Fn( ( [
 	backgroundIntensity, showBackground, transparentBackground,
 	fireflyThreshold, globalIlluminationIntensity,
 	totalTriangleCount, enableEmissiveTriangleSampling,
-	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
+	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 	lightBVHBuffer, lightBVHNodeCount,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
@@ -1013,7 +1013,7 @@ export const Trace = Fn( ( [
 			triangleBuffer,
 			materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
+			envCDFBuffer,
 			envTotalSum, envResolution,
 			enableEnvironmentLight,
 		);
@@ -1040,6 +1040,7 @@ export const Trace = Fn( ( [
 					rngState,
 					lightBVHBuffer,
 					emissiveTriangleBuffer,
+					emissiveVec4Offset,
 					triangleBuffer,
 				) );
 
@@ -1091,7 +1092,7 @@ export const Trace = Fn( ( [
 					hitInfo.hitPoint, N, V, material,
 					totalTriangleCount, bounceIndex, rngState,
 					emissiveBoost,
-					emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+					emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 					triangleBuffer,
 					traceShadowRayWrapped,
 					evaluateMaterialResponse,
@@ -1132,7 +1133,6 @@ export const Trace = Fn( ( [
 			rngState,
 			samplingInfo,
 			envTexture, environmentIntensity, envMatrix,
-			envMarginalWeights, envConditionalWeights,
 			envTotalSum, envResolution,
 			enableEnvironmentLight, useEnvMapIS,
 		) );

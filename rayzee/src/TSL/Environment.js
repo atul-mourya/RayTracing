@@ -82,8 +82,7 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 // Exact implementation from three-gpu-pathtracer
 export const sampleEquirectProbability = Fn( ( [
 	environment,
-	envMarginalWeights,
-	envConditionalWeights,
+	envCDFBuffer,
 	environmentMatrix,
 	environmentIntensity,
 	envTotalSum,
@@ -92,15 +91,19 @@ export const sampleEquirectProbability = Fn( ( [
 	colorOutput
 ] ) => {
 
-	// Sample marginal CDF for V coordinate (1D storage buffer, linear interpolation)
+	// Packed CDF layout: [marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats)]
+	// The conditional offset equals the marginal length, which is envResolution.y.
+	const condOffset = int( envResolution.y ).toVar();
+
+	// Sample marginal CDF for V coordinate (1D, linear interpolation)
 	const marginalSize = envResolution.y;
 	const mIdx = clamp( r.x.mul( marginalSize.sub( 1.0 ) ), 0.0, marginalSize.sub( 1.0 ) );
 	const mI0 = int( floor( mIdx ) );
 	const mI1 = min( mI0.add( 1 ), int( marginalSize ).sub( 1 ) );
 	const mFrac = fract( mIdx );
-	const v = mix( envMarginalWeights.element( mI0 ), envMarginalWeights.element( mI1 ), mFrac ).toVar();
+	const v = mix( envCDFBuffer.element( mI0 ), envCDFBuffer.element( mI1 ), mFrac ).toVar();
 
-	// Sample conditional CDF for U coordinate (2D storage buffer, bilinear interpolation)
+	// Sample conditional CDF for U coordinate (2D grid, bilinear interpolation)
 	const condW = envResolution.x;
 	const condH = envResolution.y;
 	const cxf = clamp( r.y.mul( condW.sub( 1.0 ) ), 0.0, condW.sub( 1.0 ) );
@@ -112,10 +115,10 @@ export const sampleEquirectProbability = Fn( ( [
 	const fx = fract( cxf );
 	const fy = fract( cyf );
 	const condWi = int( condW );
-	const v00 = envConditionalWeights.element( cy0.mul( condWi ).add( cx0 ) );
-	const v10 = envConditionalWeights.element( cy0.mul( condWi ).add( cx1 ) );
-	const v01 = envConditionalWeights.element( cy1.mul( condWi ).add( cx0 ) );
-	const v11 = envConditionalWeights.element( cy1.mul( condWi ).add( cx1 ) );
+	const v00 = envCDFBuffer.element( condOffset.add( cy0.mul( condWi ).add( cx0 ) ) );
+	const v10 = envCDFBuffer.element( condOffset.add( cy0.mul( condWi ).add( cx1 ) ) );
+	const v01 = envCDFBuffer.element( condOffset.add( cy1.mul( condWi ).add( cx0 ) ) );
+	const v11 = envCDFBuffer.element( condOffset.add( cy1.mul( condWi ).add( cx1 ) ) );
 	const u = mix( mix( v00, v10, fx ), mix( v01, v11, fx ), fy ).toVar();
 
 	const uv = vec2( u, v ).toVar();

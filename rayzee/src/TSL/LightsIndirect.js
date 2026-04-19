@@ -273,7 +273,6 @@ export const calculateIndirectLighting = Fn( ( [
 	samplingInfo,
 	// Environment resources
 	envTexture, environmentIntensity, envMatrix,
-	envMarginalWeights, envConditionalWeights,
 	envTotalSum, envResolution,
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {

@@ -180,17 +180,20 @@ export class PathTracer extends RenderStage {
 		// Blue noise
 		this.blueNoiseTexture = null;
 
-		// Emissive triangles (storage buffer) — initialized with dummy data so TSL compilation never sees null
-		this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 4 ), 4 );
-		this.emissiveTriangleStorageNode = storage( this.emissiveTriangleStorageAttr, 'vec4', 1 ).toReadOnly();
+		// Packed light buffer — [lightBVH nodes (4 vec4s each) | emissive triangles (2 vec4s each)]
+		// emissiveVec4Offset uniform tracks the vec4-count offset where emissive data starts.
+		// Initialized with dummy data so TSL compilation never sees null.
+		this.lightStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
+		this.lightStorageNode = storage( this.lightStorageAttr, 'vec4', 1 ).toReadOnly();
 
-		// Light BVH storage buffer — initialized with dummy data
-		this.lightBVHStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( 16 ), 4 );
-		this.lightBVHStorageNode = storage( this.lightBVHStorageAttr, 'vec4', 1 ).toReadOnly();
+		// Cached CPU-side data — rebuilt into the packed buffer whenever either source changes.
+		this._lbvhDataCache = null;
+		this._emissiveDataCache = null;
 
-		// Per-mesh visibility (storage buffer for TLAS BLAS-pointer skip)
-		this.meshVisibilityStorageAttr = new StorageInstancedBufferAttribute( new Float32Array( [ 1, 0, 0, 0 ] ), 4 );
-		this.meshVisibilityStorageNode = storage( this.meshVisibilityStorageAttr, 'vec4', 1 ).toReadOnly();
+		// Per-mesh visibility is packed into the TLAS BLAS-pointer leaf's slot [2]
+		// (see TLASBuilder.flatten + BVHTraversal.js). The InstanceTable holds the
+		// tlasLeafIndex for each mesh so we can patch visibility in place.
+		this._instanceTable = null;
 
 		// Adaptive sampling
 		this.adaptiveSamplingTexture = null;
@@ -454,6 +457,7 @@ export class PathTracer extends RenderStage {
 		// Set data references
 		this.setTriangleData( this.sdfs.triangleData, this.sdfs.triangleCount );
 		this.setBVHData( this.sdfs.bvhData );
+		this.setInstanceTable( this.sdfs.instanceTable );
 		this.materialData.setMaterialData( this.sdfs.materialData );
 
 		// Update triangle count
@@ -768,61 +772,78 @@ export class PathTracer extends RenderStage {
 	}
 
 	/**
-	 * Build per-mesh visibility storage buffer from mesh world-visibility.
-	 * Each mesh gets one float (1.0 = visible, 0.0 = hidden).
-	 * Padded to vec4 alignment for GPU storage buffer compatibility.
-	 * @param {Array} meshes - Array of Three.js mesh objects
+	 * Bind the InstanceTable used to locate each mesh's TLAS leaf for in-place
+	 * visibility patching. Called by SceneProcessor during upload.
+	 * @param {import('../Processor/InstanceTable.js').InstanceTable} instanceTable
 	 */
-	setMeshVisibilityData( meshes ) {
+	setInstanceTable( instanceTable ) {
 
-		if ( ! meshes || meshes.length === 0 ) return;
-
-		const meshCount = meshes.length;
-		// One vec4 per mesh — visibility stored in .x (simple indexing on GPU)
-		const data = new Float32Array( meshCount * 4 );
-
-		for ( let i = 0; i < meshCount; i ++ ) {
-
-			data[ i * 4 ] = this._isWorldVisible( meshes[ i ] ) ? 1.0 : 0.0;
-
-		}
-
-		this.meshVisibilityStorageAttr = new StorageInstancedBufferAttribute( data, 4 );
-		this.meshVisibilityStorageNode.value = this.meshVisibilityStorageAttr;
-		this.meshVisibilityStorageNode.bufferCount = meshCount;
+		this._instanceTable = instanceTable;
 
 	}
 
 	/**
-	 * Update visibility for a single mesh in the GPU buffer (no rebuild).
+	 * Initialize packed visibility for each mesh from current world-visibility.
+	 * Patches the TLAS leaf slots in the combined BVH buffer that was just uploaded.
+	 * @param {Array} meshes - Array of Three.js mesh objects, ordered by meshIndex
+	 */
+	setMeshVisibilityData( meshes ) {
+
+		if ( ! meshes || meshes.length === 0 || ! this._instanceTable ) return;
+
+		for ( let i = 0; i < meshes.length; i ++ ) {
+
+			this._patchTLASLeafVisibility( i, this._isWorldVisible( meshes[ i ] ) );
+
+		}
+
+		if ( this.bvhStorageAttr ) this.bvhStorageAttr.needsUpdate = true;
+
+	}
+
+	/**
+	 * Update visibility for a single mesh by patching its TLAS leaf slot [2].
 	 * @param {number} meshIndex
 	 * @param {boolean} visible
 	 */
 	updateMeshVisibility( meshIndex, visible ) {
 
-		if ( ! this.meshVisibilityStorageAttr ) return;
-
-		this.meshVisibilityStorageAttr.array[ meshIndex * 4 ] = visible ? 1.0 : 0.0;
-		this.meshVisibilityStorageAttr.needsUpdate = true;
+		if ( ! this._patchTLASLeafVisibility( meshIndex, visible ) ) return;
+		if ( this.bvhStorageAttr ) this.bvhStorageAttr.needsUpdate = true;
 
 	}
 
 	/**
-	 * Recompute world-visibility for all meshes and update the GPU buffer.
+	 * Recompute world-visibility for all meshes and patch TLAS leaves in place.
 	 * Call this when group visibility changes at runtime.
 	 */
 	updateAllMeshVisibility() {
 
-		if ( ! this._meshRefs || ! this.meshVisibilityStorageAttr ) return;
+		if ( ! this._meshRefs || ! this._instanceTable ) return;
 
-		const data = this.meshVisibilityStorageAttr.array;
 		for ( let i = 0; i < this._meshRefs.length; i ++ ) {
 
-			data[ i * 4 ] = this._isWorldVisible( this._meshRefs[ i ] ) ? 1.0 : 0.0;
+			this._patchTLASLeafVisibility( i, this._isWorldVisible( this._meshRefs[ i ] ) );
 
 		}
 
-		this.meshVisibilityStorageAttr.needsUpdate = true;
+		if ( this.bvhStorageAttr ) this.bvhStorageAttr.needsUpdate = true;
+
+	}
+
+	/**
+	 * Patch a single TLAS leaf's visibility flag in the combined BVH buffer.
+	 * Returns true if the patch was applied.
+	 * @private
+	 */
+	_patchTLASLeafVisibility( meshIndex, visible ) {
+
+		const entry = this._instanceTable?.entries?.[ meshIndex ];
+		if ( ! entry || entry.tlasLeafIndex < 0 || ! this.bvhStorageAttr ) return false;
+
+		entry.visible = visible;
+		this.bvhStorageAttr.array[ entry.tlasLeafIndex * 16 + 2 ] = visible ? 1.0 : 0.0;
+		return true;
 
 	}
 
@@ -1493,18 +1514,43 @@ export class PathTracer extends RenderStage {
 
 	}
 
+	/**
+	 * Rebuild the packed light buffer from cached lightBVH + emissive data.
+	 * Layout: [ lightBVH (LBVH_STRIDE vec4s per node) | emissive (EMISSIVE_STRIDE vec4s per entry) ].
+	 * Also updates `emissiveVec4Offset` uniform (in vec4 elements).
+	 * @private
+	 */
+	_rebuildLightBuffer() {
+
+		const LBVH_STRIDE = 4; // vec4s per LBVH node — must match LightBVHSampling.js
+		const lbvh = this._lbvhDataCache;
+		const emis = this._emissiveDataCache;
+		const lbvhLen = lbvh ? lbvh.length : 0;
+		const emisLen = emis ? emis.length : 0;
+
+		// Ensure at least a minimal non-empty buffer so GPU allocation remains valid.
+		const totalLen = Math.max( lbvhLen + emisLen, 4 );
+		const combined = new Float32Array( totalLen );
+		if ( lbvh ) combined.set( lbvh, 0 );
+		if ( emis ) combined.set( emis, lbvhLen );
+
+		this.lightStorageAttr = new StorageInstancedBufferAttribute( combined, 4 );
+		this.lightStorageNode.value = this.lightStorageAttr;
+		this.lightStorageNode.bufferCount = combined.length / 4;
+
+		// Offset (in vec4 elements) where emissive data starts.
+		this.emissiveVec4Offset.value = ( this.lightBVHNodeCount.value || 0 ) * LBVH_STRIDE;
+
+	}
+
 	setEmissiveTriangleData( emissiveData, count, totalPower = 0 ) {
 
 		if ( ! emissiveData ) return;
 
-		const vec4Count = emissiveData.length / 4;
-
-		this.emissiveTriangleStorageAttr = new StorageInstancedBufferAttribute( emissiveData, 4 );
-		this.emissiveTriangleStorageNode.value = this.emissiveTriangleStorageAttr;
-		this.emissiveTriangleStorageNode.bufferCount = vec4Count;
-
+		this._emissiveDataCache = emissiveData;
 		this.emissiveTriangleCount.value = count;
 		this.emissiveTotalPower.value = totalPower;
+		this._rebuildLightBuffer();
 		console.log( `PathTracer: ${count} emissive triangles, totalPower=${totalPower.toFixed( 4 )} (storage buffer)` );
 
 	}
@@ -1513,11 +1559,9 @@ export class PathTracer extends RenderStage {
 
 		if ( ! nodeData ) return;
 
-		const vec4Count = nodeData.length / 4;
-		this.lightBVHStorageAttr = new StorageInstancedBufferAttribute( nodeData, 4 );
-		this.lightBVHStorageNode.value = this.lightBVHStorageAttr;
-		this.lightBVHStorageNode.bufferCount = vec4Count;
+		this._lbvhDataCache = nodeData;
 		this.lightBVHNodeCount.value = nodeCount;
+		this._rebuildLightBuffer();
 		console.log( `PathTracer: Light BVH ${nodeCount} nodes` );
 
 	}

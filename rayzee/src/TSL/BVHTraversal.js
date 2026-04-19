@@ -43,19 +43,8 @@ const BVH_STRIDE = 4;
 const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
 
-// Per-mesh visibility buffer (set by ShaderBuilder before graph construction)
-let _meshVisibilityBuffer = null;
-
-/**
- * Set the per-mesh visibility storage buffer node.
- * Must be called before the shader graph is constructed (i.e., before setupCompute).
- * @param {StorageNode} buffer - TSL storage node indexed by meshIndex
- */
-export function setMeshVisibilityBuffer( buffer ) {
-
-	_meshVisibilityBuffer = buffer;
-
-}
+// Per-mesh visibility is now packed into the TLAS BLAS-pointer leaf's slot [2]
+// by TLASBuilder.flatten() — eliminates the dedicated meshVisibility storage buffer.
 
 // ================================================================================
 // STACK HELPERS (Native WGSL array via TSL ArrayNode)
@@ -276,35 +265,17 @@ export const traverseBVH = Fn( ( [
 
 			} ).Else( () => {
 
-				// BLAS-pointer leaf (marker -2) — push BLAS root node onto stack
-				// nodeData0: [blasRootNodeIndex, meshIndex, 0, -2]
+				// BLAS-pointer leaf (marker -2) — push BLAS root onto stack if mesh is visible
+				// nodeData0: [blasRootNodeIndex, meshIndex, visibility, -2]
+				// Visibility is free-fetched with the leaf — no extra storage read.
 				const blasRoot = int( nodeData0.x ).toVar();
 
-				if ( _meshVisibilityBuffer ) {
+				If( nodeData0.z.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					// Per-mesh visibility check — skip entire BLAS if mesh is hidden
-					// getDatafromStorageBuffer( buffer, stride=1, sampleIndex=meshIdx, dataOffset=0 )
-					const meshIdx = int( nodeData0.y ).toVar();
-					const meshVis = getDatafromStorageBuffer( _meshVisibilityBuffer, int( 1 ), meshIdx, int( 0 ) ).x;
+					stack.element( stackPtr ).assign( blasRoot );
+					stackPtr.addAssign( 1 );
 
-					If( meshVis.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
-
-						stack.element( stackPtr ).assign( blasRoot );
-						stackPtr.addAssign( 1 );
-
-					} );
-
-				} else {
-
-					// No visibility buffer — push unconditionally (original behavior)
-					If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
-
-						stack.element( stackPtr ).assign( blasRoot );
-						stackPtr.addAssign( 1 );
-
-					} );
-
-				}
+				} );
 
 			} );
 
@@ -466,35 +437,16 @@ export const traverseBVHShadow = Fn( ( [
 
 			} ).Else( () => {
 
-				// BLAS-pointer leaf (marker -2) — push BLAS root node onto stack
-				// nodeData0: [blasRootNodeIndex, meshIndex, 0, -2]
+				// BLAS-pointer leaf (marker -2) — push BLAS root onto stack if mesh is visible
+				// nodeData0: [blasRootNodeIndex, meshIndex, visibility, -2]
 				const blasRoot = int( nodeData0.x ).toVar();
 
-				if ( _meshVisibilityBuffer ) {
+				If( nodeData0.z.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					// Per-mesh visibility check — skip entire BLAS if mesh is hidden
-					// getDatafromStorageBuffer( buffer, stride=1, sampleIndex=meshIdx, dataOffset=0 )
-					const meshIdx = int( nodeData0.y ).toVar();
-					const meshVis = getDatafromStorageBuffer( _meshVisibilityBuffer, int( 1 ), meshIdx, int( 0 ) ).x;
+					stack.element( stackPtr ).assign( blasRoot );
+					stackPtr.addAssign( 1 );
 
-					If( meshVis.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
-
-						stack.element( stackPtr ).assign( blasRoot );
-						stackPtr.addAssign( 1 );
-
-					} );
-
-				} else {
-
-					// No visibility buffer — push unconditionally (original behavior)
-					If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
-
-						stack.element( stackPtr ).assign( blasRoot );
-						stackPtr.addAssign( 1 );
-
-					} );
-
-				}
+				} );
 
 			} );
 

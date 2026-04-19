@@ -361,8 +361,10 @@ export const calculateEmissiveLightPdf = Fn( ( [
 // ================================================================================
 
 // Binary search in CDF for importance-weighted triangle selection
-// CDF values are stored in the .b channel of the emissive buffer
-const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveTriangleCount, rand ] ) => {
+// CDF values are stored in the .b channel of the emissive buffer.
+// `emissiveOffset` is the vec4-element offset into the packed light buffer
+// where emissive entries start (0 if using a non-packed buffer).
+const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveOffset, emissiveTriangleCount, rand ] ) => {
 
 	const lo = int( 0 ).toVar();
 	const hi = emissiveTriangleCount.sub( 1 ).toVar();
@@ -370,7 +372,7 @@ const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveTriangleCount, r
 	Loop( lo.lessThan( hi ), () => {
 
 		const mid = lo.add( hi ).div( 2 ).toVar();
-		const cdfVal = emissiveTriangleBuffer.element( mid.mul( EMISSIVE_STRIDE ) ).b;
+		const cdfVal = emissiveTriangleBuffer.element( emissiveOffset.add( mid.mul( int( EMISSIVE_STRIDE ) ) ) ).b;
 
 		If( cdfVal.lessThan( rand ), () => {
 
@@ -388,11 +390,13 @@ const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveTriangleCount, r
 
 } );
 
-// Sample from emissive triangle index using CDF importance sampling
+// Sample from emissive triangle index using CDF importance sampling.
+// `emissiveTriangleBuffer` may be the shared packed light buffer; `emissiveVec4Offset`
+// gives the vec4 offset where emissive entries begin.
 export const sampleEmissiveTriangle = Fn( ( [
 	hitPoint, surfaceNormal, totalTriangleCount,
 	rngState,
-	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
 ] ) => {
 
@@ -413,12 +417,12 @@ export const sampleEmissiveTriangle = Fn( ( [
 
 		// CDF importance-weighted triangle selection (brighter triangles sampled more)
 		const randEmissive = RandomValue( rngState );
-		const emissiveIndex = binarySearchCDF( emissiveTriangleBuffer, emissiveTriangleCount, randEmissive ).toVar();
+		const emissiveIndex = binarySearchCDF( emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, randEmissive ).toVar();
 
-		// Fetch emissive triangle data from storage buffer (2 vec4s per entry)
+		// Fetch emissive triangle data from packed light buffer (2 vec4s per entry)
 		// vec4[0] = (triangleIndex, power, cdf, selectionPdf)
 		// vec4[1] = (emission.r, emission.g, emission.b, area)
-		const baseIdx = emissiveIndex.mul( EMISSIVE_STRIDE );
+		const baseIdx = emissiveVec4Offset.add( emissiveIndex.mul( int( EMISSIVE_STRIDE ) ) );
 		const emissiveData0 = emissiveTriangleBuffer.element( baseIdx );
 		const emissiveData1 = emissiveTriangleBuffer.element( baseIdx.add( 1 ) );
 		const triangleIndex = int( emissiveData0.r );
@@ -534,7 +538,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	hitPoint, normal, viewDir, material,
 	totalTriangleCount, bounceIndex, rngState,
 	emissiveBoost,
-	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
 	// Callback functions to avoid circular deps
 	traceShadowRayFn,
@@ -557,7 +561,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 		// Sample emissive triangle (CDF importance-weighted)
 		const emissiveSample = EmissiveSample.wrap( sampleEmissiveTriangle(
 			hitPoint, normal, totalTriangleCount, rngState,
-			emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+			emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 			triangleBuffer,
 		) );
 
@@ -619,7 +623,7 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 	hitPoint, normal, viewDir, material,
 	totalTriangleCount, bounceIndex, rngState,
 	emissiveBoost,
-	emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
 	traceShadowRayFn,
 	evaluateMaterialResponseFn,
@@ -630,7 +634,7 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 		hitPoint, normal, viewDir, material,
 		totalTriangleCount, bounceIndex, rngState,
 		emissiveBoost,
-		emissiveTriangleBuffer, emissiveTriangleCount, emissiveTotalPower,
+		emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		triangleBuffer,
 		traceShadowRayFn,
 		evaluateMaterialResponseFn,
