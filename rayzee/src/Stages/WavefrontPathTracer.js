@@ -12,7 +12,7 @@
  *   - pathtracer:color, pathtracer:normalDepth, pathtracer:albedo
  */
 
-import { uniform, texture, storage } from 'three/tsl';
+import { uniform, texture } from 'three/tsl';
 import { PathTracer } from './PathTracer.js';
 import { PackedRayBuffer } from '../Processor/PackedRayBuffer.js';
 import { QueueManager, COUNTER } from '../Processor/QueueManager.js';
@@ -200,6 +200,7 @@ export class WavefrontPathTracer extends PathTracer {
 				km.dispatch( 'sort' );
 
 			}
+
 			km.dispatch( 'shade' );
 
 			// Stream compaction
