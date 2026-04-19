@@ -12,9 +12,13 @@ import { storage } from 'three/tsl';
 import { MATERIAL_DATA_LAYOUT as M, TRIANGLE_DATA_LAYOUT as T } from '../EngineDefaults.js';
 
 const PIXELS_PER_MATERIAL = M.SLOTS_PER_MATERIAL;
-// Per-triangle float offsets used by _patchTriangleSideForMaterial.
+// Per-triangle float offsets used by _patchTriangleSideForMaterial / _patchTriangleBlockerForMaterial.
 const TRI_MAT_IDX_OFFSET = T.UV_C_MAT_OFFSET + 2; // uvData2.z in shader
 const TRI_SIDE_OFFSET = T.NORMAL_C_OFFSET + 3; // normalCData.w in shader
+const TRI_BLOCKER_OFFSET = T.NORMAL_A_OFFSET + 3; // nA.w in shader (opaque-blocker fast path)
+
+// Material properties that affect the shadow-ray opaque-blocker flag.
+const BLOCKER_PROPS = new Set( [ 'transmission', 'transparent', 'opacity', 'alphaMode' ] );
 
 export class MaterialDataManager {
 
@@ -311,6 +315,13 @@ export class MaterialDataManager {
 
 		this.materialStorageAttr.needsUpdate = true;
 
+		// Recompute triangle-data opaque-blocker flag when any input to it changes.
+		if ( BLOCKER_PROPS.has( property ) ) {
+
+			this._recomputeOpaqueBlockerForMaterial( materialIndex );
+
+		}
+
 		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest' ];
 		if ( featureProperties.includes( property ) ) {
 
@@ -423,6 +434,8 @@ export class MaterialDataManager {
 		data[ stride + M.SIDE ] = materialData.side ?? 0;
 		// Mirror side into per-triangle data so BVH traversal avoids a material-buffer read.
 		this._patchTriangleSideForMaterial( materialIndex, materialData.side ?? 0 );
+		// Recompute shadow-ray opaque-blocker flag (reads alphaMode/transparent/transmission/opacity from buffer).
+		this._recomputeOpaqueBlockerForMaterial( materialIndex );
 		data[ stride + M.TRANSPARENT ] = materialData.transparent ?? 0;
 		data[ stride + M.ALPHA_TEST ] = materialData.alphaTest ?? 0;
 		data[ stride + M.ALPHA_MODE ] = materialData.alphaMode ?? 0;
@@ -672,11 +685,35 @@ export class MaterialDataManager {
 	 * index — side edits are a rare UI action so the scan cost is acceptable.
 	 * @private
 	 */
-	_patchTriangleSideForMaterial( materialIndex, sideValue ) {
+	/**
+	 * Re-derive the shadow-ray opaque-blocker flag for a material from its
+	 * current buffer values and patch NORMAL_A.w on every matching triangle.
+	 * Kept in sync with the blocker definition in GeometryExtractor.
+	 * @private
+	 */
+	_recomputeOpaqueBlockerForMaterial( materialIndex ) {
 
-		// Triangle data lives on the owning stage's StorageInstancedBufferAttribute,
-		// not on this.sdfs (which may be a different SceneProcessor instance than
-		// the one that uploaded the data in PathTracerApp's build flow).
+		const matBuf = this.materialStorageAttr?.array;
+		if ( ! matBuf ) return;
+
+		const matStride = materialIndex * M.FLOATS_PER_MATERIAL;
+		const alphaMode = matBuf[ matStride + M.ALPHA_MODE ] | 0;
+		const transparent = matBuf[ matStride + M.TRANSPARENT ] | 0;
+		const transmission = matBuf[ matStride + M.TRANSMISSION ] || 0;
+		const opacity = matBuf[ matStride + M.OPACITY ] ?? 1;
+		const isOpaqueBlocker = ( alphaMode === 0 && transparent === 0 && transmission === 0 && opacity >= 1 ) ? 1.0 : 0.0;
+
+		this._patchTriangleFlagForMaterial( materialIndex, TRI_BLOCKER_OFFSET, isOpaqueBlocker );
+
+	}
+
+	/**
+	 * Generic helper: patch a single per-triangle float at `triOffset` for every
+	 * triangle whose materialIndex matches, then fire onTriangleDataChanged.
+	 * @private
+	 */
+	_patchTriangleFlagForMaterial( materialIndex, triOffset, value ) {
+
 		const triInfo = this.callbacks.getTriangleData?.();
 		const triData = triInfo?.array;
 		const triCount = triInfo?.count | 0;
@@ -689,7 +726,7 @@ export class MaterialDataManager {
 			const base = i * stride;
 			if ( triData[ base + TRI_MAT_IDX_OFFSET ] === materialIndex ) {
 
-				triData[ base + TRI_SIDE_OFFSET ] = sideValue;
+				triData[ base + triOffset ] = value;
 				patched ++;
 
 			}
@@ -701,6 +738,12 @@ export class MaterialDataManager {
 			this.callbacks.onTriangleDataChanged();
 
 		}
+
+	}
+
+	_patchTriangleSideForMaterial( materialIndex, sideValue ) {
+
+		this._patchTriangleFlagForMaterial( materialIndex, TRI_SIDE_OFFSET, sideValue );
 
 	}
 

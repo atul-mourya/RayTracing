@@ -130,6 +130,19 @@ export const traceShadowRay = Fn( ( [
 
 		} );
 
+		// Opaque fast-path: check the per-triangle blocker flag (NORMAL_A.w, set at
+		// extraction time when alphaMode/transparent/transmission/opacity all indicate
+		// a fully opaque surface). Short-circuits the 7-slot getShadowMaterial fetch
+		// and the entire alpha/transmission/transparent decision tree below.
+		const TRI_STRIDE_SR = int( 8 );
+		const blocker = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 3 ), TRI_STRIDE_SR ).w;
+		If( blocker.greaterThan( 0.5 ), () => {
+
+			transmittance.assign( 0.0 );
+			Break();
+
+		} );
+
 		// Fetch material for the hit surface (thin reader: 7 slots instead of 27)
 		const shadowMaterial = ShadowMaterial.wrap( getShadowMaterial( shadowHit.materialIndex, materialBuffer ) );
 

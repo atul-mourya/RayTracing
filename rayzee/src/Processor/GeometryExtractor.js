@@ -618,7 +618,22 @@ export class GeometryExtractor {
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 0 ] = normalA.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 1 ] = normalA.y;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 2 ] = normalA.z;
-		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 3 ] = 0; // vec4 padding
+		// Repurposed padding: opaque-blocker fast-path flag for shadow rays.
+		// 1.0 = surface fully blocks light (no alpha, transmission, or transparency) →
+		//       traceShadowRay can skip the 7-slot getShadowMaterial fetch.
+		// 0.0 = requires full material evaluation.
+		{
+
+			const mat = this.materials[ materialIndex ];
+			const isOpaqueBlocker = mat
+				&& ( mat.alphaMode | 0 ) === 0
+				&& ( mat.transparent | 0 ) === 0
+				&& ( mat.transmission || 0 ) === 0
+				&& ( mat.opacity ?? 1 ) >= 1
+				? 1.0 : 0.0;
+			this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_A_OFFSET + 3 ] = isOpaqueBlocker;
+
+		}
 
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 0 ] = normalB.x;
 		this.triangleData[ offset + TRIANGLE_DATA_LAYOUT.NORMAL_B_OFFSET + 1 ] = normalB.y;
