@@ -107,8 +107,8 @@ Shade kernel binding budget (8/8):
 
 ### Tier 2: Light Support (needs binding budget work)
 - [x] 10. Request `maxStorageBuffersPerShaderStage: 10` — already done in `PathTracerApp.js:1116` (`Math.min(adapterLimit, 10)`). Adapter reports limit=10 on Apple Silicon; likely 8 on older hardware.
-- [ ] 11. Add discrete light sampling (directional, point, spot) + shadow rays
-- [ ] 12. Add area light sampling
+- [x] 11. Discrete light sampling (directional, point, spot) + shadow rays — already covered. ShadeKernel's `calculateDirectLightingUnified` call passes `directionalLightsBuffer/pointLightsBuffer/spotLightsBuffer` + counts; the same function the monolithic uses (LightsSampling.js:334). Shadow rays go through inline `traceShadowRay` (see item 14/15).
+- [x] 12. Area light sampling — same path, `areaLightsBuffer` + `numAreaLights` plumbed through and consumed by `calculateDirectLightingUnified` with rectangular area-light solid angle sampling + MIS.
 - [~] 13. Emissive triangle NEE — **blocked on TSL nested-Fn-with-storage limitation**. Attempted 2026-04-19 via `calculateEmissiveTriangleContribution` + a `Fn(...)` wrapper that closes over `bvhBuffer/triangleBuffer/materialBuffer` to adapt `traceShadowRay` to the 4-param shadow callback the emissive sampler expects. Silently produced black renders across all scenes (TSL codegen doesn't support storage buffers passed through nested Fn closures — same root cause that blocks env IS from being a separate Fn). To unblock: either (a) duplicate `calculateEmissiveTriangleContribution` with the full 8-param `traceShadowRay` signature inlined, or (b) wait for upstream TSL to fix nested-Fn storage binding propagation.
 
 ### Tier 3: Shadow Quality
