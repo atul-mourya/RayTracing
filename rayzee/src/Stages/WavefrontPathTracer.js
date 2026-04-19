@@ -284,6 +284,7 @@ export class WavefrontPathTracer extends PathTracer {
 		if ( mat.metalnessMaps && t.metalnessMaps ) t.metalnessMaps.value = mat.metalnessMaps;
 		if ( mat.roughnessMaps && t.roughnessMaps ) t.roughnessMaps.value = mat.roughnessMaps;
 		if ( mat.emissiveMaps && t.emissiveMaps ) t.emissiveMaps.value = mat.emissiveMaps;
+		if ( mat.displacementMaps && t.displacementMaps ) t.displacementMaps.value = mat.displacementMaps;
 
 	}
 
@@ -479,6 +480,7 @@ export class WavefrontPathTracer extends PathTracer {
 		const freshMetalnessMaps = _mat.metalnessMaps ? texture( _mat.metalnessMaps ) : texNodes.metalnessMapsTex;
 		const freshRoughnessMaps = _mat.roughnessMaps ? texture( _mat.roughnessMaps ) : texNodes.roughnessMapsTex;
 		const freshEmissiveMaps = _mat.emissiveMaps ? texture( _mat.emissiveMaps ) : texNodes.emissiveMapsTex;
+		const freshDisplacementMaps = _mat.displacementMaps ? texture( _mat.displacementMaps ) : texNodes.displacementMapsTex;
 		const freshEnvTex = _env.environmentTexture ? texture( _env.environmentTexture ) : texNodes.envTex;
 
 		this._wfTexNodes = {
@@ -489,6 +491,7 @@ export class WavefrontPathTracer extends PathTracer {
 			metalnessMaps: freshMetalnessMaps,
 			roughnessMaps: freshRoughnessMaps,
 			emissiveMaps: freshEmissiveMaps,
+			displacementMaps: freshDisplacementMaps,
 		};
 
 		const esFn = buildExtendShadeKernel( {
@@ -617,6 +620,7 @@ export class WavefrontPathTracer extends PathTracer {
 			metalnessMaps: freshMetalnessMaps,
 			roughnessMaps: freshRoughnessMaps,
 			emissiveMaps: freshEmissiveMaps,
+			displacementMaps: freshDisplacementMaps,
 			envTexture: freshEnvTex,
 			environmentIntensity: this.environmentIntensity,
 			envMatrix: this.environmentMatrix,

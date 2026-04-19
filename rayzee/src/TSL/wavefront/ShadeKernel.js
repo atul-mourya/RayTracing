@@ -38,6 +38,7 @@ import { IndirectLightingResult } from '../LightsCore.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
 import { getImportanceSamplingInfo } from '../MaterialProperties.js';
 import { sampleClearcoat, ClearcoatResult } from '../Clearcoat.js';
+import { refineDisplacedIntersection, DisplacementResult } from '../Displacement.js';
 import {
 	Ray,
 	HitInfo,
@@ -56,7 +57,7 @@ import {
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack,
 	readHitDistance, readHitBarycentrics, readHitNormal,
-	readHitMaterialIndex,
+	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
 	writeRayNormalDepth, writeRayAlbedoID,
 	readRayRadiance, readRayPixelIndex,
@@ -86,6 +87,7 @@ export function buildShadeKernel( params ) {
 		// Textures (not storage buffers)
 		albedoMaps, normalMaps, bumpMaps,
 		metalnessMaps, roughnessMaps, emissiveMaps,
+		displacementMaps,
 		envTexture, environmentIntensity, envMatrix,
 		enableEnvironmentLight, useEnvMapIS,
 		envTotalSum, envResolution,
@@ -142,6 +144,7 @@ export function buildShadeKernel( params ) {
 		// hitInfo.uv from traverseBVH is the interpolated texture UV (not barycentrics)
 		const hitUV = readHitBarycentrics( hitBufferRO, rayID ).toVar();
 		const hitMatIdx = readHitMaterialIndex( hitBufferRO, rayID ).toVar();
+		const hitTriIdx = readHitTriangleIndex( hitBufferRO, rayID ).toVar();
 
 		const bounceIndex = currentBounce;
 
@@ -218,11 +221,39 @@ export function buildShadeKernel( params ) {
 			getMaterial( int( hitMatIdx ), materialBuffer )
 		).toVar();
 
-		// Sample textures (hitUV already loaded above)
+		// ─── DISPLACEMENT MAPPING (item 27) ─────────────────────
+		// Tessellation-free via analytical ray-height marching.
+		// Mirrors PathTracerCore.js:759 — refines hitPoint/UV/normal when the
+		// material has a valid displacement map. Cheap no-op otherwise.
+		const samplingUV = hitUV.toVar();
+		const displacedNormal = N.toVar();
+		If(
+			material.displacementMapIndex.greaterThanEqual( int( 0 ) )
+				.and( material.displacementScale.greaterThan( 0.0 ) ),
+			() => {
+
+				const dispRay = Ray( { origin, direction } );
+				const dispHit = HitInfo( {
+					didHit: true, dst: hitDist, hitPoint, normal: N, uv: hitUV,
+					materialIndex: int( hitMatIdx ), meshIndex: int( 0 ),
+					triangleIndex: int( hitTriIdx ),
+					boxTests: int( 0 ), triTests: int( 0 ),
+				} );
+				const dispResult = DisplacementResult.wrap( refineDisplacedIntersection(
+					dispRay, dispHit, triangleBuffer, displacementMaps, material, bounceIndex,
+				) ).toVar();
+				samplingUV.assign( dispResult.uv );
+				displacedNormal.assign( dispResult.normal );
+				hitPoint.assign( dispResult.hitPoint );
+
+			}
+		);
+
+		// Sample textures with displacement-refined UVs
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 			albedoMaps, normalMaps, bumpMaps,
 			metalnessMaps, roughnessMaps, emissiveMaps,
-			material, hitUV, N,
+			material, samplingUV, N,
 		) ).toVar();
 
 		// Apply texture samples to material (CRITICAL — BRDF functions use material.color/metalness/roughness)
@@ -231,8 +262,20 @@ export function buildShadeKernel( params ) {
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 
 		const albedo = matSamples.albedo.toVar();
-		// Update N with texture-perturbed normal for all subsequent BRDF evaluations
-		N.assign( matSamples.normal );
+		// Update N — displacement provides macro shape, normal map adds micro detail (matches PathTracerCore:783)
+		If(
+			material.displacementMapIndex.greaterThanEqual( int( 0 ) )
+				.and( material.displacementScale.greaterThan( 0.0 ) ),
+			() => {
+
+				N.assign( normalize( displacedNormal.add( matSamples.normal.sub( normalize( hitNormal ) ) ) ) );
+
+			}
+		).Else( () => {
+
+			N.assign( matSamples.normal );
+
+		} );
 
 		// ─── FIRST-HIT MRT DATA (bounce 0 only) ────────────────
 		If( bounceIndex.equal( 0 ), () => {

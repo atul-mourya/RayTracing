@@ -312,8 +312,8 @@ and <3% on others (stochastic).
   3. Kernel fusion is **not a generally useful lever** on our shader graph; the default separate-kernel pipeline is already the right shape. Focus optimization elsewhere.
 
 ### Tier 6: Full Parity + Migration
-- [ ] 27. Displacement mapping in Shade
-- [ ] 28. Medium stack persistence across bounces
+- [x] 27. Displacement mapping in Shade — added 2026-04-19. Imports `refineDisplacedIntersection` + `DisplacementResult` from `../Displacement.js`, reads `hitTriangleIndex` from the hit buffer, constructs a minimal `HitInfo` struct, and gates the marcher on `material.displacementMapIndex >= 0 && displacementScale > 0`. Refined UV is used for `sampleAllMaterialTextures`, and displaced-normal blends with the texture normal (matches `PathTracerCore:783`). `displacementMaps` texture array wired through `_wfTexNodes` for hot-swap on model change. Non-displaced scenes (camera, bathroom) verified unchanged.
+- [x] 28. Medium stack persistence across bounces — already working. ShadeKernel reads the 3-slot IOR stack from the ray buffer at each bounce, transitions on enter/exit transmission, and writes back. Generate initializes depth=0, ior=1.0. Verified on Diamond at 8 bounces / 8 transmissive — produces correct refraction + internal reflection.
 - [ ] 29. Path importance caching
 - [ ] 30. Update spec status
 - [ ] 31. Remove monolithic fallback — wavefront as default
