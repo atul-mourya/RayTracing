@@ -106,10 +106,10 @@ Shade kernel binding budget (8/8):
 - [x] 9. MIS via `calculateIndirectLighting` + `powerHeuristic` NEE. ~80% brightness match to monolithic.
 
 ### Tier 2: Light Support (needs binding budget work)
-- [ ] 10. Request `maxStorageBuffersPerShaderStage: 10` from adapter
+- [x] 10. Request `maxStorageBuffersPerShaderStage: 10` — already done in `PathTracerApp.js:1116` (`Math.min(adapterLimit, 10)`). Adapter reports limit=10 on Apple Silicon; likely 8 on older hardware.
 - [ ] 11. Add discrete light sampling (directional, point, spot) + shadow rays
 - [ ] 12. Add area light sampling
-- [ ] 13. Add emissive triangle NEE (needs sub-kernel split or higher limit)
+- [~] 13. Emissive triangle NEE — **blocked on TSL nested-Fn-with-storage limitation**. Attempted 2026-04-19 via `calculateEmissiveTriangleContribution` + a `Fn(...)` wrapper that closes over `bvhBuffer/triangleBuffer/materialBuffer` to adapt `traceShadowRay` to the 4-param shadow callback the emissive sampler expects. Silently produced black renders across all scenes (TSL codegen doesn't support storage buffers passed through nested Fn closures — same root cause that blocks env IS from being a separate Fn). To unblock: either (a) duplicate `calculateEmissiveTriangleContribution` with the full 8-param `traceShadowRay` signature inlined, or (b) wait for upstream TSL to fix nested-Fn storage binding propagation.
 
 ### Tier 3: Shadow Quality
 - [x] 14/15. **Transparent shadow transmission** — effectively already working (2026-04-19). Investigation showed `WavefrontPathTracer.render()` does NOT dispatch `connect` or `accumulate`; instead `ShadeKernel` calls `calculateDirectLightingUnified` inline, which internally calls `traceShadowRay` (from `LightsDirect.js`). That function already handles the full transparent-shadow loop: alpha-cutout (MASK/BLEND), transmissive (glass + Beer-Lambert), transparent (opacity), up to 8 iterations. **No wavefront-specific work needed** — the monolithic shadow infrastructure is reused. `ConnectKernel`/`AccumulateKernel` are dead code kept for a future deferred-shadow pipeline; if that pipeline is ever wired up, `rngBuffer` would be needed only if stochastic transparency is added (current `traceShadowRay` takes rngState but doesn't read it).
@@ -226,7 +226,7 @@ and <3% on others (stochastic).
 **Only if items 32b/41 don't fully close the gap:**
 
 - [ ] 39. **Adaptive bin count via uniform** — `min(MAX_BINS_HARD, materialCount)` passed per-scene. Captures Sofaset win without Pagani regression. Only worth building if item 42's re-measure still shows a tuning gap.
-- [ ] 38. **Skip Sort dispatch when materialCount is very low** (Ferrari/Helmet have ~5 materials, sort costs them 2–7% with no win). One `if` in the bounce-loop dispatch. Cheap backstop.
+- [x] 38. **Skip Sort dispatch when materialCount is very low** — implemented 2026-04-19. `_buildWavefrontKernels` sets `this._sortMaterials = flag && matCount > 8`. Sort + resetSortHistogram kernels aren't registered when sort is off, and the bounce loop gates on the flag. Verified: camera (2 mats) skips sort, Ferrari (7 mats) skips sort, Pagani (40 mats) runs sort. Ferrari warm is unchanged (~1.03s / 60f at 512/3b) — the ~3% sort overhead is at the noise floor at this resolution. Gain is cleaner rather than fast.
 
 **Larger phase-2 improvements (closer to production designs):**
 

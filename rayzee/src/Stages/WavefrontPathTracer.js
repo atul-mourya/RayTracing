@@ -345,7 +345,15 @@ export class WavefrontPathTracer extends PathTracer {
 		const pb = this._packedBuffers;
 		const qm = this._queueManager;
 
-		this._sortMaterials = ENGINE_DEFAULTS.wavefrontSortMaterials ?? false;
+		// Sort is a net loss on scenes with trivial material diversity (Ferrari/Helmet
+		// with ~5 materials regressed 2–7% with no coherence win — item 38). Only
+		// enable sort when materialCount is high enough that coherence is plausibly
+		// valuable. Threshold picked from the 512/3b warm benchmark (scenes with
+		// ≤8 materials never benefited).
+		const SORT_MIN_MATERIALS = 8;
+		const matCount = this.materialData?.materialCount ?? 0;
+		this._sortMaterials = ( ENGINE_DEFAULTS.wavefrontSortMaterials ?? false )
+			&& matCount > SORT_MIN_MATERIALS;
 
 		this._wfRenderWidth.value = w;
 		this._wfRenderHeight.value = h;
