@@ -220,53 +220,62 @@ export class EquirectHDRInfo {
 
 		const { floatData, width, height } = extractFloatData( hdr );
 
-		// Reuse worker across calls; create on first use
-		if ( ! this._worker ) {
+		// Fresh worker per call — terminated in finally to avoid ~30 MB residency.
+		try {
 
-			try {
+			this._worker = new Worker( CDF_WORKER_URL, { type: 'module' } );
 
-				this._worker = new Worker( CDF_WORKER_URL, { type: 'module' } );
+		} catch ( e ) {
 
-			} catch ( e ) {
+			if ( e.name !== 'SecurityError' ) throw e;
+			this._worker = await fetchAsWorker( CDF_WORKER_URL );
 
-				if ( e.name !== 'SecurityError' ) throw e;
-				this._worker = await fetchAsWorker( CDF_WORKER_URL );
+		}
+
+		try {
+
+			const result = await new Promise( ( resolve, reject ) => {
+
+				this._worker.onmessage = ( e ) => {
+
+					if ( e.data.error ) {
+
+						reject( new Error( e.data.error ) );
+
+					} else {
+
+						resolve( e.data );
+
+					}
+
+				};
+
+				this._worker.onerror = reject;
+
+				// Transfer floatData to worker (zero-copy)
+				this._worker.postMessage(
+					{ floatData, width, height },
+					[ floatData.buffer ]
+				);
+
+			} );
+
+			this.marginalData = result.marginalData;
+			this.conditionalData = result.conditionalData;
+			this.totalSum = result.totalSum;
+			this.width = result.width;
+			this.height = result.height;
+
+		} finally {
+
+			if ( this._worker ) {
+
+				this._worker.terminate();
+				this._worker = null;
 
 			}
 
 		}
-
-		const result = await new Promise( ( resolve, reject ) => {
-
-			this._worker.onmessage = ( e ) => {
-
-				if ( e.data.error ) {
-
-					reject( new Error( e.data.error ) );
-
-				} else {
-
-					resolve( e.data );
-
-				}
-
-			};
-
-			this._worker.onerror = reject;
-
-			// Transfer floatData to worker (zero-copy)
-			this._worker.postMessage(
-				{ floatData, width, height },
-				[ floatData.buffer ]
-			);
-
-		} );
-
-		this.marginalData = result.marginalData;
-		this.conditionalData = result.conditionalData;
-		this.totalSum = result.totalSum;
-		this.width = result.width;
-		this.height = result.height;
 
 	}
 

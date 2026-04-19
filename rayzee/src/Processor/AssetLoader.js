@@ -472,20 +472,28 @@ export class AssetLoader extends EventDispatcher {
 			const loader = await this.createGLTFLoader();
 			loader.manager = manager;
 
-			return await new Promise( ( resolve, reject ) => {
+			try {
 
-				loader.parse( gltfContent, '',
-					gltf => {
+				return await new Promise( ( resolve, reject ) => {
 
-						if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
-						this.targetModel = gltf.scene;
-						this.onModelLoad( this.targetModel ).then( () => resolve( gltf ) );
+					loader.parse( gltfContent, '',
+						gltf => {
 
-					},
-					error => reject( error )
-				);
+							if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+							this.targetModel = gltf.scene;
+							this.onModelLoad( this.targetModel ).then( () => resolve( gltf ) );
 
-			} );
+						},
+						error => reject( error )
+					);
+
+				} );
+
+			} finally {
+
+				this._disposeGLTFLoader( loader );
+
+			}
 
 		} else {
 
@@ -697,10 +705,9 @@ export class AssetLoader extends EventDispatcher {
 
 	}
 
-	// Model loading methods
+	// Returns a fresh loader each call — DRACOLoader/KTX2Loader hold persistent
+	// worker pools. Callers must invoke _disposeGLTFLoader() to terminate them.
 	async createGLTFLoader() {
-
-		if ( this.loaderCache.gltf ) return this.loaderCache.gltf;
 
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderConfig( { type: 'js' } );
@@ -726,15 +733,20 @@ export class AssetLoader extends EventDispatcher {
 
 		}
 
-		this.loaderCache.ktx2 = ktx2Loader;
-
 		const loader = new GLTFLoader();
 		loader.setDRACOLoader( dracoLoader );
 		loader.setKTX2Loader( ktx2Loader );
 		loader.setMeshoptDecoder( MeshoptDecoder );
 
-		this.loaderCache.gltf = loader;
 		return loader;
+
+	}
+
+	_disposeGLTFLoader( loader ) {
+
+		if ( ! loader ) return;
+		loader.dracoLoader?.dispose();
+		loader.ktx2Loader?.dispose();
 
 	}
 
@@ -753,9 +765,10 @@ export class AssetLoader extends EventDispatcher {
 
 	async loadModel( modelUrl ) {
 
+		const loader = await this.createGLTFLoader();
+
 		try {
 
-			const loader = await this.createGLTFLoader();
 			updateLoading( { status: "Loading Model...", progress: 2 } );
 			const data = await loader.loadAsync( modelUrl );
 			updateLoading( { status: "Processing Data...", progress: 10 } );
@@ -774,15 +787,20 @@ export class AssetLoader extends EventDispatcher {
 			this.dispatchEvent( { type: 'error', message: error.message, filename: modelUrl } );
 			throw error;
 
+		} finally {
+
+			this._disposeGLTFLoader( loader );
+
 		}
 
 	}
 
 	async loadGLBFromArrayBuffer( arrayBuffer, filename = 'model.glb' ) {
 
+		const loader = await this.createGLTFLoader();
+
 		try {
 
-			const loader = await this.createGLTFLoader();
 			updateLoading( { isLoading: true, status: "Processing GLB Data...", progress: 5 } );
 			await new Promise( r => setTimeout( r, 0 ) );
 
@@ -803,6 +821,10 @@ export class AssetLoader extends EventDispatcher {
 			console.error( 'Error loading GLB:', error );
 			this.dispatchEvent( { type: 'error', message: error.message, filename } );
 			throw error;
+
+		} finally {
+
+			this._disposeGLTFLoader( loader );
 
 		}
 
