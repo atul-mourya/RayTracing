@@ -770,6 +770,35 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	handleEnableReSTIRChange: val => {
+
+		set( { enableReSTIR: val } );
+		getApp()?.settings.set( 'enableReSTIR', val );
+		// If the user turns ReSTIR off, also hide the debug overlay.
+		if ( ! val && get().showReSTIRDebug ) {
+
+			set( { showReSTIRDebug: false } );
+			getApp()?.stages.pathTracer?.toggleReSTIRHeatmap( false );
+
+		}
+
+	},
+
+	handleShowReSTIRDebugChange: val => {
+
+		set( { showReSTIRDebug: val } );
+		getApp()?.stages.pathTracer?.toggleReSTIRHeatmap( val );
+
+	},
+
+	handleReSTIRDebugModeChange: val => {
+
+		const mode = parseInt( val, 10 );
+		set( { restirDebugMode: mode } );
+		getApp()?.stages.pathTracer?.setReSTIRHeatmapMode( mode );
+
+	},
+
 	handleRenderModeChange: handleChange(
 		val => set( { renderMode: val } ),
 		( val, app ) => {
@@ -918,11 +947,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	handleDebugModeChange: val => {
 
 		set( { debugMode: val } );
-		const mode = {
-			'1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
-			'6': 6, '7': 7, '8': 8, '9': 9, '10': 10, '11': 11,
-			'12': 12, '13': 13, '14': 14, '15': 15,
-		}[ val ] || 0;
+		const parsed = parseInt( val, 10 );
+		const mode = Number.isFinite( parsed ) && parsed >= 0 ? parsed : 0;
 		getApp()?.settings.set( 'visMode', mode );
 
 	},

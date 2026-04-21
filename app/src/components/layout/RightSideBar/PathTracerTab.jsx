@@ -108,6 +108,9 @@ const PathTracerTab = () => {
 		skyMieAnisotropy,
 		skyPreset,
 		enableAlphaShadows,
+		enableReSTIR,
+		showReSTIRDebug,
+		restirDebugMode,
 		interactionModeEnabled,
 		asvgfQualityPreset,
 		asvgfDebugMode,
@@ -144,6 +147,9 @@ const PathTracerTab = () => {
 		handleAdaptiveSamplingQualityPresetChange,
 		handleFireflyThresholdChange,
 		handleEnableAlphaShadowsChange,
+		handleEnableReSTIRChange,
+		handleShowReSTIRDebugChange,
+		handleReSTIRDebugModeChange,
 		handleRenderModeChange,
 		handleTileUpdate,
 		handleTileHelperToggle,
@@ -575,6 +581,31 @@ const PathTracerTab = () => {
 				<div className="flex items-center justify-between">
 					<Switch label={"Alpha Shadows"} checked={enableAlphaShadows} onCheckedChange={handleEnableAlphaShadowsChange} />
 				</div>
+				<div className="flex items-center justify-between">
+					<Switch label={"ReSTIR DI (beta)"} checked={enableReSTIR} onCheckedChange={handleEnableReSTIRChange} />
+				</div>
+				{enableReSTIR && ( <>
+					<div className="flex items-center justify-between">
+						<Switch label={"Show ReSTIR Debug"} checked={showReSTIRDebug} onCheckedChange={handleShowReSTIRDebugChange} />
+					</div>
+					{showReSTIRDebug && (
+						<div className="flex items-center justify-between">
+							<Select value={restirDebugMode.toString()} onValueChange={handleReSTIRDebugModeChange}>
+								<span className="opacity-50 text-xs truncate">Debug View</span>
+								<SelectTrigger className="max-w-32 h-5 rounded-full">
+									<SelectValue placeholder="Select view" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="20">Visibility Cache</SelectItem>
+									<SelectItem value="21">Frame Age</SelectItem>
+									<SelectItem value="22">Light Type</SelectItem>
+									<SelectItem value="23">W Magnitude</SelectItem>
+									<SelectItem value="24">M Count</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+					)}
+				</> )}
 				<Separator />
 				<div className="flex items-center justify-between">
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />

@@ -70,6 +70,14 @@ export const ENGINE_DEFAULTS = {
 	adaptiveSamplingMin: 1,
 	adaptiveSamplingMax: 8,
 	adaptiveSamplingVarianceThreshold: 0.1,
+
+	// ReSTIR DI — spatiotemporal importance resampling for direct lighting at
+	// bounce 0. Currently supports deterministic lights (directional/point/spot).
+	// Allocates ~132 MB reservoir buffer when enabled; ignored by env / area /
+	// emissive-triangle NEE (those continue through the standard CDF paths).
+	enableReSTIR: false,
+	showReSTIRDebug: false,
+	restirDebugMode: 20,
 	temporalVarianceWeight: 0.6,
 	enableEarlyTermination: true,
 	earlyTerminationThreshold: 0.002,

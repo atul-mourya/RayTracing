@@ -14,6 +14,8 @@ import { TileManager } from '../managers/TileManager.js';
 import { CameraOptimizer } from '../Processor/CameraOptimizer.js';
 import { createPerformanceMonitor, calculateAccumulationAlpha, updateCompletionThreshold } from '../Processor/utils.js';
 import { StorageTexturePool } from '../Processor/StorageTexturePool.js';
+import { ReSTIRReservoirPool } from '../Processor/ReSTIRReservoirPool.js';
+import { ReSTIRHeatmap } from './ReSTIRHeatmap.js';
 import { UniformManager } from '../managers/UniformManager.js';
 import { MaterialDataManager } from '../managers/MaterialDataManager.js';
 import { EnvironmentManager } from '../managers/EnvironmentManager.js';
@@ -103,6 +105,18 @@ export class PathTracer extends RenderStage {
 
 		// Initialize storage texture pool (ping-pong compute output)
 		this.storageTextures = new StorageTexturePool( 0, 0 );
+
+		// ReSTIR DI reservoir pool — allocated lazily on setSize. ~63 MB at 1080p
+		// when active. Content is gated behind the enableReSTIR uniform; buffer
+		// is bound to the kernel unconditionally so the shader graph is stable.
+		this.restirReservoirs = new ReSTIRReservoirPool( 0, 0 );
+
+		// ReSTIR debug overlay — orthogonal floating window that visualizes
+		// reservoir state (visibility cache / age / light type / W / M). Lazy-
+		// allocated on first toggle(true). Does not interact with main render.
+		this.restirHeatmap = new ReSTIRHeatmap( renderer, {
+			debugContainer: options.debugContainer || null,
+		} );
 
 		// Initialize uniforms via UniformManager
 		this.uniforms = new UniformManager( width, height );
@@ -634,6 +648,12 @@ export class PathTracer extends RenderStage {
 		this.hasPreviousAccumulated.value = 0;
 		this.storageTextures.currentTarget = 0;
 
+		// Reservoirs from prior frames are invalidated — normal/depth and material
+		// state may have changed, so prev-slot contents no longer correspond to
+		// the current scene. Parity is intentionally NOT reset; that's independent
+		// bookkeeping for ping-pong.
+		this.restirReservoirs.clear();
+
 		// Reset tile manager
 		this.tileManager.spiralOrder = this.tileManager.generateSpiralOrder( this.tileManager.tiles );
 
@@ -646,6 +666,27 @@ export class PathTracer extends RenderStage {
 		this.tileCompletionFrame = 0;
 
 		this.lastInteractionModeState = false;
+
+	}
+
+	/**
+	 * Toggle the ReSTIR debug overlay (floating window). Lazy-allocates
+	 * GPU resources on first enable.
+	 * @param {boolean} enabled
+	 */
+	toggleReSTIRHeatmap( enabled ) {
+
+		this.restirHeatmap.toggle( enabled );
+
+	}
+
+	/**
+	 * Choose which reservoir field the debug overlay visualizes.
+	 * @param {number} mode — 20..24 (visibility / age / type / W / M)
+	 */
+	setReSTIRHeatmapMode( mode ) {
+
+		this.restirHeatmap.setMode( mode );
 
 	}
 
@@ -674,6 +715,8 @@ export class PathTracer extends RenderStage {
 		this.resolution.value.set( width, height );
 		this.tileManager.setSize( width, height );
 		this.createStorageTextures( width, height );
+		this.restirReservoirs.setSize( width, height );
+		this.restirHeatmap.setSize( width, height );
 		this.shaderBuilder.setSize( width, height );
 
 	}
@@ -1087,6 +1130,14 @@ export class PathTracer extends RenderStage {
 
 		}
 
+		// Lazy allocation: upgrade reservoir buffer from stub to full size the first
+		// frame ReSTIR is enabled. No-op when off or already activated.
+		if ( this.enableReSTIR.value && ! this.restirReservoirs.isActivated() ) {
+
+			this.restirReservoirs.activate();
+
+		}
+
 		this.performanceMonitor?.start();
 
 		// Read adaptive sampling guidance from pipeline context (produced by AdaptiveSampling)
@@ -1096,6 +1147,22 @@ export class PathTracer extends RenderStage {
 			if ( asTex ) {
 
 				this.shaderBuilder.adaptiveSamplingTexNode.value = asTex;
+
+			}
+
+		}
+
+		// Pull motion vector texture for ReSTIR temporal reuse. The MotionVector
+		// stage runs after PathTracer in the pipeline, so this is actually last
+		// frame's data — used as a 1-frame-lagged reprojection approximation.
+		// The disocclusion test inside the shader rejects stale samples on fast
+		// motion, keeping the quality-degradation bounded.
+		if ( context && this.shaderBuilder.motionVectorTexNode ) {
+
+			const mvTex = context.getTexture( 'motionVector:screenSpace' );
+			if ( mvTex ) {
+
+				this.shaderBuilder.motionVectorTexNode.value = mvTex;
 
 			}
 
@@ -1198,6 +1265,14 @@ export class PathTracer extends RenderStage {
 
 		// Dispatch single compute node
 		this.renderer.compute( this.shaderBuilder.computeNode );
+
+		// Ping-pong the reservoir pool so next frame's "prev" slot is this frame's "curr".
+		this.restirReservoirs.swap();
+
+		// ReSTIR debug overlay — reads the reservoir state the main dispatch
+		// just wrote. Runs AFTER swap so the overlay's own compute dispatch sees
+		// the freshly-written slot as its "current" for inspection.
+		this.restirHeatmap.render();
 
 		// Copy StorageTextures → RenderTarget textures for downstream reads
 		this.storageTextures.copyToReadTargets( this.renderer );
@@ -1674,6 +1749,10 @@ export class PathTracer extends RenderStage {
 
 		// Dispose storage textures
 		this.storageTextures?.dispose();
+
+		// Dispose reservoir storage
+		this.restirReservoirs?.dispose();
+		this.restirHeatmap?.dispose();
 
 		// Dispose textures
 		this.blueNoiseTexture?.dispose();

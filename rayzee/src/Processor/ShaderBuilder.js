@@ -17,6 +17,14 @@ import { TextureNode } from 'three/webgpu';
 import { LinearFilter, DataArrayTexture } from 'three';
 import { pathTracerMain } from '../TSL/PathTracer.js';
 import { setShadowAlbedoMaps, setAlphaShadowsUniform } from '../TSL/LightsDirect.js';
+import {
+	setReSTIREnabled,
+	setReservoirBuffer,
+	setReservoirFrameParity,
+	setReservoirResolution,
+	setMotionVectorTex,
+	setPrevNormalDepthTex,
+} from '../TSL/ReSTIRState.js';
 import { BuildTimer } from './BuildTimer.js';
 
 const WG_SIZE = 8;
@@ -240,11 +248,32 @@ export class ShaderBuilder {
 		// Set alpha-shadow uniform (module-level in LightsDirect.js, read at runtime)
 		setAlphaShadowsUniform( stage.uniforms.get( 'enableAlphaShadows' ) );
 
+		// Phase 0 ReSTIR DI feature flag — read by the shim in calculateDirectLightingUnified.
+		setReSTIREnabled( stage.uniforms.get( 'enableReSTIR' ) );
+
+		// Phase 2 ReSTIR reservoir storage: single storage-buffer node holding
+		// both ping-pong slots. Bound unconditionally; only accessed when
+		// enableReSTIR is true inside the RIS branch.
+		const reservoirs = stage.restirReservoirs;
+		if ( reservoirs ) {
+
+			setReservoirBuffer( reservoirs.getStorageNode() );
+			setReservoirFrameParity( reservoirs.frameParityUniform );
+			setReservoirResolution( reservoirs.resolutionUniform );
+
+		}
+
 		const envTex = texture( stage.environment.environmentTexture );
 
 		// Adaptive sampling texture
 		const adaptiveSamplingTex = new TextureNode();
 		this.adaptiveSamplingTexNode = adaptiveSamplingTex;
+
+		// Motion vector texture (populated per-frame from pipeline context in
+		// PathTracer.render — points at the RenderTarget published by MotionVector stage).
+		// Read by the ReSTIR temporal-reuse branch in calculateReSTIRDeterministicLighting.
+		this.motionVectorTexNode = new TextureNode();
+		setMotionVectorTex( this.motionVectorTexNode );
 
 		// Environment importance sampling CDF — packed storage buffer
 		// Layout: [marginal (envResolution.y floats) | conditional (envResolution.x * envResolution.y floats)]
@@ -255,6 +284,9 @@ export class ShaderBuilder {
 		this.prevColorTexNode = texture( readTextures.color );
 		this.prevNormalDepthTexNode = texture( readTextures.normalDepth );
 		this.prevAlbedoTexNode = texture( readTextures.albedo );
+
+		// Expose prev normal/depth to ReSTIR temporal reuse disocclusion test.
+		setPrevNormalDepthTex( this.prevNormalDepthTexNode );
 
 		const createArrayPlaceholder = () => {
 

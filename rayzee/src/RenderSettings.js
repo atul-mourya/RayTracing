@@ -38,6 +38,7 @@ const SETTING_ROUTES = {
 	debugVisScale: { uniform: 'debugVisScale', reset: true },
 	useAdaptiveSampling: { uniform: 'useAdaptiveSampling', reset: true },
 	adaptiveSamplingMax: { uniform: 'adaptiveSamplingMax', reset: true },
+	enableReSTIR: { uniform: 'enableReSTIR', reset: true },
 
 	// ── Multi-stage / special handling ────────────────────────────
 

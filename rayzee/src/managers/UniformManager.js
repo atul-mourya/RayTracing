@@ -184,6 +184,12 @@ export class UniformManager {
 		u( 'envTotalSum', 0.0, 'float' );
 		u( 'envResolution', new Vector2( 1, 1 ), 'vec2' );
 
+		// ReSTIR DI feature flag — default OFF. Phase 0 scaffolding; the flag
+		// is read by a shim in calculateDirectLightingUnified but both branches
+		// currently route to the existing NEE path, so output is pixel-identical
+		// regardless of this flag value until phase 3 wires the RIS path.
+		ub( 'enableReSTIR', false );
+
 		// Sun parameters
 		u( 'sunDirection', new Vector3( 0, 1, 0 ), 'vec3' );
 		u( 'sunAngularSize', 0.0087, 'float' );

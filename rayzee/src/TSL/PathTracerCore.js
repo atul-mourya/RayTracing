@@ -89,7 +89,8 @@ import {
 	sampleGGXVNDF,
 } from './MaterialSampling.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
-import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
+import { calculateDirectLightingUnified, calculateReSTIRDeterministicLighting, calculateMaterialPDF } from './LightsSampling.js';
+import { getReSTIREnabled } from './ReSTIRState.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
 import { IndirectLightingResult } from './LightsCore.js';
 import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, EmissiveSample } from './EmissiveSampling.js';
@@ -602,6 +603,8 @@ export const Trace = Fn( ( [
 	lightBVHBuffer, lightBVHNodeCount,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
+	// Camera matrices — needed for depth reprojection in ReSTIR disocclusion test.
+	cameraProjectionMatrix, cameraViewMatrix,
 ] ) => {
 
 	const radiance = vec3( 0.0 ).toVar();
@@ -1000,26 +1003,71 @@ export const Trace = Fn( ( [
 		} );
 
 		// 2. DIRECT LIGHTING
-		const directLight = calculateDirectLightingUnified(
-			hitInfo.hitPoint, N, material,
-			V,
-			brdfDir, brdfPdf, brdfValue,
-			rayIndex, bounceIndex, rngState,
-			directionalLightsBuffer, numDirectionalLights,
-			areaLightsBuffer, numAreaLights,
-			pointLightsBuffer, numPointLights,
-			spotLightsBuffer, numSpotLights,
-			bvhBuffer,
-			triangleBuffer,
-			materialBuffer,
-			envTexture, environmentIntensity, envMatrix,
-			envCDFBuffer,
-			envTotalSum, envResolution,
-			enableEnvironmentLight,
-		);
+		// Two mutually-exclusive paths at bounce 0:
+		//   - ReSTIR ON  → RIS-based sampling over dir/area/point/spot/env
+		//   - ReSTIR OFF → standard NEE + BRDF-MIS via calculateDirectLightingUnified
+		// Whichever path runs owns all direct lighting for this bounce; the other
+		// is skipped entirely to avoid double-counting and redundant work.
+		// Emissive-triangle NEE runs separately below (neither path handles it).
+		const restirEnabledNode = getReSTIREnabled();
+		const totalDetLightsLocal = numDirectionalLights.add( numAreaLights ).add( numPointLights ).add( numSpotLights ).toVar();
+		const restirAvailable = restirEnabledNode !== null;
+		const useRestir = restirAvailable
+			? restirEnabledNode.equal( int( 1 ) )
+				.and( bounceIndex.equal( int( 0 ) ) )
+				.and( totalDetLightsLocal.greaterThan( int( 0 ) ).or( enableEnvironmentLight ) )
+			: tslBool( false );
+
+		const directLight = vec3( 0.0 ).toVar();
+		const restirContribution = vec3( 0.0 ).toVar();
+
+		If( useRestir, () => {
+
+			const pxX = int( pixelCoord.x );
+			const pxY = int( pixelCoord.y );
+			const rw = int( resolution.x );
+			const rh = int( resolution.y );
+			restirContribution.assign( calculateReSTIRDeterministicLighting(
+				pxX, pxY, rw, rh,
+				hitInfo.hitPoint, N, hitInfo.dst, material, V,
+				rngState,
+				directionalLightsBuffer, numDirectionalLights,
+				areaLightsBuffer, numAreaLights,
+				pointLightsBuffer, numPointLights,
+				spotLightsBuffer, numSpotLights,
+				bvhBuffer, triangleBuffer, materialBuffer,
+				envTexture, environmentIntensity, envMatrix,
+				envCDFBuffer, envTotalSum, envResolution,
+				enableEnvironmentLight,
+			) );
+
+		} ).Else( () => {
+
+			directLight.assign( calculateDirectLightingUnified(
+				hitInfo.hitPoint, N, material,
+				V,
+				brdfDir, brdfPdf, brdfValue,
+				rayIndex, bounceIndex, rngState,
+				directionalLightsBuffer, numDirectionalLights,
+				areaLightsBuffer, numAreaLights,
+				pointLightsBuffer, numPointLights,
+				spotLightsBuffer, numSpotLights,
+				bvhBuffer,
+				triangleBuffer,
+				materialBuffer,
+				envTexture, environmentIntensity, envMatrix,
+				envCDFBuffer,
+				envTotalSum, envResolution,
+				enableEnvironmentLight,
+			) );
+
+		} );
 
 		radiance.addAssign( regularizePathContribution( {
-			contribution: directLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
+			contribution: directLight.add( restirContribution ).mul( throughput ).mul( giScale ),
+			pathLength: float( bounceIndex ),
+			fireflyThreshold,
+			frame: int( frame ),
 		} ) );
 
 		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING

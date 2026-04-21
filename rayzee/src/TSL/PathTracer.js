@@ -294,6 +294,7 @@ export const pathTracerMain = ( params ) => {
 				emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 				lightBVHBuffer, lightBVHNodeCount,
 				pixelCoord, resolution, frame,
+				cameraProjectionMatrix, cameraViewMatrix,
 			) );
 
 			sampleColor.assign( traceResult.radiance );
@@ -306,14 +307,14 @@ export const pathTracerMain = ( params ) => {
 				objectID.assign( traceResult.objectID );
 
 				// Set MRT data from first hit (only for geometry hits — miss rays have zero normal,
-				// and normalize(vec3(0)) = NaN which would corrupt the OIDN denoiser input)
+				// and normalize(vec3(0)) = NaN which would corrupt the OIDN denoiser input).
+				// linearDepth = true world-space ray distance from camera to first hit. This
+				// is the convention MotionVector expects (camPos + rayDir * linearDepth gives
+				// world pos) and what ReSTIR's disocclusion test compares against hitDistance.
 				If( traceResult.firstHitDistance.lessThan( 1e9 ), () => {
 
 					worldNormal.assign( normalize( traceResult.objectNormal ) );
-
-					linearDepth.assign( computeNDCDepth( {
-						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
-					} ) );
+					linearDepth.assign( traceResult.firstHitDistance );
 
 				} );
 
