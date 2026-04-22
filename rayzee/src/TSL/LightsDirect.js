@@ -28,12 +28,11 @@ import {
 	texture,
 } from 'three/tsl';
 
-import { Ray, ShadowMaterial, HitInfo, DirectionSample, MaterialCache } from './Struct.js';
+import { Ray, ShadowMaterial, HitInfo } from './Struct.js';
 import { PI, TWO_PI, EPSILON, REC709_LUMINANCE_COEFFICIENTS, powerHeuristic, getShadowMaterial, getDatafromStorageBuffer } from './Common.js';
 import { fresnelSchlickFloat } from './Fresnel.js';
 import { iorToFresnel0 } from './Fresnel.js';
 import {
-	DirectionalLight, AreaLight, PointLight, SpotLight,
 	sampleCone, intersectAreaLight,
 } from './LightsCore.js';
 import { calculateBeerLawAbsorption, calculateShadowTransmittance } from './MaterialTransmission.js';

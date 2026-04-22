@@ -4,16 +4,13 @@
 
 ### MVP
 
-- [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
+
 - [ ] oidndenoiser is desaturation the results
-- [ ] enhance test coverage of the engine
-- [ ] lint fix
-- [ ] SSRC apha, seems to have no effect
+- [ ] scrutenize the implementation of SSRC
 - [ ] ASVGF heatmap shows black - normal
 - [ ] ASVGF heatmap shows improper motion vector
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
-- [ ] needs WebGPU, can't unit-test
 - [ ] memory leak after denoise and upscaling??
   
 ### Known
@@ -22,15 +19,24 @@
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
 - [ ] ASVFG gives smearing effect when moving the camera
-- [ ] open issues by threejs <https://github.com/mrdoob/three.js/issues/32969> and 33061
-2Jd84No5SP
 - [ ] directional light not working from kronos test file: <https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/DirectionalLight/README.md>
+- [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
+
 
 ### Unconfirmed
 
 ---
 
 ## Features
+
+### Chores
+- [ ] lint fix
+- [ ] enhance test coverage of the engine, use headless chrome if needed
+- [ ] needs WebGPU, can't unit-test
+- [ ] open issues by threejs <https://github.com/mrdoob/three.js/issues/32969> and 33061
+- [ ] Create e2e test
+- [ ] benckmark tooling specification and implementation
+
 
 ### General
 

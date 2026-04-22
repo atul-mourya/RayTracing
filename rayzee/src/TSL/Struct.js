@@ -172,45 +172,23 @@ export const UVCache = struct( {
 	allSameUV: 'bool',
 } );
 
-// Enhanced material cache
+// Material cache — precomputed BRDF terms for the current surface hit.
+// Fields are split into two groups:
+//   1. BRDF evaluation: F0, NoV, diffuseColor, isPurelyDiffuse, alpha, k, alpha2
+//   2. BRDF weight calc: invRoughness, metalFactor, iorFactor, maxSheenColor
 export const MaterialCache = struct( {
 	F0: 'vec3', // Base reflectance
 	NoV: 'float', // Normal dot View
-	diffuseColor: 'vec3', // Precomputed diffuse color
-	specularColor: 'vec3', // Precomputed specular color
-	isMetallic: 'bool', // metalness > 0.7
+	diffuseColor: 'vec3', // Precomputed diffuse color (only for isPurelyDiffuse fast path)
 	isPurelyDiffuse: 'bool', // Optimized path flag
-	hasSpecialFeatures: 'bool', // Has transmission, clearcoat, etc.
 	alpha: 'float', // roughness squared
 	k: 'float', // Geometry term constant
 	alpha2: 'float', // roughness to the fourth power
-	// Flattened texture samples (TSL doesn't support nested struct types)
-	tsAlbedo: 'vec4',
-	tsEmissive: 'vec3',
-	tsMetalness: 'float',
-	tsRoughness: 'float',
-	tsNormal: 'vec3',
-	tsHasTextures: 'bool',
-
-	// BRDF optimization: precomputed shared values
+	// BRDF weight calculation: precomputed shared values
 	invRoughness: 'float', // 1.0 - roughness
 	metalFactor: 'float', // 0.5 + 0.5 * metalness
 	iorFactor: 'float', // min(2.0 / ior, 1.0)
 	maxSheenColor: 'float', // max component of sheen color
-} );
-
-// Update PathState to include texture samples
-export const PathState = struct( {
-	brdfWeights: BRDFWeights, // Cached BRDF weights
-	samplingInfo: ImportanceSamplingInfo, // Cached importance sampling info
-	materialCache: MaterialCache, // Cached material properties
-	materialClass: MaterialClassification, // Cached material classification
-	weightsComputed: 'bool', // Flag to track if weights are computed
-	texturesLoaded: 'bool', // Flag to track if textures are loaded
-	classificationCached: 'bool', // Flag for material classification
-	materialCacheCached: 'bool', // Flag for material cache creation
-	pathImportance: 'float', // Cached path importance estimate
-	lastMaterialIndex: 'int', // Track material changes to preserve cache
 } );
 
 export const SamplingStrategyWeights = struct( {

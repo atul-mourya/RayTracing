@@ -5,7 +5,7 @@ import {
 	MaterialClassification,
 	MaterialCache,
 	ImportanceSamplingInfo,
-	MaterialSamples,
+
 } from './Struct.js';
 
 import {
@@ -394,22 +394,13 @@ export const getImportanceSamplingInfo = Fn( ( [
 	const tempMaxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) );
 
 	const tempCache = MaterialCache( {
-		NoV: float( 0.5 ),
-		isPurelyDiffuse: false,
-		isMetallic: mc.isMetallic,
-		hasSpecialFeatures: false,
-		alpha: material.roughness.mul( material.roughness ),
-		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
-		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
 		F0: dielectricF0( material.ior ),
+		NoV: float( 0.5 ),
 		diffuseColor: material.color.rgb,
-		specularColor: material.color.rgb,
-		tsAlbedo: material.color,
-		tsEmissive: material.emissive,
-		tsMetalness: material.metalness,
-		tsRoughness: material.roughness,
-		tsNormal: vec3( 0.0, 1.0, 0.0 ),
-		tsHasTextures: false,
+		isPurelyDiffuse: false,
+		alpha: material.roughness.mul( material.roughness ),
+		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
+		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
 		invRoughness: tempInvRoughness,
 		metalFactor: tempMetalFactor,
 		iorFactor: tempIorFactor,
@@ -500,13 +491,6 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 		.and( material.clearcoat.equal( 0.0 ) )
 		.toVar();
 
-	const isMetallic = mc.isMetallic.toVar();
-
-	const hasSpecialFeatures = mc.isTransmissive.or( mc.hasClearcoat )
-		.or( material.sheen.greaterThan( 0.0 ) )
-		.or( material.iridescence.greaterThan( 0.0 ) )
-		.toVar();
-
 	const alpha = samples.roughness.mul( samples.roughness ).toVar();
 	const alpha2 = alpha.mul( alpha ).toVar();
 	const r = samples.roughness.add( 1.0 );
@@ -515,7 +499,6 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 	const baseF0 = dielectricF0( material.ior ).mul( material.specularColor );
 	const F0 = mix( baseF0, samples.albedo.rgb, samples.metalness ).mul( material.specularIntensity ).toVar();
 	const diffuseColor = samples.albedo.rgb.mul( float( 1.0 ).sub( samples.metalness ) ).toVar();
-	const specularColor = samples.albedo.rgb.toVar();
 
 	const invRoughness = float( 1.0 ).sub( samples.roughness ).toVar();
 	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( samples.metalness ) ).toVar();
@@ -523,22 +506,13 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar();
 
 	return MaterialCache( {
-		NoV,
-		isPurelyDiffuse,
-		isMetallic,
-		hasSpecialFeatures,
-		alpha,
-		alpha2,
-		k,
 		F0,
+		NoV,
 		diffuseColor,
-		specularColor,
-		tsAlbedo: samples.albedo,
-		tsEmissive: samples.emissive,
-		tsMetalness: samples.metalness,
-		tsRoughness: samples.roughness,
-		tsNormal: samples.normal,
-		tsHasTextures: samples.hasTextures,
+		isPurelyDiffuse,
+		alpha,
+		k,
+		alpha2,
 		invRoughness,
 		metalFactor,
 		iorFactor,
@@ -547,69 +521,3 @@ export const createMaterialCache = Fn( ( [ N, V, material, samples, mc ] ) => {
 
 } );
 
-export const createMaterialCacheLegacy = Fn( ( [ N, V, material ] ) => {
-
-	const NoV = max( dot( N, V ), 0.001 ).toVar();
-
-	const isPurelyDiffuse = material.roughness.greaterThan( 0.98 )
-		.and( material.metalness.lessThan( 0.02 ) )
-		.and( material.transmission.equal( 0.0 ) )
-		.and( material.clearcoat.equal( 0.0 ) )
-		.toVar();
-
-	const isMetallic = material.metalness.greaterThan( 0.7 ).toVar();
-
-	const hasSpecialFeatures = material.transmission.greaterThan( 0.0 )
-		.or( material.clearcoat.greaterThan( 0.0 ) )
-		.or( material.sheen.greaterThan( 0.0 ) )
-		.or( material.iridescence.greaterThan( 0.0 ) )
-		.toVar();
-
-	const alpha = material.roughness.mul( material.roughness ).toVar();
-	const alpha2 = alpha.mul( alpha ).toVar();
-	const r = material.roughness.add( 1.0 );
-	const k = r.mul( r ).div( 8.0 ).toVar();
-
-	const baseF0 = dielectricF0( material.ior ).mul( material.specularColor );
-	const F0 = mix( baseF0, material.color.rgb, material.metalness ).mul( material.specularIntensity ).toVar();
-	const diffuseColor = material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).toVar();
-	const specularColor = material.color.rgb.toVar();
-
-	const dummySamples = MaterialSamples( {
-		albedo: material.color,
-		emissive: material.emissive.mul( material.emissiveIntensity ),
-		metalness: material.metalness,
-		roughness: material.roughness,
-		normal: N,
-		hasTextures: false,
-	} );
-
-	const invRoughness = float( 1.0 ).sub( material.roughness ).toVar();
-	const metalFactor = float( 0.5 ).add( float( 0.5 ).mul( material.metalness ) ).toVar();
-	const iorFactor = min( float( 2.0 ).div( material.ior ), 1.0 ).toVar();
-	const maxSheenColor = max( material.sheenColor.r, max( material.sheenColor.g, material.sheenColor.b ) ).toVar();
-
-	return MaterialCache( {
-		NoV,
-		isPurelyDiffuse,
-		isMetallic,
-		hasSpecialFeatures,
-		alpha,
-		alpha2,
-		k,
-		F0,
-		diffuseColor,
-		specularColor,
-		tsAlbedo: dummySamples.albedo,
-		tsEmissive: dummySamples.emissive,
-		tsMetalness: dummySamples.metalness,
-		tsRoughness: dummySamples.roughness,
-		tsNormal: dummySamples.normal,
-		tsHasTextures: dummySamples.hasTextures,
-		invRoughness,
-		metalFactor,
-		iorFactor,
-		maxSheenColor,
-	} );
-
-} );

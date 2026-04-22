@@ -1,6 +1,5 @@
 import {
-	Fn, wgslFn, float, vec3, vec2, int, uint,
-	If, max, min, abs, normalize, reflect, refract, dot, pow
+	Fn, wgslFn, float, vec3, If, max, min, abs, normalize, reflect, refract, dot, pow
 } from 'three/tsl';
 
 import {
@@ -8,8 +7,7 @@ import {
 } from './Struct.js';
 
 import {
-	PI, PI_INV, MIN_PDF, EPSILON,
-	classifyMaterial, square,
+	PI, PI_INV, MIN_PDF, classifyMaterial,
 } from './Common.js';
 import { dielectricF0 } from './Fresnel.js';
 
@@ -116,22 +114,13 @@ export const calculateSamplingWeights = Fn( ( [ V, N, material ] ) => {
 
 	// Create temporary cache for calculations
 	const tempCache = MaterialCache( {
-		NoV: float( 0.5 ),
-		isPurelyDiffuse: false,
-		isMetallic: mc.isMetallic,
-		hasSpecialFeatures: false,
-		alpha: material.roughness.mul( material.roughness ),
-		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
-		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
 		F0: dielectricF0( material.ior ),
+		NoV: float( 0.5 ),
 		diffuseColor: material.color.rgb,
-		specularColor: material.color.rgb,
-		tsAlbedo: material.color, // placeholder
-		tsEmissive: vec3( 0.0 ),
-		tsMetalness: float( 0.0 ),
-		tsRoughness: material.roughness,
-		tsNormal: vec3( 0.0, 1.0, 0.0 ),
-		tsHasTextures: false,
+		isPurelyDiffuse: false,
+		alpha: material.roughness.mul( material.roughness ),
+		k: material.roughness.add( 1.0 ).mul( material.roughness.add( 1.0 ) ).div( 8.0 ),
+		alpha2: material.roughness.mul( material.roughness ).mul( material.roughness ).mul( material.roughness ),
 		invRoughness: tempInvRoughness,
 		metalFactor: tempMetalFactor,
 		iorFactor: tempIorFactor,
