@@ -206,32 +206,33 @@ export function createRenderTargetHelper( renderer, renderTargetOrTexture, optio
 
 	} );
 
-	window.addEventListener( 'pointermove', ( e ) => {
+	function onPointerMove( e ) {
 
 		if ( ! isDragging ) return;
 
 		const newLeft = e.clientX - dragOffsetX;
 		const newTop = e.clientY - dragOffsetY;
 
-		// Keep within window bounds
 		const maxX = window.innerWidth - container.offsetWidth;
 		const maxY = window.innerHeight - container.offsetHeight;
 
 		container.style.left = `${Math.max( 0, Math.min( newLeft, maxX ) )}px`;
 		container.style.top = `${Math.max( 0, Math.min( newTop, maxY ) )}px`;
 
-		// Reset position properties that would otherwise take precedence
 		container.style.bottom = 'auto';
 		container.style.right = 'auto';
 
-	} );
+	}
 
-	window.addEventListener( 'pointerup', () => {
+	function onPointerUp() {
 
 		isDragging = false;
 		document.body.style.userSelect = '';
 
-	} );
+	}
+
+	window.addEventListener( 'pointermove', onPointerMove );
+	window.addEventListener( 'pointerup', onPointerUp );
 
 	// Optimize resize handling
 	function handleResize() {
@@ -353,19 +354,20 @@ export function createRenderTargetHelper( renderer, renderTargetOrTexture, optio
 
 	};
 
-	// Handle resize events
-	container.addEventListener( 'mousedown', () => {
+	function onContainerMouseDown() {
 
 		window.addEventListener( 'mousemove', handleResize );
 
-	} );
+	}
 
-	window.addEventListener( 'mouseup', () => {
+	function onMouseUp() {
 
 		window.removeEventListener( 'mousemove', handleResize );
 
-	} );
+	}
 
+	container.addEventListener( 'mousedown', onContainerMouseDown );
+	window.addEventListener( 'mouseup', onMouseUp );
 	window.addEventListener( 'resize', handleResize );
 
 	// Auto-update animation frame
@@ -456,20 +458,45 @@ export function createRenderTargetHelper( renderer, renderTargetOrTexture, optio
      */
 	container.dispose = function dispose() {
 
-		if ( config.autoUpdate && animFrameId ) {
+		if ( animFrameId ) {
 
 			cancelAnimationFrame( animFrameId );
+			animFrameId = null;
 
 		}
 
-		// Remove from DOM if attached
+		// Remove window listeners — these close over renderer/renderTarget/container
+		// and pin the entire helper graph alive until the page unloads if not cleaned up.
+		window.removeEventListener( 'pointermove', onPointerMove );
+		window.removeEventListener( 'pointerup', onPointerUp );
+		window.removeEventListener( 'mouseup', onMouseUp );
+		window.removeEventListener( 'mousemove', handleResize );
+		window.removeEventListener( 'resize', handleResize );
+
 		if ( container.parentNode ) {
 
 			container.parentNode.removeChild( container );
 
 		}
 
-		// Clear references
+		// Drop closures attached to the container. These close over `renderer`,
+		// `renderTargetOrTexture`, and the canvas — keeping them around after the
+		// owning stage has been disposed retains the entire Three.js WebGPU graph.
+		container.startAutoUpdate = null;
+		container.stopAutoUpdate = null;
+		container.show = null;
+		container.hide = null;
+		container.toggle = null;
+		container.update = null;
+		container.dispose = null;
+
+		if ( domCanvas ) {
+
+			domCanvas.width = 0;
+			domCanvas.height = 0;
+
+		}
+
 		clampedPixels = null;
 
 	};

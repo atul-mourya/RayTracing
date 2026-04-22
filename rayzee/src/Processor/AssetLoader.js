@@ -37,12 +37,38 @@ export class AssetLoader extends EventDispatcher {
 		this.camera = camera;
 		this.controls = controls;
 		this.targetModel = null;
+		this._externalModel = null;
 		this.floorPlane = null;
 		this.sceneScale = 1.0;
 		this.loaderCache = {};
 		this.uploadedFileInfo = null;
 		this.animations = [];
 		this.renderer = null;
+
+	}
+
+	/**
+	 * Releases the current targetModel. If it was supplied by the caller via
+	 * loadObject3D(), we only detach it from its parent — the caller still owns
+	 * that Object3D and may reuse it. Otherwise we disposeObjectFromMemory() to
+	 * free geometry/material/texture GPU resources.
+	 */
+	releaseTargetModel() {
+
+		if ( ! this.targetModel ) return;
+
+		if ( this.targetModel === this._externalModel ) {
+
+			this.targetModel.parent?.remove( this.targetModel );
+
+		} else {
+
+			disposeObjectFromMemory( this.targetModel );
+
+		}
+
+		this.targetModel = null;
+		this._externalModel = null;
 
 	}
 
@@ -173,7 +199,11 @@ export class AssetLoader extends EventDispatcher {
 
 			} else {
 
-				const extension = envUrl.split( '.' ).pop().toLowerCase();
+				// Strip query string + fragment before extracting extension, otherwise
+				// URLs like ".../foo.hdr?v=2" get mis-detected and fall through to the
+				// regular TextureLoader, which can't parse HDR/EXR binary data.
+				const cleanPath = envUrl.split( /[?#]/ )[ 0 ];
+				const extension = cleanPath.split( '.' ).pop().toLowerCase();
 				texture = await this.loadEnvironmentByExtension( envUrl, extension );
 
 			}
@@ -479,7 +509,7 @@ export class AssetLoader extends EventDispatcher {
 					loader.parse( gltfContent, '',
 						gltf => {
 
-							if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+							this.releaseTargetModel();
 							this.targetModel = gltf.scene;
 							this.onModelLoad( this.targetModel ).then( () => resolve( gltf ) );
 
@@ -522,7 +552,7 @@ export class AssetLoader extends EventDispatcher {
 		const object = objLoader.parse( objContent );
 		object.name = filePath;
 
-		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.releaseTargetModel();
 		this.targetModel = object;
 		await this.onModelLoad( this.targetModel );
 		return object;
@@ -603,7 +633,7 @@ export class AssetLoader extends EventDispatcher {
 		const objContent = strFromU8( objFile.content );
 		const object = objLoader.parse( objContent );
 
-		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.releaseTargetModel();
 		this.targetModel = object;
 		await this.onModelLoad( this.targetModel );
 
@@ -773,7 +803,7 @@ export class AssetLoader extends EventDispatcher {
 			const data = await loader.loadAsync( modelUrl );
 			updateLoading( { status: "Processing Data...", progress: 10 } );
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 
 			this.targetModel = data.scene;
 			this.animations = data.animations || [];
@@ -806,7 +836,7 @@ export class AssetLoader extends EventDispatcher {
 
 			const data = await loader.parseAsync( arrayBuffer, '' );
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 
 			this.targetModel = data.scene;
 			this.animations = data.animations || [];
@@ -845,7 +875,7 @@ export class AssetLoader extends EventDispatcher {
 			}
 
 			const object = this.loaderCache.fbx.parse( arrayBuffer );
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -882,7 +912,7 @@ export class AssetLoader extends EventDispatcher {
 			const object = this.loaderCache.obj.parse( contents );
 			object.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -920,7 +950,7 @@ export class AssetLoader extends EventDispatcher {
 			const mesh = new Mesh( geometry, material );
 			mesh.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = mesh;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -970,7 +1000,7 @@ export class AssetLoader extends EventDispatcher {
 			}
 
 			object.name = filename;
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1007,7 +1037,7 @@ export class AssetLoader extends EventDispatcher {
 			const collada = this.loaderCache.collada.parse( contents );
 			collada.scene.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = collada.scene;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1042,7 +1072,7 @@ export class AssetLoader extends EventDispatcher {
 
 			const object = this.loaderCache.threemf.parse( arrayBuffer );
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1078,7 +1108,7 @@ export class AssetLoader extends EventDispatcher {
 			const object = this.loaderCache.usdz.parse( arrayBuffer );
 			object.name = filename;
 
-			if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+			this.releaseTargetModel();
 			this.targetModel = object;
 
 			updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
@@ -1101,8 +1131,9 @@ export class AssetLoader extends EventDispatcher {
 
 		object3d.name = object3d.name || name;
 
-		if ( this.targetModel ) disposeObjectFromMemory( this.targetModel );
+		this.releaseTargetModel();
 		this.targetModel = object3d;
+		this._externalModel = object3d;
 
 		updateLoading( { isLoading: true, status: "Processing Data...", progress: 10 } );
 		await this.onModelLoad( this.targetModel );
@@ -1379,23 +1410,18 @@ export class AssetLoader extends EventDispatcher {
 		}
 
 		this.loaderCache = {};
-		super.dispose(); // Use EventDispatcher's dispose method
 
-		if ( this.targetModel ) {
+		// Three.js EventDispatcher exposes no dispose()/removeAllEventListeners().
+		// Clear the internal listener map directly so handlers don't retain references.
+		this._listeners = undefined;
 
-			disposeObjectFromMemory( this.targetModel );
-			this.targetModel = null;
-
-		}
-
-		console.log( 'AssetLoader resources disposed' );
+		this.releaseTargetModel();
 
 	}
 
 	removeAllEventListeners() {
 
-		// Use EventDispatcher's dispose method for backward compatibility
-		super.dispose();
+		this._listeners = undefined;
 
 	}
 

@@ -1,4 +1,5 @@
 import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
+import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, Scene, EventDispatcher, TimestampQuery
 } from 'three';
@@ -400,22 +401,100 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stopAnimation();
 		clearTimeout( this._resizeDebounceTimer );
+		this._resizeDebounceTimer = null;
 
-		// Remove all tracked listeners (app-owned subscriptions across managers/DOM)
 		this._removeTrackedListeners();
-
 		setStatusCallback( null );
+
+		this.interactionManager?.deselect?.();
+		this.transformManager?.detach?.();
 
 		this.animationManager?.dispose();
 		this.transformManager?.dispose();
 		this.overlayManager?.dispose();
-		this._sceneHelpers?.clear();
 		this.lightManager?.dispose();
 		this.denoisingManager?.dispose();
-		this.pipeline?.dispose();
 		this.interactionManager?.dispose();
 		this.cameraManager?.dispose();
+
+		this.pipeline?.dispose();
+
+		// _sdf + assetLoader own the heaviest GPU allocations (material texture arrays,
+		// BVH/triangle buffers, loaded GLTF resources, BVH refit worker, loader caches).
+		// They are not referenced by the pipeline, so pipeline.dispose() does not reach them.
+		this._sdf?.dispose();
+		this._sdf = null;
+
+		this.assetLoader?.dispose();
+		this.assetLoader = null;
+
+		if ( this.meshScene ) {
+
+			this.meshScene.environment?.dispose();
+			this.meshScene.environment = null;
+
+			for ( const child of [ ...this.meshScene.children ] ) {
+
+				disposeObjectFromMemory( child );
+
+			}
+
+			this.meshScene.clear();
+			this.meshScene = null;
+
+		}
+
+		this._sceneHelpers?.clear();
+		this._sceneHelpers = null;
+
+		this.scene?.clear();
+		this.scene = null;
+
+		// Three.js 0.184 leaks (confirmed via heap-snapshot retainer analysis):
+		//
+		//   1) Renderer.dispose() does not remove the 'resize' listener it installs on
+		//      _canvasTarget. The bound handler closes over the renderer, pinning the
+		//      entire WebGPU graph (Backend, Nodes, Bindings, Pipelines, GPUDevice,
+		//      every TSL node) alive indefinitely.
+		//      See three/src/renderers/common/Renderer.js:292 (attach) and
+		//      :2503 (dispose — missing removal).
+		//
+		//   2) Textures manager (one per renderer) registers a per-texture 'dispose'
+		//      listener that closes over `this = Textures` — which transitively
+		//      captures backend → renderer. These listeners are removed only when
+		//      the texture itself is destroyed. For module-level singletons like
+		//      EmptyTexture (new Texture in TextureNode.js) and its CubeTexture
+		//      counterpart, the texture is never destroyed, so every renderer ever
+		//      created leaks through the singleton's listener array.
+		//
+		// Both workarounds are safe when only a single PathTracerApp is active at a
+		// time. If you run multiple in parallel, reset listeners only on the renderer
+		// being disposed (not the shared singletons).
+		if ( this.renderer?._canvasTarget && this.renderer._onCanvasTargetResize ) {
+
+			this.renderer._canvasTarget.removeEventListener(
+				'resize',
+				this.renderer._onCanvasTargetResize
+			);
+
+		}
+
+		try {
+
+			const emptyTex = _tslTexture().value;
+			const emptyCube = _tslCubeTexture().value;
+			if ( emptyTex?._listeners?.dispose ) emptyTex._listeners.dispose.length = 0;
+			if ( emptyCube?._listeners?.dispose ) emptyCube._listeners.dispose.length = 0;
+
+		} catch ( err ) {
+
+			console.warn( 'PathTracerApp: failed to clear TSL texture singleton listeners', err );
+
+		}
+
 		this.renderer?.dispose();
+		if ( this.renderer ) this.renderer._canvasTarget = null;
+		this.renderer = null;
 
 		if ( this._stats ) {
 
@@ -424,6 +503,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
+		this.stages = {};
 		this.isInitialized = false;
 
 	}
@@ -460,13 +540,9 @@ export class PathTracerApp extends EventDispatcher {
 		this.interactionManager?.deselect();
 		this.transformManager?.detach?.();
 
-		// Dispose the loaded model (geometries, materials, textures)
-		if ( this.assetLoader?.targetModel ) {
-
-			disposeObjectFromMemory( this.assetLoader.targetModel );
-			this.assetLoader.targetModel = null;
-
-		}
+		// Release the loaded model. If loaded via loadObject3D(), the caller owns it —
+		// we only detach it from the scene. Otherwise dispose geometries/materials/textures.
+		this.assetLoader?.releaseTargetModel();
 
 		// Clear lights in the WebGPU light scene
 		this.lightManager?.clearLights?.();
@@ -1110,8 +1186,6 @@ export class PathTracerApp extends EventDispatcher {
 				maxColorAttachmentBytesPerSample: 128,
 			}
 		} );
-
-		window.renderer = this.renderer; // For debugging
 
 		await this.renderer.init();
 
