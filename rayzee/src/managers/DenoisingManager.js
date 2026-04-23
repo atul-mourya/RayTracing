@@ -54,6 +54,17 @@ export class DenoisingManager extends EventDispatcher {
 		this._lastRenderWidth = 0;
 		this._lastRenderHeight = 0;
 
+		// Track the current completion-chain listener so it can be removed on re-trigger
+		this._pendingStartUpscaler = null;
+
+		// Bound event forwarding handlers (stored for removal on re-setup / dispose)
+		this._denoiserStartHandler = null;
+		this._denoiserEndHandler = null;
+		this._upscalerResChangedHandler = null;
+		this._upscalerStartHandler = null;
+		this._upscalerProgressHandler = null;
+		this._upscalerEndHandler = null;
+
 	}
 
 	_createDenoiserCanvas( mainCanvas ) {
@@ -146,11 +157,13 @@ export class DenoisingManager extends EventDispatcher {
 
 		this.denoiser.enabled = DEFAULT_STATE.enableOIDN;
 
-		// Forward lifecycle events
-		this.denoiser.addEventListener( 'start', () =>
-			this.dispatchEvent( { type: EngineEvents.DENOISING_START } ) );
-		this.denoiser.addEventListener( 'end', () =>
-			this.dispatchEvent( { type: EngineEvents.DENOISING_END } ) );
+		// Forward lifecycle events (store refs for removal on re-setup / dispose)
+		this._denoiserStartHandler = () =>
+			this.dispatchEvent( { type: EngineEvents.DENOISING_START } );
+		this._denoiserEndHandler = () =>
+			this.dispatchEvent( { type: EngineEvents.DENOISING_END } );
+		this.denoiser.addEventListener( 'start', this._denoiserStartHandler );
+		this.denoiser.addEventListener( 'end', this._denoiserEndHandler );
 
 	}
 
@@ -189,15 +202,19 @@ export class DenoisingManager extends EventDispatcher {
 
 		this.upscaler.enabled = DEFAULT_STATE.enableUpscaler || false;
 
-		// Forward lifecycle events
-		this.upscaler.addEventListener( 'resolution_changed', ( e ) =>
-			this.dispatchEvent( { type: 'resolution_changed', width: e.width, height: e.height } ) );
-		this.upscaler.addEventListener( 'start', () =>
-			this.dispatchEvent( { type: EngineEvents.UPSCALING_START } ) );
-		this.upscaler.addEventListener( 'progress', ( e ) =>
-			this.dispatchEvent( { type: EngineEvents.UPSCALING_PROGRESS, progress: e.progress } ) );
-		this.upscaler.addEventListener( 'end', () =>
-			this.dispatchEvent( { type: EngineEvents.UPSCALING_END } ) );
+		// Forward lifecycle events (store refs for removal on re-setup / dispose)
+		this._upscalerResChangedHandler = ( e ) =>
+			this.dispatchEvent( { type: 'resolution_changed', width: e.width, height: e.height } );
+		this._upscalerStartHandler = () =>
+			this.dispatchEvent( { type: EngineEvents.UPSCALING_START } );
+		this._upscalerProgressHandler = ( e ) =>
+			this.dispatchEvent( { type: EngineEvents.UPSCALING_PROGRESS, progress: e.progress } );
+		this._upscalerEndHandler = () =>
+			this.dispatchEvent( { type: EngineEvents.UPSCALING_END } );
+		this.upscaler.addEventListener( 'resolution_changed', this._upscalerResChangedHandler );
+		this.upscaler.addEventListener( 'start', this._upscalerStartHandler );
+		this.upscaler.addEventListener( 'progress', this._upscalerProgressHandler );
+		this.upscaler.addEventListener( 'end', this._upscalerEndHandler );
 
 	}
 
@@ -353,7 +370,22 @@ export class DenoisingManager extends EventDispatcher {
 	 * @param {Function}         params.isStillComplete   - () => boolean, guard for async race
 	 * @param {import('../Pipeline/PipelineContext.js').PipelineContext} params.context
 	 */
+	_cleanupCompletionListener() {
+
+		if ( this._pendingStartUpscaler && this.denoiser ) {
+
+			this.denoiser.removeEventListener( 'end', this._pendingStartUpscaler );
+
+		}
+
+		this._pendingStartUpscaler = null;
+
+	}
+
 	onRenderComplete( { isStillComplete, context } ) {
+
+		// Remove any stale completion-chain listener from a previous render cycle
+		this._cleanupCompletionListener();
 
 		// Show post-process canvas if any post-process is enabled
 		if ( ( this.denoiser?.enabled || this.upscaler?.enabled ) && this.denoiserCanvas ) {
@@ -364,6 +396,8 @@ export class DenoisingManager extends EventDispatcher {
 
 		// Chain: denoise first (if enabled), then upscale (if enabled)
 		const startUpscaler = () => {
+
+			this._pendingStartUpscaler = null;
 
 			if ( ! isStillComplete() ) return;
 
@@ -377,6 +411,7 @@ export class DenoisingManager extends EventDispatcher {
 
 		if ( this.denoiser?.enabled ) {
 
+			this._pendingStartUpscaler = startUpscaler;
 			this.denoiser.addEventListener( 'end', startUpscaler, { once: true } );
 			this.denoiser.start();
 
@@ -401,6 +436,9 @@ export class DenoisingManager extends EventDispatcher {
 	 */
 	abort( mainCanvas ) {
 
+		// Remove stale completion-chain listener before aborting
+		this._cleanupCompletionListener();
+
 		if ( mainCanvas ) mainCanvas.style.opacity = '1';
 
 		if ( this.upscaler ) this.upscaler.abort();
@@ -416,8 +454,13 @@ export class DenoisingManager extends EventDispatcher {
 
 	dispose() {
 
+		// Remove pending completion-chain listener
+		this._cleanupCompletionListener();
+
 		if ( this.denoiser ) {
 
+			if ( this._denoiserStartHandler ) this.denoiser.removeEventListener( 'start', this._denoiserStartHandler );
+			if ( this._denoiserEndHandler ) this.denoiser.removeEventListener( 'end', this._denoiserEndHandler );
 			this.denoiser.dispose();
 			this.denoiser = null;
 
@@ -425,10 +468,21 @@ export class DenoisingManager extends EventDispatcher {
 
 		if ( this.upscaler ) {
 
+			if ( this._upscalerResChangedHandler ) this.upscaler.removeEventListener( 'resolution_changed', this._upscalerResChangedHandler );
+			if ( this._upscalerStartHandler ) this.upscaler.removeEventListener( 'start', this._upscalerStartHandler );
+			if ( this._upscalerProgressHandler ) this.upscaler.removeEventListener( 'progress', this._upscalerProgressHandler );
+			if ( this._upscalerEndHandler ) this.upscaler.removeEventListener( 'end', this._upscalerEndHandler );
 			this.upscaler.dispose();
 			this.upscaler = null;
 
 		}
+
+		this._denoiserStartHandler = null;
+		this._denoiserEndHandler = null;
+		this._upscalerResChangedHandler = null;
+		this._upscalerStartHandler = null;
+		this._upscalerProgressHandler = null;
+		this._upscalerEndHandler = null;
 
 		if ( this.denoiserCanvas?.parentNode ) {
 

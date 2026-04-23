@@ -104,6 +104,7 @@ export class AIUpscaler extends EventDispatcher {
 		this._worker = null;
 		this._currentModelUrl = null;
 		this._tileId = 0;
+		this._pendingWorkerHandlers = new Set();
 
 		// Alpha channel cache (bilinear-upscaled from source, applied per tile)
 		this._upscaledAlpha = null;
@@ -315,6 +316,7 @@ export class AIUpscaler extends EventDispatcher {
 
 			this._capturedSource = null;
 			this._upscaledAlpha = null;
+			this._backupCanvas = null;
 
 			// Only clean up if abort() hasn't already done it
 			if ( this.state.isUpscaling ) {
@@ -334,6 +336,7 @@ export class AIUpscaler extends EventDispatcher {
 		if ( ! this.state.isUpscaling ) return;
 
 		this.state.abortController?.abort();
+		this._cleanupPendingWorkerHandlers();
 
 		// Restore input visibility and canvas state
 		this.input.style.opacity = '1';
@@ -610,6 +613,7 @@ export class AIUpscaler extends EventDispatcher {
 
 				if ( e.data.id !== id ) return;
 				this._worker.removeEventListener( 'message', handler );
+				this._pendingWorkerHandlers.delete( handler );
 
 				if ( e.data.type === 'inferred' ) {
 
@@ -623,6 +627,7 @@ export class AIUpscaler extends EventDispatcher {
 
 			};
 
+			this._pendingWorkerHandlers.add( handler );
 			this._worker.addEventListener( 'message', handler );
 			this._worker.postMessage(
 				{ type: 'infer', tileData, width, height, id },
@@ -858,9 +863,26 @@ export class AIUpscaler extends EventDispatcher {
 
 	// ─── Disposal ─────────────────────────────────────────────────────────────
 
+	_cleanupPendingWorkerHandlers() {
+
+		if ( this._worker ) {
+
+			for ( const handler of this._pendingWorkerHandlers ) {
+
+				this._worker.removeEventListener( 'message', handler );
+
+			}
+
+		}
+
+		this._pendingWorkerHandlers.clear();
+
+	}
+
 	async dispose() {
 
 		this.abort();
+		this._cleanupPendingWorkerHandlers();
 
 		if ( this._worker ) {
 

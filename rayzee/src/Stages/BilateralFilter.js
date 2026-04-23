@@ -321,6 +321,8 @@ export class BilateralFilter extends RenderStage {
 		this._computeNodeB?.dispose();
 		this._storageTexA?.dispose();
 		this._storageTexB?.dispose();
+		this._readTexNode?.dispose();
+		this._normalDepthTexNode?.dispose();
 
 	}
 

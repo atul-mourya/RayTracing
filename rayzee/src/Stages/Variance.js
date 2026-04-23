@@ -371,6 +371,9 @@ export class Variance extends RenderStage {
 		this._computeNodeB?.dispose();
 		this._storageTexA?.dispose();
 		this._storageTexB?.dispose();
+		this._colorTexNode?.dispose();
+		this._readTexNodeA?.dispose();
+		this._readTexNodeB?.dispose();
 
 	}
 

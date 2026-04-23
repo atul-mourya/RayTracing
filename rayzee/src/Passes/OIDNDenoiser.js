@@ -87,6 +87,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		// renderer.getArrayBufferAsync because the source is a raw GPUBuffer,
 		// not a Three.js BufferAttribute.
 		this._alphaReadbackBuffer = null;
+		this._alphaReadbackMapped = false;
 
 		// Cached alpha channel from the input color buffer (OIDN discards alpha)
 		this._cachedAlpha = null;
@@ -107,6 +108,9 @@ export class OIDNDenoiser extends EventDispatcher {
 			isLoading: false,
 			abortController: null
 		};
+
+		// Track in-flight tile staging buffers so they can be destroyed on abort
+		this._pendingStagingBuffers = new Set();
 
 		this.currentTZAUrl = null;
 		this.unet = null;
@@ -514,7 +518,22 @@ export class OIDNDenoiser extends EventDispatcher {
 		this._gpuInputBuffers.albedo?.destroy();
 		this._gpuInputBuffers.normal?.destroy();
 		this._gpuInputPadBuffer?.destroy();
+
+		// Unmap before destroying if a mapAsync resolved but unmap hasn't been called yet.
+		// If mapAsync is still pending, destroy() will reject it — _cacheInputAlpha's
+		// catch handler covers that case.
+		if ( this._alphaReadbackMapped && this._alphaReadbackBuffer ) {
+
+			try {
+
+				this._alphaReadbackBuffer.unmap();
+
+			} catch { /* already unmapped or destroyed */ }
+
+		}
+
 		this._alphaReadbackBuffer?.destroy();
+		this._alphaReadbackMapped = false;
 		this._gpuInputBuffers = { color: null, albedo: null, normal: null };
 		this._gpuInputPadBuffer = null;
 		this._gpuInputPaddedRowBytes = 0;
@@ -550,7 +569,19 @@ export class OIDNDenoiser extends EventDispatcher {
 		enc.copyBufferToBuffer( this._gpuInputBuffers.color, 0, staging, 0, byteSize );
 		device.queue.submit( [ enc.finish() ] );
 
-		await staging.mapAsync( GPUMapMode.READ );
+		this._alphaReadbackMapped = true;
+		try {
+
+			await staging.mapAsync( GPUMapMode.READ );
+
+		} catch {
+
+			// Buffer was destroyed while mapAsync was pending (resize or dispose)
+			this._alphaReadbackMapped = false;
+			return;
+
+		}
+
 		const f32 = new Float32Array( staging.getMappedRange() );
 
 		// Extract alpha channel as uint8 (pre-multiplied is not needed — alpha is 0 or 1)
@@ -563,6 +594,7 @@ export class OIDNDenoiser extends EventDispatcher {
 		}
 
 		staging.unmap();
+		this._alphaReadbackMapped = false;
 
 		this._cachedAlpha = alpha;
 		this._cachedAlphaWidth = width;
@@ -653,6 +685,8 @@ export class OIDNDenoiser extends EventDispatcher {
 						usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
 					} );
 
+					this._pendingStagingBuffers.add( staging );
+
 					// Copy each tile row from its position in the full output buffer
 					const enc = device.createCommandEncoder();
 
@@ -710,7 +744,14 @@ export class OIDNDenoiser extends EventDispatcher {
 
 						staging.unmap();
 						staging.destroy();
+						this._pendingStagingBuffers.delete( staging );
 						this.ctx.putImageData( tileImageData, tile.x, tile.y );
+
+					} ).catch( () => {
+
+						// mapAsync rejected (abort or GPU lost) — destroy the buffer
+						staging.destroy();
+						this._pendingStagingBuffers.delete( staging );
 
 					} );
 
@@ -745,44 +786,50 @@ export class OIDNDenoiser extends EventDispatcher {
 			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
 		} );
 
-		// Queue a copy from the oidn output buffer (STORAGE|COPY_SRC) to staging
-		const encoder = device.createCommandEncoder( { label: 'oidn-readback' } );
-		encoder.copyBufferToBuffer( gpuBuffer, 0, stagingBuffer, 0, byteSize );
-		device.queue.submit( [ encoder.finish() ] );
+		try {
 
-		await stagingBuffer.mapAsync( GPUMapMode.READ );
-		const float32 = new Float32Array( stagingBuffer.getMappedRange() );
+			// Queue a copy from the oidn output buffer (STORAGE|COPY_SRC) to staging
+			const encoder = device.createCommandEncoder( { label: 'oidn-readback' } );
+			encoder.copyBufferToBuffer( gpuBuffer, 0, stagingBuffer, 0, byteSize );
+			device.queue.submit( [ encoder.finish() ] );
 
-		const imageData = new ImageData( width, height );
-		const exposure = this.getExposure();
-		const saturation = this.getSaturation();
-		const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
-		const alpha = this._cachedAlpha;
+			await stagingBuffer.mapAsync( GPUMapMode.READ );
+			const float32 = new Float32Array( stagingBuffer.getMappedRange() );
 
-		for ( let i = 0, len = float32.length; i < len; i += 4 ) {
+			const imageData = new ImageData( width, height );
+			const exposure = this.getExposure();
+			const saturation = this.getSaturation();
+			const tmFn = TONE_MAP_FNS.get( this.getToneMapping() ) || TONE_MAP_FNS.get( ACESFilmicToneMapping );
+			const alpha = this._cachedAlpha;
 
-			// Exposure + saturation (pre-tonemap, matching Display)
-			let er = float32[ i ] * exposure, eg = float32[ i + 1 ] * exposure, eb = float32[ i + 2 ] * exposure;
-			if ( saturation !== 1.0 ) {
+			for ( let i = 0, len = float32.length; i < len; i += 4 ) {
 
-				_tmOut[ 0 ] = er; _tmOut[ 1 ] = eg; _tmOut[ 2 ] = eb;
-				applySaturation( _tmOut, saturation );
-				er = _tmOut[ 0 ]; eg = _tmOut[ 1 ]; eb = _tmOut[ 2 ];
+				// Exposure + saturation (pre-tonemap, matching Display)
+				let er = float32[ i ] * exposure, eg = float32[ i + 1 ] * exposure, eb = float32[ i + 2 ] * exposure;
+				if ( saturation !== 1.0 ) {
+
+					_tmOut[ 0 ] = er; _tmOut[ 1 ] = eg; _tmOut[ 2 ] = eb;
+					applySaturation( _tmOut, saturation );
+					er = _tmOut[ 0 ]; eg = _tmOut[ 1 ]; eb = _tmOut[ 2 ];
+
+				}
+
+				tmFn( er, eg, eb, 1.0, _tmOut );
+				imageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
+				imageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
+				imageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
+				imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
 
 			}
 
-			tmFn( er, eg, eb, 1.0, _tmOut );
-			imageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-			imageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-			imageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
-			imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
+			stagingBuffer.unmap();
+			this.ctx.putImageData( imageData, 0, 0 );
+
+		} finally {
+
+			stagingBuffer.destroy();
 
 		}
-
-		stagingBuffer.unmap();
-		stagingBuffer.destroy();
-
-		this.ctx.putImageData( imageData, 0, 0 );
 
 	}
 
@@ -792,6 +839,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Signal abort to current operation
 		this.state.abortController?.abort();
+
+		// Destroy any in-flight tile staging buffers that mapAsync won't resolve
+		this._destroyPendingStagingBuffers();
 
 		// Restore input visibility
 		this.input.style.opacity = '1';
@@ -896,10 +946,25 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
+	_destroyPendingStagingBuffers() {
+
+		for ( const buf of this._pendingStagingBuffers ) {
+
+			buf.destroy();
+
+		}
+
+		this._pendingStagingBuffers.clear();
+
+	}
+
 	dispose() {
 
 		// Abort any ongoing operations
 		this.abort();
+
+		// Destroy any remaining staging buffers
+		this._destroyPendingStagingBuffers();
 
 		// Dispose resources
 		this.unet?.dispose();

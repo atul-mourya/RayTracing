@@ -832,6 +832,24 @@ export class ASVGF extends RenderStage {
 		this._heatmapComputeNode?.dispose();
 		this._heatmapStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
+
+		// Dispose input TextureNode objects
+		this._colorTexNode?.dispose();
+		this._normalDepthTexNode?.dispose();
+		this._motionTexNode?.dispose();
+		this._readTemporalTexNode?.dispose();
+		this._readPrevNDTexNode?.dispose();
+		this._gradientReadTexNode?.dispose();
+
+		// Dispose heatmap TextureNode objects
+		this._heatmapRawColorTexNode?.dispose();
+		this._heatmapColorTexNode?.dispose();
+		this._heatmapTemporalTexNode?.dispose();
+		this._heatmapNDTexNode?.dispose();
+		this._heatmapMotionTexNode?.dispose();
+		this._heatmapGradientTexNode?.dispose();
+
+		// dispose() also removes the DOM node
 		this.heatmapHelper?.dispose();
 
 	}

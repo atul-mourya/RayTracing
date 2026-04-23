@@ -483,6 +483,7 @@ export class AdaptiveSampling extends RenderStage {
 		this._heatmapStorageTex?.dispose();
 		this._outputStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
+		this._varianceTexNode?.dispose();
 		this.helper?.dispose();
 
 		this._computeNode = null;
@@ -490,6 +491,7 @@ export class AdaptiveSampling extends RenderStage {
 		this._heatmapStorageTex = null;
 		this._outputStorageTex = null;
 		this.heatmapTarget = null;
+		this._varianceTexNode = null;
 		this.helper = null;
 
 	}

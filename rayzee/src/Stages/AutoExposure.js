@@ -698,6 +698,8 @@ export class AutoExposure extends RenderStage {
 		this._reductionStorageTex?.dispose();
 		this._reductionReadTarget?.dispose();
 		this._readbackBuffer?.dispose();
+		this._inputTexNode?.dispose();
+		this._reductionReadTexNode?.dispose();
 
 	}
 

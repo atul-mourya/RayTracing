@@ -275,6 +275,7 @@ export class EdgeFilter extends RenderStage {
 		this._computeNode?.dispose();
 		this._outputStorageTex?.dispose();
 		this.outputTarget?.dispose();
+		this._inputTexNode?.dispose();
 
 	}
 
