@@ -56,6 +56,7 @@ import {
 	applySoftSuppressionRGB,
 	getMaterial,
 	powerHeuristic,
+	balanceHeuristic,
 } from './Common.js';
 import {
 	DirectionSample,
@@ -582,7 +583,7 @@ export const Trace = Fn( ( [
 	// Environment
 	envTexture, environmentIntensity, envMatrix,
 	envCDFBuffer,
-	envTotalSum, envResolution,
+	envTotalSum, envCompensationDelta, envResolution,
 	enableEnvironmentLight, useEnvMapIS,
 	// Rendering parameters
 	maxBounceCount, transmissiveBounces,
@@ -703,12 +704,12 @@ export const Trace = Fn( ( [
 			If( prevBouncePdf.greaterThan( 0.0 ).and( enableEnvironmentLight ).and( useEnvMapIS ), () => {
 
 				const envEval = sampleEquirect(
-					envTexture, rayDirection, envMatrix, envTotalSum, envResolution,
+					envTexture, rayDirection, envMatrix, envTotalSum, envCompensationDelta, envResolution,
 				);
 				const envPdf = envEval.w.toVar();
 				If( envPdf.greaterThan( 0.0 ), () => {
 
-					envMisWeight.assign( powerHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) );
+					envMisWeight.assign( balanceHeuristic( { pdf1: prevBouncePdf, pdf2: envPdf } ) );
 
 				} );
 
@@ -1001,7 +1002,7 @@ export const Trace = Fn( ( [
 			materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
 			envCDFBuffer,
-			envTotalSum, envResolution,
+			envTotalSum, envCompensationDelta, envResolution,
 			enableEnvironmentLight,
 		);
 
@@ -1120,7 +1121,7 @@ export const Trace = Fn( ( [
 			rngState,
 			samplingInfo,
 			envTexture, environmentIntensity, envMatrix,
-			envTotalSum, envResolution,
+			envTotalSum, envCompensationDelta, envResolution,
 			enableEnvironmentLight, useEnvMapIS,
 		) );
 		throughput.mulAssign( indirectResult.throughput );

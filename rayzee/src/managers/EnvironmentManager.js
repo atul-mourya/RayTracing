@@ -280,6 +280,7 @@ export class EnvironmentManager {
 
 			this._updateCDFStorageBuffers();
 			this.uniforms.set( 'envTotalSum', 0.0 );
+			this.uniforms.set( 'envCompensationDelta', 0.0 );
 			this.uniforms.set( 'useEnvMapIS', 0 );
 			return;
 
@@ -294,6 +295,7 @@ export class EnvironmentManager {
 
 				this._updateCDFStorageBuffers();
 				this.uniforms.set( 'envTotalSum', 0.0 );
+				this.uniforms.set( 'envCompensationDelta', 0.0 );
 				this.uniforms.set( 'useEnvMapIS', 0 );
 				return;
 
@@ -313,6 +315,7 @@ export class EnvironmentManager {
 
 			this._updateCDFStorageBuffers();
 			this.uniforms.set( 'envTotalSum', this.equirectHdrInfo.totalSum );
+			this.uniforms.set( 'envCompensationDelta', this.equirectHdrInfo.compensationDelta );
 			this.uniforms.set( 'useEnvMapIS', 1 );
 
 			const { width, height } = this.equirectHdrInfo;
@@ -329,6 +332,7 @@ export class EnvironmentManager {
 			console.error( 'Error building environment CDF:', error );
 			this.uniforms.set( 'useEnvMapIS', 0 );
 			this.uniforms.set( 'envTotalSum', 0.0 );
+			this.uniforms.set( 'envCompensationDelta', 0.0 );
 
 		}
 
@@ -375,6 +379,7 @@ export class EnvironmentManager {
 
 			this._updateCDFStorageBuffers();
 			this.uniforms.set( 'envTotalSum', 0.0 );
+			this.uniforms.set( 'envCompensationDelta', 0.0 );
 			this.uniforms.set( 'useEnvMapIS', 0 );
 
 		}

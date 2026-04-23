@@ -84,6 +84,7 @@ import {
 	EPSILON,
 	MIN_PDF,
 	powerHeuristic,
+	balanceHeuristic,
 } from './Common.js';
 import {
 	sampleEquirectProbability,
@@ -935,7 +936,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 	// Environment resources
 	envTexture, environmentIntensity, envMatrix,
 	envCDFBuffer,
-	envTotalSum, envResolution,
+	envTotalSum, envCompensationDelta, envResolution,
 	enableEnvironmentLight,
 ] ) => {
 
@@ -1204,7 +1205,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 			// Sample direction + PDF + color from importance-sampled environment
 			const envSampleResult = sampleEquirectProbability(
 				envTexture, envCDFBuffer,
-				envMatrix, environmentIntensity, envTotalSum, envResolution, envRandom, envColor
+				envMatrix, environmentIntensity, envTotalSum, envCompensationDelta, envResolution, envRandom, envColor
 			).toVar();
 
 			const envDirection = envSampleResult.xyz.toVar();
@@ -1229,11 +1230,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 						const brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitNormal, material );
 						const bPdf = calculateMaterialPDF( viewDir, envDirection, hitNormal, material ).toVar();
 
-						// Standard two-strategy MIS: NEE (envPdf) vs implicit miss (materialPdf).
+						// Balance heuristic for env MIS — optimal for MIS-compensated PDFs (Karlík et al. 2019).
 						// The implicit path uses material combinedPdf as prevBouncePdf at the miss check.
 						const misW = select(
 							bPdf.greaterThan( 0.0 ),
-							powerHeuristic( { pdf1: envPdf, pdf2: bPdf } ),
+							balanceHeuristic( { pdf1: envPdf, pdf2: bPdf } ),
 							float( 1.0 )
 						).toVar();
 

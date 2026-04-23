@@ -365,6 +365,7 @@ export class ShaderBuilder {
 					envMatrix: stage.environmentMatrix,
 					envCDFBuffer: envCDFStorage,
 					envTotalSum: stage.envTotalSum,
+					envCompensationDelta: stage.envCompensationDelta,
 					envResolution: stage.envResolution,
 					enableEnvironmentLight: stage.enableEnvironment,
 					useEnvMapIS: stage.useEnvMapIS,

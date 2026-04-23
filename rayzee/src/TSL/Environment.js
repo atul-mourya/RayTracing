@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, floor, fract, min, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, sin, floor, fract, min, max, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -47,9 +47,9 @@ export const equirectDirectionPdf = /*@__PURE__*/ wgslFn( `
 `, [ equirectDirectionToUv ] );
 
 // Evaluate PDF for a given direction (for MIS)
-// Exact implementation from three-gpu-pathtracer
 // Returns vec4(color.rgb, pdf) since TSL cannot use inout params
-export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix, envTotalSum, envResolution ] ) => {
+// Uses MIS-compensated PDF (Karlík et al. 2019): max(0, lum - delta) / compensatedTotalSum
+export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix, envTotalSum, envCompensationDelta, envResolution ] ) => {
 
 	const result = vec4( 0.0 ).toVar();
 
@@ -63,8 +63,13 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 		const uv = equirectDirectionToUv( { direction, environmentMatrix } ).toVar();
 		const color = texture( environment, uv, 0 ).rgb.toVar();
 
+		// sin(theta) matches the CDF's solid-angle weighting (lum * sinTheta)
+		const sinTheta = sin( uv.y.mul( Math.PI ) ).toVar();
 		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
-		const pdf = lum.div( envTotalSum ).toVar();
+		const weightedLum = lum.mul( sinTheta ).toVar();
+		// MIS Compensation: subtract delta to match the sharpened CDF
+		const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) ).toVar();
+		const pdf = compensatedWeight.div( envTotalSum ).toVar();
 
 		const dirPdf = equirectDirectionPdf( { direction, environmentMatrix } ).toVar();
 		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
@@ -86,6 +91,7 @@ export const sampleEquirectProbability = Fn( ( [
 	environmentMatrix,
 	environmentIntensity,
 	envTotalSum,
+	envCompensationDelta,
 	envResolution,
 	r,
 	colorOutput
@@ -132,9 +138,12 @@ export const sampleEquirectProbability = Fn( ( [
 	// Write color to output parameter (avoids redundant CDF texture lookups)
 	colorOutput.assign( color );
 
-	// Calculate PDF
+	// Calculate PDF — sin(theta) weighting + MIS Compensation (Karlík et al. 2019)
+	const sinTheta = sin( uv.y.mul( Math.PI ) ).toVar();
 	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS ).toVar();
-	const pdf = lum.div( envTotalSum ).toVar();
+	const weightedLum = lum.mul( sinTheta ).toVar();
+	const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) ).toVar();
+	const pdf = compensatedWeight.div( envTotalSum ).toVar();
 
 	const dirPdf = equirectDirectionPdf( { direction, environmentMatrix } ).toVar();
 	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();

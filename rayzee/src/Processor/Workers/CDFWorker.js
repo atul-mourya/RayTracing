@@ -33,16 +33,19 @@ function binarySearchFindClosestIndexOf( array, targetValue, offset, count ) {
 
 function buildCDF( floatData, width, height ) {
 
-	const cdfConditional = new Float32Array( width * height );
-	const cdfMarginal = new Float32Array( height );
+	const numPixels = width * height;
 
-	let totalSumValue = 0.0;
-	let cumulativeWeightMarginal = 0.0;
+	// Pass 1: compute per-pixel luminance weighted by sin(theta) and raw total sum.
+	// sin(theta) compensates for the equirectangular projection: pixels near the poles
+	// cover less solid angle, so weighting by sin(theta) makes the CDF proportional to
+	// luminance per solid angle rather than luminance per pixel.
+	const pixelWeights = new Float32Array( numPixels );
+	let rawTotalSum = 0.0;
 
-	// Build conditional CDFs (per-row distribution)
 	for ( let y = 0; y < height; y ++ ) {
 
-		let cumulativeRowWeight = 0.0;
+		const sinTheta = Math.sin( Math.PI * ( y + 0.5 ) / height );
+
 		for ( let x = 0; x < width; x ++ ) {
 
 			const i = y * width + x;
@@ -50,11 +53,68 @@ function buildCDF( floatData, width, height ) {
 			const g = floatData[ 4 * i + 1 ];
 			const b = floatData[ 4 * i + 2 ];
 
-			// Luminance (Rec. 709)
-			const weight = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-			cumulativeRowWeight += weight;
-			totalSumValue += weight;
+			// Luminance (Rec. 709) weighted by solid angle factor
+			const w = ( 0.2126 * r + 0.7152 * g + 0.0722 * b ) * sinTheta;
+			pixelWeights[ i ] = w;
+			rawTotalSum += w;
 
+		}
+
+	}
+
+	// MIS Compensation (Karlík et al. 2019, Eq. 14)
+	// With equal sample allocation (c_I = 0.5): delta = 2*(1 - 0.5)*meanWeight = meanWeight
+	// Subtracting mean sharpens the env map PDF, reducing oversampling
+	// of dim regions already well-covered by BSDF sampling.
+	const meanWeight = rawTotalSum / numPixels;
+	let compensatedTotalSum = 0.0;
+
+	for ( let i = 0; i < numPixels; i ++ ) {
+
+		pixelWeights[ i ] = Math.max( 0, pixelWeights[ i ] - meanWeight );
+		compensatedTotalSum += pixelWeights[ i ];
+
+	}
+
+	// Fall back to raw weights if compensation zeroed everything (uniform env map)
+	const useCompensation = compensatedTotalSum > 0;
+	const totalSumValue = useCompensation ? compensatedTotalSum : rawTotalSum;
+	const compensationDelta = useCompensation ? meanWeight : 0;
+
+	if ( ! useCompensation ) {
+
+		// Restore raw sin-weighted luminance
+		for ( let y = 0; y < height; y ++ ) {
+
+			const sinTheta = Math.sin( Math.PI * ( y + 0.5 ) / height );
+
+			for ( let x = 0; x < width; x ++ ) {
+
+				const i = y * width + x;
+				const r = floatData[ 4 * i ];
+				const g = floatData[ 4 * i + 1 ];
+				const b = floatData[ 4 * i + 2 ];
+				pixelWeights[ i ] = ( 0.2126 * r + 0.7152 * g + 0.0722 * b ) * sinTheta;
+
+			}
+
+		}
+
+	}
+
+	// Pass 2: build conditional and marginal CDFs from (compensated) weights
+	const cdfConditional = new Float32Array( numPixels );
+	const cdfMarginal = new Float32Array( height );
+
+	let cumulativeWeightMarginal = 0.0;
+
+	for ( let y = 0; y < height; y ++ ) {
+
+		let cumulativeRowWeight = 0.0;
+		for ( let x = 0; x < width; x ++ ) {
+
+			const i = y * width + x;
+			cumulativeRowWeight += pixelWeights[ i ];
 			cdfConditional[ i ] = cumulativeRowWeight;
 
 		}
@@ -111,7 +171,7 @@ function buildCDF( floatData, width, height ) {
 
 	}
 
-	return { marginalData, conditionalData, totalSum: totalSumValue };
+	return { marginalData, conditionalData, totalSum: totalSumValue, compensationDelta };
 
 }
 
@@ -129,6 +189,7 @@ self.onmessage = function ( e ) {
 				marginalData: result.marginalData,
 				conditionalData: result.conditionalData,
 				totalSum: result.totalSum,
+				compensationDelta: result.compensationDelta,
 				width,
 				height,
 			},

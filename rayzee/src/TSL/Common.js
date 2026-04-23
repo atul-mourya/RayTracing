@@ -99,6 +99,15 @@ export const powerHeuristic = wgslFn( `
 	}
 ` );
 
+// Balance heuristic — optimal for MIS-compensated env map sampling (Karlík et al. 2019)
+export const balanceHeuristic = wgslFn( `
+	fn balanceHeuristic( pdf1: f32, pdf2: f32 ) -> f32 {
+
+		return pdf1 / max( pdf1 + pdf2, ${MIN_PDF} );
+
+	}
+` );
+
 // Bayer matrix 4x4 dithering — exact port of GLSL
 export const applyDithering = wgslFn( `
 	fn applyDithering( color: vec3f, uv: vec2f, ditheringAmount: f32, resolution: vec2f ) -> vec3f {

@@ -182,6 +182,7 @@ export class UniformManager {
 		u( 'environmentMatrix', new Matrix4(), 'mat4' );
 		ub( 'useEnvMapIS', DEFAULT_STATE.useImportanceSampledEnvironment );
 		u( 'envTotalSum', 0.0, 'float' );
+		u( 'envCompensationDelta', 0.0, 'float' );
 		u( 'envResolution', new Vector2( 1, 1 ), 'vec2' );
 
 		// Sun parameters
