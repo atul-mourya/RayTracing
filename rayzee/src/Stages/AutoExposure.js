@@ -1,10 +1,24 @@
 import { Fn, wgslFn, vec4, float, int, uint, ivec2, uvec2, uniform, If, max,
-	textureLoad, textureStore, workgroupArray, workgroupBarrier, localId, workgroupId,
-	attributeArray } from 'three/tsl';
+	textureLoad, textureStore, workgroupBarrier, localId, workgroupId,
+	attributeArray, atomicAdd, atomicStore, atomicLoad, Loop } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture, ReadbackBuffer } from 'three/webgpu';
 import { FloatType, RGBAFormat, NearestFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { luminance } from '../TSL/Common.js';
+
+// ── Histogram constants ────────────────────────────────────
+const NUM_BINS = 256;
+const MIN_LOG_LUM = - 8.0; // ln(~0.00034)  — very dark
+const MAX_LOG_LUM = 6.0; // ln(~403)     — bright specular
+const LOG_LUM_RANGE = MAX_LOG_LUM - MIN_LOG_LUM; // 14 nats ≈ 20 stops
+const BIN_WIDTH = LOG_LUM_RANGE / NUM_BINS;
+const WEIGHT_SCALE = 10000; // float → uint quantisation for metering weights
+
+// ── Metering ────────────────────────────────────────────────
+// Centre-weighted Gaussian is the only mode — spot and uniform
+// are unnecessary given the percentile clipping already handles
+// extreme highlights/shadows. The centerWeight uniform controls
+// the Gaussian falloff steepness.
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
@@ -45,31 +59,30 @@ const adaptExposure = /*@__PURE__*/ wgslFn( `
 ` );
 
 /**
- * WebGPU Auto-Exposure Stage (Fully Compute Shader)
+ * WebGPU Auto-Exposure Stage — Histogram-Based with Centre-Weighted Metering
  *
  * GPU-based automatic exposure control with human eye-like adaptation.
- * Uses hierarchical luminance reduction and asymmetric temporal smoothing.
+ * Uses histogram-based luminance analysis with percentile clipping
+ * and centre-weighted spatial metering for robust exposure estimation.
  *
  * Algorithm:
- *   1. Downsample (compute): full res → 64×64 log-luminance
- *   2. Reduction (compute): parallel reduction 64×64 → 1×1 via shared memory
- *      Single workgroup of 256 threads, each loads 16 texels.
- *      Computes geometric mean: exp(Σlog(L) / N)
- *   3. Adaptation (compute): temporal smoothing with prev exposure; writes
- *      vec4(exposure, luminance, targetExposure, 1) into a 1-element storage buffer.
- *   4. Async readback via `renderer.getArrayBufferAsync(attr, ReadbackBuffer)`:
- *      the ReadbackBuffer pools its staging GPUBuffer across frames, avoiding
- *      per-frame allocation churn. Apply to renderer.toneMappingExposure.
- *
- * WebGPU advantage: async readback (no GPU pipeline stall).
- * 1-frame delay is imperceptible for slowly-changing exposure.
+ *   1. Downsample (compute): full res → 64×64 log-luminance grid
+ *   2. Histogram (compute): build 256-bin weighted histogram from the 64×64
+ *      grid. Single workgroup of 256 threads; each loads 16 texels, applies
+ *      centre-weighted Gaussian, and scatters via atomicAdd into a storage buffer.
+ *   3. Analyze (compute): single thread reads the histogram, computes CDF,
+ *      extracts percentile-clipped weighted mean (ignoring bottom/top
+ *      extremes), and writes the geometric mean to a 1×1 storage texture.
+ *   4. Adaptation (compute): temporal smoothing with prev exposure; writes
+ *      vec4(exposure, luminance, targetExposure, 1) into a 1-element buffer.
+ *   5. Async readback via `renderer.getArrayBufferAsync(attr, ReadbackBuffer)`.
  *
  * Execution: ALWAYS
  *
  * Events listened:
  *   pipeline:reset              — reset temporal history
  *   autoexposure:toggle         — enable/disable
- *   autoexposure:updateParameters — update key value, speeds, bounds
+ *   autoexposure:updateParameters — update key value, speeds, bounds, percentiles
  *
  * Textures published:  (none — publishes state, not textures)
  * Textures read:       edgeFiltering:output > asvgf:output > pathtracer:color
@@ -100,6 +113,12 @@ export class AutoExposure extends RenderStage {
 		this.deltaTimeU = uniform( 1.0 / 60.0 );
 		this.isFirstFrameU = uniform( 1.0 ); // 1.0 = true
 		this.previousExposureU = uniform( options.initialExposure ?? 1.0 );
+
+		// ── Histogram & metering uniforms ────────────────
+
+		this.lowPercentileU = uniform( options.lowPercentile ?? 0.10 );
+		this.highPercentileU = uniform( options.highPercentile ?? 0.90 );
+		this.centerWeightU = uniform( options.centerWeight ?? 8.0 );
 
 		// ── Input resolution uniforms (for downsample compute) ──
 
@@ -149,14 +168,14 @@ export class AutoExposure extends RenderStage {
 		this._downsampleStorageTex.minFilter = NearestFilter;
 		this._downsampleStorageTex.magFilter = NearestFilter;
 
-		// 1×1 StorageTexture for compute reduction output
+		// 1×1 StorageTexture for histogram analysis output
 		this._reductionStorageTex = new StorageTexture( 1, 1 );
 		this._reductionStorageTex.type = FloatType;
 		this._reductionStorageTex.format = RGBAFormat;
 		this._reductionStorageTex.minFilter = NearestFilter;
 		this._reductionStorageTex.magFilter = NearestFilter;
 
-		// 1×1 RenderTarget — readable copy of reduction output (cross-dispatch reads
+		// 1×1 RenderTarget — readable copy of analysis output (cross-dispatch reads
 		// from StorageTexture return zeros — must copy to RenderTarget first)
 		this._reductionReadTarget = new RenderTarget( 1, 1, rtOpts );
 
@@ -167,6 +186,9 @@ export class AutoExposure extends RenderStage {
 		this._readbackBuffer = new ReadbackBuffer( 16 );
 		this._readbackBuffer.name = 'AutoExposureAdaptation';
 
+		// ── Histogram storage buffer (atomic uint, 256 bins) ─────
+		this._histogramBuffer = attributeArray( NUM_BINS, 'uint' ).toAtomic();
+
 	}
 
 	// ──────────────────────────────────────────────────
@@ -176,7 +198,8 @@ export class AutoExposure extends RenderStage {
 	_buildCompute() {
 
 		this._buildDownsampleCompute();
-		this._buildReductionCompute();
+		this._buildHistogramCompute();
+		this._buildHistogramAnalyzeCompute();
 		this._buildAdaptationCompute();
 
 	}
@@ -257,94 +280,146 @@ export class AutoExposure extends RenderStage {
 	}
 
 	/**
-	 * Reduction: parallel compute 64×64 → 1×1
+	 * Histogram Build (compute): 64×64 downsample → 256-bin weighted histogram
 	 *
-	 * Single workgroup of 256 threads. Each thread loads 16 texels
-	 * from the 64×64 downsample texture, then participates in a
-	 * shared-memory parallel reduction.
+	 * Single workgroup of 256 threads. Each thread processes 16 texels from
+	 * the downsample grid, applies spatial metering weight, and atomically
+	 * scatters into the histogram storage buffer.
 	 *
-	 * Output: StorageTexture(1×1) = vec4(geometricMean, count, avgLogLum, 1)
+	 * Phase 1: Clear all 256 bins (one per thread)
+	 * Phase 2: Build histogram with metering-weighted atomic scatter
 	 */
-	_buildReductionCompute() {
+	_buildHistogramCompute() {
 
 		const downsampleTex = this._downsampleTarget.texture;
-		const outputTex = this._reductionStorageTex;
+		const histogram = this._histogramBuffer;
+		const centerWeight = this.centerWeightU;
 
 		const WGSIZE = 256;
 		const TEXELS_PER_THREAD = 16; // 4096 / 256
 		const TEX_SIZE = 64;
 
-		const sharedLogSum = workgroupArray( 'float', WGSIZE );
-		const sharedCount = workgroupArray( 'float', WGSIZE );
-
-		const reductionFn = Fn( () => {
+		const computeFn = Fn( () => {
 
 			const tid = localId.x;
 
-			// ── Phase 1: Each thread loads and sums 16 texels ──
+			// ── Phase 1: Clear histogram ──────────────────
+			atomicStore( histogram.element( tid ), uint( 0 ) );
+			workgroupBarrier();
 
-			const threadLogSum = float( 0.0 ).toVar();
-			const threadCount = float( 0.0 ).toVar();
+			// ── Phase 2: Build histogram ──────────────────
+			for ( let t = 0; t < TEXELS_PER_THREAD; t ++ ) {
 
-			for ( let i = 0; i < TEXELS_PER_THREAD; i ++ ) {
-
-				const linearIdx = tid.mul( TEXELS_PER_THREAD ).add( i );
+				const linearIdx = tid.mul( TEXELS_PER_THREAD ).add( t );
 				const px = linearIdx.mod( TEX_SIZE );
 				const py = linearIdx.div( TEX_SIZE );
+
 				const data = textureLoad( downsampleTex, ivec2( int( px ), int( py ) ) );
+				const logLumSum = data.x;
+				const validCount = data.y;
 
-				// data.x = logLumSum, data.y = validCount from downsample
-				threadLogSum.addAssign( data.x );
-				threadCount.addAssign( data.y );
+				If( validCount.greaterThan( 0.0 ), () => {
 
-			}
+					// Per-cell average log-luminance (natural log, matches downsample output)
+					const avgLogLum = logLumSum.div( validCount );
 
-			sharedLogSum.element( tid ).assign( threadLogSum );
-			sharedCount.element( tid ).assign( threadCount );
+					// Map to histogram bin [0, NUM_BINS-1]
+					const normalized = avgLogLum.sub( float( MIN_LOG_LUM ) ).div( float( LOG_LUM_RANGE ) );
+					const bin = uint( normalized.mul( float( NUM_BINS ) ).floor().clamp( 0.0, float( NUM_BINS - 1 ) ) );
 
-			// ── Phase 2: Parallel reduction (8 steps) ──────────
-			// JS for-loop unrolls at shader build time
+					// ── Centre-weighted metering ──────────
+					const uvx = float( px ).add( 0.5 ).div( float( TEX_SIZE ) );
+					const uvy = float( py ).add( 0.5 ).div( float( TEX_SIZE ) );
+					const dx = uvx.sub( 0.5 );
+					const dy = uvy.sub( 0.5 );
+					const dist2 = dx.mul( dx ).add( dy.mul( dy ) );
 
-			for ( let stride = WGSIZE / 2; stride >= 1; stride = Math.floor( stride / 2 ) ) {
+					// Gaussian falloff: 1.0 at centre, ~0.02 at corners
+					const weight = dist2.mul( centerWeight ).negate().exp();
 
-				workgroupBarrier();
-
-				If( tid.lessThan( uint( stride ) ), () => {
-
-					sharedLogSum.element( tid ).addAssign(
-						sharedLogSum.element( tid.add( uint( stride ) ) )
-					);
-					sharedCount.element( tid ).addAssign(
-						sharedCount.element( tid.add( uint( stride ) ) )
-					);
+					const weightUint = uint( weight.mul( float( WEIGHT_SCALE ) ) );
+					atomicAdd( histogram.element( bin ), weightUint );
 
 				} );
 
 			}
 
-			// ── Phase 3: Thread 0 writes final result ──────────
+		} );
 
-			workgroupBarrier();
+		this._histogramComputeNode = computeFn().compute( [ 1, 1, 1 ], [ WGSIZE, 1, 1 ] );
 
-			If( tid.equal( uint( 0 ) ), () => {
+	}
 
-				const totalLogSum = sharedLogSum.element( uint( 0 ) );
-				const totalCount = sharedCount.element( uint( 0 ) );
-				const safeCount = max( totalCount, float( 1.0 ) );
-				const avgLogLum = totalLogSum.div( safeCount );
-				const geometricMean = avgLogLum.exp();
+	/**
+	 * Histogram Analysis (compute): extract percentile-clipped geometric mean
+	 *
+	 * Single thread. Reads the 256-bin histogram, computes the CDF, clips
+	 * the bottom and top percentiles, and computes the weighted geometric
+	 * mean of luminance within the accepted range.
+	 *
+	 * Output: StorageTexture(1×1) = vec4(geometricMean, totalCount, avgLogLum, 1)
+	 */
+	_buildHistogramAnalyzeCompute() {
 
-				textureStore(
-					outputTex,
-					uvec2( uint( 0 ), uint( 0 ) ),
-					vec4( geometricMean, totalCount, avgLogLum, 1.0 )
-				).toWriteOnly();
+		const histogram = this._histogramBuffer;
+		const outputTex = this._reductionStorageTex;
+		const lowPercentile = this.lowPercentileU;
+		const highPercentile = this.highPercentileU;
+
+		const computeFn = Fn( () => {
+
+			// ── Pass 1: compute total weight ──────────────
+			const totalWeight = float( 0.0 ).toVar();
+
+			Loop( NUM_BINS, ( { i } ) => {
+
+				totalWeight.addAssign( float( atomicLoad( histogram.element( i ) ) ) );
 
 			} );
 
+			// Percentile thresholds (in quantised weight units)
+			const lowThreshold = totalWeight.mul( lowPercentile );
+			const highThreshold = totalWeight.mul( highPercentile );
+
+			// ── Pass 2: percentile-clipped weighted mean ──
+			const cumWeight = float( 0.0 ).toVar();
+			const logLumAccum = float( 0.0 ).toVar();
+			const validWeight = float( 0.0 ).toVar();
+			const prevCum = float( 0.0 ).toVar();
+
+			Loop( NUM_BINS, ( { i } ) => {
+
+				const binWeight = float( atomicLoad( histogram.element( i ) ) );
+				prevCum.assign( cumWeight );
+				cumWeight.addAssign( binWeight );
+
+				// Include bin if it overlaps the [lowThreshold, highThreshold] range
+				If( prevCum.lessThan( highThreshold ).and( cumWeight.greaterThan( lowThreshold ) ), () => {
+
+					// Bin centre in log-luminance space
+					const binCenter = float( MIN_LOG_LUM ).add(
+						float( i ).add( 0.5 ).mul( float( BIN_WIDTH ) )
+					);
+					logLumAccum.addAssign( binCenter.mul( binWeight ) );
+					validWeight.addAssign( binWeight );
+
+				} );
+
+			} );
+
+			const safeWeight = max( validWeight, float( 1.0 ) );
+			const avgLogLum = logLumAccum.div( safeWeight );
+			const geometricMean = avgLogLum.exp();
+
+			textureStore(
+				outputTex,
+				uvec2( uint( 0 ), uint( 0 ) ),
+				vec4( geometricMean, totalWeight, avgLogLum, 1.0 )
+			).toWriteOnly();
+
 		} );
 
-		this._reductionComputeNode = reductionFn().compute( 1, [ WGSIZE, 1, 1 ] );
+		this._histogramAnalyzeNode = computeFn().compute( 1, [ 1, 1, 1 ] );
 
 	}
 
@@ -352,7 +427,7 @@ export class AutoExposure extends RenderStage {
 	 * Adaptation (compute): temporal smoothing
 	 *
 	 * Single-thread compute dispatch [1, 1, 1], workgroup [1, 1, 1].
-	 * Reads geometric mean from reduction RenderTarget, applies asymmetric
+	 * Reads geometric mean from analysis RenderTarget, applies asymmetric
 	 * temporal smoothing using the previous-exposure uniform, and writes
 	 * vec4(exposure, luminance, targetExposure, 1) into a 1-element storage
 	 * buffer which the CPU reads via getArrayBufferAsync + ReadbackBuffer.
@@ -372,7 +447,7 @@ export class AutoExposure extends RenderStage {
 
 		const computeFn = Fn( () => {
 
-			// Read geometric mean from reduction result (1×1 RenderTarget)
+			// Read geometric mean from histogram analysis result (1×1 RenderTarget)
 			const geoMean = textureLoad( reductionTex, ivec2( int( 0 ), int( 0 ) ) ).x;
 
 			const result = adaptExposure(
@@ -404,16 +479,7 @@ export class AutoExposure extends RenderStage {
 
 		} );
 
-		this.on( 'autoexposure:updateParameters', ( data ) => {
-
-			if ( ! data ) return;
-			if ( data.keyValue !== undefined ) this.keyValueU.value = data.keyValue;
-			if ( data.minExposure !== undefined ) this.minExposureU.value = data.minExposure;
-			if ( data.maxExposure !== undefined ) this.maxExposureU.value = data.maxExposure;
-			if ( data.adaptSpeedBright !== undefined ) this.adaptSpeedBrightU.value = data.adaptSpeedBright;
-			if ( data.adaptSpeedDark !== undefined ) this.adaptSpeedDarkU.value = data.adaptSpeedDark;
-
-		} );
+		this.on( 'autoexposure:updateParameters', ( data ) => data && this.updateParameters( data ) );
 
 	}
 
@@ -450,12 +516,16 @@ export class AutoExposure extends RenderStage {
 		this.renderer.compute( this._downsampleComputeNode );
 		this.renderer.copyTextureToTexture( this._downsampleStorageTex, this._downsampleTarget.texture );
 
-		// ── Pass 2: Reduction 64×64 → 1×1 (compute) ────────
+		// ── Pass 2: Histogram build (compute) ───────────────
 
-		this.renderer.compute( this._reductionComputeNode );
+		this.renderer.compute( this._histogramComputeNode );
+
+		// ── Pass 3: Histogram analysis → 1×1 result ─────────
+
+		this.renderer.compute( this._histogramAnalyzeNode );
 		this.renderer.copyTextureToTexture( this._reductionStorageTex, this._reductionReadTarget.texture );
 
-		// ── Pass 3: Temporal adaptation (compute) ───────────
+		// ── Pass 4: Temporal adaptation (compute) ───────────
 
 		this._reductionReadTexNode.value = this._reductionReadTarget.texture;
 		this.renderer.compute( this._adaptationComputeNode );
@@ -578,7 +648,7 @@ export class AutoExposure extends RenderStage {
 
 	setSize( /* width, height */ ) {
 
-		// Downsample and reduction targets are fixed-size (64×64 → 1×1)
+		// Downsample and histogram targets are fixed-size (64×64 → 256 bins → 1×1)
 		// No resizing needed — the downsample compute shader reads input
 		// resolution from uniforms and computes block sizes dynamically.
 
@@ -611,13 +681,17 @@ export class AutoExposure extends RenderStage {
 		if ( params.maxExposure !== undefined ) this.maxExposureU.value = params.maxExposure;
 		if ( params.adaptSpeedBright !== undefined ) this.adaptSpeedBrightU.value = params.adaptSpeedBright;
 		if ( params.adaptSpeedDark !== undefined ) this.adaptSpeedDarkU.value = params.adaptSpeedDark;
+		if ( params.lowPercentile !== undefined ) this.lowPercentileU.value = params.lowPercentile;
+		if ( params.highPercentile !== undefined ) this.highPercentileU.value = params.highPercentile;
+		if ( params.centerWeight !== undefined ) this.centerWeightU.value = params.centerWeight;
 
 	}
 
 	dispose() {
 
 		this._downsampleComputeNode?.dispose();
-		this._reductionComputeNode?.dispose();
+		this._histogramComputeNode?.dispose();
+		this._histogramAnalyzeNode?.dispose();
 		this._adaptationComputeNode?.dispose();
 		this._downsampleTarget?.dispose();
 		this._downsampleStorageTex?.dispose();
