@@ -2,9 +2,9 @@ import { storage } from 'three/tsl';
 import { StorageInstancedBufferAttribute } from 'three/webgpu';
 import {
 	NearestFilter, Vector2, Matrix4,
-	TextureLoader, RepeatWrapping, FloatType
+	TextureLoader, RepeatWrapping
 } from 'three';
-import { blueNoiseTextureNode } from '../TSL/Random.js';
+import { stbnScalarTextureNode, stbnVec2TextureNode } from '../TSL/Random.js';
 
 // Pipeline system
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
@@ -26,8 +26,9 @@ import { LightSerializer } from '../Processor/LightSerializer';
 // Constants
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
 
-// Blue noise (loaded at runtime from CDN — not inlined to keep bundle small)
-const blueNoiseImage = 'https://assets.rayzee.atulmourya.com/noise/simple_bluenoise.png';
+// STBN atlases - original source: https://github.com/NVIDIA-RTX/STBN/blob/main/Assets/STBN.zip
+const stbnScalarAtlas = 'https://assets.rayzee.atulmourya.com/noise/stbn_scalar_atlas.png';
+const stbnVec2Atlas = 'https://assets.rayzee.atulmourya.com/noise/stbn_vec2_atlas.png';
 
 /**
  * Data layout constants
@@ -190,8 +191,9 @@ export class PathTracer extends RenderStage {
 		this.spotLightsData = null;
 		this.areaLightsData = null;
 
-		// Blue noise
-		this.blueNoiseTexture = null;
+		// STBN noise textures
+		this.stbnScalarTexture = null;
+		this.stbnVec2Texture = null;
 
 		// Packed light buffer — [lightBVH nodes (4 vec4s each) | emissive triangles (2 vec4s each)]
 		// emissiveVec4Offset uniform tracks the vec4-count offset where emissive data starts.
@@ -376,25 +378,38 @@ export class PathTracer extends RenderStage {
 	}
 
 	/**
-	 * Setup blue noise texture
+	 * Load STBN (Spatiotemporal Blue Noise) atlas textures.
+	 * Each atlas is 1024×1024: 8×8 grid of 128×128 tiles, 64 temporal slices.
 	 */
 	setupBlueNoise() {
 
 		const loader = new TextureLoader();
 		loader.setCrossOrigin( 'anonymous' );
-		loader.load( blueNoiseImage, ( texture ) => {
 
-			texture.minFilter = NearestFilter;
-			texture.magFilter = NearestFilter;
-			texture.wrapS = RepeatWrapping;
-			texture.wrapT = RepeatWrapping;
-			texture.type = FloatType;
-			texture.generateMipmaps = false;
+		const configure = ( tex ) => {
 
-			this.blueNoiseTexture = texture;
-			blueNoiseTextureNode.value = texture;
+			tex.minFilter = NearestFilter;
+			tex.magFilter = NearestFilter;
+			tex.wrapS = RepeatWrapping;
+			tex.wrapT = RepeatWrapping;
+			tex.generateMipmaps = false;
+			return tex;
 
-			console.log( `PathTracer: Blue noise loaded ${texture.image.width}x${texture.image.height}` );
+		};
+
+		loader.load( stbnScalarAtlas, ( tex ) => {
+
+			this.stbnScalarTexture = configure( tex );
+			stbnScalarTextureNode.value = tex;
+			console.log( `PathTracer: STBN scalar atlas loaded ${tex.image.width}x${tex.image.height}` );
+
+		} );
+
+		loader.load( stbnVec2Atlas, ( tex ) => {
+
+			this.stbnVec2Texture = configure( tex );
+			stbnVec2TextureNode.value = tex;
+			console.log( `PathTracer: STBN vec2 atlas loaded ${tex.image.width}x${tex.image.height}` );
 
 		} );
 
@@ -1521,9 +1536,9 @@ export class PathTracer extends RenderStage {
 
 	setBlueNoiseTexture( tex ) {
 
-		this.blueNoiseTexture = tex;
-		// Update the shared Random.js texture node so TSL shader graph uses the real texture
-		if ( tex ) blueNoiseTextureNode.value = tex;
+		// Legacy API — sets the scalar STBN atlas texture
+		this.stbnScalarTexture = tex;
+		if ( tex ) stbnScalarTextureNode.value = tex;
 
 	}
 
@@ -1676,7 +1691,8 @@ export class PathTracer extends RenderStage {
 		this.storageTextures?.dispose();
 
 		// Dispose textures
-		this.blueNoiseTexture?.dispose();
+		this.stbnScalarTexture?.dispose();
+		this.stbnVec2Texture?.dispose();
 		this.placeholderTexture?.dispose();
 
 		// Clear data references

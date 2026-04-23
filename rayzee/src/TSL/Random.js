@@ -1,6 +1,6 @@
 // Three.js Transpiler r182
 
-import { uniform, texture, textureSize, float, If, Fn, wgslFn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, floor, ivec2, select, Switch, max, int, vec4, mix } from 'three/tsl';
+import { uniform, texture, float, If, wgslFn, uint, TWO_PI, cos, sin, vec2, sqrt, fract, mod, ivec2, select, int, vec4, mix } from 'three/tsl';
 import { DataTexture, FloatType } from 'three';
 
 // -----------------------------------------------------------------------------
@@ -12,20 +12,30 @@ const samplingTechnique = samplingTechniqueUniform;
 
 // 0: PCG, 1: Halton, 2: Sobol, 3: Blue Noise
 
-// 1x1 placeholder — real texture assigned later via blueNoiseTextureNode.value = ...
+// 1x1 placeholder — real texture assigned later via .value = ...
 const _placeholderData = new Float32Array( [ 0.5, 0.5, 0.5, 1.0 ] );
-const _placeholderTex = new DataTexture( _placeholderData, 1, 1 );
-_placeholderTex.type = FloatType;
-_placeholderTex.needsUpdate = true;
 
-export const blueNoiseTextureNode = texture( _placeholderTex );
-blueNoiseTextureNode.setUpdateMatrix( false ); // No UV transform — we provide our own integer coords
-const blueNoiseTextureSize = vec2( textureSize( blueNoiseTextureNode ) );
+const _placeholderScalar = new DataTexture( _placeholderData, 1, 1 );
+_placeholderScalar.type = FloatType;
+_placeholderScalar.needsUpdate = true;
 
-// Golden ratio constants for dimension decorrelation
+const _placeholderVec2 = new DataTexture( new Float32Array( [ 0.5, 0.5, 0.0, 1.0 ] ), 1, 1 );
+_placeholderVec2.type = FloatType;
+_placeholderVec2.needsUpdate = true;
 
-const INV_PHI = float( 0.61803398875 );
-const INV_PHI2 = float( 0.38196601125 );
+// STBN (Spatiotemporal Blue Noise) atlas textures — Heitz 2019
+// Each atlas: 1024×1024, 8×8 grid of 128×128 tiles, 64 temporal slices
+// Scalar atlas: single-channel (R) — optimal for 1D decisions (RR, lobe selection)
+// Vec2 atlas: two-channel (R,G) — decorrelated 2D pairs (direction sampling Xi)
+export const stbnScalarTextureNode = texture( _placeholderScalar );
+stbnScalarTextureNode.setUpdateMatrix( false );
+
+export const stbnVec2TextureNode = texture( _placeholderVec2 );
+stbnVec2TextureNode.setUpdateMatrix( false );
+
+// R2 quasi-random sequence constants (Roberts 2018) — optimal 2D additive offsets
+const R2_A1 = float( 0.7548776662466927 );
+const R2_A2 = float( 0.5698402909980532 );
 
 // Sobol sequence direction vectors using function lookup for compatibility
 
@@ -160,126 +170,49 @@ export const RandomPointInCircle = ( rngState ) => {
 };
 
 // -----------------------------------------------------------------------------
-// Blue noise sampling with proper multi-dimensional support
+// STBN atlas sampling — proper spatiotemporal blue noise
 // -----------------------------------------------------------------------------
-// Cranley-Patterson rotation for decorrelation
+// Atlas layout: 8×8 grid of 128×128 tiles = 1024×1024 texture.
+// Temporal axis: frame % 64 selects tile (true STBN temporal decorrelation).
+// Spatial decorrelation: R2 quasi-random offset keyed on dimension + sample index.
 
-export const cranleyPatterson2D = /*@__PURE__*/ wgslFn( `
-	fn cranleyPatterson2D( p: vec2f, offset: vec2f ) -> vec2f {
+const computeSTBNAtlasCoord = ( pixelCoords, sampleIndex, dimensionIndex, frame ) => {
 
-		return fract( p + offset );
+	// Temporal slice — true STBN temporal axis
+	const slice = uint( frame ).bitAnd( uint( 63 ) ); // frame % 64
 
-	}
-` );
+	// R2 quasi-random spatial offset for per-dimension/per-sample decorrelation
+	const n = float( dimensionIndex ).add( float( sampleIndex ).mul( 7.0 ) );
+	const offsetX = int( fract( n.mul( R2_A1 ).add( 0.5 ) ).mul( 128.0 ) );
+	const offsetY = int( fract( n.mul( R2_A2 ).add( 0.5 ) ).mul( 128.0 ) );
 
-// Improved blue noise sampling that properly uses all parameters
+	// Pixel within 128×128 tile (toroidal wrap via bitmask)
+	const px = int( pixelCoords.x ).add( offsetX ).bitAnd( int( 127 ) );
+	const py = int( pixelCoords.y ).add( offsetY ).bitAnd( int( 127 ) );
 
-export const sampleBlueNoiseRaw = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex, bounceIndex, frame ] ) => {
+	// Atlas tile position from slice index
+	const tileCol = int( slice ).bitAnd( int( 7 ) ); // slice % 8
+	const tileRow = int( slice ).shiftRight( int( 3 ) ); // slice / 8
 
-	// Create dimension-specific offsets using golden ratio
+	return ivec2( tileCol.mul( int( 128 ) ).add( px ), tileRow.mul( int( 128 ) ).add( py ) );
 
-	const dimensionOffset = vec2( fract( float( sampleIndex ).mul( INV_PHI ) ), fract( float( bounceIndex ).mul( INV_PHI2 ) ) );
+};
 
-	// Frame-based decorrelation with better hash
+// Sample 1D scalar STBN value in [0,1]
+export const sampleSTBNScalar = ( pixelCoords, sampleIndex, dimensionIndex, frame ) => {
 
-	const frameHash = wang_hash( { seed: pcgHash( { state: uint( frame ) } ) } );
-	const frameOffset = vec2( float( frameHash.bitAnd( 0xFFFF ) ).div( 65536.0 ), float( frameHash.shiftRight( 16 ).bitAnd( 0xFFFF ) ).div( 65536.0 ) );
+	const coord = computeSTBNAtlasCoord( pixelCoords, sampleIndex, dimensionIndex, frame );
+	return stbnScalarTextureNode.load( coord ).x;
 
-	// Scale offsets to texture size
+};
 
-	const scaledDimOffset = dimensionOffset.mul( vec2( blueNoiseTextureSize ) );
-	const scaledFrameOffset = frameOffset.mul( vec2( blueNoiseTextureSize ) );
+// Sample decorrelated 2D STBN pair in [0,1]²
+export const sampleSTBN2D = ( pixelCoords, sampleIndex, dimensionPairIndex, frame ) => {
 
-	// Combine all offsets with proper toroidal wrapping
+	const coord = computeSTBNAtlasCoord( pixelCoords, sampleIndex, dimensionPairIndex, frame );
+	return stbnVec2TextureNode.load( coord ).xy;
 
-	const coords = mod( pixelCoords.add( scaledDimOffset ).add( scaledFrameOffset ), vec2( blueNoiseTextureSize ) );
-
-	// Ensure positive coordinates and fetch
-	// .load() → textureLoad() in WGSL: exact integer texel fetch, no filtering (≡ GLSL texelFetch)
-
-	const texCoord = ivec2( floor( coords ) );
-
-	return blueNoiseTextureNode.load( texCoord );
-
-}, { pixelCoords: 'vec2', sampleIndex: 'int', bounceIndex: 'int', frame: 'int', return: 'vec4' } );
-
-// Get 2D blue noise sample with dimension offset
-
-export const sampleBlueNoise2D = /*@__PURE__*/ Fn( ( [ pixelCoords, sampleIndex, dimensionBase, frame ] ) => {
-
-	// For 2D sampling, we need to carefully select components to maintain blue noise properties
-
-	const noise = sampleBlueNoiseRaw( pixelCoords, sampleIndex, dimensionBase.div( int( 2 ) ), frame );
-
-	// Use different component pairs based on dimension
-
-	const pairIndex = mod( dimensionBase.div( int( 2 ) ), int( 6 ) );
-
-	const result = vec2( 0.0 ).toVar();
-
-	Switch( pairIndex )
-		.Case( 0, () => {
-
-			result.assign( noise.xy );
-
-		} ).Case( 1, () => {
-
-			result.assign( noise.zw );
-
-		} ).Case( 2, () => {
-
-			result.assign( noise.xz );
-
-		} ).Case( 3, () => {
-
-			result.assign( noise.yw );
-
-		} ).Case( 4, () => {
-
-			result.assign( noise.xw );
-
-		} ).Case( 5, () => {
-
-			result.assign( noise.yz );
-
-		} ).Default( () => {
-
-			result.assign( noise.xy );
-
-		} );
-
-	return result;
-
-}, { pixelCoords: 'vec2', sampleIndex: 'int', dimensionBase: 'int', return: 'vec2', frame: 'int' } );
-
-// Progressive blue noise sampling for temporal accumulation
-
-export const sampleProgressiveBlueNoise = /*@__PURE__*/ Fn( ( [ pixelCoords, currentSample, maxSamples, frame ] ) => {
-
-	// Determine which "slice" of the blue noise we're in
-
-	const progress = float( currentSample ).div( max( 1.0, float( maxSamples ) ) );
-	const temporalSlice = int( progress.mul( 16.0 ) );
-
-	// 16 temporal slices
-	// Use different regions of blue noise for different sample counts
-
-	const sliceOffset = vec2( float( mod( temporalSlice, int( 4 ) ) ).mul( 0.25 ), float( temporalSlice.div( int( 4 ) ) ).mul( 0.25 ) );
-
-	// Scale to texture space and add pixel-specific offset
-
-	const scaledOffset = sliceOffset.mul( vec2( blueNoiseTextureSize ) );
-	const coords = mod( pixelCoords.add( scaledOffset ), vec2( blueNoiseTextureSize ) );
-	const noise = sampleBlueNoiseRaw( coords, currentSample, int( 0 ), frame );
-
-	// Apply additional Cranley-Patterson rotation for better distribution
-
-	const seed = pcgHash( { state: uint( currentSample ).bitXor( wang_hash( { seed: uint( maxSamples ) } ) ) } );
-	const rotation = vec2( float( seed.bitAnd( 0xFFFF ) ).div( 65536.0 ), float( seed.shiftRight( 16 ).bitAnd( 0xFFFF ) ).div( 65536.0 ) );
-
-	return cranleyPatterson2D( { p: noise.xy, offset: rotation } );
-
-}, { pixelCoords: 'vec2', currentSample: 'int', maxSamples: 'int', return: 'vec2', frame: 'int' } );
+};
 
 // -----------------------------------------------------------------------------
 // Low-discrepancy sequence generators
@@ -490,19 +423,20 @@ export const getRandomSampleND = ( pixelCoord, sampleIndex, bounceIndex, rngStat
 
 	} ).Else( () => {
 
-		// Blue Noise (technique 3)
-		const dimensionOffset = bounceIndex.mul( 4 );
+		// STBN — Spatiotemporal Blue Noise (technique 3)
+		// Each bounce uses a block of 4 dimension indices for decorrelation
+		const dimBase = bounceIndex.mul( int( 4 ) );
 
 		If( dimensions.lessThanEqual( int( 2 ) ), () => {
 
-			const _sample = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame );
+			const _sample = sampleSTBN2D( pixelCoord, sampleIndex, dimBase, frame );
 			result.x.assign( _sample.x );
 			result.y.assign( _sample.y );
 
 		} ).Else( () => {
 
-			const _sample1 = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset, frame );
-			const _sample2 = sampleBlueNoise2D( pixelCoord, sampleIndex, dimensionOffset.add( 2 ), frame );
+			const _sample1 = sampleSTBN2D( pixelCoord, sampleIndex, dimBase, frame );
+			const _sample2 = sampleSTBN2D( pixelCoord, sampleIndex, dimBase.add( int( 1 ) ), frame );
 			result.assign( vec4( _sample1, _sample2 ) );
 
 		} );
@@ -551,33 +485,26 @@ export const getStratifiedSample = ( pixelCoord, rayIndex, totalRays, rngState, 
 
 		const strataPos = vec2( float( sx ), float( sy ) ).div( vec2( float( strataX ), float( strataY ) ) );
 
-		// Enhanced jitter based on sampling technique with blue noise fallback for better convergence
+		// Jitter via STBN or fast RNG fallback
 
 		const jitter = vec2( 0.0 ).toVar();
 
 		If( samplingTechnique.greaterThanEqual( int( 3 ) ), () => {
 
-			// Blue noise - improved progressive sampling
-
-			jitter.assign( sampleProgressiveBlueNoise( pixelCoord, rayIndex, totalRays, frame ) );
+			// STBN — true spatiotemporal blue noise jitter
+			jitter.assign( sampleSTBN2D( pixelCoord, rayIndex, int( 0 ), frame ) );
 
 		} ).Else( () => {
 
-			// Enhanced fallback: use fast sampling with slight blue noise influence for better convergence
-			// .toVar() on each call to capture value before next state advance
-
+			// Fast RNG with subtle STBN influence for better convergence
 			const j1 = RandomValueFast( rngState ).toVar();
 			const j2 = RandomValueFast( rngState ).toVar();
 			jitter.assign( vec2( j1, j2 ) );
 
-			// Add subtle blue noise influence even for non-blue-noise techniques
-
 			If( totalRays.greaterThan( int( 4 ) ), () => {
 
-				// Only for multi-sample scenarios
-
-				const blueNoiseInfluence = sampleBlueNoise2D( pixelCoord, rayIndex, int( 0 ), frame ).mul( 0.1 );
-				jitter.assign( mix( jitter, blueNoiseInfluence, 0.2 ) );
+				const stbnInfluence = sampleSTBN2D( pixelCoord, rayIndex, int( 0 ), frame ).mul( 0.1 );
+				jitter.assign( mix( jitter, stbnInfluence, 0.2 ) );
 
 			} );
 
