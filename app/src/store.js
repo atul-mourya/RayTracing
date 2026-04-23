@@ -1837,7 +1837,7 @@ const useCameraStore = create( ( set, get ) => ( {
 		if ( app ) {
 
 			const index = Number( idx );
-			app.cameraManager.switch( index );
+			app.cameraManager.switchCamera( index );
 			set( { selectedCameraIndex: index } );
 
 		}

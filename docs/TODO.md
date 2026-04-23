@@ -12,7 +12,6 @@
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
 - [ ] memory leak after denoise and upscaling??
-- [ ] screenshot not working
   
 ### Known
 
@@ -59,7 +58,6 @@
 - [ ] Realtime OIDN denoising with WebGPU compute shader implementation
 - [ ] Normal-dependent MIS compensation (Karlík et al. 2019, Eq. 13) — precompute 512 compensated env map CDFs indexed by surface normal for ~19% improvement over current normal-independent compensation on diffuse+HDR scenes
 - [ ] ReSTIR DI (Bitterli et al. 2020) — spatiotemporal resampling for many-light scenes
-- [ ] Path guiding (Müller et al. 2017) — learned incident radiance for guided sampling, also benefits from MIS compensation (paper's Application II)
 
 ### Camera
 

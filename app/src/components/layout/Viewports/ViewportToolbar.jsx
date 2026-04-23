@@ -164,7 +164,7 @@ const ViewportToolbar = ( {
 
 	const handleScreenshot = useCallback( () => {
 
-		getApp()?.output.screenshot();
+		getApp()?.screenshot();
 
 	}, [] );
 
