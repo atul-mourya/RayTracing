@@ -244,6 +244,8 @@ engine.dispose()              // Clean up all resources
 engine.wake()                 // Resume render loop if idle
 ```
 
+Constructing a new `PathTracerApp` on a canvas that already has an active instance auto-disposes the prior one — safe under React StrictMode and HMR even without explicit cleanup, though `engine.dispose()` remains the recommended teardown path.
+
 #### Loading Assets
 
 ```js
@@ -472,6 +474,7 @@ engine.addEventListener(EngineEvents.RENDER_COMPLETE, (e) => {
 | `AF_POINT_PLACED` | Focus point placed on screen |
 | `ANIMATION_STARTED` / `ANIMATION_PAUSED` / `ANIMATION_STOPPED` / `ANIMATION_FINISHED` | Animation lifecycle |
 | `VIDEO_RENDER_PROGRESS` / `VIDEO_RENDER_COMPLETE` | Video export progress |
+| `DISPOSE` | Engine is being disposed (fires before teardown begins, so listeners can release their own references) |
 
 ### Advanced: Custom Pipeline Stages
 
