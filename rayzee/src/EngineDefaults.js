@@ -129,10 +129,19 @@ export const ENGINE_DEFAULTS = {
 	asvgfQualityPreset: 'medium',
 	showAsvgfHeatmap: false,
 
-	// SSRC settings
-	ssrcTemporalAlpha: 0.1,
-	ssrcSpatialRadius: 4,
-	ssrcSpatialWeight: 0.4,
+	// SHaRC (Spatially Hashed Radiance Cache) settings
+	sharcEnabled: false, // master toggle (controls Update + Query together)
+	sharcUpdateEnabled: false, // internal: path tracer writes (always tracks master)
+	sharcQueryEnabled: false, // internal: path tracer reads (master + FINAL_STATE auto-disable)
+	sharcCapacity: 1 << 20, // hash table entries (≈40 MiB at 16 bytes/entry × 4 bufs)
+	sharcSceneScale: 50.0, // higher = smaller voxels at a given LOD; tune per-scene
+	sharcLevelBias: 3.0, // higher = finer cells near camera
+	sharcStaleFrameMax: 32, // evict cells unsampled for this many frames
+	sharcRadianceScale: 1000.0, // float→fixed-point quantisation for atomicAdd
+	sharcUpdateStride: 16, // 1/N pixels write per frame (lower = faster fill, more contention)
+	sharcSampleThreshold: 4, // min samples before a cell is trusted by Query
+	sharcResolveStride: 1, // resolve compute pass dispatches every N frames (1 = every frame)
+	sharcDebugMode: 0, // 0=off, 1=occupancy heatmap, 2=cached radiance
 
 	// Auto-exposure settings
 	autoExposure: false,
@@ -442,6 +451,9 @@ export const FINAL_RENDER_CONFIG = {
 	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: false,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
+	// SHaRC: keep Update running so the cache stays warm across mode flips,
+	// but force Query off so the path tracer converges to unbiased ground truth.
+	sharcQueryEnabled: false,
 };
 
 export const PREVIEW_RENDER_CONFIG = {
@@ -451,6 +463,8 @@ export const PREVIEW_RENDER_CONFIG = {
 	tiles: ENGINE_DEFAULTS.tiles, tilesHelper: ENGINE_DEFAULTS.tilesHelper,
 	enableOIDN: false, oidnQuality: 'fast',
 	interactionModeEnabled: true,
+	// SHaRC: Query restored to user toggle (handled via sentinel `null`).
+	sharcQueryEnabled: null,
 };
 
 // Memory management constants

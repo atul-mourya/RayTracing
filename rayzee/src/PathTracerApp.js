@@ -1,7 +1,7 @@
 import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
 import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, Scene, EventDispatcher, TimestampQuery
+	ACESFilmicToneMapping, Scene, EventDispatcher, TimestampQuery, Box3, Vector3
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
@@ -15,7 +15,7 @@ import { BilateralFilter } from './Stages/BilateralFilter.js';
 import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
-import { SSRC } from './Stages/SSRC.js';
+import { SHaRC } from './Stages/SHaRC.js';
 import { Display } from './Stages/Display.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
@@ -778,6 +778,13 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.display.setTransparentBackground( this.settings.get( 'transparentBackground' ) );
 		timer.end( 'Apply settings' );
 
+		// Auto-derive SHaRC scene scale from the loaded scene's bounds. Picks a
+		// sensible default that keeps voxel-cell density in budget across very
+		// different scene sizes (tabletop → architectural). Fired once per scene
+		// load so the slider in the UI reflects the new value; user can still
+		// override and the override persists until the next scene load.
+		this._autoTuneSharcSceneScale();
+
 		timer.print();
 		resetLoading();
 
@@ -785,6 +792,90 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.dispatchEvent( { type: 'SceneRebuild' } );
 		return true;
+
+	}
+
+	/**
+	 * Heuristic: pick `sharcSceneScale` based on the loaded scene's bounding
+	 * diagonal. Larger scenes get a smaller scale so the cache budget isn't
+	 * blown by sub-meter cells across hundreds of meters; tabletop scenes get a
+	 * larger scale so cells are fine enough to capture sub-cm detail.
+	 *
+	 * Voxel size at distance d from camera with default levelBias=3:
+	 *   voxelSize ≈ d / sceneScale
+	 * Number of cells filling a viewing volume of side D scales as sceneScale³,
+	 * so capping sceneScale based on D keeps occupancy in budget.
+	 *
+	 * Step function rather than smooth scaling because the LOD math is already
+	 * distance-adaptive — these tiers just shift the absolute density.
+	 */
+	/**
+	 * Pick a SHaRC capacity that fits the device's storage buffer binding limit.
+	 * Largest SHaRC buffer is `_cellData` at 32 bytes/entry (8 × u32 per cell).
+	 * If the requested capacity would exceed the device's max binding size,
+	 * halve until it fits. Defensive for low-memory iGPUs and restricted browser
+	 * environments — most desktop GPUs have plenty of headroom.
+	 */
+	_pickSharcCapacity( requested ) {
+
+		const device = this.renderer?.backend?.device;
+		const maxBinding = device?.limits?.maxStorageBufferBindingSize;
+		if ( ! maxBinding ) return requested; // Fall through if limit unavailable
+
+		const BYTES_PER_ENTRY = 32; // 8 × u32 in cellData (the largest SHaRC buffer)
+		// Reserve some headroom — don't fill the binding limit exactly.
+		const safeBudget = Math.floor( maxBinding * 0.5 );
+
+		let capacity = requested;
+		while ( capacity * BYTES_PER_ENTRY > safeBudget && capacity > 65536 ) {
+
+			capacity = Math.floor( capacity / 2 );
+
+		}
+
+		if ( capacity !== requested ) {
+
+			console.log(
+				`PathTracerApp: SHaRC capacity reduced from ${requested.toLocaleString()} ` +
+				`to ${capacity.toLocaleString()} entries to fit device's ` +
+				`maxStorageBufferBindingSize (${( maxBinding / 1048576 ).toFixed( 1 )} MiB).`
+			);
+
+		}
+
+		return capacity;
+
+	}
+
+	_autoTuneSharcSceneScale() {
+
+		if ( ! this.stages.pathTracer || ! this.meshScene ) return;
+
+		const box = new Box3().setFromObject( this.meshScene );
+		if ( ! isFinite( box.min.x ) || ! isFinite( box.max.x ) ) return;
+
+		const size = new Vector3();
+		box.getSize( size );
+		const diagonal = size.length();
+		if ( diagonal < 1e-4 ) return; // Empty / invalid scene
+
+		let scale;
+		if ( diagonal < 0.5 ) scale = 100; // tabletop / product (< 50cm)
+		else if ( diagonal < 5 ) scale = 50; // object / character (50cm–5m)
+		else if ( diagonal < 50 ) scale = 25; // room / interior (5–50m)
+		else scale = 10; // architectural / outdoor (> 50m)
+
+		const pt = this.stages.pathTracer;
+		pt.sharcSceneScale.value = scale;
+		this.settings.set( 'sharcSceneScale', scale );
+
+		// Notify UI so the slider reflects the new value. App-side listener in
+		// EngineAdapter syncs the Zustand store on this event.
+		this.dispatchEvent( {
+			type: 'sharc:autoTuned',
+			sceneScale: scale,
+			sceneDiagonal: diagonal,
+		} );
 
 	}
 
@@ -942,6 +1033,19 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );
 		this.stages.pathTracer?.setUniform( 'enableAlphaShadows', config.enableAlphaShadows ?? false );
 		this.stages.pathTracer?.tileManager?.setTileCount( config.tiles );
+
+		// SHaRC: force Query off in Final (cache is biased; path tracer must
+		// converge to ground truth). On Preview, restore the user's last toggle
+		// from settings. Update path is left untouched so the cache keeps warming.
+		if ( this.stages.pathTracer && 'sharcQueryEnabled' in config ) {
+
+			const restoreFromUser = config.sharcQueryEnabled === null;
+			const queryVal = restoreFromUser
+				? ( this.settings.get( 'sharcQueryEnabled' ) ? 1 : 0 )
+				: ( config.sharcQueryEnabled ? 1 : 0 );
+			this.stages.pathTracer.sharcQueryEnabled.value = queryVal;
+
+		}
 
 		const tileHelper = this.overlayManager?.getHelper( 'tiles' );
 		if ( tileHelper ) {
@@ -1251,10 +1355,14 @@ export class PathTracerApp extends EventDispatcher {
 		const { clientWidth: w, clientHeight: h } = this.canvas;
 		this.pipeline = new RenderPipeline( this.renderer, w || 1, h || 1 );
 
+		// SHaRC runs before the path tracer so the resolve pass dispatches on
+		// the previous frame's accumulator before this frame writes to it. In
+		// Phase 1 this is purely cosmetic (path tracer doesn't write yet);
+		// matters in Phase 2.
+		this.pipeline.addStage( this.stages.sharc );
 		this.pipeline.addStage( this.stages.pathTracer );
 		this.pipeline.addStage( this.stages.normalDepth );
 		this.pipeline.addStage( this.stages.motionVector );
-		this.pipeline.addStage( this.stages.ssrc );
 		this.pipeline.addStage( this.stages.asvgf );
 		this.pipeline.addStage( this.stages.variance );
 		this.pipeline.addStage( this.stages.bilateralFilter );
@@ -1463,7 +1571,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.motionVector = new MotionVector( this.renderer, this.cameraManager.camera, {
 			pathTracer: this.stages.pathTracer
 		} );
-		this.stages.ssrc = new SSRC( this.renderer, { enabled: false } );
 		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
 		this.stages.variance = new Variance( this.renderer, { enabled: false } );
 		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
@@ -1473,6 +1580,17 @@ export class PathTracerApp extends EventDispatcher {
 		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
+		const sharcCapacity = this._pickSharcCapacity( DEFAULT_STATE.sharcCapacity ?? ( 1 << 20 ) );
+		this.stages.sharc = new SHaRC( this.renderer, {
+			enabled: DEFAULT_STATE.sharcEnabled ?? false,
+			capacity: sharcCapacity,
+			staleFrameNumMax: DEFAULT_STATE.sharcStaleFrameMax ?? 32,
+			resolveStride: DEFAULT_STATE.sharcResolveStride ?? 1,
+		} );
+		// Wire SHaRC into PathTracer so ShaderBuilder can bind its atomic buffers
+		// when the compute graph is built. Phase 2 path-tracer Update path reads
+		// `this.sharcStage` lazily inside ShaderBuilder._createTextureNodes.
+		this.stages.pathTracer.sharcStage = this.stages.sharc;
 
 		this.stages.display = new Display( this.renderer, {
 			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
@@ -1495,7 +1613,6 @@ export class PathTracerApp extends EventDispatcher {
 				bilateralFilter: this.stages.bilateralFilter,
 				adaptiveSampling: this.stages.adaptiveSampling,
 				edgeFilter: this.stages.edgeFilter,
-				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
 				display: this.stages.display,
 			},

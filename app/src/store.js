@@ -889,23 +889,88 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		true
 	),
 
-	// ─── SSRC handlers ───
-	handleSsrcTemporalAlphaChange: handleChange(
-		val => set( { ssrcTemporalAlpha: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setSSRCParams( { temporalAlpha: val[ 0 ] } ),
-		false
+	// ─── SHaRC (Spatially Hashed Radiance Cache) handlers ───
+	// Master toggle drives the cache stage AND both Update + Query in one
+	// switch. The internal sharcUpdateEnabled / sharcQueryEnabled uniforms
+	// remain for FINAL_STATE auto-disable behavior (Final mode forces Query off
+	// regardless of master) but are no longer separate user-facing toggles.
+	handleSharcEnabledChange: handleChange(
+		val => set( { sharcEnabled: val, sharcUpdateEnabled: val, sharcQueryEnabled: val } ),
+		( val, app ) => {
+
+			if ( app.stages.sharc ) app.stages.sharc.enabled = !! val;
+			if ( app.stages.pathTracer ) {
+
+				app.stages.pathTracer.sharcUpdateEnabled.value = val ? 1 : 0;
+				app.stages.pathTracer.sharcQueryEnabled.value = val ? 1 : 0;
+
+			}
+
+		},
+		true
 	),
 
-	handleSsrcSpatialRadiusChange: handleChange(
-		val => set( { ssrcSpatialRadius: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setSSRCParams( { spatialRadius: val[ 0 ] } ),
-		false
-	),
+	// Scene-tuning sliders. All update live without shader rebuild — values
+	// flow through TSL uniforms read every frame.
+	handleSharcSceneScaleChange: handleChange(
+		val => set( { sharcSceneScale: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
 
-	handleSsrcSpatialWeightChange: handleChange(
-		val => set( { ssrcSpatialWeight: val[ 0 ] } ),
-		( val, app ) => app.denoisingManager.setSSRCParams( { spatialWeight: val[ 0 ] } ),
-		false
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			if ( app.stages.pathTracer ) app.stages.pathTracer.sharcSceneScale.value = v;
+
+		},
+		true
+	),
+	handleSharcLevelBiasChange: handleChange(
+		val => set( { sharcLevelBias: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			if ( app.stages.pathTracer ) app.stages.pathTracer.sharcLevelBias.value = v;
+
+		},
+		true
+	),
+	handleSharcUpdateStrideChange: handleChange(
+		val => set( { sharcUpdateStride: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			if ( app.stages.pathTracer ) app.stages.pathTracer.sharcUpdateStride.value = v;
+
+		},
+		true
+	),
+	handleSharcSampleThresholdChange: handleChange(
+		val => set( { sharcSampleThreshold: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			if ( app.stages.pathTracer ) app.stages.pathTracer.sharcSampleThreshold.value = v;
+
+		},
+		true
+	),
+	handleSharcStaleFrameMaxChange: handleChange(
+		val => set( { sharcStaleFrameMax: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			if ( app.stages.sharc ) app.stages.sharc.staleFrameNumMax.value = v;
+
+		},
+		true
+	),
+	handleSharcResolveStrideChange: handleChange(
+		val => set( { sharcResolveStride: Array.isArray( val ) ? val[ 0 ] : val } ),
+		( val, app ) => {
+
+			const v = Array.isArray( val ) ? val[ 0 ] : val;
+			if ( app.stages.sharc ) app.stages.sharc.setResolveStride( v );
+
+		},
+		false // pure perf knob — no need to reset accumulation
 	),
 
 	handleDebugThresholdChange: val => {

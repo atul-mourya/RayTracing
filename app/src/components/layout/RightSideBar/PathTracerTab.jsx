@@ -1,9 +1,10 @@
-import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind } from 'lucide-react';
+import { Grip, Sun, Sunrise, RefreshCcwDot, Brain, Target, Image, Blend, Palette, ArrowUp, CloudSun, Wind, HelpCircle } from 'lucide-react';
 // import { Zap, ArrowDown, Minus, Droplets } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ColorInput } from "@/components/ui/colorinput";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePathTracerStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -11,6 +12,35 @@ import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
 import { memo } from 'react';
 import CanvasDimensionControls from './CanvasDimensionControls';
+
+/**
+ * Click-to-show help icon for slider/control labels.
+ * Uses Radix Popover (already in the codebase) so it positions correctly inside
+ * scrollable panels and respects portal rendering.
+ */
+const HelpHint = memo( ( { text } ) => (
+	<Popover>
+		<PopoverTrigger asChild>
+			<button
+				type="button"
+				className="ml-1 inline-flex items-center opacity-40 hover:opacity-90 transition-opacity"
+				onPointerDown={( e ) => e.stopPropagation()}
+				aria-label="Show help"
+			>
+				<HelpCircle size={11} />
+			</button>
+		</PopoverTrigger>
+		<PopoverContent
+			className="text-xs leading-relaxed max-w-72 p-3"
+			side="left"
+			align="start"
+		>
+			{text}
+		</PopoverContent>
+	</Popover>
+) );
+
+HelpHint.displayName = 'HelpHint';
 
 /**
  * Optimized component for displaying computed auto-exposure value
@@ -113,10 +143,14 @@ const PathTracerTab = () => {
 		asvgfDebugMode,
 		showAsvgfHeatmap,
 		denoiserStrategy,
-		// SSRC
-		ssrcTemporalAlpha,
-		ssrcSpatialRadius,
-		ssrcSpatialWeight,
+		// SHaRC (Spatially Hashed Radiance Cache)
+		sharcEnabled,
+		sharcSceneScale,
+		sharcLevelBias,
+		sharcUpdateStride,
+		sharcSampleThreshold,
+		sharcStaleFrameMax,
+		sharcResolveStride,
 		pixelEdgeSharpness,
 		edgeSharpenSpeed,
 		edgeThreshold,
@@ -184,10 +218,14 @@ const PathTracerTab = () => {
 		handleAsvgfDebugModeChange,
 		handleShowAsvgfHeatmapChange,
 		handleDenoiserStrategyChange,
-		// SSRC handlers
-		handleSsrcTemporalAlphaChange,
-		handleSsrcSpatialRadiusChange,
-		handleSsrcSpatialWeightChange,
+		// SHaRC handlers
+		handleSharcEnabledChange,
+		handleSharcSceneScaleChange,
+		handleSharcLevelBiasChange,
+		handleSharcUpdateStrideChange,
+		handleSharcSampleThresholdChange,
+		handleSharcStaleFrameMaxChange,
+		handleSharcResolveStrideChange,
 		handlePixelEdgeSharpnessChange,
 		handleEdgeSharpenSpeedChange,
 		handleEdgeThresholdChange,
@@ -416,6 +454,65 @@ const PathTracerTab = () => {
 				)}
 			</ControlGroup>
 
+			<ControlGroup name="SHaRC Cache">
+				<div className="flex items-center justify-between">
+					<Switch label={"Enable Cache"} checked={sharcEnabled} onCheckedChange={handleSharcEnabledChange} />
+				</div>
+				{sharcEnabled && ( <>
+					<div className="text-xs opacity-60 leading-snug pt-1 pb-2">
+						World-space radiance cache amortizes indirect lighting across pixels and frames. Sliders below tune cell sizing, fill rate, and trust thresholds — start with defaults and adjust per-scene. Click <HelpCircle size={10} className="inline align-text-top opacity-60" /> beside each label for guidance.
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label={<>Scene Scale<HelpHint text="Higher = smaller voxels at a given LOD. Big architectural scenes (rooms, buildings) want lower values (10–30). Tabletop / product shots want higher values (50–150). First knob to try if cells look too coarse or too fine." /></>}
+							min={1} max={200} step={1}
+							value={[ sharcSceneScale ]}
+							onValueChange={handleSharcSceneScaleChange}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label={<>Level Bias<HelpHint text="Higher = finer cells near camera, coarser far. Useful for first-person / walkthrough scenes where camera-relative quality matters. Static-camera scenes rarely need adjustment." /></>}
+							min={0} max={8} step={0.5}
+							value={[ sharcLevelBias ]}
+							onValueChange={handleSharcLevelBiasChange}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label={<>Update Stride<HelpHint text="Only 1/N pixels write to the cache per frame. Lower = faster cache fill but more atomic contention (slower frame). Static scenes: drop to 1–4. Dynamic lighting / animation: keep at 16+." /></>}
+							min={1} max={64} step={1}
+							value={[ sharcUpdateStride ]}
+							onValueChange={handleSharcUpdateStrideChange}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label={<>Sample Threshold<HelpHint text="Minimum accumulated samples before a cell is trusted by the path tracer. Lower = earlier cache hits but more noise visible. Higher = cleaner output but slower convergence. Drop to 2 to see cache earlier; raise to 8+ for cleaner final output." /></>}
+							min={1} max={32} step={1}
+							value={[ sharcSampleThreshold ]}
+							onValueChange={handleSharcSampleThresholdChange}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label={<>Stale Frame Max<HelpHint text="Frames before unsampled cells are evicted from the cache. Higher = cells persist longer (good for static scenes). Lower = adapts faster to scene changes (moving lights, animation). Rarely needs tuning." /></>}
+							min={8} max={256} step={1}
+							value={[ sharcStaleFrameMax ]}
+							onValueChange={handleSharcStaleFrameMaxChange}
+						/>
+					</div>
+					<div className="flex items-center justify-between">
+						<Slider
+							label={<>Resolve Stride<HelpHint text="Resolve compute pass dispatches every N frames. 1 = every frame (default, lowest latency). 2–4 = saves ~0.1–0.4 ms/frame at the cost of one extra frame of cache lag. Safe to raise on stable scenes; keep at 1 if cache hit quality matters more than the few ms savings." /></>}
+							min={1} max={8} step={1}
+							value={[ sharcResolveStride ]}
+							onValueChange={handleSharcResolveStrideChange}
+						/>
+					</div>
+				</> )}
+			</ControlGroup>
+
 			<ControlGroup name="Denoising">
 				<div className="flex items-center justify-between">
 					<Select value={denoiserStrategy} onValueChange={handleDenoiserStrategyChange}>
@@ -427,7 +524,6 @@ const PathTracerTab = () => {
 							<SelectItem value="none">None</SelectItem>
 							<SelectItem value="edgeaware">EdgeAware</SelectItem>
 							<SelectItem value="asvgf">ASVGF</SelectItem>
-							<SelectItem value="ssrc">SSRC</SelectItem>
 						</SelectContent>
 					</Select>
 				</div>
@@ -479,18 +575,6 @@ const PathTracerTab = () => {
 							</Select>
 						</div>
 					)}
-				</> )}
-
-				{denoiserStrategy === 'ssrc' && ( <>
-					<div className="flex items-center justify-between">
-						<Slider label={"Temporal Alpha"} min={0.01} max={0.3} step={0.01} value={[ ssrcTemporalAlpha ]} onValueChange={handleSsrcTemporalAlphaChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Spatial Radius"} min={1} max={16} step={1} value={[ ssrcSpatialRadius ]} onValueChange={handleSsrcSpatialRadiusChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Spatial Weight"} min={0} max={1} step={0.05} value={[ ssrcSpatialWeight ]} onValueChange={handleSsrcSpatialWeightChange} />
-					</div>
 				</> )}
 
 				{/* Separator before AI Denoising section */}

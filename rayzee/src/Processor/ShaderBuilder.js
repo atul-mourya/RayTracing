@@ -281,11 +281,22 @@ export class ShaderBuilder {
 		// into the shader at graph construction time. Runtime albedoMapIndex >= 0 guards sampling.
 		setShadowAlbedoMaps( albedoMapsTex );
 
+		// SHaRC atomic buffers (Phase 2 — path tracer writes radiance contributions
+		// at hits past the primary). The SHaRC stage owns the storage nodes; we
+		// share the same nodes here so atomicAdd / atomicMax / atomicStore from
+		// the path tracer compute graph operate on the same GPU buffers the
+		// SHaRC stage's resolve pass reads. The nodes are already `.toAtomic()`.
+		const sharcStage = stage.sharcStage;
+		const sharcKeyLo = sharcStage ? sharcStage._hashKeyLo : null;
+		const sharcKeyHi = sharcStage ? sharcStage._hashKeyHi : null;
+		const sharcCell = sharcStage ? sharcStage._cellData : null;
+
 		const result = {
 			triStorage, bvhStorage, matStorage, lightBufferStorage,
 			envTex, adaptiveSamplingTex, envCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
+			sharcKeyLo, sharcKeyHi, sharcCell,
 		};
 
 		this._sceneTextureNodes = result;
@@ -305,6 +316,7 @@ export class ShaderBuilder {
 			envTex, adaptiveSamplingTex, envCDFStorage,
 			albedoMapsTex, normalMapsTex, bumpMapsTex,
 			metalnessMapsTex, roughnessMapsTex, emissiveMapsTex, displacementMapsTex,
+			sharcKeyLo, sharcKeyHi, sharcCell,
 		} = textureNodes;
 
 		const tileOffsetX = this.tileOffsetX;
@@ -401,6 +413,21 @@ export class ShaderBuilder {
 					sceneScale: stage.sceneScale,
 					apertureScale: stage.apertureScale,
 					anamorphicRatio: stage.anamorphicRatio,
+					// SHaRC (Phases 2/3 — Update + Query path-tracer integration)
+					// accum + resolved packed into single cellBuf (8 u32/cell) to
+					// fit under WebGPU's 8-bindings-per-stage limit.
+					sharcKeyLoBuf: sharcKeyLo,
+					sharcKeyHiBuf: sharcKeyHi,
+					sharcCellBuf: sharcCell,
+					sharcUpdateEnabled: stage.sharcUpdateEnabled,
+					sharcQueryEnabled: stage.sharcQueryEnabled,
+					sharcSceneScale: stage.sharcSceneScale,
+					sharcLevelBias: stage.sharcLevelBias,
+					sharcRadianceScale: stage.sharcRadianceScale,
+					sharcCapacity: stage.sharcCapacity,
+					sharcUpdateStride: stage.sharcUpdateStride,
+					sharcSampleThreshold: stage.sharcSampleThreshold,
+					cameraPos: stage.cameraPos,
 				} );
 
 			} );

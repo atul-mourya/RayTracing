@@ -22,6 +22,7 @@ import {
 	vec3,
 	vec4,
 	int,
+	uint,
 	bool as tslBool,
 	max,
 	min,
@@ -32,6 +33,7 @@ import {
 	normalize,
 	length,
 	reflect,
+	floor,
 	If,
 	Loop,
 	Break,
@@ -97,6 +99,26 @@ import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, Emiss
 import { sampleLightBVHTriangle } from './LightBVHSampling.js';
 import { traceShadowRay, calculateRayOffset } from './LightsDirect.js';
 import { traverseBVHShadow } from './BVHTraversal.js';
+import { atomicLoad } from 'three/tsl';
+import {
+	computeGridLevel as sharcComputeGridLevel,
+	computeVoxelSize as sharcComputeVoxelSize,
+	composeKeyLo as sharcComposeKeyLo,
+	composeKeyHi as sharcComposeKeyHi,
+	bucketBaseFromKey as sharcBucketBaseFromKey,
+	normalSignBits as sharcNormalSignBits,
+	jenkins32 as sharcJenkins32,
+	buildFindOrInsertAccumulateBody,
+	buildFindSlotReadOnlyBody,
+	SHARC_BUCKET_SIZE,
+	SHARC_FRAME_BIT_MASK,
+} from './SHaRC.js';
+
+// Sparse update sampling: only 1/sharcUpdateStride pixels write to the cache
+// each frame. Active pixel rotates per frame so all pixels participate over
+// `stride` frames. Reduces atomic contention on hot cells. Stride is a runtime
+// uniform; mod-based check (not bitmask) so it works for any value, not just
+// powers of two.
 
 // =============================================================================
 // Constants
@@ -594,6 +616,13 @@ export const Trace = Fn( ( [
 	lightBVHBuffer, lightBVHNodeCount,
 	// Per-pixel info
 	pixelCoord, resolution, frame,
+	// SHaRC (Phases 2/3 — radiance cache Update + Query integration)
+	sharcKeyLoBuf, sharcKeyHiBuf, sharcCellBuf,
+	sharcUpdateEnabled, sharcQueryEnabled,
+	sharcSceneScale, sharcLevelBias,
+	sharcRadianceScale, sharcCapacity,
+	sharcUpdateStride, sharcSampleThreshold,
+	cameraPos,
 ] ) => {
 
 	const radiance = vec3( 0.0 ).toVar();
@@ -987,6 +1016,74 @@ export const Trace = Fn( ( [
 
 		} );
 
+		// 2a. SHaRC QUERY — early-terminate path if cached radiance is available.
+		// Gated to bounce >= 2 (SHARC_RESAMPLING_DEPTH=1) so the primary visible
+		// surface and the first secondary bounce are still path-traced; deeper
+		// bounces consume the cache. On cache hit:
+		//   radiance += cached * throughput
+		//   break out of the bounce loop (skip direct/indirect + further bounces)
+		If( sharcQueryEnabled.equal( int( 1 ) ).and( bounceIndex.greaterThan( int( 1 ) ) ), () => {
+
+			const lvlF = sharcComputeGridLevel( hitInfo.hitPoint, cameraPos, sharcLevelBias );
+			const lvlI = int( lvlF );
+			const voxelSize = sharcComputeVoxelSize( lvlF, sharcSceneScale, sharcLevelBias );
+			const gridX = int( floor( hitInfo.hitPoint.x.div( voxelSize ) ) );
+			const gridY = int( floor( hitInfo.hitPoint.y.div( voxelSize ) ) );
+			const gridZ = int( floor( hitInfo.hitPoint.z.div( voxelSize ) ) );
+
+			const keyLo = sharcComposeKeyLo( gridX, gridY );
+			const nSigns = sharcNormalSignBits( N );
+			const keyHi = sharcComposeKeyHi( gridY, gridZ, lvlI, nSigns );
+			const numBuckets = uint( sharcCapacity ).div( uint( SHARC_BUCKET_SIZE ) );
+			const bucketBase = sharcBucketBaseFromKey( keyLo, keyHi, numBuckets );
+
+			const slot = uint( 0 ).toVar();
+			const slotFound = uint( 0 ).toVar();
+			buildFindSlotReadOnlyBody( {
+				keyLoBuf: sharcKeyLoBuf,
+				keyHiBuf: sharcKeyHiBuf,
+				bucketBase,
+				keyLo,
+				keyHi,
+				resultSlot: slot,
+				resultFound: slotFound,
+			} );
+
+			If( slotFound.equal( uint( 1 ) ), () => {
+
+				// 8 u32 per cell: [0..3] accum, [4..7] resolved.
+				// resolvedR/G/B at offsets +4/+5/+6, packed metadata at +7.
+				const cellBase = slot.mul( uint( 8 ) );
+				const meta = atomicLoad( sharcCellBuf.element( cellBase.add( uint( 7 ) ) ) );
+				const sampleNum = meta.bitAnd( uint( SHARC_FRAME_BIT_MASK ) );
+
+				// Anti-firefly gate: require ≥ sharcSampleThreshold accumulated
+				// frames before trusting the cell. With sparse update at stride N,
+				// threshold T means ≈ N×T unique pixel insertions before use,
+				// giving the running mean enough convergence to suppress single-
+				// sample outliers. Tunable per-scene via UI.
+				If( sampleNum.greaterThanEqual( uint( sharcSampleThreshold ) ), () => {
+
+					const cachedR = float( atomicLoad( sharcCellBuf.element( cellBase.add( uint( 4 ) ) ) ) ).div( sharcRadianceScale );
+					const cachedG = float( atomicLoad( sharcCellBuf.element( cellBase.add( uint( 5 ) ) ) ) ).div( sharcRadianceScale );
+					const cachedB = float( atomicLoad( sharcCellBuf.element( cellBase.add( uint( 6 ) ) ) ) ).div( sharcRadianceScale );
+					const cached = vec3( cachedR, cachedG, cachedB );
+
+					radiance.addAssign( regularizePathContribution( {
+						contribution: cached.mul( throughput ).mul( giScale ),
+						pathLength: float( bounceIndex ),
+						fireflyThreshold,
+						frame: int( frame ),
+					} ) );
+
+					Break();
+
+				} );
+
+			} );
+
+		} );
+
 		// 2. DIRECT LIGHTING
 		const directLight = calculateDirectLightingUnified(
 			hitInfo.hitPoint, N, material,
@@ -1006,9 +1103,69 @@ export const Trace = Fn( ( [
 			enableEnvironmentLight,
 		);
 
-		radiance.addAssign( regularizePathContribution( {
-			contribution: directLight.mul( throughput ).mul( giScale ), pathLength: float( bounceIndex ), fireflyThreshold, frame: int( frame ),
-		} ) );
+		// Firefly-regularize the contribution once and reuse for both the radiance
+		// accumulator and the cache insert. Avoids feeding raw bright outliers
+		// into the cache where they'd persist as cell-mean fireflies.
+		const directLightRegularized = regularizePathContribution( {
+			contribution: directLight.mul( throughput ).mul( giScale ),
+			pathLength: float( bounceIndex ),
+			fireflyThreshold,
+			frame: int( frame ),
+		} );
+
+		radiance.addAssign( directLightRegularized );
+
+		// 2c. SHaRC UPDATE — insert direct lighting contribution into the world-space
+		// hash cache at this hit point. Phase 2 simplification: depth=1 (current
+		// hit only, no path backprop). Skip primary hit (bounceIndex==0) to avoid
+		// caching view-dependent specular at the camera-visible surface.
+		//
+		// Sparse update sampling: only 1/sharcUpdateStride pixels write per frame.
+		// jenkins32(pixelIndex) hashes pixel ID into a stride bucket; XOR with
+		// frame rotates the active set so coverage is complete over `stride`
+		// frames. Reduces atomic contention proportionally to stride.
+		const sharcPixelHash = sharcJenkins32( uint( pixelIndex ) ).bitXor( frame );
+		const sharcPixelActive = sharcPixelHash.mod( uint( sharcUpdateStride ).max( uint( 1 ) ) ).equal( uint( 0 ) );
+
+		If( sharcUpdateEnabled.equal( int( 1 ) ).and( bounceIndex.greaterThan( int( 0 ) ) ).and( sharcPixelActive ), () => {
+
+			// Quantize hit point into the LOD-adapted grid
+			const lvlF = sharcComputeGridLevel( hitInfo.hitPoint, cameraPos, sharcLevelBias );
+			const lvlI = int( lvlF );
+			const voxelSize = sharcComputeVoxelSize( lvlF, sharcSceneScale, sharcLevelBias );
+			const gridX = int( floor( hitInfo.hitPoint.x.div( voxelSize ) ) );
+			const gridY = int( floor( hitInfo.hitPoint.y.div( voxelSize ) ) );
+			const gridZ = int( floor( hitInfo.hitPoint.z.div( voxelSize ) ) );
+
+			const keyLo = sharcComposeKeyLo( gridX, gridY );
+			const nSigns = sharcNormalSignBits( N );
+			const keyHi = sharcComposeKeyHi( gridY, gridZ, lvlI, nSigns );
+			const numBuckets = uint( sharcCapacity ).div( uint( SHARC_BUCKET_SIZE ) );
+			const bucketBase = sharcBucketBaseFromKey( keyLo, keyHi, numBuckets );
+
+			// Use firefly-regularized contribution to keep the cache clean.
+			const r = uint( max( directLightRegularized.x, float( 0.0 ) ).mul( sharcRadianceScale ) );
+			const g = uint( max( directLightRegularized.y, float( 0.0 ) ).mul( sharcRadianceScale ) );
+			const b = uint( max( directLightRegularized.z, float( 0.0 ) ).mul( sharcRadianceScale ) );
+
+			// Skip if contribution is effectively zero (no point inserting noise).
+			If( r.add( g ).add( b ).greaterThan( uint( 0 ) ), () => {
+
+				buildFindOrInsertAccumulateBody( {
+					keyLoBuf: sharcKeyLoBuf,
+					keyHiBuf: sharcKeyHiBuf,
+					cellBuf: sharcCellBuf,
+					bucketBase,
+					keyLo,
+					keyHi,
+					radianceR: r,
+					radianceG: g,
+					radianceB: b,
+				} );
+
+			} );
+
+		} );
 
 		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
 		If( enableEmissiveTriangleSampling.equal( int( 1 ) ).and( emissiveTriangleCount.greaterThan( int( 0 ) ) ), () => {

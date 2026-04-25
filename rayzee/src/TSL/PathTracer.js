@@ -152,6 +152,13 @@ export const pathTracerMain = ( params ) => {
 		accumulationAlpha, cameraIsMoving,
 		useAdaptiveSampling, adaptiveSamplingTexture, adaptiveSamplingMin, adaptiveSamplingMax,
 		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
+		// SHaRC (Phases 2/3 — Update + Query; null when SHaRC stage absent)
+		sharcKeyLoBuf, sharcKeyHiBuf, sharcCellBuf,
+		sharcUpdateEnabled, sharcQueryEnabled,
+		sharcSceneScale, sharcLevelBias,
+		sharcRadianceScale, sharcCapacity,
+		sharcUpdateStride, sharcSampleThreshold,
+		cameraPos,
 	} = params;
 
 	// Integer coordinates for textureStore writes
@@ -294,6 +301,13 @@ export const pathTracerMain = ( params ) => {
 				emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 				lightBVHBuffer, lightBVHNodeCount,
 				pixelCoord, resolution, frame,
+				// SHaRC params (forwarded to Trace's bounce loop)
+				sharcKeyLoBuf, sharcKeyHiBuf, sharcCellBuf,
+				sharcUpdateEnabled, sharcQueryEnabled,
+				sharcSceneScale, sharcLevelBias,
+				sharcRadianceScale, sharcCapacity,
+				sharcUpdateStride, sharcSampleThreshold,
+				cameraPos,
 			) );
 
 			sampleColor.assign( traceResult.radiance );

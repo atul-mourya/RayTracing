@@ -6,7 +6,7 @@ import { ENGINE_DEFAULTS as DEFAULT_STATE, ASVGF_QUALITY_PRESETS } from '../Engi
 
 /**
  * Orchestrates all denoising, post-processing, and AI upscaling:
- *   - Real-time denoiser strategy switching (ASVGF / SSRC / EdgeAware / None)
+ *   - Real-time denoiser strategy switching (ASVGF / EdgeAware / None)
  *   - OIDN (offline denoise on render completion)
  *   - AI Upscaler
  *   - Auto-exposure coordination
@@ -222,7 +222,7 @@ export class DenoisingManager extends EventDispatcher {
 
 	/**
 	 * Switches the real-time denoiser strategy.
-	 * @param {string} strategy   - 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
+	 * @param {string} strategy   - 'none' | 'asvgf' | 'edgeaware'
 	 * @param {string} [asvgfPreset] - ASVGF quality preset when strategy is 'asvgf'
 	 */
 	setDenoiserStrategy( strategy, asvgfPreset ) {
@@ -234,7 +234,6 @@ export class DenoisingManager extends EventDispatcher {
 		if ( s.variance && ! this._isAdaptiveSamplingActive() ) s.variance.enabled = false;
 		if ( s.bilateralFilter ) s.bilateralFilter.enabled = false;
 		if ( s.edgeFilter ) s.edgeFilter.setFilteringEnabled( false );
-		if ( s.ssrc ) s.ssrc.enabled = false;
 
 		this._clearDenoiserTextures();
 
@@ -246,10 +245,6 @@ export class DenoisingManager extends EventDispatcher {
 				if ( s.bilateralFilter ) s.bilateralFilter.enabled = true;
 				s.asvgf.setTemporalEnabled?.( true );
 				this._applyASVGFPreset( asvgfPreset || 'medium' );
-				break;
-
-			case 'ssrc':
-				if ( s.ssrc ) s.ssrc.enabled = true;
 				break;
 
 			case 'edgeaware':
@@ -554,13 +549,6 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/** Updates SSRC stage parameters. */
-	setSSRCParams( params ) {
-
-		this._stages.ssrc?.updateParameters( params );
-
-	}
-
 	/** Updates edge-aware filtering parameters. */
 	setEdgeAwareParams( params ) {
 
@@ -733,7 +721,7 @@ export class DenoisingManager extends EventDispatcher {
 		const keys = [
 			'asvgf:output', 'asvgf:temporalColor', 'asvgf:variance',
 			'variance:output', 'bilateralFiltering:output',
-			'edgeFiltering:output', 'ssrc:output',
+			'edgeFiltering:output',
 		];
 		keys.forEach( k => ctx.removeTexture( k ) );
 

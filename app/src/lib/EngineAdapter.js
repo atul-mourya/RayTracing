@@ -141,6 +141,14 @@ export function connectEngineToStore( engine, { useStore, useCameraStore, usePat
 
 	} );
 
+	// SHaRC auto-tuned the scene scale on scene load — sync the slider in the UI
+	// so the displayed value matches what the engine is actually using.
+	on( EngineEvents.SHARC_AUTO_TUNED, ( e ) => {
+
+		usePathTracerStore.setState( { sharcSceneScale: e.sceneScale } );
+
+	} );
+
 	// ── Animation ───────────────────────────────────────────
 	on( EngineEvents.ANIMATION_STARTED, () => {
 

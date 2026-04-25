@@ -434,7 +434,7 @@ export const getShadowMaterial = Fn( ( [ materialIndex, materialBuffer ] ) => {
 } );
 
 // ── Edge-stopping weight (normal + depth) ──────────────────────────────────
-// Used by ASVGF and SSRC for temporal/spatial reprojection edge-stopping.
+// Used by ASVGF for temporal/spatial reprojection edge-stopping.
 
 export const normalDepthWeight = /*@__PURE__*/ wgslFn( `
 	fn normalDepthWeight(

@@ -252,6 +252,20 @@ export class UniformManager {
 		// Scene data
 		u( 'totalTriangleCount', 0, 'int' );
 
+		// SHaRC (Spatially Hashed Radiance Cache)
+		// Note: log base is fixed at SHARC_LOG_BASE = 2.0 in TSL/SHaRC.js — no
+		// runtime tuning. Other levels of LOD distribution are controlled via
+		// sharcLevelBias instead.
+		ub( 'sharcUpdateEnabled', DEFAULT_STATE.sharcUpdateEnabled );
+		ub( 'sharcQueryEnabled', DEFAULT_STATE.sharcQueryEnabled );
+		u( 'sharcSceneScale', DEFAULT_STATE.sharcSceneScale, 'float' );
+		u( 'sharcLevelBias', DEFAULT_STATE.sharcLevelBias, 'float' );
+		u( 'sharcRadianceScale', DEFAULT_STATE.sharcRadianceScale, 'float' );
+		u( 'sharcCapacity', DEFAULT_STATE.sharcCapacity, 'uint' );
+		u( 'sharcUpdateStride', DEFAULT_STATE.sharcUpdateStride, 'uint' );
+		u( 'sharcSampleThreshold', DEFAULT_STATE.sharcSampleThreshold, 'uint' );
+		u( 'cameraPos', new Vector3(), 'vec3' );
+
 	}
 
 	/**

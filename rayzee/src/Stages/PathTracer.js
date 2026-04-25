@@ -1310,6 +1310,7 @@ export class PathTracer extends RenderStage {
 			this.cameraViewMatrix.value.copy( this.camera.matrixWorldInverse );
 			this.cameraProjectionMatrix.value.copy( this.camera.projectionMatrix );
 			this.cameraProjectionMatrixInverse.value.copy( this.camera.projectionMatrixInverse );
+			this.cameraPos.value.setFromMatrixPosition( this.camera.matrixWorld );
 
 			this.lastCameraMatrix.copy( this.camera.matrixWorld );
 			this.lastProjectionMatrix.copy( this.camera.projectionMatrixInverse );

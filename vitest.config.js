@@ -31,7 +31,7 @@ export default defineConfig( {
 				'rayzee/src/Stages/MotionVector.js',
 				'rayzee/src/Stages/NormalDepth.js',
 				'rayzee/src/Stages/PathTracer.js',
-				'rayzee/src/Stages/SSRC.js',
+				'rayzee/src/Stages/SHaRC.js',
 				'rayzee/src/Stages/Variance.js',
 
 				// ── GPU-dependent: WebGPU renderer orchestration ──

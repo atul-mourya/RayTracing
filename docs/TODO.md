@@ -27,7 +27,6 @@
 ## Features
 
 ### Chores
-- [ ] honor github checklist- <https://github.com/atul-mourya/RayTracing/community>
 - [ ] minimize dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
 - [ ] lint fix
 - [ ] enhance test coverage of the engine, use headless chrome if needed
@@ -159,6 +158,8 @@
 - [ ] Mega Geometries - Compressed Clusters as input to BLAS
 - [ ] Mega Geometries - PTLAS - Partitioned TLAS
 - [ ] SHaRC - Spatial Hash Radiance Cache
+- [ ] Reserviour sampling ( pixel level - not neighboring pixel )
+- [ ] converting emissive geometries to triangle light - do research
   
 ---
 

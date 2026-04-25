@@ -38,6 +38,9 @@ export const EngineEvents = {
 	AUTO_EXPOSURE_UPDATED: 'engine:autoExposureUpdated',
 	AF_POINT_PLACED: 'engine:afPointPlaced',
 
+	// SHaRC auto-tuning
+	SHARC_AUTO_TUNED: 'sharc:autoTuned',
+
 	// Settings
 	SETTING_CHANGED: 'engine:settingChanged',
 

@@ -383,7 +383,7 @@ Denoiser strategy, ASVGF, OIDN, upscaler, adaptive sampling, and auto-exposure.
 
 ```js
 // Strategy
-engine.denoisingManager.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 'ssrc' | 'edgeaware'
+engine.denoisingManager.setStrategy('asvgf', 'medium')  // 'none' | 'asvgf' | 'edgeaware'
 engine.denoisingManager.setASVGFEnabled(true, 'medium')
 engine.denoisingManager.applyASVGFPreset('high')         // 'low' | 'medium' | 'high'
 engine.denoisingManager.setAutoExposure(true)
@@ -391,7 +391,6 @@ engine.denoisingManager.setAdaptiveSampling(true)
 
 // Fine-grained parameters
 engine.denoisingManager.setASVGFParams({ temporalAlpha: 0.1, phiColor: 10 })
-engine.denoisingManager.setSSRCParams({ temporalAlpha: 0.1, spatialRadius: 3 })
 engine.denoisingManager.setEdgeAwareParams({ pixelEdgeSharpness: 1.0 })
 engine.denoisingManager.setAutoExposureParams({ keyValue: 0.18 })
 engine.denoisingManager.setAdaptiveSamplingParams({ varianceThreshold: 0.01 })
