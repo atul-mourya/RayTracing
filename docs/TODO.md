@@ -7,11 +7,8 @@
 
 - [ ] oidndenoiser is desaturation the results
 - [ ] scrutenize the implementation of SSRC
-- [ ] ASVGF heatmap shows black - normal
-- [ ] ASVGF heatmap shows improper motion vector
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
-- [ ] memory leak after denoise and upscaling??
   
 ### Known
 
@@ -30,6 +27,8 @@
 ## Features
 
 ### Chores
+- [ ] honor github checklist- <https://github.com/atul-mourya/RayTracing/community>
+- [ ] minimize dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
 - [ ] lint fix
 - [ ] enhance test coverage of the engine, use headless chrome if needed
 - [ ] needs WebGPU, can't unit-test

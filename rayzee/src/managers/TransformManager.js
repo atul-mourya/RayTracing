@@ -437,6 +437,15 @@ export class TransformManager {
 		this._normalCache = null;
 		this._baselineComputed = false;
 
+		// Drop back-references to the owning app and shared resources so the
+		// PathTracerApp graph can be GC'd. Without this, _app pinned the entire
+		// engine (verified via heap snapshot retainer chain).
+		this._app = null;
+		this._orbitControls = null;
+		this._camera = null;
+		this._controls = null;
+		this._gizmoScene = null;
+
 	}
 
 }

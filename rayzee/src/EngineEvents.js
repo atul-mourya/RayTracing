@@ -50,4 +50,7 @@ export const EngineEvents = {
 	// Video rendering
 	VIDEO_RENDER_PROGRESS: 'engine:videoRenderProgress',
 	VIDEO_RENDER_COMPLETE: 'engine:videoRenderComplete',
+
+	// Lifecycle
+	DISPOSE: 'engine:dispose',
 };

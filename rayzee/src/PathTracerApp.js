@@ -399,6 +399,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( this._disposed ) return;
 		this._disposed = true;
 
+		this.dispatchEvent( { type: EngineEvents.DISPOSE } );
 		this.stopAnimation();
 		clearTimeout( this._resizeDebounceTimer );
 		this._resizeDebounceTimer = null;

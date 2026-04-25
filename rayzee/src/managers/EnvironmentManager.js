@@ -542,11 +542,23 @@ export class EnvironmentManager {
 
 		this.proceduralSkyRenderer = null;
 		this.simpleSkyRenderer = null;
+
+		this.envCDFStorageAttr?.dispose?.();
 		this.envCDFStorageAttr = null;
 		this.envCDFStorageNode = null;
+
+		// Dispose the HDRI environment texture unless it's the shared placeholder
+		// (the placeholder is handled separately just below).
+		if ( this.environmentTexture && this.environmentTexture !== this._envPlaceholder ) {
+
+			this.environmentTexture.dispose?.();
+
+		}
+
 		this._envPlaceholder?.dispose();
 		this._envPlaceholder = null;
 		this.environmentTexture = null;
+		this._previousHDRI = null;
 
 	}
 
