@@ -131,8 +131,12 @@ describe( 'EquirectHDRInfo.computeCDF', () => {
 
 		const { totalSum } = EquirectHDRInfo.computeCDF( floatData, width, height );
 
-		// Total sum should be dominated by the bright pixel
-		expect( totalSum ).toBeGreaterThan( 99 ); // luminance ~100
+		// Total sum reflects sin(θ)-weighted luminance with MIS compensation
+		// (mean-subtraction). For luminance ≈ 100 at row 0 of a 2x2 image:
+		//   raw   = 100 * sin(π/4) ≈ 70.71
+		//   mean  = 70.71 / 4     ≈ 17.68
+		//   final = 70.71 - 17.68 ≈ 53.03
+		expect( totalSum ).toBeGreaterThan( 50 );
 
 	} );
 
