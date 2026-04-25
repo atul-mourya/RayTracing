@@ -36,6 +36,10 @@ import { OverlayManager } from './managers/OverlayManager.js';
 import { AnimationManager } from './managers/AnimationManager.js';
 import { TransformManager } from './managers/TransformManager.js';
 
+// One app per canvas — auto-dispose a prior owner if the caller double-
+// instantiates (StrictMode, HMR, etc.) so its rAF loop can't burn CPU.
+const _appsByCanvas = new WeakMap();
+
 
 /**
  * WebGPU Path Tracer Application.
@@ -66,6 +70,18 @@ export class PathTracerApp extends EventDispatcher {
 	constructor( canvas, options = {} ) {
 
 		super();
+
+		try {
+
+			_appsByCanvas.get( canvas )?.dispose();
+
+		} catch ( err ) {
+
+			console.warn( 'PathTracerApp: prior canvas owner dispose failed', err );
+
+		}
+
+		_appsByCanvas.set( canvas, this );
 
 		this.canvas = canvas;
 		this._autoResize = options.autoResize !== false;
