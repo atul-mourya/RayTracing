@@ -157,9 +157,9 @@
 - [ ] Shader Execution Reordering
 - [ ] Mega Geometries - Compressed Clusters as input to BLAS
 - [ ] Mega Geometries - PTLAS - Partitioned TLAS
-- [ ] SHaRC - Spatial Hash Radiance Cache
-- [ ] Reserviour sampling ( pixel level - not neighboring pixel )
-- [ ] converting emissive geometries to triangle light - do research
+- [ ] SHaRC - Spatial Hash Radiance Cache - observed issues: transparent objects blocky, glowing reflictive materials, color bleeding, baised
+- [ ] Rerservoir sampling ( only per pixel, not neighboring )
+- [ ] emissive triangles as trianle lights -  do research
   
 ---
 

@@ -95,6 +95,14 @@ export class NormalDepth extends RenderStage {
 		this._bvhStorageNode = null;
 		this._matStorageNode = null;
 
+		// Last-seen attribute identities. PathTracer replaces these in-place
+		// across model load / BVH rebuild; the compute's bind group is locked
+		// to whatever buffer was bound at pipeline compile time, so we rebuild
+		// when any of them swaps to a new object.
+		this._lastTriAttr = null;
+		this._lastBvhAttr = null;
+		this._lastMatAttr = null;
+
 		// Compute node — built once when storage buffers are ready
 		this._computeNode = null;
 		this._computeBuilt = false;
@@ -138,49 +146,58 @@ export class NormalDepth extends RenderStage {
 		const pt = this.pathTracer;
 		if ( ! pt ) return false;
 
-		// Triangle storage
+		const matStorageAttr = pt.materialData.materialStorageAttr;
+
+		// Detect attribute identity swap (PathTracer.setTriangleData /
+		// setBVHData replace the attribute object on growth). The compute
+		// node's bind group is locked to the buffer bound at compile time —
+		// updating the storage node's .value alone leaves the GPU binding
+		// pointing at the now-discarded buffer, so every traversal misses.
+		const triSwapped = pt.triangleStorageAttr && pt.triangleStorageAttr !== this._lastTriAttr;
+		const bvhSwapped = pt.bvhStorageAttr && pt.bvhStorageAttr !== this._lastBvhAttr;
+		const matSwapped = matStorageAttr && matStorageAttr !== this._lastMatAttr;
+
+		if ( triSwapped || bvhSwapped || matSwapped ) {
+
+			// Drop compute + storage nodes so they get rebuilt against the
+			// current buffers. Cheap: this only happens on model load.
+			this._computeNode?.dispose?.();
+			this._computeNode = null;
+			this._computeBuilt = false;
+			this._triStorageNode = null;
+			this._bvhStorageNode = null;
+			this._matStorageNode = null;
+			this._dirty = true;
+
+		}
+
 		if ( pt.triangleStorageAttr && ! this._triStorageNode ) {
 
 			this._triStorageNode = storage(
 				pt.triangleStorageAttr, 'vec4', pt.triangleStorageAttr.count
 			).toReadOnly();
 
-		} else if ( pt.triangleStorageAttr && this._triStorageNode ) {
-
-			// Data changed (new model loaded) — update in-place
-			this._triStorageNode.value = pt.triangleStorageAttr;
-			this._triStorageNode.bufferCount = pt.triangleStorageAttr.count;
-
 		}
 
-		// BVH storage
 		if ( pt.bvhStorageAttr && ! this._bvhStorageNode ) {
 
 			this._bvhStorageNode = storage(
 				pt.bvhStorageAttr, 'vec4', pt.bvhStorageAttr.count
 			).toReadOnly();
 
-		} else if ( pt.bvhStorageAttr && this._bvhStorageNode ) {
-
-			this._bvhStorageNode.value = pt.bvhStorageAttr;
-			this._bvhStorageNode.bufferCount = pt.bvhStorageAttr.count;
-
 		}
 
-		// Material storage
-		const matStorageAttr = pt.materialData.materialStorageAttr;
 		if ( matStorageAttr && ! this._matStorageNode ) {
 
 			this._matStorageNode = storage(
 				matStorageAttr, 'vec4', matStorageAttr.count
 			).toReadOnly();
 
-		} else if ( matStorageAttr && this._matStorageNode ) {
-
-			this._matStorageNode.value = matStorageAttr;
-			this._matStorageNode.bufferCount = matStorageAttr.count;
-
 		}
+
+		this._lastTriAttr = pt.triangleStorageAttr || this._lastTriAttr;
+		this._lastBvhAttr = pt.bvhStorageAttr || this._lastBvhAttr;
+		this._lastMatAttr = matStorageAttr || this._lastMatAttr;
 
 		return !! ( this._triStorageNode && this._bvhStorageNode && this._matStorageNode );
 

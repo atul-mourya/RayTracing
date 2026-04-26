@@ -54,9 +54,9 @@ When evaluating changes:
 
 1. **Stage Independence** — Does the new/modified stage depend on another stage only via events and context textures? No direct imports between stages.
 
-2. **Context Cleanup** — When enabling/disabling stages, stale textures in PipelineContext can cause wrong textures in downstream stages (especially Display fallback chain). Verify cleanup.
+2. **Context Cleanup** — When enabling/disabling stages, stale textures in PipelineContext can cause wrong textures in downstream stages (especially Compositor fallback chain). Verify cleanup.
 
-3. **Display Fallback Chain** — Priority: `bloom > edgeFiltering > asvgf > ssrc > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
+3. **Compositor Fallback Chain** — Priority: `bloom > edgeFiltering > asvgf > ssrc > pathtracer:color`. Enabled stages publishing dark output override raw path tracer.
 
 4. **Denoiser Coordination** — ASVGF (real-time) vs OIDN (final quality) must never run simultaneously. EdgeAware filtering disabled when ASVGF enabled.
 
@@ -67,7 +67,7 @@ When evaluating changes:
 ## Design Principles
 - Prefer event-driven communication over direct coupling
 - New stages should be independently toggleable via `enabled` flag
-- Always consider the Display fallback chain when adding outputs
+- Always consider the Compositor fallback chain when adding outputs
 - Memory management: consider GPU buffer lifecycle and disposal
 - Web Workers for heavy computation (BVH, textures)
 
