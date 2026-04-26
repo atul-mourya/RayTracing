@@ -27,7 +27,7 @@
 ## Features
 
 ### Chores
-- [ ] honor github checklist- <https://github.com/atul-mourya/RayTracing/community>
+- [ ] add missing security related standards - <https://github.com/atul-mourya/RayTracing/community>
 - [ ] minimize dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
 - [ ] lint fix
 - [ ] enhance test coverage of the engine, use headless chrome if needed
