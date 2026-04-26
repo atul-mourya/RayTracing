@@ -1,5 +1,6 @@
 import { Grip } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
+import { Row } from "@/components/ui/row";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePathTracerStore as useStore } from '@/store';
@@ -38,13 +39,13 @@ const FinalRenderPanel = () => {
 	return (
 		<div className="">
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
-				<div className="flex items-center justify-between">
+				<Row>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={20} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
 						<span className="opacity-50 text-xs truncate">Render Mode</span>
 						<SelectTrigger className="max-w-24 h-5 rounded-full" >
@@ -55,25 +56,25 @@ const FinalRenderPanel = () => {
 							<SelectItem value="1">Tiled</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 				{renderMode === '1' && (
 					<>
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-						</div>
+						</Row>
 					</>
 				)}
 				<CanvasDimensionControls resolutionKey="finalRenderResolution" />
 			</ControlGroup>
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
-			<div className="flex items-center justify-between py-2 px-2">
+			<Row className="py-2 px-2">
 				<Switch label={"Enable AI Denoising"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange}/>
-			</div>
+			</Row>
 			{enableOIDN && ( <>
-				<div className="flex items-center justify-between py-2 px-2">
+				<Row className="py-2 px-2">
 					<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
 						<span className="opacity-50 text-xs truncate">OIDN Quality</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -85,17 +86,17 @@ const FinalRenderPanel = () => {
 							<SelectItem value="high">High</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
-				<div className="flex items-center justify-between py-2 px-2">
+				</Row>
+				<Row className="py-2 px-2">
 					<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-				</div>
+				</Row>
 			</> )}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
-			<div className="flex items-center justify-between py-2 px-2">
+			<Row className="py-2 px-2">
 				<Switch label={"AI Upscaler"} checked={enableUpscaler} onCheckedChange={handleEnableUpscalerChange} />
-			</div>
+			</Row>
 			{enableUpscaler && ( <>
-				<div className="flex items-center justify-between py-2 px-2">
+				<Row className="py-2 px-2">
 					<Select value={upscalerScale.toString()} onValueChange={handleUpscalerScaleChange}>
 						<span className="opacity-50 text-xs truncate">Scale Factor</span>
 						<SelectTrigger className="max-w-24 h-5 rounded-full" >
@@ -106,8 +107,8 @@ const FinalRenderPanel = () => {
 							<SelectItem value="4">4x</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
-				<div className="flex items-center justify-between py-2 px-2">
+				</Row>
+				<Row className="py-2 px-2">
 					<Select value={upscalerQuality} onValueChange={handleUpscalerQualityChange}>
 						<span className="opacity-50 text-xs truncate">Quality</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -119,7 +120,7 @@ const FinalRenderPanel = () => {
 							<SelectItem value="quality">Quality</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 			</> )}
 			<Separator className="bg-primary/20 mt-3.5 mb-3.5" />
 		</div>

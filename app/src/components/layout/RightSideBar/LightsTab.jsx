@@ -1,5 +1,6 @@
 import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
+import { Row } from "@/components/ui/row";
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Switch } from "@/components/ui/switch";
 import { Vector3Component } from "@/components/ui/vector3";
@@ -95,7 +96,7 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 	return (
 		<div className="space-y-4 py-4 px-2">
 			{/* Common controls */}
-			<div className="flex items-center justify-between">
+			<Row>
 				<Slider
 					label="Intensity"
 					icon={Sunrise}
@@ -105,34 +106,34 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 					value={[ light.intensity ]}
 					onValueChange={value => onLightChange( index, 'intensity', value )}
 				/>
-			</div>
-			<div className="flex items-center justify-between">
+			</Row>
+			<Row>
 				<ColorInput
 					label="Color"
 					icon={Rainbow}
 					value={light.color}
 					onChange={color => onLightChange( index, 'color', color )}
 				/>
-			</div>
-			<div className="flex items-center justify-between">
+			</Row>
+			<Row>
 				<Vector3Component
 					label="Position"
 					value={light.position}
 					onValueChange={value => onLightChange( index, 'position', value )}
 				/>
-			</div>
+			</Row>
 
 			{/* SpotLight-specific controls */}
 			{light.type === 'SpotLight' && (
 				<>
-					<div className="flex items-center justify-between">
+					<Row>
 						<Vector3Component
 							label="Target"
 							value={light.target || [ 0, 0, - 1 ]}
 							onValueChange={value => onLightChange( index, 'target', value )}
 						/>
-					</div>
-					<div className="flex items-center justify-between">
+					</Row>
+					<Row>
 						<Slider
 							label="Cone Angle"
 							icon={CircleDot}
@@ -142,14 +143,14 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 							value={[ light.angle ]}
 							onValueChange={value => onLightChange( index, 'angle', value )}
 						/>
-					</div>
+					</Row>
 				</>
 			)}
 
 			{/* RectAreaLight-specific controls */}
 			{light.type === 'RectAreaLight' && (
 				<>
-					<div className="flex items-center justify-between">
+					<Row>
 						<Slider
 							label="Width"
 							icon={RectangleHorizontal}
@@ -159,8 +160,8 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 							value={[ light.width || 2 ]}
 							onValueChange={value => onLightChange( index, 'width', value )}
 						/>
-					</div>
-					<div className="flex items-center justify-between">
+					</Row>
+					<Row>
 						<Slider
 							label="Height"
 							icon={RectangleVertical}
@@ -170,14 +171,14 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 							value={[ light.height || 2 ]}
 							onValueChange={value => onLightChange( index, 'height', value )}
 						/>
-					</div>
-					<div className="flex items-center justify-between">
+					</Row>
+					<Row>
 						<Vector3Component
 							label="Target"
 							value={light.target || [ 0, 0, 0 ]}
 							onValueChange={value => onLightChange( index, 'target', value )}
 						/>
-					</div>
+					</Row>
 				</>
 			)}
 		</div>
@@ -254,14 +255,14 @@ const LightsTab = () => {
 	return (
 		<div>
 			{/* Emissive Mesh Sampling */}
-			<div className="flex items-center justify-between py-2 px-2">
+			<Row className="py-2 px-2">
 				<SliderToggle label={"Emissive Geometry"} enabled={ enableEmissiveTriangleSampling } min={0} max={100} step={1} value={[ emissiveBoost ]} onValueChange={ handleEmissiveBoostChange } onToggleChange={ handleEnableEmissiveTriangleSamplingChange } />
-			</div>
+			</Row>
 
 			<Separator className="bg-primary" />
 
 			{/* Header */}
-			<div className="flex items-center justify-between py-2 px-2 text-xs bg-muted opacity-60">
+			<Row className="py-2 px-2 text-xs bg-muted opacity-60">
 				<span>Lights</span>
 				<div className="flex items-center gap-1.5">
 					{lights.length > 0 && (
@@ -302,7 +303,7 @@ const LightsTab = () => {
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</div>
-			</div>
+			</Row>
 
 			{/* Empty state */}
 			{lights.length === 0 ? (
@@ -314,9 +315,9 @@ const LightsTab = () => {
 			) : (
 				<>
 					{/* Light Helper Toggle */}
-					<div className="flex items-center justify-between py-2 px-2">
+					<Row className="py-2 px-2">
 						<Switch label="Light Helper" checked={showLightHelper} onCheckedChange={handleShowLightHelperChange} />
-					</div>
+					</Row>
 
 					<Separator className="bg-primary" />
 					{/* Lights list */}
