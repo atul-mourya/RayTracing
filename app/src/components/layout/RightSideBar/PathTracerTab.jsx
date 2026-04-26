@@ -136,8 +136,8 @@ const PathTracerTab = () => {
 		ssrcTemporalAlpha,
 		ssrcSpatialRadius,
 		ssrcSpatialWeight,
-		pixelEdgeSharpness,
-		edgeSharpenSpeed,
+		filterStrength,
+		strengthDecaySpeed,
 		edgeThreshold,
 		// Auto-exposure state
 		autoExposure,
@@ -206,8 +206,8 @@ const PathTracerTab = () => {
 		handleSsrcTemporalAlphaChange,
 		handleSsrcSpatialRadiusChange,
 		handleSsrcSpatialWeightChange,
-		handlePixelEdgeSharpnessChange,
-		handleEdgeSharpenSpeedChange,
+		handleFilterStrengthChange,
+		handleStrengthDecaySpeedChange,
 		handleEdgeThresholdChange,
 		// Auto-exposure handlers
 		handleAutoExposureChange,
@@ -452,10 +452,10 @@ const PathTracerTab = () => {
 
 				{denoiserStrategy === 'edgeaware' && ( <>
 					<div className="flex items-center justify-between">
-						<Slider label={"Edge Sharpness"} min={0} max={2} step={0.01} value={[ pixelEdgeSharpness ]} onValueChange={handlePixelEdgeSharpnessChange} />
+						<Slider label={"Filter Strength"} min={0} max={1} step={0.01} value={[ filterStrength ]} onValueChange={handleFilterStrengthChange} />
 					</div>
 					<div className="flex items-center justify-between">
-						<Slider label={"Sharpen Speed"} min={0} max={0.2} step={0.001} value={[ edgeSharpenSpeed ]} onValueChange={handleEdgeSharpenSpeedChange} />
+						<Slider label={"Decay Speed"} min={0} max={0.2} step={0.001} value={[ strengthDecaySpeed ]} onValueChange={handleStrengthDecaySpeedChange} />
 					</div>
 					<div className="flex items-center justify-between">
 						<Slider label={"Edge Threshold"} min={0} max={5} step={0.1} value={[ edgeThreshold ]} onValueChange={handleEdgeThresholdChange} />

@@ -8,15 +8,10 @@ import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 /**
  * WebGPU Edge-Aware Filtering Stage (Compute Shader)
  *
- * Edge-preserving temporal filtering with progressive edge sharpening.
- * Uses a large directional sampling kernel for edge-guided smoothing,
- * then a smaller kernel for edge-detail refinement.
- *
- * Features:
- *   - Scene-adaptive: aggressive filtering for dynamic, progressive for static
- *   - Edge sharpening increases over iterations
- *   - Fast path during interaction mode (direct copy, no filtering cost)
- *   - Firefly reduction for high-luminance outliers
+ * Luminance-weighted bilateral-style filter using an 8-direction × 2-distance
+ * sample kernel. The blend strength decays over iterations so the filter does
+ * heavy lifting on early frames and fades to passthrough as the path tracer
+ * accumulates. Includes interaction-mode passthrough and firefly clamping.
  *
  * Execution: PER_CYCLE
  *
@@ -35,8 +30,11 @@ export class EdgeFilter extends RenderStage {
 		this.renderer = renderer;
 
 		// Parameters
-		this.pixelEdgeSharpness = uniform( options.pixelEdgeSharpness ?? 0.75 );
-		this.edgeSharpenSpeed = uniform( options.edgeSharpenSpeed ?? 0.05 );
+		// filterStrength: 0 = passthrough, 1 = fully filtered output.
+		// strengthDecaySpeed: how fast the filter fades out as iterations accumulate
+		// (the path tracer converges, so heavy filtering is only useful early).
+		this.filterStrength = uniform( options.filterStrength ?? 0.75 );
+		this.strengthDecaySpeed = uniform( options.strengthDecaySpeed ?? 0.05 );
 		this.edgeThreshold = uniform( options.edgeThreshold ?? 1.0 );
 		this.iterationCount = uniform( 0.0 );
 		this.resW = uniform( options.width || 1 );
@@ -88,8 +86,8 @@ export class EdgeFilter extends RenderStage {
 
 		const inputTex = this._inputTexNode;
 		const outputStorageTex = this._outputStorageTex;
-		const sharpness = this.pixelEdgeSharpness;
-		const sharpenSpeed = this.edgeSharpenSpeed;
+		const filterStrength = this.filterStrength;
+		const decaySpeed = this.strengthDecaySpeed;
 		const threshold = this.edgeThreshold;
 		const iterCount = this.iterationCount;
 		const resW = this.resW;
@@ -107,8 +105,9 @@ export class EdgeFilter extends RenderStage {
 				const center = textureLoad( inputTex, ivec2( gx, gy ) ).xyz;
 				const centerLum = dot( center, vec3( 0.2126, 0.7152, 0.0722 ) );
 
-				// Progressive edge sharpening factor
-				const edgeFactor = sharpness.add( iterCount.mul( sharpenSpeed ) ).clamp( 0.0, 0.95 );
+				// Filter blend amount, decaying with accumulated iterations.
+				// 0 = passthrough, 1 = fully filtered output.
+				const effectiveStrength = filterStrength.sub( iterCount.mul( decaySpeed ) ).clamp( 0.0, 1.0 );
 
 				// Sample 8-direction cross pattern for edge-aware filtering
 				// 8 directions x 2 distances + centre
@@ -148,8 +147,8 @@ export class EdgeFilter extends RenderStage {
 
 				const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
 
-				// Blend between filtered and original based on edge sharpening factor
-				const finalColor = mix( filtered, center, edgeFactor );
+				// strength=0 → center, strength=1 → fully filtered
+				const finalColor = mix( center, filtered, effectiveStrength );
 
 				// Firefly suppression for very high luminance
 				const finalLum = dot( finalColor, vec3( 0.2126, 0.7152, 0.0722 ) );
@@ -210,10 +209,8 @@ export class EdgeFilter extends RenderStage {
 
 		}
 
-		// Update input texture
 		this._inputTexNode.value = inputTex;
 
-		// Update iteration count for progressive sharpening
 		this._iterations ++;
 		this.iterationCount.value = this._iterations;
 
@@ -240,8 +237,8 @@ export class EdgeFilter extends RenderStage {
 	updateUniforms( params ) {
 
 		if ( ! params ) return;
-		if ( params.pixelEdgeSharpness !== undefined ) this.pixelEdgeSharpness.value = params.pixelEdgeSharpness;
-		if ( params.edgeSharpenSpeed !== undefined ) this.edgeSharpenSpeed.value = params.edgeSharpenSpeed;
+		if ( params.filterStrength !== undefined ) this.filterStrength.value = params.filterStrength;
+		if ( params.strengthDecaySpeed !== undefined ) this.strengthDecaySpeed.value = params.strengthDecaySpeed;
 		if ( params.edgeThreshold !== undefined ) this.edgeThreshold.value = params.edgeThreshold;
 
 	}

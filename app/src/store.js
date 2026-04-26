@@ -396,8 +396,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	// Denoiser strategy and EdgeAware filter setters
 	setDenoiserStrategy: val => set( { denoiserStrategy: val } ),
-	setPixelEdgeSharpness: val => set( { pixelEdgeSharpness: val } ),
-	setEdgeSharpenSpeed: val => set( { edgeSharpenSpeed: val } ),
+	setFilterStrength: val => set( { filterStrength: val } ),
+	setStrengthDecaySpeed: val => set( { strengthDecaySpeed: val } ),
 	setEdgeThreshold: val => set( { edgeThreshold: val } ),
 
 	handleAsvgfQualityPresetChange: handleChange(
@@ -847,23 +847,23 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		false // engine method handles reset internally
 	),
 
-	handlePixelEdgeSharpnessChange: handleChange(
-		val => set( { pixelEdgeSharpness: Array.isArray( val ) ? val[ 0 ] : val } ),
+	handleFilterStrengthChange: handleChange(
+		val => set( { filterStrength: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setEdgeAwareParams( { pixelEdgeSharpness: value } );
+			app.denoisingManager.setEdgeAwareParams( { filterStrength: value } );
 
 		},
 		true
 	),
 
-	handleEdgeSharpenSpeedChange: handleChange(
-		val => set( { edgeSharpenSpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
+	handleStrengthDecaySpeedChange: handleChange(
+		val => set( { strengthDecaySpeed: Array.isArray( val ) ? val[ 0 ] : val } ),
 		( val, app ) => {
 
 			const value = Array.isArray( val ) ? val[ 0 ] : val;
-			app.denoisingManager.setEdgeAwareParams( { edgeSharpenSpeed: value } );
+			app.denoisingManager.setEdgeAwareParams( { strengthDecaySpeed: value } );
 
 		},
 		true

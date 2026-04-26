@@ -90,8 +90,8 @@ export const ENGINE_DEFAULTS = {
 	directionalLightPosition: [ 1, 1, 1 ],
 	directionalLightAngle: 0.0,
 
-	pixelEdgeSharpness: 0.75,
-	edgeSharpenSpeed: 0.05,
+	filterStrength: 0.75,
+	strengthDecaySpeed: 0.05,
 	edgeThreshold: 1.0,
 
 	enableOIDN: false,
@@ -115,7 +115,7 @@ export const ENGINE_DEFAULTS = {
 	debugVisScale: 100,
 
 	// Denoising strategy
-	denoiserStrategy: 'edgeaware',
+	denoiserStrategy: 'none',
 
 	enableASVGF: false,
 	asvgfTemporalAlpha: 0.1,
