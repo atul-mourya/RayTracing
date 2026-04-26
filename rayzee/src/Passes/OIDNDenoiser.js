@@ -657,14 +657,6 @@ export class OIDNDenoiser extends EventDispatcher {
 					// row-by-row copyBufferToBuffer (no stride support in WebGPU buffer copies).
 					if ( ! outputData?.data || ! tile ) return;
 
-					// Emit tile progress for OverlayManager's TileHelper
-					this.dispatchEvent( {
-						type: 'tileProgress',
-						tile,
-						imageWidth: outputData.width,
-						imageHeight: outputData.height
-					} );
-
 					const device = this.gpuDevice;
 					const fullWidth = outputData.width;
 					const fullHeight = outputData.height;
@@ -744,6 +736,14 @@ export class OIDNDenoiser extends EventDispatcher {
 						staging.destroy();
 						this._pendingStagingBuffers.delete( staging );
 						this.ctx.putImageData( tileImageData, tile.x, tile.y );
+
+						// Emit tile progress for OverlayManager's TileHelper
+						this.dispatchEvent( {
+							type: 'tileProgress',
+							tile: { x: tile.x, y: tile.y, width: clampedW, height: clampedH },
+							imageWidth: fullWidth,
+							imageHeight: fullHeight
+						} );
 
 					} ).catch( () => {
 

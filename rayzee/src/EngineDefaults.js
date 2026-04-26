@@ -439,8 +439,8 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // Render mode configurations
 export const FINAL_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1,
-	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: false,
-	enableOIDN: true, oidnQuality: 'balance',
+	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: true,
+	enableOIDN: true, oidnQuality: 'high',
 	interactionModeEnabled: false,
 };
 
