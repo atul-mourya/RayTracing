@@ -40,6 +40,26 @@ const AutoExposureValue = memo( () => {
 
 AutoExposureValue.displayName = 'AutoExposureValue';
 
+// Per-debug-mode control renderers. Add a new case to expose mode-specific
+// parameters (e.g. thresholds, scales) when introducing a new debug mode.
+const renderDebugModeControls = ( debugMode, props ) => {
+
+	switch ( debugMode ) {
+
+		case '7': // Triangle Tests
+		case '8': // Box Tests
+			return (
+				<div className="flex items-center justify-between">
+					<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ props.debugThreshold ]} onValueChange={props.handleDebugThresholdChange} />
+				</div>
+			);
+		default:
+			return null;
+
+	}
+
+};
+
 const toneMappingOptions = [
 	{ label: 'None', value: 0 },
 	{ label: 'Linear', value: 1 },
@@ -62,7 +82,6 @@ const PathTracerTab = () => {
 		bounces,
 		samplesPerPixel,
 		transmissiveBounces,
-		samplingTechnique,
 		adaptiveSampling,
 		adaptiveSamplingMin,
 		adaptiveSamplingMax,
@@ -133,7 +152,6 @@ const PathTracerTab = () => {
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
-		handleSamplingTechniqueChange,
 		handleAdaptiveSamplingChange,
 		handleAdaptiveSamplingMinChange,
 		handleAdaptiveSamplingMaxChange,
@@ -554,21 +572,12 @@ const PathTracerTab = () => {
 				</> )}
 			</ControlGroup>
 
-			<ControlGroup name="Sampling">
-				<div className="flex items-center justify-between">
-					<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
-						<span className="opacity-50 text-xs truncate">Sampler</span>
-						<SelectTrigger className="max-w-32 h-5 rounded-full" >
-							<SelectValue placeholder="Select sampler" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem key='PCG' value={"0"}>PCG</SelectItem>
-							<SelectItem key='Halton' value={"1"}>Halton</SelectItem>
-							<SelectItem key='Sobol' value={"2"}>Sobol</SelectItem>
-							<SelectItem key='BlueNoise' value={"3"}>BlueNoise</SelectItem>
-						</SelectContent>
-					</Select>
-				</div>
+			<ControlGroup name="Advanced">
+				{enablePathTracer && (
+					<div className="flex items-center justify-between">
+						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
+					</div>
+				)}
 				<div className="flex items-center justify-between">
 					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
 				</div>
@@ -613,16 +622,11 @@ const PathTracerTab = () => {
 						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
 					</div>
 				</> )}
-			</ControlGroup>
-
-			{enablePathTracer && (
-				<ControlGroup name="Debugging">
-					<div className="flex items-center justify-between">
-						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
-					</div>
+				{enablePathTracer && ( <>
+					<Separator />
 					<div className="flex items-center justify-between">
 						<Select value={debugMode.toString()} onValueChange={handleDebugModeChange}>
-							<span className="opacity-50 text-xs truncate">Mode</span>
+							<span className="opacity-50 text-xs truncate">Debug Mode</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full" >
 								<SelectValue placeholder="Select mode" />
 							</SelectTrigger>
@@ -641,16 +645,14 @@ const PathTracerTab = () => {
 							</SelectContent>
 						</Select>
 					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ debugThreshold ]} onValueChange={handleDebugThresholdChange} />
-					</div>
+					{renderDebugModeControls( debugMode.toString(), { debugThreshold, handleDebugThresholdChange } )}
 					{import.meta.env.DEV && (
 						<div className="flex items-center justify-between">
 							<Switch label={"Inspector"} checked={showInspector} onCheckedChange={handleInspectorToggle} />
 						</div>
 					)}
-				</ControlGroup>
-			)}
+				</> )}
+			</ControlGroup>
 		</div>
 	);
 

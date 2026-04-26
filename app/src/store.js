@@ -305,7 +305,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 	setEnableAccumulation: val => set( { enableAccumulation: val } ),
 	setBounces: val => set( { bounces: val } ),
 	setSamplesPerPixel: val => set( { samplesPerPixel: val } ),
-	setSamplingTechnique: val => set( { samplingTechnique: val } ),
 	setEnableEmissiveTriangleSampling: val => set( { enableEmissiveTriangleSampling: val } ),
 	setEmissiveBoost: val => set( { emissiveBoost: val } ),
 	setAdaptiveSampling: val => set( { adaptiveSampling: val } ),
@@ -562,14 +561,6 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { transmissiveBounces: val } );
 		getApp()?.settings.set( 'transmissiveBounces', val );
-
-	},
-
-	handleSamplingTechniqueChange: val => {
-
-		const v = parseInt( val );
-		set( { samplingTechnique: v } );
-		getApp()?.settings.set( 'samplingTechnique', v );
 
 	},
 
