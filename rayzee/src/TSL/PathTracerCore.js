@@ -655,7 +655,6 @@ export const Trace = Fn( ( [
 	const psWeightsComputed = tslBool( false ).toVar();
 	const psClassificationCached = tslBool( false ).toVar();
 	const psMaterialCacheCached = tslBool( false ).toVar();
-	const psTexturesLoaded = tslBool( false ).toVar();
 	const psPathImportance = float( 0.0 ).toVar();
 	const psLastMaterialIndex = int( - 1 ).toVar();
 
@@ -1017,12 +1016,29 @@ export const Trace = Fn( ( [
 		} );
 
 		// 2a. SHaRC QUERY — early-terminate path if cached radiance is available.
-		// Gated to bounce >= 2 (SHARC_RESAMPLING_DEPTH=1) so the primary visible
-		// surface and the first secondary bounce are still path-traced; deeper
-		// bounces consume the cache. On cache hit:
-		//   radiance += cached * throughput
-		//   break out of the bounce loop (skip direct/indirect + further bounces)
-		If( sharcQueryEnabled.equal( int( 1 ) ).and( bounceIndex.greaterThan( int( 1 ) ) ), () => {
+		//
+		// Per NVIDIA SHARC integration guide:
+		//  - Skip the primary hit (primary visible surface stays path-traced).
+		//  - Skip narrow-lobe (low-roughness / near-mirror / near-pure-transmission)
+		//    vertices: the cell's averaged outgoing radiance ≠ what a delta or
+		//    near-delta BSDF would yield in the current view direction.
+		//
+		// Transparent / alpha-skip vertices are already filtered out by the
+		// `interaction.continueRay` branch above, which `Continue()`s past this
+		// block. So a path that walks through glass and lands on a diffuse
+		// surface behind it reaches here with `effectiveBounces == 0` — exactly
+		// like a primary hit, which is what NVIDIA recommends.
+		//
+		// `effectiveBounces` (not `bounceIndex`) is the right gate: it counts
+		// real shading vertices and ignores free transparency hops. SHARC_RESAMPLING_DEPTH=1
+		// → effectiveBounces > 1 means we start querying from the third real
+		// bounce onward, leaving the visible surface and one secondary path-traced.
+		const sharcCanCache = material.roughness.greaterThan( float( 0.15 ) )
+			.and( material.transmission.lessThan( float( 0.5 ) ) );
+
+		If( sharcQueryEnabled.equal( int( 1 ) )
+			.and( effectiveBounces.greaterThan( int( 1 ) ) )
+			.and( sharcCanCache ), () => {
 
 			const lvlF = sharcComputeGridLevel( hitInfo.hitPoint, cameraPos, sharcLevelBias );
 			const lvlI = int( lvlF );
@@ -1117,8 +1133,19 @@ export const Trace = Fn( ( [
 
 		// 2c. SHaRC UPDATE — insert direct lighting contribution into the world-space
 		// hash cache at this hit point. Phase 2 simplification: depth=1 (current
-		// hit only, no path backprop). Skip primary hit (bounceIndex==0) to avoid
-		// caching view-dependent specular at the camera-visible surface.
+		// hit only, no path backprop).
+		//
+		// Per NVIDIA SHARC integration guide:
+		//  - Skip the first opaque hit (effectiveBounces == 0) to avoid caching
+		//    view-dependent specular at the camera-visible surface. Using
+		//    `effectiveBounces` (not `bounceIndex`) so transparent / alpha-skip
+		//    vertices passed through earlier don't artificially "promote" the
+		//    first-shading hit into a deeper bounce.
+		//  - Skip narrow-lobe vertices for the same reason as in the query: the
+		//    cell holds an averaged radiance, but a near-delta BSDF response
+		//    would write back a single-direction sample — corrupts cell mean.
+		//  - Transparent / alpha-skip vertices are already filtered out by the
+		//    `Continue()` above; this block only runs at real shading vertices.
 		//
 		// Sparse update sampling: only 1/sharcUpdateStride pixels write per frame.
 		// jenkins32(pixelIndex) hashes pixel ID into a stride bucket; XOR with
@@ -1127,7 +1154,10 @@ export const Trace = Fn( ( [
 		const sharcPixelHash = sharcJenkins32( uint( pixelIndex ) ).bitXor( frame );
 		const sharcPixelActive = sharcPixelHash.mod( uint( sharcUpdateStride ).max( uint( 1 ) ) ).equal( uint( 0 ) );
 
-		If( sharcUpdateEnabled.equal( int( 1 ) ).and( bounceIndex.greaterThan( int( 0 ) ) ).and( sharcPixelActive ), () => {
+		If( sharcUpdateEnabled.equal( int( 1 ) )
+			.and( effectiveBounces.greaterThan( int( 0 ) ) )
+			.and( sharcCanCache )
+			.and( sharcPixelActive ), () => {
 
 			// Quantize hit point into the LOD-adapted grid
 			const lvlF = sharcComputeGridLevel( hitInfo.hitPoint, cameraPos, sharcLevelBias );
