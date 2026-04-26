@@ -1,22 +1,24 @@
-import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
-	If, dot, max, abs, mix,
+import { Fn, vec4, float, int, uint, ivec2, uvec2, uniform,
+	If, dot, max, abs, mix, pow, step,
 	textureLoad, textureStore, localId, workgroupId } from 'three/tsl';
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, RGBAFormat, NearestFilter, Box2, Vector2 } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
+import { REC709_LUMINANCE_COEFFICIENTS } from '../TSL/Common.js';
 
 /**
- * WebGPU Edge-Aware Filtering Stage (Compute Shader)
+ * WebGPU Edge-Aware Filtering Stage (Compute Shader).
  *
- * Luminance-weighted bilateral-style filter using an 8-direction × 2-distance
- * sample kernel. The blend strength decays over iterations so the filter does
- * heavy lifting on early frames and fades to passthrough as the path tracer
- * accumulates. Includes interaction-mode passthrough and firefly clamping.
+ * Geometry-guided bilateral filter (8-dir × 2-dist kernel). Edge weights
+ * combine luminance, surface normal, and ray distance — see Dammertz 2010
+ * "Edge-Avoiding À-Trous" for the structure. Strength decays over iterations
+ * so the filter is strongest on early frames and fades as accumulation
+ * converges. Single-pass; no temporal reuse.
  *
- * Execution: PER_CYCLE
- *
- * Textures published:  edgeFiltering:output
- * Textures read:       asvgf:output (fallback: pathtracer:color)
+ * Reads:     pathtracer:color (or asvgf:output / bilateralFiltering:output)
+ *            and pathtracer:normalDepth
+ * Publishes: edgeFiltering:output
+ * Mode:      PER_CYCLE
  */
 export class EdgeFilter extends RenderStage {
 
@@ -29,28 +31,25 @@ export class EdgeFilter extends RenderStage {
 
 		this.renderer = renderer;
 
-		// Parameters
-		// filterStrength: 0 = passthrough, 1 = fully filtered output.
-		// strengthDecaySpeed: how fast the filter fades out as iterations accumulate
-		// (the path tracer converges, so heavy filtering is only useful early).
+		// filterStrength: 0 = passthrough, 1 = fully filtered.
+		// strengthDecaySpeed: per-iteration falloff toward passthrough.
+		// edgeThreshold: luminance σ. phiNormal: dot(n,n) exponent. phiDepth: depth σ.
 		this.filterStrength = uniform( options.filterStrength ?? 0.75 );
 		this.strengthDecaySpeed = uniform( options.strengthDecaySpeed ?? 0.05 );
 		this.edgeThreshold = uniform( options.edgeThreshold ?? 1.0 );
+		this.phiNormal = uniform( options.phiNormal ?? 128.0 );
+		this.phiDepth = uniform( options.phiDepth ?? 1.0 );
 		this.iterationCount = uniform( 0.0 );
 		this.resW = uniform( options.width || 1 );
 		this.resH = uniform( options.height || 1 );
 
-		// Internal counter
 		this._iterations = 0;
 
-		// Input texture node
 		this._inputTexNode = new TextureNode();
+		this._ndTexNode = new TextureNode();
 
-		// Output StorageTexture (compute writes here)
-		// Pre-allocated at max size — NEVER resize/dispose after this.
-		// Kept as a defensive pattern: bug #32969 (setSize bind-group staleness)
-		// was fixed in r184 (PR #33028), but #33061 (TSL compute pipeline
-		// re-compile returns zeros) is still open.
+		// Pre-allocate StorageTexture at max — defensive against three.js #33061
+		// (TSL compute pipeline re-compile returns zeros after resize).
 		const MAX_STORAGE_SIZE = 2048;
 		const w = options.width || 1;
 		const h = options.height || 1;
@@ -61,10 +60,8 @@ export class EdgeFilter extends RenderStage {
 		this._outputStorageTex.minFilter = NearestFilter;
 		this._outputStorageTex.magFilter = NearestFilter;
 
-		// Reusable Box2 for srcRegion in copyTextureToTexture
 		this._srcRegion = new Box2( new Vector2( 0, 0 ), new Vector2( 0, 0 ) );
 
-		// Output RenderTarget (readable copy for downstream stages)
 		this.outputTarget = new RenderTarget( w, h, {
 			type: HalfFloatType,
 			format: RGBAFormat,
@@ -74,7 +71,6 @@ export class EdgeFilter extends RenderStage {
 			stencilBuffer: false
 		} );
 
-		// Dispatch dimensions
 		this._dispatchX = Math.ceil( w / 16 );
 		this._dispatchY = Math.ceil( h / 16 );
 
@@ -85,10 +81,13 @@ export class EdgeFilter extends RenderStage {
 	_buildCompute() {
 
 		const inputTex = this._inputTexNode;
+		const ndTex = this._ndTexNode;
 		const outputStorageTex = this._outputStorageTex;
 		const filterStrength = this.filterStrength;
 		const decaySpeed = this.strengthDecaySpeed;
 		const threshold = this.edgeThreshold;
+		const phiNormal = this.phiNormal;
+		const phiDepth = this.phiDepth;
 		const iterCount = this.iterationCount;
 		const resW = this.resW;
 		const resH = this.resH;
@@ -102,42 +101,64 @@ export class EdgeFilter extends RenderStage {
 
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				const center = textureLoad( inputTex, ivec2( gx, gy ) ).xyz;
-				const centerLum = dot( center, vec3( 0.2126, 0.7152, 0.0722 ) );
+				const coord = ivec2( gx, gy );
+				const center = textureLoad( inputTex, coord ).xyz;
+				const centerLum = dot( center, REC709_LUMINANCE_COEFFICIENTS );
 
-				// Filter blend amount, decaying with accumulated iterations.
-				// 0 = passthrough, 1 = fully filtered output.
+				// NormalDepth writes (0,0,0, 1e6) for miss rays. Decoded normal
+				// (-1,-1,-1) is non-unit and explodes pow(dot, phi); use the depth
+				// sentinel as a 0/1 hit flag and zero out cross-kind weights.
+				const MISS_THRESHOLD = 1e5;
+				const centerND = textureLoad( ndTex, coord );
+				const centerNormal = centerND.xyz.mul( 2.0 ).sub( 1.0 );
+				const centerDepth = centerND.w;
+				const centerIsHit = step( float( MISS_THRESHOLD ), centerDepth ).oneMinus();
+
 				const effectiveStrength = filterStrength.sub( iterCount.mul( decaySpeed ) ).clamp( 0.0, 1.0 );
 
-				// Sample 8-direction cross pattern for edge-aware filtering
-				// 8 directions x 2 distances + centre
 				const colorSum = center.toVar();
 				const weightSum = float( 1.0 ).toVar();
 
-				// Directions: right, up, left, down, and diagonals
 				const dirs = [
 					[ 1, 0 ], [ 0, 1 ], [ - 1, 0 ], [ 0, - 1 ],
 					[ 1, 1 ], [ - 1, 1 ], [ - 1, - 1 ], [ 1, - 1 ],
 				];
 
-				// Sample along each direction at distances 1, 2
 				for ( const [ dx, dy ] of dirs ) {
 
 					for ( const dist of [ 1, 2 ] ) {
 
 						const sx = gx.add( dx * dist ).clamp( int( 0 ), int( resW ).sub( 1 ) );
 						const sy = gy.add( dy * dist ).clamp( int( 0 ), int( resH ).sub( 1 ) );
-						const sColor = textureLoad( inputTex, ivec2( sx, sy ) ).xyz;
-						const sLum = dot( sColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+						const sCoord = ivec2( sx, sy );
 
-						// Luminance-based edge weight
-						const lumDiff = abs( centerLum.sub( sLum ) );
-						const edgeWeight = lumDiff.div( max( threshold, float( 0.001 ) ) ).negate().exp();
+						const sColor = textureLoad( inputTex, sCoord ).xyz;
+						const sLum = dot( sColor, REC709_LUMINANCE_COEFFICIENTS );
 
-						// Distance falloff
+						const sND = textureLoad( ndTex, sCoord );
+						const sNormal = sND.xyz.mul( 2.0 ).sub( 1.0 );
+						const sDepth = sND.w;
+						const sampleIsHit = step( float( MISS_THRESHOLD ), sDepth ).oneMinus();
+
+						const lumW = abs( centerLum.sub( sLum ) ).div( max( threshold, float( 0.001 ) ) ).negate().exp();
+
+						const bothHit = centerIsHit.mul( sampleIsHit );
+						const bothMiss = centerIsHit.oneMinus().mul( sampleIsHit.oneMinus() );
+						const sameKind = bothHit.add( bothMiss );
+
+						// Clamp dot to [0,1] before pow — miss-ray normals decode to
+						// non-unit (-1,-1,-1) with dot=3, which would saturate pow(.,phi)
+						// to +inf and poison downstream via inf*0 = NaN.
+						const cosTheta = dot( centerNormal, sNormal ).clamp( 0.0, 1.0 );
+						const normW = pow( cosTheta, phiNormal );
+						const depW = abs( centerDepth.sub( sDepth ) ).div( max( phiDepth, float( 0.001 ) ) ).negate().exp();
+
+						// Geometric weights only meaningful for hit-vs-hit pairs.
+						const geomW = mix( float( 1.0 ), normW.mul( depW ), bothHit );
+
 						const distWeight = float( 1.0 ).div( float( dist ).add( 0.5 ) );
+						const w = lumW.mul( geomW ).mul( sameKind ).mul( distWeight );
 
-						const w = edgeWeight.mul( distWeight );
 						colorSum.addAssign( sColor.mul( w ) );
 						weightSum.addAssign( w );
 
@@ -146,12 +167,10 @@ export class EdgeFilter extends RenderStage {
 				}
 
 				const filtered = colorSum.div( max( weightSum, float( 0.0001 ) ) );
-
-				// strength=0 → center, strength=1 → fully filtered
 				const finalColor = mix( center, filtered, effectiveStrength );
 
-				// Firefly suppression for very high luminance
-				const finalLum = dot( finalColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+				// Firefly clamp on output luminance.
+				const finalLum = dot( finalColor, REC709_LUMINANCE_COEFFICIENTS );
 				const clampedColor = finalColor.toVar();
 				If( finalLum.greaterThan( 10.0 ), () => {
 
@@ -180,23 +199,28 @@ export class EdgeFilter extends RenderStage {
 
 		if ( ! this.enabled ) return;
 
-		// Resolve input with fallback chain
 		const inputTex = context.getTexture( 'asvgf:output' )
 			|| context.getTexture( 'bilateralFiltering:output' )
 			|| context.getTexture( 'pathtracer:color' );
 
-		if ( ! inputTex ) return;
+		const ndTex = context.getTexture( 'pathtracer:normalDepth' );
 
-		// Fast path during interaction mode — direct copy
-		const interactionMode = context.getState( 'interactionMode' );
-		if ( interactionMode ) {
+		// Without the G-buffer there's no edge guidance — pass input through
+		// rather than producing a uniform blur.
+		if ( ! inputTex || ! ndTex ) {
+
+			if ( inputTex ) context.setTexture( 'edgeFiltering:output', inputTex );
+			return;
+
+		}
+
+		if ( context.getState( 'interactionMode' ) ) {
 
 			context.setTexture( 'edgeFiltering:output', inputTex );
 			return;
 
 		}
 
-		// Auto-size
 		const img = inputTex.image;
 		if ( img && img.width > 0 && img.height > 0 ) {
 
@@ -210,20 +234,19 @@ export class EdgeFilter extends RenderStage {
 		}
 
 		this._inputTexNode.value = inputTex;
+		this._ndTexNode.value = ndTex;
 
 		this._iterations ++;
 		this.iterationCount.value = this._iterations;
 
-		// Dispatch compute
 		this.renderer.compute( this._computeNode );
 
-		// Copy StorageTexture → RenderTarget for downstream readability
-		// Use Box2 srcRegion since StorageTexture is pre-allocated at max size
+		// Copy out of the over-allocated StorageTexture into the right-sized
+		// RenderTarget; downstream stages can sample the latter.
 		this._srcRegion.min.set( 0, 0 );
 		this._srcRegion.max.set( this.outputTarget.width, this.outputTarget.height );
 		this.renderer.copyTextureToTexture( this._outputStorageTex, this.outputTarget.texture, this._srcRegion );
 
-		// Publish RenderTarget texture (NOT StorageTexture)
 		context.setTexture( 'edgeFiltering:output', this.outputTarget.texture );
 
 	}
@@ -240,6 +263,8 @@ export class EdgeFilter extends RenderStage {
 		if ( params.filterStrength !== undefined ) this.filterStrength.value = params.filterStrength;
 		if ( params.strengthDecaySpeed !== undefined ) this.strengthDecaySpeed.value = params.strengthDecaySpeed;
 		if ( params.edgeThreshold !== undefined ) this.edgeThreshold.value = params.edgeThreshold;
+		if ( params.phiNormal !== undefined ) this.phiNormal.value = params.phiNormal;
+		if ( params.phiDepth !== undefined ) this.phiDepth.value = params.phiDepth;
 
 	}
 
@@ -252,15 +277,12 @@ export class EdgeFilter extends RenderStage {
 
 	setSize( width, height ) {
 
-		// Only resize the RenderTarget — StorageTexture stays at max allocation
-		// (see constructor note: pre-allocation is a defensive pattern, retained
-		// after r184 fixed #32969, because #33061 is still open.)
+		// StorageTexture stays at its max allocation (see constructor).
 		this.outputTarget.setSize( width, height );
 		this.outputTarget.texture.needsUpdate = true;
 		this.resW.value = width;
 		this.resH.value = height;
 
-		// Update dispatch dimensions
 		this._dispatchX = Math.ceil( width / 16 );
 		this._dispatchY = Math.ceil( height / 16 );
 		this._computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
@@ -273,6 +295,7 @@ export class EdgeFilter extends RenderStage {
 		this._outputStorageTex?.dispose();
 		this.outputTarget?.dispose();
 		this._inputTexNode?.dispose();
+		this._ndTexNode?.dispose();
 
 	}
 
