@@ -5,7 +5,6 @@
 ### MVP
 
 
-- [ ] oidndenoiser is desaturation the results
 - [ ] scrutenize the implementation of SSRC
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 

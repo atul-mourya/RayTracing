@@ -15,7 +15,7 @@ async function getInitUNetFromURL() {
 }
 
 import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
-import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
+import { TONE_MAP_FNS, linearToSRGB, applySaturation } from '../Processor/ToneMapCPU.js';
 
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
@@ -724,9 +724,9 @@ export class OIDNDenoiser extends EventDispatcher {
 							}
 
 							tmFn( er, eg, eb, 1.0, _tmOut );
-							tileImageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-							tileImageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-							tileImageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
+							tileImageData.data[ i ] = linearToSRGB( _tmOut[ 0 ] ) * 255 + 0.5 | 0;
+							tileImageData.data[ i + 1 ] = linearToSRGB( _tmOut[ 1 ] ) * 255 + 0.5 | 0;
+							tileImageData.data[ i + 2 ] = linearToSRGB( _tmOut[ 2 ] ) * 255 + 0.5 | 0;
 
 							if ( alpha ) {
 
@@ -815,9 +815,9 @@ export class OIDNDenoiser extends EventDispatcher {
 				}
 
 				tmFn( er, eg, eb, 1.0, _tmOut );
-				imageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-				imageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-				imageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
+				imageData.data[ i ] = linearToSRGB( _tmOut[ 0 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 1 ] = linearToSRGB( _tmOut[ 1 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 2 ] = linearToSRGB( _tmOut[ 2 ] ) * 255 + 0.5 | 0;
 				imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
 
 			}
