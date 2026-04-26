@@ -7,6 +7,7 @@
 - [ ] scrutenize the implementation of SSRC
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
+- [ ] tile helper look with thin line at heigher resolution. Need to make it resolution independent
   
 ### Known
 
@@ -74,9 +75,7 @@
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
 - [ ] transmission support for displacement materials
-- [ ] Supporting GPU-compressed texture arrays requires adding per-scene format selection at build time - the TSL compiler doesn't support clean
-  teardown/rebuild of compute pipelines when texture binding types
-  change.
+- [ ] Supporting GPU-compressed texture arrays requires adding  per-scene format selection at build time - the TSL compiler doesn't support clean teardown/rebuild of compute pipelines when texture binding types change.
 
 ### Environment
 
@@ -93,7 +92,7 @@
 
 ### Animation
 
-- [ ] animate lights support
+- [ ] animating lights support
 - [ ] Timeline scrubber for animation control
 - [ ] Camera animation - interpolate camera path keyframes during video render
 - [ ] PNG image sequence export for better quality and post-processing flexibility
