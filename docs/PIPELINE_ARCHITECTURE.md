@@ -46,7 +46,7 @@ Rayzee uses an **event-driven pipeline** of modular rendering stages built on We
                               │ ├─AdaptiveSampling    │
                               │ ├─EdgeFilter          │
                               │ ├─AutoExposure        │
-                              │ └─Display             │
+                              │ └─Compositor          │
                               ├───────────────────────┤
                               │ managers/             │
                               │  ├─CameraManager      │
@@ -401,8 +401,7 @@ await stage.environment.generateProceduralSkyTexture();
 // ShaderBuilder
 stage.shaderBuilder.setupMaterial({ stage, renderTargets });
 stage.shaderBuilder.updateSceneTextures(stage);  // in-place texture node update
-stage.shaderBuilder.accumQuad;            // QuadMesh for path trace render
-stage.shaderBuilder.displayQuad;          // QuadMesh for display render
+stage.shaderBuilder.computeNode;          // compiled compute node (path trace dispatch)
 
 // StorageTexturePool
 stage.storageTextures.swap();
@@ -533,7 +532,7 @@ All stages execute every frame:
    ↓ reads 'pathtracer:color', 'pathtracer:normalDepth'
    ↓ writes 'edgeFiltering:output' to context
 
-5. Display.render() → Screen (exposure + tonemapping)
+5. Compositor.render() → renderer's output pass (tone mapping + sRGB) → Screen
    ↓ then OverlayManager renders outline + helpers on top
 ```
 
@@ -592,9 +591,9 @@ All stages execute when cycle completes:
 ```
 RenderPipeline.render(writeBuffer)
     ↓ executes stages sequentially
-[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → AdaptiveSampling → EdgeFilter → AutoExposure → Display]
+[PathTracer → NormalDepth → MotionVector → ASVGF → Variance → BilateralFilter → AdaptiveSampling → EdgeFilter → AutoExposure → Compositor]
     ↓
-Display → Screen (exposure + tonemapping)
+Compositor → renderer.toneMapping output pass (tone curve + sRGB) → Screen
     ↓
 OverlayManager → outline + scene helpers + HUD (at display resolution)
 ```
@@ -607,12 +606,12 @@ OverlayManager → outline + scene helpers + HUD (at display resolution)
 
 | Texture Key | Producer | Consumers | Description |
 |-------------|----------|-----------|-------------|
-| `pathtracer:color` | PathTracer | ASVGF, EdgeFilter, Display | Accumulated path traced color |
+| `pathtracer:color` | PathTracer | ASVGF, EdgeFilter, Compositor | Accumulated path traced color |
 | `pathtracer:normalDepth` | PathTracer | ASVGF, EdgeFilter, AdaptiveSampling | G-buffer: normals + depth |
-| `asvgf:output` | ASVGF | Display | Denoised color |
+| `asvgf:output` | ASVGF | Compositor | Denoised color |
 | `asvgf:variance` | ASVGF | AdaptiveSampling | Variance map |
 | `asvgf:temporalColor` | ASVGF | - | Temporal accumulation |
-| `edgeFiltering:output` | EdgeFilter | Display | Filtered color |
+| `edgeFiltering:output` | EdgeFilter | Compositor | Filtered color |
 | `adaptiveSampling:output` | AdaptiveSampling | - | Sample mask |
 | `adaptiveSampling:heatmap` | AdaptiveSampling | - | Heatmap visualization |
 
@@ -715,7 +714,7 @@ const myStage = new MyCustomStage(this.renderer, {
 this.pipeline.addStage(pathTracer);
 this.pipeline.addStage(asvgf);
 this.pipeline.addStage(myStage);  // ← Add here
-this.pipeline.addStage(display);
+this.pipeline.addStage(compositor);
 ```
 
 ### Step 3: Add Store Handler (Optional)

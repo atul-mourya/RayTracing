@@ -1,4 +1,4 @@
-import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
+import { WebGPURenderer, RectAreaLightNode, LinearSRGBColorSpace, SRGBColorSpace } from 'three/webgpu';
 import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, Scene, EventDispatcher, TimestampQuery
@@ -16,7 +16,7 @@ import { AdaptiveSampling } from './Stages/AdaptiveSampling.js';
 import { EdgeFilter } from './Stages/EdgeFilter.js';
 import { AutoExposure } from './Stages/AutoExposure.js';
 import { SSRC } from './Stages/SSRC.js';
-import { Display } from './Stages/Display.js';
+import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
@@ -286,7 +286,7 @@ export class PathTracerApp extends EventDispatcher {
 				if ( this._needsDisplayRefresh ) {
 
 					this._needsDisplayRefresh = false;
-					this.stages.display.render( this.pipeline.context );
+					this.stages.compositor.render( this.pipeline.context );
 					this._renderHelperOverlay();
 
 				}
@@ -775,7 +775,7 @@ export class PathTracerApp extends EventDispatcher {
 		// Apply all settings to stages in one shot
 		timer.start( 'Apply settings' );
 		this.settings.applyAll();
-		this.stages.display.setTransparentBackground( this.settings.get( 'transparentBackground' ) );
+		this.stages.compositor.setTransparentBackground( this.settings.get( 'transparentBackground' ) );
 		timer.end( 'Apply settings' );
 
 		timer.print();
@@ -1006,10 +1006,10 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( usePostProcess ) return dm.denoiserCanvas;
 
-		// Re-render display stage so the WebGPU canvas has valid content
-		if ( this.stages.display && this.pipeline?.context ) {
+		// Re-render compositor stage so the WebGPU canvas has valid content
+		if ( this.stages.compositor && this.pipeline?.context ) {
 
-			this.stages.display.render( this.pipeline.context );
+			this.stages.compositor.render( this.pipeline.context );
 
 		}
 
@@ -1208,6 +1208,8 @@ export class PathTracerApp extends EventDispatcher {
 
 		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
+		this.renderer.workingColorSpace = SRGBColorSpace;
+		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.toneMapping = ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1.0;
 		this.renderer.setPixelRatio( 1.0 );
@@ -1261,7 +1263,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.pipeline.addStage( this.stages.adaptiveSampling );
 		this.pipeline.addStage( this.stages.edgeFilter );
 		this.pipeline.addStage( this.stages.autoExposure );
-		this.pipeline.addStage( this.stages.display );
+		this.pipeline.addStage( this.stages.compositor );
 
 		const initRenderW = this.canvas.clientWidth || 1;
 		const initRenderH = this.canvas.clientHeight || 1;
@@ -1367,9 +1369,12 @@ export class PathTracerApp extends EventDispatcher {
 		// Bind settings to pipeline stages
 		this.settings.bind( {
 			stages: this.stages,
+			renderer: this.renderer,
 			resetCallback: () => this.reset(),
 			reconcileCompletion: () => this._reconcileCompletion(),
 		} );
+
+		this.renderer.toneMappingExposure = this.settings.get( 'exposure' ) ?? 1.0;
 
 		// Resize handling
 		this.onResize();
@@ -1474,8 +1479,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
 
-		this.stages.display = new Display( this.renderer, {
-			exposure: ( DEFAULT_STATE.autoExposure ) ? 1.0 : ( this.settings.get( 'exposure' ) ?? 1.0 ),
+		this.stages.compositor = new Compositor( this.renderer, {
 			saturation: this.settings.get( 'saturation' ) ?? DEFAULT_STATE.saturation,
 		} );
 
@@ -1497,7 +1501,7 @@ export class PathTracerApp extends EventDispatcher {
 				edgeFilter: this.stages.edgeFilter,
 				ssrc: this.stages.ssrc,
 				autoExposure: this.stages.autoExposure,
-				display: this.stages.display,
+				compositor: this.stages.compositor,
 			},
 			pipeline: this.pipeline,
 			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,

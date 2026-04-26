@@ -91,14 +91,15 @@ describe( 'RenderSettings', () => {
 
 		it( 'routes handler setting to named handler', () => {
 
-			const mockDisplay = { setExposure: vi.fn() };
+			const mockRenderer = { toneMappingExposure: 1.0 };
 			settings.bind( {
-				stages: { pathTracer: null, display: mockDisplay },
+				stages: { pathTracer: null },
+				renderer: mockRenderer,
 				resetCallback: vi.fn(),
 			} );
 
 			settings.set( 'exposure', 2.0 );
-			expect( mockDisplay.setExposure ).toHaveBeenCalledWith( 2.0 );
+			expect( mockRenderer.toneMappingExposure ).toBe( 2.0 );
 
 		} );
 
@@ -205,8 +206,9 @@ describe( 'RenderSettings', () => {
 		it( 'pushes all values to stages', () => {
 
 			const mockStage = { setUniform: vi.fn(), setInteractionModeEnabled: vi.fn(), updateCompletionThreshold: vi.fn(), environment: { setEnvironmentRotation: vi.fn() } };
-			const mockDisplay = { setExposure: vi.fn(), setSaturation: vi.fn(), setTransparentBackground: vi.fn() };
-			settings.bind( { stages: { pathTracer: mockStage, display: mockDisplay }, resetCallback: vi.fn(), reconcileCompletion: vi.fn() } );
+			const mockCompositor = { setSaturation: vi.fn(), setTransparentBackground: vi.fn() };
+			const mockRenderer = { toneMappingExposure: 1.0 };
+			settings.bind( { stages: { pathTracer: mockStage, compositor: mockCompositor }, renderer: mockRenderer, resetCallback: vi.fn(), reconcileCompletion: vi.fn() } );
 			settings.applyAll();
 
 			// Should have called setUniform for each uniform-routed key

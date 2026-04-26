@@ -41,7 +41,7 @@ export class DenoisingManager extends EventDispatcher {
 		this.pipeline = pipeline;
 
 		// Stage references — only used internally for orchestration
-		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, display }
+		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, compositor }
 
 		this._getExposure = getExposure;
 		this._getSaturation = getSaturation;
@@ -295,9 +295,8 @@ export class DenoisingManager extends EventDispatcher {
 	}
 
 	/**
-	 * Enables/disables auto-exposure with proper exposure stacking management.
 	 * @param {boolean} enabled
-	 * @param {number}  manualExposure - The manual exposure value to restore when disabling
+	 * @param {number}  manualExposure - Restored to renderer.toneMappingExposure when disabling.
 	 */
 	setAutoExposureEnabled( enabled, manualExposure ) {
 
@@ -306,19 +305,10 @@ export class DenoisingManager extends EventDispatcher {
 
 		s.autoExposure.enabled = enabled;
 
-		if ( enabled ) {
+		// AutoExposure overwrites renderer.toneMappingExposure each frame; restore manual on disable.
+		if ( ! enabled && this.renderer ) {
 
-			// Neutralize Display manual exposure to avoid stacking
-			s.display?.setExposure( 1.0 );
-
-		} else {
-
-			s.display?.setExposure( manualExposure );
-			if ( s.display && this.renderer ) {
-
-				this.renderer.toneMappingExposure = 1.0;
-
-			}
+			this.renderer.toneMappingExposure = manualExposure;
 
 		}
 
@@ -417,10 +407,10 @@ export class DenoisingManager extends EventDispatcher {
 
 		} else {
 
-			// Re-render display stage so WebGPU canvas has valid content
-			if ( this.upscaler?.enabled && this._stages.display && context ) {
+			// Re-render compositor stage so WebGPU canvas has valid content
+			if ( this.upscaler?.enabled && this._stages.compositor && context ) {
 
-				this._stages.display.render( context );
+				this._stages.compositor.render( context );
 
 			}
 

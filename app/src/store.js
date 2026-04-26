@@ -929,8 +929,10 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	handleExposureChange: val => {
 
-		set( { exposure: val } );
-		getApp()?.settings.set( 'exposure', val );
+		// Slider component emits [number]; unwrap so settings.set receives a scalar.
+		const v = Array.isArray( val ) ? val[ 0 ] : val;
+		set( { exposure: v } );
+		getApp()?.settings.set( 'exposure', v );
 
 	},
 

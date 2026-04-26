@@ -104,16 +104,16 @@ export class RenderSettings extends EventDispatcher {
 	 * Wires internal references. Called by PathTracerApp after init().
 	 *
 	 * @param {Object} params
-	 * @param {Object} params.stages           - Pipeline stages { pathTracer, display, autoExposure, ... }
+	 * @param {Object} params.stages           - Pipeline stages { pathTracer, compositor, autoExposure, ... }
 	 * @param {Function} params.resetCallback   - Called to reset accumulation
 	 * @param {Function} [params.reconcileCompletion] - Called when completion limits change
 	 */
-	bind( { stages, resetCallback, reconcileCompletion } ) {
+	bind( { stages, renderer, resetCallback, reconcileCompletion } ) {
 
 		this._pathTracer = stages.pathTracer;
 		this._resetCallback = resetCallback;
 		this._delegates = {};
-		this._handlers = this._buildHandlers( stages, reconcileCompletion );
+		this._handlers = this._buildHandlers( stages, renderer, reconcileCompletion );
 
 	}
 
@@ -121,22 +121,24 @@ export class RenderSettings extends EventDispatcher {
 	 * Builds handler functions for multi-stage settings that can't
 	 * be routed with a simple uniform forward.
 	 */
-	_buildHandlers( stages, reconcileCompletion ) {
+	_buildHandlers( stages, renderer, reconcileCompletion ) {
 
 		return {
 
 			handleTransparentBackground: ( value ) => {
 
 				stages.pathTracer?.setUniform( 'transparentBackground', value );
-				stages.display?.setTransparentBackground( value );
+				stages.compositor?.setTransparentBackground( value );
 
 			},
 
 			handleExposure: ( value ) => {
 
-				if ( ! stages.autoExposure?.enabled ) {
+				// Three.js applies toneMappingExposure inside the tone-mapping branch,
+				// so this has no effect when renderer.toneMapping === NoToneMapping.
+				if ( ! stages.autoExposure?.enabled && renderer ) {
 
-					stages.display?.setExposure( value );
+					renderer.toneMappingExposure = value;
 
 				}
 
@@ -144,7 +146,7 @@ export class RenderSettings extends EventDispatcher {
 
 			handleSaturation: ( value ) => {
 
-				stages.display?.setSaturation( value );
+				stages.compositor?.setSaturation( value );
 
 			},
 
