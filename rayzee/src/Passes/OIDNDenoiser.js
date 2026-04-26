@@ -20,13 +20,13 @@ import { TONE_MAP_FNS, linearToSRGB, applySaturation } from '../Processor/ToneMa
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
 
-// Constants for better maintainability
 const MODEL_CONFIG = {
 	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
-	QUALITY_SUFFIXES: {
-		fast: '_small',
-		balance: '',
-		high: '_large'
+	// clean-aux models — first-hit albedo/normal are deterministic per pixel
+	QUALITY_MODELS: {
+		fast: 'rt_hdr_calb_cnrm_small',
+		balance: 'rt_hdr_calb_cnrm',
+		high: 'rt_hdr_calb_cnrm_large'
 	},
 	DEFAULT_OPTIONS: {
 		enableOIDN: true,
@@ -249,11 +249,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	_generateTzaUrl() {
 
-		const { BASE_URL, QUALITY_SUFFIXES } = MODEL_CONFIG;
-
-		const modelSize = QUALITY_SUFFIXES[ this.quality ] || '';
-
-		return `${BASE_URL}rt_hdr_alb_nrm${modelSize}.tza`;
+		const { BASE_URL, QUALITY_MODELS } = MODEL_CONFIG;
+		const modelName = QUALITY_MODELS[ this.quality ] || QUALITY_MODELS.balance;
+		return `${BASE_URL}${modelName}.tza`;
 
 	}
 
@@ -277,9 +275,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async updateQuality( value ) {
 
-		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_SUFFIXES, value ) ) {
+		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_MODELS, value ) ) {
 
-			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_SUFFIXES ).join( ', ' )}` );
+			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_MODELS ).join( ', ' )}` );
 
 		}
 

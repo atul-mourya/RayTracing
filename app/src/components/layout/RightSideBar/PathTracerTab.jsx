@@ -531,7 +531,7 @@ const PathTracerTab = () => {
 							<SelectContent>
 								<SelectItem value="fast">Fast</SelectItem>
 								<SelectItem value="balance">Balance</SelectItem>
-								<SelectItem disabled value="high">High</SelectItem>
+								<SelectItem value="high">High</SelectItem>
 							</SelectContent>
 						</Select>
 					</Row>
