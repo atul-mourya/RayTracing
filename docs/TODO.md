@@ -4,7 +4,6 @@
 
 ### MVP
 
-
 - [ ] scrutenize the implementation of SSRC
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
@@ -14,7 +13,6 @@
 - [ ] some pixels show black in the first rendered frame even if it hits the environment map
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
-- [ ] ASVFG gives smearing effect when moving the camera
 - [ ] directional light not working from kronos test file: <https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/DirectionalLight/README.md>
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 
@@ -26,7 +24,6 @@
 ## Features
 
 ### Chores
-- [ ] add missing security related standards - <https://github.com/atul-mourya/RayTracing/community>
 - [ ] minimize dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
 - [ ] lint fix
 - [ ] enhance test coverage of the engine, use headless chrome if needed
