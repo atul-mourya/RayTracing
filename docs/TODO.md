@@ -24,7 +24,7 @@
 ## Features
 
 ### Chores
-- [ ] minimize dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
+- [ ] minimize unwanted dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
 - [ ] lint fix
 - [ ] enhance test coverage of the engine, use headless chrome if needed
 - [ ] needs WebGPU, can't unit-test
@@ -38,7 +38,6 @@
 - [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
-- [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
 - [ ] transform control redesign
 
 ### Compilation
@@ -86,6 +85,7 @@
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
 - [ ] Separate environment and background sampling with different textures (like Three.js)
+- [ ] the output of gradient light should look like hemisphere light in threejs
 
 ### Scene Management
 
