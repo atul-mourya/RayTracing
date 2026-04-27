@@ -52,8 +52,8 @@ const MODEL_CONFIG = {
 	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
 	// clean-aux models — first-hit albedo/normal are deterministic per pixel
 	QUALITY_MODELS: {
-		fast: 'rt_hdr_calb_cnrm_small',
-		balance: 'rt_hdr_calb_cnrm',
+		fast: 'rt_hdr_alb_nrm_small',
+		balance: 'rt_hdr_alb_nrm',
 		high: 'rt_hdr_calb_cnrm_large'
 	},
 	DEFAULT_OPTIONS: {
