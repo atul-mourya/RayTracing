@@ -1,16 +1,44 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 
 let _initUNetFromURL = null;
+let _tfEngine = null;
 async function getInitUNetFromURL() {
 
 	if ( ! _initUNetFromURL ) {
 
-		const mod = await import( 'oidn-web' );
-		_initUNetFromURL = mod.initUNetFromURL;
+		const [ oidnMod, tfMod ] = await Promise.all( [
+			import( 'oidn-web' ),
+			import( '@tensorflow/tfjs-core' )
+		] );
+		_initUNetFromURL = oidnMod.initUNetFromURL;
+		_tfEngine = tfMod.engine;
 
 	}
 
 	return _initUNetFromURL;
+
+}
+
+// oidn-web caches its WebGPUBackend in TFJS's global ENGINE under 'webgpu-oidn'.
+// On dispose, drop it so the next instance binds to the new GPUDevice instead of
+// reusing the destroyed one (which would produce black tiles).
+function removeOidnTfjsBackend() {
+
+	if ( ! _tfEngine ) return;
+	try {
+
+		const eng = _tfEngine();
+		if ( eng?.registryFactory && 'webgpu-oidn' in eng.registryFactory ) {
+
+			eng.removeBackend( 'webgpu-oidn' );
+
+		}
+
+	} catch ( e ) {
+
+		console.warn( 'OIDNDenoiser: failed to clear cached TFJS backend', e );
+
+	}
 
 }
 
@@ -966,6 +994,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Dispose resources
 		this.unet?.dispose();
+		// Must precede renderer.dispose() so the GPUDevice is still alive when
+		// TFJS tears down the cached backend's buffers/textures.
+		removeOidnTfjsBackend();
 		this._destroyGPUInputBuffers();
 
 		// Dispose debug helpers
