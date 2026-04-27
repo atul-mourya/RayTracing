@@ -473,65 +473,6 @@ const PathTracerTab = () => {
 				)}
 			</ControlGroup>
 
-			<ControlGroup name="SHaRC Cache">
-				<div className="flex items-center justify-between">
-					<Switch label={"Enable Cache"} checked={sharcEnabled} onCheckedChange={handleSharcEnabledChange} />
-				</div>
-				{sharcEnabled && ( <>
-					<div className="text-xs opacity-60 leading-snug pt-1 pb-2">
-						World-space radiance cache amortizes indirect lighting across pixels and frames. Sliders below tune cell sizing, fill rate, and trust thresholds — start with defaults and adjust per-scene. Click <HelpCircle size={10} className="inline align-text-top opacity-60" /> beside each label for guidance.
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider
-							label={<>Scene Scale<HelpHint text="Higher = smaller voxels at a given LOD. Big architectural scenes (rooms, buildings) want lower values (10–30). Tabletop / product shots want higher values (50–150). First knob to try if cells look too coarse or too fine." /></>}
-							min={1} max={200} step={1}
-							value={[ sharcSceneScale ]}
-							onValueChange={handleSharcSceneScaleChange}
-						/>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider
-							label={<>Level Bias<HelpHint text="Higher = finer cells near camera, coarser far. Useful for first-person / walkthrough scenes where camera-relative quality matters. Static-camera scenes rarely need adjustment." /></>}
-							min={0} max={8} step={0.5}
-							value={[ sharcLevelBias ]}
-							onValueChange={handleSharcLevelBiasChange}
-						/>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider
-							label={<>Update Stride<HelpHint text="Only 1/N pixels write to the cache per frame. Lower = faster cache fill but more atomic contention (slower frame). Static scenes: drop to 1–4. Dynamic lighting / animation: keep at 16+." /></>}
-							min={1} max={64} step={1}
-							value={[ sharcUpdateStride ]}
-							onValueChange={handleSharcUpdateStrideChange}
-						/>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider
-							label={<>Sample Threshold<HelpHint text="Minimum accumulated samples before a cell is trusted by the path tracer. Lower = earlier cache hits but more noise visible. Higher = cleaner output but slower convergence. Drop to 2 to see cache earlier; raise to 8+ for cleaner final output." /></>}
-							min={1} max={32} step={1}
-							value={[ sharcSampleThreshold ]}
-							onValueChange={handleSharcSampleThresholdChange}
-						/>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider
-							label={<>Stale Frame Max<HelpHint text="Frames before unsampled cells are evicted from the cache. Higher = cells persist longer (good for static scenes). Lower = adapts faster to scene changes (moving lights, animation). Rarely needs tuning." /></>}
-							min={8} max={256} step={1}
-							value={[ sharcStaleFrameMax ]}
-							onValueChange={handleSharcStaleFrameMaxChange}
-						/>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider
-							label={<>Resolve Stride<HelpHint text="Resolve compute pass dispatches every N frames. 1 = every frame (default, lowest latency). 2–4 = saves ~0.1–0.4 ms/frame at the cost of one extra frame of cache lag. Safe to raise on stable scenes; keep at 1 if cache hit quality matters more than the few ms savings." /></>}
-							min={1} max={8} step={1}
-							value={[ sharcResolveStride ]}
-							onValueChange={handleSharcResolveStrideChange}
-						/>
-					</div>
-				</> )}
-			</ControlGroup>
-
 			<ControlGroup name="Denoising">
 				<Row>
 					<Select value={denoiserStrategy} onValueChange={handleDenoiserStrategyChange}>
@@ -669,6 +610,66 @@ const PathTracerTab = () => {
 				<Row>
 					<Switch label={"Alpha Shadows"} checked={enableAlphaShadows} onCheckedChange={handleEnableAlphaShadowsChange} />
 				</Row>
+				<Separator />
+				<Row more={sharcEnabled ? (
+					<>
+						<div className="text-xs opacity-60 leading-snug pb-2">
+							Fine-tune how the cache fills, ages, and refreshes. Defaults are safe — only touch these if needed.
+						</div>
+						<Row>
+							<Slider
+								label={<>Near Detail<HelpHint text="Adds extra detail close to the camera. Helpful for walkthroughs and first-person views. Leave at default for fixed cameras." /></>}
+								min={0} max={8} step={0.5}
+								value={[ sharcLevelBias ]}
+								onValueChange={handleSharcLevelBiasChange}
+							/>
+						</Row>
+						<Row>
+							<Slider
+								label={<>Write Rate<HelpHint text="How fast the cache fills in. Lower = quicker fill but heavier frames. Higher = lighter frames but slower to settle. Lower for still scenes, higher for animation." /></>}
+								min={1} max={64} step={1}
+								value={[ sharcUpdateStride ]}
+								onValueChange={handleSharcUpdateStrideChange}
+							/>
+						</Row>
+						<Row>
+							<Slider
+								label={<>Cell Lifetime<HelpHint text="How long unused cached lighting hangs around. Higher for still scenes. Lower if lights or objects move. Usually fine at default." /></>}
+								min={8} max={256} step={1}
+								value={[ sharcStaleFrameMax ]}
+								onValueChange={handleSharcStaleFrameMaxChange}
+							/>
+						</Row>
+						<Row>
+							<Slider
+								label={<>Resolve Rate<HelpHint text="How often the cache refreshes. Lower = always current. Higher = saves a bit of frame time but lighting lags slightly. Keep at 1 unless you need extra fps." /></>}
+								min={1} max={8} step={1}
+								value={[ sharcResolveStride ]}
+								onValueChange={handleSharcResolveStrideChange}
+							/>
+						</Row>
+					</>
+				) : null}>
+					<Switch label={"Radiance Cache"} checked={sharcEnabled} onCheckedChange={handleSharcEnabledChange} />
+				</Row>
+				{sharcEnabled && ( <>
+					<Row>
+						<Slider
+							label={<>Detail<HelpHint text="How fine the cached lighting looks. Higher for small or close-up scenes. Lower for big rooms and buildings. Try this first if shading looks blocky or smeared." /></>}
+							min={1} max={200} step={1}
+							value={[ sharcSceneScale ]}
+							onValueChange={handleSharcSceneScaleChange}
+						/>
+					</Row>
+					<Row>
+						<Slider
+							label={<>Quality<HelpHint text="How clean the cached lighting needs to look before it's used. Higher = cleaner result but takes longer to settle. Lower = shows up sooner but noisier." /></>}
+							min={1} max={32} step={1}
+							value={[ sharcSampleThreshold ]}
+							onValueChange={handleSharcSampleThresholdChange}
+						/>
+					</Row>
+				</> )}
 				<Separator />
 				<Row>
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
