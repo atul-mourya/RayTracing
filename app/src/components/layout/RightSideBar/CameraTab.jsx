@@ -100,6 +100,8 @@ const CameraTab = () => {
 		{ x: 100, y: 50 }, // right view
 		{ x: 50, y: 0 }, // top view
 		{ x: 50, y: 100 }, // bottom view
+		{ x: 25, y: 50 }, // front-left view
+		{ x: 75, y: 50 }, // front-right view
 		{ x: 25, y: 25 }, // top left view
 		{ x: 75, y: 25 }, // top right view
 		{ x: 25, y: 75 }, // bottom left view
