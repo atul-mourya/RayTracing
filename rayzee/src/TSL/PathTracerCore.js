@@ -608,6 +608,10 @@ export const Trace = Fn( ( [
 	const objectID = float( - 1000.0 ).toVar();
 	const firstHitPoint = ray.origin.toVar();
 	const firstHitDistance = float( 1e10 ).toVar();
+	// OIDN clean-aux: extend albedo/normal capture through specular/transmissive
+	// surfaces so aux features describe what's actually visible (e.g. scenery
+	// behind glass), not the glass surface itself.
+	const auxLocked = tslBool( false ).toVar();
 
 	// Medium stack for transmission (per-slot IOR, slots 1-3 for nested media, depth 0 = air)
 	const mediumStackDepth = int( 0 ).toVar();
@@ -1148,14 +1152,31 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// Store first hit data for G-buffer
+		// firstHitPoint / firstHitDistance reflect the actual primary-ray hit
+		// (used for depth + temporal reprojection — must not skip transparent surfaces)
 		If( bounceIndex.equal( int( 0 ) ).and( hitInfo.didHit ), () => {
+
+			firstHitPoint.assign( hitInfo.hitPoint );
+			firstHitDistance.assign( hitInfo.dst );
+
+		} );
+
+		// objectNormal / objectColor / objectID feed OIDN's aux inputs. Overwrite
+		// at each bounce until we land on a non-specular surface, then lock.
+		// Falls back to the last specular hit if the path never hits diffuse.
+		If( auxLocked.not().and( hitInfo.didHit ), () => {
 
 			objectNormal.assign( N );
 			objectColor.assign( material.color.xyz );
 			objectID.assign( float( hitInfo.materialIndex ) );
-			firstHitPoint.assign( hitInfo.hitPoint );
-			firstHitDistance.assign( hitInfo.dst );
+
+			const isMirror = material.metalness.greaterThan( 0.7 ).and( material.roughness.lessThan( 0.3 ) );
+			const isTransmissive = material.transmission.greaterThan( 0.5 );
+			If( isMirror.or( isTransmissive ).not(), () => {
+
+				auxLocked.assign( tslBool( true ) );
+
+			} );
 
 		} );
 
