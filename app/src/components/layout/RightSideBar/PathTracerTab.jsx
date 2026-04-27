@@ -7,6 +7,7 @@ import { ColorInput } from "@/components/ui/colorinput";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePathTracerStore } from '@/store';
 import { ControlGroup } from '@/components/ui/control-group';
+import { Row } from '@/components/ui/row';
 import { SliderToggle } from '@/components/ui/slider-toggle';
 import { Exposure } from '@/assets/icons';
 import { Separator } from '@/components/ui/separator';
@@ -70,6 +71,26 @@ const AutoExposureValue = memo( () => {
 
 AutoExposureValue.displayName = 'AutoExposureValue';
 
+// Per-debug-mode control renderers. Add a new case to expose mode-specific
+// parameters (e.g. thresholds, scales) when introducing a new debug mode.
+const renderDebugModeControls = ( debugMode, props ) => {
+
+	switch ( debugMode ) {
+
+		case '7': // Triangle Tests
+		case '8': // Box Tests
+			return (
+				<Row>
+					<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ props.debugThreshold ]} onValueChange={props.handleDebugThresholdChange} />
+				</Row>
+			);
+		default:
+			return null;
+
+	}
+
+};
+
 const toneMappingOptions = [
 	{ label: 'None', value: 0 },
 	{ label: 'Linear', value: 1 },
@@ -92,7 +113,6 @@ const PathTracerTab = () => {
 		bounces,
 		samplesPerPixel,
 		transmissiveBounces,
-		samplingTechnique,
 		adaptiveSampling,
 		adaptiveSamplingMin,
 		adaptiveSamplingMax,
@@ -167,7 +187,6 @@ const PathTracerTab = () => {
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
-		handleSamplingTechniqueChange,
 		handleAdaptiveSamplingChange,
 		handleAdaptiveSamplingMinChange,
 		handleAdaptiveSamplingMaxChange,
@@ -242,22 +261,22 @@ const PathTracerTab = () => {
 			<Separator className="bg-primary" />
 
 			<ControlGroup name="Path Tracer" defaultOpen={true}>
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch label={"Enable"} checked={enablePathTracer} onCheckedChange={handlePathTracerChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Switch label={"Interaction Mode"} checked={interactionModeEnabled} onCheckedChange={handleInteractionModeEnabledChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Slider label={"Bounces"} min={0} max={20} step={1} value={[ bounces ]} onValueChange={handleBouncesChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Slider label={"Rays Per Pixel"} icon={Grip} min={1} max={6} step={1} value={[ samplesPerPixel ]} onValueChange={handleSamplesPerPixelChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
 						<span className="opacity-50 text-xs truncate">Render Mode</span>
 						<SelectTrigger className="max-w-24 h-5 rounded-full" >
@@ -268,22 +287,22 @@ const PathTracerTab = () => {
 							<SelectItem value="1">Tiled</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 				{renderMode === '1' && (
 					<>
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider label={"Tile Size"} min={1} max={10} step={1} value={[ tiles ]} onValueChange={handleTileUpdate} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<Switch label={"Tile Helper"} checked={tilesHelper} onCheckedChange={handleTileHelperToggle} />
-						</div>
+						</Row>
 					</>
 				)}
 				<CanvasDimensionControls />
 			</ControlGroup>
 
 			<ControlGroup name="Scene">
-				<div className="flex items-center justify-between">
+				<Row>
 					<Select value={toneMapping.toString()} onValueChange={handleToneMappingChange}>
 						<span className="opacity-50 text-xs truncate">ToneMapping</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -295,44 +314,44 @@ const PathTracerTab = () => {
 							) )}
 						</SelectContent>
 					</Select>
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row more={autoExposure ? (
+					<>
+						<Row>
+							<Slider icon={Target} label={"Target Brightness"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
+						</Row>
+						{/* <Row>
+							<Slider icon={ArrowDown} label={"Min Exposure"} min={0.01} max={1.0} step={0.01} value={[ autoExposureMinExposure ]} onValueChange={handleAutoExposureMinExposureChange} />
+						</Row>
+						<Row>
+							<Slider icon={ArrowUp} label={"Max Exposure"} min={1.0} max={20.0} step={0.1} value={[ autoExposureMaxExposure ]} onValueChange={handleAutoExposureMaxExposureChange} />
+						</Row>
+						<Row>
+							<Slider icon={Zap} label={"Adaptation Speed"} min={0.5} max={10.0} step={0.1} value={[ autoExposureAdaptSpeedBright ]} snapPoints={[ 3.0 ]} onValueChange={handleAutoExposureAdaptSpeedChange} />
+						</Row> */}
+					</>
+				) : null}>
 					<span className="opacity-50 text-xs truncate">Auto Exposure</span>
 					<div className="flex items-center gap-2">
 						{autoExposure && <AutoExposureValue />}
 						<Switch checked={autoExposure} onCheckedChange={handleAutoExposureChange} />
 					</div>
-				</div>
-				{autoExposure ? (
-					<>
-						<div className="flex items-center justify-between">
-							<Slider icon={Target} label={"Target Brightness"} min={0.05} max={0.5} step={0.01} value={[ autoExposureKeyValue ]} snapPoints={[ 0.18 ]} onValueChange={handleAutoExposureKeyValueChange} />
-						</div>
-						{/* <div className="flex items-center justify-between">
-							<Slider icon={ArrowDown} label={"Min Exposure"} min={0.01} max={1.0} step={0.01} value={[ autoExposureMinExposure ]} onValueChange={handleAutoExposureMinExposureChange} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Slider icon={ArrowUp} label={"Max Exposure"} min={1.0} max={20.0} step={0.1} value={[ autoExposureMaxExposure ]} onValueChange={handleAutoExposureMaxExposureChange} />
-						</div>
-						<div className="flex items-center justify-between">
-							<Slider icon={Zap} label={"Adaptation Speed"} min={0.5} max={10.0} step={0.1} value={[ autoExposureAdaptSpeedBright ]} snapPoints={[ 3.0 ]} onValueChange={handleAutoExposureAdaptSpeedChange} />
-						</div> */}
-					</>
-				) : (
-					<div className="flex items-center justify-between">
+				</Row>
+				{! autoExposure && (
+					<Row>
 						<Slider icon={Exposure} label={"Exposure"} min={0} max={10} step={0.01} value={[ exposure ]} snapPoints={[ 1 ]} onValueChange={handleExposureChange} />
-					</div>
+					</Row>
 				)}
-				<div className="flex items-center justify-between">
+				{/* <Row>
 					<Slider icon={Exposure} label={"Saturation"} min={0} max={2} step={0.01} value={[ saturation ]} snapPoints={[ 1 ]} onValueChange={handleSaturationChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row> */}
+				{/* <Row>
 					<Slider label={"Global Illumination Intensity"} icon={Sunrise} min={0} max={5} step={0.01} value={[ GIIntensity ]} snapPoints={[ 1 ]} onValueChange={handleGIIntensityChange} />
-				</div>
+				</Row> */}
 				<Separator className="my-1 opacity-30" />
 
 				{/* Environment Mode Selector */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<Select value={environmentMode} onValueChange={handleEnvironmentModeChange}>
 						<span className="opacity-50 text-xs truncate">Environment Mode</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -365,35 +384,35 @@ const PathTracerTab = () => {
 							</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 
 				{/* Gradient Mode Controls */}
 				{environmentMode === 'gradient' && (
 					<>
-						<div className="flex items-center justify-between">
+						<Row>
 							<ColorInput label="Zenith" value={gradientZenithColor} onChange={handleGradientZenithColorChange} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<ColorInput label="Horizon" value={gradientHorizonColor} onChange={handleGradientHorizonColorChange} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<ColorInput label="Ground" value={gradientGroundColor} onChange={handleGradientGroundColorChange} />
-						</div>
+						</Row>
 					</>
 				)}
 
 				{/* Solid Color Mode Controls */}
 				{environmentMode === 'color' && (
-					<div className="flex items-center justify-between">
+					<Row>
 						<ColorInput label="Sky Color" value={solidSkyColor} onChange={handleSolidSkyColorChange} />
-					</div>
+					</Row>
 				)}
 
 				{/* Procedural Sky Mode Controls */}
 				{environmentMode === 'procedural' && (
 					<>
 						{/* Preset Selector */}
-						<div className="flex items-center justify-between">
+						<Row>
 							<Select value={skyPreset} onValueChange={handleSkyPresetChange}>
 								<span className="opacity-50 text-xs truncate">Preset</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -408,48 +427,48 @@ const PathTracerTab = () => {
 									<SelectItem value="dusk">Dusk</SelectItem>
 								</SelectContent>
 							</Select>
-						</div>
+						</Row>
 
 						{/* Sun Position */}
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider label="Sun Rotation" icon={RefreshCcwDot} min={0} max={360} step={1} value={[ skySunAzimuth ]} snapPoints={[ 0, 90, 180, 270 ]} onValueChange={handleSkySunAzimuthChange} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<Slider label="Sun Height" icon={ArrowUp} min={- 10} max={90} step={1} value={[ skySunElevation ]} snapPoints={[ 0, 45, 90 ]} onValueChange={handleSkySunElevationChange} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<Slider label="Sun Brightness" icon={Sun} min={0} max={50} step={0.5} value={[ skySunIntensity ]} snapPoints={[ 20 ]} onValueChange={handleSkySunIntensityChange} />
-						</div>
+						</Row>
 
 						{/* Atmospheric Properties */}
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider label="Sky Clarity" icon={CloudSun} min={0} max={2} step={0.1} value={[ skyRayleighDensity ]} snapPoints={[ 1 ]} onValueChange={handleSkyRayleighDensityChange} />
-						</div>
-						<div className="flex items-center justify-between">
+						</Row>
+						<Row>
 							<Slider label="Atmospheric Haze" icon={Wind} min={0} max={5} step={0.1} value={[ skyTurbidity ]} snapPoints={[ 1 ]} onValueChange={handleSkyTurbidityChange} />
-						</div>
+						</Row>
 					</>
 				)}
 
 				<Separator className="my-1 opacity-30" />
 
 				{/* Common Environment Controls */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<SliderToggle label={"Environment Intensity"} enabled={enableEnvironment} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ environmentIntensity ]} onValueChange={handleEnvironmentIntensityChange} onToggleChange={handleEnableEnvironmentChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<SliderToggle label={"Background Intensity"} enabled={showBackground} icon={Sun} min={0} max={2} step={0.01} snapPoints={[ 1 ]} value={[ backgroundIntensity ]} onValueChange={handleBackgroundIntensityChange} onToggleChange={handleShowBackgroundChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Switch label={"Transparent Background"} checked={transparentBackground} onCheckedChange={handleTransparentBackgroundChange} />
-				</div>
+				</Row>
 
 				{/* HDRI Mode Controls */}
 				{environmentMode === 'hdri' && (
 					<>
-						<div className="flex items-center justify-between">
+						<Row>
 							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
-						</div>
+						</Row>
 					</>
 				)}
 			</ControlGroup>
@@ -514,7 +533,7 @@ const PathTracerTab = () => {
 			</ControlGroup>
 
 			<ControlGroup name="Denoising">
-				<div className="flex items-center justify-between">
+				<Row>
 					<Select value={denoiserStrategy} onValueChange={handleDenoiserStrategyChange}>
 						<span className="opacity-50 text-xs truncate">Real-Time Denoiser</span>
 						<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -526,22 +545,22 @@ const PathTracerTab = () => {
 							<SelectItem value="asvgf">ASVGF</SelectItem>
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 
 				{denoiserStrategy === 'edgeaware' && ( <>
-					<div className="flex items-center justify-between">
-						<Slider label={"Edge Sharpness"} min={0} max={2} step={0.01} value={[ pixelEdgeSharpness ]} onValueChange={handlePixelEdgeSharpnessChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Sharpen Speed"} min={0} max={0.2} step={0.001} value={[ edgeSharpenSpeed ]} onValueChange={handleEdgeSharpenSpeedChange} />
-					</div>
-					<div className="flex items-center justify-between">
+					<Row>
+						<Slider label={"Filter Strength"} min={0} max={1} step={0.01} value={[ filterStrength ]} onValueChange={handleFilterStrengthChange} />
+					</Row>
+					<Row>
+						<Slider label={"Decay Speed"} min={0} max={0.2} step={0.001} value={[ strengthDecaySpeed ]} onValueChange={handleStrengthDecaySpeedChange} />
+					</Row>
+					<Row>
 						<Slider label={"Edge Threshold"} min={0} max={5} step={0.1} value={[ edgeThreshold ]} onValueChange={handleEdgeThresholdChange} />
-					</div>
+					</Row>
 				</> )}
 
 				{denoiserStrategy === 'asvgf' && ( <>
-					<div className="flex items-center justify-between">
+					<Row>
 						<Select value={asvgfQualityPreset} onValueChange={handleAsvgfQualityPresetChange}>
 							<span className="opacity-50 text-xs truncate">Quality Preset</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -553,12 +572,12 @@ const PathTracerTab = () => {
 								<SelectItem value="high">High</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
-					<div className="flex items-center justify-between">
+					</Row>
+					<Row>
 						<Switch label={"Show Heatmap"} checked={showAsvgfHeatmap} onCheckedChange={handleShowAsvgfHeatmapChange}/>
-					</div>
+					</Row>
 					{showAsvgfHeatmap && (
-						<div className="flex items-center justify-between">
+						<Row>
 							<Select value={asvgfDebugMode.toString()} onValueChange={handleAsvgfDebugModeChange}>
 								<span className="opacity-50 text-xs truncate">Debug View</span>
 								<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -573,7 +592,7 @@ const PathTracerTab = () => {
 									<SelectItem value="5">Temporal Gradient</SelectItem>
 								</SelectContent>
 							</Select>
-						</div>
+						</Row>
 					)}
 				</> )}
 
@@ -581,13 +600,13 @@ const PathTracerTab = () => {
 				<Separator />
 
 				{/* Independent OIDN Control - Placed after real-time denoiser controls */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch label={"AI Denoising (OIDN)"} checked={enableOIDN} onCheckedChange={handleEnableOIDNChange} />
-				</div>
+				</Row>
 
 				{/* OIDN Quality Controls - Independent of real-time denoiser selection */}
 				{enableOIDN && ( <>
-					<div className="flex items-center justify-between">
+					<Row>
 						<Select value={oidnQuality} onValueChange={handleOidnQualityChange}>
 							<span className="opacity-50 text-xs truncate">OIDN Quality</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -596,21 +615,21 @@ const PathTracerTab = () => {
 							<SelectContent>
 								<SelectItem value="fast">Fast</SelectItem>
 								<SelectItem value="balance">Balance</SelectItem>
-								<SelectItem disabled value="high">High</SelectItem>
+								<SelectItem value="high">High</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
+					</Row>
 				</> )}
 
 				<Separator />
 
 				{/* AI Upscaler Control */}
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch label={"AI Upscaler"} checked={enableUpscaler} onCheckedChange={handleEnableUpscalerChange} />
-				</div>
+				</Row>
 
 				{enableUpscaler && ( <>
-					<div className="flex items-center justify-between">
+					<Row>
 						<Select value={upscalerScale.toString()} onValueChange={handleUpscalerScaleChange}>
 							<span className="opacity-50 text-xs truncate">Scale Factor</span>
 							<SelectTrigger className="max-w-24 h-5 rounded-full" >
@@ -621,8 +640,8 @@ const PathTracerTab = () => {
 								<SelectItem value="4">4x</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
-					<div className="flex items-center justify-between">
+					</Row>
+					<Row>
 						<Select value={upscalerQuality} onValueChange={handleUpscalerQualityChange}>
 							<span className="opacity-50 text-xs truncate">Quality</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full" >
@@ -634,37 +653,47 @@ const PathTracerTab = () => {
 								<SelectItem value="quality">Quality</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
+					</Row>
 				</> )}
 			</ControlGroup>
 
-			<ControlGroup name="Sampling">
-				<div className="flex items-center justify-between">
-					<Select value={samplingTechnique.toString()} onValueChange={handleSamplingTechniqueChange}>
-						<span className="opacity-50 text-xs truncate">Sampler</span>
-						<SelectTrigger className="max-w-32 h-5 rounded-full" >
-							<SelectValue placeholder="Select sampler" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem key='PCG' value={"0"}>PCG</SelectItem>
-							<SelectItem key='Halton' value={"1"}>Halton</SelectItem>
-							<SelectItem key='Sobol' value={"2"}>Sobol</SelectItem>
-							<SelectItem key='BlueNoise' value={"3"}>BlueNoise</SelectItem>
-						</SelectContent>
-					</Select>
-				</div>
-				<div className="flex items-center justify-between">
+			<ControlGroup name="Advanced">
+				{enablePathTracer && (
+					<Row>
+						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
+					</Row>
+				)}
+				<Row>
 					<Slider label={"Firefly Threshold"} min={0} max={10} step={0.1} value={[ fireflyThreshold ]} onValueChange={handleFireflyThresholdChange} />
-				</div>
-				<div className="flex items-center justify-between">
+				</Row>
+				<Row>
 					<Switch label={"Alpha Shadows"} checked={enableAlphaShadows} onCheckedChange={handleEnableAlphaShadowsChange} />
-				</div>
+				</Row>
 				<Separator />
-				<div className="flex items-center justify-between">
+				<Row>
 					<Switch label={"Adaptive Sampling"} checked={adaptiveSampling} onCheckedChange={handleAdaptiveSamplingChange} />
-				</div>
+				</Row>
 				{adaptiveSampling && ( <>
-					<div className="flex items-center justify-between">
+					<Row more={
+						<>
+							<Row>
+								<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
+							</Row>
+							<Row>
+								<Slider label={"Max Samples"} min={4} max={32} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
+							</Row>
+							<Row>
+								<Slider label={"Convergence Threshold"} min={0.01} max={0.5} step={0.01} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
+							</Row>
+							<Separator />
+							<Row>
+								<Slider label={"Sensitivity"} icon={Brain} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingMaterialBias ]} onValueChange={handleAdaptiveSamplingMaterialBiasChange} />
+							</Row>
+							<Row>
+								<Slider label={"Convergence Speed"} icon={Target} min={0.5} max={5.0} step={0.1} value={[ adaptiveSamplingConvergenceSpeed ]} onValueChange={handleAdaptiveSamplingConvergenceSpeedChange} />
+							</Row>
+						</>
+					}>
 						<Select value={adaptiveSamplingQualityPreset} onValueChange={handleAdaptiveSamplingQualityPresetChange}>
 							<span className="opacity-50 text-xs truncate">Quality Preset</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full">
@@ -676,37 +705,16 @@ const PathTracerTab = () => {
 								<SelectItem value="quality">Quality</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Min Samples"} min={0} max={4} step={1} value={[ adaptiveSamplingMin ]} onValueChange={handleAdaptiveSamplingMinChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Max Samples"} min={4} max={32} step={2} value={[ adaptiveSamplingMax ]} onValueChange={handleAdaptiveSamplingMaxChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Convergence Threshold"} min={0.01} max={0.5} step={0.01} value={[ adaptiveSamplingVarianceThreshold ]} onValueChange={handleAdaptiveSamplingVarianceThresholdChange} />
-					</div>
-					<Separator />
-					<div className="flex items-center justify-between">
-						<Slider label={"Sensitivity"} icon={Brain} min={0.5} max={3.0} step={0.1} value={[ adaptiveSamplingMaterialBias ]} onValueChange={handleAdaptiveSamplingMaterialBiasChange} />
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Convergence Speed"} icon={Target} min={0.5} max={5.0} step={0.1} value={[ adaptiveSamplingConvergenceSpeed ]} onValueChange={handleAdaptiveSamplingConvergenceSpeedChange} />
-					</div>
-					<div className="flex items-center justify-between">
+					</Row>
+					<Row>
 						<Switch label={"Show Heatmap"} checked={showAdaptiveSamplingHelper} onCheckedChange={handleAdaptiveSamplingHelperToggle} />
-					</div>
+					</Row>
 				</> )}
-			</ControlGroup>
-
-			{enablePathTracer && (
-				<ControlGroup name="Debugging">
-					<div className="flex items-center justify-between">
-						<Switch label={"Accumulation"} checked={enableAccumulation} onCheckedChange={handleAccumulationChange} />
-					</div>
-					<div className="flex items-center justify-between">
+				{enablePathTracer && ( <>
+					<Separator />
+					<Row>
 						<Select value={debugMode.toString()} onValueChange={handleDebugModeChange}>
-							<span className="opacity-50 text-xs truncate">Mode</span>
+							<span className="opacity-50 text-xs truncate">Debug Mode</span>
 							<SelectTrigger className="max-w-32 h-5 rounded-full" >
 								<SelectValue placeholder="Select mode" />
 							</SelectTrigger>
@@ -724,17 +732,15 @@ const PathTracerTab = () => {
 								<SelectItem value="10">Env Luminance</SelectItem>
 							</SelectContent>
 						</Select>
-					</div>
-					<div className="flex items-center justify-between">
-						<Slider label={"Display Threshold"} min={1} max={500} step={1} value={[ debugThreshold ]} onValueChange={handleDebugThresholdChange} />
-					</div>
+					</Row>
+					{renderDebugModeControls( debugMode.toString(), { debugThreshold, handleDebugThresholdChange } )}
 					{import.meta.env.DEV && (
-						<div className="flex items-center justify-between">
+						<Row>
 							<Switch label={"Inspector"} checked={showInspector} onCheckedChange={handleInspectorToggle} />
-						</div>
+						</Row>
 					)}
-				</ControlGroup>
-			)}
+				</> )}
+			</ControlGroup>
 		</div>
 	);
 

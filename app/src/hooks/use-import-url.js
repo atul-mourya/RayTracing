@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useToggle } from '@uidotdev/usehooks';
+import { useToggle } from '@/hooks/useToggle';
 import { useToast } from '@/hooks/use-toast';
 import { getApp } from '@/lib/appProxy';
 

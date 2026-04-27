@@ -90,8 +90,8 @@ export const ENGINE_DEFAULTS = {
 	directionalLightPosition: [ 1, 1, 1 ],
 	directionalLightAngle: 0.0,
 
-	pixelEdgeSharpness: 0.75,
-	edgeSharpenSpeed: 0.05,
+	filterStrength: 0.75,
+	strengthDecaySpeed: 0.05,
 	edgeThreshold: 1.0,
 
 	enableOIDN: false,
@@ -115,7 +115,7 @@ export const ENGINE_DEFAULTS = {
 	debugVisScale: 100,
 
 	// Denoising strategy
-	denoiserStrategy: 'edgeaware',
+	denoiserStrategy: 'none',
 
 	enableASVGF: false,
 	asvgfTemporalAlpha: 0.1,
@@ -448,7 +448,7 @@ export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 // Render mode configurations
 export const FINAL_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1,
-	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: false,
+	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 	// SHaRC: keep Update running so the cache stays warm across mode flips,

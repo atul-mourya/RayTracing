@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Slider } from "@/components/ui/slider";
+import { Row } from "@/components/ui/row";
 import { ColorInput } from "@/components/ui/colorinput";
 import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
@@ -396,7 +397,7 @@ const MaterialTab = () => {
 			number: () => <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />,
 			switch: () => <Switch label={config.label} checked={value} onCheckedChange={onChange} />,
 			select: () => (
-				<div className="flex items-center justify-between w-full">
+				<Row className="w-full">
 					<div className="opacity-50 text-xs truncate">{config.label}</div>
 					<Select value={value} onValueChange={onChange}>
 						<SelectTrigger className="max-w-25 h-5 rounded-full">
@@ -410,15 +411,15 @@ const MaterialTab = () => {
 							) )}
 						</SelectContent>
 					</Select>
-				</div>
+				</Row>
 			)
 		};
 
 		const component = components[ config.type ]?.();
 		return component ? (
-			<div key={property} className="flex items-center justify-between">
+			<Row key={property}>
 				{component}
-			</div>
+			</Row>
 		) : null;
 
 	}, [ materialState, handlePropertyChange ] );
@@ -543,9 +544,9 @@ const MaterialTab = () => {
 					{renderSection( MATERIAL_PROPERTIES.emissive )}
 
 					{/* Clearcoat Feature Group */}
-					<div className="flex items-center justify-between w-full">
+					<Row className="w-full">
 						<Switch label="Enable Clearcoat" checked={isFeatureEnabled( materialState, 'clearcoat' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'clearcoat', enabled )} />
-					</div>
+					</Row>
 					{isFeatureEnabled( materialState, 'clearcoat' ) && (
 						<>
 							{MATERIAL_PROPERTIES.clearcoat?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -554,9 +555,9 @@ const MaterialTab = () => {
 					<Separator />
 
 					{/* Volumetric Feature Group */}
-					<div className="flex items-center justify-between w-full">
+					<Row className="w-full">
 						<Switch label="Enable Volumetric" checked={isFeatureEnabled( materialState, 'volumetric' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'volumetric', enabled )} />
-					</div>
+					</Row>
 					{isFeatureEnabled( materialState, 'volumetric' ) && (
 						<>
 							{MATERIAL_PROPERTIES.volumetric?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -565,9 +566,9 @@ const MaterialTab = () => {
 					<Separator />
 
 					{/* Transparency Feature Group */}
-					<div className="flex items-center justify-between w-full">
+					<Row className="w-full">
 						<Switch label="Enable Transparency" checked={isFeatureEnabled( materialState, 'transparency' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'transparency', enabled )} />
-					</div>
+					</Row>
 					{isFeatureEnabled( materialState, 'transparency' ) && (
 						<>
 							{MATERIAL_PROPERTIES.transparency?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -576,9 +577,9 @@ const MaterialTab = () => {
 					<Separator />
 
 					{/* Iridescence Feature Group */}
-					<div className="flex items-center justify-between w-full">
+					<Row className="w-full">
 						<Switch label="Enable Iridescence" checked={isFeatureEnabled( materialState, 'iridescence' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'iridescence', enabled )} />
-					</div>
+					</Row>
 					{isFeatureEnabled( materialState, 'iridescence' ) && (
 						<>
 							{MATERIAL_PROPERTIES.iridescence?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -587,9 +588,9 @@ const MaterialTab = () => {
 					<Separator />
 
 					{/* Sheen Feature Group */}
-					<div className="flex items-center justify-between w-full">
+					<Row className="w-full">
 						<Switch label="Enable Sheen" checked={isFeatureEnabled( materialState, 'sheen' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'sheen', enabled )} />
-					</div>
+					</Row>
 					{isFeatureEnabled( materialState, 'sheen' ) && (
 						<>
 							{MATERIAL_PROPERTIES.sheen?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -598,9 +599,9 @@ const MaterialTab = () => {
 					<Separator />
 
 					{/* Dispersion Feature Group */}
-					<div className="flex items-center justify-between w-full">
+					<Row className="w-full">
 						<Switch label="Enable Dispersion" checked={isFeatureEnabled( materialState, 'dispersion' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'dispersion', enabled )} disabled={! isFeatureEnabled( materialState, 'volumetric' )} />
-					</div>
+					</Row>
 					{isFeatureEnabled( materialState, 'dispersion' ) && (
 						<>
 							{MATERIAL_PROPERTIES.dispersion?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
@@ -659,9 +660,9 @@ const MaterialTab = () => {
 
 												const component = renderTexturePropertyComponent( name, property, config );
 												return component ? (
-													<div key={`${name}-${property}`} className="flex items-center justify-between">
+													<Row key={`${name}-${property}`}>
 														{component}
-													</div>
+													</Row>
 												) : null;
 
 											} )}
@@ -670,9 +671,9 @@ const MaterialTab = () => {
 									<Separator className="my-1.5" />
 								</div>
 							) )}
-							<div className="flex items-center justify-between">
+							<Row>
 								<Switch label="Sync Repeat" checked={globalRepeatEnabled} onCheckedChange={setGlobalRepeatEnabled} />
-							</div>
+							</Row>
 						</div>
 					)}
 

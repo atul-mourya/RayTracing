@@ -24,7 +24,10 @@ const bilateralWeight = /*@__PURE__*/ wgslFn( `
 	) -> f32 {
 
 		let lumW = exp( -abs( centerLum - sLum ) * phiLum );
-		let normW = pow( max( dot( centerNormal, sNormal ), 0.0 ), phiNorm );
+		// clamp dot to [0,1] not just max(., 0): miss-ray normals decode to
+		// non-unit (-1,-1,-1) with dot=3, which would saturate pow to +inf
+		// and poison output via inf*0 = NaN. See project_tsl_pitfalls memory.
+		let normW = pow( clamp( dot( centerNormal, sNormal ), 0.0, 1.0 ), phiNorm );
 		let depW = exp( -abs( centerDepth - sDepth ) / max( phiDep, 0.001 ) );
 		let maxDiff = max( max( abs( centerColor.x - sColor.x ),
 			abs( centerColor.y - sColor.y ) ),

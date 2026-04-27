@@ -4,8 +4,6 @@
 
 ### MVP
 
-
-- [ ] oidndenoiser is desaturation the results
 - [ ] scrutenize the implementation of SSRC
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
@@ -15,7 +13,6 @@
 - [ ] some pixels show black in the first rendered frame even if it hits the environment map
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
-- [ ] ASVFG gives smearing effect when moving the camera
 - [ ] directional light not working from kronos test file: <https://github.com/KhronosGroup/glTF-Sample-Assets/blob/main/Models/DirectionalLight/README.md>
 - [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 
@@ -27,7 +24,7 @@
 ## Features
 
 ### Chores
-- [ ] minimize dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
+- [ ] minimize unwanted dependencies - <https://github.com/atul-mourya/RayTracing/network/dependencies>
 - [ ] lint fix
 - [ ] enhance test coverage of the engine, use headless chrome if needed
 - [ ] needs WebGPU, can't unit-test
@@ -41,7 +38,6 @@
 - [ ] Introduce Project based workflow
 - [ ] Save rendering state in local storage and load on app start
 - [ ] export/import option for settings
-- [ ] three dots menu for features that are not frequently used. add a dropdown meny with the rest of the internal controls
 - [ ] transform control redesign
 
 ### Compilation
@@ -78,9 +74,7 @@
 - [ ] IES for spotlights
 - [ ] SDF-based model rendering
 - [ ] transmission support for displacement materials
-- [ ] Supporting GPU-compressed texture arrays requires adding per-scene format selection at build time - the TSL compiler doesn't support clean
-  teardown/rebuild of compute pipelines when texture binding types
-  change.
+- [ ] Supporting GPU-compressed texture arrays requires adding  per-scene format selection at build time - the TSL compiler doesn't support clean teardown/rebuild of compute pipelines when texture binding types change.
 
 ### Environment
 
@@ -89,6 +83,7 @@
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
 - [ ] Separate environment and background sampling with different textures (like Three.js)
+- [ ] the output of gradient light should look like hemisphere light in threejs
 
 ### Scene Management
 
@@ -96,7 +91,7 @@
 
 ### Animation
 
-- [ ] animate lights support
+- [ ] animating lights support
 - [ ] Timeline scrubber for animation control
 - [ ] Camera animation - interpolate camera path keyframes during video render
 - [ ] PNG image sequence export for better quality and post-processing flexibility

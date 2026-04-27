@@ -31,9 +31,12 @@ export class TileHelper {
 		// Whether the user has enabled the tile helper via UI toggle
 		this.enabled = true;
 
-		// Style
+		// Style — line width derives from display size each frame so the
+		// border looks the same thickness regardless of canvas resolution.
 		this._borderColor = 'rgba(255, 0, 0, 0.6)';
-		this._borderWidth = 2;
+		this._borderWidthRatio = 1 / 540; // ~2px on 1080p, ~4px on 4K
+		this._borderWidthMin = 1.5;
+		this._borderWidthMax = 4;
 
 	}
 
@@ -87,9 +90,13 @@ export class TileHelper {
 		const w = bounds.width * scaleX;
 		const h = bounds.height * scaleY;
 
-		// Active tile border
+		const lineWidth = Math.min(
+			this._borderWidthMax,
+			Math.max( this._borderWidthMin, Math.min( displayW, displayH ) * this._borderWidthRatio )
+		);
+
 		ctx.strokeStyle = this._borderColor;
-		ctx.lineWidth = this._borderWidth;
+		ctx.lineWidth = lineWidth;
 		ctx.strokeRect( x, y, w, h );
 
 	}

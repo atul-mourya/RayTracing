@@ -1,12 +1,17 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 
 let _initUNetFromURL = null;
+let _tfEngine = null;
 async function getInitUNetFromURL() {
 
 	if ( ! _initUNetFromURL ) {
 
-		const mod = await import( 'oidn-web' );
-		_initUNetFromURL = mod.initUNetFromURL;
+		const [ oidnMod, tfMod ] = await Promise.all( [
+			import( 'oidn-web' ),
+			import( '@tensorflow/tfjs-core' )
+		] );
+		_initUNetFromURL = oidnMod.initUNetFromURL;
+		_tfEngine = tfMod.engine;
 
 	}
 
@@ -14,19 +19,42 @@ async function getInitUNetFromURL() {
 
 }
 
+// oidn-web caches its WebGPUBackend in TFJS's global ENGINE under 'webgpu-oidn'.
+// On dispose, drop it so the next instance binds to the new GPUDevice instead of
+// reusing the destroyed one (which would produce black tiles).
+function removeOidnTfjsBackend() {
+
+	if ( ! _tfEngine ) return;
+	try {
+
+		const eng = _tfEngine();
+		if ( eng?.registryFactory && 'webgpu-oidn' in eng.registryFactory ) {
+
+			eng.removeBackend( 'webgpu-oidn' );
+
+		}
+
+	} catch ( e ) {
+
+		console.warn( 'OIDNDenoiser: failed to clear cached TFJS backend', e );
+
+	}
+
+}
+
 import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
-import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
+import { TONE_MAP_FNS, linearToSRGB, applySaturation } from '../Processor/ToneMapCPU.js';
 
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
 
-// Constants for better maintainability
 const MODEL_CONFIG = {
 	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
-	QUALITY_SUFFIXES: {
-		fast: '_small',
-		balance: '',
-		high: '_large'
+	// clean-aux models — first-hit albedo/normal are deterministic per pixel
+	QUALITY_MODELS: {
+		fast: 'rt_hdr_alb_nrm_small',
+		balance: 'rt_hdr_alb_nrm',
+		high: 'rt_hdr_calb_cnrm_large'
 	},
 	DEFAULT_OPTIONS: {
 		enableOIDN: true,
@@ -249,11 +277,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	_generateTzaUrl() {
 
-		const { BASE_URL, QUALITY_SUFFIXES } = MODEL_CONFIG;
-
-		const modelSize = QUALITY_SUFFIXES[ this.quality ] || '';
-
-		return `${BASE_URL}rt_hdr_alb_nrm${modelSize}.tza`;
+		const { BASE_URL, QUALITY_MODELS } = MODEL_CONFIG;
+		const modelName = QUALITY_MODELS[ this.quality ] || QUALITY_MODELS.balance;
+		return `${BASE_URL}${modelName}.tza`;
 
 	}
 
@@ -277,9 +303,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	async updateQuality( value ) {
 
-		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_SUFFIXES, value ) ) {
+		if ( ! Object.prototype.hasOwnProperty.call( MODEL_CONFIG.QUALITY_MODELS, value ) ) {
 
-			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_SUFFIXES ).join( ', ' )}` );
+			throw new Error( `Invalid quality setting: ${value}. Must be one of: ${Object.keys( MODEL_CONFIG.QUALITY_MODELS ).join( ', ' )}` );
 
 		}
 
@@ -659,14 +685,6 @@ export class OIDNDenoiser extends EventDispatcher {
 					// row-by-row copyBufferToBuffer (no stride support in WebGPU buffer copies).
 					if ( ! outputData?.data || ! tile ) return;
 
-					// Emit tile progress for OverlayManager's TileHelper
-					this.dispatchEvent( {
-						type: 'tileProgress',
-						tile,
-						imageWidth: outputData.width,
-						imageHeight: outputData.height
-					} );
-
 					const device = this.gpuDevice;
 					const fullWidth = outputData.width;
 					const fullHeight = outputData.height;
@@ -724,9 +742,9 @@ export class OIDNDenoiser extends EventDispatcher {
 							}
 
 							tmFn( er, eg, eb, 1.0, _tmOut );
-							tileImageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-							tileImageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-							tileImageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
+							tileImageData.data[ i ] = linearToSRGB( _tmOut[ 0 ] ) * 255 + 0.5 | 0;
+							tileImageData.data[ i + 1 ] = linearToSRGB( _tmOut[ 1 ] ) * 255 + 0.5 | 0;
+							tileImageData.data[ i + 2 ] = linearToSRGB( _tmOut[ 2 ] ) * 255 + 0.5 | 0;
 
 							if ( alpha ) {
 
@@ -746,6 +764,14 @@ export class OIDNDenoiser extends EventDispatcher {
 						staging.destroy();
 						this._pendingStagingBuffers.delete( staging );
 						this.ctx.putImageData( tileImageData, tile.x, tile.y );
+
+						// Emit tile progress for OverlayManager's TileHelper
+						this.dispatchEvent( {
+							type: 'tileProgress',
+							tile: { x: tile.x, y: tile.y, width: clampedW, height: clampedH },
+							imageWidth: fullWidth,
+							imageHeight: fullHeight
+						} );
 
 					} ).catch( () => {
 
@@ -815,9 +841,9 @@ export class OIDNDenoiser extends EventDispatcher {
 				}
 
 				tmFn( er, eg, eb, 1.0, _tmOut );
-				imageData.data[ i ] = _tmOut[ 0 ] ** SRGB_GAMMA * 255 | 0;
-				imageData.data[ i + 1 ] = _tmOut[ 1 ] ** SRGB_GAMMA * 255 | 0;
-				imageData.data[ i + 2 ] = _tmOut[ 2 ] ** SRGB_GAMMA * 255 | 0;
+				imageData.data[ i ] = linearToSRGB( _tmOut[ 0 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 1 ] = linearToSRGB( _tmOut[ 1 ] ) * 255 + 0.5 | 0;
+				imageData.data[ i + 2 ] = linearToSRGB( _tmOut[ 2 ] ) * 255 + 0.5 | 0;
 				imageData.data[ i + 3 ] = alpha ? alpha[ i >> 2 ] : 255;
 
 			}
@@ -968,6 +994,9 @@ export class OIDNDenoiser extends EventDispatcher {
 
 		// Dispose resources
 		this.unet?.dispose();
+		// Must precede renderer.dispose() so the GPUDevice is still alive when
+		// TFJS tears down the cached backend's buffers/textures.
+		removeOidnTfjsBackend();
 		this._destroyGPUInputBuffers();
 
 		// Dispose debug helpers
