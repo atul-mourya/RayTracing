@@ -230,7 +230,10 @@ const engine = new PathTracerApp(canvas, options?)
 | `canvas` | `HTMLCanvasElement` | Rendering target |
 | `options.autoResize` | `boolean` | Auto-resize on window resize (default: `true`) |
 | `options.showStats` | `boolean` | Show the performance stats panel (default: `true`) |
-| `options.statsContainer` | `HTMLElement` | DOM element to append the stats panel to (defaults to `document.body`) |
+| `options.container` | `HTMLElement` | Single DOM parent the engine mounts auxiliary elements into — HUD overlay (tile borders, helpers), denoiser canvas, and stats panel. Defaults to `canvas.parentNode`. |
+| `options.statsContainer` | `HTMLElement` | Override mount target for the stats panel only. Defaults to `options.container`. |
+
+The engine creates and mounts everything it needs (denoiser canvas, tile/HUD overlay, stats) into a single parent on `init()`
 
 #### Lifecycle
 

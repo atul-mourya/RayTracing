@@ -65,7 +65,10 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {Object} [options] - Engine options
 	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
 	 * @param {boolean} [options.showStats=true] - Show the performance stats panel
-	 * @param {HTMLElement} [options.statsContainer] - DOM element to append the stats panel to (defaults to document.body)
+	 * @param {HTMLElement} [options.container] - Single DOM parent the engine mounts all auxiliary
+	 *   elements into (HUD overlay, denoiser canvas, stats). Defaults to `canvas.parentNode`.
+	 * @param {HTMLElement} [options.statsContainer] - Override mount target for the stats panel only.
+	 *   Defaults to `options.container`.
 	 */
 	constructor( canvas, options = {} ) {
 
@@ -86,6 +89,7 @@ export class PathTracerApp extends EventDispatcher {
 		this.canvas = canvas;
 		this._autoResize = options.autoResize !== false;
 		this._showStats = options.showStats !== false;
+		this._container = options.container || null;
 		this._statsContainer = options.statsContainer || null;
 
 		// ── Settings (single source of truth for all render parameters) ──
@@ -1550,7 +1554,7 @@ export class PathTracerApp extends EventDispatcher {
 
 	_initStats() {
 
-		const container = this._statsContainer || this.canvas.parentElement || document.body;
+		const container = this._statsContainer || this._container || this.canvas.parentElement || document.body;
 		this._stats = createStats( this.renderer, container );
 
 	}
@@ -1591,6 +1595,9 @@ export class PathTracerApp extends EventDispatcher {
 			renderWidth: this.denoisingManager?._lastRenderWidth || this.canvas.clientWidth || 1,
 			renderHeight: this.denoisingManager?._lastRenderHeight || this.canvas.clientHeight || 1,
 		} );
+
+		this._container = this._container || this.canvas.parentNode || null;
+		this.overlayManager.mount( this._container );
 
 	}
 
