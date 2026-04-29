@@ -351,7 +351,8 @@ class TextureCache {
 				const width = texture.image.width || 0;
 				const height = texture.image.height || 0;
 				const src = texture.image.src || texture.uuid || '';
-				hash += `${width}x${height}_${src.slice( - 8 )}_`;
+				const flipFlag = texture.flipY === false ? 'n' : 'f';
+				hash += `${width}x${height}_${src.slice( - 8 )}_${flipFlag}_`;
 
 			}
 
@@ -681,12 +682,16 @@ export class TextureCreator {
 
 			if ( ! texture?.image ) continue;
 
+			const flipY = texture.flipY !== false;
+
 			try {
 
 				// Option 1: Direct ImageBitmap transfer (when supported)
 				if ( typeof createImageBitmap !== 'undefined' && texture.image instanceof HTMLImageElement ) {
 
-					const bitmap = await createImageBitmap( texture.image );
+					const bitmap = await createImageBitmap( texture.image, {
+						imageOrientation: flipY ? 'flipY' : 'none',
+					} );
 					texturesData.push( {
 						bitmap: bitmap,
 						width: texture.image.width,
@@ -696,16 +701,22 @@ export class TextureCreator {
 
 				} else { // Option 2: Efficient canvas-based transfer
 
-					const pair = this.canvasPool.getCanvasWithContext( texture.image.width, texture.image.height );
+					const w = texture.image.width;
+					const h = texture.image.height;
+					const bitmap = await createImageBitmap( texture.image, {
+						imageOrientation: flipY ? 'flipY' : 'none',
+					} );
+					const pair = this.canvasPool.getCanvasWithContext( w, h );
 
-					pair.context.drawImage( texture.image, 0, 0 );
-					const imageData = pair.context.getImageData( 0, 0, texture.image.width, texture.image.height );
+					pair.context.drawImage( bitmap, 0, 0 );
+					bitmap.close();
+					const imageData = pair.context.getImageData( 0, 0, w, h );
 
 					// Transfer the underlying ArrayBuffer directly
 					texturesData.push( {
 						data: imageData.data.buffer, // Direct buffer transfer
-						width: texture.image.width,
-						height: texture.image.height,
+						width: w,
+						height: h,
 						isImageData: true
 					} );
 
@@ -759,11 +770,13 @@ export class TextureCreator {
 			for ( let i = batchStart; i < batchEnd; i ++ ) {
 
 				const texture = validTextures[ i ];
+				const flipY = texture.flipY !== false;
 
 				const bitmapPromise = createImageBitmap( texture.image, {
 					resizeWidth: maxWidth,
 					resizeHeight: maxHeight,
-					resizeQuality: 'high'
+					resizeQuality: 'high',
+					imageOrientation: flipY ? 'flipY' : 'none',
 				} );
 
 				batchPromises.push(
@@ -815,9 +828,16 @@ export class TextureCreator {
 		for ( let i = 0; i < validTextures.length; i ++ ) {
 
 			const texture = validTextures[ i ];
+			const bitmap = await createImageBitmap( texture.image, {
+				resizeWidth: maxWidth,
+				resizeHeight: maxHeight,
+				resizeQuality: 'high',
+				imageOrientation: texture.flipY !== false ? 'flipY' : 'none',
+			} );
 
 			pair.context.clearRect( 0, 0, maxWidth, maxHeight );
-			pair.context.drawImage( texture.image, 0, 0, maxWidth, maxHeight );
+			pair.context.drawImage( bitmap, 0, 0 );
+			bitmap.close();
 
 			const imageData = pair.context.getImageData( 0, 0, maxWidth, maxHeight );
 			const offset = maxWidth * maxHeight * 4 * i;
@@ -853,9 +873,16 @@ export class TextureCreator {
 		for ( let i = 0; i < validTextures.length; i ++ ) {
 
 			const texture = validTextures[ i ];
+			const bitmap = await createImageBitmap( texture.image, {
+				resizeWidth: maxWidth,
+				resizeHeight: maxHeight,
+				resizeQuality: 'high',
+				imageOrientation: texture.flipY !== false ? 'flipY' : 'none',
+			} );
 
 			pair.context.clearRect( 0, 0, maxWidth, maxHeight );
-			pair.context.drawImage( texture.image, 0, 0, maxWidth, maxHeight );
+			pair.context.drawImage( bitmap, 0, 0 );
+			bitmap.close();
 
 			const imageData = pair.context.getImageData( 0, 0, maxWidth, maxHeight );
 			const offset = maxWidth * maxHeight * 4 * i;
@@ -1301,7 +1328,7 @@ export class TextureCreator {
 				const mip = tex.mipmaps[ 0 ];
 				const idx = normalized.length;
 				normalized.push( null ); // placeholder — filled after Promise.all
-				bitmapJobs.push( { index: idx, promise: _rawPixelsToBitmap( mip.data, mip.width, mip.height ) } );
+				bitmapJobs.push( { index: idx, flipY: tex.flipY, promise: _rawPixelsToBitmap( mip.data, mip.width, mip.height ) } );
 				continue;
 
 			}
@@ -1323,7 +1350,7 @@ export class TextureCreator {
 
 				const idx = normalized.length;
 				normalized.push( null );
-				bitmapJobs.push( { index: idx, promise: _rawPixelsToBitmap( tex.image.data, tex.image.width, tex.image.height ) } );
+				bitmapJobs.push( { index: idx, flipY: tex.flipY, promise: _rawPixelsToBitmap( tex.image.data, tex.image.width, tex.image.height ) } );
 				continue;
 
 			}
@@ -1339,14 +1366,14 @@ export class TextureCreator {
 
 			for ( let i = 0; i < bitmapJobs.length; i ++ ) {
 
-				const { index } = bitmapJobs[ i ];
+				const { index, flipY } = bitmapJobs[ i ];
 				const result = results[ i ];
 
 				if ( result.status === 'fulfilled' ) {
 
 					const bitmap = result.value;
 					bitmapsToClose.push( bitmap );
-					normalized[ index ] = { image: bitmap };
+					normalized[ index ] = { image: bitmap, flipY };
 
 				} else {
 
@@ -1367,7 +1394,7 @@ export class TextureCreator {
 				const placeholder = new Uint8ClampedArray( [ 255, 255, 255, 255 ] );
 				const bitmap = await createImageBitmap( new ImageData( placeholder, 1, 1 ) );
 				bitmapsToClose.push( bitmap );
-				normalized[ i ] = { image: bitmap };
+				normalized[ i ] = { image: bitmap, flipY: false };
 
 			}
 
