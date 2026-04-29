@@ -8,7 +8,7 @@
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
 - [ ] optimized 4k hdr enviroments
-- [ ] single DOM parant for all mountings, tiles, denoisers etc
+- [x] single DOM parant for all mountings, tiles, denoisers etc
   
 ### Known
 
@@ -116,7 +116,7 @@
 - [x] Ranged GPU upload (addUpdateRange) for partial buffer updates
 - [x] TLAS in-place refit instead of full SAH rebuild on transform
 - [ ] Object-space triangles + instance transform buffer for true instancing
-- [ ] GPU compute refit via compute shader (blocked on Three.js read-write storage buffers)
+- [ ] GPU compute refit via compute shader (level-by-level dispatch with barriers; replaces worker + SharedArrayBuffer path)
 - [ ] Background BLAS rebuild after refit when SAH quality degrades
 - [ ] Compact Wide BVH (CWBVH) — 4/8-way branching for GPU traversal
 
