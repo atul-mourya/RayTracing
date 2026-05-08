@@ -995,26 +995,21 @@ export class PathTracerApp extends EventDispatcher {
 	}
 
 	/**
-	 * Downloads a PNG screenshot of the current render.
+	 * Captures the current render as a Blob. Returns null if no canvas is
+	 * available. The host is responsible for downloading or otherwise
+	 * consuming the result.
+	 *
+	 * @param {Object}  [options]
+	 * @param {string}  [options.type='image/png']  - MIME type for the encoded image
+	 * @param {number}  [options.quality]           - 0–1 quality hint for lossy formats
+	 * @returns {Promise<Blob|null>}
 	 */
-	screenshot() {
+	screenshot( { type = 'image/png', quality } = {} ) {
 
 		const canvas = this.getCanvas();
-		if ( ! canvas ) return;
+		if ( ! canvas ) return Promise.resolve( null );
 
-		try {
-
-			const data = canvas.toDataURL( 'image/png' );
-			const link = document.createElement( 'a' );
-			link.href = data;
-			link.download = 'screenshot.png';
-			link.click();
-
-		} catch ( error ) {
-
-			console.error( 'Screenshot failed:', error );
-
-		}
+		return new Promise( ( resolve ) => canvas.toBlob( resolve, type, quality ) );
 
 	}
 
@@ -1474,14 +1469,12 @@ export class PathTracerApp extends EventDispatcher {
 			pathTracer: this.stages.pathTracer
 		} );
 		this.stages.ssrc = new SSRC( this.renderer, { enabled: false } );
-		const debugContainer = this._container || null;
-		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false, debugContainer } );
+		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
 		this.stages.variance = new Variance( this.renderer, { enabled: false } );
 		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
 		this.stages.adaptiveSampling = new AdaptiveSampling( this.renderer, {
 			adaptiveSamplingMax,
 			enabled: useAdaptiveSampling,
-			debugContainer,
 		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
@@ -1511,7 +1504,6 @@ export class PathTracerApp extends EventDispatcher {
 				compositor: this.stages.compositor,
 			},
 			pipeline: this.pipeline,
-			debugContainer: this._container || null,
 			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,
 			getSaturation: () => this.settings.get( 'saturation' ) ?? 1.0,
 			getTransparentBg: () => this.settings.get( 'transparentBackground' ) ?? false,

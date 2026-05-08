@@ -162,9 +162,17 @@ const ViewportToolbar = ( {
 
 	}, [] );
 
-	const handleScreenshot = useCallback( () => {
+	const handleScreenshot = useCallback( async () => {
 
-		getApp()?.screenshot();
+		const blob = await getApp()?.screenshot();
+		if ( ! blob ) return;
+
+		const url = URL.createObjectURL( blob );
+		const link = document.createElement( 'a' );
+		link.href = url;
+		link.download = 'screenshot.png';
+		link.click();
+		URL.revokeObjectURL( url );
 
 	}, [] );
 

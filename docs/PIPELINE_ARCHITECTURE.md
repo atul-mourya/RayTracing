@@ -435,9 +435,10 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 - `pathtracer:normalDepth`
 
 **Output:**
-- `asvgf:output` - Denoised color
-- `asvgf:variance` - Variance map
-- `asvgf:temporalColor` - Temporal accumulation
+- `asvgf:output` - Denoised color (context texture)
+- `asvgf:variance` - Variance map (context texture)
+- `asvgf:temporalColor` - Temporal accumulation (context texture)
+- `stage.heatmapTarget` - Public `RenderTarget` for host-side debug overlays (not in context — only written when `setHeatmapEnabled(true)`)
 
 **Key Features:**
 - Motion vector calculation
@@ -463,8 +464,8 @@ this.environment.callbacks.getSceneTextureNodes = () =>
 - `pathtracer:normalDepth`
 
 **Output:**
-- `adaptiveSampling:output` - Sample mask
-- `adaptiveSampling:heatmap` - Visualization
+- `adaptiveSampling:output` - Sample mask (context texture)
+- `stage.heatmapTarget` - Public `RenderTarget` for host-side debug overlays (not in context — read directly from the stage)
 
 **Key Features:**
 - Variance threshold detection
@@ -613,7 +614,6 @@ OverlayManager → outline + scene helpers + HUD (at display resolution)
 | `asvgf:temporalColor` | ASVGF | - | Temporal accumulation |
 | `edgeFiltering:output` | EdgeFilter | Compositor | Filtered color |
 | `adaptiveSampling:output` | AdaptiveSampling | - | Sample mask |
-| `adaptiveSampling:heatmap` | AdaptiveSampling | - | Heatmap visualization |
 
 ---
 

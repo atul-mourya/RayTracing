@@ -4,7 +4,6 @@ import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { NearestFilter, LinearFilter, RGBAFormat, HalfFloatType, FloatType } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
-import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
 
 // ── wgslFn helpers ──────────────────────────────────────────
 
@@ -150,7 +149,6 @@ export class AdaptiveSampling extends RenderStage {
 		} );
 
 		this.renderer = renderer;
-		this.debugContainer = options.debugContainer || null;
 		this.frameNumber = 0;
 		this.delayByFrames = options.delayByFrames ?? 2;
 		this.showAdaptiveSamplingHelper = false;
@@ -191,7 +189,8 @@ export class AdaptiveSampling extends RenderStage {
 		this._heatmapStorageTex.minFilter = NearestFilter;
 		this._heatmapStorageTex.magFilter = NearestFilter;
 
-		// Heatmap render target — FloatType for clean CPU readback via createRenderTargetHelper
+		// Heatmap render target — FloatType, exposed as a public field for hosts to
+		// display via their own readback helper.
 		this.heatmapTarget = new RenderTarget( w, h, {
 			format: RGBAFormat,
 			type: FloatType,
@@ -213,18 +212,6 @@ export class AdaptiveSampling extends RenderStage {
 		// Build compute + heatmap shaders
 		this._buildCompute();
 		this._buildHeatmapCompute();
-
-		// Floating overlay for heatmap visualization
-		this.helper = createRenderTargetHelper( this.renderer, this.heatmapTarget, {
-			width: 400,
-			height: 400,
-			position: 'bottom-right',
-			theme: 'dark',
-			title: 'Adaptive Sampling',
-			autoUpdate: false
-		} );
-		this.helper.hide();
-		( this.debugContainer || document.body ).appendChild( this.helper );
 
 	}
 
@@ -303,8 +290,8 @@ export class AdaptiveSampling extends RenderStage {
 	 * Reads the sampling guidance StorageTexture via textureLoad and maps
 	 * normalizedSamples to a smooth blue→cyan→green→yellow→red gradient.
 	 * Converged pixels are desaturated, brightness is modulated by variance.
-	 * Writes to _heatmapStorageTex, then copied to heatmapTarget for
-	 * createRenderTargetHelper display.
+	 * Writes to _heatmapStorageTex, then copied to the public heatmapTarget
+	 * RenderTarget so the host can display it.
 	 */
 	_buildHeatmapCompute() {
 
@@ -343,13 +330,13 @@ export class AdaptiveSampling extends RenderStage {
 	}
 
 	/**
-	 * Toggle heatmap overlay visibility.
-	 * @param {boolean} val — show/hide
+	 * Enable or disable the heatmap compute pass. When enabled, the heatmap is
+	 * rendered each frame to {@link this.heatmapTarget} (a public RenderTarget)
+	 * for the host to display however it wants.
 	 */
-	toggleHelper( val ) {
+	setHeatmapEnabled( enabled ) {
 
-		this.showAdaptiveSamplingHelper = val;
-		val ? this.helper.show() : this.helper.hide();
+		this.showAdaptiveSamplingHelper = enabled;
 
 	}
 
@@ -387,12 +374,11 @@ export class AdaptiveSampling extends RenderStage {
 		// (StorageTexture extends Texture, works as regular texture for sampling)
 		context.setTexture( 'adaptiveSampling:output', this._outputStorageTex );
 
-		// Render heatmap + update helper overlay if visualization enabled
+		// Render heatmap into public heatmapTarget when enabled
 		if ( this.showAdaptiveSamplingHelper ) {
 
 			this.renderer.compute( this._heatmapComputeNode );
 			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
-			this.helper.update();
 
 		}
 
@@ -484,7 +470,6 @@ export class AdaptiveSampling extends RenderStage {
 		this._outputStorageTex?.dispose();
 		this.heatmapTarget?.dispose();
 		this._varianceTexNode?.dispose();
-		this.helper?.dispose();
 
 		this._computeNode = null;
 		this._heatmapComputeNode = null;
@@ -492,7 +477,6 @@ export class AdaptiveSampling extends RenderStage {
 		this._outputStorageTex = null;
 		this.heatmapTarget = null;
 		this._varianceTexNode = null;
-		this.helper = null;
 
 	}
 

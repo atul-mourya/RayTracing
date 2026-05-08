@@ -4,7 +4,6 @@ import { Fn, vec3, vec4, float, int, uint, ivec2, uvec2, uniform,
 import { RenderTarget, TextureNode, StorageTexture } from 'three/webgpu';
 import { HalfFloatType, FloatType, RGBAFormat, NearestFilter, LinearFilter } from 'three';
 import { RenderStage, StageExecutionMode } from '../Pipeline/RenderStage.js';
-import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
 import { luminance } from '../TSL/Common.js';
 
 /**
@@ -25,7 +24,6 @@ export class ASVGF extends RenderStage {
 		} );
 
 		this.renderer = renderer;
-		this.debugContainer = options.debugContainer || null;
 
 		this.temporalAlpha = uniform( options.temporalAlpha ?? 0.1 );
 		this.phiColor = uniform( options.phiColor ?? 10.0 );
@@ -100,17 +98,6 @@ export class ASVGF extends RenderStage {
 		this._heatmapGradientTexNode = new TextureNode();
 
 		this._buildHeatmapCompute();
-
-		this.heatmapHelper = createRenderTargetHelper( this.renderer, this.heatmapTarget, {
-			width: 400,
-			height: 400,
-			position: 'bottom-right',
-			theme: 'dark',
-			title: 'ASVGF Debug',
-			autoUpdate: false
-		} );
-		this.heatmapHelper.hide();
-		( this.debugContainer || document.body ).appendChild( this.heatmapHelper );
 
 		this.frameCount = 0;
 
@@ -568,7 +555,6 @@ export class ASVGF extends RenderStage {
 
 			this.renderer.compute( this._heatmapComputeNode );
 			this.renderer.copyTextureToTexture( this._heatmapStorageTex, this.heatmapTarget.texture );
-			this.heatmapHelper.update();
 
 		}
 
@@ -576,18 +562,14 @@ export class ASVGF extends RenderStage {
 
 	}
 
-	toggleHeatmap( enabled ) {
+	/**
+	 * Enable or disable the heatmap compute pass. When enabled, the heatmap
+	 * is rendered each frame to {@link this.heatmapTarget} (a public RenderTarget)
+	 * for the host to display however it wants.
+	 */
+	setHeatmapEnabled( enabled ) {
 
 		this.showHeatmap = enabled;
-		if ( enabled ) {
-
-			this.heatmapHelper.show();
-
-		} else {
-
-			this.heatmapHelper.hide();
-
-		}
 
 	}
 
@@ -662,9 +644,6 @@ export class ASVGF extends RenderStage {
 		this._heatmapNDTexNode?.dispose();
 		this._heatmapMotionTexNode?.dispose();
 		this._heatmapGradientTexNode?.dispose();
-
-		// also removes the DOM node
-		this.heatmapHelper?.dispose();
 
 	}
 

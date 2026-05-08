@@ -42,7 +42,6 @@ function removeOidnTfjsBackend() {
 
 }
 
-import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
 import { TONE_MAP_FNS, linearToSRGB, applySaturation } from '../Processor/ToneMapCPU.js';
 import { getAssetConfig } from '../AssetConfig.js';
 
@@ -82,7 +81,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.camera = camera;
 		this.input = renderer.domElement;
 		this.output = output;
-		this.debugContainer = options.debugContainer || null;
 		this.extractGBufferData = options.extractGBufferData || null;
 		this.getMRTRenderTarget = options.getMRTRenderTarget || null;
 
@@ -143,11 +141,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		this.currentTZAUrl = null;
 		this.unet = null;
 
-		// For debug visualization
-		this.debugHelpers = null;
-		this._lastAlbedoTexture = null;
-		this._lastNormalTexture = null;
-
 		// Initialize asynchronously
 		this._initialize().catch( error => {
 
@@ -163,7 +156,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		try {
 
 			this._setupCanvas();
-			this._initDebugVisualization();
 			await this._setupUNetDenoiser();
 
 		} catch ( error ) {
@@ -171,14 +163,6 @@ export class OIDNDenoiser extends EventDispatcher {
 			throw new Error( `Initialization failed: ${error.message}` );
 
 		}
-
-	}
-
-	_initDebugVisualization() {
-
-		// Note: Debug helpers will be created lazily when MRT textures are available
-		// This avoids creating helpers without proper texture references
-		this.debugHelpers = null;
 
 	}
 
@@ -901,78 +885,6 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	}
 
-	/**
-	 * Update debug visualization using MRT textures directly
-	 * @param {RenderTarget} mrtRenderTarget - The MRT render target containing albedo and normal
-	 */
-	_updateDebugVisualization( mrtRenderTarget ) {
-
-		if ( ! mrtRenderTarget?.textures || mrtRenderTarget.textures.length < 3 ) {
-
-			return;
-
-		}
-
-		// Check if textures have changed (render target was recreated)
-		const texturesChanged = this.debugHelpers &&
-			( this._lastAlbedoTexture !== mrtRenderTarget.textures[ 2 ] ||
-			  this._lastNormalTexture !== mrtRenderTarget.textures[ 1 ] );
-
-		// Create or recreate helpers when textures change
-		if ( ! this.debugHelpers || texturesChanged ) {
-
-			// Dispose existing helpers if they exist
-			if ( this.debugHelpers ) {
-
-				this.debugHelpers.albedo?.dispose();
-				this.debugHelpers.normal?.dispose();
-				console.log( 'OIDNDenoiser: Recreating debug helpers due to texture change' );
-
-			}
-
-			// Pass full MRT render target with textureIndex for async readback
-			this.debugHelpers = {
-				albedo: createRenderTargetHelper( this.renderer, mrtRenderTarget, {
-					width: 250,
-					height: 250,
-					position: 'bottom-right',
-					theme: 'dark',
-					title: 'OIDN Albedo',
-					autoUpdate: false,
-					textureIndex: 2
-				} ),
-				normal: createRenderTargetHelper( this.renderer, mrtRenderTarget, {
-					width: 250,
-					height: 250,
-					position: 'bottom-left',
-					theme: 'dark',
-					title: 'OIDN Normal',
-					autoUpdate: false,
-					textureIndex: 1
-				} )
-			};
-
-			// Store references to track texture changes
-			this._lastAlbedoTexture = mrtRenderTarget.textures[ 2 ];
-			this._lastNormalTexture = mrtRenderTarget.textures[ 1 ];
-
-			// Add helpers to DOM
-			const container = this.debugContainer || document.body;
-			container.appendChild( this.debugHelpers.albedo );
-			container.appendChild( this.debugHelpers.normal );
-
-			// Hide by default (visibility state will be restored by calling code)
-			this.debugHelpers.albedo.hide();
-			this.debugHelpers.normal.hide();
-
-		}
-
-		// Update the displays
-		this.debugHelpers.albedo.update();
-		this.debugHelpers.normal.update();
-
-	}
-
 	_destroyPendingStagingBuffers() {
 
 		for ( const buf of this._pendingStagingBuffers ) {
@@ -999,19 +911,6 @@ export class OIDNDenoiser extends EventDispatcher {
 		// TFJS tears down the cached backend's buffers/textures.
 		removeOidnTfjsBackend();
 		this._destroyGPUInputBuffers();
-
-		// Dispose debug helpers
-		if ( this.debugHelpers ) {
-
-			this.debugHelpers.albedo?.dispose();
-			this.debugHelpers.normal?.dispose();
-			this.debugHelpers = null;
-
-		}
-
-		// Clear texture references
-		this._lastAlbedoTexture = null;
-		this._lastNormalTexture = null;
 
 		// Clean up DOM
 		if ( this.output?.parentNode ) {

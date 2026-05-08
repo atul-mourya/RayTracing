@@ -66,7 +66,9 @@ npm install rayzee three
    // Use namespaced APIs and direct methods
    engine.cameraManager.switchCamera(0);
    engine.lightManager.add('PointLight');
-   engine.screenshot();
+
+   // Capture the current frame as a Blob (host handles save/upload)
+   const blob = await engine.screenshot();
    ```
 
 4. **Run**
@@ -475,13 +477,24 @@ engine.transformManager.controls             // Access the underlying TransformC
 Canvas output, screenshots, and scene statistics — accessed as direct methods on the engine.
 
 ```js
-engine.getCanvas()             // Get the canvas with the final rendered image
-engine.screenshot()            // Download a PNG screenshot
-engine.getStatistics()         // Triangle count, mesh count, etc.
-engine.setCanvasSize(1920, 1080)  // Set explicit canvas dimensions
-engine.onResize()              // Trigger manual resize recalculation
-engine.isComplete()            // Check if rendering has converged
-engine.getFrameCount()         // Get the current accumulated frame count
+engine.getCanvas()                    // Get the canvas with the final rendered image
+const blob = await engine.screenshot()           // Capture frame as Blob (default 'image/png')
+const jpg  = await engine.screenshot({ type: 'image/jpeg', quality: 0.9 })
+engine.getStatistics()                // Triangle count, mesh count, etc.
+engine.setCanvasSize(1920, 1080)      // Set explicit canvas dimensions
+engine.onResize()                     // Trigger manual resize recalculation
+engine.isComplete()                   // Check if rendering has converged
+engine.getFrameCount()                // Get the current accumulated frame count
+```
+
+`screenshot()` returns a `Blob` for the host to save, upload, or display. To trigger a browser download:
+
+```js
+const blob = await engine.screenshot();
+const url = URL.createObjectURL(blob);
+const a = Object.assign(document.createElement('a'), { href: url, download: 'render.png' });
+a.click();
+URL.revokeObjectURL(url);
 ```
 
 ---

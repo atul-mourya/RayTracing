@@ -28,9 +28,8 @@ export class DenoisingManager extends EventDispatcher {
 	 * @param {Function}                               params.getExposure       - () => current exposure value
 	 * @param {Function}                               params.getSaturation     - () => current saturation value
 	 * @param {Function}                               params.getTransparentBg  - () => boolean
-	 * @param {HTMLElement}                            [params.debugContainer]  - Mount point for OIDN debug overlays. Falls back to document.body when null.
 	 */
-	constructor( { renderer, mainCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg, debugContainer = null } ) {
+	constructor( { renderer, mainCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg } ) {
 
 		super();
 
@@ -40,7 +39,6 @@ export class DenoisingManager extends EventDispatcher {
 		this.scene = scene;
 		this.camera = camera;
 		this.pipeline = pipeline;
-		this._debugContainer = debugContainer;
 
 		// Stage references — only used internally for orchestration
 		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, compositor }
@@ -131,7 +129,6 @@ export class DenoisingManager extends EventDispatcher {
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
-			debugContainer: this._debugContainer,
 
 			backendParams: () => ( {
 				device: this.renderer.backend.device,
@@ -328,7 +325,7 @@ export class DenoisingManager extends EventDispatcher {
 		if ( s.adaptiveSampling ) {
 
 			s.adaptiveSampling.enabled = enabled;
-			s.adaptiveSampling.toggleHelper( false );
+			s.adaptiveSampling.setHeatmapEnabled( false );
 
 		}
 
@@ -520,10 +517,14 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/** Toggles the ASVGF heatmap debug overlay. */
+	/**
+	 * Toggle the ASVGF heatmap compute pass. When enabled, the stage writes
+	 * the heatmap to its public `heatmapTarget` RenderTarget — the host is
+	 * responsible for rendering it.
+	 */
 	toggleASVGFHeatmap( enabled ) {
 
-		this._stages.asvgf?.toggleHeatmap?.( enabled );
+		this._stages.asvgf?.setHeatmapEnabled?.( enabled );
 
 	}
 
@@ -580,10 +581,14 @@ export class DenoisingManager extends EventDispatcher {
 
 	}
 
-	/** Toggles the adaptive sampling debug helper. */
+	/**
+	 * Toggle the AdaptiveSampling heatmap compute pass. When enabled, the
+	 * stage writes the heatmap to its public `heatmapTarget` RenderTarget —
+	 * the host is responsible for rendering it.
+	 */
 	toggleAdaptiveSamplingHelper( enabled ) {
 
-		this._stages.adaptiveSampling?.toggleHelper( enabled );
+		this._stages.adaptiveSampling?.setHeatmapEnabled( enabled );
 
 	}
 

@@ -3,6 +3,7 @@ import DimensionDisplay from './DimensionDisplay';
 import AutoFocusOverlay from './AutoFocusOverlay';
 import StatsMeter from './StatsMeter';
 import StatsPanel from './StatsPanel';
+import HeatmapOverlay from './HeatmapOverlay';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
@@ -45,6 +46,8 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 	const statsRef = useRef( stats );
 	const setLoading = useStore( state => state.setLoading );
 	const appMode = useStore( state => state.appMode );
+	const showAsvgfHeatmap = usePathTracerStore( state => state.showAsvgfHeatmap );
+	const showAdaptiveSamplingHelper = usePathTracerStore( state => state.showAdaptiveSamplingHelper );
 
 	// Auto-fit scaling logic - only initialize after canvases are ready
 	const {
@@ -306,7 +309,23 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 			<DimensionDisplay dimension={renderResolution} />
 			<StatsMeter viewportMode={viewportMode} />
 			{isAppInitialized && (
-				<StatsPanel app={appRef.current} container={viewportRef.current} />
+				<>
+					<StatsPanel app={appRef.current} container={viewportRef.current} />
+					<HeatmapOverlay
+						app={appRef.current}
+						renderTarget={appRef.current?.stages?.asvgf?.heatmapTarget}
+						visible={showAsvgfHeatmap}
+						title="ASVGF Debug"
+						position="bottom-right"
+					/>
+					<HeatmapOverlay
+						app={appRef.current}
+						renderTarget={appRef.current?.stages?.adaptiveSampling?.heatmapTarget}
+						visible={showAdaptiveSamplingHelper}
+						title="Adaptive Sampling"
+						position="bottom-left"
+					/>
+				</>
 			)}
 
 			{shouldShowSaveControls && (
