@@ -7,6 +7,7 @@ export const EngineEvents = {
 	// Render lifecycle
 	RENDER_COMPLETE: 'engine:renderComplete',
 	RENDER_RESET: 'engine:renderReset',
+	FRAME: 'engine:frame',
 
 	// Denoiser
 	DENOISING_START: 'engine:denoisingStart',

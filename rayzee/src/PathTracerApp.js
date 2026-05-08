@@ -5,7 +5,6 @@ import {
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
-import { createStats } from './managers/helpers/StatsHelper.js';
 import { PathTracer } from './Stages/PathTracer.js';
 import { NormalDepth } from './Stages/NormalDepth.js';
 import { MotionVector } from './Stages/MotionVector.js';
@@ -64,11 +63,11 @@ export class PathTracerApp extends EventDispatcher {
 	 * @param {HTMLCanvasElement} canvas - Canvas element for rendering
 	 * @param {Object} [options] - Engine options
 	 * @param {boolean} [options.autoResize=true] - Automatically listen for window resize events
-	 * @param {boolean} [options.showStats=true] - Show the performance stats panel
 	 * @param {HTMLElement} [options.container] - Single DOM parent the engine mounts all auxiliary
-	 *   elements into (HUD overlay, denoiser canvas, stats). Defaults to `canvas.parentNode`.
-	 * @param {HTMLElement} [options.statsContainer] - Override mount target for the stats panel only.
-	 *   Defaults to `options.container`.
+	 *   elements into (HUD overlay, denoiser canvas). Defaults to `canvas.parentNode`.
+	 *
+	 * The engine dispatches `EngineEvents.FRAME` after each animate() iteration so hosts can
+	 * tick external instrumentation (e.g. a stats panel) without coupling the engine to it.
 	 */
 	constructor( canvas, options = {} ) {
 
@@ -88,9 +87,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.canvas = canvas;
 		this._autoResize = options.autoResize !== false;
-		this._showStats = options.showStats !== false;
 		this._container = options.container || null;
-		this._statsContainer = options.statsContainer || null;
 
 		// ── Settings (single source of truth for all render parameters) ──
 		this.settings = new RenderSettings( DEFAULT_STATE );
@@ -214,8 +211,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.stages.pathTracer.materialData.setMaterialData( new Float32Array( 16 ) );
 		this.stages.pathTracer.setupMaterial();
 
-		if ( this._showStats ) this._initStats();
-
 		this.isInitialized = true;
 		console.log( 'WebGPU Path Tracer App initialized' );
 
@@ -232,7 +227,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		if ( this._loadingInProgress || this._sdf?.isProcessing ) {
 
-			this._stats?.update();
+			this.dispatchEvent( { type: EngineEvents.FRAME } );
 			return;
 
 		}
@@ -334,7 +329,7 @@ export class PathTracerApp extends EventDispatcher {
 		}
 
 		this._renderHelperOverlay();
-		this._stats?.update();
+		this.dispatchEvent( { type: EngineEvents.FRAME } );
 
 		this.renderer.resolveTimestampsAsync?.( TimestampQuery.RENDER );
 		this.renderer.resolveTimestampsAsync?.( TimestampQuery.COMPUTE );
@@ -514,13 +509,6 @@ export class PathTracerApp extends EventDispatcher {
 		this.renderer?.dispose();
 		if ( this.renderer ) this.renderer._canvasTarget = null;
 		this.renderer = null;
-
-		if ( this._stats ) {
-
-			this._stats.dom.remove();
-			this._stats = null;
-
-		}
 
 		this.stages = {};
 		this.isInitialized = false;
@@ -1565,13 +1553,6 @@ export class PathTracerApp extends EventDispatcher {
 			this.wake();
 
 		}
-
-	}
-
-	_initStats() {
-
-		const container = this._statsContainer || this._container || this.canvas.parentElement || document.body;
-		this._stats = createStats( this.renderer, container );
 
 	}
 

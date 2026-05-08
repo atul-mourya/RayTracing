@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, forwardRef, useMemo } 
 import DimensionDisplay from './DimensionDisplay';
 import AutoFocusOverlay from './AutoFocusOverlay';
 import StatsMeter from './StatsMeter';
+import StatsPanel from './StatsPanel';
 import SaveControls from './SaveControls';
 import ViewportToolbar from './ViewportToolbar';
 import InteractionContextMenu from '@/components/ui/InteractionContextMenu';
@@ -184,7 +185,6 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 				const app = new PathTracerApp( canvasRef.current, {
 					container: containerRef.current,
-					statsContainer: viewportRef.current
 				} );
 				appRef.current = app;
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
@@ -305,6 +305,9 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 
 			<DimensionDisplay dimension={renderResolution} />
 			<StatsMeter viewportMode={viewportMode} />
+			{isAppInitialized && (
+				<StatsPanel app={appRef.current} container={viewportRef.current} />
+			)}
 
 			{shouldShowSaveControls && (
 				<SaveControls onSave={handleSave} onDiscard={handleDiscard} />

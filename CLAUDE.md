@@ -284,7 +284,7 @@ Access via Path Tracer tab → Debug Mode:
 - `7`: Environment importance sampling PDF
 
 ### Performance Profiling
-Built-in stats via `stats-gl`:
+The engine emits `EngineEvents.FRAME` once per `animate()` tick. Hosts attach their own stats panel (e.g. `stats-gl`) — the app does this in `app/src/components/layout/Viewports/StatsPanel.jsx`. Other built-in profiling signals:
 - Triangle intersection counters in shaders
 - BVH construction timings with treelet optimization metrics
 - Memory usage tracking for texture arrays

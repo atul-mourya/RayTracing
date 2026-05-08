@@ -8,7 +8,7 @@ A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic —
 npm install rayzee three
 ```
 
-`three` (>=0.183.0) is a required peer dependency. `stats-gl` is installed automatically as a transitive dependency.
+`three` (>=0.183.0) is a required peer dependency.
 
 ## Getting Started
 
@@ -92,7 +92,6 @@ A single HTML file — no Node.js, no build step. Uses [ES module import maps](h
       "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.tsl.js",
       "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.webgpu.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
-      "stats-gl": "https://cdn.jsdelivr.net/npm/stats-gl@4.0.2/dist/main.js",
       "oidn-web": "https://cdn.jsdelivr.net/npm/oidn-web@0.3.5/dist/oidn.js",
       "rayzee": "https://cdn.jsdelivr.net/npm/rayzee/dist/rayzee.es.js"
     }
@@ -264,11 +263,9 @@ const engine = new PathTracerApp(canvas, options?)
 |---|---|---|
 | `canvas` | `HTMLCanvasElement` | Rendering target |
 | `options.autoResize` | `boolean` | Auto-resize on window resize (default: `true`) |
-| `options.showStats` | `boolean` | Show the performance stats panel (default: `true`) |
-| `options.container` | `HTMLElement` | Single DOM parent the engine mounts auxiliary elements into — HUD overlay (tile borders, helpers), denoiser canvas, and stats panel. Defaults to `canvas.parentNode`. |
-| `options.statsContainer` | `HTMLElement` | Override mount target for the stats panel only. Defaults to `options.container`. |
+| `options.container` | `HTMLElement` | Single DOM parent the engine mounts auxiliary elements into — HUD overlay (tile borders, helpers) and denoiser canvas. Defaults to `canvas.parentNode`. |
 
-The engine creates and mounts everything it needs (denoiser canvas, tile/HUD overlay, stats) into a single parent on `init()`
+The engine creates and mounts everything it needs (denoiser canvas, tile/HUD overlay) into a single parent on `init()`. Performance HUDs (e.g. `stats-gl`) are not bundled — listen to `EngineEvents.FRAME` and tick your own panel.
 
 #### Lifecycle
 
@@ -505,6 +502,7 @@ engine.addEventListener(EngineEvents.RENDER_COMPLETE, (e) => {
 |---|---|
 | `RENDER_COMPLETE` | Rendering has converged |
 | `RENDER_RESET` | Accumulation buffer is reset |
+| `FRAME` | Fires once per `animate()` tick — hook external instrumentation (stats panels, telemetry) here |
 | `DENOISING_START` / `DENOISING_END` | Denoiser runs |
 | `UPSCALING_START` / `UPSCALING_PROGRESS` / `UPSCALING_END` | AI upscaler runs |
 | `LOADING_UPDATE` / `LOADING_RESET` | Asset loading progress |
