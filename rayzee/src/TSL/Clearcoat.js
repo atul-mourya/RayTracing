@@ -1,11 +1,7 @@
-// Clearcoat BRDF - Ported from clearcoat.fs
-// Note: evaluateLayeredBRDF lives in MaterialEvaluation.js
-
 import {
 	Fn,
 	vec3,
 	float,
-	dot,
 	normalize,
 	reflect,
 	max,
@@ -14,7 +10,7 @@ import {
 
 import { struct } from './patches.js';
 
-import { Ray, HitInfo, RayTracingMaterial, DotProducts } from './Struct.js';
+import { DotProducts } from './Struct.js';
 import { PI, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
 import { DistributionGGX } from './MaterialProperties.js';
 import { ImportanceSampleGGX, ImportanceSampleCosine } from './MaterialSampling.js';

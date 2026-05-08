@@ -1,15 +1,3 @@
-/**
- * Debugger.js - Debug Visualization Modes
- *
- * Exact port of debugger.fs
- * Pure TSL: Fn(), If(), .toVar(), .assign() — NO wgslFn()
- *
- * Contains:
- *  - visualizeDepth         — depth to grayscale gradient
- *  - visualizeNormal        — normal to RGB mapping
- *  - TraceDebugMode         — main debug mode dispatch (switch on visMode)
- */
-
 import {
 	Fn,
 	wgslFn,

@@ -1,6 +1,3 @@
-// BVH Traversal - Ported from bvhtraverse.fs
-// Stack-based BVH traversal for ray-triangle intersection
-
 import {
 	Fn,
 	wgslFn,
@@ -26,16 +23,8 @@ import {
 } from 'three/tsl';
 
 import { Ray, HitInfo } from './Struct.js';
-import { getDatafromStorageBuffer, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
+import { getDatafromStorageBuffer } from './Common.js';
 import { RandomPointInCircle } from './Random.js';
-
-// ================================================================================
-// STRUCTS
-// ================================================================================
-
-// ================================================================================
-// CONSTANTS
-// ================================================================================
 
 const MAX_STACK_DEPTH = 32;
 const MAX_BVH_ITERATIONS = 512;
