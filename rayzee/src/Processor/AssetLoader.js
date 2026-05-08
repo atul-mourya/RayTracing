@@ -11,6 +11,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
 import { BuildTimer } from './BuildTimer.js';
+import { getAssetConfig } from '../AssetConfig.js';
 
 // Define supported file formats
 const SUPPORTED_FORMATS = {
@@ -739,12 +740,14 @@ export class AssetLoader extends EventDispatcher {
 	// worker pools. Callers must invoke _disposeGLTFLoader() to terminate them.
 	async createGLTFLoader() {
 
+		const { dracoDecoderPath, ktx2TranscoderPath } = getAssetConfig();
+
 		const dracoLoader = new DRACOLoader();
 		dracoLoader.setDecoderConfig( { type: 'js' } );
-		dracoLoader.setDecoderPath( 'https://www.gstatic.com/draco/v1/decoders/' );
+		dracoLoader.setDecoderPath( dracoDecoderPath );
 
 		const ktx2Loader = new KTX2Loader();
-		ktx2Loader.setTranscoderPath( 'https://cdn.jsdelivr.net/npm/three@0.183.2/examples/jsm/libs/basis/' );
+		ktx2Loader.setTranscoderPath( ktx2TranscoderPath );
 
 		if ( this.renderer ) {
 

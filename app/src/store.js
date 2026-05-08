@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, computeCanvasDimensions } from '@/Constants';
-import { ENGINE_DEFAULTS, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG, VideoRenderManager } from 'rayzee';
+import { ENGINE_DEFAULTS, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, VideoRenderManager } from 'rayzee';
 import { getApp } from '@/lib/appProxy';
 import { VideoEncoderPipeline, checkCodecSupport } from '@/lib/VideoEncoder';
 
@@ -157,17 +157,11 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const scene = app.meshScene || app.scene;
-		const object = scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! object ) return;
-
-		object.visible = ! object.visible;
-
-		// Update per-mesh visibility buffer (handles parent-chain resolution internally)
-		app.updateAllMeshVisibility();
+		const newVisibility = app.setMeshVisibilityByUuid( uuid, prev => ! prev );
+		if ( newVisibility === null ) return;
 
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
-			detail: { uuid, visible: object.visible }
+			detail: { uuid, visible: newVisibility }
 		} ) );
 
 	},
@@ -176,14 +170,7 @@ const useStore = create( set => ( {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const scene = app.meshScene || app.scene;
-		const object = scene.getObjectByProperty( 'uuid', uuid );
-		if ( ! object ) return;
-
-		object.visible = visible;
-
-		// Update per-mesh visibility buffer (handles parent-chain resolution internally)
-		app.updateAllMeshVisibility();
+		if ( app.setMeshVisibilityByUuid( uuid, visible ) === null ) return;
 
 		window.dispatchEvent( new CustomEvent( 'meshVisibilityChanged', {
 			detail: { uuid, visible }
@@ -266,9 +253,10 @@ const useEnvironmentStore = create( set => ( {
 // This clean separation eliminates naming confusion and provides clear,
 // self-documenting code for the rendering pipeline.
 
-// Aliases for store spreading (single source of truth in EngineDefaults.js)
-const FINAL_RENDER_STATE = FINAL_RENDER_CONFIG;
-const PREVIEW_STATE = PREVIEW_RENDER_CONFIG;
+// Aliases for store spreading (single source of truth in EngineDefaults.js).
+// App appMode 'preview'/'final-render' tabs map to engine 'interactive'/'production' quality tiers.
+const FINAL_RENDER_STATE = PRODUCTION_RENDER_CONFIG;
+const PREVIEW_STATE = INTERACTIVE_RENDER_CONFIG;
 
 // Debounced procedural sky texture generation (300ms delay)
 // This prevents expensive texture regeneration on every slider movement
@@ -676,16 +664,19 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		( val, app ) => app.denoisingManager.toggleAdaptiveSamplingHelper( val )
 	),
 
+	_inspectorInstance: null,
 	handleInspectorToggle: async val => {
 
 		set( { showInspector: val } );
 		const app = getApp();
 		if ( ! app ) return;
 
-		if ( val && ! app._inspector ) {
+		let inspector = get()._inspectorInstance;
+
+		if ( val && ! inspector ) {
 
 			const { Inspector } = await import( 'three/addons/inspector/Inspector.js' );
-			const inspector = new Inspector();
+			inspector = new Inspector();
 			// Vite dev server serves index.html (not JSON) for raw fetches of files
 			// under node_modules, which breaks the Inspector's extensions probe.
 			inspector.settings._getExtensions = async () => [];
@@ -693,15 +684,15 @@ const usePathTracerStore = create( ( set, get ) => ( {
 			// `transform: scale()` (which re-parents `position: fixed` children).
 			document.body.appendChild( inspector.domElement );
 			app.renderer.inspector = inspector;
-			app._inspector = inspector;
+			set( { _inspectorInstance: inspector } );
 
 		}
 
 		// Toggle DOM visibility directly — Inspector.show()/.hide() in r184 call
 		// Profiler.show(tab) which requires a tab argument and throws otherwise.
-		if ( app._inspector ) {
+		if ( inspector ) {
 
-			app._inspector.domElement.style.display = val ? '' : 'none';
+			inspector.domElement.style.display = val ? '' : 'none';
 
 		}
 
@@ -1337,7 +1328,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const { width, height } = computeCanvasDimensions( state.resolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
 
-		app.configureForMode( 'preview', { canvasWidth: width, canvasHeight: height } );
+		app.configureForMode( 'interactive', { canvasWidth: width, canvasHeight: height } );
 
 	},
 
@@ -1352,7 +1343,7 @@ const usePathTracerStore = create( ( set, get ) => ( {
 		const { width, height } = computeCanvasDimensions( state.finalRenderResolution, state.aspectRatioPreset, state.orientation );
 		set( { canvasWidth: width, canvasHeight: height } );
 
-		app.configureForMode( 'final-render', { canvasWidth: width, canvasHeight: height } );
+		app.configureForMode( 'production', { canvasWidth: width, canvasHeight: height } );
 
 	},
 
@@ -1360,7 +1351,8 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		const app = getApp();
 		if ( ! app ) return;
-		app.configureForMode( 'results' );
+		app.pauseRendering = true;
+		app.cameraManager.controls.enabled = false;
 		set( { isRendering: false } );
 
 	},

@@ -1,35 +1,53 @@
 import { EventDispatcher, ACESFilmicToneMapping } from 'three';
 import { TONE_MAP_FNS, SRGB_GAMMA, applySaturation } from '../Processor/ToneMapCPU.js';
 import { fetchAsWorker } from '../Processor/Workers/fetchAsWorker.js';
+import { getAssetConfig } from '../AssetConfig.js';
 import AI_UPSCALER_WORKER_URL from '../Processor/Workers/AIUpscalerWorker.js?worker&url';
 
 
 // ─── Model Configuration ───────────────────────────────────────────────────────
+// Quality presets reference relative paths against asset-config `upscalerModelBaseUrl`.
 
-const HF_BASE = 'https://huggingface.co/notaneimu/onnx-image-models/resolve/main/';
+const QUALITY_PRESET_PATHS = {
+	fast: {
+		2: '2x-spanx2-ch48.onnx',
+		4: '4xNomos8k_span_otf_strong_fp32_opset17.onnx'
+	},
+	balanced: {
+		2: '2xNomosUni_compact_otf_medium.onnx',
+		4: 'RealESRGAN_x4plus.onnx'
+	},
+	quality: {
+		2: '2x-realesrgan-x2plus.onnx',
+		4: '4xNomos2_hq_mosr_fp32.onnx'
+	}
+};
+
+function _resolveQualityPresets() {
+
+	const { upscalerModelBaseUrl } = getAssetConfig();
+	const out = {};
+	for ( const q in QUALITY_PRESET_PATHS ) {
+
+		out[ q ] = {};
+		for ( const s in QUALITY_PRESET_PATHS[ q ] ) {
+
+			out[ q ][ s ] = upscalerModelBaseUrl + QUALITY_PRESET_PATHS[ q ][ s ];
+
+		}
+
+	}
+
+	return out;
+
+}
 
 const MODEL_CONFIG = {
 
-	// Quality presets: each has a 2x and 4x model (all NCHW, dynamic input dims)
-	QUALITY_PRESETS: {
-		fast: {
-			// 1.6MB — SPAN
-			2: HF_BASE + '2x-spanx2-ch48.onnx',
-			// 1.6MB — SPAN
-			4: HF_BASE + '4xNomos8k_span_otf_strong_fp32_opset17.onnx'
-		},
-		balanced: {
-			// 2.4MB — SRVGGNetCompact
-			2: HF_BASE + '2xNomosUni_compact_otf_medium.onnx',
-			// 4.9MB — SRVGGNetCompact
-			4: HF_BASE + 'RealESRGAN_x4plus.onnx'
-		},
-		quality: {
-			// 67MB — RRDBNet
-			2: HF_BASE + '2x-realesrgan-x2plus.onnx',
-			// 16.5MB — MoSR
-			4: HF_BASE + '4xNomos2_hq_mosr_fp32.onnx'
-		}
+	get QUALITY_PRESETS() {
+
+		return _resolveQualityPresets();
+
 	},
 
 	// Larger tiles = fewer GPU dispatches = faster. 512 works on most GPUs with 4GB+ VRAM.
@@ -189,11 +207,15 @@ export class AIUpscaler extends EventDispatcher {
 
 				};
 
+				const { ortRuntimeUrl, ortWasmPaths, cacheNamespace } = getAssetConfig();
 				this._worker.addEventListener( 'message', handler );
 				this._worker.postMessage( {
 					type: 'load',
 					url,
-					sessionOptions: MODEL_CONFIG.SESSION_OPTIONS
+					sessionOptions: MODEL_CONFIG.SESSION_OPTIONS,
+					ortRuntimeUrl,
+					ortWasmPaths,
+					cacheNamespace,
 				} );
 
 			} );

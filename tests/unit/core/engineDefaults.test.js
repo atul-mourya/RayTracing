@@ -9,8 +9,8 @@ import {
 	AF_DEFAULTS,
 	TEXTURE_CONSTANTS,
 	MEMORY_CONSTANTS,
-	FINAL_RENDER_CONFIG,
-	PREVIEW_RENDER_CONFIG,
+	PRODUCTION_RENDER_CONFIG,
+	INTERACTIVE_RENDER_CONFIG,
 } from '@/core/EngineDefaults.js';
 
 describe( 'ENGINE_DEFAULTS', () => {
@@ -215,9 +215,9 @@ describe( 'Other constants', () => {
 
 	} );
 
-	it( 'FINAL_RENDER_CONFIG has higher bounces than PREVIEW', () => {
+	it( 'PRODUCTION_RENDER_CONFIG has higher bounces than INTERACTIVE', () => {
 
-		expect( FINAL_RENDER_CONFIG.bounces ).toBeGreaterThan( PREVIEW_RENDER_CONFIG.bounces );
+		expect( PRODUCTION_RENDER_CONFIG.bounces ).toBeGreaterThan( INTERACTIVE_RENDER_CONFIG.bounces );
 
 	} );
 

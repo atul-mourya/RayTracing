@@ -28,8 +28,9 @@ export class DenoisingManager extends EventDispatcher {
 	 * @param {Function}                               params.getExposure       - () => current exposure value
 	 * @param {Function}                               params.getSaturation     - () => current saturation value
 	 * @param {Function}                               params.getTransparentBg  - () => boolean
+	 * @param {HTMLElement}                            [params.debugContainer]  - Mount point for OIDN debug overlays. Falls back to document.body when null.
 	 */
-	constructor( { renderer, mainCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg } ) {
+	constructor( { renderer, mainCanvas, scene, camera, stages, pipeline, getExposure, getSaturation, getTransparentBg, debugContainer = null } ) {
 
 		super();
 
@@ -39,6 +40,7 @@ export class DenoisingManager extends EventDispatcher {
 		this.scene = scene;
 		this.camera = camera;
 		this.pipeline = pipeline;
+		this._debugContainer = debugContainer;
 
 		// Stage references — only used internally for orchestration
 		this._stages = stages; // { pathTracer, asvgf, variance, bilateralFilter, adaptiveSampling, edgeFilter, ssrc, autoExposure, compositor }
@@ -129,6 +131,7 @@ export class DenoisingManager extends EventDispatcher {
 
 		this.denoiser = new OIDNDenoiser( this.denoiserCanvas, this.renderer, this.scene, this.camera, {
 			...DEFAULT_STATE,
+			debugContainer: this._debugContainer,
 
 			backendParams: () => ( {
 				device: this.renderer.backend.device,

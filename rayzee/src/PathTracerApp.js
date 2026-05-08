@@ -19,7 +19,7 @@ import { SSRC } from './Stages/SSRC.js';
 import { Compositor } from './Stages/Compositor.js';
 import { RenderPipeline } from './Pipeline/RenderPipeline.js';
 import { CompletionTracker } from './Pipeline/CompletionTracker.js';
-import { ENGINE_DEFAULTS as DEFAULT_STATE, FINAL_RENDER_CONFIG, PREVIEW_RENDER_CONFIG } from './EngineDefaults.js';
+import { ENGINE_DEFAULTS as DEFAULT_STATE, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG } from './EngineDefaults.js';
 import { updateStats, updateLoading, resetLoading, setStatusCallback, getDisplaySamples, disposeObjectFromMemory } from './Processor/utils.js';
 import { BuildTimer } from './Processor/BuildTimer.js';
 import { InteractionManager } from './managers/InteractionManager.js';
@@ -367,7 +367,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this._paused = true;
 		this.stopAnimation();
-		if ( this._stats ) this._stats.dom.style.display = 'none';
 
 	}
 
@@ -376,7 +375,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this._paused = false;
 		if ( ! this.animationManagerId ) this.animate();
-		if ( this._stats ) this._stats.dom.style.display = '';
 
 	}
 
@@ -914,26 +912,16 @@ export class PathTracerApp extends EventDispatcher {
 	// ═══════════════════════════════════════════════════════════════
 
 	/**
-	 * Configures the engine for a specific rendering mode.
-	 * @param {string} mode - 'preview' | 'final-render' | 'results'
+	 * Configures the engine for a specific rendering quality tier.
+	 * @param {'interactive' | 'production'} mode
 	 * @param {Object} [options]
 	 */
 	configureForMode( mode, options = {} ) {
 
-		if ( mode === 'results' ) {
+		const isProduction = mode === 'production';
+		const config = isProduction ? PRODUCTION_RENDER_CONFIG : INTERACTIVE_RENDER_CONFIG;
 
-			this.pauseRendering = true;
-			this.cameraManager.controls.enabled = false;
-			this.renderer?.domElement && ( this.renderer.domElement.style.display = 'none' );
-			this.denoisingManager?.denoiser?.output && ( this.denoisingManager.denoiser.output.style.display = 'none' );
-			return;
-
-		}
-
-		const isFinal = mode === 'final-render';
-		const config = isFinal ? FINAL_RENDER_CONFIG : PREVIEW_RENDER_CONFIG;
-
-		this.cameraManager.controls.enabled = ! isFinal;
+		this.cameraManager.controls.enabled = ! isProduction;
 
 		// Batch uniform updates via settings
 		this.settings.setMany( {
@@ -973,9 +961,6 @@ export class PathTracerApp extends EventDispatcher {
 			this.setCanvasSize( options.canvasWidth, options.canvasHeight );
 
 		}
-
-		this.renderer?.domElement && ( this.renderer.domElement.style.display = 'block' );
-		this.denoisingManager?.denoiser?.output && ( this.denoisingManager.denoiser.output.style.display = 'block' );
 
 		this.needsReset = false;
 		this.pauseRendering = false;
@@ -1147,6 +1132,34 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.stages.pathTracer?.updateAllMeshVisibility();
 		this.reset();
+
+	}
+
+	/**
+	 * The active mesh-bearing scene. Prefer this over reading `scene`/`meshScene`
+	 * directly — the engine may swap the underlying scene between rebuilds.
+	 * @returns {import('three').Scene}
+	 */
+	getScene() {
+
+		return this.meshScene || this.scene;
+
+	}
+
+	// Sets when `visible` is a boolean; toggles when it's an updater (prev) => next.
+	/**
+	 * @param {string} uuid
+	 * @param {boolean | ((prev: boolean) => boolean)} visible
+	 * @returns {boolean | null} new visibility, or null if the mesh wasn't found
+	 */
+	setMeshVisibilityByUuid( uuid, visible ) {
+
+		const object = this.getScene()?.getObjectByProperty( 'uuid', uuid );
+		if ( ! object ) return null;
+		const next = typeof visible === 'function' ? !! visible( object.visible ) : !! visible;
+		object.visible = next;
+		this.updateAllMeshVisibility();
+		return next;
 
 	}
 
@@ -1473,12 +1486,14 @@ export class PathTracerApp extends EventDispatcher {
 			pathTracer: this.stages.pathTracer
 		} );
 		this.stages.ssrc = new SSRC( this.renderer, { enabled: false } );
-		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false } );
+		const debugContainer = this._container || null;
+		this.stages.asvgf = new ASVGF( this.renderer, { enabled: false, debugContainer } );
 		this.stages.variance = new Variance( this.renderer, { enabled: false } );
 		this.stages.bilateralFilter = new BilateralFilter( this.renderer, { enabled: false } );
 		this.stages.adaptiveSampling = new AdaptiveSampling( this.renderer, {
 			adaptiveSamplingMax,
 			enabled: useAdaptiveSampling,
+			debugContainer,
 		} );
 		this.stages.edgeFilter = new EdgeFilter( this.renderer, { enabled: false } );
 		this.stages.autoExposure = new AutoExposure( this.renderer, { enabled: DEFAULT_STATE.autoExposure ?? false } );
@@ -1508,6 +1523,7 @@ export class PathTracerApp extends EventDispatcher {
 				compositor: this.stages.compositor,
 			},
 			pipeline: this.pipeline,
+			debugContainer: this._container || null,
 			getExposure: () => this.settings.get( 'exposure' ) ?? 1.0,
 			getSaturation: () => this.settings.get( 'saturation' ) ?? 1.0,
 			getTransparentBg: () => this.settings.get( 'transparentBackground' ) ?? false,
@@ -1541,9 +1557,9 @@ export class PathTracerApp extends EventDispatcher {
 			stage.isComplete = false;
 			this.completion.resumeFromPause();
 
-			this.canvas.style.opacity = '1';
-			const denoiserOutput = this.denoisingManager?.denoiser?.output;
-			if ( denoiserOutput ) denoiserOutput.style.display = 'none';
+			// Restore live preview: abort() on the denoising manager already
+			// handles canvas opacity, denoiser output visibility, and upscaler reset.
+			this.denoisingManager?.abort( this.canvas );
 
 			this.dispatchEvent( { type: EngineEvents.RENDER_RESET } );
 			this.wake();

@@ -436,15 +436,17 @@ export const TEXTURE_CONSTANTS = {
 // Default texture matrix for materials
 export const DEFAULT_TEXTURE_MATRIX = [ 0, 0, 1, 1, 0, 0, 0, 1 ];
 
-// Render mode configurations
-export const FINAL_RENDER_CONFIG = {
+// Render quality configurations.
+// 'interactive' — low-sample, bounded bounces, no offline denoising, controls enabled.
+// 'production'  — high-sample, deep bounces, OIDN enabled, controls disabled.
+export const PRODUCTION_RENDER_CONFIG = {
 	maxSamples: 30, bounces: 20, transmissiveBounces: 8, samplesPerPixel: 1,
 	renderMode: 1, enableAlphaShadows: true, tiles: 3, tilesHelper: true,
 	enableOIDN: true, oidnQuality: 'balance',
 	interactionModeEnabled: false,
 };
 
-export const PREVIEW_RENDER_CONFIG = {
+export const INTERACTIVE_RENDER_CONFIG = {
 	maxSamples: ENGINE_DEFAULTS.maxSamples, bounces: ENGINE_DEFAULTS.bounces,
 	samplesPerPixel: ENGINE_DEFAULTS.samplesPerPixel, renderMode: ENGINE_DEFAULTS.renderMode, enableAlphaShadows: ENGINE_DEFAULTS.enableAlphaShadows,
 	transmissiveBounces: ENGINE_DEFAULTS.transmissiveBounces,

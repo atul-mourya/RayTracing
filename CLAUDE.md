@@ -80,7 +80,7 @@ Optional scope: `feat(asvgf):`, `fix(tsl):`, `refactor(pipeline):`, etc.
 **Key import patterns**:
 - Engine imports in app code: `import { PathTracerApp, EngineEvents } from 'rayzee'`
 - App proxy: `import { getApp } from '@/lib/appProxy'` (the `@` alias resolves to `app/src/`)
-- Constants from engine: `import { FINAL_RENDER_CONFIG } from 'rayzee'`
+- Constants from engine: `import { PRODUCTION_RENDER_CONFIG } from 'rayzee'`
 
 ## Architecture Overview
 
@@ -225,10 +225,11 @@ const adaptiveSampling = context.getTexture('adaptiveSampling:output');
 ```
 
 ### Progressive Rendering Modes
-Three distinct rendering configurations:
-- **Interactive** (`INTERACTIVE_STATE`): Low samples (1 SPP, 3 bounces) for real-time navigation
-- **Final** (`FINAL_STATE`): High quality (1 SPP, 20 bounces, tiled rendering)
-- **Results**: Paused rendering for image viewing/editing
+Engine quality tiers — the engine API takes `'interactive' | 'production'`:
+- **Interactive** (`INTERACTIVE_RENDER_CONFIG`): Low samples (1 SPP, 3 bounces) for real-time navigation. Camera controls enabled.
+- **Production** (`PRODUCTION_RENDER_CONFIG`): High quality (1 SPP, 20 bounces, tiled rendering, OIDN). Camera controls disabled.
+
+The app maps its UI tab labels (`appMode: 'preview' | 'final-render' | 'results'`) onto these engine tiers. The `'results'` tab is purely UI — when active, the app sets `app.pauseRendering = true` and disables controls directly; the engine has no `'results'` mode of its own.
 
 Mode switching via `handleConfigureFor[Mode]()` methods that batch-update uniforms and reset the pipeline.
 

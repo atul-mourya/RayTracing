@@ -14,8 +14,13 @@
  *     { type: 'error', message, id? }
  */
 
-// Loaded lazily via CDN to avoid bundling the 69 MB onnxruntime-web package
-const ORT_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/ort.webgpu.bundle.min.mjs';
+// Asset config supplied via 'load' message from the main thread.
+// Defaults match the upstream Rayzee deployment; override via configureAssets().
+let _assetConfig = {
+	ortRuntimeUrl: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/ort.webgpu.bundle.min.mjs',
+	ortWasmPaths: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/',
+	cacheNamespace: 'rayzee',
+};
 
 let ort = null;
 
@@ -23,17 +28,23 @@ async function getOrt() {
 
 	if ( ort ) return ort;
 
-	ort = await import( /* @vite-ignore */ ORT_CDN_URL );
+	ort = await import( /* @vite-ignore */ _assetConfig.ortRuntimeUrl );
 
 	// WASM paths for CDN delivery — WebGPU EP still uses WASM for lightweight shape ops
-	ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/';
+	ort.env.wasm.wasmPaths = _assetConfig.ortWasmPaths;
 	ort.env.logLevel = 'error';
 
 	return ort;
 
 }
 
-const IDB_NAME = 'ai-upscaler-models';
+// IndexedDB names are namespaced so multiple consumers on the same origin don't collide.
+function getIdbName() {
+
+	return `${_assetConfig.cacheNamespace}:ai-upscaler-models`;
+
+}
+
 const IDB_STORE = 'models';
 
 let session = null;
@@ -45,7 +56,7 @@ function openDB() {
 
 	return new Promise( ( resolve, reject ) => {
 
-		const req = indexedDB.open( IDB_NAME, 1 );
+		const req = indexedDB.open( getIdbName(), 1 );
 		req.onupgradeneeded = () => req.result.createObjectStore( IDB_STORE );
 		req.onsuccess = () => resolve( req.result );
 		req.onerror = () => reject( req.error );
@@ -204,6 +215,10 @@ self.onmessage = async ( e ) => {
 
 		if ( type === 'load' ) {
 
+			// Apply asset overrides from main thread before any network or cache access
+			if ( e.data.ortRuntimeUrl ) _assetConfig.ortRuntimeUrl = e.data.ortRuntimeUrl;
+			if ( e.data.ortWasmPaths ) _assetConfig.ortWasmPaths = e.data.ortWasmPaths;
+			if ( e.data.cacheNamespace ) _assetConfig.cacheNamespace = e.data.cacheNamespace;
 			await loadModel( e.data.url, e.data.sessionOptions );
 
 		} else if ( type === 'infer' ) {

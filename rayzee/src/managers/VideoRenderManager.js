@@ -7,7 +7,7 @@
  */
 
 import { EngineEvents } from '../EngineEvents.js';
-import { FINAL_RENDER_CONFIG } from '../EngineDefaults.js';
+import { PRODUCTION_RENDER_CONFIG } from '../EngineDefaults.js';
 import { updateStats, getDisplaySamples } from '../Processor/utils.js';
 
 export class VideoRenderManager {
@@ -26,7 +26,7 @@ export class VideoRenderManager {
 	 * @param {Object} options
 	 * @param {number} [options.clipIndex=0]        - Animation clip index
 	 * @param {number} [options.fps=30]             - Output frame rate
-	 * @param {number} [options.samplesPerFrame]     - SPP per frame (defaults to FINAL_RENDER_CONFIG.maxSamples)
+	 * @param {number} [options.samplesPerFrame]     - SPP per frame (defaults to PRODUCTION_RENDER_CONFIG.maxSamples)
 	 * @param {boolean} [options.enableOIDN=true]    - Run OIDN denoiser per frame
 	 * @param {number} [options.speed=1]              - Playback speed multiplier (maps video time to animation time)
 	 * @param {number} [options.totalFrames]         - Override total frame count (for looped animations)
@@ -40,7 +40,7 @@ export class VideoRenderManager {
 			clipIndex = 0,
 			fps = 30,
 			speed = 1,
-			samplesPerFrame = FINAL_RENDER_CONFIG.maxSamples,
+			samplesPerFrame = PRODUCTION_RENDER_CONFIG.maxSamples,
 			enableOIDN = true,
 			onFrame,
 			onProgress,
@@ -80,7 +80,7 @@ export class VideoRenderManager {
 		app.stopAnimation();
 
 		// Configure for high-quality offline rendering
-		app.configureForMode( 'final-render' );
+		app.configureForMode( 'production' );
 
 		// Override samples per frame
 		app.settings.setMany( { maxSamples: samplesPerFrame }, { silent: true } );

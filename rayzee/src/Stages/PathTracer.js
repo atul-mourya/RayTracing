@@ -25,10 +25,7 @@ import { LightSerializer } from '../Processor/LightSerializer';
 
 // Constants
 import { ENGINE_DEFAULTS as DEFAULT_STATE } from '../EngineDefaults.js';
-
-// STBN atlases - original source: https://github.com/NVIDIA-RTX/STBN/blob/main/Assets/STBN.zip
-const stbnScalarAtlas = 'https://assets.rayzee.atulmourya.com/noise/stbn_scalar_atlas.png';
-const stbnVec2Atlas = 'https://assets.rayzee.atulmourya.com/noise/stbn_vec2_atlas.png';
+import { getAssetConfig } from '../AssetConfig.js';
 
 /**
  * Data layout constants
@@ -50,7 +47,7 @@ const BVH_VEC4_PER_NODE = 4;
  * Events emitted:
  * - pathtracer:frameComplete - When a frame finishes rendering
  * - camera:moved - When camera position/orientation changes
- * - tile:changed - When current tile changes (for OverlayManager TileHelper)
+ * - tile:changed - When current tile changes (for OverlayManager TileHelper). @internal — payload carries internal tile coordinates and may change without notice.
  * - asvgf:reset - Request ASVGF to reset temporal data
  * - asvgf:updateParameters - Update ASVGF parameters
  * - asvgf:setTemporal - Enable/disable ASVGF temporal accumulation
@@ -396,6 +393,8 @@ export class PathTracer extends RenderStage {
 			return tex;
 
 		};
+
+		const { stbnScalarAtlas, stbnVec2Atlas } = getAssetConfig();
 
 		loader.load( stbnScalarAtlas, ( tex ) => {
 

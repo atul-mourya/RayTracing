@@ -44,12 +44,12 @@ function removeOidnTfjsBackend() {
 
 import { createRenderTargetHelper } from '../Processor/createRenderTargetHelper.js';
 import { TONE_MAP_FNS, linearToSRGB, applySaturation } from '../Processor/ToneMapCPU.js';
+import { getAssetConfig } from '../AssetConfig.js';
 
 /** Reusable RGB output buffer (avoids per-pixel allocation). */
 const _tmOut = new Float32Array( 3 );
 
 const MODEL_CONFIG = {
-	BASE_URL: 'https://cdn.jsdelivr.net/npm/denoiser/tzas/',
 	// clean-aux models — first-hit albedo/normal are deterministic per pixel
 	QUALITY_MODELS: {
 		fast: 'rt_hdr_alb_nrm_small',
@@ -277,9 +277,10 @@ export class OIDNDenoiser extends EventDispatcher {
 
 	_generateTzaUrl() {
 
-		const { BASE_URL, QUALITY_MODELS } = MODEL_CONFIG;
+		const { oidnWeightsBaseUrl } = getAssetConfig();
+		const { QUALITY_MODELS } = MODEL_CONFIG;
 		const modelName = QUALITY_MODELS[ this.quality ] || QUALITY_MODELS.balance;
-		return `${BASE_URL}${modelName}.tza`;
+		return `${oidnWeightsBaseUrl}${modelName}.tza`;
 
 	}
 

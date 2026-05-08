@@ -129,7 +129,7 @@ const LayerTreeItem = memo( ( { item, depth, parentHidden } ) => {
 		if ( item.visible !== undefined ) return item.visible;
 		if ( item.type !== 'Mesh' || ! getApp() ) return true;
 		const app = getApp();
-		const scene = app.meshScene || app.scene;
+		const scene = app.getScene();
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		return object?.visible ?? true;
 
@@ -175,7 +175,7 @@ const LayerTreeItem = memo( ( { item, depth, parentHidden } ) => {
 
 		}
 
-		const scene = app.meshScene || app.scene;
+		const scene = app.getScene();
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 		if ( object ) {
 
@@ -195,7 +195,7 @@ const LayerTreeItem = memo( ( { item, depth, parentHidden } ) => {
 		const app = getApp();
 		if ( ! app ) return;
 
-		const scene = app.meshScene || app.scene;
+		const scene = app.getScene();
 		const object = scene.getObjectByProperty( 'uuid', item.uuid );
 
 		if ( object ) {
@@ -407,16 +407,7 @@ const Outliner = () => {
 
 	const getSceneElements = useCallback( () => {
 
-		const app = getApp();
-		let scene = app?.scene;
-
-		// Use meshScene which holds actual mesh objects for the outliner hierarchy
-		if ( app?.meshScene ) {
-
-			scene = app.meshScene;
-
-		}
-
+		const scene = getApp()?.getScene();
 		if ( ! scene ) return [];
 
 		const sceneGraph = [ createLayerItem( scene ) ];
