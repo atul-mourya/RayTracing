@@ -291,8 +291,9 @@ export const generateSampledDirection = Fn( ( [
 	If( sampled.not(), () => {
 
 		const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
+		// pathWavelength=0 — only direction/PDF are consumed here, throughput goes via handleTransmission
 		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
-			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState,
+			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState, float( 0.0 ),
 		) );
 		resultDirection.assign( mtResult.direction );
 		resultPdf.assign( max( mtResult.pdf, MIN_PDF ) );
@@ -619,6 +620,10 @@ export const Trace = Fn( ( [
 	const mediumStack_ior_2 = float( 1.0 ).toVar();
 	const mediumStack_ior_3 = float( 1.0 ).toVar();
 
+	// Locked at the first dispersive transmission; reused for subsequent transmissions on
+	// the path so multi-bounce dispersion doesn't collapse under repeated colorWeight ×.
+	const pathWavelength = float( 0.0 ).toVar();
+
 	// Render state
 	const stateTraversals = maxBounceCount.toVar();
 	const stateTransmissiveTraversals = transmissiveBounces.toVar();
@@ -802,7 +807,9 @@ export const Trace = Fn( ( [
 			currentRay, hitInfo.hitPoint, N, material, rngState,
 			stateTransmissiveTraversals,
 			currentMediumIOR, previousMediumIOR,
+			pathWavelength,
 		) ).toVar();
+		pathWavelength.assign( interaction.pathWavelength );
 
 		If( interaction.continueRay, () => {
 

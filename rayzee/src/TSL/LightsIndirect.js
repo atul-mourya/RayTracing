@@ -346,8 +346,9 @@ export const calculateIndirectLighting = Fn( ( [
 
 			// Strategy 3: Transmission
 			const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
+			// pathWavelength=0 — MIS evaluation reads only direction/PDF, no spectral tint
 			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
-				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState
+				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState, float( 0.0 )
 			).toVar() );
 			sampleDir.assign( mtResult.direction );
 			samplePdf.assign( mtResult.pdf );
