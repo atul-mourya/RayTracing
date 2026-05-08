@@ -260,22 +260,6 @@ export const isEmissive = Fn( ( [ material ] ) => {
 
 } );
 
-// Calculate emissive power of a triangle
-export const calculateEmissivePower = Fn( ( [ material, area ] ) => {
-
-	const result = float( 0.0 ).toVar();
-
-	If( isEmissive( material ), () => {
-
-		const avgEmissive = material.emissive.x.add( material.emissive.y ).add( material.emissive.z ).div( 3.0 );
-		result.assign( avgEmissive.mul( material.emissiveIntensity ).mul( area ) );
-
-	} );
-
-	return result;
-
-} );
-
 // ================================================================================
 // TRIANGLE DATA ACCESS
 // ================================================================================

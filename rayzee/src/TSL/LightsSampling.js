@@ -8,14 +8,11 @@
  *  - Deterministic environment NEE (always runs, two-strategy Veach MIS with implicit miss)
  *
  * Contains:
- *  - initLightSample                  — fully initialize LightSample
  *  - sampleRectAreaLight              — rectangle area light sampling
- *  - sampleCircAreaLight              — circle area light sampling
  *  - sampleSpotLightWithRadius        — spot light sampling with radius
  *  - samplePointLightWithAttenuation  — point light sampling with attenuation
  *  - sampleLightWithImportance        — importance-weighted light selection (3-pass)
  *  - calculateMaterialPDF             — material PDF for MIS
- *  - sampleAreaLightContribution      — area light with MIS
  *  - calculateDirectLightingUnified   — unified direct lighting (main entry)
  */
 
@@ -94,23 +91,6 @@ import {
 const TWO_PI = 2.0 * PI;
 
 // =============================================================================
-// Helper: Fully Initialize LightSample
-// =============================================================================
-
-export const initLightSample = Fn( () => {
-
-	return LightSample( {
-		valid: tslBool( false ),
-		direction: vec3( 0.0, 1.0, 0.0 ),
-		emission: vec3( 0.0 ),
-		distance: float( 0.0 ),
-		pdf: float( 0.0 ),
-		lightType: int( LIGHT_TYPE_POINT ),
-	} );
-
-} );
-
-// =============================================================================
 // Light Sampling Functions
 // =============================================================================
 
@@ -150,66 +130,6 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 			ls_distance.assign( dist );
 			ls_direction.assign( direction );
 			// Guard division: ensure denominator is never zero
-			ls_pdf.assign(
-				lightDistSq.div( max( light.area.mul( max( cosAngle, 0.001 ) ), 1e-10 ) ).mul( lightSelectionPdf )
-			);
-			ls_valid.assign( cosAngle.greaterThan( 0.0 ) );
-
-		} );
-
-	} );
-
-	return LightSample( {
-		valid: ls_valid,
-		direction: ls_direction,
-		emission: ls_emission,
-		distance: ls_distance,
-		pdf: ls_pdf,
-		lightType: ls_lightType,
-	} );
-
-} );
-
-// Enhanced area light sampling - circle
-export const sampleCircAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelectionPdf ] ) => {
-
-	const ls_valid = tslBool( false ).toVar();
-	const ls_direction = vec3( 0.0, 1.0, 0.0 ).toVar();
-	const ls_emission = vec3( 0.0 ).toVar();
-	const ls_distance = float( 0.0 ).toVar();
-	const ls_pdf = float( 0.0 ).toVar();
-	const ls_lightType = int( LIGHT_TYPE_POINT ).toVar();
-
-	// Validate light area to prevent NaN
-	If( light.area.greaterThan( 0.0 ), () => {
-
-		// Sample random position on circle
-		const r = float( 0.5 ).mul( sqrt( ruv.x ) ).toVar();
-		const theta = ruv.y.mul( TWO_PI ).toVar();
-		const x = r.mul( cos( theta ) ).toVar();
-		const y = r.mul( sin( theta ) ).toVar();
-
-		const randomPos = light.position
-			.add( light.u.mul( x ) )
-			.add( light.v.mul( y ) )
-			.toVar();
-
-		const toLight = randomPos.sub( rayOrigin ).toVar();
-		const lightDistSq = dot( toLight, toLight ).toVar();
-
-		// Guard against zero distance
-		If( lightDistSq.greaterThanEqual( 1e-10 ), () => {
-
-			const dist = sqrt( lightDistSq ).toVar();
-			const direction = toLight.div( dist ).toVar();
-			const lightNormal = normalize( cross( light.u, light.v ) ).toVar();
-			const cosAngle = dot( direction.negate(), lightNormal ).toVar();
-
-			ls_lightType.assign( int( LIGHT_TYPE_AREA ) );
-			ls_emission.assign( light.color.mul( light.intensity ) );
-			ls_distance.assign( dist );
-			ls_direction.assign( direction );
-			// Guard division
 			ls_pdf.assign(
 				lightDistSq.div( max( light.area.mul( max( cosAngle, 0.001 ) ), 1e-10 ) ).mul( lightSelectionPdf )
 			);
@@ -816,97 +736,6 @@ export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material 
 	} );
 
 	return max( pdf, 1e-8 );
-
-} );
-
-// =============================================================================
-// Enhanced Area Light Sampling with MIS
-// =============================================================================
-
-export const sampleAreaLightContribution = Fn( ( [
-	light,
-	worldWo,
-	hitPoint, hitNormal, material,
-	rayOrigin,
-	bounceIndex,
-	rngState,
-	// Shadow ray resources
-	bvhBuffer,
-	triangleBuffer,
-	materialBuffer,
-] ) => {
-
-	const result = vec3( 0.0 ).toVar();
-
-	// Sample random position on light surface
-	const ruv_r1 = RandomValue( rngState ).toVar();
-	const ruv_r2 = RandomValue( rngState ).toVar();
-	const ruv = vec2( ruv_r1, ruv_r2 ).toVar();
-	const lightPos = light.position.add( light.u.mul( ruv.x.mul( 2.0 ).sub( 1.0 ) ) ).add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) ).toVar();
-
-	const toLight = lightPos.sub( rayOrigin ).toVar();
-	const lightDistSq = dot( toLight, toLight ).toVar();
-
-	// Guard against zero distance
-	If( lightDistSq.greaterThanEqual( 1e-10 ), () => {
-
-		const lightDist = sqrt( lightDistSq ).toVar();
-		const lightDir = toLight.div( lightDist ).toVar();
-
-		// Check if light is facing the surface
-		const lightNormal = normalize( cross( light.u, light.v ) ).toVar();
-		const lightFacing = dot( lightDir.negate(), lightNormal ).toVar();
-
-		If( lightFacing.greaterThan( 0.0 ), () => {
-
-			// Check if surface is facing the light
-			const surfaceFacing = dot( hitNormal, lightDir ).toVar();
-
-			If( surfaceFacing.greaterThan( 0.0 ), () => {
-
-				// Validate direction
-				If( isDirectionValid( { direction: lightDir, surfaceNormal: hitNormal } ), () => {
-
-					// Test for occlusion
-					const visibility = traceShadowRay(
-						rayOrigin, lightDir, lightDist.sub( 0.001 ), rngState,
-						traverseBVHShadow,
-						bvhBuffer,
-						triangleBuffer,
-						materialBuffer,
-					);
-
-					If( visibility.greaterThan( 0.0 ), () => {
-
-						// Calculate BRDF
-						const brdfColor = evaluateMaterialResponse( worldWo, lightDir, hitNormal, material );
-
-						// Calculate light PDF - guard division
-						const lightPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) ).toVar();
-
-						// Calculate BRDF PDF for MIS
-						const brdfPdf = calculateMaterialPDF( worldWo, lightDir, hitNormal, material ).toVar();
-
-						// Apply MIS weighting
-						const misWeight = select( brdfPdf.greaterThan( 0.0 ), powerHeuristic( { pdf1: lightPdf, pdf2: brdfPdf } ), float( 1.0 ) ).toVar();
-
-						// Calculate final contribution - guard division
-						const lightEmission = light.color.mul( light.intensity ).toVar();
-						result.assign(
-							lightEmission.mul( brdfColor ).mul( surfaceFacing ).mul( visibility ).mul( misWeight ).div( max( lightPdf, MIN_PDF ) )
-						);
-
-					} );
-
-				} );
-
-			} );
-
-		} );
-
-	} );
-
-	return result;
 
 } );
 

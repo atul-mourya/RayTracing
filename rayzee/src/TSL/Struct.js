@@ -216,22 +216,6 @@ export const MISStrategy = struct( {
 	useEnvSampling: 'bool',
 } );
 
-// IMPROVEMENT: Multi-layer MIS type aliases and extensions
-// Use existing structs with clear naming for multi-lobe MIS
-// #define MaterialWeights BRDFWeights
-// #define SamplingResult DirectionSample
-
-// Enhanced material weights for multi-lobe sampling
-export const MultiLobeWeights = struct( {
-	diffuse: 'float',
-	specular: 'float',
-	clearcoat: 'float',
-	transmission: 'float',
-	sheen: 'float',
-	iridescence: 'float',
-	totalWeight: 'float',
-} );
-
 // General rendering state (used across all rendering paths)
 export const RenderState = struct( {
 	traversals: 'int', // Remaining general bounces
@@ -241,8 +225,3 @@ export const RenderState = struct( {
 	actualBounceDepth: 'int', // True depth without manipulation
 } );
 
-export const pathTracerOutputStruct = struct( {
-	gColor: 'vec4', // RGB + alpha
-	gNormalDepth: 'vec4', // Normal(RGB) + depth(A)
-	gAlbedo: 'vec4' // Albedo color + alpha
-} );

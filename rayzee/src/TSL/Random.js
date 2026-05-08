@@ -138,21 +138,6 @@ export const RandomValue = ( state ) => {
 
 };
 
-// Generate random float with better precision
-
-export const RandomValueHighPrecision = ( state ) => {
-
-	// Capture s1 immediately (.toVar()) before advancing state, so it isn't
-	// re-evaluated lazily after the second pcgHash advances state further.
-	const s1 = pcgHash( { state } ).toVar();
-	state.assign( s1 );
-	const s2 = pcgHash( { state } ).toVar();
-
-	// Combine two 24-bit values for 48-bit precision
-	return float( s1.shiftRight( 8 ) ).add( float( s2.shiftRight( 8 ) ).mul( 1.0 / 16777216.0 ) ).mul( 1.0 / 16777216.0 );
-
-};
-
 // -----------------------------------------------------------------------------
 // Directional sampling functions
 // -----------------------------------------------------------------------------
@@ -195,14 +180,6 @@ const computeSTBNAtlasCoord = ( pixelCoords, sampleIndex, dimensionIndex, frame 
 	const tileRow = int( slice ).shiftRight( int( 3 ) ); // slice / 8
 
 	return ivec2( tileCol.mul( int( 128 ) ).add( px ), tileRow.mul( int( 128 ) ).add( py ) );
-
-};
-
-// Sample 1D scalar STBN value in [0,1]
-export const sampleSTBNScalar = ( pixelCoords, sampleIndex, dimensionIndex, frame ) => {
-
-	const coord = computeSTBNAtlasCoord( pixelCoords, sampleIndex, dimensionIndex, frame );
-	return stbnScalarTextureNode.load( coord ).x;
 
 };
 

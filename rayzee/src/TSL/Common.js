@@ -126,19 +126,6 @@ export const applyDithering = wgslFn( `
 	}
 ` );
 
-// Firefly clamping — exact port of GLSL
-export const reduceFireflies = wgslFn( `
-	fn reduceFireflies( color: vec3f, maxValue: f32 ) -> vec3f {
-
-		let lum = dot( color, vec3f( 0.2126, 0.7152, 0.0722 ) );
-		if ( lum > maxValue ) {
-			return color * ( maxValue / lum );
-		}
-		return color;
-
-	}
-` );
-
 // Construct tangent-bitangent-normal matrix — exact port of GLSL
 export const constructTBN = wgslFn( `
 	fn constructTBN( N: vec3f ) -> mat3x3f {

@@ -118,26 +118,10 @@ const fastRayAABBDst = wgslFn( `
 ` );
 
 // ================================================================================
-// VISIBILITY FUNCTIONS
-// ================================================================================
-
-// Side culling — 1 buffer read (slot 10 only)
-// Per-mesh visibility handled at BLAS-pointer level; material visibility always 1.
-export const passesSideCulling = Fn( ( [ materialIndex, rayDirection, normal, materialBuffer ] ) => {
-
-	const sideData = getDatafromStorageBuffer( materialBuffer, materialIndex, int( MATERIAL_SLOT.OPACITY_ALPHA ), int( MATERIAL_SLOTS ) );
-	const side = int( sideData.g );
-	const rayDotNormal = rayDirection.dot( normal );
-	const doubleSide = side.equal( int( 2 ) );
-	const frontSide = side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) );
-	const backSide = side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) );
-	return doubleSide.or( frontSide ).or( backSide );
-
-} );
-
-// ================================================================================
 // MAIN BVH TRAVERSAL
 // ================================================================================
+// Side culling is performed inline inside traverseBVH/traverseBVHShadow using
+// the per-triangle side flag stored in normalCData.w (slot 5, .w channel).
 
 export const traverseBVH = Fn( ( [
 	ray,

@@ -1,6 +1,5 @@
 // Clearcoat BRDF - Ported from clearcoat.fs
-// Note: evaluateLayeredBRDF and calculateLayerAttenuation functions
-// are in MaterialEvaluation.js
+// Note: evaluateLayeredBRDF lives in MaterialEvaluation.js
 
 import {
 	Fn,

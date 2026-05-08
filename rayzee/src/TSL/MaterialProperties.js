@@ -324,63 +324,8 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 } );
 
 // -----------------------------------------------------------------------------
-// Material Importance and Sampling Info
+// Importance Sampling Info
 // -----------------------------------------------------------------------------
-
-export const getMaterialImportance = Fn( ( [ material, mc ] ) => {
-
-	const result = float( 0.0 ).toVar();
-
-	// Early out for specialized materials
-	If( material.transmission.greaterThan( 0.0 ).or( material.clearcoat.greaterThan( 0.0 ) ), () => {
-
-		result.assign( 0.95 );
-
-	} ).Else( () => {
-
-		// Base importance from complexity score
-		const baseImportance = mc.complexityScore.toVar();
-
-		// Enhanced emissive importance
-		const emissiveImportance = float( 0.0 ).toVar();
-		If( mc.isEmissive, () => {
-
-			const emissiveLuminance = dot( material.emissive, REC709_LUMINANCE_COEFFICIENTS );
-			emissiveImportance.assign( min( float( 0.6 ), emissiveLuminance.mul( material.emissiveIntensity ).mul( 0.25 ) ) );
-
-		} );
-
-		// Material-specific boosts
-		const materialBoost = float( 0.0 ).toVar();
-		If( mc.isMetallic.and( mc.isSmooth ), () => {
-
-			materialBoost.addAssign( 0.25 );
-
-		} ).ElseIf( mc.isMetallic, () => {
-
-			materialBoost.addAssign( 0.15 );
-
-		} );
-
-		If( mc.isTransmissive, () => {
-
-			materialBoost.addAssign( 0.2 );
-
-		} );
-		If( mc.hasClearcoat, () => {
-
-			materialBoost.addAssign( 0.1 );
-
-		} );
-
-		const totalImportance = max( baseImportance.add( materialBoost ), emissiveImportance );
-		result.assign( clamp( totalImportance, 0.0, 1.0 ) );
-
-	} );
-
-	return result;
-
-} );
 
 export const getImportanceSamplingInfo = Fn( ( [
 	material, bounceIndex, mc,

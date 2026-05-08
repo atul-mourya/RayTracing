@@ -28,13 +28,6 @@ export const equirectUvToDirection = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
-// Sample environment map color in a given direction
-export const sampleEquirectColor = Fn( ( [ environment, direction, environmentMatrix ] ) => {
-
-	return texture( environment, equirectDirectionToUv( { direction, environmentMatrix } ), 0 ).rgb;
-
-} );
-
 // Calculate PDF for uniform sphere sampling with Jacobian
 export const equirectDirectionPdf = /*@__PURE__*/ wgslFn( `
 	fn equirectDirectionPdf( direction: vec3f, environmentMatrix: mat4x4f ) -> f32 {
