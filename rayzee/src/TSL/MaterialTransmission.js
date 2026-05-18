@@ -472,12 +472,9 @@ export const handleTransmission = Fn( ( [
 			// due to solid angle compression/expansion (cancels for round-trip enter+exit paths)
 			result.throughput.mulAssign( n1.mul( n1 ).div( max( n2.mul( n2 ), EPSILON ) ) );
 
-			// Apply Beer's law absorption when entering medium
-			If( entering.and( material.attenuationDistance.greaterThan( 0.0 ) ), () => {
-
-				result.throughput.mulAssign( calculateBeerLawAbsorption( { attenuationColor: material.attenuationColor, attenuationDistance: material.attenuationDistance, thickness: material.thickness } ) );
-
-			} );
+			// KHR_materials_volume absorption is applied per-bounce in PathTracerCore based
+			// on the actual ray path length inside the medium (driven by the medium stack).
+			// No entry-point thickness approximation here — that would double-count.
 
 			// Fresnel transmission factor with PDF compensation
 			result.throughput.mulAssign( float( 1.0 ).sub( Fr ).div( max( float( 1.0 ).sub( reflectProb ), 0.05 ) ) );

@@ -74,7 +74,7 @@ import { traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment, sampleEquirect } from './Environment.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
-import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
+import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult, calculateBeerLawAbsorption } from './MaterialTransmission.js';
 import {
 	SheenDistribution,
 	calculateVNDFPDF,
@@ -614,11 +614,19 @@ export const Trace = Fn( ( [
 	// behind glass), not the glass surface itself.
 	const auxLocked = tslBool( false ).toVar();
 
-	// Medium stack for transmission (per-slot IOR, slots 1-3 for nested media, depth 0 = air)
+	// Medium stack for transmission (slots 1-3 for nested media, depth 0 = air).
+	// Each slot tracks IOR plus KHR_materials_volume attenuation (color + distance)
+	// so per-bounce in-volume absorption uses the actual ray path length.
 	const mediumStackDepth = int( 0 ).toVar();
 	const mediumStack_ior_1 = float( 1.0 ).toVar();
 	const mediumStack_ior_2 = float( 1.0 ).toVar();
 	const mediumStack_ior_3 = float( 1.0 ).toVar();
+	const mediumStack_attColor_1 = vec3( 1.0 ).toVar();
+	const mediumStack_attColor_2 = vec3( 1.0 ).toVar();
+	const mediumStack_attColor_3 = vec3( 1.0 ).toVar();
+	const mediumStack_attDist_1 = float( 0.0 ).toVar();
+	const mediumStack_attDist_2 = float( 0.0 ).toVar();
+	const mediumStack_attDist_3 = float( 0.0 ).toVar();
 
 	// Locked at the first dispersive transmission; reused for subsequent transmissions on
 	// the path so multi-bounce dispersion doesn't collapse under repeated colorWeight ×.
@@ -695,6 +703,38 @@ export const Trace = Fn( ( [
 			triangleBuffer,
 			materialBuffer,
 		) ).toVar();
+
+		// KHR_materials_volume: apply Beer's law over the actual distance the ray
+		// traveled inside the current medium. Top-of-stack holds the medium the ray
+		// is currently in — depth==0 means air (no absorption).
+		If( hitInfo.didHit.and( mediumStackDepth.greaterThan( int( 0 ) ) ), () => {
+
+			const mAttColor = vec3( 1.0 ).toVar();
+			const mAttDist = float( 0.0 ).toVar();
+			If( mediumStackDepth.equal( int( 1 ) ), () => {
+
+				mAttColor.assign( mediumStack_attColor_1 );
+				mAttDist.assign( mediumStack_attDist_1 );
+
+			} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
+
+				mAttColor.assign( mediumStack_attColor_2 );
+				mAttDist.assign( mediumStack_attDist_2 );
+
+			} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
+
+				mAttColor.assign( mediumStack_attColor_3 );
+				mAttDist.assign( mediumStack_attDist_3 );
+
+			} );
+
+			throughput.mulAssign( calculateBeerLawAbsorption( {
+				attenuationColor: mAttColor,
+				attenuationDistance: mAttDist,
+				thickness: hitInfo.dst,
+			} ) );
+
+		} );
 
 		If( hitInfo.didHit.not(), () => {
 
@@ -826,7 +866,7 @@ export const Trace = Fn( ( [
 
 					If( interaction.entering, () => {
 
-						// Push new medium onto stack
+						// Push new medium onto stack (IOR + KHR_materials_volume attenuation)
 						If( mediumStackDepth.lessThan( int( 3 ) ), () => {
 
 							mediumStackDepth.addAssign( 1 );
@@ -834,14 +874,20 @@ export const Trace = Fn( ( [
 							If( mediumStackDepth.equal( int( 1 ) ), () => {
 
 								mediumStack_ior_1.assign( material.ior );
+								mediumStack_attColor_1.assign( material.attenuationColor );
+								mediumStack_attDist_1.assign( material.attenuationDistance );
 
 							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
 
 								mediumStack_ior_2.assign( material.ior );
+								mediumStack_attColor_2.assign( material.attenuationColor );
+								mediumStack_attDist_2.assign( material.attenuationDistance );
 
 							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
 
 								mediumStack_ior_3.assign( material.ior );
+								mediumStack_attColor_3.assign( material.attenuationColor );
+								mediumStack_attDist_3.assign( material.attenuationDistance );
 
 							} );
 

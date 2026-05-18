@@ -72,7 +72,6 @@
 ### Materials
 
 - [ ] implement pending Physical material properties
-- [ ] transmission volume extension support
 - [ ] SDF-based model rendering
 - [ ] transmission support for displacement materials
 - [ ] Supporting GPU-compressed texture arrays requires adding  per-scene format selection at build time - the TSL compiler doesn't support clean teardown/rebuild of compute pipelines when texture binding types change.
@@ -144,7 +143,7 @@
 - [x] stackless BVH traversal - slowness expected
 - [x] Bindless texture - True hardware-level bindless isn't available in WebGPU
 - [x] irradiance probes,
-- [ ] SPOM (Silhouette Parallax Occlusion Mapping)
+- [ ] SPOM (Silhouette Parallax Occlusion Mapping) ->  more suited for rasterization
 - [ ] Photon mapping
 - [ ] Bidirectional path tracing support
 - [ ] Experiment PLOC for maximum BVH performance scenarios
