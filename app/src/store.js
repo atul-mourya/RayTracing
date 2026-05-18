@@ -1383,9 +1383,11 @@ const useLightStore = create( set => ( {
 		const lights = [ ...s.lights ];
 		if ( ! lights[ idx ] ) return s;
 
-		// Handle array values (from sliders)
+		// React Compiler memoises components by prop reference — mutating the
+		// descriptor in place keeps the same reference and skips re-renders.
+		// Always replace lights[idx] with a fresh object so children re-render.
 		const value = Array.isArray( val ) ? val[ 0 ] : val;
-		lights[ idx ][ prop ] = value;
+		lights[ idx ] = { ...lights[ idx ], [ prop ]: value };
 
 		// Update the actual Three.js light object
 		const app = getApp();
@@ -1438,6 +1440,73 @@ const useLightStore = create( set => ( {
 					if ( light.type === 'RectAreaLight' ) {
 
 						light[ prop ] = value;
+
+					}
+
+				} else if ( prop === 'distance' || prop === 'penumbra' || prop === 'decay' ) {
+
+					if ( light.type === 'SpotLight' || ( prop !== 'penumbra' && light.type === 'PointLight' ) ) {
+
+						light[ prop ] = value;
+
+					}
+
+				} else if ( prop === 'ies' || prop === 'iesIntensity' ) {
+
+					if ( light.type === 'SpotLight' && app.iesManager ) {
+
+						if ( prop === 'ies' ) {
+
+							const current = lights[ idx ].iesIntensity ?? 1.0;
+							const result = app.iesManager.setSpotLightProfile( light.uuid, value || null, current );
+							lights[ idx ].iesIntensity = current;
+
+							// Mirror engine-applied auto values back into the store so
+							// the corresponding sliders + readouts reflect the new state.
+							if ( result?.suggestedAngle != null ) lights[ idx ].angle = result.suggestedAngle * 180 / Math.PI;
+							if ( result?.suggestedPenumbra != null ) lights[ idx ].penumbra = result.suggestedPenumbra;
+							if ( result?.suggestedDecay != null ) lights[ idx ].decay = result.suggestedDecay;
+							lights[ idx ].fixtureLumens = value ? ( result?.fixtureLumens ?? null ) : null;
+
+						} else {
+
+							const name = lights[ idx ].ies || null;
+							if ( name ) app.iesManager.setSpotLightProfile( light.uuid, name, value, { applyAutoCone: false } );
+
+						}
+
+					}
+
+				} else if ( prop === 'gobo' || prop === 'goboIntensity' || prop === 'goboInverted' || prop === 'goboScale' ) {
+
+					const goboCompat = light.type === 'SpotLight' || light.type === 'DirectionalLight';
+					if ( goboCompat && app.goboManager ) {
+
+						if ( prop === 'gobo' ) {
+
+							const current = lights[ idx ].goboIntensity ?? 1.0;
+							const inverted = lights[ idx ].goboInverted ?? false;
+							const scale = lights[ idx ].goboScale ?? 5.0;
+							app.goboManager.setLightGobo( light.uuid, value || null, { intensity: current, inverted, scale } );
+							lights[ idx ].goboIntensity = current;
+							if ( ! value ) lights[ idx ].goboInverted = false;
+
+						} else if ( prop === 'goboIntensity' ) {
+
+							const name = lights[ idx ].gobo || null;
+							const inverted = lights[ idx ].goboInverted ?? false;
+							const scale = lights[ idx ].goboScale ?? 5.0;
+							if ( name ) app.goboManager.setLightGobo( light.uuid, name, { intensity: value, inverted, scale } );
+
+						} else if ( prop === 'goboInverted' ) {
+
+							app.goboManager.setLightGoboInverted( light.uuid, !! value );
+
+						} else if ( prop === 'goboScale' ) {
+
+							app.goboManager.setLightGoboScale( light.uuid, value );
+
+						}
 
 					}
 

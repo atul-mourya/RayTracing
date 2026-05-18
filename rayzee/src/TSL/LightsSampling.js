@@ -59,6 +59,9 @@ import {
 	getDistanceAttenuation,
 	getSpotAttenuation,
 	intersectAreaLight,
+	sampleSpotGoboMask,
+	sampleDirectionalGoboMask,
+	sampleIESProfile,
 } from './LightsCore.js';
 
 import { MISStrategy } from './Struct.js';
@@ -185,7 +188,11 @@ export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, ruv, lightSel
 			const coneAttenuation = getSpotAttenuation( { coneCosine: coneCosAngle, penumbraCosine: penumbraCosAngle, angleCosine: spotCosAngle } );
 			const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: light.distance, decayExponent: light.decay } );
 
-			ls_emission.assign( light.color.mul( light.intensity ).mul( distanceAttenuation ).mul( coneAttenuation ) );
+			// Gobo projection mask + IES photometric profile — both 1.0 when not assigned.
+			const goboMask = sampleSpotGoboMask( light, lightDir );
+			const iesProfile = sampleIESProfile( light, lightDir );
+
+			ls_emission.assign( light.color.mul( light.intensity ).mul( distanceAttenuation ).mul( coneAttenuation ).mul( goboMask ).mul( iesProfile ) );
 
 		} );
 
@@ -366,8 +373,9 @@ export const sampleLightWithImportance = Fn( ( [
 
 					If( light.intensity.greaterThan( 0.0 ), () => {
 
+						const dirGoboMask = sampleDirectionalGoboMask( light, rayOrigin );
 						r_direction.assign( normalize( light.direction ) );
-						r_emission.assign( light.color.mul( light.intensity ) );
+						r_emission.assign( light.color.mul( light.intensity ).mul( dirGoboMask ) );
 						r_distance.assign( 1e6 );
 						r_lightType.assign( int( LIGHT_TYPE_DIRECTIONAL ) );
 						r_valid.assign( tslBool( true ) );
@@ -617,8 +625,9 @@ export const sampleLightWithImportance = Fn( ( [
 
 				} );
 
+				const dirGoboMask = sampleDirectionalGoboMask( light, rayOrigin );
 				r_direction.assign( direction );
-				r_emission.assign( light.color.mul( light.intensity ) );
+				r_emission.assign( light.color.mul( light.intensity ).mul( dirGoboMask ) );
 				r_distance.assign( 1e6 );
 				r_pdf.assign( dirPdf.mul( pdf ) );
 				r_lightType.assign( int( LIGHT_TYPE_DIRECTIONAL ) );

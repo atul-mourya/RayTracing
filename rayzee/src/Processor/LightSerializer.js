@@ -90,13 +90,24 @@ export class LightSerializer {
 		// Get angle parameter from light (default to 0 for sharp shadows)
 		const angle = light.userData.angle || light.angle || 0.0; // In radians
 
+		// Optional projection mask. Sign of intensity carries the inverted flag.
+		const gobo = light.userData?.gobo;
+		const goboIndex = ( gobo && Number.isInteger( gobo.index ) ) ? gobo.index : - 1;
+		const rawIntensity = ( gobo && typeof gobo.intensity === 'number' ) ? gobo.intensity : 1.0;
+		const goboIntensity = ( gobo && gobo.inverted ) ? - Math.abs( rawIntensity ) : Math.abs( rawIntensity );
+		const goboScale = ( gobo && typeof gobo.scale === 'number' ) ? gobo.scale : 5.0;
+
 		// Store in cache with importance
 		this.directionalLightCache.push( {
 			data: [
 				direction.x, direction.y, direction.z, // direction toward light (3)
 				light.color.r, light.color.g, light.color.b, // color (3)
 				light.intensity, // intensity (1)
-				angle // angular diameter in radians (1)
+				angle, // angular diameter in radians (1)
+				goboIndex, // gobo layer index, -1 = none (1)
+				goboIntensity, // signed gobo strength (1)
+				goboScale, // world units per gobo tile (1)
+				0.0, // reserved (1) — padding to keep stride at 12
 			],
 			importance: importance,
 			light: light
@@ -176,6 +187,17 @@ export class LightSerializer {
 		// Calculate importance for sorting
 		const importance = this.calculateLightImportance( light, 'spot' );
 
+		// Optional projection mask ("gobo"). Sign of goboIntensity carries inverted flag.
+		const gobo = light.userData?.gobo;
+		const goboIndex = ( gobo && Number.isInteger( gobo.index ) ) ? gobo.index : - 1;
+		const rawGoboIntensity = ( gobo && typeof gobo.intensity === 'number' ) ? gobo.intensity : 1.0;
+		const goboIntensity = ( gobo && gobo.inverted ) ? - Math.abs( rawGoboIntensity ) : Math.abs( rawGoboIntensity );
+
+		// Optional IES photometric profile. Stored on light.userData.ies by IESManager.
+		const ies = light.userData?.ies;
+		const iesIndex = ( ies && Number.isInteger( ies.index ) ) ? ies.index : - 1;
+		const iesIntensity = ( ies && typeof ies.intensity === 'number' ) ? ies.intensity : 1.0;
+
 		// Store in cache with importance
 		this.spotLightCache.push( {
 			data: [
@@ -186,7 +208,13 @@ export class LightSerializer {
 				light.angle || Math.PI / 4, // cone half-angle in radians (1)
 				light.penumbra || 0.0, // penumbra [0,1] (1)
 				light.distance || 0.0, // cutoff distance (0 = infinite) (1)
-				light.decay !== undefined ? light.decay : 2.0 // decay exponent (1)
+				light.decay !== undefined ? light.decay : 2.0, // decay exponent (1)
+				goboIndex, // gobo layer index, -1 = none (1)
+				goboIntensity, // signed gobo strength (1)
+				iesIndex, // IES profile index, -1 = none (1)
+				iesIntensity, // IES blend [0,1] (1)
+				0.0, // reserved (1)
+				0.0, // reserved (1) — keeps stride at 20 (vec4 aligned)
 			],
 			importance: importance,
 			light: light
@@ -261,10 +289,10 @@ export class LightSerializer {
 	updateShaderUniforms( material ) {
 
 		// Divide flat array lengths by per-light stride to get actual light counts
-		const directionalCount = Math.floor( this.lightData.directional.length / 8 );
+		const directionalCount = Math.floor( this.lightData.directional.length / 12 );
 		const areaCount = Math.floor( this.lightData.rectArea.length / 13 );
 		const pointCount = Math.floor( this.lightData.point.length / 9 );
-		const spotCount = Math.floor( this.lightData.spot.length / 14 );
+		const spotCount = Math.floor( this.lightData.spot.length / 20 );
 
 		// Update light counts in shader defines
 		material.defines.MAX_DIRECTIONAL_LIGHTS = directionalCount;

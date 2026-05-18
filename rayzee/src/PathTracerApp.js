@@ -30,6 +30,8 @@ import { SceneProcessor } from './Processor/SceneProcessor.js';
 import { RenderSettings } from './RenderSettings.js';
 import { CameraManager } from './managers/CameraManager.js';
 import { LightManager } from './managers/LightManager.js';
+import { GoboManager } from './managers/GoboManager.js';
+import { IESManager } from './managers/IESManager.js';
 import { DenoisingManager } from './managers/DenoisingManager.js';
 import { OverlayManager } from './managers/OverlayManager.js';
 import { AnimationManager } from './managers/AnimationManager.js';
@@ -118,6 +120,10 @@ export class PathTracerApp extends EventDispatcher {
 		this.cameraManager = null;
 		/** @type {LightManager} */
 		this.lightManager = null;
+		/** @type {GoboManager} */
+		this.goboManager = null;
+		/** @type {IESManager} */
+		this.iesManager = null;
 		/** @type {DenoisingManager} */
 		this.denoisingManager = null;
 		/** @type {OverlayManager} */
@@ -427,6 +433,8 @@ export class PathTracerApp extends EventDispatcher {
 		this.transformManager?.dispose();
 		this.overlayManager?.dispose();
 		this.lightManager?.dispose();
+		this.goboManager?.dispose();
+		this.iesManager?.dispose();
 		this.denoisingManager?.dispose();
 		this.interactionManager?.dispose();
 		this.cameraManager?.dispose();
@@ -1286,6 +1294,12 @@ export class PathTracerApp extends EventDispatcher {
 
 		this.cameraManager.setInteractionManager( this.interactionManager );
 		this.lightManager = new LightManager( this.scene, this._sceneHelpers, this.stages.pathTracer, {
+			onReset: () => this.reset(),
+		} );
+		this.goboManager = new GoboManager( this.stages.pathTracer, {
+			onReset: () => this.reset(),
+		} );
+		this.iesManager = new IESManager( this.stages.pathTracer, {
 			onReset: () => this.reset(),
 		} );
 		this._setupDenoisingManager();

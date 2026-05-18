@@ -39,6 +39,8 @@ export {
 export { RenderSettings } from './RenderSettings.js';
 export { CameraManager } from './managers/CameraManager.js';
 export { LightManager } from './managers/LightManager.js';
+export { GoboManager } from './managers/GoboManager.js';
+export { IESManager } from './managers/IESManager.js';
 export { DenoisingManager } from './managers/DenoisingManager.js';
 export { OverlayManager } from './managers/OverlayManager.js';
 

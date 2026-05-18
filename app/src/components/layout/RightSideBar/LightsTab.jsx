@@ -1,4 +1,4 @@
-import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus } from 'lucide-react';
+import { Sunrise, Rainbow, Lightbulb, Grid3X3, ArrowsUpFromLine, CircleDot, Trash2, Spotlight, RectangleHorizontal, RectangleVertical, Plus, FilmIcon, X, Contrast, Ruler, CircleDashed, Activity } from 'lucide-react';
 import { Slider } from "@/components/ui/slider";
 import { Row } from "@/components/ui/row";
 import { SliderToggle } from '@/components/ui/slider-toggle';
@@ -7,10 +7,13 @@ import { Vector3Component } from "@/components/ui/vector3";
 import { ColorInput } from "@/components/ui/colorinput";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useLightStore, usePathTracerStore } from '@/store';
 import { getApp } from '@/lib/appProxy';
+import { GOBO_LIBRARY } from '@/services/GoboLibrary';
+import { IES_LIBRARY } from '@/services/IESLibrary';
 import { Separator } from '@/components/ui/separator';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 
 const LIGHT_CONFIG = {
 	DirectionalLight: {
@@ -89,6 +92,174 @@ const LightListItem = ( { light, index, isSelected, onSelect, onRemove } ) => {
 
 };
 
+// Tile grid: 4 columns × 5 rows visible (~60px tile + 4px gap). Beyond that the
+// content area scrolls vertically.
+const GOBO_TILE_PX = 60;
+const GOBO_GAP_PX = 6;
+const GOBO_VISIBLE_ROWS = 5;
+const GOBO_GRID_HEIGHT = GOBO_TILE_PX * GOBO_VISIBLE_ROWS + GOBO_GAP_PX * ( GOBO_VISIBLE_ROWS - 1 );
+
+// Generic thumbnail-grid picker used by both gobos and IES profiles.
+// `items` rows must expose: { name, label, url, preview? } — `preview` is the
+// thumbnail (falls back to `url` for image-based libraries like gobos).
+const LibraryPicker = ( { value, onChange, items, title, addTooltip = 'Assign' } ) => {
+
+	const [ open, setOpen ] = useState( false );
+	const selected = items.find( g => g.name === value );
+	const thumb = ( it ) => it.preview || it.url;
+	const selectedTileRef = useRef( null );
+
+	// When the popover opens, scroll the currently-selected tile into view so
+	// the user sees their assignment instead of the start of the list.
+	useEffect( () => {
+
+		if ( ! open ) return;
+		// Defer to next frame so Radix has mounted the portal contents.
+		const id = requestAnimationFrame( () => {
+
+			selectedTileRef.current?.scrollIntoView( { block: 'nearest', inline: 'nearest' } );
+
+		} );
+		return () => cancelAnimationFrame( id );
+
+	}, [ open ] );
+
+	const pick = ( name ) => {
+
+		onChange( name );
+		setOpen( false );
+
+	};
+
+	return (
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger asChild>
+				<button
+					type="button"
+					className="h-7 w-7 rounded-md border border-border bg-background flex items-center justify-center overflow-hidden hover:border-primary/60 transition-colors"
+					title={selected ? selected.label : addTooltip}
+				>
+					{selected ? (
+						<img src={thumb( selected )} alt={selected.label} className="h-full w-full object-cover" />
+					) : (
+						<Plus size={14} className="text-muted-foreground" />
+					)}
+				</button>
+			</PopoverTrigger>
+			<PopoverContent
+				align="end"
+				className="p-2"
+				style={{ width: GOBO_TILE_PX * 4 + GOBO_GAP_PX * 3 + 16 }}
+			>
+				<div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground px-1">{title}</div>
+				<div
+					className="grid grid-cols-4 overflow-y-auto pr-1"
+					style={{ gap: GOBO_GAP_PX, maxHeight: GOBO_GRID_HEIGHT }}
+				>
+					<button
+						type="button"
+						onClick={() => pick( null )}
+						title="None"
+						ref={! selected ? selectedTileRef : null}
+						className={`flex flex-col items-center justify-center rounded-md border bg-background hover:border-primary/60 transition-colors ${
+							! selected ? 'border-primary ring-1 ring-primary/40' : 'border-border'
+						}`}
+						style={{ width: GOBO_TILE_PX, height: GOBO_TILE_PX }}
+					>
+						<X size={18} className="text-muted-foreground" />
+						<span className="text-[9px] text-muted-foreground mt-0.5">None</span>
+					</button>
+					{items.map( g => (
+						<button
+							key={g.name}
+							type="button"
+							onClick={() => pick( g.name )}
+							title={g.label}
+							ref={selected?.name === g.name ? selectedTileRef : null}
+							className={`relative rounded-md overflow-hidden border hover:border-primary/60 transition-colors ${
+								selected?.name === g.name ? 'border-primary ring-1 ring-primary/40' : 'border-border'
+							}`}
+							style={{ width: GOBO_TILE_PX, height: GOBO_TILE_PX }}
+						>
+							<img
+								src={thumb( g )}
+								alt={g.label}
+								className="h-full w-full object-cover bg-black"
+								draggable={false}
+							/>
+						</button>
+					) )}
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+
+};
+
+const GoboPicker = ( props ) => (
+	<LibraryPicker {...props} items={GOBO_LIBRARY} title="Gobo Masks" addTooltip="Assign gobo mask" />
+);
+
+const IESPicker = ( props ) => (
+	<LibraryPicker {...props} items={IES_LIBRARY} title="IES Profiles" addTooltip="Assign IES profile" />
+);
+
+const GoboControls = ( { light, index, onLightChange, showScale = false } ) => (
+	<>
+		<Row>
+			<span className="opacity-50 text-xs truncate flex items-center gap-1"><FilmIcon size={11} /> Gobo Mask</span>
+			<div className="flex items-center gap-1.5">
+				{light.gobo && (
+					<button
+						type="button"
+						onClick={() => onLightChange( index, 'goboInverted', ! light.goboInverted )}
+						title={light.goboInverted ? 'Mask inverted — click to restore' : 'Invert mask'}
+						className={`h-7 w-7 rounded-md border flex items-center justify-center transition-colors ${
+							light.goboInverted
+								? 'border-primary bg-primary/15 text-primary'
+								: 'border-border bg-background text-muted-foreground hover:border-primary/60'
+						}`}
+					>
+						<Contrast size={14} />
+					</button>
+				)}
+				<GoboPicker
+					value={light.gobo || null}
+					onChange={name => onLightChange( index, 'gobo', name )}
+				/>
+			</div>
+		</Row>
+		{light.gobo && (
+			<>
+				<Row>
+					<Slider
+						label="Mask Strength"
+						icon={FilmIcon}
+						min={0}
+						max={1}
+						step={0.05}
+						value={[ light.goboIntensity ?? 1 ]}
+						onValueChange={value => onLightChange( index, 'goboIntensity', value )}
+					/>
+				</Row>
+				{showScale && (
+					<Row>
+						<Slider
+							label="Tile Scale"
+							icon={FilmIcon}
+							min={0.1}
+							max={50}
+							step={0.1}
+							value={[ light.goboScale ?? 5 ]}
+							onValueChange={value => onLightChange( index, 'goboScale', value )}
+						/>
+					</Row>
+				)}
+			</>
+		)}
+	</>
+);
+
 const LightDetailPanel = ( { light, index, onLightChange } ) => {
 
 	const config = LIGHT_CONFIG[ light.type ] || LIGHT_CONFIG.PointLight;
@@ -142,6 +313,101 @@ const LightDetailPanel = ( { light, index, onLightChange } ) => {
 							step={1}
 							value={[ light.angle ]}
 							onValueChange={value => onLightChange( index, 'angle', value )}
+						/>
+					</Row>
+					<Row>
+						<Slider
+							label="Penumbra"
+							icon={CircleDashed}
+							min={0}
+							max={1}
+							step={0.05}
+							value={[ light.penumbra ?? 0 ]}
+							onValueChange={value => onLightChange( index, 'penumbra', value )}
+						/>
+					</Row>
+					<Row>
+						<Slider
+							label="Distance"
+							icon={Ruler}
+							min={0}
+							max={100}
+							step={0.5}
+							value={[ light.distance ?? 0 ]}
+							onValueChange={value => onLightChange( index, 'distance', value )}
+						/>
+					</Row>
+					<Row>
+						<Slider
+							label="Decay"
+							icon={Activity}
+							min={0}
+							max={4}
+							step={0.1}
+							value={[ light.decay ?? 2 ]}
+							onValueChange={value => onLightChange( index, 'decay', value )}
+						/>
+					</Row>
+					<GoboControls light={light} index={index} onLightChange={onLightChange} />
+					<Row>
+						<span className="opacity-50 text-xs truncate flex items-center gap-1"><Lightbulb size={11} /> IES Profile</span>
+						<IESPicker
+							value={light.ies || null}
+							onChange={name => onLightChange( index, 'ies', name )}
+						/>
+					</Row>
+					{light.ies && (
+						<>
+							<Row>
+								<Slider
+									label="IES Strength"
+									icon={Lightbulb}
+									min={0}
+									max={1}
+									step={0.05}
+									value={[ light.iesIntensity ?? 1 ]}
+									onValueChange={value => onLightChange( index, 'iesIntensity', value )}
+								/>
+							</Row>
+							{Number.isFinite( light.fixtureLumens ) && light.fixtureLumens > 0 && (
+								<Row>
+									<span className="opacity-50 text-xs">Fixture Lumens</span>
+									<span className="text-xs text-muted-foreground">{Math.round( light.fixtureLumens ).toLocaleString()}</span>
+								</Row>
+							)}
+						</>
+					)}
+				</>
+			)}
+
+			{/* DirectionalLight-specific controls */}
+			{light.type === 'DirectionalLight' && (
+				<GoboControls light={light} index={index} onLightChange={onLightChange} showScale />
+			)}
+
+			{/* PointLight-specific controls */}
+			{light.type === 'PointLight' && (
+				<>
+					<Row>
+						<Slider
+							label="Distance"
+							icon={Ruler}
+							min={0}
+							max={100}
+							step={0.5}
+							value={[ light.distance ?? 0 ]}
+							onValueChange={value => onLightChange( index, 'distance', value )}
+						/>
+					</Row>
+					<Row>
+						<Slider
+							label="Decay"
+							icon={Activity}
+							min={0}
+							max={4}
+							step={0.1}
+							value={[ light.decay ?? 2 ]}
+							onValueChange={value => onLightChange( index, 'decay', value )}
 						/>
 					</Row>
 				</>

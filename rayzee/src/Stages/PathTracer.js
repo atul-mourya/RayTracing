@@ -188,6 +188,16 @@ export class PathTracer extends RenderStage {
 		this.spotLightsData = null;
 		this.areaLightsData = null;
 
+		// Spot light gobo (projection mask) DataArrayTexture. Owned externally
+		// (GoboManager); ShaderBuilder reads via this property at graph build time
+		// and refreshes the bound TextureNode in-place when it changes.
+		this.goboMaps = null;
+
+		// Spot light IES photometric profiles DataArrayTexture. Owned externally
+		// (IESManager); ShaderBuilder reads via this property at graph build time
+		// and refreshes the bound TextureNode in-place when it changes.
+		this.iesProfiles = null;
+
 		// STBN noise textures
 		this.stbnScalarTexture = null;
 		this.stbnVec2Texture = null;
@@ -588,11 +598,11 @@ export class PathTracer extends RenderStage {
 	 */
 	_updateLightBufferNodes() {
 
-		// Directional lights (8 floats per light)
+		// Directional lights (12 floats per light — 8 light fields + gobo {index, signed intensity, scale, pad})
 		if ( this.directionalLightsData && this.directionalLightsData.length > 0 ) {
 
 			this.directionalLightsBufferNode.array = Array.from( this.directionalLightsData );
-			this.numDirectionalLights.value = Math.floor( this.directionalLightsData.length / 8 );
+			this.numDirectionalLights.value = Math.floor( this.directionalLightsData.length / 12 );
 
 		} else {
 
@@ -624,11 +634,11 @@ export class PathTracer extends RenderStage {
 
 		}
 
-		// Spot lights (14 floats per light)
+		// Spot lights (20 floats per light — 14 light fields + gobo {idx, signed intensity} + IES {idx, intensity} + 2 reserved)
 		if ( this.spotLightsData && this.spotLightsData.length > 0 ) {
 
 			this.spotLightsBufferNode.array = Array.from( this.spotLightsData );
-			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 14 );
+			this.numSpotLights.value = Math.floor( this.spotLightsData.length / 20 );
 
 		} else {
 

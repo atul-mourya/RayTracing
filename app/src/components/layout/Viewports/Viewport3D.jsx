@@ -193,6 +193,25 @@ const Viewport3D = forwardRef( ( { viewportMode = "preview" }, ref ) => {
 				setLoading( { isLoading: true, title: "Starting", status: "Initializing WebGPU...", progress: 30 } );
 				await app.init();
 
+				// Pre-load the bundled spot-light gobo + IES profile libraries so
+				// they're ready by the time the user opens the Lights tab.
+				try {
+
+					const [ { GOBO_LIBRARY }, { IES_LIBRARY } ] = await Promise.all( [
+						import( '@/services/GoboLibrary' ),
+						import( '@/services/IESLibrary' ),
+					] );
+					await Promise.all( [
+						app.goboManager?.loadLibrary?.( GOBO_LIBRARY ),
+						app.iesManager?.loadLibrary?.( IES_LIBRARY ),
+					] );
+
+				} catch ( e ) {
+
+					console.warn( 'Light mask / IES library load failed', e );
+
+				}
+
 				// Register with appProxy so getApp() works globally
 				setApp( app );
 
