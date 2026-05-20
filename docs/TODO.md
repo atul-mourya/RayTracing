@@ -8,8 +8,6 @@
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
 - [ ] optimized 4k hdr enviroments
-- [ ] adaptivesampling quality preset change not working. throwing errors
-- [ ]  
   
 ### Known
 
