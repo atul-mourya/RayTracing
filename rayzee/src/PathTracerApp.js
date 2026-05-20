@@ -1,7 +1,7 @@
 import { WebGPURenderer, RectAreaLightNode, LinearSRGBColorSpace, SRGBColorSpace } from 'three/webgpu';
 import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
-	ACESFilmicToneMapping, Scene, EventDispatcher, TimestampQuery
+	ACESFilmicToneMapping, Scene, EventDispatcher
 } from 'three';
 import { RectAreaLightTexturesLib } from 'three/addons/lights/RectAreaLightTexturesLib.js';
 import { SceneHelpers } from './SceneHelpers.js';
@@ -336,9 +336,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		this._renderHelperOverlay();
 		this.dispatchEvent( { type: EngineEvents.FRAME } );
-
-		this.renderer.resolveTimestampsAsync?.( TimestampQuery.RENDER );
-		this.renderer.resolveTimestampsAsync?.( TimestampQuery.COMPUTE );
 
 	}
 

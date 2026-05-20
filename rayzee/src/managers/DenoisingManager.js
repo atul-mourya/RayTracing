@@ -575,7 +575,7 @@ export class DenoisingManager extends EventDispatcher {
 	 */
 	setAdaptiveSamplingParams( params ) {
 
-		if ( params.min !== undefined ) this._stages.pathTracer?.setAdaptiveSamplingMin( params.min );
+		if ( params.min !== undefined ) this._stages.pathTracer?.setUniform( 'adaptiveSamplingMin', params.min );
 		if ( params.adaptiveSamplingMax !== undefined ) this._settings?.set( 'adaptiveSamplingMax', params.adaptiveSamplingMax );
 		this._stages.adaptiveSampling?.setAdaptiveSamplingParameters( params );
 
