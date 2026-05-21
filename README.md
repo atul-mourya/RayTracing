@@ -1,5 +1,10 @@
 # Rayzee - Real-Time Path Tracer
 
+[![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-137.6%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
+[![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
+
 A sophisticated real-time path tracing web application that brings physically accurate global illumination to the browser. Built with **Three.js**, **WebGPU**, and **React**, Rayzee delivers production-quality rendering with interactive performance.
 
 The project is organized as a monorepo with two packages:

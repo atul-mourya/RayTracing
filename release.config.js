@@ -20,7 +20,7 @@ const config = {
 			pkgRoot: 'rayzee',
 		} ],
 		[ '@semantic-release/git', {
-			assets: [ 'rayzee/package.json' ],
+			assets: [ 'rayzee/package.json', 'rayzee/README.md', 'README.md' ],
 			message: 'chore(release): ${nextRelease.version}\n\n${nextRelease.notes}'
 		} ],
 		'@semantic-release/github'

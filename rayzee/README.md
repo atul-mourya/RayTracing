@@ -1,5 +1,10 @@
 # Rayzee Engine
 
+[![npm](https://img.shields.io/npm/v/rayzee?label=npm)](https://www.npmjs.com/package/rayzee)
+[![minzipped size](https://img.shields.io/badge/minzipped-137.6%20KB-blue)](https://www.npmjs.com/package/rayzee)
+[![downloads](https://img.shields.io/npm/dw/rayzee?label=downloads)](https://www.npmjs.com/package/rayzee)
+[![jsDelivr](https://img.shields.io/jsdelivr/npm/hm/rayzee?label=jsDelivr)](https://www.jsdelivr.com/package/npm/rayzee)
+
 A real-time WebGPU path tracing engine built on Three.js. Framework-agnostic — use it with React, Vue, vanilla JS, or any other setup.
 
 ## Installation
