@@ -14,7 +14,6 @@
 - [ ] some pixels show black in the first rendered frame even if it hits the environment map
 - [ ] Soft shadows for directional lights not working when enabled from UI
 - [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
-- [ ] Switching to resolution, does the viewport resize operation but with a lot of latency.
 
 
 ### Unconfirmed
