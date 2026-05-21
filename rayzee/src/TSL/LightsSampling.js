@@ -64,7 +64,7 @@ import {
 	sampleIESProfile,
 } from './LightsCore.js';
 
-import { MISStrategy } from './Struct.js';
+import { MISStrategy, DotProducts } from './Struct.js';
 import {
 	calculateDirectionalLightImportance,
 	estimateLightImportance,
@@ -74,7 +74,7 @@ import {
 } from './LightsDirect.js';
 
 import { traverseBVHShadow } from './BVHTraversal.js';
-import { evaluateMaterialResponse } from './MaterialEvaluation.js';
+import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
 import { calculateVNDFPDF } from './MaterialProperties.js';
 import { RandomValue } from './Random.js';
 import {
@@ -85,6 +85,7 @@ import {
 	MIN_PDF,
 	powerHeuristic,
 	balanceHeuristic,
+	computeDotProducts,
 } from './Common.js';
 import {
 	sampleEquirectProbability,
@@ -164,11 +165,13 @@ export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, ruv, lightSel
 	const ls_lightType = int( LIGHT_TYPE_SPOT ).toVar();
 
 	const toLight = light.position.sub( rayOrigin ).toVar();
-	const lightDist = length( toLight ).toVar();
+	// Guard via lengthSq so the sqrt is skipped on rejected (zero-distance) samples.
+	const lightDistSq = dot( toLight, toLight ).toVar();
 
 	// Guard against zero distance
-	If( lightDist.greaterThanEqual( 1e-10 ), () => {
+	If( lightDistSq.greaterThanEqual( 1e-20 ), () => {
 
+		const lightDist = sqrt( lightDistSq ).toVar();
 		const lightDir = toLight.div( lightDist ).toVar();
 
 		// Check cone attenuation
@@ -220,11 +223,13 @@ export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSe
 	const ls_lightType = int( LIGHT_TYPE_POINT ).toVar();
 
 	const toLight = light.position.sub( rayOrigin ).toVar();
-	const lightDist = length( toLight ).toVar();
+	// Guard via lengthSq so the sqrt is skipped on rejected (zero-distance) samples.
+	const lightDistSq = dot( toLight, toLight ).toVar();
 
 	// Guard against zero distance
-	If( lightDist.greaterThanEqual( 1e-10 ), () => {
+	If( lightDistSq.greaterThanEqual( 1e-20 ), () => {
 
+		const lightDist = sqrt( lightDistSq ).toVar();
 		const lightDir = toLight.div( lightDist ).toVar();
 
 		// Calculate distance attenuation using the light's actual distance and decay properties
@@ -254,8 +259,12 @@ export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSe
 // Importance-Weighted Light Sampling
 // =============================================================================
 
-// ANGLE-optimized: No early returns in loops, full initialization
-// 3-pass approach: 1) calculate total weight, 2) select light via CDF, 3) sample selected light
+// Single-pass weighted-reservoir sampling: each light's importance is evaluated
+// exactly once. Compared to the previous 3-pass CDF (sum-then-walk-then-sample)
+// this halves the importance evaluations and storage-buffer reads per NEE call.
+// Selection rule: with seen_weight = sum of weights so far, replace current
+// winner with this candidate with probability w_i / seen_weight. Result is
+// unbiased; PDF = winnerImportance / totalWeight, identical to the CDF form.
 export const sampleLightWithImportance = Fn( ( [
 	rayOrigin, normal, material, randomSeed, bounceIndex, rngState,
 	// Light buffers + counts
@@ -280,8 +289,13 @@ export const sampleLightWithImportance = Fn( ( [
 		const totalWeight = float( 0.0 ).toVar();
 		const lightIndex = int( 0 ).toVar();
 
+		// Reservoir state: winning light's type/index/importance.
+		const selectedType = int( - 1 ).toVar(); // 0=dir, 1=area, 2=point, 3=spot
+		const selectedIdx = int( - 1 ).toVar();
+		const selectedImportance = float( 0.0 ).toVar();
+
 		// =====================================================================
-		// PASS 1: Calculate Total Weight (no early exits)
+		// SINGLE PASS: reservoir-sample across all four light type buffers
 		// =====================================================================
 
 		If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
@@ -291,7 +305,17 @@ export const sampleLightWithImportance = Fn( ( [
 				If( lightIndex.lessThan( int( 16 ) ), () => {
 
 					const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
-					totalWeight.addAssign( calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex ) );
+					const importance = calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex ).toVar();
+					totalWeight.addAssign( importance );
+					If( importance.greaterThan( 0.0 ).and(
+						RandomValue( rngState ).mul( totalWeight ).lessThan( importance )
+					), () => {
+
+						selectedType.assign( 0 );
+						selectedIdx.assign( i );
+						selectedImportance.assign( importance );
+
+					} );
 					lightIndex.addAssign( 1 );
 
 				} );
@@ -307,8 +331,17 @@ export const sampleLightWithImportance = Fn( ( [
 				If( lightIndex.lessThan( int( 16 ) ), () => {
 
 					const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
-					const importance = select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) );
+					const importance = select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) ).toVar();
 					totalWeight.addAssign( importance );
+					If( importance.greaterThan( 0.0 ).and(
+						RandomValue( rngState ).mul( totalWeight ).lessThan( importance )
+					), () => {
+
+						selectedType.assign( 1 );
+						selectedIdx.assign( i );
+						selectedImportance.assign( importance );
+
+					} );
 					lightIndex.addAssign( 1 );
 
 				} );
@@ -324,7 +357,17 @@ export const sampleLightWithImportance = Fn( ( [
 				If( lightIndex.lessThan( int( 16 ) ), () => {
 
 					const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
-					totalWeight.addAssign( calculatePointLightImportance( light, rayOrigin, normal, material ) );
+					const importance = calculatePointLightImportance( light, rayOrigin, normal, material ).toVar();
+					totalWeight.addAssign( importance );
+					If( importance.greaterThan( 0.0 ).and(
+						RandomValue( rngState ).mul( totalWeight ).lessThan( importance )
+					), () => {
+
+						selectedType.assign( 2 );
+						selectedIdx.assign( i );
+						selectedImportance.assign( importance );
+
+					} );
 					lightIndex.addAssign( 1 );
 
 				} );
@@ -340,7 +383,17 @@ export const sampleLightWithImportance = Fn( ( [
 				If( lightIndex.lessThan( int( 16 ) ), () => {
 
 					const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
-					totalWeight.addAssign( calculateSpotLightImportance( light, rayOrigin, normal, material ) );
+					const importance = calculateSpotLightImportance( light, rayOrigin, normal, material ).toVar();
+					totalWeight.addAssign( importance );
+					If( importance.greaterThan( 0.0 ).and(
+						RandomValue( rngState ).mul( totalWeight ).lessThan( importance )
+					), () => {
+
+						selectedType.assign( 3 );
+						selectedIdx.assign( i );
+						selectedImportance.assign( importance );
+
+					} );
 					lightIndex.addAssign( 1 );
 
 				} );
@@ -467,128 +520,8 @@ export const sampleLightWithImportance = Fn( ( [
 		} ).Else( () => {
 
 			// =================================================================
-			// PASS 2: Select and Sample Light (no early returns in loops)
-			// =================================================================
-
-			const selectionValue = randomSeed.x.mul( totalWeight ).toVar();
-			const cumulative = float( 0.0 ).toVar();
-			lightIndex.assign( 0 );
-
-			// Track which light was selected
-			const selectedType = int( - 1 ).toVar(); // 0=dir, 1=area, 2=point, 3=spot
-			const selectedIdx = int( - 1 ).toVar();
-			const selectedImportance = float( 0.0 ).toVar();
-
-			// Directional lights
-			If( numDirectionalLights.greaterThan( int( 0 ) ), () => {
-
-				Loop( { start: int( 0 ), end: numDirectionalLights, type: 'int', condition: '<' }, ( { i } ) => {
-
-					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
-
-						const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
-						const importance = calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex ).toVar();
-						const prevCumulative = cumulative.toVar();
-						cumulative.addAssign( importance );
-
-						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
-
-							selectedType.assign( 0 );
-							selectedIdx.assign( i );
-							selectedImportance.assign( importance );
-
-						} );
-
-					} );
-					lightIndex.addAssign( 1 );
-
-				} );
-
-			} );
-
-			// Area lights
-			If( numAreaLights.greaterThan( int( 0 ) ), () => {
-
-				Loop( { start: int( 0 ), end: numAreaLights, type: 'int', condition: '<' }, ( { i } ) => {
-
-					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
-
-						const light = AreaLight.wrap( getAreaLight( areaLightsBuffer, i ) );
-						const importance = select( light.intensity.greaterThan( 0.0 ), estimateLightImportance( light, rayOrigin, normal, material ), float( 0.0 ) ).toVar();
-						const prevCumulative = cumulative.toVar();
-						cumulative.addAssign( importance );
-
-						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
-
-							selectedType.assign( 1 );
-							selectedIdx.assign( i );
-							selectedImportance.assign( importance );
-
-						} );
-
-					} );
-					lightIndex.addAssign( 1 );
-
-				} );
-
-			} );
-
-			// Point lights
-			If( numPointLights.greaterThan( int( 0 ) ), () => {
-
-				Loop( { start: int( 0 ), end: numPointLights, type: 'int', condition: '<' }, ( { i } ) => {
-
-					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
-
-						const light = PointLight.wrap( getPointLight( pointLightsBuffer, i ) );
-						const importance = calculatePointLightImportance( light, rayOrigin, normal, material ).toVar();
-						const prevCumulative = cumulative.toVar();
-						cumulative.addAssign( importance );
-
-						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
-
-							selectedType.assign( 2 );
-							selectedIdx.assign( i );
-							selectedImportance.assign( importance );
-
-						} );
-
-					} );
-					lightIndex.addAssign( 1 );
-
-				} );
-
-			} );
-
-			// Spot lights
-			If( numSpotLights.greaterThan( int( 0 ) ), () => {
-
-				Loop( { start: int( 0 ), end: numSpotLights, type: 'int', condition: '<' }, ( { i } ) => {
-
-					If( lightIndex.lessThan( int( 16 ) ).and( selectedType.lessThan( int( 0 ) ) ), () => {
-
-						const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, i ) );
-						const importance = calculateSpotLightImportance( light, rayOrigin, normal, material ).toVar();
-						const prevCumulative = cumulative.toVar();
-						cumulative.addAssign( importance );
-
-						If( selectionValue.greaterThan( prevCumulative ).and( selectionValue.lessThanEqual( cumulative ) ), () => {
-
-							selectedType.assign( 3 );
-							selectedIdx.assign( i );
-							selectedImportance.assign( importance );
-
-						} );
-
-					} );
-					lightIndex.addAssign( 1 );
-
-				} );
-
-			} );
-
-			// =================================================================
-			// PASS 3: Sample the selected light (outside loops)
+			// Sample the reservoir-selected light. selectedType / selectedIdx /
+			// selectedImportance were populated during the single-pass walk above.
 			// =================================================================
 
 			// Guard division by zero
@@ -698,14 +631,14 @@ export const sampleLightWithImportance = Fn( ( [
 // Material PDF Calculation for MIS
 // =============================================================================
 
-// Helper function to calculate material PDF for a given direction
-export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material ] ) => {
+// PDF computation given precomputed dot products. Use this when the caller
+// already has dots from a paired evaluateMaterialResponseFromDots invocation
+// to avoid recomputing H + dots.
+export const calculateMaterialPDFFromDots = Fn( ( [ material, dots ] ) => {
 
-	const NoV = max( float( 0.0 ), dot( normal, viewDir ) ).toVar();
-	const NoL = max( float( 0.0 ), dot( normal, lightDir ) ).toVar();
-	const H = normalize( viewDir.add( lightDir ) ).toVar();
-	const NoH = max( float( 0.0 ), dot( normal, H ) ).toVar();
-	const VoH = max( float( 0.0 ), dot( viewDir, H ) ).toVar();
+	const NoV = dots.NoV.toVar();
+	const NoL = dots.NoL.toVar();
+	const NoH = dots.NoH.toVar();
 
 	// Calculate lobe weights
 	const diffuseWeight = float( 1.0 ).sub( material.metalness ).mul(
@@ -745,6 +678,15 @@ export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material 
 	} );
 
 	return max( pdf, 1e-8 );
+
+} );
+
+// Wrapper that computes dots internally. Use this when the caller doesn't
+// already have dots; otherwise prefer calculateMaterialPDFFromDots.
+export const calculateMaterialPDF = Fn( ( [ viewDir, lightDir, normal, material ] ) => {
+
+	const dots = DotProducts.wrap( computeDotProducts( normal, viewDir, lightDir ) );
+	return calculateMaterialPDFFromDots( material, dots );
 
 } );
 
@@ -891,8 +833,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 					If( visibility.greaterThan( 0.0 ), () => {
 
-						const brdfValue = evaluateMaterialResponse( viewDir, lightSample.direction, hitNormal, material );
-						const bPdf = calculateMaterialPDF( viewDir, lightSample.direction, hitNormal, material ).toVar();
+						// Share H + dot products between BRDF eval and PDF — otherwise each
+						// would recompute normalize(V+L) + 5 dot products independently.
+						const sharedDots = DotProducts.wrap( computeDotProducts( hitNormal, viewDir, lightSample.direction ) );
+						const brdfValue = evaluateMaterialResponseFromDots( material, sharedDots );
+						const bPdf = calculateMaterialPDFFromDots( material, sharedDots ).toVar();
 
 						const misW = float( 1.0 ).toVar();
 
@@ -1065,8 +1010,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 					If( visibility.greaterThan( 0.0 ), () => {
 
-						const brdfValue = evaluateMaterialResponse( viewDir, envDirection, hitNormal, material );
-						const bPdf = calculateMaterialPDF( viewDir, envDirection, hitNormal, material ).toVar();
+						// Share H + dots between env BRDF/PDF — same redundancy fix as the
+						// discrete-light path above.
+						const envDots = DotProducts.wrap( computeDotProducts( hitNormal, viewDir, envDirection ) );
+						const brdfValue = evaluateMaterialResponseFromDots( material, envDots );
+						const bPdf = calculateMaterialPDFFromDots( material, envDots ).toVar();
 
 						// Balance heuristic for env MIS — optimal for MIS-compensated PDFs (Karlík et al. 2019).
 						// The implicit path uses material combinedPdf as prevBouncePdf at the miss check.

@@ -138,6 +138,13 @@ export const DotProducts = struct( {
 	LoH: 'float', // Light • Half
 } );
 
+// Kulla-Conty DFG approximation outputs (computed once, consumed by both
+// the multiscatter compensation factor and the total directional albedo).
+export const DFGResult = struct( {
+	compensation: 'vec3', // 1 + F0 * (1/Ew - 1)
+	E_total: 'vec3', // clamp(E_ss * compensation, 0, 1)
+} );
+
 export const MaterialSamples = struct( {
 	albedo: 'vec4',
 	emissive: 'vec3',

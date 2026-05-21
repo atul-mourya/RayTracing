@@ -27,9 +27,9 @@ import {
 
 import { struct } from './patches.js';
 import { Ray, RayTracingMaterial, RenderState, HitInfo, DotProducts, DirectionSample } from './Struct.js';
-import { PI, EPSILON, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, computeDotProducts } from './Common.js';
+import { PI, EPSILON, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, MIN_PDF, computeDotProducts } from './Common.js';
 import { iorToFresnel0, fresnelSchlickFloat } from './Fresnel.js';
-import { DistributionGGX, calculateGGXPDF } from './MaterialProperties.js';
+import { DistributionGGX } from './MaterialProperties.js';
 import { ImportanceSampleGGX } from './MaterialSampling.js';
 import { RandomValue, pcgHash } from './Random.js';
 
@@ -305,8 +305,14 @@ export const sampleMicrofacetTransmission = Fn( ( [
 
 		} );
 
-		// Compute refracted direction using the sampled half-vector
-		const HoV = clamp( dot( H, V ), 0.001, 1.0 );
+		// Compute refracted direction using the sampled half-vector. HoV and NoH
+		// are needed by both the TIR and the transmission PDF branches below, so
+		// hoist them once here (VoH == HoV — same dot product). DistributionGGX D
+		// is also identical between the two branches (calculateGGXPDF builds the
+		// same D internally for the TIR branch), so share it too.
+		const HoV = clamp( dot( H, V ), 0.001, 1.0 ).toVar();
+		const NoH = clamp( dot( N, H ), 0.001, 1.0 ).toVar();
+		const D = DistributionGGX( NoH, transmissionRoughness ).toVar();
 		const refractDir = refract( V.negate(), H, etaRatio ).toVar();
 
 		// Check for total internal reflection
@@ -316,10 +322,8 @@ export const sampleMicrofacetTransmission = Fn( ( [
 			result.direction.assign( reflect( V.negate(), H ) );
 			result.didReflect.assign( true );
 
-			// Calculate PDF for reflection (standard GGX sampling)
-			const NoH = clamp( dot( N, H ), 0.001, 1.0 );
-			const VoH = clamp( dot( V, H ), 0.001, 1.0 );
-			result.pdf.assign( calculateGGXPDF( NoH, VoH, transmissionRoughness ) );
+			// Reflection PDF: D(H) * NoH / (4 * VoH) — reuses the hoisted D + dots.
+			result.pdf.assign( D.mul( NoH ).div( max( float( 4.0 ).mul( HoV ), MIN_PDF ) ) );
 
 		} ).Else( () => {
 
@@ -327,10 +331,7 @@ export const sampleMicrofacetTransmission = Fn( ( [
 			result.direction.assign( refractDir );
 			result.didReflect.assign( false );
 
-			// Calculate proper PDF for microfacet transmission
-			const NoH = clamp( dot( N, H ), 0.001, 1.0 );
 			const HoL = clamp( dot( H, refractDir ), 0.001, 1.0 );
-			const D = DistributionGGX( NoH, transmissionRoughness );
 
 			// Account for change of measure due to refraction (Jacobian)
 			const sqrtDenom = HoV.add( etaRatio.mul( HoL ) );

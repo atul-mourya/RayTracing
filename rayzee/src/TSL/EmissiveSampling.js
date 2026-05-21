@@ -28,9 +28,11 @@ import {
 } from 'three/tsl';
 
 import { struct } from './patches.js';
-import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT } from './Common.js';
+import { MIN_PDF, getDatafromStorageBuffer, powerHeuristic, MATERIAL_SLOTS, MATERIAL_SLOT, computeDotProducts } from './Common.js';
 import { RandomValue } from './Random.js';
-import { calculateMaterialPDF } from './LightsSampling.js';
+import { calculateMaterialPDFFromDots } from './LightsSampling.js';
+import { evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
+import { DotProducts } from './Struct.js';
 
 // ================================================================================
 // STRUCTS
@@ -514,9 +516,10 @@ export const sampleEmissiveTriangle = Fn( ( [
 // EMISSIVE TRIANGLE DIRECT LIGHTING CONTRIBUTION
 // ================================================================================
 
-// Note: calculateEmissiveTriangleContributionDebug requires traceShadowRay and
-// evaluateMaterialResponse which creates circular dependencies.
-// These are passed as function parameters to avoid the cycle.
+// Note: traceShadowRay and calculateRayOffset are passed as Fn parameters to
+// avoid a circular module dependency. BRDF evaluation no longer goes through a
+// callback — we import the FromDots variant directly so we can share dot
+// products with the PDF call below.
 
 export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	hitPoint, normal, viewDir, material,
@@ -526,7 +529,6 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	triangleBuffer,
 	// Callback functions to avoid circular deps
 	traceShadowRayFn,
-	evaluateMaterialResponseFn,
 	calculateRayOffsetFn,
 ] ) => {
 
@@ -570,11 +572,11 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 				If( visibility.greaterThan( 0.0 ), () => {
 
-					// Evaluate BRDF
-					const brdfValue = evaluateMaterialResponseFn( viewDir, emissiveSample.direction, normal, material );
-
-					// Calculate BRDF PDF for MIS
-					const brdfPdf = calculateMaterialPDF( viewDir, emissiveSample.direction, normal, material );
+					// Share H + dot products between BRDF eval and PDF (computeDotProducts
+					// would otherwise run twice with identical inputs).
+					const dots = DotProducts.wrap( computeDotProducts( normal, viewDir, emissiveSample.direction ) );
+					const brdfValue = evaluateMaterialResponseFromDots( material, dots );
+					const brdfPdf = calculateMaterialPDFFromDots( material, dots );
 
 					// MIS weight: balance light sampling vs BRDF sampling
 					const misWeight = select(
@@ -602,7 +604,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 } );
 
-// Wrapper function for backward compatibility
+// Wrapper that returns just the contribution vec3
 export const calculateEmissiveTriangleContribution = Fn( ( [
 	hitPoint, normal, viewDir, material,
 	totalTriangleCount, bounceIndex, rngState,
@@ -610,7 +612,6 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
 	traceShadowRayFn,
-	evaluateMaterialResponseFn,
 	calculateRayOffsetFn,
 ] ) => {
 
@@ -621,7 +622,6 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 		emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		triangleBuffer,
 		traceShadowRayFn,
-		evaluateMaterialResponseFn,
 		calculateRayOffsetFn,
 	) );
 	return result.contribution;

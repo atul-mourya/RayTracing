@@ -7,8 +7,7 @@
  * Contains:
  *  - getOrCreateMaterialClassification — cached material classification
  *  - generateSampledDirection          — BRDF direction sampling with multi-lobe CDF
- *  - estimatePathContribution          — path importance estimation
- *  - handleRussianRoulette             — adaptive path termination
+ *  - handleRussianRoulette             — adaptive path termination (inlines path importance)
  *  - sampleBackgroundLighting          — environment background sampling
  *  - regularizePathContribution        — firefly suppression
  *  - Trace                             — main path tracing loop
@@ -26,6 +25,7 @@ import {
 	max,
 	min,
 	exp,
+	log,
 	clamp,
 	mix,
 	dot,
@@ -57,6 +57,7 @@ import {
 	getMaterial,
 	powerHeuristic,
 	balanceHeuristic,
+	computeDotProducts,
 } from './Common.js';
 import {
 	DirectionSample,
@@ -68,13 +69,14 @@ import {
 	MaterialSamples,
 	RayTracingMaterial,
 	ImportanceSamplingInfo,
+	DotProducts,
 } from './Struct.js';
 import { RandomValue, getRandomSample } from './Random.js';
 import { traverseBVH } from './BVHTraversal.js';
 import { sampleEnvironment, sampleEquirect } from './Environment.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
-import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult, calculateBeerLawAbsorption } from './MaterialTransmission.js';
+import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
 import {
 	SheenDistribution,
 	calculateVNDFPDF,
@@ -82,7 +84,7 @@ import {
 	createMaterialCache,
 	getImportanceSamplingInfo,
 } from './MaterialProperties.js';
-import { evaluateMaterialResponse } from './MaterialEvaluation.js';
+import { evaluateMaterialResponse, evaluateMaterialResponseFromDots } from './MaterialEvaluation.js';
 import { dielectricF0 } from './Fresnel.js';
 import {
 	ImportanceSampleCosine,
@@ -90,7 +92,7 @@ import {
 	sampleGGXVNDF,
 } from './MaterialSampling.js';
 import { sampleClearcoat, ClearcoatResult } from './Clearcoat.js';
-import { calculateDirectLightingUnified, calculateMaterialPDF } from './LightsSampling.js';
+import { calculateDirectLightingUnified, calculateMaterialPDFFromDots } from './LightsSampling.js';
 import { calculateIndirectLighting } from './LightsIndirect.js';
 import { IndirectLightingResult } from './LightsCore.js';
 import { calculateEmissiveTriangleContribution, calculateEmissiveLightPdf, EmissiveSample } from './EmissiveSampling.js';
@@ -153,8 +155,10 @@ export const getOrCreateMaterialClassification = Fn( ( [
 
 export const generateSampledDirection = Fn( ( [
 	V, N, material, materialIndex, xi, rngState,
-	// PathState cache fields
-	classificationCached, lastMaterialIndex, cachedClassification,
+	// Caller-resolved material classification (avoids redundant classifyMaterial —
+	// TSL Fn can't write back to caller variables, so the caller is responsible
+	// for keeping psCachedClassification current and passes it in here).
+	mc,
 	weightsComputed, cachedBrdfWeights,
 	materialCacheCached, cachedMaterialCache,
 ] ) => {
@@ -162,12 +166,6 @@ export const generateSampledDirection = Fn( ( [
 	const resultDirection = vec3( 0.0 ).toVar();
 	const resultValue = vec3( 0.0 ).toVar();
 	const resultPdf = float( 0.0 ).toVar();
-
-	// Get material classification (cached or computed)
-	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
-		material, materialIndex,
-		classificationCached, lastMaterialIndex, cachedClassification,
-	) ).toVar();
 
 	// Compute BRDF weights
 	const weights = cachedBrdfWeights.toVar();
@@ -313,70 +311,12 @@ export const generateSampledDirection = Fn( ( [
 } );
 
 // =============================================================================
-// Path Contribution Estimation
-// =============================================================================
-
-export const estimatePathContribution = Fn( ( [
-	throughput, direction, material, materialIndex,
-	classificationCached, lastMaterialIndex, cachedClassification,
-	enableEnvironmentLight, useEnvMapIS,
-] ) => {
-
-	const throughputStrength = max( maxComponent( { v: throughput } ), 0.0 ).toVar();
-
-	// Use cached material classification
-	const mc = MaterialClassification.wrap( getOrCreateMaterialClassification(
-		material, materialIndex,
-		classificationCached, lastMaterialIndex, cachedClassification,
-	) ).toVar();
-
-	// Enhanced material importance with interaction bonuses
-	const materialImportance = mc.complexityScore.toVar();
-
-	// Interaction complexity bonuses
-	If( mc.isMetallic.and( mc.isSmooth ), () => {
-
-		materialImportance.addAssign( 0.15 );
-
-	} );
-	If( mc.isTransmissive.and( mc.hasClearcoat ), () => {
-
-		materialImportance.addAssign( 0.12 );
-
-	} );
-	If( mc.isEmissive, () => {
-
-		materialImportance.addAssign( 0.1 );
-
-	} );
-	materialImportance.assign( clamp( materialImportance, 0.0, 1.0 ) );
-
-	// Direction importance calculation
-	const directionImportance = float( 0.5 ).toVar();
-
-	If( enableEnvironmentLight.and( useEnvMapIS ).and( throughputStrength.greaterThan( 0.01 ) ), () => {
-
-		const cosTheta = clamp( direction.y, 0.0, 1.0 );
-		directionImportance.assign( mix( float( 0.3 ), float( 0.8 ), cosTheta.mul( cosTheta ) ) );
-
-	} );
-
-	// Enhanced weighting
-	const throughputWeight = smoothstep( float( 0.001 ), float( 0.1 ), throughputStrength );
-	return throughputStrength.mul(
-		mix( materialImportance.mul( 0.7 ), directionImportance, 0.3 ),
-	).mul( throughputWeight );
-
-} );
-
-// =============================================================================
 // Russian Roulette Path Termination
 // =============================================================================
 
 export const handleRussianRoulette = Fn( ( [
 	depth, throughput, material, materialIndex, rayDirection, rngState,
 	classificationCached, lastMaterialIndex, cachedClassification,
-	weightsComputed, pathImportance,
 	enableEnvironmentLight, useEnvMapIS,
 ] ) => {
 
@@ -444,22 +384,37 @@ export const handleRussianRoulette = Fn( ( [
 
 			} ).Else( () => {
 
-				// Path importance — used across all depth ranges
-				const pathContribution = float( 0.0 ).toVar();
+				// Path contribution estimate — reuses throughputStrength + mc from outer scope.
+				const estMaterialImportance = mc.complexityScore.toVar();
+				If( mc.isMetallic.and( mc.isSmooth ), () => {
 
-				If( classificationCached.and( weightsComputed ), () => {
-
-					pathContribution.assign( pathImportance );
-
-				} ).Else( () => {
-
-					pathContribution.assign( estimatePathContribution(
-						throughput, rayDirection, material, materialIndex,
-						classificationCached, lastMaterialIndex, cachedClassification,
-						enableEnvironmentLight, useEnvMapIS,
-					) );
+					estMaterialImportance.addAssign( 0.15 );
 
 				} );
+				If( mc.isTransmissive.and( mc.hasClearcoat ), () => {
+
+					estMaterialImportance.addAssign( 0.12 );
+
+				} );
+				If( mc.isEmissive, () => {
+
+					estMaterialImportance.addAssign( 0.1 );
+
+				} );
+				estMaterialImportance.assign( clamp( estMaterialImportance, 0.0, 1.0 ) );
+
+				const directionImportance = float( 0.5 ).toVar();
+				If( enableEnvironmentLight.and( useEnvMapIS ).and( throughputStrength.greaterThan( 0.01 ) ), () => {
+
+					const cosTheta = clamp( rayDirection.y, 0.0, 1.0 );
+					directionImportance.assign( mix( float( 0.3 ), float( 0.8 ), cosTheta.mul( cosTheta ) ) );
+
+				} );
+
+				const throughputWeight = smoothstep( float( 0.001 ), float( 0.1 ), throughputStrength );
+				const pathContribution = throughputStrength.mul(
+					mix( estMaterialImportance.mul( 0.7 ), directionImportance, 0.3 ),
+				).mul( throughputWeight ).toVar();
 
 				// Smooth adaptive continuation probability (no discrete depth brackets)
 				// Early behavior: throughput + material driven, generous
@@ -627,6 +582,12 @@ export const Trace = Fn( ( [
 	const mediumStack_attDist_1 = float( 0.0 ).toVar();
 	const mediumStack_attDist_2 = float( 0.0 ).toVar();
 	const mediumStack_attDist_3 = float( 0.0 ).toVar();
+	// Precomputed Beer-Lambert absorption coefficient sigma_a = -log(attColor)/attDist.
+	// Stored at push time so per-bounce absorption inside a medium becomes a single
+	// exp(-sigma_a * thickness) instead of a log + div + exp every bounce.
+	const mediumStack_sigmaA_1 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaA_2 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaA_3 = vec3( 0.0 ).toVar();
 
 	// Locked at the first dispersive transmission; reused for subsequent transmissions on
 	// the path so multi-bounce dispersion doesn't collapse under repeated colorWeight ×.
@@ -644,7 +605,6 @@ export const Trace = Fn( ( [
 	const psClassificationCached = tslBool( false ).toVar();
 	const psMaterialCacheCached = tslBool( false ).toVar();
 	const psTexturesLoaded = tslBool( false ).toVar();
-	const psPathImportance = float( 0.0 ).toVar();
 	const psLastMaterialIndex = int( - 1 ).toVar();
 
 	// Cached classification
@@ -706,33 +666,26 @@ export const Trace = Fn( ( [
 
 		// KHR_materials_volume: apply Beer's law over the actual distance the ray
 		// traveled inside the current medium. Top-of-stack holds the medium the ray
-		// is currently in — depth==0 means air (no absorption).
+		// is currently in — depth==0 means air (no absorption). sigma_a was
+		// precomputed at push time, so this collapses to a single exp().
 		If( hitInfo.didHit.and( mediumStackDepth.greaterThan( int( 0 ) ) ), () => {
 
-			const mAttColor = vec3( 1.0 ).toVar();
-			const mAttDist = float( 0.0 ).toVar();
+			const mSigmaA = vec3( 0.0 ).toVar();
 			If( mediumStackDepth.equal( int( 1 ) ), () => {
 
-				mAttColor.assign( mediumStack_attColor_1 );
-				mAttDist.assign( mediumStack_attDist_1 );
+				mSigmaA.assign( mediumStack_sigmaA_1 );
 
 			} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
 
-				mAttColor.assign( mediumStack_attColor_2 );
-				mAttDist.assign( mediumStack_attDist_2 );
+				mSigmaA.assign( mediumStack_sigmaA_2 );
 
 			} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
 
-				mAttColor.assign( mediumStack_attColor_3 );
-				mAttDist.assign( mediumStack_attDist_3 );
+				mSigmaA.assign( mediumStack_sigmaA_3 );
 
 			} );
 
-			throughput.mulAssign( calculateBeerLawAbsorption( {
-				attenuationColor: mAttColor,
-				attenuationDistance: mAttDist,
-				thickness: hitInfo.dst,
-			} ) );
+			throughput.mulAssign( exp( mSigmaA.mul( hitInfo.dst ).negate() ) );
 
 		} );
 
@@ -871,23 +824,34 @@ export const Trace = Fn( ( [
 
 							mediumStackDepth.addAssign( 1 );
 
+							// Precompute sigma_a = -log(attColor)/attDist once at push time.
+							// attDist==0 means "no absorption" — store sigma_a=0 so exp() returns 1.
+							const mSigmaA = select(
+								material.attenuationDistance.greaterThan( 0.0 ),
+								log( max( material.attenuationColor, vec3( 0.001 ) ) ).negate().div( material.attenuationDistance ),
+								vec3( 0.0 )
+							).toVar();
+
 							If( mediumStackDepth.equal( int( 1 ) ), () => {
 
 								mediumStack_ior_1.assign( material.ior );
 								mediumStack_attColor_1.assign( material.attenuationColor );
 								mediumStack_attDist_1.assign( material.attenuationDistance );
+								mediumStack_sigmaA_1.assign( mSigmaA );
 
 							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
 
 								mediumStack_ior_2.assign( material.ior );
 								mediumStack_attColor_2.assign( material.attenuationColor );
 								mediumStack_attDist_2.assign( material.attenuationDistance );
+								mediumStack_sigmaA_2.assign( mSigmaA );
 
 							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
 
 								mediumStack_ior_3.assign( material.ior );
 								mediumStack_attColor_3.assign( material.attenuationColor );
 								mediumStack_attDist_3.assign( material.attenuationDistance );
+								mediumStack_sigmaA_3.assign( mSigmaA );
 
 							} );
 
@@ -961,6 +925,19 @@ export const Trace = Fn( ( [
 		const V = rayDirection.negate().toVar();
 		material.sheenRoughness.assign( clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
 
+		// Sync material classification cache up front — the materialCache, BRDF
+		// sample, importance sampling, and Russian roulette all consume it.
+		// getOrCreateMaterialClassification is a cache hit when materialIndex
+		// matches the previous bounce; otherwise it runs classifyMaterial once.
+		// Doing this here eliminates a redundant classifyMaterial that previously
+		// fired after generateSampledDirection to "sync" the caller's variable.
+		psCachedClassification.assign( MaterialClassification.wrap( getOrCreateMaterialClassification(
+			material, hitInfo.materialIndex,
+			psClassificationCached, psLastMaterialIndex, psCachedClassification,
+		) ) );
+		psClassificationCached.assign( tslBool( true ) );
+		psLastMaterialIndex.assign( hitInfo.materialIndex );
+
 		// Create material cache if needed
 		If( psMaterialCacheCached.not(), () => {
 
@@ -986,9 +963,12 @@ export const Trace = Fn( ( [
 
 		} ).Else( () => {
 
+			// Classification was already synced at the top of the bounce — pass
+			// psCachedClassification directly so generateSampledDirection doesn't
+			// have to call classifyMaterial again internally.
 			const brdfSample = DirectionSample.wrap( generateSampledDirection(
 				V, N, material, hitInfo.materialIndex, randomSample, rngState,
-				psClassificationCached, psLastMaterialIndex, psCachedClassification,
+				psCachedClassification,
 				psWeightsComputed, psCachedBrdfWeights,
 				psMaterialCacheCached, psCachedMaterialCache,
 			) );
@@ -996,22 +976,6 @@ export const Trace = Fn( ( [
 			brdfValue.assign( brdfSample.value );
 			brdfPdf.assign( brdfSample.pdf );
 
-			// Sync psCachedClassification for downstream consumers (importance sampling, Russian roulette).
-			// generateSampledDirection computed the correct classification internally via materialIndex
-			// guard, but TSL Fn can't write back to the caller's variable — update it here.
-			If( psLastMaterialIndex.notEqual( hitInfo.materialIndex ).or( psClassificationCached.not() ), () => {
-
-				psCachedClassification.assign( classifyMaterial(
-					material.metalness, material.roughness,
-					material.transmission, material.clearcoat,
-					material.emissive,
-				) );
-
-			} );
-
-			// Update cache state after generateSampledDirection
-			psClassificationCached.assign( tslBool( true ) );
-			psLastMaterialIndex.assign( hitInfo.materialIndex );
 			psWeightsComputed.assign( tslBool( true ) );
 
 		} );
@@ -1107,8 +1071,10 @@ export const Trace = Fn( ( [
 
 						If( visibility.greaterThan( 0.0 ), () => {
 
-							const brdfValue = evaluateMaterialResponse( V, emissiveSample.direction, N, material );
-							const brdfPdf = calculateMaterialPDF( V, emissiveSample.direction, N, material );
+							// Share H + dot products between BRDF eval and PDF eval.
+							const emisDots = DotProducts.wrap( computeDotProducts( N, V, emissiveSample.direction ) );
+							const brdfValue = evaluateMaterialResponseFromDots( material, emisDots );
+							const brdfPdf = calculateMaterialPDFFromDots( material, emisDots );
 							const misWeight = select(
 								brdfPdf.greaterThan( 0.0 ),
 								powerHeuristic( { pdf1: emissiveSample.pdf, pdf2: brdfPdf } ),
@@ -1140,7 +1106,6 @@ export const Trace = Fn( ( [
 					emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 					triangleBuffer,
 					traceShadowRayWrapped,
-					evaluateMaterialResponse,
 					calculateRayOffset,
 				);
 
@@ -1152,19 +1117,9 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// Get importance sampling info with caching
-		If( psWeightsComputed.not().or( bounceIndex.equal( int( 0 ) ) ), () => {
-
-			// Update classification first
-			psCachedClassification.assign( MaterialClassification.wrap( getOrCreateMaterialClassification(
-				material, hitInfo.materialIndex,
-				psClassificationCached, psLastMaterialIndex, psCachedClassification,
-			) ) );
-			psClassificationCached.assign( tslBool( true ) );
-			psLastMaterialIndex.assign( hitInfo.materialIndex );
-
-		} );
-
+		// Classification was already synced at the top of the bounce loop, so
+		// psCachedClassification is current here regardless of which BRDF sample
+		// path ran above.
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, psCachedClassification,
 			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
@@ -1238,7 +1193,6 @@ export const Trace = Fn( ( [
 			bounceIndex, throughput, material, hitInfo.materialIndex,
 			rayDirection, rngState,
 			psClassificationCached, psLastMaterialIndex, psCachedClassification,
-			psWeightsComputed, psPathImportance,
 			enableEnvironmentLight, useEnvMapIS,
 		);
 		If( rrSurvivalProb.lessThanEqual( 0.0 ), () => {

@@ -5,6 +5,7 @@ import {
 	MaterialClassification,
 	MaterialCache,
 	ImportanceSamplingInfo,
+	DFGResult,
 
 } from './Struct.js';
 
@@ -68,10 +69,14 @@ export const GeometrySmith = Fn( ( [ NoV, NoL, roughness ] ) => {
 // multiplicative factor for the specular BRDF that compensates for this loss.
 // Based on: Kulla & Conty 2017 + Karis 2014 analytical DFG approximation.
 
-export const multiscatterCompensation = Fn( ( [ F0, NoV, roughness ] ) => {
+// Single Karis DFG evaluation that returns both outputs the BRDF needs:
+//   compensation — multiscatter energy compensation factor for the specular lobe
+//   E_total      — total specular directional albedo (single-scatter × compensation)
+// Both share the same dfgScale/dfgBias/Ew polynomial, so computing them together
+// halves the polynomial work versus calling two separate functions.
+export const evaluateDFG = Fn( ( [ F0, NoV, roughness ] ) => {
 
 	// Analytical DFG approximation (Karis 2014)
-	// Computes scale and bias where E(F0) = F0 * scale + bias
 	const r0 = float( 1.0 ).sub( roughness );
 	const r1 = roughness.mul( - 0.0275 ).add( 0.0425 );
 	const r2 = roughness.mul( - 0.572 ).add( 1.04 );
@@ -87,35 +92,13 @@ export const multiscatterCompensation = Fn( ( [ F0, NoV, roughness ] ) => {
 	const Ew = max( dfgScale.add( dfgBias ), 0.1 );
 
 	// Energy compensation: 1 + F0 * (1/Ew - 1)
-	// At F0=1 (metals): fully compensates to 1/Ew
-	// At F0=0.04 (dielectrics): negligible correction
-	return vec3( 1.0 ).add( F0.mul( float( 1.0 ).div( Ew ).sub( 1.0 ) ) );
-
-} );
-
-// Compute the total specular directional albedo including multiscatter compensation.
-// Returns per-channel fraction of energy captured by specular reflection,
-// used for energy-conserving diffuse weight: kD = (1 - E_total) * (1 - metalness).
-export const specularDirectionalAlbedo = Fn( ( [ F0, NoV, roughness ] ) => {
-
-	// Analytical DFG approximation (same as multiscatterCompensation)
-	const r0 = float( 1.0 ).sub( roughness );
-	const r1 = roughness.mul( - 0.0275 ).add( 0.0425 );
-	const r2 = roughness.mul( - 0.572 ).add( 1.04 );
-	const r3 = roughness.mul( 0.022 ).sub( 0.04 );
-	const a004 = min( r0.mul( r0 ), exp( float( - 6.4308 ).mul( NoV ) ) ).mul( r0 ).add( r1 );
-	const dfgScale = float( - 1.04 ).mul( a004 ).add( r2 );
-	const dfgBias = float( 1.04 ).mul( a004 ).add( r3 );
-
-	// Single-scatter directional albedo per channel: E_ss = F0 * scale + bias
-	const E_ss = max( F0.mul( dfgScale ).add( vec3( dfgBias ) ), vec3( 0.0 ) );
-
-	// Directional albedo at F0=1 (white furnace test)
-	const Ew = max( dfgScale.add( dfgBias ), 0.1 );
-
-	// Apply multiscatter compensation to get total specular albedo
 	const compensation = vec3( 1.0 ).add( F0.mul( float( 1.0 ).div( Ew ).sub( 1.0 ) ) );
-	return clamp( E_ss.mul( compensation ), vec3( 0.0 ), vec3( 1.0 ) );
+
+	// Single-scatter directional albedo per channel, then total with compensation
+	const E_ss = max( F0.mul( dfgScale ).add( vec3( dfgBias ) ), vec3( 0.0 ) );
+	const E_total = clamp( E_ss.mul( compensation ), vec3( 0.0 ), vec3( 1.0 ) );
+
+	return DFGResult( { compensation, E_total } );
 
 } );
 

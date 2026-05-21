@@ -11,6 +11,8 @@ import {
 	Loop,
 	Break,
 	dot,
+	cross,
+	normalize,
 	abs,
 	max,
 	min,
@@ -184,8 +186,18 @@ export const traceShadowRay = Fn( ( [
 
 		} ).ElseIf( shadowMaterial.transmission.greaterThan( 0.0 ), () => {
 
-			const entering = dot( dir, shadowHit.normal ).lessThan( 0.0 );
-			const N = select( entering, shadowHit.normal, shadowHit.normal.negate() );
+			// Deferred geometric-normal compute — refetch triangle positions and
+			// derive the normal here so opaque/alpha-cutout shadow hits don't pay
+			// the cross+normalize cost in BVH traversal.
+			const TRI_STRIDE_N = int( 8 );
+			const pA = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 0 ), TRI_STRIDE_N ).xyz;
+			const pB = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 1 ), TRI_STRIDE_N ).xyz;
+			const pC = getDatafromStorageBuffer( triangleBuffer, shadowHit.triangleIndex, int( 2 ), TRI_STRIDE_N ).xyz;
+			const geomNormal = normalize( cross( pB.sub( pA ), pC.sub( pA ) ) );
+			shadowHit.normal.assign( geomNormal );
+
+			const entering = dot( dir, geomNormal ).lessThan( 0.0 );
+			const N = select( entering, geomNormal, geomNormal.negate() );
 
 			// Apply absorption if exiting medium
 			If( entering.not().and( shadowMaterial.attenuationDistance.greaterThan( 0.0 ) ), () => {

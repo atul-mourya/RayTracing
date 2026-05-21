@@ -3,14 +3,14 @@ import {
 	If, max, min, clamp, mix
 } from 'three/tsl';
 
-import { DotProducts } from './Struct.js';
+import { DotProducts, DFGResult } from './Struct.js';
 import {
 	PI, PI_INV, EPSILON, MIN_CLEARCOAT_ROUGHNESS,
 	computeDotProducts,
 } from './Common.js';
 import { fresnelSchlick, fresnelSchlickFloat, dielectricF0 } from './Fresnel.js';
 import {
-	DistributionGGX, SheenDistribution, GeometrySmith, multiscatterCompensation, specularDirectionalAlbedo,
+	DistributionGGX, SheenDistribution, GeometrySmith, evaluateDFG,
 } from './MaterialProperties.js';
 import { evalIridescence } from './MaterialProperties.js';
 
@@ -22,7 +22,10 @@ import { evalIridescence } from './MaterialProperties.js';
 // Main Material Response Evaluation
 // -----------------------------------------------------------------------------
 
-export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
+// Body of evaluateMaterialResponse taking precomputed dot products. Callers
+// that also need calculateMaterialPDF for the same (V, L, N) should share dots
+// to save one computeDotProducts call.
+export const evaluateMaterialResponseFromDots = Fn( ( [ material, dots ] ) => {
 
 	const result = vec3( 0.0 ).toVar();
 
@@ -36,9 +39,6 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 		result.assign( material.color.rgb.mul( float( 1.0 ).sub( material.metalness ) ).mul( PI_INV ) );
 
 	} ).Else( () => {
-
-		// Calculate all dot products once
-		const dots = DotProducts.wrap( computeDotProducts( N, V, L ) );
 
 		// Calculate base F0 with specular parameters, clamped to physically valid range
 		const F0 = clamp(
@@ -82,12 +82,13 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 		// Single-scatter specular BRDF
 		const specularSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
 
-		// Kulla-Conty multiscatter energy compensation for rough surfaces
-		const specular = specularSS.mul( multiscatterCompensation( F0, dots.NoV, material.roughness ) );
+		// Shared DFG evaluation — compensation factor and total directional albedo
+		// come from the same polynomial.
+		const dfg = DFGResult.wrap( evaluateDFG( F0, dots.NoV, material.roughness ) );
+		const specular = specularSS.mul( dfg.compensation );
 
 		// Diffuse energy budget from hemisphere-integrated specular albedo (includes multiscatter)
-		const E_total = specularDirectionalAlbedo( F0, dots.NoV, material.roughness );
-		const kD = vec3( 1.0 ).sub( E_total ).mul( float( 1.0 ).sub( material.metalness ) );
+		const kD = vec3( 1.0 ).sub( dfg.E_total ).mul( float( 1.0 ).sub( material.metalness ) );
 		const diffuse = kD.mul( materialColor ).mul( PI_INV );
 
 		const baseLayer = diffuse.add( specular ).toVar();
@@ -118,6 +119,15 @@ export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
 
 } );
 
+// Wrapper that computes dot products internally. Use this when you don't already
+// have dots; otherwise prefer evaluateMaterialResponseFromDots to share the work.
+export const evaluateMaterialResponse = Fn( ( [ V, L, N, material ] ) => {
+
+	const dots = DotProducts.wrap( computeDotProducts( N, V, L ) );
+	return evaluateMaterialResponseFromDots( material, dots );
+
+} );
+
 // -----------------------------------------------------------------------------
 // Layered BRDF Evaluation (for clearcoat)
 // -----------------------------------------------------------------------------
@@ -138,12 +148,13 @@ export const evaluateLayeredBRDF = Fn( ( [ dots, material ] ) => {
 	const F = fresnelSchlick( dots.VoH, F0 ).toVar();
 	const baseBRDFSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
 
-	// Kulla-Conty multiscatter energy compensation for rough surfaces
-	const baseBRDF = baseBRDFSS.mul( multiscatterCompensation( F0, dots.NoV, material.roughness ) );
+	// Shared DFG evaluation — compensation factor and total directional albedo
+	// come from the same polynomial.
+	const dfg = DFGResult.wrap( evaluateDFG( F0, dots.NoV, material.roughness ) );
+	const baseBRDF = baseBRDFSS.mul( dfg.compensation );
 
 	// Diffuse energy budget from hemisphere-integrated specular albedo (includes multiscatter)
-	const E_total = specularDirectionalAlbedo( F0, dots.NoV, material.roughness );
-	const kD = vec3( 1.0 ).sub( E_total ).mul( float( 1.0 ).sub( material.metalness ) );
+	const kD = vec3( 1.0 ).sub( dfg.E_total ).mul( float( 1.0 ).sub( material.metalness ) );
 	const diffuse = kD.mul( material.color.rgb ).div( PI );
 	const baseLayer = diffuse.add( baseBRDF );
 

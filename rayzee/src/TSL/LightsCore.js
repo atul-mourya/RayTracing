@@ -224,13 +224,17 @@ export const isDirectionValid = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
-// Distance attenuation based on Frostbite PBR
+// Distance attenuation based on Frostbite PBR. Integer exponents factored as
+// repeated multiplies — pow(x, 4) and pow(x, 2) are far cheaper this way.
 export const getDistanceAttenuation = /*@__PURE__*/ wgslFn( `
 	fn getDistanceAttenuation( lightDistance: f32, cutoffDistance: f32, decayExponent: f32 ) -> f32 {
 		var distanceFalloff = 1.0f / max( pow( lightDistance, decayExponent ), 0.01f );
 		if ( cutoffDistance > 0.0f ) {
-			let ratio = pow( lightDistance / cutoffDistance, 4.0f );
-			distanceFalloff *= pow( clamp( 1.0f - ratio, 0.0f, 1.0f ), 2.0f );
+			let r = lightDistance / cutoffDistance;
+			let r2 = r * r;
+			let ratio = r2 * r2;
+			let window = clamp( 1.0f - ratio, 0.0f, 1.0f );
+			distanceFalloff *= window * window;
 		}
 		return distanceFalloff;
 	}

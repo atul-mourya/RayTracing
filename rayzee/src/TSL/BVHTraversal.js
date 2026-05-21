@@ -13,7 +13,6 @@ import {
 	sign,
 	min,
 	normalize,
-	cross,
 	mix,
 	vec4,
 	notEqual,
@@ -398,10 +397,11 @@ export const traverseBVHShadow = Fn( ( [
 						closestHit.materialIndex.assign( int( uvData2.z ) );
 						closestHit.meshIndex.assign( int( uvData2.w ) );
 
-						// Compute hit point and geometric normal -- required for transmissive
-						// Fresnel in traceShadowRay (cosThetaI needs a real normal, not vec3(0))
+						// Hit point is cheap (origin + dir*t). Geometric normal is deferred
+						// to traceShadowRay — only the transmission branch needs it, so we
+						// skip the cross+normalize for the (much more common) opaque-blocker
+						// and alpha-cutout paths. Normal stays vec3(0) from struct init.
 						closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( triResult.x ) ) );
-						closestHit.normal.assign( normalize( cross( pB.sub( pA ), pC.sub( pA ) ) ) );
 
 						// Store barycentrics + triangle index for deferred UV computation.
 						// Actual UV interpolation happens in traceShadowRay only when

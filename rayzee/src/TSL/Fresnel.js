@@ -1,25 +1,34 @@
-import { Fn, float, vec3, max, pow, clamp, sqrt } from 'three/tsl';
+import { Fn, float, vec3, max, clamp, sqrt } from 'three/tsl';
 
 const EPSILON = 1e-6;
+
+// Schlick exponent factored as 4 multiplies — pow(x, 5.0) compiles to
+// exp2(5*log2(x)) on most backends, far slower than (x²)²·x.
+const pow5 = ( c ) => {
+
+	const c2 = c.mul( c );
+	return c2.mul( c2 ).mul( c );
+
+};
 
 export const fresnel = Fn( ( [ f0, NoV, roughness ] ) => {
 
 	const maxR = max( vec3( float( 1.0 ).sub( roughness ) ), f0 );
-	return f0.add( maxR.sub( f0 ).mul( pow( float( 1.0 ).sub( NoV ), 5.0 ) ) );
+	return f0.add( maxR.sub( f0 ).mul( pow5( float( 1.0 ).sub( NoV ) ) ) );
 
 } );
 
 export const fresnelSchlickFloat = Fn( ( [ cosTheta, F0 ] ) => {
 
 	const clampedCos = clamp( cosTheta, 0.0, 1.0 );
-	return F0.add( float( 1.0 ).sub( F0 ).mul( pow( float( 1.0 ).sub( clampedCos ), 5.0 ) ) );
+	return F0.add( float( 1.0 ).sub( F0 ).mul( pow5( float( 1.0 ).sub( clampedCos ) ) ) );
 
 } );
 
 export const fresnelSchlick = Fn( ( [ cosTheta, F0 ] ) => {
 
 	const clampedCos = clamp( cosTheta, 0.0, 1.0 );
-	return F0.add( vec3( 1.0 ).sub( F0 ).mul( pow( float( 1.0 ).sub( clampedCos ), 5.0 ) ) );
+	return F0.add( vec3( 1.0 ).sub( F0 ).mul( pow5( float( 1.0 ).sub( clampedCos ) ) ) );
 
 } );
 

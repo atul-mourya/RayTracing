@@ -28,17 +28,6 @@ export const equirectUvToDirection = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
-// Calculate PDF for uniform sphere sampling with Jacobian
-export const equirectDirectionPdf = /*@__PURE__*/ wgslFn( `
-	fn equirectDirectionPdf( direction: vec3f, environmentMatrix: mat4x4f ) -> f32 {
-		let uv = equirectDirectionToUv( direction, environmentMatrix );
-		let theta = uv.y * 3.14159265358979323846f;
-		let sinTheta = sin( theta );
-		if ( sinTheta == 0.0f ) { return 0.0f; }
-		return 1.0f / ( 6.28318530717958647692f * 3.14159265358979323846f * sinTheta );
-	}
-`, [ equirectDirectionToUv ] );
-
 // Evaluate PDF for a given direction (for MIS)
 // Returns vec4(color.rgb, pdf) since TSL cannot use inout params
 // Uses MIS-compensated PDF (Karlík et al. 2019): max(0, lum - delta) / compensatedTotalSum
@@ -64,7 +53,12 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 		const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) ).toVar();
 		const pdf = compensatedWeight.div( envTotalSum ).toVar();
 
-		const dirPdf = equirectDirectionPdf( { direction, environmentMatrix } ).toVar();
+		// Inline equirectDirectionPdf using the uv + sinTheta already in scope —
+		// the helper would otherwise re-derive uv via atan2+acos and recompute sin.
+		const dirPdf = sinTheta.greaterThan( 0.0 ).select(
+			float( 1.0 ).div( float( 2.0 * Math.PI * Math.PI ).mul( sinTheta ) ),
+			float( 0.0 )
+		).toVar();
 		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
 
 		result.assign( vec4( color, finalPdf ) );
@@ -138,7 +132,12 @@ export const sampleEquirectProbability = Fn( ( [
 	const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) ).toVar();
 	const pdf = compensatedWeight.div( envTotalSum ).toVar();
 
-	const dirPdf = equirectDirectionPdf( { direction, environmentMatrix } ).toVar();
+	// Inline equirectDirectionPdf — uv + sinTheta are already in scope, so we
+	// skip the helper's redundant uv-from-direction + sin recompute.
+	const dirPdf = sinTheta.greaterThan( 0.0 ).select(
+		float( 1.0 ).div( float( 2.0 * Math.PI * Math.PI ).mul( sinTheta ) ),
+		float( 0.0 )
+	).toVar();
 	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
 
 	return vec4( direction, finalPdf );
