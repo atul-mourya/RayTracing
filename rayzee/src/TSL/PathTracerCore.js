@@ -73,7 +73,7 @@ import {
 } from './Struct.js';
 import { RandomValue, getRandomSample } from './Random.js';
 import { traverseBVH } from './BVHTraversal.js';
-import { sampleEnvironment, sampleEquirect } from './Environment.js';
+import { sampleEnvironment, sampleEquirect, getGroundProjectedDirection } from './Environment.js';
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
 import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
@@ -471,9 +471,10 @@ export const handleRussianRoulette = Fn( ( [
 // =============================================================================
 
 export const sampleBackgroundLighting = Fn( ( [
-	isPrimaryRay, direction,
+	isPrimaryRay, rayOrigin, direction,
 	envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
 	showBackground, backgroundIntensity,
+	groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
 ] ) => {
 
 	// Only hide background for primary camera rays when showBackground is false
@@ -486,8 +487,18 @@ export const sampleBackgroundLighting = Fn( ( [
 
 	} ).Else( () => {
 
+		// Primary-ray only: indirect bounces must see the raw envmap so shading stays physically correct.
+		const effectiveDir = direction.toVar();
+		If( isPrimaryRay.and( groundProjectionEnabled ), () => {
+
+			effectiveDir.assign( getGroundProjectedDirection(
+				rayOrigin, direction, groundProjectionRadius, groundProjectionHeight,
+			) );
+
+		} );
+
 		const sampled = sampleEnvironment( {
-			tex: envTexture, samp: sampler( envTexture ), direction, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
+			tex: envTexture, samp: sampler( envTexture ), direction: effectiveDir, environmentMatrix: envMatrix, environmentIntensity, enableEnvironmentLight,
 		} );
 
 		If( isPrimaryRay, () => {
@@ -541,6 +552,7 @@ export const Trace = Fn( ( [
 	envCDFBuffer,
 	envTotalSum, envCompensationDelta, envResolution,
 	enableEnvironmentLight, useEnvMapIS,
+	groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
 	// Rendering parameters
 	maxBounceCount, transmissiveBounces,
 	backgroundIntensity, showBackground, transparentBackground,
@@ -693,9 +705,10 @@ export const Trace = Fn( ( [
 
 			// ENVIRONMENT LIGHTING
 			const envColor = sampleBackgroundLighting(
-				stateIsPrimaryRay, rayDirection,
+				stateIsPrimaryRay, rayOrigin, rayDirection,
 				envTexture, envMatrix, environmentIntensity, enableEnvironmentLight,
 				showBackground, backgroundIntensity,
+				groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
 			);
 
 			// MIS weight for implicit environment hit — prevents double-counting with NEE.

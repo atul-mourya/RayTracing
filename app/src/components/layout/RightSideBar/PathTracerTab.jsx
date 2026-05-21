@@ -111,6 +111,9 @@ const PathTracerTab = () => {
 		backgroundIntensity,
 		environmentIntensity,
 		environmentRotation,
+		groundProjectionEnabled,
+		groundProjectionRadius,
+		groundProjectionHeight,
 		GIIntensity,
 		toneMapping,
 		// Environment Mode
@@ -182,6 +185,9 @@ const PathTracerTab = () => {
 		handleBackgroundIntensityChange,
 		handleEnvironmentIntensityChange,
 		handleEnvironmentRotationChange,
+		handleGroundProjectionEnabledChange,
+		handleGroundProjectionRadiusChange,
+		handleGroundProjectionHeightChange,
 		handleGIIntensityChange,
 		handleToneMappingChange,
 		// Environment Mode Handlers
@@ -431,6 +437,14 @@ const PathTracerTab = () => {
 						<Row>
 							<Slider label={"Environment Rotation"} icon={RefreshCcwDot} min={0} max={360} step={1} value={[ environmentRotation ]} snapPoints={[ 90, 180, 270 ]} onValueChange={handleEnvironmentRotationChange} />
 						</Row>
+						<Row>
+							<SliderToggle label={"Ground Projection"} enabled={groundProjectionEnabled} icon={RefreshCcwDot} min={10} max={500} step={1} value={[ groundProjectionRadius ]} onValueChange={handleGroundProjectionRadiusChange} onToggleChange={handleGroundProjectionEnabledChange} />
+						</Row>
+						{groundProjectionEnabled && (
+							<Row>
+								<Slider label={"Projection Height"} icon={ArrowUp} min={0} max={50} step={0.1} value={[ groundProjectionHeight ]} onValueChange={handleGroundProjectionHeightChange} />
+							</Row>
+						)}
 					</>
 				)}
 			</ControlGroup>

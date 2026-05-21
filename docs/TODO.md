@@ -77,7 +77,6 @@
 ### Environment
 
 - [ ] Environment cube map support for HDRIs
-- [ ] Ground projection environment mapping - https://github.com/mrdoob/three.js/pull/33611/changes
 - [ ] Add new category of environment maps - abstract (identify files and organize)
 - [ ] Revamp environment control UX
 - [ ] Separate environment and background sampling with different textures (like Three.js)

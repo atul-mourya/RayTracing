@@ -184,6 +184,9 @@ export class UniformManager {
 		u( 'envTotalSum', 0.0, 'float' );
 		u( 'envCompensationDelta', 0.0, 'float' );
 		u( 'envResolution', new Vector2( 1, 1 ), 'vec2' );
+		ub( 'groundProjectionEnabled', DEFAULT_STATE.groundProjectionEnabled );
+		u( 'groundProjectionRadius', DEFAULT_STATE.groundProjectionRadius, 'float' );
+		u( 'groundProjectionHeight', DEFAULT_STATE.groundProjectionHeight, 'float' );
 
 		// Sun parameters
 		u( 'sunDirection', new Vector3( 0, 1, 0 ), 'vec3' );

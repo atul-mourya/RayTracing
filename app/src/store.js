@@ -1042,6 +1042,27 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 	},
 
+	handleGroundProjectionEnabledChange: val => {
+
+		set( { groundProjectionEnabled: val } );
+		getApp()?.settings.set( 'groundProjectionEnabled', val );
+
+	},
+
+	handleGroundProjectionRadiusChange: val => {
+
+		set( { groundProjectionRadius: val[ 0 ] } );
+		getApp()?.settings.set( 'groundProjectionRadius', val[ 0 ] );
+
+	},
+
+	handleGroundProjectionHeightChange: val => {
+
+		set( { groundProjectionHeight: val[ 0 ] } );
+		getApp()?.settings.set( 'groundProjectionHeight', val[ 0 ] );
+
+	},
+
 	handleGIIntensityChange: val => {
 
 		set( { GIIntensity: val } );

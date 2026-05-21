@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, sin, floor, fract, min, max, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 
@@ -162,3 +162,50 @@ export const sampleEnvironment = /*@__PURE__*/ wgslFn( `
 		return texSample * environmentIntensity;
 	}
 `, [ equirectDirectionToUv ] );
+
+// Port of three.js PR #33611 (getGroundProjectedNormal) adapted from rasterizer fragment math
+// (cameraPosition + positionWorld) to path-tracer ray math (rayOrigin + rayDirection). When the
+// ray misses the projection sphere it falls back to rayDirection so distant scenes degrade gracefully.
+export const getGroundProjectedDirection = Fn( ( [ rayOrigin, rayDirection, radius, height ] ) => {
+
+	const p = rayDirection.toConst();
+	const camPos = rayOrigin.toVar();
+	camPos.y.subAssign( height );
+
+	const r2 = radius.mul( radius ).toConst();
+	const b = camPos.dot( p ).toConst();
+	const c = camPos.dot( camPos ).sub( r2 ).toConst();
+	const h = b.mul( b ).sub( c ).toConst();
+
+	const projected = rayDirection.toVar();
+
+	If( h.greaterThanEqual( 0.0 ), () => {
+
+		const tSphere = sqrt( h ).sub( b ).toVar();
+
+		// Disk sits at world y=0; the camPos shift only repositions the sphere.
+		const tDisk = float( 1e6 ).toVar();
+		const py = p.y.toConst();
+		If( py.lessThanEqual( 0.0 ), () => {
+
+			const t = rayOrigin.y.negate().div( py ).toConst();
+			const q = rayOrigin.add( p.mul( t ) ).toConst();
+			If( q.dot( q ).lessThan( r2 ), () => {
+
+				tDisk.assign( t );
+
+			} );
+
+		} );
+
+		If( tSphere.greaterThan( 0.0 ), () => {
+
+			projected.assign( camPos.add( p.mul( min( tSphere, tDisk ) ) ).div( radius ) );
+
+		} );
+
+	} );
+
+	return projected;
+
+} );

@@ -20,6 +20,9 @@ export const ENGINE_DEFAULTS = {
 	environmentIntensity: 1,
 	backgroundIntensity: 1,
 	environmentRotation: 270.0,
+	groundProjectionEnabled: false,
+	groundProjectionRadius: 100,
+	groundProjectionHeight: 15,
 	globalIlluminationIntensity: 1,
 
 	// Environment Mode System
