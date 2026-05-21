@@ -10,7 +10,7 @@ const readmes = [
 	resolve( here, '..', '..', 'README.md' ),
 ];
 
-const gzipped = gzipSync( readFileSync( bundlePath ), { level: 9 } ).length;
+const gzipped = gzipSync( readFileSync( bundlePath ) ).length;
 const kb = ( gzipped / 1024 ).toFixed( 1 ).replace( /\.0$/, '' );
 
 // Matches: https://img.shields.io/badge/minzipped-<anything>-blue
