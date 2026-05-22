@@ -74,6 +74,16 @@ export const computeNDCDepth = /*@__PURE__*/ wgslFn( `
 	}
 ` );
 
+// NaN/Inf detector for debug mode 11. x != x catches NaN; the abs threshold catches Inf.
+const nanInfToRed = /*@__PURE__*/ wgslFn( `
+	fn nanInfToRed( c: vec3f ) -> vec3f {
+		let isNan = c.x != c.x || c.y != c.y || c.z != c.z;
+		let isInf = abs( c.x ) > 1e30f || abs( c.y ) > 1e30f || abs( c.z ) > 1e30f;
+		if ( isNan || isInf ) { return vec3f( 1.0f, 0.0f, 0.0f ); }
+		return vec3f( 0.0f );
+	}
+` );
+
 // Get required samples from adaptive sampling texture
 export const getRequiredSamples = Fn( ( [
 	pixelCoord, resolution,
@@ -251,8 +261,8 @@ export const pathTracerMain = ( params ) => {
 
 		const sampleColor = vec4( 0.0 ).toVar();
 
-		// Debug or normal trace
-		If( visMode.greaterThan( int( 0 ) ), () => {
+		// Debug or normal trace (mode 11 runs the full path tracer so we can sniff NaN at the end)
+		If( visMode.greaterThan( int( 0 ) ).and( visMode.notEqual( int( 11 ) ) ), () => {
 
 			sampleColor.assign( TraceDebugMode(
 				ray.origin, ray.direction,
@@ -344,7 +354,7 @@ export const pathTracerMain = ( params ) => {
 	// Output alpha: accumulated per-sample alpha when transparent, otherwise 1.0
 	const outputAlpha = select( transparentBackground, pixelAlpha, float( 1.0 ) ).toVar();
 
-	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ), () => {
+	If( enableAccumulation.and( cameraIsMoving.not() ).and( frame.greaterThan( uint( 0 ) ) ).and( hasPreviousAccumulated ).and( visMode.notEqual( int( 11 ) ) ), () => {
 
 		const prevAccumSample = texture( prevAccumTexture, prevUV, 0 ).toVar();
 
@@ -358,6 +368,13 @@ export const pathTracerMain = ( params ) => {
 			outputAlpha.assign( mix( prevAccumSample.w, pixelAlpha, accumulationAlpha ) );
 
 		} );
+
+	} );
+
+	// NaN/Inf debug: red where the path tracer output isn't finite, black otherwise.
+	If( visMode.equal( int( 11 ) ), () => {
+
+		finalColor.assign( nanInfToRed( finalColor ) );
 
 	} );
 
