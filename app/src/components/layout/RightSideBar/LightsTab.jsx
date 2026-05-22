@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useLightStore, usePathTracerStore } from '@/store';
 import { getApp } from '@/lib/appProxy';
+import { proxyImage } from '@/lib/imageProxy';
 import { GOBO_LIBRARY } from '@/services/GoboLibrary';
 import { IES_LIBRARY } from '@/services/IESLibrary';
 import { Separator } from '@/components/ui/separator';
@@ -140,7 +141,7 @@ const LibraryPicker = ( { value, onChange, items, title, addTooltip = 'Assign' }
 					title={selected ? selected.label : addTooltip}
 				>
 					{selected ? (
-						<img src={thumb( selected )} alt={selected.label} className="h-full w-full object-cover" />
+						<img src={proxyImage( thumb( selected ) )} alt={selected.label} className="h-full w-full object-cover" />
 					) : (
 						<Plus size={14} className="text-muted-foreground" />
 					)}
@@ -182,7 +183,7 @@ const LibraryPicker = ( { value, onChange, items, title, addTooltip = 'Assign' }
 							style={{ width: GOBO_TILE_PX, height: GOBO_TILE_PX }}
 						>
 							<img
-								src={thumb( g )}
+								src={proxyImage( thumb( g ) )}
 								alt={g.label}
 								className="h-full w-full object-cover bg-black"
 								draggable={false}

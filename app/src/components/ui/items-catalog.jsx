@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from "@/lib/utils";
+import { proxyImage } from "@/lib/imageProxy";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -593,7 +594,7 @@ export const ItemsCatalog = ( {
 												<CardContent className="p-1">
 													<div className="relative aspect-square mb-1 overflow-hidden">
 														<img
-															src={item.preview}
+															src={proxyImage( item.preview )}
 															alt={item.name}
 															className="w-full h-full object-cover transition-transform hover:scale-105 rounded-lg"
 															loading="lazy"
