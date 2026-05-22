@@ -1,4 +1,4 @@
-import { WebGPURenderer, RectAreaLightNode, LinearSRGBColorSpace, SRGBColorSpace } from 'three/webgpu';
+import { WebGPURenderer, RectAreaLightNode, SRGBColorSpace } from 'three/webgpu';
 import { texture as _tslTexture, cubeTexture as _tslCubeTexture } from 'three/tsl';
 import {
 	ACESFilmicToneMapping, Scene, EventDispatcher
@@ -1213,7 +1213,6 @@ export class PathTracerApp extends EventDispatcher {
 
 		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
-		this.renderer.workingColorSpace = LinearSRGBColorSpace; // BUG: changing these done seems to make any difference
 		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.toneMapping = ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1.0;
