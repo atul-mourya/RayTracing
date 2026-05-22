@@ -30,7 +30,7 @@ export default function StatsPanel( { app, container } ) {
 
 		if ( ! app?.renderer ) return;
 
-		const stats = new Stats( { horizontal: true, trackGPU: true } );
+		const stats = new Stats( { horizontal: true, trackGPU: true, trackCPT: true } );
 		stats.dom.style.position = 'absolute';
 		stats.dom.style.top = 'unset';
 		stats.dom.style.bottom = '48px';
@@ -42,8 +42,25 @@ export default function StatsPanel( { app, container } ) {
 		themePanel( stats.fpsPanel );
 		themePanel( stats.msPanel );
 		themePanel( stats.gpuPanel );
+		themePanel( stats.gpuPanelCompute );
 
-		const onFrame = () => stats.update();
+		// Three.js WebGPU only writes renderer.info.{render,compute}.timestamp when
+		// resolveTimestampsAsync() is called — stats-gl reads but never resolves.
+		const renderer = app.renderer;
+		const onFrame = () => {
+
+			if ( renderer.backend?.trackTimestamp ) {
+
+				renderer.resolveTimestampsAsync( 'render' );
+				renderer.resolveTimestampsAsync( 'compute' );
+
+			}
+
+
+			stats.update();
+
+		};
+
 		app.addEventListener( EngineEvents.FRAME, onFrame );
 
 		return () => {
