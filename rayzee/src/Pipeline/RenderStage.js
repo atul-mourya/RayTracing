@@ -188,6 +188,7 @@ export class RenderStage {
 	 * @param {PipelineContext} context - Shared pipeline context
 	 * @returns {boolean} True if stage should execute
 	 */
+	// eslint-disable-next-line no-unused-vars
 	shouldExecute( context ) {
 
 		// Default: always execute
@@ -203,6 +204,7 @@ export class RenderStage {
 	 * @param {THREE.RenderTarget} [writeBuffer] - Optional output buffer
 	 * @throws {Error} If not implemented
 	 */
+	// eslint-disable-next-line no-unused-vars
 	render( context, writeBuffer ) {
 
 		throw new Error( `render() must be implemented in ${this.name}` );
@@ -223,6 +225,7 @@ export class RenderStage {
 	 * @param {number} width - New width
 	 * @param {number} height - New height
 	 */
+	// eslint-disable-next-line no-unused-vars
 	setSize( width, height ) {
 		// Override if needed
 	}

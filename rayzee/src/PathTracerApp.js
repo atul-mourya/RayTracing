@@ -1213,7 +1213,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		RectAreaLightNode.setLTC( RectAreaLightTexturesLib.init() );
 
-		this.renderer.workingColorSpace = SRGBColorSpace;
+		this.renderer.workingColorSpace = LinearSRGBColorSpace; // BUG: changing these done seems to make any difference
 		this.renderer.outputColorSpace = SRGBColorSpace;
 		this.renderer.toneMapping = ACESFilmicToneMapping;
 		this.renderer.toneMappingExposure = 1.0;

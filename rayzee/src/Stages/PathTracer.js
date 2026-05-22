@@ -1094,9 +1094,8 @@ export class PathTracer extends RenderStage {
 	/**
 	 * Renders the path tracing pass with accumulation.
 	 * @param {PipelineContext} context - Pipeline context
-	 * @param {RenderTarget} writeBuffer - Output render target
 	 */
-	render( context, writeBuffer ) {
+	render( context ) {
 
 		if ( ! this.isReady ) return;
 

@@ -1,5 +1,4 @@
 // SceneProcessor.js - Processes scene geometry into GPU-ready data (BVH, textures, materials)
-import { Color } from "three";
 import { BVHBuilder } from './BVHBuilder.js';
 import { BVHRefitter } from './BVHRefitter.js';
 import { buildBVHParallel, shouldUseParallelBuild } from './ParallelBVHBuilder.js';
