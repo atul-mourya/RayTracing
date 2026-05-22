@@ -242,7 +242,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'creates actions for all clips', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			expect( manager.actions ).toHaveLength( 2 );
 			expect( manager.hasAnimations ).toBe( true );
 
@@ -250,7 +250,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'precomputes mesh triangle ranges', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			expect( manager._meshTriRanges ).toHaveLength( 1 );
 			expect( manager._meshTriRanges[ 0 ].start ).toBe( 0 );
 			expect( manager._meshTriRanges[ 0 ].count ).toBe( 1 );
@@ -260,7 +260,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'allocates position buffer', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			expect( manager._posBuffer ).toBeInstanceOf( Float32Array );
 			expect( manager._posBuffer.length ).toBe( 9 );
 
@@ -268,7 +268,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'skips init for empty animations', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, [], 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, [] );
 			expect( manager.hasAnimations ).toBe( false );
 			expect( manager.mixer ).toBeNull();
 
@@ -279,7 +279,7 @@ describe( 'AnimationManager', () => {
 			mockMixerRoot.getObjectByName = vi.fn( () => undefined );
 			mockMixerRoot.name = 'NoMatch';
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			expect( manager._mixerRoot ).toBe( mockScene );
 
 		} );
@@ -290,7 +290,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'starts playback and sets isPlaying', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			expect( manager.isPlaying ).toBe( true );
 			expect( manager.actions[ 0 ].play ).toHaveBeenCalled();
@@ -299,7 +299,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'pauses playback', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			manager.pause();
 			expect( manager.isPlaying ).toBe( false );
@@ -309,7 +309,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'resumes from pause', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			manager.pause();
 			manager.resume();
@@ -319,7 +319,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'stops playback', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			manager.stop();
 			expect( manager.isPlaying ).toBe( false );
@@ -328,7 +328,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'plays all clips with clipIndex -1', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( - 1 );
 			expect( manager.actions[ 0 ].play ).toHaveBeenCalled();
 			expect( manager.actions[ 1 ].play ).toHaveBeenCalled();
@@ -341,7 +341,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'sets saved timeScale', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.setSpeed( 2.0 );
 			expect( manager._savedTimeScale ).toBe( 2.0 );
 
@@ -349,7 +349,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'applies timeScale when playing', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			manager.setSpeed( 2.0 );
 			expect( manager.mixer.timeScale ).toBe( 2.0 );
@@ -358,7 +358,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'sets loop mode on all actions', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.setLoop( false );
 			expect( manager.actions[ 0 ].setLoop ).toHaveBeenCalledWith( 2200 ); // LoopOnce
 			expect( manager.actions[ 0 ].clampWhenFinished ).toBe( true );
@@ -371,7 +371,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'returns clip info array', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			const clips = manager.clips;
 			expect( clips ).toHaveLength( 2 );
 			expect( clips[ 0 ] ).toEqual( { index: 0, name: 'Walk', duration: 2.0 } );
@@ -385,14 +385,14 @@ describe( 'AnimationManager', () => {
 
 		it( 'returns null when not playing', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			expect( manager.update() ).toBeNull();
 
 		} );
 
 		it( 'returns position buffer when playing', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			const result = manager.update();
 			expect( result ).toBeInstanceOf( Float32Array );
@@ -402,7 +402,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'calls mixerRoot.updateMatrixWorld', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.play( 0 );
 			manager.update();
 			expect( mockMixerRoot.updateMatrixWorld ).toHaveBeenCalledWith( true );
@@ -421,7 +421,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'seeks to the given time and returns positions', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			const result = manager.seekTo( 1.0, 0 );
 			expect( result ).toBeInstanceOf( Float32Array );
 			expect( result.length ).toBe( 9 );
@@ -431,7 +431,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'activates the correct clip action', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.seekTo( 0.5, 1 );
 			expect( manager.actions[ 1 ].play ).toHaveBeenCalled();
 
@@ -439,7 +439,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'pauses actions after seeking to prevent further advancement', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.seekTo( 1.0, 0 );
 			expect( manager.actions[ 0 ].paused ).toBe( true );
 
@@ -447,7 +447,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'plays all clips with clipIndex -1', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.seekTo( 0.5, - 1 );
 			expect( manager.actions[ 0 ].play ).toHaveBeenCalled();
 			expect( manager.actions[ 1 ].play ).toHaveBeenCalled();
@@ -456,7 +456,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'works from stopped state', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.stop();
 			const result = manager.seekTo( 0.5 );
 			expect( result ).toBeInstanceOf( Float32Array );
@@ -469,7 +469,7 @@ describe( 'AnimationManager', () => {
 
 		it( 'clears all state', () => {
 
-			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations, 1 );
+			manager.init( mockScene, mockMixerRoot, mockMeshes, mockAnimations );
 			manager.dispose();
 			expect( manager.mixer ).toBeNull();
 			expect( manager.actions ).toHaveLength( 0 );

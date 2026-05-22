@@ -144,7 +144,7 @@ export const pathTracerMain = ( params ) => {
 		maxBounceCount, transmissiveBounces,
 		showBackground, transparentBackground, backgroundIntensity,
 		fireflyThreshold, globalIlluminationIntensity,
-		totalTriangleCount, enableEmissiveTriangleSampling,
+		enableEmissiveTriangleSampling,
 		emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 		lightBVHBuffer, lightBVHNodeCount,
 		debugVisScale,
@@ -171,7 +171,6 @@ export const pathTracerMain = ( params ) => {
 	const pixelSamples = int( 0 ).toVar();
 
 	const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
-	const pixelIndex = int( pixelCoord.y ).mul( int( resolution.x ) ).add( int( pixelCoord.x ) ).toVar();
 
 	// MRT data
 	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
@@ -273,7 +272,7 @@ export const pathTracerMain = ( params ) => {
 
 			// Normal path tracing
 			const traceResult = TraceResult.wrap( Trace(
-				ray, seed, rayIndex, pixelIndex,
+				ray, seed, rayIndex,
 				bvhBuffer,
 				triangleBuffer,
 				materialBuffer,
@@ -292,7 +291,7 @@ export const pathTracerMain = ( params ) => {
 				maxBounceCount, transmissiveBounces,
 				backgroundIntensity, showBackground, transparentBackground,
 				fireflyThreshold, globalIlluminationIntensity,
-				totalTriangleCount, enableEmissiveTriangleSampling,
+				enableEmissiveTriangleSampling,
 				emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 				lightBVHBuffer, lightBVHNodeCount,
 				pixelCoord, resolution, frame,

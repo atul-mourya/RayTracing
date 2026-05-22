@@ -5,7 +5,6 @@ import {
 	Fn,
 	vec2,
 	vec3,
-	vec4,
 	float,
 	int,
 	bool as tslBool,
@@ -16,7 +15,6 @@ import {
 	cross,
 	length,
 	max,
-	min,
 	sqrt,
 	abs,
 	clamp,
@@ -380,7 +378,7 @@ const binarySearchCDF = Fn( ( [ emissiveTriangleBuffer, emissiveOffset, emissive
 // `emissiveTriangleBuffer` may be the shared packed light buffer; `emissiveVec4Offset`
 // gives the vec4 offset where emissive entries begin.
 export const sampleEmissiveTriangle = Fn( ( [
-	hitPoint, surfaceNormal, totalTriangleCount,
+	hitPoint, surfaceNormal,
 	rngState,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
@@ -523,7 +521,7 @@ export const sampleEmissiveTriangle = Fn( ( [
 
 export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 	hitPoint, normal, viewDir, material,
-	totalTriangleCount, bounceIndex, rngState,
+	bounceIndex, rngState,
 	emissiveBoost,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
@@ -546,7 +544,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 		// Sample emissive triangle (CDF importance-weighted)
 		const emissiveSample = EmissiveSample.wrap( sampleEmissiveTriangle(
-			hitPoint, normal, totalTriangleCount, rngState,
+			hitPoint, normal, rngState,
 			emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 			triangleBuffer,
 		) );
@@ -568,7 +566,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 
 				// Trace shadow ray
 				const shadowDist = emissiveSample.distance.sub( 0.001 );
-				const visibility = traceShadowRayFn( rayOrigin, emissiveSample.direction, shadowDist, rngState );
+				const visibility = traceShadowRayFn( rayOrigin, emissiveSample.direction, shadowDist );
 
 				If( visibility.greaterThan( 0.0 ), () => {
 
@@ -607,7 +605,7 @@ export const calculateEmissiveTriangleContributionDebug = Fn( ( [
 // Wrapper that returns just the contribution vec3
 export const calculateEmissiveTriangleContribution = Fn( ( [
 	hitPoint, normal, viewDir, material,
-	totalTriangleCount, bounceIndex, rngState,
+	bounceIndex, rngState,
 	emissiveBoost,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 	triangleBuffer,
@@ -617,7 +615,7 @@ export const calculateEmissiveTriangleContribution = Fn( ( [
 
 	const result = EmissiveContributionResult.wrap( calculateEmissiveTriangleContributionDebug(
 		hitPoint, normal, viewDir, material,
-		totalTriangleCount, bounceIndex, rngState,
+		bounceIndex, rngState,
 		emissiveBoost,
 		emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 		triangleBuffer,

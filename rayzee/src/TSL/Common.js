@@ -246,7 +246,7 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 } );
 
 // Dynamic MIS strategy based on material properties
-export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, transmission, bounceIndex, throughput ] ) => {
+export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, bounceIndex, throughput ] ) => {
 
 	const throughputStrength = maxComponent( { v: throughput } ).toVar();
 

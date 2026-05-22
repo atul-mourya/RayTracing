@@ -1,4 +1,4 @@
-import { Fn, wgslFn, vec2, vec4, float, int, If, texture, sampler, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
+import { Fn, wgslFn, vec2, vec4, float, int, If, texture, dot, sin, sqrt, floor, fract, min, max, mix, clamp } from 'three/tsl';
 
 import { REC709_LUMINANCE_COEFFICIENTS } from './Common.js';
 

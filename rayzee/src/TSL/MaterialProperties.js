@@ -1,8 +1,7 @@
-import { Fn, float, vec3, vec4, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
+import { Fn, float, vec3, int, If, dot, max, min, sqrt, cos, exp, mix, clamp, smoothstep } from 'three/tsl';
 
 import {
 	BRDFWeights,
-	MaterialClassification,
 	MaterialCache,
 	ImportanceSamplingInfo,
 	DFGResult,
@@ -10,8 +9,8 @@ import {
 } from './Struct.js';
 
 import {
-	PI, TWO_PI, EPSILON, MIN_ROUGHNESS, REC709_LUMINANCE_COEFFICIENTS,
-	XYZ_TO_REC709, square, squareVec3, maxComponent,
+	PI, TWO_PI, EPSILON, MIN_ROUGHNESS,
+	XYZ_TO_REC709, square,
 } from './Common.js';
 
 import {
@@ -312,7 +311,6 @@ export const calculateBRDFWeights = Fn( ( [ material, mc, cache ] ) => {
 
 export const getImportanceSamplingInfo = Fn( ( [
 	material, bounceIndex, mc,
-	environmentIntensity, useEnvMapIS, enableEnvironmentLight
 ] ) => {
 
 	// Base BRDF weights using temporary cache
@@ -401,7 +399,6 @@ export const getImportanceSamplingInfo = Fn( ( [
 		specularImportance,
 		transmissionImportance,
 		clearcoatImportance,
-		envmapImportance: float( 0.0 ),
 	} );
 
 } );

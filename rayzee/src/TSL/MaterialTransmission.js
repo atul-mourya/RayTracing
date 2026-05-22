@@ -6,28 +6,23 @@ import {
 	wgslFn,
 	vec2,
 	vec3,
-	vec4,
 	float,
 	int,
 	bool as tslBool,
-	uint,
 	If,
-	Loop,
 	select,
 	abs,
 	dot,
 	reflect,
 	refract,
 	max,
-	min,
 	mix,
 	clamp,
 	exp,
 } from 'three/tsl';
 
 import { struct } from './patches.js';
-import { Ray, RayTracingMaterial, RenderState, HitInfo, DotProducts, DirectionSample } from './Struct.js';
-import { PI, EPSILON, MIN_ROUGHNESS, MIN_CLEARCOAT_ROUGHNESS, MIN_PDF, computeDotProducts } from './Common.js';
+import { EPSILON, MIN_ROUGHNESS, MIN_PDF } from './Common.js';
 import { iorToFresnel0, fresnelSchlickFloat } from './Fresnel.js';
 import { DistributionGGX } from './MaterialProperties.js';
 import { ImportanceSampleGGX } from './MaterialSampling.js';
@@ -77,9 +72,6 @@ export const MicrofacetTransmissionResult = struct( {
 	colorWeight: 'vec3', // Spectral tint to apply once; vec3(1) if locked or non-dispersive
 	pathWavelength: 'float', // 0 if path is not yet spectral, else locked wavelength in nm
 } );
-
-// Maximum number of nested media
-const MAX_MEDIA_STACK = 4;
 
 // MediumStack as a struct with fixed-size slots
 export const MediumStack = struct( {
@@ -493,7 +485,7 @@ export const handleTransmission = Fn( ( [
 // ================================================================================
 
 export const handleMaterialTransparency = Fn( ( [
-	ray, hitPoint, normal, material, rngState,
+	ray, normal, material, rngState,
 	transmissiveTraversals,
 	currentMediumIOR, previousMediumIOR,
 	pathWavelength,
@@ -511,19 +503,13 @@ export const handleMaterialTransparency = Fn( ( [
 		pathWavelength: pathWavelength,
 	} ).toVar();
 
-	// -----------------------------------------------------------------
-	// Step 1: Fast path for completely opaque materials
-	// -----------------------------------------------------------------
-	// Quick early exit for fully opaque materials (most common case)
+	// Fast path for fully opaque materials (most common case)
 	If( material.alphaMode.equal( int( 0 ) ).and( material.transmission.lessThanEqual( 0.0 ) ), () => {
 
-		// Return default (no interaction needed)
+		// no interaction needed
 
 	} ).Else( () => {
 
-		// -----------------------------------------------------------------
-		// Step 2: Handle alpha modes according to glTF spec
-		// -----------------------------------------------------------------
 		const alphaRand = RandomValue( rngState );
 		const transmissionRand = RandomValue( rngState );
 		const transmissionSeed = pcgHash( { state: rngState } );
@@ -575,9 +561,6 @@ export const handleMaterialTransparency = Fn( ( [
 
 		} );
 
-		// -----------------------------------------------------------------
-		// Step 3: Handle transmission if present
-		// -----------------------------------------------------------------
 		If( handled.not().and( material.transmission.greaterThan( 0.0 ) ).and( transmissiveTraversals.greaterThan( int( 0 ) ) ), () => {
 
 			// Only apply transmission with probability equal to the transmission value

@@ -1449,7 +1449,7 @@ export class PathTracerApp extends EventDispatcher {
 		if ( animations.length > 0 ) {
 
 			const mixerRoot = this.assetLoader?.targetModel || this.meshScene;
-			this.animationManager.init( this.meshScene, mixerRoot, this._sdf.meshes, animations, this._sdf.triangleCount );
+			this.animationManager.init( this.meshScene, mixerRoot, this._sdf.meshes, animations );
 			this.animationManager.onFinished = () => {
 
 				this._animRefitInFlight = false;
@@ -1459,7 +1459,7 @@ export class PathTracerApp extends EventDispatcher {
 
 		}
 
-		this.transformManager?.setMeshData( this._sdf.meshes, this._sdf.triangleCount );
+		this.transformManager?.setMeshData( this._sdf.meshes );
 
 	}
 

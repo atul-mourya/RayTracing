@@ -127,7 +127,6 @@ export const ImportanceSamplingInfo = struct( {
 	specularImportance: 'float',
 	transmissionImportance: 'float',
 	clearcoatImportance: 'float',
-	envmapImportance: 'float',
 } );
 
 export const DotProducts = struct( {

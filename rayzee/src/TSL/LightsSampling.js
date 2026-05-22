@@ -21,9 +21,7 @@ import {
 	float,
 	vec2,
 	vec3,
-	vec4,
 	int,
-	uint,
 	bool as tslBool,
 	max,
 	min,
@@ -34,14 +32,10 @@ import {
 	dot,
 	cross,
 	normalize,
-	length,
-	clamp,
 	mix,
 	select,
 	If,
 	Loop,
-	Break,
-	texture,
 } from 'three/tsl';
 
 import {
@@ -82,14 +76,12 @@ import {
 	PI,
 	PI_INV,
 	EPSILON,
-	MIN_PDF,
 	powerHeuristic,
 	balanceHeuristic,
 	computeDotProducts,
 } from './Common.js';
 import {
 	sampleEquirectProbability,
-	sampleEquirect,
 } from './Environment.js';
 
 const TWO_PI = 2.0 * PI;
@@ -155,7 +147,7 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 } );
 
 // Enhanced spot light sampling with radius support
-export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, ruv, lightSelectionPdf ] ) => {
+export const sampleSpotLightWithRadius = Fn( ( [ light, rayOrigin, lightSelectionPdf ] ) => {
 
 	const ls_valid = tslBool( false ).toVar();
 	const ls_direction = vec3( 0.0, 1.0, 0.0 ).toVar();
@@ -305,7 +297,7 @@ export const sampleLightWithImportance = Fn( ( [
 				If( lightIndex.lessThan( int( 16 ) ), () => {
 
 					const light = DirectionalLight.wrap( getDirectionalLight( directionalLightsBuffer, i ) );
-					const importance = calculateDirectionalLightImportance( light, rayOrigin, normal, material, bounceIndex ).toVar();
+					const importance = calculateDirectionalLightImportance( light, normal, material, bounceIndex ).toVar();
 					totalWeight.addAssign( importance );
 					If( importance.greaterThan( 0.0 ).and(
 						RandomValue( rngState ).mul( totalWeight ).lessThan( importance )
@@ -501,8 +493,7 @@ export const sampleLightWithImportance = Fn( ( [
 
 					If( light.intensity.greaterThan( 0.0 ), () => {
 
-						const uv = vec2( randomSeed.y, RandomValue( rngState ) ).toVar();
-						const spotSample = LightSample.wrap( sampleSpotLightWithRadius( light, rayOrigin, uv, lightSelectionPdf ) );
+						const spotSample = LightSample.wrap( sampleSpotLightWithRadius( light, rayOrigin, lightSelectionPdf ) );
 						r_valid.assign( spotSample.valid );
 						r_direction.assign( spotSample.direction );
 						r_emission.assign( spotSample.emission );
@@ -601,8 +592,7 @@ export const sampleLightWithImportance = Fn( ( [
 			If( selectedType.equal( int( 3 ) ).and( selectedIdx.greaterThanEqual( int( 0 ) ) ), () => {
 
 				const light = SpotLight.wrap( getSpotLight( spotLightsBuffer, selectedIdx ) );
-				const uv = vec2( randomSeed.y, RandomValue( rngState ) ).toVar();
-				const spotSample = LightSample.wrap( sampleSpotLightWithRadius( light, rayOrigin, uv, pdf ) );
+				const spotSample = LightSample.wrap( sampleSpotLightWithRadius( light, rayOrigin, pdf ) );
 				r_valid.assign( spotSample.valid );
 				r_direction.assign( spotSample.direction );
 				r_emission.assign( spotSample.emission );
@@ -703,7 +693,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 	// BRDF sample (DirectionSample fields)
 	brdfSampleDirection, brdfSamplePdf, brdfSampleValue,
 	// Tracing context
-	sampleIndex, bounceIndex, rngState,
+	bounceIndex, rngState,
 	// Light data
 	directionalLightsBuffer, numDirectionalLights,
 	areaLightsBuffer, numAreaLights,
@@ -723,13 +713,18 @@ export const calculateDirectLightingUnified = Fn( ( [
 	const totalContribution = vec3( 0.0 ).toVar();
 	const rayOrigin = hitPoint.add( hitNormal.mul( 0.001 ) ).toVar();
 
+	// Binds BVH params so shadow-ray sites at varying call depths use a 3-arg call
+	const shadow = Fn( ( [ origin, dir, maxDist ] ) =>
+		traceShadowRay( origin, dir, maxDist, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer )
+	);
+
 	// Early exit for highly emissive surfaces
 	If( material.emissiveIntensity.lessThanEqual( 10.0 ), () => {
 
 		// Adaptive MIS Strategy Selection
 		const currentThroughput = vec3( 1.0 ).toVar();
 		const misResult = MISStrategy.wrap( selectOptimalMISStrategy(
-			material.roughness, material.metalness, material.transmission, bounceIndex, currentThroughput
+			material.roughness, material.metalness, bounceIndex, currentThroughput
 		) );
 
 		// Extract MIS fields to mutable variables
@@ -823,13 +818,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 				If( NoL.greaterThan( 0.0 ).and( lightImportance.mul( NoL ).greaterThan( importanceThreshold ) ).and( isDirectionValid( { direction: lightSample.direction, surfaceNormal: hitNormal } ) ), () => {
 
 					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) ).toVar();
-					const visibility = traceShadowRay(
-						rayOrigin, lightSample.direction, shadowDistance, rngState,
-						traverseBVHShadow,
-						bvhBuffer,
-						triangleBuffer,
-						materialBuffer,
-					);
+					const visibility = shadow( rayOrigin, lightSample.direction, shadowDistance );
 
 					If( visibility.greaterThan( 0.0 ), () => {
 
@@ -928,13 +917,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 							If( hitDistance.greaterThan( 0.0 ), () => {
 
 								const shadowDistance = min( hitDistance.sub( 0.001 ), float( 1000.0 ) ).toVar();
-								const visibility = traceShadowRay(
-									rayOrigin, brdfSampleDirection, shadowDistance, rngState,
-									traverseBVHShadow,
-									bvhBuffer,
-									triangleBuffer,
-									materialBuffer,
-								);
+								const visibility = shadow( rayOrigin, brdfSampleDirection, shadowDistance );
 
 								If( visibility.greaterThan( 0.0 ), () => {
 
@@ -1000,13 +983,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 				If( NoL.greaterThan( 0.0 ).and( isDirectionValid( { direction: envDirection, surfaceNormal: hitNormal } ) ), () => {
 
-					const visibility = traceShadowRay(
-						rayOrigin, envDirection, float( 1000.0 ), rngState,
-						traverseBVHShadow,
-						bvhBuffer,
-						triangleBuffer,
-						materialBuffer,
-					);
+					const visibility = shadow( rayOrigin, envDirection, float( 1000.0 ) );
 
 					If( visibility.greaterThan( 0.0 ), () => {
 

@@ -63,7 +63,7 @@ export function setAlphaShadowsUniform( node ) {
 
 // Note: traverseBVH is passed as a parameter to avoid circular dependency
 export const traceShadowRay = Fn( ( [
-	origin, dir, maxDist, rngState,
+	origin, dir, maxDist,
 	// BVH traversal function and textures passed as parameters
 	traverseBVHShadowFn,
 	bvhBuffer,
@@ -85,7 +85,6 @@ export const traceShadowRay = Fn( ( [
 			shadowRay,
 			bvhBuffer,
 			triangleBuffer,
-			materialBuffer,
 			remainingDist,
 		) );
 
@@ -297,7 +296,7 @@ export const calculateRayOffset = Fn( ( [ hitPoint, normal, material ] ) => {
 // LIGHT IMPORTANCE ESTIMATION
 // ================================================================================
 
-export const calculateDirectionalLightImportance = Fn( ( [ light, hitPoint, normal, material, bounceIndex ] ) => {
+export const calculateDirectionalLightImportance = Fn( ( [ light, normal, material, bounceIndex ] ) => {
 
 	const NoL = max( float( 0.0 ), dot( normal, light.direction ) );
 	const result = float( 0.0 ).toVar();

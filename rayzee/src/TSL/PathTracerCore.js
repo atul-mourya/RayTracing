@@ -154,7 +154,7 @@ export const getOrCreateMaterialClassification = Fn( ( [
 // =============================================================================
 
 export const generateSampledDirection = Fn( ( [
-	V, N, material, materialIndex, xi, rngState,
+	V, N, material, xi, rngState,
 	// Caller-resolved material classification (avoids redundant classifyMaterial —
 	// TSL Fn can't write back to caller variables, so the caller is responsible
 	// for keeping psCachedClassification current and passes it in here).
@@ -533,7 +533,7 @@ export const regularizePathContribution = /*@__PURE__*/ wgslFn( `
 // =============================================================================
 
 export const Trace = Fn( ( [
-	ray, rngState, rayIndex, pixelIndex,
+	ray, rngState, rayIndex,
 	// BVH / Scene
 	bvhBuffer,
 	triangleBuffer,
@@ -557,7 +557,7 @@ export const Trace = Fn( ( [
 	maxBounceCount, transmissiveBounces,
 	backgroundIntensity, showBackground, transparentBackground,
 	fireflyThreshold, globalIlluminationIntensity,
-	totalTriangleCount, enableEmissiveTriangleSampling,
+	enableEmissiveTriangleSampling,
 	emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower, emissiveBoost,
 	lightBVHBuffer, lightBVHNodeCount,
 	// Per-pixel info
@@ -616,7 +616,6 @@ export const Trace = Fn( ( [
 	const psWeightsComputed = tslBool( false ).toVar();
 	const psClassificationCached = tslBool( false ).toVar();
 	const psMaterialCacheCached = tslBool( false ).toVar();
-	const psTexturesLoaded = tslBool( false ).toVar();
 	const psLastMaterialIndex = int( - 1 ).toVar();
 
 	// Cached classification
@@ -673,7 +672,6 @@ export const Trace = Fn( ( [
 			currentRay,
 			bvhBuffer,
 			triangleBuffer,
-			materialBuffer,
 		) ).toVar();
 
 		// KHR_materials_volume: apply Beer's law over the actual distance the ray
@@ -810,7 +808,7 @@ export const Trace = Fn( ( [
 
 		// Handle transparent materials
 		const interaction = MaterialInteractionResult.wrap( handleMaterialTransparency(
-			currentRay, hitInfo.hitPoint, N, material, rngState,
+			currentRay, N, material, rngState,
 			stateTransmissiveTraversals,
 			currentMediumIOR, previousMediumIOR,
 			pathWavelength,
@@ -980,7 +978,7 @@ export const Trace = Fn( ( [
 			// psCachedClassification directly so generateSampledDirection doesn't
 			// have to call classifyMaterial again internally.
 			const brdfSample = DirectionSample.wrap( generateSampledDirection(
-				V, N, material, hitInfo.materialIndex, randomSample, rngState,
+				V, N, material, randomSample, rngState,
 				psCachedClassification,
 				psWeightsComputed, psCachedBrdfWeights,
 				psMaterialCacheCached, psCachedMaterialCache,
@@ -1026,7 +1024,7 @@ export const Trace = Fn( ( [
 			hitInfo.hitPoint, N, material,
 			V,
 			brdfDir, brdfPdf, brdfValue,
-			rayIndex, bounceIndex, rngState,
+			bounceIndex, rngState,
 			directionalLightsBuffer, numDirectionalLights,
 			areaLightsBuffer, numAreaLights,
 			pointLightsBuffer, numPointLights,
@@ -1047,10 +1045,9 @@ export const Trace = Fn( ( [
 		// 2b. EMISSIVE TRIANGLE DIRECT LIGHTING
 		If( enableEmissiveTriangleSampling.equal( int( 1 ) ).and( emissiveTriangleCount.greaterThan( int( 0 ) ) ), () => {
 
-			// Wrapper binding BVH params (EmissiveSampling expects 4-param callback)
-			const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist, rs ] ) => {
+			const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist ] ) => {
 
-				return traceShadowRay( origin, dir, maxDist, rs, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer );
+				return traceShadowRay( origin, dir, maxDist, traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer );
 
 			} );
 
@@ -1080,7 +1077,7 @@ export const Trace = Fn( ( [
 						const rayOffset = calculateRayOffset( hitInfo.hitPoint, N, material );
 						const rayOrigin = hitInfo.hitPoint.add( rayOffset );
 						const shadowDist = emissiveSample.distance.sub( 0.001 );
-						const visibility = traceShadowRayWrapped( rayOrigin, emissiveSample.direction, shadowDist, rngState );
+						const visibility = traceShadowRayWrapped( rayOrigin, emissiveSample.direction, shadowDist );
 
 						If( visibility.greaterThan( 0.0 ), () => {
 
@@ -1114,7 +1111,7 @@ export const Trace = Fn( ( [
 				// Fallback: flat CDF importance sampling
 				const emissiveLight = calculateEmissiveTriangleContribution(
 					hitInfo.hitPoint, N, V, material,
-					totalTriangleCount, bounceIndex, rngState,
+					bounceIndex, rngState,
 					emissiveBoost,
 					emissiveTriangleBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 					triangleBuffer,
@@ -1135,19 +1132,14 @@ export const Trace = Fn( ( [
 		// path ran above.
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, psCachedClassification,
-			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
 		) );
 
 		// 3. INDIRECT LIGHTING
 		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
 			V, N, material,
 			brdfDir, brdfPdf, brdfValue,
-			rayIndex, bounceIndex,
 			rngState,
 			samplingInfo,
-			envTexture, environmentIntensity, envMatrix,
-			envTotalSum, envCompensationDelta, envResolution,
-			enableEnvironmentLight, useEnvMapIS,
 		) );
 		throughput.mulAssign( indirectResult.throughput );
 

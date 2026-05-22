@@ -93,7 +93,6 @@ export class NormalDepth extends RenderStage {
 		// Own storage nodes — created lazily when data is available
 		this._triStorageNode = null;
 		this._bvhStorageNode = null;
-		this._matStorageNode = null;
 
 		// Last-seen attribute identities. PathTracer replaces these in-place
 		// across model load / BVH rebuild; the compute's bind group is locked
@@ -101,7 +100,6 @@ export class NormalDepth extends RenderStage {
 		// when any of them swaps to a new object.
 		this._lastTriAttr = null;
 		this._lastBvhAttr = null;
-		this._lastMatAttr = null;
 
 		// Compute node — built once when storage buffers are ready
 		this._computeNode = null;
@@ -146,8 +144,6 @@ export class NormalDepth extends RenderStage {
 		const pt = this.pathTracer;
 		if ( ! pt ) return false;
 
-		const matStorageAttr = pt.materialData.materialStorageAttr;
-
 		// Detect attribute identity swap (PathTracer.setTriangleData /
 		// setBVHData replace the attribute object on growth). The compute
 		// node's bind group is locked to the buffer bound at compile time —
@@ -155,9 +151,8 @@ export class NormalDepth extends RenderStage {
 		// pointing at the now-discarded buffer, so every traversal misses.
 		const triSwapped = pt.triangleStorageAttr && pt.triangleStorageAttr !== this._lastTriAttr;
 		const bvhSwapped = pt.bvhStorageAttr && pt.bvhStorageAttr !== this._lastBvhAttr;
-		const matSwapped = matStorageAttr && matStorageAttr !== this._lastMatAttr;
 
-		if ( triSwapped || bvhSwapped || matSwapped ) {
+		if ( triSwapped || bvhSwapped ) {
 
 			// Drop compute + storage nodes so they get rebuilt against the
 			// current buffers. Cheap: this only happens on model load.
@@ -166,7 +161,6 @@ export class NormalDepth extends RenderStage {
 			this._computeBuilt = false;
 			this._triStorageNode = null;
 			this._bvhStorageNode = null;
-			this._matStorageNode = null;
 			this._dirty = true;
 
 		}
@@ -187,19 +181,10 @@ export class NormalDepth extends RenderStage {
 
 		}
 
-		if ( matStorageAttr && ! this._matStorageNode ) {
-
-			this._matStorageNode = storage(
-				matStorageAttr, 'vec4', matStorageAttr.count
-			).toReadOnly();
-
-		}
-
 		this._lastTriAttr = pt.triangleStorageAttr || this._lastTriAttr;
 		this._lastBvhAttr = pt.bvhStorageAttr || this._lastBvhAttr;
-		this._lastMatAttr = matStorageAttr || this._lastMatAttr;
 
-		return !! ( this._triStorageNode && this._bvhStorageNode && this._matStorageNode );
+		return !! ( this._triStorageNode && this._bvhStorageNode );
 
 	}
 
@@ -211,7 +196,6 @@ export class NormalDepth extends RenderStage {
 
 		const triStorage = this._triStorageNode;
 		const bvhStorage = this._bvhStorageNode;
-		const matStorage = this._matStorageNode;
 		const camWorld = this.cameraWorldMatrix;
 		const camProjInv = this.cameraProjectionMatrixInverse;
 		const resW = this.resolutionWidth;
@@ -249,7 +233,7 @@ export class NormalDepth extends RenderStage {
 				const ray = Ray( { origin: rayOrigin, direction: rayDirWorld } );
 
 				// BVH traversal (primary ray only) — wrap result for struct field access
-				const hit = HitInfo.wrap( traverseBVH( ray, bvhStorage, triStorage, matStorage ) );
+				const hit = HitInfo.wrap( traverseBVH( ray, bvhStorage, triStorage ) );
 
 				// Encode: normal * 0.5 + 0.5 in RGB, linear depth in A
 				const encodedNormal = hit.normal.mul( 0.5 ).add( 0.5 );

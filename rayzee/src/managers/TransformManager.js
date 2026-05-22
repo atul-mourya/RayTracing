@@ -49,7 +49,7 @@ export class TransformManager {
 	 * Provide mesh data from SceneProcessor after scene load.
 	 * Required for position extraction during BVH refit.
 	 */
-	setMeshData( meshes, triangleCount ) {
+	setMeshData( meshes ) {
 
 		this._meshes = meshes;
 		this._meshTriRanges = [];
@@ -72,8 +72,8 @@ export class TransformManager {
 
 		}
 
-		this._posBuffer = new Float32Array( triangleCount * 9 );
-		this._normalBuffer = new Float32Array( triangleCount * 9 );
+		this._posBuffer = new Float32Array( offset * 9 );
+		this._normalBuffer = new Float32Array( offset * 9 );
 
 	}
 

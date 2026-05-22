@@ -88,7 +88,6 @@ export const TraceDebugMode = Fn( ( [
 		ray,
 		bvhBuffer,
 		triangleBuffer,
-		materialBuffer,
 	).toVar() );
 
 	// Case 7: Triangle Tests
@@ -351,7 +350,6 @@ export const TraceDebugMode = Fn( ( [
 				bounceRay,
 				bvhBuffer,
 				triangleBuffer,
-				materialBuffer,
 			).toVar() );
 
 			const incoming = vec3( 0.0 ).toVar();

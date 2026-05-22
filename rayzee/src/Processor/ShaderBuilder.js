@@ -416,7 +416,6 @@ export class ShaderBuilder {
 					backgroundIntensity: stage.backgroundIntensity,
 					fireflyThreshold: stage.fireflyThreshold,
 					globalIlluminationIntensity: stage.globalIlluminationIntensity,
-					totalTriangleCount: stage.totalTriangleCount,
 					enableEmissiveTriangleSampling: stage.enableEmissiveTriangleSampling,
 					emissiveTriangleBuffer: lightBufferStorage,
 					emissiveTriangleCount: stage.emissiveTriangleCount,

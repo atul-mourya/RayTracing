@@ -115,7 +115,6 @@ export const traverseBVH = Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
-	materialBuffer,
 ] ) => {
 
 	const closestHit = HitInfo( {
@@ -331,7 +330,6 @@ export const traverseBVHShadow = Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
-	_materialBuffer, // eslint-disable-line no-unused-vars -- kept for call-site compatibility
 	maxShadowDist,
 ] ) => {
 

@@ -497,9 +497,6 @@ export class PathTracer extends RenderStage {
 		this.setInstanceTable( this.sdfs.instanceTable );
 		this.materialData.setMaterialData( this.sdfs.materialData );
 
-		// Update triangle count
-		this.totalTriangleCount.value = this.sdfs.triangleCount || 0;
-
 		// Material texture arrays
 		this.materialData.loadTexturesFromSdfs();
 

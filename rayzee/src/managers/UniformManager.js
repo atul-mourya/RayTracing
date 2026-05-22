@@ -252,9 +252,6 @@ export class UniformManager {
 		// Resolution (for RNG seeding)
 		u( 'resolution', new Vector2( width, height ), 'vec2' );
 
-		// Scene data
-		u( 'totalTriangleCount', 0, 'int' );
-
 	}
 
 	/**

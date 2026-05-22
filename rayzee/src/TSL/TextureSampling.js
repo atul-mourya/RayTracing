@@ -307,7 +307,7 @@ export const processBump = Fn( ( [ bumpMaps, currentNormal, material, uvCache ] 
 
 } );
 
-export const processEmissive = Fn( ( [ emissiveMaps, material, albedoColor, uvCache ] ) => {
+export const processEmissive = Fn( ( [ emissiveMaps, material, uvCache ] ) => {
 
 	const emissionBase = material.emissive.mul( material.emissiveIntensity ).toVar();
 
@@ -361,7 +361,7 @@ export const sampleAllMaterialTextures = Fn( ( [
 		const currentNormal = processNormal( normalMaps, geometryNormal, material, uvCache ).toVar();
 		normal.assign( processBump( bumpMaps, currentNormal, material, uvCache ) );
 
-		emissive.assign( processEmissive( emissiveMaps, material, albedo, uvCache ) );
+		emissive.assign( processEmissive( emissiveMaps, material, uvCache ) );
 
 	} );
 
