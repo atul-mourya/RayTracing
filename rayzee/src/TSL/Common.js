@@ -204,7 +204,7 @@ export const applySoftSuppressionRGB = wgslFn( `
 export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clearcoat, emissive ] ) => {
 
 	const isMetallic = metalness.greaterThan( 0.7 ).toVar();
-	const isRough = roughness.greaterThan( 0.8 ).toVar();
+	const isRough = roughness.greaterThan( 0.8 );
 	const isSmooth = roughness.lessThan( 0.3 ).toVar();
 	const isTransmissive = transmission.greaterThan( 0.5 ).toVar();
 	const hasClearcoat = clearcoat.greaterThan( 0.5 ).toVar();
@@ -218,8 +218,7 @@ export const classifyMaterial = Fn( ( [ metalness, roughness, transmission, clea
 		.add( float( 0.25 ).mul( float( isSmooth ) ) )
 		.add( float( 0.45 ).mul( float( isTransmissive ) ) )
 		.add( float( 0.35 ).mul( float( hasClearcoat ) ) )
-		.add( float( 0.3 ).mul( float( isEmissive ) ) )
-		.toVar();
+		.add( float( 0.3 ).mul( float( isEmissive ) ) );
 
 	// Add material interaction complexity
 	const interactionComplexity = float( 0.0 ).toVar();
@@ -255,7 +254,7 @@ export const selectOptimalMISStrategy = Fn( ( [ roughness, metalness, bounceInde
 	const brdfWeight = float( 0.5 ).toVar();
 	const lightWeight = float( 0.5 ).toVar();
 	const useBRDFSampling = tslBool( true );
-	const useLightSampling = throughputStrength.greaterThan( 0.01 ).toVar();
+	const useLightSampling = throughputStrength.greaterThan( 0.01 );
 
 	If( roughness.lessThan( 0.1 ).and( metalness.greaterThan( 0.8 ) ), () => {
 

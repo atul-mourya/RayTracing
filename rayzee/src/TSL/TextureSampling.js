@@ -100,9 +100,9 @@ export const computeUVCache = Fn( ( [ baseUV, material ] ) => {
 	const roughnessUV = vec2( 0.0 ).toVar();
 	const emissiveUV = vec2( 0.0 ).toVar();
 	const bumpUV = vec2( 0.0 ).toVar();
-	const normalBumpSameUV = normalBumpSame.or( allSameUV ).toVar();
-	const metalRoughSameUV = metalRoughSame.or( allSameUV ).toVar();
-	const albedoEmissiveSameUV = albedoEmissiveSame.or( allSameUV ).toVar();
+	const normalBumpSameUV = normalBumpSame.or( allSameUV );
+	const metalRoughSameUV = metalRoughSame.or( allSameUV );
+	const albedoEmissiveSameUV = albedoEmissiveSame.or( allSameUV );
 
 	If( allSameUV, () => {
 

@@ -71,17 +71,17 @@ export const calculateTransmissionPDF = Fn( ( [ V, L, N, ior, roughness, enterin
 
 	} );
 
-	const VoH = abs( dot( V, H ) ).toVar();
+	const VoH = abs( dot( V, H ) );
 	const LoH = abs( dot( L, H ) ).toVar();
 	const NoH = abs( dot( N, H ) ).toVar();
 
 	// GGX distribution
-	const D = DistributionGGX( NoH, roughness ).toVar();
+	const D = DistributionGGX( NoH, roughness );
 
 	// Jacobian for transmission
 	const denom_inner = VoH.add( LoH.mul( eta ) ).toVar();
-	const denom = denom_inner.mul( denom_inner ).toVar();
-	const jacobian = LoH.mul( eta ).mul( eta ).div( max( denom, EPSILON ) ).toVar();
+	const denom = denom_inner.mul( denom_inner );
+	const jacobian = LoH.mul( eta ).mul( eta ).div( max( denom, EPSILON ) );
 
 	return D.mul( NoH ).mul( jacobian );
 
@@ -92,10 +92,10 @@ export const calculateClearcoatPDF = Fn( ( [ V, L, N, clearcoatRoughness ] ) => 
 
 	const H_raw = V.add( L ).toVar();
 	const lenSq = dot( H_raw, H_raw ).toVar();
-	const H = select( lenSq.greaterThan( EPSILON ), H_raw.div( sqrt( lenSq ) ), N ).toVar();
+	const H = select( lenSq.greaterThan( EPSILON ), H_raw.div( sqrt( lenSq ) ), N );
 
-	const NoH = max( dot( N, H ), 0.0 ).toVar();
-	const NoV = max( dot( N, V ), 0.0 ).toVar();
+	const NoH = max( dot( N, H ), 0.0 );
+	const NoV = max( dot( N, V ), 0.0 );
 
 	return calculateVNDFPDF( NoH, NoV, clearcoatRoughness );
 
@@ -259,15 +259,14 @@ export const calculateIndirectLighting = Fn( ( [
 	const validInput = samplingInfo.diffuseImportance.greaterThanEqual( 0.0 )
 		.and( samplingInfo.specularImportance.greaterThanEqual( 0.0 ) )
 		.and( samplingInfo.transmissionImportance.greaterThanEqual( 0.0 ) )
-		.and( samplingInfo.clearcoatImportance.greaterThanEqual( 0.0 ) )
-		.toVar();
+		.and( samplingInfo.clearcoatImportance.greaterThanEqual( 0.0 ) );
 
 	If( validInput.not(), () => {
 
 		// Fallback to diffuse sampling
 		const r1_fb = RandomValue( rngState ).toVar();
 		const r2_fb = RandomValue( rngState ).toVar();
-		const sampleRand = vec2( r1_fb, r2_fb ).toVar();
+		const sampleRand = vec2( r1_fb, r2_fb );
 		r_direction.assign( cosineWeightedSample( N, sampleRand ) );
 		r_throughput.assign( material.color.xyz );
 		r_misWeight.assign( 1.0 );
@@ -312,7 +311,7 @@ export const calculateIndirectLighting = Fn( ( [
 		} ).ElseIf( selectedStrategy.equal( int( 3 ) ), () => {
 
 			// Strategy 3: Transmission
-			const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
+			const entering = dot( V, N ).greaterThan( 0.0 );
 			// pathWavelength=0 — MIS evaluation reads only direction/PDF, no spectral tint
 			const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 				V, N, material.ior, material.roughness, entering, material.dispersion, sampleRand, rngState, float( 0.0 )
@@ -333,7 +332,7 @@ export const calculateIndirectLighting = Fn( ( [
 		// For transmission directions (below surface), use |cos| instead of max(cos, 0)
 		const rawNoL = dot( N, sampleDir ).toVar();
 		const NoL = max( rawNoL, 0.0 ).toVar();
-		const absNoL = abs( rawNoL ).toVar();
+		const absNoL = abs( rawNoL );
 
 		// Calculate combined PDF for MIS (material strategies only)
 		const combinedPdf = float( 0.0 ).toVar();
@@ -351,25 +350,26 @@ export const calculateIndirectLighting = Fn( ( [
 
 		If( weights.useDiffuse, () => {
 
-			const diffusePdf = cosineWeightedPDF( NoL ).toVar();
-			combinedPdf.addAssign( weights.diffuseWeight.mul( diffusePdf ) );
+			combinedPdf.addAssign( weights.diffuseWeight.mul( cosineWeightedPDF( NoL ) ) );
 
 		} );
 
 		If( weights.useTransmission.and( material.transmission.greaterThan( 0.0 ) ), () => {
 
 			// Calculate transmission PDF for this direction
-			const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
-			const transmissionPdf = calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering ).toVar();
-			combinedPdf.addAssign( weights.transmissionWeight.mul( transmissionPdf ) );
+			const entering = dot( V, N ).greaterThan( 0.0 );
+			combinedPdf.addAssign( weights.transmissionWeight.mul(
+				calculateTransmissionPDF( V, sampleDir, N, material.ior, material.roughness, entering )
+			) );
 
 		} );
 
 		If( weights.useClearcoat.and( material.clearcoat.greaterThan( 0.0 ) ), () => {
 
 			// Calculate clearcoat PDF for this direction
-			const clearcoatPdf = calculateClearcoatPDF( V, sampleDir, N, material.clearcoatRoughness ).toVar();
-			combinedPdf.addAssign( weights.clearcoatWeight.mul( clearcoatPdf ) );
+			combinedPdf.addAssign( weights.clearcoatWeight.mul(
+				calculateClearcoatPDF( V, sampleDir, N, material.clearcoatRoughness )
+			) );
 
 		} );
 
@@ -382,10 +382,9 @@ export const calculateIndirectLighting = Fn( ( [
 
 		// Throughput calculation: use |cos| for transmission, max(cos,0) for reflection strategies
 		const cosineWeight = select( selectedStrategy.equal( int( 3 ) ), absNoL, NoL );
-		const throughput = sampleBrdfValue.mul( cosineWeight ).mul( misWeight ).div( samplePdf ).toVar();
 
 		r_direction.assign( sampleDir );
-		r_throughput.assign( throughput );
+		r_throughput.assign( sampleBrdfValue.mul( cosineWeight ).mul( misWeight ).div( samplePdf ) );
 		r_misWeight.assign( misWeight );
 		r_pdf.assign( samplePdf );
 		r_combinedPdf.assign( combinedPdf );

@@ -206,28 +206,24 @@ export const generateSampledDirection = Fn( ( [
 	const cumulativeDiffuse = weights.diffuse.toVar();
 	const cumulativeSpecular = cumulativeDiffuse.add( weights.specular ).toVar();
 	const cumulativeSheen = cumulativeSpecular.add( weights.sheen ).toVar();
-	const cumulativeClearcoat = cumulativeSheen.add( weights.clearcoat ).toVar();
+	const cumulativeClearcoat = cumulativeSheen.add( weights.clearcoat );
 
-	const sampled = tslBool( false ).toVar();
+	// Hoisted out of the lobe chain: used by both Specular and Clearcoat branches
+	const NoV = clamp( dot( N, V ), 0.001, 1.0 ).toVar();
 
-	// Diffuse sampling
-	If( rand.lessThan( cumulativeDiffuse ).and( sampled.not() ), () => {
+	// Chained If/ElseIf so emitted WGSL becomes a single mutually-exclusive branch
+	// (replaces five separate If blocks gated on a `sampled` flag — divergence hotspot)
+	If( rand.lessThan( cumulativeDiffuse ), () => {
 
 		resultDirection.assign( ImportanceSampleCosine( { N, xi: directionSample } ) );
 		const NoL = clamp( dot( N, resultDirection ), 0.0, 1.0 );
 		resultPdf.assign( NoL.mul( PI_INV ) );
 		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
-		sampled.assign( tslBool( true ) );
 
-	} );
-
-	const NoV = clamp( dot( N, V ), 0.001, 1.0 ).toVar();
-
-	// Specular sampling
-	If( rand.lessThan( cumulativeSpecular ).and( sampled.not() ), () => {
+	} ).ElseIf( rand.lessThan( cumulativeSpecular ), () => {
 
 		const TBN = constructTBN( { N } );
-		const localV = TBN.transpose().mul( V ).toVar();
+		const localV = TBN.transpose().mul( V );
 
 		// VNDF sampling
 		const localH = sampleGGXVNDF( { V: localV, roughness: material.roughness, Xi: xi } );
@@ -238,12 +234,8 @@ export const generateSampledDirection = Fn( ( [
 		resultDirection.assign( reflect( V.negate(), H ) );
 		resultPdf.assign( calculateVNDFPDF( NoH, NoV, material.roughness ) );
 		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
-		sampled.assign( tslBool( true ) );
 
-	} );
-
-	// Sheen sampling
-	If( rand.lessThan( cumulativeSheen ).and( sampled.not() ), () => {
+	} ).ElseIf( rand.lessThan( cumulativeSheen ), () => {
 
 		H.assign( ImportanceSampleGGX( { N, roughness: material.sheenRoughness, Xi: xi } ) );
 		const NoH = clamp( dot( N, H ), 0.001, 1.0 );
@@ -267,12 +259,7 @@ export const generateSampledDirection = Fn( ( [
 
 		} );
 
-		sampled.assign( tslBool( true ) );
-
-	} );
-
-	// Clearcoat sampling
-	If( rand.lessThan( cumulativeClearcoat ).and( sampled.not() ), () => {
+	} ).ElseIf( rand.lessThan( cumulativeClearcoat ), () => {
 
 		const clearcoatRoughness = clamp( material.clearcoatRoughness, MIN_CLEARCOAT_ROUGHNESS, MAX_ROUGHNESS );
 		H.assign( ImportanceSampleGGX( { N, roughness: clearcoatRoughness, Xi: xi } ) );
@@ -281,14 +268,11 @@ export const generateSampledDirection = Fn( ( [
 		resultPdf.assign( calculateVNDFPDF( NoH, NoV, clearcoatRoughness ) );
 		resultPdf.assign( max( resultPdf, MIN_PDF ) );
 		resultValue.assign( evaluateMaterialResponse( V, resultDirection, N, material ) );
-		sampled.assign( tslBool( true ) );
 
-	} );
+	} ).Else( () => {
 
-	// Transmission sampling (fallback)
-	If( sampled.not(), () => {
-
-		const entering = dot( V, N ).greaterThan( 0.0 ).toVar();
+		// Transmission sampling (fallback)
+		const entering = dot( V, N ).greaterThan( 0.0 );
 		// pathWavelength=0 — only direction/PDF are consumed here, throughput goes via handleTransmission
 		const mtResult = MicrofacetTransmissionResult.wrap( sampleMicrofacetTransmission(
 			V, N, material.ior, material.roughness, entering, material.dispersion, xi, rngState, float( 0.0 ),

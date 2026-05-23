@@ -134,16 +134,16 @@ const wavelengthToXYZ = /*@__PURE__*/ Fn( ( [ wl ] ) => {
 export const sampleWavelengthForDispersion = Fn( ( [ baseIOR, dispersionStrength, random ] ) => {
 
 	const wl = mix( float( 380.0 ), float( 700.0 ), random ).toVar();
-	const sampledIOR = iorFromWavelength( baseIOR, dispersionStrength, wl ).toVar();
+	const sampledIOR = iorFromWavelength( baseIOR, dispersionStrength, wl );
 
 	const xyz = wavelengthToXYZ( wl ).toVar();
 	const rgb = vec3(
 		xyz.x.mul( 3.2406 ).sub( xyz.y.mul( 1.5372 ) ).sub( xyz.z.mul( 0.4986 ) ),
 		xyz.x.mul( - 0.9689 ).add( xyz.y.mul( 1.8758 ) ).add( xyz.z.mul( 0.0415 ) ),
 		xyz.x.mul( 0.0557 ).sub( xyz.y.mul( 0.2040 ) ).add( xyz.z.mul( 1.0570 ) ),
-	).toVar();
+	);
 
-	const colorWeight = max( rgb, vec3( 0.0 ) ).mul( vec3( 1.819, 2.773, 2.928 ) ).toVar();
+	const colorWeight = max( rgb, vec3( 0.0 ) ).mul( vec3( 1.819, 2.773, 2.928 ) );
 
 	return SpectralSample( {
 		wavelength: wl,
@@ -390,9 +390,7 @@ export const handleTransmission = Fn( ( [
 		const metallicReflect = float( 0.95 );
 
 		// Blend based on metalness
-		const baseReflectProb = mix( dielectricReflect, metallicReflect, material.metalness ).toVar();
-
-		reflectProb.assign( baseReflectProb );
+		reflectProb.assign( mix( dielectricReflect, metallicReflect, material.metalness ) );
 
 	} );
 

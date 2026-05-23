@@ -156,7 +156,7 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 	const iridescenceIor = mix( outsideIOR, eta2, smoothstep( 0.0, 0.03, thinFilmThickness ) ).toVar();
 
 	// Evaluate the cosTheta on the base layer (Snell law)
-	const sinTheta2Sq = square( { x: outsideIOR.div( iridescenceIor ) } ).mul( float( 1.0 ).sub( square( { x: cosTheta1 } ) ) ).toVar();
+	const sinTheta2Sq = square( { x: outsideIOR.div( iridescenceIor ) } ).mul( float( 1.0 ).sub( square( { x: cosTheta1 } ) ) );
 
 	// Handle TIR
 	const cosTheta2Sq = float( 1.0 ).sub( sinTheta2Sq ).toVar();
@@ -171,11 +171,11 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 		const cosTheta2 = sqrt( cosTheta2Sq ).toVar();
 
 		// First interface
-		const R0 = iorToFresnel0( iridescenceIor, outsideIOR ).toVar();
+		const R0 = iorToFresnel0( iridescenceIor, outsideIOR );
 		const R12 = fresnelSchlickFloat( cosTheta1, R0 ).toVar();
 		const T121 = float( 1.0 ).sub( R12 ).toVar();
-		const phi12 = iridescenceIor.lessThan( outsideIOR ).select( float( PI ), float( 0.0 ) ).toVar();
-		const phi21 = float( PI ).sub( phi12 ).toVar();
+		const phi12 = iridescenceIor.lessThan( outsideIOR ).select( float( PI ), float( 0.0 ) );
+		const phi21 = float( PI ).sub( phi12 );
 
 		// Second interface
 		const baseIOR = fresnel0ToIor( clamp( baseF0, 0.0, 0.9999 ) ).toVar();
@@ -189,7 +189,7 @@ export const evalIridescence = Fn( ( [ outsideIOR, eta2, cosTheta1, thinFilmThic
 			baseIOR.x.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) ),
 			baseIOR.y.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) ),
 			baseIOR.z.lessThan( iridescenceIor ).select( float( PI ), float( 0.0 ) )
-		).toVar();
+		);
 
 		const OPD = float( 2.0 ).mul( iridescenceIor ).mul( thinFilmThickness ).mul( cosTheta2 ).toVar();
 		const phi = vec3( phi21 ).add( phi23 ).toVar();

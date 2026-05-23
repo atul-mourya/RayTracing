@@ -4,17 +4,15 @@
 
 ### MVP
 
-- [ ] scrutenize the implementation of SSRC
 - [ ] scrutenize for which all stages are needed as default
 - [ ] dispose, reset, etc life cycle for rayzee engine. 
 - [ ] optimized 4k hdr enviroments
-- [ ] Working Colorspace changes dont seems to be doing anything.
   
 ### Known
 
 - [ ] some pixels show black in the first rendered frame even if it hits the environment map
 - [ ] Soft shadows for directional lights not working when enabled from UI
-- [ ] SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
+- [ ] scrutenize the implementation of SSRC, SSRC seen some pixel stretching artifacts in some scenes, need to investigate and fix,
 
 
 ### Unconfirmed
@@ -153,6 +151,8 @@
 - [ ] SHaRC - Spatial Hash Radiance Cache - observed issues: transparent objects blocky, glowing reflictive materials, color bleeding, baised
 - [ ] Rerservoir sampling ( only per pixel, not neighboring )
 - [ ] emissive triangles as trianle lights -  do research
+- [ ] Chromatic adaptation transform (CAT)
+- [ ] Auto white balance
   
 ---
 
@@ -186,3 +186,4 @@
 - See [ROADMAP.md] for long-term vision and strategic planning
 - See [CONTRIBUTING.md] for development guidelines
 - The Future of Path Tracing | Best Practices, Optimizations & Future Standards <https://www.youtube.com/watch?v=0IrzX4LDIx8>
+- GPU optimization - 450 papers, 14 years of research. Some techniques will have evolved, but the mental models hold up: https://dl.acm.org/doi/10.1145/3570638

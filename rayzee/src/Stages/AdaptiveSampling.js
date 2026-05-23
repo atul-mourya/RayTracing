@@ -201,8 +201,8 @@ export class AdaptiveSampling extends RenderStage {
 		} );
 
 		// Dispatch dimensions
-		this._dispatchX = Math.ceil( w / 16 );
-		this._dispatchY = Math.ceil( h / 16 );
+		this._dispatchX = Math.ceil( w / 8 );
+		this._dispatchY = Math.ceil( h / 8 );
 
 		// Input: variance texture from Variance
 		// Use regular TextureNode (not StorageTexture) as compile-time placeholder so
@@ -243,7 +243,7 @@ export class AdaptiveSampling extends RenderStage {
 		const resH = this.resolutionHeight;
 		const outputTex = this._outputStorageTex;
 
-		const WG_SIZE = 16;
+		const WG_SIZE = 8;
 
 		const computeFn = Fn( () => {
 
@@ -300,7 +300,7 @@ export class AdaptiveSampling extends RenderStage {
 		const resW = this.resolutionWidth;
 		const resH = this.resolutionHeight;
 
-		const WG_SIZE = 16;
+		const WG_SIZE = 8;
 
 		const computeFn = Fn( () => {
 
@@ -406,8 +406,8 @@ export class AdaptiveSampling extends RenderStage {
 		this.resolutionHeight.value = height;
 
 		// Update dispatch dimensions
-		this._dispatchX = Math.ceil( width / 16 );
-		this._dispatchY = Math.ceil( height / 16 );
+		this._dispatchX = Math.ceil( width / 8 );
+		this._dispatchY = Math.ceil( height / 8 );
 		this._computeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 		this._heatmapComputeNode.dispatchSize = [ this._dispatchX, this._dispatchY, 1 ];
 

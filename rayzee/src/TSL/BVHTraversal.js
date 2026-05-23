@@ -31,6 +31,12 @@ const BVH_STRIDE = 4;
 const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
 
+// Emit per-iteration box/tri test counters into HitInfo. Required by visModes 1/2
+// (BVH traversal heat-maps in Debugger.js). When false, the increments are omitted
+// from the shader graph entirely — saves 2 int regs + 2 increments per iteration.
+// Flip to true when profiling BVH traversal hotspots.
+const TRACK_BVH_STATS = false;
+
 // Per-mesh visibility is now packed into the TLAS BLAS-pointer leaf's slot [2]
 // by TLASBuilder.flatten() — eliminates the dedicated meshVisibility storage buffer.
 
@@ -164,7 +170,7 @@ export const traverseBVH = Fn( ( [
 		// Inner: vec4(0) = [leftMin.xyz, leftChild], vec4(1) = [leftMax.xyz, rightChild],
 		//        vec4(2) = [rightMin.xyz, 0], vec4(3) = [rightMax.xyz, 0]
 		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		closestHit.boxTests.addAssign( 1 );
+		if ( TRACK_BVH_STATS ) closestHit.boxTests.addAssign( 1 );
 
 		If( nodeData0.w.lessThan( 0.0 ), () => {
 
@@ -178,7 +184,7 @@ export const traverseBVH = Fn( ( [
 				// Process triangles in leaf
 				Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-					closestHit.triTests.addAssign( 1 );
+					if ( TRACK_BVH_STATS ) closestHit.triTests.addAssign( 1 );
 					const triIndex = triStart.add( i ).toVar();
 
 					// Fetch geometry first (3 fetches from storage buffer)
@@ -205,13 +211,15 @@ export const traverseBVH = Fn( ( [
 						const nC = normalCData.xyz;
 						const side = int( normalCData.w ).toVar();
 
-						// Interpolate normal
+						// Interpolate normal for the side-culling dot product (kept local,
+						// not stored on closestHit — re-derived post-loop from closestTriIdx).
 						const w = float( 1.0 ).sub( u ).sub( v );
-						const normal = normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) ).toVar();
+						const rayDotNormal = rayDirection.dot(
+							normalize( nA.mul( w ).add( nB.mul( u ) ).add( nC.mul( v ) ) )
+						);
 
 						// Side culling (inline; per-mesh visibility is at the BLAS-pointer level).
 						// 0=front (reject back-facing), 1=back (reject front-facing), 2=double (pass).
-						const rayDotNormal = rayDirection.dot( normal );
 						const sidePass = side.equal( int( 2 ) )
 							.or( side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) ) )
 							.or( side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) ) );
@@ -219,10 +227,9 @@ export const traverseBVH = Fn( ( [
 
 							closestHit.didHit.assign( true );
 							closestHit.dst.assign( t );
-							closestHit.normal.assign( normal );
 
-							// Defer materialIndex/meshIndex/hitPoint/UV to post-traversal
-							// (all re-derived from closestTriIdx with a single uvData2 fetch below).
+							// Defer normal/materialIndex/meshIndex/hitPoint/UV to post-traversal
+							// (all re-derived from closestTriIdx after the loop exits).
 							closestTriIdx.assign( triIndex );
 							closestU.assign( u );
 							closestV.assign( v );
@@ -245,11 +252,9 @@ export const traverseBVH = Fn( ( [
 				// BLAS-pointer leaf (marker -2) — push BLAS root onto stack if mesh is visible
 				// nodeData0: [blasRootNodeIndex, meshIndex, visibility, -2]
 				// Visibility is free-fetched with the leaf — no extra storage read.
-				const blasRoot = int( nodeData0.x ).toVar();
-
 				If( nodeData0.z.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( blasRoot );
+					stack.element( stackPtr ).assign( int( nodeData0.x ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -275,14 +280,11 @@ export const traverseBVH = Fn( ( [
 
 				// Improved node ordering with fewer conditionals
 				const aCloser = dstA.lessThan( dstB );
-				const nearChild = select( aCloser, leftChild, rightChild ).toVar();
-				const farChild = select( aCloser, rightChild, leftChild ).toVar();
-				const farDst = select( aCloser, dstB, dstA ).toVar();
 
 				// Push far child first (processed last)
-				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
+				If( select( aCloser, dstB, dstA ).lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( farChild );
+					stack.element( stackPtr ).assign( select( aCloser, rightChild, leftChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -290,7 +292,7 @@ export const traverseBVH = Fn( ( [
 				// Push near child second (processed first)
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stack.element( stackPtr ).assign( nearChild );
+					stack.element( stackPtr ).assign( select( aCloser, leftChild, rightChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -301,12 +303,20 @@ export const traverseBVH = Fn( ( [
 
 	} );
 
-	// Deferred: compute hitPoint, UVs, and fetch matIdx/meshIndex once for the final closest hit
+	// Deferred: compute normal, hitPoint, UVs, and fetch matIdx/meshIndex once for the final closest hit
 	If( closestHit.didHit, () => {
 
 		closestHit.hitPoint.assign( ray.origin.add( ray.direction.mul( closestHit.dst ) ) );
 
 		const w = float( 1.0 ).sub( closestU ).sub( closestV );
+
+		// Re-fetch the winning triangle's normals — trading 3 storage reads (once)
+		// for ~3 regs freed across every BVH iteration.
+		const nA = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 3 ), int( TRI_STRIDE ) ).xyz;
+		const nB = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 4 ), int( TRI_STRIDE ) ).xyz;
+		const nC = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 5 ), int( TRI_STRIDE ) ).xyz;
+		closestHit.normal.assign( normalize( nA.mul( w ).add( nB.mul( closestU ) ).add( nC.mul( closestV ) ) ) );
+
 		const uvData1 = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 6 ), int( TRI_STRIDE ) );
 		const uvData2 = getDatafromStorageBuffer( triangleBuffer, closestTriIdx, int( 7 ), int( TRI_STRIDE ) );
 		closestHit.uv.assign(
@@ -418,11 +428,9 @@ export const traverseBVHShadow = Fn( ( [
 
 				// BLAS-pointer leaf (marker -2) — push BLAS root onto stack if mesh is visible
 				// nodeData0: [blasRootNodeIndex, meshIndex, visibility, -2]
-				const blasRoot = int( nodeData0.x ).toVar();
-
 				If( nodeData0.z.greaterThan( 0.5 ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( blasRoot );
+					stack.element( stackPtr ).assign( int( nodeData0.x ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -449,14 +457,11 @@ export const traverseBVHShadow = Fn( ( [
 			If( minDst.lessThan( closestHit.dst ), () => {
 
 				const aCloser = dstA.lessThan( dstB );
-				const nearChild = select( aCloser, leftChild, rightChild ).toVar();
-				const farChild = select( aCloser, rightChild, leftChild ).toVar();
-				const farDst = select( aCloser, dstB, dstA ).toVar();
 
 				// Push far child first (processed last)
-				If( farDst.lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
+				If( select( aCloser, dstB, dstA ).lessThan( closestHit.dst ).and( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ) ), () => {
 
-					stack.element( stackPtr ).assign( farChild );
+					stack.element( stackPtr ).assign( select( aCloser, rightChild, leftChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -464,7 +469,7 @@ export const traverseBVHShadow = Fn( ( [
 				// Push near child second (processed first)
 				If( stackPtr.lessThan( int( MAX_STACK_DEPTH ) ), () => {
 
-					stack.element( stackPtr ).assign( nearChild );
+					stack.element( stackPtr ).assign( select( aCloser, leftChild, rightChild ) );
 					stackPtr.addAssign( 1 );
 
 				} );
@@ -510,9 +515,6 @@ export const generateRayFromCamera = Fn( ( [
 	// Check if DOF is disabled or conditions make it ineffective
 	If( enableDOF.and( focalLength.greaterThan( 0.0 ) ).and( aperture.lessThan( 64.0 ) ).and( focusDistance.greaterThan( 0.001 ) ), () => {
 
-		// Calculate focal point - where rays converge
-		const focalPoint = rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).toVar();
-
 		// Physical aperture calculation
 		const effectiveAperture = focalLength.div( aperture );
 		// Apply scene scale to maintain correct physical aperture size
@@ -534,7 +536,7 @@ export const generateRayFromCamera = Fn( ( [
 
 		// Calculate new ray from offset origin to focal point
 		resultOrigin.assign( rayOriginWorld.add( offset ) );
-		resultDirection.assign( normalize( focalPoint.sub( resultOrigin ) ) );
+		resultDirection.assign( normalize( rayOriginWorld.add( rayDirectionWorld.mul( focusDistance ) ).sub( resultOrigin ) ) );
 
 	} );
 

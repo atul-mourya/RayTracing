@@ -268,11 +268,8 @@ export const traceShadowRay = Fn( ( [
 
 export const calculateRayOffset = Fn( ( [ hitPoint, normal, material ] ) => {
 
-	// Base epsilon scaled by scene size
-	const scaleEpsilon = max( float( 1e-4 ), length( hitPoint ).mul( 1e-6 ) ).toVar();
-
-	// Adjust for material properties
-	const materialEpsilon = scaleEpsilon.toVar();
+	// Base epsilon scaled by scene size; adjusted by material properties below.
+	const materialEpsilon = max( float( 1e-4 ), length( hitPoint ).mul( 1e-6 ) ).toVar();
 
 	If( material.transmission.greaterThan( 0.0 ), () => {
 

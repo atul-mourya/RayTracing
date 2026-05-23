@@ -107,8 +107,7 @@ export const sampleRectAreaLight = Fn( ( [ light, rayOrigin, ruv, lightSelection
 		// Sample random position on rectangle (u/v are half-vectors, so map [0,1] → [-1,1])
 		const randomPos = light.position
 			.add( light.u.mul( ruv.x.mul( 2.0 ).sub( 1.0 ) ) )
-			.add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) )
-			.toVar();
+			.add( light.v.mul( ruv.y.mul( 2.0 ).sub( 1.0 ) ) );
 
 		const toLight = randomPos.sub( rayOrigin ).toVar();
 		const lightDistSq = dot( toLight, toLight ).toVar();
@@ -222,7 +221,7 @@ export const samplePointLightWithAttenuation = Fn( ( [ light, rayOrigin, lightSe
 	If( lightDistSq.greaterThanEqual( 1e-20 ), () => {
 
 		const lightDist = sqrt( lightDistSq ).toVar();
-		const lightDir = toLight.div( lightDist ).toVar();
+		const lightDir = toLight.div( lightDist );
 
 		// Calculate distance attenuation using the light's actual distance and decay properties
 		const distanceAttenuation = getDistanceAttenuation( { lightDistance: lightDist, cutoffDistance: light.distance, decayExponent: light.decay } );
@@ -400,7 +399,7 @@ export const sampleLightWithImportance = Fn( ( [
 
 		If( totalWeight.lessThanEqual( 0.0 ), () => {
 
-			const lightSelection = randomSeed.x.mul( float( totalLights ) ).toVar();
+			const lightSelection = randomSeed.x.mul( float( totalLights ) );
 			const selectedLight = int( lightSelection ).toVar();
 			// Guard division by zero
 			const lightSelectionPdf = float( 1.0 ).div( max( float( totalLights ), 1.0 ) ).toVar();
@@ -544,7 +543,7 @@ export const sampleLightWithImportance = Fn( ( [
 						w.mul( cosTheta ).add( u.mul( cos( phi ) ).add( v.mul( sin( phi ) ) ).mul( sinTheta ) )
 					) );
 					// Guard division: (1.0 - cosHalfAngle) could be zero if angle is 0
-					const solidAngle = float( TWO_PI ).mul( max( float( 1.0 ).sub( cosHalfAngle ), 1e-10 ) ).toVar();
+					const solidAngle = float( TWO_PI ).mul( max( float( 1.0 ).sub( cosHalfAngle ), 1e-10 ) );
 					dirPdf.assign( float( 1.0 ).div( solidAngle ) );
 
 				} );
@@ -626,9 +625,9 @@ export const sampleLightWithImportance = Fn( ( [
 // to avoid recomputing H + dots.
 export const calculateMaterialPDFFromDots = Fn( ( [ material, dots ] ) => {
 
-	const NoV = dots.NoV.toVar();
+	const NoV = dots.NoV;
 	const NoL = dots.NoL.toVar();
-	const NoH = dots.NoH.toVar();
+	const NoH = dots.NoH;
 
 	// Calculate lobe weights
 	const diffuseWeight = float( 1.0 ).sub( material.metalness ).mul(
@@ -660,7 +659,7 @@ export const calculateMaterialPDFFromDots = Fn( ( [ material, dots ] ) => {
 		// Specular PDF (VNDF sampling used in path tracer)
 		If( specularWeight.greaterThan( 0.0 ).and( NoL.greaterThan( 0.0 ) ), () => {
 
-			const roughness = max( material.roughness, 0.02 ).toVar();
+			const roughness = max( material.roughness, 0.02 );
 			pdf.addAssign( specularWeight.mul( calculateVNDFPDF( NoH, NoV, roughness ) ) );
 
 		} );
@@ -774,10 +773,10 @@ export const calculateDirectLightingUnified = Fn( ( [
 		const sampleBRDF = tslBool( false ).toVar();
 
 		// Calculate effective weights for probability (only include light weight if lights exist)
-		const effectiveLightWeight = select( hasDiscreteLights, lightWeight, float( 0.0 ) ).toVar();
+		const effectiveLightWeight = select( hasDiscreteLights, lightWeight, float( 0.0 ) );
 		// Guard division
-		const invTotalSamplingWeight = float( 1.0 ).div( max( totalSamplingWeight, 1e-10 ) ).toVar();
-		const cumulativeLight = effectiveLightWeight.mul( invTotalSamplingWeight ).toVar();
+		const invTotalSamplingWeight = float( 1.0 ).div( max( totalSamplingWeight, 1e-10 ) );
+		const cumulativeLight = effectiveLightWeight.mul( invTotalSamplingWeight );
 
 		If( rand.lessThan( cumulativeLight ).and( useLightSampling ).and( hasDiscreteLights ), () => {
 
@@ -813,11 +812,11 @@ export const calculateDirectLightingUnified = Fn( ( [
 			If( lightSample.valid.and( lightSample.pdf.greaterThan( 0.0 ) ), () => {
 
 				const NoL = max( float( 0.0 ), dot( hitNormal, lightSample.direction ) ).toVar();
-				const lightImportance = lightSample.emission.x.add( lightSample.emission.y ).add( lightSample.emission.z ).toVar();
+				const lightImportance = lightSample.emission.x.add( lightSample.emission.y ).add( lightSample.emission.z );
 
 				If( NoL.greaterThan( 0.0 ).and( lightImportance.mul( NoL ).greaterThan( importanceThreshold ) ).and( isDirectionValid( { direction: lightSample.direction, surfaceNormal: hitNormal } ) ), () => {
 
-					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) ).toVar();
+					const shadowDistance = min( lightSample.distance.sub( 0.001 ), float( 1000.0 ) );
 					const visibility = shadow( rayOrigin, lightSample.direction, shadowDistance );
 
 					If( visibility.greaterThan( 0.0 ), () => {
@@ -832,8 +831,8 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 						If( bPdf.greaterThan( 0.0 ).and( useBRDFSampling ), () => {
 
-							const lightPdfWeighted = lightSample.pdf.mul( lightWeight ).toVar();
-							const brdfPdfWeighted = bPdf.mul( brdfWeight ).toVar();
+							const lightPdfWeighted = lightSample.pdf.mul( lightWeight );
+							const brdfPdfWeighted = bPdf.mul( brdfWeight );
 
 							// Apply power heuristic only for area lights — the BRDF path can
 							// intersect area lights, so both strategies contribute and MIS is valid.
@@ -916,7 +915,7 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 							If( hitDistance.greaterThan( 0.0 ), () => {
 
-								const shadowDistance = min( hitDistance.sub( 0.001 ), float( 1000.0 ) ).toVar();
+								const shadowDistance = min( hitDistance.sub( 0.001 ), float( 1000.0 ) );
 								const visibility = shadow( rayOrigin, brdfSampleDirection, shadowDistance );
 
 								If( visibility.greaterThan( 0.0 ), () => {
@@ -925,16 +924,16 @@ export const calculateDirectLightingUnified = Fn( ( [
 
 									If( lightFacing.greaterThan( 0.0 ), () => {
 
-										const lightDistSq = hitDistance.mul( hitDistance ).toVar();
+										const lightDistSq = hitDistance.mul( hitDistance );
 										// Guard division
 										const lightPdf = lightDistSq.div( max( light.area.mul( lightFacing ), EPSILON ) ).toVar();
 										lightPdf.divAssign( max( float( totalLights ), 1.0 ) );
 
-										const brdfPdfWeighted = brdfSamplePdf.mul( brdfWeight ).toVar();
-										const lightPdfWeighted = lightPdf.mul( lightWeight ).toVar();
+										const brdfPdfWeighted = brdfSamplePdf.mul( brdfWeight );
+										const lightPdfWeighted = lightPdf.mul( lightWeight );
 										const misW = powerHeuristic( { pdf1: brdfPdfWeighted, pdf2: lightPdfWeighted } ).toVar();
 
-										const lightEmission = light.color.mul( light.intensity ).toVar();
+										const lightEmission = light.color.mul( light.intensity );
 										// Guard division
 										const brdfContribution = lightEmission.mul( brdfSampleValue ).mul( NoL ).mul( visibility ).mul( misW ).div( max( brdfSamplePdf, 1e-10 ) );
 										totalContribution.addAssign( brdfContribution.mul( totalSamplingWeight ).div( max( brdfWeight, 1e-10 ) ) );

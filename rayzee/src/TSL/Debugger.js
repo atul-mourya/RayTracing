@@ -124,15 +124,15 @@ export const TraceDebugMode = Fn( ( [
 			} ).toVar();
 
 			const envLuminance = dot( envSample.xyz, REC709_LUMINANCE_COEFFICIENTS ).toVar();
-			const rawLuminance = envLuminance.toVar();
+			const rawLuminance = envLuminance;
 
 			// Adaptive scaling
 			const adaptiveScale = max( debugVisScale.mul( 0.1 ), 0.001 );
-			const scaledLuminance = envLuminance.div( adaptiveScale ).toVar();
+			const scaledLuminance = envLuminance.div( adaptiveScale );
 
 			// Logarithmic scaling for better dynamic range
 			const logLuminance = log( envLuminance.add( 1e-6 ) );
-			const logScaled = logLuminance.add( 10.0 ).div( 10.0 ).toVar();
+			const logScaled = logLuminance.add( 10.0 ).div( 10.0 );
 
 			// Choose scaling based on debugVisScale
 			const finalValue = select( debugVisScale.greaterThan( 1.0 ), scaledLuminance, logScaled ).toVar();
@@ -327,7 +327,7 @@ export const TraceDebugMode = Fn( ( [
 				material, hitInfo.uv, hitInfo.normal,
 			) ).toVar();
 
-			const albedoA = matSamples.albedo.rgb.toVar();
+			const albedoA = matSamples.albedo.rgb;
 			const normalA = normalize( matSamples.normal ).toVar();
 
 			// Generate per-pixel per-frame random seed for stochastic bounce direction
@@ -339,11 +339,11 @@ export const TraceDebugMode = Fn( ( [
 			// Cosine-weighted hemisphere sample around the surface normal
 			const xi_r1 = RandomValue( rngState ).toVar();
 			const xi_r2 = RandomValue( rngState ).toVar();
-			const xi = vec2( xi_r1, xi_r2 ).toVar();
+			const xi = vec2( xi_r1, xi_r2 );
 			const bounceDir = cosineWeightedSample( { N: normalA, xi } ).toVar();
 
 			// Trace secondary ray from the hit point (offset along normal to avoid self-intersection)
-			const bounceOrigin = hitInfo.hitPoint.add( normalA.mul( 0.001 ) ).toVar();
+			const bounceOrigin = hitInfo.hitPoint.add( normalA.mul( 0.001 ) );
 			const bounceRay = Ray( { origin: bounceOrigin, direction: bounceDir } );
 
 			const bounceHit = HitInfo.wrap( traverseBVH(

@@ -77,7 +77,7 @@ export const evaluateMaterialResponseFromDots = Fn( ( [ material, dots ] ) => {
 		// Precalculate shared terms
 		const D = DistributionGGX( dots.NoH, material.roughness );
 		const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
-		const F = fresnelSchlick( dots.VoH, F0 ).toVar();
+		const F = fresnelSchlick( dots.VoH, F0 );
 
 		// Single-scatter specular BRDF
 		const specularSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
@@ -145,7 +145,7 @@ export const evaluateLayeredBRDF = Fn( ( [ dots, material ] ) => {
 
 	const D = DistributionGGX( dots.NoH, material.roughness );
 	const G = GeometrySmith( dots.NoV, dots.NoL, material.roughness );
-	const F = fresnelSchlick( dots.VoH, F0 ).toVar();
+	const F = fresnelSchlick( dots.VoH, F0 );
 	const baseBRDFSS = D.mul( G ).mul( F ).div( max( float( 4.0 ).mul( dots.NoV ).mul( dots.NoL ), EPSILON ) );
 
 	// Shared DFG evaluation — compensation factor and total directional albedo

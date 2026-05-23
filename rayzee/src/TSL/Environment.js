@@ -47,19 +47,19 @@ export const sampleEquirect = Fn( ( [ environment, direction, environmentMatrix,
 
 		// sin(theta) matches the CDF's solid-angle weighting (lum * sinTheta)
 		const sinTheta = sin( uv.y.mul( Math.PI ) ).toVar();
-		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS ).toVar();
-		const weightedLum = lum.mul( sinTheta ).toVar();
+		const lum = dot( color, REC709_LUMINANCE_COEFFICIENTS );
+		const weightedLum = lum.mul( sinTheta );
 		// MIS Compensation: subtract delta to match the sharpened CDF
-		const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) ).toVar();
-		const pdf = compensatedWeight.div( envTotalSum ).toVar();
+		const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) );
+		const pdf = compensatedWeight.div( envTotalSum );
 
 		// Inline equirectDirectionPdf using the uv + sinTheta already in scope —
 		// the helper would otherwise re-derive uv via atan2+acos and recompute sin.
 		const dirPdf = sinTheta.greaterThan( 0.0 ).select(
 			float( 1.0 ).div( float( 2.0 * Math.PI * Math.PI ).mul( sinTheta ) ),
 			float( 0.0 )
-		).toVar();
-		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
+		);
+		const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf );
 
 		result.assign( vec4( color, finalPdf ) );
 
@@ -127,18 +127,18 @@ export const sampleEquirectProbability = Fn( ( [
 
 	// Calculate PDF — sin(theta) weighting + MIS Compensation (Karlík et al. 2019)
 	const sinTheta = sin( uv.y.mul( Math.PI ) ).toVar();
-	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS ).toVar();
-	const weightedLum = lum.mul( sinTheta ).toVar();
-	const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) ).toVar();
-	const pdf = compensatedWeight.div( envTotalSum ).toVar();
+	const lum = dot( color.div( environmentIntensity ), REC709_LUMINANCE_COEFFICIENTS );
+	const weightedLum = lum.mul( sinTheta );
+	const compensatedWeight = max( float( 0.0 ), weightedLum.sub( envCompensationDelta ) );
+	const pdf = compensatedWeight.div( envTotalSum );
 
 	// Inline equirectDirectionPdf — uv + sinTheta are already in scope, so we
 	// skip the helper's redundant uv-from-direction + sin recompute.
 	const dirPdf = sinTheta.greaterThan( 0.0 ).select(
 		float( 1.0 ).div( float( 2.0 * Math.PI * Math.PI ).mul( sinTheta ) ),
 		float( 0.0 )
-	).toVar();
-	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf ).toVar();
+	);
+	const finalPdf = float( envResolution.x ).mul( float( envResolution.y ) ).mul( pdf ).mul( dirPdf );
 
 	return vec4( direction, finalPdf );
 

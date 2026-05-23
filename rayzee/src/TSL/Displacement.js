@@ -45,15 +45,15 @@ export const refineDisplacedIntersection = Fn( ( [
 	const triIdx = hitInfo.triangleIndex;
 
 	const pA = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 0 ), int( TRI_STRIDE ) ).xyz.toVar();
-	const pB = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 1 ), int( TRI_STRIDE ) ).xyz.toVar();
-	const pC = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 2 ), int( TRI_STRIDE ) ).xyz.toVar();
+	const pB = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 1 ), int( TRI_STRIDE ) ).xyz;
+	const pC = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
 	const uvData1 = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 6 ), int( TRI_STRIDE ) ).toVar();
-	const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 7 ), int( TRI_STRIDE ) ).toVar();
+	const uvData2 = getDatafromStorageBuffer( triangleBuffer, triIdx, int( 7 ), int( TRI_STRIDE ) );
 
 	const uvA = uvData1.xy.toVar();
-	const uvB = uvData1.zw.toVar();
-	const uvC = uvData2.xy.toVar();
+	const uvB = uvData1.zw;
+	const uvC = uvData2.xy;
 
 	// Compute tangent vectors from triangle edges + UV differences
 	const edge1 = pB.sub( pA ).toVar();
@@ -94,8 +94,8 @@ export const refineDisplacedIntersection = Fn( ( [
 			const rayProjDotT = dot( rayProj, T );
 			const rayProjDotB = dot( rayProj, B );
 
-			const du_dt = BdotB.mul( rayProjDotT ).sub( TdotB.mul( rayProjDotB ) ).mul( invDetJ ).toVar();
-			const dv_dt = TdotT.mul( rayProjDotB ).sub( TdotB.mul( rayProjDotT ) ).mul( invDetJ ).toVar();
+			const du_dt = BdotB.mul( rayProjDotT ).sub( TdotB.mul( rayProjDotB ) ).mul( invDetJ );
+			const dv_dt = TdotT.mul( rayProjDotB ).sub( TdotB.mul( rayProjDotT ) ).mul( invDetJ );
 			const dUV_dt = vec2( du_dt, dv_dt ).toVar();
 
 			// Ray height change per unit dt: how fast the ray moves along the surface normal
@@ -103,7 +103,7 @@ export const refineDisplacedIntersection = Fn( ( [
 
 			// March range: displacement shell extends ±0.5*scale from base surface
 			// Compute dt range to traverse the full shell
-			const absNdotD = max( abs( dh_ray_dt ), 0.001 ).toVar();
+			const absNdotD = max( abs( dh_ray_dt ), 0.001 );
 			const dtShell = scale.div( absNdotD ).toVar();
 
 			// Adaptive step count: full steps on primary ray, half on deeper bounces
@@ -113,7 +113,7 @@ export const refineDisplacedIntersection = Fn( ( [
 
 			// Start from above the shell, march through
 			const dtStart = dtShell.negate().toVar();
-			const dtEnd = dtShell.toVar();
+			const dtEnd = dtShell;
 			const dtStep = dtEnd.sub( dtStart ).div( float( marchSteps ) ).toVar();
 
 			// Track for binary refinement
@@ -129,10 +129,10 @@ export const refineDisplacedIntersection = Fn( ( [
 					const dt = dtStart.add( dtStep.mul( float( i ) ) ).toVar();
 
 					// UV at this point along the ray
-					const marchUV = hitInfo.uv.add( dUV_dt.mul( dt ) ).toVar();
+					const marchUV = hitInfo.uv.add( dUV_dt.mul( dt ) );
 
 					// Ray height above base surface at this dt
-					const rayHeight = dt.mul( dh_ray_dt ).toVar();
+					const rayHeight = dt.mul( dh_ray_dt );
 
 					// Displaced surface height
 					const heightSample = sampleDisplacementMap(
@@ -165,7 +165,7 @@ export const refineDisplacedIntersection = Fn( ( [
 				Loop( { start: int( 0 ), end: int( BINARY_STEPS ), type: 'int', condition: '<' }, () => {
 
 					const midDt = loDt.add( hiDt ).mul( 0.5 ).toVar();
-					const midUV = hitInfo.uv.add( dUV_dt.mul( midDt ) ).toVar();
+					const midUV = hitInfo.uv.add( dUV_dt.mul( midDt ) );
 					const midRayHeight = midDt.mul( dh_ray_dt );
 					const midSample = sampleDisplacementMap(
 						displacementMaps, material.displacementMapIndex, midUV, material.displacementTransform,
@@ -187,7 +187,7 @@ export const refineDisplacedIntersection = Fn( ( [
 				// Final intersection
 				const finalDt = loDt.add( hiDt ).mul( 0.5 ).toVar();
 				const finalUV = hitInfo.uv.add( dUV_dt.mul( finalDt ) ).toVar();
-				const finalPoint = hitInfo.hitPoint.add( rayDir.mul( finalDt ) ).toVar();
+				const finalPoint = hitInfo.hitPoint.add( rayDir.mul( finalDt ) );
 
 				const finalHeight = sampleDisplacementMap(
 					displacementMaps, material.displacementMapIndex, finalUV, material.displacementTransform,

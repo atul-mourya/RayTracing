@@ -291,18 +291,17 @@ export const sampleSpotGoboMask = /*@__PURE__*/ Fn( ( [ light, lightDir ] ) => {
 				vec3( 1.0, 0.0, 0.0 ),
 			);
 			const T = normalize( cross( up, forward ) ).toVar();
-			const B = cross( forward, T ).toVar();
+			const B = cross( forward, T );
 
 			// Project onto plane perpendicular to forward at distance 1
 			const invCos = float( 1.0 ).div( cosAlpha ).toVar();
-			const px = dot( toSurface, T ).mul( invCos ).toVar();
-			const py = dot( toSurface, B ).mul( invCos ).toVar();
+			const px = dot( toSurface, T ).mul( invCos );
+			const py = dot( toSurface, B ).mul( invCos );
 
 			// Cone edge → ±tan(angle); map to UV [0,1]
-			const tanA = max( tan( light.angle ), float( 1e-4 ) ).toVar();
-			const invTan = float( 0.5 ).div( tanA ).toVar();
-			const u = clamp( px.mul( invTan ).add( 0.5 ), float( 0.0 ), float( 1.0 ) ).toVar();
-			const v = clamp( py.mul( invTan ).add( 0.5 ), float( 0.0 ), float( 1.0 ) ).toVar();
+			const invTan = float( 0.5 ).div( max( tan( light.angle ), float( 1e-4 ) ) ).toVar();
+			const u = clamp( px.mul( invTan ).add( 0.5 ), float( 0.0 ), float( 1.0 ) );
+			const v = clamp( py.mul( invTan ).add( 0.5 ), float( 0.0 ), float( 1.0 ) );
 
 			if ( _goboMapsTexNode ) {
 
@@ -354,15 +353,15 @@ export const sampleDirectionalGoboMask = /*@__PURE__*/ Fn( ( [ light, surfacePoi
 			vec3( 1.0, 0.0, 0.0 ),
 		);
 		const T = normalize( cross( up, axis ) ).toVar();
-		const B = cross( axis, T ).toVar();
+		const B = cross( axis, T );
 
 		const invScale = float( 1.0 ).div( max( light.goboScale, float( 1e-4 ) ) ).toVar();
 		const u = dot( surfacePoint, T ).mul( invScale ).add( 0.5 ).toVar();
 		const v = dot( surfacePoint, B ).mul( invScale ).add( 0.5 ).toVar();
 
 		// Tile by fract so a single mask can cover any scene size.
-		const uTiled = u.sub( u.floor() ).toVar();
-		const vTiled = v.sub( v.floor() ).toVar();
+		const uTiled = u.sub( u.floor() );
+		const vTiled = v.sub( v.floor() );
 
 		if ( _goboMapsTexNode ) {
 
@@ -417,9 +416,9 @@ export const sampleIESProfile = /*@__PURE__*/ Fn( ( [ light, lightDir ] ) => {
 
 		// Vertical angle: between forward axis and emission direction. 0 = on axis (V=0),
 		// PI = anti-axis (V=1).
-		const cosV = clamp( dot( toSurface, forward ), float( - 1.0 ), float( 1.0 ) ).toVar();
-		const vAngle = acos( cosV ).toVar();
-		const v = clamp( vAngle.div( float( Math.PI ) ), float( 0.0 ), float( 1.0 ) ).toVar();
+		const cosV = clamp( dot( toSurface, forward ), float( - 1.0 ), float( 1.0 ) );
+		const vAngle = acos( cosV );
+		const v = clamp( vAngle.div( float( Math.PI ) ), float( 0.0 ), float( 1.0 ) );
 
 		// Horizontal angle: project emission direction onto plane perpendicular to forward.
 		const up = select(
@@ -428,13 +427,13 @@ export const sampleIESProfile = /*@__PURE__*/ Fn( ( [ light, lightDir ] ) => {
 			vec3( 1.0, 0.0, 0.0 ),
 		);
 		const T = normalize( cross( up, forward ) ).toVar();
-		const B = cross( forward, T ).toVar();
+		const B = cross( forward, T );
 
 		const px = dot( toSurface, T );
 		const py = dot( toSurface, B );
 		// atan2 → [-PI, PI]; remap to [0, 2PI] then to [0, 1].
 		const phi = atan( py, px );
-		const u = phi.div( float( 2.0 * Math.PI ) ).add( 0.5 ).toVar();
+		const u = phi.div( float( 2.0 * Math.PI ) ).add( 0.5 );
 
 		if ( _iesProfilesTexNode ) {
 
