@@ -30,6 +30,7 @@
 - [ ] Create e2e test
 - [ ] benckmark tooling specification and implementation
 - [ ] Full WGSL transition, avoid TSL nodes
+- [ ] Readme with screenshots
 
 
 ### General
@@ -44,7 +45,12 @@
 
 ### Rendering
 
+- [ ] God Rays
+- [ ] Fog
+- [ ] Lens flare
 - [ ] Subsurface scattering
+- [ ] Cone Tracing
+- [ ] Realistic sky rendering (Volumetric atmosphere and clouds)
 - [ ] Volumetric rendering
 - [ ] Caustic support - Photon mapping &/ BDPT
 - [ ] Realtime OIDN denoising with WebGPU compute shader implementation
