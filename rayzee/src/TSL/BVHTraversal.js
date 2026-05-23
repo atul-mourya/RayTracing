@@ -50,37 +50,66 @@ const createStack = () => array( 'int', MAX_STACK_DEPTH ).toVar();
 // RAY INTERSECTION HELPERS (inlined for BVH traversal performance)
 // ================================================================================
 
+// Woop watertight intersection (Woop/Benthin/Wald 2013). Eliminates edge leakage
+// at shared triangle edges that Möller-Trumbore exhibits under FP32. Per-ray shears
+// are precomputed once via computeWoopRayParams; per-triangle test is FMA-friendly
+// and uses sign-aware depth comparison so it works for any det orientation.
 const RayTriangleGeometry = wgslFn( `
-	fn RayTriangleGeometry( rayOrigin: vec3f, rayDir: vec3f, pA: vec3f, pB: vec3f, pC: vec3f, closestHitDst: f32 ) -> vec4f {
+	fn RayTriangleGeometry( rayOrigin: vec3f, rayDir: vec3f, pA: vec3f, pB: vec3f, pC: vec3f, closestHitDst: f32, woopParams: vec4f ) -> vec4f {
 
-		// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection
+		// Returns vec4(t, u, v, hit) where hit > 0.5 means intersection.
+		// woopParams: (Sx, Sy, Sz, bitcast<f32>(packed kx|ky<<2|kz<<4))
 		var result = vec4f( 1e20f, 0.0f, 0.0f, 0.0f );
 
-		let edge1 = pB - pA;
-		let edge2 = pC - pA;
-		let h = cross( rayDir, edge2 );
-		let a = dot( edge1, h );
+		let Sx = woopParams.x;
+		let Sy = woopParams.y;
+		let Sz = woopParams.z;
+		// Packed as regular f32 (values 0–42), not bitcast — avoids subnormal FTZ on Apple GPUs.
+		let packed = i32( woopParams.w );
+		let kx = packed & 3;
+		let ky = ( packed >> 2 ) & 3;
+		let kz = ( packed >> 4 ) & 3;
 
-		if ( abs( a ) >= 1e-8f ) {
+		let A = pA - rayOrigin;
+		let B = pB - rayOrigin;
+		let C = pC - rayOrigin;
 
-			let f = 1.0f / a;
-			let s = rayOrigin - pA;
-			let u = f * dot( s, h );
+		let Akz = A[ kz ];
+		let Bkz = B[ kz ];
+		let Ckz = C[ kz ];
 
-			if ( u >= 0.0f && u <= 1.0f ) {
+		let Ax = A[ kx ] - Sx * Akz;
+		let Ay = A[ ky ] - Sy * Akz;
+		let Bx = B[ kx ] - Sx * Bkz;
+		let By = B[ ky ] - Sy * Bkz;
+		let Cx = C[ kx ] - Sx * Ckz;
+		let Cy = C[ ky ] - Sy * Ckz;
 
-				let q = cross( s, edge1 );
-				let v = f * dot( rayDir, q );
+		// Edge function tests — all three must share sign (or be exactly zero) for hit.
+		let U = Cx * By - Cy * Bx;
+		let V = Ax * Cy - Ay * Cx;
+		let W = Bx * Ay - By * Ax;
 
-				if ( v >= 0.0f && ( u + v ) <= 1.0f ) {
+		let neg = U < 0.0f || V < 0.0f || W < 0.0f;
+		let pos = U > 0.0f || V > 0.0f || W > 0.0f;
+		if ( !( neg && pos ) ) {
 
-					let t = f * dot( edge2, q );
+			let det = U + V + W;
+			if ( det != 0.0f ) {
 
-					if ( t > 0.0f && t < closestHitDst ) {
+				let T = U * ( Sz * Akz ) + V * ( Sz * Bkz ) + W * ( Sz * Ckz );
 
-						result = vec4f( t, u, v, 1.0f );
+				// Sign-aware bounds check on t (multiply both sides by sign(det) once).
+				let detSign = select( -1.0f, 1.0f, det > 0.0f );
+				let tSigned = T * detSign;
+				let detAbs = abs( det );
 
-					}
+				if ( tSigned > 0.0f && tSigned < closestHitDst * detAbs ) {
+
+					// Match Möller-Trumbore convention: u = weight of B, v = weight of C.
+					// In Woop's edge functions, U → weight of A, V → weight of B, W → weight of C.
+					let invDet = 1.0f / det;
+					result = vec4f( T * invDet, V * invDet, W * invDet, 1.0f );
 
 				}
 
@@ -89,6 +118,40 @@ const RayTriangleGeometry = wgslFn( `
 		}
 
 		return result;
+
+	}
+` );
+
+// Compute Woop ray-space transform (Woop 2013, §3.1) — runs once per ray and
+// amortizes across hundreds of triangle tests. Returns Sx/Sy/Sz shears plus the
+// permuted axis indices packed via bitcast into the .w slot.
+const computeWoopRayParams = wgslFn( `
+	fn computeWoopRayParams( rayDir: vec3f ) -> vec4f {
+
+		let absDir = abs( rayDir );
+
+		// kz = argmax(|dir|)
+		var kz: i32 = 0;
+		if ( absDir.y >= absDir.x ) { kz = 1; }
+		if ( absDir.z >= absDir[ u32( kz ) ] ) { kz = 2; }
+
+		var kx: i32 = ( kz + 1 ) % 3;
+		var ky: i32 = ( kx + 1 ) % 3;
+
+		// Preserve triangle winding when the dominant axis component is negative.
+		if ( rayDir[ u32( kz ) ] < 0.0f ) {
+			let tmp = kx;
+			kx = ky;
+			ky = tmp;
+		}
+
+		let dz = rayDir[ u32( kz ) ];
+		let Sx = rayDir[ u32( kx ) ] / dz;
+		let Sy = rayDir[ u32( ky ) ] / dz;
+		let Sz = 1.0f / dz;
+
+		let packed = kx | ( ky << 2 ) | ( kz << 4 );
+		return vec4f( Sx, Sy, Sz, f32( packed ) );
 
 	}
 ` );
@@ -157,6 +220,9 @@ export const traverseBVH = Fn( ( [
 	const rayOrigin = ray.origin;
 	const rayDirection = ray.direction;
 
+	// Woop watertight intersection: precompute per-ray shears + axis permutation.
+	const woopParams = computeWoopRayParams( { rayDir: rayDirection } ).toVar();
+
 	const iterCount = int( 0 ).toVar();
 
 	Loop( stackPtr.greaterThan( int( 0 ) ).and( iterCount.lessThan( int( MAX_BVH_ITERATIONS ) ) ), () => {
@@ -192,7 +258,7 @@ export const traverseBVH = Fn( ( [
 					const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
 					const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-					const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst } );
+					const triResult = RayTriangleGeometry( { rayOrigin, rayDir: rayDirection, pA, pB, pC, closestHitDst: closestHit.dst, woopParams } );
 
 					// RayTriangleGeometry already guarantees t < closestHit.dst when w > 0.5
 					If( triResult.w.greaterThan( 0.5 ), () => {
@@ -366,6 +432,9 @@ export const traverseBVHShadow = Fn( ( [
 		lessThan( abs( ray.direction ), vec3( 1e-8 ) )
 	).toVar();
 
+	// Woop watertight intersection: precompute per-ray shears + axis permutation.
+	const woopParams = computeWoopRayParams( { rayDir: ray.direction } ).toVar();
+
 	const sIterCount = int( 0 ).toVar();
 
 	Loop( stackPtr.greaterThan( int( 0 ) ).and( closestHit.didHit.not() ).and( sIterCount.lessThan( int( MAX_BVH_ITERATIONS ) ) ), () => {
@@ -393,7 +462,7 @@ export const traverseBVHShadow = Fn( ( [
 					const pB = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 1 ), int( TRI_STRIDE ) ).xyz;
 					const pC = getDatafromStorageBuffer( triangleBuffer, triIndex, int( 2 ), int( TRI_STRIDE ) ).xyz;
 
-					const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst } );
+					const triResult = RayTriangleGeometry( { rayOrigin: ray.origin, rayDir: ray.direction, pA, pB, pC, closestHitDst: closestHit.dst, woopParams } );
 
 					If( triResult.w.greaterThan( 0.5 ), () => {
 
