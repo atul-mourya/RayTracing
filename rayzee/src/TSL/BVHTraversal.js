@@ -31,12 +31,6 @@ const BVH_STRIDE = 4;
 const TRI_STRIDE = 8;
 const HUGE_VAL = 1e8;
 
-// Emit per-iteration box/tri test counters into HitInfo. Required by visModes 1/2
-// (BVH traversal heat-maps in Debugger.js). When false, the increments are omitted
-// from the shader graph entirely — saves 2 int regs + 2 increments per iteration.
-// Flip to true when profiling BVH traversal hotspots.
-const TRACK_BVH_STATS = false;
-
 // Per-mesh visibility is now packed into the TLAS BLAS-pointer leaf's slot [2]
 // by TLASBuilder.flatten() — eliminates the dedicated meshVisibility storage buffer.
 
@@ -236,7 +230,7 @@ export const traverseBVH = Fn( ( [
 		// Inner: vec4(0) = [leftMin.xyz, leftChild], vec4(1) = [leftMax.xyz, rightChild],
 		//        vec4(2) = [rightMin.xyz, 0], vec4(3) = [rightMax.xyz, 0]
 		const nodeData0 = getDatafromStorageBuffer( bvhBuffer, nodeIndex, int( 0 ), int( BVH_STRIDE ) );
-		if ( TRACK_BVH_STATS ) closestHit.boxTests.addAssign( 1 );
+		closestHit.boxTests.addAssign( 1 );
 
 		If( nodeData0.w.lessThan( 0.0 ), () => {
 
@@ -250,7 +244,7 @@ export const traverseBVH = Fn( ( [
 				// Process triangles in leaf
 				Loop( { start: int( 0 ), end: triCount }, ( { i } ) => {
 
-					if ( TRACK_BVH_STATS ) closestHit.triTests.addAssign( 1 );
+					closestHit.triTests.addAssign( 1 );
 					const triIndex = triStart.add( i ).toVar();
 
 					// Fetch geometry first (3 fetches from storage buffer)
