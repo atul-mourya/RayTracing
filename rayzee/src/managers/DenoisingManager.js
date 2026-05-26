@@ -729,7 +729,7 @@ export class DenoisingManager extends EventDispatcher {
 		if ( ! ctx ) return;
 
 		const keys = [
-			'asvgf:output', 'asvgf:temporalColor', 'asvgf:variance',
+			'asvgf:output', 'asvgf:demodulated', 'asvgf:gradient',
 			'variance:output', 'bilateralFiltering:output',
 			'edgeFiltering:output', 'ssrc:output',
 		];
@@ -740,7 +740,17 @@ export class DenoisingManager extends EventDispatcher {
 	_applyASVGFPreset( presetName ) {
 
 		const preset = ASVGF_QUALITY_PRESETS[ presetName ];
-		if ( preset ) this._stages.asvgf?.updateParameters( preset );
+		if ( ! preset ) return;
+		// ASVGF consumes temporalAlpha / gradientStrength / maxAccumFrames.
+		// BilateralFilter consumes phi* edge-stopping params and atrousIterations.
+		// Variance consumes varianceBoost. Each stage cherry-picks what it needs.
+		this._stages.asvgf?.updateParameters( preset );
+		this._stages.bilateralFilter?.updateParameters( preset );
+		if ( this._stages.variance && preset.varianceBoost !== undefined ) {
+
+			this._stages.variance.varianceBoost.value = preset.varianceBoost;
+
+		}
 
 	}
 

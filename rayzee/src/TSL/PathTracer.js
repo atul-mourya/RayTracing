@@ -182,9 +182,10 @@ export const pathTracerMain = ( params ) => {
 
 	const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: int( 0 ), frame } ).toVar();
 
-	// MRT data
+	// MRT — linearDepth is ray distance (sky/miss = 1e6), the convention
+	// MotionVector + ASVGF expect downstream.
 	const worldNormal = vec3( 0.0, 0.0, 1.0 ).toVar();
-	const linearDepth = float( 1.0 ).toVar();
+	const linearDepth = float( 1e6 ).toVar();
 
 	// Accumulate per-sample alpha for transparent background (0.0 = env, 1.0 = geometry)
 	const pixelAlpha = float( 0.0 ).toVar();
@@ -321,10 +322,7 @@ export const pathTracerMain = ( params ) => {
 				If( traceResult.firstHitDistance.lessThan( 1e9 ), () => {
 
 					worldNormal.assign( normalize( traceResult.objectNormal ) );
-
-					linearDepth.assign( computeNDCDepth( {
-						worldPos: traceResult.firstHitPoint, cameraProjectionMatrix, cameraViewMatrix,
-					} ) );
+					linearDepth.assign( traceResult.firstHitDistance );
 
 				} );
 

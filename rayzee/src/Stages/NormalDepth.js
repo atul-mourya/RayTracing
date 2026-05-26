@@ -7,44 +7,23 @@ import { Ray, HitInfo } from '../TSL/Struct.js';
 import { traverseBVH } from '../TSL/BVHTraversal.js';
 
 /**
- * NormalDepth Stage for WebGPU (Compute Shader)
+ * NormalDepth — primary-ray G-buffer for SVGF gates.
  *
- * Produces a G-buffer containing surface normals and linear depth by casting
- * primary rays through the BVH. This is a lightweight pass (~1-2 ms) that
- * shares the same BVH / triangle / material storage buffers as the path tracer.
+ * RGB = geometric world normal · 0.5 + 0.5, A = linear ray distance (sky=1e6).
+ * Geometric (not shading) normals because shading normals carry sub-pixel
+ * jitter that breaks the temporal gate's same-pixel-across-frames comparison.
+ * The path tracer's MRT already carries shading normals for OIDN; this stage
+ * is a separate, cheap, jitter-free signal for the denoiser.
  *
- * The output is required by denoising stages (ASVGF, BilateralFiltering)
- * and by the MotionVector.
+ * Ping-pong RenderTargets hold current/prev. On a dispatch we swap so prev
+ * is last frame's geometry. On a skipped dispatch (static camera) prev
+ * aliases current — without that aliasing prev would point at older data
+ * while this frame's motion vector reflects zero motion → false rejection.
  *
- * Architecture (copy approach — proven working in PathTracer):
- *   1. Compute shader writes to a StorageTexture via textureStore
- *   2. After dispatch, copyTextureToTexture transfers StorageTexture → RenderTarget
- *   3. RenderTarget texture is published to context (NOT StorageTexture —
- *      cross-dispatch reads from StorageTexture return zeros in Three.js WebGPU)
- *
- * Output format (RGBA Float):
- *   RGB — world-space normal encoded as (N * 0.5 + 0.5)
- *   A   — linear depth (distance along primary ray)
- *
- * Caching: Only re-renders when the camera moves or the scene is rebuilt.
- * During static accumulation the previous result is reused.
- *
- * Execution mode: ALWAYS (but internal dirty flag skips redundant work)
- *
- * Events listened:
- *   camera:moved   — mark dirty
- *   pipeline:reset  — mark dirty
- *
- * Textures published:
- *   pathtracer:normalDepth — RGBA Float G-buffer (from RenderTarget, not StorageTexture)
+ * Publishes: pathtracer:normalDepth, pathtracer:prevNormalDepth
  */
 export class NormalDepth extends RenderStage {
 
-	/**
-	 * @param {WebGPURenderer} renderer
-	 * @param {Object} options
-	 * @param {Object} options.pathTracer — reference to PathTracer (for shared buffers)
-	 */
 	constructor( renderer, options = {} ) {
 
 		super( 'NormalDepth', {
@@ -55,61 +34,47 @@ export class NormalDepth extends RenderStage {
 		this.renderer = renderer;
 		this.pathTracer = options.pathTracer;
 
-		// Dirty flag — only re-render when true
 		this._dirty = true;
 
-		// Own camera uniforms (updated from PathTracer values each frame)
 		this.cameraWorldMatrix = uniform( new Matrix4(), 'mat4' );
 		this.cameraProjectionMatrixInverse = uniform( new Matrix4(), 'mat4' );
-
-		// Resolution uniforms
 		this.resolutionWidth = uniform( options.width || 1 );
 		this.resolutionHeight = uniform( options.height || 1 );
 
 		const w = options.width || 1;
 		const h = options.height || 1;
 
-		// Write-only StorageTexture (compute output)
 		this._outputStorageTex = new StorageTexture( w, h );
 		this._outputStorageTex.type = HalfFloatType;
 		this._outputStorageTex.format = RGBAFormat;
 		this._outputStorageTex.minFilter = NearestFilter;
 		this._outputStorageTex.magFilter = NearestFilter;
 
-		// Readable RenderTarget (copy destination — published to context)
-		this.renderTarget = new RenderTarget( w, h, {
+		// Ping-pong RTs share format with the StorageTexture so copyTextureToTexture works.
+		const rtOpts = {
 			type: HalfFloatType,
 			format: RGBAFormat,
 			minFilter: NearestFilter,
 			magFilter: NearestFilter,
 			depthBuffer: false,
 			stencilBuffer: false
-		} );
+		};
+		this._rtA = new RenderTarget( w, h, rtOpts );
+		this._rtB = new RenderTarget( w, h, rtOpts );
+		this._currentIdx = 0;
+		this._hasHistory = false;
 
-		// Dispatch dimensions (8x8 workgroups)
 		this._dispatchX = Math.ceil( w / 8 );
 		this._dispatchY = Math.ceil( h / 8 );
 
-		// Own storage nodes — created lazily when data is available
 		this._triStorageNode = null;
 		this._bvhStorageNode = null;
-
-		// Last-seen attribute identities. PathTracer replaces these in-place
-		// across model load / BVH rebuild; the compute's bind group is locked
-		// to whatever buffer was bound at pipeline compile time, so we rebuild
-		// when any of them swaps to a new object.
 		this._lastTriAttr = null;
 		this._lastBvhAttr = null;
-
-		// Compute node — built once when storage buffers are ready
 		this._computeNode = null;
 		this._computeBuilt = false;
 
 	}
-
-	// ──────────────────────────────────────────────────
-	// Pipeline lifecycle
-	// ──────────────────────────────────────────────────
 
 	setupEventListeners() {
 
@@ -122,40 +87,23 @@ export class NormalDepth extends RenderStage {
 		this.on( 'pipeline:reset', () => {
 
 			this._dirty = true;
+			this._hasHistory = false;
 
 		} );
 
 	}
 
-	// ──────────────────────────────────────────────────
-	// Storage buffer synchronisation
-	// ──────────────────────────────────────────────────
-
-	/**
-	 * Synchronise storage buffer nodes from PathTracer.
-	 *
-	 * Creates own `storage()` nodes pointing at the same underlying
-	 * StorageInstancedBufferAttribute so the GPU buffer is shared,
-	 * but each compute node has its own binding (avoids the module-scope
-	 * TextureNode issue that breaks MRT).
-	 */
 	_syncStorageBuffers() {
 
 		const pt = this.pathTracer;
 		if ( ! pt ) return false;
 
-		// Detect attribute identity swap (PathTracer.setTriangleData /
-		// setBVHData replace the attribute object on growth). The compute
-		// node's bind group is locked to the buffer bound at compile time —
-		// updating the storage node's .value alone leaves the GPU binding
-		// pointing at the now-discarded buffer, so every traversal misses.
 		const triSwapped = pt.triangleStorageAttr && pt.triangleStorageAttr !== this._lastTriAttr;
 		const bvhSwapped = pt.bvhStorageAttr && pt.bvhStorageAttr !== this._lastBvhAttr;
 
 		if ( triSwapped || bvhSwapped ) {
 
-			// Drop compute + storage nodes so they get rebuilt against the
-			// current buffers. Cheap: this only happens on model load.
+			// Buffer identity changed → compute's bind group is stale; rebuild.
 			this._computeNode?.dispose?.();
 			this._computeNode = null;
 			this._computeBuilt = false;
@@ -188,10 +136,6 @@ export class NormalDepth extends RenderStage {
 
 	}
 
-	// ──────────────────────────────────────────────────
-	// Compute node (built once when buffers are ready)
-	// ──────────────────────────────────────────────────
-
 	_buildCompute() {
 
 		const triStorage = this._triStorageNode;
@@ -204,8 +148,8 @@ export class NormalDepth extends RenderStage {
 
 		const WG_SIZE = 8;
 
-		// Pass mat4 uniforms as Fn parameters so TSL wraps them
-		// with bracket-indexing support (closure captures don't get this)
+		// mat4 uniforms as Fn parameters so TSL emits bracket indexing
+		// (closure captures don't get this).
 		const computeFn = Fn( ( [ camWorldMat, camProjInvMat ] ) => {
 
 			const gx = int( workgroupId.x ).mul( WG_SIZE ).add( int( localId.x ) );
@@ -213,13 +157,13 @@ export class NormalDepth extends RenderStage {
 
 			If( gx.lessThan( int( resW ) ).and( gy.lessThan( int( resH ) ) ), () => {
 
-				// Pixel coordinate → NDC
-				// Negate Y: in WebGPU, pixel Y=0 at top of screen
+				// Pixel center → NDC, Y negated for Three.js WebGPU.
 				const ndcX = float( gx ).add( 0.5 ).div( resW ).mul( 2.0 ).sub( 1.0 );
 				const ndcY = float( gy ).add( 0.5 ).div( resH ).mul( 2.0 ).sub( 1.0 ).negate();
 				const ndcPos = vec3( ndcX, ndcY, 1.0 );
 
-				// Camera ray (no DOF)
+				// No jitter — deterministic per-pixel ray so the temporal gate
+				// sees stable per-pixel normals across frames.
 				const rayDirCS = camProjInvMat.mul( vec4( ndcPos, 1.0 ) );
 				const rayDirWorld = normalize(
 					mat3(
@@ -231,15 +175,11 @@ export class NormalDepth extends RenderStage {
 				const rayOrigin = vec3( camWorldMat[ 3 ] );
 
 				const ray = Ray( { origin: rayOrigin, direction: rayDirWorld } );
-
-				// BVH traversal (primary ray only) — wrap result for struct field access
 				const hit = HitInfo.wrap( traverseBVH( ray, bvhStorage, triStorage ) );
 
-				// Encode: normal * 0.5 + 0.5 in RGB, linear depth in A
 				const encodedNormal = hit.normal.mul( 0.5 ).add( 0.5 );
 				const depth = hit.dst;
 
-				// Sky / miss: zero normal, large depth
 				const result = hit.didHit.select(
 					vec4( encodedNormal, depth ),
 					vec4( 0.0, 0.0, 0.0, float( 1e6 ) )
@@ -264,26 +204,15 @@ export class NormalDepth extends RenderStage {
 
 	}
 
-	// ──────────────────────────────────────────────────
-	// Render
-	// ──────────────────────────────────────────────────
-
 	render( context ) {
 
 		if ( ! this.enabled ) return;
 
-		// Sync storage buffers from path tracer
 		const buffersReady = this._syncStorageBuffers();
 		if ( ! buffersReady ) return;
 
-		// Build compute node on first call (deferred until buffers exist)
-		if ( ! this._computeBuilt ) {
+		if ( ! this._computeBuilt ) this._buildCompute();
 
-			this._buildCompute();
-
-		}
-
-		// Sync camera uniforms from PathTracer
 		const pt = this.pathTracer;
 		if ( pt ) {
 
@@ -292,22 +221,24 @@ export class NormalDepth extends RenderStage {
 
 		}
 
-		// Skip if not dirty (camera hasn't moved, scene hasn't changed)
-		if ( ! this._dirty && this.renderTarget.texture ) {
+		// Static camera: republish current and alias prev to current. Without
+		// the alias, prev would still hold older geometry while motion vector
+		// reflects zero motion → false rejection at every pixel.
+		if ( ! this._dirty && this._hasHistory ) {
 
-			// Still publish the cached texture
-			context.setTexture( 'pathtracer:normalDepth', this.renderTarget.texture );
+			const currentRT = this._currentIdx === 0 ? this._rtA : this._rtB;
+			context.setTexture( 'pathtracer:normalDepth', currentRT.texture );
+			context.setTexture( 'pathtracer:prevNormalDepth', currentRT.texture );
 			return;
 
 		}
 
-		// Auto-match size to path tracer output
 		const ptColor = context.getTexture( 'pathtracer:color' );
 		if ( ptColor && ptColor.image ) {
 
 			const img = ptColor.image;
 			if ( img.width > 0 && img.height > 0 &&
-				( img.width !== this.renderTarget.width || img.height !== this.renderTarget.height ) ) {
+				( img.width !== this._rtA.width || img.height !== this._rtA.height ) ) {
 
 				this.setSize( img.width, img.height );
 
@@ -315,40 +246,46 @@ export class NormalDepth extends RenderStage {
 
 		}
 
-		// Dispatch compute shader
+		// Swap roles: what was current becomes prev, write into the free slot.
+		if ( this._hasHistory ) this._currentIdx = 1 - this._currentIdx;
+		const writeRT = this._currentIdx === 0 ? this._rtA : this._rtB;
+		const prevRT = this._currentIdx === 0 ? this._rtB : this._rtA;
+
 		this.renderer.compute( this._computeNode );
+		this.renderer.copyTextureToTexture( this._outputStorageTex, writeRT.texture );
 
-		// Copy StorageTexture → RenderTarget (cross-dispatch reads from
-		// StorageTexture return zeros — must use RenderTarget for downstream stages)
-		this.renderer.copyTextureToTexture( this._outputStorageTex, this.renderTarget.texture );
+		// First dispatch: seed prev from current so ASVGF doesn't see false
+		// disocclusion on frame 1.
+		if ( ! this._hasHistory ) {
 
-		// Publish RenderTarget texture to context
-		context.setTexture( 'pathtracer:normalDepth', this.renderTarget.texture );
+			this.renderer.copyTextureToTexture( this._outputStorageTex, prevRT.texture );
+			this._hasHistory = true;
 
-		// Clear dirty flag — next frame will reuse cached result
+		}
+
+		context.setTexture( 'pathtracer:normalDepth', writeRT.texture );
+		context.setTexture( 'pathtracer:prevNormalDepth', prevRT.texture );
+
 		this._dirty = false;
 
 	}
 
-	// ──────────────────────────────────────────────────
-	// Lifecycle
-	// ──────────────────────────────────────────────────
-
 	reset() {
 
 		this._dirty = true;
+		this._hasHistory = false;
 
 	}
 
 	setSize( width, height ) {
 
 		this._outputStorageTex.setSize( width, height );
-		this.renderTarget.setSize( width, height );
-		this.renderTarget.texture.needsUpdate = true;
+		this._rtA.setSize( width, height );
+		this._rtB.setSize( width, height );
+		this._hasHistory = false;
 		this.resolutionWidth.value = width;
 		this.resolutionHeight.value = height;
 
-		// Update dispatch dimensions
 		this._dispatchX = Math.ceil( width / 8 );
 		this._dispatchY = Math.ceil( height / 8 );
 		if ( this._computeNode ) {
@@ -365,7 +302,8 @@ export class NormalDepth extends RenderStage {
 
 		this._computeNode?.dispose();
 		this._outputStorageTex?.dispose();
-		this.renderTarget?.dispose();
+		this._rtA?.dispose();
+		this._rtB?.dispose();
 
 	}
 

@@ -146,35 +146,46 @@ export const ENGINE_DEFAULTS = {
 	autoExposureAdaptSpeedDark: 0.5,
 };
 
+// Albedo demodulation safety floor. ASVGF and BilateralFilter MUST use the
+// same value — demod (`color / safeAlbedo`) and remod (`lighting * safeAlbedo`)
+// only round-trip exactly when both sides agree.
+export const ALBEDO_EPS = 0.01;
+
 export const ASVGF_QUALITY_PRESETS = {
+	// phiColor / phiDepth are RELATIVE tolerances (fractions). Bigger = more
+	// permissive. gradientStrength = 0 keeps the adaptive-α boost off; the
+	// fixed-floor gradient misfires on 1-SPP noise. Pure SVGF temporal runs.
 	low: {
-		temporalAlpha: 0.3,
-		atrousIterations: 1,
-		phiColor: 30.0,
+		temporalAlpha: 0.1,
+		gradientStrength: 0.0,
+		atrousIterations: 3,
+		phiColor: 1.0,
 		phiNormal: 64.0,
-		phiDepth: 2.0,
+		phiDepth: 0.1,
 		phiLuminance: 6.0,
-		maxAccumFrames: 8,
+		maxAccumFrames: 16,
 		varianceBoost: 0.5
 	},
 	medium: {
-		temporalAlpha: 0.1,
-		atrousIterations: 3,
-		phiColor: 20.0,
+		temporalAlpha: 0.03,
+		gradientStrength: 0.0,
+		atrousIterations: 4,
+		phiColor: 0.5,
 		phiNormal: 128.0,
-		phiDepth: 1.0,
-		phiLuminance: 2.0,
-		maxAccumFrames: 32,
+		phiDepth: 0.05,
+		phiLuminance: 4.0,
+		maxAccumFrames: 64,
 		varianceBoost: 1.0
 	},
 	high: {
-		temporalAlpha: 0.05,
-		atrousIterations: 8,
-		phiColor: 5.0,
+		temporalAlpha: 0.0,
+		gradientStrength: 0.0,
+		atrousIterations: 6,
+		phiColor: 0.3,
 		phiNormal: 256.0,
-		phiDepth: 0.5,
+		phiDepth: 0.02,
 		phiLuminance: 2.0,
-		maxAccumFrames: 64,
+		maxAccumFrames: 128,
 		varianceBoost: 1.5
 	}
 };

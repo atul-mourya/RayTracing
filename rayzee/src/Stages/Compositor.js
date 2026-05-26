@@ -57,6 +57,7 @@ export class Compositor extends RenderStage {
 
 		return context.getTexture( 'bloom:output' )
 			|| context.getTexture( 'edgeFiltering:output' )
+			|| context.getTexture( 'bilateralFiltering:output' )
 			|| context.getTexture( 'asvgf:output' )
 			|| context.getTexture( 'ssrc:output' )
 			|| context.getTexture( 'pathtracer:color' );
