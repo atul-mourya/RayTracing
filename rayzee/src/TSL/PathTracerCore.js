@@ -918,6 +918,18 @@ export const Trace = Fn( ( [
 		const randomSample = getRandomSample( pixelCoord, rayIndex, bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
 
 		const V = rayDirection.negate().toVar();
+
+		// Two-sided shading: flip the shading normal into the viewer's hemisphere.
+		// This is the opaque reflection path (transmissive rays already Continue'd),
+		// so it never disturbs dielectric entering/exiting. No-op when N already
+		// faces V; rescues meshes with inward-facing normals (common in imported
+		// scenes, e.g. pbrt PLY assets) that would otherwise shade black.
+		If( dot( N, V ).lessThan( 0.0 ), () => {
+
+			N.assign( N.negate() );
+
+		} );
+
 		material.sheenRoughness.assign( clamp( material.sheenRoughness, MIN_ROUGHNESS, MAX_ROUGHNESS ) );
 
 		// Sync material classification cache up front — the materialCache, BRDF

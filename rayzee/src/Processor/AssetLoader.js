@@ -1,5 +1,6 @@
 import { Box3, Vector3, RectAreaLight, Color, FloatType, LinearFilter, EquirectangularReflectionMapping,
-	TextureLoader, Mesh, MeshStandardMaterial, MeshPhysicalMaterial, CircleGeometry, Points, PointsMaterial, LoadingManager, EventDispatcher
+	TextureLoader, Texture, SRGBColorSpace, RepeatWrapping, Mesh, MeshStandardMaterial, MeshPhysicalMaterial,
+	CircleGeometry, Points, PointsMaterial, LoadingManager, EventDispatcher
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
@@ -12,6 +13,7 @@ import { unzipSync, strFromU8 } from 'three/addons/libs/fflate.module.js';
 import { disposeObjectFromMemory, updateLoading } from './utils';
 import { BuildTimer } from './BuildTimer.js';
 import { getAssetConfig } from '../AssetConfig.js';
+import { loadPBRTScene, pickEntryPath } from './PBRT/index.js';
 
 // Define supported file formats
 const SUPPORTED_FORMATS = {
@@ -314,6 +316,10 @@ export class AssetLoader extends EventDispatcher {
 
 			const arrayBuffer = await this.readFileAsArrayBuffer( file );
 			const zip = unzipSync( new Uint8Array( arrayBuffer ) );
+
+			// A pbrt scene archive takes priority — it owns its own geometry/texture refs.
+			if ( pickEntryPath( zip ) ) return await this.loadPBRTFromZip( zip, filename );
+
 			const result = await this.processObjMtlPairsInZip( zip, filename );
 			if ( result ) return result;
 			return await this.findAndLoadModelFromZip( zip, filename );
@@ -322,6 +328,150 @@ export class AssetLoader extends EventDispatcher {
 
 			console.error( 'Error loading ZIP archive:', error );
 			throw error;
+
+		}
+
+	}
+
+	/**
+	 * Loads a pbrt-v4 scene from an unzipped archive. Parses the entry .pbrt
+	 * (following Include/Import), builds a THREE.Group, sets the infinite light
+	 * as the scene environment, and runs the standard onModelLoad pipeline.
+	 * @param {Object<string, Uint8Array>} zip - unzipped entries (path → bytes)
+	 * @param {string} filename - original archive name (for display/events)
+	 */
+	async loadPBRTFromZip( zip, filename ) {
+
+		updateLoading( { isLoading: true, status: 'Parsing PBRT scene...', progress: 5 } );
+
+		// Geometry decoder — reuse the cached PLYLoader (pbrt leans on .ply meshes).
+		if ( ! this.loaderCache.ply ) {
+
+			const { PLYLoader } = await import( 'three/examples/jsm/loaders/PLYLoader.js' );
+			this.loaderCache.ply = new PLYLoader();
+
+		}
+
+		const plyParser = ( buf ) => this.loaderCache.ply.parse( buf );
+
+		// Texture maps — decode by extension (pbrt uses .png/.jpg but also .exr/.hdr/.tga).
+		const imageFromBytes = ( bytes, fname ) => this._pbrtTextureFromBytes( bytes, fname );
+
+		// Infinite-light maps → HDR/EXR/LDR via the shared environment decoder.
+		const envFromBytes = async ( bytes, fname ) => {
+
+			const ext = fname.split( '.' ).pop().toLowerCase();
+			const url = URL.createObjectURL( new Blob( [ bytes ] ) );
+			try {
+
+				return await this.loadEnvironmentByExtension( url, ext );
+
+			} finally {
+
+				URL.revokeObjectURL( url );
+
+			}
+
+		};
+
+		const { group, environment, report, warnings, entryPath } = await loadPBRTScene( {
+			vfs: zip, plyParser, imageFromBytes, envFromBytes
+		} );
+
+		// Diagnostics — surface what each mesh resolved to (helps debug black/wrong materials).
+		if ( report && report.length && typeof console.table === 'function' ) {
+
+			console.groupCollapsed( `PBRT loader: ${report.length} mesh(es) from "${entryPath}"` );
+			console.table( report );
+			console.groupEnd();
+
+		}
+
+		if ( warnings && warnings.length ) {
+
+			console.warn( `PBRT loader: ${warnings.length} warning(s) parsing "${entryPath}"` );
+			warnings.forEach( w => console.warn( '  •', w ) );
+
+		}
+
+		// Infinite light → scene environment (CDF is built later in loadSceneData).
+		if ( environment?.texture ) {
+
+			environment.texture.generateMipmaps = true;
+			this.applyEnvironmentToScene( environment.texture );
+
+		}
+
+		group.name = entryPath || filename;
+		this.releaseTargetModel();
+		this.targetModel = group;
+
+		updateLoading( { isLoading: true, status: 'Processing PBRT geometry...', progress: 10 } );
+		await this.onModelLoad( this.targetModel );
+
+		this.dispatchEvent( { type: 'load', model: group, filename: `${entryPath} (from ZIP)` } );
+		return group;
+
+	}
+
+	/**
+	 * Decodes a pbrt texture map from raw bytes, picking a decoder by extension.
+	 * ImageBitmap can't handle EXR/HDR/TGA, which pbrt scenes use freely.
+	 * @param {Uint8Array} bytes
+	 * @param {string} fname
+	 * @returns {Promise<import('three').Texture>}
+	 */
+	async _pbrtTextureFromBytes( bytes, fname ) {
+
+		const ext = fname.split( '.' ).pop().toLowerCase();
+		let tex;
+
+		if ( ext === 'exr' || ext === 'hdr' ) {
+
+			const loader = ext === 'hdr'
+				? ( this.loaderCache.hdr || ( this.loaderCache.hdr = new HDRLoader().setDataType( FloatType ) ) )
+				: ( this.loaderCache.exr || ( this.loaderCache.exr = new EXRLoader().setDataType( FloatType ) ) );
+			tex = await this._loadViaObjectURL( loader, bytes );
+			// HDR/EXR maps are linear — leave colorSpace as the loader set it.
+
+		} else if ( ext === 'tga' ) {
+
+			if ( ! this.loaderCache.tga ) {
+
+				const { TGALoader } = await import( 'three/examples/jsm/loaders/TGALoader.js' );
+				this.loaderCache.tga = new TGALoader();
+
+			}
+
+			tex = await this._loadViaObjectURL( this.loaderCache.tga, bytes );
+			tex.colorSpace = SRGBColorSpace;
+
+		} else {
+
+			// png / jpg / webp / gif / bmp
+			const bitmap = await createImageBitmap( new Blob( [ bytes ] ) );
+			tex = new Texture( bitmap );
+			tex.colorSpace = SRGBColorSpace;
+
+		}
+
+		tex.wrapS = tex.wrapT = RepeatWrapping;
+		tex.needsUpdate = true;
+		return tex;
+
+	}
+
+	/** Decode bytes through a three loader's loadAsync via a transient object URL. */
+	async _loadViaObjectURL( loader, bytes ) {
+
+		const url = URL.createObjectURL( new Blob( [ bytes ] ) );
+		try {
+
+			return await loader.loadAsync( url );
+
+		} finally {
+
+			URL.revokeObjectURL( url );
 
 		}
 

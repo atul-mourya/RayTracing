@@ -1,0 +1,193 @@
+import { describe, it, expect } from 'vitest';
+import { Mesh, PerspectiveCamera } from 'three';
+import { loadPBRTScene, pickEntryPath } from '@/core/Processor/PBRT/index.js';
+
+const enc = new TextEncoder();
+
+const SCENE = `
+	LookAt 0 0 5   0 0 0   0 1 0
+	Camera "perspective" "float fov" 40
+	Film "rgb" "integer xresolution" 800 "integer yresolution" 600
+	WorldBegin
+	LightSource "infinite" "rgb L" [ 0.4 0.5 0.6 ]
+	AttributeBegin
+		AreaLightSource "diffuse" "rgb L" [ 8 8 8 ]
+		Material "diffuse" "rgb reflectance" [ 0.2 0.3 0.4 ]
+		Shape "trianglemesh" "point3 P" [ -1 0 0  1 0 0  0 1 0 ] "integer indices" [ 0 1 2 ]
+	AttributeEnd
+	Material "diffuse" "rgb reflectance" [ 0.8 0.8 0.8 ]
+	Translate 0 -1 0
+	Shape "sphere" "float radius" 0.5
+`;
+
+function buildArgs( extra = {} ) {
+
+	return {
+		vfs: { 'scene.pbrt': enc.encode( SCENE ) },
+		plyParser: () => null,
+		imageFromBytes: async () => null,
+		...extra
+	};
+
+}
+
+describe( 'PBRT scene builder', () => {
+
+	it( 'auto-detects the entry .pbrt', () => {
+
+		expect( pickEntryPath( { 'a/deep/foo.pbrt': 1, 'scene.pbrt': 1 } ) ).toBe( 'scene.pbrt' );
+
+	} );
+
+	it( 'builds meshes, a camera, and an environment', async () => {
+
+		const { group, camera, environment, warnings } = await loadPBRTScene( buildArgs() );
+
+		const meshes = group.children.filter( c => c instanceof Mesh );
+		const cameras = group.children.filter( c => c instanceof PerspectiveCamera );
+
+		expect( meshes ).toHaveLength( 2 );
+		expect( cameras ).toHaveLength( 1 );
+		expect( camera ).toBe( cameras[ 0 ] );
+		expect( environment.texture ).toBeTruthy();
+		// constant infinite light radiance baked into the float texture (float32)
+		const px = environment.texture.image.data;
+		expect( px[ 0 ] ).toBeCloseTo( 0.4, 5 );
+		expect( px[ 1 ] ).toBeCloseTo( 0.5, 5 );
+		expect( px[ 2 ] ).toBeCloseTo( 0.6, 5 );
+		expect( warnings ).toEqual( [] );
+
+	} );
+
+	it( 'maps area-light L onto an emissive material', async () => {
+
+		const { group } = await loadPBRTScene( buildArgs() );
+		const triMesh = group.children.find( c => c instanceof Mesh && c.geometry.getAttribute( 'position' ).count === 3 );
+
+		expect( triMesh.material.emissive.r ).toBeCloseTo( 8, 5 );
+		expect( triMesh.material.emissiveIntensity ).toBe( 1 );
+
+	} );
+
+	it( 'resolves a `scale` texture (tint × inner) and a `mix` material', async () => {
+
+		const enc2 = new TextEncoder();
+		const scene = `
+			Camera "perspective" "float fov" 30
+			Film "rgb" "integer xresolution" 800 "integer yresolution" 600
+			WorldBegin
+			Texture "base" "spectrum" "imagemap" "string filename" "wood.png"
+			Texture "tinted" "spectrum" "scale" "texture tex" "base" "rgb scale" [ 0.5 0.2 0.1 ]
+			MakeNamedMaterial "Red" "string type" "diffuse" "rgb reflectance" [ 1 0 0 ]
+			MakeNamedMaterial "Blue" "string type" "diffuse" "rgb reflectance" [ 0 0 1 ]
+			MakeNamedMaterial "Glossy" "string type" "diffuse" "texture reflectance" "tinted"
+			NamedMaterial "Glossy"
+			Shape "sphere" "float radius" 1
+			Material "mix" "string materials" [ "Red" "Blue" ] "float amount" 0.2
+			Shape "sphere" "float radius" 1
+			Material "mix" "string materials" [ "Red" "Blue" ] "float amount" 0.8
+			Shape "sphere" "float radius" 1
+		`;
+		// Stub image: any non-null Texture so the texture path resolves
+		const stubTex = { isTexture: true };
+		const r = await loadPBRTScene( {
+			vfs: { 'scene.pbrt': enc2.encode( scene ), 'wood.png': enc2.encode( 'x' ) },
+			plyParser: () => null,
+			imageFromBytes: async () => stubTex
+		} );
+
+		expect( r.warnings.filter( w => /not supported/.test( w ) ) ).toEqual( [] );
+		const spheres = r.group.children.filter( c => c instanceof Mesh );
+		expect( spheres ).toHaveLength( 3 );
+
+		// 1) scale texture: map = inner texture, color = scale tint (0.5, 0.2, 0.1)
+		expect( spheres[ 0 ].material.map ).toBe( stubTex );
+		expect( spheres[ 0 ].material.color.r ).toBeCloseTo( 0.5, 5 );
+		expect( spheres[ 0 ].material.color.g ).toBeCloseTo( 0.2, 5 );
+		expect( spheres[ 0 ].material.color.b ).toBeCloseTo( 0.1, 5 );
+
+		// 2) mix(amount=0.2): lerp(Red, Blue, 0.2) → (0.8, 0, 0.2)
+		expect( spheres[ 1 ].material.color.r ).toBeCloseTo( 0.8, 5 );
+		expect( spheres[ 1 ].material.color.b ).toBeCloseTo( 0.2, 5 );
+
+		// 3) mix(amount=0.8): lerp(Red, Blue, 0.8) → (0.2, 0, 0.8)
+		expect( spheres[ 2 ].material.color.r ).toBeCloseTo( 0.2, 5 );
+		expect( spheres[ 2 ].material.color.b ).toBeCloseTo( 0.8, 5 );
+
+	} );
+
+	it( 'drops the map on a UV-less mesh without corrupting the shared textured material', async () => {
+
+		// Two shapes share one NamedMaterial that carries a texture. One shape has
+		// UVs, the other doesn't. The UV-less shape must NOT strip the map from the
+		// shared cached material instance the UV'd shape relies on.
+		const enc2 = new TextEncoder();
+		const scene = `
+			Camera "perspective" "float fov" 30
+			Film "rgb" "integer xresolution" 64 "integer yresolution" 64
+			WorldBegin
+			Texture "wood" "spectrum" "imagemap" "string filename" "wood.png"
+			MakeNamedMaterial "Wood" "string type" "diffuse" "texture reflectance" "wood"
+			NamedMaterial "Wood"
+			Shape "trianglemesh" "point3 P" [ 0 0 0 1 0 0 0 1 0 ] "point2 uv" [ 0 0 1 0 0 1 ] "integer indices" [ 0 1 2 ]
+			Shape "trianglemesh" "point3 P" [ 0 0 0 1 0 0 0 1 0 ] "integer indices" [ 0 1 2 ]
+		`;
+		const stubTex = { isTexture: true, clone() {
+
+			return { ...this };
+
+		} };
+		const r = await loadPBRTScene( {
+			vfs: { 'scene.pbrt': enc2.encode( scene ), 'wood.png': enc2.encode( 'x' ) },
+			plyParser: () => null,
+			imageFromBytes: async () => stubTex
+		} );
+
+		const meshes = r.group.children.filter( c => c instanceof Mesh );
+		expect( meshes ).toHaveLength( 2 );
+		const withUV = meshes.find( m => m.geometry.getAttribute( 'uv' ) );
+		const noUV = meshes.find( m => ! m.geometry.getAttribute( 'uv' ) );
+
+		// The UV'd mesh keeps its texture; the UV-less one drops it on a clone.
+		expect( withUV.material.map ).toBe( stubTex );
+		expect( noUV.material.map ).toBe( null );
+		// Distinct instances — the shared material was not mutated.
+		expect( noUV.material ).not.toBe( withUV.material );
+
+	} );
+
+	it( 'maps diffuse reflectance onto base color', async () => {
+
+		const { group } = await loadPBRTScene( buildArgs() );
+		const sphere = group.children.find( c => c instanceof Mesh && c.geometry.type === 'SphereGeometry' );
+
+		expect( sphere.material.color.r ).toBeCloseTo( 0.8, 5 );
+		expect( sphere.material.roughness ).toBe( 1 );
+		expect( sphere.material.metalness ).toBe( 0 );
+
+	} );
+
+	it( 'defaults to no handedness flip (camera in pbrt coords)', async () => {
+
+		// Default: convertHandedness false → camera eye z=5 stays at 5.
+		const defaulted = await loadPBRTScene( buildArgs() );
+		expect( defaulted.camera.position.z ).toBeCloseTo( 5, 4 );
+
+		// Opt-in flip: eye z=5 → -5 after the mirror.
+		const flipped = await loadPBRTScene( buildArgs( { convertHandedness: true } ) );
+		expect( flipped.camera.position.z ).toBeCloseTo( - 5, 4 );
+
+	} );
+
+	it( 'records the sphere translate in its baked matrix', async () => {
+
+		const { group } = await loadPBRTScene( buildArgs() );
+		const sphere = group.children.find( c => c instanceof Mesh && c.geometry.type === 'SphereGeometry' );
+		const t = sphere.matrix.elements.slice( 12, 15 );
+		expect( t[ 0 ] ).toBeCloseTo( 0, 5 );
+		expect( t[ 1 ] ).toBeCloseTo( - 1, 5 );
+		expect( t[ 2 ] ).toBeCloseTo( 0, 5 );
+
+	} );
+
+} );
