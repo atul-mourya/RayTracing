@@ -98,6 +98,7 @@
 - [ ] PNG image sequence export for better quality and post-processing flexibility
 - [ ] Multi-clip blending - cross-fade between animation clips with configurable transition duration
 - [ ] ArrayBufferTarget memory for long videos - StreamTarget upgrade
+- [ ] sequence caching for smooth playback / scrubbing
 
 ---
 
@@ -193,3 +194,4 @@
 - See [CONTRIBUTING.md] for development guidelines
 - The Future of Path Tracing | Best Practices, Optimizations & Future Standards <https://www.youtube.com/watch?v=0IrzX4LDIx8>
 - GPU optimization - 450 papers, 14 years of research. Some techniques will have evolved, but the mental models hold up: https://dl.acm.org/doi/10.1145/3570638
+- https://github.com/mmp/pbrt-v4
