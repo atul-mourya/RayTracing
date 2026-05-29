@@ -19,6 +19,7 @@ import {
 	lessThan,
 	mat3,
 	array,
+	bool as tslBool,
 } from 'three/tsl';
 
 import { Ray, HitInfo } from './Struct.js';
@@ -178,7 +179,12 @@ export const traverseBVH = Fn( ( [
 	ray,
 	bvhBuffer,
 	triangleBuffer,
+	insideMedium, // optional: when true (ray inside a medium), bypass front/back culling
 ] ) => {
+
+	// Interior medium rays (SSS/transmission) must be able to hit boundary faces from
+	// either side to find the exit; exterior rays honor the authored side as before.
+	const inMedium = insideMedium ?? tslBool( false );
 
 	const closestHit = HitInfo( {
 		didHit: false,
@@ -280,7 +286,7 @@ export const traverseBVH = Fn( ( [
 
 						// Side culling (inline; per-mesh visibility is at the BLAS-pointer level).
 						// 0=front (reject back-facing), 1=back (reject front-facing), 2=double (pass).
-						const sidePass = side.equal( int( 2 ) )
+						const sidePass = inMedium.or( side.equal( int( 2 ) ) )
 							.or( side.equal( int( 0 ) ).and( rayDotNormal.lessThan( - 0.0001 ) ) )
 							.or( side.equal( int( 1 ) ).and( rayDotNormal.greaterThan( 0.0001 ) ) );
 						If( sidePass, () => {

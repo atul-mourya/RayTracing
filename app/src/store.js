@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
-import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, computeCanvasDimensions } from '@/Constants';
+import { DEFAULT_STATE, CAMERA_PRESETS, ASVGF_QUALITY_PRESETS, SKY_PRESETS, SSS_PRESETS, translucencyToScale, computeCanvasDimensions } from '@/Constants';
 import { ENGINE_DEFAULTS, PRODUCTION_RENDER_CONFIG, INTERACTIVE_RENDER_CONFIG, VideoRenderManager } from 'rayzee';
 import { getApp } from '@/lib/appProxy';
 import { VideoEncoderPipeline, checkCodecSupport } from '@/lib/VideoEncoder';
@@ -549,6 +549,12 @@ const usePathTracerStore = create( ( set, get ) => ( {
 
 		set( { transmissiveBounces: val } );
 		getApp()?.settings.set( 'transmissiveBounces', val );
+
+	},
+	handleMaxSubsurfaceStepsChange: val => {
+
+		set( { maxSubsurfaceSteps: val } );
+		getApp()?.settings.set( 'maxSubsurfaceSteps', val );
 
 	},
 
@@ -2135,6 +2141,81 @@ const useMaterialStore = create( ( set, get ) => ( {
 	},
 	handleAttenuationDistanceChange: val => get().updateMaterialProperty( 'attenuationDistance', val ),
 	handleDispersionChange: val => get().updateMaterialProperty( 'dispersion', val[ 0 ] ),
+	handleSubsurfaceChange: val => get().updateMaterialProperty( 'subsurface', val[ 0 ] ),
+	handleSubsurfaceAnisotropyChange: val => get().updateMaterialProperty( 'subsurfaceAnisotropy', val[ 0 ] ),
+	handleSubsurfaceColorChange: val => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+		if ( ! obj.material.subsurfaceColor?.isColor ) obj.material.subsurfaceColor = new THREE.Color( val );
+		else obj.material.subsurfaceColor.set( val );
+		get().updateMaterialProperty( 'subsurfaceColor', obj.material.subsurfaceColor );
+
+	},
+	handleSubsurfaceRadiusChange: val => {
+
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+		const arr = Array.isArray( val ) ? val : [ val.x, val.y, val.z ];
+		obj.material.subsurfaceRadius = arr;
+		get().updateMaterialProperty( 'subsurfaceRadius', arr );
+
+	},
+	// Artist-facing translucency dial → drives the engine's radius-scale multiplier.
+	handleSubsurfaceTranslucencyChange: val => get().updateMaterialProperty( 'subsurfaceRadiusScale', translucencyToScale( val[ 0 ] ) ),
+	// Apply a named SSS preset. The radius is derived from the object's world-space size so the
+	// look is scale-invariant: radius = ratio × bboxDiagonal × depth (see SSS_PRESETS).
+	applySubsurfacePreset: presetName => {
+
+		const preset = SSS_PRESETS.find( p => p.name === presetName );
+		if ( ! preset ) return;
+		const obj = useStore.getState().selectedObject;
+		if ( ! obj?.isMesh || ! obj.material ) return;
+		const app = getApp();
+		if ( ! app ) return;
+
+		const mat = obj.material;
+		const idx = obj.userData?.materialIndex ?? 0;
+
+		// World-space size → scale-invariant radius.
+		obj.updateWorldMatrix( true, false );
+		const size = new THREE.Box3().setFromObject( obj ).getSize( new THREE.Vector3() );
+		const diag = size.length() || 1;
+		const r = diag * preset.depth;
+		const radius = [ r * preset.radius[ 0 ], r * preset.radius[ 1 ], r * preset.radius[ 2 ] ];
+
+		const setProp = ( prop, value ) => {
+
+			mat[ prop ] = value;
+			app.setMaterialProperty( idx, prop, value );
+
+		};
+
+		setProp( 'metalness', 0 );
+		setProp( 'roughness', preset.roughness );
+		setProp( 'ior', preset.ior );
+		setProp( 'subsurface', preset.weight );
+		setProp( 'subsurfaceRadius', radius );
+		setProp( 'subsurfaceRadiusScale', 1.0 );
+		setProp( 'subsurfaceAnisotropy', preset.g );
+
+		if ( ! mat.subsurfaceColor?.isColor ) mat.subsurfaceColor = new THREE.Color();
+		mat.subsurfaceColor.set( preset.scatter );
+		app.setMaterialProperty( idx, 'subsurfaceColor', mat.subsurfaceColor );
+
+		if ( preset.base ) {
+
+			mat.color.set( preset.base );
+			app.setMaterialProperty( idx, 'color', mat.color );
+
+		}
+
+		mat.needsUpdate = true;
+		// Refresh the Material panel so its sliders re-read the preset values.
+		window.dispatchEvent( new Event( 'MaterialUpdate' ) );
+		app.reset();
+
+	},
 	handleEmissiveIntensityChange: val => get().updateMaterialProperty( 'emissiveIntensity', val[ 0 ] ),
 	handleClearcoatChange: val => get().updateMaterialProperty( 'clearcoat', val[ 0 ] ),
 	handleClearcoatRoughnessChange: val => get().updateMaterialProperty( 'clearcoatRoughness', val[ 0 ] ),
@@ -2423,6 +2504,16 @@ const useMaterialStore = create( ( set, get ) => ( {
 		const obj = useStore.getState().selectedObject;
 		if ( ! obj?.isMesh || ! obj.material ) return;
 
+		// Enabling subsurface applies a scale-correct default preset — the raw defaults
+		// ([1,0.2,0.1] world units) are microscopic at most object scales, so SSS would
+		// look invisible. A preset sizes the radius to this object so it reads immediately.
+		if ( featureName === 'subsurface' && enabled ) {
+
+			get().applySubsurfacePreset( 'wax' );
+			return;
+
+		}
+
 		try {
 
 			// Feature default values and property mappings
@@ -2451,6 +2542,13 @@ const useMaterialStore = create( ( set, get ) => ( {
 					colorDefaults: enabled ? {
 						attenuationColor: { value: '#ffffff', condition: () => true }
 					} : {}
+				},
+				subsurface: {
+					// Enabling routes through applySubsurfacePreset (scale-correct radius + look),
+					// so only the disable path reaches here — no smart/color defaults needed.
+					properties: {
+						subsurface: enabled ? 1.0 : 0
+					}
 				},
 				iridescence: {
 					properties: {

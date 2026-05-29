@@ -27,6 +27,7 @@ import { iorToFresnel0, fresnelSchlickFloat } from './Fresnel.js';
 import { DistributionGGX } from './MaterialProperties.js';
 import { ImportanceSampleGGX } from './MaterialSampling.js';
 import { RandomValue, pcgHash } from './Random.js';
+import { handleSubsurfaceEntry, SubsurfaceEntryResult } from './Subsurface.js';
 
 // ================================================================================
 // STRUCTS (local to transmission)
@@ -43,6 +44,7 @@ export const MaterialInteractionResult = struct( {
 	continueRay: 'bool', // Whether the ray should continue without further BRDF evaluation
 	isTransmissive: 'bool', // Flag to indicate this was a transmissive interaction
 	isAlphaSkip: 'bool', // Flag to indicate this was an alpha skip
+	isSubsurface: 'bool', // Flag to indicate this entered/exited a subsurface medium
 	didReflect: 'bool', // Whether TIR/reflection occurred (for medium stack update)
 	entering: 'bool', // Whether ray is entering or exiting medium
 	direction: 'vec3', // New ray direction if continuing
@@ -493,6 +495,7 @@ export const handleMaterialTransparency = Fn( ( [
 		continueRay: false,
 		isTransmissive: false,
 		isAlphaSkip: false,
+		isSubsurface: false,
 		didReflect: false,
 		entering: false,
 		direction: ray.direction,
@@ -501,8 +504,9 @@ export const handleMaterialTransparency = Fn( ( [
 		pathWavelength: pathWavelength,
 	} ).toVar();
 
-	// Fast path for fully opaque materials (most common case)
-	If( material.alphaMode.equal( int( 0 ) ).and( material.transmission.lessThanEqual( 0.0 ) ), () => {
+	// Fast path for fully opaque, non-scattering materials (most common case).
+	// Subsurface materials are opaque (transmission==0) but must NOT take this path.
+	If( material.alphaMode.equal( int( 0 ) ).and( material.transmission.lessThanEqual( 0.0 ) ).and( material.subsurface.lessThanEqual( 0.0 ) ), () => {
 
 		// no interaction needed
 
@@ -579,6 +583,32 @@ export const handleMaterialTransparency = Fn( ( [
 				result.entering.assign( entering );
 				result.alpha.assign( float( 1.0 ).sub( material.transmission ) );
 				result.pathWavelength.assign( transResult.pathWavelength );
+
+			} );
+
+		} );
+
+		// Subsurface (independent of transmission; works at transmission==0). Entry is a lottery
+		// (prob = weight) so 1-weight falls through to the opaque BRDF; exit is deterministic.
+		If( handled.not().and( material.subsurface.greaterThan( 0.0 ) ), () => {
+
+			const entering = dot( ray.direction, normal ).lessThan( 0.0 );
+			const doEnter = entering.not().or( RandomValue( rngState ).lessThan( material.subsurface ) );
+
+			If( doEnter, () => {
+
+				const ssResult = SubsurfaceEntryResult.wrap( handleSubsurfaceEntry(
+					ray.direction, normal, material, entering, rngState,
+					currentMediumIOR, previousMediumIOR,
+				) ).toVar();
+
+				result.direction.assign( ssResult.direction );
+				result.throughput.assign( ssResult.throughput );
+				result.continueRay.assign( true );
+				result.isSubsurface.assign( true );
+				result.didReflect.assign( ssResult.didReflect );
+				result.entering.assign( entering );
+				result.alpha.assign( 1.0 );
 
 			} );
 

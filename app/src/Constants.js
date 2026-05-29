@@ -156,6 +156,28 @@ export const RESOLUTION_PRESETS = [
 	{ value: 4096, label: '4096' },
 ];
 
+// Subsurface-scattering presets. `radius` is a per-channel ratio (max channel = 1) describing
+// the chromatic falloff; `depth` is the max-channel mean free path as a fraction of the object's
+// world-space bbox diagonal — so the absolute radius auto-scales to any model size (applied in
+// store.applySubsurfacePreset). Grounded in Jensen et al. 2001 measured coefficients.
+export const SSS_PRESETS = [
+	{ name: 'skin_light', label: 'Skin — Light', scatter: '#e8c4b0', base: '#e8c4b0', radius: [ 1, 0.35, 0.20 ], depth: 0.022, weight: 1.0, g: 0.0, roughness: 0.35, ior: 1.4 },
+	{ name: 'skin_medium', label: 'Skin — Medium', scatter: '#cf9b7a', base: '#cf9b7a', radius: [ 1, 0.30, 0.16 ], depth: 0.020, weight: 1.0, g: 0.0, roughness: 0.35, ior: 1.4 },
+	{ name: 'skin_dark', label: 'Skin — Dark', scatter: '#8a5a3c', base: '#8a5a3c', radius: [ 1, 0.28, 0.14 ], depth: 0.016, weight: 1.0, g: 0.0, roughness: 0.35, ior: 1.4 },
+	{ name: 'wax', label: 'Wax (candle)', scatter: '#f2e8d5', base: '#f2e8d5', radius: [ 1, 0.6, 0.35 ], depth: 0.035, weight: 0.9, g: 0.0, roughness: 0.45, ior: 1.45 },
+	{ name: 'beeswax', label: 'Beeswax / Honey', scatter: '#e8b45a', base: '#e0a848', radius: [ 1, 0.43, 0.18 ], depth: 0.035, weight: 0.9, g: 0.15, roughness: 0.4, ior: 1.45 },
+	{ name: 'marble', label: 'Marble', scatter: '#f0ece6', base: '#f0ece6', radius: [ 1, 0.85, 0.7 ], depth: 0.012, weight: 0.85, g: 0.0, roughness: 0.18, ior: 1.5 },
+	{ name: 'jade', label: 'Jade', scatter: '#5fae7e', base: '#3f7d5a', radius: [ 0.4, 1, 0.55 ], depth: 0.07, weight: 0.9, g: 0.0, roughness: 0.12, ior: 1.5 },
+	{ name: 'milk', label: 'Milk', scatter: '#f5f5ff', base: '#f5f5ff', radius: [ 1, 0.85, 0.6 ], depth: 0.015, weight: 1.0, g: 0.0, roughness: 0.6, ior: 1.35 },
+	{ name: 'gummy', label: 'Gummy / Jelly', scatter: '#e0402c', base: '#e0402c', radius: [ 1, 0.65, 0.45 ], depth: 0.13, weight: 0.95, g: 0.0, roughness: 0.08, ior: 1.5 },
+	{ name: 'soap', label: 'Soap / Alabaster', scatter: '#ece6dc', base: '#ece6dc', radius: [ 1, 0.9, 0.8 ], depth: 0.05, weight: 0.9, g: 0.0, roughness: 0.25, ior: 1.5 },
+];
+
+// Artist-facing "Translucency" (0..1) ↔ engine subsurfaceRadiusScale. Log curve so the useful
+// range is centered: t=0 → 0.25 (dense/opaque), t=0.5 → 1.0 (preset default), t=1 → 4.0 (glassy).
+export const translucencyToScale = t => 0.25 * Math.pow( 16, Math.max( 0, Math.min( 1, t ) ) );
+export const scaleToTranslucency = s => Math.max( 0, Math.min( 1, Math.log( Math.max( s, 1e-4 ) / 0.25 ) / Math.log( 16 ) ) );
+
 /**
  * Compute canvas width/height from resolution + aspect ratio + orientation.
  * Resolution = longest edge. Aspect ratio defines the shape. Orientation flips it.

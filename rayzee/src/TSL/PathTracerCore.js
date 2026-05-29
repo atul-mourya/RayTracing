@@ -77,6 +77,7 @@ import { sampleEnvironment, sampleEquirect, getGroundProjectedDirection } from '
 import { sampleAllMaterialTextures } from './TextureSampling.js';
 import { refineDisplacedIntersection, DisplacementResult } from './Displacement.js';
 import { handleMaterialTransparency, MaterialInteractionResult, sampleMicrofacetTransmission, MicrofacetTransmissionResult } from './MaterialTransmission.js';
+import { subsurfaceCoefficients, sampleChromaticCollision, sampleHenyeyGreenstein, MediumCoeffs, CollisionSample } from './Subsurface.js';
 import {
 	SheenDistribution,
 	calculateVNDFPDF,
@@ -140,7 +141,7 @@ export const getOrCreateMaterialClassification = Fn( ( [
 		result.assign( classifyMaterial(
 			material.metalness, material.roughness,
 			material.transmission, material.clearcoat,
-			material.emissive,
+			material.emissive, material.subsurface,
 		) );
 
 	} );
@@ -538,7 +539,7 @@ export const Trace = Fn( ( [
 	enableEnvironmentLight, useEnvMapIS,
 	groundProjectionEnabled, groundProjectionRadius, groundProjectionHeight,
 	// Rendering parameters
-	maxBounceCount, transmissiveBounces,
+	maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 	backgroundIntensity, showBackground, transparentBackground,
 	fireflyThreshold, globalIlluminationIntensity,
 	enableEmissiveTriangleSampling,
@@ -584,6 +585,18 @@ export const Trace = Fn( ( [
 	const mediumStack_sigmaA_1 = vec3( 0.0 ).toVar();
 	const mediumStack_sigmaA_2 = vec3( 0.0 ).toVar();
 	const mediumStack_sigmaA_3 = vec3( 0.0 ).toVar();
+	// Subsurface: sigma_s>0 makes the medium scatter (random walk) rather than absorb straight.
+	const mediumStack_sigmaS_1 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaS_2 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaS_3 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaT_1 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaT_2 = vec3( 0.0 ).toVar();
+	const mediumStack_sigmaT_3 = vec3( 0.0 ).toVar();
+	const mediumStack_g_1 = float( 0.0 ).toVar();
+	const mediumStack_g_2 = float( 0.0 ).toVar();
+	const mediumStack_g_3 = float( 0.0 ).toVar();
+	// Walk-step budget for the whole path (bounded per render mode + RR).
+	const sssSteps = int( 0 ).toVar();
 
 	// Locked at the first dispersive transmission; reused for subsequent transmissions on
 	// the path so multi-bounce dispersion doesn't collapse under repeated colorWeight ×.
@@ -633,7 +646,7 @@ export const Trace = Fn( ( [
 	const rayDirection = ray.direction.toVar();
 
 	// Main bounce loop
-	Loop( { start: int( 0 ), end: maxBounceCount.add( transmissiveBounces ).add( 1 ), type: 'int', condition: '<' }, ( { i: bounceIndex } ) => {
+	Loop( { start: int( 0 ), end: maxBounceCount.add( transmissiveBounces ).add( maxSubsurfaceSteps ).add( 1 ), type: 'int', condition: '<' }, ( { i: bounceIndex } ) => {
 
 		// Update state
 		stateTraversals.assign( maxBounceCount.sub( effectiveBounces ) );
@@ -656,30 +669,82 @@ export const Trace = Fn( ( [
 			currentRay,
 			bvhBuffer,
 			triangleBuffer,
+			mediumStackDepth.greaterThan( int( 0 ) ), // inside a medium → bypass front/back culling
 		) ).toVar();
 
-		// KHR_materials_volume: apply Beer's law over the actual distance the ray
-		// traveled inside the current medium. Top-of-stack holds the medium the ray
-		// is currently in — depth==0 means air (no absorption). sigma_a was
-		// precomputed at push time, so this collapses to a single exp().
+		// In-medium transport: glass (sigma_s==0) absorbs along a straight line; subsurface
+		// (sigma_s>0) random-walks and may scatter mid-flight.
 		If( hitInfo.didHit.and( mediumStackDepth.greaterThan( int( 0 ) ) ), () => {
 
+			// Load current-medium coefficients (chained branch — divergence-safe).
 			const mSigmaA = vec3( 0.0 ).toVar();
+			const mSigmaS = vec3( 0.0 ).toVar();
+			const mSigmaT = vec3( 0.0 ).toVar();
+			const mG = float( 0.0 ).toVar();
 			If( mediumStackDepth.equal( int( 1 ) ), () => {
 
-				mSigmaA.assign( mediumStack_sigmaA_1 );
+				mSigmaA.assign( mediumStack_sigmaA_1 ); mSigmaS.assign( mediumStack_sigmaS_1 );
+				mSigmaT.assign( mediumStack_sigmaT_1 ); mG.assign( mediumStack_g_1 );
 
 			} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
 
-				mSigmaA.assign( mediumStack_sigmaA_2 );
+				mSigmaA.assign( mediumStack_sigmaA_2 ); mSigmaS.assign( mediumStack_sigmaS_2 );
+				mSigmaT.assign( mediumStack_sigmaT_2 ); mG.assign( mediumStack_g_2 );
 
 			} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
 
-				mSigmaA.assign( mediumStack_sigmaA_3 );
+				mSigmaA.assign( mediumStack_sigmaA_3 ); mSigmaS.assign( mediumStack_sigmaS_3 );
+				mSigmaT.assign( mediumStack_sigmaT_3 ); mG.assign( mediumStack_g_3 );
 
 			} );
 
-			throughput.mulAssign( exp( mSigmaA.mul( hitInfo.dst ).negate() ) );
+			If( maxComponent( { v: mSigmaS } ).lessThanEqual( 0.0 ), () => {
+
+				// Non-scattering medium (glass): straight-line Beer-Lambert absorption.
+				throughput.mulAssign( exp( mSigmaA.mul( hitInfo.dst ).negate() ) );
+
+			} ).Else( () => {
+
+				// Scattering medium (subsurface): chromatic distance sampling for this segment.
+				const coll = CollisionSample.wrap( sampleChromaticCollision(
+					mSigmaT, mSigmaS, throughput, hitInfo.dst, rngState,
+				) ).toVar();
+				throughput.mulAssign( coll.weight );
+
+				If( coll.didScatter, () => {
+
+					// Scatter: move to the collision point, redirect via the HG phase function,
+					// continue as a free bounce (no camera-bounce cost).
+					const xi2 = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+					const scatterPoint = rayOrigin.add( rayDirection.mul( coll.t ) );
+					rayOrigin.assign( scatterPoint );
+					rayDirection.assign( sampleHenyeyGreenstein( rayDirection, mG, xi2 ) );
+					sssSteps.addAssign( 1 );
+					stateIsPrimaryRay.assign( tslBool( false ) );
+
+					// Per-mode step cap: bounded walk (terminate — energy-loss-only bias).
+					If( sssSteps.greaterThanEqual( maxSubsurfaceSteps ), () => {
+
+						Break();
+
+					} );
+
+					// Russian roulette so the walk self-terminates before the cap.
+					const rrP = clamp( maxComponent( { v: throughput } ), 0.02, 1.0 ).toVar();
+					If( RandomValue( rngState ).greaterThan( rrP ), () => {
+
+						Break();
+
+					} );
+					throughput.divAssign( rrP );
+
+					Continue();
+
+				} );
+
+				// No scatter: reached the boundary (weight applied); fall through to surface handling.
+
+			} );
 
 		} );
 
@@ -732,7 +797,7 @@ export const Trace = Fn( ( [
 
 		} );
 
-		// Get full material (27 reads). Lazy transform loading was tested but regressed
+		// Get full material (30 reads). Lazy transform loading was tested but regressed
 		// textured scenes due to identity-construct + conditional-assign overhead.
 		// Shadow rays use getShadowMaterial() (7 reads) — the real bandwidth win.
 		const material = RayTracingMaterial.wrap( getMaterial( hitInfo.materialIndex, materialBuffer ) ).toVar();
@@ -833,6 +898,7 @@ export const Trace = Fn( ( [
 								mediumStack_attColor_1.assign( material.attenuationColor );
 								mediumStack_attDist_1.assign( material.attenuationDistance );
 								mediumStack_sigmaA_1.assign( mSigmaA );
+								mediumStack_sigmaS_1.assign( vec3( 0.0 ) ); // glass: no scattering
 
 							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
 
@@ -840,6 +906,7 @@ export const Trace = Fn( ( [
 								mediumStack_attColor_2.assign( material.attenuationColor );
 								mediumStack_attDist_2.assign( material.attenuationDistance );
 								mediumStack_sigmaA_2.assign( mSigmaA );
+								mediumStack_sigmaS_2.assign( vec3( 0.0 ) ); // glass: no scattering
 
 							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
 
@@ -847,6 +914,7 @@ export const Trace = Fn( ( [
 								mediumStack_attColor_3.assign( material.attenuationColor );
 								mediumStack_attDist_3.assign( material.attenuationDistance );
 								mediumStack_sigmaA_3.assign( mSigmaA );
+								mediumStack_sigmaS_3.assign( vec3( 0.0 ) ); // glass: no scattering
 
 							} );
 
@@ -855,6 +923,65 @@ export const Trace = Fn( ( [
 					} ).Else( () => {
 
 						// Pop medium from stack
+						If( mediumStackDepth.greaterThan( int( 0 ) ), () => {
+
+							mediumStackDepth.subAssign( 1 );
+
+						} );
+
+					} );
+
+				} );
+
+			} ).ElseIf( interaction.isSubsurface, () => {
+
+				// Subsurface boundary: free bounce (SSS step budget, not camera bounces). Push on enter, pop on exit.
+				isFreeBounce.assign( tslBool( true ) );
+				stateRayType.assign( int( RAY_TYPE_DIFFUSE ) );
+
+				If( interaction.didReflect.not(), () => {
+
+					If( interaction.entering, () => {
+
+						If( mediumStackDepth.lessThan( int( 3 ) ), () => {
+
+							mediumStackDepth.addAssign( 1 );
+
+							const ssCoeffs = MediumCoeffs.wrap( subsurfaceCoefficients(
+								material.subsurfaceColor, material.subsurfaceRadius, material.subsurfaceRadiusScale,
+							) ).toVar();
+							const ssG = clamp( material.subsurfaceAnisotropy, - 0.99, 0.99 ).toVar();
+
+							If( mediumStackDepth.equal( int( 1 ) ), () => {
+
+								mediumStack_ior_1.assign( material.ior );
+								mediumStack_sigmaA_1.assign( ssCoeffs.sigmaA );
+								mediumStack_sigmaS_1.assign( ssCoeffs.sigmaS );
+								mediumStack_sigmaT_1.assign( ssCoeffs.sigmaT );
+								mediumStack_g_1.assign( ssG );
+
+							} ).ElseIf( mediumStackDepth.equal( int( 2 ) ), () => {
+
+								mediumStack_ior_2.assign( material.ior );
+								mediumStack_sigmaA_2.assign( ssCoeffs.sigmaA );
+								mediumStack_sigmaS_2.assign( ssCoeffs.sigmaS );
+								mediumStack_sigmaT_2.assign( ssCoeffs.sigmaT );
+								mediumStack_g_2.assign( ssG );
+
+							} ).ElseIf( mediumStackDepth.equal( int( 3 ) ), () => {
+
+								mediumStack_ior_3.assign( material.ior );
+								mediumStack_sigmaA_3.assign( ssCoeffs.sigmaA );
+								mediumStack_sigmaS_3.assign( ssCoeffs.sigmaS );
+								mediumStack_sigmaT_3.assign( ssCoeffs.sigmaT );
+								mediumStack_g_3.assign( ssG );
+
+							} );
+
+						} );
+
+					} ).Else( () => {
+
 						If( mediumStackDepth.greaterThan( int( 0 ) ), () => {
 
 							mediumStackDepth.subAssign( 1 );

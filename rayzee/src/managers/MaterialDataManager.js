@@ -307,6 +307,41 @@ export class MaterialDataManager {
 				break;
 			case 'bumpScale': data[ stride + M.BUMP_SCALE ] = value; break;
 			case 'displacementScale': data[ stride + M.DISPLACEMENT_SCALE ] = value; break;
+			case 'subsurface': data[ stride + M.SUBSURFACE ] = value; break;
+			case 'subsurfaceRadiusScale': data[ stride + M.SUBSURFACE_RADIUS_SCALE ] = value; break;
+			case 'subsurfaceAnisotropy': data[ stride + M.SUBSURFACE_ANISOTROPY ] = value; break;
+			case 'subsurfaceColor':
+				if ( value.r !== undefined ) {
+
+					data[ stride + M.SUBSURFACE_COLOR ] = value.r;
+					data[ stride + M.SUBSURFACE_COLOR + 1 ] = value.g;
+					data[ stride + M.SUBSURFACE_COLOR + 2 ] = value.b;
+
+				} else if ( Array.isArray( value ) ) {
+
+					data[ stride + M.SUBSURFACE_COLOR ] = value[ 0 ];
+					data[ stride + M.SUBSURFACE_COLOR + 1 ] = value[ 1 ];
+					data[ stride + M.SUBSURFACE_COLOR + 2 ] = value[ 2 ];
+
+				}
+
+				break;
+			case 'subsurfaceRadius':
+				if ( Array.isArray( value ) ) {
+
+					data[ stride + M.SUBSURFACE_RADIUS ] = value[ 0 ];
+					data[ stride + M.SUBSURFACE_RADIUS + 1 ] = value[ 1 ];
+					data[ stride + M.SUBSURFACE_RADIUS + 2 ] = value[ 2 ];
+
+				} else if ( value.x !== undefined ) {
+
+					data[ stride + M.SUBSURFACE_RADIUS ] = value.x;
+					data[ stride + M.SUBSURFACE_RADIUS + 1 ] = value.y;
+					data[ stride + M.SUBSURFACE_RADIUS + 2 ] = value.z;
+
+				}
+
+				break;
 			default:
 				console.warn( `Unknown material property: ${property}` );
 				return;
@@ -322,7 +357,7 @@ export class MaterialDataManager {
 
 		}
 
-		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest' ];
+		const featureProperties = [ 'transmission', 'clearcoat', 'sheen', 'iridescence', 'dispersion', 'transparent', 'opacity', 'alphaTest', 'subsurface' ];
 		if ( featureProperties.includes( property ) ) {
 
 			const featuresChanged = this.rescanMaterialFeatures();
@@ -445,6 +480,27 @@ export class MaterialDataManager {
 		data[ stride + M.BUMP_SCALE ] = materialData.bumpScale ?? 1;
 		data[ stride + M.DISPLACEMENT_SCALE ] = materialData.displacementScale ?? 1;
 		data[ stride + M.DISPLACEMENT_MAP_INDEX ] = materialData.displacementMap ?? - 1;
+
+		// Subsurface scattering
+		data[ stride + M.SUBSURFACE ] = materialData.subsurface ?? 0;
+		if ( materialData.subsurfaceColor ) {
+
+			data[ stride + M.SUBSURFACE_COLOR ] = materialData.subsurfaceColor.r ?? materialData.subsurfaceColor[ 0 ] ?? 1;
+			data[ stride + M.SUBSURFACE_COLOR + 1 ] = materialData.subsurfaceColor.g ?? materialData.subsurfaceColor[ 1 ] ?? 1;
+			data[ stride + M.SUBSURFACE_COLOR + 2 ] = materialData.subsurfaceColor.b ?? materialData.subsurfaceColor[ 2 ] ?? 1;
+
+		}
+
+		if ( materialData.subsurfaceRadius ) {
+
+			data[ stride + M.SUBSURFACE_RADIUS ] = materialData.subsurfaceRadius[ 0 ] ?? 1;
+			data[ stride + M.SUBSURFACE_RADIUS + 1 ] = materialData.subsurfaceRadius[ 1 ] ?? 0.2;
+			data[ stride + M.SUBSURFACE_RADIUS + 2 ] = materialData.subsurfaceRadius[ 2 ] ?? 0.1;
+
+		}
+
+		data[ stride + M.SUBSURFACE_RADIUS_SCALE ] = materialData.subsurfaceRadiusScale ?? 1;
+		data[ stride + M.SUBSURFACE_ANISOTROPY ] = materialData.subsurfaceAnisotropy ?? 0;
 
 		// Texture transformation matrices (9 floats each, identity if missing)
 		const identity = [ 1, 0, 0, 0, 1, 0, 0, 0, 1 ];
@@ -574,6 +630,7 @@ export class MaterialDataManager {
 			hasIridescence: false,
 			hasSheen: false,
 			hasTransparency: false,
+			hasSubsurface: false,
 			hasMultiLobeMaterials: false,
 			hasMRTOutputs: true
 		};
@@ -590,6 +647,7 @@ export class MaterialDataManager {
 			const opacity = data[ stride + M.OPACITY ];
 			const transparent = data[ stride + M.TRANSPARENT ];
 			const alphaTest = data[ stride + M.ALPHA_TEST ];
+			const subsurface = data[ stride + M.SUBSURFACE ];
 
 			if ( clearcoat > 0 ) newFeatures.hasClearcoat = true;
 			if ( transmission > 0 ) newFeatures.hasTransmission = true;
@@ -597,6 +655,7 @@ export class MaterialDataManager {
 			if ( iridescence > 0 ) newFeatures.hasIridescence = true;
 			if ( sheen > 0 ) newFeatures.hasSheen = true;
 			if ( transparent > 0 || opacity < 1.0 || alphaTest > 0 ) newFeatures.hasTransparency = true;
+			if ( subsurface > 0 ) newFeatures.hasSubsurface = true;
 
 			const featureCount = [
 				clearcoat > 0,

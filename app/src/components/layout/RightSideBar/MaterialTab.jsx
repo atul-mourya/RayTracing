@@ -6,6 +6,7 @@ import { NumberInput } from "@/components/ui/number-input";
 import { Select, SelectTrigger, SelectContent, SelectValue, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useStore, useMaterialStore } from '@/store';
+import { SSS_PRESETS, scaleToTranslucency } from '@/Constants';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { TexturePreview } from '@/components/ui/texture-preview';
@@ -46,6 +47,18 @@ const MATERIAL_PROPERTIES = {
 		[ 'attenuationColor', { type: 'color', default: '#ffffff', label: 'Attenuation Color' } ],
 		[ 'attenuationDistance', { type: 'number', default: 0, min: 0, max: 1000, step: 1, label: 'Attenuation Distance' } ],
 		[ 'thickness', { type: 'slider', default: 0.1, min: 0, max: 1, step: 0.01, label: 'Thickness' } ],
+	],
+	// Simple (artist-facing) subsurface controls — always visible.
+	subsurface: [
+		[ 'subsurface', { type: 'slider', default: 0, min: 0, max: 1, step: 0.01, label: 'Amount' } ],
+		[ 'subsurfaceColor', { type: 'color', default: '#ffffff', label: 'Scatter Color' } ],
+		[ 'subsurfaceTranslucency', { type: 'slider', default: 0.5, min: 0, max: 1, step: 0.01, label: 'Translucency' } ],
+	],
+	// Advanced subsurface physics — shown in the Subsurface row's ⋮ menu.
+	subsurfaceAdvanced: [
+		[ 'subsurfaceRadius', { type: 'vector3', default: { x: 1, y: 0.2, z: 0.1 }, min: 0, max: 100000, step: 0.01, label: 'Scatter Radius (world units)' } ],
+		[ 'subsurfaceAnisotropy', { type: 'slider', default: 0, min: - 1, max: 1, step: 0.01, label: 'Anisotropy (g)' } ],
+		[ 'ior', { type: 'slider', default: 1.45, min: 1, max: 2.5, step: 0.01, label: 'IOR' } ],
 	],
 	transparency: [
 		[ 'transparent', { type: 'switch', default: false, label: 'Transparent' } ],
@@ -106,6 +119,7 @@ const isFeatureEnabled = ( materialState, featureName ) => {
 	const checks = {
 		clearcoat: () => materialState.clearcoat > 0,
 		volumetric: () => materialState.transmission > 0,
+		subsurface: () => materialState.subsurface > 0,
 		transparency: () => materialState.transparent || materialState.opacity < 1 || materialState.alphaTest > 0,
 		iridescence: () => materialState.iridescence > 0,
 		sheen: () => materialState.sheen > 0,
@@ -183,6 +197,16 @@ const MaterialTab = () => {
 				if ( config.type === 'color' ) {
 
 					newState[ key ] = getHexString( selectedObject.material[ key ] );
+
+				} else if ( config.type === 'vector3' ) {
+
+					const r = selectedObject.material[ key ];
+					newState[ key ] = Array.isArray( r ) ? { x: r[ 0 ], y: r[ 1 ], z: r[ 2 ] } : config.default;
+
+				} else if ( key === 'subsurfaceTranslucency' ) {
+
+					// Derived view of the radius-scale multiplier (single source of truth = radius).
+					newState[ key ] = scaleToTranslucency( selectedObject.material.subsurfaceRadiusScale ?? 1 );
 
 				} else {
 
@@ -395,6 +419,21 @@ const MaterialTab = () => {
 			color: () => <ColorInput label={config.label} value={value} onChange={onChange} />,
 			slider: () => <Slider label={config.label} min={config.min} max={config.max} step={config.step} value={[ value ]} onValueChange={onChange} />,
 			number: () => <NumberInput label={config.label} min={config.min} max={config.max} step={config.step} value={value} onValueChange={onChange} />,
+			vector3: () => {
+
+				const v3 = Array.isArray( value ) ? { x: value[ 0 ], y: value[ 1 ], z: value[ 2 ] } : ( value ?? { x: 0, y: 0, z: 0 } );
+				return (
+					<Row className="w-full">
+						<div className="opacity-50 text-xs truncate">{config.label}</div>
+						<div className="flex gap-1">
+							<NumberInput value={v3.x} min={config.min} max={config.max} step={config.step} onValueChange={v => onChange( { ...v3, x: v } )} />
+							<NumberInput value={v3.y} min={config.min} max={config.max} step={config.step} onValueChange={v => onChange( { ...v3, y: v } )} />
+							<NumberInput value={v3.z} min={config.min} max={config.max} step={config.step} onValueChange={v => onChange( { ...v3, z: v } )} />
+						</div>
+					</Row>
+				);
+
+			},
 			switch: () => <Switch label={config.label} checked={value} onCheckedChange={onChange} />,
 			select: () => (
 				<Row className="w-full">
@@ -554,13 +593,41 @@ const MaterialTab = () => {
 					)}
 					<Separator />
 
-					{/* Volumetric Feature Group */}
+					{/* Transmission Feature Group (formerly "Volumetric" — it handles glass/transmission) */}
 					<Row className="w-full">
-						<Switch label="Enable Volumetric" checked={isFeatureEnabled( materialState, 'volumetric' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'volumetric', enabled )} />
+						<Switch label="Enable Transmission" checked={isFeatureEnabled( materialState, 'volumetric' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'volumetric', enabled )} />
 					</Row>
 					{isFeatureEnabled( materialState, 'volumetric' ) && (
 						<>
 							{MATERIAL_PROPERTIES.volumetric?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					)}
+					<Separator />
+
+					{/* Subsurface Feature Group — advanced physics tucked into the ⋮ menu */}
+					<Row className="w-full" more={isFeatureEnabled( materialState, 'subsurface' ) ? (
+						<>
+							{MATERIAL_PROPERTIES.subsurfaceAdvanced?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
+						</>
+					) : null}>
+						<Switch label="Enable Subsurface" checked={isFeatureEnabled( materialState, 'subsurface' )} onCheckedChange={( enabled ) => materialStore.handleToggleFeature( 'subsurface', enabled )} />
+					</Row>
+					{isFeatureEnabled( materialState, 'subsurface' ) && (
+						<>
+							<Row className="w-full">
+								<div className="opacity-50 text-xs truncate">Preset</div>
+								<Select onValueChange={( v ) => materialStore.applySubsurfacePreset( v )}>
+									<SelectTrigger className="max-w-32 h-5 rounded-full">
+										<SelectValue placeholder="Choose…" />
+									</SelectTrigger>
+									<SelectContent>
+										{SSS_PRESETS.map( p => (
+											<SelectItem key={p.name} value={p.name}>{p.label}</SelectItem>
+										) )}
+									</SelectContent>
+								</Select>
+							</Row>
+							{MATERIAL_PROPERTIES.subsurface?.map( ( [ property, config ] ) => renderPropertyComponent( property, config ) )}
 						</>
 					)}
 					<Separator />

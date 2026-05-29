@@ -50,6 +50,11 @@ export const RayTracingMaterial = struct( {
 	iridescence: 'float',
 	iridescenceIOR: 'float',
 	iridescenceThicknessRange: 'vec2',
+	subsurface: 'float', // 0 = off, blends opaque BRDF → random-walk SSS
+	subsurfaceColor: 'vec3', // single-scatter albedo (tint light picks up inside)
+	subsurfaceRadius: 'vec3', // per-channel mean free path
+	subsurfaceRadiusScale: 'float', // scalar multiplier on radius
+	subsurfaceAnisotropy: 'float', // Henyey-Greenstein g (-1..1)
 } );
 
 // Lightweight material for shadow ray evaluation — only the fields needed

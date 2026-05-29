@@ -39,7 +39,12 @@ export class MaterialService {
 			iridescenceThicknessRange: [ 100, 400 ],
 			transparent: 0,
 			alphaTest: 0.0,
-			side: 0 // FrontSide
+			side: 0, // FrontSide
+			subsurface: 0.0,
+			subsurfaceColor: [ 1, 1, 1 ], // white scatter albedo
+			subsurfaceRadius: [ 1.0, 0.2, 0.1 ], // skin-like mean free path
+			subsurfaceRadiusScale: 1.0,
+			subsurfaceAnisotropy: 0.0
 		};
 
 		// Create complete material by merging API data with defaults
@@ -198,6 +203,13 @@ export class MaterialService {
 		ensureAndSet( threeMaterial, 'iridescence', completeMaterial.iridescence );
 		ensureAndSet( threeMaterial, 'iridescenceIOR', completeMaterial.iridescenceIOR );
 		ensureAndSet( threeMaterial, 'iridescenceThicknessRange', completeMaterial.iridescenceThicknessRange );
+
+		// Subsurface scattering (custom props; MeshPhysicalMaterial has none)
+		ensureAndSet( threeMaterial, 'subsurface', completeMaterial.subsurface );
+		ensureAndSetColor( threeMaterial, 'subsurfaceColor', completeMaterial.subsurfaceColor );
+		ensureAndSet( threeMaterial, 'subsurfaceRadius', completeMaterial.subsurfaceRadius );
+		ensureAndSet( threeMaterial, 'subsurfaceRadiusScale', completeMaterial.subsurfaceRadiusScale );
+		ensureAndSet( threeMaterial, 'subsurfaceAnisotropy', completeMaterial.subsurfaceAnisotropy );
 
 		// Rendering properties
 		ensureAndSet( threeMaterial, 'transparent', completeMaterial.transparent > 0 );
