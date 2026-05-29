@@ -922,6 +922,7 @@ export class PathTracerApp extends EventDispatcher {
 			maxBounces: config.bounces,
 			samplesPerPixel: config.samplesPerPixel,
 			transmissiveBounces: config.transmissiveBounces,
+			maxSubsurfaceSteps: config.maxSubsurfaceSteps,
 		}, { silent: true } );
 
 		this.stages.pathTracer?.setUniform( 'renderMode', parseInt( config.renderMode ) );

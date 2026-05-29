@@ -203,7 +203,7 @@ describe( 'Other constants', () => {
 
 		expect( TEXTURE_CONSTANTS ).toHaveProperty( 'PIXELS_PER_MATERIAL' );
 		expect( TEXTURE_CONSTANTS ).toHaveProperty( 'MAX_TEXTURE_SIZE' );
-		expect( TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL ).toBe( 27 );
+		expect( TEXTURE_CONSTANTS.PIXELS_PER_MATERIAL ).toBe( 30 );
 
 	} );
 

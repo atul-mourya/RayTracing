@@ -411,6 +411,7 @@ export class ShaderBuilder {
 					groundProjectionHeight: stage.groundProjectionHeight,
 					maxBounceCount: stage.maxBounces,
 					transmissiveBounces: stage.transmissiveBounces,
+					maxSubsurfaceSteps: stage.maxSubsurfaceSteps,
 					showBackground: stage.showBackground,
 					transparentBackground: stage.transparentBackground,
 					backgroundIntensity: stage.backgroundIntensity,

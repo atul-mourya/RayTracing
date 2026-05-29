@@ -965,6 +965,12 @@ export class TextureCreator {
 				bumpMapMatrices[ 4 ], 		bumpMapMatrices[ 5 ],	 	bumpMapMatrices[ 6 ], 		1,
 				displacementMapMatrices[ 0 ], displacementMapMatrices[ 1 ], displacementMapMatrices[ 2 ], displacementMapMatrices[ 3 ],
 				displacementMapMatrices[ 4 ], displacementMapMatrices[ 5 ], displacementMapMatrices[ 6 ], 1,
+				// Slot 27: subsurface (subsurfaceColor.rgb, subsurface weight)
+				mat.subsurfaceColor?.r ?? 1,	mat.subsurfaceColor?.g ?? 1,	mat.subsurfaceColor?.b ?? 1,	mat.subsurface ?? 0,
+				// Slot 28: subsurface (subsurfaceRadius.rgb, subsurfaceRadiusScale)
+				mat.subsurfaceRadius?.[ 0 ] ?? 1, mat.subsurfaceRadius?.[ 1 ] ?? 0.2, mat.subsurfaceRadius?.[ 2 ] ?? 0.1, mat.subsurfaceRadiusScale ?? 1,
+				// Slot 29: subsurface (anisotropy g, reserved)
+				mat.subsurfaceAnisotropy ?? 0,	0,	0,	0,
 			];
 
 			data.set( materialData, stride );

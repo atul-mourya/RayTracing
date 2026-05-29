@@ -160,6 +160,7 @@ export class GeometryExtractor {
 			if ( newMaterial.iridescence > 0 ) this.sceneFeatures.hasIridescence = true;
 			if ( newMaterial.sheen > 0 ) this.sceneFeatures.hasSheen = true;
 			if ( newMaterial.transparent || newMaterial.opacity < 1.0 || newMaterial.alphaTest > 0 ) this.sceneFeatures.hasTransparency = true;
+			if ( newMaterial.subsurface > 0 ) this.sceneFeatures.hasSubsurface = true;
 
 			// Detect multi-lobe materials (require multi-lobe MIS for optimal sampling)
 			const featureCount = [
@@ -259,7 +260,13 @@ export class GeometryExtractor {
 			normalScale: { x: 1, y: 1 },
 			bumpScale: 1.0,
 			displacementScale: 1.0,
-			alphaTest: 0.0
+			alphaTest: 0.0,
+			// Subsurface scattering (no native MeshPhysicalMaterial equivalent)
+			subsurface: 0.0,
+			subsurfaceColor: new Color( 0xffffff ),
+			subsurfaceRadius: [ 1.0, 0.2, 0.1 ], // skin-like: red travels furthest
+			subsurfaceRadiusScale: 1.0,
+			subsurfaceAnisotropy: 0.0
 		};
 
 	}
@@ -389,6 +396,13 @@ export class GeometryExtractor {
 			iridescence: material.iridescence ?? defaults.iridescence,
 			iridescenceIOR: material.iridescenceIOR ?? defaults.iridescenceIOR,
 			iridescenceThicknessRange: material.iridescenceThicknessRange ?? defaults.iridescenceThicknessRange,
+
+			// Subsurface scattering (custom props; MeshPhysicalMaterial has none)
+			subsurface: material.subsurface ?? defaults.subsurface,
+			subsurfaceColor: material.subsurfaceColor ?? defaults.subsurfaceColor,
+			subsurfaceRadius: material.subsurfaceRadius ?? defaults.subsurfaceRadius,
+			subsurfaceRadiusScale: material.subsurfaceRadiusScale ?? defaults.subsurfaceRadiusScale,
+			subsurfaceAnisotropy: material.subsurfaceAnisotropy ?? defaults.subsurfaceAnisotropy,
 
 			// Specular properties (for compatibility)
 			specularIntensity: legacyMapping.specularIntensity ?? material.specularIntensity ?? defaults.specularIntensity,
@@ -789,6 +803,7 @@ export class GeometryExtractor {
 			hasIridescence: false,
 			hasSheen: false,
 			hasTransparency: false,
+			hasSubsurface: false,
 			hasMultiLobeMaterials: false, // Materials with 2+ BRDF lobes
 			hasMRTOutputs: true // Always enabled for ASVGF/adaptive sampling support
 		};
