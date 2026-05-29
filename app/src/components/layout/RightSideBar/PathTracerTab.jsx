@@ -83,6 +83,7 @@ const PathTracerTab = () => {
 		bounces,
 		samplesPerPixel,
 		transmissiveBounces,
+		maxSubsurfaceSteps,
 		adaptiveSampling,
 		adaptiveSamplingMin,
 		adaptiveSamplingMax,
@@ -156,6 +157,7 @@ const PathTracerTab = () => {
 		handleBouncesChange,
 		handleSamplesPerPixelChange,
 		handleTransmissiveBouncesChange,
+		handleMaxSubsurfaceStepsChange,
 		handleAdaptiveSamplingChange,
 		handleAdaptiveSamplingMinChange,
 		handleAdaptiveSamplingMaxChange,
@@ -243,6 +245,9 @@ const PathTracerTab = () => {
 				</Row>
 				<Row>
 					<Slider label={"Transmissive Bounces"} min={0} max={10} step={1} value={[ transmissiveBounces ]} onValueChange={handleTransmissiveBouncesChange} />
+				</Row>
+				<Row>
+					<Slider label={"Subsurface Steps"} min={1} max={256} step={1} value={[ maxSubsurfaceSteps ]} onValueChange={handleMaxSubsurfaceStepsChange} />
 				</Row>
 				<Row>
 					<Select value={renderMode.toString()} onValueChange={handleRenderModeChange}>
