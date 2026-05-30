@@ -19,7 +19,7 @@
 
 import {
 	Fn, float, vec2, vec3, vec4, int, uint,
-	If, normalize, max, exp, log, dot, length, select,
+	If, normalize, max, exp, log, clamp, dot, length, select,
 	instanceIndex,
 	sampler,
 	atomicAdd, atomicLoad, uintBitsToFloat,
@@ -34,6 +34,7 @@ import { calculateDirectLightingUnified, calculateMaterialPDF } from '../LightsS
 import { traceShadowRay, calculateRayOffset } from '../LightsDirect.js';
 import { traverseBVHShadow } from '../BVHTraversal.js';
 import { handleMaterialTransparency, MaterialInteractionResult } from '../MaterialTransmission.js';
+import { sampleChromaticCollision, sampleHenyeyGreenstein, subsurfaceCoefficients, CollisionSample, MediumCoeffs } from '../Subsurface.js';
 import { calculateIndirectLighting } from '../LightsIndirect.js';
 import { IndirectLightingResult } from '../LightsCore.js';
 import { regularizePathContribution, generateSampledDirection } from '../PathTracerCore.js';
@@ -59,7 +60,7 @@ import {
 	SHADOW_STRIDE, SHADOW,
 	readRayOrigin, readRayDirection, readRayBounceFlags, readRayThroughput, readRayPdf,
 	readMediumStack, writeMediumStack, readMediumSigmaA, writeMediumSigmaA,
-	readPathBounces, writePathBounces,
+	readPathBounces, readSssSteps, writePathMeta, readSSSMedium, writeSSSMedium,
 	readHitDistance, readHitBarycentrics, readHitNormal,
 	readHitMaterialIndex, readHitTriangleIndex,
 	writeRayOriginPixel, writeRayDirFlags, writeRayThroughputPdf, writeRayRadiance,
@@ -103,7 +104,7 @@ export function buildShadeKernel( params ) {
 		pointLightsBuffer, numPointLights,
 		spotLightsBuffer, numSpotLights,
 		// Uniforms
-		maxBounceCount, transmissiveBounces,
+		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		transparentBackground, backgroundIntensity,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
@@ -164,6 +165,7 @@ export function buildShadeKernel( params ) {
 		// once free bounces (SSS walk steps / transmissive traversals) stop advancing it while still
 		// consuming loop iterations. Termination/MIS/RR below key off this instead of currentBounce.
 		const bounceIndex = readPathBounces( rayBufferRW, rayID ).toVar();
+		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar(); // SSS random-walk step count (free bounces)
 
 		// ─── MISS HANDLING ──────────────────────────────────────
 		If( hitDist.greaterThan( MISS_DIST ), () => {
@@ -243,14 +245,71 @@ export function buildShadeKernel( params ) {
 		// Dispersion: per-ray locked wavelength (nm; 0 = achromatic), in medium-stack bits 16-31.
 		const pathWavelength = float( medStack.wavelength ).toVar();
 
-		// In-medium Beer-Lambert absorption (KHR_materials_volume): if the segment that reached
-		// this hit was inside a medium, attenuate throughput over its length before any shading
-		// (mirror PathTracerCore:701-704). Glass has sigmaS==0 so this is the full glass path; the
-		// SSS scatter branch (sigmaS>0) is added later. Miss rays already Returned, so the segment
-		// is bounded.
+		// ─── IN-MEDIUM TRANSPORT (KHR_materials_volume glass OR random-walk SSS) ───
+		// If the segment that reached this hit was inside a medium, either absorb (glass, sigmaS==0)
+		// or random-walk scatter (subsurface, sigmaS>0). Mirrors PathTracerCore:677-749. Miss rays
+		// already Returned, so the segment is bounded.
 		If( mediumStackDepth.greaterThan( 0 ), () => {
 
-			throughput.mulAssign( exp( readMediumSigmaA( rayBufferRW, rayID ).mul( hitDist ).negate() ) );
+			const mSigmaA = readMediumSigmaA( rayBufferRW, rayID ).toVar();
+			const sssMed = readSSSMedium( rayBufferRW, rayID );
+			const mSigmaS = sssMed.sigmaS.toVar();
+			const mG = sssMed.g.toVar();
+
+			If( max( max( mSigmaS.x, mSigmaS.y ), mSigmaS.z ).lessThanEqual( 0.0 ), () => {
+
+				// Non-scattering medium (glass): straight-line Beer-Lambert absorption.
+				throughput.mulAssign( exp( mSigmaA.mul( hitDist ).negate() ) );
+
+			} ).Else( () => {
+
+				// Scattering medium (subsurface): chromatic collision-distance sampling for the segment.
+				const mSigmaT = mSigmaA.add( mSigmaS );
+				const coll = CollisionSample.wrap( sampleChromaticCollision(
+					mSigmaT, mSigmaS, throughput, hitDist, rngState,
+				) ).toVar();
+				throughput.mulAssign( coll.weight );
+
+				If( coll.didScatter, () => {
+
+					// Scatter: move to the collision point, redirect via Henyey-Greenstein, continue as
+					// a FREE bounce (no camera-bounce cost) consuming the sssSteps budget.
+					const xi2 = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+					const scatterPoint = origin.add( direction.mul( coll.t ) );
+					const newDir = sampleHenyeyGreenstein( direction, mG, xi2 ).toVar();
+					sssSteps.addAssign( 1 );
+
+					// Self-terminate the walk: step cap OR Russian roulette (energy-loss-only bias).
+					const rrP = clamp( max( max( throughput.x, throughput.y ), throughput.z ), 0.02, 1.0 ).toVar();
+					const terminate = sssSteps.greaterThanEqual( maxSubsurfaceSteps )
+						.or( RandomValue( rngState ).greaterThan( rrP ) ).toVar();
+
+					If( terminate, () => {
+
+						writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+						writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
+						rngBufferRW.element( rayID ).assign( rngState );
+						Return();
+
+					} );
+
+					throughput.divAssign( rrP );
+
+					// Free-bounce continuation: ray stays in the same medium, so only the moving state
+					// (origin/dir/throughput/path-meta/rng) is rewritten; medium stack + coeffs persist.
+					writeRayOriginPixel( rayBufferRW, rayID, scatterPoint, pixelIndex );
+					writeRayDirFlags( rayBufferRW, rayID, newDir, flags );
+					writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
+					writeRayRadiance( rayBufferRW, rayID, currentRadiance );
+					writePathMeta( rayBufferRW, rayID, bounceIndex, sssSteps ); // free bounce: camera depth unchanged
+					rngBufferRW.element( rayID ).assign( rngState );
+					Return();
+
+				} );
+
+				// No scatter: reached the boundary (weight applied); fall through to surface handling.
+
+			} );
 
 		} );
 
@@ -404,6 +463,55 @@ export function buildShadeKernel( params ) {
 							log( max( material.attenuationColor, vec3( 0.001 ) ) ).negate().div( material.attenuationDistance ),
 							vec3( 0.0 ),
 						) );
+						// Glass is non-scattering: zero sigmaS so the in-medium block takes the
+						// Beer-Lambert path (not the SSS random walk) for this medium slot.
+						writeSSSMedium( rayBufferRW, rayID, vec3( 0.0 ), float( 0.0 ) );
+
+					} );
+
+				} ).Else( () => {
+
+					If( mediumStackDepth.greaterThan( 0 ), () => {
+
+						mediumStackDepth.subAssign( 1 );
+
+					} );
+
+				} );
+
+			} );
+
+			// Subsurface boundary (mirror PathTracerCore:936-993): push the scattering medium on
+			// enter (Cycles-style coeffs → sigmaA in slot 7, sigmaS+g in slot 9), pop on exit. This
+			// is a FREE bounce (does not advance the camera-bounce counter — see writePathMeta below).
+			If( interaction.isSubsurface.and( interaction.didReflect.not() ), () => {
+
+				If( interaction.entering, () => {
+
+					If( mediumStackDepth.lessThan( 3 ), () => {
+
+						mediumStackDepth.addAssign( 1 );
+						If( mediumStackDepth.equal( 1 ), () => {
+
+							mediumStack_ior_1.assign( material.ior );
+
+						} );
+						If( mediumStackDepth.equal( 2 ), () => {
+
+							mediumStack_ior_2.assign( material.ior );
+
+						} );
+						If( mediumStackDepth.equal( 3 ), () => {
+
+							mediumStack_ior_3.assign( material.ior );
+
+						} );
+
+						const ssCoeffs = MediumCoeffs.wrap( subsurfaceCoefficients(
+							material.subsurfaceColor, material.subsurfaceRadius, material.subsurfaceRadiusScale,
+						) ).toVar();
+						writeMediumSigmaA( rayBufferRW, rayID, ssCoeffs.sigmaA );
+						writeSSSMedium( rayBufferRW, rayID, ssCoeffs.sigmaS, clamp( material.subsurfaceAnisotropy, - 0.99, 0.99 ) );
 
 					} );
 
@@ -438,7 +546,7 @@ export function buildShadeKernel( params ) {
 			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
-			writePathBounces( rayBufferRW, rayID, bounceIndex.add( 1 ) ); // transmissive traversal advances depth (current behavior)
+			writePathMeta( rayBufferRW, rayID, select( interaction.isSubsurface, bounceIndex, bounceIndex.add( 1 ) ), sssSteps ); // SSS boundary = free bounce; transmission advances depth
 			rngBufferRW.element( rayID ).assign( rngState );
 			Return(); // Skip BRDF/NEE for transparent interaction
 
@@ -726,7 +834,7 @@ export function buildShadeKernel( params ) {
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 		writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
-		writePathBounces( rayBufferRW, rayID, bounceIndex.add( 1 ) ); // surface scatter advances camera-bounce depth
+		writePathMeta( rayBufferRW, rayID, bounceIndex.add( 1 ), sssSteps ); // surface scatter advances camera-bounce depth
 		rngBufferRW.element( rayID ).assign( rngState );
 
 	} );

@@ -242,10 +242,16 @@ export class WavefrontPathTracer extends PathTracer {
 
 		// Bounce loop — fused ExtendShade + deferred shadow pipeline
 		const maxBounces = this.maxBounces.value;
+		// Free bounces (transmissive traversals + SSS random-walk steps) consume loop iterations
+		// WITHOUT advancing a ray's camera-bounce depth, so the loop must run far enough for deep
+		// glass / subsurface walks to resolve (mirror PathTracerCore:649). Non-SSS scenes pay only
+		// the dispatch-sizing arithmetic for the extra iterations — the dynamic-dispatch survivor
+		// curve + early-exit threshold break the loop once survivors fall below the floor.
+		const loopBound = maxBounces + this.transmissiveBounces.value + this.maxSubsurfaceSteps.value;
 		// Active-set upper bound the kernels are bounded by (= w*h, set at build).
 		const maxRays = this._wfMaxRayCount.value;
 
-		for ( let bounce = 0; bounce <= maxBounces; bounce ++ ) {
+		for ( let bounce = 0; bounce <= loopBound; bounce ++ ) {
 
 			this._wfCurrentBounce.value = bounce;
 
@@ -330,7 +336,7 @@ export class WavefrontPathTracer extends PathTracer {
 			// data via async readback, acceptable for heuristic.
 			if (
 				this._lastBounceCounts
-				&& bounce < maxBounces
+				&& bounce < loopBound
 				&& this._lastBounceCounts[ bounce ] !== undefined
 				&& this._lastBounceCounts[ bounce ] <= this._bounceEarlyExitThreshold
 			) {
@@ -779,6 +785,7 @@ export class WavefrontPathTracer extends PathTracer {
 			numSpotLights: this.numSpotLights,
 			maxBounceCount: this.maxBounces,
 			transmissiveBounces: this.transmissiveBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			showBackground: this.showBackground,
@@ -952,6 +959,7 @@ export class WavefrontPathTracer extends PathTracer {
 			numSpotLights: this.numSpotLights,
 			maxBounceCount: this.maxBounces,
 			transmissiveBounces: this.transmissiveBounces,
+			maxSubsurfaceSteps: this.maxSubsurfaceSteps,
 			transparentBackground: this.transparentBackground,
 			backgroundIntensity: this.backgroundIntensity,
 			globalIlluminationIntensity: this.globalIlluminationIntensity,

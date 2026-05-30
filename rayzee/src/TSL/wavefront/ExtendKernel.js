@@ -20,7 +20,7 @@ import {
 import { traverseBVH } from '../BVHTraversal.js';
 import { Ray, HitInfo } from '../Struct.js';
 import {
-	readRayOrigin, readRayDirection,
+	readRayOrigin, readRayDirection, readMediumStack,
 	writeHitPacked,
 } from '../../Processor/PackedRayBuffer.js';
 import { COUNTER } from '../../Processor/QueueManager.js';
@@ -76,10 +76,12 @@ export function buildExtendKernel( params ) {
 
 		// BVH traversal — reuses existing function directly.
 		// main's traverseBVH no longer takes materialBuffer (Woop watertight + materialIndex
-		// now read from triangle data); 4th arg is an optional insideMedium bool. Primary/
-		// bounce rays from Extend are treated as outside a medium → omit it.
+		// now read from triangle data); 4th arg is insideMedium — a ray inside a glass/SSS medium
+		// bypasses front/back culling so it can hit the medium's back-facing boundary geometry
+		// (mirror PathTracerCore:672). Read the per-ray medium-stack depth to decide.
+		const insideMedium = readMediumStack( rayBufferRO, rayID ).stackDepth.greaterThan( uint( 0 ) );
 		const hitInfo = HitInfo.wrap( traverseBVH(
-			ray, bvhBuffer, triangleBuffer,
+			ray, bvhBuffer, triangleBuffer, insideMedium,
 		) ).toVar();
 
 		// Write packed hit data

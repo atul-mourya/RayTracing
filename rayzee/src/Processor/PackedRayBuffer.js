@@ -23,8 +23,8 @@ import { StorageInstancedBufferAttribute } from 'three/webgpu';
 
 // ─── Stride constants (per-buffer field counts) ────────────────────────
 
-/** 9 vec4 per ray (6 base + medium-stack meta + medium absorption + path meta) */
-export const RAY_STRIDE = 9;
+/** 10 vec4 per ray (6 base + medium meta/absorption/scatter + path meta) */
+export const RAY_STRIDE = 10;
 /** 2 vec4 per hit */
 export const HIT_STRIDE = 2;
 /** 3 vec4 per shadow ray */
@@ -43,8 +43,9 @@ export const RAY = {
 	NORMAL_DEPTH: 4, // vec4(encodedNormal.xyz, linearDepth)  [MRT]
 	ALBEDO_ID: 5, // vec4(albedo.xyz, objectID)            [MRT]
 	MEDIUM_STACK: 6, // vec4(uintBitsToFloat(stackDepth|transTraversals<<8|wavelength<<16), ior1, ior2, ior3)
-	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume)
-	PATH_META: 8, // vec4(perRayBounces, _, _, _) — per-ray camera-bounce depth (.yzw reserved for SSS: sssSteps, walk flags)
+	MEDIUM_SIGMA_A: 7, // vec4(sigmaA.xyz, _) — Beer-Lambert absorption coeff of the active medium (KHR_materials_volume + SSS)
+	PATH_META: 8, // vec4(perRayBounces, sssSteps, _, _) — per-ray camera-bounce depth + SSS random-walk step counter
+	SSS_SIGMA_S: 9, // vec4(sigmaS.xyz, g) — SSS scattering coeff + Henyey-Greenstein anisotropy (sigmaS==0 ⇒ glass)
 };
 
 /** Hit buffer field indices */
@@ -365,11 +366,27 @@ export const writeMediumSigmaA = ( buf, id, sigmaA ) =>
 	buf.element( soa( id, RAY.MEDIUM_SIGMA_A ) ).assign( vec4( sigmaA, 0.0 ) );
 
 // ── Path meta (RAY region 8, SoA) ──
-// Per-ray CAMERA-bounce depth in .x. The wavefront CPU loop index can't track this once free
-// bounces (transmission/SSS that don't count as camera bounces) decouple a ray's depth from the
-// loop iteration, so termination/MIS/RR key off this per-ray counter instead. (.yzw reserved for
-// the SSS walk state — sssSteps, in-walk flag.)
+// .x = per-ray CAMERA-bounce depth (the wavefront CPU loop index can't track this once free
+// bounces — SSS walk steps / transmissive traversals that don't count as camera bounces — decouple
+// a ray's depth from the loop iteration, so termination/MIS/RR key off this per-ray counter).
+// .y = SSS random-walk step counter (bounded by maxSubsurfaceSteps).
 export const readPathBounces = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).x );
+export const readSssSteps = ( buf, id ) => int( buf.element( soa( id, RAY.PATH_META ) ).y );
 
-export const writePathBounces = ( buf, id, bounces ) =>
-	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), 0.0, 0.0, 0.0 ) );
+// Both fields share one vec4, so every write sets both (bounces in .x, sssSteps in .y).
+export const writePathMeta = ( buf, id, bounces, sssSteps ) =>
+	buf.element( soa( id, RAY.PATH_META ) ).assign( vec4( float( bounces ), float( sssSteps ), 0.0, 0.0 ) );
+
+// ── SSS scattering coeffs (RAY region 9, SoA) ──
+// sigmaS (single-scatter coeff) + Henyey-Greenstein g of the active medium. sigmaS==0 marks a
+// non-scattering medium (glass) → the in-medium block takes the Beer-Lambert path instead of the
+// random walk. sigmaA lives in MEDIUM_SIGMA_A; sigmaT is derived as sigmaA+sigmaS.
+export const readSSSMedium = ( buf, id ) => {
+
+	const v = buf.element( soa( id, RAY.SSS_SIGMA_S ) );
+	return { sigmaS: v.xyz, g: v.w };
+
+};
+
+export const writeSSSMedium = ( buf, id, sigmaS, g ) =>
+	buf.element( soa( id, RAY.SSS_SIGMA_S ) ).assign( vec4( sigmaS, g ) );
