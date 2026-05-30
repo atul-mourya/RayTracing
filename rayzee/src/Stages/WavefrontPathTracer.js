@@ -967,6 +967,7 @@ export class WavefrontPathTracer extends PathTracer {
 			cameraViewMatrix: this.cameraViewMatrix,
 			fireflyThreshold: this.fireflyThreshold,
 			frame: this.frame,
+			resolution: this.resolution, // STBN: decode pixelCoord for the blue-noise BRDF sample
 			// Emissive triangle NEE (item 13)
 			emissiveTriangleCount: this.emissiveTriangleCount,
 			emissiveVec4Offset: this.emissiveVec4Offset,

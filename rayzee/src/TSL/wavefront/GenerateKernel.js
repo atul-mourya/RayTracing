@@ -16,7 +16,7 @@ import {
 import {
 	getDecorrelatedSeed,
 	pcgHash,
-	RandomValue,
+	getStratifiedSample,
 } from '../Random.js';
 
 import { generateRayFromCamera } from '../BVHTraversal.js';
@@ -128,8 +128,10 @@ export function buildGenerateKernel( params ) {
 
 			} ).Else( () => {
 
-				// PCG jitter (pure arithmetic — avoids blue-noise texture binding)
-				const stratifiedJitter = vec2( RandomValue( seed ), RandomValue( seed ) ).toVar();
+				// Blue-noise (STBN) AA jitter via the shared sampler, honoring the samplingTechnique
+				// uniform (default 3 = STBN) — matches the monolithic primary-ray path. subSample + S
+				// stratify the multi-sample pool; S=1 short-circuits to a plain per-pixel sample.
+				const stratifiedJitter = getStratifiedSample( pixelCoord, subSample, int( S ), seed, resolution, frame ).toVar();
 
 				const jitterScale = vec2( 2.0 ).div( resolution );
 				const jitter = stratifiedJitter.sub( 0.5 ).mul( jitterScale );

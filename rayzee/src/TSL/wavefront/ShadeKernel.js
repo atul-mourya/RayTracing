@@ -54,7 +54,7 @@ import {
 	BRDFWeights,
 	MaterialCache,
 } from '../Struct.js';
-import { RandomValue } from '../Random.js';
+import { RandomValue, getRandomSample } from '../Random.js';
 import { RAY_FLAG, COUNTER } from '../../Processor/QueueManager.js';
 import {
 	SHADOW_STRIDE, SHADOW,
@@ -108,7 +108,7 @@ export function buildShadeKernel( params ) {
 		transparentBackground, backgroundIntensity,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
-		fireflyThreshold, frame,
+		fireflyThreshold, frame, resolution,
 		// Emissive triangle NEE (item 13) — opt-in via enableEmissiveTriangleSampling
 		emissiveTriangleCount, emissiveVec4Offset, emissiveTotalPower,
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
@@ -573,8 +573,19 @@ export function buildShadeKernel( params ) {
 			material.clearcoat, material.emissive, material.subsurface,
 		) ).toVar();
 
-		// BRDF sample (for direct lighting MIS + specular strategy input)
-		const xi = vec2( RandomValue( rngState ), RandomValue( rngState ) );
+		// BRDF sample (for direct lighting MIS + specular strategy input).
+		// Primary BRDF-direction sample via the shared sampler, honoring the samplingTechnique
+		// uniform (default 3 = STBN), keyed on (pixel, bounceIndex, frame) like the monolithic
+		// (PathTracerCore:1045). Lobe selection, NEE, RR and SSS draws stay on the PCG rngState.
+		// pixelCoord is decoded from pixelIndex (= gy*resolution.x + gx, GenerateKernel) as a
+		// half-pixel-centered float vec2. sampleIndex=0: the frame is the STBN temporal axis (the
+		// S>1 multi-sample pool shares this direction per pixel — documented opt-in caveat).
+		const _resX = int( resolution.x ).toVar();
+		const _pixelCoord = vec2(
+			float( int( pixelIndex ).mod( _resX ) ).add( 0.5 ),
+			float( int( pixelIndex ).div( _resX ) ).add( 0.5 ),
+		);
+		const xi = getRandomSample( _pixelCoord, int( 0 ), bounceIndex, rngState, int( - 1 ), resolution, frame ).toVar();
 		const emptyWeights = BRDFWeights( {
 			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
 			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),
