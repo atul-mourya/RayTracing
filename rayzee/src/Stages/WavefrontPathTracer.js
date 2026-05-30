@@ -237,7 +237,9 @@ export class WavefrontPathTracer extends PathTracer {
 			const useFunctionalCompaction = this._useDynamicDispatch && ! this._sortMaterials;
 			if ( useFunctionalCompaction ) {
 
-				km.dispatch( 'snapshotEntering' );
+				// ENTERING_COUNT for this bounce is already set: bounce 0 by initActiveIndices
+				// (=maxRays), bounce N>0 by the previous bounce's snapshotBounceCount (=ACTIVE).
+				// No separate snapshotEntering pass needed (one fewer barrier/bounce).
 				// Size from the previous frame's per-bounce survivor curve with a 1.5× +
 				// 1024 margin. Over-sizing is safe (kernels bound exactly on ENTERING_COUNT).
 				// Bounce 0 is always full (identity primary-ray list).
@@ -561,6 +563,12 @@ export class WavefrontPathTracer extends PathTracer {
 			const cnt = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
 			const slot = uint( wfCurrentBounce ).clamp( uint( 0 ), uint( qm.MAX_BOUNCE_SNAPSHOTS - 1 ) );
 			bounceCountsBuf.element( slot ).assign( cnt );
+			// Fold snapshotEntering into this end-of-bounce pass: set ENTERING_COUNT to this
+			// bounce's dense survivor count so the NEXT bounce's extend/shade/compact bound
+			// on it (one fewer compute pass/bounce than a separate snapshotEntering). The
+			// full path's enterFull overrides this to maxRays at its bounce start, so this is
+			// harmless there.
+			atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), cnt );
 
 		} );
 		this._kernelManager.register( 'snapshotBounceCount',
@@ -573,10 +581,13 @@ export class WavefrontPathTracer extends PathTracer {
 
 			const tid = instanceIndex;
 			activeWriteA.element( tid ).assign( tid );
-			// Seed the atomic active-ray counter so Sort (which reads it) has a valid bound on bounce 0
+			// Seed the atomic active-ray counter so Sort (which reads it) has a valid bound on
+			// bounce 0; also seed ENTERING_COUNT=maxRays so bounce 0 (functional path) bounds
+			// full without a separate snapshotEntering pass.
 			If( tid.equal( uint( 0 ) ), () => {
 
 				atomicStore( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ), uint( maxRays ) );
+				atomicStore( counters.element( uint( COUNTER.ENTERING_COUNT ) ), uint( maxRays ) );
 
 			} );
 
