@@ -23,7 +23,7 @@ import { buildExtendKernel, EXTEND_WG_SIZE } from '../TSL/wavefront/ExtendKernel
 import { buildShadeKernel, SHADE_WG_SIZE } from '../TSL/wavefront/ShadeKernel.js';
 import { buildConnectKernel, CONNECT_WG_SIZE } from '../TSL/wavefront/ConnectKernel.js';
 import { buildAccumulateKernel, ACCUMULATE_WG_SIZE } from '../TSL/wavefront/AccumulateKernel.js';
-import { buildCompactKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
+import { buildCompactKernel, buildCompactSubgroupKernel, COMPACT_WG_SIZE } from '../TSL/wavefront/CompactKernel.js';
 import { buildFinalWriteKernel, FINALWRITE_WG_SIZE } from '../TSL/wavefront/FinalWriteKernel.js';
 import { buildSortKernel, SORT_WG_SIZE } from '../TSL/wavefront/SortKernel.js';
 import {
@@ -63,6 +63,13 @@ export class WavefrontPathTracer extends PathTracer {
 		// synchronized to the indirect read across three.js 0.184's per-compute() queue
 		// submissions (the dispatch reads a stale workgroup count → late-bounce truncation).
 		this._useDynamicDispatch = true;
+
+		// Phase 2a: subgroup prefix-sum compaction (one global atomic per subgroup instead of
+		// per surviving ray; auto-disabled without the 'subgroups' feature). IMPLEMENTED +
+		// VERIFIED CORRECT, but measured PERFORMANCE-NEUTRAL on this HW (Camera/Pagani 1024/8b:
+		// subgroup 1621/3082 ms vs atomic-append 1630/3083 ms) — confirms compaction atomics are
+		// not the bottleneck. Kept flag-gated OFF (atomic-append is simpler, no feature dep).
+		this._useSubgroupCompact = false;
 
 		this._lastBounceCounts = null; // Uint32Array snapshot from past frame
 		this._readbackPending = false;
@@ -932,8 +939,12 @@ export class WavefrontPathTracer extends PathTracer {
 			)
 		);
 
-		// ── Compact ──
-		const compactFn = buildCompactKernel( {
+		// ── Compact ── (subgroup prefix-sum variant when supported — Phase 2a)
+		const subgroupsOK = this._useSubgroupCompact
+			&& ( this.renderer.hasFeature ? this.renderer.hasFeature( 'subgroups' ) : false );
+		this._compactIsSubgroup = subgroupsOK;
+		const compactBuilder = subgroupsOK ? buildCompactSubgroupKernel : buildCompactKernel;
+		const compactFn = compactBuilder( {
 			rayBufferRO: pb.rayBuffer.ro,
 			activeIndicesReadRO: qm.getActiveReadRO(),
 			activeIndicesWriteRW: qm.getActiveWrite(),
