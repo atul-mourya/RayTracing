@@ -1,13 +1,5 @@
 /**
- * FinalWriteKernel.js — Wavefront Final Output
- *
- * 16×16 workgroup, 2D screen-space dispatch.
- * Reads per-ray radiance and MRT data from packed ray buffer,
- * performs temporal accumulation with previous frame,
- * writes final results to output StorageTextures.
- *
- * Storage buffer bindings: 1 (rayBuffer_RO)
- * + 3 StorageTexture outputs (separate binding category)
+ * FinalWriteKernel.js — wavefront final output: temporal accumulation + MRT StorageTexture writes (16×16, 2D).
  */
 
 import {
@@ -22,29 +14,17 @@ import {
 
 const WG_SIZE = 16;
 
-/**
- * Build the FinalWrite compute kernel.
- *
- * @param {Object} params
- * @returns {Function} TSL Fn to compile via .compute()
- */
 export function buildFinalWriteKernel( params ) {
 
 	const {
-		// Packed ray buffer (RO)
 		rayBufferRO,
-		// Output StorageTextures
 		writeColorTex, writeNDTex, writeAlbedoTex,
-		// Uniforms
 		resolution, frame,
-		// Accumulation
 		enableAccumulation, hasPreviousAccumulated, accumulationAlpha, cameraIsMoving,
 		transparentBackground,
-		// Previous frame textures
 		prevAccumTexture, prevNormalDepthTexture, prevAlbedoTexture,
-		// Tile
 		tileOffsetX, tileOffsetY, renderWidth, renderHeight,
-		// Phase 3 multi-sample: average S sample-slots per pixel (slots pixel + k*maxRaysPerSample).
+		// Multi-sample: average S sample-slots per pixel (slots pixel + k*maxRaysPerSample).
 		samplesPerPass = 1, maxRaysPerSample = 0,
 	} = params;
 
@@ -60,8 +40,7 @@ export function buildFinalWriteKernel( params ) {
 			const pixelIndex = gy.mul( int( resolution.x ) ).add( gx );
 			const rayID = uint( pixelIndex );
 
-			// Read from packed ray buffer — averaging the S sub-samples (multi-sample, Phase 3).
-			// MRT (normal/depth/albedo) taken from sub-sample 0 (deterministic first hit).
+			// Average the S sub-samples; MRT (normal/depth/albedo) from sub-sample 0.
 			const sampleColor = ( () => {
 
 				if ( S <= 1 ) return readRayRadiance( rayBufferRO, rayID );
@@ -84,7 +63,6 @@ export function buildFinalWriteKernel( params ) {
 			const finalAlbedo = albedoID.xyz.toVar();
 			const outputAlpha = select( transparentBackground, sampleColor.w, float( 1.0 ) ).toVar();
 
-			// Temporal accumulation
 			const pixelCoord = vec2( float( gx ).add( 0.5 ), float( gy ).add( 0.5 ) );
 			const prevUV = pixelCoord.div( resolution );
 
@@ -104,7 +82,6 @@ export function buildFinalWriteKernel( params ) {
 
 			} );
 
-			// Write to output StorageTextures
 			const uintCoord = uvec2( uint( gx ), uint( gy ) );
 			textureStore( writeColorTex, uintCoord, vec4( finalColor, outputAlpha ) ).toWriteOnly();
 			textureStore( writeNDTex, uintCoord, finalNormalDepth ).toWriteOnly();

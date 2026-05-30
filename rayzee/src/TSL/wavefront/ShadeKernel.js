@@ -1,20 +1,6 @@
 /**
- * ShadeKernel.js — Wavefront Material Evaluation + Bounce Generation
- *
- * 256×1 workgroup, 1D dispatch over active ray count.
- *
- * Phase 1B initial version: Handles miss/environment, material loading,
- * texture sampling, BRDF bounce generation, first-hit MRT, Russian roulette.
- * Direct lighting (NEE) deferred to Phase 1B+ once pipeline is validated.
- *
- * Storage buffer bindings: 8 (at limit)
- *   materialBuffer(1) + envCDFBuffer(1) [+ lightBuffer(1) for item 13]
- *   + rayBuffer_RW(1) + rngBuffer_RW(1) + hitBuffer_RO(1)
- *   + shadowBuffer_WR(1) + counters(1)
- *
- * NOTE: shadowBuffer and counters are bound but unused in this initial version.
- * They are included to validate the binding budget and will be used when
- * deferred direct lighting is added.
+ * ShadeKernel.js — wavefront material eval + bounce generation. 256×1 workgroup, 1D dispatch.
+ * 8 storage-buffer bindings (at the per-stage limit).
  */
 
 import {
@@ -72,48 +58,33 @@ import { computeNDCDepth } from '../PathTracer.js';
 const WG_SIZE = 256;
 const MISS_DIST = 1e19;
 
-/**
- * Build the Shade compute kernel.
- *
- * @param {Object} params
- * @returns {Function} TSL Fn to compile via .compute()
- */
 export function buildShadeKernel( params ) {
 
 	const {
-		// Scene storage buffers (4 after packing env CDF)
 		bvhBuffer, triangleBuffer, materialBuffer,
 		envCDFBuffer,
-		// Optional packed light buffer (emissive tris + light BVH nodes) — 1 binding
 		lightBuffer,
-		// Packed buffers (5)
 		rayBufferRW, rngBufferRW, hitBufferRO,
 		shadowBufferRW, counters,
-		// Active indices (needed to match ExtendKernel's ray ID mapping)
 		activeIndicesRO,
-		// Textures (not storage buffers)
 		albedoMaps, normalMaps, bumpMaps,
 		metalnessMaps, roughnessMaps, emissiveMaps,
 		displacementMaps,
 		envTexture, environmentIntensity, envMatrix,
 		enableEnvironmentLight, useEnvMapIS,
 		envTotalSum, envCompensationDelta, envResolution,
-		// Light uniform arrays (NOT storage buffers)
 		directionalLightsBuffer, numDirectionalLights,
 		areaLightsBuffer, numAreaLights,
 		pointLightsBuffer, numPointLights,
 		spotLightsBuffer, numSpotLights,
-		// Uniforms
 		maxBounceCount, transmissiveBounces, maxSubsurfaceSteps,
 		transparentBackground, backgroundIntensity,
 		globalIlluminationIntensity,
 		cameraProjectionMatrix, cameraViewMatrix,
 		fireflyThreshold, frame, resolution,
-		// Emissive triangle NEE (item 13) — opt-in via enableEmissiveTriangleSampling
 		emissiveTriangleCount, emissiveVec4Offset, emissiveTotalPower,
 		emissiveBoost, totalTriangleCount, enableEmissiveTriangleSampling,
 		lightBVHNodeCount,
-		// Max count
 		maxRayCount,
 	} = params;
 
@@ -123,8 +94,7 @@ export function buildShadeKernel( params ) {
 
 		const threadIdx = instanceIndex;
 
-		// Bound on ENTERING_COUNT (dense active-list length this bounce) so an
-		// over-sized margin dispatch is safe; falls back to maxRayCount if absent.
+		// bound on ENTERING_COUNT so an over-sized margin dispatch is safe
 		const bound = counters ? atomicLoad( counters.element( uint( COUNTER.ENTERING_COUNT ) ) ) : maxRayCount;
 		If( threadIdx.greaterThanEqual( bound ), () => {
 
@@ -132,13 +102,10 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// Use activeIndicesRO to match ExtendKernel's ray ID mapping
 		const rayID = activeIndicesRO.element( threadIdx );
 
-		// Read ray state from packed buffer
 		const flags = readRayBounceFlags( rayBufferRW, rayID ).toVar();
 
-		// Skip inactive rays
 		If( flags.bitAnd( uint( RAY_FLAG.ACTIVE ) ).equal( uint( 0 ) ), () => {
 
 			Return();
@@ -152,26 +119,20 @@ export function buildShadeKernel( params ) {
 		const pixelIndex = readRayPixelIndex( rayBufferRW, rayID );
 		const rngState = rngBufferRW.element( rayID ).toVar();
 
-		// Read hit data
 		const hitDist = readHitDistance( hitBufferRO, rayID ).toVar();
 		const hitNormal = readHitNormal( hitBufferRO, rayID ).toVar();
-		// hitInfo.uv from traverseBVH is the interpolated texture UV (not barycentrics)
+		// hitInfo.uv is the interpolated texture UV (not barycentrics)
 		const hitUV = readHitBarycentrics( hitBufferRO, rayID ).toVar();
 		const hitMatIdx = readHitMaterialIndex( hitBufferRO, rayID ).toVar();
 		const hitTriIdx = readHitTriangleIndex( hitBufferRO, rayID ).toVar();
 
-		// Per-ray camera-bounce depth (NOT the CPU loop index). For now this tracks currentBounce
-		// exactly (every shade is one bounce), so this is a no-op refactor; it becomes load-bearing
-		// once free bounces (SSS walk steps / transmissive traversals) stop advancing it while still
-		// consuming loop iterations. Termination/MIS/RR below key off this instead of currentBounce.
+		// per-ray camera-bounce depth; free bounces (SSS walk, transmissive traversals) don't advance it
 		const bounceIndex = readPathBounces( rayBufferRW, rayID ).toVar();
-		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar(); // SSS random-walk step count (free bounces)
-		const sampleIndex = readSampleIndex( rayBufferRW, rayID ).toVar(); // multi-sample sub-sample → distinct STBN tap
+		const sssSteps = readSssSteps( rayBufferRW, rayID ).toVar();
+		const sampleIndex = readSampleIndex( rayBufferRW, rayID ).toVar();
 
-		// ─── MISS HANDLING ──────────────────────────────────────
 		If( hitDist.greaterThan( MISS_DIST ), () => {
 
-			// Sample environment
 			If( enableEnvironmentLight, () => {
 
 				const envColor = sampleEnvironment( {
@@ -183,10 +144,7 @@ export function buildShadeKernel( params ) {
 					enableEnvironmentLight,
 				} );
 
-				// MIS weight for implicit env hit — prevents double-counting with NEE.
-				// Primary rays (bounce 0) get backgroundIntensity as a display-only scale.
-				// Secondary rays use power heuristic between the scatter PDF stored in the
-				// ray buffer and the env importance-sampling PDF, matching PathTracerCore.
+				// MIS weight for implicit env hit — prevents double-counting with NEE
 				const envMisWeight = float( 1.0 ).toVar();
 				If( bounceIndex.greaterThan( 0 ).and( useEnvMapIS ), () => {
 
@@ -217,39 +175,32 @@ export function buildShadeKernel( params ) {
 
 			} );
 
-			// Handle transparent background alpha
 			If( bounceIndex.equal( 0 ).and( transparentBackground ), () => {
 
-				currentRadiance.w.assign( 0.0 ); // Background = transparent
+				currentRadiance.w.assign( 0.0 );
 
 			} );
 
-			// Write radiance and mark inactive
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeRayDirFlags( rayBufferRW, rayID, direction, flags.bitAnd( uint( ~ RAY_FLAG.ACTIVE ) ) );
 			Return();
 
 		} );
 
-		// ─── HIT PROCESSING ─────────────────────────────────────
-
 		const hitPoint = origin.add( direction.mul( hitDist ) ).toVar();
 		const N = normalize( hitNormal ).toVar();
 
-		// ─── MEDIUM STACK (read once at the hit; reused by the transparency block below) ───
+		// medium stack read once here; reused by the transparency block below
 		const medStack = readMediumStack( rayBufferRW, rayID );
 		const mediumStackDepth = int( medStack.stackDepth ).toVar();
 		const mediumStack_ior_1 = medStack.ior1.toVar();
 		const mediumStack_ior_2 = medStack.ior2.toVar();
 		const mediumStack_ior_3 = medStack.ior3.toVar();
 		const transTraversals = int( medStack.transTraversals ).toVar();
-		// Dispersion: per-ray locked wavelength (nm; 0 = achromatic), in medium-stack bits 16-31.
+		// per-ray locked dispersion wavelength (nm; 0 = achromatic), in medium-stack bits 16-31
 		const pathWavelength = float( medStack.wavelength ).toVar();
 
-		// ─── IN-MEDIUM TRANSPORT (KHR_materials_volume glass OR random-walk SSS) ───
-		// If the segment that reached this hit was inside a medium, either absorb (glass, sigmaS==0)
-		// or random-walk scatter (subsurface, sigmaS>0). Mirrors PathTracerCore:677-749. Miss rays
-		// already Returned, so the segment is bounded.
+		// in-medium transport: glass (sigmaS==0) absorbs, subsurface (sigmaS>0) random-walk scatters
 		If( mediumStackDepth.greaterThan( 0 ), () => {
 
 			const mSigmaA = readMediumSigmaA( rayBufferRW, rayID ).toVar();
@@ -259,12 +210,12 @@ export function buildShadeKernel( params ) {
 
 			If( max( max( mSigmaS.x, mSigmaS.y ), mSigmaS.z ).lessThanEqual( 0.0 ), () => {
 
-				// Non-scattering medium (glass): straight-line Beer-Lambert absorption.
+				// glass: Beer-Lambert absorption
 				throughput.mulAssign( exp( mSigmaA.mul( hitDist ).negate() ) );
 
 			} ).Else( () => {
 
-				// Scattering medium (subsurface): chromatic collision-distance sampling for the segment.
+				// subsurface: chromatic collision-distance sampling
 				const mSigmaT = mSigmaA.add( mSigmaS );
 				const coll = CollisionSample.wrap( sampleChromaticCollision(
 					mSigmaT, mSigmaS, throughput, hitDist, rngState,
@@ -273,14 +224,13 @@ export function buildShadeKernel( params ) {
 
 				If( coll.didScatter, () => {
 
-					// Scatter: move to the collision point, redirect via Henyey-Greenstein, continue as
-					// a FREE bounce (no camera-bounce cost) consuming the sssSteps budget.
+					// scatter via Henyey-Greenstein, continue as a free bounce off the sssSteps budget
 					const xi2 = vec2( RandomValue( rngState ), RandomValue( rngState ) );
 					const scatterPoint = origin.add( direction.mul( coll.t ) );
 					const newDir = sampleHenyeyGreenstein( direction, mG, xi2 ).toVar();
 					sssSteps.addAssign( 1 );
 
-					// Self-terminate the walk: step cap OR Russian roulette (energy-loss-only bias).
+					// terminate walk: step cap or Russian roulette
 					const rrP = clamp( max( max( throughput.x, throughput.y ), throughput.z ), 0.02, 1.0 ).toVar();
 					const terminate = sssSteps.greaterThanEqual( maxSubsurfaceSteps )
 						.or( RandomValue( rngState ).greaterThan( rrP ) ).toVar();
@@ -296,33 +246,28 @@ export function buildShadeKernel( params ) {
 
 					throughput.divAssign( rrP );
 
-					// Free-bounce continuation: ray stays in the same medium, so only the moving state
-					// (origin/dir/throughput/path-meta/rng) is rewritten; medium stack + coeffs persist.
+					// free-bounce continuation: ray stays in the same medium, so medium stack + coeffs persist
 					writeRayOriginPixel( rayBufferRW, rayID, scatterPoint, pixelIndex );
 					writeRayDirFlags( rayBufferRW, rayID, newDir, flags );
 					writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 					writeRayRadiance( rayBufferRW, rayID, currentRadiance );
-					writePathMeta( rayBufferRW, rayID, bounceIndex, sssSteps, sampleIndex ); // free bounce: camera depth unchanged
+					writePathMeta( rayBufferRW, rayID, bounceIndex, sssSteps, sampleIndex );
 					rngBufferRW.element( rayID ).assign( rngState );
 					Return();
 
 				} );
 
-				// No scatter: reached the boundary (weight applied); fall through to surface handling.
+				// no scatter: reached boundary, fall through to surface handling
 
 			} );
 
 		} );
 
-		// Load material
 		const material = RayTracingMaterial.wrap(
 			getMaterial( int( hitMatIdx ), materialBuffer )
 		).toVar();
 
-		// ─── DISPLACEMENT MAPPING (item 27) ─────────────────────
-		// Tessellation-free via analytical ray-height marching.
-		// Mirrors PathTracerCore.js:759 — refines hitPoint/UV/normal when the
-		// material has a valid displacement map. Cheap no-op otherwise.
+		// displacement: analytical ray-height marching refines hitPoint/UV/normal; no-op without a map
 		const samplingUV = hitUV.toVar();
 		const displacedNormal = N.toVar();
 		If(
@@ -347,20 +292,18 @@ export function buildShadeKernel( params ) {
 			}
 		);
 
-		// Sample textures with displacement-refined UVs
 		const matSamples = MaterialSamples.wrap( sampleAllMaterialTextures(
 			albedoMaps, normalMaps, bumpMaps,
 			metalnessMaps, roughnessMaps, emissiveMaps,
 			material, samplingUV, N,
 		) ).toVar();
 
-		// Apply texture samples to material (CRITICAL — BRDF functions use material.color/metalness/roughness)
+		// BRDF functions read material.color/metalness/roughness, so apply samples here
 		material.color.assign( matSamples.albedo );
 		material.metalness.assign( matSamples.metalness.clamp( 0.0, 1.0 ) );
 		material.roughness.assign( matSamples.roughness.clamp( 0.05, 1.0 ) );
 
 		const albedo = matSamples.albedo.toVar();
-		// Update N — displacement provides macro shape, normal map adds micro detail (matches PathTracerCore:783)
 		If(
 			material.displacementMapIndex.greaterThanEqual( int( 0 ) )
 				.and( material.displacementScale.greaterThan( 0.0 ) ),
@@ -375,7 +318,7 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── FIRST-HIT MRT DATA (bounce 0 only) ────────────────
+		// first-hit MRT data (bounce 0 only)
 		If( bounceIndex.equal( 0 ), () => {
 
 			const encodedNormal = N.mul( 0.5 ).add( 0.5 );
@@ -385,7 +328,7 @@ export function buildShadeKernel( params ) {
 				cameraViewMatrix,
 			} );
 			writeRayNormalDepth( rayBufferRW, rayID, vec4( encodedNormal, linearDepth ) );
-			writeRayAlbedoID( rayBufferRW, rayID, vec4( albedo.xyz, float( hitMatIdx ) ) ); // albedo is vec4 (rgba) → take .xyz so the .w carries objectID
+			writeRayAlbedoID( rayBufferRW, rayID, vec4( albedo.xyz, float( hitMatIdx ) ) ); // .w carries objectID
 
 			If( transparentBackground, () => {
 
@@ -395,10 +338,7 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── TRANSPARENCY / REFRACTION ──────────────────────────
-		// (medium stack + dispersion wavelength were read at the hit, above.)
-
-		// Compute current/previous medium IOR from stack
+		// transparency / refraction (medium stack + wavelength read at the hit, above)
 		const currentMediumIOR = float( 1.0 ).toVar();
 		const previousMediumIOR = float( 1.0 ).toVar();
 		If( mediumStackDepth.equal( 1 ), () => {
@@ -425,14 +365,12 @@ export function buildShadeKernel( params ) {
 			pathWavelength,
 		) ).toVar();
 
-		// Capture the wavelength locked on a fresh dispersive transmission so it survives to the
-		// next dispatch (mirrors PathTracerCore:865). Reflective/opaque interactions return it
-		// unchanged, so this is an identity write on non-dispersive paths.
+		// persist any wavelength locked on a fresh dispersive transmission; identity write otherwise
 		pathWavelength.assign( interaction.pathWavelength );
 
 		If( interaction.continueRay, () => {
 
-			// Update medium stack for transmission (not reflection/TIR)
+			// update medium stack for transmission (not reflection/TIR)
 			If( interaction.isTransmissive.and( interaction.didReflect.not() ), () => {
 
 				If( interaction.entering, () => {
@@ -456,16 +394,13 @@ export function buildShadeKernel( params ) {
 
 						} );
 
-						// KHR_materials_volume: precompute the medium's Beer-Lambert absorption
-						// coeff once at enter (mirror PathTracerCore:889-893) and persist it for the
-						// in-medium segments. Single-slot store (PackedRayBuffer.MEDIUM_SIGMA_A).
+						// precompute Beer-Lambert sigmaA once at enter
 						writeMediumSigmaA( rayBufferRW, rayID, select(
 							material.attenuationDistance.greaterThan( 0.0 ),
 							log( max( material.attenuationColor, vec3( 0.001 ) ) ).negate().div( material.attenuationDistance ),
 							vec3( 0.0 ),
 						) );
-						// Glass is non-scattering: zero sigmaS so the in-medium block takes the
-						// Beer-Lambert path (not the SSS random walk) for this medium slot.
+						// sigmaS==0 marks glass → in-medium block takes the Beer-Lambert path, not SSS walk
 						writeSSSMedium( rayBufferRW, rayID, vec3( 0.0 ), float( 0.0 ) );
 
 					} );
@@ -482,9 +417,7 @@ export function buildShadeKernel( params ) {
 
 			} );
 
-			// Subsurface boundary (mirror PathTracerCore:936-993): push the scattering medium on
-			// enter (Cycles-style coeffs → sigmaA in slot 7, sigmaS+g in slot 9), pop on exit. This
-			// is a FREE bounce (does not advance the camera-bounce counter — see writePathMeta below).
+			// subsurface boundary: push the scattering medium on enter, pop on exit; free bounce
 			If( interaction.isSubsurface.and( interaction.didReflect.not() ), () => {
 
 				If( interaction.entering, () => {
@@ -528,7 +461,6 @@ export function buildShadeKernel( params ) {
 
 			} );
 
-			// Decrement transmissive traversals budget
 			If( interaction.isTransmissive.and( transTraversals.greaterThan( 0 ) ), () => {
 
 				transTraversals.subAssign( 1 );
@@ -537,7 +469,7 @@ export function buildShadeKernel( params ) {
 
 			throughput.mulAssign( interaction.throughput );
 
-			// Offset ray: reflection stays on same side, transmission pushes through
+			// reflection stays on same side, transmission pushes through
 			const reflectOffsetDir = select( interaction.entering, N, N.negate() );
 			const offsetDir = select( interaction.didReflect, reflectOffsetDir, direction );
 			const newOrigin = hitPoint.add( offsetDir.mul( 0.001 ) );
@@ -547,13 +479,12 @@ export function buildShadeKernel( params ) {
 			writeRayThroughputPdf( rayBufferRW, rayID, throughput, float( 1.0 ) );
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 			writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
-			writePathMeta( rayBufferRW, rayID, select( interaction.isSubsurface, bounceIndex, bounceIndex.add( 1 ) ), sssSteps, sampleIndex ); // SSS boundary = free bounce; transmission advances depth
+			writePathMeta( rayBufferRW, rayID, select( interaction.isSubsurface, bounceIndex, bounceIndex.add( 1 ) ), sssSteps, sampleIndex ); // SSS = free bounce; transmission advances depth
 			rngBufferRW.element( rayID ).assign( rngState );
-			Return(); // Skip BRDF/NEE for transparent interaction
+			Return();
 
 		} );
 
-		// ─── EMISSIVE CONTRIBUTION ──────────────────────────────
 		const emissive = matSamples.emissive.toVar();
 		If( length( emissive ).greaterThan( 0.0 ), () => {
 
@@ -565,22 +496,15 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── BRDF SAMPLE (needed by both direct + indirect) ─────
+		// BRDF sample (needed by both direct + indirect)
 		const V = direction.negate().toVar();
 
-		// Compute real material classification
 		const mc = MaterialClassification.wrap( classifyMaterial(
 			material.metalness, material.roughness, material.transmission,
 			material.clearcoat, material.emissive, material.subsurface,
 		) ).toVar();
 
-		// BRDF sample (for direct lighting MIS + specular strategy input).
-		// Primary BRDF-direction sample via the shared sampler, honoring the samplingTechnique
-		// uniform (default 3 = STBN), keyed on (pixel, bounceIndex, frame) like the monolithic
-		// (PathTracerCore:1045). Lobe selection, NEE, RR and SSS draws stay on the PCG rngState.
-		// pixelCoord is decoded from pixelIndex (= gy*resolution.x + gx, GenerateKernel) as a
-		// half-pixel-centered float vec2. sampleIndex = the ray's sub-sample slot (PATH_META.z), so
-		// the S multi-sample rays of a pixel draw distinct STBN taps; the frame is the temporal axis.
+		// STBN keyed on (pixel, bounceIndex, frame); sampleIndex gives each sub-sample a distinct tap
 		const _resX = int( resolution.x ).toVar();
 		const _pixelCoord = vec2(
 			float( int( pixelIndex ).mod( _resX ) ).add( 0.5 ),
@@ -591,9 +515,7 @@ export function buildShadeKernel( params ) {
 			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
 			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),
 		} );
-		// main slimmed MaterialCache to 11 fields (70ed512). This dummy is unused
-		// (materialCacheCached=false → generateSampledDirection builds its own temp cache),
-		// but must match the current struct shape to construct.
+		// unused (materialCacheCached=false), but must match the 11-field struct shape to construct
 		const emptyCache = MaterialCache( {
 			F0: vec3( 0.04 ), NoV: float( 1.0 ),
 			diffuseColor: vec3( 0.0 ), isPurelyDiffuse: false,
@@ -635,7 +557,6 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── DIRECT LIGHTING ────────────────────────────────────
 		const directLight = calculateDirectLightingUnified(
 			hitPoint, N, material, V,
 			brdfDir, brdfPdf, brdfValue,
@@ -657,10 +578,7 @@ export function buildShadeKernel( params ) {
 			currentRadiance.w
 		) );
 
-		// ─── EMISSIVE TRIANGLE NEE (item 13, unblocked by packed lightBuffer) ────
-		// Mirrors PathTracerCore.js:1025-1107. Light BVH fast path when available,
-		// flat-CDF fallback otherwise. Both paths go through the shared lightBuffer
-		// binding; emissiveVec4Offset locates the emissive section within it.
+		// emissive triangle NEE: light-BVH fast path when available, flat-CDF fallback otherwise
 		if ( useEmissiveNEE ) {
 
 			If(
@@ -668,8 +586,7 @@ export function buildShadeKernel( params ) {
 					.and( emissiveTriangleCount.greaterThan( int( 0 ) ) ),
 				() => {
 
-					// 4-param shadow wrapper — closes over scene storage buffers that
-					// calculateEmissiveTriangleContribution's inner callback needs.
+					// closes over scene buffers for the inner shadow-trace callback
 					const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist ] ) => {
 
 						return traceShadowRay(
@@ -681,7 +598,6 @@ export function buildShadeKernel( params ) {
 
 					If( lightBVHNodeCount.greaterThan( int( 0 ) ), () => {
 
-						// Light-BVH fast path (spatially-aware importance sampling)
 						const emissiveSample = EmissiveSample.wrap( sampleLightBVHTriangle(
 							hitPoint, N,
 							rngState,
@@ -691,7 +607,7 @@ export function buildShadeKernel( params ) {
 							triangleBuffer,
 						) );
 
-						// Skip for very rough diffuse surfaces on secondary bounces (monolithic match)
+						// skip rough diffuse surfaces on secondary bounces
 						const skip = bounceIndex.greaterThan( int( 1 ) )
 							.and( material.roughness.greaterThan( 0.9 ) )
 							.and( material.metalness.lessThan( 0.1 ) );
@@ -742,7 +658,6 @@ export function buildShadeKernel( params ) {
 
 					} ).Else( () => {
 
-						// Flat-CDF fallback — same packed buffer, emissive triangles start at offset.
 						const emissiveLight = calculateEmissiveTriangleContribution(
 							hitPoint, N, V, material,
 							bounceIndex, rngState,
@@ -770,13 +685,11 @@ export function buildShadeKernel( params ) {
 
 		}
 
-		// ─── FIREFLY SUPPRESSION ────────────────────────────────
 		const suppressedRadiance = regularizePathContribution(
 			currentRadiance.xyz, float( bounceIndex ), fireflyThreshold, int( frame ),
 		);
 		currentRadiance.assign( vec4( suppressedRadiance, currentRadiance.w ) );
 
-		// ─── INDIRECT BOUNCE (full calculateIndirectLighting) ────
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, mc,
 		) ).toVar();
@@ -788,12 +701,11 @@ export function buildShadeKernel( params ) {
 		) ).toVar();
 
 		const bounceDir = indirectResult.direction.toVar();
-		// combinedPdf (not pdf) is what main stores as prevBouncePdf for the next bounce's
-		// NEE↔implicit-env MIS pairing.
+		// combinedPdf is stored as next bounce's prevBouncePdf for NEE↔implicit-env MIS
 		const bouncePdf = max( indirectResult.combinedPdf, 0.001 ).toVar();
 		throughput.mulAssign( indirectResult.throughput );
 
-		// ─── EARLY RAY TERMINATION ──────────────────────────────
+		// early ray termination
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
 
 			const maxThroughput = max( throughput.x, max( throughput.y, throughput.z ) );
@@ -808,7 +720,7 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── RUSSIAN ROULETTE ───────────────────────────────────
+		// Russian roulette
 		If( bounceIndex.greaterThanEqual( 3 ), () => {
 
 			const maxComp = max( throughput.x, max( throughput.y, throughput.z ) );
@@ -828,7 +740,6 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── TERMINATE IF MAX BOUNCES ───────────────────────────
 		If( bounceIndex.greaterThanEqual( maxBounceCount ), () => {
 
 			writeRayRadiance( rayBufferRW, rayID, currentRadiance );
@@ -838,7 +749,6 @@ export function buildShadeKernel( params ) {
 
 		} );
 
-		// ─── UPDATE RAY FOR NEXT BOUNCE ─────────────────────────
 		const newOrigin = hitPoint.add( N.mul( 0.001 ) );
 
 		writeRayOriginPixel( rayBufferRW, rayID, newOrigin, pixelIndex );
@@ -846,7 +756,7 @@ export function buildShadeKernel( params ) {
 		writeRayThroughputPdf( rayBufferRW, rayID, throughput, bouncePdf );
 		writeRayRadiance( rayBufferRW, rayID, currentRadiance );
 		writeMediumStack( rayBufferRW, rayID, uint( mediumStackDepth ), uint( transTraversals ), mediumStack_ior_1, mediumStack_ior_2, mediumStack_ior_3, uint( pathWavelength.add( 0.5 ) ) );
-		writePathMeta( rayBufferRW, rayID, bounceIndex.add( 1 ), sssSteps, sampleIndex ); // surface scatter advances camera-bounce depth
+		writePathMeta( rayBufferRW, rayID, bounceIndex.add( 1 ), sssSteps, sampleIndex );
 		rngBufferRW.element( rayID ).assign( rngState );
 
 	} );

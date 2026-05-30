@@ -1,20 +1,6 @@
 /**
- * SortGlobalKernels.js — Global Counting Sort (item 34)
- *
- * Three-kernel pipeline that produces a GLOBAL ordering of rays by material
- * index (as opposed to SortKernel.js which is per-workgroup). Rays with the
- * same material end up in contiguous memory across all workgroups, giving
- * true cross-workgroup subgroup coherence in the subsequent Shade dispatch.
- *
- * Kernels (dispatched in order):
- *   1. histogram  — each thread atomic-adds to a single shared 16-bin histogram
- *   2. prefixSum  — thread 0 converts bin counts → exclusive prefix sums
- *   3. scatter    — each thread atomic-adds to its bin's position and writes
- *                   its rayID into sortedIndices[position]
- *
- * The caller must zero the 16-bin histogram before every dispatch of step 1
- * (the existing `resetSortHistogram` kernel clears the full histogram buffer,
- * which includes these 16 slots since they share storage).
+ * SortGlobalKernels.js — global counting sort (histogram → prefixSum → scatter) ordering rays by material
+ * across all workgroups, unlike SortKernel.js's per-workgroup sort. Caller must zero the histogram before histogram.
  */
 
 import {
@@ -32,10 +18,6 @@ import { ENGINE_DEFAULTS } from '../../EngineDefaults.js';
 const WG_SIZE = 256;
 const MAX_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
 
-/**
- * Build the global histogram kernel. Each active ray contributes +1 to the
- * appropriate bin. Bin chosen via remap (if provided) else direct clamp.
- */
 export function buildSortGlobalHistogramKernel( params ) {
 
 	const {
@@ -66,11 +48,7 @@ export function buildSortGlobalHistogramKernel( params ) {
 
 }
 
-/**
- * Single-thread prefix-sum kernel. Converts the 16 bin counts to exclusive
- * prefix sums so each bin's starting scatter offset is known. Dispatch must be
- * [1,1,1] with workgroup size [1,1,1].
- */
+// Dispatch must be [1,1,1] with workgroup size [1,1,1].
 export function buildSortGlobalPrefixSumKernel( params ) {
 
 	const { sortGlobalHistogram } = params;
@@ -94,11 +72,6 @@ export function buildSortGlobalPrefixSumKernel( params ) {
 
 }
 
-/**
- * Global scatter kernel. Each active thread atomically increments its bin's
- * running offset (now holding prefix-sum base) and writes its rayID to that
- * global position in sortedIndices.
- */
 export function buildSortGlobalScatterKernel( params ) {
 
 	const {

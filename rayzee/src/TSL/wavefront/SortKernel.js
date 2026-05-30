@@ -1,20 +1,7 @@
 /**
- * SortKernel.js — Material Sorting via Counting Sort (storage-atomic version)
- *
- * 256×1 workgroup, 1D dispatch over max ray count.
- * Sorts active ray indices by materialIndex so the Shade kernel processes
- * rays with the same material in adjacent threads for subgroup coherence.
- *
- * Histogram + prefix sum live in a storage buffer (numWorkgroups × 16 atomic u32)
- * rather than workgroup memory, because TSL's workgroupArray does not support
- * atomic<T> element type (see docs/specs/WAVEFRONT_TODO.md item 22).
- * Each workgroup owns its own 16 slots so no cross-workgroup contention occurs.
- *
- * Storage buffer bindings: 5
- *   hitBuffer_RO(1) + activeIndicesRead_RO(1) + sortedIndices_WR(1)
- *   + sortHistogram(atomic)(1) + counters(1)
- *
- * The caller must zero sortHistogram before every Sort dispatch.
+ * SortKernel.js — per-workgroup counting sort of active rays by materialIndex.
+ * Histogram lives in storage (numWorkgroups × 16 atomic u32) since TSL workgroupArray can't hold atomics.
+ * Caller must zero sortHistogram before every dispatch.
  */
 
 import {
@@ -33,20 +20,7 @@ import { ENGINE_DEFAULTS } from '../../EngineDefaults.js';
 const WG_SIZE = 256;
 const MAX_BINS = ENGINE_DEFAULTS.wavefrontSortBins ?? 16;
 
-/**
- * Build the Sort compute kernel (counting sort by materialIndex).
- *
- * @param {Object} params
- * @param {StorageBufferNode} params.hitBufferRO - Read-only hit data (provides materialIndex per rayID)
- * @param {StorageBufferNode} params.activeIndicesReadRO - Read-only active ray index queue
- * @param {StorageBufferNode} params.sortedIndicesRW - Output: sorted ray indices (per-workgroup regions)
- * @param {StorageBufferNode} params.sortHistogram - Atomic histogram + prefix-sum scratch (numWorkgroups × 16)
- * @param {StorageBufferNode} params.counters - Atomic counters (for activeRayCount)
- * @param {StorageBufferNode} [params.materialBinRemap] - Optional read-only remap:
- *   declaredMatIdx → denseBinIdx (item 41). When omitted, falls back to
- *   `matIdx.clamp(0, MAX_BINS-1)` which is pathological on dense scenes.
- * @returns {Function} TSL Fn to compile via .compute()
- */
+// materialBinRemap (optional): declaredMatIdx → denseBinIdx; absent → direct clamp (pathological on dense scenes).
 export function buildSortKernel( params ) {
 
 	const {
@@ -70,13 +44,10 @@ export function buildSortKernel( params ) {
 		const activeCount = atomicLoad( counters.element( uint( COUNTER.ACTIVE_RAY_COUNT ) ) );
 		const isActive = tid.lessThan( activeCount );
 
-		// Phase 1: per-thread histogram contribution
 		If( isActive, () => {
 
 			const rayID = activeIndicesReadRO.element( tid );
 			const matIdx = uint( readHitMaterialIndex( hitBufferRO, rayID ) );
-			// Remap declared materialIndex → dense bin ranked by triangle frequency (item 41).
-			// Falls back to direct clamp when remap buffer wasn't wired.
 			const bin = useRemap
 				? materialBinRemap.element( matIdx ).clamp( uint( 0 ), uint( MAX_BINS - 1 ) )
 				: matIdx.clamp( uint( 0 ), uint( MAX_BINS - 1 ) );
@@ -86,7 +57,7 @@ export function buildSortKernel( params ) {
 
 		storageBarrier();
 
-		// Phase 2: thread 0 converts bin counts → exclusive prefix sum, in place
+		// thread 0 converts bin counts → exclusive prefix sum, in place
 		If( lid.equal( uint( 0 ) ), () => {
 
 			const running = uint( 0 ).toVar();
@@ -103,14 +74,11 @@ export function buildSortKernel( params ) {
 
 		storageBarrier();
 
-		// Phase 3: scatter — atomicAdd on the exclusive prefix gives this ray's
-		// unique position within its workgroup's sorted output region.
+		// scatter: atomicAdd on the exclusive prefix gives this ray's slot in its workgroup's output region
 		If( isActive, () => {
 
 			const rayID = activeIndicesReadRO.element( tid );
 			const matIdx = uint( readHitMaterialIndex( hitBufferRO, rayID ) );
-			// Remap declared materialIndex → dense bin ranked by triangle frequency (item 41).
-			// Falls back to direct clamp when remap buffer wasn't wired.
 			const bin = useRemap
 				? materialBinRemap.element( matIdx ).clamp( uint( 0 ), uint( MAX_BINS - 1 ) )
 				: matIdx.clamp( uint( 0 ), uint( MAX_BINS - 1 ) );

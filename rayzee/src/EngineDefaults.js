@@ -58,36 +58,16 @@ export const ENGINE_DEFAULTS = {
 	afScreenPoint: { x: 0.5, y: 0.5 },
 	afSmoothingFactor: 0.15,
 
-	// Wavefront path tracing (feature flag). v2 (SoA + functional compaction + dynamic
-	// dispatch, 2026-05-30) beats the monolithic path tracer on the quiet-GPU kill-gate at
-	// 1024²/8 bounces across all 6 scenes tested by 11–40.5%: Camera −10.8%, Diamond −14.2%,
-	// Sofaset (47 mats) −20.5%, Pagani (40 mats) −24.1%, Cornell (closed box) −40.5%.
+	// Wavefront path tracing feature flag (SoA + functional compaction + dynamic dispatch).
 	wavefrontEnabled: true,
-	// Material-index sort kernel — DEFAULT OFF. The earlier "sort net-positive" benchmark
-	// predates v2's dynamic dispatch. Kill-gate (2026-05-30) shows sort-OFF wins decisively:
-	// its storage-atomic histogram costs more than its coherence gains, AND sort-on routes to
-	// the full-dispatch path (no dynamic-dispatch reduction). Sort-off → functional-compaction
-	// path → dynamic dispatch. e.g. Pagani 1024/8b: sort-on 4483 ms vs sort-off 2997 ms.
+	// Material-index sort: off → dynamic-dispatch compaction; on → full dispatch, atomic histogram costs more than coherence gains.
 	wavefrontSortMaterials: false,
-	// Bin count for counting sort (item 42 re-bench). 16/32/64 tested.
-	// Post-remap (item 41) the rare-tail collapses into overflow bin, so higher
-	// bin counts actually distribute coherence better instead of wasting bins.
+	// Counting-sort bins; rare-tail collapses into the overflow bin so more bins spread coherence.
 	wavefrontSortBins: 16,
-	// Global (cross-workgroup) counting sort instead of per-workgroup (item 34).
-	// Three-kernel pipeline: histogram → prefix-sum → scatter. Rays with the same
-	// material end up in contiguous GLOBAL memory instead of per-workgroup regions.
-	// Higher subgroup coherence in Shade; extra dispatch + barrier overhead.
+	// Global cross-workgroup counting sort (histogram→prefix-sum→scatter) instead of per-workgroup; more coherence, extra dispatch/barrier.
 	wavefrontSortGlobal: false,
-	// Phase 3 multi-sample pool — driven by `samplesPerPixel` ("Rays Per Pixel"). S samples/
-	// pixel/frame packed into one w·h·S pool; FinalWrite averages them before the temporal blend.
-	// Amortizes per-frame fixed cost (denoiser + non-bounce passes + launch/barriers) and fills
-	// vsync slack at low res. MEASURED 512²: −20% (S=2) wall-clock convergence, −10% GPU.
-	// INTERACTIVE-ONLY: applies only at renderMode 0 (never tiled) and ≤ the pixel cap below;
-	// production/tiled and high-res force S=1 (the tiled path can't pool-multisample). With the
-	// default samplesPerPixel=1 it is OFF — raise "Rays Per Pixel" to opt in. Pool memory scales
-	// linearly with S (RAY buffer 7 vec4/ray; 512² @2 ≈ 117 MB).
-	// Pixel cap (memory bound). 589824 = 768²; covers the 512² default, excludes ≥768² where the
-	// GPU is closer to saturated and the pool would be large.
+	// Multi-sample pool: S=samplesPerPixel rays/pixel/frame, FinalWrite averages them; interactive-only (renderMode 0, ≤ cap), else S=1.
+	// Pixel cap (768²) bounds pool memory; covers the 512² default, excludes ≥768².
 	wavefrontMultiSampleMaxPixels: 589824,
 
 	enablePathTracer: true,

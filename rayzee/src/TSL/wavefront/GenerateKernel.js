@@ -1,10 +1,5 @@
 /**
- * GenerateKernel.js — Wavefront Primary Ray Generation
- *
- * 16×16 workgroup, 2D screen-space dispatch.
- * Generates primary camera rays and writes them to packed AoS ray buffer.
- *
- * Storage buffer bindings: 2 (rayBuffer_WR + rngBuffer_WR)
+ * GenerateKernel.js — wavefront primary ray generation (16×16, 2D screen-space dispatch).
  */
 
 import {
@@ -31,34 +26,19 @@ import {
 
 const WG_SIZE = 16;
 
-/**
- * Build the Generate compute kernel.
- *
- * @param {Object} params
- * @returns {Function} TSL Fn to compile via .compute()
- */
 export function buildGenerateKernel( params ) {
 
 	const {
-		// Packed buffers
 		rayBufferRW, rngBufferRW,
-		// Uniforms
 		resolution, frame,
-		// Camera
 		cameraWorldMatrix, cameraProjectionMatrixInverse,
 		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
-		// Tile
 		tileOffsetX, tileOffsetY, renderWidth, renderHeight,
-		// Adaptive sampling
 		useAdaptiveSampling, adaptiveSamplingTexture,
 		adaptiveSamplingMin, adaptiveSamplingMax,
-		// Accumulation (for converged pixel carry-forward)
 		enableAccumulation, hasPreviousAccumulated,
 		prevAccumTexture, prevNormalDepthTexture,
-		// Phase 3 multi-sample: S samples/pixel/frame. samplesPerPass (JS const, default 1)
-		// + maxRaysPerSample (JS const = w*h). When S>1 the dispatch covers h*S rows; row gy
-		// decodes to (subSample = gy/h, pixelY = gy%h) and the ray lands in a distinct slot
-		// subSample*maxRaysPerSample + pixelIndex. S=1 emits the original single-sample path.
+		// Multi-sample: S primary rays/pixel/frame; S>1 dispatch covers h*S rows, ray lands in slot subSample*maxRaysPerSample + pixelIndex.
 		samplesPerPass = 1, maxRaysPerSample = 0,
 	} = params;
 
@@ -69,7 +49,6 @@ export function buildGenerateKernel( params ) {
 		const gx = tileOffsetX.add( int( workgroupId.x ).mul( WG_SIZE ) ).add( int( localId.x ) );
 		const gyRaw = tileOffsetY.add( int( workgroupId.y ).mul( WG_SIZE ) ).add( int( localId.y ) );
 
-		// Multi-sample row decode (no-op when S===1).
 		const subSample = S > 1 ? gyRaw.div( renderHeight ).toVar() : int( 0 );
 		const gy = S > 1 ? gyRaw.sub( subSample.mul( renderHeight ) ).toVar() : gyRaw;
 		const yBound = S > 1 ? renderHeight.mul( int( S ) ) : renderHeight;
@@ -82,15 +61,12 @@ export function buildGenerateKernel( params ) {
 				? uint( pixelIndex ).add( uint( subSample ).mul( uint( maxRaysPerSample ) ) )
 				: uint( pixelIndex );
 
-			// Screen position in NDC [-1, 1] with Y negated
 			const screenPosition = pixelCoord.div( resolution ).mul( 2.0 ).sub( 1.0 ).toVar();
 			screenPosition.y.assign( screenPosition.y.negate() );
 
-			// RNG seed — decorrelate per sub-sample so the S rays jitter independently.
 			const baseSeed = getDecorrelatedSeed( { pixelCoord, rayIndex: subSample, frame } ).toVar();
 			const seed = pcgHash( { state: baseSeed } ).toVar();
 
-			// Check adaptive sampling — skip converged pixels
 			const shouldTrace = int( 1 ).toVar();
 			const carryForwardColor = vec4( 0.0 ).toVar();
 			const carryForwardND = vec4( 0.0, 0.0, 1.0, 1.0 ).toVar();
@@ -119,7 +95,7 @@ export function buildGenerateKernel( params ) {
 
 			If( shouldTrace.equal( 0 ), () => {
 
-				// Converged pixel — write carry-forward data, mark inactive
+				// Converged pixel: carry forward, mark inactive.
 				writeRayRadiance( rayBufferRW, rayID, carryForwardColor );
 				writeRayDirFlags( rayBufferRW, rayID, vec4( 0.0 ).xyz, uint( 0 ) );
 				writeRayOriginPixel( rayBufferRW, rayID, vec4( 0.0 ).xyz, uint( pixelIndex ) );
@@ -128,39 +104,30 @@ export function buildGenerateKernel( params ) {
 
 			} ).Else( () => {
 
-				// Blue-noise (STBN) AA jitter via the shared sampler, honoring the samplingTechnique
-				// uniform (default 3 = STBN) — matches the monolithic primary-ray path. subSample + S
-				// stratify the multi-sample pool; S=1 short-circuits to a plain per-pixel sample.
 				const stratifiedJitter = getStratifiedSample( pixelCoord, subSample, int( S ), seed, resolution, frame ).toVar();
 
 				const jitterScale = vec2( 2.0 ).div( resolution );
 				const jitter = stratifiedJitter.sub( 0.5 ).mul( jitterScale );
 				const jitteredScreenPosition = screenPosition.add( jitter );
 
-				// Generate camera ray
 				const ray = Ray.wrap( generateRayFromCamera(
 					jitteredScreenPosition, seed,
 					cameraWorldMatrix, cameraProjectionMatrixInverse,
 					enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,
 				) );
 
-				// Write to packed ray buffer
 				writeRayOriginPixel( rayBufferRW, rayID, ray.origin, uint( pixelIndex ) );
 				writeRayDirFlags( rayBufferRW, rayID, ray.direction, uint( RAY_FLAG.ACTIVE ) );
 				writeRayThroughputPdf( rayBufferRW, rayID, vec4( 1.0, 1.0, 1.0, 0.0 ).xyz, float( 1.0 ) );
 				writeRayRadiance( rayBufferRW, rayID, vec4( 0.0 ) );
 
-				// Initialize first-hit defaults (background)
 				writeRayNormalDepth( rayBufferRW, rayID, vec4( 0.5, 0.5, 1.0, 1.0 ) );
 				writeRayAlbedoID( rayBufferRW, rayID, vec4( 0.0, 0.0, 0.0, - 1000.0 ) );
 
-				// Initialize medium stack (empty, transmissiveBounces from uniform)
 				writeMediumStack( rayBufferRW, rayID, uint( 0 ), uint( 5 ), float( 1.0 ), float( 1.0 ), float( 1.0 ) );
-				// Per-ray meta: camera-bounce + SSS-step counters start at 0; sampleIndex = the
-				// sub-sample slot (0..S-1) so each multi-sample ray gets a distinct STBN tap downstream.
+				// sampleIndex = sub-sample slot (0..S-1) so each multi-sample ray gets a distinct STBN tap downstream.
 				writePathMeta( rayBufferRW, rayID, int( 0 ), int( 0 ), subSample );
 
-				// Write RNG seed
 				rngBufferRW.element( rayID ).assign( seed );
 
 			} );
