@@ -438,24 +438,30 @@ session; not committed.)
 S=1, i.e. overhead-dominated, not wavefront-isolated). The 512² result stands on its own as the
 default interactive resolution and is sufficient to establish the win.
 
-**Shipping decision: AUTO-ENABLED for interactive (S=2), forced S=1 everywhere else.** `S` is no
-longer a manual flag — `_resolveSamplesPerPass(w, h)` is the single source of truth:
-`S = (wavefrontMultiSampleInteractive && renderMode===0 && w·h ≤ wavefrontMultiSampleMaxPixels) ?
-wavefrontInteractiveSamplesPerPass : 1`. Defaults (EngineDefaults): on, S=2, cap 768² (589 824 px).
+**Shipping decision: driven by the user's `samplesPerPixel` ("Rays Per Pixel"), interactive-only,
+DEFAULT 1 (= off, opt-in).** `S` is not a separate knob — `_resolveSamplesPerPass(w, h)` is the single
+source of truth: `S = (renderMode===0 && w·h ≤ wavefrontMultiSampleMaxPixels) ? max(1, samplesPerPixel) : 1`.
+(Originally shipped as an auto-on S=2 via a dedicated `wavefrontInteractiveSamplesPerPass`; that knob +
+`wavefrontMultiSampleInteractive` were **removed** and folded into `samplesPerPixel` once the megakernel
+was slated for removal — one sampling knob across the engine. Only `wavefrontMultiSampleMaxPixels` (768²
+memory cap) remains.)
+- **Why `samplesPerPixel`:** in the monolithic it drove an inner per-pixel ray loop (`TSL/PathTracer.js:237`);
+  in the wavefront that loop doesn't exist (it was a dead, unused GenerateKernel param — now removed), so
+  the pool *is* the wavefront's samples-per-pixel-per-frame mechanism. Same user-facing meaning, different
+  (saturation-fixing) implementation.
 - **Tiled/production stays correct by construction:** tiling activates *only* at `renderMode===1`
-  (TileManager.handleTileRendering), and the gate returns S=1 for any non-interactive mode, so the
-  tiled path — which generates only the tile's rows and would otherwise average stale slots 1..S-1 —
-  never sees S>1.
-- **Mode-switch safety (`_ensureSamplesPerPass`):** `S` is baked into the compiled kernels at build,
-  but render mode can flip without a resize (preview ↔ final). The guard runs each frame in `render()`
-  right after `_handleResize()`; if the mode/resolution now implies a different `S` than what is
-  baked, it rebuilds *before* any dispatch. One comparison in steady state.
-- **Resolution gate (memory):** the SoA RAY/HIT pool grows linearly with `S` (512² S=2 ≈ 117 MB ray
-  buffer), so the 768² cap keeps S=1 at ≥768² where the GPU is also closer to saturated. S=2 over
-  S=4 is the perf/mem sweet spot (−20% wall for 2× mem; S=4's extra −9 pp is not worth 4× mem).
+  (TileManager.handleTileRendering); the gate returns S=1 for any non-interactive mode, so the tiled path —
+  which generates only the tile's rows and would otherwise average stale slots 1..S-1 — never sees S>1,
+  *even when the user has Rays Per Pixel > 1* (verified live: spp=2 + production → S=1).
+- **Live-change + mode-switch safety (`_ensureSamplesPerPass`):** `S` is baked into the compiled kernels at
+  build, but the user can change Rays Per Pixel, or the mode can flip, without a resize. The guard runs each
+  frame in `render()` after `_handleResize()`; if current samplesPerPixel/mode/resolution implies a different
+  `S` than what is baked, it rebuilds *before* any dispatch (one comparison in steady state). `samplesPerPixel`
+  is bound `reset:true` in RenderSettings, so a slider change also restarts accumulation cleanly.
+- **Resolution gate (memory):** the SoA RAY/HIT pool grows linearly with `S` (512² @2 ≈ 117 MB ray buffer),
+  so the 768² cap forces S=1 at ≥768² where the GPU is also closer to saturated.
 
-**End-to-end verified live (2026-05-30):** interactive 512² auto-resolves S=2 (pool 524 288),
-renders correctly. Switching to Render/production: guard rebuilds S=1, tiled 2048²/20b/OIDN output is
-clean (no stale-slot garbage). All transitions correct: production→1, interactive→2, 1024²(>cap)→1,
-restore→2. The contract is documented at the `_samplesPerPass`/`_resolveSamplesPerPass` site in
-`WavefrontPathTracer.js`; knobs in `EngineDefaults.js`.
+**End-to-end verified live (2026-05-30):** default (Rays Per Pixel=1) → S=1 (pool 262 144, multi-sample off).
+Driving samplesPerPixel 1→2→4→1 via the real settings path rebuilds the pool ×1→×2→×4→×1 (guard) and renders
+correctly at spp=2. Flipping to production with spp=2 still clamps S=1. The contract is documented at the
+`_resolveSamplesPerPass`/`_ensureSamplesPerPass` site in `WavefrontPathTracer.js`; the cap is in `EngineDefaults.js`.

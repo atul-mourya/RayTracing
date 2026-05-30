@@ -76,20 +76,19 @@ export class WavefrontPathTracer extends PathTracer {
 		// per-frame fixed cost (denoiser + the 4 non-bounce passes + launch/barrier overhead)
 		// over S samples, and fills the vsync slack the under-saturated GPU leaves at low res.
 		// FinalWrite averages the S sample-slots per pixel before the temporal blend.
-		// MEASURED at 512² (the default interactive resolution): convergence to a fixed sample
-		// budget is 20% (S=2) / 29% (S=4) faster in wall-clock, 10% / 15% in raw GPU compute.
+		// MEASURED at 512²: convergence to a fixed sample budget is 20% (S=2) / 29% (S=4) faster
+		// in wall-clock, 10% / 15% in raw GPU compute.
 		//
-		// AUTO-ENABLED for interactive only. `_resolveSamplesPerPass()` returns S>1 ONLY when
-		// renderMode===0 (interactive — never tiled, see TileManager) AND pixels ≤ the memory
-		// bound. Production (renderMode===1, tiled) forces S=1: the tiled path generates only the
-		// tile's rows, so slots 1..S-1 would stay stale and FinalWrite would average garbage.
-		// S is baked into the compiled kernels at build, so a render-mode switch is caught by
-		// `_ensureSamplesPerPass()` in render() which rebuilds with the correct S. Pool memory
-		// scales linearly with S (RAY buffer is 7 vec4/ray; e.g. 512² S=2 ≈ 117 MB).
-		this._multiSampleInteractive = ENGINE_DEFAULTS.wavefrontMultiSampleInteractive ?? true;
-		this._interactiveSamplesPerPass = ENGINE_DEFAULTS.wavefrontInteractiveSamplesPerPass ?? 2;
+		// S IS DRIVEN BY THE USER'S `samplesPerPixel` ("Rays Per Pixel"). `_resolveSamplesPerPass()`
+		// returns it ONLY in interactive mode (renderMode===0 — never tiled, see TileManager) AND at
+		// ≤ the memory bound; production (renderMode===1, tiled) and high-res force S=1, because the
+		// tiled path generates only the tile's rows so slots 1..S-1 would stay stale and FinalWrite
+		// would average garbage. S is baked into the compiled kernels at build, so a change to
+		// samplesPerPixel / mode / resolution is caught by `_ensureSamplesPerPass()` in render(),
+		// which rebuilds. samplesPerPixel=1 (the default) → S=1 = off. Pool memory scales linearly
+		// with S (RAY buffer is 7 vec4/ray; e.g. 512² @2 ≈ 117 MB).
 		this._multiSampleMaxPixels = ENGINE_DEFAULTS.wavefrontMultiSampleMaxPixels ?? 589824; // 768²
-		this._samplesPerPass = 1; // resolved per build by _resolveSamplesPerPass(w,h)
+		this._samplesPerPass = 1; // resolved per build by _resolveSamplesPerPass() from samplesPerPixel
 
 		this._lastBounceCounts = null; // Uint32Array snapshot from past frame
 		this._readbackPending = false;
@@ -385,26 +384,28 @@ export class WavefrontPathTracer extends PathTracer {
 	}
 
 	/**
-	 * Phase 3: the multi-sample count for the CURRENT mode + resolution. S>1 only for
-	 * interactive (renderMode 0, never tiled — see TileManager.handleTileRendering) and only
-	 * within the memory bound; production/tiled and high-res get S=1. Single source of truth
-	 * for both _buildWavefrontKernels (bakes it) and _ensureSamplesPerPass (the rebuild guard).
+	 * Phase 3: the multi-sample count for the CURRENT mode + resolution. Driven by the user's
+	 * `samplesPerPixel` ("Rays Per Pixel"), but applied only for interactive (renderMode 0, never
+	 * tiled — see TileManager.handleTileRendering) and within the memory bound; production/tiled
+	 * and high-res get S=1. Single source of truth for both _buildWavefrontKernels (bakes it) and
+	 * _ensureSamplesPerPass (the rebuild guard).
 	 */
 	_resolveSamplesPerPass( w, h ) {
 
 		const interactive = this.renderMode.value === 0;
 		const within = ( w * h ) <= this._multiSampleMaxPixels;
-		return ( this._multiSampleInteractive && interactive && within )
-			? ( this._interactiveSamplesPerPass | 0 ) : 1;
+		return ( interactive && within ) ? Math.max( 1, this.samplesPerPixel.value | 0 ) : 1;
 
 	}
 
 	/**
-	 * Phase 3 safety guard: S is baked into the compiled kernels at build time, but render mode
-	 * can switch without a resize (preview ↔ final). If the mode/resolution now implies a
-	 * different S than what is baked, rebuild — this is what keeps the tiled production path at
-	 * S=1 (a stale S>1 in tiling would make FinalWrite average uninitialized sample slots).
-	 * No-op (one comparison) in steady state.
+	 * Phase 3 safety guard: S is baked into the compiled kernels at build time, but the user can
+	 * change "Rays Per Pixel" (samplesPerPixel) or the render mode can switch (preview ↔ final)
+	 * without a resize. If the current samplesPerPixel/mode/resolution now implies a different S
+	 * than what is baked, rebuild — this both applies a live Rays-Per-Pixel change and keeps the
+	 * tiled production path at S=1 (a stale S>1 in tiling would average uninitialized sample slots).
+	 * No-op (one comparison) in steady state. (samplesPerPixel changes also fire app.reset() via
+	 * RenderSettings, so accumulation restarts cleanly alongside the rebuild.)
 	 */
 	_ensureSamplesPerPass() {
 
@@ -673,7 +674,6 @@ export class WavefrontPathTracer extends PathTracer {
 			rngBufferRW: pb.rngBuffer.rw,
 			resolution: this.resolution,
 			frame: this.frame,
-			samplesPerPixel: this.samplesPerPixel,
 			cameraWorldMatrix: this.cameraWorldMatrix,
 			cameraProjectionMatrixInverse: this.cameraProjectionMatrixInverse,
 			enableDOF: this.enableDOF,

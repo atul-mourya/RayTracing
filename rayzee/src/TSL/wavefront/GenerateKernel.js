@@ -43,7 +43,7 @@ export function buildGenerateKernel( params ) {
 		// Packed buffers
 		rayBufferRW, rngBufferRW,
 		// Uniforms
-		resolution, frame, samplesPerPixel,
+		resolution, frame,
 		// Camera
 		cameraWorldMatrix, cameraProjectionMatrixInverse,
 		enableDOF, focalLength, aperture, focusDistance, sceneScale, apertureScale, anamorphicRatio,

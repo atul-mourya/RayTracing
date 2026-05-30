@@ -78,18 +78,16 @@ export const ENGINE_DEFAULTS = {
 	// material end up in contiguous GLOBAL memory instead of per-workgroup regions.
 	// Higher subgroup coherence in Shade; extra dispatch + barrier overhead.
 	wavefrontSortGlobal: false,
-	// Phase 3 multi-sample pool — DEFAULT ON for interactive. S primary rays/pixel/frame in
-	// one w·h·S pool, FinalWrite averages them before the temporal blend. Amortizes per-frame
-	// fixed cost (denoiser + non-bounce passes + launch/barriers) + fills vsync slack at low
-	// res. MEASURED 512²: convergence to a fixed sample budget −20% (S=2) wall-clock, −10% GPU.
-	// INTERACTIVE-ONLY by construction: applies only at renderMode 0 (never tiled) and ≤
-	// wavefrontMultiSampleMaxPixels; production/tiled forces S=1 (tiling can't multi-sample).
-	wavefrontMultiSampleInteractive: true,
-	// Samples per pixel per frame when multi-sample is active. 2 = sweet spot (−20% for 2×
-	// ray-buffer memory); 4 gives −29% but 4× memory. Pool memory = capacity·7·16 B/ray.
-	wavefrontInteractiveSamplesPerPass: 2,
-	// Pixel cap for multi-sample (memory bound). 589824 = 768²; covers the 512² default,
-	// excludes ≥768² where the GPU is closer to saturated and the pool would be large.
+	// Phase 3 multi-sample pool — driven by `samplesPerPixel` ("Rays Per Pixel"). S samples/
+	// pixel/frame packed into one w·h·S pool; FinalWrite averages them before the temporal blend.
+	// Amortizes per-frame fixed cost (denoiser + non-bounce passes + launch/barriers) and fills
+	// vsync slack at low res. MEASURED 512²: −20% (S=2) wall-clock convergence, −10% GPU.
+	// INTERACTIVE-ONLY: applies only at renderMode 0 (never tiled) and ≤ the pixel cap below;
+	// production/tiled and high-res force S=1 (the tiled path can't pool-multisample). With the
+	// default samplesPerPixel=1 it is OFF — raise "Rays Per Pixel" to opt in. Pool memory scales
+	// linearly with S (RAY buffer 7 vec4/ray; 512² @2 ≈ 117 MB).
+	// Pixel cap (memory bound). 589824 = 768²; covers the 512² default, excludes ≥768² where the
+	// GPU is closer to saturated and the pool would be large.
 	wavefrontMultiSampleMaxPixels: 589824,
 
 	enablePathTracer: true,
