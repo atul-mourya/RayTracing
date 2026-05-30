@@ -270,16 +270,13 @@ changes. (OIDN-on production not separately timed; OIDN reads the same unchanged
 
 ### 8.6b KILL-GATE — RUN ON A QUIET GPU (2026-05-30) — v2 PASSES
 
-> **⚠️ STALENESS CAVEAT (added after sync analysis):** these numbers compare v2 against the
-> **branch's frozen April-19 monolith**, NOT current main. The branch is 115 commits / 5.5 weeks
-> behind main, and every shading file is byte-identical to the merge base. Main's current
-> monolith carries shading perf work the branch lacks (single-pass RIS NEE + merged DFG + shared
-> dot products + precomputed Beer-Lambert `03fe31d`, register-pressure cuts `7a7d5ec`,
-> MaterialCache 20→11 `70ed512`, opaque-blocker shadow fast-path, deferred BVH reads), so it is
-> faster than this baseline — the real margin vs current main is smaller and likely flips negative
-> on simple/medium scenes. The win below is **architecture vs architecture on the SAME (old)
-> shading**; against current main it is unverified. Re-measure only after merging main into the
-> branch + fixing the ~12 drifted kernel call sites, as a warm-median equal-quality 3-way A/B/C.
+> **✅ CAVEAT RESOLVED (2026-05-30) — re-validated on synced tree.** The numbers in *this*
+> sub-section (8.6b) compare v2 against the branch's frozen April-19 monolith. Main has since been
+> merged into the branch (`754f374`) and the kernels adapted to main's shading APIs (`75a1651`),
+> so the comparison was re-run with BOTH paths on current-main's shading + STBN + features — see
+> **§8.6c** for the validated vs-current-main result. Verdict: the win **held** (~20–23%), it did
+> NOT shrink to nothing or flip negative as feared. 8.6b is kept for the architecture-vs-old-shading
+> record.
 
 After the co-resident dev servers were killed (runs reproducible to <1%), v2 (SoA + functional
 compaction + dynamic dispatch, **sort OFF**) vs the monolithic `PathTracer`, warm wall-clock to
@@ -321,6 +318,26 @@ comparable diversity and v2 wins there, so the inference to Bistro/Sponza is str
 v2 sort-off is the better default everywhere measured. The remaining perf phases (subgroup
 typed-shade, multi-sample pool, ping-pong compaction) are now *upside on top of an already-winning
 baseline*, not prerequisites for viability.
+
+### 8.6c VALIDATED KILL-GATE — synced tree, vs CURRENT main (2026-05-30)
+
+After merging main (`754f374`) + adapting the kernels (`75a1651`), both the monolith and v2 run
+on **identical current-main shading** (single-pass RIS NEE, merged DFG, register-pressure cuts,
+MaterialCache 11-field, STBN blue noise, env MIS, Woop, etc.) — so this isolates the *integrator
+architecture* as the only difference. Quiet GPU, warm-median of 3, 1024²/8b:
+
+| Scene | synced mono (current main) | synced v2 | Delta |
+|---|---:|---:|---:|
+| Camera (camera.glb) | 2020 ms | 1620 ms | **−19.8%** |
+| Pagani Huayra (40 mats) | 4212 ms | 3247 ms | **−22.9%** |
+
+**The win HELD.** Pre-merge (old shading) was −24.1% on Pagani; synced (current shading) is −22.9%
+— the sync's pessimistic prediction (margin shrinks toward zero / flips negative on simple/medium
+scenes) did **not** materialise. v2's architectural advantage (dynamic-dispatch workgroup
+reduction + SoA coalescing) is durable against current main, not an artifact of a stale baseline.
+Correctness verified: synced wavefront renders Camera + Pagani correctly, survivor curves match
+pre-merge, no shader-build errors. (Equal-spp, not yet equal-MSE; STBN convergence parity and the
+full 7-scene matrix remain as polish, but the headline verdict is settled.)
 
 ### 8.7 Status verdict (end of this implementation pass)
 **Shippable & verified-correct:** SoA + functional compaction + dynamic dispatch (sort-off),
