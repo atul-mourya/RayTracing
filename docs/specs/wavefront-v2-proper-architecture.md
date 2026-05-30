@@ -19,10 +19,11 @@ regression at production workloads).
 
 > **VERDICT UPDATE (2026-05-30, post-implementation + quiet-GPU kill-gate):** the "hybrid
 > likely" prior below was **refuted**. v2 (SoA + functional compaction + dynamic dispatch,
-> **sort off**) beats the monolithic renderer on every scene measured at 1024²/8b — Camera
-> −10.8%, Pagani (40 mats) −24.1%, Sofaset (47 mats) −20.5% — and ties at 512²/3b. It is a
-> general replacement, not a fallback. See §8.6b for the kill-gate data. The rest of §1 is the
-> original pre-implementation analysis, preserved for context.
+> **sort off**) beats the monolithic renderer on **every scene measured at 1024²/8b by 11–40.5%**
+> — Camera −10.8%, Diamond −14.2%, Sofaset (47 mats) −20.5%, Pagani (40 mats) −24.1%, Cornell
+> −40.5% — across open/closed/transmissive/diverse scenes, and ties or wins at 512²/3b. It is a
+> general replacement, not a fallback. See §8.6b for the full kill-gate data. The rest of §1 is
+> the original pre-implementation analysis, preserved for context.
 
 ## 1. Executive summary
 
@@ -273,19 +274,25 @@ After the co-resident dev servers were killed (runs reproducible to <1%), v2 (So
 compaction + dynamic dispatch, **sort OFF**) vs the monolithic `PathTracer`, warm wall-clock to
 60-frame convergence:
 
-| Scene | Tris | Mats | Setting | Mono | v2 (sort-off) | Delta |
-|---|---:|---:|---|---:|---:|---:|
-| Camera | 18K | 2 | 1024²/8b | 1820 ms | 1624 ms | **−10.8%** |
-| Camera | 18K | 2 | 512²/3b | 806 ms | 808 ms | tied |
-| Pagani Huayra | 291K | 40 | 1024²/8b | 3951 ms | **2997 ms** | **−24.1%** |
-| Pagani Huayra | 291K | 40 | 512²/3b | 2000 ms | 1952 ms | −2.4% |
-| Outdoor Sofaset | 269K | 47 | 1024²/8b | 3370 ms | **2678 ms** | **−20.5%** |
-| Outdoor Sofaset | 269K | 47 | 512²/3b | 1803 ms | 1797 ms | tied |
+| Scene | Tris | Mats | Type | Setting | Mono | v2 (sort-off) | Delta |
+|---|---:|---:|---|---|---:|---:|---:|
+| Camera | 18K | 2 | open | 1024²/8b | 1820 ms | 1624 ms | **−10.8%** |
+| Camera | 18K | 2 | open | 512²/3b | 806 ms | 808 ms | tied |
+| Diamond | — | 2 | transmissive | 1024²/8b | 2123 ms | **1821 ms** | **−14.2%** |
+| Pagani Huayra | 291K | 40 | diverse car | 1024²/8b | 3951 ms | **2997 ms** | **−24.1%** |
+| Pagani Huayra | 291K | 40 | diverse car | 512²/3b | 2000 ms | 1952 ms | −2.4% |
+| Outdoor Sofaset | 269K | 47 | diverse interior | 1024²/8b | 3370 ms | **2678 ms** | **−20.5%** |
+| Outdoor Sofaset | 269K | 47 | diverse interior | 512²/3b | 1803 ms | 1797 ms | tied |
+| Cornell Box | 64 | 9 | small closed | 1024²/8b | 4258 ms | **2532 ms** | **−40.5%** |
+| Cornell Box | 64 | 9 | small closed | 512²/3b | 1212 ms | **912 ms** | **−24.8%** |
 
-**v2 beats the megakernel on EVERY scene at production settings (1024²/8b), by 11–24%** —
-including the two material-diverse scenes where v1 regressed +54–90% (Sofaset was v1's worst at
-+86%). At low settings (512²/3b) it's a tie. **This refutes the plan's "hybrid likely" prior:
-v2 is a general replacement, not a fallback.**
+**v2 beats the megakernel on EVERY scene at production settings (1024²/8b), by 11–40.5%** —
+across open / closed / transmissive / material-diverse scenes (2–47 materials), including the two
+scenes where v1 regressed +54–90% (Sofaset was v1's worst at +86%). At low settings (512²/3b) it
+ties or wins (Cornell −24.8%). **This refutes the plan's "hybrid likely" prior: v2 is a general
+replacement, not a fallback.** Notably the **biggest** win is Cornell (−40.5%) — a small closed box
+with deep bounce paths, i.e. the high-divergence/high-register-pressure regime the megakernel
+handles worst and the wavefront architecture was always meant to win; v1 failed to realize it, v2 does.
 
 **The decisive lever was turning the material SORT OFF.** Sort-on Pagani 1024/8b = 4483 ms
 (+13.5% vs mono); sort-off = 2997 ms (−24%). Two compounding reasons: (1) the storage-atomic
