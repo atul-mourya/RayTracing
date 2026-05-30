@@ -188,7 +188,7 @@ export function buildShadeKernel( params ) {
 					If( prevBouncePdf.greaterThan( 0.0 ), () => {
 
 						const envEval = sampleEquirect(
-							envTexture, direction, envMatrix, envTotalSum, envResolution,
+							envTexture, direction, envMatrix, envTotalSum, float( 0.0 ), envResolution,
 						);
 						const envPdf = envEval.w;
 						If( envPdf.greaterThan( 0.0 ), () => {
@@ -340,9 +340,10 @@ export function buildShadeKernel( params ) {
 
 		const currentRay = Ray( { origin, direction } );
 		const interaction = MaterialInteractionResult.wrap( handleMaterialTransparency(
-			currentRay, hitPoint, N, material, rngState,
+			currentRay, N, material, rngState,
 			int( transTraversals ),
 			currentMediumIOR, previousMediumIOR,
+			float( 0.0 ), // pathWavelength: 0 = achromatic; dispersion not yet threaded through the packed ray state
 		) ).toVar();
 
 		If( interaction.continueRay, () => {
@@ -427,7 +428,7 @@ export function buildShadeKernel( params ) {
 		// Compute real material classification
 		const mc = MaterialClassification.wrap( classifyMaterial(
 			material.metalness, material.roughness, material.transmission,
-			material.clearcoat, material.emissive,
+			material.clearcoat, material.emissive, material.subsurface,
 		) ).toVar();
 
 		// BRDF sample (for direct lighting MIS + specular strategy input)
@@ -436,14 +437,13 @@ export function buildShadeKernel( params ) {
 			specular: float( 0.0 ), diffuse: float( 0.0 ), sheen: float( 0.0 ),
 			clearcoat: float( 0.0 ), transmission: float( 0.0 ), iridescence: float( 0.0 ),
 		} );
+		// main slimmed MaterialCache to 11 fields (70ed512). This dummy is unused
+		// (materialCacheCached=false → generateSampledDirection builds its own temp cache),
+		// but must match the current struct shape to construct.
 		const emptyCache = MaterialCache( {
 			F0: vec3( 0.04 ), NoV: float( 1.0 ),
-			diffuseColor: vec3( 0.0 ), specularColor: vec3( 0.0 ),
-			isMetallic: false, isPurelyDiffuse: false, hasSpecialFeatures: false,
+			diffuseColor: vec3( 0.0 ), isPurelyDiffuse: false,
 			alpha: float( 0.0 ), k: float( 0.0 ), alpha2: float( 0.0 ),
-			tsAlbedo: vec4( 0.0 ), tsEmissive: vec3( 0.0 ),
-			tsMetalness: float( 0.0 ), tsRoughness: float( 0.0 ),
-			tsNormal: vec3( 0.0, 0.0, 1.0 ), tsHasTextures: false,
 			invRoughness: float( 0.5 ), metalFactor: float( 0.5 ),
 			iorFactor: float( 0.67 ), maxSheenColor: float( 0.0 ),
 		} );
@@ -470,8 +470,8 @@ export function buildShadeKernel( params ) {
 		} ).Else( () => {
 
 			const bs = DirectionSample.wrap( generateSampledDirection(
-				V, N, material, int( hitMatIdx ), xi, rngState,
-				false, int( - 1 ), mc,
+				V, N, material, xi, rngState,
+				mc,
 				false, emptyWeights,
 				false, emptyCache,
 			) );
@@ -485,7 +485,7 @@ export function buildShadeKernel( params ) {
 		const directLight = calculateDirectLightingUnified(
 			hitPoint, N, material, V,
 			brdfDir, brdfPdf, brdfValue,
-			int( 0 ), bounceIndex, rngState,
+			bounceIndex, rngState,
 			directionalLightsBuffer, numDirectionalLights,
 			areaLightsBuffer, numAreaLights,
 			pointLightsBuffer, numPointLights,
@@ -493,7 +493,7 @@ export function buildShadeKernel( params ) {
 			bvhBuffer, triangleBuffer, materialBuffer,
 			envTexture, environmentIntensity, envMatrix,
 			envCDFBuffer,
-			envTotalSum, envResolution,
+			envTotalSum, float( 0.0 ), envResolution,
 			enableEnvironmentLight,
 		);
 
@@ -516,10 +516,10 @@ export function buildShadeKernel( params ) {
 
 					// 4-param shadow wrapper — closes over scene storage buffers that
 					// calculateEmissiveTriangleContribution's inner callback needs.
-					const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist, rs ] ) => {
+					const traceShadowRayWrapped = Fn( ( [ origin, dir, maxDist ] ) => {
 
 						return traceShadowRay(
-							origin, dir, maxDist, rs,
+							origin, dir, maxDist,
 							traverseBVHShadow, bvhBuffer, triangleBuffer, materialBuffer,
 						);
 
@@ -552,7 +552,7 @@ export function buildShadeKernel( params ) {
 								const rayOrigin = hitPoint.add( rayOffset );
 								const shadowDist = emissiveSample.distance.sub( 0.001 );
 								const visibility = traceShadowRayWrapped(
-									rayOrigin, emissiveSample.direction, shadowDist, rngState,
+									rayOrigin, emissiveSample.direction, shadowDist,
 								);
 
 								If( visibility.greaterThan( 0.0 ), () => {
@@ -591,12 +591,11 @@ export function buildShadeKernel( params ) {
 						// Flat-CDF fallback — same packed buffer, emissive triangles start at offset.
 						const emissiveLight = calculateEmissiveTriangleContribution(
 							hitPoint, N, V, material,
-							totalTriangleCount, bounceIndex, rngState,
+							bounceIndex, rngState,
 							emissiveBoost,
 							lightBuffer, emissiveVec4Offset, emissiveTriangleCount, emissiveTotalPower,
 							triangleBuffer,
 							traceShadowRayWrapped,
-							evaluateMaterialResponse,
 							calculateRayOffset,
 						);
 
@@ -626,21 +625,18 @@ export function buildShadeKernel( params ) {
 		// ─── INDIRECT BOUNCE (full calculateIndirectLighting) ────
 		const samplingInfo = ImportanceSamplingInfo.wrap( getImportanceSamplingInfo(
 			material, bounceIndex, mc,
-			environmentIntensity, useEnvMapIS, enableEnvironmentLight,
 		) ).toVar();
 
 		const indirectResult = IndirectLightingResult.wrap( calculateIndirectLighting(
 			V, N, material,
 			brdfDir, brdfPdf, brdfValue,
-			int( 0 ), bounceIndex, rngState, samplingInfo,
-			envTexture, environmentIntensity, envMatrix,
-			envCDFBuffer,
-			envTotalSum, envResolution,
-			enableEnvironmentLight, useEnvMapIS,
+			rngState, samplingInfo,
 		) ).toVar();
 
 		const bounceDir = indirectResult.direction.toVar();
-		const bouncePdf = max( indirectResult.pdf, 0.001 ).toVar();
+		// combinedPdf (not pdf) is what main stores as prevBouncePdf for the next bounce's
+		// NEE↔implicit-env MIS pairing.
+		const bouncePdf = max( indirectResult.combinedPdf, 0.001 ).toVar();
 		throughput.mulAssign( indirectResult.throughput );
 
 		// ─── EARLY RAY TERMINATION ──────────────────────────────

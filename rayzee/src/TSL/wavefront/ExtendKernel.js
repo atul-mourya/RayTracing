@@ -74,9 +74,12 @@ export function buildExtendKernel( params ) {
 		// Create Ray struct for traverseBVH
 		const ray = Ray( { origin, direction } );
 
-		// BVH traversal — reuses existing function directly
+		// BVH traversal — reuses existing function directly.
+		// main's traverseBVH no longer takes materialBuffer (Woop watertight + materialIndex
+		// now read from triangle data); 4th arg is an optional insideMedium bool. Primary/
+		// bounce rays from Extend are treated as outside a medium → omit it.
 		const hitInfo = HitInfo.wrap( traverseBVH(
-			ray, bvhBuffer, triangleBuffer, materialBuffer,
+			ray, bvhBuffer, triangleBuffer,
 		) ).toVar();
 
 		// Write packed hit data
